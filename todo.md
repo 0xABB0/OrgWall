@@ -1,0 +1,31 @@
+- added string type (still hard thinking about this)
+-- need to add the string type everywhere a string is needed
+- fix leaks
+- remove that extremely ugly main/melody/game indirection. that serves only as not really understanding stuff. it's better to add "mainloop" files
+- remove allocator.h, we will be EXPLICIT about the kind of allocator we need and use
+- [CORE] delete memory.h (keep allocator.h as the source of truth)
+- [CORE] fix string macros in str.h (fix lengthof usage on pointers)
+- [CORE] implement stacktrace capturing for every allocation (debug mode)
+- [CORE] implement crash handler (intercept signals, save state, dump stacktrace)
+- [CORE] implement Virtual File System (VFS) with mount points and archive support
+- [CORE] implement Hot-Reloading for Game Code (.dylib/.dll reloading)
+- [CORE] implement Asset Hot-Reloading (file watcher)
+- [CORE] implement CVar registry (console variables for runtime tuning)
+- [CORE] universal registry system (handle-based) for:
+    - Widget Types
+    - Error Codes
+    - Event Types
+    - Editor Tools
+- [UI] replace widget type enums with 4CC (via new Registry system)
+- [SYSTEM] implement basic audio system (audio.h/c)
+- [SYSTEM] implement distributed event system (specialized queues, no global bus)
+- [SYSTEM] implement input action mapper (input.h)
+- [SYSTEM] implement job system/threading
+- [SYSTEM] implement serialization/config system
+- [RENDER] implement render graph (data-driven passes)
+- [RENDER] support multiple windows/viewports/cameras
+- [ARCH] implement view/input router (View struct, window_id, layer)
+- [EDITOR] implement reflection system (Type Descriptors) for generic inspection
+- [EDITOR] editor registry (register custom editors for components)
+- [ECS] replace hardcoded entity factories with prefab/blueprint system
+- [ECS] spatial partition for physics (grid/quadtree)

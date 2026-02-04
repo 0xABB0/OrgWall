@@ -1,0 +1,30 @@
+#ifndef MEL_GAME_H
+#define MEL_GAME_H
+
+#include "types.h"
+#include "ecs.h"
+#include "sprite_batch.h"
+
+typedef struct
+{
+    Mel_ECS ecs;
+
+    ecs_entity_t player;
+    ecs_entity_t npc;
+
+    bool dialogue_open;
+    const char* dialogue_text;
+
+    bool input_interact;
+} Mel_Game;
+
+void mel_game_init(Mel_Game* game);
+void mel_game_shutdown(Mel_Game* game);
+
+void mel_game_handle_event(Mel_Game* game, SDL_Event* event);
+void mel_game_update(Mel_Game* game, f32 dt);
+void mel_game_draw(Mel_Game* game, Mel_SpriteBatch* batch);
+
+bool mel_game_can_interact(Mel_Game* game);
+
+#endif

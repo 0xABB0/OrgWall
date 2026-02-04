@@ -1,0 +1,30 @@
+CompileFlags:
+  Add:
+    - "-Wno-unused-includes"
+    - "-D_CLANGD=1"
+    - "-std=c23"
+    - "-xc"
+
+Diagnostics:
+  Suppress: 
+    - "unused-includes"
+    - "unused-function"
+    - "unused-private-field"
+
+---
+
+If:
+  PathMatch: "vendor/some-cpp-lib/.*"
+CompileFlags:
+  Add:
+    - "-xc++"
+
+---
+
+If:
+  PathMatch: ".*\\.inl"
+CompileFlags:
+  Add:
+    - "-D_CLANGD=1"
+    - "-xc"
+
