@@ -2,7 +2,7 @@
 #define MEL_ASSETS_SPRITESHEET_H
 
 #include "types.h"
-#include "memory.h"
+#include "allocator.fwd.h"
 #include "vk_texture.h"
 
 typedef struct

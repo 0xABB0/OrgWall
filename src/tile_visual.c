@@ -1,6 +1,6 @@
 #include "tile_visual.h"
 #include "assets.h"
-#include "memory.h"
+#include "allocator.h"
 #include <cjson/cJSON.h>
 #include <SDL3/SDL.h>
 #include <stdlib.h>
@@ -35,7 +35,7 @@ bool mel_tile_visual_load(Mel_TileVisual* visual, const Mel_Alloc* alloc, const 
     if (name && cJSON_IsString(name))
     {
         usize len = strlen(name->valuestring);
-        visual->name = (const char*)mel_malloc(alloc, len + 1);
+        visual->name = (const char*)mel_alloc(alloc, len + 1);
         memcpy((void*)visual->name, name->valuestring, len + 1);
     }
 
@@ -55,7 +55,7 @@ bool mel_tile_visual_load(Mel_TileVisual* visual, const Mel_Alloc* alloc, const 
             if (src_path && cJSON_IsString(src_path))
             {
                 usize len = strlen(src_path->valuestring);
-                source->path = (const char*)mel_malloc(alloc, len + 1);
+                source->path = (const char*)mel_alloc(alloc, len + 1);
                 memcpy((void*)source->path, src_path->valuestring, len + 1);
             }
 
@@ -170,7 +170,7 @@ bool mel_tile_visual_load(Mel_TileVisual* visual, const Mel_Alloc* alloc, const 
                         if (cJSON_IsString(tag))
                         {
                             usize len = strlen(tag->valuestring);
-                            entry->tags[j] = (const char*)mel_malloc(alloc, len + 1);
+                            entry->tags[j] = (const char*)mel_alloc(alloc, len + 1);
                             memcpy((void*)entry->tags[j], tag->valuestring, len + 1);
                         }
                         j++;
@@ -288,16 +288,16 @@ void mel_tile_visual_free(Mel_TileVisual* visual)
     assert(visual != nullptr);
 
     if (visual->name)
-        mel_free(visual->alloc, (void*)visual->name);
+        mel_dealloc(visual->alloc, (void*)visual->name);
 
     if (visual->sources)
     {
         for (u32 i = 0; i < visual->source_count; i++)
         {
             if (visual->sources[i].path)
-                mel_free(visual->alloc, (void*)visual->sources[i].path);
+                mel_dealloc(visual->alloc, (void*)visual->sources[i].path);
         }
-        mel_free(visual->alloc, visual->sources);
+        mel_dealloc(visual->alloc, visual->sources);
     }
 
     if (visual->tiles)
@@ -309,12 +309,12 @@ void mel_tile_visual_free(Mel_TileVisual* visual)
                 for (u32 j = 0; j < visual->tiles[i].tag_count; j++)
                 {
                     if (visual->tiles[i].tags[j])
-                        mel_free(visual->alloc, (void*)visual->tiles[i].tags[j]);
+                        mel_dealloc(visual->alloc, (void*)visual->tiles[i].tags[j]);
                 }
-                mel_free(visual->alloc, visual->tiles[i].tags);
+                mel_dealloc(visual->alloc, visual->tiles[i].tags);
             }
         }
-        mel_free(visual->alloc, visual->tiles);
+        mel_dealloc(visual->alloc, visual->tiles);
     }
 
     *visual = (Mel_TileVisual){0};
@@ -337,7 +337,7 @@ Mel_TileSource* mel_tile_visual_add_source(Mel_TileVisual* visual, const char* t
 
     *source = (Mel_TileSource){0};
     usize len = strlen(texture_path);
-    source->path = (const char*)mel_malloc(visual->alloc, len + 1);
+    source->path = (const char*)mel_alloc(visual->alloc, len + 1);
     memcpy((void*)source->path, texture_path, len + 1);
     source->is_sheet = is_sheet;
     source->tile_width = 16;
@@ -355,7 +355,7 @@ bool mel_tile_visual_remove_source(Mel_TileVisual* visual, u32 source_idx)
     if (source_idx >= visual->source_count) return false;
 
     if (visual->sources[source_idx].path)
-        mel_free(visual->alloc, (void*)visual->sources[source_idx].path);
+        mel_dealloc(visual->alloc, (void*)visual->sources[source_idx].path);
 
     for (u32 i = source_idx; i < visual->source_count - 1; i++)
     {
@@ -386,9 +386,9 @@ bool mel_tile_visual_remove_source(Mel_TileVisual* visual, u32 source_idx)
                 for (u32 j = 0; j < visual->tiles[i].tag_count; j++)
                 {
                     if (visual->tiles[i].tags[j])
-                        mel_free(visual->alloc, (void*)visual->tiles[i].tags[j]);
+                        mel_dealloc(visual->alloc, (void*)visual->tiles[i].tags[j]);
                 }
-                mel_free(visual->alloc, visual->tiles[i].tags);
+                mel_dealloc(visual->alloc, visual->tiles[i].tags);
             }
         }
     }
@@ -410,12 +410,12 @@ void mel_tile_visual_regenerate_tiles(Mel_TileVisual* visual)
                 for (u32 j = 0; j < visual->tiles[i].tag_count; j++)
                 {
                     if (visual->tiles[i].tags[j])
-                        mel_free(visual->alloc, (void*)visual->tiles[i].tags[j]);
+                        mel_dealloc(visual->alloc, (void*)visual->tiles[i].tags[j]);
                 }
-                mel_free(visual->alloc, visual->tiles[i].tags);
+                mel_dealloc(visual->alloc, visual->tiles[i].tags);
             }
         }
-        mel_free(visual->alloc, visual->tiles);
+        mel_dealloc(visual->alloc, visual->tiles);
         visual->tiles = nullptr;
         visual->tile_count = 0;
     }
@@ -556,7 +556,7 @@ void mel_tile_visual_tile_add_tag(Mel_TileVisual* visual, u32 tile_id, const cha
 
     entry->tags = new_tags;
     usize len = strlen(tag);
-    entry->tags[entry->tag_count] = (const char*)mel_malloc(visual->alloc, len + 1);
+    entry->tags[entry->tag_count] = (const char*)mel_alloc(visual->alloc, len + 1);
     memcpy((void*)entry->tags[entry->tag_count], tag, len + 1);
     entry->tag_count = new_count;
 }
@@ -573,7 +573,7 @@ void mel_tile_visual_tile_remove_tag(Mel_TileVisual* visual, u32 tile_id, const 
     {
         if (entry->tags[i] && strcmp(entry->tags[i], tag) == 0)
         {
-            mel_free(visual->alloc, (void*)entry->tags[i]);
+            mel_dealloc(visual->alloc, (void*)entry->tags[i]);
 
             for (u32 j = i; j < entry->tag_count - 1; j++)
             {

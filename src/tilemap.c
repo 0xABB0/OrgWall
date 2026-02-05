@@ -1,6 +1,6 @@
 #include "tilemap.h"
 #include "assets.h"
-#include "memory.h"
+#include "allocator.h"
 #include <cjson/cJSON.h>
 #include <SDL3/SDL.h>
 #include <stdlib.h>
@@ -35,7 +35,7 @@ bool mel_tilemap_load(Mel_Tilemap* tilemap, const Mel_Alloc* alloc, const char* 
     if (name && cJSON_IsString(name))
     {
         size_t len = strlen(name->valuestring) + 1;
-        tilemap->name = (const char*)mel_malloc(alloc, len);
+        tilemap->name = (const char*)mel_alloc(alloc, len);
         memcpy((void*)tilemap->name, name->valuestring, len);
     }
 
@@ -43,7 +43,7 @@ bool mel_tilemap_load(Mel_Tilemap* tilemap, const Mel_Alloc* alloc, const char* 
     if (tile_visual && cJSON_IsString(tile_visual))
     {
         size_t len = strlen(tile_visual->valuestring) + 1;
-        tilemap->tile_visual_path = (const char*)mel_malloc(alloc, len);
+        tilemap->tile_visual_path = (const char*)mel_alloc(alloc, len);
         memcpy((void*)tilemap->tile_visual_path, tile_visual->valuestring, len);
     }
 
@@ -95,7 +95,7 @@ bool mel_tilemap_load(Mel_Tilemap* tilemap, const Mel_Alloc* alloc, const char* 
             if (layer_name && cJSON_IsString(layer_name))
             {
                 size_t len = strlen(layer_name->valuestring) + 1;
-                l->name = (const char*)mel_malloc(alloc, len);
+                l->name = (const char*)mel_alloc(alloc, len);
                 memcpy((void*)l->name, layer_name->valuestring, len);
             }
 
@@ -118,7 +118,7 @@ bool mel_tilemap_load(Mel_Tilemap* tilemap, const Mel_Alloc* alloc, const char* 
             l->height = tilemap->height;
 
             u32 tile_count = tilemap->width * tilemap->height;
-            l->tiles = (i32*)mel_malloc(alloc, tile_count * sizeof(i32));
+            l->tiles = (i32*)mel_alloc(alloc, tile_count * sizeof(i32));
 
             for (u32 t = 0; t < tile_count; t++)
             {
@@ -227,20 +227,20 @@ void mel_tilemap_free(Mel_Tilemap* tilemap)
     assert(tilemap != nullptr);
 
     if (tilemap->name)
-        mel_free(tilemap->alloc, (void*)tilemap->name);
+        mel_dealloc(tilemap->alloc, (void*)tilemap->name);
     if (tilemap->tile_visual_path)
-        mel_free(tilemap->alloc, (void*)tilemap->tile_visual_path);
+        mel_dealloc(tilemap->alloc, (void*)tilemap->tile_visual_path);
 
     if (tilemap->layers)
     {
         for (u32 i = 0; i < tilemap->layer_count; i++)
         {
             if (tilemap->layers[i].name)
-                mel_free(tilemap->alloc, (void*)tilemap->layers[i].name);
+                mel_dealloc(tilemap->alloc, (void*)tilemap->layers[i].name);
             if (tilemap->layers[i].tiles)
-                mel_free(tilemap->alloc, tilemap->layers[i].tiles);
+                mel_dealloc(tilemap->alloc, tilemap->layers[i].tiles);
         }
-        mel_free(tilemap->alloc, tilemap->layers);
+        mel_dealloc(tilemap->alloc, tilemap->layers);
     }
 
     *tilemap = (Mel_Tilemap){0};
@@ -275,7 +275,7 @@ Mel_TilemapLayer* mel_tilemap_add_layer(Mel_Tilemap* tilemap, const char* name)
     if (tilemap->layers)
         new_layers = (Mel_TilemapLayer*)mel_realloc(tilemap->alloc, tilemap->layers, new_count * sizeof(Mel_TilemapLayer));
     else
-        new_layers = (Mel_TilemapLayer*)mel_malloc(tilemap->alloc, new_count * sizeof(Mel_TilemapLayer));
+        new_layers = (Mel_TilemapLayer*)mel_alloc(tilemap->alloc, new_count * sizeof(Mel_TilemapLayer));
 
     if (!new_layers) return nullptr;
 
@@ -287,7 +287,7 @@ Mel_TilemapLayer* mel_tilemap_add_layer(Mel_Tilemap* tilemap, const char* name)
     if (name)
     {
         size_t len = strlen(name) + 1;
-        layer->name = (const char*)mel_malloc(tilemap->alloc, len);
+        layer->name = (const char*)mel_alloc(tilemap->alloc, len);
         memcpy((void*)layer->name, name, len);
     }
     else
@@ -301,7 +301,7 @@ Mel_TilemapLayer* mel_tilemap_add_layer(Mel_Tilemap* tilemap, const char* name)
     layer->parallax_y = 1.0f;
 
     u32 tile_count = tilemap->width * tilemap->height;
-    layer->tiles = (i32*)mel_malloc(tilemap->alloc, tile_count * sizeof(i32));
+    layer->tiles = (i32*)mel_alloc(tilemap->alloc, tile_count * sizeof(i32));
     for (u32 i = 0; i < tile_count; i++)
     {
         layer->tiles[i] = -1;
@@ -318,9 +318,9 @@ bool mel_tilemap_remove_layer(Mel_Tilemap* tilemap, u32 layer_idx)
 
     Mel_TilemapLayer* layer = &tilemap->layers[layer_idx];
     if (layer->name)
-        mel_free(tilemap->alloc, (void*)layer->name);
+        mel_dealloc(tilemap->alloc, (void*)layer->name);
     if (layer->tiles)
-        mel_free(tilemap->alloc, layer->tiles);
+        mel_dealloc(tilemap->alloc, layer->tiles);
 
     for (u32 i = layer_idx; i < tilemap->layer_count - 1; i++)
     {
@@ -373,7 +373,7 @@ bool mel_tilemap_resize(Mel_Tilemap* tilemap, u32 new_width, u32 new_height)
     {
         Mel_TilemapLayer* layer = &tilemap->layers[l];
 
-        i32* new_tiles = (i32*)mel_malloc(tilemap->alloc, new_width * new_height * sizeof(i32));
+        i32* new_tiles = (i32*)mel_alloc(tilemap->alloc, new_width * new_height * sizeof(i32));
         if (!new_tiles) return false;
 
         for (u32 i = 0; i < new_width * new_height; i++)
@@ -392,7 +392,7 @@ bool mel_tilemap_resize(Mel_Tilemap* tilemap, u32 new_width, u32 new_height)
             }
         }
 
-        mel_free(tilemap->alloc, layer->tiles);
+        mel_dealloc(tilemap->alloc, layer->tiles);
         layer->tiles = new_tiles;
         layer->width = new_width;
         layer->height = new_height;

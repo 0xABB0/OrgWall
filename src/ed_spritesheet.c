@@ -520,9 +520,9 @@ static void draw_frame_event_editor(Mel_EdSpritesheet* ed)
                     anim->frame_events = mel_calloc(ed->spritesheet->alloc, anim->frame_count * sizeof(Mel_FrameEvent));
                     event = &anim->frame_events[idx];
                 }
-                if (event->sound_path) mel_free(ed->spritesheet->alloc, (void*)event->sound_path);
+                if (event->sound_path) mel_dealloc(ed->spritesheet->alloc, (void*)event->sound_path);
                 usize len = strlen(ed->event_sound_buffer) + 1;
-                char* dup = mel_malloc(ed->spritesheet->alloc, len);
+                char* dup = mel_alloc(ed->spritesheet->alloc, len);
                 memcpy(dup, ed->event_sound_buffer, len);
                 event->sound_path = dup;
                 event->flags |= MEL_FRAME_EVENT_SOUND;
@@ -535,7 +535,7 @@ static void draw_frame_event_editor(Mel_EdSpritesheet* ed)
         {
             if (event)
             {
-                if (event->sound_path) mel_free(ed->spritesheet->alloc, (void*)event->sound_path);
+                if (event->sound_path) mel_dealloc(ed->spritesheet->alloc, (void*)event->sound_path);
                 event->sound_path = nullptr;
                 event->flags &= ~MEL_FRAME_EVENT_SOUND;
                 ed->event_sound_buffer[0] = '\0';

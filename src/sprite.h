@@ -2,8 +2,8 @@
 #define MEL_SPRITE_H
 
 #include "types.h"
-#include "vec2.h"
-#include "vec4.h"
+#include "math.vec2.h"
+#include "math.vec4.h"
 
 #include <flecs.h>
 

@@ -41,6 +41,10 @@ typedef u32 u32x2 __attribute__((ext_vector_type(2)));
 typedef u32 u32x3 __attribute__((ext_vector_type(3)));
 typedef u32 u32x4 __attribute__((ext_vector_type(4)));
 
+typedef f64 f64x2 __attribute__((ext_vector_type(2)));
+typedef f64 f64x3 __attribute__((ext_vector_type(3)));
+typedef f64 f64x4 __attribute__((ext_vector_type(4)));
+
 #define MEL_UNUSED(x) ((void)(x))
 
 #endif

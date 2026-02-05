@@ -2,7 +2,8 @@
 #include "vk_swapchain.h"
 #include <string.h>
 #include <tracy/TracyC.h>
-#include "memory.h"
+#include "allocator.h"
+#include "allocator.heap.h"
 
 #define VK_CHECK(expr) do { \
     VkResult _res = (expr); \
@@ -62,20 +63,20 @@ static bool create_swapchain(Mel_VkSwapchain* sc, Mel_VkContext* ctx, u32 width,
 
     u32 format_count;
     vkGetPhysicalDeviceSurfaceFormatsKHR(ctx->physical_device, ctx->surface, &format_count, nullptr);
-    VkSurfaceFormatKHR* formats = mel_malloc(mel_alloc_malloc(), sizeof(VkSurfaceFormatKHR) * format_count);
+    VkSurfaceFormatKHR* formats = mel_alloc(mel_alloc_heap(), sizeof(VkSurfaceFormatKHR) * format_count);
     vkGetPhysicalDeviceSurfaceFormatsKHR(ctx->physical_device, ctx->surface, &format_count, formats);
 
     u32 mode_count;
     vkGetPhysicalDeviceSurfacePresentModesKHR(ctx->physical_device, ctx->surface, &mode_count, nullptr);
-    VkPresentModeKHR* modes = mel_malloc(mel_alloc_malloc(), sizeof(VkPresentModeKHR) * mode_count);
+    VkPresentModeKHR* modes = mel_alloc(mel_alloc_heap(), sizeof(VkPresentModeKHR) * mode_count);
     vkGetPhysicalDeviceSurfacePresentModesKHR(ctx->physical_device, ctx->surface, &mode_count, modes);
 
     VkSurfaceFormatKHR format = choose_format(formats, format_count);
     VkPresentModeKHR mode = choose_present_mode(modes, mode_count);
     VkExtent2D extent = choose_extent(&caps, width, height);
 
-    mel_free(mel_alloc_malloc(), formats);
-    mel_free(mel_alloc_malloc(), modes);
+    mel_dealloc(mel_alloc_heap(), formats);
+    mel_dealloc(mel_alloc_heap(), modes);
 
     u32 image_count = caps.minImageCount + 1;
     if (caps.maxImageCount > 0 && image_count > caps.maxImageCount)
@@ -117,7 +118,7 @@ static bool create_swapchain(Mel_VkSwapchain* sc, Mel_VkContext* ctx, u32 width,
     sc->extent = extent;
 
     vkGetSwapchainImagesKHR(ctx->device, sc->swapchain, &sc->image_count, nullptr);
-    sc->images = mel_malloc(mel_alloc_malloc(), sizeof(VkImage) * sc->image_count);
+    sc->images = mel_alloc(mel_alloc_heap(), sizeof(VkImage) * sc->image_count);
     vkGetSwapchainImagesKHR(ctx->device, sc->swapchain, &sc->image_count, sc->images);
 
     return true;
@@ -125,7 +126,7 @@ static bool create_swapchain(Mel_VkSwapchain* sc, Mel_VkContext* ctx, u32 width,
 
 static bool create_image_views(Mel_VkSwapchain* sc, Mel_VkContext* ctx)
 {
-    sc->image_views = mel_malloc(mel_alloc_malloc(), sizeof(VkImageView) * sc->image_count);
+    sc->image_views = mel_alloc(mel_alloc_heap(), sizeof(VkImageView) * sc->image_count);
 
     for (u32 i = 0; i < sc->image_count; i++)
     {
@@ -211,8 +212,8 @@ static void destroy_swapchain_resources(Mel_VkSwapchain* sc, Mel_VkContext* ctx)
         }
     }
 
-    mel_free(mel_alloc_malloc(), sc->image_views);
-    mel_free(mel_alloc_malloc(), sc->images);
+    mel_dealloc(mel_alloc_heap(), sc->image_views);
+    mel_dealloc(mel_alloc_heap(), sc->images);
     sc->image_views = nullptr;
     sc->images = nullptr;
 
@@ -266,8 +267,8 @@ bool mel_vk_swapchain_recreate(Mel_VkSwapchain* sc, Mel_VkContext* ctx, u32 widt
     {
         vkDestroyImageView(ctx->device, sc->image_views[i], nullptr);
     }
-    mel_free(mel_alloc_malloc(), sc->image_views);
-    mel_free(mel_alloc_malloc(), sc->images);
+    mel_dealloc(mel_alloc_heap(), sc->image_views);
+    mel_dealloc(mel_alloc_heap(), sc->images);
 
     sc->swapchain = VK_NULL_HANDLE;
     sc->image_views = nullptr;

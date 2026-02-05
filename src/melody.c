@@ -1,5 +1,6 @@
 #include "melody.h"
-#include "allocator_tracking.h"
+#include "allocator.tracking.h"
+#include "allocator.heap.h"
 #include <tracy/TracyC.h>
 #include <stdlib.h>
 
@@ -16,7 +17,7 @@ bool mel_engine_init_opt(Mel_Engine* engine, Mel_Engine_Opt opt)
     if (opt.height <= 0) opt.height = 720;
 
     engine->tracking = (Mel_Tracking_Allocator*)malloc(sizeof(Mel_Tracking_Allocator));
-    mel_tracking_init(engine->tracking, mel_alloc_malloc());
+    mel_tracking_init(engine->tracking, mel_alloc_heap());
     engine->allocator = mel_tracking_allocator(engine->tracking);
 
     engine->window = SDL_CreateWindow(opt.title, opt.width, opt.height, SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE);

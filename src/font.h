@@ -4,7 +4,7 @@
 #include "vk_context.h"
 #include "vk_texture.h"
 #include "sprite_batch.h"
-#include "vec2.h"
+#include "math.vec2.h"
 
 #define MEL_FONT_FIRST_CHAR 32
 #define MEL_FONT_CHAR_COUNT 96

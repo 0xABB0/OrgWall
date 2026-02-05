@@ -2,7 +2,7 @@
 #define MEL_ED_TILES_H
 
 #include "types.h"
-#include "memory.h"
+#include "allocator.fwd.h"
 #include "tile_visual.h"
 #include "tilemap.h"
 #include "asset_registry.h"

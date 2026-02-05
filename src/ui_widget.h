@@ -2,8 +2,8 @@
 #define MEL_UI_WIDGET_H
 
 #include "types.h"
-#include "vec2.h"
-#include "vec4.h"
+#include "math.vec2.h"
+#include "math.vec4.h"
 #include "sprite_batch.h"
 
 #define MEL_WIDGET_TYPE_BASE    0

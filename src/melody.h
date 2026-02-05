@@ -2,7 +2,7 @@
 #define MELODY_H
 
 #include "types.h"
-#include "memory.h"
+#include "allocator.fwd.h"
 #include "vk_context.h"
 #include "vk_swapchain.h"
 #include "vk_shader.h"
@@ -12,7 +12,7 @@
 #define MEL_MAX_FRAME_TIME 0.25f
 
 typedef struct Mel_Engine Mel_Engine;
-typedef struct Mel_Tracking_Allocator Mel_Tracking_Allocator;
+#include "allocator.tracking.fwd.h"
 
 typedef void (*Mel_Init_Func)(Mel_Engine* engine);
 typedef void (*Mel_Shutdown_Func)(Mel_Engine* engine);

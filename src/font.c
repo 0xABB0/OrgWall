@@ -1,7 +1,8 @@
 #include "font.h"
 #include "vk_buffer.h"
 #include "vk_texture.h"
-#include "memory.h"
+#include "allocator.h"
+#include "allocator.heap.h"
 
 #define STB_TRUETYPE_IMPLEMENTATION
 #include <stb_truetype.h>
@@ -67,7 +68,7 @@ bool mel_font_init_opt(Mel_Font* font, Mel_VkContext* ctx, Mel_Font_Opt opt)
             return false;
         }
 
-        ttf_data = (u8*)mel_malloc(mel_alloc_malloc(), (size_t)size);
+        ttf_data = (u8*)mel_alloc(mel_alloc_heap(), (size_t)size);
         if (!ttf_data)
         {
             SDL_CloseIO(io);
@@ -90,10 +91,10 @@ bool mel_font_init_opt(Mel_Font* font, Mel_VkContext* ctx, Mel_Font_Opt opt)
     font->atlas_width = atlas_w;
     font->atlas_height = atlas_h;
 
-    u8* bitmap = (u8*)mel_calloc(mel_alloc_malloc(), atlas_w * atlas_h);
+    u8* bitmap = (u8*)mel_calloc(mel_alloc_heap(), atlas_w * atlas_h);
     if (!bitmap)
     {
-        if (owns_data) mel_free(mel_alloc_malloc(), ttf_data);
+        if (owns_data) mel_dealloc(mel_alloc_heap(), ttf_data);
         return false;
     }
 
@@ -101,8 +102,8 @@ bool mel_font_init_opt(Mel_Font* font, Mel_VkContext* ctx, Mel_Font_Opt opt)
     if (!stbtt_InitFont(&info, ttf_data, 0))
     {
         SDL_Log("Failed to init font");
-        mel_free(mel_alloc_malloc(), bitmap);
-        if (owns_data) mel_free(mel_alloc_malloc(), ttf_data);
+        mel_dealloc(mel_alloc_heap(), bitmap);
+        if (owns_data) mel_dealloc(mel_alloc_heap(), ttf_data);
         return false;
     }
 
@@ -140,8 +141,8 @@ bool mel_font_init_opt(Mel_Font* font, Mel_VkContext* ctx, Mel_Font_Opt opt)
         if (y + gh + 2 > atlas_h)
         {
             SDL_Log("Font atlas too small!");
-            mel_free(mel_alloc_malloc(), bitmap);
-            if (owns_data) mel_free(mel_alloc_malloc(), ttf_data);
+            mel_dealloc(mel_alloc_heap(), bitmap);
+            if (owns_data) mel_dealloc(mel_alloc_heap(), ttf_data);
             return false;
         }
 
@@ -166,11 +167,11 @@ bool mel_font_init_opt(Mel_Font* font, Mel_VkContext* ctx, Mel_Font_Opt opt)
         x += gw + 2;
     }
 
-    u8* rgba = (u8*)mel_malloc(mel_alloc_malloc(), atlas_w * atlas_h * 4);
+    u8* rgba = (u8*)mel_alloc(mel_alloc_heap(), atlas_w * atlas_h * 4);
     if (!rgba)
     {
-        mel_free(mel_alloc_malloc(), bitmap);
-        if (owns_data) mel_free(mel_alloc_malloc(), ttf_data);
+        mel_dealloc(mel_alloc_heap(), bitmap);
+        if (owns_data) mel_dealloc(mel_alloc_heap(), ttf_data);
         return false;
     }
 
@@ -182,8 +183,8 @@ bool mel_font_init_opt(Mel_Font* font, Mel_VkContext* ctx, Mel_Font_Opt opt)
         rgba[i * 4 + 3] = bitmap[i];
     }
 
-    mel_free(mel_alloc_malloc(), bitmap);
-    if (owns_data) mel_free(mel_alloc_malloc(), ttf_data);
+    mel_dealloc(mel_alloc_heap(), bitmap);
+    if (owns_data) mel_dealloc(mel_alloc_heap(), ttf_data);
 
     Mel_VkBuffer staging;
     u32 image_size = atlas_w * atlas_h * 4;
@@ -191,12 +192,12 @@ bool mel_font_init_opt(Mel_Font* font, Mel_VkContext* ctx, Mel_Font_Opt opt)
     if (!mel_vk_buffer_init(&staging, ctx, image_size,
         VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_ONLY))
     {
-        mel_free(mel_alloc_malloc(), rgba);
+        mel_dealloc(mel_alloc_heap(), rgba);
         return false;
     }
 
     mel_vk_buffer_upload(&staging, ctx, rgba, image_size, 0);
-    mel_free(mel_alloc_malloc(), rgba);
+    mel_dealloc(mel_alloc_heap(), rgba);
 
     if (!mel_vk_image_init(&font->atlas.image, ctx,
         .width = atlas_w,

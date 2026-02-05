@@ -1,7 +1,7 @@
 #include "asset_registry.h"
 #include "texture.h"
 #include "assets.h"
-#include "memory.h"
+#include "allocator.h"
 #include <cjson/cJSON.h>
 #include <SDL3/SDL.h>
 #include <string.h>
@@ -41,7 +41,7 @@ void mel_asset_registry_shutdown(Mel_AssetRegistry* registry)
             mel_vk_texture_shutdown(&registry->textures[i].texture, registry->vk);
         }
     }
-    mel_free(registry->alloc, registry->textures);
+    mel_dealloc(registry->alloc, registry->textures);
 
     for (u32 i = 0; i < registry->tile_visual_count; i++)
     {
@@ -50,7 +50,7 @@ void mel_asset_registry_shutdown(Mel_AssetRegistry* registry)
             mel_tile_visual_free(&registry->tile_visuals[i].tile_visual);
         }
     }
-    mel_free(registry->alloc, registry->tile_visuals);
+    mel_dealloc(registry->alloc, registry->tile_visuals);
 
     for (u32 i = 0; i < registry->tilemap_count; i++)
     {
@@ -59,7 +59,7 @@ void mel_asset_registry_shutdown(Mel_AssetRegistry* registry)
             mel_tilemap_free(&registry->tilemaps[i].tilemap);
         }
     }
-    mel_free(registry->alloc, registry->tilemaps);
+    mel_dealloc(registry->alloc, registry->tilemaps);
 
     for (u32 i = 0; i < registry->spritesheet_count; i++)
     {
@@ -68,7 +68,7 @@ void mel_asset_registry_shutdown(Mel_AssetRegistry* registry)
             mel_spritesheet_free(&registry->spritesheets[i].spritesheet);
         }
     }
-    mel_free(registry->alloc, registry->spritesheets);
+    mel_dealloc(registry->alloc, registry->spritesheets);
 
     *registry = (Mel_AssetRegistry){0};
 }
@@ -253,7 +253,7 @@ Mel_TileVisual* mel_asset_registry_create_tile_visual(Mel_AssetRegistry* registr
     Mel_TileVisual* visual = &entry->tile_visual;
     visual->alloc = registry->alloc;
     size_t name_len = strlen(name) + 1;
-    visual->name = mel_malloc(registry->alloc, name_len);
+    visual->name = mel_alloc(registry->alloc, name_len);
     memcpy((void*)visual->name, name, name_len);
 
     entry->loaded = true;
@@ -395,7 +395,7 @@ Mel_Tilemap* mel_asset_registry_create_tilemap(Mel_AssetRegistry* registry, cons
     Mel_Tilemap* tilemap = &entry->tilemap;
     tilemap->alloc = registry->alloc;
     size_t name_len = strlen(name) + 1;
-    tilemap->name = mel_malloc(registry->alloc, name_len);
+    tilemap->name = mel_alloc(registry->alloc, name_len);
     memcpy((void*)tilemap->name, name, name_len);
     tilemap->width = width > 0 ? width : 20;
     tilemap->height = height > 0 ? height : 15;
@@ -544,17 +544,17 @@ Mel_Spritesheet* mel_asset_registry_create_spritesheet(Mel_AssetRegistry* regist
     Mel_Spritesheet* sheet = &entry->spritesheet;
     sheet->alloc = registry->alloc;
     size_t name_len = strlen(name) + 1;
-    sheet->name = mel_malloc(registry->alloc, name_len);
+    sheet->name = mel_alloc(registry->alloc, name_len);
     memcpy((void*)sheet->name, name, name_len);
     size_t texture_path_len = strlen(texture_path) + 1;
-    sheet->texture_path = mel_malloc(registry->alloc, texture_path_len);
+    sheet->texture_path = mel_alloc(registry->alloc, texture_path_len);
     memcpy((void*)sheet->texture_path, texture_path, texture_path_len);
 
     sheet->texture = mel_asset_registry_load_texture(registry, texture_path);
     if (!sheet->texture)
     {
-        mel_free(registry->alloc, (void*)sheet->name);
-        mel_free(registry->alloc, (void*)sheet->texture_path);
+        mel_dealloc(registry->alloc, (void*)sheet->name);
+        mel_dealloc(registry->alloc, (void*)sheet->texture_path);
         return nullptr;
     }
 

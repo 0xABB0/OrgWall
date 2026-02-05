@@ -34,7 +34,7 @@ bool mel_spritesheet_load(Mel_Spritesheet* sheet, const Mel_Alloc* alloc, const 
     if (name && cJSON_IsString(name))
     {
         usize len = strlen(name->valuestring) + 1;
-        char* dup = mel_malloc(alloc, len);
+        char* dup = mel_alloc(alloc, len);
         memcpy(dup, name->valuestring, len);
         sheet->name = dup;
     }
@@ -43,7 +43,7 @@ bool mel_spritesheet_load(Mel_Spritesheet* sheet, const Mel_Alloc* alloc, const 
     if (texture && cJSON_IsString(texture))
     {
         usize len = strlen(texture->valuestring) + 1;
-        char* dup = mel_malloc(alloc, len);
+        char* dup = mel_alloc(alloc, len);
         memcpy(dup, texture->valuestring, len);
         sheet->texture_path = dup;
     }
@@ -102,7 +102,7 @@ bool mel_spritesheet_load(Mel_Spritesheet* sheet, const Mel_Alloc* alloc, const 
             if (anim_name && cJSON_IsString(anim_name))
             {
                 usize len = strlen(anim_name->valuestring) + 1;
-                char* dup = mel_malloc(alloc, len);
+                char* dup = mel_alloc(alloc, len);
                 memcpy(dup, anim_name->valuestring, len);
                 sheet->animations[i].name = dup;
             }
@@ -176,7 +176,7 @@ bool mel_spritesheet_load(Mel_Spritesheet* sheet, const Mel_Alloc* alloc, const 
                     if (sound && cJSON_IsString(sound))
                     {
                         usize len = strlen(sound->valuestring) + 1;
-                        char* dup = mel_malloc(alloc, len);
+                        char* dup = mel_alloc(alloc, len);
                         memcpy(dup, sound->valuestring, len);
                         event->sound_path = dup;
                         event->flags |= MEL_FRAME_EVENT_SOUND;
@@ -217,7 +217,7 @@ bool mel_spritesheet_load(Mel_Spritesheet* sheet, const Mel_Alloc* alloc, const 
                             if (cJSON_IsString(tag))
                             {
                                 usize len = strlen(tag->valuestring) + 1;
-                                char* dup = mel_malloc(alloc, len);
+                                char* dup = mel_alloc(alloc, len);
                                 memcpy(dup, tag->valuestring, len);
                                 event->tags[t] = dup;
                             }
@@ -376,12 +376,12 @@ void mel_spritesheet_free(Mel_Spritesheet* sheet)
     const Mel_Alloc* alloc = sheet->alloc;
 
     if (sheet->name)
-        mel_free(alloc, (void*)sheet->name);
+        mel_dealloc(alloc, (void*)sheet->name);
     if (sheet->texture_path)
-        mel_free(alloc, (void*)sheet->texture_path);
+        mel_dealloc(alloc, (void*)sheet->texture_path);
 
     if (sheet->frames)
-        mel_free(alloc, sheet->frames);
+        mel_dealloc(alloc, sheet->frames);
 
     if (sheet->animations)
     {
@@ -390,11 +390,11 @@ void mel_spritesheet_free(Mel_Spritesheet* sheet)
             Mel_Animation* anim = &sheet->animations[i];
 
             if (anim->name)
-                mel_free(alloc, (void*)anim->name);
+                mel_dealloc(alloc, (void*)anim->name);
             if (anim->frame_indices)
-                mel_free(alloc, anim->frame_indices);
+                mel_dealloc(alloc, anim->frame_indices);
             if (anim->frame_durations)
-                mel_free(alloc, anim->frame_durations);
+                mel_dealloc(alloc, anim->frame_durations);
 
             if (anim->frame_events)
             {
@@ -402,10 +402,10 @@ void mel_spritesheet_free(Mel_Spritesheet* sheet)
                 {
                     mel_frame_event_free(&anim->frame_events[j], alloc);
                 }
-                mel_free(alloc, anim->frame_events);
+                mel_dealloc(alloc, anim->frame_events);
             }
         }
-        mel_free(alloc, sheet->animations);
+        mel_dealloc(alloc, sheet->animations);
     }
 
     *sheet = (Mel_Spritesheet){0};
@@ -570,7 +570,7 @@ void mel_frame_event_free(Mel_FrameEvent* event, const Mel_Alloc* alloc)
 
     if (event->sound_path)
     {
-        mel_free(alloc, (void*)event->sound_path);
+        mel_dealloc(alloc, (void*)event->sound_path);
     }
 
     if (event->tags)
@@ -579,10 +579,10 @@ void mel_frame_event_free(Mel_FrameEvent* event, const Mel_Alloc* alloc)
         {
             if (event->tags[i])
             {
-                mel_free(alloc, (void*)event->tags[i]);
+                mel_dealloc(alloc, (void*)event->tags[i]);
             }
         }
-        mel_free(alloc, event->tags);
+        mel_dealloc(alloc, event->tags);
     }
 
     *event = (Mel_FrameEvent){0};
@@ -597,7 +597,7 @@ void mel_frame_event_add_tag(Mel_FrameEvent* event, const Mel_Alloc* alloc, cons
     u32 new_count = event->tag_count + 1;
     const char** new_tags = mel_realloc(alloc, event->tags, new_count * sizeof(const char*));
     usize len = strlen(tag) + 1;
-    char* dup = mel_malloc(alloc, len);
+    char* dup = mel_alloc(alloc, len);
     memcpy(dup, tag, len);
     new_tags[event->tag_count] = dup;
     event->tags = new_tags;
@@ -631,7 +631,7 @@ Mel_Animation* mel_spritesheet_add_animation(Mel_Spritesheet* sheet, const char*
     Mel_Animation* anim = &new_anims[sheet->animation_count];
     *anim = (Mel_Animation){0};
     usize len = strlen(name) + 1;
-    char* dup = mel_malloc(sheet->alloc, len);
+    char* dup = mel_alloc(sheet->alloc, len);
     memcpy(dup, name, len);
     anim->name = dup;
     anim->default_duration = 0.1f;

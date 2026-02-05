@@ -1,10 +1,14 @@
-#include "../src/core/test.h"
-#include "../src/core/memory.h"
-#include "../src/core/array.h"
+#include "../src/test.h"
+#include "../src/allocator.h"
+#include "../src/allocator.heap.h"
+#include "../src/allocator.leak.h"
+#include "../src/allocator.tracking.h"
+#include "../src/allocator.arena.h"
+#include "../src/array.h"
 
 MEL_TEST(heap_allocator)
 {
-    const Mel_Alloc* alloc = mel_alloc_malloc();
+    const Mel_Alloc* alloc = mel_alloc_heap();
     MEL_ASSERT_NOT_NULL(alloc);
     MEL_ASSERT_NOT_NULL(alloc->alloc_cb);
     MEL_PASS();
@@ -12,18 +16,18 @@ MEL_TEST(heap_allocator)
 
 MEL_TEST(alloc_free)
 {
-    const Mel_Alloc* alloc = mel_alloc_malloc();
+    const Mel_Alloc* alloc = mel_alloc_heap();
     i32* ptr = mel_alloc_type(alloc, i32);
     MEL_ASSERT_NOT_NULL(ptr);
     *ptr = 42;
     MEL_ASSERT_EQ(*ptr, 42);
-    mel_free(alloc, ptr);
+    mel_dealloc(alloc, ptr);
     MEL_PASS();
 }
 
 MEL_TEST(alloc_array)
 {
-    const Mel_Alloc* alloc = mel_alloc_malloc();
+    const Mel_Alloc* alloc = mel_alloc_heap();
     i32* arr = mel_alloc_array(alloc, i32, 10);
     MEL_ASSERT_NOT_NULL(arr);
     for (i32 i = 0; i < 10; i++)
@@ -31,14 +35,14 @@ MEL_TEST(alloc_array)
         arr[i] = i * 2;
     }
     MEL_ASSERT_EQ(arr[5], 10);
-    mel_free(alloc, arr);
+    mel_dealloc(alloc, arr);
     MEL_PASS();
 }
 
 MEL_TEST(tracking_allocator)
 {
     Mel_Tracking_Allocator tracking;
-    mel_tracking_init(&tracking, mel_alloc_malloc());
+    mel_tracking_init(&tracking, mel_alloc_heap());
     Mel_Alloc alloc = mel_tracking_allocator(&tracking);
 
     MEL_ASSERT_EQ(tracking.total_allocated, (usize)0);
@@ -48,7 +52,7 @@ MEL_TEST(tracking_allocator)
     MEL_ASSERT_EQ(tracking.total_allocated, sizeof(i32));
     MEL_ASSERT_EQ(tracking.alloc_count, (u64)1);
 
-    mel_free(&alloc, ptr);
+    mel_dealloc(&alloc, ptr);
     MEL_ASSERT_EQ(tracking.free_count, (u64)1);
 
     MEL_PASS();
@@ -62,11 +66,11 @@ MEL_TEST(arena_allocator)
 
     MEL_ASSERT_EQ(arena.offset, (usize)0);
 
-    i32* a = mel_arena_alloc(&arena, sizeof(i32), _Alignof(i32));
+    i32* a = mel_arena_push_struct(&arena, i32);
     MEL_ASSERT_NOT_NULL(a);
     *a = 100;
 
-    i32* b = mel_arena_alloc(&arena, sizeof(i32), _Alignof(i32));
+    i32* b = mel_arena_push_struct(&arena, i32);
     MEL_ASSERT_NOT_NULL(b);
     *b = 200;
 
@@ -89,13 +93,13 @@ MEL_TEST(leak_detect_allocator)
     *ptr = 99;
     MEL_ASSERT_EQ(*ptr, 99);
 
-    mel_free(alloc, ptr);
+    mel_dealloc(alloc, ptr);
     MEL_PASS();
 }
 
 MEL_TEST(dynamic_array_push)
 {
-    const Mel_Alloc* alloc = mel_alloc_malloc();
+    const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_Array(i32) arr;
     mel_array_init(&arr, alloc);
 
@@ -119,7 +123,7 @@ MEL_TEST(dynamic_array_push)
 
 MEL_TEST(dynamic_array_pop)
 {
-    const Mel_Alloc* alloc = mel_alloc_malloc();
+    const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_Array(i32) arr;
     mel_array_init(&arr, alloc);
 
@@ -140,7 +144,7 @@ MEL_TEST(dynamic_array_pop)
 
 MEL_TEST(dynamic_array_growth)
 {
-    const Mel_Alloc* alloc = mel_alloc_malloc();
+    const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_Array(i32) arr;
     mel_array_init(&arr, alloc);
 

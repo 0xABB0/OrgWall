@@ -1,20 +1,18 @@
 #pragma once
 
 #include "types.h"
-#include "str.h"
 
 #include "allocator.arena.config.h"
 
-// A linear allocator with a fixed size
 typedef struct Mel_Arena {
     u8*   base;
     usize size;
     usize offset;
 #if MEL_ALLOCATOR_ARENA_DEBUG
-    usize  peak_used;
-    usize  push_count;
-    usize  reset_count;
-    s8    name;
+    usize       peak_used;
+    usize       push_count;
+    usize       reset_count;
+    const char* name;
 #endif
 } Mel_Arena;
 

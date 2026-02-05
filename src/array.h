@@ -1,7 +1,7 @@
 #ifndef MEL_ARRAY_H
 #define MEL_ARRAY_H
 
-#include "memory.h"
+#include "allocator.h"
 #include <string.h>
 
 #define MEL_DA_INIT_CAP 8
@@ -17,7 +17,7 @@
 
 #define mel_array_free(arr) do { \
     if ((arr)->items != NULL) { \
-        mel_free((arr)->allocator, (arr)->items); \
+        mel_dealloc((arr)->allocator, (arr)->items); \
         (arr)->items = NULL; \
         (arr)->count = 0; \
         (arr)->capacity = 0; \
@@ -29,7 +29,7 @@
         usize new_cap = (arr)->capacity == 0 ? MEL_DA_INIT_CAP : (arr)->capacity * 2; \
         usize new_size = sizeof(*(arr)->items) * new_cap; \
         if ((arr)->items == NULL) { \
-            (arr)->items = mel_malloc((arr)->allocator, new_size); \
+            (arr)->items = mel_alloc((arr)->allocator, new_size); \
         } else { \
             (arr)->items = mel_realloc((arr)->allocator, (arr)->items, new_size); \
         } \
@@ -48,7 +48,7 @@
     if ((n) > (arr)->capacity) { \
         usize new_size = sizeof(*(arr)->items) * (n); \
         if ((arr)->items == NULL) { \
-            (arr)->items = mel_malloc((arr)->allocator, new_size); \
+            (arr)->items = mel_alloc((arr)->allocator, new_size); \
         } else { \
             (arr)->items = mel_realloc((arr)->allocator, (arr)->items, new_size); \
         } \

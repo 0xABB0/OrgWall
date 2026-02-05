@@ -5,8 +5,8 @@
 #include "vk_buffer.h"
 #include "vk_pipeline.h"
 #include "vk_texture.h"
-#include "vec4.h"
-#include "mat4.h"
+#include "math.vec4.h"
+#include "math.mat4.h"
 
 typedef struct
 {

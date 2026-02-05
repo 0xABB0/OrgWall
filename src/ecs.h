@@ -2,7 +2,7 @@
 #define MEL_ECS_H
 
 #include "types.h"
-#include "vec2.h"
+#include "math.vec2.h"
 
 #include <flecs.h>
 

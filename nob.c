@@ -73,7 +73,7 @@ static const char* CXXFLAGS[] = {
     "-O0",
 };
 
-bool collect_c_files(const char* dir, Nob_File_Paths* c_files, Nob_File_Paths* cpp_files)
+bool collect_c_files(const char* dir, Nob_File_Paths* c_files, Nob_File_Paths* cpp_files, Nob_File_Paths* m_files)
 {
     Nob_File_Paths entries = {0};
     if (!nob_read_entire_dir(dir, &entries)) return false;
@@ -88,7 +88,7 @@ bool collect_c_files(const char* dir, Nob_File_Paths* c_files, Nob_File_Paths* c
 
         if (type == NOB_FILE_DIRECTORY)
         {
-            if (!collect_c_files(path, c_files, cpp_files)) return false;
+            if (!collect_c_files(path, c_files, cpp_files, m_files)) return false;
         }
         else if (type == NOB_FILE_REGULAR)
         {
@@ -100,6 +100,10 @@ bool collect_c_files(const char* dir, Nob_File_Paths* c_files, Nob_File_Paths* c
             else if (len > 4 && strcmp(name + len - 4, ".cpp") == 0)
             {
                 nob_da_append(cpp_files, nob_temp_strdup(path));
+            }
+            else if (len > 2 && name[len-2] == '.' && name[len-1] == 'm')
+            {
+                nob_da_append(m_files, nob_temp_strdup(path));
             }
         }
     }
@@ -173,6 +177,24 @@ bool compile_c_to_obj(const char* src, const char* obj)
 
     for (size_t i = 0; i < NOB_ARRAY_LEN(CFLAGS); i++)
         nob_cmd_append(&cmd, CFLAGS[i]);
+
+    for (size_t i = 0; i < NOB_ARRAY_LEN(INCLUDE_PATHS); i++)
+        nob_cmd_append(&cmd, INCLUDE_PATHS[i]);
+
+    nob_cmd_append(&cmd, "-c", src, "-o", obj);
+
+    return nob_cmd_run_sync(cmd);
+}
+
+bool compile_m_to_obj(const char* src, const char* obj)
+{
+    Nob_Cmd cmd = {0};
+    nob_cmd_append(&cmd, "clang");
+
+    for (size_t i = 0; i < NOB_ARRAY_LEN(CFLAGS); i++)
+        nob_cmd_append(&cmd, CFLAGS[i]);
+
+    nob_cmd_append(&cmd, "-fobjc-arc");
 
     for (size_t i = 0; i < NOB_ARRAY_LEN(INCLUDE_PATHS); i++)
         nob_cmd_append(&cmd, INCLUDE_PATHS[i]);
@@ -280,9 +302,10 @@ bool build_main(void)
 
     Nob_File_Paths c_files = {0};
     Nob_File_Paths cpp_files = {0};
+    Nob_File_Paths m_files = {0};
     Nob_File_Paths obj_files = {0};
 
-    if (!collect_c_files("src", &c_files, &cpp_files)) return false;
+    if (!collect_c_files("src", &c_files, &cpp_files, &m_files)) return false;
 
     collect_lib_obj_paths(&obj_files);
 
@@ -332,6 +355,29 @@ bool build_main(void)
 
     uint64_t t2 = nob_nanos_since_unspecified_epoch();
 
+    for (size_t i = 0; i < m_files.count; i++)
+    {
+        const char* src = m_files.items[i];
+        const char* base = strrchr(src, '/');
+        base = base ? base + 1 : src;
+
+        char obj_name[256];
+        snprintf(obj_name, sizeof(obj_name), "%s", base);
+        size_t len = strlen(obj_name);
+        if (len > 2 && obj_name[len-2] == '.' && obj_name[len-1] == 'm')
+        {
+            obj_name[len - 1] = 'o';
+        }
+
+        const char* obj = nob_temp_sprintf(BUILD_DIR "/%s", obj_name);
+        nob_da_append(&obj_files, nob_temp_strdup(obj));
+
+        nob_log(NOB_INFO, "Compiling ObjC: %s", src);
+        if (!compile_m_to_obj(src, obj)) return false;
+    }
+
+    uint64_t t2b = nob_nanos_since_unspecified_epoch();
+
     Nob_Cmd cmd = {0};
     nob_cmd_append(&cmd, "clang");
     nob_cmd_append(&cmd, "-g");
@@ -359,14 +405,16 @@ bool build_main(void)
 
     uint64_t t3 = nob_nanos_since_unspecified_epoch();
 
-    double your_cpp_ms = (t1 - t0) / 1e6;
-    double your_c_ms   = (t2 - t1) / 1e6;
-    double link_ms     = (t3 - t2) / 1e6;
-    double total_ms    = (t3 - t_total_start) / 1e6;
+    double your_cpp_ms  = (t1 - t0) / 1e6;
+    double your_c_ms    = (t2 - t1) / 1e6;
+    double your_objc_ms = (t2b - t2) / 1e6;
+    double link_ms      = (t3 - t2b) / 1e6;
+    double total_ms     = (t3 - t_total_start) / 1e6;
 
     nob_log(NOB_WARNING, "──── Build Timings ────");
     nob_log(NOB_WARNING, "  project C++     : %8.1f ms", your_cpp_ms);
     nob_log(NOB_WARNING, "  project C       : %8.1f ms", your_c_ms);
+    nob_log(NOB_WARNING, "  project ObjC    : %8.1f ms", your_objc_ms);
     nob_log(NOB_WARNING, "  link            : %8.1f ms", link_ms);
     nob_log(NOB_WARNING, "  ─────────────────────────");
     nob_log(NOB_WARNING, "  TOTAL           : %8.1f ms", total_ms);
@@ -389,7 +437,17 @@ bool build_test(const char* test_name)
         nob_cmd_append(&cmd, INCLUDE_PATHS[i]);
 
     nob_cmd_append(&cmd, test_src);
-    nob_cmd_append(&cmd, "src/memory.c");
+    nob_cmd_append(&cmd, "src/allocator.c");
+    nob_cmd_append(&cmd, "src/allocator.heap.c");
+    nob_cmd_append(&cmd, "src/allocator.leak.c");
+    nob_cmd_append(&cmd, "src/allocator.tracking.c");
+    nob_cmd_append(&cmd, "src/allocator.arena.c");
+    nob_cmd_append(&cmd, "src/allocator.pool.c");
+    nob_cmd_append(&cmd, "src/allocator.stack.c");
+    nob_cmd_append(&cmd, "src/allocator.block.c");
+    nob_cmd_append(&cmd, "src/allocator.ring.c");
+    nob_cmd_append(&cmd, "src/allocator.slab.c");
+    nob_cmd_append(&cmd, "src/allocator.buddy.c");
     nob_cmd_append(&cmd, "-o", test_out);
     nob_cmd_append(&cmd, "-lm");
 
@@ -423,7 +481,7 @@ int main(int argc, char** argv)
     }
     else if (strcmp(subcmd, "test") == 0)
     {
-        const char* tests[] = { "math", "memory" };
+        const char* tests[] = { "math", "memory", "heap", "leak", "tracking", "arena", "pool", "stack", "block", "ring", "buddy", "slab" };
         bool all_passed = true;
 
         for (size_t i = 0; i < NOB_ARRAY_LEN(tests); i++)

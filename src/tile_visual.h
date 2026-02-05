@@ -2,7 +2,7 @@
 #define MEL_ASSETS_TILE_VISUAL_H
 
 #include "types.h"
-#include "memory.h"
+#include "allocator.fwd.h"
 #include "vk_texture.h"
 
 #define MEL_TILE_FLAG_SOLID   (1 << 0)

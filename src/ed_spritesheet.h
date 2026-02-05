@@ -2,7 +2,7 @@
 #define MEL_ED_SPRITESHEET_H
 
 #include "types.h"
-#include "memory.h"
+#include "allocator.fwd.h"
 #include "spritesheet.h"
 
 typedef struct

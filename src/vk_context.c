@@ -1,6 +1,7 @@
 #define VK_NO_PROTOTYPES
 #include "vk_context.h"
-#include "memory.h"
+#include "allocator.h"
+#include "allocator.heap.h"
 #include <string.h>
 
 #define VK_CHECK(expr) do { \
@@ -40,7 +41,7 @@ static bool check_validation_support(void)
     u32 layer_count;
     vkEnumerateInstanceLayerProperties(&layer_count, nullptr);
 
-    VkLayerProperties* layers = mel_malloc(mel_alloc_malloc(), sizeof(VkLayerProperties) * layer_count);
+    VkLayerProperties* layers = mel_alloc(mel_alloc_heap(), sizeof(VkLayerProperties) * layer_count);
     vkEnumerateInstanceLayerProperties(&layer_count, layers);
 
     bool found = false;
@@ -53,7 +54,7 @@ static bool check_validation_support(void)
         }
     }
 
-    mel_free(mel_alloc_malloc(), layers);
+    mel_dealloc(mel_alloc_heap(), layers);
     return found;
 }
 
@@ -70,7 +71,7 @@ static bool create_instance(Mel_VkContext* ctx, Mel_VkContext_Opt* opt)
 
     u32 available_ext_count = 0;
     vkEnumerateInstanceExtensionProperties(nullptr, &available_ext_count, nullptr);
-    VkExtensionProperties* available_exts = mel_malloc(mel_alloc_malloc(), sizeof(VkExtensionProperties) * available_ext_count);
+    VkExtensionProperties* available_exts = mel_alloc(mel_alloc_heap(), sizeof(VkExtensionProperties) * available_ext_count);
     vkEnumerateInstanceExtensionProperties(nullptr, &available_ext_count, available_exts);
 
     bool has_portability_enum = false;
@@ -82,7 +83,7 @@ static bool create_instance(Mel_VkContext* ctx, Mel_VkContext_Opt* opt)
             break;
         }
     }
-    mel_free(mel_alloc_malloc(), available_exts);
+    mel_dealloc(mel_alloc_heap(), available_exts);
 
     u32 sdl_ext_count = 0;
     const char* const* sdl_exts = SDL_Vulkan_GetInstanceExtensions(&sdl_ext_count);
@@ -153,7 +154,7 @@ static bool find_queue_families(Mel_VkContext* ctx, VkPhysicalDevice device, u32
     u32 count = 0;
     vkGetPhysicalDeviceQueueFamilyProperties(device, &count, nullptr);
 
-    VkQueueFamilyProperties* props = mel_malloc(mel_alloc_malloc(), sizeof(VkQueueFamilyProperties) * count);
+    VkQueueFamilyProperties* props = mel_alloc(mel_alloc_heap(), sizeof(VkQueueFamilyProperties) * count);
     vkGetPhysicalDeviceQueueFamilyProperties(device, &count, props);
 
     bool found_graphics = false;
@@ -178,7 +179,7 @@ static bool find_queue_families(Mel_VkContext* ctx, VkPhysicalDevice device, u32
         if (found_graphics && found_present) break;
     }
 
-    mel_free(mel_alloc_malloc(), props);
+    mel_dealloc(mel_alloc_heap(), props);
     return found_graphics && found_present;
 }
 
@@ -187,7 +188,7 @@ static bool check_device_extensions(VkPhysicalDevice device)
     u32 count;
     vkEnumerateDeviceExtensionProperties(device, nullptr, &count, nullptr);
 
-    VkExtensionProperties* exts = mel_malloc(mel_alloc_malloc(), sizeof(VkExtensionProperties) * count);
+    VkExtensionProperties* exts = mel_alloc(mel_alloc_heap(), sizeof(VkExtensionProperties) * count);
     vkEnumerateDeviceExtensionProperties(device, nullptr, &count, exts);
 
     bool has_swapchain = false;
@@ -200,7 +201,7 @@ static bool check_device_extensions(VkPhysicalDevice device)
         }
     }
 
-    mel_free(mel_alloc_malloc(), exts);
+    mel_dealloc(mel_alloc_heap(), exts);
     return has_swapchain;
 }
 
@@ -228,7 +229,7 @@ static bool pick_physical_device(Mel_VkContext* ctx)
     vkEnumeratePhysicalDevices(ctx->instance, &count, nullptr);
     assert(count > 0 && "No Vulkan devices found");
 
-    VkPhysicalDevice* devices = mel_malloc(mel_alloc_malloc(), sizeof(VkPhysicalDevice) * count);
+    VkPhysicalDevice* devices = mel_alloc(mel_alloc_heap(), sizeof(VkPhysicalDevice) * count);
     vkEnumeratePhysicalDevices(ctx->instance, &count, devices);
 
     i32 best_score = -1;
@@ -244,7 +245,7 @@ static bool pick_physical_device(Mel_VkContext* ctx)
         }
     }
 
-    mel_free(mel_alloc_malloc(), devices);
+    mel_dealloc(mel_alloc_heap(), devices);
 
     if (best_device == VK_NULL_HANDLE)
     {

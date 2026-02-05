@@ -95,7 +95,7 @@ We never define a MAX_* constant to create an array lazily. if it needs to be dy
 ## MEL-X-001: memory
 
 Every allocation should go through the allocator interface that is exposed inside allocator.h
-Never call the allocator directly, but use mel_malloc macros (realloc, free, etc)
+Never call the allocator directly, but use mel_alloc macros (realloc, dealloc, calloc, etc)
 You should never create an allocator directly, instead using the apposite function
 
 ## MEL-X-002: compiler

@@ -52,14 +52,14 @@ void mel_ed_tiles_shutdown(Mel_EdTiles* ed)
 
     if (ed->brush.current.tiles)
     {
-        mel_free(ed->alloc, ed->brush.current.tiles);
+        mel_dealloc(ed->alloc, ed->brush.current.tiles);
     }
 
     for (u32 i = 0; i < ed->brush.history_count; i++)
     {
         if (ed->brush.history[i].tiles)
         {
-            mel_free(ed->alloc, ed->brush.history[i].tiles);
+            mel_dealloc(ed->alloc, ed->brush.history[i].tiles);
         }
     }
 
@@ -494,11 +494,11 @@ static void draw_brush_panel(Mel_EdTiles* ed)
             {
                 if (ed->brush.current.tiles)
                 {
-                    mel_free(ed->alloc, ed->brush.current.tiles);
+                    mel_dealloc(ed->alloc, ed->brush.current.tiles);
                 }
 
                 u32 count = ed->brush.history[i].width * ed->brush.history[i].height;
-                ed->brush.current.tiles = mel_malloc(ed->alloc, count * sizeof(i32));
+                ed->brush.current.tiles = mel_alloc(ed->alloc, count * sizeof(i32));
                 memcpy(ed->brush.current.tiles, ed->brush.history[i].tiles, count * sizeof(i32));
                 ed->brush.current.width = ed->brush.history[i].width;
                 ed->brush.current.height = ed->brush.history[i].height;
@@ -635,7 +635,7 @@ static void draw_tilemap_panel(Mel_EdTiles* ed)
                         if (strlen(ed->tile_visual_path) > 0)
                         {
                             usize len = strlen(ed->tile_visual_path) + 1;
-                            char* dup = mel_malloc(tilemap->alloc, len);
+                            char* dup = mel_alloc(tilemap->alloc, len);
                             memcpy(dup, ed->tile_visual_path, len);
                             tilemap->tile_visual_path = dup;
                         }
@@ -954,9 +954,9 @@ static void draw_layer_panel(Mel_EdTiles* ed)
                 {
                     if (strlen(ed->rename_layer_buffer) > 0)
                     {
-                        if (layer->name) mel_free(ed->tilemap->alloc, (void*)layer->name);
+                        if (layer->name) mel_dealloc(ed->tilemap->alloc, (void*)layer->name);
                         usize len = strlen(ed->rename_layer_buffer) + 1;
-                        char* dup = mel_malloc(ed->tilemap->alloc, len);
+                        char* dup = mel_alloc(ed->tilemap->alloc, len);
                         memcpy(dup, ed->rename_layer_buffer, len);
                         layer->name = dup;
                         ed->dirty = true;
@@ -1186,10 +1186,10 @@ void mel_ed_tiles_brush_set_single(Mel_EdTiles* ed, i32 tile_id)
     if (ed->brush.current.tiles)
     {
         mel_ed_tiles_brush_push_history(ed);
-        mel_free(ed->alloc, ed->brush.current.tiles);
+        mel_dealloc(ed->alloc, ed->brush.current.tiles);
     }
 
-    ed->brush.current.tiles = mel_malloc(ed->alloc, sizeof(i32));
+    ed->brush.current.tiles = mel_alloc(ed->alloc, sizeof(i32));
     ed->brush.current.tiles[0] = tile_id;
     ed->brush.current.width = 1;
     ed->brush.current.height = 1;
@@ -1216,10 +1216,10 @@ void mel_ed_tiles_brush_from_selection(Mel_EdTiles* ed)
     if (ed->brush.current.tiles)
     {
         mel_ed_tiles_brush_push_history(ed);
-        mel_free(ed->alloc, ed->brush.current.tiles);
+        mel_dealloc(ed->alloc, ed->brush.current.tiles);
     }
 
-    ed->brush.current.tiles = mel_malloc(ed->alloc, width * height * sizeof(i32));
+    ed->brush.current.tiles = mel_alloc(ed->alloc, width * height * sizeof(i32));
     ed->brush.current.width = width;
     ed->brush.current.height = height;
     ed->brush.flip_h = false;
@@ -1251,7 +1251,7 @@ void mel_ed_tiles_brush_push_history(Mel_EdTiles* ed)
     {
         if (ed->brush.history[MEL_ED_TILES_BRUSH_HISTORY_SIZE - 1].tiles)
         {
-            mel_free(ed->alloc, ed->brush.history[MEL_ED_TILES_BRUSH_HISTORY_SIZE - 1].tiles);
+            mel_dealloc(ed->alloc, ed->brush.history[MEL_ED_TILES_BRUSH_HISTORY_SIZE - 1].tiles);
         }
         for (u32 i = MEL_ED_TILES_BRUSH_HISTORY_SIZE - 1; i > 0; i--)
         {
@@ -1268,7 +1268,7 @@ void mel_ed_tiles_brush_push_history(Mel_EdTiles* ed)
     }
 
     u32 count = ed->brush.current.width * ed->brush.current.height;
-    ed->brush.history[0].tiles = mel_malloc(ed->alloc, count * sizeof(i32));
+    ed->brush.history[0].tiles = mel_alloc(ed->alloc, count * sizeof(i32));
     memcpy(ed->brush.history[0].tiles, ed->brush.current.tiles, count * sizeof(i32));
     ed->brush.history[0].width = ed->brush.current.width;
     ed->brush.history[0].height = ed->brush.current.height;
@@ -1331,7 +1331,7 @@ void mel_ed_tiles_brush_rotate_cw(Mel_EdTiles* ed)
     u32 new_w = old_h;
     u32 new_h = old_w;
 
-    i32* new_tiles = mel_malloc(ed->alloc, new_w * new_h * sizeof(i32));
+    i32* new_tiles = mel_alloc(ed->alloc, new_w * new_h * sizeof(i32));
 
     for (u32 y = 0; y < old_h; y++)
     {
@@ -1343,7 +1343,7 @@ void mel_ed_tiles_brush_rotate_cw(Mel_EdTiles* ed)
         }
     }
 
-    mel_free(ed->alloc, ed->brush.current.tiles);
+    mel_dealloc(ed->alloc, ed->brush.current.tiles);
     ed->brush.current.tiles = new_tiles;
     ed->brush.current.width = new_w;
     ed->brush.current.height = new_h;
@@ -1408,7 +1408,7 @@ void mel_ed_tiles_fill(Mel_EdTiles* ed, i32 x, i32 y)
 
     u32 map_size = ed->tilemap->width * ed->tilemap->height;
     bool* visited = mel_calloc(ed->alloc, map_size * sizeof(bool));
-    i32* stack = mel_malloc(ed->alloc, map_size * 2 * sizeof(i32));
+    i32* stack = mel_alloc(ed->alloc, map_size * 2 * sizeof(i32));
     u32 stack_size = 0;
 
     stack[stack_size++] = x;
@@ -1451,6 +1451,6 @@ void mel_ed_tiles_fill(Mel_EdTiles* ed, i32 x, i32 y)
         stack[stack_size++] = cy - 1;
     }
 
-    mel_free(ed->alloc, stack);
-    mel_free(ed->alloc, visited);
+    mel_dealloc(ed->alloc, stack);
+    mel_dealloc(ed->alloc, visited);
 }

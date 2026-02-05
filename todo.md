@@ -2,8 +2,8 @@
 -- need to add the string type everywhere a string is needed
 - fix leaks
 - remove that extremely ugly main/melody/game indirection. that serves only as not really understanding stuff. it's better to add "mainloop" files
-- remove allocator.h, we will be EXPLICIT about the kind of allocator we need and use
-- [CORE] delete memory.h (keep allocator.h as the source of truth)
+- [DONE] allocator system fully modularized (arena, pool, stack, block, ring, slab, buddy)
+- [DONE] memory.h deleted, allocator.h is the generic interface
 - [CORE] fix string macros in str.h (fix lengthof usage on pointers)
 - [CORE] implement stacktrace capturing for every allocation (debug mode)
 - [CORE] implement crash handler (intercept signals, save state, dump stacktrace)
