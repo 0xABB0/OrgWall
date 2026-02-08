@@ -3,6 +3,13 @@
 #include <SDL3/SDL_main.h>
 #include <tracy/TracyC.h>
 #include <stdlib.h>
+#include <string.h>
+
+#define CIMGUI_USE_SDL3
+#define CIMGUI_USE_VULKAN
+#include <volk.h>
+#include <cimgui/cimgui.h>
+#include <cimgui/cimgui_impl.h>
 
 #include "app.h"
 #include "engine.h"
@@ -23,6 +30,16 @@
 #include "texture.h"
 #include "asset_registry.h"
 #include "editor.h"
+#include "editor.registry.h"
+#include "ed_tiles.h"
+#include "ed_spritesheet.h"
+#include "ed_entities.h"
+#include "ecs.2d.transform.h"
+#include "ecs.2d.sprite.h"
+#include "ecs.2d.collider.h"
+#include "player.h"
+#include "npc.h"
+#include "wall.h"
 
 #define FIXED_DT (1.0f / 60.0f)
 #define MAX_FRAME_TIME 0.25f
@@ -41,7 +58,8 @@ static bool s_should_quit;
 static bool s_resize_requested;
 
 static Mel_AssetRegistry s_asset_registry;
-static Mel_Editor s_editor;
+static Mel_EdRegistry s_ed_registry;
+static Mel_GameEditor s_game_editor;
 static Mel_Assets s_assets;
 static Mel_VkShader s_shader;
 static Mel_VkPipeline s_pipeline;
@@ -53,6 +71,13 @@ static Mel_Game s_game;
 
 static Mel_WPanel s_dialogue_box;
 static Mel_WLabel s_dialogue_label;
+
+static VkDescriptorPool s_imgui_pool;
+static bool s_imgui_initialized;
+
+static Mel_EdEntities* s_ed_entities;
+static Mel_EdTiles* s_ed_tiles;
+static Mel_EdSpritesheet* s_ed_spritesheet;
 
 static const char* SHADER_SOURCE =
 "struct VSInput\n"
@@ -94,6 +119,247 @@ static const char* SHADER_SOURCE =
 "{\n"
 "    return tex.Sample(input.texcoord) * input.color;\n"
 "}\n";
+
+static bool imgui_init(SDL_Window* window, Mel_VkContext* vk, Mel_VkSwapchain* swapchain)
+{
+    VkDescriptorPoolSize pool_sizes[] = {
+        { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 100 },
+    };
+
+    VkDescriptorPoolCreateInfo pool_info = {
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+        .flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT,
+        .maxSets = 100,
+        .poolSizeCount = 1,
+        .pPoolSizes = pool_sizes,
+    };
+
+    if (vkCreateDescriptorPool(vk->device, &pool_info, nullptr, &s_imgui_pool) != VK_SUCCESS)
+    {
+        SDL_Log("Failed to create ImGui descriptor pool");
+        return false;
+    }
+
+    igCreateContext(nullptr);
+
+    ImGuiIO* io = igGetIO_Nil();
+    io->ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+    io->ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
+    io->ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+
+    igStyleColorsDark(nullptr);
+
+    ImGuiStyle* style = igGetStyle();
+    if (io->ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
+    {
+        style->WindowRounding = 0.0f;
+        style->Colors[ImGuiCol_WindowBg].w = 1.0f;
+    }
+
+    ImGui_ImplSDL3_InitForVulkan(window);
+
+    VkPipelineRenderingCreateInfoKHR rendering_info = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO_KHR,
+        .colorAttachmentCount = 1,
+        .pColorAttachmentFormats = &swapchain->format,
+    };
+
+    ImGui_ImplVulkan_InitInfo init_info = {
+        .ApiVersion = VK_API_VERSION_1_3,
+        .Instance = vk->instance,
+        .PhysicalDevice = vk->physical_device,
+        .Device = vk->device,
+        .QueueFamily = vk->graphics_family,
+        .Queue = vk->graphics_queue,
+        .DescriptorPool = s_imgui_pool,
+        .MinImageCount = 2,
+        .ImageCount = swapchain->image_count,
+        .UseDynamicRendering = true,
+        .PipelineInfoMain = {
+            .PipelineRenderingCreateInfo = rendering_info,
+        },
+    };
+
+    ImGui_ImplVulkan_Init(&init_info);
+
+    s_imgui_initialized = true;
+    SDL_Log("ImGui initialized");
+    return true;
+}
+
+static void imgui_shutdown(Mel_VkContext* vk)
+{
+    if (!s_imgui_initialized) return;
+
+    vkDeviceWaitIdle(vk->device);
+
+    ImGui_ImplVulkan_Shutdown();
+    ImGui_ImplSDL3_Shutdown();
+    igDestroyContext(nullptr);
+
+    if (s_imgui_pool)
+    {
+        vkDestroyDescriptorPool(vk->device, s_imgui_pool, nullptr);
+        s_imgui_pool = VK_NULL_HANDLE;
+    }
+
+    s_imgui_initialized = false;
+    SDL_Log("ImGui shutdown");
+}
+
+static void imgui_process_event(SDL_Event* event)
+{
+    if (!s_imgui_initialized) return;
+    ImGui_ImplSDL3_ProcessEvent(event);
+}
+
+static void imgui_begin_frame(void)
+{
+    if (!s_imgui_initialized) return;
+
+    ImGui_ImplVulkan_NewFrame();
+    ImGui_ImplSDL3_NewFrame();
+    igNewFrame();
+}
+
+static void imgui_end_frame(VkCommandBuffer cmd)
+{
+    if (!s_imgui_initialized) return;
+
+    igRender();
+    ImGui_ImplVulkan_RenderDrawData(igGetDrawData(), cmd, VK_NULL_HANDLE);
+
+    ImGuiIO* io = igGetIO_Nil();
+    if (io->ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
+    {
+        igUpdatePlatformWindows();
+        igRenderPlatformWindowsDefault(nullptr, nullptr);
+    }
+}
+
+static void ed_entities_draw_wrapper(void* instance, f32 dt)
+{
+    mel_ed_entities_draw((Mel_EdEntities*)instance, dt);
+}
+
+static void ed_entities_shutdown_wrapper(void* instance)
+{
+    mel_ed_entities_shutdown((Mel_EdEntities*)instance);
+    mel_dealloc(&s_allocator, instance);
+}
+
+static void ed_tiles_draw_wrapper(void* instance, f32 dt)
+{
+    MEL_UNUSED(dt);
+    mel_ed_tiles_draw((Mel_EdTiles*)instance);
+}
+
+static void ed_tiles_shutdown_wrapper(void* instance)
+{
+    mel_ed_tiles_shutdown((Mel_EdTiles*)instance);
+    mel_dealloc(&s_allocator, instance);
+}
+
+static void ed_spritesheet_draw_wrapper(void* instance, f32 dt)
+{
+    Mel_EdSpritesheet* ed = (Mel_EdSpritesheet*)instance;
+
+    if (!ed->spritesheet)
+    {
+        igText("Create a new spritesheet:");
+        igSeparator();
+
+        igInputText("Name##newspritesheet", ed->name_buffer,
+            sizeof(ed->name_buffer), 0, nullptr, nullptr);
+
+        igText("Texture:");
+        const char* tex_label = strlen(ed->texture_path_buffer) > 0 ?
+            ed->texture_path_buffer : "(select texture)";
+        if (igBeginCombo("##spritesheettexture", tex_label, 0))
+        {
+            if (ed->asset_registry)
+            {
+                u32 tex_count = mel_asset_registry_texture_count(ed->asset_registry);
+                for (u32 i = 0; i < tex_count; i++)
+                {
+                    const char* path = mel_asset_registry_texture_path(ed->asset_registry, i);
+                    bool selected = strcmp(path, ed->texture_path_buffer) == 0;
+                    if (igSelectable_Bool(path, selected, 0, (ImVec2){0, 0}))
+                    {
+                        strncpy(ed->texture_path_buffer, path,
+                            sizeof(ed->texture_path_buffer) - 1);
+                    }
+                }
+                if (tex_count == 0)
+                {
+                    igTextDisabled("No textures loaded");
+                }
+            }
+            igEndCombo();
+        }
+        igSameLine(0, 10);
+        if (igButton("Browse##spritesheetbrowse", (ImVec2){60, 0}))
+        {
+            mel_game_editor_show_texture_picker(&s_game_editor,
+                (Mel_TexturePickerCallback)nullptr, nullptr);
+        }
+
+        igSeparator();
+
+        bool can_create = ed->asset_registry != nullptr &&
+                          strlen(ed->name_buffer) > 0 &&
+                          strlen(ed->texture_path_buffer) > 0;
+
+        if (!can_create) igBeginDisabled(true);
+        if (igButton("Create Spritesheet", (ImVec2){150, 30}))
+        {
+            Mel_Spritesheet* sheet = mel_asset_registry_create_spritesheet(
+                ed->asset_registry,
+                ed->name_buffer,
+                ed->texture_path_buffer);
+
+            if (sheet)
+            {
+                mel_ed_spritesheet_set(ed, sheet);
+                SDL_Log("Created spritesheet: %s", sheet->name);
+            }
+            else
+            {
+                SDL_Log("Failed to create spritesheet");
+            }
+        }
+        if (!can_create) igEndDisabled();
+    }
+    else
+    {
+        mel_ed_spritesheet_draw(ed, dt);
+
+        igSeparator();
+
+        igInputText("Save Path##spritesheet", ed->save_path_buffer,
+            sizeof(ed->save_path_buffer), 0, nullptr, nullptr);
+        igSameLine(0, 10);
+
+        if (igButton("Save Spritesheet", (ImVec2){120, 0}))
+        {
+            if (strlen(ed->save_path_buffer) > 0 && ed->asset_registry)
+            {
+                if (mel_asset_registry_save_spritesheet(ed->asset_registry,
+                    ed->spritesheet, ed->save_path_buffer))
+                {
+                    ed->dirty = false;
+                    SDL_Log("Saved spritesheet to: %s", ed->save_path_buffer);
+                }
+            }
+        }
+    }
+}
+
+static void ed_spritesheet_shutdown_wrapper(void* instance)
+{
+    mel_ed_spritesheet_shutdown((Mel_EdSpritesheet*)instance);
+    mel_dealloc(&s_allocator, instance);
+}
 
 static void on_init(void)
 {
@@ -178,24 +444,60 @@ static void on_init(void)
     mel_asset_registry_init(&s_asset_registry, &s_vk, &s_pipeline, &s_allocator);
     mel_asset_registry_scan_directory(&s_asset_registry, nullptr);
 
-    if (!mel_editor_init(&s_editor,
-        .window = s_window,
-        .vk = &s_vk,
-        .swapchain = &s_swapchain,
-        .alloc = &s_allocator))
+    if (!imgui_init(s_window, &s_vk, &s_swapchain))
     {
-        SDL_Log("Failed to init editor!");
+        SDL_Log("Failed to init ImGui!");
     }
 
-    mel_editor_set_ecs_world(&s_editor, s_game.ecs.world);
-    mel_editor_set_asset_registry(&s_editor, &s_asset_registry);
+    mel_ed_registry_init(&s_ed_registry, .alloc = &s_allocator);
+
+    s_ed_entities = mel_alloc_type(&s_allocator, Mel_EdEntities);
+    mel_ed_entities_init(s_ed_entities, &s_allocator);
+    mel_ed_entities_set_world(s_ed_entities, s_game.ecs.world);
+    mel_ed_entities_register_inspector(s_ed_entities, mel_ed_transform_draw);
+    mel_ed_entities_register_inspector(s_ed_entities, mel_editor_sprite);
+    mel_ed_entities_register_inspector(s_ed_entities, mel_ed_collider_draw);
+    mel_ed_entities_register_inspector(s_ed_entities, mel_ed_player_draw);
+    mel_ed_entities_register_inspector(s_ed_entities, mel_ed_npc_draw);
+    mel_ed_entities_register_inspector(s_ed_entities, mel_ed_wall_draw);
+    mel_ed_registry_add(&s_ed_registry,
+        .name = "Entity Editor",
+        .data = s_ed_entities,
+        .draw = ed_entities_draw_wrapper,
+        .shutdown = ed_entities_shutdown_wrapper);
+
+    s_ed_tiles = mel_alloc_type(&s_allocator, Mel_EdTiles);
+    mel_ed_tiles_init(s_ed_tiles, &s_allocator);
+    mel_ed_tiles_set_registry(s_ed_tiles, &s_asset_registry);
+
+    s_ed_spritesheet = mel_alloc_type(&s_allocator, Mel_EdSpritesheet);
+    mel_ed_spritesheet_init(s_ed_spritesheet, &s_allocator);
+    s_ed_spritesheet->asset_registry = &s_asset_registry;
+
+    mel_game_editor_init(&s_game_editor, &s_ed_registry, &s_asset_registry, s_window);
 
     SDL_Log("Game ready! WASD to move, E to interact with NPC, F1 for editor");
 }
 
 static void on_shutdown(void)
 {
-    mel_editor_shutdown(&s_editor, &s_vk);
+    mel_game_editor_shutdown(&s_game_editor);
+    mel_ed_registry_shutdown(&s_ed_registry);
+
+    if (s_ed_tiles)
+    {
+        mel_ed_tiles_shutdown(s_ed_tiles);
+        mel_dealloc(&s_allocator, s_ed_tiles);
+        s_ed_tiles = nullptr;
+    }
+    if (s_ed_spritesheet)
+    {
+        mel_ed_spritesheet_shutdown(s_ed_spritesheet);
+        mel_dealloc(&s_allocator, s_ed_spritesheet);
+        s_ed_spritesheet = nullptr;
+    }
+
+    imgui_shutdown(&s_vk);
     mel_asset_registry_shutdown(&s_asset_registry);
     mel_widget_destroy(&s_dialogue_box.base);
     mel_game_shutdown(&s_game);
@@ -211,16 +513,17 @@ static void on_shutdown(void)
 
 static void on_event(SDL_Event* event)
 {
-    mel_editor_process_event(&s_editor, event);
+    imgui_process_event(event);
 
     if (event->type == SDL_EVENT_KEY_DOWN && !event->key.repeat)
     {
         if (event->key.scancode == SDL_SCANCODE_F1)
         {
-            mel_editor_toggle(&s_editor);
+            mel_game_editor_toggle(&s_game_editor);
         }
     }
 
+    mel_ed_registry_process_event(&s_ed_registry, event);
     mel_game_handle_event(&s_game, event);
 }
 
@@ -264,8 +567,14 @@ static void on_render(f32 alpha)
 
     mel_sprite_batch_end(&s_batch, &s_vk, cmd, &proj);
 
-    mel_editor_begin_frame(&s_editor, s_frame_dt);
-    mel_editor_end_frame(&s_editor, cmd);
+    TracyCZoneN(ctx_editor, "editor_frame", true);
+    if (s_game_editor.visible)
+    {
+        imgui_begin_frame();
+        mel_game_editor_draw(&s_game_editor, s_frame_dt);
+        imgui_end_frame(cmd);
+    }
+    TracyCZoneEnd(ctx_editor);
 
     TracyCZoneN(ctx_end_rendering, "end_rendering", true);
     mel_vk_swapchain_end_rendering(&s_swapchain, &s_vk);

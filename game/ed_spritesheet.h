@@ -4,10 +4,12 @@
 #include "types.h"
 #include "allocator.fwd.h"
 #include "spritesheet.h"
+#include "asset_registry.h"
 
 typedef struct
 {
     const Mel_Alloc* alloc;
+    Mel_AssetRegistry* asset_registry;
     Mel_Spritesheet* spritesheet;
     i32 selected_frame;
     i32 selected_animation;
@@ -26,6 +28,8 @@ typedef struct
     f32 zoom;
     bool show_grid;
     bool dirty;
+
+    char save_path_buffer[256];
 
     bool dragging_frame;
     i32 drag_start_x;

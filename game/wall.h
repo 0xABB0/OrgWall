@@ -6,4 +6,6 @@
 extern ECS_TAG_DECLARE(Wall);
 void mel_component_wall_register(ecs_world_t* world);
 
+bool mel_ed_wall_draw(ecs_world_t* world, ecs_entity_t e);
+
 #endif

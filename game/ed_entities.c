@@ -7,18 +7,15 @@
 
 #include "ecs.2d.transform.h"
 #include "ecs.2d.sprite.h"
-#include "ecs.2d.collider.h"
-#include "player.h"
-#include "npc.h"
-#include "wall.h"
 
 #ifndef IM_COL32
 #define IM_COL32(R,G,B,A) (((ImU32)(A)<<24) | ((ImU32)(B)<<16) | ((ImU32)(G)<<8) | ((ImU32)(R)))
 #endif
 
-void mel_ed_entities_init(Mel_EdEntities* ed)
+void mel_ed_entities_init(Mel_EdEntities* ed, const Mel_Alloc* alloc)
 {
     assert(ed != nullptr);
+    assert(alloc != nullptr);
 
     *ed = (Mel_EdEntities){0};
     ed->selected_entity = 0;
@@ -27,6 +24,7 @@ void mel_ed_entities_init(Mel_EdEntities* ed)
     ed->refresh_interval = 0.5f;
     ed->active_query = nullptr;
     strcpy(ed->query_buffer, "Mel_CTransform");
+    mel_array_init(&ed->inspectors, alloc);
 }
 
 void mel_ed_entities_shutdown(Mel_EdEntities* ed)
@@ -39,7 +37,16 @@ void mel_ed_entities_shutdown(Mel_EdEntities* ed)
         ed->active_query = nullptr;
     }
 
+    mel_array_free(&ed->inspectors);
     ed->world = nullptr;
+}
+
+void mel_ed_entities_register_inspector(Mel_EdEntities* ed, Mel_ComponentInspector_Fn fn)
+{
+    assert(ed != nullptr);
+    assert(fn != nullptr);
+
+    mel_array_push(&ed->inspectors, fn);
 }
 
 void mel_ed_entities_set_world(Mel_EdEntities* ed, ecs_world_t* world)
@@ -235,20 +242,9 @@ static void draw_entity_inspector(Mel_EdEntities* ed)
 
     if (igBeginChild_Str("Components", (ImVec2){0, 0}, ImGuiChildFlags_Borders, 0))
     {
-        mel_ed_transform_draw(ed->world, e);
-        mel_editor_sprite(ed->world, e);
-        mel_ed_player_draw(ed->world, e);
-        mel_ed_npc_draw(ed->world, e);
-        mel_ed_collider_draw(ed->world, e);
-
-        if (ecs_has(ed->world, e, Wall))
+        for (usize i = 0; i < ed->inspectors.count; i++)
         {
-            if (igCollapsingHeader_TreeNodeFlags("Wall (Tag)", ImGuiTreeNodeFlags_DefaultOpen))
-            {
-                igIndent(10);
-                igTextDisabled("This entity is a wall");
-                igUnindent(10);
-            }
+            ed->inspectors.items[i](ed->world, e);
         }
 
         const ecs_type_t* type = ecs_get_type(ed->world, e);
