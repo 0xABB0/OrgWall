@@ -32,6 +32,8 @@ MEL_TEST(tracking_single_alloc_free)
 
     mel_dealloc(&alloc, ptr);
     MEL_ASSERT_EQ(t.free_count, (u64)1);
+    MEL_ASSERT_EQ(t.total_freed, sizeof(i32));
+    MEL_ASSERT_EQ(t.current_usage, (usize)0);
     MEL_PASS();
 }
 
@@ -47,12 +49,17 @@ MEL_TEST(tracking_multiple_allocs)
 
     MEL_ASSERT_EQ(t.alloc_count, (u64)3);
     MEL_ASSERT_EQ(t.total_allocated, sizeof(i32) * 3);
+    MEL_ASSERT_EQ(t.current_usage, sizeof(i32) * 3);
 
     mel_dealloc(&alloc, a);
+    MEL_ASSERT_EQ(t.current_usage, sizeof(i32) * 2);
     mel_dealloc(&alloc, b);
+    MEL_ASSERT_EQ(t.current_usage, sizeof(i32) * 1);
     mel_dealloc(&alloc, c);
+    MEL_ASSERT_EQ(t.current_usage, (usize)0);
 
     MEL_ASSERT_EQ(t.free_count, (u64)3);
+    MEL_ASSERT_EQ(t.total_freed, sizeof(i32) * 3);
     MEL_PASS();
 }
 
@@ -75,8 +82,15 @@ MEL_TEST(tracking_peak_usage)
     MEL_ASSERT_EQ(t.peak_usage, (usize)350);
 
     mel_dealloc(&alloc, a);
+    MEL_ASSERT_EQ(t.current_usage, (usize)250);
+    MEL_ASSERT_EQ(t.peak_usage, (usize)350);
+
     mel_dealloc(&alloc, b);
+    MEL_ASSERT_EQ(t.current_usage, (usize)50);
+
     mel_dealloc(&alloc, c);
+    MEL_ASSERT_EQ(t.current_usage, (usize)0);
+    MEL_ASSERT_EQ(t.total_freed, (usize)350);
 
     MEL_ASSERT_EQ(t.peak_usage, (usize)350);
     MEL_ASSERT_EQ(t.alloc_count, (u64)3);
@@ -93,12 +107,26 @@ MEL_TEST(tracking_realloc_counts)
     void* ptr = mel_alloc(&alloc, 32);
     MEL_ASSERT_EQ(t.alloc_count, (u64)1);
     MEL_ASSERT_EQ(t.total_allocated, (usize)32);
+    MEL_ASSERT_EQ(t.current_usage, (usize)32);
 
     ptr = mel_realloc(&alloc, ptr, 64);
     MEL_ASSERT_EQ(t.alloc_count, (u64)2);
+    MEL_ASSERT_EQ(t.free_count, (u64)1);
     MEL_ASSERT_EQ(t.total_allocated, (usize)96);
+    MEL_ASSERT_EQ(t.total_freed, (usize)32);
+    MEL_ASSERT_EQ(t.current_usage, (usize)64);
+
+    ptr = mel_realloc(&alloc, ptr, 16);
+    MEL_ASSERT_EQ(t.alloc_count, (u64)3);
+    MEL_ASSERT_EQ(t.free_count, (u64)2);
+    MEL_ASSERT_EQ(t.total_allocated, (usize)112);
+    MEL_ASSERT_EQ(t.total_freed, (usize)96);
+    MEL_ASSERT_EQ(t.current_usage, (usize)16);
+    MEL_ASSERT_EQ(t.peak_usage, (usize)64);
 
     mel_dealloc(&alloc, ptr);
+    MEL_ASSERT_EQ(t.current_usage, (usize)0);
+    MEL_ASSERT_EQ(t.total_freed, (usize)112);
     MEL_PASS();
 }
 

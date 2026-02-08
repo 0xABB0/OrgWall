@@ -45,4 +45,5 @@ void mel__app_sdl_quit(Mel_App* app, SDL_AppResult result)
     if (app && app->opt.on_shutdown)
         app->opt.on_shutdown(app);
     mel__engine_shutdown();
+    SDL_Quit();
 }

@@ -4,6 +4,12 @@
 #define BUILD_DIR "build"
 #define SUCK_DIR "/Users/gabbo/repo/suck"
 
+#define BUILD_MODE_DEBUG    0
+#define BUILD_MODE_RELEASE  1
+#define BUILD_MODE_SANITIZE 2
+
+static int g_build_mode = BUILD_MODE_DEBUG;
+
 static const char* INCLUDE_PATHS[] = {
     "-I/opt/homebrew/include",
     "-I" SUCK_DIR "/third-party",
@@ -38,7 +44,7 @@ static const char* FRAMEWORKS[] = {
     "-framework", "IOKit",
 };
 
-static const char* CFLAGS[] = {
+static const char* CFLAGS_BASE[] = {
     "-std=c23",
     "-Wall",
     "-Wextra",
@@ -47,16 +53,11 @@ static const char* CFLAGS[] = {
     "-Wno-missing-field-initializers",
     "-Wno-unused-private-field",
     "-Wno-unused-function",
-    "-DTRACY_ENABLE",
     "-DFLECS_NO_CPP",
     "-DCIMGUI_DEFINE_ENUMS_AND_STRUCTS",
-
-    "-DMEL_CONFIG_DEBUG_ALLOCATOR",
-    "-g", 
-    "-O0",
 };
 
-static const char* CXXFLAGS[] = {
+static const char* CXXFLAGS_BASE[] = {
     "-std=c++17",
     "-Wall",
     "-Wextra",
@@ -67,11 +68,59 @@ static const char* CXXFLAGS[] = {
     "-Wno-nullability-completeness",
     "-Wno-unused-function",
     "-DFLECS_NO_CPP",
-
-    "-DMEL_CONFIG_DEBUG_ALLOCATOR",
-    "-g",
-    "-O0",
 };
+
+static void cmd_append_cflags(Nob_Cmd* cmd)
+{
+    for (size_t i = 0; i < NOB_ARRAY_LEN(CFLAGS_BASE); i++)
+        nob_cmd_append(cmd, CFLAGS_BASE[i]);
+
+    if (g_build_mode == BUILD_MODE_RELEASE)
+    {
+        nob_cmd_append(cmd, "-O2", "-DNDEBUG", "-flto");
+    }
+    else if (g_build_mode == BUILD_MODE_SANITIZE)
+    {
+        nob_cmd_append(cmd, "-g", "-O0");
+        nob_cmd_append(cmd, "-DTRACY_ENABLE", "-DMEL_CONFIG_DEBUG_ALLOCATOR");
+        nob_cmd_append(cmd, "-fsanitize=address,undefined", "-fno-omit-frame-pointer");
+    }
+    else
+    {
+        nob_cmd_append(cmd, "-g", "-O0");
+        nob_cmd_append(cmd, "-DTRACY_ENABLE", "-DMEL_CONFIG_DEBUG_ALLOCATOR");
+    }
+}
+
+static void cmd_append_cxxflags(Nob_Cmd* cmd)
+{
+    for (size_t i = 0; i < NOB_ARRAY_LEN(CXXFLAGS_BASE); i++)
+        nob_cmd_append(cmd, CXXFLAGS_BASE[i]);
+
+    if (g_build_mode == BUILD_MODE_RELEASE)
+    {
+        nob_cmd_append(cmd, "-O2", "-DNDEBUG", "-flto");
+    }
+    else if (g_build_mode == BUILD_MODE_SANITIZE)
+    {
+        nob_cmd_append(cmd, "-g", "-O0");
+        nob_cmd_append(cmd, "-DMEL_CONFIG_DEBUG_ALLOCATOR");
+        nob_cmd_append(cmd, "-fsanitize=address,undefined", "-fno-omit-frame-pointer");
+    }
+    else
+    {
+        nob_cmd_append(cmd, "-g", "-O0");
+        nob_cmd_append(cmd, "-DMEL_CONFIG_DEBUG_ALLOCATOR");
+    }
+}
+
+static void cmd_append_link_flags(Nob_Cmd* cmd)
+{
+    if (g_build_mode == BUILD_MODE_RELEASE)
+        nob_cmd_append(cmd, "-flto");
+    else if (g_build_mode == BUILD_MODE_SANITIZE)
+        nob_cmd_append(cmd, "-fsanitize=address,undefined");
+}
 
 bool collect_c_files(const char* dir, Nob_File_Paths* c_files, Nob_File_Paths* cpp_files, Nob_File_Paths* m_files)
 {
@@ -203,8 +252,7 @@ bool compile_cpp_to_obj(const char* src, const char* obj, Cpp_Mode mode)
     Nob_Cmd cmd = {0};
     nob_cmd_append(&cmd, "clang++");
 
-    for (size_t i = 0; i < NOB_ARRAY_LEN(CXXFLAGS); i++)
-        nob_cmd_append(&cmd, CXXFLAGS[i]);
+    cmd_append_cxxflags(&cmd);
 
     for (size_t i = 0; i < NOB_ARRAY_LEN(INCLUDE_PATHS); i++)
         nob_cmd_append(&cmd, INCLUDE_PATHS[i]);
@@ -258,8 +306,7 @@ bool compile_c_to_obj(const char* src, const char* obj)
     Nob_Cmd cmd = {0};
     nob_cmd_append(&cmd, "clang");
 
-    for (size_t i = 0; i < NOB_ARRAY_LEN(CFLAGS); i++)
-        nob_cmd_append(&cmd, CFLAGS[i]);
+    cmd_append_cflags(&cmd);
 
     for (size_t i = 0; i < NOB_ARRAY_LEN(INCLUDE_PATHS); i++)
         nob_cmd_append(&cmd, INCLUDE_PATHS[i]);
@@ -275,8 +322,7 @@ bool compile_m_to_obj(const char* src, const char* obj)
     Nob_Cmd cmd = {0};
     nob_cmd_append(&cmd, "clang");
 
-    for (size_t i = 0; i < NOB_ARRAY_LEN(CFLAGS); i++)
-        nob_cmd_append(&cmd, CFLAGS[i]);
+    cmd_append_cflags(&cmd);
 
     nob_cmd_append(&cmd, "-fobjc-arc");
 
@@ -554,6 +600,8 @@ bool build_main(void)
         nob_cmd_append(&cmd, "-Wl,-rpath,/opt/homebrew/lib");
         nob_cmd_append(&cmd, "-Wl,-rpath," SUCK_DIR "/third-party/slang/lib");
 
+        cmd_append_link_flags(&cmd);
+
         if (!nob_cmd_run_sync(cmd)) return false;
     }
     else
@@ -671,8 +719,7 @@ bool build_test(const char* test_name)
     Nob_Cmd cmd = {0};
     nob_cmd_append(&cmd, "clang");
 
-    for (size_t i = 0; i < NOB_ARRAY_LEN(CFLAGS); i++)
-        nob_cmd_append(&cmd, CFLAGS[i]);
+    cmd_append_cflags(&cmd);
 
     for (size_t i = 0; i < NOB_ARRAY_LEN(INCLUDE_PATHS); i++)
         nob_cmd_append(&cmd, INCLUDE_PATHS[i]);
@@ -687,6 +734,9 @@ bool build_test(const char* test_name)
 
     nob_cmd_append(&cmd, "-o", test_out);
     nob_cmd_append(&cmd, "-lm");
+
+    if (g_build_mode == BUILD_MODE_SANITIZE)
+        nob_cmd_append(&cmd, "-fsanitize=address,undefined");
 
     return nob_cmd_run_sync(cmd);
 }
@@ -750,6 +800,7 @@ bool build_widget_demo(const char* demo_name)
         nob_cmd_append(&cmd, "-L/opt/homebrew/lib");
         nob_cmd_append(&cmd, "-Wl,-rpath,/opt/homebrew/lib");
         nob_cmd_append(&cmd, "-lm");
+        cmd_append_link_flags(&cmd);
 
         if (!nob_cmd_run_sync(cmd)) return false;
     }
@@ -867,6 +918,7 @@ bool build_demo(const char* demo_name)
         nob_cmd_append(&cmd, "-L/opt/homebrew/lib");
         nob_cmd_append(&cmd, "-Wl,-rpath,/opt/homebrew/lib");
         nob_cmd_append(&cmd, "-lm");
+        cmd_append_link_flags(&cmd);
 
         if (!nob_cmd_run_sync(cmd)) return false;
     }
@@ -889,7 +941,22 @@ int main(int argc, char** argv)
 
     if (!nob_mkdir_if_not_exists(BUILD_DIR)) return 1;
 
-    const char* subcmd = argc > 1 ? argv[1] : "build";
+    int arg_idx = 1;
+
+    if (arg_idx < argc && strcmp(argv[arg_idx], "release") == 0)
+    {
+        g_build_mode = BUILD_MODE_RELEASE;
+        nob_log(NOB_WARNING, "Build mode: RELEASE");
+        arg_idx++;
+    }
+    else if (arg_idx < argc && strcmp(argv[arg_idx], "sanitize") == 0)
+    {
+        g_build_mode = BUILD_MODE_SANITIZE;
+        nob_log(NOB_WARNING, "Build mode: SANITIZE (ASan + UBSan)");
+        arg_idx++;
+    }
+
+    const char* subcmd = arg_idx < argc ? argv[arg_idx] : "build";
 
     if (strcmp(subcmd, "libs") == 0)
     {
@@ -987,7 +1054,7 @@ int main(int argc, char** argv)
     else
     {
         nob_log(NOB_ERROR, "Unknown command: %s", subcmd);
-        nob_log(NOB_INFO, "Usage: ./nob [libs|build|test|demo|run|run-only|debug|clean]");
+        nob_log(NOB_INFO, "Usage: ./nob [release|sanitize] [libs|build|test|demo|run|run-only|debug|clean]");
         return 1;
     }
 

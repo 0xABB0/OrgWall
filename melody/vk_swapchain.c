@@ -7,7 +7,10 @@
 
 #define VK_CHECK(expr) do { \
     VkResult _res = (expr); \
-    assert(_res == VK_SUCCESS && #expr); \
+    if (_res != VK_SUCCESS) { \
+        SDL_Log("Vulkan error: %s returned %d", #expr, (int)_res); \
+    } \
+    assert(_res == VK_SUCCESS); \
 } while (0)
 
 static VkSurfaceFormatKHR choose_format(VkSurfaceFormatKHR* formats, u32 count)

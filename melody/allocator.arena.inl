@@ -54,7 +54,7 @@ static inline void* mel__arena_push_copy(Mel_Arena* a, void* src, usize size)
     return ptr;
 }
 
-#ifdef MEL_ALLOCATOR_ARENA_DEBUG
+#if MEL_ALLOCATOR_ARENA_DEBUG
 
 static inline void* mel__arena_push_align_tracked(Mel_Arena* a, usize size, usize align, const char* file, u32 line)
 {

@@ -9,7 +9,7 @@
     if (_res != VK_SUCCESS) { \
         SDL_Log("Vulkan error: %s returned %d", #expr, (int)_res); \
     } \
-    assert(_res == VK_SUCCESS && #expr); \
+    assert(_res == VK_SUCCESS); \
 } while (0)
 
 static VKAPI_ATTR VkBool32 VKAPI_CALL debug_callback(

@@ -11,9 +11,9 @@
 - [CORE] fix string macros in str.h (fix lengthof usage on pointers)
 - [CORE] implement stacktrace capturing for every allocation (debug mode)
 - [CORE] implement crash handler (intercept signals, save state, dump stacktrace)
-- [CORE] fix memory tracking: update current_usage/total_freed on free; account for realloc deltas (allocator.tracking)
-- [CORE] handle init failure cleanup in mel_engine_init_opt (tracking/window/vk/swapchain) and keep engine->opt defaults consistent
-- [CORE] wire crash handler + SDL_Quit into MEL_APP path; pass SDL_Event* into app event callback
+- ~~[CORE] fix memory tracking: update current\_usage/total\_freed on free; account for realloc deltas (allocator.tracking)~~ DONE
+- [CORE] handle init failure cleanup in mel\_engine\_init\_opt (tracking/window/vk/swapchain) and keep engine->opt defaults consistent
+- [CORE] wire crash handler + SDL\_Quit into MEL\_APP path; pass SDL\_Event* into app event callback
 - [CORE] harden asset registry: check realloc failures; ensure path strings are NUL-terminated
 - [CORE] stop bypassing allocator system in assets module (replace malloc/realloc/free)
 - [CORE] revisit crash handler to avoid non-signal-safe calls in signal context
@@ -26,7 +26,7 @@
     - Error Codes
     - Event Types
     - Editor Tools
-- [CORE] implement centralized engine logging system (mel_log_*) to replace raw SDL_Log/fprintf
+- [CORE] implement centralized engine logging system (mel\_log\_*) to replace raw SDL_Log/fprintf
 - [CORE] implement Windows crash handling via SEH and StackWalk64
 - [CORE] improve backtrace resolution using dladdr() and -rdynamic on Unix-like systems
 - [SYSTEM] implement basic audio system (audio.h/c)
@@ -42,9 +42,13 @@
 - [ECS] replace hardcoded entity factories with prefab/blueprint system
 - [ECS] spatial partition for physics (grid/quadtree)
 - [TEST] expand test coverage to include ECS, Asset Registry, and VFS
-- [TEST] integrate AddressSanitizer (-fsanitize=address) and UndefinedBehaviorSanitizer (-fsanitize=undefined) into nob.c
+- ~~[TEST] integrate AddressSanitizer (-fsanitize=address) and UndefinedBehaviorSanitizer (-fsanitize=undefined) into nob.c~~ DONE
 - [TEST] implement fuzz testing for custom allocators (Arena, Block, Buddy, etc.)
-- [BUILD] implement incremental builds in nob.c (timestamp checks for .o files)
-- [BUILD] add Release build configuration (optimized, tracy-disabled, NDEBUG) to nob.c
+- ~~[BUILD] implement incremental builds in nob.c (timestamp checks for .o files)~~ DONE
+- ~~[BUILD] add Release build configuration (optimized, tracy-disabled, NDEBUG) to nob.c~~ DONE (note: VK_CHECK macro needs fixing for -DNDEBUG)
 - [BUILD] use pkg-config or config file to remove hardcoded paths in nob.c
 - ~~rename all ".config.h" to ".cfg.h"~~ DONE
+
+
+- [DEMO] make a demo with a ton of animated sprites (same atlas, different frame, different parameters - size, direction, tint)
+- [DEMO] demos should change their naming as demo.\* (not demo_*) and we'd need to change the various demos naming to explicitly show what they're demoing (example: demo.native.hello.\*)

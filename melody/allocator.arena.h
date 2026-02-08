@@ -24,7 +24,7 @@ typedef struct Mel_Arena_Scratch {
 void  mel_arena_init(Mel_Arena* arena, void* buffer, usize size);
 void  mel_arena_reset(Mel_Arena* arena);
 
-#ifdef MEL_ALLOCATOR_ARENA_DEBUG
+#if MEL_ALLOCATOR_ARENA_DEBUG
 
 # define mel_arena_push(arena, size) mel__arena_push_tracked(arena, size, __FILE__, __LINE__)
 # define mel_arena_push_align(arena, size, align) mel__arena_push_align_tracked(arena, size, align, __FILE__, __LINE__)
