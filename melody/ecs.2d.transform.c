@@ -1,4 +1,4 @@
-#include "transform.h"
+#include "ecs.2d.transform.h"
 
 ECS_COMPONENT_DECLARE(Mel_CTransform);
 

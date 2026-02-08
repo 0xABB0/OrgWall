@@ -1,4 +1,4 @@
-#include "collider.h"
+#include "ecs.2d.collider.h"
 
 ECS_COMPONENT_DECLARE(Mel_CCollider);
 

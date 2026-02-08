@@ -4,6 +4,192 @@
 #include <tracy/TracyC.h>
 
 static ecs_query_t* s_draw_query = nullptr;
+static ecs_query_t* s_collider_query = nullptr;
+
+static bool aabb_overlap(Mel_Vec2 a_pos, Mel_Vec2 a_size, Mel_Vec2 b_pos, Mel_Vec2 b_size)
+{
+    return a_pos.x < b_pos.x + b_size.x &&
+           a_pos.x + a_size.x > b_pos.x &&
+           a_pos.y < b_pos.y + b_size.y &&
+           a_pos.y + a_size.y > b_pos.y;
+}
+
+static bool would_collide(ecs_world_t* world, ecs_entity_t self, Mel_Vec2 new_pos, Mel_Vec2 size)
+{
+    if (!s_collider_query)
+    {
+        s_collider_query = ecs_query(world, {
+            .terms = {
+                { .id = ecs_id(Mel_CTransform) },
+                { .id = ecs_id(Mel_CCollider) }
+            }
+        });
+    }
+
+    bool collided = false;
+
+    ecs_iter_t it = ecs_query_iter(world, s_collider_query);
+    while (ecs_query_next(&it))
+    {
+        Mel_CTransform* t = ecs_field(&it, Mel_CTransform, 0);
+        Mel_CCollider* c = ecs_field(&it, Mel_CCollider, 1);
+
+        for (int i = 0; i < it.count; i++)
+        {
+            if (it.entities[i] == self) continue;
+
+            if (aabb_overlap(new_pos, size, t[i].pos, c[i].size))
+            {
+                collided = true;
+                break;
+            }
+        }
+
+        if (collided)
+        {
+            ecs_iter_fini(&it);
+            break;
+        }
+    }
+
+    return collided;
+}
+
+static void system_player_input(ecs_iter_t* it)
+{
+    Mel_CTransform* t = ecs_field(it, Mel_CTransform, 0);
+    Mel_CPlayer* p = ecs_field(it, Mel_CPlayer, 1);
+
+    for (int i = 0; i < it->count; i++)
+    {
+        Mel_Vec2 move = mel_vec2(0, 0);
+
+        if (p[i].input_up) move.y -= 1.0f;
+        if (p[i].input_down) move.y += 1.0f;
+        if (p[i].input_left) move.x -= 1.0f;
+        if (p[i].input_right) move.x += 1.0f;
+
+        f32 len_sq = move.x * move.x + move.y * move.y;
+        if (len_sq > 0.0f)
+        {
+            f32 len = sqrtf(len_sq);
+            move.x /= len;
+            move.y /= len;
+        }
+
+        t[i].vel.x = move.x * p[i].speed;
+        t[i].vel.y = move.y * p[i].speed;
+    }
+}
+
+static void system_movement(ecs_iter_t* it)
+{
+    Mel_CTransform* t = ecs_field(it, Mel_CTransform, 0);
+    Mel_CCollider* c = ecs_field(it, Mel_CCollider, 1);
+
+    for (int i = 0; i < it->count; i++)
+    {
+        if (t[i].vel.x == 0.0f && t[i].vel.y == 0.0f) continue;
+
+        Mel_Vec2 new_pos_x = mel_vec2(
+            t[i].pos.x + t[i].vel.x * it->delta_time,
+            t[i].pos.y
+        );
+
+        if (!would_collide(it->world, it->entities[i], new_pos_x, c[i].size))
+        {
+            t[i].pos.x = new_pos_x.x;
+        }
+
+        Mel_Vec2 new_pos_y = mel_vec2(
+            t[i].pos.x,
+            t[i].pos.y + t[i].vel.y * it->delta_time
+        );
+
+        if (!would_collide(it->world, it->entities[i], new_pos_y, c[i].size))
+        {
+            t[i].pos.y = new_pos_y.y;
+        }
+    }
+}
+
+static ecs_entity_t create_player(ecs_world_t* world, Mel_Vec2 pos, f32 speed)
+{
+    ecs_entity_t e = ecs_new(world);
+
+    ecs_set(world, e, Mel_CTransform, {
+        .pos = pos,
+        .vel = mel_vec2(0, 0)
+    });
+
+    ecs_set(world, e, Mel_Sprite, {
+        .size = mel_vec2(32, 32),
+        .color = mel_vec4(0.9f, 0.2f, 0.2f, 1.0f)
+    });
+
+    ecs_set(world, e, Mel_CPlayer, {
+        .speed = speed,
+        .input_up = false,
+        .input_down = false,
+        .input_left = false,
+        .input_right = false
+    });
+
+    ecs_set(world, e, Mel_CCollider, {
+        .size = mel_vec2(32, 32)
+    });
+
+    return e;
+}
+
+static ecs_entity_t create_npc(ecs_world_t* world, Mel_Vec2 pos, const char* dialogue)
+{
+    ecs_entity_t e = ecs_new(world);
+
+    ecs_set(world, e, Mel_CTransform, {
+        .pos = pos,
+        .vel = mel_vec2(0, 0)
+    });
+
+    ecs_set(world, e, Mel_Sprite, {
+        .size = mel_vec2(32, 32),
+        .color = mel_vec4(0.2f, 0.4f, 0.9f, 1.0f)
+    });
+
+    ecs_set(world, e, Mel_CNPC, {
+        .dialogue = dialogue,
+        .interact_radius = 50.0f
+    });
+
+    ecs_set(world, e, Mel_CCollider, {
+        .size = mel_vec2(32, 32)
+    });
+
+    return e;
+}
+
+static ecs_entity_t create_wall(ecs_world_t* world, Mel_Vec2 pos, Mel_Vec2 size)
+{
+    ecs_entity_t e = ecs_new(world);
+
+    ecs_set(world, e, Mel_CTransform, {
+        .pos = pos,
+        .vel = mel_vec2(0, 0)
+    });
+
+    ecs_set(world, e, Mel_Sprite, {
+        .size = size,
+        .color = mel_vec4(0.4f, 0.4f, 0.45f, 1.0f)
+    });
+
+    ecs_set(world, e, Mel_CCollider, {
+        .size = size
+    });
+
+    ecs_add(world, e, Wall);
+
+    return e;
+}
 
 void mel_game_init(Mel_Game* game)
 {
@@ -12,22 +198,60 @@ void mel_game_init(Mel_Game* game)
     *game = (Mel_Game){0};
 
     mel_ecs_init(&game->ecs);
+    ecs_world_t* world = game->ecs.world;
 
-    game->player = mel_ecs_create_player(&game->ecs, mel_vec2(100, 100), 200.0f);
-    game->npc = mel_ecs_create_npc(&game->ecs, mel_vec2(300, 200), "Hello! I am an NPC.\nPress E to close.");
+    mel_component_transform_register(world);
+    mel_component_sprite_register(world);
+    mel_component_player_register(world);
+    mel_component_npc_register(world);
+    mel_component_collider_register(world);
+    mel_component_wall_register(world);
 
-    mel_ecs_create_wall(&game->ecs, mel_vec2(0, 0), mel_vec2(640, 16));
-    mel_ecs_create_wall(&game->ecs, mel_vec2(0, 464), mel_vec2(640, 16));
-    mel_ecs_create_wall(&game->ecs, mel_vec2(0, 0), mel_vec2(16, 480));
-    mel_ecs_create_wall(&game->ecs, mel_vec2(624, 0), mel_vec2(16, 480));
+    ecs_system(world, {
+        .entity = ecs_entity(world, {
+            .name = "PlayerInput",
+            .add = ecs_ids(ecs_dependson(EcsOnUpdate))
+        }),
+        .query.terms = {
+            { .id = ecs_id(Mel_CTransform) },
+            { .id = ecs_id(Mel_CPlayer) }
+        },
+        .callback = system_player_input
+    });
 
-    const Mel_CNPC* npc_data = ecs_get(game->ecs.world, game->npc, Mel_CNPC);
+    ecs_system(world, {
+        .entity = ecs_entity(world, {
+            .name = "Movement",
+            .add = ecs_ids(ecs_dependson(EcsOnUpdate))
+        }),
+        .query.terms = {
+            { .id = ecs_id(Mel_CTransform) },
+            { .id = ecs_id(Mel_CCollider) }
+        },
+        .callback = system_movement
+    });
+
+    game->player = create_player(world, mel_vec2(100, 100), 200.0f);
+    game->npc = create_npc(world, mel_vec2(300, 200), "Hello! I am an NPC.\nPress E to close.");
+
+    create_wall(world, mel_vec2(0, 0), mel_vec2(640, 16));
+    create_wall(world, mel_vec2(0, 464), mel_vec2(640, 16));
+    create_wall(world, mel_vec2(0, 0), mel_vec2(16, 480));
+    create_wall(world, mel_vec2(624, 0), mel_vec2(16, 480));
+
+    const Mel_CNPC* npc_data = ecs_get(world, game->npc, Mel_CNPC);
     game->dialogue_text = npc_data->dialogue;
 }
 
 void mel_game_shutdown(Mel_Game* game)
 {
     assert(game != nullptr);
+
+    if (s_collider_query)
+    {
+        ecs_query_fini(s_collider_query);
+        s_collider_query = nullptr;
+    }
 
     if (s_draw_query)
     {

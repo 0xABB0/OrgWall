@@ -2,7 +2,7 @@
 #define MEL_ED_ENTITIES_H
 
 #include "types.h"
-#include "ecs.h"
+#include "ecs.world.h"
 
 typedef struct
 {

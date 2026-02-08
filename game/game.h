@@ -2,7 +2,13 @@
 #define MEL_GAME_H
 
 #include "types.h"
-#include "ecs.h"
+#include "ecs.world.h"
+#include "ecs.2d.transform.h"
+#include "ecs.2d.sprite.h"
+#include "ecs.2d.collider.h"
+#include "player.h"
+#include "npc.h"
+#include "wall.h"
 #include "sprite_batch.h"
 
 typedef struct

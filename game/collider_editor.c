@@ -1,4 +1,4 @@
-#include "collider.h"
+#include "ecs.2d.collider.h"
 #include "ed_helpers.h"
 
 #include <cimgui/cimgui.h>

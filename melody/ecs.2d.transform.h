@@ -1,5 +1,5 @@
-#ifndef MEL_CTRANSFORM_H
-#define MEL_CTRANSFORM_H
+#ifndef MEL_ECS_2D_TRANSFORM_H
+#define MEL_ECS_2D_TRANSFORM_H
 
 #include "types.h"
 #include "math.vec2.h"

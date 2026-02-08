@@ -1,4 +1,4 @@
-#include "sprite.h"
+#include "ecs.2d.sprite.h"
 
 ECS_COMPONENT_DECLARE(Mel_Sprite);
 

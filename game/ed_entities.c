@@ -5,11 +5,11 @@
 #include <stdio.h>
 #include <inttypes.h>
 
-#include "transform.h"
-#include "sprite.h"
+#include "ecs.2d.transform.h"
+#include "ecs.2d.sprite.h"
+#include "ecs.2d.collider.h"
 #include "player.h"
 #include "npc.h"
-#include "collider.h"
 #include "wall.h"
 
 #ifndef IM_COL32

@@ -1,5 +1,5 @@
-#ifndef MEL_SPRITE_H
-#define MEL_SPRITE_H
+#ifndef MEL_ECS_2D_SPRITE_H
+#define MEL_ECS_2D_SPRITE_H
 
 #include "types.h"
 #include "math.vec2.h"
@@ -14,12 +14,7 @@ typedef struct Mel_Sprite
 } Mel_Sprite;
 
 extern ECS_COMPONENT_DECLARE(Mel_Sprite);
-
-void mel_sprite_init();
-void mel_sprite_deinit();
-
 void mel_component_sprite_register(ecs_world_t* world);
-
 bool mel_editor_sprite(ecs_world_t* world, ecs_entity_t e);
 
 #endif

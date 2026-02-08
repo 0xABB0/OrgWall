@@ -1,5 +1,5 @@
-#ifndef MEL_CCOLLIDER_H
-#define MEL_CCOLLIDER_H
+#ifndef MEL_ECS_2D_COLLIDER_H
+#define MEL_ECS_2D_COLLIDER_H
 
 #include "types.h"
 #include "math.vec2.h"

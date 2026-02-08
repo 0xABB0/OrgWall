@@ -1,4 +1,4 @@
-#include "sprite.h"
+#include "ecs.2d.sprite.h"
 
 #include <cimgui/cimgui.h>
 

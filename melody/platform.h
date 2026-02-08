@@ -1,13 +1,13 @@
 #ifndef MEL_PLATFORM_H
 #define MEL_PLATFORM_H
 
-#define MEL_PLATFORM_WINDOWS 0
-#define MEL_PLATFORM_OSX     0
-#define MEL_PLATFORM_IOS     0
-#define MEL_PLATFORM_LINUX   0
-#define MEL_PLATFORM_ANDROID 0
-#define MEL_PLATFORM_POSIX   0
-#define MEL_PLATFORM_APPLE   0
+#define MEL_PLATFORM_WINDOWS  0
+#define MEL_PLATFORM_OSX      0
+#define MEL_PLATFORM_IOS      0
+#define MEL_PLATFORM_LINUX    0
+#define MEL_PLATFORM_ANDROID  0
+#define MEL_PLATFORM_POSIX    0
+#define MEL_PLATFORM_APPLE    0
 #define MEL_CPU_ARM           0
 #define MEL_CPU_X86           0
 #define MEL_ARCH_32BIT        0
