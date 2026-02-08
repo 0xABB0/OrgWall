@@ -1,5 +1,5 @@
-#include "../src/test.h"
-#include "../src/allocator.block.h"
+#include "../melody/test.h"
+#include "../melody/allocator.block.h"
 
 MEL_TEST(block_init)
 {

@@ -1,6 +1,6 @@
-#include "../src/test.h"
-#include "../src/allocator.h"
-#include "../src/allocator.leak.h"
+#include "../melody/test.h"
+#include "../melody/allocator.h"
+#include "../melody/allocator.leak.h"
 
 static i32 s_leak_count;
 static usize s_leak_total_size;

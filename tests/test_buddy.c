@@ -1,5 +1,5 @@
-#include "../src/test.h"
-#include "../src/allocator.buddy.h"
+#include "../melody/test.h"
+#include "../melody/allocator.buddy.h"
 
 MEL_TEST(buddy_init)
 {

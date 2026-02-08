@@ -1,5 +1,5 @@
-#include "../src/test.h"
-#include "../src/allocator.arena.h"
+#include "../melody/test.h"
+#include "../melody/allocator.arena.h"
 
 MEL_TEST(arena_init)
 {

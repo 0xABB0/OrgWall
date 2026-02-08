@@ -1,10 +1,10 @@
-#include "../src/test.h"
-#include "../src/allocator.h"
-#include "../src/allocator.heap.h"
-#include "../src/allocator.leak.h"
-#include "../src/allocator.tracking.h"
-#include "../src/allocator.arena.h"
-#include "../src/array.h"
+#include "../melody/test.h"
+#include "../melody/allocator.h"
+#include "../melody/allocator.heap.h"
+#include "../melody/allocator.leak.h"
+#include "../melody/allocator.tracking.h"
+#include "../melody/allocator.arena.h"
+#include "../melody/array.h"
 
 MEL_TEST(heap_allocator)
 {

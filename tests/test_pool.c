@@ -1,6 +1,6 @@
-#include "../src/test.h"
-#include "../src/allocator.h"
-#include "../src/allocator.pool.h"
+#include "../melody/test.h"
+#include "../melody/allocator.h"
+#include "../melody/allocator.pool.h"
 
 MEL_TEST(pool_init)
 {

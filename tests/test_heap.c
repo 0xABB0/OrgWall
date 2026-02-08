@@ -1,6 +1,6 @@
-#include "../src/test.h"
-#include "../src/allocator.h"
-#include "../src/allocator.heap.h"
+#include "../melody/test.h"
+#include "../melody/allocator.h"
+#include "../melody/allocator.heap.h"
 
 MEL_TEST(heap_singleton)
 {

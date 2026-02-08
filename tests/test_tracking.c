@@ -1,7 +1,7 @@
-#include "../src/test.h"
-#include "../src/allocator.h"
-#include "../src/allocator.heap.h"
-#include "../src/allocator.tracking.h"
+#include "../melody/test.h"
+#include "../melody/allocator.h"
+#include "../melody/allocator.heap.h"
+#include "../melody/allocator.tracking.h"
 
 MEL_TEST(tracking_init_zeroed)
 {

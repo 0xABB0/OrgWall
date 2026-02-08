@@ -1,5 +1,5 @@
-#include "../src/test.h"
-#include "../src/allocator.ring.h"
+#include "../melody/test.h"
+#include "../melody/allocator.ring.h"
 #include <string.h>
 
 MEL_TEST(ring_init)

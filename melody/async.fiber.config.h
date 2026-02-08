@@ -1,0 +1,9 @@
+#pragma once
+
+#ifndef MEL_FIBER_DEFAULT_STACK_SIZE
+#define MEL_FIBER_DEFAULT_STACK_SIZE 131072
+#endif
+
+#ifndef MEL_FIBER_MIN_STACK_SIZE
+#define MEL_FIBER_MIN_STACK_SIZE 32768
+#endif

@@ -4,9 +4,19 @@
 - remove that extremely ugly main/melody/game indirection. that serves only as not really understanding stuff. it's better to add "mainloop" files
 - [DONE] allocator system fully modularized (arena, pool, stack, block, ring, slab, buddy)
 - [DONE] memory.h deleted, allocator.h is the generic interface
+- [DONE] allocator.vmem (virtual memory: reserve/commit/decommit/release/protect)
+- [DONE] async.fiber (stackful fibers via vendored boost.context ASM)
+- [DONE] async.coro (tick-driven coroutine scheduler: yield/wait/end)
+- [DONE] platform.h (OS/CPU/arch detection header)
 - [CORE] fix string macros in str.h (fix lengthof usage on pointers)
 - [CORE] implement stacktrace capturing for every allocation (debug mode)
 - [CORE] implement crash handler (intercept signals, save state, dump stacktrace)
+- [CORE] fix memory tracking: update current_usage/total_freed on free; account for realloc deltas (allocator.tracking)
+- [CORE] handle init failure cleanup in mel_engine_init_opt (tracking/window/vk/swapchain) and keep engine->opt defaults consistent
+- [CORE] wire crash handler + SDL_Quit into MEL_APP path; pass SDL_Event* into app event callback
+- [CORE] harden asset registry: check realloc failures; ensure path strings are NUL-terminated
+- [CORE] stop bypassing allocator system in assets module (replace malloc/realloc/free)
+- [CORE] revisit crash handler to avoid non-signal-safe calls in signal context
 - [CORE] implement Virtual File System (VFS) with mount points and archive support
 - [CORE] implement Hot-Reloading for Game Code (.dylib/.dll reloading)
 - [CORE] implement Asset Hot-Reloading (file watcher)
@@ -16,7 +26,9 @@
     - Error Codes
     - Event Types
     - Editor Tools
-- [UI] replace widget type enums with 4CC (via new Registry system)
+- [CORE] implement centralized engine logging system (mel_log_*) to replace raw SDL_Log/fprintf
+- [CORE] implement Windows crash handling via SEH and StackWalk64
+- [CORE] improve backtrace resolution using dladdr() and -rdynamic on Unix-like systems
 - [SYSTEM] implement basic audio system (audio.h/c)
 - [SYSTEM] implement distributed event system (specialized queues, no global bus)
 - [SYSTEM] implement input action mapper (input.h)
@@ -29,3 +41,10 @@
 - [EDITOR] editor registry (register custom editors for components)
 - [ECS] replace hardcoded entity factories with prefab/blueprint system
 - [ECS] spatial partition for physics (grid/quadtree)
+- [TEST] expand test coverage to include ECS, Asset Registry, and VFS
+- [TEST] integrate AddressSanitizer (-fsanitize=address) and UndefinedBehaviorSanitizer (-fsanitize=undefined) into nob.c
+- [TEST] implement fuzz testing for custom allocators (Arena, Block, Buddy, etc.)
+- [BUILD] implement incremental builds in nob.c (timestamp checks for .o files)
+- [BUILD] add Release build configuration (optimized, tracy-disabled, NDEBUG) to nob.c
+- [BUILD] use pkg-config or config file to remove hardcoded paths in nob.c
+- rename all ".config.h" to ".cfg.h"

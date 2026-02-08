@@ -3,7 +3,8 @@ CompileFlags:
     - "-Wno-unused-includes"
     - "-D_CLANGD=1"
     - "-std=c23"
-    - "-xc"
+    - "-Imelody"
+    - "-Igame"
 
 Diagnostics:
   Suppress: 
@@ -25,6 +26,12 @@ If:
   PathMatch: ".*\\.inl"
 CompileFlags:
   Add:
-    - "-D_CLANGD=1"
     - "-xc"
 
+---
+
+If:
+  PathMatch: ".*\\.h"
+CompileFlags:
+  Add:
+    - "-xc"

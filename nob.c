@@ -15,7 +15,8 @@ static const char* INCLUDE_PATHS[] = {
     "-I" SUCK_DIR "/third-party/tracy/public",
     "-I" SUCK_DIR "/flecs/distr",
     "-I" SUCK_DIR "/tomlc17",
-    "-Isrc",
+    "-Imelody",
+    "-Igame",
 };
 
 static const char* LIB_PATHS[] = {
@@ -204,6 +205,25 @@ bool compile_m_to_obj(const char* src, const char* obj)
     return nob_cmd_run_sync(cmd);
 }
 
+#if defined(__aarch64__) && defined(__APPLE__)
+static const char* ASM_FILES[] = { "asm/jump_arm64_aapcs_macho_gas.S", "asm/make_arm64_aapcs_macho_gas.S" };
+#elif defined(__x86_64__) && defined(__APPLE__)
+static const char* ASM_FILES[] = { "asm/jump_x86_64_sysv_macho_gas.S", "asm/make_x86_64_sysv_macho_gas.S" };
+#elif defined(__aarch64__) && defined(__linux__)
+static const char* ASM_FILES[] = { "asm/jump_arm64_aapcs_elf_gas.S", "asm/make_arm64_aapcs_elf_gas.S" };
+#elif defined(__x86_64__) && defined(__linux__)
+static const char* ASM_FILES[] = { "asm/jump_x86_64_sysv_elf_gas.S", "asm/make_x86_64_sysv_elf_gas.S" };
+#elif defined(__x86_64__) && defined(_WIN32)
+static const char* ASM_FILES[] = { "asm/jump_x86_64_ms_pe_clang_gas.S", "asm/make_x86_64_ms_pe_clang_gas.S" };
+#endif
+
+bool compile_asm_to_obj(const char* src, const char* obj)
+{
+    Nob_Cmd cmd = {0};
+    nob_cmd_append(&cmd, "clang", "-c", src, "-o", obj);
+    return nob_cmd_run_sync(cmd);
+}
+
 static const char* CIMGUI_SOURCES[] = {
     SUCK_DIR "/third-party/cimgui/cimgui.cpp",
     SUCK_DIR "/third-party/cimgui/imgui/imgui.cpp",
@@ -305,7 +325,8 @@ bool build_main(void)
     Nob_File_Paths m_files = {0};
     Nob_File_Paths obj_files = {0};
 
-    if (!collect_c_files("src", &c_files, &cpp_files, &m_files)) return false;
+    if (!collect_c_files("melody", &c_files, &cpp_files, &m_files)) return false;
+    if (!collect_c_files("game", &c_files, &cpp_files, &m_files)) return false;
 
     collect_lib_obj_paths(&obj_files);
 
@@ -378,6 +399,23 @@ bool build_main(void)
 
     uint64_t t2b = nob_nanos_since_unspecified_epoch();
 
+    for (size_t i = 0; i < NOB_ARRAY_LEN(ASM_FILES); i++)
+    {
+        const char* src = ASM_FILES[i];
+        const char* base = strrchr(src, '/');
+        base = base ? base + 1 : src;
+
+        char obj_name[256];
+        snprintf(obj_name, sizeof(obj_name), "%s", base);
+        size_t len = strlen(obj_name);
+        obj_name[len - 1] = 'o';
+
+        const char* obj = nob_temp_sprintf(BUILD_DIR "/%s", obj_name);
+        nob_da_append(&obj_files, nob_temp_strdup(obj));
+
+        if (!compile_asm_to_obj(src, obj)) return false;
+    }
+
     Nob_Cmd cmd = {0};
     nob_cmd_append(&cmd, "clang");
     nob_cmd_append(&cmd, "-g");
@@ -422,10 +460,91 @@ bool build_main(void)
     return true;
 }
 
+static const char* ALLOCATOR_SOURCES[] = {
+    "melody/allocator.c",
+    "melody/allocator.heap.c",
+    "melody/allocator.leak.c",
+    "melody/allocator.tracking.c",
+    "melody/allocator.arena.c",
+    "melody/allocator.pool.c",
+    "melody/allocator.stack.c",
+    "melody/allocator.block.c",
+    "melody/allocator.ring.c",
+    "melody/allocator.slab.c",
+    "melody/allocator.buddy.c",
+};
+
+static const char* NCTRL_SOURCES[] = {
+    "melody/ui.native.ctrl.c",
+    "melody/ui.layout.c",
+};
+
+static const char* FIBER_SOURCES[] = {
+    "melody/allocator.vmem.c",
+    "melody/async.fiber.c",
+};
+
+static const char* CORO_SOURCES[] = {
+    "melody/allocator.vmem.c",
+    "melody/async.fiber.c",
+    "melody/async.coro.c",
+    "melody/allocator.c",
+    "melody/allocator.heap.c",
+};
+
+static const char* WIDGET_SOURCES[] = {
+    "melody/ui.widget.c",
+    "melody/ui.layout.c",
+    "melody/ui.layout.box.c",
+};
+
+typedef struct {
+    const char** sources;
+    size_t count;
+    bool needs_asm;
+} Test_Source_Set;
+
+static Test_Source_Set test_source_set_for(const char* test_name)
+{
+    if (strcmp(test_name, "nctrl") == 0)
+        return (Test_Source_Set){ NCTRL_SOURCES, NOB_ARRAY_LEN(NCTRL_SOURCES), false };
+    if (strcmp(test_name, "fiber") == 0)
+        return (Test_Source_Set){ FIBER_SOURCES, NOB_ARRAY_LEN(FIBER_SOURCES), true };
+    if (strcmp(test_name, "coro") == 0)
+        return (Test_Source_Set){ CORO_SOURCES, NOB_ARRAY_LEN(CORO_SOURCES), true };
+    if (strcmp(test_name, "widget") == 0)
+        return (Test_Source_Set){ WIDGET_SOURCES, NOB_ARRAY_LEN(WIDGET_SOURCES), false };
+    return (Test_Source_Set){ ALLOCATOR_SOURCES, NOB_ARRAY_LEN(ALLOCATOR_SOURCES), false };
+}
+
 bool build_test(const char* test_name)
 {
     const char* test_src = nob_temp_sprintf("tests/test_%s.c", test_name);
     const char* test_out = nob_temp_sprintf(BUILD_DIR "/test_%s", test_name);
+
+    Test_Source_Set ss = test_source_set_for(test_name);
+
+    Nob_File_Paths asm_objs = {0};
+    if (ss.needs_asm)
+    {
+        for (size_t i = 0; i < NOB_ARRAY_LEN(ASM_FILES); i++)
+        {
+            const char* src = ASM_FILES[i];
+            const char* base = strrchr(src, '/');
+            base = base ? base + 1 : src;
+
+            char obj_name[256];
+            snprintf(obj_name, sizeof(obj_name), "%s", base);
+            size_t len = strlen(obj_name);
+            obj_name[len - 1] = 'o';
+            obj_name[len - 0] = '\0';
+
+            const char* obj = nob_temp_sprintf(BUILD_DIR "/%s", obj_name);
+            nob_da_append(&asm_objs, nob_temp_strdup(obj));
+
+            if (!compile_asm_to_obj(src, obj)) return false;
+        }
+    }
 
     Nob_Cmd cmd = {0};
     nob_cmd_append(&cmd, "clang");
@@ -437,18 +556,162 @@ bool build_test(const char* test_name)
         nob_cmd_append(&cmd, INCLUDE_PATHS[i]);
 
     nob_cmd_append(&cmd, test_src);
-    nob_cmd_append(&cmd, "src/allocator.c");
-    nob_cmd_append(&cmd, "src/allocator.heap.c");
-    nob_cmd_append(&cmd, "src/allocator.leak.c");
-    nob_cmd_append(&cmd, "src/allocator.tracking.c");
-    nob_cmd_append(&cmd, "src/allocator.arena.c");
-    nob_cmd_append(&cmd, "src/allocator.pool.c");
-    nob_cmd_append(&cmd, "src/allocator.stack.c");
-    nob_cmd_append(&cmd, "src/allocator.block.c");
-    nob_cmd_append(&cmd, "src/allocator.ring.c");
-    nob_cmd_append(&cmd, "src/allocator.slab.c");
-    nob_cmd_append(&cmd, "src/allocator.buddy.c");
+
+    for (size_t i = 0; i < ss.count; i++)
+        nob_cmd_append(&cmd, ss.sources[i]);
+
+    for (size_t i = 0; i < asm_objs.count; i++)
+        nob_cmd_append(&cmd, asm_objs.items[i]);
+
     nob_cmd_append(&cmd, "-o", test_out);
+    nob_cmd_append(&cmd, "-lm");
+
+    return nob_cmd_run_sync(cmd);
+}
+
+bool build_widget_demo(const char* demo_name)
+{
+    const char* demo_src = nob_temp_sprintf("demos/demo_%s.c", demo_name);
+    const char* demo_out = nob_temp_sprintf(BUILD_DIR "/demo_%s", demo_name);
+
+    static const char* WIDGET_DEMO_SOURCES[] = {
+        "melody/engine.c",
+        "melody/backtrace.c",
+        "melody/ui.widget.c",
+        "melody/ui.layout.c",
+        "melody/ui.layout.box.c",
+    };
+
+    Nob_File_Paths obj_files = {0};
+
+    for (size_t i = 0; i < NOB_ARRAY_LEN(WIDGET_DEMO_SOURCES); i++)
+    {
+        const char* src = WIDGET_DEMO_SOURCES[i];
+        const char* base = strrchr(src, '/');
+        base = base ? base + 1 : src;
+
+        char obj_name[256];
+        snprintf(obj_name, sizeof(obj_name), "%s", base);
+        size_t len = strlen(obj_name);
+        obj_name[len - 1] = 'o';
+
+        const char* obj = nob_temp_sprintf(BUILD_DIR "/%s", obj_name);
+        nob_da_append(&obj_files, nob_temp_strdup(obj));
+        if (!compile_c_to_obj(src, obj)) return false;
+    }
+
+    const char* demo_obj = nob_temp_sprintf(BUILD_DIR "/demo_%s.o", demo_name);
+    nob_da_append(&obj_files, nob_temp_strdup(demo_obj));
+    if (!compile_c_to_obj(demo_src, demo_obj)) return false;
+
+    Nob_Cmd cmd = {0};
+    nob_cmd_append(&cmd, "clang", "-g");
+
+    for (size_t i = 0; i < obj_files.count; i++)
+        nob_cmd_append(&cmd, obj_files.items[i]);
+
+    nob_cmd_append(&cmd, "-o", demo_out);
+    nob_cmd_append(&cmd, "-lSDL3");
+    nob_cmd_append(&cmd, "-L/opt/homebrew/lib");
+    nob_cmd_append(&cmd, "-Wl,-rpath,/opt/homebrew/lib");
+    nob_cmd_append(&cmd, "-lm");
+
+    return nob_cmd_run_sync(cmd);
+}
+
+bool build_demo(const char* demo_name)
+{
+    const char* demo_src = nob_temp_sprintf("demos/demo_%s.c", demo_name);
+    const char* demo_out = nob_temp_sprintf(BUILD_DIR "/demo_%s", demo_name);
+
+    Nob_File_Paths c_files = {0};
+    Nob_File_Paths m_files = {0};
+    Nob_File_Paths obj_files = {0};
+
+    nob_da_append(&c_files, nob_temp_strdup("melody/engine.c"));
+    nob_da_append(&c_files, nob_temp_strdup("melody/backtrace.c"));
+    nob_da_append(&c_files, nob_temp_strdup("melody/app.c"));
+
+    Nob_File_Paths entries = {0};
+    if (!nob_read_entire_dir("melody", &entries)) return false;
+
+    for (size_t i = 0; i < entries.count; i++)
+    {
+        const char* name = entries.items[i];
+        if (name[0] == '.') continue;
+        size_t len = strlen(name);
+
+        bool is_ui_native = strncmp(name, "ui.native.", 10) == 0;
+        bool is_ui_layout = strncmp(name, "ui.layout.", 10) == 0;
+        bool is_ui_widget = strcmp(name, "ui.widget.c") == 0;
+        if (!is_ui_native && !is_ui_layout && !is_ui_widget) continue;
+
+        if (len > 2 && name[len-2] == '.' && name[len-1] == 'c')
+            nob_da_append(&c_files, nob_temp_strdup(nob_temp_sprintf("melody/%s", name)));
+    }
+
+    Nob_File_Paths osx_entries = {0};
+    if (!nob_read_entire_dir("melody/osx", &osx_entries)) return false;
+
+    for (size_t i = 0; i < osx_entries.count; i++)
+    {
+        const char* name = osx_entries.items[i];
+        if (name[0] == '.') continue;
+        size_t len = strlen(name);
+
+        if (len > 2 && name[len-2] == '.' && name[len-1] == 'm')
+            nob_da_append(&m_files, nob_temp_strdup(nob_temp_sprintf("melody/osx/%s", name)));
+    }
+
+    for (size_t i = 0; i < c_files.count; i++)
+    {
+        const char* src = c_files.items[i];
+        const char* base = strrchr(src, '/');
+        base = base ? base + 1 : src;
+
+        char obj_name[256];
+        snprintf(obj_name, sizeof(obj_name), "%s", base);
+        size_t len = strlen(obj_name);
+        obj_name[len - 1] = 'o';
+
+        const char* obj = nob_temp_sprintf(BUILD_DIR "/%s", obj_name);
+        nob_da_append(&obj_files, nob_temp_strdup(obj));
+
+        if (!compile_c_to_obj(src, obj)) return false;
+    }
+
+    for (size_t i = 0; i < m_files.count; i++)
+    {
+        const char* src = m_files.items[i];
+        const char* base = strrchr(src, '/');
+        base = base ? base + 1 : src;
+
+        char obj_name[256];
+        snprintf(obj_name, sizeof(obj_name), "%s", base);
+        size_t len = strlen(obj_name);
+        obj_name[len - 1] = 'o';
+
+        const char* obj = nob_temp_sprintf(BUILD_DIR "/%s", obj_name);
+        nob_da_append(&obj_files, nob_temp_strdup(obj));
+
+        if (!compile_m_to_obj(src, obj)) return false;
+    }
+
+    const char* demo_obj = nob_temp_sprintf(BUILD_DIR "/demo_%s.o", demo_name);
+    nob_da_append(&obj_files, nob_temp_strdup(demo_obj));
+    if (!compile_c_to_obj(demo_src, demo_obj)) return false;
+
+    Nob_Cmd cmd = {0};
+    nob_cmd_append(&cmd, "clang", "-g");
+
+    for (size_t i = 0; i < obj_files.count; i++)
+        nob_cmd_append(&cmd, obj_files.items[i]);
+
+    nob_cmd_append(&cmd, "-o", demo_out);
+    nob_cmd_append(&cmd, "-framework", "Cocoa");
+    nob_cmd_append(&cmd, "-lSDL3");
+    nob_cmd_append(&cmd, "-L/opt/homebrew/lib");
+    nob_cmd_append(&cmd, "-Wl,-rpath,/opt/homebrew/lib");
     nob_cmd_append(&cmd, "-lm");
 
     return nob_cmd_run_sync(cmd);
@@ -464,7 +727,7 @@ bool run_test(const char* test_name)
 
 int main(int argc, char** argv)
 {
-    nob_minimal_log_level = NOB_WARNING;
+    /* nob_minimal_log_level = NOB_WARNING; */
     NOB_GO_REBUILD_URSELF(argc, argv);
 
     if (!nob_mkdir_if_not_exists(BUILD_DIR)) return 1;
@@ -481,7 +744,7 @@ int main(int argc, char** argv)
     }
     else if (strcmp(subcmd, "test") == 0)
     {
-        const char* tests[] = { "math", "memory", "heap", "leak", "tracking", "arena", "pool", "stack", "block", "ring", "buddy", "slab" };
+        const char* tests[] = { "math", "memory", "heap", "leak", "tracking", "arena", "pool", "stack", "block", "ring", "buddy", "slab", "nctrl", "fiber", "coro", "widget" };
         bool all_passed = true;
 
         for (size_t i = 0; i < NOB_ARRAY_LEN(tests); i++)
@@ -525,6 +788,23 @@ int main(int argc, char** argv)
         nob_cmd_append(&cmd, BUILD_DIR "/melody");
         return nob_cmd_run_sync(cmd) ? 0 : 1;
     }
+    else if (strcmp(subcmd, "demo") == 0)
+    {
+        const char* demo = argc > 2 ? argv[2] : "nctrl";
+        nob_log(NOB_INFO, "Building demo: %s", demo);
+
+        bool ok;
+        if (strcmp(demo, "widget") == 0)
+            ok = build_widget_demo(demo);
+        else
+            ok = build_demo(demo);
+        if (!ok) return 1;
+
+        nob_log(NOB_INFO, "Running demo: %s", demo);
+        Nob_Cmd cmd = {0};
+        nob_cmd_append(&cmd, nob_temp_sprintf(BUILD_DIR "/demo_%s", demo));
+        return nob_cmd_run_sync(cmd) ? 0 : 1;
+    }
     else if (strcmp(subcmd, "clean") == 0)
     {
         Nob_Cmd cmd = {0};
@@ -550,7 +830,7 @@ int main(int argc, char** argv)
     else
     {
         nob_log(NOB_ERROR, "Unknown command: %s", subcmd);
-        nob_log(NOB_INFO, "Usage: ./nob [libs|build|test|run|run-only|debug|clean]");
+        nob_log(NOB_INFO, "Usage: ./nob [libs|build|test|demo|run|run-only|debug|clean]");
         return 1;
     }
 
