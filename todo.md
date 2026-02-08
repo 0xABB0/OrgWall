@@ -52,3 +52,6 @@
 
 - [DEMO] make a demo with a ton of animated sprites (same atlas, different frame, different parameters - size, direction, tint)
 - [DEMO] demos should change their naming as demo.\* (not demo_*) and we'd need to change the various demos naming to explicitly show what they're demoing (example: demo.native.hello.\*)
+
+- [ENGINE] the engine should expose an "editor" system, that serves as the entrypoint for every other editor to register into. there could be any editor open at any time (even multiple instances of the same editor, pointing to different things).
+- [ALLOCATOR] the allocators that can grow (block, heap, others?) should all be backed by the vmem allocator.
