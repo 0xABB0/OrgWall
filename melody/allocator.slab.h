@@ -1,6 +1,6 @@
 #pragma once
 #include "types.h"
-#include "allocator.slab.config.h"
+#include "allocator.slab.cfg.h"
 #include "allocator.pool.h"
 
 typedef struct Mel_Slab_Class {

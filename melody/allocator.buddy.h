@@ -1,6 +1,6 @@
 #pragma once
 #include "types.h"
-#include "allocator.buddy.config.h"
+#include "allocator.buddy.cfg.h"
 
 #define MEL_BUDDY_FREE  0
 #define MEL_BUDDY_SPLIT 1

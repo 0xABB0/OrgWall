@@ -2,7 +2,7 @@
 
 #include "types.h"
 
-#include "allocator.pool.config.h"
+#include "allocator.pool.cfg.h"
 #include "allocator.fwd.h"
 
 typedef struct Mel_Pool {

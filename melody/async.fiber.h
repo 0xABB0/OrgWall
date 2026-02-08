@@ -1,7 +1,7 @@
 #pragma once
 
 #include "types.h"
-#include "async.fiber.config.h"
+#include "async.fiber.cfg.h"
 
 typedef void* Mel_Fiber;
 #define MEL_FIBER_INVALID NULL

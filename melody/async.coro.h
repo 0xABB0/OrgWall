@@ -2,7 +2,7 @@
 
 #include "types.h"
 #include "async.fiber.h"
-#include "async.coro.config.h"
+#include "async.coro.cfg.h"
 #include "allocator.fwd.h"
 
 typedef struct Mel_Coro_Context Mel_Coro_Context;

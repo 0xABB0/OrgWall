@@ -1,6 +1,6 @@
 #pragma once
 #include "types.h"
-#include "allocator.ring.config.h"
+#include "allocator.ring.cfg.h"
 
 typedef struct Mel_Ring_Header {
     usize size;

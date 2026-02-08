@@ -2,7 +2,7 @@
 
 #include "types.h"
 
-#include "allocator.arena.config.h"
+#include "allocator.arena.cfg.h"
 
 typedef struct Mel_Arena {
     u8*   base;

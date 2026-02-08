@@ -47,4 +47,4 @@
 - [BUILD] implement incremental builds in nob.c (timestamp checks for .o files)
 - [BUILD] add Release build configuration (optimized, tracy-disabled, NDEBUG) to nob.c
 - [BUILD] use pkg-config or config file to remove hardcoded paths in nob.c
-- rename all ".config.h" to ".cfg.h"
+- ~~rename all ".config.h" to ".cfg.h"~~ DONE

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "types.h"
-#include "allocator.stack.config.h"
+#include "allocator.stack.cfg.h"
 
 typedef struct Mel_Stack_Header {
     usize prev_offset;
