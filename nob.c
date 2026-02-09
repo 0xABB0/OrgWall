@@ -668,6 +668,55 @@ static const char* WIDGET_SOURCES[] = {
     "melody/ui.layout.box.c",
 };
 
+static const char* SKIPLIST_SOURCES[] = {
+    "melody/collection.skiplist.c",
+    "melody/allocator.c",
+    "melody/allocator.heap.c",
+};
+
+static const char* TRIE_SOURCES[] = {
+    "melody/collection.trie.c",
+    "melody/allocator.c",
+    "melody/allocator.heap.c",
+};
+
+static const char* BITSET_SOURCES[] = {
+    "melody/collection.bitset.c",
+    "melody/allocator.c",
+    "melody/allocator.heap.c",
+};
+
+static const char* BTREE_SOURCES[] = {
+    "melody/collection.btree.c",
+    "melody/allocator.c",
+    "melody/allocator.heap.c",
+};
+
+static const char* HASHMAP_SOURCES[] = {
+    "melody/collection.hashmap.c",
+    "melody/hash.xxh.c",
+    "melody/allocator.c",
+    "melody/allocator.heap.c",
+};
+
+static const char* SET_SOURCES[] = {
+    "melody/collection.set.c",
+    "melody/collection.hashmap.c",
+    "melody/hash.xxh.c",
+    "melody/allocator.c",
+    "melody/allocator.heap.c",
+};
+
+static const char* RBTREE_SOURCES[] = {
+    "melody/collection.rbtree.c",
+    "melody/allocator.c",
+    "melody/allocator.heap.c",
+};
+
+static const char* XXH_SOURCES[] = {
+    "melody/hash.xxh.c",
+};
+
 typedef struct {
     const char** sources;
     size_t count;
@@ -684,6 +733,26 @@ static Test_Source_Set test_source_set_for(const char* test_name)
         return (Test_Source_Set){ CORO_SOURCES, NOB_ARRAY_LEN(CORO_SOURCES), true };
     if (strcmp(test_name, "widget") == 0)
         return (Test_Source_Set){ WIDGET_SOURCES, NOB_ARRAY_LEN(WIDGET_SOURCES), false };
+    if (strcmp(test_name, "collection_list") == 0)
+        return (Test_Source_Set){ NULL, 0, false };
+    if (strcmp(test_name, "collection_skiplist") == 0)
+        return (Test_Source_Set){ SKIPLIST_SOURCES, NOB_ARRAY_LEN(SKIPLIST_SOURCES), false };
+    if (strcmp(test_name, "collection_trie") == 0)
+        return (Test_Source_Set){ TRIE_SOURCES, NOB_ARRAY_LEN(TRIE_SOURCES), false };
+    if (strcmp(test_name, "collection_sort") == 0)
+        return (Test_Source_Set){ NULL, 0, false };
+    if (strcmp(test_name, "collection_btree") == 0)
+        return (Test_Source_Set){ BTREE_SOURCES, NOB_ARRAY_LEN(BTREE_SOURCES), false };
+    if (strcmp(test_name, "collection_bitset") == 0)
+        return (Test_Source_Set){ BITSET_SOURCES, NOB_ARRAY_LEN(BITSET_SOURCES), false };
+    if (strcmp(test_name, "collection_hashmap") == 0)
+        return (Test_Source_Set){ HASHMAP_SOURCES, NOB_ARRAY_LEN(HASHMAP_SOURCES), false };
+    if (strcmp(test_name, "collection_set") == 0)
+        return (Test_Source_Set){ SET_SOURCES, NOB_ARRAY_LEN(SET_SOURCES), false };
+    if (strcmp(test_name, "collection_rbtree") == 0)
+        return (Test_Source_Set){ RBTREE_SOURCES, NOB_ARRAY_LEN(RBTREE_SOURCES), false };
+    if (strcmp(test_name, "xxh") == 0)
+        return (Test_Source_Set){ XXH_SOURCES, NOB_ARRAY_LEN(XXH_SOURCES), false };
     return (Test_Source_Set){ ALLOCATOR_SOURCES, NOB_ARRAY_LEN(ALLOCATOR_SOURCES), false };
 }
 
@@ -968,7 +1037,7 @@ int main(int argc, char** argv)
     }
     else if (strcmp(subcmd, "test") == 0)
     {
-        const char* tests[] = { "math", "memory", "heap", "leak", "tracking", "arena", "pool", "stack", "block", "ring", "buddy", "slab", "nctrl", "fiber", "coro", "widget" };
+        const char* tests[] = { "math", "memory", "heap", "leak", "tracking", "arena", "pool", "stack", "block", "ring", "buddy", "slab", "nctrl", "fiber", "coro", "widget", "xxh", "collection_array", "collection_queue", "collection_deque", "collection_ring", "collection_llist", "collection_heap", "collection_list", "collection_rbtree", "collection_skiplist", "collection_trie", "collection_sort", "collection_btree", "collection_bitset", "collection_hashmap", "collection_set" };
         bool all_passed = true;
 
         for (size_t i = 0; i < NOB_ARRAY_LEN(tests); i++)
