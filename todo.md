@@ -38,4 +38,6 @@
 - [GABBO][EDITOR] I don't like having the domain "editor.*". i think that the editors should live alongside their own domain eg "anim.sprite.editor.h"
 - [GABBO][CORE] implement CVar registry (console variables for runtime tuning) - new module
 - [GABBO][MAINTENANCE] update claude.md with the new structure
-- [GABBO][CORE] 
+- [GABBO][CORE] right now, melody is a library except for the fact that it takes ownership of the main loop. this is not good, melody should handle much, much more (automatic initialization of things. maybe we could even add parameters to MEL_APP, if needed. melody should also initialize autonomously things like vulkan, the editors, etcetera. obviously we need the app to be able to dictate what it wants from melody)
+- [GABBO][ENGINE] we need to be able to make melody run "headless" (in two ways: one is without any graphics api at all. the other is without windows) this is needed for testing vulkan. maybe outputting to a png? if it does not error out / give warnings, maybe the test is a success? Also, headless run could also be like "run for x frames"
+- [GABBO][TEST] we should absolutely strengthen tests. more tests (and maybe a better test harness that could be harnessed by the game itself - and even mods while we're there? could help a lot modders)
