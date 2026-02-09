@@ -2,6 +2,7 @@
 #define MEL_ASSETS_H
 
 #include "types.h"
+#include "string.str8.h"
 
 typedef struct
 {
@@ -10,9 +11,9 @@ typedef struct
 
 typedef struct
 {
-    const char* org_name;
-    const char* app_name;
-    const char* base_path;
+    str8 org_name;
+    str8 app_name;
+    str8 base_path;
 } Mel_Assets_Opt;
 
 bool mel_assets_init_opt(Mel_Assets* assets, Mel_Assets_Opt opt);
@@ -20,22 +21,22 @@ bool mel_assets_init_opt(Mel_Assets* assets, Mel_Assets_Opt opt);
 
 void mel_assets_shutdown(Mel_Assets* assets);
 
-bool mel_assets_mount(const char* path, const char* mount_point);
-bool mel_assets_mount_write(const char* path);
+bool mel_assets_mount(str8 path, str8 mount_point);
+bool mel_assets_mount_write(str8 path);
 
-bool mel_assets_exists(const char* path);
-bool mel_assets_is_directory(const char* path);
+bool mel_assets_exists(str8 path);
+bool mel_assets_is_directory(str8 path);
 
-u8* mel_assets_read(const char* path, u32* out_size);
-char* mel_assets_read_text(const char* path);
+u8* mel_assets_read(str8 path, u32* out_size);
+char* mel_assets_read_text(str8 path);
 void mel_assets_free(void* data);
 
-bool mel_assets_write(const char* path, const void* data, u32 size);
-bool mel_assets_write_text(const char* path, const char* text);
+bool mel_assets_write(str8 path, const void* data, u32 size);
+bool mel_assets_write_text(str8 path, str8 text);
 
-char** mel_assets_list(const char* path, u32* out_count);
+char** mel_assets_list(str8 path, u32* out_count);
 void mel_assets_list_free(char** list);
 
-bool mel_assets_import_file(const char* filesystem_path, const char* dest_name);
+bool mel_assets_import_file(str8 filesystem_path, str8 dest_name);
 
 #endif

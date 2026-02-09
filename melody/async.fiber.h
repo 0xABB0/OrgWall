@@ -23,3 +23,4 @@ void               mel_fiber_stack_init_ptr(Mel_Fiber_Stack* fstack, void* ptr, 
 void               mel_fiber_stack_release(Mel_Fiber_Stack* fstack);
 Mel_Fiber          mel_fiber_create(Mel_Fiber_Stack stack, Mel_Fiber_Cb cb);
 Mel_Fiber_Transfer mel_fiber_switch(Mel_Fiber to, void* user);
+Mel_Fiber_Transfer mel_fiber_ontop(Mel_Fiber to, void* user, Mel_Fiber_Cb ontop_fn);

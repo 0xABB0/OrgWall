@@ -1,4 +1,5 @@
 #include "spritesheet.h"
+#include "string.str8.h"
 #include "assets.h"
 #include <cjson/cJSON.h>
 #include <SDL3/SDL.h>
@@ -11,7 +12,7 @@ bool mel_spritesheet_load(Mel_Spritesheet* sheet, const Mel_Alloc* alloc, const 
     assert(alloc != nullptr);
     assert(path != nullptr);
 
-    char* json_text = mel_assets_read_text(path);
+    char* json_text = mel_assets_read_text(str8_from_cstr(path));
     if (!json_text)
     {
         SDL_Log("Failed to read spritesheet: %s", path);
@@ -358,7 +359,7 @@ bool mel_spritesheet_save(Mel_Spritesheet* sheet, const char* path)
         return false;
     }
 
-    bool result = mel_assets_write_text(path, json_text);
+    bool result = mel_assets_write_text(str8_from_cstr(path), str8_from_cstr(json_text));
     free(json_text);
 
     if (result)

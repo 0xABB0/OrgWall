@@ -2,12 +2,11 @@
 
 #include "ui.widget.h"
 #include "math.vec4.h"
-
-typedef struct Mel_Font Mel_Font;
+#include "font.atlas.fwd.h"
 
 typedef struct {
     Mel_Widget base;
-    Mel_Font* font;
+    Mel_Font_Atlas_Entry* font;
     const char* text;
     Mel_Vec4 text_color;
 } Mel_WLabel;

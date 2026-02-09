@@ -1,10 +1,11 @@
 #ifndef MEL_ASSETS_TEXTURE_H
 #define MEL_ASSETS_TEXTURE_H
 
-#include "vk_texture.h"
-#include "vk_pipeline.h"
+#include "gpu.texture.h"
+#include "gpu.pipeline.h"
+#include "string.str8.fwd.h"
 
-bool mel_texture_load(Mel_VkTexture* tex, Mel_VkContext* ctx, const char* path);
-bool mel_texture_load_and_bind(Mel_VkTexture* tex, Mel_VkContext* ctx, Mel_VkPipeline* pipeline, const char* path);
+bool mel_texture_load(Mel_Gpu_Texture* tex, Mel_Gpu_Device* dev, str8 path);
+bool mel_texture_load_and_bind(Mel_Gpu_Texture* tex, Mel_Gpu_Device* dev, Mel_Gpu_Pipeline* pipeline, str8 path);
 
 #endif

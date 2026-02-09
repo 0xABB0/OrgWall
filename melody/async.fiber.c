@@ -3,6 +3,7 @@
 
 Mel_Fiber_Transfer jump_fcontext(Mel_Fiber to, void* user);
 Mel_Fiber          make_fcontext(void* sp, usize size, Mel_Fiber_Cb cb);
+Mel_Fiber_Transfer ontop_fcontext(Mel_Fiber to, void* user, Mel_Fiber_Cb ontop_fn);
 
 bool mel_fiber_stack_init(Mel_Fiber_Stack* fstack, u32 size)
 {
@@ -55,4 +56,9 @@ Mel_Fiber mel_fiber_create(Mel_Fiber_Stack stack, Mel_Fiber_Cb cb)
 Mel_Fiber_Transfer mel_fiber_switch(Mel_Fiber to, void* user)
 {
     return jump_fcontext(to, user);
+}
+
+Mel_Fiber_Transfer mel_fiber_ontop(Mel_Fiber to, void* user, Mel_Fiber_Cb ontop_fn)
+{
+    return ontop_fcontext(to, user, ontop_fn);
 }

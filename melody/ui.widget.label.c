@@ -1,5 +1,6 @@
 #include "ui.widget.label.h"
-#include "font.h"
+#include "font.atlas.h"
+#include "string.str8.h"
 
 static void wlabel_draw(Mel_Widget* w, void* ctx)
 {
@@ -7,7 +8,7 @@ static void wlabel_draw(Mel_Widget* w, void* ctx)
     Mel_SpriteBatch* batch = (Mel_SpriteBatch*)ctx;
 
     if (label->font && label->text && label->text[0])
-        mel_font_draw_text(label->font, batch, label->text, w->pos.x, w->pos.y, label->text_color);
+        mel_font_atlas_draw_text(label->font, batch, str8_from_cstr(label->text), w->pos.x, w->pos.y, label->text_color);
 }
 
 void mel_wlabel_init(Mel_WLabel* label)

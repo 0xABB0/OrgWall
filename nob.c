@@ -336,15 +336,15 @@ bool compile_m_to_obj(const char* src, const char* obj)
 }
 
 #if defined(__aarch64__) && defined(__APPLE__)
-static const char* ASM_FILES[] = { "asm/jump_arm64_aapcs_macho_gas.S", "asm/make_arm64_aapcs_macho_gas.S" };
+static const char* ASM_FILES[] = { "asm/jump_arm64_aapcs_macho_gas.S", "asm/make_arm64_aapcs_macho_gas.S", "asm/ontop_arm64_aapcs_macho_gas.S" };
 #elif defined(__x86_64__) && defined(__APPLE__)
-static const char* ASM_FILES[] = { "asm/jump_x86_64_sysv_macho_gas.S", "asm/make_x86_64_sysv_macho_gas.S" };
+static const char* ASM_FILES[] = { "asm/jump_x86_64_sysv_macho_gas.S", "asm/make_x86_64_sysv_macho_gas.S", "asm/ontop_x86_64_sysv_macho_gas.S" };
 #elif defined(__aarch64__) && defined(__linux__)
-static const char* ASM_FILES[] = { "asm/jump_arm64_aapcs_elf_gas.S", "asm/make_arm64_aapcs_elf_gas.S" };
+static const char* ASM_FILES[] = { "asm/jump_arm64_aapcs_elf_gas.S", "asm/make_arm64_aapcs_elf_gas.S", "asm/ontop_arm64_aapcs_elf_gas.S" };
 #elif defined(__x86_64__) && defined(__linux__)
-static const char* ASM_FILES[] = { "asm/jump_x86_64_sysv_elf_gas.S", "asm/make_x86_64_sysv_elf_gas.S" };
+static const char* ASM_FILES[] = { "asm/jump_x86_64_sysv_elf_gas.S", "asm/make_x86_64_sysv_elf_gas.S", "asm/ontop_x86_64_sysv_elf_gas.S" };
 #elif defined(__x86_64__) && defined(_WIN32)
-static const char* ASM_FILES[] = { "asm/jump_x86_64_ms_pe_clang_gas.S", "asm/make_x86_64_ms_pe_clang_gas.S" };
+static const char* ASM_FILES[] = { "asm/jump_x86_64_ms_pe_clang_gas.S", "asm/make_x86_64_ms_pe_clang_gas.S", "asm/ontop_x86_64_ms_pe_clang_gas.S" };
 #endif
 
 bool compile_asm_to_obj(const char* src, const char* obj)
@@ -717,6 +717,41 @@ static const char* XXH_SOURCES[] = {
     "melody/hash.xxh.c",
 };
 
+static const char* GPU_FORMAT_SOURCES[] = {
+    "melody/gpu.format.c",
+};
+
+static const char* RENDER_GRAPH_SOURCES[] = {
+    "melody/render.graph.c",
+};
+
+static const char* RENDER_BLACKBOARD_SOURCES[] = {
+    "melody/render.blackboard.c",
+    "melody/string.str8.c",
+    "melody/hash.xxh.c",
+    "melody/allocator.c",
+    "melody/allocator.heap.c",
+};
+
+static const char* SLOTMAP_SOURCES[] = {
+    "melody/collection.slotmap.c",
+    "melody/allocator.c",
+    "melody/allocator.heap.c",
+};
+
+static const char* ANIM_TIMELINE_SOURCES[] = {
+    "melody/anim.timeline.c",
+    "melody/allocator.c",
+    "melody/allocator.heap.c",
+};
+
+static const char* STR8_SOURCES[] = {
+    "melody/string.str8.c",
+    "melody/hash.xxh.c",
+    "melody/allocator.c",
+    "melody/allocator.heap.c",
+};
+
 typedef struct {
     const char** sources;
     size_t count;
@@ -753,6 +788,18 @@ static Test_Source_Set test_source_set_for(const char* test_name)
         return (Test_Source_Set){ RBTREE_SOURCES, NOB_ARRAY_LEN(RBTREE_SOURCES), false };
     if (strcmp(test_name, "xxh") == 0)
         return (Test_Source_Set){ XXH_SOURCES, NOB_ARRAY_LEN(XXH_SOURCES), false };
+    if (strcmp(test_name, "gpu_format") == 0)
+        return (Test_Source_Set){ GPU_FORMAT_SOURCES, NOB_ARRAY_LEN(GPU_FORMAT_SOURCES), false };
+    if (strcmp(test_name, "render_graph") == 0)
+        return (Test_Source_Set){ RENDER_GRAPH_SOURCES, NOB_ARRAY_LEN(RENDER_GRAPH_SOURCES), false };
+    if (strcmp(test_name, "render_blackboard") == 0)
+        return (Test_Source_Set){ RENDER_BLACKBOARD_SOURCES, NOB_ARRAY_LEN(RENDER_BLACKBOARD_SOURCES), false };
+    if (strcmp(test_name, "collection_slotmap") == 0)
+        return (Test_Source_Set){ SLOTMAP_SOURCES, NOB_ARRAY_LEN(SLOTMAP_SOURCES), false };
+    if (strcmp(test_name, "anim_timeline") == 0)
+        return (Test_Source_Set){ ANIM_TIMELINE_SOURCES, NOB_ARRAY_LEN(ANIM_TIMELINE_SOURCES), false };
+    if (strcmp(test_name, "string_str8") == 0)
+        return (Test_Source_Set){ STR8_SOURCES, NOB_ARRAY_LEN(STR8_SOURCES), false };
     return (Test_Source_Set){ ALLOCATOR_SOURCES, NOB_ARRAY_LEN(ALLOCATOR_SOURCES), false };
 }
 
@@ -1037,7 +1084,7 @@ int main(int argc, char** argv)
     }
     else if (strcmp(subcmd, "test") == 0)
     {
-        const char* tests[] = { "math", "memory", "heap", "leak", "tracking", "arena", "pool", "stack", "block", "ring", "buddy", "slab", "nctrl", "fiber", "coro", "widget", "xxh", "collection_array", "collection_queue", "collection_deque", "collection_ring", "collection_llist", "collection_heap", "collection_list", "collection_rbtree", "collection_skiplist", "collection_trie", "collection_sort", "collection_btree", "collection_bitset", "collection_hashmap", "collection_set" };
+        const char* tests[] = { "math", "memory", "heap", "leak", "tracking", "arena", "pool", "stack", "block", "ring", "buddy", "slab", "nctrl", "fiber", "coro", "widget", "xxh", "gpu_format", "render_graph", "render_blackboard", "collection_array", "collection_queue", "collection_deque", "collection_ring", "collection_llist", "collection_heap", "collection_list", "collection_rbtree", "collection_skiplist", "collection_trie", "collection_sort", "collection_btree", "collection_bitset", "collection_hashmap", "collection_set", "collection_slotmap", "anim_timeline", "string_str8" };
         bool all_passed = true;
 
         for (size_t i = 0; i < NOB_ARRAY_LEN(tests); i++)

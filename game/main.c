@@ -13,27 +13,35 @@
 
 #include "app.h"
 #include "engine.h"
+#include "string.str8.h"
 #include "allocator.tracking.h"
 #include "allocator.heap.h"
-#include "vk_context.h"
-#include "vk_swapchain.h"
-#include "vk_shader.h"
-#include "vk_pipeline.h"
-#include "vk_buffer.h"
-#include "vk_texture.h"
+#include "gpu.device.h"
+#include "gpu.swapchain.h"
+#include "gpu.shader.h"
+#include "gpu.pipeline.h"
+#include "gpu.buffer.h"
+#include "gpu.texture.h"
+#include "gpu.cmd.h"
+#include "render.frame.h"
 #include "sprite_batch.h"
-#include "font.h"
+#include "font.atlas.h"
+#include "texture.pool.h"
+#include "tile.set.h"
+#include "tile.map.h"
 #include "ui.widget.panel.h"
 #include "ui.widget.label.h"
 #include "game.h"
 #include "assets.h"
 #include "texture.h"
-#include "asset_registry.h"
 #include "editor.h"
 #include "editor.registry.h"
-#include "ed_tiles.h"
-#include "ed_spritesheet.h"
-#include "ed_entities.h"
+#include "editor.tiles.h"
+#include "editor.spritesheet.h"
+#include "editor.entities.h"
+#include "editor.sprite.h"
+#include "editor.collider.h"
+#include "editor.transform.h"
 #include "ecs.2d.transform.h"
 #include "ecs.2d.sprite.h"
 #include "ecs.2d.collider.h"
@@ -45,8 +53,9 @@
 #define MAX_FRAME_TIME 0.25f
 
 static SDL_Window* s_window;
-static Mel_VkContext s_vk;
-static Mel_VkSwapchain s_swapchain;
+static Mel_Gpu_Device s_dev;
+static Mel_Gpu_Swapchain s_swapchain;
+static Mel_Render_Frame s_frame;
 static Mel_Tracking_Allocator* s_tracking;
 static Mel_Alloc s_allocator;
 
@@ -57,16 +66,19 @@ static u64 s_frame_count;
 static bool s_should_quit;
 static bool s_resize_requested;
 
-static Mel_AssetRegistry s_asset_registry;
+static Mel_Texture_Pool s_texture_pool;
+static Mel_Tileset_Pool s_tileset_pool;
+static Mel_Tilemap_Pool s_tilemap_pool;
+static Mel_Font_Atlas_Pool s_font_pool;
+static Mel_Font_Handle s_font_handle;
 static Mel_EdRegistry s_ed_registry;
 static Mel_GameEditor s_game_editor;
 static Mel_Assets s_assets;
-static Mel_VkShader s_shader;
-static Mel_VkPipeline s_pipeline;
-static Mel_VkTexture s_white_texture;
-static Mel_VkTexture s_test_texture;
+static Mel_Gpu_Shader s_shader;
+static Mel_Gpu_Pipeline s_pipeline;
+static Mel_Gpu_Texture s_white_texture;
+static Mel_Gpu_Texture s_test_texture;
 static Mel_SpriteBatch s_batch;
-static Mel_Font s_font;
 static Mel_Game s_game;
 
 static Mel_WPanel s_dialogue_box;
@@ -120,7 +132,7 @@ static const char* SHADER_SOURCE =
 "    return tex.Sample(input.texcoord) * input.color;\n"
 "}\n";
 
-static bool imgui_init(SDL_Window* window, Mel_VkContext* vk, Mel_VkSwapchain* swapchain)
+static bool imgui_init(SDL_Window* window, Mel_Gpu_Device* dev, Mel_Gpu_Swapchain* swapchain)
 {
     VkDescriptorPoolSize pool_sizes[] = {
         { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 100 },
@@ -134,7 +146,7 @@ static bool imgui_init(SDL_Window* window, Mel_VkContext* vk, Mel_VkSwapchain* s
         .pPoolSizes = pool_sizes,
     };
 
-    if (vkCreateDescriptorPool(vk->device, &pool_info, nullptr, &s_imgui_pool) != VK_SUCCESS)
+    if (vkCreateDescriptorPool(dev->device, &pool_info, nullptr, &s_imgui_pool) != VK_SUCCESS)
     {
         SDL_Log("Failed to create ImGui descriptor pool");
         return false;
@@ -166,11 +178,11 @@ static bool imgui_init(SDL_Window* window, Mel_VkContext* vk, Mel_VkSwapchain* s
 
     ImGui_ImplVulkan_InitInfo init_info = {
         .ApiVersion = VK_API_VERSION_1_3,
-        .Instance = vk->instance,
-        .PhysicalDevice = vk->physical_device,
-        .Device = vk->device,
-        .QueueFamily = vk->graphics_family,
-        .Queue = vk->graphics_queue,
+        .Instance = dev->instance,
+        .PhysicalDevice = dev->physical_device,
+        .Device = dev->device,
+        .QueueFamily = dev->graphics_family,
+        .Queue = dev->graphics_queue,
         .DescriptorPool = s_imgui_pool,
         .MinImageCount = 2,
         .ImageCount = swapchain->image_count,
@@ -187,11 +199,11 @@ static bool imgui_init(SDL_Window* window, Mel_VkContext* vk, Mel_VkSwapchain* s
     return true;
 }
 
-static void imgui_shutdown(Mel_VkContext* vk)
+static void imgui_shutdown(Mel_Gpu_Device* dev)
 {
     if (!s_imgui_initialized) return;
 
-    vkDeviceWaitIdle(vk->device);
+    vkDeviceWaitIdle(dev->device);
 
     ImGui_ImplVulkan_Shutdown();
     ImGui_ImplSDL3_Shutdown();
@@ -199,7 +211,7 @@ static void imgui_shutdown(Mel_VkContext* vk)
 
     if (s_imgui_pool)
     {
-        vkDestroyDescriptorPool(vk->device, s_imgui_pool, nullptr);
+        vkDestroyDescriptorPool(dev->device, s_imgui_pool, nullptr);
         s_imgui_pool = VK_NULL_HANDLE;
     }
 
@@ -266,92 +278,12 @@ static void ed_spritesheet_draw_wrapper(void* instance, f32 dt)
 
     if (!ed->spritesheet)
     {
-        igText("Create a new spritesheet:");
-        igSeparator();
-
-        igInputText("Name##newspritesheet", ed->name_buffer,
-            sizeof(ed->name_buffer), 0, nullptr, nullptr);
-
-        igText("Texture:");
-        const char* tex_label = strlen(ed->texture_path_buffer) > 0 ?
-            ed->texture_path_buffer : "(select texture)";
-        if (igBeginCombo("##spritesheettexture", tex_label, 0))
-        {
-            if (ed->asset_registry)
-            {
-                u32 tex_count = mel_asset_registry_texture_count(ed->asset_registry);
-                for (u32 i = 0; i < tex_count; i++)
-                {
-                    const char* path = mel_asset_registry_texture_path(ed->asset_registry, i);
-                    bool selected = strcmp(path, ed->texture_path_buffer) == 0;
-                    if (igSelectable_Bool(path, selected, 0, (ImVec2){0, 0}))
-                    {
-                        strncpy(ed->texture_path_buffer, path,
-                            sizeof(ed->texture_path_buffer) - 1);
-                    }
-                }
-                if (tex_count == 0)
-                {
-                    igTextDisabled("No textures loaded");
-                }
-            }
-            igEndCombo();
-        }
-        igSameLine(0, 10);
-        if (igButton("Browse##spritesheetbrowse", (ImVec2){60, 0}))
-        {
-            mel_game_editor_show_texture_picker(&s_game_editor,
-                (Mel_TexturePickerCallback)nullptr, nullptr);
-        }
-
-        igSeparator();
-
-        bool can_create = ed->asset_registry != nullptr &&
-                          strlen(ed->name_buffer) > 0 &&
-                          strlen(ed->texture_path_buffer) > 0;
-
-        if (!can_create) igBeginDisabled(true);
-        if (igButton("Create Spritesheet", (ImVec2){150, 30}))
-        {
-            Mel_Spritesheet* sheet = mel_asset_registry_create_spritesheet(
-                ed->asset_registry,
-                ed->name_buffer,
-                ed->texture_path_buffer);
-
-            if (sheet)
-            {
-                mel_ed_spritesheet_set(ed, sheet);
-                SDL_Log("Created spritesheet: %s", sheet->name);
-            }
-            else
-            {
-                SDL_Log("Failed to create spritesheet");
-            }
-        }
-        if (!can_create) igEndDisabled();
+        igText("Spritesheet editor (no sheet loaded)");
+        igTextDisabled("Load or create a spritesheet via atlas files");
     }
     else
     {
         mel_ed_spritesheet_draw(ed, dt);
-
-        igSeparator();
-
-        igInputText("Save Path##spritesheet", ed->save_path_buffer,
-            sizeof(ed->save_path_buffer), 0, nullptr, nullptr);
-        igSameLine(0, 10);
-
-        if (igButton("Save Spritesheet", (ImVec2){120, 0}))
-        {
-            if (strlen(ed->save_path_buffer) > 0 && ed->asset_registry)
-            {
-                if (mel_asset_registry_save_spritesheet(ed->asset_registry,
-                    ed->spritesheet, ed->save_path_buffer))
-                {
-                    ed->dirty = false;
-                    SDL_Log("Saved spritesheet to: %s", ed->save_path_buffer);
-                }
-            }
-        }
     }
 }
 
@@ -363,17 +295,9 @@ static void ed_spritesheet_shutdown_wrapper(void* instance)
 
 static void on_init(void)
 {
-    if (!mel_vk_shader_init(&s_shader, &s_vk, .source = SHADER_SOURCE))
-    {
-        SDL_Log("Failed to compile shader!");
-        return;
-    }
+    mel_gpu_shader_init(&s_shader, &s_dev, .source = SHADER_SOURCE);
 
-    if (!mel_vk_texture_init_white(&s_white_texture, &s_vk))
-    {
-        SDL_Log("Failed to create white texture!");
-        return;
-    }
+    mel_gpu_texture_init_white(&s_white_texture, &s_dev);
 
     VkVertexInputBindingDescription binding = {
         .binding = 0,
@@ -387,44 +311,38 @@ static void on_init(void)
         { .location = 2, .binding = 0, .format = VK_FORMAT_R32G32B32A32_SFLOAT, .offset = offsetof(Mel_SpriteVertex, r) },
     };
 
-    if (!mel_vk_pipeline_init(&s_pipeline, &s_vk,
+    mel_gpu_pipeline_init(&s_pipeline, &s_dev,
         .shader = &s_shader,
-        .swapchain = &s_swapchain,
+        .color_format = s_swapchain.format,
         .bindings = &binding,
         .binding_count = 1,
         .attributes = attributes,
         .attribute_count = 3,
         .push_constant_size = sizeof(Mel_Mat4),
-        .use_texture = true))
-    {
-        SDL_Log("Failed to create pipeline!");
-        return;
-    }
+        .use_texture = true,
+        .blend_mode = MEL_GPU_BLEND_ALPHA);
 
-    if (!mel_sprite_batch_init(&s_batch, &s_vk, .max_sprites = 1024))
-    {
-        SDL_Log("Failed to create sprite batch!");
-        return;
-    }
+    mel_sprite_batch_init(&s_batch, &s_dev, .max_sprites = 1024);
 
-    s_white_texture.descriptor = mel_vk_pipeline_alloc_descriptor(&s_pipeline, &s_vk);
-    mel_vk_pipeline_write_texture(&s_pipeline, &s_vk, s_white_texture.descriptor,
+    s_white_texture.descriptor = mel_gpu_pipeline_alloc_descriptor(&s_pipeline, &s_dev);
+    mel_gpu_pipeline_write_texture(&s_pipeline, &s_dev, s_white_texture.descriptor,
         s_white_texture.image.view, s_white_texture.sampler);
 
-    if (!mel_font_init(&s_font, &s_vk, .path = "/System/Library/Fonts/Monaco.ttf", .size = 20.0f))
+    mel_texture_pool_init(&s_texture_pool, &s_allocator, &s_dev, .pipeline = &s_pipeline);
+    mel_tileset_pool_init(&s_tileset_pool, &s_allocator, &s_texture_pool);
+    mel_tilemap_pool_init(&s_tilemap_pool, &s_allocator, &s_tileset_pool);
+    mel_font_atlas_pool_init(&s_font_pool, &s_allocator, &s_dev);
+
+    s_font_handle = mel_font_atlas_pool_load(&s_font_pool, .path = S8("/System/Library/Fonts/Monaco.ttf"), .size = 20.0f);
+    Mel_Font_Atlas_Entry* font_entry = mel_font_atlas_pool_get(&s_font_pool, s_font_handle);
+    if (font_entry)
     {
-        SDL_Log("Failed to load font!");
-        return;
+        font_entry->atlas_texture.descriptor = mel_gpu_pipeline_alloc_descriptor(&s_pipeline, &s_dev);
+        mel_gpu_pipeline_write_texture(&s_pipeline, &s_dev, font_entry->atlas_texture.descriptor,
+            font_entry->atlas_texture.image.view, font_entry->atlas_texture.sampler);
     }
 
-    s_font.atlas.descriptor = mel_vk_pipeline_alloc_descriptor(&s_pipeline, &s_vk);
-    mel_vk_pipeline_write_texture(&s_pipeline, &s_vk, s_font.atlas.descriptor,
-        s_font.atlas.image.view, s_font.atlas.sampler);
-
-    if (mel_texture_load_and_bind(&s_test_texture, &s_vk, &s_pipeline, "test.png"))
-    {
-        SDL_Log("Loaded test.png via PhysFS!");
-    }
+    mel_texture_load_and_bind(&s_test_texture, &s_dev, &s_pipeline, S8("test.png"));
 
     mel_game_init(&s_game);
 
@@ -436,15 +354,12 @@ static void on_init(void)
 
     mel_wlabel_init(&s_dialogue_label);
     mel_widget_set_position(&s_dialogue_label.base, mel_vec2(120, 370));
-    s_dialogue_label.font = &s_font;
+    s_dialogue_label.font = font_entry;
     s_dialogue_label.text = s_game.dialogue_text;
     s_dialogue_label.text_color = mel_vec4(1.0f, 1.0f, 1.0f, 1.0f);
     mel_widget_add_child(&s_dialogue_box.base, &s_dialogue_label.base);
 
-    mel_asset_registry_init(&s_asset_registry, &s_vk, &s_pipeline, &s_allocator);
-    mel_asset_registry_scan_directory(&s_asset_registry, nullptr);
-
-    if (!imgui_init(s_window, &s_vk, &s_swapchain))
+    if (!imgui_init(s_window, &s_dev, &s_swapchain))
     {
         SDL_Log("Failed to init ImGui!");
     }
@@ -468,13 +383,13 @@ static void on_init(void)
 
     s_ed_tiles = mel_alloc_type(&s_allocator, Mel_EdTiles);
     mel_ed_tiles_init(s_ed_tiles, &s_allocator);
-    mel_ed_tiles_set_registry(s_ed_tiles, &s_asset_registry);
+    mel_ed_tiles_set_pools(s_ed_tiles, &s_tileset_pool, &s_tilemap_pool, &s_texture_pool);
 
     s_ed_spritesheet = mel_alloc_type(&s_allocator, Mel_EdSpritesheet);
     mel_ed_spritesheet_init(s_ed_spritesheet, &s_allocator);
-    s_ed_spritesheet->asset_registry = &s_asset_registry;
+    s_ed_spritesheet->texture_pool = &s_texture_pool;
 
-    mel_game_editor_init(&s_game_editor, &s_ed_registry, &s_asset_registry, s_window);
+    mel_game_editor_init(&s_game_editor, &s_ed_registry, &s_texture_pool, &s_tileset_pool, &s_tilemap_pool, s_window);
 
     SDL_Log("Game ready! WASD to move, E to interact with NPC, F1 for editor");
 }
@@ -497,17 +412,18 @@ static void on_shutdown(void)
         s_ed_spritesheet = nullptr;
     }
 
-    imgui_shutdown(&s_vk);
-    mel_asset_registry_shutdown(&s_asset_registry);
+    imgui_shutdown(&s_dev);
     mel_widget_destroy(&s_dialogue_box.base);
     mel_game_shutdown(&s_game);
-    mel_sprite_batch_shutdown(&s_batch, &s_vk);
-    mel_font_shutdown(&s_font, &s_vk);
-    mel_vk_texture_shutdown(&s_test_texture, &s_vk);
-    mel_vk_texture_shutdown(&s_white_texture, &s_vk);
-    mel_vk_pipeline_shutdown(&s_pipeline, &s_vk);
-    mel_vk_shader_shutdown(&s_shader, &s_vk);
-    mel_vk_texture_cleanup_immediate(&s_vk);
+    mel_sprite_batch_shutdown(&s_batch, &s_dev);
+    mel_font_atlas_pool_shutdown(&s_font_pool);
+    mel_tilemap_pool_shutdown(&s_tilemap_pool);
+    mel_tileset_pool_shutdown(&s_tileset_pool);
+    mel_texture_pool_shutdown(&s_texture_pool);
+    mel_gpu_texture_shutdown(&s_test_texture, &s_dev);
+    mel_gpu_texture_shutdown(&s_white_texture, &s_dev);
+    mel_gpu_pipeline_shutdown(&s_pipeline, &s_dev);
+    mel_gpu_shader_shutdown(&s_shader, &s_dev);
     SDL_Log("Game shutdown");
 }
 
@@ -533,28 +449,44 @@ static void on_update(f32 dt)
     mel_widget_set_visible(&s_dialogue_box.base, s_game.dialogue_open);
 }
 
-static void on_render(f32 alpha)
+static void on_render(Mel_Gpu_Cmd* c, f32 alpha)
 {
     TracyCZoneN(ctx, "on_render_callback", true);
 
     if (!s_pipeline.pipeline)
     {
-        mel_vk_swapchain_clear(&s_swapchain, &s_vk, 1.0f, 0.0f, 1.0f, 1.0f);
         TracyCZoneEnd(ctx);
         return;
     }
 
-    TracyCZoneN(ctx_begin_rendering, "begin_rendering", true);
-    mel_vk_swapchain_begin_rendering(&s_swapchain, &s_vk, 0.1f, 0.1f, 0.12f, 1.0f);
-    TracyCZoneEnd(ctx_begin_rendering);
+    mel_gpu_cmd_image_barrier(c,
+        s_swapchain.images[s_swapchain.current_image],
+        VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0,
+        VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        VK_IMAGE_ASPECT_COLOR_BIT);
 
-    VkCommandBuffer cmd = mel_vk_swapchain_command_buffer(&s_swapchain);
+    mel_gpu_cmd_set_viewport(c, 0, 0,
+        (f32)s_swapchain.extent.width, (f32)s_swapchain.extent.height, 0, 1);
+    mel_gpu_cmd_set_scissor(c, 0, 0, s_swapchain.extent.width, s_swapchain.extent.height);
+
+    Mel_Gpu_Color_Attachment color_att = {
+        .image_view = s_swapchain.image_views[s_swapchain.current_image],
+        .load_op = VK_ATTACHMENT_LOAD_OP_CLEAR,
+        .clear_r = 0.1f, .clear_g = 0.1f, .clear_b = 0.12f, .clear_a = 1.0f,
+    };
+
+    mel_gpu_cmd_begin_rendering(c,
+        .color_attachments = &color_att,
+        .color_count = 1,
+        .render_width = s_swapchain.extent.width,
+        .render_height = s_swapchain.extent.height);
 
     Mel_Mat4 proj = mel_mat4_ortho(0, (f32)s_swapchain.extent.width,
                                     0, (f32)s_swapchain.extent.height, -1, 1);
 
     mel_sprite_batch_begin(&s_batch, &s_pipeline);
-    mel_sprite_batch_set_texture(&s_batch, &s_vk, &s_white_texture);
+    mel_sprite_batch_set_texture(&s_batch, &s_dev, &s_white_texture);
 
     mel_game_draw(&s_game, &s_batch);
 
@@ -565,20 +497,25 @@ static void on_render(f32 alpha)
         TracyCZoneEnd(ctx_widget);
     }
 
-    mel_sprite_batch_end(&s_batch, &s_vk, cmd, &proj);
+    mel_sprite_batch_end(&s_batch, &s_dev, c->cmd, &proj);
 
     TracyCZoneN(ctx_editor, "editor_frame", true);
     if (s_game_editor.visible)
     {
         imgui_begin_frame();
         mel_game_editor_draw(&s_game_editor, s_frame_dt);
-        imgui_end_frame(cmd);
+        imgui_end_frame(c->cmd);
     }
     TracyCZoneEnd(ctx_editor);
 
-    TracyCZoneN(ctx_end_rendering, "end_rendering", true);
-    mel_vk_swapchain_end_rendering(&s_swapchain, &s_vk);
-    TracyCZoneEnd(ctx_end_rendering);
+    mel_gpu_cmd_end_rendering(c);
+
+    mel_gpu_cmd_image_barrier(c,
+        s_swapchain.images[s_swapchain.current_image],
+        VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+        VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0,
+        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+        VK_IMAGE_ASPECT_COLOR_BIT);
 
     MEL_UNUSED(alpha);
     TracyCZoneEnd(ctx);
@@ -612,27 +549,17 @@ static void app_init(Mel_App* app)
         return;
     }
 
-    if (!mel_vk_context_init(&s_vk,
+    mel_gpu_device_init(&s_dev,
         .window = s_window,
         .allocator = &s_allocator,
         .enable_validation = true,
-        .app_name = "Red Square Room"))
-    {
-        SDL_Log("Failed to initialize Vulkan");
-        return;
-    }
+        .app_name = "Red Square Room");
 
-    if (!mel_vk_swapchain_init(&s_swapchain, &s_vk, 640, 480))
-    {
-        SDL_Log("Failed to create swapchain");
-        return;
-    }
+    mel_gpu_swapchain_init(&s_swapchain, &s_dev, .width = 640, .height = 480);
 
-    if (!mel_slang_init())
-    {
-        SDL_Log("Failed to initialize Slang");
-        return;
-    }
+    mel_slang_init();
+
+    mel_render_frame_init(&s_frame, .dev = &s_dev, .swapchain = &s_swapchain);
 
     s_last_time = SDL_GetPerformanceCounter();
 
@@ -645,12 +572,13 @@ static void app_shutdown(Mel_App* app)
 {
     MEL_UNUSED(app);
 
-    mel_vk_context_wait_idle(&s_vk);
+    mel_gpu_device_wait_idle(&s_dev);
     on_shutdown();
 
+    mel_render_frame_shutdown(&s_frame);
     mel_slang_shutdown();
-    mel_vk_swapchain_shutdown(&s_swapchain, &s_vk);
-    mel_vk_context_shutdown(&s_vk);
+    mel_gpu_swapchain_shutdown(&s_swapchain, &s_dev);
+    mel_gpu_device_shutdown(&s_dev);
 
     if (s_window)
     {
@@ -703,17 +631,17 @@ static void app_update(Mel_App* app)
         i32 w, h;
         SDL_GetWindowSize(s_window, &w, &h);
         if (w > 0 && h > 0)
-            mel_vk_swapchain_recreate(&s_swapchain, &s_vk, w, h);
+            mel_gpu_swapchain_recreate(&s_swapchain, &s_dev, w, h);
         s_resize_requested = false;
     }
 
-    TracyCZoneN(ctx_acquire, "swapchain_acquire", true);
-    if (!mel_vk_swapchain_acquire(&s_swapchain, &s_vk))
+    TracyCZoneN(ctx_acquire, "frame_begin", true);
+    if (!mel_render_frame_begin(&s_frame))
     {
         i32 w, h;
         SDL_GetWindowSize(s_window, &w, &h);
         if (w > 0 && h > 0)
-            mel_vk_swapchain_recreate(&s_swapchain, &s_vk, w, h);
+            mel_gpu_swapchain_recreate(&s_swapchain, &s_dev, w, h);
         TracyCZoneEnd(ctx_acquire);
         TracyCZoneEnd(ctx_iterate);
         TracyCFrameMark;
@@ -721,28 +649,19 @@ static void app_update(Mel_App* app)
     }
     TracyCZoneEnd(ctx_acquire);
 
+    Mel_Gpu_Cmd c = {
+        .cmd = mel_render_frame_cmd(&s_frame),
+        .dev = &s_dev,
+    };
+
     f32 alpha = s_accumulator / FIXED_DT;
 
-    TracyCZoneN(ctx_begin_frame, "swapchain_begin_frame", true);
-    mel_vk_swapchain_begin_frame(&s_swapchain, &s_vk);
-    TracyCZoneEnd(ctx_begin_frame);
-
     TracyCZoneN(ctx_render, "on_render", true);
-    on_render(alpha);
+    on_render(&c, alpha);
     TracyCZoneEnd(ctx_render);
 
-    TracyCZoneN(ctx_end_frame, "swapchain_end_frame", true);
-    mel_vk_swapchain_end_frame(&s_swapchain, &s_vk);
-    TracyCZoneEnd(ctx_end_frame);
-
-    TracyCZoneN(ctx_present, "swapchain_present", true);
-    if (!mel_vk_swapchain_present(&s_swapchain, &s_vk))
-    {
-        i32 w, h;
-        SDL_GetWindowSize(s_window, &w, &h);
-        if (w > 0 && h > 0)
-            mel_vk_swapchain_recreate(&s_swapchain, &s_vk, w, h);
-    }
+    TracyCZoneN(ctx_present, "frame_end", true);
+    mel_render_frame_end(&s_frame);
     TracyCZoneEnd(ctx_present);
 
     s_frame_count++;

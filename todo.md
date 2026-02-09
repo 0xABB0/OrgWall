@@ -12,31 +12,30 @@
 - [CORE] implement Virtual File System (VFS) with mount points and archive support
 - [CORE] implement Hot-Reloading for Game Code (.dylib/.dll reloading)
 - [CORE] implement Asset Hot-Reloading (file watcher)
-- [CORE] implement CVar registry (console variables for runtime tuning)
-- [CORE] universal registry system (handle-based) for:
-    - Widget Types
-    - Error Codes
-    - Event Types
-    - Editor Tools
 - [CORE] implement centralized engine logging system (mel\_log\_*) to replace raw SDL_Log/fprintf
 - [CORE] implement Windows crash handling via SEH and StackWalk64
 - [CORE] improve backtrace resolution using dladdr() and -rdynamic on Unix-like systems
 - [SYSTEM] implement basic audio system (audio.h/c)
 - [SYSTEM] implement distributed event system (specialized queues, no global bus)
 - [SYSTEM] implement input action mapper (input.h)
-- [SYSTEM] implement job system/threading
 - [SYSTEM] implement serialization/config system
 - [RENDER] implement render graph (data-driven passes)
 - [RENDER] support multiple windows/viewports/cameras
 - [ARCH] implement view/input router (View struct, window_id, layer)
 - [EDITOR] implement reflection system (Type Descriptors) for generic inspection
-- [EDITOR] editor registry (register custom editors for components)
 - [ECS] replace hardcoded entity factories with prefab/blueprint system
 - [ECS] spatial partition for physics (grid/quadtree)
 - [TEST] expand test coverage to include ECS, Asset Registry, and VFS
 - [TEST] implement fuzz testing for custom allocators (Arena, Block, Buddy, etc.)
 - [BUILD] use pkg-config or config file to remove hardcoded paths in nob.c
-- [DEMO] make a demo with a ton of animated sprites (same atlas, different frame, different parameters - size, direction, tint)
-- [DEMO] demos should change their naming as demo.\* (not demo_*) and we'd need to change the various demos naming to explicitly show what they're demoing (example: demo.native.hello.\*)
-- [ENGINE] the engine should expose an "editor" system, that serves as the entrypoint for every other editor to register into. there could be any editor open at any time (even multiple instances of the same editor, pointing to different things).
-- [ALLOCATOR] the allocators that can grow (block, heap, others?) should all be backed by the vmem allocator.
+
+- [GABBO][DEMO] make a demo with a ton of animated sprites (same atlas, different frame, different parameters - size, direction, tint)
+- [GABBO][DEMO] demos should change their naming as demo.\* (not demo_*) and we'd need to change the various demos naming to explicitly show what they're demoing (example: demo.native.hello.\*)
+- [GABBO][ENGINE][CHECK] the engine should expose an "editor" system, that serves as the entrypoint for every other editor to register into. there could be any editor open at any time (even multiple instances of the same editor, pointing to different things).
+- [GABBO][ALLOCATOR] the allocators that can grow (block, heap, others?) should all be backed by the vmem allocator.
+- [GABBO][UI][FIX] why is the label widget using directly the Mel\_Font\_Atlas\_Entry instead of the font handle? is this happening also elsewhere?
+- [GABBO][BUILD][ENHANCEMENT] The build file is becoming too large. we are in dire need of a simplification...
+- [GABBO][EDITOR] I don't like having the domain "editor.*". i think that the editors should live alongside their own domain eg "anim.sprite.editor.h"
+- [GABBO][CORE] implement CVar registry (console variables for runtime tuning) - new module
+- [GABBO][MAINTENANCE] update claude.md with the new structure
+- [GABBO][CORE] 

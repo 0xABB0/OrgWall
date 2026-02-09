@@ -3,7 +3,7 @@
 
 #include "types.h"
 #include "allocator.fwd.h"
-#include "vk_texture.h"
+#include "gpu.texture.h"
 
 typedef struct
 {
@@ -55,7 +55,7 @@ typedef struct
     u32 frame_count;
     Mel_Animation* animations;
     u32 animation_count;
-    Mel_VkTexture* texture;
+    Mel_Gpu_Texture* texture;
     u32 texture_width;
     u32 texture_height;
 } Mel_Spritesheet;

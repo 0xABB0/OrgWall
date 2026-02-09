@@ -1,0 +1,4 @@
+#pragma once
+
+typedef struct Mel_Gpu_Descriptor_Layout Mel_Gpu_Descriptor_Layout;
+typedef struct Mel_Gpu_Descriptor_Pool Mel_Gpu_Descriptor_Pool;

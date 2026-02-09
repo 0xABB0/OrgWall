@@ -19,9 +19,14 @@ bool mel_assets_init_opt(Mel_Assets* assets, Mel_Assets_Opt opt)
     const char* base = PHYSFS_getBaseDir();
     char assets_path[1024] = {0};
 
-    if (opt.org_name && opt.app_name)
+    if (!str8_is_empty(opt.org_name) && !str8_is_empty(opt.app_name))
     {
-        const char* pref_dir = PHYSFS_getPrefDir(opt.org_name, opt.app_name);
+        char org_buf[256];
+        char app_buf[256];
+        str8_to_buf(opt.org_name, org_buf, sizeof(org_buf));
+        str8_to_buf(opt.app_name, app_buf, sizeof(app_buf));
+
+        const char* pref_dir = PHYSFS_getPrefDir(org_buf, app_buf);
         if (pref_dir)
         {
             PHYSFS_setWriteDir(pref_dir);
@@ -34,11 +39,14 @@ bool mel_assets_init_opt(Mel_Assets* assets, Mel_Assets_Opt opt)
         PHYSFS_setWriteDir(assets_path);
     }
 
-    if (opt.base_path)
+    if (!str8_is_empty(opt.base_path))
     {
-        if (!PHYSFS_mount(opt.base_path, nullptr, 1))
+        char base_path_buf[1024];
+        str8_to_buf(opt.base_path, base_path_buf, sizeof(base_path_buf));
+
+        if (!PHYSFS_mount(base_path_buf, nullptr, 1))
         {
-            SDL_Log("Failed to mount base path '%s': %s", opt.base_path, PHYSFS_getErrorByCode(PHYSFS_getLastErrorCode()));
+            SDL_Log("Failed to mount base path '%.*s': %s", (int)opt.base_path.len, opt.base_path.data, PHYSFS_getErrorByCode(PHYSFS_getLastErrorCode()));
         }
     }
     else
@@ -72,57 +80,80 @@ void mel_assets_shutdown(Mel_Assets* assets)
     }
 }
 
-bool mel_assets_mount(const char* path, const char* mount_point)
+bool mel_assets_mount(str8 path, str8 mount_point)
 {
-    assert(path != nullptr);
+    assert(!str8_is_empty(path));
 
-    if (!PHYSFS_mount(path, mount_point, 1))
+    char path_buf[1024];
+    str8_to_buf(path, path_buf, sizeof(path_buf));
+
+    char mp_buf[1024];
+    const char* mp = nullptr;
+    if (!str8_is_empty(mount_point))
     {
-        SDL_Log("Failed to mount '%s': %s", path, PHYSFS_getErrorByCode(PHYSFS_getLastErrorCode()));
+        str8_to_buf(mount_point, mp_buf, sizeof(mp_buf));
+        mp = mp_buf;
+    }
+
+    if (!PHYSFS_mount(path_buf, mp, 1))
+    {
+        SDL_Log("Failed to mount '%.*s': %s", (int)path.len, path.data, PHYSFS_getErrorByCode(PHYSFS_getLastErrorCode()));
         return false;
     }
 
-    SDL_Log("Mounted: %s -> %s", path, mount_point ? mount_point : "/");
+    SDL_Log("Mounted: %.*s -> %s", (int)path.len, path.data, mp ? mp : "/");
     return true;
 }
 
-bool mel_assets_mount_write(const char* path)
+bool mel_assets_mount_write(str8 path)
 {
-    assert(path != nullptr);
+    assert(!str8_is_empty(path));
 
-    if (!PHYSFS_setWriteDir(path))
+    char path_buf[1024];
+    str8_to_buf(path, path_buf, sizeof(path_buf));
+
+    if (!PHYSFS_setWriteDir(path_buf))
     {
-        SDL_Log("Failed to set write dir '%s': %s", path, PHYSFS_getErrorByCode(PHYSFS_getLastErrorCode()));
+        SDL_Log("Failed to set write dir '%.*s': %s", (int)path.len, path.data, PHYSFS_getErrorByCode(PHYSFS_getLastErrorCode()));
         return false;
     }
 
     return true;
 }
 
-bool mel_assets_exists(const char* path)
+bool mel_assets_exists(str8 path)
 {
-    assert(path != nullptr);
-    return PHYSFS_exists(path) != 0;
+    assert(!str8_is_empty(path));
+
+    char path_buf[1024];
+    str8_to_buf(path, path_buf, sizeof(path_buf));
+    return PHYSFS_exists(path_buf) != 0;
 }
 
-bool mel_assets_is_directory(const char* path)
+bool mel_assets_is_directory(str8 path)
 {
-    assert(path != nullptr);
+    assert(!str8_is_empty(path));
+
+    char path_buf[1024];
+    str8_to_buf(path, path_buf, sizeof(path_buf));
 
     PHYSFS_Stat stat;
-    if (!PHYSFS_stat(path, &stat)) return false;
+    if (!PHYSFS_stat(path_buf, &stat)) return false;
 
     return stat.filetype == PHYSFS_FILETYPE_DIRECTORY;
 }
 
-u8* mel_assets_read(const char* path, u32* out_size)
+u8* mel_assets_read(str8 path, u32* out_size)
 {
-    assert(path != nullptr);
+    assert(!str8_is_empty(path));
 
-    PHYSFS_File* file = PHYSFS_openRead(path);
+    char path_buf[1024];
+    str8_to_buf(path, path_buf, sizeof(path_buf));
+
+    PHYSFS_File* file = PHYSFS_openRead(path_buf);
     if (!file)
     {
-        SDL_Log("Failed to open '%s': %s", path, PHYSFS_getErrorByCode(PHYSFS_getLastErrorCode()));
+        SDL_Log("Failed to open '%.*s': %s", (int)path.len, path.data, PHYSFS_getErrorByCode(PHYSFS_getLastErrorCode()));
         return nullptr;
     }
 
@@ -154,7 +185,7 @@ u8* mel_assets_read(const char* path, u32* out_size)
     return data;
 }
 
-char* mel_assets_read_text(const char* path)
+char* mel_assets_read_text(str8 path)
 {
     u32 size;
     u8* data = mel_assets_read(path, &size);
@@ -176,15 +207,18 @@ void mel_assets_free(void* data)
     free(data);
 }
 
-bool mel_assets_write(const char* path, const void* data, u32 size)
+bool mel_assets_write(str8 path, const void* data, u32 size)
 {
-    assert(path != nullptr);
+    assert(!str8_is_empty(path));
     assert(data != nullptr || size == 0);
 
-    PHYSFS_File* file = PHYSFS_openWrite(path);
+    char path_buf[1024];
+    str8_to_buf(path, path_buf, sizeof(path_buf));
+
+    PHYSFS_File* file = PHYSFS_openWrite(path_buf);
     if (!file)
     {
-        SDL_Log("Failed to write '%s': %s", path, PHYSFS_getErrorByCode(PHYSFS_getLastErrorCode()));
+        SDL_Log("Failed to write '%.*s': %s", (int)path.len, path.data, PHYSFS_getErrorByCode(PHYSFS_getLastErrorCode()));
         return false;
     }
 
@@ -202,17 +236,20 @@ bool mel_assets_write(const char* path, const void* data, u32 size)
     return true;
 }
 
-bool mel_assets_write_text(const char* path, const char* text)
+bool mel_assets_write_text(str8 path, str8 text)
 {
-    assert(text != nullptr);
-    return mel_assets_write(path, text, (u32)strlen(text));
+    assert(!str8_is_empty(text));
+    return mel_assets_write(path, text.data, (u32)text.len);
 }
 
-char** mel_assets_list(const char* path, u32* out_count)
+char** mel_assets_list(str8 path, u32* out_count)
 {
-    assert(path != nullptr);
+    assert(!str8_is_empty(path));
 
-    char** files = PHYSFS_enumerateFiles(path);
+    char path_buf[1024];
+    str8_to_buf(path, path_buf, sizeof(path_buf));
+
+    char** files = PHYSFS_enumerateFiles(path_buf);
     if (!files)
     {
         if (out_count) *out_count = 0;
@@ -235,16 +272,19 @@ void mel_assets_list_free(char** list)
     if (list) PHYSFS_freeList(list);
 }
 
-bool mel_assets_import_file(const char* filesystem_path, const char* dest_name)
+bool mel_assets_import_file(str8 filesystem_path, str8 dest_name)
 {
-    assert(filesystem_path != nullptr);
-    assert(dest_name != nullptr);
+    assert(!str8_is_empty(filesystem_path));
+    assert(!str8_is_empty(dest_name));
+
+    char fs_path_buf[1024];
+    str8_to_buf(filesystem_path, fs_path_buf, sizeof(fs_path_buf));
 
     size_t size;
-    void* data = SDL_LoadFile(filesystem_path, &size);
+    void* data = SDL_LoadFile(fs_path_buf, &size);
     if (!data)
     {
-        SDL_Log("Failed to read file '%s': %s", filesystem_path, SDL_GetError());
+        SDL_Log("Failed to read file '%.*s': %s", (int)filesystem_path.len, filesystem_path.data, SDL_GetError());
         return false;
     }
 
@@ -253,7 +293,7 @@ bool mel_assets_import_file(const char* filesystem_path, const char* dest_name)
 
     if (result)
     {
-        SDL_Log("Imported '%s' as '%s'", filesystem_path, dest_name);
+        SDL_Log("Imported '%.*s' as '%.*s'", (int)filesystem_path.len, filesystem_path.data, (int)dest_name.len, dest_name.data);
     }
 
     return result;

@@ -119,3 +119,26 @@ We explicitly don't allow umbrella headers (aka headers that only include other 
 
 We don't want to create indirections. they make the code less clear and more error prone. if we can make something explicit, we do.
 We dislike pimpl-style, we dislike "c with classes". Even though sometimes we are required to use them, we prefer not to when possible.
+
+## MEL-X-006: offensive programming
+
+We prefer offensive programming, aka making heavy use of assertions instead of defensive programming (for example checking for null and returning null)
+
+## MEL-X-007: headers guard
+
+We prefer using #pragma once instead of include guards
+
+## MEL-X-008: physical structure
+
+We prefer grouping things based on the functionality, not the type.
+
+Not good:
+
+editor.spritesheet.h
+anim.sprite.h
+
+Good:
+
+anim.sprite.h
+anim.sprite.editor.h
+
