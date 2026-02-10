@@ -1,12 +1,7 @@
-- added string type (still hard thinking about this)
--- need to add the string type everywhere a string is needed
-- fix leaks
 - [CORE] fix string macros in str.h (fix lengthof usage on pointers)
 - [CORE] implement stacktrace capturing for every allocation (debug mode)
 - [CORE] implement crash handler (intercept signals, save state, dump stacktrace)
 - [CORE] handle init failure cleanup in mel\_engine\_init\_opt (tracking/window/vk/swapchain) and keep engine->opt defaults consistent
-- [CORE] wire crash handler + SDL\_Quit into MEL\_APP path; pass SDL\_Event* into app event callback
-- [CORE] harden asset registry: check realloc failures; ensure path strings are NUL-terminated
 - [CORE] stop bypassing allocator system in assets module (replace malloc/realloc/free)
 - [CORE] revisit crash handler to avoid non-signal-safe calls in signal context
 - [CORE] implement Virtual File System (VFS) with mount points and archive support
@@ -41,3 +36,5 @@
 - [GABBO][CORE] right now, melody is a library except for the fact that it takes ownership of the main loop. this is not good, melody should handle much, much more (automatic initialization of things. maybe we could even add parameters to MEL_APP, if needed. melody should also initialize autonomously things like vulkan, the editors, etcetera. obviously we need the app to be able to dictate what it wants from melody)
 - [GABBO][ENGINE] we need to be able to make melody run "headless" (in two ways: one is without any graphics api at all. the other is without windows) this is needed for testing vulkan. maybe outputting to a png? if it does not error out / give warnings, maybe the test is a success? Also, headless run could also be like "run for x frames"
 - [GABBO][TEST] we should absolutely strengthen tests. more tests (and maybe a better test harness that could be harnessed by the game itself - and even mods while we're there? could help a lot modders)
+- [GABBO][PROFILING] we need more profiling. we should call tracy in multiple places, and we should use that to also profile memory and profile graphics api calls
+- [GABBO][PROFILING] we need to have a debug ui (imgui) in which we have some overview of things like total memory, ecs debugging, and idk, stuff like that

@@ -2,6 +2,7 @@
 #import <objc/runtime.h>
 #include "../ui.native.menuitem.h"
 #include "../ui.native.menu.h"
+#include "../string.str8.h"
 
 static const void* kMenuItemTargetKey = &kMenuItemTargetKey;
 
@@ -27,8 +28,13 @@ static void nmenuitem_create_backing(Mel_NCtrl* ctrl)
     MelMenuItemTarget* target = [[MelMenuItemTarget alloc] init];
     target.item = item;
 
-    NSString* title = [NSString stringWithUTF8String:item->title];
-    NSString* key = [NSString stringWithUTF8String:item->key_equivalent];
+    char title_buf[256];
+    str8_to_buf(item->title, title_buf, sizeof(title_buf));
+    char key_buf[64];
+    str8_to_buf(item->key_equivalent, key_buf, sizeof(key_buf));
+
+    NSString* title = [NSString stringWithUTF8String:title_buf];
+    NSString* key = [NSString stringWithUTF8String:key_buf];
 
     NSMenuItem* ns = [[NSMenuItem alloc]
         initWithTitle:title

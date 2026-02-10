@@ -105,7 +105,7 @@ static void draw_main_menu_bar(Mel_GameEditor* ge)
             for (usize i = 0; i < mel_ed_registry_count(ge->registry); i++)
             {
                 Mel_EdEntry* entry = mel_ed_registry_at(ge->registry, i);
-                igMenuItem_BoolPtr(entry->name, nullptr, &entry->open, true);
+                igMenuItem_BoolPtr(entry->window_title, nullptr, &entry->open, true);
             }
 
             igEndMenu();
@@ -180,8 +180,9 @@ static void draw_texture_picker_popup(Mel_GameEditor* ge)
             Mel_Texture_Handle h = mel_texture_pool_load(ge->texture_pool, str8_from_cstr(ge->pending_file_path));
             if (h.value != 0)
             {
-                const char* filename = strrchr(ge->pending_file_path, '/');
-                filename = filename ? filename + 1 : ge->pending_file_path;
+                str8 full_path = str8_from_cstr(ge->pending_file_path);
+                const char* slash = strrchr(ge->pending_file_path, '/');
+                str8 filename = slash ? str8_from_cstr(slash + 1) : full_path;
 
                 if (ge->texture_picker_callback)
                 {
@@ -255,7 +256,7 @@ static void draw_texture_picker_popup(Mel_GameEditor* ge)
                     {
                         if (ge->texture_picker_callback)
                         {
-                            ge->texture_picker_callback(manual_path, ge->texture_picker_userdata);
+                            ge->texture_picker_callback(str8_from_cstr(manual_path), ge->texture_picker_userdata);
                         }
                         ge->show_texture_picker = false;
                         SDL_Log("Loaded texture: %s", manual_path);

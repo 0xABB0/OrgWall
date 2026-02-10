@@ -1,10 +1,13 @@
 #import <Cocoa/Cocoa.h>
 #include "../ui.native.label.h"
+#include "../string.str8.h"
 
 static void nlabel_create_backing(Mel_NCtrl* ctrl)
 {
     Mel_NLabel* label = (Mel_NLabel*)ctrl;
-    NSString* str = [NSString stringWithUTF8String:label->text];
+    char text_buf[1024];
+    str8_to_buf(label->text, text_buf, sizeof(text_buf));
+    NSString* str = [NSString stringWithUTF8String:text_buf];
     NSTextField* tf = [NSTextField labelWithString:str];
     [tf setBezeled:NO];
     [tf setDrawsBackground:NO];

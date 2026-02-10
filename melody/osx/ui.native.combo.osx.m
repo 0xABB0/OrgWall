@@ -1,6 +1,7 @@
 #import <Cocoa/Cocoa.h>
 #import <objc/runtime.h>
 #include "../ui.native.combo.h"
+#include "../string.str8.h"
 
 static const void* kComboTargetKey = &kComboTargetKey;
 
@@ -125,6 +126,7 @@ const Mel_NCtrl_VTable* mel__ncombo_vtable(void)
 void mel__ncombo_set_items_platform(Mel_NCombo* combo, const char** items, i32 count)
 {
     assert(combo != nullptr);
+    (void)items;
     if (!combo->base.backing)
         return;
 
@@ -132,8 +134,11 @@ void mel__ncombo_set_items_platform(Mel_NCombo* combo, const char** items, i32 c
     [popup removeAllItems];
 
     NSMutableArray* titles = [[NSMutableArray alloc] initWithCapacity:(NSUInteger)count];
-    for (i32 i = 0; i < count; i++)
-        [titles addObject:[NSString stringWithUTF8String:items[i]]];
+    for (i32 i = 0; i < count; i++) {
+        char buf[1024];
+        str8_to_buf(combo->items[i], buf, sizeof(buf));
+        [titles addObject:[NSString stringWithUTF8String:buf]];
+    }
 
     [popup addItemsWithTitles:titles];
 }

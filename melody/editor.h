@@ -2,6 +2,7 @@
 #define MEL_EDITOR_H
 
 #include "types.h"
+#include "string.str8.fwd.h"
 #include "editor.registry.h"
 #include "texture.pool.fwd.h"
 #include "tile.set.fwd.h"
@@ -9,7 +10,7 @@
 
 #include <SDL3/SDL.h>
 
-typedef void (*Mel_TexturePickerCallback)(const char* path, void* userdata);
+typedef void (*Mel_TexturePickerCallback)(str8 path, void* userdata);
 
 typedef struct
 {

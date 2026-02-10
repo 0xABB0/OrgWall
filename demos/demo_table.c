@@ -7,6 +7,7 @@
 #include "../melody/ui.native.label.h"
 #include "../melody/ui.native.tableview.h"
 #include "../melody/ui.layout.box.h"
+#include "../melody/string.str8.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -52,26 +53,26 @@ static Mel_NButton     s_add_btn;
 static Mel_NButton     s_clear_btn;
 
 static Mel_NTableColumn s_columns[] = {
-    { "Name",       150.0f },
-    { "Agency",     120.0f },
-    { "Followers",  100.0f },
-    { "Debut Year", 100.0f },
+    { .title = S8("Name"),       .width = 150.0f },
+    { .title = S8("Agency"),     .width = 120.0f },
+    { .title = S8("Followers"),  .width = 100.0f },
+    { .title = S8("Debut Year"), .width = 100.0f },
 };
 
 static void on_window_close(void* user) { ((Mel_App*)user)->should_quit = true; }
 static void on_window_resize(f32 w, f32 h, void* user) { (void)user; (void)w; (void)h; }
 
-static const char* on_table_data(i32 row, i32 col, void* user)
+static str8 on_table_data(i32 row, i32 col, void* user)
 {
     (void)user;
-    if (row < 0 || row >= s_entry_count) return "";
+    if (row < 0 || row >= s_entry_count) return STR8_EMPTY;
     VTuber_Entry* e = &s_entries[row];
     switch (col) {
-        case 0: return e->name;
-        case 1: return e->agency;
-        case 2: return e->followers;
-        case 3: return e->debut_year;
-        default: return "";
+        case 0: return str8_from_cstr(e->name);
+        case 1: return str8_from_cstr(e->agency);
+        case 2: return str8_from_cstr(e->followers);
+        case 3: return str8_from_cstr(e->debut_year);
+        default: return STR8_EMPTY;
     }
 }
 
@@ -86,7 +87,7 @@ static void on_table_select(i32 row, void* user)
                  "Selected: %s | %s | %s followers | Debut %s",
                  e->name, e->agency, e->followers, e->debut_year);
     }
-    mel_nlabel_set_text(&s_detail_label, s_detail_buf);
+    mel_nlabel_set_text(&s_detail_label, str8_from_cstr(s_detail_buf));
 }
 
 static void on_add_random(void* user)
@@ -105,7 +106,7 @@ static void on_clear_selection(void* user)
     (void)user;
     mel_ntableview_set_selected(&s_table, -1);
     snprintf(s_detail_buf, sizeof(s_detail_buf), "No selection");
-    mel_nlabel_set_text(&s_detail_label, s_detail_buf);
+    mel_nlabel_set_text(&s_detail_label, str8_from_cstr(s_detail_buf));
 }
 
 static void build_ui(Mel_App* app)
@@ -125,7 +126,7 @@ static void build_ui(Mel_App* app)
         .spacing     = 10.0f);
     mel_nctrl_set_layout(&s_panel.base, &s_layout.base);
 
-    mel_nlabel_init(&s_title_label, .text = "VTuber Database", .font_size = 20.0f);
+    mel_nlabel_init(&s_title_label, .text = S8("VTuber Database"), .font_size = 20.0f);
     s_title_label.base.fixed_size = mel_vec2(0, 30);
     mel_nctrl_add_child(&s_panel.base, &s_title_label.base);
 
@@ -139,7 +140,7 @@ static void build_ui(Mel_App* app)
     mel_nctrl_add_child(&s_panel.base, &s_table.base);
 
     snprintf(s_detail_buf, sizeof(s_detail_buf), "No selection");
-    mel_nlabel_init(&s_detail_label, .text = s_detail_buf);
+    mel_nlabel_init(&s_detail_label, .text = str8_from_cstr(s_detail_buf));
     s_detail_label.base.fixed_size = mel_vec2(0, 20);
     mel_nctrl_add_child(&s_panel.base, &s_detail_label.base);
 
@@ -154,12 +155,12 @@ static void build_ui(Mel_App* app)
         .spacing     = 10.0f);
     mel_nctrl_set_layout(&s_button_panel.base, &s_button_layout.base);
 
-    mel_nbutton_init(&s_add_btn, .text = "Add Random");
+    mel_nbutton_init(&s_add_btn, .text = S8("Add Random"));
     s_add_btn.on_click = on_add_random;
     s_add_btn.base.fixed_size = mel_vec2(0, 32);
     mel_nctrl_add_child(&s_button_panel.base, &s_add_btn.base);
 
-    mel_nbutton_init(&s_clear_btn, .text = "Clear Selection");
+    mel_nbutton_init(&s_clear_btn, .text = S8("Clear Selection"));
     s_clear_btn.on_click = on_clear_selection;
     s_clear_btn.base.fixed_size = mel_vec2(0, 32);
     mel_nctrl_add_child(&s_button_panel.base, &s_clear_btn.base);

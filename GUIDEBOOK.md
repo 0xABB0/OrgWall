@@ -94,9 +94,10 @@ We never define a MAX_* constant to create an array lazily. if it needs to be dy
 
 ## MEL-X-001: memory
 
-Every allocation should go through the allocator interface that is exposed inside allocator.h
-Never call the allocator directly, but use mel_alloc macros (realloc, dealloc, calloc, etc)
-You should never create an allocator directly, instead using the apposite function
+Every allocation should go through the allocator interface that is exposed inside allocator.h or directly through a specific allocator.
+There should be no usage of raw malloc/free inside the codebase.
+We prefer to use the specific allocator instead of the generic allocator interface, but sometimes we are either forced to, or that piece of code is not performance-critical.
+If needed, we can make multiple functions that take different allocators each
 
 ## MEL-X-002: compiler
 
@@ -141,4 +142,12 @@ Good:
 
 anim.sprite.h
 anim.sprite.editor.h
+
+## MEL-X-009: language
+
+We prefer using only c as our language of choice, though sometimes we are forced to use another language. This should be done sparingly and only when there is no other choice.
+Examples:
+- Tracy
+- Imgui
+- Slang integration
 

@@ -1,6 +1,7 @@
 #import <Cocoa/Cocoa.h>
 #import <objc/runtime.h>
 #include "../ui.native.edit.h"
+#include "../string.str8.h"
 
 static const void* kEditDelegateKey = &kEditDelegateKey;
 
@@ -15,7 +16,7 @@ static const void* kEditDelegateKey = &kEditDelegateKey;
     (void)notification;
     if (_edit && _edit->on_change) {
         NSTextField* tf = (__bridge NSTextField*)_edit->base.backing;
-        const char* text = [[tf stringValue] UTF8String];
+        str8 text = str8_from_cstr([[tf stringValue] UTF8String]);
         _edit->on_change(text, _edit->user_data);
     }
 }
@@ -27,7 +28,7 @@ static const void* kEditDelegateKey = &kEditDelegateKey;
     if (commandSelector == @selector(insertNewline:)) {
         if (_edit && _edit->on_confirm) {
             NSTextField* tf = (__bridge NSTextField*)_edit->base.backing;
-            const char* text = [[tf stringValue] UTF8String];
+            str8 text = str8_from_cstr([[tf stringValue] UTF8String]);
             _edit->on_confirm(text, _edit->user_data);
         }
         return YES;
@@ -41,9 +42,14 @@ static void nedit_create_backing(Mel_NCtrl* ctrl)
 {
     Mel_NEdit* edit = (Mel_NEdit*)ctrl;
 
+    char text_buf[1024];
+    str8_to_buf(edit->text, text_buf, sizeof(text_buf));
+    char placeholder_buf[256];
+    str8_to_buf(edit->placeholder, placeholder_buf, sizeof(placeholder_buf));
+
     NSTextField* tf = [[NSTextField alloc] initWithFrame:NSMakeRect(0, 0, 200, 22)];
-    [tf setStringValue:[NSString stringWithUTF8String:edit->text]];
-    [tf setPlaceholderString:[NSString stringWithUTF8String:edit->placeholder]];
+    [tf setStringValue:[NSString stringWithUTF8String:text_buf]];
+    [tf setPlaceholderString:[NSString stringWithUTF8String:placeholder_buf]];
     [tf setEditable:YES];
     [tf setSelectable:YES];
     [tf setBezeled:YES];

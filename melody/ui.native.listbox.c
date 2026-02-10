@@ -1,4 +1,5 @@
 #include "ui.native.listbox.h"
+#include "string.str8.h"
 
 void mel_nlistbox_init_opt(Mel_NListbox* listbox, Mel_NListbox_Opt opt)
 {
@@ -15,16 +16,16 @@ void mel_nlistbox_init_opt(Mel_NListbox* listbox, Mel_NListbox_Opt opt)
     mel_nctrl_create_backing(&listbox->base);
 
     if (listbox->base.backing && listbox->items && listbox->item_count > 0)
-        mel__nlistbox_set_items_platform(listbox, listbox->items, listbox->item_count);
+        mel__nlistbox_set_items_platform(listbox, nullptr, listbox->item_count);
 }
 
-void mel_nlistbox_set_items(Mel_NListbox* listbox, const char** items, i32 count)
+void mel_nlistbox_set_items(Mel_NListbox* listbox, str8* items, i32 count)
 {
     assert(listbox != nullptr);
     listbox->items = items;
     listbox->item_count = count;
     if (listbox->base.backing)
-        mel__nlistbox_set_items_platform(listbox, items, count);
+        mel__nlistbox_set_items_platform(listbox, nullptr, count);
 }
 
 void mel_nlistbox_set_selected(Mel_NListbox* listbox, i32 index)

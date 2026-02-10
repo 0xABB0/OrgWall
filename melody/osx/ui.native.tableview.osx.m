@@ -1,6 +1,7 @@
 #import <Cocoa/Cocoa.h>
 #import <objc/runtime.h>
 #include "../ui.native.tableview.h"
+#include "../string.str8.h"
 
 static const void* kTableViewDelegateKey = &kTableViewDelegateKey;
 static const void* kTableViewInnerKey = &kTableViewInnerKey;
@@ -31,11 +32,13 @@ static const void* kTableViewInnerKey = &kTableViewInnerKey;
     if (col_index < 0 || col_index >= self.table->column_count)
         return @"";
 
-    const char* value = self.table->data_cb((i32)row, col_index, self.table->user_data);
-    if (!value)
+    str8 value = self.table->data_cb((i32)row, col_index, self.table->user_data);
+    if (str8_is_empty(value))
         return @"";
 
-    return [NSString stringWithUTF8String:value];
+    char buf[1024];
+    str8_to_buf(value, buf, sizeof(buf));
+    return [NSString stringWithUTF8String:buf];
 }
 
 - (void)tableViewSelectionDidChange:(NSNotification*)notification
@@ -72,8 +75,11 @@ static void tableview_create_backing(Mel_NCtrl* ctrl)
         NSString* identifier = [NSString stringWithFormat:@"%d", (int)i];
         NSTableColumn* col = [[NSTableColumn alloc] initWithIdentifier:identifier];
 
-        if (table->columns[i].title)
-            [[col headerCell] setStringValue:[NSString stringWithUTF8String:table->columns[i].title]];
+        if (!str8_is_empty(table->columns[i].title)) {
+            char buf[1024];
+            str8_to_buf(table->columns[i].title, buf, sizeof(buf));
+            [[col headerCell] setStringValue:[NSString stringWithUTF8String:buf]];
+        }
 
         if (table->columns[i].width > 0)
             [col setWidth:(CGFloat)table->columns[i].width];

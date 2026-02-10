@@ -1,12 +1,13 @@
 #pragma once
 
 #include "ui.native.ctrl.h"
+#include "string.str8.fwd.h"
 
 typedef void (*Mel_NRadio_Change_Cb)(bool selected, void* user);
 
 typedef struct {
     Mel_NCtrl base;
-    const char* text;
+    str8 text;
     i32 group_id;
     bool selected;
     Mel_NRadio_Change_Cb on_change;
@@ -14,7 +15,7 @@ typedef struct {
 } Mel_NRadio;
 
 typedef struct {
-    const char* text;
+    str8 text;
     i32 group_id;
     bool selected;
 } Mel_NRadio_Opt;
@@ -22,7 +23,7 @@ typedef struct {
 void mel_nradio_init_opt(Mel_NRadio* radio, Mel_NRadio_Opt opt);
 #define mel_nradio_init(radio, ...) mel_nradio_init_opt((radio), (Mel_NRadio_Opt){__VA_ARGS__})
 
-void mel_nradio_set_text(Mel_NRadio* radio, const char* text);
+void mel_nradio_set_text(Mel_NRadio* radio, str8 text);
 void mel_nradio_set_selected(Mel_NRadio* radio, bool selected);
 
 extern const Mel_NCtrl_VTable* mel__nradio_vtable(void);

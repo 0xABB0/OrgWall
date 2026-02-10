@@ -1,5 +1,6 @@
 #define VK_NO_PROTOTYPES
 #include "gpu.device.h"
+#include "string.str8.h"
 #include "allocator.heap.h"
 #include <string.h>
 
@@ -61,9 +62,15 @@ static bool has_extension(VkExtensionProperties* exts, u32 count, const char* na
 
 static void create_instance(Mel_Gpu_Device* dev, Mel_Gpu_Device_Opt* opt)
 {
+    char app_name_buf[256];
+    if (!str8_is_empty(opt->app_name))
+        str8_to_buf(opt->app_name, app_name_buf, sizeof(app_name_buf));
+    else
+        strncpy(app_name_buf, "Melody", sizeof(app_name_buf));
+
     VkApplicationInfo app_info = {
         .sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
-        .pApplicationName = opt->app_name ? opt->app_name : "Melody",
+        .pApplicationName = app_name_buf,
         .applicationVersion = VK_MAKE_VERSION(1, 0, 0),
         .pEngineName = "Melody",
         .engineVersion = VK_MAKE_VERSION(1, 0, 0),

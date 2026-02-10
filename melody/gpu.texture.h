@@ -2,6 +2,7 @@
 #define MEL_GPU_TEXTURE_H
 
 #include "gpu.image.h"
+#include "string.str8.fwd.h"
 
 typedef struct Mel_Gpu_Texture Mel_Gpu_Texture;
 
@@ -12,7 +13,7 @@ struct Mel_Gpu_Texture {
 };
 
 typedef struct {
-    const char* path;
+    str8 path;
     const u8* data;
     u32 data_size;
     bool nearest_filter;

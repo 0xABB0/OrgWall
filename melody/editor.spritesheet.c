@@ -1,4 +1,5 @@
 #include "editor.spritesheet.h"
+#include "string.str8.h"
 
 #include <cimgui/cimgui.h>
 #include <string.h>
@@ -53,13 +54,13 @@ void mel_ed_spritesheet_set(Mel_EdSpritesheet* ed, Mel_Spritesheet* sheet)
 
     if (sheet)
     {
-        if (sheet->name)
+        if (!str8_is_empty(sheet->name))
         {
-            strncpy(ed->name_buffer, sheet->name, sizeof(ed->name_buffer) - 1);
+            str8_to_buf(sheet->name, ed->name_buffer, sizeof(ed->name_buffer));
         }
-        if (sheet->texture_path)
+        if (!str8_is_empty(sheet->texture_path))
         {
-            strncpy(ed->texture_path_buffer, sheet->texture_path, sizeof(ed->texture_path_buffer) - 1);
+            str8_to_buf(sheet->texture_path, ed->texture_path_buffer, sizeof(ed->texture_path_buffer));
         }
     }
 }
@@ -87,7 +88,7 @@ void mel_ed_spritesheet_draw(Mel_EdSpritesheet* ed, f32 dt)
         return;
     }
 
-    igText("Spritesheet: %s", ed->spritesheet->name ? ed->spritesheet->name : "(unnamed)");
+    igText("Spritesheet: %.*s", !str8_is_empty(ed->spritesheet->name) ? (int)ed->spritesheet->name.len : 9, !str8_is_empty(ed->spritesheet->name) ? (char*)ed->spritesheet->name.data : "(unnamed)");
     igText("Texture: %u x %u", ed->spritesheet->texture_width, ed->spritesheet->texture_height);
     igText("Frames: %u | Animations: %u", ed->spritesheet->frame_count, ed->spritesheet->animation_count);
 
@@ -275,9 +276,14 @@ static void draw_animation_list(Mel_EdSpritesheet* ed)
         {
             Mel_Animation* anim = &ed->spritesheet->animations[i];
 
+            char name_buf[64];
+            if (!str8_is_empty(anim->name))
+                str8_to_buf(anim->name, name_buf, sizeof(name_buf));
+            else
+                strncpy(name_buf, "(unnamed)", sizeof(name_buf));
+
             char label[64];
-            snprintf(label, sizeof(label), "%s (%u frames)",
-                anim->name ? anim->name : "(unnamed)", anim->frame_count);
+            snprintf(label, sizeof(label), "%s (%u frames)", name_buf, anim->frame_count);
 
             if (igSelectable_Bool(label, ed->selected_animation == (i32)i, 0, (ImVec2){0, 0}))
             {
@@ -303,7 +309,7 @@ static void draw_animation_list(Mel_EdSpritesheet* ed)
         {
             if (strlen(ed->anim_name_buffer) > 0)
             {
-                mel_spritesheet_add_animation(ed->spritesheet, ed->anim_name_buffer);
+                mel_spritesheet_add_animation(ed->spritesheet, str8_from_cstr(ed->anim_name_buffer));
                 ed->selected_animation = (i32)(ed->spritesheet->animation_count - 1);
                 ed->anim_name_buffer[0] = '\0';
                 ed->dirty = true;
@@ -327,7 +333,7 @@ static void draw_animation_properties(Mel_EdSpritesheet* ed)
     {
         Mel_Animation* anim = &ed->spritesheet->animations[ed->selected_animation];
 
-        igText("Animation: %s", anim->name ? anim->name : "(unnamed)");
+        igText("Animation: %.*s", !str8_is_empty(anim->name) ? (int)anim->name.len : 9, !str8_is_empty(anim->name) ? (char*)anim->name.data : "(unnamed)");
 
         f32 duration = anim->default_duration;
         if (igInputFloat("Default Duration", &duration, 0.01f, 0.1f, "%.3f", 0))
@@ -489,9 +495,9 @@ static void draw_frame_event_editor(Mel_EdSpritesheet* ed)
     {
         bool has_sound = event && (event->flags & MEL_FRAME_EVENT_SOUND);
 
-        if (has_sound && event->sound_path)
+        if (has_sound && !str8_is_empty(event->sound_path))
         {
-            strncpy(ed->event_sound_buffer, event->sound_path, sizeof(ed->event_sound_buffer) - 1);
+            str8_to_buf(event->sound_path, ed->event_sound_buffer, sizeof(ed->event_sound_buffer));
         }
 
         if (igInputText("Sound Path##event", ed->event_sound_buffer, sizeof(ed->event_sound_buffer), 0, nullptr, nullptr))
@@ -520,11 +526,8 @@ static void draw_frame_event_editor(Mel_EdSpritesheet* ed)
                     anim->frame_events = mel_calloc(ed->spritesheet->alloc, anim->frame_count * sizeof(Mel_FrameEvent));
                     event = &anim->frame_events[idx];
                 }
-                if (event->sound_path) mel_dealloc(ed->spritesheet->alloc, (void*)event->sound_path);
-                usize len = strlen(ed->event_sound_buffer) + 1;
-                char* dup = mel_alloc(ed->spritesheet->alloc, len);
-                memcpy(dup, ed->event_sound_buffer, len);
-                event->sound_path = dup;
+                if (!str8_is_empty(event->sound_path)) mel_dealloc(ed->spritesheet->alloc, event->sound_path.data);
+                event->sound_path = str8_dup(str8_from_cstr(ed->event_sound_buffer), ed->spritesheet->alloc);
                 event->flags |= MEL_FRAME_EVENT_SOUND;
                 ed->dirty = true;
             }
@@ -535,8 +538,8 @@ static void draw_frame_event_editor(Mel_EdSpritesheet* ed)
         {
             if (event)
             {
-                if (event->sound_path) mel_dealloc(ed->spritesheet->alloc, (void*)event->sound_path);
-                event->sound_path = nullptr;
+                if (!str8_is_empty(event->sound_path)) mel_dealloc(ed->spritesheet->alloc, event->sound_path.data);
+                event->sound_path = STR8_EMPTY;
                 event->flags &= ~MEL_FRAME_EVENT_SOUND;
                 ed->event_sound_buffer[0] = '\0';
                 ed->dirty = true;
@@ -598,9 +601,9 @@ static void draw_frame_event_editor(Mel_EdSpritesheet* ed)
         {
             for (u32 t = 0; t < event->tag_count; t++)
             {
-                if (event->tags[t])
+                if (!str8_is_empty(event->tags[t]))
                 {
-                    igBulletText("%s", event->tags[t]);
+                    igBulletText("%.*s", (int)event->tags[t].len, event->tags[t].data);
                 }
             }
         }
@@ -621,7 +624,7 @@ static void draw_frame_event_editor(Mel_EdSpritesheet* ed)
                     anim->frame_events = mel_calloc(ed->spritesheet->alloc, anim->frame_count * sizeof(Mel_FrameEvent));
                     event = &anim->frame_events[idx];
                 }
-                mel_frame_event_add_tag(event, ed->spritesheet->alloc, ed->event_tag_buffer);
+                mel_frame_event_add_tag(event, ed->spritesheet->alloc, str8_from_cstr(ed->event_tag_buffer));
                 ed->event_tag_buffer[0] = '\0';
                 ed->dirty = true;
             }
@@ -824,7 +827,7 @@ static void draw_animation_preview(Mel_EdSpritesheet* ed, f32 dt)
                     Mel_FrameEvent* ev = &anim->frame_events[ed->preview_frame_idx];
                     if (ev->flags & MEL_FRAME_EVENT_SOUND)
                     {
-                        igTextColored((ImVec4){1.0f, 0.8f, 0.2f, 1.0f}, "Sound: %s", ev->sound_path);
+                        igTextColored((ImVec4){1.0f, 0.8f, 0.2f, 1.0f}, "Sound: %.*s", (int)ev->sound_path.len, ev->sound_path.data);
                     }
                     if (ev->flags & MEL_FRAME_EVENT_HITBOX)
                     {
@@ -835,7 +838,7 @@ static void draw_animation_preview(Mel_EdSpritesheet* ed, f32 dt)
                     {
                         for (u32 t = 0; t < ev->tag_count; t++)
                         {
-                            igTextColored((ImVec4){0.5f, 1.0f, 0.8f, 1.0f}, "Tag: %s", ev->tags[t]);
+                            igTextColored((ImVec4){0.5f, 1.0f, 0.8f, 1.0f}, "Tag: %.*s", (int)ev->tags[t].len, ev->tags[t].data);
                         }
                     }
                 }

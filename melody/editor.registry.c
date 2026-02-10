@@ -1,4 +1,5 @@
 #include "editor.registry.h"
+#include "string.str8.h"
 
 #include <cimgui/cimgui.h>
 #include <stdio.h>
@@ -33,7 +34,7 @@ void mel_ed_registry_shutdown(Mel_EdRegistry* reg)
 Mel_EdEntry* mel_ed_registry_add_opt(Mel_EdRegistry* reg, Mel_EdRegistry_Add_Opt opt)
 {
     assert(reg != nullptr);
-    assert(opt.name != nullptr);
+    assert(!str8_is_empty(opt.name));
     assert(opt.draw != nullptr);
 
     Mel_EdEntry entry = {
@@ -46,7 +47,9 @@ Mel_EdEntry* mel_ed_registry_add_opt(Mel_EdRegistry* reg, Mel_EdRegistry_Add_Opt
         .event = opt.event,
     };
 
-    snprintf(entry.window_title, sizeof(entry.window_title), "%s##ed%u", opt.name, entry.id);
+    char name_buf[128];
+    str8_to_buf(opt.name, name_buf, sizeof(name_buf));
+    snprintf(entry.window_title, sizeof(entry.window_title), "%s##ed%u", name_buf, entry.id);
 
     mel_array_push(&reg->entries, entry);
 

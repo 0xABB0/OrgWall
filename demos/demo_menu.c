@@ -9,6 +9,7 @@
 #include "../melody/ui.native.menuitem.h"
 #include "../melody/ui.native.popup.h"
 #include "../melody/ui.layout.box.h"
+#include "../melody/string.str8.h"
 
 #include <stdio.h>
 
@@ -38,7 +39,7 @@ static Mel_NLabel     s_status_label;
 static void update_action(const char* action)
 {
     snprintf(s_action_buf, sizeof(s_action_buf), "Last action: %s", action);
-    mel_nlabel_set_text(&s_action_label, s_action_buf);
+    mel_nlabel_set_text(&s_action_label, str8_from_cstr(s_action_buf));
 }
 
 static void on_copy(void* user)    { (void)user; update_action("Copy"); }
@@ -56,14 +57,14 @@ static void on_show_popup(void* user)
 {
     (void)user;
     mel_npopup_show_relative_to(&s_popup, &s_popup_btn.base);
-    mel_nlabel_set_text(&s_status_label, "Popup is open");
+    mel_nlabel_set_text(&s_status_label, S8("Popup is open"));
 }
 
 static void on_close_popup(void* user)
 {
     (void)user;
     mel_npopup_close(&s_popup);
-    mel_nlabel_set_text(&s_status_label, "Popup closed");
+    mel_nlabel_set_text(&s_status_label, S8("Popup closed"));
 }
 
 static void on_window_close(void* user) { ((Mel_App*)user)->should_quit = true; }
@@ -86,33 +87,33 @@ static void build_ui(Mel_App* app)
         .spacing     = 12.0f);
     mel_nctrl_set_layout(&s_panel.base, &s_layout.base);
 
-    mel_nlabel_init(&s_title_label, .text = "Menu & Popup Demo", .font_size = 20.0f);
+    mel_nlabel_init(&s_title_label, .text = S8("Menu & Popup Demo"), .font_size = 20.0f);
     s_title_label.base.fixed_size = mel_vec2(0, 30);
     mel_nctrl_add_child(&s_panel.base, &s_title_label.base);
 
-    mel_nlabel_init(&s_action_label, .text = "Last action: (none)");
+    mel_nlabel_init(&s_action_label, .text = S8("Last action: (none)"));
     s_action_label.base.fixed_size = mel_vec2(0, 20);
     mel_nctrl_add_child(&s_panel.base, &s_action_label.base);
 
-    mel_nmenu_init(&s_menu, .title = "Context");
+    mel_nmenu_init(&s_menu, .title = S8("Context"));
 
-    mel_nmenuitem_init(&s_item_copy, .title = "Copy", .key_equivalent = "c");
+    mel_nmenuitem_init(&s_item_copy, .title = S8("Copy"), .key_equivalent = S8("c"));
     s_item_copy.on_action = on_copy;
     mel_nctrl_add_child(&s_menu.base, &s_item_copy.base);
 
-    mel_nmenuitem_init(&s_item_paste, .title = "Paste", .key_equivalent = "v");
+    mel_nmenuitem_init(&s_item_paste, .title = S8("Paste"), .key_equivalent = S8("v"));
     s_item_paste.on_action = on_paste;
     mel_nctrl_add_child(&s_menu.base, &s_item_paste.base);
 
-    mel_nmenuitem_init(&s_item_delete, .title = "Delete");
+    mel_nmenuitem_init(&s_item_delete, .title = S8("Delete"));
     s_item_delete.on_action = on_delete;
     mel_nctrl_add_child(&s_menu.base, &s_item_delete.base);
 
-    mel_nmenuitem_init(&s_item_select_all, .title = "Select All", .key_equivalent = "a");
+    mel_nmenuitem_init(&s_item_select_all, .title = S8("Select All"), .key_equivalent = S8("a"));
     s_item_select_all.on_action = on_select_all;
     mel_nctrl_add_child(&s_menu.base, &s_item_select_all.base);
 
-    mel_nbutton_init(&s_context_btn, .text = "Show Context Menu");
+    mel_nbutton_init(&s_context_btn, .text = S8("Show Context Menu"));
     s_context_btn.on_click = on_context_menu;
     s_context_btn.base.fixed_size = mel_vec2(0, 32);
     mel_nctrl_add_child(&s_panel.base, &s_context_btn.base);
@@ -126,23 +127,23 @@ static void build_ui(Mel_App* app)
         .spacing     = 8.0f);
     mel_nctrl_set_layout(&s_popup.base, &s_popup_layout.base);
 
-    mel_nlabel_init(&s_popup_label, .text = "I'm a popup!");
+    mel_nlabel_init(&s_popup_label, .text = S8("I'm a popup!"));
     s_popup_label.base.fixed_size = mel_vec2(0, 20);
     mel_nctrl_add_child(&s_popup.base, &s_popup_label.base);
 
-    mel_nbutton_init(&s_popup_close_btn, .text = "Close Me");
+    mel_nbutton_init(&s_popup_close_btn, .text = S8("Close Me"));
     s_popup_close_btn.on_click = on_close_popup;
     s_popup_close_btn.base.fixed_size = mel_vec2(0, 32);
     mel_nctrl_add_child(&s_popup.base, &s_popup_close_btn.base);
 
     mel_nctrl_perform_layout(&s_popup.base);
 
-    mel_nbutton_init(&s_popup_btn, .text = "Show Popup");
+    mel_nbutton_init(&s_popup_btn, .text = S8("Show Popup"));
     s_popup_btn.on_click = on_show_popup;
     s_popup_btn.base.fixed_size = mel_vec2(0, 32);
     mel_nctrl_add_child(&s_panel.base, &s_popup_btn.base);
 
-    mel_nlabel_init(&s_status_label, .text = "Ready");
+    mel_nlabel_init(&s_status_label, .text = S8("Ready"));
     s_status_label.base.fixed_size = mel_vec2(0, 20);
     mel_nctrl_add_child(&s_panel.base, &s_status_label.base);
 

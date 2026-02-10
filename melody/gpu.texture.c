@@ -1,5 +1,6 @@
 #define VK_NO_PROTOTYPES
 #include "gpu.texture.h"
+#include "string.str8.h"
 #include "gpu.buffer.h"
 #include "gpu.submit.h"
 #include <stb_image.h>
@@ -67,15 +68,19 @@ void mel_gpu_texture_init_opt(Mel_Gpu_Texture* tex, Mel_Gpu_Device* dev, Mel_Gpu
 {
     assert(tex != nullptr);
     assert(dev != nullptr);
-    assert(opt.path != nullptr || opt.data != nullptr);
+    assert(!str8_is_empty(opt.path) || opt.data != nullptr);
 
     *tex = (Mel_Gpu_Texture){0};
 
     int width, height, channels;
     u8* pixels = nullptr;
 
-    if (opt.path)
-        pixels = stbi_load(opt.path, &width, &height, &channels, 4);
+    if (!str8_is_empty(opt.path))
+    {
+        char path_buf[512];
+        str8_to_buf(opt.path, path_buf, sizeof(path_buf));
+        pixels = stbi_load(path_buf, &width, &height, &channels, 4);
+    }
     else
         pixels = stbi_load_from_memory(opt.data, (int)opt.data_size, &width, &height, &channels, 4);
 

@@ -7,6 +7,7 @@
 #include "../melody/ui.native.listbox.h"
 #include "../melody/ui.native.label.h"
 #include "../melody/ui.layout.box.h"
+#include "../melody/string.str8.h"
 
 #include <stdio.h>
 
@@ -26,12 +27,12 @@ static const VTuber_Info s_vtubers[] = {
     { "Filian",         "Independent", "Maximum energy chaos gremlin.",                  "2022", "900K" },
 };
 
-static const char* s_names[] = {
-    "Projekt Melody",
-    "Ironmouse",
-    "Gawr Gura",
-    "Shoto",
-    "Filian",
+static str8 s_names[] = {
+    S8("Projekt Melody"),
+    S8("Ironmouse"),
+    S8("Gawr Gura"),
+    S8("Shoto"),
+    S8("Filian"),
 };
 
 static Mel_NWindow     s_window;
@@ -57,18 +58,18 @@ static void update_detail(i32 index)
     const VTuber_Info* v = &s_vtubers[index];
 
     snprintf(s_name_buf, sizeof(s_name_buf), "Name: %s", v->name);
-    mel_nlabel_set_text(&s_name_label, s_name_buf);
+    mel_nlabel_set_text(&s_name_label, str8_from_cstr(s_name_buf));
 
     snprintf(s_agency_buf, sizeof(s_agency_buf), "Agency: %s", v->agency);
-    mel_nlabel_set_text(&s_agency_label, s_agency_buf);
+    mel_nlabel_set_text(&s_agency_label, str8_from_cstr(s_agency_buf));
 
     snprintf(s_debut_buf, sizeof(s_debut_buf), "Debut: %s", v->debut);
-    mel_nlabel_set_text(&s_debut_label, s_debut_buf);
+    mel_nlabel_set_text(&s_debut_label, str8_from_cstr(s_debut_buf));
 
     snprintf(s_fans_buf, sizeof(s_fans_buf), "Fans: %s", v->fans);
-    mel_nlabel_set_text(&s_fans_label, s_fans_buf);
+    mel_nlabel_set_text(&s_fans_label, str8_from_cstr(s_fans_buf));
 
-    mel_nlabel_set_text(&s_desc_label, v->description);
+    mel_nlabel_set_text(&s_desc_label, str8_from_cstr(v->description));
 }
 
 static void on_select(i32 index, void* user)
@@ -120,26 +121,26 @@ static void build_ui(Mel_App* app)
     mel_nctrl_set_layout(&s_right_panel.base, &s_detail_layout.base);
 
     snprintf(s_name_buf, sizeof(s_name_buf), "Name: %s", s_vtubers[0].name);
-    mel_nlabel_init(&s_name_label, .text = s_name_buf, .font_size = 18.0f);
+    mel_nlabel_init(&s_name_label, .text = str8_from_cstr(s_name_buf), .font_size = 18.0f);
     s_name_label.base.fixed_size = mel_vec2(0, 24);
     mel_nctrl_add_child(&s_right_panel.base, &s_name_label.base);
 
     snprintf(s_agency_buf, sizeof(s_agency_buf), "Agency: %s", s_vtubers[0].agency);
-    mel_nlabel_init(&s_agency_label, .text = s_agency_buf);
+    mel_nlabel_init(&s_agency_label, .text = str8_from_cstr(s_agency_buf));
     s_agency_label.base.fixed_size = mel_vec2(0, 24);
     mel_nctrl_add_child(&s_right_panel.base, &s_agency_label.base);
 
     snprintf(s_debut_buf, sizeof(s_debut_buf), "Debut: %s", s_vtubers[0].debut);
-    mel_nlabel_init(&s_debut_label, .text = s_debut_buf);
+    mel_nlabel_init(&s_debut_label, .text = str8_from_cstr(s_debut_buf));
     s_debut_label.base.fixed_size = mel_vec2(0, 24);
     mel_nctrl_add_child(&s_right_panel.base, &s_debut_label.base);
 
     snprintf(s_fans_buf, sizeof(s_fans_buf), "Fans: %s", s_vtubers[0].fans);
-    mel_nlabel_init(&s_fans_label, .text = s_fans_buf);
+    mel_nlabel_init(&s_fans_label, .text = str8_from_cstr(s_fans_buf));
     s_fans_label.base.fixed_size = mel_vec2(0, 24);
     mel_nctrl_add_child(&s_right_panel.base, &s_fans_label.base);
 
-    mel_nlabel_init(&s_desc_label, .text = s_vtubers[0].description);
+    mel_nlabel_init(&s_desc_label, .text = str8_from_cstr(s_vtubers[0].description));
     s_desc_label.base.fixed_size = mel_vec2(0, 48);
     mel_nctrl_add_child(&s_right_panel.base, &s_desc_label.base);
 

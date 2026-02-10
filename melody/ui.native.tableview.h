@@ -1,12 +1,13 @@
 #pragma once
 
 #include "ui.native.ctrl.h"
+#include "string.str8.fwd.h"
 
-typedef const char* (*Mel_NTableView_Data_Cb)(i32 row, i32 col, void* user);
+typedef str8 (*Mel_NTableView_Data_Cb)(i32 row, i32 col, void* user);
 typedef void (*Mel_NTableView_Select_Cb)(i32 row, void* user);
 
 typedef struct {
-    const char* title;
+    str8 title;
     f32 width;
 } Mel_NTableColumn;
 

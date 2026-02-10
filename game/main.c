@@ -295,7 +295,7 @@ static void ed_spritesheet_shutdown_wrapper(void* instance)
 
 static void on_init(void)
 {
-    mel_gpu_shader_init(&s_shader, &s_dev, .source = SHADER_SOURCE);
+    mel_gpu_shader_init(&s_shader, &s_dev, .source = str8_from_cstr(SHADER_SOURCE));
 
     mel_gpu_texture_init_white(&s_white_texture, &s_dev);
 
@@ -355,7 +355,7 @@ static void on_init(void)
     mel_wlabel_init(&s_dialogue_label);
     mel_widget_set_position(&s_dialogue_label.base, mel_vec2(120, 370));
     s_dialogue_label.font = font_entry;
-    s_dialogue_label.text = s_game.dialogue_text;
+    s_dialogue_label.text = str8_from_cstr(s_game.dialogue_text);
     s_dialogue_label.text_color = mel_vec4(1.0f, 1.0f, 1.0f, 1.0f);
     mel_widget_add_child(&s_dialogue_box.base, &s_dialogue_label.base);
 
@@ -376,7 +376,7 @@ static void on_init(void)
     mel_ed_entities_register_inspector(s_ed_entities, mel_ed_npc_draw);
     mel_ed_entities_register_inspector(s_ed_entities, mel_ed_wall_draw);
     mel_ed_registry_add(&s_ed_registry,
-        .name = "Entity Editor",
+        .name = S8("Entity Editor"),
         .data = s_ed_entities,
         .draw = ed_entities_draw_wrapper,
         .shutdown = ed_entities_shutdown_wrapper);
@@ -553,7 +553,7 @@ static void app_init(Mel_App* app)
         .window = s_window,
         .allocator = &s_allocator,
         .enable_validation = true,
-        .app_name = "Red Square Room");
+        .app_name = S8("Red Square Room"));
 
     mel_gpu_swapchain_init(&s_swapchain, &s_dev, .width = 640, .height = 480);
 

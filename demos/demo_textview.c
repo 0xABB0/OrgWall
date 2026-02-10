@@ -7,6 +7,7 @@
 #include "../melody/ui.native.label.h"
 #include "../melody/ui.native.textview.h"
 #include "../melody/ui.layout.box.h"
+#include "../melody/string.str8.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -40,10 +41,9 @@ static const char* s_sample_text =
 
 static void update_status(void)
 {
-    const char* text = mel_ntextview_get_text(&s_textview);
-    size_t len = text ? strlen(text) : 0;
-    snprintf(s_status_buf, sizeof(s_status_buf), "Characters: %zu", len);
-    mel_nlabel_set_text(&s_status_label, s_status_buf);
+    str8 text = mel_ntextview_get_text(&s_textview);
+    snprintf(s_status_buf, sizeof(s_status_buf), "Characters: %lld", (long long)text.len);
+    mel_nlabel_set_text(&s_status_label, str8_from_cstr(s_status_buf));
 }
 
 static void on_window_close(void* user) { ((Mel_App*)user)->should_quit = true; }
@@ -58,14 +58,14 @@ static void on_text_change(void* user)
 static void on_clear(void* user)
 {
     (void)user;
-    mel_ntextview_set_text(&s_textview, "");
+    mel_ntextview_set_text(&s_textview, STR8_EMPTY);
     update_status();
 }
 
 static void on_insert_sample(void* user)
 {
     (void)user;
-    mel_ntextview_set_text(&s_textview, s_sample_text);
+    mel_ntextview_set_text(&s_textview, str8_from_cstr(s_sample_text));
     update_status();
 }
 
@@ -74,7 +74,7 @@ static void on_toggle_editable(void* user)
     (void)user;
     s_editable = !s_editable;
     mel_ntextview_set_editable(&s_textview, s_editable);
-    mel_nbutton_set_text(&s_toggle_btn, s_editable ? "Toggle Editable (ON)" : "Toggle Editable (OFF)");
+    mel_nbutton_set_text(&s_toggle_btn, s_editable ? S8("Toggle Editable (ON)") : S8("Toggle Editable (OFF)"));
 }
 
 static void build_ui(Mel_App* app)
@@ -94,7 +94,7 @@ static void build_ui(Mel_App* app)
         .spacing     = 10.0f);
     mel_nctrl_set_layout(&s_panel.base, &s_layout.base);
 
-    mel_nlabel_init(&s_title_label, .text = "Melody Notepad", .font_size = 20.0f);
+    mel_nlabel_init(&s_title_label, .text = S8("Melody Notepad"), .font_size = 20.0f);
     s_title_label.base.fixed_size = mel_vec2(0, 30);
     mel_nctrl_add_child(&s_panel.base, &s_title_label.base);
 
@@ -104,21 +104,21 @@ static void build_ui(Mel_App* app)
     mel_nctrl_add_child(&s_panel.base, &s_textview.base);
 
     snprintf(s_status_buf, sizeof(s_status_buf), "Characters: 0");
-    mel_nlabel_init(&s_status_label, .text = s_status_buf);
+    mel_nlabel_init(&s_status_label, .text = str8_from_cstr(s_status_buf));
     s_status_label.base.fixed_size = mel_vec2(0, 20);
     mel_nctrl_add_child(&s_panel.base, &s_status_label.base);
 
-    mel_nbutton_init(&s_clear_btn, .text = "Clear");
+    mel_nbutton_init(&s_clear_btn, .text = S8("Clear"));
     s_clear_btn.on_click = on_clear;
     s_clear_btn.base.fixed_size = mel_vec2(0, 32);
     mel_nctrl_add_child(&s_panel.base, &s_clear_btn.base);
 
-    mel_nbutton_init(&s_sample_btn, .text = "Insert Sample Text");
+    mel_nbutton_init(&s_sample_btn, .text = S8("Insert Sample Text"));
     s_sample_btn.on_click = on_insert_sample;
     s_sample_btn.base.fixed_size = mel_vec2(0, 32);
     mel_nctrl_add_child(&s_panel.base, &s_sample_btn.base);
 
-    mel_nbutton_init(&s_toggle_btn, .text = "Toggle Editable (ON)");
+    mel_nbutton_init(&s_toggle_btn, .text = S8("Toggle Editable (ON)"));
     s_toggle_btn.on_click = on_toggle_editable;
     s_toggle_btn.base.fixed_size = mel_vec2(0, 32);
     mel_nctrl_add_child(&s_panel.base, &s_toggle_btn.base);

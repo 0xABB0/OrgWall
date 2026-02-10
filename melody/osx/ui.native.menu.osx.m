@@ -1,11 +1,14 @@
 #import <Cocoa/Cocoa.h>
 #include "../ui.native.menu.h"
+#include "../string.str8.h"
 
 static void nmenu_create_backing(Mel_NCtrl* ctrl)
 {
     Mel_NMenu* menu = (Mel_NMenu*)ctrl;
 
-    NSMenu* ns = [[NSMenu alloc] initWithTitle:[NSString stringWithUTF8String:menu->title]];
+    char title_buf[256];
+    str8_to_buf(menu->title, title_buf, sizeof(title_buf));
+    NSMenu* ns = [[NSMenu alloc] initWithTitle:[NSString stringWithUTF8String:title_buf]];
     [ns setAutoenablesItems:NO];
 
     ctrl->backing = (__bridge_retained void*)ns;

@@ -3,6 +3,7 @@
 
 #include "types.h"
 #include "allocator.h"
+#include "string.str8.fwd.h"
 
 #include <SDL3/SDL.h>
 
@@ -43,7 +44,7 @@ typedef struct {
     const Mel_Alloc* allocator;
     SDL_Window* window;
     bool enable_validation;
-    const char* app_name;
+    str8 app_name;
 } Mel_Gpu_Device_Opt;
 
 void mel_gpu_device_init_opt(Mel_Gpu_Device* dev, Mel_Gpu_Device_Opt opt);

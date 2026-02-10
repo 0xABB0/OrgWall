@@ -6,16 +6,16 @@
 #include <stdlib.h>
 #include <string.h>
 
-bool mel_spritesheet_load(Mel_Spritesheet* sheet, const Mel_Alloc* alloc, const char* path)
+bool mel_spritesheet_load(Mel_Spritesheet* sheet, const Mel_Alloc* alloc, str8 path)
 {
     assert(sheet != nullptr);
     assert(alloc != nullptr);
-    assert(path != nullptr);
+    assert(!str8_is_empty(path));
 
-    char* json_text = mel_assets_read_text(str8_from_cstr(path));
+    char* json_text = mel_assets_read_text(path);
     if (!json_text)
     {
-        SDL_Log("Failed to read spritesheet: %s", path);
+        SDL_Log("Failed to read spritesheet: %.*s", (int)path.len, path.data);
         return false;
     }
 
@@ -24,7 +24,7 @@ bool mel_spritesheet_load(Mel_Spritesheet* sheet, const Mel_Alloc* alloc, const 
 
     if (!root)
     {
-        SDL_Log("Failed to parse spritesheet JSON: %s", path);
+        SDL_Log("Failed to parse spritesheet JSON: %.*s", (int)path.len, path.data);
         return false;
     }
 
@@ -34,19 +34,13 @@ bool mel_spritesheet_load(Mel_Spritesheet* sheet, const Mel_Alloc* alloc, const 
     cJSON* name = cJSON_GetObjectItem(root, "name");
     if (name && cJSON_IsString(name))
     {
-        usize len = strlen(name->valuestring) + 1;
-        char* dup = mel_alloc(alloc, len);
-        memcpy(dup, name->valuestring, len);
-        sheet->name = dup;
+        sheet->name = str8_dup(str8_from_cstr(name->valuestring), alloc);
     }
 
     cJSON* texture = cJSON_GetObjectItem(root, "texture");
     if (texture && cJSON_IsString(texture))
     {
-        usize len = strlen(texture->valuestring) + 1;
-        char* dup = mel_alloc(alloc, len);
-        memcpy(dup, texture->valuestring, len);
-        sheet->texture_path = dup;
+        sheet->texture_path = str8_dup(str8_from_cstr(texture->valuestring), alloc);
     }
 
     cJSON* tex_width = cJSON_GetObjectItem(root, "texture_width");
@@ -102,10 +96,7 @@ bool mel_spritesheet_load(Mel_Spritesheet* sheet, const Mel_Alloc* alloc, const 
             cJSON* anim_name = cJSON_GetObjectItem(anim, "name");
             if (anim_name && cJSON_IsString(anim_name))
             {
-                usize len = strlen(anim_name->valuestring) + 1;
-                char* dup = mel_alloc(alloc, len);
-                memcpy(dup, anim_name->valuestring, len);
-                sheet->animations[i].name = dup;
+                sheet->animations[i].name = str8_dup(str8_from_cstr(anim_name->valuestring), alloc);
             }
 
             cJSON* duration = cJSON_GetObjectItem(anim, "default_duration");
@@ -176,10 +167,7 @@ bool mel_spritesheet_load(Mel_Spritesheet* sheet, const Mel_Alloc* alloc, const 
                     cJSON* sound = cJSON_GetObjectItem(ev, "sound");
                     if (sound && cJSON_IsString(sound))
                     {
-                        usize len = strlen(sound->valuestring) + 1;
-                        char* dup = mel_alloc(alloc, len);
-                        memcpy(dup, sound->valuestring, len);
-                        event->sound_path = dup;
+                        event->sound_path = str8_dup(str8_from_cstr(sound->valuestring), alloc);
                         event->flags |= MEL_FRAME_EVENT_SOUND;
                     }
 
@@ -210,17 +198,14 @@ bool mel_spritesheet_load(Mel_Spritesheet* sheet, const Mel_Alloc* alloc, const 
                     if (tags && cJSON_IsArray(tags))
                     {
                         event->tag_count = (u32)cJSON_GetArraySize(tags);
-                        event->tags = (const char**)mel_calloc(alloc, event->tag_count * sizeof(const char*));
+                        event->tags = (str8*)mel_calloc(alloc, event->tag_count * sizeof(str8));
                         u32 t = 0;
                         cJSON* tag;
                         cJSON_ArrayForEach(tag, tags)
                         {
                             if (cJSON_IsString(tag))
                             {
-                                usize len = strlen(tag->valuestring) + 1;
-                                char* dup = mel_alloc(alloc, len);
-                                memcpy(dup, tag->valuestring, len);
-                                event->tags[t] = dup;
+                                event->tags[t] = str8_dup(str8_from_cstr(tag->valuestring), alloc);
                             }
                             t++;
                         }
@@ -240,24 +225,33 @@ bool mel_spritesheet_load(Mel_Spritesheet* sheet, const Mel_Alloc* alloc, const 
 
     cJSON_Delete(root);
 
-    SDL_Log("Loaded spritesheet: %s (%u frames, %u animations)",
-            sheet->name ? sheet->name : path,
+    SDL_Log("Loaded spritesheet: %.*s (%u frames, %u animations)",
+            !str8_is_empty(sheet->name) ? (int)sheet->name.len : (int)path.len,
+            !str8_is_empty(sheet->name) ? (char*)sheet->name.data : (char*)path.data,
             sheet->frame_count, sheet->animation_count);
 
     return true;
 }
 
-bool mel_spritesheet_save(Mel_Spritesheet* sheet, const char* path)
+bool mel_spritesheet_save(Mel_Spritesheet* sheet, str8 path)
 {
     assert(sheet != nullptr);
-    assert(path != nullptr);
+    assert(!str8_is_empty(path));
 
     cJSON* root = cJSON_CreateObject();
 
-    if (sheet->name)
-        cJSON_AddStringToObject(root, "name", sheet->name);
-    if (sheet->texture_path)
-        cJSON_AddStringToObject(root, "texture", sheet->texture_path);
+    if (!str8_is_empty(sheet->name))
+    {
+        char name_buf[256];
+        str8_to_buf(sheet->name, name_buf, sizeof(name_buf));
+        cJSON_AddStringToObject(root, "name", name_buf);
+    }
+    if (!str8_is_empty(sheet->texture_path))
+    {
+        char tex_buf[512];
+        str8_to_buf(sheet->texture_path, tex_buf, sizeof(tex_buf));
+        cJSON_AddStringToObject(root, "texture", tex_buf);
+    }
 
     cJSON_AddNumberToObject(root, "texture_width", sheet->texture_width);
     cJSON_AddNumberToObject(root, "texture_height", sheet->texture_height);
@@ -287,7 +281,12 @@ bool mel_spritesheet_save(Mel_Spritesheet* sheet, const char* path)
             Mel_Animation* a = &sheet->animations[i];
             cJSON* anim = cJSON_CreateObject();
 
-            if (a->name) cJSON_AddStringToObject(anim, "name", a->name);
+            if (!str8_is_empty(a->name))
+            {
+                char anim_name_buf[256];
+                str8_to_buf(a->name, anim_name_buf, sizeof(anim_name_buf));
+                cJSON_AddStringToObject(anim, "name", anim_name_buf);
+            }
             cJSON_AddNumberToObject(anim, "default_duration", a->default_duration);
             cJSON_AddBoolToObject(anim, "loop", a->loop);
 
@@ -318,8 +317,12 @@ bool mel_spritesheet_save(Mel_Spritesheet* sheet, const char* path)
 
                         if (ev->flags & MEL_FRAME_EVENT_SOUND)
                         {
-                            if (ev->sound_path)
-                                cJSON_AddStringToObject(event_obj, "sound", ev->sound_path);
+                            if (!str8_is_empty(ev->sound_path))
+                            {
+                                char sound_buf[512];
+                                str8_to_buf(ev->sound_path, sound_buf, sizeof(sound_buf));
+                                cJSON_AddStringToObject(event_obj, "sound", sound_buf);
+                            }
                             cJSON_AddNumberToObject(event_obj, "volume", ev->sound_volume);
                         }
 
@@ -336,8 +339,12 @@ bool mel_spritesheet_save(Mel_Spritesheet* sheet, const char* path)
                             cJSON* tags = cJSON_AddArrayToObject(event_obj, "tags");
                             for (u32 t = 0; t < ev->tag_count; t++)
                             {
-                                if (ev->tags[t])
-                                    cJSON_AddItemToArray(tags, cJSON_CreateString(ev->tags[t]));
+                                if (!str8_is_empty(ev->tags[t]))
+                                {
+                                    char tag_buf[256];
+                                    str8_to_buf(ev->tags[t], tag_buf, sizeof(tag_buf));
+                                    cJSON_AddItemToArray(tags, cJSON_CreateString(tag_buf));
+                                }
                             }
                         }
 
@@ -359,12 +366,12 @@ bool mel_spritesheet_save(Mel_Spritesheet* sheet, const char* path)
         return false;
     }
 
-    bool result = mel_assets_write_text(str8_from_cstr(path), str8_from_cstr(json_text));
+    bool result = mel_assets_write_text(path, str8_from_cstr(json_text));
     free(json_text);
 
     if (result)
     {
-        SDL_Log("Saved spritesheet: %s", path);
+        SDL_Log("Saved spritesheet: %.*s", (int)path.len, path.data);
     }
 
     return result;
@@ -376,10 +383,10 @@ void mel_spritesheet_free(Mel_Spritesheet* sheet)
 
     const Mel_Alloc* alloc = sheet->alloc;
 
-    if (sheet->name)
-        mel_dealloc(alloc, (void*)sheet->name);
-    if (sheet->texture_path)
-        mel_dealloc(alloc, (void*)sheet->texture_path);
+    if (!str8_is_empty(sheet->name))
+        mel_dealloc(alloc, sheet->name.data);
+    if (!str8_is_empty(sheet->texture_path))
+        mel_dealloc(alloc, sheet->texture_path.data);
 
     if (sheet->frames)
         mel_dealloc(alloc, sheet->frames);
@@ -390,8 +397,8 @@ void mel_spritesheet_free(Mel_Spritesheet* sheet)
         {
             Mel_Animation* anim = &sheet->animations[i];
 
-            if (anim->name)
-                mel_dealloc(alloc, (void*)anim->name);
+            if (!str8_is_empty(anim->name))
+                mel_dealloc(alloc, anim->name.data);
             if (anim->frame_indices)
                 mel_dealloc(alloc, anim->frame_indices);
             if (anim->frame_durations)
@@ -412,14 +419,14 @@ void mel_spritesheet_free(Mel_Spritesheet* sheet)
     *sheet = (Mel_Spritesheet){0};
 }
 
-Mel_Animation* mel_spritesheet_find_animation(Mel_Spritesheet* sheet, const char* name)
+Mel_Animation* mel_spritesheet_find_animation(Mel_Spritesheet* sheet, str8 name)
 {
     assert(sheet != nullptr);
-    assert(name != nullptr);
+    assert(!str8_is_empty(name));
 
     for (u32 i = 0; i < sheet->animation_count; i++)
     {
-        if (sheet->animations[i].name && strcmp(sheet->animations[i].name, name) == 0)
+        if (str8_equals(sheet->animations[i].name, name))
         {
             return &sheet->animations[i];
         }
@@ -461,15 +468,15 @@ void mel_animation_player_init(Mel_AnimationPlayer* player, Mel_Spritesheet* she
     player->sheet = sheet;
 }
 
-void mel_animation_player_play(Mel_AnimationPlayer* player, const char* name)
+void mel_animation_player_play(Mel_AnimationPlayer* player, str8 name)
 {
     assert(player != nullptr);
-    assert(name != nullptr);
+    assert(!str8_is_empty(name));
 
     Mel_Animation* anim = mel_spritesheet_find_animation(player->sheet, name);
     if (!anim)
     {
-        SDL_Log("Animation not found: %s", name);
+        SDL_Log("Animation not found: %.*s", (int)name.len, name.data);
         return;
     }
 
@@ -569,18 +576,18 @@ void mel_frame_event_free(Mel_FrameEvent* event, const Mel_Alloc* alloc)
     assert(event != nullptr);
     assert(alloc != nullptr);
 
-    if (event->sound_path)
+    if (!str8_is_empty(event->sound_path))
     {
-        mel_dealloc(alloc, (void*)event->sound_path);
+        mel_dealloc(alloc, event->sound_path.data);
     }
 
     if (event->tags)
     {
         for (u32 i = 0; i < event->tag_count; i++)
         {
-            if (event->tags[i])
+            if (!str8_is_empty(event->tags[i]))
             {
-                mel_dealloc(alloc, (void*)event->tags[i]);
+                mel_dealloc(alloc, event->tags[i].data);
             }
         }
         mel_dealloc(alloc, event->tags);
@@ -589,31 +596,28 @@ void mel_frame_event_free(Mel_FrameEvent* event, const Mel_Alloc* alloc)
     *event = (Mel_FrameEvent){0};
 }
 
-void mel_frame_event_add_tag(Mel_FrameEvent* event, const Mel_Alloc* alloc, const char* tag)
+void mel_frame_event_add_tag(Mel_FrameEvent* event, const Mel_Alloc* alloc, str8 tag)
 {
     assert(event != nullptr);
     assert(alloc != nullptr);
-    assert(tag != nullptr);
+    assert(!str8_is_empty(tag));
 
     u32 new_count = event->tag_count + 1;
-    const char** new_tags = mel_realloc(alloc, event->tags, new_count * sizeof(const char*));
-    usize len = strlen(tag) + 1;
-    char* dup = mel_alloc(alloc, len);
-    memcpy(dup, tag, len);
-    new_tags[event->tag_count] = dup;
+    str8* new_tags = mel_realloc(alloc, event->tags, new_count * sizeof(str8));
+    new_tags[event->tag_count] = str8_dup(tag, alloc);
     event->tags = new_tags;
     event->tag_count = new_count;
     event->flags |= MEL_FRAME_EVENT_TAG;
 }
 
-bool mel_frame_event_has_tag(Mel_FrameEvent* event, const char* tag)
+bool mel_frame_event_has_tag(Mel_FrameEvent* event, str8 tag)
 {
     assert(event != nullptr);
-    assert(tag != nullptr);
+    assert(!str8_is_empty(tag));
 
     for (u32 i = 0; i < event->tag_count; i++)
     {
-        if (event->tags[i] && strcmp(event->tags[i], tag) == 0)
+        if (str8_equals(event->tags[i], tag))
         {
             return true;
         }
@@ -621,20 +625,17 @@ bool mel_frame_event_has_tag(Mel_FrameEvent* event, const char* tag)
     return false;
 }
 
-Mel_Animation* mel_spritesheet_add_animation(Mel_Spritesheet* sheet, const char* name)
+Mel_Animation* mel_spritesheet_add_animation(Mel_Spritesheet* sheet, str8 name)
 {
     assert(sheet != nullptr);
-    assert(name != nullptr);
+    assert(!str8_is_empty(name));
 
     u32 new_count = sheet->animation_count + 1;
     Mel_Animation* new_anims = mel_realloc(sheet->alloc, sheet->animations, new_count * sizeof(Mel_Animation));
 
     Mel_Animation* anim = &new_anims[sheet->animation_count];
     *anim = (Mel_Animation){0};
-    usize len = strlen(name) + 1;
-    char* dup = mel_alloc(sheet->alloc, len);
-    memcpy(dup, name, len);
-    anim->name = dup;
+    anim->name = str8_dup(name, sheet->alloc);
     anim->default_duration = 0.1f;
     anim->loop = true;
 

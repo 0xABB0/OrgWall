@@ -33,9 +33,9 @@ struct Mel_Gpu_Shader {
 };
 
 typedef struct {
-    const char* source;
-    const char* vertex_entry;
-    const char* fragment_entry;
+    str8 source;
+    str8 vertex_entry;
+    str8 fragment_entry;
 } Mel_Gpu_Shader_Opt;
 
 void mel_gpu_shader_init_opt(Mel_Gpu_Shader* shader, Mel_Gpu_Device* dev, Mel_Gpu_Shader_Opt opt);

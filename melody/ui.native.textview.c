@@ -1,4 +1,5 @@
 #include "ui.native.textview.h"
+#include "string.str8.h"
 
 void mel_ntextview_init_opt(Mel_NTextView* tv, Mel_NTextView_Opt opt)
 {
@@ -13,19 +14,24 @@ void mel_ntextview_init_opt(Mel_NTextView* tv, Mel_NTextView_Opt opt)
     mel_nctrl_create_backing(&tv->base);
 }
 
-void mel_ntextview_set_text(Mel_NTextView* tv, const char* text)
+void mel_ntextview_set_text(Mel_NTextView* tv, str8 text)
 {
     assert(tv != nullptr);
-    if (tv->base.backing)
-        mel__ntextview_set_text_platform(tv, text);
+    if (tv->base.backing) {
+        char buf[4096];
+        str8_to_buf(text, buf, sizeof(buf));
+        mel__ntextview_set_text_platform(tv, buf);
+    }
 }
 
-const char* mel_ntextview_get_text(Mel_NTextView* tv)
+str8 mel_ntextview_get_text(Mel_NTextView* tv)
 {
     assert(tv != nullptr);
-    if (tv->base.backing)
-        return mel__ntextview_get_text_platform(tv);
-    return "";
+    if (tv->base.backing) {
+        const char* cstr = mel__ntextview_get_text_platform(tv);
+        return str8_from_cstr(cstr);
+    }
+    return STR8_EMPTY;
 }
 
 void mel_ntextview_set_editable(Mel_NTextView* tv, bool editable)

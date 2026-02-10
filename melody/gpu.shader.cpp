@@ -1,5 +1,6 @@
 #define VK_NO_PROTOTYPES
 #include "gpu.shader.h"
+#include "string.str8.h"
 #include <slang.h>
 #include <slang-deprecated.h>
 #include <SDL3/SDL_log.h>
@@ -94,23 +95,36 @@ extern "C" void mel_gpu_shader_init_opt(Mel_Gpu_Shader* shader, Mel_Gpu_Device* 
 {
     assert(shader != nullptr);
     assert(dev != nullptr);
-    assert(opt.source != nullptr);
+    assert(!str8_is_empty(opt.source));
     assert(g_slang_session != nullptr);
 
     *shader = {};
 
-    const char* vert_entry = opt.vertex_entry ? opt.vertex_entry : "vertexMain";
-    const char* frag_entry = opt.fragment_entry ? opt.fragment_entry : "fragmentMain";
+    char source_buf[32768];
+    str8_to_buf(opt.source, source_buf, sizeof(source_buf));
+
+    char vert_entry_buf[256];
+    char frag_entry_buf[256];
+
+    if (!str8_is_empty(opt.vertex_entry))
+        str8_to_buf(opt.vertex_entry, vert_entry_buf, sizeof(vert_entry_buf));
+    else
+        strncpy(vert_entry_buf, "vertexMain", sizeof(vert_entry_buf));
+
+    if (!str8_is_empty(opt.fragment_entry))
+        str8_to_buf(opt.fragment_entry, frag_entry_buf, sizeof(frag_entry_buf));
+    else
+        strncpy(frag_entry_buf, "fragmentMain", sizeof(frag_entry_buf));
 
     void* vert_code = nullptr;
     size_t vert_size = 0;
     void* frag_code = nullptr;
     size_t frag_size = 0;
 
-    bool vert_ok = compile_entry_point(opt.source, vert_entry, SLANG_STAGE_VERTEX, &vert_code, &vert_size);
+    bool vert_ok = compile_entry_point(source_buf, vert_entry_buf, SLANG_STAGE_VERTEX, &vert_code, &vert_size);
     assert(vert_ok);
 
-    bool frag_ok = compile_entry_point(opt.source, frag_entry, SLANG_STAGE_FRAGMENT, &frag_code, &frag_size);
+    bool frag_ok = compile_entry_point(source_buf, frag_entry_buf, SLANG_STAGE_FRAGMENT, &frag_code, &frag_size);
     if (!frag_ok) { free(vert_code); }
     assert(frag_ok);
 

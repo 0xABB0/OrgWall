@@ -1,5 +1,6 @@
 #import <Cocoa/Cocoa.h>
 #include "../ui.native.window.h"
+#include "../string.str8.h"
 
 @interface MelWindowDelegate : NSObject <NSWindowDelegate>
 @property (nonatomic, assign) Mel_NWindow* mel_window;
@@ -77,7 +78,9 @@ static void window_create_backing(Mel_NCtrl* ctrl)
         backing:NSBackingStoreBuffered
         defer:NO];
 
-    [nswindow setTitle:[NSString stringWithUTF8String:window->title]];
+    char title_buf[256];
+    str8_to_buf(window->title, title_buf, sizeof(title_buf));
+    [nswindow setTitle:[NSString stringWithUTF8String:title_buf]];
     [nswindow center];
 
     MelWindowDelegate* delegate = [[MelWindowDelegate alloc] init];

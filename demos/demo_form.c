@@ -10,6 +10,7 @@
 #include "../melody/ui.native.checkbox.h"
 #include "../melody/ui.native.combo.h"
 #include "../melody/ui.layout.box.h"
+#include "../melody/string.str8.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -41,11 +42,11 @@ static Mel_NButton    s_clear_btn;
 static Mel_NLabel     s_status_label;
 static char           s_status_buf[512];
 
-static const char* s_agency_items[] = {
-    "Independent",
-    "VShojo",
-    "Hololive",
-    "Nijisanji",
+static str8 s_agency_items[] = {
+    S8("Independent"),
+    S8("VShojo"),
+    S8("Hololive"),
+    S8("Nijisanji"),
 };
 
 static void on_window_close(void* user) { ((Mel_App*)user)->should_quit = true; }
@@ -56,32 +57,33 @@ static void on_followers_change(f64 value, void* user)
     (void)user;
     s_followers_value = value;
     snprintf(s_followers_buf, sizeof(s_followers_buf), "%.0f", value);
-    mel_nlabel_set_text(&s_followers_value_label, s_followers_buf);
+    mel_nlabel_set_text(&s_followers_value_label, str8_from_cstr(s_followers_buf));
 }
 
 static void on_submit(void* user)
 {
     (void)user;
-    const char* name = mel_nedit_get_text(&s_name_edit);
-    const char* agency = s_agency_items[s_agency_combo.selected];
+    str8 name = mel_nedit_get_text(&s_name_edit);
+    char agency_buf[256];
+    str8_to_buf(s_agency_items[s_agency_combo.selected], agency_buf, sizeof(agency_buf));
     snprintf(s_status_buf, sizeof(s_status_buf),
-             "Registered: %s from %s, %.0f followers",
-             (name && name[0]) ? name : "(unnamed)", agency, s_followers_value);
-    mel_nlabel_set_text(&s_status_label, s_status_buf);
+             "Registered: %.*s from %s, %.0f followers",
+             (name.len > 0) ? (int)name.len : 9, (name.len > 0) ? (char*)name.data : "(unnamed)", agency_buf, s_followers_value);
+    mel_nlabel_set_text(&s_status_label, str8_from_cstr(s_status_buf));
 }
 
 static void on_clear(void* user)
 {
     (void)user;
-    mel_nedit_set_text(&s_name_edit, "");
+    mel_nedit_set_text(&s_name_edit, S8(""));
     mel_ncombo_set_selected(&s_agency_combo, 0);
     mel_nslider_set_value(&s_followers_slider, 0.0);
     s_followers_value = 0.0;
     snprintf(s_followers_buf, sizeof(s_followers_buf), "0");
-    mel_nlabel_set_text(&s_followers_value_label, s_followers_buf);
+    mel_nlabel_set_text(&s_followers_value_label, str8_from_cstr(s_followers_buf));
     mel_ncheckbox_set_checked(&s_model_checkbox, false);
     mel_ncheckbox_set_checked(&s_donations_checkbox, false);
-    mel_nlabel_set_text(&s_status_label, "");
+    mel_nlabel_set_text(&s_status_label, S8(""));
 }
 
 static void build_ui(Mel_App* app)
@@ -101,19 +103,19 @@ static void build_ui(Mel_App* app)
         .spacing     = 8.0f);
     mel_nctrl_set_layout(&s_panel.base, &s_layout.base);
 
-    mel_nlabel_init(&s_title_label, .text = "VTuber Registration Form", .font_size = 20.0f);
+    mel_nlabel_init(&s_title_label, .text = S8("VTuber Registration Form"), .font_size = 20.0f);
     s_title_label.base.fixed_size = mel_vec2(0, 30);
     mel_nctrl_add_child(&s_panel.base, &s_title_label.base);
 
-    mel_nlabel_init(&s_name_label, .text = "Name:");
+    mel_nlabel_init(&s_name_label, .text = S8("Name:"));
     s_name_label.base.fixed_size = mel_vec2(0, 20);
     mel_nctrl_add_child(&s_panel.base, &s_name_label.base);
 
-    mel_nedit_init(&s_name_edit, .placeholder = "Enter your VTuber name...");
+    mel_nedit_init(&s_name_edit, .placeholder = S8("Enter your VTuber name..."));
     s_name_edit.base.fixed_size = mel_vec2(0, 24);
     mel_nctrl_add_child(&s_panel.base, &s_name_edit.base);
 
-    mel_nlabel_init(&s_agency_label, .text = "Agency:");
+    mel_nlabel_init(&s_agency_label, .text = S8("Agency:"));
     s_agency_label.base.fixed_size = mel_vec2(0, 20);
     mel_nctrl_add_child(&s_panel.base, &s_agency_label.base);
 
@@ -121,7 +123,7 @@ static void build_ui(Mel_App* app)
     s_agency_combo.base.fixed_size = mel_vec2(0, 28);
     mel_nctrl_add_child(&s_panel.base, &s_agency_combo.base);
 
-    mel_nlabel_init(&s_followers_label, .text = "Followers:");
+    mel_nlabel_init(&s_followers_label, .text = S8("Followers:"));
     s_followers_label.base.fixed_size = mel_vec2(0, 20);
     mel_nctrl_add_child(&s_panel.base, &s_followers_label.base);
 
@@ -131,29 +133,29 @@ static void build_ui(Mel_App* app)
     mel_nctrl_add_child(&s_panel.base, &s_followers_slider.base);
 
     snprintf(s_followers_buf, sizeof(s_followers_buf), "0");
-    mel_nlabel_init(&s_followers_value_label, .text = s_followers_buf);
+    mel_nlabel_init(&s_followers_value_label, .text = str8_from_cstr(s_followers_buf));
     s_followers_value_label.base.fixed_size = mel_vec2(0, 20);
     mel_nctrl_add_child(&s_panel.base, &s_followers_value_label.base);
 
-    mel_ncheckbox_init(&s_model_checkbox, .text = "Has 3D Model", .checked = false);
+    mel_ncheckbox_init(&s_model_checkbox, .text = S8("Has 3D Model"), .checked = false);
     s_model_checkbox.base.fixed_size = mel_vec2(0, 24);
     mel_nctrl_add_child(&s_panel.base, &s_model_checkbox.base);
 
-    mel_ncheckbox_init(&s_donations_checkbox, .text = "Accepts Donations", .checked = false);
+    mel_ncheckbox_init(&s_donations_checkbox, .text = S8("Accepts Donations"), .checked = false);
     s_donations_checkbox.base.fixed_size = mel_vec2(0, 24);
     mel_nctrl_add_child(&s_panel.base, &s_donations_checkbox.base);
 
-    mel_nbutton_init(&s_submit_btn, .text = "Submit");
+    mel_nbutton_init(&s_submit_btn, .text = S8("Submit"));
     s_submit_btn.on_click = on_submit;
     s_submit_btn.base.fixed_size = mel_vec2(0, 32);
     mel_nctrl_add_child(&s_panel.base, &s_submit_btn.base);
 
-    mel_nbutton_init(&s_clear_btn, .text = "Clear");
+    mel_nbutton_init(&s_clear_btn, .text = S8("Clear"));
     s_clear_btn.on_click = on_clear;
     s_clear_btn.base.fixed_size = mel_vec2(0, 32);
     mel_nctrl_add_child(&s_panel.base, &s_clear_btn.base);
 
-    mel_nlabel_init(&s_status_label, .text = "");
+    mel_nlabel_init(&s_status_label, .text = S8(""));
     s_status_label.base.fixed_size = mel_vec2(0, 20);
     mel_nctrl_add_child(&s_panel.base, &s_status_label.base);
 

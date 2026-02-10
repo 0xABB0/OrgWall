@@ -1,4 +1,5 @@
 #include "ui.native.window.h"
+#include "string.str8.h"
 
 void mel_nwindow_init_opt(Mel_NWindow* window, Mel_NWindow_Opt opt)
 {
@@ -6,7 +7,7 @@ void mel_nwindow_init_opt(Mel_NWindow* window, Mel_NWindow_Opt opt)
 
     mel_nctrl_init(&window->base, mel__nwindow_vtable());
 
-    window->title       = opt.title ? opt.title : "Window";
+    window->title       = str8_is_empty(opt.title) ? S8("Window") : opt.title;
     window->style_flags = opt.style_flags ? opt.style_flags : MEL_NWINDOW_STYLE_DEFAULT;
     window->on_close    = nullptr;
     window->on_resize   = nullptr;
@@ -19,12 +20,15 @@ void mel_nwindow_init_opt(Mel_NWindow* window, Mel_NWindow_Opt opt)
     mel_nctrl_create_backing(&window->base);
 }
 
-void mel_nwindow_set_title(Mel_NWindow* window, const char* title)
+void mel_nwindow_set_title(Mel_NWindow* window, str8 title)
 {
     assert(window != nullptr);
     window->title = title;
-    if (window->base.backing)
-        mel__nwindow_set_title_platform(window, title);
+    if (window->base.backing) {
+        char buf[256];
+        str8_to_buf(title, buf, sizeof(buf));
+        mel__nwindow_set_title_platform(window, buf);
+    }
 }
 
 void mel_nwindow_show(Mel_NWindow* window)

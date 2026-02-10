@@ -3,6 +3,7 @@
 
 #include "types.h"
 #include "allocator.fwd.h"
+#include "string.str8.fwd.h"
 #include "array.h"
 
 #include <SDL3/SDL_events.h>
@@ -13,7 +14,7 @@ typedef void (*Mel_EdEvent_Fn)(void* instance, SDL_Event* event);
 
 typedef struct
 {
-    const char*        name;
+    str8               name;
     void*              data;
     u32                id;
     bool               open;
@@ -41,7 +42,7 @@ void mel_ed_registry_shutdown(Mel_EdRegistry* reg);
 
 typedef struct
 {
-    const char*        name;
+    str8               name;
     void*              data;
     Mel_EdDraw_Fn      draw;
     Mel_EdShutdown_Fn  shutdown;

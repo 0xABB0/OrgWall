@@ -1,6 +1,7 @@
 #import <Cocoa/Cocoa.h>
 #import <objc/runtime.h>
 #include "../ui.native.listbox.h"
+#include "../string.str8.h"
 
 static const void* kListboxDelegateKey = &kListboxDelegateKey;
 static const void* kListboxTableViewKey = &kListboxTableViewKey;
@@ -27,7 +28,9 @@ static const void* kListboxTableViewKey = &kListboxTableViewKey;
         return @"";
     if (row < 0 || row >= (NSInteger)self.listbox->item_count)
         return @"";
-    return [NSString stringWithUTF8String:self.listbox->items[row]];
+    char buf[1024];
+    str8_to_buf(self.listbox->items[row], buf, sizeof(buf));
+    return [NSString stringWithUTF8String:buf];
 }
 
 - (void)tableViewSelectionDidChange:(NSNotification*)notification

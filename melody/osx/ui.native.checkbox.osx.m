@@ -1,6 +1,7 @@
 #import <Cocoa/Cocoa.h>
 #import <objc/runtime.h>
 #include "../ui.native.checkbox.h"
+#include "../string.str8.h"
 
 static const void* kCheckboxTargetKey = &kCheckboxTargetKey;
 
@@ -28,7 +29,9 @@ static void ncheckbox_create_backing(Mel_NCtrl* ctrl)
     MelCheckboxTarget* target = [[MelCheckboxTarget alloc] init];
     target.checkbox = checkbox;
 
-    NSString* title = [NSString stringWithUTF8String:checkbox->text];
+    char text_buf[1024];
+    str8_to_buf(checkbox->text, text_buf, sizeof(text_buf));
+    NSString* title = [NSString stringWithUTF8String:text_buf];
     NSButton* ns = [NSButton checkboxWithTitle:title target:target action:@selector(toggled:)];
     [ns setTranslatesAutoresizingMaskIntoConstraints:YES];
     [ns setButtonType:NSButtonTypeSwitch];

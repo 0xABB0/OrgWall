@@ -1,6 +1,7 @@
 #import <Cocoa/Cocoa.h>
 #import <objc/runtime.h>
 #include "../ui.native.radio.h"
+#include "../string.str8.h"
 
 @interface MelRadioTarget : NSObject
 @property (nonatomic, assign) Mel_NRadio* mel_radio;
@@ -61,7 +62,9 @@ static void radio_create_backing(Mel_NCtrl* ctrl)
 
     NSButton* nsButton = [[NSButton alloc] initWithFrame:frame];
     [nsButton setButtonType:NSButtonTypeRadio];
-    [nsButton setTitle:[NSString stringWithUTF8String:radio->text]];
+    char text_buf[1024];
+    str8_to_buf(radio->text, text_buf, sizeof(text_buf));
+    [nsButton setTitle:[NSString stringWithUTF8String:text_buf]];
     [nsButton setState:radio->selected ? NSControlStateValueOn : NSControlStateValueOff];
 
     MelRadioTarget* target = [[MelRadioTarget alloc] init];

@@ -1,6 +1,7 @@
 #import <Cocoa/Cocoa.h>
 #import <objc/runtime.h>
 #include "../ui.native.button.h"
+#include "../string.str8.h"
 
 static const void* kButtonTargetKey = &kButtonTargetKey;
 
@@ -26,7 +27,9 @@ static void nbutton_create_backing(Mel_NCtrl* ctrl)
     MelButtonTarget* target = [[MelButtonTarget alloc] init];
     target.button = button;
 
-    NSString* title = [NSString stringWithUTF8String:button->text];
+    char text_buf[1024];
+    str8_to_buf(button->text, text_buf, sizeof(text_buf));
+    NSString* title = [NSString stringWithUTF8String:text_buf];
     NSButton* ns = [NSButton buttonWithTitle:title target:target action:@selector(clicked:)];
     [ns setTranslatesAutoresizingMaskIntoConstraints:YES];
     [ns setBezelStyle:NSBezelStyleRounded];

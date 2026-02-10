@@ -6,6 +6,7 @@
 #include "../melody/ui.native.button.h"
 #include "../melody/ui.native.label.h"
 #include "../melody/ui.layout.box.h"
+#include "../melody/string.str8.h"
 
 #include <stdio.h>
 
@@ -17,12 +18,12 @@ static Mel_NLabel    s_subtitle_label;
 static Mel_NButton   s_hello_btn;
 static i32           s_greeting_index;
 
-static const char* s_greetings[] = {
-    "Hii~ \xF0\x9F\x92\x9C",
-    "Konnichiwa! \xF0\x9F\x8C\xB8",
-    "Bonjour~ \xE2\x9C\xA8",
-    "Hola! \xF0\x9F\x94\xA5",
-    "Ciao~ \xF0\x9F\x98\x98",
+static str8 s_greetings[] = {
+    S8("Hii~ \xF0\x9F\x92\x9C"),
+    S8("Konnichiwa! \xF0\x9F\x8C\xB8"),
+    S8("Bonjour~ \xE2\x9C\xA8"),
+    S8("Hola! \xF0\x9F\x94\xA5"),
+    S8("Ciao~ \xF0\x9F\x98\x98"),
 };
 
 static void on_hello_click(void* user)
@@ -63,15 +64,15 @@ static void build_ui(Mel_App* app)
         .spacing     = 10.0f);
     mel_nctrl_set_layout(&s_panel.base, &s_layout.base);
 
-    mel_nlabel_init(&s_title_label, .text = "Hello, World!", .font_size = 24.0f);
+    mel_nlabel_init(&s_title_label, .text = S8("Hello, World!"), .font_size = 24.0f);
     s_title_label.base.fixed_size = mel_vec2(0, 30);
     mel_nctrl_add_child(&s_panel.base, &s_title_label.base);
 
-    mel_nlabel_init(&s_subtitle_label, .text = "Welcome to the Melody UI engine");
+    mel_nlabel_init(&s_subtitle_label, .text = S8("Welcome to the Melody UI engine"));
     s_subtitle_label.base.fixed_size = mel_vec2(0, 20);
     mel_nctrl_add_child(&s_panel.base, &s_subtitle_label.base);
 
-    mel_nbutton_init(&s_hello_btn, .text = "Say Hello~");
+    mel_nbutton_init(&s_hello_btn, .text = S8("Say Hello~"));
     s_hello_btn.on_click = on_hello_click;
     s_hello_btn.base.fixed_size = mel_vec2(0, 32);
     mel_nctrl_add_child(&s_panel.base, &s_hello_btn.base);
