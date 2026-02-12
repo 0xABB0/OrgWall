@@ -151,3 +151,7 @@ Examples:
 - Imgui
 - Slang integration
 
+## MEL-X-010: lazyness
+
+We do not condone being lazy. If we spot something that's wrong, we either fix it, or we write in the todo file what the problem is
+

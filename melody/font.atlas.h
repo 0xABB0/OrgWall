@@ -11,7 +11,7 @@
 #include "collection.hashmap.h"
 #include "math.vec2.h"
 #include "math.vec4.h"
-#include "sprite_batch.h"
+#include "sprite_batch.fwd.h"
 
 struct Mel_Font_Atlas_Entry {
     Mel_Font_Descriptor desc;

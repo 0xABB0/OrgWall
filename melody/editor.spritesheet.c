@@ -1,4 +1,6 @@
 #include "editor.spritesheet.h"
+#include "spritesheet.h"
+#include "allocator.h"
 #include "string.str8.h"
 
 #include <cimgui/cimgui.h>

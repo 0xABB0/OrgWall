@@ -2,6 +2,7 @@
 #include "app.h"
 #include "allocator.h"
 #include "allocator.heap.h"
+#include "allocator.tracking.h"
 #include "gpu.cmd.h"
 #include "gpu.shader.h"
 #include "gpu.submit.h"

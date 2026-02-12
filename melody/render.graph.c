@@ -1,5 +1,6 @@
 #define VK_NO_PROTOTYPES
 #include "render.graph.h"
+#include "string.str8.h"
 #include "gpu.cmd.h"
 #include <string.h>
 

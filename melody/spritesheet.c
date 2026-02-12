@@ -1,4 +1,5 @@
 #include "spritesheet.h"
+#include "gpu.texture.h"
 #include "string.str8.h"
 #include "assets.h"
 #include <cjson/cJSON.h>

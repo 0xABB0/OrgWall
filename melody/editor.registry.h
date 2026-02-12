@@ -12,7 +12,7 @@ typedef void (*Mel_EdDraw_Fn)(void* instance, f32 dt);
 typedef void (*Mel_EdShutdown_Fn)(void* instance);
 typedef void (*Mel_EdEvent_Fn)(void* instance, SDL_Event* event);
 
-typedef struct
+typedef struct Mel_EdEntry
 {
     str8               name;
     void*              data;
@@ -24,7 +24,7 @@ typedef struct
     Mel_EdEvent_Fn     event;
 } Mel_EdEntry;
 
-typedef struct
+typedef struct Mel_EdRegistry
 {
     Mel_Array(Mel_EdEntry) entries;
     u32 next_id;

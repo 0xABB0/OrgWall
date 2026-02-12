@@ -1,4 +1,5 @@
 #include "font.atlas.h"
+#include "sprite_batch.h"
 #include "string.str8.h"
 #include "hash.xxh.h"
 #include "gpu.buffer.h"

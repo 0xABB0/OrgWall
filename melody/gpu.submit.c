@@ -1,5 +1,6 @@
 #define VK_NO_PROTOTYPES
 #include "gpu.submit.h"
+#include <tracy/TracyC.h>
 
 typedef struct {
     VkCommandPool pool;
@@ -48,6 +49,8 @@ void mel_gpu_submit_immediate(Mel_Gpu_Device* dev, Mel_Gpu_Submit_Fn callback, v
     assert(dev != nullptr);
     assert(callback != nullptr);
 
+    TracyCZoneN(ctx, "gpu_submit_immediate", true);
+
     ensure_immediate(dev);
 
     vkResetCommandBuffer(s_immediate.cmd, 0);
@@ -69,7 +72,12 @@ void mel_gpu_submit_immediate(Mel_Gpu_Device* dev, Mel_Gpu_Submit_Fn callback, v
 
     vkResetFences(dev->device, 1, &s_immediate.fence);
     vkQueueSubmit(dev->graphics_queue, 1, &submit_info, s_immediate.fence);
+
+    TracyCZoneN(ctx_wait, "gpu_fence_wait", true);
     vkWaitForFences(dev->device, 1, &s_immediate.fence, VK_TRUE, UINT64_MAX);
+    TracyCZoneEnd(ctx_wait);
+
+    TracyCZoneEnd(ctx);
 }
 
 void mel_gpu_submit_shutdown(Mel_Gpu_Device* dev)

@@ -1,4 +1,5 @@
 #include "anim.blend.h"
+#include "anim.timeline.h"
 
 u32 mel_anim_blend_frame_index(Mel_Anim_Blend* blend)
 {

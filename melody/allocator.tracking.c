@@ -1,6 +1,7 @@
 #include "allocator.tracking.h"
 #include "allocator.h"
 #include <stdio.h>
+#include <tracy/TracyC.h>
 
 typedef struct {
     usize size;
@@ -24,9 +25,10 @@ static void* tracking_alloc_cb(void* ptr, usize size, u32 align,
 
     if (ptr == NULL && size > 0)
     {
+        TracyCZoneN(ctx, "tracking_alloc", true);
         usize total = sizeof(Mel_Tracking_Header) + size;
         void* raw = t->backing->alloc_cb(NULL, total, align, file, func, line, t->backing->user_data);
-        if (!raw) return NULL;
+        if (!raw) { TracyCZoneEnd(ctx); return NULL; }
 
         ((Mel_Tracking_Header*)raw)->size = size;
 
@@ -36,17 +38,21 @@ static void* tracking_alloc_cb(void* ptr, usize size, u32 align,
         if (t->current_usage > t->peak_usage)
             t->peak_usage = t->current_usage;
 
+        TracyCAllocN(tracking_header_to_user(raw), size, "tracked");
+        TracyCZoneEnd(ctx);
         return tracking_header_to_user(raw);
     }
 
     if (ptr != NULL && size > 0)
     {
+        TracyCZoneN(ctx, "tracking_realloc", true);
         Mel_Tracking_Header* old_header = tracking_user_to_header(ptr);
         usize old_size = old_header->size;
         usize total = sizeof(Mel_Tracking_Header) + size;
 
+        TracyCFreeN(ptr, "tracked");
         void* raw = t->backing->alloc_cb(old_header, total, align, file, func, line, t->backing->user_data);
-        if (!raw) return NULL;
+        if (!raw) { TracyCZoneEnd(ctx); return NULL; }
 
         ((Mel_Tracking_Header*)raw)->size = size;
 
@@ -58,19 +64,24 @@ static void* tracking_alloc_cb(void* ptr, usize size, u32 align,
         if (t->current_usage > t->peak_usage)
             t->peak_usage = t->current_usage;
 
+        TracyCAllocN(tracking_header_to_user(raw), size, "tracked");
+        TracyCZoneEnd(ctx);
         return tracking_header_to_user(raw);
     }
 
     if (ptr != NULL && size == 0)
     {
+        TracyCZoneN(ctx, "tracking_free", true);
         Mel_Tracking_Header* header = tracking_user_to_header(ptr);
         usize freed_size = header->size;
 
+        TracyCFreeN(ptr, "tracked");
         t->backing->alloc_cb(header, 0, align, file, func, line, t->backing->user_data);
 
         t->total_freed += freed_size;
         t->current_usage -= freed_size;
         t->free_count++;
+        TracyCZoneEnd(ctx);
         return NULL;
     }
 

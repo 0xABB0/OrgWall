@@ -3,7 +3,7 @@
 
 #include "types.h"
 #include "allocator.fwd.h"
-#include "spritesheet.h"
+#include "spritesheet.fwd.h"
 #include "texture.pool.fwd.h"
 
 typedef struct

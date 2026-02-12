@@ -1,4 +1,5 @@
 #include "editor.h"
+#include "editor.registry.h"
 #include "string.str8.h"
 
 #include <cimgui/cimgui.h>

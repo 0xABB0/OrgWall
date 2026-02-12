@@ -3,7 +3,7 @@
 
 #include "types.h"
 #include "string.str8.fwd.h"
-#include "editor.registry.h"
+#include "editor.registry.fwd.h"
 #include "texture.pool.fwd.h"
 #include "tile.set.fwd.h"
 #include "tile.map.fwd.h"

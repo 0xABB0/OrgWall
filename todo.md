@@ -1,43 +1,44 @@
-- [CORE] implement stacktrace capturing for every allocation (debug mode)
-- [CORE] implement crash handler (intercept signals, save state, dump stacktrace)
-- [CORE] handle init failure cleanup in mel\_engine\_init\_opt — NOTE: done. gpu.device, gpu.swapchain, render.frame all return bool now. Engine init has proper goto-based cleanup chain. Remaining: imgui init failure doesn't fully unwind (currently just skips the feature flag)
-- [CORE] revisit crash handler to avoid non-signal-safe calls in signal context
+- [CORE] implement stacktrace capturing for every allocation (debug mode) — DISCUSS: storage format (inline in tracking header vs linked list), debug-only toggling, interaction with Tracy memory profiling. Infrastructure ready (mel\_backtrace\_capture exists).
+- [CORE] handle init failure cleanup — PARTIALLY DONE: gpu.device, gpu.swapchain, render.frame return bool, engine init has goto-based cleanup. Remaining: imgui init failure doesn't fully unwind (skips the feature flag)
 - [CORE] implement Virtual File System (VFS) with mount points and archive support
 - [CORE] implement Hot-Reloading for Game Code (.dylib/.dll reloading)
 - [CORE] implement Asset Hot-Reloading (file watcher)
 - [CORE] implement centralized engine logging system (mel\_log\_*) to replace raw SDL_Log/fprintf
 - [CORE] implement Windows crash handling via SEH and StackWalk64
 - [CORE] improve backtrace resolution using dladdr() and -rdynamic on Unix-like systems
+- [CORE] implement CVar registry (console variables for runtime tuning) - new module
+- [CORE] melody should handle much more initialization autonomously (vulkan, editors, etc). The app should dictate what it wants from melody via MEL\_APP params or similar.
 - [SYSTEM] implement basic audio system (audio.h/c)
 - [SYSTEM] implement distributed event system (specialized queues, no global bus)
 - [SYSTEM] implement input action mapper (input.h)
 - [SYSTEM] implement serialization/config system
 - [RENDER] implement render graph (data-driven passes)
 - [RENDER] support multiple windows/viewports/cameras
+- [RENDERING] the engine should provide built-in rendering (sprites, etc) that works out of the box via the frame graph, without requiring ECS. App can add/remove passes.
 - [ARCH] implement view/input router (View struct, window_id, layer)
 - [EDITOR] implement reflection system (Type Descriptors) for generic inspection
+- [EDITOR] rename editor files to live alongside their domain (eg editor.tiles.h → tile.editor.h) — DISCUSS: naming convention, 18 files to move, build system handles autodiscovery
 - [ECS] replace hardcoded entity factories with prefab/blueprint system
 - [ECS] spatial partition for physics (grid/quadtree)
 - [TEST] expand test coverage to include ECS, Asset Registry, and VFS
 - [TEST] implement fuzz testing for custom allocators (Arena, Block, Buddy, etc.)
+- [TEST] strengthen tests overall — better test harness that could be used by the game itself (and even mods?)
 - [BUILD] use pkg-config or config file to remove hardcoded paths in nob.c
-
+- [BUILD] the build file is becoming too large, needs simplification
 - [DEMO] make a demo with a ton of animated sprites (same atlas, different frame, different parameters - size, direction, tint)
-- [DEMO] demos should change their naming to explicitly show what they're demoing (example: demo.native.hello.\*) — NOTE: file rename from demo_* to demo.* is done, but the names themselves could be more descriptive
-- [ENGINE][CHECK] the engine should expose an "editor" system, that serves as the entrypoint for every other editor to register into. there could be any editor open at any time (even multiple instances of the same editor, pointing to different things).
-- [ALLOCATOR] the allocators that can grow (block, heap, others?) should all be backed by the vmem allocator.
-- [BUILD][ENHANCEMENT] The build file is becoming too large. we are in dire need of a simplification...
-- [EDITOR] I don't like having the domain "editor.*". i think that the editors should live alongside their own domain eg "anim.sprite.editor.h"
-- [CORE] implement CVar registry (console variables for runtime tuning) - new module
-- [CORE] right now, melody is a library except for the fact that it takes ownership of the main loop. this is not good, melody should handle much, much more (automatic initialization of things. maybe we could even add parameters to MEL_APP, if needed. melody should also initialize autonomously things like vulkan, the editors, etcetera. obviously we need the app to be able to dictate what it wants from melody)
-- [ENGINE] we need to be able to make melody run "headless" (in two ways: one is without any graphics api at all. the other is without windows) this is needed for testing vulkan. maybe outputting to a png? if it does not error out / give warnings, maybe the test is a success? Also, headless run could also be like "run for x frames"
-- [TEST] we should absolutely strengthen tests. more tests (and maybe a better test harness that could be harnessed by the game itself - and even mods while we're there? could help a lot modders)
-- [PROFILING] we need more profiling. we should call tracy in multiple places, and we should use that to also profile memory and profile graphics api calls
-- [PROFILING] we need to have a debug ui (imgui) in which we have some overview of things like total memory, ecs debugging, and idk, stuff like that
-- [ENGINE] right now, we have multiple ways of creating os windows. we should unify them.
-- [ENGINE] melody should give the possibility to both do variable rate updates and fixed updates at the same time (discuss: multiple fixed steps at the same time?)
-- [UPSTREAM] imgui SDL3 backend loses mouse capture during viewport drag/resize (ocornut/imgui#8591, #8869) — known upstream bug, no fix yet. Track and update local copy when patched.
-- [PHYSICAL STRUCTURE] i'd love for the higher level files (example: ui.widget.[c|h|.fwd.h]) to stay alphabetically above the others (eg: ui.widget.button.*). right now, since *.b-utton comes before *.c, it shows them under.
-- [RENDERING] the engine should give some ways of rendering for you, without us reimplementing basic (or even advanced) stuff by hand. for example: rendering of sprites, it should basically work out of the box. but the engine does not assume that you're going to use ecs, so..? My idea is that you can interact with the frame graph, but it's owned by melody. so, the application can add/remove passes by itself, but creating an ecs world, and filling it with sprite should work out of the box.
-- [NATIVE UI][SDL] right now, we have two ways of creating a window. directly through sdl and with our ui.native.window.\*. this is not good, we should have a unified way (probably integrating our ui.native.window.\* with sdl)
-- [h files] i'd prefer to avoid including h files inside other h files. it's better to include .fwd.h files inside the h files, and the h files are included in the c file. (example: anim.blend.h includes .h files directly, while it's the .c file that needs those h files. these h files should be included in the c files to speed up compilation. a lot of cases like this)
+- [DEMO] demo names should be more descriptive (eg demo.native.hello.\*) — file rename from demo\_* to demo.\* is done
+- [ENGINE] the engine should expose an "editor" system as entrypoint for every editor to register into. Multiple editors open at any time (even multiple instances of the same editor, pointing to different things).
+- [ENGINE] make melody run "headless" (two modes: no graphics API at all, or no windows). Needed for testing vulkan (output to png?). Could also be "run for x frames".
+- [ENGINE] unify window creation — currently multiple ways (SDL direct vs ui.native.window.\*)
+- [ENGINE] variable rate updates and fixed updates at the same time (discuss: multiple fixed steps?)
+- [NATIVE UI][SDL] unify window creation: integrate ui.native.window.\* with sdl
+- [ALLOCATOR] growable allocators (block, heap, others?) should all be backed by vmem
+- [PROFILING] Tracy coverage expanded (allocator.tracking, gpu.submit, gpu.buffer, texture, render.frame). Still need: more coverage across the codebase, and profiling graphics API calls
+- [PROFILING] debug ui (imgui) with overview of total memory, ecs debugging, etc.
+- [UPSTREAM] imgui SDL3 backend loses mouse capture during viewport drag/resize (ocornut/imgui#8591, #8869) — known upstream bug, track and update local copy when patched.
+- [h files] header inclusion cleanup — MOSTLY DONE: 17 headers fixed to use .fwd.h, 4 new .fwd.h files created. Remaining: gpu.\*.h chain (8 files include gpu.device.h for Vulkan/VMA types transitively — needs architectural discussion about a separate vulkan types header)
+- [PHYSICAL STRUCTURE] higher-level files (eg ui.widget.[c|h|.fwd.h]) should sort alphabetically above sub-modules (eg ui.widget.button.\*). Currently *.button comes before *.c
+- [PHYSICAL STRUCTURE] some modules don't follow domain.module.[submodule.]suffix: vma\_impl.cpp, types.h, engine.\*, backtrace.\*, test.h, spritesheet.\*, stb\_impl.c, platform.h, defs.h, app.h
+- [OLD FILES] array.h still exists (should be fully moved to collection.array.h) and assets.\* should not exist
+- [DISCUSS] is there a way to test for bad behaviour in memory access?
+- [ANIMATION] animation blending seems very very basic, we need something more.

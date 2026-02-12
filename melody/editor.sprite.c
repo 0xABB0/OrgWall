@@ -1,4 +1,5 @@
 #include "editor.sprite.h"
+#include "ecs.world.h"
 #include "ecs.2d.sprite.h"
 
 #include <cimgui/cimgui.h>

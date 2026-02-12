@@ -2,7 +2,7 @@
 #define MEL_ASSETS_H
 
 #include "types.h"
-#include "string.str8.h"
+#include "string.str8.fwd.h"
 #include "allocator.fwd.h"
 
 typedef struct Mel_Assets

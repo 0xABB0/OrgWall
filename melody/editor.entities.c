@@ -1,4 +1,5 @@
 #include "editor.entities.h"
+#include "ecs.world.h"
 
 #include <cimgui/cimgui.h>
 #include <string.h>

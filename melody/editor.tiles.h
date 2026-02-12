@@ -3,9 +3,9 @@
 
 #include "types.h"
 #include "allocator.fwd.h"
-#include "tile.set.h"
-#include "tile.map.h"
-#include "texture.pool.h"
+#include "tile.set.fwd.h"
+#include "tile.map.fwd.h"
+#include "texture.pool.fwd.h"
 
 #define MEL_ED_TILES_TOOL_BRUSH   0
 #define MEL_ED_TILES_TOOL_SELECT  1

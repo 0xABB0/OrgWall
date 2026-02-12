@@ -1,4 +1,7 @@
 #include "editor.tiles.h"
+#include "tile.set.h"
+#include "tile.map.h"
+#include "texture.pool.h"
 #include "string.str8.h"
 
 #include <cimgui/cimgui.h>

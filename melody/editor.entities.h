@@ -4,7 +4,7 @@
 #include "types.h"
 #include "allocator.fwd.h"
 #include "array.h"
-#include "ecs.world.h"
+#include "ecs.world.fwd.h"
 
 typedef bool (*Mel_ComponentInspector_Fn)(ecs_world_t* world, ecs_entity_t e);
 

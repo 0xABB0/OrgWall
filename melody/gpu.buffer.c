@@ -1,6 +1,7 @@
 #define VK_NO_PROTOTYPES
 #include "gpu.buffer.h"
 #include <string.h>
+#include <tracy/TracyC.h>
 
 void mel_gpu_buffer_init_opt(Mel_Gpu_Buffer* buf, Mel_Gpu_Device* dev, Mel_Gpu_Buffer_Opt opt)
 {
@@ -8,6 +9,7 @@ void mel_gpu_buffer_init_opt(Mel_Gpu_Buffer* buf, Mel_Gpu_Device* dev, Mel_Gpu_B
     assert(dev != nullptr);
     assert(opt.size > 0);
 
+    TracyCZoneN(ctx, "gpu_buffer_init", true);
     *buf = (Mel_Gpu_Buffer){0};
 
     VkBufferUsageFlags usage = opt.usage | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
@@ -41,6 +43,7 @@ void mel_gpu_buffer_init_opt(Mel_Gpu_Buffer* buf, Mel_Gpu_Device* dev, Mel_Gpu_B
         .buffer = buf->buffer,
     };
     buf->device_address = vkGetBufferDeviceAddress(dev->device, &addr_info);
+    TracyCZoneEnd(ctx);
 }
 
 void mel_gpu_buffer_shutdown(Mel_Gpu_Buffer* buf, Mel_Gpu_Device* dev)
@@ -94,10 +97,12 @@ void mel_gpu_buffer_upload(Mel_Gpu_Buffer* buf, Mel_Gpu_Device* dev,
     assert(data != nullptr);
     assert(offset + size <= buf->size);
 
+    TracyCZoneN(ctx, "gpu_buffer_upload", true);
     bool was_mapped = buf->mapped != nullptr;
     void* mapped = was_mapped ? buf->mapped : mel_gpu_buffer_map(buf, dev);
     memcpy((u8*)mapped + offset, data, size);
     mel_gpu_buffer_flush(buf, dev);
     if (!was_mapped)
         mel_gpu_buffer_unmap(buf, dev);
+    TracyCZoneEnd(ctx);
 }

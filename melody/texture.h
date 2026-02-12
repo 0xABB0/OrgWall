@@ -1,8 +1,9 @@
 #ifndef MEL_ASSETS_TEXTURE_H
 #define MEL_ASSETS_TEXTURE_H
 
-#include "gpu.texture.h"
-#include "gpu.pipeline.h"
+#include "gpu.texture.fwd.h"
+#include "gpu.pipeline.fwd.h"
+#include "gpu.device.fwd.h"
 #include "string.str8.fwd.h"
 
 typedef struct Mel_Assets Mel_Assets;

@@ -1,62 +1,142 @@
 #include "backtrace.h"
+#include "platform.h"
+
+#if MEL_PLATFORM_POSIX
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <execinfo.h>
+#include <string.h>
 
-#define MEL_BACKTRACE_MAX_FRAMES 64
+static void sig_write(const char* s)
+{
+    write(STDERR_FILENO, s, strlen(s));
+}
+
+static void sig_write_hex(uintptr_t val)
+{
+    char buf[20];
+    buf[19] = '\0';
+    i32 pos = 18;
+
+    if (val == 0)
+    {
+        buf[pos--] = '0';
+    }
+    else
+    {
+        while (val > 0 && pos >= 0)
+        {
+            i32 digit = val & 0xF;
+            buf[pos--] = digit < 10 ? '0' + digit : 'a' + digit - 10;
+            val >>= 4;
+        }
+    }
+
+    buf[pos--] = 'x';
+    buf[pos] = '0';
+
+    write(STDERR_FILENO, &buf[pos], 19 - pos);
+}
 
 static void signal_handler(int sig)
 {
-    const char* sig_name = "UNKNOWN";
+    sig_write("\n=== CRASH: ");
+
     switch (sig)
     {
-        case SIGSEGV: sig_name = "SIGSEGV (Segmentation fault)"; break;
-        case SIGABRT: sig_name = "SIGABRT (Abort)"; break;
-        case SIGFPE:  sig_name = "SIGFPE (Floating point exception)"; break;
-        case SIGILL:  sig_name = "SIGILL (Illegal instruction)"; break;
-        case SIGBUS:  sig_name = "SIGBUS (Bus error)"; break;
+        case SIGSEGV: sig_write("SIGSEGV (Segmentation fault)"); break;
+        case SIGABRT: sig_write("SIGABRT (Abort)"); break;
+        case SIGFPE:  sig_write("SIGFPE (Floating point exception)"); break;
+        case SIGILL:  sig_write("SIGILL (Illegal instruction)"); break;
+        case SIGBUS:  sig_write("SIGBUS (Bus error)"); break;
+        default:      sig_write("UNKNOWN"); break;
     }
 
-    fprintf(stderr, "\n=== CRASH: %s ===\n", sig_name);
-    mel_backtrace_print();
-    fprintf(stderr, "==============================\n");
+    sig_write(" ===\n");
 
-    _exit(1);
+    void* frames[MEL_BACKTRACE_MAX_FRAMES];
+    int frame_count = backtrace(frames, MEL_BACKTRACE_MAX_FRAMES);
+
+    if (frame_count > 0)
+        backtrace_symbols_fd(frames, frame_count, STDERR_FILENO);
+    else
+        sig_write("  <no backtrace available>\n");
+
+    sig_write("==============================\n");
+
+    _exit(128 + sig);
 }
 
 void mel_backtrace_init(void)
 {
-    signal(SIGSEGV, signal_handler);
-    signal(SIGABRT, signal_handler);
-    signal(SIGFPE, signal_handler);
-    signal(SIGILL, signal_handler);
-    signal(SIGBUS, signal_handler);
+    struct sigaction sa = {0};
+    sa.sa_handler = signal_handler;
+    sa.sa_flags = SA_RESETHAND;
+    sigemptyset(&sa.sa_mask);
+
+    sigaction(SIGSEGV, &sa, nullptr);
+    sigaction(SIGABRT, &sa, nullptr);
+    sigaction(SIGFPE, &sa, nullptr);
+    sigaction(SIGILL, &sa, nullptr);
+    sigaction(SIGBUS, &sa, nullptr);
 }
 
-void mel_backtrace_print(void)
+void mel_backtrace_capture(Mel_Backtrace* bt, i32 skip)
 {
-    void* frames[MEL_BACKTRACE_MAX_FRAMES];
-    int frame_count = backtrace(frames, MEL_BACKTRACE_MAX_FRAMES);
+    assert(bt != nullptr);
 
-    if (frame_count == 0)
+    void* raw_frames[MEL_BACKTRACE_MAX_FRAMES + 16];
+    int total = backtrace(raw_frames, MEL_BACKTRACE_MAX_FRAMES + skip + 1);
+
+    i32 start = skip + 1;
+    if (start > total) start = total;
+
+    bt->frame_count = total - start;
+    if (bt->frame_count > MEL_BACKTRACE_MAX_FRAMES)
+        bt->frame_count = MEL_BACKTRACE_MAX_FRAMES;
+
+    for (i32 i = 0; i < bt->frame_count; i++)
+        bt->frames[i] = raw_frames[start + i];
+}
+
+void mel_backtrace_print(Mel_Backtrace* bt)
+{
+    assert(bt != nullptr);
+
+    if (bt->frame_count == 0)
     {
         fprintf(stderr, "  <no backtrace available>\n");
         return;
     }
 
-    char** symbols = backtrace_symbols(frames, frame_count);
+    char** symbols = backtrace_symbols(bt->frames, bt->frame_count);
     if (!symbols)
     {
-        fprintf(stderr, "  <failed to get symbols>\n");
+        for (i32 i = 0; i < bt->frame_count; i++)
+            fprintf(stderr, "  #%d 0x%lx\n", i, (unsigned long)(uintptr_t)bt->frames[i]);
         return;
     }
 
-    for (int i = 0; i < frame_count; i++)
-    {
+    for (i32 i = 0; i < bt->frame_count; i++)
         fprintf(stderr, "  #%d %s\n", i, symbols[i]);
-    }
 
     free(symbols);
 }
+
+void mel_backtrace_print_current(void)
+{
+    Mel_Backtrace bt;
+    mel_backtrace_capture(&bt, 1);
+    mel_backtrace_print(&bt);
+}
+
+#else
+
+void mel_backtrace_init(void) {}
+void mel_backtrace_capture(Mel_Backtrace* bt, i32 skip) { (void)skip; bt->frame_count = 0; }
+void mel_backtrace_print(Mel_Backtrace* bt) { (void)bt; }
+void mel_backtrace_print_current(void) {}
+
+#endif

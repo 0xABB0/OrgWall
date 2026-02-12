@@ -1,7 +1,8 @@
 #ifndef MEL_RENDER_PASS_H
 #define MEL_RENDER_PASS_H
 
-#include "render.graph.h"
+#include "types.h"
+#include "render.graph.fwd.h"
 #include "gpu.cmd.fwd.h"
 
 typedef struct {

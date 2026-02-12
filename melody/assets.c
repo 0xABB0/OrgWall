@@ -1,4 +1,5 @@
 #include "assets.h"
+#include "string.str8.h"
 #include "allocator.h"
 #include "allocator.heap.h"
 #include <physfs.h>

@@ -2,6 +2,7 @@
 #include "render.frame.h"
 #include "gpu.swapchain.h"
 #include "gpu.cmd.h"
+#include <tracy/TracyC.h>
 
 bool mel_render_frame_init_opt(Mel_Render_Frame* rf, Mel_Render_Frame_Opt opt)
 {
@@ -107,10 +108,17 @@ bool mel_render_frame_begin(Mel_Render_Frame* rf)
 
     Mel_Render_Frame_Data* fd = &rf->frames[rf->current_frame];
 
+    TracyCZoneN(ctx_fence, "frame_fence_wait", true);
     vkWaitForFences(rf->dev->device, 1, &fd->in_flight, VK_TRUE, UINT64_MAX);
+    TracyCZoneEnd(ctx_fence);
 
+    TracyCZoneN(ctx_acquire, "swapchain_acquire", true);
     if (!mel_gpu_swapchain_acquire(rf->swapchain, rf->dev, fd->image_available))
+    {
+        TracyCZoneEnd(ctx_acquire);
         return false;
+    }
+    TracyCZoneEnd(ctx_acquire);
 
     rf->current_image = rf->swapchain->current_image;
     vkResetFences(rf->dev->device, 1, &fd->in_flight);
@@ -149,10 +157,14 @@ void mel_render_frame_end(Mel_Render_Frame* rf)
         .pSignalSemaphores = &render_done,
     };
 
+    TracyCZoneN(ctx_submit, "queue_submit", true);
     r = vkQueueSubmit(rf->dev->graphics_queue, 1, &submit_info, fd->in_flight);
     assert(r == VK_SUCCESS);
+    TracyCZoneEnd(ctx_submit);
 
+    TracyCZoneN(ctx_present, "swapchain_present", true);
     mel_gpu_swapchain_present(rf->swapchain, rf->dev, render_done);
+    TracyCZoneEnd(ctx_present);
 
     rf->current_frame = (rf->current_frame + 1) % rf->frame_count;
 }

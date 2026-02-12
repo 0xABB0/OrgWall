@@ -1,10 +1,9 @@
 #ifndef MEL_SPRITE_BATCH_H
 #define MEL_SPRITE_BATCH_H
 
-#include "gpu.device.h"
 #include "gpu.buffer.h"
-#include "gpu.pipeline.h"
-#include "gpu.texture.h"
+#include "gpu.pipeline.fwd.h"
+#include "gpu.texture.fwd.h"
 #include "math.vec4.h"
 #include "math.mat4.h"
 
@@ -15,7 +14,7 @@ typedef struct
     f32 r, g, b, a;
 } Mel_SpriteVertex;
 
-typedef struct
+typedef struct Mel_SpriteBatch
 {
     Mel_Gpu_Buffer vertex_buffer;
     Mel_Gpu_Buffer index_buffer;

@@ -3,10 +3,10 @@
 
 #include "types.h"
 #include "allocator.fwd.h"
-#include "gpu.texture.h"
+#include "gpu.texture.fwd.h"
 #include "string.str8.fwd.h"
 
-typedef struct
+typedef struct Mel_SpriteFrame
 {
     u32 x;
     u32 y;
@@ -20,7 +20,7 @@ typedef struct
 #define MEL_FRAME_EVENT_HITBOX  (1 << 1)
 #define MEL_FRAME_EVENT_TAG     (1 << 2)
 
-typedef struct
+typedef struct Mel_FrameEvent
 {
     u32 flags;
 
@@ -36,7 +36,7 @@ typedef struct
     u32 tag_count;
 } Mel_FrameEvent;
 
-typedef struct
+typedef struct Mel_Animation
 {
     str8 name;
     u32* frame_indices;
@@ -47,7 +47,7 @@ typedef struct
     bool loop;
 } Mel_Animation;
 
-typedef struct
+typedef struct Mel_Spritesheet
 {
     const Mel_Alloc* alloc;
     str8 name;
@@ -61,7 +61,7 @@ typedef struct
     u32 texture_height;
 } Mel_Spritesheet;
 
-typedef struct
+typedef struct Mel_AnimationPlayer
 {
     Mel_Spritesheet* sheet;
     Mel_Animation* current;

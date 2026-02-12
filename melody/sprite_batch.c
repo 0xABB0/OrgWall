@@ -1,5 +1,7 @@
 #define VK_NO_PROTOTYPES
 #include "sprite_batch.h"
+#include "gpu.pipeline.h"
+#include "gpu.texture.h"
 #include <string.h>
 #include <tracy/TracyC.h>
 

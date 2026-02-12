@@ -7,7 +7,7 @@
 #include "gpu.swapchain.h"
 #include "gpu.cmd.fwd.h"
 #include "render.frame.h"
-#include "allocator.tracking.h"
+#include "allocator.tracking.fwd.h"
 
 #include <SDL3/SDL.h>
 

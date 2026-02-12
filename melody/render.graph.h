@@ -3,7 +3,7 @@
 
 #include "types.h"
 #include "allocator.h"
-#include "string.str8.h"
+#include "string.str8.fwd.h"
 
 #define VK_NO_PROTOTYPES
 #include <vulkan/vulkan.h>

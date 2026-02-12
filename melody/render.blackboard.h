@@ -3,7 +3,7 @@
 
 #include "types.h"
 #include "allocator.h"
-#include "string.str8.h"
+#include "string.str8.fwd.h"
 
 typedef struct Mel_Render_Blackboard Mel_Render_Blackboard;
 

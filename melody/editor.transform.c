@@ -1,4 +1,5 @@
 #include "editor.transform.h"
+#include "ecs.world.h"
 #include "ecs.2d.transform.h"
 #include "editor.helpers.h"
 
