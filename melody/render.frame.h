@@ -6,6 +6,7 @@
 #include "gpu.cmd.fwd.h"
 
 #define MEL_MAX_FRAMES_IN_FLIGHT 3
+#define MEL_MAX_SWAPCHAIN_IMAGES 8
 
 typedef struct Mel_Render_Frame_Data Mel_Render_Frame_Data;
 typedef struct Mel_Render_Frame Mel_Render_Frame;
@@ -14,14 +15,16 @@ struct Mel_Render_Frame_Data {
     VkCommandPool command_pool;
     VkCommandBuffer command_buffer;
     VkSemaphore image_available;
-    VkSemaphore render_finished;
     VkFence in_flight;
 };
 
 struct Mel_Render_Frame {
     Mel_Render_Frame_Data frames[MEL_MAX_FRAMES_IN_FLIGHT];
+    VkSemaphore render_finished[MEL_MAX_SWAPCHAIN_IMAGES];
+    u32 render_finished_count;
     u32 frame_count;
     u32 current_frame;
+    u32 current_image;
     Mel_Gpu_Device* dev;
     Mel_Gpu_Swapchain* swapchain;
 };

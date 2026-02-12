@@ -859,11 +859,10 @@ bool build_test(const char* test_name)
 
 bool build_widget_demo(const char* demo_name)
 {
-    const char* demo_src = nob_temp_sprintf("demos/demo_%s.c", demo_name);
-    const char* demo_out = nob_temp_sprintf(BUILD_DIR "/demo_%s", demo_name);
+    const char* demo_src = nob_temp_sprintf("demos/demo.%s.c", demo_name);
+    const char* demo_out = nob_temp_sprintf(BUILD_DIR "/demo.%s", demo_name);
 
     static const char* WIDGET_DEMO_SOURCES[] = {
-        "melody/engine.c",
         "melody/backtrace.c",
         "melody/ui.widget.c",
         "melody/ui.layout.c",
@@ -894,7 +893,7 @@ bool build_widget_demo(const char* demo_name)
         }
     }
 
-    const char* demo_obj = nob_temp_sprintf(BUILD_DIR "/demo_%s.o", demo_name);
+    const char* demo_obj = nob_temp_sprintf(BUILD_DIR "/demo.%s.o", demo_name);
     nob_da_append(&obj_files, nob_temp_strdup(demo_obj));
 
     if (needs_compile(demo_src, demo_obj))
@@ -926,15 +925,14 @@ bool build_widget_demo(const char* demo_name)
 
 bool build_demo(const char* demo_name)
 {
-    const char* demo_src = nob_temp_sprintf("demos/demo_%s.c", demo_name);
-    const char* demo_out = nob_temp_sprintf(BUILD_DIR "/demo_%s", demo_name);
+    const char* demo_src = nob_temp_sprintf("demos/demo.%s.c", demo_name);
+    const char* demo_out = nob_temp_sprintf(BUILD_DIR "/demo.%s", demo_name);
 
     bool any_recompiled = false;
     Nob_File_Paths c_files = {0};
     Nob_File_Paths m_files = {0};
     Nob_File_Paths obj_files = {0};
 
-    nob_da_append(&c_files, nob_temp_strdup("melody/engine.c"));
     nob_da_append(&c_files, nob_temp_strdup("melody/backtrace.c"));
     nob_da_append(&c_files, nob_temp_strdup("melody/app.c"));
 
@@ -1011,7 +1009,7 @@ bool build_demo(const char* demo_name)
         }
     }
 
-    const char* demo_obj = nob_temp_sprintf(BUILD_DIR "/demo_%s.o", demo_name);
+    const char* demo_obj = nob_temp_sprintf(BUILD_DIR "/demo.%s.o", demo_name);
     nob_da_append(&obj_files, nob_temp_strdup(demo_obj));
 
     if (needs_compile(demo_src, demo_obj))
@@ -1142,7 +1140,7 @@ int main(int argc, char** argv)
 
         nob_log(NOB_INFO, "Running demo: %s", demo);
         Nob_Cmd cmd = {0};
-        nob_cmd_append(&cmd, nob_temp_sprintf(BUILD_DIR "/demo_%s", demo));
+        nob_cmd_append(&cmd, nob_temp_sprintf(BUILD_DIR "/demo.%s", demo));
         return nob_cmd_run_sync(cmd) ? 0 : 1;
     }
     else if (strcmp(subcmd, "clean") == 0)

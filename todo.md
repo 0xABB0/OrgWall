@@ -38,3 +38,5 @@
 - [GABBO][TEST] we should absolutely strengthen tests. more tests (and maybe a better test harness that could be harnessed by the game itself - and even mods while we're there? could help a lot modders)
 - [GABBO][PROFILING] we need more profiling. we should call tracy in multiple places, and we should use that to also profile memory and profile graphics api calls
 - [GABBO][PROFILING] we need to have a debug ui (imgui) in which we have some overview of things like total memory, ecs debugging, and idk, stuff like that
+- [GABBO][ENGINE] right now, we have multiple ways of creating os windows. we should unify them.
+- [GABBO][STRINGS] the string.str8.h file does not follow the project guidelines: we should declare the various functions in the .h and then define them inline inside the .inl file.

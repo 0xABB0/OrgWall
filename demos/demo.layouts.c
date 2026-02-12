@@ -10,6 +10,7 @@
 #include "../melody/ui.layout.box.h"
 #include "../melody/ui.layout.grid.h"
 #include "../melody/ui.layout.group.h"
+#include "../melody/string.str8.h"
 
 #include <stdio.h>
 
@@ -52,7 +53,7 @@ static void on_window_resize(f32 w, f32 h, void* user) { (void)user; (void)w; (v
 
 static void build_ui(Mel_App* app)
 {
-    mel_nwindow_init(&s_window, .title = "Melody Layout Demo", .width = 800, .height = 600);
+    mel_nwindow_init(&s_window, .title = S8("Melody Layout Demo"), .width = 800, .height = 600);
     s_window.on_close = on_window_close;
     s_window.on_resize = on_window_resize;
     s_window.user_data = app;
@@ -78,19 +79,19 @@ static void build_ui(Mel_App* app)
         .spacing     = 8.0f);
     mel_nctrl_set_layout(&s_vbox_panel.base, &s_vbox_layout.base);
 
-    mel_nlabel_init(&s_vbox_title, .text = "Box Layout (Vertical)", .font_size = 16.0f);
+    mel_nlabel_init(&s_vbox_title, .text = S8("Box Layout (Vertical)"), .font_size = 16.0f);
     s_vbox_title.base.fixed_size = mel_vec2(0, 28);
     mel_nctrl_add_child(&s_vbox_panel.base, &s_vbox_title.base);
 
-    mel_nbutton_init(&s_vbox_btn_a, .text = "Button A");
+    mel_nbutton_init(&s_vbox_btn_a, .text = S8("Button A"));
     s_vbox_btn_a.base.fixed_size = mel_vec2(0, 32);
     mel_nctrl_add_child(&s_vbox_panel.base, &s_vbox_btn_a.base);
 
-    mel_nbutton_init(&s_vbox_btn_b, .text = "Button B");
+    mel_nbutton_init(&s_vbox_btn_b, .text = S8("Button B"));
     s_vbox_btn_b.base.fixed_size = mel_vec2(0, 32);
     mel_nctrl_add_child(&s_vbox_panel.base, &s_vbox_btn_b.base);
 
-    mel_nbutton_init(&s_vbox_btn_c, .text = "Button C");
+    mel_nbutton_init(&s_vbox_btn_c, .text = S8("Button C"));
     s_vbox_btn_c.base.fixed_size = mel_vec2(0, 32);
     mel_nctrl_add_child(&s_vbox_panel.base, &s_vbox_btn_c.base);
 
@@ -105,19 +106,19 @@ static void build_ui(Mel_App* app)
         .spacing     = 10.0f);
     mel_nctrl_set_layout(&s_hbox_panel.base, &s_hbox_layout.base);
 
-    mel_nlabel_init(&s_hbox_title, .text = "Box Layout (Horizontal)", .font_size = 16.0f);
+    mel_nlabel_init(&s_hbox_title, .text = S8("Box Layout (Horizontal)"), .font_size = 16.0f);
     s_hbox_title.base.fixed_size = mel_vec2(0, 28);
     mel_nctrl_add_child(&s_hbox_panel.base, &s_hbox_title.base);
 
-    mel_nlabel_init(&s_hbox_lbl_left, .text = "Left", .font_size = 14.0f);
+    mel_nlabel_init(&s_hbox_lbl_left, .text = S8("Left"), .font_size = 14.0f);
     s_hbox_lbl_left.base.fixed_size = mel_vec2(0, 24);
     mel_nctrl_add_child(&s_hbox_panel.base, &s_hbox_lbl_left.base);
 
-    mel_nlabel_init(&s_hbox_lbl_center, .text = "Center", .font_size = 14.0f);
+    mel_nlabel_init(&s_hbox_lbl_center, .text = S8("Center"), .font_size = 14.0f);
     s_hbox_lbl_center.base.fixed_size = mel_vec2(0, 24);
     mel_nctrl_add_child(&s_hbox_panel.base, &s_hbox_lbl_center.base);
 
-    mel_nlabel_init(&s_hbox_lbl_right, .text = "Right", .font_size = 14.0f);
+    mel_nlabel_init(&s_hbox_lbl_right, .text = S8("Right"), .font_size = 14.0f);
     s_hbox_lbl_right.base.fixed_size = mel_vec2(0, 24);
     mel_nctrl_add_child(&s_hbox_panel.base, &s_hbox_lbl_right.base);
 
@@ -133,23 +134,23 @@ static void build_ui(Mel_App* app)
         .spacing     = 10.0f);
     mel_nctrl_set_layout(&s_grid_panel.base, &s_grid_layout.base);
 
-    mel_nlabel_init(&s_grid_title, .text = "Grid Layout", .font_size = 16.0f);
+    mel_nlabel_init(&s_grid_title, .text = S8("Grid Layout"), .font_size = 16.0f);
     s_grid_title.base.fixed_size = mel_vec2(0, 28);
     mel_nctrl_add_child(&s_grid_panel.base, &s_grid_title.base);
 
-    mel_nlabel_init(&s_grid_lbl_1, .text = "Grid 1", .font_size = 14.0f);
+    mel_nlabel_init(&s_grid_lbl_1, .text = S8("Grid 1"), .font_size = 14.0f);
     s_grid_lbl_1.base.fixed_size = mel_vec2(0, 24);
     mel_nctrl_add_child(&s_grid_panel.base, &s_grid_lbl_1.base);
 
-    mel_nlabel_init(&s_grid_lbl_2, .text = "Grid 2", .font_size = 14.0f);
+    mel_nlabel_init(&s_grid_lbl_2, .text = S8("Grid 2"), .font_size = 14.0f);
     s_grid_lbl_2.base.fixed_size = mel_vec2(0, 24);
     mel_nctrl_add_child(&s_grid_panel.base, &s_grid_lbl_2.base);
 
-    mel_nlabel_init(&s_grid_lbl_3, .text = "Grid 3", .font_size = 14.0f);
+    mel_nlabel_init(&s_grid_lbl_3, .text = S8("Grid 3"), .font_size = 14.0f);
     s_grid_lbl_3.base.fixed_size = mel_vec2(0, 24);
     mel_nctrl_add_child(&s_grid_panel.base, &s_grid_lbl_3.base);
 
-    mel_nlabel_init(&s_grid_lbl_4, .text = "Grid 4", .font_size = 14.0f);
+    mel_nlabel_init(&s_grid_lbl_4, .text = S8("Grid 4"), .font_size = 14.0f);
     s_grid_lbl_4.base.fixed_size = mel_vec2(0, 24);
     mel_nctrl_add_child(&s_grid_panel.base, &s_grid_lbl_4.base);
 
@@ -164,11 +165,11 @@ static void build_ui(Mel_App* app)
         .group_indent  = 12.0f);
     mel_nctrl_set_layout(&s_group_panel.base, &s_group_layout.base);
 
-    mel_nlabel_init(&s_group_title, .text = "Group Layout", .font_size = 16.0f);
+    mel_nlabel_init(&s_group_title, .text = S8("Group Layout"), .font_size = 16.0f);
     s_group_title.base.fixed_size = mel_vec2(0, 28);
     mel_nctrl_add_child(&s_group_panel.base, &s_group_title.base);
 
-    mel_ncheckbox_init(&s_group_checkbox, .text = "Check me", .checked = true);
+    mel_ncheckbox_init(&s_group_checkbox, .text = S8("Check me"), .checked = true);
     s_group_checkbox.base.fixed_size = mel_vec2(0, 24);
     mel_nctrl_add_child(&s_group_panel.base, &s_group_checkbox.base);
 
@@ -176,7 +177,7 @@ static void build_ui(Mel_App* app)
     s_group_slider.base.fixed_size = mel_vec2(0, 24);
     mel_nctrl_add_child(&s_group_panel.base, &s_group_slider.base);
 
-    mel_nlabel_init(&s_group_label, .text = "Grouped label", .font_size = 14.0f);
+    mel_nlabel_init(&s_group_label, .text = S8("Grouped label"), .font_size = 14.0f);
     s_group_label.base.fixed_size = mel_vec2(0, 24);
     mel_nctrl_add_child(&s_group_panel.base, &s_group_label.base);
 

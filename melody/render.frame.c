@@ -39,14 +39,21 @@ void mel_render_frame_init_opt(Mel_Render_Frame* rf, Mel_Render_Frame_Opt opt)
         VkSemaphoreCreateInfo sem_info = { .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
         r = vkCreateSemaphore(rf->dev->device, &sem_info, nullptr, &fd->image_available);
         assert(r == VK_SUCCESS);
-        r = vkCreateSemaphore(rf->dev->device, &sem_info, nullptr, &fd->render_finished);
-        assert(r == VK_SUCCESS);
 
         VkFenceCreateInfo fence_info = {
             .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
             .flags = VK_FENCE_CREATE_SIGNALED_BIT,
         };
         r = vkCreateFence(rf->dev->device, &fence_info, nullptr, &fd->in_flight);
+        assert(r == VK_SUCCESS);
+    }
+
+    rf->render_finished_count = rf->swapchain->image_count;
+    assert(rf->render_finished_count <= MEL_MAX_SWAPCHAIN_IMAGES);
+    VkSemaphoreCreateInfo sem_info = { .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
+    for (u32 i = 0; i < rf->render_finished_count; i++)
+    {
+        VkResult r = vkCreateSemaphore(rf->dev->device, &sem_info, nullptr, &rf->render_finished[i]);
         assert(r == VK_SUCCESS);
     }
 }
@@ -56,11 +63,13 @@ void mel_render_frame_shutdown(Mel_Render_Frame* rf)
     assert(rf != nullptr);
     assert(rf->dev != nullptr);
 
+    for (u32 i = 0; i < rf->render_finished_count; i++)
+        vkDestroySemaphore(rf->dev->device, rf->render_finished[i], nullptr);
+
     for (u32 i = 0; i < rf->frame_count; i++)
     {
         Mel_Render_Frame_Data* fd = &rf->frames[i];
         vkDestroyFence(rf->dev->device, fd->in_flight, nullptr);
-        vkDestroySemaphore(rf->dev->device, fd->render_finished, nullptr);
         vkDestroySemaphore(rf->dev->device, fd->image_available, nullptr);
         vkDestroyCommandPool(rf->dev->device, fd->command_pool, nullptr);
     }
@@ -77,6 +86,7 @@ bool mel_render_frame_begin(Mel_Render_Frame* rf)
     if (!mel_gpu_swapchain_acquire(rf->swapchain, rf->dev, fd->image_available))
         return false;
 
+    rf->current_image = rf->swapchain->current_image;
     vkResetFences(rf->dev->device, 1, &fd->in_flight);
     vkResetCommandPool(rf->dev->device, fd->command_pool, 0);
 
@@ -99,6 +109,8 @@ void mel_render_frame_end(Mel_Render_Frame* rf)
     VkResult r = vkEndCommandBuffer(fd->command_buffer);
     assert(r == VK_SUCCESS);
 
+    VkSemaphore render_done = rf->render_finished[rf->current_image];
+
     VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
     VkSubmitInfo submit_info = {
         .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
@@ -108,13 +120,13 @@ void mel_render_frame_end(Mel_Render_Frame* rf)
         .commandBufferCount = 1,
         .pCommandBuffers = &fd->command_buffer,
         .signalSemaphoreCount = 1,
-        .pSignalSemaphores = &fd->render_finished,
+        .pSignalSemaphores = &render_done,
     };
 
     r = vkQueueSubmit(rf->dev->graphics_queue, 1, &submit_info, fd->in_flight);
     assert(r == VK_SUCCESS);
 
-    mel_gpu_swapchain_present(rf->swapchain, rf->dev, fd->render_finished);
+    mel_gpu_swapchain_present(rf->swapchain, rf->dev, render_done);
 
     rf->current_frame = (rf->current_frame + 1) % rf->frame_count;
 }

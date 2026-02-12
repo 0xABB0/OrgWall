@@ -103,7 +103,7 @@ void mel_sprite_batch_set_texture(Mel_SpriteBatch* batch, Mel_Gpu_Device* dev, M
     if (batch->current_texture == texture) return;
 
     batch->current_texture = texture;
-    batch->current_descriptor = VK_NULL_HANDLE;
+    batch->current_descriptor = texture ? texture->descriptor : VK_NULL_HANDLE;
 }
 
 void mel_sprite_batch_draw_uv(Mel_SpriteBatch* batch, f32 x, f32 y, f32 w, f32 h, f32 u0, f32 v0, f32 u1, f32 v1, Mel_Vec4 color)

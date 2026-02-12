@@ -79,7 +79,7 @@ static void on_toggle_editable(void* user)
 
 static void build_ui(Mel_App* app)
 {
-    mel_nwindow_init(&s_window, .title = "Melody Notepad", .width = 600, .height = 500);
+    mel_nwindow_init(&s_window, .title = S8("Melody Notepad"), .width = 600, .height = 500);
     s_window.on_close = on_window_close;
     s_window.on_resize = on_window_resize;
     s_window.user_data = app;

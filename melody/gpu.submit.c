@@ -71,3 +71,12 @@ void mel_gpu_submit_immediate(Mel_Gpu_Device* dev, Mel_Gpu_Submit_Fn callback, v
     vkQueueSubmit(dev->graphics_queue, 1, &submit_info, s_immediate.fence);
     vkWaitForFences(dev->device, 1, &s_immediate.fence, VK_TRUE, UINT64_MAX);
 }
+
+void mel_gpu_submit_shutdown(Mel_Gpu_Device* dev)
+{
+    if (!s_immediate.initialized) return;
+
+    vkDestroyFence(dev->device, s_immediate.fence, nullptr);
+    vkDestroyCommandPool(dev->device, s_immediate.pool, nullptr);
+    s_immediate = (Gpu_Immediate_Ctx){0};
+}

@@ -134,7 +134,7 @@ static void on_window_resize(f32 w, f32 h, void* user)
 
 static void build_ui(Mel_App* app)
 {
-    mel_nwindow_init(&s_window, .title = "Melody NCtrl Demo", .width = 460, .height = 620);
+    mel_nwindow_init(&s_window, .title = S8("Melody NCtrl Demo"), .width = 460, .height = 620);
     s_window.on_close = on_window_close;
     s_window.on_resize = on_window_resize;
     s_window.user_data = app;

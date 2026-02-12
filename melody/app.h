@@ -8,18 +8,21 @@ typedef struct Mel_App Mel_App;
 
 typedef void (*Mel_App_Init_Func)(Mel_App* app);
 typedef void (*Mel_App_Shutdown_Func)(Mel_App* app);
-typedef void (*Mel_App_Update_Func)(Mel_App* app);
+typedef void (*Mel_App_Update_Func)(Mel_App* app, f32 dt);
+typedef void (*Mel_App_Render_Func)(Mel_App* app, Mel_Gpu_Cmd* cmd);
 typedef void (*Mel_App_Event_Func)(Mel_App* app, SDL_Event* event);
 
 typedef struct {
     Mel_App_Init_Func on_init;
     Mel_App_Shutdown_Func on_shutdown;
     Mel_App_Update_Func on_update;
+    Mel_App_Render_Func on_render;
     Mel_App_Event_Func on_event;
 } Mel_App_Opt;
 
 struct Mel_App {
     Mel_App_Opt opt;
+    Mel_Engine engine;
     bool should_quit;
 };
 
