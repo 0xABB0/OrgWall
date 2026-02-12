@@ -60,7 +60,7 @@ static bool has_extension(VkExtensionProperties* exts, u32 count, const char* na
     return false;
 }
 
-static void create_instance(Mel_Gpu_Device* dev, Mel_Gpu_Device_Opt* opt)
+static bool create_instance(Mel_Gpu_Device* dev, Mel_Gpu_Device_Opt* opt)
 {
     char app_name_buf[256];
     if (!str8_is_empty(opt->app_name))
@@ -121,14 +121,19 @@ static void create_instance(Mel_Gpu_Device* dev, Mel_Gpu_Device_Opt* opt)
     };
 
     VkResult r = vkCreateInstance(&create_info, nullptr, &dev->instance);
-    assert(r == VK_SUCCESS);
+    if (r != VK_SUCCESS)
+    {
+        SDL_Log("Failed to create Vulkan instance: %d", r);
+        return false;
+    }
 
     volkLoadInstance(dev->instance);
+    return true;
 }
 
-static void create_debug_messenger(Mel_Gpu_Device* dev)
+static bool create_debug_messenger(Mel_Gpu_Device* dev)
 {
-    if (!dev->validation_enabled) return;
+    if (!dev->validation_enabled) return true;
 
     VkDebugUtilsMessengerCreateInfoEXT create_info = {
         .sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
@@ -140,7 +145,12 @@ static void create_debug_messenger(Mel_Gpu_Device* dev)
     };
 
     VkResult r = vkCreateDebugUtilsMessengerEXT(dev->instance, &create_info, nullptr, &dev->debug_messenger);
-    assert(r == VK_SUCCESS);
+    if (r != VK_SUCCESS)
+    {
+        SDL_Log("Failed to create debug messenger: %d", r);
+        return false;
+    }
+    return true;
 }
 
 static bool find_queue_families(Mel_Gpu_Device* dev, VkPhysicalDevice device,
@@ -221,11 +231,15 @@ static i32 rate_device(Mel_Gpu_Device* dev, VkPhysicalDevice device)
     return score;
 }
 
-static void pick_physical_device(Mel_Gpu_Device* dev)
+static bool pick_physical_device(Mel_Gpu_Device* dev)
 {
     u32 count = 0;
     vkEnumeratePhysicalDevices(dev->instance, &count, nullptr);
-    assert(count > 0 && "No Vulkan devices found");
+    if (count == 0)
+    {
+        SDL_Log("No Vulkan devices found");
+        return false;
+    }
 
     VkPhysicalDevice* devices = mel_alloc(mel_alloc_heap(), sizeof(VkPhysicalDevice) * count);
     vkEnumeratePhysicalDevices(dev->instance, &count, devices);
@@ -244,7 +258,11 @@ static void pick_physical_device(Mel_Gpu_Device* dev)
     }
 
     mel_dealloc(mel_alloc_heap(), devices);
-    assert(best_device != VK_NULL_HANDLE && "No suitable Vulkan device found");
+    if (best_device == VK_NULL_HANDLE)
+    {
+        SDL_Log("No suitable Vulkan device found");
+        return false;
+    }
 
     dev->physical_device = best_device;
 
@@ -260,9 +278,10 @@ static void pick_physical_device(Mel_Gpu_Device* dev)
     vkGetPhysicalDeviceProperties2(dev->physical_device, &dev->device_properties);
 
     SDL_Log("Selected GPU: %s", dev->device_properties.properties.deviceName);
+    return true;
 }
 
-static void create_logical_device(Mel_Gpu_Device* dev)
+static bool create_logical_device(Mel_Gpu_Device* dev)
 {
     find_queue_families(dev, dev->physical_device,
         &dev->graphics_family, &dev->present_family, &dev->transfer_family);
@@ -337,16 +356,21 @@ static void create_logical_device(Mel_Gpu_Device* dev)
     };
 
     VkResult r = vkCreateDevice(dev->physical_device, &create_info, nullptr, &dev->device);
-    assert(r == VK_SUCCESS);
+    if (r != VK_SUCCESS)
+    {
+        SDL_Log("Failed to create logical device: %d", r);
+        return false;
+    }
 
     volkLoadDevice(dev->device);
 
     vkGetDeviceQueue(dev->device, dev->graphics_family, 0, &dev->graphics_queue);
     vkGetDeviceQueue(dev->device, dev->present_family, 0, &dev->present_queue);
     vkGetDeviceQueue(dev->device, dev->transfer_family, 0, &dev->transfer_queue);
+    return true;
 }
 
-static void create_vma(Mel_Gpu_Device* dev)
+static bool create_vma(Mel_Gpu_Device* dev)
 {
     VmaVulkanFunctions funcs = {
         .vkGetInstanceProcAddr = vkGetInstanceProcAddr,
@@ -363,10 +387,15 @@ static void create_vma(Mel_Gpu_Device* dev)
     };
 
     VkResult r = vmaCreateAllocator(&create_info, &dev->vma);
-    assert(r == VK_SUCCESS);
+    if (r != VK_SUCCESS)
+    {
+        SDL_Log("Failed to create VMA allocator: %d", r);
+        return false;
+    }
+    return true;
 }
 
-void mel_gpu_device_init_opt(Mel_Gpu_Device* dev, Mel_Gpu_Device_Opt opt)
+bool mel_gpu_device_init_opt(Mel_Gpu_Device* dev, Mel_Gpu_Device_Opt opt)
 {
     assert(dev != nullptr);
     assert(opt.window != nullptr);
@@ -376,22 +405,32 @@ void mel_gpu_device_init_opt(Mel_Gpu_Device* dev, Mel_Gpu_Device_Opt opt)
 
     PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr_func =
         (PFN_vkGetInstanceProcAddr)SDL_Vulkan_GetVkGetInstanceProcAddr();
-    assert(vkGetInstanceProcAddr_func != nullptr);
+    if (!vkGetInstanceProcAddr_func)
+    {
+        SDL_Log("Failed to get vkGetInstanceProcAddr");
+        return false;
+    }
 
     volkInitializeCustom(vkGetInstanceProcAddr_func);
 
-    create_instance(dev, &opt);
-    create_debug_messenger(dev);
-
-    bool surface_ok = SDL_Vulkan_CreateSurface(opt.window, dev->instance, nullptr, &dev->surface);
-    assert(surface_ok && "Failed to create Vulkan surface");
-
-    pick_physical_device(dev);
-    create_logical_device(dev);
-    create_vma(dev);
+    if (!create_instance(dev, &opt))                                            goto fail;
+    if (!create_debug_messenger(dev))                                           goto fail;
+    if (!SDL_Vulkan_CreateSurface(opt.window, dev->instance, nullptr, &dev->surface))
+    {
+        SDL_Log("Failed to create Vulkan surface: %s", SDL_GetError());
+        goto fail;
+    }
+    if (!pick_physical_device(dev))                                             goto fail;
+    if (!create_logical_device(dev))                                            goto fail;
+    if (!create_vma(dev))                                                       goto fail;
 
     SDL_Log("Vulkan device initialized (Vulkan 1.3, sync2, dynamic rendering, BDA%s)",
         dev->has_descriptor_buffer ? ", descriptor buffer" : "");
+    return true;
+
+fail:
+    mel_gpu_device_shutdown(dev);
+    return false;
 }
 
 void mel_gpu_device_shutdown(Mel_Gpu_Device* dev)

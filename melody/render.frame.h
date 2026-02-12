@@ -35,7 +35,7 @@ typedef struct {
     u32 frame_count;
 } Mel_Render_Frame_Opt;
 
-void mel_render_frame_init_opt(Mel_Render_Frame* rf, Mel_Render_Frame_Opt opt);
+bool mel_render_frame_init_opt(Mel_Render_Frame* rf, Mel_Render_Frame_Opt opt);
 #define mel_render_frame_init(rf, ...) mel_render_frame_init_opt((rf), (Mel_Render_Frame_Opt){__VA_ARGS__})
 
 void mel_render_frame_shutdown(Mel_Render_Frame* rf);

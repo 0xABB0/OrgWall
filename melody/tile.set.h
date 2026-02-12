@@ -38,14 +38,17 @@ struct Mel_Tileset_Entry {
     const Mel_Alloc* alloc;
 };
 
+typedef struct Mel_Assets Mel_Assets;
+
 struct Mel_Tileset_Pool {
     Mel_SlotMap slotmap;
     Mel_HashMap path_to_handle;
     Mel_Texture_Pool* texture_pool;
+    Mel_Assets* assets;
     const Mel_Alloc* alloc;
 };
 
-void               mel_tileset_pool_init(Mel_Tileset_Pool* pool, const Mel_Alloc* alloc, Mel_Texture_Pool* tex_pool);
+void               mel_tileset_pool_init(Mel_Tileset_Pool* pool, const Mel_Alloc* alloc, Mel_Texture_Pool* tex_pool, Mel_Assets* assets);
 void               mel_tileset_pool_shutdown(Mel_Tileset_Pool* pool);
 Mel_Tileset_Handle mel_tileset_pool_load(Mel_Tileset_Pool* pool, str8 path);
 Mel_Tileset_Handle mel_tileset_pool_create(Mel_Tileset_Pool* pool, str8 name);

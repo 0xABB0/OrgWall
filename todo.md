@@ -1,8 +1,6 @@
-- [CORE] fix string macros in str.h (fix lengthof usage on pointers)
 - [CORE] implement stacktrace capturing for every allocation (debug mode)
 - [CORE] implement crash handler (intercept signals, save state, dump stacktrace)
-- [CORE] handle init failure cleanup in mel\_engine\_init\_opt (tracking/window/vk/swapchain) and keep engine->opt defaults consistent
-- [CORE] stop bypassing allocator system in assets module (replace malloc/realloc/free)
+- [CORE] handle init failure cleanup in mel\_engine\_init\_opt — NOTE: done. gpu.device, gpu.swapchain, render.frame all return bool now. Engine init has proper goto-based cleanup chain. Remaining: imgui init failure doesn't fully unwind (currently just skips the feature flag)
 - [CORE] revisit crash handler to avoid non-signal-safe calls in signal context
 - [CORE] implement Virtual File System (VFS) with mount points and archive support
 - [CORE] implement Hot-Reloading for Game Code (.dylib/.dll reloading)
@@ -24,19 +22,22 @@
 - [TEST] implement fuzz testing for custom allocators (Arena, Block, Buddy, etc.)
 - [BUILD] use pkg-config or config file to remove hardcoded paths in nob.c
 
-- [GABBO][DEMO] make a demo with a ton of animated sprites (same atlas, different frame, different parameters - size, direction, tint)
-- [GABBO][DEMO] demos should change their naming as demo.\* (not demo_*) and we'd need to change the various demos naming to explicitly show what they're demoing (example: demo.native.hello.\*)
-- [GABBO][ENGINE][CHECK] the engine should expose an "editor" system, that serves as the entrypoint for every other editor to register into. there could be any editor open at any time (even multiple instances of the same editor, pointing to different things).
-- [GABBO][ALLOCATOR] the allocators that can grow (block, heap, others?) should all be backed by the vmem allocator.
-- [GABBO][UI][FIX] why is the label widget using directly the Mel\_Font\_Atlas\_Entry instead of the font handle? is this happening also elsewhere?
-- [GABBO][BUILD][ENHANCEMENT] The build file is becoming too large. we are in dire need of a simplification...
-- [GABBO][EDITOR] I don't like having the domain "editor.*". i think that the editors should live alongside their own domain eg "anim.sprite.editor.h"
-- [GABBO][CORE] implement CVar registry (console variables for runtime tuning) - new module
-- [GABBO][MAINTENANCE] update claude.md with the new structure
-- [GABBO][CORE] right now, melody is a library except for the fact that it takes ownership of the main loop. this is not good, melody should handle much, much more (automatic initialization of things. maybe we could even add parameters to MEL_APP, if needed. melody should also initialize autonomously things like vulkan, the editors, etcetera. obviously we need the app to be able to dictate what it wants from melody)
-- [GABBO][ENGINE] we need to be able to make melody run "headless" (in two ways: one is without any graphics api at all. the other is without windows) this is needed for testing vulkan. maybe outputting to a png? if it does not error out / give warnings, maybe the test is a success? Also, headless run could also be like "run for x frames"
-- [GABBO][TEST] we should absolutely strengthen tests. more tests (and maybe a better test harness that could be harnessed by the game itself - and even mods while we're there? could help a lot modders)
-- [GABBO][PROFILING] we need more profiling. we should call tracy in multiple places, and we should use that to also profile memory and profile graphics api calls
-- [GABBO][PROFILING] we need to have a debug ui (imgui) in which we have some overview of things like total memory, ecs debugging, and idk, stuff like that
-- [GABBO][ENGINE] right now, we have multiple ways of creating os windows. we should unify them.
-- [GABBO][STRINGS] the string.str8.h file does not follow the project guidelines: we should declare the various functions in the .h and then define them inline inside the .inl file.
+- [DEMO] make a demo with a ton of animated sprites (same atlas, different frame, different parameters - size, direction, tint)
+- [DEMO] demos should change their naming to explicitly show what they're demoing (example: demo.native.hello.\*) — NOTE: file rename from demo_* to demo.* is done, but the names themselves could be more descriptive
+- [ENGINE][CHECK] the engine should expose an "editor" system, that serves as the entrypoint for every other editor to register into. there could be any editor open at any time (even multiple instances of the same editor, pointing to different things).
+- [ALLOCATOR] the allocators that can grow (block, heap, others?) should all be backed by the vmem allocator.
+- [BUILD][ENHANCEMENT] The build file is becoming too large. we are in dire need of a simplification...
+- [EDITOR] I don't like having the domain "editor.*". i think that the editors should live alongside their own domain eg "anim.sprite.editor.h"
+- [CORE] implement CVar registry (console variables for runtime tuning) - new module
+- [CORE] right now, melody is a library except for the fact that it takes ownership of the main loop. this is not good, melody should handle much, much more (automatic initialization of things. maybe we could even add parameters to MEL_APP, if needed. melody should also initialize autonomously things like vulkan, the editors, etcetera. obviously we need the app to be able to dictate what it wants from melody)
+- [ENGINE] we need to be able to make melody run "headless" (in two ways: one is without any graphics api at all. the other is without windows) this is needed for testing vulkan. maybe outputting to a png? if it does not error out / give warnings, maybe the test is a success? Also, headless run could also be like "run for x frames"
+- [TEST] we should absolutely strengthen tests. more tests (and maybe a better test harness that could be harnessed by the game itself - and even mods while we're there? could help a lot modders)
+- [PROFILING] we need more profiling. we should call tracy in multiple places, and we should use that to also profile memory and profile graphics api calls
+- [PROFILING] we need to have a debug ui (imgui) in which we have some overview of things like total memory, ecs debugging, and idk, stuff like that
+- [ENGINE] right now, we have multiple ways of creating os windows. we should unify them.
+- [ENGINE] melody should give the possibility to both do variable rate updates and fixed updates at the same time (discuss: multiple fixed steps at the same time?)
+- [UPSTREAM] imgui SDL3 backend loses mouse capture during viewport drag/resize (ocornut/imgui#8591, #8869) — known upstream bug, no fix yet. Track and update local copy when patched.
+- [PHYSICAL STRUCTURE] i'd love for the higher level files (example: ui.widget.[c|h|.fwd.h]) to stay alphabetically above the others (eg: ui.widget.button.*). right now, since *.b-utton comes before *.c, it shows them under.
+- [RENDERING] the engine should give some ways of rendering for you, without us reimplementing basic (or even advanced) stuff by hand. for example: rendering of sprites, it should basically work out of the box. but the engine does not assume that you're going to use ecs, so..? My idea is that you can interact with the frame graph, but it's owned by melody. so, the application can add/remove passes by itself, but creating an ecs world, and filling it with sprite should work out of the box.
+- [NATIVE UI][SDL] right now, we have two ways of creating a window. directly through sdl and with our ui.native.window.\*. this is not good, we should have a unified way (probably integrating our ui.native.window.\* with sdl)
+- [h files] i'd prefer to avoid including h files inside other h files. it's better to include .fwd.h files inside the h files, and the h files are included in the c file. (example: anim.blend.h includes .h files directly, while it's the .c file that needs those h files. these h files should be included in the c files to speed up compilation. a lot of cases like this)

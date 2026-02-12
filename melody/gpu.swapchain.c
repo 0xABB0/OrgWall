@@ -26,7 +26,7 @@ static VkExtent2D choose_extent(VkSurfaceCapabilitiesKHR* caps, u32 width, u32 h
     return extent;
 }
 
-static void create_swapchain(Mel_Gpu_Swapchain* sc, Mel_Gpu_Device* dev,
+static bool create_swapchain(Mel_Gpu_Swapchain* sc, Mel_Gpu_Device* dev,
                              u32 width, u32 height, VkSwapchainKHR old)
 {
     const Mel_Alloc* alloc = sc->alloc ? sc->alloc : mel_alloc_heap();
@@ -77,7 +77,11 @@ static void create_swapchain(Mel_Gpu_Swapchain* sc, Mel_Gpu_Device* dev,
     }
 
     VkResult r = vkCreateSwapchainKHR(dev->device, &create_info, nullptr, &sc->swapchain);
-    assert(r == VK_SUCCESS);
+    if (r != VK_SUCCESS)
+    {
+        SDL_Log("Failed to create swapchain: %d", r);
+        return false;
+    }
 
     sc->format = format.format;
     sc->color_space = format.colorSpace;
@@ -111,8 +115,14 @@ static void create_swapchain(Mel_Gpu_Swapchain* sc, Mel_Gpu_Device* dev,
         };
 
         VkResult rv = vkCreateImageView(dev->device, &view_info, nullptr, &sc->image_views[i]);
-        assert(rv == VK_SUCCESS);
+        if (rv != VK_SUCCESS)
+        {
+            SDL_Log("Failed to create swapchain image view %u: %d", i, rv);
+            sc->image_count = i;
+            return false;
+        }
     }
+    return true;
 }
 
 static void destroy_swapchain_resources(Mel_Gpu_Swapchain* sc, Mel_Gpu_Device* dev)
@@ -140,7 +150,7 @@ static void destroy_swapchain_resources(Mel_Gpu_Swapchain* sc, Mel_Gpu_Device* d
     }
 }
 
-void mel_gpu_swapchain_init_opt(Mel_Gpu_Swapchain* sc, Mel_Gpu_Device* dev, Mel_Gpu_Swapchain_Opt opt)
+bool mel_gpu_swapchain_init_opt(Mel_Gpu_Swapchain* sc, Mel_Gpu_Device* dev, Mel_Gpu_Swapchain_Opt opt)
 {
     assert(sc != nullptr);
     assert(dev != nullptr);
@@ -150,7 +160,12 @@ void mel_gpu_swapchain_init_opt(Mel_Gpu_Swapchain* sc, Mel_Gpu_Device* dev, Mel_
     sc->alloc = opt.alloc;
     sc->present_mode = opt.preferred_present_mode ? opt.preferred_present_mode : VK_PRESENT_MODE_FIFO_KHR;
 
-    create_swapchain(sc, dev, opt.width, opt.height, VK_NULL_HANDLE);
+    if (!create_swapchain(sc, dev, opt.width, opt.height, VK_NULL_HANDLE))
+    {
+        destroy_swapchain_resources(sc, dev);
+        return false;
+    }
+    return true;
 }
 
 void mel_gpu_swapchain_shutdown(Mel_Gpu_Swapchain* sc, Mel_Gpu_Device* dev)

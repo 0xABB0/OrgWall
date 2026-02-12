@@ -1,14 +1,16 @@
 #include "assets.h"
+#include "allocator.h"
+#include "allocator.heap.h"
 #include <physfs.h>
 #include <SDL3/SDL.h>
 #include <string.h>
-#include <stdlib.h>
 
 bool mel_assets_init_opt(Mel_Assets* assets, Mel_Assets_Opt opt)
 {
     assert(assets != nullptr);
 
     *assets = (Mel_Assets){0};
+    assets->allocator = opt.allocator ? opt.allocator : mel_alloc_heap();
 
     if (!PHYSFS_init(nullptr))
     {
@@ -143,8 +145,9 @@ bool mel_assets_is_directory(str8 path)
     return stat.filetype == PHYSFS_FILETYPE_DIRECTORY;
 }
 
-u8* mel_assets_read(str8 path, u32* out_size)
+u8* mel_assets_read(Mel_Assets* assets, str8 path, u32* out_size)
 {
+    assert(assets != nullptr);
     assert(!str8_is_empty(path));
 
     char path_buf[1024];
@@ -164,7 +167,7 @@ u8* mel_assets_read(str8 path, u32* out_size)
         return nullptr;
     }
 
-    u8* data = (u8*)malloc((size_t)size);
+    u8* data = (u8*)mel_alloc(assets->allocator, (usize)size);
     if (!data)
     {
         PHYSFS_close(file);
@@ -176,7 +179,7 @@ u8* mel_assets_read(str8 path, u32* out_size)
 
     if (read != size)
     {
-        free(data);
+        mel_dealloc(assets->allocator, data);
         return nullptr;
     }
 
@@ -185,16 +188,18 @@ u8* mel_assets_read(str8 path, u32* out_size)
     return data;
 }
 
-char* mel_assets_read_text(str8 path)
+char* mel_assets_read_text(Mel_Assets* assets, str8 path)
 {
+    assert(assets != nullptr);
+
     u32 size;
-    u8* data = mel_assets_read(path, &size);
+    u8* data = mel_assets_read(assets, path, &size);
     if (!data) return nullptr;
 
-    char* text = (char*)realloc(data, size + 1);
+    char* text = (char*)mel_realloc(assets->allocator, data, (usize)(size + 1));
     if (!text)
     {
-        free(data);
+        mel_dealloc(assets->allocator, data);
         return nullptr;
     }
 
@@ -202,9 +207,10 @@ char* mel_assets_read_text(str8 path)
     return text;
 }
 
-void mel_assets_free(void* data)
+void mel_assets_free(Mel_Assets* assets, void* data)
 {
-    free(data);
+    assert(assets != nullptr);
+    mel_dealloc(assets->allocator, data);
 }
 
 bool mel_assets_write(str8 path, const void* data, u32 size)

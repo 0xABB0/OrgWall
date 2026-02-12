@@ -27,14 +27,17 @@ struct Mel_Tilemap_Entry {
     const Mel_Alloc* alloc;
 };
 
+typedef struct Mel_Assets Mel_Assets;
+
 struct Mel_Tilemap_Pool {
     Mel_SlotMap slotmap;
     Mel_HashMap path_to_handle;
     Mel_Tileset_Pool* tileset_pool;
+    Mel_Assets* assets;
     const Mel_Alloc* alloc;
 };
 
-void               mel_tilemap_pool_init(Mel_Tilemap_Pool* pool, const Mel_Alloc* alloc, Mel_Tileset_Pool* ts_pool);
+void               mel_tilemap_pool_init(Mel_Tilemap_Pool* pool, const Mel_Alloc* alloc, Mel_Tileset_Pool* ts_pool, Mel_Assets* assets);
 void               mel_tilemap_pool_shutdown(Mel_Tilemap_Pool* pool);
 Mel_Tilemap_Handle mel_tilemap_pool_load(Mel_Tilemap_Pool* pool, str8 path);
 Mel_Tilemap_Handle mel_tilemap_pool_create(Mel_Tilemap_Pool* pool, str8 name, u32 width, u32 height, u32 grid_width, u32 grid_height);

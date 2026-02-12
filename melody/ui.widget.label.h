@@ -7,7 +7,8 @@
 
 typedef struct {
     Mel_Widget base;
-    Mel_Font_Atlas_Entry* font;
+    Mel_Font_Handle font;
+    Mel_Font_Atlas_Pool* font_pool;
     str8 text;
     Mel_Vec4 text_color;
 } Mel_WLabel;

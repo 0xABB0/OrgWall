@@ -47,7 +47,7 @@ typedef struct {
     str8 app_name;
 } Mel_Gpu_Device_Opt;
 
-void mel_gpu_device_init_opt(Mel_Gpu_Device* dev, Mel_Gpu_Device_Opt opt);
+bool mel_gpu_device_init_opt(Mel_Gpu_Device* dev, Mel_Gpu_Device_Opt opt);
 #define mel_gpu_device_init(dev, ...) mel_gpu_device_init_opt((dev), (Mel_Gpu_Device_Opt){__VA_ARGS__})
 
 void mel_gpu_device_shutdown(Mel_Gpu_Device* dev);

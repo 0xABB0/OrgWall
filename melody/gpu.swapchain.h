@@ -27,7 +27,7 @@ typedef struct {
     const Mel_Alloc* alloc;
 } Mel_Gpu_Swapchain_Opt;
 
-void mel_gpu_swapchain_init_opt(Mel_Gpu_Swapchain* sc, Mel_Gpu_Device* dev, Mel_Gpu_Swapchain_Opt opt);
+bool mel_gpu_swapchain_init_opt(Mel_Gpu_Swapchain* sc, Mel_Gpu_Device* dev, Mel_Gpu_Swapchain_Opt opt);
 #define mel_gpu_swapchain_init(sc, dev, ...) mel_gpu_swapchain_init_opt((sc), (dev), (Mel_Gpu_Swapchain_Opt){__VA_ARGS__})
 
 void mel_gpu_swapchain_shutdown(Mel_Gpu_Swapchain* sc, Mel_Gpu_Device* dev);

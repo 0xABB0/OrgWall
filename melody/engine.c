@@ -1,5 +1,6 @@
 #include "engine.h"
 #include "app.h"
+#include "allocator.h"
 #include "allocator.heap.h"
 #include "gpu.cmd.h"
 #include "gpu.shader.h"
@@ -7,7 +8,6 @@
 #include "string.str8.h"
 
 #include <tracy/TracyC.h>
-#include <stdlib.h>
 
 #define CIMGUI_USE_SDL3
 #define CIMGUI_USE_VULKAN
@@ -88,26 +88,43 @@ bool mel_engine_init_opt(Mel_Engine* engine, Mel_Engine_Opt opt)
 
     *engine = (Mel_Engine){0};
 
-    engine->tracking = (Mel_Tracking_Allocator*)malloc(sizeof(Mel_Tracking_Allocator));
-    mel_tracking_init(engine->tracking, opt.allocator ? opt.allocator : mel_alloc_heap());
+    const Mel_Alloc* base_alloc = opt.allocator ? opt.allocator : mel_alloc_heap();
+    engine->tracking = mel_alloc_type(base_alloc, Mel_Tracking_Allocator);
+    mel_tracking_init(engine->tracking, base_alloc);
     engine->allocator = mel_tracking_allocator(engine->tracking);
 
     if (!SDL_Vulkan_LoadLibrary("/opt/homebrew/lib/libvulkan.dylib"))
         SDL_Log("Vulkan library load: %s (continuing — window may have loaded it)", SDL_GetError());
 
-    mel_gpu_device_init(&engine->dev,
+    if (!mel_gpu_device_init(&engine->dev,
         .window = opt.window,
         .allocator = &engine->allocator,
         .enable_validation = opt.enable_validation,
-        .app_name = opt.app_name);
+        .app_name = opt.app_name))
+    {
+        SDL_Log("Failed to initialize GPU device");
+        goto fail_tracking;
+    }
 
     i32 w, h;
     SDL_GetWindowSize(opt.window, &w, &h);
-    mel_gpu_swapchain_init(&engine->swapchain, &engine->dev, .width = (u32)w, .height = (u32)h);
+    if (!mel_gpu_swapchain_init(&engine->swapchain, &engine->dev, .width = (u32)w, .height = (u32)h))
+    {
+        SDL_Log("Failed to initialize swapchain");
+        goto fail_device;
+    }
 
-    mel_slang_init();
+    if (!mel_slang_init())
+    {
+        SDL_Log("Failed to initialize Slang");
+        goto fail_swapchain;
+    }
 
-    mel_render_frame_init(&engine->frame, .dev = &engine->dev, .swapchain = &engine->swapchain);
+    if (!mel_render_frame_init(&engine->frame, .dev = &engine->dev, .swapchain = &engine->swapchain))
+    {
+        SDL_Log("Failed to initialize render frame");
+        goto fail_slang;
+    }
 
     engine->window = opt.window;
     engine->fixed_dt = opt.fixed_dt;
@@ -124,6 +141,20 @@ bool mel_engine_init_opt(Mel_Engine* engine, Mel_Engine_Opt opt)
 
     SDL_Log("Melody Engine initialized!");
     return true;
+
+fail_slang:
+    mel_slang_shutdown();
+fail_swapchain:
+    mel_gpu_swapchain_shutdown(&engine->swapchain, &engine->dev);
+fail_device:
+    mel_gpu_device_shutdown(&engine->dev);
+fail_tracking:
+    {
+        const Mel_Alloc* backing = engine->tracking->backing;
+        mel_dealloc(backing, engine->tracking);
+        engine->tracking = nullptr;
+    }
+    return false;
 }
 
 void mel_engine_shutdown(Mel_Engine* engine)
@@ -156,7 +187,8 @@ void mel_engine_shutdown(Mel_Engine* engine)
     mel_gpu_device_shutdown(&engine->dev);
 
     mel_tracking_report(engine->tracking);
-    free(engine->tracking);
+    const Mel_Alloc* backing = engine->tracking->backing;
+    mel_dealloc(backing, engine->tracking);
     engine->tracking = nullptr;
 
     engine->window = nullptr;
@@ -171,7 +203,10 @@ void mel_engine_frame(Mel_Engine* engine, Mel_App* app)
     TracyCZoneN(ctx_iterate, "engine_frame", true);
 
     SDL_WindowFlags flags = SDL_GetWindowFlags(engine->window);
-    if (flags & (SDL_WINDOW_MINIMIZED | SDL_WINDOW_HIDDEN | SDL_WINDOW_OCCLUDED))
+    SDL_WindowFlags skip_flags = SDL_WINDOW_MINIMIZED | SDL_WINDOW_HIDDEN;
+    if (!engine->imgui_initialized)
+        skip_flags |= SDL_WINDOW_OCCLUDED;
+    if (flags & skip_flags)
     {
         SDL_Delay(16);
         TracyCZoneEnd(ctx_iterate);

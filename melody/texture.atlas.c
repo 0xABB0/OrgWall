@@ -20,15 +20,17 @@ static bool mel__atlas_pool_eq_key(const void* a, const void* b)
     return (u64)(usize)a == (u64)(usize)b;
 }
 
-void mel_atlas_pool_init(Mel_Atlas_Pool* pool, const Mel_Alloc* alloc, Mel_Texture_Pool* tex_pool)
+void mel_atlas_pool_init(Mel_Atlas_Pool* pool, const Mel_Alloc* alloc, Mel_Texture_Pool* tex_pool, Mel_Assets* assets)
 {
     assert(pool != nullptr);
     assert(alloc != nullptr);
     assert(tex_pool != nullptr);
+    assert(assets != nullptr);
 
     *pool = (Mel_Atlas_Pool){0};
     pool->alloc = alloc;
     pool->texture_pool = tex_pool;
+    pool->assets = assets;
 
     mel_slotmap_init(&pool->slotmap, alloc, .item_size = sizeof(Mel_Atlas_Entry), .initial_capacity = 32);
     mel_hashmap_init(&pool->path_to_handle, mel__atlas_pool_hash_key, mel__atlas_pool_eq_key, alloc);
@@ -69,7 +71,7 @@ Mel_Atlas_Handle mel_atlas_pool_load(Mel_Atlas_Pool* pool, str8 path)
         return h;
     }
 
-    char* json_text = mel_assets_read_text(path);
+    char* json_text = mel_assets_read_text(pool->assets, path);
     if (!json_text)
     {
         SDL_Log("texture.atlas: failed to read '%.*s'", (int)path.len, path.data);
@@ -77,7 +79,7 @@ Mel_Atlas_Handle mel_atlas_pool_load(Mel_Atlas_Pool* pool, str8 path)
     }
 
     cJSON* root = cJSON_Parse(json_text);
-    mel_assets_free(json_text);
+    mel_assets_free(pool->assets, json_text);
 
     if (!root)
     {

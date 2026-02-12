@@ -3,16 +3,16 @@
 #include "assets.h"
 #include <cjson/cJSON.h>
 #include <SDL3/SDL.h>
-#include <stdlib.h>
 #include <string.h>
 
-bool mel_spritesheet_load(Mel_Spritesheet* sheet, const Mel_Alloc* alloc, str8 path)
+bool mel_spritesheet_load(Mel_Spritesheet* sheet, const Mel_Alloc* alloc, Mel_Assets* assets, str8 path)
 {
     assert(sheet != nullptr);
     assert(alloc != nullptr);
+    assert(assets != nullptr);
     assert(!str8_is_empty(path));
 
-    char* json_text = mel_assets_read_text(path);
+    char* json_text = mel_assets_read_text(assets, path);
     if (!json_text)
     {
         SDL_Log("Failed to read spritesheet: %.*s", (int)path.len, path.data);
@@ -20,7 +20,7 @@ bool mel_spritesheet_load(Mel_Spritesheet* sheet, const Mel_Alloc* alloc, str8 p
     }
 
     cJSON* root = cJSON_Parse(json_text);
-    mel_assets_free(json_text);
+    mel_assets_free(assets, json_text);
 
     if (!root)
     {

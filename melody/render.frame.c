@@ -3,7 +3,7 @@
 #include "gpu.swapchain.h"
 #include "gpu.cmd.h"
 
-void mel_render_frame_init_opt(Mel_Render_Frame* rf, Mel_Render_Frame_Opt opt)
+bool mel_render_frame_init_opt(Mel_Render_Frame* rf, Mel_Render_Frame_Opt opt)
 {
     assert(rf != nullptr);
     assert(opt.dev != nullptr);
@@ -25,7 +25,11 @@ void mel_render_frame_init_opt(Mel_Render_Frame* rf, Mel_Render_Frame_Opt opt)
             .queueFamilyIndex = rf->dev->graphics_family,
         };
         VkResult r = vkCreateCommandPool(rf->dev->device, &pool_info, nullptr, &fd->command_pool);
-        assert(r == VK_SUCCESS);
+        if (r != VK_SUCCESS)
+        {
+            SDL_Log("Failed to create command pool for frame %u: %d", i, r);
+            goto fail;
+        }
 
         VkCommandBufferAllocateInfo alloc_info = {
             .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
@@ -34,18 +38,30 @@ void mel_render_frame_init_opt(Mel_Render_Frame* rf, Mel_Render_Frame_Opt opt)
             .commandBufferCount = 1,
         };
         r = vkAllocateCommandBuffers(rf->dev->device, &alloc_info, &fd->command_buffer);
-        assert(r == VK_SUCCESS);
+        if (r != VK_SUCCESS)
+        {
+            SDL_Log("Failed to allocate command buffer for frame %u: %d", i, r);
+            goto fail;
+        }
 
         VkSemaphoreCreateInfo sem_info = { .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
         r = vkCreateSemaphore(rf->dev->device, &sem_info, nullptr, &fd->image_available);
-        assert(r == VK_SUCCESS);
+        if (r != VK_SUCCESS)
+        {
+            SDL_Log("Failed to create image_available semaphore for frame %u: %d", i, r);
+            goto fail;
+        }
 
         VkFenceCreateInfo fence_info = {
             .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
             .flags = VK_FENCE_CREATE_SIGNALED_BIT,
         };
         r = vkCreateFence(rf->dev->device, &fence_info, nullptr, &fd->in_flight);
-        assert(r == VK_SUCCESS);
+        if (r != VK_SUCCESS)
+        {
+            SDL_Log("Failed to create in_flight fence for frame %u: %d", i, r);
+            goto fail;
+        }
     }
 
     rf->render_finished_count = rf->swapchain->image_count;
@@ -54,8 +70,18 @@ void mel_render_frame_init_opt(Mel_Render_Frame* rf, Mel_Render_Frame_Opt opt)
     for (u32 i = 0; i < rf->render_finished_count; i++)
     {
         VkResult r = vkCreateSemaphore(rf->dev->device, &sem_info, nullptr, &rf->render_finished[i]);
-        assert(r == VK_SUCCESS);
+        if (r != VK_SUCCESS)
+        {
+            SDL_Log("Failed to create render_finished semaphore %u: %d", i, r);
+            rf->render_finished_count = i;
+            goto fail;
+        }
     }
+    return true;
+
+fail:
+    mel_render_frame_shutdown(rf);
+    return false;
 }
 
 void mel_render_frame_shutdown(Mel_Render_Frame* rf)

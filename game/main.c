@@ -192,9 +192,9 @@ static void on_init(Mel_Engine* e)
     mel_gpu_pipeline_write_texture(&s_pipeline, dev, s_white_texture.descriptor,
         s_white_texture.image.view, s_white_texture.sampler);
 
-    mel_texture_pool_init(&s_texture_pool, alloc, dev, .pipeline = &s_pipeline);
-    mel_tileset_pool_init(&s_tileset_pool, alloc, &s_texture_pool);
-    mel_tilemap_pool_init(&s_tilemap_pool, alloc, &s_tileset_pool);
+    mel_texture_pool_init(&s_texture_pool, alloc, dev, .pipeline = &s_pipeline, .assets = &s_assets);
+    mel_tileset_pool_init(&s_tileset_pool, alloc, &s_texture_pool, &s_assets);
+    mel_tilemap_pool_init(&s_tilemap_pool, alloc, &s_tileset_pool, &s_assets);
     mel_font_atlas_pool_init(&s_font_pool, alloc, dev);
 
     s_font_handle = mel_font_atlas_pool_load(&s_font_pool, .path = S8("/System/Library/Fonts/Monaco.ttf"), .size = 20.0f);
@@ -206,7 +206,7 @@ static void on_init(Mel_Engine* e)
             font_entry->atlas_texture.image.view, font_entry->atlas_texture.sampler);
     }
 
-    mel_texture_load_and_bind(&s_test_texture, dev, &s_pipeline, S8("test.png"));
+    mel_texture_load_and_bind(&s_test_texture, dev, &s_pipeline, &s_assets, S8("test.png"));
 
     mel_game_init(&s_game);
 
@@ -218,7 +218,8 @@ static void on_init(Mel_Engine* e)
 
     mel_wlabel_init(&s_dialogue_label);
     mel_widget_set_position(&s_dialogue_label.base, mel_vec2(120, 370));
-    s_dialogue_label.font = font_entry;
+    s_dialogue_label.font = s_font_handle;
+    s_dialogue_label.font_pool = &s_font_pool;
     s_dialogue_label.text = str8_from_cstr(s_game.dialogue_text);
     s_dialogue_label.text_color = mel_vec4(1.0f, 1.0f, 1.0f, 1.0f);
     mel_widget_add_child(&s_dialogue_box.base, &s_dialogue_label.base);
