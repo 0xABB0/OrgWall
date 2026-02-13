@@ -1,5 +1,5 @@
 #include "allocator.vmem.h"
-#include "platform.h"
+#include "core.platform.h"
 
 #if MEL_PLATFORM_WINDOWS
     #define WIN32_LEAN_AND_MEAN

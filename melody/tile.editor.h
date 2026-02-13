@@ -1,7 +1,7 @@
 #ifndef MEL_EDITOR_TILES_H
 #define MEL_EDITOR_TILES_H
 
-#include "types.h"
+#include "core.types.h"
 #include "allocator.fwd.h"
 #include "tile.set.fwd.h"
 #include "tile.map.fwd.h"

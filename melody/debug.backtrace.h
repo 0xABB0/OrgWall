@@ -1,7 +1,6 @@
-#ifndef MEL_BACKTRACE_H
-#define MEL_BACKTRACE_H
+#pragma once
 
-#include "types.h"
+#include "core.types.h"
 
 #define MEL_BACKTRACE_MAX_FRAMES 64
 
@@ -14,5 +13,3 @@ void mel_backtrace_init(void);
 void mel_backtrace_capture(Mel_Backtrace* bt, i32 skip);
 void mel_backtrace_print(Mel_Backtrace* bt);
 void mel_backtrace_print_current(void);
-
-#endif

@@ -1,9 +1,9 @@
 #ifndef MEL_EDITOR_ENTITIES_H
 #define MEL_EDITOR_ENTITIES_H
 
-#include "types.h"
+#include "core.types.h"
 #include "allocator.fwd.h"
-#include "array.h"
+#include "collection.array.h"
 #include "ecs.world.fwd.h"
 
 typedef bool (*Mel_ComponentInspector_Fn)(ecs_world_t* world, ecs_entity_t e);

@@ -1,7 +1,7 @@
 #ifndef MEL_GAME_H
 #define MEL_GAME_H
 
-#include "types.h"
+#include "core.types.h"
 #include "ecs.world.h"
 #include "ecs.2d.transform.h"
 #include "ecs.2d.sprite.h"
@@ -9,7 +9,7 @@
 #include "player.h"
 #include "npc.h"
 #include "wall.h"
-#include "sprite_batch.h"
+#include "sprite.batch.h"
 
 typedef struct
 {

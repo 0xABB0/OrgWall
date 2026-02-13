@@ -9,15 +9,15 @@
 #include <cimgui/cimgui.h>
 #include <cimgui/cimgui_impl.h>
 
-#include "app.h"
-#include "engine.h"
+#include "core.app.h"
+#include "core.engine.h"
 #include "string.str8.h"
 #include "gpu.shader.h"
 #include "gpu.pipeline.h"
 #include "gpu.buffer.h"
 #include "gpu.texture.h"
 #include "gpu.cmd.h"
-#include "sprite_batch.h"
+#include "sprite.batch.h"
 #include "font.atlas.h"
 #include "texture.pool.h"
 #include "tile.set.h"
@@ -29,12 +29,12 @@
 #include "texture.h"
 #include "editor.h"
 #include "editor.registry.h"
-#include "editor.tiles.h"
-#include "editor.spritesheet.h"
+#include "tile.editor.h"
+#include "sprite.sheet.editor.h"
 #include "editor.entities.h"
-#include "editor.sprite.h"
-#include "editor.collider.h"
-#include "editor.transform.h"
+#include "ecs.2d.sprite.editor.h"
+#include "ecs.2d.collider.editor.h"
+#include "ecs.2d.transform.editor.h"
 #include "ecs.2d.transform.h"
 #include "ecs.2d.sprite.h"
 #include "ecs.2d.collider.h"
@@ -343,7 +343,7 @@ static void app_render(Mel_App* app, Mel_Gpu_Cmd* c)
                                     0, (f32)e->swapchain.extent.height, -1, 1);
 
     mel_sprite_batch_begin(&s_batch, &s_pipeline);
-    mel_sprite_batch_set_texture(&s_batch, &e->dev, &s_white_texture);
+    mel_sprite_batch_set_texture(&s_batch, &s_white_texture);
 
     mel_game_draw(&s_game, &s_batch);
 

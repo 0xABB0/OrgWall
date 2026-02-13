@@ -1,7 +1,9 @@
 #pragma once
 
-#include "types.h"
+#include "core.types.h"
 #include "math.vec4.h"
+
+typedef i32 i32x4 __attribute__((ext_vector_type(4)));
 
 typedef union
 {

@@ -1,7 +1,9 @@
 #pragma once
 
-#include "types.h"
+#include "core.types.h"
 #include <math.h>
+
+typedef f32 f32x2 __attribute__((ext_vector_type(2)));
 
 typedef union
 {
@@ -18,6 +20,7 @@ typedef union
 #define MEL_VEC2_DOWN  ((Mel_Vec2){ .v = (f32x2){0, -1} })
 #define MEL_VEC2_LEFT  ((Mel_Vec2){ .v = (f32x2){-1, 0} })
 #define MEL_VEC2_RIGHT ((Mel_Vec2){ .v = (f32x2){1, 0} })
+#define MEL_VEC2(x, y) ((Mel_Vec2){ .v = (f32x2){(x), (y)} })
 
 [[nodiscard]] static inline Mel_Vec2 mel_vec2(f32 x, f32 y);
 [[nodiscard]] static inline Mel_Vec2 mel_vec2_add(Mel_Vec2 a, Mel_Vec2 b);

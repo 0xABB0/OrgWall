@@ -1,5 +1,5 @@
 #include "ui.widget.panel.h"
-#include "sprite_batch.h"
+#include "sprite.batch.h"
 
 static void wpanel_draw(Mel_Widget* w, void* ctx)
 {

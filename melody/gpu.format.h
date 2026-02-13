@@ -1,7 +1,7 @@
 #ifndef MEL_GPU_FORMAT_H
 #define MEL_GPU_FORMAT_H
 
-#include "types.h"
+#include "core.types.h"
 
 #define VK_NO_PROTOTYPES
 #include <vulkan/vulkan.h>

@@ -1,4 +1,4 @@
-#include "../melody/test.h"
+#include "../melody/test.harness.h"
 #include "../melody/collection.list.h"
 
 typedef struct {

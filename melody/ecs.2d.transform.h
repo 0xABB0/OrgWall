@@ -1,7 +1,7 @@
 #ifndef MEL_ECS_2D_TRANSFORM_H
 #define MEL_ECS_2D_TRANSFORM_H
 
-#include "types.h"
+#include "core.types.h"
 #include "math.vec2.h"
 
 #include <flecs.h>

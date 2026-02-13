@@ -1,5 +1,5 @@
 #pragma once
-#include "types.h"
+#include "core.types.h"
 #include "allocator.buddy.cfg.h"
 
 #define MEL_BUDDY_FREE  0

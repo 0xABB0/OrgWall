@@ -1,6 +1,6 @@
 #pragma once
 
-#include "types.h"
+#include "core.types.h"
 
 #define MEL_VMEM_PROT_NONE  0
 #define MEL_VMEM_PROT_READ  1

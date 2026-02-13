@@ -1,6 +1,6 @@
 #pragma once
 
-#include "types.h"
+#include "core.types.h"
 #include "anim.sprite.fwd.h"
 #include "anim.timeline.h"
 #include "texture.atlas.fwd.h"

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "types.h"
+#include "core.types.h"
 
 typedef struct { u32 value; } Mel_Atlas_Handle;
 #define MEL_ATLAS_HANDLE_NULL ((Mel_Atlas_Handle){0})

@@ -1,7 +1,7 @@
 #pragma once
 
-#include "types.h"
-#include "engine.h"
+#include "core.types.h"
+#include "core.engine.h"
 #include <SDL3/SDL.h>
 
 typedef struct Mel_App Mel_App;

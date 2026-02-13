@@ -1,6 +1,6 @@
 #pragma once
 
-#include "types.h"
+#include "core.types.h"
 
 #define MEL_NEVENT_NONE     0
 #define MEL_NEVENT_CLICK    1

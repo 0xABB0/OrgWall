@@ -1,5 +1,5 @@
-#include "editor.spritesheet.h"
-#include "spritesheet.h"
+#include "sprite.sheet.editor.h"
+#include "sprite.sheet.h"
 #include "allocator.h"
 #include "string.str8.h"
 

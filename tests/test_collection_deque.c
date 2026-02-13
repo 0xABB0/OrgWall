@@ -1,7 +1,7 @@
 #include "../melody/collection.deque.h"
 #include "../melody/allocator.h"
 #include "../melody/allocator.heap.h"
-#include "../melody/test.h"
+#include "../melody/test.harness.h"
 
 typedef Mel_Deque(i32) Deque_i32;
 

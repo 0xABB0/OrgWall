@@ -1,5 +1,5 @@
 #pragma once
 
-#include "types.h"
+#include "core.types.h"
 
 typedef struct Mel_Anim_Blend Mel_Anim_Blend;

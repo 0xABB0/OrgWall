@@ -1,9 +1,38 @@
 #define VK_NO_PROTOTYPES
-#include "sprite_batch.h"
+#include "sprite.batch.h"
 #include "gpu.pipeline.h"
 #include "gpu.texture.h"
+#include "allocator.h"
+#include "allocator.heap.h"
 #include <string.h>
 #include <tracy/TracyC.h>
+
+static void mel__sprite_batch_push_draw(Mel_SpriteBatch* batch)
+{
+    if (batch->draw_count > 0)
+    {
+        Mel_SpriteBatch_Draw* prev = &batch->draws[batch->draw_count - 1];
+        prev->index_count = batch->index_count - prev->index_offset;
+        if (prev->index_count == 0) return;
+    }
+
+    if (batch->draw_count >= batch->draw_capacity)
+    {
+        u32 new_cap = batch->draw_capacity == 0 ? 8 : batch->draw_capacity * 2;
+        usize new_size = sizeof(Mel_SpriteBatch_Draw) * new_cap;
+        if (batch->draws == NULL)
+            batch->draws = mel_alloc(batch->allocator, new_size);
+        else
+            batch->draws = mel_realloc(batch->allocator, batch->draws, new_size);
+        batch->draw_capacity = new_cap;
+    }
+
+    batch->draws[batch->draw_count++] = (Mel_SpriteBatch_Draw){
+        .descriptor = batch->current_descriptor,
+        .index_offset = batch->index_count,
+        .index_count = 0,
+    };
+}
 
 bool mel_sprite_batch_init_opt(Mel_SpriteBatch* batch, Mel_Gpu_Device* dev, Mel_SpriteBatch_Opt opt)
 {
@@ -11,6 +40,8 @@ bool mel_sprite_batch_init_opt(Mel_SpriteBatch* batch, Mel_Gpu_Device* dev, Mel_
     assert(dev != nullptr);
 
     *batch = (Mel_SpriteBatch){0};
+
+    batch->allocator = opt.allocator ? opt.allocator : mel_alloc_heap();
 
     u32 max_sprites = opt.max_sprites > 0 ? opt.max_sprites : 1024;
     batch->max_sprites = max_sprites;
@@ -39,6 +70,9 @@ void mel_sprite_batch_shutdown(Mel_SpriteBatch* batch, Mel_Gpu_Device* dev)
     assert(batch != nullptr);
     assert(dev != nullptr);
 
+    if (batch->draws)
+        mel_dealloc(batch->allocator, batch->draws);
+
     mel_gpu_buffer_shutdown(&batch->index_buffer, dev);
     mel_gpu_buffer_shutdown(&batch->vertex_buffer, dev);
 }
@@ -51,6 +85,7 @@ void mel_sprite_batch_begin(Mel_SpriteBatch* batch, Mel_Gpu_Pipeline* pipeline)
 
     batch->vertex_count = 0;
     batch->index_count = 0;
+    batch->draw_count = 0;
     batch->pipeline = pipeline;
     batch->current_texture = nullptr;
     batch->current_descriptor = VK_NULL_HANDLE;
@@ -62,6 +97,12 @@ void mel_sprite_batch_end(Mel_SpriteBatch* batch, Mel_Gpu_Device* dev, VkCommand
     TracyCZoneN(ctx, "sprite_batch_end", true);
     assert(batch != nullptr);
     assert(dev != nullptr);
+
+    if (batch->draw_count > 0)
+    {
+        Mel_SpriteBatch_Draw* last = &batch->draws[batch->draw_count - 1];
+        last->index_count = batch->index_count - last->index_offset;
+    }
 
     if (batch->index_count == 0)
     {
@@ -76,36 +117,42 @@ void mel_sprite_batch_end(Mel_SpriteBatch* batch, Mel_Gpu_Device* dev, VkCommand
 
     mel_gpu_pipeline_bind(batch->pipeline, cmd);
 
-    if (batch->current_descriptor)
-    {
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, batch->pipeline->layout,
-            0, 1, &batch->current_descriptor, 0, nullptr);
-    }
-
     vkCmdPushConstants(cmd, batch->pipeline->layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(Mel_Mat4), projection);
 
     VkBuffer buffers[] = { batch->vertex_buffer.buffer };
     VkDeviceSize offsets[] = { 0 };
     vkCmdBindVertexBuffers(cmd, 0, 1, buffers, offsets);
-
     vkCmdBindIndexBuffer(cmd, batch->index_buffer.buffer, 0, VK_INDEX_TYPE_UINT16);
 
     TracyCZoneN(ctx_draw, "vkCmdDrawIndexed", true);
-    vkCmdDrawIndexed(cmd, batch->index_count, 1, 0, 0, 0);
+    for (u32 i = 0; i < batch->draw_count; i++)
+    {
+        Mel_SpriteBatch_Draw* draw = &batch->draws[i];
+        if (draw->index_count == 0) continue;
+
+        if (draw->descriptor)
+        {
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, batch->pipeline->layout,
+                0, 1, &draw->descriptor, 0, nullptr);
+        }
+
+        vkCmdDrawIndexed(cmd, draw->index_count, 1, draw->index_offset, 0, 0);
+    }
     TracyCZoneEnd(ctx_draw);
 
     TracyCZoneEnd(ctx);
 }
 
-void mel_sprite_batch_set_texture(Mel_SpriteBatch* batch, Mel_Gpu_Device* dev, Mel_Gpu_Texture* texture)
+void mel_sprite_batch_set_texture(Mel_SpriteBatch* batch, Mel_Gpu_Texture* texture)
 {
     assert(batch != nullptr);
-    MEL_UNUSED(dev);
 
     if (batch->current_texture == texture) return;
 
     batch->current_texture = texture;
     batch->current_descriptor = texture ? texture->descriptor : VK_NULL_HANDLE;
+
+    mel__sprite_batch_push_draw(batch);
 }
 
 void mel_sprite_batch_draw_uv(Mel_SpriteBatch* batch, f32 x, f32 y, f32 w, f32 h, f32 u0, f32 v0, f32 u1, f32 v1, Mel_Vec4 color)

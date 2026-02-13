@@ -1,4 +1,4 @@
-#include "../melody/test.h"
+#include "../melody/test.harness.h"
 #include "../melody/gpu.format.h"
 
 MEL_TEST(format_size_r8)

@@ -1,5 +1,5 @@
 #include "font.atlas.h"
-#include "sprite_batch.h"
+#include "sprite.batch.h"
 #include "string.str8.h"
 #include "hash.xxh.h"
 #include "gpu.buffer.h"
@@ -289,8 +289,7 @@ void mel_font_atlas_draw_text(Mel_Font_Atlas_Entry* entry, Mel_SpriteBatch* batc
 
     if (str8_is_empty(text)) return;
 
-    batch->current_texture = &entry->atlas_texture;
-    batch->current_descriptor = VK_NULL_HANDLE;
+    mel_sprite_batch_set_texture(batch, &entry->atlas_texture);
 
     f32 cursor_x = x;
     f32 cursor_y = y + entry->desc.ascent;

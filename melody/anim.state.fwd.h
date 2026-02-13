@@ -1,6 +1,6 @@
 #pragma once
 
-#include "types.h"
+#include "core.types.h"
 
 typedef struct Mel_Anim_Transition Mel_Anim_Transition;
 typedef struct Mel_Anim_State_Def Mel_Anim_State_Def;

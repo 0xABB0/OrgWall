@@ -1,7 +1,7 @@
 #ifndef MEL_CNPC_H
 #define MEL_CNPC_H
 
-#include "types.h"
+#include "core.types.h"
 
 #include <flecs.h>
 

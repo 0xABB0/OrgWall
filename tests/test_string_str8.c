@@ -1,4 +1,4 @@
-#include "../melody/test.h"
+#include "../melody/test.harness.h"
 #include "../melody/string.str8.h"
 #include "../melody/hash.xxh.h"
 #include "../melody/allocator.h"

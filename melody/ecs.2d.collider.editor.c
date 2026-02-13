@@ -1,4 +1,4 @@
-#include "editor.collider.h"
+#include "ecs.2d.collider.editor.h"
 #include "ecs.world.h"
 #include "ecs.2d.collider.h"
 #include "editor.helpers.h"

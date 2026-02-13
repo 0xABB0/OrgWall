@@ -1,4 +1,4 @@
-#include "../melody/test.h"
+#include "../melody/test.harness.h"
 #include "../melody/allocator.block.h"
 
 MEL_TEST(block_init)

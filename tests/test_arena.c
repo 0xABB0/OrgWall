@@ -1,4 +1,4 @@
-#include "../melody/test.h"
+#include "../melody/test.harness.h"
 #include "../melody/allocator.arena.h"
 
 MEL_TEST(arena_init)

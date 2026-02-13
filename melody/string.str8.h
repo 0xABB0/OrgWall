@@ -1,7 +1,7 @@
 #pragma once
 
 #include "string.str8.fwd.h"
-#include "defs.h"
+#include "core.defs.h"
 #include "allocator.fwd.h"
 
 #include <string.h>
@@ -34,5 +34,6 @@ u64      str8_hash(str8 s);
 str8     str8_dup(str8 s, const Mel_Alloc* alloc);
 const char* str8_to_cstr(str8 s, const Mel_Alloc* alloc);
 str8     str8_fmt(const Mel_Alloc* alloc, const char* fmt, ...) __attribute__((format(printf, 2, 3)));
+size     str8_levenshtein(str8 a, str8 b, const Mel_Alloc* alloc);
 
 #include "string.str8.inl"

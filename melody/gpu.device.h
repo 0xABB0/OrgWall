@@ -1,7 +1,7 @@
 #ifndef MEL_GPU_DEVICE_H
 #define MEL_GPU_DEVICE_H
 
-#include "types.h"
+#include "core.types.h"
 #include "allocator.h"
 #include "string.str8.fwd.h"
 

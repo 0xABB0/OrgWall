@@ -9,6 +9,10 @@
 #define BUILD_MODE_SANITIZE 2
 
 static int g_build_mode = BUILD_MODE_DEBUG;
+static bool g_verbose = false;
+static bool g_timings = false;
+
+#define TIMING_LEVEL (g_verbose ? NOB_INFO : NOB_WARNING)
 
 static const char* INCLUDE_PATHS[] = {
     "-I/opt/homebrew/include",
@@ -276,29 +280,41 @@ bool compile_cpp_to_obj(const char* src, const char* obj, Cpp_Mode mode)
     return nob_cmd_run_sync(cmd);
 }
 
-bool copy_assets(void)
+bool copy_dir_recursive(const char* src_dir, const char* dst_dir)
 {
-    const char* dest = BUILD_DIR "/assets";
-    if (!nob_mkdir_if_not_exists(dest)) return false;
+    if (!nob_mkdir_if_not_exists(dst_dir)) return false;
 
     Nob_File_Paths entries = {0};
-    if (!nob_read_entire_dir("assets", &entries)) return true;
+    if (!nob_read_entire_dir(src_dir, &entries)) return true;
 
     for (size_t i = 0; i < entries.count; i++)
     {
         const char* name = entries.items[i];
         if (name[0] == '.') continue;
 
-        const char* src_path = nob_temp_sprintf("assets/%s", name);
-        const char* dst_path = nob_temp_sprintf("%s/%s", dest, name);
+        const char* src_path = nob_temp_sprintf("%s/%s", src_dir, name);
+        const char* dst_path = nob_temp_sprintf("%s/%s", dst_dir, name);
 
-        if (!nob_copy_file(src_path, dst_path))
+        Nob_File_Type type = nob_get_file_type(src_path);
+        if (type == NOB_FILE_DIRECTORY)
         {
-            nob_log(NOB_WARNING, "Failed to copy asset: %s", name);
+            if (!copy_dir_recursive(src_path, dst_path)) return false;
+        }
+        else if (type == NOB_FILE_REGULAR)
+        {
+            if (!nob_copy_file(src_path, dst_path))
+            {
+                nob_log(NOB_WARNING, "Failed to copy asset: %s", src_path);
+            }
         }
     }
 
     return true;
+}
+
+bool copy_assets(void)
+{
+    return copy_dir_recursive("assets", BUILD_DIR "/assets");
 }
 
 bool compile_c_to_obj(const char* src, const char* obj)
@@ -365,25 +381,6 @@ static const char* CIMGUI_SOURCES[] = {
     SUCK_DIR "/third-party/cimgui/imgui/backends/imgui_impl_vulkan.cpp",
 };
 
-void collect_lib_obj_paths(Nob_File_Paths* obj_files)
-{
-    for (size_t i = 0; i < NOB_ARRAY_LEN(CIMGUI_SOURCES); i++)
-    {
-        const char* base = strrchr(CIMGUI_SOURCES[i], '/');
-        base = base ? base + 1 : CIMGUI_SOURCES[i];
-
-        char obj_name[256];
-        snprintf(obj_name, sizeof(obj_name), "%s", base);
-        size_t len = strlen(obj_name);
-        obj_name[len - 3] = 'o';
-        obj_name[len - 2] = '\0';
-
-        nob_da_append(obj_files, nob_temp_strdup(nob_temp_sprintf(BUILD_DIR "/%s", obj_name)));
-    }
-
-    nob_da_append(obj_files, nob_temp_strdup(BUILD_DIR "/TracyClient.o"));
-    nob_da_append(obj_files, nob_temp_strdup(BUILD_DIR "/flecs.o"));
-}
 
 bool build_libs(void)
 {
@@ -443,22 +440,24 @@ bool build_libs(void)
     double flecs_ms  = (t3 - t2) / 1e6;
     double total_ms  = (t3 - t_total_start) / 1e6;
 
-    nob_log(NOB_WARNING, "──── Libs Timings ─────");
-    nob_log(NOB_WARNING, "  cimgui (C++)    : %8.1f ms", cimgui_ms);
-    nob_log(NOB_WARNING, "  tracy  (C++)    : %8.1f ms", tracy_ms);
-    nob_log(NOB_WARNING, "  flecs  (C)      : %8.1f ms", flecs_ms);
-    nob_log(NOB_WARNING, "  ─────────────────────────");
-    nob_log(NOB_WARNING, "  TOTAL           : %8.1f ms", total_ms);
+    if (g_timings)
+    {
+        nob_log(TIMING_LEVEL, "──── Libs Timings ─────");
+        nob_log(TIMING_LEVEL, "  cimgui (C++)    : %8.1f ms", cimgui_ms);
+        nob_log(TIMING_LEVEL, "  tracy  (C++)    : %8.1f ms", tracy_ms);
+        nob_log(TIMING_LEVEL, "  flecs  (C)      : %8.1f ms", flecs_ms);
+        nob_log(TIMING_LEVEL, "  ─────────────────────────");
+        nob_log(TIMING_LEVEL, "  TOTAL           : %8.1f ms", total_ms);
+    }
 
     return true;
 }
 
-bool build_main(void)
+bool build_melody(void)
 {
-    if (!copy_assets()) return false;
+    if (!build_libs()) return false;
 
     uint64_t t_total_start = nob_nanos_since_unspecified_epoch();
-
     bool any_recompiled = false;
 
     Nob_File_Paths c_files = {0};
@@ -467,9 +466,6 @@ bool build_main(void)
     Nob_File_Paths obj_files = {0};
 
     if (!collect_c_files("melody", &c_files, &cpp_files, &m_files)) return false;
-    if (!collect_c_files("game", &c_files, &cpp_files, &m_files)) return false;
-
-    collect_lib_obj_paths(&obj_files);
 
     uint64_t t0 = nob_nanos_since_unspecified_epoch();
 
@@ -508,9 +504,7 @@ bool build_main(void)
         snprintf(obj_name, sizeof(obj_name), "%s", base);
         size_t len = strlen(obj_name);
         if (len > 2 && obj_name[len-2] == '.' && obj_name[len-1] == 'c')
-        {
             obj_name[len - 1] = 'o';
-        }
 
         const char* obj = nob_temp_sprintf(BUILD_DIR "/%s", obj_name);
         nob_da_append(&obj_files, nob_temp_strdup(obj));
@@ -535,9 +529,7 @@ bool build_main(void)
         snprintf(obj_name, sizeof(obj_name), "%s", base);
         size_t len = strlen(obj_name);
         if (len > 2 && obj_name[len-2] == '.' && obj_name[len-1] == 'm')
-        {
             obj_name[len - 1] = 'o';
-        }
 
         const char* obj = nob_temp_sprintf(BUILD_DIR "/%s", obj_name);
         nob_da_append(&obj_files, nob_temp_strdup(obj));
@@ -575,57 +567,153 @@ bool build_main(void)
 
     uint64_t t3 = nob_nanos_since_unspecified_epoch();
 
-    if (any_recompiled || nob_file_exists(BUILD_DIR "/melody") != 1)
+    for (size_t i = 0; i < NOB_ARRAY_LEN(CIMGUI_SOURCES); i++)
+    {
+        const char* base = strrchr(CIMGUI_SOURCES[i], '/');
+        base = base ? base + 1 : CIMGUI_SOURCES[i];
+
+        char obj_name[256];
+        snprintf(obj_name, sizeof(obj_name), "%s", base);
+        size_t len = strlen(obj_name);
+        obj_name[len - 3] = 'o';
+        obj_name[len - 2] = '\0';
+
+        nob_da_append(&obj_files, nob_temp_strdup(nob_temp_sprintf(BUILD_DIR "/%s", obj_name)));
+    }
+    nob_da_append(&obj_files, nob_temp_strdup(BUILD_DIR "/TracyClient.o"));
+    nob_da_append(&obj_files, nob_temp_strdup(BUILD_DIR "/flecs.o"));
+
+    if (any_recompiled || nob_file_exists(BUILD_DIR "/libmelody.a") != 1)
     {
         Nob_Cmd cmd = {0};
-        nob_cmd_append(&cmd, "clang");
-        nob_cmd_append(&cmd, "-g");
+        nob_cmd_append(&cmd, "ar", "rcs", BUILD_DIR "/libmelody.a");
+
+        for (size_t i = 0; i < obj_files.count; i++)
+            nob_cmd_append(&cmd, obj_files.items[i]);
+
+        if (!nob_cmd_run_sync(cmd)) return false;
+    }
+
+    uint64_t t4 = nob_nanos_since_unspecified_epoch();
+
+    double cpp_ms   = (t1 - t0) / 1e6;
+    double c_ms     = (t2 - t1) / 1e6;
+    double objc_ms  = (t2b - t2) / 1e6;
+    double asm_ms   = (t3 - t2b) / 1e6;
+    double ar_ms    = (t4 - t3) / 1e6;
+    double total_ms = (t4 - t_total_start) / 1e6;
+
+    if (g_timings)
+    {
+        nob_log(TIMING_LEVEL, "──── Melody Timings ────");
+        nob_log(TIMING_LEVEL, "  melody C++      : %8.1f ms", cpp_ms);
+        nob_log(TIMING_LEVEL, "  melody C        : %8.1f ms", c_ms);
+        nob_log(TIMING_LEVEL, "  melody ObjC     : %8.1f ms", objc_ms);
+        nob_log(TIMING_LEVEL, "  melody ASM      : %8.1f ms", asm_ms);
+        nob_log(TIMING_LEVEL, "  archive         : %8.1f ms", ar_ms);
+        nob_log(TIMING_LEVEL, "  ─────────────────────────");
+        nob_log(TIMING_LEVEL, "  TOTAL           : %8.1f ms", total_ms);
+    }
+
+    return true;
+}
+
+static void cmd_append_melody_link_deps(Nob_Cmd* cmd)
+{
+    nob_cmd_append(cmd, BUILD_DIR "/libmelody.a");
+
+    for (size_t i = 0; i < NOB_ARRAY_LEN(LIB_PATHS); i++)
+        nob_cmd_append(cmd, LIB_PATHS[i]);
+
+    for (size_t i = 0; i < NOB_ARRAY_LEN(LIBS); i++)
+        nob_cmd_append(cmd, LIBS[i]);
+
+    for (size_t i = 0; i < NOB_ARRAY_LEN(FRAMEWORKS); i++)
+        nob_cmd_append(cmd, FRAMEWORKS[i]);
+
+    nob_cmd_append(cmd, "-lc++");
+    nob_cmd_append(cmd, "-Wl,-rpath,/opt/homebrew/lib");
+    nob_cmd_append(cmd, "-Wl,-rpath," SUCK_DIR "/third-party/slang/lib");
+    cmd_append_link_flags(cmd);
+}
+
+bool build_main(void)
+{
+    if (!build_melody()) return false;
+    if (!copy_assets()) return false;
+
+    uint64_t t_total_start = nob_nanos_since_unspecified_epoch();
+    bool any_recompiled = false;
+
+    Nob_File_Paths c_files = {0};
+    Nob_File_Paths cpp_files = {0};
+    Nob_File_Paths m_files = {0};
+    Nob_File_Paths obj_files = {0};
+
+    if (!collect_c_files("game", &c_files, &cpp_files, &m_files)) return false;
+
+    uint64_t t0 = nob_nanos_since_unspecified_epoch();
+
+    for (size_t i = 0; i < c_files.count; i++)
+    {
+        const char* src = c_files.items[i];
+        const char* base = strrchr(src, '/');
+        base = base ? base + 1 : src;
+
+        char obj_name[256];
+        snprintf(obj_name, sizeof(obj_name), "%s", base);
+        size_t len = strlen(obj_name);
+        if (len > 2 && obj_name[len-2] == '.' && obj_name[len-1] == 'c')
+            obj_name[len - 1] = 'o';
+
+        const char* obj = nob_temp_sprintf(BUILD_DIR "/%s", obj_name);
+        nob_da_append(&obj_files, nob_temp_strdup(obj));
+
+        if (needs_compile(src, obj))
+        {
+            nob_log(NOB_INFO, "Compiling C: %s", src);
+            if (!compile_c_to_obj(src, obj)) return false;
+            any_recompiled = true;
+        }
+    }
+
+    uint64_t t1 = nob_nanos_since_unspecified_epoch();
+
+    const char* lib_dep = BUILD_DIR "/libmelody.a";
+    bool melody_changed = nob_needs_rebuild(BUILD_DIR "/melody", &lib_dep, 1) != 0;
+
+    if (any_recompiled || melody_changed || nob_file_exists(BUILD_DIR "/melody") != 1)
+    {
+        Nob_Cmd cmd = {0};
+        nob_cmd_append(&cmd, "clang", "-g");
 
         for (size_t i = 0; i < obj_files.count; i++)
             nob_cmd_append(&cmd, obj_files.items[i]);
 
         nob_cmd_append(&cmd, "-o", BUILD_DIR "/melody");
-
-        for (size_t i = 0; i < NOB_ARRAY_LEN(LIB_PATHS); i++)
-            nob_cmd_append(&cmd, LIB_PATHS[i]);
-
-        for (size_t i = 0; i < NOB_ARRAY_LEN(LIBS); i++)
-            nob_cmd_append(&cmd, LIBS[i]);
-
-        for (size_t i = 0; i < NOB_ARRAY_LEN(FRAMEWORKS); i++)
-            nob_cmd_append(&cmd, FRAMEWORKS[i]);
-
-        nob_cmd_append(&cmd, "-lc++");
-
-        nob_cmd_append(&cmd, "-Wl,-rpath,/opt/homebrew/lib");
-        nob_cmd_append(&cmd, "-Wl,-rpath," SUCK_DIR "/third-party/slang/lib");
-
-        cmd_append_link_flags(&cmd);
+        cmd_append_melody_link_deps(&cmd);
 
         if (!nob_cmd_run_sync(cmd)) return false;
     }
     else
     {
-        nob_log(NOB_WARNING, "Everything up to date, nothing to do");
+        nob_log(NOB_INFO, "Everything up to date, nothing to do");
     }
 
-    uint64_t t4 = nob_nanos_since_unspecified_epoch();
+    uint64_t t2 = nob_nanos_since_unspecified_epoch();
 
-    double your_cpp_ms  = (t1 - t0) / 1e6;
-    double your_c_ms    = (t2 - t1) / 1e6;
-    double your_objc_ms = (t2b - t2) / 1e6;
-    double asm_ms       = (t3 - t2b) / 1e6;
-    double link_ms      = (t4 - t3) / 1e6;
-    double total_ms     = (t4 - t_total_start) / 1e6;
+    double game_c_ms = (t1 - t0) / 1e6;
+    double link_ms   = (t2 - t1) / 1e6;
+    double total_ms  = (t2 - t_total_start) / 1e6;
 
-    nob_log(NOB_WARNING, "──── Build Timings ────");
-    nob_log(NOB_WARNING, "  project C++     : %8.1f ms", your_cpp_ms);
-    nob_log(NOB_WARNING, "  project C       : %8.1f ms", your_c_ms);
-    nob_log(NOB_WARNING, "  project ObjC    : %8.1f ms", your_objc_ms);
-    nob_log(NOB_WARNING, "  project ASM     : %8.1f ms", asm_ms);
-    nob_log(NOB_WARNING, "  link            : %8.1f ms", link_ms);
-    nob_log(NOB_WARNING, "  ─────────────────────────");
-    nob_log(NOB_WARNING, "  TOTAL           : %8.1f ms", total_ms);
+    if (g_timings)
+    {
+        nob_log(TIMING_LEVEL, "──── Game Timings ─────");
+        nob_log(TIMING_LEVEL, "  game C          : %8.1f ms", game_c_ms);
+        nob_log(TIMING_LEVEL, "  link            : %8.1f ms", link_ms);
+        nob_log(TIMING_LEVEL, "  ─────────────────────────");
+        nob_log(TIMING_LEVEL, "  TOTAL           : %8.1f ms", total_ms);
+    }
 
     return true;
 }
@@ -836,6 +924,7 @@ bool build_test(const char* test_name)
     nob_cmd_append(&cmd, "clang");
 
     cmd_append_cflags(&cmd);
+    nob_cmd_append(&cmd, "-UTRACY_ENABLE");
 
     for (size_t i = 0; i < NOB_ARRAY_LEN(INCLUDE_PATHS); i++)
         nob_cmd_append(&cmd, INCLUDE_PATHS[i]);
@@ -863,7 +952,7 @@ bool build_widget_demo(const char* demo_name)
     const char* demo_out = nob_temp_sprintf(BUILD_DIR "/demo.%s", demo_name);
 
     static const char* WIDGET_DEMO_SOURCES[] = {
-        "melody/backtrace.c",
+        "melody/debug.backtrace.c",
         "melody/ui.widget.c",
         "melody/ui.layout.c",
         "melody/ui.layout.box.c",
@@ -925,92 +1014,13 @@ bool build_widget_demo(const char* demo_name)
 
 bool build_demo(const char* demo_name)
 {
+    if (!build_melody()) return false;
+
     const char* demo_src = nob_temp_sprintf("demos/demo.%s.c", demo_name);
     const char* demo_out = nob_temp_sprintf(BUILD_DIR "/demo.%s", demo_name);
+    const char* demo_obj = nob_temp_sprintf(BUILD_DIR "/demo.%s.o", demo_name);
 
     bool any_recompiled = false;
-    Nob_File_Paths c_files = {0};
-    Nob_File_Paths m_files = {0};
-    Nob_File_Paths obj_files = {0};
-
-    nob_da_append(&c_files, nob_temp_strdup("melody/backtrace.c"));
-    nob_da_append(&c_files, nob_temp_strdup("melody/app.c"));
-
-    Nob_File_Paths entries = {0};
-    if (!nob_read_entire_dir("melody", &entries)) return false;
-
-    for (size_t i = 0; i < entries.count; i++)
-    {
-        const char* name = entries.items[i];
-        if (name[0] == '.') continue;
-        size_t len = strlen(name);
-
-        bool is_ui_native = strncmp(name, "ui.native.", 10) == 0;
-        bool is_ui_layout = strncmp(name, "ui.layout.", 10) == 0;
-        bool is_ui_widget = strcmp(name, "ui.widget.c") == 0;
-        if (!is_ui_native && !is_ui_layout && !is_ui_widget) continue;
-
-        if (len > 2 && name[len-2] == '.' && name[len-1] == 'c')
-            nob_da_append(&c_files, nob_temp_strdup(nob_temp_sprintf("melody/%s", name)));
-    }
-
-    Nob_File_Paths osx_entries = {0};
-    if (!nob_read_entire_dir("melody/osx", &osx_entries)) return false;
-
-    for (size_t i = 0; i < osx_entries.count; i++)
-    {
-        const char* name = osx_entries.items[i];
-        if (name[0] == '.') continue;
-        size_t len = strlen(name);
-
-        if (len > 2 && name[len-2] == '.' && name[len-1] == 'm')
-            nob_da_append(&m_files, nob_temp_strdup(nob_temp_sprintf("melody/osx/%s", name)));
-    }
-
-    for (size_t i = 0; i < c_files.count; i++)
-    {
-        const char* src = c_files.items[i];
-        const char* base = strrchr(src, '/');
-        base = base ? base + 1 : src;
-
-        char obj_name[256];
-        snprintf(obj_name, sizeof(obj_name), "%s", base);
-        size_t len = strlen(obj_name);
-        obj_name[len - 1] = 'o';
-
-        const char* obj = nob_temp_sprintf(BUILD_DIR "/%s", obj_name);
-        nob_da_append(&obj_files, nob_temp_strdup(obj));
-
-        if (needs_compile(src, obj))
-        {
-            if (!compile_c_to_obj(src, obj)) return false;
-            any_recompiled = true;
-        }
-    }
-
-    for (size_t i = 0; i < m_files.count; i++)
-    {
-        const char* src = m_files.items[i];
-        const char* base = strrchr(src, '/');
-        base = base ? base + 1 : src;
-
-        char obj_name[256];
-        snprintf(obj_name, sizeof(obj_name), "%s", base);
-        size_t len = strlen(obj_name);
-        obj_name[len - 1] = 'o';
-
-        const char* obj = nob_temp_sprintf(BUILD_DIR "/%s", obj_name);
-        nob_da_append(&obj_files, nob_temp_strdup(obj));
-
-        if (needs_compile(src, obj))
-        {
-            if (!compile_m_to_obj(src, obj)) return false;
-            any_recompiled = true;
-        }
-    }
-
-    const char* demo_obj = nob_temp_sprintf(BUILD_DIR "/demo.%s.o", demo_name);
-    nob_da_append(&obj_files, nob_temp_strdup(demo_obj));
 
     if (needs_compile(demo_src, demo_obj))
     {
@@ -1018,21 +1028,16 @@ bool build_demo(const char* demo_name)
         any_recompiled = true;
     }
 
-    if (any_recompiled || nob_file_exists(demo_out) != 1)
+    const char* lib_dep = BUILD_DIR "/libmelody.a";
+    bool melody_changed = nob_needs_rebuild(demo_out, &lib_dep, 1) != 0;
+
+    if (any_recompiled || melody_changed || nob_file_exists(demo_out) != 1)
     {
         Nob_Cmd cmd = {0};
         nob_cmd_append(&cmd, "clang", "-g");
-
-        for (size_t i = 0; i < obj_files.count; i++)
-            nob_cmd_append(&cmd, obj_files.items[i]);
-
+        nob_cmd_append(&cmd, demo_obj);
         nob_cmd_append(&cmd, "-o", demo_out);
-        nob_cmd_append(&cmd, "-framework", "Cocoa");
-        nob_cmd_append(&cmd, "-lSDL3");
-        nob_cmd_append(&cmd, "-L/opt/homebrew/lib");
-        nob_cmd_append(&cmd, "-Wl,-rpath,/opt/homebrew/lib");
-        nob_cmd_append(&cmd, "-lm");
-        cmd_append_link_flags(&cmd);
+        cmd_append_melody_link_deps(&cmd);
 
         if (!nob_cmd_run_sync(cmd)) return false;
     }
@@ -1050,12 +1055,31 @@ bool run_test(const char* test_name)
 
 int main(int argc, char** argv)
 {
-    /* nob_minimal_log_level = NOB_WARNING; */
+    nob_minimal_log_level = NOB_WARNING;
     NOB_GO_REBUILD_URSELF(argc, argv);
 
     if (!nob_mkdir_if_not_exists(BUILD_DIR)) return 1;
 
     int arg_idx = 1;
+
+    while (arg_idx < argc && argv[arg_idx][0] == '-')
+    {
+        if (strcmp(argv[arg_idx], "--verbose") == 0)
+        {
+            g_verbose = true;
+            nob_minimal_log_level = NOB_INFO;
+        }
+        else if (strcmp(argv[arg_idx], "--timings") == 0)
+        {
+            g_timings = true;
+        }
+        else
+        {
+            nob_log(NOB_ERROR, "Unknown flag: %s", argv[arg_idx]);
+            return 1;
+        }
+        arg_idx++;
+    }
 
     if (arg_idx < argc && strcmp(argv[arg_idx], "release") == 0)
     {
@@ -1075,6 +1099,10 @@ int main(int argc, char** argv)
     if (strcmp(subcmd, "libs") == 0)
     {
         if (!build_libs()) return 1;
+    }
+    else if (strcmp(subcmd, "melody") == 0)
+    {
+        if (!build_melody()) return 1;
     }
     else if (strcmp(subcmd, "build") == 0)
     {
@@ -1128,7 +1156,7 @@ int main(int argc, char** argv)
     }
     else if (strcmp(subcmd, "demo") == 0)
     {
-        const char* demo = argc > 2 ? argv[2] : "nctrl";
+        const char* demo = (arg_idx + 1) < argc ? argv[arg_idx + 1] : "nctrl";
         nob_log(NOB_INFO, "Building demo: %s", demo);
 
         bool ok;
@@ -1168,9 +1196,12 @@ int main(int argc, char** argv)
     else
     {
         nob_log(NOB_ERROR, "Unknown command: %s", subcmd);
-        nob_log(NOB_INFO, "Usage: ./nob [release|sanitize] [libs|build|test|demo|run|run-only|debug|clean]");
+        nob_log(NOB_ERROR, "Usage: ./nob [--verbose] [--timings] [release|sanitize] [libs|melody|build|test|demo|run|run-only|debug|clean]");
         return 1;
     }
+
+    nob_minimal_log_level = NOB_INFO;
+    nob_log(NOB_INFO, "OK!");
 
     return 0;
 }

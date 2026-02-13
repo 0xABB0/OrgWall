@@ -1,7 +1,7 @@
 #ifndef MEL_TEST_H
 #define MEL_TEST_H
 
-#include "types.h"
+#include "core.types.h"
 #include <stdio.h>
 #include <string.h>
 #include <math.h>

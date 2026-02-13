@@ -1,4 +1,4 @@
-#include "editor.sprite.h"
+#include "ecs.2d.sprite.editor.h"
 #include "ecs.world.h"
 #include "ecs.2d.sprite.h"
 

@@ -1,10 +1,10 @@
 #ifndef MEL_EDITOR_REGISTRY_H
 #define MEL_EDITOR_REGISTRY_H
 
-#include "types.h"
+#include "core.types.h"
 #include "allocator.fwd.h"
 #include "string.str8.fwd.h"
-#include "array.h"
+#include "collection.array.h"
 
 #include <SDL3/SDL_events.h>
 

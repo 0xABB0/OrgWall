@@ -1,4 +1,4 @@
-#include "../melody/test.h"
+#include "../melody/test.harness.h"
 #include "../melody/ui.native.ctrl.h"
 #include <string.h>
 

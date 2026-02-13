@@ -1,7 +1,7 @@
 #ifndef MEL_ASSETS_SPRITESHEET_H
 #define MEL_ASSETS_SPRITESHEET_H
 
-#include "types.h"
+#include "core.types.h"
 #include "allocator.fwd.h"
 #include "gpu.texture.fwd.h"
 #include "string.str8.fwd.h"

@@ -1,4 +1,4 @@
-#include "../melody/test.h"
+#include "../melody/test.harness.h"
 #include "../melody/math.scalar.h"
 #include "../melody/math.easing.h"
 #include "../melody/math.vec2.h"

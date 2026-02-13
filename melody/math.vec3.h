@@ -1,8 +1,10 @@
 #pragma once
 
-#include "types.h"
+#include "core.types.h"
 #include "math.vec2.h"
 #include <math.h>
+
+typedef f32 f32x3 __attribute__((ext_vector_type(3)));
 
 typedef union
 {
@@ -20,6 +22,7 @@ typedef union
 #define MEL_VEC3_RIGHT   ((Mel_Vec3){ .v = (f32x3){1, 0, 0} })
 #define MEL_VEC3_FORWARD ((Mel_Vec3){ .v = (f32x3){0, 0, -1} })
 #define MEL_VEC3_BACK    ((Mel_Vec3){ .v = (f32x3){0, 0, 1} })
+#define MEL_VEC3(x, y, z) ((Mel_Vec3){ .v = (f32x3){(x), (y), (z)} })
 
 [[nodiscard]] static inline Mel_Vec3 mel_vec3(f32 x, f32 y, f32 z);
 [[nodiscard]] static inline Mel_Vec3 mel_vec3_add(Mel_Vec3 a, Mel_Vec3 b);

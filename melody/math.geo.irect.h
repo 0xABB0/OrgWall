@@ -1,6 +1,6 @@
 #pragma once
 
-#include "types.h"
+#include "core.types.h"
 #include "math.ivec2.h"
 #include "math.geo.rect.h"
 

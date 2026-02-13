@@ -1,6 +1,6 @@
 #pragma once
 
-#include "types.h"
+#include "core.types.h"
 #include "math.vec2.h"
 
 #define MEL_LAYOUTABLE_FLAG_GROUP_HEADER (1 << 0)

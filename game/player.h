@@ -1,7 +1,7 @@
 #ifndef MEL_CPLAYER_H
 #define MEL_CPLAYER_H
 
-#include "types.h"
+#include "core.types.h"
 
 #include <flecs.h>
 

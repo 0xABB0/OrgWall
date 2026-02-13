@@ -1,7 +1,7 @@
 #ifndef MEL_ECS_WORLD_H
 #define MEL_ECS_WORLD_H
 
-#include "types.h"
+#include "core.types.h"
 
 #include <flecs.h>
 

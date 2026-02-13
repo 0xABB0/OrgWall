@@ -17,14 +17,13 @@
 - [RENDERING] the engine should provide built-in rendering (sprites, etc) that works out of the box via the frame graph, without requiring ECS. App can add/remove passes.
 - [ARCH] implement view/input router (View struct, window_id, layer)
 - [EDITOR] implement reflection system (Type Descriptors) for generic inspection
-- [EDITOR] rename editor files to live alongside their domain (eg editor.tiles.h → tile.editor.h) — DISCUSS: naming convention, 18 files to move, build system handles autodiscovery
 - [ECS] replace hardcoded entity factories with prefab/blueprint system
 - [ECS] spatial partition for physics (grid/quadtree)
 - [TEST] expand test coverage to include ECS, Asset Registry, and VFS
 - [TEST] implement fuzz testing for custom allocators (Arena, Block, Buddy, etc.)
 - [TEST] strengthen tests overall — better test harness that could be used by the game itself (and even mods?)
 - [BUILD] use pkg-config or config file to remove hardcoded paths in nob.c
-- [BUILD] the build file is becoming too large, needs simplification
+- [BUILD] ~~the build file is becoming too large, needs simplification~~ DONE: melody built as libmelody.a, build_main/build_demo simplified, collect_lib_obj_paths removed
 - [DEMO] make a demo with a ton of animated sprites (same atlas, different frame, different parameters - size, direction, tint)
 - [DEMO] demo names should be more descriptive (eg demo.native.hello.\*) — file rename from demo\_* to demo.\* is done
 - [ENGINE] the engine should expose an "editor" system as entrypoint for every editor to register into. Multiple editors open at any time (even multiple instances of the same editor, pointing to different things).
@@ -38,7 +37,66 @@
 - [UPSTREAM] imgui SDL3 backend loses mouse capture during viewport drag/resize (ocornut/imgui#8591, #8869) — known upstream bug, track and update local copy when patched.
 - [h files] header inclusion cleanup — MOSTLY DONE: 17 headers fixed to use .fwd.h, 4 new .fwd.h files created. Remaining: gpu.\*.h chain (8 files include gpu.device.h for Vulkan/VMA types transitively — needs architectural discussion about a separate vulkan types header)
 - [PHYSICAL STRUCTURE] higher-level files (eg ui.widget.[c|h|.fwd.h]) should sort alphabetically above sub-modules (eg ui.widget.button.\*). Currently *.button comes before *.c
-- [PHYSICAL STRUCTURE] some modules don't follow domain.module.[submodule.]suffix: vma\_impl.cpp, types.h, engine.\*, backtrace.\*, test.h, spritesheet.\*, stb\_impl.c, platform.h, defs.h, app.h
-- [OLD FILES] array.h still exists (should be fully moved to collection.array.h) and assets.\* should not exist
+- [PHYSICAL STRUCTURE] ~~some modules don't follow domain.module.[submodule.]suffix: vma\_impl.cpp, types.h, engine.\*, backtrace.\*, test.h, spritesheet.\*, stb\_impl.c, platform.h, defs.h, app.h~~ DONE: renamed to core.types, core.defs, core.platform, core.engine, core.app, core.app.cli, debug.backtrace, test.harness, sprite.sheet, gpu.vma, lib.stb
+- [OLD FILES] assets.\* needs restructuring into VFS + async I/O — blocked on designing both those modules
 - [DISCUSS] is there a way to test for bad behaviour in memory access?
-- [ANIMATION] animation blending seems very very basic, we need something more.
+- [ANIMATION] animation blending seems very very basic, we need something more. confirmed. it's too basic
+- [MATH] ~~the type definition for the vector (ex: f64x2) should be inside the vector file itself, not in types.h~~ DONE: moved ext_vector_type typedefs to their respective math.vec/ivec/dvec headers, deleted unused u32x2/3/4
+- [DEMO] we need a demo for widget animations
+- [DEMO] we need a demo for spritesheet animations
+- [DEMO] we need a demo for cutscenes
+- [DEMO] we need a demo for sprites
+- [STRING] ~~Levenshtein's string edit distance algorithm~~ DONE: str8_levenshtein in string.str8.h/.c (two-row DP)
+- [STRING] Porter Stemmer algorithm
+- [STRING] String builder
+- [RENDERING] default white texture should be always available as the "zero asset" (invalid/default texture), not manually created per demo/app
+- [RENDERING] Mel_Font_Atlas_Entry should be internal — font draw should take a handle, not force users to fish out the entry
+- [ENGINE] Mel_Engine should not hold a reference to SDL_Window — already discussed multiple times, still there
+- [BUILD] ~~we should not let nob print all these lines by default. it should print the errors at the end (and an OK!). then, we could pass it params like verbose or timings, to print the compiler commands and the timings~~ DONE: default log level WARNING, --verbose enables INFO, --timings shows timing blocks, OK! always prints at end
+- [DEMO] we need to split demos and examples. demos only show one piece of the engine, examples show the full engine (discuss)
+- [EXAMPLE] we need to make a boomer shooter example
+- [EXAMPLE] we need to make a 3d example
+- [EXAMPLE] we need an example that merges 2d with 3d
+- [DEMO] text animations
+
+## Friction from demo.breakout / demo.pathfind / demo.anim (Feb 2025)
+
+- [SPRITE] shader source string (~40 lines of Slang HLSL) is copy-pasted identically into every demo/app. Provide a built-in default sprite shader (precompiled SPIR-V or shared constant). → update: all demos, demo.tetris.c, demo.snake.c
+- [SPRITE] pipeline + vertex binding + attribute + descriptor setup is ~30 lines of identical boilerplate per demo. Sprite batch should own or provide a default pipeline setup (eg `mel_sprite_batch_init_with_default_pipeline`). → update: sprite_batch.h/.c, all demos
+- [SPRITE] no `mel_sprite_batch_draw_uv` variant that takes rect/UV structs — passing 8 separate floats is verbose. Consider a struct-based overload. → update: sprite_batch.h/.c
+- [FONT] font atlas init is 5 steps of boilerplate every time (pool init, load, get entry, alloc descriptor, write texture). Should be reducible to 1-2 calls. → update: font.atlas.h/.c, all demos
+- [FONT] `mel_font_atlas_draw_text` silently switches the sprite batch's active texture. Callers must manually switch back afterward. This violates MEL-COMMAND-V (no hidden intentions). → update: font.atlas.c or sprite_batch.c (push/pop texture?)
+- [FONT] `Mel_Font_Atlas_Entry` is exposed to users just so they can pass it to draw. Font draw should take a handle instead. (duplicate of existing [RENDERING] item but adding context)
+- [ANIMATION] `mel_anim_state_player_init` zeroes `active_conditions` to NULL but doesn't allocate or accept a buffer. User must set it after init but before update/set_condition — null deref if forgotten. Should take a buffer param or assert non-null in set_condition. → update: anim.state.h/.c
+- [ANIMATION] state machine never auto-clears conditions after a transition fires. User must track state changes externally (eg prev_state comparison). Consider a transition callback or auto-clear flag on `Mel_Anim_Transition`. → update: anim.state.h/.c
+- [ANIMATION] `Mel_Anim_State_Def.name_hash` is unused internally — no lookup-by-hash function exists. Clarify purpose or add lookup. → update: anim.state.h/.c
+- [ASYNC] no way to cancel/abort a running coroutine externally. Only option is `mel_coro_destroy` on the entire context. Need `mel_coro_cancel` that returns a coroutine to the free list. → update: async.coro.h/.c
+- [GPU] texture struct doesn't expose width/height at the top level — must dig into `Mel_Gpu_Image` internals. → update: gpu.texture.h
+- [RENDERING] coordinate system is confusing: ortho(0, w, 0, h) suggests Y-up but sprites render Y-down. Worth documenting or standardizing. → update: docs or sprite_batch
+- [RENDERING] no built-in letterboxing/scaling for fixed-resolution games. Ortho projection uses swapchain extent which may differ from design resolution. → update: engine.h or new render utility
+
+## Friction from demo.easing / demo.rbtree / demo.skiplist / demo.trie (Feb 2025)
+
+- [RENDERING] no line drawing primitive in sprite batch — only axis-aligned rects. Curves are drawn as dot arrays (easing), tree/graph edges as L-shaped connectors (rbtree, skiplist, trie). Need at minimum `mel_sprite_batch_draw_line(batch, x1, y1, x2, y2, thickness, color)` for arbitrary-angle lines. → update: sprite_batch.h/.c, all demos
+- [TRIE] no "collect all words with prefix" API — `mel_trie_starts_with_str` returns bool only. demo.trie.c had to manually walk `Mel_TrieNode` internals (children, child_keys, child_count, has_value) via custom DFS (~50 lines). Need `mel_trie_collect_prefix_str` or similar. → update: collection.trie.h/.c
+- [COLLECTION] `void*` key pattern requires verbose `(void*)(intptr_t)value` casts on every insert/find/remove. Consider convenience macros like `mel_rbtree_insert_int` for common integer key case. → update: collection.rbtree.h, collection.skiplist.h, collection.trie.h
+- [INPUT] SDL3 scancode ordering gotcha: SDL_SCANCODE_0 (39) comes AFTER SDL_SCANCODE_9 (38), making naive `>= _0 && <= _9` range checks always false (caught by -Wtautological-overlap-compare). Same for keypad. Consider `mel_scancode_to_digit` utility. → update: new input utility or docs
+
+
+## Verifications:
+
+- [ANIMATIONS] 100% feature parity with /Users/gabbo/repo/suck/spine-runtimes/spine-c/
+- [ASYNC] 100% feature parity with /Users/gabbo/repo/suck/sx/include/sx/fiber.h and jobs.h
+- [NATIVE UI] 100% feature parity with /Users/gabbo/repo/suck/nappgui\_src/src/nappgui.h (and SDL\_Window)
+- [UI] [LAYOUT] 100% feature parity with /Users/gabbo/repo/suck/nanogui/
+- [RENDERING] 100% reimplementation of the following nvidia examples:
+ - /Users/gabbo/repo/suck/RTXDI/
+ - /Users/gabbo/repo/suck/RTXGI/
+ - /Users/gabbo/repo/suck/RTXMG/
+ - /Users/gabbo/repo/suck/RTXNS/
+ - /Users/gabbo/repo/suck/RTXNTC/
+ - /Users/gabbo/repo/suck/RTXPT/
+ - /Users/gabbo/repo/suck/RTXTF/
+ - /Users/gabbo/repo/suck/RTXTS/
+- [ALLOCATORS] 100% feature parity with /Users/gabbo/repo/suck/VMem/
+- [DEMOS] 100% reimplementation of these examples: /Users/gabbo/repo/suck/island/apps/examples/

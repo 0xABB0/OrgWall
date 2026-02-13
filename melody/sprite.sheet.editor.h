@@ -1,9 +1,9 @@
 #ifndef MEL_EDITOR_SPRITESHEET_H
 #define MEL_EDITOR_SPRITESHEET_H
 
-#include "types.h"
+#include "core.types.h"
 #include "allocator.fwd.h"
-#include "spritesheet.fwd.h"
+#include "sprite.sheet.fwd.h"
 #include "texture.pool.fwd.h"
 
 typedef struct

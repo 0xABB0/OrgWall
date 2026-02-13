@@ -1,6 +1,6 @@
 #pragma once
 
-#include "types.h"
+#include "core.types.h"
 #include "allocator.fwd.h"
 
 #define MEL_RB_RED   0
@@ -42,3 +42,8 @@ usize mel_rbtree_count(Mel_RBTree* tree);
 bool mel_rbtree_empty(Mel_RBTree* tree);
 void mel_rbtree_clear(Mel_RBTree* tree);
 bool mel_rbtree_contains(Mel_RBTree* tree, void* key);
+
+static inline bool mel_rbtree_is_nil(Mel_RBTree* tree, Mel_RBNode* node)
+{
+    return node == &tree->nil_node;
+}

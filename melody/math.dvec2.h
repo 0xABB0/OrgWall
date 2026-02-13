@@ -1,7 +1,9 @@
 #pragma once
 
-#include "types.h"
+#include "core.types.h"
 #include "math.vec2.h"
+
+typedef f64 f64x2 __attribute__((ext_vector_type(2)));
 
 typedef union
 {

@@ -39,3 +39,8 @@ The engine should make everything you want to do easy, without taking away the c
 - Multi-Window applications
 - Multiple "main"(event?) loops (threaded or single threaded)
 - Rendering to multiple windows that sit on different displays with refresh rates (no throttling the faster and neither by skipping rendering of the slowest)
+
+
+The focus when writing code in this repo are:
+- performance
+- runtime extendability: game can implement things without editing game code. same for mods. (this is why it's preferred to use dynamic structures when possible, and registry patterns)

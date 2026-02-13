@@ -1,7 +1,7 @@
 #ifndef MEL_EDITOR_H
 #define MEL_EDITOR_H
 
-#include "types.h"
+#include "core.types.h"
 #include "string.str8.fwd.h"
 #include "editor.registry.fwd.h"
 #include "texture.pool.fwd.h"

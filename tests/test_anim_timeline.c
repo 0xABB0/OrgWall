@@ -29,7 +29,7 @@ TEST(test_advance_through_keyframes)
         .keyframes = g_frames_3,
         .events = nullptr,
         .keyframe_count = 3,
-        .total_duration = 0.3f,
+
         .loop = false,
     };
 
@@ -55,7 +55,7 @@ TEST(test_looping_wraps)
         .keyframes = g_frames_3,
         .events = nullptr,
         .keyframe_count = 3,
-        .total_duration = 0.3f,
+
         .loop = true,
     };
 
@@ -74,7 +74,7 @@ TEST(test_non_loop_finishes)
         .keyframes = g_frames_3,
         .events = nullptr,
         .keyframe_count = 3,
-        .total_duration = 0.3f,
+
         .loop = false,
     };
 
@@ -93,7 +93,7 @@ TEST(test_events_at_correct_frame)
         .keyframes = g_frames_3,
         .events = g_events_3,
         .keyframe_count = 3,
-        .total_duration = 0.3f,
+
         .loop = false,
     };
 
@@ -120,7 +120,7 @@ TEST(test_stop_restart)
         .keyframes = g_frames_3,
         .events = nullptr,
         .keyframe_count = 3,
-        .total_duration = 0.3f,
+
         .loop = true,
     };
 
@@ -153,7 +153,7 @@ TEST(test_duration_accumulation)
         .keyframes = frames,
         .events = nullptr,
         .keyframe_count = 3,
-        .total_duration = 1.0f,
+
         .loop = false,
     };
 

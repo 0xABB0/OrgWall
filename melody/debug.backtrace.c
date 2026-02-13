@@ -1,5 +1,5 @@
-#include "backtrace.h"
-#include "platform.h"
+#include "debug.backtrace.h"
+#include "core.platform.h"
 
 #if MEL_PLATFORM_POSIX
 #include <signal.h>

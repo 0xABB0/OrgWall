@@ -1,6 +1,6 @@
 #pragma once
 
-#include "types.h"
+#include "core.types.h"
 #include "anim.timeline.fwd.h"
 
 struct Mel_Anim_Keyframe {
@@ -25,7 +25,6 @@ struct Mel_Anim_Timeline {
     Mel_Anim_Keyframe* keyframes;
     Mel_Anim_Event* events;
     u32 keyframe_count;
-    f32 total_duration;
     bool loop;
 };
 

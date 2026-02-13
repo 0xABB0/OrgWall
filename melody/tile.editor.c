@@ -1,4 +1,4 @@
-#include "editor.tiles.h"
+#include "tile.editor.h"
 #include "tile.set.h"
 #include "tile.map.h"
 #include "texture.pool.h"

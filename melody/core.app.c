@@ -1,5 +1,5 @@
-#include "app.h"
-#include "backtrace.h"
+#include "core.app.h"
+#include "debug.backtrace.h"
 
 void mel__engine_init(void)
 {

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "types.h"
+#include "core.types.h"
 
 typedef struct { u32 value; } Mel_Texture_Handle;
 #define MEL_TEXTURE_HANDLE_NULL ((Mel_Texture_Handle){0})

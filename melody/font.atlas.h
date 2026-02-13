@@ -1,6 +1,6 @@
 #pragma once
 
-#include "types.h"
+#include "core.types.h"
 #include "allocator.fwd.h"
 #include "string.str8.fwd.h"
 #include "font.atlas.fwd.h"
@@ -11,7 +11,7 @@
 #include "collection.hashmap.h"
 #include "math.vec2.h"
 #include "math.vec4.h"
-#include "sprite_batch.fwd.h"
+#include "sprite.batch.fwd.h"
 
 struct Mel_Font_Atlas_Entry {
     Mel_Font_Descriptor desc;

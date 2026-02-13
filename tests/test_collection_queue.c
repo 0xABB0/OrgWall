@@ -1,4 +1,4 @@
-#include "../melody/test.h"
+#include "../melody/test.harness.h"
 #include "../melody/allocator.h"
 #include "../melody/allocator.heap.h"
 #include "../melody/collection.queue.h"
