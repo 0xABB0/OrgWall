@@ -1,5 +1,4 @@
-#ifndef MEL_GPU_SHADER_H
-#define MEL_GPU_SHADER_H
+#pragma once
 
 #include "gpu.device.h"
 
@@ -48,6 +47,4 @@ void mel_slang_shutdown(void);
 
 #ifdef __cplusplus
 }
-#endif
-
 #endif

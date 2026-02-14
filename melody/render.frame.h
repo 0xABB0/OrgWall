@@ -1,5 +1,4 @@
-#ifndef MEL_RENDER_FRAME_H
-#define MEL_RENDER_FRAME_H
+#pragma once
 
 #include "gpu.device.h"
 #include "gpu.swapchain.fwd.h"
@@ -46,5 +45,3 @@ void mel_render_frame_end(Mel_Render_Frame* rf);
 VkCommandBuffer mel_render_frame_cmd(Mel_Render_Frame* rf);
 
 Mel_Render_Frame_Data* mel_render_frame_current(Mel_Render_Frame* rf);
-
-#endif

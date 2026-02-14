@@ -1,5 +1,4 @@
-#ifndef MEL_GPU_IMAGE_H
-#define MEL_GPU_IMAGE_H
+#pragma once
 
 #include "gpu.device.h"
 
@@ -49,5 +48,3 @@ void mel_gpu_image_transition_subresource(Mel_Gpu_Image* img, VkCommandBuffer cm
                                           u32 mip, u32 layer, VkImageLayout new_layout);
 
 Mel_Gpu_Image_State mel_gpu_image_state(Mel_Gpu_Image* img, u32 mip, u32 layer);
-
-#endif

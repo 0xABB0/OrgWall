@@ -1,8 +1,7 @@
-#ifndef MEL_RENDER_GRAPH_H
-#define MEL_RENDER_GRAPH_H
+#pragma once
 
 #include "core.types.h"
-#include "allocator.h"
+#include "allocator.fwd.h"
 #include "string.str8.fwd.h"
 
 #define VK_NO_PROTOTYPES
@@ -73,5 +72,3 @@ void mel_render_graph_pass_depends_on(Mel_Render_Graph* g, u32 pass_id, u32 depe
 bool mel_render_graph_build(Mel_Render_Graph* g);
 
 void mel_render_graph_execute(Mel_Render_Graph* g, Mel_Gpu_Cmd* cmd);
-
-#endif

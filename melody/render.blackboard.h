@@ -1,8 +1,7 @@
-#ifndef MEL_RENDER_BLACKBOARD_H
-#define MEL_RENDER_BLACKBOARD_H
+#pragma once
 
 #include "core.types.h"
-#include "allocator.h"
+#include "allocator.fwd.h"
 #include "string.str8.fwd.h"
 
 typedef struct Mel_Render_Blackboard Mel_Render_Blackboard;
@@ -30,5 +29,3 @@ void mel_render_blackboard_set(Mel_Render_Blackboard* bb, str8 name, const void*
 void* mel_render_blackboard_get(Mel_Render_Blackboard* bb, str8 name);
 bool mel_render_blackboard_has(Mel_Render_Blackboard* bb, str8 name);
 void mel_render_blackboard_clear(Mel_Render_Blackboard* bb);
-
-#endif

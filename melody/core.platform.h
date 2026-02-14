@@ -1,5 +1,4 @@
-#ifndef MEL_PLATFORM_H
-#define MEL_PLATFORM_H
+#pragma once
 
 #define MEL_PLATFORM_WINDOWS  0
 #define MEL_PLATFORM_OSX      0
@@ -61,6 +60,4 @@
     #define MEL_CPU_X86 1
     #undef  MEL_ARCH_32BIT
     #define MEL_ARCH_32BIT 1
-#endif
-
 #endif

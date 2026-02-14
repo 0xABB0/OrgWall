@@ -1,10 +1,9 @@
-#ifndef MEL_EDITOR_REGISTRY_H
-#define MEL_EDITOR_REGISTRY_H
+#pragma once
 
 #include "core.types.h"
 #include "allocator.fwd.h"
 #include "string.str8.fwd.h"
-#include "collection.array.h"
+#include "collection.array.fwd.h"
 
 #include <SDL3/SDL_events.h>
 
@@ -57,5 +56,3 @@ void mel_ed_registry_draw(Mel_EdRegistry* reg, f32 dt);
 void mel_ed_registry_process_event(Mel_EdRegistry* reg, SDL_Event* event);
 usize mel_ed_registry_count(Mel_EdRegistry* reg);
 Mel_EdEntry* mel_ed_registry_at(Mel_EdRegistry* reg, usize idx);
-
-#endif

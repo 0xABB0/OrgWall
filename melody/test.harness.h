@@ -1,5 +1,4 @@
-#ifndef MEL_TEST_H
-#define MEL_TEST_H
+#pragma once
 
 #include "core.types.h"
 #include <stdio.h>
@@ -118,5 +117,3 @@ static Mel_Test_Context s_test_ctx = {0};
 } while (0)
 
 #define MEL_TEST_EXIT_CODE() (s_test_ctx.failed > 0 ? 1 : 0)
-
-#endif

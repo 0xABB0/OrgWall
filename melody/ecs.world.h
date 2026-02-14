@@ -1,5 +1,4 @@
-#ifndef MEL_ECS_WORLD_H
-#define MEL_ECS_WORLD_H
+#pragma once
 
 #include "core.types.h"
 
@@ -13,5 +12,3 @@ typedef struct
 void mel_ecs_init(Mel_ECS* ecs);
 void mel_ecs_shutdown(Mel_ECS* ecs);
 void mel_ecs_update(Mel_ECS* ecs, f32 dt);
-
-#endif

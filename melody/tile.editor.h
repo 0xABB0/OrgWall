@@ -1,5 +1,4 @@
-#ifndef MEL_EDITOR_TILES_H
-#define MEL_EDITOR_TILES_H
+#pragma once
 
 #include "core.types.h"
 #include "allocator.fwd.h"
@@ -105,5 +104,3 @@ void mel_ed_tiles_brush_rotate_cw(Mel_EdTiles* ed);
 void mel_ed_tiles_paint(Mel_EdTiles* ed, i32 x, i32 y);
 void mel_ed_tiles_erase(Mel_EdTiles* ed, i32 x, i32 y);
 void mel_ed_tiles_fill(Mel_EdTiles* ed, i32 x, i32 y);
-
-#endif

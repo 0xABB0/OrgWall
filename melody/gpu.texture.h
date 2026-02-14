@@ -1,5 +1,4 @@
-#ifndef MEL_GPU_TEXTURE_H
-#define MEL_GPU_TEXTURE_H
+#pragma once
 
 #include "gpu.image.h"
 #include "string.str8.fwd.h"
@@ -26,5 +25,3 @@ void mel_gpu_texture_init_opt(Mel_Gpu_Texture* tex, Mel_Gpu_Device* dev, Mel_Gpu
 void mel_gpu_texture_init_white(Mel_Gpu_Texture* tex, Mel_Gpu_Device* dev);
 
 void mel_gpu_texture_shutdown(Mel_Gpu_Texture* tex, Mel_Gpu_Device* dev);
-
-#endif

@@ -1,5 +1,4 @@
-#ifndef MEL_ASSETS_SPRITESHEET_H
-#define MEL_ASSETS_SPRITESHEET_H
+#pragma once
 
 #include "core.types.h"
 #include "allocator.fwd.h"
@@ -96,5 +95,3 @@ bool mel_frame_event_has_tag(Mel_FrameEvent* event, str8 tag);
 Mel_Animation* mel_spritesheet_add_animation(Mel_Spritesheet* sheet, str8 name);
 void mel_animation_add_frame(Mel_Animation* anim, const Mel_Alloc* alloc, u32 frame_index, f32 duration);
 void mel_animation_set_frame_event(Mel_Animation* anim, const Mel_Alloc* alloc, u32 anim_frame_idx, Mel_FrameEvent event);
-
-#endif

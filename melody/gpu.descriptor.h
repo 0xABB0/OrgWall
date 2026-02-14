@@ -1,5 +1,4 @@
-#ifndef MEL_GPU_DESCRIPTOR_H
-#define MEL_GPU_DESCRIPTOR_H
+#pragma once
 
 #include "gpu.device.h"
 
@@ -62,5 +61,3 @@ void mel_gpu_descriptor_write_buffer(Mel_Gpu_Device* dev, VkDescriptorSet set,
                                      VkDescriptorType type);
 
 void mel_gpu_descriptor_bind(VkCommandBuffer cmd, VkPipelineLayout layout, VkDescriptorSet set);
-
-#endif

@@ -1,5 +1,4 @@
-#ifndef MEL_TYPES_H
-#define MEL_TYPES_H
+#pragma once
 
 #include <stdint.h>
 #include <stddef.h>
@@ -30,5 +29,3 @@ static_assert(sizeof(f32) == 4, "f32 must be 4 bytes");
 static_assert(sizeof(f64) == 8, "f64 must be 8 bytes");
 
 #define MEL_UNUSED(x) ((void)(x))
-
-#endif

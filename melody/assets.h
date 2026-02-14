@@ -1,5 +1,4 @@
-#ifndef MEL_ASSETS_H
-#define MEL_ASSETS_H
+#pragma once
 
 #include "core.types.h"
 #include "string.str8.fwd.h"
@@ -41,5 +40,3 @@ char** mel_assets_list(str8 path, u32* out_count);
 void mel_assets_list_free(char** list);
 
 bool mel_assets_import_file(str8 filesystem_path, str8 dest_name);
-
-#endif

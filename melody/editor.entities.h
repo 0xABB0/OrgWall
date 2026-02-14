@@ -1,9 +1,8 @@
-#ifndef MEL_EDITOR_ENTITIES_H
-#define MEL_EDITOR_ENTITIES_H
+#pragma once
 
 #include "core.types.h"
 #include "allocator.fwd.h"
-#include "collection.array.h"
+#include "collection.array.fwd.h"
 #include "ecs.world.fwd.h"
 
 typedef bool (*Mel_ComponentInspector_Fn)(ecs_world_t* world, ecs_entity_t e);
@@ -34,5 +33,3 @@ void mel_ed_entities_shutdown(Mel_EdEntities* ed);
 void mel_ed_entities_set_world(Mel_EdEntities* ed, ecs_world_t* world);
 void mel_ed_entities_draw(Mel_EdEntities* ed, f32 dt);
 void mel_ed_entities_register_inspector(Mel_EdEntities* ed, Mel_ComponentInspector_Fn fn);
-
-#endif

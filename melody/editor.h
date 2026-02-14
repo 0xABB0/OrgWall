@@ -1,5 +1,4 @@
-#ifndef MEL_EDITOR_H
-#define MEL_EDITOR_H
+#pragma once
 
 #include "core.types.h"
 #include "string.str8.fwd.h"
@@ -38,5 +37,3 @@ void mel_game_editor_draw(Mel_GameEditor* ge, f32 dt);
 void mel_game_editor_toggle(Mel_GameEditor* ge);
 
 void mel_game_editor_show_texture_picker(Mel_GameEditor* ge, Mel_TexturePickerCallback cb, void* userdata);
-
-#endif

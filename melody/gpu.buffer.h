@@ -1,5 +1,4 @@
-#ifndef MEL_GPU_BUFFER_H
-#define MEL_GPU_BUFFER_H
+#pragma once
 
 #include "gpu.device.h"
 
@@ -34,5 +33,3 @@ void mel_gpu_buffer_flush(Mel_Gpu_Buffer* buf, Mel_Gpu_Device* dev);
 
 void mel_gpu_buffer_upload(Mel_Gpu_Buffer* buf, Mel_Gpu_Device* dev,
                            const void* data, VkDeviceSize size, VkDeviceSize offset);
-
-#endif

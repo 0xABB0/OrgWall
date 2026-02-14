@@ -840,6 +840,12 @@ static const char* STR8_SOURCES[] = {
     "melody/allocator.heap.c",
 };
 
+static const char* EVENT_CHANNEL_SOURCES[] = {
+    "melody/event.channel.c",
+    "melody/allocator.c",
+    "melody/allocator.heap.c",
+};
+
 typedef struct {
     const char** sources;
     size_t count;
@@ -888,6 +894,8 @@ static Test_Source_Set test_source_set_for(const char* test_name)
         return (Test_Source_Set){ ANIM_TIMELINE_SOURCES, NOB_ARRAY_LEN(ANIM_TIMELINE_SOURCES), false };
     if (strcmp(test_name, "string_str8") == 0)
         return (Test_Source_Set){ STR8_SOURCES, NOB_ARRAY_LEN(STR8_SOURCES), false };
+    if (strcmp(test_name, "event_channel") == 0)
+        return (Test_Source_Set){ EVENT_CHANNEL_SOURCES, NOB_ARRAY_LEN(EVENT_CHANNEL_SOURCES), false };
     return (Test_Source_Set){ ALLOCATOR_SOURCES, NOB_ARRAY_LEN(ALLOCATOR_SOURCES), false };
 }
 
@@ -1110,7 +1118,7 @@ int main(int argc, char** argv)
     }
     else if (strcmp(subcmd, "test") == 0)
     {
-        const char* tests[] = { "math", "memory", "heap", "leak", "tracking", "arena", "pool", "stack", "block", "ring", "buddy", "slab", "nctrl", "fiber", "coro", "widget", "xxh", "gpu_format", "render_graph", "render_blackboard", "collection_array", "collection_queue", "collection_deque", "collection_ring", "collection_llist", "collection_heap", "collection_list", "collection_rbtree", "collection_skiplist", "collection_trie", "collection_sort", "collection_btree", "collection_bitset", "collection_hashmap", "collection_set", "collection_slotmap", "anim_timeline", "string_str8" };
+        const char* tests[] = { "math", "memory", "heap", "leak", "tracking", "arena", "pool", "stack", "block", "ring", "buddy", "slab", "nctrl", "fiber", "coro", "widget", "xxh", "gpu_format", "render_graph", "render_blackboard", "collection_array", "collection_queue", "collection_deque", "collection_ring", "collection_llist", "collection_heap", "collection_list", "collection_rbtree", "collection_skiplist", "collection_trie", "collection_sort", "collection_btree", "collection_bitset", "collection_hashmap", "collection_set", "collection_slotmap", "anim_timeline", "string_str8", "event_channel" };
         bool all_passed = true;
 
         for (size_t i = 0; i < NOB_ARRAY_LEN(tests); i++)

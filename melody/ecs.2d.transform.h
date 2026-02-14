@@ -1,5 +1,4 @@
-#ifndef MEL_ECS_2D_TRANSFORM_H
-#define MEL_ECS_2D_TRANSFORM_H
+#pragma once
 
 #include "core.types.h"
 #include "math.vec2.h"
@@ -15,5 +14,3 @@ typedef struct
 extern ECS_COMPONENT_DECLARE(Mel_CTransform);
 void mel_component_transform_register(ecs_world_t* world);
 bool mel_ed_transform_draw(ecs_world_t* world, ecs_entity_t e);
-
-#endif

@@ -1,5 +1,4 @@
-#ifndef MEL_ASSETS_TEXTURE_H
-#define MEL_ASSETS_TEXTURE_H
+#pragma once
 
 #include "gpu.texture.fwd.h"
 #include "gpu.pipeline.fwd.h"
@@ -10,5 +9,3 @@ typedef struct Mel_Assets Mel_Assets;
 
 bool mel_texture_load(Mel_Gpu_Texture* tex, Mel_Gpu_Device* dev, Mel_Assets* assets, str8 path);
 bool mel_texture_load_and_bind(Mel_Gpu_Texture* tex, Mel_Gpu_Device* dev, Mel_Gpu_Pipeline* pipeline, Mel_Assets* assets, str8 path);
-
-#endif

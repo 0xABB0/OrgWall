@@ -1,5 +1,4 @@
-#ifndef MEL_GPU_CMD_H
-#define MEL_GPU_CMD_H
+#pragma once
 
 #include "gpu.device.h"
 #include "gpu.image.fwd.h"
@@ -61,5 +60,3 @@ void mel_gpu_cmd_image_barrier(Mel_Gpu_Cmd* c,
                                VkImageAspectFlags aspect);
 
 void mel_gpu_cmd_transition_image(Mel_Gpu_Cmd* c, Mel_Gpu_Image* image, VkImageLayout new_layout);
-
-#endif

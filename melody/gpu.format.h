@@ -1,5 +1,4 @@
-#ifndef MEL_GPU_FORMAT_H
-#define MEL_GPU_FORMAT_H
+#pragma once
 
 #include "core.types.h"
 
@@ -11,5 +10,3 @@ bool mel_gpu_format_has_depth(VkFormat format);
 bool mel_gpu_format_has_stencil(VkFormat format);
 bool mel_gpu_format_is_compressed(VkFormat format);
 VkImageAspectFlags mel_gpu_format_aspect(VkFormat format);
-
-#endif

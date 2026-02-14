@@ -9,7 +9,7 @@
 - [CORE] implement CVar registry (console variables for runtime tuning) - new module
 - [CORE] melody should handle much more initialization autonomously (vulkan, editors, etc). The app should dictate what it wants from melody via MEL\_APP params or similar.
 - [SYSTEM] implement basic audio system (audio.h/c)
-- [SYSTEM] implement distributed event system (specialized queues, no global bus)
+- [SYSTEM] ~~implement distributed event system (specialized queues, no global bus)~~ PARTIAL: event.channel primitive done (typed pub/sub, sync callbacks, decoupled wiring). Remaining: integrate into engine systems (SDL event conversion, ECS hooks, editor), build dispatcher layer if needed for many-to-many routing
 - [SYSTEM] implement input action mapper (input.h)
 - [SYSTEM] implement serialization/config system
 - [RENDER] implement render graph (data-driven passes)
@@ -58,6 +58,8 @@
 - [EXAMPLE] we need to make a 3d example
 - [EXAMPLE] we need an example that merges 2d with 3d
 - [DEMO] text animations
+- [FIX][DEMO] demo trie is broken. it flickers
+- [FIX][DEMO] demo pathfind is broken. when it renders without walls, there are a ton of artefacts, and the grid breaks.
 
 ## Friction from demo.breakout / demo.pathfind / demo.anim (Feb 2025)
 

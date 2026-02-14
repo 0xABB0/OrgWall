@@ -1,5 +1,4 @@
-#ifndef MEL_GPU_DEVICE_H
-#define MEL_GPU_DEVICE_H
+#pragma once
 
 #include "core.types.h"
 #include "allocator.h"
@@ -52,5 +51,3 @@ bool mel_gpu_device_init_opt(Mel_Gpu_Device* dev, Mel_Gpu_Device_Opt opt);
 
 void mel_gpu_device_shutdown(Mel_Gpu_Device* dev);
 void mel_gpu_device_wait_idle(Mel_Gpu_Device* dev);
-
-#endif

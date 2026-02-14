@@ -1,5 +1,4 @@
-#ifndef MEL_GPU_SWAPCHAIN_H
-#define MEL_GPU_SWAPCHAIN_H
+#pragma once
 
 #include "gpu.device.h"
 
@@ -35,5 +34,3 @@ void mel_gpu_swapchain_recreate(Mel_Gpu_Swapchain* sc, Mel_Gpu_Device* dev, u32 
 
 bool mel_gpu_swapchain_acquire(Mel_Gpu_Swapchain* sc, Mel_Gpu_Device* dev, VkSemaphore signal_semaphore);
 bool mel_gpu_swapchain_present(Mel_Gpu_Swapchain* sc, Mel_Gpu_Device* dev, VkSemaphore wait_semaphore);
-
-#endif

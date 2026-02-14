@@ -1,5 +1,4 @@
-#ifndef MEL_COLLECTION_QUEUE_H
-#define MEL_COLLECTION_QUEUE_H
+#pragma once
 
 #include "allocator.h"
 #include <string.h>
@@ -70,5 +69,3 @@
 } while (0)
 
 #define mel_queue_at(q, i) ((q)->items[((q)->head + (i)) % (q)->capacity])
-
-#endif

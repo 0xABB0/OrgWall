@@ -1,5 +1,4 @@
-#ifndef MEL_EDITOR_SPRITESHEET_H
-#define MEL_EDITOR_SPRITESHEET_H
+#pragma once
 
 #include "core.types.h"
 #include "allocator.fwd.h"
@@ -43,5 +42,3 @@ void mel_ed_spritesheet_shutdown(Mel_EdSpritesheet* ed);
 
 void mel_ed_spritesheet_set(Mel_EdSpritesheet* ed, Mel_Spritesheet* sheet);
 void mel_ed_spritesheet_draw(Mel_EdSpritesheet* ed, f32 dt);
-
-#endif

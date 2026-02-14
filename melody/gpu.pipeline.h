@@ -1,5 +1,4 @@
-#ifndef MEL_GPU_PIPELINE_H
-#define MEL_GPU_PIPELINE_H
+#pragma once
 
 #include "gpu.device.h"
 #include "gpu.shader.fwd.h"
@@ -63,6 +62,4 @@ void mel_gpu_pipeline_write_texture(Mel_Gpu_Pipeline* pipeline, Mel_Gpu_Device* 
 
 #ifdef __cplusplus
 }
-#endif
-
 #endif
