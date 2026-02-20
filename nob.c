@@ -827,8 +827,42 @@ static const char* SLOTMAP_SOURCES[] = {
     "melody/allocator.heap.c",
 };
 
-static const char* ANIM_TIMELINE_SOURCES[] = {
-    "melody/anim.timeline.c",
+static const char* MATH_CURVE_SOURCES[] = {
+    "melody/math.curve.c",
+};
+
+static const char* ANIM_TRACK_SOURCES[] = {
+    "melody/math.curve.c",
+    "melody/anim.track.c",
+    "melody/allocator.c",
+    "melody/allocator.heap.c",
+};
+
+static const char* ANIM_CLIP_SOURCES[] = {
+    "melody/math.curve.c",
+    "melody/anim.track.c",
+    "melody/anim.clip.c",
+    "melody/allocator.c",
+    "melody/allocator.heap.c",
+};
+
+static const char* ANIM_MIXER_SOURCES[] = {
+    "melody/math.curve.c",
+    "melody/anim.track.c",
+    "melody/anim.clip.c",
+    "melody/anim.mixer.c",
+    "melody/event.channel.c",
+    "melody/allocator.c",
+    "melody/allocator.heap.c",
+};
+
+static const char* ANIM_STATE_SOURCES[] = {
+    "melody/math.curve.c",
+    "melody/anim.track.c",
+    "melody/anim.clip.c",
+    "melody/anim.mixer.c",
+    "melody/anim.state.c",
+    "melody/event.channel.c",
     "melody/allocator.c",
     "melody/allocator.heap.c",
 };
@@ -844,6 +878,11 @@ static const char* EVENT_CHANNEL_SOURCES[] = {
     "melody/event.channel.c",
     "melody/allocator.c",
     "melody/allocator.heap.c",
+};
+
+static const char* SIM_CTX_SOURCES[] = {
+    "melody/sim.ctx.c",
+    "melody/allocator.block.c",
 };
 
 typedef struct {
@@ -890,12 +929,22 @@ static Test_Source_Set test_source_set_for(const char* test_name)
         return (Test_Source_Set){ RENDER_BLACKBOARD_SOURCES, NOB_ARRAY_LEN(RENDER_BLACKBOARD_SOURCES), false };
     if (strcmp(test_name, "collection_slotmap") == 0)
         return (Test_Source_Set){ SLOTMAP_SOURCES, NOB_ARRAY_LEN(SLOTMAP_SOURCES), false };
-    if (strcmp(test_name, "anim_timeline") == 0)
-        return (Test_Source_Set){ ANIM_TIMELINE_SOURCES, NOB_ARRAY_LEN(ANIM_TIMELINE_SOURCES), false };
+    if (strcmp(test_name, "math_curve") == 0)
+        return (Test_Source_Set){ MATH_CURVE_SOURCES, NOB_ARRAY_LEN(MATH_CURVE_SOURCES), false };
+    if (strcmp(test_name, "anim_track") == 0)
+        return (Test_Source_Set){ ANIM_TRACK_SOURCES, NOB_ARRAY_LEN(ANIM_TRACK_SOURCES), false };
+    if (strcmp(test_name, "anim_clip") == 0)
+        return (Test_Source_Set){ ANIM_CLIP_SOURCES, NOB_ARRAY_LEN(ANIM_CLIP_SOURCES), false };
+    if (strcmp(test_name, "anim_mixer") == 0)
+        return (Test_Source_Set){ ANIM_MIXER_SOURCES, NOB_ARRAY_LEN(ANIM_MIXER_SOURCES), false };
+    if (strcmp(test_name, "anim_state") == 0)
+        return (Test_Source_Set){ ANIM_STATE_SOURCES, NOB_ARRAY_LEN(ANIM_STATE_SOURCES), false };
     if (strcmp(test_name, "string_str8") == 0)
         return (Test_Source_Set){ STR8_SOURCES, NOB_ARRAY_LEN(STR8_SOURCES), false };
     if (strcmp(test_name, "event_channel") == 0)
         return (Test_Source_Set){ EVENT_CHANNEL_SOURCES, NOB_ARRAY_LEN(EVENT_CHANNEL_SOURCES), false };
+    if (strcmp(test_name, "sim_ctx") == 0)
+        return (Test_Source_Set){ SIM_CTX_SOURCES, NOB_ARRAY_LEN(SIM_CTX_SOURCES), false };
     return (Test_Source_Set){ ALLOCATOR_SOURCES, NOB_ARRAY_LEN(ALLOCATOR_SOURCES), false };
 }
 
@@ -1118,7 +1167,7 @@ int main(int argc, char** argv)
     }
     else if (strcmp(subcmd, "test") == 0)
     {
-        const char* tests[] = { "math", "memory", "heap", "leak", "tracking", "arena", "pool", "stack", "block", "ring", "buddy", "slab", "nctrl", "fiber", "coro", "widget", "xxh", "gpu_format", "render_graph", "render_blackboard", "collection_array", "collection_queue", "collection_deque", "collection_ring", "collection_llist", "collection_heap", "collection_list", "collection_rbtree", "collection_skiplist", "collection_trie", "collection_sort", "collection_btree", "collection_bitset", "collection_hashmap", "collection_set", "collection_slotmap", "anim_timeline", "string_str8", "event_channel" };
+        const char* tests[] = { "math", "memory", "heap", "leak", "tracking", "arena", "pool", "stack", "block", "ring", "buddy", "slab", "nctrl", "fiber", "coro", "widget", "xxh", "gpu_format", "render_graph", "render_blackboard", "collection_array", "collection_queue", "collection_deque", "collection_ring", "collection_llist", "collection_heap", "collection_list", "collection_rbtree", "collection_skiplist", "collection_trie", "collection_sort", "collection_btree", "collection_bitset", "collection_hashmap", "collection_set", "collection_slotmap", "math_curve", "anim_track", "anim_clip", "anim_mixer", "anim_state", "string_str8", "event_channel", "sim_ctx" };
         bool all_passed = true;
 
         for (size_t i = 0; i < NOB_ARRAY_LEN(tests); i++)

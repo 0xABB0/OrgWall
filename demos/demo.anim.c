@@ -19,7 +19,9 @@
 #include "math.mat4.h"
 #include "math.vec4.h"
 #include "anim.state.h"
-#include "anim.timeline.h"
+#include "anim.sprite.h"
+#include "anim.clip.h"
+#include "allocator.heap.h"
 
 #define WIDTH  640
 #define HEIGHT 480
@@ -48,16 +50,13 @@ typedef struct {
     Mel_Anim_State_Player player;
     Mel_Anim_State_Machine machine;
     Mel_Anim_State_Def state_defs[STATE_COUNT];
-    Mel_Anim_Timeline timelines[STATE_COUNT];
-    Mel_Anim_Keyframe idle_kf[1];
-    Mel_Anim_Keyframe walk_kf[4];
-    Mel_Anim_Keyframe run_kf[4];
-    Mel_Anim_Keyframe hit_kf[3];
+    Mel_Anim_Clip clips[STATE_COUNT];
+    Mel_Anim_Mixer mixer;
     Mel_Anim_Transition idle_trans[3];
     Mel_Anim_Transition walk_trans[3];
     Mel_Anim_Transition run_trans[3];
     Mel_Anim_Transition hit_trans[1];
-    u64 condition_storage[64];
+    const Mel_Alloc* alloc;
     u32 prev_state;
 } AnimDemo;
 
@@ -150,6 +149,23 @@ static Mel_Gpu_Texture* texture_for_state(u32 state)
     }
 }
 
+static u32 anim_demo_mixer_state(AnimDemo* d)
+{
+    Mel_Anim_Layer* layer = mel_anim_mixer_layer(&d->mixer, 0);
+    if (!layer->clip) return STATE_IDLE;
+    u32 state = (u32)layer->clip->name_hash;
+    return state < STATE_COUNT ? state : STATE_IDLE;
+}
+
+static u32 anim_demo_frame_index(AnimDemo* d, u32 state)
+{
+    const Mel_Anim_Mixer_Output* out =
+        mel_anim_mixer_find_output(&d->mixer, MEL_ANIM_PROP_SPRITE_FRAME);
+    u32 frame = out ? (u32)out->value[0] : 0;
+    u32 max_frame = s_frame_counts[state];
+    return frame < max_frame ? frame : 0;
+}
+
 static void clear_all_conditions(Mel_Anim_State_Player* player)
 {
     mel_anim_state_player_set_condition(player, COND_WALK, false);
@@ -158,160 +174,128 @@ static void clear_all_conditions(Mel_Anim_State_Player* player)
     mel_anim_state_player_set_condition(player, COND_HIT, false);
 }
 
-static void anim_demo_init(AnimDemo* d)
+static void anim_demo_init(AnimDemo* d, const Mel_Alloc* alloc)
 {
     memset(d, 0, sizeof(*d));
+    d->alloc = alloc;
 
-    d->idle_kf[0] = (Mel_Anim_Keyframe){ .frame_index = 0, .duration = 1.0f };
+    u32 idle_frames[] = {0};
+    f32 idle_durs[]   = {1.0f};
+    d->clips[STATE_IDLE] = mel_anim_sprite_clip(alloc, STATE_IDLE,
+        idle_frames, idle_durs, IDLE_FRAME_COUNT, true);
 
-    d->walk_kf[0] = (Mel_Anim_Keyframe){ .frame_index = 0, .duration = 0.15f };
-    d->walk_kf[1] = (Mel_Anim_Keyframe){ .frame_index = 1, .duration = 0.15f };
-    d->walk_kf[2] = (Mel_Anim_Keyframe){ .frame_index = 2, .duration = 0.15f };
-    d->walk_kf[3] = (Mel_Anim_Keyframe){ .frame_index = 3, .duration = 0.15f };
+    u32 walk_frames[] = {0, 1, 2, 3};
+    f32 walk_durs[]   = {0.15f, 0.15f, 0.15f, 0.15f};
+    d->clips[STATE_WALK] = mel_anim_sprite_clip(alloc, STATE_WALK,
+        walk_frames, walk_durs, WALK_FRAME_COUNT, true);
 
-    d->run_kf[0] = (Mel_Anim_Keyframe){ .frame_index = 0, .duration = 0.10f };
-    d->run_kf[1] = (Mel_Anim_Keyframe){ .frame_index = 1, .duration = 0.10f };
-    d->run_kf[2] = (Mel_Anim_Keyframe){ .frame_index = 2, .duration = 0.10f };
-    d->run_kf[3] = (Mel_Anim_Keyframe){ .frame_index = 3, .duration = 0.10f };
+    u32 run_frames[] = {0, 1, 2, 3};
+    f32 run_durs[]   = {0.10f, 0.10f, 0.10f, 0.10f};
+    d->clips[STATE_RUN] = mel_anim_sprite_clip(alloc, STATE_RUN,
+        run_frames, run_durs, RUN_FRAME_COUNT, true);
 
-    d->hit_kf[0] = (Mel_Anim_Keyframe){ .frame_index = 0, .duration = 0.12f };
-    d->hit_kf[1] = (Mel_Anim_Keyframe){ .frame_index = 1, .duration = 0.12f };
-    d->hit_kf[2] = (Mel_Anim_Keyframe){ .frame_index = 2, .duration = 0.12f };
-
-    d->timelines[STATE_IDLE] = (Mel_Anim_Timeline){
-        .keyframes = d->idle_kf,
-        .events = nullptr,
-        .keyframe_count = IDLE_FRAME_COUNT,
-
-        .loop = true,
-    };
-
-    d->timelines[STATE_WALK] = (Mel_Anim_Timeline){
-        .keyframes = d->walk_kf,
-        .events = nullptr,
-        .keyframe_count = WALK_FRAME_COUNT,
-
-        .loop = true,
-    };
-
-    d->timelines[STATE_RUN] = (Mel_Anim_Timeline){
-        .keyframes = d->run_kf,
-        .events = nullptr,
-        .keyframe_count = RUN_FRAME_COUNT,
-
-        .loop = true,
-    };
-
-    d->timelines[STATE_HIT] = (Mel_Anim_Timeline){
-        .keyframes = d->hit_kf,
-        .events = nullptr,
-        .keyframe_count = HIT_FRAME_COUNT,
-
-        .loop = false,
-    };
+    u32 hit_frames[] = {0, 1, 2};
+    f32 hit_durs[]   = {0.12f, 0.12f, 0.12f};
+    d->clips[STATE_HIT] = mel_anim_sprite_clip(alloc, STATE_HIT,
+        hit_frames, hit_durs, HIT_FRAME_COUNT, false);
 
     d->idle_trans[0] = (Mel_Anim_Transition){
         .target_state = STATE_WALK,
         .mode = MEL_ANIM_TRANSITION_IMMEDIATE,
         .condition_hash = COND_WALK,
-        .blend_duration = 0.0f,
     };
     d->idle_trans[1] = (Mel_Anim_Transition){
         .target_state = STATE_RUN,
         .mode = MEL_ANIM_TRANSITION_IMMEDIATE,
         .condition_hash = COND_RUN,
-        .blend_duration = 0.0f,
     };
     d->idle_trans[2] = (Mel_Anim_Transition){
         .target_state = STATE_HIT,
         .mode = MEL_ANIM_TRANSITION_IMMEDIATE,
         .condition_hash = COND_HIT,
-        .blend_duration = 0.0f,
     };
 
     d->walk_trans[0] = (Mel_Anim_Transition){
         .target_state = STATE_RUN,
         .mode = MEL_ANIM_TRANSITION_IMMEDIATE,
         .condition_hash = COND_RUN,
-        .blend_duration = 0.0f,
     };
     d->walk_trans[1] = (Mel_Anim_Transition){
         .target_state = STATE_IDLE,
-        .mode = MEL_ANIM_TRANSITION_AT_END,
+        .mode = MEL_ANIM_TRANSITION_IMMEDIATE,
         .condition_hash = COND_IDLE,
-        .blend_duration = 0.0f,
     };
     d->walk_trans[2] = (Mel_Anim_Transition){
         .target_state = STATE_HIT,
         .mode = MEL_ANIM_TRANSITION_IMMEDIATE,
         .condition_hash = COND_HIT,
-        .blend_duration = 0.0f,
     };
 
     d->run_trans[0] = (Mel_Anim_Transition){
         .target_state = STATE_IDLE,
-        .mode = MEL_ANIM_TRANSITION_AT_END,
+        .mode = MEL_ANIM_TRANSITION_IMMEDIATE,
         .condition_hash = COND_IDLE,
-        .blend_duration = 0.0f,
     };
     d->run_trans[1] = (Mel_Anim_Transition){
         .target_state = STATE_WALK,
         .mode = MEL_ANIM_TRANSITION_IMMEDIATE,
         .condition_hash = COND_WALK,
-        .blend_duration = 0.0f,
     };
     d->run_trans[2] = (Mel_Anim_Transition){
         .target_state = STATE_HIT,
         .mode = MEL_ANIM_TRANSITION_IMMEDIATE,
         .condition_hash = COND_HIT,
-        .blend_duration = 0.0f,
     };
 
     d->hit_trans[0] = (Mel_Anim_Transition){
         .target_state = STATE_IDLE,
         .mode = MEL_ANIM_TRANSITION_AT_END,
         .condition_hash = COND_HIT,
-        .blend_duration = 0.0f,
     };
 
     d->state_defs[STATE_IDLE] = (Mel_Anim_State_Def){
         .name_hash = STATE_IDLE,
-        .timeline = &d->timelines[STATE_IDLE],
+        .clip = &d->clips[STATE_IDLE],
         .transitions = d->idle_trans,
         .transition_count = 3,
     };
 
     d->state_defs[STATE_WALK] = (Mel_Anim_State_Def){
         .name_hash = STATE_WALK,
-        .timeline = &d->timelines[STATE_WALK],
+        .clip = &d->clips[STATE_WALK],
         .transitions = d->walk_trans,
         .transition_count = 3,
     };
 
     d->state_defs[STATE_RUN] = (Mel_Anim_State_Def){
         .name_hash = STATE_RUN,
-        .timeline = &d->timelines[STATE_RUN],
+        .clip = &d->clips[STATE_RUN],
         .transitions = d->run_trans,
         .transition_count = 3,
     };
 
     d->state_defs[STATE_HIT] = (Mel_Anim_State_Def){
         .name_hash = STATE_HIT,
-        .timeline = &d->timelines[STATE_HIT],
+        .clip = &d->clips[STATE_HIT],
         .transitions = d->hit_trans,
         .transition_count = 1,
     };
 
-    d->machine = (Mel_Anim_State_Machine){
-        .states = d->state_defs,
-        .state_count = STATE_COUNT,
-        .initial_state = STATE_IDLE,
-        .alloc = nullptr,
-    };
+    mel_anim_mixer_init(&d->mixer, alloc);
+    mel_anim_mixer_add_layer(&d->mixer);
+    mel_anim_state_machine_init(&d->machine, d->state_defs, STATE_COUNT, STATE_IDLE);
+    mel_anim_state_player_init(&d->player, alloc,
+        .machine = &d->machine, .mixer = &d->mixer, .mixer_layer = 0);
 
-    mel_anim_state_player_init(&d->player, &d->machine);
-    d->player.active_conditions = d->condition_storage;
     d->prev_state = STATE_IDLE;
+}
+
+static void anim_demo_destroy(AnimDemo* d)
+{
+    mel_anim_state_player_destroy(&d->player);
+    mel_anim_mixer_destroy(&d->mixer);
+    for (u32 i = 0; i < STATE_COUNT; i++)
+        mel_anim_clip_destroy(&d->clips[i], d->alloc);
 }
 
 static void on_init(Mel_Engine* e)
@@ -367,7 +351,9 @@ static void on_init(Mel_Engine* e)
     init_texture(&s_run_tex, dev, S8("assets/hero/run_DOWN.png"));
     init_texture(&s_hit_tex, dev, S8("assets/hero/hit_DOWN.png"));
 
-    anim_demo_init(&s_demo);
+
+
+    anim_demo_init(&s_demo, mel_alloc_heap());
 
     SDL_Log("Anim demo ready! W=Walk, R=Run, I=Idle, H=Hit, ESC=Quit");
 }
@@ -393,6 +379,8 @@ static void app_shutdown(Mel_App* app)
     Mel_Gpu_Device* dev = &app->engine.dev;
     mel_gpu_device_wait_idle(dev);
 
+    anim_demo_destroy(&s_demo);
+
     mel_gpu_texture_shutdown(&s_idle_tex, dev);
     mel_gpu_texture_shutdown(&s_walk_tex, dev);
     mel_gpu_texture_shutdown(&s_run_tex, dev);
@@ -411,18 +399,20 @@ static void app_update(Mel_App* app, f32 dt)
 
     AnimDemo* d = &s_demo;
     d->prev_state = d->player.current_state;
-    mel_anim_state_player_update(&d->player, dt);
+    mel_anim_state_player_update(&d->player);
 
     if (d->prev_state == STATE_HIT && d->player.current_state == STATE_IDLE)
     {
         clear_all_conditions(&d->player);
     }
+
+    mel_anim_mixer_update(&d->mixer, dt);
 }
 
 static void draw_hero(Mel_SpriteBatch* batch, Mel_Gpu_Device* dev, AnimDemo* d, f32 cx, f32 cy)
 {
-    u32 state = d->player.current_state;
-    u32 frame = mel_anim_state_player_frame_index(&d->player);
+    u32 state = anim_demo_mixer_state(d);
+    u32 frame = anim_demo_frame_index(d, state);
     u32 frame_count = s_frame_counts[state];
     Mel_Gpu_Texture* tex = texture_for_state(state);
 
@@ -447,8 +437,8 @@ static void draw_info(Mel_SpriteBatch* batch, Mel_Font_Atlas_Entry* fe, AnimDemo
     Mel_Vec4 green = mel_vec4(0.3f, 0.9f, 0.3f, 1.0f);
 
     char buf[128];
-    u32 state = d->player.current_state;
-    u32 frame = mel_anim_state_player_frame_index(&d->player);
+    u32 state = anim_demo_mixer_state(d);
+    u32 frame = anim_demo_frame_index(d, state);
 
     snprintf(buf, sizeof(buf), "State: %s", s_state_names[state]);
     mel_font_atlas_draw_text(fe, batch, str8_from_cstr(buf), cx - 60.0f, y, green);
@@ -475,6 +465,7 @@ static void app_render(Mel_App* app, Mel_Gpu_Cmd* c)
     Mel_Engine* e = &app->engine;
 
     if (!s_pipeline.pipeline) return;
+
 
     mel_engine_begin_swapchain_pass(e, c,
         .clear_r = 0.08f, .clear_g = 0.08f, .clear_b = 0.1f, .clear_a = 1.0f);

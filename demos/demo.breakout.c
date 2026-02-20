@@ -19,7 +19,10 @@
 #include "math.mat4.h"
 #include "math.vec4.h"
 #include "math.vec2.h"
-#include "anim.timeline.h"
+#include "anim.sprite.h"
+#include "anim.clip.h"
+#include "anim.track.h"
+#include "allocator.heap.h"
 
 #include <math.h>
 
@@ -46,12 +49,13 @@
 #define BRICK_DYING 1
 #define BRICK_DEAD  2
 
-#define DEATH_KEYFRAME_COUNT 5
+#define DEATH_FRAME_COUNT 5
 
 typedef struct {
     u8 state;
     u8 row;
-    Mel_Anim_Playback anim;
+    f32 anim_time;
+    bool anim_finished;
 } Brick;
 
 typedef struct {
@@ -63,8 +67,8 @@ typedef struct {
     u32 score, level;
     i32 bricks_alive;
     bool game_over;
-    Mel_Anim_Timeline death_timeline;
-    Mel_Anim_Keyframe death_keyframes[DEATH_KEYFRAME_COUNT];
+    Mel_Anim_Clip death_clip;
+    const Mel_Alloc* alloc;
     u32 rng_state;
     bool use_mouse;
 } Breakout;
@@ -155,7 +159,8 @@ static void breakout_reset_bricks(Breakout* g)
             i32 idx = r * COLS + c;
             g->bricks[idx].state = BRICK_ALIVE;
             g->bricks[idx].row = (u8)r;
-            g->bricks[idx].anim = (Mel_Anim_Playback){0};
+            g->bricks[idx].anim_time = 0;
+            g->bricks[idx].anim_finished = false;
         }
     }
 }
@@ -169,22 +174,20 @@ static void breakout_reset_ball(Breakout* g)
     g->ball_dy = 0.0f;
 }
 
-static void breakout_init(Breakout* g)
+static void breakout_init(Breakout* g, const Mel_Alloc* alloc)
 {
+    if (g->death_clip.tracks)
+        mel_anim_clip_destroy(&g->death_clip, alloc);
+
     memset(g, 0, sizeof(*g));
+    g->alloc = alloc;
     g->rng_state = (u32)SDL_GetTicks();
     if (g->rng_state == 0) g->rng_state = 42;
 
-    g->death_keyframes[0] = (Mel_Anim_Keyframe){ .frame_index = 0, .duration = 0.06f };
-    g->death_keyframes[1] = (Mel_Anim_Keyframe){ .frame_index = 1, .duration = 0.06f };
-    g->death_keyframes[2] = (Mel_Anim_Keyframe){ .frame_index = 2, .duration = 0.06f };
-    g->death_keyframes[3] = (Mel_Anim_Keyframe){ .frame_index = 3, .duration = 0.06f };
-    g->death_keyframes[4] = (Mel_Anim_Keyframe){ .frame_index = 4, .duration = 0.06f };
-
-    g->death_timeline.keyframes = g->death_keyframes;
-    g->death_timeline.events = nullptr;
-    g->death_timeline.keyframe_count = DEATH_KEYFRAME_COUNT;
-    g->death_timeline.loop = false;
+    u32 death_frames[] = {0, 1, 2, 3, 4};
+    f32 death_durs[]   = {0.06f, 0.06f, 0.06f, 0.06f, 0.06f};
+    g->death_clip = mel_anim_sprite_clip(alloc, 0, death_frames, death_durs,
+        DEATH_FRAME_COUNT, false);
 
     g->lives = 3;
     g->score = 0;
@@ -212,14 +215,22 @@ static void breakout_kill_brick(Breakout* g, i32 idx)
 {
     assert(g->bricks[idx].state == BRICK_ALIVE);
     g->bricks[idx].state = BRICK_DYING;
-    mel_anim_playback_start(&g->bricks[idx].anim, &g->death_timeline);
+    g->bricks[idx].anim_time = 0;
+    g->bricks[idx].anim_finished = false;
     g->bricks_alive--;
     g->score += 10 * (ROWS - g->bricks[idx].row);
 }
 
-static f32 breakout_death_alpha(Mel_Anim_Playback* pb)
+static u32 breakout_death_frame(Breakout* g, f32 anim_time)
 {
-    u32 frame = mel_anim_playback_frame_index(pb);
+    Mel_Anim_Track* track = mel_anim_clip_track(&g->death_clip, 0);
+    f32 frame_f;
+    mel_anim_track_eval(track, anim_time, &frame_f);
+    return (u32)frame_f;
+}
+
+static f32 breakout_frame_alpha(u32 frame)
+{
     switch (frame)
     {
         case 0: return 1.0f;
@@ -257,9 +268,12 @@ static void breakout_tick(Breakout* g, f32 dt)
     {
         if (g->bricks[i].state == BRICK_DYING)
         {
-            mel_anim_playback_update(&g->bricks[i].anim, dt);
-            if (g->bricks[i].anim.finished)
+            g->bricks[i].anim_time += dt;
+            if (g->bricks[i].anim_time >= g->death_clip.duration)
+            {
+                g->bricks[i].anim_finished = true;
                 g->bricks[i].state = BRICK_DEAD;
+            }
         }
     }
 
@@ -377,10 +391,10 @@ static void breakout_draw(Breakout* g, Mel_SpriteBatch* batch)
 
             if (g->bricks[idx].state == BRICK_DYING)
             {
-                f32 alpha = breakout_death_alpha(&g->bricks[idx].anim);
+                u32 frame = breakout_death_frame(g, g->bricks[idx].anim_time);
+                f32 alpha = breakout_frame_alpha(frame);
                 if (alpha <= 0.0f) continue;
 
-                u32 frame = mel_anim_playback_frame_index(&g->bricks[idx].anim);
                 if (frame == 0)
                     color = mel_vec4(1.0f, 1.0f, 1.0f, 1.0f);
                 else
@@ -487,7 +501,7 @@ static void on_init(Mel_Engine* e)
             font_entry->atlas_texture.image.view, font_entry->atlas_texture.sampler);
     }
 
-    breakout_init(&s_breakout);
+    breakout_init(&s_breakout, mel_alloc_heap());
 
     SDL_Log("Breakout ready! Arrow keys / mouse to move, Space to launch, R to restart, ESC to quit");
 }
@@ -512,6 +526,8 @@ static void app_shutdown(Mel_App* app)
 {
     Mel_Gpu_Device* dev = &app->engine.dev;
     mel_gpu_device_wait_idle(dev);
+
+    mel_anim_clip_destroy(&s_breakout.death_clip, s_breakout.alloc);
 
     mel_sprite_batch_shutdown(&s_batch, dev);
     mel_font_atlas_pool_shutdown(&s_font_pool);
@@ -587,7 +603,7 @@ static void app_event(Mel_App* app, SDL_Event* event)
                 breakout_launch_ball(g);
                 break;
             case SDL_SCANCODE_R:
-                breakout_init(g);
+                breakout_init(g, g->alloc);
                 break;
             case SDL_SCANCODE_LEFT:
             case SDL_SCANCODE_RIGHT:
