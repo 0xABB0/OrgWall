@@ -27,8 +27,8 @@ static void on_present(void* pixels, u32 width, u32 height, u32 stride, void* us
 
     if (!ctx->screenshot_saved)
     {
-        stbi_write_png("screenshot.png", (int)width, (int)height, 4, pixels, (int)stride);
-        SDL_Log("Screenshot saved: screenshot.png (%ux%u)", width, height);
+        stbi_write_png("build/screenshot.png", (int)width, (int)height, 4, pixels, (int)stride);
+        SDL_Log("Screenshot saved: build/screenshot.png (%ux%u)", width, height);
         ctx->screenshot_saved = true;
     }
 
@@ -76,7 +76,7 @@ int main(int argc, char* argv[])
     char ffmpeg_cmd[512];
     snprintf(ffmpeg_cmd, sizeof(ffmpeg_cmd),
         "ffmpeg -y -f rawvideo -pixel_format rgba -video_size %dx%d "
-        "-framerate 60 -i - -c:v libx264 -pix_fmt yuv420p output.mp4 2>/dev/null",
+        "-framerate 60 -i - -c:v libx264 -pix_fmt yuv420p build/output.mp4 2>/dev/null",
         WIDTH, HEIGHT);
 
     ctx.ffmpeg_pipe = popen(ffmpeg_cmd, "w");
@@ -157,10 +157,10 @@ int main(int argc, char* argv[])
     if (ctx.ffmpeg_pipe)
     {
         pclose(ctx.ffmpeg_pipe);
-        SDL_Log("Video saved: output.mp4");
+        SDL_Log("Video saved: build/output.mp4");
     }
 
-    SDL_Log("Done! Screenshot: screenshot.png, Video: output.mp4");
+    SDL_Log("Done! Screenshot: build/screenshot.png, Video: build/output.mp4");
 
     mel_render_frame_shutdown(&frame);
     mel_swapchain_shutdown(&sc, &dev);

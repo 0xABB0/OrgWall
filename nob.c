@@ -1104,6 +1104,39 @@ bool build_demo(const char* demo_name)
     return true;
 }
 
+bool build_visual_test(const char* name)
+{
+    if (!build_melody()) return false;
+
+    const char* test_src = nob_temp_sprintf("tests/test_visual_%s.c", name);
+    const char* test_out = nob_temp_sprintf(BUILD_DIR "/test_visual_%s", name);
+    const char* test_obj = nob_temp_sprintf(BUILD_DIR "/test_visual_%s.o", name);
+
+    bool any_recompiled = false;
+
+    if (needs_compile(test_src, test_obj))
+    {
+        if (!compile_c_to_obj(test_src, test_obj)) return false;
+        any_recompiled = true;
+    }
+
+    const char* lib_dep = BUILD_DIR "/libmelody.a";
+    bool melody_changed = nob_needs_rebuild(test_out, &lib_dep, 1) != 0;
+
+    if (any_recompiled || melody_changed || nob_file_exists(test_out) != 1)
+    {
+        Nob_Cmd cmd = {0};
+        nob_cmd_append(&cmd, "clang", "-g");
+        nob_cmd_append(&cmd, test_obj);
+        nob_cmd_append(&cmd, "-o", test_out);
+        cmd_append_melody_link_deps(&cmd);
+
+        if (!nob_cmd_run_sync(cmd)) return false;
+    }
+
+    return true;
+}
+
 bool run_test(const char* test_name)
 {
     const char* test_bin = nob_temp_sprintf(BUILD_DIR "/test_%s", test_name);
@@ -1230,6 +1263,37 @@ int main(int argc, char** argv)
         nob_cmd_append(&cmd, nob_temp_sprintf(BUILD_DIR "/demo.%s", demo));
         return nob_cmd_run_sync(cmd) ? 0 : 1;
     }
+    else if (strcmp(subcmd, "vtest") == 0)
+    {
+        const char* vtests[] = { "clear_color" };
+        bool all_passed = true;
+
+        nob_mkdir_if_not_exists(BUILD_DIR "/test_visual");
+
+        for (size_t i = 0; i < NOB_ARRAY_LEN(vtests); i++)
+        {
+            nob_log(NOB_WARNING, "Building visual test: %s", vtests[i]);
+            if (!build_visual_test(vtests[i]))
+            {
+                all_passed = false;
+                continue;
+            }
+
+            nob_log(NOB_WARNING, "Running visual test: %s", vtests[i]);
+            const char* test_bin = nob_temp_sprintf(BUILD_DIR "/test_visual_%s", vtests[i]);
+            Nob_Cmd cmd = {0};
+            nob_cmd_append(&cmd, test_bin);
+            if (!nob_cmd_run_sync(cmd))
+                all_passed = false;
+        }
+
+        if (!all_passed)
+        {
+            nob_log(NOB_ERROR, "Some visual tests failed!");
+            return 1;
+        }
+        nob_log(NOB_WARNING, "All visual tests passed!");
+    }
     else if (strcmp(subcmd, "clean") == 0)
     {
         Nob_Cmd cmd = {0};
@@ -1255,7 +1319,7 @@ int main(int argc, char** argv)
     else
     {
         nob_log(NOB_ERROR, "Unknown command: %s", subcmd);
-        nob_log(NOB_ERROR, "Usage: ./nob [--verbose] [--timings] [release|sanitize] [libs|melody|build|test|demo|run|run-only|debug|clean]");
+        nob_log(NOB_ERROR, "Usage: ./nob [--verbose] [--timings] [release|sanitize] [libs|melody|build|test|vtest|demo|run|run-only|debug|clean]");
         return 1;
     }
 
