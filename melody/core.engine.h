@@ -4,7 +4,7 @@
 #include "string.str8.fwd.h"
 #include "allocator.fwd.h"
 #include "gpu.device.h"
-#include "gpu.swapchain.h"
+#include "swapchain.h"
 #include "gpu.cmd.fwd.h"
 #include "render.frame.h"
 #include "allocator.tracking.fwd.h"
@@ -18,7 +18,7 @@ typedef struct Mel_Engine Mel_Engine;
 
 struct Mel_Engine {
     Mel_Gpu_Device dev;
-    Mel_Gpu_Swapchain swapchain;
+    Mel_Swapchain swapchain;
     Mel_Render_Frame frame;
     Mel_Tracking_Allocator* tracking;
     Mel_Alloc allocator;

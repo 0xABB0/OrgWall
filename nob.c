@@ -945,6 +945,8 @@ static Test_Source_Set test_source_set_for(const char* test_name)
         return (Test_Source_Set){ EVENT_CHANNEL_SOURCES, NOB_ARRAY_LEN(EVENT_CHANNEL_SOURCES), false };
     if (strcmp(test_name, "sim_ctx") == 0)
         return (Test_Source_Set){ SIM_CTX_SOURCES, NOB_ARRAY_LEN(SIM_CTX_SOURCES), false };
+    if (strcmp(test_name, "swapchain") == 0)
+        return (Test_Source_Set){ NULL, 0, false };
     return (Test_Source_Set){ ALLOCATOR_SOURCES, NOB_ARRAY_LEN(ALLOCATOR_SOURCES), false };
 }
 
@@ -1167,7 +1169,7 @@ int main(int argc, char** argv)
     }
     else if (strcmp(subcmd, "test") == 0)
     {
-        const char* tests[] = { "math", "memory", "heap", "leak", "tracking", "arena", "pool", "stack", "block", "ring", "buddy", "slab", "nctrl", "fiber", "coro", "widget", "xxh", "gpu_format", "render_graph", "render_blackboard", "collection_array", "collection_queue", "collection_deque", "collection_ring", "collection_llist", "collection_heap", "collection_list", "collection_rbtree", "collection_skiplist", "collection_trie", "collection_sort", "collection_btree", "collection_bitset", "collection_hashmap", "collection_set", "collection_slotmap", "math_curve", "anim_track", "anim_clip", "anim_mixer", "anim_state", "string_str8", "event_channel", "sim_ctx" };
+        const char* tests[] = { "math", "memory", "heap", "leak", "tracking", "arena", "pool", "stack", "block", "ring", "buddy", "slab", "nctrl", "fiber", "coro", "widget", "xxh", "gpu_format", "render_graph", "render_blackboard", "collection_array", "collection_queue", "collection_deque", "collection_ring", "collection_llist", "collection_heap", "collection_list", "collection_rbtree", "collection_skiplist", "collection_trie", "collection_sort", "collection_btree", "collection_bitset", "collection_hashmap", "collection_set", "collection_slotmap", "math_curve", "anim_track", "anim_clip", "anim_mixer", "anim_state", "string_str8", "event_channel", "sim_ctx", "swapchain" };
         bool all_passed = true;
 
         for (size_t i = 0; i < NOB_ARRAY_LEN(tests); i++)

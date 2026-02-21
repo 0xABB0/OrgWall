@@ -1,5 +1,6 @@
 #include "core.engine.h"
 #include "core.app.h"
+#include "gpu.swapchain.h"
 #include "allocator.h"
 #include "allocator.heap.h"
 #include "allocator.tracking.h"
@@ -146,7 +147,7 @@ bool mel_engine_init_opt(Mel_Engine* engine, Mel_Engine_Opt opt)
 fail_slang:
     mel_slang_shutdown();
 fail_swapchain:
-    mel_gpu_swapchain_shutdown(&engine->swapchain, &engine->dev);
+    mel_swapchain_shutdown(&engine->swapchain, &engine->dev);
 fail_device:
     mel_gpu_device_shutdown(&engine->dev);
 fail_tracking:
@@ -184,7 +185,7 @@ void mel_engine_shutdown(Mel_Engine* engine)
     mel_render_frame_shutdown(&engine->frame);
     mel_slang_shutdown();
     mel_gpu_submit_shutdown(&engine->dev);
-    mel_gpu_swapchain_shutdown(&engine->swapchain, &engine->dev);
+    mel_swapchain_shutdown(&engine->swapchain, &engine->dev);
     mel_gpu_device_shutdown(&engine->dev);
 
     mel_tracking_report(engine->tracking);
@@ -252,7 +253,7 @@ void mel_engine_frame(Mel_Engine* engine, Mel_App* app)
         i32 w, h;
         SDL_GetWindowSize(engine->window, &w, &h);
         if (w > 0 && h > 0)
-            mel_gpu_swapchain_recreate(&engine->swapchain, &engine->dev, w, h);
+            mel_swapchain_resize(&engine->swapchain, &engine->dev, w, h);
         engine->resize_requested = false;
     }
 
@@ -262,7 +263,7 @@ void mel_engine_frame(Mel_Engine* engine, Mel_App* app)
         i32 w, h;
         SDL_GetWindowSize(engine->window, &w, &h);
         if (w > 0 && h > 0)
-            mel_gpu_swapchain_recreate(&engine->swapchain, &engine->dev, w, h);
+            mel_swapchain_resize(&engine->swapchain, &engine->dev, w, h);
         TracyCZoneEnd(ctx_acquire);
         TracyCZoneEnd(ctx_iterate);
         TracyCFrameMark;
@@ -316,13 +317,6 @@ void mel_engine_frame(Mel_Engine* engine, Mel_App* app)
             igRenderPlatformWindowsDefault(nullptr, nullptr);
         }
     }
-
-    mel_gpu_cmd_image_barrier(&c,
-        engine->swapchain.images[engine->swapchain.current_image],
-        VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-        VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0,
-        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
-        VK_IMAGE_ASPECT_COLOR_BIT);
 
     TracyCZoneN(ctx_present, "frame_end", true);
     mel_render_frame_end(&engine->frame);

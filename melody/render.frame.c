@@ -1,6 +1,6 @@
 #define VK_NO_PROTOTYPES
 #include "render.frame.h"
-#include "gpu.swapchain.h"
+#include "swapchain.h"
 #include "gpu.cmd.h"
 #include <tracy/TracyC.h>
 
@@ -45,14 +45,6 @@ bool mel_render_frame_init_opt(Mel_Render_Frame* rf, Mel_Render_Frame_Opt opt)
             goto fail;
         }
 
-        VkSemaphoreCreateInfo sem_info = { .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
-        r = vkCreateSemaphore(rf->dev->device, &sem_info, nullptr, &fd->image_available);
-        if (r != VK_SUCCESS)
-        {
-            SDL_Log("Failed to create image_available semaphore for frame %u: %d", i, r);
-            goto fail;
-        }
-
         VkFenceCreateInfo fence_info = {
             .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
             .flags = VK_FENCE_CREATE_SIGNALED_BIT,
@@ -65,19 +57,6 @@ bool mel_render_frame_init_opt(Mel_Render_Frame* rf, Mel_Render_Frame_Opt opt)
         }
     }
 
-    rf->render_finished_count = rf->swapchain->image_count;
-    assert(rf->render_finished_count <= MEL_MAX_SWAPCHAIN_IMAGES);
-    VkSemaphoreCreateInfo sem_info = { .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
-    for (u32 i = 0; i < rf->render_finished_count; i++)
-    {
-        VkResult r = vkCreateSemaphore(rf->dev->device, &sem_info, nullptr, &rf->render_finished[i]);
-        if (r != VK_SUCCESS)
-        {
-            SDL_Log("Failed to create render_finished semaphore %u: %d", i, r);
-            rf->render_finished_count = i;
-            goto fail;
-        }
-    }
     return true;
 
 fail:
@@ -90,14 +69,10 @@ void mel_render_frame_shutdown(Mel_Render_Frame* rf)
     assert(rf != nullptr);
     assert(rf->dev != nullptr);
 
-    for (u32 i = 0; i < rf->render_finished_count; i++)
-        vkDestroySemaphore(rf->dev->device, rf->render_finished[i], nullptr);
-
     for (u32 i = 0; i < rf->frame_count; i++)
     {
         Mel_Render_Frame_Data* fd = &rf->frames[i];
         vkDestroyFence(rf->dev->device, fd->in_flight, nullptr);
-        vkDestroySemaphore(rf->dev->device, fd->image_available, nullptr);
         vkDestroyCommandPool(rf->dev->device, fd->command_pool, nullptr);
     }
 }
@@ -113,7 +88,7 @@ bool mel_render_frame_begin(Mel_Render_Frame* rf)
     TracyCZoneEnd(ctx_fence);
 
     TracyCZoneN(ctx_acquire, "swapchain_acquire", true);
-    if (!mel_gpu_swapchain_acquire(rf->swapchain, rf->dev, fd->image_available))
+    if (!mel_swapchain_acquire(rf->swapchain, rf->dev))
     {
         TracyCZoneEnd(ctx_acquire);
         return false;
@@ -140,30 +115,8 @@ void mel_render_frame_end(Mel_Render_Frame* rf)
 
     Mel_Render_Frame_Data* fd = &rf->frames[rf->current_frame];
 
-    VkResult r = vkEndCommandBuffer(fd->command_buffer);
-    assert(r == VK_SUCCESS);
-
-    VkSemaphore render_done = rf->render_finished[rf->current_image];
-
-    VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-    VkSubmitInfo submit_info = {
-        .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-        .waitSemaphoreCount = 1,
-        .pWaitSemaphores = &fd->image_available,
-        .pWaitDstStageMask = &wait_stage,
-        .commandBufferCount = 1,
-        .pCommandBuffers = &fd->command_buffer,
-        .signalSemaphoreCount = 1,
-        .pSignalSemaphores = &render_done,
-    };
-
-    TracyCZoneN(ctx_submit, "queue_submit", true);
-    r = vkQueueSubmit(rf->dev->graphics_queue, 1, &submit_info, fd->in_flight);
-    assert(r == VK_SUCCESS);
-    TracyCZoneEnd(ctx_submit);
-
     TracyCZoneN(ctx_present, "swapchain_present", true);
-    mel_gpu_swapchain_present(rf->swapchain, rf->dev, render_done);
+    mel_swapchain_present(rf->swapchain, rf->dev, fd->command_buffer, fd->in_flight);
     TracyCZoneEnd(ctx_present);
 
     rf->current_frame = (rf->current_frame + 1) % rf->frame_count;

@@ -1,3 +1,6 @@
+--- THE EVER GROWING LIST OF THINGS TO DO ---
+
+
 - [CORE] implement stacktrace capturing for every allocation (debug mode) — DISCUSS: storage format (inline in tracking header vs linked list), debug-only toggling, interaction with Tracy memory profiling. Infrastructure ready (mel\_backtrace\_capture exists).
 - [CORE] handle init failure cleanup — PARTIALLY DONE: gpu.device, gpu.swapchain, render.frame return bool, engine init has goto-based cleanup. Remaining: imgui init failure doesn't fully unwind (skips the feature flag)
 - [CORE] implement Virtual File System (VFS) with mount points and archive support
@@ -56,10 +59,9 @@
 - [FIX][DEMO] demo trie is broken. it flickers
 - [FIX][DEMO] demo pathfind is broken. when it renders without walls, there are a ton of artefacts, and the grid breaks.
 - [ENGINE] the game should automatically automatically handle simulations
-- ~~[EVENTS] can we merge animation events with our own event system?~~ DONE — anim.event module deleted, mixer uses Mel_Event_Channel directly. Events are collected into pending array during update, flushed to channel subscribers via mel_anim_mixer_flush_events.
 - [ENGINE] the animation mixer could be extracted to be something more generic? like, could it be used for the audio system? — ANSWERED: No. Audio and animation have fundamentally different data flows. Animation is property-per-track, audio is sample streams. Curves (math.curve) and state machine (anim.state) can be shared, but the mixer itself should stay animation-specific.
-- ~~[ANIMATION] animation defines its own curves. could those be made generic?~~ DONE — moved to math.curve module. Mel_Bezier, mel_bezier_init, mel_curve_eval, MEL_CURVE_LINEAR/STEPPED/BEZIER.
 - [LOG] this logged line "Vulkan library load: Vulkan loader library already loaded (continuing — window may have loaded it)" is fucking abhorrent and 300% ai slop.
+- [BUILD] the build system we're using right now (nob.h) is fine, but at this point i think that melody can include that in its own source code i think
 
 ## Friction from demo.anim (Feb 2026)
 
@@ -88,23 +90,9 @@
 
 ## Animation System Stubs
 
-- ~~[ANIMATION][STUB] MEL_ANIM_MIX_ADD: constant and field exist, mixer update only implements REPLACE. ADD is trivial but needs a real use case to test properly~~ DONE — ADD blend mode implemented in mel__mixer_apply_layer, tested with two-layer base+additive
 - [ANIMATION][STUB] Negative speed (reverse playback): speed field exists and positive values work. Negative values are not handled in mixer update — needs edge case testing for events and looping direction
 - [ANIMATION][STUB] Clip serialization: no save/load. Blocked on serialization system
-- ~~[ANIMATION] demo.anim.c is broken — needs migration to new animation system~~ DONE — migrated to clip/mixer/state system
-- ~~[ANIMATION] demo.breakout.c is broken — uses old anim.sprite API, needs migration~~ DONE — migrated to clip/track direct evaluation
 - [ANIMATION] sprite.sheet.h built-in Mel_AnimationPlayer should eventually migrate to anim.sprite
-
-## Animation: missing tests (Spine parity implementation, Feb 2026)
-
-- ~~[TEST] mel_blend_quat_slerp — implemented but zero tests~~ DONE — quat_slerp_basic (identity→90°Z, verifies 45°Z result + unit length) and quat_slerp_antipodal (dot<0 flip path)
-- ~~[TEST] stop() firing INTERRUPTED~~ DONE — stop_fires_interrupted test (play, advance, stop, verify INTERRUPTED event)
-- ~~[TEST] default values with custom blend function~~ DONE — default_values_with_custom_blend (mel_blend_angle on default, verifies shortest-path angle interpolation during crossfade, not naive lerp)
-- ~~[TEST] queued transition with crossfade~~ DONE — queued_transition_with_crossfade (queue with mix_duration>0, verifies mix_from entry exists mid-crossfade, freed after completion)
-- ~~[TEST] ADD blend mode with partial weight~~ DONE — add_blend_partial_weight (ADD layer weight=0.5, verifies 50 + 20*0.5 = 60)
-- ~~[TEST] ADD blend mode during crossfade~~ DONE — add_blend_during_crossfade (REPLACE layer crossfading + ADD layer on top)
-- ~~[TEST] nested crossfade intermediate blending values~~ DONE — nested_crossfade_intermediate_values (three clips A/B/C with overlapping crossfades, verifies intermediate weighted blend)
-- ~~[TEST] multiple queued entries~~ DONE — multiple_queued_entries (A→B→C queue, verifies sequential playback and queue draining)
 
 ## Animation: implementation gaps/decisions (Spine parity implementation, Feb 2026)
 
@@ -112,7 +100,6 @@
 - [ANIMATION] keyframe events only fire for l->clip, not the mix_from chain — clips that are fading out during crossfade do not fire their keyframe events. Matches Spine behavior (fading-out timelines don't trigger events) but is a conscious design choice that should be documented
 - [ANIMATION] Mel_Anim_Mixer_Output.value is f32[4] — hardcoded max stride. Mixer cannot handle properties wider than 4 floats (e.g. 3x3 matrix). mel_anim_mixer_set_default asserts stride<=4. This is a fundamental limitation
 - [ANIMATION] pending_events cleared at top of mel_anim_mixer_update — lifecycle events fired by play()/stop() between updates are lost if update() is called before flush_events(). Not a bug (existing behavior) but a footgun worth documenting
-- ~~[ANIMATION] Mel_Anim_Layer.last_event_index — dead field~~ DONE — removed from struct and all initialization sites
 - [ANIMATION] prune_chain only prunes children of completed sub-crossfades, not the entry itself — completed intermediate entries linger in the chain with alpha=1.0. Correct behavior (entry still needed as "old side" of parent crossfade) but wastes recursion cycles with many rapid play() calls. Could be optimized
 
 ## Verifications:
