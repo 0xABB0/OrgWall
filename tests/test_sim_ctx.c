@@ -14,7 +14,7 @@ typedef struct {
     i32 damage;
 } Attack_Event;
 
-MEL_TEST(sim_init)
+MEL_TEST(sim_init, .tags = "sim")
 {
     _Alignas(16) u8 buffer[4096];
     Mel_Sim_Ctx ctx;
@@ -22,10 +22,9 @@ MEL_TEST(sim_init)
 
     MEL_ASSERT_EQ(ctx.tick, (u64)0);
     MEL_ASSERT_EQ(ctx.rng.state, (u64)42);
-    MEL_PASS();
 }
 
-MEL_TEST(sim_push_and_iterate_by_type)
+MEL_TEST(sim_push_and_iterate_by_type, .tags = "sim")
 {
     _Alignas(16) u8 buffer[4096];
     Mel_Sim_Ctx ctx;
@@ -51,10 +50,9 @@ MEL_TEST(sim_push_and_iterate_by_type)
     MEL_ASSERT_FLOAT_EQ(m2->y, 88.0f, 0.001f);
 
     MEL_ASSERT_NULL(mel_sim_next(&ctx, EVT_MOVE, &iter));
-    MEL_PASS();
 }
 
-MEL_TEST(sim_iterate_all)
+MEL_TEST(sim_iterate_all, .tags = "sim")
 {
     _Alignas(16) u8 buffer[4096];
     Mel_Sim_Ctx ctx;
@@ -85,10 +83,9 @@ MEL_TEST(sim_iterate_all)
     MEL_ASSERT_EQ(a->damage, 4);
 
     MEL_ASSERT(!mel_sim_next_any(&ctx, &iter, &event));
-    MEL_PASS();
 }
 
-MEL_TEST(sim_clear)
+MEL_TEST(sim_clear, .tags = "sim")
 {
     _Alignas(16) u8 buffer[4096];
     Mel_Sim_Ctx ctx;
@@ -106,10 +103,9 @@ MEL_TEST(sim_clear)
 
     mel_sim_clear(&ctx);
     MEL_ASSERT_EQ(ctx.tick, (u64)2);
-    MEL_PASS();
 }
 
-MEL_TEST(sim_signal_events)
+MEL_TEST(sim_signal_events, .tags = "sim")
 {
     _Alignas(16) u8 buffer[4096];
     Mel_Sim_Ctx ctx;
@@ -128,10 +124,9 @@ MEL_TEST(sim_signal_events)
     MEL_ASSERT_EQ(event.type, EVT_SIGNAL);
     MEL_ASSERT_EQ(event.size, (size)0);
     MEL_ASSERT_NULL(event.data);
-    MEL_PASS();
 }
 
-MEL_TEST(sim_rng_determinism)
+MEL_TEST(sim_rng_determinism, .tags = "sim")
 {
     _Alignas(16) u8 buf1[256], buf2[256];
     Mel_Sim_Ctx ctx1, ctx2;
@@ -145,10 +140,9 @@ MEL_TEST(sim_rng_determinism)
         u64 b = mel_rng_next(&ctx2.rng);
         MEL_ASSERT_EQ(a, b);
     }
-    MEL_PASS();
 }
 
-MEL_TEST(sim_multiple_clears)
+MEL_TEST(sim_multiple_clears, .tags = "sim")
 {
     _Alignas(16) u8 buffer[4096];
     Mel_Sim_Ctx ctx;
@@ -168,21 +162,4 @@ MEL_TEST(sim_multiple_clears)
     }
 
     MEL_ASSERT_EQ(ctx.tick, (u64)10);
-    MEL_PASS();
-}
-
-int main(void)
-{
-    MEL_TEST_BEGIN("Sim Context Tests");
-
-    MEL_RUN_TEST(sim_init);
-    MEL_RUN_TEST(sim_push_and_iterate_by_type);
-    MEL_RUN_TEST(sim_iterate_all);
-    MEL_RUN_TEST(sim_clear);
-    MEL_RUN_TEST(sim_signal_events);
-    MEL_RUN_TEST(sim_rng_determinism);
-    MEL_RUN_TEST(sim_multiple_clears);
-
-    MEL_TEST_END();
-    return MEL_TEST_EXIT_CODE();
 }

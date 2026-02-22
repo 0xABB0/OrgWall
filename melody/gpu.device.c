@@ -1,5 +1,6 @@
 #define VK_NO_PROTOTYPES
 #include "gpu.device.h"
+#include "gpu.backend.vulkan.h"
 #include "string.str8.h"
 #include "allocator.heap.h"
 #include <string.h>
@@ -403,11 +404,10 @@ bool mel_gpu_device_init_opt(Mel_Gpu_Device* dev, Mel_Gpu_Device_Opt opt)
     *dev = (Mel_Gpu_Device){0};
     dev->alloc = opt.allocator;
 
-    PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr_func =
-        (PFN_vkGetInstanceProcAddr)SDL_Vulkan_GetVkGetInstanceProcAddr();
+    PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr_func = mel_gpu_vulkan_load();
     if (!vkGetInstanceProcAddr_func)
     {
-        SDL_Log("Failed to get vkGetInstanceProcAddr");
+        SDL_Log("Failed to load Vulkan");
         return false;
     }
 

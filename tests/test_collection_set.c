@@ -10,7 +10,7 @@
 #define KEY(v) ((void*)(usize)(v))
 #define AS_INT(v) ((i64)(isize)(v))
 
-MEL_TEST(init_empty)
+MEL_TEST(init_empty, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_Set s;
@@ -20,10 +20,9 @@ MEL_TEST(init_empty)
     MEL_ASSERT_EQ(mel_set_count(&s), (usize)0);
 
     mel_set_free(&s);
-    MEL_PASS();
 }
 
-MEL_TEST(add_single)
+MEL_TEST(add_single, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_Set s;
@@ -34,10 +33,9 @@ MEL_TEST(add_single)
     MEL_ASSERT_EQ(mel_set_count(&s), (usize)1);
 
     mel_set_free(&s);
-    MEL_PASS();
 }
 
-MEL_TEST(add_multiple)
+MEL_TEST(add_multiple, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_Set s;
@@ -56,10 +54,9 @@ MEL_TEST(add_multiple)
     }
 
     mel_set_free(&s);
-    MEL_PASS();
 }
 
-MEL_TEST(add_duplicate)
+MEL_TEST(add_duplicate, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_Set s;
@@ -70,10 +67,9 @@ MEL_TEST(add_duplicate)
     MEL_ASSERT_EQ(mel_set_count(&s), (usize)1);
 
     mel_set_free(&s);
-    MEL_PASS();
 }
 
-MEL_TEST(contains_hit_and_miss)
+MEL_TEST(contains_hit_and_miss, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_Set s;
@@ -88,10 +84,9 @@ MEL_TEST(contains_hit_and_miss)
     MEL_ASSERT(!mel_set_contains(&s, KEY(0)));
 
     mel_set_free(&s);
-    MEL_PASS();
 }
 
-MEL_TEST(remove_existing)
+MEL_TEST(remove_existing, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_Set s;
@@ -108,10 +103,9 @@ MEL_TEST(remove_existing)
     MEL_ASSERT(mel_set_contains(&s, KEY(3)));
 
     mel_set_free(&s);
-    MEL_PASS();
 }
 
-MEL_TEST(remove_nonexistent)
+MEL_TEST(remove_nonexistent, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_Set s;
@@ -123,10 +117,9 @@ MEL_TEST(remove_nonexistent)
     MEL_ASSERT_EQ(mel_set_count(&s), (usize)1);
 
     mel_set_free(&s);
-    MEL_PASS();
 }
 
-MEL_TEST(count_empty_tracking)
+MEL_TEST(count_empty_tracking, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_Set s;
@@ -150,10 +143,9 @@ MEL_TEST(count_empty_tracking)
     MEL_ASSERT_EQ(mel_set_count(&s), (usize)0);
 
     mel_set_free(&s);
-    MEL_PASS();
 }
 
-MEL_TEST(clear_and_reuse)
+MEL_TEST(clear_and_reuse, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_Set s;
@@ -173,10 +165,9 @@ MEL_TEST(clear_and_reuse)
     MEL_ASSERT_EQ(mel_set_count(&s), (usize)1);
 
     mel_set_free(&s);
-    MEL_PASS();
 }
 
-MEL_TEST(reserve)
+MEL_TEST(reserve, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_Set s;
@@ -194,10 +185,9 @@ MEL_TEST(reserve)
     MEL_ASSERT_EQ(mel_set_count(&s), (usize)100);
 
     mel_set_free(&s);
-    MEL_PASS();
 }
 
-MEL_TEST(foreach_iteration)
+MEL_TEST(foreach_iteration, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_Set s;
@@ -220,10 +210,9 @@ MEL_TEST(foreach_iteration)
     MEL_ASSERT_EQ(key_sum, (i64)55);
 
     mel_set_free(&s);
-    MEL_PASS();
 }
 
-MEL_TEST(set_union)
+MEL_TEST(set_union, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_Set a, b, dst;
@@ -251,10 +240,9 @@ MEL_TEST(set_union)
     mel_set_free(&a);
     mel_set_free(&b);
     mel_set_free(&dst);
-    MEL_PASS();
 }
 
-MEL_TEST(set_intersection)
+MEL_TEST(set_intersection, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_Set a, b, dst;
@@ -281,10 +269,9 @@ MEL_TEST(set_intersection)
     mel_set_free(&a);
     mel_set_free(&b);
     mel_set_free(&dst);
-    MEL_PASS();
 }
 
-MEL_TEST(set_difference)
+MEL_TEST(set_difference, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_Set a, b, dst;
@@ -311,10 +298,9 @@ MEL_TEST(set_difference)
     mel_set_free(&a);
     mel_set_free(&b);
     mel_set_free(&dst);
-    MEL_PASS();
 }
 
-MEL_TEST(set_symmetric_difference)
+MEL_TEST(set_symmetric_difference, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_Set a, b, dst;
@@ -341,10 +327,9 @@ MEL_TEST(set_symmetric_difference)
     mel_set_free(&a);
     mel_set_free(&b);
     mel_set_free(&dst);
-    MEL_PASS();
 }
 
-MEL_TEST(is_subset)
+MEL_TEST(is_subset, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_Set a, b;
@@ -368,10 +353,9 @@ MEL_TEST(is_subset)
 
     mel_set_free(&a);
     mel_set_free(&b);
-    MEL_PASS();
 }
 
-MEL_TEST(is_superset)
+MEL_TEST(is_superset, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_Set a, b;
@@ -390,10 +374,9 @@ MEL_TEST(is_superset)
 
     mel_set_free(&a);
     mel_set_free(&b);
-    MEL_PASS();
 }
 
-MEL_TEST(equals)
+MEL_TEST(equals, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_Set a, b;
@@ -415,10 +398,9 @@ MEL_TEST(equals)
 
     mel_set_free(&a);
     mel_set_free(&b);
-    MEL_PASS();
 }
 
-MEL_TEST(string_elements)
+MEL_TEST(string_elements, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_Set s;
@@ -435,10 +417,9 @@ MEL_TEST(string_elements)
     MEL_ASSERT(!mel_set_contains(&s, (void*)"missing"));
 
     mel_set_free(&s);
-    MEL_PASS();
 }
 
-MEL_TEST(stress)
+MEL_TEST(stress, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_Set s;
@@ -474,10 +455,9 @@ MEL_TEST(stress)
     }
 
     mel_set_free(&s);
-    MEL_PASS();
 }
 
-MEL_TEST(operations_on_empty)
+MEL_TEST(operations_on_empty, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_Set a, b, dst;
@@ -504,10 +484,9 @@ MEL_TEST(operations_on_empty)
     mel_set_free(&a);
     mel_set_free(&b);
     mel_set_free(&dst);
-    MEL_PASS();
 }
 
-MEL_TEST(operations_on_disjoint)
+MEL_TEST(operations_on_disjoint, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_Set a, b, dst;
@@ -544,36 +523,4 @@ MEL_TEST(operations_on_disjoint)
     mel_set_free(&a);
     mel_set_free(&b);
     mel_set_free(&dst);
-    MEL_PASS();
-}
-
-int main(void)
-{
-    MEL_TEST_BEGIN("Set Tests");
-
-    MEL_RUN_TEST(init_empty);
-    MEL_RUN_TEST(add_single);
-    MEL_RUN_TEST(add_multiple);
-    MEL_RUN_TEST(add_duplicate);
-    MEL_RUN_TEST(contains_hit_and_miss);
-    MEL_RUN_TEST(remove_existing);
-    MEL_RUN_TEST(remove_nonexistent);
-    MEL_RUN_TEST(count_empty_tracking);
-    MEL_RUN_TEST(clear_and_reuse);
-    MEL_RUN_TEST(reserve);
-    MEL_RUN_TEST(foreach_iteration);
-    MEL_RUN_TEST(set_union);
-    MEL_RUN_TEST(set_intersection);
-    MEL_RUN_TEST(set_difference);
-    MEL_RUN_TEST(set_symmetric_difference);
-    MEL_RUN_TEST(is_subset);
-    MEL_RUN_TEST(is_superset);
-    MEL_RUN_TEST(equals);
-    MEL_RUN_TEST(string_elements);
-    MEL_RUN_TEST(stress);
-    MEL_RUN_TEST(operations_on_empty);
-    MEL_RUN_TEST(operations_on_disjoint);
-
-    MEL_TEST_END();
-    return MEL_TEST_EXIT_CODE();
 }

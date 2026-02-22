@@ -5,7 +5,7 @@
 
 typedef Mel_Heap(i32) I32Heap;
 
-MEL_TEST(min_heap_push_pop_ascending)
+MEL_TEST(min_heap_push_pop_ascending, .tags = "collection")
 {
     I32Heap h;
     mel_heap_init(&h, mel_alloc_heap());
@@ -27,10 +27,9 @@ MEL_TEST(min_heap_push_pop_ascending)
     MEL_ASSERT(mel_heap_empty(&h));
 
     mel_heap_free(&h);
-    MEL_PASS();
 }
 
-MEL_TEST(max_heap_push_pop_descending)
+MEL_TEST(max_heap_push_pop_descending, .tags = "collection")
 {
     I32Heap h;
     mel_heap_init(&h, mel_alloc_heap());
@@ -52,10 +51,9 @@ MEL_TEST(max_heap_push_pop_descending)
     MEL_ASSERT(mel_heap_empty(&h));
 
     mel_heap_free(&h);
-    MEL_PASS();
 }
 
-MEL_TEST(peek_returns_root_without_removing)
+MEL_TEST(peek_returns_root_without_removing, .tags = "collection")
 {
     I32Heap h;
     mel_heap_init(&h, mel_alloc_heap());
@@ -68,10 +66,9 @@ MEL_TEST(peek_returns_root_without_removing)
     MEL_ASSERT_EQ(mel_heap_count(&h), 3);
 
     mel_heap_free(&h);
-    MEL_PASS();
 }
 
-MEL_TEST(push_sorted_ascending_pop_all)
+MEL_TEST(push_sorted_ascending_pop_all, .tags = "collection")
 {
     I32Heap h;
     mel_heap_init(&h, mel_alloc_heap());
@@ -89,10 +86,9 @@ MEL_TEST(push_sorted_ascending_pop_all)
     }
 
     mel_heap_free(&h);
-    MEL_PASS();
 }
 
-MEL_TEST(push_sorted_descending_pop_all)
+MEL_TEST(push_sorted_descending_pop_all, .tags = "collection")
 {
     I32Heap h;
     mel_heap_init(&h, mel_alloc_heap());
@@ -110,10 +106,9 @@ MEL_TEST(push_sorted_descending_pop_all)
     }
 
     mel_heap_free(&h);
-    MEL_PASS();
 }
 
-MEL_TEST(push_duplicates)
+MEL_TEST(push_duplicates, .tags = "collection")
 {
     I32Heap h;
     mel_heap_init(&h, mel_alloc_heap());
@@ -137,10 +132,9 @@ MEL_TEST(push_duplicates)
     MEL_ASSERT(mel_heap_empty(&h));
 
     mel_heap_free(&h);
-    MEL_PASS();
 }
 
-MEL_TEST(growth_100_values)
+MEL_TEST(growth_100_values, .tags = "collection")
 {
     I32Heap h;
     mel_heap_init(&h, mel_alloc_heap());
@@ -159,10 +153,9 @@ MEL_TEST(growth_100_values)
     }
 
     mel_heap_free(&h);
-    MEL_PASS();
 }
 
-MEL_TEST(clear)
+MEL_TEST(clear, .tags = "collection")
 {
     I32Heap h;
     mel_heap_init(&h, mel_alloc_heap());
@@ -179,10 +172,9 @@ MEL_TEST(clear)
     MEL_ASSERT_EQ(mel_heap_peek(&h), 99);
 
     mel_heap_free(&h);
-    MEL_PASS();
 }
 
-MEL_TEST(count_and_empty)
+MEL_TEST(count_and_empty, .tags = "collection")
 {
     I32Heap h;
     mel_heap_init(&h, mel_alloc_heap());
@@ -204,10 +196,9 @@ MEL_TEST(count_and_empty)
     MEL_ASSERT(mel_heap_empty(&h));
 
     mel_heap_free(&h);
-    MEL_PASS();
 }
 
-MEL_TEST(single_element)
+MEL_TEST(single_element, .tags = "collection")
 {
     I32Heap h;
     mel_heap_init(&h, mel_alloc_heap());
@@ -221,10 +212,9 @@ MEL_TEST(single_element)
     MEL_ASSERT(mel_heap_empty(&h));
 
     mel_heap_free(&h);
-    MEL_PASS();
 }
 
-MEL_TEST(stress_1000_values)
+MEL_TEST(stress_1000_values, .tags = "collection")
 {
     I32Heap h;
     mel_heap_init(&h, mel_alloc_heap());
@@ -244,10 +234,9 @@ MEL_TEST(stress_1000_values)
     MEL_ASSERT(mel_heap_empty(&h));
 
     mel_heap_free(&h);
-    MEL_PASS();
 }
 
-MEL_TEST(mixed_push_pop)
+MEL_TEST(mixed_push_pop, .tags = "collection")
 {
     I32Heap h;
     mel_heap_init(&h, mel_alloc_heap());
@@ -281,26 +270,4 @@ MEL_TEST(mixed_push_pop)
     MEL_ASSERT(mel_heap_empty(&h));
 
     mel_heap_free(&h);
-    MEL_PASS();
-}
-
-int main(void)
-{
-    MEL_TEST_BEGIN("Collection Heap Tests");
-
-    MEL_RUN_TEST(min_heap_push_pop_ascending);
-    MEL_RUN_TEST(max_heap_push_pop_descending);
-    MEL_RUN_TEST(peek_returns_root_without_removing);
-    MEL_RUN_TEST(push_sorted_ascending_pop_all);
-    MEL_RUN_TEST(push_sorted_descending_pop_all);
-    MEL_RUN_TEST(push_duplicates);
-    MEL_RUN_TEST(growth_100_values);
-    MEL_RUN_TEST(clear);
-    MEL_RUN_TEST(count_and_empty);
-    MEL_RUN_TEST(single_element);
-    MEL_RUN_TEST(stress_1000_values);
-    MEL_RUN_TEST(mixed_push_pop);
-
-    MEL_TEST_END();
-    return MEL_TEST_EXIT_CODE();
 }

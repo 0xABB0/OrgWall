@@ -15,16 +15,15 @@ static void leak_counter(const char* file, const char* func, u32 line, usize siz
     s_leak_total_size += size;
 }
 
-MEL_TEST(leak_singleton)
+MEL_TEST(leak_singleton, .tags = "allocator")
 {
     const Mel_Alloc* a = mel_alloc_leak_detect();
     const Mel_Alloc* b = mel_alloc_leak_detect();
     MEL_ASSERT_NOT_NULL(a);
     MEL_ASSERT(a == b);
-    MEL_PASS();
 }
 
-MEL_TEST(leak_alloc_dealloc_no_leak)
+MEL_TEST(leak_alloc_dealloc_no_leak, .tags = "allocator")
 {
     const Mel_Alloc* alloc = mel_alloc_leak_detect();
     i32* ptr = mel_alloc_type(alloc, i32);
@@ -37,10 +36,9 @@ MEL_TEST(leak_alloc_dealloc_no_leak)
     s_leak_total_size = 0;
     mel_leak_dump(leak_counter, NULL);
     MEL_ASSERT_EQ(s_leak_count, 0);
-    MEL_PASS();
 }
 
-MEL_TEST(leak_detect_single_leak)
+MEL_TEST(leak_detect_single_leak, .tags = "allocator")
 {
     const Mel_Alloc* alloc = mel_alloc_leak_detect();
     i32* leaked = mel_alloc_type(alloc, i32);
@@ -53,10 +51,9 @@ MEL_TEST(leak_detect_single_leak)
     MEL_ASSERT_GE(s_leak_total_size, sizeof(i32));
 
     mel_dealloc(alloc, leaked);
-    MEL_PASS();
 }
 
-MEL_TEST(leak_detect_multiple_leaks)
+MEL_TEST(leak_detect_multiple_leaks, .tags = "allocator")
 {
     const Mel_Alloc* alloc = mel_alloc_leak_detect();
 
@@ -81,10 +78,9 @@ MEL_TEST(leak_detect_multiple_leaks)
     mel_leak_dump(leak_counter, NULL);
     MEL_ASSERT_EQ(s_leak_count, with_three - 3);
 
-    MEL_PASS();
 }
 
-MEL_TEST(leak_realloc)
+MEL_TEST(leak_realloc, .tags = "allocator")
 {
     const Mel_Alloc* alloc = mel_alloc_leak_detect();
 
@@ -100,20 +96,18 @@ MEL_TEST(leak_realloc)
     ptr[3] = 444;
 
     mel_dealloc(alloc, ptr);
-    MEL_PASS();
 }
 
-MEL_TEST(leak_calloc_zeroed)
+MEL_TEST(leak_calloc_zeroed, .tags = "allocator")
 {
     const Mel_Alloc* alloc = mel_alloc_leak_detect();
     u8* ptr = (u8*)mel_calloc(alloc, 64);
     MEL_ASSERT_NOT_NULL(ptr);
     for (i32 i = 0; i < 64; i++) MEL_ASSERT_EQ(ptr[i], 0);
     mel_dealloc(alloc, ptr);
-    MEL_PASS();
 }
 
-MEL_TEST(leak_user_data_passthrough)
+MEL_TEST(leak_user_data_passthrough, .tags = "allocator")
 {
     static i32 user_val;
     user_val = 0;
@@ -126,21 +120,4 @@ MEL_TEST(leak_user_data_passthrough)
         &user_val);
 
     mel_dealloc(alloc, leaked);
-    MEL_PASS();
-}
-
-int main(void)
-{
-    MEL_TEST_BEGIN("Leak Detection Allocator Tests");
-
-    MEL_RUN_TEST(leak_singleton);
-    MEL_RUN_TEST(leak_alloc_dealloc_no_leak);
-    MEL_RUN_TEST(leak_detect_single_leak);
-    MEL_RUN_TEST(leak_detect_multiple_leaks);
-    MEL_RUN_TEST(leak_realloc);
-    MEL_RUN_TEST(leak_calloc_zeroed);
-    MEL_RUN_TEST(leak_user_data_passthrough);
-
-    MEL_TEST_END();
-    return MEL_TEST_EXIT_CODE();
 }

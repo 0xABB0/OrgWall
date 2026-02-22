@@ -1,7 +1,7 @@
 #include "../melody/test.harness.h"
 #include "../melody/allocator.block.h"
 
-MEL_TEST(block_init)
+MEL_TEST(block_init, .tags = "allocator")
 {
     _Alignas(16) u8 buffer[1024];
     Mel_Block_Alloc block;
@@ -9,10 +9,9 @@ MEL_TEST(block_init)
 
     MEL_ASSERT_EQ(block.offset, (usize)0);
     MEL_ASSERT_EQ(block.size, sizeof(buffer));
-    MEL_PASS();
 }
 
-MEL_TEST(block_push_struct)
+MEL_TEST(block_push_struct, .tags = "allocator")
 {
     _Alignas(16) u8 buffer[1024];
     Mel_Block_Alloc block;
@@ -28,10 +27,9 @@ MEL_TEST(block_push_struct)
 
     MEL_ASSERT_EQ(*a, 42);
     MEL_ASSERT_EQ(*b, (i64)9999);
-    MEL_PASS();
 }
 
-MEL_TEST(block_push_array)
+MEL_TEST(block_push_array, .tags = "allocator")
 {
     _Alignas(16) u8 buffer[4096];
     Mel_Block_Alloc block;
@@ -41,10 +39,9 @@ MEL_TEST(block_push_array)
     MEL_ASSERT_NOT_NULL(arr);
     for (i32 i = 0; i < 64; i++) arr[i] = (f32)i * 0.5f;
     for (i32 i = 0; i < 64; i++) MEL_ASSERT_FLOAT_EQ(arr[i], (f32)i * 0.5f, 0.001f);
-    MEL_PASS();
 }
 
-MEL_TEST(block_iteration_single)
+MEL_TEST(block_iteration_single, .tags = "allocator")
 {
     _Alignas(16) u8 buffer[1024];
     Mel_Block_Alloc block;
@@ -60,10 +57,9 @@ MEL_TEST(block_iteration_single)
     MEL_ASSERT_EQ(*found, 777);
     MEL_ASSERT_EQ(size, sizeof(i32));
     MEL_ASSERT(mel_block_iter_end(&iter));
-    MEL_PASS();
 }
 
-MEL_TEST(block_iteration_multiple)
+MEL_TEST(block_iteration_multiple, .tags = "allocator")
 {
     _Alignas(16) u8 buffer[4096];
     Mel_Block_Alloc block;
@@ -91,10 +87,9 @@ MEL_TEST(block_iteration_multiple)
     }
     MEL_ASSERT_EQ(count, 3);
     MEL_ASSERT(mel_block_iter_end(&iter));
-    MEL_PASS();
 }
 
-MEL_TEST(block_iteration_mixed_types)
+MEL_TEST(block_iteration_mixed_types, .tags = "allocator")
 {
     _Alignas(16) u8 buffer[4096];
     Mel_Block_Alloc block;
@@ -125,10 +120,9 @@ MEL_TEST(block_iteration_mixed_types)
     for (i32 i = 0; i < 10; i++) MEL_ASSERT_EQ(r3[i], (u8)(i + 1));
 
     MEL_ASSERT(mel_block_iter_end(&iter));
-    MEL_PASS();
 }
 
-MEL_TEST(block_reset_and_reuse)
+MEL_TEST(block_reset_and_reuse, .tags = "allocator")
 {
     _Alignas(16) u8 buffer[1024];
     Mel_Block_Alloc block;
@@ -147,10 +141,9 @@ MEL_TEST(block_reset_and_reuse)
     i32* fresh = mel_block_push_struct(&block, i32);
     *fresh = 42;
     MEL_ASSERT_EQ(*fresh, 42);
-    MEL_PASS();
 }
 
-MEL_TEST(block_iteration_empty)
+MEL_TEST(block_iteration_empty, .tags = "allocator")
 {
     _Alignas(16) u8 buffer[256];
     Mel_Block_Alloc block;
@@ -159,10 +152,9 @@ MEL_TEST(block_iteration_empty)
     Mel_Block_Iter iter = mel_block_iter_begin(&block);
     MEL_ASSERT(mel_block_iter_end(&iter));
     MEL_ASSERT_NULL(mel_block_iter_next(&iter, NULL));
-    MEL_PASS();
 }
 
-MEL_TEST(block_null_out_size)
+MEL_TEST(block_null_out_size, .tags = "allocator")
 {
     _Alignas(16) u8 buffer[512];
     Mel_Block_Alloc block;
@@ -175,23 +167,4 @@ MEL_TEST(block_null_out_size)
     i32* found = (i32*)mel_block_iter_next(&iter, NULL);
     MEL_ASSERT_NOT_NULL(found);
     MEL_ASSERT_EQ(*found, 55);
-    MEL_PASS();
-}
-
-int main(void)
-{
-    MEL_TEST_BEGIN("Block Allocator Tests");
-
-    MEL_RUN_TEST(block_init);
-    MEL_RUN_TEST(block_push_struct);
-    MEL_RUN_TEST(block_push_array);
-    MEL_RUN_TEST(block_iteration_single);
-    MEL_RUN_TEST(block_iteration_multiple);
-    MEL_RUN_TEST(block_iteration_mixed_types);
-    MEL_RUN_TEST(block_reset_and_reuse);
-    MEL_RUN_TEST(block_iteration_empty);
-    MEL_RUN_TEST(block_null_out_size);
-
-    MEL_TEST_END();
-    return MEL_TEST_EXIT_CODE();
 }

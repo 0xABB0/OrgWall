@@ -10,7 +10,7 @@
 #define VAL(v) ((void*)(usize)(v))
 #define AS_INT(v) ((i64)(isize)(v))
 
-MEL_TEST(init_empty)
+MEL_TEST(init_empty, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_HashMap hm;
@@ -21,10 +21,9 @@ MEL_TEST(init_empty)
     MEL_ASSERT_NULL(hm.entries);
 
     mel_hashmap_free(&hm);
-    MEL_PASS();
 }
 
-MEL_TEST(put_single)
+MEL_TEST(put_single, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_HashMap hm;
@@ -37,10 +36,9 @@ MEL_TEST(put_single)
     MEL_ASSERT_EQ(AS_INT(val), 100);
 
     mel_hashmap_free(&hm);
-    MEL_PASS();
 }
 
-MEL_TEST(put_multiple)
+MEL_TEST(put_multiple, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_HashMap hm;
@@ -60,10 +58,9 @@ MEL_TEST(put_multiple)
     }
 
     mel_hashmap_free(&hm);
-    MEL_PASS();
 }
 
-MEL_TEST(update_existing)
+MEL_TEST(update_existing, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_HashMap hm;
@@ -77,10 +74,9 @@ MEL_TEST(update_existing)
     MEL_ASSERT_EQ(AS_INT(val), 500);
 
     mel_hashmap_free(&hm);
-    MEL_PASS();
 }
 
-MEL_TEST(get_nonexistent)
+MEL_TEST(get_nonexistent, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_HashMap hm;
@@ -95,10 +91,9 @@ MEL_TEST(get_nonexistent)
     MEL_ASSERT_NULL(val);
 
     mel_hashmap_free(&hm);
-    MEL_PASS();
 }
 
-MEL_TEST(contains)
+MEL_TEST(contains, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_HashMap hm;
@@ -113,10 +108,9 @@ MEL_TEST(contains)
     MEL_ASSERT(!mel_hashmap_contains(&hm, KEY(0)));
 
     mel_hashmap_free(&hm);
-    MEL_PASS();
 }
 
-MEL_TEST(remove_existing)
+MEL_TEST(remove_existing, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_HashMap hm;
@@ -133,10 +127,9 @@ MEL_TEST(remove_existing)
     MEL_ASSERT(mel_hashmap_contains(&hm, KEY(3)));
 
     mel_hashmap_free(&hm);
-    MEL_PASS();
 }
 
-MEL_TEST(remove_nonexistent)
+MEL_TEST(remove_nonexistent, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_HashMap hm;
@@ -148,7 +141,6 @@ MEL_TEST(remove_nonexistent)
     MEL_ASSERT_EQ(mel_hashmap_count(&hm), (usize)1);
 
     mel_hashmap_free(&hm);
-    MEL_PASS();
 }
 
 static u64 hash_mod16(const void* key)
@@ -157,7 +149,7 @@ static u64 hash_mod16(const void* key)
     return val;
 }
 
-MEL_TEST(backward_shift_deletion)
+MEL_TEST(backward_shift_deletion, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_HashMap hm;
@@ -177,10 +169,9 @@ MEL_TEST(backward_shift_deletion)
     MEL_ASSERT_EQ(AS_INT(mel_hashmap_get(&hm, KEY(33))), 330);
 
     mel_hashmap_free(&hm);
-    MEL_PASS();
 }
 
-MEL_TEST(growth)
+MEL_TEST(growth, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_HashMap hm;
@@ -201,10 +192,9 @@ MEL_TEST(growth)
     }
 
     mel_hashmap_free(&hm);
-    MEL_PASS();
 }
 
-MEL_TEST(clear)
+MEL_TEST(clear, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_HashMap hm;
@@ -227,10 +217,9 @@ MEL_TEST(clear)
     MEL_ASSERT_EQ(AS_INT(mel_hashmap_get(&hm, KEY(42))), 420);
 
     mel_hashmap_free(&hm);
-    MEL_PASS();
 }
 
-MEL_TEST(reserve)
+MEL_TEST(reserve, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_HashMap hm;
@@ -254,10 +243,9 @@ MEL_TEST(reserve)
     }
 
     mel_hashmap_free(&hm);
-    MEL_PASS();
 }
 
-MEL_TEST(count_empty_tracking)
+MEL_TEST(count_empty_tracking, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_HashMap hm;
@@ -281,10 +269,9 @@ MEL_TEST(count_empty_tracking)
     MEL_ASSERT_EQ(mel_hashmap_count(&hm), (usize)0);
 
     mel_hashmap_free(&hm);
-    MEL_PASS();
 }
 
-MEL_TEST(foreach_iteration)
+MEL_TEST(foreach_iteration, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_HashMap hm;
@@ -310,10 +297,9 @@ MEL_TEST(foreach_iteration)
     MEL_ASSERT_EQ(val_sum, (i64)550);
 
     mel_hashmap_free(&hm);
-    MEL_PASS();
 }
 
-MEL_TEST(string_keys)
+MEL_TEST(string_keys, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_HashMap hm;
@@ -334,10 +320,9 @@ MEL_TEST(string_keys)
     MEL_ASSERT(!mel_hashmap_contains(&hm, (void*)"nope"));
 
     mel_hashmap_free(&hm);
-    MEL_PASS();
 }
 
-MEL_TEST(pointer_keys)
+MEL_TEST(pointer_keys, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_HashMap hm;
@@ -354,10 +339,9 @@ MEL_TEST(pointer_keys)
     MEL_ASSERT_EQ(AS_INT(mel_hashmap_get(&hm, &c)), 300);
 
     mel_hashmap_free(&hm);
-    MEL_PASS();
 }
 
-MEL_TEST(stress)
+MEL_TEST(stress, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_HashMap hm;
@@ -393,10 +377,9 @@ MEL_TEST(stress)
     }
 
     mel_hashmap_free(&hm);
-    MEL_PASS();
 }
 
-MEL_TEST(collision_handling)
+MEL_TEST(collision_handling, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_HashMap hm;
@@ -414,10 +397,9 @@ MEL_TEST(collision_handling)
     MEL_ASSERT_EQ(AS_INT(mel_hashmap_get(&hm, KEY(48))), 400);
 
     mel_hashmap_free(&hm);
-    MEL_PASS();
 }
 
-MEL_TEST(remove_probe_chain)
+MEL_TEST(remove_probe_chain, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_HashMap hm;
@@ -438,10 +420,9 @@ MEL_TEST(remove_probe_chain)
     MEL_ASSERT_EQ(AS_INT(mel_hashmap_get(&hm, KEY(33))), 330);
 
     mel_hashmap_free(&hm);
-    MEL_PASS();
 }
 
-MEL_TEST(large_rehash)
+MEL_TEST(large_rehash, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_HashMap hm;
@@ -460,10 +441,9 @@ MEL_TEST(large_rehash)
     }
 
     mel_hashmap_free(&hm);
-    MEL_PASS();
 }
 
-MEL_TEST(get_empty_map)
+MEL_TEST(get_empty_map, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_HashMap hm;
@@ -474,10 +454,9 @@ MEL_TEST(get_empty_map)
     MEL_ASSERT(!mel_hashmap_remove(&hm, KEY(1)));
 
     mel_hashmap_free(&hm);
-    MEL_PASS();
 }
 
-MEL_TEST(remove_all_then_reinsert)
+MEL_TEST(remove_all_then_reinsert, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_HashMap hm;
@@ -508,36 +487,4 @@ MEL_TEST(remove_all_then_reinsert)
     }
 
     mel_hashmap_free(&hm);
-    MEL_PASS();
-}
-
-int main(void)
-{
-    MEL_TEST_BEGIN("HashMap Tests");
-
-    MEL_RUN_TEST(init_empty);
-    MEL_RUN_TEST(put_single);
-    MEL_RUN_TEST(put_multiple);
-    MEL_RUN_TEST(update_existing);
-    MEL_RUN_TEST(get_nonexistent);
-    MEL_RUN_TEST(contains);
-    MEL_RUN_TEST(remove_existing);
-    MEL_RUN_TEST(remove_nonexistent);
-    MEL_RUN_TEST(backward_shift_deletion);
-    MEL_RUN_TEST(growth);
-    MEL_RUN_TEST(clear);
-    MEL_RUN_TEST(reserve);
-    MEL_RUN_TEST(count_empty_tracking);
-    MEL_RUN_TEST(foreach_iteration);
-    MEL_RUN_TEST(string_keys);
-    MEL_RUN_TEST(pointer_keys);
-    MEL_RUN_TEST(stress);
-    MEL_RUN_TEST(collision_handling);
-    MEL_RUN_TEST(remove_probe_chain);
-    MEL_RUN_TEST(large_rehash);
-    MEL_RUN_TEST(get_empty_map);
-    MEL_RUN_TEST(remove_all_then_reinsert);
-
-    MEL_TEST_END();
-    return MEL_TEST_EXIT_CODE();
 }

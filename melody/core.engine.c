@@ -95,9 +95,6 @@ bool mel_engine_init_opt(Mel_Engine* engine, Mel_Engine_Opt opt)
     mel_tracking_init(engine->tracking, base_alloc);
     engine->allocator = mel_tracking_allocator(engine->tracking);
 
-    if (!SDL_Vulkan_LoadLibrary("/opt/homebrew/lib/libvulkan.dylib"))
-        SDL_Log("Vulkan library load: %s (continuing — window may have loaded it)", SDL_GetError());
-
     if (!mel_gpu_device_init(&engine->dev,
         .window = opt.window,
         .allocator = &engine->allocator,

@@ -45,7 +45,7 @@ static void on_signal(void* ctx, const void* event)
     (*counter)++;
 }
 
-MEL_TEST(init_destroy)
+MEL_TEST(init_destroy, .tags = "event")
 {
     Mel_Event_Channel ch;
     mel_event_channel_init(&ch, mel_alloc_heap());
@@ -57,10 +57,9 @@ MEL_TEST(init_destroy)
     mel_event_channel_destroy(&ch);
     MEL_ASSERT_EQ(ch.subs.count, (usize)0);
     MEL_ASSERT_EQ(ch.next_id, (u32)0);
-    MEL_PASS();
 }
 
-MEL_TEST(single_subscriber)
+MEL_TEST(single_subscriber, .tags = "event")
 {
     reset_state();
     Mel_Event_Channel ch;
@@ -74,10 +73,9 @@ MEL_TEST(single_subscriber)
     MEL_ASSERT_EQ(s_last_source, (u64)7);
 
     mel_event_channel_destroy(&ch);
-    MEL_PASS();
 }
 
-MEL_TEST(multiple_subscribers)
+MEL_TEST(multiple_subscribers, .tags = "event")
 {
     reset_state();
     Mel_Event_Channel ch;
@@ -92,10 +90,9 @@ MEL_TEST(multiple_subscribers)
     MEL_ASSERT_EQ(s_call_count, 3);
 
     mel_event_channel_destroy(&ch);
-    MEL_PASS();
 }
 
-MEL_TEST(fire_preserves_order)
+MEL_TEST(fire_preserves_order, .tags = "event")
 {
     reset_state();
     Mel_Event_Channel ch;
@@ -113,10 +110,9 @@ MEL_TEST(fire_preserves_order)
     MEL_ASSERT_EQ(s_call_order[2], 3);
 
     mel_event_channel_destroy(&ch);
-    MEL_PASS();
 }
 
-MEL_TEST(unsubscribe)
+MEL_TEST(unsubscribe, .tags = "event")
 {
     reset_state();
     Mel_Event_Channel ch;
@@ -131,10 +127,9 @@ MEL_TEST(unsubscribe)
     MEL_ASSERT_EQ(s_call_count, 1);
 
     mel_event_channel_destroy(&ch);
-    MEL_PASS();
 }
 
-MEL_TEST(unsubscribe_preserves_order)
+MEL_TEST(unsubscribe_preserves_order, .tags = "event")
 {
     reset_state();
     Mel_Event_Channel ch;
@@ -153,10 +148,9 @@ MEL_TEST(unsubscribe_preserves_order)
     MEL_ASSERT_EQ(s_call_order[1], 3);
 
     mel_event_channel_destroy(&ch);
-    MEL_PASS();
 }
 
-MEL_TEST(fire_no_subscribers)
+MEL_TEST(fire_no_subscribers, .tags = "event")
 {
     Mel_Event_Channel ch;
     mel_event_channel_init(&ch, mel_alloc_heap());
@@ -164,10 +158,9 @@ MEL_TEST(fire_no_subscribers)
     mel_event_channel_fire(&ch, &(Hit_Event){ .damage = 99, .source = 0 });
 
     mel_event_channel_destroy(&ch);
-    MEL_PASS();
 }
 
-MEL_TEST(fire_null_event)
+MEL_TEST(fire_null_event, .tags = "event")
 {
     i32 counter = 0;
     Mel_Event_Channel ch;
@@ -179,10 +172,9 @@ MEL_TEST(fire_null_event)
     MEL_ASSERT_EQ(counter, 1);
 
     mel_event_channel_destroy(&ch);
-    MEL_PASS();
 }
 
-MEL_TEST(multiple_fires)
+MEL_TEST(multiple_fires, .tags = "event")
 {
     reset_state();
     Mel_Event_Channel ch;
@@ -203,10 +195,9 @@ MEL_TEST(multiple_fires)
     MEL_ASSERT_EQ(s_last_damage, 30);
 
     mel_event_channel_destroy(&ch);
-    MEL_PASS();
 }
 
-MEL_TEST(context_passed_correctly)
+MEL_TEST(context_passed_correctly, .tags = "event")
 {
     i32 counter_a = 0;
     i32 counter_b = 0;
@@ -223,10 +214,9 @@ MEL_TEST(context_passed_correctly)
     MEL_ASSERT_EQ(counter_b, 2);
 
     mel_event_channel_destroy(&ch);
-    MEL_PASS();
 }
 
-MEL_TEST(sub_handle_uniqueness)
+MEL_TEST(sub_handle_uniqueness, .tags = "event")
 {
     Mel_Event_Channel ch;
     mel_event_channel_init(&ch, mel_alloc_heap());
@@ -240,10 +230,9 @@ MEL_TEST(sub_handle_uniqueness)
     MEL_ASSERT_NEQ(s1.id, s3.id);
 
     mel_event_channel_destroy(&ch);
-    MEL_PASS();
 }
 
-MEL_TEST(unsubscribe_all)
+MEL_TEST(unsubscribe_all, .tags = "event")
 {
     reset_state();
     Mel_Event_Channel ch;
@@ -261,26 +250,4 @@ MEL_TEST(unsubscribe_all)
     MEL_ASSERT_EQ(s_call_count, 0);
 
     mel_event_channel_destroy(&ch);
-    MEL_PASS();
-}
-
-int main(void)
-{
-    MEL_TEST_BEGIN("Event Channel Tests");
-
-    MEL_RUN_TEST(init_destroy);
-    MEL_RUN_TEST(single_subscriber);
-    MEL_RUN_TEST(multiple_subscribers);
-    MEL_RUN_TEST(fire_preserves_order);
-    MEL_RUN_TEST(unsubscribe);
-    MEL_RUN_TEST(unsubscribe_preserves_order);
-    MEL_RUN_TEST(fire_no_subscribers);
-    MEL_RUN_TEST(fire_null_event);
-    MEL_RUN_TEST(multiple_fires);
-    MEL_RUN_TEST(context_passed_correctly);
-    MEL_RUN_TEST(sub_handle_uniqueness);
-    MEL_RUN_TEST(unsubscribe_all);
-
-    MEL_TEST_END();
-    return MEL_TEST_EXIT_CODE();
 }

@@ -3,7 +3,7 @@
 #include "../melody/ui.layout.box.h"
 #include <string.h>
 
-MEL_TEST(init_defaults)
+MEL_TEST(init_defaults, .tags = "ui")
 {
     Mel_Widget w;
     mel_widget_init(&w);
@@ -27,10 +27,9 @@ MEL_TEST(init_defaults)
     MEL_ASSERT_NULL(w.on_mouse_down);
     MEL_ASSERT_NULL(w.on_mouse_up);
     MEL_ASSERT_NULL(w.on_mouse_move);
-    MEL_PASS();
 }
 
-MEL_TEST(init_zeroes_struct)
+MEL_TEST(init_zeroes_struct, .tags = "ui")
 {
     Mel_Widget w;
     memset(&w, 0xFF, sizeof(w));
@@ -51,20 +50,18 @@ MEL_TEST(init_zeroes_struct)
     MEL_ASSERT_NULL(w.draw);
     MEL_ASSERT_NULL(w.measure);
     MEL_ASSERT_NULL(w.on_destroy);
-    MEL_PASS();
 }
 
-MEL_TEST(destroy_empty)
+MEL_TEST(destroy_empty, .tags = "ui")
 {
     Mel_Widget w;
     mel_widget_init(&w);
     mel_widget_destroy(&w);
 
     MEL_ASSERT_NULL(w.first_child);
-    MEL_PASS();
 }
 
-MEL_TEST(destroy_recursive)
+MEL_TEST(destroy_recursive, .tags = "ui")
 {
     Mel_Widget parent, c1, c2;
     mel_widget_init(&parent);
@@ -77,10 +74,9 @@ MEL_TEST(destroy_recursive)
     mel_widget_destroy(&parent);
 
     MEL_ASSERT_NULL(parent.first_child);
-    MEL_PASS();
 }
 
-MEL_TEST(destroy_deep_hierarchy)
+MEL_TEST(destroy_deep_hierarchy, .tags = "ui")
 {
     Mel_Widget root, l1a, l1b, l2a;
     mel_widget_init(&root);
@@ -95,10 +91,9 @@ MEL_TEST(destroy_deep_hierarchy)
     mel_widget_destroy(&root);
 
     MEL_ASSERT_NULL(root.first_child);
-    MEL_PASS();
 }
 
-MEL_TEST(add_single_child)
+MEL_TEST(add_single_child, .tags = "ui")
 {
     Mel_Widget parent, child;
     mel_widget_init(&parent);
@@ -111,10 +106,9 @@ MEL_TEST(add_single_child)
     MEL_ASSERT_NULL(child.next_sibling);
 
     mel_widget_destroy(&parent);
-    MEL_PASS();
 }
 
-MEL_TEST(add_multiple_children_preserves_order)
+MEL_TEST(add_multiple_children_preserves_order, .tags = "ui")
 {
     Mel_Widget parent, c1, c2, c3;
     mel_widget_init(&parent);
@@ -136,10 +130,9 @@ MEL_TEST(add_multiple_children_preserves_order)
     MEL_ASSERT_EQ(c3.parent, &parent);
 
     mel_widget_destroy(&parent);
-    MEL_PASS();
 }
 
-MEL_TEST(remove_first_child)
+MEL_TEST(remove_first_child, .tags = "ui")
 {
     Mel_Widget parent, c1, c2;
     mel_widget_init(&parent);
@@ -155,10 +148,9 @@ MEL_TEST(remove_first_child)
     MEL_ASSERT_NULL(c1.next_sibling);
 
     mel_widget_destroy(&parent);
-    MEL_PASS();
 }
 
-MEL_TEST(remove_middle_child)
+MEL_TEST(remove_middle_child, .tags = "ui")
 {
     Mel_Widget parent, c1, c2, c3;
     mel_widget_init(&parent);
@@ -178,10 +170,9 @@ MEL_TEST(remove_middle_child)
     MEL_ASSERT_NULL(c2.next_sibling);
 
     mel_widget_destroy(&parent);
-    MEL_PASS();
 }
 
-MEL_TEST(remove_last_child)
+MEL_TEST(remove_last_child, .tags = "ui")
 {
     Mel_Widget parent, c1, c2;
     mel_widget_init(&parent);
@@ -197,10 +188,9 @@ MEL_TEST(remove_last_child)
     MEL_ASSERT_NULL(c2.parent);
 
     mel_widget_destroy(&parent);
-    MEL_PASS();
 }
 
-MEL_TEST(remove_only_child)
+MEL_TEST(remove_only_child, .tags = "ui")
 {
     Mel_Widget parent, child;
     mel_widget_init(&parent);
@@ -214,10 +204,9 @@ MEL_TEST(remove_only_child)
     MEL_ASSERT_NULL(child.next_sibling);
 
     mel_widget_destroy(&parent);
-    MEL_PASS();
 }
 
-MEL_TEST(remove_and_readd)
+MEL_TEST(remove_and_readd, .tags = "ui")
 {
     Mel_Widget parent, child;
     mel_widget_init(&parent);
@@ -235,10 +224,9 @@ MEL_TEST(remove_and_readd)
     MEL_ASSERT_EQ(child.parent, &parent);
 
     mel_widget_destroy(&parent);
-    MEL_PASS();
 }
 
-MEL_TEST(deep_hierarchy)
+MEL_TEST(deep_hierarchy, .tags = "ui")
 {
     Mel_Widget root, level1, level2, level3;
     mel_widget_init(&root);
@@ -259,10 +247,9 @@ MEL_TEST(deep_hierarchy)
     MEL_ASSERT_NULL(level3.first_child);
 
     mel_widget_destroy(&root);
-    MEL_PASS();
 }
 
-MEL_TEST(set_visible)
+MEL_TEST(set_visible, .tags = "ui")
 {
     Mel_Widget w;
     mel_widget_init(&w);
@@ -272,10 +259,9 @@ MEL_TEST(set_visible)
 
     mel_widget_set_visible(&w, true);
     MEL_ASSERT(w.visible);
-    MEL_PASS();
 }
 
-MEL_TEST(set_enabled)
+MEL_TEST(set_enabled, .tags = "ui")
 {
     Mel_Widget w;
     mel_widget_init(&w);
@@ -287,10 +273,9 @@ MEL_TEST(set_enabled)
     mel_widget_set_enabled(&w, true);
     MEL_ASSERT(w.enabled);
     MEL_ASSERT(!(w.state & MEL_WIDGET_STATE_DISABLED));
-    MEL_PASS();
 }
 
-MEL_TEST(set_position)
+MEL_TEST(set_position, .tags = "ui")
 {
     Mel_Widget w;
     mel_widget_init(&w);
@@ -298,10 +283,9 @@ MEL_TEST(set_position)
     mel_widget_set_position(&w, mel_vec2(10.0f, 20.0f));
     MEL_ASSERT_FLOAT_EQ(w.pos.x, 10.0f, 0.001f);
     MEL_ASSERT_FLOAT_EQ(w.pos.y, 20.0f, 0.001f);
-    MEL_PASS();
 }
 
-MEL_TEST(set_size)
+MEL_TEST(set_size, .tags = "ui")
 {
     Mel_Widget w;
     mel_widget_init(&w);
@@ -309,10 +293,9 @@ MEL_TEST(set_size)
     mel_widget_set_size(&w, mel_vec2(200.0f, 150.0f));
     MEL_ASSERT_FLOAT_EQ(w.size.x, 200.0f, 0.001f);
     MEL_ASSERT_FLOAT_EQ(w.size.y, 150.0f, 0.001f);
-    MEL_PASS();
 }
 
-MEL_TEST(preferred_size_fallback)
+MEL_TEST(preferred_size_fallback, .tags = "ui")
 {
     Mel_Widget w;
     mel_widget_init(&w);
@@ -321,10 +304,9 @@ MEL_TEST(preferred_size_fallback)
     Mel_Vec2 pref = mel_layoutable_preferred_size(&w.layoutable);
     MEL_ASSERT_FLOAT_EQ(pref.x, 99.0f, 0.001f);
     MEL_ASSERT_FLOAT_EQ(pref.y, 55.0f, 0.001f);
-    MEL_PASS();
 }
 
-MEL_TEST(position_roundtrip)
+MEL_TEST(position_roundtrip, .tags = "ui")
 {
     Mel_Widget w;
     mel_widget_init(&w);
@@ -333,10 +315,9 @@ MEL_TEST(position_roundtrip)
     Mel_Vec2 pos = mel_layoutable_get_position(&w.layoutable);
     MEL_ASSERT_FLOAT_EQ(pos.x, 10.0f, 0.001f);
     MEL_ASSERT_FLOAT_EQ(pos.y, 20.0f, 0.001f);
-    MEL_PASS();
 }
 
-MEL_TEST(size_roundtrip)
+MEL_TEST(size_roundtrip, .tags = "ui")
 {
     Mel_Widget w;
     mel_widget_init(&w);
@@ -345,10 +326,9 @@ MEL_TEST(size_roundtrip)
     Mel_Vec2 sz = mel_layoutable_get_size(&w.layoutable);
     MEL_ASSERT_FLOAT_EQ(sz.x, 300.0f, 0.001f);
     MEL_ASSERT_FLOAT_EQ(sz.y, 400.0f, 0.001f);
-    MEL_PASS();
 }
 
-MEL_TEST(fixed_size)
+MEL_TEST(fixed_size, .tags = "ui")
 {
     Mel_Widget w;
     mel_widget_init(&w);
@@ -357,10 +337,9 @@ MEL_TEST(fixed_size)
     Mel_Vec2 fs = mel_layoutable_get_fixed_size(&w.layoutable);
     MEL_ASSERT_FLOAT_EQ(fs.x, 64.0f, 0.001f);
     MEL_ASSERT_FLOAT_EQ(fs.y, 32.0f, 0.001f);
-    MEL_PASS();
 }
 
-MEL_TEST(visibility)
+MEL_TEST(visibility, .tags = "ui")
 {
     Mel_Widget w;
     mel_widget_init(&w);
@@ -369,10 +348,9 @@ MEL_TEST(visibility)
 
     w.visible = false;
     MEL_ASSERT(!mel_layoutable_is_visible(&w.layoutable));
-    MEL_PASS();
 }
 
-MEL_TEST(flags)
+MEL_TEST(flags, .tags = "ui")
 {
     Mel_Widget w;
     mel_widget_init(&w);
@@ -381,10 +359,9 @@ MEL_TEST(flags)
 
     w.flags = MEL_LAYOUTABLE_FLAG_GROUP_HEADER;
     MEL_ASSERT_EQ(mel_layoutable_get_flags(&w.layoutable), (u32)MEL_LAYOUTABLE_FLAG_GROUP_HEADER);
-    MEL_PASS();
 }
 
-MEL_TEST(child_traversal)
+MEL_TEST(child_traversal, .tags = "ui")
 {
     Mel_Widget parent, c1, c2, c3;
     mel_widget_init(&parent);
@@ -412,20 +389,18 @@ MEL_TEST(child_traversal)
     MEL_ASSERT_NULL(end);
 
     mel_widget_destroy(&parent);
-    MEL_PASS();
 }
 
-MEL_TEST(no_children)
+MEL_TEST(no_children, .tags = "ui")
 {
     Mel_Widget w;
     mel_widget_init(&w);
 
     Mel_Layoutable* first = mel_layoutable_first_child(&w.layoutable);
     MEL_ASSERT_NULL(first);
-    MEL_PASS();
 }
 
-MEL_TEST(set_layout_stores)
+MEL_TEST(set_layout_stores, .tags = "ui")
 {
     Mel_Widget w;
     mel_widget_init(&w);
@@ -436,10 +411,9 @@ MEL_TEST(set_layout_stores)
 
     mel_widget_set_layout(&w, nullptr);
     MEL_ASSERT_NULL(w.layout);
-    MEL_PASS();
 }
 
-MEL_TEST(perform_layout_with_box_layout)
+MEL_TEST(perform_layout_with_box_layout, .tags = "ui")
 {
     Mel_Widget parent, c1, c2, c3;
     mel_widget_init(&parent);
@@ -479,10 +453,9 @@ MEL_TEST(perform_layout_with_box_layout)
     MEL_ASSERT_FLOAT_EQ(c3.size.y, 50.0f, 0.001f);
 
     mel_widget_destroy(&parent);
-    MEL_PASS();
 }
 
-MEL_TEST(perform_layout_no_layout_no_crash)
+MEL_TEST(perform_layout_no_layout_no_crash, .tags = "ui")
 {
     Mel_Widget parent, child;
     mel_widget_init(&parent);
@@ -492,10 +465,9 @@ MEL_TEST(perform_layout_no_layout_no_crash)
     mel_widget_perform_layout(&parent);
 
     mel_widget_destroy(&parent);
-    MEL_PASS();
 }
 
-MEL_TEST(perform_layout_recursive)
+MEL_TEST(perform_layout_recursive, .tags = "ui")
 {
     Mel_Widget root, mid, leaf;
     mel_widget_init(&root);
@@ -524,7 +496,6 @@ MEL_TEST(perform_layout_recursive)
     MEL_ASSERT_FLOAT_EQ(leaf.size.y, 20.0f, 0.001f);
 
     mel_widget_destroy(&root);
-    MEL_PASS();
 }
 
 static i32 s_draw_order[16];
@@ -536,7 +507,7 @@ static void mock_draw(Mel_Widget* w, void* ctx)
     s_draw_order[s_draw_count++] = w->type_tag;
 }
 
-MEL_TEST(contains_inside)
+MEL_TEST(contains_inside, .tags = "ui")
 {
     Mel_Widget w;
     mel_widget_init(&w);
@@ -546,10 +517,9 @@ MEL_TEST(contains_inside)
     MEL_ASSERT(mel_widget_contains(&w, mel_vec2(10.0f, 20.0f)));
     MEL_ASSERT(mel_widget_contains(&w, mel_vec2(50.0f, 40.0f)));
     MEL_ASSERT(mel_widget_contains(&w, mel_vec2(109.9f, 69.9f)));
-    MEL_PASS();
 }
 
-MEL_TEST(contains_outside)
+MEL_TEST(contains_outside, .tags = "ui")
 {
     Mel_Widget w;
     mel_widget_init(&w);
@@ -560,20 +530,18 @@ MEL_TEST(contains_outside)
     MEL_ASSERT(!mel_widget_contains(&w, mel_vec2(10.0f, 19.9f)));
     MEL_ASSERT(!mel_widget_contains(&w, mel_vec2(110.0f, 20.0f)));
     MEL_ASSERT(!mel_widget_contains(&w, mel_vec2(10.0f, 70.0f)));
-    MEL_PASS();
 }
 
-MEL_TEST(contains_zero_size)
+MEL_TEST(contains_zero_size, .tags = "ui")
 {
     Mel_Widget w;
     mel_widget_init(&w);
     mel_widget_set_position(&w, mel_vec2(10.0f, 10.0f));
 
     MEL_ASSERT(!mel_widget_contains(&w, mel_vec2(10.0f, 10.0f)));
-    MEL_PASS();
 }
 
-MEL_TEST(hit_test_single)
+MEL_TEST(hit_test_single, .tags = "ui")
 {
     Mel_Widget w;
     mel_widget_init(&w);
@@ -582,10 +550,9 @@ MEL_TEST(hit_test_single)
 
     MEL_ASSERT_EQ(mel_widget_hit_test(&w, mel_vec2(50.0f, 50.0f)), &w);
     MEL_ASSERT_NULL(mel_widget_hit_test(&w, mel_vec2(200.0f, 200.0f)));
-    MEL_PASS();
 }
 
-MEL_TEST(hit_test_returns_deepest)
+MEL_TEST(hit_test_returns_deepest, .tags = "ui")
 {
     Mel_Widget parent, child;
     mel_widget_init(&parent);
@@ -601,10 +568,9 @@ MEL_TEST(hit_test_returns_deepest)
     MEL_ASSERT_EQ(mel_widget_hit_test(&parent, mel_vec2(150.0f, 150.0f)), &parent);
 
     mel_widget_destroy(&parent);
-    MEL_PASS();
 }
 
-MEL_TEST(hit_test_skips_invisible)
+MEL_TEST(hit_test_skips_invisible, .tags = "ui")
 {
     Mel_Widget parent, child;
     mel_widget_init(&parent);
@@ -620,10 +586,9 @@ MEL_TEST(hit_test_skips_invisible)
     MEL_ASSERT_EQ(mel_widget_hit_test(&parent, mel_vec2(20.0f, 20.0f)), &parent);
 
     mel_widget_destroy(&parent);
-    MEL_PASS();
 }
 
-MEL_TEST(hit_test_skips_disabled)
+MEL_TEST(hit_test_skips_disabled, .tags = "ui")
 {
     Mel_Widget parent, child;
     mel_widget_init(&parent);
@@ -639,10 +604,9 @@ MEL_TEST(hit_test_skips_disabled)
     MEL_ASSERT_EQ(mel_widget_hit_test(&parent, mel_vec2(20.0f, 20.0f)), &parent);
 
     mel_widget_destroy(&parent);
-    MEL_PASS();
 }
 
-MEL_TEST(draw_traversal_order)
+MEL_TEST(draw_traversal_order, .tags = "ui")
 {
     Mel_Widget root, c1, c2;
     mel_widget_init(&root);
@@ -669,10 +633,9 @@ MEL_TEST(draw_traversal_order)
     MEL_ASSERT_EQ(s_draw_order[2], 3);
 
     mel_widget_destroy(&root);
-    MEL_PASS();
 }
 
-MEL_TEST(draw_skips_invisible)
+MEL_TEST(draw_skips_invisible, .tags = "ui")
 {
     Mel_Widget root, child;
     mel_widget_init(&root);
@@ -693,16 +656,14 @@ MEL_TEST(draw_skips_invisible)
     MEL_ASSERT_EQ(s_draw_order[0], 1);
 
     mel_widget_destroy(&root);
-    MEL_PASS();
 }
 
-MEL_TEST(draw_null_callback_no_crash)
+MEL_TEST(draw_null_callback_no_crash, .tags = "ui")
 {
     Mel_Widget w;
     mel_widget_init(&w);
 
     mel_widget_draw(&w, nullptr);
-    MEL_PASS();
 }
 
 static bool s_mouse_down_called;
@@ -718,7 +679,7 @@ static bool mock_mouse_down(Mel_Widget* w, Mel_Vec2 pos, i32 button)
     return true;
 }
 
-MEL_TEST(mouse_down_dispatches)
+MEL_TEST(mouse_down_dispatches, .tags = "ui")
 {
     Mel_Widget w;
     mel_widget_init(&w);
@@ -732,10 +693,9 @@ MEL_TEST(mouse_down_dispatches)
     MEL_ASSERT(consumed);
     MEL_ASSERT(s_mouse_down_called);
     MEL_ASSERT_EQ(s_mouse_down_button, 1);
-    MEL_PASS();
 }
 
-MEL_TEST(mouse_down_outside_does_not_dispatch)
+MEL_TEST(mouse_down_outside_does_not_dispatch, .tags = "ui")
 {
     Mel_Widget w;
     mel_widget_init(&w);
@@ -748,10 +708,9 @@ MEL_TEST(mouse_down_outside_does_not_dispatch)
 
     MEL_ASSERT(!consumed);
     MEL_ASSERT(!s_mouse_down_called);
-    MEL_PASS();
 }
 
-MEL_TEST(mouse_down_children_first)
+MEL_TEST(mouse_down_children_first, .tags = "ui")
 {
     Mel_Widget parent, child;
     mel_widget_init(&parent);
@@ -771,7 +730,6 @@ MEL_TEST(mouse_down_children_first)
     MEL_ASSERT(s_mouse_down_called);
 
     mel_widget_destroy(&parent);
-    MEL_PASS();
 }
 
 static bool s_mouse_up_called;
@@ -785,7 +743,7 @@ static bool mock_mouse_up(Mel_Widget* w, Mel_Vec2 pos, i32 button)
     return true;
 }
 
-MEL_TEST(mouse_up_dispatches_outside)
+MEL_TEST(mouse_up_dispatches_outside, .tags = "ui")
 {
     Mel_Widget w;
     mel_widget_init(&w);
@@ -798,7 +756,6 @@ MEL_TEST(mouse_up_dispatches_outside)
 
     MEL_ASSERT(consumed);
     MEL_ASSERT(s_mouse_up_called);
-    MEL_PASS();
 }
 
 static bool s_mouse_move_called;
@@ -811,7 +768,7 @@ static bool mock_mouse_move(Mel_Widget* w, Mel_Vec2 pos)
     return false;
 }
 
-MEL_TEST(mouse_move_dispatches_outside)
+MEL_TEST(mouse_move_dispatches_outside, .tags = "ui")
 {
     Mel_Widget w;
     mel_widget_init(&w);
@@ -823,7 +780,6 @@ MEL_TEST(mouse_move_dispatches_outside)
     mel_widget_mouse_move(&w, mel_vec2(200.0f, 200.0f));
 
     MEL_ASSERT(s_mouse_move_called);
-    MEL_PASS();
 }
 
 static Mel_Vec2 mock_measure_result;
@@ -834,7 +790,7 @@ static Mel_Vec2 mock_measure(Mel_Widget* w)
     return mock_measure_result;
 }
 
-MEL_TEST(measure_callback_preferred_size)
+MEL_TEST(measure_callback_preferred_size, .tags = "ui")
 {
     Mel_Widget w;
     mel_widget_init(&w);
@@ -845,7 +801,6 @@ MEL_TEST(measure_callback_preferred_size)
     Mel_Vec2 pref = mel_layoutable_preferred_size(&w.layoutable);
     MEL_ASSERT_FLOAT_EQ(pref.x, 200.0f, 0.001f);
     MEL_ASSERT_FLOAT_EQ(pref.y, 100.0f, 0.001f);
-    MEL_PASS();
 }
 
 static bool s_destroy_called;
@@ -856,7 +811,7 @@ static void mock_on_destroy(Mel_Widget* w)
     s_destroy_called = true;
 }
 
-MEL_TEST(on_destroy_called)
+MEL_TEST(on_destroy_called, .tags = "ui")
 {
     Mel_Widget w;
     mel_widget_init(&w);
@@ -866,7 +821,6 @@ MEL_TEST(on_destroy_called)
     mel_widget_destroy(&w);
 
     MEL_ASSERT(s_destroy_called);
-    MEL_PASS();
 }
 
 static i32 s_destroy_order[8];
@@ -877,7 +831,7 @@ static void mock_on_destroy_order(Mel_Widget* w)
     s_destroy_order[s_destroy_order_count++] = w->type_tag;
 }
 
-MEL_TEST(on_destroy_children_first)
+MEL_TEST(on_destroy_children_first, .tags = "ui")
 {
     Mel_Widget parent, child;
     mel_widget_init(&parent);
@@ -895,71 +849,4 @@ MEL_TEST(on_destroy_children_first)
     MEL_ASSERT_EQ(s_destroy_order_count, 2);
     MEL_ASSERT_EQ(s_destroy_order[0], 2);
     MEL_ASSERT_EQ(s_destroy_order[1], 1);
-    MEL_PASS();
-}
-
-int main(void)
-{
-    MEL_TEST_BEGIN("Retained Widget (Mel_Widget) Tests");
-
-    MEL_RUN_TEST(init_defaults);
-    MEL_RUN_TEST(init_zeroes_struct);
-    MEL_RUN_TEST(destroy_empty);
-    MEL_RUN_TEST(destroy_recursive);
-    MEL_RUN_TEST(destroy_deep_hierarchy);
-
-    MEL_RUN_TEST(add_single_child);
-    MEL_RUN_TEST(add_multiple_children_preserves_order);
-    MEL_RUN_TEST(remove_first_child);
-    MEL_RUN_TEST(remove_middle_child);
-    MEL_RUN_TEST(remove_last_child);
-    MEL_RUN_TEST(remove_only_child);
-    MEL_RUN_TEST(remove_and_readd);
-    MEL_RUN_TEST(deep_hierarchy);
-
-    MEL_RUN_TEST(set_visible);
-    MEL_RUN_TEST(set_enabled);
-    MEL_RUN_TEST(set_position);
-    MEL_RUN_TEST(set_size);
-
-    MEL_RUN_TEST(preferred_size_fallback);
-    MEL_RUN_TEST(position_roundtrip);
-    MEL_RUN_TEST(size_roundtrip);
-    MEL_RUN_TEST(fixed_size);
-    MEL_RUN_TEST(visibility);
-    MEL_RUN_TEST(flags);
-    MEL_RUN_TEST(child_traversal);
-    MEL_RUN_TEST(no_children);
-
-    MEL_RUN_TEST(set_layout_stores);
-    MEL_RUN_TEST(perform_layout_with_box_layout);
-    MEL_RUN_TEST(perform_layout_no_layout_no_crash);
-    MEL_RUN_TEST(perform_layout_recursive);
-
-    MEL_RUN_TEST(contains_inside);
-    MEL_RUN_TEST(contains_outside);
-    MEL_RUN_TEST(contains_zero_size);
-
-    MEL_RUN_TEST(hit_test_single);
-    MEL_RUN_TEST(hit_test_returns_deepest);
-    MEL_RUN_TEST(hit_test_skips_invisible);
-    MEL_RUN_TEST(hit_test_skips_disabled);
-
-    MEL_RUN_TEST(draw_traversal_order);
-    MEL_RUN_TEST(draw_skips_invisible);
-    MEL_RUN_TEST(draw_null_callback_no_crash);
-
-    MEL_RUN_TEST(mouse_down_dispatches);
-    MEL_RUN_TEST(mouse_down_outside_does_not_dispatch);
-    MEL_RUN_TEST(mouse_down_children_first);
-    MEL_RUN_TEST(mouse_up_dispatches_outside);
-    MEL_RUN_TEST(mouse_move_dispatches_outside);
-
-    MEL_RUN_TEST(measure_callback_preferred_size);
-
-    MEL_RUN_TEST(on_destroy_called);
-    MEL_RUN_TEST(on_destroy_children_first);
-
-    MEL_TEST_END();
-    return MEL_TEST_EXIT_CODE();
 }

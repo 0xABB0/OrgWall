@@ -16,7 +16,7 @@ static i32 cmp_i32(const void* a, const void* b)
 #define VAL(x)   ((void*)(isize)(x))
 #define UNVAL(v) ((i32)(isize)(v))
 
-MEL_TEST(init_empty)
+MEL_TEST(init_empty, .tags = "collection")
 {
     Mel_BTree bt;
     mel_btree_init(&bt, MEL_BTREE_DEFAULT_DEGREE, cmp_i32, mel_alloc_heap());
@@ -26,10 +26,9 @@ MEL_TEST(init_empty)
     MEL_ASSERT_NULL(mel_btree_min(&bt));
     MEL_ASSERT_NULL(mel_btree_max(&bt));
     mel_btree_free(&bt);
-    MEL_PASS();
 }
 
-MEL_TEST(insert_single_find)
+MEL_TEST(insert_single_find, .tags = "collection")
 {
     Mel_BTree bt;
     mel_btree_init(&bt, MEL_BTREE_DEFAULT_DEGREE, cmp_i32, mel_alloc_heap());
@@ -40,10 +39,9 @@ MEL_TEST(insert_single_find)
     MEL_ASSERT_NOT_NULL(v);
     MEL_ASSERT_EQ(UNVAL(v), 100);
     mel_btree_free(&bt);
-    MEL_PASS();
 }
 
-MEL_TEST(insert_duplicate_rejected)
+MEL_TEST(insert_duplicate_rejected, .tags = "collection")
 {
     Mel_BTree bt;
     mel_btree_init(&bt, MEL_BTREE_DEFAULT_DEGREE, cmp_i32, mel_alloc_heap());
@@ -52,10 +50,9 @@ MEL_TEST(insert_duplicate_rejected)
     MEL_ASSERT_EQ(mel_btree_count(&bt), (usize)1);
     MEL_ASSERT_EQ(UNVAL(mel_btree_find(&bt, KEY(5))), 50);
     mel_btree_free(&bt);
-    MEL_PASS();
 }
 
-MEL_TEST(insert_ascending_find_all)
+MEL_TEST(insert_ascending_find_all, .tags = "collection")
 {
     Mel_BTree bt;
     mel_btree_init(&bt, MEL_BTREE_DEFAULT_DEGREE, cmp_i32, mel_alloc_heap());
@@ -71,10 +68,9 @@ MEL_TEST(insert_ascending_find_all)
         MEL_ASSERT_EQ(UNVAL(v), i * 10);
     }
     mel_btree_free(&bt);
-    MEL_PASS();
 }
 
-MEL_TEST(insert_descending_triggers_splits)
+MEL_TEST(insert_descending_triggers_splits, .tags = "collection")
 {
     Mel_BTree bt;
     mel_btree_init(&bt, MEL_BTREE_DEFAULT_DEGREE, cmp_i32, mel_alloc_heap());
@@ -88,10 +84,9 @@ MEL_TEST(insert_descending_triggers_splits)
         MEL_ASSERT(mel_btree_contains(&bt, KEY(i)));
     }
     mel_btree_free(&bt);
-    MEL_PASS();
 }
 
-MEL_TEST(insert_causes_root_split)
+MEL_TEST(insert_causes_root_split, .tags = "collection")
 {
     Mel_BTree bt;
     mel_btree_init(&bt, MEL_BTREE_DEFAULT_DEGREE, cmp_i32, mel_alloc_heap());
@@ -106,10 +101,9 @@ MEL_TEST(insert_causes_root_split)
         MEL_ASSERT(mel_btree_contains(&bt, KEY(i)));
     }
     mel_btree_free(&bt);
-    MEL_PASS();
 }
 
-MEL_TEST(find_nonexistent)
+MEL_TEST(find_nonexistent, .tags = "collection")
 {
     Mel_BTree bt;
     mel_btree_init(&bt, MEL_BTREE_DEFAULT_DEGREE, cmp_i32, mel_alloc_heap());
@@ -121,10 +115,9 @@ MEL_TEST(find_nonexistent)
     MEL_ASSERT_NULL(mel_btree_find(&bt, KEY(3)));
     MEL_ASSERT_NULL(mel_btree_find(&bt, KEY(99)));
     mel_btree_free(&bt);
-    MEL_PASS();
 }
 
-MEL_TEST(remove_from_leaf)
+MEL_TEST(remove_from_leaf, .tags = "collection")
 {
     Mel_BTree bt;
     mel_btree_init(&bt, MEL_BTREE_DEFAULT_DEGREE, cmp_i32, mel_alloc_heap());
@@ -137,10 +130,9 @@ MEL_TEST(remove_from_leaf)
     MEL_ASSERT(mel_btree_contains(&bt, KEY(2)));
     MEL_ASSERT(mel_btree_contains(&bt, KEY(3)));
     mel_btree_free(&bt);
-    MEL_PASS();
 }
 
-MEL_TEST(remove_nonexistent)
+MEL_TEST(remove_nonexistent, .tags = "collection")
 {
     Mel_BTree bt;
     mel_btree_init(&bt, MEL_BTREE_DEFAULT_DEGREE, cmp_i32, mel_alloc_heap());
@@ -148,10 +140,9 @@ MEL_TEST(remove_nonexistent)
     MEL_ASSERT(!mel_btree_remove(&bt, KEY(99)));
     MEL_ASSERT_EQ(mel_btree_count(&bt), (usize)1);
     mel_btree_free(&bt);
-    MEL_PASS();
 }
 
-MEL_TEST(remove_from_internal)
+MEL_TEST(remove_from_internal, .tags = "collection")
 {
     Mel_BTree bt;
     mel_btree_init(&bt, MEL_BTREE_DEFAULT_DEGREE, cmp_i32, mel_alloc_heap());
@@ -170,10 +161,9 @@ MEL_TEST(remove_from_internal)
         MEL_ASSERT(mel_btree_contains(&bt, KEY(i)));
     }
     mel_btree_free(&bt);
-    MEL_PASS();
 }
 
-MEL_TEST(remove_causing_merge)
+MEL_TEST(remove_causing_merge, .tags = "collection")
 {
     Mel_BTree bt;
     mel_btree_init(&bt, MEL_BTREE_DEFAULT_DEGREE, cmp_i32, mel_alloc_heap());
@@ -191,10 +181,9 @@ MEL_TEST(remove_causing_merge)
     MEL_ASSERT(mel_btree_contains(&bt, KEY(9)));
     MEL_ASSERT(mel_btree_contains(&bt, KEY(10)));
     mel_btree_free(&bt);
-    MEL_PASS();
 }
 
-MEL_TEST(remove_causing_borrow)
+MEL_TEST(remove_causing_borrow, .tags = "collection")
 {
     Mel_BTree bt;
     mel_btree_init(&bt, MEL_BTREE_DEFAULT_DEGREE, cmp_i32, mel_alloc_heap());
@@ -211,10 +200,9 @@ MEL_TEST(remove_causing_borrow)
         MEL_ASSERT(mel_btree_contains(&bt, KEY(i)));
     }
     mel_btree_free(&bt);
-    MEL_PASS();
 }
 
-MEL_TEST(min_max)
+MEL_TEST(min_max, .tags = "collection")
 {
     Mel_BTree bt;
     mel_btree_init(&bt, MEL_BTREE_DEFAULT_DEGREE, cmp_i32, mel_alloc_heap());
@@ -227,10 +215,9 @@ MEL_TEST(min_max)
     MEL_ASSERT_EQ((isize)mel_btree_min(&bt), (isize)10);
     MEL_ASSERT_EQ((isize)mel_btree_max(&bt), (isize)90);
     mel_btree_free(&bt);
-    MEL_PASS();
 }
 
-MEL_TEST(contains)
+MEL_TEST(contains, .tags = "collection")
 {
     Mel_BTree bt;
     mel_btree_init(&bt, MEL_BTREE_DEFAULT_DEGREE, cmp_i32, mel_alloc_heap());
@@ -238,10 +225,9 @@ MEL_TEST(contains)
     MEL_ASSERT(mel_btree_contains(&bt, KEY(42)));
     MEL_ASSERT(!mel_btree_contains(&bt, KEY(43)));
     mel_btree_free(&bt);
-    MEL_PASS();
 }
 
-MEL_TEST(clear)
+MEL_TEST(clear, .tags = "collection")
 {
     Mel_BTree bt;
     mel_btree_init(&bt, MEL_BTREE_DEFAULT_DEGREE, cmp_i32, mel_alloc_heap());
@@ -255,10 +241,9 @@ MEL_TEST(clear)
     MEL_ASSERT(mel_btree_empty(&bt));
     MEL_ASSERT_NULL(mel_btree_find(&bt, KEY(0)));
     mel_btree_free(&bt);
-    MEL_PASS();
 }
 
-MEL_TEST(count)
+MEL_TEST(count, .tags = "collection")
 {
     Mel_BTree bt;
     mel_btree_init(&bt, MEL_BTREE_DEFAULT_DEGREE, cmp_i32, mel_alloc_heap());
@@ -270,10 +255,9 @@ MEL_TEST(count)
     mel_btree_remove(&bt, KEY(1));
     MEL_ASSERT_EQ(mel_btree_count(&bt), (usize)1);
     mel_btree_free(&bt);
-    MEL_PASS();
 }
 
-MEL_TEST(stress_200)
+MEL_TEST(stress_200, .tags = "collection")
 {
     Mel_BTree bt;
     mel_btree_init(&bt, MEL_BTREE_DEFAULT_DEGREE, cmp_i32, mel_alloc_heap());
@@ -298,10 +282,9 @@ MEL_TEST(stress_200)
     MEL_ASSERT_EQ(mel_btree_count(&bt), (usize)0);
     MEL_ASSERT(mel_btree_empty(&bt));
     mel_btree_free(&bt);
-    MEL_PASS();
 }
 
-MEL_TEST(degree_2)
+MEL_TEST(degree_2, .tags = "collection")
 {
     Mel_BTree bt;
     mel_btree_init(&bt, 2, cmp_i32, mel_alloc_heap());
@@ -326,10 +309,9 @@ MEL_TEST(degree_2)
     }
     MEL_ASSERT(mel_btree_empty(&bt));
     mel_btree_free(&bt);
-    MEL_PASS();
 }
 
-MEL_TEST(degree_5)
+MEL_TEST(degree_5, .tags = "collection")
 {
     Mel_BTree bt;
     mel_btree_init(&bt, 5, cmp_i32, mel_alloc_heap());
@@ -361,10 +343,9 @@ MEL_TEST(degree_5)
         MEL_ASSERT(mel_btree_contains(&bt, KEY(i)));
     }
     mel_btree_free(&bt);
-    MEL_PASS();
 }
 
-MEL_TEST(remove_all_then_reinsert)
+MEL_TEST(remove_all_then_reinsert, .tags = "collection")
 {
     Mel_BTree bt;
     mel_btree_init(&bt, MEL_BTREE_DEFAULT_DEGREE, cmp_i32, mel_alloc_heap());
@@ -390,34 +371,4 @@ MEL_TEST(remove_all_then_reinsert)
         MEL_ASSERT_EQ(UNVAL(mel_btree_find(&bt, KEY(i))), i * 5);
     }
     mel_btree_free(&bt);
-    MEL_PASS();
-}
-
-int main(void)
-{
-    MEL_TEST_BEGIN("B-Tree Tests");
-
-    MEL_RUN_TEST(init_empty);
-    MEL_RUN_TEST(insert_single_find);
-    MEL_RUN_TEST(insert_duplicate_rejected);
-    MEL_RUN_TEST(insert_ascending_find_all);
-    MEL_RUN_TEST(insert_descending_triggers_splits);
-    MEL_RUN_TEST(insert_causes_root_split);
-    MEL_RUN_TEST(find_nonexistent);
-    MEL_RUN_TEST(remove_from_leaf);
-    MEL_RUN_TEST(remove_nonexistent);
-    MEL_RUN_TEST(remove_from_internal);
-    MEL_RUN_TEST(remove_causing_merge);
-    MEL_RUN_TEST(remove_causing_borrow);
-    MEL_RUN_TEST(min_max);
-    MEL_RUN_TEST(contains);
-    MEL_RUN_TEST(clear);
-    MEL_RUN_TEST(count);
-    MEL_RUN_TEST(stress_200);
-    MEL_RUN_TEST(degree_2);
-    MEL_RUN_TEST(degree_5);
-    MEL_RUN_TEST(remove_all_then_reinsert);
-
-    MEL_TEST_END();
-    return MEL_TEST_EXIT_CODE();
 }

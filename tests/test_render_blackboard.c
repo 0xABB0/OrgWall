@@ -4,7 +4,7 @@
 #include "../melody/allocator.heap.h"
 #include <string.h>
 
-MEL_TEST(blackboard_set_get)
+MEL_TEST(blackboard_set_get, .tags = "render")
 {
     Mel_Render_Blackboard bb;
     mel_render_blackboard_init(&bb, .alloc = mel_alloc_heap());
@@ -17,10 +17,9 @@ MEL_TEST(blackboard_set_get)
     MEL_ASSERT_EQ(*result, 0xFF00FF00u);
 
     mel_render_blackboard_shutdown(&bb);
-    MEL_PASS();
 }
 
-MEL_TEST(blackboard_overwrite)
+MEL_TEST(blackboard_overwrite, .tags = "render")
 {
     Mel_Render_Blackboard bb;
     mel_render_blackboard_init(&bb, .alloc = mel_alloc_heap());
@@ -34,10 +33,9 @@ MEL_TEST(blackboard_overwrite)
     MEL_ASSERT_EQ(*result, 99u);
 
     mel_render_blackboard_shutdown(&bb);
-    MEL_PASS();
 }
 
-MEL_TEST(blackboard_has_true)
+MEL_TEST(blackboard_has_true, .tags = "render")
 {
     Mel_Render_Blackboard bb;
     mel_render_blackboard_init(&bb, .alloc = mel_alloc_heap());
@@ -47,10 +45,9 @@ MEL_TEST(blackboard_has_true)
     MEL_ASSERT(mel_render_blackboard_has(&bb, S8("a")));
 
     mel_render_blackboard_shutdown(&bb);
-    MEL_PASS();
 }
 
-MEL_TEST(blackboard_has_false)
+MEL_TEST(blackboard_has_false, .tags = "render")
 {
     Mel_Render_Blackboard bb;
     mel_render_blackboard_init(&bb, .alloc = mel_alloc_heap());
@@ -58,10 +55,9 @@ MEL_TEST(blackboard_has_false)
     MEL_ASSERT(!mel_render_blackboard_has(&bb, S8("nonexistent")));
 
     mel_render_blackboard_shutdown(&bb);
-    MEL_PASS();
 }
 
-MEL_TEST(blackboard_clear)
+MEL_TEST(blackboard_clear, .tags = "render")
 {
     Mel_Render_Blackboard bb;
     mel_render_blackboard_init(&bb, .alloc = mel_alloc_heap());
@@ -78,10 +74,9 @@ MEL_TEST(blackboard_clear)
     MEL_ASSERT(!mel_render_blackboard_has(&bb, S8("c")));
 
     mel_render_blackboard_shutdown(&bb);
-    MEL_PASS();
 }
 
-MEL_TEST(blackboard_multiple_keys)
+MEL_TEST(blackboard_multiple_keys, .tags = "render")
 {
     Mel_Render_Blackboard bb;
     mel_render_blackboard_init(&bb, .alloc = mel_alloc_heap());
@@ -102,10 +97,9 @@ MEL_TEST(blackboard_multiple_keys)
     }
 
     mel_render_blackboard_shutdown(&bb);
-    MEL_PASS();
 }
 
-MEL_TEST(blackboard_different_sizes)
+MEL_TEST(blackboard_different_sizes, .tags = "render")
 {
     Mel_Render_Blackboard bb;
     mel_render_blackboard_init(&bb, .alloc = mel_alloc_heap());
@@ -129,10 +123,9 @@ MEL_TEST(blackboard_different_sizes)
     MEL_ASSERT_FLOAT_EQ(rpos->z, 3.0f, 0.001f);
 
     mel_render_blackboard_shutdown(&bb);
-    MEL_PASS();
 }
 
-MEL_TEST(blackboard_capacity_growth)
+MEL_TEST(blackboard_capacity_growth, .tags = "render")
 {
     Mel_Render_Blackboard bb;
     mel_render_blackboard_init(&bb, .alloc = mel_alloc_heap(), .initial_capacity = 2);
@@ -156,10 +149,9 @@ MEL_TEST(blackboard_capacity_growth)
     }
 
     mel_render_blackboard_shutdown(&bb);
-    MEL_PASS();
 }
 
-MEL_TEST(blackboard_overwrite_different_size)
+MEL_TEST(blackboard_overwrite_different_size, .tags = "render")
 {
     Mel_Render_Blackboard bb;
     mel_render_blackboard_init(&bb, .alloc = mel_alloc_heap());
@@ -174,10 +166,9 @@ MEL_TEST(blackboard_overwrite_different_size)
     MEL_ASSERT_EQ(*result, 0xCAFEBABEDEADBEEFULL);
 
     mel_render_blackboard_shutdown(&bb);
-    MEL_PASS();
 }
 
-MEL_TEST(blackboard_set_after_clear)
+MEL_TEST(blackboard_set_after_clear, .tags = "render")
 {
     Mel_Render_Blackboard bb;
     mel_render_blackboard_init(&bb, .alloc = mel_alloc_heap());
@@ -191,25 +182,4 @@ MEL_TEST(blackboard_set_after_clear)
     MEL_ASSERT_EQ(*(u32*)mel_render_blackboard_get(&bb, S8("x")), 2u);
 
     mel_render_blackboard_shutdown(&bb);
-    MEL_PASS();
-}
-
-int main(void)
-{
-    MEL_TEST_BEGIN("Render Blackboard Tests");
-
-    MEL_RUN_TEST(blackboard_set_get);
-    MEL_RUN_TEST(blackboard_overwrite);
-    MEL_RUN_TEST(blackboard_has_true);
-    MEL_RUN_TEST(blackboard_has_false);
-    MEL_RUN_TEST(blackboard_clear);
-    MEL_RUN_TEST(blackboard_multiple_keys);
-    MEL_RUN_TEST(blackboard_different_sizes);
-    MEL_RUN_TEST(blackboard_capacity_growth);
-    MEL_RUN_TEST(blackboard_overwrite_different_size);
-    MEL_RUN_TEST(blackboard_set_after_clear);
-
-    MEL_TEST_END();
-
-    return MEL_TEST_EXIT_CODE();
 }

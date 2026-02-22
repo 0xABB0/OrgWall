@@ -3,7 +3,7 @@
 #include "../melody/allocator.heap.h"
 #include "../melody/collection.bitset.h"
 
-MEL_TEST(init_all_zero)
+MEL_TEST(init_all_zero, .tags = "collection")
 {
     Mel_BitSet bs;
     mel_bitset_init(&bs, 128, mel_alloc_heap());
@@ -14,10 +14,9 @@ MEL_TEST(init_all_zero)
         MEL_ASSERT(!mel_bitset_get(&bs, i));
     MEL_ASSERT_EQ(mel_bitset_count_set(&bs), (usize)0);
     mel_bitset_free(&bs);
-    MEL_PASS();
 }
 
-MEL_TEST(set_get)
+MEL_TEST(set_get, .tags = "collection")
 {
     Mel_BitSet bs;
     mel_bitset_init(&bs, 256, mel_alloc_heap());
@@ -35,10 +34,9 @@ MEL_TEST(set_get)
     MEL_ASSERT(!mel_bitset_get(&bs, 62));
     MEL_ASSERT(!mel_bitset_get(&bs, 65));
     mel_bitset_free(&bs);
-    MEL_PASS();
 }
 
-MEL_TEST(clear_bit)
+MEL_TEST(clear_bit, .tags = "collection")
 {
     Mel_BitSet bs;
     mel_bitset_init(&bs, 128, mel_alloc_heap());
@@ -47,10 +45,9 @@ MEL_TEST(clear_bit)
     mel_bitset_clear_bit(&bs, 42);
     MEL_ASSERT(!mel_bitset_get(&bs, 42));
     mel_bitset_free(&bs);
-    MEL_PASS();
 }
 
-MEL_TEST(toggle)
+MEL_TEST(toggle, .tags = "collection")
 {
     Mel_BitSet bs;
     mel_bitset_init(&bs, 64, mel_alloc_heap());
@@ -60,10 +57,9 @@ MEL_TEST(toggle)
     mel_bitset_toggle(&bs, 10);
     MEL_ASSERT(!mel_bitset_get(&bs, 10));
     mel_bitset_free(&bs);
-    MEL_PASS();
 }
 
-MEL_TEST(set_all_clear_all)
+MEL_TEST(set_all_clear_all, .tags = "collection")
 {
     Mel_BitSet bs;
     mel_bitset_init(&bs, 100, mel_alloc_heap());
@@ -81,10 +77,9 @@ MEL_TEST(set_all_clear_all)
         MEL_ASSERT(!mel_bitset_get(&bs, i));
 
     mel_bitset_free(&bs);
-    MEL_PASS();
 }
 
-MEL_TEST(count_set_clear)
+MEL_TEST(count_set_clear, .tags = "collection")
 {
     Mel_BitSet bs;
     mel_bitset_init(&bs, 200, mel_alloc_heap());
@@ -95,10 +90,9 @@ MEL_TEST(count_set_clear)
     MEL_ASSERT_EQ(mel_bitset_count_set(&bs), (usize)4);
     MEL_ASSERT_EQ(mel_bitset_count_clear(&bs), (usize)196);
     mel_bitset_free(&bs);
-    MEL_PASS();
 }
 
-MEL_TEST(any_none_all)
+MEL_TEST(any_none_all, .tags = "collection")
 {
     Mel_BitSet bs;
     mel_bitset_init(&bs, 64, mel_alloc_heap());
@@ -118,10 +112,9 @@ MEL_TEST(any_none_all)
     MEL_ASSERT(mel_bitset_all(&bs));
 
     mel_bitset_free(&bs);
-    MEL_PASS();
 }
 
-MEL_TEST(bitwise_and)
+MEL_TEST(bitwise_and, .tags = "collection")
 {
     Mel_BitSet a, b, dst;
     mel_bitset_init(&a, 128, mel_alloc_heap());
@@ -145,10 +138,9 @@ MEL_TEST(bitwise_and)
     mel_bitset_free(&a);
     mel_bitset_free(&b);
     mel_bitset_free(&dst);
-    MEL_PASS();
 }
 
-MEL_TEST(bitwise_or)
+MEL_TEST(bitwise_or, .tags = "collection")
 {
     Mel_BitSet a, b, dst;
     mel_bitset_init(&a, 128, mel_alloc_heap());
@@ -169,10 +161,9 @@ MEL_TEST(bitwise_or)
     mel_bitset_free(&a);
     mel_bitset_free(&b);
     mel_bitset_free(&dst);
-    MEL_PASS();
 }
 
-MEL_TEST(bitwise_xor)
+MEL_TEST(bitwise_xor, .tags = "collection")
 {
     Mel_BitSet a, b, dst;
     mel_bitset_init(&a, 128, mel_alloc_heap());
@@ -193,10 +184,9 @@ MEL_TEST(bitwise_xor)
     mel_bitset_free(&a);
     mel_bitset_free(&b);
     mel_bitset_free(&dst);
-    MEL_PASS();
 }
 
-MEL_TEST(bitwise_not)
+MEL_TEST(bitwise_not, .tags = "collection")
 {
     Mel_BitSet src, dst;
     mel_bitset_init(&src, 100, mel_alloc_heap());
@@ -214,10 +204,9 @@ MEL_TEST(bitwise_not)
 
     mel_bitset_free(&src);
     mel_bitset_free(&dst);
-    MEL_PASS();
 }
 
-MEL_TEST(first_set)
+MEL_TEST(first_set, .tags = "collection")
 {
     Mel_BitSet bs;
     mel_bitset_init(&bs, 256, mel_alloc_heap());
@@ -231,10 +220,9 @@ MEL_TEST(first_set)
     MEL_ASSERT_EQ(mel_bitset_first_set(&bs), (usize)5);
 
     mel_bitset_free(&bs);
-    MEL_PASS();
 }
 
-MEL_TEST(first_clear)
+MEL_TEST(first_clear, .tags = "collection")
 {
     Mel_BitSet bs;
     mel_bitset_init(&bs, 128, mel_alloc_heap());
@@ -251,10 +239,9 @@ MEL_TEST(first_clear)
     MEL_ASSERT_EQ(mel_bitset_first_clear(&bs), (usize)3);
 
     mel_bitset_free(&bs);
-    MEL_PASS();
 }
 
-MEL_TEST(resize_grow)
+MEL_TEST(resize_grow, .tags = "collection")
 {
     Mel_BitSet bs;
     mel_bitset_init(&bs, 64, mel_alloc_heap());
@@ -270,10 +257,9 @@ MEL_TEST(resize_grow)
     MEL_ASSERT(!mel_bitset_get(&bs, 255));
 
     mel_bitset_free(&bs);
-    MEL_PASS();
 }
 
-MEL_TEST(resize_shrink)
+MEL_TEST(resize_shrink, .tags = "collection")
 {
     Mel_BitSet bs;
     mel_bitset_init(&bs, 256, mel_alloc_heap());
@@ -289,10 +275,9 @@ MEL_TEST(resize_shrink)
     MEL_ASSERT_EQ(mel_bitset_count_set(&bs), (usize)2);
 
     mel_bitset_free(&bs);
-    MEL_PASS();
 }
 
-MEL_TEST(edge_bit0_and_last)
+MEL_TEST(edge_bit0_and_last, .tags = "collection")
 {
     Mel_BitSet bs;
     mel_bitset_init(&bs, 1, mel_alloc_heap());
@@ -302,10 +287,9 @@ MEL_TEST(edge_bit0_and_last)
     MEL_ASSERT(mel_bitset_all(&bs));
     MEL_ASSERT_EQ(mel_bitset_count_set(&bs), (usize)1);
     mel_bitset_free(&bs);
-    MEL_PASS();
 }
 
-MEL_TEST(edge_word_boundary)
+MEL_TEST(edge_word_boundary, .tags = "collection")
 {
     Mel_BitSet bs;
     mel_bitset_init(&bs, 65, mel_alloc_heap());
@@ -322,10 +306,9 @@ MEL_TEST(edge_word_boundary)
     MEL_ASSERT(mel_bitset_all(&bs));
 
     mel_bitset_free(&bs);
-    MEL_PASS();
 }
 
-MEL_TEST(stress_every_other_1000)
+MEL_TEST(stress_every_other_1000, .tags = "collection")
 {
     Mel_BitSet bs;
     mel_bitset_init(&bs, 1000, mel_alloc_heap());
@@ -345,10 +328,9 @@ MEL_TEST(stress_every_other_1000)
     }
 
     mel_bitset_free(&bs);
-    MEL_PASS();
 }
 
-MEL_TEST(large_10000)
+MEL_TEST(large_10000, .tags = "collection")
 {
     Mel_BitSet bs;
     mel_bitset_init(&bs, 10000, mel_alloc_heap());
@@ -368,10 +350,9 @@ MEL_TEST(large_10000)
     MEL_ASSERT_EQ(mel_bitset_first_clear(&bs), (usize)0);
 
     mel_bitset_free(&bs);
-    MEL_PASS();
 }
 
-MEL_TEST(resize_shrink_clears_tail_bits)
+MEL_TEST(resize_shrink_clears_tail_bits, .tags = "collection")
 {
     Mel_BitSet bs;
     mel_bitset_init(&bs, 128, mel_alloc_heap());
@@ -387,10 +368,9 @@ MEL_TEST(resize_shrink_clears_tail_bits)
         MEL_ASSERT(!mel_bitset_get(&bs, i));
 
     mel_bitset_free(&bs);
-    MEL_PASS();
 }
 
-MEL_TEST(not_preserves_tail)
+MEL_TEST(not_preserves_tail, .tags = "collection")
 {
     Mel_BitSet src, dst;
     mel_bitset_init(&src, 65, mel_alloc_heap());
@@ -402,35 +382,4 @@ MEL_TEST(not_preserves_tail)
 
     mel_bitset_free(&src);
     mel_bitset_free(&dst);
-    MEL_PASS();
-}
-
-int main(void)
-{
-    MEL_TEST_BEGIN("BitSet Tests");
-
-    MEL_RUN_TEST(init_all_zero);
-    MEL_RUN_TEST(set_get);
-    MEL_RUN_TEST(clear_bit);
-    MEL_RUN_TEST(toggle);
-    MEL_RUN_TEST(set_all_clear_all);
-    MEL_RUN_TEST(count_set_clear);
-    MEL_RUN_TEST(any_none_all);
-    MEL_RUN_TEST(bitwise_and);
-    MEL_RUN_TEST(bitwise_or);
-    MEL_RUN_TEST(bitwise_xor);
-    MEL_RUN_TEST(bitwise_not);
-    MEL_RUN_TEST(first_set);
-    MEL_RUN_TEST(first_clear);
-    MEL_RUN_TEST(resize_grow);
-    MEL_RUN_TEST(resize_shrink);
-    MEL_RUN_TEST(edge_bit0_and_last);
-    MEL_RUN_TEST(edge_word_boundary);
-    MEL_RUN_TEST(stress_every_other_1000);
-    MEL_RUN_TEST(large_10000);
-    MEL_RUN_TEST(resize_shrink_clears_tail_bits);
-    MEL_RUN_TEST(not_preserves_tail);
-
-    MEL_TEST_END();
-    return MEL_TEST_EXIT_CODE();
 }

@@ -12,17 +12,16 @@ static void record_execute(Mel_Gpu_Cmd* cmd, void* user)
     s_execution_order[s_execution_count++] = id;
 }
 
-MEL_TEST(graph_empty)
+MEL_TEST(graph_empty, .tags = "render")
 {
     Mel_Render_Graph g;
     mel_render_graph_init(&g);
     MEL_ASSERT(mel_render_graph_build(&g));
     MEL_ASSERT_EQ(g.sorted_count, 0u);
     mel_render_graph_shutdown(&g);
-    MEL_PASS();
 }
 
-MEL_TEST(graph_single_pass)
+MEL_TEST(graph_single_pass, .tags = "render")
 {
     Mel_Render_Graph g;
     mel_render_graph_init(&g);
@@ -31,10 +30,9 @@ MEL_TEST(graph_single_pass)
     MEL_ASSERT_EQ(g.sorted_count, 1u);
     MEL_ASSERT_EQ(g.sorted_order[0], p);
     mel_render_graph_shutdown(&g);
-    MEL_PASS();
 }
 
-MEL_TEST(graph_linear_chain)
+MEL_TEST(graph_linear_chain, .tags = "render")
 {
     Mel_Render_Graph g;
     mel_render_graph_init(&g);
@@ -49,10 +47,9 @@ MEL_TEST(graph_linear_chain)
     MEL_ASSERT_EQ(g.sorted_order[1], b);
     MEL_ASSERT_EQ(g.sorted_order[2], c);
     mel_render_graph_shutdown(&g);
-    MEL_PASS();
 }
 
-MEL_TEST(graph_diamond)
+MEL_TEST(graph_diamond, .tags = "render")
 {
     Mel_Render_Graph g;
     mel_render_graph_init(&g);
@@ -69,10 +66,9 @@ MEL_TEST(graph_diamond)
     MEL_ASSERT_EQ(g.sorted_order[0], a);
     MEL_ASSERT_EQ(g.sorted_order[3], d);
     mel_render_graph_shutdown(&g);
-    MEL_PASS();
 }
 
-MEL_TEST(graph_independent_passes)
+MEL_TEST(graph_independent_passes, .tags = "render")
 {
     Mel_Render_Graph g;
     mel_render_graph_init(&g);
@@ -81,10 +77,9 @@ MEL_TEST(graph_independent_passes)
     MEL_ASSERT(mel_render_graph_build(&g));
     MEL_ASSERT_EQ(g.sorted_count, 2u);
     mel_render_graph_shutdown(&g);
-    MEL_PASS();
 }
 
-MEL_TEST(graph_write_read_dep)
+MEL_TEST(graph_write_read_dep, .tags = "render")
 {
     Mel_Render_Graph g;
     mel_render_graph_init(&g);
@@ -98,10 +93,9 @@ MEL_TEST(graph_write_read_dep)
     MEL_ASSERT_EQ(g.sorted_order[0], writer);
     MEL_ASSERT_EQ(g.sorted_order[1], reader);
     mel_render_graph_shutdown(&g);
-    MEL_PASS();
 }
 
-MEL_TEST(graph_cycle_fails)
+MEL_TEST(graph_cycle_fails, .tags = "render")
 {
     Mel_Render_Graph g;
     mel_render_graph_init(&g);
@@ -111,10 +105,9 @@ MEL_TEST(graph_cycle_fails)
     mel_render_graph_pass_depends_on(&g, b, a);
     MEL_ASSERT(!mel_render_graph_build(&g));
     mel_render_graph_shutdown(&g);
-    MEL_PASS();
 }
 
-MEL_TEST(graph_max_passes)
+MEL_TEST(graph_max_passes, .tags = "render")
 {
     Mel_Render_Graph g;
     mel_render_graph_init(&g);
@@ -126,10 +119,9 @@ MEL_TEST(graph_max_passes)
     MEL_ASSERT(mel_render_graph_build(&g));
     MEL_ASSERT_EQ(g.sorted_count, (u32)MEL_RENDER_GRAPH_MAX_PASSES);
     mel_render_graph_shutdown(&g);
-    MEL_PASS();
 }
 
-MEL_TEST(graph_isolated_subgraphs)
+MEL_TEST(graph_isolated_subgraphs, .tags = "render")
 {
     Mel_Render_Graph g;
     mel_render_graph_init(&g);
@@ -159,10 +151,9 @@ MEL_TEST(graph_isolated_subgraphs)
     MEL_ASSERT(a_before_b);
     MEL_ASSERT(c_before_d);
     mel_render_graph_shutdown(&g);
-    MEL_PASS();
 }
 
-MEL_TEST(graph_write_after_read)
+MEL_TEST(graph_write_after_read, .tags = "render")
 {
     Mel_Render_Graph g;
     mel_render_graph_init(&g);
@@ -174,10 +165,9 @@ MEL_TEST(graph_write_after_read)
     MEL_ASSERT(mel_render_graph_build(&g));
     MEL_ASSERT_EQ(g.sorted_count, 2u);
     mel_render_graph_shutdown(&g);
-    MEL_PASS();
 }
 
-MEL_TEST(graph_multiple_writers)
+MEL_TEST(graph_multiple_writers, .tags = "render")
 {
     Mel_Render_Graph g;
     mel_render_graph_init(&g);
@@ -191,10 +181,9 @@ MEL_TEST(graph_multiple_writers)
     MEL_ASSERT_EQ(g.sorted_order[0], w1);
     MEL_ASSERT_EQ(g.sorted_order[1], w2);
     mel_render_graph_shutdown(&g);
-    MEL_PASS();
 }
 
-MEL_TEST(graph_backbuffer_resource)
+MEL_TEST(graph_backbuffer_resource, .tags = "render")
 {
     Mel_Render_Graph g;
     mel_render_graph_init(&g);
@@ -203,10 +192,9 @@ MEL_TEST(graph_backbuffer_resource)
     MEL_ASSERT_EQ(g.resources[bb].width, 800u);
     MEL_ASSERT_EQ(g.resources[bb].height, 600u);
     mel_render_graph_shutdown(&g);
-    MEL_PASS();
 }
 
-MEL_TEST(graph_execution_order)
+MEL_TEST(graph_execution_order, .tags = "render")
 {
     s_execution_count = 0;
 
@@ -230,28 +218,4 @@ MEL_TEST(graph_execution_order)
     MEL_UNUSED(b);
     MEL_UNUSED(c);
     mel_render_graph_shutdown(&g);
-    MEL_PASS();
-}
-
-int main(void)
-{
-    MEL_TEST_BEGIN("Render Graph Tests");
-
-    MEL_RUN_TEST(graph_empty);
-    MEL_RUN_TEST(graph_single_pass);
-    MEL_RUN_TEST(graph_linear_chain);
-    MEL_RUN_TEST(graph_diamond);
-    MEL_RUN_TEST(graph_independent_passes);
-    MEL_RUN_TEST(graph_write_read_dep);
-    MEL_RUN_TEST(graph_cycle_fails);
-    MEL_RUN_TEST(graph_max_passes);
-    MEL_RUN_TEST(graph_isolated_subgraphs);
-    MEL_RUN_TEST(graph_write_after_read);
-    MEL_RUN_TEST(graph_multiple_writers);
-    MEL_RUN_TEST(graph_backbuffer_resource);
-    MEL_RUN_TEST(graph_execution_order);
-
-    MEL_TEST_END();
-
-    return MEL_TEST_EXIT_CODE();
 }

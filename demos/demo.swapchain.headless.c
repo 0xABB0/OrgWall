@@ -58,9 +58,6 @@ int main(int argc, char* argv[])
         return 1;
     }
 
-    if (!SDL_Vulkan_LoadLibrary("/opt/homebrew/lib/libvulkan.dylib"))
-        SDL_Log("Vulkan library load: %s", SDL_GetError());
-
     Mel_Gpu_Device dev = {0};
     if (!mel_gpu_device_init(&dev,
         .window = window,

@@ -2,7 +2,7 @@
 #include "../melody/allocator.ring.h"
 #include <string.h>
 
-MEL_TEST(ring_init)
+MEL_TEST(ring_init, .tags = "allocator")
 {
     u8 buffer[256];
     Mel_Ring_Alloc ring;
@@ -12,10 +12,9 @@ MEL_TEST(ring_init)
     MEL_ASSERT_EQ(ring.read_offset, (usize)0);
     MEL_ASSERT_EQ(ring.used, (usize)0);
     MEL_ASSERT_EQ(mel_ring_available(&ring), sizeof(buffer));
-    MEL_PASS();
 }
 
-MEL_TEST(ring_push_pop_single)
+MEL_TEST(ring_push_pop_single, .tags = "allocator")
 {
     u8 buffer[256];
     Mel_Ring_Alloc ring;
@@ -32,10 +31,9 @@ MEL_TEST(ring_push_pop_single)
 
     mel_ring_pop(&ring);
     MEL_ASSERT_EQ(ring.used, (usize)0);
-    MEL_PASS();
 }
 
-MEL_TEST(ring_fifo_order)
+MEL_TEST(ring_fifo_order, .tags = "allocator")
 {
     u8 buffer[512];
     Mel_Ring_Alloc ring;
@@ -61,10 +59,9 @@ MEL_TEST(ring_fifo_order)
     mel_ring_pop(&ring);
 
     MEL_ASSERT_EQ(ring.used, (usize)0);
-    MEL_PASS();
 }
 
-MEL_TEST(ring_wraparound)
+MEL_TEST(ring_wraparound, .tags = "allocator")
 {
     usize header_size = sizeof(Mel_Ring_Header);
     usize entry_size = header_size + sizeof(i32);
@@ -99,10 +96,9 @@ MEL_TEST(ring_wraparound)
     mel_ring_pop(&ring);
 
     MEL_ASSERT_EQ(ring.used, (usize)0);
-    MEL_PASS();
 }
 
-MEL_TEST(ring_full_returns_null)
+MEL_TEST(ring_full_returns_null, .tags = "allocator")
 {
     usize header_size = sizeof(Mel_Ring_Header);
     usize entry_size = header_size + sizeof(i32);
@@ -122,10 +118,9 @@ MEL_TEST(ring_full_returns_null)
 
     mel_ring_pop(&ring);
     mel_ring_pop(&ring);
-    MEL_PASS();
 }
 
-MEL_TEST(ring_peek_empty)
+MEL_TEST(ring_peek_empty, .tags = "allocator")
 {
     u8 buffer[128];
     Mel_Ring_Alloc ring;
@@ -133,10 +128,9 @@ MEL_TEST(ring_peek_empty)
 
     void* ptr = mel_ring_peek(&ring);
     MEL_ASSERT_NULL(ptr);
-    MEL_PASS();
 }
 
-MEL_TEST(ring_reset)
+MEL_TEST(ring_reset, .tags = "allocator")
 {
     u8 buffer[256];
     Mel_Ring_Alloc ring;
@@ -156,10 +150,9 @@ MEL_TEST(ring_reset)
     *fresh = 99;
     MEL_ASSERT_EQ(*fresh, 99);
     mel_ring_pop(&ring);
-    MEL_PASS();
 }
 
-MEL_TEST(ring_continuous_push_pop)
+MEL_TEST(ring_continuous_push_pop, .tags = "allocator")
 {
     usize header_size = sizeof(Mel_Ring_Header);
     usize entry_size = header_size + sizeof(i32);
@@ -181,10 +174,9 @@ MEL_TEST(ring_continuous_push_pop)
     }
 
     MEL_ASSERT_EQ(ring.used, (usize)0);
-    MEL_PASS();
 }
 
-MEL_TEST(ring_available_tracking)
+MEL_TEST(ring_available_tracking, .tags = "allocator")
 {
     u8 buffer[256];
     Mel_Ring_Alloc ring;
@@ -200,10 +192,9 @@ MEL_TEST(ring_available_tracking)
     mel_ring_pop(&ring);
     usize after_pop = mel_ring_available(&ring);
     MEL_ASSERT_EQ(after_pop, initial);
-    MEL_PASS();
 }
 
-MEL_TEST(ring_data_survives_wrap)
+MEL_TEST(ring_data_survives_wrap, .tags = "allocator")
 {
     usize header_size = sizeof(Mel_Ring_Header);
     usize entry_size = header_size + sizeof(i32);
@@ -233,24 +224,4 @@ MEL_TEST(ring_data_survives_wrap)
     p = (i32*)mel_ring_peek(&ring);
     MEL_ASSERT_EQ(*p, 400);
     mel_ring_pop(&ring);
-    MEL_PASS();
-}
-
-int main(void)
-{
-    MEL_TEST_BEGIN("Ring Allocator Tests");
-
-    MEL_RUN_TEST(ring_init);
-    MEL_RUN_TEST(ring_push_pop_single);
-    MEL_RUN_TEST(ring_fifo_order);
-    MEL_RUN_TEST(ring_wraparound);
-    MEL_RUN_TEST(ring_full_returns_null);
-    MEL_RUN_TEST(ring_peek_empty);
-    MEL_RUN_TEST(ring_reset);
-    MEL_RUN_TEST(ring_continuous_push_pop);
-    MEL_RUN_TEST(ring_available_tracking);
-    MEL_RUN_TEST(ring_data_survives_wrap);
-
-    MEL_TEST_END();
-    return MEL_TEST_EXIT_CODE();
 }

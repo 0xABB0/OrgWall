@@ -2,17 +2,16 @@
 #include "../melody/allocator.h"
 #include "../melody/allocator.heap.h"
 
-MEL_TEST(heap_singleton)
+MEL_TEST(heap_singleton, .tags = "allocator")
 {
     const Mel_Alloc* a = mel_alloc_heap();
     const Mel_Alloc* b = mel_alloc_heap();
     MEL_ASSERT_NOT_NULL(a);
     MEL_ASSERT_NOT_NULL(a->alloc_cb);
     MEL_ASSERT(a == b);
-    MEL_PASS();
 }
 
-MEL_TEST(heap_alloc_dealloc)
+MEL_TEST(heap_alloc_dealloc, .tags = "allocator")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     i32* ptr = mel_alloc_type(alloc, i32);
@@ -20,10 +19,9 @@ MEL_TEST(heap_alloc_dealloc)
     *ptr = 42;
     MEL_ASSERT_EQ(*ptr, 42);
     mel_dealloc(alloc, ptr);
-    MEL_PASS();
 }
 
-MEL_TEST(heap_alloc_array)
+MEL_TEST(heap_alloc_array, .tags = "allocator")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     i32* arr = mel_alloc_array(alloc, i32, 100);
@@ -31,10 +29,9 @@ MEL_TEST(heap_alloc_array)
     for (i32 i = 0; i < 100; i++) arr[i] = i;
     for (i32 i = 0; i < 100; i++) MEL_ASSERT_EQ(arr[i], i);
     mel_dealloc(alloc, arr);
-    MEL_PASS();
 }
 
-MEL_TEST(heap_realloc)
+MEL_TEST(heap_realloc, .tags = "allocator")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     i32* ptr = (i32*)mel_alloc(alloc, sizeof(i32) * 4);
@@ -58,20 +55,18 @@ MEL_TEST(heap_realloc)
     MEL_ASSERT_EQ(ptr[7], 80);
 
     mel_dealloc(alloc, ptr);
-    MEL_PASS();
 }
 
-MEL_TEST(heap_calloc)
+MEL_TEST(heap_calloc, .tags = "allocator")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     i32* arr = (i32*)mel_calloc(alloc, sizeof(i32) * 16);
     MEL_ASSERT_NOT_NULL(arr);
     for (i32 i = 0; i < 16; i++) MEL_ASSERT_EQ(arr[i], 0);
     mel_dealloc(alloc, arr);
-    MEL_PASS();
 }
 
-MEL_TEST(heap_large_allocation)
+MEL_TEST(heap_large_allocation, .tags = "allocator")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     usize big = 1024 * 1024;
@@ -82,10 +77,9 @@ MEL_TEST(heap_large_allocation)
     MEL_ASSERT_EQ(ptr[0], 0xAA);
     MEL_ASSERT_EQ(ptr[big - 1], 0xBB);
     mel_dealloc(alloc, ptr);
-    MEL_PASS();
 }
 
-MEL_TEST(heap_many_small_allocs)
+MEL_TEST(heap_many_small_allocs, .tags = "allocator")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     void* ptrs[256];
@@ -98,21 +92,4 @@ MEL_TEST(heap_many_small_allocs)
     {
         mel_dealloc(alloc, ptrs[i]);
     }
-    MEL_PASS();
-}
-
-int main(void)
-{
-    MEL_TEST_BEGIN("Heap Allocator Tests");
-
-    MEL_RUN_TEST(heap_singleton);
-    MEL_RUN_TEST(heap_alloc_dealloc);
-    MEL_RUN_TEST(heap_alloc_array);
-    MEL_RUN_TEST(heap_realloc);
-    MEL_RUN_TEST(heap_calloc);
-    MEL_RUN_TEST(heap_large_allocation);
-    MEL_RUN_TEST(heap_many_small_allocs);
-
-    MEL_TEST_END();
-    return MEL_TEST_EXIT_CODE();
 }

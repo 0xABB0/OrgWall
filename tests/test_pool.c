@@ -2,7 +2,7 @@
 #include "../melody/allocator.h"
 #include "../melody/allocator.pool.h"
 
-MEL_TEST(pool_init)
+MEL_TEST(pool_init, .tags = "allocator")
 {
     _Alignas(16) u8 buffer[1024];
     Mel_Pool pool;
@@ -12,10 +12,9 @@ MEL_TEST(pool_init)
     MEL_ASSERT_EQ(pool.block_count, sizeof(buffer) / 64);
     MEL_ASSERT_EQ(pool.used_count, (usize)0);
     MEL_ASSERT_NOT_NULL(pool.free_list);
-    MEL_PASS();
 }
 
-MEL_TEST(pool_alloc_single)
+MEL_TEST(pool_alloc_single, .tags = "allocator")
 {
     _Alignas(16) u8 buffer[1024];
     Mel_Pool pool;
@@ -29,10 +28,9 @@ MEL_TEST(pool_alloc_single)
 
     mel_pool_free(&pool, ptr);
     MEL_ASSERT_EQ(pool.used_count, (usize)0);
-    MEL_PASS();
 }
 
-MEL_TEST(pool_exhaust_and_reuse)
+MEL_TEST(pool_exhaust_and_reuse, .tags = "allocator")
 {
     _Alignas(16) u8 buffer[128];
     Mel_Pool pool;
@@ -59,10 +57,9 @@ MEL_TEST(pool_exhaust_and_reuse)
     for (usize i = 1; i < total; i++) mel_pool_free(&pool, ptrs[i]);
     mel_pool_free(&pool, reused);
     MEL_ASSERT_EQ(pool.used_count, (usize)0);
-    MEL_PASS();
 }
 
-MEL_TEST(pool_owns)
+MEL_TEST(pool_owns, .tags = "allocator")
 {
     _Alignas(16) u8 buffer[256];
     Mel_Pool pool;
@@ -75,10 +72,9 @@ MEL_TEST(pool_owns)
     MEL_ASSERT(!mel_pool_owns(&pool, &outside));
 
     mel_pool_free(&pool, ptr);
-    MEL_PASS();
 }
 
-MEL_TEST(pool_reset)
+MEL_TEST(pool_reset, .tags = "allocator")
 {
     _Alignas(16) u8 buffer[256];
     Mel_Pool pool;
@@ -96,10 +92,9 @@ MEL_TEST(pool_reset)
     void* ptr = mel_pool_alloc(&pool);
     MEL_ASSERT_NOT_NULL(ptr);
     mel_pool_free(&pool, ptr);
-    MEL_PASS();
 }
 
-MEL_TEST(pool_data_integrity)
+MEL_TEST(pool_data_integrity, .tags = "allocator")
 {
     _Alignas(16) u8 buffer[1024];
     Mel_Pool pool;
@@ -122,10 +117,9 @@ MEL_TEST(pool_data_integrity)
     mel_pool_free(&pool, a);
     mel_pool_free(&pool, b);
     mel_pool_free(&pool, c);
-    MEL_PASS();
 }
 
-MEL_TEST(pool_to_alloc_interface)
+MEL_TEST(pool_to_alloc_interface, .tags = "allocator")
 {
     _Alignas(16) u8 buffer[512];
     Mel_Pool pool;
@@ -140,10 +134,9 @@ MEL_TEST(pool_to_alloc_interface)
 
     mel_dealloc(&alloc, ptr);
     MEL_ASSERT_EQ(pool.used_count, (usize)0);
-    MEL_PASS();
 }
 
-MEL_TEST(pool_free_and_realloc_pattern)
+MEL_TEST(pool_free_and_realloc_pattern, .tags = "allocator")
 {
     _Alignas(16) u8 buffer[512];
     Mel_Pool pool;
@@ -174,22 +167,4 @@ MEL_TEST(pool_free_and_realloc_pattern)
     {
         mel_pool_free(&pool, ptrs[i]);
     }
-    MEL_PASS();
-}
-
-int main(void)
-{
-    MEL_TEST_BEGIN("Pool Allocator Tests");
-
-    MEL_RUN_TEST(pool_init);
-    MEL_RUN_TEST(pool_alloc_single);
-    MEL_RUN_TEST(pool_exhaust_and_reuse);
-    MEL_RUN_TEST(pool_owns);
-    MEL_RUN_TEST(pool_reset);
-    MEL_RUN_TEST(pool_data_integrity);
-    MEL_RUN_TEST(pool_to_alloc_interface);
-    MEL_RUN_TEST(pool_free_and_realloc_pattern);
-
-    MEL_TEST_END();
-    return MEL_TEST_EXIT_CODE();
 }

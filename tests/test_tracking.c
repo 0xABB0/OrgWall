@@ -3,7 +3,7 @@
 #include "../melody/allocator.heap.h"
 #include "../melody/allocator.tracking.h"
 
-MEL_TEST(tracking_init_zeroed)
+MEL_TEST(tracking_init_zeroed, .tags = "allocator")
 {
     Mel_Tracking_Allocator t;
     mel_tracking_init(&t, mel_alloc_heap());
@@ -14,10 +14,9 @@ MEL_TEST(tracking_init_zeroed)
     MEL_ASSERT_EQ(t.peak_usage, (usize)0);
     MEL_ASSERT_EQ(t.alloc_count, (u64)0);
     MEL_ASSERT_EQ(t.free_count, (u64)0);
-    MEL_PASS();
 }
 
-MEL_TEST(tracking_single_alloc_free)
+MEL_TEST(tracking_single_alloc_free, .tags = "allocator")
 {
     Mel_Tracking_Allocator t;
     mel_tracking_init(&t, mel_alloc_heap());
@@ -34,10 +33,9 @@ MEL_TEST(tracking_single_alloc_free)
     MEL_ASSERT_EQ(t.free_count, (u64)1);
     MEL_ASSERT_EQ(t.total_freed, sizeof(i32));
     MEL_ASSERT_EQ(t.current_usage, (usize)0);
-    MEL_PASS();
 }
 
-MEL_TEST(tracking_multiple_allocs)
+MEL_TEST(tracking_multiple_allocs, .tags = "allocator")
 {
     Mel_Tracking_Allocator t;
     mel_tracking_init(&t, mel_alloc_heap());
@@ -60,10 +58,9 @@ MEL_TEST(tracking_multiple_allocs)
 
     MEL_ASSERT_EQ(t.free_count, (u64)3);
     MEL_ASSERT_EQ(t.total_freed, sizeof(i32) * 3);
-    MEL_PASS();
 }
 
-MEL_TEST(tracking_peak_usage)
+MEL_TEST(tracking_peak_usage, .tags = "allocator")
 {
     Mel_Tracking_Allocator t;
     mel_tracking_init(&t, mel_alloc_heap());
@@ -95,10 +92,9 @@ MEL_TEST(tracking_peak_usage)
     MEL_ASSERT_EQ(t.peak_usage, (usize)350);
     MEL_ASSERT_EQ(t.alloc_count, (u64)3);
     MEL_ASSERT_EQ(t.free_count, (u64)3);
-    MEL_PASS();
 }
 
-MEL_TEST(tracking_realloc_counts)
+MEL_TEST(tracking_realloc_counts, .tags = "allocator")
 {
     Mel_Tracking_Allocator t;
     mel_tracking_init(&t, mel_alloc_heap());
@@ -127,10 +123,9 @@ MEL_TEST(tracking_realloc_counts)
     mel_dealloc(&alloc, ptr);
     MEL_ASSERT_EQ(t.current_usage, (usize)0);
     MEL_ASSERT_EQ(t.total_freed, (usize)112);
-    MEL_PASS();
 }
 
-MEL_TEST(tracking_data_integrity)
+MEL_TEST(tracking_data_integrity, .tags = "allocator")
 {
     Mel_Tracking_Allocator t;
     mel_tracking_init(&t, mel_alloc_heap());
@@ -141,20 +136,4 @@ MEL_TEST(tracking_data_integrity)
     for (i32 i = 0; i < 50; i++) MEL_ASSERT_EQ(arr[i], i * 3);
 
     mel_dealloc(&alloc, arr);
-    MEL_PASS();
-}
-
-int main(void)
-{
-    MEL_TEST_BEGIN("Tracking Allocator Tests");
-
-    MEL_RUN_TEST(tracking_init_zeroed);
-    MEL_RUN_TEST(tracking_single_alloc_free);
-    MEL_RUN_TEST(tracking_multiple_allocs);
-    MEL_RUN_TEST(tracking_peak_usage);
-    MEL_RUN_TEST(tracking_realloc_counts);
-    MEL_RUN_TEST(tracking_data_integrity);
-
-    MEL_TEST_END();
-    return MEL_TEST_EXIT_CODE();
 }

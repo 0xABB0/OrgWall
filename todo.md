@@ -59,9 +59,11 @@
 - [FIX][DEMO] demo trie is broken. it flickers
 - [FIX][DEMO] demo pathfind is broken. when it renders without walls, there are a ton of artefacts, and the grid breaks.
 - [ENGINE] the game should automatically automatically handle simulations
-- [ENGINE] the animation mixer could be extracted to be something more generic? like, could it be used for the audio system? — ANSWERED: No. Audio and animation have fundamentally different data flows. Animation is property-per-track, audio is sample streams. Curves (math.curve) and state machine (anim.state) can be shared, but the mixer itself should stay animation-specific.
-- [LOG] this logged line "Vulkan library load: Vulkan loader library already loaded (continuing — window may have loaded it)" is fucking abhorrent and 300% ai slop.
 - [BUILD] the build system we're using right now (nob.h) is fine, but at this point i think that melody can include that in its own source code i think
+- ~~[TEST] i don't like tests having each it's own main. is there a way to augment the testing system so that tests are auto-discovered, with a single main, and possibly something like tagging the tests so we can run just some of them (or even one of them, by like id)?~~ DONE: unified test binary, auto-registration via `__attribute__((constructor))`, tags, --filter/--tag/--id/--list/--visual CLI
+- [ALLOC] we should remove the mel\_alloc\_heap() function. everyone that needs to allocate needs to get passed an allocator directly.
+- [BUILD] we need to have a way to optimize the release for a certain system/architecture/cpu (march flag, using handcrafted assembly per-feature, whatever)
+- [BUILD] we need a better method to define if a source file is platform specific (build system-wise). i don't like having a map of "for this, skip these", maybe it could be made less ugly by doing something like ".osx -> defined(__APPLE__)"
 
 ## Friction from demo.anim (Feb 2026)
 

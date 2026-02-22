@@ -1,7 +1,7 @@
 #include "../melody/test.harness.h"
 #include "../melody/allocator.stack.h"
 
-MEL_TEST(stack_init)
+MEL_TEST(stack_init, .tags = "allocator")
 {
     _Alignas(16) u8 buffer[1024];
     Mel_Stack_Alloc stack;
@@ -10,10 +10,9 @@ MEL_TEST(stack_init)
     MEL_ASSERT_EQ(stack.offset, (usize)0);
     MEL_ASSERT_EQ(stack.size, sizeof(buffer));
     MEL_ASSERT_EQ(stack.last_header, (usize)-1);
-    MEL_PASS();
 }
 
-MEL_TEST(stack_push_pop_single)
+MEL_TEST(stack_push_pop_single, .tags = "allocator")
 {
     _Alignas(16) u8 buffer[1024];
     Mel_Stack_Alloc stack;
@@ -28,10 +27,9 @@ MEL_TEST(stack_push_pop_single)
     mel_stack_pop(&stack);
     MEL_ASSERT_EQ(stack.offset, (usize)0);
     MEL_ASSERT_EQ(stack.last_header, (usize)-1);
-    MEL_PASS();
 }
 
-MEL_TEST(stack_lifo_order)
+MEL_TEST(stack_lifo_order, .tags = "allocator")
 {
     _Alignas(16) u8 buffer[2048];
     Mel_Stack_Alloc stack;
@@ -54,10 +52,9 @@ MEL_TEST(stack_lifo_order)
 
     mel_stack_pop(&stack);
     MEL_ASSERT_EQ(stack.offset, (usize)0);
-    MEL_PASS();
 }
 
-MEL_TEST(stack_push_array)
+MEL_TEST(stack_push_array, .tags = "allocator")
 {
     _Alignas(16) u8 buffer[4096];
     Mel_Stack_Alloc stack;
@@ -70,10 +67,9 @@ MEL_TEST(stack_push_array)
 
     mel_stack_pop(&stack);
     MEL_ASSERT_EQ(stack.offset, (usize)0);
-    MEL_PASS();
 }
 
-MEL_TEST(stack_alignment)
+MEL_TEST(stack_alignment, .tags = "allocator")
 {
     _Alignas(64) u8 buffer[4096];
     Mel_Stack_Alloc stack;
@@ -90,10 +86,9 @@ MEL_TEST(stack_alignment)
 
     mel_stack_pop(&stack);
     mel_stack_pop(&stack);
-    MEL_PASS();
 }
 
-MEL_TEST(stack_mark_restore)
+MEL_TEST(stack_mark_restore, .tags = "allocator")
 {
     _Alignas(16) u8 buffer[2048];
     Mel_Stack_Alloc stack;
@@ -121,10 +116,9 @@ MEL_TEST(stack_mark_restore)
     mel_stack_pop(&stack);
     mel_stack_pop(&stack);
     MEL_ASSERT_EQ(stack.offset, (usize)0);
-    MEL_PASS();
 }
 
-MEL_TEST(stack_reset)
+MEL_TEST(stack_reset, .tags = "allocator")
 {
     _Alignas(16) u8 buffer[1024];
     Mel_Stack_Alloc stack;
@@ -143,10 +137,9 @@ MEL_TEST(stack_reset)
     *fresh = 77;
     MEL_ASSERT_EQ(*fresh, 77);
     mel_stack_pop(&stack);
-    MEL_PASS();
 }
 
-MEL_TEST(stack_interleaved_push_pop)
+MEL_TEST(stack_interleaved_push_pop, .tags = "allocator")
 {
     _Alignas(16) u8 buffer[4096];
     Mel_Stack_Alloc stack;
@@ -168,10 +161,9 @@ MEL_TEST(stack_interleaved_push_pop)
     mel_stack_pop(&stack);
     mel_stack_pop(&stack);
     MEL_ASSERT_EQ(stack.offset, (usize)0);
-    MEL_PASS();
 }
 
-MEL_TEST(stack_nested_marks)
+MEL_TEST(stack_nested_marks, .tags = "allocator")
 {
     _Alignas(16) u8 buffer[4096];
     Mel_Stack_Alloc stack;
@@ -196,23 +188,4 @@ MEL_TEST(stack_nested_marks)
 
     mel_stack_pop(&stack);
     MEL_ASSERT_EQ(stack.offset, (usize)0);
-    MEL_PASS();
-}
-
-int main(void)
-{
-    MEL_TEST_BEGIN("Stack Allocator Tests");
-
-    MEL_RUN_TEST(stack_init);
-    MEL_RUN_TEST(stack_push_pop_single);
-    MEL_RUN_TEST(stack_lifo_order);
-    MEL_RUN_TEST(stack_push_array);
-    MEL_RUN_TEST(stack_alignment);
-    MEL_RUN_TEST(stack_mark_restore);
-    MEL_RUN_TEST(stack_reset);
-    MEL_RUN_TEST(stack_interleaved_push_pop);
-    MEL_RUN_TEST(stack_nested_marks);
-
-    MEL_TEST_END();
-    return MEL_TEST_EXIT_CODE();
 }

@@ -3,7 +3,7 @@
 #include "../melody/allocator.heap.h"
 #include "../melody/collection.llist.h"
 
-MEL_TEST(init_empty)
+MEL_TEST(init_empty, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_LList(i32) list;
@@ -14,10 +14,9 @@ MEL_TEST(init_empty)
     MEL_ASSERT_NULL(list.head);
     MEL_ASSERT_NULL(list.tail);
 
-    MEL_PASS();
 }
 
-MEL_TEST(push_front)
+MEL_TEST(push_front, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_LList(i32) list;
@@ -38,10 +37,9 @@ MEL_TEST(push_front)
     MEL_ASSERT_EQ(mel_llist_count(&list), (usize)3);
 
     mel_llist_free(&list);
-    MEL_PASS();
 }
 
-MEL_TEST(push_back)
+MEL_TEST(push_back, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_LList(i32) list;
@@ -62,10 +60,9 @@ MEL_TEST(push_back)
     MEL_ASSERT_EQ(mel_llist_count(&list), (usize)3);
 
     mel_llist_free(&list);
-    MEL_PASS();
 }
 
-MEL_TEST(pop_front_fifo)
+MEL_TEST(pop_front_fifo, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_LList(i32) list;
@@ -80,10 +77,9 @@ MEL_TEST(pop_front_fifo)
     MEL_ASSERT_EQ(mel_llist_pop_front(&list), 3);
     MEL_ASSERT(mel_llist_empty(&list));
 
-    MEL_PASS();
 }
 
-MEL_TEST(pop_back_lifo)
+MEL_TEST(pop_back_lifo, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_LList(i32) list;
@@ -98,10 +94,9 @@ MEL_TEST(pop_back_lifo)
     MEL_ASSERT_EQ(mel_llist_pop_back(&list), 1);
     MEL_ASSERT(mel_llist_empty(&list));
 
-    MEL_PASS();
 }
 
-MEL_TEST(front_back_peek)
+MEL_TEST(front_back_peek, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_LList(i32) list;
@@ -120,10 +115,9 @@ MEL_TEST(front_back_peek)
     MEL_ASSERT_EQ(mel_llist_back(&list), 99);
 
     mel_llist_free(&list);
-    MEL_PASS();
 }
 
-MEL_TEST(mixed_push_order)
+MEL_TEST(mixed_push_order, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_LList(i32) list;
@@ -140,10 +134,9 @@ MEL_TEST(mixed_push_order)
     MEL_ASSERT_EQ(mel_llist_pop_front(&list), 3);
     MEL_ASSERT(mel_llist_empty(&list));
 
-    MEL_PASS();
 }
 
-MEL_TEST(clear)
+MEL_TEST(clear, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_LList(i32) list;
@@ -160,10 +153,9 @@ MEL_TEST(clear)
     MEL_ASSERT_NULL(list.head);
     MEL_ASSERT_NULL(list.tail);
 
-    MEL_PASS();
 }
 
-MEL_TEST(count_empty)
+MEL_TEST(count_empty, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_LList(i32) list;
@@ -185,10 +177,9 @@ MEL_TEST(count_empty)
     mel_llist_pop_front(&list);
     MEL_ASSERT(mel_llist_empty(&list));
 
-    MEL_PASS();
 }
 
-MEL_TEST(foreach_sum)
+MEL_TEST(foreach_sum, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_LList(i32) list;
@@ -206,10 +197,9 @@ MEL_TEST(foreach_sum)
     MEL_ASSERT_EQ(sum, 100);
 
     mel_llist_free(&list);
-    MEL_PASS();
 }
 
-MEL_TEST(remove_node_middle)
+MEL_TEST(remove_node_middle, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_LList(i32) list;
@@ -232,10 +222,9 @@ MEL_TEST(remove_node_middle)
     MEL_ASSERT_EQ(mel_llist_pop_front(&list), 3);
     MEL_ASSERT(mel_llist_empty(&list));
 
-    MEL_PASS();
 }
 
-MEL_TEST(remove_node_head)
+MEL_TEST(remove_node_head, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_LList(i32) list;
@@ -252,10 +241,9 @@ MEL_TEST(remove_node_head)
     MEL_ASSERT_EQ(mel_llist_back(&list), 3);
 
     mel_llist_free(&list);
-    MEL_PASS();
 }
 
-MEL_TEST(remove_node_tail)
+MEL_TEST(remove_node_tail, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_LList(i32) list;
@@ -272,10 +260,9 @@ MEL_TEST(remove_node_tail)
     MEL_ASSERT_EQ(mel_llist_back(&list), 2);
 
     mel_llist_free(&list);
-    MEL_PASS();
 }
 
-MEL_TEST(single_element)
+MEL_TEST(single_element, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_LList(i32) list;
@@ -292,10 +279,9 @@ MEL_TEST(single_element)
     MEL_ASSERT_NULL(list.head);
     MEL_ASSERT_NULL(list.tail);
 
-    MEL_PASS();
 }
 
-MEL_TEST(stress_push_pop)
+MEL_TEST(stress_push_pop, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_LList(i32) list;
@@ -314,10 +300,9 @@ MEL_TEST(stress_push_pop)
     }
     MEL_ASSERT(mel_llist_empty(&list));
 
-    MEL_PASS();
 }
 
-MEL_TEST(push_front_pop_back_reverse)
+MEL_TEST(push_front_pop_back_reverse, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_LList(i32) list;
@@ -336,30 +321,4 @@ MEL_TEST(push_front_pop_back_reverse)
     MEL_ASSERT_EQ(mel_llist_pop_back(&list), 5);
     MEL_ASSERT(mel_llist_empty(&list));
 
-    MEL_PASS();
-}
-
-int main(void)
-{
-    MEL_TEST_BEGIN("Linked List Tests");
-
-    MEL_RUN_TEST(init_empty);
-    MEL_RUN_TEST(push_front);
-    MEL_RUN_TEST(push_back);
-    MEL_RUN_TEST(pop_front_fifo);
-    MEL_RUN_TEST(pop_back_lifo);
-    MEL_RUN_TEST(front_back_peek);
-    MEL_RUN_TEST(mixed_push_order);
-    MEL_RUN_TEST(clear);
-    MEL_RUN_TEST(count_empty);
-    MEL_RUN_TEST(foreach_sum);
-    MEL_RUN_TEST(remove_node_middle);
-    MEL_RUN_TEST(remove_node_head);
-    MEL_RUN_TEST(remove_node_tail);
-    MEL_RUN_TEST(single_element);
-    MEL_RUN_TEST(stress_push_pop);
-    MEL_RUN_TEST(push_front_pop_back_reverse);
-
-    MEL_TEST_END();
-    return MEL_TEST_EXIT_CODE();
 }

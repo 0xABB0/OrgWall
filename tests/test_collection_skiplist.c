@@ -12,7 +12,7 @@ static i32 cmp_i32(const void* a, const void* b)
     return 0;
 }
 
-MEL_TEST(init_empty)
+MEL_TEST(init_empty, .tags = "collection")
 {
     Mel_SkipList sl;
     mel_skiplist_init(&sl, cmp_i32, mel_alloc_heap());
@@ -21,10 +21,9 @@ MEL_TEST(init_empty)
     MEL_ASSERT_NULL(mel_skiplist_min(&sl));
     MEL_ASSERT_NULL(mel_skiplist_max(&sl));
     mel_skiplist_free(&sl);
-    MEL_PASS();
 }
 
-MEL_TEST(insert_single_find)
+MEL_TEST(insert_single_find, .tags = "collection")
 {
     Mel_SkipList sl;
     mel_skiplist_init(&sl, cmp_i32, mel_alloc_heap());
@@ -39,10 +38,9 @@ MEL_TEST(insert_single_find)
     MEL_ASSERT_EQ((isize)n->value, (isize)100);
 
     mel_skiplist_free(&sl);
-    MEL_PASS();
 }
 
-MEL_TEST(insert_multiple_in_order)
+MEL_TEST(insert_multiple_in_order, .tags = "collection")
 {
     Mel_SkipList sl;
     mel_skiplist_init(&sl, cmp_i32, mel_alloc_heap());
@@ -61,10 +59,9 @@ MEL_TEST(insert_multiple_in_order)
     }
 
     mel_skiplist_free(&sl);
-    MEL_PASS();
 }
 
-MEL_TEST(insert_reverse_order)
+MEL_TEST(insert_reverse_order, .tags = "collection")
 {
     Mel_SkipList sl;
     mel_skiplist_init(&sl, cmp_i32, mel_alloc_heap());
@@ -85,10 +82,9 @@ MEL_TEST(insert_reverse_order)
     }
 
     mel_skiplist_free(&sl);
-    MEL_PASS();
 }
 
-MEL_TEST(find_existing_and_missing)
+MEL_TEST(find_existing_and_missing, .tags = "collection")
 {
     Mel_SkipList sl;
     mel_skiplist_init(&sl, cmp_i32, mel_alloc_heap());
@@ -103,10 +99,9 @@ MEL_TEST(find_existing_and_missing)
     MEL_ASSERT_NULL(mel_skiplist_find(&sl, (void*)(isize)99));
 
     mel_skiplist_free(&sl);
-    MEL_PASS();
 }
 
-MEL_TEST(remove_single)
+MEL_TEST(remove_single, .tags = "collection")
 {
     Mel_SkipList sl;
     mel_skiplist_init(&sl, cmp_i32, mel_alloc_heap());
@@ -120,10 +115,9 @@ MEL_TEST(remove_single)
     MEL_ASSERT_NULL(mel_skiplist_find(&sl, (void*)(isize)42));
 
     mel_skiplist_free(&sl);
-    MEL_PASS();
 }
 
-MEL_TEST(remove_nonexistent)
+MEL_TEST(remove_nonexistent, .tags = "collection")
 {
     Mel_SkipList sl;
     mel_skiplist_init(&sl, cmp_i32, mel_alloc_heap());
@@ -134,10 +128,9 @@ MEL_TEST(remove_nonexistent)
     MEL_ASSERT_EQ(mel_skiplist_count(&sl), (usize)1);
 
     mel_skiplist_free(&sl);
-    MEL_PASS();
 }
 
-MEL_TEST(remove_middle)
+MEL_TEST(remove_middle, .tags = "collection")
 {
     Mel_SkipList sl;
     mel_skiplist_init(&sl, cmp_i32, mel_alloc_heap());
@@ -153,10 +146,9 @@ MEL_TEST(remove_middle)
     MEL_ASSERT_NOT_NULL(mel_skiplist_find(&sl, (void*)(isize)3));
 
     mel_skiplist_free(&sl);
-    MEL_PASS();
 }
 
-MEL_TEST(min_max)
+MEL_TEST(min_max, .tags = "collection")
 {
     Mel_SkipList sl;
     mel_skiplist_init(&sl, cmp_i32, mel_alloc_heap());
@@ -175,10 +167,9 @@ MEL_TEST(min_max)
     MEL_ASSERT_EQ((isize)max->key, (isize)90);
 
     mel_skiplist_free(&sl);
-    MEL_PASS();
 }
 
-MEL_TEST(in_order_traversal)
+MEL_TEST(in_order_traversal, .tags = "collection")
 {
     Mel_SkipList sl;
     mel_skiplist_init(&sl, cmp_i32, mel_alloc_heap());
@@ -202,10 +193,9 @@ MEL_TEST(in_order_traversal)
     MEL_ASSERT_EQ(traversed, (usize)9);
 
     mel_skiplist_free(&sl);
-    MEL_PASS();
 }
 
-MEL_TEST(contains)
+MEL_TEST(contains, .tags = "collection")
 {
     Mel_SkipList sl;
     mel_skiplist_init(&sl, cmp_i32, mel_alloc_heap());
@@ -218,10 +208,9 @@ MEL_TEST(contains)
     MEL_ASSERT(!mel_skiplist_contains(&sl, (void*)(isize)10));
 
     mel_skiplist_free(&sl);
-    MEL_PASS();
 }
 
-MEL_TEST(clear)
+MEL_TEST(clear, .tags = "collection")
 {
     Mel_SkipList sl;
     mel_skiplist_init(&sl, cmp_i32, mel_alloc_heap());
@@ -243,10 +232,9 @@ MEL_TEST(clear)
     MEL_ASSERT_NOT_NULL(mel_skiplist_find(&sl, (void*)(isize)99));
 
     mel_skiplist_free(&sl);
-    MEL_PASS();
 }
 
-MEL_TEST(stress)
+MEL_TEST(stress, .tags = "collection")
 {
     Mel_SkipList sl;
     mel_skiplist_init(&sl, cmp_i32, mel_alloc_heap());
@@ -295,10 +283,9 @@ MEL_TEST(stress)
     }
 
     mel_skiplist_free(&sl);
-    MEL_PASS();
 }
 
-MEL_TEST(duplicate_insert)
+MEL_TEST(duplicate_insert, .tags = "collection")
 {
     Mel_SkipList sl;
     mel_skiplist_init(&sl, cmp_i32, mel_alloc_heap());
@@ -315,10 +302,9 @@ MEL_TEST(duplicate_insert)
     MEL_ASSERT_EQ((isize)n->value, (isize)100);
 
     mel_skiplist_free(&sl);
-    MEL_PASS();
 }
 
-MEL_TEST(deterministic_seed)
+MEL_TEST(deterministic_seed, .tags = "collection")
 {
     Mel_SkipList sl1;
     mel_skiplist_init(&sl1, cmp_i32, mel_alloc_heap());
@@ -351,29 +337,4 @@ MEL_TEST(deterministic_seed)
 
     mel_skiplist_free(&sl1);
     mel_skiplist_free(&sl2);
-    MEL_PASS();
-}
-
-int main(void)
-{
-    MEL_TEST_BEGIN("Skip List Tests");
-
-    MEL_RUN_TEST(init_empty);
-    MEL_RUN_TEST(insert_single_find);
-    MEL_RUN_TEST(insert_multiple_in_order);
-    MEL_RUN_TEST(insert_reverse_order);
-    MEL_RUN_TEST(find_existing_and_missing);
-    MEL_RUN_TEST(remove_single);
-    MEL_RUN_TEST(remove_nonexistent);
-    MEL_RUN_TEST(remove_middle);
-    MEL_RUN_TEST(min_max);
-    MEL_RUN_TEST(in_order_traversal);
-    MEL_RUN_TEST(contains);
-    MEL_RUN_TEST(clear);
-    MEL_RUN_TEST(stress);
-    MEL_RUN_TEST(duplicate_insert);
-    MEL_RUN_TEST(deterministic_seed);
-
-    MEL_TEST_END();
-    return MEL_TEST_EXIT_CODE();
 }

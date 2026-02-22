@@ -1,7 +1,7 @@
 #include "../melody/test.harness.h"
 #include "../melody/allocator.slab.h"
 
-MEL_TEST(slab_init)
+MEL_TEST(slab_init, .tags = "allocator")
 {
     _Alignas(16) u8 buf_small[512];
     _Alignas(16) u8 buf_large[1024];
@@ -18,10 +18,9 @@ MEL_TEST(slab_init)
     MEL_ASSERT_EQ(slab.class_count, 2);
     MEL_ASSERT_EQ(slab.classes[0].block_size, (usize)16);
     MEL_ASSERT_EQ(slab.classes[1].block_size, (usize)64);
-    MEL_PASS();
 }
 
-MEL_TEST(slab_alloc_smallest_class)
+MEL_TEST(slab_alloc_smallest_class, .tags = "allocator")
 {
     _Alignas(16) u8 buf_small[256];
     _Alignas(16) u8 buf_large[512];
@@ -41,10 +40,9 @@ MEL_TEST(slab_alloc_smallest_class)
     MEL_ASSERT(!mel_pool_owns(&slab.classes[1].pool, ptr));
 
     mel_slab_free(&slab, ptr);
-    MEL_PASS();
 }
 
-MEL_TEST(slab_alloc_larger_class)
+MEL_TEST(slab_alloc_larger_class, .tags = "allocator")
 {
     _Alignas(16) u8 buf_small[256];
     _Alignas(16) u8 buf_large[512];
@@ -64,10 +62,9 @@ MEL_TEST(slab_alloc_larger_class)
     MEL_ASSERT(mel_pool_owns(&slab.classes[1].pool, ptr));
 
     mel_slab_free(&slab, ptr);
-    MEL_PASS();
 }
 
-MEL_TEST(slab_exact_size_match)
+MEL_TEST(slab_exact_size_match, .tags = "allocator")
 {
     _Alignas(16) u8 buf_a[256];
     _Alignas(16) u8 buf_b[256];
@@ -86,10 +83,9 @@ MEL_TEST(slab_exact_size_match)
     MEL_ASSERT(mel_pool_owns(&slab.classes[0].pool, ptr));
 
     mel_slab_free(&slab, ptr);
-    MEL_PASS();
 }
 
-MEL_TEST(slab_multiple_allocs_same_class)
+MEL_TEST(slab_multiple_allocs_same_class, .tags = "allocator")
 {
     _Alignas(16) u8 buf[512];
 
@@ -114,10 +110,9 @@ MEL_TEST(slab_multiple_allocs_same_class)
     {
         mel_slab_free(&slab, ptrs[i]);
     }
-    MEL_PASS();
 }
 
-MEL_TEST(slab_free_correct_class)
+MEL_TEST(slab_free_correct_class, .tags = "allocator")
 {
     _Alignas(16) u8 buf_a[256];
     _Alignas(16) u8 buf_b[256];
@@ -145,10 +140,9 @@ MEL_TEST(slab_free_correct_class)
 
     mel_slab_free(&slab, small);
     MEL_ASSERT_EQ(slab.classes[0].pool.used_count, (usize)0);
-    MEL_PASS();
 }
 
-MEL_TEST(slab_reset_all_classes)
+MEL_TEST(slab_reset_all_classes, .tags = "allocator")
 {
     _Alignas(16) u8 buf_a[256];
     _Alignas(16) u8 buf_b[256];
@@ -173,10 +167,9 @@ MEL_TEST(slab_reset_all_classes)
     void* ptr = mel_slab_alloc(&slab, 8);
     MEL_ASSERT_NOT_NULL(ptr);
     mel_slab_free(&slab, ptr);
-    MEL_PASS();
 }
 
-MEL_TEST(slab_three_classes)
+MEL_TEST(slab_three_classes, .tags = "allocator")
 {
     _Alignas(16) u8 buf_a[256];
     _Alignas(16) u8 buf_b[256];
@@ -203,10 +196,9 @@ MEL_TEST(slab_three_classes)
     mel_slab_free(&slab, tiny);
     mel_slab_free(&slab, medium);
     mel_slab_free(&slab, big);
-    MEL_PASS();
 }
 
-MEL_TEST(slab_data_integrity)
+MEL_TEST(slab_data_integrity, .tags = "allocator")
 {
     _Alignas(16) u8 buf[1024];
 
@@ -232,23 +224,4 @@ MEL_TEST(slab_data_integrity)
 
     mel_slab_free(&slab, a);
     mel_slab_free(&slab, b);
-    MEL_PASS();
-}
-
-int main(void)
-{
-    MEL_TEST_BEGIN("Slab Allocator Tests");
-
-    MEL_RUN_TEST(slab_init);
-    MEL_RUN_TEST(slab_alloc_smallest_class);
-    MEL_RUN_TEST(slab_alloc_larger_class);
-    MEL_RUN_TEST(slab_exact_size_match);
-    MEL_RUN_TEST(slab_multiple_allocs_same_class);
-    MEL_RUN_TEST(slab_free_correct_class);
-    MEL_RUN_TEST(slab_reset_all_classes);
-    MEL_RUN_TEST(slab_three_classes);
-    MEL_RUN_TEST(slab_data_integrity);
-
-    MEL_TEST_END();
-    return MEL_TEST_EXIT_CODE();
 }

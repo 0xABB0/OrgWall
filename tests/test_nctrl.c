@@ -87,7 +87,7 @@ static const Mel_NCtrl_VTable s_stub_vtable = {
 static const Mel_NCtrl_VTable s_empty_vtable = {0};
 
 
-MEL_TEST(init_null_vtable)
+MEL_TEST(init_null_vtable, .tags = "ui")
 {
     Mel_NCtrl ctrl;
     mel_nctrl_init(&ctrl, nullptr);
@@ -104,10 +104,9 @@ MEL_TEST(init_null_vtable)
     MEL_ASSERT_FLOAT_EQ(ctrl.pos.y, 0.0f, 0.001f);
     MEL_ASSERT_FLOAT_EQ(ctrl.size.x, 0.0f, 0.001f);
     MEL_ASSERT_FLOAT_EQ(ctrl.size.y, 0.0f, 0.001f);
-    MEL_PASS();
 }
 
-MEL_TEST(init_does_not_create_backing)
+MEL_TEST(init_does_not_create_backing, .tags = "ui")
 {
     reset_counters();
     Mel_NCtrl ctrl;
@@ -119,10 +118,9 @@ MEL_TEST(init_does_not_create_backing)
     MEL_ASSERT(ctrl.enabled);
 
     mel_nctrl_destroy(&ctrl);
-    MEL_PASS();
 }
 
-MEL_TEST(create_backing_explicit)
+MEL_TEST(create_backing_explicit, .tags = "ui")
 {
     reset_counters();
     Mel_NCtrl ctrl;
@@ -133,18 +131,16 @@ MEL_TEST(create_backing_explicit)
     MEL_ASSERT_EQ(s_create_count, 1);
 
     mel_nctrl_destroy(&ctrl);
-    MEL_PASS();
 }
 
-MEL_TEST(create_backing_null_vtable)
+MEL_TEST(create_backing_null_vtable, .tags = "ui")
 {
     Mel_NCtrl ctrl;
     mel_nctrl_init(&ctrl, nullptr);
     mel_nctrl_create_backing(&ctrl);
-    MEL_PASS();
 }
 
-MEL_TEST(init_with_empty_vtable_no_crash)
+MEL_TEST(init_with_empty_vtable_no_crash, .tags = "ui")
 {
     Mel_NCtrl ctrl;
     mel_nctrl_init(&ctrl, &s_empty_vtable);
@@ -154,10 +150,9 @@ MEL_TEST(init_with_empty_vtable_no_crash)
     MEL_ASSERT(ctrl.enabled);
 
     mel_nctrl_destroy(&ctrl);
-    MEL_PASS();
 }
 
-MEL_TEST(destroy_calls_backing)
+MEL_TEST(destroy_calls_backing, .tags = "ui")
 {
     reset_counters();
     Mel_NCtrl ctrl;
@@ -167,10 +162,9 @@ MEL_TEST(destroy_calls_backing)
     MEL_ASSERT_EQ(s_destroy_count, 1);
     MEL_ASSERT_NULL(ctrl.backing);
     MEL_ASSERT_NULL(ctrl.first_child);
-    MEL_PASS();
 }
 
-MEL_TEST(destroy_recursive)
+MEL_TEST(destroy_recursive, .tags = "ui")
 {
     reset_counters();
     Mel_NCtrl parent, child1, child2;
@@ -186,10 +180,9 @@ MEL_TEST(destroy_recursive)
 
     MEL_ASSERT_EQ(s_destroy_count, 3);
     MEL_ASSERT_NULL(parent.first_child);
-    MEL_PASS();
 }
 
-MEL_TEST(add_single_child)
+MEL_TEST(add_single_child, .tags = "ui")
 {
     reset_counters();
     Mel_NCtrl parent, child;
@@ -204,10 +197,9 @@ MEL_TEST(add_single_child)
     MEL_ASSERT_EQ(s_add_child_count, 1);
 
     mel_nctrl_destroy(&parent);
-    MEL_PASS();
 }
 
-MEL_TEST(add_multiple_children_preserves_order)
+MEL_TEST(add_multiple_children_preserves_order, .tags = "ui")
 {
     reset_counters();
     Mel_NCtrl parent, c1, c2, c3;
@@ -232,10 +224,9 @@ MEL_TEST(add_multiple_children_preserves_order)
     MEL_ASSERT_EQ(s_add_child_count, 3);
 
     mel_nctrl_destroy(&parent);
-    MEL_PASS();
 }
 
-MEL_TEST(remove_first_child)
+MEL_TEST(remove_first_child, .tags = "ui")
 {
     reset_counters();
     Mel_NCtrl parent, c1, c2;
@@ -254,10 +245,9 @@ MEL_TEST(remove_first_child)
     MEL_ASSERT_EQ(s_remove_child_count, 1);
 
     mel_nctrl_destroy(&parent);
-    MEL_PASS();
 }
 
-MEL_TEST(remove_middle_child)
+MEL_TEST(remove_middle_child, .tags = "ui")
 {
     reset_counters();
     Mel_NCtrl parent, c1, c2, c3;
@@ -279,10 +269,9 @@ MEL_TEST(remove_middle_child)
     MEL_ASSERT_NULL(c2.next_sibling);
 
     mel_nctrl_destroy(&parent);
-    MEL_PASS();
 }
 
-MEL_TEST(remove_last_child)
+MEL_TEST(remove_last_child, .tags = "ui")
 {
     reset_counters();
     Mel_NCtrl parent, c1, c2;
@@ -300,10 +289,9 @@ MEL_TEST(remove_last_child)
     MEL_ASSERT_NULL(c2.parent);
 
     mel_nctrl_destroy(&parent);
-    MEL_PASS();
 }
 
-MEL_TEST(remove_only_child)
+MEL_TEST(remove_only_child, .tags = "ui")
 {
     reset_counters();
     Mel_NCtrl parent, child;
@@ -318,10 +306,9 @@ MEL_TEST(remove_only_child)
     MEL_ASSERT_NULL(child.next_sibling);
 
     mel_nctrl_destroy(&parent);
-    MEL_PASS();
 }
 
-MEL_TEST(set_visible_dispatches)
+MEL_TEST(set_visible_dispatches, .tags = "ui")
 {
     reset_counters();
     Mel_NCtrl ctrl;
@@ -338,10 +325,9 @@ MEL_TEST(set_visible_dispatches)
     MEL_ASSERT(s_last_visible);
 
     mel_nctrl_destroy(&ctrl);
-    MEL_PASS();
 }
 
-MEL_TEST(set_visible_null_vtable)
+MEL_TEST(set_visible_null_vtable, .tags = "ui")
 {
     Mel_NCtrl ctrl;
     mel_nctrl_init(&ctrl, nullptr);
@@ -351,10 +337,9 @@ MEL_TEST(set_visible_null_vtable)
 
     mel_nctrl_set_visible(&ctrl, true);
     MEL_ASSERT(ctrl.visible);
-    MEL_PASS();
 }
 
-MEL_TEST(set_enabled_dispatches)
+MEL_TEST(set_enabled_dispatches, .tags = "ui")
 {
     reset_counters();
     Mel_NCtrl ctrl;
@@ -371,10 +356,9 @@ MEL_TEST(set_enabled_dispatches)
     MEL_ASSERT(s_last_enabled);
 
     mel_nctrl_destroy(&ctrl);
-    MEL_PASS();
 }
 
-MEL_TEST(set_enabled_null_vtable)
+MEL_TEST(set_enabled_null_vtable, .tags = "ui")
 {
     Mel_NCtrl ctrl;
     mel_nctrl_init(&ctrl, nullptr);
@@ -384,10 +368,9 @@ MEL_TEST(set_enabled_null_vtable)
 
     mel_nctrl_set_enabled(&ctrl, true);
     MEL_ASSERT(ctrl.enabled);
-    MEL_PASS();
 }
 
-MEL_TEST(set_position_dispatches)
+MEL_TEST(set_position_dispatches, .tags = "ui")
 {
     reset_counters();
     Mel_NCtrl ctrl;
@@ -405,10 +388,9 @@ MEL_TEST(set_position_dispatches)
     MEL_ASSERT_FLOAT_EQ(s_last_frame_h, 50.0f, 0.001f);
 
     mel_nctrl_destroy(&ctrl);
-    MEL_PASS();
 }
 
-MEL_TEST(set_size_dispatches)
+MEL_TEST(set_size_dispatches, .tags = "ui")
 {
     reset_counters();
     Mel_NCtrl ctrl;
@@ -426,10 +408,9 @@ MEL_TEST(set_size_dispatches)
     MEL_ASSERT_FLOAT_EQ(s_last_frame_h, 150.0f, 0.001f);
 
     mel_nctrl_destroy(&ctrl);
-    MEL_PASS();
 }
 
-MEL_TEST(set_position_null_vtable)
+MEL_TEST(set_position_null_vtable, .tags = "ui")
 {
     Mel_NCtrl ctrl;
     mel_nctrl_init(&ctrl, nullptr);
@@ -437,10 +418,9 @@ MEL_TEST(set_position_null_vtable)
     mel_nctrl_set_position(&ctrl, mel_vec2(33.0f, 44.0f));
     MEL_ASSERT_FLOAT_EQ(ctrl.pos.x, 33.0f, 0.001f);
     MEL_ASSERT_FLOAT_EQ(ctrl.pos.y, 44.0f, 0.001f);
-    MEL_PASS();
 }
 
-MEL_TEST(set_size_null_vtable)
+MEL_TEST(set_size_null_vtable, .tags = "ui")
 {
     Mel_NCtrl ctrl;
     mel_nctrl_init(&ctrl, nullptr);
@@ -448,10 +428,9 @@ MEL_TEST(set_size_null_vtable)
     mel_nctrl_set_size(&ctrl, mel_vec2(77.0f, 88.0f));
     MEL_ASSERT_FLOAT_EQ(ctrl.size.x, 77.0f, 0.001f);
     MEL_ASSERT_FLOAT_EQ(ctrl.size.y, 88.0f, 0.001f);
-    MEL_PASS();
 }
 
-MEL_TEST(layoutable_preferred_size_uses_vtable)
+MEL_TEST(layoutable_preferred_size_uses_vtable, .tags = "ui")
 {
     reset_counters();
     Mel_NCtrl ctrl;
@@ -462,10 +441,9 @@ MEL_TEST(layoutable_preferred_size_uses_vtable)
     MEL_ASSERT_FLOAT_EQ(pref.y, 24.0f, 0.001f);
 
     mel_nctrl_destroy(&ctrl);
-    MEL_PASS();
 }
 
-MEL_TEST(layoutable_preferred_size_fallback)
+MEL_TEST(layoutable_preferred_size_fallback, .tags = "ui")
 {
     Mel_NCtrl ctrl;
     mel_nctrl_init(&ctrl, nullptr);
@@ -474,10 +452,9 @@ MEL_TEST(layoutable_preferred_size_fallback)
     Mel_Vec2 pref = mel_layoutable_preferred_size(&ctrl.layoutable);
     MEL_ASSERT_FLOAT_EQ(pref.x, 99.0f, 0.001f);
     MEL_ASSERT_FLOAT_EQ(pref.y, 55.0f, 0.001f);
-    MEL_PASS();
 }
 
-MEL_TEST(layoutable_position_roundtrip)
+MEL_TEST(layoutable_position_roundtrip, .tags = "ui")
 {
     Mel_NCtrl ctrl;
     mel_nctrl_init(&ctrl, nullptr);
@@ -486,10 +463,9 @@ MEL_TEST(layoutable_position_roundtrip)
     Mel_Vec2 pos = mel_layoutable_get_position(&ctrl.layoutable);
     MEL_ASSERT_FLOAT_EQ(pos.x, 10.0f, 0.001f);
     MEL_ASSERT_FLOAT_EQ(pos.y, 20.0f, 0.001f);
-    MEL_PASS();
 }
 
-MEL_TEST(layoutable_size_roundtrip)
+MEL_TEST(layoutable_size_roundtrip, .tags = "ui")
 {
     Mel_NCtrl ctrl;
     mel_nctrl_init(&ctrl, nullptr);
@@ -498,10 +474,9 @@ MEL_TEST(layoutable_size_roundtrip)
     Mel_Vec2 sz = mel_layoutable_get_size(&ctrl.layoutable);
     MEL_ASSERT_FLOAT_EQ(sz.x, 300.0f, 0.001f);
     MEL_ASSERT_FLOAT_EQ(sz.y, 400.0f, 0.001f);
-    MEL_PASS();
 }
 
-MEL_TEST(layoutable_fixed_size)
+MEL_TEST(layoutable_fixed_size, .tags = "ui")
 {
     Mel_NCtrl ctrl;
     mel_nctrl_init(&ctrl, nullptr);
@@ -510,10 +485,9 @@ MEL_TEST(layoutable_fixed_size)
     Mel_Vec2 fs = mel_layoutable_get_fixed_size(&ctrl.layoutable);
     MEL_ASSERT_FLOAT_EQ(fs.x, 64.0f, 0.001f);
     MEL_ASSERT_FLOAT_EQ(fs.y, 32.0f, 0.001f);
-    MEL_PASS();
 }
 
-MEL_TEST(layoutable_visibility)
+MEL_TEST(layoutable_visibility, .tags = "ui")
 {
     Mel_NCtrl ctrl;
     mel_nctrl_init(&ctrl, nullptr);
@@ -522,10 +496,9 @@ MEL_TEST(layoutable_visibility)
 
     ctrl.visible = false;
     MEL_ASSERT(!mel_layoutable_is_visible(&ctrl.layoutable));
-    MEL_PASS();
 }
 
-MEL_TEST(layoutable_flags)
+MEL_TEST(layoutable_flags, .tags = "ui")
 {
     Mel_NCtrl ctrl;
     mel_nctrl_init(&ctrl, nullptr);
@@ -534,10 +507,9 @@ MEL_TEST(layoutable_flags)
 
     ctrl.flags = MEL_LAYOUTABLE_FLAG_GROUP_HEADER;
     MEL_ASSERT_EQ(mel_layoutable_get_flags(&ctrl.layoutable), (u32)MEL_LAYOUTABLE_FLAG_GROUP_HEADER);
-    MEL_PASS();
 }
 
-MEL_TEST(layoutable_child_traversal)
+MEL_TEST(layoutable_child_traversal, .tags = "ui")
 {
     Mel_NCtrl parent, c1, c2, c3;
     mel_nctrl_init(&parent, nullptr);
@@ -565,20 +537,18 @@ MEL_TEST(layoutable_child_traversal)
     MEL_ASSERT_NULL(end);
 
     mel_nctrl_destroy(&parent);
-    MEL_PASS();
 }
 
-MEL_TEST(layoutable_no_children)
+MEL_TEST(layoutable_no_children, .tags = "ui")
 {
     Mel_NCtrl ctrl;
     mel_nctrl_init(&ctrl, nullptr);
 
     Mel_Layoutable* first = mel_layoutable_first_child(&ctrl.layoutable);
     MEL_ASSERT_NULL(first);
-    MEL_PASS();
 }
 
-MEL_TEST(set_layout_stores_layout)
+MEL_TEST(set_layout_stores_layout, .tags = "ui")
 {
     Mel_NCtrl ctrl;
     mel_nctrl_init(&ctrl, nullptr);
@@ -589,10 +559,9 @@ MEL_TEST(set_layout_stores_layout)
 
     mel_nctrl_set_layout(&ctrl, nullptr);
     MEL_ASSERT_NULL(ctrl.layout);
-    MEL_PASS();
 }
 
-MEL_TEST(layoutable_set_position_dispatches_frame)
+MEL_TEST(layoutable_set_position_dispatches_frame, .tags = "ui")
 {
     reset_counters();
     Mel_NCtrl ctrl;
@@ -610,10 +579,9 @@ MEL_TEST(layoutable_set_position_dispatches_frame)
     MEL_ASSERT_FLOAT_EQ(s_last_frame_h, 60.0f, 0.001f);
 
     mel_nctrl_destroy(&ctrl);
-    MEL_PASS();
 }
 
-MEL_TEST(layoutable_set_size_dispatches_frame)
+MEL_TEST(layoutable_set_size_dispatches_frame, .tags = "ui")
 {
     reset_counters();
     Mel_NCtrl ctrl;
@@ -631,10 +599,9 @@ MEL_TEST(layoutable_set_size_dispatches_frame)
     MEL_ASSERT_FLOAT_EQ(s_last_frame_h, 90.0f, 0.001f);
 
     mel_nctrl_destroy(&ctrl);
-    MEL_PASS();
 }
 
-MEL_TEST(perform_layout_no_layout_no_crash)
+MEL_TEST(perform_layout_no_layout_no_crash, .tags = "ui")
 {
     Mel_NCtrl parent, child;
     mel_nctrl_init(&parent, nullptr);
@@ -645,10 +612,9 @@ MEL_TEST(perform_layout_no_layout_no_crash)
     mel_nctrl_perform_layout(&parent);
 
     mel_nctrl_destroy(&parent);
-    MEL_PASS();
 }
 
-MEL_TEST(deep_hierarchy)
+MEL_TEST(deep_hierarchy, .tags = "ui")
 {
     Mel_NCtrl root, level1, level2, level3;
     mel_nctrl_init(&root, nullptr);
@@ -669,10 +635,9 @@ MEL_TEST(deep_hierarchy)
     MEL_ASSERT_NULL(level3.first_child);
 
     mel_nctrl_destroy(&root);
-    MEL_PASS();
 }
 
-MEL_TEST(remove_and_readd_child)
+MEL_TEST(remove_and_readd_child, .tags = "ui")
 {
     Mel_NCtrl parent, child;
     mel_nctrl_init(&parent, nullptr);
@@ -690,10 +655,9 @@ MEL_TEST(remove_and_readd_child)
     MEL_ASSERT_EQ(child.parent, &parent);
 
     mel_nctrl_destroy(&parent);
-    MEL_PASS();
 }
 
-MEL_TEST(init_zeroes_struct)
+MEL_TEST(init_zeroes_struct, .tags = "ui")
 {
     Mel_NCtrl ctrl;
     memset(&ctrl, 0xFF, sizeof(ctrl));
@@ -711,10 +675,9 @@ MEL_TEST(init_zeroes_struct)
     MEL_ASSERT_FLOAT_EQ(ctrl.size.y, 0.0f, 0.001f);
     MEL_ASSERT_FLOAT_EQ(ctrl.fixed_size.x, 0.0f, 0.001f);
     MEL_ASSERT_FLOAT_EQ(ctrl.fixed_size.y, 0.0f, 0.001f);
-    MEL_PASS();
 }
 
-MEL_TEST(destroy_with_null_vtable)
+MEL_TEST(destroy_with_null_vtable, .tags = "ui")
 {
     Mel_NCtrl ctrl;
     mel_nctrl_init(&ctrl, nullptr);
@@ -722,10 +685,9 @@ MEL_TEST(destroy_with_null_vtable)
 
     MEL_ASSERT_NULL(ctrl.backing);
     MEL_ASSERT_NULL(ctrl.first_child);
-    MEL_PASS();
 }
 
-MEL_TEST(destroy_deep_hierarchy)
+MEL_TEST(destroy_deep_hierarchy, .tags = "ui")
 {
     reset_counters();
     Mel_NCtrl root, l1a, l1b, l2a;
@@ -742,53 +704,4 @@ MEL_TEST(destroy_deep_hierarchy)
     mel_nctrl_destroy(&root);
 
     MEL_ASSERT_EQ(s_destroy_count, 4);
-    MEL_PASS();
-}
-
-int main(void)
-{
-    MEL_TEST_BEGIN("Native Control (Mel_NCtrl) Tests");
-
-    MEL_RUN_TEST(init_null_vtable);
-    MEL_RUN_TEST(init_does_not_create_backing);
-    MEL_RUN_TEST(create_backing_explicit);
-    MEL_RUN_TEST(create_backing_null_vtable);
-    MEL_RUN_TEST(init_with_empty_vtable_no_crash);
-    MEL_RUN_TEST(init_zeroes_struct);
-    MEL_RUN_TEST(destroy_calls_backing);
-    MEL_RUN_TEST(destroy_recursive);
-    MEL_RUN_TEST(destroy_with_null_vtable);
-    MEL_RUN_TEST(destroy_deep_hierarchy);
-    MEL_RUN_TEST(add_single_child);
-    MEL_RUN_TEST(add_multiple_children_preserves_order);
-    MEL_RUN_TEST(remove_first_child);
-    MEL_RUN_TEST(remove_middle_child);
-    MEL_RUN_TEST(remove_last_child);
-    MEL_RUN_TEST(remove_only_child);
-    MEL_RUN_TEST(remove_and_readd_child);
-    MEL_RUN_TEST(set_visible_dispatches);
-    MEL_RUN_TEST(set_visible_null_vtable);
-    MEL_RUN_TEST(set_enabled_dispatches);
-    MEL_RUN_TEST(set_enabled_null_vtable);
-    MEL_RUN_TEST(set_position_dispatches);
-    MEL_RUN_TEST(set_size_dispatches);
-    MEL_RUN_TEST(set_position_null_vtable);
-    MEL_RUN_TEST(set_size_null_vtable);
-    MEL_RUN_TEST(layoutable_preferred_size_uses_vtable);
-    MEL_RUN_TEST(layoutable_preferred_size_fallback);
-    MEL_RUN_TEST(layoutable_position_roundtrip);
-    MEL_RUN_TEST(layoutable_size_roundtrip);
-    MEL_RUN_TEST(layoutable_fixed_size);
-    MEL_RUN_TEST(layoutable_visibility);
-    MEL_RUN_TEST(layoutable_flags);
-    MEL_RUN_TEST(layoutable_child_traversal);
-    MEL_RUN_TEST(layoutable_no_children);
-    MEL_RUN_TEST(set_layout_stores_layout);
-    MEL_RUN_TEST(layoutable_set_position_dispatches_frame);
-    MEL_RUN_TEST(layoutable_set_size_dispatches_frame);
-    MEL_RUN_TEST(perform_layout_no_layout_no_crash);
-    MEL_RUN_TEST(deep_hierarchy);
-
-    MEL_TEST_END();
-    return MEL_TEST_EXIT_CODE();
 }

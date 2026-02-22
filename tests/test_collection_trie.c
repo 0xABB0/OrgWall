@@ -4,7 +4,7 @@
 #include "../melody/collection.trie.h"
 #include <string.h>
 
-MEL_TEST(init_empty)
+MEL_TEST(init_empty, .tags = "collection")
 {
     Mel_Trie t;
     mel_trie_init(&t, mel_alloc_heap());
@@ -12,10 +12,9 @@ MEL_TEST(init_empty)
     MEL_ASSERT_EQ(mel_trie_count(&t), (usize)0);
     MEL_ASSERT_NOT_NULL(t.root);
     mel_trie_free(&t);
-    MEL_PASS();
 }
 
-MEL_TEST(insert_single_find)
+MEL_TEST(insert_single_find, .tags = "collection")
 {
     Mel_Trie t;
     mel_trie_init(&t, mel_alloc_heap());
@@ -26,10 +25,9 @@ MEL_TEST(insert_single_find)
     MEL_ASSERT_NOT_NULL(found);
     MEL_ASSERT_EQ(*(i32*)found, 42);
     mel_trie_free(&t);
-    MEL_PASS();
 }
 
-MEL_TEST(insert_multiple_find_all)
+MEL_TEST(insert_multiple_find_all, .tags = "collection")
 {
     Mel_Trie t;
     mel_trie_init(&t, mel_alloc_heap());
@@ -43,10 +41,9 @@ MEL_TEST(insert_multiple_find_all)
     MEL_ASSERT_EQ(*(i32*)mel_trie_find_str(&t, "bar"), 2);
     MEL_ASSERT_EQ(*(i32*)mel_trie_find_str(&t, "baz"), 3);
     mel_trie_free(&t);
-    MEL_PASS();
 }
 
-MEL_TEST(find_nonexisting)
+MEL_TEST(find_nonexisting, .tags = "collection")
 {
     Mel_Trie t;
     mel_trie_init(&t, mel_alloc_heap());
@@ -56,10 +53,9 @@ MEL_TEST(find_nonexisting)
     MEL_ASSERT_NULL(mel_trie_find_str(&t, "hell"));
     MEL_ASSERT_NULL(mel_trie_find_str(&t, "helloo"));
     mel_trie_free(&t);
-    MEL_PASS();
 }
 
-MEL_TEST(insert_duplicate)
+MEL_TEST(insert_duplicate, .tags = "collection")
 {
     Mel_Trie t;
     mel_trie_init(&t, mel_alloc_heap());
@@ -69,10 +65,9 @@ MEL_TEST(insert_duplicate)
     MEL_ASSERT_EQ(mel_trie_count(&t), (usize)1);
     MEL_ASSERT_EQ(*(i32*)mel_trie_find_str(&t, "key"), 1);
     mel_trie_free(&t);
-    MEL_PASS();
 }
 
-MEL_TEST(remove_key)
+MEL_TEST(remove_key, .tags = "collection")
 {
     Mel_Trie t;
     mel_trie_init(&t, mel_alloc_heap());
@@ -83,19 +78,17 @@ MEL_TEST(remove_key)
     MEL_ASSERT(!mel_trie_contains_str(&t, "remove_me"));
     MEL_ASSERT_EQ(mel_trie_count(&t), (usize)0);
     mel_trie_free(&t);
-    MEL_PASS();
 }
 
-MEL_TEST(remove_nonexisting)
+MEL_TEST(remove_nonexisting, .tags = "collection")
 {
     Mel_Trie t;
     mel_trie_init(&t, mel_alloc_heap());
     MEL_ASSERT(!mel_trie_remove_str(&t, "nope"));
     mel_trie_free(&t);
-    MEL_PASS();
 }
 
-MEL_TEST(remove_prefix_keeps_longer)
+MEL_TEST(remove_prefix_keeps_longer, .tags = "collection")
 {
     Mel_Trie t;
     mel_trie_init(&t, mel_alloc_heap());
@@ -109,10 +102,9 @@ MEL_TEST(remove_prefix_keeps_longer)
     MEL_ASSERT_EQ(*(i32*)mel_trie_find_str(&t, "apple"), 2);
     MEL_ASSERT_EQ(mel_trie_count(&t), (usize)1);
     mel_trie_free(&t);
-    MEL_PASS();
 }
 
-MEL_TEST(remove_longer_keeps_prefix)
+MEL_TEST(remove_longer_keeps_prefix, .tags = "collection")
 {
     Mel_Trie t;
     mel_trie_init(&t, mel_alloc_heap());
@@ -126,10 +118,9 @@ MEL_TEST(remove_longer_keeps_prefix)
     MEL_ASSERT_EQ(*(i32*)mel_trie_find_str(&t, "app"), 1);
     MEL_ASSERT_EQ(mel_trie_count(&t), (usize)1);
     mel_trie_free(&t);
-    MEL_PASS();
 }
 
-MEL_TEST(starts_with_basic)
+MEL_TEST(starts_with_basic, .tags = "collection")
 {
     Mel_Trie t;
     mel_trie_init(&t, mel_alloc_heap());
@@ -145,10 +136,9 @@ MEL_TEST(starts_with_basic)
     MEL_ASSERT(!mel_trie_starts_with_str(&t, "b"));
     MEL_ASSERT(!mel_trie_starts_with_str(&t, "apps"));
     mel_trie_free(&t);
-    MEL_PASS();
 }
 
-MEL_TEST(contains_basic)
+MEL_TEST(contains_basic, .tags = "collection")
 {
     Mel_Trie t;
     mel_trie_init(&t, mel_alloc_heap());
@@ -158,10 +148,9 @@ MEL_TEST(contains_basic)
     MEL_ASSERT(!mel_trie_contains_str(&t, "tes"));
     MEL_ASSERT(!mel_trie_contains_str(&t, "testing"));
     mel_trie_free(&t);
-    MEL_PASS();
 }
 
-MEL_TEST(count_tracking)
+MEL_TEST(count_tracking, .tags = "collection")
 {
     Mel_Trie t;
     mel_trie_init(&t, mel_alloc_heap());
@@ -180,10 +169,9 @@ MEL_TEST(count_tracking)
     mel_trie_remove_str(&t, "c");
     MEL_ASSERT_EQ(mel_trie_count(&t), (usize)0);
     mel_trie_free(&t);
-    MEL_PASS();
 }
 
-MEL_TEST(clear_resets)
+MEL_TEST(clear_resets, .tags = "collection")
 {
     Mel_Trie t;
     mel_trie_init(&t, mel_alloc_heap());
@@ -202,10 +190,9 @@ MEL_TEST(clear_resets)
     mel_trie_insert_str(&t, "gamma", &a);
     MEL_ASSERT_EQ(mel_trie_count(&t), (usize)1);
     mel_trie_free(&t);
-    MEL_PASS();
 }
 
-MEL_TEST(empty_string_key)
+MEL_TEST(empty_string_key, .tags = "collection")
 {
     Mel_Trie t;
     mel_trie_init(&t, mel_alloc_heap());
@@ -217,10 +204,9 @@ MEL_TEST(empty_string_key)
     MEL_ASSERT(mel_trie_remove_str(&t, ""));
     MEL_ASSERT(!mel_trie_contains_str(&t, ""));
     mel_trie_free(&t);
-    MEL_PASS();
 }
 
-MEL_TEST(binary_keys)
+MEL_TEST(binary_keys, .tags = "collection")
 {
     Mel_Trie t;
     mel_trie_init(&t, mel_alloc_heap());
@@ -243,10 +229,9 @@ MEL_TEST(binary_keys)
     MEL_ASSERT(mel_trie_contains(&t, key1, 3));
     MEL_ASSERT(mel_trie_contains(&t, key3, 3));
     mel_trie_free(&t);
-    MEL_PASS();
 }
 
-MEL_TEST(stress_insert_remove)
+MEL_TEST(stress_insert_remove, .tags = "collection")
 {
     Mel_Trie t;
     mel_trie_init(&t, mel_alloc_heap());
@@ -287,10 +272,9 @@ MEL_TEST(stress_insert_remove)
     }
 
     mel_trie_free(&t);
-    MEL_PASS();
 }
 
-MEL_TEST(common_prefixes)
+MEL_TEST(common_prefixes, .tags = "collection")
 {
     Mel_Trie t;
     mel_trie_init(&t, mel_alloc_heap());
@@ -321,10 +305,9 @@ MEL_TEST(common_prefixes)
     MEL_ASSERT(!mel_trie_starts_with_str(&t, "testa"));
 
     mel_trie_free(&t);
-    MEL_PASS();
 }
 
-MEL_TEST(find_returns_null_for_value)
+MEL_TEST(find_returns_null_for_value, .tags = "collection")
 {
     Mel_Trie t;
     mel_trie_init(&t, mel_alloc_heap());
@@ -332,32 +315,4 @@ MEL_TEST(find_returns_null_for_value)
     MEL_ASSERT(mel_trie_contains_str(&t, "null_val"));
     MEL_ASSERT_NULL(mel_trie_find_str(&t, "null_val"));
     mel_trie_free(&t);
-    MEL_PASS();
-}
-
-int main(void)
-{
-    MEL_TEST_BEGIN("Collection Trie Tests");
-
-    MEL_RUN_TEST(init_empty);
-    MEL_RUN_TEST(insert_single_find);
-    MEL_RUN_TEST(insert_multiple_find_all);
-    MEL_RUN_TEST(find_nonexisting);
-    MEL_RUN_TEST(insert_duplicate);
-    MEL_RUN_TEST(remove_key);
-    MEL_RUN_TEST(remove_nonexisting);
-    MEL_RUN_TEST(remove_prefix_keeps_longer);
-    MEL_RUN_TEST(remove_longer_keeps_prefix);
-    MEL_RUN_TEST(starts_with_basic);
-    MEL_RUN_TEST(contains_basic);
-    MEL_RUN_TEST(count_tracking);
-    MEL_RUN_TEST(clear_resets);
-    MEL_RUN_TEST(empty_string_key);
-    MEL_RUN_TEST(binary_keys);
-    MEL_RUN_TEST(stress_insert_remove);
-    MEL_RUN_TEST(common_prefixes);
-    MEL_RUN_TEST(find_returns_null_for_value);
-
-    MEL_TEST_END();
-    return MEL_TEST_EXIT_CODE();
 }

@@ -4,7 +4,7 @@
 #include "allocator.heap.h"
 #include "test.harness.h"
 
-MEL_TEST(f32_exact_keyframes)
+MEL_TEST(f32_exact_keyframes, .tags = "anim")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_Anim_Track track;
@@ -26,10 +26,9 @@ MEL_TEST(f32_exact_keyframes)
     MEL_ASSERT_FLOAT_EQ(out, 10.0f, 1e-6f);
 
     mel_anim_track_destroy(&track, alloc);
-    MEL_PASS();
 }
 
-MEL_TEST(f32_lerp_between_keyframes)
+MEL_TEST(f32_lerp_between_keyframes, .tags = "anim")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_Anim_Track track;
@@ -47,10 +46,9 @@ MEL_TEST(f32_lerp_between_keyframes)
     MEL_ASSERT_FLOAT_EQ(out, 2.5f, 1e-5f);
 
     mel_anim_track_destroy(&track, alloc);
-    MEL_PASS();
 }
 
-MEL_TEST(f32_clamp_before_and_after)
+MEL_TEST(f32_clamp_before_and_after, .tags = "anim")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_Anim_Track track;
@@ -68,10 +66,9 @@ MEL_TEST(f32_clamp_before_and_after)
     MEL_ASSERT_FLOAT_EQ(out, 7.0f, 1e-6f);
 
     mel_anim_track_destroy(&track, alloc);
-    MEL_PASS();
 }
 
-MEL_TEST(stepped_curve)
+MEL_TEST(stepped_curve, .tags = "anim")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_Anim_Track track;
@@ -90,10 +87,9 @@ MEL_TEST(stepped_curve)
     MEL_ASSERT_FLOAT_EQ(out, 10.0f, 1e-6f);
 
     mel_anim_track_destroy(&track, alloc);
-    MEL_PASS();
 }
 
-MEL_TEST(bezier_curve)
+MEL_TEST(bezier_curve, .tags = "anim")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_Anim_Track track;
@@ -111,10 +107,9 @@ MEL_TEST(bezier_curve)
     MEL_ASSERT(out > 0.0f && out < 100.0f);
 
     mel_anim_track_destroy(&track, alloc);
-    MEL_PASS();
 }
 
-MEL_TEST(vec2_lerp)
+MEL_TEST(vec2_lerp, .tags = "anim")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_Anim_Track track;
@@ -131,10 +126,9 @@ MEL_TEST(vec2_lerp)
     MEL_ASSERT_FLOAT_EQ(out[1], 10.0f, 1e-5f);
 
     mel_anim_track_destroy(&track, alloc);
-    MEL_PASS();
 }
 
-MEL_TEST(vec4_lerp)
+MEL_TEST(vec4_lerp, .tags = "anim")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_Anim_Track track;
@@ -153,10 +147,9 @@ MEL_TEST(vec4_lerp)
     MEL_ASSERT_FLOAT_EQ(out[3], 1.0f, 1e-5f);
 
     mel_anim_track_destroy(&track, alloc);
-    MEL_PASS();
 }
 
-MEL_TEST(find_keyframe_binary_search)
+MEL_TEST(find_keyframe_binary_search, .tags = "anim")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_Anim_Track track;
@@ -178,10 +171,9 @@ MEL_TEST(find_keyframe_binary_search)
     MEL_ASSERT_EQ(mel_anim_track_find_keyframe(&track, 1.0f), 4u);
 
     mel_anim_track_destroy(&track, alloc);
-    MEL_PASS();
 }
 
-MEL_TEST(single_keyframe)
+MEL_TEST(single_keyframe, .tags = "anim")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_Anim_Track track;
@@ -198,10 +190,9 @@ MEL_TEST(single_keyframe)
     MEL_ASSERT_FLOAT_EQ(out, 42.0f, 1e-6f);
 
     mel_anim_track_destroy(&track, alloc);
-    MEL_PASS();
 }
 
-MEL_TEST(angle_blend_shortest_path)
+MEL_TEST(angle_blend_shortest_path, .tags = "anim")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_Anim_Track track;
@@ -225,10 +216,9 @@ MEL_TEST(angle_blend_shortest_path)
     MEL_ASSERT(diff_from_expected < 0.02f);
 
     mel_anim_track_destroy(&track, alloc);
-    MEL_PASS();
 }
 
-MEL_TEST(null_blend_uses_default_lerp)
+MEL_TEST(null_blend_uses_default_lerp, .tags = "anim")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_Anim_Track track;
@@ -245,10 +235,9 @@ MEL_TEST(null_blend_uses_default_lerp)
     MEL_ASSERT_FLOAT_EQ(out, 5.0f, 1e-5f);
 
     mel_anim_track_destroy(&track, alloc);
-    MEL_PASS();
 }
 
-MEL_TEST(quat_slerp_basic)
+MEL_TEST(quat_slerp_basic, .tags = "anim")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_Anim_Track track;
@@ -277,10 +266,9 @@ MEL_TEST(quat_slerp_basic)
     MEL_ASSERT_FLOAT_EQ(len, 1.0f, 1e-5f);
 
     mel_anim_track_destroy(&track, alloc);
-    MEL_PASS();
 }
 
-MEL_TEST(quat_slerp_antipodal)
+MEL_TEST(quat_slerp_antipodal, .tags = "anim")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_Anim_Track track;
@@ -304,27 +292,4 @@ MEL_TEST(quat_slerp_antipodal)
     MEL_ASSERT_FLOAT_EQ(out[3], expected_w, 1e-3f);
 
     mel_anim_track_destroy(&track, alloc);
-    MEL_PASS();
-}
-
-int main(void)
-{
-    MEL_TEST_BEGIN("anim.track");
-
-    MEL_RUN_TEST(f32_exact_keyframes);
-    MEL_RUN_TEST(f32_lerp_between_keyframes);
-    MEL_RUN_TEST(f32_clamp_before_and_after);
-    MEL_RUN_TEST(stepped_curve);
-    MEL_RUN_TEST(bezier_curve);
-    MEL_RUN_TEST(vec2_lerp);
-    MEL_RUN_TEST(vec4_lerp);
-    MEL_RUN_TEST(find_keyframe_binary_search);
-    MEL_RUN_TEST(single_keyframe);
-    MEL_RUN_TEST(angle_blend_shortest_path);
-    MEL_RUN_TEST(null_blend_uses_default_lerp);
-    MEL_RUN_TEST(quat_slerp_basic);
-    MEL_RUN_TEST(quat_slerp_antipodal);
-
-    MEL_TEST_END();
-    return MEL_TEST_EXIT_CODE();
 }

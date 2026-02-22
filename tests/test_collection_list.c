@@ -14,7 +14,7 @@ static TestItem make_item(i32 v)
     return item;
 }
 
-MEL_TEST(init_empty)
+MEL_TEST(init_empty, .tags = "collection")
 {
     Mel_ListNode head;
     mel_list_init(&head);
@@ -22,10 +22,9 @@ MEL_TEST(init_empty)
     MEL_ASSERT(mel_list_empty(&head));
     MEL_ASSERT(head.next == &head);
     MEL_ASSERT(head.prev == &head);
-    MEL_PASS();
 }
 
-MEL_TEST(push_front_order)
+MEL_TEST(push_front_order, .tags = "collection")
 {
     Mel_ListNode head;
     mel_list_init(&head);
@@ -46,10 +45,9 @@ MEL_TEST(push_front_order)
     MEL_ASSERT_EQ(mel_list_entry(pos, TestItem, node)->value, 1);
     pos = pos->next;
     MEL_ASSERT(pos == &head);
-    MEL_PASS();
 }
 
-MEL_TEST(push_back_order)
+MEL_TEST(push_back_order, .tags = "collection")
 {
     Mel_ListNode head;
     mel_list_init(&head);
@@ -70,10 +68,9 @@ MEL_TEST(push_back_order)
     MEL_ASSERT_EQ(mel_list_entry(pos, TestItem, node)->value, 3);
     pos = pos->next;
     MEL_ASSERT(pos == &head);
-    MEL_PASS();
 }
 
-MEL_TEST(remove_middle)
+MEL_TEST(remove_middle, .tags = "collection")
 {
     Mel_ListNode head;
     mel_list_init(&head);
@@ -99,10 +96,9 @@ MEL_TEST(remove_middle)
 
     MEL_ASSERT(b.node.next == &b.node);
     MEL_ASSERT(b.node.prev == &b.node);
-    MEL_PASS();
 }
 
-MEL_TEST(foreach_sum)
+MEL_TEST(foreach_sum, .tags = "collection")
 {
     Mel_ListNode head;
     mel_list_init(&head);
@@ -120,10 +116,9 @@ MEL_TEST(foreach_sum)
         sum += mel_list_entry(pos, TestItem, node)->value;
     }
     MEL_ASSERT_EQ(sum, 15);
-    MEL_PASS();
 }
 
-MEL_TEST(foreach_safe_remove_all)
+MEL_TEST(foreach_safe_remove_all, .tags = "collection")
 {
     Mel_ListNode head;
     mel_list_init(&head);
@@ -144,10 +139,9 @@ MEL_TEST(foreach_safe_remove_all)
 
     MEL_ASSERT(mel_list_empty(&head));
     MEL_ASSERT_EQ(mel_list_count(&head), (usize)0);
-    MEL_PASS();
 }
 
-MEL_TEST(splice)
+MEL_TEST(splice, .tags = "collection")
 {
     Mel_ListNode dst;
     mel_list_init(&dst);
@@ -179,10 +173,9 @@ MEL_TEST(splice)
     MEL_ASSERT_EQ(mel_list_entry(pos, TestItem, node)->value, 2);
     pos = pos->next;
     MEL_ASSERT(pos == &dst);
-    MEL_PASS();
 }
 
-MEL_TEST(container_of_entry)
+MEL_TEST(container_of_entry, .tags = "collection")
 {
     TestItem item = make_item(42);
     Mel_ListNode* node_ptr = &item.node;
@@ -194,10 +187,9 @@ MEL_TEST(container_of_entry)
     TestItem* via_entry = mel_list_entry(node_ptr, TestItem, node);
     MEL_ASSERT(via_entry == &item);
     MEL_ASSERT_EQ(via_entry->value, 42);
-    MEL_PASS();
 }
 
-MEL_TEST(count)
+MEL_TEST(count, .tags = "collection")
 {
     Mel_ListNode head;
     mel_list_init(&head);
@@ -217,10 +209,9 @@ MEL_TEST(count)
 
     mel_list_remove(&b.node);
     MEL_ASSERT_EQ(mel_list_count(&head), (usize)0);
-    MEL_PASS();
 }
 
-MEL_TEST(front_back)
+MEL_TEST(front_back, .tags = "collection")
 {
     Mel_ListNode head;
     mel_list_init(&head);
@@ -237,10 +228,9 @@ MEL_TEST(front_back)
     MEL_ASSERT(mel_list_back(&head) == &c.node);
     MEL_ASSERT_EQ(mel_list_entry(mel_list_front(&head), TestItem, node)->value, 10);
     MEL_ASSERT_EQ(mel_list_entry(mel_list_back(&head), TestItem, node)->value, 30);
-    MEL_PASS();
 }
 
-MEL_TEST(mixed_push_order)
+MEL_TEST(mixed_push_order, .tags = "collection")
 {
     Mel_ListNode head;
     mel_list_init(&head);
@@ -265,10 +255,9 @@ MEL_TEST(mixed_push_order)
     MEL_ASSERT_EQ(mel_list_entry(pos, TestItem, node)->value, 3);
     pos = pos->next;
     MEL_ASSERT(pos == &head);
-    MEL_PASS();
 }
 
-MEL_TEST(remove_single_element)
+MEL_TEST(remove_single_element, .tags = "collection")
 {
     Mel_ListNode head;
     mel_list_init(&head);
@@ -281,10 +270,9 @@ MEL_TEST(remove_single_element)
     MEL_ASSERT(mel_list_empty(&head));
     MEL_ASSERT(head.next == &head);
     MEL_ASSERT(head.prev == &head);
-    MEL_PASS();
 }
 
-MEL_TEST(splice_empty_into_nonempty)
+MEL_TEST(splice_empty_into_nonempty, .tags = "collection")
 {
     Mel_ListNode dst;
     mel_list_init(&dst);
@@ -305,10 +293,9 @@ MEL_TEST(splice_empty_into_nonempty)
     MEL_ASSERT_EQ(mel_list_entry(pos, TestItem, node)->value, 1);
     pos = pos->next;
     MEL_ASSERT_EQ(mel_list_entry(pos, TestItem, node)->value, 2);
-    MEL_PASS();
 }
 
-MEL_TEST(splice_into_empty)
+MEL_TEST(splice_into_empty, .tags = "collection")
 {
     Mel_ListNode dst;
     mel_list_init(&dst);
@@ -329,28 +316,4 @@ MEL_TEST(splice_into_empty)
     MEL_ASSERT_EQ(mel_list_entry(pos, TestItem, node)->value, 5);
     pos = pos->next;
     MEL_ASSERT_EQ(mel_list_entry(pos, TestItem, node)->value, 6);
-    MEL_PASS();
-}
-
-int main(void)
-{
-    MEL_TEST_BEGIN("Collection List Tests");
-
-    MEL_RUN_TEST(init_empty);
-    MEL_RUN_TEST(push_front_order);
-    MEL_RUN_TEST(push_back_order);
-    MEL_RUN_TEST(remove_middle);
-    MEL_RUN_TEST(foreach_sum);
-    MEL_RUN_TEST(foreach_safe_remove_all);
-    MEL_RUN_TEST(splice);
-    MEL_RUN_TEST(container_of_entry);
-    MEL_RUN_TEST(count);
-    MEL_RUN_TEST(front_back);
-    MEL_RUN_TEST(mixed_push_order);
-    MEL_RUN_TEST(remove_single_element);
-    MEL_RUN_TEST(splice_empty_into_nonempty);
-    MEL_RUN_TEST(splice_into_empty);
-
-    MEL_TEST_END();
-    return MEL_TEST_EXIT_CODE();
 }

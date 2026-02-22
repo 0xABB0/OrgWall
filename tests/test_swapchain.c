@@ -78,7 +78,7 @@ static void init_mock(Mel_Swapchain* sc, Mock_Swapchain* mock)
     };
 }
 
-MEL_TEST(vtable_acquire_dispatches)
+MEL_TEST(vtable_acquire_dispatches, .tags = "gpu")
 {
     Mel_Swapchain sc;
     Mock_Swapchain mock;
@@ -91,10 +91,9 @@ MEL_TEST(vtable_acquire_dispatches)
     mel_swapchain_acquire(&sc, nullptr);
     MEL_ASSERT_EQ(mock.acquire_count, 2u);
 
-    MEL_PASS();
 }
 
-MEL_TEST(vtable_present_dispatches)
+MEL_TEST(vtable_present_dispatches, .tags = "gpu")
 {
     Mel_Swapchain sc;
     Mock_Swapchain mock;
@@ -109,10 +108,9 @@ MEL_TEST(vtable_present_dispatches)
     MEL_ASSERT_EQ(mock.last_cmd, fake_cmd);
     MEL_ASSERT_EQ(mock.last_fence, fake_fence);
 
-    MEL_PASS();
 }
 
-MEL_TEST(vtable_resize_dispatches)
+MEL_TEST(vtable_resize_dispatches, .tags = "gpu")
 {
     Mel_Swapchain sc;
     Mock_Swapchain mock;
@@ -125,10 +123,9 @@ MEL_TEST(vtable_resize_dispatches)
     MEL_ASSERT_EQ(sc.extent.width, 1920u);
     MEL_ASSERT_EQ(sc.extent.height, 1080u);
 
-    MEL_PASS();
 }
 
-MEL_TEST(vtable_shutdown_dispatches)
+MEL_TEST(vtable_shutdown_dispatches, .tags = "gpu")
 {
     Mel_Swapchain sc;
     Mock_Swapchain mock;
@@ -138,10 +135,9 @@ MEL_TEST(vtable_shutdown_dispatches)
     MEL_ASSERT_EQ(mock.shutdown_count, 1u);
     MEL_ASSERT_NULL(sc.data);
 
-    MEL_PASS();
 }
 
-MEL_TEST(acquire_updates_current_image)
+MEL_TEST(acquire_updates_current_image, .tags = "gpu")
 {
     Mel_Swapchain sc;
     Mock_Swapchain mock;
@@ -156,10 +152,9 @@ MEL_TEST(acquire_updates_current_image)
     mel_swapchain_acquire(&sc, nullptr);
     MEL_ASSERT_EQ(sc.current_image, 0u);
 
-    MEL_PASS();
 }
 
-MEL_TEST(acquire_failure_propagates)
+MEL_TEST(acquire_failure_propagates, .tags = "gpu")
 {
     Mel_Swapchain sc;
     Mock_Swapchain mock;
@@ -170,10 +165,9 @@ MEL_TEST(acquire_failure_propagates)
     MEL_ASSERT(!r);
     MEL_ASSERT_EQ(mock.acquire_count, 1u);
 
-    MEL_PASS();
 }
 
-MEL_TEST(present_failure_propagates)
+MEL_TEST(present_failure_propagates, .tags = "gpu")
 {
     Mel_Swapchain sc;
     Mock_Swapchain mock;
@@ -184,10 +178,9 @@ MEL_TEST(present_failure_propagates)
     MEL_ASSERT(!r);
     MEL_ASSERT_EQ(mock.present_count, 1u);
 
-    MEL_PASS();
 }
 
-MEL_TEST(fields_accessible)
+MEL_TEST(fields_accessible, .tags = "gpu")
 {
     Mel_Swapchain sc;
     Mock_Swapchain mock;
@@ -201,10 +194,9 @@ MEL_TEST(fields_accessible)
     MEL_ASSERT_NOT_NULL(sc.vtable);
     MEL_ASSERT_NOT_NULL(sc.data);
 
-    MEL_PASS();
 }
 
-MEL_TEST(multiple_swapchains_independent)
+MEL_TEST(multiple_swapchains_independent, .tags = "gpu")
 {
     Mel_Swapchain sc_a, sc_b;
     Mock_Swapchain mock_a, mock_b;
@@ -224,7 +216,6 @@ MEL_TEST(multiple_swapchains_independent)
     MEL_ASSERT_EQ(sc_a.extent.width, 800u);
     MEL_ASSERT_EQ(sc_b.extent.width, 640u);
 
-    MEL_PASS();
 }
 
 static bool alt_acquire(Mel_Swapchain* sc, Mel_Gpu_Device* dev)
@@ -258,7 +249,7 @@ static const Mel_Swapchain_Vtable alt_vtable = {
     .shutdown = alt_shutdown,
 };
 
-MEL_TEST(different_vtables_dispatch_independently)
+MEL_TEST(different_vtables_dispatch_independently, .tags = "gpu")
 {
     Mel_Swapchain sc_mock, sc_alt;
     Mock_Swapchain mock;
@@ -280,10 +271,9 @@ MEL_TEST(different_vtables_dispatch_independently)
     mel_swapchain_acquire(&sc_mock, nullptr);
     MEL_ASSERT_EQ(sc_mock.current_image, 1u);
 
-    MEL_PASS();
 }
 
-MEL_TEST(full_lifecycle)
+MEL_TEST(full_lifecycle, .tags = "gpu")
 {
     Mel_Swapchain sc;
     Mock_Swapchain mock;
@@ -312,29 +302,4 @@ MEL_TEST(full_lifecycle)
     MEL_ASSERT_EQ(mock.resize_count, 1u);
     MEL_ASSERT_EQ(mock.shutdown_count, 1u);
 
-    MEL_PASS();
-}
-
-int main(void)
-{
-    MEL_TEST_BEGIN("Swapchain Abstraction Tests");
-
-    MEL_RUN_TEST(vtable_acquire_dispatches);
-    MEL_RUN_TEST(vtable_present_dispatches);
-    MEL_RUN_TEST(vtable_resize_dispatches);
-    MEL_RUN_TEST(vtable_shutdown_dispatches);
-
-    MEL_RUN_TEST(acquire_updates_current_image);
-    MEL_RUN_TEST(acquire_failure_propagates);
-    MEL_RUN_TEST(present_failure_propagates);
-
-    MEL_RUN_TEST(fields_accessible);
-    MEL_RUN_TEST(multiple_swapchains_independent);
-    MEL_RUN_TEST(different_vtables_dispatch_independently);
-
-    MEL_RUN_TEST(full_lifecycle);
-
-    MEL_TEST_END();
-
-    return MEL_TEST_EXIT_CODE();
 }

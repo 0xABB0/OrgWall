@@ -56,9 +56,6 @@ bool mel_visual_test_init_opt(Mel_Visual_Test_Ctx* ctx, Mel_Visual_Test_Init_Opt
         return false;
     }
 
-    if (!SDL_Vulkan_LoadLibrary("/opt/homebrew/lib/libvulkan.dylib"))
-        SDL_Log("visual test: Vulkan library load: %s", SDL_GetError());
-
     if (!mel_gpu_device_init(&ctx->dev,
         .window = ctx->window,
         .enable_validation = true,

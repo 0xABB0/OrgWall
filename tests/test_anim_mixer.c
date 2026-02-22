@@ -22,7 +22,7 @@ static Mel_Anim_Clip make_f32_clip(const Mel_Alloc* alloc, u64 prop_id,
     return clip;
 }
 
-MEL_TEST(single_layer_output)
+MEL_TEST(single_layer_output, .tags = "anim")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_Anim_Mixer mixer;
@@ -40,10 +40,9 @@ MEL_TEST(single_layer_output)
 
     mel_anim_clip_destroy(&clip, alloc);
     mel_anim_mixer_destroy(&mixer);
-    MEL_PASS();
 }
 
-MEL_TEST(two_replace_layers)
+MEL_TEST(two_replace_layers, .tags = "anim")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_Anim_Mixer mixer;
@@ -69,10 +68,9 @@ MEL_TEST(two_replace_layers)
     mel_anim_clip_destroy(&clip_a, alloc);
     mel_anim_clip_destroy(&clip_b, alloc);
     mel_anim_mixer_destroy(&mixer);
-    MEL_PASS();
 }
 
-MEL_TEST(crossfade)
+MEL_TEST(crossfade, .tags = "anim")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_Anim_Mixer mixer;
@@ -95,10 +93,9 @@ MEL_TEST(crossfade)
     mel_anim_clip_destroy(&clip_a, alloc);
     mel_anim_clip_destroy(&clip_b, alloc);
     mel_anim_mixer_destroy(&mixer);
-    MEL_PASS();
 }
 
-MEL_TEST(crossfade_completes)
+MEL_TEST(crossfade_completes, .tags = "anim")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_Anim_Mixer mixer;
@@ -122,10 +119,9 @@ MEL_TEST(crossfade_completes)
     mel_anim_clip_destroy(&clip_a, alloc);
     mel_anim_clip_destroy(&clip_b, alloc);
     mel_anim_mixer_destroy(&mixer);
-    MEL_PASS();
 }
 
-MEL_TEST(looping_wraps)
+MEL_TEST(looping_wraps, .tags = "anim")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_Anim_Mixer mixer;
@@ -143,10 +139,9 @@ MEL_TEST(looping_wraps)
 
     mel_anim_clip_destroy(&clip, alloc);
     mel_anim_mixer_destroy(&mixer);
-    MEL_PASS();
 }
 
-MEL_TEST(non_loop_finishes)
+MEL_TEST(non_loop_finishes, .tags = "anim")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_Anim_Mixer mixer;
@@ -162,7 +157,6 @@ MEL_TEST(non_loop_finishes)
 
     mel_anim_clip_destroy(&clip, alloc);
     mel_anim_mixer_destroy(&mixer);
-    MEL_PASS();
 }
 
 static u32 s_event_count = 0;
@@ -184,7 +178,7 @@ static void mixer_event_cb(void* ctx, const void* event)
     s_event_count++;
 }
 
-MEL_TEST(events_collected)
+MEL_TEST(events_collected, .tags = "anim")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_Anim_Mixer mixer;
@@ -223,10 +217,9 @@ MEL_TEST(events_collected)
     mel_event_channel_off(&mixer.events, sub);
     mel_anim_clip_destroy(&clip, alloc);
     mel_anim_mixer_destroy(&mixer);
-    MEL_PASS();
 }
 
-MEL_TEST(add_blend_mode)
+MEL_TEST(add_blend_mode, .tags = "anim")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_Anim_Mixer mixer;
@@ -251,10 +244,9 @@ MEL_TEST(add_blend_mode)
     mel_anim_clip_destroy(&base, alloc);
     mel_anim_clip_destroy(&additive, alloc);
     mel_anim_mixer_destroy(&mixer);
-    MEL_PASS();
 }
 
-MEL_TEST(default_values_setup_pose)
+MEL_TEST(default_values_setup_pose, .tags = "anim")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_Anim_Mixer mixer;
@@ -289,7 +281,6 @@ MEL_TEST(default_values_setup_pose)
     mel_anim_clip_destroy(&clip_a, alloc);
     mel_anim_clip_destroy(&clip_b, alloc);
     mel_anim_mixer_destroy(&mixer);
-    MEL_PASS();
 }
 
 static u32 s_lifecycle_count = 0;
@@ -306,7 +297,7 @@ static void lifecycle_event_cb(void* ctx, const void* event)
     s_lifecycle_count++;
 }
 
-MEL_TEST(lifecycle_started)
+MEL_TEST(lifecycle_started, .tags = "anim")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_Anim_Mixer mixer;
@@ -327,10 +318,9 @@ MEL_TEST(lifecycle_started)
     mel_event_channel_off(&mixer.events, sub);
     mel_anim_clip_destroy(&clip, alloc);
     mel_anim_mixer_destroy(&mixer);
-    MEL_PASS();
 }
 
-MEL_TEST(lifecycle_completed)
+MEL_TEST(lifecycle_completed, .tags = "anim")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_Anim_Mixer mixer;
@@ -359,10 +349,9 @@ MEL_TEST(lifecycle_completed)
     mel_event_channel_off(&mixer.events, sub);
     mel_anim_clip_destroy(&clip, alloc);
     mel_anim_mixer_destroy(&mixer);
-    MEL_PASS();
 }
 
-MEL_TEST(lifecycle_looped)
+MEL_TEST(lifecycle_looped, .tags = "anim")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_Anim_Mixer mixer;
@@ -390,10 +379,9 @@ MEL_TEST(lifecycle_looped)
     mel_event_channel_off(&mixer.events, sub);
     mel_anim_clip_destroy(&clip, alloc);
     mel_anim_mixer_destroy(&mixer);
-    MEL_PASS();
 }
 
-MEL_TEST(lifecycle_interrupted)
+MEL_TEST(lifecycle_interrupted, .tags = "anim")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_Anim_Mixer mixer;
@@ -420,10 +408,9 @@ MEL_TEST(lifecycle_interrupted)
     mel_anim_clip_destroy(&clip_a, alloc);
     mel_anim_clip_destroy(&clip_b, alloc);
     mel_anim_mixer_destroy(&mixer);
-    MEL_PASS();
 }
 
-MEL_TEST(queue_plays_after_finish)
+MEL_TEST(queue_plays_after_finish, .tags = "anim")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_Anim_Mixer mixer;
@@ -451,10 +438,9 @@ MEL_TEST(queue_plays_after_finish)
     mel_anim_clip_destroy(&clip_a, alloc);
     mel_anim_clip_destroy(&clip_b, alloc);
     mel_anim_mixer_destroy(&mixer);
-    MEL_PASS();
 }
 
-MEL_TEST(queue_cleared_on_manual_play)
+MEL_TEST(queue_cleared_on_manual_play, .tags = "anim")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_Anim_Mixer mixer;
@@ -478,10 +464,9 @@ MEL_TEST(queue_cleared_on_manual_play)
     mel_anim_clip_destroy(&clip_b, alloc);
     mel_anim_clip_destroy(&clip_c, alloc);
     mel_anim_mixer_destroy(&mixer);
-    MEL_PASS();
 }
 
-MEL_TEST(queue_not_triggered_on_loop)
+MEL_TEST(queue_not_triggered_on_loop, .tags = "anim")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_Anim_Mixer mixer;
@@ -503,10 +488,9 @@ MEL_TEST(queue_not_triggered_on_loop)
     mel_anim_clip_destroy(&clip_loop, alloc);
     mel_anim_clip_destroy(&clip_queued, alloc);
     mel_anim_mixer_destroy(&mixer);
-    MEL_PASS();
 }
 
-MEL_TEST(nested_crossfade_chain_exists)
+MEL_TEST(nested_crossfade_chain_exists, .tags = "anim")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_Anim_Mixer mixer;
@@ -535,10 +519,9 @@ MEL_TEST(nested_crossfade_chain_exists)
     mel_anim_clip_destroy(&clip_b, alloc);
     mel_anim_clip_destroy(&clip_c, alloc);
     mel_anim_mixer_destroy(&mixer);
-    MEL_PASS();
 }
 
-MEL_TEST(nested_crossfade_chain_pruned)
+MEL_TEST(nested_crossfade_chain_pruned, .tags = "anim")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_Anim_Mixer mixer;
@@ -569,10 +552,9 @@ MEL_TEST(nested_crossfade_chain_pruned)
     mel_anim_clip_destroy(&clip_b, alloc);
     mel_anim_clip_destroy(&clip_c, alloc);
     mel_anim_mixer_destroy(&mixer);
-    MEL_PASS();
 }
 
-MEL_TEST(queue_lifecycle_sequence)
+MEL_TEST(queue_lifecycle_sequence, .tags = "anim")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_Anim_Mixer mixer;
@@ -609,10 +591,9 @@ MEL_TEST(queue_lifecycle_sequence)
     mel_anim_clip_destroy(&clip_a, alloc);
     mel_anim_clip_destroy(&clip_b, alloc);
     mel_anim_mixer_destroy(&mixer);
-    MEL_PASS();
 }
 
-MEL_TEST(stop_fires_interrupted)
+MEL_TEST(stop_fires_interrupted, .tags = "anim")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_Anim_Mixer mixer;
@@ -636,10 +617,9 @@ MEL_TEST(stop_fires_interrupted)
     mel_event_channel_off(&mixer.events, sub);
     mel_anim_clip_destroy(&clip, alloc);
     mel_anim_mixer_destroy(&mixer);
-    MEL_PASS();
 }
 
-MEL_TEST(default_values_with_custom_blend)
+MEL_TEST(default_values_with_custom_blend, .tags = "anim")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_Anim_Mixer mixer;
@@ -671,10 +651,9 @@ MEL_TEST(default_values_with_custom_blend)
     mel_anim_clip_destroy(&clip_a, alloc);
     mel_anim_clip_destroy(&clip_b, alloc);
     mel_anim_mixer_destroy(&mixer);
-    MEL_PASS();
 }
 
-MEL_TEST(queued_transition_with_crossfade)
+MEL_TEST(queued_transition_with_crossfade, .tags = "anim")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_Anim_Mixer mixer;
@@ -706,10 +685,9 @@ MEL_TEST(queued_transition_with_crossfade)
     mel_anim_clip_destroy(&clip_a, alloc);
     mel_anim_clip_destroy(&clip_b, alloc);
     mel_anim_mixer_destroy(&mixer);
-    MEL_PASS();
 }
 
-MEL_TEST(add_blend_partial_weight)
+MEL_TEST(add_blend_partial_weight, .tags = "anim")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_Anim_Mixer mixer;
@@ -734,10 +712,9 @@ MEL_TEST(add_blend_partial_weight)
     mel_anim_clip_destroy(&base, alloc);
     mel_anim_clip_destroy(&additive, alloc);
     mel_anim_mixer_destroy(&mixer);
-    MEL_PASS();
 }
 
-MEL_TEST(add_blend_during_crossfade)
+MEL_TEST(add_blend_during_crossfade, .tags = "anim")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_Anim_Mixer mixer;
@@ -767,10 +744,9 @@ MEL_TEST(add_blend_during_crossfade)
     mel_anim_clip_destroy(&clip_b, alloc);
     mel_anim_clip_destroy(&clip_add, alloc);
     mel_anim_mixer_destroy(&mixer);
-    MEL_PASS();
 }
 
-MEL_TEST(nested_crossfade_intermediate_values)
+MEL_TEST(nested_crossfade_intermediate_values, .tags = "anim")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_Anim_Mixer mixer;
@@ -802,10 +778,9 @@ MEL_TEST(nested_crossfade_intermediate_values)
     mel_anim_clip_destroy(&clip_b, alloc);
     mel_anim_clip_destroy(&clip_c, alloc);
     mel_anim_mixer_destroy(&mixer);
-    MEL_PASS();
 }
 
-MEL_TEST(multiple_queued_entries)
+MEL_TEST(multiple_queued_entries, .tags = "anim")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_Anim_Mixer mixer;
@@ -846,40 +821,4 @@ MEL_TEST(multiple_queued_entries)
     mel_anim_clip_destroy(&clip_b, alloc);
     mel_anim_clip_destroy(&clip_c, alloc);
     mel_anim_mixer_destroy(&mixer);
-    MEL_PASS();
-}
-
-int main(void)
-{
-    MEL_TEST_BEGIN("anim.mixer");
-
-    MEL_RUN_TEST(single_layer_output);
-    MEL_RUN_TEST(two_replace_layers);
-    MEL_RUN_TEST(crossfade);
-    MEL_RUN_TEST(crossfade_completes);
-    MEL_RUN_TEST(looping_wraps);
-    MEL_RUN_TEST(non_loop_finishes);
-    MEL_RUN_TEST(events_collected);
-    MEL_RUN_TEST(add_blend_mode);
-    MEL_RUN_TEST(default_values_setup_pose);
-    MEL_RUN_TEST(lifecycle_started);
-    MEL_RUN_TEST(lifecycle_completed);
-    MEL_RUN_TEST(lifecycle_looped);
-    MEL_RUN_TEST(lifecycle_interrupted);
-    MEL_RUN_TEST(queue_plays_after_finish);
-    MEL_RUN_TEST(queue_cleared_on_manual_play);
-    MEL_RUN_TEST(queue_not_triggered_on_loop);
-    MEL_RUN_TEST(nested_crossfade_chain_exists);
-    MEL_RUN_TEST(nested_crossfade_chain_pruned);
-    MEL_RUN_TEST(queue_lifecycle_sequence);
-    MEL_RUN_TEST(stop_fires_interrupted);
-    MEL_RUN_TEST(default_values_with_custom_blend);
-    MEL_RUN_TEST(queued_transition_with_crossfade);
-    MEL_RUN_TEST(add_blend_partial_weight);
-    MEL_RUN_TEST(add_blend_during_crossfade);
-    MEL_RUN_TEST(nested_crossfade_intermediate_values);
-    MEL_RUN_TEST(multiple_queued_entries);
-
-    MEL_TEST_END();
-    return MEL_TEST_EXIT_CODE();
 }

@@ -126,6 +126,53 @@ static void cmd_append_link_flags(Nob_Cmd* cmd)
         nob_cmd_append(cmd, "-fsanitize=address,undefined");
 }
 
+typedef struct {
+    const char* suffix;
+    bool active;
+} Platform_Suffix;
+
+static const Platform_Suffix PLATFORM_SUFFIXES[] = {
+#if defined(__APPLE__)
+    { ".osx.",     true  },
+    { ".posix.",   true  },
+    { ".win.",     false },
+    { ".linux.",   false },
+    { ".ios.",     false },
+    { ".android.", false },
+#elif defined(_WIN32)
+    { ".win.",     true  },
+    { ".osx.",     false },
+    { ".posix.",   false },
+    { ".linux.",   false },
+    { ".ios.",     false },
+    { ".android.", false },
+#elif defined(__linux__) && defined(__ANDROID__)
+    { ".android.", true  },
+    { ".posix.",   true  },
+    { ".osx.",     false },
+    { ".win.",     false },
+    { ".linux.",   false },
+    { ".ios.",     false },
+#elif defined(__linux__)
+    { ".linux.",   true  },
+    { ".posix.",   true  },
+    { ".osx.",     false },
+    { ".win.",     false },
+    { ".ios.",     false },
+    { ".android.", false },
+#endif
+};
+
+static bool should_skip_platform_file(const char* name)
+{
+    for (size_t i = 0; i < NOB_ARRAY_LEN(PLATFORM_SUFFIXES); i++)
+    {
+        if (strstr(name, PLATFORM_SUFFIXES[i].suffix))
+            return !PLATFORM_SUFFIXES[i].active;
+    }
+    return false;
+}
+
 bool collect_c_files(const char* dir, Nob_File_Paths* c_files, Nob_File_Paths* cpp_files, Nob_File_Paths* m_files)
 {
     Nob_File_Paths entries = {0};
@@ -145,6 +192,8 @@ bool collect_c_files(const char* dir, Nob_File_Paths* c_files, Nob_File_Paths* c
         }
         else if (type == NOB_FILE_REGULAR)
         {
+            if (should_skip_platform_file(name)) continue;
+
             size_t len = strlen(name);
             if (len > 2 && name[len-2] == '.' && name[len-1] == 'c')
             {
@@ -718,291 +767,61 @@ bool build_main(void)
     return true;
 }
 
-static const char* ALLOCATOR_SOURCES[] = {
-    "melody/allocator.c",
-    "melody/allocator.heap.c",
-    "melody/allocator.leak.c",
-    "melody/allocator.tracking.c",
-    "melody/allocator.arena.c",
-    "melody/allocator.pool.c",
-    "melody/allocator.stack.c",
-    "melody/allocator.block.c",
-    "melody/allocator.ring.c",
-    "melody/allocator.slab.c",
-    "melody/allocator.buddy.c",
-};
-
-static const char* NCTRL_SOURCES[] = {
-    "melody/ui.native.ctrl.c",
-    "melody/ui.layout.c",
-};
-
-static const char* FIBER_SOURCES[] = {
-    "melody/allocator.vmem.c",
-    "melody/async.fiber.c",
-};
-
-static const char* CORO_SOURCES[] = {
-    "melody/allocator.vmem.c",
-    "melody/async.fiber.c",
-    "melody/async.coro.c",
-    "melody/allocator.c",
-    "melody/allocator.heap.c",
-};
-
-static const char* WIDGET_SOURCES[] = {
-    "melody/ui.widget.c",
-    "melody/ui.layout.c",
-    "melody/ui.layout.box.c",
-};
-
-static const char* SKIPLIST_SOURCES[] = {
-    "melody/collection.skiplist.c",
-    "melody/allocator.c",
-    "melody/allocator.heap.c",
-};
-
-static const char* TRIE_SOURCES[] = {
-    "melody/collection.trie.c",
-    "melody/allocator.c",
-    "melody/allocator.heap.c",
-};
-
-static const char* BITSET_SOURCES[] = {
-    "melody/collection.bitset.c",
-    "melody/allocator.c",
-    "melody/allocator.heap.c",
-};
-
-static const char* BTREE_SOURCES[] = {
-    "melody/collection.btree.c",
-    "melody/allocator.c",
-    "melody/allocator.heap.c",
-};
-
-static const char* HASHMAP_SOURCES[] = {
-    "melody/collection.hashmap.c",
-    "melody/hash.xxh.c",
-    "melody/allocator.c",
-    "melody/allocator.heap.c",
-};
-
-static const char* SET_SOURCES[] = {
-    "melody/collection.set.c",
-    "melody/collection.hashmap.c",
-    "melody/hash.xxh.c",
-    "melody/allocator.c",
-    "melody/allocator.heap.c",
-};
-
-static const char* RBTREE_SOURCES[] = {
-    "melody/collection.rbtree.c",
-    "melody/allocator.c",
-    "melody/allocator.heap.c",
-};
-
-static const char* XXH_SOURCES[] = {
-    "melody/hash.xxh.c",
-};
-
-static const char* GPU_FORMAT_SOURCES[] = {
-    "melody/gpu.format.c",
-};
-
-static const char* RENDER_GRAPH_SOURCES[] = {
-    "melody/render.graph.c",
-};
-
-static const char* RENDER_BLACKBOARD_SOURCES[] = {
-    "melody/render.blackboard.c",
-    "melody/string.str8.c",
-    "melody/hash.xxh.c",
-    "melody/allocator.c",
-    "melody/allocator.heap.c",
-};
-
-static const char* SLOTMAP_SOURCES[] = {
-    "melody/collection.slotmap.c",
-    "melody/allocator.c",
-    "melody/allocator.heap.c",
-};
-
-static const char* MATH_CURVE_SOURCES[] = {
-    "melody/math.curve.c",
-};
-
-static const char* ANIM_TRACK_SOURCES[] = {
-    "melody/math.curve.c",
-    "melody/anim.track.c",
-    "melody/allocator.c",
-    "melody/allocator.heap.c",
-};
-
-static const char* ANIM_CLIP_SOURCES[] = {
-    "melody/math.curve.c",
-    "melody/anim.track.c",
-    "melody/anim.clip.c",
-    "melody/allocator.c",
-    "melody/allocator.heap.c",
-};
-
-static const char* ANIM_MIXER_SOURCES[] = {
-    "melody/math.curve.c",
-    "melody/anim.track.c",
-    "melody/anim.clip.c",
-    "melody/anim.mixer.c",
-    "melody/event.channel.c",
-    "melody/allocator.c",
-    "melody/allocator.heap.c",
-};
-
-static const char* ANIM_STATE_SOURCES[] = {
-    "melody/math.curve.c",
-    "melody/anim.track.c",
-    "melody/anim.clip.c",
-    "melody/anim.mixer.c",
-    "melody/anim.state.c",
-    "melody/event.channel.c",
-    "melody/allocator.c",
-    "melody/allocator.heap.c",
-};
-
-static const char* STR8_SOURCES[] = {
-    "melody/string.str8.c",
-    "melody/hash.xxh.c",
-    "melody/allocator.c",
-    "melody/allocator.heap.c",
-};
-
-static const char* EVENT_CHANNEL_SOURCES[] = {
-    "melody/event.channel.c",
-    "melody/allocator.c",
-    "melody/allocator.heap.c",
-};
-
-static const char* SIM_CTX_SOURCES[] = {
-    "melody/sim.ctx.c",
-    "melody/allocator.block.c",
-};
-
-typedef struct {
-    const char** sources;
-    size_t count;
-    bool needs_asm;
-} Test_Source_Set;
-
-static Test_Source_Set test_source_set_for(const char* test_name)
+bool build_tests(void)
 {
-    if (strcmp(test_name, "nctrl") == 0)
-        return (Test_Source_Set){ NCTRL_SOURCES, NOB_ARRAY_LEN(NCTRL_SOURCES), false };
-    if (strcmp(test_name, "fiber") == 0)
-        return (Test_Source_Set){ FIBER_SOURCES, NOB_ARRAY_LEN(FIBER_SOURCES), true };
-    if (strcmp(test_name, "coro") == 0)
-        return (Test_Source_Set){ CORO_SOURCES, NOB_ARRAY_LEN(CORO_SOURCES), true };
-    if (strcmp(test_name, "widget") == 0)
-        return (Test_Source_Set){ WIDGET_SOURCES, NOB_ARRAY_LEN(WIDGET_SOURCES), false };
-    if (strcmp(test_name, "collection_list") == 0)
-        return (Test_Source_Set){ NULL, 0, false };
-    if (strcmp(test_name, "collection_skiplist") == 0)
-        return (Test_Source_Set){ SKIPLIST_SOURCES, NOB_ARRAY_LEN(SKIPLIST_SOURCES), false };
-    if (strcmp(test_name, "collection_trie") == 0)
-        return (Test_Source_Set){ TRIE_SOURCES, NOB_ARRAY_LEN(TRIE_SOURCES), false };
-    if (strcmp(test_name, "collection_sort") == 0)
-        return (Test_Source_Set){ NULL, 0, false };
-    if (strcmp(test_name, "collection_btree") == 0)
-        return (Test_Source_Set){ BTREE_SOURCES, NOB_ARRAY_LEN(BTREE_SOURCES), false };
-    if (strcmp(test_name, "collection_bitset") == 0)
-        return (Test_Source_Set){ BITSET_SOURCES, NOB_ARRAY_LEN(BITSET_SOURCES), false };
-    if (strcmp(test_name, "collection_hashmap") == 0)
-        return (Test_Source_Set){ HASHMAP_SOURCES, NOB_ARRAY_LEN(HASHMAP_SOURCES), false };
-    if (strcmp(test_name, "collection_set") == 0)
-        return (Test_Source_Set){ SET_SOURCES, NOB_ARRAY_LEN(SET_SOURCES), false };
-    if (strcmp(test_name, "collection_rbtree") == 0)
-        return (Test_Source_Set){ RBTREE_SOURCES, NOB_ARRAY_LEN(RBTREE_SOURCES), false };
-    if (strcmp(test_name, "xxh") == 0)
-        return (Test_Source_Set){ XXH_SOURCES, NOB_ARRAY_LEN(XXH_SOURCES), false };
-    if (strcmp(test_name, "gpu_format") == 0)
-        return (Test_Source_Set){ GPU_FORMAT_SOURCES, NOB_ARRAY_LEN(GPU_FORMAT_SOURCES), false };
-    if (strcmp(test_name, "render_graph") == 0)
-        return (Test_Source_Set){ RENDER_GRAPH_SOURCES, NOB_ARRAY_LEN(RENDER_GRAPH_SOURCES), false };
-    if (strcmp(test_name, "render_blackboard") == 0)
-        return (Test_Source_Set){ RENDER_BLACKBOARD_SOURCES, NOB_ARRAY_LEN(RENDER_BLACKBOARD_SOURCES), false };
-    if (strcmp(test_name, "collection_slotmap") == 0)
-        return (Test_Source_Set){ SLOTMAP_SOURCES, NOB_ARRAY_LEN(SLOTMAP_SOURCES), false };
-    if (strcmp(test_name, "math_curve") == 0)
-        return (Test_Source_Set){ MATH_CURVE_SOURCES, NOB_ARRAY_LEN(MATH_CURVE_SOURCES), false };
-    if (strcmp(test_name, "anim_track") == 0)
-        return (Test_Source_Set){ ANIM_TRACK_SOURCES, NOB_ARRAY_LEN(ANIM_TRACK_SOURCES), false };
-    if (strcmp(test_name, "anim_clip") == 0)
-        return (Test_Source_Set){ ANIM_CLIP_SOURCES, NOB_ARRAY_LEN(ANIM_CLIP_SOURCES), false };
-    if (strcmp(test_name, "anim_mixer") == 0)
-        return (Test_Source_Set){ ANIM_MIXER_SOURCES, NOB_ARRAY_LEN(ANIM_MIXER_SOURCES), false };
-    if (strcmp(test_name, "anim_state") == 0)
-        return (Test_Source_Set){ ANIM_STATE_SOURCES, NOB_ARRAY_LEN(ANIM_STATE_SOURCES), false };
-    if (strcmp(test_name, "string_str8") == 0)
-        return (Test_Source_Set){ STR8_SOURCES, NOB_ARRAY_LEN(STR8_SOURCES), false };
-    if (strcmp(test_name, "event_channel") == 0)
-        return (Test_Source_Set){ EVENT_CHANNEL_SOURCES, NOB_ARRAY_LEN(EVENT_CHANNEL_SOURCES), false };
-    if (strcmp(test_name, "sim_ctx") == 0)
-        return (Test_Source_Set){ SIM_CTX_SOURCES, NOB_ARRAY_LEN(SIM_CTX_SOURCES), false };
-    if (strcmp(test_name, "swapchain") == 0)
-        return (Test_Source_Set){ NULL, 0, false };
-    return (Test_Source_Set){ ALLOCATOR_SOURCES, NOB_ARRAY_LEN(ALLOCATOR_SOURCES), false };
-}
+    if (!build_melody()) return false;
 
-bool build_test(const char* test_name)
-{
-    const char* test_src = nob_temp_sprintf("tests/test_%s.c", test_name);
-    const char* test_out = nob_temp_sprintf(BUILD_DIR "/test_%s", test_name);
+    Nob_File_Paths entries = {0};
+    if (!nob_read_entire_dir("tests", &entries)) return false;
 
-    Test_Source_Set ss = test_source_set_for(test_name);
+    Nob_File_Paths obj_files = {0};
+    bool any_recompiled = false;
 
-    Nob_File_Paths asm_objs = {0};
-    if (ss.needs_asm)
+    for (size_t i = 0; i < entries.count; i++)
     {
-        for (size_t i = 0; i < NOB_ARRAY_LEN(ASM_FILES); i++)
+        const char* name = entries.items[i];
+        if (name[0] == '.') continue;
+
+        size_t len = strlen(name);
+        if (len < 3 || name[len-2] != '.' || name[len-1] != 'c') continue;
+
+        const char* src = nob_temp_sprintf("tests/%s", name);
+
+        char obj_name[256];
+        snprintf(obj_name, sizeof(obj_name), "test_%s", name);
+        size_t olen = strlen(obj_name);
+        obj_name[olen - 1] = 'o';
+
+        const char* obj = nob_temp_sprintf(BUILD_DIR "/%s", obj_name);
+        nob_da_append(&obj_files, nob_temp_strdup(obj));
+
+        if (needs_compile(src, obj))
         {
-            const char* src = ASM_FILES[i];
-            const char* base = strrchr(src, '/');
-            base = base ? base + 1 : src;
-
-            char obj_name[256];
-            snprintf(obj_name, sizeof(obj_name), "%s", base);
-            size_t len = strlen(obj_name);
-            obj_name[len - 1] = 'o';
-            obj_name[len - 0] = '\0';
-
-            const char* obj = nob_temp_sprintf(BUILD_DIR "/%s", obj_name);
-            nob_da_append(&asm_objs, nob_temp_strdup(obj));
-
-            if (!compile_asm_to_obj(src, obj)) return false;
+            nob_log(NOB_INFO, "Compiling test: %s", name);
+            if (!compile_c_to_obj(src, obj)) return false;
+            any_recompiled = true;
         }
     }
 
-    Nob_Cmd cmd = {0};
-    nob_cmd_append(&cmd, "clang");
+    const char* lib_dep = BUILD_DIR "/libmelody.a";
+    bool melody_changed = nob_needs_rebuild(BUILD_DIR "/tests", &lib_dep, 1) != 0;
 
-    cmd_append_cflags(&cmd);
-    nob_cmd_append(&cmd, "-UTRACY_ENABLE");
+    if (any_recompiled || melody_changed || nob_file_exists(BUILD_DIR "/tests") != 1)
+    {
+        Nob_Cmd cmd = {0};
+        nob_cmd_append(&cmd, "clang", "-g");
 
-    for (size_t i = 0; i < NOB_ARRAY_LEN(INCLUDE_PATHS); i++)
-        nob_cmd_append(&cmd, INCLUDE_PATHS[i]);
+        for (size_t i = 0; i < obj_files.count; i++)
+            nob_cmd_append(&cmd, obj_files.items[i]);
 
-    nob_cmd_append(&cmd, test_src);
+        nob_cmd_append(&cmd, "-o", BUILD_DIR "/tests");
+        cmd_append_melody_link_deps(&cmd);
+        nob_cmd_append(&cmd, "-lm");
 
-    for (size_t i = 0; i < ss.count; i++)
-        nob_cmd_append(&cmd, ss.sources[i]);
+        if (!nob_cmd_run_sync(cmd)) return false;
+    }
 
-    for (size_t i = 0; i < asm_objs.count; i++)
-        nob_cmd_append(&cmd, asm_objs.items[i]);
-
-    nob_cmd_append(&cmd, "-o", test_out);
-    nob_cmd_append(&cmd, "-lm");
-
-    if (g_build_mode == BUILD_MODE_SANITIZE)
-        nob_cmd_append(&cmd, "-fsanitize=address,undefined");
-
-    return nob_cmd_run_sync(cmd);
+    return true;
 }
 
 bool build_widget_demo(const char* demo_name)
@@ -1104,47 +923,6 @@ bool build_demo(const char* demo_name)
     return true;
 }
 
-bool build_visual_test(const char* name)
-{
-    if (!build_melody()) return false;
-
-    const char* test_src = nob_temp_sprintf("tests/test_visual_%s.c", name);
-    const char* test_out = nob_temp_sprintf(BUILD_DIR "/test_visual_%s", name);
-    const char* test_obj = nob_temp_sprintf(BUILD_DIR "/test_visual_%s.o", name);
-
-    bool any_recompiled = false;
-
-    if (needs_compile(test_src, test_obj))
-    {
-        if (!compile_c_to_obj(test_src, test_obj)) return false;
-        any_recompiled = true;
-    }
-
-    const char* lib_dep = BUILD_DIR "/libmelody.a";
-    bool melody_changed = nob_needs_rebuild(test_out, &lib_dep, 1) != 0;
-
-    if (any_recompiled || melody_changed || nob_file_exists(test_out) != 1)
-    {
-        Nob_Cmd cmd = {0};
-        nob_cmd_append(&cmd, "clang", "-g");
-        nob_cmd_append(&cmd, test_obj);
-        nob_cmd_append(&cmd, "-o", test_out);
-        cmd_append_melody_link_deps(&cmd);
-
-        if (!nob_cmd_run_sync(cmd)) return false;
-    }
-
-    return true;
-}
-
-bool run_test(const char* test_name)
-{
-    const char* test_bin = nob_temp_sprintf(BUILD_DIR "/test_%s", test_name);
-    Nob_Cmd cmd = {0};
-    nob_cmd_append(&cmd, test_bin);
-    return nob_cmd_run_sync(cmd);
-}
-
 int main(int argc, char** argv)
 {
     nob_minimal_log_level = NOB_WARNING;
@@ -1202,31 +980,14 @@ int main(int argc, char** argv)
     }
     else if (strcmp(subcmd, "test") == 0)
     {
-        const char* tests[] = { "math", "memory", "heap", "leak", "tracking", "arena", "pool", "stack", "block", "ring", "buddy", "slab", "nctrl", "fiber", "coro", "widget", "xxh", "gpu_format", "render_graph", "render_blackboard", "collection_array", "collection_queue", "collection_deque", "collection_ring", "collection_llist", "collection_heap", "collection_list", "collection_rbtree", "collection_skiplist", "collection_trie", "collection_sort", "collection_btree", "collection_bitset", "collection_hashmap", "collection_set", "collection_slotmap", "math_curve", "anim_track", "anim_clip", "anim_mixer", "anim_state", "string_str8", "event_channel", "sim_ctx", "swapchain" };
-        bool all_passed = true;
+        if (!build_tests()) return 1;
 
-        for (size_t i = 0; i < NOB_ARRAY_LEN(tests); i++)
-        {
-            nob_log(NOB_INFO, "Building test: %s", tests[i]);
-            if (!build_test(tests[i]))
-            {
-                all_passed = false;
-                continue;
-            }
+        Nob_Cmd cmd = {0};
+        nob_cmd_append(&cmd, BUILD_DIR "/tests");
+        for (int i = arg_idx + 1; i < argc; i++)
+            nob_cmd_append(&cmd, argv[i]);
 
-            nob_log(NOB_INFO, "Running test: %s", tests[i]);
-            if (!run_test(tests[i]))
-            {
-                all_passed = false;
-            }
-        }
-
-        if (!all_passed)
-        {
-            nob_log(NOB_ERROR, "Some tests failed!");
-            return 1;
-        }
-        nob_log(NOB_INFO, "All tests passed!");
+        return nob_cmd_run_sync(cmd) ? 0 : 1;
     }
     else if (strcmp(subcmd, "run") == 0)
     {
@@ -1263,37 +1024,6 @@ int main(int argc, char** argv)
         nob_cmd_append(&cmd, nob_temp_sprintf(BUILD_DIR "/demo.%s", demo));
         return nob_cmd_run_sync(cmd) ? 0 : 1;
     }
-    else if (strcmp(subcmd, "vtest") == 0)
-    {
-        const char* vtests[] = { "clear_color" };
-        bool all_passed = true;
-
-        nob_mkdir_if_not_exists(BUILD_DIR "/test_visual");
-
-        for (size_t i = 0; i < NOB_ARRAY_LEN(vtests); i++)
-        {
-            nob_log(NOB_WARNING, "Building visual test: %s", vtests[i]);
-            if (!build_visual_test(vtests[i]))
-            {
-                all_passed = false;
-                continue;
-            }
-
-            nob_log(NOB_WARNING, "Running visual test: %s", vtests[i]);
-            const char* test_bin = nob_temp_sprintf(BUILD_DIR "/test_visual_%s", vtests[i]);
-            Nob_Cmd cmd = {0};
-            nob_cmd_append(&cmd, test_bin);
-            if (!nob_cmd_run_sync(cmd))
-                all_passed = false;
-        }
-
-        if (!all_passed)
-        {
-            nob_log(NOB_ERROR, "Some visual tests failed!");
-            return 1;
-        }
-        nob_log(NOB_WARNING, "All visual tests passed!");
-    }
     else if (strcmp(subcmd, "clean") == 0)
     {
         Nob_Cmd cmd = {0};
@@ -1319,7 +1049,7 @@ int main(int argc, char** argv)
     else
     {
         nob_log(NOB_ERROR, "Unknown command: %s", subcmd);
-        nob_log(NOB_ERROR, "Usage: ./nob [--verbose] [--timings] [release|sanitize] [libs|melody|build|test|vtest|demo|run|run-only|debug|clean]");
+        nob_log(NOB_ERROR, "Usage: ./nob [--verbose] [--timings] [release|sanitize] [libs|melody|build|test|demo|run|run-only|debug|clean]");
         return 1;
     }
 

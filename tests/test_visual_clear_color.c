@@ -30,7 +30,7 @@ static void render_clear_red(Mel_Gpu_Cmd* cmd, Mel_Swapchain* sc, void* user_dat
     mel_gpu_cmd_end_rendering(cmd);
 }
 
-MEL_TEST(clear_red)
+MEL_TEST(clear_red, .tags = "visual")
 {
     Mel_Visual_Test_Ctx ctx = {0};
     MEL_ASSERT(mel_visual_test_init(&ctx, .width = 64, .height = 64));
@@ -39,16 +39,4 @@ MEL_TEST(clear_red)
     MEL_ASSERT(result.passed);
 
     mel_visual_test_shutdown(&ctx);
-    MEL_PASS();
-}
-
-int main(void)
-{
-    MEL_TEST_BEGIN("Visual Clear Color Tests");
-
-    MEL_RUN_TEST(clear_red);
-
-    MEL_TEST_END();
-
-    return MEL_TEST_EXIT_CODE();
 }

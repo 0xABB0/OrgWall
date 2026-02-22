@@ -5,31 +5,46 @@
 #include <string.h>
 #include <math.h>
 
-typedef struct
+typedef struct Mel_Test_Entry Mel_Test_Entry;
+
+struct Mel_Test_Entry
 {
     const char* name;
+    const char* file;
+    const char* tags;
     void (*func)(void);
-} Mel_Test;
+    Mel_Test_Entry* next;
+    u32 id;
+};
 
 typedef struct
 {
-    u32 passed;
     u32 failed;
-    u32 total;
     const char* current_test;
     const char* current_file;
     i32 current_line;
 } Mel_Test_Context;
 
-static Mel_Test_Context s_test_ctx = {0};
+extern Mel_Test_Context s_test_ctx;
 
-#define MEL_TEST(name) static void test_##name(void)
+void mel__test_register(Mel_Test_Entry* entry);
+int mel_test_main(int argc, char** argv);
 
-#define MEL_RUN_TEST(name) do { \
-    s_test_ctx.current_test = #name; \
-    s_test_ctx.total++; \
-    test_##name(); \
-} while (0)
+#define MEL_TEST(tname, ...) \
+    static void test_##tname(void); \
+    static Mel_Test_Entry mel__test_entry_##tname = { \
+        .name = #tname, \
+        .file = __FILE__, \
+        .func = test_##tname, \
+        __VA_ARGS__ \
+    }; \
+    __attribute__((constructor)) static void mel__test_register_##tname(void) { \
+        mel__test_register(&mel__test_entry_##tname); \
+    } \
+    static void test_##tname(void)
+
+#define MEL_TEST_MAIN() \
+    int main(int argc, char** argv) { return mel_test_main(argc, argv); }
 
 #define MEL_TEST_LOC() do { \
     s_test_ctx.current_file = __FILE__; \
@@ -41,11 +56,6 @@ static Mel_Test_Context s_test_ctx = {0};
     printf("  FAIL: %s:%d - %s\n", s_test_ctx.current_file, s_test_ctx.current_line, msg); \
     s_test_ctx.failed++; \
     return; \
-} while (0)
-
-#define MEL_PASS() do { \
-    s_test_ctx.passed++; \
-    printf("  PASS: %s\n", s_test_ctx.current_test); \
 } while (0)
 
 #define MEL_ASSERT(cond) do { \
@@ -102,18 +112,3 @@ static Mel_Test_Context s_test_ctx = {0};
     MEL_TEST_LOC(); \
     if (strcmp((a), (b)) != 0) { MEL_FAIL(#a " != " #b); } \
 } while (0)
-
-#define MEL_TEST_BEGIN(suite_name) do { \
-    printf("\n=== %s ===\n", suite_name); \
-    s_test_ctx = (Mel_Test_Context){0}; \
-} while (0)
-
-#define MEL_TEST_END() do { \
-    printf("\nResults: %u/%u passed", s_test_ctx.passed, s_test_ctx.total); \
-    if (s_test_ctx.failed > 0) { \
-        printf(" (%u FAILED)", s_test_ctx.failed); \
-    } \
-    printf("\n\n"); \
-} while (0)
-
-#define MEL_TEST_EXIT_CODE() (s_test_ctx.failed > 0 ? 1 : 0)

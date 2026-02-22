@@ -3,7 +3,7 @@
 #include "../melody/allocator.heap.h"
 #include "../melody/collection.array.h"
 
-MEL_TEST(push_pop)
+MEL_TEST(push_pop, .tags = "collection")
 {
     Mel_Array(i32) arr;
     mel_array_init(&arr, mel_alloc_heap());
@@ -30,10 +30,9 @@ MEL_TEST(push_pop)
     MEL_ASSERT_EQ(arr.count, (usize)0);
 
     mel_array_free(&arr);
-    MEL_PASS();
 }
 
-MEL_TEST(reserve)
+MEL_TEST(reserve, .tags = "collection")
 {
     Mel_Array(i32) arr;
     mel_array_init(&arr, mel_alloc_heap());
@@ -50,10 +49,9 @@ MEL_TEST(reserve)
     MEL_ASSERT_GE(arr.capacity, (usize)200);
 
     mel_array_free(&arr);
-    MEL_PASS();
 }
 
-MEL_TEST(remove_ordered)
+MEL_TEST(remove_ordered, .tags = "collection")
 {
     Mel_Array(i32) arr;
     mel_array_init(&arr, mel_alloc_heap());
@@ -79,10 +77,9 @@ MEL_TEST(remove_ordered)
     MEL_ASSERT_EQ(arr.items[1], 30);
 
     mel_array_free(&arr);
-    MEL_PASS();
 }
 
-MEL_TEST(remove_unordered)
+MEL_TEST(remove_unordered, .tags = "collection")
 {
     Mel_Array(i32) arr;
     mel_array_init(&arr, mel_alloc_heap());
@@ -97,10 +94,9 @@ MEL_TEST(remove_unordered)
     MEL_ASSERT_EQ(arr.items[3], 30);
 
     mel_array_free(&arr);
-    MEL_PASS();
 }
 
-MEL_TEST(clear)
+MEL_TEST(clear, .tags = "collection")
 {
     Mel_Array(i32) arr;
     mel_array_init(&arr, mel_alloc_heap());
@@ -119,10 +115,9 @@ MEL_TEST(clear)
     MEL_ASSERT_EQ(arr.items[0], 42);
 
     mel_array_free(&arr);
-    MEL_PASS();
 }
 
-MEL_TEST(growth)
+MEL_TEST(growth, .tags = "collection")
 {
     Mel_Array(i32) arr;
     mel_array_init(&arr, mel_alloc_heap());
@@ -135,10 +130,9 @@ MEL_TEST(growth)
     for (i32 i = 0; i < 1000; i++) MEL_ASSERT_EQ(arr.items[i], i);
 
     mel_array_free(&arr);
-    MEL_PASS();
 }
 
-MEL_TEST(insert_beginning)
+MEL_TEST(insert_beginning, .tags = "collection")
 {
     Mel_Array(i32) arr;
     mel_array_init(&arr, mel_alloc_heap());
@@ -155,10 +149,9 @@ MEL_TEST(insert_beginning)
     MEL_ASSERT_EQ(arr.items[3], 40);
 
     mel_array_free(&arr);
-    MEL_PASS();
 }
 
-MEL_TEST(insert_middle)
+MEL_TEST(insert_middle, .tags = "collection")
 {
     Mel_Array(i32) arr;
     mel_array_init(&arr, mel_alloc_heap());
@@ -175,10 +168,9 @@ MEL_TEST(insert_middle)
     MEL_ASSERT_EQ(arr.items[3], 40);
 
     mel_array_free(&arr);
-    MEL_PASS();
 }
 
-MEL_TEST(insert_end)
+MEL_TEST(insert_end, .tags = "collection")
 {
     Mel_Array(i32) arr;
     mel_array_init(&arr, mel_alloc_heap());
@@ -193,10 +185,9 @@ MEL_TEST(insert_end)
     MEL_ASSERT_EQ(arr.items[2], 30);
 
     mel_array_free(&arr);
-    MEL_PASS();
 }
 
-MEL_TEST(insert_empty)
+MEL_TEST(insert_empty, .tags = "collection")
 {
     Mel_Array(i32) arr;
     mel_array_init(&arr, mel_alloc_heap());
@@ -206,10 +197,9 @@ MEL_TEST(insert_empty)
     MEL_ASSERT_EQ(arr.items[0], 42);
 
     mel_array_free(&arr);
-    MEL_PASS();
 }
 
-MEL_TEST(insert_triggers_growth)
+MEL_TEST(insert_triggers_growth, .tags = "collection")
 {
     Mel_Array(i32) arr;
     mel_array_init(&arr, mel_alloc_heap());
@@ -226,10 +216,9 @@ MEL_TEST(insert_triggers_growth)
     MEL_ASSERT_EQ(arr.items[5], 40);
 
     mel_array_free(&arr);
-    MEL_PASS();
 }
 
-MEL_TEST(last)
+MEL_TEST(last, .tags = "collection")
 {
     Mel_Array(i32) arr;
     mel_array_init(&arr, mel_alloc_heap());
@@ -244,10 +233,9 @@ MEL_TEST(last)
     MEL_ASSERT_EQ(mel_array_last(&arr), 99);
 
     mel_array_free(&arr);
-    MEL_PASS();
 }
 
-MEL_TEST(free_resets_state)
+MEL_TEST(free_resets_state, .tags = "collection")
 {
     Mel_Array(i32) arr;
     mel_array_init(&arr, mel_alloc_heap());
@@ -260,10 +248,9 @@ MEL_TEST(free_resets_state)
     MEL_ASSERT_EQ(arr.count, (usize)0);
     MEL_ASSERT_EQ(arr.capacity, (usize)0);
 
-    MEL_PASS();
 }
 
-MEL_TEST(free_on_empty)
+MEL_TEST(free_on_empty, .tags = "collection")
 {
     Mel_Array(i32) arr;
     mel_array_init(&arr, mel_alloc_heap());
@@ -273,10 +260,9 @@ MEL_TEST(free_on_empty)
     MEL_ASSERT_EQ(arr.count, (usize)0);
     MEL_ASSERT_EQ(arr.capacity, (usize)0);
 
-    MEL_PASS();
 }
 
-MEL_TEST(push_after_clear)
+MEL_TEST(push_after_clear, .tags = "collection")
 {
     Mel_Array(i32) arr;
     mel_array_init(&arr, mel_alloc_heap());
@@ -293,10 +279,9 @@ MEL_TEST(push_after_clear)
     MEL_ASSERT_EQ(arr.items[1], 200);
 
     mel_array_free(&arr);
-    MEL_PASS();
 }
 
-MEL_TEST(different_types)
+MEL_TEST(different_types, .tags = "collection")
 {
     Mel_Array(f64) farr;
     mel_array_init(&farr, mel_alloc_heap());
@@ -320,30 +305,4 @@ MEL_TEST(different_types)
     MEL_ASSERT_EQ(parr.items[1].y, 4);
 
     mel_array_free(&parr);
-    MEL_PASS();
-}
-
-int main(void)
-{
-    MEL_TEST_BEGIN("Collection Array Tests");
-
-    MEL_RUN_TEST(push_pop);
-    MEL_RUN_TEST(reserve);
-    MEL_RUN_TEST(remove_ordered);
-    MEL_RUN_TEST(remove_unordered);
-    MEL_RUN_TEST(clear);
-    MEL_RUN_TEST(growth);
-    MEL_RUN_TEST(insert_beginning);
-    MEL_RUN_TEST(insert_middle);
-    MEL_RUN_TEST(insert_end);
-    MEL_RUN_TEST(insert_empty);
-    MEL_RUN_TEST(insert_triggers_growth);
-    MEL_RUN_TEST(last);
-    MEL_RUN_TEST(free_resets_state);
-    MEL_RUN_TEST(free_on_empty);
-    MEL_RUN_TEST(push_after_clear);
-    MEL_RUN_TEST(different_types);
-
-    MEL_TEST_END();
-    return MEL_TEST_EXIT_CODE();
 }

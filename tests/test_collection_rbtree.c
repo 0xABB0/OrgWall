@@ -59,7 +59,7 @@ static bool verify_rbtree(Mel_RBTree* tree)
     return check_rb_properties(tree, tree->root, &black_count, 0);
 }
 
-MEL_TEST(init_empty)
+MEL_TEST(init_empty, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_RBTree tree;
@@ -72,10 +72,9 @@ MEL_TEST(init_empty)
     MEL_ASSERT(verify_rbtree(&tree));
 
     mel_rbtree_free(&tree);
-    MEL_PASS();
 }
 
-MEL_TEST(insert_single)
+MEL_TEST(insert_single, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_RBTree tree;
@@ -91,10 +90,9 @@ MEL_TEST(insert_single)
     MEL_ASSERT(verify_rbtree(&tree));
 
     mel_rbtree_free(&tree);
-    MEL_PASS();
 }
 
-MEL_TEST(insert_multiple_in_order)
+MEL_TEST(insert_multiple_in_order, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_RBTree tree;
@@ -116,10 +114,9 @@ MEL_TEST(insert_multiple_in_order)
     }
 
     mel_rbtree_free(&tree);
-    MEL_PASS();
 }
 
-MEL_TEST(insert_reverse_order)
+MEL_TEST(insert_reverse_order, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_RBTree tree;
@@ -134,10 +131,9 @@ MEL_TEST(insert_reverse_order)
     MEL_ASSERT(verify_rbtree(&tree));
 
     mel_rbtree_free(&tree);
-    MEL_PASS();
 }
 
-MEL_TEST(insert_random_order)
+MEL_TEST(insert_random_order, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_RBTree tree;
@@ -160,10 +156,9 @@ MEL_TEST(insert_random_order)
     }
 
     mel_rbtree_free(&tree);
-    MEL_PASS();
 }
 
-MEL_TEST(find_existing)
+MEL_TEST(find_existing, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_RBTree tree;
@@ -179,10 +174,9 @@ MEL_TEST(find_existing)
     MEL_ASSERT_EQ(NODE_VAL(n), 30);
 
     mel_rbtree_free(&tree);
-    MEL_PASS();
 }
 
-MEL_TEST(find_nonexisting)
+MEL_TEST(find_nonexisting, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_RBTree tree;
@@ -196,10 +190,9 @@ MEL_TEST(find_nonexisting)
     MEL_ASSERT(n == &tree.nil_node);
 
     mel_rbtree_free(&tree);
-    MEL_PASS();
 }
 
-MEL_TEST(remove_leaf)
+MEL_TEST(remove_leaf, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_RBTree tree;
@@ -216,10 +209,9 @@ MEL_TEST(remove_leaf)
     MEL_ASSERT(verify_rbtree(&tree));
 
     mel_rbtree_free(&tree);
-    MEL_PASS();
 }
 
-MEL_TEST(remove_node_one_child)
+MEL_TEST(remove_node_one_child, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_RBTree tree;
@@ -236,10 +228,9 @@ MEL_TEST(remove_node_one_child)
     MEL_ASSERT(verify_rbtree(&tree));
 
     mel_rbtree_free(&tree);
-    MEL_PASS();
 }
 
-MEL_TEST(remove_node_two_children)
+MEL_TEST(remove_node_two_children, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_RBTree tree;
@@ -258,10 +249,9 @@ MEL_TEST(remove_node_two_children)
     MEL_ASSERT(verify_rbtree(&tree));
 
     mel_rbtree_free(&tree);
-    MEL_PASS();
 }
 
-MEL_TEST(remove_root)
+MEL_TEST(remove_root, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_RBTree tree;
@@ -279,10 +269,9 @@ MEL_TEST(remove_root)
     MEL_ASSERT(verify_rbtree(&tree));
 
     mel_rbtree_free(&tree);
-    MEL_PASS();
 }
 
-MEL_TEST(remove_single_element)
+MEL_TEST(remove_single_element, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_RBTree tree;
@@ -294,10 +283,9 @@ MEL_TEST(remove_single_element)
     MEL_ASSERT(verify_rbtree(&tree));
 
     mel_rbtree_free(&tree);
-    MEL_PASS();
 }
 
-MEL_TEST(min_max)
+MEL_TEST(min_max, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_RBTree tree;
@@ -313,10 +301,9 @@ MEL_TEST(min_max)
     MEL_ASSERT_EQ(NODE_KEY(mel_rbtree_max(&tree)), 20);
 
     mel_rbtree_free(&tree);
-    MEL_PASS();
 }
 
-MEL_TEST(in_order_traversal)
+MEL_TEST(in_order_traversal, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_RBTree tree;
@@ -343,10 +330,9 @@ MEL_TEST(in_order_traversal)
     MEL_ASSERT_EQ(idx, n);
 
     mel_rbtree_free(&tree);
-    MEL_PASS();
 }
 
-MEL_TEST(reverse_traversal)
+MEL_TEST(reverse_traversal, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_RBTree tree;
@@ -373,10 +359,9 @@ MEL_TEST(reverse_traversal)
     MEL_ASSERT_EQ(idx, n);
 
     mel_rbtree_free(&tree);
-    MEL_PASS();
 }
 
-MEL_TEST(clear)
+MEL_TEST(clear, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_RBTree tree;
@@ -394,10 +379,9 @@ MEL_TEST(clear)
     MEL_ASSERT(verify_rbtree(&tree));
 
     mel_rbtree_free(&tree);
-    MEL_PASS();
 }
 
-MEL_TEST(contains)
+MEL_TEST(contains, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_RBTree tree;
@@ -415,10 +399,9 @@ MEL_TEST(contains)
     MEL_ASSERT(!mel_rbtree_contains(&tree, KEY(99)));
 
     mel_rbtree_free(&tree);
-    MEL_PASS();
 }
 
-MEL_TEST(stress)
+MEL_TEST(stress, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_RBTree tree;
@@ -461,10 +444,9 @@ MEL_TEST(stress)
     }
 
     mel_rbtree_free(&tree);
-    MEL_PASS();
 }
 
-MEL_TEST(insert_duplicate)
+MEL_TEST(insert_duplicate, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_RBTree tree;
@@ -480,10 +462,9 @@ MEL_TEST(insert_duplicate)
     MEL_ASSERT(verify_rbtree(&tree));
 
     mel_rbtree_free(&tree);
-    MEL_PASS();
 }
 
-MEL_TEST(rb_properties)
+MEL_TEST(rb_properties, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_RBTree tree;
@@ -508,10 +489,9 @@ MEL_TEST(rb_properties)
     }
 
     mel_rbtree_free(&tree);
-    MEL_PASS();
 }
 
-MEL_TEST(remove_nonexistent)
+MEL_TEST(remove_nonexistent, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_RBTree tree;
@@ -522,35 +502,4 @@ MEL_TEST(remove_nonexistent)
     MEL_ASSERT_EQ(mel_rbtree_count(&tree), (usize)1);
 
     mel_rbtree_free(&tree);
-    MEL_PASS();
-}
-
-int main(void)
-{
-    MEL_TEST_BEGIN("Red-Black Tree Tests");
-
-    MEL_RUN_TEST(init_empty);
-    MEL_RUN_TEST(insert_single);
-    MEL_RUN_TEST(insert_multiple_in_order);
-    MEL_RUN_TEST(insert_reverse_order);
-    MEL_RUN_TEST(insert_random_order);
-    MEL_RUN_TEST(find_existing);
-    MEL_RUN_TEST(find_nonexisting);
-    MEL_RUN_TEST(remove_leaf);
-    MEL_RUN_TEST(remove_node_one_child);
-    MEL_RUN_TEST(remove_node_two_children);
-    MEL_RUN_TEST(remove_root);
-    MEL_RUN_TEST(remove_single_element);
-    MEL_RUN_TEST(min_max);
-    MEL_RUN_TEST(in_order_traversal);
-    MEL_RUN_TEST(reverse_traversal);
-    MEL_RUN_TEST(clear);
-    MEL_RUN_TEST(contains);
-    MEL_RUN_TEST(stress);
-    MEL_RUN_TEST(insert_duplicate);
-    MEL_RUN_TEST(rb_properties);
-    MEL_RUN_TEST(remove_nonexistent);
-
-    MEL_TEST_END();
-    return MEL_TEST_EXIT_CODE();
 }

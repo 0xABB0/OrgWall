@@ -1,7 +1,7 @@
 #include "../melody/test.harness.h"
 #include "../melody/allocator.buddy.h"
 
-MEL_TEST(buddy_init)
+MEL_TEST(buddy_init, .tags = "allocator")
 {
     _Alignas(64) u8 buffer[1024];
     u8 tree[256];
@@ -11,10 +11,9 @@ MEL_TEST(buddy_init)
     MEL_ASSERT_EQ(buddy.size, sizeof(buffer));
     MEL_ASSERT_EQ(buddy.min_block, (usize)64);
     MEL_ASSERT_GT(buddy.levels, 0);
-    MEL_PASS();
 }
 
-MEL_TEST(buddy_alloc_single)
+MEL_TEST(buddy_alloc_single, .tags = "allocator")
 {
     _Alignas(64) u8 buffer[1024];
     u8 tree[256];
@@ -30,10 +29,9 @@ MEL_TEST(buddy_alloc_single)
     MEL_ASSERT_EQ(*(i32*)ptr, 42);
 
     mel_buddy_free(&buddy, ptr);
-    MEL_PASS();
 }
 
-MEL_TEST(buddy_alloc_multiple)
+MEL_TEST(buddy_alloc_multiple, .tags = "allocator")
 {
     _Alignas(64) u8 buffer[1024];
     u8 tree[256];
@@ -54,10 +52,9 @@ MEL_TEST(buddy_alloc_multiple)
     mel_buddy_free(&buddy, a);
     mel_buddy_free(&buddy, b);
     mel_buddy_free(&buddy, c);
-    MEL_PASS();
 }
 
-MEL_TEST(buddy_power_of_two_rounding)
+MEL_TEST(buddy_power_of_two_rounding, .tags = "allocator")
 {
     _Alignas(64) u8 buffer[1024];
     u8 tree[256];
@@ -72,10 +69,9 @@ MEL_TEST(buddy_power_of_two_rounding)
     MEL_ASSERT_EQ(((u8*)ptr)[32], 0xAA);
 
     mel_buddy_free(&buddy, ptr);
-    MEL_PASS();
 }
 
-MEL_TEST(buddy_exhaust_min_blocks)
+MEL_TEST(buddy_exhaust_min_blocks, .tags = "allocator")
 {
     _Alignas(64) u8 buffer[256];
     u8 tree[64];
@@ -98,10 +94,9 @@ MEL_TEST(buddy_exhaust_min_blocks)
     mel_buddy_free(&buddy, b);
     mel_buddy_free(&buddy, c);
     mel_buddy_free(&buddy, d);
-    MEL_PASS();
 }
 
-MEL_TEST(buddy_coalescing)
+MEL_TEST(buddy_coalescing, .tags = "allocator")
 {
     _Alignas(64) u8 buffer[256];
     u8 tree[64];
@@ -122,10 +117,9 @@ MEL_TEST(buddy_coalescing)
     MEL_ASSERT_NOT_NULL(big);
 
     mel_buddy_free(&buddy, big);
-    MEL_PASS();
 }
 
-MEL_TEST(buddy_large_then_small)
+MEL_TEST(buddy_large_then_small, .tags = "allocator")
 {
     _Alignas(64) u8 buffer[1024];
     u8 tree[256];
@@ -147,10 +141,9 @@ MEL_TEST(buddy_large_then_small)
     mel_buddy_free(&buddy, big);
     mel_buddy_free(&buddy, small);
     mel_buddy_free(&buddy, another);
-    MEL_PASS();
 }
 
-MEL_TEST(buddy_too_large)
+MEL_TEST(buddy_too_large, .tags = "allocator")
 {
     _Alignas(64) u8 buffer[256];
     u8 tree[64];
@@ -159,10 +152,9 @@ MEL_TEST(buddy_too_large)
 
     void* ptr = mel_buddy_alloc(&buddy, 512);
     MEL_ASSERT_NULL(ptr);
-    MEL_PASS();
 }
 
-MEL_TEST(buddy_reset)
+MEL_TEST(buddy_reset, .tags = "allocator")
 {
     _Alignas(64) u8 buffer[256];
     u8 tree[64];
@@ -180,10 +172,9 @@ MEL_TEST(buddy_reset)
     void* ptr = mel_buddy_alloc(&buddy, 256);
     MEL_ASSERT_NOT_NULL(ptr);
     mel_buddy_free(&buddy, ptr);
-    MEL_PASS();
 }
 
-MEL_TEST(buddy_alloc_free_realloc_cycle)
+MEL_TEST(buddy_alloc_free_realloc_cycle, .tags = "allocator")
 {
     _Alignas(64) u8 buffer[1024];
     u8 tree[256];
@@ -198,10 +189,9 @@ MEL_TEST(buddy_alloc_free_realloc_cycle)
         MEL_ASSERT_EQ(*(i32*)ptr, i);
         mel_buddy_free(&buddy, ptr);
     }
-    MEL_PASS();
 }
 
-MEL_TEST(buddy_fragmentation_recovery)
+MEL_TEST(buddy_fragmentation_recovery, .tags = "allocator")
 {
     _Alignas(64) u8 buffer[256];
     u8 tree[64];
@@ -233,25 +223,4 @@ MEL_TEST(buddy_fragmentation_recovery)
     void* big = mel_buddy_alloc(&buddy, 256);
     MEL_ASSERT_NOT_NULL(big);
     mel_buddy_free(&buddy, big);
-    MEL_PASS();
-}
-
-int main(void)
-{
-    MEL_TEST_BEGIN("Buddy Allocator Tests");
-
-    MEL_RUN_TEST(buddy_init);
-    MEL_RUN_TEST(buddy_alloc_single);
-    MEL_RUN_TEST(buddy_alloc_multiple);
-    MEL_RUN_TEST(buddy_power_of_two_rounding);
-    MEL_RUN_TEST(buddy_exhaust_min_blocks);
-    MEL_RUN_TEST(buddy_coalescing);
-    MEL_RUN_TEST(buddy_large_then_small);
-    MEL_RUN_TEST(buddy_too_large);
-    MEL_RUN_TEST(buddy_reset);
-    MEL_RUN_TEST(buddy_alloc_free_realloc_cycle);
-    MEL_RUN_TEST(buddy_fragmentation_recovery);
-
-    MEL_TEST_END();
-    return MEL_TEST_EXIT_CODE();
 }

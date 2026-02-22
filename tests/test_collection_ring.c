@@ -5,7 +5,7 @@
 
 typedef Mel_Ring(i32) Ring_i32;
 
-MEL_TEST(basic_push_pop)
+MEL_TEST(basic_push_pop, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Ring_i32 ring;
@@ -21,10 +21,9 @@ MEL_TEST(basic_push_pop)
     MEL_ASSERT(mel_ring_empty(&ring));
 
     mel_ring_free(&ring);
-    MEL_PASS();
 }
 
-MEL_TEST(fill_to_capacity)
+MEL_TEST(fill_to_capacity, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Ring_i32 ring;
@@ -45,10 +44,9 @@ MEL_TEST(fill_to_capacity)
     MEL_ASSERT_EQ(mel_ring_pop(&ring), 4);
 
     mel_ring_free(&ring);
-    MEL_PASS();
 }
 
-MEL_TEST(overwrite_oldest)
+MEL_TEST(overwrite_oldest, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Ring_i32 ring;
@@ -69,10 +67,9 @@ MEL_TEST(overwrite_oldest)
     MEL_ASSERT(mel_ring_empty(&ring));
 
     mel_ring_free(&ring);
-    MEL_PASS();
 }
 
-MEL_TEST(pop_after_overwrite)
+MEL_TEST(pop_after_overwrite, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Ring_i32 ring;
@@ -92,10 +89,9 @@ MEL_TEST(pop_after_overwrite)
     MEL_ASSERT(mel_ring_empty(&ring));
 
     mel_ring_free(&ring);
-    MEL_PASS();
 }
 
-MEL_TEST(peek_front_back)
+MEL_TEST(peek_front_back, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Ring_i32 ring;
@@ -116,10 +112,9 @@ MEL_TEST(peek_front_back)
     MEL_ASSERT_EQ(mel_ring_peek_back(&ring), 60);
 
     mel_ring_free(&ring);
-    MEL_PASS();
 }
 
-MEL_TEST(at_indexing)
+MEL_TEST(at_indexing, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Ring_i32 ring;
@@ -145,10 +140,9 @@ MEL_TEST(at_indexing)
     MEL_ASSERT_EQ(mel_ring_at(&ring, 4), 600);
 
     mel_ring_free(&ring);
-    MEL_PASS();
 }
 
-MEL_TEST(clear)
+MEL_TEST(clear, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Ring_i32 ring;
@@ -168,10 +162,9 @@ MEL_TEST(clear)
     MEL_ASSERT_EQ(mel_ring_count(&ring), (usize)1);
 
     mel_ring_free(&ring);
-    MEL_PASS();
 }
 
-MEL_TEST(count_full_empty)
+MEL_TEST(count_full_empty, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Ring_i32 ring;
@@ -199,10 +192,9 @@ MEL_TEST(count_full_empty)
     MEL_ASSERT_EQ(mel_ring_count(&ring), (usize)2);
 
     mel_ring_free(&ring);
-    MEL_PASS();
 }
 
-MEL_TEST(push_capacity_then_pop_all)
+MEL_TEST(push_capacity_then_pop_all, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Ring_i32 ring;
@@ -221,10 +213,9 @@ MEL_TEST(push_capacity_then_pop_all)
     MEL_ASSERT(mel_ring_empty(&ring));
 
     mel_ring_free(&ring);
-    MEL_PASS();
 }
 
-MEL_TEST(continuous_overwrite_100_into_10)
+MEL_TEST(continuous_overwrite_100_into_10, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Ring_i32 ring;
@@ -251,10 +242,9 @@ MEL_TEST(continuous_overwrite_100_into_10)
     MEL_ASSERT(mel_ring_empty(&ring));
 
     mel_ring_free(&ring);
-    MEL_PASS();
 }
 
-MEL_TEST(capacity_one)
+MEL_TEST(capacity_one, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Ring_i32 ring;
@@ -283,10 +273,9 @@ MEL_TEST(capacity_one)
     MEL_ASSERT_EQ(mel_ring_peek(&ring), 49);
 
     mel_ring_free(&ring);
-    MEL_PASS();
 }
 
-MEL_TEST(interleaved_push_pop_with_overwrite)
+MEL_TEST(interleaved_push_pop_with_overwrite, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Ring_i32 ring;
@@ -327,26 +316,4 @@ MEL_TEST(interleaved_push_pop_with_overwrite)
     MEL_ASSERT_EQ(mel_ring_peek_back(&ring), 600);
 
     mel_ring_free(&ring);
-    MEL_PASS();
-}
-
-int main(void)
-{
-    MEL_TEST_BEGIN("Collection Ring Buffer Tests");
-
-    MEL_RUN_TEST(basic_push_pop);
-    MEL_RUN_TEST(fill_to_capacity);
-    MEL_RUN_TEST(overwrite_oldest);
-    MEL_RUN_TEST(pop_after_overwrite);
-    MEL_RUN_TEST(peek_front_back);
-    MEL_RUN_TEST(at_indexing);
-    MEL_RUN_TEST(clear);
-    MEL_RUN_TEST(count_full_empty);
-    MEL_RUN_TEST(push_capacity_then_pop_all);
-    MEL_RUN_TEST(continuous_overwrite_100_into_10);
-    MEL_RUN_TEST(capacity_one);
-    MEL_RUN_TEST(interleaved_push_pop_with_overwrite);
-
-    MEL_TEST_END();
-    return MEL_TEST_EXIT_CODE();
 }

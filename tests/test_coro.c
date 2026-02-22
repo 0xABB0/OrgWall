@@ -3,13 +3,12 @@
 #include "../melody/allocator.h"
 #include "../melody/allocator.heap.h"
 
-MEL_TEST(coro_create_destroy)
+MEL_TEST(coro_create_destroy, .tags = "async")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_Coro_Context* ctx = mel_coro_create(alloc, .num_initial = 4);
     MEL_ASSERT_NOT_NULL(ctx);
     mel_coro_destroy(ctx);
-    MEL_PASS();
 }
 
 static volatile i32 g_invoke_ran = 0;
@@ -21,7 +20,7 @@ mel_coro_declare(invoke_end)
     mel_coro_end(ctx);
 }
 
-MEL_TEST(coro_invoke_end)
+MEL_TEST(coro_invoke_end, .tags = "async")
 {
     g_invoke_ran = 0;
     const Mel_Alloc* alloc = mel_alloc_heap();
@@ -31,7 +30,6 @@ MEL_TEST(coro_invoke_end)
     MEL_ASSERT_EQ(g_invoke_ran, 1);
 
     mel_coro_destroy(ctx);
-    MEL_PASS();
 }
 
 static volatile i32 g_yield_step = 0;
@@ -45,7 +43,7 @@ mel_coro_declare(yield_once)
     mel_coro_end(ctx);
 }
 
-MEL_TEST(coro_yield)
+MEL_TEST(coro_yield, .tags = "async")
 {
     g_yield_step = 0;
     const Mel_Alloc* alloc = mel_alloc_heap();
@@ -58,7 +56,6 @@ MEL_TEST(coro_yield)
     MEL_ASSERT_EQ(g_yield_step, 2);
 
     mel_coro_destroy(ctx);
-    MEL_PASS();
 }
 
 static volatile i32 g_yieldn_step = 0;
@@ -72,7 +69,7 @@ mel_coro_declare(yield_three)
     mel_coro_end(ctx);
 }
 
-MEL_TEST(coro_yieldn)
+MEL_TEST(coro_yieldn, .tags = "async")
 {
     g_yieldn_step = 0;
     const Mel_Alloc* alloc = mel_alloc_heap();
@@ -91,7 +88,6 @@ MEL_TEST(coro_yieldn)
     MEL_ASSERT_EQ(g_yieldn_step, 2);
 
     mel_coro_destroy(ctx);
-    MEL_PASS();
 }
 
 static volatile i32 g_wait_step = 0;
@@ -105,7 +101,7 @@ mel_coro_declare(wait_100ms)
     mel_coro_end(ctx);
 }
 
-MEL_TEST(coro_wait)
+MEL_TEST(coro_wait, .tags = "async")
 {
     g_wait_step = 0;
     const Mel_Alloc* alloc = mel_alloc_heap();
@@ -121,7 +117,6 @@ MEL_TEST(coro_wait)
     MEL_ASSERT_EQ(g_wait_step, 2);
 
     mel_coro_destroy(ctx);
-    MEL_PASS();
 }
 
 static volatile i32 g_multi_a = 0;
@@ -145,7 +140,7 @@ mel_coro_declare(multi_b)
     mel_coro_end(ctx);
 }
 
-MEL_TEST(coro_multiple)
+MEL_TEST(coro_multiple, .tags = "async")
 {
     g_multi_a = 0;
     g_multi_b = 0;
@@ -162,7 +157,6 @@ MEL_TEST(coro_multiple)
     MEL_ASSERT_EQ(g_multi_b, 2);
 
     mel_coro_destroy(ctx);
-    MEL_PASS();
 }
 
 typedef struct { i32 value; } Coro_Test_Data;
@@ -177,7 +171,7 @@ mel_coro_declare(userdata_check)
     mel_coro_end(ctx);
 }
 
-MEL_TEST(coro_userdata)
+MEL_TEST(coro_userdata, .tags = "async")
 {
     g_userdata_val = 0;
     const Mel_Alloc* alloc = mel_alloc_heap();
@@ -190,21 +184,4 @@ MEL_TEST(coro_userdata)
     MEL_ASSERT_EQ(g_userdata_val, 777);
 
     mel_coro_destroy(ctx);
-    MEL_PASS();
-}
-
-int main(void)
-{
-    MEL_TEST_BEGIN("Coroutine Tests");
-
-    MEL_RUN_TEST(coro_create_destroy);
-    MEL_RUN_TEST(coro_invoke_end);
-    MEL_RUN_TEST(coro_yield);
-    MEL_RUN_TEST(coro_yieldn);
-    MEL_RUN_TEST(coro_wait);
-    MEL_RUN_TEST(coro_multiple);
-    MEL_RUN_TEST(coro_userdata);
-
-    MEL_TEST_END();
-    return MEL_TEST_EXIT_CODE();
 }

@@ -1,7 +1,7 @@
 #include "../melody/test.harness.h"
 #include "../melody/async.fiber.h"
 
-MEL_TEST(stack_init_release)
+MEL_TEST(stack_init_release, .tags = "async")
 {
     Mel_Fiber_Stack fstack;
     bool ok = mel_fiber_stack_init(&fstack, 0);
@@ -10,17 +10,15 @@ MEL_TEST(stack_init_release)
     MEL_ASSERT(fstack.ssize >= MEL_FIBER_DEFAULT_STACK_SIZE);
     MEL_ASSERT(fstack.ssize % 4096 == 0);
     mel_fiber_stack_release(&fstack);
-    MEL_PASS();
 }
 
-MEL_TEST(stack_init_zero_default)
+MEL_TEST(stack_init_zero_default, .tags = "async")
 {
     Mel_Fiber_Stack fstack;
     bool ok = mel_fiber_stack_init(&fstack, 0);
     MEL_ASSERT(ok);
     MEL_ASSERT(fstack.ssize >= MEL_FIBER_DEFAULT_STACK_SIZE);
     mel_fiber_stack_release(&fstack);
-    MEL_PASS();
 }
 
 static volatile i32 g_basic_flag = 0;
@@ -31,7 +29,7 @@ static void fiber_basic_cb(Mel_Fiber_Transfer transfer)
     mel_fiber_switch(transfer.from, NULL);
 }
 
-MEL_TEST(fiber_basic_switch)
+MEL_TEST(fiber_basic_switch, .tags = "async")
 {
     g_basic_flag = 0;
 
@@ -45,7 +43,6 @@ MEL_TEST(fiber_basic_switch)
     MEL_ASSERT_EQ(g_basic_flag, 42);
 
     mel_fiber_stack_release(&fstack);
-    MEL_PASS();
 }
 
 static volatile i32 g_roundtrip = 0;
@@ -59,7 +56,7 @@ static void fiber_roundtrip_cb(Mel_Fiber_Transfer transfer)
     mel_fiber_switch(t.from, NULL);
 }
 
-MEL_TEST(fiber_roundtrip)
+MEL_TEST(fiber_roundtrip, .tags = "async")
 {
     g_roundtrip = 0;
 
@@ -74,7 +71,6 @@ MEL_TEST(fiber_roundtrip)
     MEL_ASSERT_EQ(g_roundtrip, 2);
 
     mel_fiber_stack_release(&fstack);
-    MEL_PASS();
 }
 
 static void* g_received_user = NULL;
@@ -85,7 +81,7 @@ static void fiber_userdata_cb(Mel_Fiber_Transfer transfer)
     mel_fiber_switch(transfer.from, (void*)0xCAFEBABE);
 }
 
-MEL_TEST(fiber_user_data)
+MEL_TEST(fiber_user_data, .tags = "async")
 {
     g_received_user = NULL;
 
@@ -100,19 +96,4 @@ MEL_TEST(fiber_user_data)
     MEL_ASSERT_EQ(t.user, (void*)0xCAFEBABE);
 
     mel_fiber_stack_release(&fstack);
-    MEL_PASS();
-}
-
-int main(void)
-{
-    MEL_TEST_BEGIN("Fiber Tests");
-
-    MEL_RUN_TEST(stack_init_release);
-    MEL_RUN_TEST(stack_init_zero_default);
-    MEL_RUN_TEST(fiber_basic_switch);
-    MEL_RUN_TEST(fiber_roundtrip);
-    MEL_RUN_TEST(fiber_user_data);
-
-    MEL_TEST_END();
-    return MEL_TEST_EXIT_CODE();
 }

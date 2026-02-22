@@ -5,7 +5,7 @@
 
 typedef Mel_Queue(i32) I32Queue;
 
-MEL_TEST(queue_basic_fifo)
+MEL_TEST(queue_basic_fifo, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     I32Queue q;
@@ -21,10 +21,9 @@ MEL_TEST(queue_basic_fifo)
     MEL_ASSERT(mel_queue_empty(&q));
 
     mel_queue_free(&q);
-    MEL_PASS();
 }
 
-MEL_TEST(queue_push_many_pop_all)
+MEL_TEST(queue_push_many_pop_all, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     I32Queue q;
@@ -39,10 +38,9 @@ MEL_TEST(queue_push_many_pop_all)
     MEL_ASSERT(mel_queue_empty(&q));
 
     mel_queue_free(&q);
-    MEL_PASS();
 }
 
-MEL_TEST(queue_interleaved)
+MEL_TEST(queue_interleaved, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     I32Queue q;
@@ -68,10 +66,9 @@ MEL_TEST(queue_interleaved)
     MEL_ASSERT(mel_queue_empty(&q));
 
     mel_queue_free(&q);
-    MEL_PASS();
 }
 
-MEL_TEST(queue_growth)
+MEL_TEST(queue_growth, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     I32Queue q;
@@ -87,10 +84,9 @@ MEL_TEST(queue_growth)
         MEL_ASSERT_EQ(mel_queue_pop(&q), i);
 
     mel_queue_free(&q);
-    MEL_PASS();
 }
 
-MEL_TEST(queue_peek)
+MEL_TEST(queue_peek, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     I32Queue q;
@@ -111,10 +107,9 @@ MEL_TEST(queue_peek)
     MEL_ASSERT_EQ(mel_queue_peek_back(&q), 7);
 
     mel_queue_free(&q);
-    MEL_PASS();
 }
 
-MEL_TEST(queue_clear)
+MEL_TEST(queue_clear, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     I32Queue q;
@@ -135,10 +130,9 @@ MEL_TEST(queue_clear)
     MEL_ASSERT_EQ(mel_queue_count(&q), (usize)1);
 
     mel_queue_free(&q);
-    MEL_PASS();
 }
 
-MEL_TEST(queue_at)
+MEL_TEST(queue_at, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     I32Queue q;
@@ -157,10 +151,9 @@ MEL_TEST(queue_at)
     MEL_ASSERT_EQ(mel_queue_at(&q, 7), 90);
 
     mel_queue_free(&q);
-    MEL_PASS();
 }
 
-MEL_TEST(queue_single_element)
+MEL_TEST(queue_single_element, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     I32Queue q;
@@ -176,10 +169,9 @@ MEL_TEST(queue_single_element)
     MEL_ASSERT(mel_queue_empty(&q));
 
     mel_queue_free(&q);
-    MEL_PASS();
 }
 
-MEL_TEST(queue_stress)
+MEL_TEST(queue_stress, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     I32Queue q;
@@ -196,10 +188,9 @@ MEL_TEST(queue_stress)
     MEL_ASSERT(mel_queue_empty(&q));
 
     mel_queue_free(&q);
-    MEL_PASS();
 }
 
-MEL_TEST(queue_wrap_around)
+MEL_TEST(queue_wrap_around, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     I32Queue q;
@@ -234,10 +225,9 @@ MEL_TEST(queue_wrap_around)
     MEL_ASSERT(mel_queue_empty(&q));
 
     mel_queue_free(&q);
-    MEL_PASS();
 }
 
-MEL_TEST(queue_growth_with_wrap)
+MEL_TEST(queue_growth_with_wrap, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     I32Queue q;
@@ -260,10 +250,9 @@ MEL_TEST(queue_growth_with_wrap)
     MEL_ASSERT(mel_queue_empty(&q));
 
     mel_queue_free(&q);
-    MEL_PASS();
 }
 
-MEL_TEST(queue_at_with_wrap)
+MEL_TEST(queue_at_with_wrap, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     I32Queue q;
@@ -287,26 +276,4 @@ MEL_TEST(queue_at_with_wrap)
     MEL_ASSERT_EQ(mel_queue_at(&q, 5), 10);
 
     mel_queue_free(&q);
-    MEL_PASS();
-}
-
-int main(void)
-{
-    MEL_TEST_BEGIN("Collection Queue Tests");
-
-    MEL_RUN_TEST(queue_basic_fifo);
-    MEL_RUN_TEST(queue_push_many_pop_all);
-    MEL_RUN_TEST(queue_interleaved);
-    MEL_RUN_TEST(queue_growth);
-    MEL_RUN_TEST(queue_peek);
-    MEL_RUN_TEST(queue_clear);
-    MEL_RUN_TEST(queue_at);
-    MEL_RUN_TEST(queue_single_element);
-    MEL_RUN_TEST(queue_stress);
-    MEL_RUN_TEST(queue_wrap_around);
-    MEL_RUN_TEST(queue_growth_with_wrap);
-    MEL_RUN_TEST(queue_at_with_wrap);
-
-    MEL_TEST_END();
-    return MEL_TEST_EXIT_CODE();
 }

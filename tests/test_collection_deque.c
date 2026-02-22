@@ -5,7 +5,7 @@
 
 typedef Mel_Deque(i32) Deque_i32;
 
-MEL_TEST(push_back_pop_front_fifo)
+MEL_TEST(push_back_pop_front_fifo, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Deque_i32 dq;
@@ -22,10 +22,9 @@ MEL_TEST(push_back_pop_front_fifo)
     MEL_ASSERT(mel_deque_empty(&dq));
 
     mel_deque_free(&dq);
-    MEL_PASS();
 }
 
-MEL_TEST(push_front_pop_back_fifo)
+MEL_TEST(push_front_pop_back_fifo, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Deque_i32 dq;
@@ -42,10 +41,9 @@ MEL_TEST(push_front_pop_back_fifo)
     MEL_ASSERT(mel_deque_empty(&dq));
 
     mel_deque_free(&dq);
-    MEL_PASS();
 }
 
-MEL_TEST(push_back_pop_back_lifo)
+MEL_TEST(push_back_pop_back_lifo, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Deque_i32 dq;
@@ -61,10 +59,9 @@ MEL_TEST(push_back_pop_back_lifo)
     MEL_ASSERT(mel_deque_empty(&dq));
 
     mel_deque_free(&dq);
-    MEL_PASS();
 }
 
-MEL_TEST(push_front_pop_front_lifo)
+MEL_TEST(push_front_pop_front_lifo, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Deque_i32 dq;
@@ -80,10 +77,9 @@ MEL_TEST(push_front_pop_front_lifo)
     MEL_ASSERT(mel_deque_empty(&dq));
 
     mel_deque_free(&dq);
-    MEL_PASS();
 }
 
-MEL_TEST(mixed_push_front_back_order)
+MEL_TEST(mixed_push_front_back_order, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Deque_i32 dq;
@@ -103,10 +99,9 @@ MEL_TEST(mixed_push_front_back_order)
     MEL_ASSERT_EQ(mel_deque_at(&dq, 4), 5);
 
     mel_deque_free(&dq);
-    MEL_PASS();
 }
 
-MEL_TEST(growth_past_initial_capacity)
+MEL_TEST(growth_past_initial_capacity, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Deque_i32 dq;
@@ -126,10 +121,9 @@ MEL_TEST(growth_past_initial_capacity)
     }
 
     mel_deque_free(&dq);
-    MEL_PASS();
 }
 
-MEL_TEST(peek_front_back)
+MEL_TEST(peek_front_back, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Deque_i32 dq;
@@ -150,10 +144,9 @@ MEL_TEST(peek_front_back)
     MEL_ASSERT_EQ(mel_deque_count(&dq), (usize)3);
 
     mel_deque_free(&dq);
-    MEL_PASS();
 }
 
-MEL_TEST(clear)
+MEL_TEST(clear, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Deque_i32 dq;
@@ -173,10 +166,9 @@ MEL_TEST(clear)
     MEL_ASSERT_EQ(mel_deque_peek_front(&dq), 99);
 
     mel_deque_free(&dq);
-    MEL_PASS();
 }
 
-MEL_TEST(wraparound_stress)
+MEL_TEST(wraparound_stress, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Deque_i32 dq;
@@ -207,10 +199,9 @@ MEL_TEST(wraparound_stress)
     MEL_ASSERT(mel_deque_empty(&dq));
 
     mel_deque_free(&dq);
-    MEL_PASS();
 }
 
-MEL_TEST(stress_alternating_1000)
+MEL_TEST(stress_alternating_1000, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Deque_i32 dq;
@@ -259,10 +250,9 @@ MEL_TEST(stress_alternating_1000)
     MEL_ASSERT(mel_deque_empty(&dq));
 
     mel_deque_free(&dq);
-    MEL_PASS();
 }
 
-MEL_TEST(single_element)
+MEL_TEST(single_element, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Deque_i32 dq;
@@ -281,10 +271,9 @@ MEL_TEST(single_element)
     MEL_ASSERT(mel_deque_empty(&dq));
 
     mel_deque_free(&dq);
-    MEL_PASS();
 }
 
-MEL_TEST(empty_deque)
+MEL_TEST(empty_deque, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Deque_i32 dq;
@@ -294,10 +283,9 @@ MEL_TEST(empty_deque)
     MEL_ASSERT_EQ(mel_deque_count(&dq), (usize)0);
 
     mel_deque_free(&dq);
-    MEL_PASS();
 }
 
-MEL_TEST(growth_with_wraparound)
+MEL_TEST(growth_with_wraparound, .tags = "collection")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Deque_i32 dq;
@@ -335,27 +323,4 @@ MEL_TEST(growth_with_wraparound)
     }
 
     mel_deque_free(&dq);
-    MEL_PASS();
-}
-
-int main(void)
-{
-    MEL_TEST_BEGIN("Collection Deque Tests");
-
-    MEL_RUN_TEST(push_back_pop_front_fifo);
-    MEL_RUN_TEST(push_front_pop_back_fifo);
-    MEL_RUN_TEST(push_back_pop_back_lifo);
-    MEL_RUN_TEST(push_front_pop_front_lifo);
-    MEL_RUN_TEST(mixed_push_front_back_order);
-    MEL_RUN_TEST(growth_past_initial_capacity);
-    MEL_RUN_TEST(peek_front_back);
-    MEL_RUN_TEST(clear);
-    MEL_RUN_TEST(wraparound_stress);
-    MEL_RUN_TEST(stress_alternating_1000);
-    MEL_RUN_TEST(single_element);
-    MEL_RUN_TEST(empty_deque);
-    MEL_RUN_TEST(growth_with_wraparound);
-
-    MEL_TEST_END();
-    return MEL_TEST_EXIT_CODE();
 }

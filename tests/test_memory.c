@@ -6,15 +6,14 @@
 #include "../melody/allocator.arena.h"
 #include "../melody/collection.array.h"
 
-MEL_TEST(heap_allocator)
+MEL_TEST(heap_allocator, .tags = "allocator")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     MEL_ASSERT_NOT_NULL(alloc);
     MEL_ASSERT_NOT_NULL(alloc->alloc_cb);
-    MEL_PASS();
 }
 
-MEL_TEST(alloc_free)
+MEL_TEST(alloc_free, .tags = "allocator")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     i32* ptr = mel_alloc_type(alloc, i32);
@@ -22,10 +21,9 @@ MEL_TEST(alloc_free)
     *ptr = 42;
     MEL_ASSERT_EQ(*ptr, 42);
     mel_dealloc(alloc, ptr);
-    MEL_PASS();
 }
 
-MEL_TEST(alloc_array)
+MEL_TEST(alloc_array, .tags = "allocator")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     i32* arr = mel_alloc_array(alloc, i32, 10);
@@ -36,10 +34,9 @@ MEL_TEST(alloc_array)
     }
     MEL_ASSERT_EQ(arr[5], 10);
     mel_dealloc(alloc, arr);
-    MEL_PASS();
 }
 
-MEL_TEST(tracking_allocator)
+MEL_TEST(tracking_allocator, .tags = "allocator")
 {
     Mel_Tracking_Allocator tracking;
     mel_tracking_init(&tracking, mel_alloc_heap());
@@ -55,10 +52,9 @@ MEL_TEST(tracking_allocator)
     mel_dealloc(&alloc, ptr);
     MEL_ASSERT_EQ(tracking.free_count, (u64)1);
 
-    MEL_PASS();
 }
 
-MEL_TEST(arena_allocator)
+MEL_TEST(arena_allocator, .tags = "allocator")
 {
     u8 buffer[1024];
     Mel_Arena arena;
@@ -80,10 +76,9 @@ MEL_TEST(arena_allocator)
     mel_arena_reset(&arena);
     MEL_ASSERT_EQ(arena.offset, (usize)0);
 
-    MEL_PASS();
 }
 
-MEL_TEST(leak_detect_allocator)
+MEL_TEST(leak_detect_allocator, .tags = "allocator")
 {
     const Mel_Alloc* alloc = mel_alloc_leak_detect();
     MEL_ASSERT_NOT_NULL(alloc);
@@ -94,10 +89,9 @@ MEL_TEST(leak_detect_allocator)
     MEL_ASSERT_EQ(*ptr, 99);
 
     mel_dealloc(alloc, ptr);
-    MEL_PASS();
 }
 
-MEL_TEST(dynamic_array_push)
+MEL_TEST(dynamic_array_push, .tags = "allocator")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_Array(i32) arr;
@@ -118,10 +112,9 @@ MEL_TEST(dynamic_array_push)
     MEL_ASSERT_EQ(arr.count, (usize)0);
     MEL_ASSERT_NULL(arr.items);
 
-    MEL_PASS();
 }
 
-MEL_TEST(dynamic_array_pop)
+MEL_TEST(dynamic_array_pop, .tags = "allocator")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_Array(i32) arr;
@@ -139,10 +132,9 @@ MEL_TEST(dynamic_array_pop)
     MEL_ASSERT_EQ(val, 2);
 
     mel_array_free(&arr);
-    MEL_PASS();
 }
 
-MEL_TEST(dynamic_array_growth)
+MEL_TEST(dynamic_array_growth, .tags = "allocator")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
     Mel_Array(i32) arr;
@@ -162,24 +154,4 @@ MEL_TEST(dynamic_array_growth)
     }
 
     mel_array_free(&arr);
-    MEL_PASS();
-}
-
-int main(void)
-{
-    MEL_TEST_BEGIN("Memory Tests");
-
-    MEL_RUN_TEST(heap_allocator);
-    MEL_RUN_TEST(alloc_free);
-    MEL_RUN_TEST(alloc_array);
-    MEL_RUN_TEST(tracking_allocator);
-    MEL_RUN_TEST(arena_allocator);
-    MEL_RUN_TEST(leak_detect_allocator);
-    MEL_RUN_TEST(dynamic_array_push);
-    MEL_RUN_TEST(dynamic_array_pop);
-    MEL_RUN_TEST(dynamic_array_growth);
-
-    MEL_TEST_END();
-
-    return MEL_TEST_EXIT_CODE();
 }

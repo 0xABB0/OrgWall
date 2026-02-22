@@ -22,7 +22,7 @@ static Mel_Anim_Clip make_clip(const Mel_Alloc* alloc, f32 duration, bool loop)
     return clip;
 }
 
-MEL_TEST(init_enters_initial_state)
+MEL_TEST(init_enters_initial_state, .tags = "anim")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
 
@@ -55,10 +55,9 @@ MEL_TEST(init_enters_initial_state)
     mel_anim_mixer_destroy(&mixer);
     mel_anim_clip_destroy(&clips[0], alloc);
     mel_anim_clip_destroy(&clips[1], alloc);
-    MEL_PASS();
 }
 
-MEL_TEST(immediate_transition)
+MEL_TEST(immediate_transition, .tags = "anim")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
 
@@ -98,10 +97,9 @@ MEL_TEST(immediate_transition)
     mel_anim_mixer_destroy(&mixer);
     mel_anim_clip_destroy(&clips[0], alloc);
     mel_anim_clip_destroy(&clips[1], alloc);
-    MEL_PASS();
 }
 
-MEL_TEST(at_end_waits)
+MEL_TEST(at_end_waits, .tags = "anim")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
 
@@ -146,10 +144,9 @@ MEL_TEST(at_end_waits)
     mel_anim_mixer_destroy(&mixer);
     mel_anim_clip_destroy(&clips[0], alloc);
     mel_anim_clip_destroy(&clips[1], alloc);
-    MEL_PASS();
 }
 
-MEL_TEST(auto_clear_condition)
+MEL_TEST(auto_clear_condition, .tags = "anim")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
 
@@ -191,7 +188,6 @@ MEL_TEST(auto_clear_condition)
     mel_anim_mixer_destroy(&mixer);
     mel_anim_clip_destroy(&clips[0], alloc);
     mel_anim_clip_destroy(&clips[1], alloc);
-    MEL_PASS();
 }
 
 static u32 s_transition_from = 0;
@@ -206,7 +202,7 @@ static void on_transition_cb(void* ctx, u32 from, u32 to)
     s_transition_count++;
 }
 
-MEL_TEST(on_transition_callback)
+MEL_TEST(on_transition_callback, .tags = "anim")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
 
@@ -252,10 +248,9 @@ MEL_TEST(on_transition_callback)
     mel_anim_mixer_destroy(&mixer);
     mel_anim_clip_destroy(&clips[0], alloc);
     mel_anim_clip_destroy(&clips[1], alloc);
-    MEL_PASS();
 }
 
-MEL_TEST(find_state_by_name_hash)
+MEL_TEST(find_state_by_name_hash, .tags = "anim")
 {
     Mel_Anim_State_Def states[] = {
         { .name_hash = 0xAA, .clip = NULL, .transitions = NULL, .transition_count = 0 },
@@ -270,10 +265,9 @@ MEL_TEST(find_state_by_name_hash)
     MEL_ASSERT_EQ(mel_anim_state_machine_find_state(&machine, 0xBB), 1u);
     MEL_ASSERT_EQ(mel_anim_state_machine_find_state(&machine, 0xCC), 2u);
 
-    MEL_PASS();
 }
 
-MEL_TEST(set_condition_add_remove)
+MEL_TEST(set_condition_add_remove, .tags = "anim")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
 
@@ -309,21 +303,4 @@ MEL_TEST(set_condition_add_remove)
     mel_anim_state_player_destroy(&player);
     mel_anim_mixer_destroy(&mixer);
     mel_anim_clip_destroy(&clip, alloc);
-    MEL_PASS();
-}
-
-int main(void)
-{
-    MEL_TEST_BEGIN("anim.state");
-
-    MEL_RUN_TEST(init_enters_initial_state);
-    MEL_RUN_TEST(immediate_transition);
-    MEL_RUN_TEST(at_end_waits);
-    MEL_RUN_TEST(auto_clear_condition);
-    MEL_RUN_TEST(on_transition_callback);
-    MEL_RUN_TEST(find_state_by_name_hash);
-    MEL_RUN_TEST(set_condition_add_remove);
-
-    MEL_TEST_END();
-    return MEL_TEST_EXIT_CODE();
 }
