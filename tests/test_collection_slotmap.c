@@ -50,16 +50,16 @@ MEL_TEST(generation_bump_on_reuse, .tags = "collection")
 
     TestItem item1 = { .a = 10, .b = 20 };
     Mel_SlotMap_Handle h1 = mel_slotmap_insert(&sm, &item1);
-    u32 idx1 = mel_slotmap_handle_index(h1);
+    u32 idx1 = h1.index;
 
     mel_slotmap_remove(&sm, h1);
 
     TestItem item2 = { .a = 30, .b = 40 };
     Mel_SlotMap_Handle h2 = mel_slotmap_insert(&sm, &item2);
-    u32 idx2 = mel_slotmap_handle_index(h2);
+    u32 idx2 = h2.index;
 
     MEL_ASSERT_EQ(idx1, idx2);
-    MEL_ASSERT_EQ(mel_slotmap_handle_gen(h2), mel_slotmap_handle_gen(h1) + 1);
+    MEL_ASSERT_EQ(h2.generation, h1.generation + 1);
     MEL_ASSERT_NULL(mel_slotmap_get(&sm, h1));
 
     TestItem* got = mel_slotmap_get(&sm, h2);
@@ -167,13 +167,19 @@ MEL_TEST(iteration_count_matches, .tags = "collection")
     mel_slotmap_free(&sm);
 }
 
-MEL_TEST(handle_pack_unpack, .tags = "collection")
+MEL_TEST(handle_fields, .tags = "collection")
 {
-    Mel_SlotMap_Handle h = mel_slotmap_handle_pack(12345, 678);
-    MEL_ASSERT_EQ(mel_slotmap_handle_index(h), 12345u);
-    MEL_ASSERT_EQ(mel_slotmap_handle_gen(h), 678u);
+    Mel_SlotMap_Handle h = mel_slotmap_handle_make(12345, 678);
+    MEL_ASSERT_EQ(h.index, 12345u);
+    MEL_ASSERT_EQ(h.generation, 678u);
 
-    Mel_SlotMap_Handle max = mel_slotmap_handle_pack(MEL_SLOTMAP_MAX_INDEX, MEL_SLOTMAP_MAX_GEN);
-    MEL_ASSERT_EQ(mel_slotmap_handle_index(max), MEL_SLOTMAP_MAX_INDEX);
-    MEL_ASSERT_EQ(mel_slotmap_handle_gen(max), MEL_SLOTMAP_MAX_GEN);
+    u64 packed = mel_slotmap_handle_pack64(h);
+    Mel_SlotMap_Handle unpacked = mel_slotmap_handle_unpack64(packed);
+    MEL_ASSERT_EQ(unpacked.index, 12345u);
+    MEL_ASSERT_EQ(unpacked.generation, 678u);
+
+    void* ptr = mel_slotmap_handle_to_ptr(h);
+    Mel_SlotMap_Handle from_ptr = mel_slotmap_handle_from_ptr(ptr);
+    MEL_ASSERT_EQ(from_ptr.index, 12345u);
+    MEL_ASSERT_EQ(from_ptr.generation, 678u);
 }

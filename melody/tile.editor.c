@@ -2,6 +2,7 @@
 #include "tile.set.h"
 #include "tile.map.h"
 #include "texture.pool.h"
+#include "collection.slotmap.h"
 #include "string.str8.h"
 
 #include <cimgui/cimgui.h>
@@ -98,7 +99,7 @@ void mel_ed_tiles_set_tilemap(Mel_EdTiles* ed, Mel_Tilemap_Handle handle)
     ed->dirty = false;
     ed->tilemap_path[0] = '\0';
 
-    if (ed->tilemap && ed->tilemap->tileset.value)
+    if (ed->tilemap && mel_slotmap_handle_valid(ed->tilemap->tileset.handle))
     {
         ed->tileset_handle = ed->tilemap->tileset;
         ed->tileset = mel_tileset_pool_get(ed->tileset_pool, ed->tileset_handle);
@@ -259,7 +260,7 @@ static void draw_tileset_panel(Mel_EdTiles* ed)
             if (ed->tileset_pool && strlen(ed->new_tile_visual_name) > 0)
             {
                 Mel_Tileset_Handle handle = mel_tileset_pool_create(ed->tileset_pool, str8_from_cstr(ed->new_tile_visual_name));
-                if (handle.value)
+                if (mel_slotmap_handle_valid(handle.handle))
                 {
                     char path[256];
                     snprintf(path, sizeof(path), "%s.json", ed->new_tile_visual_name);
@@ -578,7 +579,7 @@ static void draw_tilemap_panel(Mel_EdTiles* ed)
                     (u32)ed->new_tilemap_width, (u32)ed->new_tilemap_height,
                     (u32)ed->new_tilemap_grid_w, (u32)ed->new_tilemap_grid_h);
 
-                if (handle.value)
+                if (mel_slotmap_handle_valid(handle.handle))
                 {
                     Mel_Tilemap_Entry* tilemap = mel_tilemap_pool_get(ed->tilemap_pool, handle);
                     if (tilemap && ed->tileset)
@@ -1015,7 +1016,7 @@ static void draw_import_dialog(Mel_EdTiles* ed)
                     source->padding = (u32)ed->import_padding;
                     source->margin = (u32)ed->import_margin;
 
-                    source->texture = ed->import_preview_texture.value
+                    source->texture = mel_slotmap_handle_valid(ed->import_preview_texture.handle)
                         ? ed->import_preview_texture
                         : mel_texture_pool_load(ed->texture_pool, str8_from_cstr(ed->import_texture_path));
 

@@ -67,7 +67,7 @@ Mel_Atlas_Handle mel_atlas_pool_load(Mel_Atlas_Pool* pool, str8 path)
     void* existing = mel_hashmap_get(&pool->path_to_handle, (void*)(usize)hash);
     if (existing)
     {
-        Mel_Atlas_Handle h = { .value = (u32)(usize)existing };
+        Mel_Atlas_Handle h = { .handle = mel_slotmap_handle_from_ptr(existing) };
         return h;
     }
 
@@ -155,9 +155,9 @@ Mel_Atlas_Handle mel_atlas_pool_load(Mel_Atlas_Pool* pool, str8 path)
     cJSON_Delete(root);
 
     Mel_SlotMap_Handle sm_handle = mel_slotmap_insert(&pool->slotmap, &entry);
-    Mel_Atlas_Handle atlas_handle = { .value = sm_handle.value };
+    Mel_Atlas_Handle atlas_handle = { .handle = sm_handle };
 
-    mel_hashmap_put(&pool->path_to_handle, (void*)(usize)hash, (void*)(usize)atlas_handle.value);
+    mel_hashmap_put(&pool->path_to_handle, (void*)(usize)hash, mel_slotmap_handle_to_ptr(sm_handle));
 
     SDL_Log("texture.atlas: loaded '%.*s' (%u regions)", (int)path.len, path.data, region_count);
     return atlas_handle;
@@ -167,7 +167,7 @@ Mel_Atlas_Entry* mel_atlas_pool_get(Mel_Atlas_Pool* pool, Mel_Atlas_Handle handl
 {
     assert(pool != nullptr);
 
-    Mel_SlotMap_Handle sm_handle = { .value = handle.value };
+    Mel_SlotMap_Handle sm_handle = handle.handle;
     return mel_slotmap_get(&pool->slotmap, sm_handle);
 }
 
@@ -175,7 +175,7 @@ bool mel_atlas_pool_unload(Mel_Atlas_Pool* pool, Mel_Atlas_Handle handle)
 {
     assert(pool != nullptr);
 
-    Mel_SlotMap_Handle sm_handle = { .value = handle.value };
+    Mel_SlotMap_Handle sm_handle = handle.handle;
     Mel_Atlas_Entry* entry = mel_slotmap_get(&pool->slotmap, sm_handle);
 
     if (!entry)
@@ -186,7 +186,7 @@ bool mel_atlas_pool_unload(Mel_Atlas_Pool* pool, Mel_Atlas_Handle handle)
     if (entry->region_name_hashes)
         mel_dealloc(entry->alloc, entry->region_name_hashes);
 
-    mel_hashmap_remove(&pool->path_to_handle, (void*)(usize)entry->texture.value);
+    mel_hashmap_remove(&pool->path_to_handle, mel_slotmap_handle_to_ptr(entry->texture.handle));
     mel_slotmap_remove(&pool->slotmap, sm_handle);
 
     return true;

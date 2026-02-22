@@ -1,0 +1,13 @@
+#pragma once
+
+#ifndef MEL_IO_DEFAULT_SQ_CAPACITY
+# define MEL_IO_DEFAULT_SQ_CAPACITY 256
+#endif
+
+#ifndef MEL_IO_DEFAULT_CQ_CAPACITY
+# define MEL_IO_DEFAULT_CQ_CAPACITY 512
+#endif
+
+#ifndef MEL_IO_MAX_HANDLERS
+# define MEL_IO_MAX_HANDLERS 64
+#endif

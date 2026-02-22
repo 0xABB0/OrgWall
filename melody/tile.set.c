@@ -85,7 +85,7 @@ Mel_Tileset_Handle mel_tileset_pool_load(Mel_Tileset_Pool* pool, str8 path)
     void* existing = mel_hashmap_get(&pool->path_to_handle, (void*)(usize)hash);
     if (existing)
     {
-        Mel_Tileset_Handle h = { .value = (u32)(usize)existing };
+        Mel_Tileset_Handle h = { .handle = mel_slotmap_handle_from_ptr(existing) };
         return h;
     }
 
@@ -199,8 +199,8 @@ Mel_Tileset_Handle mel_tileset_pool_load(Mel_Tileset_Pool* pool, str8 path)
     cJSON_Delete(root);
 
     Mel_SlotMap_Handle sm_handle = mel_slotmap_insert(&pool->slotmap, &entry);
-    Mel_Tileset_Handle ts_handle = { .value = sm_handle.value };
-    mel_hashmap_put(&pool->path_to_handle, (void*)(usize)hash, (void*)(usize)ts_handle.value);
+    Mel_Tileset_Handle ts_handle = { .handle = sm_handle };
+    mel_hashmap_put(&pool->path_to_handle, (void*)(usize)hash, mel_slotmap_handle_to_ptr(sm_handle));
 
     return ts_handle;
 }
@@ -215,7 +215,7 @@ Mel_Tileset_Handle mel_tileset_pool_create(Mel_Tileset_Pool* pool, str8 name)
     entry.name = str8_dup(name, pool->alloc);
 
     Mel_SlotMap_Handle sm_handle = mel_slotmap_insert(&pool->slotmap, &entry);
-    Mel_Tileset_Handle ts_handle = { .value = sm_handle.value };
+    Mel_Tileset_Handle ts_handle = { .handle = sm_handle };
 
     return ts_handle;
 }
@@ -224,7 +224,7 @@ Mel_Tileset_Entry* mel_tileset_pool_get(Mel_Tileset_Pool* pool, Mel_Tileset_Hand
 {
     assert(pool != nullptr);
 
-    Mel_SlotMap_Handle sm_handle = { .value = handle.value };
+    Mel_SlotMap_Handle sm_handle = handle.handle;
     return mel_slotmap_get(&pool->slotmap, sm_handle);
 }
 
@@ -232,7 +232,7 @@ bool mel_tileset_pool_unload(Mel_Tileset_Pool* pool, Mel_Tileset_Handle handle)
 {
     assert(pool != nullptr);
 
-    Mel_SlotMap_Handle sm_handle = { .value = handle.value };
+    Mel_SlotMap_Handle sm_handle = handle.handle;
     Mel_Tileset_Entry* entry = mel_slotmap_get(&pool->slotmap, sm_handle);
 
     if (!entry)

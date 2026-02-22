@@ -77,7 +77,7 @@ Mel_Texture_Handle mel_texture_pool_load(Mel_Texture_Pool* pool, str8 path)
     void* existing = mel_hashmap_get(&pool->path_to_handle, (void*)(usize)hash);
     if (existing)
     {
-        Mel_Texture_Handle h = { .value = (u32)(usize)existing };
+        Mel_Texture_Handle h = { .handle = mel_slotmap_handle_from_ptr(existing) };
         return h;
     }
 
@@ -104,9 +104,9 @@ Mel_Texture_Handle mel_texture_pool_load(Mel_Texture_Pool* pool, str8 path)
     }
 
     Mel_SlotMap_Handle sm_handle = mel_slotmap_insert(&pool->slotmap, &entry);
-    Mel_Texture_Handle tex_handle = { .value = sm_handle.value };
+    Mel_Texture_Handle tex_handle = { .handle = sm_handle };
 
-    mel_hashmap_put(&pool->path_to_handle, (void*)(usize)hash, (void*)(usize)tex_handle.value);
+    mel_hashmap_put(&pool->path_to_handle, (void*)(usize)hash, mel_slotmap_handle_to_ptr(sm_handle));
 
     return tex_handle;
 }
@@ -115,7 +115,7 @@ Mel_Gpu_Texture* mel_texture_pool_get(Mel_Texture_Pool* pool, Mel_Texture_Handle
 {
     assert(pool != nullptr);
 
-    Mel_SlotMap_Handle sm_handle = { .value = handle.value };
+    Mel_SlotMap_Handle sm_handle = handle.handle;
     Mel_Texture_Entry* entry = mel_slotmap_get(&pool->slotmap, sm_handle);
 
     if (!entry || entry->state != MEL_TEXTURE_STATE_LOADED)
@@ -128,7 +128,7 @@ bool mel_texture_pool_unload(Mel_Texture_Pool* pool, Mel_Texture_Handle handle)
 {
     assert(pool != nullptr);
 
-    Mel_SlotMap_Handle sm_handle = { .value = handle.value };
+    Mel_SlotMap_Handle sm_handle = handle.handle;
     Mel_Texture_Entry* entry = mel_slotmap_get(&pool->slotmap, sm_handle);
 
     if (!entry)
@@ -153,7 +153,7 @@ u32 mel_texture_pool_state(Mel_Texture_Pool* pool, Mel_Texture_Handle handle)
 {
     assert(pool != nullptr);
 
-    Mel_SlotMap_Handle sm_handle = { .value = handle.value };
+    Mel_SlotMap_Handle sm_handle = handle.handle;
     Mel_Texture_Entry* entry = mel_slotmap_get(&pool->slotmap, sm_handle);
 
     if (!entry)

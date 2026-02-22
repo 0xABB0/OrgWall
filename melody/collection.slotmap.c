@@ -18,14 +18,14 @@ static void mel__slotmap_grow_slots(Mel_SlotMap* sm, u32 new_cap)
             .alive = false,
         };
     }
-    sm->slots[new_cap - 1].next_free = MEL_SLOTMAP_MAX_INDEX;
+    sm->slots[new_cap - 1].next_free = MEL_SLOTMAP_SENTINEL;
 
-    if (sm->free_head == MEL_SLOTMAP_MAX_INDEX)
+    if (sm->free_head == MEL_SLOTMAP_SENTINEL)
         sm->free_head = sm->slot_capacity;
     else
     {
         u32 tail = sm->free_head;
-        while (sm->slots[tail].next_free != MEL_SLOTMAP_MAX_INDEX)
+        while (sm->slots[tail].next_free != MEL_SLOTMAP_SENTINEL)
             tail = sm->slots[tail].next_free;
         sm->slots[tail].next_free = sm->slot_capacity;
     }
@@ -52,7 +52,7 @@ void mel_slotmap_init_opt(Mel_SlotMap* sm, const Mel_Alloc* alloc, Mel_SlotMap_O
     *sm = (Mel_SlotMap){0};
     sm->alloc = alloc;
     sm->item_size = opt.item_size;
-    sm->free_head = MEL_SLOTMAP_MAX_INDEX;
+    sm->free_head = MEL_SLOTMAP_SENTINEL;
 
     u32 cap = opt.initial_capacity > 0 ? opt.initial_capacity : 16;
 
@@ -66,7 +66,7 @@ void mel_slotmap_init_opt(Mel_SlotMap* sm, const Mel_Alloc* alloc, Mel_SlotMap_O
             .alive = false,
         };
     }
-    sm->slots[cap - 1].next_free = MEL_SLOTMAP_MAX_INDEX;
+    sm->slots[cap - 1].next_free = MEL_SLOTMAP_SENTINEL;
     sm->free_head = 0;
     sm->slot_capacity = cap;
 
@@ -95,10 +95,9 @@ Mel_SlotMap_Handle mel_slotmap_insert(Mel_SlotMap* sm, const void* item)
     assert(sm != nullptr);
     assert(item != nullptr);
 
-    if (sm->free_head == MEL_SLOTMAP_MAX_INDEX)
+    if (sm->free_head == MEL_SLOTMAP_SENTINEL)
     {
         u32 new_cap = sm->slot_capacity * 2;
-        assert(new_cap <= MEL_SLOTMAP_MAX_INDEX);
         mel__slotmap_grow_slots(sm, new_cap);
     }
 
@@ -120,18 +119,18 @@ Mel_SlotMap_Handle mel_slotmap_insert(Mel_SlotMap* sm, const void* item)
     sm->packed_count++;
     sm->slot_count++;
 
-    return mel_slotmap_handle_pack(slot_idx, slot->generation);
+    return mel_slotmap_handle_make(slot_idx, slot->generation);
 }
 
 void* mel_slotmap_get(Mel_SlotMap* sm, Mel_SlotMap_Handle handle)
 {
     assert(sm != nullptr);
 
-    if (handle.value == 0)
+    if (!mel_slotmap_handle_valid(handle))
         return nullptr;
 
-    u32 idx = mel_slotmap_handle_index(handle);
-    u16 gen = mel_slotmap_handle_gen(handle);
+    u32 idx = handle.index;
+    u32 gen = handle.generation;
 
     if (idx >= sm->slot_capacity)
         return nullptr;
@@ -147,11 +146,11 @@ bool mel_slotmap_remove(Mel_SlotMap* sm, Mel_SlotMap_Handle handle)
 {
     assert(sm != nullptr);
 
-    if (handle.value == 0)
+    if (!mel_slotmap_handle_valid(handle))
         return false;
 
-    u32 idx = mel_slotmap_handle_index(handle);
-    u16 gen = mel_slotmap_handle_gen(handle);
+    u32 idx = handle.index;
+    u32 gen = handle.generation;
 
     if (idx >= sm->slot_capacity)
         return false;
@@ -179,8 +178,6 @@ bool mel_slotmap_remove(Mel_SlotMap* sm, Mel_SlotMap_Handle handle)
 
     slot->alive = false;
     slot->generation++;
-    if (slot->generation > MEL_SLOTMAP_MAX_GEN)
-        slot->generation = 1;
     slot->next_free = sm->free_head;
     sm->free_head = idx;
 
@@ -191,11 +188,11 @@ bool mel_slotmap_alive(Mel_SlotMap* sm, Mel_SlotMap_Handle handle)
 {
     assert(sm != nullptr);
 
-    if (handle.value == 0)
+    if (!mel_slotmap_handle_valid(handle))
         return false;
 
-    u32 idx = mel_slotmap_handle_index(handle);
-    u16 gen = mel_slotmap_handle_gen(handle);
+    u32 idx = handle.index;
+    u32 gen = handle.generation;
 
     if (idx >= sm->slot_capacity)
         return false;

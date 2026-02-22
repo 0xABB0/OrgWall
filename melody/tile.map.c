@@ -78,7 +78,7 @@ Mel_Tilemap_Handle mel_tilemap_pool_load(Mel_Tilemap_Pool* pool, str8 path)
     void* existing = mel_hashmap_get(&pool->path_to_handle, (void*)(usize)hash);
     if (existing)
     {
-        Mel_Tilemap_Handle h = { .value = (u32)(usize)existing };
+        Mel_Tilemap_Handle h = { .handle = mel_slotmap_handle_from_ptr(existing) };
         return h;
     }
 
@@ -190,8 +190,8 @@ Mel_Tilemap_Handle mel_tilemap_pool_load(Mel_Tilemap_Pool* pool, str8 path)
             log_name_buf, entry.width, entry.height, entry.layer_count);
 
     Mel_SlotMap_Handle sm_handle = mel_slotmap_insert(&pool->slotmap, &entry);
-    Mel_Tilemap_Handle tm_handle = { .value = sm_handle.value };
-    mel_hashmap_put(&pool->path_to_handle, (void*)(usize)hash, (void*)(usize)tm_handle.value);
+    Mel_Tilemap_Handle tm_handle = { .handle = sm_handle };
+    mel_hashmap_put(&pool->path_to_handle, (void*)(usize)hash, mel_slotmap_handle_to_ptr(sm_handle));
 
     return tm_handle;
 }
@@ -233,7 +233,7 @@ Mel_Tilemap_Handle mel_tilemap_pool_create(Mel_Tilemap_Pool* pool, str8 name, u3
         l->data[i] = -1;
 
     Mel_SlotMap_Handle sm_handle = mel_slotmap_insert(&pool->slotmap, &entry);
-    Mel_Tilemap_Handle tm_handle = { .value = sm_handle.value };
+    Mel_Tilemap_Handle tm_handle = { .handle = sm_handle };
 
     return tm_handle;
 }
@@ -242,7 +242,7 @@ Mel_Tilemap_Entry* mel_tilemap_pool_get(Mel_Tilemap_Pool* pool, Mel_Tilemap_Hand
 {
     assert(pool != nullptr);
 
-    Mel_SlotMap_Handle sm_handle = { .value = handle.value };
+    Mel_SlotMap_Handle sm_handle = handle.handle;
     return mel_slotmap_get(&pool->slotmap, sm_handle);
 }
 
@@ -250,7 +250,7 @@ bool mel_tilemap_pool_unload(Mel_Tilemap_Pool* pool, Mel_Tilemap_Handle handle)
 {
     assert(pool != nullptr);
 
-    Mel_SlotMap_Handle sm_handle = { .value = handle.value };
+    Mel_SlotMap_Handle sm_handle = handle.handle;
     Mel_Tilemap_Entry* entry = mel_slotmap_get(&pool->slotmap, sm_handle);
 
     if (!entry)

@@ -1,8 +1,8 @@
 #pragma once
 
-#include "core.types.h"
+#include "collection.slotmap.fwd.h"
 
-typedef struct { u32 value; } Mel_Tilemap_Handle;
+typedef struct { Mel_SlotMap_Handle handle; } Mel_Tilemap_Handle;
 #define MEL_TILEMAP_HANDLE_NULL ((Mel_Tilemap_Handle){0})
 
 typedef struct Mel_Tilemap_Entry Mel_Tilemap_Entry;

@@ -179,7 +179,7 @@ static void draw_texture_picker_popup(Mel_GameEditor* ge)
         if (strlen(ge->pending_file_path) > 0 && ge->texture_pool)
         {
             Mel_Texture_Handle h = mel_texture_pool_load(ge->texture_pool, str8_from_cstr(ge->pending_file_path));
-            if (h.value != 0)
+            if (mel_slotmap_handle_valid(h.handle))
             {
                 str8 full_path = str8_from_cstr(ge->pending_file_path);
                 const char* slash = strrchr(ge->pending_file_path, '/');
@@ -253,7 +253,7 @@ static void draw_texture_picker_popup(Mel_GameEditor* ge)
                 if (strlen(manual_path) > 0)
                 {
                     Mel_Texture_Handle h = mel_texture_pool_load(ge->texture_pool, str8_from_cstr(manual_path));
-                    if (h.value != 0)
+                    if (mel_slotmap_handle_valid(h.handle))
                     {
                         if (ge->texture_picker_callback)
                         {

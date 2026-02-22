@@ -1,5 +1,6 @@
 #include "ui.widget.label.h"
 #include "font.atlas.h"
+#include "collection.slotmap.h"
 #include "string.str8.h"
 
 static void wlabel_draw(Mel_Widget* w, void* ctx)
@@ -7,7 +8,7 @@ static void wlabel_draw(Mel_Widget* w, void* ctx)
     Mel_WLabel* label = (Mel_WLabel*)w;
     Mel_SpriteBatch* batch = (Mel_SpriteBatch*)ctx;
 
-    if (label->font_pool && label->font.value && label->text.len > 0)
+    if (label->font_pool && mel_slotmap_handle_valid(label->font.handle) && label->text.len > 0)
     {
         Mel_Font_Atlas_Entry* entry = mel_font_atlas_pool_get(label->font_pool, label->font);
         if (entry)

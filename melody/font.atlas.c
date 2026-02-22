@@ -101,7 +101,7 @@ Mel_Font_Handle mel_font_atlas_pool_load_opt(Mel_Font_Atlas_Pool* pool, Mel_Font
     void* existing = mel_hashmap_get(&pool->path_to_handle, (void*)(usize)hash);
     if (existing)
     {
-        Mel_Font_Handle h = { .value = (u32)(usize)existing };
+        Mel_Font_Handle h = { .handle = mel_slotmap_handle_from_ptr(existing) };
         return h;
     }
 
@@ -266,8 +266,8 @@ Mel_Font_Handle mel_font_atlas_pool_load_opt(Mel_Font_Atlas_Pool* pool, Mel_Font
     MEL_UNUSED(result);
 
     Mel_SlotMap_Handle sm_handle = mel_slotmap_insert(&pool->slotmap, &entry);
-    Mel_Font_Handle fh = { .value = sm_handle.value };
-    mel_hashmap_put(&pool->path_to_handle, (void*)(usize)hash, (void*)(usize)fh.value);
+    Mel_Font_Handle fh = { .handle = sm_handle };
+    mel_hashmap_put(&pool->path_to_handle, (void*)(usize)hash, mel_slotmap_handle_to_ptr(sm_handle));
 
     SDL_Log("font.atlas: loaded '%.*s' %.0fpx, atlas %ux%u", (int)opt.path.len, opt.path.data, font_size, atlas_w, atlas_h);
 
@@ -278,7 +278,7 @@ Mel_Font_Atlas_Entry* mel_font_atlas_pool_get(Mel_Font_Atlas_Pool* pool, Mel_Fon
 {
     assert(pool != nullptr);
 
-    Mel_SlotMap_Handle sm_handle = { .value = handle.value };
+    Mel_SlotMap_Handle sm_handle = handle.handle;
     return mel_slotmap_get(&pool->slotmap, sm_handle);
 }
 
