@@ -25,7 +25,10 @@
 #include "ui.widget.panel.h"
 #include "ui.widget.label.h"
 #include "game.h"
-#include "assets.h"
+#include "vfs.h"
+#include "vfs.backend.os.h"
+#include "async.io.h"
+#include "allocator.heap.h"
 #include "texture.h"
 #include "editor.h"
 #include "editor.registry.h"
@@ -51,7 +54,10 @@ static Mel_Font_Atlas_Pool s_font_pool;
 static Mel_Font_Handle s_font_handle;
 static Mel_EdRegistry s_ed_registry;
 static Mel_GameEditor s_game_editor;
-static Mel_Assets s_assets;
+static Mel_Io s_io;
+static Mel_Vfs s_vfs;
+static Mel_Vfs_Backend* s_os_backend;
+static Mel_Vfs_Backend* s_fonts_backend;
 static Mel_Gpu_Shader s_shader;
 static Mel_Gpu_Pipeline s_pipeline;
 static Mel_Gpu_Texture s_white_texture;
@@ -192,12 +198,12 @@ static void on_init(Mel_Engine* e)
     mel_gpu_pipeline_write_texture(&s_pipeline, dev, s_white_texture.descriptor,
         s_white_texture.image.view, s_white_texture.sampler);
 
-    mel_texture_pool_init(&s_texture_pool, alloc, dev, .pipeline = &s_pipeline, .assets = &s_assets);
-    mel_tileset_pool_init(&s_tileset_pool, alloc, &s_texture_pool, &s_assets);
-    mel_tilemap_pool_init(&s_tilemap_pool, alloc, &s_tileset_pool, &s_assets);
-    mel_font_atlas_pool_init(&s_font_pool, alloc, dev);
+    mel_texture_pool_init(&s_texture_pool, alloc, dev, .pipeline = &s_pipeline, .vfs = &s_vfs);
+    mel_tileset_pool_init(&s_tileset_pool, alloc, &s_texture_pool, &s_vfs);
+    mel_tilemap_pool_init(&s_tilemap_pool, alloc, &s_tileset_pool, &s_vfs);
+    mel_font_atlas_pool_init(&s_font_pool, alloc, dev, &s_vfs);
 
-    s_font_handle = mel_font_atlas_pool_load(&s_font_pool, .path = S8("/System/Library/Fonts/Monaco.ttf"), .size = 20.0f);
+    s_font_handle = mel_font_atlas_pool_load(&s_font_pool, .path = S8("sys/fonts/Monaco.ttf"), .size = 20.0f);
     Mel_Font_Atlas_Entry* font_entry = mel_font_atlas_pool_get(&s_font_pool, s_font_handle);
     if (font_entry)
     {
@@ -206,7 +212,7 @@ static void on_init(Mel_Engine* e)
             font_entry->atlas_texture.image.view, font_entry->atlas_texture.sampler);
     }
 
-    mel_texture_load_and_bind(&s_test_texture, dev, &s_pipeline, &s_assets, S8("test.png"));
+    mel_texture_load_and_bind(&s_test_texture, dev, &s_pipeline, &s_vfs, alloc, S8("test.png"));
 
     mel_game_init(&s_game);
 
@@ -256,11 +262,30 @@ static void on_init(Mel_Engine* e)
 
 static void app_init(Mel_App* app)
 {
-    if (!mel_assets_init(&s_assets))
+    const char* base = SDL_GetBasePath();
+    char assets_path[1024];
+    snprintf(assets_path, sizeof(assets_path), "%sassets", base);
+
+    Mel_Io_Desc io_desc = { .allocator = mel_alloc_heap(), .sq_capacity = 256, .cq_capacity = 256, .worker_count = 0 };
+    if (!mel_io_init(&s_io, &io_desc))
     {
-        SDL_Log("Failed to init assets system!");
+        SDL_Log("Failed to init IO system!");
         return;
     }
+
+    Mel_Vfs_Desc vfs_desc = { .allocator = mel_alloc_heap(), .io = &s_io };
+    if (!mel_vfs_init(&s_vfs, &vfs_desc))
+    {
+        SDL_Log("Failed to init VFS!");
+        mel_io_shutdown(&s_io);
+        return;
+    }
+
+    s_os_backend = mel_vfs_backend_os_create(mel_alloc_heap(), str8_from_cstr(assets_path));
+    mel_vfs_mount(&s_vfs, S8("."), s_os_backend, 128, true);
+
+    s_fonts_backend = mel_vfs_backend_os_create(mel_alloc_heap(), S8("/System/Library/Fonts"));
+    mel_vfs_mount(&s_vfs, S8("sys/fonts"), s_fonts_backend, 0, false);
 
     s_window = SDL_CreateWindow("Red Square Room", 640, 480,
                                 SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE);
@@ -314,7 +339,10 @@ static void app_shutdown(Mel_App* app)
     mel_gpu_pipeline_shutdown(&s_pipeline, dev);
     mel_gpu_shader_shutdown(&s_shader, dev);
 
-    mel_assets_shutdown(&s_assets);
+    mel_vfs_shutdown(&s_vfs);
+    mel_io_shutdown(&s_io);
+    mel_vfs_backend_os_destroy(s_os_backend);
+    mel_vfs_backend_os_destroy(s_fonts_backend);
     SDL_Log("Game shutdown");
 }
 

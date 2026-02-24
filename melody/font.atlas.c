@@ -5,7 +5,7 @@
 #include "gpu.buffer.h"
 #include "gpu.submit.h"
 #include "allocator.h"
-#include "allocator.heap.h"
+#include "vfs.h"
 
 #include <SDL3/SDL.h>
 #include <stb_truetype.h>
@@ -58,15 +58,17 @@ static void mel__font_upload_cmd(VkCommandBuffer cmd, void* user)
     mel_gpu_image_transition(data->image, cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 }
 
-void mel_font_atlas_pool_init(Mel_Font_Atlas_Pool* pool, const Mel_Alloc* alloc, Mel_Gpu_Device* dev)
+void mel_font_atlas_pool_init(Mel_Font_Atlas_Pool* pool, const Mel_Alloc* alloc, Mel_Gpu_Device* dev, Mel_Vfs* vfs)
 {
     assert(pool != nullptr);
     assert(alloc != nullptr);
     assert(dev != nullptr);
+    assert(vfs != nullptr);
 
     *pool = (Mel_Font_Atlas_Pool){0};
     pool->alloc = alloc;
     pool->dev = dev;
+    pool->vfs = vfs;
 
     mel_slotmap_init(&pool->slotmap, alloc, .item_size = sizeof(Mel_Font_Atlas_Entry), .initial_capacity = 8);
     mel_hashmap_init(&pool->path_to_handle, mel__font_atlas_pool_hash_key, mel__font_atlas_pool_eq_key, alloc);
@@ -105,38 +107,25 @@ Mel_Font_Handle mel_font_atlas_pool_load_opt(Mel_Font_Atlas_Pool* pool, Mel_Font
         return h;
     }
 
-    char path_buf[1024];
-    str8_to_buf(opt.path, path_buf, sizeof(path_buf));
-
-    SDL_IOStream* io = SDL_IOFromFile(path_buf, "rb");
-    if (!io)
+    usize file_size = 0;
+    u8* ttf_data = mel_vfs_read_file_alloc(pool->vfs, opt.path, &file_size, pool->alloc);
+    if (!ttf_data)
     {
         SDL_Log("font.atlas: failed to open '%.*s'", (int)opt.path.len, opt.path.data);
         return MEL_FONT_HANDLE_NULL;
     }
 
-    i64 file_size = SDL_GetIOSize(io);
-    if (file_size <= 0)
-    {
-        SDL_CloseIO(io);
-        return MEL_FONT_HANDLE_NULL;
-    }
-
-    u8* ttf_data = (u8*)mel_alloc(mel_alloc_heap(), (usize)file_size);
-    SDL_ReadIO(io, ttf_data, (usize)file_size);
-    SDL_CloseIO(io);
-
     f32 font_size = opt.size > 0 ? opt.size : 24.0f;
     u32 atlas_w = opt.atlas_width > 0 ? opt.atlas_width : 512;
     u32 atlas_h = opt.atlas_height > 0 ? opt.atlas_height : 512;
 
-    u8* bitmap = (u8*)mel_calloc(mel_alloc_heap(), atlas_w * atlas_h);
+    u8* bitmap = (u8*)mel_calloc(pool->alloc, atlas_w * atlas_h);
 
     stbtt_fontinfo info;
     if (!stbtt_InitFont(&info, ttf_data, 0))
     {
-        mel_dealloc(mel_alloc_heap(), bitmap);
-        mel_dealloc(mel_alloc_heap(), ttf_data);
+        mel_dealloc(pool->alloc, bitmap);
+        mel_dealloc(pool->alloc, ttf_data);
         return MEL_FONT_HANDLE_NULL;
     }
 
@@ -185,8 +174,8 @@ Mel_Font_Handle mel_font_atlas_pool_load_opt(Mel_Font_Atlas_Pool* pool, Mel_Font
         if (y + gh + 2 > atlas_h)
         {
             mel_dealloc(pool->alloc, entry.desc.glyphs);
-            mel_dealloc(mel_alloc_heap(), bitmap);
-            mel_dealloc(mel_alloc_heap(), ttf_data);
+            mel_dealloc(pool->alloc, bitmap);
+            mel_dealloc(pool->alloc, ttf_data);
             return MEL_FONT_HANDLE_NULL;
         }
 
@@ -211,7 +200,7 @@ Mel_Font_Handle mel_font_atlas_pool_load_opt(Mel_Font_Atlas_Pool* pool, Mel_Font
         x += gw + 2;
     }
 
-    u8* rgba = (u8*)mel_alloc(mel_alloc_heap(), atlas_w * atlas_h * 4);
+    u8* rgba = (u8*)mel_alloc(pool->alloc, atlas_w * atlas_h * 4);
     for (u32 i = 0; i < atlas_w * atlas_h; i++)
     {
         rgba[i * 4 + 0] = 255;
@@ -220,8 +209,8 @@ Mel_Font_Handle mel_font_atlas_pool_load_opt(Mel_Font_Atlas_Pool* pool, Mel_Font
         rgba[i * 4 + 3] = bitmap[i];
     }
 
-    mel_dealloc(mel_alloc_heap(), bitmap);
-    mel_dealloc(mel_alloc_heap(), ttf_data);
+    mel_dealloc(pool->alloc, bitmap);
+    mel_dealloc(pool->alloc, ttf_data);
 
     Mel_Gpu_Buffer staging;
     u32 image_size = atlas_w * atlas_h * 4;
@@ -232,7 +221,7 @@ Mel_Font_Handle mel_font_atlas_pool_load_opt(Mel_Font_Atlas_Pool* pool, Mel_Font
         .memory_usage = VMA_MEMORY_USAGE_CPU_ONLY);
 
     mel_gpu_buffer_upload(&staging, pool->dev, rgba, image_size, 0);
-    mel_dealloc(mel_alloc_heap(), rgba);
+    mel_dealloc(pool->alloc, rgba);
 
     mel_gpu_image_init(&entry.atlas_texture.image, pool->dev,
         .width = atlas_w,

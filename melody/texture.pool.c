@@ -34,7 +34,7 @@ void mel_texture_pool_init_opt(Mel_Texture_Pool* pool, const Mel_Alloc* alloc, M
     mel_hashmap_init(&pool->path_to_handle, mel__texture_pool_hash_key, mel__texture_pool_eq_key, alloc);
 
     pool->job_ctx = opt.job_ctx;
-    pool->assets = opt.assets;
+    pool->vfs = opt.vfs;
 
     mel_gpu_texture_init_white(&pool->fallback, dev);
 
@@ -87,7 +87,7 @@ Mel_Texture_Handle mel_texture_pool_load(Mel_Texture_Pool* pool, str8 path)
         .state = MEL_TEXTURE_STATE_UNLOADED,
     };
 
-    if (mel_texture_load(&entry.gpu_texture, pool->dev, pool->assets, path))
+    if (mel_texture_load(&entry.gpu_texture, pool->dev, pool->vfs, pool->alloc, path))
     {
         if (pool->pipeline)
         {

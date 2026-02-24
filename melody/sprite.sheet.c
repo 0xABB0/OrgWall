@@ -1,27 +1,28 @@
 #include "sprite.sheet.h"
 #include "gpu.texture.h"
 #include "string.str8.h"
-#include "assets.h"
+#include "vfs.h"
+#include "allocator.h"
 #include <cjson/cJSON.h>
 #include <SDL3/SDL.h>
 #include <string.h>
 
-bool mel_spritesheet_load(Mel_Spritesheet* sheet, const Mel_Alloc* alloc, Mel_Assets* assets, str8 path)
+bool mel_spritesheet_load(Mel_Spritesheet* sheet, const Mel_Alloc* alloc, Mel_Vfs* vfs, str8 path)
 {
     assert(sheet != nullptr);
     assert(alloc != nullptr);
-    assert(assets != nullptr);
+    assert(vfs != nullptr);
     assert(!str8_is_empty(path));
 
-    char* json_text = mel_assets_read_text(assets, path);
-    if (!json_text)
+    str8 text = mel_vfs_read_text_alloc(vfs, path, alloc);
+    if (!text.data)
     {
         SDL_Log("Failed to read spritesheet: %.*s", (int)path.len, path.data);
         return false;
     }
 
-    cJSON* root = cJSON_Parse(json_text);
-    mel_assets_free(assets, json_text);
+    cJSON* root = cJSON_Parse((char*)text.data);
+    mel_dealloc(alloc, text.data);
 
     if (!root)
     {
@@ -234,9 +235,10 @@ bool mel_spritesheet_load(Mel_Spritesheet* sheet, const Mel_Alloc* alloc, Mel_As
     return true;
 }
 
-bool mel_spritesheet_save(Mel_Spritesheet* sheet, str8 path)
+bool mel_spritesheet_save(Mel_Spritesheet* sheet, Mel_Vfs* vfs, str8 path)
 {
     assert(sheet != nullptr);
+    assert(vfs != nullptr);
     assert(!str8_is_empty(path));
 
     cJSON* root = cJSON_CreateObject();
@@ -367,7 +369,7 @@ bool mel_spritesheet_save(Mel_Spritesheet* sheet, str8 path)
         return false;
     }
 
-    bool result = mel_assets_write_text(path, str8_from_cstr(json_text));
+    bool result = mel_vfs_write_text(vfs, path, str8_from_cstr(json_text));
     free(json_text);
 
     if (result)

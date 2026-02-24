@@ -70,10 +70,10 @@ typedef struct Mel_AnimationPlayer
     bool finished;
 } Mel_AnimationPlayer;
 
-typedef struct Mel_Assets Mel_Assets;
+typedef struct Mel_Vfs Mel_Vfs;
 
-bool mel_spritesheet_load(Mel_Spritesheet* sheet, const Mel_Alloc* alloc, Mel_Assets* assets, str8 path);
-bool mel_spritesheet_save(Mel_Spritesheet* sheet, str8 path);
+bool mel_spritesheet_load(Mel_Spritesheet* sheet, const Mel_Alloc* alloc, Mel_Vfs* vfs, str8 path);
+bool mel_spritesheet_save(Mel_Spritesheet* sheet, Mel_Vfs* vfs, str8 path);
 void mel_spritesheet_free(Mel_Spritesheet* sheet);
 
 Mel_Animation* mel_spritesheet_find_animation(Mel_Spritesheet* sheet, str8 name);

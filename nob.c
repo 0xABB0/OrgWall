@@ -36,7 +36,6 @@ static const char* LIB_PATHS[] = {
 
 static const char* LIBS[] = {
     "-lSDL3",
-    "-lphysfs",
     "-lslang",
     "-lcjson",
 };

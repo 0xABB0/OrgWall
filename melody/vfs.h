@@ -33,15 +33,10 @@ typedef struct {
 } Mel_Vfs__Watch_Data;
 
 typedef struct {
-    u8*   data;
-    usize capacity;
-    usize head;
-    usize used;
-} Mel_Vfs__Byte_Ring;
-
-typedef struct {
     Mel_Vfs_Sqe sqe;
     Mel_Vfs_Cqe cqe;
+    u8* owned_path_data;
+    Mel_IoVec* owned_iov;
 } Mel_Vfs__Op;
 
 struct Mel_Vfs_Mount {
@@ -60,7 +55,7 @@ struct Mel_Vfs {
     Mel_Io* io;
     u16     handler_id;
 
-    Mel_Vfs__Byte_Ring path_ring;
+    SDL_Mutex* state_lock;
 
     Mel_SlotMap file_slots;
     Mel_SlotMap dir_slots;

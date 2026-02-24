@@ -3,7 +3,7 @@
 #include "string.str8.h"
 #include "hash.xxh.h"
 #include "allocator.h"
-#include "assets.h"
+#include "vfs.h"
 #include <cjson/cJSON.h>
 #include <SDL3/SDL.h>
 #include <string.h>
@@ -37,17 +37,17 @@ static void mel__tilemap_free_entry(Mel_Tilemap_Entry* e)
     }
 }
 
-void mel_tilemap_pool_init(Mel_Tilemap_Pool* pool, const Mel_Alloc* alloc, Mel_Tileset_Pool* ts_pool, Mel_Assets* assets)
+void mel_tilemap_pool_init(Mel_Tilemap_Pool* pool, const Mel_Alloc* alloc, Mel_Tileset_Pool* ts_pool, Mel_Vfs* vfs)
 {
     assert(pool != nullptr);
     assert(alloc != nullptr);
     assert(ts_pool != nullptr);
-    assert(assets != nullptr);
+    assert(vfs != nullptr);
 
     *pool = (Mel_Tilemap_Pool){0};
     pool->alloc = alloc;
     pool->tileset_pool = ts_pool;
-    pool->assets = assets;
+    pool->vfs = vfs;
 
     mel_slotmap_init(&pool->slotmap, alloc, .item_size = sizeof(Mel_Tilemap_Entry), .initial_capacity = 16);
     mel_hashmap_init(&pool->path_to_handle, mel__tilemap_pool_hash_key, mel__tilemap_pool_eq_key, alloc);
@@ -82,15 +82,15 @@ Mel_Tilemap_Handle mel_tilemap_pool_load(Mel_Tilemap_Pool* pool, str8 path)
         return h;
     }
 
-    char* json_text = mel_assets_read_text(pool->assets, path);
-    if (!json_text)
+    str8 text = mel_vfs_read_text_alloc(pool->vfs, path, pool->alloc);
+    if (!text.data)
     {
         SDL_Log("tile.map: failed to read '%.*s'", (int)path.len, path.data);
         return MEL_TILEMAP_HANDLE_NULL;
     }
 
-    cJSON* root = cJSON_Parse(json_text);
-    mel_assets_free(pool->assets, json_text);
+    cJSON* root = cJSON_Parse((char*)text.data);
+    mel_dealloc(pool->alloc, text.data);
 
     if (!root)
     {
@@ -327,7 +327,7 @@ bool mel_tilemap_pool_save(Mel_Tilemap_Pool* pool, Mel_Tilemap_Handle handle, st
         return false;
     }
 
-    bool result = mel_assets_write_text(path, str8_from_cstr(json_text));
+    bool result = mel_vfs_write_text(pool->vfs, path, str8_from_cstr(json_text));
     free(json_text);
 
     if (result)

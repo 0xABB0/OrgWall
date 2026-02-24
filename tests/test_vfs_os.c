@@ -377,3 +377,125 @@ MEL_TEST(vfs_os_readv_writev, .tags = "vfs, async")
 
     mel__test_os_teardown(&io, &vfs, backend, tmpdir);
 }
+
+#include "../melody/core.platform.h"
+#if MEL_PLATFORM_APPLE
+
+#include <fcntl.h>
+
+MEL_TEST(vfs_os_watch_file_modify, .tags = "vfs")
+{
+    Mel_Io io;
+    Mel_Vfs vfs;
+    Mel_Vfs_Backend* backend;
+    str8 tmpdir;
+    mel__test_os_setup(&io, &vfs, &backend, &tmpdir);
+
+    mel_vfs_write_text(&vfs, S8("/watch_me.txt"), S8("initial"));
+
+    Mel_Vfs_Native_Handle wh;
+    i32 err = backend->watch_open(backend, S8("watch_me.txt"), false, 0, &wh);
+    MEL_ASSERT_EQ(err, 0);
+
+    mel_vfs_write_text(&vfs, S8("/watch_me.txt"), S8("modified"));
+
+    u8 path_buf[512];
+    usize path_len = 0;
+    i32 action = 0;
+    i32 result = backend->watch_next(backend, wh, 2000, path_buf, sizeof(path_buf), &path_len, &action);
+    MEL_ASSERT_EQ(result, 0);
+    MEL_ASSERT_EQ(action, MEL_VFS_WATCH_MODIFIED);
+    MEL_ASSERT_GT(path_len, (usize)0);
+
+    backend->watch_close(backend, wh);
+    mel__test_os_teardown(&io, &vfs, backend, tmpdir);
+}
+
+MEL_TEST(vfs_os_watch_file_delete, .tags = "vfs")
+{
+    Mel_Io io;
+    Mel_Vfs vfs;
+    Mel_Vfs_Backend* backend;
+    str8 tmpdir;
+    mel__test_os_setup(&io, &vfs, &backend, &tmpdir);
+
+    mel_vfs_write_text(&vfs, S8("/delete_me.txt"), S8("goodbye"));
+
+    Mel_Vfs_Native_Handle wh;
+    i32 err = backend->watch_open(backend, S8("delete_me.txt"), false, 0, &wh);
+    MEL_ASSERT_EQ(err, 0);
+
+    char full_path[4096];
+    snprintf(full_path, sizeof(full_path), "%.*s/delete_me.txt", (int)tmpdir.len, (char*)tmpdir.data);
+    unlink(full_path);
+
+    u8 path_buf[512];
+    usize path_len = 0;
+    i32 action = 0;
+    i32 result = backend->watch_next(backend, wh, 2000, path_buf, sizeof(path_buf), &path_len, &action);
+    MEL_ASSERT_EQ(result, 0);
+    MEL_ASSERT_EQ(action, MEL_VFS_WATCH_REMOVED);
+
+    backend->watch_close(backend, wh);
+    mel__test_os_teardown(&io, &vfs, backend, tmpdir);
+}
+
+MEL_TEST(vfs_os_watch_timeout, .tags = "vfs")
+{
+    Mel_Io io;
+    Mel_Vfs vfs;
+    Mel_Vfs_Backend* backend;
+    str8 tmpdir;
+    mel__test_os_setup(&io, &vfs, &backend, &tmpdir);
+
+    mel_vfs_write_text(&vfs, S8("/quiet.txt"), S8("nothing happens"));
+
+    Mel_Vfs_Native_Handle wh;
+    i32 err = backend->watch_open(backend, S8("quiet.txt"), false, 0, &wh);
+    MEL_ASSERT_EQ(err, 0);
+
+    u8 path_buf[512];
+    usize path_len = 0;
+    i32 action = 0;
+    i32 result = backend->watch_next(backend, wh, 100, path_buf, sizeof(path_buf), &path_len, &action);
+    MEL_ASSERT_EQ(result, 1);
+
+    backend->watch_close(backend, wh);
+    mel__test_os_teardown(&io, &vfs, backend, tmpdir);
+}
+
+MEL_TEST(vfs_os_watch_recursive_unsupported, .tags = "vfs")
+{
+    Mel_Io io;
+    Mel_Vfs vfs;
+    Mel_Vfs_Backend* backend;
+    str8 tmpdir;
+    mel__test_os_setup(&io, &vfs, &backend, &tmpdir);
+
+    Mel_Vfs_Native_Handle wh;
+    i32 err = backend->watch_open(backend, S8("."), true, 0, &wh);
+    MEL_ASSERT(err < 0);
+
+    mel__test_os_teardown(&io, &vfs, backend, tmpdir);
+}
+
+MEL_TEST(vfs_os_watch_close_no_crash, .tags = "vfs")
+{
+    Mel_Io io;
+    Mel_Vfs vfs;
+    Mel_Vfs_Backend* backend;
+    str8 tmpdir;
+    mel__test_os_setup(&io, &vfs, &backend, &tmpdir);
+
+    mel_vfs_write_text(&vfs, S8("/closeme.txt"), S8("data"));
+
+    Mel_Vfs_Native_Handle wh;
+    i32 err = backend->watch_open(backend, S8("closeme.txt"), false, 0, &wh);
+    MEL_ASSERT_EQ(err, 0);
+
+    backend->watch_close(backend, wh);
+
+    mel__test_os_teardown(&io, &vfs, backend, tmpdir);
+}
+
+#endif

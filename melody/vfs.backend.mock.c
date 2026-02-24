@@ -188,8 +188,14 @@ static i32 mel__mock_dir_open(Mel_Vfs_Backend* b, str8 path, Mel_Vfs_Native_Hand
 {
     Mel_Vfs__Mock_Data* d = (Mel_Vfs__Mock_Data*)b->impl_data;
 
+    u8* path_copy = NULL;
+    if (path.len > 0) {
+        path_copy = mel_alloc(d->alloc, (usize)path.len);
+        memcpy(path_copy, path.data, (usize)path.len);
+    }
+
     Mel_Vfs__Mock_Open_Dir od = {
-        .dir_path = path,
+        .dir_path = { .data = path_copy, .len = path.len },
         .cursor = 0,
     };
     mel_array_push(&d->open_dirs, od);
@@ -227,8 +233,12 @@ static i32 mel__mock_dir_next(Mel_Vfs_Backend* b, Mel_Vfs_Native_Handle h,
 
 static void mel__mock_dir_close(Mel_Vfs_Backend* b, Mel_Vfs_Native_Handle h)
 {
-    MEL_UNUSED(b);
-    MEL_UNUSED(h);
+    Mel_Vfs__Mock_Data* d = (Mel_Vfs__Mock_Data*)b->impl_data;
+    Mel_Vfs__Mock_Open_Dir* od = &d->open_dirs.items[h - 1];
+    if (od->dir_path.data) {
+        mel_dealloc(d->alloc, od->dir_path.data);
+        od->dir_path = (str8){0};
+    }
 }
 
 static i32 mel__mock_map(Mel_Vfs_Backend* b, Mel_Vfs_Native_Handle h, u64 offset, usize size, u32 flags, void** out_ptr)
@@ -266,6 +276,10 @@ static void mel__mock_destroy(Mel_Vfs_Backend* b)
         Mel_Vfs__Mock_Entry* e = &d->entries.items[i];
         if (e->path_data) mel_dealloc(alloc, e->path_data);
         if (e->data) mel_dealloc(alloc, e->data);
+    }
+    for (usize i = 0; i < d->open_dirs.count; i++) {
+        Mel_Vfs__Mock_Open_Dir* od = &d->open_dirs.items[i];
+        if (od->dir_path.data) mel_dealloc(alloc, od->dir_path.data);
     }
     mel_array_free(&d->entries);
     mel_array_free(&d->open_files);

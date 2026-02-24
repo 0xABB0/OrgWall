@@ -6,6 +6,8 @@
 
 #include <string.h>
 
+#include "collection.array.h"
+
 #if MEL_PLATFORM_POSIX
 
 #include <fcntl.h>
@@ -17,14 +19,26 @@
 
 #if MEL_PLATFORM_APPLE
 #include <sys/uio.h>
+#include <sys/event.h>
 #else
 #include <sys/uio.h>
 #endif
 
 typedef struct {
+    int kq_fd;
+    int watch_fd;
+    char watched_path[4096];
+    usize watched_path_len;
+    bool active;
+} Mel_Vfs__Os_Watch;
+
+typedef struct {
     const Mel_Alloc* alloc;
     char root[4096];
     usize root_len;
+#if MEL_PLATFORM_APPLE
+    Mel_Array(Mel_Vfs__Os_Watch) watches;
+#endif
 } Mel_Vfs__Os_Data;
 
 static void mel__vfs_os_make_full_path(Mel_Vfs__Os_Data* d, str8 rel, char* out, usize out_cap)
@@ -219,10 +233,151 @@ static i32 mel__vfs_os_sync(Mel_Vfs_Backend* b, Mel_Vfs_Native_Handle h)
     return 0;
 }
 
+#if MEL_PLATFORM_APPLE
+
+static i32 mel__vfs_os_watch_open(Mel_Vfs_Backend* b, str8 path, bool recursive, u32 flags, Mel_Vfs_Native_Handle* out)
+{
+    MEL_UNUSED(flags);
+
+    if (recursive) return -(i32)ENOTSUP;
+
+    Mel_Vfs__Os_Data* d = (Mel_Vfs__Os_Data*)b->impl_data;
+    char full[4096];
+    mel__vfs_os_make_full_path(d, path, full, sizeof(full));
+
+    int fd = open(full, O_EVTONLY);
+    if (fd < 0) return -errno;
+
+    int kq = kqueue();
+    if (kq < 0)
+    {
+        int saved = errno;
+        close(fd);
+        return -saved;
+    }
+
+    struct kevent ev;
+    EV_SET(&ev, (uintptr_t)fd, EVFILT_VNODE,
+           EV_ADD | EV_CLEAR,
+           NOTE_WRITE | NOTE_DELETE | NOTE_RENAME | NOTE_ATTRIB,
+           0, NULL);
+
+    if (kevent(kq, &ev, 1, NULL, 0, NULL) < 0)
+    {
+        int saved = errno;
+        close(kq);
+        close(fd);
+        return -saved;
+    }
+
+    Mel_Vfs__Os_Watch watch = {
+        .kq_fd = kq,
+        .watch_fd = fd,
+        .watched_path_len = strlen(full),
+        .active = true,
+    };
+    usize path_len = watch.watched_path_len;
+    if (path_len >= sizeof(watch.watched_path))
+        path_len = sizeof(watch.watched_path) - 1;
+    memcpy(watch.watched_path, full, path_len);
+    watch.watched_path[path_len] = '\0';
+    watch.watched_path_len = path_len;
+
+    usize slot = d->watches.count;
+    for (usize i = 0; i < d->watches.count; i++)
+    {
+        if (!d->watches.items[i].active)
+        {
+            slot = i;
+            break;
+        }
+    }
+
+    if (slot == d->watches.count)
+        mel_array_push(&d->watches, watch);
+    else
+        d->watches.items[slot] = watch;
+
+    *out = (Mel_Vfs_Native_Handle)(slot + 1);
+    return 0;
+}
+
+static i32 mel__vfs_os_watch_next(Mel_Vfs_Backend* b, Mel_Vfs_Native_Handle h,
+                                   i32 timeout_ms, u8* path_buf, usize path_cap,
+                                   usize* out_path_len, i32* out_action)
+{
+    Mel_Vfs__Os_Data* d = (Mel_Vfs__Os_Data*)b->impl_data;
+    usize idx = (usize)h - 1;
+    assert(idx < d->watches.count);
+    Mel_Vfs__Os_Watch* w = &d->watches.items[idx];
+    assert(w->active);
+
+    struct timespec ts_val;
+    struct timespec* ts = NULL;
+    if (timeout_ms >= 0)
+    {
+        ts_val.tv_sec = timeout_ms / 1000;
+        ts_val.tv_nsec = (timeout_ms % 1000) * 1000000L;
+        ts = &ts_val;
+    }
+
+    struct kevent ev;
+    int n = kevent(w->kq_fd, NULL, 0, &ev, 1, ts);
+    if (n < 0) return -errno;
+
+    if (n == 0) return 1;
+
+    *out_path_len = w->watched_path_len;
+    if (w->watched_path_len > path_cap) return -1;
+
+    memcpy(path_buf, w->watched_path, w->watched_path_len);
+
+    if (ev.fflags & NOTE_DELETE)
+        *out_action = MEL_VFS_WATCH_REMOVED;
+    else if (ev.fflags & NOTE_RENAME)
+        *out_action = MEL_VFS_WATCH_RENAMED;
+    else if (ev.fflags & NOTE_WRITE)
+        *out_action = MEL_VFS_WATCH_MODIFIED;
+    else if (ev.fflags & NOTE_ATTRIB)
+        *out_action = MEL_VFS_WATCH_MODIFIED;
+    else
+        *out_action = MEL_VFS_WATCH_MODIFIED;
+
+    return 0;
+}
+
+static void mel__vfs_os_watch_close(Mel_Vfs_Backend* b, Mel_Vfs_Native_Handle h)
+{
+    Mel_Vfs__Os_Data* d = (Mel_Vfs__Os_Data*)b->impl_data;
+    usize idx = (usize)h - 1;
+    assert(idx < d->watches.count);
+    Mel_Vfs__Os_Watch* w = &d->watches.items[idx];
+    assert(w->active);
+
+    close(w->kq_fd);
+    close(w->watch_fd);
+    w->active = false;
+}
+
+#endif
+
 static void mel__vfs_os_destroy(Mel_Vfs_Backend* b)
 {
     Mel_Vfs__Os_Data* d = (Mel_Vfs__Os_Data*)b->impl_data;
     const Mel_Alloc* alloc = d->alloc;
+
+#if MEL_PLATFORM_APPLE
+    for (usize i = 0; i < d->watches.count; i++)
+    {
+        if (d->watches.items[i].active)
+        {
+            close(d->watches.items[i].kq_fd);
+            close(d->watches.items[i].watch_fd);
+        }
+    }
+    mel_array_free(&d->watches);
+#endif
+
     mel_dealloc(alloc, d);
     mel_dealloc(alloc, b);
 }
@@ -254,9 +409,16 @@ Mel_Vfs_Backend* mel_vfs_backend_os_create(const Mel_Alloc* alloc, str8 root_pat
     b->dir_close  = mel__vfs_os_dir_close;
     b->map        = mel__vfs_os_map;
     b->unmap      = mel__vfs_os_unmap;
+#if MEL_PLATFORM_APPLE
+    mel_array_init(&d->watches, alloc);
+    b->watch_open  = mel__vfs_os_watch_open;
+    b->watch_next  = mel__vfs_os_watch_next;
+    b->watch_close = mel__vfs_os_watch_close;
+#else
     b->watch_open  = NULL;
     b->watch_next  = NULL;
     b->watch_close = NULL;
+#endif
     b->sync       = mel__vfs_os_sync;
     b->destroy    = mel__vfs_os_destroy;
     b->impl_data  = d;

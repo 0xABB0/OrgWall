@@ -11,3 +11,8 @@
 #ifndef MEL_IO_MAX_HANDLERS
 # define MEL_IO_MAX_HANDLERS 64
 #endif
+
+#define MEL_IO_QOS_LATENCY_CRITICAL 0
+#define MEL_IO_QOS_STREAMING        1
+#define MEL_IO_QOS_BULK             2
+#define MEL_IO_QOS_LANE_COUNT       3

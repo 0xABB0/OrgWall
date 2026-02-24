@@ -12,6 +12,7 @@
 #include "math.vec2.h"
 #include "math.vec4.h"
 #include "sprite.batch.fwd.h"
+#include "vfs.fwd.h"
 
 struct Mel_Font_Atlas_Entry {
     Mel_Font_Descriptor desc;
@@ -23,6 +24,7 @@ struct Mel_Font_Atlas_Pool {
     Mel_SlotMap slotmap;
     Mel_HashMap path_to_handle;
     Mel_Gpu_Device* dev;
+    Mel_Vfs* vfs;
     const Mel_Alloc* alloc;
 };
 
@@ -33,7 +35,7 @@ typedef struct {
     u32 atlas_height;
 } Mel_Font_Atlas_Load_Opt;
 
-void              mel_font_atlas_pool_init(Mel_Font_Atlas_Pool* pool, const Mel_Alloc* alloc, Mel_Gpu_Device* dev);
+void              mel_font_atlas_pool_init(Mel_Font_Atlas_Pool* pool, const Mel_Alloc* alloc, Mel_Gpu_Device* dev, Mel_Vfs* vfs);
 void              mel_font_atlas_pool_shutdown(Mel_Font_Atlas_Pool* pool);
 Mel_Font_Handle   mel_font_atlas_pool_load_opt(Mel_Font_Atlas_Pool* pool, Mel_Font_Atlas_Load_Opt opt);
 #define mel_font_atlas_pool_load(pool, ...) mel_font_atlas_pool_load_opt((pool), (Mel_Font_Atlas_Load_Opt){__VA_ARGS__})

@@ -5,6 +5,7 @@
 #include "core.types.h"
 #include "allocator.fwd.h"
 #include "collection.ring.fwd.h"
+#include "collection.hashmap.h"
 
 #include <SDL3/SDL_mutex.h>
 #include <SDL3/SDL_atomic.h>
@@ -50,8 +51,10 @@ typedef struct {
 struct Mel_Io {
     const Mel_Alloc* alloc;
 
-    Mel_Ring(Mel_Io_Sqe) sq;
+    Mel_Ring(Mel_Io_Sqe) sq_lanes[MEL_IO_QOS_LANE_COUNT];
     Mel_Ring(Mel_Io_Cqe) cq;
+
+    Mel_HashMap cancel_set;
 
     Mel_Io__Handler handlers[MEL_IO_MAX_HANDLERS];
     u16 handler_count;
@@ -62,6 +65,7 @@ struct Mel_Io {
     SDL_Condition* sq_cond;
     SDL_Mutex*     cq_lock;
     SDL_Condition* cq_cond;
+    SDL_Mutex*     drain_lock;
 
     SDL_Thread** workers;
     u32          worker_count;
@@ -80,6 +84,7 @@ void  mel_io_shutdown(Mel_Io* io);
 u16   mel_io_register_handler(Mel_Io* io, Mel_Io_Execute_Fn fn, void* ctx);
 u64   mel_io_next_ticket(Mel_Io* io);
 i32   mel_io_submit(Mel_Io* io, const Mel_Io_Sqe* sqes, i32 count);
+bool  mel_io_cancel(Mel_Io* io, u64 target_ticket);
 i32   mel_io_poll(Mel_Io* io, Mel_Io_Cqe* out, i32 max_count);
 bool  mel_io_wait(Mel_Io* io, i32 min_count, u32 timeout_ms);
 bool  mel_io_poll_ticket(Mel_Io* io, u64 ticket, Mel_Io_Cqe* out);
