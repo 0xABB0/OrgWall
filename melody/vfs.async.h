@@ -24,6 +24,9 @@
 #define MEL_VFS_OP_WATCH_CLOSE    16
 #define MEL_VFS_OP_SYNC           17
 #define MEL_VFS_OP_CANCEL         18
+#define MEL_VFS_OP_RENAME         19
+#define MEL_VFS_OP_DELETE         20
+#define MEL_VFS_OP_MKDIR          21
 
 #define MEL_VFS_STATUS_OK               0
 #define MEL_VFS_STATUS_PENDING          1
@@ -36,6 +39,7 @@
 #define MEL_VFS_STATUS_INVALID_ARGUMENT 8
 #define MEL_VFS_STATUS_BUFFER_TOO_SMALL 9
 #define MEL_VFS_STATUS_TIMEOUT          10
+#define MEL_VFS_STATUS_ALREADY_EXISTS   11
 
 #define MEL_VFS_ERRCAT_NONE    0
 #define MEL_VFS_ERRCAT_GENERIC 1
@@ -97,6 +101,9 @@ struct Mel_Vfs_Sqe {
         struct { Mel_Vfs_Watch watch; }                                             watch_close;
         struct { Mel_Vfs_File file; }                                               sync;
         struct { u64 ticket_to_cancel; }                                            cancel;
+        struct { str8 src_path; str8 dst_path; }                                    rename;
+        struct { str8 path; }                                                       del;
+        struct { str8 path; }                                                       mkdir;
     };
 };
 

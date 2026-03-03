@@ -5,6 +5,7 @@
 #include "collection.array.h"
 
 #include <string.h>
+#include <errno.h>
 
 typedef struct {
     u8*   path_data;
@@ -33,6 +34,7 @@ typedef struct {
 
 static bool mel__mock_path_eq(Mel_Vfs__Mock_Entry* e, str8 path)
 {
+    if (!e->path_data) return false;
     if (e->path_len != path.len) return false;
     return memcmp(e->path_data, path.data, (usize)path.len) == 0;
 }
@@ -47,6 +49,8 @@ static i32 mel__mock_find_entry(Mel_Vfs__Mock_Data* d, str8 path)
 
 static bool mel__mock_is_child_of(Mel_Vfs__Mock_Entry* e, str8 dir_path)
 {
+    if (!e->path_data) return false;
+
     if (dir_path.len == 1 && dir_path.data[0] == '.') {
         for (size i = 0; i < e->path_len; i++) {
             if (e->path_data[i] == '/') return false;
@@ -82,7 +86,7 @@ static i32 mel__mock_open(Mel_Vfs_Backend* b, str8 path, u32 flags, Mel_Vfs_Nati
     i32 idx = mel__mock_find_entry(d, path);
 
     if (idx < 0) {
-        if (!(flags & MEL_VFS_OPEN_CREATE)) return -2;
+        if (!(flags & MEL_VFS_OPEN_CREATE)) return -ENOENT;
 
         Mel_Vfs__Mock_Entry entry = {0};
         entry.path_data = mel_alloc(d->alloc, (usize)path.len);
@@ -174,7 +178,7 @@ static i32 mel__mock_stat(Mel_Vfs_Backend* b, str8 path, Mel_Vfs_Stat* out)
 {
     Mel_Vfs__Mock_Data* d = (Mel_Vfs__Mock_Data*)b->impl_data;
     i32 idx = mel__mock_find_entry(d, path);
-    if (idx < 0) return -2;
+    if (idx < 0) return -ENOENT;
 
     Mel_Vfs__Mock_Entry* e = &d->entries.items[idx];
     *out = (Mel_Vfs_Stat){
@@ -211,10 +215,13 @@ static i32 mel__mock_dir_next(Mel_Vfs_Backend* b, Mel_Vfs_Native_Handle h,
     Mel_Vfs__Mock_Open_Dir* od = &d->open_dirs.items[h - 1];
 
     while (od->cursor < d->entries.count) {
-        Mel_Vfs__Mock_Entry* e = &d->entries.items[od->cursor];
-        od->cursor++;
+        usize idx = od->cursor;
+        Mel_Vfs__Mock_Entry* e = &d->entries.items[idx];
 
-        if (!mel__mock_is_child_of(e, od->dir_path)) continue;
+        if (!mel__mock_is_child_of(e, od->dir_path)) {
+            od->cursor++;
+            continue;
+        }
 
         str8 name = mel__mock_child_name(e, od->dir_path);
         *out_name_len = (usize)name.len;
@@ -225,6 +232,7 @@ static i32 mel__mock_dir_next(Mel_Vfs_Backend* b, Mel_Vfs_Native_Handle h,
             .size = (u64)e->size,
             .flags = e->flags,
         };
+        od->cursor++;
         return 0;
     }
 
@@ -248,7 +256,7 @@ static i32 mel__mock_map(Mel_Vfs_Backend* b, Mel_Vfs_Native_Handle h, u64 offset
     Mel_Vfs__Mock_Entry* e = &d->entries.items[of->entry_index];
     MEL_UNUSED(flags);
 
-    if (offset + size > e->size) return -1;
+    if (offset + size > e->size) return -EINVAL;
     *out_ptr = e->data + offset;
     return 0;
 }
@@ -264,6 +272,43 @@ static i32 mel__mock_sync(Mel_Vfs_Backend* b, Mel_Vfs_Native_Handle h)
 {
     MEL_UNUSED(b);
     MEL_UNUSED(h);
+    return 0;
+}
+
+static i32 mel__mock_rename(Mel_Vfs_Backend* b, str8 old_path, str8 new_path)
+{
+    Mel_Vfs__Mock_Data* d = (Mel_Vfs__Mock_Data*)b->impl_data;
+    i32 idx = mel__mock_find_entry(d, old_path);
+    if (idx < 0) return -ENOENT;
+
+    Mel_Vfs__Mock_Entry* e = &d->entries.items[idx];
+    mel_dealloc(d->alloc, e->path_data);
+    e->path_data = mel_alloc(d->alloc, (usize)new_path.len);
+    memcpy(e->path_data, new_path.data, (usize)new_path.len);
+    e->path_len = new_path.len;
+    return 0;
+}
+
+static i32 mel__mock_remove(Mel_Vfs_Backend* b, str8 path)
+{
+    Mel_Vfs__Mock_Data* d = (Mel_Vfs__Mock_Data*)b->impl_data;
+    i32 idx = mel__mock_find_entry(d, path);
+    if (idx < 0) return -ENOENT;
+
+    Mel_Vfs__Mock_Entry* e = &d->entries.items[idx];
+    if (e->path_data) mel_dealloc(d->alloc, e->path_data);
+    if (e->data) mel_dealloc(d->alloc, e->data);
+    *e = (Mel_Vfs__Mock_Entry){0};
+    return 0;
+}
+
+static i32 mel__mock_mkdir(Mel_Vfs_Backend* b, str8 path)
+{
+    Mel_Vfs__Mock_Data* d = (Mel_Vfs__Mock_Data*)b->impl_data;
+    i32 idx = mel__mock_find_entry(d, path);
+    if (idx >= 0) return -EEXIST;
+
+    mel_vfs_backend_mock_inject_dir(b, path);
     return 0;
 }
 
@@ -316,6 +361,9 @@ Mel_Vfs_Backend* mel_vfs_backend_mock_create(const Mel_Alloc* alloc)
     b->watch_next  = NULL;
     b->watch_close = NULL;
     b->sync       = mel__mock_sync;
+    b->rename     = mel__mock_rename;
+    b->remove     = mel__mock_remove;
+    b->mkdir      = mel__mock_mkdir;
     b->destroy    = mel__mock_destroy;
     b->impl_data  = d;
 

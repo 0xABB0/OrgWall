@@ -5,6 +5,8 @@
 
 typedef usize Mel_Vfs_Native_Handle;
 
+typedef struct Mel_Vfs Mel_Vfs;
+
 struct Mel_Vfs_Backend {
     i32  (*open)(Mel_Vfs_Backend*, str8 path, u32 open_flags, Mel_Vfs_Native_Handle* out);
     void (*close)(Mel_Vfs_Backend*, Mel_Vfs_Native_Handle h);
@@ -22,6 +24,10 @@ struct Mel_Vfs_Backend {
     i32  (*watch_next)(Mel_Vfs_Backend*, Mel_Vfs_Native_Handle h, i32 timeout_ms, u8* path_buf, usize path_cap, usize* out_path_len, i32* out_action);
     void (*watch_close)(Mel_Vfs_Backend*, Mel_Vfs_Native_Handle h);
     i32  (*sync)(Mel_Vfs_Backend*, Mel_Vfs_Native_Handle h);
+    i32  (*rename)(Mel_Vfs_Backend*, str8 old_path, str8 new_path);
+    i32  (*remove)(Mel_Vfs_Backend*, str8 path);
+    i32  (*mkdir)(Mel_Vfs_Backend*, str8 path);
+    bool (*try_submit_native)(Mel_Vfs_Backend*, struct Mel_Vfs_Sqe* sqe, Mel_Vfs_Native_Handle h, Mel_Vfs* vfs, void* op);
     void (*destroy)(Mel_Vfs_Backend*);
     void* impl_data;
 };

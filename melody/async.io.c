@@ -33,7 +33,7 @@ static i32 mel__io_first_nonempty_lane(Mel_Io* io)
     return -1;
 }
 
-static void mel__io_post_cqe(Mel_Io* io, Mel_Io_Cqe cqe)
+void mel_io_post_cqe(Mel_Io* io, Mel_Io_Cqe cqe)
 {
     SDL_LockMutex(io->cq_lock);
 
@@ -70,7 +70,10 @@ static void mel__io_execute_sqe(Mel_Io* io, const Mel_Io_Sqe* sqe)
         cqe.status = MEL_IO_STATUS_ERROR;
     }
 
-    mel__io_post_cqe(io, cqe);
+    if (cqe.status != MEL_IO_STATUS_PENDING)
+    {
+        mel_io_post_cqe(io, cqe);
+    }
 }
 
 static bool mel__io_check_cancel(Mel_Io* io, u64 ticket)
@@ -116,7 +119,7 @@ static void mel__io_drain_sync(Mel_Io* io)
                 .user_data = sqe.user_data,
                 .result_data = sqe.op_data,
             };
-            mel__io_post_cqe(io, cqe);
+            mel_io_post_cqe(io, cqe);
 
             if (!(sqe.flags & MEL_IO_SQE_F_LINK_NEXT))
                 link_failed = false;
@@ -133,7 +136,7 @@ static void mel__io_drain_sync(Mel_Io* io)
                 .user_data = sqe.user_data,
                 .result_data = sqe.op_data,
             };
-            mel__io_post_cqe(io, cqe);
+            mel_io_post_cqe(io, cqe);
 
             if (sqe.flags & MEL_IO_SQE_F_LINK_NEXT)
                 link_failed = true;
@@ -150,7 +153,7 @@ static void mel__io_drain_sync(Mel_Io* io)
                 .user_data = sqe.user_data,
                 .result_data = sqe.op_data,
             };
-            mel__io_post_cqe(io, cqe);
+            mel_io_post_cqe(io, cqe);
 
             if (sqe.flags & MEL_IO_SQE_F_LINK_NEXT)
                 link_failed = true;
@@ -178,9 +181,12 @@ static void mel__io_drain_sync(Mel_Io* io)
             cqe.status = MEL_IO_STATUS_ERROR;
         }
 
-        mel__io_post_cqe(io, cqe);
+        if (cqe.status != MEL_IO_STATUS_PENDING)
+        {
+            mel_io_post_cqe(io, cqe);
+        }
 
-        if ((sqe.flags & MEL_IO_SQE_F_LINK_NEXT) && cqe.status != MEL_IO_STATUS_OK)
+        if ((sqe.flags & MEL_IO_SQE_F_LINK_NEXT) && cqe.status != MEL_IO_STATUS_OK && cqe.status != MEL_IO_STATUS_PENDING)
             link_failed = true;
     }
 }
@@ -220,7 +226,7 @@ static int SDLCALL mel__io_worker_fn(void* data)
                 .user_data = sqe.user_data,
                 .result_data = sqe.op_data,
             };
-            mel__io_post_cqe(io, cqe);
+            mel_io_post_cqe(io, cqe);
 
             if (!(sqe.flags & MEL_IO_SQE_F_LINK_NEXT))
                 link_failed = false;
@@ -237,7 +243,7 @@ static int SDLCALL mel__io_worker_fn(void* data)
                 .user_data = sqe.user_data,
                 .result_data = sqe.op_data,
             };
-            mel__io_post_cqe(io, cqe);
+            mel_io_post_cqe(io, cqe);
 
             if (sqe.flags & MEL_IO_SQE_F_LINK_NEXT)
                 link_failed = true;
@@ -254,7 +260,7 @@ static int SDLCALL mel__io_worker_fn(void* data)
                 .user_data = sqe.user_data,
                 .result_data = sqe.op_data,
             };
-            mel__io_post_cqe(io, cqe);
+            mel_io_post_cqe(io, cqe);
 
             if (sqe.flags & MEL_IO_SQE_F_LINK_NEXT)
                 link_failed = true;

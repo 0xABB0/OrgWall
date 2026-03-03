@@ -187,6 +187,36 @@ bool mel_vfs_sync_file(Mel_Vfs* vfs, Mel_Vfs_File file)
     return cqe.status == MEL_VFS_STATUS_OK;
 }
 
+bool mel_vfs_rename(Mel_Vfs* vfs, str8 src, str8 dst)
+{
+    assert(vfs);
+
+    Mel_Vfs_Sqe sqe = { .op = MEL_VFS_OP_RENAME, .rename = { .src_path = src, .dst_path = dst } };
+    Mel_Vfs_Cqe cqe;
+    if (!mel__vfs_blocking_op(vfs, &sqe, &cqe)) return false;
+    return cqe.status == MEL_VFS_STATUS_OK;
+}
+
+bool mel_vfs_delete(Mel_Vfs* vfs, str8 path)
+{
+    assert(vfs);
+
+    Mel_Vfs_Sqe sqe = { .op = MEL_VFS_OP_DELETE, .del = { .path = path } };
+    Mel_Vfs_Cqe cqe;
+    if (!mel__vfs_blocking_op(vfs, &sqe, &cqe)) return false;
+    return cqe.status == MEL_VFS_STATUS_OK;
+}
+
+bool mel_vfs_mkdir(Mel_Vfs* vfs, str8 path)
+{
+    assert(vfs);
+
+    Mel_Vfs_Sqe sqe = { .op = MEL_VFS_OP_MKDIR, .mkdir = { .path = path } };
+    Mel_Vfs_Cqe cqe;
+    if (!mel__vfs_blocking_op(vfs, &sqe, &cqe)) return false;
+    return cqe.status == MEL_VFS_STATUS_OK;
+}
+
 static bool mel__vfs_enumerate_dir(Mel_Vfs* vfs, str8 base_path, Mel_Vfs_Enum_Cb cb, void* user, Mel_Vfs_Enum_Opt opt)
 {
     Mel_Vfs_Sqe open_sqe = { .op = MEL_VFS_OP_DIR_OPEN, .dir_open = { .path = base_path } };

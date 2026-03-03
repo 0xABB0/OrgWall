@@ -3,7 +3,7 @@
 
 - [CORE] implement stacktrace capturing for every allocation (debug mode) — DISCUSS: storage format (inline in tracking header vs linked list), debug-only toggling, interaction with Tracy memory profiling. Infrastructure ready (mel\_backtrace\_capture exists).
 - [CORE] handle init failure cleanup — PARTIALLY DONE: gpu.device, gpu.swapchain, render.frame return bool, engine init has goto-based cleanup. Remaining: imgui init failure doesn't fully unwind (skips the feature flag)
-- [CORE] implement Virtual File System (VFS) with mount points and archive support
+- [CORE] ~~implement Virtual File System (VFS) with mount points and archive support~~ PARTIAL: async-first VFS + mounts landed; archive backend still deferred
 - [CORE] implement Hot-Reloading for Game Code (.dylib/.dll reloading)
 - [CORE] implement Asset Hot-Reloading (file watcher)
 - [CORE] implement centralized engine logging system (mel\_log\_*) to replace raw SDL_Log/fprintf
@@ -40,7 +40,7 @@
 - [UPSTREAM] imgui SDL3 backend loses mouse capture during viewport drag/resize (ocornut/imgui#8591, #8869) — known upstream bug, track and update local copy when patched.
 - [h files] header inclusion cleanup — MOSTLY DONE: 17 headers fixed to use .fwd.h, 4 new .fwd.h files created. Remaining: gpu.\*.h chain (8 files include gpu.device.h for Vulkan/VMA types transitively — needs architectural discussion about a separate vulkan types header)
 - [PHYSICAL STRUCTURE] higher-level files (eg ui.widget.[c|h|.fwd.h]) should sort alphabetically above sub-modules (eg ui.widget.button.\*). Currently *.button comes before *.c
-- [OLD FILES] assets.\* needs restructuring into VFS + async I/O — blocked on designing both those modules
+- ~~[OLD FILES] assets.\* needs restructuring into VFS + async I/O~~ DONE: `assets.*` removed and consumers migrated to VFS
 - [DISCUSS] is there a way to test for bad behaviour in memory access?
 - [DEMO] we need a demo for widget animations
 - [DEMO] we need a demo for spritesheet animations
@@ -50,7 +50,7 @@
 - [STRING] String builder
 - [RENDERING] default white texture should be always available as the "zero asset" (invalid/default texture), not manually created per demo/app
 - [RENDERING] Mel_Font_Atlas_Entry should be internal — font draw should take a handle, not force users to fish out the entry
-- [ENGINE] Mel_Engine should not hold a reference to SDL_Window — already discussed multiple times, still there
+- [ENGINE] migrate legacy `Mel_Engine` + `SDL_Window` coupling to module statics + per-window `Mel_Window` ownership (vNext direction in `design/engine.overview.md`)
 - [DEMO] we need to split demos and examples. demos only show one piece of the engine, examples show the full engine (discuss)
 - [EXAMPLE] we need to make a boomer shooter example
 - [EXAMPLE] we need to make a 3d example

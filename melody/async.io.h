@@ -16,10 +16,13 @@
 #define MEL_IO_STATUS_ERROR            1
 #define MEL_IO_STATUS_CANCELLED        2
 #define MEL_IO_STATUS_TIMEOUT          3
+#define MEL_IO_STATUS_PENDING          4
 
 #define MEL_IO_SQE_F_FENCE      (1u << 0)
 #define MEL_IO_SQE_F_LINK_NEXT  (1u << 1)
 
+// Execute function. If status is set to MEL_IO_STATUS_PENDING, the handler
+// takes ownership of completion and MUST call mel_io_post_cqe later.
 typedef void (*Mel_Io_Execute_Fn)(void* ctx, const Mel_Io_Sqe* sqe, Mel_Io_Cqe* cqe);
 
 struct Mel_Io_Sqe {
@@ -89,3 +92,4 @@ i32   mel_io_poll(Mel_Io* io, Mel_Io_Cqe* out, i32 max_count);
 bool  mel_io_wait(Mel_Io* io, i32 min_count, u32 timeout_ms);
 bool  mel_io_poll_ticket(Mel_Io* io, u64 ticket, Mel_Io_Cqe* out);
 bool  mel_io_wait_ticket(Mel_Io* io, u64 ticket, u32 timeout_ms, Mel_Io_Cqe* out);
+void  mel_io_post_cqe(Mel_Io* io, Mel_Io_Cqe cqe);

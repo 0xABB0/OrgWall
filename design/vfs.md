@@ -2,15 +2,14 @@
 
 ## Context
 
-The engine currently uses `assets.h/c` as a thin wrapper around PhysFS. Problems:
+The engine historically used `assets.h/c` as a thin wrapper around PhysFS. Problems were:
 
 - `assets.c` has fixed path buffers and ad-hoc string conversions.
 - VFS behavior is tied to one dependency (`PhysFS`) instead of owned by Melody.
 - Different systems load files differently (`mel_assets_read`, `SDL_IOFromFile`, raw `stbi_load`).
 - No proper async I/O contract for future hot-reload and streaming work.
 
-`todo.md` already calls this out:
-- `[OLD FILES] assets.* needs restructuring into VFS + async I/O`
+This refactor was tracked in `todo.md` and is now implemented in v1 (with deferred items listed below).
 
 This plan moves to an async-first VFS and keeps a clean split:
 - low-level API for maximum control (OS-style queue model),
@@ -85,6 +84,9 @@ No hidden thread model changes. These wrappers only compose Level 1 calls.
 #define MEL_VFS_OP_WATCH_CLOSE 16 // end watch subscription
 #define MEL_VFS_OP_SYNC        17 // fsync equivalent
 #define MEL_VFS_OP_CANCEL      18
+#define MEL_VFS_OP_RENAME      19
+#define MEL_VFS_OP_DELETE      20
+#define MEL_VFS_OP_MKDIR       21
 
 #define MEL_VFS_STATUS_OK          0
 #define MEL_VFS_STATUS_PENDING     1
@@ -96,7 +98,8 @@ No hidden thread model changes. These wrappers only compose Level 1 calls.
 #define MEL_VFS_STATUS_IO_ERROR    7
 #define MEL_VFS_STATUS_INVALID_ARGUMENT 8
 #define MEL_VFS_STATUS_BUFFER_TOO_SMALL 9
-#define MEL_VFS_STATUS_TIMEOUT     10
+#define MEL_VFS_STATUS_TIMEOUT          10
+#define MEL_VFS_STATUS_ALREADY_EXISTS   11
 
 #define MEL_VFS_ERRCAT_NONE     0
 #define MEL_VFS_ERRCAT_GENERIC  1
@@ -131,31 +134,19 @@ No hidden thread model changes. These wrappers only compose Level 1 calls.
 #define MEL_VFS_SQE_F_LINK_NEXT  (1u << 1)
 #define MEL_VFS_SQE_F_DONT_BLOCK (1u << 2)
 
-typedef struct {
-    u32 slot;
-    u32 generation;
-} Mel_Vfs_File;
-#define MEL_VFS_FILE_INVALID ((Mel_Vfs_File){0})
+typedef struct { Mel_SlotMap_Handle handle; } Mel_Vfs_File;
+#define MEL_VFS_FILE_INVALID  ((Mel_Vfs_File){.handle = MEL_SLOTMAP_HANDLE_NULL})
+
+typedef struct { Mel_SlotMap_Handle handle; } Mel_Vfs_Dir;
+#define MEL_VFS_DIR_INVALID   ((Mel_Vfs_Dir){.handle = MEL_SLOTMAP_HANDLE_NULL})
+
+typedef struct { Mel_SlotMap_Handle handle; } Mel_Vfs_Map;
+#define MEL_VFS_MAP_INVALID   ((Mel_Vfs_Map){.handle = MEL_SLOTMAP_HANDLE_NULL})
+
+typedef struct { Mel_SlotMap_Handle handle; } Mel_Vfs_Watch;
+#define MEL_VFS_WATCH_INVALID ((Mel_Vfs_Watch){.handle = MEL_SLOTMAP_HANDLE_NULL})
 
 typedef struct {
-    u32 slot;
-    u32 generation;
-} Mel_Vfs_Dir;
-#define MEL_VFS_DIR_INVALID ((Mel_Vfs_Dir){0})
-
-typedef struct {
-    u32 slot;
-    u32 generation;
-} Mel_Vfs_Map;
-#define MEL_VFS_MAP_INVALID ((Mel_Vfs_Map){0})
-
-typedef struct {
-    u32 slot;
-    u32 generation;
-} Mel_Vfs_Watch;
-#define MEL_VFS_WATCH_INVALID ((Mel_Vfs_Watch){0})
-
-typedef struct Mel_IoVec {
     void* buffer;
     usize len;
 } Mel_IoVec;
@@ -194,10 +185,11 @@ typedef struct Mel_Vfs_Sqe {
     u8  qos_class;    // MEL_VFS_QOS_*
     u64 deadline_ns;  // absolute monotonic deadline, 0 means no deadline
     void* user_data;
-    
-    // NOTE: All str8 paths AND Mel_IoVec arrays passed here are COPIED into the
-    // VFS ring buffer immediately upon submission. The caller does not need to
+
+    // NOTE: All str8 paths AND Mel_IoVec arrays passed here are COPIED via
+    // heap allocation (per-op) on submission. The caller does not need to
     // keep the path string or iov array alive after mel_vfs_submit returns.
+    // Copies are freed automatically when the CQE is extracted.
     union {
         struct { str8 path; u32 open_flags; } open;
         struct { Mel_Vfs_File file; } close;
@@ -217,6 +209,9 @@ typedef struct Mel_Vfs_Sqe {
         struct { Mel_Vfs_Watch watch; } watch_close;
         struct { Mel_Vfs_File file; } sync;
         struct { u64 ticket_to_cancel; } cancel;
+        struct { str8 src_path; str8 dst_path; } rename;
+        struct { str8 path; } del;
+        struct { str8 path; } mkdir;
     };
 } Mel_Vfs_Sqe;
 
@@ -242,10 +237,8 @@ typedef struct Mel_Vfs_Cqe {
 } Mel_Vfs_Cqe;
 
 typedef struct {
-    Mel_Alloc* allocator;   // For internal allocations (backend states, ring buffers)
-    usize sq_capacity;      // Submission Queue size (power of 2)
-    usize cq_capacity;      // Completion Queue size (power of 2)
-    u32 worker_threads;     // Number of background IO threads (0 for main-thread only polling)
+    const Mel_Alloc* allocator;
+    Mel_Io*          io;    // External I/O executor (caller creates and owns)
 } Mel_Vfs_Desc;
 
 bool mel_vfs_init(Mel_Vfs* vfs, const Mel_Vfs_Desc* desc);
@@ -258,7 +251,7 @@ u64  mel_vfs_next_ticket(Mel_Vfs* vfs);
 // LINK_NEXT admission is atomic per chain: if a chain cannot fit fully, reject
 // that entire chain from its root SQE onward (no split admission).
 // Accepted SQEs always produce exactly one terminal CQE.
-// Paths and iov arrays are copied into the internal ring buffer here.
+// Paths and iov arrays are copied into per-op heap-owned memory here.
 i32  mel_vfs_submit(Mel_Vfs* vfs, const Mel_Vfs_Sqe* sqes, i32 count);
 
 // Non-blocking poll. Returns number of CQEs written.
@@ -278,13 +271,13 @@ void* mel_vfs_map_ptr(Mel_Vfs* vfs, Mel_Vfs_Map map, usize* out_size);
 ```
 
 Important properties:
-- **Zero-Allocation Submission:** The submit call copies paths to a pre-allocated ring buffer. No `malloc` per IO request.
-- **Priority Queueing:** Backend workers pick high-priority tasks first (critical for streaming).
-- **Scatter/Gather:** `readv` supported for efficient parsing.
+- **Per-Op Heap Allocation:** Submit copies paths and iov arrays into per-op heap allocations, freed when CQE is extracted. Straightforward ownership model at the cost of a malloc per submit.
+- **Delegated Execution:** VFS registers a handler with `Mel_Io` and delegates threading, queuing, fence/link semantics, and ticket management to the generic I/O executor.
+- **Scatter/Gather:** `readv`/`writev` supported for efficient parsing and batched writes.
 - **Memory Mapping:** `map` returns a handle and `mel_vfs_map_ptr` exposes pointer metadata safely.
-- **Generational Handles:** `Mel_Vfs_File` / `Mel_Vfs_Dir` / `Mel_Vfs_Map` are ID+generation pairs to reject stale handles safely.
+- **Generational Handles:** `Mel_Vfs_File` / `Mel_Vfs_Dir` / `Mel_Vfs_Map` / `Mel_Vfs_Watch` wrap `Mel_SlotMap_Handle` (u32 index + u32 generation) for stale-handle rejection.
 - **Typed Errors:** `Mel_Vfs_Error` carries category + backend + native OS code for production diagnostics.
-- **Ticket Ownership:** caller reserves ticket IDs through `mel_vfs_next_ticket` before submit.
+- **Ticket Ownership:** caller reserves ticket IDs through `mel_vfs_next_ticket` (delegates to `mel_io_next_ticket`) before submit.
 
 ## Operation Lifecycle (strict contract)
 
@@ -348,12 +341,15 @@ Use `DIR_NEXT_BATCH` with caller-owned `Mel_Vfs_Dir_Entry[]` AND a single large 
 ## Mount Registry (stays, but resolved at open)
 
 ```c
-typedef struct {
-    str8             prefix;    // duped into VFS allocator
+struct Mel_Vfs_Mount {
+    str8             prefix;          // duped into VFS allocator, normalized at mount time
     Mel_Vfs_Backend* backend;
-    u8               priority;  // higher checked first
+    u8               priority;        // higher checked first
     bool             writable;
-} Mel_Vfs_Mount;
+    u32              refcount;        // live handles referencing this mount
+    bool             retired;         // set by unmount, blocks new opens
+    u32              insertion_order; // tie-break for same priority + prefix length
+};
 ```
 
 Path normalization + validation (applied for all admitted path-bearing SQEs):
@@ -391,30 +387,33 @@ Backends expose explicit handle-based operations.
 Optional extension point for native async drivers:
 - `submit_native` may complete directly into CQ when backend can use true OS async (future),
 - if missing, VFS worker path executes blocking backend op and posts CQ.
+- `rename`, `remove`, `mkdir` are optional backend entries (NULL → `UNSUPPORTED`). Return 0 on success, `-errno` on failure.
 
 This allows v1 to ship with a robust fallback and evolve to io_uring/IOCP backends later without changing public API.
 
 ## Threading, Completion, and Safety
 
-- VFS owns a bounded SQ/CQ capacity configured at init.
-- v1 execution path can run on job workers (`Mel_Job_Context`) and post completions back into CQ.
-- callbacks from high-level enumerate API execute on the thread that drives polling/waiting, not on random workers.
-- completion ordering is per-request, not global ordering across all tickets.
-- cancellation is best-effort:
-  - if not started: completes as `CANCELLED`,
-  - if already running in backend: may complete as normal.
+- VFS does NOT own threads, SQ/CQ rings, or condvars. All of that is delegated to `Mel_Io` (see `melody/async.io.*`).
+- VFS registers a handler via `mel_io_register_handler()` at init. The handler callback (`mel__vfs_io_handler`) is called by `Mel_Io` workers.
+- The handler uses a three-phase execution model to minimize lock contention:
+  - **Phase 0 (no lock):** path normalization + escape checking for path-bearing ops.
+  - **Phase 1 (lock):** `mel__vfs_resolve` — slotmap lookups, mount resolution, permission checks. Populates `Mel_Vfs__Op_Ctx`.
+  - **Phase 2 (no lock):** `mel__vfs_dispatch` — backend I/O calls using resolved context. This is the expensive phase and runs without holding `state_lock`.
+  - **Phase 3 (lock, conditional):** `mel__vfs_commit` — slotmap insertions and mount refcount updates, only if the operation succeeded and needs state mutation (e.g., OPEN, CLOSE, MAP).
+- Callbacks from high-level enumerate API execute on the thread that drives polling/waiting, not on random workers.
+- Completion ordering is per-request, not global ordering across all tickets.
+- Cancellation is best-effort via `mel_io_cancel` (`MEL_VFS_OP_CANCEL` delegates to Mel_Io).
 
-QoS scheduling model:
+QoS scheduling model (PARTIALLY IMPLEMENTED):
 - QoS class selects the scheduling lane (separate per-lane queues with independent in-flight budgets),
-- priority (0-255) determines ordering within a lane (higher = picked first),
-- `deadline_ns` triggers promotion: when a request's deadline is about to expire, it is promoted to the `LATENCY_CRITICAL` lane regardless of its original QoS class,
-- in-flight budgets per lane prevent starvation: `LATENCY_CRITICAL` always has reserved slots that `BULK` cannot consume,
-- a `BULK` request with priority 255 still cannot preempt a `LATENCY_CRITICAL` request with priority 0 — lane boundaries are hard.
+- priority (0-255) ordering within a lane is not implemented yet,
+- `deadline_ns` timeout checks exist, but deadline-based lane promotion is not implemented yet,
+- in-flight budgets per lane are not implemented yet.
 
 Thread safety of blocking wrappers (`mel_vfs_read_file_alloc`, etc.):
 - blocking wrappers internally call `mel_vfs_submit` + `mel_vfs_wait_ticket`,
 - wrappers never consume/re-post foreign CQEs; ticket-targeted wait/poll isolates completion ownership,
-- this allows multiple wrapper calls concurrently as long as SQ/CQ internals are thread-safe (required),
+- this allows multiple wrapper calls concurrently because `Mel_Io`'s SQ/CQ internals are thread-safe,
 - mixing blocking wrappers with manual `mel_vfs_poll` is safe if manual pollers do not deliberately steal wrapper-owned tickets,
 - `mel_vfs_shutdown` asserts that all deferred-cleanup mounts have reached refcount zero.
 
@@ -432,346 +431,19 @@ Memory ownership contract:
 These wrappers are convenience-only and are implemented over Level 1:
 
 ```c
-u8*  mel_vfs_read_file_alloc(Mel_Vfs* vfs, str8 path, usize* out_size, Mel_Alloc* alloc);
-str8 mel_vfs_read_text_alloc(Mel_Vfs* vfs, str8 path, Mel_Alloc* alloc);
+u8*  mel_vfs_read_file_alloc(Mel_Vfs* vfs, str8 path, usize* out_size, const Mel_Alloc* alloc);
+str8 mel_vfs_read_text_alloc(Mel_Vfs* vfs, str8 path, const Mel_Alloc* alloc);
 bool mel_vfs_write_file(Mel_Vfs* vfs, str8 path, const u8* data, usize size);
 bool mel_vfs_write_text(Mel_Vfs* vfs, str8 path, str8 text);
 bool mel_vfs_exists(Mel_Vfs* vfs, str8 path);
 bool mel_vfs_stat_sync(Mel_Vfs* vfs, str8 path, Mel_Vfs_Stat* out);
+bool mel_vfs_sync_file(Mel_Vfs* vfs, Mel_Vfs_File file);
+bool mel_vfs_rename(Mel_Vfs* vfs, str8 src, str8 dst);
+bool mel_vfs_delete(Mel_Vfs* vfs, str8 path);
+bool mel_vfs_mkdir(Mel_Vfs* vfs, str8 path);
 ```
 
 These wrappers can block by internally waiting on completions.
 Core async API remains the primary contract.
 
-## Files
-
-### `melody/vfs.fwd.h`
-
-Forward declarations only. Any `.h` that needs VFS types without pulling in the full API includes this.
-
-Forward-declared types:
-- `Mel_Vfs`
-- `Mel_Vfs_File`, `Mel_Vfs_Dir`, `Mel_Vfs_Map`, `Mel_Vfs_Watch` (generational handles)
-- `Mel_Vfs_Stat`
-- `Mel_Vfs_Error`
-- `Mel_Vfs_Sqe`, `Mel_Vfs_Cqe`
-- `Mel_IoVec`
-- `Mel_Vfs_Backend`
-- `Mel_Vfs_Mount`
-
-### `melody/vfs.cfg.h`
-
-Configuration macros with ifdef/default pattern per MEL-STYLE-003.
-
-- `MEL_VFS_DEFAULT_SQ_CAPACITY` (default: 256)
-- `MEL_VFS_DEFAULT_CQ_CAPACITY` (default: 512)
-- `MEL_VFS_MAX_PATH` (default: 4096)
-- `MEL_VFS_HANDLE_TABLE_INITIAL` (default: 256)
-- `MEL_VFS_MOUNT_TABLE_INITIAL` (default: 16)
-- `MEL_VFS_RING_BUFFER_SIZE` (path/iovec copy ring, default: 64K)
-- `MEL_VFS_VALIDATE_HANDLES` (default: 1 in debug, 0 in release)
-
-### `melody/vfs.async.h`
-
-Level 1 core async API. This is the primary contract.
-
-Includes: `vfs.cfg.h`, `core.types.h`, `string.str8.fwd.h`, `allocator.h`
-
-Defines all constants:
-- `MEL_VFS_OP_*` (OPEN, CLOSE, READ, WRITE, READV, WRITEV, MAP, UNMAP, STAT, DIR_OPEN, DIR_NEXT, DIR_NEXT_BATCH, DIR_CLOSE, WATCH_OPEN, WATCH_NEXT, WATCH_CLOSE, SYNC, CANCEL)
-- `MEL_VFS_STATUS_*` (OK, PENDING, NOT_FOUND, EOF, PERMISSION, UNSUPPORTED, CANCELLED, IO_ERROR, INVALID_ARGUMENT, BUFFER_TOO_SMALL, TIMEOUT)
-- `MEL_VFS_ERRCAT_*` (NONE, GENERIC, OS, BACKEND)
-- `MEL_VFS_OPEN_*` (READ, WRITE, CREATE, TRUNCATE, DIRECT)
-- `MEL_VFS_WATCH_*` (ADDED, MODIFIED, REMOVED, RENAMED)
-- `MEL_VFS_PRIORITY_*` (LOW=0, NORMAL=128, HIGH=255)
-- `MEL_VFS_QOS_*` (LATENCY_CRITICAL, STREAMING, BULK)
-- `MEL_VFS_SQE_F_*` (FENCE, LINK_NEXT, DONT_BLOCK)
-- `MEL_VFS_MAP_*` (READ, WRITE)
-
-Full struct definitions:
-- `Mel_Vfs_File`, `Mel_Vfs_Dir`, `Mel_Vfs_Map`, `Mel_Vfs_Watch` — `{ u32 slot; u32 generation; }` + INVALID sentinels
-- `Mel_IoVec` — `{ void* buffer; usize len; }`
-- `Mel_Vfs_Stat` — `{ u64 size; u64 mtime_ns; u64 change_ns; u64 birth_ns; u32 flags; }` with `MEL_VFS_STAT_IS_FILE`, `_IS_DIR`, `_IS_SYMLINK`, `_IS_READONLY`, `_HAS_BIRTH_TIME` flag defines
-- `Mel_Vfs_Error` — `{ u16 category; u16 backend_id; i32 code; i32 native_code; }`
-- `Mel_Vfs_Dir_Entry` — `{ str8 name; Mel_Vfs_Stat stat; }`
-- `Mel_Vfs_Sqe` — ticket, op, flags, priority, qos_class, deadline_ns, user_data, tagged union
-- `Mel_Vfs_Cqe` — ticket, op, status, result, error, user_data, tagged union
-- `Mel_Vfs_Desc` — `{ Mel_Alloc* allocator; usize sq_capacity; usize cq_capacity; u32 worker_threads; }`
-- `Mel_Vfs` — the instance struct (fully visible, not opaque):
-  - SQ/CQ ring buffers
-  - handle tables (file, dir, map, watch) backed by slotmap-style arrays
-  - path copy ring buffer
-  - mount table pointer + generation
-  - worker thread pool state
-  - ticket counter (atomic u64, monotonic)
-
-Functions:
-- `mel_vfs_init(Mel_Vfs*, const Mel_Vfs_Desc*)` → bool
-- `mel_vfs_shutdown(Mel_Vfs*)`
-- `mel_vfs_next_ticket(Mel_Vfs*)` → u64 (monotonic, never returns 0)
-- `mel_vfs_submit(Mel_Vfs*, const Mel_Vfs_Sqe*, i32 count)` → i32 (prefix-accepted count, LINK_NEXT admission is atomic per chain)
-- `mel_vfs_poll(Mel_Vfs*, Mel_Vfs_Cqe*, i32 max_count)` → i32
-- `mel_vfs_wait(Mel_Vfs*, i32 min_count, u32 timeout_ms)` → bool
-- `mel_vfs_poll_ticket(Mel_Vfs*, u64 ticket, Mel_Vfs_Cqe*)` → bool
-- `mel_vfs_wait_ticket(Mel_Vfs*, u64 ticket, u32 timeout_ms, Mel_Vfs_Cqe*)` → bool
-- `mel_vfs_map_ptr(Mel_Vfs*, Mel_Vfs_Map, usize* out_size)` → void*
-
-### `melody/vfs.async.inl`
-
-Inline helpers for hot-path validation and convenience.
-
-- `mel_vfs_file_valid(Mel_Vfs_File)` → bool (not INVALID sentinel)
-- `mel_vfs_dir_valid(Mel_Vfs_Dir)` → bool
-- `mel_vfs_map_valid(Mel_Vfs_Map)` → bool
-- `mel_vfs_watch_valid(Mel_Vfs_Watch)` → bool
-
-### `melody/vfs.async.c`
-
-Core implementation of the async engine.
-
-- SQ/CQ ring buffer management (power-of-two masking, producer/consumer indices)
-- Ticket generation: per-VFS atomic monotonic u64 counter exposed via `mel_vfs_next_ticket`
-- Submit path: capacity admission + chain admission + copy str8 paths AND Mel_IoVec arrays into ring buffer, enqueue
-- Partial submit: prefix-based acceptance; `LINK_NEXT` is all-or-none per chain
-- Dispatch: dequeue from SQ, resolve handle → backend, execute blocking backend call or hand off to worker
-- Validation and path/routing failures for admitted SQEs are emitted as terminal CQEs
-- Worker thread pool (spawned when `worker_threads > 0`): per-QoS lanes, priority ordering within each lane, in-flight budgets per QoS class to prevent starvation
-- QoS/priority/deadline interaction: QoS picks lane, priority orders in-lane, near-expired `deadline_ns` promotes to LATENCY_CRITICAL lane
-- Completion posting: thread-safe CQ push (lock-free MPSC or mutex, TBD during impl)
-- Cancellation: best-effort, sets cancelled flag, racing completion is valid
-- FENCE: blocks later SQEs from entering RUNNING until fenced SQE completes
-- LINK_NEXT: if parent fails/cancels, linked children get CANCELLED CQEs
-- Watch sessions: `WATCH_OPEN` allocates watch handle, `WATCH_NEXT` blocks/polls one event into caller-provided `path_buf`, `WATCH_CLOSE` releases handle
-- Handle table: slot allocation, generation increment on close, stale-generation rejection via assert
-- Ticket-targeted completion (`mel_vfs_poll_ticket` / `mel_vfs_wait_ticket`): scan CQ for existing match first, then condvar-wait on new completions; completions post to CQ and broadcast condvar so all waiters re-check
-
-### `melody/vfs.h`
-
-Level 2 ergonomic API + mount lifecycle.
-
-Includes: `vfs.async.h`
-
-Types:
-- `Mel_Vfs_Mount` — `{ str8 prefix; Mel_Vfs_Backend* backend; u8 priority; bool writable; }`
-- `Mel_Vfs_Enum_Cb` — `bool (*)(str8 virtual_path, const Mel_Vfs_Stat* stat, void* user)`
-- `Mel_Vfs_Enum_Opt` — `{ bool recursive; bool include_dirs; }`
-
-Functions:
-- `mel_vfs_mount(Mel_Vfs*, str8 prefix, Mel_Vfs_Backend*, u8 priority, bool writable)`
-- `mel_vfs_unmount(Mel_Vfs*, str8 prefix)` — retires mount for new opens, destruction deferred until active handle refs drop to zero
-- `mel_vfs_read_file_alloc(Mel_Vfs*, str8 path, usize* out_size, Mel_Alloc*)` → u8*
-- `mel_vfs_read_text_alloc(Mel_Vfs*, str8 path, Mel_Alloc*)` → str8
-- `mel_vfs_write_file(Mel_Vfs*, str8 path, const u8* data, usize size)` → bool
-- `mel_vfs_write_text(Mel_Vfs*, str8 path, str8 text)` → bool
-- `mel_vfs_exists(Mel_Vfs*, str8 path)` → bool
-- `mel_vfs_stat_sync(Mel_Vfs*, str8 path, Mel_Vfs_Stat*)` → bool
-- `mel_vfs_sync(Mel_Vfs*, Mel_Vfs_File)` → bool (fsync equivalent)
-- `mel_vfs_enumerate_opt(Mel_Vfs*, str8 path, Mel_Vfs_Enum_Cb, void*, Mel_Vfs_Enum_Opt)` → bool
-- `mel_vfs_enumerate(vfs, path, cb, user, ...)` (macro with _opt pattern)
-
-### `melody/vfs.c`
-
-Level 2 implementation.
-
-- Mount registry: dynamic array of Mel_Vfs_Mount sorted by priority (higher first)
-- Mount generation counter: atomic u32, incremented on mount/unmount
-- Path normalization: forward slash only, no trailing slash, collapse `..`, case preserved, virtual root is `/`
-- Mount prefix canonicalization at mount time using same normalization rules; invalid prefixes are rejected
-- Open-time mount resolution order: priority desc, prefix_len desc, insertion_order asc; captures mount generation snapshot into handle metadata
-- Mount unmount safety: unmount retires mount immediately for new opens, actual backend cleanup after last live handle releases
-- Blocking wrappers: submit SQE, call `mel_vfs_wait_ticket` for owned ticket, no foreign CQE re-post path
-- Enumerate: built on DIR_OPEN → DIR_NEXT loop → DIR_CLOSE, with early exit on callback returning false
-- Sync: submit MEL_VFS_OP_SYNC, wait for completion
-
-### `melody/vfs.backend.h`
-
-Backend vtable definition. Internal header but fully designed — this is the pluggability contract.
-
-```c
-typedef usize Mel_Vfs_Native_Handle;
-
-typedef struct Mel_Vfs_Backend {
-    i32  (*open)(Mel_Vfs_Backend*, str8 path, u32 open_flags, Mel_Vfs_Native_Handle* out_native_handle);
-    void (*close)(Mel_Vfs_Backend*, Mel_Vfs_Native_Handle native_handle);
-    i64  (*read)(Mel_Vfs_Backend*, Mel_Vfs_Native_Handle native_handle, u64 offset, void* dst, usize size);
-    i64  (*write)(Mel_Vfs_Backend*, Mel_Vfs_Native_Handle native_handle, u64 offset, const void* src, usize size);
-    i64  (*readv)(Mel_Vfs_Backend*, Mel_Vfs_Native_Handle native_handle, u64 offset, Mel_IoVec* iov, usize iov_cnt);
-    i64  (*writev)(Mel_Vfs_Backend*, Mel_Vfs_Native_Handle native_handle, u64 offset, const Mel_IoVec* iov, usize iov_cnt);
-    i32  (*stat)(Mel_Vfs_Backend*, str8 path, Mel_Vfs_Stat* out);
-    i32  (*dir_open)(Mel_Vfs_Backend*, str8 path, Mel_Vfs_Native_Handle* out_native_handle);
-    i32  (*dir_next)(Mel_Vfs_Backend*, Mel_Vfs_Native_Handle native_handle, u8* name_buf, usize name_cap, usize* out_name_len, Mel_Vfs_Stat* out_stat);
-    void (*dir_close)(Mel_Vfs_Backend*, Mel_Vfs_Native_Handle native_handle);
-    i32  (*map)(Mel_Vfs_Backend*, Mel_Vfs_Native_Handle native_handle, u64 offset, usize size, u32 flags, void** out_ptr);
-    void (*unmap)(Mel_Vfs_Backend*, void* ptr, usize size);
-    i32  (*watch_open)(Mel_Vfs_Backend*, str8 path, bool recursive, u32 flags, Mel_Vfs_Native_Handle* out_native_handle);
-    i32  (*watch_next)(Mel_Vfs_Backend*, Mel_Vfs_Native_Handle native_handle, i32 timeout_ms, u8* path_buf, usize path_cap, usize* out_path_len, i32* out_action);
-    void (*watch_close)(Mel_Vfs_Backend*, Mel_Vfs_Native_Handle native_handle);
-    i32  (*sync)(Mel_Vfs_Backend*, Mel_Vfs_Native_Handle native_handle);
-    void (*destroy)(Mel_Vfs_Backend*);
-    void* impl_data;
-} Mel_Vfs_Backend;
-```
-
-All ops return 0/positive on success, negative on error. Read/write return bytes transferred.
-
-`dir_next` and `watch_next` receive explicit buffer + capacity + out-length parameters. Backend writes name/path bytes into the provided buffer up to capacity. If the buffer is too small, backend returns negative and sets `*out_name_len` / `*out_path_len` to the required size — the VFS layer translates this to `MEL_VFS_STATUS_BUFFER_TOO_SMALL` with `result = required_bytes`. The pending entry/event is NOT consumed on buffer-too-small, making retry safe. The VFS layer assembles the final `Mel_Vfs_Dir_Entry` (setting `name.data = name_buf`, `name.len = *out_name_len`) after a successful backend call.
-
-Backends may leave watch function pointers null if unsupported; VFS maps that to `MEL_VFS_STATUS_UNSUPPORTED`. Backend does NOT own handle generation logic — that's VFS-level. `native_handle` is backend-local and pointer-width safe.
-
-### `melody/vfs.backend.os.h`
-
-OS filesystem backend creation/destruction.
-
-- `mel_vfs_backend_os_create(Mel_Alloc*, str8 root_path)` → Mel_Vfs_Backend*
-- `mel_vfs_backend_os_destroy(Mel_Vfs_Backend*)`
-
-`root_path` is the physical directory this backend maps to. All paths are resolved relative to it.
-
-### `melody/vfs.backend.os.c`
-
-POSIX implementation (macOS + Linux). Win32 behind `#if MEL_PLATFORM_WINDOWS` for later.
-
-- open/close → `open(2)` / `close(2)`
-- read/write → `pread(2)` / `pwrite(2)` (positioned, no lseek state)
-- readv/writev → `preadv(2)` / `pwritev(2)`
-- stat → `stat(2)` / `fstat(2)` mapped into `Mel_Vfs_Stat` (`mtime_ns`/`change_ns`; `birth_ns` when available, else 0 and no `HAS_BIRTH_TIME`)
-- dir_open/dir_next/dir_close → `opendir` / `readdir` / `closedir`
-- map/unmap → `mmap(2)` / `munmap(2)` with MAP_READ/MAP_WRITE → PROT_READ/PROT_WRITE
-- sync → `fsync(2)`
-- watch_open/watch_next/watch_close → v1 returns unsupported (watch API is present, backend impl deferred)
-
-### `melody/vfs.backend.mock.h`
-
-Deterministic mock/replay backend for testing. First-class, not an afterthought.
-
-- `mel_vfs_backend_mock_create(Mel_Alloc*)` → Mel_Vfs_Backend*
-- `mel_vfs_backend_mock_destroy(Mel_Vfs_Backend*)`
-- `mel_vfs_backend_mock_script_read(backend, path, data, size, status, latency_us)` — pre-program a read result
-- `mel_vfs_backend_mock_script_write(backend, path, status, latency_us)` — pre-program a write result
-- `mel_vfs_backend_mock_script_error(backend, path, op, error)` — inject error for specific op+path
-- `mel_vfs_backend_mock_script_stat(backend, path, stat, status)` — pre-program stat result
-- `mel_vfs_backend_mock_set_completion_order(backend, ticket_order[], count)` — force completions in exact order for race reproduction
-
-### `melody/vfs.backend.mock.c`
-
-Scripted response tables, artificial latency injection, forced completion ordering. Backed by hashmap keyed on (path, op).
-
-### Tests
-
-`tests/test_vfs_async.c` — Core SQ/CQ mechanics.
-- submit/poll round-trip, ticket monotonicity
-- open/read/write/stat against OS backend with real temp files
-- positioned I/O correctness (read at offset)
-- scatter/gather (readv into separate header+body buffers)
-- cancellation (cancel pending op, verify CANCELLED CQE)
-- FENCE (later ops blocked until fenced op completes)
-- LINK_NEXT (parent failure cascades CANCELLED to children)
-- LINK_NEXT all-or-none admission at capacity boundary (no split chains)
-- handle generation rejection (close file, attempt read on stale handle)
-- partial submit (fill SQ, verify prefix acceptance and chain-root rejection)
-- per-ticket wait/poll helpers (`mel_vfs_wait_ticket`, `mel_vfs_poll_ticket`) under concurrent wrapper usage
-- Tags: `vfs, async`
-
-`tests/test_vfs_enum.c` — Directory enumeration.
-- callback walk (flat and recursive)
-- early termination (callback returns false)
-- explicit DIR_OPEN/DIR_NEXT/DIR_CLOSE loop
-- batched DIR_NEXT_BATCH (verify entries_filled count)
-- DIR_NEXT buffer too small (`BUFFER_TOO_SMALL`, required bytes in `result`, retry same entry)
-- DIR_NEXT_BATCH first-entry too large contract (`BUFFER_TOO_SMALL`, required bytes)
-- empty directory edge case
-- Tags: `vfs, collection`
-
-`tests/test_vfs_watch.c` — Watch session semantics.
-- WATCH_OPEN unsupported path on OS backend v1 (`UNSUPPORTED`)
-- mock backend WATCH_OPEN → WATCH_NEXT → WATCH_CLOSE lifecycle
-- WATCH_NEXT timeout returns `TIMEOUT`
-- WATCH_NEXT buffer too small returns `BUFFER_TOO_SMALL` and retry returns same event
-- Tags: `vfs, async`
-
-`tests/test_vfs_mount.c` — Mount registry.
-- priority ordering (higher priority mount wins)
-- longest prefix matching
-- deterministic tie-break (same priority + same prefix length => earlier mount insertion wins)
-- mount prefix canonicalization and invalid prefix rejection
-- mount generation snapshot (open before unmount keeps working)
-- unmount retires mount (new opens failover) while existing handles keep working until close
-- writable flag enforcement (write to read-only mount fails)
-- Tags: `vfs`
-
-`tests/test_vfs_mock.c` — Mock backend.
-- scripted read/write/stat results
-- error injection (specific path + op returns error)
-- latency simulation
-- forced completion ordering for deterministic race reproduction
-- Tags: `vfs, async`
-
-`tests/test_vfs_stress.c` — Stress and starvation.
-- many concurrent mixed ops across threads with random cancellation
-- QoS starvation measurement (bulk streaming vs latency-critical tail latency)
-- handle slot reuse after heavy churn
-- Tags: `vfs, async` (consider running manually, not in default suite)
-
-### Delete (after migration)
-
-- `melody/assets.h`
-- `melody/assets.c`
-
-### Modify
-
-- `melody/texture.c` / `melody/texture.h`
-- `melody/gpu.texture.c` / `melody/gpu.texture.h`
-- `melody/font.atlas.c` / `melody/font.atlas.h`
-- `melody/sprite.sheet.c` / `melody/sprite.sheet.h`
-- `melody/texture.atlas.c` / `melody/texture.atlas.h`
-- `melody/tile.set.c` / `melody/tile.set.h`
-- `melody/tile.map.c` / `melody/tile.map.h`
-- `game/main.c`
-- `nob.c` (remove PhysFS link)
-- docs (`todo.md`, `CLAUDE.md`)
-
-## Execution Order
-
-1. Implement Level 1 core (`vfs.async.*`) with handle tables (generation counters), SQ/CQ, and typed error propagation.
-2. Add mount registry + path normalization + open-time resolution with mount generation snapshots.
-3. Implement directory operations (`DIR_OPEN/NEXT/NEXT_BATCH/CLOSE`) and tests.
-4. Implement QoS scheduling and submission semantics (`FENCE`, `LINK_NEXT`, `DONT_BLOCK`).
-5. Implement Level 2 ergonomic wrappers on top of Level 1.
-6. Migrate one consumer at a time from `assets.*` to VFS.
-7. Remove PhysFS dependency and delete `assets.*`.
-8. Run full build and tests.
-
-## Verification
-
-1. `cc -o nob nob.c && ./nob test --tag vfs`
-2. `./nob test`
-3. `./nob build && ./nob run`
-4. `rg -n "physfs|PHYSFS" melody nob.c`
-5. `./nob demo breakout`
-
-## Validation Matrix (AAA-level hardening)
-
-- Stress: millions of mixed ops across threads (`OPEN/READ/WRITE/STAT/DIR`) with random cancellation.
-- Fault injection: force backend errors (`ENOENT`, `EACCES`, `EIO`, short read/write, transient busy).
-- Race tests: cancel vs completion, close vs in-flight read, mount/unmount vs open/read.
-- Destination-buffer sizing: verify `BUFFER_TOO_SMALL` + required-byte reporting + retry behavior for dir/watch operations.
-- Starvation tests: sustained bulk streaming while latency-critical requests measure tail latency.
-- Handle safety: stale generation rejection and slot reuse correctness.
-- Deterministic replay backend: scripted completion ordering to reproduce rare races.
-- Performance baselines: queue throughput, p99 latency, batched dir listing scalability.
-
-## v1 Scope and Deferred Items
-
-Included in v1:
-- async-first queue API,
-- explicit handle-based file and dir operations,
-- callback enumerate plus explicit single-entry and batched dir iteration,
-- OS backend + mount priorities,
-- sync helper wrappers on top.
-
-Deferred:
-- native io_uring backend,
-- native IOCP backend,
-- file watching/hot-reload (API present, implementation deferred),
-- archive backend,
-- network backend.
+→ Implementation tracking, per-file notes, tests, execution history: `vfs.status.md`

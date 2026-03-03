@@ -174,6 +174,79 @@ MEL_TEST(vfs_os_enumerate, .tags = "vfs")
     mel__test_os_teardown(&io, &vfs, backend, tmpdir);
 }
 
+MEL_TEST(vfs_os_dir_next_buffer_too_small_retry, .tags = "vfs, async")
+{
+    Mel_Io io;
+    Mel_Vfs vfs;
+    Mel_Vfs_Backend* backend;
+    str8 tmpdir;
+    mel__test_os_setup(&io, &vfs, &backend, &tmpdir);
+
+    mel_vfs_write_text(&vfs, S8("/very_long_entry_name.txt"), S8("data"));
+
+    u64 t1 = mel_vfs_next_ticket(&vfs);
+    Mel_Vfs_Sqe open_sqe = {
+        .ticket = t1,
+        .op = MEL_VFS_OP_DIR_OPEN,
+        .dir_open = { .path = S8("/") },
+    };
+    mel_vfs_submit(&vfs, &open_sqe, 1);
+    Mel_Vfs_Cqe open_cqe;
+    MEL_ASSERT(mel_vfs_poll_ticket(&vfs, t1, &open_cqe));
+    MEL_ASSERT_EQ(open_cqe.status, (u32)MEL_VFS_STATUS_OK);
+    Mel_Vfs_Dir dir = open_cqe.dir;
+
+    u8 small_buf[4];
+    Mel_Vfs_Dir_Entry entry = {0};
+    u64 t2 = mel_vfs_next_ticket(&vfs);
+    Mel_Vfs_Sqe next_small = {
+        .ticket = t2,
+        .op = MEL_VFS_OP_DIR_NEXT,
+        .dir_next = {
+            .dir = dir,
+            .entry = &entry,
+            .name_buf = small_buf,
+            .name_cap = sizeof(small_buf),
+        },
+    };
+    mel_vfs_submit(&vfs, &next_small, 1);
+    Mel_Vfs_Cqe small_cqe;
+    MEL_ASSERT(mel_vfs_poll_ticket(&vfs, t2, &small_cqe));
+    MEL_ASSERT_EQ(small_cqe.status, (u32)MEL_VFS_STATUS_BUFFER_TOO_SMALL);
+    MEL_ASSERT_GT(small_cqe.result, (i64)sizeof(small_buf));
+
+    u8 name_buf[256];
+    u64 t3 = mel_vfs_next_ticket(&vfs);
+    Mel_Vfs_Sqe next_retry = {
+        .ticket = t3,
+        .op = MEL_VFS_OP_DIR_NEXT,
+        .dir_next = {
+            .dir = dir,
+            .entry = &entry,
+            .name_buf = name_buf,
+            .name_cap = sizeof(name_buf),
+        },
+    };
+    mel_vfs_submit(&vfs, &next_retry, 1);
+    Mel_Vfs_Cqe retry_cqe;
+    MEL_ASSERT(mel_vfs_poll_ticket(&vfs, t3, &retry_cqe));
+    MEL_ASSERT_EQ(retry_cqe.status, (u32)MEL_VFS_STATUS_OK);
+    MEL_ASSERT_EQ(entry.name.len, (size)small_cqe.result);
+    MEL_ASSERT(str8_equals(entry.name, S8("very_long_entry_name.txt")));
+
+    u64 t4 = mel_vfs_next_ticket(&vfs);
+    Mel_Vfs_Sqe close_sqe = {
+        .ticket = t4,
+        .op = MEL_VFS_OP_DIR_CLOSE,
+        .dir_close = { .dir = dir },
+    };
+    mel_vfs_submit(&vfs, &close_sqe, 1);
+    Mel_Vfs_Cqe close_cqe;
+    mel_vfs_poll_ticket(&vfs, t4, &close_cqe);
+
+    mel__test_os_teardown(&io, &vfs, backend, tmpdir);
+}
+
 MEL_TEST(vfs_os_map_unmap, .tags = "vfs")
 {
     Mel_Io io;
@@ -378,6 +451,64 @@ MEL_TEST(vfs_os_readv_writev, .tags = "vfs, async")
     mel__test_os_teardown(&io, &vfs, backend, tmpdir);
 }
 
+MEL_TEST(vfs_os_rename, .tags = "vfs")
+{
+    Mel_Io io;
+    Mel_Vfs vfs;
+    Mel_Vfs_Backend* backend;
+    str8 tmpdir;
+    mel__test_os_setup(&io, &vfs, &backend, &tmpdir);
+
+    mel_vfs_write_text(&vfs, S8("/before.txt"), S8("rename me"));
+
+    bool ok = mel_vfs_rename(&vfs, S8("/before.txt"), S8("/after.txt"));
+    MEL_ASSERT(ok);
+
+    MEL_ASSERT(!mel_vfs_exists(&vfs, S8("/before.txt")));
+    str8 text = mel_vfs_read_text_alloc(&vfs, S8("/after.txt"), mel_alloc_heap());
+    MEL_ASSERT(str8_equals(text, S8("rename me")));
+    mel_dealloc(mel_alloc_heap(), text.data);
+
+    mel__test_os_teardown(&io, &vfs, backend, tmpdir);
+}
+
+MEL_TEST(vfs_os_delete, .tags = "vfs")
+{
+    Mel_Io io;
+    Mel_Vfs vfs;
+    Mel_Vfs_Backend* backend;
+    str8 tmpdir;
+    mel__test_os_setup(&io, &vfs, &backend, &tmpdir);
+
+    mel_vfs_write_text(&vfs, S8("/deleteme.txt"), S8("gone soon"));
+    MEL_ASSERT(mel_vfs_exists(&vfs, S8("/deleteme.txt")));
+
+    bool ok = mel_vfs_delete(&vfs, S8("/deleteme.txt"));
+    MEL_ASSERT(ok);
+    MEL_ASSERT(!mel_vfs_exists(&vfs, S8("/deleteme.txt")));
+
+    mel__test_os_teardown(&io, &vfs, backend, tmpdir);
+}
+
+MEL_TEST(vfs_os_mkdir, .tags = "vfs")
+{
+    Mel_Io io;
+    Mel_Vfs vfs;
+    Mel_Vfs_Backend* backend;
+    str8 tmpdir;
+    mel__test_os_setup(&io, &vfs, &backend, &tmpdir);
+
+    bool ok = mel_vfs_mkdir(&vfs, S8("/newdir"));
+    MEL_ASSERT(ok);
+
+    Mel_Vfs_Stat st;
+    ok = mel_vfs_stat_sync(&vfs, S8("/newdir"), &st);
+    MEL_ASSERT(ok);
+    MEL_ASSERT(st.flags & MEL_VFS_STAT_IS_DIR);
+
+    mel__test_os_teardown(&io, &vfs, backend, tmpdir);
+}
+
 #include "../melody/core.platform.h"
 #if MEL_PLATFORM_APPLE
 
@@ -459,6 +590,40 @@ MEL_TEST(vfs_os_watch_timeout, .tags = "vfs")
     i32 action = 0;
     i32 result = backend->watch_next(backend, wh, 100, path_buf, sizeof(path_buf), &path_len, &action);
     MEL_ASSERT_EQ(result, 1);
+
+    backend->watch_close(backend, wh);
+    mel__test_os_teardown(&io, &vfs, backend, tmpdir);
+}
+
+MEL_TEST(vfs_os_watch_small_buffer_retry, .tags = "vfs")
+{
+    Mel_Io io;
+    Mel_Vfs vfs;
+    Mel_Vfs_Backend* backend;
+    str8 tmpdir;
+    mel__test_os_setup(&io, &vfs, &backend, &tmpdir);
+
+    mel_vfs_write_text(&vfs, S8("/watch_small.txt"), S8("initial"));
+
+    Mel_Vfs_Native_Handle wh;
+    i32 err = backend->watch_open(backend, S8("watch_small.txt"), false, 0, &wh);
+    MEL_ASSERT_EQ(err, 0);
+
+    mel_vfs_write_text(&vfs, S8("/watch_small.txt"), S8("modified"));
+
+    u8 small_path_buf[2];
+    usize needed_len = 0;
+    i32 action = 0;
+    i32 result = backend->watch_next(backend, wh, 2000, small_path_buf, sizeof(small_path_buf), &needed_len, &action);
+    MEL_ASSERT_EQ(result, -1);
+    MEL_ASSERT_GT(needed_len, sizeof(small_path_buf));
+
+    u8 path_buf[512];
+    usize path_len = 0;
+    result = backend->watch_next(backend, wh, 0, path_buf, sizeof(path_buf), &path_len, &action);
+    MEL_ASSERT_EQ(result, 0);
+    MEL_ASSERT_EQ(path_len, needed_len);
+    MEL_ASSERT_EQ(action, MEL_VFS_WATCH_MODIFIED);
 
     backend->watch_close(backend, wh);
     mel__test_os_teardown(&io, &vfs, backend, tmpdir);

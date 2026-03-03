@@ -16,6 +16,8 @@
 #include "gpu.cmd.h"
 #include "sprite.batch.h"
 #include "font.atlas.h"
+#include "vfs.h"
+#include "vfs.backend.os.h"
 #include "math.mat4.h"
 #include "math.vec4.h"
 #include "collection.skiplist.h"
@@ -64,6 +66,9 @@ static Mel_Gpu_Pipeline s_pipeline;
 static Mel_Gpu_Texture s_white_texture;
 static Mel_SpriteBatch s_batch;
 static Mel_Font_Atlas_Pool s_font_pool;
+static Mel_Io s_demo_io;
+static Mel_Vfs s_demo_vfs;
+static Mel_Vfs_Backend* s_fonts_backend;
 static Mel_Font_Handle s_font_handle;
 static SkipListDemo s_demo;
 
@@ -490,7 +495,7 @@ static void on_init(Mel_Engine* e)
     mel_gpu_pipeline_write_texture(&s_pipeline, dev, s_white_texture.descriptor,
         s_white_texture.image.view, s_white_texture.sampler);
 
-    mel_font_atlas_pool_init(&s_font_pool, &e->allocator, dev);
+    mel_font_atlas_pool_init(&s_font_pool, &e->allocator, dev, &s_demo_vfs);
     s_font_handle = mel_font_atlas_pool_load(&s_font_pool,
         .path = S8("/System/Library/Fonts/Monaco.ttf"), .size = 18.0f);
 
@@ -520,6 +525,13 @@ static void app_init(Mel_App* app)
         .enable_imgui = false,
         .fixed_dt = 1.0f / 60.0f);
 
+    Mel_Io_Desc io_desc = { .allocator = mel_alloc_heap(), .worker_count = 0 };
+    mel_io_init(&s_demo_io, &io_desc);
+    Mel_Vfs_Desc vfs_desc = { .allocator = mel_alloc_heap(), .io = &s_demo_io };
+    mel_vfs_init(&s_demo_vfs, &vfs_desc);
+    s_fonts_backend = mel_vfs_backend_os_create(mel_alloc_heap(), S8("/"));
+    mel_vfs_mount(&s_demo_vfs, S8("/"), s_fonts_backend, 0, false);
+
     on_init(&app->engine);
 }
 
@@ -532,6 +544,10 @@ static void app_shutdown(Mel_App* app)
 
     mel_sprite_batch_shutdown(&s_batch, dev);
     mel_font_atlas_pool_shutdown(&s_font_pool);
+    mel_vfs_unmount(&s_demo_vfs, S8("/"));
+    mel_vfs_shutdown(&s_demo_vfs);
+    mel_io_shutdown(&s_demo_io);
+    mel_vfs_backend_os_destroy(s_fonts_backend);
     mel_gpu_texture_shutdown(&s_white_texture, dev);
     mel_gpu_pipeline_shutdown(&s_pipeline, dev);
     mel_gpu_shader_shutdown(&s_shader, dev);

@@ -37,6 +37,8 @@ typedef struct {
     Mel_Vfs_Cqe cqe;
     u8* owned_path_data;
     Mel_IoVec* owned_iov;
+    u8 inline_path[256];
+    Mel_IoVec inline_iov[8];
 } Mel_Vfs__Op;
 
 struct Mel_Vfs_Mount {
@@ -48,6 +50,8 @@ struct Mel_Vfs_Mount {
     bool             retired;
     u32              insertion_order;
 };
+
+#include "allocator.pool.h"
 
 struct Mel_Vfs {
     const Mel_Alloc* alloc;
@@ -65,6 +69,10 @@ struct Mel_Vfs {
     Mel_Array(Mel_Vfs_Mount) mounts;
     u32 mount_generation;
     u32 mount_insertion_counter;
+
+    SDL_Mutex* op_lock;
+    Mel_Pool   op_pool;
+    void*      op_pool_buf;
 };
 
 typedef bool (*Mel_Vfs_Enum_Cb)(str8 virtual_path, const Mel_Vfs_Stat* stat, void* user);
@@ -84,6 +92,9 @@ bool mel_vfs_write_text(Mel_Vfs* vfs, str8 path, str8 text);
 bool mel_vfs_exists(Mel_Vfs* vfs, str8 path);
 bool mel_vfs_stat_sync(Mel_Vfs* vfs, str8 path, Mel_Vfs_Stat* out);
 bool mel_vfs_sync_file(Mel_Vfs* vfs, Mel_Vfs_File file);
+bool mel_vfs_rename(Mel_Vfs* vfs, str8 src, str8 dst);
+bool mel_vfs_delete(Mel_Vfs* vfs, str8 path);
+bool mel_vfs_mkdir(Mel_Vfs* vfs, str8 path);
 
 bool mel_vfs_enumerate_opt(Mel_Vfs* vfs, str8 path, Mel_Vfs_Enum_Cb cb, void* user, Mel_Vfs_Enum_Opt opt);
 #define mel_vfs_enumerate(vfs, path, cb, user, ...) \

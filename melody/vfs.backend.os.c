@@ -1,4 +1,6 @@
 #include "vfs.backend.os.h"
+#include "vfs.h"
+#include "async.io.h"
 #include "vfs.async.h"
 #include "allocator.h"
 #include "string.str8.h"
@@ -29,8 +31,18 @@ typedef struct {
     int watch_fd;
     char watched_path[4096];
     usize watched_path_len;
+    i32 pending_action;
+    bool has_pending_event;
     bool active;
 } Mel_Vfs__Os_Watch;
+
+typedef struct {
+    DIR* dp;
+    u8   pending_name[MEL_VFS_MAX_PATH];
+    usize pending_name_len;
+    Mel_Vfs_Stat pending_stat;
+    bool has_pending;
+} Mel_Vfs__Os_Open_Dir;
 
 typedef struct {
     const Mel_Alloc* alloc;
@@ -75,8 +87,18 @@ static i32 mel__vfs_os_open(Mel_Vfs_Backend* b, str8 path, u32 flags, Mel_Vfs_Na
     if (flags & MEL_VFS_OPEN_CREATE)   oflags |= O_CREAT;
     if (flags & MEL_VFS_OPEN_TRUNCATE) oflags |= O_TRUNC;
 
+#ifdef O_DIRECT
+    if (flags & MEL_VFS_OPEN_DIRECT)   oflags |= O_DIRECT;
+#endif
+
     int fd = open(full, oflags, 0644);
     if (fd < 0) return -errno;
+
+#ifdef F_NOCACHE
+    if (flags & MEL_VFS_OPEN_DIRECT) {
+        fcntl(fd, F_NOCACHE, 1);
+    }
+#endif
 
     *out = (Mel_Vfs_Native_Handle)fd;
     return 0;
@@ -160,7 +182,10 @@ static i32 mel__vfs_os_dir_open(Mel_Vfs_Backend* b, str8 path, Mel_Vfs_Native_Ha
     DIR* dp = opendir(full);
     if (!dp) return -errno;
 
-    *out = (Mel_Vfs_Native_Handle)dp;
+    Mel_Vfs__Os_Open_Dir* od = mel_calloc(d->alloc, sizeof(Mel_Vfs__Os_Open_Dir));
+    od->dp = dp;
+
+    *out = (Mel_Vfs_Native_Handle)od;
     return 0;
 }
 
@@ -168,9 +193,19 @@ static i32 mel__vfs_os_dir_next(Mel_Vfs_Backend* b, Mel_Vfs_Native_Handle h,
                                  u8* name_buf, usize name_cap, usize* out_name_len,
                                  Mel_Vfs_Stat* out_stat)
 {
-    Mel_Vfs__Os_Data* d = (Mel_Vfs__Os_Data*)b->impl_data;
-    MEL_UNUSED(d);
-    DIR* dp = (DIR*)h;
+    Mel_Vfs__Os_Open_Dir* od = (Mel_Vfs__Os_Open_Dir*)h;
+    assert(od);
+    DIR* dp = od->dp;
+
+    if (od->has_pending) {
+        *out_name_len = od->pending_name_len;
+        if (od->pending_name_len > name_cap) return -1;
+
+        memcpy(name_buf, od->pending_name, od->pending_name_len);
+        *out_stat = od->pending_stat;
+        od->has_pending = false;
+        return 0;
+    }
 
     for (;;) {
         errno = 0;
@@ -185,25 +220,37 @@ static i32 mel__vfs_os_dir_next(Mel_Vfs_Backend* b, Mel_Vfs_Native_Handle h,
             continue;
 
         usize len = strlen(ent->d_name);
+        Mel_Vfs_Stat entry_stat = {0};
+#ifdef _DIRENT_HAVE_D_TYPE
+        if (ent->d_type == DT_REG) entry_stat.flags = MEL_VFS_STAT_IS_FILE;
+        else if (ent->d_type == DT_DIR) entry_stat.flags = MEL_VFS_STAT_IS_DIR;
+        else if (ent->d_type == DT_LNK) entry_stat.flags = MEL_VFS_STAT_IS_SYMLINK;
+#endif
+
         *out_name_len = len;
-        if (len > name_cap) return -1;
+        if (len > name_cap) {
+            assert(len <= sizeof(od->pending_name));
+            if (len > sizeof(od->pending_name)) return -ENAMETOOLONG;
+            memcpy(od->pending_name, ent->d_name, len);
+            od->pending_name_len = len;
+            od->pending_stat = entry_stat;
+            od->has_pending = true;
+            return -1;
+        }
 
         memcpy(name_buf, ent->d_name, len);
-
-        memset(out_stat, 0, sizeof(*out_stat));
-#ifdef _DIRENT_HAVE_D_TYPE
-        if (ent->d_type == DT_REG) out_stat->flags = MEL_VFS_STAT_IS_FILE;
-        else if (ent->d_type == DT_DIR) out_stat->flags = MEL_VFS_STAT_IS_DIR;
-        else if (ent->d_type == DT_LNK) out_stat->flags = MEL_VFS_STAT_IS_SYMLINK;
-#endif
+        *out_stat = entry_stat;
         return 0;
     }
 }
 
 static void mel__vfs_os_dir_close(Mel_Vfs_Backend* b, Mel_Vfs_Native_Handle h)
 {
-    MEL_UNUSED(b);
-    closedir((DIR*)h);
+    Mel_Vfs__Os_Data* d = (Mel_Vfs__Os_Data*)b->impl_data;
+    Mel_Vfs__Os_Open_Dir* od = (Mel_Vfs__Os_Open_Dir*)h;
+    if (!od) return;
+    if (od->dp) closedir(od->dp);
+    mel_dealloc(d->alloc, od);
 }
 
 static i32 mel__vfs_os_map(Mel_Vfs_Backend* b, Mel_Vfs_Native_Handle h, u64 offset, usize size, u32 flags, void** out_ptr)
@@ -230,6 +277,34 @@ static i32 mel__vfs_os_sync(Mel_Vfs_Backend* b, Mel_Vfs_Native_Handle h)
 {
     MEL_UNUSED(b);
     if (fsync((int)h) != 0) return -errno;
+    return 0;
+}
+
+static i32 mel__vfs_os_rename(Mel_Vfs_Backend* b, str8 old_path, str8 new_path)
+{
+    Mel_Vfs__Os_Data* d = (Mel_Vfs__Os_Data*)b->impl_data;
+    char full_old[4096], full_new[4096];
+    mel__vfs_os_make_full_path(d, old_path, full_old, sizeof(full_old));
+    mel__vfs_os_make_full_path(d, new_path, full_new, sizeof(full_new));
+    if (rename(full_old, full_new) != 0) return -errno;
+    return 0;
+}
+
+static i32 mel__vfs_os_remove(Mel_Vfs_Backend* b, str8 path)
+{
+    Mel_Vfs__Os_Data* d = (Mel_Vfs__Os_Data*)b->impl_data;
+    char full[4096];
+    mel__vfs_os_make_full_path(d, path, full, sizeof(full));
+    if (remove(full) != 0) return -errno;
+    return 0;
+}
+
+static i32 mel__vfs_os_mkdir(Mel_Vfs_Backend* b, str8 path)
+{
+    Mel_Vfs__Os_Data* d = (Mel_Vfs__Os_Data*)b->impl_data;
+    char full[4096];
+    mel__vfs_os_make_full_path(d, path, full, sizeof(full));
+    if (mkdir(full, 0755) != 0) return -errno;
     return 0;
 }
 
@@ -312,6 +387,15 @@ static i32 mel__vfs_os_watch_next(Mel_Vfs_Backend* b, Mel_Vfs_Native_Handle h,
     Mel_Vfs__Os_Watch* w = &d->watches.items[idx];
     assert(w->active);
 
+    if (w->has_pending_event) {
+        *out_path_len = w->watched_path_len;
+        if (w->watched_path_len > path_cap) return -1;
+        memcpy(path_buf, w->watched_path, w->watched_path_len);
+        *out_action = w->pending_action;
+        w->has_pending_event = false;
+        return 0;
+    }
+
     struct timespec ts_val;
     struct timespec* ts = NULL;
     if (timeout_ms >= 0)
@@ -327,21 +411,25 @@ static i32 mel__vfs_os_watch_next(Mel_Vfs_Backend* b, Mel_Vfs_Native_Handle h,
 
     if (n == 0) return 1;
 
+    i32 action = MEL_VFS_WATCH_MODIFIED;
+    if (ev.fflags & NOTE_DELETE)
+        action = MEL_VFS_WATCH_REMOVED;
+    else if (ev.fflags & NOTE_RENAME)
+        action = MEL_VFS_WATCH_RENAMED;
+    else if (ev.fflags & NOTE_WRITE)
+        action = MEL_VFS_WATCH_MODIFIED;
+    else if (ev.fflags & NOTE_ATTRIB)
+        action = MEL_VFS_WATCH_MODIFIED;
+
     *out_path_len = w->watched_path_len;
-    if (w->watched_path_len > path_cap) return -1;
+    if (w->watched_path_len > path_cap) {
+        w->pending_action = action;
+        w->has_pending_event = true;
+        return -1;
+    }
 
     memcpy(path_buf, w->watched_path, w->watched_path_len);
-
-    if (ev.fflags & NOTE_DELETE)
-        *out_action = MEL_VFS_WATCH_REMOVED;
-    else if (ev.fflags & NOTE_RENAME)
-        *out_action = MEL_VFS_WATCH_RENAMED;
-    else if (ev.fflags & NOTE_WRITE)
-        *out_action = MEL_VFS_WATCH_MODIFIED;
-    else if (ev.fflags & NOTE_ATTRIB)
-        *out_action = MEL_VFS_WATCH_MODIFIED;
-    else
-        *out_action = MEL_VFS_WATCH_MODIFIED;
+    *out_action = action;
 
     return 0;
 }
@@ -356,9 +444,57 @@ static void mel__vfs_os_watch_close(Mel_Vfs_Backend* b, Mel_Vfs_Native_Handle h)
 
     close(w->kq_fd);
     close(w->watch_fd);
+    w->has_pending_event = false;
     w->active = false;
 }
 
+#endif
+
+#if MEL_PLATFORM_APPLE
+#include <dispatch/dispatch.h>
+
+static bool mel__vfs_os_try_submit_native(Mel_Vfs_Backend* b, struct Mel_Vfs_Sqe* sqe, Mel_Vfs_Native_Handle h, Mel_Vfs* vfs, void* op)
+{
+    if (sqe->op == MEL_VFS_OP_READ) {
+        int fd = (int)h;
+        dispatch_io_t channel = dispatch_io_create(DISPATCH_IO_RANDOM, fd, dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^(int error) {
+        });
+        
+        Mel_Vfs__Op* vop = (Mel_Vfs__Op*)op;
+        __block size_t accumulated = 0;
+        __block int final_error = 0;
+
+        dispatch_io_read(channel, (off_t)sqe->read.offset, (size_t)sqe->read.size, dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^(bool done, dispatch_data_t data, int error) {
+            if (error != 0) final_error = error;
+            
+            if (data) {
+                dispatch_data_apply(data, ^bool(dispatch_data_t region, size_t offset, const void *buffer, size_t size) {
+                    memcpy((u8*)sqe->read.dst + accumulated + offset, buffer, size);
+                    return true;
+                });
+                accumulated += dispatch_data_get_size(data);
+            }
+
+            if (done) {
+                vop->cqe.status = (final_error == 0) ? MEL_VFS_STATUS_OK : MEL_VFS_STATUS_IO_ERROR;
+                vop->cqe.result = (final_error == 0) ? (i64)accumulated : -final_error;
+                
+                Mel_Io_Cqe io_cqe = {
+                    .ticket = sqe->ticket,
+                    .handler_id = vfs->handler_id,
+                    .status = (vop->cqe.status == MEL_VFS_STATUS_OK) ? MEL_IO_STATUS_OK : MEL_IO_STATUS_ERROR,
+                    .result = vop->cqe.result,
+                    .user_data = sqe->user_data,
+                    .result_data = op,
+                };
+                mel_io_post_cqe(vfs->io, io_cqe);
+                dispatch_release(channel);
+            }
+        });
+        return true;
+    }
+    return false;
+}
 #endif
 
 static void mel__vfs_os_destroy(Mel_Vfs_Backend* b)
@@ -420,8 +556,15 @@ Mel_Vfs_Backend* mel_vfs_backend_os_create(const Mel_Alloc* alloc, str8 root_pat
     b->watch_close = NULL;
 #endif
     b->sync       = mel__vfs_os_sync;
+    b->rename     = mel__vfs_os_rename;
+    b->remove     = mel__vfs_os_remove;
+    b->mkdir      = mel__vfs_os_mkdir;
     b->destroy    = mel__vfs_os_destroy;
     b->impl_data  = d;
+
+#if MEL_PLATFORM_APPLE
+    b->try_submit_native = mel__vfs_os_try_submit_native;
+#endif
 
     return b;
 }

@@ -1143,6 +1143,75 @@ MEL_TEST(vfs_invalid_op, .tags = "vfs, async")
     mel_io_shutdown(&io);
 }
 
+MEL_TEST(vfs_invalid_file_handle_returns_invalid_argument, .tags = "vfs, async")
+{
+    const Mel_Alloc* alloc = mel_alloc_heap();
+
+    Mel_Io io;
+    Mel_Io_Desc io_desc = { .allocator = alloc, .worker_count = 0 };
+    mel_io_init(&io, &io_desc);
+
+    Mel_Vfs vfs;
+    Mel_Vfs_Desc desc = { .allocator = alloc, .io = &io };
+    mel_vfs_init(&vfs, &desc);
+
+    u8 byte = 0;
+    u64 ticket = mel_vfs_next_ticket(&vfs);
+    Mel_Vfs_Sqe sqe = {
+        .ticket = ticket,
+        .op = MEL_VFS_OP_READ,
+        .read = {
+            .file = MEL_VFS_FILE_INVALID,
+            .offset = 0,
+            .dst = &byte,
+            .size = 1,
+        },
+    };
+    mel_vfs_submit(&vfs, &sqe, 1);
+
+    Mel_Vfs_Cqe cqe;
+    MEL_ASSERT(mel_vfs_poll_ticket(&vfs, ticket, &cqe));
+    MEL_ASSERT_EQ(cqe.status, (u32)MEL_VFS_STATUS_INVALID_ARGUMENT);
+
+    mel_vfs_shutdown(&vfs);
+    mel_io_shutdown(&io);
+}
+
+MEL_TEST(vfs_readonly_mount_open_create_denied, .tags = "vfs, async")
+{
+    const Mel_Alloc* alloc = mel_alloc_heap();
+    Mel_Vfs_Backend* backend = mel_vfs_backend_mock_create(alloc);
+
+    Mel_Io io;
+    Mel_Io_Desc io_desc = { .allocator = alloc, .worker_count = 0 };
+    mel_io_init(&io, &io_desc);
+
+    Mel_Vfs vfs;
+    Mel_Vfs_Desc desc = { .allocator = alloc, .io = &io };
+    mel_vfs_init(&vfs, &desc);
+    mel_vfs_mount(&vfs, S8("/"), backend, 0, false);
+
+    u64 t = mel_vfs_next_ticket(&vfs);
+    Mel_Vfs_Sqe open_sqe = {
+        .ticket = t,
+        .op = MEL_VFS_OP_OPEN,
+        .open = {
+            .path = S8("/new_file.txt"),
+            .open_flags = MEL_VFS_OPEN_CREATE,
+        },
+    };
+    mel_vfs_submit(&vfs, &open_sqe, 1);
+
+    Mel_Vfs_Cqe cqe;
+    MEL_ASSERT(mel_vfs_poll_ticket(&vfs, t, &cqe));
+    MEL_ASSERT_EQ(cqe.status, (u32)MEL_VFS_STATUS_PERMISSION);
+
+    mel_vfs_unmount(&vfs, S8("/"));
+    mel_vfs_shutdown(&vfs);
+    mel_io_shutdown(&io);
+    mel_vfs_backend_mock_destroy(backend);
+}
+
 MEL_TEST(vfs_write_file_short_write_is_failure, .tags = "vfs")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
@@ -1226,6 +1295,79 @@ MEL_TEST(vfs_dir_next_backend_error_maps_to_io_error, .tags = "vfs, async")
     mel_vfs_shutdown(&vfs);
     mel_io_shutdown(&io);
     backend->destroy(backend);
+}
+
+MEL_TEST(vfs_dir_next_buffer_too_small_retry_mock, .tags = "vfs, async")
+{
+    Mel_Io io;
+    Mel_Vfs vfs;
+    Mel_Vfs_Backend* backend;
+    mel__test_vfs_setup(&io, &vfs, &backend);
+
+    mel_vfs_backend_mock_inject_file(backend, S8("very_long_name.txt"), (const u8*)"x", 1);
+
+    u64 t1 = mel_vfs_next_ticket(&vfs);
+    Mel_Vfs_Sqe open_sqe = {
+        .ticket = t1,
+        .op = MEL_VFS_OP_DIR_OPEN,
+        .dir_open = { .path = S8("/") },
+    };
+    mel_vfs_submit(&vfs, &open_sqe, 1);
+
+    Mel_Vfs_Cqe open_cqe;
+    MEL_ASSERT(mel_vfs_poll_ticket(&vfs, t1, &open_cqe));
+    MEL_ASSERT_EQ(open_cqe.status, (u32)MEL_VFS_STATUS_OK);
+    Mel_Vfs_Dir dir = open_cqe.dir;
+
+    u8 small_buf[4];
+    Mel_Vfs_Dir_Entry entry = {0};
+    u64 t2 = mel_vfs_next_ticket(&vfs);
+    Mel_Vfs_Sqe next_small = {
+        .ticket = t2,
+        .op = MEL_VFS_OP_DIR_NEXT,
+        .dir_next = {
+            .dir = dir,
+            .entry = &entry,
+            .name_buf = small_buf,
+            .name_cap = sizeof(small_buf),
+        },
+    };
+    mel_vfs_submit(&vfs, &next_small, 1);
+    Mel_Vfs_Cqe small_cqe;
+    MEL_ASSERT(mel_vfs_poll_ticket(&vfs, t2, &small_cqe));
+    MEL_ASSERT_EQ(small_cqe.status, (u32)MEL_VFS_STATUS_BUFFER_TOO_SMALL);
+    MEL_ASSERT_GT(small_cqe.result, (i64)sizeof(small_buf));
+
+    u8 name_buf[64];
+    u64 t3 = mel_vfs_next_ticket(&vfs);
+    Mel_Vfs_Sqe next_retry = {
+        .ticket = t3,
+        .op = MEL_VFS_OP_DIR_NEXT,
+        .dir_next = {
+            .dir = dir,
+            .entry = &entry,
+            .name_buf = name_buf,
+            .name_cap = sizeof(name_buf),
+        },
+    };
+    mel_vfs_submit(&vfs, &next_retry, 1);
+    Mel_Vfs_Cqe retry_cqe;
+    MEL_ASSERT(mel_vfs_poll_ticket(&vfs, t3, &retry_cqe));
+    MEL_ASSERT_EQ(retry_cqe.status, (u32)MEL_VFS_STATUS_OK);
+    MEL_ASSERT_EQ(entry.name.len, (size)small_cqe.result);
+    MEL_ASSERT(str8_equals(entry.name, S8("very_long_name.txt")));
+
+    u64 t4 = mel_vfs_next_ticket(&vfs);
+    Mel_Vfs_Sqe close_sqe = {
+        .ticket = t4,
+        .op = MEL_VFS_OP_DIR_CLOSE,
+        .dir_close = { .dir = dir },
+    };
+    mel_vfs_submit(&vfs, &close_sqe, 1);
+    Mel_Vfs_Cqe close_cqe;
+    mel_vfs_poll_ticket(&vfs, t4, &close_cqe);
+
+    mel__test_vfs_teardown(&io, &vfs, backend);
 }
 
 MEL_TEST(vfs_open_path_escape_is_permission_error, .tags = "vfs, async")
@@ -1482,7 +1624,7 @@ MEL_TEST(vfs_open_nonexistent_no_create, .tags = "vfs, async")
 
     Mel_Vfs_Cqe cqe;
     mel_vfs_poll_ticket(&vfs, ticket, &cqe);
-    MEL_ASSERT_EQ(cqe.status, (u32)MEL_VFS_STATUS_IO_ERROR);
+    MEL_ASSERT_EQ(cqe.status, (u32)MEL_VFS_STATUS_NOT_FOUND);
 
     mel__test_vfs_teardown(&io, &vfs, backend);
 }
@@ -1663,6 +1805,453 @@ MEL_TEST(io_cancel_chain_propagation, .tags = "async")
     mel_io_shutdown(&io);
 }
 
+MEL_TEST(vfs_rename_basic, .tags = "vfs")
+{
+    Mel_Io io;
+    Mel_Vfs vfs;
+    Mel_Vfs_Backend* backend;
+    mel__test_vfs_setup(&io, &vfs, &backend);
+
+    bool ok = mel_vfs_write_text(&vfs, S8("/old.txt"), S8("content"));
+    MEL_ASSERT(ok);
+
+    ok = mel_vfs_rename(&vfs, S8("/old.txt"), S8("/new.txt"));
+    MEL_ASSERT(ok);
+
+    MEL_ASSERT(!mel_vfs_exists(&vfs, S8("/old.txt")));
+
+    str8 text = mel_vfs_read_text_alloc(&vfs, S8("/new.txt"), mel_alloc_heap());
+    MEL_ASSERT(str8_equals(text, S8("content")));
+    mel_dealloc(mel_alloc_heap(), text.data);
+
+    mel__test_vfs_teardown(&io, &vfs, backend);
+}
+
+MEL_TEST(vfs_rename_cross_mount_error, .tags = "vfs")
+{
+    const Mel_Alloc* alloc = mel_alloc_heap();
+    Mel_Vfs_Backend* backend_a = mel_vfs_backend_mock_create(alloc);
+    Mel_Vfs_Backend* backend_b = mel_vfs_backend_mock_create(alloc);
+
+    mel_vfs_backend_mock_inject_file(backend_a, S8("file.txt"), (const u8*)"data", 4);
+
+    Mel_Io io;
+    Mel_Io_Desc io_desc = { .allocator = alloc, .worker_count = 0 };
+    mel_io_init(&io, &io_desc);
+
+    Mel_Vfs vfs;
+    Mel_Vfs_Desc desc = { .allocator = alloc, .io = &io };
+    mel_vfs_init(&vfs, &desc);
+    mel_vfs_mount(&vfs, S8("/a"), backend_a, 0, true);
+    mel_vfs_mount(&vfs, S8("/b"), backend_b, 0, true);
+
+    Mel_Vfs_Sqe sqe = {
+        .op = MEL_VFS_OP_RENAME,
+        .rename = { .src_path = S8("/a/file.txt"), .dst_path = S8("/b/file.txt") },
+    };
+    Mel_Vfs_Cqe cqe;
+    sqe.ticket = mel_vfs_next_ticket(&vfs);
+    mel_vfs_submit(&vfs, &sqe, 1);
+    mel_vfs_poll_ticket(&vfs, sqe.ticket, &cqe);
+    MEL_ASSERT_EQ(cqe.status, (u32)MEL_VFS_STATUS_INVALID_ARGUMENT);
+
+    mel_vfs_unmount(&vfs, S8("/a"));
+    mel_vfs_unmount(&vfs, S8("/b"));
+    mel_vfs_shutdown(&vfs);
+    mel_io_shutdown(&io);
+    mel_vfs_backend_mock_destroy(backend_b);
+    mel_vfs_backend_mock_destroy(backend_a);
+}
+
+MEL_TEST(vfs_rename_nonexistent, .tags = "vfs")
+{
+    Mel_Io io;
+    Mel_Vfs vfs;
+    Mel_Vfs_Backend* backend;
+    mel__test_vfs_setup(&io, &vfs, &backend);
+
+    bool ok = mel_vfs_rename(&vfs, S8("/ghost.txt"), S8("/new.txt"));
+    MEL_ASSERT(!ok);
+
+    mel__test_vfs_teardown(&io, &vfs, backend);
+}
+
+MEL_TEST(vfs_rename_readonly_mount, .tags = "vfs")
+{
+    const Mel_Alloc* alloc = mel_alloc_heap();
+    Mel_Vfs_Backend* backend = mel_vfs_backend_mock_create(alloc);
+    mel_vfs_backend_mock_inject_file(backend, S8("file.txt"), (const u8*)"data", 4);
+
+    Mel_Io io;
+    Mel_Io_Desc io_desc = { .allocator = alloc, .worker_count = 0 };
+    mel_io_init(&io, &io_desc);
+
+    Mel_Vfs vfs;
+    Mel_Vfs_Desc desc = { .allocator = alloc, .io = &io };
+    mel_vfs_init(&vfs, &desc);
+    mel_vfs_mount(&vfs, S8("/"), backend, 0, false);
+
+    Mel_Vfs_Sqe sqe = {
+        .op = MEL_VFS_OP_RENAME,
+        .rename = { .src_path = S8("/file.txt"), .dst_path = S8("/renamed.txt") },
+    };
+    Mel_Vfs_Cqe cqe;
+    sqe.ticket = mel_vfs_next_ticket(&vfs);
+    mel_vfs_submit(&vfs, &sqe, 1);
+    mel_vfs_poll_ticket(&vfs, sqe.ticket, &cqe);
+    MEL_ASSERT_EQ(cqe.status, (u32)MEL_VFS_STATUS_PERMISSION);
+
+    mel_vfs_unmount(&vfs, S8("/"));
+    mel_vfs_shutdown(&vfs);
+    mel_io_shutdown(&io);
+    mel_vfs_backend_mock_destroy(backend);
+}
+
+MEL_TEST(vfs_delete_file, .tags = "vfs")
+{
+    Mel_Io io;
+    Mel_Vfs vfs;
+    Mel_Vfs_Backend* backend;
+    mel__test_vfs_setup(&io, &vfs, &backend);
+
+    mel_vfs_write_text(&vfs, S8("/doomed.txt"), S8("goodbye"));
+    MEL_ASSERT(mel_vfs_exists(&vfs, S8("/doomed.txt")));
+
+    bool ok = mel_vfs_delete(&vfs, S8("/doomed.txt"));
+    MEL_ASSERT(ok);
+    MEL_ASSERT(!mel_vfs_exists(&vfs, S8("/doomed.txt")));
+
+    mel__test_vfs_teardown(&io, &vfs, backend);
+}
+
+MEL_TEST(vfs_delete_nonexistent, .tags = "vfs")
+{
+    Mel_Io io;
+    Mel_Vfs vfs;
+    Mel_Vfs_Backend* backend;
+    mel__test_vfs_setup(&io, &vfs, &backend);
+
+    bool ok = mel_vfs_delete(&vfs, S8("/ghost.txt"));
+    MEL_ASSERT(!ok);
+
+    mel__test_vfs_teardown(&io, &vfs, backend);
+}
+
+MEL_TEST(vfs_delete_dir, .tags = "vfs")
+{
+    Mel_Io io;
+    Mel_Vfs vfs;
+    Mel_Vfs_Backend* backend;
+    mel__test_vfs_setup(&io, &vfs, &backend);
+
+    mel_vfs_backend_mock_inject_dir(backend, S8("subdir"));
+    MEL_ASSERT(mel_vfs_exists(&vfs, S8("/subdir")));
+
+    bool ok = mel_vfs_delete(&vfs, S8("/subdir"));
+    MEL_ASSERT(ok);
+    MEL_ASSERT(!mel_vfs_exists(&vfs, S8("/subdir")));
+
+    mel__test_vfs_teardown(&io, &vfs, backend);
+}
+
+MEL_TEST(vfs_delete_readonly_mount, .tags = "vfs")
+{
+    const Mel_Alloc* alloc = mel_alloc_heap();
+    Mel_Vfs_Backend* backend = mel_vfs_backend_mock_create(alloc);
+    mel_vfs_backend_mock_inject_file(backend, S8("protected.txt"), (const u8*)"safe", 4);
+
+    Mel_Io io;
+    Mel_Io_Desc io_desc = { .allocator = alloc, .worker_count = 0 };
+    mel_io_init(&io, &io_desc);
+
+    Mel_Vfs vfs;
+    Mel_Vfs_Desc desc = { .allocator = alloc, .io = &io };
+    mel_vfs_init(&vfs, &desc);
+    mel_vfs_mount(&vfs, S8("/"), backend, 0, false);
+
+    Mel_Vfs_Sqe sqe = {
+        .op = MEL_VFS_OP_DELETE,
+        .del = { .path = S8("/protected.txt") },
+    };
+    Mel_Vfs_Cqe cqe;
+    sqe.ticket = mel_vfs_next_ticket(&vfs);
+    mel_vfs_submit(&vfs, &sqe, 1);
+    mel_vfs_poll_ticket(&vfs, sqe.ticket, &cqe);
+    MEL_ASSERT_EQ(cqe.status, (u32)MEL_VFS_STATUS_PERMISSION);
+
+    mel_vfs_unmount(&vfs, S8("/"));
+    mel_vfs_shutdown(&vfs);
+    mel_io_shutdown(&io);
+    mel_vfs_backend_mock_destroy(backend);
+}
+
+MEL_TEST(vfs_mkdir_basic, .tags = "vfs")
+{
+    Mel_Io io;
+    Mel_Vfs vfs;
+    Mel_Vfs_Backend* backend;
+    mel__test_vfs_setup(&io, &vfs, &backend);
+
+    bool ok = mel_vfs_mkdir(&vfs, S8("/newdir"));
+    MEL_ASSERT(ok);
+
+    Mel_Vfs_Stat st;
+    ok = mel_vfs_stat_sync(&vfs, S8("/newdir"), &st);
+    MEL_ASSERT(ok);
+    MEL_ASSERT(st.flags & MEL_VFS_STAT_IS_DIR);
+
+    mel__test_vfs_teardown(&io, &vfs, backend);
+}
+
+MEL_TEST(vfs_mkdir_already_exists, .tags = "vfs")
+{
+    Mel_Io io;
+    Mel_Vfs vfs;
+    Mel_Vfs_Backend* backend;
+    mel__test_vfs_setup(&io, &vfs, &backend);
+
+    mel_vfs_backend_mock_inject_dir(backend, S8("existing"));
+
+    Mel_Vfs_Sqe sqe = { .op = MEL_VFS_OP_MKDIR, .mkdir = { .path = S8("/existing") } };
+    Mel_Vfs_Cqe cqe;
+    sqe.ticket = mel_vfs_next_ticket(&vfs);
+    mel_vfs_submit(&vfs, &sqe, 1);
+    mel_vfs_poll_ticket(&vfs, sqe.ticket, &cqe);
+    MEL_ASSERT_EQ(cqe.status, (u32)MEL_VFS_STATUS_ALREADY_EXISTS);
+
+    mel__test_vfs_teardown(&io, &vfs, backend);
+}
+
+MEL_TEST(vfs_mkdir_readonly_mount, .tags = "vfs")
+{
+    const Mel_Alloc* alloc = mel_alloc_heap();
+    Mel_Vfs_Backend* backend = mel_vfs_backend_mock_create(alloc);
+
+    Mel_Io io;
+    Mel_Io_Desc io_desc = { .allocator = alloc, .worker_count = 0 };
+    mel_io_init(&io, &io_desc);
+
+    Mel_Vfs vfs;
+    Mel_Vfs_Desc desc = { .allocator = alloc, .io = &io };
+    mel_vfs_init(&vfs, &desc);
+    mel_vfs_mount(&vfs, S8("/"), backend, 0, false);
+
+    Mel_Vfs_Sqe sqe = {
+        .op = MEL_VFS_OP_MKDIR,
+        .mkdir = { .path = S8("/nope") },
+    };
+    Mel_Vfs_Cqe cqe;
+    sqe.ticket = mel_vfs_next_ticket(&vfs);
+    mel_vfs_submit(&vfs, &sqe, 1);
+    mel_vfs_poll_ticket(&vfs, sqe.ticket, &cqe);
+    MEL_ASSERT_EQ(cqe.status, (u32)MEL_VFS_STATUS_PERMISSION);
+
+    mel_vfs_unmount(&vfs, S8("/"));
+    mel_vfs_shutdown(&vfs);
+    mel_io_shutdown(&io);
+    mel_vfs_backend_mock_destroy(backend);
+}
+
+MEL_TEST(vfs_rename_async_happy_path, .tags = "vfs")
+{
+    Mel_Io io;
+    Mel_Vfs vfs;
+    Mel_Vfs_Backend* backend;
+    mel__test_vfs_setup(&io, &vfs, &backend);
+
+    mel_vfs_write_text(&vfs, S8("/src.txt"), S8("async rename"));
+
+    Mel_Vfs_Sqe sqe = {
+        .op = MEL_VFS_OP_RENAME,
+        .rename = { .src_path = S8("/src.txt"), .dst_path = S8("/dst.txt") },
+    };
+    Mel_Vfs_Cqe cqe;
+    sqe.ticket = mel_vfs_next_ticket(&vfs);
+    i32 accepted = mel_vfs_submit(&vfs, &sqe, 1);
+    MEL_ASSERT_EQ(accepted, 1);
+    bool got = mel_vfs_poll_ticket(&vfs, sqe.ticket, &cqe);
+    MEL_ASSERT(got);
+    MEL_ASSERT_EQ(cqe.status, (u32)MEL_VFS_STATUS_OK);
+    MEL_ASSERT_EQ(cqe.op, (u32)MEL_VFS_OP_RENAME);
+
+    MEL_ASSERT(!mel_vfs_exists(&vfs, S8("/src.txt")));
+    str8 text = mel_vfs_read_text_alloc(&vfs, S8("/dst.txt"), mel_alloc_heap());
+    MEL_ASSERT(str8_equals(text, S8("async rename")));
+    mel_dealloc(mel_alloc_heap(), text.data);
+
+    mel__test_vfs_teardown(&io, &vfs, backend);
+}
+
+MEL_TEST(vfs_delete_async_happy_path, .tags = "vfs")
+{
+    Mel_Io io;
+    Mel_Vfs vfs;
+    Mel_Vfs_Backend* backend;
+    mel__test_vfs_setup(&io, &vfs, &backend);
+
+    mel_vfs_write_text(&vfs, S8("/target.txt"), S8("delete me"));
+
+    Mel_Vfs_Sqe sqe = {
+        .op = MEL_VFS_OP_DELETE,
+        .del = { .path = S8("/target.txt") },
+    };
+    Mel_Vfs_Cqe cqe;
+    sqe.ticket = mel_vfs_next_ticket(&vfs);
+    i32 accepted = mel_vfs_submit(&vfs, &sqe, 1);
+    MEL_ASSERT_EQ(accepted, 1);
+    bool got = mel_vfs_poll_ticket(&vfs, sqe.ticket, &cqe);
+    MEL_ASSERT(got);
+    MEL_ASSERT_EQ(cqe.status, (u32)MEL_VFS_STATUS_OK);
+    MEL_ASSERT_EQ(cqe.op, (u32)MEL_VFS_OP_DELETE);
+
+    MEL_ASSERT(!mel_vfs_exists(&vfs, S8("/target.txt")));
+
+    mel__test_vfs_teardown(&io, &vfs, backend);
+}
+
+MEL_TEST(vfs_mkdir_async_happy_path, .tags = "vfs")
+{
+    Mel_Io io;
+    Mel_Vfs vfs;
+    Mel_Vfs_Backend* backend;
+    mel__test_vfs_setup(&io, &vfs, &backend);
+
+    Mel_Vfs_Sqe sqe = {
+        .op = MEL_VFS_OP_MKDIR,
+        .mkdir = { .path = S8("/asyncdir") },
+    };
+    Mel_Vfs_Cqe cqe;
+    sqe.ticket = mel_vfs_next_ticket(&vfs);
+    i32 accepted = mel_vfs_submit(&vfs, &sqe, 1);
+    MEL_ASSERT_EQ(accepted, 1);
+    bool got = mel_vfs_poll_ticket(&vfs, sqe.ticket, &cqe);
+    MEL_ASSERT(got);
+    MEL_ASSERT_EQ(cqe.status, (u32)MEL_VFS_STATUS_OK);
+    MEL_ASSERT_EQ(cqe.op, (u32)MEL_VFS_OP_MKDIR);
+
+    Mel_Vfs_Stat st;
+    bool ok = mel_vfs_stat_sync(&vfs, S8("/asyncdir"), &st);
+    MEL_ASSERT(ok);
+    MEL_ASSERT(st.flags & MEL_VFS_STAT_IS_DIR);
+
+    mel__test_vfs_teardown(&io, &vfs, backend);
+}
+
+MEL_TEST(vfs_rename_escape_src, .tags = "vfs")
+{
+    Mel_Io io;
+    Mel_Vfs vfs;
+    Mel_Vfs_Backend* backend;
+    mel__test_vfs_setup(&io, &vfs, &backend);
+
+    Mel_Vfs_Sqe sqe = {
+        .op = MEL_VFS_OP_RENAME,
+        .rename = { .src_path = S8("/../etc/passwd"), .dst_path = S8("/safe.txt") },
+    };
+    Mel_Vfs_Cqe cqe;
+    sqe.ticket = mel_vfs_next_ticket(&vfs);
+    mel_vfs_submit(&vfs, &sqe, 1);
+    mel_vfs_poll_ticket(&vfs, sqe.ticket, &cqe);
+    MEL_ASSERT_EQ(cqe.status, (u32)MEL_VFS_STATUS_PERMISSION);
+
+    mel__test_vfs_teardown(&io, &vfs, backend);
+}
+
+MEL_TEST(vfs_rename_escape_dst, .tags = "vfs")
+{
+    Mel_Io io;
+    Mel_Vfs vfs;
+    Mel_Vfs_Backend* backend;
+    mel__test_vfs_setup(&io, &vfs, &backend);
+
+    mel_vfs_write_text(&vfs, S8("/legit.txt"), S8("data"));
+
+    Mel_Vfs_Sqe sqe = {
+        .op = MEL_VFS_OP_RENAME,
+        .rename = { .src_path = S8("/legit.txt"), .dst_path = S8("/../../../evil.txt") },
+    };
+    Mel_Vfs_Cqe cqe;
+    sqe.ticket = mel_vfs_next_ticket(&vfs);
+    mel_vfs_submit(&vfs, &sqe, 1);
+    mel_vfs_poll_ticket(&vfs, sqe.ticket, &cqe);
+    MEL_ASSERT_EQ(cqe.status, (u32)MEL_VFS_STATUS_PERMISSION);
+
+    mel__test_vfs_teardown(&io, &vfs, backend);
+}
+
+MEL_TEST(vfs_delete_escape, .tags = "vfs")
+{
+    Mel_Io io;
+    Mel_Vfs vfs;
+    Mel_Vfs_Backend* backend;
+    mel__test_vfs_setup(&io, &vfs, &backend);
+
+    Mel_Vfs_Sqe sqe = {
+        .op = MEL_VFS_OP_DELETE,
+        .del = { .path = S8("/../etc/passwd") },
+    };
+    Mel_Vfs_Cqe cqe;
+    sqe.ticket = mel_vfs_next_ticket(&vfs);
+    mel_vfs_submit(&vfs, &sqe, 1);
+    mel_vfs_poll_ticket(&vfs, sqe.ticket, &cqe);
+    MEL_ASSERT_EQ(cqe.status, (u32)MEL_VFS_STATUS_PERMISSION);
+
+    mel__test_vfs_teardown(&io, &vfs, backend);
+}
+
+MEL_TEST(vfs_mkdir_escape, .tags = "vfs")
+{
+    Mel_Io io;
+    Mel_Vfs vfs;
+    Mel_Vfs_Backend* backend;
+    mel__test_vfs_setup(&io, &vfs, &backend);
+
+    Mel_Vfs_Sqe sqe = {
+        .op = MEL_VFS_OP_MKDIR,
+        .mkdir = { .path = S8("/../../../evil_dir") },
+    };
+    Mel_Vfs_Cqe cqe;
+    sqe.ticket = mel_vfs_next_ticket(&vfs);
+    mel_vfs_submit(&vfs, &sqe, 1);
+    mel_vfs_poll_ticket(&vfs, sqe.ticket, &cqe);
+    MEL_ASSERT_EQ(cqe.status, (u32)MEL_VFS_STATUS_PERMISSION);
+
+    mel__test_vfs_teardown(&io, &vfs, backend);
+}
+
+MEL_TEST(vfs_rename_dst_readonly, .tags = "vfs")
+{
+    const Mel_Alloc* alloc = mel_alloc_heap();
+    Mel_Vfs_Backend* backend = mel_vfs_backend_mock_create(alloc);
+    mel_vfs_backend_mock_inject_file(backend, S8("file.txt"), (const u8*)"data", 4);
+
+    Mel_Io io;
+    Mel_Io_Desc io_desc = { .allocator = alloc, .worker_count = 0 };
+    mel_io_init(&io, &io_desc);
+
+    Mel_Vfs vfs;
+    Mel_Vfs_Desc desc = { .allocator = alloc, .io = &io };
+    mel_vfs_init(&vfs, &desc);
+    mel_vfs_mount(&vfs, S8("/rw"), backend, 0, true);
+    mel_vfs_mount(&vfs, S8("/ro"), backend, 0, false);
+
+    Mel_Vfs_Sqe sqe = {
+        .op = MEL_VFS_OP_RENAME,
+        .rename = { .src_path = S8("/rw/file.txt"), .dst_path = S8("/ro/renamed.txt") },
+    };
+    Mel_Vfs_Cqe cqe;
+    sqe.ticket = mel_vfs_next_ticket(&vfs);
+    mel_vfs_submit(&vfs, &sqe, 1);
+    mel_vfs_poll_ticket(&vfs, sqe.ticket, &cqe);
+    MEL_ASSERT_EQ(cqe.status, (u32)MEL_VFS_STATUS_PERMISSION);
+
+    mel_vfs_unmount(&vfs, S8("/rw"));
+    mel_vfs_unmount(&vfs, S8("/ro"));
+    mel_vfs_shutdown(&vfs);
+    mel_io_shutdown(&io);
+    mel_vfs_backend_mock_destroy(backend);
+}
+
 static u64 mel__test_qos_completion_order[8];
 static i32 mel__test_qos_completion_idx;
 
@@ -1783,4 +2372,97 @@ MEL_TEST(io_qos_chain_same_lane, .tags = "async")
     MEL_ASSERT_EQ(cqe.status, (u32)MEL_IO_STATUS_OK);
 
     mel_io_shutdown(&io);
+}
+
+typedef struct {
+    Mel_Io* io;
+    u16 handler_id;
+    Mel_Vfs__Op* op;
+    i64 result;
+} Mel__Test_Native_Thread_Ctx;
+
+static int SDLCALL mel__test_native_thread(void* data) {
+    Mel__Test_Native_Thread_Ctx* ctx = (Mel__Test_Native_Thread_Ctx*)data;
+    SDL_Delay(5); 
+    
+    Mel_Io_Cqe cqe = {
+        .ticket = ctx->op->sqe.ticket,
+        .handler_id = ctx->handler_id,
+        .status = MEL_IO_STATUS_OK,
+        .result = ctx->result,
+        .user_data = ctx->op->sqe.user_data,
+        .result_data = ctx->op,
+    };
+    
+    ctx->op->cqe.ticket = ctx->op->sqe.ticket;
+    ctx->op->cqe.op = ctx->op->sqe.op;
+    ctx->op->cqe.status = MEL_VFS_STATUS_OK;
+    ctx->op->cqe.result = ctx->result;
+    ctx->op->cqe.user_data = ctx->op->sqe.user_data;
+    
+    mel_io_post_cqe(ctx->io, cqe);
+    mel_dealloc(mel_alloc_heap(), ctx);
+    return 0;
+}
+
+static bool mel__test_native_submit(Mel_Vfs_Backend* b, struct Mel_Vfs_Sqe* sqe, Mel_Vfs_Native_Handle h, Mel_Vfs* vfs, void* op) {
+    if (sqe->op == MEL_VFS_OP_READ) {
+        Mel__Test_Native_Thread_Ctx* ctx = mel_alloc(mel_alloc_heap(), sizeof(*ctx));
+        ctx->io = vfs->io;
+        ctx->handler_id = vfs->handler_id;
+        ctx->op = (Mel_Vfs__Op*)op;
+        ctx->result = 1337; 
+        SDL_CreateThread(mel__test_native_thread, "native_mock", ctx);
+        return true;
+    }
+    return false;
+}
+
+MEL_TEST(vfs_async_native_defer, .tags = "vfs, async")
+{
+    const Mel_Alloc* alloc = mel_alloc_heap();
+    Mel_Vfs_Backend* backend = mel_vfs_backend_mock_create(alloc);
+    backend->try_submit_native = mel__test_native_submit;
+
+    Mel_Io io;
+    Mel_Io_Desc io_desc = { .allocator = alloc, .worker_count = 1 };
+    mel_io_init(&io, &io_desc);
+
+    Mel_Vfs vfs;
+    Mel_Vfs_Desc desc = { .allocator = alloc, .io = &io };
+    mel_vfs_init(&vfs, &desc);
+    mel_vfs_mount(&vfs, S8("/"), backend, 0, true);
+
+    // 1. Open a file
+    mel_vfs_backend_mock_inject_file(backend, S8("native.bin"), (const u8*)"DATA", 4);
+    u64 t1 = mel_vfs_next_ticket(&vfs);
+    Mel_Vfs_Sqe open_sqe = { .ticket = t1, .op = MEL_VFS_OP_OPEN, .open = { .path = S8("/native.bin"), .open_flags = MEL_VFS_OPEN_READ } };
+    mel_vfs_submit(&vfs, &open_sqe, 1);
+    Mel_Vfs_Cqe open_cqe;
+    MEL_ASSERT(mel_vfs_wait_ticket(&vfs, t1, 1000, &open_cqe));
+    MEL_ASSERT_EQ(open_cqe.status, (u32)MEL_VFS_STATUS_OK);
+
+    // 2. Perform a native deferred read
+    u8 buf[16];
+    u64 t2 = mel_vfs_next_ticket(&vfs);
+    Mel_Vfs_Sqe read_sqe = { .ticket = t2, .op = MEL_VFS_OP_READ, .read = { .file = open_cqe.file, .offset = 0, .dst = buf, .size = sizeof(buf) } };
+    mel_vfs_submit(&vfs, &read_sqe, 1);
+
+    // 3. Wait for the deferred completion
+    Mel_Vfs_Cqe read_cqe;
+    MEL_ASSERT(mel_vfs_wait_ticket(&vfs, t2, 1000, &read_cqe));
+    MEL_ASSERT_EQ(read_cqe.status, (u32)MEL_VFS_STATUS_OK);
+    MEL_ASSERT_EQ(read_cqe.result, (i64)1337); // Our dummy native result
+
+    // 4. Close the file
+    u64 t3 = mel_vfs_next_ticket(&vfs);
+    Mel_Vfs_Sqe close_sqe = { .ticket = t3, .op = MEL_VFS_OP_CLOSE, .close = { .file = open_cqe.file } };
+    mel_vfs_submit(&vfs, &close_sqe, 1);
+    Mel_Vfs_Cqe close_cqe;
+    MEL_ASSERT(mel_vfs_wait_ticket(&vfs, t3, 1000, &close_cqe));
+
+    mel_vfs_unmount(&vfs, S8("/"));
+    mel_vfs_shutdown(&vfs);
+    mel_io_shutdown(&io);
+    mel_vfs_backend_mock_destroy(backend);
 }
