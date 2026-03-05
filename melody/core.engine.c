@@ -1,12 +1,15 @@
 #include "core.engine.h"
 #include "core.app.h"
+#include "render.graph.h"
 #include "gpu.swapchain.h"
 #include "allocator.h"
 #include "allocator.heap.h"
 #include "allocator.tracking.h"
-#include "gpu.cmd.h"
 #include "gpu.shader.h"
 #include "gpu.submit.h"
+#include "sprite.pass.h"
+#include "texture.pool.h"
+#include "allocator.h"
 #include "string.str8.h"
 
 #include <tracy/TracyC.h>
@@ -119,14 +122,22 @@ bool mel_engine_init_opt(Mel_Engine* engine, Mel_Engine_Opt opt)
         goto fail_swapchain;
     }
 
-    if (!mel_render_frame_init(&engine->frame, .dev = &engine->dev, .swapchain = &engine->swapchain))
+    engine->sprite_pass = mel_alloc_type(&engine->allocator, Mel_Sprite_Pass);
+    if (!mel_sprite_pass_init(engine->sprite_pass,
+        .dev = &engine->dev,
+        .color_format = engine->swapchain.format,
+        .max_sprites = 4096))
     {
-        SDL_Log("Failed to initialize render frame");
+        SDL_Log("Failed to initialize sprite pass");
         goto fail_slang;
     }
 
+    engine->texture_pool = mel_alloc_type(&engine->allocator, Mel_Texture_Pool);
+    mel_texture_pool_init(engine->texture_pool, &engine->allocator, &engine->dev,
+        .pipeline = &engine->sprite_pass->pipeline);
+    engine->sprite_pass->pool = engine->texture_pool;
+
     engine->window = opt.window;
-    engine->fixed_dt = opt.fixed_dt;
     engine->max_frame_time = opt.max_frame_time > 0 ? opt.max_frame_time : 0.25f;
     engine->features = MEL_ENGINE_FEATURE_GPU;
 
@@ -179,7 +190,14 @@ void mel_engine_shutdown(Mel_Engine* engine)
         SDL_Log("ImGui shutdown");
     }
 
-    mel_render_frame_shutdown(&engine->frame);
+    mel_texture_pool_shutdown(engine->texture_pool);
+    mel_dealloc(&engine->allocator, engine->texture_pool);
+    engine->texture_pool = nullptr;
+
+    mel_sprite_pass_shutdown(engine->sprite_pass);
+    mel_dealloc(&engine->allocator, engine->sprite_pass);
+    engine->sprite_pass = nullptr;
+
     mel_slang_shutdown();
     mel_gpu_submit_shutdown(&engine->dev);
     mel_swapchain_shutdown(&engine->swapchain, &engine->dev);
@@ -223,26 +241,11 @@ void mel_engine_frame(Mel_Engine* engine, Mel_App* app)
 
     engine->frame_dt = frame_time;
 
-    if (engine->fixed_dt > 0)
-    {
-        engine->accumulator += frame_time;
-        while (engine->accumulator >= engine->fixed_dt)
-        {
-            TracyCZoneN(ctx_update, "on_update", true);
-            if (app->opt.on_update)
-                app->opt.on_update(app, engine->fixed_dt);
-            engine->accumulator -= engine->fixed_dt;
-            TracyCZoneEnd(ctx_update);
-        }
-        engine->alpha = engine->accumulator / engine->fixed_dt;
-    }
-    else
     {
         TracyCZoneN(ctx_update, "on_update", true);
         if (app->opt.on_update)
             app->opt.on_update(app, frame_time);
         TracyCZoneEnd(ctx_update);
-        engine->alpha = 1.0f;
     }
 
     if (engine->resize_requested)
@@ -254,25 +257,6 @@ void mel_engine_frame(Mel_Engine* engine, Mel_App* app)
         engine->resize_requested = false;
     }
 
-    TracyCZoneN(ctx_acquire, "frame_begin", true);
-    if (!mel_render_frame_begin(&engine->frame))
-    {
-        i32 w, h;
-        SDL_GetWindowSize(engine->window, &w, &h);
-        if (w > 0 && h > 0)
-            mel_swapchain_resize(&engine->swapchain, &engine->dev, w, h);
-        TracyCZoneEnd(ctx_acquire);
-        TracyCZoneEnd(ctx_iterate);
-        TracyCFrameMark;
-        return;
-    }
-    TracyCZoneEnd(ctx_acquire);
-
-    Mel_Gpu_Cmd c = {
-        .cmd = mel_render_frame_cmd(&engine->frame),
-        .dev = &engine->dev,
-    };
-
     if (engine->imgui_initialized)
     {
         ImGui_ImplVulkan_NewFrame();
@@ -280,33 +264,21 @@ void mel_engine_frame(Mel_Engine* engine, Mel_App* app)
         igNewFrame();
     }
 
-    TracyCZoneN(ctx_render, "on_render", true);
-    if (app->opt.on_render)
-        app->opt.on_render(app, &c);
-    TracyCZoneEnd(ctx_render);
+    if (engine->render_graph)
+    {
+        TracyCZoneN(ctx_graph, "render_graph_execute", true);
+        if (!mel_render_graph_execute(engine->render_graph))
+        {
+            i32 w, h;
+            SDL_GetWindowSize(engine->window, &w, &h);
+            if (w > 0 && h > 0)
+                mel_swapchain_resize(&engine->swapchain, &engine->dev, w, h);
+        }
+        TracyCZoneEnd(ctx_graph);
+    }
 
     if (engine->imgui_initialized)
     {
-        igRender();
-        ImDrawData* draw_data = igGetDrawData();
-        if (draw_data && draw_data->CmdListsCount > 0)
-        {
-            Mel_Gpu_Color_Attachment imgui_att = {
-                .image_view = engine->swapchain.image_views[engine->swapchain.current_image],
-                .load_op = VK_ATTACHMENT_LOAD_OP_LOAD,
-            };
-
-            mel_gpu_cmd_begin_rendering(&c,
-                .color_attachments = &imgui_att,
-                .color_count = 1,
-                .render_width = engine->swapchain.extent.width,
-                .render_height = engine->swapchain.extent.height);
-
-            ImGui_ImplVulkan_RenderDrawData(draw_data, c.cmd, VK_NULL_HANDLE);
-
-            mel_gpu_cmd_end_rendering(&c);
-        }
-
         ImGuiIO* io = igGetIO_Nil();
         if (io->ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
         {
@@ -314,10 +286,6 @@ void mel_engine_frame(Mel_Engine* engine, Mel_App* app)
             igRenderPlatformWindowsDefault(nullptr, nullptr);
         }
     }
-
-    TracyCZoneN(ctx_present, "frame_end", true);
-    mel_render_frame_end(&engine->frame);
-    TracyCZoneEnd(ctx_present);
 
     engine->frame_count++;
     TracyCZoneEnd(ctx_iterate);
@@ -342,42 +310,3 @@ void mel_engine_process_event(Mel_Engine* engine, SDL_Event* event)
     }
 }
 
-void mel_engine_begin_swapchain_pass_opt(Mel_Engine* engine, Mel_Gpu_Cmd* cmd, Mel_Engine_Pass_Opt opt)
-{
-    assert(engine != nullptr);
-    assert(cmd != nullptr);
-
-    mel_gpu_cmd_image_barrier(cmd,
-        engine->swapchain.images[engine->swapchain.current_image],
-        VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0,
-        VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-        VK_IMAGE_ASPECT_COLOR_BIT);
-
-    mel_gpu_cmd_set_viewport(cmd, 0, 0,
-        (f32)engine->swapchain.extent.width, (f32)engine->swapchain.extent.height, 0, 1);
-    mel_gpu_cmd_set_scissor(cmd, 0, 0, engine->swapchain.extent.width, engine->swapchain.extent.height);
-
-    Mel_Gpu_Color_Attachment color_att = {
-        .image_view = engine->swapchain.image_views[engine->swapchain.current_image],
-        .load_op = VK_ATTACHMENT_LOAD_OP_CLEAR,
-        .clear_r = opt.clear_r,
-        .clear_g = opt.clear_g,
-        .clear_b = opt.clear_b,
-        .clear_a = opt.clear_a,
-    };
-
-    mel_gpu_cmd_begin_rendering(cmd,
-        .color_attachments = &color_att,
-        .color_count = 1,
-        .render_width = engine->swapchain.extent.width,
-        .render_height = engine->swapchain.extent.height);
-}
-
-void mel_engine_end_swapchain_pass(Mel_Engine* engine, Mel_Gpu_Cmd* cmd)
-{
-    assert(engine != nullptr);
-    assert(cmd != nullptr);
-
-    mel_gpu_cmd_end_rendering(cmd);
-}

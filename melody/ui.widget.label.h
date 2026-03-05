@@ -3,6 +3,7 @@
 #include "ui.widget.h"
 #include "math.vec4.h"
 #include "font.atlas.fwd.h"
+#include "texture.pool.fwd.h"
 #include "string.str8.fwd.h"
 
 typedef struct {

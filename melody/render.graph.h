@@ -1,56 +1,70 @@
 #pragma once
 
-#include "core.types.h"
-#include "allocator.fwd.h"
+#include "render.graph.fwd.h"
+#include "render.pass.h"
+#include "collection.array.h"
 #include "string.str8.fwd.h"
+#include "swapchain.fwd.h"
 
-#define VK_NO_PROTOTYPES
-#include <vulkan/vulkan.h>
+#ifndef MEL_MAX_FRAMES_IN_FLIGHT
+#define MEL_MAX_FRAMES_IN_FLIGHT 3
+#endif
 
-#include "gpu.cmd.fwd.h"
-
-#define MEL_RENDER_GRAPH_MAX_PASSES 64
-
-typedef void (*Mel_Render_Graph_Execute_Fn)(Mel_Gpu_Cmd* cmd, void* user);
-
-typedef struct Mel_Render_Graph_Pass Mel_Render_Graph_Pass;
-typedef struct Mel_Render_Graph_Resource Mel_Render_Graph_Resource;
-typedef struct Mel_Render_Graph Mel_Render_Graph;
+typedef struct Mel_Render_Graph_Dep Mel_Render_Graph_Dep;
 
 struct Mel_Render_Graph_Pass {
-    u32 id;
     str8 name;
-    u64 depends_on;
-    u64 write_mask;
-    u64 read_mask;
-    Mel_Render_Graph_Execute_Fn execute;
+    Mel_Render_Pass_Fn fn;
     void* user;
+    u32 type;
+    Mel_Render_List** read_lists;
+    Mel_Render_List** write_lists;
+    Mel_Render_Target** read_targets;
+    Mel_Pass_Write_Target* write_targets;
+    Mel_Camera* camera;
 };
 
-struct Mel_Render_Graph_Resource {
-    u32 id;
-    str8 name;
-    VkFormat format;
-    u32 width;
-    u32 height;
-    bool is_backbuffer;
+struct Mel_Render_Graph_Barrier {
+    u32 pass_index;
+    Mel_Render_Target* target;
+    Mel_Render_List* list;
+    VkPipelineStageFlags2 src_stage;
+    VkAccessFlags2 src_access;
+    VkPipelineStageFlags2 dst_stage;
+    VkAccessFlags2 dst_access;
+    VkImageLayout old_layout;
+    VkImageLayout new_layout;
+    VkImageAspectFlags aspect;
 };
 
-struct Mel_Render_Graph {
-    Mel_Render_Graph_Pass passes[MEL_RENDER_GRAPH_MAX_PASSES];
-    u32 pass_count;
-
-    Mel_Render_Graph_Resource resources[MEL_RENDER_GRAPH_MAX_PASSES];
-    u32 resource_count;
-
-    u32 sorted_order[MEL_RENDER_GRAPH_MAX_PASSES];
-    u32 sorted_count;
-
-    bool built;
-    const Mel_Alloc* alloc;
+struct Mel_Render_Graph_Dep {
+    u32 from;
+    u32 to;
 };
 
 typedef struct {
+    VkCommandPool pool;
+    VkCommandBuffer cmd;
+    VkFence fence;
+} Mel_Render_Graph_Frame;
+
+struct Mel_Render_Graph {
+    Mel_Array(Mel_Render_Graph_Pass) passes;
+    Mel_Array(u32) sorted_order;
+    Mel_Array(Mel_Render_Graph_Barrier) barriers;
+    Mel_Array(Mel_Render_Graph_Dep) explicit_deps;
+    Mel_Gpu_Device* dev;
+    const Mel_Alloc* alloc;
+    bool dirty;
+
+    Mel_Render_Graph_Frame frames[MEL_MAX_FRAMES_IN_FLIGHT];
+    u32 frame_count;
+    u32 current_frame;
+};
+
+typedef struct {
+    Mel_Gpu_Device* dev;
+    u32 frame_count;
     const Mel_Alloc* alloc;
 } Mel_Render_Graph_Opt;
 
@@ -59,16 +73,13 @@ void mel_render_graph_init_opt(Mel_Render_Graph* g, Mel_Render_Graph_Opt opt);
 
 void mel_render_graph_shutdown(Mel_Render_Graph* g);
 
-u32 mel_render_graph_add_pass(Mel_Render_Graph* g, str8 name,
-                               Mel_Render_Graph_Execute_Fn execute, void* user);
+u32 mel_render_graph_add_pass_opt(Mel_Render_Graph* g, str8 name, Mel_Pass_Desc desc);
+#define mel_render_graph_add_pass(g, name, ...) mel_render_graph_add_pass_opt((g), (name), (Mel_Pass_Desc){__VA_ARGS__})
 
-u32 mel_render_graph_add_resource(Mel_Render_Graph* g, str8 name,
-                                   VkFormat format, u32 width, u32 height, bool is_backbuffer);
+void mel_render_graph_remove_pass(Mel_Render_Graph* g, str8 name);
 
-void mel_render_graph_pass_writes(Mel_Render_Graph* g, u32 pass_id, u32 resource_id);
-void mel_render_graph_pass_reads(Mel_Render_Graph* g, u32 pass_id, u32 resource_id);
 void mel_render_graph_pass_depends_on(Mel_Render_Graph* g, u32 pass_id, u32 dependency_id);
 
-bool mel_render_graph_build(Mel_Render_Graph* g);
+bool mel_render_graph_compile(Mel_Render_Graph* g);
 
-void mel_render_graph_execute(Mel_Render_Graph* g, Mel_Gpu_Cmd* cmd);
+bool mel_render_graph_execute(Mel_Render_Graph* g);

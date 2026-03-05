@@ -101,7 +101,7 @@ void mel_gpu_image_shutdown(Mel_Gpu_Image* img, Mel_Gpu_Device* dev)
     }
 }
 
-static VkPipelineStageFlags2 layout_to_stage(VkImageLayout layout)
+VkPipelineStageFlags2 mel_gpu_image_layout_stage(VkImageLayout layout)
 {
     switch (layout)
     {
@@ -116,7 +116,7 @@ static VkPipelineStageFlags2 layout_to_stage(VkImageLayout layout)
     }
 }
 
-static VkAccessFlags2 layout_to_access(VkImageLayout layout)
+VkAccessFlags2 mel_gpu_image_layout_access(VkImageLayout layout)
 {
     switch (layout)
     {
@@ -147,8 +147,8 @@ void mel_gpu_image_transition_subresource(Mel_Gpu_Image* img, VkCommandBuffer cm
         .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
         .srcStageMask = state->stage ? state->stage : VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT,
         .srcAccessMask = state->access,
-        .dstStageMask = layout_to_stage(new_layout),
-        .dstAccessMask = layout_to_access(new_layout),
+        .dstStageMask = mel_gpu_image_layout_stage(new_layout),
+        .dstAccessMask = mel_gpu_image_layout_access(new_layout),
         .oldLayout = state->layout,
         .newLayout = new_layout,
         .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
@@ -187,8 +187,8 @@ void mel_gpu_image_transition(Mel_Gpu_Image* img, VkCommandBuffer cmd,
         .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
         .srcStageMask = state->stage ? state->stage : VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT,
         .srcAccessMask = state->access,
-        .dstStageMask = layout_to_stage(new_layout),
-        .dstAccessMask = layout_to_access(new_layout),
+        .dstStageMask = mel_gpu_image_layout_stage(new_layout),
+        .dstAccessMask = mel_gpu_image_layout_access(new_layout),
         .oldLayout = state->layout,
         .newLayout = new_layout,
         .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,

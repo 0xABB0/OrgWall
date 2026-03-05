@@ -1,4 +1,6 @@
 #include "game.h"
+#include "render.list.h"
+#include "sprite.pass.h"
 #include <SDL3/SDL.h>
 #include <math.h>
 #include <tracy/TracyC.h>
@@ -335,11 +337,11 @@ void mel_game_update(Mel_Game* game, f32 dt)
     TracyCZoneEnd(ctx);
 }
 
-void mel_game_draw(Mel_Game* game, Mel_SpriteBatch* batch)
+void mel_game_draw(Mel_Game* game, Mel_Render_List* list)
 {
     TracyCZoneN(ctx, "mel_game_draw", true);
     assert(game != nullptr);
-    assert(batch != nullptr);
+    assert(list != nullptr);
 
     if (!s_draw_query)
     {
@@ -359,7 +361,14 @@ void mel_game_draw(Mel_Game* game, Mel_SpriteBatch* batch)
 
         for (int i = 0; i < it.count; i++)
         {
-            mel_sprite_batch_draw(batch, t[i].pos.x, t[i].pos.y, s[i].size.x, s[i].size.y, s[i].color);
+            Mel_Sprite_Entry* e = mel_render_list_push(list, mel_sort_key_sprite(0, 0.0f, 0, 0));
+            *e = (Mel_Sprite_Entry){
+                .pos = t[i].pos,
+                .size = s[i].size,
+                .uv = MEL_UV_FULL,
+                .color = s[i].color,
+                .tex = MEL_TEXTURE_HANDLE_NULL,
+            };
         }
     }
     TracyCZoneEnd(ctx);

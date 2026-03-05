@@ -2,11 +2,11 @@
 
 #include "core.types.h"
 #include "gpu.device.h"
-#include "gpu.cmd.h"
 #include "swapchain.h"
-#include "render.frame.h"
+#include "render.target.h"
+#include "render.pass.fwd.h"
 
-typedef void (*Mel_Visual_Test_Render_Fn)(Mel_Gpu_Cmd* cmd, Mel_Swapchain* sc, void* user_data);
+typedef void (*Mel_Visual_Test_Render_Fn)(Mel_Render_Pass_Ctx* ctx);
 
 typedef struct {
     bool passed;
@@ -21,7 +21,7 @@ struct Mel_Visual_Test_Ctx {
     SDL_Window* window;
     Mel_Gpu_Device dev;
     Mel_Swapchain sc;
-    Mel_Render_Frame frame;
+    Mel_Render_Target target;
     u32 width;
     u32 height;
 
@@ -40,5 +40,14 @@ bool mel_visual_test_init_opt(Mel_Visual_Test_Ctx* ctx, Mel_Visual_Test_Init_Opt
 
 void mel_visual_test_shutdown(Mel_Visual_Test_Ctx* ctx);
 
-Mel_Visual_Test_Result mel_visual_test_check(Mel_Visual_Test_Ctx* ctx, const char* test_name,
-                                              Mel_Visual_Test_Render_Fn render_fn, void* user_data);
+typedef struct {
+    f32 clear_r;
+    f32 clear_g;
+    f32 clear_b;
+    f32 clear_a;
+} Mel_Visual_Test_Check_Opt;
+
+Mel_Visual_Test_Result mel_visual_test_check_opt(Mel_Visual_Test_Ctx* ctx, const char* test_name,
+                                                  Mel_Visual_Test_Render_Fn render_fn, Mel_Visual_Test_Check_Opt opt);
+#define mel_visual_test_check(ctx, name, fn, ...) \
+    mel_visual_test_check_opt((ctx), (name), (fn), (Mel_Visual_Test_Check_Opt){__VA_ARGS__})

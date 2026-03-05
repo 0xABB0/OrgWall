@@ -31,4 +31,6 @@ static inline void mel_rect_corners(Mel_Rect r, Mel_Vec2 out[4]);
 [[nodiscard]] static inline bool mel_rect_is_empty(Mel_Rect r);
 static inline void mel_rect_add_point(Mel_Rect* r, Mel_Vec2 p);
 
+#define MEL_UV_FULL mel_rect(0, 0, 1, 1)
+
 #include "math.geo.rect.inl"

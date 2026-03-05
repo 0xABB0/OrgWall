@@ -54,7 +54,7 @@ void mel_texture_pool_shutdown(Mel_Texture_Pool* pool)
 
     for (u32 i = 0; i < count; i++)
     {
-        if (entries[i].state == MEL_TEXTURE_STATE_LOADED)
+        if (entries[i].state == MEL_TEXTURE_STATE_LOADED && !entries[i].external)
         {
             mel_gpu_texture_shutdown(&entries[i].gpu_texture, pool->dev);
         }
@@ -174,7 +174,27 @@ void mel_texture_pool_tick(Mel_Texture_Pool* pool)
 
     if (!pool->job_ctx)
         return;
+}
 
-    // TODO: check completed async jobs, upload to GPU
-    // For now, all loading is synchronous
+Mel_Texture_Handle mel_texture_pool_register(Mel_Texture_Pool* pool, Mel_Gpu_Texture* tex)
+{
+    assert(pool != nullptr);
+    assert(tex != nullptr);
+
+    Mel_Texture_Entry entry = {
+        .gpu_texture = *tex,
+        .path_hash = 0,
+        .state = MEL_TEXTURE_STATE_LOADED,
+        .external = true,
+    };
+
+    if (pool->pipeline)
+    {
+        entry.gpu_texture.descriptor = mel_gpu_pipeline_alloc_descriptor(pool->pipeline, pool->dev);
+        mel_gpu_pipeline_write_texture(pool->pipeline, pool->dev, entry.gpu_texture.descriptor,
+                                       entry.gpu_texture.image.view, entry.gpu_texture.sampler);
+    }
+
+    Mel_SlotMap_Handle sm_handle = mel_slotmap_insert(&pool->slotmap, &entry);
+    return (Mel_Texture_Handle){ .handle = sm_handle };
 }

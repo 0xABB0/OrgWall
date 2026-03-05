@@ -9,7 +9,8 @@
 #include "player.h"
 #include "npc.h"
 #include "wall.h"
-#include "sprite.batch.h"
+#include "render.list.fwd.h"
+#include <SDL3/SDL_events.h>
 
 typedef struct
 {
@@ -29,7 +30,7 @@ void mel_game_shutdown(Mel_Game* game);
 
 void mel_game_handle_event(Mel_Game* game, SDL_Event* event);
 void mel_game_update(Mel_Game* game, f32 dt);
-void mel_game_draw(Mel_Game* game, Mel_SpriteBatch* batch);
+void mel_game_draw(Mel_Game* game, Mel_Render_List* list);
 
 bool mel_game_can_interact(Mel_Game* game);
 

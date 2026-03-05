@@ -1,173 +1,769 @@
 #define VK_NO_PROTOTYPES
 #include "render.graph.h"
+#include "render.list.h"
+#include "render.target.h"
+#include "render.camera.fwd.h"
+#include "swapchain.h"
+#include "gpu.image.h"
 #include "string.str8.h"
-#include "gpu.cmd.h"
+#include "allocator.heap.h"
 #include <string.h>
+
+static u32 null_terminated_count(void** arr)
+{
+    if (!arr) return 0;
+    u32 count = 0;
+    while (arr[count]) count++;
+    return count;
+}
+
+static u32 write_target_count(Mel_Pass_Write_Target* arr)
+{
+    if (!arr) return 0;
+    u32 count = 0;
+    while (arr[count].target) count++;
+    return count;
+}
+
+static Mel_Render_List** copy_list_array(const Mel_Alloc* alloc, Mel_Render_List** src)
+{
+    if (!src) return nullptr;
+    u32 count = null_terminated_count((void**)src);
+    Mel_Render_List** dst = mel_alloc(alloc, sizeof(Mel_Render_List*) * (count + 1));
+    memcpy(dst, src, sizeof(Mel_Render_List*) * (count + 1));
+    return dst;
+}
+
+static Mel_Render_Target** copy_target_array(const Mel_Alloc* alloc, Mel_Render_Target** src)
+{
+    if (!src) return nullptr;
+    u32 count = null_terminated_count((void**)src);
+    Mel_Render_Target** dst = mel_alloc(alloc, sizeof(Mel_Render_Target*) * (count + 1));
+    memcpy(dst, src, sizeof(Mel_Render_Target*) * (count + 1));
+    return dst;
+}
+
+static Mel_Pass_Write_Target* copy_write_target_array(const Mel_Alloc* alloc, Mel_Pass_Write_Target* src)
+{
+    if (!src) return nullptr;
+    u32 count = write_target_count(src);
+    Mel_Pass_Write_Target* dst = mel_alloc(alloc, sizeof(Mel_Pass_Write_Target) * (count + 1));
+    memcpy(dst, src, sizeof(Mel_Pass_Write_Target) * (count + 1));
+    return dst;
+}
+
+static void free_pass_resources(const Mel_Alloc* alloc, Mel_Render_Graph_Pass* pass)
+{
+    if (pass->read_lists) mel_dealloc(alloc, pass->read_lists);
+    if (pass->write_lists) mel_dealloc(alloc, pass->write_lists);
+    if (pass->read_targets) mel_dealloc(alloc, pass->read_targets);
+    if (pass->write_targets) mel_dealloc(alloc, pass->write_targets);
+}
+
+static bool has_write_target(Mel_Pass_Write_Target* arr, Mel_Render_Target* t)
+{
+    if (!arr) return false;
+    while (arr->target)
+    {
+        if (arr->target == t) return true;
+        arr++;
+    }
+    return false;
+}
+
+static bool has_list(Mel_Render_List** arr, Mel_Render_List* l)
+{
+    if (!arr) return false;
+    while (*arr)
+    {
+        if (*arr == l) return true;
+        arr++;
+    }
+    return false;
+}
+
+typedef struct {
+    Mel_Render_Target* target;
+    VkImageLayout layout;
+} Target_State;
+
+typedef struct {
+    Mel_Render_List* list;
+    bool has_writer;
+    u32 writer_pass_type;
+} List_State;
+
+static VkImageLayout find_target_layout(Target_State* states, usize count, Mel_Render_Target* t)
+{
+    for (usize i = 0; i < count; i++)
+        if (states[i].target == t)
+            return states[i].layout;
+    return VK_IMAGE_LAYOUT_UNDEFINED;
+}
+
+static List_State* find_list_state(List_State* states, usize count, Mel_Render_List* l)
+{
+    for (usize i = 0; i < count; i++)
+        if (states[i].list == l)
+            return &states[i];
+    return nullptr;
+}
+
+static void set_target_layout(Target_State* states, usize* count, usize capacity,
+                               Mel_Render_Target* t, VkImageLayout layout)
+{
+    for (usize i = 0; i < *count; i++)
+    {
+        if (states[i].target == t)
+        {
+            states[i].layout = layout;
+            return;
+        }
+    }
+    assert(*count < capacity);
+    states[*count] = (Target_State){t, layout};
+    (*count)++;
+}
+
+static List_State* ensure_list_state(List_State* states, usize* count, usize capacity, Mel_Render_List* l)
+{
+    List_State* existing = find_list_state(states, *count, l);
+    if (existing) return existing;
+    assert(*count < capacity);
+    states[*count] = (List_State){ .list = l };
+    return &states[(*count)++];
+}
+
+static VkPipelineStageFlags2 list_stage_for_pass(u32 pass_type)
+{
+    return pass_type == MEL_PASS_COMPUTE
+        ? VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT
+        : VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT;
+}
+
+static void compute_barriers(Mel_Render_Graph* g)
+{
+    mel_array_clear(&g->barriers);
+
+    usize max_targets = 0;
+    usize max_lists = 0;
+    for (usize i = 0; i < g->passes.count; i++)
+    {
+        Mel_Render_Graph_Pass* p = &g->passes.items[i];
+        if (p->read_targets)
+            for (Mel_Render_Target** t = p->read_targets; *t; t++) max_targets++;
+        if (p->write_targets)
+            for (Mel_Pass_Write_Target* wt = p->write_targets; wt->target; wt++) max_targets++;
+        if (p->read_lists)
+            for (Mel_Render_List** l = p->read_lists; *l; l++) max_lists++;
+        if (p->write_lists)
+            for (Mel_Render_List** l = p->write_lists; *l; l++) max_lists++;
+    }
+
+    if (max_targets == 0 && max_lists == 0) return;
+
+    Target_State* target_states = max_targets > 0
+        ? mel_alloc(g->alloc, sizeof(Target_State) * max_targets)
+        : nullptr;
+    usize target_state_count = 0;
+    List_State* list_states = max_lists > 0
+        ? mel_alloc(g->alloc, sizeof(List_State) * max_lists)
+        : nullptr;
+    usize list_state_count = 0;
+
+    for (usize si = 0; si < g->sorted_order.count; si++)
+    {
+        u32 pi = g->sorted_order.items[si];
+        Mel_Render_Graph_Pass* pass = &g->passes.items[pi];
+
+        if (pass->read_targets)
+        {
+            for (Mel_Render_Target** t = pass->read_targets; *t; t++)
+            {
+                VkImageLayout cur = find_target_layout(target_states, target_state_count, *t);
+                if (cur != VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+                {
+                    bool depth = ((*t)->kind == MEL_RENDER_TARGET_DEPTH);
+                    VkPipelineStageFlags2 dst_stage = pass->type == MEL_PASS_COMPUTE
+                        ? VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT
+                        : VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+                    Mel_Render_Graph_Barrier b = {
+                        .pass_index = pi,
+                        .target = *t,
+                        .list = nullptr,
+                        .src_stage = mel_gpu_image_layout_stage(cur),
+                        .src_access = mel_gpu_image_layout_access(cur),
+                        .dst_stage = dst_stage,
+                        .dst_access = VK_ACCESS_2_SHADER_READ_BIT,
+                        .old_layout = cur,
+                        .new_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                        .aspect = depth ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT,
+                    };
+                    mel_array_push(&g->barriers, b);
+                    set_target_layout(target_states, &target_state_count, max_targets, *t,
+                                      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                }
+            }
+        }
+
+        if (pass->write_targets)
+        {
+            for (Mel_Pass_Write_Target* wt = pass->write_targets; wt->target; wt++)
+            {
+                Mel_Render_Target* t = wt->target;
+                VkImageLayout cur = find_target_layout(target_states, target_state_count, t);
+                bool depth = (t->kind == MEL_RENDER_TARGET_DEPTH);
+                VkImageLayout target_layout = depth
+                    ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
+                    : VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+                if (cur != target_layout)
+                {
+                    Mel_Render_Graph_Barrier b = {
+                        .pass_index = pi,
+                        .target = t,
+                        .list = nullptr,
+                        .src_stage = mel_gpu_image_layout_stage(cur),
+                        .src_access = mel_gpu_image_layout_access(cur),
+                        .dst_stage = mel_gpu_image_layout_stage(target_layout),
+                        .dst_access = mel_gpu_image_layout_access(target_layout),
+                        .old_layout = cur,
+                        .new_layout = target_layout,
+                        .aspect = depth ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT,
+                    };
+                    mel_array_push(&g->barriers, b);
+                    set_target_layout(target_states, &target_state_count, max_targets, t, target_layout);
+                }
+            }
+        }
+
+        if (pass->read_lists && list_states)
+        {
+            for (Mel_Render_List** l = pass->read_lists; *l; l++)
+            {
+                List_State* st = find_list_state(list_states, list_state_count, *l);
+                if (st && st->has_writer)
+                {
+                    Mel_Render_Graph_Barrier b = {
+                        .pass_index = pi,
+                        .target = nullptr,
+                        .list = *l,
+                        .src_stage = list_stage_for_pass(st->writer_pass_type),
+                        .src_access = VK_ACCESS_2_SHADER_WRITE_BIT,
+                        .dst_stage = list_stage_for_pass(pass->type),
+                        .dst_access = VK_ACCESS_2_SHADER_READ_BIT,
+                    };
+                    mel_array_push(&g->barriers, b);
+                }
+            }
+        }
+
+        if (pass->write_lists && list_states)
+        {
+            for (Mel_Render_List** l = pass->write_lists; *l; l++)
+            {
+                List_State* st = ensure_list_state(list_states, &list_state_count, max_lists, *l);
+
+                if (st->has_writer)
+                {
+                    Mel_Render_Graph_Barrier b = {
+                        .pass_index = pi,
+                        .target = nullptr,
+                        .list = *l,
+                        .src_stage = list_stage_for_pass(st->writer_pass_type),
+                        .src_access = VK_ACCESS_2_SHADER_WRITE_BIT,
+                        .dst_stage = list_stage_for_pass(pass->type),
+                        .dst_access = VK_ACCESS_2_SHADER_WRITE_BIT,
+                    };
+                    mel_array_push(&g->barriers, b);
+                }
+
+                st->has_writer = true;
+                st->writer_pass_type = pass->type;
+            }
+        }
+    }
+
+    if (target_states)
+        mel_dealloc(g->alloc, target_states);
+    if (list_states)
+        mel_dealloc(g->alloc, list_states);
+}
+
+static Mel_Swapchain* find_swapchain_target(Mel_Render_Graph* g)
+{
+    for (usize i = 0; i < g->passes.count; i++)
+    {
+        Mel_Render_Graph_Pass* p = &g->passes.items[i];
+        if (!p->write_targets) continue;
+        for (Mel_Pass_Write_Target* wt = p->write_targets; wt->target; wt++)
+        {
+            if (wt->target->kind == MEL_RENDER_TARGET_SWAPCHAIN)
+                return wt->target->swapchain;
+        }
+    }
+    return nullptr;
+}
+
+static void execute_passes(Mel_Render_Graph* g, Mel_Gpu_Cmd* cmd)
+{
+    usize barrier_cursor = 0;
+
+    for (usize si = 0; si < g->sorted_order.count; si++)
+    {
+        u32 pi = g->sorted_order.items[si];
+        Mel_Render_Graph_Pass* pass = &g->passes.items[pi];
+
+        while (barrier_cursor < g->barriers.count &&
+               g->barriers.items[barrier_cursor].pass_index == pi)
+        {
+            Mel_Render_Graph_Barrier* b = &g->barriers.items[barrier_cursor++];
+            if (b->target)
+            {
+                mel_gpu_cmd_image_barrier(cmd,
+                    mel_render_target_image(b->target),
+                    b->src_stage, b->src_access,
+                    b->dst_stage, b->dst_access,
+                    b->old_layout, b->new_layout,
+                    b->aspect);
+            }
+            else if (b->list)
+            {
+                VkBuffer buffer = b->list->gpu_buffer.buffer;
+                if (buffer != VK_NULL_HANDLE)
+                    mel_gpu_cmd_buffer_barrier(cmd, buffer,
+                        b->src_stage, b->src_access,
+                        b->dst_stage, b->dst_access);
+            }
+        }
+
+        bool has_wt = pass->write_targets && pass->write_targets[0].target;
+
+        if (pass->type == MEL_PASS_GRAPHICS && has_wt)
+        {
+            u32 color_count = 0;
+            Mel_Gpu_Color_Attachment color_attachments[8];
+            Mel_Gpu_Depth_Attachment depth_att = {0};
+            bool has_depth = false;
+
+            for (Mel_Pass_Write_Target* wt = pass->write_targets; wt->target; wt++)
+            {
+                if (wt->target->kind == MEL_RENDER_TARGET_DEPTH)
+                {
+                    depth_att = (Mel_Gpu_Depth_Attachment){
+                        .image_view = mel_render_target_view(wt->target),
+                        .layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+                        .load_op = wt->load_op,
+                        .store_op = VK_ATTACHMENT_STORE_OP_STORE,
+                        .clear_depth = wt->clear.depth.depth,
+                        .clear_stencil = wt->clear.depth.stencil,
+                    };
+                    has_depth = true;
+                    continue;
+                }
+
+                assert(color_count < 8);
+                color_attachments[color_count++] = (Mel_Gpu_Color_Attachment){
+                    .image_view = mel_render_target_view(wt->target),
+                    .layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                    .load_op = wt->load_op,
+                    .store_op = VK_ATTACHMENT_STORE_OP_STORE,
+                    .clear_r = wt->clear.color.r,
+                    .clear_g = wt->clear.color.g,
+                    .clear_b = wt->clear.color.b,
+                    .clear_a = wt->clear.color.a,
+                };
+            }
+
+            u32 rw = mel_render_target_width(pass->write_targets[0].target);
+            u32 rh = mel_render_target_height(pass->write_targets[0].target);
+
+            mel_gpu_cmd_begin_rendering(cmd,
+                .color_attachments = color_count > 0 ? color_attachments : nullptr,
+                .color_count = color_count,
+                .depth_attachment = has_depth ? &depth_att : nullptr,
+                .render_width = rw,
+                .render_height = rh,
+            );
+
+            mel_gpu_cmd_set_viewport(cmd, 0, 0, (f32)rw, (f32)rh, 0.0f, 1.0f);
+            mel_gpu_cmd_set_scissor(cmd, 0, 0, rw, rh);
+        }
+
+        if (pass->fn)
+        {
+            u32 rw = 0, rh = 0;
+            Mel_Render_Target* write_target_ptrs[9] = {0};
+
+            if (has_wt)
+            {
+                rw = mel_render_target_width(pass->write_targets[0].target);
+                rh = mel_render_target_height(pass->write_targets[0].target);
+
+                u32 wt_count = 0;
+                for (Mel_Pass_Write_Target* wt = pass->write_targets; wt->target; wt++)
+                    write_target_ptrs[wt_count++] = wt->target;
+            }
+
+            Mel_Render_Pass_Ctx ctx = {
+                .cmd = *cmd,
+                .read_lists = pass->read_lists,
+                .write_lists = pass->write_lists,
+                .read_targets = pass->read_targets,
+                .write_targets = has_wt ? write_target_ptrs : nullptr,
+                .camera = pass->camera,
+                .user = pass->user,
+                .render_width = rw,
+                .render_height = rh,
+            };
+            pass->fn(&ctx);
+        }
+
+        if (pass->type == MEL_PASS_GRAPHICS && has_wt)
+            mel_gpu_cmd_end_rendering(cmd);
+    }
+}
 
 void mel_render_graph_init_opt(Mel_Render_Graph* g, Mel_Render_Graph_Opt opt)
 {
     assert(g != nullptr);
 
     *g = (Mel_Render_Graph){0};
-    g->alloc = opt.alloc;
+    g->dev = opt.dev;
+    g->alloc = opt.alloc ? opt.alloc : mel_alloc_heap();
+
+    mel_array_init(&g->passes, g->alloc);
+    mel_array_init(&g->sorted_order, g->alloc);
+    mel_array_init(&g->barriers, g->alloc);
+    mel_array_init(&g->explicit_deps, g->alloc);
+
+    if (g->dev)
+    {
+        g->frame_count = opt.frame_count > 0 ? opt.frame_count : 2;
+        assert(g->frame_count <= MEL_MAX_FRAMES_IN_FLIGHT);
+
+        for (u32 i = 0; i < g->frame_count; i++)
+        {
+            VkCommandPoolCreateInfo pool_info = {
+                .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+                .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
+                .queueFamilyIndex = g->dev->graphics_family,
+            };
+            vkCreateCommandPool(g->dev->device, &pool_info, nullptr, &g->frames[i].pool);
+
+            VkCommandBufferAllocateInfo alloc_info = {
+                .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+                .commandPool = g->frames[i].pool,
+                .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+                .commandBufferCount = 1,
+            };
+            vkAllocateCommandBuffers(g->dev->device, &alloc_info, &g->frames[i].cmd);
+
+            VkFenceCreateInfo fence_info = {
+                .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+                .flags = VK_FENCE_CREATE_SIGNALED_BIT,
+            };
+            vkCreateFence(g->dev->device, &fence_info, nullptr, &g->frames[i].fence);
+        }
+    }
 }
 
 void mel_render_graph_shutdown(Mel_Render_Graph* g)
 {
     assert(g != nullptr);
+
+    if (g->dev)
+    {
+        vkDeviceWaitIdle(g->dev->device);
+
+        for (u32 i = 0; i < g->frame_count; i++)
+        {
+            if (g->frames[i].fence)
+                vkDestroyFence(g->dev->device, g->frames[i].fence, nullptr);
+            if (g->frames[i].pool)
+                vkDestroyCommandPool(g->dev->device, g->frames[i].pool, nullptr);
+        }
+    }
+
+    for (usize i = 0; i < g->passes.count; i++)
+        free_pass_resources(g->alloc, &g->passes.items[i]);
+
+    mel_array_free(&g->passes);
+    mel_array_free(&g->sorted_order);
+    mel_array_free(&g->barriers);
+    mel_array_free(&g->explicit_deps);
+
     *g = (Mel_Render_Graph){0};
 }
 
-u32 mel_render_graph_add_pass(Mel_Render_Graph* g, str8 name,
-                               Mel_Render_Graph_Execute_Fn execute, void* user)
+u32 mel_render_graph_add_pass_opt(Mel_Render_Graph* g, str8 name, Mel_Pass_Desc desc)
 {
     assert(g != nullptr);
-    assert(g->pass_count < MEL_RENDER_GRAPH_MAX_PASSES);
-    assert(!g->built);
 
-    u32 id = g->pass_count;
-    g->passes[id] = (Mel_Render_Graph_Pass){
-        .id = id,
+    Mel_Render_Graph_Pass pass = {
         .name = name,
-        .execute = execute,
-        .user = user,
+        .fn = desc.fn,
+        .user = desc.user,
+        .type = desc.type,
+        .read_lists = copy_list_array(g->alloc, desc.read_lists),
+        .write_lists = copy_list_array(g->alloc, desc.write_lists),
+        .read_targets = copy_target_array(g->alloc, desc.read_targets),
+        .write_targets = copy_write_target_array(g->alloc, desc.write_targets),
+        .camera = desc.camera,
     };
-    g->pass_count++;
+
+    u32 id = (u32)g->passes.count;
+    mel_array_push(&g->passes, pass);
+    g->dirty = true;
+
     return id;
 }
 
-u32 mel_render_graph_add_resource(Mel_Render_Graph* g, str8 name,
-                                   VkFormat format, u32 width, u32 height, bool is_backbuffer)
+void mel_render_graph_remove_pass(Mel_Render_Graph* g, str8 name)
 {
     assert(g != nullptr);
-    assert(g->resource_count < MEL_RENDER_GRAPH_MAX_PASSES);
-    assert(!g->built);
 
-    u32 id = g->resource_count;
-    g->resources[id] = (Mel_Render_Graph_Resource){
-        .id = id,
-        .name = name,
-        .format = format,
-        .width = width,
-        .height = height,
-        .is_backbuffer = is_backbuffer,
-    };
-    g->resource_count++;
-    return id;
-}
+    for (usize i = 0; i < g->passes.count; i++)
+    {
+        if (str8_equals(g->passes.items[i].name, name))
+        {
+            free_pass_resources(g->alloc, &g->passes.items[i]);
+            mel_array_remove_ordered(&g->passes, i);
 
-void mel_render_graph_pass_writes(Mel_Render_Graph* g, u32 pass_id, u32 resource_id)
-{
-    assert(g != nullptr);
-    assert(pass_id < g->pass_count);
-    assert(resource_id < 64);
-    assert(!g->built);
-    g->passes[pass_id].write_mask |= (1ULL << resource_id);
-}
+            u32 removed = (u32)i;
+            for (usize d = g->explicit_deps.count; d > 0; d--)
+            {
+                Mel_Render_Graph_Dep* dep = &g->explicit_deps.items[d - 1];
+                if (dep->from == removed || dep->to == removed)
+                {
+                    mel_array_remove_ordered(&g->explicit_deps, d - 1);
+                    continue;
+                }
+                if (dep->from > removed) dep->from--;
+                if (dep->to > removed) dep->to--;
+            }
 
-void mel_render_graph_pass_reads(Mel_Render_Graph* g, u32 pass_id, u32 resource_id)
-{
-    assert(g != nullptr);
-    assert(pass_id < g->pass_count);
-    assert(resource_id < 64);
-    assert(!g->built);
-    g->passes[pass_id].read_mask |= (1ULL << resource_id);
+            g->dirty = true;
+            return;
+        }
+    }
+
+    assert(false);
 }
 
 void mel_render_graph_pass_depends_on(Mel_Render_Graph* g, u32 pass_id, u32 dependency_id)
 {
     assert(g != nullptr);
-    assert(pass_id < g->pass_count);
-    assert(dependency_id < g->pass_count);
+    assert(pass_id < (u32)g->passes.count);
+    assert(dependency_id < (u32)g->passes.count);
     assert(pass_id != dependency_id);
-    assert(!g->built);
-    g->passes[pass_id].depends_on |= (1ULL << dependency_id);
+
+    mel_array_push(&g->explicit_deps, ((Mel_Render_Graph_Dep){.from = dependency_id, .to = pass_id}));
+    g->dirty = true;
 }
 
-static void compute_auto_dependencies(Mel_Render_Graph* g)
-{
-    for (u32 i = 0; i < g->pass_count; i++)
-    {
-        Mel_Render_Graph_Pass* pass = &g->passes[i];
-
-        if (pass->read_mask == 0)
-            continue;
-
-        for (u32 j = 0; j < g->pass_count; j++)
-        {
-            if (i == j) continue;
-
-            Mel_Render_Graph_Pass* other = &g->passes[j];
-
-            if (other->write_mask & pass->read_mask)
-                pass->depends_on |= (1ULL << j);
-        }
-    }
-
-    for (u32 i = 0; i < g->pass_count; i++)
-    {
-        Mel_Render_Graph_Pass* pass = &g->passes[i];
-
-        if (pass->write_mask == 0)
-            continue;
-
-        for (u32 j = 0; j < g->pass_count; j++)
-        {
-            if (i == j) continue;
-
-            Mel_Render_Graph_Pass* other = &g->passes[j];
-
-            if ((other->write_mask & pass->write_mask) && j < i)
-                pass->depends_on |= (1ULL << j);
-        }
-    }
-}
-
-bool mel_render_graph_build(Mel_Render_Graph* g)
+bool mel_render_graph_compile(Mel_Render_Graph* g)
 {
     assert(g != nullptr);
-    assert(!g->built);
 
-    compute_auto_dependencies(g);
+    usize n = g->passes.count;
+    mel_array_clear(&g->sorted_order);
+    mel_array_clear(&g->barriers);
 
-    u64 scheduled = 0;
-    g->sorted_count = 0;
-
-    for (u32 iter = 0; iter < g->pass_count; iter++)
+    if (n == 0)
     {
-        bool progress = false;
+        g->dirty = false;
+        return true;
+    }
 
-        for (u32 i = 0; i < g->pass_count; i++)
+    bool* adj = mel_alloc(g->alloc, n * n * sizeof(bool));
+    memset(adj, 0, n * n * sizeof(bool));
+
+    for (usize d = 0; d < g->explicit_deps.count; d++)
+    {
+        u32 from = g->explicit_deps.items[d].from;
+        u32 to = g->explicit_deps.items[d].to;
+        adj[to * n + from] = true;
+    }
+
+    for (usize i = 0; i < n; i++)
+    {
+        Mel_Render_Graph_Pass* pi = &g->passes.items[i];
+
+        if (pi->read_targets)
         {
-            if (scheduled & (1ULL << i))
-                continue;
-
-            if ((g->passes[i].depends_on & ~scheduled) == 0)
+            for (Mel_Render_Target** t = pi->read_targets; *t; t++)
             {
-                g->sorted_order[g->sorted_count++] = i;
-                scheduled |= (1ULL << i);
-                progress = true;
-                break;
+                for (usize j = 0; j < n; j++)
+                {
+                    if (i == j) continue;
+                    if (has_write_target(g->passes.items[j].write_targets, *t))
+                        adj[i * n + j] = true;
+                }
             }
         }
 
-        if (!progress)
-            return false;
+        if (pi->write_targets)
+        {
+            for (Mel_Pass_Write_Target* wt = pi->write_targets; wt->target; wt++)
+            {
+                for (usize j = 0; j < i; j++)
+                {
+                    if (has_write_target(g->passes.items[j].write_targets, wt->target))
+                        adj[i * n + j] = true;
+                }
+            }
+        }
+
+        if (pi->read_lists)
+        {
+            for (Mel_Render_List** l = pi->read_lists; *l; l++)
+            {
+                for (usize j = 0; j < n; j++)
+                {
+                    if (i == j) continue;
+                    if (has_list(g->passes.items[j].write_lists, *l))
+                        adj[i * n + j] = true;
+                }
+            }
+        }
+
+        if (pi->write_lists)
+        {
+            for (Mel_Render_List** l = pi->write_lists; *l; l++)
+            {
+                for (usize j = 0; j < i; j++)
+                {
+                    if (has_list(g->passes.items[j].write_lists, *l))
+                        adj[i * n + j] = true;
+                }
+            }
+        }
     }
 
-    g->built = true;
-    return true;
+    u32* in_degree = mel_alloc(g->alloc, n * sizeof(u32));
+    memset(in_degree, 0, n * sizeof(u32));
+
+    for (usize i = 0; i < n; i++)
+        for (usize j = 0; j < n; j++)
+            if (adj[i * n + j])
+                in_degree[i]++;
+
+    u32* queue = mel_alloc(g->alloc, n * sizeof(u32));
+    u32 qfront = 0, qback = 0;
+
+    for (usize i = 0; i < n; i++)
+        if (in_degree[i] == 0)
+            queue[qback++] = (u32)i;
+
+    while (qfront < qback)
+    {
+        u32 cur = queue[qfront++];
+        mel_array_push(&g->sorted_order, cur);
+
+        for (usize i = 0; i < n; i++)
+        {
+            if (adj[i * n + cur])
+            {
+                in_degree[i]--;
+                if (in_degree[i] == 0)
+                    queue[qback++] = (u32)i;
+            }
+        }
+    }
+
+    bool success = (g->sorted_order.count == n);
+
+    mel_dealloc(g->alloc, adj);
+    mel_dealloc(g->alloc, in_degree);
+    mel_dealloc(g->alloc, queue);
+
+    if (success)
+    {
+        compute_barriers(g);
+    }
+    else
+    {
+        mel_array_clear(&g->sorted_order);
+        mel_array_clear(&g->barriers);
+    }
+
+    g->dirty = !success;
+    return success;
 }
 
-void mel_render_graph_execute(Mel_Render_Graph* g, Mel_Gpu_Cmd* cmd)
+static void produce_lists(Mel_Render_Graph* g)
+{
+    for (usize i = 0; i < g->passes.count; i++)
+    {
+        Mel_Render_Graph_Pass* pass = &g->passes.items[i];
+
+        if (pass->read_lists)
+            for (Mel_Render_List** l = pass->read_lists; *l; l++)
+                mel_render_list_produce(*l);
+
+        if (pass->write_lists)
+            for (Mel_Render_List** l = pass->write_lists; *l; l++)
+                mel_render_list_produce(*l);
+    }
+}
+
+bool mel_render_graph_execute(Mel_Render_Graph* g)
 {
     assert(g != nullptr);
-    assert(g->built);
 
-    for (u32 i = 0; i < g->sorted_count; i++)
+    if (g->dirty && !mel_render_graph_compile(g))
     {
-        Mel_Render_Graph_Pass* pass = &g->passes[g->sorted_order[i]];
-        if (pass->execute)
-            pass->execute(cmd, pass->user);
+        assert(false);
+        return false;
     }
+
+    if (g->sorted_order.count == 0)
+        return true;
+
+    produce_lists(g);
+
+    bool has_gpu = (g->dev != nullptr && g->frame_count > 0);
+    Mel_Swapchain* swapchain = nullptr;
+    Mel_Gpu_Cmd cmd = {0};
+
+    if (has_gpu)
+    {
+        swapchain = find_swapchain_target(g);
+
+        Mel_Render_Graph_Frame* fd = &g->frames[g->current_frame];
+
+        vkWaitForFences(g->dev->device, 1, &fd->fence, VK_TRUE, UINT64_MAX);
+
+        if (swapchain)
+        {
+            if (!mel_swapchain_acquire(swapchain, g->dev))
+                return false;
+        }
+
+        vkResetFences(g->dev->device, 1, &fd->fence);
+        vkResetCommandPool(g->dev->device, fd->pool, 0);
+
+        VkCommandBufferBeginInfo begin = {
+            .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+            .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+        };
+        vkBeginCommandBuffer(fd->cmd, &begin);
+
+        cmd = (Mel_Gpu_Cmd){ .cmd = fd->cmd, .dev = g->dev };
+    }
+
+    execute_passes(g, &cmd);
+
+    if (has_gpu)
+    {
+        Mel_Render_Graph_Frame* fd = &g->frames[g->current_frame];
+
+        if (swapchain)
+            mel_swapchain_present(swapchain, g->dev, fd->cmd, fd->fence);
+
+        g->current_frame = (g->current_frame + 1) % g->frame_count;
+    }
+
+    return true;
 }

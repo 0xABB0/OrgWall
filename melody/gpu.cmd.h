@@ -27,8 +27,18 @@ typedef struct {
 } Mel_Gpu_Color_Attachment;
 
 typedef struct {
+    VkImageView image_view;
+    VkImageLayout layout;
+    VkAttachmentLoadOp load_op;
+    VkAttachmentStoreOp store_op;
+    f32 clear_depth;
+    u32 clear_stencil;
+} Mel_Gpu_Depth_Attachment;
+
+typedef struct {
     Mel_Gpu_Color_Attachment* color_attachments;
     u32 color_count;
+    Mel_Gpu_Depth_Attachment* depth_attachment;
     u32 render_width;
     u32 render_height;
 } Mel_Gpu_Rendering_Opt;
@@ -58,5 +68,10 @@ void mel_gpu_cmd_image_barrier(Mel_Gpu_Cmd* c,
                                VkPipelineStageFlags2 dst_stage, VkAccessFlags2 dst_access,
                                VkImageLayout old_layout, VkImageLayout new_layout,
                                VkImageAspectFlags aspect);
+
+void mel_gpu_cmd_buffer_barrier(Mel_Gpu_Cmd* c,
+                                VkBuffer buffer,
+                                VkPipelineStageFlags2 src_stage, VkAccessFlags2 src_access,
+                                VkPipelineStageFlags2 dst_stage, VkAccessFlags2 dst_access);
 
 void mel_gpu_cmd_transition_image(Mel_Gpu_Cmd* c, Mel_Gpu_Image* image, VkImageLayout new_layout);

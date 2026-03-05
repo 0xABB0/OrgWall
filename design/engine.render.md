@@ -54,6 +54,53 @@ RENDER GRAPH (consumption — global DAG):
 
 ---
 
+## Camera
+
+Pure data type representing a view into the world. Defined in
+`melody/render.camera.h`.
+
+```c
+struct Mel_Camera {
+    Mel_Mat4 view;
+    Mel_Mat4 projection;
+    Mel_Vec3 position;
+};
+```
+
+No methods beyond one inline convenience:
+
+```c
+static inline Mel_Mat4 mel_camera_vp(const Mel_Camera* cam)
+{
+    return mel_mat4_mul(cam->projection, cam->view);
+}
+```
+
+Users build cameras using existing math functions:
+
+```c
+Mel_Camera cam = {
+    .view = mel_mat4_look_at(eye, target, up),
+    .projection = mel_mat4_perspective(fov, aspect, near, far),
+    .position = eye,
+};
+
+Mel_Camera ortho_cam = {
+    .view = mel_mat4_identity(),
+    .projection = mel_mat4_ortho(0, w, 0, h, -1, 1),
+    .position = mel_vec3(0, 0, 0),
+};
+```
+
+Passes receive a `const Mel_Camera*` via `Mel_Render_Pass_Ctx`. The graph
+stores the pointer (not a copy) — the game owns the camera and updates it
+live, the graph reads at execute time.
+
+Camera is optional in `Mel_Pass_Desc`. Passes that don't need a camera
+(post-processing, fullscreen effects) leave it null.
+
+---
+
 ## Render Lists
 
 ### Why Typed Per-Pipeline?

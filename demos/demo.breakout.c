@@ -9,18 +9,19 @@
 #include "core.app.h"
 #include "core.engine.h"
 #include "string.str8.h"
-#include "gpu.shader.h"
-#include "gpu.pipeline.h"
-#include "gpu.buffer.h"
-#include "gpu.texture.h"
-#include "gpu.cmd.h"
-#include "sprite.batch.h"
+#include "sprite.pass.h"
+#include "render.graph.h"
+#include "render.target.h"
+#include "render.camera.h"
+#include "render.list.h"
+#include "texture.pool.h"
 #include "font.atlas.h"
 #include "vfs.h"
 #include "vfs.backend.os.h"
 #include "math.mat4.h"
 #include "math.vec4.h"
 #include "math.vec2.h"
+#include "math.geo.rect.h"
 #include "anim.sprite.h"
 #include "anim.clip.h"
 #include "anim.track.h"
@@ -76,57 +77,18 @@ typedef struct {
 } Breakout;
 
 static SDL_Window* s_window;
-static Mel_Gpu_Shader s_shader;
-static Mel_Gpu_Pipeline s_pipeline;
-static Mel_Gpu_Texture s_white_texture;
-static Mel_SpriteBatch s_batch;
+static Mel_Sprite_Pass* s_sp;
 static Mel_Font_Atlas_Pool s_font_pool;
 static Mel_Io s_demo_io;
 static Mel_Vfs s_demo_vfs;
 static Mel_Vfs_Backend* s_fonts_backend;
 static Mel_Font_Handle s_font_handle;
 static Breakout s_breakout;
-
-static const char* SHADER_SOURCE =
-"struct VSInput\n"
-"{\n"
-"    float2 position : POSITION;\n"
-"    float2 texcoord : TEXCOORD0;\n"
-"    float4 color : COLOR0;\n"
-"};\n"
-"\n"
-"struct VSOutput\n"
-"{\n"
-"    float4 position : SV_Position;\n"
-"    float2 texcoord : TEXCOORD0;\n"
-"    float4 color : COLOR0;\n"
-"};\n"
-"\n"
-"struct PushConstants\n"
-"{\n"
-"    float4x4 projection;\n"
-"};\n"
-"\n"
-"[[vk::push_constant]]\n"
-"PushConstants push;\n"
-"\n"
-"[[vk::binding(0, 0)]] Sampler2D tex;\n"
-"\n"
-"[shader(\"vertex\")]\n"
-"VSOutput vertexMain(VSInput input)\n"
-"{\n"
-"    VSOutput output;\n"
-"    output.position = mul(push.projection, float4(input.position, 0.0, 1.0));\n"
-"    output.texcoord = input.texcoord;\n"
-"    output.color = input.color;\n"
-"    return output;\n"
-"}\n"
-"\n"
-"[shader(\"fragment\")]\n"
-"float4 fragmentMain(VSOutput input) : SV_Target\n"
-"{\n"
-"    return tex.Sample(input.texcoord) * input.color;\n"
-"}\n";
+static Mel_Render_Target s_swapchain_target;
+static Mel_Render_Graph s_graph;
+static Mel_Camera s_camera;
+static Mel_Render_List s_sprite_list;
+static Mel_Render_List s_font_list;
 
 static const Mel_Vec4 ROW_COLORS[ROWS] = {
     { .x = 0.9f, .y = 0.2f, .z = 0.2f, .w = 1.0f },
@@ -375,13 +337,13 @@ static void breakout_tick(Breakout* g, f32 dt)
     g->ball_y = ny;
 }
 
-static void breakout_draw(Breakout* g, Mel_SpriteBatch* batch)
+static void breakout_draw(Breakout* g, Mel_Render_List* list)
 {
     Mel_Vec4 paddle_color = mel_vec4(1.0f, 1.0f, 1.0f, 1.0f);
-    mel_sprite_batch_draw(batch, g->paddle_x, PADDLE_Y, PADDLE_W, PADDLE_H, paddle_color);
+    mel_draw_sprite(list, .pos = mel_vec2(g->paddle_x, PADDLE_Y), .size = mel_vec2(PADDLE_W, PADDLE_H), .color = paddle_color);
 
     Mel_Vec4 ball_color = mel_vec4(1.0f, 1.0f, 1.0f, 1.0f);
-    mel_sprite_batch_draw(batch, g->ball_x, g->ball_y, BALL_SIZE, BALL_SIZE, ball_color);
+    mel_draw_sprite(list, .pos = mel_vec2(g->ball_x, g->ball_y), .size = mel_vec2(BALL_SIZE, BALL_SIZE), .color = ball_color);
 
     for (i32 r = 0; r < ROWS; r++)
     {
@@ -406,31 +368,31 @@ static void breakout_draw(Breakout* g, Mel_SpriteBatch* batch)
                     color.w = alpha;
             }
 
-            mel_sprite_batch_draw(batch, bx, by, BRICK_W, BRICK_H, color);
+            mel_draw_sprite(list, .pos = mel_vec2(bx, by), .size = mel_vec2(BRICK_W, BRICK_H), .color = color);
         }
     }
 }
 
-static void breakout_draw_text(Breakout* g, Mel_SpriteBatch* batch, Mel_Font_Atlas_Entry* fe)
+static void breakout_draw_text(Breakout* g, Mel_Render_List* list, Mel_Font_Atlas_Pool* pool, Mel_Font_Handle font)
 {
     Mel_Vec4 white = mel_vec4(1.0f, 1.0f, 1.0f, 1.0f);
     Mel_Vec4 dim = mel_vec4(0.6f, 0.6f, 0.6f, 1.0f);
 
     char buf[128];
     snprintf(buf, sizeof(buf), "SCORE: %u", g->score);
-    mel_font_atlas_draw_text(fe, batch, str8_from_cstr(buf), 10.0f, 10.0f, white);
+    mel_font_atlas_draw_text(pool, font, list, str8_from_cstr(buf), 10.0f, 10.0f, white);
 
     snprintf(buf, sizeof(buf), "LIVES: %d", g->lives);
-    mel_font_atlas_draw_text(fe, batch, str8_from_cstr(buf), (f32)WIDTH - 120.0f, 10.0f, white);
+    mel_font_atlas_draw_text(pool, font, list, str8_from_cstr(buf), (f32)WIDTH - 120.0f, 10.0f, white);
 
     snprintf(buf, sizeof(buf), "LEVEL: %u", g->level);
-    mel_font_atlas_draw_text(fe, batch, str8_from_cstr(buf), (f32)WIDTH / 2.0f - 40.0f, 10.0f, white);
+    mel_font_atlas_draw_text(pool, font, list, str8_from_cstr(buf), (f32)WIDTH / 2.0f - 40.0f, 10.0f, white);
 
     if (!g->ball_launched && !g->game_over)
     {
         str8 prompt = S8("SPACE to launch");
-        Mel_Vec2 sz = mel_font_atlas_measure_text(fe, prompt);
-        mel_font_atlas_draw_text(fe, batch, prompt,
+        Mel_Vec2 sz = mel_font_atlas_measure_text(pool, font, prompt);
+        mel_font_atlas_draw_text(pool, font, list, prompt,
             (f32)WIDTH / 2.0f - sz.x / 2.0f, PADDLE_Y + 40.0f, dim);
     }
 
@@ -438,21 +400,21 @@ static void breakout_draw_text(Breakout* g, Mel_SpriteBatch* batch, Mel_Font_Atl
     {
         Mel_Vec4 red = mel_vec4(1.0f, 0.2f, 0.2f, 1.0f);
         str8 go_text = S8("GAME OVER");
-        Mel_Vec2 go_sz = mel_font_atlas_measure_text(fe, go_text);
-        mel_font_atlas_draw_text(fe, batch, go_text,
+        Mel_Vec2 go_sz = mel_font_atlas_measure_text(pool, font, go_text);
+        mel_font_atlas_draw_text(pool, font, list, go_text,
             (f32)WIDTH / 2.0f - go_sz.x / 2.0f,
             (f32)HEIGHT / 2.0f - go_sz.y, red);
 
         snprintf(buf, sizeof(buf), "FINAL SCORE: %u", g->score);
         str8 score_text = str8_from_cstr(buf);
-        Mel_Vec2 sc_sz = mel_font_atlas_measure_text(fe, score_text);
-        mel_font_atlas_draw_text(fe, batch, score_text,
+        Mel_Vec2 sc_sz = mel_font_atlas_measure_text(pool, font, score_text);
+        mel_font_atlas_draw_text(pool, font, list, score_text,
             (f32)WIDTH / 2.0f - sc_sz.x / 2.0f,
             (f32)HEIGHT / 2.0f + 10.0f, white);
 
         str8 restart_text = S8("R to restart");
-        Mel_Vec2 rs_sz = mel_font_atlas_measure_text(fe, restart_text);
-        mel_font_atlas_draw_text(fe, batch, restart_text,
+        Mel_Vec2 rs_sz = mel_font_atlas_measure_text(pool, font, restart_text);
+        mel_font_atlas_draw_text(pool, font, list, restart_text,
             (f32)WIDTH / 2.0f - rs_sz.x / 2.0f,
             (f32)HEIGHT / 2.0f + 40.0f, dim);
     }
@@ -461,52 +423,44 @@ static void breakout_draw_text(Breakout* g, Mel_SpriteBatch* batch, Mel_Font_Atl
 static void on_init(Mel_Engine* e)
 {
     Mel_Gpu_Device* dev = &e->dev;
+    s_sp = e->sprite_pass;
 
-    mel_gpu_shader_init(&s_shader, dev, .source = str8_from_cstr(SHADER_SOURCE));
-    mel_gpu_texture_init_white(&s_white_texture, dev);
-
-    VkVertexInputBindingDescription binding = {
-        .binding = 0,
-        .stride = sizeof(Mel_SpriteVertex),
-        .inputRate = VK_VERTEX_INPUT_RATE_VERTEX,
-    };
-
-    VkVertexInputAttributeDescription attributes[] = {
-        { .location = 0, .binding = 0, .format = VK_FORMAT_R32G32_SFLOAT, .offset = offsetof(Mel_SpriteVertex, x) },
-        { .location = 1, .binding = 0, .format = VK_FORMAT_R32G32_SFLOAT, .offset = offsetof(Mel_SpriteVertex, u) },
-        { .location = 2, .binding = 0, .format = VK_FORMAT_R32G32B32A32_SFLOAT, .offset = offsetof(Mel_SpriteVertex, r) },
-    };
-
-    mel_gpu_pipeline_init(&s_pipeline, dev,
-        .shader = &s_shader,
-        .color_format = e->swapchain.format,
-        .bindings = &binding,
-        .binding_count = 1,
-        .attributes = attributes,
-        .attribute_count = 3,
-        .push_constant_size = sizeof(Mel_Mat4),
-        .use_texture = true,
-        .blend_mode = MEL_GPU_BLEND_ALPHA);
-
-    mel_sprite_batch_init(&s_batch, dev, .max_sprites = 2048);
-
-    s_white_texture.descriptor = mel_gpu_pipeline_alloc_descriptor(&s_pipeline, dev);
-    mel_gpu_pipeline_write_texture(&s_pipeline, dev, s_white_texture.descriptor,
-        s_white_texture.image.view, s_white_texture.sampler);
-
-    mel_font_atlas_pool_init(&s_font_pool, &e->allocator, dev, &s_demo_vfs);
+    mel_font_atlas_pool_init(&s_font_pool, &e->allocator, dev, &s_demo_vfs, .texture_pool = e->texture_pool);
     s_font_handle = mel_font_atlas_pool_load(&s_font_pool,
         .path = S8("/System/Library/Fonts/Monaco.ttf"), .size = 18.0f);
 
-    Mel_Font_Atlas_Entry* font_entry = mel_font_atlas_pool_get(&s_font_pool, s_font_handle);
-    if (font_entry)
-    {
-        font_entry->atlas_texture.descriptor = mel_gpu_pipeline_alloc_descriptor(&s_pipeline, dev);
-        mel_gpu_pipeline_write_texture(&s_pipeline, dev, font_entry->atlas_texture.descriptor,
-            font_entry->atlas_texture.image.view, font_entry->atlas_texture.sampler);
-    }
 
     breakout_init(&s_breakout, mel_alloc_heap());
+
+    mel_render_list_init(&s_sprite_list,
+        .name = S8("sprites"),
+        .entry_stride = sizeof(Mel_Sprite_Entry),
+        .alloc = mel_alloc_heap());
+
+    mel_render_list_init(&s_font_list,
+        .name = S8("font"),
+        .entry_stride = sizeof(Mel_Sprite_Entry),
+        .alloc = mel_alloc_heap());
+
+    mel_render_target_init_swapchain(&s_swapchain_target, &e->swapchain, &e->dev, S8("backbuffer"));
+
+    s_camera = (Mel_Camera){
+        .view = MEL_MAT4_IDENTITY,
+        .projection = mel_mat4_ortho(0, (f32)e->swapchain.extent.width,
+                                      0, (f32)e->swapchain.extent.height, -1, 1),
+    };
+
+    mel_render_graph_init(&s_graph, .dev = &e->dev, .alloc = mel_alloc_heap());
+    mel_render_graph_add_pass(&s_graph, S8("sprite"),
+        .fn = mel_sprite_pass_execute,
+        .user = s_sp,
+        .camera = &s_camera,
+        .read_lists = MEL_LISTS(&s_sprite_list, &s_font_list),
+        .write_targets = MEL_WRITE_TARGETS(
+            { .target = &s_swapchain_target, .load_op = VK_ATTACHMENT_LOAD_OP_CLEAR,
+              .clear.color = { .r = 0.08f, .g = 0.08f, .b = 0.1f, .a = 1.0f } }));
+    mel_render_graph_compile(&s_graph);
+    e->render_graph = &s_graph;
 
     SDL_Log("Breakout ready! Arrow keys / mouse to move, Space to launch, R to restart, ESC to quit");
 }
@@ -521,8 +475,7 @@ static void app_init(Mel_App* app)
         .window = s_window,
         .app_name = S8("Melody Breakout"),
         .enable_validation = true,
-        .enable_imgui = false,
-        .fixed_dt = 1.0f / 60.0f);
+        .enable_imgui = false);
 
     Mel_Io_Desc io_desc = { .allocator = mel_alloc_heap(), .worker_count = 0 };
     mel_io_init(&s_demo_io, &io_desc);
@@ -539,17 +492,18 @@ static void app_shutdown(Mel_App* app)
     Mel_Gpu_Device* dev = &app->engine.dev;
     mel_gpu_device_wait_idle(dev);
 
+    mel_render_list_shutdown(&s_sprite_list);
+    mel_render_list_shutdown(&s_font_list);
+    mel_render_graph_shutdown(&s_graph);
+    mel_render_target_shutdown(&s_swapchain_target);
+
     mel_anim_clip_destroy(&s_breakout.death_clip, s_breakout.alloc);
 
-    mel_sprite_batch_shutdown(&s_batch, dev);
     mel_font_atlas_pool_shutdown(&s_font_pool);
     mel_vfs_unmount(&s_demo_vfs, S8("/"));
     mel_vfs_shutdown(&s_demo_vfs);
     mel_io_shutdown(&s_demo_io);
     mel_vfs_backend_os_destroy(s_fonts_backend);
-    mel_gpu_texture_shutdown(&s_white_texture, dev);
-    mel_gpu_pipeline_shutdown(&s_pipeline, dev);
-    mel_gpu_shader_shutdown(&s_shader, dev);
 }
 
 static void app_update(Mel_App* app, f32 dt)
@@ -572,33 +526,13 @@ static void app_update(Mel_App* app, f32 dt)
     if (g->paddle_x + PADDLE_W > (f32)WIDTH) g->paddle_x = (f32)WIDTH - PADDLE_W;
 
     breakout_tick(g, dt);
-}
 
-static void app_render(Mel_App* app, Mel_Gpu_Cmd* c)
-{
-    Mel_Engine* e = &app->engine;
+    mel_render_list_clear(&s_sprite_list);
+    mel_render_list_clear(&s_font_list);
 
-    if (!s_pipeline.pipeline) return;
+    breakout_draw(g, &s_sprite_list);
 
-    mel_engine_begin_swapchain_pass(e, c,
-        .clear_r = 0.08f, .clear_g = 0.08f, .clear_b = 0.1f, .clear_a = 1.0f);
-
-    Mel_Mat4 proj = mel_mat4_ortho(0, (f32)e->swapchain.extent.width,
-                                    0, (f32)e->swapchain.extent.height, -1, 1);
-
-    mel_sprite_batch_begin(&s_batch, &s_pipeline);
-    mel_sprite_batch_set_texture(&s_batch, &s_white_texture);
-    breakout_draw(&s_breakout, &s_batch);
-
-    Mel_Font_Atlas_Entry* fe = mel_font_atlas_pool_get(&s_font_pool, s_font_handle);
-    if (fe)
-    {
-        breakout_draw_text(&s_breakout, &s_batch, fe);
-        mel_sprite_batch_set_texture(&s_batch, &s_white_texture);
-    }
-
-    mel_sprite_batch_end(&s_batch, &e->dev, c->cmd, &proj);
-    mel_engine_end_swapchain_pass(e, c);
+    breakout_draw_text(g, &s_font_list, &s_font_pool, s_font_handle);
 }
 
 static void app_event(Mel_App* app, SDL_Event* event)
@@ -648,6 +582,5 @@ MEL_APP(
     .on_init = app_init,
     .on_shutdown = app_shutdown,
     .on_update = app_update,
-    .on_render = app_render,
     .on_event = app_event
 )

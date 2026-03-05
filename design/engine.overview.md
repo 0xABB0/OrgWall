@@ -231,7 +231,6 @@ simultaneously).
 struct Mel_Window {
     void* platform_handle;
     Mel_Swapchain swapchain;
-    Mel_Render_Frame frame;
     Mel_Render_Target* target;   // swapchain as a render target (graph leaf)
     Mel_Input_State input;
 

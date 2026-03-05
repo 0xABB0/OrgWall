@@ -20,6 +20,7 @@ typedef struct {
     Mel_Gpu_Texture gpu_texture;
     u64 path_hash;
     u32 state;
+    bool external;
 } Mel_Texture_Entry;
 
 typedef struct Mel_Vfs Mel_Vfs;
@@ -52,3 +53,4 @@ bool              mel_texture_pool_is_loaded(Mel_Texture_Pool* pool, Mel_Texture
 u32               mel_texture_pool_state(Mel_Texture_Pool* pool, Mel_Texture_Handle handle);
 u32               mel_texture_pool_count(Mel_Texture_Pool* pool);
 void              mel_texture_pool_tick(Mel_Texture_Pool* pool);
+Mel_Texture_Handle mel_texture_pool_register(Mel_Texture_Pool* pool, Mel_Gpu_Texture* tex);

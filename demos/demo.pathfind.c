@@ -9,17 +9,18 @@
 #include "core.app.h"
 #include "core.engine.h"
 #include "string.str8.h"
-#include "gpu.shader.h"
-#include "gpu.pipeline.h"
-#include "gpu.buffer.h"
-#include "gpu.texture.h"
-#include "gpu.cmd.h"
-#include "sprite.batch.h"
+#include "sprite.pass.h"
+#include "render.graph.h"
+#include "render.list.h"
+#include "render.target.h"
+#include "render.camera.h"
+#include "texture.pool.h"
 #include "font.atlas.h"
 #include "vfs.h"
 #include "vfs.backend.os.h"
 #include "math.mat4.h"
 #include "math.vec4.h"
+#include "math.geo.rect.h"
 #include "async.coro.h"
 #include "allocator.heap.h"
 
@@ -70,59 +71,23 @@ typedef struct {
 } Pathfinder;
 
 static SDL_Window* s_window;
-static Mel_Gpu_Shader s_shader;
-static Mel_Gpu_Pipeline s_pipeline;
-static Mel_Gpu_Texture s_white_texture;
+static Mel_Sprite_Pass* s_sp;
 static Mel_Gpu_Texture s_grass_texture;
 static Mel_Gpu_Texture s_stone_texture;
-static Mel_SpriteBatch s_batch;
+static Mel_Texture_Handle s_grass_handle;
+static Mel_Texture_Handle s_stone_handle;
+static Mel_Texture_Handle s_white_handle;
 static Mel_Font_Atlas_Pool s_font_pool;
 static Mel_Io s_demo_io;
 static Mel_Vfs s_demo_vfs;
 static Mel_Vfs_Backend* s_fonts_backend;
 static Mel_Font_Handle s_font_handle;
 static Pathfinder s_pf;
-
-static const char* SHADER_SOURCE =
-"struct VSInput\n"
-"{\n"
-"    float2 position : POSITION;\n"
-"    float2 texcoord : TEXCOORD0;\n"
-"    float4 color : COLOR0;\n"
-"};\n"
-"\n"
-"struct VSOutput\n"
-"{\n"
-"    float4 position : SV_Position;\n"
-"    float2 texcoord : TEXCOORD0;\n"
-"    float4 color : COLOR0;\n"
-"};\n"
-"\n"
-"struct PushConstants\n"
-"{\n"
-"    float4x4 projection;\n"
-"};\n"
-"\n"
-"[[vk::push_constant]]\n"
-"PushConstants push;\n"
-"\n"
-"[[vk::binding(0, 0)]] Sampler2D tex;\n"
-"\n"
-"[shader(\"vertex\")]\n"
-"VSOutput vertexMain(VSInput input)\n"
-"{\n"
-"    VSOutput output;\n"
-"    output.position = mul(push.projection, float4(input.position, 0.0, 1.0));\n"
-"    output.texcoord = input.texcoord;\n"
-"    output.color = input.color;\n"
-"    return output;\n"
-"}\n"
-"\n"
-"[shader(\"fragment\")]\n"
-"float4 fragmentMain(VSOutput input) : SV_Target\n"
-"{\n"
-"    return tex.Sample(input.texcoord) * input.color;\n"
-"}\n";
+static Mel_Render_Target s_swapchain_target;
+static Mel_Render_Graph s_graph;
+static Mel_Camera s_camera;
+static Mel_Render_List s_sprite_list;
+static Mel_Render_List s_font_list;
 
 static f32 heuristic(GridPos a, GridPos b)
 {
@@ -277,18 +242,26 @@ static void pathfinder_init(Pathfinder* pf)
     pf->coro = mel_coro_create(mel_alloc_heap(), .num_initial = 1);
 }
 
-static void draw_tile(Mel_SpriteBatch* batch, f32 x, f32 y, f32 w, f32 h, i32 tile_col, i32 tile_row)
+static void draw_tile(Mel_Render_List* list, f32 x, f32 y, f32 w, f32 h,
+                      i32 tile_col, i32 tile_row, Mel_Texture_Handle tex)
 {
     f32 u0 = (f32)tile_col / (f32)TILE_COLS;
     f32 v0 = (f32)tile_row / (f32)TILE_ROWS;
     f32 u1 = (f32)(tile_col + 1) / (f32)TILE_COLS;
     f32 v1 = (f32)(tile_row + 1) / (f32)TILE_ROWS;
-    mel_sprite_batch_draw_uv(batch, x, y, w, h, u0, v0, u1, v1, mel_vec4(1.0f, 1.0f, 1.0f, 1.0f));
+    Mel_Sprite_Entry* e = mel_render_list_push(list,
+        mel_sort_key_sprite(0, 0.0f, 0, mel_texture_bucket(tex)));
+    *e = (Mel_Sprite_Entry){
+        .pos = mel_vec2(x, y),
+        .size = mel_vec2(w, h),
+        .uv = mel_rect(u0, v0, u1 - u0, v1 - v0),
+        .color = mel_vec4(1.0f, 1.0f, 1.0f, 1.0f),
+        .tex = tex,
+    };
 }
 
-static void pathfinder_draw_tiles(Pathfinder* pf, Mel_SpriteBatch* batch, Mel_Gpu_Device* dev)
+static void pathfinder_draw_tiles(Pathfinder* pf, Mel_Render_List* list)
 {
-    mel_sprite_batch_set_texture(batch, &s_grass_texture);
     for (i32 row = 0; row < GRID_H; row++)
     {
         for (i32 col = 0; col < GRID_W; col++)
@@ -296,11 +269,10 @@ static void pathfinder_draw_tiles(Pathfinder* pf, Mel_SpriteBatch* batch, Mel_Gp
             if (pf->cells[row][col] != CELL_EMPTY) continue;
             f32 x = GRID_X_OFFSET + (f32)col * CELL_SIZE;
             f32 y = GRID_Y_OFFSET + (f32)row * CELL_SIZE;
-            draw_tile(batch, x, y, CELL_SIZE, CELL_SIZE, 0, 0);
+            draw_tile(list, x, y, CELL_SIZE, CELL_SIZE, 0, 0, s_grass_handle);
         }
     }
 
-    mel_sprite_batch_set_texture(batch, &s_stone_texture);
     for (i32 row = 0; row < GRID_H; row++)
     {
         for (i32 col = 0; col < GRID_W; col++)
@@ -308,15 +280,13 @@ static void pathfinder_draw_tiles(Pathfinder* pf, Mel_SpriteBatch* batch, Mel_Gp
             if (pf->cells[row][col] != CELL_WALL) continue;
             f32 x = GRID_X_OFFSET + (f32)col * CELL_SIZE;
             f32 y = GRID_Y_OFFSET + (f32)row * CELL_SIZE;
-            draw_tile(batch, x, y, CELL_SIZE, CELL_SIZE, 0, 0);
+            draw_tile(list, x, y, CELL_SIZE, CELL_SIZE, 0, 0, s_stone_handle);
         }
     }
 }
 
-static void pathfinder_draw_overlays(Pathfinder* pf, Mel_SpriteBatch* batch, Mel_Gpu_Device* dev)
+static void pathfinder_draw_overlays(Pathfinder* pf, Mel_Render_List* list)
 {
-    mel_sprite_batch_set_texture(batch, &s_white_texture);
-
     if (pf->search_state != SEARCH_NONE)
     {
         for (i32 row = 0; row < GRID_H; row++)
@@ -328,11 +298,19 @@ static void pathfinder_draw_overlays(Pathfinder* pf, Mel_SpriteBatch* batch, Mel
                 f32 y = GRID_Y_OFFSET + (f32)row * CELL_SIZE;
 
                 if (n->in_closed)
-                    mel_sprite_batch_draw(batch, x, y, CELL_SIZE, CELL_SIZE,
-                        mel_vec4(0.9f, 0.3f, 0.5f, 0.3f));
+                {
+                    mel_draw_sprite(list,
+                        .pos = mel_vec2(x, y), .size = mel_vec2(CELL_SIZE, CELL_SIZE),
+                        .color = mel_vec4(0.9f, 0.3f, 0.5f, 0.3f),
+                        .tex = s_white_handle, .layer = 1);
+                }
                 else if (n->in_open)
-                    mel_sprite_batch_draw(batch, x, y, CELL_SIZE, CELL_SIZE,
-                        mel_vec4(0.2f, 0.3f, 0.9f, 0.4f));
+                {
+                    mel_draw_sprite(list,
+                        .pos = mel_vec2(x, y), .size = mel_vec2(CELL_SIZE, CELL_SIZE),
+                        .color = mel_vec4(0.2f, 0.3f, 0.9f, 0.4f),
+                        .tex = s_white_handle, .layer = 1);
+                }
             }
         }
 
@@ -341,8 +319,10 @@ static void pathfinder_draw_overlays(Pathfinder* pf, Mel_SpriteBatch* batch, Mel
             GridPos p = pf->path[i];
             f32 x = GRID_X_OFFSET + (f32)p.x * CELL_SIZE;
             f32 y = GRID_Y_OFFSET + (f32)p.y * CELL_SIZE;
-            mel_sprite_batch_draw(batch, x, y, CELL_SIZE, CELL_SIZE,
-                mel_vec4(1.0f, 0.9f, 0.1f, 0.6f));
+            mel_draw_sprite(list,
+                .pos = mel_vec2(x, y), .size = mel_vec2(CELL_SIZE, CELL_SIZE),
+                .color = mel_vec4(1.0f, 0.9f, 0.1f, 0.6f),
+                .tex = s_white_handle, .layer = 2);
         }
     }
 
@@ -350,53 +330,58 @@ static void pathfinder_draw_overlays(Pathfinder* pf, Mel_SpriteBatch* batch, Mel
     {
         f32 x = GRID_X_OFFSET + (f32)pf->start.x * CELL_SIZE;
         f32 y = GRID_Y_OFFSET + (f32)pf->start.y * CELL_SIZE;
-        mel_sprite_batch_draw(batch, x, y, CELL_SIZE, CELL_SIZE,
-            mel_vec4(0.0f, 0.8f, 0.0f, 0.5f));
+        mel_draw_sprite(list,
+            .pos = mel_vec2(x, y), .size = mel_vec2(CELL_SIZE, CELL_SIZE),
+            .color = mel_vec4(0.0f, 0.8f, 0.0f, 0.5f),
+            .tex = s_white_handle, .layer = 3);
     }
 
     if (pf->has_end)
     {
         f32 x = GRID_X_OFFSET + (f32)pf->end.x * CELL_SIZE;
         f32 y = GRID_Y_OFFSET + (f32)pf->end.y * CELL_SIZE;
-        mel_sprite_batch_draw(batch, x, y, CELL_SIZE, CELL_SIZE,
-            mel_vec4(0.8f, 0.0f, 0.0f, 0.5f));
+        mel_draw_sprite(list,
+            .pos = mel_vec2(x, y), .size = mel_vec2(CELL_SIZE, CELL_SIZE),
+            .color = mel_vec4(0.8f, 0.0f, 0.0f, 0.5f),
+            .tex = s_white_handle, .layer = 3);
     }
 }
 
-static void pathfinder_draw_grid_lines(Mel_SpriteBatch* batch, Mel_Gpu_Device* dev)
+static void pathfinder_draw_grid_lines(Mel_Render_List* list)
 {
-    mel_sprite_batch_set_texture(batch, &s_white_texture);
     Mel_Vec4 line_color = mel_vec4(0.0f, 0.0f, 0.0f, 0.15f);
 
     for (i32 row = 0; row <= GRID_H; row++)
     {
         f32 y = GRID_Y_OFFSET + (f32)row * CELL_SIZE;
-        mel_sprite_batch_draw(batch,
-            GRID_X_OFFSET, y,
-            (f32)GRID_W * CELL_SIZE, 1.0f, line_color);
+        mel_draw_sprite(list,
+            .pos = mel_vec2(GRID_X_OFFSET, y),
+            .size = mel_vec2((f32)GRID_W * CELL_SIZE, 1.0f),
+            .color = line_color,
+            .tex = s_white_handle, .layer = 4);
     }
 
     for (i32 col = 0; col <= GRID_W; col++)
     {
         f32 x = GRID_X_OFFSET + (f32)col * CELL_SIZE;
-        mel_sprite_batch_draw(batch,
-            x, GRID_Y_OFFSET,
-            1.0f, (f32)GRID_H * CELL_SIZE, line_color);
+        mel_draw_sprite(list,
+            .pos = mel_vec2(x, GRID_Y_OFFSET),
+            .size = mel_vec2(1.0f, (f32)GRID_H * CELL_SIZE),
+            .color = line_color,
+            .tex = s_white_handle, .layer = 4);
     }
 }
 
-static void pathfinder_draw_text(Pathfinder* pf, Mel_SpriteBatch* batch,
-                                  Mel_Gpu_Device* dev, Mel_Font_Atlas_Entry* fe)
+static void pathfinder_draw_text(Pathfinder* pf, Mel_Render_List* list,
+                                  Mel_Font_Atlas_Pool* pool, Mel_Font_Handle font)
 {
-    mel_sprite_batch_set_texture(batch, &fe->atlas_texture);
-
     f32 text_y = GRID_Y_OFFSET + (f32)GRID_H * CELL_SIZE + 8.0f;
     Mel_Vec4 white = mel_vec4(1.0f, 1.0f, 1.0f, 1.0f);
     Mel_Vec4 dim = mel_vec4(0.6f, 0.6f, 0.6f, 1.0f);
 
     char buf[256];
     snprintf(buf, sizeof(buf), "Nodes: %d  Path: %d", pf->nodes_explored, pf->path_length);
-    mel_font_atlas_draw_text(fe, batch, str8_from_cstr(buf), GRID_X_OFFSET, text_y, white);
+    mel_font_atlas_draw_text(pool, font, list, str8_from_cstr(buf), GRID_X_OFFSET, text_y, white);
 
     const char* state_str = "";
     Mel_Vec4 state_color = dim;
@@ -418,73 +403,64 @@ static void pathfinder_draw_text(Pathfinder* pf, Mel_SpriteBatch* batch,
 
     if (state_str[0] != '\0')
     {
-        mel_font_atlas_draw_text(fe, batch, str8_from_cstr(state_str),
+        mel_font_atlas_draw_text(pool, font, list, str8_from_cstr(state_str),
             GRID_X_OFFSET + 300.0f, text_y, state_color);
     }
 
-    mel_font_atlas_draw_text(fe, batch,
+    mel_font_atlas_draw_text(pool, font, list,
         S8("LMB: wall  RMB: start/end  SPACE: solve  R: reset  C: clear  ESC: quit"),
         GRID_X_OFFSET, text_y + 22.0f, dim);
-}
-
-static void setup_texture_descriptor(Mel_Gpu_Texture* tex, Mel_Gpu_Device* dev)
-{
-    tex->descriptor = mel_gpu_pipeline_alloc_descriptor(&s_pipeline, dev);
-    mel_gpu_pipeline_write_texture(&s_pipeline, dev, tex->descriptor,
-        tex->image.view, tex->sampler);
 }
 
 static void on_init(Mel_Engine* e)
 {
     Mel_Gpu_Device* dev = &e->dev;
-
-    mel_gpu_shader_init(&s_shader, dev, .source = str8_from_cstr(SHADER_SOURCE));
-    mel_gpu_texture_init_white(&s_white_texture, dev);
-
-    VkVertexInputBindingDescription binding = {
-        .binding = 0,
-        .stride = sizeof(Mel_SpriteVertex),
-        .inputRate = VK_VERTEX_INPUT_RATE_VERTEX,
-    };
-
-    VkVertexInputAttributeDescription attributes[] = {
-        { .location = 0, .binding = 0, .format = VK_FORMAT_R32G32_SFLOAT, .offset = offsetof(Mel_SpriteVertex, x) },
-        { .location = 1, .binding = 0, .format = VK_FORMAT_R32G32_SFLOAT, .offset = offsetof(Mel_SpriteVertex, u) },
-        { .location = 2, .binding = 0, .format = VK_FORMAT_R32G32B32A32_SFLOAT, .offset = offsetof(Mel_SpriteVertex, r) },
-    };
-
-    mel_gpu_pipeline_init(&s_pipeline, dev,
-        .shader = &s_shader,
-        .color_format = e->swapchain.format,
-        .bindings = &binding,
-        .binding_count = 1,
-        .attributes = attributes,
-        .attribute_count = 3,
-        .push_constant_size = sizeof(Mel_Mat4),
-        .use_texture = true,
-        .blend_mode = MEL_GPU_BLEND_ALPHA);
-
-    mel_sprite_batch_init(&s_batch, dev, .max_sprites = 4096);
-
-    setup_texture_descriptor(&s_white_texture, dev);
+    s_sp = e->sprite_pass;
 
     mel_gpu_texture_init(&s_grass_texture, dev,
         .path = S8("assets/tilesets/grass.png"), .nearest_filter = true);
-    setup_texture_descriptor(&s_grass_texture, dev);
+    s_grass_handle = mel_texture_pool_register(e->texture_pool, &s_grass_texture);
 
     mel_gpu_texture_init(&s_stone_texture, dev,
         .path = S8("assets/tilesets/wall.png"), .nearest_filter = true);
-    setup_texture_descriptor(&s_stone_texture, dev);
+    s_stone_handle = mel_texture_pool_register(e->texture_pool, &s_stone_texture);
 
-    mel_font_atlas_pool_init(&s_font_pool, &e->allocator, dev, &s_demo_vfs);
+    s_white_handle = mel_texture_pool_register(e->texture_pool, &s_sp->white_texture);
+
+    mel_font_atlas_pool_init(&s_font_pool, &e->allocator, dev, &s_demo_vfs, .texture_pool = e->texture_pool);
     s_font_handle = mel_font_atlas_pool_load(&s_font_pool,
         .path = S8("/System/Library/Fonts/Monaco.ttf"), .size = 16.0f);
 
-    Mel_Font_Atlas_Entry* font_entry = mel_font_atlas_pool_get(&s_font_pool, s_font_handle);
-    if (font_entry)
-        setup_texture_descriptor(&font_entry->atlas_texture, dev);
 
     pathfinder_init(&s_pf);
+
+    mel_render_list_init(&s_sprite_list,
+        .entry_stride = sizeof(Mel_Sprite_Entry),
+        .alloc = mel_alloc_heap());
+
+    mel_render_list_init(&s_font_list,
+        .entry_stride = sizeof(Mel_Sprite_Entry),
+        .alloc = mel_alloc_heap());
+
+    mel_render_target_init_swapchain(&s_swapchain_target, &e->swapchain, &e->dev, S8("backbuffer"));
+
+    s_camera = (Mel_Camera){
+        .view = MEL_MAT4_IDENTITY,
+        .projection = mel_mat4_ortho(0, (f32)e->swapchain.extent.width,
+                                      0, (f32)e->swapchain.extent.height, -1, 1),
+    };
+
+    mel_render_graph_init(&s_graph, .dev = &e->dev, .alloc = mel_alloc_heap());
+    mel_render_graph_add_pass(&s_graph, S8("sprite"),
+        .fn = mel_sprite_pass_execute,
+        .user = s_sp,
+        .camera = &s_camera,
+        .read_lists = MEL_LISTS(&s_sprite_list, &s_font_list),
+        .write_targets = MEL_WRITE_TARGETS(
+            { .target = &s_swapchain_target, .load_op = VK_ATTACHMENT_LOAD_OP_CLEAR,
+              .clear.color = { .r = 0.08f, .g = 0.08f, .b = 0.1f, .a = 1.0f } }));
+    mel_render_graph_compile(&s_graph);
+    e->render_graph = &s_graph;
 
     SDL_Log("A* Pathfinder ready! LMB: walls, RMB: start/end, Space: solve, R: reset, C: clear");
 }
@@ -499,8 +475,7 @@ static void app_init(Mel_App* app)
         .window = s_window,
         .app_name = S8("Melody A* Pathfinder"),
         .enable_validation = true,
-        .enable_imgui = false,
-        .fixed_dt = 1.0f / 60.0f);
+        .enable_imgui = false);
 
     Mel_Io_Desc io_desc = { .allocator = mel_alloc_heap(), .worker_count = 0 };
     mel_io_init(&s_demo_io, &io_desc);
@@ -517,10 +492,14 @@ static void app_shutdown(Mel_App* app)
     Mel_Gpu_Device* dev = &app->engine.dev;
     mel_gpu_device_wait_idle(dev);
 
+    mel_render_list_shutdown(&s_sprite_list);
+    mel_render_list_shutdown(&s_font_list);
+    mel_render_graph_shutdown(&s_graph);
+    mel_render_target_shutdown(&s_swapchain_target);
+
     mel_coro_destroy(s_pf.coro);
     s_pf.coro = NULL;
 
-    mel_sprite_batch_shutdown(&s_batch, dev);
     mel_font_atlas_pool_shutdown(&s_font_pool);
     mel_vfs_unmount(&s_demo_vfs, S8("/"));
     mel_vfs_shutdown(&s_demo_vfs);
@@ -528,9 +507,6 @@ static void app_shutdown(Mel_App* app)
     mel_vfs_backend_os_destroy(s_fonts_backend);
     mel_gpu_texture_shutdown(&s_stone_texture, dev);
     mel_gpu_texture_shutdown(&s_grass_texture, dev);
-    mel_gpu_texture_shutdown(&s_white_texture, dev);
-    mel_gpu_pipeline_shutdown(&s_pipeline, dev);
-    mel_gpu_shader_shutdown(&s_shader, dev);
 }
 
 static void app_update(Mel_App* app, f32 dt)
@@ -539,32 +515,15 @@ static void app_update(Mel_App* app, f32 dt)
 
     if (s_pf.search_state == SEARCH_RUNNING)
         mel_coro_update(s_pf.coro, dt);
-}
 
-static void app_render(Mel_App* app, Mel_Gpu_Cmd* c)
-{
-    Mel_Engine* e = &app->engine;
+    mel_render_list_clear(&s_sprite_list);
+    mel_render_list_clear(&s_font_list);
 
-    if (!s_pipeline.pipeline) return;
+    pathfinder_draw_tiles(&s_pf, &s_sprite_list);
+    pathfinder_draw_overlays(&s_pf, &s_sprite_list);
+    pathfinder_draw_grid_lines(&s_sprite_list);
 
-    mel_engine_begin_swapchain_pass(e, c,
-        .clear_r = 0.08f, .clear_g = 0.08f, .clear_b = 0.1f, .clear_a = 1.0f);
-
-    Mel_Mat4 proj = mel_mat4_ortho(0, (f32)e->swapchain.extent.width,
-                                    0, (f32)e->swapchain.extent.height, -1, 1);
-
-    mel_sprite_batch_begin(&s_batch, &s_pipeline);
-
-    pathfinder_draw_tiles(&s_pf, &s_batch, &e->dev);
-    pathfinder_draw_overlays(&s_pf, &s_batch, &e->dev);
-    pathfinder_draw_grid_lines(&s_batch, &e->dev);
-
-    Mel_Font_Atlas_Entry* fe = mel_font_atlas_pool_get(&s_font_pool, s_font_handle);
-    if (fe)
-        pathfinder_draw_text(&s_pf, &s_batch, &e->dev, fe);
-
-    mel_sprite_batch_end(&s_batch, &e->dev, c->cmd, &proj);
-    mel_engine_end_swapchain_pass(e, c);
+    pathfinder_draw_text(&s_pf, &s_font_list, &s_font_pool, s_font_handle);
 }
 
 static GridPos screen_to_grid(f32 sx, f32 sy)
@@ -659,6 +618,5 @@ MEL_APP(
     .on_init = app_init,
     .on_shutdown = app_shutdown,
     .on_update = app_update,
-    .on_render = app_render,
     .on_event = app_event
 )

@@ -31,18 +31,18 @@ void mel_gpu_cmd_begin_rendering_opt(Mel_Gpu_Cmd* c, Mel_Gpu_Rendering_Opt opt)
 {
     assert(c != nullptr);
     assert(c->cmd != VK_NULL_HANDLE);
-    assert(opt.color_count > 0);
-    assert(opt.color_attachments != nullptr);
+    assert(opt.color_count > 0 || opt.depth_attachment != nullptr);
+    assert(opt.color_count == 0 || opt.color_attachments != nullptr);
     assert(opt.render_width > 0);
     assert(opt.render_height > 0);
 
-    VkRenderingAttachmentInfo attachments[8];
+    VkRenderingAttachmentInfo color_infos[8];
     assert(opt.color_count <= 8);
 
     for (u32 i = 0; i < opt.color_count; i++)
     {
         Mel_Gpu_Color_Attachment* src = &opt.color_attachments[i];
-        attachments[i] = (VkRenderingAttachmentInfo){
+        color_infos[i] = (VkRenderingAttachmentInfo){
             .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
             .imageView = src->image_view,
             .imageLayout = src->layout ? src->layout : VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
@@ -52,12 +52,27 @@ void mel_gpu_cmd_begin_rendering_opt(Mel_Gpu_Cmd* c, Mel_Gpu_Rendering_Opt opt)
         };
     }
 
+    VkRenderingAttachmentInfo depth_info = {0};
+    if (opt.depth_attachment)
+    {
+        Mel_Gpu_Depth_Attachment* d = opt.depth_attachment;
+        depth_info = (VkRenderingAttachmentInfo){
+            .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+            .imageView = d->image_view,
+            .imageLayout = d->layout ? d->layout : VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+            .loadOp = d->load_op,
+            .storeOp = d->store_op ? d->store_op : VK_ATTACHMENT_STORE_OP_STORE,
+            .clearValue.depthStencil = { d->clear_depth, d->clear_stencil },
+        };
+    }
+
     VkRenderingInfo rendering_info = {
         .sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
         .renderArea = { .offset = {0, 0}, .extent = { opt.render_width, opt.render_height } },
         .layerCount = 1,
         .colorAttachmentCount = opt.color_count,
-        .pColorAttachments = attachments,
+        .pColorAttachments = opt.color_count > 0 ? color_infos : nullptr,
+        .pDepthAttachment = opt.depth_attachment ? &depth_info : nullptr,
     };
 
     vkCmdBeginRendering(c->cmd, &rendering_info);
@@ -166,6 +181,36 @@ void mel_gpu_cmd_image_barrier(Mel_Gpu_Cmd* c,
         .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
         .imageMemoryBarrierCount = 1,
         .pImageMemoryBarriers = &barrier,
+    };
+
+    vkCmdPipelineBarrier2(c->cmd, &dep);
+}
+
+void mel_gpu_cmd_buffer_barrier(Mel_Gpu_Cmd* c,
+                                VkBuffer buffer,
+                                VkPipelineStageFlags2 src_stage, VkAccessFlags2 src_access,
+                                VkPipelineStageFlags2 dst_stage, VkAccessFlags2 dst_access)
+{
+    assert(c != nullptr);
+    assert(buffer != VK_NULL_HANDLE);
+
+    VkBufferMemoryBarrier2 barrier = {
+        .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
+        .srcStageMask = src_stage,
+        .srcAccessMask = src_access,
+        .dstStageMask = dst_stage,
+        .dstAccessMask = dst_access,
+        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .buffer = buffer,
+        .offset = 0,
+        .size = VK_WHOLE_SIZE,
+    };
+
+    VkDependencyInfo dep = {
+        .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+        .bufferMemoryBarrierCount = 1,
+        .pBufferMemoryBarriers = &barrier,
     };
 
     vkCmdPipelineBarrier2(c->cmd, &dep);

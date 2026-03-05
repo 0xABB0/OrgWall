@@ -6,10 +6,12 @@
 #include "gpu.device.h"
 #include "swapchain.image.h"
 #include "swapchain.h"
-#include "render.frame.h"
-#include "gpu.cmd.h"
+#include "render.graph.h"
+#include "render.target.h"
+#include "render.pass.h"
 #include "debug.backtrace.h"
 #include "string.str8.h"
+#include "allocator.heap.h"
 
 #define WIDTH 1280
 #define HEIGHT 720
@@ -36,6 +38,11 @@ static void on_present(void* pixels, u32 width, u32 height, u32 stride, void* us
         fwrite(pixels, 1, (size_t)stride * height, ctx->ffmpeg_pipe);
 
     ctx->frame_number++;
+}
+
+static void headless_pass(Mel_Render_Pass_Ctx* ctx)
+{
+    (void)ctx;
 }
 
 int main(int argc, char* argv[])
@@ -92,58 +99,34 @@ int main(int argc, char* argv[])
         return 1;
     }
 
-    Mel_Render_Frame frame = {0};
-    if (!mel_render_frame_init(&frame, .dev = &dev, .swapchain = &sc))
-    {
-        SDL_Log("Failed to init render frame");
-        return 1;
-    }
+    Mel_Render_Target target;
+    mel_render_target_init_swapchain(&target, &sc, &dev, S8("headless"));
+
+    Mel_Render_Graph graph;
+    mel_render_graph_init(&graph, .dev = &dev, .alloc = mel_alloc_heap());
+    u32 pass_id = mel_render_graph_add_pass(&graph, S8("clear"),
+        .fn = headless_pass,
+        .write_targets = MEL_WRITE_TARGETS(
+            { .target = &target, .load_op = VK_ATTACHMENT_LOAD_OP_CLEAR,
+              .clear.color = { .r = 0.0f, .g = 0.0f, .b = 0.0f, .a = 1.0f } }));
+    mel_render_graph_compile(&graph);
 
     SDL_Log("Rendering %d frames at %dx%d...", TOTAL_FRAMES, WIDTH, HEIGHT);
 
     for (u32 i = 0; i < TOTAL_FRAMES; i++)
     {
-        if (!mel_render_frame_begin(&frame))
-        {
-            SDL_Log("Frame begin failed at frame %u", i);
-            continue;
-        }
-
-        Mel_Gpu_Cmd c = {
-            .cmd = mel_render_frame_cmd(&frame),
-            .dev = &dev,
-        };
-
-        mel_gpu_cmd_image_barrier(&c,
-            sc.images[sc.current_image],
-            VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0,
-            VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-            VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-            VK_IMAGE_ASPECT_COLOR_BIT);
-
         f32 t = (f32)i / (f32)TOTAL_FRAMES;
         f32 r = 0.5f + 0.5f * sinf(t * 6.28318f);
         f32 g = 0.5f + 0.5f * sinf(t * 6.28318f + 2.09440f);
         f32 b = 0.5f + 0.5f * sinf(t * 6.28318f + 4.18879f);
 
-        Mel_Gpu_Color_Attachment color_att = {
-            .image_view = sc.image_views[sc.current_image],
-            .load_op = VK_ATTACHMENT_LOAD_OP_CLEAR,
-            .clear_r = r,
-            .clear_g = g,
-            .clear_b = b,
-            .clear_a = 1.0f,
-        };
+        Mel_Pass_Write_Target* wt = &graph.passes.items[pass_id].write_targets[0];
+        wt->clear.color.r = r;
+        wt->clear.color.g = g;
+        wt->clear.color.b = b;
+        wt->clear.color.a = 1.0f;
 
-        mel_gpu_cmd_begin_rendering(&c,
-            .color_attachments = &color_att,
-            .color_count = 1,
-            .render_width = sc.extent.width,
-            .render_height = sc.extent.height);
-
-        mel_gpu_cmd_end_rendering(&c);
-
-        mel_render_frame_end(&frame);
+        mel_render_graph_execute(&graph);
 
         if ((i + 1) % 60 == 0)
             SDL_Log("  %u/%u frames", i + 1, TOTAL_FRAMES);
@@ -159,7 +142,8 @@ int main(int argc, char* argv[])
 
     SDL_Log("Done! Screenshot: build/screenshot.png, Video: build/output.mp4");
 
-    mel_render_frame_shutdown(&frame);
+    mel_render_graph_shutdown(&graph);
+    mel_render_target_shutdown(&target);
     mel_swapchain_shutdown(&sc, &dev);
     mel_gpu_device_shutdown(&dev);
     SDL_DestroyWindow(window);

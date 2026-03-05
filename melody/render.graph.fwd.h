@@ -1,3 +1,5 @@
 #pragma once
 
 typedef struct Mel_Render_Graph Mel_Render_Graph;
+typedef struct Mel_Render_Graph_Pass Mel_Render_Graph_Pass;
+typedef struct Mel_Render_Graph_Barrier Mel_Render_Graph_Barrier;

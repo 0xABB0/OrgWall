@@ -12,12 +12,9 @@
 #include "core.app.h"
 #include "core.engine.h"
 #include "string.str8.h"
-#include "gpu.shader.h"
-#include "gpu.pipeline.h"
-#include "gpu.buffer.h"
 #include "gpu.texture.h"
 #include "gpu.cmd.h"
-#include "sprite.batch.h"
+#include "sprite.pass.h"
 #include "font.atlas.h"
 #include "texture.pool.h"
 #include "tile.set.h"
@@ -44,10 +41,13 @@
 #include "player.h"
 #include "npc.h"
 #include "wall.h"
+#include "render.graph.h"
+#include "render.target.h"
+#include "render.camera.h"
+#include "render.list.h"
 
 static SDL_Window* s_window;
 
-static Mel_Texture_Pool s_texture_pool;
 static Mel_Tileset_Pool s_tileset_pool;
 static Mel_Tilemap_Pool s_tilemap_pool;
 static Mel_Font_Atlas_Pool s_font_pool;
@@ -58,62 +58,24 @@ static Mel_Io s_io;
 static Mel_Vfs s_vfs;
 static Mel_Vfs_Backend* s_os_backend;
 static Mel_Vfs_Backend* s_fonts_backend;
-static Mel_Gpu_Shader s_shader;
-static Mel_Gpu_Pipeline s_pipeline;
-static Mel_Gpu_Texture s_white_texture;
 static Mel_Gpu_Texture s_test_texture;
-static Mel_SpriteBatch s_batch;
 static Mel_Game s_game;
 
 static Mel_WPanel s_dialogue_box;
 static Mel_WLabel s_dialogue_label;
+static Mel_Render_Target s_swapchain_target;
+static Mel_Render_Graph s_graph;
+static Mel_Camera s_camera;
+static Mel_Engine* s_engine;
+
+static Mel_Render_List s_sprite_list;
+static Mel_Render_List s_ui_list;
 
 static Mel_EdEntities* s_ed_entities;
 static Mel_EdTiles* s_ed_tiles;
 static Mel_EdSpritesheet* s_ed_spritesheet;
 
 static Mel_Alloc* s_alloc;
-
-static const char* SHADER_SOURCE =
-"struct VSInput\n"
-"{\n"
-"    float2 position : POSITION;\n"
-"    float2 texcoord : TEXCOORD0;\n"
-"    float4 color : COLOR0;\n"
-"};\n"
-"\n"
-"struct VSOutput\n"
-"{\n"
-"    float4 position : SV_Position;\n"
-"    float2 texcoord : TEXCOORD0;\n"
-"    float4 color : COLOR0;\n"
-"};\n"
-"\n"
-"struct PushConstants\n"
-"{\n"
-"    float4x4 projection;\n"
-"};\n"
-"\n"
-"[[vk::push_constant]]\n"
-"PushConstants push;\n"
-"\n"
-"[[vk::binding(0, 0)]] Sampler2D tex;\n"
-"\n"
-"[shader(\"vertex\")]\n"
-"VSOutput vertexMain(VSInput input)\n"
-"{\n"
-"    VSOutput output;\n"
-"    output.position = mul(push.projection, float4(input.position, 0.0, 1.0));\n"
-"    output.texcoord = input.texcoord;\n"
-"    output.color = input.color;\n"
-"    return output;\n"
-"}\n"
-"\n"
-"[shader(\"fragment\")]\n"
-"float4 fragmentMain(VSOutput input) : SV_Target\n"
-"{\n"
-"    return tex.Sample(input.texcoord) * input.color;\n"
-"}\n";
 
 static void ed_entities_draw_wrapper(void* instance, f32 dt)
 {
@@ -159,60 +121,31 @@ static void ed_spritesheet_shutdown_wrapper(void* instance)
     mel_dealloc(s_alloc, instance);
 }
 
+static void imgui_render_pass(Mel_Render_Pass_Ctx* ctx);
+
 static void on_init(Mel_Engine* e)
 {
     s_alloc = &e->allocator;
     Mel_Alloc* alloc = s_alloc;
     Mel_Gpu_Device* dev = &e->dev;
 
-    mel_gpu_shader_init(&s_shader, dev, .source = str8_from_cstr(SHADER_SOURCE));
+    mel_render_list_init(&s_sprite_list,
+        .entry_stride = sizeof(Mel_Sprite_Entry),
+        .alloc = mel_alloc_heap());
 
-    mel_gpu_texture_init_white(&s_white_texture, dev);
+    mel_render_list_init(&s_ui_list,
+        .entry_stride = sizeof(Mel_Sprite_Entry),
+        .alloc = mel_alloc_heap());
 
-    VkVertexInputBindingDescription binding = {
-        .binding = 0,
-        .stride = sizeof(Mel_SpriteVertex),
-        .inputRate = VK_VERTEX_INPUT_RATE_VERTEX,
-    };
+    Mel_Texture_Pool* pool = e->texture_pool;
 
-    VkVertexInputAttributeDescription attributes[] = {
-        { .location = 0, .binding = 0, .format = VK_FORMAT_R32G32_SFLOAT, .offset = offsetof(Mel_SpriteVertex, x) },
-        { .location = 1, .binding = 0, .format = VK_FORMAT_R32G32_SFLOAT, .offset = offsetof(Mel_SpriteVertex, u) },
-        { .location = 2, .binding = 0, .format = VK_FORMAT_R32G32B32A32_SFLOAT, .offset = offsetof(Mel_SpriteVertex, r) },
-    };
-
-    mel_gpu_pipeline_init(&s_pipeline, dev,
-        .shader = &s_shader,
-        .color_format = e->swapchain.format,
-        .bindings = &binding,
-        .binding_count = 1,
-        .attributes = attributes,
-        .attribute_count = 3,
-        .push_constant_size = sizeof(Mel_Mat4),
-        .use_texture = true,
-        .blend_mode = MEL_GPU_BLEND_ALPHA);
-
-    mel_sprite_batch_init(&s_batch, dev, .max_sprites = 1024);
-
-    s_white_texture.descriptor = mel_gpu_pipeline_alloc_descriptor(&s_pipeline, dev);
-    mel_gpu_pipeline_write_texture(&s_pipeline, dev, s_white_texture.descriptor,
-        s_white_texture.image.view, s_white_texture.sampler);
-
-    mel_texture_pool_init(&s_texture_pool, alloc, dev, .pipeline = &s_pipeline, .vfs = &s_vfs);
-    mel_tileset_pool_init(&s_tileset_pool, alloc, &s_texture_pool, &s_vfs);
+    mel_tileset_pool_init(&s_tileset_pool, alloc, pool, &s_vfs);
     mel_tilemap_pool_init(&s_tilemap_pool, alloc, &s_tileset_pool, &s_vfs);
-    mel_font_atlas_pool_init(&s_font_pool, alloc, dev, &s_vfs);
+    mel_font_atlas_pool_init(&s_font_pool, alloc, dev, &s_vfs, .texture_pool = pool);
 
     s_font_handle = mel_font_atlas_pool_load(&s_font_pool, .path = S8("sys/fonts/Monaco.ttf"), .size = 20.0f);
-    Mel_Font_Atlas_Entry* font_entry = mel_font_atlas_pool_get(&s_font_pool, s_font_handle);
-    if (font_entry)
-    {
-        font_entry->atlas_texture.descriptor = mel_gpu_pipeline_alloc_descriptor(&s_pipeline, dev);
-        mel_gpu_pipeline_write_texture(&s_pipeline, dev, font_entry->atlas_texture.descriptor,
-            font_entry->atlas_texture.image.view, font_entry->atlas_texture.sampler);
-    }
 
-    mel_texture_load_and_bind(&s_test_texture, dev, &s_pipeline, &s_vfs, alloc, S8("test.png"));
+    mel_texture_load_and_bind(&s_test_texture, dev, &e->sprite_pass->pipeline, &s_vfs, alloc, S8("test.png"));
 
     mel_game_init(&s_game);
 
@@ -249,13 +182,52 @@ static void on_init(Mel_Engine* e)
 
     s_ed_tiles = mel_alloc_type(alloc, Mel_EdTiles);
     mel_ed_tiles_init(s_ed_tiles, alloc);
-    mel_ed_tiles_set_pools(s_ed_tiles, &s_tileset_pool, &s_tilemap_pool, &s_texture_pool);
+    mel_ed_tiles_set_pools(s_ed_tiles, &s_tileset_pool, &s_tilemap_pool, pool);
 
     s_ed_spritesheet = mel_alloc_type(alloc, Mel_EdSpritesheet);
     mel_ed_spritesheet_init(s_ed_spritesheet, alloc);
-    s_ed_spritesheet->texture_pool = &s_texture_pool;
+    s_ed_spritesheet->texture_pool = pool;
 
-    mel_game_editor_init(&s_game_editor, &s_ed_registry, &s_texture_pool, &s_tileset_pool, &s_tilemap_pool, s_window);
+    mel_game_editor_init(&s_game_editor, &s_ed_registry, pool, &s_tileset_pool, &s_tilemap_pool, s_window);
+
+    s_engine = e;
+
+    mel_render_target_init_swapchain(&s_swapchain_target, &e->swapchain, &e->dev, S8("backbuffer"));
+
+    s_camera = (Mel_Camera){
+        .view = MEL_MAT4_IDENTITY,
+        .projection = mel_mat4_ortho(0, (f32)e->swapchain.extent.width,
+                                      0, (f32)e->swapchain.extent.height, -1, 1),
+    };
+
+    mel_render_graph_init(&s_graph, .dev = &e->dev, .alloc = mel_alloc_heap());
+
+    u32 game_pass = mel_render_graph_add_pass(&s_graph, S8("game"),
+        .fn = mel_sprite_pass_execute,
+        .user = e->sprite_pass,
+        .camera = &s_camera,
+        .read_lists = MEL_LISTS(&s_sprite_list),
+        .write_targets = MEL_WRITE_TARGETS(
+            { .target = &s_swapchain_target, .load_op = VK_ATTACHMENT_LOAD_OP_CLEAR,
+              .clear.color = { .r = 0.1f, .g = 0.1f, .b = 0.12f, .a = 1.0f } }));
+
+    u32 ui_pass = mel_render_graph_add_pass(&s_graph, S8("ui"),
+        .fn = mel_sprite_pass_execute,
+        .user = e->sprite_pass,
+        .camera = &s_camera,
+        .read_lists = MEL_LISTS(&s_ui_list),
+        .write_targets = MEL_WRITE_TARGETS(
+            { .target = &s_swapchain_target, .load_op = VK_ATTACHMENT_LOAD_OP_LOAD }));
+
+    u32 imgui_pass = mel_render_graph_add_pass(&s_graph, S8("imgui"),
+        .fn = imgui_render_pass,
+        .write_targets = MEL_WRITE_TARGETS(
+            { .target = &s_swapchain_target, .load_op = VK_ATTACHMENT_LOAD_OP_LOAD }));
+
+    mel_render_graph_pass_depends_on(&s_graph, ui_pass, game_pass);
+    mel_render_graph_pass_depends_on(&s_graph, imgui_pass, ui_pass);
+    mel_render_graph_compile(&s_graph);
+    e->render_graph = &s_graph;
 
     SDL_Log("Game ready! WASD to move, E to interact with NPC, F1 for editor");
 }
@@ -299,8 +271,7 @@ static void app_init(Mel_App* app)
         .window = s_window,
         .app_name = S8("Red Square Room"),
         .enable_validation = true,
-        .enable_imgui = true,
-        .fixed_dt = 1.0f / 60.0f);
+        .enable_imgui = true);
 
     on_init(&app->engine);
 }
@@ -310,6 +281,9 @@ static void app_shutdown(Mel_App* app)
     Mel_Gpu_Device* dev = &app->engine.dev;
 
     mel_gpu_device_wait_idle(dev);
+
+    mel_render_graph_shutdown(&s_graph);
+    mel_render_target_shutdown(&s_swapchain_target);
 
     mel_game_editor_shutdown(&s_game_editor);
     mel_ed_registry_shutdown(&s_ed_registry);
@@ -329,15 +303,13 @@ static void app_shutdown(Mel_App* app)
 
     mel_widget_destroy(&s_dialogue_box.base);
     mel_game_shutdown(&s_game);
-    mel_sprite_batch_shutdown(&s_batch, dev);
     mel_font_atlas_pool_shutdown(&s_font_pool);
     mel_tilemap_pool_shutdown(&s_tilemap_pool);
     mel_tileset_pool_shutdown(&s_tileset_pool);
-    mel_texture_pool_shutdown(&s_texture_pool);
     mel_gpu_texture_shutdown(&s_test_texture, dev);
-    mel_gpu_texture_shutdown(&s_white_texture, dev);
-    mel_gpu_pipeline_shutdown(&s_pipeline, dev);
-    mel_gpu_shader_shutdown(&s_shader, dev);
+
+    mel_render_list_shutdown(&s_sprite_list);
+    mel_render_list_shutdown(&s_ui_list);
 
     mel_vfs_shutdown(&s_vfs);
     mel_io_shutdown(&s_io);
@@ -351,49 +323,31 @@ static void app_update(Mel_App* app, f32 dt)
     MEL_UNUSED(app);
     mel_game_update(&s_game, dt);
     mel_widget_set_visible(&s_dialogue_box.base, s_game.dialogue_open);
-}
 
-static void app_render(Mel_App* app, Mel_Gpu_Cmd* c)
-{
-    Mel_Engine* e = &app->engine;
-    TracyCZoneN(ctx, "app_render", true);
+    mel_render_list_clear(&s_sprite_list);
+    mel_render_list_clear(&s_ui_list);
 
-    if (!s_pipeline.pipeline)
-    {
-        TracyCZoneEnd(ctx);
-        return;
-    }
-
-    mel_engine_begin_swapchain_pass(e, c,
-        .clear_r = 0.1f, .clear_g = 0.1f, .clear_b = 0.12f, .clear_a = 1.0f);
-
-    Mel_Mat4 proj = mel_mat4_ortho(0, (f32)e->swapchain.extent.width,
-                                    0, (f32)e->swapchain.extent.height, -1, 1);
-
-    mel_sprite_batch_begin(&s_batch, &s_pipeline);
-    mel_sprite_batch_set_texture(&s_batch, &s_white_texture);
-
-    mel_game_draw(&s_game, &s_batch);
+    mel_game_draw(&s_game, &s_sprite_list);
 
     if (s_dialogue_box.base.visible)
     {
-        TracyCZoneN(ctx_widget, "widget_draw", true);
-        mel_widget_draw(&s_dialogue_box.base, &s_batch);
-        TracyCZoneEnd(ctx_widget);
+        mel_widget_draw(&s_dialogue_box.base, &s_ui_list);
     }
+}
 
-    mel_sprite_batch_end(&s_batch, &e->dev, c->cmd, &proj);
+static void imgui_render_pass(Mel_Render_Pass_Ctx* ctx)
+{
+    TracyCZoneN(zone, "imgui_render_pass", true);
 
-    TracyCZoneN(ctx_editor, "editor_frame", true);
     if (s_game_editor.visible)
-    {
-        mel_game_editor_draw(&s_game_editor, e->frame_dt);
-    }
-    TracyCZoneEnd(ctx_editor);
+        mel_game_editor_draw(&s_game_editor, s_engine->frame_dt);
 
-    mel_engine_end_swapchain_pass(e, c);
+    igRender();
+    ImDrawData* draw_data = igGetDrawData();
+    if (draw_data && draw_data->CmdListsCount > 0)
+        ImGui_ImplVulkan_RenderDrawData(draw_data, ctx->cmd.cmd, VK_NULL_HANDLE);
 
-    TracyCZoneEnd(ctx);
+    TracyCZoneEnd(zone);
 }
 
 static void app_event(Mel_App* app, SDL_Event* event)
@@ -420,6 +374,5 @@ MEL_APP(
     .on_init = app_init,
     .on_shutdown = app_shutdown,
     .on_update = app_update,
-    .on_render = app_render,
     .on_event = app_event
 )

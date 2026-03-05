@@ -1,7 +1,10 @@
 #include "test.visual.h"
+#include "render.graph.h"
+#include "render.pass.h"
 #include "swapchain.image.h"
 #include "debug.backtrace.h"
 #include "string.str8.h"
+#include "allocator.heap.h"
 
 #include <stb_image.h>
 #include <stb_image_write.h>
@@ -12,6 +15,14 @@
 
 #define MEL_VISUAL_TEST_CHANNEL_THRESHOLD 2
 #define MEL_VISUAL_TEST_FAIL_PERCENT 0.1f
+
+static Mel_Visual_Test_Render_Fn s_active_render_fn;
+
+static void visual_test_pass(Mel_Render_Pass_Ctx* ctx)
+{
+    if (s_active_render_fn)
+        s_active_render_fn(ctx);
+}
 
 static void on_present(void* pixels, u32 width, u32 height, u32 stride, void* user_data)
 {
@@ -76,11 +87,7 @@ bool mel_visual_test_init_opt(Mel_Visual_Test_Ctx* ctx, Mel_Visual_Test_Init_Opt
         return false;
     }
 
-    if (!mel_render_frame_init(&ctx->frame, .dev = &ctx->dev, .swapchain = &ctx->sc))
-    {
-        SDL_Log("visual test: failed to init render frame");
-        return false;
-    }
+    mel_render_target_init_swapchain(&ctx->target, &ctx->sc, &ctx->dev, S8("visual_test"));
 
     return true;
 }
@@ -94,7 +101,7 @@ void mel_visual_test_shutdown(Mel_Visual_Test_Ctx* ctx)
     free(ctx->captured_pixels);
     ctx->captured_pixels = nullptr;
 
-    mel_render_frame_shutdown(&ctx->frame);
+    mel_render_target_shutdown(&ctx->target);
     mel_swapchain_shutdown(&ctx->sc, &ctx->dev);
     mel_gpu_device_shutdown(&ctx->dev);
 
@@ -148,8 +155,8 @@ static Mel_Visual_Test_Result compare_pixels(const u8* actual, const u8* referen
     };
 }
 
-Mel_Visual_Test_Result mel_visual_test_check(Mel_Visual_Test_Ctx* ctx, const char* test_name,
-                                              Mel_Visual_Test_Render_Fn render_fn, void* user_data)
+Mel_Visual_Test_Result mel_visual_test_check_opt(Mel_Visual_Test_Ctx* ctx, const char* test_name,
+                                                  Mel_Visual_Test_Render_Fn render_fn, Mel_Visual_Test_Check_Opt opt)
 {
     assert(ctx != nullptr);
     assert(test_name != nullptr);
@@ -157,21 +164,22 @@ Mel_Visual_Test_Result mel_visual_test_check(Mel_Visual_Test_Ctx* ctx, const cha
 
     ctx->has_capture = false;
 
-    if (!mel_render_frame_begin(&ctx->frame))
-    {
-        SDL_Log("visual test [%s]: frame begin failed", test_name);
-        return (Mel_Visual_Test_Result){ .passed = false };
-    }
+    s_active_render_fn = render_fn;
 
-    Mel_Gpu_Cmd c = {
-        .cmd = mel_render_frame_cmd(&ctx->frame),
-        .dev = &ctx->dev,
-    };
+    Mel_Render_Graph graph;
+    mel_render_graph_init(&graph, .dev = &ctx->dev, .alloc = mel_alloc_heap());
+    mel_render_graph_add_pass(&graph, S8("test"),
+        .fn = visual_test_pass,
+        .write_targets = MEL_WRITE_TARGETS(
+            { .target = &ctx->target, .load_op = VK_ATTACHMENT_LOAD_OP_CLEAR,
+              .clear.color = { .r = opt.clear_r, .g = opt.clear_g, .b = opt.clear_b, .a = opt.clear_a } }));
+    mel_render_graph_compile(&graph);
 
-    render_fn(&c, &ctx->sc, user_data);
-
-    mel_render_frame_end(&ctx->frame);
+    mel_render_graph_execute(&graph);
     vkDeviceWaitIdle(ctx->dev.device);
+
+    mel_render_graph_shutdown(&graph);
+    s_active_render_fn = nullptr;
 
     if (!ctx->has_capture)
     {

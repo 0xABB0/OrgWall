@@ -9,19 +9,26 @@
 #include "core.app.h"
 #include "core.engine.h"
 #include "string.str8.h"
-#include "gpu.shader.h"
-#include "gpu.pipeline.h"
 #include "gpu.buffer.h"
-#include "gpu.texture.h"
 #include "gpu.cmd.h"
-#include "sprite.batch.h"
+#include "render.draw.h"
+#include "texture.pool.h"
+#include "render.graph.h"
+#include "render.list.h"
+#include "render.target.h"
+#include "render.sync.h"
+#include "sprite.pass.h"
+#include "render.camera.h"
 #include "font.atlas.h"
 #include "vfs.h"
 #include "vfs.backend.os.h"
 #include "allocator.heap.h"
 #include "math.mat4.h"
+#include "math.vec2.h"
 #include "math.vec4.h"
 #include "ecs.world.h"
+#include "ecs.2d.transform.h"
+#include "ecs.2d.sprite.h"
 
 #define GRID_W 20
 #define GRID_H 20
@@ -58,57 +65,19 @@ typedef struct {
 } Snake;
 
 static SDL_Window* s_window;
-static Mel_Gpu_Shader s_shader;
-static Mel_Gpu_Pipeline s_pipeline;
-static Mel_Gpu_Texture s_white_texture;
-static Mel_SpriteBatch s_batch;
+static Mel_Sprite_Pass* s_sp;
 static Mel_Font_Atlas_Pool s_font_pool;
 static Mel_Io s_demo_io;
 static Mel_Vfs s_demo_vfs;
 static Mel_Vfs_Backend* s_fonts_backend;
 static Mel_Font_Handle s_font_handle;
 static Snake s_snake;
-
-static const char* SHADER_SOURCE =
-"struct VSInput\n"
-"{\n"
-"    float2 position : POSITION;\n"
-"    float2 texcoord : TEXCOORD0;\n"
-"    float4 color : COLOR0;\n"
-"};\n"
-"\n"
-"struct VSOutput\n"
-"{\n"
-"    float4 position : SV_Position;\n"
-"    float2 texcoord : TEXCOORD0;\n"
-"    float4 color : COLOR0;\n"
-"};\n"
-"\n"
-"struct PushConstants\n"
-"{\n"
-"    float4x4 projection;\n"
-"};\n"
-"\n"
-"[[vk::push_constant]]\n"
-"PushConstants push;\n"
-"\n"
-"[[vk::binding(0, 0)]] Sampler2D tex;\n"
-"\n"
-"[shader(\"vertex\")]\n"
-"VSOutput vertexMain(VSInput input)\n"
-"{\n"
-"    VSOutput output;\n"
-"    output.position = mul(push.projection, float4(input.position, 0.0, 1.0));\n"
-"    output.texcoord = input.texcoord;\n"
-"    output.color = input.color;\n"
-"    return output;\n"
-"}\n"
-"\n"
-"[shader(\"fragment\")]\n"
-"float4 fragmentMain(VSOutput input) : SV_Target\n"
-"{\n"
-"    return tex.Sample(input.texcoord) * input.color;\n"
-"}\n";
+static Mel_Render_Sync s_sync;
+static Mel_Draw_Ctx s_grid_ctx;
+static Mel_Render_List s_sprite_list;
+static Mel_Render_Target s_swapchain_target;
+static Mel_Render_Graph s_graph;
+static Mel_Camera s_camera;
 
 static u32 snake_rand(Snake* s)
 {
@@ -130,6 +99,22 @@ static bool grid_occupied(Snake* s, i32 gx, i32 gy)
     return false;
 }
 
+static ecs_entity_t create_segment(ecs_world_t* world, i32 gx, i32 gy, Mel_Vec4 color)
+{
+    ecs_entity_t e = ecs_new(world);
+    ecs_set(world, e, Snake_CSegment, { .gx = gx, .gy = gy });
+    f32 pad = 1.0f;
+    ecs_set(world, e, Mel_CTransform, {
+        .pos = mel_vec2(GRID_X_OFFSET + (f32)gx * CELL_SIZE + pad,
+                        GRID_Y_OFFSET + (f32)gy * CELL_SIZE + pad),
+    });
+    ecs_set(world, e, Mel_Sprite, {
+        .size = mel_vec2(CELL_SIZE - pad * 2, CELL_SIZE - pad * 2),
+        .color = color,
+    });
+    return e;
+}
+
 static void spawn_food(Snake* s)
 {
     ecs_world_t* world = s->ecs.world;
@@ -146,13 +131,15 @@ static void spawn_food(Snake* s)
     s->food = ecs_new(world);
     ecs_set(world, s->food, Snake_CSegment, { .gx = fx, .gy = fy });
     ecs_add(world, s->food, Snake_CFood);
-}
-
-static ecs_entity_t create_segment(ecs_world_t* world, i32 gx, i32 gy)
-{
-    ecs_entity_t e = ecs_new(world);
-    ecs_set(world, e, Snake_CSegment, { .gx = gx, .gy = gy });
-    return e;
+    f32 pad = 1.0f;
+    ecs_set(world, s->food, Mel_CTransform, {
+        .pos = mel_vec2(GRID_X_OFFSET + (f32)fx * CELL_SIZE + pad,
+                        GRID_Y_OFFSET + (f32)fy * CELL_SIZE + pad),
+    });
+    ecs_set(world, s->food, Mel_Sprite, {
+        .size = mel_vec2(CELL_SIZE - pad * 2, CELL_SIZE - pad * 2),
+        .color = mel_vec4(0.9f, 0.2f, 0.2f, 1.0f),
+    });
 }
 
 static void snake_init(Snake* s)
@@ -184,6 +171,9 @@ static void snake_init(Snake* s)
     ECS_TAG_DEFINE(world, Snake_CHead);
     ECS_TAG_DEFINE(world, Snake_CFood);
 
+    mel_component_transform_register(world);
+    mel_component_sprite_register(world);
+
     s->segment_query = ecs_query(world, {
         .terms = { { .id = ecs_id(Snake_CSegment) } }
     });
@@ -198,14 +188,17 @@ static void snake_init(Snake* s)
     i32 start_x = GRID_W / 2;
     i32 start_y = GRID_H / 2;
 
-    s->head = create_segment(world, start_x, start_y);
+    Mel_Vec4 head_color = mel_vec4(0.2f, 0.9f, 0.2f, 1.0f);
+    Mel_Vec4 body_color = mel_vec4(0.1f, 0.7f, 0.1f, 1.0f);
+
+    s->head = create_segment(world, start_x, start_y, head_color);
     ecs_add(world, s->head, Snake_CHead);
     ecs_set(world, s->head, Snake_CDirection, { .dx = 1, .dy = 0 });
 
     ecs_entity_t prev = s->head;
     for (i32 i = 1; i < 3; i++)
     {
-        ecs_entity_t seg = create_segment(world, start_x - i, start_y);
+        ecs_entity_t seg = create_segment(world, start_x - i, start_y, body_color);
         ecs_set(world, seg, Snake_CFollows, {
             .target = prev,
             .prev_x = start_x - i + 1,
@@ -238,7 +231,8 @@ static void snake_grow(Snake* s)
         new_y = (new_y % GRID_H + GRID_H) % GRID_H;
     }
 
-    ecs_entity_t seg = create_segment(world, new_x, new_y);
+    Mel_Vec4 body_color = mel_vec4(0.1f, 0.7f, 0.1f, 1.0f);
+    ecs_entity_t seg = create_segment(world, new_x, new_y, body_color);
     ecs_set(world, seg, Snake_CFollows, {
         .target = s->tail,
         .prev_x = tail_seg->gx,
@@ -329,136 +323,142 @@ static void snake_tick(Snake* s, f32 dt)
     }
 }
 
-static void draw_grid_cell(Mel_SpriteBatch* batch, i32 gx, i32 gy, Mel_Vec4 color)
+static void snake_sync_transforms(Snake* s)
 {
-    f32 x = GRID_X_OFFSET + (f32)gx * CELL_SIZE;
-    f32 y = GRID_Y_OFFSET + (f32)gy * CELL_SIZE;
-    f32 pad = 1.0f;
-    mel_sprite_batch_draw(batch, x + pad, y + pad, CELL_SIZE - pad * 2, CELL_SIZE - pad * 2, color);
-}
-
-static void snake_draw_grid(Snake* s, Mel_SpriteBatch* batch)
-{
-    Mel_Vec4 bg = mel_vec4(0.05f, 0.05f, 0.08f, 1.0f);
-    mel_sprite_batch_draw(batch,
-        GRID_X_OFFSET, GRID_Y_OFFSET,
-        (f32)GRID_W * CELL_SIZE, (f32)GRID_H * CELL_SIZE, bg);
-
-    Mel_Vec4 line_color = mel_vec4(0.1f, 0.1f, 0.13f, 1.0f);
-    for (i32 row = 0; row <= GRID_H; row++)
-    {
-        f32 y = GRID_Y_OFFSET + (f32)row * CELL_SIZE;
-        mel_sprite_batch_draw(batch, GRID_X_OFFSET, y, (f32)GRID_W * CELL_SIZE, 1.0f, line_color);
-    }
-    for (i32 col = 0; col <= GRID_W; col++)
-    {
-        f32 x = GRID_X_OFFSET + (f32)col * CELL_SIZE;
-        mel_sprite_batch_draw(batch, x, GRID_Y_OFFSET, 1.0f, (f32)GRID_H * CELL_SIZE, line_color);
-    }
-
     ecs_world_t* world = s->ecs.world;
-
-    Mel_Vec4 head_color = mel_vec4(0.2f, 0.9f, 0.2f, 1.0f);
-    Mel_Vec4 body_color = mel_vec4(0.1f, 0.7f, 0.1f, 1.0f);
-
     ecs_iter_t it = ecs_query_iter(world, s->segment_query);
     while (ecs_query_next(&it))
     {
         Snake_CSegment* seg = ecs_field(&it, Snake_CSegment, 0);
         for (int i = 0; i < it.count; i++)
         {
-            if (ecs_has(world, it.entities[i], Snake_CFood)) continue;
-
-            bool is_head = ecs_has(world, it.entities[i], Snake_CHead);
-            draw_grid_cell(batch, seg[i].gx, seg[i].gy, is_head ? head_color : body_color);
-        }
-    }
-
-    if (s->food && ecs_is_valid(world, s->food))
-    {
-        const Snake_CSegment* food_seg = ecs_get(world, s->food, Snake_CSegment);
-        if (food_seg)
-        {
-            Mel_Vec4 food_color = mel_vec4(0.9f, 0.2f, 0.2f, 1.0f);
-            draw_grid_cell(batch, food_seg->gx, food_seg->gy, food_color);
+            f32 pad = 1.0f;
+            Mel_CTransform* t = ecs_get_mut(world, it.entities[i], Mel_CTransform);
+            t->pos.x = GRID_X_OFFSET + (f32)seg[i].gx * CELL_SIZE + pad;
+            t->pos.y = GRID_Y_OFFSET + (f32)seg[i].gy * CELL_SIZE + pad;
         }
     }
 }
 
-static void snake_draw_text(Snake* s, Mel_SpriteBatch* batch, Mel_Font_Atlas_Entry* fe)
+static void snake_draw_text(Snake* s, Mel_Draw_Ctx* ctx, Mel_Font_Atlas_Pool* pool, Mel_Font_Handle font)
 {
     Mel_Vec4 white = mel_vec4(1.0f, 1.0f, 1.0f, 1.0f);
     Mel_Vec4 dim = mel_vec4(0.6f, 0.6f, 0.6f, 1.0f);
 
     char buf[64];
 
-    mel_font_atlas_draw_text(fe, batch, S8("SNAKE"), GRID_X_OFFSET, 20.0f, white);
+    mel_draw_ctx_text(ctx, .font = font, .text = S8("SNAKE"), .x = GRID_X_OFFSET, .y = 20.0f, .color = white);
 
     snprintf(buf, sizeof(buf), "SCORE: %u", s->score);
-    mel_font_atlas_draw_text(fe, batch, str8_from_cstr(buf), INFO_X, GRID_Y_OFFSET, white);
+    mel_draw_ctx_text(ctx, .font = font, .text = str8_from_cstr(buf), .x = INFO_X, .y = GRID_Y_OFFSET, .color = white);
 
     snprintf(buf, sizeof(buf), "LENGTH: %u", s->length);
-    mel_font_atlas_draw_text(fe, batch, str8_from_cstr(buf), INFO_X, GRID_Y_OFFSET + 40.0f, white);
+    mel_draw_ctx_text(ctx, .font = font, .text = str8_from_cstr(buf), .x = INFO_X, .y = GRID_Y_OFFSET + 40.0f, .color = white);
 
     if (s->game_over)
     {
         Mel_Vec4 red = mel_vec4(1.0f, 0.2f, 0.2f, 1.0f);
         f32 cx = GRID_X_OFFSET + 30.0f;
         f32 cy = GRID_Y_OFFSET + GRID_H * CELL_SIZE / 2.0f - 10.0f;
-        mel_font_atlas_draw_text(fe, batch, S8("GAME OVER"), cx, cy, red);
-        mel_font_atlas_draw_text(fe, batch, S8("R to restart"), cx + 10.0f, cy + 30.0f, dim);
+        mel_draw_ctx_text(ctx, .font = font, .text = S8("GAME OVER"), .x = cx, .y = cy, .color = red);
+        mel_draw_ctx_text(ctx, .font = font, .text = S8("R to restart"), .x = cx + 10.0f, .y = cy + 30.0f, .color = dim);
     }
+}
+
+static void build_grid(Mel_Draw_Ctx* ctx)
+{
+    mel_draw_ctx_clear(ctx);
+
+    mel_draw_ctx_rect(ctx, GRID_X_OFFSET, GRID_Y_OFFSET,
+        (f32)GRID_W * CELL_SIZE, (f32)GRID_H * CELL_SIZE,
+        mel_vec4(0.05f, 0.05f, 0.08f, 1.0f));
+
+    Mel_Vec4 line_color = mel_vec4(0.1f, 0.1f, 0.13f, 1.0f);
+    for (i32 row = 0; row <= GRID_H; row++)
+    {
+        f32 y = GRID_Y_OFFSET + (f32)row * CELL_SIZE;
+        mel_draw_ctx_rect(ctx, GRID_X_OFFSET, y, (f32)GRID_W * CELL_SIZE, 1.0f, line_color);
+    }
+    for (i32 col = 0; col <= GRID_W; col++)
+    {
+        f32 x = GRID_X_OFFSET + (f32)col * CELL_SIZE;
+        mel_draw_ctx_rect(ctx, x, GRID_Y_OFFSET, 1.0f, (f32)GRID_H * CELL_SIZE, line_color);
+    }
+}
+
+static void snake_write_entry(void* entry_ptr, ecs_iter_t* it, i32 row, void* user)
+{
+    (void)user;
+    Mel_CTransform* t = ecs_field(it, Mel_CTransform, 0);
+    Mel_Sprite* sp = ecs_field(it, Mel_Sprite, 1);
+    Mel_Sprite_Entry* entry = entry_ptr;
+    entry->pos = t[row].pos;
+    entry->size = sp[row].size;
+    entry->color = sp[row].color;
+    entry->uv = MEL_UV_FULL;
+    entry->tex = MEL_TEXTURE_HANDLE_NULL;
+}
+
+static void grid_pass(Mel_Render_Pass_Ctx* ctx)
+{
+    Mel_Mat4 proj = mel_camera_vp(ctx->camera);
+    mel_draw_ctx_render(&s_grid_ctx, ctx->cmd.cmd, &proj);
 }
 
 static void on_init(Mel_Engine* e)
 {
     Mel_Gpu_Device* dev = &e->dev;
+    s_sp = e->sprite_pass;
 
-    mel_gpu_shader_init(&s_shader, dev, .source = str8_from_cstr(SHADER_SOURCE));
-    mel_gpu_texture_init_white(&s_white_texture, dev);
+    mel_draw_ctx_init(&s_grid_ctx,
+        .pipeline = &s_sp->pipeline, .texture = &s_sp->white_texture,
+        .pool = e->texture_pool, .font_pool = &s_font_pool, .dev = dev, .alloc = mel_alloc_heap());
 
-    VkVertexInputBindingDescription binding = {
-        .binding = 0,
-        .stride = sizeof(Mel_SpriteVertex),
-        .inputRate = VK_VERTEX_INPUT_RATE_VERTEX,
-    };
-
-    VkVertexInputAttributeDescription attributes[] = {
-        { .location = 0, .binding = 0, .format = VK_FORMAT_R32G32_SFLOAT, .offset = offsetof(Mel_SpriteVertex, x) },
-        { .location = 1, .binding = 0, .format = VK_FORMAT_R32G32_SFLOAT, .offset = offsetof(Mel_SpriteVertex, u) },
-        { .location = 2, .binding = 0, .format = VK_FORMAT_R32G32B32A32_SFLOAT, .offset = offsetof(Mel_SpriteVertex, r) },
-    };
-
-    mel_gpu_pipeline_init(&s_pipeline, dev,
-        .shader = &s_shader,
-        .color_format = e->swapchain.format,
-        .bindings = &binding,
-        .binding_count = 1,
-        .attributes = attributes,
-        .attribute_count = 3,
-        .push_constant_size = sizeof(Mel_Mat4),
-        .use_texture = true,
-        .blend_mode = MEL_GPU_BLEND_ALPHA);
-
-    mel_sprite_batch_init(&s_batch, dev, .max_sprites = 2048);
-
-    s_white_texture.descriptor = mel_gpu_pipeline_alloc_descriptor(&s_pipeline, dev);
-    mel_gpu_pipeline_write_texture(&s_pipeline, dev, s_white_texture.descriptor,
-        s_white_texture.image.view, s_white_texture.sampler);
-
-    mel_font_atlas_pool_init(&s_font_pool, &e->allocator, dev, &s_demo_vfs);
+    mel_font_atlas_pool_init(&s_font_pool, &e->allocator, dev, &s_demo_vfs, .texture_pool = e->texture_pool);
     s_font_handle = mel_font_atlas_pool_load(&s_font_pool,
         .path = S8("/System/Library/Fonts/Monaco.ttf"), .size = 18.0f);
 
-    Mel_Font_Atlas_Entry* font_entry = mel_font_atlas_pool_get(&s_font_pool, s_font_handle);
-    if (font_entry)
-    {
-        font_entry->atlas_texture.descriptor = mel_gpu_pipeline_alloc_descriptor(&s_pipeline, dev);
-        mel_gpu_pipeline_write_texture(&s_pipeline, dev, font_entry->atlas_texture.descriptor,
-            font_entry->atlas_texture.image.view, font_entry->atlas_texture.sampler);
-    }
 
     snake_init(&s_snake);
+
+    mel_render_list_init(&s_sprite_list,
+        .entry_stride = sizeof(Mel_Sprite_Entry),
+        .alloc = mel_alloc_heap());
+
+    mel_render_sync_init(&s_sync,
+        .list = &s_sprite_list,
+        .world = s_snake.ecs.world,
+        .components = { ecs_id(Mel_CTransform), ecs_id(Mel_Sprite) },
+        .write = snake_write_entry);
+
+    mel_render_target_init_swapchain(&s_swapchain_target, &e->swapchain, &e->dev, S8("backbuffer"));
+
+    s_camera = (Mel_Camera){
+        .view = MEL_MAT4_IDENTITY,
+        .projection = mel_mat4_ortho(0, (f32)e->swapchain.extent.width,
+                                      0, (f32)e->swapchain.extent.height, -1, 1),
+    };
+
+    mel_render_graph_init(&s_graph, .dev = &e->dev, .alloc = mel_alloc_heap());
+
+    u32 grid_id = mel_render_graph_add_pass(&s_graph, S8("grid"),
+        .fn = grid_pass,
+        .camera = &s_camera,
+        .write_targets = MEL_WRITE_TARGETS(
+            { .target = &s_swapchain_target, .load_op = VK_ATTACHMENT_LOAD_OP_CLEAR,
+              .clear.color = { .r = 0.08f, .g = 0.08f, .b = 0.1f, .a = 1.0f } }));
+
+    u32 sprite_id = mel_render_graph_add_pass(&s_graph, S8("sprite"),
+        .fn = mel_sprite_pass_execute,
+        .user = s_sp,
+        .camera = &s_camera,
+        .read_lists = MEL_LISTS(&s_sprite_list),
+        .write_targets = MEL_WRITE_TARGETS(
+            { .target = &s_swapchain_target, .load_op = VK_ATTACHMENT_LOAD_OP_LOAD }));
+
+    mel_render_graph_pass_depends_on(&s_graph, sprite_id, grid_id);
+    mel_render_graph_compile(&s_graph);
+    e->render_graph = &s_graph;
 
     SDL_Log("Snake ready! Arrow keys to move, R to restart, ESC to quit");
 }
@@ -473,8 +473,7 @@ static void app_init(Mel_App* app)
         .window = s_window,
         .app_name = S8("Melody Snake"),
         .enable_validation = true,
-        .enable_imgui = false,
-        .fixed_dt = 1.0f / 60.0f);
+        .enable_imgui = false);
 
     Mel_Io_Desc io_desc = { .allocator = mel_alloc_heap(), .worker_count = 0 };
     mel_io_init(&s_demo_io, &io_desc);
@@ -491,51 +490,36 @@ static void app_shutdown(Mel_App* app)
     Mel_Gpu_Device* dev = &app->engine.dev;
     mel_gpu_device_wait_idle(dev);
 
+    mel_draw_ctx_shutdown(&s_grid_ctx);
+    mel_render_sync_shutdown(&s_sync);
+    mel_render_list_shutdown(&s_sprite_list);
+    mel_render_graph_shutdown(&s_graph);
+    mel_render_target_shutdown(&s_swapchain_target);
+
     if (s_snake.segment_query) ecs_query_fini(s_snake.segment_query);
     if (s_snake.follow_query) ecs_query_fini(s_snake.follow_query);
     s_snake.segment_query = nullptr;
     s_snake.follow_query = nullptr;
     mel_ecs_shutdown(&s_snake.ecs);
 
-    mel_sprite_batch_shutdown(&s_batch, dev);
     mel_font_atlas_pool_shutdown(&s_font_pool);
     mel_vfs_unmount(&s_demo_vfs, S8("/"));
     mel_vfs_shutdown(&s_demo_vfs);
     mel_io_shutdown(&s_demo_io);
     mel_vfs_backend_os_destroy(s_fonts_backend);
-    mel_gpu_texture_shutdown(&s_white_texture, dev);
-    mel_gpu_pipeline_shutdown(&s_pipeline, dev);
-    mel_gpu_shader_shutdown(&s_shader, dev);
 }
 
 static void app_update(Mel_App* app, f32 dt)
 {
     MEL_UNUSED(app);
     snake_tick(&s_snake, dt);
-}
+    snake_sync_transforms(&s_snake);
 
-static void app_render(Mel_App* app, Mel_Gpu_Cmd* c)
-{
-    Mel_Engine* e = &app->engine;
+    mel_render_sync_update(&s_sync);
 
-    if (!s_pipeline.pipeline) return;
-
-    mel_engine_begin_swapchain_pass(e, c,
-        .clear_r = 0.08f, .clear_g = 0.08f, .clear_b = 0.1f, .clear_a = 1.0f);
-
-    Mel_Mat4 proj = mel_mat4_ortho(0, (f32)e->swapchain.extent.width,
-                                    0, (f32)e->swapchain.extent.height, -1, 1);
-
-    mel_sprite_batch_begin(&s_batch, &s_pipeline);
-    mel_sprite_batch_set_texture(&s_batch, &s_white_texture);
-    snake_draw_grid(&s_snake, &s_batch);
-
-    Mel_Font_Atlas_Entry* fe = mel_font_atlas_pool_get(&s_font_pool, s_font_handle);
-    if (fe)
-        snake_draw_text(&s_snake, &s_batch, fe);
-
-    mel_sprite_batch_end(&s_batch, &e->dev, c->cmd, &proj);
-    mel_engine_end_swapchain_pass(e, c);
+    build_grid(&s_grid_ctx);
+    snake_draw_text(&s_snake, &s_grid_ctx, &s_font_pool, s_font_handle);
+    mel_draw_ctx_commit(&s_grid_ctx);
 }
 
 static void app_event(Mel_App* app, SDL_Event* event)
@@ -566,7 +550,13 @@ static void app_event(Mel_App* app, SDL_Event* event)
                 if (dir && dir->dy != -1) { s->queued_dx = 0; s->queued_dy = 1; }
                 break;
             case SDL_SCANCODE_R:
+                mel_render_sync_shutdown(&s_sync);
                 snake_init(s);
+                mel_render_sync_init(&s_sync,
+                    .list = &s_sprite_list,
+                    .world = s->ecs.world,
+                    .components = { ecs_id(Mel_CTransform), ecs_id(Mel_Sprite) },
+                    .write = snake_write_entry);
                 break;
             default: break;
         }
@@ -577,6 +567,5 @@ MEL_APP(
     .on_init = app_init,
     .on_shutdown = app_shutdown,
     .on_update = app_update,
-    .on_render = app_render,
     .on_event = app_event
 )

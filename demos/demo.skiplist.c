@@ -9,18 +9,22 @@
 #include "core.app.h"
 #include "core.engine.h"
 #include "string.str8.h"
-#include "gpu.shader.h"
 #include "gpu.pipeline.h"
 #include "gpu.buffer.h"
-#include "gpu.texture.h"
 #include "gpu.cmd.h"
-#include "sprite.batch.h"
+#include "render.list.h"
+#include "texture.pool.h"
+#include "sprite.pass.h"
 #include "font.atlas.h"
 #include "vfs.h"
 #include "vfs.backend.os.h"
 #include "math.mat4.h"
 #include "math.vec4.h"
+#include "math.geo.rect.h"
 #include "collection.skiplist.h"
+#include "render.graph.h"
+#include "render.target.h"
+#include "render.camera.h"
 #include "allocator.heap.h"
 
 #include <stdint.h>
@@ -61,57 +65,17 @@ typedef struct {
 } SkipListDemo;
 
 static SDL_Window* s_window;
-static Mel_Gpu_Shader s_shader;
-static Mel_Gpu_Pipeline s_pipeline;
-static Mel_Gpu_Texture s_white_texture;
-static Mel_SpriteBatch s_batch;
+static Mel_Sprite_Pass* s_sp;
 static Mel_Font_Atlas_Pool s_font_pool;
 static Mel_Io s_demo_io;
 static Mel_Vfs s_demo_vfs;
 static Mel_Vfs_Backend* s_fonts_backend;
 static Mel_Font_Handle s_font_handle;
 static SkipListDemo s_demo;
-
-static const char* SHADER_SOURCE =
-"struct VSInput\n"
-"{\n"
-"    float2 position : POSITION;\n"
-"    float2 texcoord : TEXCOORD0;\n"
-"    float4 color : COLOR0;\n"
-"};\n"
-"\n"
-"struct VSOutput\n"
-"{\n"
-"    float4 position : SV_Position;\n"
-"    float2 texcoord : TEXCOORD0;\n"
-"    float4 color : COLOR0;\n"
-"};\n"
-"\n"
-"struct PushConstants\n"
-"{\n"
-"    float4x4 projection;\n"
-"};\n"
-"\n"
-"[[vk::push_constant]]\n"
-"PushConstants push;\n"
-"\n"
-"[[vk::binding(0, 0)]] Sampler2D tex;\n"
-"\n"
-"[shader(\"vertex\")]\n"
-"VSOutput vertexMain(VSInput input)\n"
-"{\n"
-"    VSOutput output;\n"
-"    output.position = mul(push.projection, float4(input.position, 0.0, 1.0));\n"
-"    output.texcoord = input.texcoord;\n"
-"    output.color = input.color;\n"
-"    return output;\n"
-"}\n"
-"\n"
-"[shader(\"fragment\")]\n"
-"float4 fragmentMain(VSOutput input) : SV_Target\n"
-"{\n"
-"    return tex.Sample(input.texcoord) * input.color;\n"
-"}\n";
+static Mel_Render_Target s_swapchain_target;
+static Mel_Render_Graph s_graph;
+static Mel_Camera s_camera;
+static Mel_Render_List s_sprite_list;
 
 static i32 int_compare(const void* a, const void* b)
 {
@@ -226,17 +190,30 @@ typedef struct {
     i32 key;
 } NodePos;
 
-static void skiplist_draw(SkipListDemo* demo, Mel_SpriteBatch* batch,
-                          Mel_Gpu_Device* dev, Mel_Font_Atlas_Entry* fe,
+static void push_rect(Mel_Render_List* list, f32 x, f32 y, f32 w, f32 h, Mel_Vec4 color, Mel_Texture_Handle tex)
+{
+    Mel_Sprite_Entry* entry = mel_render_list_push(list, mel_sort_key_sprite(0, 0.0f, 0, mel_texture_bucket(tex)));
+    *entry = (Mel_Sprite_Entry){
+        .pos = mel_vec2(x, y),
+        .size = mel_vec2(w, h),
+        .uv = MEL_UV_FULL,
+        .color = color,
+        .tex = tex,
+    };
+}
+
+static void skiplist_draw(SkipListDemo* demo, Mel_Render_List* list,
+                          Mel_Font_Atlas_Pool* pool, Mel_Font_Handle font,
                           f32 win_w, f32 win_h)
 {
+    Mel_Texture_Handle white = MEL_TEXTURE_HANDLE_NULL;
     f32 panel_x = win_w - PANEL_W;
 
-    mel_sprite_batch_draw(batch, panel_x, 0.0f, PANEL_W, win_h,
-        mel_vec4(0.1f, 0.1f, 0.12f, 1.0f));
+    push_rect(list, panel_x, 0.0f, PANEL_W, win_h,
+        mel_vec4(0.1f, 0.1f, 0.12f, 1.0f), white);
 
-    mel_sprite_batch_draw(batch, panel_x, 0.0f, 2.0f, win_h,
-        mel_vec4(0.25f, 0.25f, 0.3f, 1.0f));
+    push_rect(list, panel_x, 0.0f, 2.0f, win_h,
+        mel_vec4(0.25f, 0.25f, 0.3f, 1.0f), white);
 
     NodePos positions[MAX_VISIBLE_NODES];
     i32 node_count = 0;
@@ -264,7 +241,7 @@ static void skiplist_draw(SkipListDemo* demo, Mel_SpriteBatch* batch,
     for (u32 lvl = 0; lvl < max_level; lvl++)
     {
         f32 y = bottom_y - (f32)lvl * (BOX_H + LEVEL_GAP);
-        mel_sprite_batch_draw(batch, header_x, y, BOX_W, BOX_H, header_color);
+        push_rect(list, header_x, y, BOX_W, BOX_H, header_color, white);
     }
 
     for (i32 i = 0; i < node_count; i++)
@@ -291,7 +268,7 @@ static void skiplist_draw(SkipListDemo* demo, Mel_SpriteBatch* batch,
                 color = mel_vec4(0.3f + t * 0.3f, 0.5f + t * 0.2f, 0.8f - t * 0.2f, 1.0f);
             }
 
-            mel_sprite_batch_draw(batch, nx, y, BOX_W, BOX_H, color);
+            push_rect(list, nx, y, BOX_W, BOX_H, color, white);
         }
     }
 
@@ -332,26 +309,26 @@ static void skiplist_draw(SkipListDemo* demo, Mel_SpriteBatch* batch,
             }
 
             Mel_Vec4 lc = path_line ? search_line_color : line_color;
-            mel_sprite_batch_draw(batch, from_x, y, to_x - from_x, LINE_H, lc);
+            push_rect(list, from_x, y, to_x - from_x, LINE_H, lc, white);
 
-            mel_sprite_batch_draw(batch, to_x - ARROW_SIZE, y - ARROW_SIZE / 2.0f,
-                ARROW_SIZE, LINE_H + ARROW_SIZE, lc);
+            push_rect(list, to_x - ARROW_SIZE, y - ARROW_SIZE / 2.0f,
+                ARROW_SIZE, LINE_H + ARROW_SIZE, lc, white);
 
             from_x = to_x + BOX_W;
             curr = next;
         }
     }
 
-    if (fe)
+    if (pool)
     {
-        Mel_Vec4 white = mel_vec4(1.0f, 1.0f, 1.0f, 1.0f);
+        Mel_Vec4 w = mel_vec4(1.0f, 1.0f, 1.0f, 1.0f);
         Mel_Vec4 dim = mel_vec4(0.6f, 0.6f, 0.6f, 1.0f);
         Mel_Vec4 yellow = mel_vec4(0.9f, 0.8f, 0.2f, 1.0f);
 
         for (u32 lvl = 0; lvl < max_level; lvl++)
         {
             f32 y = bottom_y - (f32)lvl * (BOX_H + LEVEL_GAP) + 4.0f;
-            mel_font_atlas_draw_text(fe, batch, S8("H"), header_x + 16.0f, y, white);
+            mel_font_atlas_draw_text(pool, font, list, S8("H"), header_x + 16.0f, y, w);
         }
 
         char buf[64];
@@ -361,51 +338,49 @@ static void skiplist_draw(SkipListDemo* demo, Mel_SpriteBatch* batch,
             f32 y = bottom_y + 4.0f;
             snprintf(buf, sizeof(buf), "%d", positions[i].key);
             str8 label = str8_from_cstr(buf);
-            Mel_Vec2 sz = mel_font_atlas_measure_text(fe, label);
+            Mel_Vec2 sz = mel_font_atlas_measure_text(pool, font, label);
             f32 text_x = nx + (BOX_W - sz.x) / 2.0f;
-            mel_font_atlas_draw_text(fe, batch, label, text_x, y, white);
+            mel_font_atlas_draw_text(pool, font, list, label, text_x, y, w);
         }
 
         f32 tx = panel_x + PANEL_PAD;
         f32 ty = PANEL_PAD;
 
-        mel_font_atlas_draw_text(fe, batch, S8("SKIP LIST"), tx, ty, white);
+        mel_font_atlas_draw_text(pool, font, list, S8("SKIP LIST"), tx, ty, w);
         ty += 30.0f;
 
-        mel_sprite_batch_set_texture(batch, &s_white_texture);
-        mel_sprite_batch_draw(batch, panel_x + PANEL_PAD, ty, PANEL_W - PANEL_PAD * 2, 1.0f,
-            mel_vec4(0.3f, 0.3f, 0.35f, 1.0f));
+        push_rect(list, panel_x + PANEL_PAD, ty, PANEL_W - PANEL_PAD * 2, 1.0f,
+            mel_vec4(0.3f, 0.3f, 0.35f, 1.0f), white);
         ty += 12.0f;
 
         snprintf(buf, sizeof(buf), "Count: %zu", mel_skiplist_count(&demo->list));
-        mel_font_atlas_draw_text(fe, batch, str8_from_cstr(buf), tx, ty, dim);
+        mel_font_atlas_draw_text(pool, font, list, str8_from_cstr(buf), tx, ty, dim);
         ty += 24.0f;
 
         snprintf(buf, sizeof(buf), "Levels: %u", demo->list.level);
-        mel_font_atlas_draw_text(fe, batch, str8_from_cstr(buf), tx, ty, dim);
+        mel_font_atlas_draw_text(pool, font, list, str8_from_cstr(buf), tx, ty, dim);
         ty += 24.0f;
 
         snprintf(buf, sizeof(buf), "Seed: %llu", (unsigned long long)demo->seed_counter);
-        mel_font_atlas_draw_text(fe, batch, str8_from_cstr(buf), tx, ty, dim);
+        mel_font_atlas_draw_text(pool, font, list, str8_from_cstr(buf), tx, ty, dim);
         ty += 36.0f;
 
-        mel_font_atlas_draw_text(fe, batch, S8("Input:"), tx, ty, dim);
+        mel_font_atlas_draw_text(pool, font, list, S8("Input:"), tx, ty, dim);
         ty += 24.0f;
 
-        mel_sprite_batch_set_texture(batch, &s_white_texture);
-        mel_sprite_batch_draw(batch, tx, ty, PANEL_W - PANEL_PAD * 3, 26.0f,
-            mel_vec4(0.15f, 0.15f, 0.18f, 1.0f));
+        push_rect(list, tx, ty, PANEL_W - PANEL_PAD * 3, 26.0f,
+            mel_vec4(0.15f, 0.15f, 0.18f, 1.0f), white);
 
         if (demo->input_len > 0)
         {
             char display[17];
             memcpy(display, demo->input_buf, (usize)demo->input_len);
             display[demo->input_len] = '\0';
-            mel_font_atlas_draw_text(fe, batch, str8_from_cstr(display), tx + 6.0f, ty + 4.0f, white);
+            mel_font_atlas_draw_text(pool, font, list, str8_from_cstr(display), tx + 6.0f, ty + 4.0f, w);
         }
         else
         {
-            mel_font_atlas_draw_text(fe, batch, S8("_"), tx + 6.0f, ty + 4.0f, dim);
+            mel_font_atlas_draw_text(pool, font, list, S8("_"), tx + 6.0f, ty + 4.0f, dim);
         }
         ty += 38.0f;
 
@@ -427,87 +402,76 @@ static void skiplist_draw(SkipListDemo* demo, Mel_SpriteBatch* batch,
             else
                 snprintf(op_buf, sizeof(op_buf), "Last: %s %d", op_str, demo->last_op_key);
 
-            mel_font_atlas_draw_text(fe, batch, str8_from_cstr(op_buf), tx, ty, yellow);
+            mel_font_atlas_draw_text(pool, font, list, str8_from_cstr(op_buf), tx, ty, yellow);
         }
         ty += 40.0f;
 
-        mel_sprite_batch_set_texture(batch, &s_white_texture);
-        mel_sprite_batch_draw(batch, panel_x + PANEL_PAD, ty, PANEL_W - PANEL_PAD * 2, 1.0f,
-            mel_vec4(0.3f, 0.3f, 0.35f, 1.0f));
+        push_rect(list, panel_x + PANEL_PAD, ty, PANEL_W - PANEL_PAD * 2, 1.0f,
+            mel_vec4(0.3f, 0.3f, 0.35f, 1.0f), white);
         ty += 16.0f;
 
-        mel_font_atlas_draw_text(fe, batch, S8("Controls:"), tx, ty, white);
+        mel_font_atlas_draw_text(pool, font, list, S8("Controls:"), tx, ty, w);
         ty += 28.0f;
 
-        mel_font_atlas_draw_text(fe, batch, S8("0-9     type number"), tx, ty, dim);
+        mel_font_atlas_draw_text(pool, font, list, S8("0-9     type number"), tx, ty, dim);
         ty += 22.0f;
-        mel_font_atlas_draw_text(fe, batch, S8("Enter   insert"), tx, ty, dim);
+        mel_font_atlas_draw_text(pool, font, list, S8("Enter   insert"), tx, ty, dim);
         ty += 22.0f;
-        mel_font_atlas_draw_text(fe, batch, S8("Delete  remove"), tx, ty, dim);
+        mel_font_atlas_draw_text(pool, font, list, S8("Delete  remove"), tx, ty, dim);
         ty += 22.0f;
-        mel_font_atlas_draw_text(fe, batch, S8("F       find"), tx, ty, dim);
+        mel_font_atlas_draw_text(pool, font, list, S8("F       find"), tx, ty, dim);
         ty += 22.0f;
-        mel_font_atlas_draw_text(fe, batch, S8("Space   random insert"), tx, ty, dim);
+        mel_font_atlas_draw_text(pool, font, list, S8("Space   random insert"), tx, ty, dim);
         ty += 22.0f;
-        mel_font_atlas_draw_text(fe, batch, S8("I       10x random"), tx, ty, dim);
+        mel_font_atlas_draw_text(pool, font, list, S8("I       10x random"), tx, ty, dim);
         ty += 22.0f;
-        mel_font_atlas_draw_text(fe, batch, S8("S       reseed+clear"), tx, ty, dim);
+        mel_font_atlas_draw_text(pool, font, list, S8("S       reseed+clear"), tx, ty, dim);
         ty += 22.0f;
-        mel_font_atlas_draw_text(fe, batch, S8("C       clear all"), tx, ty, dim);
+        mel_font_atlas_draw_text(pool, font, list, S8("C       clear all"), tx, ty, dim);
         ty += 22.0f;
-        mel_font_atlas_draw_text(fe, batch, S8("Esc     quit"), tx, ty, dim);
+        mel_font_atlas_draw_text(pool, font, list, S8("Esc     quit"), tx, ty, dim);
     }
 }
 
 static void on_init(Mel_Engine* e)
 {
     Mel_Gpu_Device* dev = &e->dev;
+    s_sp = e->sprite_pass;
 
-    mel_gpu_shader_init(&s_shader, dev, .source = str8_from_cstr(SHADER_SOURCE));
-    mel_gpu_texture_init_white(&s_white_texture, dev);
-
-    VkVertexInputBindingDescription binding = {
-        .binding = 0,
-        .stride = sizeof(Mel_SpriteVertex),
-        .inputRate = VK_VERTEX_INPUT_RATE_VERTEX,
-    };
-
-    VkVertexInputAttributeDescription attributes[] = {
-        { .location = 0, .binding = 0, .format = VK_FORMAT_R32G32_SFLOAT, .offset = offsetof(Mel_SpriteVertex, x) },
-        { .location = 1, .binding = 0, .format = VK_FORMAT_R32G32_SFLOAT, .offset = offsetof(Mel_SpriteVertex, u) },
-        { .location = 2, .binding = 0, .format = VK_FORMAT_R32G32B32A32_SFLOAT, .offset = offsetof(Mel_SpriteVertex, r) },
-    };
-
-    mel_gpu_pipeline_init(&s_pipeline, dev,
-        .shader = &s_shader,
-        .color_format = e->swapchain.format,
-        .bindings = &binding,
-        .binding_count = 1,
-        .attributes = attributes,
-        .attribute_count = 3,
-        .push_constant_size = sizeof(Mel_Mat4),
-        .use_texture = true,
-        .blend_mode = MEL_GPU_BLEND_ALPHA);
-
-    mel_sprite_batch_init(&s_batch, dev, .max_sprites = 4096);
-
-    s_white_texture.descriptor = mel_gpu_pipeline_alloc_descriptor(&s_pipeline, dev);
-    mel_gpu_pipeline_write_texture(&s_pipeline, dev, s_white_texture.descriptor,
-        s_white_texture.image.view, s_white_texture.sampler);
-
-    mel_font_atlas_pool_init(&s_font_pool, &e->allocator, dev, &s_demo_vfs);
+    mel_font_atlas_pool_init(&s_font_pool, &e->allocator, dev, &s_demo_vfs, .texture_pool = e->texture_pool);
     s_font_handle = mel_font_atlas_pool_load(&s_font_pool,
         .path = S8("/System/Library/Fonts/Monaco.ttf"), .size = 18.0f);
 
-    Mel_Font_Atlas_Entry* font_entry = mel_font_atlas_pool_get(&s_font_pool, s_font_handle);
-    if (font_entry)
-    {
-        font_entry->atlas_texture.descriptor = mel_gpu_pipeline_alloc_descriptor(&s_pipeline, dev);
-        mel_gpu_pipeline_write_texture(&s_pipeline, dev, font_entry->atlas_texture.descriptor,
-            font_entry->atlas_texture.image.view, font_entry->atlas_texture.sampler);
-    }
 
     skiplist_demo_init(&s_demo);
+
+    mel_render_list_init(&s_sprite_list,
+        .name = S8("sprites"),
+        .entry_stride = sizeof(Mel_Sprite_Entry),
+        .initial_capacity = 2048,
+        .alloc = mel_alloc_heap());
+
+    s_sp->pool = e->texture_pool;
+
+    mel_render_target_init_swapchain(&s_swapchain_target, &e->swapchain, &e->dev, S8("backbuffer"));
+
+    s_camera = (Mel_Camera){
+        .view = MEL_MAT4_IDENTITY,
+        .projection = mel_mat4_ortho(0, (f32)e->swapchain.extent.width,
+                                      0, (f32)e->swapchain.extent.height, -1, 1),
+    };
+
+    mel_render_graph_init(&s_graph, .dev = &e->dev, .alloc = mel_alloc_heap());
+    mel_render_graph_add_pass(&s_graph, S8("render"),
+        .fn = mel_sprite_pass_execute,
+        .user = s_sp,
+        .camera = &s_camera,
+        .read_lists = MEL_LISTS(&s_sprite_list),
+        .write_targets = MEL_WRITE_TARGETS(
+            { .target = &s_swapchain_target, .load_op = VK_ATTACHMENT_LOAD_OP_CLEAR,
+              .clear.color = { .r = 0.08f, .g = 0.08f, .b = 0.1f, .a = 1.0f } }));
+    mel_render_graph_compile(&s_graph);
+    e->render_graph = &s_graph;
 
     SDL_Log("SkipList demo ready! Type numbers, Enter to insert, Delete to remove, F to find, ESC to quit");
 }
@@ -522,8 +486,7 @@ static void app_init(Mel_App* app)
         .window = s_window,
         .app_name = S8("Melody SkipList"),
         .enable_validation = true,
-        .enable_imgui = false,
-        .fixed_dt = 1.0f / 60.0f);
+        .enable_imgui = false);
 
     Mel_Io_Desc io_desc = { .allocator = mel_alloc_heap(), .worker_count = 0 };
     mel_io_init(&s_demo_io, &io_desc);
@@ -540,23 +503,21 @@ static void app_shutdown(Mel_App* app)
     Mel_Gpu_Device* dev = &app->engine.dev;
     mel_gpu_device_wait_idle(dev);
 
+    mel_render_graph_shutdown(&s_graph);
+    mel_render_target_shutdown(&s_swapchain_target);
+    mel_render_list_shutdown(&s_sprite_list);
+
     mel_skiplist_free(&s_demo.list);
 
-    mel_sprite_batch_shutdown(&s_batch, dev);
     mel_font_atlas_pool_shutdown(&s_font_pool);
     mel_vfs_unmount(&s_demo_vfs, S8("/"));
     mel_vfs_shutdown(&s_demo_vfs);
     mel_io_shutdown(&s_demo_io);
     mel_vfs_backend_os_destroy(s_fonts_backend);
-    mel_gpu_texture_shutdown(&s_white_texture, dev);
-    mel_gpu_pipeline_shutdown(&s_pipeline, dev);
-    mel_gpu_shader_shutdown(&s_shader, dev);
 }
 
 static void app_update(Mel_App* app, f32 dt)
 {
-    MEL_UNUSED(app);
-
     if (s_demo.has_highlight)
     {
         s_demo.highlight_timer -= dt;
@@ -570,30 +531,14 @@ static void app_update(Mel_App* app, f32 dt)
         if (s_demo.search_path_timer <= 0.0f)
             s_demo.show_search_path = false;
     }
-}
 
-static void app_render(Mel_App* app, Mel_Gpu_Cmd* c)
-{
-    Mel_Engine* e = &app->engine;
+    mel_render_list_clear(&s_sprite_list);
 
-    if (!s_pipeline.pipeline) return;
+    i32 win_w, win_h;
+    SDL_GetWindowSizeInPixels(s_window, &win_w, &win_h);
 
-    mel_engine_begin_swapchain_pass(e, c,
-        .clear_r = 0.08f, .clear_g = 0.08f, .clear_b = 0.1f, .clear_a = 1.0f);
-
-    Mel_Mat4 proj = mel_mat4_ortho(0, (f32)e->swapchain.extent.width,
-                                    0, (f32)e->swapchain.extent.height, -1, 1);
-
-    mel_sprite_batch_begin(&s_batch, &s_pipeline);
-    mel_sprite_batch_set_texture(&s_batch, &s_white_texture);
-
-    Mel_Font_Atlas_Entry* fe = mel_font_atlas_pool_get(&s_font_pool, s_font_handle);
-
-    skiplist_draw(&s_demo, &s_batch, &e->dev, fe,
-        (f32)e->swapchain.extent.width, (f32)e->swapchain.extent.height);
-
-    mel_sprite_batch_end(&s_batch, &e->dev, c->cmd, &proj);
-    mel_engine_end_swapchain_pass(e, c);
+    skiplist_draw(&s_demo, &s_sprite_list, &s_font_pool, s_font_handle,
+        (f32)win_w, (f32)win_h);
 }
 
 static void app_event(Mel_App* app, SDL_Event* event)
@@ -728,6 +673,5 @@ MEL_APP(
     .on_init = app_init,
     .on_shutdown = app_shutdown,
     .on_update = app_update,
-    .on_render = app_render,
     .on_event = app_event
 )

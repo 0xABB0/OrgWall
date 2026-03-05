@@ -1,5 +1,7 @@
 #include "font.atlas.h"
-#include "sprite.batch.h"
+#include "render.list.h"
+#include "sprite.pass.h"
+#include "texture.pool.h"
 #include "string.str8.h"
 #include "hash.xxh.h"
 #include "gpu.buffer.h"
@@ -58,7 +60,7 @@ static void mel__font_upload_cmd(VkCommandBuffer cmd, void* user)
     mel_gpu_image_transition(data->image, cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 }
 
-void mel_font_atlas_pool_init(Mel_Font_Atlas_Pool* pool, const Mel_Alloc* alloc, Mel_Gpu_Device* dev, Mel_Vfs* vfs)
+void mel_font_atlas_pool_init_opt(Mel_Font_Atlas_Pool* pool, const Mel_Alloc* alloc, Mel_Gpu_Device* dev, Mel_Vfs* vfs, Mel_Font_Atlas_Pool_Init_Opt opt)
 {
     assert(pool != nullptr);
     assert(alloc != nullptr);
@@ -69,6 +71,7 @@ void mel_font_atlas_pool_init(Mel_Font_Atlas_Pool* pool, const Mel_Alloc* alloc,
     pool->alloc = alloc;
     pool->dev = dev;
     pool->vfs = vfs;
+    pool->texture_pool = opt.texture_pool;
 
     mel_slotmap_init(&pool->slotmap, alloc, .item_size = sizeof(Mel_Font_Atlas_Entry), .initial_capacity = 8);
     mel_hashmap_init(&pool->path_to_handle, mel__font_atlas_pool_hash_key, mel__font_atlas_pool_eq_key, alloc);
@@ -254,6 +257,9 @@ Mel_Font_Handle mel_font_atlas_pool_load_opt(Mel_Font_Atlas_Pool* pool, Mel_Font
     assert(result == VK_SUCCESS);
     MEL_UNUSED(result);
 
+    if (pool->texture_pool)
+        entry.tex_handle = mel_texture_pool_register(pool->texture_pool, &entry.atlas_texture);
+
     Mel_SlotMap_Handle sm_handle = mel_slotmap_insert(&pool->slotmap, &entry);
     Mel_Font_Handle fh = { .handle = sm_handle };
     mel_hashmap_put(&pool->path_to_handle, (void*)(usize)hash, mel_slotmap_handle_to_ptr(sm_handle));
@@ -271,14 +277,29 @@ Mel_Font_Atlas_Entry* mel_font_atlas_pool_get(Mel_Font_Atlas_Pool* pool, Mel_Fon
     return mel_slotmap_get(&pool->slotmap, sm_handle);
 }
 
-void mel_font_atlas_draw_text(Mel_Font_Atlas_Entry* entry, Mel_SpriteBatch* batch, str8 text, f32 x, f32 y, Mel_Vec4 color)
+Mel_Gpu_Texture* mel_font_atlas_pool_get_texture(Mel_Font_Atlas_Pool* pool, Mel_Font_Handle handle)
 {
+    Mel_Font_Atlas_Entry* entry = mel_font_atlas_pool_get(pool, handle);
+    return entry ? &entry->atlas_texture : nullptr;
+}
+
+Mel_Texture_Handle mel_font_atlas_pool_tex_handle(Mel_Font_Atlas_Pool* pool, Mel_Font_Handle handle)
+{
+    Mel_Font_Atlas_Entry* entry = mel_font_atlas_pool_get(pool, handle);
     assert(entry != nullptr);
-    assert(batch != nullptr);
+    return entry->tex_handle;
+}
+
+void mel_font_atlas_draw_text(Mel_Font_Atlas_Pool* pool, Mel_Font_Handle handle,
+    Mel_Render_List* list, str8 text, f32 x, f32 y, Mel_Vec4 color)
+{
+    assert(pool != nullptr);
+    assert(list != nullptr);
+
+    Mel_Font_Atlas_Entry* entry = mel_font_atlas_pool_get(pool, handle);
+    assert(entry != nullptr);
 
     if (str8_is_empty(text)) return;
-
-    mel_sprite_batch_set_texture(batch, &entry->atlas_texture);
 
     f32 cursor_x = x;
     f32 cursor_y = y + entry->desc.ascent;
@@ -307,14 +328,26 @@ void mel_font_atlas_draw_text(Mel_Font_Atlas_Entry* entry, Mel_SpriteBatch* batc
         f32 gh = g->y1 - g->y0;
 
         if (gw > 0 && gh > 0)
-            mel_sprite_batch_draw_uv(batch, gx, gy, gw, gh, g->u0, g->v0, g->u1, g->v1, color);
+        {
+            Mel_Sprite_Entry* e = mel_render_list_push(list, 0);
+            *e = (Mel_Sprite_Entry){
+                .pos = mel_vec2(gx, gy),
+                .size = mel_vec2(gw, gh),
+                .uv = mel_rect(g->u0, g->v0, g->u1 - g->u0, g->v1 - g->v0),
+                .color = color,
+                .tex = entry->tex_handle,
+            };
+        }
 
         cursor_x += g->xadvance;
     }
 }
 
-Mel_Vec2 mel_font_atlas_measure_text(Mel_Font_Atlas_Entry* entry, str8 text)
+Mel_Vec2 mel_font_atlas_measure_text(Mel_Font_Atlas_Pool* pool, Mel_Font_Handle handle, str8 text)
 {
+    assert(pool != nullptr);
+
+    Mel_Font_Atlas_Entry* entry = mel_font_atlas_pool_get(pool, handle);
     assert(entry != nullptr);
 
     if (str8_is_empty(text)) return mel_vec2(0, 0);

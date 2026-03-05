@@ -9,19 +9,21 @@
 #include "core.app.h"
 #include "core.engine.h"
 #include "string.str8.h"
-#include "gpu.shader.h"
-#include "gpu.pipeline.h"
-#include "gpu.buffer.h"
-#include "gpu.texture.h"
-#include "gpu.cmd.h"
-#include "sprite.batch.h"
+#include "sprite.pass.h"
+#include "render.graph.h"
+#include "render.list.h"
+#include "render.target.h"
+#include "render.camera.h"
+#include "texture.pool.h"
 #include "font.atlas.h"
 #include "vfs.h"
 #include "vfs.backend.os.h"
+#include "allocator.heap.h"
 #include "math.mat4.h"
 #include "math.vec4.h"
+#include "math.vec2.h"
+#include "math.geo.rect.h"
 #include "collection.rbtree.h"
-#include "allocator.heap.h"
 
 #include <stdint.h>
 #include <string.h>
@@ -40,15 +42,14 @@
 #define PANEL_WIDTH  250.0f
 
 static SDL_Window* s_window;
-static Mel_Gpu_Shader s_shader;
-static Mel_Gpu_Pipeline s_pipeline;
-static Mel_Gpu_Texture s_white_texture;
-static Mel_SpriteBatch s_batch;
+static Mel_Sprite_Pass* s_sp;
 static Mel_Font_Atlas_Pool s_font_pool;
 static Mel_Io s_demo_io;
 static Mel_Vfs s_demo_vfs;
 static Mel_Vfs_Backend* s_fonts_backend;
 static Mel_Font_Handle s_font_handle;
+static Mel_Render_List s_sprite_list;
+static Mel_Render_List s_font_list;
 
 typedef struct {
     f32 x, y;
@@ -71,47 +72,9 @@ typedef struct {
 } RBTreeDemo;
 
 static RBTreeDemo s_demo;
-
-static const char* SHADER_SOURCE =
-"struct VSInput\n"
-"{\n"
-"    float2 position : POSITION;\n"
-"    float2 texcoord : TEXCOORD0;\n"
-"    float4 color : COLOR0;\n"
-"};\n"
-"\n"
-"struct VSOutput\n"
-"{\n"
-"    float4 position : SV_Position;\n"
-"    float2 texcoord : TEXCOORD0;\n"
-"    float4 color : COLOR0;\n"
-"};\n"
-"\n"
-"struct PushConstants\n"
-"{\n"
-"    float4x4 projection;\n"
-"};\n"
-"\n"
-"[[vk::push_constant]]\n"
-"PushConstants push;\n"
-"\n"
-"[[vk::binding(0, 0)]] Sampler2D tex;\n"
-"\n"
-"[shader(\"vertex\")]\n"
-"VSOutput vertexMain(VSInput input)\n"
-"{\n"
-"    VSOutput output;\n"
-"    output.position = mul(push.projection, float4(input.position, 0.0, 1.0));\n"
-"    output.texcoord = input.texcoord;\n"
-"    output.color = input.color;\n"
-"    return output;\n"
-"}\n"
-"\n"
-"[shader(\"fragment\")]\n"
-"float4 fragmentMain(VSOutput input) : SV_Target\n"
-"{\n"
-"    return tex.Sample(input.texcoord) * input.color;\n"
-"}\n";
+static Mel_Render_Target s_swapchain_target;
+static Mel_Render_Graph s_graph;
+static Mel_Camera s_camera;
 
 static i32 int_compare(const void* a, const void* b)
 {
@@ -236,7 +199,16 @@ static i32 collect_edges(Mel_RBTree* tree, Mel_RBNode* node, EdgePair* edges, i3
     return count;
 }
 
-static void draw_edges(RBTreeDemo* d, Mel_SpriteBatch* batch, f32 ox, f32 oy)
+static void push_rect(Mel_Render_List* list, f32 x, f32 y, f32 w, f32 h, Mel_Vec4 color)
+{
+    Mel_Sprite_Entry* e = mel_render_list_push(list, mel_sort_key_sprite(0, 0.0f, 0, 0));
+    *e = (Mel_Sprite_Entry){
+        .pos = mel_vec2(x, y), .size = mel_vec2(w, h),
+        .uv = MEL_UV_FULL, .color = color,
+    };
+}
+
+static void draw_edges(RBTreeDemo* d, Mel_Render_List* list, f32 ox, f32 oy)
 {
     EdgePair edges[256];
     i32 edge_count = collect_edges(&d->tree, d->tree.root, edges, 0);
@@ -258,17 +230,17 @@ static void draw_edges(RBTreeDemo* d, Mel_SpriteBatch* batch, f32 ox, f32 oy)
         f32 vy_bot = cy;
         f32 v_height = vy_bot - vy_top;
         if (v_height > 0)
-            mel_sprite_batch_draw(batch, vx - EDGE_THICK * 0.5f, vy_top, EDGE_THICK, v_height, edge_color);
+            push_rect(list, vx - EDGE_THICK * 0.5f, vy_top, EDGE_THICK, v_height, edge_color);
 
         f32 hx_left = px < cx ? px : cx;
         f32 hx_right = px > cx ? px : cx;
         f32 h_width = hx_right - hx_left;
         if (h_width > 0)
-            mel_sprite_batch_draw(batch, hx_left, cy - EDGE_THICK * 0.5f, h_width, EDGE_THICK, edge_color);
+            push_rect(list, hx_left, cy - EDGE_THICK * 0.5f, h_width, EDGE_THICK, edge_color);
     }
 }
 
-static void draw_nodes(RBTreeDemo* d, Mel_SpriteBatch* batch, f32 ox, f32 oy)
+static void draw_nodes(RBTreeDemo* d, Mel_Render_List* list, f32 ox, f32 oy)
 {
     for (i32 i = 0; i < d->position_count; i++)
     {
@@ -279,7 +251,7 @@ static void draw_nodes(RBTreeDemo* d, Mel_SpriteBatch* batch, f32 ox, f32 oy)
         if (d->has_highlight && d->highlighted_key == (i32)key)
         {
             Mel_Vec4 yellow = mel_vec4(0.95f, 0.9f, 0.1f, 1.0f);
-            mel_sprite_batch_draw(batch, nx - 3.0f, ny - 3.0f, NODE_SIZE + 6.0f, NODE_SIZE + 6.0f, yellow);
+            push_rect(list, nx - 3.0f, ny - 3.0f, NODE_SIZE + 6.0f, NODE_SIZE + 6.0f, yellow);
         }
 
         Mel_Vec4 node_color;
@@ -288,11 +260,11 @@ static void draw_nodes(RBTreeDemo* d, Mel_SpriteBatch* batch, f32 ox, f32 oy)
         else
             node_color = mel_vec4(0.25f, 0.25f, 0.25f, 1.0f);
 
-        mel_sprite_batch_draw(batch, nx, ny, NODE_SIZE, NODE_SIZE, node_color);
+        push_rect(list, nx, ny, NODE_SIZE, NODE_SIZE, node_color);
     }
 }
 
-static void draw_node_labels(RBTreeDemo* d, Mel_Font_Atlas_Entry* fe, Mel_SpriteBatch* batch, f32 ox, f32 oy)
+static void draw_node_labels(RBTreeDemo* d, Mel_Font_Atlas_Pool* pool, Mel_Font_Handle font, Mel_Render_List* list, f32 ox, f32 oy)
 {
     Mel_Vec4 white = mel_vec4(1.0f, 1.0f, 1.0f, 1.0f);
 
@@ -301,24 +273,24 @@ static void draw_node_labels(RBTreeDemo* d, Mel_Font_Atlas_Entry* fe, Mel_Sprite
         char buf[16];
         snprintf(buf, sizeof(buf), "%d", (int)d->positions[i].key);
 
-        Mel_Vec2 text_size = mel_font_atlas_measure_text(fe, str8_from_cstr(buf));
+        Mel_Vec2 text_size = mel_font_atlas_measure_text(pool, font, str8_from_cstr(buf));
         f32 nx = ox + d->positions[i].x + NODE_SIZE * 0.5f - text_size.x * 0.5f;
         f32 ny = oy + d->positions[i].y + NODE_SIZE * 0.5f - text_size.y * 0.5f;
 
-        mel_font_atlas_draw_text(fe, batch, str8_from_cstr(buf), nx, ny, white);
+        mel_font_atlas_draw_text(pool, font, list, str8_from_cstr(buf), nx, ny, white);
     }
 }
 
-static void draw_panel(Mel_SpriteBatch* batch, Mel_Font_Atlas_Entry* fe, f32 panel_x, f32 win_h, RBTreeDemo* d)
+static void draw_panel(Mel_Render_List* list, f32 panel_x, f32 win_h)
 {
     Mel_Vec4 panel_bg = mel_vec4(0.06f, 0.06f, 0.08f, 1.0f);
-    mel_sprite_batch_draw(batch, panel_x, 0, PANEL_WIDTH, win_h, panel_bg);
+    push_rect(list, panel_x, 0, PANEL_WIDTH, win_h, panel_bg);
 
     Mel_Vec4 border = mel_vec4(0.2f, 0.2f, 0.25f, 1.0f);
-    mel_sprite_batch_draw(batch, panel_x, 0, 2.0f, win_h, border);
+    push_rect(list, panel_x, 0, 2.0f, win_h, border);
 }
 
-static void draw_panel_text(Mel_SpriteBatch* batch, Mel_Font_Atlas_Entry* fe, f32 panel_x, RBTreeDemo* d)
+static void draw_panel_text(Mel_Font_Atlas_Pool* pool, Mel_Font_Handle font, Mel_Render_List* list, f32 panel_x, RBTreeDemo* d)
 {
     Mel_Vec4 white = mel_vec4(1.0f, 1.0f, 1.0f, 1.0f);
     Mel_Vec4 dim = mel_vec4(0.6f, 0.6f, 0.6f, 1.0f);
@@ -327,12 +299,12 @@ static void draw_panel_text(Mel_SpriteBatch* batch, Mel_Font_Atlas_Entry* fe, f3
     f32 tx = panel_x + 16.0f;
     f32 ty = 20.0f;
 
-    mel_font_atlas_draw_text(fe, batch, S8("RED-BLACK TREE"), tx, ty, white);
+    mel_font_atlas_draw_text(pool, font, list, S8("RED-BLACK TREE"), tx, ty, white);
     ty += 40.0f;
 
     char buf[64];
     snprintf(buf, sizeof(buf), "Nodes: %d", (int)mel_rbtree_count(&d->tree));
-    mel_font_atlas_draw_text(fe, batch, str8_from_cstr(buf), tx, ty, green);
+    mel_font_atlas_draw_text(pool, font, list, str8_from_cstr(buf), tx, ty, green);
     ty += 30.0f;
 
     if (d->last_op != OP_NONE)
@@ -348,87 +320,77 @@ static void draw_panel_text(Mel_SpriteBatch* batch, Mel_Font_Atlas_Entry* fe, f3
         else
             snprintf(buf, sizeof(buf), "Last: %s %d", op_str, d->last_op_key);
 
-        mel_font_atlas_draw_text(fe, batch, str8_from_cstr(buf), tx, ty, dim);
+        mel_font_atlas_draw_text(pool, font, list, str8_from_cstr(buf), tx, ty, dim);
         ty += 30.0f;
     }
 
     ty += 10.0f;
     char input_display[32];
     snprintf(input_display, sizeof(input_display), "Input: %.*s_", d->input_len, d->input_buf);
-    mel_font_atlas_draw_text(fe, batch, str8_from_cstr(input_display), tx, ty, white);
+    mel_font_atlas_draw_text(pool, font, list, str8_from_cstr(input_display), tx, ty, white);
     ty += 40.0f;
 
     Mel_Vec4 ctrl = mel_vec4(0.5f, 0.5f, 0.55f, 1.0f);
-    mel_font_atlas_draw_text(fe, batch, S8("CONTROLS"), tx, ty, white);
+    mel_font_atlas_draw_text(pool, font, list, S8("CONTROLS"), tx, ty, white);
     ty += 28.0f;
-    mel_font_atlas_draw_text(fe, batch, S8("0-9    Type number"), tx, ty, ctrl);
+    mel_font_atlas_draw_text(pool, font, list, S8("0-9    Type number"), tx, ty, ctrl);
     ty += 22.0f;
-    mel_font_atlas_draw_text(fe, batch, S8("Enter  Insert"), tx, ty, ctrl);
+    mel_font_atlas_draw_text(pool, font, list, S8("Enter  Insert"), tx, ty, ctrl);
     ty += 22.0f;
-    mel_font_atlas_draw_text(fe, batch, S8("Del    Remove"), tx, ty, ctrl);
+    mel_font_atlas_draw_text(pool, font, list, S8("Del    Remove"), tx, ty, ctrl);
     ty += 22.0f;
-    mel_font_atlas_draw_text(fe, batch, S8("F      Find"), tx, ty, ctrl);
+    mel_font_atlas_draw_text(pool, font, list, S8("F      Find"), tx, ty, ctrl);
     ty += 22.0f;
-    mel_font_atlas_draw_text(fe, batch, S8("Bksp   Delete char"), tx, ty, ctrl);
+    mel_font_atlas_draw_text(pool, font, list, S8("Bksp   Delete char"), tx, ty, ctrl);
     ty += 22.0f;
-    mel_font_atlas_draw_text(fe, batch, S8("Space  Random insert"), tx, ty, ctrl);
+    mel_font_atlas_draw_text(pool, font, list, S8("Space  Random insert"), tx, ty, ctrl);
     ty += 22.0f;
-    mel_font_atlas_draw_text(fe, batch, S8("I      Insert 7 rand"), tx, ty, ctrl);
+    mel_font_atlas_draw_text(pool, font, list, S8("I      Insert 7 rand"), tx, ty, ctrl);
     ty += 22.0f;
-    mel_font_atlas_draw_text(fe, batch, S8("C      Clear tree"), tx, ty, ctrl);
+    mel_font_atlas_draw_text(pool, font, list, S8("C      Clear tree"), tx, ty, ctrl);
     ty += 22.0f;
-    mel_font_atlas_draw_text(fe, batch, S8("Esc    Quit"), tx, ty, ctrl);
+    mel_font_atlas_draw_text(pool, font, list, S8("Esc    Quit"), tx, ty, ctrl);
 }
 
 static void on_init(Mel_Engine* e)
 {
     Mel_Gpu_Device* dev = &e->dev;
+    s_sp = e->sprite_pass;
 
-    mel_gpu_shader_init(&s_shader, dev, .source = str8_from_cstr(SHADER_SOURCE));
-    mel_gpu_texture_init_white(&s_white_texture, dev);
-
-    VkVertexInputBindingDescription binding = {
-        .binding = 0,
-        .stride = sizeof(Mel_SpriteVertex),
-        .inputRate = VK_VERTEX_INPUT_RATE_VERTEX,
-    };
-
-    VkVertexInputAttributeDescription attributes[] = {
-        { .location = 0, .binding = 0, .format = VK_FORMAT_R32G32_SFLOAT, .offset = offsetof(Mel_SpriteVertex, x) },
-        { .location = 1, .binding = 0, .format = VK_FORMAT_R32G32_SFLOAT, .offset = offsetof(Mel_SpriteVertex, u) },
-        { .location = 2, .binding = 0, .format = VK_FORMAT_R32G32B32A32_SFLOAT, .offset = offsetof(Mel_SpriteVertex, r) },
-    };
-
-    mel_gpu_pipeline_init(&s_pipeline, dev,
-        .shader = &s_shader,
-        .color_format = e->swapchain.format,
-        .bindings = &binding,
-        .binding_count = 1,
-        .attributes = attributes,
-        .attribute_count = 3,
-        .push_constant_size = sizeof(Mel_Mat4),
-        .use_texture = true,
-        .blend_mode = MEL_GPU_BLEND_ALPHA);
-
-    mel_sprite_batch_init(&s_batch, dev, .max_sprites = 4096);
-
-    s_white_texture.descriptor = mel_gpu_pipeline_alloc_descriptor(&s_pipeline, dev);
-    mel_gpu_pipeline_write_texture(&s_pipeline, dev, s_white_texture.descriptor,
-        s_white_texture.image.view, s_white_texture.sampler);
-
-    mel_font_atlas_pool_init(&s_font_pool, &e->allocator, dev, &s_demo_vfs);
+    mel_font_atlas_pool_init(&s_font_pool, &e->allocator, dev, &s_demo_vfs, .texture_pool = e->texture_pool);
     s_font_handle = mel_font_atlas_pool_load(&s_font_pool,
         .path = S8("/System/Library/Fonts/Monaco.ttf"), .size = 18.0f);
 
-    Mel_Font_Atlas_Entry* font_entry = mel_font_atlas_pool_get(&s_font_pool, s_font_handle);
-    if (font_entry)
-    {
-        font_entry->atlas_texture.descriptor = mel_gpu_pipeline_alloc_descriptor(&s_pipeline, dev);
-        mel_gpu_pipeline_write_texture(&s_pipeline, dev, font_entry->atlas_texture.descriptor,
-            font_entry->atlas_texture.image.view, font_entry->atlas_texture.sampler);
-    }
 
     demo_init(&s_demo);
+
+    mel_render_list_init(&s_sprite_list,
+        .entry_stride = sizeof(Mel_Sprite_Entry),
+        .alloc = mel_alloc_heap());
+
+    mel_render_list_init(&s_font_list,
+        .entry_stride = sizeof(Mel_Sprite_Entry),
+        .alloc = mel_alloc_heap());
+
+    mel_render_target_init_swapchain(&s_swapchain_target, &e->swapchain, &e->dev, S8("backbuffer"));
+
+    s_camera = (Mel_Camera){
+        .view = MEL_MAT4_IDENTITY,
+        .projection = mel_mat4_ortho(0, (f32)e->swapchain.extent.width,
+                                      0, (f32)e->swapchain.extent.height, -1, 1),
+    };
+
+    mel_render_graph_init(&s_graph, .dev = &e->dev, .alloc = mel_alloc_heap());
+    mel_render_graph_add_pass(&s_graph, S8("sprite"),
+        .fn = mel_sprite_pass_execute,
+        .user = s_sp,
+        .camera = &s_camera,
+        .read_lists = MEL_LISTS(&s_sprite_list, &s_font_list),
+        .write_targets = MEL_WRITE_TARGETS(
+            { .target = &s_swapchain_target, .load_op = VK_ATTACHMENT_LOAD_OP_CLEAR,
+              .clear.color = { .r = 0.08f, .g = 0.08f, .b = 0.1f, .a = 1.0f } }));
+    mel_render_graph_compile(&s_graph);
+    e->render_graph = &s_graph;
 }
 
 static void app_init(Mel_App* app)
@@ -441,8 +403,7 @@ static void app_init(Mel_App* app)
         .window = s_window,
         .app_name = S8("Melody RBTree"),
         .enable_validation = true,
-        .enable_imgui = false,
-        .fixed_dt = 1.0f / 60.0f);
+        .enable_imgui = false);
 
     Mel_Io_Desc io_desc = { .allocator = mel_alloc_heap(), .worker_count = 0 };
     mel_io_init(&s_demo_io, &io_desc);
@@ -459,16 +420,17 @@ static void app_shutdown(Mel_App* app)
     Mel_Gpu_Device* dev = &app->engine.dev;
     mel_gpu_device_wait_idle(dev);
 
+    mel_render_list_shutdown(&s_sprite_list);
+    mel_render_list_shutdown(&s_font_list);
+    mel_render_graph_shutdown(&s_graph);
+    mel_render_target_shutdown(&s_swapchain_target);
+
     mel_rbtree_free(&s_demo.tree);
-    mel_sprite_batch_shutdown(&s_batch, dev);
     mel_font_atlas_pool_shutdown(&s_font_pool);
     mel_vfs_unmount(&s_demo_vfs, S8("/"));
     mel_vfs_shutdown(&s_demo_vfs);
     mel_io_shutdown(&s_demo_io);
     mel_vfs_backend_os_destroy(s_fonts_backend);
-    mel_gpu_texture_shutdown(&s_white_texture, dev);
-    mel_gpu_pipeline_shutdown(&s_pipeline, dev);
-    mel_gpu_shader_shutdown(&s_shader, dev);
 }
 
 static void app_update(Mel_App* app, f32 dt)
@@ -484,33 +446,22 @@ static void app_update(Mel_App* app, f32 dt)
             s_demo.highlight_timer = 0.0f;
         }
     }
-}
 
-static void app_render(Mel_App* app, Mel_Gpu_Cmd* c)
-{
-    Mel_Engine* e = &app->engine;
+    mel_render_list_clear(&s_sprite_list);
+    mel_render_list_clear(&s_font_list);
 
-    if (!s_pipeline.pipeline) return;
-
-    mel_engine_begin_swapchain_pass(e, c,
-        .clear_r = 0.08f, .clear_g = 0.08f, .clear_b = 0.1f, .clear_a = 1.0f);
-
-    f32 win_w = (f32)e->swapchain.extent.width;
-    f32 win_h = (f32)e->swapchain.extent.height;
-    Mel_Mat4 proj = mel_mat4_ortho(0, win_w, 0, win_h, -1, 1);
+    i32 ww, wh;
+    SDL_GetWindowSize(s_window, &ww, &wh);
+    f32 win_w = (f32)ww;
+    f32 win_h = (f32)wh;
 
     f32 panel_x = win_w - PANEL_WIDTH;
     f32 tree_area_w = panel_x;
 
-    mel_sprite_batch_begin(&s_batch, &s_pipeline);
-    mel_sprite_batch_set_texture(&s_batch, &s_white_texture);
-
     Mel_Vec4 tree_bg = mel_vec4(0.05f, 0.05f, 0.07f, 1.0f);
-    mel_sprite_batch_draw(&s_batch, 0, 0, tree_area_w, win_h, tree_bg);
+    push_rect(&s_sprite_list, 0, 0, tree_area_w, win_h, tree_bg);
 
-    Mel_Font_Atlas_Entry* fe = mel_font_atlas_pool_get(&s_font_pool, s_font_handle);
-
-    draw_panel(&s_batch, fe, panel_x, win_h, &s_demo);
+    draw_panel(&s_sprite_list, panel_x, win_h);
 
     s_demo.position_count = 0;
     if (s_demo.tree.root != &s_demo.tree.nil_node)
@@ -533,18 +484,13 @@ static void app_render(Mel_App* app, Mel_Gpu_Cmd* c)
         if (tree_h + oy > win_h - 20.0f)
             oy = 20.0f;
 
-        draw_edges(&s_demo, &s_batch, ox, oy);
-        draw_nodes(&s_demo, &s_batch, ox, oy);
+        draw_edges(&s_demo, &s_sprite_list, ox, oy);
+        draw_nodes(&s_demo, &s_sprite_list, ox, oy);
 
-        if (fe)
-            draw_node_labels(&s_demo, fe, &s_batch, ox, oy);
+        draw_node_labels(&s_demo, &s_font_pool, s_font_handle, &s_font_list, ox, oy);
     }
 
-    if (fe)
-        draw_panel_text(&s_batch, fe, panel_x, &s_demo);
-
-    mel_sprite_batch_end(&s_batch, &e->dev, c->cmd, &proj);
-    mel_engine_end_swapchain_pass(e, c);
+    draw_panel_text(&s_font_pool, s_font_handle, &s_font_list, panel_x, &s_demo);
 }
 
 static void app_event(Mel_App* app, SDL_Event* event)
@@ -662,6 +608,5 @@ MEL_APP(
     .on_init = app_init,
     .on_shutdown = app_shutdown,
     .on_update = app_update,
-    .on_render = app_render,
     .on_event = app_event
 )

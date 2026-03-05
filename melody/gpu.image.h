@@ -48,3 +48,6 @@ void mel_gpu_image_transition_subresource(Mel_Gpu_Image* img, VkCommandBuffer cm
                                           u32 mip, u32 layer, VkImageLayout new_layout);
 
 Mel_Gpu_Image_State mel_gpu_image_state(Mel_Gpu_Image* img, u32 mip, u32 layer);
+
+VkPipelineStageFlags2 mel_gpu_image_layout_stage(VkImageLayout layout);
+VkAccessFlags2 mel_gpu_image_layout_access(VkImageLayout layout);

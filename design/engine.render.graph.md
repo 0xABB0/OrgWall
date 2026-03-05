@@ -152,31 +152,45 @@ order from these declarations.
 ```c
 typedef void (*Mel_Render_Pass_Fn)(Mel_Render_Pass_Ctx* ctx);
 
+struct Mel_Pass_Write_Target {
+    Mel_Render_Target* target;
+    VkAttachmentLoadOp load_op;
+    union {
+        struct { f32 r, g, b, a; } color;
+        struct { f32 depth; u32 stencil; } depth;
+    } clear;
+};
+
 typedef struct {
-    Mel_Render_List**   read_lists;      // NULL-terminated
-    Mel_Render_List**   write_lists;     // NULL-terminated
-    Mel_Render_Target** read_targets;    // NULL-terminated
-    Mel_Render_Target** write_targets;   // NULL-terminated
-    Mel_Camera*         camera;
-    Mel_Rect            viewport;
-    Mel_Render_Pass_Fn  fn;
-    void*               user;
-    u32                 type;            // MEL_PASS_GRAPHICS (default) or MEL_PASS_COMPUTE
+    Mel_Render_List**     read_lists;      // NULL-terminated
+    Mel_Render_List**     write_lists;     // NULL-terminated
+    Mel_Render_Target**   read_targets;    // NULL-terminated
+    Mel_Pass_Write_Target* write_targets;  // zero-sentinel terminated
+    Mel_Camera*           camera;          // optional, nullable
+    Mel_Render_Pass_Fn    fn;
+    void*                 user;
+    u32                   type;            // MEL_PASS_GRAPHICS (default) or MEL_PASS_COMPUTE
 } Mel_Pass_Desc;
 ```
 
-Convenience macros for NULL-terminated compound literals:
+`write_targets` uses `Mel_Pass_Write_Target` instead of raw target pointers.
+Each write target carries its own load op and clear value. This is necessary
+because different passes writing to the same target may need different load
+behavior (clear vs load vs don't care).
+
+Convenience macros for NULL/zero-terminated compound literals:
 
 ```c
-#define MEL_LISTS(...)   ((Mel_Render_List*[]){ __VA_ARGS__, NULL })
-#define MEL_TARGETS(...) ((Mel_Render_Target*[]){ __VA_ARGS__, NULL })
+#define MEL_LISTS(...)         ((Mel_Render_List*[]){ __VA_ARGS__, NULL })
+#define MEL_TARGETS(...)       ((Mel_Render_Target*[]){ __VA_ARGS__, NULL })
+#define MEL_WRITE_TARGETS(...) ((Mel_Pass_Write_Target[]){ __VA_ARGS__, {0} })
 ```
 
 ### Pass Types
 
-- `MEL_PASS_GRAPHICS` (default): renders to targets. The graph begins a render
-  pass, sets viewport/scissor, and calls `fn`. The pass function binds
-  pipelines and emits draw calls.
+- `MEL_PASS_GRAPHICS` (default): renders to targets. The graph begins dynamic
+  rendering (`vkCmdBeginRendering`), sets viewport/scissor, and calls `fn`.
+  The pass function binds pipelines and emits draw calls.
 
 - `MEL_PASS_COMPUTE`: transforms data. No render pass. The graph dispatches
   barriers for buffer access and calls `fn`. The pass function binds a compute
@@ -191,54 +205,110 @@ The graph uses the pass type for correct barrier stage flags:
 What the pass function receives when it runs:
 
 ```c
-typedef struct {
-    VkCommandBuffer     cmd;
-    Mel_Render_List**   read_lists;      // resolved for this pass
-    Mel_Render_List**   write_lists;
-    Mel_Render_Target** read_targets;
-    Mel_Render_Target** write_targets;
-    Mel_Camera*         camera;
-    Mel_Rect            viewport;
-    void*               user;
-} Mel_Render_Pass_Ctx;
+struct Mel_Render_Pass_Ctx {
+    Mel_Gpu_Cmd          cmd;              // command buffer + device reference
+    Mel_Render_List**    read_lists;       // resolved for this pass
+    Mel_Render_List**    write_lists;
+    Mel_Render_Target**  read_targets;
+    Mel_Render_Target**  write_targets;    // unwrapped from Mel_Pass_Write_Target
+    const Mel_Camera*    camera;
+    void*                user;
+    u32                  render_width;     // from first write target
+    u32                  render_height;
+};
 ```
 
-GPU buffer access from within a pass:
+`cmd` is `Mel_Gpu_Cmd` (wrapping `VkCommandBuffer` + `Mel_Gpu_Device*`), not a
+raw command buffer. This gives passes access to `mel_gpu_cmd_*` helpers without
+needing to thread the device through separately.
 
-```c
-VkBuffer mel_pass_ctx_list_buffer(Mel_Render_Pass_Ctx* ctx, i32 list_index, bool write);
-VkBuffer mel_pass_ctx_list_count_buffer(Mel_Render_Pass_Ctx* ctx, i32 list_index, bool write);
-```
-
-`write = false` indexes into `read_lists`, `write = true` indexes into
-`write_lists`.
+`write_targets` in the context is `Mel_Render_Target**` (unwrapped pointers) —
+the load ops and clear values are consumed by the graph when setting up the
+render pass, so the pass function only sees the target pointers.
 
 ---
 
 ## Graph API
 
+The render graph is a **value type** — you declare it on the stack or embed it
+in a struct. There is no module static singleton.
+
 ```c
-Mel_Render_Graph* mel_render_graph_instance(void);    // module static
+typedef struct {
+    Mel_Gpu_Device* dev;        // GPU device (NULL for test/headless mode)
+    u32             frame_count; // frames in flight (default 2, max MEL_MAX_FRAMES_IN_FLIGHT)
+    const Mel_Alloc* alloc;
+} Mel_Render_Graph_Opt;
 
-void mel_render_graph_add_pass_opt(Mel_Render_Graph* graph, str8 name, Mel_Pass_Desc desc);
-#define mel_render_graph_add_pass(graph, name, ...) \
-    mel_render_graph_add_pass_opt((graph), (name), (Mel_Pass_Desc){__VA_ARGS__})
+void mel_render_graph_init_opt(Mel_Render_Graph* g, Mel_Render_Graph_Opt opt);
+#define mel_render_graph_init(g, ...) \
+    mel_render_graph_init_opt((g), (Mel_Render_Graph_Opt){__VA_ARGS__})
 
-void mel_render_graph_remove_pass(Mel_Render_Graph* graph, str8 name);
+void mel_render_graph_shutdown(Mel_Render_Graph* g);
 
-void mel_render_graph_compile(Mel_Render_Graph* graph);
-void mel_render_graph_execute(Mel_Render_Graph* graph);
+u32 mel_render_graph_add_pass_opt(Mel_Render_Graph* g, str8 name, Mel_Pass_Desc desc);
+#define mel_render_graph_add_pass(g, name, ...) \
+    mel_render_graph_add_pass_opt((g), (name), (Mel_Pass_Desc){__VA_ARGS__})
+
+void mel_render_graph_remove_pass(Mel_Render_Graph* g, str8 name);
+
+void mel_render_graph_pass_depends_on(Mel_Render_Graph* g, u32 pass_id, u32 dependency_id);
+
+bool mel_render_graph_compile(Mel_Render_Graph* g);
+
+bool mel_render_graph_execute(Mel_Render_Graph* g);
 ```
 
-`compile`: builds the DAG from pass read/write declarations. Topological sort
-produces execution order. Computes barrier insertion points. Plans memory
-aliasing for non-overlapping transient targets. Called after topology changes
-(add/remove pass). Automatically called on first execute if dirty.
+`add_pass` returns a `u32` pass ID. Use this with `pass_depends_on` to declare
+explicit ordering constraints between passes that don't share resources.
 
-`execute`: called once per frame by the engine. Acquires swapchains, resets
-GPU counters for write lists, executes passes in compiled order with barriers,
-presents swapchains. One call drives the entire rendering pipeline across all
-windows.
+`pass_depends_on` declares that `pass_id` must execute after `dependency_id`.
+The graph uses this alongside resource-inferred dependencies during compilation.
+
+`compile` returns `bool` — `false` means the DAG has a cycle. The graph
+remains dirty on failure. Builds the DAG from pass read/write declarations.
+Topological sort produces execution order. Computes barrier insertion points.
+Called after topology changes (add/remove pass). Automatically called on first
+execute if dirty.
+
+`execute` is **parameterless**. It drives the entire frame lifecycle:
+
+1. Compile if dirty
+2. Wait for the current frame's fence
+3. Acquire swapchain images (if any pass writes to a swapchain target)
+4. Reset fence and command pool, begin command buffer
+5. Execute passes in compiled order with barriers
+6. Present swapchain, submit, advance frame counter
+
+Returns `false` if swapchain acquire fails (caller should handle resize).
+One call drives the entire rendering pipeline.
+
+### Per-Frame Resources
+
+The graph owns its own per-frame GPU resources:
+
+```c
+typedef struct {
+    VkCommandPool   pool;
+    VkCommandBuffer cmd;
+    VkFence         fence;
+} Mel_Render_Graph_Frame;
+
+struct Mel_Render_Graph {
+    // ... passes, sorted_order, barriers, explicit_deps, dev, alloc, dirty ...
+
+    Mel_Render_Graph_Frame frames[MEL_MAX_FRAMES_IN_FLIGHT];
+    u32 frame_count;
+    u32 current_frame;
+};
+```
+
+Created during `mel_render_graph_init` (when `dev` is non-null). Destroyed
+during `mel_render_graph_shutdown`. The graph is fully self-contained — no
+external frame management needed.
+
+When `dev` is null (test mode), no GPU resources are created. `execute` skips
+all GPU work and just calls pass functions directly.
 
 ---
 
@@ -282,9 +352,10 @@ Mel_Render_Target* hdr        = mel_render_target_create(S8("hdr"), .width = 128
 Mel_Render_Target* depth      = mel_render_target_create(S8("depth"), .width = 1280, .height = 720, .format = D32);
 Mel_Render_Target* swapchain  = mel_window_target(window);
 
-Mel_Render_Graph* graph = mel_render_graph_instance();
+Mel_Render_Graph graph;
+mel_render_graph_init(&graph, .dev = dev, .alloc = alloc);
 
-mel_render_graph_add_pass(graph, S8("cull"),
+mel_render_graph_add_pass(&graph, S8("cull"),
     .type = MEL_PASS_COMPUTE,
     .read_lists  = MEL_LISTS(instances),
     .write_lists = MEL_LISTS(draw_cmds),
@@ -292,16 +363,19 @@ mel_render_graph_add_pass(graph, S8("cull"),
     .fn = gpu_cull_pass,
 );
 
-mel_render_graph_add_pass(graph, S8("draw"),
+mel_render_graph_add_pass(&graph, S8("draw"),
     .read_lists    = MEL_LISTS(draw_cmds),
-    .write_targets = MEL_TARGETS(hdr, depth),
+    .write_targets = MEL_WRITE_TARGETS(
+        { .target = hdr, .load_op = VK_ATTACHMENT_LOAD_OP_CLEAR, .clear.color = {0, 0, 0, 1} },
+        { .target = depth, .load_op = VK_ATTACHMENT_LOAD_OP_CLEAR, .clear.depth = {1.0f, 0} },
+    ),
     .camera = &main_cam,
     .fn = indirect_draw_pass,
 );
 
-mel_render_graph_add_pass(graph, S8("post"),
+mel_render_graph_add_pass(&graph, S8("post"),
     .read_targets  = MEL_TARGETS(hdr),
-    .write_targets = MEL_TARGETS(swapchain),
+    .write_targets = MEL_WRITE_TARGETS({ .target = swapchain }),
     .fn = post_process_pass,
 );
 ```
@@ -317,7 +391,7 @@ Insert a LOD pass before culling. Nothing else changes.
 ```c
 Mel_Render_List* lod_resolved = mel_render_list_create(S8("lod_resolved"), sizeof(Mel_Mesh_Instance_LOD), alloc);
 
-mel_render_graph_add_pass(graph, S8("lod_select"),
+mel_render_graph_add_pass(&graph, S8("lod_select"),
     .type = MEL_PASS_COMPUTE,
     .read_lists  = MEL_LISTS(instances),
     .write_lists = MEL_LISTS(lod_resolved),
@@ -325,7 +399,7 @@ mel_render_graph_add_pass(graph, S8("lod_select"),
     .fn = gpu_lod_pass,
 );
 
-mel_render_graph_add_pass(graph, S8("cull"),
+mel_render_graph_add_pass(&graph, S8("cull"),
     .type = MEL_PASS_COMPUTE,
     .read_lists  = MEL_LISTS(lod_resolved),
     .write_lists = MEL_LISTS(draw_cmds),
@@ -345,9 +419,12 @@ internally. No separate compute passes needed.
 ```c
 Mel_Render_List* meshlets = mel_render_list_create(S8("meshlets"), sizeof(Mel_Meshlet_Instance), alloc);
 
-mel_render_graph_add_pass(graph, S8("mesh_render"),
+mel_render_graph_add_pass(&graph, S8("mesh_render"),
     .read_lists    = MEL_LISTS(meshlets),
-    .write_targets = MEL_TARGETS(hdr, depth),
+    .write_targets = MEL_WRITE_TARGETS(
+        { .target = hdr, .load_op = VK_ATTACHMENT_LOAD_OP_CLEAR },
+        { .target = depth, .load_op = VK_ATTACHMENT_LOAD_OP_CLEAR, .clear.depth = {1.0f, 0} },
+    ),
     .camera = &main_cam,
     .fn = mesh_shader_pass,
 );
@@ -367,17 +444,22 @@ Same source list, different camera, different output.
 Mel_Render_Target* shadow_map = mel_render_target_create(S8("shadow_map"),
     .width = 2048, .height = 2048, .format = D32);
 
-mel_render_graph_add_pass(graph, S8("shadow"),
+mel_render_graph_add_pass(&graph, S8("shadow"),
     .read_lists    = MEL_LISTS(instances),
-    .write_targets = MEL_TARGETS(shadow_map),
+    .write_targets = MEL_WRITE_TARGETS(
+        { .target = shadow_map, .load_op = VK_ATTACHMENT_LOAD_OP_CLEAR, .clear.depth = {1.0f, 0} },
+    ),
     .camera = &light_cam,
     .fn = shadow_pass,
 );
 
-mel_render_graph_add_pass(graph, S8("draw"),
+mel_render_graph_add_pass(&graph, S8("draw"),
     .read_lists    = MEL_LISTS(draw_cmds),
     .read_targets  = MEL_TARGETS(shadow_map),
-    .write_targets = MEL_TARGETS(hdr, depth),
+    .write_targets = MEL_WRITE_TARGETS(
+        { .target = hdr, .load_op = VK_ATTACHMENT_LOAD_OP_CLEAR },
+        { .target = depth, .load_op = VK_ATTACHMENT_LOAD_OP_CLEAR, .clear.depth = {1.0f, 0} },
+    ),
     .camera = &main_cam,
     .fn = indirect_draw_pass,
 );
@@ -421,15 +503,15 @@ Multiple windows = multiple swapchain leaves in the same graph.
 Mel_Render_Target* game_swap   = mel_window_target(game_win);
 Mel_Render_Target* editor_swap = mel_window_target(editor_win);
 
-mel_render_graph_add_pass(graph, S8("game_post"),
+mel_render_graph_add_pass(&graph, S8("game_post"),
     .read_targets  = MEL_TARGETS(hdr),
-    .write_targets = MEL_TARGETS(game_swap),
+    .write_targets = MEL_WRITE_TARGETS({ .target = game_swap }),
     .fn = post_process_pass,
 );
 
-mel_render_graph_add_pass(graph, S8("editor_view"),
+mel_render_graph_add_pass(&graph, S8("editor_view"),
     .read_lists    = MEL_LISTS(sprites, instances),
-    .write_targets = MEL_TARGETS(editor_swap),
+    .write_targets = MEL_WRITE_TARGETS({ .target = editor_swap }),
     .camera = &editor_cam,
     .fn = editor_pass,
 );
@@ -437,6 +519,13 @@ mel_render_graph_add_pass(graph, S8("editor_view"),
 
 Same source lists. Different passes. Different swapchains. One graph. One
 `mel_render_graph_execute` call drives everything.
+
+**Open question (multi-swapchain present):** Currently `mel_swapchain_present`
+bundles command buffer end + submit + present into one vtable call. This works
+for a single swapchain but breaks with multiple — you can't end the command
+buffer twice. Multi-window requires splitting the vtable into separate
+"prepare for present" (final barrier), "submit" (one submit for all), and
+"present" (per-swapchain `vkQueuePresent`). This is future work.
 
 ---
 
@@ -481,9 +570,9 @@ passes are added automatically:
 Game customizes by adding/removing passes:
 
 ```c
-mel_render_graph_add_pass(graph, S8("shadow"), ...);
-mel_render_graph_add_pass(graph, S8("particles"), ...);
-mel_render_graph_remove_pass(graph, S8("post_process"));
+mel_render_graph_add_pass(&graph, S8("shadow"), ...);
+mel_render_graph_add_pass(&graph, S8("particles"), ...);
+mel_render_graph_remove_pass(&graph, S8("post_process"));
 ```
 
 The graph recompiles on topology change. Execution order updates automatically.
@@ -493,8 +582,8 @@ For a raw Vulkan pass with no engine rendering, clear the graph and add one
 pass:
 
 ```c
-mel_render_graph_add_pass(graph, S8("raw"),
-    .write_targets = MEL_TARGETS(mel_window_target(window)),
+mel_render_graph_add_pass(&graph, S8("raw"),
+    .write_targets = MEL_WRITE_TARGETS({ .target = mel_window_target(window) }),
     .fn = my_raw_pass,
 );
 ```
@@ -553,6 +642,19 @@ per material.
 2. **Transient target sizing**: intermediate targets (hdr, depth) need
    dimensions. Fixed at creation? Relative to a swapchain (scale factor)?
    Auto-resize on window resize?
+
+3. **Multi-swapchain present**: the current swapchain vtable bundles cmd end +
+   submit + present into one call (`mel_swapchain_present`). This works for
+   one swapchain but not multiple. Multi-window needs a split: prepare
+   (final barrier), submit (once), present (per-swapchain). See Multi-Window
+   section above.
+
+4. ~~**Engine integration**~~: **Resolved.** `Mel_Engine` has a
+   `render_graph` pointer. When set, `mel_engine_frame` calls
+   `mel_render_graph_execute` instead of the old `render_frame_begin` /
+   `on_render` / `render_frame_end` path. The graph fully owns the frame
+   lifecycle. Remaining: imgui rendering needs to become a graph pass (currently
+   only works on the old path).
 
 ---
 

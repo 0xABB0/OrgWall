@@ -1,10 +1,11 @@
 #include "ui.widget.button.h"
-#include "sprite.batch.h"
+#include "render.list.h"
+#include "sprite.pass.h"
 
 static void wbutton_draw(Mel_Widget* w, void* ctx)
 {
     Mel_WButton* btn = (Mel_WButton*)w;
-    Mel_SpriteBatch* batch = (Mel_SpriteBatch*)ctx;
+    Mel_Render_List* list = (Mel_Render_List*)ctx;
 
     Mel_Vec4 color = btn->normal_color;
     if (w->state & MEL_WIDGET_STATE_PRESSED)
@@ -12,7 +13,14 @@ static void wbutton_draw(Mel_Widget* w, void* ctx)
     else if (w->state & MEL_WIDGET_STATE_HOVERED)
         color = btn->hover_color;
 
-    mel_sprite_batch_draw(batch, w->pos.x, w->pos.y, w->size.x, w->size.y, color);
+    Mel_Sprite_Entry* e = mel_render_list_push(list, mel_sort_key_sprite(0, 0.0f, 0, 0));
+    *e = (Mel_Sprite_Entry){
+        .pos = w->pos,
+        .size = w->size,
+        .uv = MEL_UV_FULL,
+        .color = color,
+        .tex = MEL_TEXTURE_HANDLE_NULL,
+    };
 }
 
 static bool wbutton_mouse_down(Mel_Widget* w, Mel_Vec2 pos, i32 button)

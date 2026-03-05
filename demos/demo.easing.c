@@ -9,18 +9,23 @@
 #include "core.app.h"
 #include "core.engine.h"
 #include "string.str8.h"
-#include "gpu.shader.h"
 #include "gpu.pipeline.h"
 #include "gpu.buffer.h"
-#include "gpu.texture.h"
 #include "gpu.cmd.h"
-#include "sprite.batch.h"
+#include "sprite.pass.h"
+#include "render.graph.h"
+#include "render.list.h"
+#include "render.target.h"
+#include "render.camera.h"
+#include "texture.pool.h"
 #include "font.atlas.h"
 #include "vfs.h"
 #include "vfs.backend.os.h"
 #include "allocator.heap.h"
 #include "math.mat4.h"
 #include "math.vec4.h"
+#include "math.vec2.h"
+#include "math.geo.rect.h"
 #include "math.easing.h"
 
 #define EASING_COUNT       31
@@ -55,57 +60,18 @@ typedef struct {
 } EasingDemo;
 
 static SDL_Window* s_window;
-static Mel_Gpu_Shader s_shader;
-static Mel_Gpu_Pipeline s_pipeline;
-static Mel_Gpu_Texture s_white_texture;
-static Mel_SpriteBatch s_batch;
+static Mel_Sprite_Pass* s_sp;
 static Mel_Font_Atlas_Pool s_font_pool;
 static Mel_Io s_demo_io;
 static Mel_Vfs s_demo_vfs;
 static Mel_Vfs_Backend* s_fonts_backend;
 static Mel_Font_Handle s_font_handle;
 static EasingDemo s_demo;
-
-static const char* SHADER_SOURCE =
-"struct VSInput\n"
-"{\n"
-"    float2 position : POSITION;\n"
-"    float2 texcoord : TEXCOORD0;\n"
-"    float4 color : COLOR0;\n"
-"};\n"
-"\n"
-"struct VSOutput\n"
-"{\n"
-"    float4 position : SV_Position;\n"
-"    float2 texcoord : TEXCOORD0;\n"
-"    float4 color : COLOR0;\n"
-"};\n"
-"\n"
-"struct PushConstants\n"
-"{\n"
-"    float4x4 projection;\n"
-"};\n"
-"\n"
-"[[vk::push_constant]]\n"
-"PushConstants push;\n"
-"\n"
-"[[vk::binding(0, 0)]] Sampler2D tex;\n"
-"\n"
-"[shader(\"vertex\")]\n"
-"VSOutput vertexMain(VSInput input)\n"
-"{\n"
-"    VSOutput output;\n"
-"    output.position = mul(push.projection, float4(input.position, 0.0, 1.0));\n"
-"    output.texcoord = input.texcoord;\n"
-"    output.color = input.color;\n"
-"    return output;\n"
-"}\n"
-"\n"
-"[shader(\"fragment\")]\n"
-"float4 fragmentMain(VSOutput input) : SV_Target\n"
-"{\n"
-"    return tex.Sample(input.texcoord) * input.color;\n"
-"}\n";
+static Mel_Render_Target s_swapchain_target;
+static Mel_Render_Graph s_graph;
+static Mel_Camera s_camera;
+static Mel_Render_List s_sprite_list;
+static Mel_Render_List s_font_list;
 
 static void demo_init(EasingDemo* d)
 {
@@ -168,7 +134,12 @@ static i32 hit_test_panel(f32 mx, f32 my)
     return -1;
 }
 
-static void draw_curve_dots(Mel_SpriteBatch* batch, f32 px, f32 py, f32 w, f32 h,
+static void push_sprite(Mel_Render_List* list, f32 x, f32 y, f32 w, f32 h, Mel_Vec4 color)
+{
+    mel_draw_sprite(list, .pos = mel_vec2(x, y), .size = mel_vec2(w, h), .color = color);
+}
+
+static void draw_curve_dots(Mel_Render_List* list, f32 px, f32 py, f32 w, f32 h,
                             f32 pad, i32 samples, f32 (*func)(f32), Mel_Vec4 color)
 {
     f32 plot_x = px + pad;
@@ -182,12 +153,12 @@ static void draw_curve_dots(Mel_SpriteBatch* batch, f32 px, f32 py, f32 w, f32 h
         f32 v = func(t);
         f32 x = plot_x + t * plot_w;
         f32 y = plot_y + plot_h - v * plot_h;
-        mel_sprite_batch_draw(batch, x - DOT_SIZE * 0.5f, y - DOT_SIZE * 0.5f,
-                              DOT_SIZE, DOT_SIZE, color);
+        push_sprite(list, x - DOT_SIZE * 0.5f, y - DOT_SIZE * 0.5f,
+                    DOT_SIZE, DOT_SIZE, color);
     }
 }
 
-static void draw_anim_dot(Mel_SpriteBatch* batch, f32 px, f32 py, f32 w, f32 h,
+static void draw_anim_dot(Mel_Render_List* list, f32 px, f32 py, f32 w, f32 h,
                            f32 pad, f32 t, f32 (*func)(f32), Mel_Vec4 color)
 {
     f32 plot_x = px + pad;
@@ -198,11 +169,11 @@ static void draw_anim_dot(Mel_SpriteBatch* batch, f32 px, f32 py, f32 w, f32 h,
     f32 v = func(t);
     f32 x = plot_x + t * plot_w;
     f32 y = plot_y + plot_h - v * plot_h;
-    mel_sprite_batch_draw(batch, x - ANIM_DOT_SIZE * 0.5f, y - ANIM_DOT_SIZE * 0.5f,
-                          ANIM_DOT_SIZE, ANIM_DOT_SIZE, color);
+    push_sprite(list, x - ANIM_DOT_SIZE * 0.5f, y - ANIM_DOT_SIZE * 0.5f,
+                ANIM_DOT_SIZE, ANIM_DOT_SIZE, color);
 }
 
-static void draw_shapes(EasingDemo* d, Mel_SpriteBatch* batch, f32 win_w, f32 win_h)
+static void draw_shapes(EasingDemo* d, Mel_Render_List* list, f32 win_w, f32 win_h)
 {
     MEL_UNUSED(win_w);
     MEL_UNUSED(win_h);
@@ -224,12 +195,12 @@ static void draw_shapes(EasingDemo* d, Mel_SpriteBatch* batch, f32 win_w, f32 wi
         if (i == d->selected) bg = bg_selected;
         else if (i == d->hovered) bg = bg_hovered;
 
-        mel_sprite_batch_draw(batch, px, py, PANEL_W, PANEL_H, bg);
+        push_sprite(list, px, py, PANEL_W, PANEL_H, bg);
 
-        draw_curve_dots(batch, px, py, PANEL_W, PANEL_H,
+        draw_curve_dots(list, px, py, PANEL_W, PANEL_H,
                         PANEL_INNER_PAD, CURVE_SAMPLES, d->entries[i].func, curve_color);
 
-        draw_anim_dot(batch, px, py, PANEL_W, PANEL_H,
+        draw_anim_dot(list, px, py, PANEL_W, PANEL_H,
                       PANEL_INNER_PAD, t, d->entries[i].func, dot_color);
     }
 
@@ -241,12 +212,12 @@ static void draw_shapes(EasingDemo* d, Mel_SpriteBatch* batch, f32 win_w, f32 wi
     f32 focus_y = grid_bottom + 10.0f;
 
     Mel_Vec4 focus_bg = mel_vec4(0.12f, 0.12f, 0.16f, 1.0f);
-    mel_sprite_batch_draw(batch, focus_x, focus_y, FOCUS_W, FOCUS_H, focus_bg);
+    push_sprite(list, focus_x, focus_y, FOCUS_W, FOCUS_H, focus_bg);
 
-    draw_curve_dots(batch, focus_x, focus_y, FOCUS_W, FOCUS_H,
+    draw_curve_dots(list, focus_x, focus_y, FOCUS_W, FOCUS_H,
                     PANEL_INNER_PAD, FOCUS_SAMPLES, d->entries[focus_idx].func, curve_color);
 
-    draw_anim_dot(batch, focus_x, focus_y, FOCUS_W, FOCUS_H,
+    draw_anim_dot(list, focus_x, focus_y, FOCUS_W, FOCUS_H,
                   PANEL_INNER_PAD, t, d->entries[focus_idx].func, dot_color);
 
     f32 bar_x = focus_x + FOCUS_W + 20.0f;
@@ -254,15 +225,16 @@ static void draw_shapes(EasingDemo* d, Mel_SpriteBatch* batch, f32 win_w, f32 wi
     f32 bar_w = 300.0f;
 
     Mel_Vec4 bar_bg = mel_vec4(0.08f, 0.08f, 0.1f, 1.0f);
-    mel_sprite_batch_draw(batch, bar_x, bar_y, bar_w, FOCUS_BAR_H, bar_bg);
+    push_sprite(list, bar_x, bar_y, bar_w, FOCUS_BAR_H, bar_bg);
 
     f32 eased = d->entries[focus_idx].func(t);
     f32 fill_w = mel_clampf(eased, 0.0f, 1.5f) * bar_w;
     Mel_Vec4 bar_fill = mel_vec4(0.3f, 0.8f, 0.5f, 1.0f);
-    mel_sprite_batch_draw(batch, bar_x, bar_y, fill_w, FOCUS_BAR_H, bar_fill);
+    push_sprite(list, bar_x, bar_y, fill_w, FOCUS_BAR_H, bar_fill);
 }
 
-static void draw_text(EasingDemo* d, Mel_SpriteBatch* batch, Mel_Font_Atlas_Entry* fe)
+static void draw_text(EasingDemo* d, Mel_Render_List* list,
+                      Mel_Font_Atlas_Pool* pool, Mel_Font_Handle font)
 {
     Mel_Vec4 label_color = mel_vec4(0.7f, 0.7f, 0.7f, 1.0f);
     Mel_Vec4 white = mel_vec4(1.0f, 1.0f, 1.0f, 1.0f);
@@ -272,7 +244,7 @@ static void draw_text(EasingDemo* d, Mel_SpriteBatch* batch, Mel_Font_Atlas_Entr
     {
         f32 px, py;
         panel_pos(i, &px, &py);
-        mel_font_atlas_draw_text(fe, batch, str8_from_cstr(d->entries[i].name),
+        mel_font_atlas_draw_text(pool, font, list, str8_from_cstr(d->entries[i].name),
                                  px + PANEL_INNER_PAD, py + 4.0f, label_color);
     }
 
@@ -285,15 +257,15 @@ static void draw_text(EasingDemo* d, Mel_SpriteBatch* batch, Mel_Font_Atlas_Entr
 
     char full_name[64];
     snprintf(full_name, sizeof(full_name), "mel_ease_%s", d->entries[focus_idx].name);
-    mel_font_atlas_draw_text(fe, batch, str8_from_cstr(full_name),
+    mel_font_atlas_draw_text(pool, font, list, str8_from_cstr(full_name),
                              focus_x + PANEL_INNER_PAD, focus_y + 2.0f, white);
 
     f32 bar_x = focus_x + FOCUS_W + 20.0f;
     f32 bar_y = focus_y + FOCUS_H * 0.5f - FOCUS_BAR_H * 0.5f;
-    mel_font_atlas_draw_text(fe, batch, S8("eased output"),
+    mel_font_atlas_draw_text(pool, font, list, S8("eased output"),
                              bar_x, bar_y - 18.0f, dim);
 
-    mel_font_atlas_draw_text(fe, batch,
+    mel_font_atlas_draw_text(pool, font, list,
                              d->paused ? S8("[PAUSED] Space=resume  R=reset  ESC=quit")
                                        : S8("Space=pause  R=reset  Click=select  ESC=quit"),
                              GRID_MARGIN_X, focus_y + FOCUS_H + 10.0f, dim);
@@ -302,52 +274,42 @@ static void draw_text(EasingDemo* d, Mel_SpriteBatch* batch, Mel_Font_Atlas_Entr
 static void on_init(Mel_Engine* e)
 {
     Mel_Gpu_Device* dev = &e->dev;
+    s_sp = e->sprite_pass;
 
-    mel_gpu_shader_init(&s_shader, dev, .source = str8_from_cstr(SHADER_SOURCE));
-    mel_gpu_texture_init_white(&s_white_texture, dev);
-
-    VkVertexInputBindingDescription binding = {
-        .binding = 0,
-        .stride = sizeof(Mel_SpriteVertex),
-        .inputRate = VK_VERTEX_INPUT_RATE_VERTEX,
-    };
-
-    VkVertexInputAttributeDescription attributes[] = {
-        { .location = 0, .binding = 0, .format = VK_FORMAT_R32G32_SFLOAT, .offset = offsetof(Mel_SpriteVertex, x) },
-        { .location = 1, .binding = 0, .format = VK_FORMAT_R32G32_SFLOAT, .offset = offsetof(Mel_SpriteVertex, u) },
-        { .location = 2, .binding = 0, .format = VK_FORMAT_R32G32B32A32_SFLOAT, .offset = offsetof(Mel_SpriteVertex, r) },
-    };
-
-    mel_gpu_pipeline_init(&s_pipeline, dev,
-        .shader = &s_shader,
-        .color_format = e->swapchain.format,
-        .bindings = &binding,
-        .binding_count = 1,
-        .attributes = attributes,
-        .attribute_count = 3,
-        .push_constant_size = sizeof(Mel_Mat4),
-        .use_texture = true,
-        .blend_mode = MEL_GPU_BLEND_ALPHA);
-
-    mel_sprite_batch_init(&s_batch, dev, .max_sprites = 4096);
-
-    s_white_texture.descriptor = mel_gpu_pipeline_alloc_descriptor(&s_pipeline, dev);
-    mel_gpu_pipeline_write_texture(&s_pipeline, dev, s_white_texture.descriptor,
-        s_white_texture.image.view, s_white_texture.sampler);
-
-    mel_font_atlas_pool_init(&s_font_pool, &e->allocator, dev, &s_demo_vfs);
+    mel_font_atlas_pool_init(&s_font_pool, &e->allocator, dev, &s_demo_vfs, .texture_pool = e->texture_pool);
     s_font_handle = mel_font_atlas_pool_load(&s_font_pool,
         .path = S8("/System/Library/Fonts/Monaco.ttf"), .size = 18.0f);
 
-    Mel_Font_Atlas_Entry* font_entry = mel_font_atlas_pool_get(&s_font_pool, s_font_handle);
-    if (font_entry)
-    {
-        font_entry->atlas_texture.descriptor = mel_gpu_pipeline_alloc_descriptor(&s_pipeline, dev);
-        mel_gpu_pipeline_write_texture(&s_pipeline, dev, font_entry->atlas_texture.descriptor,
-            font_entry->atlas_texture.image.view, font_entry->atlas_texture.sampler);
-    }
 
     demo_init(&s_demo);
+
+    mel_render_list_init(&s_sprite_list,
+        .entry_stride = sizeof(Mel_Sprite_Entry),
+        .alloc = mel_alloc_heap());
+
+    mel_render_list_init(&s_font_list,
+        .entry_stride = sizeof(Mel_Sprite_Entry),
+        .alloc = mel_alloc_heap());
+
+    mel_render_target_init_swapchain(&s_swapchain_target, &e->swapchain, &e->dev, S8("backbuffer"));
+
+    s_camera = (Mel_Camera){
+        .view = MEL_MAT4_IDENTITY,
+        .projection = mel_mat4_ortho(0, (f32)e->swapchain.extent.width,
+                                      0, (f32)e->swapchain.extent.height, -1, 1),
+    };
+
+    mel_render_graph_init(&s_graph, .dev = &e->dev, .alloc = mel_alloc_heap());
+    mel_render_graph_add_pass(&s_graph, S8("render"),
+        .fn = mel_sprite_pass_execute,
+        .user = s_sp,
+        .camera = &s_camera,
+        .read_lists = MEL_LISTS(&s_sprite_list, &s_font_list),
+        .write_targets = MEL_WRITE_TARGETS(
+            { .target = &s_swapchain_target, .load_op = VK_ATTACHMENT_LOAD_OP_CLEAR,
+              .clear.color = { .r = 0.08f, .g = 0.08f, .b = 0.1f, .a = 1.0f } }));
+    mel_render_graph_compile(&s_graph);
+    e->render_graph = &s_graph;
 }
 
 static void app_init(Mel_App* app)
@@ -360,8 +322,7 @@ static void app_init(Mel_App* app)
         .window = s_window,
         .app_name = S8("Melody Easing"),
         .enable_validation = true,
-        .enable_imgui = false,
-        .fixed_dt = 1.0f / 60.0f);
+        .enable_imgui = false);
 
     Mel_Io_Desc io_desc = { .allocator = mel_alloc_heap(), .worker_count = 0 };
     mel_io_init(&s_demo_io, &io_desc);
@@ -378,15 +339,16 @@ static void app_shutdown(Mel_App* app)
     Mel_Gpu_Device* dev = &app->engine.dev;
     mel_gpu_device_wait_idle(dev);
 
-    mel_sprite_batch_shutdown(&s_batch, dev);
+    mel_render_list_shutdown(&s_sprite_list);
+    mel_render_list_shutdown(&s_font_list);
+    mel_render_graph_shutdown(&s_graph);
+    mel_render_target_shutdown(&s_swapchain_target);
+
     mel_font_atlas_pool_shutdown(&s_font_pool);
     mel_vfs_unmount(&s_demo_vfs, S8("/"));
     mel_vfs_shutdown(&s_demo_vfs);
     mel_io_shutdown(&s_demo_io);
     mel_vfs_backend_os_destroy(s_fonts_backend);
-    mel_gpu_texture_shutdown(&s_white_texture, dev);
-    mel_gpu_pipeline_shutdown(&s_pipeline, dev);
-    mel_gpu_shader_shutdown(&s_shader, dev);
 }
 
 static void app_update(Mel_App* app, f32 dt)
@@ -399,31 +361,13 @@ static void app_update(Mel_App* app, f32 dt)
 
     if (!s_demo.paused)
         s_demo.time += dt;
-}
 
-static void app_render(Mel_App* app, Mel_Gpu_Cmd* c)
-{
-    Mel_Engine* e = &app->engine;
-    if (!s_pipeline.pipeline) return;
+    mel_render_list_clear(&s_sprite_list);
+    mel_render_list_clear(&s_font_list);
 
-    mel_engine_begin_swapchain_pass(e, c,
-        .clear_r = 0.08f, .clear_g = 0.08f, .clear_b = 0.1f, .clear_a = 1.0f);
+    draw_shapes(&s_demo, &s_sprite_list, 0.0f, 0.0f);
 
-    Mel_Mat4 proj = mel_mat4_ortho(0, (f32)e->swapchain.extent.width,
-                                    0, (f32)e->swapchain.extent.height, -1, 1);
-
-    mel_sprite_batch_begin(&s_batch, &s_pipeline);
-    mel_sprite_batch_set_texture(&s_batch, &s_white_texture);
-
-    draw_shapes(&s_demo, &s_batch,
-                (f32)e->swapchain.extent.width, (f32)e->swapchain.extent.height);
-
-    Mel_Font_Atlas_Entry* fe = mel_font_atlas_pool_get(&s_font_pool, s_font_handle);
-    if (fe)
-        draw_text(&s_demo, &s_batch, fe);
-
-    mel_sprite_batch_end(&s_batch, &e->dev, c->cmd, &proj);
-    mel_engine_end_swapchain_pass(e, c);
+    draw_text(&s_demo, &s_font_list, &s_font_pool, s_font_handle);
 }
 
 static void app_event(Mel_App* app, SDL_Event* event)
@@ -466,6 +410,5 @@ MEL_APP(
     .on_init = app_init,
     .on_shutdown = app_shutdown,
     .on_update = app_update,
-    .on_render = app_render,
     .on_event = app_event
 )
