@@ -823,10 +823,10 @@ bool build_tests(void)
     return true;
 }
 
-bool build_widget_demo(const char* demo_name)
+bool build_widget_example(const char* name)
 {
-    const char* demo_src = nob_temp_sprintf("demos/demo.%s.c", demo_name);
-    const char* demo_out = nob_temp_sprintf(BUILD_DIR "/demo.%s", demo_name);
+    const char* demo_src = nob_temp_sprintf("examples/example.%s.c", name);
+    const char* demo_out = nob_temp_sprintf(BUILD_DIR "/example.%s", name);
 
     static const char* WIDGET_DEMO_SOURCES[] = {
         "melody/debug.backtrace.c",
@@ -859,7 +859,7 @@ bool build_widget_demo(const char* demo_name)
         }
     }
 
-    const char* demo_obj = nob_temp_sprintf(BUILD_DIR "/demo.%s.o", demo_name);
+    const char* demo_obj = nob_temp_sprintf(BUILD_DIR "/example.%s.o", name);
     nob_da_append(&obj_files, nob_temp_strdup(demo_obj));
 
     if (needs_compile(demo_src, demo_obj))
@@ -889,13 +889,13 @@ bool build_widget_demo(const char* demo_name)
     return true;
 }
 
-bool build_demo(const char* demo_name)
+bool build_example(const char* name)
 {
     if (!build_melody()) return false;
 
-    const char* demo_src = nob_temp_sprintf("demos/demo.%s.c", demo_name);
-    const char* demo_out = nob_temp_sprintf(BUILD_DIR "/demo.%s", demo_name);
-    const char* demo_obj = nob_temp_sprintf(BUILD_DIR "/demo.%s.o", demo_name);
+    const char* demo_src = nob_temp_sprintf("examples/example.%s.c", name);
+    const char* demo_out = nob_temp_sprintf(BUILD_DIR "/example.%s", name);
+    const char* demo_obj = nob_temp_sprintf(BUILD_DIR "/example.%s.o", name);
 
     bool any_recompiled = false;
 
@@ -1006,21 +1006,21 @@ int main(int argc, char** argv)
         nob_cmd_append(&cmd, BUILD_DIR "/melody");
         return nob_cmd_run_sync(cmd) ? 0 : 1;
     }
-    else if (strcmp(subcmd, "demo") == 0)
+    else if (strcmp(subcmd, "example") == 0)
     {
-        const char* demo = (arg_idx + 1) < argc ? argv[arg_idx + 1] : "nctrl";
-        nob_log(NOB_INFO, "Building demo: %s", demo);
+        const char* name = (arg_idx + 1) < argc ? argv[arg_idx + 1] : "nctrl";
+        nob_log(NOB_INFO, "Building example: %s", name);
 
         bool ok;
-        if (strcmp(demo, "widget") == 0)
-            ok = build_widget_demo(demo);
+        if (strcmp(name, "widget") == 0)
+            ok = build_widget_example(name);
         else
-            ok = build_demo(demo);
+            ok = build_example(name);
         if (!ok) return 1;
 
-        nob_log(NOB_INFO, "Running demo: %s", demo);
+        nob_log(NOB_INFO, "Running example: %s", name);
         Nob_Cmd cmd = {0};
-        nob_cmd_append(&cmd, nob_temp_sprintf(BUILD_DIR "/demo.%s", demo));
+        nob_cmd_append(&cmd, nob_temp_sprintf(BUILD_DIR "/example.%s", name));
         return nob_cmd_run_sync(cmd) ? 0 : 1;
     }
     else if (strcmp(subcmd, "clean") == 0)

@@ -51,7 +51,7 @@
 - ~~[RENDERING] default white texture should be always available as the "zero asset" (invalid/default texture), not manually created per demo/app~~ DONE: white texture owned by `Mel_Sprite_Pass` in engine, accessible via `engine->sprite_pass->white_texture`
 - ~~[RENDERING] Mel_Font_Atlas_Entry should be internal — font draw should take a handle, not force users to fish out the entry~~ DONE: `mel_font_atlas_draw_text` and `mel_font_atlas_measure_text` now take `(pool, handle)`. `mel_font_atlas_pool_get_texture` added for init-time texture registration. `Mel_Draw_Ctx_Text_Opt` uses `Mel_Font_Handle`. All demos, ECS text system, and UI label migrated
 - [ENGINE] migrate legacy `Mel_Engine` + `SDL_Window` coupling to module statics + per-window `Mel_Window` ownership (vNext direction in `design/engine.overview.md`)
-- [DEMO] we need to split demos and examples. demos only show one piece of the engine, examples show the full engine (discuss)
+- ~~[DEMO] we need to split demos and examples. demos only show one piece of the engine, examples show the full engine (discuss)~~ DONE: `demos/` renamed to `examples/` (files renamed `demo.*.c` → `example.*.c`). New empty `demos/` created for larger showcase projects. Build command: `./nob example <name>`
 - [EXAMPLE] we need to make a boomer shooter example
 - [EXAMPLE] we need to make a 3d example
 - [EXAMPLE] we need an example that merges 2d with 3d
