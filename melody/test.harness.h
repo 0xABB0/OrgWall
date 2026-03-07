@@ -7,6 +7,11 @@
 
 typedef struct Mel_Test_Entry Mel_Test_Entry;
 
+typedef u8 Mel_Test_Status;
+#define MEL_TEST_NOT_RUN 0
+#define MEL_TEST_PASSED  1
+#define MEL_TEST_FAILED  2
+
 struct Mel_Test_Entry
 {
     const char* name;
@@ -15,6 +20,7 @@ struct Mel_Test_Entry
     void (*func)(void);
     Mel_Test_Entry* next;
     u32 id;
+    Mel_Test_Status status;
 };
 
 typedef struct
@@ -28,6 +34,10 @@ typedef struct
 extern Mel_Test_Context s_test_ctx;
 
 void mel__test_register(Mel_Test_Entry* entry);
+Mel_Test_Entry* mel_test_list(void);
+u32 mel_test_count(void);
+void mel_test_run_one(Mel_Test_Entry* entry);
+void mel_test_run_all(void);
 int mel_test_main(int argc, char** argv);
 
 #define MEL_TEST(tname, ...) \

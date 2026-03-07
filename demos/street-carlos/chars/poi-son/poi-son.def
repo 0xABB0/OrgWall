@@ -1,0 +1,29 @@
+; Definition file for Kung Fu Man
+; Contains all the filenames needed for the character
+
+; Player information
+[Info]
+name = "POISON"         ;Name of character
+displayname = "POISON"  ;Name of character to display
+versiondate = 04,14,2001    ;Version date of character
+mugenversion = 04,14,2001   ;Version of M.U.G.E.N character works on
+author = "ZAKO-1"           ;Character author name
+pal.defaults = 6,3,4,2      ;Default palettes in order of preference
+
+; Files for the player
+[Files]
+cmd     = poi-son.cmd   ;Command set
+cns     = poi-son.cns   ;Constants
+st      = poi-son.cns   ;States
+st2     = config(readme).txt   ;States
+st3     = common-one.cns   ;States
+stcommon = common1.cns ;Common states
+sprite  = poi-son.sff   ;Sprite
+anim    = poi-z.air   ;Animation
+sound   = kfm.snd   ;Sound
+pal1    = roxy.act  ;Palettes (can have up to 12)
+pal2    = yellow.act
+pal3    = colorful.act
+pal4    = poison.act
+pal5    = blue.act
+pal6    = green.act

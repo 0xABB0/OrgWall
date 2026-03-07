@@ -9,6 +9,7 @@
 #include "render.graph.fwd.h"
 #include "sprite.pass.fwd.h"
 #include "texture.pool.fwd.h"
+#include "sim.ctx.fwd.h"
 
 #include <SDL3/SDL.h>
 
@@ -31,6 +32,7 @@ struct Mel_Engine {
     Mel_Render_Graph* render_graph;
     Mel_Sprite_Pass* sprite_pass;
     Mel_Texture_Pool* texture_pool;
+    Mel_Sim_Ctx* sim_head;
     bool resize_requested;
     bool imgui_initialized;
     u32 features;
@@ -53,6 +55,9 @@ bool mel_engine_init_opt(Mel_Engine* engine, Mel_Engine_Opt opt);
 void mel_engine_shutdown(Mel_Engine* engine);
 void mel_engine_frame(Mel_Engine* engine, Mel_App* app);
 void mel_engine_process_event(Mel_Engine* engine, SDL_Event* event);
+
+void mel_engine_register_sim(Mel_Engine* engine, Mel_Sim_Ctx* sim);
+void mel_engine_unregister_sim(Mel_Engine* engine, Mel_Sim_Ctx* sim);
 
 void mel__engine_init(void);
 void mel__engine_shutdown(void);

@@ -23,6 +23,7 @@
 #include "math.geo.rect.h"
 #include "async.coro.h"
 #include "allocator.heap.h"
+#include "sim.ctx.h"
 
 #include <string.h>
 #include <math.h>
@@ -88,6 +89,8 @@ static Mel_Render_Graph s_graph;
 static Mel_Camera s_camera;
 static Mel_Render_List s_sprite_list;
 static Mel_Render_List s_font_list;
+static Mel_Sim_Ctx s_sim;
+static u8 s_event_buf[4096];
 
 static f32 heuristic(GridPos a, GridPos b)
 {
@@ -465,6 +468,8 @@ static void on_init(Mel_Engine* e)
     SDL_Log("A* Pathfinder ready! LMB: walls, RMB: start/end, Space: solve, R: reset, C: clear");
 }
 
+static void app_update(Mel_Sim_Ctx* sim, f32 dt, void* user);
+
 static void app_init(Mel_App* app)
 {
     s_window = SDL_CreateWindow("Melody A* Pathfinder", WIDTH, HEIGHT,
@@ -485,10 +490,17 @@ static void app_init(Mel_App* app)
     mel_vfs_mount(&s_demo_vfs, S8("/"), s_fonts_backend, 0, false);
 
     on_init(&app->engine);
+
+    mel_sim_init(&s_sim, .event_buffer = s_event_buf, .event_buffer_size = sizeof(s_event_buf));
+    mel_sim_add_variable(&s_sim, app_update);
+    mel_engine_register_sim(&app->engine, &s_sim);
 }
 
 static void app_shutdown(Mel_App* app)
 {
+    mel_engine_unregister_sim(&app->engine, &s_sim);
+    mel_sim_shutdown(&s_sim);
+
     Mel_Gpu_Device* dev = &app->engine.dev;
     mel_gpu_device_wait_idle(dev);
 
@@ -509,9 +521,10 @@ static void app_shutdown(Mel_App* app)
     mel_gpu_texture_shutdown(&s_grass_texture, dev);
 }
 
-static void app_update(Mel_App* app, f32 dt)
+static void app_update(Mel_Sim_Ctx* sim, f32 dt, void* user)
 {
-    MEL_UNUSED(app);
+    MEL_UNUSED(sim);
+    MEL_UNUSED(user);
 
     if (s_pf.search_state == SEARCH_RUNNING)
         mel_coro_update(s_pf.coro, dt);
@@ -617,6 +630,5 @@ static void app_event(Mel_App* app, SDL_Event* event)
 MEL_APP(
     .on_init = app_init,
     .on_shutdown = app_shutdown,
-    .on_update = app_update,
     .on_event = app_event
 )

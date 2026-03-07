@@ -68,25 +68,43 @@ void mel_gpu_texture_init_opt(Mel_Gpu_Texture* tex, Mel_Gpu_Device* dev, Mel_Gpu
 {
     assert(tex != nullptr);
     assert(dev != nullptr);
-    assert(!str8_is_empty(opt.path) || opt.data != nullptr);
+    assert(!str8_is_empty(opt.path) || opt.data != nullptr || opt.pixels != nullptr);
 
     *tex = (Mel_Gpu_Texture){0};
 
-    int width, height, channels;
-    u8* pixels = nullptr;
+    u32 w, h;
+    const u8* pixel_data = nullptr;
+    bool free_pixels = false;
 
-    if (!str8_is_empty(opt.path))
+    if (opt.pixels)
     {
-        char path_buf[512];
-        str8_to_buf(opt.path, path_buf, sizeof(path_buf));
-        pixels = stbi_load(path_buf, &width, &height, &channels, 4);
+        assert(opt.width > 0 && opt.height > 0);
+        pixel_data = opt.pixels;
+        w = opt.width;
+        h = opt.height;
     }
     else
-        pixels = stbi_load_from_memory(opt.data, (int)opt.data_size, &width, &height, &channels, 4);
+    {
+        int iw, ih, channels;
+        u8* decoded = nullptr;
 
-    assert(pixels != nullptr);
+        if (!str8_is_empty(opt.path))
+        {
+            char path_buf[512];
+            str8_to_buf(opt.path, path_buf, sizeof(path_buf));
+            decoded = stbi_load(path_buf, &iw, &ih, &channels, 4);
+        }
+        else
+            decoded = stbi_load_from_memory(opt.data, (int)opt.data_size, &iw, &ih, &channels, 4);
 
-    u32 image_size = (u32)(width * height * 4);
+        assert(decoded != nullptr);
+        pixel_data = decoded;
+        w = (u32)iw;
+        h = (u32)ih;
+        free_pixels = true;
+    }
+
+    u32 image_size = w * h * 4;
 
     Mel_Gpu_Buffer staging;
     mel_gpu_buffer_init(&staging, dev,
@@ -94,12 +112,13 @@ void mel_gpu_texture_init_opt(Mel_Gpu_Texture* tex, Mel_Gpu_Device* dev, Mel_Gpu
         .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
         .memory_usage = VMA_MEMORY_USAGE_CPU_ONLY);
 
-    mel_gpu_buffer_upload(&staging, dev, pixels, image_size, 0);
-    stbi_image_free(pixels);
+    mel_gpu_buffer_upload(&staging, dev, pixel_data, image_size, 0);
+    if (free_pixels)
+        stbi_image_free((void*)pixel_data);
 
     mel_gpu_image_init(&tex->image, dev,
-        .width = (u32)width,
-        .height = (u32)height,
+        .width = w,
+        .height = h,
         .format = VK_FORMAT_R8G8B8A8_SRGB,
         .usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
         .aspect = VK_IMAGE_ASPECT_COLOR_BIT,
@@ -108,8 +127,8 @@ void mel_gpu_texture_init_opt(Mel_Gpu_Texture* tex, Mel_Gpu_Device* dev, Mel_Gpu
     Gpu_Texture_Upload upload = {
         .image = &tex->image,
         .staging = &staging,
-        .width = (u32)width,
-        .height = (u32)height,
+        .width = w,
+        .height = h,
     };
 
     mel_gpu_submit_immediate(dev, upload_cmd, &upload);
@@ -117,7 +136,7 @@ void mel_gpu_texture_init_opt(Mel_Gpu_Texture* tex, Mel_Gpu_Device* dev, Mel_Gpu
 
     create_sampler(tex, dev, opt.nearest_filter);
 
-    SDL_Log("Texture loaded: %dx%d", width, height);
+    SDL_Log("Texture loaded: %ux%u", w, h);
 }
 
 void mel_gpu_texture_init_white(Mel_Gpu_Texture* tex, Mel_Gpu_Device* dev)

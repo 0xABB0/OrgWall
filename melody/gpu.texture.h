@@ -15,6 +15,9 @@ typedef struct {
     str8 path;
     const u8* data;
     u32 data_size;
+    const u8* pixels;
+    u32 width;
+    u32 height;
     bool nearest_filter;
     const Mel_Alloc* alloc;
 } Mel_Gpu_Texture_Opt;

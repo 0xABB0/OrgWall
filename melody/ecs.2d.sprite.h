@@ -3,6 +3,8 @@
 #include "core.types.h"
 #include "math.vec2.h"
 #include "math.vec4.h"
+#include "math.geo.rect.h"
+#include "texture.pool.fwd.h"
 
 #include <flecs.h>
 
@@ -10,6 +12,8 @@ typedef struct Mel_Sprite
 {
     Mel_Vec2 size;
     Mel_Vec4 color;
+    Mel_Texture_Handle tex;
+    Mel_Rect uv;
 } Mel_Sprite;
 
 extern ECS_COMPONENT_DECLARE(Mel_Sprite);

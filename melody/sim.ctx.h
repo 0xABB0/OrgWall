@@ -45,6 +45,7 @@ struct Mel_Sim_Ctx {
     u32 variable_count;
     u32 variable_capacity;
     u32 next_update_id;
+    Mel_Sim_Ctx* next;
 };
 
 typedef struct {

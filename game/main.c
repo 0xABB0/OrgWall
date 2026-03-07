@@ -45,6 +45,7 @@
 #include "render.target.h"
 #include "render.camera.h"
 #include "render.list.h"
+#include "sim.ctx.h"
 
 static SDL_Window* s_window;
 
@@ -67,6 +68,8 @@ static Mel_Render_Target s_swapchain_target;
 static Mel_Render_Graph s_graph;
 static Mel_Camera s_camera;
 static Mel_Engine* s_engine;
+static Mel_Sim_Ctx s_sim;
+static u8 s_event_buf[4096];
 
 static Mel_Render_List s_sprite_list;
 static Mel_Render_List s_ui_list;
@@ -232,6 +235,8 @@ static void on_init(Mel_Engine* e)
     SDL_Log("Game ready! WASD to move, E to interact with NPC, F1 for editor");
 }
 
+static void app_update(Mel_Sim_Ctx* sim, f32 dt, void* user);
+
 static void app_init(Mel_App* app)
 {
     const char* base = SDL_GetBasePath();
@@ -274,10 +279,17 @@ static void app_init(Mel_App* app)
         .enable_imgui = true);
 
     on_init(&app->engine);
+
+    mel_sim_init(&s_sim, .event_buffer = s_event_buf, .event_buffer_size = sizeof(s_event_buf));
+    mel_sim_add_variable(&s_sim, app_update);
+    mel_engine_register_sim(&app->engine, &s_sim);
 }
 
 static void app_shutdown(Mel_App* app)
 {
+    mel_engine_unregister_sim(&app->engine, &s_sim);
+    mel_sim_shutdown(&s_sim);
+
     Mel_Gpu_Device* dev = &app->engine.dev;
 
     mel_gpu_device_wait_idle(dev);
@@ -318,9 +330,10 @@ static void app_shutdown(Mel_App* app)
     SDL_Log("Game shutdown");
 }
 
-static void app_update(Mel_App* app, f32 dt)
+static void app_update(Mel_Sim_Ctx* sim, f32 dt, void* user)
 {
-    MEL_UNUSED(app);
+    MEL_UNUSED(sim);
+    MEL_UNUSED(user);
     mel_game_update(&s_game, dt);
     mel_widget_set_visible(&s_dialogue_box.base, s_game.dialogue_open);
 
@@ -373,6 +386,5 @@ static void app_event(Mel_App* app, SDL_Event* event)
 MEL_APP(
     .on_init = app_init,
     .on_shutdown = app_shutdown,
-    .on_update = app_update,
     .on_event = app_event
 )

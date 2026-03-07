@@ -29,6 +29,7 @@
 #include "ecs.world.h"
 #include "ecs.2d.transform.h"
 #include "ecs.2d.sprite.h"
+#include "sim.ctx.h"
 
 #define GRID_W 20
 #define GRID_H 20
@@ -72,6 +73,8 @@ static Mel_Vfs s_demo_vfs;
 static Mel_Vfs_Backend* s_fonts_backend;
 static Mel_Font_Handle s_font_handle;
 static Snake s_snake;
+static Mel_Sim_Ctx s_sim;
+static u8 s_event_buf[4096];
 static Mel_Render_Sync s_sync;
 static Mel_Draw_Ctx s_grid_ctx;
 static Mel_Render_List s_sprite_list;
@@ -395,8 +398,8 @@ static void snake_write_entry(void* entry_ptr, ecs_iter_t* it, i32 row, void* us
     entry->pos = t[row].pos;
     entry->size = sp[row].size;
     entry->color = sp[row].color;
-    entry->uv = MEL_UV_FULL;
-    entry->tex = MEL_TEXTURE_HANDLE_NULL;
+    entry->tex = sp[row].tex;
+    entry->uv = sp[row].uv.w > 0 ? sp[row].uv : MEL_UV_FULL;
 }
 
 static void grid_pass(Mel_Render_Pass_Ctx* ctx)
@@ -463,6 +466,8 @@ static void on_init(Mel_Engine* e)
     SDL_Log("Snake ready! Arrow keys to move, R to restart, ESC to quit");
 }
 
+static void app_update(Mel_Sim_Ctx* sim, f32 dt, void* user);
+
 static void app_init(Mel_App* app)
 {
     s_window = SDL_CreateWindow("Melody Snake", 640, 580,
@@ -483,10 +488,17 @@ static void app_init(Mel_App* app)
     mel_vfs_mount(&s_demo_vfs, S8("/"), s_fonts_backend, 0, false);
 
     on_init(&app->engine);
+
+    mel_sim_init(&s_sim, .event_buffer = s_event_buf, .event_buffer_size = sizeof(s_event_buf));
+    mel_sim_add_variable(&s_sim, app_update);
+    mel_engine_register_sim(&app->engine, &s_sim);
 }
 
 static void app_shutdown(Mel_App* app)
 {
+    mel_engine_unregister_sim(&app->engine, &s_sim);
+    mel_sim_shutdown(&s_sim);
+
     Mel_Gpu_Device* dev = &app->engine.dev;
     mel_gpu_device_wait_idle(dev);
 
@@ -509,9 +521,10 @@ static void app_shutdown(Mel_App* app)
     mel_vfs_backend_os_destroy(s_fonts_backend);
 }
 
-static void app_update(Mel_App* app, f32 dt)
+static void app_update(Mel_Sim_Ctx* sim, f32 dt, void* user)
 {
-    MEL_UNUSED(app);
+    MEL_UNUSED(sim);
+    MEL_UNUSED(user);
     snake_tick(&s_snake, dt);
     snake_sync_transforms(&s_snake);
 
@@ -566,6 +579,5 @@ static void app_event(Mel_App* app, SDL_Event* event)
 MEL_APP(
     .on_init = app_init,
     .on_shutdown = app_shutdown,
-    .on_update = app_update,
     .on_event = app_event
 )

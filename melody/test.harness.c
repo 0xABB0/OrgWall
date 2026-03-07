@@ -13,6 +13,23 @@ void mel__test_register(Mel_Test_Entry* entry)
     s_test_count++;
 }
 
+Mel_Test_Entry* mel_test_list(void) { return s_test_list; }
+u32 mel_test_count(void) { return s_test_count; }
+
+void mel_test_run_one(Mel_Test_Entry* entry)
+{
+    u32 failed_before = s_test_ctx.failed;
+    s_test_ctx.current_test = entry->name;
+    entry->func();
+    entry->status = (s_test_ctx.failed > failed_before) ? MEL_TEST_FAILED : MEL_TEST_PASSED;
+}
+
+void mel_test_run_all(void)
+{
+    for (Mel_Test_Entry* e = s_test_list; e; e = e->next)
+        mel_test_run_one(e);
+}
+
 static bool tag_matches(const char* tags, const char* filter)
 {
     if (!tags) return false;
@@ -105,12 +122,9 @@ int mel_test_main(int argc, char** argv)
 
         total++;
 
-        u32 failed_before = s_test_ctx.failed;
-        s_test_ctx.current_test = e->name;
+        mel_test_run_one(e);
 
-        e->func();
-
-        if (s_test_ctx.failed > failed_before)
+        if (e->status == MEL_TEST_FAILED)
         {
             failed++;
         }

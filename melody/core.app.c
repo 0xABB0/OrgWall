@@ -27,7 +27,11 @@ __attribute__((weak)) void mel_engine_shutdown(Mel_Engine* engine)
 
 SDL_AppResult mel__app_sdl_init(Mel_App* app, Mel_App_Opt* opt, void** appstate)
 {
+    int saved_argc = app->argc;
+    char** saved_argv = app->argv;
     *app = (Mel_App){0};
+    app->argc = saved_argc;
+    app->argv = saved_argv;
     app->opt = *opt;
 
     mel__engine_init();
@@ -65,14 +69,7 @@ SDL_AppResult mel__app_sdl_iterate(Mel_App* app)
         return SDL_APP_SUCCESS;
 
     if (app->engine.window)
-    {
         mel_engine_frame(&app->engine, app);
-    }
-    else
-    {
-        if (app->opt.on_update)
-            app->opt.on_update(app, 0);
-    }
 
     return SDL_APP_CONTINUE;
 }

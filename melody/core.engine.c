@@ -1,6 +1,7 @@
 #include "core.engine.h"
 #include "core.app.h"
 #include "render.graph.h"
+#include "sim.ctx.h"
 #include "gpu.swapchain.h"
 #include "allocator.h"
 #include "allocator.heap.h"
@@ -242,10 +243,10 @@ void mel_engine_frame(Mel_Engine* engine, Mel_App* app)
     engine->frame_dt = frame_time;
 
     {
-        TracyCZoneN(ctx_update, "on_update", true);
-        if (app->opt.on_update)
-            app->opt.on_update(app, frame_time);
-        TracyCZoneEnd(ctx_update);
+        TracyCZoneN(ctx_sims, "tick_simulations", true);
+        for (Mel_Sim_Ctx* sim = engine->sim_head; sim; sim = sim->next)
+            mel_sim_tick(sim, frame_time);
+        TracyCZoneEnd(ctx_sims);
     }
 
     if (engine->resize_requested)
@@ -310,3 +311,32 @@ void mel_engine_process_event(Mel_Engine* engine, SDL_Event* event)
     }
 }
 
+void mel_engine_register_sim(Mel_Engine* engine, Mel_Sim_Ctx* sim)
+{
+    assert(engine != nullptr);
+    assert(sim != nullptr);
+    assert(sim->next == nullptr);
+
+    sim->next = engine->sim_head;
+    engine->sim_head = sim;
+}
+
+void mel_engine_unregister_sim(Mel_Engine* engine, Mel_Sim_Ctx* sim)
+{
+    assert(engine != nullptr);
+    assert(sim != nullptr);
+
+    Mel_Sim_Ctx** pp = &engine->sim_head;
+    while (*pp)
+    {
+        if (*pp == sim)
+        {
+            *pp = sim->next;
+            sim->next = nullptr;
+            return;
+        }
+        pp = &(*pp)->next;
+    }
+
+    assert(false);
+}

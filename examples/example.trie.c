@@ -23,6 +23,7 @@
 #include "math.vec4.h"
 #include "math.geo.rect.h"
 #include "collection.trie.h"
+#include "sim.ctx.h"
 
 #include <string.h>
 #include <stdio.h>
@@ -71,6 +72,8 @@ static Mel_Vfs s_demo_vfs;
 static Mel_Vfs_Backend* s_fonts_backend;
 static Mel_Font_Handle s_font_handle;
 static TrieDemo s_demo;
+static Mel_Sim_Ctx s_sim;
+static u8 s_event_buf[4096];
 static Mel_Render_Target s_swapchain_target;
 static Mel_Render_Graph s_graph;
 static Mel_Camera s_camera;
@@ -391,6 +394,8 @@ static void on_init(Mel_Engine* e)
     SDL_Log("Trie Autocomplete ready! Type to search, ESC to quit");
 }
 
+static void app_update(Mel_Sim_Ctx* sim, f32 dt, void* user);
+
 static void app_init(Mel_App* app)
 {
     s_window = SDL_CreateWindow("Melody Trie Autocomplete", 1100, 700,
@@ -411,10 +416,17 @@ static void app_init(Mel_App* app)
     mel_vfs_mount(&s_demo_vfs, S8("/"), s_fonts_backend, 0, false);
 
     on_init(&app->engine);
+
+    mel_sim_init(&s_sim, .event_buffer = s_event_buf, .event_buffer_size = sizeof(s_event_buf));
+    mel_sim_add_variable(&s_sim, app_update);
+    mel_engine_register_sim(&app->engine, &s_sim);
 }
 
 static void app_shutdown(Mel_App* app)
 {
+    mel_engine_unregister_sim(&app->engine, &s_sim);
+    mel_sim_shutdown(&s_sim);
+
     Mel_Gpu_Device* dev = &app->engine.dev;
     mel_gpu_device_wait_idle(dev);
 
@@ -432,9 +444,10 @@ static void app_shutdown(Mel_App* app)
     mel_vfs_backend_os_destroy(s_fonts_backend);
 }
 
-static void app_update(Mel_App* app, f32 dt)
+static void app_update(Mel_Sim_Ctx* sim, f32 dt, void* user)
 {
-    MEL_UNUSED(app);
+    MEL_UNUSED(sim);
+    MEL_UNUSED(user);
     s_demo.cursor_blink += dt;
     if (s_demo.cursor_blink >= 1.0f)
         s_demo.cursor_blink -= 1.0f;
@@ -573,6 +586,5 @@ static void app_event(Mel_App* app, SDL_Event* event)
 MEL_APP(
     .on_init = app_init,
     .on_shutdown = app_shutdown,
-    .on_update = app_update,
     .on_event = app_event
 )

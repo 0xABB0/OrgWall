@@ -19,7 +19,10 @@ bool mel_editor_sprite(ecs_world_t* world, ecs_entity_t e)
         if (igDragFloat2("Color##sprite", sprite->color.e, 0.1f, 0, 0, "%.2f", 0)) {
             modified = true;
         }
-        
+        if (igDragFloat4("UV##sprite", sprite->uv.e, 0.01f, 0, 1, "%.3f", 0)) {
+            modified = true;
+        }
+
         if (modified) ecs_modified(world, e, Mel_Sprite);
         igUnindent(10);
     }
