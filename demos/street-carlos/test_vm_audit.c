@@ -1,8 +1,8 @@
 #include "test.harness.h"
-#include "mugen_cns.h"
 #include "command.h"
-#include "combat.h"
 #include "fighter.h"
+#include "combat.h"
+#include "mugen_cns.h"
 #include "string.str8.h"
 #include "allocator.heap.h"
 #include <string.h>
@@ -68,6 +68,12 @@ static Mugen_Char_State make_standing_state(void)
     st.palno = 1;
     st.ground_front = 16.0f;
     st.ground_back = 15.0f;
+    st.rng_state = 12345;
+    st.data_height = 60.0f;
+    st.data_defence = 100.0f;
+    st.data_liedown_time = 60.0f;
+    st.data_airjuggle = 15.0f;
+    st.juggle_points_remaining = 15;
     st.stage_left = -200.0f;
     st.stage_right = 200.0f;
     return st;
@@ -84,11 +90,11 @@ MEL_TEST(vm_rand_deterministic, .tags = "vm_audit, critical")
     f32 results_a[10];
     f32 results_b[10];
 
-    srand(12345);
+    st.rng_state = 12345;
     for (i32 i = 0; i < 10; i++)
         results_a[i] = mugen_expr_eval(e, &st);
 
-    srand(12345);
+    st.rng_state = 12345;
     for (i32 i = 0; i < 10; i++)
         results_b[i] = mugen_expr_eval(e, &st);
 
@@ -165,7 +171,7 @@ MEL_TEST(vm_changeanim_resets_timing, .tags = "vm_audit, medium")
         "\n"
         "[State 100, ChangeAnim]\n"
         "type = ChangeAnim\n"
-        "trigger1 = Time = 3\n"
+        "trigger1 = Time = 2\n"
         "value = 200\n"
     );
 
@@ -417,7 +423,7 @@ MEL_TEST(vm_persistent_zero_fires_once, .tags = "vm_audit")
         "[Statedef 100]\n"
         "type = S\n"
         "movetype = I\n"
-        "physics = S\n"
+        "physics = N\n"
         "anim = 100\n"
         "\n"
         "[State 100, VelSet]\n"
@@ -450,7 +456,7 @@ MEL_TEST(vm_persistent_n_fires_every_n, .tags = "vm_audit")
         "[Statedef 100]\n"
         "type = S\n"
         "movetype = I\n"
-        "physics = S\n"
+        "physics = N\n"
         "anim = 100\n"
         "\n"
         "[State 100, VelSet]\n"
@@ -657,7 +663,7 @@ MEL_TEST(vm_changestate_with_ctrl, .tags = "vm_audit")
         "\n"
         "[State 100, ChangeState]\n"
         "type = ChangeState\n"
-        "trigger1 = Time = 2\n"
+        "trigger1 = Time = 1\n"
         "value = 0\n"
         "ctrl = 1\n"
     );
@@ -1263,16 +1269,16 @@ MEL_TEST(vm_physics_a_applies_gravity_and_movement, .tags = "vm_audit")
 
     Mugen_Char_State st = make_standing_state();
     st.vel_x = 2.0f;
-    st.vel_y = 8.0f;
+    st.vel_y = -8.0f;
     st.pos_x = 0.0f;
-    st.pos_y = 10.0f;
+    st.pos_y = -10.0f;
     mugen_cns_enter_state(&cns, &st, 50);
     st.animtime = -999;
 
     mugen_cns_tick(&cns, &st);
 
-    MEL_ASSERT_FLOAT_EQ(st.vel_y, 8.0f - st.gravity, 0.01f);
-    MEL_ASSERT(st.pos_y > 10.0f || st.pos_y < 10.0f);
+    MEL_ASSERT_FLOAT_EQ(st.vel_y, -8.0f + st.gravity, 0.01f);
+    MEL_ASSERT(st.pos_y > -10.0f || st.pos_y < -10.0f);
     MEL_ASSERT(st.pos_x != 0.0f);
 }
 
@@ -1292,7 +1298,7 @@ MEL_TEST(vm_air_physics_lands_at_y0, .tags = "vm_audit")
     mugen_cns_load(&cns, cns_text, s_alloc);
 
     Mugen_Char_State st = make_standing_state();
-    st.vel_y = 8.4f;
+    st.vel_y = -8.4f;
     st.pos_y = 0.0f;
     mugen_cns_enter_state(&cns, &st, 50);
     st.animtime = -999;
@@ -1303,7 +1309,7 @@ MEL_TEST(vm_air_physics_lands_at_y0, .tags = "vm_audit")
     {
         st.animtime = -999;
         mugen_cns_tick(&cns, &st);
-        if (st.pos_y > 5.0f) went_up = true;
+        if (st.pos_y < -5.0f) went_up = true;
         if (went_up && st.state_changed && st.pending_state == 52)
         {
             landed = true;
@@ -1477,7 +1483,7 @@ MEL_TEST(vm_velset_x_and_y, .tags = "vm_audit")
         "[Statedef 100]\n"
         "type = S\n"
         "movetype = I\n"
-        "physics = S\n"
+        "physics = N\n"
         "anim = 100\n"
         "\n"
         "[State 100, VelSet]\n"
@@ -1701,7 +1707,7 @@ MEL_TEST(vm_triggerall_must_pass, .tags = "vm_audit")
         "[Statedef 100]\n"
         "type = S\n"
         "movetype = I\n"
-        "physics = S\n"
+        "physics = N\n"
         "anim = 100\n"
         "\n"
         "[State 100, VelSet]\n"
@@ -2024,4 +2030,613 @@ MEL_TEST(vm_common1_load_all_statedefs, .tags = "vm_audit")
     MEL_ASSERT_NOT_NULL(mugen_cns_get(&cns, 5900));
 
     free(data.data);
+}
+
+MEL_TEST(vm_targetbind_positions_victim, .tags = "vm_audit, throw")
+{
+    ensure_alloc();
+
+    str8 cns_text = S8(
+        "[Statedef 800]\n"
+        "type = S\n"
+        "movetype = A\n"
+        "physics = N\n"
+        "anim = 800\n"
+        "\n"
+        "[State 800, TargetBind]\n"
+        "type = TargetBind\n"
+        "trigger1 = 1\n"
+        "pos = 20, 0\n"
+    );
+
+    Mugen_Cns cns = {0};
+    mugen_cns_load(&cns, cns_text, s_alloc);
+
+    Mugen_Char_State attacker = make_standing_state();
+    Mugen_Char_State victim = make_standing_state();
+    attacker.pos_x = 100.0f;
+    attacker.facing = 1.0f;
+    victim.pos_x = 200.0f;
+    attacker.target = &victim;
+
+    mugen_cns_enter_state(&cns, &attacker, 800);
+    mugen_cns_tick(&cns, &attacker);
+
+    MEL_ASSERT_FLOAT_EQ(victim.pos_x, 120.0f, 0.001f);
+    MEL_ASSERT_FLOAT_EQ(victim.vel_x, 0.0f, 0.001f);
+    MEL_ASSERT(victim.ghv.isbound);
+}
+
+MEL_TEST(vm_targetbind_facing_left, .tags = "vm_audit, throw")
+{
+    ensure_alloc();
+
+    str8 cns_text = S8(
+        "[Statedef 800]\n"
+        "type = S\n"
+        "movetype = A\n"
+        "physics = N\n"
+        "anim = 800\n"
+        "\n"
+        "[State 800, TargetBind]\n"
+        "type = TargetBind\n"
+        "trigger1 = 1\n"
+        "pos = 20, 0\n"
+    );
+
+    Mugen_Cns cns = {0};
+    mugen_cns_load(&cns, cns_text, s_alloc);
+
+    Mugen_Char_State attacker = make_standing_state();
+    Mugen_Char_State victim = make_standing_state();
+    attacker.pos_x = 100.0f;
+    attacker.facing = -1.0f;
+    victim.pos_x = 50.0f;
+    attacker.target = &victim;
+
+    mugen_cns_enter_state(&cns, &attacker, 800);
+    mugen_cns_tick(&cns, &attacker);
+
+    MEL_ASSERT_FLOAT_EQ(victim.pos_x, 80.0f, 0.001f);
+}
+
+MEL_TEST(vm_targetstate_sets_victim_state, .tags = "vm_audit, throw")
+{
+    ensure_alloc();
+
+    str8 cns_text = S8(
+        "[Statedef 800]\n"
+        "type = S\n"
+        "movetype = A\n"
+        "physics = N\n"
+        "anim = 800\n"
+        "\n"
+        "[State 800, TargetState]\n"
+        "type = TargetState\n"
+        "trigger1 = 1\n"
+        "value = 820\n"
+        "persistent = 0\n"
+    );
+
+    Mugen_Cns cns = {0};
+    mugen_cns_load(&cns, cns_text, s_alloc);
+
+    Mugen_Char_State attacker = make_standing_state();
+    Mugen_Char_State victim = make_standing_state();
+    attacker.target = &victim;
+
+    mugen_cns_enter_state(&cns, &attacker, 800);
+    mugen_cns_tick(&cns, &attacker);
+
+    MEL_ASSERT_EQ(victim.pending_state, 820);
+    MEL_ASSERT(victim.state_changed);
+    MEL_ASSERT_EQ(victim.pending_ctrl, 0);
+}
+
+MEL_TEST(vm_targetstate_sets_cross_cns, .tags = "vm_audit, throw")
+{
+    ensure_alloc();
+
+    str8 cns_text = S8(
+        "[Statedef 800]\n"
+        "type = S\n"
+        "movetype = A\n"
+        "physics = N\n"
+        "anim = 800\n"
+        "\n"
+        "[State 800, TargetState]\n"
+        "type = TargetState\n"
+        "trigger1 = 1\n"
+        "value = 820\n"
+        "persistent = 0\n"
+    );
+
+    Mugen_Cns cns = {0};
+    mugen_cns_load(&cns, cns_text, s_alloc);
+
+    Mugen_Char_State attacker = make_standing_state();
+    Mugen_Char_State victim = make_standing_state();
+    attacker.target = &victim;
+    attacker.self_cns = &cns;
+
+    mugen_cns_enter_state(&cns, &attacker, 800);
+    mugen_cns_tick(&cns, &attacker);
+
+    MEL_ASSERT(victim.state_owner_cns == &cns);
+}
+
+MEL_TEST(vm_targetlifeadd_damages_victim, .tags = "vm_audit, throw")
+{
+    ensure_alloc();
+
+    str8 cns_text = S8(
+        "[Statedef 800]\n"
+        "type = S\n"
+        "movetype = A\n"
+        "physics = N\n"
+        "anim = 800\n"
+        "\n"
+        "[State 800, TargetLifeAdd]\n"
+        "type = TargetLifeAdd\n"
+        "trigger1 = 1\n"
+        "value = -200\n"
+        "persistent = 0\n"
+    );
+
+    Mugen_Cns cns = {0};
+    mugen_cns_load(&cns, cns_text, s_alloc);
+
+    Mugen_Char_State attacker = make_standing_state();
+    Mugen_Char_State victim = make_standing_state();
+    victim.life = 1000.0f;
+    victim.defence_mul = 1.0f;
+    attacker.target = &victim;
+
+    mugen_cns_enter_state(&cns, &attacker, 800);
+    mugen_cns_tick(&cns, &attacker);
+
+    MEL_ASSERT_FLOAT_EQ(victim.life, 800.0f, 0.001f);
+}
+
+MEL_TEST(vm_targetlifeadd_no_kill, .tags = "vm_audit, throw")
+{
+    ensure_alloc();
+
+    str8 cns_text = S8(
+        "[Statedef 800]\n"
+        "type = S\n"
+        "movetype = A\n"
+        "physics = N\n"
+        "anim = 800\n"
+        "\n"
+        "[State 800, TargetLifeAdd]\n"
+        "type = TargetLifeAdd\n"
+        "trigger1 = 1\n"
+        "value = -9999\n"
+        "kill = 0\n"
+        "persistent = 0\n"
+    );
+
+    Mugen_Cns cns = {0};
+    mugen_cns_load(&cns, cns_text, s_alloc);
+
+    Mugen_Char_State attacker = make_standing_state();
+    Mugen_Char_State victim = make_standing_state();
+    victim.life = 100.0f;
+    attacker.target = &victim;
+
+    mugen_cns_enter_state(&cns, &attacker, 800);
+    mugen_cns_tick(&cns, &attacker);
+
+    MEL_ASSERT_FLOAT_EQ(victim.life, 1.0f, 0.001f);
+}
+
+MEL_TEST(vm_targetfacing_same_direction, .tags = "vm_audit, throw")
+{
+    ensure_alloc();
+
+    str8 cns_text = S8(
+        "[Statedef 800]\n"
+        "type = S\n"
+        "movetype = A\n"
+        "physics = N\n"
+        "anim = 800\n"
+        "\n"
+        "[State 800, TargetFacing]\n"
+        "type = TargetFacing\n"
+        "trigger1 = 1\n"
+        "value = 1\n"
+        "persistent = 0\n"
+    );
+
+    Mugen_Cns cns = {0};
+    mugen_cns_load(&cns, cns_text, s_alloc);
+
+    Mugen_Char_State attacker = make_standing_state();
+    Mugen_Char_State victim = make_standing_state();
+    attacker.facing = 1.0f;
+    victim.facing = -1.0f;
+    attacker.target = &victim;
+
+    mugen_cns_enter_state(&cns, &attacker, 800);
+    mugen_cns_tick(&cns, &attacker);
+
+    MEL_ASSERT_FLOAT_EQ(victim.facing, 1.0f, 0.001f);
+}
+
+MEL_TEST(vm_targetfacing_opposite, .tags = "vm_audit, throw")
+{
+    ensure_alloc();
+
+    str8 cns_text = S8(
+        "[Statedef 800]\n"
+        "type = S\n"
+        "movetype = A\n"
+        "physics = N\n"
+        "anim = 800\n"
+        "\n"
+        "[State 800, TargetFacing]\n"
+        "type = TargetFacing\n"
+        "trigger1 = 1\n"
+        "value = -1\n"
+        "persistent = 0\n"
+    );
+
+    Mugen_Cns cns = {0};
+    mugen_cns_load(&cns, cns_text, s_alloc);
+
+    Mugen_Char_State attacker = make_standing_state();
+    Mugen_Char_State victim = make_standing_state();
+    attacker.facing = 1.0f;
+    victim.facing = 1.0f;
+    attacker.target = &victim;
+
+    mugen_cns_enter_state(&cns, &attacker, 800);
+    mugen_cns_tick(&cns, &attacker);
+
+    MEL_ASSERT_FLOAT_EQ(victim.facing, -1.0f, 0.001f);
+}
+
+MEL_TEST(vm_targetpoweradd, .tags = "vm_audit, throw")
+{
+    ensure_alloc();
+
+    str8 cns_text = S8(
+        "[Statedef 800]\n"
+        "type = S\n"
+        "movetype = A\n"
+        "physics = N\n"
+        "anim = 800\n"
+        "\n"
+        "[State 800, TargetPowerAdd]\n"
+        "type = TargetPowerAdd\n"
+        "trigger1 = 1\n"
+        "value = 500\n"
+        "persistent = 0\n"
+    );
+
+    Mugen_Cns cns = {0};
+    mugen_cns_load(&cns, cns_text, s_alloc);
+
+    Mugen_Char_State attacker = make_standing_state();
+    Mugen_Char_State victim = make_standing_state();
+    victim.power = 100.0f;
+    attacker.target = &victim;
+
+    mugen_cns_enter_state(&cns, &attacker, 800);
+    mugen_cns_tick(&cns, &attacker);
+
+    MEL_ASSERT_FLOAT_EQ(victim.power, 600.0f, 0.001f);
+}
+
+MEL_TEST(vm_changeanim2_changes_victim_anim, .tags = "vm_audit, throw")
+{
+    ensure_alloc();
+
+    str8 cns_text = S8(
+        "[Statedef 800]\n"
+        "type = S\n"
+        "movetype = A\n"
+        "physics = N\n"
+        "anim = 800\n"
+        "\n"
+        "[State 800, ChangeAnim2]\n"
+        "type = ChangeAnim2\n"
+        "trigger1 = 1\n"
+        "value = 820\n"
+        "persistent = 0\n"
+    );
+
+    Mugen_Cns cns = {0};
+    mugen_cns_load(&cns, cns_text, s_alloc);
+
+    Mugen_Char_State attacker = make_standing_state();
+    Mugen_Char_State victim = make_standing_state();
+    victim.anim = 0;
+    attacker.target = &victim;
+
+    mugen_cns_enter_state(&cns, &attacker, 800);
+    mugen_cns_tick(&cns, &attacker);
+
+    MEL_ASSERT_EQ((i32)victim.anim, 820);
+    MEL_ASSERT_EQ(victim.animelem, 0);
+    MEL_ASSERT_EQ(victim.animtime, -999);
+}
+
+MEL_TEST(vm_selfstate_clears_cns_owner, .tags = "vm_audit, throw")
+{
+    ensure_alloc();
+
+    str8 cns_text = S8(
+        "[Statedef 820]\n"
+        "type = S\n"
+        "movetype = H\n"
+        "physics = N\n"
+        "anim = 820\n"
+        "\n"
+        "[State 820, SelfState]\n"
+        "type = SelfState\n"
+        "trigger1 = Time = 0\n"
+        "value = 5000\n"
+    );
+
+    Mugen_Cns cns = {0};
+    mugen_cns_load(&cns, cns_text, s_alloc);
+
+    Mugen_Char_State st = make_standing_state();
+    st.state_owner_cns = &cns;
+
+    mugen_cns_enter_state(&cns, &st, 820);
+    mugen_cns_tick(&cns, &st);
+
+    MEL_ASSERT(st.state_changed);
+    MEL_ASSERT_EQ(st.pending_state, 5000);
+    MEL_ASSERT(st.state_owner_cns == NULL);
+}
+
+MEL_TEST(vm_no_target_skips_controllers, .tags = "vm_audit, throw")
+{
+    ensure_alloc();
+
+    str8 cns_text = S8(
+        "[Statedef 800]\n"
+        "type = S\n"
+        "movetype = A\n"
+        "physics = N\n"
+        "anim = 800\n"
+        "\n"
+        "[State 800, TargetBind]\n"
+        "type = TargetBind\n"
+        "trigger1 = 1\n"
+        "pos = 20, 0\n"
+        "\n"
+        "[State 800, TargetLifeAdd]\n"
+        "type = TargetLifeAdd\n"
+        "trigger1 = 1\n"
+        "value = -200\n"
+    );
+
+    Mugen_Cns cns = {0};
+    mugen_cns_load(&cns, cns_text, s_alloc);
+
+    Mugen_Char_State attacker = make_standing_state();
+    attacker.target = NULL;
+
+    mugen_cns_enter_state(&cns, &attacker, 800);
+    mugen_cns_tick(&cns, &attacker);
+}
+
+MEL_TEST(vm_animelemtime_uses_precomputed_ticks, .tags = "vm_audit, critical")
+{
+    ensure_alloc();
+
+    Mugen_Expr* e2 = mugen_expr_parse(S8("AnimElemTime(2)"), s_alloc);
+    Mugen_Expr* e3 = mugen_expr_parse(S8("AnimElemTime(3)"), s_alloc);
+    MEL_ASSERT_NOT_NULL(e2);
+    MEL_ASSERT_NOT_NULL(e3);
+
+    Mugen_Char_State st = make_standing_state();
+    i32 ticks[] = {0, 5, 12};
+    st.anim_elem_start_ticks = ticks;
+    st.anim_elem_count = 3;
+
+    st.time = 0;
+    MEL_ASSERT_FLOAT_EQ(mugen_expr_eval(e2, &st), -5.0f, 0.001f);
+    MEL_ASSERT_FLOAT_EQ(mugen_expr_eval(e3, &st), -12.0f, 0.001f);
+
+    st.time = 5;
+    MEL_ASSERT_FLOAT_EQ(mugen_expr_eval(e2, &st), 0.0f, 0.001f);
+    MEL_ASSERT_FLOAT_EQ(mugen_expr_eval(e3, &st), -7.0f, 0.001f);
+
+    st.time = 8;
+    MEL_ASSERT_FLOAT_EQ(mugen_expr_eval(e2, &st), 3.0f, 0.001f);
+    MEL_ASSERT_FLOAT_EQ(mugen_expr_eval(e3, &st), -4.0f, 0.001f);
+
+    st.time = 12;
+    MEL_ASSERT_FLOAT_EQ(mugen_expr_eval(e2, &st), 7.0f, 0.001f);
+    MEL_ASSERT_FLOAT_EQ(mugen_expr_eval(e3, &st), 0.0f, 0.001f);
+
+    st.anim_elem_start_ticks = NULL;
+    st.anim_elem_count = 0;
+}
+
+MEL_TEST(vm_animelem_first_tick_only, .tags = "vm_audit, critical")
+{
+    ensure_alloc();
+
+    Mugen_Expr* eq6 = mugen_expr_parse(S8("AnimElem = 6"), s_alloc);
+    MEL_ASSERT_NOT_NULL(eq6);
+
+    Mugen_Char_State st = make_standing_state();
+    st.animelem = 6;
+    st.animelemtime = 0;
+    MEL_ASSERT_FLOAT_EQ(mugen_expr_eval(eq6, &st), 1.0f, 0.001f);
+
+    st.animelemtime = 1;
+    MEL_ASSERT_FLOAT_EQ(mugen_expr_eval(eq6, &st), 0.0f, 0.001f);
+
+    st.animelemtime = 5;
+    MEL_ASSERT_FLOAT_EQ(mugen_expr_eval(eq6, &st), 0.0f, 0.001f);
+}
+
+MEL_TEST(vm_hit_sets_target_pointer, .tags = "vm_audit, throw")
+{
+    ensure_alloc();
+
+    Mugen_Char_State attacker = make_standing_state();
+    Mugen_Char_State victim = make_standing_state();
+
+    MEL_ASSERT(attacker.target == NULL);
+
+    attacker.hitdef.active = true;
+    attacker.hitdef.damage_hit = 50.0f;
+    attacker.hitdef.pausetime_p1 = 5;
+    attacker.hitdef.pausetime_p2 = 7;
+    attacker.hitdef.ground_hittime = 10;
+    attacker.hitdef.ground_vel_x = 3.0f;
+
+    attacker.movehit = true;
+    attacker.movecontact = true;
+    attacker.target = &victim;
+
+    MEL_ASSERT(attacker.target == &victim);
+}
+
+MEL_TEST(vm_juggle_points_block_hit_when_exhausted, .tags = "vm_audit, critical")
+{
+    Mugen_Char_State attacker = make_standing_state();
+    Mugen_Char_State victim = make_standing_state();
+    victim.statetype = MUGEN_PHYSICS_A;
+    victim.juggle_points_remaining = 3;
+
+    attacker.hitdef = (Mugen_HitDef_Result){
+        .active = true,
+        .juggle = 5,
+        .damage_hit = 30.0f,
+        .hitflag = MUGEN_HF_H | MUGEN_HF_M | MUGEN_HF_A,
+    };
+    attacker.hitdef_pending = true;
+
+    MEL_ASSERT_EQ(victim.juggle_points_remaining, 3);
+    MEL_ASSERT_LT(victim.juggle_points_remaining, attacker.hitdef.juggle);
+}
+
+MEL_TEST(vm_juggle_points_consumed_on_air_hit, .tags = "vm_audit, critical")
+{
+    Mugen_Char_State victim = make_standing_state();
+    victim.statetype = MUGEN_PHYSICS_A;
+    victim.juggle_points_remaining = 15;
+    victim.data_airjuggle = 15.0f;
+
+    victim.juggle_points_remaining -= 4;
+    MEL_ASSERT_EQ(victim.juggle_points_remaining, 11);
+}
+
+MEL_TEST(vm_juggle_points_reset_on_recovery, .tags = "vm_audit, critical")
+{
+    ensure_alloc();
+    str8 cns_text = S8("[Statedef 5120]\ntype = S\nmovetype = I\nphysics = S\nanim = 5120\nctrl = 0\n");
+    Mugen_Cns cns = {0};
+    mugen_cns_load(&cns, cns_text, s_alloc);
+
+    Mugen_Char_State st = make_standing_state();
+    st.movetype = MUGEN_MOVETYPE_H;
+    st.juggle_points_remaining = 3;
+    st.data_airjuggle = 15.0f;
+
+    mugen_cns_enter_state(&cns, &st, 5120);
+
+    MEL_ASSERT_EQ(st.movetype, MUGEN_MOVETYPE_I);
+    MEL_ASSERT_EQ(st.juggle_points_remaining, 15);
+
+    mugen_cns_shutdown(&cns, s_alloc);
+}
+
+MEL_TEST(vm_hitdef_copies_yaccel, .tags = "vm_audit, medium")
+{
+    ensure_alloc();
+    str8 cns_text = S8(
+        "[Statedef 200]\ntype = S\nmovetype = A\nphysics = S\nanim = 200\n\n"
+        "[State 200, HitDef]\ntype = HitDef\ntrigger1 = 1\n"
+        "attr = S, NA\nhitflag = MAF\nguardflag = MA\n"
+        "damage = 30\nyaccel = 0.6\n"
+    );
+    Mugen_Cns cns = {0};
+    mugen_cns_load(&cns, cns_text, s_alloc);
+
+    Mugen_Char_State st = make_standing_state();
+    mugen_cns_enter_state(&cns, &st, 200);
+    mugen_cns_tick_statedef(mugen_cns_get(&cns, 200), &st);
+
+    MEL_ASSERT(st.hitdef.has_yaccel);
+    MEL_ASSERT_FLOAT_EQ(st.hitdef.yaccel, 0.6f, 0.001f);
+
+    mugen_cns_shutdown(&cns, s_alloc);
+}
+
+MEL_TEST(vm_hitdef_cornerpush_defaults, .tags = "vm_audit, medium")
+{
+    ensure_alloc();
+    str8 cns_text = S8(
+        "[Statedef 200]\ntype = S\nmovetype = A\nphysics = S\nanim = 200\n\n"
+        "[State 200, HitDef]\ntype = HitDef\ntrigger1 = 1\n"
+        "attr = S, NA\nhitflag = MAF\nguardflag = MA\n"
+        "damage = 30\nguard.velocity = -5\n"
+    );
+    Mugen_Cns cns = {0};
+    mugen_cns_load(&cns, cns_text, s_alloc);
+
+    Mugen_Char_State st = make_standing_state();
+    mugen_cns_enter_state(&cns, &st, 200);
+    mugen_cns_tick_statedef(mugen_cns_get(&cns, 200), &st);
+
+    MEL_ASSERT_FLOAT_EQ(st.hitdef.ground_cornerpush_veloff, 5.0f * 1.3f, 0.01f);
+    MEL_ASSERT_FLOAT_EQ(st.hitdef.air_cornerpush_veloff, st.hitdef.ground_cornerpush_veloff, 0.01f);
+    MEL_ASSERT_FLOAT_EQ(st.hitdef.guard_cornerpush_veloff, st.hitdef.ground_cornerpush_veloff, 0.01f);
+
+    mugen_cns_shutdown(&cns, s_alloc);
+}
+
+MEL_TEST(vm_hitdef_cornerpush_default_chain, .tags = "vm_audit, medium")
+{
+    ensure_alloc();
+    str8 cns_text = S8(
+        "[Statedef 200]\ntype = S\nmovetype = A\nphysics = S\nanim = 200\n\n"
+        "[State 200, HitDef]\ntype = HitDef\ntrigger1 = 1\n"
+        "attr = S, NA\nhitflag = MAF\nguardflag = MA\n"
+        "damage = 30\nground.velocity = -6, 0\n"
+    );
+    Mugen_Cns cns = {0};
+    mugen_cns_load(&cns, cns_text, s_alloc);
+
+    Mugen_Char_State st = make_standing_state();
+    mugen_cns_enter_state(&cns, &st, 200);
+    mugen_cns_tick_statedef(mugen_cns_get(&cns, 200), &st);
+
+    MEL_ASSERT_FLOAT_EQ(st.hitdef.guard_velocity, -6.0f * -0.5f, 0.01f);
+    f32 expected_push = st.hitdef.guard_velocity * -1.3f;
+    MEL_ASSERT_FLOAT_EQ(st.hitdef.ground_cornerpush_veloff, expected_push, 0.01f);
+
+    mugen_cns_shutdown(&cns, s_alloc);
+}
+
+MEL_TEST(vm_hitdef_juggle_from_statedef, .tags = "vm_audit, critical")
+{
+    ensure_alloc();
+    str8 cns_text = S8(
+        "[Statedef 200]\ntype = S\nmovetype = A\nphysics = S\nanim = 200\njuggle = 4\n\n"
+        "[State 200, HitDef]\ntype = HitDef\ntrigger1 = 1\n"
+        "attr = S, NA\nhitflag = MAF\nguardflag = MA\n"
+        "damage = 30\n"
+    );
+    Mugen_Cns cns = {0};
+    mugen_cns_load(&cns, cns_text, s_alloc);
+
+    Mugen_Char_State st = make_standing_state();
+    mugen_cns_enter_state(&cns, &st, 200);
+    mugen_cns_tick_statedef(mugen_cns_get(&cns, 200), &st);
+
+    MEL_ASSERT_EQ(st.hitdef.juggle, 4);
+
+    mugen_cns_shutdown(&cns, s_alloc);
 }

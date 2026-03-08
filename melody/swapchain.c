@@ -84,3 +84,22 @@ u32 mel_swapchain_registry_count(void)
 {
     return s_initialized ? mel_slotmap_count(&s_swapchains) : 0;
 }
+
+void mel_swapchain_registry_destroy_all(Mel_Gpu_Device* dev)
+{
+    if (!s_initialized) return;
+
+    Mel_Swapchain_Entry* entries = mel_slotmap_data(&s_swapchains);
+    u32 count = mel_slotmap_count(&s_swapchains);
+
+    for (u32 i = 0; i < count; i++)
+    {
+        mel_swapchain_shutdown(&entries[i].swapchain, dev);
+        if (entries[i].surface != VK_NULL_HANDLE)
+            mel_gpu_surface_destroy(dev, entries[i].surface);
+    }
+
+    mel_slotmap_free(&s_swapchains);
+    mel_slotmap_init(&s_swapchains, mel_alloc_heap(),
+        .item_size = sizeof(Mel_Swapchain_Entry), .initial_capacity = 4);
+}

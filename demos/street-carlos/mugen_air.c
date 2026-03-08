@@ -176,6 +176,9 @@ static bool mugen__parse_clsn_box(str8 line, Mugen_Clsn_Box* out)
     if (!mugen__parse_i16(sx2, &out->x2)) return false;
     if (!mugen__parse_i16(sy2, &out->y2)) return false;
 
+    if (out->x1 > out->x2) { i16 t = out->x1; out->x1 = out->x2; out->x2 = t; }
+    if (out->y1 > out->y2) { i16 t = out->y1; out->y1 = out->y2; out->y2 = t; }
+
     return true;
 }
 

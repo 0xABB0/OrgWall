@@ -9,6 +9,7 @@
 #include "collection.slotmap.h"
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 static u64 s_hitbox_prop;
 static u64 s_hurtbox_prop;
@@ -45,15 +46,20 @@ static Mel_Anim_Clip_Handle find_clip(Fighter* f, u32 action_number)
     return (Mel_Anim_Clip_Handle){0};
 }
 
+static void sync_elem_ticks(Fighter* f, Mel_Anim_Clip* clip);
+
 static void play_action(Fighter* f, u32 action_number, f32 crossfade)
 {
     if (f->current_action == action_number) return;
 
-    Mel_Anim_Clip_Handle clip = find_clip(f, action_number);
-    if (!mel_slotmap_alive(f->clip_pool, clip)) return;
+    Mel_Anim_Clip_Handle clip_h = find_clip(f, action_number);
+    if (!mel_slotmap_alive(f->clip_pool, clip_h)) return;
 
     f->current_action = action_number;
-    mel_anim_player_play(&f->player, clip, .crossfade = crossfade);
+    mel_anim_player_play(&f->player, clip_h, .crossfade = crossfade);
+
+    Mel_Anim_Clip* clip = (Mel_Anim_Clip*)mel_slotmap_get(f->clip_pool, clip_h);
+    if (clip) sync_elem_ticks(f, clip);
 }
 
 static void sample_anim(Fighter* f)
@@ -114,7 +120,7 @@ void fighter_enable_cns(Fighter* f, Mugen_Cns* cns, Mugen_Cns* common_cns, Mugen
     Mugen_Char_State* st = &f->cns_state;
     memset(st, 0, sizeof(*st));
     st->pos_x = f->x;
-    st->pos_y = f->y;
+    st->pos_y = -f->y;
     st->facing = f->facing_right ? 1.0f : -1.0f;
     st->ctrl = true;
     st->alive = true;
@@ -132,20 +138,41 @@ void fighter_enable_cns(Fighter* f, Mugen_Cns* cns, Mugen_Cns* common_cns, Mugen
     st->walk_back_x = c->walk_back_x;
     st->run_fwd_x = c->run_fwd_x;
     st->run_back_x = c->run_back_x;
-    st->run_back_y = c->run_back_y;
+    st->run_back_y = -c->run_back_y;
     st->jump_neu_x = c->jump_neu_x;
     st->jump_fwd_x = c->jump_fwd_x;
     st->jump_back_x = c->jump_back_x;
-    st->jump_y = c->jump_y;
+    st->jump_y = -c->jump_y;
     st->runjump_fwd_x = c->runjump_fwd_x;
     st->runjump_back_x = c->runjump_back_x;
-    st->runjump_y = c->runjump_y;
+    st->runjump_y = -c->runjump_y;
     st->airjump_neu_x = c->airjump_neu_x;
     st->airjump_fwd_x = c->airjump_fwd_x;
     st->airjump_back_x = c->airjump_back_x;
-    st->airjump_y = c->airjump_y;
+    st->airjump_y = -c->airjump_y;
     st->data_attack = (f32)c->attack;
     st->attack_dist = c->attack_dist;
+    st->data_height = c->height;
+    st->data_defence = (f32)c->defence;
+    st->data_liedown_time = (f32)c->liedown_time;
+    st->data_airjuggle = (f32)c->airjuggle;
+    st->data_sparkno = (f32)c->sparkno;
+    st->data_guard_sparkno = (f32)c->guard_sparkno;
+    st->data_xscale = c->xscale;
+    st->data_yscale = c->yscale;
+    st->data_air_front = c->air_front;
+    st->data_air_back = c->air_back;
+    st->data_airjump_num = (f32)c->airjump_num;
+    st->data_airjump_height = (f32)c->airjump_height;
+    st->down_bounce_offset_x = c->down_bounce_offset_x;
+    st->down_bounce_offset_y = c->down_bounce_offset_y;
+    st->down_bounce_yaccel = c->down_bounce_yaccel;
+    st->down_bounce_groundlevel = c->down_bounce_groundlevel;
+    st->down_friction_threshold = c->down_friction_threshold;
+    st->self_cns = cns;
+    st->juggle_points_remaining = c->airjuggle;
+    st->rng_state = 12345;
+    st->defence_mul = 1.0f;
     st->palno = 1;
 
     f->ground_front = c->ground_front;
@@ -161,19 +188,37 @@ void fighter_enable_cns(Fighter* f, Mugen_Cns* cns, Mugen_Cns* common_cns, Mugen
     cns_enter_state(f, 0);
 }
 
+static Mugen_Cns* resolve_cns(Fighter* f)
+{
+    Mugen_Char_State* st = &f->cns_state;
+    return st->state_owner_cns ? st->state_owner_cns : f->cns;
+}
+
 static void cns_enter_state(Fighter* f, i32 stateno)
 {
-    Mugen_Statedef* def = mugen_cns_get(f->cns, stateno);
+    Mugen_Cns* owner = resolve_cns(f);
+    Mugen_Statedef* def = mugen_cns_get(owner, stateno);
     if (def)
     {
-        mugen_cns_enter_state(f->cns, &f->cns_state, stateno);
+        mugen_cns_enter_state(owner, &f->cns_state, stateno);
         return;
+    }
+    if (owner != f->cns)
+    {
+        def = mugen_cns_get(f->cns, stateno);
+        if (def)
+        {
+            f->cns_state.state_owner_cns = NULL;
+            mugen_cns_enter_state(f->cns, &f->cns_state, stateno);
+            return;
+        }
     }
     if (f->common_cns)
     {
         def = mugen_cns_get(f->common_cns, stateno);
         if (def)
         {
+            f->cns_state.state_owner_cns = NULL;
             mugen_cns_enter_state(f->common_cns, &f->cns_state, stateno);
             return;
         }
@@ -184,10 +229,24 @@ static void cns_enter_state(Fighter* f, i32 stateno)
 
 static void cns_tick_state(Fighter* f)
 {
-    Mugen_Statedef* def = mugen_cns_get(f->cns, f->cns_state.stateno);
+    Mugen_Cns* owner = resolve_cns(f);
+    Mugen_Statedef* def = mugen_cns_get(owner, f->cns_state.stateno);
     if (def)
-        mugen_cns_tick(f->cns, &f->cns_state);
-    else if (f->common_cns)
+    {
+        mugen_cns_tick(owner, &f->cns_state);
+        return;
+    }
+    if (owner != f->cns)
+    {
+        def = mugen_cns_get(f->cns, f->cns_state.stateno);
+        if (def)
+        {
+            f->cns_state.state_owner_cns = NULL;
+            mugen_cns_tick(f->cns, &f->cns_state);
+            return;
+        }
+    }
+    if (f->common_cns)
         mugen_cns_tick(f->common_cns, &f->cns_state);
 }
 
@@ -231,7 +290,7 @@ static void engine_movement(Fighter* f)
             cns_enter_state(f, 10);
             return;
         }
-        if ((hold_fwd || hold_back) && st->stateno == 0)
+        if ((hold_fwd || hold_back) && st->stateno == 0 && !(st->assert_flags & MUGEN_ASSERT_NOWALK))
         {
             cns_enter_state(f, 20);
             return;
@@ -260,6 +319,28 @@ static void engine_movement(Fighter* f)
     }
 }
 
+static void sync_elem_ticks(Fighter* f, Mel_Anim_Clip* clip)
+{
+    Mugen_Char_State* st = &f->cns_state;
+    if (clip->group_count == 0) return;
+
+    Mel_Track_Group* grp = &clip->groups[0];
+    u32 fc = grp->keyframe_counts[0];
+
+    if (st->anim_elem_start_ticks && st->anim_elem_count != fc)
+    {
+        free(st->anim_elem_start_ticks);
+        st->anim_elem_start_ticks = NULL;
+    }
+
+    if (!st->anim_elem_start_ticks && fc > 0)
+        st->anim_elem_start_ticks = malloc(sizeof(i32) * fc);
+
+    st->anim_elem_count = fc;
+    for (u32 i = 0; i < fc; i++)
+        st->anim_elem_start_ticks[i] = (i32)(grp->flat_times[i] * MUGEN_TICKS_PER_SECOND + 0.5f);
+}
+
 static void sync_animtime(Fighter* f)
 {
     Mugen_Char_State* st = &f->cns_state;
@@ -278,7 +359,17 @@ static void sync_animtime(Fighter* f)
 
     f32 frame_f;
     mel_anim_player_get_float(&f->player, s_frame_prop, f->player.alloc, &frame_f);
-    st->animelem = (i32)frame_f + 1;
+    i32 new_elem = (i32)frame_f + 1;
+
+    if (new_elem != st->animelem)
+    {
+        st->animelem = new_elem;
+        st->animelemtime = 0;
+    }
+    else
+    {
+        st->animelemtime++;
+    }
 }
 
 void fighter_tick(Fighter* f, f32 dt, f32 stage_left, f32 stage_right)
@@ -292,20 +383,40 @@ void fighter_tick(Fighter* f, f32 dt, f32 stage_left, f32 stage_right)
 
     Mugen_Char_State* st = &f->cns_state;
 
+    if (st->state_changed)
+    {
+        if (st->pending_ctrl >= 0)
+            st->ctrl = st->pending_ctrl != 0;
+        cns_enter_state(f, st->pending_state);
+
+        if (st->anim != f->last_cns_anim)
+        {
+            f->last_cns_anim = st->anim;
+            f->current_action = UINT32_MAX;
+            play_action(f, st->anim, 0.0f);
+        }
+    }
+
     st->commands = &f->commands;
     st->state_changed = false;
+    st->assert_flags = 0;
     st->stage_left = stage_left;
     st->stage_right = stage_right;
     st->ground_front = f->ground_front;
     st->ground_back = f->ground_back;
 
-    mel_anim_player_update(&f->player, dt);
-    sync_animtime(f);
+    if (st->hitpause_time <= 0)
+    {
+        mel_anim_player_update(&f->player, dt);
+        sync_animtime(f);
+    }
 
     i32 prev_stateno = st->stateno;
 
     {
         Mugen_Statedef* def2 = mugen_cns_get(f->cns, -2);
+        if (!def2 && f->common_cns)
+            def2 = mugen_cns_get(f->common_cns, -2);
         if (def2)
             mugen_cns_tick_statedef(def2, st);
     }
@@ -314,6 +425,8 @@ void fighter_tick(Fighter* f, f32 dt, f32 stage_left, f32 stage_right)
     {
         {
             Mugen_Statedef* def3 = mugen_cns_get(f->cns, -3);
+            if (!def3 && f->common_cns)
+                def3 = mugen_cns_get(f->common_cns, -3);
             if (def3)
                 mugen_cns_tick_statedef(def3, st);
         }
@@ -336,22 +449,39 @@ void fighter_tick(Fighter* f, f32 dt, f32 stage_left, f32 stage_right)
         }
     }
 
+    if (st->stateno == 5110 && st->alive && st->time >= (i32)st->data_liedown_time)
+    {
+        st->pending_state = 5120;
+        st->pending_ctrl = 0;
+        st->state_changed = true;
+        cns_enter_state(f, 5120);
+    }
+
     if (st->stateno != prev_stateno)
-        printf("STATE: %d -> %d (type=%d phys=%d ctrl=%d vel=%.2f,%.2f pos=%.2f,%.2f anim=%d animtime=%d)\n",
+        printf("STATE: %d -> %d (type=%d phys=%d ctrl=%d vel=%.2f,%.2f pos=%.2f,%.2f anim=%d animtime=%d movetype=%d)\n",
             prev_stateno, st->stateno, st->statetype, st->physics, st->ctrl,
-            st->vel_x, st->vel_y, st->pos_x, st->pos_y, st->anim, st->animtime);
+            st->vel_x, st->vel_y, st->pos_x, st->pos_y, st->anim, st->animtime, st->movetype);
+    if (st->stateno >= 5100 && st->stateno <= 5121)
+        printf("  RECOVERY[%d]: t=%d vel=%.2f,%.2f pos=%.2f,%.2f movetype=%d bounce_yaccel=%.3f\n",
+            st->stateno, st->time, st->vel_x, st->vel_y, st->pos_x, st->pos_y, st->movetype, st->down_bounce_yaccel);
 
     f->vel_x = st->vel_x;
-    f->vel_y = st->vel_y;
+    f->vel_y = -st->vel_y;
     f->x = st->pos_x;
-    f->y = st->pos_y;
+    f->y = -st->pos_y;
+
+    bool new_facing = (st->facing > 0);
+    if (f->facing_right != new_facing)
+    {
+        f->facing_right = new_facing;
+        command_list_set_facing(&f->commands, new_facing);
+    }
 
     if (f->y < 0.0f) f->y = 0.0f;
     if (f->x < stage_left + f->ground_back) f->x = stage_left + f->ground_back;
     if (f->x > stage_right - f->ground_front) f->x = stage_right - f->ground_front;
 
     st->pos_x = f->x;
-    st->pos_y = f->y;
 
     if (st->anim != f->last_cns_anim)
     {
@@ -381,6 +511,13 @@ void fighter_apply_combat_state(Fighter* f)
         f->last_cns_anim = st->anim;
         f->current_action = UINT32_MAX;
         play_action(f, st->anim, 0.0f);
+    }
+
+    bool new_facing = (st->facing > 0);
+    if (f->facing_right != new_facing)
+    {
+        f->facing_right = new_facing;
+        command_list_set_facing(&f->commands, new_facing);
     }
 }
 

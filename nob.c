@@ -26,7 +26,6 @@ static const char* INCLUDE_PATHS[] = {
     "-I" SUCK_DIR "/flecs/distr",
     "-I" SUCK_DIR "/tomlc17",
     "-Imelody",
-    "-Igame",
 };
 
 static const char* LIB_PATHS[] = {
@@ -365,7 +364,7 @@ bool copy_assets(void)
     return copy_dir_recursive("assets", BUILD_DIR "/assets");
 }
 
-bool compile_c_to_obj(const char* src, const char* obj)
+bool compile_c_to_obj_ex(const char* src, const char* obj, const char** extra_includes, size_t extra_count)
 {
     Nob_Cmd cmd = {0};
     nob_cmd_append(&cmd, "clang");
@@ -375,10 +374,18 @@ bool compile_c_to_obj(const char* src, const char* obj)
     for (size_t i = 0; i < NOB_ARRAY_LEN(INCLUDE_PATHS); i++)
         nob_cmd_append(&cmd, INCLUDE_PATHS[i]);
 
+    for (size_t i = 0; i < extra_count; i++)
+        nob_cmd_append(&cmd, extra_includes[i]);
+
     nob_cmd_append(&cmd, "-MD", "-MF", obj_to_depfile(obj));
     nob_cmd_append(&cmd, "-c", src, "-o", obj);
 
     return nob_cmd_run_sync(cmd);
+}
+
+bool compile_c_to_obj(const char* src, const char* obj)
+{
+    return compile_c_to_obj_ex(src, obj, NULL, 0);
 }
 
 bool compile_m_to_obj(const char* src, const char* obj)
@@ -685,86 +692,6 @@ static void cmd_append_melody_link_deps(Nob_Cmd* cmd)
     cmd_append_link_flags(cmd);
 }
 
-bool build_main(void)
-{
-    if (!build_melody()) return false;
-    if (!copy_assets()) return false;
-
-    uint64_t t_total_start = nob_nanos_since_unspecified_epoch();
-    bool any_recompiled = false;
-
-    Nob_File_Paths c_files = {0};
-    Nob_File_Paths cpp_files = {0};
-    Nob_File_Paths m_files = {0};
-    Nob_File_Paths obj_files = {0};
-
-    if (!collect_c_files("game", &c_files, &cpp_files, &m_files)) return false;
-
-    uint64_t t0 = nob_nanos_since_unspecified_epoch();
-
-    for (size_t i = 0; i < c_files.count; i++)
-    {
-        const char* src = c_files.items[i];
-        const char* base = strrchr(src, '/');
-        base = base ? base + 1 : src;
-
-        char obj_name[256];
-        snprintf(obj_name, sizeof(obj_name), "%s", base);
-        size_t len = strlen(obj_name);
-        if (len > 2 && obj_name[len-2] == '.' && obj_name[len-1] == 'c')
-            obj_name[len - 1] = 'o';
-
-        const char* obj = nob_temp_sprintf(BUILD_DIR "/%s", obj_name);
-        nob_da_append(&obj_files, nob_temp_strdup(obj));
-
-        if (needs_compile(src, obj))
-        {
-            nob_log(NOB_INFO, "Compiling C: %s", src);
-            if (!compile_c_to_obj(src, obj)) return false;
-            any_recompiled = true;
-        }
-    }
-
-    uint64_t t1 = nob_nanos_since_unspecified_epoch();
-
-    const char* lib_dep = BUILD_DIR "/libmelody.a";
-    bool melody_changed = nob_needs_rebuild(BUILD_DIR "/melody", &lib_dep, 1) != 0;
-
-    if (any_recompiled || melody_changed || nob_file_exists(BUILD_DIR "/melody") != 1)
-    {
-        Nob_Cmd cmd = {0};
-        nob_cmd_append(&cmd, "clang", "-g");
-
-        for (size_t i = 0; i < obj_files.count; i++)
-            nob_cmd_append(&cmd, obj_files.items[i]);
-
-        nob_cmd_append(&cmd, "-o", BUILD_DIR "/melody");
-        cmd_append_melody_link_deps(&cmd);
-
-        if (!nob_cmd_run_sync(cmd)) return false;
-    }
-    else
-    {
-        nob_log(NOB_INFO, "Everything up to date, nothing to do");
-    }
-
-    uint64_t t2 = nob_nanos_since_unspecified_epoch();
-
-    double game_c_ms = (t1 - t0) / 1e6;
-    double link_ms   = (t2 - t1) / 1e6;
-    double total_ms  = (t2 - t_total_start) / 1e6;
-
-    if (g_timings)
-    {
-        nob_log(TIMING_LEVEL, "──── Game Timings ─────");
-        nob_log(TIMING_LEVEL, "  game C          : %8.1f ms", game_c_ms);
-        nob_log(TIMING_LEVEL, "  link            : %8.1f ms", link_ms);
-        nob_log(TIMING_LEVEL, "  ─────────────────────────");
-        nob_log(TIMING_LEVEL, "  TOTAL           : %8.1f ms", total_ms);
-    }
-
-    return true;
-}
 
 bool build_tests(void)
 {
@@ -799,6 +726,53 @@ bool build_tests(void)
             nob_log(NOB_INFO, "Compiling test: %s", name);
             if (!compile_c_to_obj(src, obj)) return false;
             any_recompiled = true;
+        }
+    }
+
+    Nob_File_Paths demo_dirs = {0};
+    if (nob_read_entire_dir("demos", &demo_dirs))
+    {
+        for (size_t d = 0; d < demo_dirs.count; d++)
+        {
+            const char* dname = demo_dirs.items[d];
+            if (dname[0] == '.') continue;
+
+            const char* demo_dir = nob_temp_sprintf("demos/%s", dname);
+            const char* extra_inc = nob_temp_sprintf("-I%s", demo_dir);
+
+            bool has_tests = false;
+            Nob_File_Paths demo_files = {0};
+            if (!nob_read_entire_dir(demo_dir, &demo_files)) continue;
+
+            for (size_t i = 0; i < demo_files.count; i++)
+            {
+                const char* file = demo_files.items[i];
+                size_t flen = strlen(file);
+                if (flen < 3 || strcmp(file + flen - 2, ".c") != 0) continue;
+                if (strncmp(file, "test_", 5) == 0) { has_tests = true; break; }
+            }
+
+            if (!has_tests) continue;
+
+            for (size_t i = 0; i < demo_files.count; i++)
+            {
+                const char* file = demo_files.items[i];
+                size_t flen = strlen(file);
+                if (flen < 3 || strcmp(file + flen - 2, ".c") != 0) continue;
+                if (strcmp(file, "main.c") == 0) continue;
+
+                const char* src = nob_temp_sprintf("%s/%s", demo_dir, file);
+                const char* obj = nob_temp_sprintf(BUILD_DIR "/dtest.%s.%s.o", dname, file);
+
+                nob_da_append(&obj_files, nob_temp_strdup(obj));
+
+                if (needs_compile(src, obj))
+                {
+                    nob_log(NOB_INFO, "Compiling demo test: %s/%s", dname, file);
+                    if (!compile_c_to_obj_ex(src, obj, (const char*[]){ extra_inc }, 1)) return false;
+                    any_recompiled = true;
+                }
+            }
         }
     }
 
@@ -885,15 +859,6 @@ bool build_compdb(void)
     Nob_File_Paths m_files = {0};
 
     collect_c_files("melody", &c_files, &cpp_files, &m_files);
-
-    {
-        Nob_File_Paths game_c = {0}, game_cpp = {0}, game_m = {0};
-        collect_c_files("game", &game_c, &game_cpp, &game_m);
-        for (size_t i = 0; i < game_c.count; i++) nob_da_append(&c_files, game_c.items[i]);
-        for (size_t i = 0; i < game_cpp.count; i++) nob_da_append(&cpp_files, game_cpp.items[i]);
-        for (size_t i = 0; i < game_m.count; i++) nob_da_append(&m_files, game_m.items[i]);
-        free(game_c.items); free(game_cpp.items); free(game_m.items);
-    }
 
     {
         Nob_File_Paths entries = {0};
@@ -1252,7 +1217,7 @@ int main(int argc, char** argv)
     }
     else if (strcmp(subcmd, "build") == 0)
     {
-        if (!build_main()) return 1;
+        if (!build_melody()) return 1;
     }
     else if (strcmp(subcmd, "test") == 0)
     {
@@ -1267,7 +1232,8 @@ int main(int argc, char** argv)
     }
     else if (strcmp(subcmd, "run") == 0)
     {
-        if (!build_main()) return 1;
+        nob_log(NOB_ERROR, "No game target. Use './nob example <name>' or './nob demo <name>'");
+        return 1;
         Nob_Cmd cmd = {0};
         nob_cmd_append(&cmd,
             /* "env", */
@@ -1331,7 +1297,8 @@ int main(int argc, char** argv)
     }
     else if (strcmp(subcmd, "debug") == 0)
     {
-        if (!build_main()) return 1;
+        nob_log(NOB_ERROR, "No game target. Use './nob example <name>' or './nob demo <name>'");
+        return 1;
         Nob_Cmd cmd = {0};
         nob_cmd_append(&cmd, "lldb", BUILD_DIR "/melody");
         nob_cmd_append(&cmd,

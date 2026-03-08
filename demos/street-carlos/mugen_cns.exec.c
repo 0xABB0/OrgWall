@@ -3,6 +3,16 @@
 #include <string.h>
 #include <stdlib.h>
 
+static u64 mugen_rng_next(u64* s)
+{
+    u64 x = *s;
+    x ^= x << 13;
+    x ^= x >> 7;
+    x ^= x << 17;
+    *s = x;
+    return x;
+}
+
 static bool str8_ieq(str8 a, const char* b)
 {
     size blen = (size)strlen(b);
@@ -32,7 +42,12 @@ void mugen_cns_enter_state(Mugen_Cns* cns, Mugen_Char_State* state, i32 stateno)
     state->moveguarded = false;
 
     if (def->statetype) state->statetype = def->statetype;
-    if (def->movetype)  state->movetype = def->movetype;
+    if (def->movetype != 0xFF)
+    {
+        if (state->movetype == MUGEN_MOVETYPE_H && def->movetype != MUGEN_MOVETYPE_H)
+            state->juggle_points_remaining = (i32)state->data_airjuggle;
+        state->movetype = def->movetype;
+    }
     if (def->physics)   state->physics = def->physics;
     if (def->anim >= 0)
     {
@@ -50,9 +65,7 @@ void mugen_cns_enter_state(Mugen_Cns* cns, Mugen_Char_State* state, i32 stateno)
     if (def->ctrl >= 0)
         state->ctrl = def->ctrl != 0;
 
-    state->movecontact = false;
-    state->movehit = false;
-    state->moveguarded = false;
+    state->current_juggle = def->juggle;
 
     for (u32 i = 0; i < def->controller_count; i++)
         def->controllers[i].persistent_counter = 0;
@@ -174,6 +187,9 @@ static void exec_controller(Mugen_State_Controller* sc, Mugen_Char_State* state)
             if (!p || !p->value) break;
             state->pending_anim = (i32)mugen_expr_eval(p->value, state);
             state->anim = (u32)state->pending_anim;
+            state->animelem = 0;
+            state->animtime = -999;
+            state->animelemtime = 0;
             break;
         }
         case MUGEN_SC_CTRL:
@@ -241,7 +257,7 @@ static void exec_controller(Mugen_State_Controller* sc, Mugen_Char_State* state)
             i32 idx = p->index ? (i32)mugen_expr_eval(p->index, state) : 0;
             i32 lo = p->range_low ? (i32)mugen_expr_eval(p->range_low, state) : 0;
             i32 hi = p->range_high ? (i32)mugen_expr_eval(p->range_high, state) : 999;
-            i32 val = (hi > lo) ? lo + (rand() % (hi - lo + 1)) : lo;
+            i32 val = (hi > lo) ? lo + (i32)(mugen_rng_next(&state->rng_state) % (u64)(hi - lo + 1)) : lo;
             if (p->var_type == MUGEN_VAR_INT && idx >= 0 && idx < 60)
                 state->var[idx] = val;
             break;
@@ -262,6 +278,10 @@ static void exec_controller(Mugen_State_Controller* sc, Mugen_Char_State* state)
             r->damage_guard = eval_or_default(p->damage_guard, state, 0);
             r->pausetime_p1 = (i32)eval_or_default(p->pausetime_p1, state, 0);
             r->pausetime_p2 = (i32)eval_or_default(p->pausetime_p2, state, 0);
+            r->guard_pausetime_p1 = p->guard_pausetime_p1
+                ? (i32)mugen_expr_eval(p->guard_pausetime_p1, state) : r->pausetime_p1;
+            r->guard_pausetime_p2 = p->guard_pausetime_p2
+                ? (i32)mugen_expr_eval(p->guard_pausetime_p2, state) : r->pausetime_p2;
             r->spark_x = eval_or_default(p->spark_x, state, 0);
             r->spark_y = eval_or_default(p->spark_y, state, 0);
             r->hitsound_group = (i32)eval_or_default(p->hitsound_group, state, 0);
@@ -272,7 +292,7 @@ static void exec_controller(Mugen_State_Controller* sc, Mugen_Char_State* state)
             r->ground_hittime = (i32)eval_or_default(p->ground_hittime, state, 0);
             r->ground_vel_x = eval_or_default(p->ground_vel_x, state, 0);
             r->ground_vel_y = eval_or_default(p->ground_vel_y, state, 0);
-            r->guard_velocity = eval_or_default(p->guard_velocity, state, 0);
+            r->guard_velocity = eval_or_default(p->guard_velocity, state, r->ground_vel_x * -0.5f);
             r->guard_slidetime = (i32)eval_or_default(p->guard_slidetime, state, (f32)r->ground_slidetime);
             r->guard_ctrltime = (i32)eval_or_default(p->guard_ctrltime, state, (f32)r->guard_slidetime);
             r->air_vel_x = eval_or_default(p->air_vel_x, state, 0);
@@ -292,6 +312,16 @@ static void exec_controller(Mugen_State_Controller* sc, Mugen_Char_State* state)
             r->numhits = (i32)eval_or_default(p->numhits, state, 1);
             r->p1stateno = (i32)eval_or_default(p->p1stateno, state, -1);
             r->p2stateno = (i32)eval_or_default(p->p2stateno, state, -1);
+            r->p2getp1state = eval_or_default(p->p2getp1state, state, 1) != 0.0f;
+            r->juggle = state->current_juggle;
+            r->ground_cornerpush_veloff = eval_or_default(p->ground_cornerpush, state, r->guard_velocity * -1.3f);
+            r->air_cornerpush_veloff = eval_or_default(p->air_cornerpush, state, r->ground_cornerpush_veloff);
+            r->guard_cornerpush_veloff = eval_or_default(p->guard_cornerpush, state, r->ground_cornerpush_veloff);
+            if (p->yaccel)
+            {
+                r->yaccel = mugen_expr_eval(p->yaccel, state);
+                r->has_yaccel = true;
+            }
             state->hitdef_pending = true;
             break;
         }
@@ -303,6 +333,7 @@ static void exec_controller(Mugen_State_Controller* sc, Mugen_Char_State* state)
             if (p->ctrl) state->pending_ctrl = (i32)mugen_expr_eval(p->ctrl, state);
             if (p->anim) state->pending_anim = (i32)mugen_expr_eval(p->anim, state);
             state->state_changed = true;
+            state->state_owner_cns = NULL;
             break;
         }
         case MUGEN_SC_HITVELSET:
@@ -352,8 +383,40 @@ static void exec_controller(Mugen_State_Controller* sc, Mugen_Char_State* state)
             if (state->life < 0) state->life = 0;
             break;
         }
-        case MUGEN_SC_DEFENCEMULSET:
+        case MUGEN_SC_VARRANGESET:
+        {
+            Mugen_VarRangeSet_Params* p = sc->params;
+            if (!p) break;
+            i32 first = p->first ? (i32)mugen_expr_eval(p->first, state) : 0;
+            i32 last_int = p->last ? (i32)mugen_expr_eval(p->last, state) : 59;
+            i32 last_flt = p->last ? (i32)mugen_expr_eval(p->last, state) : 39;
+            if (p->value)
+            {
+                i32 val = (i32)mugen_expr_eval(p->value, state);
+                for (i32 i = first; i <= last_int && i < 60; i++)
+                    if (i >= 0) state->var[i] = val;
+            }
+            if (p->fvalue)
+            {
+                f32 val = mugen_expr_eval(p->fvalue, state);
+                for (i32 i = first; i <= last_flt && i < 40; i++)
+                    if (i >= 0) state->fvar[i] = val;
+            }
             break;
+        }
+        case MUGEN_SC_ASSERTSPECIAL:
+        {
+            Mugen_AssertSpecial_Params* p = sc->params;
+            if (p) state->assert_flags |= p->flags;
+            break;
+        }
+        case MUGEN_SC_DEFENCEMULSET:
+        {
+            Mugen_DefenceMulSet_Params* p = sc->params;
+            if (p && p->value)
+                state->defence_mul = mugen_expr_eval(p->value, state);
+            break;
+        }
         case MUGEN_SC_PLAYSND:
             break;
         case MUGEN_SC_NOTHITBY:
@@ -365,7 +428,13 @@ static void exec_controller(Mugen_State_Controller* sc, Mugen_Char_State* state)
             break;
         }
         case MUGEN_SC_WIDTH:
+        {
+            Mugen_Width_Params* p = sc->params;
+            if (!p) break;
+            if (p->front) state->ground_front = mugen_expr_eval(p->front, state);
+            if (p->back) state->ground_back = mugen_expr_eval(p->back, state);
             break;
+        }
         case MUGEN_SC_SUPERPAUSE:
             break;
         case MUGEN_SC_POWERADD:
@@ -375,6 +444,82 @@ static void exec_controller(Mugen_State_Controller* sc, Mugen_Char_State* state)
             state->power += mugen_expr_eval(p->value, state);
             if (state->power > state->powermax) state->power = state->powermax;
             if (state->power < 0) state->power = 0;
+            break;
+        }
+        case MUGEN_SC_TARGETBIND:
+        {
+            Mugen_TargetBind_Params* p = sc->params;
+            if (!state->target) break;
+            f32 ox = p && p->pos_x ? mugen_expr_eval(p->pos_x, state) : 0;
+            f32 oy = p && p->pos_y ? mugen_expr_eval(p->pos_y, state) : 0;
+            state->target->pos_x = state->pos_x + ox * state->facing;
+            state->target->pos_y = state->pos_y + oy;
+            state->target->vel_x = 0;
+            state->target->vel_y = 0;
+            state->target->ghv.isbound = true;
+            break;
+        }
+        case MUGEN_SC_TARGETSTATE:
+        {
+            Mugen_TargetState_Params* p = sc->params;
+            if (!p || !p->value || !state->target) break;
+            i32 sno = (i32)mugen_expr_eval(p->value, state);
+            state->target->pending_state = sno;
+            state->target->pending_ctrl = 0;
+            state->target->state_changed = true;
+            state->target->state_owner_cns = state->self_cns;
+            break;
+        }
+        case MUGEN_SC_TARGETLIFEADD:
+        {
+            Mugen_TargetLifeAdd_Params* p = sc->params;
+            if (!p || !p->value || !state->target) break;
+            f32 dmg = mugen_expr_eval(p->value, state);
+            bool absolute = p->absolute && mugen_expr_eval(p->absolute, state) != 0.0f;
+            bool kill = p->kill ? mugen_expr_eval(p->kill, state) != 0.0f : true;
+            if (!absolute)
+                dmg *= (state->target->defence_mul > 0 ? state->target->defence_mul : 1.0f);
+            state->target->life += dmg;
+            if (state->target->life > state->target->lifemax)
+                state->target->life = state->target->lifemax;
+            if (!kill && state->target->life < 1)
+                state->target->life = 1;
+            if (state->target->life < 0)
+                state->target->life = 0;
+            break;
+        }
+        case MUGEN_SC_TARGETFACING:
+        {
+            Mugen_TargetFacing_Params* p = sc->params;
+            if (!p || !p->value || !state->target) break;
+            i32 val = (i32)mugen_expr_eval(p->value, state);
+            if (val > 0)
+                state->target->facing = state->facing;
+            else if (val < 0)
+                state->target->facing = -state->facing;
+            break;
+        }
+        case MUGEN_SC_TARGETPOWERADD:
+        {
+            Mugen_TargetPowerAdd_Params* p = sc->params;
+            if (!p || !p->value || !state->target) break;
+            state->target->power += mugen_expr_eval(p->value, state);
+            if (state->target->power > state->target->powermax)
+                state->target->power = state->target->powermax;
+            if (state->target->power < 0)
+                state->target->power = 0;
+            break;
+        }
+        case MUGEN_SC_CHANGEANIM2:
+        {
+            Mugen_ChangeAnim2_Params* p = sc->params;
+            if (!p || !p->value || !state->target) break;
+            i32 anim = (i32)mugen_expr_eval(p->value, state);
+            state->target->anim = (u32)anim;
+            state->target->pending_anim = anim;
+            state->target->animelem = 0;
+            state->target->animtime = -999;
+            state->target->animelemtime = 0;
             break;
         }
     }
@@ -390,6 +535,9 @@ static void tick_controllers(Mugen_Statedef* def, Mugen_Char_State* state)
     for (u32 i = 0; i < def->controller_count; i++)
     {
         Mugen_State_Controller* sc = &def->controllers[i];
+
+        if (state->hitpause_time > 0 && !sc->ignorehitpause)
+            continue;
 
         if (sc->persistent == 0)
         {
@@ -411,7 +559,7 @@ static void tick_controllers(Mugen_Statedef* def, Mugen_Char_State* state)
         if (sc->persistent == 0)
             sc->persistent_counter = 1;
         else if (sc->persistent > 1)
-            sc->persistent_counter = sc->persistent;
+            sc->persistent_counter = sc->persistent - 1;
 
         if (state->state_changed) break;
     }
@@ -428,9 +576,16 @@ void mugen_cns_tick(Mugen_Cns* cns, Mugen_Char_State* state)
     Mugen_Statedef* def = mugen_cns_get(cns, state->stateno);
     if (!def) return;
 
+    if (state->nothitby_time > 0)
+        state->nothitby_time--;
+
     tick_controllers(def, state);
 
-    if (!state->state_changed)
+    if (state->hitpause_time > 0)
+    {
+        state->hitpause_time--;
+    }
+    else if (!state->state_changed)
     {
         if (!state->pos_freeze)
         {
@@ -445,10 +600,10 @@ void mugen_cns_tick(Mugen_Cns* cns, Mugen_Char_State* state)
                     state->pos_x += state->vel_x * state->facing;
                     break;
                 case MUGEN_PHYSICS_A:
-                    state->vel_y -= state->gravity;
+                    state->vel_y += state->gravity;
                     state->pos_x += state->vel_x * state->facing;
                     state->pos_y += state->vel_y;
-                    if (state->pos_y <= 0.0f && state->vel_y < 0.0f)
+                    if (state->pos_y >= 0.0f && state->vel_y > 0.0f)
                     {
                         state->pos_y = 0.0f;
                         state->vel_y = 0.0f;
@@ -461,7 +616,7 @@ void mugen_cns_tick(Mugen_Cns* cns, Mugen_Char_State* state)
                     state->pos_x += state->vel_x * state->facing;
                     state->pos_y += state->vel_y;
                     break;
-                case 4:
+                case MUGEN_PHYSICS_L:
                     state->vel_x *= state->stand_friction;
                     state->pos_x += state->vel_x * state->facing;
                     break;
@@ -472,7 +627,4 @@ void mugen_cns_tick(Mugen_Cns* cns, Mugen_Char_State* state)
     }
 
     state->gametime++;
-
-    if (state->nothitby_time > 0)
-        state->nothitby_time--;
 }

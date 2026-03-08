@@ -43,7 +43,7 @@
 - [DEMO] we need a demo for sprites
 - [STRING] Porter Stemmer algorithm
 - [STRING] String builder
-- [ENGINE] migrate legacy `Mel_Engine` + `SDL_Window` coupling to module statics + per-window `Mel_Window` ownership (vNext direction in `design/engine.overview.md`)
+- [ENGINE] ~~migrate legacy `Mel_Engine` + `SDL_Window` coupling to module statics + per-window `Mel_Window` ownership~~ DONE: `Mel_Engine` struct removed, module statics with accessors (`mel_gpu_dev()`, `mel_allocator()`, etc.), window/swapchain registries in place
 - [EXAMPLE] we need to make a boomer shooter example
 - [EXAMPLE] we need to make a 3d example
 - [EXAMPLE] we need an example that merges 2d with 3d
@@ -56,9 +56,16 @@
 - [BUILD] we need a better method to define if a source file is platform specific (build system-wise). i don't like having a map of "for this, skip these", maybe it could be made less ugly by doing something like ".osx -> defined(__APPLE__)"
 - [CAMERA] Consider if it's worth having a Camera2D in addition to the Camera we have now, to have an extremly optimized 2d pipeline if needed
 
+## Engine refactor gaps (Mar 2026)
+
+- [ENGINE] `mel_process_event()` only forwards to imgui — no longer handles `SDL_EVENT_WINDOW_RESIZED`. Swapchain registry has `resize_requested` field on entries but nobody sets or reads it. Need to wire resize events through the swapchain registry.
+- [ENGINE] sprite pass hardcoded to `VK_FORMAT_B8G8R8A8_SRGB` in `mel_init_opt` (core.engine.c:141). Previously used the swapchain's actual format. Could mismatch if swapchain picks a different format.
+- [ENGINE] `mel__engine_init()` / `mel__engine_shutdown()` are vestigial — init just calls `mel_backtrace_init()`, shutdown is empty. Should fold into `mel_init()` / `mel_shutdown()` or become constructors.
+- [ENGINE] `mel_engine_shutdown` still has defensive null-check (`if (!engine->window) return`) instead of asserting — violates MEL-X-006 (from old audit, verify if still applies after refactor)
+
 ## Audit findings (Mar 2026)
 
-- [ENGINE] core.engine.h/.c are out of sync — struct was updated for window-decoupling (Mel_Swapchain_Handle, Mel_Window_Handle, removed resize_requested/surface) but .c still references old fields. Code won't compile. core.app.c also assigns Mel_Window_Handle to SDL_Window*. Blocked on completing the window-decoupling task (design/task.window-decoupling.md)
+- [ENGINE] ~~core.engine.h/.c are out of sync~~ RESOLVED: `Mel_Engine` struct removed entirely, replaced with module statics
 - [GPU] MEL_MAX_FRAMES_IN_FLIGHT defined independently in render.draw.h, render.graph.h, sprite.pass.h (all as 3 with #ifndef guards). Should live in a single cfg file (gpu.cfg.h or render.cfg.h)
 - [ASYNC] async.io.h handlers[MEL_IO_MAX_HANDLERS] is a fixed-size array for a dynamic operation (handler registration). Violates MEL-X-004. Should be a stretchy buffer
 - [ALLOC] raw free() calls in tile.set.c:326, tile.map.c:331 (cJSON output), test.visual.c:33/92/222/249 (bare malloc+free for pixel buffers), debug.backtrace.c:125 (backtrace_symbols). Violates MEL-X-001

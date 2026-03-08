@@ -67,7 +67,6 @@ typedef struct {
     f32 cursor_blink;
 } TrieDemo;
 
-static SDL_Window* s_window;
 static Mel_Window_Handle s_window_handle;
 static Mel_Swapchain_Handle s_swapchain_handle;
 static Mel_Font_Atlas_Pool s_font_pool;
@@ -386,6 +385,7 @@ static void on_init(void)
     mel_render_graph_init(&s_graph, .dev = dev, .alloc = mel_alloc_heap());
     mel_render_graph_add_pass(&s_graph, S8("render"),
         .fn = mel_sprite_pass_execute,
+        .user = mel_sprite_pass(),
         .camera = &s_camera,
         .read_lists = MEL_LISTS(&s_sprite_list, &s_font_list),
         .write_targets = MEL_WRITE_TARGETS(
@@ -403,7 +403,6 @@ static void app_init(Mel_App* app)
 {
     mel_init(.app_name = S8("Melody Trie"), .enable_validation = true);
     s_window_handle = mel_window_create(S8("Melody Trie Autocomplete"), .width = 1100, .height = 700);
-    s_window = mel_window_get(s_window_handle)->sdl;
     s_swapchain_handle = mel_gpu_swapchain_create_for_window(mel_gpu_dev(), s_window_handle);
 
     Mel_Io_Desc io_desc = { .allocator = mel_alloc_heap(), .worker_count = 0 };
@@ -451,7 +450,7 @@ static void app_update(Mel_Sim_Ctx* sim, f32 dt, void* user)
     mel_render_list_clear(&s_font_list);
 
     i32 ww, wh;
-    SDL_GetWindowSizeInPixels(s_window, &ww, &wh);
+    mel_window_size_pixels(s_window_handle, &ww, &wh);
     f32 sw = (f32)ww;
     f32 sh = (f32)wh;
     f32 left_w = sw * 0.38f;

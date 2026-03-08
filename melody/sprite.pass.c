@@ -350,7 +350,7 @@ void mel_sprite_pass_draw(Mel_Render_List* list, Mel_Sprite_Pass* sp)
         }
 
         Mel_Rect uv = entry->uv;
-        if (uv.w <= 0.0f || uv.h <= 0.0f)
+        if (uv.w == 0.0f && uv.h == 0.0f)
             uv = (Mel_Rect){0, 0, 1, 1};
 
         mel__sprite_pass_push_quad(sp,
@@ -383,7 +383,7 @@ void mel_draw_sprite_opt(Mel_Render_List* list, Mel_Draw_Sprite_Opt opt)
     assert(list != nullptr);
 
     Mel_Rect uv = opt.uv;
-    if (uv.w <= 0) uv = MEL_UV_FULL;
+    if (uv.w == 0 && uv.h == 0) uv = MEL_UV_FULL;
 
     u64 key = mel_sort_key_sprite(opt.layer, opt.depth, 0, mel_texture_bucket(opt.tex));
     Mel_Sprite_Entry* e = mel_render_list_push(list, key);

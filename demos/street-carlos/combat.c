@@ -39,7 +39,7 @@ static void populate_ghv(Mugen_GetHitVar* ghv, Mugen_HitDef_Result* hd, Mugen_Ch
     }
 
     ghv->ctrltime = ghv->hittime;
-    ghv->yaccel = victim->gravity;
+    ghv->yaccel = hd->has_yaccel ? hd->yaccel : victim->gravity;
 
     ghv->fall_recover = hd->fall_recover;
     ghv->fall_recovertime = hd->fall_recovertime;
@@ -89,7 +89,7 @@ static void apply_guard(Fighter* attacker, Fighter* victim)
     Mugen_HitDef_Result* hd = &ast->hitdef;
 
     vst->ghv.guarded = true;
-    vst->ghv.hitshaketime = hd->pausetime_p2;
+    vst->ghv.hitshaketime = hd->guard_pausetime_p2;
     vst->ghv.xvel = hd->guard_velocity;
     vst->ghv.yvel = 0;
     vst->ghv.slidetime = hd->guard_slidetime;
@@ -98,11 +98,12 @@ static void apply_guard(Fighter* attacker, Fighter* victim)
     vst->ghv.damage += (i32)hd->damage_guard;
     vst->ghv.guardcount++;
 
-    vst->life -= hd->damage_guard;
-    if (vst->life < 0) vst->life = 0;
+    f32 gdmg = hd->damage_guard * (vst->defence_mul > 0 ? vst->defence_mul : 1.0f);
+    vst->life -= gdmg;
+    if (vst->life < 1) vst->life = 1;
 
-    ast->hitpause_time = hd->pausetime_p1;
-    vst->hitpause_time = hd->pausetime_p2;
+    ast->hitpause_time = hd->guard_pausetime_p1;
+    vst->hitpause_time = hd->guard_pausetime_p2;
 
     ast->moveguarded = true;
     ast->movecontact = true;
@@ -119,6 +120,14 @@ static void apply_guard(Fighter* attacker, Fighter* victim)
     ast->hitdef_pending = false;
     ast->hitdef_active = false;
 
+    bool victim_in_corner = (vst->pos_x <= vst->stage_left + vst->ground_back + 1.0f) ||
+                            (vst->pos_x >= vst->stage_right - vst->ground_front - 1.0f);
+    if (victim_in_corner)
+    {
+        attacker->x += hd->guard_cornerpush_veloff * ast->facing;
+        ast->pos_x = attacker->x;
+    }
+
     printf("GUARD: attacker state=%d -> victim state=%d (damage=%.0f life=%.0f pause=%d/%d)\n",
         ast->stateno, guard_state, hd->damage_guard, vst->life,
         hd->pausetime_p1, hd->pausetime_p2);
@@ -132,7 +141,8 @@ static void apply_hit(Fighter* attacker, Fighter* victim)
 
     populate_ghv(&vst->ghv, hd, vst);
 
-    vst->life -= hd->damage_hit;
+    f32 dmg = hd->damage_hit * (vst->defence_mul > 0 ? vst->defence_mul : 1.0f);
+    vst->life -= dmg;
     if (vst->life < 0) vst->life = 0;
 
     ast->hitpause_time = hd->pausetime_p1;
@@ -141,6 +151,10 @@ static void apply_hit(Fighter* attacker, Fighter* victim)
     ast->movehit = true;
     ast->movecontact = true;
     ast->hitcount++;
+    ast->target = vst;
+
+    if (vst->statetype == MUGEN_PHYSICS_A)
+        vst->juggle_points_remaining -= hd->juggle;
 
     i32 hit_state = compute_hit_state(vst, hd);
 
@@ -164,9 +178,19 @@ static void apply_hit(Fighter* attacker, Fighter* victim)
     ast->hitdef_pending = false;
     ast->hitdef_active = false;
 
-    printf("HIT: attacker state=%d -> victim state=%d (animtype=%d damage=%.0f life=%.0f pause=%d/%d)\n",
-        ast->stateno, hit_state, hd->animtype, hd->damage_hit, vst->life,
-        hd->pausetime_p1, hd->pausetime_p2);
+    bool victim_in_corner = (vst->pos_x <= vst->stage_left + vst->ground_back + 1.0f) ||
+                            (vst->pos_x >= vst->stage_right - vst->ground_front - 1.0f);
+    if (victim_in_corner)
+    {
+        f32 push = (vst->statetype == MUGEN_PHYSICS_A)
+            ? hd->air_cornerpush_veloff
+            : hd->ground_cornerpush_veloff;
+        attacker->x += push * ast->facing;
+        ast->pos_x = attacker->x;
+    }
+
+    printf("HIT: attacker state=%d -> victim state=%d (damage=%.0f life=%.0f)\n",
+        ast->stateno, hit_state, hd->damage_hit, vst->life);
 }
 
 static void check_hit(Fighter* attacker, Fighter* victim)
@@ -180,6 +204,12 @@ static void check_hit(Fighter* attacker, Fighter* victim)
 
     if (vst->nothitby_time > 0 && (vst->nothitby_attr & ast->hitdef.attr))
         return;
+
+    if (vst->statetype == MUGEN_PHYSICS_A && !(ast->assert_flags & MUGEN_ASSERT_NOJUGGLECHECK))
+    {
+        if (vst->juggle_points_remaining < ast->hitdef.juggle)
+            return;
+    }
 
     Fighter_Box atk_box = fighter_hitbox(attacker);
     Fighter_Box def_box = fighter_hurtbox(victim);
@@ -204,6 +234,7 @@ static void auto_face(Fighter* f, Fighter* opponent)
     if (!st->ctrl) return;
     if (st->movetype != MUGEN_MOVETYPE_I) return;
     if (st->statetype == MUGEN_PHYSICS_A) return;
+    if (st->assert_flags & MUGEN_ASSERT_NOAUTOTURN) return;
 
     bool should_face_right = (opponent->x > f->x);
     bool currently_right = (st->facing > 0);
@@ -221,13 +252,15 @@ void combat_resolve(Fighter* f1, Fighter* f2)
     Mugen_Char_State* s2 = &f2->cns_state;
 
     s1->p2_pos_x = f2->x;
-    s1->p2_pos_y = f2->y;
+    s1->p2_pos_y = -f2->y;
     s1->p2_statetype = s2->statetype;
     s1->p2_movetype = s2->movetype;
+    s1->p2_width = f2->ground_front;
     s2->p2_pos_x = f1->x;
-    s2->p2_pos_y = f1->y;
+    s2->p2_pos_y = -f1->y;
     s2->p2_statetype = s1->statetype;
     s2->p2_movetype = s1->movetype;
+    s2->p2_width = f1->ground_front;
 
     auto_face(f1, f2);
     auto_face(f2, f1);

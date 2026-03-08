@@ -65,7 +65,6 @@ typedef struct {
     const Mel_Alloc* alloc;
 } AnimDemo;
 
-static SDL_Window* s_window;
 static Mel_Window_Handle s_window_handle;
 static Mel_Swapchain_Handle s_swapchain_handle;
 static Mel_Sprite_Pass* s_sp;
@@ -299,7 +298,6 @@ static void app_init(Mel_App* app)
 {
     mel_init(.app_name = S8("Melody Animation Showcase"), .enable_validation = true);
     s_window_handle = mel_window_create(S8("Melody Animation Showcase"), .width = WIDTH, .height = HEIGHT);
-    s_window = mel_window_get(s_window_handle)->sdl;
     s_swapchain_handle = mel_gpu_swapchain_create_for_window(mel_gpu_dev(), s_window_handle);
 
     Mel_Io_Desc io_desc = { .allocator = mel_alloc_heap(), .worker_count = 0 };

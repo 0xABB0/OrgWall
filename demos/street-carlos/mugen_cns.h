@@ -148,6 +148,14 @@ struct Mugen_Expr {
 #define MUGEN_SC_HITFALLSET    30
 #define MUGEN_SC_FALLENVSHAKE  31
 #define MUGEN_SC_LIFESET       32
+#define MUGEN_SC_ASSERTSPECIAL 33
+#define MUGEN_SC_VARRANGESET   34
+#define MUGEN_SC_TARGETBIND    35
+#define MUGEN_SC_TARGETSTATE   36
+#define MUGEN_SC_TARGETLIFEADD 37
+#define MUGEN_SC_TARGETFACING  38
+#define MUGEN_SC_TARGETPOWERADD 39
+#define MUGEN_SC_CHANGEANIM2   40
 
 #define MUGEN_ANIMTYPE_LIGHT   0
 #define MUGEN_ANIMTYPE_MEDIUM  1
@@ -184,6 +192,7 @@ struct Mugen_Expr {
 #define MUGEN_PHYSICS_C  2
 #define MUGEN_PHYSICS_A  3
 #define MUGEN_PHYSICS_N  4
+#define MUGEN_PHYSICS_L  5
 
 #define MUGEN_MOVETYPE_I  0
 #define MUGEN_MOVETYPE_A  1
@@ -292,9 +301,54 @@ typedef struct {
     i8 yvel_set;
 } Mugen_HitFallSet_Params;
 
+#define MUGEN_ASSERT_NOWALK        (1u << 0)
+#define MUGEN_ASSERT_NOAUTOTURN    (1u << 1)
+#define MUGEN_ASSERT_NOSTANDGUARD  (1u << 2)
+#define MUGEN_ASSERT_NOCROUCHGUARD (1u << 3)
+#define MUGEN_ASSERT_NOAIRGUARD    (1u << 4)
+#define MUGEN_ASSERT_NOJUGGLECHECK (1u << 5)
+
+typedef struct {
+    u32 flags;
+} Mugen_AssertSpecial_Params;
+
+typedef struct {
+    Mugen_Expr* value;
+    Mugen_Expr* fvalue;
+    Mugen_Expr* first;
+    Mugen_Expr* last;
+} Mugen_VarRangeSet_Params;
+
 typedef struct {
     Mugen_Expr* value;
 } Mugen_DefenceMulSet_Params;
+
+typedef struct {
+    Mugen_Expr* pos_x;
+    Mugen_Expr* pos_y;
+} Mugen_TargetBind_Params;
+
+typedef struct {
+    Mugen_Expr* value;
+} Mugen_TargetState_Params;
+
+typedef struct {
+    Mugen_Expr* value;
+    Mugen_Expr* kill;
+    Mugen_Expr* absolute;
+} Mugen_TargetLifeAdd_Params;
+
+typedef struct {
+    Mugen_Expr* value;
+} Mugen_TargetFacing_Params;
+
+typedef struct {
+    Mugen_Expr* value;
+} Mugen_TargetPowerAdd_Params;
+
+typedef struct {
+    Mugen_Expr* value;
+} Mugen_ChangeAnim2_Params;
 
 typedef struct {
     u32 attr;
@@ -309,6 +363,8 @@ typedef struct {
     Mugen_Expr* damage_guard;
     Mugen_Expr* pausetime_p1;
     Mugen_Expr* pausetime_p2;
+    Mugen_Expr* guard_pausetime_p1;
+    Mugen_Expr* guard_pausetime_p2;
     Mugen_Expr* sparkno;
     Mugen_Expr* guard_sparkno;
     Mugen_Expr* spark_x;
@@ -350,6 +406,7 @@ typedef struct {
     Mugen_Expr* ground_cornerpush;
     Mugen_Expr* air_cornerpush;
     Mugen_Expr* guard_cornerpush;
+    Mugen_Expr* yaccel;
 } Mugen_HitDef_Params;
 
 typedef struct {
@@ -422,9 +479,13 @@ typedef struct {
     f32 crouch_friction;
     f32 stand_friction_threshold;
     f32 crouch_friction_threshold;
+    f32 down_bounce_offset_x, down_bounce_offset_y;
+    f32 down_bounce_yaccel;
+    f32 down_bounce_groundlevel;
+    f32 down_friction_threshold;
 } Mugen_Char_Constants;
 
-typedef struct {
+typedef struct Mugen_Cns {
     Mugen_Statedef* statedefs;
     u32 statedef_count;
     Mugen_Char_Constants constants;
@@ -442,6 +503,8 @@ typedef struct {
     f32 damage_guard;
     i32 pausetime_p1;
     i32 pausetime_p2;
+    i32 guard_pausetime_p1;
+    i32 guard_pausetime_p2;
     f32 spark_x, spark_y;
     i32 hitsound_group, hitsound_index;
     i32 guardsound_group, guardsound_index;
@@ -465,6 +528,13 @@ typedef struct {
     i32 numhits;
     i32 p1stateno;
     i32 p2stateno;
+    bool p2getp1state;
+    i32 juggle;
+    f32 ground_cornerpush_veloff;
+    f32 air_cornerpush_veloff;
+    f32 guard_cornerpush_veloff;
+    f32 yaccel;
+    bool has_yaccel;
 } Mugen_HitDef_Result;
 
 typedef struct {
@@ -496,7 +566,8 @@ typedef struct {
     bool forcestand;
 } Mugen_GetHitVar;
 
-typedef struct {
+typedef struct Mugen_Char_State Mugen_Char_State;
+struct Mugen_Char_State {
     f32 pos_x, pos_y;
     f32 vel_x, vel_y;
 
@@ -519,6 +590,7 @@ typedef struct {
     bool movehit;
     bool moveguarded;
     i32 hitcount;
+    i32 juggle_points_remaining;
 
     i32 var[60];
     f32 fvar[40];
@@ -566,19 +638,48 @@ typedef struct {
     i32 nothitby_time;
     u32 nothitby_attr;
 
+    u32 assert_flags;
+    f32 defence_mul;
+    u64 rng_state;
+    f32 data_height;
+    f32 data_defence;
+    f32 data_liedown_time;
+    f32 data_airjuggle;
+    f32 data_sparkno;
+    f32 data_guard_sparkno;
+    f32 data_xscale;
+    f32 data_yscale;
+    f32 data_air_front;
+    f32 data_air_back;
+    f32 data_airjump_num;
+    f32 data_airjump_height;
+    f32 down_bounce_offset_x, down_bounce_offset_y;
+    f32 down_bounce_yaccel;
+    f32 down_bounce_groundlevel;
+    f32 down_friction_threshold;
+
+    Mugen_Char_State* target;
+    Mugen_Cns* self_cns;
+    Mugen_Cns* state_owner_cns;
+
     i32 pending_state;
     i32 pending_ctrl;
     i32 pending_anim;
     bool state_changed;
+
+    i32 current_juggle;
 
     i32 gametime;
     i32 roundstate;
     i32 roundno;
     i32 roundsexisted;
 
+    i32* anim_elem_start_ticks;
+    u32 anim_elem_count;
+
     bool (*anim_exists)(void* ctx, u32 anim);
     void* anim_exists_ctx;
-} Mugen_Char_State;
+};
 
 Mugen_Expr* mugen_expr_parse(str8 text, const Mel_Alloc* alloc);
 f32 mugen_expr_eval(Mugen_Expr* expr, Mugen_Char_State* state);

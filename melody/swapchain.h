@@ -44,3 +44,4 @@ void                 mel_swapchain_registry_remove(Mel_Swapchain_Handle handle, 
 Mel_Swapchain_Entry* mel_swapchain_registry_get(Mel_Swapchain_Handle handle);
 Mel_Swapchain_Handle mel_swapchain_registry_find_by_window(Mel_Window_Handle window);
 u32                  mel_swapchain_registry_count(void);
+void                 mel_swapchain_registry_destroy_all(Mel_Gpu_Device* dev);

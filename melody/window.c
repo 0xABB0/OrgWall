@@ -1,7 +1,12 @@
 #include "window.h"
+#include "swapchain.h"
 #include "collection.slotmap.h"
 #include "allocator.heap.h"
 #include "string.str8.h"
+
+typedef struct Mel_Window {
+    SDL_Window* sdl;
+} Mel_Window;
 
 static Mel_SlotMap s_windows;
 static bool s_initialized;
@@ -64,19 +69,47 @@ void mel_window_destroy(Mel_Window_Handle handle)
     Mel_Window* w = mel_slotmap_get(&s_windows, handle.handle);
     assert(w != nullptr);
 
+    Mel_Swapchain_Handle sc = mel_swapchain_registry_find_by_window(handle);
+    if (mel_swapchain_handle_valid(sc))
+        mel_swapchain_registry_remove(sc, nullptr);
+
     SDL_DestroyWindow(w->sdl);
     mel_slotmap_remove(&s_windows, handle.handle);
 }
 
-Mel_Window* mel_window_get(Mel_Window_Handle handle)
+void mel_window_size(Mel_Window_Handle handle, i32* w, i32* h)
 {
     assert(s_initialized);
-    Mel_Window* w = mel_slotmap_get(&s_windows, handle.handle);
-    assert(w != nullptr);
-    return w;
+    Mel_Window* win = mel_slotmap_get(&s_windows, handle.handle);
+    assert(win != nullptr);
+    SDL_GetWindowSize(win->sdl, w, h);
+}
+
+void mel_window_size_pixels(Mel_Window_Handle handle, i32* w, i32* h)
+{
+    assert(s_initialized);
+    Mel_Window* win = mel_slotmap_get(&s_windows, handle.handle);
+    assert(win != nullptr);
+    SDL_GetWindowSizeInPixels(win->sdl, w, h);
+}
+
+u32 mel_window_id(Mel_Window_Handle handle)
+{
+    assert(s_initialized);
+    Mel_Window* win = mel_slotmap_get(&s_windows, handle.handle);
+    assert(win != nullptr);
+    return SDL_GetWindowID(win->sdl);
 }
 
 u32 mel_window_count(void)
 {
     return s_initialized ? mel_slotmap_count(&s_windows) : 0;
+}
+
+SDL_Window* mel__window_sdl(Mel_Window_Handle handle)
+{
+    assert(s_initialized);
+    Mel_Window* win = mel_slotmap_get(&s_windows, handle.handle);
+    assert(win != nullptr);
+    return win->sdl;
 }

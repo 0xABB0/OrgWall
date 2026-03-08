@@ -1,3 +1,4 @@
+#include "command.h"
 #include "mugen_cns.h"
 #include "string.str8.h"
 #include "allocator.h"
@@ -5,6 +6,16 @@
 #include <stdlib.h>
 #include <ctype.h>
 #include <math.h>
+
+static u64 mugen_rng_next(u64* s)
+{
+    u64 x = *s;
+    x ^= x << 13;
+    x ^= x >> 7;
+    x ^= x << 17;
+    *s = x;
+    return x;
+}
 
 typedef struct {
     str8 text;
@@ -671,10 +682,7 @@ f32 mugen_expr_eval(Mugen_Expr* expr, Mugen_Char_State* state)
                 {
                     bool active = false;
                     if (state->commands)
-                    {
-                        extern bool command_list_active(Command_List* cl, str8 name);
                         active = command_list_active(state->commands, expr->binary.rhs->lit_string);
-                    }
                     return (expr->binary.op == MUGEN_OP_EQ) ? (active ? 1.0f : 0.0f) : (active ? 0.0f : 1.0f);
                 }
 
@@ -767,13 +775,22 @@ f32 mugen_expr_eval(Mugen_Expr* expr, Mugen_Char_State* state)
             {
                 case MUGEN_QUERY_TIME:         return (f32)state->time;
                 case MUGEN_QUERY_ANIMTIME:     return (f32)state->animtime;
-                case MUGEN_QUERY_ANIMELEM:     return (f32)state->animelem;
+                case MUGEN_QUERY_ANIMELEM:
+                {
+                    if (state->animelemtime == 0)
+                        return (f32)state->animelem;
+                    return (f32)state->animelem + 0.5f;
+                }
                 case MUGEN_QUERY_ANIMELEMTIME:
                 {
                     if (expr->query.arg)
                     {
                         i32 elem = (i32)mugen_expr_eval(expr->query.arg, state);
-                        return (f32)(state->animelem - elem);
+                        i32 idx = elem - 1;
+                        if (idx >= 0 && idx < (i32)state->anim_elem_count)
+                            return (f32)(state->time - state->anim_elem_start_ticks[idx]);
+                        if (idx < 0) return (f32)state->time;
+                        return -9999.0f;
                     }
                     return (f32)state->animelemtime;
                 }
@@ -798,7 +815,7 @@ f32 mugen_expr_eval(Mugen_Expr* expr, Mugen_Char_State* state)
                 case MUGEN_QUERY_POWERMAX:     return state->powermax;
                 case MUGEN_QUERY_FACING:       return state->facing;
                 case MUGEN_QUERY_ALIVE:        return state->alive ? 1.0f : 0.0f;
-                case MUGEN_QUERY_RANDOM:       return (f32)(rand() % 1000);
+                case MUGEN_QUERY_RANDOM:       return (f32)(mugen_rng_next(&state->rng_state) % 1000);
                 case MUGEN_QUERY_GAMETIME:     return (f32)state->gametime;
                 case MUGEN_QUERY_ROUNDSTATE:   return (f32)state->roundstate;
                 case MUGEN_QUERY_ISHELPER:     return state->is_helper ? 1.0f : 0.0f;
@@ -807,6 +824,8 @@ f32 mugen_expr_eval(Mugen_Expr* expr, Mugen_Char_State* state)
                 {
                     f32 dist = state->p2_pos_x - state->pos_x;
                     if (state->facing < 0) dist = -dist;
+                    dist -= state->ground_front + state->p2_width;
+                    if (dist < 0) dist = 0;
                     return dist;
                 }
                 case MUGEN_QUERY_P2DIST_X:
@@ -841,6 +860,27 @@ f32 mugen_expr_eval(Mugen_Expr* expr, Mugen_Char_State* state)
                     if (str8_ieq(name, "movement.crouch.friction.threshold")) return state->crouch_friction_threshold;
                     if (str8_ieq(name, "movement.yaccel"))        return state->gravity;
                     if (str8_ieq(name, "data.attack"))             return state->data_attack;
+                    if (str8_ieq(name, "size.ground.front"))      return state->ground_front;
+                    if (str8_ieq(name, "size.ground.back"))       return state->ground_back;
+                    if (str8_ieq(name, "size.height"))            return state->data_height;
+                    if (str8_ieq(name, "data.defence"))           return state->data_defence;
+                    if (str8_ieq(name, "data.liedown.time"))      return state->data_liedown_time;
+                    if (str8_ieq(name, "data.airjuggle"))         return state->data_airjuggle;
+                    if (str8_ieq(name, "data.life"))             return state->lifemax;
+                    if (str8_ieq(name, "data.power"))            return state->powermax;
+                    if (str8_ieq(name, "data.sparkno"))          return state->data_sparkno;
+                    if (str8_ieq(name, "data.guard.sparkno"))    return state->data_guard_sparkno;
+                    if (str8_ieq(name, "size.xscale"))           return state->data_xscale;
+                    if (str8_ieq(name, "size.yscale"))           return state->data_yscale;
+                    if (str8_ieq(name, "size.air.front"))        return state->data_air_front;
+                    if (str8_ieq(name, "size.air.back"))         return state->data_air_back;
+                    if (str8_ieq(name, "movement.airjump.num"))  return state->data_airjump_num;
+                    if (str8_ieq(name, "movement.airjump.height")) return state->data_airjump_height;
+                    if (str8_ieq(name, "movement.down.bounce.offset.x")) return state->down_bounce_offset_x;
+                    if (str8_ieq(name, "movement.down.bounce.offset.y")) return state->down_bounce_offset_y;
+                    if (str8_ieq(name, "movement.down.bounce.yaccel"))   return state->down_bounce_yaccel;
+                    if (str8_ieq(name, "movement.down.bounce.groundlevel")) return state->down_bounce_groundlevel;
+                    if (str8_ieq(name, "movement.down.friction.threshold")) return state->down_friction_threshold;
                     return 0.0f;
                 }
                 case MUGEN_QUERY_SELFANIMEXIST:

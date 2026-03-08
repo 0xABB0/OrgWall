@@ -320,7 +320,7 @@ static u8 parse_controller_type(str8 s)
     if (str8_ieq(s, "sprpriority")) return MUGEN_SC_SPRPRIORITY;
     if (str8_ieq(s, "varrandom"))   return MUGEN_SC_VARRANDOM;
     if (str8_ieq(s, "statetypeset")) return MUGEN_SC_STATETYPESET;
-    if (str8_ieq(s, "assertspecial")) return MUGEN_SC_NULL;
+    if (str8_ieq(s, "assertspecial")) return MUGEN_SC_ASSERTSPECIAL;
     if (str8_ieq(s, "forcefeedback")) return MUGEN_SC_NULL;
     if (str8_ieq(s, "hitvelset"))   return MUGEN_SC_HITVELSET;
     if (str8_ieq(s, "defencemulset")) return MUGEN_SC_DEFENCEMULSET;
@@ -333,14 +333,14 @@ static u8 parse_controller_type(str8 s)
     if (str8_ieq(s, "hitfallvel"))  return MUGEN_SC_HITFALLVEL;
     if (str8_ieq(s, "hitfallset"))  return MUGEN_SC_HITFALLSET;
     if (str8_ieq(s, "fallenvshake")) return MUGEN_SC_FALLENVSHAKE;
-    if (str8_ieq(s, "varrangeset")) return MUGEN_SC_NULL;
+    if (str8_ieq(s, "varrangeset")) return MUGEN_SC_VARRANGESET;
     if (str8_ieq(s, "remappal"))    return MUGEN_SC_NULL;
-    if (str8_ieq(s, "changeanim2")) return MUGEN_SC_NULL;
-    if (str8_ieq(s, "targetbind"))  return MUGEN_SC_NULL;
-    if (str8_ieq(s, "targetfacing")) return MUGEN_SC_NULL;
-    if (str8_ieq(s, "targetlifeadd")) return MUGEN_SC_NULL;
-    if (str8_ieq(s, "targetpoweradd")) return MUGEN_SC_NULL;
-    if (str8_ieq(s, "targetstate")) return MUGEN_SC_NULL;
+    if (str8_ieq(s, "changeanim2")) return MUGEN_SC_CHANGEANIM2;
+    if (str8_ieq(s, "targetbind"))  return MUGEN_SC_TARGETBIND;
+    if (str8_ieq(s, "targetfacing")) return MUGEN_SC_TARGETFACING;
+    if (str8_ieq(s, "targetlifeadd")) return MUGEN_SC_TARGETLIFEADD;
+    if (str8_ieq(s, "targetpoweradd")) return MUGEN_SC_TARGETPOWERADD;
+    if (str8_ieq(s, "targetstate")) return MUGEN_SC_TARGETSTATE;
     if (str8_ieq(s, "screenbound")) return MUGEN_SC_NULL;
     if (str8_ieq(s, "envshake"))    return MUGEN_SC_NULL;
     if (str8_ieq(s, "hitoverride")) return MUGEN_SC_NULL;
@@ -631,10 +631,85 @@ static void parse_controller_param(Mugen_State_Controller* sc, str8 key, str8 va
         case MUGEN_SC_POSFREEZE:
         case MUGEN_SC_FALLENVSHAKE:
             break;
+        case MUGEN_SC_VARRANGESET:
+        {
+            if (!sc->params) sc->params = alloc_params(alloc, sizeof(Mugen_VarRangeSet_Params));
+            Mugen_VarRangeSet_Params* p = sc->params;
+            if (str8_ieq(key, "value"))  p->value = mugen_expr_parse(val, alloc);
+            else if (str8_ieq(key, "fvalue")) p->fvalue = mugen_expr_parse(val, alloc);
+            else if (str8_ieq(key, "first"))  p->first = mugen_expr_parse(val, alloc);
+            else if (str8_ieq(key, "last"))   p->last = mugen_expr_parse(val, alloc);
+            break;
+        }
+        case MUGEN_SC_ASSERTSPECIAL:
+        {
+            if (!sc->params) sc->params = alloc_params(alloc, sizeof(Mugen_AssertSpecial_Params));
+            Mugen_AssertSpecial_Params* p = sc->params;
+            if (str8_ieq(key, "flag") || str8_ieq(key, "flag2") || str8_ieq(key, "flag3"))
+            {
+                if (str8_ieq(val, "nowalk"))         p->flags |= MUGEN_ASSERT_NOWALK;
+                else if (str8_ieq(val, "noautoturn")) p->flags |= MUGEN_ASSERT_NOAUTOTURN;
+                else if (str8_ieq(val, "nostandguard")) p->flags |= MUGEN_ASSERT_NOSTANDGUARD;
+                else if (str8_ieq(val, "nocrouchguard")) p->flags |= MUGEN_ASSERT_NOCROUCHGUARD;
+                else if (str8_ieq(val, "noairguard")) p->flags |= MUGEN_ASSERT_NOAIRGUARD;
+                else if (str8_ieq(val, "nojugglecheck")) p->flags |= MUGEN_ASSERT_NOJUGGLECHECK;
+            }
+            break;
+        }
         case MUGEN_SC_DEFENCEMULSET:
         {
             if (!sc->params) sc->params = alloc_params(alloc, sizeof(Mugen_DefenceMulSet_Params));
             Mugen_DefenceMulSet_Params* p = sc->params;
+            if (str8_ieq(key, "value")) p->value = mugen_expr_parse(val, alloc);
+            break;
+        }
+        case MUGEN_SC_TARGETBIND:
+        {
+            if (!sc->params) sc->params = alloc_params(alloc, sizeof(Mugen_TargetBind_Params));
+            Mugen_TargetBind_Params* p = sc->params;
+            if (str8_ieq(key, "pos"))
+            {
+                str8 rest;
+                str8 px = split_comma_first(val, &rest);
+                p->pos_x = mugen_expr_parse(px, alloc);
+                if (rest.len > 0) p->pos_y = mugen_expr_parse(rest, alloc);
+            }
+            break;
+        }
+        case MUGEN_SC_TARGETSTATE:
+        {
+            if (!sc->params) sc->params = alloc_params(alloc, sizeof(Mugen_TargetState_Params));
+            Mugen_TargetState_Params* p = sc->params;
+            if (str8_ieq(key, "value")) p->value = mugen_expr_parse(val, alloc);
+            break;
+        }
+        case MUGEN_SC_TARGETLIFEADD:
+        {
+            if (!sc->params) sc->params = alloc_params(alloc, sizeof(Mugen_TargetLifeAdd_Params));
+            Mugen_TargetLifeAdd_Params* p = sc->params;
+            if (str8_ieq(key, "value")) p->value = mugen_expr_parse(val, alloc);
+            else if (str8_ieq(key, "kill")) p->kill = mugen_expr_parse(val, alloc);
+            else if (str8_ieq(key, "absolute")) p->absolute = mugen_expr_parse(val, alloc);
+            break;
+        }
+        case MUGEN_SC_TARGETFACING:
+        {
+            if (!sc->params) sc->params = alloc_params(alloc, sizeof(Mugen_TargetFacing_Params));
+            Mugen_TargetFacing_Params* p = sc->params;
+            if (str8_ieq(key, "value")) p->value = mugen_expr_parse(val, alloc);
+            break;
+        }
+        case MUGEN_SC_TARGETPOWERADD:
+        {
+            if (!sc->params) sc->params = alloc_params(alloc, sizeof(Mugen_TargetPowerAdd_Params));
+            Mugen_TargetPowerAdd_Params* p = sc->params;
+            if (str8_ieq(key, "value")) p->value = mugen_expr_parse(val, alloc);
+            break;
+        }
+        case MUGEN_SC_CHANGEANIM2:
+        {
+            if (!sc->params) sc->params = alloc_params(alloc, sizeof(Mugen_ChangeAnim2_Params));
+            Mugen_ChangeAnim2_Params* p = sc->params;
             if (str8_ieq(key, "value")) p->value = mugen_expr_parse(val, alloc);
             break;
         }
@@ -666,7 +741,10 @@ static void parse_controller_param(Mugen_State_Controller* sc, str8 key, str8 va
             }
             else if (str8_ieq(key, "guard.pausetime"))
             {
-                /* reuse pausetime for guard if needed */
+                str8 rest;
+                str8 gp1 = split_comma_first(val, &rest);
+                p->guard_pausetime_p1 = mugen_expr_parse(gp1, alloc);
+                if (rest.len > 0) p->guard_pausetime_p2 = mugen_expr_parse(rest, alloc);
             }
             else if (str8_ieq(key, "sparkno")) p->sparkno = mugen_expr_parse(val, alloc);
             else if (str8_ieq(key, "guard.sparkno")) p->guard_sparkno = mugen_expr_parse(val, alloc);
@@ -749,6 +827,7 @@ static void parse_controller_param(Mugen_State_Controller* sc, str8 key, str8 va
             else if (str8_ieq(key, "ground.cornerpush.veloff")) p->ground_cornerpush = mugen_expr_parse(val, alloc);
             else if (str8_ieq(key, "air.cornerpush.veloff")) p->air_cornerpush = mugen_expr_parse(val, alloc);
             else if (str8_ieq(key, "guard.cornerpush.veloff")) p->guard_cornerpush = mugen_expr_parse(val, alloc);
+            else if (str8_ieq(key, "yaccel")) p->yaccel = mugen_expr_parse(val, alloc);
             break;
         }
     }
@@ -870,6 +949,16 @@ static void parse_constants_line(Mugen_Char_Constants* c, u8 section, str8 key, 
             else if (str8_ieq(key, "crouch.friction"))            c->crouch_friction = parse_float(val);
             else if (str8_ieq(key, "stand.friction.threshold"))   c->stand_friction_threshold = parse_float(val);
             else if (str8_ieq(key, "crouch.friction.threshold"))  c->crouch_friction_threshold = parse_float(val);
+            else if (str8_ieq(key, "down.bounce.offset"))
+            {
+                str8 brest;
+                str8 bfirst = split_comma_first(val, &brest);
+                c->down_bounce_offset_x = parse_float(bfirst);
+                if (brest.len > 0) c->down_bounce_offset_y = parse_float(brest);
+            }
+            else if (str8_ieq(key, "down.bounce.yaccel"))         c->down_bounce_yaccel = parse_float(val);
+            else if (str8_ieq(key, "down.bounce.groundlevel"))    c->down_bounce_groundlevel = parse_float(val);
+            else if (str8_ieq(key, "down.friction.threshold"))    c->down_friction_threshold = parse_float(val);
             break;
         }
     }
@@ -916,6 +1005,11 @@ static Mugen_Char_Constants default_constants(void)
         .crouch_friction = 0.82f,
         .stand_friction_threshold = 2.0f,
         .crouch_friction_threshold = 0.05f,
+        .down_bounce_offset_x = 0.0f,
+        .down_bounce_offset_y = 20.0f,
+        .down_bounce_yaccel = 0.4f,
+        .down_bounce_groundlevel = 12.0f,
+        .down_friction_threshold = 0.05f,
     };
 }
 
@@ -979,6 +1073,7 @@ bool mugen_cns_load(Mugen_Cns* out, str8 data, const Mel_Alloc* alloc)
                 current_def = (Mugen_Statedef){0};
                 current_def.anim = -1;
                 current_def.ctrl = -1;
+                current_def.movetype = 0xFF;
 
                 str8 num_part = str8_from_parts(line.data + 10, line.len - 10);
                 for (size i = 0; i < num_part.len; i++)

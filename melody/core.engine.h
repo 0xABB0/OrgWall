@@ -9,6 +9,7 @@
 #include "sprite.pass.fwd.h"
 #include "texture.pool.fwd.h"
 #include "sim.ctx.fwd.h"
+#include "window.fwd.h"
 
 #include <SDL3/SDL.h>
 
@@ -37,7 +38,7 @@ void mel_unregister_sim(Mel_Sim_Ctx* sim);
 void mel_frame(void);
 void mel_process_event(SDL_Event* event);
 
-bool mel_imgui_init(SDL_Window* window, Mel_Swapchain* swapchain);
+bool mel_imgui_init(Mel_Window_Handle window, Mel_Swapchain* swapchain);
 
 void mel__engine_init(void);
 void mel__engine_shutdown(void);

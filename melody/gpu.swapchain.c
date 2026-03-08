@@ -409,7 +409,7 @@ Mel_Swapchain_Handle mel_gpu_swapchain_create_for_window(Mel_Gpu_Device* dev, Me
     assert(dev != nullptr);
     assert(mel_window_handle_valid(window));
 
-    SDL_Window* sdl = mel_window_get(window)->sdl;
+    SDL_Window* sdl = mel__window_sdl(window);
     VkSurfaceKHR surface = mel_gpu_surface_create(dev, sdl);
     if (surface == VK_NULL_HANDLE)
         return MEL_SWAPCHAIN_HANDLE_NULL;

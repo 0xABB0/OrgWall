@@ -52,7 +52,6 @@ typedef struct {
     f32 r, g, b, a;
 } Blit_Vertex;
 
-static SDL_Window* s_window;
 static Mel_Window_Handle s_window_handle;
 static Mel_Swapchain_Handle s_swapchain_handle;
 
@@ -379,9 +378,8 @@ static void app_init(Mel_App* app)
 
     mel_init(.app_name = S8("Street Carlos"), .enable_validation = true);
     s_window_handle = mel_window_create(S8("Street Carlos"), .width = GAME_W * 3, .height = GAME_H * 3);
-    s_window = mel_window_get(s_window_handle)->sdl;
     s_swapchain_handle = mel_gpu_swapchain_create_for_window(mel_gpu_dev(), s_window_handle);
-    mel_imgui_init(s_window, &mel_swapchain_registry_get(s_swapchain_handle)->swapchain);
+    mel_imgui_init(s_window_handle, &mel_swapchain_registry_get(s_swapchain_handle)->swapchain);
 
     on_init();
 }

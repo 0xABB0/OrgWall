@@ -586,18 +586,19 @@ MEL_TEST(cns_jump_physics_a_goes_airborne, .tags = "cns")
     MEL_ASSERT_EQ(st.statetype, MUGEN_PHYSICS_A);
     MEL_ASSERT_EQ(st.physics, MUGEN_PHYSICS_A);
 
-    st.vel_y = 8.4f;
+    st.vel_y = -8.4f;
     st.animtime = -60;
 
     mugen_cns_tick(&common_cns, &st);
-    MEL_ASSERT(st.pos_y > 0.0f);
+    MEL_ASSERT(st.pos_y < 0.0f);
 
     for (i32 i = 0; i < 5; i++)
     {
         st.animtime = -60;
         mugen_cns_tick(&common_cns, &st);
     }
-    MEL_ASSERT(st.pos_y > 0.0f);
+    MEL_ASSERT(st.pos_y < 0.0f);
+
 
     free(cd.data);
     free(comd.data);
@@ -614,7 +615,7 @@ MEL_TEST(cns_jump_physics_a_lands, .tags = "cns")
     init_standing_state(&st);
 
     mugen_cns_enter_state(&common_cns, &st, 50);
-    st.vel_y = 8.4f;
+    st.vel_y = -8.4f;
     st.animtime = -999;
 
     bool went_airborne = false;
@@ -623,7 +624,7 @@ MEL_TEST(cns_jump_physics_a_lands, .tags = "cns")
     {
         st.animtime = -999;
         mugen_cns_tick(&common_cns, &st);
-        if (st.pos_y > 1.0f) went_airborne = true;
+        if (st.pos_y < -1.0f) went_airborne = true;
         if (went_airborne && st.state_changed && st.pending_state == 52)
         {
             landed = true;

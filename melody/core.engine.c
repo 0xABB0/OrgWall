@@ -36,12 +36,12 @@ static u64 s_frame_count;
 static bool s_initialized;
 
 static VkDescriptorPool s_imgui_pool;
-static SDL_Window* s_imgui_window;
+static Mel_Window_Handle s_imgui_window;
 static bool s_imgui_initialized;
 
-bool mel_imgui_init(SDL_Window* window, Mel_Swapchain* swapchain)
+bool mel_imgui_init(Mel_Window_Handle window, Mel_Swapchain* swapchain)
 {
-    assert(window != nullptr);
+    assert(mel_window_handle_valid(window));
     assert(swapchain != nullptr);
 
     VkDescriptorPoolSize pool_sizes[] = {
@@ -78,7 +78,7 @@ bool mel_imgui_init(SDL_Window* window, Mel_Swapchain* swapchain)
         style->Colors[ImGuiCol_WindowBg].w = 1.0f;
     }
 
-    ImGui_ImplSDL3_InitForVulkan(window);
+    ImGui_ImplSDL3_InitForVulkan(mel__window_sdl(window));
 
     VkPipelineRenderingCreateInfoKHR rendering_info = {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO_KHR,
@@ -188,7 +188,7 @@ void mel_shutdown(void)
         }
 
         s_imgui_initialized = false;
-        s_imgui_window = nullptr;
+        s_imgui_window = MEL_WINDOW_HANDLE_NULL;
         SDL_Log("ImGui shutdown");
     }
 
@@ -199,6 +199,8 @@ void mel_shutdown(void)
     mel_sprite_pass_shutdown(s_sprite_pass);
     mel_dealloc(&s_allocator, s_sprite_pass);
     s_sprite_pass = nullptr;
+
+    mel_swapchain_registry_destroy_all(&s_dev);
 
     mel_slang_shutdown();
     mel_gpu_submit_shutdown(&s_dev);
