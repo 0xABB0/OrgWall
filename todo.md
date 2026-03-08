@@ -120,6 +120,13 @@
 - [ECS] `mel_text_system_run` creates and destroys a query per call — simple but wasteful. Should cache the query if called every frame. Deferred until there's a consumer that needs it
 - [ECS] `Mel_CText.text` is a non-owning str8 — caller must keep the backing data alive. Fine for string literals, but dynamic text (e.g. score counter) needs arena-allocated strings per frame. Document this or add an owned-text variant later
 
+## Street Carlos (MUGEN fighting game demo)
+
+- [STREET-CARLOS] Hit collision system — hitbox/hurtbox overlap detection between fighters, populate Mugen_GetHitVar from HitDef_Result, enter hit reaction states (5000+). Currently hitboxes are computed and drawn but no collision check exists. This is the blocker for combat.
+- [STREET-CARLOS] Helper system — MUGEN helpers (Helper state controller, helper tracking, NumHelper query). Currently IsHelper reads `is_helper` field (always false for root chars), NumHelper returns 0. Both correct for now but need real infrastructure for poi-son's helper-based moves.
+- [STREET-CARLOS] Projectile system — Projectile state controller, projectile tracking, NumProjID query. Currently NumProjID returns 0 (correct: no projectiles exist). poi-son uses NumProjID(1255) to limit projectile spawning.
+- [STREET-CARLOS] GetHitVar defaults from Ikemen-GO reference — hittime defaults to -1 (not 0), yaccel defaults to 0.35/localscale, fall_yvelocity defaults to -4.5/localscale. Currently all zero-initialized.
+
 ## Animation System Stubs
 
 - [ANIMATION][STUB] Negative speed (reverse playback): speed field exists and positive values work. Negative values are not handled in mixer update — needs edge case testing for events and looping direction

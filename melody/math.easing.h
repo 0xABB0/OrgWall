@@ -44,6 +44,8 @@
 [[nodiscard]] static inline f32 mel_ease_out_bounce(f32 t);
 [[nodiscard]] static inline f32 mel_ease_in_out_bounce(f32 t);
 
+[[nodiscard]] static inline f32 mel_ease_step(f32 t);
+
 #include "math.easing.inl"
 
 typedef f32 (*Mel_Easing_Func)(f32);
@@ -85,6 +87,7 @@ typedef struct
     X("in_out_back",    mel_ease_in_out_back) \
     X("in_bounce",      mel_ease_in_bounce) \
     X("out_bounce",     mel_ease_out_bounce) \
-    X("in_out_bounce",  mel_ease_in_out_bounce)
+    X("in_out_bounce",  mel_ease_in_out_bounce) \
+    X("step",           mel_ease_step)
 
-#define MEL_EASING_COUNT 31
+#define MEL_EASING_COUNT 32

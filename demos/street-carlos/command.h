@@ -55,6 +55,7 @@ typedef struct {
     bool default_buffer_pauseend;
     bool default_buffer_shared;
 } Command_List;
+#define COMMAND_LIST_DEFINED
 
 typedef struct {
     i32 time;
@@ -81,3 +82,4 @@ void command_list_step(Command_List* cl, bool U, bool D, bool L, bool R,
 bool command_list_active(Command_List* cl, str8 name);
 void command_list_assert(Command_List* cl, str8 name, i32 time);
 void command_list_clear_name(Command_List* cl, str8 name);
+void command_list_set_facing(Command_List* cl, bool facing_right);

@@ -2,60 +2,69 @@
 
 #include "core.types.h"
 #include "command.h"
-#include "move.h"
-#include "character.h"
-
-#define MAX_PROJECTILES 4
-
-typedef struct {
-    f32 x, y;
-    f32 vel_x;
-    f32 hit_w, hit_h;
-    f32 damage;
-    u32 hitstun;
-    bool active;
-} Projectile;
+#include "anim.player.h"
+#include "anim.clip.fwd.h"
+#include "mugen_cns.h"
 
 typedef struct {
-    Character_Def* character;
+    u32 action_number;
+    Mel_Anim_Clip_Handle clip;
+} Fighter_Action_Map;
 
-    Locomotion locomotion;
-
-    Move_Def* current_move;
-    Move_Phase move_phase;
-    u32 move_frame;
-    bool hit_confirmed;
-
+typedef struct {
     f32 x, y;
     f32 vel_x, vel_y;
     bool facing_right;
 
-    f32 health;
-    u32 hitstun_remaining;
+    f32 ground_front;
+    f32 ground_back;
 
     Command_List commands;
-    Projectile projectiles[MAX_PROJECTILES];
 
-    Move_Def* moves;
-    u32 move_count;
+    Mel_Anim_Player player;
+    Mel_Anim_Clip_Pool* clip_pool;
+    Fighter_Action_Map* action_map;
+    u32 action_map_count;
+
+    u32 current_action;
+    f32 anim_hitbox[4];
+    f32 anim_hurtbox[4];
 
     bool input_left, input_right, input_up, input_down;
     bool btn_a, btn_b, btn_c;
     bool btn_x, btn_y, btn_z;
+
+    Mugen_Char_State cns_state;
+    Mugen_Cns* cns;
+    Mugen_Cns* common_cns;
+    Mugen_Cns* cmd_cns;
+    u32 last_cns_anim;
 } Fighter;
 
 typedef struct {
     f32 x, y, w, h;
 } Fighter_Box;
 
-void fighter_init(Fighter* f, Character_Def* character, Move_Def* moves, u32 move_count,
-                  f32 start_x, bool facing_right, const Mel_Alloc* alloc);
+typedef struct {
+    f32 start_x;
+    bool facing_right;
+    f32 ground_front;
+    f32 ground_back;
+    Mel_Anim_Clip_Pool* clip_pool;
+    Fighter_Action_Map* action_map;
+    u32 action_map_count;
+} Fighter_Init_Opt;
+
+void fighter_init_opt(Fighter* f, Fighter_Init_Opt opt, const Mel_Alloc* alloc);
+#define fighter_init(f, alloc, ...) \
+    fighter_init_opt((f), (Fighter_Init_Opt){__VA_ARGS__}, (alloc))
 
 void fighter_on_input(Fighter* f, u32 action, f32 value);
 
 void fighter_tick(Fighter* f, f32 dt, f32 stage_left, f32 stage_right);
+void fighter_apply_combat_state(Fighter* f);
 
-void fighter_take_hit(Fighter* f, f32 damage, f32 knockback_x, f32 knockback_y, u32 hitstun);
+void fighter_enable_cns(Fighter* f, Mugen_Cns* cns, Mugen_Cns* common_cns, Mugen_Cns* cmd_cns);
 
 Fighter_Box fighter_hurtbox(Fighter* f);
 

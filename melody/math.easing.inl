@@ -110,3 +110,5 @@ static inline f32 mel_ease_in_out_bounce(f32 t)
         ? (1.0f - mel_ease_out_bounce(1.0f - 2.0f * t)) * 0.5f
         : (1.0f + mel_ease_out_bounce(2.0f * t - 1.0f)) * 0.5f;
 }
+
+static inline f32 mel_ease_step(f32 t) { (void)t; return 0.0f; }

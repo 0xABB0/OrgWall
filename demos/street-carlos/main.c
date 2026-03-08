@@ -24,42 +24,30 @@
 #include "math.mat4.h"
 #include "math.vec2.h"
 #include "math.vec4.h"
+#include "allocator.h"
 #include "allocator.heap.h"
 #include "sim.ctx.h"
 #include "input.stack.h"
 #include "input.bindings.h"
 
+#include "stage.h"
+#include "actions.h"
 #include "fighter.h"
-#include "combat.h"
-#include "carlos.h"
+#include "mugen_char.h"
+#include "game_draw.h"
 #include "game_test.h"
-#include "mugen_sff.h"
+#include "combat.h"
+#include "command.h"
 #include "vfs.h"
 #include "vfs.backend.os.h"
 #include "async.io.h"
-#include "gpu.texture.h"
 #include <string.h>
-
-#define GAME_W 384
-#define GAME_H 224
-
-#define STAGE_FLOOR_Y 176.0f
-#define STAGE_LEFT 20.0f
-#define STAGE_RIGHT (GAME_W - 20.0f)
 
 typedef struct {
     f32 x, y;
     f32 u, v;
     f32 r, g, b, a;
 } Blit_Vertex;
-
-enum {
-    ACT_MOVE_LEFT = 1,
-    ACT_MOVE_RIGHT,
-    ACT_CROUCH,
-    ACT_JUMP,
-    ACT_PUNCH,
-};
 
 static SDL_Window* s_window;
 static Mel_Engine* s_engine;
@@ -91,161 +79,7 @@ static bool s_show_tests;
 
 static Mel_Io s_io;
 static Mel_Vfs s_vfs;
-static Mugen_Sff s_poison_sff;
-static Mel_Gpu_Texture s_poison_tex;
-static Mel_Texture_Handle s_poison_handle;
-static bool s_poison_loaded;
-
-static f32 game_to_screen_y(f32 game_y, f32 h)
-{
-    return STAGE_FLOOR_Y - game_y - h;
-}
-
-static void draw_box_outline(Fighter_Box box, Mel_Vec4 color, f32 thickness)
-{
-    f32 sy = game_to_screen_y(box.y, box.h);
-
-    mel_draw_sprite(&s_game_list, .pos = mel_vec2(box.x, sy),
-        .size = mel_vec2(box.w, thickness), .color = color);
-    mel_draw_sprite(&s_game_list, .pos = mel_vec2(box.x, sy + box.h - thickness),
-        .size = mel_vec2(box.w, thickness), .color = color);
-    mel_draw_sprite(&s_game_list, .pos = mel_vec2(box.x, sy),
-        .size = mel_vec2(thickness, box.h), .color = color);
-    mel_draw_sprite(&s_game_list, .pos = mel_vec2(box.x + box.w - thickness, sy),
-        .size = mel_vec2(thickness, box.h), .color = color);
-}
-
-static void draw_mugen_sprite(Fighter* f, Mugen_Sff* sff, Mel_Texture_Handle tex, u16 group, u16 number)
-{
-    u32 frame_idx = mugen_sff_find_frame(sff, group, number);
-    Mel_SpriteFrame* frame = mel_spritesheet_get_frame(&sff->sheet, frame_idx);
-    if (!frame) return;
-
-    f32 u0, v0, u1, v1;
-    mel_spritesheet_get_frame_uv(&sff->sheet, frame_idx, &u0, &v0, &u1, &v1);
-
-    f32 w = (f32)frame->width;
-    f32 h = (f32)frame->height;
-
-    f32 feet_x = f->x + f->character->width * 0.5f;
-    f32 feet_y = STAGE_FLOOR_Y - f->y;
-
-    f32 draw_x = feet_x - (f32)frame->offset_x;
-    f32 draw_y = feet_y - (f32)frame->offset_y;
-
-    if (!f->facing_right)
-    {
-        f32 tmp = u0;
-        u0 = u1;
-        u1 = tmp;
-        draw_x = feet_x - (w - (f32)frame->offset_x);
-    }
-
-    static bool logged = false;
-    if (!logged)
-    {
-        SDL_Log("MUGEN draw: pos(%.1f, %.1f) size(%.0f, %.0f) uv(%.4f, %.4f, %.4f, %.4f) offset(%d,%d) feet(%.1f, %.1f)",
-                draw_x, draw_y, w, h, u0, v0, u1 - u0, v1 - v0,
-                frame->offset_x, frame->offset_y, feet_x, feet_y);
-        logged = true;
-    }
-
-    mel_draw_sprite(&s_game_list,
-        .pos = mel_vec2(draw_x, draw_y),
-        .size = mel_vec2(w, h),
-        .color = mel_vec4(1, 1, 1, 1),
-        .tex = tex,
-        .uv = mel_rect(u0, v0, u1 - u0, v1 - v0));
-}
-
-static void draw_fighter(Fighter* f, Mel_Vec4 base_color, bool use_mugen)
-{
-    if (use_mugen && s_poison_loaded)
-    {
-        draw_mugen_sprite(f, &s_poison_sff, s_poison_handle, 0, 0);
-    }
-    else
-    {
-        Character_Def* c = f->character;
-        f32 w = c->width;
-        f32 h = c->height;
-        Mel_Vec4 color = base_color;
-
-        if (f->locomotion == LOCO_CROUCH && !f->current_move)
-        {
-            h = c->crouch_height;
-            w = c->width * 1.1f;
-        }
-        else if (f->locomotion == LOCO_HITSTUN)
-        {
-            color = mel_vec4(1.0f, 1.0f, 1.0f, 1.0f);
-        }
-
-        if (f->current_move)
-        {
-            if (f->move_phase == MOVE_PHASE_STARTUP)
-                color = mel_vec4(color.x * 0.7f, color.y * 0.7f, color.z * 0.7f, 1.0f);
-            else if (f->move_phase == MOVE_PHASE_ACTIVE)
-                color = mel_vec4(1.0f, 1.0f, 0.3f, 1.0f);
-            else if (f->move_phase == MOVE_PHASE_RECOVERY)
-                color = mel_vec4(color.x * 0.5f, color.y * 0.5f, color.z * 0.5f, 1.0f);
-        }
-
-        f32 draw_y = game_to_screen_y(f->y, h);
-
-        mel_draw_sprite(&s_game_list,
-            .pos = mel_vec2(f->x, draw_y),
-            .size = mel_vec2(w, h),
-            .color = color);
-    }
-
-    Mel_Vec4 attack_color = use_mugen ? mel_vec4(1.0f, 1.0f, 0.3f, 0.5f) : base_color;
-
-    if (f->current_move && f->move_phase == MOVE_PHASE_ACTIVE)
-    {
-        Move_Def* m = f->current_move;
-        if (m->hit_w > 0 && m->hit_h > 0 && !m->spawns_projectile)
-        {
-            Fighter_Box hb = fighter_hitbox(f);
-            f32 fist_y = game_to_screen_y(hb.y, hb.h);
-            mel_draw_sprite(&s_game_list,
-                .pos = mel_vec2(hb.x, fist_y),
-                .size = mel_vec2(hb.w, hb.h),
-                .color = attack_color);
-        }
-    }
-
-    for (u32 i = 0; i < MAX_PROJECTILES; i++)
-    {
-        if (!f->projectiles[i].active) continue;
-        Projectile* p = &f->projectiles[i];
-        f32 proj_y = game_to_screen_y(p->y, p->hit_h);
-        mel_draw_sprite(&s_game_list,
-            .pos = mel_vec2(p->x, proj_y),
-            .size = mel_vec2(p->hit_w, p->hit_h),
-            .color = mel_vec4(1.0f, 0.8f, 0.2f, 1.0f));
-    }
-}
-
-static void draw_debug_boxes(Fighter* f)
-{
-    Fighter_Box hurt = fighter_hurtbox(f);
-    draw_box_outline(hurt, mel_vec4(0.0f, 1.0f, 0.0f, 1.0f), 1.0f);
-
-    if (fighter_has_active_hitbox(f))
-    {
-        Fighter_Box hit = fighter_hitbox(f);
-        draw_box_outline(hit, mel_vec4(1.0f, 0.0f, 0.0f, 1.0f), 1.0f);
-    }
-
-    for (u32 i = 0; i < MAX_PROJECTILES; i++)
-    {
-        Projectile* p = &f->projectiles[i];
-        if (!p->active) continue;
-        Fighter_Box pb = { p->x, p->y, p->hit_w, p->hit_h };
-        draw_box_outline(pb, mel_vec4(1.0f, 1.0f, 0.0f, 1.0f), 1.0f);
-    }
-}
+static Mugen_Char s_mugen_char;
 
 static void update_blit_quad(void)
 {
@@ -310,16 +144,45 @@ static bool fighter_on_action(Mel_Input_Action action, f32 value, void* user)
 {
     Fighter* f = (Fighter*)user;
     fighter_on_input(f, action, value);
-    return action >= ACT_MOVE_LEFT && action <= ACT_PUNCH;
+    return action >= ACT_MOVE_LEFT && action <= ACT_BTN_Z;
 }
 
-static void game_update(Mel_Sim_Ctx* sim, f32 dt, void* user);
+static void game_fixed_update(Mel_Sim_Ctx* sim, f32 dt, void* user)
+{
+    MEL_UNUSED(sim);
+    MEL_UNUSED(user);
 
-static void on_init(Mel_Engine* e)
+    fighter_tick(&s_p1, dt, STAGE_LEFT, STAGE_RIGHT);
+    fighter_tick(&s_p2, dt, STAGE_LEFT, STAGE_RIGHT);
+
+    combat_resolve(&s_p1, &s_p2);
+    fighter_apply_combat_state(&s_p1);
+    fighter_apply_combat_state(&s_p2);
+}
+
+static void game_draw(Mel_Sim_Ctx* sim, f32 dt, void* user)
+{
+    MEL_UNUSED(sim);
+    MEL_UNUSED(dt);
+    MEL_UNUSED(user);
+
+    mel_render_list_clear(&s_game_list);
+
+    game_draw_stage(&s_game_list);
+
+    game_draw_fighter(&s_p1, &s_mugen_char, &s_game_list);
+    game_draw_fighter(&s_p2, &s_mugen_char, &s_game_list);
+
+    if (s_show_hitboxes)
+    {
+        game_draw_debug_boxes(&s_p1, &s_game_list);
+        game_draw_debug_boxes(&s_p2, &s_game_list);
+    }
+}
+
+static void init_render(Mel_Engine* e)
 {
     Mel_Gpu_Device* dev = &e->dev;
-
-    s_engine = e;
 
     mel_render_list_init(&s_game_list,
         .entry_stride = sizeof(Mel_Sprite_Entry),
@@ -395,50 +258,33 @@ static void on_init(Mel_Engine* e)
     mel_render_graph_pass_depends_on(&s_graph, imgui_pass_id, blit_pass_id);
     mel_render_graph_compile(&s_graph);
     e->render_graph = &s_graph;
+}
 
-    mel_io_init(&s_io, &(Mel_Io_Desc){ .allocator = mel_alloc_heap(), .worker_count = 0 });
-    mel_vfs_init(&s_vfs, &(Mel_Vfs_Desc){ .allocator = mel_alloc_heap(), .io = &s_io });
-    Mel_Vfs_Backend* os_be = mel_vfs_backend_os_create(mel_alloc_heap(), S8("demos/street-carlos"));
-    mel_vfs_mount(&s_vfs, S8("/"), os_be, 0, false);
-
-    s_poison_loaded = mugen_sff_load(&s_poison_sff, &s_vfs, S8("/chars/poi-son/poi-son.sff"), mel_alloc_heap());
-    if (s_poison_loaded)
-    {
-        mel_gpu_texture_init(&s_poison_tex, dev,
-            .pixels = s_poison_sff.atlas_pixels,
-            .width = s_poison_sff.atlas_width,
-            .height = s_poison_sff.atlas_height,
-            .nearest_filter = true);
-        s_poison_tex.descriptor = mel_gpu_pipeline_alloc_descriptor(&e->sprite_pass->pipeline, dev);
-        mel_gpu_pipeline_write_texture(&e->sprite_pass->pipeline, dev,
-            s_poison_tex.descriptor, s_poison_tex.image.view, s_poison_tex.sampler);
-        s_poison_handle = mel_texture_pool_register(e->texture_pool, &s_poison_tex);
-    }
-
-    fighter_init(&s_p1, &CARLOS_DEF, CARLOS_MOVES, CARLOS_MOVE_COUNT, 80.0f, true, mel_alloc_heap());
-    fighter_init(&s_p2, &CARLOS_DEF, CARLOS_MOVES, CARLOS_MOVE_COUNT,
-                 GAME_W - 80.0f - CARLOS_DEF.width, false, mel_alloc_heap());
-
-    mel_sim_init(&s_sim, .event_buffer = s_event_buf, .event_buffer_size = sizeof(s_event_buf));
-
-    Mel_Sim_Fixed* fixed = mel_sim_add_fixed(&s_sim, .fixed_dt = 1.0f / 60.0f);
-    mel_sim_fixed_add_update(fixed, game_update);
-
-    mel_engine_register_sim(e, &s_sim);
-
+static void init_input(void)
+{
     mel_input_bindings_init(&s_p1_bindings);
     mel_input_bindings_add(&s_p1_bindings, SDL_SCANCODE_A, ACT_MOVE_LEFT);
     mel_input_bindings_add(&s_p1_bindings, SDL_SCANCODE_D, ACT_MOVE_RIGHT);
     mel_input_bindings_add(&s_p1_bindings, SDL_SCANCODE_S, ACT_CROUCH);
     mel_input_bindings_add(&s_p1_bindings, SDL_SCANCODE_W, ACT_JUMP);
-    mel_input_bindings_add(&s_p1_bindings, SDL_SCANCODE_J, ACT_PUNCH);
+    mel_input_bindings_add(&s_p1_bindings, SDL_SCANCODE_U, ACT_BTN_X);
+    mel_input_bindings_add(&s_p1_bindings, SDL_SCANCODE_I, ACT_BTN_Y);
+    mel_input_bindings_add(&s_p1_bindings, SDL_SCANCODE_O, ACT_BTN_Z);
+    mel_input_bindings_add(&s_p1_bindings, SDL_SCANCODE_J, ACT_BTN_A);
+    mel_input_bindings_add(&s_p1_bindings, SDL_SCANCODE_K, ACT_BTN_B);
+    mel_input_bindings_add(&s_p1_bindings, SDL_SCANCODE_L, ACT_BTN_C);
 
     mel_input_bindings_init(&s_p2_bindings);
     mel_input_bindings_add(&s_p2_bindings, SDL_SCANCODE_LEFT, ACT_MOVE_LEFT);
     mel_input_bindings_add(&s_p2_bindings, SDL_SCANCODE_RIGHT, ACT_MOVE_RIGHT);
     mel_input_bindings_add(&s_p2_bindings, SDL_SCANCODE_DOWN, ACT_CROUCH);
     mel_input_bindings_add(&s_p2_bindings, SDL_SCANCODE_UP, ACT_JUMP);
-    mel_input_bindings_add(&s_p2_bindings, SDL_SCANCODE_KP_1, ACT_PUNCH);
+    mel_input_bindings_add(&s_p2_bindings, SDL_SCANCODE_KP_7, ACT_BTN_X);
+    mel_input_bindings_add(&s_p2_bindings, SDL_SCANCODE_KP_8, ACT_BTN_Y);
+    mel_input_bindings_add(&s_p2_bindings, SDL_SCANCODE_KP_9, ACT_BTN_Z);
+    mel_input_bindings_add(&s_p2_bindings, SDL_SCANCODE_KP_4, ACT_BTN_A);
+    mel_input_bindings_add(&s_p2_bindings, SDL_SCANCODE_KP_5, ACT_BTN_B);
+    mel_input_bindings_add(&s_p2_bindings, SDL_SCANCODE_KP_6, ACT_BTN_C);
 
     mel_input_stack_init(&s_input_stack);
 
@@ -453,55 +299,75 @@ static void on_init(Mel_Engine* e)
         .mapper_user = &s_p2_bindings,
         .on_action = fighter_on_action,
         .user = &s_p2);
-
-    SDL_Log("Street Carlos ready! P1: WASD + J(punch)  P2: Arrows + Numpad1(punch)  Tab: hitboxes  T: tests  ESC: quit");
 }
 
-static void game_update(Mel_Sim_Ctx* sim, f32 dt, void* user)
+static void on_init(Mel_Engine* e)
 {
-    MEL_UNUSED(sim);
-    MEL_UNUSED(user);
+    s_engine = e;
 
-    fighter_tick(&s_p1, dt, STAGE_LEFT, STAGE_RIGHT);
-    fighter_tick(&s_p2, dt, STAGE_LEFT, STAGE_RIGHT);
+    init_render(e);
 
-    combat_check_hits(&s_p1, &s_p2);
-    combat_check_hits(&s_p2, &s_p1);
-    combat_check_projectiles(&s_p1, &s_p2);
-    combat_check_projectiles(&s_p2, &s_p1);
+    mel_io_init(&s_io, &(Mel_Io_Desc){ .allocator = mel_alloc_heap(), .worker_count = 0 });
+    mel_vfs_init(&s_vfs, &(Mel_Vfs_Desc){ .allocator = mel_alloc_heap(), .io = &s_io });
+    Mel_Vfs_Backend* os_be = mel_vfs_backend_os_create(mel_alloc_heap(), S8("demos/street-carlos"));
+    mel_vfs_mount(&s_vfs, S8("/"), os_be, 0, false);
 
-    mel_render_list_clear(&s_game_list);
+    mugen_char_load(&s_mugen_char,
+        .dev = &e->dev,
+        .sprite_pass = e->sprite_pass,
+        .tex_pool = e->texture_pool,
+        .vfs = &s_vfs,
+        .sff_path = S8("/chars/kfm/kfm.sff"),
+        .air_path = S8("/chars/kfm/kfm.air"),
+        .cmd_path = S8("/chars/kfm/kfm.cmd"),
+        .cns_path = S8("/chars/kfm/kfm.cns"),
+        .common_cns_path = S8("/chars/kfm/common1.cns"),
+        .alloc = mel_alloc_heap());
 
-    mel_draw_sprite(&s_game_list,
-        .pos = mel_vec2(0, STAGE_FLOOR_Y),
-        .size = mel_vec2(GAME_W, GAME_H - STAGE_FLOOR_Y),
-        .color = mel_vec4(0.25f, 0.18f, 0.12f, 1.0f));
+    fighter_init(&s_p1, mel_alloc_heap(),
+        .start_x = 80.0f,
+        .facing_right = true,
+        .clip_pool = &s_mugen_char.clip_pool,
+        .action_map = s_mugen_char.action_map,
+        .action_map_count = s_mugen_char.action_map_count);
 
-    mel_draw_sprite(&s_game_list,
-        .pos = mel_vec2(0, STAGE_FLOOR_Y - 2),
-        .size = mel_vec2(GAME_W, 2),
-        .color = mel_vec4(0.5f, 0.35f, 0.2f, 1.0f));
+    fighter_init(&s_p2, mel_alloc_heap(),
+        .start_x = GAME_W - 80.0f,
+        .facing_right = false,
+        .clip_pool = &s_mugen_char.clip_pool,
+        .action_map = s_mugen_char.action_map,
+        .action_map_count = s_mugen_char.action_map_count);
 
-    draw_fighter(&s_p1, mel_vec4(0.2f, 0.4f, 0.9f, 1.0f), true);
-    draw_fighter(&s_p2, mel_vec4(0.9f, 0.2f, 0.2f, 1.0f), false);
-
-    if (s_show_hitboxes)
+    for (u32 i = 0; i < s_mugen_char.cmd.command_count; i++)
     {
-        draw_debug_boxes(&s_p1);
-        draw_debug_boxes(&s_p2);
+        Mugen_Cmd_Def* c = &s_mugen_char.cmd.commands[i];
+        command_list_add(&s_p1.commands, c->name, c->command, .time = c->time, .buf_time = 1);
+        command_list_add(&s_p2.commands, c->name, c->command, .time = c->time, .buf_time = 1);
     }
-}
 
-static bool has_arg(Mel_App* app, const char* arg)
-{
-    for (int i = 1; i < app->argc; i++)
-        if (strcmp(app->argv[i], arg) == 0) return true;
-    return false;
+    if (s_mugen_char.cns_loaded)
+    {
+        fighter_enable_cns(&s_p1, &s_mugen_char.cns, &s_mugen_char.common_cns, &s_mugen_char.cmd_cns);
+        fighter_enable_cns(&s_p2, &s_mugen_char.cns, &s_mugen_char.common_cns, &s_mugen_char.cmd_cns);
+    }
+
+    mel_sim_init(&s_sim, .event_buffer = s_event_buf, .event_buffer_size = sizeof(s_event_buf));
+
+    Mel_Sim_Fixed* fixed = mel_sim_add_fixed(&s_sim, .fixed_dt = 1.0f / 60.0f);
+    mel_sim_fixed_add_update(fixed, game_fixed_update);
+
+    mel_sim_add_variable(&s_sim, game_draw);
+
+    mel_engine_register_sim(e, &s_sim);
+
+    init_input();
+
+    SDL_Log("Street Carlos ready! P1: WASD + UIO(xyz) JKL(abc)  P2: Arrows + Numpad  Tab: hitboxes  T: tests  ESC: quit");
 }
 
 static void app_init(Mel_App* app)
 {
-    if (has_arg(app, "--test"))
+    if (app->argc > 1 && strcmp(app->argv[1], "--test") == 0)
     {
         int result = mel_test_main(app->argc, app->argv);
         app->should_quit = true;
@@ -541,11 +407,9 @@ static void app_shutdown(Mel_App* app)
     mel_render_target_shutdown(&s_offscreen);
     mel_render_target_shutdown(&s_swapchain_target);
 
-    if (s_poison_loaded)
-    {
-        mel_gpu_texture_shutdown(&s_poison_tex, dev);
-        mugen_sff_shutdown(&s_poison_sff, mel_alloc_heap());
-    }
+    mel_anim_player_destroy(&s_p1.player);
+    mel_anim_player_destroy(&s_p2.player);
+    mugen_char_shutdown(&s_mugen_char, dev, mel_alloc_heap());
 
     mel_gpu_buffer_shutdown(&s_blit_vbuf, dev);
     mel_gpu_buffer_shutdown(&s_blit_ibuf, dev);

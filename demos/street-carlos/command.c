@@ -588,8 +588,27 @@ void command_list_step(Command_List* cl, bool U, bool D, bool L, bool R,
     }
 }
 
+static bool str8_eq_cstr_i(str8 a, const char* b)
+{
+    size blen = 0;
+    while (b[blen]) blen++;
+    if (a.len != blen) return false;
+    for (size i = 0; i < blen; i++)
+    {
+        u8 ac = a.data[i]; if (ac >= 'A' && ac <= 'Z') ac += 32;
+        u8 bc = (u8)b[i]; if (bc >= 'A' && bc <= 'Z') bc += 32;
+        if (ac != bc) return false;
+    }
+    return true;
+}
+
 bool command_list_active(Command_List* cl, str8 name)
 {
+    if (str8_eq_cstr_i(name, "holdfwd"))   return cl->buffer.Fb > 0;
+    if (str8_eq_cstr_i(name, "holdback"))  return cl->buffer.Bb > 0;
+    if (str8_eq_cstr_i(name, "holdup"))    return cl->buffer.Ub > 0;
+    if (str8_eq_cstr_i(name, "holddown"))  return cl->buffer.Db > 0;
+
     for (u32 i = 0; i < cl->command_count; i++)
         if (str8_equals(cl->commands[i].name, name) && cl->commands[i].cur_buf_time > 0)
             return true;

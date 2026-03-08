@@ -9,10 +9,14 @@ typedef struct {
     u16 group;
     u16 number;
     u32 frame_index;
+    i16 offset_x;
+    i16 offset_y;
+    u16 width;
+    u16 height;
 } Mugen_Sff_Entry;
 
 typedef struct {
-    Mel_Spritesheet sheet;
+    Mel_Sprite_Sheet sheet;
     Mugen_Sff_Entry* entries;
     u32 entry_count;
     u8* atlas_pixels;

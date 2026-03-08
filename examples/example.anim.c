@@ -22,10 +22,16 @@
 #include "math.mat4.h"
 #include "math.vec4.h"
 #include "math.geo.rect.h"
-#include "anim.state.h"
+#include "sprite.sheet.h"
 #include "anim.sprite.h"
 #include "anim.clip.h"
+#include "anim.registry.h"
+#include "anim.player.h"
+#include "anim.pose.h"
+#include "anim.pipeline.h"
 #include "allocator.heap.h"
+#include "collection.slotmap.h"
+#include "hash.xxh.h"
 #include "sim.ctx.h"
 
 #define WIDTH  640
@@ -41,28 +47,19 @@
 #define STATE_HIT  3
 #define STATE_COUNT 4
 
-#define COND_WALK 1
-#define COND_RUN  2
-#define COND_IDLE 3
-#define COND_HIT  4
-
 #define IDLE_FRAME_COUNT 1
 #define WALK_FRAME_COUNT 4
 #define RUN_FRAME_COUNT  4
 #define HIT_FRAME_COUNT  3
 
 typedef struct {
-    Mel_Anim_State_Player player;
-    Mel_Anim_State_Machine machine;
-    Mel_Anim_State_Def state_defs[STATE_COUNT];
-    Mel_Anim_Clip clips[STATE_COUNT];
-    Mel_Anim_Mixer mixer;
-    Mel_Anim_Transition idle_trans[3];
-    Mel_Anim_Transition walk_trans[3];
-    Mel_Anim_Transition run_trans[3];
-    Mel_Anim_Transition hit_trans[1];
+    Mel_Anim_Clip_Pool clip_pool;
+    Mel_Anim_Clip_Handle clip_handles[STATE_COUNT];
+    Mel_Sprite_Sheet sheets[STATE_COUNT];
+    u64 frame_prop;
+    Mel_Anim_Player player;
+    u32 current_state;
     const Mel_Alloc* alloc;
-    u32 prev_state;
 } AnimDemo;
 
 static SDL_Window* s_window;
@@ -89,13 +86,6 @@ static Mel_Render_List s_sprite_list;
 static Mel_Render_List s_font_list;
 static Mel_Sim_Ctx s_sim;
 static u8 s_event_buf[4096];
-
-static const u32 s_frame_counts[STATE_COUNT] = {
-    IDLE_FRAME_COUNT,
-    WALK_FRAME_COUNT,
-    RUN_FRAME_COUNT,
-    HIT_FRAME_COUNT,
-};
 
 static const char* s_state_names[STATE_COUNT] = {
     "IDLE",
@@ -125,171 +115,94 @@ static Mel_Texture_Handle texture_handle_for_state(u32 state)
     }
 }
 
-static u32 anim_demo_mixer_state(AnimDemo* d)
-{
-    Mel_Anim_Layer* layer = mel_anim_mixer_layer(&d->mixer, 0);
-    if (!layer->clip) return STATE_IDLE;
-    u32 state = (u32)layer->clip->name_hash;
-    return state < STATE_COUNT ? state : STATE_IDLE;
-}
-
-static u32 anim_demo_frame_index(AnimDemo* d, u32 state)
-{
-    const Mel_Anim_Mixer_Output* out =
-        mel_anim_mixer_find_output(&d->mixer, MEL_ANIM_PROP_SPRITE_FRAME);
-    u32 frame = out ? (u32)out->value[0] : 0;
-    u32 max_frame = s_frame_counts[state];
-    return frame < max_frame ? frame : 0;
-}
-
-static void clear_all_conditions(Mel_Anim_State_Player* player)
-{
-    mel_anim_state_player_set_condition(player, COND_WALK, false);
-    mel_anim_state_player_set_condition(player, COND_RUN, false);
-    mel_anim_state_player_set_condition(player, COND_IDLE, false);
-    mel_anim_state_player_set_condition(player, COND_HIT, false);
-}
-
 static void anim_demo_init(AnimDemo* d, const Mel_Alloc* alloc)
 {
     memset(d, 0, sizeof(*d));
     d->alloc = alloc;
 
-    u32 idle_frames[] = {0};
-    f32 idle_durs[]   = {1.0f};
-    d->clips[STATE_IDLE] = mel_anim_sprite_clip(alloc, STATE_IDLE,
-        idle_frames, idle_durs, IDLE_FRAME_COUNT, true);
+    mel_anim_registry_init(alloc);
+    mel_slotmap_init(&d->clip_pool, alloc, .item_size = sizeof(Mel_Anim_Clip));
 
-    u32 walk_frames[] = {0, 1, 2, 3};
-    f32 walk_durs[]   = {0.15f, 0.15f, 0.15f, 0.15f};
-    d->clips[STATE_WALK] = mel_anim_sprite_clip(alloc, STATE_WALK,
-        walk_frames, walk_durs, WALK_FRAME_COUNT, true);
+    d->frame_prop = mel_xxh3_64("frame", 5);
 
-    u32 run_frames[] = {0, 1, 2, 3};
-    f32 run_durs[]   = {0.10f, 0.10f, 0.10f, 0.10f};
-    d->clips[STATE_RUN] = mel_anim_sprite_clip(alloc, STATE_RUN,
-        run_frames, run_durs, RUN_FRAME_COUNT, true);
-
-    u32 hit_frames[] = {0, 1, 2};
-    f32 hit_durs[]   = {0.12f, 0.12f, 0.12f};
-    d->clips[STATE_HIT] = mel_anim_sprite_clip(alloc, STATE_HIT,
-        hit_frames, hit_durs, HIT_FRAME_COUNT, false);
-
-    d->idle_trans[0] = (Mel_Anim_Transition){
-        .target_state = STATE_WALK,
-        .mode = MEL_ANIM_TRANSITION_IMMEDIATE,
-        .condition_hash = COND_WALK,
-    };
-    d->idle_trans[1] = (Mel_Anim_Transition){
-        .target_state = STATE_RUN,
-        .mode = MEL_ANIM_TRANSITION_IMMEDIATE,
-        .condition_hash = COND_RUN,
-    };
-    d->idle_trans[2] = (Mel_Anim_Transition){
-        .target_state = STATE_HIT,
-        .mode = MEL_ANIM_TRANSITION_IMMEDIATE,
-        .condition_hash = COND_HIT,
+    struct {
+        const char* name;
+        u32 frame_count;
+        f32 frame_dur;
+        bool looping;
+    } clip_defs[STATE_COUNT] = {
+        { "idle", IDLE_FRAME_COUNT, 1.0f,  true  },
+        { "walk", WALK_FRAME_COUNT, 0.15f, true  },
+        { "run",  RUN_FRAME_COUNT,  0.10f, true  },
+        { "hit",  HIT_FRAME_COUNT,  0.12f, false },
     };
 
-    d->walk_trans[0] = (Mel_Anim_Transition){
-        .target_state = STATE_RUN,
-        .mode = MEL_ANIM_TRANSITION_IMMEDIATE,
-        .condition_hash = COND_RUN,
-    };
-    d->walk_trans[1] = (Mel_Anim_Transition){
-        .target_state = STATE_IDLE,
-        .mode = MEL_ANIM_TRANSITION_IMMEDIATE,
-        .condition_hash = COND_IDLE,
-    };
-    d->walk_trans[2] = (Mel_Anim_Transition){
-        .target_state = STATE_HIT,
-        .mode = MEL_ANIM_TRANSITION_IMMEDIATE,
-        .condition_hash = COND_HIT,
-    };
+    for (u32 s = 0; s < STATE_COUNT; s++)
+    {
+        mel_sprite_sheet_init(&d->sheets[s], alloc);
+        mel_sprite_sheet_from_grid(&d->sheets[s],
+            .cols = clip_defs[s].frame_count, .rows = 1);
 
-    d->run_trans[0] = (Mel_Anim_Transition){
-        .target_state = STATE_IDLE,
-        .mode = MEL_ANIM_TRANSITION_IMMEDIATE,
-        .condition_hash = COND_IDLE,
-    };
-    d->run_trans[1] = (Mel_Anim_Transition){
-        .target_state = STATE_WALK,
-        .mode = MEL_ANIM_TRANSITION_IMMEDIATE,
-        .condition_hash = COND_WALK,
-    };
-    d->run_trans[2] = (Mel_Anim_Transition){
-        .target_state = STATE_HIT,
-        .mode = MEL_ANIM_TRANSITION_IMMEDIATE,
-        .condition_hash = COND_HIT,
-    };
+        u64 name_hash = mel_xxh3_64(clip_defs[s].name, (u32)strlen(clip_defs[s].name));
+        Mel_Sprite_Anim_Def def;
+        mel_sprite_anim_def_init(&def, name_hash, d->frame_prop, alloc);
+        def.is_looping = clip_defs[s].looping;
 
-    d->hit_trans[0] = (Mel_Anim_Transition){
-        .target_state = STATE_IDLE,
-        .mode = MEL_ANIM_TRANSITION_AT_END,
-        .condition_hash = COND_HIT,
-    };
+        for (u32 f = 0; f < clip_defs[s].frame_count; f++)
+            mel_sprite_anim_def_push_frame(&def, f, clip_defs[s].frame_dur);
 
-    d->state_defs[STATE_IDLE] = (Mel_Anim_State_Def){
-        .name_hash = STATE_IDLE,
-        .clip = &d->clips[STATE_IDLE],
-        .transitions = d->idle_trans,
-        .transition_count = 3,
-    };
+        Mel_Anim_Clip clip = mel_sprite_anim_def_compile(&def, alloc);
+        d->clip_handles[s] = mel_slotmap_insert(&d->clip_pool, &clip);
+        mel_sprite_anim_def_destroy(&def);
+    }
 
-    d->state_defs[STATE_WALK] = (Mel_Anim_State_Def){
-        .name_hash = STATE_WALK,
-        .clip = &d->clips[STATE_WALK],
-        .transitions = d->walk_trans,
-        .transition_count = 3,
-    };
-
-    d->state_defs[STATE_RUN] = (Mel_Anim_State_Def){
-        .name_hash = STATE_RUN,
-        .clip = &d->clips[STATE_RUN],
-        .transitions = d->run_trans,
-        .transition_count = 3,
-    };
-
-    d->state_defs[STATE_HIT] = (Mel_Anim_State_Def){
-        .name_hash = STATE_HIT,
-        .clip = &d->clips[STATE_HIT],
-        .transitions = d->hit_trans,
-        .transition_count = 1,
-    };
-
-    mel_anim_mixer_init(&d->mixer, alloc);
-    mel_anim_mixer_add_layer(&d->mixer);
-    mel_anim_state_machine_init(&d->machine, d->state_defs, STATE_COUNT, STATE_IDLE);
-    mel_anim_state_player_init(&d->player, alloc,
-        .machine = &d->machine, .mixer = &d->mixer, .mixer_layer = 0);
-
-    d->prev_state = STATE_IDLE;
+    mel_anim_player_init(&d->player, alloc, &d->clip_pool);
+    mel_anim_player_play(&d->player, d->clip_handles[STATE_IDLE]);
+    d->current_state = STATE_IDLE;
 }
 
 static void anim_demo_destroy(AnimDemo* d)
 {
-    mel_anim_state_player_destroy(&d->player);
-    mel_anim_mixer_destroy(&d->mixer);
-    for (u32 i = 0; i < STATE_COUNT; i++)
-        mel_anim_clip_destroy(&d->clips[i], d->alloc);
+    mel_anim_player_destroy(&d->player);
+
+    for (u32 s = 0; s < STATE_COUNT; s++)
+    {
+        Mel_Anim_Clip* clip = (Mel_Anim_Clip*)mel_slotmap_get(&d->clip_pool, d->clip_handles[s]);
+        mel_anim_clip_destroy(clip, d->alloc);
+        mel_sprite_sheet_destroy(&d->sheets[s]);
+    }
+    mel_slotmap_free(&d->clip_pool);
+}
+
+static void anim_demo_switch_state(AnimDemo* d, u32 new_state)
+{
+    if (new_state == d->current_state) return;
+    d->current_state = new_state;
+    mel_anim_player_play(&d->player, d->clip_handles[new_state], .crossfade = 0.05f);
+}
+
+static u32 anim_demo_frame_index(AnimDemo* d)
+{
+    f32 frame_f;
+    mel_anim_player_get_float(&d->player, d->frame_prop, d->alloc, &frame_f);
+    u32 frame = (u32)frame_f;
+    u32 max_frame = d->sheets[d->current_state].frame_count;
+    return frame < max_frame ? frame : 0;
 }
 
 static void draw_hero(Mel_Render_List* list, AnimDemo* d, f32 cx, f32 cy)
 {
-    u32 state = anim_demo_mixer_state(d);
-    u32 frame = anim_demo_frame_index(d, state);
-    u32 frame_count = s_frame_counts[state];
+    u32 state = d->current_state;
+    u32 frame = anim_demo_frame_index(d);
     Mel_Texture_Handle tex = texture_handle_for_state(state);
-
-    f32 u0 = (f32)frame / (f32)frame_count;
-    f32 u1 = (f32)(frame + 1) / (f32)frame_count;
+    Mel_Rect uv = mel_sprite_sheet_frame(&d->sheets[state], frame);
 
     Mel_Sprite_Entry* e = mel_render_list_push(list,
         mel_sort_key_sprite(0, 0.0f, 0, mel_texture_bucket(tex)));
     *e = (Mel_Sprite_Entry){
         .pos = mel_vec2(cx - SPRITE_SIZE / 2.0f, cy - SPRITE_SIZE / 2.0f),
         .size = mel_vec2((f32)SPRITE_SIZE, (f32)SPRITE_SIZE),
-        .uv = mel_rect(u0, 0.0f, u1 - u0, 1.0f),
+        .uv = uv,
         .color = mel_vec4(1.0f, 1.0f, 1.0f, 1.0f),
         .tex = tex,
     };
@@ -302,13 +215,13 @@ static void draw_info(Mel_Render_List* list, Mel_Font_Atlas_Pool* pool, Mel_Font
     Mel_Vec4 green = mel_vec4(0.3f, 0.9f, 0.3f, 1.0f);
 
     char buf[128];
-    u32 state = anim_demo_mixer_state(d);
-    u32 frame = anim_demo_frame_index(d, state);
+    u32 state = d->current_state;
+    u32 frame = anim_demo_frame_index(d);
 
     snprintf(buf, sizeof(buf), "State: %s", s_state_names[state]);
     mel_font_atlas_draw_text(pool, font, list, str8_from_cstr(buf), cx - 60.0f, y, green);
 
-    snprintf(buf, sizeof(buf), "Frame: %u / %u", frame, s_frame_counts[state]);
+    snprintf(buf, sizeof(buf), "Frame: %u / %u", frame, d->sheets[state].frame_count);
     mel_font_atlas_draw_text(pool, font, list, str8_from_cstr(buf), cx - 60.0f, y + 24.0f, white);
 
     f32 controls_y = y + 64.0f;
@@ -397,7 +310,7 @@ static void app_init(Mel_App* app)
     on_init(&app->engine);
 
     mel_sim_init(&s_sim, .event_buffer = s_event_buf, .event_buffer_size = sizeof(s_event_buf));
-    mel_sim_add_variable(&s_sim, app_update);
+    mel_sim_add_variable(&s_sim, app_update, .user = app);
     mel_engine_register_sim(&app->engine, &s_sim);
 }
 
@@ -434,15 +347,11 @@ static void app_update(Mel_Sim_Ctx* sim, f32 dt, void* user)
     Mel_App* app = (Mel_App*)user;
 
     AnimDemo* d = &s_demo;
-    d->prev_state = d->player.current_state;
-    mel_anim_state_player_update(&d->player);
 
-    if (d->prev_state == STATE_HIT && d->player.current_state == STATE_IDLE)
-    {
-        clear_all_conditions(&d->player);
-    }
+    mel_anim_player_update(&d->player, dt);
 
-    mel_anim_mixer_update(&d->mixer, dt);
+    if (d->current_state == STATE_HIT && d->player.phase >= 1.0f)
+        anim_demo_switch_state(d, STATE_IDLE);
 
     f32 cx = (f32)app->engine.swapchain.extent.width / 2.0f;
     f32 hero_y = (f32)app->engine.swapchain.extent.height * 0.33f;
@@ -456,6 +365,8 @@ static void app_update(Mel_Sim_Ctx* sim, f32 dt, void* user)
 
 static void app_event(Mel_App* app, SDL_Event* event)
 {
+    MEL_UNUSED(app);
+
     if (event->type == SDL_EVENT_KEY_DOWN && event->key.scancode == SDL_SCANCODE_ESCAPE)
     {
         app->should_quit = true;
@@ -469,20 +380,16 @@ static void app_event(Mel_App* app, SDL_Event* event)
         switch (event->key.scancode)
         {
             case SDL_SCANCODE_W:
-                clear_all_conditions(&d->player);
-                mel_anim_state_player_set_condition(&d->player, COND_WALK, true);
+                anim_demo_switch_state(d, STATE_WALK);
                 break;
             case SDL_SCANCODE_R:
-                clear_all_conditions(&d->player);
-                mel_anim_state_player_set_condition(&d->player, COND_RUN, true);
+                anim_demo_switch_state(d, STATE_RUN);
                 break;
             case SDL_SCANCODE_I:
-                clear_all_conditions(&d->player);
-                mel_anim_state_player_set_condition(&d->player, COND_IDLE, true);
+                anim_demo_switch_state(d, STATE_IDLE);
                 break;
             case SDL_SCANCODE_H:
-                clear_all_conditions(&d->player);
-                mel_anim_state_player_set_condition(&d->player, COND_HIT, true);
+                anim_demo_switch_state(d, STATE_HIT);
                 break;
             default: break;
         }

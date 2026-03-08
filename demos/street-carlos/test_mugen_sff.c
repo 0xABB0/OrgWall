@@ -1,5 +1,6 @@
 #include "test.harness.h"
 #include "mugen_sff.h"
+#include "math.geo.rect.h"
 #include "vfs.h"
 #include "vfs.backend.os.h"
 #include "async.io.h"
@@ -39,13 +40,31 @@ MEL_TEST(sff_load_poison, .tags = "mugen")
     SDL_Log("  Sprites: %u, Atlas: %ux%u", sff.entry_count, sff.atlas_width, sff.atlas_height);
 
     u32 frame_0_0 = mugen_sff_find_frame(&sff, 0, 0);
-    Mel_SpriteFrame* f = mel_spritesheet_get_frame(&sff.sheet, frame_0_0);
-    MEL_ASSERT_NOT_NULL(f);
-    MEL_ASSERT_GT(f->width, (u32)0);
-    MEL_ASSERT_GT(f->height, (u32)0);
+    Mel_Rect uv = mel_sprite_sheet_frame(&sff.sheet, frame_0_0);
+    MEL_ASSERT(uv.w > 0.0f);
+    MEL_ASSERT(uv.h > 0.0f);
 
-    SDL_Log("  Sprite [0,0]: %ux%u at atlas(%u,%u) offset(%d,%d)",
-            f->width, f->height, f->x, f->y, f->offset_x, f->offset_y);
+    Mugen_Sff_Entry* e = &sff.entries[frame_0_0];
+    MEL_ASSERT_GT(e->width, (u16)0);
+    MEL_ASSERT_GT(e->height, (u16)0);
+
+    SDL_Log("  Sprite [0,0]: %ux%u uv(%.3f,%.3f,%.3f,%.3f) offset(%d,%d)",
+            e->width, e->height, uv.x, uv.y, uv.w, uv.h, e->offset_x, e->offset_y);
+
+    Mugen_Sff_Entry* se = &sff.entries[frame_0_0];
+    Mel_Rect suv = mel_sprite_sheet_frame(&sff.sheet, frame_0_0);
+    u32 px_x = (u32)(suv.x * (f32)sff.atlas_width);
+    u32 px_y = (u32)(suv.y * (f32)sff.atlas_height);
+    u32 last_opaque_row = 0;
+    for (u32 row = 0; row < se->height; row++)
+    {
+        for (u32 col = 0; col < se->width; col++)
+        {
+            u32 idx = ((px_y + row) * sff.atlas_width + (px_x + col)) * 4;
+            if (sff.atlas_pixels[idx + 3] > 0) { last_opaque_row = row; break; }
+        }
+    }
+    MEL_ASSERT_GT(last_opaque_row, se->height / 2);
 
     mugen_sff_shutdown(&sff, mel_alloc_heap());
 }

@@ -1,238 +1,284 @@
 #include "fighter.h"
+#include "actions.h"
+#include "anim.player.h"
+#include "anim.clip.h"
+#include "anim.registry.h"
+#include "mugen_air.h"
+#include "hash.xxh.h"
 #include "string.str8.h"
+#include "collection.slotmap.h"
 #include <string.h>
+#include <stdio.h>
 
-enum {
-    ACT_MOVE_LEFT = 1,
-    ACT_MOVE_RIGHT,
-    ACT_CROUCH,
-    ACT_JUMP,
-    ACT_PUNCH,
-};
+static u64 s_hitbox_prop;
+static u64 s_hurtbox_prop;
+static u64 s_frame_prop;
+static bool s_props_init = false;
 
-static void spawn_projectile(Fighter* f, Move_Def* move)
+static void ensure_props(void)
 {
-    for (u32 i = 0; i < MAX_PROJECTILES; i++)
-    {
-        if (!f->projectiles[i].active)
-        {
-            f32 speed = move->projectile_speed;
-            f->projectiles[i] = (Projectile){
-                .x = f->facing_right ? f->x + f->character->width : f->x - 12.0f,
-                .y = 0.0f,
-                .vel_x = f->facing_right ? speed : -speed,
-                .hit_w = 12.0f,
-                .hit_h = 12.0f,
-                .damage = move->damage,
-                .hitstun = move->hitstun,
-                .active = true,
-            };
-            return;
-        }
-    }
+    if (s_props_init) return;
+    s_hitbox_prop = mel_xxh3_64("hitbox", 6);
+    s_hurtbox_prop = mel_xxh3_64("hurtbox", 7);
+    s_frame_prop = mel_xxh3_64("frame", 5);
+    s_props_init = true;
 }
 
-static void enter_move(Fighter* f, Move_Def* move)
+static bool anim_exists_cb(void* ctx, u32 anim)
 {
-    f->current_move = move;
-    f->move_frame = 0;
-    f->move_phase = MOVE_PHASE_STARTUP;
-    f->hit_confirmed = false;
-
-    if (move->airborne)
+    Fighter* f = ctx;
+    for (u32 i = 0; i < f->action_map_count; i++)
     {
-        f->vel_y = move->launch_vel_y;
-        f->vel_x = f->facing_right ? move->launch_vel_x : -move->launch_vel_x;
+        if (f->action_map[i].action_number == anim)
+            return true;
     }
-
-    if (move->spawns_projectile)
-        spawn_projectile(f, move);
+    return false;
 }
 
-static void exit_move(Fighter* f)
+static Mel_Anim_Clip_Handle find_clip(Fighter* f, u32 action_number)
 {
-    f->current_move = NULL;
-    f->move_phase = MOVE_PHASE_NONE;
-    f->move_frame = 0;
-
-    if (f->y > 0.0f)
-        f->locomotion = LOCO_JUMP;
-    else
-        f->locomotion = LOCO_IDLE;
+    for (u32 i = 0; i < f->action_map_count; i++)
+    {
+        if (f->action_map[i].action_number == action_number)
+            return f->action_map[i].clip;
+    }
+    return (Mel_Anim_Clip_Handle){0};
 }
 
-static bool move_requirements_met(Fighter* f, Move_Def* move)
+static void play_action(Fighter* f, u32 action_number, f32 crossfade)
 {
-    bool on_ground = f->y <= 0.0f;
+    if (f->current_action == action_number) return;
 
-    if (move->requires_ground && !on_ground) return false;
-    if (move->requires_air && on_ground) return false;
-    if (move->requires_crouch && f->locomotion != LOCO_CROUCH) return false;
+    Mel_Anim_Clip_Handle clip = find_clip(f, action_number);
+    if (!mel_slotmap_alive(f->clip_pool, clip)) return;
 
-    return true;
+    f->current_action = action_number;
+    mel_anim_player_play(&f->player, clip, .crossfade = crossfade);
 }
 
-static int move_priority_cmp(const void* a, const void* b)
+static void sample_anim(Fighter* f)
 {
-    const Move_Def* ma = *(const Move_Def**)a;
-    const Move_Def* mb = *(const Move_Def**)b;
-    if (ma->priority > mb->priority) return -1;
-    if (ma->priority < mb->priority) return 1;
-    return 0;
+    mel_anim_player_get_vec4(&f->player, s_hitbox_prop, f->player.alloc, f->anim_hitbox);
+    mel_anim_player_get_vec4(&f->player, s_hurtbox_prop, f->player.alloc, f->anim_hurtbox);
 }
 
-static void try_moves(Fighter* f)
+void fighter_init_opt(Fighter* f, Fighter_Init_Opt opt, const Mel_Alloc* alloc)
 {
-    Move_Def* sorted[64];
-    u32 count = f->move_count < 64 ? f->move_count : 64;
-
-    for (u32 i = 0; i < count; i++)
-        sorted[i] = &f->moves[i];
-
-    qsort(sorted, count, sizeof(Move_Def*), move_priority_cmp);
-
-    for (u32 i = 0; i < count; i++)
-    {
-        if (!move_requirements_met(f, sorted[i])) continue;
-        if (!command_list_active(&f->commands, sorted[i]->command_name)) continue;
-
-        enter_move(f, sorted[i]);
-        return;
-    }
-}
-
-static void tick_move(Fighter* f, f32 dt, f32 stage_left, f32 stage_right)
-{
-    Move_Def* move = f->current_move;
-
-    f->move_frame++;
-    f->move_phase = move_phase_at_frame(move, f->move_frame);
-
-    if (move->airborne)
-    {
-        f->vel_y -= f->character->gravity * dt;
-        f->y += f->vel_y * dt;
-        f->x += f->vel_x * dt;
-
-        if (f->y <= 0.0f)
-        {
-            f->y = 0.0f;
-            f->vel_y = 0.0f;
-            f->vel_x = 0.0f;
-            exit_move(f);
-            return;
-        }
-    }
-
-    if (f->move_phase == MOVE_PHASE_NONE)
-    {
-        exit_move(f);
-        return;
-    }
-
-    if (f->x < stage_left) f->x = stage_left;
-    if (f->x > stage_right - f->character->width) f->x = stage_right - f->character->width;
-}
-
-static void tick_locomotion(Fighter* f, f32 dt, f32 stage_left, f32 stage_right)
-{
-    Input_Buffer* buf = &f->commands.buffer;
-
-    if (f->locomotion == LOCO_JUMP)
-    {
-        f->vel_y -= f->character->gravity * dt;
-        f->y += f->vel_y * dt;
-
-        bool forward = buf->Fb > 0;
-        bool back = buf->Bb > 0;
-        if (forward) f->x += f->character->walk_speed * dt;
-        if (back) f->x -= f->character->walk_speed * dt;
-
-        if (f->y <= 0.0f)
-        {
-            f->y = 0.0f;
-            f->vel_y = 0.0f;
-            f->locomotion = LOCO_IDLE;
-        }
-
-        if (f->x < stage_left) f->x = stage_left;
-        if (f->x > stage_right - f->character->width) f->x = stage_right - f->character->width;
-        return;
-    }
-
-    bool holding_down = buf->Db > 0;
-    bool holding_up = buf->Ub > 0;
-    bool forward = buf->Fb > 0;
-    bool back = buf->Bb > 0;
-
-    if (holding_up)
-    {
-        f->vel_y = f->character->jump_vel;
-        f->locomotion = LOCO_JUMP;
-        return;
-    }
-
-    if (holding_down)
-    {
-        f->locomotion = LOCO_CROUCH;
-        return;
-    }
-
-    if (forward && !back)
-    {
-        f->x += f->character->walk_speed * dt;
-        f->locomotion = LOCO_WALK_FORWARD;
-    }
-    else if (back && !forward)
-    {
-        f->x -= f->character->walk_speed * dt;
-        f->locomotion = LOCO_WALK_BACK;
-    }
-    else
-    {
-        f->locomotion = LOCO_IDLE;
-    }
-
-    if (f->x < stage_left) f->x = stage_left;
-    if (f->x > stage_right - f->character->width) f->x = stage_right - f->character->width;
-}
-
-void fighter_init(Fighter* f, Character_Def* character, Move_Def* moves, u32 move_count,
-                  f32 start_x, bool facing_right, const Mel_Alloc* alloc)
-{
+    ensure_props();
     memset(f, 0, sizeof(*f));
-    f->character = character;
-    f->moves = moves;
-    f->move_count = move_count;
-    f->x = start_x;
-    f->facing_right = facing_right;
-    f->health = 100.0f;
+    f->x = opt.start_x;
+    f->facing_right = opt.facing_right;
+    f->ground_front = opt.ground_front > 0 ? opt.ground_front : 16.0f;
+    f->ground_back = opt.ground_back > 0 ? opt.ground_back : 16.0f;
+    f->current_action = UINT32_MAX;
 
-    command_list_init(&f->commands, facing_right, alloc);
+    f->clip_pool = opt.clip_pool;
+    f->action_map = opt.action_map;
+    f->action_map_count = opt.action_map_count;
 
-    command_list_add(&f->commands, S8("LP"), S8("a"), .time = 1, .buf_time = 1);
+    mel_anim_player_init(&f->player, alloc, f->clip_pool);
 
-    command_list_add(&f->commands, S8("Hadouken"), S8("~D, DF, F, a"), .time = 15, .buf_time = 1);
-    command_list_add(&f->commands, S8("Hadouken"), S8("~D, DF, F, b"), .time = 15, .buf_time = 1);
-    command_list_add(&f->commands, S8("Hadouken"), S8("~D, DF, F, c"), .time = 15, .buf_time = 1);
+    command_list_init(&f->commands, opt.facing_right, alloc);
 
-    command_list_add(&f->commands, S8("Shoryuken"), S8("~F, D, DF, a"), .time = 15, .buf_time = 1);
-    command_list_add(&f->commands, S8("Shoryuken"), S8("~F, D, DF, b"), .time = 15, .buf_time = 1);
-    command_list_add(&f->commands, S8("Shoryuken"), S8("~F, D, DF, c"), .time = 15, .buf_time = 1);
+    play_action(f, 0, 0.0f);
 }
 
 void fighter_on_input(Fighter* f, u32 action, f32 value)
 {
     bool pressed = value > 0.5f;
-
     switch (action)
     {
         case ACT_MOVE_LEFT:  f->input_left  = pressed; break;
         case ACT_MOVE_RIGHT: f->input_right = pressed; break;
         case ACT_CROUCH:     f->input_down  = pressed; break;
         case ACT_JUMP:       f->input_up    = pressed; break;
-        case ACT_PUNCH:      f->btn_a       = pressed; break;
+        case ACT_BTN_A:      f->btn_a       = pressed; break;
+        case ACT_BTN_B:      f->btn_b       = pressed; break;
+        case ACT_BTN_C:      f->btn_c       = pressed; break;
+        case ACT_BTN_X:      f->btn_x       = pressed; break;
+        case ACT_BTN_Y:      f->btn_y       = pressed; break;
+        case ACT_BTN_Z:      f->btn_z       = pressed; break;
     }
+}
+
+static void cns_enter_state(Fighter* f, i32 stateno);
+
+void fighter_enable_cns(Fighter* f, Mugen_Cns* cns, Mugen_Cns* common_cns, Mugen_Cns* cmd_cns)
+{
+    f->cns = cns;
+    f->common_cns = common_cns;
+    f->cmd_cns = cmd_cns;
+
+    Mugen_Char_Constants* c = &cns->constants;
+
+    Mugen_Char_State* st = &f->cns_state;
+    memset(st, 0, sizeof(*st));
+    st->pos_x = f->x;
+    st->pos_y = f->y;
+    st->facing = f->facing_right ? 1.0f : -1.0f;
+    st->ctrl = true;
+    st->alive = true;
+    st->life = (f32)c->life;
+    st->lifemax = (f32)c->life;
+    st->powermax = (f32)c->power_max;
+    st->commands = &f->commands;
+
+    st->gravity = c->yaccel;
+    st->stand_friction = c->stand_friction;
+    st->crouch_friction = c->crouch_friction;
+    st->stand_friction_threshold = c->stand_friction_threshold;
+    st->crouch_friction_threshold = c->crouch_friction_threshold;
+    st->walk_fwd_x = c->walk_fwd_x;
+    st->walk_back_x = c->walk_back_x;
+    st->run_fwd_x = c->run_fwd_x;
+    st->run_back_x = c->run_back_x;
+    st->run_back_y = c->run_back_y;
+    st->jump_neu_x = c->jump_neu_x;
+    st->jump_fwd_x = c->jump_fwd_x;
+    st->jump_back_x = c->jump_back_x;
+    st->jump_y = c->jump_y;
+    st->runjump_fwd_x = c->runjump_fwd_x;
+    st->runjump_back_x = c->runjump_back_x;
+    st->runjump_y = c->runjump_y;
+    st->airjump_neu_x = c->airjump_neu_x;
+    st->airjump_fwd_x = c->airjump_fwd_x;
+    st->airjump_back_x = c->airjump_back_x;
+    st->airjump_y = c->airjump_y;
+    st->data_attack = (f32)c->attack;
+    st->attack_dist = c->attack_dist;
+    st->palno = 1;
+
+    f->ground_front = c->ground_front;
+    f->ground_back = c->ground_back;
+
+    st->roundstate = 2;
+    st->roundno = 1;
+    st->roundsexisted = 0;
+    st->anim_exists = anim_exists_cb;
+    st->anim_exists_ctx = f;
+
+    f->last_cns_anim = UINT32_MAX;
+    cns_enter_state(f, 0);
+}
+
+static void cns_enter_state(Fighter* f, i32 stateno)
+{
+    Mugen_Statedef* def = mugen_cns_get(f->cns, stateno);
+    if (def)
+    {
+        mugen_cns_enter_state(f->cns, &f->cns_state, stateno);
+        return;
+    }
+    if (f->common_cns)
+    {
+        def = mugen_cns_get(f->common_cns, stateno);
+        if (def)
+        {
+            mugen_cns_enter_state(f->common_cns, &f->cns_state, stateno);
+            return;
+        }
+    }
+    if (stateno != 0)
+        cns_enter_state(f, 0);
+}
+
+static void cns_tick_state(Fighter* f)
+{
+    Mugen_Statedef* def = mugen_cns_get(f->cns, f->cns_state.stateno);
+    if (def)
+        mugen_cns_tick(f->cns, &f->cns_state);
+    else if (f->common_cns)
+        mugen_cns_tick(f->common_cns, &f->cns_state);
+}
+
+static void run_statedef_minus1(Fighter* f)
+{
+    Mugen_Char_State* st = &f->cns_state;
+    if (!f->cmd_cns) return;
+
+    Mugen_Statedef* def = mugen_cns_get(f->cmd_cns, -1);
+    if (!def) return;
+
+    mugen_cns_tick_statedef(def, st);
+
+    if (st->state_changed)
+    {
+        if (st->pending_ctrl >= 0)
+            st->ctrl = st->pending_ctrl != 0;
+        cns_enter_state(f, st->pending_state);
+    }
+}
+
+static void engine_movement(Fighter* f)
+{
+    Mugen_Char_State* st = &f->cns_state;
+    if (!st->ctrl) return;
+
+    bool hold_up = command_list_active(&f->commands, S8("holdup"));
+    bool hold_down = command_list_active(&f->commands, S8("holddown"));
+    bool hold_fwd = command_list_active(&f->commands, S8("holdfwd"));
+    bool hold_back = command_list_active(&f->commands, S8("holdback"));
+
+    if (st->statetype == MUGEN_PHYSICS_S)
+    {
+        if (hold_up)
+        {
+            cns_enter_state(f, 40);
+            return;
+        }
+        if (hold_down)
+        {
+            cns_enter_state(f, 10);
+            return;
+        }
+        if ((hold_fwd || hold_back) && st->stateno == 0)
+        {
+            cns_enter_state(f, 20);
+            return;
+        }
+        if (!hold_fwd && !hold_back && st->stateno == 20)
+        {
+            cns_enter_state(f, 0);
+            return;
+        }
+    }
+    else if (st->statetype == MUGEN_PHYSICS_C)
+    {
+        if (!hold_down)
+        {
+            cns_enter_state(f, 12);
+            return;
+        }
+        if (hold_up)
+        {
+            cns_enter_state(f, 40);
+            return;
+        }
+    }
+    else if (st->statetype == MUGEN_PHYSICS_A)
+    {
+    }
+}
+
+static void sync_animtime(Fighter* f)
+{
+    Mugen_Char_State* st = &f->cns_state;
+    if (f->player.chain_count == 0) return;
+
+    Mel_Anim_Clip_State* cs = &f->player.chain[0];
+    Mel_Anim_Clip* clip = (Mel_Anim_Clip*)mel_slotmap_get(f->clip_pool, cs->clip);
+    if (!clip) return;
+
+    f32 elapsed = cs->time;
+    f32 duration = clip->duration;
+    if (clip->is_looping)
+        st->animtime = -1;
+    else
+        st->animtime = (i32)((elapsed - duration) * MUGEN_TICKS_PER_SECOND);
+
+    f32 frame_f;
+    mel_anim_player_get_float(&f->player, s_frame_prop, f->player.alloc, &frame_f);
+    st->animelem = (i32)frame_f + 1;
 }
 
 void fighter_tick(Fighter* f, f32 dt, f32 stage_left, f32 stage_right)
@@ -244,93 +290,132 @@ void fighter_tick(Fighter* f, f32 dt, f32 stage_left, f32 stage_right)
         false, false, false, false,
         false, false, 0);
 
-    for (u32 i = 0; i < MAX_PROJECTILES; i++)
+    Mugen_Char_State* st = &f->cns_state;
+
+    st->commands = &f->commands;
+    st->state_changed = false;
+    st->stage_left = stage_left;
+    st->stage_right = stage_right;
+    st->ground_front = f->ground_front;
+    st->ground_back = f->ground_back;
+
+    mel_anim_player_update(&f->player, dt);
+    sync_animtime(f);
+
+    i32 prev_stateno = st->stateno;
+
+    if (st->hitpause_time <= 0)
     {
-        if (!f->projectiles[i].active) continue;
-        f->projectiles[i].x += f->projectiles[i].vel_x * dt;
-        if (f->projectiles[i].x < stage_left - 20.0f || f->projectiles[i].x > stage_right + 20.0f)
-            f->projectiles[i].active = false;
+        run_statedef_minus1(f);
+
+        if (!st->state_changed)
+            engine_movement(f);
+
+        if (!st->state_changed)
+        {
+            cns_tick_state(f);
+
+            if (st->state_changed)
+            {
+                if (st->pending_ctrl >= 0)
+                    st->ctrl = st->pending_ctrl != 0;
+                cns_enter_state(f, st->pending_state);
+            }
+        }
     }
 
-    if (f->hitstun_remaining > 0)
+    if (st->stateno != prev_stateno)
+        printf("STATE: %d -> %d (type=%d phys=%d ctrl=%d vel=%.2f,%.2f pos=%.2f,%.2f anim=%d animtime=%d)\n",
+            prev_stateno, st->stateno, st->statetype, st->physics, st->ctrl,
+            st->vel_x, st->vel_y, st->pos_x, st->pos_y, st->anim, st->animtime);
+
+    f->vel_x = st->vel_x;
+    f->vel_y = st->vel_y;
+    f->x = st->pos_x;
+    f->y = st->pos_y;
+
+    if (f->y < 0.0f) f->y = 0.0f;
+    if (f->x < stage_left + f->ground_back) f->x = stage_left + f->ground_back;
+    if (f->x > stage_right - f->ground_front) f->x = stage_right - f->ground_front;
+
+    st->pos_x = f->x;
+    st->pos_y = f->y;
+
+    if (st->anim != f->last_cns_anim)
     {
-        f->hitstun_remaining--;
-        if (f->hitstun_remaining == 0)
-            f->locomotion = f->y > 0.0f ? LOCO_JUMP : LOCO_IDLE;
-        return;
+        f->last_cns_anim = st->anim;
+        f->current_action = UINT32_MAX;
+        play_action(f, st->anim, 0.0f);
     }
 
-    if (f->current_move)
-    {
-        tick_move(f, dt, stage_left, stage_right);
-        return;
-    }
-
-    if (f->locomotion != LOCO_JUMP)
-        try_moves(f);
-
-    if (!f->current_move)
-        tick_locomotion(f, dt, stage_left, stage_right);
+    sample_anim(f);
 }
 
-void fighter_take_hit(Fighter* f, f32 damage, f32 knockback_x, f32 knockback_y, u32 hitstun)
+void fighter_apply_combat_state(Fighter* f)
 {
-    f->health -= damage;
-    f->vel_x = knockback_x;
-    f->vel_y = knockback_y;
-    f->hitstun_remaining = hitstun;
-    f->locomotion = LOCO_HITSTUN;
-    f->current_move = NULL;
-    f->move_phase = MOVE_PHASE_NONE;
+    Mugen_Char_State* st = &f->cns_state;
+    if (!st->state_changed) return;
+
+    i32 prev_stateno = st->stateno;
+    cns_enter_state(f, st->pending_state);
+    st->state_changed = false;
+
+    if (st->stateno != prev_stateno)
+        printf("COMBAT STATE: %d -> %d (type=%d phys=%d ctrl=%d)\n",
+            prev_stateno, st->stateno, st->statetype, st->physics, st->ctrl);
+
+    if (st->anim != f->last_cns_anim)
+    {
+        f->last_cns_anim = st->anim;
+        f->current_action = UINT32_MAX;
+        play_action(f, st->anim, 0.0f);
+    }
 }
 
 Fighter_Box fighter_hurtbox(Fighter* f)
 {
-    Character_Def* c = f->character;
-
-    f32 hx, hy, hw, hh;
-
-    if (f->locomotion == LOCO_CROUCH && !f->current_move)
+    if (f->anim_hurtbox[2] > 0.0f && f->anim_hurtbox[3] > 0.0f)
     {
-        hx = c->crouch_hurt_x;
-        hy = c->crouch_hurt_y;
-        hw = c->crouch_hurt_w;
-        hh = c->crouch_hurt_h;
+        f32 hx = f->anim_hurtbox[0];
+        f32 hy = f->anim_hurtbox[1];
+        f32 hw = f->anim_hurtbox[2];
+        f32 hh = f->anim_hurtbox[3];
+
+        f32 world_x;
+        if (f->facing_right)
+            world_x = f->x + hx;
+        else
+            world_x = f->x - hx - hw;
+
+        return (Fighter_Box){ world_x, f->y - hy - hh, hw, hh };
     }
-    else
-    {
-        hx = c->hurt_x;
-        hy = c->hurt_y;
-        hw = c->hurt_w;
-        hh = c->hurt_h;
-    }
+
+    f32 w = f->ground_front + f->ground_back;
+    f32 h = f->cns ? f->cns->constants.height : 60.0f;
+    return (Fighter_Box){ f->x - f->ground_back, f->y, w, h };
+}
+
+Fighter_Box fighter_hitbox(Fighter* f)
+{
+    if (f->anim_hitbox[2] <= 0.0f || f->anim_hitbox[3] <= 0.0f)
+        return (Fighter_Box){0};
+
+    f32 hx = f->anim_hitbox[0];
+    f32 hy = f->anim_hitbox[1];
+    f32 hw = f->anim_hitbox[2];
+    f32 hh = f->anim_hitbox[3];
 
     f32 world_x;
     if (f->facing_right)
         world_x = f->x + hx;
     else
-        world_x = f->x + c->width - hx - hw;
+        world_x = f->x - hx - hw;
 
-    return (Fighter_Box){ world_x, f->y + hy, hw, hh };
-}
-
-Fighter_Box fighter_hitbox(Fighter* f)
-{
-    if (!f->current_move || f->move_phase != MOVE_PHASE_ACTIVE)
-        return (Fighter_Box){0};
-
-    Move_Def* m = f->current_move;
-
-    f32 world_x;
-    if (f->facing_right)
-        world_x = f->x + m->hit_x;
-    else
-        world_x = f->x + f->character->width - m->hit_x - m->hit_w;
-
-    return (Fighter_Box){ world_x, f->y + m->hit_y, m->hit_w, m->hit_h };
+    return (Fighter_Box){ world_x, f->y - hy - hh, hw, hh };
 }
 
 bool fighter_has_active_hitbox(Fighter* f)
 {
-    return f->current_move && f->move_phase == MOVE_PHASE_ACTIVE && !f->hit_confirmed;
+    return f->anim_hitbox[2] > 0.0f
+        && f->anim_hitbox[3] > 0.0f;
 }

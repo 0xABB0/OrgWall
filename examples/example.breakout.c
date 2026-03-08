@@ -24,7 +24,9 @@
 #include "math.geo.rect.h"
 #include "anim.sprite.h"
 #include "anim.clip.h"
-#include "anim.track.h"
+#include "anim.registry.h"
+#include "anim.pipeline.h"
+#include "anim.pose.h"
 #include "allocator.heap.h"
 #include "sim.ctx.h"
 
@@ -72,6 +74,7 @@ typedef struct {
     i32 bricks_alive;
     bool game_over;
     Mel_Anim_Clip death_clip;
+    u64 death_prop;
     const Mel_Alloc* alloc;
     u32 rng_state;
     bool use_mouse;
@@ -146,18 +149,36 @@ static void breakout_reset_ball(Breakout* g)
 
 static void breakout_init(Breakout* g, const Mel_Alloc* alloc)
 {
-    if (g->death_clip.tracks)
-        mel_anim_clip_destroy(&g->death_clip, alloc);
+    bool has_clip = g->death_clip.groups != NULL;
+    Mel_Anim_Clip saved_clip = g->death_clip;
+    u64 saved_prop = g->death_prop;
 
     memset(g, 0, sizeof(*g));
     g->alloc = alloc;
     g->rng_state = (u32)SDL_GetTicks();
     if (g->rng_state == 0) g->rng_state = 42;
 
-    u32 death_frames[] = {0, 1, 2, 3, 4};
-    f32 death_durs[]   = {0.06f, 0.06f, 0.06f, 0.06f, 0.06f};
-    g->death_clip = mel_anim_sprite_clip(alloc, 0, death_frames, death_durs,
-        DEATH_FRAME_COUNT, false);
+    if (has_clip)
+    {
+        g->death_clip = saved_clip;
+        g->death_prop = saved_prop;
+    }
+    else
+    {
+        mel_anim_registry_init(alloc);
+
+        Mel_Sprite_Anim_Def def;
+        u64 death_hash = mel_xxh3_64("death", 5);
+        mel_sprite_anim_def_init(&def, death_hash, death_hash, alloc);
+        mel_sprite_anim_def_push_frame(&def, 0, 0.06f);
+        mel_sprite_anim_def_push_frame(&def, 1, 0.06f);
+        mel_sprite_anim_def_push_frame(&def, 2, 0.06f);
+        mel_sprite_anim_def_push_frame(&def, 3, 0.06f);
+        mel_sprite_anim_def_push_frame(&def, 4, 0.06f);
+        g->death_clip = mel_sprite_anim_def_compile(&def, alloc);
+        g->death_prop = def.property_hash;
+        mel_sprite_anim_def_destroy(&def);
+    }
 
     g->lives = 3;
     g->score = 0;
@@ -193,9 +214,12 @@ static void breakout_kill_brick(Breakout* g, i32 idx)
 
 static u32 breakout_death_frame(Breakout* g, f32 anim_time)
 {
-    Mel_Anim_Track* track = mel_anim_clip_track(&g->death_clip, 0);
+    Mel_Local_Pose pose;
+    mel_pose_allocate(&pose, &g->death_clip, g->alloc);
+    u32 cursor = 0;
+    mel_anim_sample(&g->death_clip, anim_time, &cursor, g->alloc, &pose);
     f32 frame_f;
-    mel_anim_track_eval(track, anim_time, &frame_f);
+    mel_pose_extract_float(&pose, g->death_prop, &frame_f);
     return (u32)frame_f;
 }
 
@@ -527,7 +551,7 @@ static void app_update(Mel_Sim_Ctx* sim, f32 dt, void* user)
 
     if (!g->game_over && !g->use_mouse)
     {
-        const bool* keys = SDL_GetKeyboardState(nullptr);
+        const bool* keys = SDL_GetKeyboardState(NULL);
         f32 paddle_speed = 400.0f;
         if (keys[SDL_SCANCODE_LEFT])
             g->paddle_x -= paddle_speed * dt;
