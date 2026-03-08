@@ -823,6 +823,232 @@ bool build_tests(void)
     return true;
 }
 
+void compdb_append_args(Nob_String_Builder* sb, const char** args, size_t count)
+{
+    for (size_t i = 0; i < count; i++)
+    {
+        nob_sb_append_cstr(sb, " ");
+        bool needs_quote = strchr(args[i], ' ') || strchr(args[i], '"');
+        if (needs_quote) nob_sb_append_cstr(sb, "\"");
+        nob_sb_append_cstr(sb, args[i]);
+        if (needs_quote) nob_sb_append_cstr(sb, "\"");
+    }
+}
+
+void compdb_write_json_string(FILE* f, const char* s, size_t len)
+{
+    fputc('"', f);
+    for (size_t i = 0; i < len; i++)
+    {
+        char c = s[i];
+        if (c == '"' || c == '\\') fputc('\\', f);
+        fputc(c, f);
+    }
+    fputc('"', f);
+}
+
+void compdb_entry(FILE* f, const char* dir, const char* file, Nob_String_Builder* args_sb, bool* first)
+{
+    if (!*first) fprintf(f, ",\n");
+    *first = false;
+
+    fprintf(f, "  {\n");
+    fprintf(f, "    \"directory\": \"%s\",\n", dir);
+    fprintf(f, "    \"command\": ");
+    compdb_write_json_string(f, args_sb->items, args_sb->count);
+    fprintf(f, ",\n");
+    fprintf(f, "    \"file\": \"%s\"\n", file);
+    fprintf(f, "  }");
+}
+
+bool build_compdb(void)
+{
+    char cwd[4096];
+    if (!getcwd(cwd, sizeof(cwd)))
+    {
+        nob_log(NOB_ERROR, "Failed to get cwd");
+        return false;
+    }
+
+    FILE* f = fopen("compile_commands.json", "w");
+    if (!f)
+    {
+        nob_log(NOB_ERROR, "Failed to open compile_commands.json for writing");
+        return false;
+    }
+
+    fprintf(f, "[\n");
+    bool first = true;
+
+    Nob_File_Paths c_files = {0};
+    Nob_File_Paths cpp_files = {0};
+    Nob_File_Paths m_files = {0};
+
+    collect_c_files("melody", &c_files, &cpp_files, &m_files);
+
+    {
+        Nob_File_Paths game_c = {0}, game_cpp = {0}, game_m = {0};
+        collect_c_files("game", &game_c, &game_cpp, &game_m);
+        for (size_t i = 0; i < game_c.count; i++) nob_da_append(&c_files, game_c.items[i]);
+        for (size_t i = 0; i < game_cpp.count; i++) nob_da_append(&cpp_files, game_cpp.items[i]);
+        for (size_t i = 0; i < game_m.count; i++) nob_da_append(&m_files, game_m.items[i]);
+        free(game_c.items); free(game_cpp.items); free(game_m.items);
+    }
+
+    {
+        Nob_File_Paths entries = {0};
+        if (nob_read_entire_dir("tests", &entries))
+        {
+            for (size_t i = 0; i < entries.count; i++)
+            {
+                const char* name = entries.items[i];
+                if (name[0] == '.') continue;
+                size_t len = strlen(name);
+                if (len < 3 || name[len-2] != '.' || name[len-1] != 'c') continue;
+                nob_da_append(&c_files, nob_temp_strdup(nob_temp_sprintf("tests/%s", name)));
+            }
+        }
+    }
+
+    {
+        Nob_File_Paths entries = {0};
+        if (nob_read_entire_dir("examples", &entries))
+        {
+            for (size_t i = 0; i < entries.count; i++)
+            {
+                const char* name = entries.items[i];
+                if (name[0] == '.') continue;
+                size_t len = strlen(name);
+                if (len < 3 || name[len-2] != '.' || name[len-1] != 'c') continue;
+                nob_da_append(&c_files, nob_temp_strdup(nob_temp_sprintf("examples/%s", name)));
+            }
+        }
+    }
+
+    {
+        Nob_File_Paths entries = {0};
+        if (nob_read_entire_dir("demos", &entries))
+        {
+            for (size_t i = 0; i < entries.count; i++)
+            {
+                const char* dname = entries.items[i];
+                if (dname[0] == '.') continue;
+                const char* demo_dir = nob_temp_sprintf("demos/%s", dname);
+                if (nob_get_file_type(demo_dir) != NOB_FILE_DIRECTORY) continue;
+
+                Nob_File_Paths demo_entries = {0};
+                if (nob_read_entire_dir(demo_dir, &demo_entries))
+                {
+                    for (size_t j = 0; j < demo_entries.count; j++)
+                    {
+                        const char* fname = demo_entries.items[j];
+                        size_t flen = strlen(fname);
+                        if (flen < 3 || fname[flen-2] != '.' || fname[flen-1] != 'c') continue;
+                        nob_da_append(&c_files, nob_temp_strdup(nob_temp_sprintf("%s/%s", demo_dir, fname)));
+                    }
+                }
+            }
+        }
+    }
+
+    for (size_t i = 0; i < c_files.count; i++)
+    {
+        Nob_String_Builder sb = {0};
+        nob_sb_append_cstr(&sb, "clang");
+        compdb_append_args(&sb, CFLAGS_BASE, NOB_ARRAY_LEN(CFLAGS_BASE));
+        nob_sb_append_cstr(&sb, " -g -O0 -DTRACY_ENABLE -DMEL_CONFIG_DEBUG_ALLOCATOR");
+        compdb_append_args(&sb, INCLUDE_PATHS, NOB_ARRAY_LEN(INCLUDE_PATHS));
+        nob_sb_append_cstr(&sb, " -c ");
+        nob_sb_append_cstr(&sb, c_files.items[i]);
+
+        compdb_entry(f, cwd, c_files.items[i], &sb, &first);
+        free(sb.items);
+    }
+
+    for (size_t i = 0; i < m_files.count; i++)
+    {
+        Nob_String_Builder sb = {0};
+        nob_sb_append_cstr(&sb, "clang");
+        compdb_append_args(&sb, CFLAGS_BASE, NOB_ARRAY_LEN(CFLAGS_BASE));
+        nob_sb_append_cstr(&sb, " -g -O0 -DTRACY_ENABLE -DMEL_CONFIG_DEBUG_ALLOCATOR");
+        nob_sb_append_cstr(&sb, " -fobjc-arc");
+        compdb_append_args(&sb, INCLUDE_PATHS, NOB_ARRAY_LEN(INCLUDE_PATHS));
+        nob_sb_append_cstr(&sb, " -c ");
+        nob_sb_append_cstr(&sb, m_files.items[i]);
+
+        compdb_entry(f, cwd, m_files.items[i], &sb, &first);
+        free(sb.items);
+    }
+
+    for (size_t i = 0; i < cpp_files.count; i++)
+    {
+        Nob_String_Builder sb = {0};
+        nob_sb_append_cstr(&sb, "clang++");
+        compdb_append_args(&sb, CXXFLAGS_BASE, NOB_ARRAY_LEN(CXXFLAGS_BASE));
+        nob_sb_append_cstr(&sb, " -g -O0 -DMEL_CONFIG_DEBUG_ALLOCATOR");
+        compdb_append_args(&sb, INCLUDE_PATHS, NOB_ARRAY_LEN(INCLUDE_PATHS));
+        nob_sb_append_cstr(&sb, " -c ");
+        nob_sb_append_cstr(&sb, cpp_files.items[i]);
+
+        compdb_entry(f, cwd, cpp_files.items[i], &sb, &first);
+        free(sb.items);
+    }
+
+    for (size_t i = 0; i < NOB_ARRAY_LEN(CIMGUI_SOURCES); i++)
+    {
+        Nob_String_Builder sb = {0};
+        nob_sb_append_cstr(&sb, "clang++");
+        compdb_append_args(&sb, CXXFLAGS_BASE, NOB_ARRAY_LEN(CXXFLAGS_BASE));
+        nob_sb_append_cstr(&sb, " -g -O0 -DMEL_CONFIG_DEBUG_ALLOCATOR");
+        compdb_append_args(&sb, INCLUDE_PATHS, NOB_ARRAY_LEN(INCLUDE_PATHS));
+        nob_sb_append_cstr(&sb, " \"-DIMGUI_IMPL_API=extern \\\"C\\\"\"");
+        nob_sb_append_cstr(&sb, " -DCIMGUI_USE_SDL3 -DCIMGUI_USE_VULKAN -DIMGUI_IMPL_VULKAN_USE_VOLK");
+        nob_sb_append_cstr(&sb, " -c ");
+        nob_sb_append_cstr(&sb, CIMGUI_SOURCES[i]);
+
+        compdb_entry(f, cwd, CIMGUI_SOURCES[i], &sb, &first);
+        free(sb.items);
+    }
+
+    {
+        const char* tracy_src = SUCK_DIR "/third-party/tracy/public/TracyClient.cpp";
+        Nob_String_Builder sb = {0};
+        nob_sb_append_cstr(&sb, "clang++");
+        compdb_append_args(&sb, CXXFLAGS_BASE, NOB_ARRAY_LEN(CXXFLAGS_BASE));
+        nob_sb_append_cstr(&sb, " -g -O0 -DTRACY_ENABLE -Wno-deprecated-declarations");
+        compdb_append_args(&sb, INCLUDE_PATHS, NOB_ARRAY_LEN(INCLUDE_PATHS));
+        nob_sb_append_cstr(&sb, " -c ");
+        nob_sb_append_cstr(&sb, tracy_src);
+
+        compdb_entry(f, cwd, tracy_src, &sb, &first);
+        free(sb.items);
+    }
+
+    {
+        const char* flecs_src = SUCK_DIR "/flecs/distr/flecs.c";
+        Nob_String_Builder sb = {0};
+        nob_sb_append_cstr(&sb, "clang");
+        compdb_append_args(&sb, CFLAGS_BASE, NOB_ARRAY_LEN(CFLAGS_BASE));
+        nob_sb_append_cstr(&sb, " -g -O0 -DTRACY_ENABLE -DMEL_CONFIG_DEBUG_ALLOCATOR");
+        compdb_append_args(&sb, INCLUDE_PATHS, NOB_ARRAY_LEN(INCLUDE_PATHS));
+        nob_sb_append_cstr(&sb, " -c ");
+        nob_sb_append_cstr(&sb, flecs_src);
+
+        compdb_entry(f, cwd, flecs_src, &sb, &first);
+        free(sb.items);
+    }
+
+    fprintf(f, "\n]\n");
+    fclose(f);
+
+    free(c_files.items);
+    free(cpp_files.items);
+    free(m_files.items);
+
+    nob_log(NOB_WARNING, "Generated compile_commands.json");
+    return true;
+}
+
 bool build_widget_example(const char* name)
 {
     const char* demo_src = nob_temp_sprintf("examples/example.%s.c", name);
@@ -1093,6 +1319,10 @@ int main(int argc, char** argv)
             nob_cmd_append(&cmd, argv[i]);
         return nob_cmd_run_sync(cmd) ? 0 : 1;
     }
+    else if (strcmp(subcmd, "compdb") == 0)
+    {
+        if (!build_compdb()) return 1;
+    }
     else if (strcmp(subcmd, "clean") == 0)
     {
         Nob_Cmd cmd = {0};
@@ -1118,7 +1348,7 @@ int main(int argc, char** argv)
     else
     {
         nob_log(NOB_ERROR, "Unknown command: %s", subcmd);
-        nob_log(NOB_ERROR, "Usage: ./nob [--verbose] [--timings] [release|sanitize] [libs|melody|build|test|demo|run|run-only|debug|clean]");
+        nob_log(NOB_ERROR, "Usage: ./nob [--verbose] [--timings] [release|sanitize] [libs|melody|build|test|demo|run|run-only|debug|compdb|clean]");
         return 1;
     }
 
