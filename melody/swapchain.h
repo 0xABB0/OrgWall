@@ -3,6 +3,7 @@
 #include "swapchain.fwd.h"
 #include "core.types.h"
 #include "gpu.device.fwd.h"
+#include "window.fwd.h"
 
 #define VK_NO_PROTOTYPES
 #include <vulkan/vulkan.h>
@@ -30,3 +31,16 @@ struct Mel_Swapchain {
 #define mel_swapchain_present(sc, dev, cmd, fence)  (sc)->vtable->present((sc), (dev), (cmd), (fence))
 #define mel_swapchain_resize(sc, dev, w, h)         (sc)->vtable->resize((sc), (dev), (w), (h))
 #define mel_swapchain_shutdown(sc, dev)              (sc)->vtable->shutdown((sc), (dev))
+
+struct Mel_Swapchain_Entry {
+    Mel_Swapchain swapchain;
+    VkSurfaceKHR surface;
+    Mel_Window_Handle window;
+    bool resize_requested;
+};
+
+Mel_Swapchain_Handle mel_swapchain_registry_insert(Mel_Swapchain_Entry* entry);
+void                 mel_swapchain_registry_remove(Mel_Swapchain_Handle handle, Mel_Gpu_Device* dev);
+Mel_Swapchain_Entry* mel_swapchain_registry_get(Mel_Swapchain_Handle handle);
+Mel_Swapchain_Handle mel_swapchain_registry_find_by_window(Mel_Window_Handle window);
+u32                  mel_swapchain_registry_count(void);

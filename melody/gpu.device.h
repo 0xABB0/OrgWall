@@ -19,7 +19,6 @@ struct Mel_Gpu_Device {
     VkDebugUtilsMessengerEXT debug_messenger;
     VkPhysicalDevice physical_device;
     VkDevice device;
-    VkSurfaceKHR surface;
 
     VkQueue graphics_queue;
     VkQueue present_queue;
@@ -37,11 +36,11 @@ struct Mel_Gpu_Device {
 
     bool validation_enabled;
     bool has_descriptor_buffer;
+    bool has_present_queue;
 };
 
 typedef struct {
     const Mel_Alloc* allocator;
-    SDL_Window* window;
     bool enable_validation;
     str8 app_name;
 } Mel_Gpu_Device_Opt;
@@ -51,3 +50,7 @@ bool mel_gpu_device_init_opt(Mel_Gpu_Device* dev, Mel_Gpu_Device_Opt opt);
 
 void mel_gpu_device_shutdown(Mel_Gpu_Device* dev);
 void mel_gpu_device_wait_idle(Mel_Gpu_Device* dev);
+
+VkSurfaceKHR mel_gpu_surface_create(Mel_Gpu_Device* dev, SDL_Window* window);
+void mel_gpu_surface_destroy(Mel_Gpu_Device* dev, VkSurfaceKHR surface);
+bool mel_gpu_device_configure_present(Mel_Gpu_Device* dev, VkSurfaceKHR surface);

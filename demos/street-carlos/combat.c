@@ -91,6 +91,10 @@ static void apply_guard(Fighter* attacker, Fighter* victim)
     vst->ghv.guarded = true;
     vst->ghv.hitshaketime = hd->pausetime_p2;
     vst->ghv.xvel = hd->guard_velocity;
+    vst->ghv.yvel = 0;
+    vst->ghv.slidetime = hd->guard_slidetime;
+    vst->ghv.hittime = hd->guard_slidetime;
+    vst->ghv.ctrltime = hd->guard_ctrltime;
     vst->ghv.damage += (i32)hd->damage_guard;
     vst->ghv.guardcount++;
 
@@ -227,6 +231,38 @@ void combat_resolve(Fighter* f1, Fighter* f2)
 
     auto_face(f1, f2);
     auto_face(f2, f1);
+
+    if (s1->statetype != MUGEN_PHYSICS_A && s2->statetype != MUGEN_PHYSICS_A)
+    {
+        f32 f1_left  = f1->x - f1->ground_back;
+        f32 f1_right = f1->x + f1->ground_front;
+        f32 f2_left  = f2->x - f2->ground_back;
+        f32 f2_right = f2->x + f2->ground_front;
+
+        if (f1_right > f2_left && f1_left < f2_right)
+        {
+            f32 overlap = 0;
+            if (f1->x < f2->x)
+                overlap = f1_right - f2_left;
+            else
+                overlap = f2_right - f1_left;
+
+            f32 half = overlap * 0.5f;
+            if (f1->x < f2->x)
+            {
+                f1->x -= half;
+                f2->x += half;
+            }
+            else
+            {
+                f1->x += half;
+                f2->x -= half;
+            }
+
+            s1->pos_x = f1->x;
+            s2->pos_x = f2->x;
+        }
+    }
 
     if (s1->hitpause_time > 0) s1->hitpause_time--;
     if (s2->hitpause_time > 0) s2->hitpause_time--;

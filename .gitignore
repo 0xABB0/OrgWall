@@ -58,3 +58,4 @@ assets
 bought_assets
 .letta/claude
 .superset
+compile_commands.json

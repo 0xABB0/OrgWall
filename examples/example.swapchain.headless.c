@@ -67,7 +67,6 @@ int main(int argc, char* argv[])
 
     Mel_Gpu_Device dev = {0};
     if (!mel_gpu_device_init(&dev,
-        .window = window,
         .enable_validation = true,
         .app_name = S8("headless-demo")))
     {

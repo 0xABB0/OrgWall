@@ -10,6 +10,9 @@
 
 #include "core.app.h"
 #include "core.engine.h"
+#include "window.h"
+#include "swapchain.h"
+#include "gpu.swapchain.h"
 #include "string.str8.h"
 #include "sprite.pass.h"
 #include "render.graph.h"
@@ -50,7 +53,8 @@ typedef struct {
 } Blit_Vertex;
 
 static SDL_Window* s_window;
-static Mel_Engine* s_engine;
+static Mel_Window_Handle s_window_handle;
+static Mel_Swapchain_Handle s_swapchain_handle;
 
 static Mel_Render_Target s_offscreen;
 static Mel_Render_Target s_swapchain_target;
@@ -109,7 +113,7 @@ static void blit_pass(Mel_Render_Pass_Ctx* ctx)
     update_blit_quad();
     mel_gpu_buffer_flush(&s_blit_vbuf, ctx->cmd.dev);
 
-    Mel_Gpu_Pipeline* pip = &s_engine->sprite_pass->pipeline;
+    Mel_Gpu_Pipeline* pip = &mel_sprite_pass()->pipeline;
 
     mel_gpu_pipeline_bind(pip, ctx->cmd.cmd);
 
@@ -180,9 +184,10 @@ static void game_draw(Mel_Sim_Ctx* sim, f32 dt, void* user)
     }
 }
 
-static void init_render(Mel_Engine* e)
+static void init_render(void)
 {
-    Mel_Gpu_Device* dev = &e->dev;
+    Mel_Gpu_Device* dev = mel_gpu_dev();
+    Mel_Swapchain* sc = &mel_swapchain_registry_get(s_swapchain_handle)->swapchain;
 
     mel_render_list_init(&s_game_list,
         .entry_stride = sizeof(Mel_Sprite_Entry),
@@ -192,9 +197,9 @@ static void init_render(Mel_Engine* e)
         .name = S8("game_fb"),
         .width = GAME_W,
         .height = GAME_H,
-        .format = e->swapchain.format);
+        .format = sc->format);
 
-    mel_render_target_init_swapchain(&s_swapchain_target, &e->swapchain, dev, S8("backbuffer"));
+    mel_render_target_init_swapchain(&s_swapchain_target, sc, dev, S8("backbuffer"));
 
     s_game_camera = (Mel_Camera){
         .view = MEL_MAT4_IDENTITY,
@@ -227,15 +232,15 @@ static void init_render(Mel_Engine* e)
     };
     vkCreateSampler(dev->device, &sampler_info, nullptr, &s_nearest_sampler);
 
-    s_blit_descriptor = mel_gpu_pipeline_alloc_descriptor(&e->sprite_pass->pipeline, dev);
-    mel_gpu_pipeline_write_texture(&e->sprite_pass->pipeline, dev,
+    s_blit_descriptor = mel_gpu_pipeline_alloc_descriptor(&mel_sprite_pass()->pipeline, dev);
+    mel_gpu_pipeline_write_texture(&mel_sprite_pass()->pipeline, dev,
         s_blit_descriptor, s_offscreen.image.view, s_nearest_sampler);
 
     mel_render_graph_init(&s_graph, .dev = dev, .alloc = mel_alloc_heap());
 
     u32 game_pass_id = mel_render_graph_add_pass(&s_graph, S8("game"),
         .fn = mel_sprite_pass_execute,
-        .user = e->sprite_pass,
+        .user = mel_sprite_pass(),
         .camera = &s_game_camera,
         .read_lists = MEL_LISTS(&s_game_list),
         .write_targets = MEL_WRITE_TARGETS(
@@ -257,7 +262,7 @@ static void init_render(Mel_Engine* e)
     mel_render_graph_pass_depends_on(&s_graph, blit_pass_id, game_pass_id);
     mel_render_graph_pass_depends_on(&s_graph, imgui_pass_id, blit_pass_id);
     mel_render_graph_compile(&s_graph);
-    e->render_graph = &s_graph;
+    mel_set_render_graph(&s_graph);
 }
 
 static void init_input(void)
@@ -301,11 +306,9 @@ static void init_input(void)
         .user = &s_p2);
 }
 
-static void on_init(Mel_Engine* e)
+static void on_init(void)
 {
-    s_engine = e;
-
-    init_render(e);
+    init_render();
 
     mel_io_init(&s_io, &(Mel_Io_Desc){ .allocator = mel_alloc_heap(), .worker_count = 0 });
     mel_vfs_init(&s_vfs, &(Mel_Vfs_Desc){ .allocator = mel_alloc_heap(), .io = &s_io });
@@ -313,9 +316,9 @@ static void on_init(Mel_Engine* e)
     mel_vfs_mount(&s_vfs, S8("/"), os_be, 0, false);
 
     mugen_char_load(&s_mugen_char,
-        .dev = &e->dev,
-        .sprite_pass = e->sprite_pass,
-        .tex_pool = e->texture_pool,
+        .dev = mel_gpu_dev(),
+        .sprite_pass = mel_sprite_pass(),
+        .tex_pool = mel_texture_pool(),
         .vfs = &s_vfs,
         .sff_path = S8("/chars/kfm/kfm.sff"),
         .air_path = S8("/chars/kfm/kfm.air"),
@@ -358,7 +361,7 @@ static void on_init(Mel_Engine* e)
 
     mel_sim_add_variable(&s_sim, game_draw);
 
-    mel_engine_register_sim(e, &s_sim);
+    mel_register_sim(&s_sim);
 
     init_input();
 
@@ -374,21 +377,13 @@ static void app_init(Mel_App* app)
         exit(result);
     }
 
-    s_window = SDL_CreateWindow("Street Carlos", GAME_W * 3, GAME_H * 3,
-                                SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE);
-    if (!s_window)
-    {
-        SDL_Log("Failed to create window: %s", SDL_GetError());
-        return;
-    }
+    mel_init(.app_name = S8("Street Carlos"), .enable_validation = true);
+    s_window_handle = mel_window_create(S8("Street Carlos"), .width = GAME_W * 3, .height = GAME_H * 3);
+    s_window = mel_window_get(s_window_handle)->sdl;
+    s_swapchain_handle = mel_gpu_swapchain_create_for_window(mel_gpu_dev(), s_window_handle);
+    mel_imgui_init(s_window, &mel_swapchain_registry_get(s_swapchain_handle)->swapchain);
 
-    mel_engine_init(&app->engine,
-        .window = s_window,
-        .app_name = S8("Street Carlos"),
-        .enable_validation = true,
-        .enable_imgui = true);
-
-    on_init(&app->engine);
+    on_init();
 }
 
 static void app_shutdown(Mel_App* app)
@@ -397,11 +392,10 @@ static void app_shutdown(Mel_App* app)
     mel_input_bindings_shutdown(&s_p1_bindings);
     mel_input_bindings_shutdown(&s_p2_bindings);
 
-    mel_engine_unregister_sim(&app->engine, &s_sim);
+    mel_unregister_sim(&s_sim);
     mel_sim_shutdown(&s_sim);
 
-    Mel_Gpu_Device* dev = &app->engine.dev;
-    mel_gpu_device_wait_idle(dev);
+    Mel_Gpu_Device* dev = mel_gpu_dev();
 
     mel_render_graph_shutdown(&s_graph);
     mel_render_target_shutdown(&s_offscreen);

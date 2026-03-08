@@ -8,6 +8,9 @@
 
 #include "core.app.h"
 #include "core.engine.h"
+#include "window.h"
+#include "swapchain.h"
+#include "gpu.swapchain.h"
 #include "string.str8.h"
 #include "gpu.texture.h"
 #include "sprite.pass.h"
@@ -63,6 +66,8 @@ typedef struct {
 } AnimDemo;
 
 static SDL_Window* s_window;
+static Mel_Window_Handle s_window_handle;
+static Mel_Swapchain_Handle s_swapchain_handle;
 static Mel_Sprite_Pass* s_sp;
 static Mel_Font_Atlas_Pool s_font_pool;
 static Mel_Io s_demo_io;
@@ -94,13 +99,14 @@ static const char* s_state_names[STATE_COUNT] = {
     "HIT",
 };
 
-static Mel_Texture_Handle init_texture(Mel_Gpu_Texture* tex, Mel_Engine* e, str8 path)
+static Mel_Texture_Handle init_texture(Mel_Gpu_Texture* tex, str8 path)
 {
-    mel_gpu_texture_init(tex, &e->dev, .path = path, .nearest_filter = true);
-    tex->descriptor = mel_gpu_pipeline_alloc_descriptor(&s_sp->pipeline, &e->dev);
-    mel_gpu_pipeline_write_texture(&s_sp->pipeline, &e->dev, tex->descriptor,
+    Mel_Gpu_Device* dev = mel_gpu_dev();
+    mel_gpu_texture_init(tex, dev, .path = path, .nearest_filter = true);
+    tex->descriptor = mel_gpu_pipeline_alloc_descriptor(&s_sp->pipeline, dev);
+    mel_gpu_pipeline_write_texture(&s_sp->pipeline, dev, tex->descriptor,
         tex->image.view, tex->sampler);
-    return mel_texture_pool_register(e->texture_pool, tex);
+    return mel_texture_pool_register(mel_texture_pool(), tex);
 }
 
 static Mel_Texture_Handle texture_handle_for_state(u32 state)
@@ -238,20 +244,21 @@ static void draw_info(Mel_Render_List* list, Mel_Font_Atlas_Pool* pool, Mel_Font
     mel_font_atlas_draw_text(pool, font, list, S8("  +------HIT<---H----------"), cx - 140.0f, diagram_y + 72.0f, cyan);
 }
 
-static void on_init(Mel_Engine* e)
+static void on_init(void)
 {
-    Mel_Gpu_Device* dev = &e->dev;
-    s_sp = e->sprite_pass;
+    Mel_Gpu_Device* dev = mel_gpu_dev();
+    Mel_Swapchain* sc = &mel_swapchain_registry_get(s_swapchain_handle)->swapchain;
+    s_sp = mel_sprite_pass();
 
-    mel_font_atlas_pool_init(&s_font_pool, &e->allocator, dev, &s_demo_vfs, .texture_pool = e->texture_pool);
+    mel_font_atlas_pool_init(&s_font_pool, mel_allocator(), dev, &s_demo_vfs, .texture_pool = mel_texture_pool());
     s_font_handle = mel_font_atlas_pool_load(&s_font_pool,
         .path = S8("/System/Library/Fonts/Monaco.ttf"), .size = 18.0f);
 
 
-    s_idle_handle = init_texture(&s_idle_tex, e, S8("assets/hero/idle_DOWN.png"));
-    s_walk_handle = init_texture(&s_walk_tex, e, S8("assets/hero/walk_DOWN.png"));
-    s_run_handle  = init_texture(&s_run_tex, e, S8("assets/hero/run_DOWN.png"));
-    s_hit_handle  = init_texture(&s_hit_tex, e, S8("assets/hero/hit_DOWN.png"));
+    s_idle_handle = init_texture(&s_idle_tex, S8("assets/hero/idle_DOWN.png"));
+    s_walk_handle = init_texture(&s_walk_tex, S8("assets/hero/walk_DOWN.png"));
+    s_run_handle  = init_texture(&s_run_tex, S8("assets/hero/run_DOWN.png"));
+    s_hit_handle  = init_texture(&s_hit_tex, S8("assets/hero/hit_DOWN.png"));
 
     anim_demo_init(&s_demo, mel_alloc_heap());
 
@@ -263,15 +270,15 @@ static void on_init(Mel_Engine* e)
         .entry_stride = sizeof(Mel_Sprite_Entry),
         .alloc = mel_alloc_heap());
 
-    mel_render_target_init_swapchain(&s_swapchain_target, &e->swapchain, &e->dev, S8("backbuffer"));
+    mel_render_target_init_swapchain(&s_swapchain_target, sc, dev, S8("backbuffer"));
 
     s_camera = (Mel_Camera){
         .view = MEL_MAT4_IDENTITY,
-        .projection = mel_mat4_ortho(0, (f32)e->swapchain.extent.width,
-                                      0, (f32)e->swapchain.extent.height, -1, 1),
+        .projection = mel_mat4_ortho(0, (f32)sc->extent.width,
+                                      0, (f32)sc->extent.height, -1, 1),
     };
 
-    mel_render_graph_init(&s_graph, .dev = &e->dev, .alloc = mel_alloc_heap());
+    mel_render_graph_init(&s_graph, .dev = dev, .alloc = mel_alloc_heap());
     mel_render_graph_add_pass(&s_graph, S8("sprite"),
         .fn = mel_sprite_pass_execute,
         .user = s_sp,
@@ -281,7 +288,7 @@ static void on_init(Mel_Engine* e)
             { .target = &s_swapchain_target, .load_op = VK_ATTACHMENT_LOAD_OP_CLEAR,
               .clear.color = { .r = 0.08f, .g = 0.08f, .b = 0.1f, .a = 1.0f } }));
     mel_render_graph_compile(&s_graph);
-    e->render_graph = &s_graph;
+    mel_set_render_graph(&s_graph);
 
     SDL_Log("Anim demo ready! W=Walk, R=Run, I=Idle, H=Hit, ESC=Quit");
 }
@@ -290,15 +297,10 @@ static void app_update(Mel_Sim_Ctx* sim, f32 dt, void* user);
 
 static void app_init(Mel_App* app)
 {
-    s_window = SDL_CreateWindow("Melody Animation Showcase", WIDTH, HEIGHT,
-                                SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE);
-    assert(s_window);
-
-    mel_engine_init(&app->engine,
-        .window = s_window,
-        .app_name = S8("Melody Animation Showcase"),
-        .enable_validation = true,
-        .enable_imgui = false);
+    mel_init(.app_name = S8("Melody Animation Showcase"), .enable_validation = true);
+    s_window_handle = mel_window_create(S8("Melody Animation Showcase"), .width = WIDTH, .height = HEIGHT);
+    s_window = mel_window_get(s_window_handle)->sdl;
+    s_swapchain_handle = mel_gpu_swapchain_create_for_window(mel_gpu_dev(), s_window_handle);
 
     Mel_Io_Desc io_desc = { .allocator = mel_alloc_heap(), .worker_count = 0 };
     mel_io_init(&s_demo_io, &io_desc);
@@ -307,20 +309,19 @@ static void app_init(Mel_App* app)
     s_fonts_backend = mel_vfs_backend_os_create(mel_alloc_heap(), S8("/"));
     mel_vfs_mount(&s_demo_vfs, S8("/"), s_fonts_backend, 0, false);
 
-    on_init(&app->engine);
+    on_init();
 
     mel_sim_init(&s_sim, .event_buffer = s_event_buf, .event_buffer_size = sizeof(s_event_buf));
-    mel_sim_add_variable(&s_sim, app_update, .user = app);
-    mel_engine_register_sim(&app->engine, &s_sim);
+    mel_sim_add_variable(&s_sim, app_update);
+    mel_register_sim(&s_sim);
 }
 
 static void app_shutdown(Mel_App* app)
 {
-    mel_engine_unregister_sim(&app->engine, &s_sim);
+    mel_unregister_sim(&s_sim);
     mel_sim_shutdown(&s_sim);
 
-    Mel_Gpu_Device* dev = &app->engine.dev;
-    mel_gpu_device_wait_idle(dev);
+    Mel_Gpu_Device* dev = mel_gpu_dev();
 
     mel_render_list_shutdown(&s_sprite_list);
     mel_render_list_shutdown(&s_font_list);
@@ -344,7 +345,7 @@ static void app_shutdown(Mel_App* app)
 static void app_update(Mel_Sim_Ctx* sim, f32 dt, void* user)
 {
     MEL_UNUSED(sim);
-    Mel_App* app = (Mel_App*)user;
+    MEL_UNUSED(user);
 
     AnimDemo* d = &s_demo;
 
@@ -353,8 +354,9 @@ static void app_update(Mel_Sim_Ctx* sim, f32 dt, void* user)
     if (d->current_state == STATE_HIT && d->player.phase >= 1.0f)
         anim_demo_switch_state(d, STATE_IDLE);
 
-    f32 cx = (f32)app->engine.swapchain.extent.width / 2.0f;
-    f32 hero_y = (f32)app->engine.swapchain.extent.height * 0.33f;
+    Mel_Swapchain* sc = &mel_swapchain_registry_get(s_swapchain_handle)->swapchain;
+    f32 cx = (f32)sc->extent.width / 2.0f;
+    f32 hero_y = (f32)sc->extent.height * 0.33f;
 
     mel_render_list_clear(&s_sprite_list);
     draw_hero(&s_sprite_list, d, cx, hero_y);

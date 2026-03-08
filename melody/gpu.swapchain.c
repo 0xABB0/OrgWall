@@ -1,12 +1,14 @@
 #define VK_NO_PROTOTYPES
 #include "gpu.swapchain.h"
 #include "swapchain.h"
+#include "window.h"
 #include "gpu.device.h"
 #include "allocator.h"
 #include "allocator.heap.h"
 
 typedef struct {
     VkSwapchainKHR handle;
+    VkSurfaceKHR surface;
     VkColorSpaceKHR color_space;
     VkPresentModeKHR present_mode;
     const Mel_Alloc* alloc;
@@ -48,12 +50,12 @@ static bool create_swapchain(Mel_Swapchain* sc, Mel_Gpu_Device* dev,
     const Mel_Alloc* alloc = khr->alloc;
 
     VkSurfaceCapabilitiesKHR caps;
-    vkGetPhysicalDeviceSurfaceCapabilitiesKHR(dev->physical_device, dev->surface, &caps);
+    vkGetPhysicalDeviceSurfaceCapabilitiesKHR(dev->physical_device, khr->surface, &caps);
 
     u32 format_count;
-    vkGetPhysicalDeviceSurfaceFormatsKHR(dev->physical_device, dev->surface, &format_count, nullptr);
+    vkGetPhysicalDeviceSurfaceFormatsKHR(dev->physical_device, khr->surface, &format_count, nullptr);
     VkSurfaceFormatKHR* formats = mel_alloc(alloc, sizeof(VkSurfaceFormatKHR) * format_count);
-    vkGetPhysicalDeviceSurfaceFormatsKHR(dev->physical_device, dev->surface, &format_count, formats);
+    vkGetPhysicalDeviceSurfaceFormatsKHR(dev->physical_device, khr->surface, &format_count, formats);
 
     VkSurfaceFormatKHR format = choose_format(formats, format_count);
     mel_dealloc(alloc, formats);
@@ -66,7 +68,7 @@ static bool create_swapchain(Mel_Swapchain* sc, Mel_Gpu_Device* dev,
 
     VkSwapchainCreateInfoKHR create_info = {
         .sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
-        .surface = dev->surface,
+        .surface = khr->surface,
         .minImageCount = image_count,
         .imageFormat = format.format,
         .imageColorSpace = format.colorSpace,
@@ -364,12 +366,14 @@ bool mel_gpu_swapchain_init_opt(Mel_Swapchain* sc, Mel_Gpu_Device* dev, Mel_Gpu_
 {
     assert(sc != nullptr);
     assert(dev != nullptr);
+    assert(opt.surface != VK_NULL_HANDLE);
     assert(opt.width > 0 && opt.height > 0);
 
     const Mel_Alloc* alloc = opt.alloc ? opt.alloc : mel_alloc_heap();
 
     Mel_Gpu_Swapchain* khr = mel_alloc_type(alloc, Mel_Gpu_Swapchain);
     *khr = (Mel_Gpu_Swapchain){
+        .surface = opt.surface,
         .present_mode = opt.preferred_present_mode ? opt.preferred_present_mode : VK_PRESENT_MODE_FIFO_KHR,
         .alloc = alloc,
         .frame_count = opt.frame_count > 0 ? opt.frame_count : 2,
@@ -398,4 +402,32 @@ bool mel_gpu_swapchain_init_opt(Mel_Swapchain* sc, Mel_Gpu_Device* dev, Mel_Gpu_
     }
 
     return true;
+}
+
+Mel_Swapchain_Handle mel_gpu_swapchain_create_for_window(Mel_Gpu_Device* dev, Mel_Window_Handle window)
+{
+    assert(dev != nullptr);
+    assert(mel_window_handle_valid(window));
+
+    SDL_Window* sdl = mel_window_get(window)->sdl;
+    VkSurfaceKHR surface = mel_gpu_surface_create(dev, sdl);
+    if (surface == VK_NULL_HANDLE)
+        return MEL_SWAPCHAIN_HANDLE_NULL;
+
+    i32 w, h;
+    SDL_GetWindowSize(sdl, &w, &h);
+
+    Mel_Swapchain_Entry entry = {
+        .surface = surface,
+        .window = window,
+    };
+
+    if (!mel_gpu_swapchain_init(&entry.swapchain, dev,
+        .surface = surface, .width = (u32)w, .height = (u32)h))
+    {
+        mel_gpu_surface_destroy(dev, surface);
+        return MEL_SWAPCHAIN_HANDLE_NULL;
+    }
+
+    return mel_swapchain_registry_insert(&entry);
 }

@@ -273,6 +273,8 @@ static void exec_controller(Mugen_State_Controller* sc, Mugen_Char_State* state)
             r->ground_vel_x = eval_or_default(p->ground_vel_x, state, 0);
             r->ground_vel_y = eval_or_default(p->ground_vel_y, state, 0);
             r->guard_velocity = eval_or_default(p->guard_velocity, state, 0);
+            r->guard_slidetime = (i32)eval_or_default(p->guard_slidetime, state, (f32)r->ground_slidetime);
+            r->guard_ctrltime = (i32)eval_or_default(p->guard_ctrltime, state, (f32)r->guard_slidetime);
             r->air_vel_x = eval_or_default(p->air_vel_x, state, 0);
             r->air_vel_y = eval_or_default(p->air_vel_y, state, 0);
             r->air_hittime = (i32)eval_or_default(p->air_hittime, state, 0);
@@ -459,11 +461,17 @@ void mugen_cns_tick(Mugen_Cns* cns, Mugen_Char_State* state)
                     state->pos_x += state->vel_x * state->facing;
                     state->pos_y += state->vel_y;
                     break;
+                case 4:
+                    state->vel_x *= state->stand_friction;
+                    state->pos_x += state->vel_x * state->facing;
+                    break;
             }
         }
         state->pos_freeze = false;
         state->time++;
     }
+
+    state->gametime++;
 
     if (state->nothitby_time > 0)
         state->nothitby_time--;

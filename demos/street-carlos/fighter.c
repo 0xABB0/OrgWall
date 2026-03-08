@@ -304,8 +304,20 @@ void fighter_tick(Fighter* f, f32 dt, f32 stage_left, f32 stage_right)
 
     i32 prev_stateno = st->stateno;
 
+    {
+        Mugen_Statedef* def2 = mugen_cns_get(f->cns, -2);
+        if (def2)
+            mugen_cns_tick_statedef(def2, st);
+    }
+
     if (st->hitpause_time <= 0)
     {
+        {
+            Mugen_Statedef* def3 = mugen_cns_get(f->cns, -3);
+            if (def3)
+                mugen_cns_tick_statedef(def3, st);
+        }
+
         run_statedef_minus1(f);
 
         if (!st->state_changed)

@@ -8,6 +8,9 @@
 
 #include "core.app.h"
 #include "core.engine.h"
+#include "window.h"
+#include "swapchain.h"
+#include "gpu.swapchain.h"
 #include "string.str8.h"
 #include "sprite.pass.h"
 #include "render.graph.h"
@@ -43,7 +46,8 @@
 #define PANEL_WIDTH  250.0f
 
 static SDL_Window* s_window;
-static Mel_Sprite_Pass* s_sp;
+static Mel_Window_Handle s_window_handle;
+static Mel_Swapchain_Handle s_swapchain_handle;
 static Mel_Font_Atlas_Pool s_font_pool;
 static Mel_Io s_demo_io;
 static Mel_Vfs s_demo_vfs;
@@ -355,12 +359,12 @@ static void draw_panel_text(Mel_Font_Atlas_Pool* pool, Mel_Font_Handle font, Mel
     mel_font_atlas_draw_text(pool, font, list, S8("Esc    Quit"), tx, ty, ctrl);
 }
 
-static void on_init(Mel_Engine* e)
+static void on_init(void)
 {
-    Mel_Gpu_Device* dev = &e->dev;
-    s_sp = e->sprite_pass;
+    Mel_Gpu_Device* dev = mel_gpu_dev();
+    Mel_Swapchain* sc = &mel_swapchain_registry_get(s_swapchain_handle)->swapchain;
 
-    mel_font_atlas_pool_init(&s_font_pool, &e->allocator, dev, &s_demo_vfs, .texture_pool = e->texture_pool);
+    mel_font_atlas_pool_init(&s_font_pool, mel_allocator(), dev, &s_demo_vfs, .texture_pool = mel_texture_pool());
     s_font_handle = mel_font_atlas_pool_load(&s_font_pool,
         .path = S8("/System/Library/Fonts/Monaco.ttf"), .size = 18.0f);
 
@@ -375,40 +379,34 @@ static void on_init(Mel_Engine* e)
         .entry_stride = sizeof(Mel_Sprite_Entry),
         .alloc = mel_alloc_heap());
 
-    mel_render_target_init_swapchain(&s_swapchain_target, &e->swapchain, &e->dev, S8("backbuffer"));
+    mel_render_target_init_swapchain(&s_swapchain_target, sc, dev, S8("backbuffer"));
 
     s_camera = (Mel_Camera){
         .view = MEL_MAT4_IDENTITY,
-        .projection = mel_mat4_ortho(0, (f32)e->swapchain.extent.width,
-                                      0, (f32)e->swapchain.extent.height, -1, 1),
+        .projection = mel_mat4_ortho(0, (f32)sc->extent.width,
+                                      0, (f32)sc->extent.height, -1, 1),
     };
 
-    mel_render_graph_init(&s_graph, .dev = &e->dev, .alloc = mel_alloc_heap());
+    mel_render_graph_init(&s_graph, .dev = dev, .alloc = mel_alloc_heap());
     mel_render_graph_add_pass(&s_graph, S8("sprite"),
         .fn = mel_sprite_pass_execute,
-        .user = s_sp,
         .camera = &s_camera,
         .read_lists = MEL_LISTS(&s_sprite_list, &s_font_list),
         .write_targets = MEL_WRITE_TARGETS(
             { .target = &s_swapchain_target, .load_op = VK_ATTACHMENT_LOAD_OP_CLEAR,
               .clear.color = { .r = 0.08f, .g = 0.08f, .b = 0.1f, .a = 1.0f } }));
     mel_render_graph_compile(&s_graph);
-    e->render_graph = &s_graph;
+    mel_set_render_graph(&s_graph);
 }
 
 static void app_update(Mel_Sim_Ctx* sim, f32 dt, void* user);
 
 static void app_init(Mel_App* app)
 {
-    s_window = SDL_CreateWindow("Melody Red-Black Tree", 1000, 700,
-                                SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE);
-    assert(s_window);
-
-    mel_engine_init(&app->engine,
-        .window = s_window,
-        .app_name = S8("Melody RBTree"),
-        .enable_validation = true,
-        .enable_imgui = false);
+    mel_init(.app_name = S8("Melody RBTree"), .enable_validation = true);
+    s_window_handle = mel_window_create(S8("Melody Red-Black Tree"), .width = 1000, .height = 700);
+    s_window = mel_window_get(s_window_handle)->sdl;
+    s_swapchain_handle = mel_gpu_swapchain_create_for_window(mel_gpu_dev(), s_window_handle);
 
     Mel_Io_Desc io_desc = { .allocator = mel_alloc_heap(), .worker_count = 0 };
     mel_io_init(&s_demo_io, &io_desc);
@@ -417,20 +415,17 @@ static void app_init(Mel_App* app)
     s_fonts_backend = mel_vfs_backend_os_create(mel_alloc_heap(), S8("/"));
     mel_vfs_mount(&s_demo_vfs, S8("/"), s_fonts_backend, 0, false);
 
-    on_init(&app->engine);
+    on_init();
 
     mel_sim_init(&s_sim, .event_buffer = s_event_buf, .event_buffer_size = sizeof(s_event_buf));
     mel_sim_add_variable(&s_sim, app_update);
-    mel_engine_register_sim(&app->engine, &s_sim);
+    mel_register_sim(&s_sim);
 }
 
 static void app_shutdown(Mel_App* app)
 {
-    mel_engine_unregister_sim(&app->engine, &s_sim);
+    mel_unregister_sim(&s_sim);
     mel_sim_shutdown(&s_sim);
-
-    Mel_Gpu_Device* dev = &app->engine.dev;
-    mel_gpu_device_wait_idle(dev);
 
     mel_render_list_shutdown(&s_sprite_list);
     mel_render_list_shutdown(&s_font_list);

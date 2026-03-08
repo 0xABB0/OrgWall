@@ -1,7 +1,6 @@
 #pragma once
 
 #include "core.types.h"
-#include "core.engine.h"
 #include <SDL3/SDL.h>
 
 typedef struct Mel_App Mel_App;
@@ -18,7 +17,6 @@ typedef struct {
 
 struct Mel_App {
     Mel_App_Opt opt;
-    Mel_Engine engine;
     bool should_quit;
     int argc;
     char** argv;

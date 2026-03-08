@@ -154,7 +154,7 @@ static bool create_debug_messenger(Mel_Gpu_Device* dev)
     return true;
 }
 
-static bool find_queue_families(Mel_Gpu_Device* dev, VkPhysicalDevice device,
+static bool find_queue_families(VkPhysicalDevice device, VkSurfaceKHR surface,
                                 u32* graphics, u32* present, u32* transfer)
 {
     u32 count = 0;
@@ -175,12 +175,15 @@ static bool find_queue_families(Mel_Gpu_Device* dev, VkPhysicalDevice device,
             found_graphics = true;
         }
 
-        VkBool32 present_support = false;
-        vkGetPhysicalDeviceSurfaceSupportKHR(device, i, dev->surface, &present_support);
-        if (!found_present && present_support)
+        if (surface != VK_NULL_HANDLE)
         {
-            *present = i;
-            found_present = true;
+            VkBool32 present_support = false;
+            vkGetPhysicalDeviceSurfaceSupportKHR(device, i, surface, &present_support);
+            if (!found_present && present_support)
+            {
+                *present = i;
+                found_present = true;
+            }
         }
 
         if (!found_transfer && (props[i].queueFlags & VK_QUEUE_TRANSFER_BIT) &&
@@ -197,11 +200,16 @@ static bool find_queue_families(Mel_Gpu_Device* dev, VkPhysicalDevice device,
         found_transfer = true;
     }
 
+    if (!found_present)
+    {
+        *present = *graphics;
+    }
+
     mel_dealloc(mel_alloc_heap(), props);
-    return found_graphics && found_present;
+    return found_graphics;
 }
 
-static i32 rate_device(Mel_Gpu_Device* dev, VkPhysicalDevice device)
+static i32 rate_device(VkPhysicalDevice device)
 {
     VkPhysicalDeviceProperties props;
     vkGetPhysicalDeviceProperties(device, &props);
@@ -210,7 +218,7 @@ static i32 rate_device(Mel_Gpu_Device* dev, VkPhysicalDevice device)
         return -1;
 
     u32 graphics, present, transfer;
-    if (!find_queue_families(dev, device, &graphics, &present, &transfer))
+    if (!find_queue_families(device, VK_NULL_HANDLE, &graphics, &present, &transfer))
         return -1;
 
     u32 ext_count;
@@ -250,7 +258,7 @@ static bool pick_physical_device(Mel_Gpu_Device* dev)
 
     for (u32 i = 0; i < count; i++)
     {
-        i32 score = rate_device(dev, devices[i]);
+        i32 score = rate_device(devices[i]);
         if (score > best_score)
         {
             best_score = score;
@@ -284,7 +292,7 @@ static bool pick_physical_device(Mel_Gpu_Device* dev)
 
 static bool create_logical_device(Mel_Gpu_Device* dev)
 {
-    find_queue_families(dev, dev->physical_device,
+    find_queue_families(dev->physical_device, VK_NULL_HANDLE,
         &dev->graphics_family, &dev->present_family, &dev->transfer_family);
 
     f32 priority = 1.0f;
@@ -399,7 +407,6 @@ static bool create_vma(Mel_Gpu_Device* dev)
 bool mel_gpu_device_init_opt(Mel_Gpu_Device* dev, Mel_Gpu_Device_Opt opt)
 {
     assert(dev != nullptr);
-    assert(opt.window != nullptr);
 
     *dev = (Mel_Gpu_Device){0};
     dev->alloc = opt.allocator;
@@ -415,11 +422,6 @@ bool mel_gpu_device_init_opt(Mel_Gpu_Device* dev, Mel_Gpu_Device_Opt opt)
 
     if (!create_instance(dev, &opt))                                            goto fail;
     if (!create_debug_messenger(dev))                                           goto fail;
-    if (!SDL_Vulkan_CreateSurface(opt.window, dev->instance, nullptr, &dev->surface))
-    {
-        SDL_Log("Failed to create Vulkan surface: %s", SDL_GetError());
-        goto fail;
-    }
     if (!pick_physical_device(dev))                                             goto fail;
     if (!create_logical_device(dev))                                            goto fail;
     if (!create_vma(dev))                                                       goto fail;
@@ -440,7 +442,6 @@ void mel_gpu_device_shutdown(Mel_Gpu_Device* dev)
     if (dev->device) vkDeviceWaitIdle(dev->device);
     if (dev->vma) vmaDestroyAllocator(dev->vma);
     if (dev->device) vkDestroyDevice(dev->device, nullptr);
-    if (dev->surface) vkDestroySurfaceKHR(dev->instance, dev->surface, nullptr);
     if (dev->debug_messenger) vkDestroyDebugUtilsMessengerEXT(dev->instance, dev->debug_messenger, nullptr);
     if (dev->instance) vkDestroyInstance(dev->instance, nullptr);
 
@@ -451,4 +452,44 @@ void mel_gpu_device_wait_idle(Mel_Gpu_Device* dev)
 {
     assert(dev != nullptr);
     vkDeviceWaitIdle(dev->device);
+}
+
+VkSurfaceKHR mel_gpu_surface_create(Mel_Gpu_Device* dev, SDL_Window* window)
+{
+    assert(dev != nullptr);
+    assert(window != nullptr);
+
+    VkSurfaceKHR surface = VK_NULL_HANDLE;
+    if (!SDL_Vulkan_CreateSurface(window, dev->instance, nullptr, &surface))
+    {
+        SDL_Log("Failed to create Vulkan surface: %s", SDL_GetError());
+        return VK_NULL_HANDLE;
+    }
+
+    if (!dev->has_present_queue)
+        mel_gpu_device_configure_present(dev, surface);
+
+    return surface;
+}
+
+void mel_gpu_surface_destroy(Mel_Gpu_Device* dev, VkSurfaceKHR surface)
+{
+    assert(dev != nullptr);
+    if (surface != VK_NULL_HANDLE)
+        vkDestroySurfaceKHR(dev->instance, surface, nullptr);
+}
+
+bool mel_gpu_device_configure_present(Mel_Gpu_Device* dev, VkSurfaceKHR surface)
+{
+    assert(dev != nullptr);
+    assert(surface != VK_NULL_HANDLE);
+
+    u32 graphics, present, transfer;
+    if (!find_queue_families(dev->physical_device, surface, &graphics, &present, &transfer))
+        return false;
+
+    dev->present_family = present;
+    vkGetDeviceQueue(dev->device, dev->present_family, 0, &dev->present_queue);
+    dev->has_present_queue = true;
+    return true;
 }

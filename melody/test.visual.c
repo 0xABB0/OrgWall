@@ -68,7 +68,6 @@ bool mel_visual_test_init_opt(Mel_Visual_Test_Ctx* ctx, Mel_Visual_Test_Init_Opt
     }
 
     if (!mel_gpu_device_init(&ctx->dev,
-        .window = ctx->window,
         .enable_validation = true,
         .app_name = S8("visual-test")))
     {

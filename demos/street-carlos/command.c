@@ -632,3 +632,8 @@ void command_list_clear_name(Command_List* cl, str8 name)
         command_clear(&cl->commands[i], false);
     }
 }
+
+void command_list_set_facing(Command_List* cl, bool facing_right)
+{
+    cl->buffer.facing_right = facing_right;
+}

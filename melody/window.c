@@ -1,0 +1,82 @@
+#include "window.h"
+#include "collection.slotmap.h"
+#include "allocator.heap.h"
+#include "string.str8.h"
+
+static Mel_SlotMap s_windows;
+static bool s_initialized;
+
+__attribute__((constructor(200)))
+static void mel__window_registry_init(void)
+{
+    mel_slotmap_init(&s_windows, mel_alloc_heap(),
+        .item_size = sizeof(Mel_Window), .initial_capacity = 4);
+    s_initialized = true;
+}
+
+__attribute__((destructor(200)))
+static void mel__window_registry_shutdown(void)
+{
+    if (!s_initialized) return;
+
+    Mel_Window* windows = mel_slotmap_data(&s_windows);
+    u32 count = mel_slotmap_count(&s_windows);
+
+    for (u32 i = 0; i < count; i++)
+        SDL_DestroyWindow(windows[i].sdl);
+
+    mel_slotmap_free(&s_windows);
+    s_initialized = false;
+}
+
+Mel_Window_Handle mel_window_create_opt(str8 title, Mel_Window_Create_Opt opt)
+{
+    assert(s_initialized);
+
+    u32 w = opt.width > 0 ? opt.width : 1280;
+    u32 h = opt.height > 0 ? opt.height : 720;
+    u32 flags = opt.flags | SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE;
+
+    char title_buf[256];
+    if (!str8_is_empty(title))
+        str8_to_buf(title, title_buf, sizeof(title_buf));
+    else
+        snprintf(title_buf, sizeof(title_buf), "Melody");
+
+    SDL_Window* sdl = SDL_CreateWindow(title_buf, (int)w, (int)h, flags);
+    if (!sdl)
+    {
+        SDL_Log("Failed to create window: %s", SDL_GetError());
+        return MEL_WINDOW_HANDLE_NULL;
+    }
+
+    Mel_Window window = { .sdl = sdl };
+    Mel_SlotMap_Handle raw = mel_slotmap_insert(&s_windows, &window);
+
+    SDL_Log("Window created: \"%s\" (%ux%u)", title_buf, w, h);
+    return (Mel_Window_Handle){ .handle = raw };
+}
+
+void mel_window_destroy(Mel_Window_Handle handle)
+{
+    assert(s_initialized);
+
+    Mel_Window* w = mel_slotmap_get(&s_windows, handle.handle);
+    assert(w != nullptr);
+
+    SDL_DestroyWindow(w->sdl);
+    mel_slotmap_remove(&s_windows, handle.handle);
+}
+
+Mel_Window* mel_window_get(Mel_Window_Handle handle)
+{
+    assert(s_initialized);
+    Mel_Window* w = mel_slotmap_get(&s_windows, handle.handle);
+    assert(w != nullptr);
+    return w;
+}
+
+u32 mel_window_count(void)
+{
+    return s_initialized ? mel_slotmap_count(&s_windows) : 0;
+}

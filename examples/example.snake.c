@@ -8,6 +8,9 @@
 
 #include "core.app.h"
 #include "core.engine.h"
+#include "window.h"
+#include "swapchain.h"
+#include "gpu.swapchain.h"
 #include "string.str8.h"
 #include "gpu.buffer.h"
 #include "gpu.cmd.h"
@@ -66,6 +69,8 @@ typedef struct {
 } Snake;
 
 static SDL_Window* s_window;
+static Mel_Window_Handle s_window_handle;
+static Mel_Swapchain_Handle s_swapchain_handle;
 static Mel_Sprite_Pass* s_sp;
 static Mel_Font_Atlas_Pool s_font_pool;
 static Mel_Io s_demo_io;
@@ -408,16 +413,17 @@ static void grid_pass(Mel_Render_Pass_Ctx* ctx)
     mel_draw_ctx_render(&s_grid_ctx, ctx->cmd.cmd, &proj);
 }
 
-static void on_init(Mel_Engine* e)
+static void on_init(void)
 {
-    Mel_Gpu_Device* dev = &e->dev;
-    s_sp = e->sprite_pass;
+    Mel_Gpu_Device* dev = mel_gpu_dev();
+    Mel_Swapchain* sc = &mel_swapchain_registry_get(s_swapchain_handle)->swapchain;
+    s_sp = mel_sprite_pass();
 
     mel_draw_ctx_init(&s_grid_ctx,
         .pipeline = &s_sp->pipeline, .texture = &s_sp->white_texture,
-        .pool = e->texture_pool, .font_pool = &s_font_pool, .dev = dev, .alloc = mel_alloc_heap());
+        .pool = mel_texture_pool(), .font_pool = &s_font_pool, .dev = dev, .alloc = mel_alloc_heap());
 
-    mel_font_atlas_pool_init(&s_font_pool, &e->allocator, dev, &s_demo_vfs, .texture_pool = e->texture_pool);
+    mel_font_atlas_pool_init(&s_font_pool, mel_allocator(), dev, &s_demo_vfs, .texture_pool = mel_texture_pool());
     s_font_handle = mel_font_atlas_pool_load(&s_font_pool,
         .path = S8("/System/Library/Fonts/Monaco.ttf"), .size = 18.0f);
 
@@ -434,15 +440,15 @@ static void on_init(Mel_Engine* e)
         .components = { ecs_id(Mel_CTransform), ecs_id(Mel_Sprite) },
         .write = snake_write_entry);
 
-    mel_render_target_init_swapchain(&s_swapchain_target, &e->swapchain, &e->dev, S8("backbuffer"));
+    mel_render_target_init_swapchain(&s_swapchain_target, sc, dev, S8("backbuffer"));
 
     s_camera = (Mel_Camera){
         .view = MEL_MAT4_IDENTITY,
-        .projection = mel_mat4_ortho(0, (f32)e->swapchain.extent.width,
-                                      0, (f32)e->swapchain.extent.height, -1, 1),
+        .projection = mel_mat4_ortho(0, (f32)sc->extent.width,
+                                      0, (f32)sc->extent.height, -1, 1),
     };
 
-    mel_render_graph_init(&s_graph, .dev = &e->dev, .alloc = mel_alloc_heap());
+    mel_render_graph_init(&s_graph, .dev = dev, .alloc = mel_alloc_heap());
 
     u32 grid_id = mel_render_graph_add_pass(&s_graph, S8("grid"),
         .fn = grid_pass,
@@ -461,7 +467,7 @@ static void on_init(Mel_Engine* e)
 
     mel_render_graph_pass_depends_on(&s_graph, sprite_id, grid_id);
     mel_render_graph_compile(&s_graph);
-    e->render_graph = &s_graph;
+    mel_set_render_graph(&s_graph);
 
     SDL_Log("Snake ready! Arrow keys to move, R to restart, ESC to quit");
 }
@@ -470,15 +476,10 @@ static void app_update(Mel_Sim_Ctx* sim, f32 dt, void* user);
 
 static void app_init(Mel_App* app)
 {
-    s_window = SDL_CreateWindow("Melody Snake", 640, 580,
-                                SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE);
-    assert(s_window);
-
-    mel_engine_init(&app->engine,
-        .window = s_window,
-        .app_name = S8("Melody Snake"),
-        .enable_validation = true,
-        .enable_imgui = false);
+    mel_init(.app_name = S8("Melody Snake"), .enable_validation = true);
+    s_window_handle = mel_window_create(S8("Melody Snake"), .width = 640, .height = 580);
+    s_window = mel_window_get(s_window_handle)->sdl;
+    s_swapchain_handle = mel_gpu_swapchain_create_for_window(mel_gpu_dev(), s_window_handle);
 
     Mel_Io_Desc io_desc = { .allocator = mel_alloc_heap(), .worker_count = 0 };
     mel_io_init(&s_demo_io, &io_desc);
@@ -487,20 +488,17 @@ static void app_init(Mel_App* app)
     s_fonts_backend = mel_vfs_backend_os_create(mel_alloc_heap(), S8("/"));
     mel_vfs_mount(&s_demo_vfs, S8("/"), s_fonts_backend, 0, false);
 
-    on_init(&app->engine);
+    on_init();
 
     mel_sim_init(&s_sim, .event_buffer = s_event_buf, .event_buffer_size = sizeof(s_event_buf));
     mel_sim_add_variable(&s_sim, app_update);
-    mel_engine_register_sim(&app->engine, &s_sim);
+    mel_register_sim(&s_sim);
 }
 
 static void app_shutdown(Mel_App* app)
 {
-    mel_engine_unregister_sim(&app->engine, &s_sim);
+    mel_unregister_sim(&s_sim);
     mel_sim_shutdown(&s_sim);
-
-    Mel_Gpu_Device* dev = &app->engine.dev;
-    mel_gpu_device_wait_idle(dev);
 
     mel_draw_ctx_shutdown(&s_grid_ctx);
     mel_render_sync_shutdown(&s_sync);

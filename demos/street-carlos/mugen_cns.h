@@ -449,6 +449,8 @@ typedef struct {
     i32 ground_hittime;
     f32 ground_vel_x, ground_vel_y;
     f32 guard_velocity;
+    i32 guard_slidetime;
+    i32 guard_ctrltime;
     f32 air_vel_x, air_vel_y;
     i32 air_hittime;
     bool air_fall;
