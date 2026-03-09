@@ -508,9 +508,9 @@ Mel_Anim_Clip mugen_air_compile(const Mugen_Air_Action* action, const Mel_Alloc*
         total_duration += dur;
     }
 
-    bool is_looping = has_loop;
     bool has_hold_forever = (action->frames[fc - 1].time == -1);
-    if (has_hold_forever) is_looping = false;
+    bool is_looping = has_hold_forever ? false : true;
+    f32 loop_time = has_loop ? loop_start_time : 0.0f;
 
     u32 group_count = 3;
     Mel_Track_Group* groups = mel_alloc(alloc, sizeof(Mel_Track_Group) * group_count);
@@ -627,7 +627,7 @@ Mel_Anim_Clip mugen_air_compile(const Mugen_Air_Action* action, const Mel_Alloc*
         .name_hash = (u64)action->action_number,
         .duration = total_duration,
         .is_looping = is_looping,
-        .loop_start_time = loop_start_time,
+        .loop_start_time = loop_time,
         .additive_space = MEL_ANIM_ADDITIVE_LOCAL,
         .groups = groups,
         .group_count = group_count,

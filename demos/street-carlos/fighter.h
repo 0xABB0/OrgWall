@@ -11,7 +11,8 @@ typedef struct {
     Mel_Anim_Clip_Handle clip;
 } Fighter_Action_Map;
 
-typedef struct {
+typedef struct Fighter Fighter;
+struct Fighter {
     f32 x, y;
     f32 vel_x, vel_y;
     bool facing_right;
@@ -39,7 +40,9 @@ typedef struct {
     Mugen_Cns* common_cns;
     Mugen_Cns* cmd_cns;
     u32 last_cns_anim;
-} Fighter;
+
+    Fighter* opponent;
+};
 
 typedef struct {
     f32 x, y, w, h;

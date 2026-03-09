@@ -407,6 +407,8 @@ typedef struct {
     Mugen_Expr* air_cornerpush;
     Mugen_Expr* guard_cornerpush;
     Mugen_Expr* yaccel;
+    Mugen_Expr* p1facing;
+    Mugen_Expr* p2facing;
 } Mugen_HitDef_Params;
 
 typedef struct {
@@ -535,6 +537,8 @@ typedef struct {
     f32 guard_cornerpush_veloff;
     f32 yaccel;
     bool has_yaccel;
+    i32 p1facing;
+    i32 p2facing;
 } Mugen_HitDef_Result;
 
 typedef struct {
@@ -659,8 +663,10 @@ struct Mugen_Char_State {
     f32 down_friction_threshold;
 
     Mugen_Char_State* target;
+    Mugen_Char_State* bound_to;
     Mugen_Cns* self_cns;
     Mugen_Cns* state_owner_cns;
+    bool use_owner_anim;
 
     i32 pending_state;
     i32 pending_ctrl;

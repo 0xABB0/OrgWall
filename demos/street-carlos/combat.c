@@ -168,11 +168,35 @@ static void apply_hit(Fighter* attacker, Fighter* victim)
     vst->pending_ctrl = 0;
     vst->state_changed = true;
 
+    if (hd->p2stateno >= 0 && hd->p2getp1state)
+    {
+        vst->state_owner_cns = ast->self_cns;
+        vst->bound_to = ast;
+    }
+
     if (hd->p1stateno >= 0)
     {
         ast->pending_state = hd->p1stateno;
         ast->pending_ctrl = 0;
         ast->state_changed = true;
+    }
+
+    if (hd->p1facing != 0)
+    {
+        bool face_right = (victim->x > attacker->x);
+        if (hd->p1facing < 0) face_right = !face_right;
+        ast->facing = face_right ? 1.0f : -1.0f;
+        attacker->facing_right = face_right;
+        command_list_set_facing(&attacker->commands, face_right);
+    }
+
+    if (hd->p2facing != 0)
+    {
+        bool face_right = (attacker->x > victim->x);
+        if (hd->p2facing < 0) face_right = !face_right;
+        vst->facing = face_right ? 1.0f : -1.0f;
+        victim->facing_right = face_right;
+        command_list_set_facing(&victim->commands, face_right);
     }
 
     ast->hitdef_pending = false;
@@ -248,6 +272,9 @@ static void auto_face(Fighter* f, Fighter* opponent)
 
 void combat_resolve(Fighter* f1, Fighter* f2)
 {
+    f1->opponent = f2;
+    f2->opponent = f1;
+
     Mugen_Char_State* s1 = &f1->cns_state;
     Mugen_Char_State* s2 = &f2->cns_state;
 

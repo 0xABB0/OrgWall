@@ -457,6 +457,20 @@ static void parse_controller_param(Mugen_State_Controller* sc, str8 key, str8 va
                 p->index = mugen_expr_parse(inner, alloc);
                 p->value = mugen_expr_parse(val, alloc);
             }
+            else if (starts_with_i(key, "sysvar("))
+            {
+                p->var_type = MUGEN_VAR_SYSINT;
+                str8 inner = str8_from_parts(key.data + 7, key.len - 8);
+                p->index = mugen_expr_parse(inner, alloc);
+                p->value = mugen_expr_parse(val, alloc);
+            }
+            else if (starts_with_i(key, "sysfvar("))
+            {
+                p->var_type = MUGEN_VAR_SYSFLOAT;
+                str8 inner = str8_from_parts(key.data + 8, key.len - 9);
+                p->index = mugen_expr_parse(inner, alloc);
+                p->value = mugen_expr_parse(val, alloc);
+            }
             break;
         }
         case MUGEN_SC_VARRANDOM:
@@ -820,6 +834,8 @@ static void parse_controller_param(Mugen_State_Controller* sc, str8 key, str8 va
             }
             else if (str8_ieq(key, "p1stateno")) p->p1stateno = mugen_expr_parse(val, alloc);
             else if (str8_ieq(key, "p2stateno")) p->p2stateno = mugen_expr_parse(val, alloc);
+            else if (str8_ieq(key, "p1facing")) p->p1facing = mugen_expr_parse(val, alloc);
+            else if (str8_ieq(key, "p2facing")) p->p2facing = mugen_expr_parse(val, alloc);
             else if (str8_ieq(key, "p2getp1state")) p->p2getp1state = mugen_expr_parse(val, alloc);
             else if (str8_ieq(key, "numhits")) p->numhits = mugen_expr_parse(val, alloc);
             else if (str8_ieq(key, "hitonce")) p->hitonce = mugen_expr_parse(val, alloc);

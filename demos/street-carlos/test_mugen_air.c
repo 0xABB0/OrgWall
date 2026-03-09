@@ -104,7 +104,8 @@ MEL_TEST(mugen_air_compile_basic, .tags = "mugen")
     Mel_Anim_Clip clip = mugen_air_compile(act200, heap);
 
     MEL_ASSERT_EQ(clip.group_count, 3);
-    MEL_ASSERT(!clip.is_looping);
+    MEL_ASSERT(clip.is_looping);
+    MEL_ASSERT_FLOAT_EQ(clip.loop_start_time, 0.0f, 0.001f);
 
     f32 expected_dur = (3.0f + 4.0f + 8.0f) / 60.0f;
     MEL_ASSERT_FLOAT_EQ(clip.duration, expected_dur, 0.001f);

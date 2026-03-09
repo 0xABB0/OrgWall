@@ -41,7 +41,8 @@ static void draw_box_outline(Mel_Render_List* list, Fighter_Box box, Mel_Vec4 co
 }
 
 static void draw_mugen_sprite(Fighter* f, Mugen_Sff* sff, Mel_Texture_Handle tex,
-                               u16 group, u16 number, Mel_Render_List* list)
+                               u16 group, u16 number, bool frame_flip_h,
+                               Mel_Render_List* list)
 {
     u32 frame_idx = mugen_sff_find_frame(sff, group, number);
     Mugen_Sff_Entry* entry = &sff->entries[frame_idx];
@@ -56,7 +57,8 @@ static void draw_mugen_sprite(Fighter* f, Mugen_Sff* sff, Mel_Texture_Handle tex
     f32 draw_x = feet_x - (f32)entry->offset_x;
     f32 draw_y = feet_y - (f32)entry->offset_y;
 
-    if (!f->facing_right)
+    bool flip = f->facing_right ^ frame_flip_h;
+    if (!flip)
     {
         uv.x = uv.x + uv.w;
         uv.w = -uv.w;
@@ -86,10 +88,10 @@ void game_draw_fighter(Fighter* f, Mugen_Char* mc, Mel_Render_List* list)
     if (frame_idx >= action->frame_count)
         frame_idx = action->frame_count - 1;
 
-    u16 group = action->frames[frame_idx].group;
-    u16 number = action->frames[frame_idx].number;
+    Mugen_Air_Frame* frame = &action->frames[frame_idx];
 
-    draw_mugen_sprite(f, &mc->sff, mc->tex_handle, group, number, list);
+    draw_mugen_sprite(f, &mc->sff, mc->tex_handle, frame->group, frame->number,
+                      frame->flip_h, list);
 }
 
 void game_draw_debug_boxes(Fighter* f, Mel_Render_List* list)

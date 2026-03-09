@@ -42,11 +42,11 @@ void mugen_cns_enter_state(Mugen_Cns* cns, Mugen_Char_State* state, i32 stateno)
     state->moveguarded = false;
 
     if (def->statetype) state->statetype = def->statetype;
-    if (def->movetype != 0xFF)
     {
-        if (state->movetype == MUGEN_MOVETYPE_H && def->movetype != MUGEN_MOVETYPE_H)
+        u8 mt = def->movetype == 0xFF ? MUGEN_MOVETYPE_I : def->movetype;
+        if (state->movetype == MUGEN_MOVETYPE_H && mt != MUGEN_MOVETYPE_H)
             state->juggle_points_remaining = (i32)state->data_airjuggle;
-        state->movetype = def->movetype;
+        state->movetype = mt;
     }
     if (def->physics)   state->physics = def->physics;
     if (def->anim >= 0)
@@ -167,7 +167,7 @@ static void exec_controller(Mugen_State_Controller* sc, Mugen_Char_State* state)
         {
             Mugen_Pos_Params* p = sc->params;
             if (!p) break;
-            if (p->x) state->pos_x += mugen_expr_eval(p->x, state);
+            if (p->x) state->pos_x += mugen_expr_eval(p->x, state) * state->facing;
             if (p->y) state->pos_y += mugen_expr_eval(p->y, state);
             break;
         }
@@ -313,6 +313,8 @@ static void exec_controller(Mugen_State_Controller* sc, Mugen_Char_State* state)
             r->p1stateno = (i32)eval_or_default(p->p1stateno, state, -1);
             r->p2stateno = (i32)eval_or_default(p->p2stateno, state, -1);
             r->p2getp1state = eval_or_default(p->p2getp1state, state, 1) != 0.0f;
+            r->p1facing = (i32)eval_or_default(p->p1facing, state, 0);
+            r->p2facing = (i32)eval_or_default(p->p2facing, state, 0);
             r->juggle = state->current_juggle;
             r->ground_cornerpush_veloff = eval_or_default(p->ground_cornerpush, state, r->guard_velocity * -1.3f);
             r->air_cornerpush_veloff = eval_or_default(p->air_cornerpush, state, r->ground_cornerpush_veloff);
@@ -334,6 +336,8 @@ static void exec_controller(Mugen_State_Controller* sc, Mugen_Char_State* state)
             if (p->anim) state->pending_anim = (i32)mugen_expr_eval(p->anim, state);
             state->state_changed = true;
             state->state_owner_cns = NULL;
+            state->bound_to = NULL;
+            state->use_owner_anim = false;
             break;
         }
         case MUGEN_SC_HITVELSET:
@@ -513,13 +517,14 @@ static void exec_controller(Mugen_State_Controller* sc, Mugen_Char_State* state)
         case MUGEN_SC_CHANGEANIM2:
         {
             Mugen_ChangeAnim2_Params* p = sc->params;
-            if (!p || !p->value || !state->target) break;
+            if (!p || !p->value) break;
             i32 anim = (i32)mugen_expr_eval(p->value, state);
-            state->target->anim = (u32)anim;
-            state->target->pending_anim = anim;
-            state->target->animelem = 0;
-            state->target->animtime = -999;
-            state->target->animelemtime = 0;
+            state->anim = (u32)anim;
+            state->pending_anim = anim;
+            state->animelem = 0;
+            state->animtime = -999;
+            state->animelemtime = 0;
+            state->use_owner_anim = true;
             break;
         }
     }

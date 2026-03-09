@@ -13,7 +13,6 @@
 
 static u64 s_hitbox_prop;
 static u64 s_hurtbox_prop;
-static u64 s_frame_prop;
 static bool s_props_init = false;
 
 static void ensure_props(void)
@@ -21,7 +20,6 @@ static void ensure_props(void)
     if (s_props_init) return;
     s_hitbox_prop = mel_xxh3_64("hitbox", 6);
     s_hurtbox_prop = mel_xxh3_64("hurtbox", 7);
-    s_frame_prop = mel_xxh3_64("frame", 5);
     s_props_init = true;
 }
 
@@ -48,18 +46,34 @@ static Mel_Anim_Clip_Handle find_clip(Fighter* f, u32 action_number)
 
 static void sync_elem_ticks(Fighter* f, Mel_Anim_Clip* clip);
 
-static void play_action(Fighter* f, u32 action_number, f32 crossfade)
+static void play_action_from(Fighter* f, Fighter* source, u32 action_number, f32 crossfade)
 {
-    if (f->current_action == action_number) return;
+    if (f->current_action == action_number && source == f) return;
 
-    Mel_Anim_Clip_Handle clip_h = find_clip(f, action_number);
-    if (!mel_slotmap_alive(f->clip_pool, clip_h)) return;
+    Mel_Anim_Clip_Handle clip_h = find_clip(source, action_number);
+    if (!mel_slotmap_alive(source->clip_pool, clip_h)) return;
 
     f->current_action = action_number;
+    f->player.clip_pool = source->clip_pool;
     mel_anim_player_play(&f->player, clip_h, .crossfade = crossfade);
 
-    Mel_Anim_Clip* clip = (Mel_Anim_Clip*)mel_slotmap_get(f->clip_pool, clip_h);
+    Mel_Anim_Clip* clip = (Mel_Anim_Clip*)mel_slotmap_get(source->clip_pool, clip_h);
     if (clip) sync_elem_ticks(f, clip);
+}
+
+static void play_action(Fighter* f, u32 action_number, f32 crossfade)
+{
+    play_action_from(f, f, action_number, crossfade);
+}
+
+static void sync_cns_anim(Fighter* f)
+{
+    Mugen_Char_State* st = &f->cns_state;
+    if (st->anim == f->last_cns_anim) return;
+    f->last_cns_anim = st->anim;
+    f->current_action = UINT32_MAX;
+    Fighter* source = (st->use_owner_anim && f->opponent) ? f->opponent : f;
+    play_action_from(f, source, st->anim, 0.0f);
 }
 
 static void sample_anim(Fighter* f)
@@ -352,14 +366,20 @@ static void sync_animtime(Fighter* f)
 
     f32 elapsed = cs->time;
     f32 duration = clip->duration;
-    if (clip->is_looping)
-        st->animtime = -1;
-    else
-        st->animtime = (i32)((elapsed - duration) * MUGEN_TICKS_PER_SECOND);
+    st->animtime = (i32)((elapsed - duration) * MUGEN_TICKS_PER_SECOND);
 
-    f32 frame_f;
-    mel_anim_player_get_float(&f->player, s_frame_prop, f->player.alloc, &frame_f);
-    i32 new_elem = (i32)frame_f + 1;
+    i32 new_elem = 1;
+    if (st->anim_elem_start_ticks && st->anim_elem_count > 0)
+    {
+        for (u32 i = st->anim_elem_count; i > 0; i--)
+        {
+            if (st->time >= st->anim_elem_start_ticks[i - 1])
+            {
+                new_elem = (i32)i;
+                break;
+            }
+        }
+    }
 
     if (new_elem != st->animelem)
     {
@@ -388,13 +408,7 @@ void fighter_tick(Fighter* f, f32 dt, f32 stage_left, f32 stage_right)
         if (st->pending_ctrl >= 0)
             st->ctrl = st->pending_ctrl != 0;
         cns_enter_state(f, st->pending_state);
-
-        if (st->anim != f->last_cns_anim)
-        {
-            f->last_cns_anim = st->anim;
-            f->current_action = UINT32_MAX;
-            play_action(f, st->anim, 0.0f);
-        }
+        sync_cns_anim(f);
     }
 
     st->commands = &f->commands;
@@ -483,12 +497,7 @@ void fighter_tick(Fighter* f, f32 dt, f32 stage_left, f32 stage_right)
 
     st->pos_x = f->x;
 
-    if (st->anim != f->last_cns_anim)
-    {
-        f->last_cns_anim = st->anim;
-        f->current_action = UINT32_MAX;
-        play_action(f, st->anim, 0.0f);
-    }
+    sync_cns_anim(f);
 
     sample_anim(f);
 }
@@ -506,12 +515,7 @@ void fighter_apply_combat_state(Fighter* f)
         printf("COMBAT STATE: %d -> %d (type=%d phys=%d ctrl=%d)\n",
             prev_stateno, st->stateno, st->statetype, st->physics, st->ctrl);
 
-    if (st->anim != f->last_cns_anim)
-    {
-        f->last_cns_anim = st->anim;
-        f->current_action = UINT32_MAX;
-        play_action(f, st->anim, 0.0f);
-    }
+    sync_cns_anim(f);
 
     bool new_facing = (st->facing > 0);
     if (f->facing_right != new_facing)
