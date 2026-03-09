@@ -105,8 +105,8 @@ static void apply_guard(Fighter* attacker, Fighter* victim)
     ast->hitpause_time = hd->guard_pausetime_p1;
     vst->hitpause_time = hd->guard_pausetime_p2;
 
-    ast->moveguarded = true;
-    ast->movecontact = true;
+    ast->moveguarded = 1;
+    ast->mctime = 1;
 
     i32 guard_state = compute_guard_state(vst);
 
@@ -148,8 +148,8 @@ static void apply_hit(Fighter* attacker, Fighter* victim)
     ast->hitpause_time = hd->pausetime_p1;
     vst->hitpause_time = hd->pausetime_p2;
 
-    ast->movehit = true;
-    ast->movecontact = true;
+    ast->movehit = 1;
+    ast->mctime = 1;
     ast->hitcount++;
     ast->target = vst;
 
@@ -229,6 +229,27 @@ static void check_hit(Fighter* attacker, Fighter* victim)
     if (vst->nothitby_time > 0 && (vst->nothitby_attr & ast->hitdef.attr))
         return;
 
+    {
+        u32 hf = ast->hitdef.hitflag;
+        bool is_hit = (vst->movetype == MUGEN_MOVETYPE_H);
+        if (hf & MUGEN_HF_MNS)
+        {
+            if (is_hit) return;
+        }
+        else if (hf & MUGEN_HF_PLS)
+        {
+            if (!is_hit) return;
+        }
+
+        if (!(hf & MUGEN_HF_MNS))
+        {
+            if (vst->statetype == MUGEN_PHYSICS_S && !(hf & MUGEN_HF_H)) return;
+            if (vst->statetype == MUGEN_PHYSICS_C && !(hf & MUGEN_HF_L)) return;
+            if (vst->statetype == MUGEN_PHYSICS_A && !(hf & MUGEN_HF_A)) return;
+            if (vst->statetype == MUGEN_PHYSICS_L && !(hf & MUGEN_HF_D)) return;
+        }
+    }
+
     if (vst->statetype == MUGEN_PHYSICS_A && !(ast->assert_flags & MUGEN_ASSERT_NOJUGGLECHECK))
     {
         if (vst->juggle_points_remaining < ast->hitdef.juggle)
@@ -250,6 +271,67 @@ static void check_hit(Fighter* attacker, Fighter* victim)
         apply_guard(attacker, victim);
     else
         apply_hit(attacker, victim);
+}
+
+static void check_helper_vs_fighter(Fighter_Helper* h, Fighter* victim)
+{
+    Mugen_Char_State* ast = &h->cns_state;
+    Mugen_Char_State* vst = &victim->cns_state;
+
+    if (!ast->hitdef_pending && !ast->hitdef_active) return;
+    if (!helper_has_active_hitbox(h)) return;
+    if (vst->hitpause_time > 0) return;
+
+    if (vst->nothitby_time > 0 && (vst->nothitby_attr & ast->hitdef.attr))
+        return;
+
+    if (vst->statetype == MUGEN_PHYSICS_A && !(ast->assert_flags & MUGEN_ASSERT_NOJUGGLECHECK))
+    {
+        if (vst->juggle_points_remaining < ast->hitdef.juggle)
+            return;
+    }
+
+    Fighter_Box atk_box = helper_hitbox(h);
+    Fighter_Box def_box = fighter_hurtbox(victim);
+
+    if (!boxes_overlap(atk_box, def_box)) return;
+
+    if (ast->hitdef_pending)
+    {
+        ast->hitdef_active = true;
+        ast->hitdef_pending = false;
+    }
+
+    Mugen_HitDef_Result* hd = &ast->hitdef;
+
+    populate_ghv(&vst->ghv, hd, vst);
+
+    f32 dmg = hd->damage_hit * (vst->defence_mul > 0 ? vst->defence_mul : 1.0f);
+    vst->life -= dmg;
+    if (vst->life < 0) vst->life = 0;
+
+    ast->hitpause_time = hd->pausetime_p1;
+    vst->hitpause_time = hd->pausetime_p2;
+
+    ast->movehit = 1;
+    ast->mctime = 1;
+    ast->hitcount++;
+
+    i32 hit_state = compute_hit_state(vst, hd);
+    if (hd->p2stateno >= 0)
+        hit_state = hd->p2stateno;
+
+    vst->movetype = MUGEN_MOVETYPE_H;
+    vst->ctrl = false;
+    vst->pending_state = hit_state;
+    vst->pending_ctrl = 0;
+    vst->state_changed = true;
+
+    ast->hitdef_pending = false;
+    ast->hitdef_active = false;
+
+    printf("HELPER HIT: helper_id=%d -> victim state=%d (damage=%.0f life=%.0f)\n",
+        h->helper_id, hit_state, hd->damage_hit, vst->life);
 }
 
 static void auto_face(Fighter* f, Fighter* opponent)
@@ -324,9 +406,11 @@ void combat_resolve(Fighter* f1, Fighter* f2)
         }
     }
 
-    if (s1->hitpause_time > 0) s1->hitpause_time--;
-    if (s2->hitpause_time > 0) s2->hitpause_time--;
-
     check_hit(f1, f2);
     check_hit(f2, f1);
+
+    for (u32 i = 0; i < f1->helper_count; i++)
+        check_helper_vs_fighter(&f1->helpers[i], f2);
+    for (u32 i = 0; i < f2->helper_count; i++)
+        check_helper_vs_fighter(&f2->helpers[i], f1);
 }

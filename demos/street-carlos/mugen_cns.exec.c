@@ -37,18 +37,27 @@ void mugen_cns_enter_state(Mugen_Cns* cns, Mugen_Char_State* state, i32 stateno)
     state->state_changed = false;
     state->hitdef_pending = false;
     state->hitdef_active = false;
-    state->movecontact = false;
-    state->movehit = false;
-    state->moveguarded = false;
+    state->mctime = 0;
+    state->movehit = 0;
+    state->moveguarded = 0;
 
-    if (def->statetype) state->statetype = def->statetype;
     {
-        u8 mt = def->movetype == 0xFF ? MUGEN_MOVETYPE_I : def->movetype;
-        if (state->movetype == MUGEN_MOVETYPE_H && mt != MUGEN_MOVETYPE_H)
-            state->juggle_points_remaining = (i32)state->data_airjuggle;
-        state->movetype = mt;
+        u8 st = def->statetype ? def->statetype : MUGEN_PHYSICS_S;
+        if (st != MUGEN_STATETYPE_U) state->statetype = st;
     }
-    if (def->physics)   state->physics = def->physics;
+    {
+        u8 mt = (def->movetype == 0xFF) ? MUGEN_MOVETYPE_I : def->movetype;
+        if (mt != MUGEN_MOVETYPE_U)
+        {
+            if (state->movetype == MUGEN_MOVETYPE_H && mt != MUGEN_MOVETYPE_H)
+                state->juggle_points_remaining = (i32)state->data_airjuggle;
+            state->movetype = mt;
+        }
+    }
+    {
+        u8 ph = def->physics ? def->physics : MUGEN_PHYSICS_N;
+        if (ph != MUGEN_PHYSICS_U) state->physics = ph;
+    }
     if (def->anim >= 0)
     {
         state->anim = (u32)def->anim;
@@ -66,6 +75,13 @@ void mugen_cns_enter_state(Mugen_Cns* cns, Mugen_Char_State* state, i32 stateno)
         state->ctrl = def->ctrl != 0;
 
     state->current_juggle = def->juggle;
+
+    if (def->poweradd != 0)
+    {
+        state->power += (f32)def->poweradd;
+        if (state->power > state->powermax) state->power = state->powermax;
+        if (state->power < 0) state->power = 0;
+    }
 
     for (u32 i = 0; i < def->controller_count; i++)
         def->controllers[i].persistent_counter = 0;
@@ -201,7 +217,7 @@ static void exec_controller(Mugen_State_Controller* sc, Mugen_Char_State* state)
         }
         case MUGEN_SC_GRAVITY:
         {
-            state->vel_y -= state->gravity;
+            state->vel_y += state->gravity;
             break;
         }
         case MUGEN_SC_VARSET:
@@ -527,6 +543,24 @@ static void exec_controller(Mugen_State_Controller* sc, Mugen_Char_State* state)
             state->use_owner_anim = true;
             break;
         }
+        case MUGEN_SC_HELPER:
+        {
+            Mugen_Helper_Params* p = sc->params;
+            if (!p) break;
+            state->helper_spawn_pending = true;
+            state->helper_spawn_id = p->id ? (i32)mugen_expr_eval(p->id, state) : 0;
+            state->helper_spawn_stateno = p->stateno ? (i32)mugen_expr_eval(p->stateno, state) : 0;
+            state->helper_spawn_x = p->pos_x ? mugen_expr_eval(p->pos_x, state) : 0;
+            state->helper_spawn_y = p->pos_y ? mugen_expr_eval(p->pos_y, state) : 0;
+            state->helper_spawn_postype = p->postype;
+            state->helper_spawn_facing = p->facing ? (i32)mugen_expr_eval(p->facing, state) : 1;
+            break;
+        }
+        case MUGEN_SC_DESTROYSELF:
+        {
+            state->destroy_self_pending = true;
+            break;
+        }
     }
 }
 
@@ -629,6 +663,13 @@ void mugen_cns_tick(Mugen_Cns* cns, Mugen_Char_State* state)
         }
         state->pos_freeze = false;
         state->time++;
+
+        if (state->mctime > 0) state->mctime++;
+        if (state->movehit > 0) state->movehit++;
+        if (state->moveguarded > 0) state->moveguarded++;
+
+        if (state->ghv.hitshaketime > 0) state->ghv.hitshaketime--;
+        if (state->ghv.hittime > 0) state->ghv.hittime--;
     }
 
     state->gametime++;

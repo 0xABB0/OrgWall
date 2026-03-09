@@ -425,10 +425,9 @@ static Mugen_Expr* parse_primary(Expr_Parser* p)
         return e;
     }
 
-    if (str8_ieq(ident, "numprojid") || str8_ieq(ident, "numhelper") || str8_ieq(ident, "helper"))
+    if (str8_ieq(ident, "numprojid") || str8_ieq(ident, "numhelper"))
     {
-        u8 qid = str8_ieq(ident, "numhelper") ? MUGEN_QUERY_NUMHELPER :
-                 str8_ieq(ident, "helper") ? MUGEN_QUERY_NUMHELPER : MUGEN_QUERY_NUMPROJID;
+        u8 qid = str8_ieq(ident, "numhelper") ? MUGEN_QUERY_NUMHELPER : MUGEN_QUERY_NUMPROJID;
         skip_ws(p);
         if (peek(p) == '(')
         {
@@ -438,6 +437,62 @@ static Mugen_Expr* parse_primary(Expr_Parser* p)
             return make_query(p, qid, arg);
         }
         return make_query(p, qid, NULL);
+    }
+
+    if (str8_ieq(ident, "helper"))
+    {
+        skip_ws(p);
+        if (peek(p) == '(')
+        {
+            match_char(p, '(');
+            Mugen_Expr* id_expr = parse_expr(p);
+            match_char(p, ')');
+            skip_ws(p);
+            if (peek(p) == ',')
+            {
+                p->pos++;
+                Mugen_Expr* sub = parse_expr(p);
+                Mugen_Expr* e = alloc_expr(p, MUGEN_EXPR_REDIRECT);
+                e->redirect.target_type = MUGEN_REDIRECT_HELPER;
+                e->redirect.id = id_expr;
+                e->redirect.sub_expr = sub;
+                return e;
+            }
+            return make_query(p, MUGEN_QUERY_NUMHELPER, id_expr);
+        }
+        return make_query(p, MUGEN_QUERY_NUMHELPER, NULL);
+    }
+
+    if (str8_ieq(ident, "root"))
+    {
+        skip_ws(p);
+        if (peek(p) == ',')
+        {
+            p->pos++;
+            Mugen_Expr* sub = parse_expr(p);
+            Mugen_Expr* e = alloc_expr(p, MUGEN_EXPR_REDIRECT);
+            e->redirect.target_type = MUGEN_REDIRECT_ROOT;
+            e->redirect.id = NULL;
+            e->redirect.sub_expr = sub;
+            return e;
+        }
+        return make_int(p, 0);
+    }
+
+    if (str8_ieq(ident, "parent"))
+    {
+        skip_ws(p);
+        if (peek(p) == ',')
+        {
+            p->pos++;
+            Mugen_Expr* sub = parse_expr(p);
+            Mugen_Expr* e = alloc_expr(p, MUGEN_EXPR_REDIRECT);
+            e->redirect.target_type = MUGEN_REDIRECT_PARENT;
+            e->redirect.id = NULL;
+            e->redirect.sub_expr = sub;
+            return e;
+        }
+        return make_int(p, 0);
     }
 
     for (const Var_Entry* v = s_vars; v->name; v++)
@@ -805,9 +860,9 @@ f32 mugen_expr_eval(Mugen_Expr* expr, Mugen_Char_State* state)
                 case MUGEN_QUERY_VEL_Y:        return state->vel_y;
                 case MUGEN_QUERY_POS_X:        return state->pos_x;
                 case MUGEN_QUERY_POS_Y:        return state->pos_y;
-                case MUGEN_QUERY_MOVECONTACT:  return state->movecontact ? 1.0f : 0.0f;
-                case MUGEN_QUERY_MOVEHIT:      return state->movehit ? 1.0f : 0.0f;
-                case MUGEN_QUERY_MOVEGUARDED:  return state->moveguarded ? 1.0f : 0.0f;
+                case MUGEN_QUERY_MOVECONTACT:  return (f32)(state->mctime > 0 ? state->mctime : 0);
+                case MUGEN_QUERY_MOVEHIT:      return (f32)(state->movehit > 0 ? state->movehit : 0);
+                case MUGEN_QUERY_MOVEGUARDED:  return (f32)(state->moveguarded > 0 ? state->moveguarded : 0);
                 case MUGEN_QUERY_HITCOUNT:     return (f32)state->hitcount;
                 case MUGEN_QUERY_LIFE:         return state->life;
                 case MUGEN_QUERY_LIFEMAX:      return state->lifemax;
@@ -819,7 +874,15 @@ f32 mugen_expr_eval(Mugen_Expr* expr, Mugen_Char_State* state)
                 case MUGEN_QUERY_GAMETIME:     return (f32)state->gametime;
                 case MUGEN_QUERY_ROUNDSTATE:   return (f32)state->roundstate;
                 case MUGEN_QUERY_ISHELPER:     return state->is_helper ? 1.0f : 0.0f;
-                case MUGEN_QUERY_NUMHELPER:    return 0.0f;
+                case MUGEN_QUERY_NUMHELPER:
+                {
+                    if (state->query_num_helper)
+                    {
+                        i32 id = expr->query.arg ? (i32)mugen_expr_eval(expr->query.arg, state) : 0;
+                        return (f32)state->query_num_helper(state->helper_ctx, id);
+                    }
+                    return 0.0f;
+                }
                 case MUGEN_QUERY_P2BODYDIST_X:
                 {
                     f32 dist = state->p2_pos_x - state->pos_x;
@@ -927,9 +990,9 @@ f32 mugen_expr_eval(Mugen_Expr* expr, Mugen_Char_State* state)
                     return 0.0f;
                 }
                 case MUGEN_QUERY_HITSHAKEOVER:
-                    return state->hitpause_time <= 0 ? 1.0f : 0.0f;
+                    return state->ghv.hitshaketime <= 0 ? 1.0f : 0.0f;
                 case MUGEN_QUERY_HITOVER:
-                    return state->time >= state->ghv.hittime ? 1.0f : 0.0f;
+                    return state->ghv.hittime <= 0 ? 1.0f : 0.0f;
                 case MUGEN_QUERY_HITFALL:
                     return state->ghv.fallflag ? 1.0f : 0.0f;
                 case MUGEN_QUERY_P2STATETYPE:
@@ -996,6 +1059,32 @@ f32 mugen_expr_eval(Mugen_Expr* expr, Mugen_Char_State* state)
                     return (idx >= 0 && idx < 5) ? state->sysfvar[idx] : 0.0f;
             }
             return 0.0f;
+        }
+
+        case MUGEN_EXPR_REDIRECT:
+        {
+            if (!state) return 0.0f;
+            Mugen_Char_State* target = NULL;
+            switch (expr->redirect.target_type)
+            {
+                case MUGEN_REDIRECT_HELPER:
+                    if (state->query_helper_state)
+                    {
+                        i32 id = expr->redirect.id ? (i32)mugen_expr_eval(expr->redirect.id, state) : 0;
+                        target = state->query_helper_state(state->helper_ctx, id);
+                    }
+                    break;
+                case MUGEN_REDIRECT_ROOT:
+                    if (state->query_root_state)
+                        target = state->query_root_state(state->helper_ctx);
+                    break;
+                case MUGEN_REDIRECT_PARENT:
+                    if (state->query_root_state)
+                        target = state->query_root_state(state->helper_ctx);
+                    break;
+            }
+            if (!target) return 0.0f;
+            return mugen_expr_eval(expr->redirect.sub_expr, target);
         }
     }
 

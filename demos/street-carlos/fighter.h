@@ -5,11 +5,33 @@
 #include "anim.player.h"
 #include "anim.clip.fwd.h"
 #include "mugen_cns.h"
+#include "allocator.fwd.h"
 
 typedef struct {
     u32 action_number;
     Mel_Anim_Clip_Handle clip;
 } Fighter_Action_Map;
+
+typedef struct Fighter_Helper Fighter_Helper;
+struct Fighter_Helper {
+    i32 helper_id;
+    f32 x, y;
+    bool facing_right;
+
+    f32 ground_front, ground_back;
+
+    Mel_Anim_Player player;
+    Mel_Anim_Clip_Pool* clip_pool;
+    Fighter_Action_Map* action_map;
+    u32 action_map_count;
+    u32 current_action;
+    f32 anim_hitbox[4];
+    f32 anim_hurtbox[4];
+
+    Mugen_Char_State cns_state;
+    u32 last_cns_anim;
+    bool pending_destroy;
+};
 
 typedef struct Fighter Fighter;
 struct Fighter {
@@ -42,6 +64,11 @@ struct Fighter {
     u32 last_cns_anim;
 
     Fighter* opponent;
+
+    Fighter_Helper* helpers;
+    u32 helper_count;
+    u32 helper_capacity;
+    const Mel_Alloc* alloc;
 };
 
 typedef struct {
@@ -74,3 +101,9 @@ Fighter_Box fighter_hurtbox(Fighter* f);
 Fighter_Box fighter_hitbox(Fighter* f);
 
 bool fighter_has_active_hitbox(Fighter* f);
+
+Fighter_Box helper_hurtbox(Fighter_Helper* h);
+Fighter_Box helper_hitbox(Fighter_Helper* h);
+bool helper_has_active_hitbox(Fighter_Helper* h);
+
+void fighter_shutdown(Fighter* f);

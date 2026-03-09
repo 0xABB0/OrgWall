@@ -176,10 +176,20 @@ static void game_draw(Mel_Sim_Ctx* sim, f32 dt, void* user)
     game_draw_fighter(&s_p1, &s_mugen_char, &s_game_list);
     game_draw_fighter(&s_p2, &s_mugen_char, &s_game_list);
 
+    for (u32 i = 0; i < s_p1.helper_count; i++)
+        game_draw_helper(&s_p1.helpers[i], &s_mugen_char, &s_game_list);
+    for (u32 i = 0; i < s_p2.helper_count; i++)
+        game_draw_helper(&s_p2.helpers[i], &s_mugen_char, &s_game_list);
+
     if (s_show_hitboxes)
     {
         game_draw_debug_boxes(&s_p1, &s_game_list);
         game_draw_debug_boxes(&s_p2, &s_game_list);
+
+        for (u32 i = 0; i < s_p1.helper_count; i++)
+            game_draw_helper_debug_boxes(&s_p1.helpers[i], &s_game_list);
+        for (u32 i = 0; i < s_p2.helper_count; i++)
+            game_draw_helper_debug_boxes(&s_p2.helpers[i], &s_game_list);
     }
 }
 
@@ -399,6 +409,8 @@ static void app_shutdown(Mel_App* app)
     mel_render_target_shutdown(&s_offscreen);
     mel_render_target_shutdown(&s_swapchain_target);
 
+    fighter_shutdown(&s_p1);
+    fighter_shutdown(&s_p2);
     mel_anim_player_destroy(&s_p1.player);
     mel_anim_player_destroy(&s_p2.player);
     mugen_char_shutdown(&s_mugen_char, dev, mel_alloc_heap());

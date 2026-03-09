@@ -236,14 +236,14 @@ MEL_TEST(cns_expr_movecontact_negated, .tags = "cns")
 {
     ensure_alloc();
     Mugen_Char_State st = {0};
-    st.movecontact = false;
+    st.mctime = 0;
 
     Mugen_Expr* e = mugen_expr_parse(S8("!movecontact"), s_alloc);
     MEL_ASSERT_NOT_NULL(e);
     f32 val = mugen_expr_eval(e, &st);
     MEL_ASSERT_FLOAT_EQ(val, 1.0f, 0.001f);
 
-    st.movecontact = true;
+    st.mctime = 1;
     val = mugen_expr_eval(e, &st);
     MEL_ASSERT_FLOAT_EQ(val, 0.0f, 0.001f);
 }
@@ -692,4 +692,207 @@ MEL_TEST(cns_parse_constants_poison, .tags = "cns")
     MEL_ASSERT_FLOAT_EQ(c->jump_y, 9.6f, 0.01f);
 
     free(data.data);
+}
+
+MEL_TEST(cns_helper_controller_parsed, .tags = "cns")
+{
+    ensure_alloc();
+    str8 data = load_file("demos/street-carlos/chars/poi-son/poi-son.cns");
+    MEL_ASSERT(data.len > 0);
+
+    Mugen_Cns cns = {0};
+    mugen_cns_load(&cns, data, s_alloc);
+
+    bool found_helper = false;
+    bool found_destroyself = false;
+    for (u32 s = 0; s < cns.statedef_count; s++)
+    {
+        Mugen_Statedef* def = &cns.statedefs[s];
+        for (u32 c = 0; c < def->controller_count; c++)
+        {
+            if (def->controllers[c].type == MUGEN_SC_HELPER)
+                found_helper = true;
+            if (def->controllers[c].type == MUGEN_SC_DESTROYSELF)
+                found_destroyself = true;
+        }
+    }
+    MEL_ASSERT(found_helper);
+    MEL_ASSERT(found_destroyself);
+
+    free(data.data);
+}
+
+static i32 test_query_num_helper_zero(void* ctx, i32 id)
+{
+    (void)ctx; (void)id;
+    return 0;
+}
+
+MEL_TEST(cns_helper_spawn_request, .tags = "cns")
+{
+    ensure_alloc();
+    str8 data = load_file("demos/street-carlos/chars/poi-son/poi-son.cns");
+    MEL_ASSERT(data.len > 0);
+
+    Mugen_Cns cns = {0};
+    mugen_cns_load(&cns, data, s_alloc);
+
+    bool found_helper_sc = false;
+    Mugen_Statedef* helper_def = NULL;
+    for (u32 s = 0; s < cns.statedef_count && !found_helper_sc; s++)
+    {
+        Mugen_Statedef* def = &cns.statedefs[s];
+        for (u32 c = 0; c < def->controller_count; c++)
+        {
+            if (def->controllers[c].type == MUGEN_SC_HELPER)
+            {
+                found_helper_sc = true;
+                helper_def = def;
+                break;
+            }
+        }
+    }
+    MEL_ASSERT(found_helper_sc);
+    MEL_ASSERT_NOT_NULL(helper_def);
+
+    Mugen_Char_State st;
+    init_standing_state(&st);
+    st.statetype = MUGEN_PHYSICS_S;
+    st.animtime = -999;
+    st.rng_state = 12345;
+    st.fvar[11] = 2.0f;
+    st.query_num_helper = test_query_num_helper_zero;
+    st.helper_ctx = NULL;
+
+    mugen_cns_enter_state(&cns, &st, helper_def->stateno);
+
+    for (i32 i = 0; i < 20; i++)
+    {
+        st.animtime = -999;
+        mugen_cns_tick(&cns, &st);
+        if (st.helper_spawn_pending) break;
+        if (st.state_changed)
+        {
+            mugen_cns_enter_state(&cns, &st, st.pending_state);
+            st.state_changed = false;
+        }
+    }
+
+    MEL_ASSERT(st.helper_spawn_pending);
+    MEL_ASSERT(st.helper_spawn_id != 0);
+
+    free(data.data);
+}
+
+static i32 test_query_num_helper(void* ctx, i32 id)
+{
+    (void)ctx;
+    return (id == 42) ? 2 : 0;
+}
+
+static Mugen_Char_State s_test_helper_state;
+static Mugen_Char_State* test_query_helper_state(void* ctx, i32 id)
+{
+    (void)ctx;
+    if (id == 42) return &s_test_helper_state;
+    return NULL;
+}
+
+static Mugen_Char_State s_test_root_state;
+static Mugen_Char_State* test_query_root_state(void* ctx)
+{
+    (void)ctx;
+    return &s_test_root_state;
+}
+
+MEL_TEST(cns_numhelper_query, .tags = "cns")
+{
+    ensure_alloc();
+    Mugen_Char_State st = {0};
+    st.query_num_helper = test_query_num_helper;
+    st.helper_ctx = NULL;
+
+    Mugen_Expr* e = mugen_expr_parse(S8("NumHelper(42)"), s_alloc);
+    MEL_ASSERT_NOT_NULL(e);
+    f32 val = mugen_expr_eval(e, &st);
+    MEL_ASSERT_FLOAT_EQ(val, 2.0f, 0.001f);
+
+    e = mugen_expr_parse(S8("NumHelper(99)"), s_alloc);
+    val = mugen_expr_eval(e, &st);
+    MEL_ASSERT_FLOAT_EQ(val, 0.0f, 0.001f);
+}
+
+MEL_TEST(cns_helper_redirect_var, .tags = "cns")
+{
+    ensure_alloc();
+    Mugen_Char_State st = {0};
+    st.query_helper_state = test_query_helper_state;
+    st.helper_ctx = NULL;
+
+    memset(&s_test_helper_state, 0, sizeof(s_test_helper_state));
+    s_test_helper_state.var[4] = 77;
+
+    Mugen_Expr* e = mugen_expr_parse(S8("helper(42), var(4)"), s_alloc);
+    MEL_ASSERT_NOT_NULL(e);
+    MEL_ASSERT_EQ(e->type, MUGEN_EXPR_REDIRECT);
+    f32 val = mugen_expr_eval(e, &st);
+    MEL_ASSERT_FLOAT_EQ(val, 77.0f, 0.001f);
+}
+
+MEL_TEST(cns_root_redirect_stateno, .tags = "cns")
+{
+    ensure_alloc();
+    Mugen_Char_State st = {0};
+    st.is_helper = true;
+    st.query_root_state = test_query_root_state;
+    st.helper_ctx = NULL;
+
+    memset(&s_test_root_state, 0, sizeof(s_test_root_state));
+    s_test_root_state.stateno = 200;
+
+    Mugen_Expr* e = mugen_expr_parse(S8("root, stateno"), s_alloc);
+    MEL_ASSERT_NOT_NULL(e);
+    MEL_ASSERT_EQ(e->type, MUGEN_EXPR_REDIRECT);
+    f32 val = mugen_expr_eval(e, &st);
+    MEL_ASSERT_FLOAT_EQ(val, 200.0f, 0.001f);
+}
+
+MEL_TEST(cns_helper_no_redirect_is_numhelper, .tags = "cns")
+{
+    ensure_alloc();
+    Mugen_Char_State st = {0};
+    st.query_num_helper = test_query_num_helper;
+    st.helper_ctx = NULL;
+
+    Mugen_Expr* e = mugen_expr_parse(S8("helper(42)"), s_alloc);
+    MEL_ASSERT_NOT_NULL(e);
+    MEL_ASSERT_EQ(e->type, MUGEN_EXPR_QUERY);
+    MEL_ASSERT_EQ(e->query.id, MUGEN_QUERY_NUMHELPER);
+    f32 val = mugen_expr_eval(e, &st);
+    MEL_ASSERT_FLOAT_EQ(val, 2.0f, 0.001f);
+}
+
+MEL_TEST(cns_destroyself_sets_flag, .tags = "cns")
+{
+    ensure_alloc();
+    Mugen_Char_State st = {0};
+    st.is_helper = true;
+    st.destroy_self_pending = false;
+
+    str8 cns_text = S8(
+        "[Statedef 9999]\n"
+        "type = S\n"
+        "\n"
+        "[State 9999, die]\n"
+        "type = DestroySelf\n"
+        "trigger1 = 1\n"
+    );
+
+    Mugen_Cns cns = {0};
+    mugen_cns_load(&cns, cns_text, s_alloc);
+
+    mugen_cns_enter_state(&cns, &st, 9999);
+    mugen_cns_tick(&cns, &st);
+
+    MEL_ASSERT(st.destroy_self_pending);
 }

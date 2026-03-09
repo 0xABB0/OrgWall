@@ -40,9 +40,10 @@ static void draw_box_outline(Mel_Render_List* list, Fighter_Box box, Mel_Vec4 co
         .size = mel_vec2(thickness, box.h), .color = color);
 }
 
-static void draw_mugen_sprite(Fighter* f, Mugen_Sff* sff, Mel_Texture_Handle tex,
-                               u16 group, u16 number, bool frame_flip_h,
-                               Mel_Render_List* list)
+static void draw_mugen_sprite_at(f32 feet_x, f32 feet_y, bool facing_right,
+                                  Mugen_Sff* sff, Mel_Texture_Handle tex,
+                                  u16 group, u16 number, bool frame_flip_h,
+                                  Mel_Render_List* list)
 {
     u32 frame_idx = mugen_sff_find_frame(sff, group, number);
     Mugen_Sff_Entry* entry = &sff->entries[frame_idx];
@@ -51,13 +52,12 @@ static void draw_mugen_sprite(Fighter* f, Mugen_Sff* sff, Mel_Texture_Handle tex
     f32 w = (f32)entry->width;
     f32 h = (f32)entry->height;
 
-    f32 feet_x = f->x;
-    f32 feet_y = STAGE_FLOOR_Y - f->y;
+    f32 screen_y = STAGE_FLOOR_Y - feet_y;
 
     f32 draw_x = feet_x - (f32)entry->offset_x;
-    f32 draw_y = feet_y - (f32)entry->offset_y;
+    f32 draw_y = screen_y - (f32)entry->offset_y;
 
-    bool flip = f->facing_right ^ frame_flip_h;
+    bool flip = facing_right ^ frame_flip_h;
     if (!flip)
     {
         uv.x = uv.x + uv.w;
@@ -90,8 +90,31 @@ void game_draw_fighter(Fighter* f, Mugen_Char* mc, Mel_Render_List* list)
 
     Mugen_Air_Frame* frame = &action->frames[frame_idx];
 
-    draw_mugen_sprite(f, &mc->sff, mc->tex_handle, frame->group, frame->number,
-                      frame->flip_h, list);
+    draw_mugen_sprite_at(f->x, f->y, f->facing_right,
+                         &mc->sff, mc->tex_handle, frame->group, frame->number,
+                         frame->flip_h, list);
+}
+
+void game_draw_helper(Fighter_Helper* h, Mugen_Char* mc, Mel_Render_List* list)
+{
+    ensure_prop();
+
+    if (!mc->loaded) return;
+
+    Mugen_Air_Action* action = mugen_air_find_action(&mc->air, h->current_action);
+    if (!action) return;
+
+    f32 frame_f;
+    mel_anim_player_get_float(&h->player, s_frame_prop, h->player.alloc, &frame_f);
+    u32 frame_idx = (u32)frame_f;
+    if (frame_idx >= action->frame_count)
+        frame_idx = action->frame_count - 1;
+
+    Mugen_Air_Frame* frame = &action->frames[frame_idx];
+
+    draw_mugen_sprite_at(h->x, h->y, h->facing_right,
+                         &mc->sff, mc->tex_handle, frame->group, frame->number,
+                         frame->flip_h, list);
 }
 
 void game_draw_debug_boxes(Fighter* f, Mel_Render_List* list)
@@ -103,6 +126,18 @@ void game_draw_debug_boxes(Fighter* f, Mel_Render_List* list)
     {
         Fighter_Box hit = fighter_hitbox(f);
         draw_box_outline(list, hit, mel_vec4(1.0f, 0.0f, 0.0f, 1.0f), 1.0f);
+    }
+}
+
+void game_draw_helper_debug_boxes(Fighter_Helper* h, Mel_Render_List* list)
+{
+    Fighter_Box hurt = helper_hurtbox(h);
+    draw_box_outline(list, hurt, mel_vec4(0.0f, 0.8f, 0.8f, 1.0f), 1.0f);
+
+    if (helper_has_active_hitbox(h))
+    {
+        Fighter_Box hit = helper_hitbox(h);
+        draw_box_outline(list, hit, mel_vec4(1.0f, 0.5f, 0.0f, 1.0f), 1.0f);
     }
 }
 

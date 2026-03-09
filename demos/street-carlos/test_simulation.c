@@ -515,7 +515,7 @@ MEL_TEST(sim_combat_close_range_hit, .tags = "sim")
     if (hit_landed)
     {
         MEL_ASSERT(s.p2.cns_state.life < p2_life_before);
-        MEL_ASSERT(s.p1.cns_state.movecontact || s.p1.cns_state.movehit);
+        MEL_ASSERT(s.p1.cns_state.mctime > 0 || s.p1.cns_state.movehit > 0);
     }
 }
 

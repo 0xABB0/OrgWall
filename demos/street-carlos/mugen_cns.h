@@ -17,6 +17,11 @@ typedef struct Command_List Command_List;
 #define MUGEN_EXPR_FUNC        5
 #define MUGEN_EXPR_QUERY       6
 #define MUGEN_EXPR_VAR         7
+#define MUGEN_EXPR_REDIRECT    8
+
+#define MUGEN_REDIRECT_HELPER  0
+#define MUGEN_REDIRECT_ROOT    1
+#define MUGEN_REDIRECT_PARENT  2
 
 #define MUGEN_OP_NEG   0
 #define MUGEN_OP_NOT   1
@@ -112,6 +117,7 @@ struct Mugen_Expr {
         struct { u8 id; Mugen_Expr** args; u8 arg_count; } func;
         struct { u8 id; Mugen_Expr* arg; } query;
         struct { u8 var_type; Mugen_Expr* index; } var;
+        struct { u8 target_type; Mugen_Expr* id; Mugen_Expr* sub_expr; } redirect;
     };
 };
 
@@ -156,6 +162,8 @@ struct Mugen_Expr {
 #define MUGEN_SC_TARGETFACING  38
 #define MUGEN_SC_TARGETPOWERADD 39
 #define MUGEN_SC_CHANGEANIM2   40
+#define MUGEN_SC_HELPER        41
+#define MUGEN_SC_DESTROYSELF   42
 
 #define MUGEN_ANIMTYPE_LIGHT   0
 #define MUGEN_ANIMTYPE_MEDIUM  1
@@ -187,6 +195,12 @@ struct Mugen_Expr {
 #define MUGEN_HF_A  (1u << 2)
 #define MUGEN_HF_D  (1u << 3)
 #define MUGEN_HF_F  (1u << 4)
+#define MUGEN_HF_P  (1u << 5)
+#define MUGEN_HF_MNS (1u << 6)
+#define MUGEN_HF_PLS (1u << 7)
+
+#define MUGEN_STATETYPE_U 0xFE
+#define MUGEN_PHYSICS_U   0xFE
 
 #define MUGEN_PHYSICS_S  1
 #define MUGEN_PHYSICS_C  2
@@ -197,6 +211,7 @@ struct Mugen_Expr {
 #define MUGEN_MOVETYPE_I  0
 #define MUGEN_MOVETYPE_A  1
 #define MUGEN_MOVETYPE_H  2
+#define MUGEN_MOVETYPE_U  0xFE
 
 typedef struct {
     Mugen_Expr* x;
@@ -349,6 +364,22 @@ typedef struct {
 typedef struct {
     Mugen_Expr* value;
 } Mugen_ChangeAnim2_Params;
+
+#define MUGEN_POSTYPE_P1    0
+#define MUGEN_POSTYPE_LEFT  1
+#define MUGEN_POSTYPE_RIGHT 2
+#define MUGEN_POSTYPE_BACK  3
+#define MUGEN_POSTYPE_FRONT 4
+
+typedef struct {
+    Mugen_Expr* id;
+    Mugen_Expr* stateno;
+    Mugen_Expr* pos_x;
+    Mugen_Expr* pos_y;
+    u8 postype;
+    Mugen_Expr* facing;
+    Mugen_Expr* ownpal;
+} Mugen_Helper_Params;
 
 typedef struct {
     u32 attr;
@@ -590,9 +621,9 @@ struct Mugen_Char_State {
 
     f32 life, lifemax;
     f32 power, powermax;
-    bool movecontact;
-    bool movehit;
-    bool moveguarded;
+    i32 mctime;
+    i32 movehit;
+    i32 moveguarded;
     i32 hitcount;
     i32 juggle_points_remaining;
 
@@ -685,6 +716,20 @@ struct Mugen_Char_State {
 
     bool (*anim_exists)(void* ctx, u32 anim);
     void* anim_exists_ctx;
+
+    i32 (*query_num_helper)(void* ctx, i32 id);
+    Mugen_Char_State* (*query_helper_state)(void* ctx, i32 id);
+    Mugen_Char_State* (*query_root_state)(void* ctx);
+    void* helper_ctx;
+
+    bool helper_spawn_pending;
+    i32 helper_spawn_id;
+    i32 helper_spawn_stateno;
+    f32 helper_spawn_x, helper_spawn_y;
+    u8 helper_spawn_postype;
+    i32 helper_spawn_facing;
+
+    bool destroy_self_pending;
 };
 
 Mugen_Expr* mugen_expr_parse(str8 text, const Mel_Alloc* alloc);

@@ -209,15 +209,15 @@ MEL_TEST(vm_enter_state_no_duplicate_reset, .tags = "vm_audit, quality")
     mugen_cns_load(&cns, cns_text, s_alloc);
 
     Mugen_Char_State st = make_standing_state();
-    st.movecontact = true;
-    st.movehit = true;
-    st.moveguarded = true;
+    st.mctime = 5;
+    st.movehit = 3;
+    st.moveguarded = 2;
 
     mugen_cns_enter_state(&cns, &st, 100);
 
-    MEL_ASSERT_EQ(st.movecontact, false);
-    MEL_ASSERT_EQ(st.movehit, false);
-    MEL_ASSERT_EQ(st.moveguarded, false);
+    MEL_ASSERT_EQ(st.mctime, 0);
+    MEL_ASSERT_EQ(st.movehit, 0);
+    MEL_ASSERT_EQ(st.moveguarded, 0);
 }
 
 MEL_TEST(vm_p2bodydist_accounts_for_width, .tags = "vm_audit, medium")
@@ -643,11 +643,11 @@ MEL_TEST(vm_gravity_controller, .tags = "vm_audit")
     st.animtime = -999;
 
     mugen_cns_tick(&cns, &st);
-    MEL_ASSERT_FLOAT_EQ(st.vel_y, 5.0f - st.gravity, 0.001f);
+    MEL_ASSERT_FLOAT_EQ(st.vel_y, 5.0f + st.gravity, 0.001f);
 
     f32 prev = st.vel_y;
     mugen_cns_tick(&cns, &st);
-    MEL_ASSERT_FLOAT_EQ(st.vel_y, prev - st.gravity, 0.001f);
+    MEL_ASSERT_FLOAT_EQ(st.vel_y, prev + st.gravity, 0.001f);
 }
 
 MEL_TEST(vm_changestate_with_ctrl, .tags = "vm_audit")
@@ -1057,10 +1057,10 @@ MEL_TEST(vm_query_hitshakeover, .tags = "vm_audit")
     Mugen_Char_State st = make_standing_state();
     Mugen_Expr* e = mugen_expr_parse(S8("HitShakeOver"), s_alloc);
 
-    st.hitpause_time = 5;
+    st.ghv.hitshaketime = 5;
     MEL_ASSERT_FLOAT_EQ(mugen_expr_eval(e, &st), 0.0f, 0.001f);
 
-    st.hitpause_time = 0;
+    st.ghv.hitshaketime = 0;
     MEL_ASSERT_FLOAT_EQ(mugen_expr_eval(e, &st), 1.0f, 0.001f);
 }
 
@@ -1069,16 +1069,15 @@ MEL_TEST(vm_query_hitover, .tags = "vm_audit")
     ensure_alloc();
 
     Mugen_Char_State st = make_standing_state();
-    st.ghv.hittime = 10;
     Mugen_Expr* e = mugen_expr_parse(S8("HitOver"), s_alloc);
 
-    st.time = 5;
+    st.ghv.hittime = 5;
     MEL_ASSERT_FLOAT_EQ(mugen_expr_eval(e, &st), 0.0f, 0.001f);
 
-    st.time = 10;
+    st.ghv.hittime = 0;
     MEL_ASSERT_FLOAT_EQ(mugen_expr_eval(e, &st), 1.0f, 0.001f);
 
-    st.time = 15;
+    st.ghv.hittime = -3;
     MEL_ASSERT_FLOAT_EQ(mugen_expr_eval(e, &st), 1.0f, 0.001f);
 }
 
@@ -2494,8 +2493,8 @@ MEL_TEST(vm_hit_sets_target_pointer, .tags = "vm_audit, throw")
     attacker.hitdef.ground_hittime = 10;
     attacker.hitdef.ground_vel_x = 3.0f;
 
-    attacker.movehit = true;
-    attacker.movecontact = true;
+    attacker.movehit = 1;
+    attacker.mctime = 1;
     attacker.target = &victim;
 
     MEL_ASSERT(attacker.target == &victim);

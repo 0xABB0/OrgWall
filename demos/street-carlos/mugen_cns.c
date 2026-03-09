@@ -135,7 +135,8 @@ static u8 parse_statetype_char(str8 s)
         case 'C': return MUGEN_PHYSICS_C;
         case 'A': return MUGEN_PHYSICS_A;
         case 'N': return MUGEN_PHYSICS_N;
-        case 'L': return 4;
+        case 'L': return MUGEN_PHYSICS_L;
+        case 'U': return MUGEN_STATETYPE_U;
     }
     return 0;
 }
@@ -151,6 +152,7 @@ static u8 parse_movetype_char(str8 s)
         case 'I': return MUGEN_MOVETYPE_I;
         case 'A': return MUGEN_MOVETYPE_A;
         case 'H': return MUGEN_MOVETYPE_H;
+        case 'U': return MUGEN_MOVETYPE_U;
     }
     return MUGEN_MOVETYPE_I;
 }
@@ -221,6 +223,9 @@ static u32 parse_hitflag(str8 s)
         if (c == 'A') flags |= MUGEN_HF_A;
         if (c == 'D') flags |= MUGEN_HF_D;
         if (c == 'F') flags |= MUGEN_HF_F;
+        if (c == 'P') flags |= MUGEN_HF_P;
+        if (c == '-') flags |= MUGEN_HF_MNS;
+        if (c == '+') flags |= MUGEN_HF_PLS;
     }
     return flags;
 }
@@ -346,9 +351,9 @@ static u8 parse_controller_type(str8 s)
     if (str8_ieq(s, "hitoverride")) return MUGEN_SC_NULL;
     if (str8_ieq(s, "reversaldef")) return MUGEN_SC_NULL;
     if (str8_ieq(s, "pause"))       return MUGEN_SC_NULL;
-    if (str8_ieq(s, "helper"))      return MUGEN_SC_NULL;
+    if (str8_ieq(s, "helper"))      return MUGEN_SC_HELPER;
     if (str8_ieq(s, "projectile"))  return MUGEN_SC_NULL;
-    if (str8_ieq(s, "destroyself")) return MUGEN_SC_NULL;
+    if (str8_ieq(s, "destroyself")) return MUGEN_SC_DESTROYSELF;
     if (str8_ieq(s, "lifeset"))     return MUGEN_SC_LIFESET;
     if (str8_ieq(s, "gamemakeanim")) return MUGEN_SC_NULL;
     if (str8_ieq(s, "displaytoclipboard")) return MUGEN_SC_NULL;
@@ -727,6 +732,34 @@ static void parse_controller_param(Mugen_State_Controller* sc, str8 key, str8 va
             if (str8_ieq(key, "value")) p->value = mugen_expr_parse(val, alloc);
             break;
         }
+        case MUGEN_SC_HELPER:
+        {
+            if (!sc->params) sc->params = alloc_params(alloc, sizeof(Mugen_Helper_Params));
+            Mugen_Helper_Params* p = sc->params;
+            if (str8_ieq(key, "helperid") || str8_ieq(key, "id")) p->id = mugen_expr_parse(val, alloc);
+            else if (str8_ieq(key, "stateno")) p->stateno = mugen_expr_parse(val, alloc);
+            else if (str8_ieq(key, "pos"))
+            {
+                str8 rest;
+                str8 px = split_comma_first(val, &rest);
+                p->pos_x = mugen_expr_parse(px, alloc);
+                if (rest.len > 0) p->pos_y = mugen_expr_parse(rest, alloc);
+            }
+            else if (str8_ieq(key, "postype"))
+            {
+                str8 v = trim(val);
+                if (str8_ieq(v, "p1"))         p->postype = MUGEN_POSTYPE_P1;
+                else if (str8_ieq(v, "left"))   p->postype = MUGEN_POSTYPE_LEFT;
+                else if (str8_ieq(v, "right"))  p->postype = MUGEN_POSTYPE_RIGHT;
+                else if (str8_ieq(v, "back"))   p->postype = MUGEN_POSTYPE_BACK;
+                else if (str8_ieq(v, "front"))  p->postype = MUGEN_POSTYPE_FRONT;
+            }
+            else if (str8_ieq(key, "facing")) p->facing = mugen_expr_parse(val, alloc);
+            else if (str8_ieq(key, "ownpal")) p->ownpal = mugen_expr_parse(val, alloc);
+            break;
+        }
+        case MUGEN_SC_DESTROYSELF:
+            break;
         case MUGEN_SC_HITDEF:
         {
             if (!sc->params) sc->params = alloc_params(alloc, sizeof(Mugen_HitDef_Params));
