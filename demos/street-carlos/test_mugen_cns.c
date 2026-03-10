@@ -1067,3 +1067,84 @@ MEL_TEST(cns_destroyself_sets_flag, .tags = "cns")
 
     MEL_ASSERT(st.destroy_self_pending);
 }
+
+MEL_TEST(cns_hitdefattr_parse_bitmask, .tags = "cns")
+{
+    ensure_alloc();
+
+    Mugen_Expr* e = mugen_expr_parse(S8("hitdefattr = SC, NA, SA, HA"), s_alloc);
+    MEL_ASSERT_NOT_NULL(e);
+    MEL_ASSERT_EQ(e->type, MUGEN_EXPR_BINARY);
+    MEL_ASSERT_EQ(e->binary.op, MUGEN_OP_EQ);
+    MEL_ASSERT_EQ(e->binary.lhs->type, MUGEN_EXPR_QUERY);
+    MEL_ASSERT_EQ(e->binary.lhs->query.id, MUGEN_QUERY_HITDEFATTR);
+    MEL_ASSERT_EQ(e->binary.rhs->type, MUGEN_EXPR_LIT_INT);
+
+    u32 expected = MUGEN_ATTR_S | MUGEN_ATTR_C | MUGEN_ATTR_NA | MUGEN_ATTR_SA | MUGEN_ATTR_HA;
+    MEL_ASSERT_EQ((u32)e->binary.rhs->lit_int, expected);
+}
+
+MEL_TEST(cns_hitdefattr_match_active, .tags = "cns")
+{
+    ensure_alloc();
+    Mugen_Char_State st = {0};
+    st.movetype = MUGEN_MOVETYPE_A;
+    st.hitdef_active = true;
+    st.hitdef.attr = MUGEN_ATTR_S | MUGEN_ATTR_NA;
+
+    Mugen_Expr* e = mugen_expr_parse(S8("hitdefattr = SC, NA, SA, HA"), s_alloc);
+    MEL_ASSERT_NOT_NULL(e);
+    MEL_ASSERT_FLOAT_EQ(mugen_expr_eval(e, &st), 1.0f, 0.001f);
+}
+
+MEL_TEST(cns_hitdefattr_no_match_wrong_attack, .tags = "cns")
+{
+    ensure_alloc();
+    Mugen_Char_State st = {0};
+    st.movetype = MUGEN_MOVETYPE_A;
+    st.hitdef_active = true;
+    st.hitdef.attr = MUGEN_ATTR_S | MUGEN_ATTR_NP;
+
+    Mugen_Expr* e = mugen_expr_parse(S8("hitdefattr = SC, NA, SA, HA"), s_alloc);
+    MEL_ASSERT_FLOAT_EQ(mugen_expr_eval(e, &st), 0.0f, 0.001f);
+}
+
+MEL_TEST(cns_hitdefattr_no_match_wrong_state, .tags = "cns")
+{
+    ensure_alloc();
+    Mugen_Char_State st = {0};
+    st.movetype = MUGEN_MOVETYPE_A;
+    st.hitdef_active = true;
+    st.hitdef.attr = MUGEN_ATTR_A | MUGEN_ATTR_NA;
+
+    Mugen_Expr* e = mugen_expr_parse(S8("hitdefattr = SC, NA, SA, HA"), s_alloc);
+    MEL_ASSERT_FLOAT_EQ(mugen_expr_eval(e, &st), 0.0f, 0.001f);
+}
+
+MEL_TEST(cns_hitdefattr_inactive_hitdef, .tags = "cns")
+{
+    ensure_alloc();
+    Mugen_Char_State st = {0};
+    st.movetype = MUGEN_MOVETYPE_I;
+    st.hitdef_active = false;
+    st.hitdef.attr = MUGEN_ATTR_S | MUGEN_ATTR_NA;
+
+    Mugen_Expr* e = mugen_expr_parse(S8("hitdefattr = SC, NA, SA, HA"), s_alloc);
+    MEL_ASSERT_FLOAT_EQ(mugen_expr_eval(e, &st), 0.0f, 0.001f);
+}
+
+MEL_TEST(cns_hitdefattr_neq, .tags = "cns")
+{
+    ensure_alloc();
+    Mugen_Char_State st = {0};
+    st.movetype = MUGEN_MOVETYPE_A;
+    st.hitdef_active = true;
+    st.hitdef.attr = MUGEN_ATTR_S | MUGEN_ATTR_NA;
+
+    Mugen_Expr* e = mugen_expr_parse(S8("hitdefattr != SC, NA, SA"), s_alloc);
+    MEL_ASSERT_NOT_NULL(e);
+    MEL_ASSERT_FLOAT_EQ(mugen_expr_eval(e, &st), 0.0f, 0.001f);
+
+    st.hitdef.attr = MUGEN_ATTR_S | MUGEN_ATTR_NP;
+    MEL_ASSERT_FLOAT_EQ(mugen_expr_eval(e, &st), 1.0f, 0.001f);
+}

@@ -671,6 +671,7 @@ static void parse_controller_param(Mugen_State_Controller* sc, str8 key, str8 va
                 else if (str8_ieq(val, "nostandguard")) p->flags |= MUGEN_ASSERT_NOSTANDGUARD;
                 else if (str8_ieq(val, "nocrouchguard")) p->flags |= MUGEN_ASSERT_NOCROUCHGUARD;
                 else if (str8_ieq(val, "noairguard")) p->flags |= MUGEN_ASSERT_NOAIRGUARD;
+                else if (str8_ieq(val, "unguardable")) p->flags |= MUGEN_ASSERT_UNGUARDABLE;
                 else if (str8_ieq(val, "nojugglecheck")) p->flags |= MUGEN_ASSERT_NOJUGGLECHECK;
                 else if (str8_ieq(val, "intro"))         p->flags |= MUGEN_ASSERT_INTRO;
                 else if (str8_ieq(val, "nocornerpush"))  p->flags |= MUGEN_ASSERT_NOCORNERPUSH;
@@ -828,6 +829,7 @@ static void parse_controller_param(Mugen_State_Controller* sc, str8 key, str8 va
                 if (rest.len > 0) p->ground_vel_y = mugen_expr_parse(rest, alloc);
             }
             else if (str8_ieq(key, "guard.slidetime")) p->guard_slidetime = mugen_expr_parse(val, alloc);
+            else if (str8_ieq(key, "guard.hittime")) p->guard_hittime = mugen_expr_parse(val, alloc);
             else if (str8_ieq(key, "guard.ctrltime")) p->guard_ctrltime = mugen_expr_parse(val, alloc);
             else if (str8_ieq(key, "guard.velocity")) p->guard_velocity = mugen_expr_parse(val, alloc);
             else if (str8_ieq(key, "air.velocity"))

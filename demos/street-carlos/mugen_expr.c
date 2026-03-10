@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <ctype.h>
 #include <math.h>
+#include <stdio.h>
 
 static u64 mugen_rng_next(u64* s)
 {
@@ -261,6 +262,12 @@ static const Query_Entry s_queries[] = {
     {"inguarddist",  MUGEN_QUERY_INGUARDDIST},
     {"canrecover",   MUGEN_QUERY_CANRECOVER},
     {"palno",        MUGEN_QUERY_PALNO},
+    {"hitdefattr",   MUGEN_QUERY_HITDEFATTR},
+    {"lose",         MUGEN_QUERY_LOSE},
+    {"win",          MUGEN_QUERY_WIN},
+    {"matchover",    MUGEN_QUERY_MATCHOVER},
+    {"statetime",    MUGEN_QUERY_TIME},
+    {"numtarget",    MUGEN_QUERY_NUMTARGET},
     {NULL, 0}
 };
 
@@ -544,6 +551,7 @@ static Mugen_Expr* parse_primary(Expr_Parser* p)
     if (num) return num;
 
     p->pos = ident_start + (usize)ident.len;
+    fprintf(stderr, "MUGEN EXPR: unknown identifier '%.*s'\n", (int)ident.len, (char*)ident.data);
     return make_int(p, 0);
 }
 
@@ -606,6 +614,54 @@ static Mugen_Expr* parse_cmp(Expr_Parser* p)
         else break;
     }
     return lhs;
+}
+
+static u32 parse_attr_inline(Expr_Parser* p)
+{
+    u32 flags = 0;
+    skip_ws(p);
+
+    bool past_first_comma = false;
+    while (!at_end(p))
+    {
+        u8 c = peek(p);
+        if (c == ' ' || c == '\t') { p->pos++; continue; }
+        if (c == ',') { p->pos++; past_first_comma = true; continue; }
+
+        if (c >= 'a' && c <= 'z') c -= 32;
+
+        if (!past_first_comma)
+        {
+            if (c == 'S') flags |= MUGEN_ATTR_S;
+            else if (c == 'C') flags |= MUGEN_ATTR_C;
+            else if (c == 'A') flags |= MUGEN_ATTR_A;
+            else break;
+            p->pos++;
+        }
+        else
+        {
+            if (!ident_char(c)) break;
+            p->pos++;
+            skip_ws(p);
+            u8 next = peek(p);
+            if (next >= 'a' && next <= 'z') next -= 32;
+            if (ident_char(next))
+            {
+                p->pos++;
+                if (c == 'N' && next == 'A') flags |= MUGEN_ATTR_NA;
+                else if (c == 'S' && next == 'A') flags |= MUGEN_ATTR_SA;
+                else if (c == 'H' && next == 'A') flags |= MUGEN_ATTR_HA;
+                else if (c == 'N' && next == 'P') flags |= MUGEN_ATTR_NP;
+                else if (c == 'S' && next == 'P') flags |= MUGEN_ATTR_SP;
+                else if (c == 'H' && next == 'P') flags |= MUGEN_ATTR_HP;
+                else if (c == 'N' && next == 'T') flags |= MUGEN_ATTR_NT;
+                else if (c == 'S' && next == 'T') flags |= MUGEN_ATTR_ST;
+                else if (c == 'H' && next == 'T') flags |= MUGEN_ATTR_HT;
+            }
+        }
+    }
+
+    return flags;
 }
 
 static Mugen_Expr* parse_range(Expr_Parser* p, Mugen_Expr* value, bool lo_inclusive, bool negate)
@@ -688,30 +744,52 @@ static Mugen_Expr* parse_eq(Expr_Parser* p)
         {
             p->pos++;
             skip_ws(p);
-            u8 next = peek(p);
-            if (next == '[' || next == '(')
+
+            bool is_hitdefattr = (lhs && lhs->type == MUGEN_EXPR_QUERY &&
+                                  lhs->query.id == MUGEN_QUERY_HITDEFATTR);
+            if (is_hitdefattr)
             {
-                lhs = parse_range(p, lhs, next == '[', false);
+                u32 mask = parse_attr_inline(p);
+                lhs = make_binary(p, MUGEN_OP_EQ, lhs, make_int(p, (i32)mask));
             }
             else
             {
-                Mugen_Expr* rhs = parse_cmp(p);
-                lhs = make_binary(p, MUGEN_OP_EQ, lhs, rhs);
-                lhs = try_animelem_compound(p, lhs);
+                u8 next = peek(p);
+                if (next == '[' || next == '(')
+                {
+                    lhs = parse_range(p, lhs, next == '[', false);
+                }
+                else
+                {
+                    Mugen_Expr* rhs = parse_cmp(p);
+                    lhs = make_binary(p, MUGEN_OP_EQ, lhs, rhs);
+                    lhs = try_animelem_compound(p, lhs);
+                }
             }
         }
         else if (c == '!' && p->pos + 1 < (usize)p->text.len && p->text.data[p->pos + 1] == '=')
         {
             p->pos += 2;
             skip_ws(p);
-            u8 next = peek(p);
-            if (next == '[' || next == '(')
+
+            bool is_hitdefattr = (lhs && lhs->type == MUGEN_EXPR_QUERY &&
+                                  lhs->query.id == MUGEN_QUERY_HITDEFATTR);
+            if (is_hitdefattr)
             {
-                lhs = parse_range(p, lhs, next == '[', true);
+                u32 mask = parse_attr_inline(p);
+                lhs = make_binary(p, MUGEN_OP_NEQ, lhs, make_int(p, (i32)mask));
             }
             else
             {
-                lhs = make_binary(p, MUGEN_OP_NEQ, lhs, parse_cmp(p));
+                u8 next = peek(p);
+                if (next == '[' || next == '(')
+                {
+                    lhs = parse_range(p, lhs, next == '[', true);
+                }
+                else
+                {
+                    lhs = make_binary(p, MUGEN_OP_NEQ, lhs, parse_cmp(p));
+                }
             }
         }
         else break;
@@ -845,6 +923,23 @@ f32 mugen_expr_eval(Mugen_Expr* expr, Mugen_Char_State* state)
                     else if (val == 'L') expected = MUGEN_PHYSICS_L;
                     bool eq = (st == expected);
                     return (expr->binary.op == MUGEN_OP_EQ) ? (eq ? 1.0f : 0.0f) : (eq ? 0.0f : 1.0f);
+                }
+
+                bool is_hitdefattr = (expr->binary.lhs && expr->binary.lhs->type == MUGEN_EXPR_QUERY &&
+                                     expr->binary.lhs->query.id == MUGEN_QUERY_HITDEFATTR);
+                if (is_hitdefattr && expr->binary.rhs && expr->binary.rhs->type == MUGEN_EXPR_LIT_INT)
+                {
+                    u32 mask = (u32)expr->binary.rhs->lit_int;
+                    u32 state_mask = mask & (MUGEN_ATTR_S | MUGEN_ATTR_C | MUGEN_ATTR_A);
+                    u32 attack_mask = mask & ~(MUGEN_ATTR_S | MUGEN_ATTR_C | MUGEN_ATTR_A);
+                    bool match = false;
+                    if (state->movetype == MUGEN_MOVETYPE_A && state->hitdef_active)
+                    {
+                        u32 hd_state = state->hitdef.attr & (MUGEN_ATTR_S | MUGEN_ATTR_C | MUGEN_ATTR_A);
+                        u32 hd_attack = state->hitdef.attr & ~(MUGEN_ATTR_S | MUGEN_ATTR_C | MUGEN_ATTR_A);
+                        match = (hd_state & state_mask) != 0 && (hd_attack & attack_mask) != 0;
+                    }
+                    return (expr->binary.op == MUGEN_OP_EQ) ? (match ? 1.0f : 0.0f) : (match ? 0.0f : 1.0f);
                 }
 
                 bool is_movetype = (expr->binary.lhs && expr->binary.lhs->type == MUGEN_EXPR_QUERY &&
@@ -1119,9 +1214,17 @@ f32 mugen_expr_eval(Mugen_Expr* expr, Mugen_Char_State* state)
                     return (dist >= 0 && dist <= state->attack_dist) ? 1.0f : 0.0f;
                 }
                 case MUGEN_QUERY_CANRECOVER:
-                    return (state->ghv.fall_recover && state->time >= state->ghv.fall_recovertime) ? 1.0f : 0.0f;
+                    return (state->ghv.fall_recover && state->fall_time >= state->ghv.fall_recovertime) ? 1.0f : 0.0f;
                 case MUGEN_QUERY_PALNO:
                     return (f32)state->palno;
+                case MUGEN_QUERY_LOSE:
+                    return state->lose ? 1.0f : 0.0f;
+                case MUGEN_QUERY_WIN:
+                    return state->win ? 1.0f : 0.0f;
+                case MUGEN_QUERY_MATCHOVER:
+                    return state->matchover ? 1.0f : 0.0f;
+                case MUGEN_QUERY_NUMTARGET:
+                    return (f32)state->target_count;
                 case MUGEN_QUERY_NUMPROJID:
                     return 0.0f;
             }

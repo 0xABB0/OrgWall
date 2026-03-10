@@ -26,6 +26,36 @@ static bool str8_ieq(str8 a, const char* b)
     return true;
 }
 
+void mugen_targets_add(Mugen_Char_State* state, Mugen_Char_State* target, i32 hitdef_id)
+{
+    for (u32 i = 0; i < state->target_count; i++)
+    {
+        if (state->targets[i].state == target)
+            return;
+    }
+    if (state->target_count >= state->target_cap)
+    {
+        u32 new_cap = state->target_cap < 4 ? 4 : state->target_cap * 2;
+        Mugen_Target_Entry* buf = realloc(state->targets, new_cap * sizeof(Mugen_Target_Entry));
+        state->targets = buf;
+        state->target_cap = new_cap;
+    }
+    state->targets[state->target_count++] = (Mugen_Target_Entry){ .state = target, .hitdef_id = hitdef_id };
+}
+
+void mugen_targets_clear(Mugen_Char_State* state)
+{
+    state->target_count = 0;
+}
+
+void mugen_targets_free(Mugen_Char_State* state)
+{
+    free(state->targets);
+    state->targets = NULL;
+    state->target_count = 0;
+    state->target_cap = 0;
+}
+
 void mugen_cns_enter_state(Mugen_Cns* cns, Mugen_Char_State* state, i32 stateno)
 {
     Mugen_Statedef* def = mugen_cns_get(cns, stateno);
@@ -91,6 +121,8 @@ void mugen_cns_enter_state(Mugen_Cns* cns, Mugen_Char_State* state, i32 stateno)
         if (state->power < 0) state->power = 0;
     }
 
+    state->sprpriority = def->sprpriority;
+
     for (u32 i = 0; i < def->controller_count; i++)
         def->controllers[i].persistent_counter = 0;
 }
@@ -137,9 +169,15 @@ static void exec_controller(Mugen_State_Controller* sc, Mugen_Char_State* state)
         case MUGEN_SC_NULL:
         case MUGEN_SC_AFTERIMAGE:
         case MUGEN_SC_AFTERIMAGETIME:
-        case MUGEN_SC_SPRPRIORITY:
         case MUGEN_SC_FALLENVSHAKE:
             break;
+
+        case MUGEN_SC_SPRPRIORITY:
+        {
+            Mugen_SprPriority_Params* p = (Mugen_SprPriority_Params*)sc->params;
+            state->sprpriority = (i32)mugen_expr_eval(p->value, state);
+            break;
+        }
 
         case MUGEN_SC_TURN:
             state->facing = -state->facing;
@@ -302,10 +340,8 @@ static void exec_controller(Mugen_State_Controller* sc, Mugen_Char_State* state)
             r->damage_guard = eval_or_default(p->damage_guard, state, 0);
             r->pausetime_p1 = (i32)eval_or_default(p->pausetime_p1, state, 0);
             r->pausetime_p2 = (i32)eval_or_default(p->pausetime_p2, state, 0);
-            r->guard_pausetime_p1 = p->guard_pausetime_p1
-                ? (i32)mugen_expr_eval(p->guard_pausetime_p1, state) : r->pausetime_p1;
-            r->guard_pausetime_p2 = p->guard_pausetime_p2
-                ? (i32)mugen_expr_eval(p->guard_pausetime_p2, state) : r->pausetime_p2;
+            r->guard_pausetime_p1 = p->guard_pausetime_p1 ? (i32)mugen_expr_eval(p->guard_pausetime_p1, state) : r->pausetime_p1;
+            r->guard_pausetime_p2 = p->guard_pausetime_p2 ? (i32)mugen_expr_eval(p->guard_pausetime_p2, state) : r->pausetime_p2;
             r->spark_x = eval_or_default(p->spark_x, state, 0);
             r->spark_y = eval_or_default(p->spark_y, state, 0);
             r->hitsound_group = (i32)eval_or_default(p->hitsound_group, state, 0);
@@ -318,6 +354,7 @@ static void exec_controller(Mugen_State_Controller* sc, Mugen_Char_State* state)
             r->ground_vel_y = eval_or_default(p->ground_vel_y, state, 0);
             r->guard_velocity = eval_or_default(p->guard_velocity, state, r->ground_vel_x * -0.5f);
             r->guard_slidetime = (i32)eval_or_default(p->guard_slidetime, state, (f32)r->ground_slidetime);
+            r->guard_hittime = (i32)eval_or_default(p->guard_hittime, state, (f32)r->guard_slidetime);
             r->guard_ctrltime = (i32)eval_or_default(p->guard_ctrltime, state, (f32)r->guard_slidetime);
             r->air_vel_x = eval_or_default(p->air_vel_x, state, 0);
             r->air_vel_y = eval_or_default(p->air_vel_y, state, 0);
@@ -477,65 +514,77 @@ static void exec_controller(Mugen_State_Controller* sc, Mugen_Char_State* state)
         case MUGEN_SC_TARGETBIND:
         {
             Mugen_TargetBind_Params* p = sc->params;
-            if (!state->target) break;
+            if (state->target_count == 0) break;
             f32 ox = p && p->pos_x ? mugen_expr_eval(p->pos_x, state) : 0;
             f32 oy = p && p->pos_y ? mugen_expr_eval(p->pos_y, state) : 0;
-            state->target->pos_x = state->pos_x + ox * state->facing;
-            state->target->pos_y = state->pos_y + oy;
-            state->target->vel_x = 0;
-            state->target->vel_y = 0;
-            state->target->ghv.isbound = true;
+            for (u32 ti = 0; ti < state->target_count; ti++)
+            {
+                Mugen_Char_State* t = state->targets[ti].state;
+                t->pos_x = state->pos_x + ox * state->facing;
+                t->pos_y = state->pos_y + oy;
+                t->vel_x = 0;
+                t->vel_y = 0;
+                t->ghv.isbound = true;
+            }
             break;
         }
         case MUGEN_SC_TARGETSTATE:
         {
             Mugen_TargetState_Params* p = sc->params;
-            if (!p || !p->value || !state->target) break;
+            if (!p || !p->value || state->target_count == 0) break;
             i32 sno = (i32)mugen_expr_eval(p->value, state);
-            state->target->pending_state = sno;
-            state->target->pending_ctrl = 0;
-            state->target->state_changed = true;
-            state->target->state_owner_cns = state->self_cns;
+            for (u32 ti = 0; ti < state->target_count; ti++)
+            {
+                Mugen_Char_State* t = state->targets[ti].state;
+                t->pending_state = sno;
+                t->pending_ctrl = 0;
+                t->state_changed = true;
+                t->state_owner_cns = state->self_cns;
+            }
             break;
         }
         case MUGEN_SC_TARGETLIFEADD:
         {
             Mugen_TargetLifeAdd_Params* p = sc->params;
-            if (!p || !p->value || !state->target) break;
+            if (!p || !p->value || state->target_count == 0) break;
             f32 dmg = mugen_expr_eval(p->value, state);
             bool absolute = p->absolute && mugen_expr_eval(p->absolute, state) != 0.0f;
             bool kill = p->kill ? mugen_expr_eval(p->kill, state) != 0.0f : true;
-            if (!absolute)
-                dmg *= (state->target->defence_mul > 0 ? state->target->defence_mul : 1.0f);
-            state->target->life += dmg;
-            if (state->target->life > state->target->lifemax)
-                state->target->life = state->target->lifemax;
-            if (!kill && state->target->life < 1)
-                state->target->life = 1;
-            if (state->target->life < 0)
-                state->target->life = 0;
+            for (u32 ti = 0; ti < state->target_count; ti++)
+            {
+                Mugen_Char_State* t = state->targets[ti].state;
+                f32 d = absolute ? dmg : dmg * (t->defence_mul > 0 ? t->defence_mul : 1.0f);
+                t->life += d;
+                if (t->life > t->lifemax) t->life = t->lifemax;
+                if (!kill && t->life < 1) t->life = 1;
+                if (t->life < 0) t->life = 0;
+            }
             break;
         }
         case MUGEN_SC_TARGETFACING:
         {
             Mugen_TargetFacing_Params* p = sc->params;
-            if (!p || !p->value || !state->target) break;
+            if (!p || !p->value || state->target_count == 0) break;
             i32 val = (i32)mugen_expr_eval(p->value, state);
-            if (val > 0)
-                state->target->facing = state->facing;
-            else if (val < 0)
-                state->target->facing = -state->facing;
+            for (u32 ti = 0; ti < state->target_count; ti++)
+            {
+                Mugen_Char_State* t = state->targets[ti].state;
+                if (val > 0) t->facing = state->facing;
+                else if (val < 0) t->facing = -state->facing;
+            }
             break;
         }
         case MUGEN_SC_TARGETPOWERADD:
         {
             Mugen_TargetPowerAdd_Params* p = sc->params;
-            if (!p || !p->value || !state->target) break;
-            state->target->power += mugen_expr_eval(p->value, state);
-            if (state->target->power > state->target->powermax)
-                state->target->power = state->target->powermax;
-            if (state->target->power < 0)
-                state->target->power = 0;
+            if (!p || !p->value || state->target_count == 0) break;
+            for (u32 ti = 0; ti < state->target_count; ti++)
+            {
+                Mugen_Char_State* t = state->targets[ti].state;
+                t->power += mugen_expr_eval(p->value, state);
+                if (t->power > t->powermax) t->power = t->powermax;
+                if (t->power < 0) t->power = 0;
+            }
             break;
         }
         case MUGEN_SC_CHANGEANIM2:
@@ -678,6 +727,11 @@ void mugen_cns_tick(Mugen_Cns* cns, Mugen_Char_State* state)
 
         if (state->ghv.hitshaketime > 0) state->ghv.hitshaketime--;
         if (state->ghv.hittime > 0) state->ghv.hittime--;
+
+        if (state->ghv.fallflag)
+            state->fall_time++;
+        else
+            state->fall_time = 0;
     }
 
     state->gametime++;

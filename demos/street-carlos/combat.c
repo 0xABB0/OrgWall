@@ -19,7 +19,7 @@ static void populate_ghv(Mugen_GetHitVar* ghv, Mugen_HitDef_Result* hd, Mugen_Ch
     ghv->priority = hd->priority;
     ghv->forcestand = hd->forcestand;
     ghv->damage += (i32)hd->damage_hit;
-    ghv->hitcount++;
+    ghv->hitcount += hd->numhits;
     ghv->hitshaketime = hd->pausetime_p2;
 
     if (victim->statetype == MUGEN_PHYSICS_A)
@@ -63,15 +63,28 @@ static i32 compute_hit_state(Mugen_Char_State* victim, Mugen_HitDef_Result* hd)
     return 5000 + animtype;
 }
 
-static bool can_guard(Mugen_Char_State* vst, Mugen_HitDef_Result* hd)
+static bool can_guard(Mugen_Char_State* ast, Mugen_Char_State* vst, Mugen_HitDef_Result* hd)
 {
+    if (ast->assert_flags & MUGEN_ASSERT_UNGUARDABLE) return false;
     if (!vst->commands) return false;
     if (!command_list_active(vst->commands, S8("holdback"))) return false;
     if (hd->guardflag == 0) return false;
 
-    if (vst->statetype == MUGEN_PHYSICS_S && (hd->guardflag & MUGEN_HF_H)) return true;
-    if (vst->statetype == MUGEN_PHYSICS_C && (hd->guardflag & MUGEN_HF_L)) return true;
-    if (vst->statetype == MUGEN_PHYSICS_A && (hd->guardflag & MUGEN_HF_A)) return true;
+    if (vst->statetype == MUGEN_PHYSICS_S)
+    {
+        if (vst->assert_flags & MUGEN_ASSERT_NOSTANDGUARD) return false;
+        return (hd->guardflag & MUGEN_HF_H) != 0;
+    }
+    if (vst->statetype == MUGEN_PHYSICS_C)
+    {
+        if (vst->assert_flags & MUGEN_ASSERT_NOCROUCHGUARD) return false;
+        return (hd->guardflag & MUGEN_HF_L) != 0;
+    }
+    if (vst->statetype == MUGEN_PHYSICS_A)
+    {
+        if (vst->assert_flags & MUGEN_ASSERT_NOAIRGUARD) return false;
+        return (hd->guardflag & MUGEN_HF_A) != 0;
+    }
     return false;
 }
 
@@ -93,7 +106,7 @@ static void apply_guard(Fighter* attacker, Fighter* victim)
     vst->ghv.xvel = hd->guard_velocity;
     vst->ghv.yvel = 0;
     vst->ghv.slidetime = hd->guard_slidetime;
-    vst->ghv.hittime = hd->guard_slidetime;
+    vst->ghv.hittime = hd->guard_hittime;
     vst->ghv.ctrltime = hd->guard_ctrltime;
     vst->ghv.damage += (i32)hd->damage_guard;
     vst->ghv.guardcount++;
@@ -150,8 +163,8 @@ static void apply_hit(Fighter* attacker, Fighter* victim)
 
     ast->movehit = 1;
     ast->mctime = 1;
-    ast->hitcount++;
-    ast->target = vst;
+    ast->hitcount += hd->numhits;
+    mugen_targets_add(ast, vst, 0);
 
     if (vst->statetype == MUGEN_PHYSICS_A)
         vst->juggle_points_remaining -= hd->juggle;
@@ -219,49 +232,57 @@ static void apply_hit(Fighter* attacker, Fighter* victim)
         ast->stateno, hit_state, hd->damage_hit, vst->life);
 }
 
-static void check_hit(Fighter* attacker, Fighter* victim)
+static bool would_hit(Fighter* attacker, Fighter* victim)
 {
     Mugen_Char_State* ast = &attacker->cns_state;
     Mugen_Char_State* vst = &victim->cns_state;
 
-    if (!ast->hitdef_pending && !ast->hitdef_active) return;
-    if (!fighter_has_active_hitbox(attacker)) return;
-    if (vst->hitpause_time > 0) return;
+    if (!ast->hitdef_pending && !ast->hitdef_active) return false;
+    if (!fighter_has_active_hitbox(attacker)) return false;
+    if (vst->hitpause_time > 0) return false;
 
     if (vst->nothitby_time > 0 && (vst->nothitby_attr & ast->hitdef.attr))
-        return;
+        return false;
 
     {
         u32 hf = ast->hitdef.hitflag;
         bool is_hit = (vst->movetype == MUGEN_MOVETYPE_H);
         if (hf & MUGEN_HF_MNS)
         {
-            if (is_hit) return;
+            if (is_hit) return false;
         }
         else if (hf & MUGEN_HF_PLS)
         {
-            if (!is_hit) return;
+            if (!is_hit) return false;
         }
 
         if (!(hf & MUGEN_HF_MNS))
         {
-            if (vst->statetype == MUGEN_PHYSICS_S && !(hf & MUGEN_HF_H)) return;
-            if (vst->statetype == MUGEN_PHYSICS_C && !(hf & MUGEN_HF_L)) return;
-            if (vst->statetype == MUGEN_PHYSICS_A && !(hf & MUGEN_HF_A)) return;
-            if (vst->statetype == MUGEN_PHYSICS_L && !(hf & MUGEN_HF_D)) return;
+            if (vst->statetype == MUGEN_PHYSICS_S && !(hf & MUGEN_HF_H)) return false;
+            if (vst->statetype == MUGEN_PHYSICS_C && !(hf & MUGEN_HF_L)) return false;
+            if (vst->statetype == MUGEN_PHYSICS_A && !(hf & MUGEN_HF_A)) return false;
+            if (vst->statetype == MUGEN_PHYSICS_L && !(hf & MUGEN_HF_D)) return false;
         }
     }
 
     if (vst->statetype == MUGEN_PHYSICS_A && !(ast->assert_flags & MUGEN_ASSERT_NOJUGGLECHECK))
     {
         if (vst->juggle_points_remaining < ast->hitdef.juggle)
-            return;
+            return false;
     }
 
     Fighter_Box atk_box = fighter_hitbox(attacker);
     Fighter_Box def_box = fighter_hurtbox(victim);
 
-    if (!boxes_overlap(atk_box, def_box)) return;
+    if (!boxes_overlap(atk_box, def_box)) return false;
+
+    return true;
+}
+
+static void connect_hit(Fighter* attacker, Fighter* victim)
+{
+    Mugen_Char_State* ast = &attacker->cns_state;
+    Mugen_Char_State* vst = &victim->cns_state;
 
     if (ast->hitdef_pending)
     {
@@ -269,8 +290,14 @@ static void check_hit(Fighter* attacker, Fighter* victim)
         ast->hitdef_pending = false;
     }
 
-    if (can_guard(vst, &ast->hitdef))
-        apply_guard(attacker, victim);
+    if (can_guard(ast, vst, &ast->hitdef))
+    {
+        f32 gdmg = ast->hitdef.damage_guard * (vst->defence_mul > 0 ? vst->defence_mul : 1.0f);
+        if (vst->life - gdmg <= 0)
+            apply_hit(attacker, victim);
+        else
+            apply_guard(attacker, victim);
+    }
     else
         apply_hit(attacker, victim);
 
@@ -279,6 +306,12 @@ static void check_hit(Fighter* attacker, Fighter* victim)
         ast->hitdef_active = false;
         ast->hitdef_pending = false;
     }
+}
+
+static void consume_hitdef(Fighter* f)
+{
+    f->cns_state.hitdef_active = false;
+    f->cns_state.hitdef_pending = false;
 }
 
 static void check_helper_vs_fighter(Fighter_Helper* h, Fighter* victim)
@@ -323,7 +356,8 @@ static void check_helper_vs_fighter(Fighter_Helper* h, Fighter* victim)
 
     ast->movehit = 1;
     ast->mctime = 1;
-    ast->hitcount++;
+    ast->hitcount += hd->numhits;
+    mugen_targets_add(ast, vst, 0);
 
     i32 hit_state = compute_hit_state(vst, hd);
     if (hd->p2stateno >= 0)
@@ -414,8 +448,35 @@ void combat_resolve(Fighter* f1, Fighter* f2)
         }
     }
 
-    check_hit(f1, f2);
-    check_hit(f2, f1);
+    bool f1_hits_f2 = would_hit(f1, f2);
+    bool f2_hits_f1 = would_hit(f2, f1);
+
+    if (f1_hits_f2 && f2_hits_f1)
+    {
+        i32 p1 = f1->cns_state.hitdef.priority;
+        i32 p2 = f2->cns_state.hitdef.priority;
+
+        if (p1 > p2)
+        {
+            connect_hit(f1, f2);
+            consume_hitdef(f2);
+        }
+        else if (p2 > p1)
+        {
+            connect_hit(f2, f1);
+            consume_hitdef(f1);
+        }
+        else
+        {
+            connect_hit(f1, f2);
+            connect_hit(f2, f1);
+        }
+    }
+    else
+    {
+        if (f1_hits_f2) connect_hit(f1, f2);
+        if (f2_hits_f1) connect_hit(f2, f1);
+    }
 
     for (u32 i = 0; i < f1->helper_count; i++)
         check_helper_vs_fighter(&f1->helpers[i], f2);

@@ -122,24 +122,29 @@
 ### ~~hitonce parsed but never used~~ DONE
 - `check_hit` now deactivates hitdef after first connect when `hitonce` is set
 
-### numhits not used for combo counter
-- `numhits` should increment combo counter by N, we always count 1
+### ~~numhits not used for combo counter~~ DONE
+- `ghv.hitcount += hd->numhits` instead of `++`, same for `ast->hitcount`
+- Fixed in all three hit paths: `apply_hit`, `populate_ghv`, `check_helper_vs_fighter`
 
 ### ~~hitcountpersist / movehitpersist / hitdefpersist not implemented~~ DONE
 - Parsed in statedef, stored as bools on `Mugen_Statedef`
 - `enter_state` conditionally skips resetting hitdef/mctime/movehit/moveguarded/hitcount
 
-### Single target pointer instead of target list
-- Mugen_Char_State has a single `target` pointer
-- Ikemen uses a dynamic array of target IDs with dedup, filtering by hitdef ID
-- Breaks helpers, multi-hit moves, and target-filtered controllers (TargetBind -1, etc.)
-- Victim side needs `targetedBy` list tracking [attackerID, jugglePoints] pairs
+### ~~Single target pointer instead of target list~~ DONE
+- `Mugen_Target_Entry { state, hitdef_id }` with dynamic array (realloc-based)
+- `mugen_targets_add` with dedup, `mugen_targets_clear`, `mugen_targets_free`
+- All 5 Target* controllers (Bind/State/LifeAdd/Facing/PowerAdd) iterate full list
+- `combat.c` `apply_hit` + `check_helper_vs_fighter` add to list on hit
+- `NumTarget` trigger returns `target_count`
+- Still missing: hitdef ID filtering, `target(id),X` redirection, TargetDrop, targetedBy on victim
 
-### No trade/priority resolution for simultaneous hits
-- Both check_hit calls fire independently -- both sides always connect
-- Ikemen compares priority values, supports Hit/Dodge/Miss trade types
-- Higher priority wins, lower priority's hitdef is consumed
-- A jab trades with a super in our engine
+### ~~No trade/priority resolution for simultaneous hits~~ DONE
+- Split `check_hit` into `would_hit()` (detection) + `connect_hit()` (application)
+- `combat_resolve` detects simultaneous hits, compares `hitdef.priority`
+- Higher priority wins: lower priority's hitdef consumed via `consume_hitdef()` without connecting
+- Equal priority: both connect (trade)
+- One-sided hits apply normally
+- Still missing: Hit/Dodge/Miss trade types (always uses Hit type)
 
 ### Juggle tracked globally instead of per-attacker
 - Single `juggle_points_remaining` counter on victim
@@ -150,21 +155,24 @@
 ### ~~Gravity controller sign bug~~ DONE
 - Both Gravity controller and Air physics now use `vel_y += gravity`
 
-### Guard logic missing key checks
-- No `ASF_unguardable` flag check (attacker assert)
-- No autoguard support (`ASF_autoguard`)
-- No guard-KO fallthrough (guarding that would kill should become a real hit)
-- `ghv.hittime` during guard uses `guard_slidetime` instead of `guard_hittime`
+### ~~Guard logic missing key checks~~ DONE
+- `MUGEN_ASSERT_UNGUARDABLE` flag added — attacker assert bypasses guard entirely
+- `NOSTANDGUARD`/`NOCROUCHGUARD`/`NOAIRGUARD` now checked in `can_guard` per statetype
+- Guard-KO fallthrough: if guard damage would kill, falls through to `apply_hit` instead
+- `guard_hittime` field added (parsed, defaults to `guard_slidetime`), used in `ghv.hittime` during guard
+- `can_guard` now takes attacker state for unguardable check
+- Still missing: autoguard (`ASF_autoguard`)
 
 ### ~~movetype = U (explicitly unchanged) not handled~~ DONE
 - `MUGEN_MOVETYPE_U` (0xFE) sentinel, `parse_movetype_char` returns it for 'U'
 - `mugen_cns_enter_state` skips assignment when value is U
 
-### hitdefattr trigger missing
-- Needs special parsing: `hitdefattr = SCA, NA, SA` is a bitmask comparison
-- Checks: attacker must be in movetype A, AND hitdef attr matches bitmask
-- Currently unknown identifier returns 0, so `hitdefattr = SC, NA` evaluates as `0 == 0` = true
-- Super move combo triggers are always true because of this
+### ~~hitdefattr trigger missing~~ DONE
+- Parse-time rewriting: `hitdefattr = SC, NA, SA` parsed as `HITDEFATTR == bitmask`
+- `parse_attr_inline()` consumes attr text from expression parser stream (state types before first comma, attack types after)
+- Evaluator: checks `movetype == A && hitdef_active && state bits overlap && attack bits overlap`
+- Handles both `=` and `!=` operators
+- 6 tests covering parse, match, wrong attack/state, inactive hitdef, negation
 
 ### p2bodydist X semantics differ from Ikemen
 - We clamp negative distances to 0 -- Ikemen does not
@@ -176,10 +184,11 @@
 - No selective reset before populating (should preserve stacking fields like hitcount/damage while resetting per-hit fields)
 - hitcount always increments -- should be set to 1 if not already in combo
 
-### canrecover uses state time instead of fall time
-- We check `state->time >= ghv.fall_recovertime`
-- Ikemen uses separate `fallTime` counter tracking time in falling state
-- These diverge when entering fall state at non-zero state time
+### ~~canrecover uses state time instead of fall time~~ DONE
+- Added `fall_time` counter to `Mugen_Char_State`
+- Increments each tick when `ghv.fallflag` is set, resets to 0 when clear
+- `CanRecover` now checks `fall_time >= fall_recovertime` instead of `state->time`
+- Reset on round reset
 
 ### Body push too simplistic
 - Missing weight-based push factors (heavier chars pushed less)
@@ -195,11 +204,12 @@
 ### Missing triggers (significant ones)
 - p2bodydist Y, p2stateno, p2life, physics
 - prevstatetype, prevmovetype, prevanim
-- hitdefattr, hitbyattr, movereversed, uniqhitcount
+- hitbyattr, movereversed, uniqhitcount
 - hitpausetime, hitvel x/y
 - numtarget (with optional hitID arg)
 - animelemno, animexist (state owner's anims vs selfanimexist)
-- win/lose/drawgame/matchover
+- ~~win/lose/matchover~~ DONE (set in round.c on KO/POST, reset on round_reset)
+- drawgame
 - screenpos x/y, screenwidth/height
 - timemod (special syntax: `timemod = N, value`)
 - isasserted (test assert flags)
@@ -235,17 +245,17 @@
 ### ~~poweradd parsed but never applied~~ DONE
 - `mugen_cns_enter_state` now applies `poweradd` on state entry
 
-### sprpriority parsed but never applied
-- Statedef `sprpriority` field parsed but `mugen_cns_enter_state` never reads it
-- Need a `sprpriority` field on `Mugen_Char_State` and apply on state entry
+### ~~sprpriority parsed but never applied~~ DONE
+- `sprpriority` field added to `Mugen_Char_State`
+- Applied from statedef on `mugen_cns_enter_state`
+- `MUGEN_SC_SPRPRIORITY` controller now evaluates and sets the field (was no-op)
 
 ### ~~numhelper always returns 0~~ DONE
 - Uses `query_num_helper` callback to count helpers, optionally filtered by ID
 
-### Unknown triggers silently return 0
-- mugen_expr.c line 492: unknown identifiers fall through to `make_int(p, 0)`
-- Should produce errors or warnings -- makes bugs invisible
-- Typos in character files are silently accepted
+### ~~Unknown triggers silently return 0~~ DONE
+- Unknown identifiers now emit `fprintf(stderr, "MUGEN EXPR: unknown identifier ...")` at parse time
+- Still returns 0 for runtime, but bugs are now visible in stderr
 
 ### Persistent counter edge cases during hitpause
 - Ikemen backs up persistent counters from old state during hitpause transitions

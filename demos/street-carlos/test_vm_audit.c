@@ -1090,11 +1090,46 @@ MEL_TEST(vm_query_canrecover, .tags = "vm_audit")
     st.ghv.fall_recovertime = 5;
     Mugen_Expr* e = mugen_expr_parse(S8("CanRecover"), s_alloc);
 
-    st.time = 3;
+    st.fall_time = 3;
     MEL_ASSERT_FLOAT_EQ(mugen_expr_eval(e, &st), 0.0f, 0.001f);
 
-    st.time = 5;
+    st.fall_time = 5;
     MEL_ASSERT_FLOAT_EQ(mugen_expr_eval(e, &st), 1.0f, 0.001f);
+}
+
+MEL_TEST(vm_fall_time_tracks_falling, .tags = "vm_audit, medium")
+{
+    ensure_alloc();
+
+    str8 cns_text = S8(
+        "[Statedef 100]\n"
+        "type = A\n"
+        "movetype = H\n"
+        "physics = N\n"
+        "anim = 100\n"
+    );
+
+    Mugen_Cns cns = {0};
+    mugen_cns_load(&cns, cns_text, s_alloc);
+
+    Mugen_Char_State st = make_standing_state();
+    st.ghv.fallflag = true;
+
+    mugen_cns_enter_state(&cns, &st, 100);
+    MEL_ASSERT_EQ(st.fall_time, 0);
+
+    st.animtime = -999;
+    mugen_cns_tick(&cns, &st);
+    MEL_ASSERT_EQ(st.fall_time, 1);
+
+    st.animtime = -999;
+    mugen_cns_tick(&cns, &st);
+    MEL_ASSERT_EQ(st.fall_time, 2);
+
+    st.ghv.fallflag = false;
+    st.animtime = -999;
+    mugen_cns_tick(&cns, &st);
+    MEL_ASSERT_EQ(st.fall_time, 0);
 }
 
 MEL_TEST(vm_query_frontedgedist, .tags = "vm_audit")
@@ -2056,7 +2091,7 @@ MEL_TEST(vm_targetbind_positions_victim, .tags = "vm_audit, throw")
     attacker.pos_x = 100.0f;
     attacker.facing = 1.0f;
     victim.pos_x = 200.0f;
-    attacker.target = &victim;
+    mugen_targets_add(&attacker, &victim, 0);
 
     mugen_cns_enter_state(&cns, &attacker, 800);
     mugen_cns_tick(&cns, &attacker);
@@ -2091,7 +2126,7 @@ MEL_TEST(vm_targetbind_facing_left, .tags = "vm_audit, throw")
     attacker.pos_x = 100.0f;
     attacker.facing = -1.0f;
     victim.pos_x = 50.0f;
-    attacker.target = &victim;
+    mugen_targets_add(&attacker, &victim, 0);
 
     mugen_cns_enter_state(&cns, &attacker, 800);
     mugen_cns_tick(&cns, &attacker);
@@ -2122,7 +2157,7 @@ MEL_TEST(vm_targetstate_sets_victim_state, .tags = "vm_audit, throw")
 
     Mugen_Char_State attacker = make_standing_state();
     Mugen_Char_State victim = make_standing_state();
-    attacker.target = &victim;
+    mugen_targets_add(&attacker, &victim, 0);
 
     mugen_cns_enter_state(&cns, &attacker, 800);
     mugen_cns_tick(&cns, &attacker);
@@ -2155,7 +2190,7 @@ MEL_TEST(vm_targetstate_sets_cross_cns, .tags = "vm_audit, throw")
 
     Mugen_Char_State attacker = make_standing_state();
     Mugen_Char_State victim = make_standing_state();
-    attacker.target = &victim;
+    mugen_targets_add(&attacker, &victim, 0);
     attacker.self_cns = &cns;
 
     mugen_cns_enter_state(&cns, &attacker, 800);
@@ -2189,7 +2224,7 @@ MEL_TEST(vm_targetlifeadd_damages_victim, .tags = "vm_audit, throw")
     Mugen_Char_State victim = make_standing_state();
     victim.life = 1000.0f;
     victim.defence_mul = 1.0f;
-    attacker.target = &victim;
+    mugen_targets_add(&attacker, &victim, 0);
 
     mugen_cns_enter_state(&cns, &attacker, 800);
     mugen_cns_tick(&cns, &attacker);
@@ -2222,7 +2257,7 @@ MEL_TEST(vm_targetlifeadd_no_kill, .tags = "vm_audit, throw")
     Mugen_Char_State attacker = make_standing_state();
     Mugen_Char_State victim = make_standing_state();
     victim.life = 100.0f;
-    attacker.target = &victim;
+    mugen_targets_add(&attacker, &victim, 0);
 
     mugen_cns_enter_state(&cns, &attacker, 800);
     mugen_cns_tick(&cns, &attacker);
@@ -2255,7 +2290,7 @@ MEL_TEST(vm_targetfacing_same_direction, .tags = "vm_audit, throw")
     Mugen_Char_State victim = make_standing_state();
     attacker.facing = 1.0f;
     victim.facing = -1.0f;
-    attacker.target = &victim;
+    mugen_targets_add(&attacker, &victim, 0);
 
     mugen_cns_enter_state(&cns, &attacker, 800);
     mugen_cns_tick(&cns, &attacker);
@@ -2288,7 +2323,7 @@ MEL_TEST(vm_targetfacing_opposite, .tags = "vm_audit, throw")
     Mugen_Char_State victim = make_standing_state();
     attacker.facing = 1.0f;
     victim.facing = 1.0f;
-    attacker.target = &victim;
+    mugen_targets_add(&attacker, &victim, 0);
 
     mugen_cns_enter_state(&cns, &attacker, 800);
     mugen_cns_tick(&cns, &attacker);
@@ -2320,7 +2355,7 @@ MEL_TEST(vm_targetpoweradd, .tags = "vm_audit, throw")
     Mugen_Char_State attacker = make_standing_state();
     Mugen_Char_State victim = make_standing_state();
     victim.power = 100.0f;
-    attacker.target = &victim;
+    mugen_targets_add(&attacker, &victim, 0);
 
     mugen_cns_enter_state(&cns, &attacker, 800);
     mugen_cns_tick(&cns, &attacker);
@@ -2418,7 +2453,7 @@ MEL_TEST(vm_no_target_skips_controllers, .tags = "vm_audit, throw")
     mugen_cns_load(&cns, cns_text, s_alloc);
 
     Mugen_Char_State attacker = make_standing_state();
-    attacker.target = NULL;
+    mugen_targets_clear(&attacker);
 
     mugen_cns_enter_state(&cns, &attacker, 800);
     mugen_cns_tick(&cns, &attacker);
@@ -2483,14 +2518,14 @@ MEL_TEST(vm_animelem_first_tick_only, .tags = "vm_audit, critical")
     st.anim_elem_count = 0;
 }
 
-MEL_TEST(vm_hit_sets_target_pointer, .tags = "vm_audit, throw")
+MEL_TEST(vm_hit_sets_target_list, .tags = "vm_audit, throw")
 {
     ensure_alloc();
 
     Mugen_Char_State attacker = make_standing_state();
     Mugen_Char_State victim = make_standing_state();
 
-    MEL_ASSERT(attacker.target == NULL);
+    MEL_ASSERT_EQ((i32)attacker.target_count, 0);
 
     attacker.hitdef.active = true;
     attacker.hitdef.damage_hit = 50.0f;
@@ -2501,9 +2536,11 @@ MEL_TEST(vm_hit_sets_target_pointer, .tags = "vm_audit, throw")
 
     attacker.movehit = 1;
     attacker.mctime = 1;
-    attacker.target = &victim;
+    mugen_targets_add(&attacker, &victim, 0);
 
-    MEL_ASSERT(attacker.target == &victim);
+    MEL_ASSERT_EQ((i32)attacker.target_count, 1);
+    MEL_ASSERT(attacker.targets[0].state == &victim);
+    mugen_targets_free(&attacker);
 }
 
 MEL_TEST(vm_juggle_points_block_hit_when_exhausted, .tags = "vm_audit, critical")
@@ -2703,4 +2740,387 @@ MEL_TEST(vm_cornerpush_nocornerpush_flag, .tags = "vm_audit, critical")
     attacker.hitdef.active = true;
 
     MEL_ASSERT_FLOAT_EQ(attacker.cornerpush_vel, 0.0f, 0.001f);
+}
+
+MEL_TEST(vm_numhits_used_in_hitcount, .tags = "vm_audit, medium")
+{
+    ensure_alloc();
+
+    Mugen_Char_State st = make_standing_state();
+    Mugen_HitDef_Result hd = {0};
+    hd.numhits = 3;
+    hd.damage_hit = 10;
+    hd.ground_vel_x = 5.0f;
+    hd.ground_hittime = 12;
+    hd.ground_slidetime = 6;
+
+    st.ghv.hitcount = 0;
+    st.ghv.damage = 0;
+    st.ghv.hitcount += hd.numhits;
+    st.ghv.damage += (i32)hd.damage_hit;
+    MEL_ASSERT_EQ(st.ghv.hitcount, 3);
+    MEL_ASSERT_EQ(st.ghv.damage, 10);
+
+    st.ghv.hitcount += hd.numhits;
+    st.ghv.damage += (i32)hd.damage_hit;
+    MEL_ASSERT_EQ(st.ghv.hitcount, 6);
+    MEL_ASSERT_EQ(st.ghv.damage, 20);
+}
+
+static Fighter make_test_fighter(f32 x, bool facing_right)
+{
+    Fighter f = {0};
+    f.x = x;
+    f.y = 0;
+    f.facing_right = facing_right;
+    f.ground_front = 16.0f;
+    f.ground_back = 15.0f;
+
+    f.anim_hitbox[0] = 5.0f;
+    f.anim_hitbox[1] = 0.0f;
+    f.anim_hitbox[2] = 50.0f;
+    f.anim_hitbox[3] = 60.0f;
+
+    f.anim_hurtbox[0] = -10.0f;
+    f.anim_hurtbox[1] = 0.0f;
+    f.anim_hurtbox[2] = 40.0f;
+    f.anim_hurtbox[3] = 60.0f;
+
+    f.cns_state = make_standing_state();
+    f.cns_state.pos_x = x;
+    f.cns_state.facing = facing_right ? 1.0f : -1.0f;
+    return f;
+}
+
+static void arm_hitdef(Fighter* f, i32 priority, f32 damage)
+{
+    f->cns_state.movetype = MUGEN_MOVETYPE_A;
+    f->cns_state.hitdef_pending = true;
+    f->cns_state.hitdef.active = true;
+    f->cns_state.hitdef.priority = priority;
+    f->cns_state.hitdef.damage_hit = damage;
+    f->cns_state.hitdef.damage_guard = 0;
+    f->cns_state.hitdef.pausetime_p1 = 8;
+    f->cns_state.hitdef.pausetime_p2 = 8;
+    f->cns_state.hitdef.guard_pausetime_p1 = 8;
+    f->cns_state.hitdef.guard_pausetime_p2 = 8;
+    f->cns_state.hitdef.hitflag = MUGEN_HF_H | MUGEN_HF_L | MUGEN_HF_A;
+    f->cns_state.hitdef.guardflag = MUGEN_HF_H | MUGEN_HF_L | MUGEN_HF_A;
+    f->cns_state.hitdef.attr = MUGEN_ATTR_S | MUGEN_ATTR_NA;
+    f->cns_state.hitdef.ground_vel_x = 5.0f;
+    f->cns_state.hitdef.ground_hittime = 12;
+    f->cns_state.hitdef.ground_slidetime = 6;
+    f->cns_state.hitdef.numhits = 1;
+    f->cns_state.hitdef.p1stateno = -1;
+    f->cns_state.hitdef.p2stateno = -1;
+}
+
+MEL_TEST(vm_priority_higher_wins, .tags = "vm_audit, medium")
+{
+    ensure_alloc();
+
+    Fighter f1 = make_test_fighter(80.0f, true);
+    Fighter f2 = make_test_fighter(120.0f, false);
+
+    arm_hitdef(&f1, 5, 100.0f);
+    arm_hitdef(&f2, 3, 50.0f);
+
+    combat_resolve(&f1, &f2);
+
+    MEL_ASSERT_EQ(f1.cns_state.movehit, 1);
+    MEL_ASSERT_EQ(f2.cns_state.movehit, 0);
+
+    MEL_ASSERT(f2.cns_state.life < 1000.0f);
+    MEL_ASSERT_FLOAT_EQ(f1.cns_state.life, 1000.0f, 0.001f);
+
+    MEL_ASSERT(!f2.cns_state.hitdef_active);
+    MEL_ASSERT(!f2.cns_state.hitdef_pending);
+}
+
+MEL_TEST(vm_priority_equal_trade, .tags = "vm_audit, medium")
+{
+    ensure_alloc();
+
+    Fighter f1 = make_test_fighter(80.0f, true);
+    Fighter f2 = make_test_fighter(120.0f, false);
+
+    arm_hitdef(&f1, 4, 100.0f);
+    arm_hitdef(&f2, 4, 50.0f);
+
+    combat_resolve(&f1, &f2);
+
+    MEL_ASSERT_EQ(f1.cns_state.movehit, 1);
+    MEL_ASSERT_EQ(f2.cns_state.movehit, 1);
+
+    MEL_ASSERT(f1.cns_state.life < 1000.0f);
+    MEL_ASSERT(f2.cns_state.life < 1000.0f);
+}
+
+MEL_TEST(vm_priority_one_sided, .tags = "vm_audit, medium")
+{
+    ensure_alloc();
+
+    Fighter f1 = make_test_fighter(80.0f, true);
+    Fighter f2 = make_test_fighter(120.0f, false);
+
+    arm_hitdef(&f1, 4, 100.0f);
+
+    combat_resolve(&f1, &f2);
+
+    MEL_ASSERT_EQ(f1.cns_state.movehit, 1);
+    MEL_ASSERT(f2.cns_state.life < 1000.0f);
+    MEL_ASSERT_FLOAT_EQ(f1.cns_state.life, 1000.0f, 0.001f);
+}
+
+MEL_TEST(vm_guard_ko_fallthrough, .tags = "vm_audit, medium")
+{
+    ensure_alloc();
+
+    Fighter f1 = make_test_fighter(80.0f, true);
+    Fighter f2 = make_test_fighter(120.0f, false);
+
+    arm_hitdef(&f1, 4, 50.0f);
+    f1.cns_state.hitdef.damage_guard = 20.0f;
+    f1.cns_state.hitdef.guardflag = MUGEN_HF_H | MUGEN_HF_L;
+
+    f2.cns_state.life = 15.0f;
+
+    Command_List cmds = {0};
+    cmds.buffer.Bb = 1;
+    f2.cns_state.commands = &cmds;
+    f2.commands = cmds;
+
+    combat_resolve(&f1, &f2);
+
+    MEL_ASSERT_EQ(f1.cns_state.movehit, 1);
+    MEL_ASSERT_EQ(f1.cns_state.moveguarded, 0);
+    MEL_ASSERT_FLOAT_EQ(f2.cns_state.life, 0.0f, 0.001f);
+}
+
+MEL_TEST(vm_guard_hittime_separate, .tags = "vm_audit, medium")
+{
+    ensure_alloc();
+
+    Mugen_Char_State st = make_standing_state();
+    Mugen_HitDef_Result hd = {0};
+    hd.guard_slidetime = 10;
+    hd.guard_hittime = 20;
+    hd.guard_ctrltime = 15;
+    hd.guard_pausetime_p2 = 5;
+
+    st.ghv = (Mugen_GetHitVar){0};
+    st.ghv.guarded = true;
+    st.ghv.slidetime = hd.guard_slidetime;
+    st.ghv.hittime = hd.guard_hittime;
+    st.ghv.ctrltime = hd.guard_ctrltime;
+
+    MEL_ASSERT_EQ(st.ghv.slidetime, 10);
+    MEL_ASSERT_EQ(st.ghv.hittime, 20);
+    MEL_ASSERT_EQ(st.ghv.ctrltime, 15);
+}
+
+MEL_TEST(vm_unguardable_bypasses_guard, .tags = "vm_audit, medium")
+{
+    ensure_alloc();
+
+    Fighter f1 = make_test_fighter(80.0f, true);
+    Fighter f2 = make_test_fighter(120.0f, false);
+
+    arm_hitdef(&f1, 4, 100.0f);
+    f1.cns_state.hitdef.guardflag = MUGEN_HF_H | MUGEN_HF_L;
+    f1.cns_state.assert_flags = MUGEN_ASSERT_UNGUARDABLE;
+
+    Command_List cmds = {0};
+    cmds.buffer.Bb = 1;
+    f2.cns_state.commands = &cmds;
+    f2.commands = cmds;
+
+    combat_resolve(&f1, &f2);
+
+    MEL_ASSERT_EQ(f1.cns_state.movehit, 1);
+    MEL_ASSERT_EQ(f1.cns_state.moveguarded, 0);
+}
+
+MEL_TEST(vm_nostandguard_prevents_guard, .tags = "vm_audit, medium")
+{
+    ensure_alloc();
+
+    Fighter f1 = make_test_fighter(80.0f, true);
+    Fighter f2 = make_test_fighter(120.0f, false);
+
+    arm_hitdef(&f1, 4, 100.0f);
+    f1.cns_state.hitdef.guardflag = MUGEN_HF_H | MUGEN_HF_L;
+
+    f2.cns_state.assert_flags = MUGEN_ASSERT_NOSTANDGUARD;
+    Command_List cmds = {0};
+    cmds.buffer.Bb = 1;
+    f2.cns_state.commands = &cmds;
+    f2.commands = cmds;
+
+    combat_resolve(&f1, &f2);
+
+    MEL_ASSERT_EQ(f1.cns_state.movehit, 1);
+    MEL_ASSERT_EQ(f1.cns_state.moveguarded, 0);
+}
+
+MEL_TEST(vm_sprpriority_from_statedef, .tags = "vm_audit, medium")
+{
+    ensure_alloc();
+
+    str8 cns_text = S8(
+        "[Statedef 200]\n"
+        "type = S\n"
+        "movetype = A\n"
+        "physics = S\n"
+        "anim = 200\n"
+        "sprpriority = 2\n"
+        "\n"
+        "[State 200, SprPriority]\n"
+        "type = SprPriority\n"
+        "trigger1 = Time = 3\n"
+        "value = -1\n"
+    );
+
+    Mugen_Cns cns = {0};
+    mugen_cns_load(&cns, cns_text, s_alloc);
+
+    Mugen_Char_State st = make_standing_state();
+    mugen_cns_enter_state(&cns, &st, 200);
+    MEL_ASSERT_EQ(st.sprpriority, 2);
+
+    st.animtime = -999;
+    mugen_cns_tick(&cns, &st);
+    MEL_ASSERT_EQ(st.sprpriority, 2);
+
+    st.animtime = -999;
+    mugen_cns_tick(&cns, &st);
+    MEL_ASSERT_EQ(st.sprpriority, 2);
+
+    st.animtime = -999;
+    mugen_cns_tick(&cns, &st);
+    MEL_ASSERT_EQ(st.sprpriority, 2);
+
+    st.animtime = -999;
+    mugen_cns_tick(&cns, &st);
+    MEL_ASSERT_EQ(st.sprpriority, -1);
+}
+
+MEL_TEST(vm_target_list_dedup, .tags = "vm_audit, throw")
+{
+    Mugen_Char_State attacker = make_standing_state();
+    Mugen_Char_State victim = make_standing_state();
+
+    mugen_targets_add(&attacker, &victim, 0);
+    mugen_targets_add(&attacker, &victim, 0);
+
+    MEL_ASSERT_EQ((i32)attacker.target_count, 1);
+    mugen_targets_free(&attacker);
+}
+
+MEL_TEST(vm_target_list_multiple, .tags = "vm_audit, throw")
+{
+    Mugen_Char_State attacker = make_standing_state();
+    Mugen_Char_State v1 = make_standing_state();
+    Mugen_Char_State v2 = make_standing_state();
+
+    mugen_targets_add(&attacker, &v1, 0);
+    mugen_targets_add(&attacker, &v2, 0);
+
+    MEL_ASSERT_EQ((i32)attacker.target_count, 2);
+    MEL_ASSERT(attacker.targets[0].state == &v1);
+    MEL_ASSERT(attacker.targets[1].state == &v2);
+    mugen_targets_free(&attacker);
+}
+
+MEL_TEST(vm_target_list_clear, .tags = "vm_audit, throw")
+{
+    Mugen_Char_State attacker = make_standing_state();
+    Mugen_Char_State victim = make_standing_state();
+
+    mugen_targets_add(&attacker, &victim, 0);
+    MEL_ASSERT_EQ((i32)attacker.target_count, 1);
+
+    mugen_targets_clear(&attacker);
+    MEL_ASSERT_EQ((i32)attacker.target_count, 0);
+    MEL_ASSERT(attacker.targets != NULL);
+    MEL_ASSERT(attacker.target_cap > 0);
+
+    mugen_targets_free(&attacker);
+}
+
+MEL_TEST(vm_target_controllers_apply_to_all, .tags = "vm_audit, throw")
+{
+    ensure_alloc();
+
+    str8 cns_text = S8(
+        "[Statedef 800]\n"
+        "type = S\n"
+        "movetype = A\n"
+        "physics = N\n"
+        "anim = 800\n"
+        "\n"
+        "[State 800, TargetLifeAdd]\n"
+        "type = TargetLifeAdd\n"
+        "trigger1 = 1\n"
+        "value = -100\n"
+        "persistent = 0\n"
+    );
+
+    Mugen_Cns cns = {0};
+    mugen_cns_load(&cns, cns_text, s_alloc);
+
+    Mugen_Char_State attacker = make_standing_state();
+    Mugen_Char_State v1 = make_standing_state();
+    Mugen_Char_State v2 = make_standing_state();
+    v1.life = 1000.0f;
+    v1.defence_mul = 1.0f;
+    v2.life = 1000.0f;
+    v2.defence_mul = 1.0f;
+
+    mugen_targets_add(&attacker, &v1, 0);
+    mugen_targets_add(&attacker, &v2, 0);
+
+    mugen_cns_enter_state(&cns, &attacker, 800);
+    mugen_cns_tick(&cns, &attacker);
+
+    MEL_ASSERT_FLOAT_EQ(v1.life, 900.0f, 0.001f);
+    MEL_ASSERT_FLOAT_EQ(v2.life, 900.0f, 0.001f);
+    mugen_targets_free(&attacker);
+}
+
+MEL_TEST(vm_numtarget_trigger, .tags = "vm_audit, throw")
+{
+    ensure_alloc();
+
+    Mugen_Expr* e = mugen_expr_parse(S8("NumTarget"), s_alloc);
+    MEL_ASSERT_NOT_NULL(e);
+
+    Mugen_Char_State st = make_standing_state();
+    MEL_ASSERT_FLOAT_EQ(mugen_expr_eval(e, &st), 0.0f, 0.001f);
+
+    Mugen_Char_State victim = make_standing_state();
+    mugen_targets_add(&st, &victim, 0);
+    MEL_ASSERT_FLOAT_EQ(mugen_expr_eval(e, &st), 1.0f, 0.001f);
+
+    Mugen_Char_State v2 = make_standing_state();
+    mugen_targets_add(&st, &v2, 0);
+    MEL_ASSERT_FLOAT_EQ(mugen_expr_eval(e, &st), 2.0f, 0.001f);
+
+    mugen_targets_free(&st);
+}
+
+MEL_TEST(vm_combat_adds_target, .tags = "vm_audit, throw")
+{
+    ensure_alloc();
+
+    Fighter f1 = make_test_fighter(80.0f, true);
+    Fighter f2 = make_test_fighter(120.0f, false);
+
+    arm_hitdef(&f1, 4, 100.0f);
+
+    combat_resolve(&f1, &f2);
+
+    MEL_ASSERT_EQ((i32)f1.cns_state.target_count, 1);
+    MEL_ASSERT(f1.cns_state.targets[0].state == &f2.cns_state);
+    mugen_targets_free(&f1.cns_state);
 }

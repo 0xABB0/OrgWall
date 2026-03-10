@@ -1119,6 +1119,11 @@ void fighter_round_reset(Fighter* f)
     st->helper_spawn_pending = false;
     st->destroy_self_pending = false;
     st->cornerpush_vel = 0.0f;
+    st->fall_time = 0;
+    st->win = false;
+    st->lose = false;
+    st->matchover = false;
+    mugen_targets_clear(st);
 
     memset(&st->ghv, 0, sizeof(st->ghv));
 
@@ -1135,6 +1140,8 @@ void fighter_shutdown(Fighter* f)
         mel_anim_player_destroy(&f->helpers[i].player);
         if (f->helpers[i].cns_state.anim_elem_start_ticks)
             free(f->helpers[i].cns_state.anim_elem_start_ticks);
+        mugen_targets_free(&f->helpers[i].cns_state);
     }
     f->helper_count = 0;
+    mugen_targets_free(&f->cns_state);
 }

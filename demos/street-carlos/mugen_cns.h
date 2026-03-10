@@ -101,6 +101,11 @@ typedef struct Command_List Command_List;
 #define MUGEN_QUERY_INGUARDDIST    48
 #define MUGEN_QUERY_CANRECOVER     49
 #define MUGEN_QUERY_PALNO          50
+#define MUGEN_QUERY_HITDEFATTR     51
+#define MUGEN_QUERY_LOSE           52
+#define MUGEN_QUERY_WIN            53
+#define MUGEN_QUERY_MATCHOVER      54
+#define MUGEN_QUERY_NUMTARGET      55
 
 #define MUGEN_VAR_INT      0
 #define MUGEN_VAR_FLOAT    1
@@ -326,6 +331,7 @@ typedef struct {
 #define MUGEN_ASSERT_NOJUGGLECHECK (1u << 5)
 #define MUGEN_ASSERT_INTRO         (1u << 6)
 #define MUGEN_ASSERT_NOCORNERPUSH  (1u << 7)
+#define MUGEN_ASSERT_UNGUARDABLE  (1u << 8)
 
 typedef struct {
     u32 flags;
@@ -413,6 +419,7 @@ typedef struct {
     Mugen_Expr* ground_vel_x;
     Mugen_Expr* ground_vel_y;
     Mugen_Expr* guard_slidetime;
+    Mugen_Expr* guard_hittime;
     Mugen_Expr* guard_ctrltime;
     Mugen_Expr* guard_velocity;
     Mugen_Expr* air_vel_x;
@@ -553,6 +560,7 @@ typedef struct {
     f32 ground_vel_x, ground_vel_y;
     f32 guard_velocity;
     i32 guard_slidetime;
+    i32 guard_hittime;
     i32 guard_ctrltime;
     f32 air_vel_x, air_vel_y;
     i32 air_hittime;
@@ -609,6 +617,12 @@ typedef struct {
 } Mugen_GetHitVar;
 
 typedef struct Mugen_Char_State Mugen_Char_State;
+
+typedef struct {
+    Mugen_Char_State* state;
+    i32 hitdef_id;
+} Mugen_Target_Entry;
+
 struct Mugen_Char_State {
     f32 pos_x, pos_y;
     f32 vel_x, vel_y;
@@ -700,7 +714,9 @@ struct Mugen_Char_State {
     f32 down_bounce_groundlevel;
     f32 down_friction_threshold;
 
-    Mugen_Char_State* target;
+    Mugen_Target_Entry* targets;
+    u32 target_count;
+    u32 target_cap;
     Mugen_Char_State* bound_to;
     Mugen_Cns* self_cns;
     Mugen_Cns* state_owner_cns;
@@ -717,6 +733,9 @@ struct Mugen_Char_State {
     i32 roundstate;
     i32 roundno;
     i32 roundsexisted;
+    bool win;
+    bool lose;
+    bool matchover;
 
     i32* anim_elem_start_ticks;
     u32 anim_elem_count;
@@ -739,6 +758,8 @@ struct Mugen_Char_State {
     bool destroy_self_pending;
 
     f32 cornerpush_vel;
+    i32 fall_time;
+    i32 sprpriority;
 };
 
 Mugen_Expr* mugen_expr_parse(str8 text, const Mel_Alloc* alloc);
@@ -753,3 +774,7 @@ Mugen_Statedef* mugen_cns_get(Mugen_Cns* cns, i32 stateno);
 void mugen_cns_enter_state(Mugen_Cns* cns, Mugen_Char_State* state, i32 stateno);
 void mugen_cns_tick(Mugen_Cns* cns, Mugen_Char_State* state);
 void mugen_cns_tick_statedef(Mugen_Statedef* def, Mugen_Char_State* state);
+
+void mugen_targets_add(Mugen_Char_State* state, Mugen_Char_State* target, i32 hitdef_id);
+void mugen_targets_clear(Mugen_Char_State* state);
+void mugen_targets_free(Mugen_Char_State* state);

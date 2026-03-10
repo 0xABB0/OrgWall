@@ -554,3 +554,93 @@ MEL_TEST(sim_repeated_attacks_drain_life, .tags = "sim")
 
     MEL_ASSERT(s.p2.cns_state.life <= initial_life);
 }
+
+MEL_TEST(sim_ko_sets_win_lose, .tags = "sim")
+{
+    Sim s;
+    sim_init(&s);
+    sim_tick(&s);
+
+    MEL_ASSERT(!s.p1.cns_state.win);
+    MEL_ASSERT(!s.p1.cns_state.lose);
+    MEL_ASSERT(!s.p2.cns_state.win);
+    MEL_ASSERT(!s.p2.cns_state.lose);
+
+    s.p2.cns_state.life = 1.0f;
+    s.p1.x = 100.0f;
+    s.p1.cns_state.pos_x = 100.0f;
+    s.p2.x = 130.0f;
+    s.p2.cns_state.pos_x = 130.0f;
+
+    for (u32 i = 0; i < 300; i++)
+    {
+        sim_press(&s.p1, ACT_BTN_A);
+        sim_tick(&s);
+        sim_release(&s.p1, ACT_BTN_A);
+        sim_tick_n(&s, 3);
+
+        if (s.round.state == ROUND_KO)
+            break;
+    }
+
+    if (s.round.state == ROUND_KO)
+    {
+        MEL_ASSERT(s.p1.cns_state.win);
+        MEL_ASSERT(!s.p1.cns_state.lose);
+        MEL_ASSERT(!s.p2.cns_state.win);
+        MEL_ASSERT(s.p2.cns_state.lose);
+    }
+}
+
+MEL_TEST(sim_matchover_set_after_enough_wins, .tags = "sim")
+{
+    Sim s;
+    sim_init(&s);
+    sim_tick(&s);
+
+    s.round.p1_wins = s.round.rounds_to_win - 1;
+
+    s.p2.cns_state.life = 1.0f;
+    s.p1.x = 100.0f;
+    s.p1.cns_state.pos_x = 100.0f;
+    s.p2.x = 130.0f;
+    s.p2.cns_state.pos_x = 130.0f;
+
+    for (u32 i = 0; i < 300; i++)
+    {
+        sim_press(&s.p1, ACT_BTN_A);
+        sim_tick(&s);
+        sim_release(&s.p1, ACT_BTN_A);
+        sim_tick_n(&s, 3);
+
+        if (s.round.state == ROUND_POST)
+            break;
+    }
+
+    if (s.round.state == ROUND_POST)
+    {
+        MEL_ASSERT(s.p1.cns_state.matchover);
+        MEL_ASSERT(s.p2.cns_state.matchover);
+    }
+}
+
+MEL_TEST(sim_round_reset_clears_win_lose, .tags = "sim")
+{
+    Sim s;
+    sim_init(&s);
+    sim_tick(&s);
+
+    s.p1.cns_state.win = true;
+    s.p2.cns_state.lose = true;
+    s.p1.cns_state.matchover = true;
+    s.p2.cns_state.matchover = true;
+
+    round_reset(&s.round);
+
+    MEL_ASSERT(!s.p1.cns_state.win);
+    MEL_ASSERT(!s.p1.cns_state.lose);
+    MEL_ASSERT(!s.p1.cns_state.matchover);
+    MEL_ASSERT(!s.p2.cns_state.win);
+    MEL_ASSERT(!s.p2.cns_state.lose);
+    MEL_ASSERT(!s.p2.cns_state.matchover);
+}

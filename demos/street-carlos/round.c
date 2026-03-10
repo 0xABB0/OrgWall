@@ -54,6 +54,8 @@ static void enter_state(Round_Ctx* r, u8 state)
             r->winner = winner;
 
             loser->cns_state.alive = false;
+            loser->cns_state.lose = true;
+            winner->cns_state.win = true;
 
             winner->cns_state.state_changed = true;
             winner->cns_state.pending_state = 180;
@@ -73,6 +75,14 @@ static void enter_state(Round_Ctx* r, u8 state)
         {
             r->p1->cns_state.roundstate = 4;
             r->p2->cns_state.roundstate = 4;
+
+            bool match_over = (r->p1_wins >= r->rounds_to_win ||
+                               r->p2_wins >= r->rounds_to_win);
+            if (match_over)
+            {
+                r->p1->cns_state.matchover = true;
+                r->p2->cns_state.matchover = true;
+            }
             break;
         }
     }
