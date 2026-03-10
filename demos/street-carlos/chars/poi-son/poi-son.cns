@@ -122,6 +122,37 @@ value = SCA
 time = 1
 
 ;---------------------------------------------------------------------------
+; Round initialization (override of common1.cns 5900)
+; Sets bonus mode (fvar(11) = 2) so helpers spawn
+[Statedef 5900]
+type = S
+
+[State 5900, 1]
+type = VarRangeSet
+trigger1 = roundsexisted = 0
+value = 0
+
+[State 5900, 2]
+type = VarRangeSet
+trigger1 = roundsexisted = 0
+fvalue = 0
+
+[State 5900, 3]
+type = VarSet
+trigger1 = 1
+fvar(11) = 2
+
+[State 5900, 4]
+type = ChangeState
+trigger1 = roundno = 1
+value = 190
+
+[State 5900, 5]
+type = ChangeState
+trigger1 = 1
+value = 0
+
+;---------------------------------------------------------------------------
 ; Introduction
 ; CNS difficulty: basic
 [Statedef 191]

@@ -608,6 +608,75 @@ static Mugen_Expr* parse_cmp(Expr_Parser* p)
     return lhs;
 }
 
+static Mugen_Expr* parse_range(Expr_Parser* p, Mugen_Expr* value, bool lo_inclusive, bool negate)
+{
+    p->pos++;
+    Mugen_Expr* lo = parse_add(p);
+    match_char(p, ',');
+    Mugen_Expr* hi = parse_add(p);
+    skip_ws(p);
+    bool hi_inclusive = (peek(p) == ']');
+    if (peek(p) == ']' || peek(p) == ')') p->pos++;
+
+    Mugen_Expr* e = alloc_expr(p, MUGEN_EXPR_RANGE);
+    e->range.value = value;
+    e->range.lo = lo;
+    e->range.hi = hi;
+    e->range.lo_inclusive = lo_inclusive;
+    e->range.hi_inclusive = hi_inclusive;
+
+    if (negate)
+        return make_unary(p, MUGEN_OP_NOT, e);
+    return e;
+}
+
+static Mugen_Expr* try_animelem_compound(Expr_Parser* p, Mugen_Expr* eq_node)
+{
+    if (eq_node->type != MUGEN_EXPR_BINARY) return eq_node;
+    if (eq_node->binary.op != MUGEN_OP_EQ) return eq_node;
+    if (!eq_node->binary.lhs || eq_node->binary.lhs->type != MUGEN_EXPR_QUERY) return eq_node;
+    if (eq_node->binary.lhs->query.id != MUGEN_QUERY_ANIMELEM) return eq_node;
+
+    Mugen_Expr* elem_num = eq_node->binary.rhs;
+
+    skip_ws(p);
+    if (peek(p) == ',')
+    {
+        p->pos++;
+        skip_ws(p);
+
+        u8 op = MUGEN_OP_EQ;
+        u8 c = peek(p);
+        if (c == '<')
+        {
+            p->pos++;
+            if (peek(p) == '=') { p->pos++; op = MUGEN_OP_LE; }
+            else op = MUGEN_OP_LT;
+        }
+        else if (c == '>')
+        {
+            p->pos++;
+            if (peek(p) == '=') { p->pos++; op = MUGEN_OP_GE; }
+            else op = MUGEN_OP_GT;
+        }
+        else if (c == '!' && p->pos + 1 < (usize)p->text.len && p->text.data[p->pos + 1] == '=')
+        {
+            p->pos += 2;
+            op = MUGEN_OP_NEQ;
+        }
+        else if (c == '=')
+        {
+            p->pos++;
+            op = MUGEN_OP_EQ;
+        }
+
+        Mugen_Expr* offset = parse_add(p);
+        return make_binary(p, op, make_query(p, MUGEN_QUERY_ANIMELEMTIME, elem_num), offset);
+    }
+
+    return make_binary(p, MUGEN_OP_EQ, make_query(p, MUGEN_QUERY_ANIMELEMTIME, elem_num), make_int(p, 0));
+}
+
 static Mugen_Expr* parse_eq(Expr_Parser* p)
 {
     Mugen_Expr* lhs = parse_cmp(p);
@@ -618,12 +687,32 @@ static Mugen_Expr* parse_eq(Expr_Parser* p)
         if (c == '=' && (p->pos + 1 >= (usize)p->text.len || p->text.data[p->pos + 1] != '='))
         {
             p->pos++;
-            lhs = make_binary(p, MUGEN_OP_EQ, lhs, parse_cmp(p));
+            skip_ws(p);
+            u8 next = peek(p);
+            if (next == '[' || next == '(')
+            {
+                lhs = parse_range(p, lhs, next == '[', false);
+            }
+            else
+            {
+                Mugen_Expr* rhs = parse_cmp(p);
+                lhs = make_binary(p, MUGEN_OP_EQ, lhs, rhs);
+                lhs = try_animelem_compound(p, lhs);
+            }
         }
         else if (c == '!' && p->pos + 1 < (usize)p->text.len && p->text.data[p->pos + 1] == '=')
         {
             p->pos += 2;
-            lhs = make_binary(p, MUGEN_OP_NEQ, lhs, parse_cmp(p));
+            skip_ws(p);
+            u8 next = peek(p);
+            if (next == '[' || next == '(')
+            {
+                lhs = parse_range(p, lhs, next == '[', true);
+            }
+            else
+            {
+                lhs = make_binary(p, MUGEN_OP_NEQ, lhs, parse_cmp(p));
+            }
         }
         else break;
     }
@@ -753,7 +842,7 @@ f32 mugen_expr_eval(Mugen_Expr* expr, Mugen_Char_State* state)
                     if (val == 'S') expected = MUGEN_PHYSICS_S;
                     else if (val == 'C') expected = MUGEN_PHYSICS_C;
                     else if (val == 'A') expected = MUGEN_PHYSICS_A;
-                    else if (val == 'L') expected = 4;
+                    else if (val == 'L') expected = MUGEN_PHYSICS_L;
                     bool eq = (st == expected);
                     return (expr->binary.op == MUGEN_OP_EQ) ? (eq ? 1.0f : 0.0f) : (eq ? 0.0f : 1.0f);
                 }
@@ -831,11 +920,7 @@ f32 mugen_expr_eval(Mugen_Expr* expr, Mugen_Char_State* state)
                 case MUGEN_QUERY_TIME:         return (f32)state->time;
                 case MUGEN_QUERY_ANIMTIME:     return (f32)state->animtime;
                 case MUGEN_QUERY_ANIMELEM:
-                {
-                    if (state->animelemtime == 0)
-                        return (f32)state->animelem;
-                    return (f32)state->animelem + 0.5f;
-                }
+                    return (f32)state->animelem;
                 case MUGEN_QUERY_ANIMELEMTIME:
                 {
                     if (expr->query.arg)
@@ -1085,6 +1170,16 @@ f32 mugen_expr_eval(Mugen_Expr* expr, Mugen_Char_State* state)
             }
             if (!target) return 0.0f;
             return mugen_expr_eval(expr->redirect.sub_expr, target);
+        }
+
+        case MUGEN_EXPR_RANGE:
+        {
+            f32 val = mugen_expr_eval(expr->range.value, state);
+            f32 lo = mugen_expr_eval(expr->range.lo, state);
+            f32 hi = mugen_expr_eval(expr->range.hi, state);
+            bool lo_ok = expr->range.lo_inclusive ? (val >= lo) : (val > lo);
+            bool hi_ok = expr->range.hi_inclusive ? (val <= hi) : (val < hi);
+            return (lo_ok && hi_ok) ? 1.0f : 0.0f;
         }
     }
 

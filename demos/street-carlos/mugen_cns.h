@@ -18,6 +18,7 @@ typedef struct Command_List Command_List;
 #define MUGEN_EXPR_QUERY       6
 #define MUGEN_EXPR_VAR         7
 #define MUGEN_EXPR_REDIRECT    8
+#define MUGEN_EXPR_RANGE       9
 
 #define MUGEN_REDIRECT_HELPER  0
 #define MUGEN_REDIRECT_ROOT    1
@@ -118,6 +119,7 @@ struct Mugen_Expr {
         struct { u8 id; Mugen_Expr* arg; } query;
         struct { u8 var_type; Mugen_Expr* index; } var;
         struct { u8 target_type; Mugen_Expr* id; Mugen_Expr* sub_expr; } redirect;
+        struct { Mugen_Expr* value; Mugen_Expr* lo; Mugen_Expr* hi; bool lo_inclusive; bool hi_inclusive; } range;
     };
 };
 
@@ -322,6 +324,8 @@ typedef struct {
 #define MUGEN_ASSERT_NOCROUCHGUARD (1u << 3)
 #define MUGEN_ASSERT_NOAIRGUARD    (1u << 4)
 #define MUGEN_ASSERT_NOJUGGLECHECK (1u << 5)
+#define MUGEN_ASSERT_INTRO         (1u << 6)
+#define MUGEN_ASSERT_NOCORNERPUSH  (1u << 7)
 
 typedef struct {
     u32 flags;
@@ -471,6 +475,9 @@ typedef struct {
     i32 juggle;
     i32 poweradd;
     i32 sprpriority;
+    bool hitdefpersist;
+    bool movehitpersist;
+    bool hitcountpersist;
     Mugen_State_Controller* controllers;
     u32 controller_count;
 } Mugen_Statedef;
@@ -730,6 +737,8 @@ struct Mugen_Char_State {
     i32 helper_spawn_facing;
 
     bool destroy_self_pending;
+
+    f32 cornerpush_vel;
 };
 
 Mugen_Expr* mugen_expr_parse(str8 text, const Mel_Alloc* alloc);
@@ -737,6 +746,7 @@ f32 mugen_expr_eval(Mugen_Expr* expr, Mugen_Char_State* state);
 bool mugen_expr_eval_bool(Mugen_Expr* expr, Mugen_Char_State* state);
 
 bool mugen_cns_load(Mugen_Cns* out, str8 data, const Mel_Alloc* alloc);
+void mugen_cns_merge(Mugen_Cns* dst, Mugen_Cns* src, const Mel_Alloc* alloc);
 void mugen_cns_shutdown(Mugen_Cns* cns, const Mel_Alloc* alloc);
 Mugen_Statedef* mugen_cns_get(Mugen_Cns* cns, i32 stateno);
 

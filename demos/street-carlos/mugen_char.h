@@ -16,6 +16,8 @@
 #include "string.str8.fwd.h"
 #include "sprite.pass.fwd.h"
 
+#define MUGEN_CHAR_MAX_FILES 16
+
 typedef struct {
     Mugen_Sff sff;
     Mugen_Air air;
@@ -26,9 +28,8 @@ typedef struct {
     Mel_Anim_Clip_Pool clip_pool;
     Fighter_Action_Map* action_map;
     u32 action_map_count;
-    u8* cmd_file_data;
-    u8* cns_file_data;
-    u8* common_cns_file_data;
+    u8* file_data[MUGEN_CHAR_MAX_FILES];
+    u32 file_data_count;
     Mel_Gpu_Texture tex;
     Mel_Texture_Handle tex_handle;
     bool loaded;
@@ -40,11 +41,8 @@ typedef struct {
     Mel_Sprite_Pass* sprite_pass;
     Mel_Texture_Pool* tex_pool;
     Mel_Vfs* vfs;
-    str8 sff_path;
-    str8 air_path;
-    str8 cmd_path;
-    str8 cns_path;
-    str8 common_cns_path;
+    str8 def_path;
+    str8 stcommon_path;
     const Mel_Alloc* alloc;
 } Mugen_Char_Load_Opt;
 

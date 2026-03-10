@@ -35,11 +35,19 @@ void mugen_cns_enter_state(Mugen_Cns* cns, Mugen_Char_State* state, i32 stateno)
     state->stateno = stateno;
     state->time = 0;
     state->state_changed = false;
-    state->hitdef_pending = false;
-    state->hitdef_active = false;
-    state->mctime = 0;
-    state->movehit = 0;
-    state->moveguarded = 0;
+    if (!def->hitdefpersist)
+    {
+        state->hitdef_pending = false;
+        state->hitdef_active = false;
+    }
+    if (!def->movehitpersist)
+    {
+        state->mctime = 0;
+        state->movehit = 0;
+        state->moveguarded = 0;
+    }
+    if (!def->hitcountpersist)
+        state->hitcount = 0;
 
     {
         u8 st = def->statetype ? def->statetype : MUGEN_PHYSICS_S;
@@ -286,7 +294,7 @@ static void exec_controller(Mugen_State_Controller* sc, Mugen_Char_State* state)
             *r = (Mugen_HitDef_Result){0};
             r->active = true;
             r->attr = p->attr;
-            r->hitflag = p->hitflag;
+            r->hitflag = p->hitflag ? p->hitflag : (MUGEN_HF_M | MUGEN_HF_A | MUGEN_HF_F);
             r->guardflag = p->guardflag;
             r->ground_type = p->ground_type;
             r->animtype = p->animtype;

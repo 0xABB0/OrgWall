@@ -32,6 +32,7 @@
 #include "sim.ctx.h"
 #include "input.stack.h"
 #include "input.bindings.h"
+#include "async.task.h"
 
 #include "stage.h"
 #include "actions.h"
@@ -40,11 +41,17 @@
 #include "game_draw.h"
 #include "game_test.h"
 #include "combat.h"
+#include "round.h"
 #include "command.h"
 #include "vfs.h"
 #include "vfs.backend.os.h"
 #include "async.io.h"
+#include "font.atlas.h"
 #include <string.h>
+
+#define SCREEN_TITLE   0
+#define SCREEN_LOADING 1
+#define SCREEN_FIGHT   2
 
 typedef struct {
     f32 x, y;
@@ -77,12 +84,22 @@ static Mel_Input_Bindings s_p2_bindings;
 
 static Fighter s_p1;
 static Fighter s_p2;
+static Round_Ctx s_round;
 static bool s_show_hitboxes;
 static bool s_show_tests;
 
 static Mel_Io s_io;
 static Mel_Vfs s_vfs;
 static Mugen_Char s_mugen_char;
+
+static Mel_Font_Atlas_Pool s_font_pool;
+static Mel_Font_Handle s_title_font;
+static Mel_Font_Handle s_body_font;
+
+static u32 s_current_screen;
+static Mel_Task_Ctx* s_task_ctx;
+static Mel_Task_Handle s_load_task;
+static bool s_fight_initialized;
 
 static void update_blit_quad(void)
 {
@@ -134,7 +151,7 @@ static void imgui_pass(Mel_Render_Pass_Ctx* ctx)
 {
     MEL_UNUSED(ctx);
 
-    if (s_show_tests)
+    if (s_current_screen == SCREEN_FIGHT && s_show_tests)
         game_test_imgui();
 
     igRender();
@@ -150,17 +167,192 @@ static bool fighter_on_action(Mel_Input_Action action, f32 value, void* user)
     return action >= ACT_MOVE_LEFT && action <= ACT_BTN_Z;
 }
 
+static void init_input(void)
+{
+    mel_input_bindings_init(&s_p1_bindings);
+    mel_input_bindings_add(&s_p1_bindings, SDL_SCANCODE_A, ACT_MOVE_LEFT);
+    mel_input_bindings_add(&s_p1_bindings, SDL_SCANCODE_D, ACT_MOVE_RIGHT);
+    mel_input_bindings_add(&s_p1_bindings, SDL_SCANCODE_S, ACT_CROUCH);
+    mel_input_bindings_add(&s_p1_bindings, SDL_SCANCODE_W, ACT_JUMP);
+    mel_input_bindings_add(&s_p1_bindings, SDL_SCANCODE_U, ACT_BTN_X);
+    mel_input_bindings_add(&s_p1_bindings, SDL_SCANCODE_I, ACT_BTN_Y);
+    mel_input_bindings_add(&s_p1_bindings, SDL_SCANCODE_O, ACT_BTN_Z);
+    mel_input_bindings_add(&s_p1_bindings, SDL_SCANCODE_J, ACT_BTN_A);
+    mel_input_bindings_add(&s_p1_bindings, SDL_SCANCODE_K, ACT_BTN_B);
+    mel_input_bindings_add(&s_p1_bindings, SDL_SCANCODE_L, ACT_BTN_C);
+
+    mel_input_bindings_init(&s_p2_bindings);
+    mel_input_bindings_add(&s_p2_bindings, SDL_SCANCODE_LEFT, ACT_MOVE_LEFT);
+    mel_input_bindings_add(&s_p2_bindings, SDL_SCANCODE_RIGHT, ACT_MOVE_RIGHT);
+    mel_input_bindings_add(&s_p2_bindings, SDL_SCANCODE_DOWN, ACT_CROUCH);
+    mel_input_bindings_add(&s_p2_bindings, SDL_SCANCODE_UP, ACT_JUMP);
+    mel_input_bindings_add(&s_p2_bindings, SDL_SCANCODE_KP_7, ACT_BTN_X);
+    mel_input_bindings_add(&s_p2_bindings, SDL_SCANCODE_KP_8, ACT_BTN_Y);
+    mel_input_bindings_add(&s_p2_bindings, SDL_SCANCODE_KP_9, ACT_BTN_Z);
+    mel_input_bindings_add(&s_p2_bindings, SDL_SCANCODE_KP_4, ACT_BTN_A);
+    mel_input_bindings_add(&s_p2_bindings, SDL_SCANCODE_KP_5, ACT_BTN_B);
+    mel_input_bindings_add(&s_p2_bindings, SDL_SCANCODE_KP_6, ACT_BTN_C);
+
+    mel_input_stack_init(&s_input_stack);
+
+    mel_input_stack_push(&s_input_stack,
+        .mapper = mel_input_mapper_keyboard,
+        .mapper_user = &s_p1_bindings,
+        .on_action = fighter_on_action,
+        .user = &s_p1);
+
+    mel_input_stack_push(&s_input_stack,
+        .mapper = mel_input_mapper_keyboard,
+        .mapper_user = &s_p2_bindings,
+        .on_action = fighter_on_action,
+        .user = &s_p2);
+}
+
+static void screen_enter_fight(void)
+{
+    fighter_init(&s_p1, mel_alloc_heap(),
+        .start_x = 80.0f,
+        .facing_right = true,
+        .clip_pool = &s_mugen_char.clip_pool,
+        .action_map = s_mugen_char.action_map,
+        .action_map_count = s_mugen_char.action_map_count);
+
+    fighter_init(&s_p2, mel_alloc_heap(),
+        .start_x = GAME_W - 80.0f,
+        .facing_right = false,
+        .clip_pool = &s_mugen_char.clip_pool,
+        .action_map = s_mugen_char.action_map,
+        .action_map_count = s_mugen_char.action_map_count);
+
+    for (u32 i = 0; i < s_mugen_char.cmd.command_count; i++)
+    {
+        Mugen_Cmd_Def* c = &s_mugen_char.cmd.commands[i];
+        command_list_add(&s_p1.commands, c->name, c->command, .time = c->time, .buf_time = 1);
+        command_list_add(&s_p2.commands, c->name, c->command, .time = c->time, .buf_time = 1);
+    }
+
+    if (s_mugen_char.cns_loaded)
+    {
+        fighter_enable_cns(&s_p1, &s_mugen_char.cns, &s_mugen_char.common_cns, &s_mugen_char.cmd_cns);
+        fighter_enable_cns(&s_p2, &s_mugen_char.cns, &s_mugen_char.common_cns, &s_mugen_char.cmd_cns);
+    }
+
+    round_init(&s_round, .p1 = &s_p1, .p2 = &s_p2);
+
+    init_input();
+    s_fight_initialized = true;
+    s_current_screen = SCREEN_FIGHT;
+
+    SDL_Log("FIGHT! P1: WASD + UIO(xyz) JKL(abc)  P2: Arrows + Numpad  Tab: hitboxes  T: tests  ESC: quit");
+}
+
+static Mel_Task_Step_Result step_load_character(Mel_Task_Ctx* ctx, void* user_data)
+{
+    MEL_UNUSED(ctx);
+    MEL_UNUSED(user_data);
+
+    bool ok = mugen_char_load(&s_mugen_char,
+        .dev = mel_gpu_dev(),
+        .sprite_pass = mel_sprite_pass(),
+        .tex_pool = mel_texture_pool(),
+        .vfs = &s_vfs,
+        .def_path = S8("/chars/poi-son/poi-son.def"),
+        .stcommon_path = S8("/chars/common1.cns"),
+        .alloc = mel_alloc_heap());
+
+    return (Mel_Task_Step_Result){
+        .result = ok ? MEL_TASK_STEP_DONE : MEL_TASK_STEP_FAILED,
+    };
+}
+
+static void on_load_complete(Mel_Task_Handle handle, u32 status, void* user)
+{
+    MEL_UNUSED(user);
+
+    if (status == MEL_TASK_STATUS_DONE)
+    {
+        screen_enter_fight();
+    }
+    else
+    {
+        SDL_Log("Character loading failed!");
+    }
+
+    mel_task_release(s_task_ctx, handle);
+    s_load_task = MEL_TASK_HANDLE_NULL;
+}
+
+static void screen_start_loading(void)
+{
+    s_current_screen = SCREEN_LOADING;
+
+    s_load_task = mel_task_begin(s_task_ctx,
+        .on_complete = on_load_complete);
+
+    mel_task_add_step(s_task_ctx, s_load_task,
+        (Mel_Task_Step_Desc){ .fn = step_load_character });
+
+    mel_task_submit(s_task_ctx, s_load_task);
+}
+
 static void game_fixed_update(Mel_Sim_Ctx* sim, f32 dt, void* user)
 {
     MEL_UNUSED(sim);
     MEL_UNUSED(user);
 
-    fighter_tick(&s_p1, dt, STAGE_LEFT, STAGE_RIGHT);
-    fighter_tick(&s_p2, dt, STAGE_LEFT, STAGE_RIGHT);
+    if (s_current_screen != SCREEN_FIGHT) return;
 
-    combat_resolve(&s_p1, &s_p2);
-    fighter_apply_combat_state(&s_p1);
-    fighter_apply_combat_state(&s_p2);
+    round_tick(&s_round, dt);
+}
+
+static void draw_title(Mel_Render_List* list)
+{
+    str8 title = S8("STREET CARLOS");
+    Mel_Vec2 title_sz = mel_font_atlas_measure_text(&s_font_pool, s_title_font, title);
+    f32 title_x = (f32)GAME_W * 0.5f - title_sz.x * 0.5f;
+    f32 title_y = 60.0f;
+    mel_font_atlas_draw_text(&s_font_pool, s_title_font, list, title,
+        title_x, title_y, mel_vec4(1.0f, 0.3f, 0.3f, 1.0f));
+
+    str8 prompt = S8("Press ENTER to fight");
+    Mel_Vec2 prompt_sz = mel_font_atlas_measure_text(&s_font_pool, s_body_font, prompt);
+    f32 prompt_x = (f32)GAME_W * 0.5f - prompt_sz.x * 0.5f;
+    f32 prompt_y = title_y + title_sz.y + 30.0f;
+
+    f32 t = (f32)SDL_GetTicks() / 1000.0f;
+    f32 alpha = 0.5f + 0.5f * SDL_sinf(t * 3.0f);
+    mel_font_atlas_draw_text(&s_font_pool, s_body_font, list, prompt,
+        prompt_x, prompt_y, mel_vec4(1.0f, 1.0f, 1.0f, alpha));
+}
+
+static void draw_loading(Mel_Render_List* list)
+{
+    str8 text = S8("Loading...");
+    Mel_Vec2 text_sz = mel_font_atlas_measure_text(&s_font_pool, s_body_font, text);
+    f32 text_x = (f32)GAME_W * 0.5f - text_sz.x * 0.5f;
+    f32 text_y = (f32)GAME_H * 0.5f - 20.0f;
+    mel_font_atlas_draw_text(&s_font_pool, s_body_font, list, text,
+        text_x, text_y, mel_vec4(1.0f, 1.0f, 1.0f, 1.0f));
+
+    f32 progress = 0.0f;
+    if (mel_slotmap_handle_valid(s_load_task))
+        progress = mel_task_progress(s_task_ctx, s_load_task);
+
+    f32 bar_w = 200.0f;
+    f32 bar_h = 8.0f;
+    f32 bar_x = (f32)GAME_W * 0.5f - bar_w * 0.5f;
+    f32 bar_y = text_y + text_sz.y + 12.0f;
+
+    mel_draw_sprite(list, .pos = mel_vec2(bar_x, bar_y),
+        .size = mel_vec2(bar_w, bar_h),
+        .color = mel_vec4(0.2f, 0.2f, 0.2f, 1.0f));
+
+    if (progress > 0.0f)
+    {
+        mel_draw_sprite(list, .pos = mel_vec2(bar_x, bar_y),
+            .size = mel_vec2(bar_w * progress, bar_h),
+            .color = mel_vec4(1.0f, 0.3f, 0.3f, 1.0f));
+    }
 }
 
 static void game_draw(Mel_Sim_Ctx* sim, f32 dt, void* user)
@@ -169,27 +361,40 @@ static void game_draw(Mel_Sim_Ctx* sim, f32 dt, void* user)
     MEL_UNUSED(dt);
     MEL_UNUSED(user);
 
+    mel_task_tick(s_task_ctx);
     mel_render_list_clear(&s_game_list);
 
-    game_draw_stage(&s_game_list);
+    switch (s_current_screen) {
+    case SCREEN_TITLE:
+        draw_title(&s_game_list);
+        break;
 
-    game_draw_fighter(&s_p1, &s_mugen_char, &s_game_list);
-    game_draw_fighter(&s_p2, &s_mugen_char, &s_game_list);
+    case SCREEN_LOADING:
+        draw_loading(&s_game_list);
+        break;
 
-    for (u32 i = 0; i < s_p1.helper_count; i++)
-        game_draw_helper(&s_p1.helpers[i], &s_mugen_char, &s_game_list);
-    for (u32 i = 0; i < s_p2.helper_count; i++)
-        game_draw_helper(&s_p2.helpers[i], &s_mugen_char, &s_game_list);
+    case SCREEN_FIGHT:
+        game_draw_stage(&s_game_list);
 
-    if (s_show_hitboxes)
-    {
-        game_draw_debug_boxes(&s_p1, &s_game_list);
-        game_draw_debug_boxes(&s_p2, &s_game_list);
+        game_draw_fighter(&s_p1, &s_mugen_char, &s_game_list);
+        game_draw_fighter(&s_p2, &s_mugen_char, &s_game_list);
 
         for (u32 i = 0; i < s_p1.helper_count; i++)
-            game_draw_helper_debug_boxes(&s_p1.helpers[i], &s_game_list);
+            game_draw_helper(&s_p1.helpers[i], &s_mugen_char, &s_game_list);
         for (u32 i = 0; i < s_p2.helper_count; i++)
-            game_draw_helper_debug_boxes(&s_p2.helpers[i], &s_game_list);
+            game_draw_helper(&s_p2.helpers[i], &s_mugen_char, &s_game_list);
+
+        if (s_show_hitboxes)
+        {
+            game_draw_debug_boxes(&s_p1, &s_game_list);
+            game_draw_debug_boxes(&s_p2, &s_game_list);
+
+            for (u32 i = 0; i < s_p1.helper_count; i++)
+                game_draw_helper_debug_boxes(&s_p1.helpers[i], &s_game_list);
+            for (u32 i = 0; i < s_p2.helper_count; i++)
+                game_draw_helper_debug_boxes(&s_p2.helpers[i], &s_game_list);
+        }
+        break;
     }
 }
 
@@ -274,47 +479,6 @@ static void init_render(void)
     mel_set_render_graph(&s_graph);
 }
 
-static void init_input(void)
-{
-    mel_input_bindings_init(&s_p1_bindings);
-    mel_input_bindings_add(&s_p1_bindings, SDL_SCANCODE_A, ACT_MOVE_LEFT);
-    mel_input_bindings_add(&s_p1_bindings, SDL_SCANCODE_D, ACT_MOVE_RIGHT);
-    mel_input_bindings_add(&s_p1_bindings, SDL_SCANCODE_S, ACT_CROUCH);
-    mel_input_bindings_add(&s_p1_bindings, SDL_SCANCODE_W, ACT_JUMP);
-    mel_input_bindings_add(&s_p1_bindings, SDL_SCANCODE_U, ACT_BTN_X);
-    mel_input_bindings_add(&s_p1_bindings, SDL_SCANCODE_I, ACT_BTN_Y);
-    mel_input_bindings_add(&s_p1_bindings, SDL_SCANCODE_O, ACT_BTN_Z);
-    mel_input_bindings_add(&s_p1_bindings, SDL_SCANCODE_J, ACT_BTN_A);
-    mel_input_bindings_add(&s_p1_bindings, SDL_SCANCODE_K, ACT_BTN_B);
-    mel_input_bindings_add(&s_p1_bindings, SDL_SCANCODE_L, ACT_BTN_C);
-
-    mel_input_bindings_init(&s_p2_bindings);
-    mel_input_bindings_add(&s_p2_bindings, SDL_SCANCODE_LEFT, ACT_MOVE_LEFT);
-    mel_input_bindings_add(&s_p2_bindings, SDL_SCANCODE_RIGHT, ACT_MOVE_RIGHT);
-    mel_input_bindings_add(&s_p2_bindings, SDL_SCANCODE_DOWN, ACT_CROUCH);
-    mel_input_bindings_add(&s_p2_bindings, SDL_SCANCODE_UP, ACT_JUMP);
-    mel_input_bindings_add(&s_p2_bindings, SDL_SCANCODE_KP_7, ACT_BTN_X);
-    mel_input_bindings_add(&s_p2_bindings, SDL_SCANCODE_KP_8, ACT_BTN_Y);
-    mel_input_bindings_add(&s_p2_bindings, SDL_SCANCODE_KP_9, ACT_BTN_Z);
-    mel_input_bindings_add(&s_p2_bindings, SDL_SCANCODE_KP_4, ACT_BTN_A);
-    mel_input_bindings_add(&s_p2_bindings, SDL_SCANCODE_KP_5, ACT_BTN_B);
-    mel_input_bindings_add(&s_p2_bindings, SDL_SCANCODE_KP_6, ACT_BTN_C);
-
-    mel_input_stack_init(&s_input_stack);
-
-    mel_input_stack_push(&s_input_stack,
-        .mapper = mel_input_mapper_keyboard,
-        .mapper_user = &s_p1_bindings,
-        .on_action = fighter_on_action,
-        .user = &s_p1);
-
-    mel_input_stack_push(&s_input_stack,
-        .mapper = mel_input_mapper_keyboard,
-        .mapper_user = &s_p2_bindings,
-        .on_action = fighter_on_action,
-        .user = &s_p2);
-}
-
 static void on_init(void)
 {
     init_render();
@@ -324,57 +488,34 @@ static void on_init(void)
     Mel_Vfs_Backend* os_be = mel_vfs_backend_os_create(mel_alloc_heap(), S8("demos/street-carlos"));
     mel_vfs_mount(&s_vfs, S8("/"), os_be, 0, false);
 
-    mugen_char_load(&s_mugen_char,
-        .dev = mel_gpu_dev(),
-        .sprite_pass = mel_sprite_pass(),
-        .tex_pool = mel_texture_pool(),
-        .vfs = &s_vfs,
-        .sff_path = S8("/chars/kfm/kfm.sff"),
-        .air_path = S8("/chars/kfm/kfm.air"),
-        .cmd_path = S8("/chars/kfm/kfm.cmd"),
-        .cns_path = S8("/chars/kfm/kfm.cns"),
-        .common_cns_path = S8("/chars/kfm/common1.cns"),
-        .alloc = mel_alloc_heap());
+    Mel_Vfs_Backend* fonts_be = mel_vfs_backend_os_create(mel_alloc_heap(), S8("/System/Library/Fonts"));
+    mel_vfs_mount(&s_vfs, S8("/fonts"), fonts_be, 0, false);
 
-    fighter_init(&s_p1, mel_alloc_heap(),
-        .start_x = 80.0f,
-        .facing_right = true,
-        .clip_pool = &s_mugen_char.clip_pool,
-        .action_map = s_mugen_char.action_map,
-        .action_map_count = s_mugen_char.action_map_count);
+    mel_font_atlas_pool_init(&s_font_pool, mel_alloc_heap(), mel_gpu_dev(), &s_vfs,
+        .texture_pool = mel_texture_pool());
+    s_title_font = mel_font_atlas_pool_load(&s_font_pool,
+        .path = S8("/fonts/Monaco.ttf"), .size = 24.0f);
+    s_body_font = mel_font_atlas_pool_load(&s_font_pool,
+        .path = S8("/fonts/Monaco.ttf"), .size = 10.0f);
 
-    fighter_init(&s_p2, mel_alloc_heap(),
-        .start_x = GAME_W - 80.0f,
-        .facing_right = false,
-        .clip_pool = &s_mugen_char.clip_pool,
-        .action_map = s_mugen_char.action_map,
-        .action_map_count = s_mugen_char.action_map_count);
-
-    for (u32 i = 0; i < s_mugen_char.cmd.command_count; i++)
-    {
-        Mugen_Cmd_Def* c = &s_mugen_char.cmd.commands[i];
-        command_list_add(&s_p1.commands, c->name, c->command, .time = c->time, .buf_time = 1);
-        command_list_add(&s_p2.commands, c->name, c->command, .time = c->time, .buf_time = 1);
-    }
-
-    if (s_mugen_char.cns_loaded)
-    {
-        fighter_enable_cns(&s_p1, &s_mugen_char.cns, &s_mugen_char.common_cns, &s_mugen_char.cmd_cns);
-        fighter_enable_cns(&s_p2, &s_mugen_char.cns, &s_mugen_char.common_cns, &s_mugen_char.cmd_cns);
-    }
+    Mel_Task_Ctx_Desc task_desc = {
+        .alloc = mel_alloc_heap(),
+        .io    = &s_io,
+        .vfs   = &s_vfs,
+    };
+    s_task_ctx = mel_task_ctx_create(&task_desc);
 
     mel_sim_init(&s_sim, .event_buffer = s_event_buf, .event_buffer_size = sizeof(s_event_buf));
 
     Mel_Sim_Fixed* fixed = mel_sim_add_fixed(&s_sim, .fixed_dt = 1.0f / 60.0f);
     mel_sim_fixed_add_update(fixed, game_fixed_update);
-
     mel_sim_add_variable(&s_sim, game_draw);
-
     mel_register_sim(&s_sim);
 
-    init_input();
+    s_current_screen = SCREEN_TITLE;
+    s_load_task = MEL_TASK_HANDLE_NULL;
 
-    SDL_Log("Street Carlos ready! P1: WASD + UIO(xyz) JKL(abc)  P2: Arrows + Numpad  Tab: hitboxes  T: tests  ESC: quit");
+    SDL_Log("Street Carlos - Title Screen");
 }
 
 static void app_init(Mel_App* app)
@@ -396,9 +537,18 @@ static void app_init(Mel_App* app)
 
 static void app_shutdown(Mel_App* app)
 {
-    mel_input_stack_shutdown(&s_input_stack);
-    mel_input_bindings_shutdown(&s_p1_bindings);
-    mel_input_bindings_shutdown(&s_p2_bindings);
+    MEL_UNUSED(app);
+
+    if (s_fight_initialized)
+    {
+        mel_input_stack_shutdown(&s_input_stack);
+        mel_input_bindings_shutdown(&s_p1_bindings);
+        mel_input_bindings_shutdown(&s_p2_bindings);
+        fighter_shutdown(&s_p1);
+        fighter_shutdown(&s_p2);
+        mel_anim_player_destroy(&s_p1.player);
+        mel_anim_player_destroy(&s_p2.player);
+    }
 
     mel_unregister_sim(&s_sim);
     mel_sim_shutdown(&s_sim);
@@ -409,17 +559,18 @@ static void app_shutdown(Mel_App* app)
     mel_render_target_shutdown(&s_offscreen);
     mel_render_target_shutdown(&s_swapchain_target);
 
-    fighter_shutdown(&s_p1);
-    fighter_shutdown(&s_p2);
-    mel_anim_player_destroy(&s_p1.player);
-    mel_anim_player_destroy(&s_p2.player);
-    mugen_char_shutdown(&s_mugen_char, dev, mel_alloc_heap());
+    if (s_mugen_char.loaded)
+        mugen_char_shutdown(&s_mugen_char, dev, mel_alloc_heap());
 
     mel_gpu_buffer_shutdown(&s_blit_vbuf, dev);
     mel_gpu_buffer_shutdown(&s_blit_ibuf, dev);
     vkDestroySampler(dev->device, s_nearest_sampler, nullptr);
 
     mel_render_list_shutdown(&s_game_list);
+
+    mel_font_atlas_pool_shutdown(&s_font_pool);
+    mel_vfs_unmount(&s_vfs, S8("/fonts"));
+    mel_task_ctx_destroy(s_task_ctx);
 
     SDL_Log("Street Carlos shutdown");
 }
@@ -432,19 +583,29 @@ static void app_event(Mel_App* app, SDL_Event* event)
         return;
     }
 
-    if (event->type == SDL_EVENT_KEY_DOWN && event->key.scancode == SDL_SCANCODE_TAB && !event->key.repeat)
-    {
-        s_show_hitboxes = !s_show_hitboxes;
-        return;
-    }
+    switch (s_current_screen) {
+    case SCREEN_TITLE:
+        if (event->type == SDL_EVENT_KEY_DOWN && event->key.scancode == SDL_SCANCODE_RETURN && !event->key.repeat)
+            screen_start_loading();
+        break;
 
-    if (event->type == SDL_EVENT_KEY_DOWN && event->key.scancode == SDL_SCANCODE_T && !event->key.repeat)
-    {
-        s_show_tests = !s_show_tests;
-        return;
-    }
+    case SCREEN_LOADING:
+        break;
 
-    mel_input_stack_dispatch(&s_input_stack, event);
+    case SCREEN_FIGHT:
+        if (event->type == SDL_EVENT_KEY_DOWN && event->key.scancode == SDL_SCANCODE_TAB && !event->key.repeat)
+        {
+            s_show_hitboxes = !s_show_hitboxes;
+            return;
+        }
+        if (event->type == SDL_EVENT_KEY_DOWN && event->key.scancode == SDL_SCANCODE_T && !event->key.repeat)
+        {
+            s_show_tests = !s_show_tests;
+            return;
+        }
+        mel_input_stack_dispatch(&s_input_stack, event);
+        break;
+    }
 }
 
 MEL_APP(

@@ -120,12 +120,12 @@ static void apply_guard(Fighter* attacker, Fighter* victim)
     ast->hitdef_pending = false;
     ast->hitdef_active = false;
 
-    bool victim_in_corner = (vst->pos_x <= vst->stage_left + vst->ground_back + 1.0f) ||
-                            (vst->pos_x >= vst->stage_right - vst->ground_front - 1.0f);
-    if (victim_in_corner)
+    if (!(ast->assert_flags & MUGEN_ASSERT_NOCORNERPUSH))
     {
-        attacker->x += hd->guard_cornerpush_veloff * ast->facing;
-        ast->pos_x = attacker->x;
+        bool victim_in_corner = (vst->pos_x <= vst->stage_left + vst->ground_back + 1.0f) ||
+                                (vst->pos_x >= vst->stage_right - vst->ground_front - 1.0f);
+        if (victim_in_corner)
+            ast->cornerpush_vel = hd->guard_cornerpush_veloff;
     }
 
     printf("GUARD: attacker state=%d -> victim state=%d (damage=%.0f life=%.0f pause=%d/%d)\n",
@@ -202,15 +202,17 @@ static void apply_hit(Fighter* attacker, Fighter* victim)
     ast->hitdef_pending = false;
     ast->hitdef_active = false;
 
-    bool victim_in_corner = (vst->pos_x <= vst->stage_left + vst->ground_back + 1.0f) ||
-                            (vst->pos_x >= vst->stage_right - vst->ground_front - 1.0f);
-    if (victim_in_corner)
+    if (!(ast->assert_flags & MUGEN_ASSERT_NOCORNERPUSH))
     {
-        f32 push = (vst->statetype == MUGEN_PHYSICS_A)
-            ? hd->air_cornerpush_veloff
-            : hd->ground_cornerpush_veloff;
-        attacker->x += push * ast->facing;
-        ast->pos_x = attacker->x;
+        bool victim_in_corner = (vst->pos_x <= vst->stage_left + vst->ground_back + 1.0f) ||
+                                (vst->pos_x >= vst->stage_right - vst->ground_front - 1.0f);
+        if (victim_in_corner)
+        {
+            f32 push = (vst->statetype == MUGEN_PHYSICS_A)
+                ? hd->air_cornerpush_veloff
+                : hd->ground_cornerpush_veloff;
+            ast->cornerpush_vel = push;
+        }
     }
 
     printf("HIT: attacker state=%d -> victim state=%d (damage=%.0f life=%.0f)\n",
@@ -271,6 +273,12 @@ static void check_hit(Fighter* attacker, Fighter* victim)
         apply_guard(attacker, victim);
     else
         apply_hit(attacker, victim);
+
+    if (ast->hitdef.hitonce)
+    {
+        ast->hitdef_active = false;
+        ast->hitdef_pending = false;
+    }
 }
 
 static void check_helper_vs_fighter(Fighter_Helper* h, Fighter* victim)

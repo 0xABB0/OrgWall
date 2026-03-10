@@ -2465,16 +2465,22 @@ MEL_TEST(vm_animelem_first_tick_only, .tags = "vm_audit, critical")
     Mugen_Expr* eq6 = mugen_expr_parse(S8("AnimElem = 6"), s_alloc);
     MEL_ASSERT_NOT_NULL(eq6);
 
+    i32 ticks[] = {0, 3, 6, 9, 12, 15};
     Mugen_Char_State st = make_standing_state();
-    st.animelem = 6;
-    st.animelemtime = 0;
+    st.anim_elem_start_ticks = ticks;
+    st.anim_elem_count = 6;
+
+    st.time = 15;
     MEL_ASSERT_FLOAT_EQ(mugen_expr_eval(eq6, &st), 1.0f, 0.001f);
 
-    st.animelemtime = 1;
+    st.time = 16;
     MEL_ASSERT_FLOAT_EQ(mugen_expr_eval(eq6, &st), 0.0f, 0.001f);
 
-    st.animelemtime = 5;
+    st.time = 14;
     MEL_ASSERT_FLOAT_EQ(mugen_expr_eval(eq6, &st), 0.0f, 0.001f);
+
+    st.anim_elem_start_ticks = NULL;
+    st.anim_elem_count = 0;
 }
 
 MEL_TEST(vm_hit_sets_target_pointer, .tags = "vm_audit, throw")
@@ -2637,4 +2643,64 @@ MEL_TEST(vm_hitdef_juggle_from_statedef, .tags = "vm_audit, critical")
     MEL_ASSERT_EQ(st.hitdef.juggle, 4);
 
     mugen_cns_shutdown(&cns, s_alloc);
+}
+
+MEL_TEST(vm_cornerpush_decays, .tags = "vm_audit, critical")
+{
+    ensure_alloc();
+
+    Mugen_Char_State st = make_standing_state();
+    st.cornerpush_vel = 10.0f;
+    st.stage_left = -192.0f;
+    st.stage_right = 192.0f;
+
+    f32 prev_vel = st.cornerpush_vel;
+    f32 total_push = 0.0f;
+    for (i32 i = 0; i < 30; i++)
+    {
+        if (st.cornerpush_vel == 0.0f) break;
+        st.pos_x += st.cornerpush_vel * st.facing;
+        total_push += st.cornerpush_vel;
+        st.cornerpush_vel *= 0.7f;
+        if (fabsf(st.cornerpush_vel) < 0.1f) st.cornerpush_vel = 0.0f;
+    }
+
+    MEL_ASSERT_FLOAT_EQ(st.cornerpush_vel, 0.0f, 0.001f);
+    MEL_ASSERT(total_push > 0.0f);
+    MEL_ASSERT(total_push < prev_vel * 30.0f);
+}
+
+MEL_TEST(vm_cornerpush_not_during_hitpause, .tags = "vm_audit, critical")
+{
+    ensure_alloc();
+
+    Mugen_Char_State st = make_standing_state();
+    st.cornerpush_vel = 10.0f;
+    st.hitpause_time = 5;
+
+    f32 start_pos = st.pos_x;
+
+    MEL_ASSERT(st.hitpause_time > 0);
+    MEL_ASSERT_FLOAT_EQ(st.pos_x, start_pos, 0.001f);
+
+    st.hitpause_time = 0;
+    st.pos_x += st.cornerpush_vel * st.facing;
+    MEL_ASSERT(st.pos_x != start_pos);
+}
+
+MEL_TEST(vm_cornerpush_nocornerpush_flag, .tags = "vm_audit, critical")
+{
+    ensure_alloc();
+
+    Mugen_Char_State attacker = make_standing_state();
+    Mugen_Char_State victim = make_standing_state();
+
+    attacker.assert_flags = MUGEN_ASSERT_NOCORNERPUSH;
+    victim.pos_x = victim.stage_right - victim.ground_front - 0.5f;
+    victim.stage_right = 192.0f;
+
+    attacker.hitdef.ground_cornerpush_veloff = 10.0f;
+    attacker.hitdef.active = true;
+
+    MEL_ASSERT_FLOAT_EQ(attacker.cornerpush_vel, 0.0f, 0.001f);
 }

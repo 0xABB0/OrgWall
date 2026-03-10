@@ -65,6 +65,9 @@ struct Fighter {
 
     Fighter* opponent;
 
+    f32 start_x;
+    bool start_facing_right;
+
     Fighter_Helper* helpers;
     u32 helper_count;
     u32 helper_capacity;
@@ -106,4 +109,5 @@ Fighter_Box helper_hurtbox(Fighter_Helper* h);
 Fighter_Box helper_hitbox(Fighter_Helper* h);
 bool helper_has_active_hitbox(Fighter_Helper* h);
 
+void fighter_round_reset(Fighter* f);
 void fighter_shutdown(Fighter* f);

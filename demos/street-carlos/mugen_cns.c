@@ -672,6 +672,8 @@ static void parse_controller_param(Mugen_State_Controller* sc, str8 key, str8 va
                 else if (str8_ieq(val, "nocrouchguard")) p->flags |= MUGEN_ASSERT_NOCROUCHGUARD;
                 else if (str8_ieq(val, "noairguard")) p->flags |= MUGEN_ASSERT_NOAIRGUARD;
                 else if (str8_ieq(val, "nojugglecheck")) p->flags |= MUGEN_ASSERT_NOJUGGLECHECK;
+                else if (str8_ieq(val, "intro"))         p->flags |= MUGEN_ASSERT_INTRO;
+                else if (str8_ieq(val, "nocornerpush"))  p->flags |= MUGEN_ASSERT_NOCORNERPUSH;
             }
             break;
         }
@@ -1179,6 +1181,9 @@ bool mugen_cns_load(Mugen_Cns* out, str8 data, const Mel_Alloc* alloc)
             else if (str8_ieq(key, "juggle")) current_def.juggle = parse_int(val);
             else if (str8_ieq(key, "poweradd")) current_def.poweradd = parse_int(val);
             else if (str8_ieq(key, "sprpriority")) current_def.sprpriority = parse_int(val);
+            else if (str8_ieq(key, "hitdefpersist")) current_def.hitdefpersist = parse_int(val) != 0;
+            else if (str8_ieq(key, "movehitpersist")) current_def.movehitpersist = parse_int(val) != 0;
+            else if (str8_ieq(key, "hitcountpersist")) current_def.hitcountpersist = parse_int(val) != 0;
         }
         else
         {
@@ -1240,6 +1245,44 @@ bool mugen_cns_load(Mugen_Cns* out, str8 data, const Mel_Alloc* alloc)
 
     SDL_Log("CNS: parsed %u statedefs", statedefs.count);
     return true;
+}
+
+void mugen_cns_merge(Mugen_Cns* dst, Mugen_Cns* src, const Mel_Alloc* alloc)
+{
+    if (!src || src->statedef_count == 0) return;
+
+    for (u32 si = 0; si < src->statedef_count; si++)
+    {
+        Mugen_Statedef* incoming = &src->statedefs[si];
+
+        bool replaced = false;
+        for (u32 di = 0; di < dst->statedef_count; di++)
+        {
+            if (dst->statedefs[di].stateno == incoming->stateno)
+            {
+                dst->statedefs[di] = *incoming;
+                replaced = true;
+                break;
+            }
+        }
+
+        if (!replaced)
+        {
+            u32 new_count = dst->statedef_count + 1;
+            Mugen_Statedef* new_defs = mel_alloc(alloc, new_count * sizeof(Mugen_Statedef));
+            if (dst->statedefs)
+            {
+                memcpy(new_defs, dst->statedefs, dst->statedef_count * sizeof(Mugen_Statedef));
+                mel_dealloc(alloc, dst->statedefs);
+            }
+            new_defs[dst->statedef_count] = *incoming;
+            dst->statedefs = new_defs;
+            dst->statedef_count = new_count;
+        }
+    }
+
+    src->statedefs = NULL;
+    src->statedef_count = 0;
 }
 
 void mugen_cns_shutdown(Mugen_Cns* cns, const Mel_Alloc* alloc)

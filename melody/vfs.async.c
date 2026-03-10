@@ -218,7 +218,8 @@ static void mel__vfs_resolve(Mel_Vfs* vfs, Mel_Vfs__Op* op, Mel_Vfs__Op_Ctx* ctx
         ctx->native_handle = wdata->native_handle;
     } break;
 
-    case MEL_VFS_OP_STAT: {
+    case MEL_VFS_OP_STAT:
+    case MEL_VFS_OP__READ_FILE: {
         i32 mi = mel__vfs_find_mount(vfs, norm_path);
         if (mi < 0) { cqe->status = MEL_VFS_STATUS_NOT_FOUND; break; }
         Mel_Vfs_Mount* mount = &vfs->mounts.items[mi];
@@ -618,6 +619,44 @@ static void mel__vfs_dispatch(Mel_Vfs* vfs, Mel_Vfs__Op* op, Mel_Vfs__Op_Ctx* ct
         }
     } break;
 
+    case MEL_VFS_OP__READ_FILE: {
+        Mel_Vfs__Read_File_Ctx* rfc = (Mel_Vfs__Read_File_Ctx*)sqe->user_data;
+        assert(rfc);
+
+        Mel_Vfs_Stat st;
+        i32 err = ctx->backend->stat(ctx->backend, ctx->rel_path, &st);
+        if (err < 0) {
+            cqe->status = mel__vfs_errno_to_status(err);
+            mel__vfs_fill_error(&cqe->error, err);
+            break;
+        }
+
+        usize file_size = (usize)st.size;
+        Mel_Vfs_Native_Handle nh;
+        err = ctx->backend->open(ctx->backend, ctx->rel_path, MEL_VFS_OPEN_READ, &nh);
+        if (err < 0) {
+            cqe->status = mel__vfs_errno_to_status(err);
+            mel__vfs_fill_error(&cqe->error, err);
+            break;
+        }
+
+        u8* buf = mel_alloc(rfc->alloc, file_size + 1);
+        i64 n = ctx->backend->read(ctx->backend, nh, 0, buf, file_size);
+        ctx->backend->close(ctx->backend, nh);
+
+        if (n < 0) {
+            mel_dealloc(rfc->alloc, buf);
+            cqe->status = MEL_VFS_STATUS_IO_ERROR;
+            mel__vfs_fill_error(&cqe->error, (i32)n);
+            break;
+        }
+
+        buf[n] = 0;
+        *rfc->out_data = buf;
+        *rfc->out_size = (usize)n;
+        cqe->result = n;
+    } break;
+
     case MEL_VFS_OP_CANCEL:
         mel_io_cancel(vfs->io, sqe->cancel.ticket_to_cancel);
         break;
@@ -720,13 +759,15 @@ static void mel__vfs_io_handler(void* handler_ctx, const Mel_Io_Sqe* io_sqe, Mel
     case MEL_VFS_OP_DIR_OPEN:
     case MEL_VFS_OP_WATCH_OPEN:
     case MEL_VFS_OP_DELETE:
-    case MEL_VFS_OP_MKDIR: {
-        str8 raw = (sqe->op == MEL_VFS_OP_OPEN)      ? sqe->open.path :
-                   (sqe->op == MEL_VFS_OP_STAT)       ? sqe->stat.path :
-                   (sqe->op == MEL_VFS_OP_DIR_OPEN)   ? sqe->dir_open.path :
-                   (sqe->op == MEL_VFS_OP_DELETE)      ? sqe->del.path :
-                   (sqe->op == MEL_VFS_OP_MKDIR)       ? sqe->mkdir.path :
-                                                         sqe->watch_open.path;
+    case MEL_VFS_OP_MKDIR:
+    case MEL_VFS_OP__READ_FILE: {
+        str8 raw = (sqe->op == MEL_VFS_OP_OPEN)         ? sqe->open.path :
+                   (sqe->op == MEL_VFS_OP_STAT)          ? sqe->stat.path :
+                   (sqe->op == MEL_VFS_OP_DIR_OPEN)      ? sqe->dir_open.path :
+                   (sqe->op == MEL_VFS_OP_DELETE)         ? sqe->del.path :
+                   (sqe->op == MEL_VFS_OP_MKDIR)          ? sqe->mkdir.path :
+                   (sqe->op == MEL_VFS_OP__READ_FILE)     ? sqe->stat.path :
+                                                            sqe->watch_open.path;
         if (mel__vfs_path_escapes_root(raw)) {
             cqe->status = MEL_VFS_STATUS_PERMISSION;
             goto done;
@@ -776,6 +817,11 @@ static void mel__vfs_convert_cqe(Mel_Vfs* vfs, const Mel_Io_Cqe* io_cqe, Mel_Vfs
 
     if (op && op->cqe.ticket != 0) {
         *out = op->cqe;
+        if (op->sqe.op == MEL_VFS_OP__READ_FILE) {
+            Mel_Vfs__Read_File_Ctx* rfc = (Mel_Vfs__Read_File_Ctx*)out->user_data;
+            if (rfc) mel_dealloc(vfs->alloc, rfc);
+            out->user_data = NULL;
+        }
     } else {
         u32 status = MEL_VFS_STATUS_IO_ERROR;
         if (io_cqe->status == MEL_IO_STATUS_CANCELLED) status = MEL_VFS_STATUS_CANCELLED;
@@ -892,6 +938,7 @@ i32 mel_vfs_submit(Mel_Vfs* vfs, const Mel_Vfs_Sqe* sqes, i32 count)
             op->sqe.open.path = mel__vfs_copy_path(vfs, op, op->sqe.open.path);
             break;
         case MEL_VFS_OP_STAT:
+        case MEL_VFS_OP__READ_FILE:
             op->sqe.stat.path = mel__vfs_copy_path(vfs, op, op->sqe.stat.path);
             break;
         case MEL_VFS_OP_DIR_OPEN:

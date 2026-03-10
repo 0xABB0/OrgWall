@@ -276,3 +276,26 @@ bool mel_vfs_enumerate_opt(Mel_Vfs* vfs, str8 path, Mel_Vfs_Enum_Cb cb, void* us
     assert(cb);
     return mel__vfs_enumerate_dir(vfs, path, cb, user, opt);
 }
+
+u64 mel_vfs_read_file_async_opt(Mel_Vfs* vfs, str8 path, Mel_Vfs_Read_File_Async_Opt opt)
+{
+    assert(vfs);
+    assert(opt.out_data);
+    assert(opt.out_size);
+    assert(opt.alloc);
+
+    Mel_Vfs__Read_File_Ctx* rfc = mel_alloc_type(vfs->alloc, Mel_Vfs__Read_File_Ctx);
+    rfc->alloc    = opt.alloc;
+    rfc->out_data = opt.out_data;
+    rfc->out_size = opt.out_size;
+
+    u64 ticket = mel_vfs_next_ticket(vfs);
+    Mel_Vfs_Sqe sqe = {
+        .ticket    = ticket,
+        .op        = MEL_VFS_OP__READ_FILE,
+        .stat      = { .path = path },
+        .user_data = rfc,
+    };
+    mel_vfs_submit(vfs, &sqe, 1);
+    return ticket;
+}

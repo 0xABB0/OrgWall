@@ -75,6 +75,14 @@ struct Mel_Vfs {
     void*      op_pool_buf;
 };
 
+#define MEL_VFS_OP__READ_FILE  100
+
+typedef struct {
+    const Mel_Alloc* alloc;
+    u8**             out_data;
+    usize*           out_size;
+} Mel_Vfs__Read_File_Ctx;
+
 typedef bool (*Mel_Vfs_Enum_Cb)(str8 virtual_path, const Mel_Vfs_Stat* stat, void* user);
 
 typedef struct {
@@ -99,3 +107,13 @@ bool mel_vfs_mkdir(Mel_Vfs* vfs, str8 path);
 bool mel_vfs_enumerate_opt(Mel_Vfs* vfs, str8 path, Mel_Vfs_Enum_Cb cb, void* user, Mel_Vfs_Enum_Opt opt);
 #define mel_vfs_enumerate(vfs, path, cb, user, ...) \
     mel_vfs_enumerate_opt((vfs), (path), (cb), (user), (Mel_Vfs_Enum_Opt){__VA_ARGS__})
+
+typedef struct {
+    u8**             out_data;
+    usize*           out_size;
+    const Mel_Alloc* alloc;
+} Mel_Vfs_Read_File_Async_Opt;
+
+u64 mel_vfs_read_file_async_opt(Mel_Vfs* vfs, str8 path, Mel_Vfs_Read_File_Async_Opt opt);
+#define mel_vfs_read_file_async(vfs, path, ...) \
+    mel_vfs_read_file_async_opt((vfs), (path), (Mel_Vfs_Read_File_Async_Opt){__VA_ARGS__})

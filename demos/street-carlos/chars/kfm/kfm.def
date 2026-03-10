@@ -1,0 +1,11 @@
+[Info]
+name = "KFM"
+displayname = "Kung Fu Man"
+
+[Files]
+cmd     = kfm.cmd
+cns     = kfm.cns
+st      = kfm.cns
+stcommon = common1.cns
+sprite  = kfm.sff
+anim    = kfm.air

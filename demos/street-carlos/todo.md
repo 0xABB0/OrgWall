@@ -35,64 +35,49 @@
 - `AnimElem = N` only true on first tick of element N (returns fractional on subsequent ticks)
 - `animelemtime` tracked per-element transition in `sync_animtime`
 
-### hitpause double-decrement
-- `hitpause_time` decremented in BOTH `combat_resolve` (combat.c:327) AND `mugen_cns_tick` (mugen_cns.exec.c:589)
-- Ikemen decrements in exactly one place (per-frame update)
-- Hit pause runs at 2x speed
-- Fix: remove decrement from `combat_resolve`, keep only in `mugen_cns_tick`
+### ~~hitpause double-decrement~~ DONE
+- Removed decrement from `combat_resolve`, kept only in `mugen_cns_tick`
 
-### hitflag never checked in check_hit
-- combat.c `check_hit` never inspects `hitdef.hitflag`
-- Missing checks: statetype match (H/L/A/D), falling flag (F), minus modifier (only hit non-gethit), plus modifier (only hit gethit)
-- hitflag `-` and `+` modifiers not parsed in `parse_hitflag` either
-- `P` (projectile) flag not parsed
-- Means moves hit wrong statetypes (e.g., `hitflag = MA` incorrectly hits crouching)
+### ~~hitflag never checked in check_hit~~ DONE
+- `check_hit` now inspects `hitdef.hitflag` for statetype match (H/L/A/D), `-`/`+` modifiers
+- `parse_hitflag` handles `P`, `-`, `+` modifiers
 
-### movecontact/movehit/moveguarded return bool instead of tick count
-- mugen_expr.c returns 0.0 or 1.0
-- Ikemen returns `abs(mctime)` -- number of ticks since contact
-- Characters use `movecontact >= 5` for cancel timing windows -- always false with our bool
-- Need to track `mctime` as a frame counter, increment each tick while in the same state
+### ~~movecontact/movehit/moveguarded return bool instead of tick count~~ DONE
+- Changed from `bool` to `i32` counters (`mctime`, `movehit`, `moveguarded`)
+- Set to 1 on hit/guard, incremented each tick in `mugen_cns_tick`
+- Expression evaluator returns tick count
 
-### HitOver checks wrong condition
-- We check `state->time >= state->ghv.hittime` (threshold comparison)
-- Ikemen checks `ghv.hittime < 0` (hittime is a countdown that decrements each tick)
-- Need to decrement ghv.hittime each tick and check for < 0
+### ~~HitOver checks wrong condition~~ DONE
+- `ghv.hittime` now decrements each tick, `HitOver` checks `<= 0`
 
-### HitShakeOver checks wrong field
-- We check `hitpause_time <= 0`
-- Ikemen checks `ghv.hitshaketime <= 0`
-- These are independent counters -- hitshaketime is for the victim's shake, hitpause is general pause
+### ~~HitShakeOver checks wrong field~~ DONE
+- Now checks `ghv.hitshaketime <= 0`, decremented each tick in `mugen_cns_tick`
 
-### Statedef defaults wrong for type and physics
-- When `type` is omitted: Ikemen defaults to S (Standing), we treat as "don't change"
-- When `physics` is omitted: Ikemen defaults to N (None), we treat as "don't change"
-- movetype default (I when omitted) is now correct after recent fix
-- Need sentinel values to distinguish "omitted" from explicit values, then apply correct defaults
+### ~~Statedef defaults wrong for type and physics~~ DONE
+- Sentinel values `MUGEN_STATETYPE_U`/`MUGEN_PHYSICS_U`/`MUGEN_MOVETYPE_U` (0xFE) for explicit "unchanged"
+- Omitted type defaults to S, omitted physics to N, omitted movetype to I (0xFF sentinel)
 
-### animelem is fundamentally wrong
-- Should be a compound comparison trigger: `animelem = N[, offset]`
-- N is the element number, optional offset compared against AnimElemTime(N)
-- We treat it as a simple value query
-- Breaks any character using standard `AnimElem = 3` style triggers
+### ~~animelem is fundamentally wrong~~ DONE
+- `AnimElem = N` rewrites at parse time to `AnimElemTime(N) = 0` (first tick of element N)
+- `AnimElem = N, op val` rewrites to `AnimElemTime(N) op val` (compound comparison)
+- Removed fractional hack from ANIMELEM query evaluator
 
-### Range operators `[x,y]` / `[x,y)` completely missing
-- Standard MUGEN syntax: `stateno = [200,299]` means `>= 200 && <= 299`
-- Also supports `(x,y]`, `[x,y)`, `(x,y)` for exclusive bounds
-- Used extensively -- `stateno = [200,299]`, `animelem = [1,3]`, etc.
-- Need to add range parsing to expression evaluator
+### ~~Range operators `[x,y]` / `[x,y)` completely missing~~ DONE
+- `MUGEN_EXPR_RANGE` node type with value, lo, hi, inclusive flags
+- Parsed in `parse_eq` when `=`/`!=` is followed by `[` or `(`
+- Supports all four variants: `[x,y]`, `(x,y]`, `[x,y)`, `(x,y)`
+- `!= [x,y]` wraps range in NOT
 
-### MUGEN_PHYSICS_L value mismatch
-- `parse_statetype_char` returns 4 for 'L'
-- `MUGEN_PHYSICS_L` is defined as 5 in mugen_cns.h
-- Lie-down physics always applies the wrong constant
+### ~~MUGEN_PHYSICS_L value mismatch~~ DONE
+- `parse_statetype_char` now returns `MUGEN_PHYSICS_L` (5) for 'L'
+- Expression evaluator statetype comparison also fixed (was using hardcoded 4)
 
-### Corner push is instant snap, should be decaying velocity
-- We apply cornerpush as a one-shot position offset on the frame of the hit
-- Ikemen stores it as a velocity on the attacker, applied every frame with friction decay (~0.7)
-- Decays over time until below threshold, then zeroes out
-- Missing `down_cornerpush_veloff` and `airguard_cornerpush_veloff`
-- Missing `ASF_nocornerpush` flag check
+### ~~Corner push is instant snap, should be decaying velocity~~ DONE
+- `cornerpush_vel` field on `Mugen_Char_State`, set on hit instead of instant snap
+- Applied each frame: `pos_x += cornerpush_vel * facing`, decay `*= 0.7`, zero below 0.1
+- Gated by hitpause (no push during freeze)
+- `MUGEN_ASSERT_NOCORNERPUSH` flag added and checked
+- Still missing: `down_cornerpush_veloff`, `airguard_cornerpush_veloff`
 
 ## Medium (incorrect behavior)
 
@@ -134,17 +119,15 @@
 ### ~~Statedef -2/-3 only checked in character CNS~~ DONE
 - Falls back to `f->common_cns` if not in `f->cns`
 
-### hitonce/numhits parsed but never used
-- `hitonce` on HitDef_Result is set but never checked in combat.c
-- Moves that should hit once keep hitting every frame
-- `numhits` should increment combo counter by N, we always count 1
-- Ikemen: hitonce > 0 neutralizes hitdef after first connect, drops other targets
+### ~~hitonce parsed but never used~~ DONE
+- `check_hit` now deactivates hitdef after first connect when `hitonce` is set
 
-### hitcountpersist / movehitpersist / hitdefpersist not implemented
-- Not parsed, not stored in Mugen_Statedef, not checked in mugen_cns_enter_state
-- We always reset movecontact/movehit/moveguarded/hitdef on state entry
-- Characters with `movehitpersist = 1` (multi-hit combos checking previous hits) break
-- Characters with `hitdefpersist = 1` (e.g., KFM kung fu knee state 1051) have attacks deactivated prematurely
+### numhits not used for combo counter
+- `numhits` should increment combo counter by N, we always count 1
+
+### ~~hitcountpersist / movehitpersist / hitdefpersist not implemented~~ DONE
+- Parsed in statedef, stored as bools on `Mugen_Statedef`
+- `enter_state` conditionally skips resetting hitdef/mctime/movehit/moveguarded/hitcount
 
 ### Single target pointer instead of target list
 - Mugen_Char_State has a single `target` pointer
@@ -164,10 +147,8 @@
 - Helpers with inheritJuggle share parent's pool
 - Points only subtracted during falling states, not unconditionally
 
-### Gravity controller sign bug
-- exec_controller Gravity (line 204): `vel_y -= gravity`
-- mugen_cns_tick Air physics (line 608): `vel_y += gravity`
-- These work in opposite directions -- both should be addition (positive = downward)
+### ~~Gravity controller sign bug~~ DONE
+- Both Gravity controller and Air physics now use `vel_y += gravity`
 
 ### Guard logic missing key checks
 - No `ASF_unguardable` flag check (attacker assert)
@@ -175,10 +156,9 @@
 - No guard-KO fallthrough (guarding that would kill should become a real hit)
 - `ghv.hittime` during guard uses `guard_slidetime` instead of `guard_hittime`
 
-### movetype = U (explicitly unchanged) not handled
-- `parse_movetype_char` returns `MUGEN_MOVETYPE_I` for unrecognized chars
-- `movetype = U` would incorrectly force movetype to I instead of preserving current value
-- Need explicit U sentinel (e.g., 0xFE) that skips the movetype assignment
+### ~~movetype = U (explicitly unchanged) not handled~~ DONE
+- `MUGEN_MOVETYPE_U` (0xFE) sentinel, `parse_movetype_char` returns it for 'U'
+- `mugen_cns_enter_state` skips assignment when value is U
 
 ### hitdefattr trigger missing
 - Needs special parsing: `hitdefattr = SCA, NA, SA` is a bitmask comparison
@@ -207,10 +187,10 @@
 - Missing per-character push disable flag (CSF_playerpush)
 - No Y/Z overlap check
 
-### Trigger redirections missing entirely
-- `enemy,life`, `root,stateno`, `parent,vel x`, `helper(id),stateno`, `target(id),pos x`, etc.
-- Ikemen supports full redirect system for cross-character queries
-- Needed for any character with helpers or complex AI
+### ~~Trigger redirections (partial)~~ DONE
+- `helper(id),X`, `root,X`, `parent,X` redirect parsing and evaluation implemented
+- `MUGEN_EXPR_REDIRECT` type with `MUGEN_REDIRECT_HELPER/ROOT/PARENT`
+- Still missing: `enemy,X`, `target(id),X`, `partner,X`, `playerid(N),X`
 
 ### Missing triggers (significant ones)
 - p2bodydist Y, p2stateno, p2life, physics
@@ -252,14 +232,15 @@
 - Ikemen Width controller has: `player` (front, back), `edge` (front, back), `value` (sets both)
 - We only parse `player` (as front/back)
 
-### sprpriority/poweradd/facep2 parsed but never applied
-- Statedef fields parsed into Mugen_Statedef struct
-- mugen_cns_enter_state never reads or applies them
-- Dead fields
+### ~~poweradd parsed but never applied~~ DONE
+- `mugen_cns_enter_state` now applies `poweradd` on state entry
 
-### numhelper always returns 0
-- Stub implementation in mugen_expr.c
-- Should count helpers belonging to the character, optionally filtered by ID
+### sprpriority parsed but never applied
+- Statedef `sprpriority` field parsed but `mugen_cns_enter_state` never reads it
+- Need a `sprpriority` field on `Mugen_Char_State` and apply on state entry
+
+### ~~numhelper always returns 0~~ DONE
+- Uses `query_num_helper` callback to count helpers, optionally filtered by ID
 
 ### Unknown triggers silently return 0
 - mugen_expr.c line 492: unknown identifiers fall through to `make_int(p, 0)`
@@ -296,12 +277,15 @@
 
 ## Low (cosmetic / future features)
 
-### Helper/Projectile/DestroySelf system
-- All mapped to `MUGEN_SC_NULL`
-- `Helper` -- spawns helper entities. Used by poi-son.cns
-- `Projectile` -- spawns projectiles. Used by poi-son.cns
-- `DestroySelf` -- destroys helper entities. Used by poi-son.cns
-- Needed for poi-son to function, not needed for KFM basic moves
+### ~~Helper/DestroySelf system~~ DONE
+- `MUGEN_SC_HELPER` and `MUGEN_SC_DESTROYSELF` implemented
+- Helper spawning via `helper_spawn_pending` fields, destruction via `destroy_self_pending`
+- Query callbacks: `query_num_helper`, `query_helper_state`, `query_root_state`
+- `MUGEN_EXPR_REDIRECT` with helper/root/parent target types
+
+### Projectile system
+- Projectiles still mapped to `MUGEN_SC_NULL`
+- Used by poi-son.cns
 
 ### Visual effect controllers (all no-op, fine for now)
 - `Explod` / `ModifyExplod` / `RemoveExplod` -- spark/dust visual effects
@@ -328,9 +312,8 @@
 ### ~~extern declaration inside function body~~ DONE
 - `mugen_expr.c` now includes `command.h`
 
-### ~~Duplicate reset in enter_state~~ (still present, minor)
-- `mugen_cns.exec.c:30-32` and `53-55` -- `movecontact`/`movehit`/`moveguarded` reset twice
-- Copy-paste artifact, delete one
+### ~~Duplicate reset in enter_state~~ DONE
+- Single reset location now, guarded by persist flags
 
 ### Magic numbers (all correct per MUGEN spec, but undocumented)
 - `mugen_cns.exec.c:286` -- `fall_vel_y` default `-4.5f`

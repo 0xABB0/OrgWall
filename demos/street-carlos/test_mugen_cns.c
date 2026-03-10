@@ -294,7 +294,7 @@ MEL_TEST(cns_load_poison, .tags = "cns")
     Mugen_Cns cns = {0};
     bool ok = mugen_cns_load(&cns, data, s_alloc);
     MEL_ASSERT(ok);
-    MEL_ASSERT_EQ(cns.statedef_count, 42u);
+    MEL_ASSERT_EQ(cns.statedef_count, 43u);
 
     Mugen_Statedef* s421 = mugen_cns_get(&cns, 421);
     MEL_ASSERT_NOT_NULL(s421);
@@ -870,6 +870,177 @@ MEL_TEST(cns_helper_no_redirect_is_numhelper, .tags = "cns")
     MEL_ASSERT_EQ(e->query.id, MUGEN_QUERY_NUMHELPER);
     f32 val = mugen_expr_eval(e, &st);
     MEL_ASSERT_FLOAT_EQ(val, 2.0f, 0.001f);
+}
+
+MEL_TEST(cns_range_inclusive, .tags = "cns")
+{
+    ensure_alloc();
+    Mugen_Char_State st = {0};
+    st.stateno = 210;
+
+    Mugen_Expr* e = mugen_expr_parse(S8("stateno = [200, 299]"), s_alloc);
+    MEL_ASSERT_NOT_NULL(e);
+    MEL_ASSERT_FLOAT_EQ(mugen_expr_eval(e, &st), 1.0f, 0.001f);
+
+    st.stateno = 200;
+    MEL_ASSERT_FLOAT_EQ(mugen_expr_eval(e, &st), 1.0f, 0.001f);
+
+    st.stateno = 299;
+    MEL_ASSERT_FLOAT_EQ(mugen_expr_eval(e, &st), 1.0f, 0.001f);
+
+    st.stateno = 199;
+    MEL_ASSERT_FLOAT_EQ(mugen_expr_eval(e, &st), 0.0f, 0.001f);
+
+    st.stateno = 300;
+    MEL_ASSERT_FLOAT_EQ(mugen_expr_eval(e, &st), 0.0f, 0.001f);
+}
+
+MEL_TEST(cns_range_exclusive, .tags = "cns")
+{
+    ensure_alloc();
+    Mugen_Char_State st = {0};
+
+    Mugen_Expr* e = mugen_expr_parse(S8("stateno = (10, 20)"), s_alloc);
+    MEL_ASSERT_NOT_NULL(e);
+
+    st.stateno = 15;
+    MEL_ASSERT_FLOAT_EQ(mugen_expr_eval(e, &st), 1.0f, 0.001f);
+
+    st.stateno = 10;
+    MEL_ASSERT_FLOAT_EQ(mugen_expr_eval(e, &st), 0.0f, 0.001f);
+
+    st.stateno = 20;
+    MEL_ASSERT_FLOAT_EQ(mugen_expr_eval(e, &st), 0.0f, 0.001f);
+}
+
+MEL_TEST(cns_range_not_in, .tags = "cns")
+{
+    ensure_alloc();
+    Mugen_Char_State st = {0};
+
+    Mugen_Expr* e = mugen_expr_parse(S8("stateno != [200, 299]"), s_alloc);
+    MEL_ASSERT_NOT_NULL(e);
+
+    st.stateno = 150;
+    MEL_ASSERT_FLOAT_EQ(mugen_expr_eval(e, &st), 1.0f, 0.001f);
+
+    st.stateno = 210;
+    MEL_ASSERT_FLOAT_EQ(mugen_expr_eval(e, &st), 0.0f, 0.001f);
+}
+
+MEL_TEST(cns_range_mixed_bounds, .tags = "cns")
+{
+    ensure_alloc();
+    Mugen_Char_State st = {0};
+
+    Mugen_Expr* e = mugen_expr_parse(S8("stateno = [10, 20)"), s_alloc);
+    MEL_ASSERT_NOT_NULL(e);
+
+    st.stateno = 10;
+    MEL_ASSERT_FLOAT_EQ(mugen_expr_eval(e, &st), 1.0f, 0.001f);
+
+    st.stateno = 19;
+    MEL_ASSERT_FLOAT_EQ(mugen_expr_eval(e, &st), 1.0f, 0.001f);
+
+    st.stateno = 20;
+    MEL_ASSERT_FLOAT_EQ(mugen_expr_eval(e, &st), 0.0f, 0.001f);
+}
+
+MEL_TEST(cns_range_real_pattern, .tags = "cns")
+{
+    ensure_alloc();
+    Mugen_Char_State st = {0};
+    st.anim = 5055;
+
+    Mugen_Expr* e = mugen_expr_parse(S8("anim = [5051,5059]"), s_alloc);
+    MEL_ASSERT_NOT_NULL(e);
+    MEL_ASSERT_FLOAT_EQ(mugen_expr_eval(e, &st), 1.0f, 0.001f);
+
+    st.anim = 5060;
+    MEL_ASSERT_FLOAT_EQ(mugen_expr_eval(e, &st), 0.0f, 0.001f);
+}
+
+MEL_TEST(cns_animelem_first_tick, .tags = "cns")
+{
+    ensure_alloc();
+    Mugen_Char_State st = {0};
+    i32 ticks[] = {0, 5, 10};
+    st.anim_elem_start_ticks = ticks;
+    st.anim_elem_count = 3;
+    st.time = 5;
+
+    Mugen_Expr* e = mugen_expr_parse(S8("AnimElem = 2"), s_alloc);
+    MEL_ASSERT_NOT_NULL(e);
+    MEL_ASSERT_FLOAT_EQ(mugen_expr_eval(e, &st), 1.0f, 0.001f);
+
+    st.time = 6;
+    MEL_ASSERT_FLOAT_EQ(mugen_expr_eval(e, &st), 0.0f, 0.001f);
+
+    st.time = 4;
+    MEL_ASSERT_FLOAT_EQ(mugen_expr_eval(e, &st), 0.0f, 0.001f);
+}
+
+MEL_TEST(cns_animelem_compound_lt, .tags = "cns")
+{
+    ensure_alloc();
+    Mugen_Char_State st = {0};
+    i32 ticks[] = {0, 5, 10, 15};
+    st.anim_elem_start_ticks = ticks;
+    st.anim_elem_count = 4;
+
+    Mugen_Expr* e = mugen_expr_parse(S8("AnimElem = 4, < 0"), s_alloc);
+    MEL_ASSERT_NOT_NULL(e);
+
+    st.time = 14;
+    MEL_ASSERT_FLOAT_EQ(mugen_expr_eval(e, &st), 1.0f, 0.001f);
+
+    st.time = 15;
+    MEL_ASSERT_FLOAT_EQ(mugen_expr_eval(e, &st), 0.0f, 0.001f);
+
+    st.time = 16;
+    MEL_ASSERT_FLOAT_EQ(mugen_expr_eval(e, &st), 0.0f, 0.001f);
+}
+
+MEL_TEST(cns_animelem_compound_ge, .tags = "cns")
+{
+    ensure_alloc();
+    Mugen_Char_State st = {0};
+    i32 ticks[] = {0, 5, 10};
+    st.anim_elem_start_ticks = ticks;
+    st.anim_elem_count = 3;
+
+    Mugen_Expr* e = mugen_expr_parse(S8("AnimElem = 2, >= 0"), s_alloc);
+    MEL_ASSERT_NOT_NULL(e);
+
+    st.time = 4;
+    MEL_ASSERT_FLOAT_EQ(mugen_expr_eval(e, &st), 0.0f, 0.001f);
+
+    st.time = 5;
+    MEL_ASSERT_FLOAT_EQ(mugen_expr_eval(e, &st), 1.0f, 0.001f);
+
+    st.time = 8;
+    MEL_ASSERT_FLOAT_EQ(mugen_expr_eval(e, &st), 1.0f, 0.001f);
+}
+
+MEL_TEST(cns_animelem_compound_eq, .tags = "cns")
+{
+    ensure_alloc();
+    Mugen_Char_State st = {0};
+    i32 ticks[] = {0, 5, 10};
+    st.anim_elem_start_ticks = ticks;
+    st.anim_elem_count = 3;
+
+    Mugen_Expr* e = mugen_expr_parse(S8("AnimElem = 3, = 1"), s_alloc);
+    MEL_ASSERT_NOT_NULL(e);
+
+    st.time = 10;
+    MEL_ASSERT_FLOAT_EQ(mugen_expr_eval(e, &st), 0.0f, 0.001f);
+
+    st.time = 11;
+    MEL_ASSERT_FLOAT_EQ(mugen_expr_eval(e, &st), 1.0f, 0.001f);
+
+    st.time = 12;
+    MEL_ASSERT_FLOAT_EQ(mugen_expr_eval(e, &st), 0.0f, 0.001f);
 }
 
 MEL_TEST(cns_destroyself_sets_flag, .tags = "cns")

@@ -2,6 +2,7 @@
 #include "core.engine.h"
 #include "fighter.h"
 #include "combat.h"
+#include "round.h"
 #include "command.h"
 #include "actions.h"
 #include "stage.h"
@@ -36,11 +37,8 @@ static void ensure_loaded(void)
         .sprite_pass = mel_sprite_pass(),
         .tex_pool = mel_texture_pool(),
         .vfs = &s_vfs,
-        .sff_path = S8("/chars/kfm/kfm.sff"),
-        .air_path = S8("/chars/kfm/kfm.air"),
-        .cmd_path = S8("/chars/kfm/kfm.cmd"),
-        .cns_path = S8("/chars/kfm/kfm.cns"),
-        .common_cns_path = S8("/chars/kfm/common1.cns"),
+        .def_path = S8("/chars/kfm/kfm.def"),
+        .stcommon_path = S8("/chars/common1.cns"),
         .alloc = mel_alloc_heap());
 
     assert(ok);
@@ -50,9 +48,15 @@ static void ensure_loaded(void)
 typedef struct {
     Fighter p1;
     Fighter p2;
+    Round_Ctx round;
 } Sim;
 
 static const f32 DT = 1.0f / 60.0f;
+
+static void sim_tick(Sim* s)
+{
+    round_tick(&s->round, DT);
+}
 
 static void sim_init(Sim* s)
 {
@@ -81,15 +85,11 @@ static void sim_init(Sim* s)
 
     fighter_enable_cns(&s->p1, &s_char.cns, &s_char.common_cns, &s_char.cmd_cns);
     fighter_enable_cns(&s->p2, &s_char.cns, &s_char.common_cns, &s_char.cmd_cns);
-}
 
-static void sim_tick(Sim* s)
-{
-    fighter_tick(&s->p1, DT, STAGE_LEFT, STAGE_RIGHT);
-    fighter_tick(&s->p2, DT, STAGE_LEFT, STAGE_RIGHT);
-    combat_resolve(&s->p1, &s->p2);
-    fighter_apply_combat_state(&s->p1);
-    fighter_apply_combat_state(&s->p2);
+    round_init(&s->round, .p1 = &s->p1, .p2 = &s->p2);
+
+    for (u32 i = 0; i < 300 && s->round.state != ROUND_FIGHT; i++)
+        sim_tick(s);
 }
 
 static void sim_tick_n(Sim* s, u32 n)
