@@ -56,18 +56,6 @@ static bool starts_with_i(str8 s, const char* prefix)
     return true;
 }
 
-static bool str8_ieq(str8 a, const char* b)
-{
-    size blen = (size)strlen(b);
-    if (a.len != blen) return false;
-    for (size i = 0; i < blen; i++)
-    {
-        u8 ac = a.data[i]; if (ac >= 'A' && ac <= 'Z') ac += 32;
-        u8 bc = (u8)b[i]; if (bc >= 'A' && bc <= 'Z') bc += 32;
-        if (ac != bc) return false;
-    }
-    return true;
-}
 
 static str8 after_eq(str8 line)
 {
@@ -157,79 +145,6 @@ static u8 parse_movetype_char(str8 s)
     return MUGEN_MOVETYPE_I;
 }
 
-static u8 parse_animtype(str8 s)
-{
-    s = trim(s);
-    if (str8_ieq(s, "light"))  return MUGEN_ANIMTYPE_LIGHT;
-    if (str8_ieq(s, "medium")) return MUGEN_ANIMTYPE_MEDIUM;
-    if (str8_ieq(s, "hard"))   return MUGEN_ANIMTYPE_HARD;
-    if (str8_ieq(s, "back"))   return MUGEN_ANIMTYPE_BACK;
-    if (str8_ieq(s, "up"))     return MUGEN_ANIMTYPE_UP;
-    if (str8_ieq(s, "diagup")) return MUGEN_ANIMTYPE_DIAGUP;
-    return MUGEN_ANIMTYPE_LIGHT;
-}
-
-static u8 parse_groundtype(str8 s)
-{
-    s = trim(s);
-    if (str8_ieq(s, "high")) return MUGEN_GROUNDTYPE_HIGH;
-    if (str8_ieq(s, "low"))  return MUGEN_GROUNDTYPE_LOW;
-    if (str8_ieq(s, "trip")) return MUGEN_GROUNDTYPE_TRIP;
-    return MUGEN_GROUNDTYPE_HIGH;
-}
-
-static u32 parse_attr(str8 s)
-{
-    u32 flags = 0;
-    str8 rest;
-    str8 state_part = split_comma_first(s, &rest);
-
-    for (size i = 0; i < state_part.len; i++)
-    {
-        u8 c = state_part.data[i]; if (c >= 'a' && c <= 'z') c -= 32;
-        if (c == 'S') flags |= MUGEN_ATTR_S;
-        if (c == 'C') flags |= MUGEN_ATTR_C;
-        if (c == 'A') flags |= MUGEN_ATTR_A;
-    }
-
-    str8 atk = trim(rest);
-    for (size i = 0; i + 1 < atk.len; i++)
-    {
-        u8 a = atk.data[i]; if (a >= 'a' && a <= 'z') a -= 32;
-        u8 b = atk.data[i + 1]; if (b >= 'a' && b <= 'z') b -= 32;
-        if (a == 'N' && b == 'A') { flags |= MUGEN_ATTR_NA; i++; }
-        else if (a == 'S' && b == 'A') { flags |= MUGEN_ATTR_SA; i++; }
-        else if (a == 'H' && b == 'A') { flags |= MUGEN_ATTR_HA; i++; }
-        else if (a == 'N' && b == 'P') { flags |= MUGEN_ATTR_NP; i++; }
-        else if (a == 'S' && b == 'P') { flags |= MUGEN_ATTR_SP; i++; }
-        else if (a == 'H' && b == 'P') { flags |= MUGEN_ATTR_HP; i++; }
-        else if (a == 'N' && b == 'T') { flags |= MUGEN_ATTR_NT; i++; }
-        else if (a == 'S' && b == 'T') { flags |= MUGEN_ATTR_ST; i++; }
-        else if (a == 'H' && b == 'T') { flags |= MUGEN_ATTR_HT; i++; }
-    }
-
-    return flags;
-}
-
-static u32 parse_hitflag(str8 s)
-{
-    u32 flags = 0;
-    for (size i = 0; i < s.len; i++)
-    {
-        u8 c = s.data[i]; if (c >= 'a' && c <= 'z') c -= 32;
-        if (c == 'H') flags |= MUGEN_HF_H;
-        if (c == 'L') flags |= MUGEN_HF_L;
-        if (c == 'M') flags |= MUGEN_HF_M;
-        if (c == 'A') flags |= MUGEN_HF_A;
-        if (c == 'D') flags |= MUGEN_HF_D;
-        if (c == 'F') flags |= MUGEN_HF_F;
-        if (c == 'P') flags |= MUGEN_HF_P;
-        if (c == '-') flags |= MUGEN_HF_MNS;
-        if (c == '+') flags |= MUGEN_HF_PLS;
-    }
-    return flags;
-}
-
 typedef struct {
     void** items;
     u32 count;
@@ -301,70 +216,12 @@ static void ctrl_push(Controller_List* list, Mugen_State_Controller ctrl, const 
 
 static u8 parse_controller_type(str8 s)
 {
-    s = trim(s);
-    if (str8_ieq(s, "changestate")) return MUGEN_SC_CHANGESTATE;
-    if (str8_ieq(s, "changeanim"))  return MUGEN_SC_CHANGEANIM;
-    if (str8_ieq(s, "velset"))      return MUGEN_SC_VELSET;
-    if (str8_ieq(s, "veladd"))      return MUGEN_SC_VELADD;
-    if (str8_ieq(s, "velmul"))      return MUGEN_SC_VELMUL;
-    if (str8_ieq(s, "posset"))      return MUGEN_SC_POSSET;
-    if (str8_ieq(s, "posadd"))      return MUGEN_SC_POSADD;
-    if (str8_ieq(s, "hitdef"))      return MUGEN_SC_HITDEF;
-    if (str8_ieq(s, "playsnd"))     return MUGEN_SC_PLAYSND;
-    if (str8_ieq(s, "gravity"))     return MUGEN_SC_GRAVITY;
-    if (str8_ieq(s, "ctrlset"))     return MUGEN_SC_CTRL;
-    if (str8_ieq(s, "varset"))      return MUGEN_SC_VARSET;
-    if (str8_ieq(s, "varadd"))      return MUGEN_SC_VARADD;
-    if (str8_ieq(s, "nothitby"))    return MUGEN_SC_NOTHITBY;
-    if (str8_ieq(s, "width"))       return MUGEN_SC_WIDTH;
-    if (str8_ieq(s, "turn"))        return MUGEN_SC_TURN;
-    if (str8_ieq(s, "superpause"))  return MUGEN_SC_SUPERPAUSE;
-    if (str8_ieq(s, "afterimage"))  return MUGEN_SC_AFTERIMAGE;
-    if (str8_ieq(s, "afterimagetime")) return MUGEN_SC_AFTERIMAGETIME;
-    if (str8_ieq(s, "poweradd"))    return MUGEN_SC_POWERADD;
-    if (str8_ieq(s, "sprpriority")) return MUGEN_SC_SPRPRIORITY;
-    if (str8_ieq(s, "varrandom"))   return MUGEN_SC_VARRANDOM;
-    if (str8_ieq(s, "statetypeset")) return MUGEN_SC_STATETYPESET;
-    if (str8_ieq(s, "assertspecial")) return MUGEN_SC_ASSERTSPECIAL;
-    if (str8_ieq(s, "forcefeedback")) return MUGEN_SC_NULL;
-    if (str8_ieq(s, "hitvelset"))   return MUGEN_SC_HITVELSET;
-    if (str8_ieq(s, "defencemulset")) return MUGEN_SC_DEFENCEMULSET;
-    if (str8_ieq(s, "makedust"))    return MUGEN_SC_NULL;
-    if (str8_ieq(s, "explod"))      return MUGEN_SC_NULL;
-    if (str8_ieq(s, "posfreeze"))   return MUGEN_SC_POSFREEZE;
-    if (str8_ieq(s, "palfx"))       return MUGEN_SC_NULL;
-    if (str8_ieq(s, "selfstate"))   return MUGEN_SC_SELFSTATE;
-    if (str8_ieq(s, "hitfalldamage")) return MUGEN_SC_HITFALLDAMAGE;
-    if (str8_ieq(s, "hitfallvel"))  return MUGEN_SC_HITFALLVEL;
-    if (str8_ieq(s, "hitfallset"))  return MUGEN_SC_HITFALLSET;
-    if (str8_ieq(s, "fallenvshake")) return MUGEN_SC_FALLENVSHAKE;
-    if (str8_ieq(s, "varrangeset")) return MUGEN_SC_VARRANGESET;
-    if (str8_ieq(s, "remappal"))    return MUGEN_SC_NULL;
-    if (str8_ieq(s, "changeanim2")) return MUGEN_SC_CHANGEANIM2;
-    if (str8_ieq(s, "targetbind"))  return MUGEN_SC_TARGETBIND;
-    if (str8_ieq(s, "targetfacing")) return MUGEN_SC_TARGETFACING;
-    if (str8_ieq(s, "targetlifeadd")) return MUGEN_SC_TARGETLIFEADD;
-    if (str8_ieq(s, "targetpoweradd")) return MUGEN_SC_TARGETPOWERADD;
-    if (str8_ieq(s, "targetstate")) return MUGEN_SC_TARGETSTATE;
-    if (str8_ieq(s, "screenbound")) return MUGEN_SC_NULL;
-    if (str8_ieq(s, "envshake"))    return MUGEN_SC_NULL;
-    if (str8_ieq(s, "hitoverride")) return MUGEN_SC_NULL;
-    if (str8_ieq(s, "reversaldef")) return MUGEN_SC_NULL;
-    if (str8_ieq(s, "pause"))       return MUGEN_SC_NULL;
-    if (str8_ieq(s, "helper"))      return MUGEN_SC_HELPER;
-    if (str8_ieq(s, "projectile"))  return MUGEN_SC_NULL;
-    if (str8_ieq(s, "destroyself")) return MUGEN_SC_DESTROYSELF;
-    if (str8_ieq(s, "lifeset"))     return MUGEN_SC_LIFESET;
-    if (str8_ieq(s, "gamemakeanim")) return MUGEN_SC_NULL;
-    if (str8_ieq(s, "displaytoclipboard")) return MUGEN_SC_NULL;
-    if (str8_ieq(s, "appendtoclipboard")) return MUGEN_SC_NULL;
-    if (str8_ieq(s, "null"))        return MUGEN_SC_NULL;
-    return MUGEN_SC_NULL;
+    return mugen_sc_lookup_name(trim(s));
 }
 
 static i32 parse_trigger_level(str8 key)
 {
-    if (str8_ieq(key, "triggerall")) return 0;
+    if (str8_ieq_cstr(key, "triggerall")) return 0;
     if (starts_with_i(key, "trigger"))
     {
         str8 num_part = str8_from_parts(key.data + 7, key.len - 7);
@@ -373,517 +230,11 @@ static i32 parse_trigger_level(str8 key)
     return -1;
 }
 
-static void* alloc_params(const Mel_Alloc* alloc, usize size)
-{
-    void* p = mel_alloc(alloc, size);
-    memset(p, 0, size);
-    return p;
-}
-
 static void parse_controller_param(Mugen_State_Controller* sc, str8 key, str8 val, const Mel_Alloc* alloc)
 {
-    switch (sc->type)
-    {
-        case MUGEN_SC_VELSET:
-        case MUGEN_SC_VELADD:
-        case MUGEN_SC_VELMUL:
-        {
-            if (!sc->params) sc->params = alloc_params(alloc, sizeof(Mugen_Vel_Params));
-            Mugen_Vel_Params* p = sc->params;
-            if (str8_ieq(key, "x")) p->x = mugen_expr_parse(val, alloc);
-            else if (str8_ieq(key, "y")) p->y = mugen_expr_parse(val, alloc);
-            break;
-        }
-        case MUGEN_SC_POSSET:
-        case MUGEN_SC_POSADD:
-        {
-            if (!sc->params) sc->params = alloc_params(alloc, sizeof(Mugen_Pos_Params));
-            Mugen_Pos_Params* p = sc->params;
-            if (str8_ieq(key, "x")) p->x = mugen_expr_parse(val, alloc);
-            else if (str8_ieq(key, "y")) p->y = mugen_expr_parse(val, alloc);
-            break;
-        }
-        case MUGEN_SC_CHANGESTATE:
-        {
-            if (!sc->params) sc->params = alloc_params(alloc, sizeof(Mugen_ChangeState_Params));
-            Mugen_ChangeState_Params* p = sc->params;
-            if (str8_ieq(key, "value")) p->value = mugen_expr_parse(val, alloc);
-            else if (str8_ieq(key, "ctrl")) p->ctrl = mugen_expr_parse(val, alloc);
-            else if (str8_ieq(key, "anim")) p->anim = mugen_expr_parse(val, alloc);
-            break;
-        }
-        case MUGEN_SC_CHANGEANIM:
-        {
-            if (!sc->params) sc->params = alloc_params(alloc, sizeof(Mugen_ChangeAnim_Params));
-            Mugen_ChangeAnim_Params* p = sc->params;
-            if (str8_ieq(key, "value")) p->value = mugen_expr_parse(val, alloc);
-            break;
-        }
-        case MUGEN_SC_CTRL:
-        {
-            if (!sc->params) sc->params = alloc_params(alloc, sizeof(Mugen_Ctrl_Params));
-            Mugen_Ctrl_Params* p = sc->params;
-            if (str8_ieq(key, "value")) p->value = mugen_expr_parse(val, alloc);
-            break;
-        }
-        case MUGEN_SC_PLAYSND:
-        {
-            if (!sc->params) sc->params = alloc_params(alloc, sizeof(Mugen_PlaySnd_Params));
-            Mugen_PlaySnd_Params* p = sc->params;
-            if (str8_ieq(key, "value"))
-            {
-                str8 rest;
-                str8 grp = split_comma_first(val, &rest);
-                p->group = mugen_expr_parse(grp, alloc);
-                if (rest.len > 0) p->index = mugen_expr_parse(rest, alloc);
-            }
-            else if (str8_ieq(key, "channel")) p->channel = mugen_expr_parse(val, alloc);
-            break;
-        }
-        case MUGEN_SC_VARSET:
-        case MUGEN_SC_VARADD:
-        {
-            if (!sc->params) sc->params = alloc_params(alloc, sizeof(Mugen_VarSet_Params));
-            Mugen_VarSet_Params* p = sc->params;
-            if (str8_ieq(key, "value")) p->value = mugen_expr_parse(val, alloc);
-            else if (str8_ieq(key, "v")) { p->var_type = MUGEN_VAR_INT; p->index = mugen_expr_parse(val, alloc); }
-            else if (str8_ieq(key, "fv")) { p->var_type = MUGEN_VAR_FLOAT; p->index = mugen_expr_parse(val, alloc); }
-            else if (starts_with_i(key, "var("))
-            {
-                p->var_type = MUGEN_VAR_INT;
-                str8 inner = str8_from_parts(key.data + 4, key.len - 5);
-                p->index = mugen_expr_parse(inner, alloc);
-                p->value = mugen_expr_parse(val, alloc);
-            }
-            else if (starts_with_i(key, "fvar("))
-            {
-                p->var_type = MUGEN_VAR_FLOAT;
-                str8 inner = str8_from_parts(key.data + 5, key.len - 6);
-                p->index = mugen_expr_parse(inner, alloc);
-                p->value = mugen_expr_parse(val, alloc);
-            }
-            else if (starts_with_i(key, "sysvar("))
-            {
-                p->var_type = MUGEN_VAR_SYSINT;
-                str8 inner = str8_from_parts(key.data + 7, key.len - 8);
-                p->index = mugen_expr_parse(inner, alloc);
-                p->value = mugen_expr_parse(val, alloc);
-            }
-            else if (starts_with_i(key, "sysfvar("))
-            {
-                p->var_type = MUGEN_VAR_SYSFLOAT;
-                str8 inner = str8_from_parts(key.data + 8, key.len - 9);
-                p->index = mugen_expr_parse(inner, alloc);
-                p->value = mugen_expr_parse(val, alloc);
-            }
-            break;
-        }
-        case MUGEN_SC_VARRANDOM:
-        {
-            if (!sc->params) sc->params = alloc_params(alloc, sizeof(Mugen_VarRandom_Params));
-            Mugen_VarRandom_Params* p = sc->params;
-            if (str8_ieq(key, "v")) { p->var_type = MUGEN_VAR_INT; p->index = mugen_expr_parse(val, alloc); }
-            else if (str8_ieq(key, "range"))
-            {
-                str8 rest;
-                str8 lo = split_comma_first(val, &rest);
-                p->range_low = mugen_expr_parse(lo, alloc);
-                if (rest.len > 0) p->range_high = mugen_expr_parse(rest, alloc);
-            }
-            break;
-        }
-        case MUGEN_SC_NOTHITBY:
-        {
-            if (!sc->params) sc->params = alloc_params(alloc, sizeof(Mugen_NotHitBy_Params));
-            Mugen_NotHitBy_Params* p = sc->params;
-            if (str8_ieq(key, "value")) p->attr_flags = parse_attr(val);
-            else if (str8_ieq(key, "time")) p->time = mugen_expr_parse(val, alloc);
-            break;
-        }
-        case MUGEN_SC_WIDTH:
-        {
-            if (!sc->params) sc->params = alloc_params(alloc, sizeof(Mugen_Width_Params));
-            Mugen_Width_Params* p = sc->params;
-            if (str8_ieq(key, "value"))
-            {
-                str8 rest;
-                str8 front = split_comma_first(val, &rest);
-                p->front = mugen_expr_parse(front, alloc);
-                if (rest.len > 0) p->back = mugen_expr_parse(rest, alloc);
-            }
-            break;
-        }
-        case MUGEN_SC_SUPERPAUSE:
-        {
-            if (!sc->params) sc->params = alloc_params(alloc, sizeof(Mugen_SuperPause_Params));
-            Mugen_SuperPause_Params* p = sc->params;
-            if (str8_ieq(key, "time")) p->time = mugen_expr_parse(val, alloc);
-            else if (str8_ieq(key, "anim")) p->anim = mugen_expr_parse(val, alloc);
-            else if (str8_ieq(key, "sound"))
-            {
-                str8 rest;
-                str8 grp = split_comma_first(val, &rest);
-                p->sound_group = mugen_expr_parse(grp, alloc);
-                if (rest.len > 0) p->sound_index = mugen_expr_parse(rest, alloc);
-            }
-            else if (str8_ieq(key, "pos"))
-            {
-                str8 rest;
-                str8 px = split_comma_first(val, &rest);
-                p->pos_x = mugen_expr_parse(px, alloc);
-                if (rest.len > 0) p->pos_y = mugen_expr_parse(rest, alloc);
-            }
-            else if (str8_ieq(key, "poweradd")) p->poweradd = mugen_expr_parse(val, alloc);
-            break;
-        }
-        case MUGEN_SC_AFTERIMAGE:
-        case MUGEN_SC_AFTERIMAGETIME:
-        {
-            if (!sc->params) sc->params = alloc_params(alloc, sizeof(Mugen_AfterImage_Params));
-            Mugen_AfterImage_Params* p = sc->params;
-            if (str8_ieq(key, "time")) p->time = mugen_expr_parse(val, alloc);
-            break;
-        }
-        case MUGEN_SC_POWERADD:
-        {
-            if (!sc->params) sc->params = alloc_params(alloc, sizeof(Mugen_PowerAdd_Params));
-            Mugen_PowerAdd_Params* p = sc->params;
-            if (str8_ieq(key, "value")) p->value = mugen_expr_parse(val, alloc);
-            break;
-        }
-        case MUGEN_SC_SPRPRIORITY:
-        {
-            if (!sc->params) sc->params = alloc_params(alloc, sizeof(Mugen_SprPriority_Params));
-            Mugen_SprPriority_Params* p = sc->params;
-            if (str8_ieq(key, "value")) p->value = mugen_expr_parse(val, alloc);
-            break;
-        }
-        case MUGEN_SC_STATETYPESET:
-        {
-            if (!sc->params) sc->params = alloc_params(alloc, sizeof(Mugen_StateTypeSet_Params));
-            Mugen_StateTypeSet_Params* p = sc->params;
-            if (!p->statetype && !p->movetype && !p->physics)
-            {
-                p->statetype = -1;
-                p->movetype = -1;
-                p->physics = -1;
-            }
-            if (str8_ieq(key, "statetype"))
-            {
-                str8 v = trim(val);
-                if (v.len > 0)
-                {
-                    u8 c = v.data[0];
-                    if (c >= 'a' && c <= 'z') c -= 32;
-                    if (c == 'S') p->statetype = MUGEN_PHYSICS_S;
-                    else if (c == 'C') p->statetype = MUGEN_PHYSICS_C;
-                    else if (c == 'A') p->statetype = MUGEN_PHYSICS_A;
-                }
-            }
-            else if (str8_ieq(key, "movetype"))
-            {
-                str8 v = trim(val);
-                if (v.len > 0)
-                {
-                    u8 c = v.data[0];
-                    if (c >= 'a' && c <= 'z') c -= 32;
-                    if (c == 'I') p->movetype = MUGEN_MOVETYPE_I;
-                    else if (c == 'A') p->movetype = MUGEN_MOVETYPE_A;
-                    else if (c == 'H') p->movetype = MUGEN_MOVETYPE_H;
-                }
-            }
-            else if (str8_ieq(key, "physics"))
-            {
-                str8 v = trim(val);
-                if (v.len > 0)
-                {
-                    u8 c = v.data[0];
-                    if (c >= 'a' && c <= 'z') c -= 32;
-                    if (c == 'S') p->physics = MUGEN_PHYSICS_S;
-                    else if (c == 'C') p->physics = MUGEN_PHYSICS_C;
-                    else if (c == 'A') p->physics = MUGEN_PHYSICS_A;
-                    else if (c == 'N') p->physics = MUGEN_PHYSICS_N;
-                }
-            }
-            break;
-        }
-        case MUGEN_SC_SELFSTATE:
-        {
-            if (!sc->params) sc->params = alloc_params(alloc, sizeof(Mugen_SelfState_Params));
-            Mugen_SelfState_Params* p = sc->params;
-            if (str8_ieq(key, "value")) p->value = mugen_expr_parse(val, alloc);
-            else if (str8_ieq(key, "ctrl")) p->ctrl = mugen_expr_parse(val, alloc);
-            else if (str8_ieq(key, "anim")) p->anim = mugen_expr_parse(val, alloc);
-            break;
-        }
-        case MUGEN_SC_HITVELSET:
-        {
-            if (!sc->params) sc->params = alloc_params(alloc, sizeof(Mugen_HitVelSet_Params));
-            Mugen_HitVelSet_Params* p = sc->params;
-            if (str8_ieq(key, "x")) p->x = mugen_expr_parse(val, alloc);
-            else if (str8_ieq(key, "y")) p->y = mugen_expr_parse(val, alloc);
-            break;
-        }
-        case MUGEN_SC_HITFALLSET:
-        {
-            if (!sc->params) sc->params = alloc_params(alloc, sizeof(Mugen_HitFallSet_Params));
-            Mugen_HitFallSet_Params* p = sc->params;
-            if (str8_ieq(key, "fall.xvel")) { p->fall_xvel = mugen_expr_parse(val, alloc); p->xvel_set = 1; }
-            else if (str8_ieq(key, "fall.yvel")) { p->fall_yvel = mugen_expr_parse(val, alloc); p->yvel_set = 1; }
-            else if (str8_ieq(key, "fall.recover")) p->fall_recover = mugen_expr_parse(val, alloc);
-            else if (str8_ieq(key, "fall.recovertime")) p->fall_recovertime = mugen_expr_parse(val, alloc);
-            else if (str8_ieq(key, "fall.damage")) p->fall_damage = mugen_expr_parse(val, alloc);
-            else if (str8_ieq(key, "fall.envshake.time")) p->fall_envshake_time = mugen_expr_parse(val, alloc);
-            else if (str8_ieq(key, "xvel")) { p->fall_xvel = mugen_expr_parse(val, alloc); p->xvel_set = 1; }
-            else if (str8_ieq(key, "yvel")) { p->fall_yvel = mugen_expr_parse(val, alloc); p->yvel_set = 1; }
-            break;
-        }
-        case MUGEN_SC_LIFESET:
-        {
-            if (!sc->params) sc->params = alloc_params(alloc, sizeof(Mugen_PowerAdd_Params));
-            Mugen_PowerAdd_Params* p = sc->params;
-            if (str8_ieq(key, "value")) p->value = mugen_expr_parse(val, alloc);
-            break;
-        }
-        case MUGEN_SC_HITFALLDAMAGE:
-        case MUGEN_SC_HITFALLVEL:
-        case MUGEN_SC_POSFREEZE:
-        case MUGEN_SC_FALLENVSHAKE:
-            break;
-        case MUGEN_SC_VARRANGESET:
-        {
-            if (!sc->params) sc->params = alloc_params(alloc, sizeof(Mugen_VarRangeSet_Params));
-            Mugen_VarRangeSet_Params* p = sc->params;
-            if (str8_ieq(key, "value"))  p->value = mugen_expr_parse(val, alloc);
-            else if (str8_ieq(key, "fvalue")) p->fvalue = mugen_expr_parse(val, alloc);
-            else if (str8_ieq(key, "first"))  p->first = mugen_expr_parse(val, alloc);
-            else if (str8_ieq(key, "last"))   p->last = mugen_expr_parse(val, alloc);
-            break;
-        }
-        case MUGEN_SC_ASSERTSPECIAL:
-        {
-            if (!sc->params) sc->params = alloc_params(alloc, sizeof(Mugen_AssertSpecial_Params));
-            Mugen_AssertSpecial_Params* p = sc->params;
-            if (str8_ieq(key, "flag") || str8_ieq(key, "flag2") || str8_ieq(key, "flag3"))
-            {
-                if (str8_ieq(val, "nowalk"))         p->flags |= MUGEN_ASSERT_NOWALK;
-                else if (str8_ieq(val, "noautoturn")) p->flags |= MUGEN_ASSERT_NOAUTOTURN;
-                else if (str8_ieq(val, "nostandguard")) p->flags |= MUGEN_ASSERT_NOSTANDGUARD;
-                else if (str8_ieq(val, "nocrouchguard")) p->flags |= MUGEN_ASSERT_NOCROUCHGUARD;
-                else if (str8_ieq(val, "noairguard")) p->flags |= MUGEN_ASSERT_NOAIRGUARD;
-                else if (str8_ieq(val, "unguardable")) p->flags |= MUGEN_ASSERT_UNGUARDABLE;
-                else if (str8_ieq(val, "nojugglecheck")) p->flags |= MUGEN_ASSERT_NOJUGGLECHECK;
-                else if (str8_ieq(val, "intro"))         p->flags |= MUGEN_ASSERT_INTRO;
-                else if (str8_ieq(val, "nocornerpush"))  p->flags |= MUGEN_ASSERT_NOCORNERPUSH;
-            }
-            break;
-        }
-        case MUGEN_SC_DEFENCEMULSET:
-        {
-            if (!sc->params) sc->params = alloc_params(alloc, sizeof(Mugen_DefenceMulSet_Params));
-            Mugen_DefenceMulSet_Params* p = sc->params;
-            if (str8_ieq(key, "value")) p->value = mugen_expr_parse(val, alloc);
-            break;
-        }
-        case MUGEN_SC_TARGETBIND:
-        {
-            if (!sc->params) sc->params = alloc_params(alloc, sizeof(Mugen_TargetBind_Params));
-            Mugen_TargetBind_Params* p = sc->params;
-            if (str8_ieq(key, "pos"))
-            {
-                str8 rest;
-                str8 px = split_comma_first(val, &rest);
-                p->pos_x = mugen_expr_parse(px, alloc);
-                if (rest.len > 0) p->pos_y = mugen_expr_parse(rest, alloc);
-            }
-            break;
-        }
-        case MUGEN_SC_TARGETSTATE:
-        {
-            if (!sc->params) sc->params = alloc_params(alloc, sizeof(Mugen_TargetState_Params));
-            Mugen_TargetState_Params* p = sc->params;
-            if (str8_ieq(key, "value")) p->value = mugen_expr_parse(val, alloc);
-            break;
-        }
-        case MUGEN_SC_TARGETLIFEADD:
-        {
-            if (!sc->params) sc->params = alloc_params(alloc, sizeof(Mugen_TargetLifeAdd_Params));
-            Mugen_TargetLifeAdd_Params* p = sc->params;
-            if (str8_ieq(key, "value")) p->value = mugen_expr_parse(val, alloc);
-            else if (str8_ieq(key, "kill")) p->kill = mugen_expr_parse(val, alloc);
-            else if (str8_ieq(key, "absolute")) p->absolute = mugen_expr_parse(val, alloc);
-            break;
-        }
-        case MUGEN_SC_TARGETFACING:
-        {
-            if (!sc->params) sc->params = alloc_params(alloc, sizeof(Mugen_TargetFacing_Params));
-            Mugen_TargetFacing_Params* p = sc->params;
-            if (str8_ieq(key, "value")) p->value = mugen_expr_parse(val, alloc);
-            break;
-        }
-        case MUGEN_SC_TARGETPOWERADD:
-        {
-            if (!sc->params) sc->params = alloc_params(alloc, sizeof(Mugen_TargetPowerAdd_Params));
-            Mugen_TargetPowerAdd_Params* p = sc->params;
-            if (str8_ieq(key, "value")) p->value = mugen_expr_parse(val, alloc);
-            break;
-        }
-        case MUGEN_SC_CHANGEANIM2:
-        {
-            if (!sc->params) sc->params = alloc_params(alloc, sizeof(Mugen_ChangeAnim2_Params));
-            Mugen_ChangeAnim2_Params* p = sc->params;
-            if (str8_ieq(key, "value")) p->value = mugen_expr_parse(val, alloc);
-            break;
-        }
-        case MUGEN_SC_HELPER:
-        {
-            if (!sc->params) sc->params = alloc_params(alloc, sizeof(Mugen_Helper_Params));
-            Mugen_Helper_Params* p = sc->params;
-            if (str8_ieq(key, "helperid") || str8_ieq(key, "id")) p->id = mugen_expr_parse(val, alloc);
-            else if (str8_ieq(key, "stateno")) p->stateno = mugen_expr_parse(val, alloc);
-            else if (str8_ieq(key, "pos"))
-            {
-                str8 rest;
-                str8 px = split_comma_first(val, &rest);
-                p->pos_x = mugen_expr_parse(px, alloc);
-                if (rest.len > 0) p->pos_y = mugen_expr_parse(rest, alloc);
-            }
-            else if (str8_ieq(key, "postype"))
-            {
-                str8 v = trim(val);
-                if (str8_ieq(v, "p1"))         p->postype = MUGEN_POSTYPE_P1;
-                else if (str8_ieq(v, "left"))   p->postype = MUGEN_POSTYPE_LEFT;
-                else if (str8_ieq(v, "right"))  p->postype = MUGEN_POSTYPE_RIGHT;
-                else if (str8_ieq(v, "back"))   p->postype = MUGEN_POSTYPE_BACK;
-                else if (str8_ieq(v, "front"))  p->postype = MUGEN_POSTYPE_FRONT;
-            }
-            else if (str8_ieq(key, "facing")) p->facing = mugen_expr_parse(val, alloc);
-            else if (str8_ieq(key, "ownpal")) p->ownpal = mugen_expr_parse(val, alloc);
-            break;
-        }
-        case MUGEN_SC_DESTROYSELF:
-            break;
-        case MUGEN_SC_HITDEF:
-        {
-            if (!sc->params) sc->params = alloc_params(alloc, sizeof(Mugen_HitDef_Params));
-            Mugen_HitDef_Params* p = sc->params;
-            if (str8_ieq(key, "attr")) p->attr = parse_attr(val);
-            else if (str8_ieq(key, "hitflag")) p->hitflag = parse_hitflag(val);
-            else if (str8_ieq(key, "guardflag")) p->guardflag = parse_hitflag(val);
-            else if (str8_ieq(key, "animtype")) p->animtype = parse_animtype(val);
-            else if (str8_ieq(key, "air.animtype")) p->air_animtype = parse_animtype(val);
-            else if (str8_ieq(key, "fall.animtype")) p->fall_animtype = parse_animtype(val);
-            else if (str8_ieq(key, "ground.type")) p->ground_type = parse_groundtype(val);
-            else if (str8_ieq(key, "air.type")) p->air_type = parse_groundtype(val);
-            else if (str8_ieq(key, "damage"))
-            {
-                str8 rest;
-                str8 hit = split_comma_first(val, &rest);
-                p->damage_hit = mugen_expr_parse(hit, alloc);
-                if (rest.len > 0) p->damage_guard = mugen_expr_parse(rest, alloc);
-            }
-            else if (str8_ieq(key, "pausetime"))
-            {
-                str8 rest;
-                str8 p1 = split_comma_first(val, &rest);
-                p->pausetime_p1 = mugen_expr_parse(p1, alloc);
-                if (rest.len > 0) p->pausetime_p2 = mugen_expr_parse(rest, alloc);
-            }
-            else if (str8_ieq(key, "guard.pausetime"))
-            {
-                str8 rest;
-                str8 gp1 = split_comma_first(val, &rest);
-                p->guard_pausetime_p1 = mugen_expr_parse(gp1, alloc);
-                if (rest.len > 0) p->guard_pausetime_p2 = mugen_expr_parse(rest, alloc);
-            }
-            else if (str8_ieq(key, "sparkno")) p->sparkno = mugen_expr_parse(val, alloc);
-            else if (str8_ieq(key, "guard.sparkno")) p->guard_sparkno = mugen_expr_parse(val, alloc);
-            else if (str8_ieq(key, "sparkxy"))
-            {
-                str8 rest;
-                str8 sx = split_comma_first(val, &rest);
-                p->spark_x = mugen_expr_parse(sx, alloc);
-                if (rest.len > 0) p->spark_y = mugen_expr_parse(rest, alloc);
-            }
-            else if (str8_ieq(key, "hitsound"))
-            {
-                str8 rest;
-                str8 grp = split_comma_first(val, &rest);
-                p->hitsound_group = mugen_expr_parse(grp, alloc);
-                if (rest.len > 0) p->hitsound_index = mugen_expr_parse(rest, alloc);
-            }
-            else if (str8_ieq(key, "guardsound"))
-            {
-                str8 rest;
-                str8 grp = split_comma_first(val, &rest);
-                p->guardsound_group = mugen_expr_parse(grp, alloc);
-                if (rest.len > 0) p->guardsound_index = mugen_expr_parse(rest, alloc);
-            }
-            else if (str8_ieq(key, "ground.slidetime")) p->ground_slidetime = mugen_expr_parse(val, alloc);
-            else if (str8_ieq(key, "ground.hittime")) p->ground_hittime = mugen_expr_parse(val, alloc);
-            else if (str8_ieq(key, "ground.velocity"))
-            {
-                str8 rest;
-                str8 vx = split_comma_first(val, &rest);
-                p->ground_vel_x = mugen_expr_parse(vx, alloc);
-                if (rest.len > 0) p->ground_vel_y = mugen_expr_parse(rest, alloc);
-            }
-            else if (str8_ieq(key, "guard.slidetime")) p->guard_slidetime = mugen_expr_parse(val, alloc);
-            else if (str8_ieq(key, "guard.hittime")) p->guard_hittime = mugen_expr_parse(val, alloc);
-            else if (str8_ieq(key, "guard.ctrltime")) p->guard_ctrltime = mugen_expr_parse(val, alloc);
-            else if (str8_ieq(key, "guard.velocity")) p->guard_velocity = mugen_expr_parse(val, alloc);
-            else if (str8_ieq(key, "air.velocity"))
-            {
-                str8 rest;
-                str8 vx = split_comma_first(val, &rest);
-                p->air_vel_x = mugen_expr_parse(vx, alloc);
-                if (rest.len > 0) p->air_vel_y = mugen_expr_parse(rest, alloc);
-            }
-            else if (str8_ieq(key, "airguard.velocity"))
-            {
-                str8 rest;
-                str8 vx = split_comma_first(val, &rest);
-                p->airguard_vel_x = mugen_expr_parse(vx, alloc);
-                if (rest.len > 0) p->airguard_vel_y = mugen_expr_parse(rest, alloc);
-            }
-            else if (str8_ieq(key, "air.hittime")) p->air_hittime = mugen_expr_parse(val, alloc);
-            else if (str8_ieq(key, "air.fall")) p->air_fall = mugen_expr_parse(val, alloc);
-            else if (str8_ieq(key, "fall")) p->fall = mugen_expr_parse(val, alloc);
-            else if (str8_ieq(key, "fall.recover")) p->fall_recover = mugen_expr_parse(val, alloc);
-            else if (str8_ieq(key, "fall.recovertime")) p->fall_recovertime = mugen_expr_parse(val, alloc);
-            else if (str8_ieq(key, "fall.damage")) p->fall_damage = mugen_expr_parse(val, alloc);
-            else if (str8_ieq(key, "fall.xvelocity")) p->fall_vel_x = mugen_expr_parse(val, alloc);
-            else if (str8_ieq(key, "fall.yvelocity")) p->fall_vel_y = mugen_expr_parse(val, alloc);
-            else if (str8_ieq(key, "priority")) p->priority = mugen_expr_parse(val, alloc);
-            else if (str8_ieq(key, "getpower"))
-            {
-                str8 rest;
-                str8 hit = split_comma_first(val, &rest);
-                p->getpower_hit = mugen_expr_parse(hit, alloc);
-                if (rest.len > 0) p->getpower_guard = mugen_expr_parse(rest, alloc);
-            }
-            else if (str8_ieq(key, "givepower"))
-            {
-                str8 rest;
-                str8 hit = split_comma_first(val, &rest);
-                p->givepower_hit = mugen_expr_parse(hit, alloc);
-                if (rest.len > 0) p->givepower_guard = mugen_expr_parse(rest, alloc);
-            }
-            else if (str8_ieq(key, "p1stateno")) p->p1stateno = mugen_expr_parse(val, alloc);
-            else if (str8_ieq(key, "p2stateno")) p->p2stateno = mugen_expr_parse(val, alloc);
-            else if (str8_ieq(key, "p1facing")) p->p1facing = mugen_expr_parse(val, alloc);
-            else if (str8_ieq(key, "p2facing")) p->p2facing = mugen_expr_parse(val, alloc);
-            else if (str8_ieq(key, "p2getp1state")) p->p2getp1state = mugen_expr_parse(val, alloc);
-            else if (str8_ieq(key, "numhits")) p->numhits = mugen_expr_parse(val, alloc);
-            else if (str8_ieq(key, "hitonce")) p->hitonce = mugen_expr_parse(val, alloc);
-            else if (str8_ieq(key, "forcestand")) p->forcestand = mugen_expr_parse(val, alloc);
-            else if (str8_ieq(key, "ground.cornerpush.veloff")) p->ground_cornerpush = mugen_expr_parse(val, alloc);
-            else if (str8_ieq(key, "air.cornerpush.veloff")) p->air_cornerpush = mugen_expr_parse(val, alloc);
-            else if (str8_ieq(key, "guard.cornerpush.veloff")) p->guard_cornerpush = mugen_expr_parse(val, alloc);
-            else if (str8_ieq(key, "yaccel")) p->yaccel = mugen_expr_parse(val, alloc);
-            break;
-        }
-    }
+    Mugen_SC_Reg* reg = mugen_sc_get_reg(sc->type);
+    if (reg && reg->parse_param)
+        reg->parse_param(sc, key, val, alloc);
 }
 
 static void finalize_controller(Mugen_State_Controller* sc, Ptr_List* triggerall_list,
@@ -928,90 +279,90 @@ static void parse_constants_line(Mugen_Char_Constants* c, u8 section, str8 key, 
     {
         case 1:
         {
-            if (str8_ieq(key, "life"))               c->life = parse_int(val);
-            else if (str8_ieq(key, "attack"))         c->attack = parse_int(val);
-            else if (str8_ieq(key, "defence"))        c->defence = parse_int(val);
-            else if (str8_ieq(key, "fall.defence_up")) c->fall_defence_up = parse_int(val);
-            else if (str8_ieq(key, "liedown.time"))   c->liedown_time = parse_int(val);
-            else if (str8_ieq(key, "airjuggle"))      c->airjuggle = parse_int(val);
-            else if (str8_ieq(key, "sparkno"))        c->sparkno = parse_int(val);
-            else if (str8_ieq(key, "guard.sparkno"))  c->guard_sparkno = parse_int(val);
-            else if (str8_ieq(key, "power.max"))      c->power_max = parse_int(val);
+            if (str8_ieq_cstr(key, "life"))               c->life = parse_int(val);
+            else if (str8_ieq_cstr(key, "attack"))         c->attack = parse_int(val);
+            else if (str8_ieq_cstr(key, "defence"))        c->defence = parse_int(val);
+            else if (str8_ieq_cstr(key, "fall.defence_up")) c->fall_defence_up = parse_int(val);
+            else if (str8_ieq_cstr(key, "liedown.time"))   c->liedown_time = parse_int(val);
+            else if (str8_ieq_cstr(key, "airjuggle"))      c->airjuggle = parse_int(val);
+            else if (str8_ieq_cstr(key, "sparkno"))        c->sparkno = parse_int(val);
+            else if (str8_ieq_cstr(key, "guard.sparkno"))  c->guard_sparkno = parse_int(val);
+            else if (str8_ieq_cstr(key, "power.max"))      c->power_max = parse_int(val);
             break;
         }
         case 2:
         {
-            if (str8_ieq(key, "xscale"))              c->xscale = parse_float(val);
-            else if (str8_ieq(key, "yscale"))          c->yscale = parse_float(val);
-            else if (str8_ieq(key, "ground.back"))     c->ground_back = parse_float(val);
-            else if (str8_ieq(key, "ground.front"))    c->ground_front = parse_float(val);
-            else if (str8_ieq(key, "air.back"))        c->air_back = parse_float(val);
-            else if (str8_ieq(key, "air.front"))       c->air_front = parse_float(val);
-            else if (str8_ieq(key, "height"))          c->height = parse_float(val);
-            else if (str8_ieq(key, "attack.dist"))     c->attack_dist = parse_float(val);
+            if (str8_ieq_cstr(key, "xscale"))              c->xscale = parse_float(val);
+            else if (str8_ieq_cstr(key, "yscale"))          c->yscale = parse_float(val);
+            else if (str8_ieq_cstr(key, "ground.back"))     c->ground_back = parse_float(val);
+            else if (str8_ieq_cstr(key, "ground.front"))    c->ground_front = parse_float(val);
+            else if (str8_ieq_cstr(key, "air.back"))        c->air_back = parse_float(val);
+            else if (str8_ieq_cstr(key, "air.front"))       c->air_front = parse_float(val);
+            else if (str8_ieq_cstr(key, "height"))          c->height = parse_float(val);
+            else if (str8_ieq_cstr(key, "attack.dist"))     c->attack_dist = parse_float(val);
             break;
         }
         case 3:
         {
             str8 rest;
             str8 first = split_comma_first(val, &rest);
-            if (str8_ieq(key, "walk.fwd"))             c->walk_fwd_x = parse_float(first);
-            else if (str8_ieq(key, "walk.back"))       c->walk_back_x = parse_float(first);
-            else if (str8_ieq(key, "run.fwd"))
+            if (str8_ieq_cstr(key, "walk.fwd"))             c->walk_fwd_x = parse_float(first);
+            else if (str8_ieq_cstr(key, "walk.back"))       c->walk_back_x = parse_float(first);
+            else if (str8_ieq_cstr(key, "run.fwd"))
             {
                 c->run_fwd_x = parse_float(first);
                 if (rest.len > 0) c->run_fwd_y = -parse_float(rest);
             }
-            else if (str8_ieq(key, "run.back"))
+            else if (str8_ieq_cstr(key, "run.back"))
             {
                 c->run_back_x = parse_float(first);
                 if (rest.len > 0) c->run_back_y = -parse_float(rest);
             }
-            else if (str8_ieq(key, "jump.neu"))
+            else if (str8_ieq_cstr(key, "jump.neu"))
             {
                 c->jump_neu_x = parse_float(first);
                 if (rest.len > 0) c->jump_y = -parse_float(rest);
             }
-            else if (str8_ieq(key, "jump.back"))       c->jump_back_x = parse_float(first);
-            else if (str8_ieq(key, "jump.fwd"))        c->jump_fwd_x = parse_float(first);
-            else if (str8_ieq(key, "runjump.back"))
+            else if (str8_ieq_cstr(key, "jump.back"))       c->jump_back_x = parse_float(first);
+            else if (str8_ieq_cstr(key, "jump.fwd"))        c->jump_fwd_x = parse_float(first);
+            else if (str8_ieq_cstr(key, "runjump.back"))
             {
                 c->runjump_back_x = parse_float(first);
                 if (rest.len > 0) c->runjump_y = -parse_float(rest);
             }
-            else if (str8_ieq(key, "runjump.fwd"))
+            else if (str8_ieq_cstr(key, "runjump.fwd"))
             {
                 c->runjump_fwd_x = parse_float(first);
                 if (rest.len > 0) c->runjump_y = -parse_float(rest);
             }
-            else if (str8_ieq(key, "airjump.neu"))
+            else if (str8_ieq_cstr(key, "airjump.neu"))
             {
                 c->airjump_neu_x = parse_float(first);
                 if (rest.len > 0) c->airjump_y = -parse_float(rest);
             }
-            else if (str8_ieq(key, "airjump.back"))    c->airjump_back_x = parse_float(first);
-            else if (str8_ieq(key, "airjump.fwd"))     c->airjump_fwd_x = parse_float(first);
+            else if (str8_ieq_cstr(key, "airjump.back"))    c->airjump_back_x = parse_float(first);
+            else if (str8_ieq_cstr(key, "airjump.fwd"))     c->airjump_fwd_x = parse_float(first);
             break;
         }
         case 4:
         {
-            if (str8_ieq(key, "airjump.num"))                    c->airjump_num = parse_int(val);
-            else if (str8_ieq(key, "airjump.height"))             c->airjump_height = parse_int(val);
-            else if (str8_ieq(key, "yaccel"))                     c->yaccel = parse_float(val);
-            else if (str8_ieq(key, "stand.friction"))             c->stand_friction = parse_float(val);
-            else if (str8_ieq(key, "crouch.friction"))            c->crouch_friction = parse_float(val);
-            else if (str8_ieq(key, "stand.friction.threshold"))   c->stand_friction_threshold = parse_float(val);
-            else if (str8_ieq(key, "crouch.friction.threshold"))  c->crouch_friction_threshold = parse_float(val);
-            else if (str8_ieq(key, "down.bounce.offset"))
+            if (str8_ieq_cstr(key, "airjump.num"))                    c->airjump_num = parse_int(val);
+            else if (str8_ieq_cstr(key, "airjump.height"))             c->airjump_height = parse_int(val);
+            else if (str8_ieq_cstr(key, "yaccel"))                     c->yaccel = parse_float(val);
+            else if (str8_ieq_cstr(key, "stand.friction"))             c->stand_friction = parse_float(val);
+            else if (str8_ieq_cstr(key, "crouch.friction"))            c->crouch_friction = parse_float(val);
+            else if (str8_ieq_cstr(key, "stand.friction.threshold"))   c->stand_friction_threshold = parse_float(val);
+            else if (str8_ieq_cstr(key, "crouch.friction.threshold"))  c->crouch_friction_threshold = parse_float(val);
+            else if (str8_ieq_cstr(key, "down.bounce.offset"))
             {
                 str8 brest;
                 str8 bfirst = split_comma_first(val, &brest);
                 c->down_bounce_offset_x = parse_float(bfirst);
                 if (brest.len > 0) c->down_bounce_offset_y = parse_float(brest);
             }
-            else if (str8_ieq(key, "down.bounce.yaccel"))         c->down_bounce_yaccel = parse_float(val);
-            else if (str8_ieq(key, "down.bounce.groundlevel"))    c->down_bounce_groundlevel = parse_float(val);
-            else if (str8_ieq(key, "down.friction.threshold"))    c->down_friction_threshold = parse_float(val);
+            else if (str8_ieq_cstr(key, "down.bounce.yaccel"))         c->down_bounce_yaccel = parse_float(val);
+            else if (str8_ieq_cstr(key, "down.bounce.groundlevel"))    c->down_bounce_groundlevel = parse_float(val);
+            else if (str8_ieq_cstr(key, "down.friction.threshold"))    c->down_friction_threshold = parse_float(val);
             break;
         }
     }
@@ -1167,11 +518,11 @@ bool mugen_cns_load(Mugen_Cns* out, str8 data, const Mel_Alloc* alloc)
 
         if (!in_controller)
         {
-            if (str8_ieq(key, "type")) current_def.statetype = parse_statetype_char(val);
-            else if (str8_ieq(key, "movetype")) current_def.movetype = parse_movetype_char(val);
-            else if (str8_ieq(key, "physics")) current_def.physics = parse_statetype_char(val);
-            else if (str8_ieq(key, "anim")) current_def.anim = parse_int(val);
-            else if (str8_ieq(key, "velset"))
+            if (str8_ieq_cstr(key, "type")) current_def.statetype = parse_statetype_char(val);
+            else if (str8_ieq_cstr(key, "movetype")) current_def.movetype = parse_movetype_char(val);
+            else if (str8_ieq_cstr(key, "physics")) current_def.physics = parse_statetype_char(val);
+            else if (str8_ieq_cstr(key, "anim")) current_def.anim = parse_int(val);
+            else if (str8_ieq_cstr(key, "velset"))
             {
                 str8 rest;
                 str8 vx = split_comma_first(val, &rest);
@@ -1179,25 +530,25 @@ bool mugen_cns_load(Mugen_Cns* out, str8 data, const Mel_Alloc* alloc)
                 if (rest.len > 0) current_def.velset_y = parse_float(rest);
                 current_def.has_velset = true;
             }
-            else if (str8_ieq(key, "ctrl")) current_def.ctrl = parse_int(val);
-            else if (str8_ieq(key, "juggle")) current_def.juggle = parse_int(val);
-            else if (str8_ieq(key, "poweradd")) current_def.poweradd = parse_int(val);
-            else if (str8_ieq(key, "sprpriority")) current_def.sprpriority = parse_int(val);
-            else if (str8_ieq(key, "hitdefpersist")) current_def.hitdefpersist = parse_int(val) != 0;
-            else if (str8_ieq(key, "movehitpersist")) current_def.movehitpersist = parse_int(val) != 0;
-            else if (str8_ieq(key, "hitcountpersist")) current_def.hitcountpersist = parse_int(val) != 0;
+            else if (str8_ieq_cstr(key, "ctrl")) current_def.ctrl = parse_int(val);
+            else if (str8_ieq_cstr(key, "juggle")) current_def.juggle = parse_int(val);
+            else if (str8_ieq_cstr(key, "poweradd")) current_def.poweradd = parse_int(val);
+            else if (str8_ieq_cstr(key, "sprpriority")) current_def.sprpriority = parse_int(val);
+            else if (str8_ieq_cstr(key, "hitdefpersist")) current_def.hitdefpersist = parse_int(val) != 0;
+            else if (str8_ieq_cstr(key, "movehitpersist")) current_def.movehitpersist = parse_int(val) != 0;
+            else if (str8_ieq_cstr(key, "hitcountpersist")) current_def.hitcountpersist = parse_int(val) != 0;
         }
         else
         {
-            if (str8_ieq(key, "type"))
+            if (str8_ieq_cstr(key, "type"))
             {
                 current_ctrl.type = parse_controller_type(val);
             }
-            else if (str8_ieq(key, "persistent"))
+            else if (str8_ieq_cstr(key, "persistent"))
             {
                 current_ctrl.persistent = parse_int(val);
             }
-            else if (str8_ieq(key, "ignorehitpause"))
+            else if (str8_ieq_cstr(key, "ignorehitpause"))
             {
                 current_ctrl.ignorehitpause = parse_int(val) != 0;
             }

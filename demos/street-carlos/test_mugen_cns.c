@@ -312,27 +312,28 @@ MEL_TEST(cns_load_poison, .tags = "cns")
 
     Mugen_State_Controller* sc1 = &s421->controllers[1];
     MEL_ASSERT_EQ(sc1->type, MUGEN_SC_HITDEF);
-    Mugen_HitDef_Params* hd = (Mugen_HitDef_Params*)sc1->params;
-    MEL_ASSERT_NOT_NULL(hd);
-    MEL_ASSERT(hd->attr & MUGEN_ATTR_C);
-    MEL_ASSERT(hd->attr & MUGEN_ATTR_NA);
-    MEL_ASSERT_EQ(hd->ground_type, MUGEN_GROUNDTYPE_TRIP);
-    MEL_ASSERT_NOT_NULL(hd->damage_hit);
+    MEL_ASSERT_NOT_NULL(sc1->params);
+    {
+        Mugen_Char_State tmp = {0};
+        tmp.facing = 1;
+        Mugen_SC_Reg* reg = mugen_sc_get_reg(MUGEN_SC_HITDEF);
+        reg->exec(sc1, &tmp);
+        MEL_ASSERT(tmp.hitdef.attr & MUGEN_ATTR_C);
+        MEL_ASSERT(tmp.hitdef.attr & MUGEN_ATTR_NA);
+        MEL_ASSERT_EQ(tmp.hitdef.ground_type, MUGEN_GROUNDTYPE_TRIP);
+        MEL_ASSERT(tmp.hitdef_pending);
+    }
 
     Mugen_State_Controller* sc2 = &s421->controllers[2];
     MEL_ASSERT_EQ(sc2->type, MUGEN_SC_VELSET);
-    Mugen_Vel_Params* vp = (Mugen_Vel_Params*)sc2->params;
-    MEL_ASSERT_NOT_NULL(vp);
-    MEL_ASSERT_NOT_NULL(vp->x);
+    MEL_ASSERT_NOT_NULL(sc2->params);
 
     Mugen_State_Controller* sc3 = &s421->controllers[3];
     MEL_ASSERT_EQ(sc3->type, MUGEN_SC_VELSET);
 
     Mugen_State_Controller* sc4 = &s421->controllers[4];
     MEL_ASSERT_EQ(sc4->type, MUGEN_SC_CHANGESTATE);
-    Mugen_ChangeState_Params* cs = (Mugen_ChangeState_Params*)sc4->params;
-    MEL_ASSERT_NOT_NULL(cs);
-    MEL_ASSERT_NOT_NULL(cs->value);
+    MEL_ASSERT_NOT_NULL(sc4->params);
 
     free(data.data);
 }
@@ -383,9 +384,9 @@ MEL_TEST(cns_eval_state421_velset, .tags = "cns")
     f32 trig_val = mugen_expr_eval(velset1->trigger_groups[0].conditions[0], &st);
     MEL_ASSERT_FLOAT_EQ(trig_val, 1.0f, 0.001f);
 
-    Mugen_Vel_Params* vp = (Mugen_Vel_Params*)velset1->params;
-    f32 vel_x = mugen_expr_eval(vp->x, &st);
-    MEL_ASSERT_FLOAT_EQ(vel_x, 6.0f, 0.001f);
+    Mugen_SC_Reg* reg = mugen_sc_get_reg(MUGEN_SC_VELSET);
+    reg->exec(velset1, &st);
+    MEL_ASSERT_FLOAT_EQ(st.vel_x, 6.0f, 0.001f);
 
     st.time = 0;
     trig_val = mugen_expr_eval(velset1->trigger_groups[0].conditions[0], &st);

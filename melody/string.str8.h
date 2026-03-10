@@ -17,6 +17,8 @@ static inline str8 str8_from_range(u8* begin, u8* end);
 static inline str8 str8_from_cstr(const char* s);
 static inline bool str8_is_empty(str8 s);
 static inline bool str8_equals(str8 a, str8 b);
+static inline bool str8_ieq(str8 a, str8 b);
+static inline bool str8_ieq_cstr(str8 a, const char* b);
 static inline i32  str8_compare(str8 a, str8 b);
 static inline bool str8_starts_with(str8 s, str8 prefix);
 static inline bool str8_ends_with(str8 s, str8 suffix);

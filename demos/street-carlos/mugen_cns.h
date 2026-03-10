@@ -5,6 +5,8 @@
 #include "allocator.fwd.h"
 
 typedef struct Mugen_Expr Mugen_Expr;
+typedef struct Mugen_State_Controller Mugen_State_Controller;
+typedef struct Mugen_Char_State Mugen_Char_State;
 #ifndef COMMAND_LIST_DEFINED
 typedef struct Command_List Command_List;
 #endif
@@ -106,6 +108,26 @@ typedef struct Command_List Command_List;
 #define MUGEN_QUERY_WIN            53
 #define MUGEN_QUERY_MATCHOVER      54
 #define MUGEN_QUERY_NUMTARGET      55
+#define MUGEN_QUERY_MAX            64
+
+typedef f32 (*Mugen_Query_Eval_Fn)(Mugen_Expr* arg, Mugen_Char_State* state);
+
+typedef struct {
+    const char* name;
+    Mugen_Query_Eval_Fn eval;
+} Mugen_Query_Reg;
+
+void mugen_query_register(u8 id, const char* name, Mugen_Query_Eval_Fn eval);
+u8 mugen_query_lookup_name(str8 name);
+Mugen_Query_Reg* mugen_query_get_reg(u8 id);
+
+typedef struct {
+    const char* name;
+    u8 id;
+} Mugen_Query_Name_Entry;
+
+u32 mugen_query_name_count(void);
+const Mugen_Query_Name_Entry* mugen_query_name_table(void);
 
 #define MUGEN_VAR_INT      0
 #define MUGEN_VAR_FLOAT    1
@@ -171,6 +193,20 @@ struct Mugen_Expr {
 #define MUGEN_SC_CHANGEANIM2   40
 #define MUGEN_SC_HELPER        41
 #define MUGEN_SC_DESTROYSELF   42
+#define MUGEN_SC_MAX           64
+
+typedef void (*Mugen_SC_Parse_Fn)(Mugen_State_Controller* sc, str8 key, str8 val, const struct Mel_Alloc* alloc);
+typedef void (*Mugen_SC_Exec_Fn)(Mugen_State_Controller* sc, Mugen_Char_State* state);
+
+typedef struct {
+    const char* name;
+    Mugen_SC_Parse_Fn parse_param;
+    Mugen_SC_Exec_Fn exec;
+} Mugen_SC_Reg;
+
+void mugen_sc_register(u8 id, const char* name, Mugen_SC_Parse_Fn parse_param, Mugen_SC_Exec_Fn exec);
+u8 mugen_sc_lookup_name(str8 name);
+Mugen_SC_Reg* mugen_sc_get_reg(u8 id);
 
 #define MUGEN_ANIMTYPE_LIGHT   0
 #define MUGEN_ANIMTYPE_MEDIUM  1
@@ -220,109 +256,6 @@ struct Mugen_Expr {
 #define MUGEN_MOVETYPE_H  2
 #define MUGEN_MOVETYPE_U  0xFE
 
-typedef struct {
-    Mugen_Expr* x;
-    Mugen_Expr* y;
-} Mugen_Vel_Params;
-
-typedef struct {
-    Mugen_Expr* x;
-    Mugen_Expr* y;
-} Mugen_Pos_Params;
-
-typedef struct {
-    Mugen_Expr* value;
-    Mugen_Expr* ctrl;
-    Mugen_Expr* anim;
-} Mugen_ChangeState_Params;
-
-typedef struct {
-    Mugen_Expr* value;
-} Mugen_ChangeAnim_Params;
-
-typedef struct {
-    Mugen_Expr* value;
-} Mugen_Ctrl_Params;
-
-typedef struct {
-    u8 var_type;
-    Mugen_Expr* index;
-    Mugen_Expr* value;
-} Mugen_VarSet_Params;
-
-typedef struct {
-    Mugen_Expr* group;
-    Mugen_Expr* index;
-    Mugen_Expr* channel;
-} Mugen_PlaySnd_Params;
-
-typedef struct {
-    u32 attr_flags;
-    Mugen_Expr* time;
-} Mugen_NotHitBy_Params;
-
-typedef struct {
-    Mugen_Expr* front;
-    Mugen_Expr* back;
-} Mugen_Width_Params;
-
-typedef struct {
-    Mugen_Expr* time;
-    Mugen_Expr* anim;
-    Mugen_Expr* sound_group;
-    Mugen_Expr* sound_index;
-    Mugen_Expr* pos_x;
-    Mugen_Expr* pos_y;
-    Mugen_Expr* poweradd;
-} Mugen_SuperPause_Params;
-
-typedef struct {
-    Mugen_Expr* time;
-} Mugen_AfterImage_Params;
-
-typedef struct {
-    Mugen_Expr* value;
-} Mugen_PowerAdd_Params;
-
-typedef struct {
-    Mugen_Expr* value;
-} Mugen_SprPriority_Params;
-
-typedef struct {
-    u8 var_type;
-    Mugen_Expr* index;
-    Mugen_Expr* range_low;
-    Mugen_Expr* range_high;
-} Mugen_VarRandom_Params;
-
-typedef struct {
-    i8 statetype;
-    i8 movetype;
-    i8 physics;
-} Mugen_StateTypeSet_Params;
-
-typedef struct {
-    Mugen_Expr* x;
-    Mugen_Expr* y;
-} Mugen_HitVelSet_Params;
-
-typedef struct {
-    Mugen_Expr* value;
-    Mugen_Expr* ctrl;
-    Mugen_Expr* anim;
-} Mugen_SelfState_Params;
-
-typedef struct {
-    Mugen_Expr* fall_xvel;
-    Mugen_Expr* fall_yvel;
-    Mugen_Expr* fall_recover;
-    Mugen_Expr* fall_recovertime;
-    Mugen_Expr* fall_damage;
-    Mugen_Expr* fall_envshake_time;
-    i8 xvel_set;
-    i8 yvel_set;
-} Mugen_HitFallSet_Params;
-
 #define MUGEN_ASSERT_NOWALK        (1u << 0)
 #define MUGEN_ASSERT_NOAUTOTURN    (1u << 1)
 #define MUGEN_ASSERT_NOSTANDGUARD  (1u << 2)
@@ -333,48 +266,6 @@ typedef struct {
 #define MUGEN_ASSERT_NOCORNERPUSH  (1u << 7)
 #define MUGEN_ASSERT_UNGUARDABLE  (1u << 8)
 
-typedef struct {
-    u32 flags;
-} Mugen_AssertSpecial_Params;
-
-typedef struct {
-    Mugen_Expr* value;
-    Mugen_Expr* fvalue;
-    Mugen_Expr* first;
-    Mugen_Expr* last;
-} Mugen_VarRangeSet_Params;
-
-typedef struct {
-    Mugen_Expr* value;
-} Mugen_DefenceMulSet_Params;
-
-typedef struct {
-    Mugen_Expr* pos_x;
-    Mugen_Expr* pos_y;
-} Mugen_TargetBind_Params;
-
-typedef struct {
-    Mugen_Expr* value;
-} Mugen_TargetState_Params;
-
-typedef struct {
-    Mugen_Expr* value;
-    Mugen_Expr* kill;
-    Mugen_Expr* absolute;
-} Mugen_TargetLifeAdd_Params;
-
-typedef struct {
-    Mugen_Expr* value;
-} Mugen_TargetFacing_Params;
-
-typedef struct {
-    Mugen_Expr* value;
-} Mugen_TargetPowerAdd_Params;
-
-typedef struct {
-    Mugen_Expr* value;
-} Mugen_ChangeAnim2_Params;
-
 #define MUGEN_POSTYPE_P1    0
 #define MUGEN_POSTYPE_LEFT  1
 #define MUGEN_POSTYPE_RIGHT 2
@@ -382,83 +273,11 @@ typedef struct {
 #define MUGEN_POSTYPE_FRONT 4
 
 typedef struct {
-    Mugen_Expr* id;
-    Mugen_Expr* stateno;
-    Mugen_Expr* pos_x;
-    Mugen_Expr* pos_y;
-    u8 postype;
-    Mugen_Expr* facing;
-    Mugen_Expr* ownpal;
-} Mugen_Helper_Params;
-
-typedef struct {
-    u32 attr;
-    u32 hitflag;
-    u32 guardflag;
-    u8 ground_type;
-    u8 air_type;
-    u8 animtype;
-    u8 air_animtype;
-    u8 fall_animtype;
-    Mugen_Expr* damage_hit;
-    Mugen_Expr* damage_guard;
-    Mugen_Expr* pausetime_p1;
-    Mugen_Expr* pausetime_p2;
-    Mugen_Expr* guard_pausetime_p1;
-    Mugen_Expr* guard_pausetime_p2;
-    Mugen_Expr* sparkno;
-    Mugen_Expr* guard_sparkno;
-    Mugen_Expr* spark_x;
-    Mugen_Expr* spark_y;
-    Mugen_Expr* hitsound_group;
-    Mugen_Expr* hitsound_index;
-    Mugen_Expr* guardsound_group;
-    Mugen_Expr* guardsound_index;
-    Mugen_Expr* ground_slidetime;
-    Mugen_Expr* ground_hittime;
-    Mugen_Expr* ground_vel_x;
-    Mugen_Expr* ground_vel_y;
-    Mugen_Expr* guard_slidetime;
-    Mugen_Expr* guard_hittime;
-    Mugen_Expr* guard_ctrltime;
-    Mugen_Expr* guard_velocity;
-    Mugen_Expr* air_vel_x;
-    Mugen_Expr* air_vel_y;
-    Mugen_Expr* airguard_vel_x;
-    Mugen_Expr* airguard_vel_y;
-    Mugen_Expr* air_hittime;
-    Mugen_Expr* air_fall;
-    Mugen_Expr* fall;
-    Mugen_Expr* fall_recover;
-    Mugen_Expr* fall_recovertime;
-    Mugen_Expr* fall_damage;
-    Mugen_Expr* fall_vel_x;
-    Mugen_Expr* fall_vel_y;
-    Mugen_Expr* priority;
-    Mugen_Expr* getpower_hit;
-    Mugen_Expr* getpower_guard;
-    Mugen_Expr* givepower_hit;
-    Mugen_Expr* givepower_guard;
-    Mugen_Expr* p1stateno;
-    Mugen_Expr* p2stateno;
-    Mugen_Expr* p2getp1state;
-    Mugen_Expr* numhits;
-    Mugen_Expr* hitonce;
-    Mugen_Expr* forcestand;
-    Mugen_Expr* ground_cornerpush;
-    Mugen_Expr* air_cornerpush;
-    Mugen_Expr* guard_cornerpush;
-    Mugen_Expr* yaccel;
-    Mugen_Expr* p1facing;
-    Mugen_Expr* p2facing;
-} Mugen_HitDef_Params;
-
-typedef struct {
     Mugen_Expr** conditions;
     u32 count;
 } Mugen_Trigger_Group;
 
-typedef struct {
+struct Mugen_State_Controller {
     u8 type;
     Mugen_Expr** triggerall;
     u32 triggerall_count;
@@ -468,7 +287,7 @@ typedef struct {
     i32 persistent;
     i32 persistent_counter;
     void* params;
-} Mugen_State_Controller;
+};
 
 typedef struct {
     i32 stateno;
@@ -615,8 +434,6 @@ typedef struct {
     i32 priority;
     bool forcestand;
 } Mugen_GetHitVar;
-
-typedef struct Mugen_Char_State Mugen_Char_State;
 
 typedef struct {
     Mugen_Char_State* state;

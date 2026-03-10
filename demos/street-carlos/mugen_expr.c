@@ -8,15 +8,6 @@
 #include <math.h>
 #include <stdio.h>
 
-static u64 mugen_rng_next(u64* s)
-{
-    u64 x = *s;
-    x ^= x << 13;
-    x ^= x >> 7;
-    x ^= x << 17;
-    *s = x;
-    return x;
-}
 
 typedef struct {
     str8 text;
@@ -144,20 +135,6 @@ static str8 read_ident(Expr_Parser* p)
     return str8_from_parts(p->text.data + start, (size)(p->pos - start));
 }
 
-static bool str8_ieq(str8 a, const char* b)
-{
-    size blen = (size)strlen(b);
-    if (a.len != blen) return false;
-    for (size i = 0; i < blen; i++)
-    {
-        u8 ac = a.data[i];
-        u8 bc = (u8)b[i];
-        if (ac >= 'A' && ac <= 'Z') ac += 32;
-        if (bc >= 'A' && bc <= 'Z') bc += 32;
-        if (ac != bc) return false;
-    }
-    return true;
-}
 
 static Mugen_Expr* parse_expr(Expr_Parser* p);
 
@@ -209,67 +186,10 @@ static str8 parse_string_literal(Expr_Parser* p)
     return result;
 }
 
-typedef struct {
-    const char* name;
-    u8 id;
-} Query_Entry;
-
-static const Query_Entry s_queries[] = {
-    {"time",         MUGEN_QUERY_TIME},
-    {"animtime",     MUGEN_QUERY_ANIMTIME},
-    {"animelem",     MUGEN_QUERY_ANIMELEM},
-    {"animelemtime", MUGEN_QUERY_ANIMELEMTIME},
-    {"stateno",      MUGEN_QUERY_STATENO},
-    {"prevstateno",  MUGEN_QUERY_PREVSTATENO},
-    {"statetype",    MUGEN_QUERY_STATETYPE},
-    {"movetype",     MUGEN_QUERY_MOVETYPE},
-    {"ctrl",         MUGEN_QUERY_CTRL},
-    {"command",      MUGEN_QUERY_COMMAND},
-    {"vel x",        MUGEN_QUERY_VEL_X},
-    {"vel y",        MUGEN_QUERY_VEL_Y},
-    {"pos x",        MUGEN_QUERY_POS_X},
-    {"pos y",        MUGEN_QUERY_POS_Y},
-    {"movecontact",  MUGEN_QUERY_MOVECONTACT},
-    {"movehit",      MUGEN_QUERY_MOVEHIT},
-    {"moveguarded",  MUGEN_QUERY_MOVEGUARDED},
-    {"hitcount",     MUGEN_QUERY_HITCOUNT},
-    {"life",         MUGEN_QUERY_LIFE},
-    {"lifemax",      MUGEN_QUERY_LIFEMAX},
-    {"power",        MUGEN_QUERY_POWER},
-    {"powermax",     MUGEN_QUERY_POWERMAX},
-    {"facing",       MUGEN_QUERY_FACING},
-    {"p2bodydist x", MUGEN_QUERY_P2BODYDIST_X},
-    {"p2dist x",     MUGEN_QUERY_P2DIST_X},
-    {"p2dist y",     MUGEN_QUERY_P2DIST_Y},
-    {"numhelper",    MUGEN_QUERY_NUMHELPER},
-    {"alive",        MUGEN_QUERY_ALIVE},
-    {"random",       MUGEN_QUERY_RANDOM},
-    {"gametime",     MUGEN_QUERY_GAMETIME},
-    {"roundstate",   MUGEN_QUERY_ROUNDSTATE},
-    {"ishelper",     MUGEN_QUERY_ISHELPER},
-    {"anim",         MUGEN_QUERY_ANIM},
-    {"hitshakeover", MUGEN_QUERY_HITSHAKEOVER},
-    {"hitover",      MUGEN_QUERY_HITOVER},
-    {"hitfall",      MUGEN_QUERY_HITFALL},
-    {"p2statetype",  MUGEN_QUERY_P2STATETYPE},
-    {"p2movetype",   MUGEN_QUERY_P2MOVETYPE},
-    {"frontedgedist", MUGEN_QUERY_FRONTEDGEDIST},
-    {"backedgedist",  MUGEN_QUERY_BACKEDGEDIST},
-    {"frontedgebodydist", MUGEN_QUERY_FRONTEDGEBODYDIST},
-    {"backedgebodydist",  MUGEN_QUERY_BACKEDGEBODYDIST},
-    {"roundno",      MUGEN_QUERY_ROUNDNO},
-    {"roundsexisted", MUGEN_QUERY_ROUNDSEXISTED},
-    {"inguarddist",  MUGEN_QUERY_INGUARDDIST},
-    {"canrecover",   MUGEN_QUERY_CANRECOVER},
-    {"palno",        MUGEN_QUERY_PALNO},
-    {"hitdefattr",   MUGEN_QUERY_HITDEFATTR},
-    {"lose",         MUGEN_QUERY_LOSE},
-    {"win",          MUGEN_QUERY_WIN},
-    {"matchover",    MUGEN_QUERY_MATCHOVER},
-    {"statetime",    MUGEN_QUERY_TIME},
-    {"numtarget",    MUGEN_QUERY_NUMTARGET},
-    {NULL, 0}
-};
+static u8 lookup_query(str8 name)
+{
+    return mugen_query_lookup_name(name);
+}
 
 typedef struct {
     const char* name;
@@ -299,18 +219,20 @@ static const Var_Entry s_vars[] = {
 
 static bool try_query_with_space(Expr_Parser* p, str8 ident, Mugen_Expr** out)
 {
-    for (const Query_Entry* q = s_queries; q->name; q++)
+    u32 count = mugen_query_name_count();
+    const Mugen_Query_Name_Entry* entries = mugen_query_name_table();
+    for (u32 i = 0; i < count; i++)
     {
-        const char* space = strchr(q->name, ' ');
+        const char* space = strchr(entries[i].name, ' ');
         if (!space) continue;
 
-        size prefix_len = (size)(space - q->name);
+        size prefix_len = (size)(space - entries[i].name);
         if (ident.len != prefix_len) continue;
         bool match = true;
-        for (size i = 0; i < prefix_len; i++)
+        for (size j = 0; j < prefix_len; j++)
         {
-            u8 a = ident.data[i]; if (a >= 'A' && a <= 'Z') a += 32;
-            u8 b = (u8)q->name[i]; if (b >= 'A' && b <= 'Z') b += 32;
+            u8 a = ident.data[j]; if (a >= 'A' && a <= 'Z') a += 32;
+            u8 b = (u8)entries[i].name[j]; if (b >= 'A' && b <= 'Z') b += 32;
             if (a != b) { match = false; break; }
         }
         if (!match) continue;
@@ -319,9 +241,9 @@ static bool try_query_with_space(Expr_Parser* p, str8 ident, Mugen_Expr** out)
         usize saved = p->pos;
         str8 suffix = read_ident(p);
         const char* expected = space + 1;
-        if (str8_ieq(suffix, expected))
+        if (str8_ieq_cstr(suffix, expected))
         {
-            *out = make_query(p, q->id, NULL);
+            *out = make_query(p, entries[i].id, NULL);
             return true;
         }
         p->pos = saved;
@@ -383,7 +305,7 @@ static Mugen_Expr* parse_primary(Expr_Parser* p)
         if (ch == 'U' || ch == 'u') return make_int(p, 'U');
     }
 
-    if (str8_ieq(ident, "const"))
+    if (str8_ieq_cstr(ident, "const"))
     {
         match_char(p, '(');
         str8 name = read_ident(p);
@@ -393,7 +315,7 @@ static Mugen_Expr* parse_primary(Expr_Parser* p)
         return e;
     }
 
-    if (str8_ieq(ident, "const720p"))
+    if (str8_ieq_cstr(ident, "const720p"))
     {
         match_char(p, '(');
         Mugen_Expr* arg = parse_expr(p);
@@ -401,7 +323,7 @@ static Mugen_Expr* parse_primary(Expr_Parser* p)
         return arg;
     }
 
-    if (str8_ieq(ident, "selfanimexist"))
+    if (str8_ieq_cstr(ident, "selfanimexist"))
     {
         match_char(p, '(');
         Mugen_Expr* arg = parse_expr(p);
@@ -409,7 +331,7 @@ static Mugen_Expr* parse_primary(Expr_Parser* p)
         return make_query(p, MUGEN_QUERY_SELFANIMEXIST, arg);
     }
 
-    if (str8_ieq(ident, "animelemtime"))
+    if (str8_ieq_cstr(ident, "animelemtime"))
     {
         skip_ws(p);
         if (peek(p) == '(')
@@ -422,7 +344,7 @@ static Mugen_Expr* parse_primary(Expr_Parser* p)
         return make_query(p, MUGEN_QUERY_ANIMELEMTIME, NULL);
     }
 
-    if (str8_ieq(ident, "gethitvar"))
+    if (str8_ieq_cstr(ident, "gethitvar"))
     {
         match_char(p, '(');
         str8 name = read_ident(p);
@@ -432,9 +354,9 @@ static Mugen_Expr* parse_primary(Expr_Parser* p)
         return e;
     }
 
-    if (str8_ieq(ident, "numprojid") || str8_ieq(ident, "numhelper"))
+    if (str8_ieq_cstr(ident, "numprojid") || str8_ieq_cstr(ident, "numhelper"))
     {
-        u8 qid = str8_ieq(ident, "numhelper") ? MUGEN_QUERY_NUMHELPER : MUGEN_QUERY_NUMPROJID;
+        u8 qid = str8_ieq_cstr(ident, "numhelper") ? MUGEN_QUERY_NUMHELPER : MUGEN_QUERY_NUMPROJID;
         skip_ws(p);
         if (peek(p) == '(')
         {
@@ -446,7 +368,7 @@ static Mugen_Expr* parse_primary(Expr_Parser* p)
         return make_query(p, qid, NULL);
     }
 
-    if (str8_ieq(ident, "helper"))
+    if (str8_ieq_cstr(ident, "helper"))
     {
         skip_ws(p);
         if (peek(p) == '(')
@@ -470,7 +392,7 @@ static Mugen_Expr* parse_primary(Expr_Parser* p)
         return make_query(p, MUGEN_QUERY_NUMHELPER, NULL);
     }
 
-    if (str8_ieq(ident, "root"))
+    if (str8_ieq_cstr(ident, "root"))
     {
         skip_ws(p);
         if (peek(p) == ',')
@@ -486,7 +408,7 @@ static Mugen_Expr* parse_primary(Expr_Parser* p)
         return make_int(p, 0);
     }
 
-    if (str8_ieq(ident, "parent"))
+    if (str8_ieq_cstr(ident, "parent"))
     {
         skip_ws(p);
         if (peek(p) == ',')
@@ -504,7 +426,7 @@ static Mugen_Expr* parse_primary(Expr_Parser* p)
 
     for (const Var_Entry* v = s_vars; v->name; v++)
     {
-        if (str8_ieq(ident, v->name))
+        if (str8_ieq_cstr(ident, v->name))
         {
             match_char(p, '(');
             Mugen_Expr* index = parse_expr(p);
@@ -515,7 +437,7 @@ static Mugen_Expr* parse_primary(Expr_Parser* p)
 
     for (const Func_Entry* f = s_funcs; f->name; f++)
     {
-        if (str8_ieq(ident, f->name))
+        if (str8_ieq_cstr(ident, f->name))
         {
             match_char(p, '(');
             Mugen_Expr* args[8];
@@ -539,11 +461,10 @@ static Mugen_Expr* parse_primary(Expr_Parser* p)
         return space_query;
     p->pos = saved_pos;
 
-    for (const Query_Entry* q = s_queries; q->name; q++)
     {
-        if (strchr(q->name, ' ')) continue;
-        if (str8_ieq(ident, q->name))
-            return make_query(p, q->id, NULL);
+        u8 qid = lookup_query(ident);
+        if (qid != 255)
+            return make_query(p, qid, NULL);
     }
 
     p->pos = ident_start;
@@ -1010,224 +931,9 @@ f32 mugen_expr_eval(Mugen_Expr* expr, Mugen_Char_State* state)
         case MUGEN_EXPR_QUERY:
         {
             if (!state) return 0.0f;
-            switch (expr->query.id)
-            {
-                case MUGEN_QUERY_TIME:         return (f32)state->time;
-                case MUGEN_QUERY_ANIMTIME:     return (f32)state->animtime;
-                case MUGEN_QUERY_ANIMELEM:
-                    return (f32)state->animelem;
-                case MUGEN_QUERY_ANIMELEMTIME:
-                {
-                    if (expr->query.arg)
-                    {
-                        i32 elem = (i32)mugen_expr_eval(expr->query.arg, state);
-                        i32 idx = elem - 1;
-                        if (idx >= 0 && idx < (i32)state->anim_elem_count)
-                            return (f32)(state->time - state->anim_elem_start_ticks[idx]);
-                        if (idx < 0) return (f32)state->time;
-                        return -9999.0f;
-                    }
-                    return (f32)state->animelemtime;
-                }
-                case MUGEN_QUERY_STATENO:      return (f32)state->stateno;
-                case MUGEN_QUERY_PREVSTATENO:  return (f32)state->prevstateno;
-                case MUGEN_QUERY_STATETYPE:    return (f32)state->statetype;
-                case MUGEN_QUERY_MOVETYPE:     return (f32)state->movetype;
-                case MUGEN_QUERY_CTRL:         return state->ctrl ? 1.0f : 0.0f;
-                case MUGEN_QUERY_COMMAND:      return 0.0f;
-                case MUGEN_QUERY_ANIM:         return (f32)state->anim;
-                case MUGEN_QUERY_VEL_X:        return state->vel_x;
-                case MUGEN_QUERY_VEL_Y:        return state->vel_y;
-                case MUGEN_QUERY_POS_X:        return state->pos_x;
-                case MUGEN_QUERY_POS_Y:        return state->pos_y;
-                case MUGEN_QUERY_MOVECONTACT:  return (f32)(state->mctime > 0 ? state->mctime : 0);
-                case MUGEN_QUERY_MOVEHIT:      return (f32)(state->movehit > 0 ? state->movehit : 0);
-                case MUGEN_QUERY_MOVEGUARDED:  return (f32)(state->moveguarded > 0 ? state->moveguarded : 0);
-                case MUGEN_QUERY_HITCOUNT:     return (f32)state->hitcount;
-                case MUGEN_QUERY_LIFE:         return state->life;
-                case MUGEN_QUERY_LIFEMAX:      return state->lifemax;
-                case MUGEN_QUERY_POWER:        return state->power;
-                case MUGEN_QUERY_POWERMAX:     return state->powermax;
-                case MUGEN_QUERY_FACING:       return state->facing;
-                case MUGEN_QUERY_ALIVE:        return state->alive ? 1.0f : 0.0f;
-                case MUGEN_QUERY_RANDOM:       return (f32)(mugen_rng_next(&state->rng_state) % 1000);
-                case MUGEN_QUERY_GAMETIME:     return (f32)state->gametime;
-                case MUGEN_QUERY_ROUNDSTATE:   return (f32)state->roundstate;
-                case MUGEN_QUERY_ISHELPER:     return state->is_helper ? 1.0f : 0.0f;
-                case MUGEN_QUERY_NUMHELPER:
-                {
-                    if (state->query_num_helper)
-                    {
-                        i32 id = expr->query.arg ? (i32)mugen_expr_eval(expr->query.arg, state) : 0;
-                        return (f32)state->query_num_helper(state->helper_ctx, id);
-                    }
-                    return 0.0f;
-                }
-                case MUGEN_QUERY_P2BODYDIST_X:
-                {
-                    f32 dist = state->p2_pos_x - state->pos_x;
-                    if (state->facing < 0) dist = -dist;
-                    dist -= state->ground_front + state->p2_width;
-                    if (dist < 0) dist = 0;
-                    return dist;
-                }
-                case MUGEN_QUERY_P2DIST_X:
-                {
-                    f32 dist = state->p2_pos_x - state->pos_x;
-                    if (state->facing < 0) dist = -dist;
-                    return dist;
-                }
-                case MUGEN_QUERY_P2DIST_Y:
-                    return state->p2_pos_y - state->pos_y;
-                case MUGEN_QUERY_CONST:
-                {
-                    if (!expr->query.arg || expr->query.arg->type != MUGEN_EXPR_LIT_STRING) return 0.0f;
-                    str8 name = expr->query.arg->lit_string;
-                    if (str8_ieq(name, "velocity.walk.fwd.x"))     return state->walk_fwd_x;
-                    if (str8_ieq(name, "velocity.walk.back.x"))    return state->walk_back_x;
-                    if (str8_ieq(name, "velocity.jump.neu.x"))     return state->jump_neu_x;
-                    if (str8_ieq(name, "velocity.jump.fwd.x"))     return state->jump_fwd_x;
-                    if (str8_ieq(name, "velocity.jump.back.x"))    return state->jump_back_x;
-                    if (str8_ieq(name, "velocity.jump.y"))         return state->jump_y;
-                    if (str8_ieq(name, "velocity.runjump.fwd.x"))  return state->runjump_fwd_x;
-                    if (str8_ieq(name, "velocity.runjump.back.x")) return state->runjump_back_x;
-                    if (str8_ieq(name, "velocity.runjump.y"))      return state->runjump_y;
-                    if (str8_ieq(name, "velocity.run.fwd.x"))     return state->run_fwd_x;
-                    if (str8_ieq(name, "velocity.run.back.x"))    return state->run_back_x;
-                    if (str8_ieq(name, "velocity.run.back.y"))    return state->run_back_y;
-                    if (str8_ieq(name, "velocity.airjump.neu.x")) return state->airjump_neu_x;
-                    if (str8_ieq(name, "velocity.airjump.fwd.x")) return state->airjump_fwd_x;
-                    if (str8_ieq(name, "velocity.airjump.back.x")) return state->airjump_back_x;
-                    if (str8_ieq(name, "velocity.airjump.y"))     return state->airjump_y;
-                    if (str8_ieq(name, "movement.stand.friction.threshold")) return state->stand_friction_threshold;
-                    if (str8_ieq(name, "movement.crouch.friction.threshold")) return state->crouch_friction_threshold;
-                    if (str8_ieq(name, "movement.yaccel"))        return state->gravity;
-                    if (str8_ieq(name, "data.attack"))             return state->data_attack;
-                    if (str8_ieq(name, "size.ground.front"))      return state->ground_front;
-                    if (str8_ieq(name, "size.ground.back"))       return state->ground_back;
-                    if (str8_ieq(name, "size.height"))            return state->data_height;
-                    if (str8_ieq(name, "data.defence"))           return state->data_defence;
-                    if (str8_ieq(name, "data.liedown.time"))      return state->data_liedown_time;
-                    if (str8_ieq(name, "data.airjuggle"))         return state->data_airjuggle;
-                    if (str8_ieq(name, "data.life"))             return state->lifemax;
-                    if (str8_ieq(name, "data.power"))            return state->powermax;
-                    if (str8_ieq(name, "data.sparkno"))          return state->data_sparkno;
-                    if (str8_ieq(name, "data.guard.sparkno"))    return state->data_guard_sparkno;
-                    if (str8_ieq(name, "size.xscale"))           return state->data_xscale;
-                    if (str8_ieq(name, "size.yscale"))           return state->data_yscale;
-                    if (str8_ieq(name, "size.air.front"))        return state->data_air_front;
-                    if (str8_ieq(name, "size.air.back"))         return state->data_air_back;
-                    if (str8_ieq(name, "movement.airjump.num"))  return state->data_airjump_num;
-                    if (str8_ieq(name, "movement.airjump.height")) return state->data_airjump_height;
-                    if (str8_ieq(name, "movement.down.bounce.offset.x")) return state->down_bounce_offset_x;
-                    if (str8_ieq(name, "movement.down.bounce.offset.y")) return state->down_bounce_offset_y;
-                    if (str8_ieq(name, "movement.down.bounce.yaccel"))   return state->down_bounce_yaccel;
-                    if (str8_ieq(name, "movement.down.bounce.groundlevel")) return state->down_bounce_groundlevel;
-                    if (str8_ieq(name, "movement.down.friction.threshold")) return state->down_friction_threshold;
-                    return 0.0f;
-                }
-                case MUGEN_QUERY_SELFANIMEXIST:
-                {
-                    if (!state->anim_exists) return 0.0f;
-                    i32 anim_id = expr->query.arg ? (i32)mugen_expr_eval(expr->query.arg, state) : (i32)state->anim;
-                    return state->anim_exists(state->anim_exists_ctx, (u32)anim_id) ? 1.0f : 0.0f;
-                }
-                case MUGEN_QUERY_GETHITVAR:
-                {
-                    if (!expr->query.arg || expr->query.arg->type != MUGEN_EXPR_LIT_STRING) return 0.0f;
-                    str8 name = expr->query.arg->lit_string;
-                    Mugen_GetHitVar* ghv = &state->ghv;
-                    if (str8_ieq(name, "animtype"))        return (f32)ghv->animtype;
-                    if (str8_ieq(name, "air.animtype"))    return (f32)ghv->air_animtype;
-                    if (str8_ieq(name, "ground.animtype")) return (f32)ghv->ground_animtype;
-                    if (str8_ieq(name, "groundtype"))      return (f32)ghv->groundtype;
-                    if (str8_ieq(name, "airtype"))          return (f32)ghv->airtype;
-                    if (str8_ieq(name, "damage"))          return (f32)ghv->damage;
-                    if (str8_ieq(name, "hitcount"))        return (f32)ghv->hitcount;
-                    if (str8_ieq(name, "guardcount"))      return (f32)ghv->guardcount;
-                    if (str8_ieq(name, "hitshaketime"))    return (f32)ghv->hitshaketime;
-                    if (str8_ieq(name, "hittime"))         return (f32)ghv->hittime;
-                    if (str8_ieq(name, "slidetime"))       return (f32)ghv->slidetime;
-                    if (str8_ieq(name, "ctrltime"))        return (f32)ghv->ctrltime;
-                    if (str8_ieq(name, "xvel"))            return ghv->xvel;
-                    if (str8_ieq(name, "yvel"))            return ghv->yvel;
-                    if (str8_ieq(name, "xaccel"))          return ghv->xaccel;
-                    if (str8_ieq(name, "yaccel"))          return ghv->yaccel;
-                    if (str8_ieq(name, "xoff"))            return ghv->xoff;
-                    if (str8_ieq(name, "yoff"))            return ghv->yoff;
-                    if (str8_ieq(name, "isbound"))         return ghv->isbound ? 1.0f : 0.0f;
-                    if (str8_ieq(name, "guarded"))         return ghv->guarded ? 1.0f : 0.0f;
-                    if (str8_ieq(name, "fall"))            return ghv->fallflag ? 1.0f : 0.0f;
-                    if (str8_ieq(name, "fall.recover"))    return ghv->fall_recover ? 1.0f : 0.0f;
-                    if (str8_ieq(name, "fall.recovertime")) return (f32)ghv->fall_recovertime;
-                    if (str8_ieq(name, "fall.xvel"))       return ghv->fall_xvel;
-                    if (str8_ieq(name, "fall.yvel"))       return ghv->fall_yvel;
-                    if (str8_ieq(name, "fall.damage"))     return (f32)ghv->fall_damage;
-                    if (str8_ieq(name, "fall.kill"))       return ghv->fall_kill ? 1.0f : 0.0f;
-                    if (str8_ieq(name, "attr"))            return (f32)ghv->attr;
-                    if (str8_ieq(name, "priority"))        return (f32)ghv->priority;
-                    if (str8_ieq(name, "forcestand"))      return ghv->forcestand ? 1.0f : 0.0f;
-                    return 0.0f;
-                }
-                case MUGEN_QUERY_HITSHAKEOVER:
-                    return state->ghv.hitshaketime <= 0 ? 1.0f : 0.0f;
-                case MUGEN_QUERY_HITOVER:
-                    return state->ghv.hittime <= 0 ? 1.0f : 0.0f;
-                case MUGEN_QUERY_HITFALL:
-                    return state->ghv.fallflag ? 1.0f : 0.0f;
-                case MUGEN_QUERY_P2STATETYPE:
-                    return (f32)state->p2_statetype;
-                case MUGEN_QUERY_P2MOVETYPE:
-                    return (f32)state->p2_movetype;
-                case MUGEN_QUERY_FRONTEDGEDIST:
-                {
-                    if (state->facing > 0)
-                        return state->stage_right - state->pos_x;
-                    return state->pos_x - state->stage_left;
-                }
-                case MUGEN_QUERY_BACKEDGEDIST:
-                {
-                    if (state->facing > 0)
-                        return state->pos_x - state->stage_left;
-                    return state->stage_right - state->pos_x;
-                }
-                case MUGEN_QUERY_FRONTEDGEBODYDIST:
-                {
-                    if (state->facing > 0)
-                        return state->stage_right - state->pos_x - state->ground_front;
-                    return state->pos_x - state->stage_left - state->ground_front;
-                }
-                case MUGEN_QUERY_BACKEDGEBODYDIST:
-                {
-                    if (state->facing > 0)
-                        return state->pos_x - state->stage_left - state->ground_back;
-                    return state->stage_right - state->pos_x - state->ground_back;
-                }
-                case MUGEN_QUERY_ROUNDNO:
-                    return (f32)state->roundno;
-                case MUGEN_QUERY_ROUNDSEXISTED:
-                    return (f32)state->roundsexisted;
-                case MUGEN_QUERY_INGUARDDIST:
-                {
-                    f32 dist = state->p2_pos_x - state->pos_x;
-                    if (state->facing < 0) dist = -dist;
-                    return (dist >= 0 && dist <= state->attack_dist) ? 1.0f : 0.0f;
-                }
-                case MUGEN_QUERY_CANRECOVER:
-                    return (state->ghv.fall_recover && state->fall_time >= state->ghv.fall_recovertime) ? 1.0f : 0.0f;
-                case MUGEN_QUERY_PALNO:
-                    return (f32)state->palno;
-                case MUGEN_QUERY_LOSE:
-                    return state->lose ? 1.0f : 0.0f;
-                case MUGEN_QUERY_WIN:
-                    return state->win ? 1.0f : 0.0f;
-                case MUGEN_QUERY_MATCHOVER:
-                    return state->matchover ? 1.0f : 0.0f;
-                case MUGEN_QUERY_NUMTARGET:
-                    return (f32)state->target_count;
-                case MUGEN_QUERY_NUMPROJID:
-                    return 0.0f;
-            }
+            Mugen_Query_Reg* reg = mugen_query_get_reg(expr->query.id);
+            if (reg && reg->eval)
+                return reg->eval(expr->query.arg, state);
             return 0.0f;
         }
 

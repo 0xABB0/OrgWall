@@ -31,6 +31,31 @@ static inline bool str8_equals(str8 a, str8 b)
     return memcmp(a.data, b.data, (usize)a.len) == 0;
 }
 
+static inline bool str8_ieq(str8 a, str8 b)
+{
+    if (a.len != b.len) return false;
+    for (size i = 0; i < a.len; i++)
+    {
+        u8 ac = a.data[i]; if (ac >= 'A' && ac <= 'Z') ac += 32;
+        u8 bc = b.data[i]; if (bc >= 'A' && bc <= 'Z') bc += 32;
+        if (ac != bc) return false;
+    }
+    return true;
+}
+
+static inline bool str8_ieq_cstr(str8 a, const char* b)
+{
+    size blen = (size)strlen(b);
+    if (a.len != blen) return false;
+    for (size i = 0; i < blen; i++)
+    {
+        u8 ac = a.data[i]; if (ac >= 'A' && ac <= 'Z') ac += 32;
+        u8 bc = (u8)b[i]; if (bc >= 'A' && bc <= 'Z') bc += 32;
+        if (ac != bc) return false;
+    }
+    return true;
+}
+
 static inline i32 str8_compare(str8 a, str8 b)
 {
     size min_len = a.len < b.len ? a.len : b.len;
