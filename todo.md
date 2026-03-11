@@ -1,6 +1,6 @@
 --- THE EVER GROWING LIST OF THINGS TO DO ---
 
-
+## Gabbo's notes (sacred and untouchable - any ai should never add to this list)
 - [CORE] implement stacktrace capturing for every allocation (debug mode) — DISCUSS: storage format (inline in tracking header vs linked list), debug-only toggling, interaction with Tracy memory profiling. Infrastructure ready (mel\_backtrace\_capture exists).
 - [CORE] handle init failure cleanup — PARTIALLY DONE: gpu.device, gpu.swapchain return bool, engine init has goto-based cleanup. Remaining: imgui init failure doesn't fully unwind (skips the feature flag)
 - [CORE] ~~implement Virtual File System (VFS) with mount points and archive support~~ PARTIAL: async-first VFS + mounts landed; archive backend still deferred
@@ -55,6 +55,10 @@
 - [BUILD] we need to have a way to optimize the release for a certain system/architecture/cpu (march flag, using handcrafted assembly per-feature, whatever)
 - [BUILD] we need a better method to define if a source file is platform specific (build system-wise). i don't like having a map of "for this, skip these", maybe it could be made less ugly by doing something like ".osx -> defined(__APPLE__)"
 - [CAMERA] Consider if it's worth having a Camera2D in addition to the Camera we have now, to have an extremly optimized 2d pipeline if needed
+- Carlos demo still has a ton of friction i don't like:
+-- It defines its own pass for resolution independance. this should be a game engine's feature.
+-- It defines a pass for imgui. this should be given for free by the engine
+-- 
 
 ## Engine refactor gaps (Mar 2026)
 
