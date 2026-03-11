@@ -221,7 +221,7 @@ static i32 mel__vfs_os_dir_next(Mel_Vfs_Backend* b, Mel_Vfs_Native_Handle h,
 
         usize len = strlen(ent->d_name);
         Mel_Vfs_Stat entry_stat = {0};
-#ifdef _DIRENT_HAVE_D_TYPE
+#if defined(_DIRENT_HAVE_D_TYPE) || defined(__APPLE__)
         if (ent->d_type == DT_REG) entry_stat.flags = MEL_VFS_STAT_IS_FILE;
         else if (ent->d_type == DT_DIR) entry_stat.flags = MEL_VFS_STAT_IS_DIR;
         else if (ent->d_type == DT_LNK) entry_stat.flags = MEL_VFS_STAT_IS_SYMLINK;

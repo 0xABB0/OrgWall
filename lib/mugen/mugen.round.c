@@ -1,7 +1,6 @@
-#include "round.h"
-#include "fighter.h"
-#include "combat.h"
-#include "stage.h"
+#include "mugen.round.h"
+#include "mugen.fighter.h"
+#include "mugen.combat.h"
 #include <string.h>
 #include <stdio.h>
 
@@ -12,8 +11,8 @@ void round_init_opt(Round_Ctx* r, Round_Init_Opt opt)
     r->p2 = opt.p2;
     r->rounds_to_win = opt.rounds_to_win > 0 ? opt.rounds_to_win : 2;
     r->ko_pause_ticks = opt.ko_pause_ticks > 0 ? opt.ko_pause_ticks : 180;
-    r->stage_left = opt.stage_left > 0 ? opt.stage_left : STAGE_LEFT;
-    r->stage_right = opt.stage_right > 0 ? opt.stage_right : STAGE_RIGHT;
+    r->stage_left = opt.stage_left;
+    r->stage_right = opt.stage_right;
     r->roundno = 1;
     r->state = ROUND_PRE_INTRO;
 }

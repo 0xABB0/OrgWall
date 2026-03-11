@@ -108,6 +108,39 @@ static void lifeset_exec(Mugen_State_Controller* sc, Mugen_Char_State* state)
     if (state->life < 0) state->life = 0;
 }
 
+static void lifeadd_exec(Mugen_State_Controller* sc, Mugen_Char_State* state)
+{
+    Value_Params* p = sc->params;
+    if (!p || !p->value) return;
+    state->life += mugen_expr_eval(p->value, state);
+    if (state->life > state->lifemax) state->life = state->lifemax;
+    if (state->life < 0) state->life = 0;
+}
+
+static void powerset_exec(Mugen_State_Controller* sc, Mugen_Char_State* state)
+{
+    Value_Params* p = sc->params;
+    if (!p || !p->value) return;
+    state->power = mugen_expr_eval(p->value, state);
+    if (state->power > state->powermax) state->power = state->powermax;
+    if (state->power < 0) state->power = 0;
+}
+
+static void movehitreset_exec(Mugen_State_Controller* sc, Mugen_Char_State* state)
+{
+    (void)sc;
+    state->mctime = 0;
+    state->movehit = 0;
+    state->moveguarded = 0;
+}
+
+static void hitadd_exec(Mugen_State_Controller* sc, Mugen_Char_State* state)
+{
+    Value_Params* p = sc->params;
+    if (!p || !p->value) return;
+    state->hitcount += (i32)mugen_expr_eval(p->value, state);
+}
+
 __attribute__((constructor))
 static void register_misc(void)
 {
@@ -121,4 +154,8 @@ static void register_misc(void)
     mugen_sc_register(MUGEN_SC_SPRPRIORITY, "sprpriority", value_parse, sprpriority_exec);
     mugen_sc_register(MUGEN_SC_POWERADD, "poweradd", value_parse, poweradd_exec);
     mugen_sc_register(MUGEN_SC_LIFESET, "lifeset", value_parse, lifeset_exec);
+    mugen_sc_register(MUGEN_SC_LIFEADD, "lifeadd", value_parse, lifeadd_exec);
+    mugen_sc_register(MUGEN_SC_POWERSET, "powerset", value_parse, powerset_exec);
+    mugen_sc_register(MUGEN_SC_MOVEHITRESET, "movehitreset", NULL, movehitreset_exec);
+    mugen_sc_register(MUGEN_SC_HITADD, "hitadd", value_parse, hitadd_exec);
 }

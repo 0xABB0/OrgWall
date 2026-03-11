@@ -1,52 +1,11 @@
-#include "fighter.h"
-#include "actions.h"
-#include "anim.player.h"
-#include "anim.clip.h"
-#include "anim.registry.h"
+#include "mugen.fighter.h"
 #include "mugen.air.h"
-#include "hash.xxh.h"
 #include "string.str8.h"
-#include "collection.slotmap.h"
 #include "allocator.h"
 #include <string.h>
 #include <assert.h>
 #include <stdio.h>
-#include <stdlib.h>
 #include <math.h>
-
-static u64 s_hitbox_prop;
-static u64 s_hurtbox_prop;
-static bool s_props_init = false;
-
-static void ensure_props(void)
-{
-    if (s_props_init) return;
-    s_hitbox_prop = mel_xxh3_64("hitbox", 6);
-    s_hurtbox_prop = mel_xxh3_64("hurtbox", 7);
-    s_props_init = true;
-}
-
-static bool anim_exists_cb(void* ctx, u32 anim)
-{
-    Fighter* f = ctx;
-    for (u32 i = 0; i < f->action_map_count; i++)
-    {
-        if (f->action_map[i].action_number == anim)
-            return true;
-    }
-    return false;
-}
-
-static bool helper_anim_exists_cb(void* ctx, u32 anim)
-{
-    Fighter_Helper* h = ctx;
-    for (u32 i = 0; i < h->action_map_count; i++)
-    {
-        if (h->action_map[i].action_number == anim)
-            return true;
-    }
-    return false;
-}
 
 static i32 query_num_helper_cb(void* ctx, i32 id)
 {
@@ -77,127 +36,40 @@ static Mugen_Char_State* query_root_state_cb(void* ctx)
     return &f->cns_state;
 }
 
-static Mel_Anim_Clip_Handle find_clip(Fighter* f, u32 action_number)
+static void sync_elem_ticks_for(Mugen_Char_State* st, const Mel_Alloc* alloc)
 {
-    for (u32 i = 0; i < f->action_map_count; i++)
-    {
-        if (f->action_map[i].action_number == action_number)
-            return f->action_map[i].clip;
-    }
-    return (Mel_Anim_Clip_Handle){0};
-}
+    if (!st->anim_action) return;
 
-static void sync_elem_ticks(Fighter* f, Mel_Anim_Clip* clip);
-
-static void play_action_from(Fighter* f, Fighter* source, u32 action_number, f32 crossfade)
-{
-    if (f->current_action == action_number && source == f) return;
-
-    Mel_Anim_Clip_Handle clip_h = find_clip(source, action_number);
-    if (!mel_slotmap_alive(source->clip_pool, clip_h)) return;
-
-    f->current_action = action_number;
-    f->player.clip_pool = source->clip_pool;
-    mel_anim_player_play(&f->player, clip_h, .crossfade = crossfade);
-
-    Mel_Anim_Clip* clip = (Mel_Anim_Clip*)mel_slotmap_get(source->clip_pool, clip_h);
-    if (clip) sync_elem_ticks(f, clip);
-}
-
-static void play_action(Fighter* f, u32 action_number, f32 crossfade)
-{
-    play_action_from(f, f, action_number, crossfade);
-}
-
-static void sync_cns_anim(Fighter* f)
-{
-    Mugen_Char_State* st = &f->cns_state;
-    if (st->anim == f->last_cns_anim) return;
-    f->last_cns_anim = st->anim;
-    f->current_action = UINT32_MAX;
-    Fighter* source = (st->use_owner_anim && f->opponent) ? f->opponent : f;
-    play_action_from(f, source, st->anim, 0.0f);
-}
-
-static void sample_anim(Fighter* f)
-{
-    mel_anim_player_get_vec4(&f->player, s_hitbox_prop, f->player.alloc, f->anim_hitbox);
-    mel_anim_player_get_vec4(&f->player, s_hurtbox_prop, f->player.alloc, f->anim_hurtbox);
-}
-
-static Mel_Anim_Clip_Handle helper_find_clip(Fighter_Helper* h, u32 action_number)
-{
-    for (u32 i = 0; i < h->action_map_count; i++)
-    {
-        if (h->action_map[i].action_number == action_number)
-            return h->action_map[i].clip;
-    }
-    return (Mel_Anim_Clip_Handle){0};
-}
-
-static void helper_sync_elem_ticks(Fighter_Helper* h, Mel_Anim_Clip* clip)
-{
-    Mugen_Char_State* st = &h->cns_state;
-    if (clip->group_count == 0) return;
-
-    Mel_Track_Group* grp = &clip->groups[0];
-    u32 fc = grp->keyframe_counts[0];
+    u32 fc = st->anim_action->frame_count;
 
     if (st->anim_elem_start_ticks && st->anim_elem_count != fc)
     {
-        free(st->anim_elem_start_ticks);
+        mel_dealloc(alloc, st->anim_elem_start_ticks);
         st->anim_elem_start_ticks = NULL;
     }
 
     if (!st->anim_elem_start_ticks && fc > 0)
-        st->anim_elem_start_ticks = malloc(sizeof(i32) * fc);
+        st->anim_elem_start_ticks = mel_alloc(alloc, sizeof(i32) * fc);
 
     st->anim_elem_count = fc;
+    i32 cumulative = 0;
     for (u32 i = 0; i < fc; i++)
-        st->anim_elem_start_ticks[i] = (i32)(grp->flat_times[i] * MUGEN_TICKS_PER_SECOND + 0.5f);
+    {
+        st->anim_elem_start_ticks[i] = cumulative;
+        i16 t = st->anim_action->frames[i].time;
+        cumulative += (t <= 0) ? 1 : (i32)t;
+    }
 }
 
-static void helper_play_action(Fighter_Helper* h, u32 action_number)
+static void sync_animtime_for(Mugen_Char_State* st)
 {
-    if (h->current_action == action_number) return;
+    if (!st->anim_action) return;
 
-    Mel_Anim_Clip_Handle clip_h = helper_find_clip(h, action_number);
-    if (!mel_slotmap_alive(h->clip_pool, clip_h)) return;
-
-    h->current_action = action_number;
-    h->player.clip_pool = h->clip_pool;
-    mel_anim_player_play(&h->player, clip_h, .crossfade = 0.0f);
-
-    Mel_Anim_Clip* clip = (Mel_Anim_Clip*)mel_slotmap_get(h->clip_pool, clip_h);
-    if (clip) helper_sync_elem_ticks(h, clip);
-}
-
-static void helper_sync_cns_anim(Fighter_Helper* h)
-{
-    Mugen_Char_State* st = &h->cns_state;
-    if (st->anim == h->last_cns_anim) return;
-    h->last_cns_anim = st->anim;
-    h->current_action = UINT32_MAX;
-    helper_play_action(h, st->anim);
-}
-
-static void helper_sample_anim(Fighter_Helper* h)
-{
-    mel_anim_player_get_vec4(&h->player, s_hitbox_prop, h->player.alloc, h->anim_hitbox);
-    mel_anim_player_get_vec4(&h->player, s_hurtbox_prop, h->player.alloc, h->anim_hurtbox);
-}
-
-static void helper_sync_animtime(Fighter_Helper* h)
-{
-    Mugen_Char_State* st = &h->cns_state;
-    if (h->player.chain_count == 0) return;
-
-    Mel_Anim_Clip_State* cs = &h->player.chain[0];
-    Mel_Anim_Clip* clip = (Mel_Anim_Clip*)mel_slotmap_get(h->clip_pool, cs->clip);
-    if (!clip) return;
-
-    i32 total_ticks = (i32)(clip->duration * MUGEN_TICKS_PER_SECOND + 0.5f);
+    i32 total_ticks = st->anim_total_ticks;
     if (total_ticks <= 0) total_ticks = 1;
+
+    bool has_hold_forever = (st->anim_action->frames[st->anim_action->frame_count - 1].time == -1);
+    bool is_looping = !has_hold_forever;
 
     if (st->animtime == -999)
     {
@@ -206,9 +78,19 @@ static void helper_sync_animtime(Fighter_Helper* h)
     else
     {
         st->animtime++;
-        if (clip->is_looping && st->animtime > 0)
+        if (is_looping && st->animtime > 0)
         {
-            i32 loop_ticks = (i32)((clip->duration - clip->loop_start_time) * MUGEN_TICKS_PER_SECOND + 0.5f);
+            i32 loop_ticks = total_ticks;
+            if (st->anim_action->loop_start != MUGEN_AIR_NO_LOOP)
+            {
+                i32 loop_start_ticks = 0;
+                for (u32 i = 0; i < st->anim_action->loop_start; i++)
+                {
+                    i16 t = st->anim_action->frames[i].time;
+                    loop_start_ticks += (t <= 0) ? 1 : (i32)t;
+                }
+                loop_ticks = total_ticks - loop_start_ticks;
+            }
             if (loop_ticks <= 0) loop_ticks = total_ticks;
             st->animtime = -loop_ticks;
         }
@@ -238,36 +120,107 @@ static void helper_sync_animtime(Fighter_Helper* h)
     }
 }
 
-static void helper_cns_enter_state(Fighter* parent, Fighter_Helper* h, i32 stateno)
+static bool resolve_and_enter_state(Mugen_Char_State* st, Mugen_Cns* main_cns, Mugen_Cns* common_cns, i32 stateno)
 {
-    Mugen_Char_State* st = &h->cns_state;
-    Mugen_Cns* owner = st->state_owner_cns ? st->state_owner_cns : parent->cns;
+    Mugen_Cns* owner = st->state_owner_cns ? st->state_owner_cns : main_cns;
     Mugen_Statedef* def = mugen_cns_get(owner, stateno);
     if (def)
     {
         mugen_cns_enter_state(owner, st, stateno);
+        return true;
+    }
+    if (owner != main_cns)
+    {
+        def = mugen_cns_get(main_cns, stateno);
+        if (def)
+        {
+            st->state_owner_cns = NULL;
+            mugen_cns_enter_state(main_cns, st, stateno);
+            return true;
+        }
+    }
+    if (common_cns)
+    {
+        def = mugen_cns_get(common_cns, stateno);
+        if (def)
+        {
+            st->state_owner_cns = NULL;
+            mugen_cns_enter_state(common_cns, st, stateno);
+            return true;
+        }
+    }
+    return false;
+}
+
+static void cns_enter_state(Fighter* f, i32 stateno)
+{
+    if (!resolve_and_enter_state(&f->cns_state, f->cns, f->common_cns, stateno) && stateno != 0)
+        cns_enter_state(f, 0);
+}
+
+static void resolve_and_tick_state(Mugen_Char_State* st, Mugen_Cns* main_cns, Mugen_Cns* common_cns)
+{
+    Mugen_Cns* owner = st->state_owner_cns ? st->state_owner_cns : main_cns;
+    Mugen_Statedef* def = mugen_cns_get(owner, st->stateno);
+    if (def)
+    {
+        mugen_cns_tick(owner, st);
         return;
     }
-    if (owner != parent->cns)
+    if (owner != main_cns)
     {
-        def = mugen_cns_get(parent->cns, stateno);
+        def = mugen_cns_get(main_cns, st->stateno);
         if (def)
         {
             st->state_owner_cns = NULL;
-            mugen_cns_enter_state(parent->cns, st, stateno);
+            mugen_cns_tick(main_cns, st);
             return;
         }
     }
-    if (parent->common_cns)
-    {
-        def = mugen_cns_get(parent->common_cns, stateno);
-        if (def)
-        {
-            st->state_owner_cns = NULL;
-            mugen_cns_enter_state(parent->common_cns, st, stateno);
-            return;
-        }
-    }
+    if (common_cns)
+        mugen_cns_tick(common_cns, st);
+}
+
+static void play_action_from(Fighter* f, Fighter* source, u32 action_number)
+{
+    if (f->current_action == action_number && source == f) return;
+
+    mugen_state_anim_play(&f->cns_state, source->cns_state.air, action_number);
+    f->current_action = action_number;
+    sync_elem_ticks_for(&f->cns_state, f->alloc);
+}
+
+static void play_action(Fighter* f, u32 action_number)
+{
+    play_action_from(f, f, action_number);
+}
+
+static void sync_cns_anim(Fighter* f)
+{
+    Mugen_Char_State* st = &f->cns_state;
+    if (st->anim == f->last_cns_anim) return;
+    f->last_cns_anim = st->anim;
+    f->current_action = UINT32_MAX;
+    Fighter* source = (st->use_owner_anim && f->opponent) ? f->opponent : f;
+    play_action_from(f, source, st->anim);
+}
+
+static void helper_play_action(Fighter_Helper* h, u32 action_number)
+{
+    if (h->current_action == action_number) return;
+
+    mugen_state_anim_play(&h->cns_state, h->cns_state.air, action_number);
+    h->current_action = action_number;
+    sync_elem_ticks_for(&h->cns_state, h->alloc);
+}
+
+static void helper_sync_cns_anim(Fighter_Helper* h)
+{
+    Mugen_Char_State* st = &h->cns_state;
+    if (st->anim == h->last_cns_anim) return;
+    h->last_cns_anim = st->anim;
+    h->current_action = UINT32_MAX;
+    helper_play_action(h, st->anim);
 }
 
 static void helper_tick(Fighter* parent, Fighter_Helper* h, f32 dt, f32 stage_left, f32 stage_right)
@@ -278,7 +231,7 @@ static void helper_tick(Fighter* parent, Fighter_Helper* h, f32 dt, f32 stage_le
     {
         if (st->pending_ctrl >= 0)
             st->ctrl = st->pending_ctrl != 0;
-        helper_cns_enter_state(parent, h, st->pending_state);
+        resolve_and_enter_state(st, parent->cns, parent->common_cns, st->pending_state);
         helper_sync_cns_anim(h);
     }
 
@@ -291,8 +244,8 @@ static void helper_tick(Fighter* parent, Fighter_Helper* h, f32 dt, f32 stage_le
 
     if (st->hitpause_time <= 0)
     {
-        mel_anim_player_update(&h->player, dt);
-        helper_sync_animtime(h);
+        mugen_state_anim_tick(st);
+        sync_animtime_for(st);
     }
 
     {
@@ -316,20 +269,13 @@ static void helper_tick(Fighter* parent, Fighter_Helper* h, f32 dt, f32 stage_le
 
     if (!st->state_changed)
     {
-        Mugen_Cns* owner = st->state_owner_cns ? st->state_owner_cns : parent->cns;
-        Mugen_Statedef* def = mugen_cns_get(owner, st->stateno);
-        if (!def && owner != parent->cns)
-            def = mugen_cns_get(parent->cns, st->stateno);
-        if (!def && parent->common_cns)
-            def = mugen_cns_get(parent->common_cns, st->stateno);
-        if (def)
-            mugen_cns_tick(owner, st);
+        resolve_and_tick_state(st, parent->cns, parent->common_cns);
 
         if (st->state_changed)
         {
             if (st->pending_ctrl >= 0)
                 st->ctrl = st->pending_ctrl != 0;
-            helper_cns_enter_state(parent, h, st->pending_state);
+            resolve_and_enter_state(st, parent->cns, parent->common_cns, st->pending_state);
         }
     }
 
@@ -340,14 +286,11 @@ static void helper_tick(Fighter* parent, Fighter_Helper* h, f32 dt, f32 stage_le
     h->facing_right = new_facing;
 
     helper_sync_cns_anim(h);
-    helper_sample_anim(h);
 }
 
 static void wire_helper_callbacks(Fighter* parent, Fighter_Helper* h)
 {
     Mugen_Char_State* st = &h->cns_state;
-    st->anim_exists = helper_anim_exists_cb;
-    st->anim_exists_ctx = h;
     st->query_num_helper = query_num_helper_cb;
     st->query_helper_state = query_helper_state_cb;
     st->query_root_state = query_root_state_cb;
@@ -373,17 +316,14 @@ static void fighter_spawn_helper(Fighter* f, const Mel_Alloc* alloc)
     memset(h, 0, sizeof(*h));
 
     h->helper_id = st->helper_spawn_id;
-    h->clip_pool = f->clip_pool;
-    h->action_map = f->action_map;
-    h->action_map_count = f->action_map_count;
+    h->alloc = alloc;
     h->current_action = UINT32_MAX;
     h->ground_front = f->ground_front;
     h->ground_back = f->ground_back;
 
-    mel_anim_player_init(&h->player, alloc, h->clip_pool);
-
     Mugen_Char_State* hst = &h->cns_state;
     memset(hst, 0, sizeof(*hst));
+    hst->air = st->air;
     hst->is_helper = true;
     hst->alive = true;
     hst->facing = (st->helper_spawn_facing >= 0) ? st->facing : -st->facing;
@@ -405,6 +345,7 @@ static void fighter_spawn_helper(Fighter* f, const Mel_Alloc* alloc)
     hst->self_cns = f->cns;
     hst->rng_state = 67890 + (u64)f->helper_count;
     hst->defence_mul = 1.0f;
+    hst->attack_mul = 1.0f;
     hst->palno = 1;
     hst->roundstate = st->roundstate;
     hst->roundno = st->roundno;
@@ -447,7 +388,7 @@ static void fighter_spawn_helper(Fighter* f, const Mel_Alloc* alloc)
 
     wire_helper_callbacks(f, h);
 
-    helper_cns_enter_state(f, h, st->helper_spawn_stateno);
+    resolve_and_enter_state(hst, f->cns, f->common_cns, st->helper_spawn_stateno);
     helper_sync_cns_anim(h);
 
     st->helper_spawn_pending = false;
@@ -464,9 +405,8 @@ static void fighter_destroy_helpers(Fighter* f)
         Fighter_Helper* h = &f->helpers[i];
         if (h->pending_destroy || h->cns_state.destroy_self_pending)
         {
-            mel_anim_player_destroy(&h->player);
             if (h->cns_state.anim_elem_start_ticks)
-                free(h->cns_state.anim_elem_start_ticks);
+                mel_dealloc(h->alloc, h->cns_state.anim_elem_start_ticks);
 
             f->helpers[i] = f->helpers[f->helper_count - 1];
             f->helper_count--;
@@ -483,7 +423,6 @@ static void fighter_destroy_helpers(Fighter* f)
 
 void fighter_init_opt(Fighter* f, Fighter_Init_Opt opt, const Mel_Alloc* alloc)
 {
-    ensure_props();
     memset(f, 0, sizeof(*f));
     f->x = opt.start_x;
     f->facing_right = opt.facing_right;
@@ -492,39 +431,14 @@ void fighter_init_opt(Fighter* f, Fighter_Init_Opt opt, const Mel_Alloc* alloc)
     f->ground_front = opt.ground_front > 0 ? opt.ground_front : 16.0f;
     f->ground_back = opt.ground_back > 0 ? opt.ground_back : 16.0f;
     f->current_action = UINT32_MAX;
-
-    f->clip_pool = opt.clip_pool;
-    f->action_map = opt.action_map;
-    f->action_map_count = opt.action_map_count;
-
     f->alloc = alloc;
 
-    mel_anim_player_init(&f->player, alloc, f->clip_pool);
+    f->cns_state.air = opt.air;
 
     command_list_init(&f->commands, opt.facing_right, alloc);
 
-    play_action(f, 0, 0.0f);
+    play_action(f, 0);
 }
-
-void fighter_on_input(Fighter* f, u32 action, f32 value)
-{
-    bool pressed = value > 0.5f;
-    switch (action)
-    {
-        case ACT_MOVE_LEFT:  f->input_left  = pressed; break;
-        case ACT_MOVE_RIGHT: f->input_right = pressed; break;
-        case ACT_CROUCH:     f->input_down  = pressed; break;
-        case ACT_JUMP:       f->input_up    = pressed; break;
-        case ACT_BTN_A:      f->btn_a       = pressed; break;
-        case ACT_BTN_B:      f->btn_b       = pressed; break;
-        case ACT_BTN_C:      f->btn_c       = pressed; break;
-        case ACT_BTN_X:      f->btn_x       = pressed; break;
-        case ACT_BTN_Y:      f->btn_y       = pressed; break;
-        case ACT_BTN_Z:      f->btn_z       = pressed; break;
-    }
-}
-
-static void cns_enter_state(Fighter* f, i32 stateno);
 
 void fighter_enable_cns(Fighter* f, Mugen_Cns* cns, Mugen_Cns* common_cns, Mugen_Cns* cmd_cns)
 {
@@ -535,7 +449,9 @@ void fighter_enable_cns(Fighter* f, Mugen_Cns* cns, Mugen_Cns* common_cns, Mugen
     Mugen_Char_Constants* c = &cns->constants;
 
     Mugen_Char_State* st = &f->cns_state;
+    Mugen_Air* saved_air = st->air;
     memset(st, 0, sizeof(*st));
+    st->air = saved_air;
     st->pos_x = f->x;
     st->pos_y = -f->y;
     st->facing = f->facing_right ? 1.0f : -1.0f;
@@ -590,6 +506,7 @@ void fighter_enable_cns(Fighter* f, Mugen_Cns* cns, Mugen_Cns* common_cns, Mugen
     st->juggle_points_remaining = c->airjuggle;
     st->rng_state = 12345;
     st->defence_mul = 1.0f;
+    st->attack_mul = 1.0f;
     st->palno = 1;
 
     f->ground_front = c->ground_front;
@@ -598,8 +515,6 @@ void fighter_enable_cns(Fighter* f, Mugen_Cns* cns, Mugen_Cns* common_cns, Mugen
     st->roundstate = 0;
     st->roundno = 1;
     st->roundsexisted = 0;
-    st->anim_exists = anim_exists_cb;
-    st->anim_exists_ctx = f;
     st->query_num_helper = query_num_helper_cb;
     st->query_helper_state = query_helper_state_cb;
     st->query_root_state = query_root_state_cb;
@@ -607,68 +522,7 @@ void fighter_enable_cns(Fighter* f, Mugen_Cns* cns, Mugen_Cns* common_cns, Mugen
 
     f->last_cns_anim = UINT32_MAX;
     cns_enter_state(f, 5900);
-}
-
-static Mugen_Cns* resolve_cns(Fighter* f)
-{
-    Mugen_Char_State* st = &f->cns_state;
-    return st->state_owner_cns ? st->state_owner_cns : f->cns;
-}
-
-static void cns_enter_state(Fighter* f, i32 stateno)
-{
-    Mugen_Cns* owner = resolve_cns(f);
-    Mugen_Statedef* def = mugen_cns_get(owner, stateno);
-    if (def)
-    {
-        mugen_cns_enter_state(owner, &f->cns_state, stateno);
-        return;
-    }
-    if (owner != f->cns)
-    {
-        def = mugen_cns_get(f->cns, stateno);
-        if (def)
-        {
-            f->cns_state.state_owner_cns = NULL;
-            mugen_cns_enter_state(f->cns, &f->cns_state, stateno);
-            return;
-        }
-    }
-    if (f->common_cns)
-    {
-        def = mugen_cns_get(f->common_cns, stateno);
-        if (def)
-        {
-            f->cns_state.state_owner_cns = NULL;
-            mugen_cns_enter_state(f->common_cns, &f->cns_state, stateno);
-            return;
-        }
-    }
-    if (stateno != 0)
-        cns_enter_state(f, 0);
-}
-
-static void cns_tick_state(Fighter* f)
-{
-    Mugen_Cns* owner = resolve_cns(f);
-    Mugen_Statedef* def = mugen_cns_get(owner, f->cns_state.stateno);
-    if (def)
-    {
-        mugen_cns_tick(owner, &f->cns_state);
-        return;
-    }
-    if (owner != f->cns)
-    {
-        def = mugen_cns_get(f->cns, f->cns_state.stateno);
-        if (def)
-        {
-            f->cns_state.state_owner_cns = NULL;
-            mugen_cns_tick(f->cns, &f->cns_state);
-            return;
-        }
-    }
-    if (f->common_cns)
-        mugen_cns_tick(f->common_cns, &f->cns_state);
+    sync_cns_anim(f);
 }
 
 static void run_statedef_minus1(Fighter* f)
@@ -740,79 +594,6 @@ static void engine_movement(Fighter* f)
     }
 }
 
-static void sync_elem_ticks(Fighter* f, Mel_Anim_Clip* clip)
-{
-    Mugen_Char_State* st = &f->cns_state;
-    if (clip->group_count == 0) return;
-
-    Mel_Track_Group* grp = &clip->groups[0];
-    u32 fc = grp->keyframe_counts[0];
-
-    if (st->anim_elem_start_ticks && st->anim_elem_count != fc)
-    {
-        free(st->anim_elem_start_ticks);
-        st->anim_elem_start_ticks = NULL;
-    }
-
-    if (!st->anim_elem_start_ticks && fc > 0)
-        st->anim_elem_start_ticks = malloc(sizeof(i32) * fc);
-
-    st->anim_elem_count = fc;
-    for (u32 i = 0; i < fc; i++)
-        st->anim_elem_start_ticks[i] = (i32)(grp->flat_times[i] * MUGEN_TICKS_PER_SECOND + 0.5f);
-}
-
-static void sync_animtime(Fighter* f)
-{
-    Mugen_Char_State* st = &f->cns_state;
-    if (f->player.chain_count == 0) return;
-
-    Mel_Anim_Clip_State* cs = &f->player.chain[0];
-    Mel_Anim_Clip* clip = (Mel_Anim_Clip*)mel_slotmap_get(f->clip_pool, cs->clip);
-    if (!clip) return;
-
-    i32 total_ticks = (i32)(clip->duration * MUGEN_TICKS_PER_SECOND + 0.5f);
-    if (total_ticks <= 0) total_ticks = 1;
-
-    if (st->animtime == -999)
-    {
-        st->animtime = -total_ticks;
-    }
-    else
-    {
-        st->animtime++;
-        if (clip->is_looping && st->animtime > 0)
-        {
-            i32 loop_ticks = (i32)((clip->duration - clip->loop_start_time) * MUGEN_TICKS_PER_SECOND + 0.5f);
-            if (loop_ticks <= 0) loop_ticks = total_ticks;
-            st->animtime = -loop_ticks;
-        }
-    }
-
-    i32 new_elem = 1;
-    if (st->anim_elem_start_ticks && st->anim_elem_count > 0)
-    {
-        for (u32 i = st->anim_elem_count; i > 0; i--)
-        {
-            if (st->time >= st->anim_elem_start_ticks[i - 1])
-            {
-                new_elem = (i32)i;
-                break;
-            }
-        }
-    }
-
-    if (new_elem != st->animelem)
-    {
-        st->animelem = new_elem;
-        st->animelemtime = 0;
-    }
-    else
-    {
-        st->animelemtime++;
-    }
-}
-
 void fighter_tick(Fighter* f, f32 dt, f32 stage_left, f32 stage_right)
 {
     command_list_step(&f->commands,
@@ -842,8 +623,8 @@ void fighter_tick(Fighter* f, f32 dt, f32 stage_left, f32 stage_right)
 
     if (st->hitpause_time <= 0)
     {
-        mel_anim_player_update(&f->player, dt);
-        sync_animtime(f);
+        mugen_state_anim_tick(st);
+        sync_animtime_for(st);
     }
 
     i32 prev_stateno = st->stateno;
@@ -874,12 +655,12 @@ void fighter_tick(Fighter* f, f32 dt, f32 stage_left, f32 stage_right)
         run_statedef_minus1(f);
 
     if (st->stateno == 12)
-        printf("DBG12: t=%d animtime=%d chain=%d state_changed=%d anim=%d last_cns=%d\n",
-            st->time, st->animtime, f->player.chain_count, st->state_changed, st->anim, f->last_cns_anim);
+        printf("DBG12: t=%d animtime=%d state_changed=%d anim=%d last_cns=%d\n",
+            st->time, st->animtime, st->state_changed, st->anim, f->last_cns_anim);
 
     if (!st->state_changed)
     {
-        cns_tick_state(f);
+        resolve_and_tick_state(st, f->cns, f->common_cns);
 
         if (st->state_changed)
         {
@@ -932,8 +713,6 @@ void fighter_tick(Fighter* f, f32 dt, f32 stage_left, f32 stage_right)
 
     sync_cns_anim(f);
 
-    sample_anim(f);
-
     if (st->helper_spawn_pending && f->cns)
         fighter_spawn_helper(f, f->alloc);
 
@@ -974,30 +753,36 @@ void fighter_apply_combat_state(Fighter* f)
         {
             if (hst->pending_ctrl >= 0)
                 hst->ctrl = hst->pending_ctrl != 0;
-            helper_cns_enter_state(f, h, hst->pending_state);
+            resolve_and_enter_state(hst, f->cns, f->common_cns, hst->pending_state);
             hst->state_changed = false;
             helper_sync_cns_anim(h);
         }
     }
 }
 
+static Fighter_Box clsn_to_world_box(const Mugen_Clsn_Box* boxes, u32 count,
+                                     f32 px, f32 py, bool facing_right)
+{
+    Mugen_Clsn_Box bb = mugen_clsn_bounding_box(boxes, count);
+    f32 bx = (f32)bb.x1;
+    f32 by = (f32)bb.y1;
+    f32 bw = (f32)(bb.x2 - bb.x1);
+    f32 bh = (f32)(bb.y2 - bb.y1);
+
+    f32 world_x;
+    if (facing_right)
+        world_x = px + bx;
+    else
+        world_x = px - bx - bw;
+
+    return (Fighter_Box){ world_x, py - by - bh, bw, bh };
+}
+
 Fighter_Box fighter_hurtbox(Fighter* f)
 {
-    if (f->anim_hurtbox[2] > 0.0f && f->anim_hurtbox[3] > 0.0f)
-    {
-        f32 hx = f->anim_hurtbox[0];
-        f32 hy = f->anim_hurtbox[1];
-        f32 hw = f->anim_hurtbox[2];
-        f32 hh = f->anim_hurtbox[3];
-
-        f32 world_x;
-        if (f->facing_right)
-            world_x = f->x + hx;
-        else
-            world_x = f->x - hx - hw;
-
-        return (Fighter_Box){ world_x, f->y - hy - hh, hw, hh };
-    }
+    Mugen_Air_Frame* frame = mugen_state_anim_frame(&f->cns_state);
+    if (frame && frame->clsn2_count > 0)
+        return clsn_to_world_box(frame->clsn2, frame->clsn2_count, f->x, f->y, f->facing_right);
 
     f32 w = f->ground_front + f->ground_back;
     f32 h = f->cns ? f->cns->constants.height : 60.0f;
@@ -1006,46 +791,24 @@ Fighter_Box fighter_hurtbox(Fighter* f)
 
 Fighter_Box fighter_hitbox(Fighter* f)
 {
-    if (f->anim_hitbox[2] <= 0.0f || f->anim_hitbox[3] <= 0.0f)
+    Mugen_Air_Frame* frame = mugen_state_anim_frame(&f->cns_state);
+    if (!frame || frame->clsn1_count == 0)
         return (Fighter_Box){0};
 
-    f32 hx = f->anim_hitbox[0];
-    f32 hy = f->anim_hitbox[1];
-    f32 hw = f->anim_hitbox[2];
-    f32 hh = f->anim_hitbox[3];
-
-    f32 world_x;
-    if (f->facing_right)
-        world_x = f->x + hx;
-    else
-        world_x = f->x - hx - hw;
-
-    return (Fighter_Box){ world_x, f->y - hy - hh, hw, hh };
+    return clsn_to_world_box(frame->clsn1, frame->clsn1_count, f->x, f->y, f->facing_right);
 }
 
 bool fighter_has_active_hitbox(Fighter* f)
 {
-    return f->anim_hitbox[2] > 0.0f
-        && f->anim_hitbox[3] > 0.0f;
+    Mugen_Air_Frame* frame = mugen_state_anim_frame(&f->cns_state);
+    return frame && frame->clsn1_count > 0;
 }
 
 Fighter_Box helper_hurtbox(Fighter_Helper* h)
 {
-    if (h->anim_hurtbox[2] > 0.0f && h->anim_hurtbox[3] > 0.0f)
-    {
-        f32 hx = h->anim_hurtbox[0];
-        f32 hy = h->anim_hurtbox[1];
-        f32 hw = h->anim_hurtbox[2];
-        f32 hh = h->anim_hurtbox[3];
-
-        f32 world_x;
-        if (h->facing_right)
-            world_x = h->x + hx;
-        else
-            world_x = h->x - hx - hw;
-
-        return (Fighter_Box){ world_x, h->y - hy - hh, hw, hh };
-    }
+    Mugen_Air_Frame* frame = mugen_state_anim_frame(&h->cns_state);
+    if (frame && frame->clsn2_count > 0)
+        return clsn_to_world_box(frame->clsn2, frame->clsn2_count, h->x, h->y, h->facing_right);
 
     f32 w = h->ground_front + h->ground_back;
     return (Fighter_Box){ h->x - h->ground_back, h->y, w, 60.0f };
@@ -1053,36 +816,25 @@ Fighter_Box helper_hurtbox(Fighter_Helper* h)
 
 Fighter_Box helper_hitbox(Fighter_Helper* h)
 {
-    if (h->anim_hitbox[2] <= 0.0f || h->anim_hitbox[3] <= 0.0f)
+    Mugen_Air_Frame* frame = mugen_state_anim_frame(&h->cns_state);
+    if (!frame || frame->clsn1_count == 0)
         return (Fighter_Box){0};
 
-    f32 hx = h->anim_hitbox[0];
-    f32 hy = h->anim_hitbox[1];
-    f32 hw = h->anim_hitbox[2];
-    f32 hh = h->anim_hitbox[3];
-
-    f32 world_x;
-    if (h->facing_right)
-        world_x = h->x + hx;
-    else
-        world_x = h->x - hx - hw;
-
-    return (Fighter_Box){ world_x, h->y - hy - hh, hw, hh };
+    return clsn_to_world_box(frame->clsn1, frame->clsn1_count, h->x, h->y, h->facing_right);
 }
 
 bool helper_has_active_hitbox(Fighter_Helper* h)
 {
-    return h->anim_hitbox[2] > 0.0f
-        && h->anim_hitbox[3] > 0.0f;
+    Mugen_Air_Frame* frame = mugen_state_anim_frame(&h->cns_state);
+    return frame && frame->clsn1_count > 0;
 }
 
 void fighter_round_reset(Fighter* f)
 {
     for (u32 i = 0; i < f->helper_count; i++)
     {
-        mel_anim_player_destroy(&f->helpers[i].player);
         if (f->helpers[i].cns_state.anim_elem_start_ticks)
-            free(f->helpers[i].cns_state.anim_elem_start_ticks);
+            mel_dealloc(f->helpers[i].alloc, f->helpers[i].cns_state.anim_elem_start_ticks);
     }
     f->helper_count = 0;
 
@@ -1131,15 +883,15 @@ void fighter_round_reset(Fighter* f)
 
     f->last_cns_anim = UINT32_MAX;
     cns_enter_state(f, 5900);
+    sync_cns_anim(f);
 }
 
 void fighter_shutdown(Fighter* f)
 {
     for (u32 i = 0; i < f->helper_count; i++)
     {
-        mel_anim_player_destroy(&f->helpers[i].player);
         if (f->helpers[i].cns_state.anim_elem_start_ticks)
-            free(f->helpers[i].cns_state.anim_elem_start_ticks);
+            mel_dealloc(f->helpers[i].alloc, f->helpers[i].cns_state.anim_elem_start_ticks);
         mugen_targets_free(&f->helpers[i].cns_state);
     }
     f->helper_count = 0;

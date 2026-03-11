@@ -1,5 +1,6 @@
-#include "../melody/test.harness.h"
+#include "test.harness.h"
 #include "mugen.cns.h"
+#include "mugen.air.h"
 #include "string.str8.h"
 #include "allocator.h"
 #include "allocator.heap.h"
@@ -1148,4 +1149,291 @@ MEL_TEST(cns_hitdefattr_neq, .tags = "cns")
 
     st.hitdef.attr = MUGEN_ATTR_S | MUGEN_ATTR_NP;
     MEL_ASSERT_FLOAT_EQ(mugen_expr_eval(e, &st), 1.0f, 0.001f);
+}
+
+MEL_TEST(cns_expr_bitwise_not, .tags = "cns")
+{
+    ensure_alloc();
+    Mugen_Expr* e = mugen_expr_parse(S8("~0"), s_alloc);
+    MEL_ASSERT_NOT_NULL(e);
+    f32 val = mugen_expr_eval(e, NULL);
+    MEL_ASSERT_FLOAT_EQ(val, (f32)(~0), 0.001f);
+
+    e = mugen_expr_parse(S8("~255"), s_alloc);
+    val = mugen_expr_eval(e, NULL);
+    MEL_ASSERT_FLOAT_EQ(val, (f32)(~255), 0.001f);
+}
+
+MEL_TEST(cns_expr_bitwise_xor, .tags = "cns")
+{
+    ensure_alloc();
+    Mugen_Expr* e = mugen_expr_parse(S8("5 ^ 3"), s_alloc);
+    MEL_ASSERT_NOT_NULL(e);
+    f32 val = mugen_expr_eval(e, NULL);
+    MEL_ASSERT_FLOAT_EQ(val, (f32)(5 ^ 3), 0.001f);
+
+    e = mugen_expr_parse(S8("255 ^ 128"), s_alloc);
+    val = mugen_expr_eval(e, NULL);
+    MEL_ASSERT_FLOAT_EQ(val, (f32)(255 ^ 128), 0.001f);
+}
+
+MEL_TEST(cns_expr_cond_short_circuit, .tags = "cns")
+{
+    ensure_alloc();
+    Mugen_Expr* e = mugen_expr_parse(S8("cond(1, 10, 20)"), s_alloc);
+    MEL_ASSERT_NOT_NULL(e);
+    f32 val = mugen_expr_eval(e, NULL);
+    MEL_ASSERT_FLOAT_EQ(val, 10.0f, 0.001f);
+
+    e = mugen_expr_parse(S8("cond(0, 10, 20)"), s_alloc);
+    val = mugen_expr_eval(e, NULL);
+    MEL_ASSERT_FLOAT_EQ(val, 20.0f, 0.001f);
+}
+
+MEL_TEST(cns_expr_assign_var, .tags = "cns")
+{
+    ensure_alloc();
+    Mugen_Char_State st = {0};
+
+    Mugen_Expr* e = mugen_expr_parse(S8("var(0) := 42"), s_alloc);
+    MEL_ASSERT_NOT_NULL(e);
+    f32 val = mugen_expr_eval(e, &st);
+    MEL_ASSERT_FLOAT_EQ(val, 42.0f, 0.001f);
+    MEL_ASSERT_EQ(st.var[0], 42);
+
+    e = mugen_expr_parse(S8("fvar(3) := 1.5"), s_alloc);
+    val = mugen_expr_eval(e, &st);
+    MEL_ASSERT_FLOAT_EQ(val, 1.5f, 0.001f);
+    MEL_ASSERT_FLOAT_EQ(st.fvar[3], 1.5f, 0.001f);
+}
+
+MEL_TEST(cns_expr_assign_returns_value, .tags = "cns")
+{
+    ensure_alloc();
+    Mugen_Char_State st = {0};
+
+    Mugen_Expr* e = mugen_expr_parse(S8("(var(0) := 5) + 10"), s_alloc);
+    MEL_ASSERT_NOT_NULL(e);
+    f32 val = mugen_expr_eval(e, &st);
+    MEL_ASSERT_FLOAT_EQ(val, 15.0f, 0.001f);
+    MEL_ASSERT_EQ(st.var[0], 5);
+}
+
+MEL_TEST(cns_expr_assign_sysvar, .tags = "cns")
+{
+    ensure_alloc();
+    Mugen_Char_State st = {0};
+
+    Mugen_Expr* e = mugen_expr_parse(S8("sysvar(0) := 99"), s_alloc);
+    MEL_ASSERT_NOT_NULL(e);
+    mugen_expr_eval(e, &st);
+    MEL_ASSERT_EQ(st.sysvar[0], 99);
+
+    e = mugen_expr_parse(S8("sysfvar(2) := 7.5"), s_alloc);
+    mugen_expr_eval(e, &st);
+    MEL_ASSERT_FLOAT_EQ(st.sysfvar[2], 7.5f, 0.001f);
+}
+
+MEL_TEST(cns_query_physics, .tags = "cns")
+{
+    ensure_alloc();
+    Mugen_Char_State st = {0};
+    st.physics = MUGEN_PHYSICS_A;
+
+    Mugen_Expr* e = mugen_expr_parse(S8("physics = A"), s_alloc);
+    MEL_ASSERT_NOT_NULL(e);
+    MEL_ASSERT_FLOAT_EQ(mugen_expr_eval(e, &st), 1.0f, 0.001f);
+
+    e = mugen_expr_parse(S8("physics = S"), s_alloc);
+    MEL_ASSERT_FLOAT_EQ(mugen_expr_eval(e, &st), 0.0f, 0.001f);
+
+    st.physics = MUGEN_PHYSICS_N;
+    e = mugen_expr_parse(S8("physics = N"), s_alloc);
+    MEL_ASSERT_FLOAT_EQ(mugen_expr_eval(e, &st), 1.0f, 0.001f);
+}
+
+MEL_TEST(cns_sc_lifeadd, .tags = "cns")
+{
+    ensure_alloc();
+    Mugen_Char_State st = {0};
+    st.life = 500;
+    st.lifemax = 1000;
+
+    str8 cns_data = S8(
+        "[Statedef 9000]\n"
+        "type = S\n"
+        "[State 9000, LifeAdd]\n"
+        "type = LifeAdd\n"
+        "trigger1 = 1\n"
+        "value = -100\n"
+    );
+    Mugen_Cns cns = {0};
+    MEL_ASSERT(mugen_cns_load(&cns, cns_data, s_alloc));
+    Mugen_Statedef* def = mugen_cns_get(&cns, 9000);
+    MEL_ASSERT_NOT_NULL(def);
+    mugen_cns_tick_statedef(def, &st);
+    MEL_ASSERT_FLOAT_EQ(st.life, 400.0f, 0.001f);
+}
+
+MEL_TEST(cns_sc_powerset, .tags = "cns")
+{
+    ensure_alloc();
+    Mugen_Char_State st = {0};
+    st.power = 500;
+    st.powermax = 3000;
+
+    str8 cns_data = S8(
+        "[Statedef 9001]\n"
+        "type = S\n"
+        "[State 9001, PowerSet]\n"
+        "type = PowerSet\n"
+        "trigger1 = 1\n"
+        "value = 1000\n"
+    );
+    Mugen_Cns cns = {0};
+    MEL_ASSERT(mugen_cns_load(&cns, cns_data, s_alloc));
+    Mugen_Statedef* def = mugen_cns_get(&cns, 9001);
+    MEL_ASSERT_NOT_NULL(def);
+    mugen_cns_tick_statedef(def, &st);
+    MEL_ASSERT_FLOAT_EQ(st.power, 1000.0f, 0.001f);
+}
+
+MEL_TEST(cns_sc_movehitreset, .tags = "cns")
+{
+    ensure_alloc();
+    Mugen_Char_State st = {0};
+    st.mctime = 5;
+    st.movehit = 3;
+    st.moveguarded = 2;
+
+    str8 cns_data = S8(
+        "[Statedef 9002]\n"
+        "type = S\n"
+        "[State 9002, MoveHitReset]\n"
+        "type = MoveHitReset\n"
+        "trigger1 = 1\n"
+    );
+    Mugen_Cns cns = {0};
+    MEL_ASSERT(mugen_cns_load(&cns, cns_data, s_alloc));
+    Mugen_Statedef* def = mugen_cns_get(&cns, 9002);
+    MEL_ASSERT_NOT_NULL(def);
+    mugen_cns_tick_statedef(def, &st);
+    MEL_ASSERT_EQ(st.mctime, 0);
+    MEL_ASSERT_EQ(st.movehit, 0);
+    MEL_ASSERT_EQ(st.moveguarded, 0);
+}
+
+MEL_TEST(cns_sc_attackmulset, .tags = "cns")
+{
+    ensure_alloc();
+    Mugen_Char_State st = {0};
+    st.attack_mul = 1.0f;
+
+    str8 cns_data = S8(
+        "[Statedef 9003]\n"
+        "type = S\n"
+        "[State 9003, AttackMulSet]\n"
+        "type = AttackMulSet\n"
+        "trigger1 = 1\n"
+        "value = 1.5\n"
+    );
+    Mugen_Cns cns = {0};
+    MEL_ASSERT(mugen_cns_load(&cns, cns_data, s_alloc));
+    Mugen_Statedef* def = mugen_cns_get(&cns, 9003);
+    MEL_ASSERT_NOT_NULL(def);
+    mugen_cns_tick_statedef(def, &st);
+    MEL_ASSERT_FLOAT_EQ(st.attack_mul, 1.5f, 0.001f);
+}
+
+MEL_TEST(cns_sc_hitadd, .tags = "cns")
+{
+    ensure_alloc();
+    Mugen_Char_State st = {0};
+    st.hitcount = 3;
+
+    str8 cns_data = S8(
+        "[Statedef 9004]\n"
+        "type = S\n"
+        "[State 9004, HitAdd]\n"
+        "type = HitAdd\n"
+        "trigger1 = 1\n"
+        "value = 2\n"
+    );
+    Mugen_Cns cns = {0};
+    MEL_ASSERT(mugen_cns_load(&cns, cns_data, s_alloc));
+    Mugen_Statedef* def = mugen_cns_get(&cns, 9004);
+    MEL_ASSERT_NOT_NULL(def);
+    mugen_cns_tick_statedef(def, &st);
+    MEL_ASSERT_EQ(st.hitcount, 5);
+}
+
+MEL_TEST(cns_query_prevstatetype, .tags = "cns")
+{
+    ensure_alloc();
+    Mugen_Char_State st = {0};
+    st.prev_statetype = MUGEN_PHYSICS_S;
+    st.statetype = MUGEN_PHYSICS_A;
+
+    Mugen_Expr* e = mugen_expr_parse(S8("prevstatetype = S"), s_alloc);
+    MEL_ASSERT_NOT_NULL(e);
+    MEL_ASSERT_FLOAT_EQ(mugen_expr_eval(e, &st), 1.0f, 0.001f);
+
+    e = mugen_expr_parse(S8("prevstatetype = A"), s_alloc);
+    MEL_ASSERT_FLOAT_EQ(mugen_expr_eval(e, &st), 0.0f, 0.001f);
+}
+
+MEL_TEST(cns_query_prevmovetype, .tags = "cns")
+{
+    ensure_alloc();
+    Mugen_Char_State st = {0};
+    st.prev_movetype = MUGEN_MOVETYPE_A;
+    st.movetype = MUGEN_MOVETYPE_I;
+
+    Mugen_Expr* e = mugen_expr_parse(S8("prevmovetype = A"), s_alloc);
+    MEL_ASSERT_NOT_NULL(e);
+    MEL_ASSERT_FLOAT_EQ(mugen_expr_eval(e, &st), 1.0f, 0.001f);
+
+    e = mugen_expr_parse(S8("prevmovetype = I"), s_alloc);
+    MEL_ASSERT_FLOAT_EQ(mugen_expr_eval(e, &st), 0.0f, 0.001f);
+}
+
+MEL_TEST(cns_query_animlength, .tags = "cns")
+{
+    ensure_alloc();
+    Mugen_Air_Frame frames[] = {
+        { .time = 5 },
+        { .time = 10 },
+        { .time = 3 },
+    };
+    Mugen_Air_Action action = {
+        .frames = frames,
+        .frame_count = 3,
+    };
+    Mugen_Char_State st = {0};
+    st.anim_action = &action;
+
+    Mugen_Expr* e = mugen_expr_parse(S8("animlength"), s_alloc);
+    MEL_ASSERT_NOT_NULL(e);
+    MEL_ASSERT_FLOAT_EQ(mugen_expr_eval(e, &st), 18.0f, 0.001f);
+}
+
+MEL_TEST(cns_query_selfstatenoexist, .tags = "cns")
+{
+    ensure_alloc();
+    str8 cns_data = S8(
+        "[Statedef 200]\n"
+        "type = S\n"
+    );
+    Mugen_Cns cns = {0};
+    MEL_ASSERT(mugen_cns_load(&cns, cns_data, s_alloc));
+
+    Mugen_Char_State st = {0};
+    st.self_cns = &cns;
+
+    Mugen_Expr* e = mugen_expr_parse(S8("selfstatenoexist(200)"), s_alloc);
+    MEL_ASSERT_NOT_NULL(e);
+    MEL_ASSERT_FLOAT_EQ(mugen_expr_eval(e, &st), 1.0f, 0.001f);
+
+    e = mugen_expr_parse(S8("selfstatenoexist(999)"), s_alloc);
+    MEL_ASSERT_FLOAT_EQ(mugen_expr_eval(e, &st), 0.0f, 0.001f);
 }

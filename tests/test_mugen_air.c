@@ -1,17 +1,12 @@
-#include "../../melody/test.harness.h"
-#include "../../melody/allocator.h"
-#include "../../melody/allocator.heap.h"
-#include "../../melody/anim.registry.h"
-#include "../../melody/anim.clip.h"
-#include "../../melody/anim.pose.h"
-#include "../../melody/anim.pipeline.h"
-#include "../../melody/anim.player.h"
-#include "../../melody/collection.slotmap.h"
-#include "../../melody/hash.xxh.h"
-#include "../../melody/string.str8.h"
+#include "test.harness.h"
+#include "allocator.h"
+#include "allocator.heap.h"
+#include "string.str8.h"
 #include "mugen.air.h"
+#include "mugen.cns.h"
 
 #include <stdio.h>
+#include <string.h>
 
 static str8 load_file(const char* path, const Mel_Alloc* alloc)
 {
@@ -92,73 +87,94 @@ MEL_TEST(mugen_air_parse_simple, .tags = "mugen")
     mugen_air_shutdown(&air, heap);
 }
 
-MEL_TEST(mugen_air_compile_basic, .tags = "mugen")
+MEL_TEST(mugen_anim_tick_basic, .tags = "mugen")
 {
     const Mel_Alloc* heap = mel_alloc_heap();
-    mel_anim_registry_init(heap);
 
     Mugen_Air air;
     mugen_air_load(&air, str8_from_cstr(AIR_SIMPLE), heap);
 
-    Mugen_Air_Action* act200 = mugen_air_find_action(&air, 200);
-    Mel_Anim_Clip clip = mugen_air_compile(act200, heap);
+    Mugen_Char_State st = {0};
+    st.air = &air;
+    mugen_state_anim_play(&st, &air, 200);
 
-    MEL_ASSERT_EQ(clip.group_count, 3);
-    MEL_ASSERT(clip.is_looping);
-    MEL_ASSERT_FLOAT_EQ(clip.loop_start_time, 0.0f, 0.001f);
+    MEL_ASSERT_EQ(st.anim_frame_index, 0);
+    MEL_ASSERT_EQ(st.anim_total_ticks, 15);
 
-    f32 expected_dur = (3.0f + 4.0f + 8.0f) / 60.0f;
-    MEL_ASSERT_FLOAT_EQ(clip.duration, expected_dur, 0.001f);
+    for (u32 i = 0; i < 3; i++) mugen_state_anim_tick(&st);
+    MEL_ASSERT_EQ(st.anim_frame_index, 1);
 
-    Mel_Local_Pose pose;
-    mel_pose_allocate(&pose, &clip, heap);
-    u32 cursors[3] = {0};
+    Mugen_Air_Frame* frame = mugen_state_anim_frame(&st);
+    MEL_ASSERT_NOT_NULL(frame);
+    MEL_ASSERT_EQ(frame->clsn1_count, 1);
+    MEL_ASSERT_EQ(frame->clsn1[0].x1, 18);
 
-    mel_anim_sample(&clip, 0.0f, cursors, heap, &pose);
-    f32 frame;
-    mel__pose_extract(&pose, MEL_ANIM_TYPE_F32, mel_xxh3_64("frame", 5), &frame);
-    MEL_ASSERT_FLOAT_EQ(frame, 0.0f, 0.001f);
+    for (u32 i = 0; i < 4; i++) mugen_state_anim_tick(&st);
+    MEL_ASSERT_EQ(st.anim_frame_index, 2);
 
-    f32 hitbox[4];
-    mel__pose_extract(&pose, MEL_ANIM_TYPE_VEC4, mel_xxh3_64("hitbox", 6), hitbox);
-    MEL_ASSERT_FLOAT_EQ(hitbox[2], 0.0f, 0.001f);
-
-    f32 time_frame1 = 3.0f / 60.0f + 0.001f;
-    memset(cursors, 0, sizeof(cursors));
-    mel_anim_sample(&clip, time_frame1, cursors, heap, &pose);
-    mel__pose_extract(&pose, MEL_ANIM_TYPE_F32, mel_xxh3_64("frame", 5), &frame);
-    MEL_ASSERT_FLOAT_EQ(frame, 1.0f, 0.001f);
-
-    mel__pose_extract(&pose, MEL_ANIM_TYPE_VEC4, mel_xxh3_64("hitbox", 6), hitbox);
-    MEL_ASSERT_FLOAT_EQ(hitbox[0], 18.0f, 0.001f);
-    MEL_ASSERT(hitbox[2] > 0.0f);
-
-    mel_anim_clip_destroy(&clip, heap);
     mugen_air_shutdown(&air, heap);
 }
 
-MEL_TEST(mugen_air_compile_looping, .tags = "mugen")
+MEL_TEST(mugen_anim_loop, .tags = "mugen")
 {
     const Mel_Alloc* heap = mel_alloc_heap();
-    mel_anim_registry_init(heap);
 
     Mugen_Air air;
     mugen_air_load(&air, str8_from_cstr(AIR_SIMPLE), heap);
 
-    Mugen_Air_Action* act20 = mugen_air_find_action(&air, 20);
-    Mel_Anim_Clip clip = mugen_air_compile(act20, heap);
+    Mugen_Char_State st = {0};
+    st.air = &air;
+    mugen_state_anim_play(&st, &air, 20);
 
-    MEL_ASSERT(clip.is_looping);
-    MEL_ASSERT_FLOAT_EQ(clip.loop_start_time, 1.0f / 60.0f, 0.001f);
+    MEL_ASSERT_EQ(st.anim_action->loop_start, 1);
 
-    mel_anim_clip_destroy(&clip, heap);
+    for (u32 i = 0; i < 1; i++) mugen_state_anim_tick(&st);
+    MEL_ASSERT_EQ(st.anim_frame_index, 1);
+
+    for (u32 i = 0; i < 8; i++) mugen_state_anim_tick(&st);
+    MEL_ASSERT_EQ(st.anim_frame_index, 2);
+
+    for (u32 i = 0; i < 8; i++) mugen_state_anim_tick(&st);
+    MEL_ASSERT_EQ(st.anim_frame_index, 3);
+
+    for (u32 i = 0; i < 8; i++) mugen_state_anim_tick(&st);
+    MEL_ASSERT(st.anim_looped);
+    MEL_ASSERT_EQ(st.anim_frame_index, 1);
+
+    mugen_air_shutdown(&air, heap);
+}
+
+MEL_TEST(mugen_anim_hold_forever, .tags = "mugen")
+{
+    const Mel_Alloc* heap = mel_alloc_heap();
+
+    const char* air_str =
+        "[Begin Action 99]\n"
+        "0, 0, 0, 0, 5\n"
+        "0, 1, 0, 0, -1\n";
+
+    Mugen_Air air;
+    mugen_air_load(&air, str8_from_cstr(air_str), heap);
+
+    Mugen_Char_State st = {0};
+    st.air = &air;
+    mugen_state_anim_play(&st, &air, 99);
+
+    MEL_ASSERT_EQ(st.anim_total_ticks, 5);
+
+    for (u32 i = 0; i < 5; i++) mugen_state_anim_tick(&st);
+    MEL_ASSERT_EQ(st.anim_frame_index, 1);
+
+    for (u32 i = 0; i < 100; i++) mugen_state_anim_tick(&st);
+    MEL_ASSERT_EQ(st.anim_frame_index, 1);
+    MEL_ASSERT(!st.anim_looped);
+
     mugen_air_shutdown(&air, heap);
 }
 
 MEL_TEST(mugen_air_load_real_file, .tags = "mugen")
 {
     const Mel_Alloc* heap = mel_alloc_heap();
-    mel_anim_registry_init(heap);
 
     str8 data = load_file("demos/street-carlos/chars/poi-son/poi-z.air", heap);
     if (data.len == 0)
@@ -191,12 +207,12 @@ MEL_TEST(mugen_air_load_real_file, .tags = "mugen")
     }
     MEL_ASSERT(has_clsn1);
 
-    Mel_Anim_Clip clip = mugen_air_compile(walk, heap);
-    MEL_ASSERT(clip.is_looping);
-    MEL_ASSERT(clip.duration > 0.0f);
-    MEL_ASSERT(clip.loop_start_time > 0.0f);
+    Mugen_Char_State st = {0};
+    st.air = &air;
+    mugen_state_anim_play(&st, &air, 20);
+    MEL_ASSERT(st.anim_total_ticks > 0);
+    MEL_ASSERT_NOT_NULL(st.anim_action);
 
-    mel_anim_clip_destroy(&clip, heap);
     mugen_air_shutdown(&air, heap);
     mel_dealloc(heap, data.data);
 }

@@ -1,12 +1,10 @@
 #include "mugen.air.h"
-#include "anim.clip.h"
-#include "anim.registry.h"
 #include "allocator.h"
 #include "string.str8.h"
-#include "math.easing.h"
 
 #include <stdlib.h>
 #include <string.h>
+#include <assert.h>
 
 typedef struct {
     Mugen_Clsn_Box* boxes;
@@ -472,7 +470,7 @@ Mugen_Air_Action* mugen_air_find_action(Mugen_Air* air, u32 action_number)
     return NULL;
 }
 
-static Mugen_Clsn_Box mugen__bounding_box(const Mugen_Clsn_Box* boxes, u32 count)
+Mugen_Clsn_Box mugen_clsn_bounding_box(const Mugen_Clsn_Box* boxes, u32 count)
 {
     assert(count > 0);
     Mugen_Clsn_Box bb = boxes[0];
@@ -486,152 +484,3 @@ static Mugen_Clsn_Box mugen__bounding_box(const Mugen_Clsn_Box* boxes, u32 count
     return bb;
 }
 
-Mel_Anim_Clip mugen_air_compile(const Mugen_Air_Action* action, const Mel_Alloc* alloc)
-{
-    assert(action != NULL);
-    assert(action->frame_count > 0);
-    assert(alloc != NULL);
-
-    u32 fc = action->frame_count;
-    u16 step_id = MEL_EASING_COUNT - 1;
-
-    f32 total_duration = 0.0f;
-    f32 loop_start_time = 0.0f;
-    bool has_loop = action->loop_start != MUGEN_AIR_NO_LOOP;
-
-    for (u32 i = 0; i < fc; i++)
-    {
-        i16 t = action->frames[i].time;
-        f32 dur = (t <= 0) ? (1.0f / MUGEN_TICKS_PER_SECOND) : ((f32)t / MUGEN_TICKS_PER_SECOND);
-        if (has_loop && i == action->loop_start)
-            loop_start_time = total_duration;
-        total_duration += dur;
-    }
-
-    bool has_hold_forever = (action->frames[fc - 1].time == -1);
-    bool is_looping = has_hold_forever ? false : true;
-    f32 loop_time = has_loop ? loop_start_time : 0.0f;
-
-    u32 group_count = 3;
-    Mel_Track_Group* groups = mel_alloc(alloc, sizeof(Mel_Track_Group) * group_count);
-    memset(groups, 0, sizeof(Mel_Track_Group) * group_count);
-
-    {
-        Mel_Track_Group* grp = &groups[0];
-        grp->type_hash = MEL_ANIM_TYPE_F32;
-        grp->track_count = 1;
-        grp->property_ids = mel_alloc(alloc, sizeof(u64));
-        grp->property_ids[0] = mel_xxh3_64("frame", 5);
-        grp->keyframe_counts = mel_alloc(alloc, sizeof(u32));
-        grp->keyframe_counts[0] = fc;
-        grp->data_offsets = mel_alloc(alloc, sizeof(u32));
-        grp->data_offsets[0] = 0;
-        grp->flat_times = mel_alloc(alloc, sizeof(f32) * fc);
-        grp->flat_values = mel_alloc(alloc, sizeof(f32) * fc);
-        grp->flat_easing_ids = mel_alloc(alloc, sizeof(u16) * fc);
-        grp->flat_easing_params = NULL;
-
-        f32 cumulative = 0.0f;
-        for (u32 i = 0; i < fc; i++)
-        {
-            grp->flat_times[i] = cumulative;
-            ((f32*)grp->flat_values)[i] = (f32)i;
-            grp->flat_easing_ids[i] = step_id;
-
-            i16 t = action->frames[i].time;
-            cumulative += (t <= 0) ? (1.0f / MUGEN_TICKS_PER_SECOND) : ((f32)t / MUGEN_TICKS_PER_SECOND);
-        }
-    }
-
-    {
-        Mel_Track_Group* grp = &groups[1];
-        grp->type_hash = MEL_ANIM_TYPE_VEC4;
-        grp->track_count = 1;
-        grp->property_ids = mel_alloc(alloc, sizeof(u64));
-        grp->property_ids[0] = mel_xxh3_64("hitbox", 6);
-        grp->keyframe_counts = mel_alloc(alloc, sizeof(u32));
-        grp->keyframe_counts[0] = fc;
-        grp->data_offsets = mel_alloc(alloc, sizeof(u32));
-        grp->data_offsets[0] = 0;
-        grp->flat_times = mel_alloc(alloc, sizeof(f32) * fc);
-        grp->flat_values = mel_alloc(alloc, sizeof(f32) * fc * 4);
-        grp->flat_easing_ids = mel_alloc(alloc, sizeof(u16) * fc);
-        grp->flat_easing_params = NULL;
-
-        f32 cumulative = 0.0f;
-        for (u32 i = 0; i < fc; i++)
-        {
-            grp->flat_times[i] = cumulative;
-            grp->flat_easing_ids[i] = step_id;
-
-            f32* v = &((f32*)grp->flat_values)[i * 4];
-            if (action->frames[i].clsn1_count > 0)
-            {
-                Mugen_Clsn_Box bb = mugen__bounding_box(action->frames[i].clsn1, action->frames[i].clsn1_count);
-                v[0] = (f32)bb.x1;
-                v[1] = (f32)bb.y1;
-                v[2] = (f32)(bb.x2 - bb.x1);
-                v[3] = (f32)(bb.y2 - bb.y1);
-            }
-            else
-            {
-                v[0] = 0; v[1] = 0; v[2] = 0; v[3] = 0;
-            }
-
-            i16 t = action->frames[i].time;
-            cumulative += (t <= 0) ? (1.0f / MUGEN_TICKS_PER_SECOND) : ((f32)t / MUGEN_TICKS_PER_SECOND);
-        }
-    }
-
-    {
-        Mel_Track_Group* grp = &groups[2];
-        grp->type_hash = MEL_ANIM_TYPE_VEC4;
-        grp->track_count = 1;
-        grp->property_ids = mel_alloc(alloc, sizeof(u64));
-        grp->property_ids[0] = mel_xxh3_64("hurtbox", 7);
-        grp->keyframe_counts = mel_alloc(alloc, sizeof(u32));
-        grp->keyframe_counts[0] = fc;
-        grp->data_offsets = mel_alloc(alloc, sizeof(u32));
-        grp->data_offsets[0] = 0;
-        grp->flat_times = mel_alloc(alloc, sizeof(f32) * fc);
-        grp->flat_values = mel_alloc(alloc, sizeof(f32) * fc * 4);
-        grp->flat_easing_ids = mel_alloc(alloc, sizeof(u16) * fc);
-        grp->flat_easing_params = NULL;
-
-        f32 cumulative = 0.0f;
-        for (u32 i = 0; i < fc; i++)
-        {
-            grp->flat_times[i] = cumulative;
-            grp->flat_easing_ids[i] = step_id;
-
-            f32* v = &((f32*)grp->flat_values)[i * 4];
-            if (action->frames[i].clsn2_count > 0)
-            {
-                Mugen_Clsn_Box bb = mugen__bounding_box(action->frames[i].clsn2, action->frames[i].clsn2_count);
-                v[0] = (f32)bb.x1;
-                v[1] = (f32)bb.y1;
-                v[2] = (f32)(bb.x2 - bb.x1);
-                v[3] = (f32)(bb.y2 - bb.y1);
-            }
-            else
-            {
-                v[0] = 0; v[1] = 0; v[2] = 0; v[3] = 0;
-            }
-
-            i16 t = action->frames[i].time;
-            cumulative += (t <= 0) ? (1.0f / MUGEN_TICKS_PER_SECOND) : ((f32)t / MUGEN_TICKS_PER_SECOND);
-        }
-    }
-
-    return (Mel_Anim_Clip){
-        .name_hash = (u64)action->action_number,
-        .duration = total_duration,
-        .is_looping = is_looping,
-        .loop_start_time = loop_time,
-        .additive_space = MEL_ANIM_ADDITIVE_LOCAL,
-        .groups = groups,
-        .group_count = group_count,
-        .event_groups = NULL,
-        .event_group_count = 0,
-    };
-}

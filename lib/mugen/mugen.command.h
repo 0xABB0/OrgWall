@@ -38,7 +38,7 @@ typedef struct {
     bool autogreater;
 } Command;
 
-typedef struct {
+typedef struct Command_List {
     Input_Buffer buffer;
 
     Command* commands;

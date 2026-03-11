@@ -7,6 +7,9 @@
 typedef struct Mugen_Expr Mugen_Expr;
 typedef struct Mugen_State_Controller Mugen_State_Controller;
 typedef struct Mugen_Char_State Mugen_Char_State;
+typedef struct Mugen_Air Mugen_Air;
+typedef struct Mugen_Air_Action Mugen_Air_Action;
+typedef struct Mugen_Air_Frame Mugen_Air_Frame;
 #ifndef COMMAND_LIST_DEFINED
 typedef struct Command_List Command_List;
 #endif
@@ -21,6 +24,7 @@ typedef struct Command_List Command_List;
 #define MUGEN_EXPR_VAR         7
 #define MUGEN_EXPR_REDIRECT    8
 #define MUGEN_EXPR_RANGE       9
+#define MUGEN_EXPR_ASSIGN      10
 
 #define MUGEN_REDIRECT_HELPER  0
 #define MUGEN_REDIRECT_ROOT    1
@@ -28,6 +32,7 @@ typedef struct Command_List Command_List;
 
 #define MUGEN_OP_NEG   0
 #define MUGEN_OP_NOT   1
+#define MUGEN_OP_BNOT  2
 
 #define MUGEN_OP_ADD   0
 #define MUGEN_OP_SUB   1
@@ -45,12 +50,14 @@ typedef struct Command_List Command_List;
 #define MUGEN_OP_XOR   13
 #define MUGEN_OP_BAND  14
 #define MUGEN_OP_BOR   15
-#define MUGEN_OP_POW   16
+#define MUGEN_OP_BXOR  16
+#define MUGEN_OP_POW   17
 
 #define MUGEN_FUNC_CEIL    0
 #define MUGEN_FUNC_FLOOR   1
 #define MUGEN_FUNC_ABS     2
 #define MUGEN_FUNC_IFELSE  3
+#define MUGEN_FUNC_COND    4
 
 #define MUGEN_QUERY_TIME           0
 #define MUGEN_QUERY_ANIMTIME       1
@@ -108,6 +115,11 @@ typedef struct Command_List Command_List;
 #define MUGEN_QUERY_WIN            53
 #define MUGEN_QUERY_MATCHOVER      54
 #define MUGEN_QUERY_NUMTARGET      55
+#define MUGEN_QUERY_PHYSICS        56
+#define MUGEN_QUERY_PREVSTATETYPE  57
+#define MUGEN_QUERY_PREVMOVETYPE   58
+#define MUGEN_QUERY_ANIMLENGTH     59
+#define MUGEN_QUERY_SELFSTATENOEXIST 60
 #define MUGEN_QUERY_MAX            64
 
 typedef f32 (*Mugen_Query_Eval_Fn)(Mugen_Expr* arg, Mugen_Char_State* state);
@@ -147,6 +159,7 @@ struct Mugen_Expr {
         struct { u8 var_type; Mugen_Expr* index; } var;
         struct { u8 target_type; Mugen_Expr* id; Mugen_Expr* sub_expr; } redirect;
         struct { Mugen_Expr* value; Mugen_Expr* lo; Mugen_Expr* hi; bool lo_inclusive; bool hi_inclusive; } range;
+        struct { u8 var_type; Mugen_Expr* index; Mugen_Expr* value; } assign;
     };
 };
 
@@ -193,6 +206,12 @@ struct Mugen_Expr {
 #define MUGEN_SC_CHANGEANIM2   40
 #define MUGEN_SC_HELPER        41
 #define MUGEN_SC_DESTROYSELF   42
+#define MUGEN_SC_MOVEHITRESET  43
+#define MUGEN_SC_LIFEADD       44
+#define MUGEN_SC_POWERSET      45
+#define MUGEN_SC_ATTACKMULSET  46
+#define MUGEN_SC_HITBY         47
+#define MUGEN_SC_HITADD        48
 #define MUGEN_SC_MAX           64
 
 typedef void (*Mugen_SC_Parse_Fn)(Mugen_State_Controller* sc, str8 key, str8 val, const struct Mel_Alloc* alloc);
@@ -449,6 +468,8 @@ struct Mugen_Char_State {
     u8 statetype;
     u8 movetype;
     u8 physics;
+    u8 prev_statetype;
+    u8 prev_movetype;
     bool ctrl;
     i32 time;
 
@@ -456,6 +477,13 @@ struct Mugen_Char_State {
     i32 animtime;
     i32 animelem;
     i32 animelemtime;
+
+    Mugen_Air* air;
+    Mugen_Air_Action* anim_action;
+    u32 anim_frame_index;
+    u32 anim_tick;
+    i32 anim_total_ticks;
+    bool anim_looped;
 
     f32 life, lifemax;
     f32 power, powermax;
@@ -513,6 +541,7 @@ struct Mugen_Char_State {
 
     u32 assert_flags;
     f32 defence_mul;
+    f32 attack_mul;
     u64 rng_state;
     f32 data_height;
     f32 data_defence;
@@ -557,9 +586,6 @@ struct Mugen_Char_State {
     i32* anim_elem_start_ticks;
     u32 anim_elem_count;
 
-    bool (*anim_exists)(void* ctx, u32 anim);
-    void* anim_exists_ctx;
-
     i32 (*query_num_helper)(void* ctx, i32 id);
     Mugen_Char_State* (*query_helper_state)(void* ctx, i32 id);
     Mugen_Char_State* (*query_root_state)(void* ctx);
@@ -595,3 +621,7 @@ void mugen_cns_tick_statedef(Mugen_Statedef* def, Mugen_Char_State* state);
 void mugen_targets_add(Mugen_Char_State* state, Mugen_Char_State* target, i32 hitdef_id);
 void mugen_targets_clear(Mugen_Char_State* state);
 void mugen_targets_free(Mugen_Char_State* state);
+
+void mugen_state_anim_play(Mugen_Char_State* st, Mugen_Air* air, u32 action_number);
+void mugen_state_anim_tick(Mugen_Char_State* st);
+Mugen_Air_Frame* mugen_state_anim_frame(Mugen_Char_State* st);

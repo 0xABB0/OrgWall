@@ -1,7 +1,7 @@
-#include "../../melody/test.harness.h"
-#include "../../melody/allocator.h"
-#include "../../melody/allocator.heap.h"
-#include "../../melody/string.str8.h"
+#include "test.harness.h"
+#include "allocator.h"
+#include "allocator.heap.h"
+#include "string.str8.h"
 #include "mugen.cmd.h"
 
 #include <stdio.h>

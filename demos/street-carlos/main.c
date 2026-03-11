@@ -21,6 +21,7 @@
 #include "render.list.h"
 #include "render.pass.h"
 #include "texture.pool.h"
+#include "gpu.texture.h"
 #include "gpu.buffer.h"
 #include "gpu.pipeline.h"
 #include "gpu.cmd.h"
@@ -36,13 +37,11 @@
 
 #include "stage.h"
 #include "actions.h"
-#include "fighter.h"
-#include "mugen_char.h"
+#include "mugen.match.h"
+#include "mugen.roster.h"
+#include "mugen.sff.h"
 #include "game_draw.h"
 #include "game_test.h"
-#include "combat.h"
-#include "round.h"
-#include "mugen.command.h"
 #include "vfs.h"
 #include "vfs.backend.os.h"
 #include "async.io.h"
@@ -82,15 +81,22 @@ static Mel_Input_Stack s_input_stack;
 static Mel_Input_Bindings s_p1_bindings;
 static Mel_Input_Bindings s_p2_bindings;
 
-static Fighter s_p1;
-static Fighter s_p2;
-static Round_Ctx s_round;
+static Mugen_Match* s_match;
 static bool s_show_hitboxes;
 static bool s_show_tests;
 
 static Mel_Io s_io;
 static Mel_Vfs s_vfs;
-static Mugen_Char s_mugen_char;
+static Mugen_Roster s_roster;
+static Mugen_Char* s_fight_char;
+static Mel_Gpu_Texture s_char_tex;
+static Mel_Texture_Handle s_char_tex_handle;
+
+static Mugen_Stage s_stage;
+static Mugen_Sff s_stage_sff;
+static Mel_Gpu_Texture s_stage_tex;
+static Mel_Texture_Handle s_stage_tex_handle;
+static bool s_stage_loaded;
 
 static Mel_Font_Atlas_Pool s_font_pool;
 static Mel_Font_Handle s_title_font;
@@ -160,6 +166,24 @@ static void imgui_pass(Mel_Render_Pass_Ctx* ctx)
         ImGui_ImplVulkan_RenderDrawData(draw_data, ctx->cmd.cmd, VK_NULL_HANDLE);
 }
 
+static void fighter_on_input(Fighter* f, u32 action, f32 value)
+{
+    bool pressed = value > 0.5f;
+    switch (action)
+    {
+        case ACT_MOVE_LEFT:  f->input_left  = pressed; break;
+        case ACT_MOVE_RIGHT: f->input_right = pressed; break;
+        case ACT_CROUCH:     f->input_down  = pressed; break;
+        case ACT_JUMP:       f->input_up    = pressed; break;
+        case ACT_BTN_A:      f->btn_a       = pressed; break;
+        case ACT_BTN_B:      f->btn_b       = pressed; break;
+        case ACT_BTN_C:      f->btn_c       = pressed; break;
+        case ACT_BTN_X:      f->btn_x       = pressed; break;
+        case ACT_BTN_Y:      f->btn_y       = pressed; break;
+        case ACT_BTN_Z:      f->btn_z       = pressed; break;
+    }
+}
+
 static bool fighter_on_action(Mel_Input_Action action, f32 value, void* user)
 {
     Fighter* f = (Fighter*)user;
@@ -199,45 +223,83 @@ static void init_input(void)
         .mapper = mel_input_mapper_keyboard,
         .mapper_user = &s_p1_bindings,
         .on_action = fighter_on_action,
-        .user = &s_p1);
+        .user = mugen_match_p1(s_match));
 
     mel_input_stack_push(&s_input_stack,
         .mapper = mel_input_mapper_keyboard,
         .mapper_user = &s_p2_bindings,
         .on_action = fighter_on_action,
-        .user = &s_p2);
+        .user = mugen_match_p2(s_match));
 }
 
-static void screen_enter_fight(void)
+static void load_stage(void)
 {
-    fighter_init(&s_p1, mel_alloc_heap(),
-        .start_x = 80.0f,
-        .facing_right = true,
-        .clip_pool = &s_mugen_char.clip_pool,
-        .action_map = s_mugen_char.action_map,
-        .action_map_count = s_mugen_char.action_map_count);
-
-    fighter_init(&s_p2, mel_alloc_heap(),
-        .start_x = GAME_W - 80.0f,
-        .facing_right = false,
-        .clip_pool = &s_mugen_char.clip_pool,
-        .action_map = s_mugen_char.action_map,
-        .action_map_count = s_mugen_char.action_map_count);
-
-    for (u32 i = 0; i < s_mugen_char.cmd.command_count; i++)
+    str8 stage_data = mel_vfs_read_text_alloc(&s_vfs, S8("/stages/kfm.def"), mel_alloc_heap());
+    if (stage_data.len == 0)
     {
-        Mugen_Cmd_Def* c = &s_mugen_char.cmd.commands[i];
-        command_list_add(&s_p1.commands, c->name, c->command, .time = c->time, .buf_time = 1);
-        command_list_add(&s_p2.commands, c->name, c->command, .time = c->time, .buf_time = 1);
+        SDL_Log("Failed to read stage def, using defaults");
+        mugen_stage_load(&s_stage, (str8){0}, mel_alloc_heap());
+        return;
     }
 
-    if (s_mugen_char.cns_loaded)
-    {
-        fighter_enable_cns(&s_p1, &s_mugen_char.cns, &s_mugen_char.common_cns, &s_mugen_char.cmd_cns);
-        fighter_enable_cns(&s_p2, &s_mugen_char.cns, &s_mugen_char.common_cns, &s_mugen_char.cmd_cns);
-    }
+    mugen_stage_load(&s_stage, stage_data, mel_alloc_heap());
+    mel_dealloc(mel_alloc_heap(), stage_data.data);
 
-    round_init(&s_round, .p1 = &s_p1, .p2 = &s_p2);
+    if (s_stage.spr_path.len > 0)
+    {
+        str8 spr_full = str8_fmt_alloc(mel_alloc_heap(), "/stages/%.*s",
+            (int)s_stage.spr_path.len, (char*)s_stage.spr_path.data);
+
+        if (mugen_sff_load(&s_stage_sff, &s_vfs, spr_full, mel_alloc_heap()))
+        {
+            Mel_Gpu_Device* dev = mel_gpu_dev();
+            mel_gpu_texture_init(&s_stage_tex, dev,
+                .pixels = s_stage_sff.atlas_pixels,
+                .width = s_stage_sff.atlas_width,
+                .height = s_stage_sff.atlas_height,
+                .nearest_filter = true);
+            s_stage_tex.descriptor = mel_gpu_pipeline_alloc_descriptor(&mel_sprite_pass()->pipeline, dev);
+            mel_gpu_pipeline_write_texture(&mel_sprite_pass()->pipeline, dev,
+                s_stage_tex.descriptor, s_stage_tex.image.view, s_stage_tex.sampler);
+            s_stage_tex_handle = mel_texture_pool_register(mel_texture_pool(), &s_stage_tex);
+            s_stage_loaded = true;
+            SDL_Log("Stage loaded: %d BG layers, spr=%.*s",
+                s_stage.bg_count, (int)s_stage.spr_path.len, (char*)s_stage.spr_path.data);
+        }
+        else
+        {
+            SDL_Log("Failed to load stage SFF: %.*s", (int)spr_full.len, (char*)spr_full.data);
+        }
+
+        mel_dealloc(mel_alloc_heap(), spr_full.data);
+    }
+}
+
+static void screen_enter_fight(Mugen_Char* ch)
+{
+    s_fight_char = ch;
+
+    Mel_Gpu_Device* dev = mel_gpu_dev();
+    mel_gpu_texture_init(&s_char_tex, dev,
+        .pixels = ch->sff.atlas_pixels,
+        .width = ch->sff.atlas_width,
+        .height = ch->sff.atlas_height,
+        .nearest_filter = true);
+    s_char_tex.descriptor = mel_gpu_pipeline_alloc_descriptor(&mel_sprite_pass()->pipeline, dev);
+    mel_gpu_pipeline_write_texture(&mel_sprite_pass()->pipeline, dev,
+        s_char_tex.descriptor, s_char_tex.image.view, s_char_tex.sampler);
+    s_char_tex_handle = mel_texture_pool_register(mel_texture_pool(), &s_char_tex);
+
+    load_stage();
+
+    s_match = mugen_match_create(
+        .p1_char = ch,
+        .p2_char = ch,
+        .stage = &s_stage,
+        .screen_w = (f32)GAME_W,
+        .alloc = mel_alloc_heap());
+
+    mugen_match_start(s_match);
 
     init_input();
     s_fight_initialized = true;
@@ -246,36 +308,21 @@ static void screen_enter_fight(void)
     SDL_Log("FIGHT! P1: WASD + UIO(xyz) JKL(abc)  P2: Arrows + Numpad  Tab: hitboxes  T: tests  ESC: quit");
 }
 
-static Mel_Task_Step_Result step_load_character(Mel_Task_Ctx* ctx, void* user_data)
-{
-    MEL_UNUSED(ctx);
-    MEL_UNUSED(user_data);
-
-    bool ok = mugen_char_load(&s_mugen_char,
-        .dev = mel_gpu_dev(),
-        .sprite_pass = mel_sprite_pass(),
-        .tex_pool = mel_texture_pool(),
-        .vfs = &s_vfs,
-        .def_path = S8("/chars/poi-son/poi-son.def"),
-        .stcommon_path = S8("/chars/common1.cns"),
-        .alloc = mel_alloc_heap());
-
-    return (Mel_Task_Step_Result){
-        .result = ok ? MEL_TASK_STEP_DONE : MEL_TASK_STEP_FAILED,
-    };
-}
-
-static void on_load_complete(Mel_Task_Handle handle, u32 status, void* user)
+static void on_roster_loaded(Mel_Task_Handle handle, u32 status, void* user)
 {
     MEL_UNUSED(user);
 
     if (status == MEL_TASK_STATUS_DONE)
     {
-        screen_enter_fight();
+        Mugen_Char* ch = mugen_roster_find(&s_roster, S8("kfm"));
+        if (ch)
+            screen_enter_fight(ch);
+        else
+            SDL_Log("Character 'kfm' not found in roster!");
     }
     else
     {
-        SDL_Log("Character loading failed!");
+        SDL_Log("Roster loading failed!");
     }
 
     mel_task_release(s_task_ctx, handle);
@@ -286,23 +333,9 @@ static void screen_start_loading(void)
 {
     s_current_screen = SCREEN_LOADING;
 
-    s_load_task = mel_task_begin(s_task_ctx,
-        .on_complete = on_load_complete);
-
-    mel_task_add_step(s_task_ctx, s_load_task,
-        (Mel_Task_Step_Desc){ .fn = step_load_character });
-
-    mel_task_submit(s_task_ctx, s_load_task);
-}
-
-static void game_fixed_update(Mel_Sim_Ctx* sim, f32 dt, void* user)
-{
-    MEL_UNUSED(sim);
-    MEL_UNUSED(user);
-
-    if (s_current_screen != SCREEN_FIGHT) return;
-
-    round_tick(&s_round, dt);
+    s_load_task = mugen_roster_load(&s_roster,
+        .folder_path = S8("/chars/"),
+        .on_complete = on_roster_loaded);
 }
 
 static void draw_title(Mel_Render_List* list)
@@ -364,6 +397,9 @@ static void game_draw(Mel_Sim_Ctx* sim, f32 dt, void* user)
     mel_task_tick(s_task_ctx);
     mel_render_list_clear(&s_game_list);
 
+    if (s_current_screen == SCREEN_FIGHT)
+        mugen_match_update(s_match, dt);
+
     switch (s_current_screen) {
     case SCREEN_TITLE:
         draw_title(&s_game_list);
@@ -374,27 +410,40 @@ static void game_draw(Mel_Sim_Ctx* sim, f32 dt, void* user)
         break;
 
     case SCREEN_FIGHT:
-        game_draw_stage(&s_game_list);
+    {
+        Fighter* p1 = mugen_match_p1(s_match);
+        Fighter* p2 = mugen_match_p2(s_match);
+        Mugen_Camera* cam = mugen_match_camera(s_match);
+        f32 sx = (f32)GAME_W / (f32)s_stage.localcoord_w;
+        f32 sy = (f32)GAME_H / (f32)s_stage.localcoord_h;
+        f32 zoff = s_stage.zoffset;
 
-        game_draw_fighter(&s_p1, &s_mugen_char, &s_game_list);
-        game_draw_fighter(&s_p2, &s_mugen_char, &s_game_list);
+        if (s_stage_loaded)
+            game_draw_stage_layer(&s_stage, &s_stage_sff, s_stage_tex_handle, cam, 0, &s_game_list);
 
-        for (u32 i = 0; i < s_p1.helper_count; i++)
-            game_draw_helper(&s_p1.helpers[i], &s_mugen_char, &s_game_list);
-        for (u32 i = 0; i < s_p2.helper_count; i++)
-            game_draw_helper(&s_p2.helpers[i], &s_mugen_char, &s_game_list);
+        game_draw_fighter(p1, s_fight_char, s_char_tex_handle, cam, zoff, sx, sy, &s_game_list);
+        game_draw_fighter(p2, s_fight_char, s_char_tex_handle, cam, zoff, sx, sy, &s_game_list);
+
+        for (u32 i = 0; i < p1->helper_count; i++)
+            game_draw_helper(&p1->helpers[i], s_fight_char, s_char_tex_handle, cam, zoff, sx, sy, &s_game_list);
+        for (u32 i = 0; i < p2->helper_count; i++)
+            game_draw_helper(&p2->helpers[i], s_fight_char, s_char_tex_handle, cam, zoff, sx, sy, &s_game_list);
+
+        if (s_stage_loaded)
+            game_draw_stage_layer(&s_stage, &s_stage_sff, s_stage_tex_handle, cam, 1, &s_game_list);
 
         if (s_show_hitboxes)
         {
-            game_draw_debug_boxes(&s_p1, &s_game_list);
-            game_draw_debug_boxes(&s_p2, &s_game_list);
+            game_draw_debug_boxes(p1, cam, zoff, sx, sy, &s_game_list);
+            game_draw_debug_boxes(p2, cam, zoff, sx, sy, &s_game_list);
 
-            for (u32 i = 0; i < s_p1.helper_count; i++)
-                game_draw_helper_debug_boxes(&s_p1.helpers[i], &s_game_list);
-            for (u32 i = 0; i < s_p2.helper_count; i++)
-                game_draw_helper_debug_boxes(&s_p2.helpers[i], &s_game_list);
+            for (u32 i = 0; i < p1->helper_count; i++)
+                game_draw_helper_debug_boxes(&p1->helpers[i], cam, zoff, sx, sy, &s_game_list);
+            for (u32 i = 0; i < p2->helper_count; i++)
+                game_draw_helper_debug_boxes(&p2->helpers[i], cam, zoff, sx, sy, &s_game_list);
         }
         break;
+    }
     }
 }
 
@@ -491,6 +540,10 @@ static void on_init(void)
     Mel_Vfs_Backend* fonts_be = mel_vfs_backend_os_create(mel_alloc_heap(), S8("/System/Library/Fonts"));
     mel_vfs_mount(&s_vfs, S8("/fonts"), fonts_be, 0, false);
 
+    Mel_Vfs_Backend* stages_be = mel_vfs_backend_os_create(mel_alloc_heap(),
+        S8("/Users/gabbo/Downloads/mugen-1.1b1/stages"));
+    mel_vfs_mount(&s_vfs, S8("/stages"), stages_be, 0, false);
+
     mel_font_atlas_pool_init(&s_font_pool, mel_alloc_heap(), mel_gpu_dev(), &s_vfs,
         .texture_pool = mel_texture_pool());
     s_title_font = mel_font_atlas_pool_load(&s_font_pool,
@@ -505,10 +558,14 @@ static void on_init(void)
     };
     s_task_ctx = mel_task_ctx_create(&task_desc);
 
+    mugen_roster_init(&s_roster,
+        .vfs = &s_vfs,
+        .task_ctx = s_task_ctx,
+        .stcommon_path = S8("/chars/common1.cns"),
+        .alloc = mel_alloc_heap());
+
     mel_sim_init(&s_sim, .event_buffer = s_event_buf, .event_buffer_size = sizeof(s_event_buf));
 
-    Mel_Sim_Fixed* fixed = mel_sim_add_fixed(&s_sim, .fixed_dt = 1.0f / 60.0f);
-    mel_sim_fixed_add_update(fixed, game_fixed_update);
     mel_sim_add_variable(&s_sim, game_draw);
     mel_register_sim(&s_sim);
 
@@ -544,10 +601,8 @@ static void app_shutdown(Mel_App* app)
         mel_input_stack_shutdown(&s_input_stack);
         mel_input_bindings_shutdown(&s_p1_bindings);
         mel_input_bindings_shutdown(&s_p2_bindings);
-        fighter_shutdown(&s_p1);
-        fighter_shutdown(&s_p2);
-        mel_anim_player_destroy(&s_p1.player);
-        mel_anim_player_destroy(&s_p2.player);
+        mugen_match_end(s_match);
+        s_match = NULL;
     }
 
     mel_unregister_sim(&s_sim);
@@ -559,8 +614,17 @@ static void app_shutdown(Mel_App* app)
     mel_render_target_shutdown(&s_offscreen);
     mel_render_target_shutdown(&s_swapchain_target);
 
-    if (s_mugen_char.loaded)
-        mugen_char_shutdown(&s_mugen_char, dev, mel_alloc_heap());
+    if (s_fight_char)
+        mel_gpu_texture_shutdown(&s_char_tex, dev);
+
+    if (s_stage_loaded)
+    {
+        mel_gpu_texture_shutdown(&s_stage_tex, dev);
+        mugen_sff_shutdown(&s_stage_sff, mel_alloc_heap());
+    }
+    mugen_stage_shutdown(&s_stage, mel_alloc_heap());
+
+    mugen_roster_shutdown(&s_roster);
 
     mel_gpu_buffer_shutdown(&s_blit_vbuf, dev);
     mel_gpu_buffer_shutdown(&s_blit_ibuf, dev);
@@ -569,6 +633,7 @@ static void app_shutdown(Mel_App* app)
     mel_render_list_shutdown(&s_game_list);
 
     mel_font_atlas_pool_shutdown(&s_font_pool);
+    mel_vfs_unmount(&s_vfs, S8("/stages"));
     mel_vfs_unmount(&s_vfs, S8("/fonts"));
     mel_task_ctx_destroy(s_task_ctx);
 

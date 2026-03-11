@@ -58,11 +58,35 @@ static void assertspecial_parse(Mugen_State_Controller* sc, str8 key, str8 val, 
     }
 }
 
+typedef struct {
+    Mugen_Expr* value;
+} AttackMulSet_Params;
+
+typedef struct {
+    u32 attr_flags;
+    Mugen_Expr* time;
+} HitBy_Params;
+
 static void defencemulset_parse(Mugen_State_Controller* sc, str8 key, str8 val, const Mel_Alloc* alloc)
 {
     if (!sc->params) sc->params = mcns_alloc_params(alloc, sizeof(DefenceMulSet_Params));
     DefenceMulSet_Params* p = sc->params;
     if (str8_ieq_cstr(key, "value")) p->value = mugen_expr_parse(val, alloc);
+}
+
+static void attackmulset_parse(Mugen_State_Controller* sc, str8 key, str8 val, const Mel_Alloc* alloc)
+{
+    if (!sc->params) sc->params = mcns_alloc_params(alloc, sizeof(AttackMulSet_Params));
+    AttackMulSet_Params* p = sc->params;
+    if (str8_ieq_cstr(key, "value")) p->value = mugen_expr_parse(val, alloc);
+}
+
+static void hitby_parse(Mugen_State_Controller* sc, str8 key, str8 val, const Mel_Alloc* alloc)
+{
+    if (!sc->params) sc->params = mcns_alloc_params(alloc, sizeof(HitBy_Params));
+    HitBy_Params* p = sc->params;
+    if (str8_ieq_cstr(key, "value")) p->attr_flags = mcns_parse_attr(val);
+    else if (str8_ieq_cstr(key, "time")) p->time = mugen_expr_parse(val, alloc);
 }
 
 static void nothitby_exec(Mugen_State_Controller* sc, Mugen_Char_State* state)
@@ -94,6 +118,21 @@ static void defencemulset_exec(Mugen_State_Controller* sc, Mugen_Char_State* sta
         state->defence_mul = mugen_expr_eval(p->value, state);
 }
 
+static void attackmulset_exec(Mugen_State_Controller* sc, Mugen_Char_State* state)
+{
+    AttackMulSet_Params* p = sc->params;
+    if (p && p->value)
+        state->attack_mul = mugen_expr_eval(p->value, state);
+}
+
+static void hitby_exec(Mugen_State_Controller* sc, Mugen_Char_State* state)
+{
+    HitBy_Params* p = sc->params;
+    if (!p) return;
+    state->nothitby_attr = ~p->attr_flags;
+    state->nothitby_time = p->time ? (i32)mugen_expr_eval(p->time, state) : 1;
+}
+
 __attribute__((constructor))
 static void register_combat(void)
 {
@@ -101,4 +140,6 @@ static void register_combat(void)
     mugen_sc_register(MUGEN_SC_WIDTH, "width", width_parse, width_exec);
     mugen_sc_register(MUGEN_SC_ASSERTSPECIAL, "assertspecial", assertspecial_parse, assertspecial_exec);
     mugen_sc_register(MUGEN_SC_DEFENCEMULSET, "defencemulset", defencemulset_parse, defencemulset_exec);
+    mugen_sc_register(MUGEN_SC_ATTACKMULSET, "attackmulset", attackmulset_parse, attackmulset_exec);
+    mugen_sc_register(MUGEN_SC_HITBY, "hitby", hitby_parse, hitby_exec);
 }

@@ -192,6 +192,9 @@ void mugen_cns_tick(Mugen_Cns* cns, Mugen_Char_State* state)
     Mugen_Statedef* def = mugen_cns_get(cns, state->stateno);
     if (!def) return;
 
+    state->prev_statetype = state->statetype;
+    state->prev_movetype = state->movetype;
+
     if (state->nothitby_time > 0)
         state->nothitby_time--;
 

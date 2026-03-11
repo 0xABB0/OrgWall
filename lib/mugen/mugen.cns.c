@@ -1,4 +1,5 @@
 #include "mugen.cns.h"
+#include "mugen.air.h"
 #include "string.str8.h"
 #include "allocator.h"
 #include <SDL3/SDL.h>
@@ -652,5 +653,63 @@ Mugen_Statedef* mugen_cns_get(Mugen_Cns* cns, i32 stateno)
             return &cns->statedefs[i];
     }
     return NULL;
+}
+
+void mugen_state_anim_play(Mugen_Char_State* st, Mugen_Air* air, u32 action_number)
+{
+    assert(st);
+    assert(air);
+
+    Mugen_Air_Action* action = mugen_air_find_action(air, action_number);
+    assert(action);
+
+    st->anim_action = action;
+    st->anim_frame_index = 0;
+    st->anim_tick = 0;
+    st->anim_looped = false;
+
+    i32 total = 0;
+    for (u32 i = 0; i < action->frame_count; i++)
+    {
+        i16 t = action->frames[i].time;
+        if (t == -1) break;
+        total += (t <= 0) ? 1 : (i32)t;
+    }
+    st->anim_total_ticks = total;
+}
+
+void mugen_state_anim_tick(Mugen_Char_State* st)
+{
+    assert(st->anim_action && st->anim_action->frame_count > 0);
+
+    Mugen_Air_Frame* frame = &st->anim_action->frames[st->anim_frame_index];
+
+    if (frame->time == -1)
+        return;
+
+    st->anim_tick++;
+
+    i16 frame_dur = (frame->time <= 0) ? 1 : frame->time;
+    if (st->anim_tick >= (u32)frame_dur)
+    {
+        st->anim_tick = 0;
+        st->anim_frame_index++;
+
+        if (st->anim_frame_index >= st->anim_action->frame_count)
+        {
+            st->anim_looped = true;
+            if (st->anim_action->loop_start != MUGEN_AIR_NO_LOOP)
+                st->anim_frame_index = st->anim_action->loop_start;
+            else
+                st->anim_frame_index = 0;
+        }
+    }
+}
+
+Mugen_Air_Frame* mugen_state_anim_frame(Mugen_Char_State* st)
+{
+    assert(st->anim_action && st->anim_action->frame_count > 0);
+    assert(st->anim_frame_index < st->anim_action->frame_count);
+    return &st->anim_action->frames[st->anim_frame_index];
 }
 

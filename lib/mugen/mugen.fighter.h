@@ -2,15 +2,8 @@
 
 #include "core.types.h"
 #include "mugen.command.h"
-#include "anim.player.h"
-#include "anim.clip.fwd.h"
 #include "mugen.cns.h"
 #include "allocator.fwd.h"
-
-typedef struct {
-    u32 action_number;
-    Mel_Anim_Clip_Handle clip;
-} Fighter_Action_Map;
 
 typedef struct Fighter_Helper Fighter_Helper;
 struct Fighter_Helper {
@@ -19,14 +12,9 @@ struct Fighter_Helper {
     bool facing_right;
 
     f32 ground_front, ground_back;
+    const Mel_Alloc* alloc;
 
-    Mel_Anim_Player player;
-    Mel_Anim_Clip_Pool* clip_pool;
-    Fighter_Action_Map* action_map;
-    u32 action_map_count;
     u32 current_action;
-    f32 anim_hitbox[4];
-    f32 anim_hurtbox[4];
 
     Mugen_Char_State cns_state;
     u32 last_cns_anim;
@@ -44,14 +32,7 @@ struct Fighter {
 
     Command_List commands;
 
-    Mel_Anim_Player player;
-    Mel_Anim_Clip_Pool* clip_pool;
-    Fighter_Action_Map* action_map;
-    u32 action_map_count;
-
     u32 current_action;
-    f32 anim_hitbox[4];
-    f32 anim_hurtbox[4];
 
     bool input_left, input_right, input_up, input_down;
     bool btn_a, btn_b, btn_c;
@@ -83,16 +64,12 @@ typedef struct {
     bool facing_right;
     f32 ground_front;
     f32 ground_back;
-    Mel_Anim_Clip_Pool* clip_pool;
-    Fighter_Action_Map* action_map;
-    u32 action_map_count;
+    Mugen_Air* air;
 } Fighter_Init_Opt;
 
 void fighter_init_opt(Fighter* f, Fighter_Init_Opt opt, const Mel_Alloc* alloc);
 #define fighter_init(f, alloc, ...) \
     fighter_init_opt((f), (Fighter_Init_Opt){__VA_ARGS__}, (alloc))
-
-void fighter_on_input(Fighter* f, u32 action, f32 value);
 
 void fighter_tick(Fighter* f, f32 dt, f32 stage_left, f32 stage_right);
 void fighter_apply_combat_state(Fighter* f);

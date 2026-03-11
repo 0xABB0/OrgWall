@@ -1,4 +1,5 @@
 #include "mugen.cns.h"
+#include "mugen.air.h"
 #include "string.str8.h"
 
 static f32 eval_const(Mugen_Expr* arg, Mugen_Char_State* state)
@@ -51,9 +52,9 @@ static f32 eval_const(Mugen_Expr* arg, Mugen_Char_State* state)
 
 static f32 eval_selfanimexist(Mugen_Expr* arg, Mugen_Char_State* state)
 {
-    if (!state->anim_exists) return 0.0f;
+    if (!state->air) return 0.0f;
     i32 anim_id = arg ? (i32)mugen_expr_eval(arg, state) : (i32)state->anim;
-    return state->anim_exists(state->anim_exists_ctx, (u32)anim_id) ? 1.0f : 0.0f;
+    return mugen_air_find_action(state->air, (u32)anim_id) ? 1.0f : 0.0f;
 }
 
 __attribute__((constructor))

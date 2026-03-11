@@ -1,68 +1,64 @@
 #include "game_draw.h"
+#include "mugen.fighter.h"
 #include "stage.h"
-#include "mugen.air.h"
+#include "mugen.cns.h"
 #include "mugen.sff.h"
-#include "anim.player.h"
 #include "render.list.h"
 #include "sprite.pass.h"
 #include "sprite.sheet.h"
+#include "math.scalar.h"
 #include "math.vec2.h"
 #include "math.vec4.h"
 #include "math.geo.rect.h"
-#include "hash.xxh.h"
 
-static u64 s_frame_prop;
-static bool s_prop_init = false;
-
-static void ensure_prop(void)
+static f32 world_to_screen_x(f32 wx, f32 cam_x, f32 scale_x)
 {
-    if (s_prop_init) return;
-    s_frame_prop = mel_xxh3_64("frame", 5);
-    s_prop_init = true;
+    return (wx - cam_x) * scale_x + (f32)GAME_W * 0.5f;
 }
 
-static f32 game_to_screen_y(f32 game_y, f32 h)
+static f32 world_to_screen_y(f32 wy, f32 zoffset, f32 scale_y)
 {
-    return STAGE_FLOOR_Y - game_y - h;
+    return zoffset * scale_y - wy * scale_y;
 }
 
-static void draw_box_outline(Mel_Render_List* list, Fighter_Box box, Mel_Vec4 color, f32 thickness)
+static void draw_box_outline(Mel_Render_List* list, f32 bx, f32 by, f32 bw, f32 bh,
+                              Mel_Vec4 color, f32 thickness)
 {
-    f32 sy = game_to_screen_y(box.y, box.h);
-
-    mel_draw_sprite(list, .pos = mel_vec2(box.x, sy),
-        .size = mel_vec2(box.w, thickness), .color = color);
-    mel_draw_sprite(list, .pos = mel_vec2(box.x, sy + box.h - thickness),
-        .size = mel_vec2(box.w, thickness), .color = color);
-    mel_draw_sprite(list, .pos = mel_vec2(box.x, sy),
-        .size = mel_vec2(thickness, box.h), .color = color);
-    mel_draw_sprite(list, .pos = mel_vec2(box.x + box.w - thickness, sy),
-        .size = mel_vec2(thickness, box.h), .color = color);
+    mel_draw_sprite(list, .pos = mel_vec2(bx, by),
+        .size = mel_vec2(bw, thickness), .color = color, .layer = 3);
+    mel_draw_sprite(list, .pos = mel_vec2(bx, by + bh - thickness),
+        .size = mel_vec2(bw, thickness), .color = color, .layer = 3);
+    mel_draw_sprite(list, .pos = mel_vec2(bx, by),
+        .size = mel_vec2(thickness, bh), .color = color, .layer = 3);
+    mel_draw_sprite(list, .pos = mel_vec2(bx + bw - thickness, by),
+        .size = mel_vec2(thickness, bh), .color = color, .layer = 3);
 }
 
-static void draw_mugen_sprite_at(f32 feet_x, f32 feet_y, bool facing_right,
+static void draw_mugen_sprite_at(f32 world_x, f32 world_y, bool facing_right,
                                   Mugen_Sff* sff, Mel_Texture_Handle tex,
                                   u16 group, u16 number, bool frame_flip_h,
-                                  Mel_Render_List* list)
+                                  Mugen_Camera* cam, f32 zoffset, f32 scale_x, f32 scale_y,
+                                  u8 layer, Mel_Render_List* list)
 {
     u32 frame_idx = mugen_sff_find_frame(sff, group, number);
     Mugen_Sff_Entry* entry = &sff->entries[frame_idx];
     Mel_Rect uv = mel_sprite_sheet_frame(&sff->sheet, frame_idx);
 
-    f32 w = (f32)entry->width;
-    f32 h = (f32)entry->height;
+    f32 w = (f32)entry->width * scale_x;
+    f32 h = (f32)entry->height * scale_y;
 
-    f32 screen_y = STAGE_FLOOR_Y - feet_y;
+    f32 screen_x = world_to_screen_x(world_x, cam->x, scale_x);
+    f32 screen_y = world_to_screen_y(world_y, zoffset, scale_y);
 
-    f32 draw_x = feet_x - (f32)entry->offset_x;
-    f32 draw_y = screen_y - (f32)entry->offset_y;
+    f32 draw_x = screen_x - (f32)entry->offset_x * scale_x;
+    f32 draw_y = screen_y - (f32)entry->offset_y * scale_y;
 
     bool flip = facing_right ^ frame_flip_h;
     if (!flip)
     {
         uv.x = uv.x + uv.w;
         uv.w = -uv.w;
-        draw_x = feet_x - (w - (f32)entry->offset_x);
+        draw_x = screen_x - (w - (f32)entry->offset_x * scale_x);
     }
 
     mel_draw_sprite(list,
@@ -70,86 +66,179 @@ static void draw_mugen_sprite_at(f32 feet_x, f32 feet_y, bool facing_right,
         .size = mel_vec2(w, h),
         .color = mel_vec4(1, 1, 1, 1),
         .tex = tex,
-        .uv = uv);
+        .uv = uv,
+        .layer = layer);
 }
 
-void game_draw_fighter(Fighter* f, Mugen_Char* mc, Mel_Render_List* list)
+void game_draw_fighter(Fighter* f, Mugen_Char* mc, Mel_Texture_Handle tex,
+    Mugen_Camera* cam, f32 zoffset, f32 scale_x, f32 scale_y, Mel_Render_List* list)
 {
-    ensure_prop();
-
     if (!mc->loaded) return;
 
-    Mugen_Air_Action* action = mugen_air_find_action(&mc->air, f->current_action);
-    if (!action) return;
-
-    f32 frame_f;
-    mel_anim_player_get_float(&f->player, s_frame_prop, f->player.alloc, &frame_f);
-    u32 frame_idx = (u32)frame_f;
-    if (frame_idx >= action->frame_count)
-        frame_idx = action->frame_count - 1;
-
-    Mugen_Air_Frame* frame = &action->frames[frame_idx];
+    Mugen_Air_Frame* frame = mugen_state_anim_frame(&f->cns_state);
+    if (!frame) return;
 
     draw_mugen_sprite_at(f->x, f->y, f->facing_right,
-                         &mc->sff, mc->tex_handle, frame->group, frame->number,
-                         frame->flip_h, list);
+                         &mc->sff, tex, frame->group, frame->number,
+                         frame->flip_h, cam, zoffset, scale_x, scale_y, 1, list);
 }
 
-void game_draw_helper(Fighter_Helper* h, Mugen_Char* mc, Mel_Render_List* list)
+void game_draw_helper(Fighter_Helper* h, Mugen_Char* mc, Mel_Texture_Handle tex,
+    Mugen_Camera* cam, f32 zoffset, f32 scale_x, f32 scale_y, Mel_Render_List* list)
 {
-    ensure_prop();
-
     if (!mc->loaded) return;
 
-    Mugen_Air_Action* action = mugen_air_find_action(&mc->air, h->current_action);
-    if (!action) return;
-
-    f32 frame_f;
-    mel_anim_player_get_float(&h->player, s_frame_prop, h->player.alloc, &frame_f);
-    u32 frame_idx = (u32)frame_f;
-    if (frame_idx >= action->frame_count)
-        frame_idx = action->frame_count - 1;
-
-    Mugen_Air_Frame* frame = &action->frames[frame_idx];
+    Mugen_Air_Frame* frame = mugen_state_anim_frame(&h->cns_state);
+    if (!frame) return;
 
     draw_mugen_sprite_at(h->x, h->y, h->facing_right,
-                         &mc->sff, mc->tex_handle, frame->group, frame->number,
-                         frame->flip_h, list);
+                         &mc->sff, tex, frame->group, frame->number,
+                         frame->flip_h, cam, zoffset, scale_x, scale_y, 1, list);
 }
 
-void game_draw_debug_boxes(Fighter* f, Mel_Render_List* list)
+static void draw_debug_box(Fighter_Box box, Mugen_Camera* cam, f32 zoffset,
+                            f32 scale_x, f32 scale_y, Mel_Vec4 color,
+                            Mel_Render_List* list)
+{
+    f32 sx = world_to_screen_x(box.x, cam->x, scale_x);
+    f32 sy = world_to_screen_y(box.y + box.h, zoffset, scale_y);
+    f32 sw = box.w * scale_x;
+    f32 sh = box.h * scale_y;
+    draw_box_outline(list, sx, sy, sw, sh, color, 1.0f);
+}
+
+void game_draw_debug_boxes(Fighter* f, Mugen_Camera* cam, f32 zoffset,
+    f32 scale_x, f32 scale_y, Mel_Render_List* list)
 {
     Fighter_Box hurt = fighter_hurtbox(f);
-    draw_box_outline(list, hurt, mel_vec4(0.0f, 1.0f, 0.0f, 1.0f), 1.0f);
+    draw_debug_box(hurt, cam, zoffset, scale_x, scale_y,
+        mel_vec4(0.0f, 1.0f, 0.0f, 1.0f), list);
 
     if (fighter_has_active_hitbox(f))
     {
         Fighter_Box hit = fighter_hitbox(f);
-        draw_box_outline(list, hit, mel_vec4(1.0f, 0.0f, 0.0f, 1.0f), 1.0f);
+        draw_debug_box(hit, cam, zoffset, scale_x, scale_y,
+            mel_vec4(1.0f, 0.0f, 0.0f, 1.0f), list);
     }
 }
 
-void game_draw_helper_debug_boxes(Fighter_Helper* h, Mel_Render_List* list)
+void game_draw_helper_debug_boxes(Fighter_Helper* h, Mugen_Camera* cam, f32 zoffset,
+    f32 scale_x, f32 scale_y, Mel_Render_List* list)
 {
     Fighter_Box hurt = helper_hurtbox(h);
-    draw_box_outline(list, hurt, mel_vec4(0.0f, 0.8f, 0.8f, 1.0f), 1.0f);
+    draw_debug_box(hurt, cam, zoffset, scale_x, scale_y,
+        mel_vec4(0.0f, 0.8f, 0.8f, 1.0f), list);
 
     if (helper_has_active_hitbox(h))
     {
         Fighter_Box hit = helper_hitbox(h);
-        draw_box_outline(list, hit, mel_vec4(1.0f, 0.5f, 0.0f, 1.0f), 1.0f);
+        draw_debug_box(hit, cam, zoffset, scale_x, scale_y,
+            mel_vec4(1.0f, 0.5f, 0.0f, 1.0f), list);
     }
 }
 
-void game_draw_stage(Mel_Render_List* list)
+void game_draw_stage_layer(Mugen_Stage* stage, Mugen_Sff* sff,
+    Mel_Texture_Handle tex, Mugen_Camera* cam,
+    u8 target_layer, Mel_Render_List* list)
 {
-    mel_draw_sprite(list,
-        .pos = mel_vec2(0, STAGE_FLOOR_Y),
-        .size = mel_vec2(GAME_W, GAME_H - STAGE_FLOOR_Y),
-        .color = mel_vec4(0.25f, 0.18f, 0.12f, 1.0f));
+    if (!sff || !stage->bgs) return;
 
-    mel_draw_sprite(list,
-        .pos = mel_vec2(0, STAGE_FLOOR_Y - 2),
-        .size = mel_vec2(GAME_W, 2),
-        .color = mel_vec4(0.5f, 0.35f, 0.2f, 1.0f));
+    u8 sprite_layer = (target_layer == 0) ? 0 : 2;
+
+    f32 sx = (f32)GAME_W / (f32)stage->localcoord_w;
+    f32 sy = (f32)GAME_H / (f32)stage->localcoord_h;
+
+    for (u32 i = 0; i < stage->bg_count; i++)
+    {
+        Mugen_Stage_BG* bg = &stage->bgs[i];
+        if (bg->layerno != target_layer) continue;
+
+        u32 frame_idx = mugen_sff_find_frame(sff, bg->sprite_group, bg->sprite_number);
+        Mugen_Sff_Entry* entry = &sff->entries[frame_idx];
+        Mel_Rect uv = mel_sprite_sheet_frame(&sff->sheet, frame_idx);
+
+        f32 w = (f32)entry->width * sx;
+        f32 h = (f32)entry->height * sy;
+
+        if (bg->type == MUGEN_BG_PARALLAX)
+        {
+            f32 avg_xscale = (bg->xscale_top + bg->xscale_bot) * 0.5f;
+            w *= avg_xscale;
+        }
+
+        f32 base_x = (bg->start_x - cam->x * bg->delta_x) * sx + (f32)GAME_W * 0.5f;
+        f32 base_y = (bg->start_y - cam->y * bg->delta_y) * sy;
+
+        base_x -= (f32)entry->offset_x * sx;
+        base_y -= (f32)entry->offset_y * sy;
+
+        f32 alpha = 1.0f;
+        if (bg->trans == MUGEN_TRANS_ADDALPHA)
+            alpha = (f32)bg->alpha_src / 256.0f;
+        else if (bg->trans == MUGEN_TRANS_ADD1)
+            alpha = 0.5f;
+        else if (bg->trans == MUGEN_TRANS_SUB)
+            alpha = 0.25f;
+
+        Mel_Vec4 color = mel_vec4(1, 1, 1, alpha);
+
+        f32 tile_w = w + (f32)bg->tilespacing_x * sx;
+        f32 tile_h = h + (f32)bg->tilespacing_y * sy;
+        if (tile_w < 1.0f) tile_w = w;
+        if (tile_h < 1.0f) tile_h = h;
+
+        i32 x_start = 0, x_end = 0;
+        if (bg->tile_x == 0)
+        {
+            x_start = 0;
+            x_end = 0;
+        }
+        else if (bg->tile_x == 1)
+        {
+            x_start = (i32)mel_floorf((0.0f - base_x) / tile_w) - 1;
+            x_end = (i32)mel_ceilf(((f32)GAME_W - base_x) / tile_w) + 1;
+        }
+        else
+        {
+            x_start = 0;
+            x_end = bg->tile_x - 1;
+        }
+
+        i32 y_start = 0, y_end = 0;
+        if (bg->tile_y == 0)
+        {
+            y_start = 0;
+            y_end = 0;
+        }
+        else if (bg->tile_y == 1)
+        {
+            y_start = (i32)mel_floorf((0.0f - base_y) / tile_h) - 1;
+            y_end = (i32)mel_ceilf(((f32)GAME_H - base_y) / tile_h) + 1;
+        }
+        else
+        {
+            y_start = 0;
+            y_end = bg->tile_y - 1;
+        }
+
+        for (i32 ty = y_start; ty <= y_end; ty++)
+        {
+            for (i32 tx = x_start; tx <= x_end; tx++)
+            {
+                f32 dx = base_x + (f32)tx * tile_w;
+                f32 dy = base_y + (f32)ty * tile_h;
+
+                if (dx + w < 0 || dx > (f32)GAME_W) continue;
+                if (dy + h < 0 || dy > (f32)GAME_H) continue;
+
+                mel_draw_sprite(list,
+                    .pos = mel_vec2(dx, dy),
+                    .size = mel_vec2(w, h),
+                    .color = color,
+                    .tex = tex,
+                    .uv = uv,
+                    .layer = sprite_layer);
+            }
+        }
+    }
 }

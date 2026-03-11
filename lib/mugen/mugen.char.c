@@ -1,21 +1,14 @@
-#include "mugen_char.h"
+#include "mugen.char.h"
 #include "mugen.sff.h"
 #include "mugen.air.h"
 #include "mugen.cmd.h"
 #include "mugen.cns.h"
-#include "anim.clip.h"
-#include "anim.registry.h"
-#include "collection.slotmap.h"
-#include "gpu.texture.h"
-#include "gpu.pipeline.h"
-#include "texture.pool.h"
-#include "sprite.pass.h"
 #include "vfs.h"
 #include "allocator.h"
 #include "string.str8.h"
-#include <SDL3/SDL.h>
 #include <string.h>
 #include <assert.h>
+#include <stdio.h>
 
 #define MUGEN_DEF_MAX_ST 10
 
@@ -146,11 +139,22 @@ static bool mugen_def_parse(Mugen_Def* def, str8 data)
     return def->sprite.len > 0 && def->anim.len > 0;
 }
 
-static u8* track_file_data(Mugen_Char* mc, u8* data)
+static void track_file_data(Mugen_Char* mc, u8* data, const Mel_Alloc* alloc)
 {
-    if (data && mc->file_data_count < MUGEN_CHAR_MAX_FILES)
-        mc->file_data[mc->file_data_count++] = data;
-    return data;
+    if (!data) return;
+
+    if (mc->file_data_count >= mc->file_data_capacity)
+    {
+        u32 new_cap = mc->file_data_capacity < 8 ? 8 : mc->file_data_capacity * 2;
+        u8** new_buf = mel_alloc(alloc, new_cap * sizeof(u8*));
+        if (mc->file_data_count > 0)
+            memcpy(new_buf, mc->file_data, mc->file_data_count * sizeof(u8*));
+        if (mc->file_data)
+            mel_dealloc(alloc, mc->file_data);
+        mc->file_data = new_buf;
+        mc->file_data_capacity = new_cap;
+    }
+    mc->file_data[mc->file_data_count++] = data;
 }
 
 static str8 resolve_path(str8 char_dir, str8 filename, char* buf, size buf_size)
@@ -189,7 +193,7 @@ bool mugen_char_load_opt(Mugen_Char* mc, Mugen_Char_Load_Opt opt)
     if (!mugen_def_parse(&def, def_str))
     {
         mel_dealloc(opt.alloc, def_data);
-        SDL_Log("MUGEN char: failed to parse def file");
+        printf("MUGEN char: failed to parse def file\n");
         return false;
     }
 
@@ -227,9 +231,10 @@ bool mugen_char_load_opt(Mugen_Char* mc, Mugen_Char_Load_Opt opt)
     {
         str8 cmd_path = resolve_path(char_dir, def.cmd, path_buf, sizeof(path_buf));
         usize cmd_size = 0;
-        u8* cmd_data = track_file_data(mc, mel_vfs_read_file_alloc(opt.vfs, cmd_path, &cmd_size, opt.alloc));
+        u8* cmd_data = mel_vfs_read_file_alloc(opt.vfs, cmd_path, &cmd_size, opt.alloc);
         if (cmd_data)
         {
+            track_file_data(mc, cmd_data, opt.alloc);
             str8 cmd_str = str8_from_parts(cmd_data, (size)cmd_size);
             mugen_cmd_load(&mc->cmd, cmd_str, opt.alloc);
 
@@ -260,9 +265,10 @@ bool mugen_char_load_opt(Mugen_Char* mc, Mugen_Char_Load_Opt opt)
     {
         str8 cns_path = resolve_path(char_dir, def.cns, path_buf, sizeof(path_buf));
         usize cns_size = 0;
-        u8* cns_data = track_file_data(mc, mel_vfs_read_file_alloc(opt.vfs, cns_path, &cns_size, opt.alloc));
+        u8* cns_data = mel_vfs_read_file_alloc(opt.vfs, cns_path, &cns_size, opt.alloc);
         if (cns_data)
         {
+            track_file_data(mc, cns_data, opt.alloc);
             str8 cns_str = str8_from_parts(cns_data, (size)cns_size);
             mugen_cns_load(&mc->cns, cns_str, opt.alloc);
             mc->cns_loaded = true;
@@ -277,9 +283,10 @@ bool mugen_char_load_opt(Mugen_Char* mc, Mugen_Char_Load_Opt opt)
 
         str8 st_path = resolve_path(char_dir, def.st[i], path_buf, sizeof(path_buf));
         usize st_size = 0;
-        u8* st_data = track_file_data(mc, mel_vfs_read_file_alloc(opt.vfs, st_path, &st_size, opt.alloc));
+        u8* st_data = mel_vfs_read_file_alloc(opt.vfs, st_path, &st_size, opt.alloc);
         if (st_data)
         {
+            track_file_data(mc, st_data, opt.alloc);
             Mugen_Cns extra = {0};
             str8 st_str = str8_from_parts(st_data, (size)st_size);
             if (mugen_cns_load(&extra, st_str, opt.alloc))
@@ -304,72 +311,32 @@ bool mugen_char_load_opt(Mugen_Char* mc, Mugen_Char_Load_Opt opt)
     if (stcommon_path.len > 0)
     {
         usize common_size = 0;
-        u8* common_data = track_file_data(mc, mel_vfs_read_file_alloc(opt.vfs, stcommon_path, &common_size, opt.alloc));
+        u8* common_data = mel_vfs_read_file_alloc(opt.vfs, stcommon_path, &common_size, opt.alloc);
         if (common_data)
         {
+            track_file_data(mc, common_data, opt.alloc);
             str8 common_str = str8_from_parts(common_data, (size)common_size);
             mugen_cns_load(&mc->common_cns, common_str, opt.alloc);
         }
     }
 
-    mel_anim_registry_init(opt.alloc);
-    mel_slotmap_init(&mc->clip_pool, opt.alloc, .item_size = sizeof(Mel_Anim_Clip));
-
-    mc->action_map = mel_alloc(opt.alloc, mc->air.action_count * sizeof(Fighter_Action_Map));
-    mc->action_map_count = 0;
-
-    for (u32 i = 0; i < mc->air.action_count; i++)
-    {
-        Mugen_Air_Action* action = &mc->air.actions[i];
-        if (action->frame_count == 0) continue;
-
-        Mel_Anim_Clip clip = mugen_air_compile(action, opt.alloc);
-        Mel_Anim_Clip_Handle handle = mel_slotmap_insert(&mc->clip_pool, &clip);
-
-        mc->action_map[mc->action_map_count] = (Fighter_Action_Map){
-            .action_number = action->action_number,
-            .clip = handle,
-        };
-        mc->action_map_count++;
-    }
-
-    mel_gpu_texture_init(&mc->tex, opt.dev,
-        .pixels = mc->sff.atlas_pixels,
-        .width = mc->sff.atlas_width,
-        .height = mc->sff.atlas_height,
-        .nearest_filter = true);
-    mc->tex.descriptor = mel_gpu_pipeline_alloc_descriptor(&opt.sprite_pass->pipeline, opt.dev);
-    mel_gpu_pipeline_write_texture(&opt.sprite_pass->pipeline, opt.dev,
-        mc->tex.descriptor, mc->tex.image.view, mc->tex.sampler);
-    mc->tex_handle = mel_texture_pool_register(opt.tex_pool, &mc->tex);
-
     mel_dealloc(opt.alloc, def_data);
     mc->loaded = true;
-    SDL_Log("MUGEN char loaded: %u actions compiled, %u char states, %u common states",
-        mc->action_map_count, mc->cns.statedef_count, mc->common_cns.statedef_count);
+    printf("MUGEN char loaded: %u actions, %u char states, %u common states\n",
+        mc->air.action_count, mc->cns.statedef_count, mc->common_cns.statedef_count);
     return true;
 }
 
-void mugen_char_shutdown(Mugen_Char* mc, Mel_Gpu_Device* dev, const Mel_Alloc* alloc)
+void mugen_char_shutdown(Mugen_Char* mc, const Mel_Alloc* alloc)
 {
     if (!mc->loaded) return;
-
-    mel_gpu_texture_shutdown(&mc->tex, dev);
-
-    for (u32 i = 0; i < mc->action_map_count; i++)
-    {
-        Mel_Anim_Clip* clip = (Mel_Anim_Clip*)mel_slotmap_get(&mc->clip_pool, mc->action_map[i].clip);
-        if (clip) mel_anim_clip_destroy(clip, alloc);
-    }
-    mel_slotmap_free(&mc->clip_pool);
-
-    if (mc->action_map)
-        mel_dealloc(alloc, mc->action_map);
 
     mugen_cmd_shutdown(&mc->cmd, alloc);
 
     for (u32 i = 0; i < mc->file_data_count; i++)
         mel_dealloc(alloc, mc->file_data[i]);
+    if (mc->file_data)
+        mel_dealloc(alloc, mc->file_data);
 
     mugen_air_shutdown(&mc->air, alloc);
     mugen_sff_shutdown(&mc->sff, alloc);

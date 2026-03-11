@@ -58,7 +58,8 @@
 - Carlos demo still has a ton of friction i don't like:
 -- It defines its own pass for resolution independance. this should be a game engine's feature.
 -- It defines a pass for imgui. this should be given for free by the engine
--- 
+-- it handles "stages" manually (still need to add this concept to the engine: stages are what other engines call "screens" or "scenes")
+-- it still handles mugen logic. that should be passed to the library.
 
 ## Engine refactor gaps (Mar 2026)
 

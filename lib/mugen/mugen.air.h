@@ -3,16 +3,15 @@
 #include "core.types.h"
 #include "string.str8.h"
 #include "allocator.fwd.h"
-#include "anim.clip.fwd.h"
 
 #define MUGEN_AIR_NO_LOOP UINT32_MAX
 #define MUGEN_TICKS_PER_SECOND 60.0f
 
-typedef struct {
+typedef struct Mugen_Clsn_Box {
     i16 x1, y1, x2, y2;
 } Mugen_Clsn_Box;
 
-typedef struct {
+typedef struct Mugen_Air_Frame {
     u16 group;
     u16 number;
     i16 x_offset;
@@ -27,14 +26,14 @@ typedef struct {
     u32 clsn2_count;
 } Mugen_Air_Frame;
 
-typedef struct {
+typedef struct Mugen_Air_Action {
     u32 action_number;
     Mugen_Air_Frame* frames;
     u32 frame_count;
     u32 loop_start;
 } Mugen_Air_Action;
 
-typedef struct {
+typedef struct Mugen_Air {
     Mugen_Air_Action* actions;
     u32 action_count;
 } Mugen_Air;
@@ -44,4 +43,4 @@ void mugen_air_shutdown(Mugen_Air* air, const Mel_Alloc* alloc);
 
 Mugen_Air_Action* mugen_air_find_action(Mugen_Air* air, u32 action_number);
 
-Mel_Anim_Clip mugen_air_compile(const Mugen_Air_Action* action, const Mel_Alloc* alloc);
+Mugen_Clsn_Box mugen_clsn_bounding_box(const Mugen_Clsn_Box* boxes, u32 count);

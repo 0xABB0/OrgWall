@@ -1,14 +1,16 @@
 #include "test.harness.h"
 #include "mugen.command.h"
-#include "fighter.h"
-#include "combat.h"
+#include "mugen.fighter.h"
+#include "mugen.combat.h"
 #include "mugen.cns.h"
+#include "mugen.air.h"
 #include "string.str8.h"
 #include "allocator.heap.h"
 #include <string.h>
 #include <stdlib.h>
 #include <math.h>
 
+static Mugen_Air s_test_air;
 static const Mel_Alloc* s_alloc;
 static void ensure_alloc(void)
 {
@@ -1974,21 +1976,14 @@ MEL_TEST(vm_expr_const_yaccel, .tags = "vm_audit")
     MEL_ASSERT_FLOAT_EQ(val, 0.44f, 0.001f);
 }
 
-static bool anim_exists_stub(void* ctx, u32 anim)
-{
-    (void)ctx;
-    return anim == 100 || anim == 200;
-}
-
 MEL_TEST(vm_expr_selfanimexist, .tags = "vm_audit")
 {
     ensure_alloc();
 
     Mugen_Char_State st = make_standing_state();
-    st.anim_exists = anim_exists_stub;
-    st.anim_exists_ctx = NULL;
+    st.air = &s_test_air;
 
-    Mugen_Expr* e = mugen_expr_parse(S8("SelfAnimExist(100)"), s_alloc);
+    Mugen_Expr* e = mugen_expr_parse(S8("SelfAnimExist(0)"), s_alloc);
     MEL_ASSERT_FLOAT_EQ(mugen_expr_eval(e, &st), 1.0f, 0.001f);
 
     e = mugen_expr_parse(S8("SelfAnimExist(999)"), s_alloc);
@@ -2767,6 +2762,27 @@ MEL_TEST(vm_numhits_used_in_hitcount, .tags = "vm_audit, medium")
     MEL_ASSERT_EQ(st.ghv.damage, 20);
 }
 
+static Mugen_Clsn_Box s_test_hitbox_clsn = { 5, 0, 55, 60 };
+static Mugen_Clsn_Box s_test_hurtbox_clsn = { -10, 0, 30, 60 };
+
+static Mugen_Air_Frame s_test_frame = {
+    .group = 0, .number = 0, .time = -1,
+    .clsn1 = &s_test_hitbox_clsn, .clsn1_count = 1,
+    .clsn2 = &s_test_hurtbox_clsn, .clsn2_count = 1,
+};
+
+static Mugen_Air_Action s_test_action = {
+    .action_number = 0,
+    .frames = &s_test_frame,
+    .frame_count = 1,
+    .loop_start = MUGEN_AIR_NO_LOOP,
+};
+
+static Mugen_Air s_test_air = {
+    .actions = &s_test_action,
+    .action_count = 1,
+};
+
 static Fighter make_test_fighter(f32 x, bool facing_right)
 {
     Fighter f = {0};
@@ -2775,18 +2791,9 @@ static Fighter make_test_fighter(f32 x, bool facing_right)
     f.facing_right = facing_right;
     f.ground_front = 16.0f;
     f.ground_back = 15.0f;
-
-    f.anim_hitbox[0] = 5.0f;
-    f.anim_hitbox[1] = 0.0f;
-    f.anim_hitbox[2] = 50.0f;
-    f.anim_hitbox[3] = 60.0f;
-
-    f.anim_hurtbox[0] = -10.0f;
-    f.anim_hurtbox[1] = 0.0f;
-    f.anim_hurtbox[2] = 40.0f;
-    f.anim_hurtbox[3] = 60.0f;
-
     f.cns_state = make_standing_state();
+    f.cns_state.air = &s_test_air;
+    mugen_state_anim_play(&f.cns_state, &s_test_air, 0);
     f.cns_state.pos_x = x;
     f.cns_state.facing = facing_right ? 1.0f : -1.0f;
     return f;

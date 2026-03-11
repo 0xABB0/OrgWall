@@ -1,4 +1,5 @@
-#include "combat.h"
+#include "mugen.combat.h"
+#include "mugen.fighter.h"
 #include "mugen.command.h"
 #include "mugen.cns.h"
 #include "string.str8.h"
