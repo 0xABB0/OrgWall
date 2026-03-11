@@ -203,6 +203,26 @@ These are Ikemen extensions, not standard MUGEN. Implement only if needed.
 - 3D positioning (pos_z, vel_z, scale_z throughout)
 - Lifebar / Screenpack / Motif system
 
+---
+
+## fight.def / HUD (Partial Implementation)
+
+### Parsed but not rendered
+- Combo counter: parsed (positions, fonts, text, displaytime) but runtime state (slide-in, shake) not implemented
+- Round announcements: parsed (FIGHT!, K.O., DKO, TO, Round X) but animation playback needs tick state in Mugen_Hud
+- Win icons: parsed (all win-type sprites, perfect overlay) but not drawn
+
+### Not parsed (skipped sections)
+- [Simul Lifebar], [Simul Face], [Simul Name]: team/simul mode variants
+- [Turns Lifebar], [Turns Face], [Turns Name]: turns mode variants
+
+### Missing
+- MUGEN .fnt bitmap font parser: currently using TTF fonts with fight.def positions
+- Character portraits: group 9000 comes from character SFF, not fight.sff. HUD needs char SFF access
+- Sound effects: Mugen_Snd_Ref parsed but not played (no sound system)
+- Power level counter text rendering
+- Name rendering (placeholder function exists)
+
 
 
 ---

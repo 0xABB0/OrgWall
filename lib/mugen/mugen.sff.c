@@ -479,6 +479,7 @@ static bool load_v1(Mugen_Sff* sff, const u8* data, usize file_size,
                      Sff_File_Header* fh, const Mel_Alloc* alloc)
 {
     Decoded_Sprite* decoded = malloc(fh->sprite_count * sizeof(Decoded_Sprite));
+    u32 (*sprite_palettes)[256] = malloc(fh->sprite_count * sizeof(u32[256]));
     u32 palette[256] = {0};
     bool have_palette = false;
     u32 valid_count = 0;
@@ -507,6 +508,7 @@ static bool load_v1(Mugen_Sff* sff, const u8* data, usize file_size,
                 dst->offset_y = sh.offset_y;
                 dst->group = sh.group;
                 dst->number = sh.number;
+                memcpy(sprite_palettes[valid_count], sprite_palettes[sh.link_index], sizeof(u32[256]));
                 valid_count++;
             }
             header_offset = sh.next_header_offset;
@@ -584,6 +586,7 @@ static bool load_v1(Mugen_Sff* sff, const u8* data, usize file_size,
             .group = sh.group,
             .number = sh.number,
         };
+        memcpy(sprite_palettes[valid_count], palette, sizeof(u32[256]));
         valid_count++;
         header_offset = sh.next_header_offset;
     }
@@ -591,6 +594,7 @@ static bool load_v1(Mugen_Sff* sff, const u8* data, usize file_size,
     if (valid_count == 0)
     {
         free(decoded);
+        free(sprite_palettes);
         return false;
     }
 
@@ -617,10 +621,11 @@ static bool load_v1(Mugen_Sff* sff, const u8* data, usize file_size,
         blit_indexed_to_atlas(sff->atlas_pixels, sff->atlas_width,
                       decoded[i].pixels, decoded[i].width, decoded[i].height,
                       positions[i].x, positions[i].y,
-                      palette);
+                      sprite_palettes[i]);
     }
 
     free(positions);
+    free(sprite_palettes);
 
     sff->entries = mel_calloc(alloc, valid_count * sizeof(Mugen_Sff_Entry));
     sff->entry_count = valid_count;

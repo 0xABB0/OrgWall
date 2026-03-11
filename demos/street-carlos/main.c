@@ -40,12 +40,15 @@
 #include "mugen.match.h"
 #include "mugen.roster.h"
 #include "mugen.sff.h"
+#include "mugen.fightdef.h"
+#include "mugen.hud.h"
 #include "game_draw.h"
 #include "game_test.h"
 #include "vfs.h"
 #include "vfs.backend.os.h"
 #include "async.io.h"
 #include "font.atlas.h"
+#include "math.scalar.h"
 #include <string.h>
 
 #define SCREEN_TITLE   0
@@ -97,6 +100,13 @@ static Mugen_Sff s_stage_sff;
 static Mel_Gpu_Texture s_stage_tex;
 static Mel_Texture_Handle s_stage_tex_handle;
 static bool s_stage_loaded;
+
+static Mugen_Fightdef s_fightdef;
+static Mugen_Sff s_fight_sff;
+static Mel_Gpu_Texture s_fight_tex;
+static Mel_Texture_Handle s_fight_tex_handle;
+static Mugen_Hud s_hud;
+static bool s_fight_hud_loaded;
 
 static Mel_Font_Atlas_Pool s_font_pool;
 static Mel_Font_Handle s_title_font;
@@ -292,6 +302,62 @@ static void screen_enter_fight(Mugen_Char* ch)
 
     load_stage();
 
+    {
+        str8 fdef_data = mel_vfs_read_text_alloc(&s_vfs, S8("/data/fight.def"), mel_alloc_heap());
+        if (fdef_data.len > 0)
+        {
+            mugen_fightdef_load(&s_fightdef, fdef_data, mel_alloc_heap());
+            mel_dealloc(mel_alloc_heap(), fdef_data.data);
+
+            if (s_fightdef.files.sff.len > 0)
+            {
+                str8 sff_path = str8_fmt_alloc(mel_alloc_heap(), "/data/%.*s",
+                    (int)s_fightdef.files.sff.len, (char*)s_fightdef.files.sff.data);
+
+                if (mugen_sff_load(&s_fight_sff, &s_vfs, sff_path, mel_alloc_heap()))
+                {
+                    Mel_Gpu_Device* fight_dev = mel_gpu_dev();
+                    mel_gpu_texture_init(&s_fight_tex, fight_dev,
+                        .pixels = s_fight_sff.atlas_pixels,
+                        .width = s_fight_sff.atlas_width,
+                        .height = s_fight_sff.atlas_height,
+                        .nearest_filter = true);
+                    s_fight_tex.descriptor = mel_gpu_pipeline_alloc_descriptor(&mel_sprite_pass()->pipeline, fight_dev);
+                    mel_gpu_pipeline_write_texture(&mel_sprite_pass()->pipeline, fight_dev,
+                        s_fight_tex.descriptor, s_fight_tex.image.view, s_fight_tex.sampler);
+                    s_fight_tex_handle = mel_texture_pool_register(mel_texture_pool(), &s_fight_tex);
+
+                    s_hud = (Mugen_Hud){
+                        .fightdef = &s_fightdef,
+                        .fight_sff = &s_fight_sff,
+                        .fight_tex = s_fight_tex_handle,
+                        .font_pool = &s_font_pool,
+                        .font = s_body_font,
+                        .p1_mid_ratio = 1.0f,
+                        .p2_mid_ratio = 1.0f,
+                        .p1_power_mid = 0.0f,
+                        .p2_power_mid = 0.0f,
+                        .scale_x = (f32)GAME_W / (f32)s_stage.localcoord_w,
+                        .scale_y = (f32)GAME_H / (f32)s_stage.localcoord_h,
+                    };
+                    s_fight_hud_loaded = true;
+                    SDL_Log("Fight HUD loaded: sff=%.*s",
+                        (int)s_fightdef.files.sff.len, (char*)s_fightdef.files.sff.data);
+                }
+                else
+                {
+                    SDL_Log("Failed to load fight SFF: %.*s", (int)sff_path.len, (char*)sff_path.data);
+                }
+
+                mel_dealloc(mel_alloc_heap(), sff_path.data);
+            }
+        }
+        else
+        {
+            SDL_Log("No fight.def found, HUD disabled");
+        }
+    }
+
     s_match = mugen_match_create(
         .p1_char = ch,
         .p2_char = ch,
@@ -432,6 +498,22 @@ static void game_draw(Mel_Sim_Ctx* sim, f32 dt, void* user)
         if (s_stage_loaded)
             game_draw_stage_layer(&s_stage, &s_stage_sff, s_stage_tex_handle, cam, 1, &s_game_list);
 
+        if (s_fight_hud_loaded)
+        {
+            Mugen_Hud_State hud_state = {
+                .p1_life_ratio = mel_clampf(p1->cns_state.life / p1->cns_state.lifemax, 0.0f, 1.0f),
+                .p2_life_ratio = mel_clampf(p2->cns_state.life / p2->cns_state.lifemax, 0.0f, 1.0f),
+                .p1_power_ratio = mel_clampf(p1->cns_state.power / p1->cns_state.powermax, 0.0f, 1.0f),
+                .p2_power_ratio = mel_clampf(p2->cns_state.power / p2->cns_state.powermax, 0.0f, 1.0f),
+                .p1_life = (i32)p1->cns_state.life,
+                .p2_life = (i32)p2->cns_state.life,
+                .p1_power = (i32)p1->cns_state.power,
+                .p2_power = (i32)p2->cns_state.power,
+                .time_count = 99,
+            };
+            mugen_hud_draw(&s_hud, &hud_state, &s_game_list);
+        }
+
         if (s_show_hitboxes)
         {
             game_draw_debug_boxes(p1, cam, zoff, sx, sy, &s_game_list);
@@ -544,6 +626,10 @@ static void on_init(void)
         S8("/Users/gabbo/Downloads/mugen-1.1b1/stages"));
     mel_vfs_mount(&s_vfs, S8("/stages"), stages_be, 0, false);
 
+    Mel_Vfs_Backend* data_be = mel_vfs_backend_os_create(mel_alloc_heap(),
+        S8("/Users/gabbo/Downloads/mugen-1.1b1/data"));
+    mel_vfs_mount(&s_vfs, S8("/data"), data_be, 0, false);
+
     mel_font_atlas_pool_init(&s_font_pool, mel_alloc_heap(), mel_gpu_dev(), &s_vfs,
         .texture_pool = mel_texture_pool());
     s_title_font = mel_font_atlas_pool_load(&s_font_pool,
@@ -624,6 +710,13 @@ static void app_shutdown(Mel_App* app)
     }
     mugen_stage_shutdown(&s_stage, mel_alloc_heap());
 
+    if (s_fight_hud_loaded)
+    {
+        mel_gpu_texture_shutdown(&s_fight_tex, dev);
+        mugen_sff_shutdown(&s_fight_sff, mel_alloc_heap());
+    }
+    mugen_fightdef_shutdown(&s_fightdef, mel_alloc_heap());
+
     mugen_roster_shutdown(&s_roster);
 
     mel_gpu_buffer_shutdown(&s_blit_vbuf, dev);
@@ -633,6 +726,7 @@ static void app_shutdown(Mel_App* app)
     mel_render_list_shutdown(&s_game_list);
 
     mel_font_atlas_pool_shutdown(&s_font_pool);
+    mel_vfs_unmount(&s_vfs, S8("/data"));
     mel_vfs_unmount(&s_vfs, S8("/stages"));
     mel_vfs_unmount(&s_vfs, S8("/fonts"));
     mel_task_ctx_destroy(s_task_ctx);

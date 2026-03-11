@@ -290,8 +290,8 @@ Mel_Texture_Handle mel_font_atlas_pool_tex_handle(Mel_Font_Atlas_Pool* pool, Mel
     return entry->tex_handle;
 }
 
-void mel_font_atlas_draw_text(Mel_Font_Atlas_Pool* pool, Mel_Font_Handle handle,
-    Mel_Render_List* list, str8 text, f32 x, f32 y, Mel_Vec4 color)
+void mel_font_atlas_draw_text_ex(Mel_Font_Atlas_Pool* pool, Mel_Font_Handle handle,
+    Mel_Render_List* list, str8 text, f32 x, f32 y, Mel_Vec4 color, u64 sort_key)
 {
     assert(pool != nullptr);
     assert(list != nullptr);
@@ -329,7 +329,7 @@ void mel_font_atlas_draw_text(Mel_Font_Atlas_Pool* pool, Mel_Font_Handle handle,
 
         if (gw > 0 && gh > 0)
         {
-            Mel_Sprite_Entry* e = mel_render_list_push(list, 0);
+            Mel_Sprite_Entry* e = mel_render_list_push(list, sort_key);
             *e = (Mel_Sprite_Entry){
                 .pos = mel_vec2(gx, gy),
                 .size = mel_vec2(gw, gh),

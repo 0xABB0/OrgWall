@@ -242,3 +242,4 @@ void game_draw_stage_layer(Mugen_Stage* stage, Mugen_Sff* sff,
         }
     }
 }
+

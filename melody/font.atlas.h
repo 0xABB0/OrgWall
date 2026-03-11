@@ -52,6 +52,8 @@ Mel_Gpu_Texture*      mel_font_atlas_pool_get_texture(Mel_Font_Atlas_Pool* pool,
 
 Mel_Texture_Handle mel_font_atlas_pool_tex_handle(Mel_Font_Atlas_Pool* pool, Mel_Font_Handle handle);
 
-void mel_font_atlas_draw_text(Mel_Font_Atlas_Pool* pool, Mel_Font_Handle handle,
-    Mel_Render_List* list, str8 text, f32 x, f32 y, Mel_Vec4 color);
+void mel_font_atlas_draw_text_ex(Mel_Font_Atlas_Pool* pool, Mel_Font_Handle handle,
+    Mel_Render_List* list, str8 text, f32 x, f32 y, Mel_Vec4 color, u64 sort_key);
+#define mel_font_atlas_draw_text(pool, handle, list, text, x, y, color) \
+    mel_font_atlas_draw_text_ex((pool), (handle), (list), (text), (x), (y), (color), 0)
 Mel_Vec2 mel_font_atlas_measure_text(Mel_Font_Atlas_Pool* pool, Mel_Font_Handle handle, str8 text);
