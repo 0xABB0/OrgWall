@@ -1,4 +1,4 @@
-#include "mugen_cns_parse.h"
+#include "mugen.cns.parse.h"
 
 typedef struct {
     Mugen_Expr* group;

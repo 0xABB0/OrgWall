@@ -9,7 +9,7 @@
 #include "../../melody/collection.slotmap.h"
 #include "../../melody/hash.xxh.h"
 #include "../../melody/string.str8.h"
-#include "mugen_air.h"
+#include "mugen.air.h"
 
 #include <stdio.h>
 

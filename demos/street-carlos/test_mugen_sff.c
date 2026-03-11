@@ -1,5 +1,5 @@
 #include "test.harness.h"
-#include "mugen_sff.h"
+#include "mugen.sff.h"
 #include "math.geo.rect.h"
 #include "vfs.h"
 #include "vfs.backend.os.h"

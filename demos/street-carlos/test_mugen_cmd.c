@@ -2,7 +2,7 @@
 #include "../../melody/allocator.h"
 #include "../../melody/allocator.heap.h"
 #include "../../melody/string.str8.h"
-#include "mugen_cmd.h"
+#include "mugen.cmd.h"
 
 #include <stdio.h>
 

@@ -1,4 +1,4 @@
-#include "mugen_cns_parse.h"
+#include "mugen.cns.parse.h"
 
 static void noop_exec(Mugen_State_Controller* sc, Mugen_Char_State* state) { (void)sc; (void)state; }
 

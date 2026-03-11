@@ -26,6 +26,7 @@ static const char* INCLUDE_PATHS[] = {
     "-I" SUCK_DIR "/flecs/distr",
     "-I" SUCK_DIR "/tomlc17",
     "-Imelody",
+    "-Ilib/mugen",
 };
 
 static const char* LIB_PATHS[] = {
@@ -773,6 +774,40 @@ bool build_tests(void)
                     any_recompiled = true;
                 }
             }
+
+            Nob_File_Paths lib_dirs = {0};
+            if (nob_read_entire_dir("lib", &lib_dirs))
+            {
+                for (size_t ld = 0; ld < lib_dirs.count; ld++)
+                {
+                    const char* lname = lib_dirs.items[ld];
+                    if (lname[0] == '.') continue;
+                    const char* lib_dir = nob_temp_sprintf("lib/%s", lname);
+                    if (nob_get_file_type(lib_dir) != NOB_FILE_DIRECTORY) continue;
+
+                    Nob_File_Paths lib_files = {0};
+                    if (!nob_read_entire_dir(lib_dir, &lib_files)) continue;
+
+                    for (size_t li = 0; li < lib_files.count; li++)
+                    {
+                        const char* file = lib_files.items[li];
+                        size_t flen = strlen(file);
+                        if (flen < 3 || strcmp(file + flen - 2, ".c") != 0) continue;
+
+                        const char* src = nob_temp_sprintf("%s/%s", lib_dir, file);
+                        const char* obj = nob_temp_sprintf(BUILD_DIR "/dtest.lib.%s.%s.o", lname, file);
+
+                        nob_da_append(&obj_files, nob_temp_strdup(obj));
+
+                        if (needs_compile(src, obj))
+                        {
+                            nob_log(NOB_INFO, "Compiling lib for test: %s/%s", lname, file);
+                            if (!compile_c_to_obj(src, obj)) return false;
+                            any_recompiled = true;
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -910,6 +945,32 @@ bool build_compdb(void)
                         size_t flen = strlen(fname);
                         if (flen < 3 || fname[flen-2] != '.' || fname[flen-1] != 'c') continue;
                         nob_da_append(&c_files, nob_temp_strdup(nob_temp_sprintf("%s/%s", demo_dir, fname)));
+                    }
+                }
+            }
+        }
+    }
+
+    {
+        Nob_File_Paths lib_entries = {0};
+        if (nob_read_entire_dir("lib", &lib_entries))
+        {
+            for (size_t i = 0; i < lib_entries.count; i++)
+            {
+                const char* lname = lib_entries.items[i];
+                if (lname[0] == '.') continue;
+                const char* lib_dir = nob_temp_sprintf("lib/%s", lname);
+                if (nob_get_file_type(lib_dir) != NOB_FILE_DIRECTORY) continue;
+
+                Nob_File_Paths lf = {0};
+                if (nob_read_entire_dir(lib_dir, &lf))
+                {
+                    for (size_t j = 0; j < lf.count; j++)
+                    {
+                        const char* fname = lf.items[j];
+                        size_t flen = strlen(fname);
+                        if (flen < 3 || fname[flen-2] != '.' || fname[flen-1] != 'c') continue;
+                        nob_da_append(&c_files, nob_temp_strdup(nob_temp_sprintf("%s/%s", lib_dir, fname)));
                     }
                 }
             }
@@ -1141,6 +1202,40 @@ bool build_demo(const char* name)
         {
             if (!compile_c_to_obj(src, obj)) return false;
             any_recompiled = true;
+        }
+    }
+
+    Nob_File_Paths lib_dirs = {0};
+    if (nob_read_entire_dir("lib", &lib_dirs))
+    {
+        for (size_t d = 0; d < lib_dirs.count; d++)
+        {
+            const char* lname = lib_dirs.items[d];
+            if (lname[0] == '.') continue;
+            const char* lib_dir = nob_temp_sprintf("lib/%s", lname);
+            if (nob_get_file_type(lib_dir) != NOB_FILE_DIRECTORY) continue;
+
+            Nob_File_Paths lib_files = {0};
+            if (!nob_read_entire_dir(lib_dir, &lib_files)) continue;
+
+            for (size_t i = 0; i < lib_files.count; i++)
+            {
+                const char* file = lib_files.items[i];
+                size_t len = strlen(file);
+                if (len < 3 || strcmp(file + len - 2, ".c") != 0) continue;
+
+                const char* src = nob_temp_sprintf("%s/%s", lib_dir, file);
+                const char* obj = nob_temp_sprintf(BUILD_DIR "/lib.%s.%s.o", lname, file);
+
+                nob_da_append(&obj_files, nob_temp_strdup(obj));
+
+                if (needs_compile(src, obj))
+                {
+                    nob_log(NOB_INFO, "Compiling lib: %s/%s", lname, file);
+                    if (!compile_c_to_obj(src, obj)) return false;
+                    any_recompiled = true;
+                }
+            }
         }
     }
 

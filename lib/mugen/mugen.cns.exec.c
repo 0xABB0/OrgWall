@@ -1,4 +1,4 @@
-#include "mugen_cns.h"
+#include "mugen.cns.h"
 #include "string.str8.h"
 #include <string.h>
 #include <stdlib.h>

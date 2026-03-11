@@ -1,4 +1,4 @@
-#include "command.h"
+#include "mugen.command.h"
 #include "string.str8.h"
 #include "collection.array.h"
 #include <string.h>

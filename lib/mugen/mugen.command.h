@@ -1,6 +1,6 @@
 #pragma once
 
-#include "input_buffer.h"
+#include "mugen.input.h"
 #include "string.str8.fwd.h"
 #include "allocator.h"
 

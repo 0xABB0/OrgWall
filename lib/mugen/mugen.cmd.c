@@ -1,4 +1,4 @@
-#include "mugen_cmd.h"
+#include "mugen.cmd.h"
 #include "string.str8.h"
 #include "allocator.h"
 #include <SDL3/SDL.h>

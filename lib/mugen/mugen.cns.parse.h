@@ -1,6 +1,6 @@
 #pragma once
 
-#include "mugen_cns.h"
+#include "mugen.cns.h"
 #include "string.str8.h"
 #include "allocator.h"
 #include <string.h>

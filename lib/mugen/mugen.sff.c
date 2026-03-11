@@ -1,4 +1,4 @@
-#include "mugen_sff.h"
+#include "mugen.sff.h"
 #include "sprite.sheet.h"
 #include "math.geo.rect.h"
 #include "vfs.h"

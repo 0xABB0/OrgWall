@@ -1,5 +1,5 @@
 #include "test.harness.h"
-#include "command.h"
+#include "mugen.command.h"
 #include "string.str8.h"
 #include "allocator.heap.h"
 

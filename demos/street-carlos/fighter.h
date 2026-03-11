@@ -1,10 +1,10 @@
 #pragma once
 
 #include "core.types.h"
-#include "command.h"
+#include "mugen.command.h"
 #include "anim.player.h"
 #include "anim.clip.fwd.h"
-#include "mugen_cns.h"
+#include "mugen.cns.h"
 #include "allocator.fwd.h"
 
 typedef struct {

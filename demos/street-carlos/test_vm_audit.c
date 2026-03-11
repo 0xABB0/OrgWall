@@ -1,8 +1,8 @@
 #include "test.harness.h"
-#include "command.h"
+#include "mugen.command.h"
 #include "fighter.h"
 #include "combat.h"
-#include "mugen_cns.h"
+#include "mugen.cns.h"
 #include "string.str8.h"
 #include "allocator.heap.h"
 #include <string.h>

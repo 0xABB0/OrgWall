@@ -1,4 +1,4 @@
-#include "input_buffer.h"
+#include "mugen.input.h"
 #include <string.h>
 #include <limits.h>
 

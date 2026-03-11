@@ -1,6 +1,6 @@
 #include "combat.h"
-#include "command.h"
-#include "mugen_cns.h"
+#include "mugen.command.h"
+#include "mugen.cns.h"
 #include "string.str8.h"
 #include <stdio.h>
 

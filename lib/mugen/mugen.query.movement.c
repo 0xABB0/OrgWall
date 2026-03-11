@@ -1,4 +1,4 @@
-#include "mugen_cns.h"
+#include "mugen.cns.h"
 #include "string.str8.h"
 
 static f32 eval_vel_x(Mugen_Expr* arg, Mugen_Char_State* state)

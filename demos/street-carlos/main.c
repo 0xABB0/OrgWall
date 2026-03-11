@@ -42,7 +42,7 @@
 #include "game_test.h"
 #include "combat.h"
 #include "round.h"
-#include "command.h"
+#include "mugen.command.h"
 #include "vfs.h"
 #include "vfs.backend.os.h"
 #include "async.io.h"
