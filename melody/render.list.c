@@ -75,6 +75,8 @@ void mel_render_list_init_opt(Mel_Render_List* list, Mel_Render_List_Opt opt)
     list->name = opt.name;
     list->entry_stride = opt.entry_stride;
     list->alloc = opt.alloc ? opt.alloc : mel_alloc_heap();
+    list->mode = opt.mode;
+    list->last_frame_prepared = ~(u64)0;
 
     if (opt.initial_capacity > 0)
     {
@@ -97,6 +99,8 @@ void mel_render_list_init_gpu_opt(Mel_Render_List* list, Mel_Gpu_Device* dev, Me
     list->alloc = opt.alloc ? opt.alloc : mel_alloc_heap();
     list->gpu_backed = true;
     list->dev = dev;
+    list->mode = opt.mode;
+    list->last_frame_prepared = ~(u64)0;
 
     u32 capacity = opt.initial_capacity > 0 ? opt.initial_capacity : 8;
     list->capacity = capacity;
@@ -307,6 +311,21 @@ void mel_render_list_remove_producer(Mel_Render_List* list, Mel_Render_Producer_
             return;
         }
     }
+}
+
+void mel_render_list_begin_frame(Mel_Render_List* list, u64 frame_id)
+{
+    assert(list != nullptr);
+
+    if (list->last_frame_prepared == frame_id)
+        return;
+
+    list->last_frame_prepared = frame_id;
+
+    if (list->mode == MEL_RENDER_LIST_EPHEMERAL)
+        mel_render_list_clear(list);
+    else
+        list->produced = false;
 }
 
 void mel_render_list_produce(Mel_Render_List* list)

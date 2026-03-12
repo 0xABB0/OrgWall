@@ -10,6 +10,28 @@ static void match_fixed_update(Mel_Sim_Ctx* sim, f32 dt, void* user)
 {
     (void)sim;
     Mugen_Match* m = user;
+    m->p1.input_left  = m->p1_inputs.left;
+    m->p1.input_right = m->p1_inputs.right;
+    m->p1.input_up    = m->p1_inputs.up;
+    m->p1.input_down  = m->p1_inputs.down;
+    m->p1.btn_a       = m->p1_inputs.a;
+    m->p1.btn_b       = m->p1_inputs.b;
+    m->p1.btn_c       = m->p1_inputs.c;
+    m->p1.btn_x       = m->p1_inputs.x;
+    m->p1.btn_y       = m->p1_inputs.y;
+    m->p1.btn_z       = m->p1_inputs.z;
+
+    m->p2.input_left  = m->p2_inputs.left;
+    m->p2.input_right = m->p2_inputs.right;
+    m->p2.input_up    = m->p2_inputs.up;
+    m->p2.input_down  = m->p2_inputs.down;
+    m->p2.btn_a       = m->p2_inputs.a;
+    m->p2.btn_b       = m->p2_inputs.b;
+    m->p2.btn_c       = m->p2_inputs.c;
+    m->p2.btn_x       = m->p2_inputs.x;
+    m->p2.btn_y       = m->p2_inputs.y;
+    m->p2.btn_z       = m->p2_inputs.z;
+
     mugen_match_tick(m, dt);
 }
 
@@ -102,6 +124,38 @@ void mugen_match_end(Mugen_Match* m)
 void mugen_match_update(Mugen_Match* m, f32 frame_dt)
 {
     mel_sim_tick(&m->sim, frame_dt);
+}
+
+void mugen_match_set_inputs(Mugen_Match* m, Mugen_Player_Inputs p1, Mugen_Player_Inputs p2)
+{
+    assert(m);
+    m->p1_inputs = p1;
+    m->p2_inputs = p2;
+}
+
+void mugen_match_set_player_inputs(Mugen_Match* m, u32 player_index, Mugen_Player_Inputs inputs)
+{
+    assert(m);
+
+    if (player_index == MUGEN_MATCH_PLAYER_1)
+        m->p1_inputs = inputs;
+    else if (player_index == MUGEN_MATCH_PLAYER_2)
+        m->p2_inputs = inputs;
+    else
+        assert(false);
+}
+
+Mugen_Player_Inputs mugen_match_get_player_inputs(Mugen_Match* m, u32 player_index)
+{
+    assert(m);
+
+    if (player_index == MUGEN_MATCH_PLAYER_1)
+        return m->p1_inputs;
+    if (player_index == MUGEN_MATCH_PLAYER_2)
+        return m->p2_inputs;
+
+    assert(false);
+    return (Mugen_Player_Inputs){0};
 }
 
 void mugen_match_tick(Mugen_Match* m, f32 dt)

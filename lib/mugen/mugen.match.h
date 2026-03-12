@@ -10,6 +10,17 @@
 #include "allocator.fwd.h"
 
 typedef struct {
+    bool left, right, up, down;
+    bool a, b, c;
+    bool x, y, z;
+} Mugen_Player_Inputs;
+
+enum {
+    MUGEN_MATCH_PLAYER_1 = 0,
+    MUGEN_MATCH_PLAYER_2 = 1,
+};
+
+typedef struct {
     Fighter p1;
     Fighter p2;
     Round_Ctx round;
@@ -20,6 +31,8 @@ typedef struct {
     u8 event_buf[1024];
     const Mel_Alloc* alloc;
     f32 half_screen_w;
+    Mugen_Player_Inputs p1_inputs;
+    Mugen_Player_Inputs p2_inputs;
 } Mugen_Match;
 
 typedef struct {
@@ -39,6 +52,9 @@ void mugen_match_end(Mugen_Match* m);
 
 void mugen_match_update(Mugen_Match* m, f32 frame_dt);
 void mugen_match_tick(Mugen_Match* m, f32 dt);
+void mugen_match_set_inputs(Mugen_Match* m, Mugen_Player_Inputs p1, Mugen_Player_Inputs p2);
+void mugen_match_set_player_inputs(Mugen_Match* m, u32 player_index, Mugen_Player_Inputs inputs);
+Mugen_Player_Inputs mugen_match_get_player_inputs(Mugen_Match* m, u32 player_index);
 
 Fighter*      mugen_match_p1(Mugen_Match* m);
 Fighter*      mugen_match_p2(Mugen_Match* m);

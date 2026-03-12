@@ -373,6 +373,7 @@ Mel_Vfs_Backend* mel_vfs_backend_mock_create(const Mel_Alloc* alloc)
 void mel_vfs_backend_mock_destroy(Mel_Vfs_Backend* backend)
 {
     assert(backend);
+    assert(backend->mount_refcount == 0);
     backend->destroy(backend);
 }
 

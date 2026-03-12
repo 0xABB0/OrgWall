@@ -277,6 +277,59 @@ MEL_TEST(list_producer_idempotent, .tags = "render")
     mel_render_list_shutdown(&list);
 }
 
+MEL_TEST(list_begin_frame_retained_keeps_entries_and_resets_produced, .tags = "render")
+{
+    Mel_Render_List list;
+    mel_render_list_init(&list, .entry_stride = sizeof(Test_Entry), .alloc = mel_alloc_heap());
+
+    u32 call_count = 0;
+    mel_render_list_add_producer(&list, test_producer_push_three, &call_count);
+
+    mel_render_list_begin_frame(&list, 7);
+    mel_render_list_produce(&list);
+    MEL_ASSERT_EQ(call_count, 1u);
+    MEL_ASSERT_EQ(list.count, 3u);
+
+    mel_render_list_begin_frame(&list, 7);
+    mel_render_list_produce(&list);
+    MEL_ASSERT_EQ(call_count, 1u);
+    MEL_ASSERT_EQ(list.count, 3u);
+
+    mel_render_list_begin_frame(&list, 8);
+    MEL_ASSERT(!list.produced);
+    MEL_ASSERT_EQ(list.count, 3u);
+
+    mel_render_list_shutdown(&list);
+}
+
+MEL_TEST(list_begin_frame_ephemeral_clears_entries, .tags = "render")
+{
+    Mel_Render_List list;
+    mel_render_list_init(&list,
+        .entry_stride = sizeof(Test_Entry),
+        .mode = MEL_RENDER_LIST_EPHEMERAL,
+        .alloc = mel_alloc_heap());
+
+    u32 call_count = 0;
+    mel_render_list_add_producer(&list, test_producer_push_three, &call_count);
+
+    mel_render_list_begin_frame(&list, 11);
+    mel_render_list_produce(&list);
+    MEL_ASSERT_EQ(call_count, 1u);
+    MEL_ASSERT_EQ(list.count, 3u);
+
+    mel_render_list_begin_frame(&list, 12);
+    MEL_ASSERT_EQ(list.count, 0u);
+    MEL_ASSERT_EQ(list.slot_count, 0u);
+    MEL_ASSERT(!list.produced);
+
+    mel_render_list_produce(&list);
+    MEL_ASSERT_EQ(call_count, 2u);
+    MEL_ASSERT_EQ(list.count, 3u);
+
+    mel_render_list_shutdown(&list);
+}
+
 MEL_TEST(list_producer_remove, .tags = "render")
 {
     Mel_Render_List list;

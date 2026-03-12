@@ -35,10 +35,10 @@ static void mel__test_os_setup(Mel_Io* io, Mel_Vfs* vfs, Mel_Vfs_Backend** out_b
 
 static void mel__test_os_teardown(Mel_Io* io, Mel_Vfs* vfs, Mel_Vfs_Backend* backend, str8 tmpdir)
 {
+    MEL_UNUSED(backend);
     mel_vfs_unmount(vfs, S8("/"));
     mel_vfs_shutdown(vfs);
     mel_io_shutdown(io);
-    mel_vfs_backend_os_destroy(backend);
 
     char cmd[512];
     snprintf(cmd, sizeof(cmd), "rm -rf %.*s", (int)tmpdir.len, (char*)tmpdir.data);
@@ -60,6 +60,27 @@ MEL_TEST(vfs_os_write_read_text, .tags = "vfs")
     MEL_ASSERT_NOT_NULL(text.data);
     MEL_ASSERT(str8_equals(text, S8("hello from OS backend")));
     mel_dealloc(mel_alloc_heap(), text.data);
+
+    mel__test_os_teardown(&io, &vfs, backend, tmpdir);
+}
+
+MEL_TEST(vfs_mount_native_helper, .tags = "vfs")
+{
+    const Mel_Alloc* alloc = mel_alloc_heap();
+    Mel_Io io;
+    Mel_Vfs vfs;
+    str8 tmpdir = mel__test_tmpdir();
+
+    Mel_Io_Desc io_desc = { .allocator = alloc, .worker_count = 0 };
+    mel_io_init(&io, &io_desc);
+
+    Mel_Vfs_Desc desc = { .allocator = alloc, .io = &io };
+    mel_vfs_init(&vfs, &desc);
+
+    Mel_Vfs_Backend* backend = mel_vfs_mount_native(&vfs, S8("/"), tmpdir, 0, true);
+    MEL_ASSERT_NOT_NULL(backend);
+    MEL_ASSERT(mel_vfs_write_text(&vfs, S8("/helper.txt"), S8("mounted")));
+    MEL_ASSERT(mel_vfs_exists(&vfs, S8("/helper.txt")));
 
     mel__test_os_teardown(&io, &vfs, backend, tmpdir);
 }
@@ -371,7 +392,6 @@ MEL_TEST(vfs_os_threaded, .tags = "vfs, async")
     mel_vfs_unmount(&vfs, S8("/"));
     mel_vfs_shutdown(&vfs);
     mel_io_shutdown(&io);
-    mel_vfs_backend_os_destroy(backend);
 
     char cmd[512];
     snprintf(cmd, sizeof(cmd), "rm -rf %.*s", (int)tmpdir.len, (char*)tmpdir.data);

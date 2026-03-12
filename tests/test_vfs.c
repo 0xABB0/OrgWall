@@ -24,10 +24,10 @@ static void mel__test_vfs_setup(Mel_Io* io, Mel_Vfs* vfs, Mel_Vfs_Backend** out_
 
 static void mel__test_vfs_teardown(Mel_Io* io, Mel_Vfs* vfs, Mel_Vfs_Backend* backend)
 {
+    MEL_UNUSED(backend);
     mel_vfs_unmount(vfs, S8("/"));
     mel_vfs_shutdown(vfs);
     mel_io_shutdown(io);
-    mel_vfs_backend_mock_destroy(backend);
 }
 
 typedef struct {
@@ -413,7 +413,6 @@ MEL_TEST(vfs_async_submit_poll, .tags = "vfs, async")
     mel_vfs_unmount(&vfs, S8("/"));
     mel_vfs_shutdown(&vfs);
     mel_io_shutdown(&io);
-    mel_vfs_backend_mock_destroy(backend);
 }
 
 MEL_TEST(vfs_async_open_read_close, .tags = "vfs, async")
@@ -477,7 +476,6 @@ MEL_TEST(vfs_async_open_read_close, .tags = "vfs, async")
     mel_vfs_unmount(&vfs, S8("/"));
     mel_vfs_shutdown(&vfs);
     mel_io_shutdown(&io);
-    mel_vfs_backend_mock_destroy(backend);
 }
 
 MEL_TEST(vfs_mount_priority, .tags = "vfs")
@@ -508,8 +506,6 @@ MEL_TEST(vfs_mount_priority, .tags = "vfs")
     mel_vfs_unmount(&vfs, S8("/"));
     mel_vfs_shutdown(&vfs);
     mel_io_shutdown(&io);
-    mel_vfs_backend_mock_destroy(high);
-    mel_vfs_backend_mock_destroy(low);
 }
 
 MEL_TEST(vfs_mount_prefix_specificity, .tags = "vfs")
@@ -540,8 +536,6 @@ MEL_TEST(vfs_mount_prefix_specificity, .tags = "vfs")
     mel_vfs_unmount(&vfs, S8("/"));
     mel_vfs_shutdown(&vfs);
     mel_io_shutdown(&io);
-    mel_vfs_backend_mock_destroy(mods_be);
-    mel_vfs_backend_mock_destroy(root_be);
 }
 
 MEL_TEST(vfs_readonly_mount, .tags = "vfs")
@@ -564,7 +558,6 @@ MEL_TEST(vfs_readonly_mount, .tags = "vfs")
     mel_vfs_unmount(&vfs, S8("/"));
     mel_vfs_shutdown(&vfs);
     mel_io_shutdown(&io);
-    mel_vfs_backend_mock_destroy(backend);
 }
 
 MEL_TEST(vfs_path_normalize_dot, .tags = "vfs")
@@ -626,7 +619,6 @@ MEL_TEST(vfs_async_threaded_write_read, .tags = "vfs, async")
     mel_vfs_unmount(&vfs, S8("/"));
     mel_vfs_shutdown(&vfs);
     mel_io_shutdown(&io);
-    mel_vfs_backend_mock_destroy(backend);
 }
 
 MEL_TEST(vfs_watch_unsupported, .tags = "vfs")
@@ -658,7 +650,6 @@ MEL_TEST(vfs_watch_unsupported, .tags = "vfs")
     mel_vfs_unmount(&vfs, S8("/"));
     mel_vfs_shutdown(&vfs);
     mel_io_shutdown(&io);
-    mel_vfs_backend_mock_destroy(backend);
 }
 
 MEL_TEST(vfs_map_unmap, .tags = "vfs")
@@ -730,7 +721,6 @@ MEL_TEST(vfs_map_unmap, .tags = "vfs")
     mel_vfs_unmount(&vfs, S8("/"));
     mel_vfs_shutdown(&vfs);
     mel_io_shutdown(&io);
-    mel_vfs_backend_mock_destroy(backend);
 }
 
 MEL_TEST(vfs_sync_op, .tags = "vfs")
@@ -837,7 +827,6 @@ MEL_TEST(vfs_submit_chain_atomic, .tags = "vfs, async")
     mel_vfs_unmount(&vfs, S8("/"));
     mel_vfs_shutdown(&vfs);
     mel_io_shutdown(&io);
-    mel_vfs_backend_mock_destroy(backend);
 }
 
 MEL_TEST(vfs_path_normalize_root_escape_clamps, .tags = "vfs")
@@ -1116,7 +1105,6 @@ MEL_TEST(vfs_cancel_op, .tags = "vfs, async")
     mel_vfs_unmount(&vfs, S8("/"));
     mel_vfs_shutdown(&vfs);
     mel_io_shutdown(&io);
-    mel_vfs_backend_mock_destroy(backend);
 }
 
 MEL_TEST(vfs_invalid_op, .tags = "vfs, async")
@@ -1209,7 +1197,6 @@ MEL_TEST(vfs_readonly_mount_open_create_denied, .tags = "vfs, async")
     mel_vfs_unmount(&vfs, S8("/"));
     mel_vfs_shutdown(&vfs);
     mel_io_shutdown(&io);
-    mel_vfs_backend_mock_destroy(backend);
 }
 
 MEL_TEST(vfs_write_file_short_write_is_failure, .tags = "vfs")
@@ -1233,7 +1220,6 @@ MEL_TEST(vfs_write_file_short_write_is_failure, .tags = "vfs")
     mel_vfs_unmount(&vfs, S8("/"));
     mel_vfs_shutdown(&vfs);
     mel_io_shutdown(&io);
-    backend->destroy(backend);
 }
 
 MEL_TEST(vfs_dir_next_backend_error_maps_to_io_error, .tags = "vfs, async")
@@ -1294,7 +1280,6 @@ MEL_TEST(vfs_dir_next_backend_error_maps_to_io_error, .tags = "vfs, async")
     mel_vfs_unmount(&vfs, S8("/"));
     mel_vfs_shutdown(&vfs);
     mel_io_shutdown(&io);
-    backend->destroy(backend);
 }
 
 MEL_TEST(vfs_dir_next_buffer_too_small_retry_mock, .tags = "vfs, async")
@@ -1604,7 +1589,6 @@ MEL_TEST(vfs_user_data_passthrough, .tags = "vfs, async")
     mel_vfs_unmount(&vfs, S8("/"));
     mel_vfs_shutdown(&vfs);
     mel_io_shutdown(&io);
-    mel_vfs_backend_mock_destroy(backend);
 }
 
 MEL_TEST(vfs_open_nonexistent_no_create, .tags = "vfs, async")
@@ -1657,8 +1641,6 @@ MEL_TEST(vfs_mount_insertion_order_tiebreak, .tags = "vfs")
     mel_vfs_unmount(&vfs, S8("/"));
     mel_vfs_shutdown(&vfs);
     mel_io_shutdown(&io);
-    mel_vfs_backend_mock_destroy(second);
-    mel_vfs_backend_mock_destroy(first);
 }
 
 MEL_TEST(vfs_read_past_eof, .tags = "vfs, async")
@@ -1859,8 +1841,6 @@ MEL_TEST(vfs_rename_cross_mount_error, .tags = "vfs")
     mel_vfs_unmount(&vfs, S8("/b"));
     mel_vfs_shutdown(&vfs);
     mel_io_shutdown(&io);
-    mel_vfs_backend_mock_destroy(backend_b);
-    mel_vfs_backend_mock_destroy(backend_a);
 }
 
 MEL_TEST(vfs_rename_nonexistent, .tags = "vfs")
@@ -1904,7 +1884,6 @@ MEL_TEST(vfs_rename_readonly_mount, .tags = "vfs")
     mel_vfs_unmount(&vfs, S8("/"));
     mel_vfs_shutdown(&vfs);
     mel_io_shutdown(&io);
-    mel_vfs_backend_mock_destroy(backend);
 }
 
 MEL_TEST(vfs_delete_file, .tags = "vfs")
@@ -1982,7 +1961,6 @@ MEL_TEST(vfs_delete_readonly_mount, .tags = "vfs")
     mel_vfs_unmount(&vfs, S8("/"));
     mel_vfs_shutdown(&vfs);
     mel_io_shutdown(&io);
-    mel_vfs_backend_mock_destroy(backend);
 }
 
 MEL_TEST(vfs_mkdir_basic, .tags = "vfs")
@@ -2049,7 +2027,6 @@ MEL_TEST(vfs_mkdir_readonly_mount, .tags = "vfs")
     mel_vfs_unmount(&vfs, S8("/"));
     mel_vfs_shutdown(&vfs);
     mel_io_shutdown(&io);
-    mel_vfs_backend_mock_destroy(backend);
 }
 
 MEL_TEST(vfs_rename_async_happy_path, .tags = "vfs")
@@ -2249,7 +2226,6 @@ MEL_TEST(vfs_rename_dst_readonly, .tags = "vfs")
     mel_vfs_unmount(&vfs, S8("/ro"));
     mel_vfs_shutdown(&vfs);
     mel_io_shutdown(&io);
-    mel_vfs_backend_mock_destroy(backend);
 }
 
 static u64 mel__test_qos_completion_order[8];
@@ -2464,5 +2440,4 @@ MEL_TEST(vfs_async_native_defer, .tags = "vfs, async")
     mel_vfs_unmount(&vfs, S8("/"));
     mel_vfs_shutdown(&vfs);
     mel_io_shutdown(&io);
-    mel_vfs_backend_mock_destroy(backend);
 }

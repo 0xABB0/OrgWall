@@ -9,6 +9,11 @@
 
 typedef void (*Mel_Render_Producer_Fn)(Mel_Render_List* list, void* user);
 
+typedef enum {
+    MEL_RENDER_LIST_RETAINED = 0,
+    MEL_RENDER_LIST_EPHEMERAL = 1,
+} Mel_Render_List_Mode;
+
 typedef struct {
     Mel_Render_Producer_Fn fn;
     void* user;
@@ -34,9 +39,11 @@ struct Mel_Render_List {
     Mel_Render_Producer* producers;
     u32 producer_count;
     u32 producer_capacity;
+    u64 last_frame_prepared;
     bool dirty;
     bool produced;
     bool gpu_backed;
+    Mel_Render_List_Mode mode;
     Mel_Gpu_Buffer gpu_buffer;
     Mel_Gpu_Device* dev;
     const Mel_Alloc* alloc;
@@ -46,6 +53,7 @@ typedef struct {
     str8 name;
     u32 entry_stride;
     u32 initial_capacity;
+    Mel_Render_List_Mode mode;
     const Mel_Alloc* alloc;
 } Mel_Render_List_Opt;
 
@@ -69,4 +77,5 @@ void mel_render_list_flush(Mel_Render_List* list);
 
 void mel_render_list_add_producer(Mel_Render_List* list, Mel_Render_Producer_Fn fn, void* user);
 void mel_render_list_remove_producer(Mel_Render_List* list, Mel_Render_Producer_Fn fn);
+void mel_render_list_begin_frame(Mel_Render_List* list, u64 frame_id);
 void mel_render_list_produce(Mel_Render_List* list);

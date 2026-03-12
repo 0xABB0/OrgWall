@@ -29,5 +29,6 @@ struct Mel_Vfs_Backend {
     i32  (*mkdir)(Mel_Vfs_Backend*, str8 path);
     bool (*try_submit_native)(Mel_Vfs_Backend*, struct Mel_Vfs_Sqe* sqe, Mel_Vfs_Native_Handle h, Mel_Vfs* vfs, void* op);
     void (*destroy)(Mel_Vfs_Backend*);
+    u32  mount_refcount;
     void* impl_data;
 };

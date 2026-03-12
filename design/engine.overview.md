@@ -41,7 +41,7 @@ write, the graph derives execution order, inserts barriers, and manages resource
 lifetimes from the topology. Passes can output to other lists (enabling GPU-driven
 culling, LOD selection) or to render targets. Swapchains are graph leaves.
 Each piece is independently replaceable. They compose, they don't depend.
-→ `engine.render.md` (production + interchange), `engine.render.graph.md` (consumption)
+→ `engine.render.md` (production + interchange), `engine.source.md` (typed render inputs), `engine.view.md` (view intent), `engine.frame.recipe.md` (frame planning), `engine.technique.md` (execution strategies), `engine.render.graph.md` (consumption)
 
 **Each asset type owns its own loading.**
 No unified asset manager. `mel_load_texture` lives in the texture module.
@@ -262,6 +262,10 @@ The action map registry is global (bindings are shared), but input polling is pe
 - `engine.sim.md` — Simulation identity, registration, time scaling, event lifecycle, user data, scene lifecycle
 - `engine.frame.md` — Frame pipeline, fixed update contexts, variable updates, alpha/interpolation, deferred mutations
 - `engine.render.md` — Render lists (production + interchange), ECS sync systems, draw API, manual submission
+- `engine.source.md` — Render sources as typed inputs/intermediates beyond just render lists
+- `engine.view.md` — Views as the bridge between cameras, lists, windows, and graph execution
+- `engine.frame.recipe.md` — Frame planning layer that binds views, techniques, and swapchains into executable graph topology
+- `engine.technique.md` — First-class rendering techniques, family/variant resolution, and graph contribution model
 - `engine.render.graph.md` — Global data-flow DAG, passes (read/write declarations, compute + graphics), GPU-driven rendering (LOD, cull, indirect draw, mesh shaders), bindless textures, materials
 - `engine.assets.md` — Per-type pools, async loading with fallbacks, progress tracking
 - `engine.fonts.md` — Font descriptor, atlas/SDF/MSDF rendering modules, adding new techniques

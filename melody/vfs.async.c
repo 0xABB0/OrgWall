@@ -282,7 +282,9 @@ static void mel__vfs_resolve(Mel_Vfs* vfs, Mel_Vfs__Op* op, Mel_Vfs__Op_Ctx* ctx
         if (!ddata) { cqe->status = MEL_VFS_STATUS_INVALID_ARGUMENT; break; }
         ctx->backend = ddata->backend;
         ctx->native_handle = ddata->native_handle;
+        ctx->mount_idx = (i32)ddata->mount_index;
         mel_slotmap_remove(&vfs->dir_slots, sqe->dir_close.dir.handle);
+        ctx->needs_commit = true;
     } break;
 
     case MEL_VFS_OP_WATCH_CLOSE: {
@@ -290,7 +292,9 @@ static void mel__vfs_resolve(Mel_Vfs* vfs, Mel_Vfs__Op* op, Mel_Vfs__Op_Ctx* ctx
         if (!wdata) { cqe->status = MEL_VFS_STATUS_INVALID_ARGUMENT; break; }
         ctx->backend = wdata->backend;
         ctx->native_handle = wdata->native_handle;
+        ctx->mount_idx = (i32)wdata->mount_index;
         mel_slotmap_remove(&vfs->watch_slots, sqe->watch_close.watch.handle);
+        ctx->needs_commit = true;
     } break;
 
     case MEL_VFS_OP_MAP: {
@@ -298,6 +302,7 @@ static void mel__vfs_resolve(Mel_Vfs* vfs, Mel_Vfs__Op* op, Mel_Vfs__Op_Ctx* ctx
         if (!fdata) { cqe->status = MEL_VFS_STATUS_INVALID_ARGUMENT; break; }
         ctx->backend = fdata->backend;
         ctx->native_handle = fdata->native_handle;
+        ctx->mount_idx = (i32)fdata->mount_index;
         ctx->needs_commit = true;
     } break;
 
@@ -307,7 +312,9 @@ static void mel__vfs_resolve(Mel_Vfs* vfs, Mel_Vfs__Op* op, Mel_Vfs__Op_Ctx* ctx
         ctx->backend = mdata->backend;
         ctx->map_ptr = mdata->ptr;
         ctx->map_size = mdata->size;
+        ctx->mount_idx = (i32)mdata->mount_index;
         mel_slotmap_remove(&vfs->map_slots, sqe->unmap.map.handle);
+        ctx->needs_commit = true;
     } break;
 
     case MEL_VFS_OP_RENAME: {
@@ -691,10 +698,8 @@ static void mel__vfs_commit(Mel_Vfs* vfs, Mel_Vfs__Op* op, Mel_Vfs__Op_Ctx* ctx)
             Mel_Vfs_Mount* mount = &vfs->mounts.items[ctx->mount_idx];
             assert(mount->refcount > 0);
             mount->refcount--;
-            if (mount->retired && mount->refcount == 0 && mount->prefix.data) {
-                mel_dealloc(vfs->alloc, mount->prefix.data);
-                mount->prefix = (str8){0};
-            }
+            if (mount->retired && mount->refcount == 0)
+                mel__vfs_mount_release(vfs, mount);
         }
     } break;
 
@@ -702,18 +707,44 @@ static void mel__vfs_commit(Mel_Vfs* vfs, Mel_Vfs__Op* op, Mel_Vfs__Op_Ctx* ctx)
         Mel_Vfs__Dir_Data ddata = {
             .backend = ctx->backend,
             .native_handle = ctx->new_native_handle,
+            .mount_generation = vfs->mount_generation,
+            .mount_index = (u32)ctx->mount_idx,
         };
         Mel_SlotMap_Handle dh = mel_slotmap_insert(&vfs->dir_slots, &ddata);
+        vfs->mounts.items[ctx->mount_idx].refcount++;
         cqe->dir = (Mel_Vfs_Dir){ .handle = dh };
+    } break;
+
+    case MEL_VFS_OP_DIR_CLOSE: {
+        if ((u32)ctx->mount_idx < (u32)vfs->mounts.count) {
+            Mel_Vfs_Mount* mount = &vfs->mounts.items[ctx->mount_idx];
+            assert(mount->refcount > 0);
+            mount->refcount--;
+            if (mount->retired && mount->refcount == 0)
+                mel__vfs_mount_release(vfs, mount);
+        }
     } break;
 
     case MEL_VFS_OP_WATCH_OPEN: {
         Mel_Vfs__Watch_Data wdata = {
             .backend = ctx->backend,
             .native_handle = ctx->new_native_handle,
+            .mount_generation = vfs->mount_generation,
+            .mount_index = (u32)ctx->mount_idx,
         };
         Mel_SlotMap_Handle wh = mel_slotmap_insert(&vfs->watch_slots, &wdata);
+        vfs->mounts.items[ctx->mount_idx].refcount++;
         cqe->watch = (Mel_Vfs_Watch){ .handle = wh };
+    } break;
+
+    case MEL_VFS_OP_WATCH_CLOSE: {
+        if ((u32)ctx->mount_idx < (u32)vfs->mounts.count) {
+            Mel_Vfs_Mount* mount = &vfs->mounts.items[ctx->mount_idx];
+            assert(mount->refcount > 0);
+            mount->refcount--;
+            if (mount->retired && mount->refcount == 0)
+                mel__vfs_mount_release(vfs, mount);
+        }
     } break;
 
     case MEL_VFS_OP_MAP: {
@@ -722,9 +753,22 @@ static void mel__vfs_commit(Mel_Vfs* vfs, Mel_Vfs__Op* op, Mel_Vfs__Op_Ctx* ctx)
             .size = sqe->map.size,
             .backend = ctx->backend,
             .file_native_handle = ctx->native_handle,
+            .mount_generation = vfs->mount_generation,
+            .mount_index = (u32)ctx->mount_idx,
         };
         Mel_SlotMap_Handle mh = mel_slotmap_insert(&vfs->map_slots, &mdata);
+        vfs->mounts.items[ctx->mount_idx].refcount++;
         cqe->map = (Mel_Vfs_Map){ .handle = mh };
+    } break;
+
+    case MEL_VFS_OP_UNMAP: {
+        if ((u32)ctx->mount_idx < (u32)vfs->mounts.count) {
+            Mel_Vfs_Mount* mount = &vfs->mounts.items[ctx->mount_idx];
+            assert(mount->refcount > 0);
+            mount->refcount--;
+            if (mount->retired && mount->refcount == 0)
+                mel__vfs_mount_release(vfs, mount);
+        }
     } break;
 
     default:
@@ -884,8 +928,7 @@ void mel_vfs_shutdown(Mel_Vfs* vfs)
 
     for (usize i = 0; i < vfs->mounts.count; i++) {
         assert(vfs->mounts.items[i].refcount == 0);
-        if (vfs->mounts.items[i].prefix.data)
-            mel_dealloc(vfs->alloc, vfs->mounts.items[i].prefix.data);
+        mel__vfs_mount_release(vfs, &vfs->mounts.items[i]);
     }
     mel_array_free(&vfs->mounts);
 

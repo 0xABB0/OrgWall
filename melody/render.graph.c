@@ -692,6 +692,24 @@ bool mel_render_graph_compile(Mel_Render_Graph* g)
     return success;
 }
 
+static void prepare_lists(Mel_Render_Graph* g)
+{
+    u64 frame_id = g->execute_count;
+
+    for (usize i = 0; i < g->passes.count; i++)
+    {
+        Mel_Render_Graph_Pass* pass = &g->passes.items[i];
+
+        if (pass->read_lists)
+            for (Mel_Render_List** l = pass->read_lists; *l; l++)
+                mel_render_list_begin_frame(*l, frame_id);
+
+        if (pass->write_lists)
+            for (Mel_Render_List** l = pass->write_lists; *l; l++)
+                mel_render_list_begin_frame(*l, frame_id);
+    }
+}
+
 static void produce_lists(Mel_Render_Graph* g)
 {
     for (usize i = 0; i < g->passes.count; i++)
@@ -721,6 +739,7 @@ bool mel_render_graph_execute(Mel_Render_Graph* g)
     if (g->sorted_order.count == 0)
         return true;
 
+    prepare_lists(g);
     produce_lists(g);
 
     bool has_gpu = (g->dev != nullptr && g->frame_count > 0);
@@ -765,5 +784,6 @@ bool mel_render_graph_execute(Mel_Render_Graph* g)
         g->current_frame = (g->current_frame + 1) % g->frame_count;
     }
 
+    g->execute_count++;
     return true;
 }

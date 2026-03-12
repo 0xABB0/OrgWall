@@ -60,6 +60,7 @@ struct Mel_Render_Graph {
     Mel_Render_Graph_Frame frames[MEL_MAX_FRAMES_IN_FLIGHT];
     u32 frame_count;
     u32 current_frame;
+    u64 execute_count;
 };
 
 typedef struct {

@@ -1,4 +1,5 @@
 #include "vfs.h"
+#include "vfs.backend.os.h"
 #include "string.str8.h"
 #include "string.path.h"
 
@@ -29,10 +30,20 @@ void mel_vfs_mount(Mel_Vfs* vfs, str8 prefix, Mel_Vfs_Backend* backend, u8 prior
     };
 
     SDL_LockMutex(vfs->state_lock);
+    mel__vfs_mount_backend_retain(backend);
     mount.insertion_order = vfs->mount_insertion_counter++;
     mel_array_push(&vfs->mounts, mount);
     vfs->mount_generation++;
     SDL_UnlockMutex(vfs->state_lock);
+}
+
+Mel_Vfs_Backend* mel_vfs_mount_native(Mel_Vfs* vfs, str8 prefix, str8 native_path, u8 priority, bool writable)
+{
+    assert(vfs);
+
+    Mel_Vfs_Backend* backend = mel_vfs_backend_os_create(vfs->alloc, native_path);
+    mel_vfs_mount(vfs, prefix, backend, priority, writable);
+    return backend;
 }
 
 void mel_vfs_unmount(Mel_Vfs* vfs, str8 prefix)
@@ -53,10 +64,8 @@ void mel_vfs_unmount(Mel_Vfs* vfs, str8 prefix)
         m->retired = true;
         vfs->mount_generation++;
 
-        if (m->refcount == 0) {
-            mel_dealloc(vfs->alloc, m->prefix.data);
-            m->prefix = (str8){0};
-        }
+        if (m->refcount == 0)
+            mel__vfs_mount_release(vfs, m);
         SDL_UnlockMutex(vfs->state_lock);
         return;
     }

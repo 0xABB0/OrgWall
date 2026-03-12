@@ -18,6 +18,8 @@ typedef struct {
 typedef struct {
     Mel_Vfs_Backend* backend;
     Mel_Vfs_Native_Handle native_handle;
+    u32 mount_generation;
+    u32 mount_index;
 } Mel_Vfs__Dir_Data;
 
 typedef struct {
@@ -25,11 +27,15 @@ typedef struct {
     usize size;
     Mel_Vfs_Backend* backend;
     Mel_Vfs_Native_Handle file_native_handle;
+    u32 mount_generation;
+    u32 mount_index;
 } Mel_Vfs__Map_Data;
 
 typedef struct {
     Mel_Vfs_Backend* backend;
     Mel_Vfs_Native_Handle native_handle;
+    u32 mount_generation;
+    u32 mount_index;
 } Mel_Vfs__Watch_Data;
 
 typedef struct {
@@ -75,6 +81,37 @@ struct Mel_Vfs {
     void*      op_pool_buf;
 };
 
+static inline void mel__vfs_mount_backend_retain(Mel_Vfs_Backend* backend)
+{
+    assert(backend);
+    backend->mount_refcount++;
+}
+
+static inline void mel__vfs_mount_backend_release(Mel_Vfs_Backend* backend)
+{
+    assert(backend);
+    assert(backend->mount_refcount > 0);
+    backend->mount_refcount--;
+    if (backend->mount_refcount == 0)
+        backend->destroy(backend);
+}
+
+static inline void mel__vfs_mount_release(Mel_Vfs* vfs, Mel_Vfs_Mount* mount)
+{
+    assert(vfs);
+    assert(mount);
+
+    if (mount->prefix.data) {
+        mel_dealloc(vfs->alloc, mount->prefix.data);
+        mount->prefix = (str8){0};
+    }
+
+    if (mount->backend) {
+        mel__vfs_mount_backend_release(mount->backend);
+        mount->backend = NULL;
+    }
+}
+
 #define MEL_VFS_OP__READ_FILE  100
 
 typedef struct {
@@ -91,6 +128,7 @@ typedef struct {
 } Mel_Vfs_Enum_Opt;
 
 void mel_vfs_mount(Mel_Vfs* vfs, str8 prefix, Mel_Vfs_Backend* backend, u8 priority, bool writable);
+Mel_Vfs_Backend* mel_vfs_mount_native(Mel_Vfs* vfs, str8 prefix, str8 native_path, u8 priority, bool writable);
 void mel_vfs_unmount(Mel_Vfs* vfs, str8 prefix);
 
 u8*  mel_vfs_read_file_alloc(Mel_Vfs* vfs, str8 path, usize* out_size, const Mel_Alloc* alloc);

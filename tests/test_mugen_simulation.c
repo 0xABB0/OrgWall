@@ -59,61 +59,106 @@ static Mugen_Match* test_match_create(void)
 {
     ensure_loaded();
 
-    return mugen_match_create(
+    Mugen_Match* m = mugen_match_create(
         .p1_char  = &s_char,
         .p2_char  = &s_char,
         .screen_w = 384.0f,
         .alloc    = mel_alloc_heap());
+    mugen_match_start(m);
+    return m;
 }
 
 static void tick(Mugen_Match* m)
 {
-    mugen_match_tick(m, DT);
+    mugen_match_update(m, DT);
 }
 
 static void tick_n(Mugen_Match* m, u32 n)
 {
     for (u32 i = 0; i < n; i++)
-        mugen_match_tick(m, DT);
+        mugen_match_update(m, DT);
 }
 
 static void skip_intro(Mugen_Match* m)
 {
     for (u32 i = 0; i < 300 && mugen_match_round(m)->state != ROUND_FIGHT; i++)
-        mugen_match_tick(m, DT);
+        mugen_match_update(m, DT);
 }
 
-static void press(Fighter* f, u32 action)
+static void update_input_action(Mugen_Player_Inputs* inputs, u32 action, bool pressed)
 {
     switch (action)
     {
-        case ACT_MOVE_LEFT:  f->input_left  = true; break;
-        case ACT_MOVE_RIGHT: f->input_right = true; break;
-        case ACT_CROUCH:     f->input_down  = true; break;
-        case ACT_JUMP:       f->input_up    = true; break;
-        case ACT_BTN_A:      f->btn_a       = true; break;
-        case ACT_BTN_B:      f->btn_b       = true; break;
-        case ACT_BTN_C:      f->btn_c       = true; break;
-        case ACT_BTN_X:      f->btn_x       = true; break;
-        case ACT_BTN_Y:      f->btn_y       = true; break;
-        case ACT_BTN_Z:      f->btn_z       = true; break;
+        case ACT_MOVE_LEFT:  inputs->left  = pressed; break;
+        case ACT_MOVE_RIGHT: inputs->right = pressed; break;
+        case ACT_CROUCH:     inputs->down  = pressed; break;
+        case ACT_JUMP:       inputs->up    = pressed; break;
+        case ACT_BTN_A:      inputs->a     = pressed; break;
+        case ACT_BTN_B:      inputs->b     = pressed; break;
+        case ACT_BTN_C:      inputs->c     = pressed; break;
+        case ACT_BTN_X:      inputs->x     = pressed; break;
+        case ACT_BTN_Y:      inputs->y     = pressed; break;
+        case ACT_BTN_Z:      inputs->z     = pressed; break;
     }
 }
 
-static void release(Fighter* f, u32 action)
+static void press(Mugen_Match* m, u32 player_index, u32 action)
 {
-    switch (action)
+    Mugen_Player_Inputs inputs = mugen_match_get_player_inputs(m, player_index);
+    update_input_action(&inputs, action, true);
+    mugen_match_set_player_inputs(m, player_index, inputs);
+}
+
+static void release(Mugen_Match* m, u32 player_index, u32 action)
+{
+    Mugen_Player_Inputs inputs = mugen_match_get_player_inputs(m, player_index);
+    update_input_action(&inputs, action, false);
+    mugen_match_set_player_inputs(m, player_index, inputs);
+}
+
+enum {
+    INPUT_LEFT  = 1 << 0,
+    INPUT_RIGHT = 1 << 1,
+    INPUT_UP    = 1 << 2,
+    INPUT_DOWN  = 1 << 3,
+    INPUT_A     = 1 << 4,
+    INPUT_B     = 1 << 5,
+    INPUT_C     = 1 << 6,
+    INPUT_X     = 1 << 7,
+    INPUT_Y     = 1 << 8,
+    INPUT_Z     = 1 << 9,
+};
+
+typedef struct {
+    u16 p1_mask;
+    u16 p2_mask;
+    u32 frames;
+} Sim_Input_Step;
+
+static Mugen_Player_Inputs inputs_from_mask(u16 mask)
+{
+    return (Mugen_Player_Inputs){
+        .left = (mask & INPUT_LEFT) != 0,
+        .right = (mask & INPUT_RIGHT) != 0,
+        .up = (mask & INPUT_UP) != 0,
+        .down = (mask & INPUT_DOWN) != 0,
+        .a = (mask & INPUT_A) != 0,
+        .b = (mask & INPUT_B) != 0,
+        .c = (mask & INPUT_C) != 0,
+        .x = (mask & INPUT_X) != 0,
+        .y = (mask & INPUT_Y) != 0,
+        .z = (mask & INPUT_Z) != 0,
+    };
+}
+
+static void run_input_script(Mugen_Match* m, const Sim_Input_Step* steps, u32 step_count)
+{
+    for (u32 i = 0; i < step_count; i++)
     {
-        case ACT_MOVE_LEFT:  f->input_left  = false; break;
-        case ACT_MOVE_RIGHT: f->input_right = false; break;
-        case ACT_CROUCH:     f->input_down  = false; break;
-        case ACT_JUMP:       f->input_up    = false; break;
-        case ACT_BTN_A:      f->btn_a       = false; break;
-        case ACT_BTN_B:      f->btn_b       = false; break;
-        case ACT_BTN_C:      f->btn_c       = false; break;
-        case ACT_BTN_X:      f->btn_x       = false; break;
-        case ACT_BTN_Y:      f->btn_y       = false; break;
-        case ACT_BTN_Z:      f->btn_z       = false; break;
+        mugen_match_set_inputs(m,
+            inputs_from_mask(steps[i].p1_mask),
+            inputs_from_mask(steps[i].p2_mask));
+        tick_n(m, steps[i].frames);
     }
 }
 
@@ -160,13 +205,13 @@ MEL_TEST(sim_walk_forward, .tags = "sim")
     Fighter* p1 = mugen_match_p1(m);
     f32 start_x = p1->x;
 
-    press(p1, ACT_MOVE_RIGHT);
+    press(m, MUGEN_MATCH_PLAYER_1, ACT_MOVE_RIGHT);
     tick_n(m, 5);
 
     MEL_ASSERT_EQ(p1->cns_state.stateno, 20);
     MEL_ASSERT(p1->x > start_x);
 
-    release(p1, ACT_MOVE_RIGHT);
+    release(m, MUGEN_MATCH_PLAYER_1, ACT_MOVE_RIGHT);
     tick_n(m, 3);
 
     MEL_ASSERT_EQ(p1->cns_state.stateno, 0);
@@ -183,13 +228,13 @@ MEL_TEST(sim_walk_backward, .tags = "sim")
     Fighter* p1 = mugen_match_p1(m);
     f32 start_x = p1->x;
 
-    press(p1, ACT_MOVE_LEFT);
+    press(m, MUGEN_MATCH_PLAYER_1, ACT_MOVE_LEFT);
     tick_n(m, 5);
 
     MEL_ASSERT_EQ(p1->cns_state.stateno, 20);
     MEL_ASSERT(p1->x < start_x);
 
-    release(p1, ACT_MOVE_LEFT);
+    release(m, MUGEN_MATCH_PLAYER_1, ACT_MOVE_LEFT);
     mugen_match_end(m);
 }
 
@@ -201,12 +246,12 @@ MEL_TEST(sim_crouch, .tags = "sim")
 
     Fighter* p1 = mugen_match_p1(m);
 
-    press(p1, ACT_CROUCH);
+    press(m, MUGEN_MATCH_PLAYER_1, ACT_CROUCH);
     tick_n(m, 3);
 
     MEL_ASSERT_EQ(p1->cns_state.statetype, MUGEN_PHYSICS_C);
 
-    release(p1, ACT_CROUCH);
+    release(m, MUGEN_MATCH_PLAYER_1, ACT_CROUCH);
     tick_n(m, 5);
 
     MEL_ASSERT_EQ(p1->cns_state.statetype, MUGEN_PHYSICS_S);
@@ -222,11 +267,11 @@ MEL_TEST(sim_crouch_to_stand_transition, .tags = "sim")
 
     Fighter* p1 = mugen_match_p1(m);
 
-    press(p1, ACT_CROUCH);
+    press(m, MUGEN_MATCH_PLAYER_1, ACT_CROUCH);
     tick_n(m, 5);
     MEL_ASSERT_EQ(p1->cns_state.statetype, MUGEN_PHYSICS_C);
 
-    release(p1, ACT_CROUCH);
+    release(m, MUGEN_MATCH_PLAYER_1, ACT_CROUCH);
     tick(m);
 
     MEL_ASSERT_EQ(p1->cns_state.stateno, 12);
@@ -246,13 +291,13 @@ MEL_TEST(sim_jump, .tags = "sim")
 
     Fighter* p1 = mugen_match_p1(m);
 
-    press(p1, ACT_JUMP);
+    press(m, MUGEN_MATCH_PLAYER_1, ACT_JUMP);
     tick_n(m, 2);
 
     i32 state = p1->cns_state.stateno;
     MEL_ASSERT(state == 40 || state == 50 || state == 51);
 
-    release(p1, ACT_JUMP);
+    release(m, MUGEN_MATCH_PLAYER_1, ACT_JUMP);
 
     bool went_airborne = false;
     bool landed = false;
@@ -284,12 +329,12 @@ MEL_TEST(sim_jump_forward, .tags = "sim")
     Fighter* p1 = mugen_match_p1(m);
     f32 start_x = p1->x;
 
-    press(p1, ACT_MOVE_RIGHT);
+    press(m, MUGEN_MATCH_PLAYER_1, ACT_MOVE_RIGHT);
     tick(m);
-    press(p1, ACT_JUMP);
+    press(m, MUGEN_MATCH_PLAYER_1, ACT_JUMP);
     tick_n(m, 10);
-    release(p1, ACT_JUMP);
-    release(p1, ACT_MOVE_RIGHT);
+    release(m, MUGEN_MATCH_PLAYER_1, ACT_JUMP);
+    release(m, MUGEN_MATCH_PLAYER_1, ACT_MOVE_RIGHT);
 
     for (u32 i = 0; i < 120; i++)
     {
@@ -312,9 +357,9 @@ MEL_TEST(sim_neutral_jump_preserves_x, .tags = "sim")
     Fighter* p1 = mugen_match_p1(m);
     f32 start_x = p1->x;
 
-    press(p1, ACT_JUMP);
+    press(m, MUGEN_MATCH_PLAYER_1, ACT_JUMP);
     tick(m);
-    release(p1, ACT_JUMP);
+    release(m, MUGEN_MATCH_PLAYER_1, ACT_JUMP);
 
     for (u32 i = 0; i < 120; i++)
     {
@@ -339,9 +384,9 @@ MEL_TEST(sim_stand_light_punch, .tags = "sim")
     MEL_ASSERT_EQ(p1->cns_state.stateno, 0);
     MEL_ASSERT(p1->cns_state.ctrl);
 
-    press(p1, ACT_BTN_X);
+    press(m, MUGEN_MATCH_PLAYER_1, ACT_BTN_X);
     tick(m);
-    release(p1, ACT_BTN_X);
+    release(m, MUGEN_MATCH_PLAYER_1, ACT_BTN_X);
 
     bool entered_attack = false;
     for (u32 i = 0; i < 5; i++)
@@ -369,9 +414,9 @@ MEL_TEST(sim_attack_returns_to_idle, .tags = "sim")
 
     Fighter* p1 = mugen_match_p1(m);
 
-    press(p1, ACT_BTN_X);
+    press(m, MUGEN_MATCH_PLAYER_1, ACT_BTN_X);
     tick(m);
-    release(p1, ACT_BTN_X);
+    release(m, MUGEN_MATCH_PLAYER_1, ACT_BTN_X);
 
     bool returned = false;
     for (u32 i = 0; i < 120; i++)
@@ -397,16 +442,16 @@ MEL_TEST(sim_no_attack_during_attack, .tags = "sim")
 
     Fighter* p1 = mugen_match_p1(m);
 
-    press(p1, ACT_BTN_X);
+    press(m, MUGEN_MATCH_PLAYER_1, ACT_BTN_X);
     tick(m);
-    release(p1, ACT_BTN_X);
+    release(m, MUGEN_MATCH_PLAYER_1, ACT_BTN_X);
     tick_n(m, 2);
 
     MEL_ASSERT_EQ(p1->cns_state.stateno, 200);
 
-    press(p1, ACT_BTN_B);
+    press(m, MUGEN_MATCH_PLAYER_1, ACT_BTN_B);
     tick(m);
-    release(p1, ACT_BTN_B);
+    release(m, MUGEN_MATCH_PLAYER_1, ACT_BTN_B);
     tick(m);
 
     MEL_ASSERT_EQ(p1->cns_state.stateno, 200);
@@ -422,19 +467,19 @@ MEL_TEST(sim_crouch_blocks_walk, .tags = "sim")
 
     Fighter* p1 = mugen_match_p1(m);
 
-    press(p1, ACT_CROUCH);
+    press(m, MUGEN_MATCH_PLAYER_1, ACT_CROUCH);
     tick_n(m, 3);
 
     f32 crouched_x = p1->x;
 
-    press(p1, ACT_MOVE_RIGHT);
+    press(m, MUGEN_MATCH_PLAYER_1, ACT_MOVE_RIGHT);
     tick_n(m, 5);
 
     MEL_ASSERT_EQ(p1->cns_state.statetype, MUGEN_PHYSICS_C);
     MEL_ASSERT_FLOAT_EQ(p1->x, crouched_x, 0.01f);
 
-    release(p1, ACT_MOVE_RIGHT);
-    release(p1, ACT_CROUCH);
+    release(m, MUGEN_MATCH_PLAYER_1, ACT_MOVE_RIGHT);
+    release(m, MUGEN_MATCH_PLAYER_1, ACT_CROUCH);
 
     mugen_match_end(m);
 }
@@ -447,13 +492,13 @@ MEL_TEST(sim_stage_boundary_left, .tags = "sim")
 
     Fighter* p1 = mugen_match_p1(m);
 
-    press(p1, ACT_MOVE_LEFT);
+    press(m, MUGEN_MATCH_PLAYER_1, ACT_MOVE_LEFT);
     tick_n(m, 300);
 
     f32 expected_min = TEST_STAGE_LEFT + p1->ground_back;
     MEL_ASSERT(p1->x >= expected_min - 0.01f);
 
-    release(p1, ACT_MOVE_LEFT);
+    release(m, MUGEN_MATCH_PLAYER_1, ACT_MOVE_LEFT);
 
     mugen_match_end(m);
 }
@@ -466,13 +511,13 @@ MEL_TEST(sim_stage_boundary_right, .tags = "sim")
 
     Fighter* p1 = mugen_match_p1(m);
 
-    press(p1, ACT_MOVE_RIGHT);
+    press(m, MUGEN_MATCH_PLAYER_1, ACT_MOVE_RIGHT);
     tick_n(m, 300);
 
     f32 expected_max = TEST_STAGE_RIGHT - p1->ground_front;
     MEL_ASSERT(p1->x <= expected_max + 0.01f);
 
-    release(p1, ACT_MOVE_RIGHT);
+    release(m, MUGEN_MATCH_PLAYER_1, ACT_MOVE_RIGHT);
 
     mugen_match_end(m);
 }
@@ -484,24 +529,15 @@ MEL_TEST(sim_qcf_punch, .tags = "sim")
     tick(m);
 
     Fighter* p1 = mugen_match_p1(m);
-
-    press(p1, ACT_CROUCH);
-    tick(m);
-    release(p1, ACT_CROUCH);
-
-    tick(m);
-
-    press(p1, ACT_CROUCH);
-    press(p1, ACT_MOVE_RIGHT);
-    tick(m);
-    release(p1, ACT_CROUCH);
-
-    tick(m);
-
-    press(p1, ACT_BTN_A);
-    tick(m);
-    release(p1, ACT_BTN_A);
-    release(p1, ACT_MOVE_RIGHT);
+    Sim_Input_Step script[] = {
+        { .p1_mask = INPUT_DOWN, .frames = 1 },
+        { .p1_mask = 0, .frames = 1 },
+        { .p1_mask = INPUT_DOWN | INPUT_RIGHT, .frames = 1 },
+        { .p1_mask = INPUT_RIGHT, .frames = 1 },
+        { .p1_mask = INPUT_RIGHT | INPUT_A, .frames = 1 },
+        { .p1_mask = 0, .frames = 1 },
+    };
+    run_input_script(m, script, (u32)(sizeof(script) / sizeof(script[0])));
 
     bool entered_special = false;
     for (u32 i = 0; i < 5; i++)
@@ -528,15 +564,15 @@ MEL_TEST(sim_both_fighters_independent, .tags = "sim")
     Fighter* p1 = mugen_match_p1(m);
     Fighter* p2 = mugen_match_p2(m);
 
-    press(p1, ACT_CROUCH);
-    press(p2, ACT_JUMP);
+    press(m, MUGEN_MATCH_PLAYER_1, ACT_CROUCH);
+    press(m, MUGEN_MATCH_PLAYER_2, ACT_JUMP);
     tick_n(m, 3);
 
     MEL_ASSERT_EQ(p1->cns_state.statetype, MUGEN_PHYSICS_C);
     MEL_ASSERT(p2->cns_state.stateno == 40 || p2->cns_state.stateno == 50 || p2->cns_state.stateno == 51);
 
-    release(p1, ACT_CROUCH);
-    release(p2, ACT_JUMP);
+    release(m, MUGEN_MATCH_PLAYER_1, ACT_CROUCH);
+    release(m, MUGEN_MATCH_PLAYER_2, ACT_JUMP);
 
     mugen_match_end(m);
 }
@@ -550,13 +586,13 @@ MEL_TEST(sim_p2_walks_backward, .tags = "sim")
     Fighter* p2 = mugen_match_p2(m);
     f32 start_x = p2->x;
 
-    press(p2, ACT_MOVE_RIGHT);
+    press(m, MUGEN_MATCH_PLAYER_2, ACT_MOVE_RIGHT);
     tick_n(m, 5);
 
     MEL_ASSERT_EQ(p2->cns_state.stateno, 20);
     MEL_ASSERT(p2->x > start_x);
 
-    release(p2, ACT_MOVE_RIGHT);
+    release(m, MUGEN_MATCH_PLAYER_2, ACT_MOVE_RIGHT);
 
     mugen_match_end(m);
 }
@@ -578,9 +614,9 @@ MEL_TEST(sim_combat_close_range_hit, .tags = "sim")
 
     f32 p2_life_before = p2->cns_state.life;
 
-    press(p1, ACT_BTN_A);
+    press(m, MUGEN_MATCH_PLAYER_1, ACT_BTN_A);
     tick(m);
-    release(p1, ACT_BTN_A);
+    release(m, MUGEN_MATCH_PLAYER_1, ACT_BTN_A);
 
     bool hit_landed = false;
     for (u32 i = 0; i < 30; i++)
@@ -630,9 +666,9 @@ MEL_TEST(sim_repeated_attacks_drain_life, .tags = "sim")
 
         if (!p1->cns_state.ctrl) continue;
 
-        press(p1, ACT_BTN_A);
+        press(m, MUGEN_MATCH_PLAYER_1, ACT_BTN_A);
         tick(m);
-        release(p1, ACT_BTN_A);
+        release(m, MUGEN_MATCH_PLAYER_1, ACT_BTN_A);
 
         for (u32 i = 0; i < 30; i++)
             tick(m);
@@ -666,9 +702,9 @@ MEL_TEST(sim_ko_sets_win_lose, .tags = "sim")
 
     for (u32 i = 0; i < 300; i++)
     {
-        press(p1, ACT_BTN_A);
+        press(m, MUGEN_MATCH_PLAYER_1, ACT_BTN_A);
         tick(m);
-        release(p1, ACT_BTN_A);
+        release(m, MUGEN_MATCH_PLAYER_1, ACT_BTN_A);
         tick_n(m, 3);
 
         if (round->state == ROUND_KO)
@@ -706,9 +742,9 @@ MEL_TEST(sim_matchover_set_after_enough_wins, .tags = "sim")
 
     for (u32 i = 0; i < 300; i++)
     {
-        press(p1, ACT_BTN_A);
+        press(m, MUGEN_MATCH_PLAYER_1, ACT_BTN_A);
         tick(m);
-        release(p1, ACT_BTN_A);
+        release(m, MUGEN_MATCH_PLAYER_1, ACT_BTN_A);
         tick_n(m, 3);
 
         if (round->state == ROUND_POST)

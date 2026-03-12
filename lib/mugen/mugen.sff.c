@@ -116,11 +116,7 @@ static bool parse_v1_sprite_header(const u8* data, usize file_size, u32 offset, 
     out->group = read_u16(p + 12);
     out->number = read_u16(p + 14);
     out->link_index = read_u16(p + 16);
-
-    if (offset + 32 < file_size)
-        out->shared_palette = data[offset + 32];
-    else
-        out->shared_palette = 0;
+    out->shared_palette = p[18];
 
     return true;
 }

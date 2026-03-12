@@ -6,15 +6,19 @@
 
 1. **ECS sync systems** (production) — default-provided, replaceable ECS systems
    that sync game components into render lists. "This sprite exists at this position."
-2. **Render lists** (interchange) — typed, camera-agnostic databases of world data.
-   Persistently mapped GPU buffers. They don't know about cameras, windows, or
-   how many times they'll be drawn.
+2. **Render lists** (interchange) — today's main source type: typed,
+   camera-agnostic databases of world data. Persistently mapped GPU buffers.
+   They don't know about cameras, windows, or how many times they'll be drawn.
 3. **Render graph + passes** (consumption) — a global data-flow DAG. Passes read
    lists and targets, write lists and targets. Swapchains are leaves. The graph
    derives execution order from the topology.
 
 The system is consistent with itself but lets you override every single step.
 
+→ View orchestration (how lists/cameras/targets become visible results): `engine.view.md`
+→ Frame planning (how views/techniques/surfaces become a frame): `engine.frame.recipe.md`
+→ Execution strategies (how built-in technique families render those views): `engine.technique.md`
+→ Typed inputs beyond lists (GPU buffers, targets, procedural): `engine.source.md`
 → Consumption side (render graph, passes, GPU-driven, bindless, materials): `engine.render.graph.md`
 
 ## Status

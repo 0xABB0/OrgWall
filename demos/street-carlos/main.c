@@ -45,7 +45,6 @@
 #include "game_draw.h"
 #include "game_test.h"
 #include "vfs.h"
-#include "vfs.backend.os.h"
 #include "async.io.h"
 #include "font.atlas.h"
 #include "math.scalar.h"
@@ -77,12 +76,21 @@ static Mel_Gpu_Buffer s_blit_vbuf;
 static Mel_Gpu_Buffer s_blit_ibuf;
 static Mel_Mat4 s_blit_proj;
 
-static Mel_Sim_Ctx s_sim;
-static u8 s_event_buf[4096];
+static Mel_Sim_Ctx s_task_sim;
+static u8 s_task_event_buf[256];
 
 static Mel_Input_Stack s_input_stack;
 static Mel_Input_Bindings s_p1_bindings;
 static Mel_Input_Bindings s_p2_bindings;
+
+typedef struct {
+    Mugen_Match* match;
+    u32 player_index;
+    Mugen_Player_Inputs inputs;
+} Match_Input_User;
+
+static Match_Input_User s_p1_input_user;
+static Match_Input_User s_p2_input_user;
 
 static Mugen_Match* s_match;
 static bool s_show_hitboxes;
@@ -176,28 +184,32 @@ static void imgui_pass(Mel_Render_Pass_Ctx* ctx)
         ImGui_ImplVulkan_RenderDrawData(draw_data, ctx->cmd.cmd, VK_NULL_HANDLE);
 }
 
-static void fighter_on_input(Fighter* f, u32 action, f32 value)
+static void match_input_apply_action(Mugen_Player_Inputs* inputs, u32 action, bool pressed)
 {
-    bool pressed = value > 0.5f;
+    assert(inputs);
+
     switch (action)
     {
-        case ACT_MOVE_LEFT:  f->input_left  = pressed; break;
-        case ACT_MOVE_RIGHT: f->input_right = pressed; break;
-        case ACT_CROUCH:     f->input_down  = pressed; break;
-        case ACT_JUMP:       f->input_up    = pressed; break;
-        case ACT_BTN_A:      f->btn_a       = pressed; break;
-        case ACT_BTN_B:      f->btn_b       = pressed; break;
-        case ACT_BTN_C:      f->btn_c       = pressed; break;
-        case ACT_BTN_X:      f->btn_x       = pressed; break;
-        case ACT_BTN_Y:      f->btn_y       = pressed; break;
-        case ACT_BTN_Z:      f->btn_z       = pressed; break;
+        case ACT_MOVE_LEFT:  inputs->left  = pressed; break;
+        case ACT_MOVE_RIGHT: inputs->right = pressed; break;
+        case ACT_CROUCH:     inputs->down  = pressed; break;
+        case ACT_JUMP:       inputs->up    = pressed; break;
+        case ACT_BTN_A:      inputs->a     = pressed; break;
+        case ACT_BTN_B:      inputs->b     = pressed; break;
+        case ACT_BTN_C:      inputs->c     = pressed; break;
+        case ACT_BTN_X:      inputs->x     = pressed; break;
+        case ACT_BTN_Y:      inputs->y     = pressed; break;
+        case ACT_BTN_Z:      inputs->z     = pressed; break;
     }
 }
 
-static bool fighter_on_action(Mel_Input_Action action, f32 value, void* user)
+static bool match_input_on_action(Mel_Input_Action action, f32 value, void* user)
 {
-    Fighter* f = (Fighter*)user;
-    fighter_on_input(f, action, value);
+    Match_Input_User* input_user = user;
+    bool pressed = value > 0.5f;
+    match_input_apply_action(&input_user->inputs, action, pressed);
+    if (input_user->match)
+        mugen_match_set_player_inputs(input_user->match, input_user->player_index, input_user->inputs);
     return action >= ACT_MOVE_LEFT && action <= ACT_BTN_Z;
 }
 
@@ -227,19 +239,29 @@ static void init_input(void)
     mel_input_bindings_add(&s_p2_bindings, SDL_SCANCODE_KP_5, ACT_BTN_B);
     mel_input_bindings_add(&s_p2_bindings, SDL_SCANCODE_KP_6, ACT_BTN_C);
 
+    s_p1_input_user = (Match_Input_User){
+        .match = s_match,
+        .player_index = MUGEN_MATCH_PLAYER_1,
+    };
+    s_p2_input_user = (Match_Input_User){
+        .match = s_match,
+        .player_index = MUGEN_MATCH_PLAYER_2,
+    };
+    mugen_match_set_inputs(s_match, s_p1_input_user.inputs, s_p2_input_user.inputs);
+
     mel_input_stack_init(&s_input_stack);
 
     mel_input_stack_push(&s_input_stack,
         .mapper = mel_input_mapper_keyboard,
         .mapper_user = &s_p1_bindings,
-        .on_action = fighter_on_action,
-        .user = mugen_match_p1(s_match));
+        .on_action = match_input_on_action,
+        .user = &s_p1_input_user);
 
     mel_input_stack_push(&s_input_stack,
         .mapper = mel_input_mapper_keyboard,
         .mapper_user = &s_p2_bindings,
-        .on_action = fighter_on_action,
-        .user = mugen_match_p2(s_match));
+        .on_action = match_input_on_action,
+        .user = &s_p2_input_user);
 }
 
 static void load_stage(void)
@@ -366,6 +388,7 @@ static void screen_enter_fight(Mugen_Char* ch)
         .alloc = mel_alloc_heap());
 
     mugen_match_start(s_match);
+    mel_register_sim(&s_match->sim);
 
     init_input();
     s_fight_initialized = true;
@@ -410,8 +433,7 @@ static void draw_title(Mel_Render_List* list)
     Mel_Vec2 title_sz = mel_font_atlas_measure_text(&s_font_pool, s_title_font, title);
     f32 title_x = (f32)GAME_W * 0.5f - title_sz.x * 0.5f;
     f32 title_y = 60.0f;
-    mel_font_atlas_draw_text(&s_font_pool, s_title_font, list, title,
-        title_x, title_y, mel_vec4(1.0f, 0.3f, 0.3f, 1.0f));
+    mel_font_atlas_draw_text(&s_font_pool, s_title_font, list, title, title_x, title_y, mel_vec4(1.0f, 0.3f, 0.3f, 1.0f));
 
     str8 prompt = S8("Press ENTER to fight");
     Mel_Vec2 prompt_sz = mel_font_atlas_measure_text(&s_font_pool, s_body_font, prompt);
@@ -420,8 +442,7 @@ static void draw_title(Mel_Render_List* list)
 
     f32 t = (f32)SDL_GetTicks() / 1000.0f;
     f32 alpha = 0.5f + 0.5f * SDL_sinf(t * 3.0f);
-    mel_font_atlas_draw_text(&s_font_pool, s_body_font, list, prompt,
-        prompt_x, prompt_y, mel_vec4(1.0f, 1.0f, 1.0f, alpha));
+    mel_font_atlas_draw_text(&s_font_pool, s_body_font, list, prompt, prompt_x, prompt_y, mel_vec4(1.0f, 1.0f, 1.0f, alpha));
 }
 
 static void draw_loading(Mel_Render_List* list)
@@ -454,25 +475,17 @@ static void draw_loading(Mel_Render_List* list)
     }
 }
 
-static void game_draw(Mel_Sim_Ctx* sim, f32 dt, void* user)
+static void produce_game_list(Mel_Render_List* list, void* user)
 {
-    MEL_UNUSED(sim);
-    MEL_UNUSED(dt);
     MEL_UNUSED(user);
-
-    mel_task_tick(s_task_ctx);
-    mel_render_list_clear(&s_game_list);
-
-    if (s_current_screen == SCREEN_FIGHT)
-        mugen_match_update(s_match, dt);
 
     switch (s_current_screen) {
     case SCREEN_TITLE:
-        draw_title(&s_game_list);
+        draw_title(list);
         break;
 
     case SCREEN_LOADING:
-        draw_loading(&s_game_list);
+        draw_loading(list);
         break;
 
     case SCREEN_FIGHT:
@@ -485,18 +498,18 @@ static void game_draw(Mel_Sim_Ctx* sim, f32 dt, void* user)
         f32 zoff = s_stage.zoffset;
 
         if (s_stage_loaded)
-            game_draw_stage_layer(&s_stage, &s_stage_sff, s_stage_tex_handle, cam, 0, &s_game_list);
+            game_draw_stage_layer(&s_stage, &s_stage_sff, s_stage_tex_handle, cam, 0, list);
 
-        game_draw_fighter(p1, s_fight_char, s_char_tex_handle, cam, zoff, sx, sy, &s_game_list);
-        game_draw_fighter(p2, s_fight_char, s_char_tex_handle, cam, zoff, sx, sy, &s_game_list);
+        game_draw_fighter(p1, s_fight_char, s_char_tex_handle, cam, zoff, sx, sy, list);
+        game_draw_fighter(p2, s_fight_char, s_char_tex_handle, cam, zoff, sx, sy, list);
 
         for (u32 i = 0; i < p1->helper_count; i++)
-            game_draw_helper(&p1->helpers[i], s_fight_char, s_char_tex_handle, cam, zoff, sx, sy, &s_game_list);
+            game_draw_helper(&p1->helpers[i], s_fight_char, s_char_tex_handle, cam, zoff, sx, sy, list);
         for (u32 i = 0; i < p2->helper_count; i++)
-            game_draw_helper(&p2->helpers[i], s_fight_char, s_char_tex_handle, cam, zoff, sx, sy, &s_game_list);
+            game_draw_helper(&p2->helpers[i], s_fight_char, s_char_tex_handle, cam, zoff, sx, sy, list);
 
         if (s_stage_loaded)
-            game_draw_stage_layer(&s_stage, &s_stage_sff, s_stage_tex_handle, cam, 1, &s_game_list);
+            game_draw_stage_layer(&s_stage, &s_stage_sff, s_stage_tex_handle, cam, 1, list);
 
         if (s_fight_hud_loaded)
         {
@@ -511,22 +524,30 @@ static void game_draw(Mel_Sim_Ctx* sim, f32 dt, void* user)
                 .p2_power = (i32)p2->cns_state.power,
                 .time_count = 99,
             };
-            mugen_hud_draw(&s_hud, &hud_state, &s_game_list);
+            mugen_hud_draw(&s_hud, &hud_state, list);
         }
 
         if (s_show_hitboxes)
         {
-            game_draw_debug_boxes(p1, cam, zoff, sx, sy, &s_game_list);
-            game_draw_debug_boxes(p2, cam, zoff, sx, sy, &s_game_list);
+            game_draw_debug_boxes(p1, cam, zoff, sx, sy, list);
+            game_draw_debug_boxes(p2, cam, zoff, sx, sy, list);
 
             for (u32 i = 0; i < p1->helper_count; i++)
-                game_draw_helper_debug_boxes(&p1->helpers[i], cam, zoff, sx, sy, &s_game_list);
+                game_draw_helper_debug_boxes(&p1->helpers[i], cam, zoff, sx, sy, list);
             for (u32 i = 0; i < p2->helper_count; i++)
-                game_draw_helper_debug_boxes(&p2->helpers[i], cam, zoff, sx, sy, &s_game_list);
+                game_draw_helper_debug_boxes(&p2->helpers[i], cam, zoff, sx, sy, list);
         }
         break;
     }
     }
+}
+
+static void task_sim_update(Mel_Sim_Ctx* sim, f32 dt, void* user)
+{
+    MEL_UNUSED(sim);
+    MEL_UNUSED(dt);
+    MEL_UNUSED(user);
+    mel_task_tick(s_task_ctx);
 }
 
 static void init_render(void)
@@ -536,7 +557,9 @@ static void init_render(void)
 
     mel_render_list_init(&s_game_list,
         .entry_stride = sizeof(Mel_Sprite_Entry),
+        .mode = MEL_RENDER_LIST_EPHEMERAL,
         .alloc = mel_alloc_heap());
+    mel_render_list_add_producer(&s_game_list, produce_game_list, NULL);
 
     mel_render_target_init(&s_offscreen, dev,
         .name = S8("game_fb"),
@@ -616,26 +639,14 @@ static void on_init(void)
 
     mel_io_init(&s_io, &(Mel_Io_Desc){ .allocator = mel_alloc_heap(), .worker_count = 0 });
     mel_vfs_init(&s_vfs, &(Mel_Vfs_Desc){ .allocator = mel_alloc_heap(), .io = &s_io });
-    Mel_Vfs_Backend* os_be = mel_vfs_backend_os_create(mel_alloc_heap(), S8("demos/street-carlos"));
-    mel_vfs_mount(&s_vfs, S8("/"), os_be, 0, false);
+    mel_vfs_mount_native(&s_vfs, S8("/"), S8("demos/street-carlos"), 0, false);
+    mel_vfs_mount_native(&s_vfs, S8("/fonts"), S8("/System/Library/Fonts"), 0, false);
+    mel_vfs_mount_native(&s_vfs, S8("/stages"), S8("/Users/gabbo/Downloads/mugen-1.1b1/stages"), 0, false);
+    mel_vfs_mount_native(&s_vfs, S8("/data"), S8("/Users/gabbo/Downloads/mugen-1.1b1/data"), 0, false);
 
-    Mel_Vfs_Backend* fonts_be = mel_vfs_backend_os_create(mel_alloc_heap(), S8("/System/Library/Fonts"));
-    mel_vfs_mount(&s_vfs, S8("/fonts"), fonts_be, 0, false);
-
-    Mel_Vfs_Backend* stages_be = mel_vfs_backend_os_create(mel_alloc_heap(),
-        S8("/Users/gabbo/Downloads/mugen-1.1b1/stages"));
-    mel_vfs_mount(&s_vfs, S8("/stages"), stages_be, 0, false);
-
-    Mel_Vfs_Backend* data_be = mel_vfs_backend_os_create(mel_alloc_heap(),
-        S8("/Users/gabbo/Downloads/mugen-1.1b1/data"));
-    mel_vfs_mount(&s_vfs, S8("/data"), data_be, 0, false);
-
-    mel_font_atlas_pool_init(&s_font_pool, mel_alloc_heap(), mel_gpu_dev(), &s_vfs,
-        .texture_pool = mel_texture_pool());
-    s_title_font = mel_font_atlas_pool_load(&s_font_pool,
-        .path = S8("/fonts/Monaco.ttf"), .size = 24.0f);
-    s_body_font = mel_font_atlas_pool_load(&s_font_pool,
-        .path = S8("/fonts/Monaco.ttf"), .size = 10.0f);
+    mel_font_atlas_pool_init(&s_font_pool, mel_alloc_heap(), mel_gpu_dev(), &s_vfs, .texture_pool = mel_texture_pool());
+    s_title_font = mel_font_atlas_pool_load(&s_font_pool, .path = S8("/fonts/Monaco.ttf"), .size = 24.0f);
+    s_body_font = mel_font_atlas_pool_load(&s_font_pool, .path = S8("/fonts/Monaco.ttf"), .size = 10.0f);
 
     Mel_Task_Ctx_Desc task_desc = {
         .alloc = mel_alloc_heap(),
@@ -650,10 +661,12 @@ static void on_init(void)
         .stcommon_path = S8("/chars/common1.cns"),
         .alloc = mel_alloc_heap());
 
-    mel_sim_init(&s_sim, .event_buffer = s_event_buf, .event_buffer_size = sizeof(s_event_buf));
-
-    mel_sim_add_variable(&s_sim, game_draw);
-    mel_register_sim(&s_sim);
+    mel_sim_init(&s_task_sim,
+        .event_buffer = s_task_event_buf,
+        .event_buffer_size = sizeof(s_task_event_buf),
+        .alloc = mel_alloc_heap());
+    mel_sim_add_variable(&s_task_sim, task_sim_update);
+    mel_register_sim(&s_task_sim);
 
     s_current_screen = SCREEN_TITLE;
     s_load_task = MEL_TASK_HANDLE_NULL;
@@ -687,12 +700,13 @@ static void app_shutdown(Mel_App* app)
         mel_input_stack_shutdown(&s_input_stack);
         mel_input_bindings_shutdown(&s_p1_bindings);
         mel_input_bindings_shutdown(&s_p2_bindings);
+        mel_unregister_sim(&s_match->sim);
         mugen_match_end(s_match);
         s_match = NULL;
     }
 
-    mel_unregister_sim(&s_sim);
-    mel_sim_shutdown(&s_sim);
+    mel_unregister_sim(&s_task_sim);
+    mel_sim_shutdown(&s_task_sim);
 
     Mel_Gpu_Device* dev = mel_gpu_dev();
 
@@ -726,10 +740,13 @@ static void app_shutdown(Mel_App* app)
     mel_render_list_shutdown(&s_game_list);
 
     mel_font_atlas_pool_shutdown(&s_font_pool);
+    mel_vfs_unmount(&s_vfs, S8("/"));
     mel_vfs_unmount(&s_vfs, S8("/data"));
     mel_vfs_unmount(&s_vfs, S8("/stages"));
     mel_vfs_unmount(&s_vfs, S8("/fonts"));
     mel_task_ctx_destroy(s_task_ctx);
+    mel_vfs_shutdown(&s_vfs);
+    mel_io_shutdown(&s_io);
 
     SDL_Log("Street Carlos shutdown");
 }

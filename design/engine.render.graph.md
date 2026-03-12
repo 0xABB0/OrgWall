@@ -10,6 +10,10 @@ Current implementation exists in:
 - `melody/render.graph.c`
 
 → Production and interchange (render lists, ECS sync, draw API): `engine.render.md`
+→ Typed render inputs and intermediates above raw resources: `engine.source.md`
+→ View orchestration (how cameras/lists/windows map onto graph topology): `engine.view.md`
+→ Frame planning (how views/techniques/surfaces compile into topology): `engine.frame.recipe.md`
+→ Execution strategies (how technique families resolve and contribute work): `engine.technique.md`
 
 ---
 
