@@ -356,7 +356,6 @@ static void app_shutdown(Mel_App* app)
     mel_vfs_unmount(&s_demo_vfs, S8("/"));
     mel_vfs_shutdown(&s_demo_vfs);
     mel_io_shutdown(&s_demo_io);
-    mel_vfs_backend_os_destroy(s_fonts_backend);
 }
 
 static void app_update(Mel_Sim_Ctx* sim, f32 dt, void* user)

@@ -512,7 +512,6 @@ static void app_shutdown(Mel_App* app)
     mel_vfs_unmount(&s_demo_vfs, S8("/"));
     mel_vfs_shutdown(&s_demo_vfs);
     mel_io_shutdown(&s_demo_io);
-    mel_vfs_backend_os_destroy(s_fonts_backend);
     mel_gpu_texture_shutdown(&s_stone_texture, dev);
     mel_gpu_texture_shutdown(&s_grass_texture, dev);
 }
