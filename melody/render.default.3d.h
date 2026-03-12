@@ -99,6 +99,7 @@ void mel_render_default_3d_shutdown(Mel_Render_Default_3D* renderer);
 
 bool mel_render_default_3d_attach_mesh_list(Mel_Render_Default_3D* renderer, Mel_Render_List* list);
 bool mel_render_default_3d_attach_mesh_list_to_view(Mel_Render_Default_3D* renderer, Mel_View_Handle view, Mel_Render_List* list);
+bool mel_render_default_3d_attach_mesh_source_to_view(Mel_Render_Default_3D* renderer, Mel_View_Handle view, Mel_Source_Handle source);
 bool mel_render_default_3d_attach_sprite_list_to_view_family(Mel_Render_Default_3D* renderer, Mel_View_Handle view, Mel_Render_List* list, Mel_Technique_Family_Id family);
 bool mel_render_default_3d_attach_text_list_to_view(Mel_Render_Default_3D* renderer, Mel_View_Handle view, Mel_Render_List* list);
 Mel_View_Handle mel_render_default_3d_add_view_opt(Mel_Render_Default_3D* renderer, Mel_Render_Default_3D_View_Opt opt);
@@ -108,6 +109,7 @@ bool mel_render_default_3d_widget_layer_init_opt(Mel_Render_Default_3D* renderer
 void mel_render_default_3d_widget_layer_shutdown(Mel_Render_Default_3D* renderer, Mel_Render_Default_3D_Widget_Layer* layer);
 bool mel_render_default_3d_widget_layer_process_event(Mel_Render_Default_3D_Widget_Layer* layer, const SDL_Event* event);
 bool mel_render_default_3d_rebuild(Mel_Render_Default_3D* renderer);
+bool mel_render_default_3d_refresh(Mel_Render_Default_3D* renderer);
 
 Mel_Render_Graph* mel_render_default_3d_graph(Mel_Render_Default_3D* renderer);
 Mel_View_Handle mel_render_default_3d_view(Mel_Render_Default_3D* renderer);

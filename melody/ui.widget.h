@@ -5,6 +5,7 @@
 #include "math.geo.rect.h"
 #include "ui.layout.h"
 #include "ui.widget.fwd.h"
+#include <SDL3/SDL_events.h>
 
 #define MEL_WIDGET_STATE_HOVERED  (1 << 0)
 #define MEL_WIDGET_STATE_PRESSED  (1 << 1)
@@ -15,6 +16,7 @@ typedef void     (*Mel_Widget_Draw_Fn)(Mel_Widget* w, void* ctx);
 typedef Mel_Vec2 (*Mel_Widget_Measure_Fn)(Mel_Widget* w);
 typedef bool     (*Mel_Widget_Mouse_Fn)(Mel_Widget* w, Mel_Vec2 pos, i32 button);
 typedef bool     (*Mel_Widget_Move_Fn)(Mel_Widget* w, Mel_Vec2 pos);
+typedef bool     (*Mel_Widget_Key_Fn)(Mel_Widget* w, const SDL_KeyboardEvent* event);
 
 struct Mel_Widget {
     Mel_Layoutable layoutable;
@@ -44,6 +46,7 @@ struct Mel_Widget {
     Mel_Widget_Mouse_Fn   on_mouse_down;
     Mel_Widget_Mouse_Fn   on_mouse_up;
     Mel_Widget_Move_Fn    on_mouse_move;
+    Mel_Widget_Key_Fn     on_key_down;
 };
 
 void mel_widget_init(Mel_Widget* widget);
@@ -63,3 +66,4 @@ Mel_Widget* mel_widget_hit_test(Mel_Widget* root, Mel_Vec2 pos);
 bool mel_widget_mouse_down(Mel_Widget* root, Mel_Vec2 pos, i32 button);
 bool mel_widget_mouse_up(Mel_Widget* root, Mel_Vec2 pos, i32 button);
 bool mel_widget_mouse_move(Mel_Widget* root, Mel_Vec2 pos);
+bool mel_widget_key_down(Mel_Widget* root, const SDL_KeyboardEvent* event);

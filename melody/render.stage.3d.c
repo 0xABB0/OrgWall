@@ -84,6 +84,12 @@ bool mel_render_stage_3d_attach_mesh_list(Mel_Render_Stage_3D* stage, Mel_Render
     return mel_render_stage_3d_attach_mesh_list_to_layer(stage, MEL_RENDER_STAGE_3D_LAYER_WORLD, list);
 }
 
+bool mel_render_stage_3d_attach_mesh_source_to_layer(Mel_Render_Stage_3D* stage, Mel_Render_Stage_3D_Layer layer, Mel_Source_Handle source)
+{
+    Mel_View_Handle view = mel__render_stage_3d_require_view(stage, layer);
+    return mel_render_default_3d_attach_mesh_source_to_view(&stage->renderer, view, source);
+}
+
 bool mel_render_stage_3d_attach_mesh_list_to_layer(Mel_Render_Stage_3D* stage, Mel_Render_Stage_3D_Layer layer, Mel_Render_List* list)
 {
     Mel_View_Handle view = mel__render_stage_3d_require_view(stage, layer);
@@ -185,6 +191,12 @@ bool mel_render_stage_3d_rebuild(Mel_Render_Stage_3D* stage)
 {
     assert(stage != nullptr);
     return mel_render_default_3d_rebuild(&stage->renderer);
+}
+
+bool mel_render_stage_3d_refresh(Mel_Render_Stage_3D* stage)
+{
+    assert(stage != nullptr);
+    return mel_render_default_3d_refresh(&stage->renderer);
 }
 
 Mel_View_Handle mel_render_stage_3d_view(Mel_Render_Stage_3D* stage, Mel_Render_Stage_3D_Layer layer)

@@ -4,8 +4,7 @@
 
 #include <flecs.h>
 
-typedef struct
-{
+typedef struct Mel_ECS {
     ecs_world_t* world;
 } Mel_ECS;
 

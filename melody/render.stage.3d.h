@@ -61,6 +61,7 @@ void mel_render_stage_3d_shutdown(Mel_Render_Stage_3D* stage);
 
 bool mel_render_stage_3d_attach_mesh_list(Mel_Render_Stage_3D* stage, Mel_Render_List* list);
 bool mel_render_stage_3d_attach_mesh_list_to_layer(Mel_Render_Stage_3D* stage, Mel_Render_Stage_3D_Layer layer, Mel_Render_List* list);
+bool mel_render_stage_3d_attach_mesh_source_to_layer(Mel_Render_Stage_3D* stage, Mel_Render_Stage_3D_Layer layer, Mel_Source_Handle source);
 bool mel_render_stage_3d_attach_sprite_list_to_layer(Mel_Render_Stage_3D* stage, Mel_Render_Stage_3D_Layer layer, Mel_Render_List* list);
 bool mel_render_stage_3d_attach_text_list_to_layer(Mel_Render_Stage_3D* stage, Mel_Render_Stage_3D_Layer layer, Mel_Render_List* list);
 
@@ -70,6 +71,7 @@ void mel_render_stage_3d_widget_layer_shutdown(Mel_Render_Stage_3D* stage, Mel_R
 bool mel_render_stage_3d_widget_layer_process_event(Mel_Render_Stage_3D_Widget_Layer* layer, const SDL_Event* event);
 
 bool mel_render_stage_3d_rebuild(Mel_Render_Stage_3D* stage);
+bool mel_render_stage_3d_refresh(Mel_Render_Stage_3D* stage);
 
 Mel_View_Handle mel_render_stage_3d_view(Mel_Render_Stage_3D* stage, Mel_Render_Stage_3D_Layer layer);
 Mel_Render_Default_3D* mel_render_stage_3d_renderer(Mel_Render_Stage_3D* stage);
@@ -78,4 +80,3 @@ Mel_Frame_Recipe_Handle mel_render_stage_3d_recipe(Mel_Render_Stage_3D* stage);
 Mel_Frame_Plan_Handle mel_render_stage_3d_plan(Mel_Render_Stage_3D* stage);
 Mel_Render_Target* mel_render_stage_3d_target(Mel_Render_Stage_3D* stage);
 Mel_Render_List* mel_render_stage_3d_widget_layer_list(Mel_Render_Stage_3D_Widget_Layer* layer);
-

@@ -503,9 +503,16 @@ static void on_init(void)
 
 static void app_update(Mel_Sim_Ctx* sim, f32 dt, void* user);
 
+Mel_App_Config app_config(void)
+{
+    return (Mel_App_Config){
+        .app_name = S8("Melody Breakout"),
+        .enable_validation = true,
+    };
+}
+
 void app_init(void)
 {
-    mel_init(.app_name = S8("Melody Breakout"), .enable_validation = true);
     s_window_handle = mel_window_create(S8("Melody Breakout"), .width = WIDTH, .height = HEIGHT);
     s_swapchain_handle = mel_gpu_swapchain_create_for_window(mel_gpu_dev(), s_window_handle);
     mel_vfs_mount_native(mel_vfs(), S8("/"), S8("/"), 0, false);

@@ -221,6 +221,21 @@ bool mugen_cmd_load(Mugen_Cmd* out, str8 data, const Mel_Alloc* alloc)
         if (line.len == 0) continue;
         if (line.data[0] == ';') continue;
 
+        for (size ci = 0; ci < line.len; ci++)
+        {
+            if (line.data[ci] == ';')
+            {
+                line = trim(str8_from_parts(line.data, ci));
+                break;
+            }
+            if (line.data[ci] == '"')
+            {
+                ci++;
+                while (ci < line.len && line.data[ci] != '"') ci++;
+            }
+        }
+        if (line.len == 0) continue;
+
         if (line.data[0] == '[')
         {
             if (in_command && current_cmd.name.len > 0 && current_cmd.command.len > 0)

@@ -1,6 +1,12 @@
 #include "core.app.h"
 #include "core.engine.h"
 #include "debug.backtrace.h"
+#include "string.str8.h"
+
+__attribute__((weak)) Mel_App_Config app_config(void)
+{
+    return (Mel_App_Config){0};
+}
 
 __attribute__((weak)) void app_init(void)
 {
@@ -62,6 +68,21 @@ SDL_AppResult mel__app_sdl_init(int argc, char** argv)
         return SDL_APP_FAILURE;
 
     mel__app_platform_init();
+
+    if (!mel__legacy_app_present)
+    {
+        Mel_App_Config config = app_config();
+        str8 app_name = config.app_name;
+        if (str8_is_empty(app_name) && argc > 0 && argv && argv[0])
+            app_name = str8_from_cstr(argv[0]);
+
+        if (!mel_init(
+            .app_name = app_name,
+            .allocator = config.allocator,
+            .enable_validation = config.enable_validation,
+            .max_frame_time = config.max_frame_time))
+            return SDL_APP_FAILURE;
+    }
 
     if (mel__legacy_app_present)
         mel__legacy_app_init(&s_app);

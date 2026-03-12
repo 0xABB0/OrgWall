@@ -1,8 +1,6 @@
 #include "ecs.2d.text.h"
 #include "ecs.2d.transform.h"
-#include "font.atlas.h"
-#include "render.list.h"
-#include "string.str8.h"
+#include "text.draw.h"
 
 ECS_COMPONENT_DECLARE(Mel_CText);
 
@@ -16,6 +14,11 @@ void mel_text_system_run_opt(ecs_world_t* world, Mel_Text_System_Opt opt)
     assert(world != nullptr);
     assert(opt.list != nullptr);
     assert(opt.font_pool != nullptr);
+
+    if (ecs_id(Mel_CTransform) == 0 || ecs_id(Mel_CText) == 0)
+        return;
+    if (!ecs_is_valid(world, ecs_id(Mel_CTransform)) || !ecs_is_valid(world, ecs_id(Mel_CText)))
+        return;
 
     ecs_query_t* q = ecs_query(world, {
         .terms = {
@@ -32,8 +35,10 @@ void mel_text_system_run_opt(ecs_world_t* world, Mel_Text_System_Opt opt)
 
         for (int i = 0; i < it.count; i++)
         {
-            mel_font_atlas_draw_text(opt.font_pool, texts[i].font, opt.list,
-                texts[i].text, transforms[i].pos.x, transforms[i].pos.y, texts[i].color);
+            mel_text_draw_font_atlas(opt.font_pool, texts[i].font, opt.list, texts[i].text,
+                .x = transforms[i].pos.x,
+                .y = transforms[i].pos.y,
+                .style = mel_text_style(texts[i].color));
         }
     }
 

@@ -39,6 +39,15 @@ u32 mel_view_target_mode(Mel_View_Handle view);
 u32 mel_view_design_width(Mel_View_Handle view);
 u32 mel_view_design_height(Mel_View_Handle view);
 void* mel_view_user(Mel_View_Handle view);
+u64 mel_view_parameter_version(Mel_View_Handle view);
+u64 mel_view_topology_version(Mel_View_Handle view);
+
+void mel_view_set_camera(Mel_View_Handle view, const Mel_Camera* camera);
+void mel_view_set_clear_color_enabled(Mel_View_Handle view, bool enabled);
+void mel_view_set_clear_color(Mel_View_Handle view, Mel_Vec4 clear_color);
+void mel_view_set_target_mode(Mel_View_Handle view, u32 target_mode);
+void mel_view_set_design_size(Mel_View_Handle view, u32 width, u32 height);
+void mel_view_set_user(Mel_View_Handle view, void* user);
 
 u32 mel_view_source_count(Mel_View_Handle view);
 Mel_Source_Handle mel_view_source_at(Mel_View_Handle view, u32 index);

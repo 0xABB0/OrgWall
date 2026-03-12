@@ -123,7 +123,8 @@ time = 1
 
 ;---------------------------------------------------------------------------
 ; Round initialization (override of common1.cns 5900)
-; Sets bonus mode (fvar(11) = 2) so helpers spawn
+; Use normal mode in Street Carlos. Bonus/helper mode depends on
+; character features the demo does not fully support yet.
 [Statedef 5900]
 type = S
 
@@ -140,7 +141,7 @@ fvalue = 0
 [State 5900, 3]
 type = VarSet
 trigger1 = 1
-fvar(11) = 2
+fvar(11) = 0
 
 [State 5900, 4]
 type = ChangeState

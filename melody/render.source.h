@@ -5,6 +5,7 @@
 #include "string.str8.fwd.h"
 #include "render.list.fwd.h"
 #include "render.target.fwd.h"
+#include "gpu.buffer.h"
 
 typedef enum {
     MEL_SOURCE_LIST = 0,
@@ -35,6 +36,7 @@ typedef enum {
     MEL_SCHEMA_LIGHT = 4,
     MEL_SCHEMA_MESHLET_DB = 5,
     MEL_SCHEMA_HDR_COLOR = 6,
+    MEL_SCHEMA_MESH_DRAW_STREAM = 7,
 } Mel_Source_Schema;
 
 typedef struct {
@@ -50,7 +52,9 @@ Mel_Source_Handle mel_source_create(const Mel_Source_Desc* desc);
 void mel_source_destroy(Mel_Source_Handle source);
 
 Mel_Source_Handle mel_source_from_render_list(Mel_Render_List* list, u32 schema);
+Mel_Source_Handle mel_source_from_gpu_buffer(Mel_Gpu_Buffer* buffer, u32 schema);
 Mel_Source_Handle mel_source_from_target(Mel_Render_Target* target, u32 schema);
+u32 mel_source_refcount(Mel_Source_Handle source);
 
 str8 mel_source_name(Mel_Source_Handle source);
 Mel_Source_Kind mel_source_kind(Mel_Source_Handle source);
@@ -58,6 +62,11 @@ u32 mel_source_schema(Mel_Source_Handle source);
 u32 mel_source_access_flags(Mel_Source_Handle source);
 u32 mel_source_lifetime(Mel_Source_Handle source);
 void* mel_source_user(Mel_Source_Handle source);
+u64 mel_source_shape_version(Mel_Source_Handle source);
 
 Mel_Render_List* mel_source_render_list(Mel_Source_Handle source);
+void mel_source_set_render_list(Mel_Source_Handle source, Mel_Render_List* list);
+Mel_Gpu_Buffer* mel_source_gpu_buffer(Mel_Source_Handle source);
+void mel_source_set_gpu_buffer(Mel_Source_Handle source, Mel_Gpu_Buffer* buffer);
 Mel_Render_Target* mel_source_target(Mel_Source_Handle source);
+void mel_source_set_target(Mel_Source_Handle source, Mel_Render_Target* target);

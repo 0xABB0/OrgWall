@@ -251,3 +251,18 @@ bool mel_widget_mouse_move(Mel_Widget* root, Mel_Vec2 pos)
 
     return false;
 }
+
+bool mel_widget_key_down(Mel_Widget* root, const SDL_KeyboardEvent* event)
+{
+    if (!root->visible || !root->enabled) return false;
+    if (!event) return false;
+
+    for (Mel_Widget* child = root->first_child; child; child = child->next_sibling) {
+        if (mel_widget_key_down(child, event)) return true;
+    }
+
+    if (root->on_key_down)
+        return root->on_key_down(root, event);
+
+    return false;
+}

@@ -395,6 +395,36 @@ Exit criteria:
   graph
 - the engine still allows custom passes
 
+## Phase 5.5 — Compiled Frame Lifecycle
+
+Goals:
+
+- stop treating every meaningful frame change as a rebuild problem
+- separate authored frame structure from cheap per-frame refresh
+- make extraction the explicit seam between sim state and render sources
+
+Concrete work:
+
+- stable source identity and wrapper dedupe
+- source kinds beyond plain render-list wrappers
+- dirty tracking for:
+  - topology
+  - parameters
+  - source shape
+- `mel_frame_plan_refresh(...)`
+- technique contract split:
+  - compile-time graph contribution
+  - refresh-time parameter update
+- diagnostics for why compile/refresh happened
+
+Exit criteria:
+
+- ordinary camera and content changes do not force plan recompilation
+- source updates are decoupled from recipe churn
+- the same lifecycle works for both simple 2D and richer 3D examples
+- the design is ready for GPU-driven source kinds without changing the
+  top-level app model
+
 ## Phase 6 — Ultra-Modern GPU Paths
 
 Goals:
@@ -462,14 +492,20 @@ Exit criteria:
 
 This is the recommended short-term order from the current repository state.
 
-1. Add compiled frame plan support and remove generated state from recipes
-2. Make render graph own copied pass names
-3. Strengthen frame recipe/plan tests
-4. Add real ordering/composition semantics for multi-view same-swapchain output
-5. Add first-class text technique or formal sprite-backed text extraction path
-6. Migrate `street-carlos` and one more simple example to views + recipe + plan
-7. Introduce technique registry
-8. Introduce no-boilerplate stage/default-rendering path
+1. Stabilize `Mel_Source` identity and wrapper dedupe
+2. Add explicit dirty classes for:
+   - topology
+   - parameters
+   - source shape
+3. Introduce `mel_frame_plan_refresh(...)`
+4. Split technique contracts into compile and refresh responsibilities
+5. Add one retained-source path and one GPU-buffer-source path
+6. Add extraction helpers for stage/default engine paths
+7. Add diagnostics for:
+   - compile reasons
+   - refresh reasons
+   - resolved technique variants
+8. Then continue into ultra-modern GPU techniques on top of that lifecycle
 
 ## Boilerplate Reduction Rules
 

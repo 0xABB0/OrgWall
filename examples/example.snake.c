@@ -7,19 +7,12 @@
 #include "core.app.h"
 #include "core.engine.h"
 #include "window.h"
-#include "swapchain.h"
-#include "gpu.swapchain.h"
+#include "window.present.2d.h"
 #include "string.str8.h"
-#include "gpu.buffer.h"
-#include "gpu.cmd.h"
-#include "render.draw.h"
-#include "texture.pool.h"
-#include "render.graph.h"
 #include "render.list.h"
-#include "render.target.h"
-#include "render.sync.h"
 #include "sprite.pass.h"
 #include "render.camera.h"
+#include "text.draw.h"
 #include "font.atlas.h"
 #include "vfs.h"
 #include "allocator.heap.h"
@@ -37,6 +30,8 @@
 #define GRID_X_OFFSET 40.0f
 #define GRID_Y_OFFSET 60.0f
 #define INFO_X (GRID_X_OFFSET + (GRID_W + 1) * CELL_SIZE)
+#define WINDOW_W 640
+#define WINDOW_H 580
 
 typedef struct { i32 gx; i32 gy; } Snake_CSegment;
 typedef struct { i32 dx; i32 dy; } Snake_CDirection;
@@ -66,17 +61,13 @@ typedef struct {
 } Snake;
 
 static Mel_Window_Handle s_window_handle;
-static Mel_Swapchain_Handle s_swapchain_handle;
-static Mel_Sprite_Pass* s_sp;
+static Mel_Window_Present_2D_Handle s_present;
 static Mel_Font_Handle s_font_handle;
 static Snake s_snake;
 static Mel_Sim_Ctx s_sim;
 static u8 s_event_buf[4096];
-static Mel_Render_Sync s_sync;
-static Mel_Draw_Ctx s_grid_ctx;
-static Mel_Render_List s_sprite_list;
-static Mel_Render_Target s_swapchain_target;
-static Mel_Render_Graph s_graph;
+static Mel_Render_List s_grid_list;
+static Mel_Render_List s_hud_text_list;
 static Mel_Camera s_camera;
 
 static u32 snake_rand(Snake* s)
@@ -340,136 +331,141 @@ static void snake_sync_transforms(Snake* s)
     }
 }
 
-static void snake_draw_text(Snake* s, Mel_Draw_Ctx* ctx, Mel_Font_Atlas_Pool* pool, Mel_Font_Handle font)
+static void push_rect(Mel_Render_List* list, f32 x, f32 y, f32 w, f32 h, Mel_Vec4 color, f32 depth)
+{
+    mel_draw_sprite(list,
+        .pos = mel_vec2(x, y),
+        .size = mel_vec2(w, h),
+        .color = color,
+        .depth = depth);
+}
+
+static void snake_draw_text(Snake* s, Mel_Render_List* list, Mel_Font_Atlas_Pool* pool, Mel_Font_Handle font)
 {
     Mel_Vec4 white = mel_vec4(1.0f, 1.0f, 1.0f, 1.0f);
     Mel_Vec4 dim = mel_vec4(0.6f, 0.6f, 0.6f, 1.0f);
+    Mel_Text_Style white_style = mel_text_style(white);
+    Mel_Text_Style dim_style = mel_text_style(dim);
 
     char buf[64];
 
-    mel_draw_ctx_text(ctx, .font = font, .text = S8("SNAKE"), .x = GRID_X_OFFSET, .y = 20.0f, .color = white);
+    mel_text_draw_font_atlas(pool, font, list, S8("SNAKE"),
+        .x = GRID_X_OFFSET, .y = 20.0f, .style = white_style);
 
     snprintf(buf, sizeof(buf), "SCORE: %u", s->score);
-    mel_draw_ctx_text(ctx, .font = font, .text = str8_from_cstr(buf), .x = INFO_X, .y = GRID_Y_OFFSET, .color = white);
+    mel_text_draw_font_atlas(pool, font, list, str8_from_cstr(buf),
+        .x = INFO_X, .y = GRID_Y_OFFSET, .style = white_style);
 
     snprintf(buf, sizeof(buf), "LENGTH: %u", s->length);
-    mel_draw_ctx_text(ctx, .font = font, .text = str8_from_cstr(buf), .x = INFO_X, .y = GRID_Y_OFFSET + 40.0f, .color = white);
+    mel_text_draw_font_atlas(pool, font, list, str8_from_cstr(buf),
+        .x = INFO_X, .y = GRID_Y_OFFSET + 40.0f, .style = white_style);
 
     if (s->game_over)
     {
         Mel_Vec4 red = mel_vec4(1.0f, 0.2f, 0.2f, 1.0f);
+        Mel_Text_Style red_style = mel_text_style(red);
         f32 cx = GRID_X_OFFSET + 30.0f;
         f32 cy = GRID_Y_OFFSET + GRID_H * CELL_SIZE / 2.0f - 10.0f;
-        mel_draw_ctx_text(ctx, .font = font, .text = S8("GAME OVER"), .x = cx, .y = cy, .color = red);
-        mel_draw_ctx_text(ctx, .font = font, .text = S8("R to restart"), .x = cx + 10.0f, .y = cy + 30.0f, .color = dim);
+        mel_text_draw_font_atlas(pool, font, list, S8("GAME OVER"),
+            .x = cx, .y = cy, .style = red_style);
+        mel_text_draw_font_atlas(pool, font, list, S8("R to restart"),
+            .x = cx + 10.0f, .y = cy + 30.0f, .style = dim_style);
     }
 }
 
-static void build_grid(Mel_Draw_Ctx* ctx)
+static void build_grid(Mel_Render_List* list)
 {
-    mel_draw_ctx_clear(ctx);
+    mel_render_list_clear(list);
 
-    mel_draw_ctx_rect(ctx, GRID_X_OFFSET, GRID_Y_OFFSET,
+    push_rect(list, GRID_X_OFFSET, GRID_Y_OFFSET,
         (f32)GRID_W * CELL_SIZE, (f32)GRID_H * CELL_SIZE,
-        mel_vec4(0.05f, 0.05f, 0.08f, 1.0f));
+        mel_vec4(0.05f, 0.05f, 0.08f, 1.0f), -1.0f);
 
     Mel_Vec4 line_color = mel_vec4(0.1f, 0.1f, 0.13f, 1.0f);
     for (i32 row = 0; row <= GRID_H; row++)
     {
         f32 y = GRID_Y_OFFSET + (f32)row * CELL_SIZE;
-        mel_draw_ctx_rect(ctx, GRID_X_OFFSET, y, (f32)GRID_W * CELL_SIZE, 1.0f, line_color);
+        push_rect(list, GRID_X_OFFSET, y, (f32)GRID_W * CELL_SIZE, 1.0f, line_color, -1.0f);
     }
     for (i32 col = 0; col <= GRID_W; col++)
     {
         f32 x = GRID_X_OFFSET + (f32)col * CELL_SIZE;
-        mel_draw_ctx_rect(ctx, x, GRID_Y_OFFSET, 1.0f, (f32)GRID_H * CELL_SIZE, line_color);
+        push_rect(list, x, GRID_Y_OFFSET, 1.0f, (f32)GRID_H * CELL_SIZE, line_color, -1.0f);
     }
 }
 
-static void snake_write_entry(void* entry_ptr, ecs_iter_t* it, i32 row, void* user)
+static void snake_render_init(void)
 {
-    (void)user;
-    Mel_CTransform* t = ecs_field(it, Mel_CTransform, 0);
-    Mel_Sprite* sp = ecs_field(it, Mel_Sprite, 1);
-    Mel_Sprite_Entry* entry = entry_ptr;
-    entry->pos = t[row].pos;
-    entry->size = sp[row].size;
-    entry->color = sp[row].color;
-    entry->tex = sp[row].tex;
-    entry->uv = sp[row].uv.w > 0 ? sp[row].uv : MEL_UV_FULL;
+    s_present = mel_window_present_world_2d(s_window_handle,
+        .name = S8("snake"),
+        .world = &s_snake.ecs,
+        .world_camera = &s_camera,
+        .hud_camera = &s_camera,
+        .clear_color_enabled = true,
+        .clear_color = mel_vec4(0.08f, 0.08f, 0.1f, 1.0f),
+        .design_width = WINDOW_W,
+        .design_height = WINDOW_H,
+        .alloc = mel_alloc_heap());
+    assert(mel_window_present_2d_handle_valid(s_present));
+
+    mel_render_list_init(&s_grid_list,
+        .name = S8("snake_grid"),
+        .entry_stride = sizeof(Mel_Sprite_Entry),
+        .mode = MEL_RENDER_LIST_EPHEMERAL,
+        .alloc = mel_alloc_heap());
+
+    mel_render_list_init(&s_hud_text_list,
+        .name = S8("snake_hud_text"),
+        .entry_stride = sizeof(Mel_Text_Entry),
+        .mode = MEL_RENDER_LIST_EPHEMERAL,
+        .alloc = mel_alloc_heap());
+
+    bool ok = mel_window_present_2d_attach_sprite_list(s_present, &s_grid_list);
+    assert(ok);
+    ok = mel_window_present_2d_attach_text_list_to_layer(s_present,
+        MEL_RENDER_STAGE_2D_LAYER_HUD, &s_hud_text_list);
+    assert(ok);
 }
 
-static void grid_pass(Mel_Render_Pass_Ctx* ctx)
+static void snake_render_shutdown(void)
 {
-    Mel_Mat4 proj = mel_camera_vp(ctx->camera);
-    mel_draw_ctx_render(&s_grid_ctx, ctx->cmd.cmd, &proj);
+    mel_window_unpresent_2d(s_present);
+    s_present = MEL_WINDOW_PRESENT_2D_HANDLE_NULL;
+    mel_render_list_shutdown(&s_hud_text_list);
+    mel_render_list_shutdown(&s_grid_list);
 }
 
 static void on_init(void)
 {
-    Mel_Gpu_Device* dev = mel_gpu_dev();
-    Mel_Swapchain* sc = &mel_swapchain_registry_get(s_swapchain_handle)->swapchain;
-    s_sp = mel_sprite_pass();
-
-    mel_draw_ctx_init(&s_grid_ctx,
-        .pipeline = &s_sp->pipeline, .texture = &s_sp->white_texture,
-        .pool = mel_texture_pool(), .font_pool = mel_font_pool(), .dev = dev, .alloc = mel_alloc_heap());
-
     s_font_handle = mel_font_atlas_pool_load(mel_font_pool(),
         .path = S8("/System/Library/Fonts/Monaco.ttf"), .size = 18.0f);
 
-
     snake_init(&s_snake);
-
-    mel_render_list_init(&s_sprite_list,
-        .entry_stride = sizeof(Mel_Sprite_Entry),
-        .alloc = mel_alloc_heap());
-
-    mel_render_sync_init(&s_sync,
-        .list = &s_sprite_list,
-        .world = s_snake.ecs.world,
-        .components = { ecs_id(Mel_CTransform), ecs_id(Mel_Sprite) },
-        .write = snake_write_entry);
-
-    mel_render_target_init_swapchain(&s_swapchain_target, sc, dev, S8("backbuffer"));
 
     s_camera = (Mel_Camera){
         .view = MEL_MAT4_IDENTITY,
-        .projection = mel_mat4_ortho(0, (f32)sc->extent.width,
-                                      0, (f32)sc->extent.height, -1, 1),
+        .projection = mel_mat4_ortho(0, (f32)WINDOW_W,
+                                      0, (f32)WINDOW_H, -1, 1),
     };
 
-    mel_render_graph_init(&s_graph, .dev = dev, .alloc = mel_alloc_heap());
-
-    u32 grid_id = mel_render_graph_add_pass(&s_graph, S8("grid"),
-        .fn = grid_pass,
-        .camera = &s_camera,
-        .write_targets = MEL_WRITE_TARGETS(
-            { .target = &s_swapchain_target, .load_op = VK_ATTACHMENT_LOAD_OP_CLEAR,
-              .clear.color = { .r = 0.08f, .g = 0.08f, .b = 0.1f, .a = 1.0f } }));
-
-    u32 sprite_id = mel_render_graph_add_pass(&s_graph, S8("sprite"),
-        .fn = mel_sprite_pass_execute,
-        .user = s_sp,
-        .camera = &s_camera,
-        .read_lists = MEL_LISTS(&s_sprite_list),
-        .write_targets = MEL_WRITE_TARGETS(
-            { .target = &s_swapchain_target, .load_op = VK_ATTACHMENT_LOAD_OP_LOAD }));
-
-    mel_render_graph_pass_depends_on(&s_graph, sprite_id, grid_id);
-    mel_render_graph_compile(&s_graph);
-    mel_set_render_graph(&s_graph);
+    snake_render_init();
 
     SDL_Log("Snake ready! Arrow keys to move, R to restart, ESC to quit");
 }
 
 static void app_update(Mel_Sim_Ctx* sim, f32 dt, void* user);
 
+Mel_App_Config app_config(void)
+{
+    return (Mel_App_Config){
+        .app_name = S8("Melody Snake"),
+        .enable_validation = true,
+    };
+}
+
 void app_init(void)
 {
-    mel_init(.app_name = S8("Melody Snake"), .enable_validation = true);
-    s_window_handle = mel_window_create(S8("Melody Snake"), .width = 640, .height = 580);
-    s_swapchain_handle = mel_gpu_swapchain_create_for_window(mel_gpu_dev(), s_window_handle);
+    s_window_handle = mel_window_create(S8("Melody Snake"), .width = WINDOW_W, .height = WINDOW_H);
     mel_vfs_mount_native(mel_vfs(), S8("/"), S8("/"), 0, false);
 
     on_init();
@@ -484,11 +480,7 @@ void app_shutdown(void)
     mel_unregister_sim(&s_sim);
     mel_sim_shutdown(&s_sim);
 
-    mel_draw_ctx_shutdown(&s_grid_ctx);
-    mel_render_sync_shutdown(&s_sync);
-    mel_render_list_shutdown(&s_sprite_list);
-    mel_render_graph_shutdown(&s_graph);
-    mel_render_target_shutdown(&s_swapchain_target);
+    snake_render_shutdown();
 
     if (s_snake.segment_query) ecs_query_fini(s_snake.segment_query);
     if (s_snake.follow_query) ecs_query_fini(s_snake.follow_query);
@@ -506,11 +498,9 @@ static void app_update(Mel_Sim_Ctx* sim, f32 dt, void* user)
     snake_tick(&s_snake, dt);
     snake_sync_transforms(&s_snake);
 
-    mel_render_sync_update(&s_sync);
-
-    build_grid(&s_grid_ctx);
-    snake_draw_text(&s_snake, &s_grid_ctx, mel_font_pool(), s_font_handle);
-    mel_draw_ctx_commit(&s_grid_ctx);
+    build_grid(&s_grid_list);
+    mel_render_list_clear(&s_hud_text_list);
+    snake_draw_text(&s_snake, &s_hud_text_list, mel_font_pool(), s_font_handle);
 }
 
 void app_event(SDL_Event* event)
@@ -541,13 +531,9 @@ void app_event(SDL_Event* event)
                 if (dir && dir->dy != -1) { s->queued_dx = 0; s->queued_dy = 1; }
                 break;
             case SDL_SCANCODE_R:
-                mel_render_sync_shutdown(&s_sync);
+                snake_render_shutdown();
                 snake_init(s);
-                mel_render_sync_init(&s_sync,
-                    .list = &s_sprite_list,
-                    .world = s->ecs.world,
-                    .components = { ecs_id(Mel_CTransform), ecs_id(Mel_Sprite) },
-                    .write = snake_write_entry);
+                snake_render_init();
                 break;
             default: break;
         }

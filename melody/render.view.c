@@ -6,6 +6,8 @@
 struct Mel_View {
     Mel_View_Desc desc;
     Mel_Array(Mel_Source_Handle) sources;
+    u64 parameter_version;
+    u64 topology_version;
 };
 
 static Mel_SlotMap s_views;
@@ -48,6 +50,8 @@ Mel_View_Handle mel_view_create(const Mel_View_Desc* desc)
 
     Mel_View view = {
         .desc = *desc,
+        .parameter_version = 1,
+        .topology_version = 1,
     };
     mel_array_init(&view.sources, mel_alloc_heap());
 
@@ -73,6 +77,7 @@ void mel_view_attach_source(Mel_View_Handle handle, Mel_Source_Handle source)
             return;
 
     mel_array_push(&view->sources, source);
+    view->topology_version++;
 }
 
 void mel_view_detach_source(Mel_View_Handle handle, Mel_Source_Handle source)
@@ -85,6 +90,7 @@ void mel_view_detach_source(Mel_View_Handle handle, Mel_Source_Handle source)
             view->sources.items[i].handle.generation == source.handle.generation)
         {
             mel_array_remove_ordered(&view->sources, i);
+            view->topology_version++;
             return;
         }
     }
@@ -133,6 +139,75 @@ u32 mel_view_design_height(Mel_View_Handle handle)
 void* mel_view_user(Mel_View_Handle handle)
 {
     return mel__view_get(handle)->desc.user;
+}
+
+u64 mel_view_parameter_version(Mel_View_Handle handle)
+{
+    return mel__view_get(handle)->parameter_version;
+}
+
+u64 mel_view_topology_version(Mel_View_Handle handle)
+{
+    return mel__view_get(handle)->topology_version;
+}
+
+void mel_view_set_camera(Mel_View_Handle handle, const Mel_Camera* camera)
+{
+    Mel_View* view = mel__view_get(handle);
+    if (view->desc.camera == camera)
+        return;
+    view->desc.camera = camera;
+    view->parameter_version++;
+}
+
+void mel_view_set_clear_color_enabled(Mel_View_Handle handle, bool enabled)
+{
+    Mel_View* view = mel__view_get(handle);
+    if (view->desc.clear_color_enabled == enabled)
+        return;
+    view->desc.clear_color_enabled = enabled;
+    view->parameter_version++;
+}
+
+void mel_view_set_clear_color(Mel_View_Handle handle, Mel_Vec4 clear_color)
+{
+    Mel_View* view = mel__view_get(handle);
+    if (view->desc.clear_color.x == clear_color.x &&
+        view->desc.clear_color.y == clear_color.y &&
+        view->desc.clear_color.z == clear_color.z &&
+        view->desc.clear_color.w == clear_color.w)
+        return;
+    view->desc.clear_color = clear_color;
+    view->parameter_version++;
+}
+
+void mel_view_set_target_mode(Mel_View_Handle handle, u32 target_mode)
+{
+    Mel_View* view = mel__view_get(handle);
+    if (view->desc.target_mode == target_mode)
+        return;
+    view->desc.target_mode = target_mode;
+    view->parameter_version++;
+}
+
+void mel_view_set_design_size(Mel_View_Handle handle, u32 width, u32 height)
+{
+    Mel_View* view = mel__view_get(handle);
+    if (view->desc.design_width == width &&
+        view->desc.design_height == height)
+        return;
+    view->desc.design_width = width;
+    view->desc.design_height = height;
+    view->parameter_version++;
+}
+
+void mel_view_set_user(Mel_View_Handle handle, void* user)
+{
+    Mel_View* view = mel__view_get(handle);
+    if (view->desc.user == user)
+        return;
+    view->desc.user = user;
+    view->parameter_version++;
 }
 
 u32 mel_view_source_count(Mel_View_Handle handle)

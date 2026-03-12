@@ -24,3 +24,4 @@ Mel_Swapchain_Handle mel_window_swapchain(Mel_Window_Handle handle);
 
 #include <SDL3/SDL.h>
 SDL_Window* mel__window_sdl(Mel_Window_Handle handle);
+Mel_Window_Handle mel__window_find_by_id(u32 id);

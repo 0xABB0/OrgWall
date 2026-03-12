@@ -5,6 +5,83 @@
 #include "allocator.heap.h"
 #include <string.h>
 
+static i32 rate_device(VkPhysicalDevice device);
+
+static const char* device_type_name(VkPhysicalDeviceType type)
+{
+    switch (type)
+    {
+    case VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU: return "integrated";
+    case VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU: return "discrete";
+    case VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU: return "virtual";
+    case VK_PHYSICAL_DEVICE_TYPE_CPU: return "cpu";
+    default: return "other";
+    }
+}
+
+static void log_queue_families(VkPhysicalDevice device, VkSurfaceKHR surface)
+{
+    u32 count = 0;
+    vkGetPhysicalDeviceQueueFamilyProperties(device, &count, nullptr);
+    if (count == 0)
+        return;
+
+    VkQueueFamilyProperties* props = mel_alloc(mel_alloc_heap(), sizeof(VkQueueFamilyProperties) * count);
+    vkGetPhysicalDeviceQueueFamilyProperties(device, &count, props);
+
+    for (u32 i = 0; i < count; i++)
+    {
+        VkBool32 present_support = VK_FALSE;
+        if (surface != VK_NULL_HANDLE)
+            vkGetPhysicalDeviceSurfaceSupportKHR(device, i, surface, &present_support);
+
+        SDL_Log("Queue family %u: count=%u flags=%s%s%s%s present=%s",
+            i,
+            props[i].queueCount,
+            (props[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) ? "graphics " : "",
+            (props[i].queueFlags & VK_QUEUE_COMPUTE_BIT) ? "compute " : "",
+            (props[i].queueFlags & VK_QUEUE_TRANSFER_BIT) ? "transfer " : "",
+            (props[i].queueFlags & VK_QUEUE_SPARSE_BINDING_BIT) ? "sparse " : "",
+            present_support ? "yes" : "no");
+    }
+
+    mel_dealloc(mel_alloc_heap(), props);
+}
+
+static void log_memory_heaps(VkPhysicalDevice device)
+{
+    VkPhysicalDeviceMemoryProperties mem = {0};
+    vkGetPhysicalDeviceMemoryProperties(device, &mem);
+
+    for (u32 i = 0; i < mem.memoryHeapCount; i++)
+    {
+        f64 gib = (f64)mem.memoryHeaps[i].size / (1024.0 * 1024.0 * 1024.0);
+        SDL_Log("Memory heap %u: %.2f GiB flags=%s%s",
+            i,
+            gib,
+            (mem.memoryHeaps[i].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) ? "device_local " : "",
+            (mem.memoryHeaps[i].flags & VK_MEMORY_HEAP_MULTI_INSTANCE_BIT) ? "multi_instance " : "");
+    }
+}
+
+static void log_available_devices(VkPhysicalDevice* devices, u32 count)
+{
+    for (u32 i = 0; i < count; i++)
+    {
+        VkPhysicalDeviceProperties props = {0};
+        vkGetPhysicalDeviceProperties(devices[i], &props);
+        i32 score = rate_device(devices[i]);
+        SDL_Log("GPU candidate %u: %s (%s, Vulkan %u.%u.%u, score=%d)",
+            i,
+            props.deviceName,
+            device_type_name(props.deviceType),
+            VK_API_VERSION_MAJOR(props.apiVersion),
+            VK_API_VERSION_MINOR(props.apiVersion),
+            VK_API_VERSION_PATCH(props.apiVersion),
+            score);
+    }
+}
+
 static VKAPI_ATTR VkBool32 VKAPI_CALL debug_callback(
     VkDebugUtilsMessageSeverityFlagBitsEXT severity,
     VkDebugUtilsMessageTypeFlagsEXT type,
@@ -253,6 +330,8 @@ static bool pick_physical_device(Mel_Gpu_Device* dev)
     VkPhysicalDevice* devices = mel_alloc(mel_alloc_heap(), sizeof(VkPhysicalDevice) * count);
     vkEnumeratePhysicalDevices(dev->instance, &count, devices);
 
+    log_available_devices(devices, count);
+
     i32 best_score = -1;
     VkPhysicalDevice best_device = VK_NULL_HANDLE;
 
@@ -286,7 +365,11 @@ static bool pick_physical_device(Mel_Gpu_Device* dev)
 
     vkGetPhysicalDeviceProperties2(dev->physical_device, &dev->device_properties);
 
-    SDL_Log("Selected GPU: %s", dev->device_properties.properties.deviceName);
+    SDL_Log("Selected GPU: %s (%s)",
+        dev->device_properties.properties.deviceName,
+        device_type_name(dev->device_properties.properties.deviceType));
+    log_memory_heaps(dev->physical_device);
+    log_queue_families(dev->physical_device, VK_NULL_HANDLE);
     return true;
 }
 
@@ -322,7 +405,47 @@ static bool create_logical_device(Mel_Gpu_Device* dev)
     vkEnumerateDeviceExtensionProperties(dev->physical_device, nullptr, &ext_count, available_exts);
 
     dev->has_descriptor_buffer = has_extension(available_exts, ext_count, VK_EXT_DESCRIPTOR_BUFFER_EXTENSION_NAME);
+    bool has_mesh_shader = has_extension(available_exts, ext_count, VK_EXT_MESH_SHADER_EXTENSION_NAME);
     bool has_portability = has_extension(available_exts, ext_count, "VK_KHR_portability_subset");
+    dev->has_portability_subset = has_portability;
+
+    VkPhysicalDeviceMeshShaderFeaturesEXT mesh_shader_query = {
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT,
+    };
+    VkPhysicalDeviceBufferDeviceAddressFeatures bda_query = {
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES,
+    };
+    VkPhysicalDeviceSynchronization2Features sync2_query = {
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES,
+        .pNext = &bda_query,
+    };
+    VkPhysicalDeviceDynamicRenderingFeatures dynamic_rendering_query = {
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES,
+        .pNext = &sync2_query,
+    };
+    void* query_chain = &dynamic_rendering_query;
+    if (has_mesh_shader)
+    {
+        mesh_shader_query.pNext = query_chain;
+        query_chain = &mesh_shader_query;
+    }
+    VkPhysicalDeviceFeatures2 supported_features = {
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+        .pNext = query_chain,
+    };
+    vkGetPhysicalDeviceFeatures2(dev->physical_device, &supported_features);
+
+    dev->capabilities = (Mel_Gpu_Capabilities){
+        .synchronization2 = sync2_query.synchronization2 == VK_TRUE,
+        .dynamic_rendering = dynamic_rendering_query.dynamicRendering == VK_TRUE,
+        .buffer_device_address = bda_query.bufferDeviceAddress == VK_TRUE,
+        .descriptor_buffer = dev->has_descriptor_buffer,
+        .mesh_shader = has_mesh_shader && mesh_shader_query.meshShader == VK_TRUE,
+        .timestamp_queries = dev->device_properties.properties.limits.timestampPeriod > 0.0f,
+        .portability_subset = has_portability,
+        .present_queue = dev->has_present_queue,
+    };
+
     mel_dealloc(mel_alloc_heap(), available_exts);
 
     u32 enabled_ext_count = 0;
@@ -335,19 +458,19 @@ static bool create_logical_device(Mel_Gpu_Device* dev)
 
     VkPhysicalDeviceBufferDeviceAddressFeatures bda_features = {
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES,
-        .bufferDeviceAddress = VK_TRUE,
+        .bufferDeviceAddress = dev->capabilities.buffer_device_address ? VK_TRUE : VK_FALSE,
     };
 
     VkPhysicalDeviceSynchronization2Features sync2_features = {
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES,
         .pNext = &bda_features,
-        .synchronization2 = VK_TRUE,
+        .synchronization2 = dev->capabilities.synchronization2 ? VK_TRUE : VK_FALSE,
     };
 
     VkPhysicalDeviceDynamicRenderingFeatures dynamic_rendering_features = {
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES,
         .pNext = &sync2_features,
-        .dynamicRendering = VK_TRUE,
+        .dynamicRendering = dev->capabilities.dynamic_rendering ? VK_TRUE : VK_FALSE,
     };
 
     VkPhysicalDeviceFeatures2 features2 = {
@@ -454,6 +577,12 @@ void mel_gpu_device_wait_idle(Mel_Gpu_Device* dev)
     vkDeviceWaitIdle(dev->device);
 }
 
+Mel_Gpu_Capabilities mel_gpu_capabilities(Mel_Gpu_Device* dev)
+{
+    assert(dev != nullptr);
+    return dev->capabilities;
+}
+
 VkSurfaceKHR mel_gpu_surface_create(Mel_Gpu_Device* dev, SDL_Window* window)
 {
     assert(dev != nullptr);
@@ -491,5 +620,9 @@ bool mel_gpu_device_configure_present(Mel_Gpu_Device* dev, VkSurfaceKHR surface)
     dev->present_family = present;
     vkGetDeviceQueue(dev->device, dev->present_family, 0, &dev->present_queue);
     dev->has_present_queue = true;
+    dev->capabilities.present_queue = true;
+    SDL_Log("Present queue configured: graphics=%u present=%u transfer=%u",
+        graphics, present, transfer);
+    log_queue_families(dev->physical_device, surface);
     return true;
 }

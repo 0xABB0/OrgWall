@@ -5,6 +5,7 @@
 #include "gpu.swapchain.h"
 #include "swapchain.h"
 #include "window.h"
+#include "window.present.2d.h"
 #include "allocator.h"
 #include "allocator.heap.h"
 #include "allocator.tracking.h"
@@ -41,7 +42,9 @@ static Mel_Vfs s_vfs;
 static Mel_Render_Graph* s_render_graph;
 static Mel_Sim_Ctx* s_sim_head;
 static f32 s_max_frame_time;
-static f32 s_frame_dt;
+static Mel_Frame_Stats s_frame_stats;
+static f32 s_fps_accum;
+static u32 s_fps_frames;
 static u64 s_last_time;
 static u64 s_frame_count;
 static bool s_initialized;
@@ -247,6 +250,7 @@ void mel_shutdown(void)
 
     vkDeviceWaitIdle(s_dev.device);
     mel_stage_shutdown_all();
+    mel__window_present_2d_shutdown_all();
 
     if (s_imgui_initialized)
     {
@@ -294,7 +298,9 @@ void mel_shutdown(void)
     mel_gpu_submit_shutdown(&s_dev);
     mel_gpu_device_shutdown(&s_dev);
 
+#ifndef TRACY_ENABLE
     mel_tracking_report(s_tracking);
+#endif
     const Mel_Alloc* backing = s_tracking->backing;
     mel_dealloc(backing, s_tracking);
     s_tracking = nullptr;
@@ -406,7 +412,19 @@ void mel_frame(void)
     if (frame_time > s_max_frame_time)
         frame_time = s_max_frame_time;
 
-    s_frame_dt = frame_time;
+    s_frame_stats.dt = frame_time;
+    s_fps_accum += frame_time;
+    s_fps_frames++;
+    if (s_fps_accum >= 0.25f)
+    {
+        s_frame_stats.fps = s_fps_frames > 0 && s_fps_accum > 0.0f ? (f32)s_fps_frames / s_fps_accum : 0.0f;
+        s_fps_accum = 0.0f;
+        s_fps_frames = 0;
+    }
+    else if (s_frame_stats.fps <= 0.0f && frame_time > 0.0f)
+    {
+        s_frame_stats.fps = 1.0f / frame_time;
+    }
 
     {
         TracyCZoneN(ctx_sims, "tick_simulations", true);
@@ -421,11 +439,19 @@ void mel_frame(void)
         TracyCZoneEnd(ctx_stages);
     }
 
+    {
+        TracyCZoneN(ctx_present, "tick_presentations", true);
+        mel__window_present_2d_tick();
+        TracyCZoneEnd(ctx_present);
+    }
+
     if (s_imgui_initialized)
     {
+        TracyCZoneN(ctx_imgui_begin, "imgui_new_frame", true);
         ImGui_ImplVulkan_NewFrame();
         ImGui_ImplSDL3_NewFrame();
         igNewFrame();
+        TracyCZoneEnd(ctx_imgui_begin);
     }
 
     if (s_render_graph)
@@ -440,12 +466,15 @@ void mel_frame(void)
         ImGuiIO* io = igGetIO_Nil();
         if (io->ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
         {
+            TracyCZoneN(ctx_imgui_viewports, "imgui_platform_windows", true);
             igUpdatePlatformWindows();
             igRenderPlatformWindowsDefault(nullptr, nullptr);
+            TracyCZoneEnd(ctx_imgui_viewports);
         }
     }
 
     s_frame_count++;
+    s_frame_stats.frame_count = s_frame_count;
     TracyCZoneEnd(ctx_iterate);
 
     TracyCFrameMark;
@@ -453,8 +482,14 @@ void mel_frame(void)
 
 void mel_process_event(SDL_Event* event)
 {
+    mel__window_present_2d_process_event(event);
     if (s_imgui_initialized)
         ImGui_ImplSDL3_ProcessEvent(event);
+}
+
+Mel_Frame_Stats mel_frame_stats(void)
+{
+    return s_frame_stats;
 }
 
 void mel__engine_init(void)

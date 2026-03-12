@@ -191,6 +191,22 @@ Mugen_Char* mugen_roster_find(Mugen_Roster* r, str8 name)
     return NULL;
 }
 
+Mugen_Char* mugen_roster_at(Mugen_Roster* r, u32 index)
+{
+    Mugen_Roster_Entry* data = mel_slotmap_data(&r->entries);
+    u32 count = mel_slotmap_count(&r->entries);
+    if (index >= count) return NULL;
+    return &data[index].ch;
+}
+
+str8 mugen_roster_name_at(Mugen_Roster* r, u32 index)
+{
+    Mugen_Roster_Entry* data = mel_slotmap_data(&r->entries);
+    u32 count = mel_slotmap_count(&r->entries);
+    if (index >= count) return (str8){0};
+    return data[index].name;
+}
+
 Mugen_Char* mugen_roster_get(Mugen_Roster* r, Mugen_Char_Handle h)
 {
     Mugen_Roster_Entry* entry = mel_slotmap_get(&r->entries, h);

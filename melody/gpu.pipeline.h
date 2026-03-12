@@ -28,6 +28,10 @@ struct Mel_Gpu_Pipeline {
     VkPipelineLayout layout;
     VkDescriptorSetLayout descriptor_layout;
     VkDescriptorPool descriptor_pool;
+    VkDescriptorPool* descriptor_pools;
+    u32 descriptor_pool_count;
+    u32 descriptor_pool_capacity;
+    u32 descriptor_pool_max_sets;
     u64 hash;
 };
 

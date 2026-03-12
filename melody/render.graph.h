@@ -5,6 +5,7 @@
 #include "collection.array.h"
 #include "string.str8.fwd.h"
 #include "swapchain.fwd.h"
+#include "gpu.tracy.fwd.h"
 
 #ifndef MEL_MAX_FRAMES_IN_FLIGHT
 #define MEL_MAX_FRAMES_IN_FLIGHT 3
@@ -21,6 +22,7 @@ struct Mel_Render_Graph_Pass {
     u32 viewport_design_width;
     u32 viewport_design_height;
     Mel_Render_List** read_lists;
+    Mel_Source_Handle* read_sources;
     Mel_Render_List** write_lists;
     Mel_Render_Target** read_targets;
     Mel_Pass_Write_Target* write_targets;
@@ -64,6 +66,7 @@ struct Mel_Render_Graph {
     u32 frame_count;
     u32 current_frame;
     u64 execute_count;
+    Mel_Gpu_Tracy_Ctx* tracy_ctx;
 };
 
 typedef struct {

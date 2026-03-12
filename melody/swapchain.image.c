@@ -10,6 +10,7 @@
 typedef struct {
     const Mel_Alloc* alloc;
     VmaAllocation* image_allocs;
+    VkImageLayout* image_layouts;
 
     Mel_Gpu_Buffer staging;
     bool has_staging;
@@ -29,11 +30,13 @@ static bool create_images(Mel_Swapchain* sc, Mel_Gpu_Device* dev)
     sc->images = mel_alloc(alloc, sizeof(VkImage) * sc->image_count);
     sc->image_views = mel_alloc(alloc, sizeof(VkImageView) * sc->image_count);
     img->image_allocs = mel_alloc(alloc, sizeof(VmaAllocation) * sc->image_count);
+    img->image_layouts = mel_alloc(alloc, sizeof(VkImageLayout) * sc->image_count);
 
     VkImageUsageFlags usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
 
     for (u32 i = 0; i < sc->image_count; i++)
     {
+        img->image_layouts[i] = VK_IMAGE_LAYOUT_UNDEFINED;
         VkImageCreateInfo image_info = {
             .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
             .imageType = VK_IMAGE_TYPE_2D,
@@ -115,6 +118,12 @@ static void destroy_images(Mel_Swapchain* sc, Mel_Gpu_Device* dev)
         mel_dealloc(alloc, img->image_allocs);
         sc->images = nullptr;
         img->image_allocs = nullptr;
+    }
+
+    if (img->image_layouts)
+    {
+        mel_dealloc(alloc, img->image_layouts);
+        img->image_layouts = nullptr;
     }
 }
 
@@ -198,6 +207,11 @@ static bool image_present(Mel_Swapchain* sc, Mel_Gpu_Device* dev, VkCommandBuffe
         u32 stride = sc->extent.width * pixel_size;
 
         img->on_present(img->staging.mapped, sc->extent.width, sc->extent.height, stride, img->user_data);
+        img->image_layouts[sc->current_image] = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    }
+    else
+    {
+        img->image_layouts[sc->current_image] = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
     }
 
     img->current_frame = (img->current_frame + 1) % img->frame_count;
@@ -250,11 +264,20 @@ static void image_shutdown(Mel_Swapchain* sc, Mel_Gpu_Device* dev)
     sc->data = nullptr;
 }
 
+static VkImageLayout image_current_image_layout(Mel_Swapchain* sc)
+{
+    Mel_Image_Swapchain* img = sc->data;
+    if (!img->image_layouts)
+        return VK_IMAGE_LAYOUT_UNDEFINED;
+    return img->image_layouts[sc->current_image];
+}
+
 static const Mel_Swapchain_Vtable image_vtable = {
     .acquire  = image_acquire,
     .present  = image_present,
     .resize   = image_resize,
     .shutdown = image_shutdown,
+    .current_image_layout = image_current_image_layout,
 };
 
 bool mel_swapchain_image_init_opt(Mel_Swapchain* sc, Mel_Gpu_Device* dev, Mel_Swapchain_Image_Opt opt)

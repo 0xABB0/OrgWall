@@ -18,7 +18,16 @@ typedef struct {
     const Mel_Alloc* alloc;
 } Mel_Gpu_Swapchain_Opt;
 
+typedef struct {
+    VkPresentModeKHR preferred_present_mode;
+    u32 frame_count;
+    const Mel_Alloc* alloc;
+} Mel_Gpu_Window_Swapchain_Opt;
+
 bool mel_gpu_swapchain_init_opt(Mel_Swapchain* sc, Mel_Gpu_Device* dev, Mel_Gpu_Swapchain_Opt opt);
 #define mel_gpu_swapchain_init(sc, dev, ...) mel_gpu_swapchain_init_opt((sc), (dev), (Mel_Gpu_Swapchain_Opt){__VA_ARGS__})
 
 Mel_Swapchain_Handle mel_gpu_swapchain_create_for_window(Mel_Gpu_Device* dev, Mel_Window_Handle window);
+Mel_Swapchain_Handle mel_gpu_swapchain_create_for_window_opt(Mel_Gpu_Device* dev, Mel_Window_Handle window, Mel_Gpu_Window_Swapchain_Opt opt);
+#define mel_gpu_swapchain_create_for_window_ex(dev, window, ...) \
+    mel_gpu_swapchain_create_for_window_opt((dev), (window), (Mel_Gpu_Window_Swapchain_Opt){__VA_ARGS__})

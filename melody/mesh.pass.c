@@ -2,6 +2,7 @@
 #include "render.list.h"
 #include "render.pass.h"
 #include "render.camera.h"
+#include "render.source.h"
 #include "allocator.heap.h"
 #include "string.str8.h"
 
@@ -105,7 +106,13 @@ static void mel__mesh_pass_draw_list(Mel_Render_List* list, Mel_Mesh_Pass* pass)
     }
 }
 
-static void mel__mesh_pass_flush(Mel_Mesh_Pass* pass, Mel_Gpu_Cmd cmd, const Mel_Mat4* projection)
+static void mel__mesh_pass_bind(Mel_Mesh_Pass* pass, Mel_Gpu_Cmd cmd, const Mel_Mat4* projection)
+{
+    mel_gpu_pipeline_bind(&pass->pipeline, cmd.cmd);
+    vkCmdPushConstants(cmd.cmd, pass->pipeline.layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(Mel_Mat4), projection);
+}
+
+static void mel__mesh_pass_flush(Mel_Mesh_Pass* pass, Mel_Gpu_Cmd cmd)
 {
     if (pass->index_count == 0)
         return;
@@ -114,14 +121,23 @@ static void mel__mesh_pass_flush(Mel_Mesh_Pass* pass, Mel_Gpu_Cmd cmd, const Mel
     mel_gpu_buffer_flush(&frame->vertex_buffer, cmd.dev);
     mel_gpu_buffer_flush(&frame->index_buffer, cmd.dev);
 
-    mel_gpu_pipeline_bind(&pass->pipeline, cmd.cmd);
-    vkCmdPushConstants(cmd.cmd, pass->pipeline.layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(Mel_Mat4), projection);
-
     VkBuffer buffers[] = { frame->vertex_buffer.buffer };
     VkDeviceSize offsets[] = { 0 };
     vkCmdBindVertexBuffers(cmd.cmd, 0, 1, buffers, offsets);
     vkCmdBindIndexBuffer(cmd.cmd, frame->index_buffer.buffer, 0, VK_INDEX_TYPE_UINT32);
     vkCmdDrawIndexed(cmd.cmd, pass->index_count, 1, 0, 0, 0);
+}
+
+static void mel__mesh_pass_draw_stream(Mel_Gpu_Cmd cmd, const Mel_Mesh_Gpu_Draw_Stream* stream)
+{
+    if (!stream || stream->vertex_buffer == VK_NULL_HANDLE || stream->index_buffer == VK_NULL_HANDLE || stream->index_count == 0)
+        return;
+
+    VkBuffer buffers[] = { stream->vertex_buffer };
+    VkDeviceSize offsets[] = { 0 };
+    vkCmdBindVertexBuffers(cmd.cmd, 0, 1, buffers, offsets);
+    vkCmdBindIndexBuffer(cmd.cmd, stream->index_buffer, 0, VK_INDEX_TYPE_UINT32);
+    vkCmdDrawIndexed(cmd.cmd, stream->index_count, 1, 0, 0, 0);
 }
 
 bool mel_mesh_pass_init_opt(Mel_Mesh_Pass* pass, Mel_Mesh_Pass_Init_Opt opt)
@@ -210,7 +226,40 @@ void mel_mesh_pass_execute(Mel_Render_Pass_Ctx* ctx)
             mel__mesh_pass_draw_list(ctx->read_lists[i], pass);
     }
 
-    mel__mesh_pass_flush(pass, ctx->cmd, &vp);
+    bool has_gpu_streams = false;
+    if (ctx->read_sources)
+    {
+        for (u32 i = 0; mel_source_handle_valid(ctx->read_sources[i]); i++)
+        {
+            Mel_Source_Handle source = ctx->read_sources[i];
+            if (mel_source_kind(source) == MEL_SOURCE_GPU_BUFFER &&
+                mel_source_schema(source) == MEL_SCHEMA_MESH_DRAW_STREAM &&
+                mel_source_user(source) != nullptr)
+            {
+                has_gpu_streams = true;
+                break;
+            }
+        }
+    }
+
+    if (pass->index_count > 0 || has_gpu_streams)
+        mel__mesh_pass_bind(pass, ctx->cmd, &vp);
+
+    mel__mesh_pass_flush(pass, ctx->cmd);
+
+    if (ctx->read_sources)
+    {
+        for (u32 i = 0; mel_source_handle_valid(ctx->read_sources[i]); i++)
+        {
+            Mel_Source_Handle source = ctx->read_sources[i];
+            if (mel_source_kind(source) != MEL_SOURCE_GPU_BUFFER ||
+                mel_source_schema(source) != MEL_SCHEMA_MESH_DRAW_STREAM)
+                continue;
+
+            const Mel_Mesh_Gpu_Draw_Stream* stream = mel_source_user(source);
+            mel__mesh_pass_draw_stream(ctx->cmd, stream);
+        }
+    }
 }
 
 void mel_draw_mesh_opt(Mel_Render_List* list, Mel_Draw_Mesh_Opt opt)

@@ -110,6 +110,19 @@ bool mel_render_default_3d_attach_mesh_list(Mel_Render_Default_3D* renderer, Mel
     return mel_render_default_3d_attach_mesh_list_to_view(renderer, renderer->view, list);
 }
 
+bool mel_render_default_3d_attach_mesh_source_to_view(Mel_Render_Default_3D* renderer, Mel_View_Handle view, Mel_Source_Handle source)
+{
+    assert(renderer != nullptr);
+    assert(mel_view_handle_valid(view));
+    assert(mel_source_handle_valid(source));
+    assert(mel_source_schema(source) == MEL_SCHEMA_MESH_INSTANCE ||
+        mel_source_schema(source) == MEL_SCHEMA_MESH_DRAW_STREAM);
+
+    mel_view_attach_source(view, source);
+    mel_frame_recipe_use_technique(renderer->recipe, view, MEL_TECHNIQUE_MESH);
+    return true;
+}
+
 bool mel_render_default_3d_attach_mesh_list_to_view(Mel_Render_Default_3D* renderer, Mel_View_Handle view, Mel_Render_List* list)
 {
     assert(renderer != nullptr);
@@ -133,9 +146,7 @@ bool mel_render_default_3d_attach_mesh_list_to_view(Mel_Render_Default_3D* rende
         mel_array_push(&renderer->owned_sources, source);
     }
 
-    mel_view_attach_source(view, source);
-    mel_frame_recipe_use_technique(renderer->recipe, view, MEL_TECHNIQUE_MESH);
-    return true;
+    return mel_render_default_3d_attach_mesh_source_to_view(renderer, view, source);
 }
 
 bool mel_render_default_3d_attach_sprite_list_to_view_family(Mel_Render_Default_3D* renderer, Mel_View_Handle view, Mel_Render_List* list, Mel_Technique_Family_Id family)
@@ -306,6 +317,18 @@ bool mel_render_default_3d_rebuild(Mel_Render_Default_3D* renderer)
         .mesh_pass = renderer->mesh_pass,
         .sprite_pass = renderer->sprite_pass,
         .text_pass = renderer->text_pass))
+        return false;
+
+    if (renderer->install_as_current_graph)
+        mel_set_render_graph(&renderer->graph);
+    return true;
+}
+
+bool mel_render_default_3d_refresh(Mel_Render_Default_3D* renderer)
+{
+    assert(renderer != nullptr);
+
+    if (!mel_frame_plan_refresh(renderer->plan, .dev = renderer->dev))
         return false;
 
     if (renderer->install_as_current_graph)

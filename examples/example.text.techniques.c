@@ -297,9 +297,16 @@ static void on_init(void)
     mel_imgui_init(s_window_handle, &mel_swapchain_registry_get(s_swapchain_handle)->swapchain);
 }
 
+Mel_App_Config app_config(void)
+{
+    return (Mel_App_Config){
+        .app_name = S8("Melody Text Techniques"),
+        .enable_validation = true,
+    };
+}
+
 void app_init(void)
 {
-    mel_init(.app_name = S8("Melody Text Techniques"), .enable_validation = true);
     s_window_handle = mel_window_create(S8("Melody Text Techniques"), .width = WIN_W, .height = WIN_H);
     s_swapchain_handle = mel_gpu_swapchain_create_for_window(mel_gpu_dev(), s_window_handle);
     mel_vfs_mount_native(mel_vfs(), S8("/"), S8("/"), 0, false);

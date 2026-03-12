@@ -75,6 +75,48 @@ static Mel_Swapchain_Handle make_mock_swapchain(void)
     return mel_swapchain_registry_insert(&entry);
 }
 
+static void test_user_technique_pass(Mel_Render_Pass_Ctx* ctx)
+{
+    (void)ctx;
+}
+
+static Mel_Technique_Check_Result test_user_support_mesh_shader(Mel_Frame_Plan_Technique_Ctx* ctx)
+{
+    bool ok = ctx->dev && ctx->dev->capabilities.mesh_shader;
+    return (Mel_Technique_Check_Result){
+        .ok = ok,
+        .kind = ok ? MEL_TECHNIQUE_CHECK_OK : MEL_TECHNIQUE_CHECK_CAPABILITY_UNAVAILABLE,
+        .reason = ok ? S8("mesh shader capability available") : S8("mesh shader capability unavailable"),
+    };
+}
+
+static Mel_Technique_Check_Result test_user_support_always(Mel_Frame_Plan_Technique_Ctx* ctx)
+{
+    (void)ctx;
+    return (Mel_Technique_Check_Result){
+        .ok = true,
+        .kind = MEL_TECHNIQUE_CHECK_OK,
+        .reason = S8("supported by current device"),
+    };
+}
+
+static Mel_Technique_Check_Result test_user_match_always(Mel_Frame_Plan_Technique_Ctx* ctx)
+{
+    (void)ctx;
+    return (Mel_Technique_Check_Result){
+        .ok = true,
+        .kind = MEL_TECHNIQUE_CHECK_OK,
+        .reason = S8("test view matches"),
+    };
+}
+
+static Mel_Technique_Compile_Result test_user_compile(const Mel_Technique_Compile_Ctx* ctx)
+{
+    bool ok = mel_frame_plan_add_pass(ctx->plan_ctx, ctx->technique->name,
+        test_user_technique_pass, nullptr, nullptr, nullptr, nullptr);
+    return ok ? MEL_TECHNIQUE_COMPILE_CONTRIBUTED : MEL_TECHNIQUE_COMPILE_FAIL;
+}
+
 MEL_TEST(frame_recipe_compiles_sprite_view_to_graph_pass, .tags = "render")
 {
     Mel_Render_List list;
@@ -245,6 +287,82 @@ MEL_TEST(frame_plan_reports_resolved_registered_techniques, .tags = "render")
     mel_render_list_shutdown(&list);
 }
 
+MEL_TEST(frame_plan_prefers_higher_priority_supported_user_variant, .tags = "render")
+{
+    const str8 accel_name = S8("user.mesh.accel");
+    const str8 fallback_name = S8("user.mesh.fallback");
+
+    mel_render_technique_register(&(Mel_Technique_Desc){
+        .family = MEL_TECHNIQUE_USER_BASE,
+        .name = accel_name,
+        .priority = 200,
+        .supports = test_user_support_mesh_shader,
+        .matches = test_user_match_always,
+        .compile = test_user_compile,
+    });
+    mel_render_technique_register(&(Mel_Technique_Desc){
+        .family = MEL_TECHNIQUE_USER_BASE,
+        .name = fallback_name,
+        .priority = 100,
+        .supports = test_user_support_always,
+        .matches = test_user_match_always,
+        .compile = test_user_compile,
+    });
+
+    Mel_Camera camera = {
+        .view = MEL_MAT4_IDENTITY,
+        .projection = MEL_MAT4_IDENTITY,
+    };
+    Mel_View_Handle view = mel_view_create(&(Mel_View_Desc){
+        .name = S8("user_view"),
+        .camera = &camera,
+        .clear_color_enabled = true,
+    });
+    Mel_Swapchain_Handle swapchain = make_mock_swapchain();
+
+    Mel_Frame_Recipe_Handle recipe = mel_frame_recipe_create(S8("user_variant"));
+    Mel_Frame_Plan_Handle plan = mel_frame_plan_create(S8("user_variant"));
+    mel_frame_recipe_use_technique(recipe, view, MEL_TECHNIQUE_USER_BASE);
+    mel_frame_recipe_present(recipe, view, swapchain);
+
+    Mel_Render_Graph graph;
+    mel_render_graph_init(&graph, .alloc = mel_alloc_heap());
+
+    Mel_Gpu_Device fake_dev = {0};
+    fake_dev.capabilities.mesh_shader = true;
+    bool ok = mel_frame_plan_compile(plan, recipe,
+        .graph = &graph,
+        .dev = &fake_dev);
+    MEL_ASSERT(ok);
+    MEL_ASSERT_EQ(mel_frame_plan_resolved_technique_count(plan), (u32)1);
+
+    Mel_Frame_Plan_Resolved_Technique resolved = {0};
+    MEL_ASSERT(mel_frame_plan_resolved_technique_at(plan, 0, &resolved));
+    MEL_ASSERT(str8_ieq(resolved.technique_name, accel_name));
+
+    Mel_Frame_Plan_Technique_Diagnostic first = {0};
+    Mel_Frame_Plan_Technique_Diagnostic second = {0};
+    MEL_ASSERT(mel_frame_plan_technique_diagnostic_at(plan, 0, &first));
+    MEL_ASSERT(mel_frame_plan_technique_diagnostic_at(plan, 1, &second));
+    MEL_ASSERT(str8_ieq(first.technique_name, accel_name));
+    MEL_ASSERT(first.supported);
+    MEL_ASSERT(first.matched);
+    MEL_ASSERT(first.selected);
+    MEL_ASSERT(str8_ieq(second.technique_name, fallback_name));
+    MEL_ASSERT(second.supported);
+    MEL_ASSERT(second.matched);
+    MEL_ASSERT(!second.selected);
+    MEL_ASSERT_EQ(second.reason_kind, (u32)MEL_TECHNIQUE_CHECK_POLICY_SKIPPED);
+
+    mel_render_graph_shutdown(&graph);
+    mel_frame_plan_destroy(plan);
+    mel_frame_recipe_destroy(recipe);
+    mel_swapchain_registry_remove(swapchain, nullptr);
+    mel_view_destroy(view);
+    mel_render_technique_unregister(MEL_TECHNIQUE_USER_BASE, accel_name);
+    mel_render_technique_unregister(MEL_TECHNIQUE_USER_BASE, fallback_name);
+}
+
 MEL_TEST(frame_plan_compile_failure_rolls_back_generated_passes, .tags = "render")
 {
     Mel_Render_List list;
@@ -312,6 +430,202 @@ MEL_TEST(frame_plan_compile_failure_rolls_back_generated_passes, .tags = "render
     mel_view_destroy(good_view);
     mel_source_destroy(source);
     mel_render_list_shutdown(&list);
+}
+
+MEL_TEST(frame_plan_refresh_updates_view_parameters_without_recompile, .tags = "render")
+{
+    Mel_Render_List list;
+    mel_render_list_init(&list,
+        .name = S8("sprites"),
+        .entry_stride = sizeof(Mel_Sprite_Entry),
+        .alloc = mel_alloc_heap());
+
+    Mel_Source_Handle source = mel_source_from_render_list(&list, MEL_SCHEMA_SPRITE);
+
+    Mel_Camera camera_a = {
+        .view = MEL_MAT4_IDENTITY,
+        .projection = MEL_MAT4_IDENTITY,
+    };
+    Mel_Camera camera_b = {
+        .view = mel_mat4_translate((Mel_Vec3){ .x = 3.0f }),
+        .projection = MEL_MAT4_IDENTITY,
+    };
+
+    Mel_View_Handle view = mel_view_create(&(Mel_View_Desc){
+        .name = S8("refresh_view"),
+        .camera = &camera_a,
+        .clear_color_enabled = true,
+        .clear_color = mel_vec4(0.1f, 0.2f, 0.3f, 1.0f),
+    });
+    mel_view_attach_source(view, source);
+
+    Mel_Swapchain_Handle swapchain = make_mock_swapchain();
+    Mel_Frame_Recipe_Handle recipe = mel_frame_recipe_create(S8("refresh"));
+    Mel_Frame_Plan_Handle plan = mel_frame_plan_create(S8("refresh"));
+    mel_frame_recipe_use_technique(recipe, view, MEL_TECHNIQUE_SPRITE);
+    mel_frame_recipe_present(recipe, view, swapchain);
+
+    Mel_Render_Graph graph;
+    mel_render_graph_init(&graph, .alloc = mel_alloc_heap());
+
+    Mel_Gpu_Device fake_dev = {0};
+    bool ok = mel_frame_plan_compile(plan, recipe,
+        .graph = &graph,
+        .dev = &fake_dev,
+        .sprite_pass = (Mel_Sprite_Pass*)(uintptr_t)1);
+    MEL_ASSERT(ok);
+    MEL_ASSERT_EQ(graph.passes.count, (usize)1);
+
+    mel_view_set_camera(view, &camera_b);
+    mel_view_set_clear_color(view, mel_vec4(0.7f, 0.6f, 0.5f, 1.0f));
+    mel_view_set_target_mode(view, MEL_VIEW_TARGET_FIT);
+    mel_view_set_design_size(view, 320, 180);
+
+    ok = mel_frame_plan_refresh(plan, .dev = &fake_dev);
+    MEL_ASSERT(ok);
+    MEL_ASSERT_EQ(mel_frame_plan_dirty_flags(plan), (u32)MEL_FRAME_DIRTY_PARAMETERS);
+    MEL_ASSERT(graph.passes.items[0].camera == &camera_b);
+    MEL_ASSERT_EQ(graph.passes.items[0].viewport_mode, (u32)MEL_PASS_VIEWPORT_FIT);
+    MEL_ASSERT_EQ(graph.passes.items[0].viewport_design_width, (u32)320);
+    MEL_ASSERT_EQ(graph.passes.items[0].viewport_design_height, (u32)180);
+    MEL_ASSERT_EQ(graph.passes.items[0].write_targets[0].clear.color.r, 0.7f);
+    MEL_ASSERT_EQ(graph.passes.items[0].write_targets[0].clear.color.g, 0.6f);
+    MEL_ASSERT_EQ(graph.passes.items[0].write_targets[0].clear.color.b, 0.5f);
+
+    mel_render_graph_shutdown(&graph);
+    mel_frame_plan_destroy(plan);
+    mel_frame_recipe_destroy(recipe);
+    mel_swapchain_registry_remove(swapchain, nullptr);
+    mel_view_destroy(view);
+    mel_source_destroy(source);
+    mel_render_list_shutdown(&list);
+}
+
+MEL_TEST(frame_plan_refresh_reports_topology_dirty_when_view_sources_change, .tags = "render")
+{
+    Mel_Render_List list_a;
+    mel_render_list_init(&list_a,
+        .name = S8("sprites_a"),
+        .entry_stride = sizeof(Mel_Sprite_Entry),
+        .alloc = mel_alloc_heap());
+    Mel_Render_List list_b;
+    mel_render_list_init(&list_b,
+        .name = S8("sprites_b"),
+        .entry_stride = sizeof(Mel_Sprite_Entry),
+        .alloc = mel_alloc_heap());
+
+    Mel_Source_Handle source_a = mel_source_from_render_list(&list_a, MEL_SCHEMA_SPRITE);
+    Mel_Source_Handle source_b = mel_source_from_render_list(&list_b, MEL_SCHEMA_SPRITE);
+
+    Mel_Camera camera = {
+        .view = MEL_MAT4_IDENTITY,
+        .projection = MEL_MAT4_IDENTITY,
+    };
+
+    Mel_View_Handle view = mel_view_create(&(Mel_View_Desc){
+        .name = S8("topology_view"),
+        .camera = &camera,
+        .clear_color_enabled = true,
+    });
+    mel_view_attach_source(view, source_a);
+
+    Mel_Swapchain_Handle swapchain = make_mock_swapchain();
+    Mel_Frame_Recipe_Handle recipe = mel_frame_recipe_create(S8("topology"));
+    Mel_Frame_Plan_Handle plan = mel_frame_plan_create(S8("topology"));
+    mel_frame_recipe_use_technique(recipe, view, MEL_TECHNIQUE_SPRITE);
+    mel_frame_recipe_present(recipe, view, swapchain);
+
+    Mel_Render_Graph graph;
+    mel_render_graph_init(&graph, .alloc = mel_alloc_heap());
+
+    Mel_Gpu_Device fake_dev = {0};
+    bool ok = mel_frame_plan_compile(plan, recipe,
+        .graph = &graph,
+        .dev = &fake_dev,
+        .sprite_pass = (Mel_Sprite_Pass*)(uintptr_t)1);
+    MEL_ASSERT(ok);
+
+    mel_view_attach_source(view, source_b);
+    ok = mel_frame_plan_refresh(plan, .dev = &fake_dev);
+    MEL_ASSERT(!ok);
+    MEL_ASSERT_EQ(mel_frame_plan_dirty_flags(plan), (u32)MEL_FRAME_DIRTY_TOPOLOGY);
+
+    mel_render_graph_shutdown(&graph);
+    mel_frame_plan_destroy(plan);
+    mel_frame_recipe_destroy(recipe);
+    mel_swapchain_registry_remove(swapchain, nullptr);
+    mel_view_destroy(view);
+    mel_source_destroy(source_b);
+    mel_source_destroy(source_a);
+    mel_render_list_shutdown(&list_b);
+    mel_render_list_shutdown(&list_a);
+}
+
+MEL_TEST(frame_plan_refresh_reports_source_shape_dirty_when_retained_source_backing_changes, .tags = "render")
+{
+    Mel_Render_List list_a;
+    mel_render_list_init(&list_a,
+        .name = S8("retained_a"),
+        .entry_stride = sizeof(Mel_Sprite_Entry),
+        .mode = MEL_RENDER_LIST_RETAINED,
+        .alloc = mel_alloc_heap());
+    Mel_Render_List list_b;
+    mel_render_list_init(&list_b,
+        .name = S8("retained_b"),
+        .entry_stride = sizeof(Mel_Sprite_Entry),
+        .mode = MEL_RENDER_LIST_RETAINED,
+        .alloc = mel_alloc_heap());
+
+    Mel_Source_Handle source = mel_source_create(&(Mel_Source_Desc){
+        .name = S8("retained_source"),
+        .kind = MEL_SOURCE_RETAINED,
+        .schema = MEL_SCHEMA_SPRITE,
+        .access_flags = MEL_SOURCE_ACCESS_CPU_WRITE | MEL_SOURCE_ACCESS_GPU_READ,
+        .lifetime = MEL_SOURCE_LIFETIME_RETAINED,
+    });
+    mel_source_set_render_list(source, &list_a);
+
+    Mel_Camera camera = {
+        .view = MEL_MAT4_IDENTITY,
+        .projection = MEL_MAT4_IDENTITY,
+    };
+
+    Mel_View_Handle view = mel_view_create(&(Mel_View_Desc){
+        .name = S8("shape_view"),
+        .camera = &camera,
+        .clear_color_enabled = true,
+    });
+    mel_view_attach_source(view, source);
+
+    Mel_Swapchain_Handle swapchain = make_mock_swapchain();
+    Mel_Frame_Recipe_Handle recipe = mel_frame_recipe_create(S8("shape"));
+    Mel_Frame_Plan_Handle plan = mel_frame_plan_create(S8("shape"));
+    mel_frame_recipe_use_technique(recipe, view, MEL_TECHNIQUE_SPRITE);
+    mel_frame_recipe_present(recipe, view, swapchain);
+
+    Mel_Render_Graph graph;
+    mel_render_graph_init(&graph, .alloc = mel_alloc_heap());
+
+    Mel_Gpu_Device fake_dev = {0};
+    bool ok = mel_frame_plan_compile(plan, recipe,
+        .graph = &graph,
+        .dev = &fake_dev,
+        .sprite_pass = (Mel_Sprite_Pass*)(uintptr_t)1);
+    MEL_ASSERT(ok);
+
+    mel_source_set_render_list(source, &list_b);
+    ok = mel_frame_plan_refresh(plan, .dev = &fake_dev);
+    MEL_ASSERT(!ok);
+    MEL_ASSERT_EQ(mel_frame_plan_dirty_flags(plan), (u32)MEL_FRAME_DIRTY_SOURCE_SHAPE);
+
+    mel_render_graph_shutdown(&graph);
+    mel_frame_plan_destroy(plan);
+    mel_frame_recipe_destroy(recipe);
+    mel_swapchain_registry_remove(swapchain, nullptr);
+    mel_view_destroy(view);
+    mel_source_destroy(source);
+    mel_render_list_shutdown(&list_b);
+    mel_render_list_shutdown(&list_a);
 }
 
 MEL_TEST(frame_plan_orders_same_swapchain_views_by_explicit_binding_order, .tags = "render")

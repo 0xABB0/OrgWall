@@ -12,6 +12,18 @@ static void mel__render_stage_2d_widget_producer(Mel_Render_List* list, void* us
         mel_widget_draw(layer->root, list);
 }
 
+static void mel__render_stage_2d_widget_focus(Mel_Render_Stage_2D_Widget_Layer* layer, Mel_Widget* widget)
+{
+    if (layer->focused == widget)
+        return;
+
+    if (layer->focused)
+        layer->focused->state &= ~MEL_WIDGET_STATE_FOCUSED;
+    layer->focused = widget;
+    if (layer->focused)
+        layer->focused->state |= MEL_WIDGET_STATE_FOCUSED;
+}
+
 static Mel_View_Handle mel__render_stage_2d_require_view(Mel_Render_Stage_2D* stage, Mel_Render_Stage_2D_Layer layer)
 {
     assert(stage != nullptr);
@@ -172,6 +184,7 @@ bool mel_render_stage_2d_widget_layer_process_event(Mel_Render_Stage_2D_Widget_L
         {
             Mel_Vec2 pos = mel_vec2(event->button.x / layer->input_scale_x,
                 event->button.y / layer->input_scale_y);
+            mel__render_stage_2d_widget_focus(layer, mel_widget_hit_test(layer->root, pos));
             return mel_widget_mouse_down(layer->root, pos, event->button.button);
         } break;
 
@@ -182,6 +195,9 @@ bool mel_render_stage_2d_widget_layer_process_event(Mel_Render_Stage_2D_Widget_L
             return mel_widget_mouse_up(layer->root, pos, event->button.button);
         } break;
 
+        case SDL_EVENT_KEY_DOWN:
+            return layer->focused ? mel_widget_key_down(layer->focused, &event->key) : false;
+
         default: return false;
     }
 }
@@ -190,6 +206,12 @@ bool mel_render_stage_2d_rebuild(Mel_Render_Stage_2D* stage)
 {
     assert(stage != nullptr);
     return mel_render_default_2d_rebuild(&stage->renderer);
+}
+
+bool mel_render_stage_2d_refresh(Mel_Render_Stage_2D* stage)
+{
+    assert(stage != nullptr);
+    return mel_render_default_2d_refresh(&stage->renderer);
 }
 
 Mel_View_Handle mel_render_stage_2d_view(Mel_Render_Stage_2D* stage, Mel_Render_Stage_2D_Layer layer)

@@ -47,6 +47,29 @@ static Mel_Task_Ctx* make_ctx(void)
     return mel_task_ctx_create(&desc);
 }
 
+typedef struct {
+    Mel_Task_Ctx*     task_ctx;
+    Mel_Job_Context*  job_ctx;
+} Task_Job_Ctx;
+
+static Task_Job_Ctx make_ctx_with_jobs(void)
+{
+    Task_Job_Ctx ctx = {
+        .job_ctx = mel_job_create_context_opt(mel_alloc_heap(), (Mel_Job_Context_Opt){
+            .num_threads = 1,
+            .max_fibers = 64,
+            .fiber_stack_sz = 1048576,
+        }),
+    };
+
+    Mel_Task_Ctx_Desc desc = {
+        .alloc = mel_alloc_heap(),
+        .jobs = ctx.job_ctx,
+    };
+    ctx.task_ctx = mel_task_ctx_create(&desc);
+    return ctx;
+}
+
 MEL_TEST(task_single_step_immediate, .tags = "async")
 {
     Mel_Task_Ctx* ctx = make_ctx();
@@ -299,6 +322,47 @@ MEL_TEST(task_shared_user_data, .tags = "async")
 
     mel_task_release(ctx, t);
     mel_task_ctx_destroy(ctx);
+}
+
+static void job_add_10(i32 range_start, i32 range_end, i32 thread_index, void* user)
+{
+    MEL_UNUSED(range_start);
+    MEL_UNUSED(range_end);
+    MEL_UNUSED(thread_index);
+
+    Shared_Data* d = user;
+    d->accumulator += 10;
+}
+
+static Mel_Task_Step_Result step_dispatch_job(Mel_Task_Ctx* ctx, void* user_data)
+{
+    return mel_task_step_dispatch_job(ctx, .callback = job_add_10, .user = user_data);
+}
+
+MEL_TEST(task_job_step_helper, .tags = "async")
+{
+    Task_Job_Ctx ctx = make_ctx_with_jobs();
+    Shared_Data data = { .accumulator = 5 };
+
+    Mel_Task_Handle t = mel_task_begin(ctx.task_ctx);
+    u32 s0 = mel_task_add_step(ctx.task_ctx, t, (Mel_Task_Step_Desc){ .fn = step_dispatch_job, .user_data = &data });
+    u32 s1 = mel_task_add_step(ctx.task_ctx, t, (Mel_Task_Step_Desc){ .fn = step_multiply_2, .user_data = &data });
+    mel_task_add_dep(ctx.task_ctx, t, s1, s0);
+    mel_task_submit(ctx.task_ctx, t);
+
+    mel_task_tick(ctx.task_ctx);
+
+    MEL_ASSERT_EQ(mel_task_status(ctx.task_ctx, t), (u32)MEL_TASK_STATUS_RUNNING);
+    MEL_ASSERT_FLOAT_EQ(mel_task_progress(ctx.task_ctx, t), 0.0f, 0.001f);
+
+    mel_task_wait(ctx.task_ctx, t);
+
+    MEL_ASSERT(mel_task_is_done(ctx.task_ctx, t));
+    MEL_ASSERT_EQ(data.accumulator, 30);
+
+    mel_task_release(ctx.task_ctx, t);
+    mel_task_ctx_destroy(ctx.task_ctx);
+    mel_job_destroy_context(ctx.job_ctx, mel_alloc_heap());
 }
 
 MEL_TEST(task_diamond_deps, .tags = "async")

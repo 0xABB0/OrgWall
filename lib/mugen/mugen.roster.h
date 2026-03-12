@@ -45,5 +45,7 @@ Mel_Task_Handle mugen_roster_load_opt(Mugen_Roster* r, Mugen_Roster_Load_Opt opt
 #define mugen_roster_load(r, ...) mugen_roster_load_opt((r), (Mugen_Roster_Load_Opt){__VA_ARGS__})
 
 Mugen_Char*     mugen_roster_find(Mugen_Roster* r, str8 name);
+Mugen_Char*     mugen_roster_at(Mugen_Roster* r, u32 index);
+str8            mugen_roster_name_at(Mugen_Roster* r, u32 index);
 Mugen_Char*     mugen_roster_get(Mugen_Roster* r, Mugen_Char_Handle h);
 u32             mugen_roster_count(Mugen_Roster* r);

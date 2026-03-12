@@ -1,9 +1,18 @@
 #pragma once
 
 #include "core.types.h"
+#include "string.str8.fwd.h"
+#include "allocator.fwd.h"
 #include <SDL3/SDL.h>
 
 typedef struct Mel_App Mel_App;
+
+typedef struct {
+    str8 app_name;
+    const Mel_Alloc* allocator;
+    bool enable_validation;
+    f32 max_frame_time;
+} Mel_App_Config;
 
 typedef void (*Mel_App_Init_Func)(Mel_App* app);
 typedef void (*Mel_App_Shutdown_Func)(Mel_App* app);

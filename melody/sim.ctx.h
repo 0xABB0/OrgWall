@@ -19,6 +19,13 @@ typedef struct {
     u32 id;
 } Mel_Sim_Update;
 
+typedef struct {
+    f32 last_frame_dt;
+    f32 last_scaled_dt;
+    u32 fixed_steps;
+    u64 tick;
+} Mel_Sim_Stats;
+
 struct Mel_Sim_Fixed {
     f32 fixed_dt;
     f32 accumulator;
@@ -34,6 +41,7 @@ struct Mel_Sim_Fixed {
 struct Mel_Sim_Ctx {
     Mel_Rng rng;
     u64 tick;
+    Mel_Sim_Stats stats;
     Mel_Block_Alloc events;
     void* user;
     f32 time_scale;
@@ -78,6 +86,7 @@ bool  mel_sim_next_any(Mel_Sim_Ctx* ctx, Mel_Sim_Iter* iter, Mel_Sim_Event* even
 void  mel_sim_clear(Mel_Sim_Ctx* ctx);
 
 void  mel_sim_tick(Mel_Sim_Ctx* ctx, f32 frame_dt);
+Mel_Sim_Stats mel_sim_stats(Mel_Sim_Ctx* ctx);
 
 typedef struct {
     f32 fixed_dt;

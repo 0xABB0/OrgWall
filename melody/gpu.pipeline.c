@@ -1,6 +1,7 @@
 #define VK_NO_PROTOTYPES
 #include "gpu.pipeline.h"
 #include "gpu.shader.h"
+#include "allocator.heap.h"
 #include <SDL3/SDL_log.h>
 
 static VkCullModeFlags cull_mode_to_vk(u32 mode)
@@ -66,6 +67,42 @@ static void setup_blend(VkPipelineColorBlendAttachmentState* blend, u32 mode)
     }
 }
 
+static VkDescriptorPool mel__gpu_pipeline_create_descriptor_pool(Mel_Gpu_Device* dev, u32 max_sets)
+{
+    VkDescriptorPoolSize pool_size = {
+        .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+        .descriptorCount = max_sets,
+    };
+
+    VkDescriptorPoolCreateInfo pool_info = {
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+        .maxSets = max_sets,
+        .poolSizeCount = 1,
+        .pPoolSizes = &pool_size,
+    };
+
+    VkDescriptorPool pool = VK_NULL_HANDLE;
+    VkResult r = vkCreateDescriptorPool(dev->device, &pool_info, nullptr, &pool);
+    assert(r == VK_SUCCESS);
+    return pool;
+}
+
+static void mel__gpu_pipeline_track_descriptor_pool(Mel_Gpu_Pipeline* pipeline, VkDescriptorPool pool)
+{
+    if (pipeline->descriptor_pool_count >= pipeline->descriptor_pool_capacity)
+    {
+        u32 new_capacity = pipeline->descriptor_pool_capacity == 0 ? 4 : pipeline->descriptor_pool_capacity * 2;
+        usize size = sizeof(VkDescriptorPool) * new_capacity;
+        pipeline->descriptor_pools = pipeline->descriptor_pools
+            ? mel_realloc(mel_alloc_heap(), pipeline->descriptor_pools, size)
+            : mel_alloc(mel_alloc_heap(), size);
+        pipeline->descriptor_pool_capacity = new_capacity;
+    }
+
+    pipeline->descriptor_pools[pipeline->descriptor_pool_count++] = pool;
+    pipeline->descriptor_pool = pool;
+}
+
 void mel_gpu_pipeline_init_opt(Mel_Gpu_Pipeline* pipeline, Mel_Gpu_Device* dev, Mel_Gpu_Pipeline_Opt opt)
 {
     assert(pipeline != nullptr);
@@ -93,22 +130,9 @@ void mel_gpu_pipeline_init_opt(Mel_Gpu_Pipeline* pipeline, Mel_Gpu_Device* dev, 
         VkResult r = vkCreateDescriptorSetLayout(dev->device, &layout_info, nullptr, &pipeline->descriptor_layout);
         assert(r == VK_SUCCESS);
 
-        u32 max_sets = opt.max_descriptor_sets > 0 ? opt.max_descriptor_sets : 16;
-
-        VkDescriptorPoolSize pool_size = {
-            .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-            .descriptorCount = max_sets,
-        };
-
-        VkDescriptorPoolCreateInfo pool_info = {
-            .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
-            .maxSets = max_sets,
-            .poolSizeCount = 1,
-            .pPoolSizes = &pool_size,
-        };
-
-        r = vkCreateDescriptorPool(dev->device, &pool_info, nullptr, &pipeline->descriptor_pool);
-        assert(r == VK_SUCCESS);
+        pipeline->descriptor_pool_max_sets = opt.max_descriptor_sets > 0 ? opt.max_descriptor_sets : 16;
+        mel__gpu_pipeline_track_descriptor_pool(pipeline,
+            mel__gpu_pipeline_create_descriptor_pool(dev, pipeline->descriptor_pool_max_sets));
     }
 
     VkPushConstantRange push_range = {
@@ -244,7 +268,15 @@ void mel_gpu_pipeline_shutdown(Mel_Gpu_Pipeline* pipeline, Mel_Gpu_Device* dev)
 
     if (pipeline->pipeline) { vkDestroyPipeline(dev->device, pipeline->pipeline, nullptr); pipeline->pipeline = VK_NULL_HANDLE; }
     if (pipeline->layout) { vkDestroyPipelineLayout(dev->device, pipeline->layout, nullptr); pipeline->layout = VK_NULL_HANDLE; }
-    if (pipeline->descriptor_pool) { vkDestroyDescriptorPool(dev->device, pipeline->descriptor_pool, nullptr); pipeline->descriptor_pool = VK_NULL_HANDLE; }
+    for (u32 i = 0; i < pipeline->descriptor_pool_count; i++)
+        if (pipeline->descriptor_pools[i])
+            vkDestroyDescriptorPool(dev->device, pipeline->descriptor_pools[i], nullptr);
+    if (pipeline->descriptor_pools)
+        mel_dealloc(mel_alloc_heap(), pipeline->descriptor_pools);
+    pipeline->descriptor_pools = nullptr;
+    pipeline->descriptor_pool_count = 0;
+    pipeline->descriptor_pool_capacity = 0;
+    pipeline->descriptor_pool = VK_NULL_HANDLE;
     if (pipeline->descriptor_layout) { vkDestroyDescriptorSetLayout(dev->device, pipeline->descriptor_layout, nullptr); pipeline->descriptor_layout = VK_NULL_HANDLE; }
 }
 
@@ -268,8 +300,17 @@ VkDescriptorSet mel_gpu_pipeline_alloc_descriptor(Mel_Gpu_Pipeline* pipeline, Me
         .pSetLayouts = &pipeline->descriptor_layout,
     };
 
-    VkDescriptorSet set;
+    VkDescriptorSet set = VK_NULL_HANDLE;
     VkResult r = vkAllocateDescriptorSets(dev->device, &alloc_info, &set);
+    if (r == VK_ERROR_OUT_OF_POOL_MEMORY || r == VK_ERROR_FRAGMENTED_POOL)
+    {
+        u32 next_max_sets = pipeline->descriptor_pool_max_sets > 0 ? pipeline->descriptor_pool_max_sets * 2 : 16;
+        VkDescriptorPool new_pool = mel__gpu_pipeline_create_descriptor_pool(dev, next_max_sets);
+        mel__gpu_pipeline_track_descriptor_pool(pipeline, new_pool);
+        pipeline->descriptor_pool_max_sets = next_max_sets;
+        alloc_info.descriptorPool = pipeline->descriptor_pool;
+        r = vkAllocateDescriptorSets(dev->device, &alloc_info, &set);
+    }
     assert(r == VK_SUCCESS);
 
     return set;

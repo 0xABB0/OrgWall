@@ -19,6 +19,18 @@ static void mel__render_default_2d_widget_producer(Mel_Render_List* list, void* 
         mel_widget_draw(layer->root, list);
 }
 
+static void mel__render_default_2d_widget_focus(Mel_Render_Default_2D_Widget_Layer* layer, Mel_Widget* widget)
+{
+    if (layer->focused == widget)
+        return;
+
+    if (layer->focused)
+        layer->focused->state &= ~MEL_WIDGET_STATE_FOCUSED;
+    layer->focused = widget;
+    if (layer->focused)
+        layer->focused->state |= MEL_WIDGET_STATE_FOCUSED;
+}
+
 bool mel_render_default_2d_init_opt(Mel_Render_Default_2D* renderer, Mel_Render_Default_2D_Opt opt)
 {
     assert(renderer != nullptr);
@@ -271,6 +283,7 @@ bool mel_render_default_2d_widget_layer_process_event(Mel_Render_Default_2D_Widg
         {
             Mel_Vec2 pos = mel_vec2(event->button.x / layer->input_scale_x,
                 event->button.y / layer->input_scale_y);
+            mel__render_default_2d_widget_focus(layer, mel_widget_hit_test(layer->root, pos));
             return mel_widget_mouse_down(layer->root, pos, event->button.button);
         } break;
 
@@ -280,6 +293,9 @@ bool mel_render_default_2d_widget_layer_process_event(Mel_Render_Default_2D_Widg
                 event->button.y / layer->input_scale_y);
             return mel_widget_mouse_up(layer->root, pos, event->button.button);
         } break;
+
+        case SDL_EVENT_KEY_DOWN:
+            return layer->focused ? mel_widget_key_down(layer->focused, &event->key) : false;
 
         default: return false;
     }
@@ -294,6 +310,18 @@ bool mel_render_default_2d_rebuild(Mel_Render_Default_2D* renderer)
         .dev = renderer->dev,
         .sprite_pass = renderer->sprite_pass,
         .text_pass = renderer->text_pass))
+        return false;
+
+    if (renderer->install_as_current_graph)
+        mel_set_render_graph(&renderer->graph);
+    return true;
+}
+
+bool mel_render_default_2d_refresh(Mel_Render_Default_2D* renderer)
+{
+    assert(renderer != nullptr);
+
+    if (!mel_frame_plan_refresh(renderer->plan, .dev = renderer->dev))
         return false;
 
     if (renderer->install_as_current_graph)

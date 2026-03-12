@@ -321,6 +321,10 @@ bool compile_cpp_to_obj(const char* src, const char* obj, Cpp_Mode mode)
         nob_cmd_append(&cmd, "-DTRACY_ENABLE");
         nob_cmd_append(&cmd, "-Wno-deprecated-declarations");
     }
+    else if (g_build_mode != BUILD_MODE_RELEASE)
+    {
+        nob_cmd_append(&cmd, "-DTRACY_ENABLE");
+    }
 
     nob_cmd_append(&cmd, "-MD", "-MF", obj_to_depfile(obj));
     nob_cmd_append(&cmd, "-c", src, "-o", obj);

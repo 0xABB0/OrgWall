@@ -103,6 +103,33 @@ MEL_TEST(roster_find_by_name, .tags = "mugen")
     mugen_roster_shutdown(&r);
 }
 
+MEL_TEST(roster_index_access, .tags = "mugen")
+{
+    ensure_inited();
+
+    Mugen_Roster r;
+    mugen_roster_init(&r,
+        .vfs = &s_vfs,
+        .task_ctx = s_task_ctx,
+        .stcommon_path = S8("/chars/common1.cns"),
+        .alloc = mel_alloc_heap());
+
+    Mel_Task_Handle h = mugen_roster_load(&r, .folder_path = S8("/chars/"));
+
+    while (!mel_task_is_done(s_task_ctx, h))
+        mel_task_tick(s_task_ctx);
+
+    mel_task_release(s_task_ctx, h);
+
+    MEL_ASSERT(mugen_roster_count(&r) >= 2);
+    MEL_ASSERT_NOT_NULL(mugen_roster_at(&r, 0));
+    MEL_ASSERT(mugen_roster_name_at(&r, 0).len > 0);
+    MEL_ASSERT_NULL(mugen_roster_at(&r, mugen_roster_count(&r)));
+    MEL_ASSERT_EQ(mugen_roster_name_at(&r, mugen_roster_count(&r)).len, 0u);
+
+    mugen_roster_shutdown(&r);
+}
+
 static bool s_complete_called;
 static u32 s_complete_status;
 

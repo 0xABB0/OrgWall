@@ -5,6 +5,7 @@
 #include "gpu.device.h"
 #include "allocator.h"
 #include "allocator.heap.h"
+#include <tracy/TracyC.h>
 
 typedef struct {
     VkSwapchainKHR handle;
@@ -15,9 +16,12 @@ typedef struct {
 
     VkSemaphore* image_available;
     VkSemaphore* render_finished;
+    VkImageLayout* image_layouts;
     u32 frame_count;
     u32 current_frame;
 } Mel_Gpu_Swapchain;
+
+static const char* present_mode_name(VkPresentModeKHR mode);
 
 static VkSurfaceFormatKHR choose_format(VkSurfaceFormatKHR* formats, u32 count)
 {
@@ -28,6 +32,74 @@ static VkSurfaceFormatKHR choose_format(VkSurfaceFormatKHR* formats, u32 count)
             return formats[i];
     }
     return formats[0];
+}
+
+static VkPresentModeKHR choose_present_mode(Mel_Gpu_Device* dev, VkSurfaceKHR surface,
+                                            VkPresentModeKHR preferred)
+{
+    u32 count = 0;
+    vkGetPhysicalDeviceSurfacePresentModesKHR(dev->physical_device, surface, &count, nullptr);
+    if (count == 0)
+        return VK_PRESENT_MODE_FIFO_KHR;
+
+    VkPresentModeKHR* modes = mel_alloc(mel_alloc_heap(), sizeof(VkPresentModeKHR) * count);
+    vkGetPhysicalDeviceSurfacePresentModesKHR(dev->physical_device, surface, &count, modes);
+
+    char mode_buf[256] = {0};
+    size off = 0;
+    for (u32 i = 0; i < count; i++)
+    {
+        int wrote = SDL_snprintf(mode_buf + off, sizeof(mode_buf) - off,
+            "%s%s", i > 0 ? ", " : "", present_mode_name(modes[i]));
+        if (wrote <= 0 || (size)wrote >= (size)(sizeof(mode_buf) - off))
+            break;
+        off += (size)wrote;
+    }
+    SDL_Log("Swapchain present modes: %s", mode_buf);
+
+    VkPresentModeKHR chosen = VK_PRESENT_MODE_FIFO_KHR;
+    for (u32 i = 0; i < count; i++)
+    {
+        if (modes[i] == preferred)
+        {
+            chosen = preferred;
+            goto done;
+        }
+    }
+
+    for (u32 i = 0; i < count; i++)
+    {
+        if (modes[i] == VK_PRESENT_MODE_MAILBOX_KHR)
+        {
+            chosen = VK_PRESENT_MODE_MAILBOX_KHR;
+            goto done;
+        }
+    }
+
+    for (u32 i = 0; i < count; i++)
+    {
+        if (modes[i] == VK_PRESENT_MODE_IMMEDIATE_KHR)
+        {
+            chosen = VK_PRESENT_MODE_IMMEDIATE_KHR;
+            goto done;
+        }
+    }
+
+done:
+    mel_dealloc(mel_alloc_heap(), modes);
+    return chosen;
+}
+
+static const char* present_mode_name(VkPresentModeKHR mode)
+{
+    switch (mode)
+    {
+    case VK_PRESENT_MODE_IMMEDIATE_KHR: return "immediate";
+    case VK_PRESENT_MODE_MAILBOX_KHR: return "mailbox";
+    case VK_PRESENT_MODE_FIFO_KHR: return "fifo";
+    case VK_PRESENT_MODE_FIFO_RELAXED_KHR: return "fifo_relaxed";
+    default: return "unknown";
+    }
 }
 
 static VkExtent2D choose_extent(VkSurfaceCapabilitiesKHR* caps, u32 width, u32 height)
@@ -58,9 +130,16 @@ static bool create_swapchain(Mel_Swapchain* sc, Mel_Gpu_Device* dev,
     vkGetPhysicalDeviceSurfaceFormatsKHR(dev->physical_device, khr->surface, &format_count, formats);
 
     VkSurfaceFormatKHR format = choose_format(formats, format_count);
+    SDL_Log("Swapchain surface formats: %u, chosen format=%u colorSpace=%u",
+        format_count, format.format, format.colorSpace);
     mel_dealloc(alloc, formats);
 
     VkExtent2D extent = choose_extent(&caps, width, height);
+    SDL_Log("Swapchain surface caps: min=%ux%u max=%ux%u current=%ux%u minImages=%u maxImages=%u",
+        caps.minImageExtent.width, caps.minImageExtent.height,
+        caps.maxImageExtent.width, caps.maxImageExtent.height,
+        caps.currentExtent.width, caps.currentExtent.height,
+        caps.minImageCount, caps.maxImageCount);
 
     u32 image_count = caps.minImageCount + 1;
     if (caps.maxImageCount > 0 && image_count > caps.maxImageCount)
@@ -110,8 +189,10 @@ static bool create_swapchain(Mel_Swapchain* sc, Mel_Gpu_Device* dev,
     vkGetSwapchainImagesKHR(dev->device, khr->handle, &sc->image_count, sc->images);
 
     sc->image_views = mel_alloc(alloc, sizeof(VkImageView) * sc->image_count);
+    khr->image_layouts = mel_alloc(alloc, sizeof(VkImageLayout) * sc->image_count);
     for (u32 i = 0; i < sc->image_count; i++)
     {
+        khr->image_layouts[i] = VK_IMAGE_LAYOUT_UNDEFINED;
         VkImageViewCreateInfo view_info = {
             .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
             .image = sc->images[i],
@@ -211,6 +292,12 @@ static void destroy_resources(Mel_Swapchain* sc, Mel_Gpu_Device* dev)
         sc->image_views = nullptr;
     }
 
+    if (khr->image_layouts)
+    {
+        mel_dealloc(alloc, khr->image_layouts);
+        khr->image_layouts = nullptr;
+    }
+
     if (sc->images)
     {
         mel_dealloc(alloc, sc->images);
@@ -227,6 +314,7 @@ static void destroy_resources(Mel_Swapchain* sc, Mel_Gpu_Device* dev)
 static bool khr_acquire(Mel_Swapchain* sc, Mel_Gpu_Device* dev)
 {
     Mel_Gpu_Swapchain* khr = sc->data;
+    TracyCZoneN(ctx, "swapchain_acquire", true);
 
     VkResult result = vkAcquireNextImageKHR(
         dev->device, khr->handle, UINT64_MAX,
@@ -234,15 +322,20 @@ static bool khr_acquire(Mel_Swapchain* sc, Mel_Gpu_Device* dev)
         &sc->current_image);
 
     if (result == VK_ERROR_OUT_OF_DATE_KHR)
+    {
+        TracyCZoneEnd(ctx);
         return false;
+    }
 
     assert(result == VK_SUCCESS || result == VK_SUBOPTIMAL_KHR);
+    TracyCZoneEnd(ctx);
     return true;
 }
 
 static bool khr_present(Mel_Swapchain* sc, Mel_Gpu_Device* dev, VkCommandBuffer cmd, VkFence fence)
 {
     Mel_Gpu_Swapchain* khr = sc->data;
+    TracyCZoneN(ctx, "swapchain_present", true);
 
     VkImageMemoryBarrier2 barrier = {
         .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
@@ -303,12 +396,19 @@ static bool khr_present(Mel_Swapchain* sc, Mel_Gpu_Device* dev, VkCommandBuffer 
 
     VkResult pr = vkQueuePresentKHR(dev->present_queue, &present_info);
 
+    if (khr->image_layouts)
+        khr->image_layouts[sc->current_image] = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+
     khr->current_frame = (khr->current_frame + 1) % khr->frame_count;
 
     if (pr == VK_ERROR_OUT_OF_DATE_KHR || pr == VK_SUBOPTIMAL_KHR)
+    {
+        TracyCZoneEnd(ctx);
         return false;
+    }
 
     assert(pr == VK_SUCCESS);
+    TracyCZoneEnd(ctx);
     return true;
 }
 
@@ -341,6 +441,14 @@ static void khr_resize(Mel_Swapchain* sc, Mel_Gpu_Device* dev, u32 width, u32 he
     khr->current_frame = 0;
 }
 
+static VkImageLayout khr_current_image_layout(Mel_Swapchain* sc)
+{
+    Mel_Gpu_Swapchain* khr = sc->data;
+    if (!khr->image_layouts)
+        return VK_IMAGE_LAYOUT_UNDEFINED;
+    return khr->image_layouts[sc->current_image];
+}
+
 static void khr_shutdown(Mel_Swapchain* sc, Mel_Gpu_Device* dev)
 {
     Mel_Gpu_Swapchain* khr = sc->data;
@@ -360,6 +468,7 @@ static const Mel_Swapchain_Vtable khr_vtable = {
     .present  = khr_present,
     .resize   = khr_resize,
     .shutdown = khr_shutdown,
+    .current_image_layout = khr_current_image_layout,
 };
 
 bool mel_gpu_swapchain_init_opt(Mel_Swapchain* sc, Mel_Gpu_Device* dev, Mel_Gpu_Swapchain_Opt opt)
@@ -374,10 +483,15 @@ bool mel_gpu_swapchain_init_opt(Mel_Swapchain* sc, Mel_Gpu_Device* dev, Mel_Gpu_
     Mel_Gpu_Swapchain* khr = mel_alloc_type(alloc, Mel_Gpu_Swapchain);
     *khr = (Mel_Gpu_Swapchain){
         .surface = opt.surface,
-        .present_mode = opt.preferred_present_mode ? opt.preferred_present_mode : VK_PRESENT_MODE_FIFO_KHR,
+        .present_mode = choose_present_mode(dev, opt.surface,
+            opt.preferred_present_mode ? opt.preferred_present_mode : VK_PRESENT_MODE_FIFO_KHR),
         .alloc = alloc,
         .frame_count = opt.frame_count > 0 ? opt.frame_count : 2,
     };
+
+    SDL_Log("Swapchain present mode: requested=%s chosen=%s",
+        present_mode_name(opt.preferred_present_mode ? opt.preferred_present_mode : VK_PRESENT_MODE_FIFO_KHR),
+        present_mode_name(khr->present_mode));
 
     *sc = (Mel_Swapchain){
         .vtable = &khr_vtable,
@@ -406,6 +520,11 @@ bool mel_gpu_swapchain_init_opt(Mel_Swapchain* sc, Mel_Gpu_Device* dev, Mel_Gpu_
 
 Mel_Swapchain_Handle mel_gpu_swapchain_create_for_window(Mel_Gpu_Device* dev, Mel_Window_Handle window)
 {
+    return mel_gpu_swapchain_create_for_window_opt(dev, window, (Mel_Gpu_Window_Swapchain_Opt){0});
+}
+
+Mel_Swapchain_Handle mel_gpu_swapchain_create_for_window_opt(Mel_Gpu_Device* dev, Mel_Window_Handle window, Mel_Gpu_Window_Swapchain_Opt opt)
+{
     assert(dev != nullptr);
     assert(mel_window_handle_valid(window));
 
@@ -423,7 +542,12 @@ Mel_Swapchain_Handle mel_gpu_swapchain_create_for_window(Mel_Gpu_Device* dev, Me
     };
 
     if (!mel_gpu_swapchain_init(&entry.swapchain, dev,
-        .surface = surface, .width = (u32)w, .height = (u32)h))
+        .surface = surface,
+        .width = (u32)w,
+        .height = (u32)h,
+        .frame_count = opt.frame_count,
+        .preferred_present_mode = opt.preferred_present_mode,
+        .alloc = opt.alloc))
     {
         mel_gpu_surface_destroy(dev, surface);
         return MEL_SWAPCHAIN_HANDLE_NULL;

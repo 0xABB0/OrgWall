@@ -245,6 +245,10 @@ void mel_sim_tick(Mel_Sim_Ctx* ctx, f32 frame_dt)
     assert(ctx != NULL);
 
     f32 scaled_dt = frame_dt * ctx->time_scale;
+    u32 fixed_steps = 0;
+
+    ctx->stats.last_frame_dt = frame_dt;
+    ctx->stats.last_scaled_dt = scaled_dt;
 
     for (u32 i = 0; i < ctx->fixed_count; i++)
     {
@@ -258,6 +262,7 @@ void mel_sim_tick(Mel_Sim_Ctx* ctx, f32 frame_dt)
 
             fixed->accumulator -= fixed->fixed_dt;
             fixed->tick++;
+            fixed_steps++;
         }
 
         fixed->alpha = fixed->fixed_dt > 0 ? fixed->accumulator / fixed->fixed_dt : 1.0f;
@@ -267,4 +272,12 @@ void mel_sim_tick(Mel_Sim_Ctx* ctx, f32 frame_dt)
         ctx->variable_updates[i].fn(ctx, scaled_dt, ctx->variable_updates[i].user);
 
     mel_sim_clear(ctx);
+    ctx->stats.fixed_steps = fixed_steps;
+    ctx->stats.tick = ctx->tick;
+}
+
+Mel_Sim_Stats mel_sim_stats(Mel_Sim_Ctx* ctx)
+{
+    assert(ctx != NULL);
+    return ctx->stats;
 }

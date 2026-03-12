@@ -90,6 +90,7 @@ typedef struct {
     Mel_Widget* root;
     Mel_View_Handle view;
     Mel_Render_List list;
+    Mel_Widget* focused;
     f32 input_scale_x;
     f32 input_scale_y;
     const Mel_Alloc* alloc;
@@ -112,6 +113,7 @@ bool mel_render_default_2d_widget_layer_init_opt(Mel_Render_Default_2D* renderer
 void mel_render_default_2d_widget_layer_shutdown(Mel_Render_Default_2D* renderer, Mel_Render_Default_2D_Widget_Layer* layer);
 bool mel_render_default_2d_widget_layer_process_event(Mel_Render_Default_2D_Widget_Layer* layer, const SDL_Event* event);
 bool mel_render_default_2d_rebuild(Mel_Render_Default_2D* renderer);
+bool mel_render_default_2d_refresh(Mel_Render_Default_2D* renderer);
 
 Mel_Render_Graph* mel_render_default_2d_graph(Mel_Render_Default_2D* renderer);
 Mel_View_Handle mel_render_default_2d_view(Mel_Render_Default_2D* renderer);

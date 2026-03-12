@@ -123,8 +123,7 @@ static void cube3d_sync_viewport(void)
     {
         mel_swapchain_resize(sc, mel_gpu_dev(), (u32)w, (u32)h);
         s_camera.projection = mel_mat4_perspective(60.0f * (3.14159265f / 180.0f), (f32)w / (f32)h, 0.1f, 100.0f);
-        mel_render_stage_3d_rebuild(&s_stage);
-        mel_set_render_graph(mel_render_stage_3d_graph(&s_stage));
+        mel_render_stage_3d_refresh(&s_stage);
     }
 }
 
@@ -166,14 +165,13 @@ static void cube3d_on_init(void)
         .world_camera = &s_camera,
         .clear_color_enabled = true,
         .clear_color = mel_vec4(0.06f, 0.07f, 0.10f, 1.0f),
-        .install_as_current_graph = false,
+        .install_as_current_graph = true,
         .dev = mel_gpu_dev(),
         .mesh_pass = mel_mesh_pass(),
         .alloc = mel_alloc_heap());
 
     mel_render_stage_3d_attach_mesh_list(&s_stage, &s_mesh_list);
     mel_render_stage_3d_rebuild(&s_stage);
-    mel_set_render_graph(mel_render_stage_3d_graph(&s_stage));
 
     s_cube_entry = mel_render_list_insert(&s_mesh_list, mel_sort_key_mesh_opaque(0.0f));
     Mel_Mesh_Entry* cube = mel_render_list_get(&s_mesh_list, s_cube_entry);
@@ -184,9 +182,16 @@ static void cube3d_on_init(void)
     };
 }
 
+Mel_App_Config app_config(void)
+{
+    return (Mel_App_Config){
+        .app_name = S8("Melody Cube 3D"),
+        .enable_validation = true,
+    };
+}
+
 void app_init(void)
 {
-    mel_init(.app_name = S8("Melody Cube 3D"), .enable_validation = true);
     s_window_handle = mel_window_create(S8("Melody Cube 3D"), .width = WIN_W, .height = WIN_H);
     s_swapchain_handle = mel_gpu_swapchain_create_for_window(mel_gpu_dev(), s_window_handle);
 

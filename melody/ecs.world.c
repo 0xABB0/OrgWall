@@ -1,4 +1,5 @@
 #include "ecs.world.h"
+#include "ecs.2d.text.h"
 #include <tracy/TracyC.h>
 
 void mel_ecs_init(Mel_ECS* ecs)
@@ -6,6 +7,7 @@ void mel_ecs_init(Mel_ECS* ecs)
     assert(ecs != nullptr);
     *ecs = (Mel_ECS){0};
     ecs->world = ecs_init();
+    mel_component_text_register(ecs->world);
 }
 
 void mel_ecs_shutdown(Mel_ECS* ecs)

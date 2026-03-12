@@ -25,6 +25,12 @@ typedef struct {
     f32 max_frame_time;
 } Mel_Init_Opt;
 
+typedef struct {
+    f32 dt;
+    f32 fps;
+    u64 frame_count;
+} Mel_Frame_Stats;
+
 bool mel_init_opt(Mel_Init_Opt opt);
 #define mel_init(...) mel_init_opt((Mel_Init_Opt){__VA_ARGS__})
 
@@ -46,6 +52,7 @@ void mel_register_sim(Mel_Sim_Ctx* sim);
 void mel_unregister_sim(Mel_Sim_Ctx* sim);
 
 void mel_frame(void);
+Mel_Frame_Stats mel_frame_stats(void);
 void mel_process_event(SDL_Event* event);
 
 bool mel_imgui_init(Mel_Window_Handle window, Mel_Swapchain* swapchain);

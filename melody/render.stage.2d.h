@@ -50,6 +50,7 @@ typedef struct {
     Mel_Widget* root;
     Mel_Render_Stage_2D_Layer layer;
     Mel_Render_List list;
+    Mel_Widget* focused;
     f32 input_scale_x;
     f32 input_scale_y;
     const Mel_Alloc* alloc;
@@ -71,6 +72,7 @@ void mel_render_stage_2d_widget_layer_shutdown(Mel_Render_Stage_2D* stage, Mel_R
 bool mel_render_stage_2d_widget_layer_process_event(Mel_Render_Stage_2D_Widget_Layer* layer, const SDL_Event* event);
 
 bool mel_render_stage_2d_rebuild(Mel_Render_Stage_2D* stage);
+bool mel_render_stage_2d_refresh(Mel_Render_Stage_2D* stage);
 
 Mel_View_Handle mel_render_stage_2d_view(Mel_Render_Stage_2D* stage, Mel_Render_Stage_2D_Layer layer);
 Mel_Render_Default_2D* mel_render_stage_2d_renderer(Mel_Render_Stage_2D* stage);

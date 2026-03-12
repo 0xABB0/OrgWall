@@ -104,6 +104,13 @@ static bool step_contains_key(Command_Step* s, Cmd_Key_Id key, bool tilde)
     return false;
 }
 
+static bool step_contains_key_any_tilde(Command_Step* s, Cmd_Key_Id key)
+{
+    for (u32 i = 0; i < s->key_count; i++)
+        if (s->keys[i].key == key) return true;
+    return false;
+}
+
 static bool greater_check_fail(Command* cmd, u32 step_idx, Input_Buffer* buf)
 {
     Command_Step* step = &cmd->steps[step_idx];
@@ -116,23 +123,29 @@ static bool greater_check_fail(Command* cmd, u32 step_idx, Input_Buffer* buf)
 
     for (u32 i = 0; i < dir_count; i++)
     {
+        if (step_contains_key_any_tilde(step, dirs[i]))
+            continue;
+
         Command_Key probe = { .key = dirs[i], .tilde = false };
-        if (input_buffer_state(buf, probe) == 1 && !step_contains_key(step, dirs[i], false))
+        if (input_buffer_state(buf, probe) == 1)
             return true;
 
         probe.tilde = true;
-        if (input_buffer_state(buf, probe) == 1 && !step_contains_key(step, dirs[i], true))
+        if (input_buffer_state(buf, probe) == 1)
             return true;
     }
 
     for (Cmd_Key_Id b = CK_a; b <= CK_m; b++)
     {
+        if (step_contains_key_any_tilde(step, b))
+            continue;
+
         Command_Key probe = { .key = b, .tilde = false };
-        if (input_buffer_state(buf, probe) == 1 && !step_contains_key(step, b, false))
+        if (input_buffer_state(buf, probe) == 1)
             return true;
 
         probe.tilde = true;
-        if (input_buffer_state(buf, probe) == 1 && !step_contains_key(step, b, true))
+        if (input_buffer_state(buf, probe) == 1)
             return true;
     }
 

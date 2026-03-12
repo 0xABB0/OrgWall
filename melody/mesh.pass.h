@@ -33,6 +33,12 @@ struct Mel_Mesh_Entry {
 typedef struct Mel_Mesh_Entry Mel_Mesh_Entry;
 
 typedef struct {
+    VkBuffer vertex_buffer;
+    VkBuffer index_buffer;
+    u32 index_count;
+} Mel_Mesh_Gpu_Draw_Stream;
+
+typedef struct {
     Mel_Gpu_Buffer vertex_buffer;
     Mel_Gpu_Buffer index_buffer;
 } Mel_Mesh_Gpu_Frame;

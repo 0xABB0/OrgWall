@@ -4,6 +4,7 @@
 #include "gpu.cmd.h"
 #include "render.camera.fwd.h"
 #include "render.list.fwd.h"
+#include "render.source.fwd.h"
 #include "render.target.fwd.h"
 
 #define MEL_PASS_GRAPHICS 0
@@ -33,6 +34,7 @@ typedef void (*Mel_Render_Pass_Fn)(Mel_Render_Pass_Ctx* ctx);
 
 typedef struct {
     Mel_Render_List** read_lists;
+    Mel_Source_Handle* read_sources;
     Mel_Render_List** write_lists;
     Mel_Render_Target** read_targets;
     Mel_Pass_Write_Target* write_targets;
@@ -48,6 +50,7 @@ typedef struct {
 struct Mel_Render_Pass_Ctx {
     Mel_Gpu_Cmd cmd;
     Mel_Render_List** read_lists;
+    Mel_Source_Handle* read_sources;
     Mel_Render_List** write_lists;
     Mel_Render_Target** read_targets;
     Mel_Render_Target** write_targets;

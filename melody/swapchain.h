@@ -13,6 +13,7 @@ struct Mel_Swapchain_Vtable {
     bool (*present)(Mel_Swapchain* sc, Mel_Gpu_Device* dev, VkCommandBuffer cmd, VkFence fence);
     void (*resize)(Mel_Swapchain* sc, Mel_Gpu_Device* dev, u32 width, u32 height);
     void (*shutdown)(Mel_Swapchain* sc, Mel_Gpu_Device* dev);
+    VkImageLayout (*current_image_layout)(Mel_Swapchain* sc);
 };
 
 struct Mel_Swapchain {
@@ -31,6 +32,13 @@ struct Mel_Swapchain {
 #define mel_swapchain_present(sc, dev, cmd, fence)  (sc)->vtable->present((sc), (dev), (cmd), (fence))
 #define mel_swapchain_resize(sc, dev, w, h)         (sc)->vtable->resize((sc), (dev), (w), (h))
 #define mel_swapchain_shutdown(sc, dev)              (sc)->vtable->shutdown((sc), (dev))
+
+static inline VkImageLayout mel_swapchain_current_image_layout(Mel_Swapchain* sc)
+{
+    if (!sc->vtable->current_image_layout)
+        return VK_IMAGE_LAYOUT_UNDEFINED;
+    return sc->vtable->current_image_layout(sc);
+}
 
 struct Mel_Swapchain_Entry {
     Mel_Swapchain swapchain;

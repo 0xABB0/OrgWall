@@ -58,7 +58,17 @@ Mel_Window_Handle mel_window_create_opt(str8 title, Mel_Window_Create_Opt opt)
     Mel_Window window = { .sdl = sdl };
     Mel_SlotMap_Handle raw = mel_slotmap_insert(&s_windows, &window);
 
-    SDL_Log("Window created: \"%s\" (%ux%u)", title_buf, w, h);
+    i32 pixel_w = 0;
+    i32 pixel_h = 0;
+    SDL_GetWindowSizeInPixels(sdl, &pixel_w, &pixel_h);
+
+    SDL_DisplayID display = SDL_GetDisplayForWindow(sdl);
+    float display_scale = SDL_GetWindowDisplayScale(sdl);
+    const SDL_DisplayMode* mode = display ? SDL_GetCurrentDisplayMode(display) : nullptr;
+
+    SDL_Log("Window created: \"%s\" logical=%ux%u pixels=%dx%d scale=%.2f display=%u refresh=%.2fHz",
+        title_buf, w, h, pixel_w, pixel_h, display_scale, (u32)display,
+        mode ? mode->refresh_rate : 0.0f);
     return (Mel_Window_Handle){ .handle = raw };
 }
 
@@ -118,4 +128,26 @@ SDL_Window* mel__window_sdl(Mel_Window_Handle handle)
     Mel_Window* win = mel_slotmap_get(&s_windows, handle.handle);
     assert(win != nullptr);
     return win->sdl;
+}
+
+Mel_Window_Handle mel__window_find_by_id(u32 id)
+{
+    if (!s_initialized) return MEL_WINDOW_HANDLE_NULL;
+
+    Mel_Window* windows = mel_slotmap_data(&s_windows);
+    u32 count = mel_slotmap_count(&s_windows);
+
+    for (u32 i = 0; i < count; i++)
+    {
+        if (SDL_GetWindowID(windows[i].sdl) != id)
+            continue;
+
+        u32 slot_idx = s_windows.packed_to_slot[i];
+        Mel_SlotMap_Slot* slot = &s_windows.slots[slot_idx];
+        return (Mel_Window_Handle){
+            .handle = mel_slotmap_handle_make(slot_idx, slot->generation),
+        };
+    }
+
+    return MEL_WINDOW_HANDLE_NULL;
 }

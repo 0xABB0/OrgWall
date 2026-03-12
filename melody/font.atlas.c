@@ -34,6 +34,19 @@ typedef struct {
     u32 height;
 } Mel__Font_Upload;
 
+static u64 mel__font_atlas_load_key(Mel_Font_Atlas_Load_Opt opt)
+{
+    u64 key = str8_hash(opt.path);
+    f32 font_size = opt.size > 0 ? opt.size : 24.0f;
+    u32 atlas_w = opt.atlas_width > 0 ? opt.atlas_width : 512;
+    u32 atlas_h = opt.atlas_height > 0 ? opt.atlas_height : 512;
+
+    key = mel_xxh64(&font_size, sizeof(font_size), key);
+    key = mel_xxh64(&atlas_w, sizeof(atlas_w), key);
+    key = mel_xxh64(&atlas_h, sizeof(atlas_h), key);
+    return key;
+}
+
 static void mel__font_upload_cmd(VkCommandBuffer cmd, void* user)
 {
     Mel__Font_Upload* data = (Mel__Font_Upload*)user;
@@ -101,7 +114,7 @@ Mel_Font_Handle mel_font_atlas_pool_load_opt(Mel_Font_Atlas_Pool* pool, Mel_Font
     assert(pool != nullptr);
     assert(!str8_is_empty(opt.path));
 
-    u64 hash = str8_hash(opt.path);
+    u64 hash = mel__font_atlas_load_key(opt);
 
     void* existing = mel_hashmap_get(&pool->path_to_handle, (void*)(usize)hash);
     if (existing)

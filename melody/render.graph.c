@@ -4,10 +4,12 @@
 #include "render.target.h"
 #include "render.camera.fwd.h"
 #include "swapchain.h"
+#include "gpu.tracy.h"
 #include "gpu.image.h"
 #include "string.str8.h"
 #include "allocator.heap.h"
 #include <string.h>
+#include <tracy/TracyC.h>
 
 static u32 null_terminated_count(void** arr)
 {
@@ -34,6 +36,23 @@ static Mel_Render_List** copy_list_array(const Mel_Alloc* alloc, Mel_Render_List
     return dst;
 }
 
+static u32 source_handle_count(Mel_Source_Handle* arr)
+{
+    if (!arr) return 0;
+    u32 count = 0;
+    while (mel_source_handle_valid(arr[count])) count++;
+    return count;
+}
+
+static Mel_Source_Handle* copy_source_array(const Mel_Alloc* alloc, Mel_Source_Handle* src)
+{
+    if (!src) return nullptr;
+    u32 count = source_handle_count(src);
+    Mel_Source_Handle* dst = mel_alloc(alloc, sizeof(Mel_Source_Handle) * (count + 1));
+    memcpy(dst, src, sizeof(Mel_Source_Handle) * (count + 1));
+    return dst;
+}
+
 static Mel_Render_Target** copy_target_array(const Mel_Alloc* alloc, Mel_Render_Target** src)
 {
     if (!src) return nullptr;
@@ -56,6 +75,7 @@ static void free_pass_resources(const Mel_Alloc* alloc, Mel_Render_Graph_Pass* p
 {
     if (pass->name.data) mel_dealloc(alloc, pass->name.data);
     if (pass->read_lists) mel_dealloc(alloc, pass->read_lists);
+    if (pass->read_sources) mel_dealloc(alloc, pass->read_sources);
     if (pass->write_lists) mel_dealloc(alloc, pass->write_lists);
     if (pass->read_targets) mel_dealloc(alloc, pass->read_targets);
     if (pass->write_targets) mel_dealloc(alloc, pass->write_targets);
@@ -355,6 +375,7 @@ static void execute_passes(Mel_Render_Graph* g, Mel_Gpu_Cmd* cmd)
     {
         u32 pi = g->sorted_order.items[si];
         Mel_Render_Graph_Pass* pass = &g->passes.items[pi];
+        Mel_Gpu_Tracy_Zone gpu_zone = mel_gpu_tracy_zone_begin(g->tracy_ctx, cmd->cmd, pass->name);
 
         while (barrier_cursor < g->barriers.count &&
                g->barriers.items[barrier_cursor].pass_index == pi)
@@ -362,11 +383,22 @@ static void execute_passes(Mel_Render_Graph* g, Mel_Gpu_Cmd* cmd)
             Mel_Render_Graph_Barrier* b = &g->barriers.items[barrier_cursor++];
             if (b->target)
             {
+                VkImageLayout old_layout = b->old_layout;
+                VkPipelineStageFlags2 src_stage = b->src_stage;
+                VkAccessFlags2 src_access = b->src_access;
+
+                if (b->target->kind == MEL_RENDER_TARGET_SWAPCHAIN)
+                {
+                    old_layout = mel_swapchain_current_image_layout(b->target->swapchain);
+                    src_stage = mel_gpu_image_layout_stage(old_layout);
+                    src_access = mel_gpu_image_layout_access(old_layout);
+                }
+
                 mel_gpu_cmd_image_barrier(cmd,
                     mel_render_target_image(b->target),
-                    b->src_stage, b->src_access,
+                    src_stage, src_access,
                     b->dst_stage, b->dst_access,
-                    b->old_layout, b->new_layout,
+                    old_layout, b->new_layout,
                     b->aspect);
             }
             else if (b->list)
@@ -457,6 +489,7 @@ static void execute_passes(Mel_Render_Graph* g, Mel_Gpu_Cmd* cmd)
             Mel_Render_Pass_Ctx ctx = {
                 .cmd = *cmd,
                 .read_lists = pass->read_lists,
+                .read_sources = pass->read_sources,
                 .write_lists = pass->write_lists,
                 .read_targets = pass->read_targets,
                 .write_targets = has_wt ? write_target_ptrs : nullptr,
@@ -470,6 +503,8 @@ static void execute_passes(Mel_Render_Graph* g, Mel_Gpu_Cmd* cmd)
 
         if (pass->type == MEL_PASS_GRAPHICS && has_wt)
             mel_gpu_cmd_end_rendering(cmd);
+
+        mel_gpu_tracy_zone_end(gpu_zone);
     }
 }
 
@@ -534,6 +569,9 @@ void mel_render_graph_shutdown(Mel_Render_Graph* g)
         }
     }
 
+    mel_gpu_tracy_shutdown(g->tracy_ctx);
+    g->tracy_ctx = nullptr;
+
     for (usize i = 0; i < g->passes.count; i++)
         free_pass_resources(g->alloc, &g->passes.items[i]);
 
@@ -558,6 +596,7 @@ u32 mel_render_graph_add_pass_opt(Mel_Render_Graph* g, str8 name, Mel_Pass_Desc 
         .viewport_design_width = desc.viewport_design_width,
         .viewport_design_height = desc.viewport_design_height,
         .read_lists = copy_list_array(g->alloc, desc.read_lists),
+        .read_sources = copy_source_array(g->alloc, desc.read_sources),
         .write_lists = copy_list_array(g->alloc, desc.write_lists),
         .read_targets = copy_target_array(g->alloc, desc.read_targets),
         .write_targets = copy_write_target_array(g->alloc, desc.write_targets),
@@ -804,7 +843,9 @@ bool mel_render_graph_execute(Mel_Render_Graph* g)
 
         Mel_Render_Graph_Frame* fd = &g->frames[g->current_frame];
 
+        TracyCZoneN(ctx_fence_wait, "render_graph_fence_wait", true);
         vkWaitForFences(g->dev->device, 1, &fd->fence, VK_TRUE, UINT64_MAX);
+        TracyCZoneEnd(ctx_fence_wait);
 
         if (swapchain)
         {
@@ -815,20 +856,33 @@ bool mel_render_graph_execute(Mel_Render_Graph* g)
         vkResetFences(g->dev->device, 1, &fd->fence);
         vkResetCommandPool(g->dev->device, fd->pool, 0);
 
+        if (!g->tracy_ctx)
+        {
+            bool tracy_ok = mel_gpu_tracy_init(&g->tracy_ctx, g->dev, g->dev->graphics_queue, fd->cmd, S8("render_graph"));
+            assert(tracy_ok);
+            MEL_UNUSED(tracy_ok);
+            vkResetCommandPool(g->dev->device, fd->pool, 0);
+        }
+
         VkCommandBufferBeginInfo begin = {
             .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
             .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
         };
+        TracyCZoneN(ctx_cmd_begin, "render_graph_begin_cmd", true);
         vkBeginCommandBuffer(fd->cmd, &begin);
+        TracyCZoneEnd(ctx_cmd_begin);
 
         cmd = (Mel_Gpu_Cmd){ .cmd = fd->cmd, .dev = g->dev };
     }
 
+    TracyCZoneN(ctx_execute_passes, "render_graph_execute_passes", true);
     execute_passes(g, &cmd);
+    TracyCZoneEnd(ctx_execute_passes);
 
     if (has_gpu)
     {
         Mel_Render_Graph_Frame* fd = &g->frames[g->current_frame];
+        mel_gpu_tracy_collect(g->tracy_ctx, fd->cmd);
 
         if (swapchain)
             mel_swapchain_present(swapchain, g->dev, fd->cmd, fd->fence);

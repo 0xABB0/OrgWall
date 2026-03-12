@@ -71,6 +71,24 @@ Mel_Task_Ctx* mel_task_ctx_create(const Mel_Task_Ctx_Desc* desc)
     return ctx;
 }
 
+Mel_Task_Step_Result mel_task_step_dispatch_job_opt(Mel_Task_Ctx* ctx, Mel_Task_Job_Step_Opt opt)
+{
+    assert(ctx);
+    assert(ctx->jobs);
+    assert(opt.count > 0);
+    assert(opt.callback);
+
+    return (Mel_Task_Step_Result){
+        .result = MEL_TASK_STEP_PENDING,
+        .wait_type = MEL_TASK_WAIT_JOB,
+        .job_handle = mel_job_dispatch_opt(ctx->jobs, opt.count, opt.callback, opt.user,
+            (Mel_Job_Dispatch_Opt){
+                .priority = opt.priority,
+                .tags = opt.tags,
+            }),
+    };
+}
+
 void mel_task_ctx_destroy(Mel_Task_Ctx* ctx)
 {
     assert(ctx);
@@ -320,6 +338,19 @@ void mel_task_tick(Mel_Task_Ctx* ctx)
                 task->on_complete(handle, task->status, task->on_complete_user);
             }
         }
+    }
+}
+
+void mel_task_wait(Mel_Task_Ctx* ctx, Mel_Task_Handle handle)
+{
+    assert(ctx);
+
+    for (;;) {
+        u32 status = mel_task_status(ctx, handle);
+        if (status != MEL_TASK_STATUS_BUILDING && status != MEL_TASK_STATUS_RUNNING)
+            return;
+
+        mel_task_tick(ctx);
     }
 }
 
