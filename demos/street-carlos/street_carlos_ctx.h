@@ -62,6 +62,7 @@ typedef struct Street_Carlos_Ctx {
     Mel_Font_Handle body_font;
 
     Mel_Progress load_progress;
+    Mel_Stage_Registry stage_registry;
 
     Street_Carlos_Stage_Choice stage_choices[STREET_CARLOS_MAX_STAGE_CHOICES];
     u32 stage_choice_count;
@@ -76,3 +77,9 @@ typedef struct Street_Carlos_Ctx {
     Street_Carlos_Pause_Stage* pause_stage;
     Street_Carlos_Console_Stage* console_stage;
 } Street_Carlos_Ctx;
+
+enum {
+    STREET_CARLOS_STAGE_TAG_FLOW   = 1 << 0,
+    STREET_CARLOS_STAGE_TAG_MODAL  = 1 << 1,
+    STREET_CARLOS_STAGE_TAG_GLOBAL = 1 << 2,
+};

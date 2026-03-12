@@ -1,8 +1,12 @@
 #include "render.frame_plan.h"
 #include "render.view.h"
 #include "render.source.h"
+#include "render.list.h"
 #include "render.target.h"
 #include "render.graph.h"
+#include "render.material.h"
+#include "mesh.pass.h"
+#include "sprite.pass.h"
 #include "swapchain.h"
 #include "core.engine.h"
 #include "gpu.device.h"
@@ -33,6 +37,14 @@ typedef struct {
 } Mel_Frame_Plan_Diagnostic_Record;
 
 typedef struct {
+    Mel_Frame_Plan_Resolved_Material public_info;
+} Mel_Frame_Plan_Resolved_Material_Record;
+
+typedef struct {
+    Mel_Frame_Plan_Material_Diagnostic public_info;
+} Mel_Frame_Plan_Material_Diagnostic_Record;
+
+typedef struct {
     Mel_Frame_Recipe_Binding_Desc binding;
     u32 authored_index;
 } Mel_Frame_Plan_Binding;
@@ -51,6 +63,8 @@ struct Mel_Frame_Plan {
     Mel_Array(Mel_Frame_Plan_Target) generated_targets;
     Mel_Array(Mel_Frame_Plan_Resolved_Record) resolved_techniques;
     Mel_Array(Mel_Frame_Plan_Diagnostic_Record) diagnostics;
+    Mel_Array(Mel_Frame_Plan_Resolved_Material_Record) resolved_materials;
+    Mel_Array(Mel_Frame_Plan_Material_Diagnostic_Record) material_diagnostics;
     Mel_Array(Mel_Frame_Plan_Source_Snapshot) source_snapshots;
     u32 dirty_flags;
 };
@@ -86,11 +100,24 @@ static void mel__frame_plan_registry_shutdown(void)
             mel_dealloc(plans[i].alloc, plans[i].diagnostics.items[j].public_info.technique_name.data);
             mel_dealloc(plans[i].alloc, plans[i].diagnostics.items[j].public_info.reason.data);
         }
+        for (usize j = 0; j < plans[i].resolved_materials.count; j++)
+        {
+            mel_dealloc(plans[i].alloc, plans[i].resolved_materials.items[j].public_info.technique_name.data);
+            mel_dealloc(plans[i].alloc, plans[i].resolved_materials.items[j].public_info.backend_name.data);
+        }
+        for (usize j = 0; j < plans[i].material_diagnostics.count; j++)
+        {
+            mel_dealloc(plans[i].alloc, plans[i].material_diagnostics.items[j].public_info.technique_name.data);
+            mel_dealloc(plans[i].alloc, plans[i].material_diagnostics.items[j].public_info.backend_name.data);
+            mel_dealloc(plans[i].alloc, plans[i].material_diagnostics.items[j].public_info.reason.data);
+        }
 
         mel_array_free(&plans[i].generated_pass_names);
         mel_array_free(&plans[i].generated_targets);
         mel_array_free(&plans[i].resolved_techniques);
         mel_array_free(&plans[i].diagnostics);
+        mel_array_free(&plans[i].resolved_materials);
+        mel_array_free(&plans[i].material_diagnostics);
         mel_array_free(&plans[i].source_snapshots);
     }
 
@@ -145,9 +172,306 @@ static void mel__frame_plan_clear_generated(Mel_Frame_Plan* plan)
         mel_dealloc(plan->alloc, plan->diagnostics.items[i].public_info.reason.data);
     }
     mel_array_clear(&plan->diagnostics);
+    for (usize i = 0; i < plan->resolved_materials.count; i++)
+    {
+        mel_dealloc(plan->alloc, plan->resolved_materials.items[i].public_info.technique_name.data);
+        mel_dealloc(plan->alloc, plan->resolved_materials.items[i].public_info.backend_name.data);
+    }
+    mel_array_clear(&plan->resolved_materials);
+    for (usize i = 0; i < plan->material_diagnostics.count; i++)
+    {
+        mel_dealloc(plan->alloc, plan->material_diagnostics.items[i].public_info.technique_name.data);
+        mel_dealloc(plan->alloc, plan->material_diagnostics.items[i].public_info.backend_name.data);
+        mel_dealloc(plan->alloc, plan->material_diagnostics.items[i].public_info.reason.data);
+    }
+    mel_array_clear(&plan->material_diagnostics);
     mel_array_clear(&plan->source_snapshots);
     plan->graph = nullptr;
     plan->dirty_flags = MEL_FRAME_DIRTY_NONE;
+}
+
+static Mel_Material_Instance_Handle* mel__frame_plan_collect_mesh_materials(Mel_Frame_Plan_Handle handle,
+    Mel_View_Handle view)
+{
+    Mel_Frame_Plan* plan = mel__frame_plan_get(handle);
+    Mel_Render_List** lists = mel_frame_plan_collect_render_lists(handle, view, MEL_SCHEMA_MESH_INSTANCE);
+    if (!lists)
+        return nullptr;
+
+    u32 material_cap = 8;
+    u32 material_count = 0;
+    Mel_Material_Instance_Handle* materials = mel_alloc(plan->alloc,
+        sizeof(Mel_Material_Instance_Handle) * material_cap);
+
+    for (u32 list_index = 0; lists[list_index] != nullptr; list_index++)
+    {
+        Mel_Render_List* list = lists[list_index];
+        for (u32 i = 0; i < list->count; i++)
+        {
+            Mel_Mesh_Entry* entry = mel_render_list_get(list, list->packets[i].entry_index);
+            if (!mel_material_instance_handle_valid(entry->material))
+                continue;
+
+            bool exists = false;
+            for (u32 j = 0; j < material_count; j++)
+            {
+                if (materials[j].handle.index == entry->material.handle.index &&
+                    materials[j].handle.generation == entry->material.handle.generation)
+                {
+                    exists = true;
+                    break;
+                }
+            }
+            if (exists)
+                continue;
+
+            if (material_count == material_cap)
+            {
+                material_cap *= 2;
+                Mel_Material_Instance_Handle* grown = mel_alloc(plan->alloc,
+                    sizeof(Mel_Material_Instance_Handle) * material_cap);
+                memcpy(grown, materials, sizeof(Mel_Material_Instance_Handle) * material_count);
+                mel_dealloc(plan->alloc, materials);
+                materials = grown;
+            }
+
+            materials[material_count++] = entry->material;
+        }
+    }
+
+    mel_frame_plan_free_read_lists(handle, lists);
+
+    if (material_count == 0)
+    {
+        mel_dealloc(plan->alloc, materials);
+        return nullptr;
+    }
+
+    Mel_Material_Instance_Handle* result = mel_alloc(plan->alloc,
+        sizeof(Mel_Material_Instance_Handle) * (material_count + 1));
+    memcpy(result, materials, sizeof(Mel_Material_Instance_Handle) * material_count);
+    result[material_count] = MEL_MATERIAL_INSTANCE_HANDLE_NULL;
+    mel_dealloc(plan->alloc, materials);
+    return result;
+}
+
+static Mel_Material_Instance_Handle* mel__frame_plan_collect_sprite_materials(Mel_Frame_Plan_Handle handle,
+    Mel_View_Handle view)
+{
+    Mel_Frame_Plan* plan = mel__frame_plan_get(handle);
+    Mel_Render_List** lists = mel_frame_plan_collect_render_lists(handle, view, MEL_SCHEMA_SPRITE);
+    if (!lists)
+        return nullptr;
+
+    u32 material_cap = 8;
+    u32 material_count = 0;
+    Mel_Material_Instance_Handle* materials = mel_alloc(plan->alloc,
+        sizeof(Mel_Material_Instance_Handle) * material_cap);
+
+    for (u32 list_index = 0; lists[list_index] != nullptr; list_index++)
+    {
+        Mel_Render_List* list = lists[list_index];
+        for (u32 i = 0; i < list->count; i++)
+        {
+            Mel_Sprite_Entry* entry = mel_render_list_get(list, list->packets[i].entry_index);
+            if (!mel_material_instance_handle_valid(entry->material))
+                continue;
+
+            bool exists = false;
+            for (u32 j = 0; j < material_count; j++)
+            {
+                if (materials[j].handle.index == entry->material.handle.index &&
+                    materials[j].handle.generation == entry->material.handle.generation)
+                {
+                    exists = true;
+                    break;
+                }
+            }
+            if (exists)
+                continue;
+
+            if (material_count == material_cap)
+            {
+                material_cap *= 2;
+                Mel_Material_Instance_Handle* grown = mel_alloc(plan->alloc,
+                    sizeof(Mel_Material_Instance_Handle) * material_cap);
+                memcpy(grown, materials, sizeof(Mel_Material_Instance_Handle) * material_count);
+                mel_dealloc(plan->alloc, materials);
+                materials = grown;
+            }
+
+            materials[material_count++] = entry->material;
+        }
+    }
+
+    mel_frame_plan_free_read_lists(handle, lists);
+
+    if (material_count == 0)
+    {
+        mel_dealloc(plan->alloc, materials);
+        return nullptr;
+    }
+
+    Mel_Material_Instance_Handle* result = mel_alloc(plan->alloc,
+        sizeof(Mel_Material_Instance_Handle) * (material_count + 1));
+    memcpy(result, materials, sizeof(Mel_Material_Instance_Handle) * material_count);
+    result[material_count] = MEL_MATERIAL_INSTANCE_HANDLE_NULL;
+    mel_dealloc(plan->alloc, materials);
+    return result;
+}
+
+static void mel__frame_plan_free_material_handles(Mel_Frame_Plan_Handle handle,
+    Mel_Material_Instance_Handle* materials)
+{
+    if (!materials)
+        return;
+    Mel_Frame_Plan* plan = mel__frame_plan_get(handle);
+    mel_dealloc(plan->alloc, materials);
+}
+
+static void mel__frame_plan_resolve_materials(Mel_Frame_Plan* plan, Mel_Frame_Plan_Handle handle,
+    Mel_Frame_Recipe_Binding_Desc binding, u32 binding_index, Mel_Gpu_Device* dev,
+    const Mel_Technique_Desc* technique)
+{
+    Mel_Material_Instance_Handle* materials = nullptr;
+
+    if (technique->family == MEL_TECHNIQUE_MESH)
+        materials = mel__frame_plan_collect_mesh_materials(handle, binding.view);
+    else if (technique->family == MEL_TECHNIQUE_SPRITE)
+        materials = mel__frame_plan_collect_sprite_materials(handle, binding.view);
+    else
+        return;
+    if (!materials)
+        return;
+
+    for (u32 material_index = 0; mel_material_instance_handle_valid(materials[material_index]); material_index++)
+    {
+        Mel_Material_Instance_Handle material_instance = materials[material_index];
+        Mel_Material_Template_Handle material_template = mel_material_instance_template(material_instance);
+        Mel_Material_Family_Handle family = mel_material_template_family(material_template);
+        Mel_Frame_Plan_Material_Ctx material_ctx = {
+            .plan = handle,
+            .view = binding.view,
+            .dev = dev,
+            .technique_family = technique->family,
+            .technique_name = technique->name,
+            .binding_index = binding_index,
+        };
+
+        const Mel_Material_Backend_Desc* selected = nullptr;
+        i32 selected_priority = 0;
+        i32 selected_diag_index = -1;
+        u32 backend_count = mel_material_backend_count_for_family(family);
+        for (u32 backend_index = 0; backend_index < backend_count; backend_index++)
+        {
+            const Mel_Material_Backend_Desc* backend = mel_material_backend_at_for_family(family, backend_index);
+            if (!backend)
+                continue;
+
+            Mel_Material_Check_Result support = mel_material_backend_support(backend, &material_ctx, material_template);
+            Mel_Material_Check_Result match = support.ok
+                ? mel_material_backend_match(backend, &material_ctx, material_template)
+                : (Mel_Material_Check_Result){
+                    .ok = false,
+                    .kind = MEL_MATERIAL_CHECK_POLICY_SKIPPED,
+                    .reason = S8("skipped because capability check failed"),
+                };
+            Mel_Material_Policy_Result policy = (support.ok && match.ok)
+                ? mel_material_eval_family_policy(family, &material_ctx, backend, material_template)
+                : (Mel_Material_Policy_Result){
+                    .allow = true,
+                    .priority_bias = 0,
+                    .kind = MEL_MATERIAL_CHECK_POLICY_SKIPPED,
+                    .reason = S8("skipped because earlier checks failed"),
+                };
+            Mel_Material_Check_Result diag_reason = support.ok ? match : support;
+            if (support.ok && match.ok && !policy.allow)
+            {
+                diag_reason = (Mel_Material_Check_Result){
+                    .ok = false,
+                    .kind = policy.kind,
+                    .reason = policy.reason,
+                };
+            }
+
+            mel_array_push(&plan->material_diagnostics, ((Mel_Frame_Plan_Material_Diagnostic_Record){
+                .public_info = {
+                    .view = binding.view,
+                    .material_template = material_template,
+                    .material_instance = material_instance,
+                    .technique_name = str8_dup(technique->name, plan->alloc),
+                    .backend_name = str8_dup(backend->name, plan->alloc),
+                    .reason = str8_dup(diag_reason.reason, plan->alloc),
+                    .binding_index = binding_index,
+                    .reason_kind = diag_reason.kind,
+                    .supported = support.ok,
+                    .matched = support.ok && match.ok && policy.allow,
+                    .selected = false,
+                },
+            }));
+
+            if (support.ok && match.ok && policy.allow)
+            {
+                i32 effective_priority = backend->priority + policy.priority_bias;
+                if (!selected || effective_priority > selected_priority)
+                {
+                    if (selected_diag_index >= 0)
+                    {
+                        plan->material_diagnostics.items[selected_diag_index].public_info.selected = false;
+                        plan->material_diagnostics.items[selected_diag_index].public_info.reason_kind = MEL_MATERIAL_CHECK_POLICY_SKIPPED;
+                        mel_dealloc(plan->alloc, plan->material_diagnostics.items[selected_diag_index].public_info.reason.data);
+                        plan->material_diagnostics.items[selected_diag_index].public_info.reason =
+                            str8_dup(S8("matched but lower priority than selected backend"), plan->alloc);
+                    }
+                    selected = backend;
+                    selected_priority = effective_priority;
+                    selected_diag_index = (i32)plan->material_diagnostics.count - 1;
+                    mel_array_last(&plan->material_diagnostics).public_info.selected = true;
+                }
+                else
+                {
+                    mel_array_last(&plan->material_diagnostics).public_info.reason_kind = MEL_MATERIAL_CHECK_POLICY_SKIPPED;
+                    mel_dealloc(plan->alloc, mel_array_last(&plan->material_diagnostics).public_info.reason.data);
+                    mel_array_last(&plan->material_diagnostics).public_info.reason =
+                        str8_dup(S8("matched but lower priority than selected backend"), plan->alloc);
+                }
+            }
+        }
+
+        if (selected)
+        {
+            mel_array_push(&plan->resolved_materials, ((Mel_Frame_Plan_Resolved_Material_Record){
+                .public_info = {
+                    .view = binding.view,
+                    .material_template = material_template,
+                    .material_instance = material_instance,
+                    .technique_name = str8_dup(technique->name, plan->alloc),
+                    .backend_name = str8_dup(selected->name, plan->alloc),
+                    .binding_index = binding_index,
+                },
+            }));
+        }
+        else
+        {
+            mel_array_push(&plan->material_diagnostics, ((Mel_Frame_Plan_Material_Diagnostic_Record){
+                .public_info = {
+                    .view = binding.view,
+                    .material_template = material_template,
+                    .material_instance = material_instance,
+                    .technique_name = str8_dup(technique->name, plan->alloc),
+                    .backend_name = str8_dup(S8(""), plan->alloc),
+                    .reason = str8_dup(S8("no compatible material backend found"), plan->alloc),
+                    .binding_index = binding_index,
+                    .reason_kind = MEL_MATERIAL_CHECK_OTHER,
+                    .supported = false,
+                    .matched = false,
+                    .selected = false,
+                },
+            }));
+        }
+    }
+
+    mel__frame_plan_free_material_handles(handle, materials);
 }
 
 static Mel_Frame_Plan_Target* mel__frame_plan_get_target(Mel_Frame_Plan* plan,
@@ -429,6 +753,8 @@ Mel_Frame_Plan_Handle mel_frame_plan_create(str8 name)
     mel_array_init(&plan.generated_targets, plan.alloc);
     mel_array_init(&plan.resolved_techniques, plan.alloc);
     mel_array_init(&plan.diagnostics, plan.alloc);
+    mel_array_init(&plan.resolved_materials, plan.alloc);
+    mel_array_init(&plan.material_diagnostics, plan.alloc);
     mel_array_init(&plan.source_snapshots, plan.alloc);
 
     Mel_SlotMap_Handle raw = mel_slotmap_insert(&s_plans, &plan);
@@ -443,6 +769,8 @@ void mel_frame_plan_destroy(Mel_Frame_Plan_Handle handle)
     mel_array_free(&plan->generated_targets);
     mel_array_free(&plan->resolved_techniques);
     mel_array_free(&plan->diagnostics);
+    mel_array_free(&plan->resolved_materials);
+    mel_array_free(&plan->material_diagnostics);
     mel_array_free(&plan->source_snapshots);
     mel_dealloc(plan->alloc, plan->name.data);
     mel_slotmap_remove(&s_plans, handle.handle);
@@ -577,7 +905,25 @@ bool mel_frame_plan_compile_opt(Mel_Frame_Plan_Handle handle, Mel_Frame_Recipe_H
                         .kind = MEL_TECHNIQUE_CHECK_POLICY_SKIPPED,
                         .reason = S8("skipped because capability check failed"),
                     };
-                Mel_Technique_Check_Result diag_reason = support.ok ? match : support;
+                Mel_Technique_Policy_Result policy = (support.ok && match.ok)
+                    ? mel_render_technique_eval_family_policy(family, &technique_ctx, candidate)
+                    : (Mel_Technique_Policy_Result){
+                        .allow = true,
+                        .priority_bias = 0,
+                        .kind = MEL_TECHNIQUE_CHECK_OK,
+                        .reason = S8(""),
+                    };
+                Mel_Technique_Check_Result diag_reason = support.ok
+                    ? (match.ok
+                        ? (!policy.allow
+                            ? (Mel_Technique_Check_Result){
+                                .ok = false,
+                                .kind = policy.kind ? policy.kind : MEL_TECHNIQUE_CHECK_POLICY_SKIPPED,
+                                .reason = policy.reason.len ? policy.reason : S8("skipped by family policy"),
+                            }
+                            : match)
+                        : match)
+                    : support;
                 mel_array_push(&plan->diagnostics, ((Mel_Frame_Plan_Diagnostic_Record){
                     .public_info = {
                         .view = binding.view,
@@ -592,8 +938,9 @@ bool mel_frame_plan_compile_opt(Mel_Frame_Plan_Handle handle, Mel_Frame_Recipe_H
                     },
                 }));
 
-                if (support.ok && match.ok &&
-                    (!technique || candidate->priority > selected_priority))
+                i32 effective_priority = candidate->priority + policy.priority_bias;
+                if (support.ok && match.ok && policy.allow &&
+                    (!technique || effective_priority > selected_priority))
                 {
                     if (selected_diag_index >= 0)
                     {
@@ -604,11 +951,16 @@ bool mel_frame_plan_compile_opt(Mel_Frame_Plan_Handle handle, Mel_Frame_Recipe_H
                             str8_dup(S8("matched but lower priority than selected variant"), plan->alloc);
                     }
                     technique = candidate;
-                    selected_priority = candidate->priority;
+                    selected_priority = effective_priority;
                     selected_diag_index = (i32)plan->diagnostics.count - 1;
                     mel_array_last(&plan->diagnostics).public_info.selected = true;
+                    if (policy.reason.len > 0)
+                    {
+                        mel_dealloc(plan->alloc, mel_array_last(&plan->diagnostics).public_info.reason.data);
+                        mel_array_last(&plan->diagnostics).public_info.reason = str8_dup(policy.reason, plan->alloc);
+                    }
                 }
-                else if (support.ok && match.ok)
+                else if (support.ok && match.ok && policy.allow)
                 {
                     mel_array_last(&plan->diagnostics).public_info.reason_kind = MEL_TECHNIQUE_CHECK_POLICY_SKIPPED;
                     mel_dealloc(plan->alloc, mel_array_last(&plan->diagnostics).public_info.reason.data);
@@ -654,6 +1006,8 @@ bool mel_frame_plan_compile_opt(Mel_Frame_Plan_Handle handle, Mel_Frame_Recipe_H
                     .parameter_version = mel_view_parameter_version(binding.view),
                     .topology_version = mel_view_topology_version(binding.view),
                 }));
+
+                mel__frame_plan_resolve_materials(plan, handle, binding, i, dev, technique);
             }
         }
     }
@@ -785,5 +1139,37 @@ bool mel_frame_plan_technique_diagnostic_at(Mel_Frame_Plan_Handle handle, u32 in
         return false;
     if (out)
         *out = plan->diagnostics.items[index].public_info;
+    return true;
+}
+
+u32 mel_frame_plan_resolved_material_count(Mel_Frame_Plan_Handle handle)
+{
+    Mel_Frame_Plan* plan = mel__frame_plan_get(handle);
+    return (u32)plan->resolved_materials.count;
+}
+
+bool mel_frame_plan_resolved_material_at(Mel_Frame_Plan_Handle handle, u32 index, Mel_Frame_Plan_Resolved_Material* out)
+{
+    Mel_Frame_Plan* plan = mel__frame_plan_get(handle);
+    if (index >= (u32)plan->resolved_materials.count)
+        return false;
+    if (out)
+        *out = plan->resolved_materials.items[index].public_info;
+    return true;
+}
+
+u32 mel_frame_plan_material_diagnostic_count(Mel_Frame_Plan_Handle handle)
+{
+    Mel_Frame_Plan* plan = mel__frame_plan_get(handle);
+    return (u32)plan->material_diagnostics.count;
+}
+
+bool mel_frame_plan_material_diagnostic_at(Mel_Frame_Plan_Handle handle, u32 index, Mel_Frame_Plan_Material_Diagnostic* out)
+{
+    Mel_Frame_Plan* plan = mel__frame_plan_get(handle);
+    if (index >= (u32)plan->material_diagnostics.count)
+        return false;
+    if (out)
+        *out = plan->material_diagnostics.items[index].public_info;
     return true;
 }

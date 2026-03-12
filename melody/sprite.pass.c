@@ -2,6 +2,7 @@
 #include "render.list.h"
 #include "render.pass.h"
 #include "render.camera.h"
+#include "render.material.h"
 #include "texture.pool.h"
 #include "gpu.pipeline.h"
 #include "gpu.texture.h"
@@ -353,10 +354,14 @@ void mel_sprite_pass_draw(Mel_Render_List* list, Mel_Sprite_Pass* sp)
         if (uv.w == 0.0f && uv.h == 0.0f)
             uv = (Mel_Rect){0, 0, 1, 1};
 
+        Mel_Vec4 color = entry->color;
+        if (mel_material_instance_handle_valid(entry->material))
+            color = mel_vec4_mul(color, mel_material_instance_base_color(entry->material));
+
         mel__sprite_pass_push_quad(sp,
             entry->pos.x, entry->pos.y, entry->size.x, entry->size.y,
             uv.x, uv.y, uv.x + uv.w, uv.y + uv.h,
-            entry->color);
+            color);
     }
 }
 
@@ -393,5 +398,6 @@ void mel_draw_sprite_opt(Mel_Render_List* list, Mel_Draw_Sprite_Opt opt)
         .uv = uv,
         .color = opt.color,
         .tex = opt.tex,
+        .material = opt.material,
     };
 }

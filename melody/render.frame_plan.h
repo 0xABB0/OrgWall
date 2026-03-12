@@ -8,6 +8,7 @@
 #include "render.pass.h"
 #include "render.source.h"
 #include "render.technique.h"
+#include "render.material.h"
 #include "gpu.device.fwd.h"
 #include "mesh.pass.fwd.h"
 #include "sprite.pass.fwd.h"
@@ -43,6 +44,15 @@ typedef struct {
 
 typedef struct {
     Mel_View_Handle view;
+    Mel_Material_Template_Handle material_template;
+    Mel_Material_Instance_Handle material_instance;
+    str8 technique_name;
+    str8 backend_name;
+    u32 binding_index;
+} Mel_Frame_Plan_Resolved_Material;
+
+typedef struct {
+    Mel_View_Handle view;
     Mel_Technique_Family_Id family;
     str8 technique_name;
     str8 reason;
@@ -52,6 +62,20 @@ typedef struct {
     bool matched;
     bool selected;
 } Mel_Frame_Plan_Technique_Diagnostic;
+
+typedef struct {
+    Mel_View_Handle view;
+    Mel_Material_Template_Handle material_template;
+    Mel_Material_Instance_Handle material_instance;
+    str8 technique_name;
+    str8 backend_name;
+    str8 reason;
+    u32 binding_index;
+    u32 reason_kind;
+    bool supported;
+    bool matched;
+    bool selected;
+} Mel_Frame_Plan_Material_Diagnostic;
 
 struct Mel_Frame_Plan_Technique_Ctx {
     Mel_Frame_Plan_Handle plan;
@@ -81,8 +105,12 @@ Mel_Render_Target* mel_frame_plan_swapchain_target(Mel_Frame_Plan_Handle plan, M
 Mel_Render_Target* mel_frame_plan_swapchain_depth_target(Mel_Frame_Plan_Handle plan, Mel_Swapchain_Handle swapchain);
 u32 mel_frame_plan_resolved_technique_count(Mel_Frame_Plan_Handle plan);
 bool mel_frame_plan_resolved_technique_at(Mel_Frame_Plan_Handle plan, u32 index, Mel_Frame_Plan_Resolved_Technique* out);
+u32 mel_frame_plan_resolved_material_count(Mel_Frame_Plan_Handle plan);
+bool mel_frame_plan_resolved_material_at(Mel_Frame_Plan_Handle plan, u32 index, Mel_Frame_Plan_Resolved_Material* out);
 u32 mel_frame_plan_technique_diagnostic_count(Mel_Frame_Plan_Handle plan);
 bool mel_frame_plan_technique_diagnostic_at(Mel_Frame_Plan_Handle plan, u32 index, Mel_Frame_Plan_Technique_Diagnostic* out);
+u32 mel_frame_plan_material_diagnostic_count(Mel_Frame_Plan_Handle plan);
+bool mel_frame_plan_material_diagnostic_at(Mel_Frame_Plan_Handle plan, u32 index, Mel_Frame_Plan_Material_Diagnostic* out);
 
 Mel_Render_List** mel_frame_plan_collect_render_lists(Mel_Frame_Plan_Handle plan, Mel_View_Handle view, u32 schema);
 Mel_Source_Handle* mel_frame_plan_collect_sources(Mel_Frame_Plan_Handle plan, Mel_View_Handle view, Mel_Source_Kind kind, u32 schema);

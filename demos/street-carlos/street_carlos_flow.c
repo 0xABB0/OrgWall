@@ -10,6 +10,12 @@
 #include "street_carlos_fight_stage.h"
 #include "street_carlos_pause_stage.h"
 
+static void street_carlos_show_flow_stage(Street_Carlos_Ctx* ctx, str8 name)
+{
+    mel_stage_registry_enable_exclusive(&ctx->stage_registry, name, STREET_CARLOS_STAGE_TAG_FLOW);
+    mel_stage_registry_disable_tagged(&ctx->stage_registry, STREET_CARLOS_STAGE_TAG_MODAL);
+}
+
 static u64 street_carlos_menu_rand_next(Street_Carlos_Ctx* ctx)
 {
     if (ctx->menu_rng_state == 0)
@@ -29,46 +35,22 @@ u32 street_carlos_menu_rand_index(Street_Carlos_Ctx* ctx, u32 count)
 
 void street_carlos_show_title(Street_Carlos_Ctx* ctx)
 {
-    mel_stage_enable(&ctx->title_stage->stage);
-    mel_stage_disable(&ctx->main_menu_stage->stage);
-    mel_stage_disable(&ctx->char_select_stage->stage);
-    mel_stage_disable(&ctx->stage_select_stage->stage);
-    mel_stage_detach(&ctx->loading_stage->base.stage);
-    mel_stage_disable(&ctx->fight_stage->stage);
-    mel_stage_disable(&ctx->pause_stage->stage);
+    street_carlos_show_flow_stage(ctx, S8("title"));
 }
 
 void street_carlos_show_main_menu(Street_Carlos_Ctx* ctx)
 {
-    mel_stage_disable(&ctx->title_stage->stage);
-    mel_stage_enable(&ctx->main_menu_stage->stage);
-    mel_stage_disable(&ctx->char_select_stage->stage);
-    mel_stage_disable(&ctx->stage_select_stage->stage);
-    mel_stage_detach(&ctx->loading_stage->base.stage);
-    mel_stage_disable(&ctx->fight_stage->stage);
-    mel_stage_disable(&ctx->pause_stage->stage);
+    street_carlos_show_flow_stage(ctx, S8("main_menu"));
 }
 
 void street_carlos_show_char_select(Street_Carlos_Ctx* ctx)
 {
-    mel_stage_disable(&ctx->title_stage->stage);
-    mel_stage_disable(&ctx->main_menu_stage->stage);
-    mel_stage_enable(&ctx->char_select_stage->stage);
-    mel_stage_disable(&ctx->stage_select_stage->stage);
-    mel_stage_detach(&ctx->loading_stage->base.stage);
-    mel_stage_disable(&ctx->fight_stage->stage);
-    mel_stage_disable(&ctx->pause_stage->stage);
+    street_carlos_show_flow_stage(ctx, S8("char_select"));
 }
 
 void street_carlos_show_stage_select(Street_Carlos_Ctx* ctx)
 {
-    mel_stage_disable(&ctx->title_stage->stage);
-    mel_stage_disable(&ctx->main_menu_stage->stage);
-    mel_stage_disable(&ctx->char_select_stage->stage);
-    mel_stage_enable(&ctx->stage_select_stage->stage);
-    mel_stage_detach(&ctx->loading_stage->base.stage);
-    mel_stage_disable(&ctx->fight_stage->stage);
-    mel_stage_disable(&ctx->pause_stage->stage);
+    street_carlos_show_flow_stage(ctx, S8("stage_select"));
 }
 
 void street_carlos_start_loading(Street_Carlos_Ctx* ctx, Mugen_Char* p1_char, Mugen_Char* p2_char, str8 stage_path)
@@ -81,13 +63,7 @@ void street_carlos_start_loading(Street_Carlos_Ctx* ctx, Mugen_Char* p1_char, Mu
     mel_progress_clear(&ctx->load_progress);
     mel_progress_add_custom(&ctx->load_progress, street_carlos_fight_stage_progress, ctx->fight_stage, 1.0f);
 
-    mel_stage_disable(&ctx->title_stage->stage);
-    mel_stage_disable(&ctx->main_menu_stage->stage);
-    mel_stage_disable(&ctx->char_select_stage->stage);
-    mel_stage_disable(&ctx->stage_select_stage->stage);
-    mel_stage_disable(&ctx->fight_stage->stage);
-    mel_stage_disable(&ctx->pause_stage->stage);
-    mel_stage_enable(&ctx->loading_stage->base.stage);
+    street_carlos_show_flow_stage(ctx, S8("loading"));
 }
 
 void street_carlos_start_quick_fight(Street_Carlos_Ctx* ctx)

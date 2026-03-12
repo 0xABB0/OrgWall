@@ -24,6 +24,9 @@ typedef struct Mel_Gpu_Shader Mel_Gpu_Shader;
 struct Mel_Gpu_Shader {
     VkShaderModule vertex;
     VkShaderModule fragment;
+    VkShaderModule compute;
+    VkShaderModule task;
+    VkShaderModule mesh;
     Mel_Gpu_Shader_Binding* bindings;
     u32 binding_count;
     VkPushConstantRange* push_ranges;
@@ -35,6 +38,9 @@ typedef struct {
     str8 source;
     str8 vertex_entry;
     str8 fragment_entry;
+    str8 compute_entry;
+    str8 task_entry;
+    str8 mesh_entry;
 } Mel_Gpu_Shader_Opt;
 
 void mel_gpu_shader_init_opt(Mel_Gpu_Shader* shader, Mel_Gpu_Device* dev, Mel_Gpu_Shader_Opt opt);

@@ -34,6 +34,10 @@ void game_draw_input_display(Mugen_Player_Inputs inputs, Command_List* cmds,
     i32 stateno, Mel_Font_Atlas_Pool* fonts, Mel_Font_Handle font,
     f32 base_x, f32 base_y, Mel_Render_List* list);
 
+void game_draw_move_list(Mugen_Cmd* cmd, i32 current_stateno,
+    Mel_Font_Atlas_Pool* fonts, Mel_Font_Handle font,
+    f32 base_x, f32 base_y, f32 max_h, Mel_Render_List* list);
+
 void game_draw_stage_layer(Mugen_Stage* stage, Mugen_Sff* sff,
     Mel_Texture_Handle tex, Mugen_Camera* cam,
     u8 target_layer, Mel_Render_List* list);

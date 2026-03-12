@@ -46,6 +46,7 @@ struct Street_Carlos_Fight_Stage {
     bool show_hitboxes;
     bool show_tests;
     bool show_inputs;
+    bool show_moves;
     bool paused;
     bool initialized;
 

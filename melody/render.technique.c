@@ -20,7 +20,12 @@ typedef struct {
     Mel_Technique_Desc desc;
 } Mel__Technique_Registry_Entry;
 
+typedef struct {
+    Mel_Technique_Family_Policy policy;
+} Mel__Technique_Policy_Entry;
+
 static Mel_Array(Mel__Technique_Registry_Entry) s_registry;
+static Mel_Array(Mel__Technique_Policy_Entry) s_policies;
 static bool s_initialized;
 
 static Mel_Technique_Check_Result mel__support_always(Mel_Frame_Plan_Technique_Ctx* ctx)
@@ -43,10 +48,51 @@ static Mel_Technique_Check_Result mel__match_always(Mel_Frame_Plan_Technique_Ctx
     };
 }
 
+static Mel_Technique_Policy_Result mel__policy_allow_default(Mel_Frame_Plan_Technique_Ctx* ctx,
+    const Mel_Technique_Desc* technique, void* user)
+{
+    MEL_UNUSED(ctx);
+    MEL_UNUSED(technique);
+    MEL_UNUSED(user);
+    return (Mel_Technique_Policy_Result){
+        .allow = true,
+        .priority_bias = 0,
+        .kind = MEL_TECHNIQUE_CHECK_OK,
+        .reason = S8(""),
+    };
+}
+
 static bool mel__refresh_view_passes(const Mel_Technique_Refresh_Ctx* ctx)
 {
     return mel_frame_plan_refresh_contributed_passes(ctx->plan, ctx->view,
         ctx->pass_names, ctx->pass_count);
+}
+
+static Mel_Source_Handle* mel__merge_mesh_gpu_sources(Mel_Frame_Plan_Handle plan,
+    Mel_Source_Handle* geometry_sources, Mel_Source_Handle* material_sources)
+{
+    if (!geometry_sources && !material_sources)
+        return nullptr;
+
+    u32 geometry_count = 0;
+    if (geometry_sources)
+        while (mel_source_handle_valid(geometry_sources[geometry_count]))
+            geometry_count++;
+
+    u32 material_count = 0;
+    if (material_sources)
+        while (mel_source_handle_valid(material_sources[material_count]))
+            material_count++;
+
+    Mel_Source_Handle* merged = mel_alloc(mel_alloc_heap(),
+        sizeof(Mel_Source_Handle) * (geometry_count + material_count + 1));
+    u32 out = 0;
+    for (u32 i = 0; i < geometry_count; i++)
+        merged[out++] = geometry_sources[i];
+    for (u32 i = 0; i < material_count; i++)
+        merged[out++] = material_sources[i];
+    merged[out] = MEL_SOURCE_HANDLE_NULL;
+    return merged;
 }
 
 static Mel_Technique_Compile_Result mel__compile_sprite(const Mel_Technique_Compile_Ctx* ctx)
@@ -104,12 +150,31 @@ static Mel_Technique_Check_Result mel__match_text(Mel_Frame_Plan_Technique_Ctx* 
 static Mel_Technique_Compile_Result mel__compile_mesh(const Mel_Technique_Compile_Ctx* ctx)
 {
     Mel_Mesh_Pass* mesh_pass = ctx->plan_ctx->opt.mesh_pass ? ctx->plan_ctx->opt.mesh_pass : mel_mesh_pass();
-    Mel_Render_List** read_lists = mel_frame_plan_collect_render_lists(ctx->plan_ctx->plan,
-        ctx->plan_ctx->binding.view, MEL_SCHEMA_MESH_INSTANCE);
-    Mel_Source_Handle* read_sources = mel_frame_plan_collect_sources(ctx->plan_ctx->plan,
-        ctx->plan_ctx->binding.view, MEL_SOURCE_GPU_BUFFER, MEL_SCHEMA_MESH_DRAW_STREAM);
+    bool wants_list_path = ctx->technique->source_schema == MEL_SCHEMA_MESH_INSTANCE;
+    bool wants_draw_stream_path = ctx->technique->source_schema == MEL_SCHEMA_MESH_DRAW_STREAM;
+    bool wants_indirect_path = ctx->technique->source_schema == MEL_SCHEMA_MESH_INDIRECT_STREAM;
+    u32 gpu_schema = wants_indirect_path ? MEL_SCHEMA_MESH_INDIRECT_STREAM : MEL_SCHEMA_MESH_DRAW_STREAM;
+
+    Mel_Render_List** read_lists = wants_list_path
+        ? mel_frame_plan_collect_render_lists(ctx->plan_ctx->plan,
+            ctx->plan_ctx->binding.view, MEL_SCHEMA_MESH_INSTANCE)
+        : nullptr;
+    Mel_Source_Handle* draw_sources = (wants_draw_stream_path || wants_indirect_path)
+        ? mel_frame_plan_collect_sources(ctx->plan_ctx->plan,
+            ctx->plan_ctx->binding.view, MEL_SOURCE_GPU_BUFFER, gpu_schema)
+        : nullptr;
+    Mel_Source_Handle* material_sources = (wants_draw_stream_path || wants_indirect_path)
+        ? mel_frame_plan_collect_sources(ctx->plan_ctx->plan,
+            ctx->plan_ctx->binding.view, MEL_SOURCE_GPU_BUFFER, MEL_SCHEMA_MATERIAL_TABLE)
+        : nullptr;
+    Mel_Source_Handle* read_sources = mel__merge_mesh_gpu_sources(ctx->plan_ctx->plan, draw_sources, material_sources);
+
     if (!read_lists && !read_sources)
+    {
+        mel_frame_plan_free_read_sources(ctx->plan_ctx->plan, draw_sources);
+        mel_frame_plan_free_read_sources(ctx->plan_ctx->plan, material_sources);
         return MEL_TECHNIQUE_COMPILE_SKIP;
+    }
 
     VkAttachmentLoadOp color_load_op = (!*ctx->plan_ctx->wrote_any_pass &&
         (ctx->plan_ctx->first_for_swapchain || ctx->plan_ctx->replace_contents))
@@ -128,7 +193,10 @@ static Mel_Technique_Compile_Result mel__compile_mesh(const Mel_Technique_Compil
             { .target = depth_target, .load_op = VK_ATTACHMENT_LOAD_OP_CLEAR,
               .clear.depth = { .depth = 1.0f, .stencil = 0 } }));
     mel_frame_plan_free_read_lists(ctx->plan_ctx->plan, read_lists);
-    mel_frame_plan_free_read_sources(ctx->plan_ctx->plan, read_sources);
+    mel_frame_plan_free_read_sources(ctx->plan_ctx->plan, draw_sources);
+    mel_frame_plan_free_read_sources(ctx->plan_ctx->plan, material_sources);
+    if (read_sources)
+        mel_dealloc(mel_alloc_heap(), read_sources);
     return ok ? MEL_TECHNIQUE_COMPILE_CONTRIBUTED : MEL_TECHNIQUE_COMPILE_FAIL;
 }
 
@@ -154,6 +222,19 @@ static Mel_Technique_Check_Result mel__match_mesh_draw_stream(Mel_Frame_Plan_Tec
         .ok = matched,
         .kind = matched ? MEL_TECHNIQUE_CHECK_OK : MEL_TECHNIQUE_CHECK_SOURCE_MISMATCH,
         .reason = matched ? S8("found gpu draw-stream source") : S8("no gpu draw-stream source attached"),
+    };
+}
+
+static Mel_Technique_Check_Result mel__match_mesh_indirect_stream(Mel_Frame_Plan_Technique_Ctx* ctx)
+{
+    Mel_Source_Handle* read_sources = mel_frame_plan_collect_sources(ctx->plan,
+        ctx->binding.view, MEL_SOURCE_GPU_BUFFER, MEL_SCHEMA_MESH_INDIRECT_STREAM);
+    bool matched = read_sources != nullptr;
+    mel_frame_plan_free_read_sources(ctx->plan, read_sources);
+    return (Mel_Technique_Check_Result){
+        .ok = matched,
+        .kind = matched ? MEL_TECHNIQUE_CHECK_OK : MEL_TECHNIQUE_CHECK_SOURCE_MISMATCH,
+        .reason = matched ? S8("found gpu indirect stream source") : S8("no gpu indirect stream source attached"),
     };
 }
 
@@ -269,6 +350,7 @@ __attribute__((constructor(214)))
 static void mel__render_technique_registry_init(void)
 {
     mel_array_init(&s_registry, mel_alloc_heap());
+    mel_array_init(&s_policies, mel_alloc_heap());
     s_initialized = true;
 
     mel_render_technique_register(&(Mel_Technique_Desc){
@@ -289,6 +371,16 @@ static void mel__render_technique_registry_init(void)
         .supports = mel__support_always,
         .matches = mel__match_text,
         .compile = mel__compile_text,
+        .refresh = mel__refresh_view_passes,
+    });
+    mel_render_technique_register(&(Mel_Technique_Desc){
+        .family = MEL_TECHNIQUE_MESH,
+        .name = S8("mesh.indirect"),
+        .source_schema = MEL_SCHEMA_MESH_INDIRECT_STREAM,
+        .priority = 250,
+        .supports = mel__support_always,
+        .matches = mel__match_mesh_indirect_stream,
+        .compile = mel__compile_mesh,
         .refresh = mel__refresh_view_passes,
     });
     mel_render_technique_register(&(Mel_Technique_Desc){
@@ -352,6 +444,7 @@ static void mel__render_technique_registry_shutdown(void)
     for (usize i = 0; i < s_registry.count; i++)
         mel_dealloc(mel_alloc_heap(), s_registry.items[i].desc.name.data);
     mel_array_free(&s_registry);
+    mel_array_free(&s_policies);
     s_initialized = false;
 }
 
@@ -391,6 +484,41 @@ void mel_render_technique_unregister(Mel_Technique_Family_Id family, str8 name)
         {
             mel_dealloc(mel_alloc_heap(), s_registry.items[i].desc.name.data);
             mel_array_remove_ordered(&s_registry, i);
+            return;
+        }
+    }
+}
+
+void mel_render_technique_set_family_policy(const Mel_Technique_Family_Policy* policy)
+{
+    assert(s_initialized);
+    assert(policy != nullptr);
+    assert(policy->family != MEL_TECHNIQUE_NONE);
+    assert(policy->fn != nullptr);
+
+    for (usize i = 0; i < s_policies.count; i++)
+    {
+        if (s_policies.items[i].policy.family == policy->family)
+        {
+            s_policies.items[i].policy = *policy;
+            return;
+        }
+    }
+
+    mel_array_push(&s_policies, ((Mel__Technique_Policy_Entry){
+        .policy = *policy,
+    }));
+}
+
+void mel_render_technique_clear_family_policy(Mel_Technique_Family_Id family)
+{
+    assert(s_initialized);
+
+    for (usize i = 0; i < s_policies.count; i++)
+    {
+        if (s_policies.items[i].policy.family == family)
+        {
+            mel_array_remove_ordered(&s_policies, i);
             return;
         }
     }
@@ -440,6 +568,24 @@ const Mel_Technique_Desc* mel_render_technique_at_for_family(Mel_Technique_Famil
     return nullptr;
 }
 
+Mel_Technique_Policy_Result mel_render_technique_eval_family_policy(Mel_Technique_Family_Id family,
+    Mel_Frame_Plan_Technique_Ctx* ctx, const Mel_Technique_Desc* desc)
+{
+    assert(s_initialized);
+    assert(desc != nullptr);
+
+    for (usize i = 0; i < s_policies.count; i++)
+    {
+        if (s_policies.items[i].policy.family != family)
+            continue;
+        return s_policies.items[i].policy.fn
+            ? s_policies.items[i].policy.fn(ctx, desc, s_policies.items[i].policy.user)
+            : mel__policy_allow_default(ctx, desc, nullptr);
+    }
+
+    return mel__policy_allow_default(ctx, desc, nullptr);
+}
+
 Mel_Technique_Check_Result mel_render_technique_support(const Mel_Technique_Desc* desc, Mel_Frame_Plan_Technique_Ctx* ctx)
 {
     assert(desc != nullptr);
@@ -472,10 +618,14 @@ const Mel_Technique_Desc* mel_render_technique_resolve(Mel_Technique_Family_Id f
         Mel_Technique_Check_Result match = mel_render_technique_match(desc, ctx);
         if (!match.ok)
             continue;
-        if (!best || desc->priority > best_priority)
+        Mel_Technique_Policy_Result policy = mel_render_technique_eval_family_policy(family, ctx, desc);
+        if (!policy.allow)
+            continue;
+        i32 effective_priority = desc->priority + policy.priority_bias;
+        if (!best || effective_priority > best_priority)
         {
             best = desc;
-            best_priority = desc->priority;
+            best_priority = effective_priority;
         }
     }
     return best;

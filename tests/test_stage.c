@@ -2,6 +2,7 @@
 #include "../melody/progress.h"
 #include "../melody/stage.h"
 #include "../melody/allocator.heap.h"
+#include "../melody/string.str8.h"
 
 typedef struct {
     u32 started;
@@ -185,4 +186,87 @@ MEL_TEST(loading_stage_hands_off_when_progress_ready, .tags = "stage")
     mel_loading_stage_shutdown(&loading);
     mel_stage_shutdown(&next);
     mel_progress_destroy(&progress);
+}
+
+MEL_TEST(stage_registry_finds_and_enables_named_stages, .tags = "stage")
+{
+    Mel_Stage_Registry registry;
+    mel_stage_registry_init(&registry, mel_alloc_heap());
+
+    Stage_Counters counters = {0};
+    Mel_Stage stage;
+    mel_stage_init(&stage,
+        .on_start = stage_on_start,
+        .on_end = stage_on_end,
+        .user = &counters,
+        .start_enabled = false);
+
+    MEL_ASSERT(mel_stage_registry_add(&registry,
+        .name = S8("title"),
+        .stage = &stage,
+        .tags = 1u));
+    MEL_ASSERT(!mel_stage_registry_add(&registry,
+        .name = S8("title"),
+        .stage = &stage,
+        .tags = 1u));
+    MEL_ASSERT_EQ(mel_stage_registry_find(&registry, S8("title")), &stage);
+
+    MEL_ASSERT(mel_stage_registry_enable_named(&registry, S8("title")));
+    mel_stage_tick();
+
+    MEL_ASSERT(mel_stage_is_attached(&stage));
+    MEL_ASSERT(mel_stage_is_enabled(&stage));
+    MEL_ASSERT_EQ(counters.started, 1u);
+
+    mel_stage_registry_detach_tagged(&registry, 1u);
+    mel_stage_tick();
+
+    mel_stage_shutdown(&stage);
+    mel_stage_registry_shutdown(&registry);
+}
+
+MEL_TEST(stage_registry_enable_exclusive_disables_peer_stages, .tags = "stage")
+{
+    Mel_Stage_Registry registry;
+    mel_stage_registry_init(&registry, mel_alloc_heap());
+
+    Stage_Counters first_counters = {0};
+    Stage_Counters second_counters = {0};
+
+    Mel_Stage first;
+    Mel_Stage second;
+    mel_stage_init(&first,
+        .on_start = stage_on_start,
+        .on_end = stage_on_end,
+        .user = &first_counters,
+        .start_enabled = false);
+    mel_stage_init(&second,
+        .on_start = stage_on_start,
+        .on_end = stage_on_end,
+        .user = &second_counters,
+        .start_enabled = false);
+
+    MEL_ASSERT(mel_stage_registry_add(&registry, .name = S8("first"), .stage = &first, .tags = 1u));
+    MEL_ASSERT(mel_stage_registry_add(&registry, .name = S8("second"), .stage = &second, .tags = 1u));
+
+    MEL_ASSERT(mel_stage_registry_enable_exclusive(&registry, S8("first"), 1u));
+    mel_stage_tick();
+
+    MEL_ASSERT(mel_stage_is_enabled(&first));
+    MEL_ASSERT(!mel_stage_is_enabled(&second));
+
+    MEL_ASSERT(mel_stage_registry_enable_exclusive(&registry, S8("second"), 1u));
+    mel_stage_tick();
+
+    MEL_ASSERT(!mel_stage_is_enabled(&first));
+    MEL_ASSERT(mel_stage_is_enabled(&second));
+    MEL_ASSERT_EQ(first_counters.ended, 1u);
+    MEL_ASSERT_EQ(second_counters.started, 1u);
+
+    mel_stage_registry_detach_tagged(&registry, 1u);
+    mel_stage_tick();
+
+    mel_stage_shutdown(&first);
+    mel_stage_shutdown(&second);
+    mel_stage_registry_shutdown(&registry);
 }

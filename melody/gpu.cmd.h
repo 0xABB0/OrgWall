@@ -61,6 +61,9 @@ void mel_gpu_cmd_set_scissor(Mel_Gpu_Cmd* c, i32 x, i32 y, u32 w, u32 h);
 
 void mel_gpu_cmd_draw(Mel_Gpu_Cmd* c, u32 vertex_count, u32 instance_count, u32 first_vertex, u32 first_instance);
 void mel_gpu_cmd_draw_indexed(Mel_Gpu_Cmd* c, u32 index_count, u32 instance_count, u32 first_index, i32 vertex_offset, u32 first_instance);
+void mel_gpu_cmd_draw_indexed_indirect(Mel_Gpu_Cmd* c, VkBuffer buffer, VkDeviceSize offset, u32 draw_count, u32 stride);
+void mel_gpu_cmd_dispatch(Mel_Gpu_Cmd* c, u32 group_count_x, u32 group_count_y, u32 group_count_z);
+void mel_gpu_cmd_draw_mesh_tasks(Mel_Gpu_Cmd* c, u32 group_count_x, u32 group_count_y, u32 group_count_z);
 
 void mel_gpu_cmd_image_barrier(Mel_Gpu_Cmd* c,
                                VkImage image,

@@ -455,6 +455,13 @@ static bool create_logical_device(Mel_Gpu_Device* dev)
         enabled_exts[enabled_ext_count++] = "VK_KHR_portability_subset";
     if (dev->has_descriptor_buffer)
         enabled_exts[enabled_ext_count++] = VK_EXT_DESCRIPTOR_BUFFER_EXTENSION_NAME;
+    if (dev->capabilities.mesh_shader)
+        enabled_exts[enabled_ext_count++] = VK_EXT_MESH_SHADER_EXTENSION_NAME;
+
+    VkPhysicalDeviceMeshShaderFeaturesEXT mesh_shader_features = {
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT,
+        .meshShader = dev->capabilities.mesh_shader ? VK_TRUE : VK_FALSE,
+    };
 
     VkPhysicalDeviceBufferDeviceAddressFeatures bda_features = {
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES,
@@ -472,10 +479,14 @@ static bool create_logical_device(Mel_Gpu_Device* dev)
         .pNext = &sync2_features,
         .dynamicRendering = dev->capabilities.dynamic_rendering ? VK_TRUE : VK_FALSE,
     };
+    if (dev->capabilities.mesh_shader)
+    {
+        mesh_shader_features.pNext = &dynamic_rendering_features;
+    }
 
     VkPhysicalDeviceFeatures2 features2 = {
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
-        .pNext = &dynamic_rendering_features,
+        .pNext = dev->capabilities.mesh_shader ? (void*)&mesh_shader_features : &dynamic_rendering_features,
     };
 
     VkDeviceCreateInfo create_info = {

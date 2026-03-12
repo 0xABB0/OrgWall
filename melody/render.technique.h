@@ -8,6 +8,7 @@
 
 typedef struct Mel_Frame_Plan_Technique_Ctx Mel_Frame_Plan_Technique_Ctx;
 typedef struct Mel_Technique_Desc Mel_Technique_Desc;
+typedef struct Mel_Technique_Family_Policy Mel_Technique_Family_Policy;
 
 typedef enum {
     MEL_TECHNIQUE_NONE = 0,
@@ -58,6 +59,22 @@ typedef struct {
 typedef Mel_Technique_Check_Result (*Mel_Technique_Check_Fn)(Mel_Frame_Plan_Technique_Ctx* ctx);
 
 typedef struct {
+    bool allow;
+    i32 priority_bias;
+    u32 kind;
+    str8 reason;
+} Mel_Technique_Policy_Result;
+
+typedef Mel_Technique_Policy_Result (*Mel_Technique_Policy_Fn)(Mel_Frame_Plan_Technique_Ctx* ctx,
+    const Mel_Technique_Desc* technique, void* user);
+
+struct Mel_Technique_Family_Policy {
+    Mel_Technique_Family_Id family;
+    Mel_Technique_Policy_Fn fn;
+    void* user;
+};
+
+typedef struct {
     Mel_Frame_Plan_Handle plan;
     Mel_Render_Graph* graph;
     Mel_View_Handle view;
@@ -81,10 +98,14 @@ struct Mel_Technique_Desc {
 
 void mel_render_technique_register(const Mel_Technique_Desc* desc);
 void mel_render_technique_unregister(Mel_Technique_Family_Id family, str8 name);
+void mel_render_technique_set_family_policy(const Mel_Technique_Family_Policy* policy);
+void mel_render_technique_clear_family_policy(Mel_Technique_Family_Id family);
 const Mel_Technique_Desc* mel_render_technique_get(Mel_Technique_Family_Id family);
 const Mel_Technique_Desc* mel_render_technique_find(Mel_Technique_Family_Id family, str8 name);
 u32 mel_render_technique_count_for_family(Mel_Technique_Family_Id family);
 const Mel_Technique_Desc* mel_render_technique_at_for_family(Mel_Technique_Family_Id family, u32 index);
+Mel_Technique_Policy_Result mel_render_technique_eval_family_policy(Mel_Technique_Family_Id family,
+    Mel_Frame_Plan_Technique_Ctx* ctx, const Mel_Technique_Desc* desc);
 Mel_Technique_Check_Result mel_render_technique_support(const Mel_Technique_Desc* desc, Mel_Frame_Plan_Technique_Ctx* ctx);
 Mel_Technique_Check_Result mel_render_technique_match(const Mel_Technique_Desc* desc, Mel_Frame_Plan_Technique_Ctx* ctx);
 const Mel_Technique_Desc* mel_render_technique_resolve(Mel_Technique_Family_Id family, Mel_Frame_Plan_Technique_Ctx* ctx);

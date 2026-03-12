@@ -5,6 +5,7 @@
 #include "string.str8.fwd.h"
 #include "render.list.fwd.h"
 #include "render.target.fwd.h"
+#include "render.material.fwd.h"
 #include "gpu.buffer.h"
 
 typedef enum {
@@ -37,6 +38,9 @@ typedef enum {
     MEL_SCHEMA_MESHLET_DB = 5,
     MEL_SCHEMA_HDR_COLOR = 6,
     MEL_SCHEMA_MESH_DRAW_STREAM = 7,
+    MEL_SCHEMA_MATERIAL_TABLE = 8,
+    MEL_SCHEMA_MESH_INDIRECT_STREAM = 9,
+    MEL_SCHEMA_MESH_CULL_STREAM = 10,
 } Mel_Source_Schema;
 
 typedef struct {
@@ -53,6 +57,7 @@ void mel_source_destroy(Mel_Source_Handle source);
 
 Mel_Source_Handle mel_source_from_render_list(Mel_Render_List* list, u32 schema);
 Mel_Source_Handle mel_source_from_gpu_buffer(Mel_Gpu_Buffer* buffer, u32 schema);
+Mel_Source_Handle mel_source_from_material_table(Mel_Material_Table* table);
 Mel_Source_Handle mel_source_from_target(Mel_Render_Target* target, u32 schema);
 u32 mel_source_refcount(Mel_Source_Handle source);
 

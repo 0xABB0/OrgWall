@@ -7,6 +7,7 @@
 #include "math.mat4.h"
 #include "math.geo.rect.h"
 #include "texture.pool.fwd.h"
+#include "render.material.fwd.h"
 #include "gpu.shader.h"
 #include "gpu.pipeline.h"
 #include "gpu.texture.h"
@@ -22,6 +23,7 @@ struct Mel_Sprite_Entry {
     Mel_Rect uv;
     Mel_Vec4 color;
     Mel_Texture_Handle tex;
+    Mel_Material_Instance_Handle material;
 };
 
 [[nodiscard]] static inline u64 mel_sort_key_sprite(u8 layer, f32 depth, u16 material, u16 texture_bucket)
@@ -110,6 +112,7 @@ typedef struct {
     Mel_Vec4 color;
     Mel_Texture_Handle tex;
     Mel_Rect uv;
+    Mel_Material_Instance_Handle material;
     u8 layer;
     f32 depth;
 } Mel_Draw_Sprite_Opt;

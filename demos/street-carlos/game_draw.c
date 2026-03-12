@@ -581,3 +581,55 @@ void game_draw_input_display(Mugen_Player_Inputs inputs, Command_List* cmds,
         if (y > base_y + 120.0f) break;
     }
 }
+
+static str8 find_command_input(Mugen_Cmd* cmd, str8 name)
+{
+    for (u32 i = 0; i < cmd->command_count; i++)
+    {
+        if (str8_equals(cmd->commands[i].name, name))
+            return cmd->commands[i].command;
+    }
+    return STR8_EMPTY;
+}
+
+void game_draw_move_list(Mugen_Cmd* cmd, i32 current_stateno,
+    Mel_Font_Atlas_Pool* fonts, Mel_Font_Handle font,
+    f32 base_x, f32 base_y, f32 max_h, Mel_Render_List* list)
+{
+    if (!cmd || cmd->state_entry_count == 0) return;
+
+    f32 y = base_y;
+    f32 line_h = 9.0f;
+    Mel_Vec4 white = mel_vec4(1, 1, 1, 1);
+    Mel_Vec4 highlight = mel_vec4(0.2f, 1.0f, 0.4f, 1);
+    Mel_Vec4 dim = mel_vec4(0.6f, 0.6f, 0.6f, 1);
+
+    mel_font_atlas_draw_text(fonts, font, list, S8("-- MOVES --"), base_x, y, white);
+    y += line_h + 2;
+
+    for (u32 i = 0; i < cmd->state_entry_count; i++)
+    {
+        Mugen_Cmd_State_Entry* e = &cmd->state_entries[i];
+        if (e->command_name.len == 0) continue;
+
+        str8 input = find_command_input(cmd, e->command_name);
+
+        char buf[128];
+        if (e->label.len > 0)
+            snprintf(buf, sizeof(buf), "%.*s: %.*s",
+                (int)e->label.len, (char*)e->label.data,
+                (int)input.len, (char*)input.data);
+        else
+            snprintf(buf, sizeof(buf), "[%u] %.*s: %.*s",
+                e->action_number,
+                (int)e->command_name.len, (char*)e->command_name.data,
+                (int)input.len, (char*)input.data);
+
+        bool active = (i32)e->action_number == current_stateno;
+        mel_font_atlas_draw_text(fonts, font, list,
+            str8_from_cstr(buf), base_x, y, active ? highlight : dim);
+
+        y += line_h;
+        if (y > base_y + max_h) break;
+    }
+}

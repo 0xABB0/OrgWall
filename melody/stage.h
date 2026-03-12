@@ -1,10 +1,13 @@
 #pragma once
 
 #include "core.types.h"
+#include "allocator.fwd.h"
+#include "string.str8.fwd.h"
 #include "progress.h"
 
 typedef struct Mel_Stage Mel_Stage;
 typedef struct Mel_Loading_Stage Mel_Loading_Stage;
+typedef struct Mel_Stage_Registry Mel_Stage_Registry;
 
 typedef void (*Mel_Stage_Fn)(Mel_Stage* stage, void* user);
 
@@ -53,6 +56,25 @@ struct Mel_Loading_Stage {
     bool          detach_self;
 };
 
+typedef struct {
+    str8       name;
+    Mel_Stage* stage;
+    u32        tags;
+} Mel_Stage_Reg_Opt;
+
+typedef struct {
+    str8       name;
+    Mel_Stage* stage;
+    u32        tags;
+} Mel_Stage_Reg_Entry;
+
+struct Mel_Stage_Registry {
+    const Mel_Alloc*       alloc;
+    Mel_Stage_Reg_Entry*   items;
+    u32                    count;
+    u32                    capacity;
+};
+
 void mel_stage_init_opt(Mel_Stage* stage, Mel_Stage_Opt opt);
 #define mel_stage_init(stage, ...) mel_stage_init_opt((stage), (Mel_Stage_Opt){__VA_ARGS__})
 
@@ -68,6 +90,20 @@ bool mel_stage_is_enabled(const Mel_Stage* stage);
 
 void mel_stage_tick(void);
 void mel_stage_shutdown_all(void);
+
+void mel_stage_registry_init(Mel_Stage_Registry* registry, const Mel_Alloc* alloc);
+void mel_stage_registry_shutdown(Mel_Stage_Registry* registry);
+bool mel_stage_registry_add_opt(Mel_Stage_Registry* registry, Mel_Stage_Reg_Opt opt);
+#define mel_stage_registry_add(registry, ...) mel_stage_registry_add_opt((registry), (Mel_Stage_Reg_Opt){__VA_ARGS__})
+
+Mel_Stage* mel_stage_registry_find(Mel_Stage_Registry* registry, str8 name);
+bool mel_stage_registry_attach_named(Mel_Stage_Registry* registry, str8 name);
+bool mel_stage_registry_detach_named(Mel_Stage_Registry* registry, str8 name);
+bool mel_stage_registry_enable_named(Mel_Stage_Registry* registry, str8 name);
+bool mel_stage_registry_disable_named(Mel_Stage_Registry* registry, str8 name);
+u32 mel_stage_registry_detach_tagged(Mel_Stage_Registry* registry, u32 tags);
+u32 mel_stage_registry_disable_tagged(Mel_Stage_Registry* registry, u32 tags);
+bool mel_stage_registry_enable_exclusive(Mel_Stage_Registry* registry, str8 name, u32 within_tags);
 
 void mel_loading_stage_init_opt(Mel_Loading_Stage* stage, Mel_Loading_Stage_Opt opt);
 #define mel_loading_stage_init(stage, ...) mel_loading_stage_init_opt((stage), (Mel_Loading_Stage_Opt){__VA_ARGS__})

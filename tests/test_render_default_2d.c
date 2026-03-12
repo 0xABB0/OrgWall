@@ -1,6 +1,7 @@
 #include "../melody/test.harness.h"
 #include "../melody/render.default.2d.h"
 #include "../melody/render.frame_plan.h"
+#include "../melody/render.material.h"
 #include "../melody/render.list.h"
 #include "../melody/render.view.h"
 #include "../melody/render.camera.h"
@@ -244,6 +245,83 @@ MEL_TEST(render_default_2d_can_append_imgui_pass_after_compiled_views, .tags = "
     MEL_ASSERT(mel_frame_plan_resolved_technique_at(mel_render_default_2d_plan(&renderer), 1, &resolved));
     MEL_ASSERT(resolved.family == MEL_TECHNIQUE_IMGUI);
 
+    mel_render_default_2d_shutdown(&renderer);
+    mel_render_list_shutdown(&world);
+    mel_swapchain_registry_remove(swapchain, nullptr);
+}
+
+MEL_TEST(render_default_2d_resolves_sprite_unlit_material_backend_for_sprite_entries, .tags = "render")
+{
+    Mel_Swapchain_Handle swapchain = make_default2d_mock_swapchain();
+
+    Mel_Render_List world;
+    mel_render_list_init(&world,
+        .name = S8("world_material"),
+        .entry_stride = sizeof(Mel_Sprite_Entry),
+        .alloc = mel_alloc_heap());
+
+    Mel_Camera camera = {
+        .view = MEL_MAT4_IDENTITY,
+        .projection = MEL_MAT4_IDENTITY,
+    };
+    Mel_Gpu_Device fake_dev = {0};
+
+    Mel_Render_Default_2D renderer;
+    bool ok = mel_render_default_2d_init(&renderer,
+        .name = S8("default2d_material"),
+        .swapchain = swapchain,
+        .camera = &camera,
+        .clear_color_enabled = true,
+        .install_as_current_graph = false,
+        .dev = &fake_dev,
+        .sprite_pass = (Mel_Sprite_Pass*)(uintptr_t)1,
+        .text_pass = (Mel_Text_Pass*)(uintptr_t)2,
+        .alloc = mel_alloc_heap());
+    MEL_ASSERT(ok);
+
+    Mel_Material_Family_Handle sprite = mel_material_family_find(S8("sprite"));
+    MEL_ASSERT(mel_material_family_handle_valid(sprite));
+
+    Mel_Material_Template_Handle template = mel_material_template_create(&(Mel_Material_Template_Desc){
+        .name = S8("test_sprite_template"),
+        .family = sprite,
+        .profile = S8("sprite.unlit"),
+        .render_domain = MEL_MATERIAL_DOMAIN_OPAQUE,
+        .fallback_policy = MEL_MATERIAL_FALLBACK_ALLOW,
+        .base_color = mel_vec4(0.80f, 0.70f, 0.60f, 1.0f),
+    });
+    Mel_Material_Instance_Handle instance = mel_material_instance_create(template);
+
+    mel_draw_sprite(&world,
+        .pos = mel_vec2(10.0f, 20.0f),
+        .size = mel_vec2(40.0f, 30.0f),
+        .color = mel_vec4(1.0f, 1.0f, 1.0f, 1.0f),
+        .material = instance);
+
+    MEL_ASSERT(mel_render_default_2d_attach_sprite_list(&renderer, &world));
+
+    ok = mel_render_default_2d_rebuild(&renderer);
+    MEL_ASSERT(ok);
+
+    Mel_Frame_Plan_Handle plan = mel_render_default_2d_plan(&renderer);
+    MEL_ASSERT_EQ(mel_frame_plan_resolved_material_count(plan), (u32)1);
+
+    Mel_Frame_Plan_Resolved_Material resolved = {0};
+    MEL_ASSERT(mel_frame_plan_resolved_material_at(plan, 0, &resolved));
+    MEL_ASSERT(str8_ieq(resolved.backend_name, S8("sprite.unlit.sprite")));
+    MEL_ASSERT(resolved.material_instance.handle.index == instance.handle.index);
+    MEL_ASSERT(resolved.material_template.handle.index == template.handle.index);
+
+    Mel_Frame_Plan_Material_Diagnostic diag = {0};
+    MEL_ASSERT_EQ(mel_frame_plan_material_diagnostic_count(plan), (u32)1);
+    MEL_ASSERT(mel_frame_plan_material_diagnostic_at(plan, 0, &diag));
+    MEL_ASSERT(diag.supported);
+    MEL_ASSERT(diag.matched);
+    MEL_ASSERT(diag.selected);
+    MEL_ASSERT(str8_ieq(diag.backend_name, S8("sprite.unlit.sprite")));
+
+    mel_material_instance_destroy(instance);
+    mel_material_template_destroy(template);
     mel_render_default_2d_shutdown(&renderer);
     mel_render_list_shutdown(&world);
     mel_swapchain_registry_remove(swapchain, nullptr);

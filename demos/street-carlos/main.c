@@ -260,6 +260,7 @@ static void on_init(void)
     mel_register_sim(&s_app.task_sim);
 
     mel_progress_init(&s_app.load_progress, mel_alloc_heap());
+    mel_stage_registry_init(&s_app.stage_registry, mel_alloc_heap());
 
     street_carlos_fight_stage_init(&s_fight_stage, &s_app);
     street_carlos_loading_stage_init(&s_loading_stage, &s_app);
@@ -269,6 +270,14 @@ static void on_init(void)
     street_carlos_main_menu_stage_init(&s_main_menu_stage, &s_app);
     street_carlos_char_select_stage_init(&s_char_select_stage, &s_app);
     street_carlos_stage_select_stage_init(&s_stage_select_stage, &s_app);
+    assert(mel_stage_registry_add(&s_app.stage_registry, .name = S8("title"), .stage = &s_title_stage.stage, .tags = STREET_CARLOS_STAGE_TAG_FLOW));
+    assert(mel_stage_registry_add(&s_app.stage_registry, .name = S8("main_menu"), .stage = &s_main_menu_stage.stage, .tags = STREET_CARLOS_STAGE_TAG_FLOW));
+    assert(mel_stage_registry_add(&s_app.stage_registry, .name = S8("char_select"), .stage = &s_char_select_stage.stage, .tags = STREET_CARLOS_STAGE_TAG_FLOW));
+    assert(mel_stage_registry_add(&s_app.stage_registry, .name = S8("stage_select"), .stage = &s_stage_select_stage.stage, .tags = STREET_CARLOS_STAGE_TAG_FLOW));
+    assert(mel_stage_registry_add(&s_app.stage_registry, .name = S8("loading"), .stage = &s_loading_stage.base.stage, .tags = STREET_CARLOS_STAGE_TAG_FLOW));
+    assert(mel_stage_registry_add(&s_app.stage_registry, .name = S8("fight"), .stage = &s_fight_stage.stage, .tags = STREET_CARLOS_STAGE_TAG_FLOW));
+    assert(mel_stage_registry_add(&s_app.stage_registry, .name = S8("pause"), .stage = &s_pause_stage.stage, .tags = STREET_CARLOS_STAGE_TAG_MODAL));
+    assert(mel_stage_registry_add(&s_app.stage_registry, .name = S8("console"), .stage = &s_console_stage.stage, .tags = STREET_CARLOS_STAGE_TAG_GLOBAL));
     assert(mel_render_stage_2d_rebuild(&s_app.render_stage));
 
     street_carlos_show_title(&s_app);
@@ -296,14 +305,7 @@ static void app_shutdown(Mel_App* app)
 {
     MEL_UNUSED(app);
 
-    mel_stage_detach(&s_title_stage.stage);
-    mel_stage_detach(&s_main_menu_stage.stage);
-    mel_stage_detach(&s_char_select_stage.stage);
-    mel_stage_detach(&s_stage_select_stage.stage);
-    mel_stage_detach(&s_loading_stage.base.stage);
-    mel_stage_detach(&s_fight_stage.stage);
-    mel_stage_detach(&s_pause_stage.stage);
-    mel_stage_detach(&s_console_stage.stage);
+    mel_stage_registry_detach_tagged(&s_app.stage_registry, UINT32_MAX);
     mel_stage_tick();
 
     street_carlos_stage_select_stage_shutdown(&s_stage_select_stage);
@@ -314,6 +316,7 @@ static void app_shutdown(Mel_App* app)
     street_carlos_pause_stage_shutdown(&s_pause_stage);
     street_carlos_loading_stage_shutdown(&s_loading_stage);
     street_carlos_fight_stage_shutdown(&s_fight_stage, &s_app);
+    mel_stage_registry_shutdown(&s_app.stage_registry);
     mel_progress_destroy(&s_app.load_progress);
     shell_clear_stage_choices();
 

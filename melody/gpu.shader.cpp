@@ -91,6 +91,14 @@ static bool compile_entry_point(const char* source, const char* entry_name, Slan
     return true;
 }
 
+static void copy_entry_name(str8 entry, char* buf, size_t buf_size, const char* fallback)
+{
+    if (!str8_is_empty(entry))
+        str8_to_buf(entry, buf, buf_size);
+    else
+        strncpy(buf, fallback, buf_size);
+}
+
 extern "C" void mel_gpu_shader_init_opt(Mel_Gpu_Shader* shader, Mel_Gpu_Device* dev, Mel_Gpu_Shader_Opt opt)
 {
     assert(shader != nullptr);
@@ -103,38 +111,74 @@ extern "C" void mel_gpu_shader_init_opt(Mel_Gpu_Shader* shader, Mel_Gpu_Device* 
     char source_buf[32768];
     str8_to_buf(opt.source, source_buf, sizeof(source_buf));
 
-    char vert_entry_buf[256];
-    char frag_entry_buf[256];
+    char vert_entry_buf[256] = {0};
+    char frag_entry_buf[256] = {0};
+    char compute_entry_buf[256] = {0};
+    char task_entry_buf[256] = {0};
+    char mesh_entry_buf[256] = {0};
 
-    if (!str8_is_empty(opt.vertex_entry))
-        str8_to_buf(opt.vertex_entry, vert_entry_buf, sizeof(vert_entry_buf));
-    else
-        strncpy(vert_entry_buf, "vertexMain", sizeof(vert_entry_buf));
+    copy_entry_name(opt.vertex_entry, vert_entry_buf, sizeof(vert_entry_buf), "vertexMain");
+    copy_entry_name(opt.fragment_entry, frag_entry_buf, sizeof(frag_entry_buf), "fragmentMain");
+    copy_entry_name(opt.compute_entry, compute_entry_buf, sizeof(compute_entry_buf), "computeMain");
+    copy_entry_name(opt.task_entry, task_entry_buf, sizeof(task_entry_buf), "taskMain");
+    copy_entry_name(opt.mesh_entry, mesh_entry_buf, sizeof(mesh_entry_buf), "meshMain");
 
-    if (!str8_is_empty(opt.fragment_entry))
-        str8_to_buf(opt.fragment_entry, frag_entry_buf, sizeof(frag_entry_buf));
-    else
-        strncpy(frag_entry_buf, "fragmentMain", sizeof(frag_entry_buf));
+    bool wants_compute = !str8_is_empty(opt.compute_entry);
+    bool wants_mesh = !str8_is_empty(opt.mesh_entry);
+    bool wants_graphics = !wants_compute && !wants_mesh;
 
-    void* vert_code = nullptr;
-    size_t vert_size = 0;
+    if (wants_graphics)
+    {
+        void* vert_code = nullptr;
+        size_t vert_size = 0;
+        void* frag_code = nullptr;
+        size_t frag_size = 0;
+
+        bool vert_ok = compile_entry_point(source_buf, vert_entry_buf, SLANG_STAGE_VERTEX, &vert_code, &vert_size);
+        assert(vert_ok);
+
+        bool frag_ok = compile_entry_point(source_buf, frag_entry_buf, SLANG_STAGE_FRAGMENT, &frag_code, &frag_size);
+        if (!frag_ok) { free(vert_code); }
+        assert(frag_ok);
+
+        shader->vertex = create_shader_module(dev, vert_code, vert_size);
+        shader->fragment = create_shader_module(dev, frag_code, frag_size);
+
+        free(vert_code);
+        free(frag_code);
+
+        SDL_Log("Shader compiled successfully (vertex + fragment)");
+        return;
+    }
+
+    if (wants_compute)
+    {
+        void* compute_code = nullptr;
+        size_t compute_size = 0;
+        bool ok = compile_entry_point(source_buf, compute_entry_buf, SLANG_STAGE_COMPUTE, &compute_code, &compute_size);
+        assert(ok);
+        shader->compute = create_shader_module(dev, compute_code, compute_size);
+        free(compute_code);
+        SDL_Log("Shader compiled successfully (compute)");
+        return;
+    }
+
+    void* mesh_code = nullptr;
+    size_t mesh_size = 0;
     void* frag_code = nullptr;
     size_t frag_size = 0;
-
-    bool vert_ok = compile_entry_point(source_buf, vert_entry_buf, SLANG_STAGE_VERTEX, &vert_code, &vert_size);
-    assert(vert_ok);
-
+    bool mesh_ok = compile_entry_point(source_buf, mesh_entry_buf, SLANG_STAGE_MESH, &mesh_code, &mesh_size);
+    assert(mesh_ok);
     bool frag_ok = compile_entry_point(source_buf, frag_entry_buf, SLANG_STAGE_FRAGMENT, &frag_code, &frag_size);
-    if (!frag_ok) { free(vert_code); }
+    if (!frag_ok)
+        free(mesh_code);
     assert(frag_ok);
 
-    shader->vertex = create_shader_module(dev, vert_code, vert_size);
+    shader->mesh = create_shader_module(dev, mesh_code, mesh_size);
     shader->fragment = create_shader_module(dev, frag_code, frag_size);
-
-    free(vert_code);
+    free(mesh_code);
     free(frag_code);
-
-    SDL_Log("Shader compiled successfully (vertex + fragment)");
+    SDL_Log("Shader compiled successfully (mesh + fragment)");
 }
 
 extern "C" void mel_gpu_shader_shutdown(Mel_Gpu_Shader* shader, Mel_Gpu_Device* dev)
@@ -152,5 +196,20 @@ extern "C" void mel_gpu_shader_shutdown(Mel_Gpu_Shader* shader, Mel_Gpu_Device* 
     {
         vkDestroyShaderModule(dev->device, shader->fragment, nullptr);
         shader->fragment = VK_NULL_HANDLE;
+    }
+    if (shader->compute)
+    {
+        vkDestroyShaderModule(dev->device, shader->compute, nullptr);
+        shader->compute = VK_NULL_HANDLE;
+    }
+    if (shader->task)
+    {
+        vkDestroyShaderModule(dev->device, shader->task, nullptr);
+        shader->task = VK_NULL_HANDLE;
+    }
+    if (shader->mesh)
+    {
+        vkDestroyShaderModule(dev->device, shader->mesh, nullptr);
+        shader->mesh = VK_NULL_HANDLE;
     }
 }

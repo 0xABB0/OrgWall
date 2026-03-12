@@ -522,6 +522,12 @@ bool street_carlos_fight_stage_handle_event(Street_Carlos_Fight_Stage* stage, St
         stage->show_inputs = !stage->show_inputs;
         return true;
     }
+    if (event->type == SDL_EVENT_KEY_DOWN && event->key.scancode == SDL_SCANCODE_M && !event->key.repeat
+        && (SDL_GetModState() & SDL_KMOD_LSHIFT))
+    {
+        stage->show_moves = !stage->show_moves;
+        return true;
+    }
     mel_input_stack_dispatch(&stage->input_stack, event);
     return true;
 }
@@ -619,6 +625,12 @@ void street_carlos_fight_stage_draw_hud(Street_Carlos_Fight_Stage* stage, Street
             &ctx->font_pool, ctx->body_font, 4.0f, 24.0f, list);
         game_draw_input_display(p2_inputs, &p2->commands, p2->cns_state.stateno,
             &ctx->font_pool, ctx->body_font, (f32)GAME_W - 80.0f, 24.0f, list);
+    }
+
+    if (stage->show_moves)
+    {
+        game_draw_move_list(&stage->p1_char->cmd, p1->cns_state.stateno,
+            &ctx->font_pool, ctx->body_font, (f32)GAME_W * 0.5f - 60.0f, 24.0f, (f32)GAME_H - 30.0f, list);
     }
 }
 

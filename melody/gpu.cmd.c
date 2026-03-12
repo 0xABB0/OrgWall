@@ -155,6 +155,26 @@ void mel_gpu_cmd_draw_indexed(Mel_Gpu_Cmd* c, u32 index_count, u32 instance_coun
     vkCmdDrawIndexed(c->cmd, index_count, instance_count, first_index, vertex_offset, first_instance);
 }
 
+void mel_gpu_cmd_draw_indexed_indirect(Mel_Gpu_Cmd* c, VkBuffer buffer, VkDeviceSize offset, u32 draw_count, u32 stride)
+{
+    assert(c != nullptr);
+    assert(buffer != VK_NULL_HANDLE);
+    assert(draw_count > 0);
+    vkCmdDrawIndexedIndirect(c->cmd, buffer, offset, draw_count, stride);
+}
+
+void mel_gpu_cmd_dispatch(Mel_Gpu_Cmd* c, u32 group_count_x, u32 group_count_y, u32 group_count_z)
+{
+    assert(c != nullptr);
+    vkCmdDispatch(c->cmd, group_count_x, group_count_y, group_count_z);
+}
+
+void mel_gpu_cmd_draw_mesh_tasks(Mel_Gpu_Cmd* c, u32 group_count_x, u32 group_count_y, u32 group_count_z)
+{
+    assert(c != nullptr);
+    vkCmdDrawMeshTasksEXT(c->cmd, group_count_x, group_count_y, group_count_z);
+}
+
 void mel_gpu_cmd_image_barrier(Mel_Gpu_Cmd* c,
                                VkImage image,
                                VkPipelineStageFlags2 src_stage, VkAccessFlags2 src_access,
