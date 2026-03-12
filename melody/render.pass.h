@@ -9,6 +9,9 @@
 #define MEL_PASS_GRAPHICS 0
 #define MEL_PASS_COMPUTE  1
 
+#define MEL_PASS_VIEWPORT_TARGET 0
+#define MEL_PASS_VIEWPORT_FIT    1
+
 #define MEL_LISTS(...)   ((Mel_Render_List*[]){ __VA_ARGS__, NULL })
 #define MEL_TARGETS(...) ((Mel_Render_Target*[]){ __VA_ARGS__, NULL })
 
@@ -37,6 +40,9 @@ typedef struct {
     Mel_Render_Pass_Fn fn;
     void* user;
     u32 type;
+    u32 viewport_mode;
+    u32 viewport_design_width;
+    u32 viewport_design_height;
 } Mel_Pass_Desc;
 
 struct Mel_Render_Pass_Ctx {

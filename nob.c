@@ -553,6 +553,9 @@ bool build_melody(void)
     for (size_t i = 0; i < c_files.count; i++)
     {
         const char* src = c_files.items[i];
+        if (strcmp(src, "melody/core.app.entry.c") == 0
+         || strcmp(src, "melody/core.app.callbacks.c") == 0)
+            continue;
         const char* base = strrchr(src, '/');
         base = base ? base + 1 : src;
 
@@ -1149,12 +1152,35 @@ bool build_example(const char* name)
     const char* demo_src = nob_temp_sprintf("examples/example.%s.c", name);
     const char* demo_out = nob_temp_sprintf(BUILD_DIR "/example.%s", name);
     const char* demo_obj = nob_temp_sprintf(BUILD_DIR "/example.%s.o", name);
+    const char* app_entry_obj = BUILD_DIR "/core.app.entry.o";
+    const char* app_callbacks_obj = BUILD_DIR "/core.app.callbacks.o";
+    bool needs_app_entry = false;
+    bool needs_app_callbacks = strcmp(name, "swapchain.headless") != 0;
+    if (strcmp(name, "swapchain.headless") != 0)
+    {
+        Nob_String_Builder sb = {0};
+        if (nob_read_entire_file(demo_src, &sb))
+            needs_app_entry = strstr(sb.items, "SDL_MAIN_USE_CALLBACKS") == NULL;
+        free(sb.items);
+    }
 
     bool any_recompiled = false;
 
     if (needs_compile(demo_src, demo_obj))
     {
         if (!compile_c_to_obj(demo_src, demo_obj)) return false;
+        any_recompiled = true;
+    }
+
+    if (needs_app_callbacks && needs_compile("melody/core.app.callbacks.c", app_callbacks_obj))
+    {
+        if (!compile_c_to_obj("melody/core.app.callbacks.c", app_callbacks_obj)) return false;
+        any_recompiled = true;
+    }
+
+    if (needs_app_entry && needs_compile("melody/core.app.entry.c", app_entry_obj))
+    {
+        if (!compile_c_to_obj("melody/core.app.entry.c", app_entry_obj)) return false;
         any_recompiled = true;
     }
 
@@ -1166,6 +1192,8 @@ bool build_example(const char* name)
         Nob_Cmd cmd = {0};
         nob_cmd_append(&cmd, "clang", "-g");
         nob_cmd_append(&cmd, demo_obj);
+        if (needs_app_callbacks) nob_cmd_append(&cmd, app_callbacks_obj);
+        if (needs_app_entry) nob_cmd_append(&cmd, app_entry_obj);
         nob_cmd_append(&cmd, "-o", demo_out);
         cmd_append_melody_link_deps(&cmd);
 
@@ -1181,6 +1209,10 @@ bool build_demo(const char* name)
 
     const char* demo_dir = nob_temp_sprintf("demos/%s", name);
     const char* demo_out = nob_temp_sprintf(BUILD_DIR "/demo.%s", name);
+    const char* app_entry_obj = BUILD_DIR "/core.app.entry.o";
+    const char* app_callbacks_obj = BUILD_DIR "/core.app.callbacks.o";
+    bool needs_app_entry = true;
+    bool needs_app_callbacks = true;
 
     bool any_recompiled = false;
     Nob_File_Paths obj_files = {0};
@@ -1197,6 +1229,12 @@ bool build_demo(const char* name)
         const char* src = nob_temp_sprintf("%s/%s", demo_dir, file);
         const char* obj = nob_temp_sprintf(BUILD_DIR "/demo.%s.%s.o", name, file);
 
+        Nob_String_Builder sb = {0};
+        if (nob_read_entire_file(src, &sb))
+            if (strstr(sb.items, "SDL_MAIN_USE_CALLBACKS") != NULL)
+                needs_app_entry = false;
+        free(sb.items);
+
         nob_da_append(&obj_files, nob_temp_strdup(obj));
 
         if (needs_compile(src, obj))
@@ -1204,6 +1242,18 @@ bool build_demo(const char* name)
             if (!compile_c_to_obj(src, obj)) return false;
             any_recompiled = true;
         }
+    }
+
+    if (needs_app_callbacks && needs_compile("melody/core.app.callbacks.c", app_callbacks_obj))
+    {
+        if (!compile_c_to_obj("melody/core.app.callbacks.c", app_callbacks_obj)) return false;
+        any_recompiled = true;
+    }
+
+    if (needs_app_entry && needs_compile("melody/core.app.entry.c", app_entry_obj))
+    {
+        if (!compile_c_to_obj("melody/core.app.entry.c", app_entry_obj)) return false;
+        any_recompiled = true;
     }
 
     Nob_File_Paths lib_dirs = {0};
@@ -1247,6 +1297,8 @@ bool build_demo(const char* name)
     {
         Nob_Cmd cmd = {0};
         nob_cmd_append(&cmd, "clang", "-g");
+        if (needs_app_callbacks) nob_cmd_append(&cmd, app_callbacks_obj);
+        if (needs_app_entry) nob_cmd_append(&cmd, app_entry_obj);
 
         for (size_t i = 0; i < obj_files.count; i++)
             nob_cmd_append(&cmd, obj_files.items[i]);

@@ -115,6 +115,21 @@ u32 mel_view_composition_mode(Mel_View_Handle handle)
     return mel__view_get(handle)->desc.composition_mode;
 }
 
+u32 mel_view_target_mode(Mel_View_Handle handle)
+{
+    return mel__view_get(handle)->desc.target_mode;
+}
+
+u32 mel_view_design_width(Mel_View_Handle handle)
+{
+    return mel__view_get(handle)->desc.design_width;
+}
+
+u32 mel_view_design_height(Mel_View_Handle handle)
+{
+    return mel__view_get(handle)->desc.design_height;
+}
+
 void* mel_view_user(Mel_View_Handle handle)
 {
     return mel__view_get(handle)->desc.user;

@@ -7,6 +7,14 @@
 typedef struct Mugen_Expr Mugen_Expr;
 typedef struct Mugen_State_Controller Mugen_State_Controller;
 typedef struct Mugen_Char_State Mugen_Char_State;
+
+typedef struct {
+    f32 pos_x, pos_y;
+    f32 facing;
+    u32 anim;
+    u32 anim_frame_index;
+    u32 anim_tick;
+} Mugen_AfterImage_Snap;
 typedef struct Mugen_Air Mugen_Air;
 typedef struct Mugen_Air_Action Mugen_Air_Action;
 typedef struct Mugen_Air_Frame Mugen_Air_Frame;
@@ -120,6 +128,7 @@ typedef struct Command_List Command_List;
 #define MUGEN_QUERY_PREVMOVETYPE   58
 #define MUGEN_QUERY_ANIMLENGTH     59
 #define MUGEN_QUERY_SELFSTATENOEXIST 60
+#define MUGEN_QUERY_ANGLE          61
 #define MUGEN_QUERY_MAX            64
 
 typedef f32 (*Mugen_Query_Eval_Fn)(Mugen_Expr* arg, Mugen_Char_State* state);
@@ -212,6 +221,20 @@ struct Mugen_Expr {
 #define MUGEN_SC_ATTACKMULSET  46
 #define MUGEN_SC_HITBY         47
 #define MUGEN_SC_HITADD        48
+#define MUGEN_SC_ENVSHAKE      49
+#define MUGEN_SC_SCREENBOUND   50
+#define MUGEN_SC_PALFX         51
+#define MUGEN_SC_PAUSE_CTRL    52
+#define MUGEN_SC_PLAYERPUSH    53
+#define MUGEN_SC_ATTACKDIST    54
+#define MUGEN_SC_ANGLESET      55
+#define MUGEN_SC_ANGLEADD      56
+#define MUGEN_SC_ANGLEMUL      57
+#define MUGEN_SC_ANGLEDRAW     58
+#define MUGEN_SC_TRANS         59
+#define MUGEN_SC_GETHITVARSET  60
+#define MUGEN_SC_BINDTOROOT    61
+#define MUGEN_SC_BINDTOPARENT  62
 #define MUGEN_SC_MAX           64
 
 typedef void (*Mugen_SC_Parse_Fn)(Mugen_State_Controller* sc, str8 key, str8 val, const struct Mel_Alloc* alloc);
@@ -290,6 +313,14 @@ Mugen_SC_Reg* mugen_sc_get_reg(u8 id);
 #define MUGEN_POSTYPE_RIGHT 2
 #define MUGEN_POSTYPE_BACK  3
 #define MUGEN_POSTYPE_FRONT 4
+
+#ifndef MUGEN_TRANS_NONE
+#define MUGEN_TRANS_NONE     0
+#define MUGEN_TRANS_ADD      1
+#define MUGEN_TRANS_ADD1     2
+#define MUGEN_TRANS_ADDALPHA 3
+#define MUGEN_TRANS_SUB      4
+#endif
 
 typedef struct {
     Mugen_Expr** conditions;
@@ -603,6 +634,56 @@ struct Mugen_Char_State {
     f32 cornerpush_vel;
     i32 fall_time;
     i32 sprpriority;
+
+    i32 envshake_time;
+    f32 envshake_ampl;
+    f32 envshake_freq;
+    f32 envshake_phase;
+
+    bool screenbound_value;
+    bool screenbound_movecamera_x;
+    bool screenbound_movecamera_y;
+
+    i32 palfx_time;
+    i32 palfx_add[3];
+    i32 palfx_mul[3];
+    i32 palfx_sinadd[3];
+    i32 palfx_sinadd_period;
+
+    i32 pause_time;
+    i32 pause_endcmdbuftime;
+    bool pause_bg;
+
+    bool playerpush;
+    f32 attack_dist_override;
+
+    f32 angle;
+    bool angle_draw;
+    f32 angle_draw_xscale;
+    f32 angle_draw_yscale;
+
+    u8 trans_type;
+    i32 trans_alpha_src;
+    i32 trans_alpha_dst;
+
+    struct {
+        i32 time;
+        i32 length;
+        i32 timegap;
+        i32 framegap;
+        u8 trans;
+        i32 palbright[3];
+        i32 palcontrast[3];
+        i32 palpostbright[3];
+        i32 paladd[3];
+        f32 palmul[3];
+
+        Mugen_AfterImage_Snap* frames;
+        u32 frame_count;
+        u32 frame_cap;
+        u32 head;
+        i32 record_counter;
+    } afterimage;
 };
 
 Mugen_Expr* mugen_expr_parse(str8 text, const Mel_Alloc* alloc);
@@ -625,3 +706,8 @@ void mugen_targets_free(Mugen_Char_State* state);
 void mugen_state_anim_play(Mugen_Char_State* st, Mugen_Air* air, u32 action_number);
 void mugen_state_anim_tick(Mugen_Char_State* st);
 Mugen_Air_Frame* mugen_state_anim_frame(Mugen_Char_State* st);
+
+void mugen_afterimage_record(Mugen_Char_State* state);
+void mugen_afterimage_free(Mugen_Char_State* state);
+u32 mugen_afterimage_visible_count(Mugen_Char_State* state);
+Mugen_AfterImage_Snap* mugen_afterimage_get(Mugen_Char_State* state, u32 index);

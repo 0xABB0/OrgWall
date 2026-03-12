@@ -2,6 +2,7 @@
 #include "mugen.fighter.h"
 #include "stage.h"
 #include "mugen.cns.h"
+#include "mugen.air.h"
 #include "mugen.sff.h"
 #include "render.list.h"
 #include "sprite.pass.h"
@@ -68,6 +69,70 @@ static void draw_mugen_sprite_at(f32 world_x, f32 world_y, bool facing_right,
         .tex = tex,
         .uv = uv,
         .layer = layer);
+}
+
+void game_draw_afterimage(Mugen_Char_State* st, Mugen_Char* mc, Mel_Texture_Handle tex,
+    Mugen_Camera* cam, f32 zoffset, f32 scale_x, f32 scale_y, Mel_Render_List* list)
+{
+    if (!mc->loaded) return;
+    u32 count = mugen_afterimage_visible_count(st);
+    if (count == 0) return;
+
+    for (u32 i = 0; i < count; i++)
+    {
+        Mugen_AfterImage_Snap* snap = mugen_afterimage_get(st, i);
+        if (!snap) continue;
+
+        Mugen_Air_Action* action = mugen_air_find_action(&mc->air, snap->anim);
+        if (!action || snap->anim_frame_index >= action->frame_count) continue;
+
+        Mugen_Air_Frame* frame = &action->frames[snap->anim_frame_index];
+        bool facing_right = snap->facing > 0.0f;
+
+        f32 alpha = 1.0f - (f32)(i + 1) / (f32)(count + 1);
+
+        u32 frame_idx = mugen_sff_find_frame(&mc->sff, frame->group, frame->number);
+        Mugen_Sff_Entry* entry = &mc->sff.entries[frame_idx];
+        Mel_Rect uv = mel_sprite_sheet_frame(&mc->sff.sheet, frame_idx);
+
+        f32 w = (f32)entry->width * scale_x;
+        f32 h = (f32)entry->height * scale_y;
+
+        f32 screen_x = world_to_screen_x(snap->pos_x, cam->x, scale_x);
+        f32 screen_y = world_to_screen_y(snap->pos_y, zoffset, scale_y);
+
+        f32 draw_x = screen_x - (f32)entry->offset_x * scale_x;
+        f32 draw_y = screen_y - (f32)entry->offset_y * scale_y;
+
+        bool flip = facing_right ^ frame->flip_h;
+        if (!flip)
+        {
+            uv.x = uv.x + uv.w;
+            uv.w = -uv.w;
+            draw_x = screen_x - (w - (f32)entry->offset_x * scale_x);
+        }
+
+        f32 r = 1.0f, g = 1.0f, b = 1.0f;
+        for (i32 c = 0; c < 3; c++)
+        {
+            f32 bright = (f32)st->afterimage.palbright[c] / 256.0f;
+            f32 contrast = (f32)st->afterimage.palcontrast[c] / 256.0f;
+            f32 val = bright + contrast;
+            if (val > 1.0f) val = 1.0f;
+            if (val < 0.0f) val = 0.0f;
+            if (c == 0) r = val;
+            else if (c == 1) g = val;
+            else b = val;
+        }
+
+        mel_draw_sprite(list,
+            .pos = mel_vec2(draw_x, draw_y),
+            .size = mel_vec2(w, h),
+            .color = mel_vec4(r, g, b, alpha * 0.5f),
+            .tex = tex,
+            .uv = uv,
+            .layer = 0);
+    }
 }
 
 void game_draw_fighter(Fighter* f, Mugen_Char* mc, Mel_Texture_Handle tex,

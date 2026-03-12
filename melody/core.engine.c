@@ -8,12 +8,17 @@
 #include "allocator.h"
 #include "allocator.heap.h"
 #include "allocator.tracking.h"
+#include "async.io.h"
+#include "font.atlas.h"
 #include "gpu.shader.h"
 #include "gpu.submit.h"
+#include "mesh.pass.h"
 #include "sprite.pass.h"
+#include "stage.h"
 #include "text.pass.h"
 #include "texture.pool.h"
 #include "string.str8.h"
+#include "vfs.h"
 #include "debug.backtrace.h"
 
 #include <tracy/TracyC.h>
@@ -26,9 +31,13 @@
 static Mel_Gpu_Device s_dev;
 static Mel_Tracking_Allocator* s_tracking;
 static Mel_Alloc s_allocator;
+static Mel_Mesh_Pass* s_mesh_pass;
 static Mel_Sprite_Pass* s_sprite_pass;
 static Mel_Text_Pass* s_text_pass;
 static Mel_Texture_Pool* s_texture_pool;
+static Mel_Font_Atlas_Pool* s_font_pool;
+static Mel_Io s_io;
+static Mel_Vfs s_vfs;
 static Mel_Render_Graph* s_render_graph;
 static Mel_Sim_Ctx* s_sim_head;
 static f32 s_max_frame_time;
@@ -136,6 +145,24 @@ bool mel_init_opt(Mel_Init_Opt opt)
         goto fail_device;
     }
 
+    if (!mel_io_init(&s_io, &(Mel_Io_Desc){
+        .allocator = &s_allocator,
+        .worker_count = 0,
+    }))
+    {
+        SDL_Log("Failed to initialize IO");
+        goto fail_slang;
+    }
+
+    if (!mel_vfs_init(&s_vfs, &(Mel_Vfs_Desc){
+        .allocator = &s_allocator,
+        .io = &s_io,
+    }))
+    {
+        SDL_Log("Failed to initialize VFS");
+        goto fail_io;
+    }
+
     s_sprite_pass = mel_alloc_type(&s_allocator, Mel_Sprite_Pass);
     if (!mel_sprite_pass_init(s_sprite_pass,
         .dev = &s_dev,
@@ -143,7 +170,7 @@ bool mel_init_opt(Mel_Init_Opt opt)
         .max_sprites = 4096))
     {
         SDL_Log("Failed to initialize sprite pass");
-        goto fail_slang;
+        goto fail_vfs;
     }
 
     s_text_pass = mel_alloc_type(&s_allocator, Mel_Text_Pass);
@@ -153,13 +180,34 @@ bool mel_init_opt(Mel_Init_Opt opt)
         .max_glyphs = 4096))
     {
         SDL_Log("Failed to initialize text pass");
+        mel_dealloc(&s_allocator, s_text_pass);
+        s_text_pass = nullptr;
         goto fail_sprite_pass;
+    }
+
+    s_mesh_pass = mel_alloc_type(&s_allocator, Mel_Mesh_Pass);
+    if (!mel_mesh_pass_init(s_mesh_pass,
+        .dev = &s_dev,
+        .color_format = VK_FORMAT_B8G8R8A8_SRGB,
+        .depth_format = VK_FORMAT_D32_SFLOAT,
+        .max_vertices = 65536,
+        .max_indices = 65536 * 3))
+    {
+        SDL_Log("Failed to initialize mesh pass");
+        mel_dealloc(&s_allocator, s_mesh_pass);
+        s_mesh_pass = nullptr;
+        goto fail_text_pass;
     }
 
     s_texture_pool = mel_alloc_type(&s_allocator, Mel_Texture_Pool);
     mel_texture_pool_init(s_texture_pool, &s_allocator, &s_dev,
-        .pipeline = &s_sprite_pass->pipeline);
+        .pipeline = &s_sprite_pass->pipeline,
+        .vfs = &s_vfs);
     s_sprite_pass->pool = s_texture_pool;
+
+    s_font_pool = mel_alloc_type(&s_allocator, Mel_Font_Atlas_Pool);
+    mel_font_atlas_pool_init(s_font_pool, &s_allocator, &s_dev, &s_vfs,
+        .texture_pool = s_texture_pool);
 
     s_max_frame_time = opt.max_frame_time > 0 ? opt.max_frame_time : 0.25f;
     s_last_time = SDL_GetPerformanceCounter();
@@ -168,10 +216,18 @@ bool mel_init_opt(Mel_Init_Opt opt)
     SDL_Log("Melody Engine initialized!");
     return true;
 
+fail_text_pass:
+    mel_text_pass_shutdown(s_text_pass);
+    mel_dealloc(&s_allocator, s_text_pass);
+    s_text_pass = nullptr;
 fail_sprite_pass:
     mel_sprite_pass_shutdown(s_sprite_pass);
     mel_dealloc(&s_allocator, s_sprite_pass);
     s_sprite_pass = nullptr;
+fail_vfs:
+    mel_vfs_shutdown(&s_vfs);
+fail_io:
+    mel_io_shutdown(&s_io);
 fail_slang:
     mel_slang_shutdown();
 fail_device:
@@ -190,6 +246,7 @@ void mel_shutdown(void)
     if (!s_initialized) return;
 
     vkDeviceWaitIdle(s_dev.device);
+    mel_stage_shutdown_all();
 
     if (s_imgui_initialized)
     {
@@ -208,9 +265,20 @@ void mel_shutdown(void)
         SDL_Log("ImGui shutdown");
     }
 
+    mel_font_atlas_pool_shutdown(s_font_pool);
+    mel_dealloc(&s_allocator, s_font_pool);
+    s_font_pool = nullptr;
+
     mel_texture_pool_shutdown(s_texture_pool);
     mel_dealloc(&s_allocator, s_texture_pool);
     s_texture_pool = nullptr;
+
+    mel_vfs_shutdown(&s_vfs);
+    mel_io_shutdown(&s_io);
+
+    mel_mesh_pass_shutdown(s_mesh_pass);
+    mel_dealloc(&s_allocator, s_mesh_pass);
+    s_mesh_pass = nullptr;
 
     mel_text_pass_shutdown(s_text_pass);
     mel_dealloc(&s_allocator, s_text_pass);
@@ -243,6 +311,12 @@ Mel_Gpu_Device* mel_gpu_dev(void)
     return &s_dev;
 }
 
+Mel_Mesh_Pass* mel_mesh_pass(void)
+{
+    assert(s_initialized);
+    return s_mesh_pass;
+}
+
 Mel_Sprite_Pass* mel_sprite_pass(void)
 {
     assert(s_initialized);
@@ -259,6 +333,24 @@ Mel_Texture_Pool* mel_texture_pool(void)
 {
     assert(s_initialized);
     return s_texture_pool;
+}
+
+Mel_Font_Atlas_Pool* mel_font_pool(void)
+{
+    assert(s_initialized);
+    return s_font_pool;
+}
+
+Mel_Io* mel_io(void)
+{
+    assert(s_initialized);
+    return &s_io;
+}
+
+Mel_Vfs* mel_vfs(void)
+{
+    assert(s_initialized);
+    return &s_vfs;
 }
 
 const Mel_Alloc* mel_allocator(void)
@@ -321,6 +413,12 @@ void mel_frame(void)
         for (Mel_Sim_Ctx* sim = s_sim_head; sim; sim = sim->next)
             mel_sim_tick(sim, frame_time);
         TracyCZoneEnd(ctx_sims);
+    }
+
+    {
+        TracyCZoneN(ctx_stages, "tick_stages", true);
+        mel_stage_tick();
+        TracyCZoneEnd(ctx_stages);
     }
 
     if (s_imgui_initialized)

@@ -20,7 +20,11 @@ typedef struct {
     const Mel_Camera* ui_camera;
     bool clear_color_enabled;
     Mel_Vec4 clear_color;
+    u32 design_width;
+    u32 design_height;
     bool enable_imgui;
+    Mel_Render_Default_2D_ImGui_Fn imgui_fn;
+    void* imgui_user;
     bool install_as_current_graph;
     Mel_Gpu_Device* dev;
     Mel_Sprite_Pass* sprite_pass;

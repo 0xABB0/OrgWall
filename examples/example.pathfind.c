@@ -1,6 +1,4 @@
-#define SDL_MAIN_USE_CALLBACKS 1
 #include <SDL3/SDL.h>
-#include <SDL3/SDL_main.h>
 
 #define CIMGUI_USE_SDL3
 #define CIMGUI_USE_VULKAN
@@ -20,7 +18,6 @@
 #include "texture.pool.h"
 #include "font.atlas.h"
 #include "vfs.h"
-#include "vfs.backend.os.h"
 #include "math.mat4.h"
 #include "math.vec4.h"
 #include "math.geo.rect.h"
@@ -81,10 +78,6 @@ static Mel_Gpu_Texture s_stone_texture;
 static Mel_Texture_Handle s_grass_handle;
 static Mel_Texture_Handle s_stone_handle;
 static Mel_Texture_Handle s_white_handle;
-static Mel_Font_Atlas_Pool s_font_pool;
-static Mel_Io s_demo_io;
-static Mel_Vfs s_demo_vfs;
-static Mel_Vfs_Backend* s_fonts_backend;
 static Mel_Font_Handle s_font_handle;
 static Pathfinder s_pf;
 static Mel_Render_Target s_swapchain_target;
@@ -433,8 +426,7 @@ static void on_init(void)
 
     s_white_handle = mel_texture_pool_register(mel_texture_pool(), &mel_sprite_pass()->white_texture);
 
-    mel_font_atlas_pool_init(&s_font_pool, mel_allocator(), dev, &s_demo_vfs, .texture_pool = mel_texture_pool());
-    s_font_handle = mel_font_atlas_pool_load(&s_font_pool,
+    s_font_handle = mel_font_atlas_pool_load(mel_font_pool(),
         .path = S8("/System/Library/Fonts/Monaco.ttf"), .size = 16.0f);
 
 
@@ -473,18 +465,12 @@ static void on_init(void)
 
 static void app_update(Mel_Sim_Ctx* sim, f32 dt, void* user);
 
-static void app_init(Mel_App* app)
+void app_init(void)
 {
     mel_init(.app_name = S8("Melody A* Pathfinder"), .enable_validation = true);
     s_window_handle = mel_window_create(S8("Melody A* Pathfinder"), .width = WIDTH, .height = HEIGHT);
     s_swapchain_handle = mel_gpu_swapchain_create_for_window(mel_gpu_dev(), s_window_handle);
-
-    Mel_Io_Desc io_desc = { .allocator = mel_alloc_heap(), .worker_count = 0 };
-    mel_io_init(&s_demo_io, &io_desc);
-    Mel_Vfs_Desc vfs_desc = { .allocator = mel_alloc_heap(), .io = &s_demo_io };
-    mel_vfs_init(&s_demo_vfs, &vfs_desc);
-    s_fonts_backend = mel_vfs_backend_os_create(mel_alloc_heap(), S8("/"));
-    mel_vfs_mount(&s_demo_vfs, S8("/"), s_fonts_backend, 0, false);
+    mel_vfs_mount_native(mel_vfs(), S8("/"), S8("/"), 0, false);
 
     on_init();
 
@@ -493,7 +479,7 @@ static void app_init(Mel_App* app)
     mel_register_sim(&s_sim);
 }
 
-static void app_shutdown(Mel_App* app)
+void app_shutdown(void)
 {
     mel_unregister_sim(&s_sim);
     mel_sim_shutdown(&s_sim);
@@ -508,10 +494,7 @@ static void app_shutdown(Mel_App* app)
     mel_coro_destroy(s_pf.coro);
     s_pf.coro = NULL;
 
-    mel_font_atlas_pool_shutdown(&s_font_pool);
-    mel_vfs_unmount(&s_demo_vfs, S8("/"));
-    mel_vfs_shutdown(&s_demo_vfs);
-    mel_io_shutdown(&s_demo_io);
+    mel_vfs_unmount(mel_vfs(), S8("/"));
     mel_gpu_texture_shutdown(&s_stone_texture, dev);
     mel_gpu_texture_shutdown(&s_grass_texture, dev);
 }
@@ -531,7 +514,7 @@ static void app_update(Mel_Sim_Ctx* sim, f32 dt, void* user)
     pathfinder_draw_overlays(&s_pf, &s_sprite_list);
     pathfinder_draw_grid_lines(&s_sprite_list);
 
-    pathfinder_draw_text(&s_pf, &s_font_list, &s_font_pool, s_font_handle);
+    pathfinder_draw_text(&s_pf, &s_font_list, mel_font_pool(), s_font_handle);
 }
 
 static GridPos screen_to_grid(f32 sx, f32 sy)
@@ -594,11 +577,11 @@ static void start_search(void)
     mel_coro_invoke(s_pf.coro, astar_solve, &s_pf);
 }
 
-static void app_event(Mel_App* app, SDL_Event* event)
+void app_event(SDL_Event* event)
 {
     if (event->type == SDL_EVENT_KEY_DOWN && event->key.scancode == SDL_SCANCODE_ESCAPE)
     {
-        app->should_quit = true;
+        mel_quit();
         return;
     }
 
@@ -621,9 +604,3 @@ static void app_event(Mel_App* app, SDL_Event* event)
             handle_right_click(event->button.x, event->button.y);
     }
 }
-
-MEL_APP(
-    .on_init = app_init,
-    .on_shutdown = app_shutdown,
-    .on_event = app_event
-)

@@ -448,9 +448,10 @@ Mel_Job_Context* mel_job_create_context_opt(const Mel_Alloc* alloc, Mel_Job_Cont
     memset(ctx->job_pool_buf, 0, job_pool_sz);
     mel_pool_init(&ctx->job_pool, ctx->job_pool_buf, job_pool_sz, .block_size = sizeof(Mel__Job));
 
-    usize counter_pool_sz = sizeof(SDL_AtomicInt) * MEL__JOB_COUNTER_POOL_SIZE;
+    usize counter_block_sz = sizeof(SDL_AtomicInt) < sizeof(void*) ? sizeof(void*) : sizeof(SDL_AtomicInt);
+    usize counter_pool_sz = counter_block_sz * MEL__JOB_COUNTER_POOL_SIZE;
     ctx->counter_pool_buf = mel_alloc(alloc, counter_pool_sz);
-    mel_pool_init(&ctx->counter_pool, ctx->counter_pool_buf, counter_pool_sz, .block_size = sizeof(SDL_AtomicInt));
+    mel_pool_init(&ctx->counter_pool, ctx->counter_pool_buf, counter_pool_sz, .block_size = counter_block_sz);
 
     ctx->tags = mel_alloc(alloc, sizeof(u32) * (usize)(ctx->num_threads + 1));
     memset(ctx->tags, 0xff, sizeof(u32) * (usize)(ctx->num_threads + 1));

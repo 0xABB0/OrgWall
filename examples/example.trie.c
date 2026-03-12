@@ -1,6 +1,4 @@
-#define SDL_MAIN_USE_CALLBACKS 1
 #include <SDL3/SDL.h>
-#include <SDL3/SDL_main.h>
 
 #define CIMGUI_USE_SDL3
 #define CIMGUI_USE_VULKAN
@@ -20,7 +18,6 @@
 #include "texture.pool.h"
 #include "font.atlas.h"
 #include "vfs.h"
-#include "vfs.backend.os.h"
 #include "allocator.heap.h"
 #include "math.mat4.h"
 #include "math.vec4.h"
@@ -69,10 +66,6 @@ typedef struct {
 
 static Mel_Window_Handle s_window_handle;
 static Mel_Swapchain_Handle s_swapchain_handle;
-static Mel_Font_Atlas_Pool s_font_pool;
-static Mel_Io s_demo_io;
-static Mel_Vfs s_demo_vfs;
-static Mel_Vfs_Backend* s_fonts_backend;
 static Mel_Font_Handle s_font_handle;
 static TrieDemo s_demo;
 static Mel_Sim_Ctx s_sim;
@@ -359,8 +352,7 @@ static void on_init(void)
     Mel_Gpu_Device* dev = mel_gpu_dev();
     Mel_Swapchain* sc = &mel_swapchain_registry_get(s_swapchain_handle)->swapchain;
 
-    mel_font_atlas_pool_init(&s_font_pool, mel_allocator(), dev, &s_demo_vfs, .texture_pool = mel_texture_pool());
-    s_font_handle = mel_font_atlas_pool_load(&s_font_pool,
+    s_font_handle = mel_font_atlas_pool_load(mel_font_pool(),
         .path = S8("/System/Library/Fonts/Monaco.ttf"), .size = 18.0f);
 
 
@@ -399,18 +391,12 @@ static void on_init(void)
 
 static void app_update(Mel_Sim_Ctx* sim, f32 dt, void* user);
 
-static void app_init(Mel_App* app)
+void app_init(void)
 {
     mel_init(.app_name = S8("Melody Trie"), .enable_validation = true);
     s_window_handle = mel_window_create(S8("Melody Trie Autocomplete"), .width = 1100, .height = 700);
     s_swapchain_handle = mel_gpu_swapchain_create_for_window(mel_gpu_dev(), s_window_handle);
-
-    Mel_Io_Desc io_desc = { .allocator = mel_alloc_heap(), .worker_count = 0 };
-    mel_io_init(&s_demo_io, &io_desc);
-    Mel_Vfs_Desc vfs_desc = { .allocator = mel_alloc_heap(), .io = &s_demo_io };
-    mel_vfs_init(&s_demo_vfs, &vfs_desc);
-    s_fonts_backend = mel_vfs_backend_os_create(mel_alloc_heap(), S8("/"));
-    mel_vfs_mount(&s_demo_vfs, S8("/"), s_fonts_backend, 0, false);
+    mel_vfs_mount_native(mel_vfs(), S8("/"), S8("/"), 0, false);
 
     on_init();
 
@@ -419,7 +405,7 @@ static void app_init(Mel_App* app)
     mel_register_sim(&s_sim);
 }
 
-static void app_shutdown(Mel_App* app)
+void app_shutdown(void)
 {
     mel_unregister_sim(&s_sim);
     mel_sim_shutdown(&s_sim);
@@ -431,10 +417,7 @@ static void app_shutdown(Mel_App* app)
 
     mel_trie_free(&s_demo.trie);
 
-    mel_font_atlas_pool_shutdown(&s_font_pool);
-    mel_vfs_unmount(&s_demo_vfs, S8("/"));
-    mel_vfs_shutdown(&s_demo_vfs);
-    mel_io_shutdown(&s_demo_io);
+    mel_vfs_unmount(mel_vfs(), S8("/"));
 }
 
 static void app_update(Mel_Sim_Ctx* sim, f32 dt, void* user)
@@ -455,15 +438,15 @@ static void app_update(Mel_Sim_Ctx* sim, f32 dt, void* user)
     f32 left_w = sw * 0.38f;
     f32 right_w = sw - left_w;
 
-    draw_left_panel(&s_demo, &s_sprite_list, &s_font_list, &s_font_pool, s_font_handle, left_w, sh);
-    draw_right_panel(&s_demo, &s_sprite_list, &s_font_list, &s_font_pool, s_font_handle, left_w, right_w, sh);
+    draw_left_panel(&s_demo, &s_sprite_list, &s_font_list, mel_font_pool(), s_font_handle, left_w, sh);
+    draw_right_panel(&s_demo, &s_sprite_list, &s_font_list, mel_font_pool(), s_font_handle, left_w, right_w, sh);
 }
 
-static void app_event(Mel_App* app, SDL_Event* event)
+void app_event(SDL_Event* event)
 {
     if (event->type == SDL_EVENT_KEY_DOWN && event->key.scancode == SDL_SCANCODE_ESCAPE)
     {
-        app->should_quit = true;
+        mel_quit();
         return;
     }
 
@@ -575,9 +558,3 @@ static void app_event(Mel_App* app, SDL_Event* event)
         }
     }
 }
-
-MEL_APP(
-    .on_init = app_init,
-    .on_shutdown = app_shutdown,
-    .on_event = app_event
-)

@@ -17,6 +17,9 @@ struct Mel_Render_Graph_Pass {
     Mel_Render_Pass_Fn fn;
     void* user;
     u32 type;
+    u32 viewport_mode;
+    u32 viewport_design_width;
+    u32 viewport_design_height;
     Mel_Render_List** read_lists;
     Mel_Render_List** write_lists;
     Mel_Render_Target** read_targets;

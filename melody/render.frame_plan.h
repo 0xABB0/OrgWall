@@ -8,6 +8,7 @@
 #include "render.pass.h"
 #include "render.technique.h"
 #include "gpu.device.fwd.h"
+#include "mesh.pass.fwd.h"
 #include "sprite.pass.fwd.h"
 #include "text.pass.fwd.h"
 #include "swapchain.fwd.h"
@@ -16,6 +17,7 @@
 typedef struct {
     Mel_Render_Graph* graph;
     Mel_Gpu_Device* dev;
+    Mel_Mesh_Pass* mesh_pass;
     Mel_Sprite_Pass* sprite_pass;
     Mel_Text_Pass* text_pass;
 } Mel_Frame_Plan_Compile_Opt;
@@ -49,10 +51,16 @@ bool mel_frame_plan_compile_opt(Mel_Frame_Plan_Handle plan, Mel_Frame_Recipe_Han
 #define mel_frame_plan_compile(plan, recipe, ...) mel_frame_plan_compile_opt((plan), (recipe), (Mel_Frame_Plan_Compile_Opt){__VA_ARGS__})
 
 Mel_Render_Target* mel_frame_plan_swapchain_target(Mel_Frame_Plan_Handle plan, Mel_Swapchain_Handle swapchain);
+Mel_Render_Target* mel_frame_plan_swapchain_depth_target(Mel_Frame_Plan_Handle plan, Mel_Swapchain_Handle swapchain);
 u32 mel_frame_plan_resolved_technique_count(Mel_Frame_Plan_Handle plan);
 bool mel_frame_plan_resolved_technique_at(Mel_Frame_Plan_Handle plan, u32 index, Mel_Frame_Plan_Resolved_Technique* out);
 
 Mel_Render_List** mel_frame_plan_collect_render_lists(Mel_Frame_Plan_Handle plan, Mel_View_Handle view, u32 schema);
 void mel_frame_plan_free_read_lists(Mel_Frame_Plan_Handle plan, Mel_Render_List** lists);
+bool mel_frame_plan_add_graphics_pass(Mel_Frame_Plan_Technique_Ctx* ctx, str8 pass_suffix,
+    Mel_Render_Pass_Fn fn, void* user, Mel_Render_List** read_lists,
+    Mel_Render_Target** read_targets, Mel_Pass_Write_Target* write_targets);
+bool mel_frame_plan_add_pass(Mel_Frame_Plan_Technique_Ctx* ctx, str8 pass_suffix,
+    Mel_Render_Pass_Fn fn, void* user, Mel_Render_List** read_lists, Mel_Render_Target** read_targets);
 bool mel_frame_plan_add_render_list_pass(Mel_Frame_Plan_Technique_Ctx* ctx, str8 pass_suffix,
     Mel_Render_Pass_Fn fn, void* user, Mel_Render_List** read_lists);

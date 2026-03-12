@@ -1,6 +1,4 @@
-#define SDL_MAIN_USE_CALLBACKS 1
 #include <SDL3/SDL.h>
-#include <SDL3/SDL_main.h>
 
 #define CIMGUI_USE_SDL3
 #define CIMGUI_USE_VULKAN
@@ -25,7 +23,6 @@
 #include "font.sdf.h"
 #include "font.msdf.h"
 #include "vfs.h"
-#include "vfs.backend.os.h"
 #include "allocator.heap.h"
 #include "math.mat4.h"
 #include "math.vec4.h"
@@ -52,11 +49,6 @@ static Mel_Camera s_camera;
 static Mel_Sim_Ctx s_sim;
 static u8 s_event_buf[4096];
 
-static Mel_Io s_demo_io;
-static Mel_Vfs s_demo_vfs;
-static Mel_Vfs_Backend* s_fonts_backend;
-
-static Mel_Font_Atlas_Pool s_atlas_pool;
 static Mel_Font_SDF_Pool s_sdf_pool;
 static Mel_Font_MSDF_Pool s_msdf_pool;
 static Mel_Font_Handle s_atlas_font;
@@ -220,9 +212,9 @@ static void app_update(Mel_Sim_Ctx* sim, f32 dt, void* user)
     Mel_Text_Style sdf = texttech_style_from(&s_sdf_params);
     Mel_Text_Style msdf = texttech_style_from(&s_msdf_params);
 
-    mel_text_draw_font_atlas(&s_atlas_pool, s_atlas_font, &s_text_list, S8("Bitmap Atlas"),
+    mel_text_draw_font_atlas(mel_font_pool(), s_atlas_font, &s_text_list, S8("Bitmap Atlas"),
         .x = text_x, .y = panel1_y + 32.0f, .style = atlas);
-    mel_text_draw_font_atlas(&s_atlas_pool, s_atlas_font, &s_text_list,
+    mel_text_draw_font_atlas(mel_font_pool(), s_atlas_font, &s_text_list,
         S8("Fast, crisp at the native size,\nbut scaling exposes the pixels."),
         .x = text_x, .y = panel1_y + 76.0f, .style = atlas);
 
@@ -258,11 +250,10 @@ static void on_init(void)
         .projection = mel_mat4_ortho(0.0f, (f32)sc->extent.width, 0.0f, (f32)sc->extent.height, -1.0f, 1.0f),
     };
 
-    mel_font_atlas_pool_init(&s_atlas_pool, mel_allocator(), dev, &s_demo_vfs, .texture_pool = mel_texture_pool());
-    mel_font_sdf_pool_init(&s_sdf_pool, mel_allocator(), dev, &s_demo_vfs);
-    mel_font_msdf_pool_init(&s_msdf_pool, mel_allocator(), dev, &s_demo_vfs);
+    mel_font_sdf_pool_init(&s_sdf_pool, mel_allocator(), dev, mel_vfs());
+    mel_font_msdf_pool_init(&s_msdf_pool, mel_allocator(), dev, mel_vfs());
 
-    s_atlas_font = mel_font_atlas_pool_load(&s_atlas_pool,
+    s_atlas_font = mel_font_atlas_pool_load(mel_font_pool(),
         .path = S8("/System/Library/Fonts/Monaco.ttf"), .size = 28.0f);
     s_sdf_font = mel_font_sdf_pool_load(&s_sdf_pool,
         .path = S8("/System/Library/Fonts/Monaco.ttf"), .size = 40.0f);
@@ -306,19 +297,12 @@ static void on_init(void)
     mel_imgui_init(s_window_handle, &mel_swapchain_registry_get(s_swapchain_handle)->swapchain);
 }
 
-static void app_init(Mel_App* app)
+void app_init(void)
 {
-    MEL_UNUSED(app);
     mel_init(.app_name = S8("Melody Text Techniques"), .enable_validation = true);
     s_window_handle = mel_window_create(S8("Melody Text Techniques"), .width = WIN_W, .height = WIN_H);
     s_swapchain_handle = mel_gpu_swapchain_create_for_window(mel_gpu_dev(), s_window_handle);
-
-    Mel_Io_Desc io_desc = { .allocator = mel_alloc_heap(), .worker_count = 0 };
-    mel_io_init(&s_demo_io, &io_desc);
-    Mel_Vfs_Desc vfs_desc = { .allocator = mel_alloc_heap(), .io = &s_demo_io };
-    mel_vfs_init(&s_demo_vfs, &vfs_desc);
-    s_fonts_backend = mel_vfs_backend_os_create(mel_alloc_heap(), S8("/"));
-    mel_vfs_mount(&s_demo_vfs, S8("/"), s_fonts_backend, 0, false);
+    mel_vfs_mount_native(mel_vfs(), S8("/"), S8("/"), 0, false);
 
     on_init();
 
@@ -327,9 +311,8 @@ static void app_init(Mel_App* app)
     mel_register_sim(&s_sim);
 }
 
-static void app_shutdown(Mel_App* app)
+void app_shutdown(void)
 {
-    MEL_UNUSED(app);
     mel_unregister_sim(&s_sim);
     mel_sim_shutdown(&s_sim);
 
@@ -339,26 +322,14 @@ static void app_shutdown(Mel_App* app)
 
     mel_font_msdf_pool_shutdown(&s_msdf_pool);
     mel_font_sdf_pool_shutdown(&s_sdf_pool);
-    mel_font_atlas_pool_shutdown(&s_atlas_pool);
 
-    mel_vfs_unmount(&s_demo_vfs, S8("/"));
-    mel_vfs_shutdown(&s_demo_vfs);
-    mel_io_shutdown(&s_demo_io);
+    mel_vfs_unmount(mel_vfs(), S8("/"));
 }
 
-static void app_event(Mel_App* app, SDL_Event* event)
+void app_event(SDL_Event* event)
 {
-    MEL_UNUSED(app);
-    mel_process_event(event);
-
     if (event->type == SDL_EVENT_QUIT)
-        app->should_quit = true;
+        mel_quit();
     if (event->type == SDL_EVENT_KEY_DOWN && event->key.key == SDLK_ESCAPE)
-        app->should_quit = true;
+        mel_quit();
 }
-
-MEL_APP(
-    .on_init = app_init,
-    .on_shutdown = app_shutdown,
-    .on_event = app_event,
-)

@@ -39,9 +39,10 @@ Gap analysis vs Ikemen-GO reference implementation.
 - Used for: super freeze flash, hit flash, poison, power-up glow
 
 ### AfterImage System
-- Full afterimage rendering (trailing ghost copies with fade)
-- AfterImage controller (currently stub)
-- AfterImageTime controller (currently stub)
+- [x] AfterImage controller (parse + exec, all params: palbright/contrast/postbright/add/mul, timegap, framegap, trans)
+- [x] AfterImageTime controller (set/extend afterimage duration)
+- [x] Ring buffer snapshot system (mugen_afterimage_record/get/free, auto-records each tick)
+- Rendering: game layer reads snapshots via mugen_afterimage_get(), draws ghost sprites with palette effects
 - Used in: dashes, teleports, super attacks
 
 ### Stage System
@@ -91,25 +92,25 @@ Gap analysis vs Ikemen-GO reference implementation.
 - [x] AttackMulSet: attack damage multiplier (we have DefenceMulSet)
 - [x] MoveHitReset: reset movecontact/movehit/moveguarded flags
 - ModifyHitDef: modify active hitdef without restarting
-- AttackDist: override attack distance
+- [x] AttackDist: override attack distance
 - HitOverride: override normal hit response (parry, armor)
 - ReversalDef + ModifyReversalDef: auto-counter on being hit
-- GetHitVarSet: manually set GetHitVar values
+- [x] GetHitVarSet: manually set GetHitVar values
 
 ### Sprite Transform
-- AngleSet / AngleAdd / AngleMul / AngleDraw: sprite rotation
-- Trans: transparency/blending (alpha, add, sub)
+- [x] AngleSet / AngleAdd / AngleMul / AngleDraw: sprite rotation
+- [x] Trans: transparency/blending (alpha, add, sub)
 - Offset: sprite position offset
 - OverrideClsn / TransformClsn: runtime collision box modification
 - TransformSprite: runtime sprite transform
 
 ### Binding
-- BindToParent: helper binds to parent position
-- BindToRoot: helper binds to root position
+- [x] BindToParent: helper binds to parent position
+- [x] BindToRoot: helper binds to root position
 - BindToTarget: bind self to target (inverse of TargetBind)
 
 ### Physics
-- PlayerPush: push collision between characters
+- [x] PlayerPush: push collision between characters
 
 ### Misc
 - [x] LifeAdd: add to life
@@ -161,15 +162,15 @@ Gap analysis vs Ikemen-GO reference implementation.
 - teamleader / teamsize / memberno: team queries
 
 ### Visual
-- angle: current sprite angle
-- alpha_s / alpha_d: current alpha blend values
+- [x] angle: current sprite angle
+- alpha_s / alpha_d: current alpha blend values (fields exist as trans_alpha_src/dst, need query)
 - scale_x / scale_y / scale_z: current scale
 
 ### Misc
 - ailevelf: AI difficulty level
 - gamemode: current game mode
 - numplayer: player count
-- const240p / const480p / const720p / const1080p: resolution scaling constants
+- [x] const720p: parsed as identity (assumes 720p localcoord). const240p / const480p / const1080p: need proper localcoord scaling
 - localcoord_x / localcoord_y: character's local coordinate system
 - pos z / vel z: Z-axis (Ikemen extension, low priority)
 - groundangle: ground surface angle

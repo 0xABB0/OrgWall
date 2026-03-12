@@ -1,5 +1,6 @@
 #include "../melody/test.harness.h"
 #include "../melody/render.stage.2d.h"
+#include "../melody/render.frame_plan.h"
 #include "../melody/render.camera.h"
 #include "../melody/render.list.h"
 #include "../melody/sprite.pass.h"
@@ -87,6 +88,12 @@ MEL_TEST(render_stage_2d_builds_named_world_hud_layers_without_manual_recipe_wir
         .entry_stride = sizeof(Mel_Sprite_Entry),
         .alloc = mel_alloc_heap());
 
+    Mel_Render_List debug;
+    mel_render_list_init(&debug,
+        .name = S8("debug"),
+        .entry_stride = sizeof(Mel_Sprite_Entry),
+        .alloc = mel_alloc_heap());
+
     Mel_Camera camera = {
         .view = MEL_MAT4_IDENTITY,
         .projection = MEL_MAT4_IDENTITY,
@@ -99,6 +106,8 @@ MEL_TEST(render_stage_2d_builds_named_world_hud_layers_without_manual_recipe_wir
         .swapchain = swapchain,
         .world_camera = &camera,
         .clear_color_enabled = true,
+        .design_width = 384,
+        .design_height = 224,
         .dev = &fake_dev,
         .sprite_pass = (Mel_Sprite_Pass*)(uintptr_t)1,
         .text_pass = (Mel_Text_Pass*)(uintptr_t)2,
@@ -115,18 +124,30 @@ MEL_TEST(render_stage_2d_builds_named_world_hud_layers_without_manual_recipe_wir
 
     MEL_ASSERT(mel_render_stage_2d_attach_sprite_list(&stage, &world));
     MEL_ASSERT(mel_render_stage_2d_attach_sprite_list_to_layer(&stage, MEL_RENDER_STAGE_2D_LAYER_HUD, &hud));
+    MEL_ASSERT(mel_render_stage_2d_attach_sprite_list_to_layer(&stage, MEL_RENDER_STAGE_2D_LAYER_DEBUG, &debug));
     ok = mel_render_stage_2d_rebuild(&stage);
     MEL_ASSERT(ok);
 
     Mel_Render_Graph* graph = mel_render_stage_2d_graph(&stage);
-    MEL_ASSERT_EQ(graph->passes.count, (usize)2);
+    MEL_ASSERT_EQ(graph->passes.count, (usize)3);
     MEL_ASSERT(graph->passes.items[0].read_lists[0] == &world);
     MEL_ASSERT(graph->passes.items[1].read_lists[0] == &hud);
+    MEL_ASSERT(graph->passes.items[2].read_lists[0] == &debug);
     MEL_ASSERT_EQ(graph->passes.items[0].write_targets[0].load_op, (VkAttachmentLoadOp)VK_ATTACHMENT_LOAD_OP_CLEAR);
     MEL_ASSERT_EQ(graph->passes.items[1].write_targets[0].load_op, (VkAttachmentLoadOp)VK_ATTACHMENT_LOAD_OP_LOAD);
+    MEL_ASSERT_EQ(graph->passes.items[2].write_targets[0].load_op, (VkAttachmentLoadOp)VK_ATTACHMENT_LOAD_OP_LOAD);
+    MEL_ASSERT_EQ(graph->passes.items[0].viewport_mode, (u32)MEL_PASS_VIEWPORT_FIT);
+    MEL_ASSERT_EQ(graph->passes.items[0].viewport_design_width, (u32)384);
+    MEL_ASSERT_EQ(graph->passes.items[0].viewport_design_height, (u32)224);
     MEL_ASSERT(mel_render_stage_2d_target(&stage) == graph->passes.items[1].write_targets[0].target);
+    MEL_ASSERT_EQ(mel_frame_plan_resolved_technique_count(mel_render_stage_2d_plan(&stage)), (u32)3);
+
+    Mel_Frame_Plan_Resolved_Technique resolved = {0};
+    MEL_ASSERT(mel_frame_plan_resolved_technique_at(mel_render_stage_2d_plan(&stage), 2, &resolved));
+    MEL_ASSERT(resolved.family == MEL_TECHNIQUE_DEBUG);
 
     mel_render_stage_2d_shutdown(&stage);
+    mel_render_list_shutdown(&debug);
     mel_render_list_shutdown(&hud);
     mel_render_list_shutdown(&world);
     mel_swapchain_registry_remove(swapchain, nullptr);
@@ -189,6 +210,11 @@ MEL_TEST(render_stage_2d_ui_widget_layer_renders_on_ui_layer_and_processes_event
 
     Mel_Render_Graph* graph = mel_render_stage_2d_graph(&stage);
     MEL_ASSERT_EQ(graph->passes.count, (usize)1);
+    MEL_ASSERT_EQ(mel_frame_plan_resolved_technique_count(mel_render_stage_2d_plan(&stage)), (u32)1);
+
+    Mel_Frame_Plan_Resolved_Technique resolved = {0};
+    MEL_ASSERT(mel_frame_plan_resolved_technique_at(mel_render_stage_2d_plan(&stage), 0, &resolved));
+    MEL_ASSERT(resolved.family == MEL_TECHNIQUE_UI);
 
     Mel_Render_List* list = mel_render_stage_2d_widget_layer_list(&layer);
     mel_render_list_begin_frame(list, 1);

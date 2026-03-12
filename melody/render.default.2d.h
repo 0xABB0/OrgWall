@@ -9,6 +9,7 @@
 #include "render.camera.fwd.h"
 #include "render.list.h"
 #include "render.source.fwd.h"
+#include "render.technique.h"
 #include "swapchain.fwd.h"
 #include "gpu.device.fwd.h"
 #include "sprite.pass.fwd.h"
@@ -20,13 +21,19 @@
 #include "render.target.fwd.h"
 #include <SDL3/SDL_events.h>
 
+typedef void (*Mel_Render_Default_2D_ImGui_Fn)(void* user);
+
 typedef struct {
     str8 name;
     Mel_Swapchain_Handle swapchain;
     const Mel_Camera* camera;
     bool clear_color_enabled;
     Mel_Vec4 clear_color;
+    u32 design_width;
+    u32 design_height;
     bool enable_imgui;
+    Mel_Render_Default_2D_ImGui_Fn imgui_fn;
+    void* imgui_user;
     bool install_as_current_graph;
     Mel_Gpu_Device* dev;
     Mel_Sprite_Pass* sprite_pass;
@@ -40,6 +47,9 @@ typedef struct {
     bool clear_color_enabled;
     Mel_Vec4 clear_color;
     u32 composition_mode;
+    Mel_Technique_Family_Id technique_family;
+    u32 design_width;
+    u32 design_height;
     bool overlay;
     i32 order;
 } Mel_Render_Default_2D_View_Opt;
@@ -64,12 +74,15 @@ typedef struct {
     Mel_Frame_Plan_Handle plan;
     Mel_Array(Mel_View_Handle) owned_views;
     Mel_Array(Mel_Source_Handle) owned_sources;
-    str8 imgui_pass_name;
+    Mel_View_Handle imgui_view;
+    Mel_ImGui_Draw_Callback imgui_callback;
     const Mel_Alloc* alloc;
     Mel_Gpu_Device* dev;
     Mel_Sprite_Pass* sprite_pass;
     Mel_Text_Pass* text_pass;
     bool imgui_enabled;
+    Mel_Render_Default_2D_ImGui_Fn imgui_fn;
+    void* imgui_user;
     bool install_as_current_graph;
 } Mel_Render_Default_2D;
 
@@ -89,6 +102,7 @@ void mel_render_default_2d_shutdown(Mel_Render_Default_2D* renderer);
 
 bool mel_render_default_2d_attach_sprite_list(Mel_Render_Default_2D* renderer, Mel_Render_List* list);
 bool mel_render_default_2d_attach_sprite_list_to_view(Mel_Render_Default_2D* renderer, Mel_View_Handle view, Mel_Render_List* list);
+bool mel_render_default_2d_attach_sprite_list_to_view_family(Mel_Render_Default_2D* renderer, Mel_View_Handle view, Mel_Render_List* list, Mel_Technique_Family_Id family);
 bool mel_render_default_2d_attach_text_list(Mel_Render_Default_2D* renderer, Mel_Render_List* list);
 bool mel_render_default_2d_attach_text_list_to_view(Mel_Render_Default_2D* renderer, Mel_View_Handle view, Mel_Render_List* list);
 Mel_View_Handle mel_render_default_2d_add_view_opt(Mel_Render_Default_2D* renderer, Mel_Render_Default_2D_View_Opt opt);

@@ -8,13 +8,9 @@ static void register_stubs(void)
     mugen_sc_register(MUGEN_SC_NULL, "forcefeedback", NULL, noop_exec);
     mugen_sc_register(MUGEN_SC_NULL, "makedust", NULL, noop_exec);
     mugen_sc_register(MUGEN_SC_NULL, "explod", NULL, noop_exec);
-    mugen_sc_register(MUGEN_SC_NULL, "palfx", NULL, noop_exec);
     mugen_sc_register(MUGEN_SC_NULL, "remappal", NULL, noop_exec);
-    mugen_sc_register(MUGEN_SC_NULL, "screenbound", NULL, noop_exec);
-    mugen_sc_register(MUGEN_SC_NULL, "envshake", NULL, noop_exec);
     mugen_sc_register(MUGEN_SC_NULL, "hitoverride", NULL, noop_exec);
     mugen_sc_register(MUGEN_SC_NULL, "reversaldef", NULL, noop_exec);
-    mugen_sc_register(MUGEN_SC_NULL, "pause", NULL, noop_exec);
     mugen_sc_register(MUGEN_SC_NULL, "projectile", NULL, noop_exec);
     mugen_sc_register(MUGEN_SC_NULL, "gamemakeanim", NULL, noop_exec);
     mugen_sc_register(MUGEN_SC_NULL, "displaytoclipboard", NULL, noop_exec);

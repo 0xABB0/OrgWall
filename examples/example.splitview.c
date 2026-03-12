@@ -1,6 +1,4 @@
-#define SDL_MAIN_USE_CALLBACKS 1
-#include <SDL3/SDL_main.h>
-#include "../melody/app.h"
+#include "../melody/core.app.h"
 #include "../melody/ui.native.window.h"
 #include "../melody/ui.native.panel.h"
 #include "../melody/ui.native.splitview.h"
@@ -81,7 +79,8 @@ static void on_select(i32 index, void* user)
 
 static void on_window_close(void* user)
 {
-    ((Mel_App*)user)->should_quit = true;
+    (void)user;
+    mel_quit();
 }
 
 static void on_window_resize(f32 w, f32 h, void* user)
@@ -92,12 +91,12 @@ static void on_window_resize(f32 w, f32 h, void* user)
     mel_nctrl_set_size(&s_listbox.base, s_left_panel.base.size);
 }
 
-static void build_ui(Mel_App* app)
+static void build_ui(void)
 {
     mel_nwindow_init(&s_window, .title = S8("VTuber Browser"), .width = 700, .height = 500);
     s_window.on_close = on_window_close;
     s_window.on_resize = on_window_resize;
-    s_window.user_data = app;
+    s_window.user_data = NULL;
 
     mel_nsplitview_init(&s_split, .orientation = MEL_ORIENTATION_HORIZONTAL, .divider_position = 0.3f);
     mel_nctrl_set_size(&s_split.base, s_window.base.size);
@@ -150,7 +149,5 @@ static void build_ui(Mel_App* app)
     mel_nwindow_show(&s_window);
 }
 
-static void app_init(Mel_App* app) { build_ui(app); }
-static void app_shutdown(Mel_App* app) { (void)app; mel_nctrl_destroy(&s_window.base); }
-
-MEL_APP(.on_init = app_init, .on_shutdown = app_shutdown)
+void app_init(void) { build_ui(); }
+void app_shutdown(void) { mel_nctrl_destroy(&s_window.base); }

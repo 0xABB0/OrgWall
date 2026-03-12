@@ -255,7 +255,12 @@ void mugen_cns_tick(Mugen_Cns* cns, Mugen_Char_State* state)
             state->fall_time++;
         else
             state->fall_time = 0;
+
+        if (state->envshake_time > 0) state->envshake_time--;
+        if (state->palfx_time > 0) state->palfx_time--;
+        if (state->pause_time > 0) state->pause_time--;
     }
 
+    mugen_afterimage_record(state);
     state->gametime++;
 }

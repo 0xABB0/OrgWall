@@ -20,4 +20,4 @@ A probe is not:
 
 Current probes:
 - `rendering.frame-recipe.probe.md` — examples of the intended rendering stack from simple 2D to GPU-driven modern paths
-- `scene.runtime.probe.md` — examples of scene loading and transitions using sims, views, and runtime registrations
+- `stage.runtime.probe.md` — examples of stages as runtime glue, with composable progress and handoff stages

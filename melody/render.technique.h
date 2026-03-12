@@ -10,7 +10,18 @@ typedef enum {
     MEL_TECHNIQUE_NONE = 0,
     MEL_TECHNIQUE_SPRITE = 1,
     MEL_TECHNIQUE_TEXT = 2,
+    MEL_TECHNIQUE_DEBUG = 3,
+    MEL_TECHNIQUE_IMGUI = 4,
+    MEL_TECHNIQUE_UI = 5,
+    MEL_TECHNIQUE_MESH = 6,
 } Mel_Technique_Family_Id;
+
+typedef void (*Mel_ImGui_Draw_Fn)(void* user);
+
+typedef struct {
+    Mel_ImGui_Draw_Fn fn;
+    void* user;
+} Mel_ImGui_Draw_Callback;
 
 typedef enum {
     MEL_TECHNIQUE_COMPILE_FAIL = 0,

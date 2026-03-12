@@ -115,6 +115,12 @@ static f32 eval_command(Mugen_Expr* arg, Mugen_Char_State* state)
     return 0.0f;
 }
 
+static f32 eval_angle(Mugen_Expr* arg, Mugen_Char_State* state)
+{
+    (void)arg;
+    return state->angle;
+}
+
 __attribute__((constructor))
 static void register_state_queries(void)
 {
@@ -135,4 +141,5 @@ static void register_state_queries(void)
     mugen_query_register(MUGEN_QUERY_PREVMOVETYPE,  "prevmovetype",  eval_prevmovetype);
     mugen_query_register(MUGEN_QUERY_ANIMLENGTH,    "animlength",    eval_animlength);
     mugen_query_register(MUGEN_QUERY_SELFSTATENOEXIST, "selfstatenoexist", eval_selfstatenoexist);
+    mugen_query_register(MUGEN_QUERY_ANGLE, "angle", eval_angle);
 }

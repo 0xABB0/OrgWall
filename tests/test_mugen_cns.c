@@ -1437,3 +1437,504 @@ MEL_TEST(cns_query_selfstatenoexist, .tags = "cns")
     e = mugen_expr_parse(S8("selfstatenoexist(999)"), s_alloc);
     MEL_ASSERT_FLOAT_EQ(mugen_expr_eval(e, &st), 0.0f, 0.001f);
 }
+
+MEL_TEST(cns_sc_envshake, .tags = "cns")
+{
+    ensure_alloc();
+    str8 cns_data = S8(
+        "[Statedef 200]\n"
+        "type = S\n"
+        "\n"
+        "[State 200, 1]\n"
+        "type = EnvShake\n"
+        "trigger1 = Time = 0\n"
+        "time = 8\n"
+        "ampl = 3\n"
+        "freq = 170\n"
+    );
+    Mugen_Cns cns = {0};
+    MEL_ASSERT(mugen_cns_load(&cns, cns_data, s_alloc));
+
+    Mugen_Char_State st = {0};
+    st.stand_friction = 0.85f;
+    mugen_cns_enter_state(&cns, &st, 200);
+    mugen_cns_tick(&cns, &st);
+
+    MEL_ASSERT_EQ(st.envshake_time, 7);
+    MEL_ASSERT_FLOAT_EQ(st.envshake_ampl, 3.0f, 0.001f);
+    MEL_ASSERT_FLOAT_EQ(st.envshake_freq, 170.0f, 0.001f);
+}
+
+MEL_TEST(cns_sc_palfx, .tags = "cns")
+{
+    ensure_alloc();
+    str8 cns_data = S8(
+        "[Statedef 200]\n"
+        "type = S\n"
+        "\n"
+        "[State 200, 1]\n"
+        "type = PalFX\n"
+        "trigger1 = Time = 0\n"
+        "time = 3\n"
+        "add = 128,128,128\n"
+    );
+    Mugen_Cns cns = {0};
+    MEL_ASSERT(mugen_cns_load(&cns, cns_data, s_alloc));
+
+    Mugen_Char_State st = {0};
+    st.stand_friction = 0.85f;
+    mugen_cns_enter_state(&cns, &st, 200);
+    mugen_cns_tick(&cns, &st);
+
+    MEL_ASSERT_EQ(st.palfx_time, 2);
+    MEL_ASSERT_EQ(st.palfx_add[0], 128);
+    MEL_ASSERT_EQ(st.palfx_add[1], 128);
+    MEL_ASSERT_EQ(st.palfx_add[2], 128);
+    MEL_ASSERT_EQ(st.palfx_mul[0], 256);
+    MEL_ASSERT_EQ(st.palfx_mul[1], 256);
+    MEL_ASSERT_EQ(st.palfx_mul[2], 256);
+}
+
+MEL_TEST(cns_sc_palfx_sinadd, .tags = "cns")
+{
+    ensure_alloc();
+    str8 cns_data = S8(
+        "[Statedef 200]\n"
+        "type = S\n"
+        "\n"
+        "[State 200, 1]\n"
+        "type = PalFX\n"
+        "trigger1 = Time = 0\n"
+        "time = 20\n"
+        "add = 32,16,0\n"
+        "sinadd = 64,32,5,3\n"
+    );
+    Mugen_Cns cns = {0};
+    MEL_ASSERT(mugen_cns_load(&cns, cns_data, s_alloc));
+
+    Mugen_Char_State st = {0};
+    st.stand_friction = 0.85f;
+    mugen_cns_enter_state(&cns, &st, 200);
+    mugen_cns_tick(&cns, &st);
+
+    MEL_ASSERT_EQ(st.palfx_time, 19);
+    MEL_ASSERT_EQ(st.palfx_add[0], 32);
+    MEL_ASSERT_EQ(st.palfx_add[1], 16);
+    MEL_ASSERT_EQ(st.palfx_add[2], 0);
+    MEL_ASSERT_EQ(st.palfx_sinadd[0], 64);
+    MEL_ASSERT_EQ(st.palfx_sinadd[1], 32);
+    MEL_ASSERT_EQ(st.palfx_sinadd[2], 5);
+    MEL_ASSERT_EQ(st.palfx_sinadd_period, 3);
+}
+
+MEL_TEST(cns_sc_screenbound, .tags = "cns")
+{
+    ensure_alloc();
+    str8 cns_data = S8(
+        "[Statedef 200]\n"
+        "type = S\n"
+        "\n"
+        "[State 200, 1]\n"
+        "type = ScreenBound\n"
+        "trigger1 = 1\n"
+        "value = 1\n"
+        "movecamera = 0,1\n"
+    );
+    Mugen_Cns cns = {0};
+    MEL_ASSERT(mugen_cns_load(&cns, cns_data, s_alloc));
+
+    Mugen_Char_State st = {0};
+    st.stand_friction = 0.85f;
+    mugen_cns_enter_state(&cns, &st, 200);
+    mugen_cns_tick(&cns, &st);
+
+    MEL_ASSERT(st.screenbound_value);
+    MEL_ASSERT(!st.screenbound_movecamera_x);
+    MEL_ASSERT(st.screenbound_movecamera_y);
+}
+
+MEL_TEST(cns_sc_pause, .tags = "cns")
+{
+    ensure_alloc();
+    str8 cns_data = S8(
+        "[Statedef 200]\n"
+        "type = S\n"
+        "\n"
+        "[State 200, 1]\n"
+        "type = Pause\n"
+        "trigger1 = Time = 0\n"
+        "time = 20\n"
+        "endcmdbuftime = 20\n"
+        "pausebg = 0\n"
+    );
+    Mugen_Cns cns = {0};
+    MEL_ASSERT(mugen_cns_load(&cns, cns_data, s_alloc));
+
+    Mugen_Char_State st = {0};
+    st.stand_friction = 0.85f;
+    mugen_cns_enter_state(&cns, &st, 200);
+    mugen_cns_tick(&cns, &st);
+
+    MEL_ASSERT_EQ(st.pause_time, 19);
+    MEL_ASSERT_EQ(st.pause_endcmdbuftime, 20);
+    MEL_ASSERT(!st.pause_bg);
+}
+
+MEL_TEST(cns_sc_playerpush, .tags = "cns")
+{
+    ensure_alloc();
+    str8 cns_data = S8(
+        "[Statedef 200]\n"
+        "type = S\n"
+        "\n"
+        "[State 200, 1]\n"
+        "type = PlayerPush\n"
+        "trigger1 = 1\n"
+        "value = 0\n"
+    );
+    Mugen_Cns cns = {0};
+    MEL_ASSERT(mugen_cns_load(&cns, cns_data, s_alloc));
+
+    Mugen_Char_State st = {0};
+    st.stand_friction = 0.85f;
+    st.playerpush = true;
+    mugen_cns_enter_state(&cns, &st, 200);
+    mugen_cns_tick(&cns, &st);
+
+    MEL_ASSERT(!st.playerpush);
+}
+
+MEL_TEST(cns_sc_attackdist, .tags = "cns")
+{
+    ensure_alloc();
+    str8 cns_data = S8(
+        "[Statedef 200]\n"
+        "type = S\n"
+        "\n"
+        "[State 200, 1]\n"
+        "type = AttackDist\n"
+        "trigger1 = 1\n"
+        "value = 200\n"
+    );
+    Mugen_Cns cns = {0};
+    MEL_ASSERT(mugen_cns_load(&cns, cns_data, s_alloc));
+
+    Mugen_Char_State st = {0};
+    st.stand_friction = 0.85f;
+    mugen_cns_enter_state(&cns, &st, 200);
+    mugen_cns_tick(&cns, &st);
+
+    MEL_ASSERT_FLOAT_EQ(st.attack_dist_override, 200.0f, 0.01f);
+}
+
+MEL_TEST(cns_sc_angle, .tags = "cns")
+{
+    ensure_alloc();
+    str8 cns_data = S8(
+        "[Statedef 200]\n"
+        "type = S\n"
+        "\n"
+        "[State 200, set]\n"
+        "type = AngleSet\n"
+        "trigger1 = 1\n"
+        "value = 45\n"
+        "\n"
+        "[State 200, add]\n"
+        "type = AngleAdd\n"
+        "trigger1 = 1\n"
+        "value = 10\n"
+        "\n"
+        "[State 200, mul]\n"
+        "type = AngleMul\n"
+        "trigger1 = 1\n"
+        "value = 2\n"
+    );
+    Mugen_Cns cns = {0};
+    MEL_ASSERT(mugen_cns_load(&cns, cns_data, s_alloc));
+
+    Mugen_Char_State st = {0};
+    st.stand_friction = 0.85f;
+    mugen_cns_enter_state(&cns, &st, 200);
+    mugen_cns_tick(&cns, &st);
+
+    MEL_ASSERT_FLOAT_EQ(st.angle, 110.0f, 0.01f);
+}
+
+MEL_TEST(cns_sc_angledraw, .tags = "cns")
+{
+    ensure_alloc();
+    str8 cns_data = S8(
+        "[Statedef 200]\n"
+        "type = S\n"
+        "\n"
+        "[State 200, 1]\n"
+        "type = AngleDraw\n"
+        "trigger1 = 1\n"
+        "scale = 2.0, 0.5\n"
+    );
+    Mugen_Cns cns = {0};
+    MEL_ASSERT(mugen_cns_load(&cns, cns_data, s_alloc));
+
+    Mugen_Char_State st = {0};
+    st.stand_friction = 0.85f;
+    mugen_cns_enter_state(&cns, &st, 200);
+    mugen_cns_tick(&cns, &st);
+
+    MEL_ASSERT(st.angle_draw);
+    MEL_ASSERT_FLOAT_EQ(st.angle_draw_xscale, 2.0f, 0.01f);
+    MEL_ASSERT_FLOAT_EQ(st.angle_draw_yscale, 0.5f, 0.01f);
+}
+
+MEL_TEST(cns_sc_trans_addalpha, .tags = "cns")
+{
+    ensure_alloc();
+    str8 cns_data = S8(
+        "[Statedef 200]\n"
+        "type = S\n"
+        "\n"
+        "[State 200, 1]\n"
+        "type = Trans\n"
+        "trigger1 = 1\n"
+        "trans = addalpha\n"
+        "alpha = 128, 64\n"
+    );
+    Mugen_Cns cns = {0};
+    MEL_ASSERT(mugen_cns_load(&cns, cns_data, s_alloc));
+
+    Mugen_Char_State st = {0};
+    st.stand_friction = 0.85f;
+    mugen_cns_enter_state(&cns, &st, 200);
+    mugen_cns_tick(&cns, &st);
+
+    MEL_ASSERT_EQ(st.trans_type, MUGEN_TRANS_ADDALPHA);
+    MEL_ASSERT_EQ(st.trans_alpha_src, 128);
+    MEL_ASSERT_EQ(st.trans_alpha_dst, 64);
+}
+
+MEL_TEST(cns_sc_trans_add, .tags = "cns")
+{
+    ensure_alloc();
+    str8 cns_data = S8(
+        "[Statedef 200]\n"
+        "type = S\n"
+        "\n"
+        "[State 200, 1]\n"
+        "type = Trans\n"
+        "trigger1 = 1\n"
+        "trans = add\n"
+    );
+    Mugen_Cns cns = {0};
+    MEL_ASSERT(mugen_cns_load(&cns, cns_data, s_alloc));
+
+    Mugen_Char_State st = {0};
+    st.stand_friction = 0.85f;
+    mugen_cns_enter_state(&cns, &st, 200);
+    mugen_cns_tick(&cns, &st);
+
+    MEL_ASSERT_EQ(st.trans_type, MUGEN_TRANS_ADD);
+    MEL_ASSERT_EQ(st.trans_alpha_src, 256);
+    MEL_ASSERT_EQ(st.trans_alpha_dst, 256);
+}
+
+MEL_TEST(cns_sc_gethitvarset, .tags = "cns")
+{
+    ensure_alloc();
+    str8 cns_data = S8(
+        "[Statedef 200]\n"
+        "type = S\n"
+        "\n"
+        "[State 200, 1]\n"
+        "type = GetHitVarSet\n"
+        "trigger1 = 1\n"
+        "xvel = 5.5\n"
+        "yvel = -3.0\n"
+        "fall.damage = 20\n"
+        "fall.recover = 0\n"
+    );
+    Mugen_Cns cns = {0};
+    MEL_ASSERT(mugen_cns_load(&cns, cns_data, s_alloc));
+
+    Mugen_Char_State st = {0};
+    st.stand_friction = 0.85f;
+    st.ghv.fall_recover = true;
+    mugen_cns_enter_state(&cns, &st, 200);
+    mugen_cns_tick(&cns, &st);
+
+    MEL_ASSERT_FLOAT_EQ(st.ghv.xvel, 5.5f, 0.01f);
+    MEL_ASSERT_FLOAT_EQ(st.ghv.yvel, -3.0f, 0.01f);
+    MEL_ASSERT_EQ(st.ghv.fall_damage, 20);
+    MEL_ASSERT(!st.ghv.fall_recover);
+}
+
+MEL_TEST(cns_sc_afterimage, .tags = "cns")
+{
+    ensure_alloc();
+    str8 cns_data = S8(
+        "[Statedef 200]\n"
+        "type = S\n"
+        "\n"
+        "[State 200, 1]\n"
+        "type = AfterImage\n"
+        "trigger1 = Time = 0\n"
+        "time = 10\n"
+        "length = 13\n"
+        "PalBright = 30,30,0\n"
+        "PalContrast = 70,70,20\n"
+        "PalAdd = -10,-10,-10\n"
+        "PalMul = .85,.85,.50\n"
+        "TimeGap = 1\n"
+        "FrameGap = 2\n"
+        "Trans = Add\n"
+    );
+    Mugen_Cns cns = {0};
+    MEL_ASSERT(mugen_cns_load(&cns, cns_data, s_alloc));
+
+    Mugen_Char_State st = {0};
+    st.stand_friction = 0.85f;
+    mugen_cns_enter_state(&cns, &st, 200);
+    mugen_cns_tick(&cns, &st);
+
+    MEL_ASSERT_EQ(st.afterimage.time, 9);
+    MEL_ASSERT_EQ(st.afterimage.length, 13);
+    MEL_ASSERT_EQ(st.afterimage.timegap, 1);
+    MEL_ASSERT_EQ(st.afterimage.framegap, 2);
+    MEL_ASSERT_EQ(st.afterimage.trans, MUGEN_TRANS_ADD);
+    MEL_ASSERT_EQ(st.afterimage.palbright[0], 30);
+    MEL_ASSERT_EQ(st.afterimage.palbright[2], 0);
+    MEL_ASSERT_EQ(st.afterimage.palcontrast[0], 70);
+    MEL_ASSERT_EQ(st.afterimage.palcontrast[2], 20);
+    MEL_ASSERT_EQ(st.afterimage.paladd[0], -10);
+    MEL_ASSERT_FLOAT_EQ(st.afterimage.palmul[0], 0.85f, 0.01f);
+    MEL_ASSERT_FLOAT_EQ(st.afterimage.palmul[2], 0.50f, 0.01f);
+}
+
+MEL_TEST(cns_afterimage_record, .tags = "cns")
+{
+    Mugen_Char_State st = {0};
+    st.afterimage.time = 5;
+    st.afterimage.length = 4;
+    st.afterimage.timegap = 1;
+    st.afterimage.framegap = 1;
+    st.pos_x = 10.0f;
+    st.pos_y = 0.0f;
+    st.facing = 1.0f;
+    st.anim = 100;
+
+    mugen_afterimage_record(&st);
+    MEL_ASSERT_EQ(st.afterimage.frame_count, 1);
+    MEL_ASSERT_EQ(st.afterimage.time, 4);
+
+    st.pos_x = 20.0f;
+    mugen_afterimage_record(&st);
+    MEL_ASSERT_EQ(st.afterimage.frame_count, 2);
+
+    st.pos_x = 30.0f;
+    mugen_afterimage_record(&st);
+    st.pos_x = 40.0f;
+    mugen_afterimage_record(&st);
+    MEL_ASSERT_EQ(st.afterimage.frame_count, 4);
+
+    st.pos_x = 50.0f;
+    mugen_afterimage_record(&st);
+    MEL_ASSERT_EQ(st.afterimage.frame_count, 4);
+
+    Mugen_AfterImage_Snap* snap = mugen_afterimage_get(&st, 0);
+    MEL_ASSERT_NOT_NULL(snap);
+    MEL_ASSERT_FLOAT_EQ(snap->pos_x, 50.0f, 0.01f);
+
+    snap = mugen_afterimage_get(&st, 1);
+    MEL_ASSERT_NOT_NULL(snap);
+    MEL_ASSERT_FLOAT_EQ(snap->pos_x, 40.0f, 0.01f);
+
+    mugen_afterimage_free(&st);
+    MEL_ASSERT_EQ(st.afterimage.frame_count, 0);
+    MEL_ASSERT_EQ(st.afterimage.time, 0);
+}
+
+MEL_TEST(cns_afterimage_timegap, .tags = "cns")
+{
+    Mugen_Char_State st = {0};
+    st.afterimage.time = 10;
+    st.afterimage.length = 10;
+    st.afterimage.timegap = 3;
+    st.afterimage.framegap = 1;
+    st.pos_x = 0.0f;
+    st.facing = 1.0f;
+
+    for (i32 i = 0; i < 6; i++)
+    {
+        st.pos_x = (f32)i;
+        mugen_afterimage_record(&st);
+    }
+    MEL_ASSERT_EQ(st.afterimage.frame_count, 2);
+
+    Mugen_AfterImage_Snap* snap = mugen_afterimage_get(&st, 0);
+    MEL_ASSERT_NOT_NULL(snap);
+    MEL_ASSERT_FLOAT_EQ(snap->pos_x, 3.0f, 0.01f);
+}
+
+MEL_TEST(cns_sc_afterimagetime, .tags = "cns")
+{
+    ensure_alloc();
+    str8 cns_data = S8(
+        "[Statedef 200]\n"
+        "type = S\n"
+        "\n"
+        "[State 200, 1]\n"
+        "type = AfterImageTime\n"
+        "trigger1 = 1\n"
+        "time = 5\n"
+    );
+    Mugen_Cns cns = {0};
+    MEL_ASSERT(mugen_cns_load(&cns, cns_data, s_alloc));
+
+    Mugen_Char_State st = {0};
+    st.stand_friction = 0.85f;
+    st.afterimage.time = 0;
+    mugen_cns_enter_state(&cns, &st, 200);
+    mugen_cns_tick(&cns, &st);
+
+    MEL_ASSERT_EQ(st.afterimage.time, 4);
+}
+
+MEL_TEST(cns_afterimage_integrated, .tags = "cns")
+{
+    ensure_alloc();
+    str8 cns_data = S8(
+        "[Statedef 200]\n"
+        "type = S\n"
+        "\n"
+        "[State 200, 1]\n"
+        "type = AfterImage\n"
+        "trigger1 = Time = 0\n"
+        "time = 8\n"
+        "length = 5\n"
+        "TimeGap = 1\n"
+        "FrameGap = 1\n"
+        "Trans = Add\n"
+    );
+    Mugen_Cns cns = {0};
+    MEL_ASSERT(mugen_cns_load(&cns, cns_data, s_alloc));
+
+    Mugen_Char_State st = {0};
+    st.stand_friction = 0.85f;
+    st.vel_x = 5.0f;
+    st.facing = 1.0f;
+    mugen_cns_enter_state(&cns, &st, 200);
+
+    for (i32 i = 0; i < 6; i++)
+        mugen_cns_tick(&cns, &st);
+
+    MEL_ASSERT_EQ(st.afterimage.frame_count, 5);
+    MEL_ASSERT_EQ(st.afterimage.time, 2);
+
+    Mugen_AfterImage_Snap* newest = mugen_afterimage_get(&st, 0);
+    MEL_ASSERT_NOT_NULL(newest);
+    MEL_ASSERT_GT(newest->pos_x, 0.0f);
+
+    Mugen_AfterImage_Snap* older = mugen_afterimage_get(&st, 1);
+    MEL_ASSERT_NOT_NULL(older);
+    MEL_ASSERT_LT(older->pos_x, newest->pos_x);
+
+    mugen_afterimage_free(&st);
+}

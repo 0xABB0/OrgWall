@@ -13,6 +13,7 @@
 
 typedef struct {
     Mel_Swapchain_Handle swapchain;
+    u32 role;
     Mel_Render_Target target;
 } Mel_Frame_Plan_Target;
 
@@ -109,17 +110,45 @@ static void mel__frame_plan_clear_generated(Mel_Frame_Plan* plan)
 }
 
 static Mel_Frame_Plan_Target* mel__frame_plan_get_target(Mel_Frame_Plan* plan,
-    Mel_Swapchain_Handle handle, Mel_Gpu_Device* dev)
+    Mel_Swapchain_Handle handle, Mel_Gpu_Device* dev, u32 role)
 {
     for (usize i = 0; i < plan->generated_targets.count; i++)
-        if (mel__same_swapchain(plan->generated_targets.items[i].swapchain, handle))
+        if (mel__same_swapchain(plan->generated_targets.items[i].swapchain, handle) &&
+            plan->generated_targets.items[i].role == role)
             return &plan->generated_targets.items[i];
 
     Mel_Swapchain* sc = &mel_swapchain_registry_get(handle)->swapchain;
     Mel_Frame_Plan_Target gen = {
         .swapchain = handle,
+        .role = role,
     };
-    mel_render_target_init_swapchain(&gen.target, sc, dev, S8("recipe_swapchain"));
+    if (role == MEL_RENDER_TARGET_DEPTH)
+    {
+        if (dev && dev->device != VK_NULL_HANDLE)
+        {
+            mel_render_target_init(&gen.target, dev,
+                .name = S8("recipe_depth"),
+                .width = sc->extent.width,
+                .height = sc->extent.height,
+                .format = VK_FORMAT_D32_SFLOAT);
+        }
+        else
+        {
+            gen.target = (Mel_Render_Target){
+                .name = S8("recipe_depth"),
+                .kind = MEL_RENDER_TARGET_DEPTH,
+                .width = sc->extent.width,
+                .height = sc->extent.height,
+                .format = VK_FORMAT_D32_SFLOAT,
+                .dev = dev,
+                .alloc = plan->alloc,
+            };
+        }
+    }
+    else
+    {
+        mel_render_target_init_swapchain(&gen.target, sc, dev, S8("recipe_swapchain"));
+    }
     mel_array_push(&plan->generated_targets, gen);
     return &mel_array_last(&plan->generated_targets);
 }
@@ -242,20 +271,12 @@ void mel_frame_plan_destroy(Mel_Frame_Plan_Handle handle)
     mel_slotmap_remove(&s_plans, handle.handle);
 }
 
-bool mel_frame_plan_add_render_list_pass(Mel_Frame_Plan_Technique_Ctx* ctx, str8 pass_suffix,
-    Mel_Render_Pass_Fn fn, void* user, Mel_Render_List** read_lists)
+bool mel_frame_plan_add_graphics_pass(Mel_Frame_Plan_Technique_Ctx* ctx, str8 pass_suffix,
+    Mel_Render_Pass_Fn fn, void* user, Mel_Render_List** read_lists,
+    Mel_Render_Target** read_targets, Mel_Pass_Write_Target* write_targets)
 {
     Mel_Frame_Plan* plan = mel__frame_plan_get(ctx->plan);
     const Mel_Camera* camera = mel_view_camera(ctx->binding.view);
-    if (camera == nullptr)
-        return false;
-
-    VkAttachmentLoadOp load_op = (!*ctx->wrote_any_pass && (ctx->first_for_swapchain || ctx->replace_contents))
-        ? VK_ATTACHMENT_LOAD_OP_CLEAR
-        : VK_ATTACHMENT_LOAD_OP_LOAD;
-    Mel_Vec4 clear = mel_view_clear_color_enabled(ctx->binding.view)
-        ? mel_view_clear_color(ctx->binding.view)
-        : mel_vec4(0.0f, 0.0f, 0.0f, 1.0f);
 
     str8 pass_name = str8_fmt(plan->alloc, "recipe.%.*s.%.*s.%u.%.*s",
         (int)plan->name.len, plan->name.data,
@@ -268,12 +289,39 @@ bool mel_frame_plan_add_render_list_pass(Mel_Frame_Plan_Technique_Ctx* ctx, str8
         .fn = fn,
         .user = user,
         .camera = (Mel_Camera*)camera,
+        .viewport_mode = mel_view_target_mode(ctx->binding.view) == MEL_VIEW_TARGET_FIT ? MEL_PASS_VIEWPORT_FIT : MEL_PASS_VIEWPORT_TARGET,
+        .viewport_design_width = mel_view_design_width(ctx->binding.view),
+        .viewport_design_height = mel_view_design_height(ctx->binding.view),
         .read_lists = read_lists,
-        .write_targets = MEL_WRITE_TARGETS(
-            { .target = ctx->target, .load_op = load_op,
-              .clear.color = { .r = clear.x, .g = clear.y, .b = clear.z, .a = clear.w } }));
+        .read_targets = read_targets,
+        .write_targets = write_targets);
     *ctx->wrote_any_pass = true;
     return true;
+}
+
+bool mel_frame_plan_add_pass(Mel_Frame_Plan_Technique_Ctx* ctx, str8 pass_suffix,
+    Mel_Render_Pass_Fn fn, void* user, Mel_Render_List** read_lists, Mel_Render_Target** read_targets)
+{
+    VkAttachmentLoadOp load_op = (!*ctx->wrote_any_pass && (ctx->first_for_swapchain || ctx->replace_contents))
+        ? VK_ATTACHMENT_LOAD_OP_CLEAR
+        : VK_ATTACHMENT_LOAD_OP_LOAD;
+    Mel_Vec4 clear = mel_view_clear_color_enabled(ctx->binding.view)
+        ? mel_view_clear_color(ctx->binding.view)
+        : mel_vec4(0.0f, 0.0f, 0.0f, 1.0f);
+
+    return mel_frame_plan_add_graphics_pass(ctx, pass_suffix, fn, user, read_lists, read_targets,
+        MEL_WRITE_TARGETS(
+            { .target = ctx->target, .load_op = load_op,
+              .clear.color = { .r = clear.x, .g = clear.y, .b = clear.z, .a = clear.w } }));
+}
+
+bool mel_frame_plan_add_render_list_pass(Mel_Frame_Plan_Technique_Ctx* ctx, str8 pass_suffix,
+    Mel_Render_Pass_Fn fn, void* user, Mel_Render_List** read_lists)
+{
+    const Mel_Camera* camera = mel_view_camera(ctx->binding.view);
+    if (camera == nullptr)
+        return false;
+    return mel_frame_plan_add_pass(ctx, pass_suffix, fn, user, read_lists, nullptr);
 }
 
 bool mel_frame_plan_compile_opt(Mel_Frame_Plan_Handle handle, Mel_Frame_Recipe_Handle recipe_handle,
@@ -297,7 +345,7 @@ bool mel_frame_plan_compile_opt(Mel_Frame_Plan_Handle handle, Mel_Frame_Recipe_H
     for (u32 i = 0; i < binding_count; i++)
     {
         Mel_Frame_Recipe_Binding_Desc binding = bindings[i].binding;
-        Mel_Frame_Plan_Target* gen_target = mel__frame_plan_get_target(plan, binding.swapchain, dev);
+        Mel_Frame_Plan_Target* gen_target = mel__frame_plan_get_target(plan, binding.swapchain, dev, MEL_RENDER_TARGET_SWAPCHAIN);
         bool first_for_swapchain = true;
         for (u32 j = 0; j < i; j++)
         {
@@ -374,7 +422,15 @@ Mel_Render_Target* mel_frame_plan_swapchain_target(Mel_Frame_Plan_Handle handle,
 {
     Mel_Frame_Plan* plan = mel__frame_plan_get(handle);
     Mel_Gpu_Device* dev = plan->dev ? plan->dev : mel_gpu_dev();
-    Mel_Frame_Plan_Target* target = mel__frame_plan_get_target(plan, swapchain, dev);
+    Mel_Frame_Plan_Target* target = mel__frame_plan_get_target(plan, swapchain, dev, MEL_RENDER_TARGET_SWAPCHAIN);
+    return target ? &target->target : nullptr;
+}
+
+Mel_Render_Target* mel_frame_plan_swapchain_depth_target(Mel_Frame_Plan_Handle handle, Mel_Swapchain_Handle swapchain)
+{
+    Mel_Frame_Plan* plan = mel__frame_plan_get(handle);
+    Mel_Gpu_Device* dev = plan->dev ? plan->dev : mel_gpu_dev();
+    Mel_Frame_Plan_Target* target = mel__frame_plan_get_target(plan, swapchain, dev, MEL_RENDER_TARGET_DEPTH);
     return target ? &target->target : nullptr;
 }
 

@@ -893,7 +893,9 @@ void fighter_shutdown(Fighter* f)
         if (f->helpers[i].cns_state.anim_elem_start_ticks)
             mel_dealloc(f->helpers[i].alloc, f->helpers[i].cns_state.anim_elem_start_ticks);
         mugen_targets_free(&f->helpers[i].cns_state);
+        mugen_afterimage_free(&f->helpers[i].cns_state);
     }
     f->helper_count = 0;
     mugen_targets_free(&f->cns_state);
+    mugen_afterimage_free(&f->cns_state);
 }

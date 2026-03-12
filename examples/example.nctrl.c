@@ -1,6 +1,4 @@
-#define SDL_MAIN_USE_CALLBACKS 1
-#include <SDL3/SDL_main.h>
-#include "../melody/app.h"
+#include "../melody/core.app.h"
 #include "../melody/ui.native.window.h"
 #include "../melody/ui.native.panel.h"
 #include "../melody/ui.native.button.h"
@@ -121,8 +119,8 @@ static void on_combo_select(i32 index, void* user)
 
 static void on_window_close(void* user)
 {
-    Mel_App* app = (Mel_App*)user;
-    app->should_quit = true;
+    (void)user;
+    mel_quit();
 }
 
 static void on_window_resize(f32 w, f32 h, void* user)
@@ -132,12 +130,12 @@ static void on_window_resize(f32 w, f32 h, void* user)
     (void)h;
 }
 
-static void build_ui(Mel_App* app)
+static void build_ui(void)
 {
     mel_nwindow_init(&s_window, .title = S8("Melody NCtrl Demo"), .width = 460, .height = 620);
     s_window.on_close = on_window_close;
     s_window.on_resize = on_window_resize;
-    s_window.user_data = app;
+    s_window.user_data = NULL;
 
     mel_npanel_init(&s_panel);
     mel_nctrl_add_child(&s_window.base, &s_panel.base);
@@ -214,7 +212,5 @@ static void build_ui(Mel_App* app)
     mel_nwindow_show(&s_window);
 }
 
-static void app_init(Mel_App* app) { build_ui(app); }
-static void app_shutdown(Mel_App* app) { (void)app; mel_nctrl_destroy(&s_window.base); }
-
-MEL_APP(.on_init = app_init, .on_shutdown = app_shutdown)
+void app_init(void) { build_ui(); }
+void app_shutdown(void) { mel_nctrl_destroy(&s_window.base); }

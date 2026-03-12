@@ -61,6 +61,47 @@ static void free_pass_resources(const Mel_Alloc* alloc, Mel_Render_Graph_Pass* p
     if (pass->write_targets) mel_dealloc(alloc, pass->write_targets);
 }
 
+static void compute_pass_viewport(const Mel_Render_Graph_Pass* pass, u32 target_w, u32 target_h,
+    f32* out_x, f32* out_y, f32* out_w, f32* out_h, i32* out_sx, i32* out_sy, u32* out_sw, u32* out_sh)
+{
+    *out_x = 0.0f;
+    *out_y = 0.0f;
+    *out_w = (f32)target_w;
+    *out_h = (f32)target_h;
+    *out_sx = 0;
+    *out_sy = 0;
+    *out_sw = target_w;
+    *out_sh = target_h;
+
+    if (pass->viewport_mode != MEL_PASS_VIEWPORT_FIT ||
+        pass->viewport_design_width == 0 ||
+        pass->viewport_design_height == 0 ||
+        target_w == 0 ||
+        target_h == 0)
+        return;
+
+    f32 scale_x = (f32)target_w / (f32)pass->viewport_design_width;
+    f32 scale_y = (f32)target_h / (f32)pass->viewport_design_height;
+    f32 scale = scale_x < scale_y ? scale_x : scale_y;
+
+    u32 fit_w = (u32)((f32)pass->viewport_design_width * scale);
+    u32 fit_h = (u32)((f32)pass->viewport_design_height * scale);
+    if (fit_w == 0) fit_w = 1;
+    if (fit_h == 0) fit_h = 1;
+
+    i32 fit_x = ((i32)target_w - (i32)fit_w) / 2;
+    i32 fit_y = ((i32)target_h - (i32)fit_h) / 2;
+
+    *out_x = (f32)fit_x;
+    *out_y = (f32)fit_y;
+    *out_w = (f32)fit_w;
+    *out_h = (f32)fit_h;
+    *out_sx = fit_x;
+    *out_sy = fit_y;
+    *out_sw = fit_w;
+    *out_sh = fit_h;
+}
+
 static bool has_write_target(Mel_Pass_Write_Target* arr, Mel_Render_Target* t)
 {
     if (!arr) return false;
@@ -378,6 +419,13 @@ static void execute_passes(Mel_Render_Graph* g, Mel_Gpu_Cmd* cmd)
 
             u32 rw = mel_render_target_width(pass->write_targets[0].target);
             u32 rh = mel_render_target_height(pass->write_targets[0].target);
+            f32 viewport_x = 0.0f, viewport_y = 0.0f, viewport_w = (f32)rw, viewport_h = (f32)rh;
+            i32 scissor_x = 0, scissor_y = 0;
+            u32 scissor_w = rw, scissor_h = rh;
+
+            compute_pass_viewport(pass, rw, rh,
+                &viewport_x, &viewport_y, &viewport_w, &viewport_h,
+                &scissor_x, &scissor_y, &scissor_w, &scissor_h);
 
             mel_gpu_cmd_begin_rendering(cmd,
                 .color_attachments = color_count > 0 ? color_attachments : nullptr,
@@ -387,8 +435,8 @@ static void execute_passes(Mel_Render_Graph* g, Mel_Gpu_Cmd* cmd)
                 .render_height = rh,
             );
 
-            mel_gpu_cmd_set_viewport(cmd, 0, 0, (f32)rw, (f32)rh, 0.0f, 1.0f);
-            mel_gpu_cmd_set_scissor(cmd, 0, 0, rw, rh);
+            mel_gpu_cmd_set_viewport(cmd, viewport_x, viewport_y, viewport_w, viewport_h, 0.0f, 1.0f);
+            mel_gpu_cmd_set_scissor(cmd, scissor_x, scissor_y, scissor_w, scissor_h);
         }
 
         if (pass->fn)
@@ -506,6 +554,9 @@ u32 mel_render_graph_add_pass_opt(Mel_Render_Graph* g, str8 name, Mel_Pass_Desc 
         .fn = desc.fn,
         .user = desc.user,
         .type = desc.type,
+        .viewport_mode = desc.viewport_mode,
+        .viewport_design_width = desc.viewport_design_width,
+        .viewport_design_height = desc.viewport_design_height,
         .read_lists = copy_list_array(g->alloc, desc.read_lists),
         .write_lists = copy_list_array(g->alloc, desc.write_lists),
         .read_targets = copy_target_array(g->alloc, desc.read_targets),

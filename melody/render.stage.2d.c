@@ -32,7 +32,11 @@ bool mel_render_stage_2d_init_opt(Mel_Render_Stage_2D* stage, Mel_Render_Stage_2
         .camera = opt.world_camera,
         .clear_color_enabled = opt.clear_color_enabled,
         .clear_color = opt.clear_color,
+        .design_width = opt.design_width,
+        .design_height = opt.design_height,
         .enable_imgui = opt.enable_imgui,
+        .imgui_fn = opt.imgui_fn,
+        .imgui_user = opt.imgui_user,
         .install_as_current_graph = opt.install_as_current_graph,
         .dev = opt.dev,
         .sprite_pass = opt.sprite_pass,
@@ -47,6 +51,8 @@ bool mel_render_stage_2d_init_opt(Mel_Render_Stage_2D* stage, Mel_Render_Stage_2
         .camera = opt.hud_camera ? opt.hud_camera : opt.world_camera,
         .clear_color_enabled = false,
         .composition_mode = MEL_VIEW_COMPOSE_ALPHA,
+        .design_width = opt.design_width,
+        .design_height = opt.design_height,
         .overlay = true,
         .order = 100);
     stage->views[MEL_RENDER_STAGE_2D_LAYER_DEBUG] = mel_render_default_2d_add_view(&stage->renderer,
@@ -54,6 +60,9 @@ bool mel_render_stage_2d_init_opt(Mel_Render_Stage_2D* stage, Mel_Render_Stage_2
         .camera = opt.debug_camera ? opt.debug_camera : opt.world_camera,
         .clear_color_enabled = false,
         .composition_mode = MEL_VIEW_COMPOSE_ALPHA,
+        .technique_family = MEL_TECHNIQUE_DEBUG,
+        .design_width = opt.design_width,
+        .design_height = opt.design_height,
         .overlay = true,
         .order = 200);
     stage->views[MEL_RENDER_STAGE_2D_LAYER_UI] = mel_render_default_2d_add_view(&stage->renderer,
@@ -61,6 +70,9 @@ bool mel_render_stage_2d_init_opt(Mel_Render_Stage_2D* stage, Mel_Render_Stage_2
         .camera = opt.ui_camera ? opt.ui_camera : (opt.hud_camera ? opt.hud_camera : opt.world_camera),
         .clear_color_enabled = false,
         .composition_mode = MEL_VIEW_COMPOSE_ALPHA,
+        .technique_family = MEL_TECHNIQUE_UI,
+        .design_width = opt.design_width,
+        .design_height = opt.design_height,
         .overlay = true,
         .order = 300);
     return true;
@@ -81,7 +93,10 @@ bool mel_render_stage_2d_attach_sprite_list(Mel_Render_Stage_2D* stage, Mel_Rend
 bool mel_render_stage_2d_attach_sprite_list_to_layer(Mel_Render_Stage_2D* stage, Mel_Render_Stage_2D_Layer layer, Mel_Render_List* list)
 {
     Mel_View_Handle view = mel__render_stage_2d_require_view(stage, layer);
-    return mel_render_default_2d_attach_sprite_list_to_view(&stage->renderer, view, list);
+    Mel_Technique_Family_Id family = layer == MEL_RENDER_STAGE_2D_LAYER_DEBUG
+        ? MEL_TECHNIQUE_DEBUG
+        : (layer == MEL_RENDER_STAGE_2D_LAYER_UI ? MEL_TECHNIQUE_UI : MEL_TECHNIQUE_SPRITE);
+    return mel_render_default_2d_attach_sprite_list_to_view_family(&stage->renderer, view, list, family);
 }
 
 bool mel_render_stage_2d_attach_text_list(Mel_Render_Stage_2D* stage, Mel_Render_List* list)

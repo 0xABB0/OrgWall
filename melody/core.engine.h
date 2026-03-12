@@ -6,9 +6,13 @@
 #include "gpu.device.fwd.h"
 #include "swapchain.fwd.h"
 #include "render.graph.fwd.h"
+#include "mesh.pass.fwd.h"
 #include "sprite.pass.fwd.h"
 #include "text.pass.fwd.h"
 #include "texture.pool.fwd.h"
+#include "font.atlas.fwd.h"
+#include "async.io.fwd.h"
+#include "vfs.fwd.h"
 #include "sim.ctx.fwd.h"
 #include "window.fwd.h"
 
@@ -27,9 +31,13 @@ bool mel_init_opt(Mel_Init_Opt opt);
 void mel_shutdown(void);
 
 Mel_Gpu_Device*    mel_gpu_dev(void);
+Mel_Mesh_Pass*     mel_mesh_pass(void);
 Mel_Sprite_Pass*   mel_sprite_pass(void);
 Mel_Text_Pass*     mel_text_pass(void);
 Mel_Texture_Pool*  mel_texture_pool(void);
+Mel_Font_Atlas_Pool* mel_font_pool(void);
+Mel_Io*            mel_io(void);
+Mel_Vfs*           mel_vfs(void);
 const Mel_Alloc*   mel_allocator(void);
 
 void mel_set_render_graph(Mel_Render_Graph* graph);

@@ -1,5 +1,6 @@
 #include "../melody/test.harness.h"
 #include "../melody/render.default.2d.h"
+#include "../melody/render.frame_plan.h"
 #include "../melody/render.list.h"
 #include "../melody/render.view.h"
 #include "../melody/render.camera.h"
@@ -237,6 +238,11 @@ MEL_TEST(render_default_2d_can_append_imgui_pass_after_compiled_views, .tags = "
     MEL_ASSERT_NULL(graph->passes.items[1].read_lists);
     MEL_ASSERT_EQ(graph->passes.items[1].write_targets[0].load_op, (VkAttachmentLoadOp)VK_ATTACHMENT_LOAD_OP_LOAD);
     MEL_ASSERT(mel_render_default_2d_target(&renderer) == graph->passes.items[1].write_targets[0].target);
+    MEL_ASSERT_EQ(mel_frame_plan_resolved_technique_count(mel_render_default_2d_plan(&renderer)), (u32)2);
+
+    Mel_Frame_Plan_Resolved_Technique resolved = {0};
+    MEL_ASSERT(mel_frame_plan_resolved_technique_at(mel_render_default_2d_plan(&renderer), 1, &resolved));
+    MEL_ASSERT(resolved.family == MEL_TECHNIQUE_IMGUI);
 
     mel_render_default_2d_shutdown(&renderer);
     mel_render_list_shutdown(&world);
@@ -300,6 +306,11 @@ MEL_TEST(render_default_2d_widget_layer_renders_and_processes_mouse_events, .tag
 
     ok = mel_render_default_2d_rebuild(&renderer);
     MEL_ASSERT(ok);
+    MEL_ASSERT_EQ(mel_frame_plan_resolved_technique_count(mel_render_default_2d_plan(&renderer)), (u32)1);
+
+    Mel_Frame_Plan_Resolved_Technique resolved = {0};
+    MEL_ASSERT(mel_frame_plan_resolved_technique_at(mel_render_default_2d_plan(&renderer), 0, &resolved));
+    MEL_ASSERT(resolved.family == MEL_TECHNIQUE_UI);
 
     Mel_Render_List* list = mel_render_default_2d_widget_layer_list(&layer);
     mel_render_list_begin_frame(list, 1);

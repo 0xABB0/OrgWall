@@ -12,34 +12,11 @@
 #include "ui.widget.h"
 #include "math.vec2.h"
 
-#define CIMGUI_USE_SDL3
-#define CIMGUI_USE_VULKAN
-#include <cimgui/cimgui.h>
-#include <cimgui/cimgui_impl.h>
-
-static void mel__render_default_2d_imgui_pass(Mel_Render_Pass_Ctx* ctx)
-{
-    igRender();
-    ImDrawData* draw_data = igGetDrawData();
-    if (draw_data && draw_data->CmdListsCount > 0)
-        ImGui_ImplVulkan_RenderDrawData(draw_data, ctx->cmd.cmd, VK_NULL_HANDLE);
-}
-
 static void mel__render_default_2d_widget_producer(Mel_Render_List* list, void* user)
 {
     Mel_Render_Default_2D_Widget_Layer* layer = user;
     if (layer->root)
         mel_widget_draw(layer->root, list);
-}
-
-static void mel__render_default_2d_clear_extra_passes(Mel_Render_Default_2D* renderer)
-{
-    if (renderer->imgui_pass_name.data && renderer->graph.alloc)
-    {
-        mel_render_graph_remove_pass(&renderer->graph, renderer->imgui_pass_name);
-        mel_dealloc(renderer->alloc, renderer->imgui_pass_name.data);
-        renderer->imgui_pass_name = (str8){0};
-    }
 }
 
 bool mel_render_default_2d_init_opt(Mel_Render_Default_2D* renderer, Mel_Render_Default_2D_Opt opt)
@@ -50,17 +27,20 @@ bool mel_render_default_2d_init_opt(Mel_Render_Default_2D* renderer, Mel_Render_
 
     const Mel_Alloc* alloc = opt.alloc ? opt.alloc : mel_alloc_heap();
     Mel_Gpu_Device* dev = opt.dev ? opt.dev : mel_gpu_dev();
-    Mel_Sprite_Pass* sprite_pass = opt.sprite_pass ? opt.sprite_pass : mel_sprite_pass();
-    Mel_Text_Pass* text_pass = opt.text_pass ? opt.text_pass : mel_text_pass();
-
     *renderer = (Mel_Render_Default_2D){
         .swapchain = opt.swapchain,
         .alloc = alloc,
         .dev = dev,
-        .sprite_pass = sprite_pass,
-        .text_pass = text_pass,
+        .sprite_pass = opt.sprite_pass,
+        .text_pass = opt.text_pass,
         .imgui_enabled = opt.enable_imgui,
+        .imgui_fn = opt.imgui_fn,
+        .imgui_user = opt.imgui_user,
         .install_as_current_graph = opt.install_as_current_graph,
+    };
+    renderer->imgui_callback = (Mel_ImGui_Draw_Callback){
+        .fn = opt.imgui_fn,
+        .user = opt.imgui_user,
     };
     mel_array_init(&renderer->owned_views, alloc);
     mel_array_init(&renderer->owned_sources, alloc);
@@ -75,6 +55,9 @@ bool mel_render_default_2d_init_opt(Mel_Render_Default_2D* renderer, Mel_Render_
         .clear_color_enabled = opt.clear_color_enabled,
         .clear_color = opt.clear_color,
         .composition_mode = MEL_VIEW_COMPOSE_REPLACE,
+        .target_mode = (opt.design_width > 0 && opt.design_height > 0) ? MEL_VIEW_TARGET_FIT : MEL_VIEW_TARGET_FILL,
+        .design_width = opt.design_width,
+        .design_height = opt.design_height,
     });
 
     renderer->recipe = mel_frame_recipe_create(opt.name.len ? opt.name : S8("default_2d"));
@@ -83,6 +66,23 @@ bool mel_render_default_2d_init_opt(Mel_Render_Default_2D* renderer, Mel_Render_
 
     mel_frame_recipe_use_technique(renderer->recipe, renderer->view, MEL_TECHNIQUE_SPRITE);
     mel_frame_recipe_present(renderer->recipe, renderer->view, renderer->swapchain);
+
+    if (renderer->imgui_enabled)
+    {
+        renderer->imgui_view = mel_view_create(&(Mel_View_Desc){
+            .name = S8("default_2d_imgui"),
+            .camera = opt.camera,
+            .clear_color_enabled = false,
+            .composition_mode = MEL_VIEW_COMPOSE_ALPHA,
+            .target_mode = (opt.design_width > 0 && opt.design_height > 0) ? MEL_VIEW_TARGET_FIT : MEL_VIEW_TARGET_FILL,
+            .design_width = opt.design_width,
+            .design_height = opt.design_height,
+            .user = &renderer->imgui_callback,
+        });
+        mel_array_push(&renderer->owned_views, renderer->imgui_view);
+        mel_frame_recipe_use_technique(renderer->recipe, renderer->imgui_view, MEL_TECHNIQUE_IMGUI);
+        mel_frame_recipe_overlay_ordered(renderer->recipe, renderer->imgui_view, renderer->swapchain, 1000000);
+    }
     return true;
 }
 
@@ -93,7 +93,6 @@ void mel_render_default_2d_shutdown(Mel_Render_Default_2D* renderer)
     for (usize i = 0; i < renderer->owned_sources.count; i++)
         mel_source_destroy(renderer->owned_sources.items[i]);
     mel_array_free(&renderer->owned_sources);
-    mel__render_default_2d_clear_extra_passes(renderer);
 
     if (mel_frame_plan_handle_valid(renderer->plan))
         mel_frame_plan_destroy(renderer->plan);
@@ -112,14 +111,20 @@ void mel_render_default_2d_shutdown(Mel_Render_Default_2D* renderer)
 
 bool mel_render_default_2d_attach_sprite_list(Mel_Render_Default_2D* renderer, Mel_Render_List* list)
 {
-    return mel_render_default_2d_attach_sprite_list_to_view(renderer, renderer->view, list);
+    return mel_render_default_2d_attach_sprite_list_to_view_family(renderer, renderer->view, list, MEL_TECHNIQUE_SPRITE);
 }
 
 bool mel_render_default_2d_attach_sprite_list_to_view(Mel_Render_Default_2D* renderer, Mel_View_Handle view, Mel_Render_List* list)
 {
+    return mel_render_default_2d_attach_sprite_list_to_view_family(renderer, view, list, MEL_TECHNIQUE_SPRITE);
+}
+
+bool mel_render_default_2d_attach_sprite_list_to_view_family(Mel_Render_Default_2D* renderer, Mel_View_Handle view, Mel_Render_List* list, Mel_Technique_Family_Id family)
+{
     assert(renderer != nullptr);
     assert(mel_view_handle_valid(view));
     assert(list != nullptr);
+    assert(family != MEL_TECHNIQUE_NONE);
 
     Mel_Source_Handle source = MEL_SOURCE_HANDLE_NULL;
     for (usize i = 0; i < renderer->owned_sources.count; i++)
@@ -139,7 +144,7 @@ bool mel_render_default_2d_attach_sprite_list_to_view(Mel_Render_Default_2D* ren
     }
 
     mel_view_attach_source(view, source);
-    mel_frame_recipe_use_technique(renderer->recipe, view, MEL_TECHNIQUE_SPRITE);
+    mel_frame_recipe_use_technique(renderer->recipe, view, family);
     return true;
 }
 
@@ -186,10 +191,14 @@ Mel_View_Handle mel_render_default_2d_add_view_opt(Mel_Render_Default_2D* render
         .clear_color_enabled = opt.clear_color_enabled,
         .clear_color = opt.clear_color,
         .composition_mode = opt.composition_mode,
+        .target_mode = (opt.design_width > 0 && opt.design_height > 0) ? MEL_VIEW_TARGET_FIT : MEL_VIEW_TARGET_FILL,
+        .design_width = opt.design_width,
+        .design_height = opt.design_height,
     });
 
     mel_array_push(&renderer->owned_views, view);
-    mel_frame_recipe_use_technique(renderer->recipe, view, MEL_TECHNIQUE_SPRITE);
+    mel_frame_recipe_use_technique(renderer->recipe, view,
+        opt.technique_family != MEL_TECHNIQUE_NONE ? opt.technique_family : MEL_TECHNIQUE_SPRITE);
 
     if (opt.overlay)
         mel_frame_recipe_overlay_ordered(renderer->recipe, view, renderer->swapchain, opt.order);
@@ -226,10 +235,11 @@ bool mel_render_default_2d_widget_layer_init_opt(Mel_Render_Default_2D* renderer
         .camera = camera,
         .clear_color_enabled = false,
         .composition_mode = opt.composition_mode ? opt.composition_mode : MEL_VIEW_COMPOSE_ALPHA,
+        .technique_family = MEL_TECHNIQUE_UI,
         .overlay = opt.overlay,
         .order = opt.order);
 
-    return mel_render_default_2d_attach_sprite_list_to_view(renderer, layer->view, &layer->list);
+    return mel_render_default_2d_attach_sprite_list_to_view_family(renderer, layer->view, &layer->list, MEL_TECHNIQUE_UI);
 }
 
 void mel_render_default_2d_widget_layer_shutdown(Mel_Render_Default_2D* renderer, Mel_Render_Default_2D_Widget_Layer* layer)
@@ -278,7 +288,6 @@ bool mel_render_default_2d_widget_layer_process_event(Mel_Render_Default_2D_Widg
 bool mel_render_default_2d_rebuild(Mel_Render_Default_2D* renderer)
 {
     assert(renderer != nullptr);
-    mel__render_default_2d_clear_extra_passes(renderer);
 
     if (!mel_frame_plan_compile(renderer->plan, renderer->recipe,
         .graph = &renderer->graph,
@@ -286,26 +295,6 @@ bool mel_render_default_2d_rebuild(Mel_Render_Default_2D* renderer)
         .sprite_pass = renderer->sprite_pass,
         .text_pass = renderer->text_pass))
         return false;
-
-    if (renderer->imgui_enabled)
-    {
-        Mel_Render_Target* target = mel_frame_plan_swapchain_target(renderer->plan, renderer->swapchain);
-        assert(target != nullptr);
-
-        renderer->imgui_pass_name = str8_fmt(renderer->alloc, "default2d.imgui.%u.%u",
-            renderer->swapchain.handle.index, renderer->swapchain.handle.generation);
-
-        mel_render_graph_add_pass(&renderer->graph, renderer->imgui_pass_name,
-            .fn = mel__render_default_2d_imgui_pass,
-            .write_targets = MEL_WRITE_TARGETS(
-                { .target = target, .load_op = VK_ATTACHMENT_LOAD_OP_LOAD }));
-
-        if (!mel_render_graph_compile(&renderer->graph))
-        {
-            mel__render_default_2d_clear_extra_passes(renderer);
-            return false;
-        }
-    }
 
     if (renderer->install_as_current_graph)
         mel_set_render_graph(&renderer->graph);
