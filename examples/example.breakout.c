@@ -20,6 +20,7 @@
 #include "render.source.h"
 #include "render.view.h"
 #include "render.frame_recipe.h"
+#include "render.frame_plan.h"
 #include "render.technique.h"
 #include "texture.pool.h"
 #include "font.atlas.h"
@@ -103,6 +104,7 @@ static Mel_Source_Handle s_sprite_source;
 static Mel_Source_Handle s_font_source;
 static Mel_View_Handle s_main_view;
 static Mel_Frame_Recipe_Handle s_frame_recipe;
+static Mel_Frame_Plan_Handle s_frame_plan;
 static Mel_Sim_Ctx s_sim;
 static u8 s_event_buf[4096];
 
@@ -496,11 +498,12 @@ static void on_init(void)
     mel_view_attach_source(s_main_view, s_font_source);
 
     s_frame_recipe = mel_frame_recipe_create(S8("breakout"));
+    s_frame_plan = mel_frame_plan_create(S8("breakout"));
     mel_frame_recipe_use_technique(s_frame_recipe, s_main_view, MEL_TECHNIQUE_SPRITE);
     mel_frame_recipe_present(s_frame_recipe, s_main_view, s_swapchain_handle);
 
     mel_render_graph_init(&s_graph, .dev = dev, .alloc = mel_alloc_heap());
-    mel_frame_recipe_compile(s_frame_recipe, .graph = &s_graph, .dev = dev, .sprite_pass = mel_sprite_pass());
+    mel_frame_plan_compile(s_frame_plan, s_frame_recipe, .graph = &s_graph, .dev = dev, .sprite_pass = mel_sprite_pass());
     mel_set_render_graph(&s_graph);
 
     SDL_Log("Breakout ready! Arrow keys / mouse to move, Space to launch, R to restart, ESC to quit");
@@ -533,11 +536,12 @@ static void app_shutdown(Mel_App* app)
     mel_unregister_sim(&s_sim);
     mel_sim_shutdown(&s_sim);
 
+    mel_frame_recipe_destroy(s_frame_recipe);
+
     mel_render_list_shutdown(&s_sprite_list);
     mel_render_list_shutdown(&s_font_list);
     mel_render_graph_shutdown(&s_graph);
-
-    mel_frame_recipe_destroy(s_frame_recipe);
+    mel_frame_plan_destroy(s_frame_plan);
     mel_view_destroy(s_main_view);
     mel_source_destroy(s_font_source);
     mel_source_destroy(s_sprite_source);

@@ -198,7 +198,7 @@ static void play_action(Fighter* f, u32 action_number)
 static void sync_cns_anim(Fighter* f)
 {
     Mugen_Char_State* st = &f->cns_state;
-    if (st->anim == f->last_cns_anim) return;
+    if (st->anim == f->last_cns_anim && st->animtime != -999) return;
     f->last_cns_anim = st->anim;
     f->current_action = UINT32_MAX;
     Fighter* source = (st->use_owner_anim && f->opponent) ? f->opponent : f;
@@ -217,7 +217,7 @@ static void helper_play_action(Fighter_Helper* h, u32 action_number)
 static void helper_sync_cns_anim(Fighter_Helper* h)
 {
     Mugen_Char_State* st = &h->cns_state;
-    if (st->anim == h->last_cns_anim) return;
+    if (st->anim == h->last_cns_anim && st->animtime != -999) return;
     h->last_cns_anim = st->anim;
     h->current_action = UINT32_MAX;
     helper_play_action(h, st->anim);

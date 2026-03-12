@@ -13,9 +13,9 @@
 #include "gpu.swapchain.h"
 #include "string.str8.h"
 #include "sprite.pass.h"
-#include "render.graph.h"
+#include "render.stage.2d.h"
 #include "render.list.h"
-#include "render.target.h"
+#include "render.view.h"
 #include "render.camera.h"
 #include "texture.pool.h"
 #include "font.atlas.h"
@@ -100,12 +100,10 @@ static Mel_Font_Handle s_font_handle;
 static Tetris s_tetris;
 static Mel_Sim_Ctx s_sim;
 static u8 s_event_buf[4096];
-static Mel_Render_Target s_swapchain_target;
-static Mel_Render_Graph s_graph;
+static Mel_Render_Stage_2D s_renderer;
 static Mel_Camera s_camera;
 static Mel_Render_List s_sprite_list;
 static Mel_Render_List s_font_list;
-
 static u32 tetris_rand(Tetris* t)
 {
     t->rng_state ^= t->rng_state << 13;
@@ -437,25 +435,26 @@ static void on_init(void)
         .entry_stride = sizeof(Mel_Sprite_Entry),
         .alloc = mel_alloc_heap());
 
-    mel_render_target_init_swapchain(&s_swapchain_target, sc, dev, S8("backbuffer"));
-
     s_camera = (Mel_Camera){
         .view = MEL_MAT4_IDENTITY,
         .projection = mel_mat4_ortho(0, (f32)sc->extent.width,
                                       0, (f32)sc->extent.height, -1, 1),
     };
 
-    mel_render_graph_init(&s_graph, .dev = dev, .alloc = mel_alloc_heap());
-    mel_render_graph_add_pass(&s_graph, S8("render"),
-        .fn = mel_sprite_pass_execute,
-        .user = mel_sprite_pass(),
-        .camera = &s_camera,
-        .read_lists = MEL_LISTS(&s_sprite_list, &s_font_list),
-        .write_targets = MEL_WRITE_TARGETS(
-            { .target = &s_swapchain_target, .load_op = VK_ATTACHMENT_LOAD_OP_CLEAR,
-              .clear.color = { .r = 0.08f, .g = 0.08f, .b = 0.1f, .a = 1.0f } }));
-    mel_render_graph_compile(&s_graph);
-    mel_set_render_graph(&s_graph);
+    mel_render_stage_2d_init(&s_renderer,
+        .name = S8("tetris"),
+        .swapchain = s_swapchain_handle,
+        .world_camera = &s_camera,
+        .hud_camera = &s_camera,
+        .clear_color_enabled = true,
+        .clear_color = mel_vec4(0.08f, 0.08f, 0.1f, 1.0f),
+        .install_as_current_graph = true,
+        .dev = dev,
+        .sprite_pass = mel_sprite_pass(),
+        .alloc = mel_alloc_heap());
+    mel_render_stage_2d_attach_sprite_list(&s_renderer, &s_sprite_list);
+    mel_render_stage_2d_attach_sprite_list_to_layer(&s_renderer, MEL_RENDER_STAGE_2D_LAYER_HUD, &s_font_list);
+    mel_render_stage_2d_rebuild(&s_renderer);
 
     SDL_Log("Tetris ready! Arrow keys to move/rotate, Space to hard drop, R to restart, ESC to quit");
 }
@@ -487,10 +486,9 @@ static void app_shutdown(Mel_App* app)
     mel_unregister_sim(&s_sim);
     mel_sim_shutdown(&s_sim);
 
+    mel_render_stage_2d_shutdown(&s_renderer);
     mel_render_list_shutdown(&s_sprite_list);
     mel_render_list_shutdown(&s_font_list);
-    mel_render_graph_shutdown(&s_graph);
-    mel_render_target_shutdown(&s_swapchain_target);
 
     mel_font_atlas_pool_shutdown(&s_font_pool);
     mel_vfs_unmount(&s_demo_vfs, S8("/"));

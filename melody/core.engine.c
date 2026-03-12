@@ -11,6 +11,7 @@
 #include "gpu.shader.h"
 #include "gpu.submit.h"
 #include "sprite.pass.h"
+#include "text.pass.h"
 #include "texture.pool.h"
 #include "string.str8.h"
 #include "debug.backtrace.h"
@@ -26,6 +27,7 @@ static Mel_Gpu_Device s_dev;
 static Mel_Tracking_Allocator* s_tracking;
 static Mel_Alloc s_allocator;
 static Mel_Sprite_Pass* s_sprite_pass;
+static Mel_Text_Pass* s_text_pass;
 static Mel_Texture_Pool* s_texture_pool;
 static Mel_Render_Graph* s_render_graph;
 static Mel_Sim_Ctx* s_sim_head;
@@ -144,6 +146,16 @@ bool mel_init_opt(Mel_Init_Opt opt)
         goto fail_slang;
     }
 
+    s_text_pass = mel_alloc_type(&s_allocator, Mel_Text_Pass);
+    if (!mel_text_pass_init(s_text_pass,
+        .dev = &s_dev,
+        .color_format = VK_FORMAT_B8G8R8A8_SRGB,
+        .max_glyphs = 4096))
+    {
+        SDL_Log("Failed to initialize text pass");
+        goto fail_sprite_pass;
+    }
+
     s_texture_pool = mel_alloc_type(&s_allocator, Mel_Texture_Pool);
     mel_texture_pool_init(s_texture_pool, &s_allocator, &s_dev,
         .pipeline = &s_sprite_pass->pipeline);
@@ -156,6 +168,10 @@ bool mel_init_opt(Mel_Init_Opt opt)
     SDL_Log("Melody Engine initialized!");
     return true;
 
+fail_sprite_pass:
+    mel_sprite_pass_shutdown(s_sprite_pass);
+    mel_dealloc(&s_allocator, s_sprite_pass);
+    s_sprite_pass = nullptr;
 fail_slang:
     mel_slang_shutdown();
 fail_device:
@@ -196,6 +212,10 @@ void mel_shutdown(void)
     mel_dealloc(&s_allocator, s_texture_pool);
     s_texture_pool = nullptr;
 
+    mel_text_pass_shutdown(s_text_pass);
+    mel_dealloc(&s_allocator, s_text_pass);
+    s_text_pass = nullptr;
+
     mel_sprite_pass_shutdown(s_sprite_pass);
     mel_dealloc(&s_allocator, s_sprite_pass);
     s_sprite_pass = nullptr;
@@ -227,6 +247,12 @@ Mel_Sprite_Pass* mel_sprite_pass(void)
 {
     assert(s_initialized);
     return s_sprite_pass;
+}
+
+Mel_Text_Pass* mel_text_pass(void)
+{
+    assert(s_initialized);
+    return s_text_pass;
 }
 
 Mel_Texture_Pool* mel_texture_pool(void)

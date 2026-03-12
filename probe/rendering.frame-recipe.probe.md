@@ -65,6 +65,7 @@ static Mel_View_Handle world_view;
 static Mel_View_Handle hud_view;
 
 static Mel_Frame_Recipe_Handle frame_recipe;
+static Mel_Frame_Plan_Handle frame_plan;
 
 static Mel_Render_List world_sprites;
 static Mel_Render_List hud_sprites;
@@ -117,6 +118,7 @@ void app_init(void)
     mel_view_attach_source(hud_view, hud_text_source);
 
     frame_recipe = mel_frame_recipe_create(S8("game"));
+    frame_plan = mel_frame_plan_create(S8("game"));
 
     mel_frame_recipe_use_technique(frame_recipe, world_view, MEL_TECHNIQUE_SPRITE);
     mel_frame_recipe_use_technique(frame_recipe, hud_view,   MEL_TECHNIQUE_SPRITE);
@@ -124,6 +126,10 @@ void app_init(void)
 
     mel_frame_recipe_present(frame_recipe, world_view, game_swapchain);
     mel_frame_recipe_overlay(frame_recipe, hud_view, game_swapchain);
+
+    mel_frame_plan_compile(frame_plan, frame_recipe,
+        .graph = mel_render_graph(),
+        .dev = mel_gpu_dev());
 }
 ```
 

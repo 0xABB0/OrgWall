@@ -7,6 +7,7 @@
 #include "swapchain.fwd.h"
 #include "render.graph.fwd.h"
 #include "sprite.pass.fwd.h"
+#include "text.pass.fwd.h"
 #include "texture.pool.fwd.h"
 #include "sim.ctx.fwd.h"
 #include "window.fwd.h"
@@ -27,6 +28,7 @@ void mel_shutdown(void);
 
 Mel_Gpu_Device*    mel_gpu_dev(void);
 Mel_Sprite_Pass*   mel_sprite_pass(void);
+Mel_Text_Pass*     mel_text_pass(void);
 Mel_Texture_Pool*  mel_texture_pool(void);
 const Mel_Alloc*   mel_allocator(void);
 

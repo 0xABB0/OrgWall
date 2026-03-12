@@ -54,6 +54,7 @@ static Mel_Pass_Write_Target* copy_write_target_array(const Mel_Alloc* alloc, Me
 
 static void free_pass_resources(const Mel_Alloc* alloc, Mel_Render_Graph_Pass* pass)
 {
+    if (pass->name.data) mel_dealloc(alloc, pass->name.data);
     if (pass->read_lists) mel_dealloc(alloc, pass->read_lists);
     if (pass->write_lists) mel_dealloc(alloc, pass->write_lists);
     if (pass->read_targets) mel_dealloc(alloc, pass->read_targets);
@@ -501,7 +502,7 @@ u32 mel_render_graph_add_pass_opt(Mel_Render_Graph* g, str8 name, Mel_Pass_Desc 
     assert(g != nullptr);
 
     Mel_Render_Graph_Pass pass = {
-        .name = name,
+        .name = str8_dup(name, g->alloc),
         .fn = desc.fn,
         .user = desc.user,
         .type = desc.type,

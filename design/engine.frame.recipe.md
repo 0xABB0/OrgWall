@@ -507,6 +507,18 @@ void mel_frame_recipe_overlay(
     Mel_View_Handle view,
     Mel_Swapchain_Handle swapchain);
 
+void mel_frame_recipe_present_ordered(
+    Mel_Frame_Recipe_Handle recipe,
+    Mel_View_Handle view,
+    Mel_Swapchain_Handle swapchain,
+    i32 order);
+
+void mel_frame_recipe_overlay_ordered(
+    Mel_Frame_Recipe_Handle recipe,
+    Mel_View_Handle view,
+    Mel_Swapchain_Handle swapchain,
+    i32 order);
+
 void mel_frame_recipe_add_override(
     Mel_Frame_Recipe_Handle recipe,
     const Mel_Frame_Override* override);
@@ -516,6 +528,13 @@ This keeps init-time registration aligned with the rest of Melody:
 - create persistent objects in init
 - register them once
 - engine drives them each frame
+
+The non-ordered `present/overlay` helpers should use authored insertion order as
+their default ordering policy. The ordered variants exist for cases like:
+
+- HUD over world
+- split composition on one swapchain
+- later replace views that intentionally discard earlier contents
 
 ---
 
@@ -580,8 +599,8 @@ These need interface negotiation before implementation:
    views, or a small composition DSL?
 
 5. **Compilation cadence**
-   Do recipes compile lazily on first use, eagerly at init, or on explicit
-   `mel_frame_recipe_compile(...)`?
+   Do plans compile lazily on first use, eagerly at init, or on explicit
+   `mel_frame_plan_compile(...)` from an authored recipe?
 
 6. **Inspection and tooling**
    How does the app inspect the resolved plan, chosen technique variants, and

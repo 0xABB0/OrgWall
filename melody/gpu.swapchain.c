@@ -415,7 +415,7 @@ Mel_Swapchain_Handle mel_gpu_swapchain_create_for_window(Mel_Gpu_Device* dev, Me
         return MEL_SWAPCHAIN_HANDLE_NULL;
 
     i32 w, h;
-    SDL_GetWindowSize(sdl, &w, &h);
+    SDL_GetWindowSizeInPixels(sdl, &w, &h);
 
     Mel_Swapchain_Entry entry = {
         .surface = surface,
