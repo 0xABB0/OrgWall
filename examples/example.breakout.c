@@ -17,6 +17,10 @@
 #include "render.target.h"
 #include "render.camera.h"
 #include "render.list.h"
+#include "render.source.h"
+#include "render.view.h"
+#include "render.frame_recipe.h"
+#include "render.technique.h"
 #include "texture.pool.h"
 #include "font.atlas.h"
 #include "vfs.h"
@@ -85,18 +89,20 @@ typedef struct {
 
 static Mel_Window_Handle s_window_handle;
 static Mel_Swapchain_Handle s_swapchain_handle;
-static Mel_Sprite_Pass* s_sp;
 static Mel_Font_Atlas_Pool s_font_pool;
 static Mel_Io s_demo_io;
 static Mel_Vfs s_demo_vfs;
 static Mel_Vfs_Backend* s_fonts_backend;
 static Mel_Font_Handle s_font_handle;
 static Breakout s_breakout;
-static Mel_Render_Target s_swapchain_target;
 static Mel_Render_Graph s_graph;
 static Mel_Camera s_camera;
 static Mel_Render_List s_sprite_list;
 static Mel_Render_List s_font_list;
+static Mel_Source_Handle s_sprite_source;
+static Mel_Source_Handle s_font_source;
+static Mel_View_Handle s_main_view;
+static Mel_Frame_Recipe_Handle s_frame_recipe;
 static Mel_Sim_Ctx s_sim;
 static u8 s_event_buf[4096];
 
@@ -455,7 +461,6 @@ static void on_init(void)
 {
     Mel_Gpu_Device* dev = mel_gpu_dev();
     Mel_Swapchain* sc = &mel_swapchain_registry_get(s_swapchain_handle)->swapchain;
-    s_sp = mel_sprite_pass();
 
     mel_font_atlas_pool_init(&s_font_pool, mel_allocator(), dev, &s_demo_vfs, .texture_pool = mel_texture_pool());
     s_font_handle = mel_font_atlas_pool_load(&s_font_pool,
@@ -472,24 +477,30 @@ static void on_init(void)
         .entry_stride = sizeof(Mel_Sprite_Entry),
         .alloc = mel_alloc_heap());
 
-    mel_render_target_init_swapchain(&s_swapchain_target, sc, dev, S8("backbuffer"));
-
     s_camera = (Mel_Camera){
         .view = MEL_MAT4_IDENTITY,
         .projection = mel_mat4_ortho(0, (f32)sc->extent.width,
                                       0, (f32)sc->extent.height, -1, 1),
     };
 
-    mel_render_graph_init(&s_graph, .dev = dev, .alloc = mel_alloc_heap());
-    mel_render_graph_add_pass(&s_graph, S8("sprite"),
-        .fn = mel_sprite_pass_execute,
-        .user = s_sp,
+    s_sprite_source = mel_source_from_render_list(&s_sprite_list, MEL_SCHEMA_SPRITE);
+    s_font_source = mel_source_from_render_list(&s_font_list, MEL_SCHEMA_SPRITE);
+
+    s_main_view = mel_view_create(&(Mel_View_Desc){
+        .name = S8("main"),
         .camera = &s_camera,
-        .read_lists = MEL_LISTS(&s_sprite_list, &s_font_list),
-        .write_targets = MEL_WRITE_TARGETS(
-            { .target = &s_swapchain_target, .load_op = VK_ATTACHMENT_LOAD_OP_CLEAR,
-              .clear.color = { .r = 0.08f, .g = 0.08f, .b = 0.1f, .a = 1.0f } }));
-    mel_render_graph_compile(&s_graph);
+        .clear_color_enabled = true,
+        .clear_color = mel_vec4(0.08f, 0.08f, 0.1f, 1.0f),
+    });
+    mel_view_attach_source(s_main_view, s_sprite_source);
+    mel_view_attach_source(s_main_view, s_font_source);
+
+    s_frame_recipe = mel_frame_recipe_create(S8("breakout"));
+    mel_frame_recipe_use_technique(s_frame_recipe, s_main_view, MEL_TECHNIQUE_SPRITE);
+    mel_frame_recipe_present(s_frame_recipe, s_main_view, s_swapchain_handle);
+
+    mel_render_graph_init(&s_graph, .dev = dev, .alloc = mel_alloc_heap());
+    mel_frame_recipe_compile(s_frame_recipe, .graph = &s_graph, .dev = dev, .sprite_pass = mel_sprite_pass());
     mel_set_render_graph(&s_graph);
 
     SDL_Log("Breakout ready! Arrow keys / mouse to move, Space to launch, R to restart, ESC to quit");
@@ -525,7 +536,11 @@ static void app_shutdown(Mel_App* app)
     mel_render_list_shutdown(&s_sprite_list);
     mel_render_list_shutdown(&s_font_list);
     mel_render_graph_shutdown(&s_graph);
-    mel_render_target_shutdown(&s_swapchain_target);
+
+    mel_frame_recipe_destroy(s_frame_recipe);
+    mel_view_destroy(s_main_view);
+    mel_source_destroy(s_font_source);
+    mel_source_destroy(s_sprite_source);
 
     mel_anim_clip_destroy(&s_breakout.death_clip, s_breakout.alloc);
 

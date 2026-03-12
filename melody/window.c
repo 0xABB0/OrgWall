@@ -106,6 +106,12 @@ u32 mel_window_count(void)
     return s_initialized ? mel_slotmap_count(&s_windows) : 0;
 }
 
+Mel_Swapchain_Handle mel_window_swapchain(Mel_Window_Handle handle)
+{
+    assert(s_initialized);
+    return mel_swapchain_registry_find_by_window(handle);
+}
+
 SDL_Window* mel__window_sdl(Mel_Window_Handle handle)
 {
     assert(s_initialized);
