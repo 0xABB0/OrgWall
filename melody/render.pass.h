@@ -58,4 +58,5 @@ struct Mel_Render_Pass_Ctx {
     void* user;
     u32 render_width;
     u32 render_height;
+    u32 gpu_frame_index;
 };

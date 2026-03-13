@@ -4,17 +4,15 @@
 typedef struct {
     u32 acquire_count;
     u32 present_count;
+    u32 prepare_present_count;
+    u32 collect_sync_count;
     u32 resize_count;
     u32 shutdown_count;
 
     u32 last_resize_w;
     u32 last_resize_h;
 
-    VkCommandBuffer last_cmd;
-    VkFence last_fence;
-
     bool acquire_result;
-    bool present_result;
 } Mock_Swapchain;
 
 static bool mock_acquire(Mel_Swapchain* sc, Mel_Gpu_Device* dev)
@@ -26,14 +24,25 @@ static bool mock_acquire(Mel_Swapchain* sc, Mel_Gpu_Device* dev)
     return mock->acquire_result;
 }
 
-static bool mock_present(Mel_Swapchain* sc, Mel_Gpu_Device* dev, VkCommandBuffer cmd, VkFence fence)
+static void mock_prepare_present(Mel_Swapchain* sc, VkCommandBuffer cmd)
+{
+    (void)cmd;
+    Mock_Swapchain* mock = sc->data;
+    mock->prepare_present_count++;
+}
+
+static void mock_collect_sync(Mel_Swapchain* sc, Mel_Gpu_Submit_Gather* gather)
+{
+    (void)gather;
+    Mock_Swapchain* mock = sc->data;
+    mock->collect_sync_count++;
+}
+
+static void mock_present(Mel_Swapchain* sc, Mel_Gpu_Device* dev)
 {
     (void)dev;
     Mock_Swapchain* mock = sc->data;
     mock->present_count++;
-    mock->last_cmd = cmd;
-    mock->last_fence = fence;
-    return mock->present_result;
 }
 
 static void mock_resize(Mel_Swapchain* sc, Mel_Gpu_Device* dev, u32 width, u32 height)
@@ -55,17 +64,18 @@ static void mock_shutdown(Mel_Swapchain* sc, Mel_Gpu_Device* dev)
 }
 
 static const Mel_Swapchain_Vtable mock_vtable = {
-    .acquire  = mock_acquire,
-    .present  = mock_present,
-    .resize   = mock_resize,
-    .shutdown = mock_shutdown,
+    .acquire         = mock_acquire,
+    .prepare_present = mock_prepare_present,
+    .collect_sync    = mock_collect_sync,
+    .present         = mock_present,
+    .resize          = mock_resize,
+    .shutdown        = mock_shutdown,
 };
 
 static void init_mock(Mel_Swapchain* sc, Mock_Swapchain* mock)
 {
     *mock = (Mock_Swapchain){
         .acquire_result = true,
-        .present_result = true,
     };
 
     *sc = (Mel_Swapchain){
@@ -99,14 +109,15 @@ MEL_TEST(vtable_present_dispatches, .tags = "gpu")
     Mock_Swapchain mock;
     init_mock(&sc, &mock);
 
-    VkCommandBuffer fake_cmd = (VkCommandBuffer)(uintptr_t)0xDEAD;
-    VkFence fake_fence = (VkFence)(uintptr_t)0xBEEF;
+    mel_swapchain_prepare_present(&sc, nullptr);
+    MEL_ASSERT_EQ(mock.prepare_present_count, 1u);
 
-    bool r = mel_swapchain_present(&sc, nullptr, fake_cmd, fake_fence);
-    MEL_ASSERT(r);
+    Mel_Gpu_Submit_Gather gather = {0};
+    mel_swapchain_collect_sync(&sc, &gather);
+    MEL_ASSERT_EQ(mock.collect_sync_count, 1u);
+
+    mel_swapchain_present(&sc, nullptr);
     MEL_ASSERT_EQ(mock.present_count, 1u);
-    MEL_ASSERT_EQ(mock.last_cmd, fake_cmd);
-    MEL_ASSERT_EQ(mock.last_fence, fake_fence);
 
 }
 
@@ -167,15 +178,19 @@ MEL_TEST(acquire_failure_propagates, .tags = "gpu")
 
 }
 
-MEL_TEST(present_failure_propagates, .tags = "gpu")
+MEL_TEST(present_dispatches_all_phases, .tags = "gpu")
 {
     Mel_Swapchain sc;
     Mock_Swapchain mock;
     init_mock(&sc, &mock);
-    mock.present_result = false;
 
-    bool r = mel_swapchain_present(&sc, nullptr, nullptr, nullptr);
-    MEL_ASSERT(!r);
+    mel_swapchain_prepare_present(&sc, nullptr);
+    Mel_Gpu_Submit_Gather gather = {0};
+    mel_swapchain_collect_sync(&sc, &gather);
+    mel_swapchain_present(&sc, nullptr);
+
+    MEL_ASSERT_EQ(mock.prepare_present_count, 1u);
+    MEL_ASSERT_EQ(mock.collect_sync_count, 1u);
     MEL_ASSERT_EQ(mock.present_count, 1u);
 
 }
@@ -225,10 +240,9 @@ static bool alt_acquire(Mel_Swapchain* sc, Mel_Gpu_Device* dev)
     return true;
 }
 
-static bool alt_present(Mel_Swapchain* sc, Mel_Gpu_Device* dev, VkCommandBuffer cmd, VkFence fence)
+static void alt_present(Mel_Swapchain* sc, Mel_Gpu_Device* dev)
 {
-    (void)sc; (void)dev; (void)cmd; (void)fence;
-    return true;
+    (void)sc; (void)dev;
 }
 
 static void alt_resize(Mel_Swapchain* sc, Mel_Gpu_Device* dev, u32 w, u32 h)
@@ -282,8 +296,10 @@ MEL_TEST(full_lifecycle, .tags = "gpu")
     bool r = mel_swapchain_acquire(&sc, nullptr);
     MEL_ASSERT(r);
 
-    r = mel_swapchain_present(&sc, nullptr, nullptr, nullptr);
-    MEL_ASSERT(r);
+    mel_swapchain_prepare_present(&sc, nullptr);
+    Mel_Gpu_Submit_Gather gather = {0};
+    mel_swapchain_collect_sync(&sc, &gather);
+    mel_swapchain_present(&sc, nullptr);
 
     mel_swapchain_resize(&sc, nullptr, 1920, 1080);
     MEL_ASSERT_EQ(sc.extent.width, 1920u);
@@ -291,8 +307,10 @@ MEL_TEST(full_lifecycle, .tags = "gpu")
     r = mel_swapchain_acquire(&sc, nullptr);
     MEL_ASSERT(r);
 
-    r = mel_swapchain_present(&sc, nullptr, nullptr, nullptr);
-    MEL_ASSERT(r);
+    mel_swapchain_prepare_present(&sc, nullptr);
+    gather = (Mel_Gpu_Submit_Gather){0};
+    mel_swapchain_collect_sync(&sc, &gather);
+    mel_swapchain_present(&sc, nullptr);
 
     mel_swapchain_shutdown(&sc, nullptr);
     MEL_ASSERT_NULL(sc.data);

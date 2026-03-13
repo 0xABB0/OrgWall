@@ -25,12 +25,10 @@ static bool mock_acquire(Mel_Swapchain* sc, Mel_Gpu_Device* dev)
     return ((Mock_Swapchain*)sc->data)->acquire_result;
 }
 
-static bool mock_present(Mel_Swapchain* sc, Mel_Gpu_Device* dev, VkCommandBuffer cmd, VkFence fence)
+static void mock_present(Mel_Swapchain* sc, Mel_Gpu_Device* dev)
 {
+    (void)sc;
     (void)dev;
-    (void)cmd;
-    (void)fence;
-    return ((Mock_Swapchain*)sc->data)->present_result;
 }
 
 static void mock_resize(Mel_Swapchain* sc, Mel_Gpu_Device* dev, u32 width, u32 height)

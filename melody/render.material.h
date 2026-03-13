@@ -51,7 +51,9 @@ typedef struct {
 
 typedef struct {
     Mel_Vec4 base_color;
+    Mel_Vec4 emissive_color;
     Mel_Vec4 params0;
+    Mel_Vec4 params1;
 } Mel_Material_Gpu_Record;
 
 struct Mel_Material_Table {

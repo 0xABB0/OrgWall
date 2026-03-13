@@ -162,6 +162,43 @@ static Mel_Material_Check_Result mel__surface_unlit_forward_match(Mel_Frame_Plan
     };
 }
 
+static Mel_Material_Check_Result mel__surface_unlit_visibility_match(Mel_Frame_Plan_Material_Ctx* ctx,
+    Mel_Material_Template_Handle material_template)
+{
+    if (!str8_ieq(ctx->technique_name, S8("mesh.visibility_buffer")))
+    {
+        return (Mel_Material_Check_Result){
+            .ok = false,
+            .kind = MEL_MATERIAL_CHECK_TECHNIQUE_MISMATCH,
+            .reason = S8("surface.unlit.visibility_buffer requires mesh.visibility_buffer"),
+        };
+    }
+
+    if (!str8_ieq(mel_material_template_profile(material_template), S8("surface.unlit")))
+    {
+        return (Mel_Material_Check_Result){
+            .ok = false,
+            .kind = MEL_MATERIAL_CHECK_PROFILE_MISMATCH,
+            .reason = S8("backend expects surface.unlit profile"),
+        };
+    }
+
+    if (mel_material_template_render_domain(material_template) != MEL_MATERIAL_DOMAIN_OPAQUE)
+    {
+        return (Mel_Material_Check_Result){
+            .ok = false,
+            .kind = MEL_MATERIAL_CHECK_PROFILE_MISMATCH,
+            .reason = S8("visibility-buffer currently supports opaque surface.unlit materials only"),
+        };
+    }
+
+    return (Mel_Material_Check_Result){
+        .ok = true,
+        .kind = MEL_MATERIAL_CHECK_OK,
+        .reason = S8("surface.unlit material matches mesh.visibility_buffer"),
+    };
+}
+
 static Mel_Material_Check_Result mel__sprite_unlit_match(Mel_Frame_Plan_Material_Ctx* ctx,
     Mel_Material_Template_Handle material_template)
 {
@@ -215,6 +252,43 @@ static Mel_Material_Check_Result mel__surface_standard_forward_match(Mel_Frame_P
         .ok = true,
         .kind = MEL_MATERIAL_CHECK_OK,
         .reason = S8("surface.standard material matches mesh.forward"),
+    };
+}
+
+static Mel_Material_Check_Result mel__surface_standard_visibility_match(Mel_Frame_Plan_Material_Ctx* ctx,
+    Mel_Material_Template_Handle material_template)
+{
+    if (!str8_ieq(ctx->technique_name, S8("mesh.visibility_buffer")))
+    {
+        return (Mel_Material_Check_Result){
+            .ok = false,
+            .kind = MEL_MATERIAL_CHECK_TECHNIQUE_MISMATCH,
+            .reason = S8("surface.standard.visibility_buffer requires mesh.visibility_buffer"),
+        };
+    }
+
+    if (!str8_ieq(mel_material_template_profile(material_template), S8("surface.standard")))
+    {
+        return (Mel_Material_Check_Result){
+            .ok = false,
+            .kind = MEL_MATERIAL_CHECK_PROFILE_MISMATCH,
+            .reason = S8("backend expects surface.standard profile"),
+        };
+    }
+
+    if (mel_material_template_render_domain(material_template) != MEL_MATERIAL_DOMAIN_OPAQUE)
+    {
+        return (Mel_Material_Check_Result){
+            .ok = false,
+            .kind = MEL_MATERIAL_CHECK_PROFILE_MISMATCH,
+            .reason = S8("visibility-buffer currently supports opaque surface.standard materials only"),
+        };
+    }
+
+    return (Mel_Material_Check_Result){
+        .ok = true,
+        .kind = MEL_MATERIAL_CHECK_OK,
+        .reason = S8("surface.standard material matches mesh.visibility_buffer"),
     };
 }
 
@@ -281,6 +355,26 @@ static void mel__material_registry_init(void)
         .priority = 100,
         .supports = mel__material_support_always,
         .matches = mel__surface_standard_forward_match,
+    });
+    mel_material_backend_register(&(Mel_Material_Backend_Desc){
+        .name = S8("surface.unlit.visibility_buffer"),
+        .family = s_surface_family,
+        .profile = S8("surface.unlit"),
+        .technique_family = MEL_TECHNIQUE_MESH,
+        .technique_name = S8("mesh.visibility_buffer"),
+        .priority = 100,
+        .supports = mel__material_support_always,
+        .matches = mel__surface_unlit_visibility_match,
+    });
+    mel_material_backend_register(&(Mel_Material_Backend_Desc){
+        .name = S8("surface.standard.visibility_buffer"),
+        .family = s_surface_family,
+        .profile = S8("surface.standard"),
+        .technique_family = MEL_TECHNIQUE_MESH,
+        .technique_name = S8("mesh.visibility_buffer"),
+        .priority = 100,
+        .supports = mel__material_support_always,
+        .matches = mel__surface_standard_visibility_match,
     });
     mel_material_backend_register(&(Mel_Material_Backend_Desc){
         .name = S8("sprite.unlit.sprite"),
@@ -573,12 +667,17 @@ u64 mel_material_instance_parameter_version(Mel_Material_Instance_Handle handle)
 
 Mel_Material_Gpu_Record mel_material_instance_pack_gpu_record(Mel_Material_Instance_Handle handle)
 {
+    Mel_Material_Template_Handle material_template = mel_material_instance_template(handle);
     Mel_Material_Gpu_Record record = {
         .base_color = mel_material_instance_base_color(handle),
-        .params0 = mel_vec4(0.45f, 0.0f, 0.0f, 0.0f),
+        .emissive_color = mel_vec4(0.0f, 0.0f, 0.0f, 1.0f),
+        .params0 = mel_vec4(0.45f, 0.0f, 0.0f, 1.0f),
+        .params1 = mel_vec4((f32)mel_material_template_render_domain(material_template), 0.0f, 0.0f, 0.0f),
     };
 
-    Mel_Material_Template_Handle material_template = mel_material_instance_template(handle);
+    mel_material_instance_try_get_vec4(handle, S8("emissive"), &record.emissive_color);
+    mel_material_instance_try_get_f32(handle, S8("occlusion"), &record.params0.w);
+    mel_material_instance_try_get_f32(handle, S8("alpha_cutoff"), &record.params1.y);
     if (str8_ieq(mel_material_template_profile(material_template), S8("surface.standard")))
     {
         mel_material_instance_try_get_f32(handle, S8("roughness"), &record.params0.x);

@@ -173,14 +173,15 @@ static void mel__sprite_pass_push_line(Mel_Sprite_Pass* sp, f32 x0, f32 y0, f32 
     sp->index_count += 6;
 }
 
-static void mel__sprite_pass_begin(Mel_Sprite_Pass* sp)
+static void mel__sprite_pass_begin(Mel_Sprite_Pass* sp, u32 frame_index)
 {
     TracyCZoneN(ctx, "sprite_pass_begin", true);
     assert(sp != nullptr);
+    assert(frame_index < MEL_MAX_FRAMES_IN_FLIGHT);
 
-    sp->gpu_frame_index = (sp->gpu_frame_index + 1) % MEL_MAX_FRAMES_IN_FLIGHT;
-    sp->vertices = sp->gpu_frames[sp->gpu_frame_index].vertex_buffer.mapped;
-    sp->indices = (u16*)sp->gpu_frames[sp->gpu_frame_index].index_buffer.mapped;
+    sp->gpu_frame_index = frame_index;
+    sp->vertices = sp->gpu_frames[frame_index].vertex_buffer.mapped;
+    sp->indices = (u16*)sp->gpu_frames[frame_index].index_buffer.mapped;
 
     sp->vertex_count = 0;
     sp->index_count = 0;
@@ -372,7 +373,7 @@ void mel_sprite_pass_execute(Mel_Render_Pass_Ctx* ctx)
 
     Mel_Mat4 vp = mel_camera_vp(ctx->camera);
 
-    mel__sprite_pass_begin(sp);
+    mel__sprite_pass_begin(sp, ctx->gpu_frame_index);
 
     if (ctx->read_lists)
     {

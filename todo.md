@@ -61,6 +61,20 @@
 -- it handles "stages" manually (still need to add this concept to the engine: stages are what other engines call "screens" or "scenes")
 -- it still handles mugen logic. that should be passed to the library.
 
+## CRITICAL: Multi-window rendering architecture (Mar 2026)
+
+- [RENDER][CRITICAL] Sprite pass (and any pass with per-frame GPU buffers) uses a fixed-size array `gpu_frames[MEL_MAX_FRAMES_IN_FLIGHT]` and blindly increments `gpu_frame_index` on every `begin()` call. This breaks when the same pass instance is used by multiple graph passes in the same frame — each call consumes a slot, and with 2 passes per frame and 3 slots total, buffer aliasing happens within 2 frames (the GPU may still be reading slot N while the CPU overwrites it on the next frame's second pass). Violates MEL-X-004.
+  - Immediate fix: replace fixed array with dynamic array, grow on demand.
+  - Deeper fix: the pass should not manage frame indexing independently. The render graph already tracks frame lifecycle (fences, command pools). The graph should drive which buffer slot a pass uses, not the pass itself.
+- [RENDER][CRITICAL] Independent frame cadences per swapchain. Right now `mel_render_graph_execute()` does one command buffer, one submit, one fence for ALL swapchains. Every swapchain advances in lockstep. If window A is 144Hz and window B is 60Hz, the fast window is throttled to the slow one. Solving this requires:
+  - Per-swapchain command buffers (not one shared cmd buf)
+  - Per-swapchain fences (each window has its own "frame complete" signal)
+  - Multiple submits per frame (one per swapchain cadence)
+  - Game state readable from multiple in-flight frames simultaneously (or snapshot/copy per cadence)
+  - Per-pass GPU resource pools keyed by swapchain+frame, not by a global frame counter
+  - This is essentially multithreaded frame execution. Blocked on threading infrastructure and state management design.
+- [RENDER] `MEL_MAX_SWAPCHAINS` (8) in swapchain.h and `Mel_Gpu_Submit_Gather` use fixed arrays. Should be dynamic (stretchy buffer) per MEL-X-004. Works for now but will bite eventually.
+
 ## Engine refactor gaps (Mar 2026)
 
 - [ENGINE] `mel_process_event()` only forwards to imgui — no longer handles `SDL_EVENT_WINDOW_RESIZED`. Swapchain registry has `resize_requested` field on entries but nobody sets or reads it. Need to wire resize events through the swapchain registry.

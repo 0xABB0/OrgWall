@@ -24,13 +24,10 @@ static bool stage2d_mock_acquire(Mel_Swapchain* sc, Mel_Gpu_Device* dev)
     return true;
 }
 
-static bool stage2d_mock_present(Mel_Swapchain* sc, Mel_Gpu_Device* dev, VkCommandBuffer cmd, VkFence fence)
+static void stage2d_mock_present(Mel_Swapchain* sc, Mel_Gpu_Device* dev)
 {
     (void)sc;
     (void)dev;
-    (void)cmd;
-    (void)fence;
-    return true;
 }
 
 static void stage2d_mock_resize(Mel_Swapchain* sc, Mel_Gpu_Device* dev, u32 width, u32 height)

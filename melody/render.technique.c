@@ -3,6 +3,7 @@
 #include "render.graph.h"
 #include "render.view.h"
 #include "render.source.h"
+#include "render.list.h"
 #include "mesh.pass.h"
 #include "sprite.pass.h"
 #include "text.pass.h"
@@ -93,6 +94,106 @@ static Mel_Source_Handle* mel__merge_mesh_gpu_sources(Mel_Frame_Plan_Handle plan
         merged[out++] = material_sources[i];
     merged[out] = MEL_SOURCE_HANDLE_NULL;
     return merged;
+}
+
+static Mel_Source_Handle* mel__collect_preferred_mesh_geometry_sources(Mel_Frame_Plan_Handle plan,
+    Mel_View_Handle view, u32* out_schema)
+{
+    Mel_Source_Handle* sources = mel_frame_plan_collect_sources(plan, view, MEL_SOURCE_GPU_BUFFER,
+        MEL_SCHEMA_MESH_CULL_BATCH_STREAM);
+    if (sources)
+    {
+        if (out_schema) *out_schema = MEL_SCHEMA_MESH_CULL_BATCH_STREAM;
+        return sources;
+    }
+
+    sources = mel_frame_plan_collect_sources(plan, view, MEL_SOURCE_GPU_BUFFER, MEL_SCHEMA_MESH_CULL_STREAM);
+    if (sources)
+    {
+        if (out_schema) *out_schema = MEL_SCHEMA_MESH_CULL_STREAM;
+        return sources;
+    }
+
+    sources = mel_frame_plan_collect_sources(plan, view, MEL_SOURCE_GPU_BUFFER, MEL_SCHEMA_MESH_INDIRECT_STREAM);
+    if (sources)
+    {
+        if (out_schema) *out_schema = MEL_SCHEMA_MESH_INDIRECT_STREAM;
+        return sources;
+    }
+
+    sources = mel_frame_plan_collect_sources(plan, view, MEL_SOURCE_GPU_BUFFER, MEL_SCHEMA_MESH_DRAW_STREAM);
+    if (sources)
+    {
+        if (out_schema) *out_schema = MEL_SCHEMA_MESH_DRAW_STREAM;
+        return sources;
+    }
+
+    if (out_schema) *out_schema = MEL_SCHEMA_INVALID;
+    return nullptr;
+}
+
+static bool mel__material_record_visibility_compatible(const Mel_Material_Gpu_Record* record)
+{
+    if (!record)
+        return true;
+    return (u32)record->params1.x == MEL_MATERIAL_DOMAIN_OPAQUE;
+}
+
+static bool mel__mesh_entry_visibility_compatible(const Mel_Mesh_Entry* entry)
+{
+    if (!entry || !mel_material_instance_handle_valid(entry->material))
+        return true;
+    return mel_material_template_render_domain(mel_material_instance_template(entry->material)) == MEL_MATERIAL_DOMAIN_OPAQUE;
+}
+
+static bool mel__mesh_lists_visibility_compatible(Mel_Render_List** lists)
+{
+    if (!lists)
+        return true;
+
+    for (u32 list_index = 0; lists[list_index] != nullptr; list_index++)
+    {
+        Mel_Render_List* list = lists[list_index];
+        for (u32 i = 0; i < list->count; i++)
+        {
+            Mel_Mesh_Entry* entry = mel_render_list_get(list, list->packets[i].entry_index);
+            if (!mel__mesh_entry_visibility_compatible(entry))
+                return false;
+        }
+    }
+
+    return true;
+}
+
+static bool mel__material_tables_visibility_compatible(Mel_Source_Handle* sources)
+{
+    if (!sources)
+        return true;
+
+    for (u32 i = 0; mel_source_handle_valid(sources[i]); i++)
+    {
+        Mel_Material_Table* table = mel_source_user(sources[i]);
+        if (!table)
+            continue;
+        for (u32 record_index = 0; record_index < mel_material_table_count(table); record_index++)
+        {
+            if (!mel__material_record_visibility_compatible(&mel_material_table_records(table)[record_index]))
+                return false;
+        }
+    }
+
+    return true;
+}
+
+static Mel_Technique_Check_Result mel__support_mesh_shader(Mel_Frame_Plan_Technique_Ctx* ctx)
+{
+    Mel_Gpu_Capabilities caps = ctx->dev ? mel_gpu_capabilities(ctx->dev) : (Mel_Gpu_Capabilities){0};
+    bool ok = caps.mesh_shader;
+    return (Mel_Technique_Check_Result){
+        .ok = ok,
+        .kind = ok ? MEL_TECHNIQUE_CHECK_OK : MEL_TECHNIQUE_CHECK_CAPABILITY_UNAVAILABLE,
+        .reason = ok ? S8("mesh shader capability available") : S8("mesh shader capability unavailable"),
+    };
 }
 
 static Mel_Technique_Compile_Result mel__compile_sprite(const Mel_Technique_Compile_Ctx* ctx)
@@ -200,6 +301,259 @@ static Mel_Technique_Compile_Result mel__compile_mesh(const Mel_Technique_Compil
     return ok ? MEL_TECHNIQUE_COMPILE_CONTRIBUTED : MEL_TECHNIQUE_COMPILE_FAIL;
 }
 
+static Mel_Technique_Compile_Result mel__compile_mesh_compute_indirect(const Mel_Technique_Compile_Ctx* ctx)
+{
+    Mel_Mesh_Pass* mesh_pass = ctx->plan_ctx->opt.mesh_pass ? ctx->plan_ctx->opt.mesh_pass : mel_mesh_pass();
+    Mel_Source_Handle* cull_sources = mel_frame_plan_collect_sources(ctx->plan_ctx->plan,
+        ctx->plan_ctx->binding.view, MEL_SOURCE_GPU_BUFFER, MEL_SCHEMA_MESH_CULL_STREAM);
+    Mel_Source_Handle* material_sources = mel_frame_plan_collect_sources(ctx->plan_ctx->plan,
+        ctx->plan_ctx->binding.view, MEL_SOURCE_GPU_BUFFER, MEL_SCHEMA_MATERIAL_TABLE);
+    Mel_Source_Handle* read_sources = mel__merge_mesh_gpu_sources(ctx->plan_ctx->plan, cull_sources, material_sources);
+    if (!read_sources)
+    {
+        mel_frame_plan_free_read_sources(ctx->plan_ctx->plan, cull_sources);
+        mel_frame_plan_free_read_sources(ctx->plan_ctx->plan, material_sources);
+        return MEL_TECHNIQUE_COMPILE_SKIP;
+    }
+
+    str8 compute_name = str8_fmt(mel_alloc_heap(), "%.*s.compute", (int)ctx->technique->name.len, ctx->technique->name.data);
+    bool ok = mel_frame_plan_add_compute_pass(ctx->plan_ctx, compute_name, mel_mesh_pass_execute_compute_indirect,
+        mesh_pass, read_sources, nullptr);
+    mel_dealloc(mel_alloc_heap(), compute_name.data);
+    if (!ok)
+    {
+        mel_frame_plan_free_read_sources(ctx->plan_ctx->plan, cull_sources);
+        mel_frame_plan_free_read_sources(ctx->plan_ctx->plan, material_sources);
+        mel_dealloc(mel_alloc_heap(), read_sources);
+        return MEL_TECHNIQUE_COMPILE_FAIL;
+    }
+
+    VkAttachmentLoadOp color_load_op = (!*ctx->plan_ctx->wrote_any_pass &&
+        (ctx->plan_ctx->first_for_swapchain || ctx->plan_ctx->replace_contents))
+        ? VK_ATTACHMENT_LOAD_OP_CLEAR
+        : VK_ATTACHMENT_LOAD_OP_LOAD;
+    Mel_Vec4 clear = mel_view_clear_color_enabled(ctx->plan_ctx->binding.view)
+        ? mel_view_clear_color(ctx->plan_ctx->binding.view)
+        : mel_vec4(0.0f, 0.0f, 0.0f, 1.0f);
+    Mel_Render_Target* depth_target = mel_frame_plan_swapchain_depth_target(ctx->plan_ctx->plan,
+        ctx->plan_ctx->binding.swapchain);
+    ok = mel_frame_plan_add_graphics_pass(ctx->plan_ctx, ctx->technique->name,
+        mel_mesh_pass_execute, mesh_pass, nullptr, read_sources, nullptr,
+        MEL_WRITE_TARGETS(
+            { .target = ctx->plan_ctx->target, .load_op = color_load_op,
+              .clear.color = { .r = clear.x, .g = clear.y, .b = clear.z, .a = clear.w } },
+            { .target = depth_target, .load_op = VK_ATTACHMENT_LOAD_OP_CLEAR,
+              .clear.depth = { .depth = 1.0f, .stencil = 0 } }));
+    mel_frame_plan_free_read_sources(ctx->plan_ctx->plan, cull_sources);
+    mel_frame_plan_free_read_sources(ctx->plan_ctx->plan, material_sources);
+    mel_dealloc(mel_alloc_heap(), read_sources);
+    return ok ? MEL_TECHNIQUE_COMPILE_CONTRIBUTED : MEL_TECHNIQUE_COMPILE_FAIL;
+}
+
+static Mel_Technique_Compile_Result mel__compile_mesh_compute_indirect_batch(const Mel_Technique_Compile_Ctx* ctx)
+{
+    Mel_Mesh_Pass* mesh_pass = ctx->plan_ctx->opt.mesh_pass ? ctx->plan_ctx->opt.mesh_pass : mel_mesh_pass();
+    Mel_Source_Handle* cull_sources = mel_frame_plan_collect_sources(ctx->plan_ctx->plan,
+        ctx->plan_ctx->binding.view, MEL_SOURCE_GPU_BUFFER, MEL_SCHEMA_MESH_CULL_BATCH_STREAM);
+    Mel_Source_Handle* material_sources = mel_frame_plan_collect_sources(ctx->plan_ctx->plan,
+        ctx->plan_ctx->binding.view, MEL_SOURCE_GPU_BUFFER, MEL_SCHEMA_MATERIAL_TABLE);
+    Mel_Source_Handle* read_sources = mel__merge_mesh_gpu_sources(ctx->plan_ctx->plan, cull_sources, material_sources);
+    if (!read_sources)
+    {
+        mel_frame_plan_free_read_sources(ctx->plan_ctx->plan, cull_sources);
+        mel_frame_plan_free_read_sources(ctx->plan_ctx->plan, material_sources);
+        return MEL_TECHNIQUE_COMPILE_SKIP;
+    }
+
+    str8 compute_name = str8_fmt(mel_alloc_heap(), "%.*s.compute", (int)ctx->technique->name.len, ctx->technique->name.data);
+    bool ok = mel_frame_plan_add_compute_pass(ctx->plan_ctx, compute_name, mel_mesh_pass_execute_compute_indirect,
+        mesh_pass, read_sources, nullptr);
+    mel_dealloc(mel_alloc_heap(), compute_name.data);
+    if (!ok)
+    {
+        mel_frame_plan_free_read_sources(ctx->plan_ctx->plan, cull_sources);
+        mel_frame_plan_free_read_sources(ctx->plan_ctx->plan, material_sources);
+        mel_dealloc(mel_alloc_heap(), read_sources);
+        return MEL_TECHNIQUE_COMPILE_FAIL;
+    }
+
+    VkAttachmentLoadOp color_load_op = (!*ctx->plan_ctx->wrote_any_pass &&
+        (ctx->plan_ctx->first_for_swapchain || ctx->plan_ctx->replace_contents))
+        ? VK_ATTACHMENT_LOAD_OP_CLEAR
+        : VK_ATTACHMENT_LOAD_OP_LOAD;
+    Mel_Vec4 clear = mel_view_clear_color_enabled(ctx->plan_ctx->binding.view)
+        ? mel_view_clear_color(ctx->plan_ctx->binding.view)
+        : mel_vec4(0.0f, 0.0f, 0.0f, 1.0f);
+    Mel_Render_Target* depth_target = mel_frame_plan_swapchain_depth_target(ctx->plan_ctx->plan,
+        ctx->plan_ctx->binding.swapchain);
+    ok = mel_frame_plan_add_graphics_pass(ctx->plan_ctx, ctx->technique->name,
+        mel_mesh_pass_execute, mesh_pass, nullptr, read_sources, nullptr,
+        MEL_WRITE_TARGETS(
+            { .target = ctx->plan_ctx->target, .load_op = color_load_op,
+              .clear.color = { .r = clear.x, .g = clear.y, .b = clear.z, .a = clear.w } },
+            { .target = depth_target, .load_op = VK_ATTACHMENT_LOAD_OP_CLEAR,
+              .clear.depth = { .depth = 1.0f, .stencil = 0 } }));
+    mel_frame_plan_free_read_sources(ctx->plan_ctx->plan, cull_sources);
+    mel_frame_plan_free_read_sources(ctx->plan_ctx->plan, material_sources);
+    mel_dealloc(mel_alloc_heap(), read_sources);
+    return ok ? MEL_TECHNIQUE_COMPILE_CONTRIBUTED : MEL_TECHNIQUE_COMPILE_FAIL;
+}
+
+static Mel_Technique_Compile_Result mel__compile_mesh_shader(const Mel_Technique_Compile_Ctx* ctx)
+{
+    Mel_Mesh_Pass* mesh_pass = ctx->plan_ctx->opt.mesh_pass ? ctx->plan_ctx->opt.mesh_pass : mel_mesh_pass();
+    Mel_Source_Handle* draw_sources = mel_frame_plan_collect_sources(ctx->plan_ctx->plan,
+        ctx->plan_ctx->binding.view, MEL_SOURCE_GPU_BUFFER, MEL_SCHEMA_MESH_DRAW_STREAM);
+    Mel_Source_Handle* material_sources = mel_frame_plan_collect_sources(ctx->plan_ctx->plan,
+        ctx->plan_ctx->binding.view, MEL_SOURCE_GPU_BUFFER, MEL_SCHEMA_MATERIAL_TABLE);
+    Mel_Source_Handle* read_sources = mel__merge_mesh_gpu_sources(ctx->plan_ctx->plan, draw_sources, material_sources);
+    if (!read_sources)
+    {
+        mel_frame_plan_free_read_sources(ctx->plan_ctx->plan, draw_sources);
+        mel_frame_plan_free_read_sources(ctx->plan_ctx->plan, material_sources);
+        return MEL_TECHNIQUE_COMPILE_SKIP;
+    }
+
+    VkAttachmentLoadOp color_load_op = (!*ctx->plan_ctx->wrote_any_pass &&
+        (ctx->plan_ctx->first_for_swapchain || ctx->plan_ctx->replace_contents))
+        ? VK_ATTACHMENT_LOAD_OP_CLEAR
+        : VK_ATTACHMENT_LOAD_OP_LOAD;
+    Mel_Vec4 clear = mel_view_clear_color_enabled(ctx->plan_ctx->binding.view)
+        ? mel_view_clear_color(ctx->plan_ctx->binding.view)
+        : mel_vec4(0.0f, 0.0f, 0.0f, 1.0f);
+    Mel_Render_Target* depth_target = mel_frame_plan_swapchain_depth_target(ctx->plan_ctx->plan,
+        ctx->plan_ctx->binding.swapchain);
+    bool ok = mel_frame_plan_add_graphics_pass(ctx->plan_ctx, ctx->technique->name,
+        mel_mesh_pass_execute_mesh_shader, mesh_pass, nullptr, read_sources, nullptr,
+        MEL_WRITE_TARGETS(
+            { .target = ctx->plan_ctx->target, .load_op = color_load_op,
+              .clear.color = { .r = clear.x, .g = clear.y, .b = clear.z, .a = clear.w } },
+            { .target = depth_target, .load_op = VK_ATTACHMENT_LOAD_OP_CLEAR,
+              .clear.depth = { .depth = 1.0f, .stencil = 0 } }));
+    mel_frame_plan_free_read_sources(ctx->plan_ctx->plan, draw_sources);
+    mel_frame_plan_free_read_sources(ctx->plan_ctx->plan, material_sources);
+    mel_dealloc(mel_alloc_heap(), read_sources);
+    return ok ? MEL_TECHNIQUE_COMPILE_CONTRIBUTED : MEL_TECHNIQUE_COMPILE_FAIL;
+}
+
+static Mel_Technique_Compile_Result mel__compile_mesh_visibility_buffer(const Mel_Technique_Compile_Ctx* ctx)
+{
+    Mel_Mesh_Pass* mesh_pass = ctx->plan_ctx->opt.mesh_pass ? ctx->plan_ctx->opt.mesh_pass : mel_mesh_pass();
+    u32 selected_schema = MEL_SCHEMA_INVALID;
+    Mel_Source_Handle* geometry_sources = mel__collect_preferred_mesh_geometry_sources(ctx->plan_ctx->plan,
+        ctx->plan_ctx->binding.view, &selected_schema);
+    Mel_Source_Handle* material_sources = geometry_sources
+        ? mel_frame_plan_collect_sources(ctx->plan_ctx->plan,
+            ctx->plan_ctx->binding.view, MEL_SOURCE_GPU_BUFFER, MEL_SCHEMA_MATERIAL_TABLE)
+        : nullptr;
+    Mel_Source_Handle* read_sources = mel__merge_mesh_gpu_sources(ctx->plan_ctx->plan, geometry_sources, material_sources);
+    Mel_Render_List** read_lists = geometry_sources ? nullptr
+        : mel_frame_plan_collect_render_lists(ctx->plan_ctx->plan,
+            ctx->plan_ctx->binding.view, MEL_SCHEMA_MESH_INSTANCE);
+
+    if (!read_lists && !read_sources)
+    {
+        mel_frame_plan_free_read_sources(ctx->plan_ctx->plan, geometry_sources);
+        mel_frame_plan_free_read_sources(ctx->plan_ctx->plan, material_sources);
+        return MEL_TECHNIQUE_COMPILE_SKIP;
+    }
+
+    str8 visibility_name = str8_fmt(mel_alloc_heap(), "mesh_visibility_%u", ctx->plan_ctx->binding_index);
+    Mel_Render_Target* visibility_target = mel_frame_plan_named_color_target(ctx->plan_ctx->plan,
+        ctx->plan_ctx->binding.swapchain, visibility_name, VK_FORMAT_R32G32B32A32_SFLOAT);
+    str8 attribute_name = str8_fmt(mel_alloc_heap(), "mesh_visibility_attr_%u", ctx->plan_ctx->binding_index);
+    Mel_Render_Target* attribute_target = mel_frame_plan_named_color_target(ctx->plan_ctx->plan,
+        ctx->plan_ctx->binding.swapchain, attribute_name, VK_FORMAT_R32G32B32A32_SFLOAT);
+    Mel_Render_Target* depth_target = mel_frame_plan_swapchain_depth_target(ctx->plan_ctx->plan,
+        ctx->plan_ctx->binding.swapchain);
+
+    bool ok = true;
+    if (selected_schema == MEL_SCHEMA_MESH_CULL_STREAM || selected_schema == MEL_SCHEMA_MESH_CULL_BATCH_STREAM)
+    {
+        str8 compute_name = str8_fmt(mel_alloc_heap(), "%.*s.compute",
+            (int)ctx->technique->name.len, ctx->technique->name.data);
+        ok = mel_frame_plan_add_compute_pass(ctx->plan_ctx, compute_name,
+            mel_mesh_pass_execute_compute_indirect, mesh_pass, read_sources, nullptr);
+        mel_dealloc(mel_alloc_heap(), compute_name.data);
+        if (!ok)
+        {
+            mel_frame_plan_free_read_lists(ctx->plan_ctx->plan, read_lists);
+            mel_frame_plan_free_read_sources(ctx->plan_ctx->plan, geometry_sources);
+            mel_frame_plan_free_read_sources(ctx->plan_ctx->plan, material_sources);
+            if (read_sources)
+                mel_dealloc(mel_alloc_heap(), read_sources);
+            mel_dealloc(mel_alloc_heap(), visibility_name.data);
+            mel_dealloc(mel_alloc_heap(), attribute_name.data);
+            return MEL_TECHNIQUE_COMPILE_FAIL;
+        }
+    }
+
+    str8 fill_suffix = str8_fmt(mel_alloc_heap(), "%.*s.fill", (int)ctx->technique->name.len, ctx->technique->name.data);
+    ok = mel_frame_plan_add_graphics_pass(ctx->plan_ctx, fill_suffix,
+        mel_mesh_pass_execute_visibility_fill, mesh_pass, read_lists, read_sources, nullptr,
+        MEL_WRITE_TARGETS(
+            { .target = visibility_target, .load_op = VK_ATTACHMENT_LOAD_OP_CLEAR,
+              .clear.color = { .r = 0.5f, .g = 0.5f, .b = 1.0f, .a = 0.0f } },
+            { .target = depth_target, .load_op = VK_ATTACHMENT_LOAD_OP_CLEAR,
+              .clear.depth = { .depth = 1.0f, .stencil = 0 } }));
+    mel_dealloc(mel_alloc_heap(), fill_suffix.data);
+    if (!ok)
+    {
+        mel_frame_plan_free_read_lists(ctx->plan_ctx->plan, read_lists);
+        mel_frame_plan_free_read_sources(ctx->plan_ctx->plan, geometry_sources);
+        mel_frame_plan_free_read_sources(ctx->plan_ctx->plan, material_sources);
+        if (read_sources)
+            mel_dealloc(mel_alloc_heap(), read_sources);
+        mel_dealloc(mel_alloc_heap(), visibility_name.data);
+        mel_dealloc(mel_alloc_heap(), attribute_name.data);
+        return MEL_TECHNIQUE_COMPILE_FAIL;
+    }
+
+    str8 attr_suffix = str8_fmt(mel_alloc_heap(), "%.*s.attributes", (int)ctx->technique->name.len, ctx->technique->name.data);
+    ok = mel_frame_plan_add_graphics_pass(ctx->plan_ctx, attr_suffix,
+        mel_mesh_pass_execute_visibility_attribute_fill, mesh_pass, read_lists, read_sources, nullptr,
+        MEL_WRITE_TARGETS(
+            { .target = attribute_target, .load_op = VK_ATTACHMENT_LOAD_OP_CLEAR,
+              .clear.color = { .r = 0.0f, .g = 0.0f, .b = 0.0f, .a = 0.0f } },
+            { .target = depth_target, .load_op = VK_ATTACHMENT_LOAD_OP_LOAD,
+              .clear.depth = { .depth = 1.0f, .stencil = 0 } }));
+    mel_dealloc(mel_alloc_heap(), attr_suffix.data);
+    if (!ok)
+    {
+        mel_frame_plan_free_read_lists(ctx->plan_ctx->plan, read_lists);
+        mel_frame_plan_free_read_sources(ctx->plan_ctx->plan, geometry_sources);
+        mel_frame_plan_free_read_sources(ctx->plan_ctx->plan, material_sources);
+        if (read_sources)
+            mel_dealloc(mel_alloc_heap(), read_sources);
+        mel_dealloc(mel_alloc_heap(), visibility_name.data);
+        mel_dealloc(mel_alloc_heap(), attribute_name.data);
+        return MEL_TECHNIQUE_COMPILE_FAIL;
+    }
+
+    VkAttachmentLoadOp color_load_op = (!*ctx->plan_ctx->wrote_any_pass &&
+        (ctx->plan_ctx->first_for_swapchain || ctx->plan_ctx->replace_contents))
+        ? VK_ATTACHMENT_LOAD_OP_CLEAR
+        : VK_ATTACHMENT_LOAD_OP_LOAD;
+    Mel_Vec4 clear = mel_view_clear_color_enabled(ctx->plan_ctx->binding.view)
+        ? mel_view_clear_color(ctx->plan_ctx->binding.view)
+        : mel_vec4(0.0f, 0.0f, 0.0f, 1.0f);
+    Mel_Render_Target* resolve_read_targets[] = { visibility_target, attribute_target, nullptr };
+    ok = mel_frame_plan_add_graphics_pass(ctx->plan_ctx, ctx->technique->name,
+        mel_mesh_pass_execute_visibility_resolve, mesh_pass, nullptr, material_sources, resolve_read_targets,
+        MEL_WRITE_TARGETS(
+            { .target = ctx->plan_ctx->target, .load_op = color_load_op,
+              .clear.color = { .r = clear.x, .g = clear.y, .b = clear.z, .a = clear.w } }));
+
+    mel_frame_plan_free_read_lists(ctx->plan_ctx->plan, read_lists);
+    mel_frame_plan_free_read_sources(ctx->plan_ctx->plan, geometry_sources);
+    mel_frame_plan_free_read_sources(ctx->plan_ctx->plan, material_sources);
+    if (read_sources)
+        mel_dealloc(mel_alloc_heap(), read_sources);
+    mel_dealloc(mel_alloc_heap(), visibility_name.data);
+    mel_dealloc(mel_alloc_heap(), attribute_name.data);
+    return ok ? MEL_TECHNIQUE_COMPILE_CONTRIBUTED : MEL_TECHNIQUE_COMPILE_FAIL;
+}
+
 static Mel_Technique_Check_Result mel__match_mesh_forward(Mel_Frame_Plan_Technique_Ctx* ctx)
 {
     Mel_Render_List** read_lists = mel_frame_plan_collect_render_lists(ctx->plan, ctx->binding.view, MEL_SCHEMA_MESH_INSTANCE);
@@ -235,6 +589,90 @@ static Mel_Technique_Check_Result mel__match_mesh_indirect_stream(Mel_Frame_Plan
         .ok = matched,
         .kind = matched ? MEL_TECHNIQUE_CHECK_OK : MEL_TECHNIQUE_CHECK_SOURCE_MISMATCH,
         .reason = matched ? S8("found gpu indirect stream source") : S8("no gpu indirect stream source attached"),
+    };
+}
+
+static Mel_Technique_Check_Result mel__match_mesh_cull_stream(Mel_Frame_Plan_Technique_Ctx* ctx)
+{
+    Mel_Source_Handle* read_sources = mel_frame_plan_collect_sources(ctx->plan,
+        ctx->binding.view, MEL_SOURCE_GPU_BUFFER, MEL_SCHEMA_MESH_CULL_STREAM);
+    bool matched = read_sources != nullptr;
+    mel_frame_plan_free_read_sources(ctx->plan, read_sources);
+    return (Mel_Technique_Check_Result){
+        .ok = matched,
+        .kind = matched ? MEL_TECHNIQUE_CHECK_OK : MEL_TECHNIQUE_CHECK_SOURCE_MISMATCH,
+        .reason = matched ? S8("found gpu compute-cull stream source") : S8("no gpu compute-cull stream source attached"),
+    };
+}
+
+static Mel_Technique_Check_Result mel__match_mesh_cull_batch_stream(Mel_Frame_Plan_Technique_Ctx* ctx)
+{
+    Mel_Source_Handle* read_sources = mel_frame_plan_collect_sources(ctx->plan,
+        ctx->binding.view, MEL_SOURCE_GPU_BUFFER, MEL_SCHEMA_MESH_CULL_BATCH_STREAM);
+    bool matched = read_sources != nullptr;
+    mel_frame_plan_free_read_sources(ctx->plan, read_sources);
+    return (Mel_Technique_Check_Result){
+        .ok = matched,
+        .kind = matched ? MEL_TECHNIQUE_CHECK_OK : MEL_TECHNIQUE_CHECK_SOURCE_MISMATCH,
+        .reason = matched ? S8("found gpu batched compute-cull stream source") : S8("no gpu batched compute-cull stream source attached"),
+    };
+}
+
+static Mel_Technique_Check_Result mel__match_mesh_visibility_buffer(Mel_Frame_Plan_Technique_Ctx* ctx)
+{
+    Mel_Source_Handle* gpu_sources = mel__collect_preferred_mesh_geometry_sources(ctx->plan, ctx->binding.view, nullptr);
+    Mel_Source_Handle* material_sources = gpu_sources
+        ? mel_frame_plan_collect_sources(ctx->plan, ctx->binding.view, MEL_SOURCE_GPU_BUFFER, MEL_SCHEMA_MATERIAL_TABLE)
+        : nullptr;
+    Mel_Render_List** read_lists = gpu_sources ? nullptr
+        : mel_frame_plan_collect_render_lists(ctx->plan, ctx->binding.view, MEL_SCHEMA_MESH_INSTANCE);
+    bool matched = gpu_sources != nullptr || read_lists != nullptr;
+
+    if (matched && gpu_sources && !material_sources)
+    {
+        mel_frame_plan_free_read_sources(ctx->plan, gpu_sources);
+        mel_frame_plan_free_read_sources(ctx->plan, material_sources);
+        mel_frame_plan_free_read_lists(ctx->plan, read_lists);
+        return (Mel_Technique_Check_Result){
+            .ok = false,
+            .kind = MEL_TECHNIQUE_CHECK_SOURCE_MISMATCH,
+            .reason = S8("visibility-buffer gpu paths require a material-table source"),
+        };
+    }
+
+    if (matched && read_lists && !mel__mesh_lists_visibility_compatible(read_lists))
+    {
+        mel_frame_plan_free_read_sources(ctx->plan, gpu_sources);
+        mel_frame_plan_free_read_sources(ctx->plan, material_sources);
+        mel_frame_plan_free_read_lists(ctx->plan, read_lists);
+        return (Mel_Technique_Check_Result){
+            .ok = false,
+            .kind = MEL_TECHNIQUE_CHECK_SOURCE_MISMATCH,
+            .reason = S8("visibility-buffer currently supports opaque mesh materials only"),
+        };
+    }
+
+    if (matched && material_sources && !mel__material_tables_visibility_compatible(material_sources))
+    {
+        mel_frame_plan_free_read_sources(ctx->plan, gpu_sources);
+        mel_frame_plan_free_read_sources(ctx->plan, material_sources);
+        mel_frame_plan_free_read_lists(ctx->plan, read_lists);
+        return (Mel_Technique_Check_Result){
+            .ok = false,
+            .kind = MEL_TECHNIQUE_CHECK_SOURCE_MISMATCH,
+            .reason = S8("visibility-buffer currently supports opaque material-table records only"),
+        };
+    }
+
+    mel_frame_plan_free_read_sources(ctx->plan, gpu_sources);
+    mel_frame_plan_free_read_sources(ctx->plan, material_sources);
+    mel_frame_plan_free_read_lists(ctx->plan, read_lists);
+    return (Mel_Technique_Check_Result){
+        .ok = matched,
+        .kind = matched ? MEL_TECHNIQUE_CHECK_OK : MEL_TECHNIQUE_CHECK_SOURCE_MISMATCH,
+        .reason = matched
+            ? S8("found mesh sources for visibility-buffer shading")
+            : S8("no mesh sources attached for visibility-buffer shading"),
     };
 }
 
@@ -375,12 +813,52 @@ static void mel__render_technique_registry_init(void)
     });
     mel_render_technique_register(&(Mel_Technique_Desc){
         .family = MEL_TECHNIQUE_MESH,
+        .name = S8("mesh.mesh_shader"),
+        .source_schema = MEL_SCHEMA_MESH_DRAW_STREAM,
+        .priority = 350,
+        .supports = mel__support_mesh_shader,
+        .matches = mel__match_mesh_draw_stream,
+        .compile = mel__compile_mesh_shader,
+        .refresh = mel__refresh_view_passes,
+    });
+    mel_render_technique_register(&(Mel_Technique_Desc){
+        .family = MEL_TECHNIQUE_MESH,
+        .name = S8("mesh.compute_indirect"),
+        .source_schema = MEL_SCHEMA_MESH_CULL_STREAM,
+        .priority = 300,
+        .supports = mel__support_always,
+        .matches = mel__match_mesh_cull_stream,
+        .compile = mel__compile_mesh_compute_indirect,
+        .refresh = mel__refresh_view_passes,
+    });
+    mel_render_technique_register(&(Mel_Technique_Desc){
+        .family = MEL_TECHNIQUE_MESH,
+        .name = S8("mesh.compute_indirect_batch"),
+        .source_schema = MEL_SCHEMA_MESH_CULL_BATCH_STREAM,
+        .priority = 320,
+        .supports = mel__support_always,
+        .matches = mel__match_mesh_cull_batch_stream,
+        .compile = mel__compile_mesh_compute_indirect_batch,
+        .refresh = mel__refresh_view_passes,
+    });
+    mel_render_technique_register(&(Mel_Technique_Desc){
+        .family = MEL_TECHNIQUE_MESH,
         .name = S8("mesh.indirect"),
         .source_schema = MEL_SCHEMA_MESH_INDIRECT_STREAM,
         .priority = 250,
         .supports = mel__support_always,
         .matches = mel__match_mesh_indirect_stream,
         .compile = mel__compile_mesh,
+        .refresh = mel__refresh_view_passes,
+    });
+    mel_render_technique_register(&(Mel_Technique_Desc){
+        .family = MEL_TECHNIQUE_MESH,
+        .name = S8("mesh.visibility_buffer"),
+        .source_schema = MEL_SCHEMA_INVALID,
+        .priority = 80,
+        .supports = mel__support_always,
+        .matches = mel__match_mesh_visibility_buffer,
+        .compile = mel__compile_mesh_visibility_buffer,
         .refresh = mel__refresh_view_passes,
     });
     mel_render_technique_register(&(Mel_Technique_Desc){

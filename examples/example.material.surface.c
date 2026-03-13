@@ -48,6 +48,8 @@ static float s_unlit_color[4] = { 0.25f, 0.73f, 0.95f, 1.0f };
 static float s_standard_color[4] = { 0.97f, 0.79f, 0.31f, 1.0f };
 static float s_standard_roughness = 0.35f;
 static float s_standard_metallic = 0.15f;
+static float s_standard_occlusion = 1.0f;
+static float s_standard_emissive[4] = { 0.08f, 0.06f, 0.02f, 0.55f };
 static float s_clear_color[4] = { 0.06f, 0.07f, 0.10f, 1.0f };
 static float s_light_dir[3] = { 0.55f, -1.0f, 0.35f };
 static float s_light_color[4] = { 0.95f, 0.97f, 1.0f, 1.0f };
@@ -218,6 +220,8 @@ static void material_surface_imgui(void* user)
         igColorEdit4("Standard Color", s_standard_color, 0);
         igSliderFloat("Standard Roughness", &s_standard_roughness, 0.0f, 1.0f, "%.2f", 0);
         igSliderFloat("Standard Metallic", &s_standard_metallic, 0.0f, 1.0f, "%.2f", 0);
+        igSliderFloat("Standard Occlusion", &s_standard_occlusion, 0.0f, 1.0f, "%.2f", 0);
+        igColorEdit4("Standard Emissive", s_standard_emissive, 0);
         igColorEdit4("Light Color", s_light_color, 0);
         igColorEdit4("Background", s_clear_color, 0);
         igSliderFloat3("Light Direction", s_light_dir, -1.0f, 1.0f, "%.2f", 0);
@@ -238,6 +242,9 @@ static void material_surface_extract(Mel_Sim_Ctx* sim, f32 dt, void* user)
         mel_vec4(s_standard_color[0], s_standard_color[1], s_standard_color[2], s_standard_color[3]));
     mel_material_instance_set_f32(s_standard_material, S8("roughness"), s_standard_roughness);
     mel_material_instance_set_f32(s_standard_material, S8("metallic"), s_standard_metallic);
+    mel_material_instance_set_f32(s_standard_material, S8("occlusion"), s_standard_occlusion);
+    mel_material_instance_set_vec4(s_standard_material, S8("emissive"),
+        mel_vec4(s_standard_emissive[0], s_standard_emissive[1], s_standard_emissive[2], s_standard_emissive[3]));
 
     mel_render_list_clear(&s_hud_text);
 
@@ -347,8 +354,10 @@ static void material_surface_on_init(void)
         .params = (Mel_Material_Param_Desc[]){
             { .name = S8("roughness"), .type = MEL_MATERIAL_PARAM_F32, .f32_value = 0.35f },
             { .name = S8("metallic"), .type = MEL_MATERIAL_PARAM_F32, .f32_value = 0.15f },
+            { .name = S8("occlusion"), .type = MEL_MATERIAL_PARAM_F32, .f32_value = 1.0f },
+            { .name = S8("emissive"), .type = MEL_MATERIAL_PARAM_VEC4, .vec4_value = { .x = 0.08f, .y = 0.06f, .z = 0.02f, .w = 0.55f } },
         },
-        .param_count = 2,
+        .param_count = 4,
     });
     s_unlit_material = mel_material_instance_create(s_unlit_template);
     s_standard_material = mel_material_instance_create(s_standard_template);

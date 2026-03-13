@@ -135,73 +135,65 @@ static bool image_acquire(Mel_Swapchain* sc, Mel_Gpu_Device* dev)
     return true;
 }
 
-static bool image_present(Mel_Swapchain* sc, Mel_Gpu_Device* dev, VkCommandBuffer cmd, VkFence fence)
+static void image_prepare_present(Mel_Swapchain* sc, VkCommandBuffer cmd)
+{
+    Mel_Image_Swapchain* img = sc->data;
+    if (!img->on_present)
+        return;
+
+    VkImageMemoryBarrier2 barrier = {
+        .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+        .srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+        .srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+        .dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+        .dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT,
+        .oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        .newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .image = sc->images[sc->current_image],
+        .subresourceRange = {
+            .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+            .baseMipLevel = 0,
+            .levelCount = 1,
+            .baseArrayLayer = 0,
+            .layerCount = 1,
+        },
+    };
+
+    VkDependencyInfo dep = {
+        .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+        .imageMemoryBarrierCount = 1,
+        .pImageMemoryBarriers = &barrier,
+    };
+    vkCmdPipelineBarrier2(cmd, &dep);
+
+    VkBufferImageCopy region = {
+        .bufferOffset = 0,
+        .bufferRowLength = 0,
+        .bufferImageHeight = 0,
+        .imageSubresource = {
+            .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+            .mipLevel = 0,
+            .baseArrayLayer = 0,
+            .layerCount = 1,
+        },
+        .imageOffset = { 0, 0, 0 },
+        .imageExtent = { sc->extent.width, sc->extent.height, 1 },
+    };
+
+    vkCmdCopyImageToBuffer(cmd, sc->images[sc->current_image],
+                           VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                           img->staging.buffer, 1, &region);
+}
+
+static void image_present(Mel_Swapchain* sc, Mel_Gpu_Device* dev)
 {
     Mel_Image_Swapchain* img = sc->data;
 
     if (img->on_present)
     {
-        VkImageMemoryBarrier2 barrier = {
-            .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
-            .srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-            .srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-            .dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
-            .dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT,
-            .oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-            .newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-            .image = sc->images[sc->current_image],
-            .subresourceRange = {
-                .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-                .baseMipLevel = 0,
-                .levelCount = 1,
-                .baseArrayLayer = 0,
-                .layerCount = 1,
-            },
-        };
-
-        VkDependencyInfo dep = {
-            .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
-            .imageMemoryBarrierCount = 1,
-            .pImageMemoryBarriers = &barrier,
-        };
-        vkCmdPipelineBarrier2(cmd, &dep);
-
-        VkBufferImageCopy region = {
-            .bufferOffset = 0,
-            .bufferRowLength = 0,
-            .bufferImageHeight = 0,
-            .imageSubresource = {
-                .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-                .mipLevel = 0,
-                .baseArrayLayer = 0,
-                .layerCount = 1,
-            },
-            .imageOffset = { 0, 0, 0 },
-            .imageExtent = { sc->extent.width, sc->extent.height, 1 },
-        };
-
-        vkCmdCopyImageToBuffer(cmd, sc->images[sc->current_image],
-                               VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                               img->staging.buffer, 1, &region);
-    }
-
-    VkResult end_r = vkEndCommandBuffer(cmd);
-    assert(end_r == VK_SUCCESS);
-
-    VkSubmitInfo submit_info = {
-        .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-        .commandBufferCount = 1,
-        .pCommandBuffers = &cmd,
-    };
-
-    VkResult r = vkQueueSubmit(dev->graphics_queue, 1, &submit_info, fence);
-    assert(r == VK_SUCCESS);
-
-    if (img->on_present)
-    {
-        vkWaitForFences(dev->device, 1, &fence, VK_TRUE, UINT64_MAX);
+        vkDeviceWaitIdle(dev->device);
 
         u32 pixel_size = mel_gpu_format_size(sc->format);
         u32 stride = sc->extent.width * pixel_size;
@@ -215,8 +207,6 @@ static bool image_present(Mel_Swapchain* sc, Mel_Gpu_Device* dev, VkCommandBuffe
     }
 
     img->current_frame = (img->current_frame + 1) % img->frame_count;
-
-    return true;
 }
 
 static void image_resize(Mel_Swapchain* sc, Mel_Gpu_Device* dev, u32 width, u32 height)
@@ -273,10 +263,11 @@ static VkImageLayout image_current_image_layout(Mel_Swapchain* sc)
 }
 
 static const Mel_Swapchain_Vtable image_vtable = {
-    .acquire  = image_acquire,
-    .present  = image_present,
-    .resize   = image_resize,
-    .shutdown = image_shutdown,
+    .acquire             = image_acquire,
+    .prepare_present     = image_prepare_present,
+    .present             = image_present,
+    .resize              = image_resize,
+    .shutdown            = image_shutdown,
     .current_image_layout = image_current_image_layout,
 };
 

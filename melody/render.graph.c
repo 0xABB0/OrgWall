@@ -352,19 +352,38 @@ static void compute_barriers(Mel_Render_Graph* g)
         mel_dealloc(g->alloc, list_states);
 }
 
-static Mel_Swapchain* find_swapchain_target(Mel_Render_Graph* g)
+typedef struct {
+    Mel_Swapchain* items[MEL_MAX_SWAPCHAINS];
+    bool acquired[MEL_MAX_SWAPCHAINS];
+    u32 count;
+} Mel_Swapchain_Set;
+
+static void collect_swapchain_targets(Mel_Render_Graph* g, Mel_Swapchain_Set* set)
 {
+    set->count = 0;
     for (usize i = 0; i < g->passes.count; i++)
     {
         Mel_Render_Graph_Pass* p = &g->passes.items[i];
         if (!p->write_targets) continue;
         for (Mel_Pass_Write_Target* wt = p->write_targets; wt->target; wt++)
         {
-            if (wt->target->kind == MEL_RENDER_TARGET_SWAPCHAIN)
-                return wt->target->swapchain;
+            if (wt->target->kind != MEL_RENDER_TARGET_SWAPCHAIN)
+                continue;
+            Mel_Swapchain* sc = wt->target->swapchain;
+            bool found = false;
+            for (u32 j = 0; j < set->count; j++)
+            {
+                if (set->items[j] == sc) { found = true; break; }
+            }
+            if (!found)
+            {
+                assert(set->count < MEL_MAX_SWAPCHAINS);
+                set->items[set->count] = sc;
+                set->acquired[set->count] = false;
+                set->count++;
+            }
         }
     }
-    return nullptr;
 }
 
 static void execute_passes(Mel_Render_Graph* g, Mel_Gpu_Cmd* cmd)
@@ -497,6 +516,7 @@ static void execute_passes(Mel_Render_Graph* g, Mel_Gpu_Cmd* cmd)
                 .user = pass->user,
                 .render_width = rw,
                 .render_height = rh,
+                .gpu_frame_index = g->current_frame,
             };
             pass->fn(&ctx);
         }
@@ -834,12 +854,12 @@ bool mel_render_graph_execute(Mel_Render_Graph* g)
     produce_lists(g);
 
     bool has_gpu = (g->dev != nullptr && g->frame_count > 0);
-    Mel_Swapchain* swapchain = nullptr;
+    Mel_Swapchain_Set swapchains = {0};
     Mel_Gpu_Cmd cmd = {0};
 
     if (has_gpu)
     {
-        swapchain = find_swapchain_target(g);
+        collect_swapchain_targets(g, &swapchains);
 
         Mel_Render_Graph_Frame* fd = &g->frames[g->current_frame];
 
@@ -847,11 +867,8 @@ bool mel_render_graph_execute(Mel_Render_Graph* g)
         vkWaitForFences(g->dev->device, 1, &fd->fence, VK_TRUE, UINT64_MAX);
         TracyCZoneEnd(ctx_fence_wait);
 
-        if (swapchain)
-        {
-            if (!mel_swapchain_acquire(swapchain, g->dev))
-                return false;
-        }
+        for (u32 i = 0; i < swapchains.count; i++)
+            swapchains.acquired[i] = mel_swapchain_acquire(swapchains.items[i], g->dev);
 
         vkResetFences(g->dev->device, 1, &fd->fence);
         vkResetCommandPool(g->dev->device, fd->pool, 0);
@@ -884,8 +901,42 @@ bool mel_render_graph_execute(Mel_Render_Graph* g)
         Mel_Render_Graph_Frame* fd = &g->frames[g->current_frame];
         mel_gpu_tracy_collect(g->tracy_ctx, fd->cmd);
 
-        if (swapchain)
-            mel_swapchain_present(swapchain, g->dev, fd->cmd, fd->fence);
+        for (u32 i = 0; i < swapchains.count; i++)
+        {
+            if (swapchains.acquired[i])
+                mel_swapchain_prepare_present(swapchains.items[i], fd->cmd);
+        }
+
+        VkResult end_r = vkEndCommandBuffer(fd->cmd);
+        assert(end_r == VK_SUCCESS);
+
+        Mel_Gpu_Submit_Gather gather = {0};
+        for (u32 i = 0; i < swapchains.count; i++)
+        {
+            if (swapchains.acquired[i])
+                mel_swapchain_collect_sync(swapchains.items[i], &gather);
+        }
+
+        VkSubmitInfo submit_info = {
+            .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+            .waitSemaphoreCount = gather.wait_count,
+            .pWaitSemaphores = gather.wait_count > 0 ? gather.wait_semaphores : nullptr,
+            .pWaitDstStageMask = gather.wait_count > 0 ? gather.wait_stages : nullptr,
+            .commandBufferCount = 1,
+            .pCommandBuffers = &fd->cmd,
+            .signalSemaphoreCount = gather.signal_count,
+            .pSignalSemaphores = gather.signal_count > 0 ? gather.signal_semaphores : nullptr,
+        };
+
+        VkResult r = vkQueueSubmit(g->dev->graphics_queue, 1, &submit_info, fd->fence);
+        assert(r == VK_SUCCESS);
+        MEL_UNUSED(r);
+
+        for (u32 i = 0; i < swapchains.count; i++)
+        {
+            if (swapchains.acquired[i])
+                mel_swapchain_present(swapchains.items[i], g->dev);
+        }
 
         g->current_frame = (g->current_frame + 1) % g->frame_count;
     }

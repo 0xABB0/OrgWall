@@ -332,11 +332,8 @@ static bool khr_acquire(Mel_Swapchain* sc, Mel_Gpu_Device* dev)
     return true;
 }
 
-static bool khr_present(Mel_Swapchain* sc, Mel_Gpu_Device* dev, VkCommandBuffer cmd, VkFence fence)
+static void khr_prepare_present(Mel_Swapchain* sc, VkCommandBuffer cmd)
 {
-    Mel_Gpu_Swapchain* khr = sc->data;
-    TracyCZoneN(ctx, "swapchain_present", true);
-
     VkImageMemoryBarrier2 barrier = {
         .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
         .srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
@@ -363,27 +360,28 @@ static bool khr_present(Mel_Swapchain* sc, Mel_Gpu_Device* dev, VkCommandBuffer 
         .pImageMemoryBarriers = &barrier,
     };
     vkCmdPipelineBarrier2(cmd, &dep);
+}
 
-    VkResult end_r = vkEndCommandBuffer(cmd);
-    assert(end_r == VK_SUCCESS);
+static void khr_collect_sync(Mel_Swapchain* sc, Mel_Gpu_Submit_Gather* gather)
+{
+    Mel_Gpu_Swapchain* khr = sc->data;
 
-    VkSemaphore wait = khr->image_available[khr->current_frame];
+    assert(gather->wait_count < MEL_MAX_SWAPCHAINS);
+    gather->wait_semaphores[gather->wait_count] = khr->image_available[khr->current_frame];
+    gather->wait_stages[gather->wait_count] = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    gather->wait_count++;
+
+    assert(gather->signal_count < MEL_MAX_SWAPCHAINS);
+    gather->signal_semaphores[gather->signal_count] = khr->render_finished[sc->current_image];
+    gather->signal_count++;
+}
+
+static void khr_present(Mel_Swapchain* sc, Mel_Gpu_Device* dev)
+{
+    Mel_Gpu_Swapchain* khr = sc->data;
+    TracyCZoneN(ctx, "swapchain_present", true);
+
     VkSemaphore signal = khr->render_finished[sc->current_image];
-
-    VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-    VkSubmitInfo submit_info = {
-        .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-        .waitSemaphoreCount = 1,
-        .pWaitSemaphores = &wait,
-        .pWaitDstStageMask = &wait_stage,
-        .commandBufferCount = 1,
-        .pCommandBuffers = &cmd,
-        .signalSemaphoreCount = 1,
-        .pSignalSemaphores = &signal,
-    };
-
-    VkResult r = vkQueueSubmit(dev->graphics_queue, 1, &submit_info, fence);
-    assert(r == VK_SUCCESS);
 
     VkPresentInfoKHR present_info = {
         .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
@@ -404,12 +402,11 @@ static bool khr_present(Mel_Swapchain* sc, Mel_Gpu_Device* dev, VkCommandBuffer 
     if (pr == VK_ERROR_OUT_OF_DATE_KHR || pr == VK_SUBOPTIMAL_KHR)
     {
         TracyCZoneEnd(ctx);
-        return false;
+        return;
     }
 
     assert(pr == VK_SUCCESS);
     TracyCZoneEnd(ctx);
-    return true;
 }
 
 static void khr_resize(Mel_Swapchain* sc, Mel_Gpu_Device* dev, u32 width, u32 height)
@@ -449,6 +446,12 @@ static VkImageLayout khr_current_image_layout(Mel_Swapchain* sc)
     return khr->image_layouts[sc->current_image];
 }
 
+static VkPresentModeKHR khr_present_mode(Mel_Swapchain* sc)
+{
+    Mel_Gpu_Swapchain* khr = sc->data;
+    return khr ? khr->present_mode : VK_PRESENT_MODE_FIFO_KHR;
+}
+
 static void khr_shutdown(Mel_Swapchain* sc, Mel_Gpu_Device* dev)
 {
     Mel_Gpu_Swapchain* khr = sc->data;
@@ -464,11 +467,14 @@ static void khr_shutdown(Mel_Swapchain* sc, Mel_Gpu_Device* dev)
 }
 
 static const Mel_Swapchain_Vtable khr_vtable = {
-    .acquire  = khr_acquire,
-    .present  = khr_present,
-    .resize   = khr_resize,
-    .shutdown = khr_shutdown,
+    .acquire             = khr_acquire,
+    .prepare_present     = khr_prepare_present,
+    .collect_sync        = khr_collect_sync,
+    .present             = khr_present,
+    .resize              = khr_resize,
+    .shutdown            = khr_shutdown,
     .current_image_layout = khr_current_image_layout,
+    .present_mode        = khr_present_mode,
 };
 
 bool mel_gpu_swapchain_init_opt(Mel_Swapchain* sc, Mel_Gpu_Device* dev, Mel_Gpu_Swapchain_Opt opt)

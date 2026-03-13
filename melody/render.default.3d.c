@@ -118,6 +118,8 @@ bool mel_render_default_3d_attach_mesh_source_to_view(Mel_Render_Default_3D* ren
     assert(mel_source_schema(source) == MEL_SCHEMA_MESH_INSTANCE ||
         mel_source_schema(source) == MEL_SCHEMA_MESH_DRAW_STREAM ||
         mel_source_schema(source) == MEL_SCHEMA_MESH_INDIRECT_STREAM ||
+        mel_source_schema(source) == MEL_SCHEMA_MESH_CULL_STREAM ||
+        mel_source_schema(source) == MEL_SCHEMA_MESH_CULL_BATCH_STREAM ||
         mel_source_schema(source) == MEL_SCHEMA_MATERIAL_TABLE);
 
     mel_view_attach_source(view, source);

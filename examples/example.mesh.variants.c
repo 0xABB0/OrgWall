@@ -67,13 +67,13 @@ static Mel_Material_Instance_Handle s_surface_material;
 static Mel_Material_Table s_material_table;
 static Mel_Source_Handle s_mesh_list_source;
 static Mel_Source_Handle s_mesh_stream_source;
-static Mel_Source_Handle s_mesh_indirect_source;
+static Mel_Source_Handle s_mesh_cull_source;
 static Mel_Source_Handle s_material_table_source;
 static Mel_Gpu_Buffer s_stream_vertex_buffer;
 static Mel_Gpu_Buffer s_stream_index_buffer;
 static Mel_Gpu_Buffer s_stream_indirect_buffer;
 static Mel_Mesh_Gpu_Draw_Stream s_stream;
-static Mel_Mesh_Gpu_Indirect_Stream s_indirect_stream;
+static Mel_Mesh_Gpu_Cull_Stream s_cull_stream;
 static u32 s_cube_entry;
 static f32 s_time;
 static f32 s_rotation_speed = 0.9f;
@@ -204,7 +204,7 @@ static str8 mesh_variants_mode_label(Mesh_Variant_Mode mode)
     {
         case MESH_VARIANT_LIST: return S8("render list");
         case MESH_VARIANT_DRAW_STREAM: return S8("gpu draw stream");
-        case MESH_VARIANT_INDIRECT: return S8("gpu indirect");
+        case MESH_VARIANT_INDIRECT: return S8("gpu compute indirect");
         case MESH_VARIANT_BOTH: return S8("both sources");
         default: return S8("unknown");
     }
@@ -587,7 +587,7 @@ static void mesh_variants_apply_mode(Mesh_Variant_Mode mode)
     Mel_View_Handle world_view = mel_render_stage_3d_view(&s_stage, MEL_RENDER_STAGE_3D_LAYER_WORLD);
     mel_view_detach_source(world_view, s_mesh_list_source);
     mel_view_detach_source(world_view, s_mesh_stream_source);
-    mel_view_detach_source(world_view, s_mesh_indirect_source);
+    mel_view_detach_source(world_view, s_mesh_cull_source);
     mel_view_detach_source(world_view, s_material_table_source);
 
     bool ok = true;
@@ -609,7 +609,7 @@ static void mesh_variants_apply_mode(Mesh_Variant_Mode mode)
     if (mode == MESH_VARIANT_INDIRECT)
     {
         ok = mel_render_stage_3d_attach_mesh_source_to_layer(&s_stage,
-            MEL_RENDER_STAGE_3D_LAYER_WORLD, s_mesh_indirect_source);
+            MEL_RENDER_STAGE_3D_LAYER_WORLD, s_mesh_cull_source);
         assert(ok);
         ok = mel_render_stage_3d_attach_mesh_source_to_layer(&s_stage,
             MEL_RENDER_STAGE_3D_LAYER_WORLD, s_material_table_source);
@@ -661,7 +661,7 @@ static void mesh_variants_imgui(void* user)
             mesh_variants_request_mode(MESH_VARIANT_LIST);
         if (igRadioButton_IntPtr("GPU Draw Stream", &mode, MESH_VARIANT_DRAW_STREAM))
             mesh_variants_request_mode(MESH_VARIANT_DRAW_STREAM);
-        if (igRadioButton_IntPtr("GPU Indirect", &mode, MESH_VARIANT_INDIRECT))
+        if (igRadioButton_IntPtr("GPU Compute Indirect", &mode, MESH_VARIANT_INDIRECT))
             mesh_variants_request_mode(MESH_VARIANT_INDIRECT);
         if (igRadioButton_IntPtr("Both Sources", &mode, MESH_VARIANT_BOTH))
             mesh_variants_request_mode(MESH_VARIANT_BOTH);
@@ -862,7 +862,7 @@ static void mesh_variants_on_init(void)
         .memory_usage = VMA_MEMORY_USAGE_CPU_TO_GPU);
     mel_gpu_buffer_init(&s_stream_indirect_buffer, mel_gpu_dev(),
         .size = sizeof(VkDrawIndexedIndirectCommand),
-        .usage = VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT,
+        .usage = VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
         .memory_usage = VMA_MEMORY_USAGE_CPU_TO_GPU);
     mel_gpu_buffer_upload(&s_stream_index_buffer, mel_gpu_dev(), s_cube_indices, sizeof(s_cube_indices), 0);
     VkDrawIndexedIndirectCommand indirect_cmd = {
@@ -879,12 +879,14 @@ static void mesh_variants_on_init(void)
         .index_buffer = s_stream_index_buffer.buffer,
         .index_count = SDL_arraysize(s_cube_indices),
     };
-    s_indirect_stream = (Mel_Mesh_Gpu_Indirect_Stream){
+    s_cull_stream = (Mel_Mesh_Gpu_Cull_Stream){
         .vertex_buffer = s_stream_vertex_buffer.buffer,
         .index_buffer = s_stream_index_buffer.buffer,
         .indirect_buffer = s_stream_indirect_buffer.buffer,
-        .draw_count = 1,
-        .stride = sizeof(VkDrawIndexedIndirectCommand),
+        .vertex_count = SDL_arraysize(s_cube_positions),
+        .index_count = SDL_arraysize(s_cube_indices),
+        .bounds_center = mel_vec3(0.0f, 0.0f, 0.0f),
+        .bounds_radius = 1.9f,
     };
 
     s_mesh_list_source = mel_source_from_render_list(&s_mesh_list, MEL_SCHEMA_MESH_INSTANCE);
@@ -897,15 +899,15 @@ static void mesh_variants_on_init(void)
         .user = &s_stream,
     });
     mel_source_set_gpu_buffer(s_mesh_stream_source, &s_stream_vertex_buffer);
-    s_mesh_indirect_source = mel_source_create(&(Mel_Source_Desc){
-        .name = S8("mesh_indirect_stream"),
+    s_mesh_cull_source = mel_source_create(&(Mel_Source_Desc){
+        .name = S8("mesh_cull_stream"),
         .kind = MEL_SOURCE_GPU_BUFFER,
-        .schema = MEL_SCHEMA_MESH_INDIRECT_STREAM,
+        .schema = MEL_SCHEMA_MESH_CULL_STREAM,
         .access_flags = MEL_SOURCE_ACCESS_CPU_WRITE | MEL_SOURCE_ACCESS_GPU_READ,
         .lifetime = MEL_SOURCE_LIFETIME_EXTERNAL,
-        .user = &s_indirect_stream,
+        .user = &s_cull_stream,
     });
-    mel_source_set_gpu_buffer(s_mesh_indirect_source, &s_stream_indirect_buffer);
+    mel_source_set_gpu_buffer(s_mesh_cull_source, &s_stream_indirect_buffer);
     s_material_table_source = mel_source_from_material_table(&s_material_table);
 
     mesh_variants_upload_stream(MEL_MAT4_IDENTITY);
@@ -953,7 +955,7 @@ void app_shutdown(void)
     mel_render_list_shutdown(&s_hud_text);
     mel_render_list_shutdown(&s_mesh_list);
     mel_source_destroy(s_material_table_source);
-    mel_source_destroy(s_mesh_indirect_source);
+    mel_source_destroy(s_mesh_cull_source);
     mel_source_destroy(s_mesh_stream_source);
     mel_source_destroy(s_mesh_list_source);
     mel_gpu_buffer_shutdown(&s_stream_indirect_buffer, mel_gpu_dev());

@@ -41,6 +41,7 @@ typedef enum {
     MEL_SCHEMA_MATERIAL_TABLE = 8,
     MEL_SCHEMA_MESH_INDIRECT_STREAM = 9,
     MEL_SCHEMA_MESH_CULL_STREAM = 10,
+    MEL_SCHEMA_MESH_CULL_BATCH_STREAM = 11,
 } Mel_Source_Schema;
 
 typedef struct {

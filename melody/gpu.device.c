@@ -441,6 +441,7 @@ static bool create_logical_device(Mel_Gpu_Device* dev)
         .buffer_device_address = bda_query.bufferDeviceAddress == VK_TRUE,
         .descriptor_buffer = dev->has_descriptor_buffer,
         .mesh_shader = has_mesh_shader && mesh_shader_query.meshShader == VK_TRUE,
+        .multi_draw_indirect = supported_features.features.multiDrawIndirect == VK_TRUE,
         .timestamp_queries = dev->device_properties.properties.limits.timestampPeriod > 0.0f,
         .portability_subset = has_portability,
         .present_queue = dev->has_present_queue,
@@ -487,6 +488,9 @@ static bool create_logical_device(Mel_Gpu_Device* dev)
     VkPhysicalDeviceFeatures2 features2 = {
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
         .pNext = dev->capabilities.mesh_shader ? (void*)&mesh_shader_features : &dynamic_rendering_features,
+        .features = {
+            .multiDrawIndirect = dev->capabilities.multi_draw_indirect ? VK_TRUE : VK_FALSE,
+        },
     };
 
     VkDeviceCreateInfo create_info = {

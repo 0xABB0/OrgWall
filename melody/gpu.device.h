@@ -21,6 +21,7 @@ struct Mel_Gpu_Capabilities {
     bool buffer_device_address;
     bool descriptor_buffer;
     bool mesh_shader;
+    bool multi_draw_indirect;
     bool timestamp_queries;
     bool portability_subset;
     bool present_queue;

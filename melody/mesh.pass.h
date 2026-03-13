@@ -18,6 +18,10 @@
 #define MEL_MAX_FRAMES_IN_FLIGHT 3
 #endif
 
+#ifndef MEL_MESH_INDIRECT_BATCH_COMMAND_STRIDE
+#define MEL_MESH_INDIRECT_BATCH_COMMAND_STRIDE 32
+#endif
+
 struct Mel_Mesh {
     const Mel_Vec3* positions;
     const Mel_Vec3* normals;
@@ -53,11 +57,40 @@ typedef struct {
 } Mel_Mesh_Gpu_Indirect_Stream;
 
 typedef struct {
+    VkBuffer vertex_buffer;
+    VkBuffer index_buffer;
     VkBuffer indirect_buffer;
+    u32 vertex_count;
     u32 index_count;
     Mel_Vec3 bounds_center;
     f32 bounds_radius;
 } Mel_Mesh_Gpu_Cull_Stream;
+
+typedef struct {
+    Mel_Vec4 bounds;
+    u32 lod0_index_count;
+    u32 lod0_first_index;
+    i32 lod0_vertex_offset;
+    u32 lod1_index_count;
+    u32 lod1_first_index;
+    i32 lod1_vertex_offset;
+    u32 _pad0;
+} Mel_Mesh_Gpu_Cull_Batch_Record;
+
+_Static_assert(sizeof(Mel_Mesh_Gpu_Cull_Batch_Record) == 48,
+    "Mel_Mesh_Gpu_Cull_Batch_Record must match GPU StructuredBuffer stride");
+
+typedef struct {
+    VkBuffer vertex_buffer;
+    VkBuffer index_buffer;
+    VkBuffer metadata_buffer;
+    VkBuffer indirect_buffer;
+    u32 vertex_count;
+    u32 index_count;
+    u32 draw_count;
+    u32 stride;
+    f32 lod_distance;
+} Mel_Mesh_Gpu_Cull_Batch_Stream;
 
 typedef struct {
     Mel_Vec3 direction;
@@ -73,10 +106,18 @@ typedef struct {
 
 struct Mel_Mesh_Pass {
     Mel_Gpu_Shader shader;
+    Mel_Gpu_Shader visibility_shader;
+    Mel_Gpu_Shader visibility_attribute_shader;
+    Mel_Gpu_Shader visibility_resolve_shader;
     Mel_Gpu_Shader compute_shader;
+    Mel_Gpu_Shader compute_batch_shader;
     Mel_Gpu_Shader mesh_shader;
     Mel_Gpu_Pipeline pipeline;
+    Mel_Gpu_Pipeline visibility_pipeline;
+    Mel_Gpu_Pipeline visibility_attribute_pipeline;
+    Mel_Gpu_Pipeline visibility_resolve_pipeline;
     Mel_Gpu_Pipeline compute_pipeline;
+    Mel_Gpu_Pipeline compute_batch_pipeline;
     Mel_Gpu_Pipeline mesh_pipeline;
     Mel_Gpu_Device* dev;
 
@@ -96,6 +137,7 @@ struct Mel_Mesh_Pass {
     u32 descriptor_cache_capacity;
 
     Mel_Mesh_Lighting lighting;
+    VkSampler visibility_sampler;
     const Mel_Alloc* alloc;
 };
 
@@ -117,6 +159,11 @@ void mel_mesh_pass_set_lighting(Mel_Mesh_Pass* pass, Mel_Mesh_Lighting lighting)
 Mel_Mesh_Lighting mel_mesh_pass_lighting(Mel_Mesh_Pass* pass);
 
 void mel_mesh_pass_execute(Mel_Render_Pass_Ctx* ctx);
+void mel_mesh_pass_execute_visibility_fill(Mel_Render_Pass_Ctx* ctx);
+void mel_mesh_pass_execute_visibility_attribute_fill(Mel_Render_Pass_Ctx* ctx);
+void mel_mesh_pass_execute_visibility_resolve(Mel_Render_Pass_Ctx* ctx);
+void mel_mesh_pass_execute_compute_indirect(Mel_Render_Pass_Ctx* ctx);
+void mel_mesh_pass_execute_mesh_shader(Mel_Render_Pass_Ctx* ctx);
 
 [[nodiscard]] static inline u64 mel_sort_key_mesh_opaque(f32 depth)
 {

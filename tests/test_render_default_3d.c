@@ -25,13 +25,10 @@ static bool default3d_mock_acquire(Mel_Swapchain* sc, Mel_Gpu_Device* dev)
     return true;
 }
 
-static bool default3d_mock_present(Mel_Swapchain* sc, Mel_Gpu_Device* dev, VkCommandBuffer cmd, VkFence fence)
+static void default3d_mock_present(Mel_Swapchain* sc, Mel_Gpu_Device* dev)
 {
     (void)sc;
     (void)dev;
-    (void)cmd;
-    (void)fence;
-    return true;
 }
 
 static void default3d_mock_resize(Mel_Swapchain* sc, Mel_Gpu_Device* dev, u32 width, u32 height)
@@ -152,6 +149,28 @@ static Mel_Technique_Policy_Result test_mesh_policy_prefer_forward(Mel_Frame_Pla
         };
     }
 
+    return (Mel_Technique_Policy_Result){
+        .allow = true,
+        .priority_bias = 0,
+        .kind = MEL_TECHNIQUE_CHECK_OK,
+        .reason = S8(""),
+    };
+}
+
+static Mel_Technique_Policy_Result test_mesh_policy_prefer_visibility(Mel_Frame_Plan_Technique_Ctx* ctx,
+    const Mel_Technique_Desc* technique, void* user)
+{
+    (void)ctx;
+    (void)user;
+    if (str8_ieq(technique->name, S8("mesh.visibility_buffer")))
+    {
+        return (Mel_Technique_Policy_Result){
+            .allow = true,
+            .priority_bias = 500,
+            .kind = MEL_TECHNIQUE_CHECK_OK,
+            .reason = S8("test policy prefers visibility-buffer mesh path"),
+        };
+    }
     return (Mel_Technique_Policy_Result){
         .allow = true,
         .priority_bias = 0,
@@ -400,26 +419,68 @@ MEL_TEST(render_default_3d_builds_mesh_pass_from_gpu_draw_stream_source, .tags =
     MEL_ASSERT(str8_ieq(resolved.technique_name, S8("mesh.draw_stream")));
 
     u32 diagnostic_count = mel_frame_plan_technique_diagnostic_count(mel_render_default_3d_plan(&renderer));
-    MEL_ASSERT_EQ(diagnostic_count, (u32)3);
+    MEL_ASSERT_EQ(diagnostic_count, (u32)7);
 
-    Mel_Frame_Plan_Technique_Diagnostic first = {0};
-    Mel_Frame_Plan_Technique_Diagnostic second = {0};
-    Mel_Frame_Plan_Technique_Diagnostic third = {0};
-    MEL_ASSERT(mel_frame_plan_technique_diagnostic_at(mel_render_default_3d_plan(&renderer), 0, &first));
-    MEL_ASSERT(mel_frame_plan_technique_diagnostic_at(mel_render_default_3d_plan(&renderer), 1, &second));
-    MEL_ASSERT(mel_frame_plan_technique_diagnostic_at(mel_render_default_3d_plan(&renderer), 2, &third));
-    MEL_ASSERT(str8_ieq(first.technique_name, S8("mesh.indirect")));
-    MEL_ASSERT(!first.matched);
-    MEL_ASSERT(!first.selected);
-    MEL_ASSERT(str8_ieq(first.reason, S8("no gpu indirect stream source attached")));
-    MEL_ASSERT(str8_ieq(second.technique_name, S8("mesh.draw_stream")));
-    MEL_ASSERT(second.matched);
-    MEL_ASSERT(second.selected);
-    MEL_ASSERT(str8_ieq(second.reason, S8("found gpu draw-stream source")));
-    MEL_ASSERT(str8_ieq(third.technique_name, S8("mesh.forward")));
-    MEL_ASSERT(!third.matched);
-    MEL_ASSERT(!third.selected);
-    MEL_ASSERT(str8_ieq(third.reason, S8("no mesh-instance render-list source attached")));
+    bool saw_mesh_shader = false;
+    bool saw_compute_indirect_batch = false;
+    bool saw_compute_indirect = false;
+    bool saw_indirect = false;
+    bool saw_draw_stream = false;
+    bool saw_forward = false;
+    for (u32 i = 0; i < diagnostic_count; i++)
+    {
+        Mel_Frame_Plan_Technique_Diagnostic diag = {0};
+        MEL_ASSERT(mel_frame_plan_technique_diagnostic_at(mel_render_default_3d_plan(&renderer), i, &diag));
+        if (str8_ieq(diag.technique_name, S8("mesh.mesh_shader")))
+        {
+            saw_mesh_shader = true;
+            MEL_ASSERT(!diag.supported);
+            MEL_ASSERT(!diag.matched);
+            MEL_ASSERT(!diag.selected);
+            MEL_ASSERT(str8_ieq(diag.reason, S8("mesh shader capability unavailable")));
+        }
+        else if (str8_ieq(diag.technique_name, S8("mesh.compute_indirect_batch")))
+        {
+            saw_compute_indirect_batch = true;
+            MEL_ASSERT(!diag.matched);
+            MEL_ASSERT(!diag.selected);
+            MEL_ASSERT(str8_ieq(diag.reason, S8("no gpu batched compute-cull stream source attached")));
+        }
+        else if (str8_ieq(diag.technique_name, S8("mesh.compute_indirect")))
+        {
+            saw_compute_indirect = true;
+            MEL_ASSERT(!diag.matched);
+            MEL_ASSERT(!diag.selected);
+            MEL_ASSERT(str8_ieq(diag.reason, S8("no gpu compute-cull stream source attached")));
+        }
+        else if (str8_ieq(diag.technique_name, S8("mesh.indirect")))
+        {
+            saw_indirect = true;
+            MEL_ASSERT(!diag.matched);
+            MEL_ASSERT(!diag.selected);
+            MEL_ASSERT(str8_ieq(diag.reason, S8("no gpu indirect stream source attached")));
+        }
+        else if (str8_ieq(diag.technique_name, S8("mesh.draw_stream")))
+        {
+            saw_draw_stream = true;
+            MEL_ASSERT(diag.matched);
+            MEL_ASSERT(diag.selected);
+            MEL_ASSERT(str8_ieq(diag.reason, S8("found gpu draw-stream source")));
+        }
+        else if (str8_ieq(diag.technique_name, S8("mesh.forward")))
+        {
+            saw_forward = true;
+            MEL_ASSERT(!diag.matched);
+            MEL_ASSERT(!diag.selected);
+            MEL_ASSERT(str8_ieq(diag.reason, S8("no mesh-instance render-list source attached")));
+        }
+    }
+    MEL_ASSERT(saw_mesh_shader);
+    MEL_ASSERT(saw_compute_indirect_batch);
+    MEL_ASSERT(saw_compute_indirect);
+    MEL_ASSERT(saw_indirect);
+    MEL_ASSERT(saw_draw_stream);
+    MEL_ASSERT(saw_forward);
 
     mel_source_destroy(source);
     mel_render_default_3d_shutdown(&renderer);
@@ -453,7 +514,7 @@ MEL_TEST(render_default_3d_builds_mesh_pass_from_gpu_indirect_stream_source, .ta
         .index_buffer = (VkBuffer)(uintptr_t)3,
         .indirect_buffer = (VkBuffer)(uintptr_t)4,
         .draw_count = 2,
-        .stride = sizeof(VkDrawIndexedIndirectCommand),
+        .stride = MEL_MESH_INDIRECT_BATCH_COMMAND_STRIDE,
     };
     Mel_Source_Handle source = mel_source_create(&(Mel_Source_Desc){
         .name = S8("mesh_indirect_stream"),
@@ -478,6 +539,223 @@ MEL_TEST(render_default_3d_builds_mesh_pass_from_gpu_indirect_stream_source, .ta
     MEL_ASSERT(str8_ieq(resolved.technique_name, S8("mesh.indirect")));
 
     mel_source_destroy(source);
+    mel_render_default_3d_shutdown(&renderer);
+    mel_swapchain_registry_remove(swapchain, nullptr);
+}
+
+MEL_TEST(render_default_3d_builds_compute_and_graphics_passes_from_gpu_cull_stream_source, .tags = "render")
+{
+    Mel_Swapchain_Handle swapchain = make_default3d_mock_swapchain();
+
+    Mel_Camera camera = {
+        .view = MEL_MAT4_IDENTITY,
+        .projection = MEL_MAT4_IDENTITY,
+    };
+    Mel_Gpu_Device fake_dev = {0};
+
+    Mel_Render_Default_3D renderer;
+    bool ok = mel_render_default_3d_init(&renderer,
+        .name = S8("default3d_gpu_cull_stream"),
+        .swapchain = swapchain,
+        .camera = &camera,
+        .clear_color_enabled = true,
+        .dev = &fake_dev,
+        .mesh_pass = (Mel_Mesh_Pass*)(uintptr_t)1,
+        .alloc = mel_alloc_heap());
+    MEL_ASSERT(ok);
+
+    Mel_Gpu_Buffer cull_buffer = { .buffer = (VkBuffer)(uintptr_t)1 };
+    Mel_Mesh_Gpu_Cull_Stream stream = {
+        .vertex_buffer = (VkBuffer)(uintptr_t)2,
+        .index_buffer = (VkBuffer)(uintptr_t)3,
+        .indirect_buffer = (VkBuffer)(uintptr_t)4,
+        .vertex_count = 24,
+        .index_count = 36,
+        .bounds_center = mel_vec3(0.0f, 0.0f, 0.0f),
+        .bounds_radius = 1.9f,
+    };
+    Mel_Source_Handle source = mel_source_create(&(Mel_Source_Desc){
+        .name = S8("mesh_cull_stream"),
+        .kind = MEL_SOURCE_GPU_BUFFER,
+        .schema = MEL_SCHEMA_MESH_CULL_STREAM,
+        .access_flags = MEL_SOURCE_ACCESS_GPU_WRITE | MEL_SOURCE_ACCESS_GPU_READ,
+        .lifetime = MEL_SOURCE_LIFETIME_EXTERNAL,
+        .user = &stream,
+    });
+    mel_source_set_gpu_buffer(source, &cull_buffer);
+
+    Mel_Material_Table table = {
+        .dev = &fake_dev,
+        .buffer = { .buffer = (VkBuffer)(uintptr_t)5 },
+    };
+    Mel_Source_Handle material_source = mel_source_from_material_table(&table);
+
+    MEL_ASSERT(mel_render_default_3d_attach_mesh_source_to_view(&renderer, mel_render_default_3d_view(&renderer), source));
+    MEL_ASSERT(mel_render_default_3d_attach_mesh_source_to_view(&renderer, mel_render_default_3d_view(&renderer), material_source));
+    MEL_ASSERT(mel_render_default_3d_rebuild(&renderer));
+
+    Mel_Render_Graph* graph = mel_render_default_3d_graph(&renderer);
+    MEL_ASSERT_EQ(graph->passes.count, (usize)2);
+    MEL_ASSERT_EQ(graph->passes.items[0].type, (u32)MEL_PASS_COMPUTE);
+    MEL_ASSERT_EQ(graph->passes.items[1].type, (u32)MEL_PASS_GRAPHICS);
+    MEL_ASSERT_EQ(graph->passes.items[1].write_targets[0].load_op, (VkAttachmentLoadOp)VK_ATTACHMENT_LOAD_OP_CLEAR);
+    Mel_Frame_Plan_Resolved_Technique resolved = {0};
+    MEL_ASSERT(mel_frame_plan_resolved_technique_at(mel_render_default_3d_plan(&renderer), 0, &resolved));
+    MEL_ASSERT(str8_ieq(resolved.technique_name, S8("mesh.compute_indirect")));
+
+    mel_source_destroy(material_source);
+    mel_source_destroy(source);
+    mel_render_default_3d_shutdown(&renderer);
+    mel_swapchain_registry_remove(swapchain, nullptr);
+}
+
+MEL_TEST(render_default_3d_builds_compute_and_graphics_passes_from_gpu_cull_batch_stream_source, .tags = "render")
+{
+    Mel_Swapchain_Handle swapchain = make_default3d_mock_swapchain();
+
+    Mel_Camera camera = {
+        .view = MEL_MAT4_IDENTITY,
+        .projection = MEL_MAT4_IDENTITY,
+    };
+    Mel_Gpu_Device fake_dev = {0};
+
+    Mel_Render_Default_3D renderer;
+    bool ok = mel_render_default_3d_init(&renderer,
+        .name = S8("default3d_gpu_cull_batch_stream"),
+        .swapchain = swapchain,
+        .camera = &camera,
+        .clear_color_enabled = true,
+        .dev = &fake_dev,
+        .mesh_pass = (Mel_Mesh_Pass*)(uintptr_t)1,
+        .alloc = mel_alloc_heap());
+    MEL_ASSERT(ok);
+
+    Mel_Gpu_Buffer indirect_buffer = { .buffer = (VkBuffer)(uintptr_t)1 };
+    Mel_Mesh_Gpu_Cull_Batch_Stream stream = {
+        .vertex_buffer = (VkBuffer)(uintptr_t)2,
+        .index_buffer = (VkBuffer)(uintptr_t)3,
+        .metadata_buffer = (VkBuffer)(uintptr_t)4,
+        .indirect_buffer = (VkBuffer)(uintptr_t)5,
+        .vertex_count = 24 * 4,
+        .index_count = 36 * 4,
+        .draw_count = 4,
+        .stride = MEL_MESH_INDIRECT_BATCH_COMMAND_STRIDE,
+    };
+    Mel_Source_Handle source = mel_source_create(&(Mel_Source_Desc){
+        .name = S8("mesh_cull_batch_stream"),
+        .kind = MEL_SOURCE_GPU_BUFFER,
+        .schema = MEL_SCHEMA_MESH_CULL_BATCH_STREAM,
+        .access_flags = MEL_SOURCE_ACCESS_GPU_WRITE | MEL_SOURCE_ACCESS_GPU_READ,
+        .lifetime = MEL_SOURCE_LIFETIME_EXTERNAL,
+        .user = &stream,
+    });
+    mel_source_set_gpu_buffer(source, &indirect_buffer);
+
+    Mel_Material_Table table = {
+        .dev = &fake_dev,
+        .buffer = { .buffer = (VkBuffer)(uintptr_t)6 },
+    };
+    Mel_Source_Handle material_source = mel_source_from_material_table(&table);
+
+    MEL_ASSERT(mel_render_default_3d_attach_mesh_source_to_view(&renderer, mel_render_default_3d_view(&renderer), source));
+    MEL_ASSERT(mel_render_default_3d_attach_mesh_source_to_view(&renderer, mel_render_default_3d_view(&renderer), material_source));
+    MEL_ASSERT(mel_render_default_3d_rebuild(&renderer));
+
+    Mel_Render_Graph* graph = mel_render_default_3d_graph(&renderer);
+    MEL_ASSERT_EQ(graph->passes.count, (usize)2);
+    MEL_ASSERT_EQ(graph->passes.items[0].type, (u32)MEL_PASS_COMPUTE);
+    MEL_ASSERT_EQ(graph->passes.items[1].type, (u32)MEL_PASS_GRAPHICS);
+    MEL_ASSERT_EQ(graph->passes.items[1].write_targets[0].load_op, (VkAttachmentLoadOp)VK_ATTACHMENT_LOAD_OP_CLEAR);
+
+    Mel_Frame_Plan_Resolved_Technique resolved = {0};
+    MEL_ASSERT(mel_frame_plan_resolved_technique_at(mel_render_default_3d_plan(&renderer), 0, &resolved));
+    MEL_ASSERT(str8_ieq(resolved.technique_name, S8("mesh.compute_indirect_batch")));
+
+    mel_source_destroy(material_source);
+    mel_source_destroy(source);
+    mel_render_default_3d_shutdown(&renderer);
+    mel_swapchain_registry_remove(swapchain, nullptr);
+}
+
+MEL_TEST(render_default_3d_prefers_mesh_shader_variant_when_capability_and_sources_match, .tags = "render")
+{
+    Mel_Swapchain_Handle swapchain = make_default3d_mock_swapchain();
+
+    Mel_Camera camera = {
+        .view = MEL_MAT4_IDENTITY,
+        .projection = MEL_MAT4_IDENTITY,
+    };
+    Mel_Gpu_Device fake_dev = {0};
+    fake_dev.capabilities.mesh_shader = true;
+
+    Mel_Render_Default_3D renderer;
+    bool ok = mel_render_default_3d_init(&renderer,
+        .name = S8("default3d_mesh_shader"),
+        .swapchain = swapchain,
+        .camera = &camera,
+        .clear_color_enabled = true,
+        .dev = &fake_dev,
+        .mesh_pass = (Mel_Mesh_Pass*)(uintptr_t)1,
+        .alloc = mel_alloc_heap());
+    MEL_ASSERT(ok);
+
+    Mel_Gpu_Buffer stream_buffer = { .buffer = (VkBuffer)(uintptr_t)1 };
+    Mel_Mesh_Gpu_Draw_Stream stream = {
+        .vertex_buffer = (VkBuffer)(uintptr_t)2,
+        .index_buffer = (VkBuffer)(uintptr_t)3,
+        .vertex_count = 24,
+        .index_count = 36,
+    };
+    Mel_Source_Handle stream_source = mel_source_create(&(Mel_Source_Desc){
+        .name = S8("mesh_stream_mesh_shader"),
+        .kind = MEL_SOURCE_GPU_BUFFER,
+        .schema = MEL_SCHEMA_MESH_DRAW_STREAM,
+        .access_flags = MEL_SOURCE_ACCESS_GPU_WRITE | MEL_SOURCE_ACCESS_GPU_READ,
+        .lifetime = MEL_SOURCE_LIFETIME_EXTERNAL,
+        .user = &stream,
+    });
+    mel_source_set_gpu_buffer(stream_source, &stream_buffer);
+
+    Mel_Material_Table table = {
+        .dev = &fake_dev,
+        .buffer = { .buffer = (VkBuffer)(uintptr_t)4 },
+    };
+    Mel_Source_Handle material_source = mel_source_from_material_table(&table);
+
+    MEL_ASSERT(mel_render_default_3d_attach_mesh_source_to_view(&renderer, mel_render_default_3d_view(&renderer), stream_source));
+    MEL_ASSERT(mel_render_default_3d_attach_mesh_source_to_view(&renderer, mel_render_default_3d_view(&renderer), material_source));
+    MEL_ASSERT(mel_render_default_3d_rebuild(&renderer));
+
+    Mel_Frame_Plan_Handle plan = mel_render_default_3d_plan(&renderer);
+    Mel_Frame_Plan_Resolved_Technique resolved = {0};
+    MEL_ASSERT(mel_frame_plan_resolved_technique_at(plan, 0, &resolved));
+    MEL_ASSERT(str8_ieq(resolved.technique_name, S8("mesh.mesh_shader")));
+
+    bool saw_mesh_shader = false;
+    bool saw_draw_stream = false;
+    for (u32 i = 0; i < mel_frame_plan_technique_diagnostic_count(plan); i++)
+    {
+        Mel_Frame_Plan_Technique_Diagnostic diag = {0};
+        MEL_ASSERT(mel_frame_plan_technique_diagnostic_at(plan, i, &diag));
+        if (str8_ieq(diag.technique_name, S8("mesh.mesh_shader")))
+        {
+            saw_mesh_shader = true;
+            MEL_ASSERT(diag.supported);
+            MEL_ASSERT(diag.matched);
+            MEL_ASSERT(diag.selected);
+        }
+        else if (str8_ieq(diag.technique_name, S8("mesh.draw_stream")))
+        {
+            saw_draw_stream = true;
+            MEL_ASSERT(diag.matched);
+            MEL_ASSERT(!diag.selected);
+        }
+    }
+    MEL_ASSERT(saw_mesh_shader);
+    MEL_ASSERT(saw_draw_stream);
+
+    mel_source_destroy(material_source);
+    mel_source_destroy(stream_source);
     mel_render_default_3d_shutdown(&renderer);
     mel_swapchain_registry_remove(swapchain, nullptr);
 }
@@ -670,9 +948,12 @@ MEL_TEST(render_default_3d_allows_game_variant_to_extend_mesh_family_with_capabi
     MEL_ASSERT(str8_ieq(resolved.technique_name, S8("mesh.draw_stream")));
 
     u32 diagnostic_count = mel_frame_plan_technique_diagnostic_count(plan);
-    MEL_ASSERT_EQ(diagnostic_count, (u32)4);
+    MEL_ASSERT_EQ(diagnostic_count, (u32)8);
 
     bool saw_accel = false;
+    bool saw_mesh_shader = false;
+    bool saw_compute_indirect_batch = false;
+    bool saw_compute_indirect = false;
     bool saw_indirect = false;
     bool saw_draw_stream = false;
     bool saw_forward = false;
@@ -688,6 +969,28 @@ MEL_TEST(render_default_3d_allows_game_variant_to_extend_mesh_family_with_capabi
             MEL_ASSERT(!diag.matched);
             MEL_ASSERT(!diag.selected);
             MEL_ASSERT_EQ(diag.reason_kind, (u32)MEL_TECHNIQUE_CHECK_CAPABILITY_UNAVAILABLE);
+        }
+        else if (str8_ieq(diag.technique_name, S8("mesh.mesh_shader")))
+        {
+            saw_mesh_shader = true;
+            MEL_ASSERT(!diag.supported);
+            MEL_ASSERT(!diag.matched);
+            MEL_ASSERT(!diag.selected);
+            MEL_ASSERT_EQ(diag.reason_kind, (u32)MEL_TECHNIQUE_CHECK_CAPABILITY_UNAVAILABLE);
+        }
+        else if (str8_ieq(diag.technique_name, S8("mesh.compute_indirect_batch")))
+        {
+            saw_compute_indirect_batch = true;
+            MEL_ASSERT(!diag.matched);
+            MEL_ASSERT(!diag.selected);
+            MEL_ASSERT_EQ(diag.reason_kind, (u32)MEL_TECHNIQUE_CHECK_SOURCE_MISMATCH);
+        }
+        else if (str8_ieq(diag.technique_name, S8("mesh.compute_indirect")))
+        {
+            saw_compute_indirect = true;
+            MEL_ASSERT(!diag.matched);
+            MEL_ASSERT(!diag.selected);
+            MEL_ASSERT_EQ(diag.reason_kind, (u32)MEL_TECHNIQUE_CHECK_SOURCE_MISMATCH);
         }
         else if (str8_ieq(diag.technique_name, S8("mesh.indirect")))
         {
@@ -712,6 +1015,9 @@ MEL_TEST(render_default_3d_allows_game_variant_to_extend_mesh_family_with_capabi
     }
 
     MEL_ASSERT(saw_accel);
+    MEL_ASSERT(saw_mesh_shader);
+    MEL_ASSERT(saw_compute_indirect_batch);
+    MEL_ASSERT(saw_compute_indirect);
     MEL_ASSERT(saw_indirect);
     MEL_ASSERT(saw_draw_stream);
     MEL_ASSERT(saw_forward);
@@ -1083,6 +1389,200 @@ MEL_TEST(render_default_3d_material_family_policy_can_override_backend_choice, .
     mel_material_backend_unregister(surface, S8("surface.unlit.debug_tint"));
     mel_material_instance_destroy(instance);
     mel_material_template_destroy(template);
+    mel_render_default_3d_shutdown(&renderer);
+    mel_render_list_shutdown(&world);
+    mel_swapchain_registry_remove(swapchain, nullptr);
+}
+
+MEL_TEST(render_default_3d_can_build_visibility_buffer_branch, .tags = "render")
+{
+    Mel_Swapchain_Handle swapchain = make_default3d_mock_swapchain();
+
+    Mel_Render_List world;
+    mel_render_list_init(&world,
+        .name = S8("mesh_world_visibility"),
+        .entry_stride = sizeof(Mel_Mesh_Entry),
+        .alloc = mel_alloc_heap());
+
+    Mel_Camera camera = {
+        .view = MEL_MAT4_IDENTITY,
+        .projection = MEL_MAT4_IDENTITY,
+    };
+    Mel_Gpu_Device fake_dev = {0};
+
+    Mel_Render_Default_3D renderer;
+    bool ok = mel_render_default_3d_init(&renderer,
+        .name = S8("default3d_visibility"),
+        .swapchain = swapchain,
+        .camera = &camera,
+        .clear_color_enabled = true,
+        .clear_color = mel_vec4(0.05f, 0.06f, 0.07f, 1.0f),
+        .install_as_current_graph = false,
+        .dev = &fake_dev,
+        .mesh_pass = (Mel_Mesh_Pass*)(uintptr_t)1,
+        .alloc = mel_alloc_heap());
+    MEL_ASSERT(ok);
+
+    Mel_Material_Family_Handle surface = mel_material_family_find(S8("surface"));
+    MEL_ASSERT(mel_material_family_handle_valid(surface));
+    Mel_Material_Template_Handle material_template = mel_material_template_create(&(Mel_Material_Template_Desc){
+        .name = S8("visibility_surface_template"),
+        .family = surface,
+        .profile = S8("surface.standard"),
+        .render_domain = MEL_MATERIAL_DOMAIN_OPAQUE,
+        .fallback_policy = MEL_MATERIAL_FALLBACK_ALLOW,
+        .base_color = mel_vec4(0.7f, 0.8f, 0.9f, 1.0f),
+        .params = (Mel_Material_Param_Desc[]){
+            { .name = S8("roughness"), .type = MEL_MATERIAL_PARAM_F32, .f32_value = 0.35f },
+            { .name = S8("metallic"), .type = MEL_MATERIAL_PARAM_F32, .f32_value = 0.1f },
+            { .name = S8("lighting_weight"), .type = MEL_MATERIAL_PARAM_F32, .f32_value = 1.0f },
+        },
+        .param_count = 3,
+    });
+    Mel_Material_Instance_Handle material_instance = mel_material_instance_create(material_template);
+
+    mel_draw_mesh_opt(&world, (Mel_Draw_Mesh_Opt){
+        .mesh = &s_test_mesh,
+        .transform = MEL_MAT4_IDENTITY,
+        .color = mel_vec4(1.0f, 1.0f, 1.0f, 1.0f),
+        .material = material_instance,
+    });
+
+    MEL_ASSERT(mel_render_default_3d_attach_mesh_list(&renderer, &world));
+    mel_render_technique_set_family_policy(&(Mel_Technique_Family_Policy){
+        .family = MEL_TECHNIQUE_MESH,
+        .fn = test_mesh_policy_prefer_visibility,
+        .user = nullptr,
+    });
+
+    ok = mel_render_default_3d_rebuild(&renderer);
+    MEL_ASSERT(ok);
+
+    Mel_Render_Graph* graph = mel_render_default_3d_graph(&renderer);
+    MEL_ASSERT_EQ(graph->passes.count, (usize)3);
+
+    Mel_Frame_Plan_Handle plan = mel_render_default_3d_plan(&renderer);
+    MEL_ASSERT_EQ(mel_frame_plan_resolved_technique_count(plan), (u32)1);
+
+    Mel_Frame_Plan_Resolved_Technique resolved = {0};
+    MEL_ASSERT(mel_frame_plan_resolved_technique_at(plan, 0, &resolved));
+    MEL_ASSERT(str8_ieq(resolved.technique_name, S8("mesh.visibility_buffer")));
+
+    Mel_Frame_Plan_Resolved_Material resolved_material = {0};
+    MEL_ASSERT_EQ(mel_frame_plan_resolved_material_count(plan), (u32)1);
+    MEL_ASSERT(mel_frame_plan_resolved_material_at(plan, 0, &resolved_material));
+    MEL_ASSERT(str8_ieq(resolved_material.backend_name, S8("surface.standard.visibility_buffer")));
+
+    bool saw_visibility_selected = false;
+    for (u32 i = 0; i < mel_frame_plan_technique_diagnostic_count(plan); i++)
+    {
+        Mel_Frame_Plan_Technique_Diagnostic diag = {0};
+        MEL_ASSERT(mel_frame_plan_technique_diagnostic_at(plan, i, &diag));
+        if (str8_ieq(diag.technique_name, S8("mesh.visibility_buffer")))
+        {
+            MEL_ASSERT(diag.supported);
+            MEL_ASSERT(diag.matched);
+            MEL_ASSERT(diag.selected);
+            saw_visibility_selected = true;
+        }
+    }
+    MEL_ASSERT(saw_visibility_selected);
+
+    mel_render_technique_clear_family_policy(MEL_TECHNIQUE_MESH);
+    mel_material_instance_destroy(material_instance);
+    mel_material_template_destroy(material_template);
+    mel_render_default_3d_shutdown(&renderer);
+    mel_render_list_shutdown(&world);
+    mel_swapchain_registry_remove(swapchain, nullptr);
+}
+
+MEL_TEST(render_default_3d_visibility_buffer_falls_back_for_transparent_materials, .tags = "render")
+{
+    Mel_Swapchain_Handle swapchain = make_default3d_mock_swapchain();
+
+    Mel_Render_List world;
+    mel_render_list_init(&world,
+        .name = S8("mesh_world_visibility_transparent"),
+        .entry_stride = sizeof(Mel_Mesh_Entry),
+        .alloc = mel_alloc_heap());
+
+    Mel_Camera camera = {
+        .view = MEL_MAT4_IDENTITY,
+        .projection = MEL_MAT4_IDENTITY,
+    };
+    Mel_Gpu_Device fake_dev = {0};
+
+    Mel_Render_Default_3D renderer;
+    bool ok = mel_render_default_3d_init(&renderer,
+        .name = S8("default3d_visibility_transparent"),
+        .swapchain = swapchain,
+        .camera = &camera,
+        .clear_color_enabled = true,
+        .dev = &fake_dev,
+        .mesh_pass = (Mel_Mesh_Pass*)(uintptr_t)1,
+        .alloc = mel_alloc_heap());
+    MEL_ASSERT(ok);
+
+    Mel_Material_Family_Handle surface = mel_material_family_find(S8("surface"));
+    MEL_ASSERT(mel_material_family_handle_valid(surface));
+    Mel_Material_Template_Handle material_template = mel_material_template_create(&(Mel_Material_Template_Desc){
+        .name = S8("visibility_surface_transparent"),
+        .family = surface,
+        .profile = S8("surface.standard"),
+        .render_domain = MEL_MATERIAL_DOMAIN_TRANSPARENT,
+        .fallback_policy = MEL_MATERIAL_FALLBACK_ALLOW,
+        .base_color = mel_vec4(0.7f, 0.8f, 0.9f, 0.6f),
+    });
+    Mel_Material_Instance_Handle material_instance = mel_material_instance_create(material_template);
+
+    mel_draw_mesh_opt(&world, (Mel_Draw_Mesh_Opt){
+        .mesh = &s_test_mesh,
+        .transform = MEL_MAT4_IDENTITY,
+        .color = mel_vec4(1.0f, 1.0f, 1.0f, 1.0f),
+        .material = material_instance,
+    });
+
+    MEL_ASSERT(mel_render_default_3d_attach_mesh_list(&renderer, &world));
+    mel_render_technique_set_family_policy(&(Mel_Technique_Family_Policy){
+        .family = MEL_TECHNIQUE_MESH,
+        .fn = test_mesh_policy_prefer_visibility,
+        .user = nullptr,
+    });
+
+    ok = mel_render_default_3d_rebuild(&renderer);
+    MEL_ASSERT(ok);
+
+    Mel_Frame_Plan_Handle plan = mel_render_default_3d_plan(&renderer);
+    MEL_ASSERT_EQ(mel_frame_plan_resolved_technique_count(plan), (u32)1);
+
+    Mel_Frame_Plan_Resolved_Technique resolved = {0};
+    MEL_ASSERT(mel_frame_plan_resolved_technique_at(plan, 0, &resolved));
+    MEL_ASSERT(str8_ieq(resolved.technique_name, S8("mesh.forward")));
+
+    Mel_Frame_Plan_Resolved_Material resolved_material = {0};
+    MEL_ASSERT_EQ(mel_frame_plan_resolved_material_count(plan), (u32)1);
+    MEL_ASSERT(mel_frame_plan_resolved_material_at(plan, 0, &resolved_material));
+    MEL_ASSERT(str8_ieq(resolved_material.backend_name, S8("surface.standard.forward")));
+
+    bool saw_visibility_rejected = false;
+    for (u32 i = 0; i < mel_frame_plan_technique_diagnostic_count(plan); i++)
+    {
+        Mel_Frame_Plan_Technique_Diagnostic diag = {0};
+        MEL_ASSERT(mel_frame_plan_technique_diagnostic_at(plan, i, &diag));
+        if (!str8_ieq(diag.technique_name, S8("mesh.visibility_buffer")))
+            continue;
+        MEL_ASSERT(diag.supported);
+        MEL_ASSERT(!diag.matched);
+        MEL_ASSERT(!diag.selected);
+        MEL_ASSERT(diag.reason_kind == MEL_TECHNIQUE_CHECK_SOURCE_MISMATCH);
+        MEL_ASSERT(str8_contains(diag.reason, S8("opaque")));
+        saw_visibility_rejected = true;
+    }
+    MEL_ASSERT(saw_visibility_rejected);
+
+    mel_render_technique_clear_family_policy(MEL_TECHNIQUE_MESH);
+    mel_material_instance_destroy(material_instance);
+    mel_material_template_destroy(material_template);
     mel_render_default_3d_shutdown(&renderer);
     mel_render_list_shutdown(&world);
     mel_swapchain_registry_remove(swapchain, nullptr);

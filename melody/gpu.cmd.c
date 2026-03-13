@@ -160,6 +160,14 @@ void mel_gpu_cmd_draw_indexed_indirect(Mel_Gpu_Cmd* c, VkBuffer buffer, VkDevice
     assert(c != nullptr);
     assert(buffer != VK_NULL_HANDLE);
     assert(draw_count > 0);
+    if (c->dev && !c->dev->capabilities.multi_draw_indirect && draw_count > 1)
+    {
+        VkDeviceSize draw_stride = stride ? stride : sizeof(VkDrawIndexedIndirectCommand);
+        for (u32 i = 0; i < draw_count; i++)
+            vkCmdDrawIndexedIndirect(c->cmd, buffer, offset + draw_stride * i, 1, draw_stride);
+        return;
+    }
+
     vkCmdDrawIndexedIndirect(c->cmd, buffer, offset, draw_count, stride);
 }
 

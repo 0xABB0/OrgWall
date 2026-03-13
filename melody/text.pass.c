@@ -233,11 +233,12 @@ static void mel__text_pass_push_quad(Mel_Text_Pass* pass, Mel_Text_Entry* entry)
     pass->index_count += 6;
 }
 
-static void mel__text_pass_begin(Mel_Text_Pass* pass)
+static void mel__text_pass_begin(Mel_Text_Pass* pass, u32 frame_index)
 {
-    pass->gpu_frame_index = (pass->gpu_frame_index + 1) % MEL_MAX_FRAMES_IN_FLIGHT;
-    pass->vertices = pass->gpu_frames[pass->gpu_frame_index].vertex_buffer.mapped;
-    pass->indices = (u16*)pass->gpu_frames[pass->gpu_frame_index].index_buffer.mapped;
+    assert(frame_index < MEL_MAX_FRAMES_IN_FLIGHT);
+    pass->gpu_frame_index = frame_index;
+    pass->vertices = pass->gpu_frames[frame_index].vertex_buffer.mapped;
+    pass->indices = (u16*)pass->gpu_frames[frame_index].index_buffer.mapped;
     pass->vertex_count = 0;
     pass->index_count = 0;
     pass->draw_count = 0;
@@ -380,7 +381,7 @@ void mel_text_pass_execute(Mel_Render_Pass_Ctx* ctx)
     assert(pass != nullptr);
 
     Mel_Mat4 vp = mel_camera_vp(ctx->camera);
-    mel__text_pass_begin(pass);
+    mel__text_pass_begin(pass, ctx->gpu_frame_index);
 
     if (ctx->read_lists)
     {
