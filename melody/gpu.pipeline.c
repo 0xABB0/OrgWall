@@ -3,6 +3,7 @@
 #include "gpu.shader.h"
 #include "allocator.heap.h"
 #include <SDL3/SDL_log.h>
+#include <string.h>
 
 static VkCullModeFlags cull_mode_to_vk(u32 mode)
 {
@@ -235,7 +236,8 @@ void mel_gpu_pipeline_init_opt(Mel_Gpu_Pipeline* pipeline, Mel_Gpu_Device* dev, 
         return;
     }
 
-    assert(opt.color_format != VK_FORMAT_UNDEFINED);
+    assert(opt.color_format != VK_FORMAT_UNDEFINED ||
+        (opt.color_formats != nullptr && opt.color_format_count > 0));
 
     VkPipelineShaderStageCreateInfo stages[3] = {0};
     u32 stage_count = 0;
@@ -304,14 +306,17 @@ void mel_gpu_pipeline_init_opt(Mel_Gpu_Pipeline* pipeline, Mel_Gpu_Device* dev, 
         .sampleShadingEnable = VK_FALSE,
     };
 
-    VkPipelineColorBlendAttachmentState blend_attachment = {0};
-    setup_blend(&blend_attachment, opt.blend_mode);
+    VkPipelineColorBlendAttachmentState blend_attachments[8] = {0};
+    u32 color_attachment_count = opt.color_format_count > 0 ? opt.color_format_count : 1;
+    assert(color_attachment_count <= SDL_arraysize(blend_attachments));
+    for (u32 i = 0; i < color_attachment_count; i++)
+        setup_blend(&blend_attachments[i], opt.blend_mode);
 
     VkPipelineColorBlendStateCreateInfo color_blending = {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
         .logicOpEnable = VK_FALSE,
-        .attachmentCount = 1,
-        .pAttachments = &blend_attachment,
+        .attachmentCount = color_attachment_count,
+        .pAttachments = blend_attachments,
     };
 
     VkPipelineDepthStencilStateCreateInfo depth_stencil = {
@@ -332,10 +337,20 @@ void mel_gpu_pipeline_init_opt(Mel_Gpu_Pipeline* pipeline, Mel_Gpu_Device* dev, 
         .pDynamicStates = dynamic_states,
     };
 
+    VkFormat color_formats_local[8] = {0};
+    if (opt.color_format_count > 0)
+    {
+        memcpy(color_formats_local, opt.color_formats, sizeof(VkFormat) * opt.color_format_count);
+    }
+    else
+    {
+        color_formats_local[0] = opt.color_format;
+    }
+
     VkPipelineRenderingCreateInfo rendering_info = {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO,
-        .colorAttachmentCount = 1,
-        .pColorAttachmentFormats = &opt.color_format,
+        .colorAttachmentCount = color_attachment_count,
+        .pColorAttachmentFormats = color_formats_local,
         .depthAttachmentFormat = opt.depth_format,
     };
 

@@ -20,6 +20,7 @@ struct Mel_Gpu_Capabilities {
     bool dynamic_rendering;
     bool buffer_device_address;
     bool descriptor_buffer;
+    bool shader_draw_parameters;
     bool mesh_shader;
     bool multi_draw_indirect;
     bool timestamp_queries;

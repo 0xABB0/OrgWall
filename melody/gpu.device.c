@@ -415,9 +415,13 @@ static bool create_logical_device(Mel_Gpu_Device* dev)
     VkPhysicalDeviceBufferDeviceAddressFeatures bda_query = {
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES,
     };
+    VkPhysicalDeviceVulkan11Features vulkan11_query = {
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES,
+        .pNext = &bda_query,
+    };
     VkPhysicalDeviceSynchronization2Features sync2_query = {
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES,
-        .pNext = &bda_query,
+        .pNext = &vulkan11_query,
     };
     VkPhysicalDeviceDynamicRenderingFeatures dynamic_rendering_query = {
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES,
@@ -440,6 +444,7 @@ static bool create_logical_device(Mel_Gpu_Device* dev)
         .dynamic_rendering = dynamic_rendering_query.dynamicRendering == VK_TRUE,
         .buffer_device_address = bda_query.bufferDeviceAddress == VK_TRUE,
         .descriptor_buffer = dev->has_descriptor_buffer,
+        .shader_draw_parameters = vulkan11_query.shaderDrawParameters == VK_TRUE,
         .mesh_shader = has_mesh_shader && mesh_shader_query.meshShader == VK_TRUE,
         .multi_draw_indirect = supported_features.features.multiDrawIndirect == VK_TRUE,
         .timestamp_queries = dev->device_properties.properties.limits.timestampPeriod > 0.0f,
@@ -469,9 +474,15 @@ static bool create_logical_device(Mel_Gpu_Device* dev)
         .bufferDeviceAddress = dev->capabilities.buffer_device_address ? VK_TRUE : VK_FALSE,
     };
 
+    VkPhysicalDeviceVulkan11Features vulkan11_features = {
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES,
+        .pNext = &bda_features,
+        .shaderDrawParameters = dev->capabilities.shader_draw_parameters ? VK_TRUE : VK_FALSE,
+    };
+
     VkPhysicalDeviceSynchronization2Features sync2_features = {
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES,
-        .pNext = &bda_features,
+        .pNext = &vulkan11_features,
         .synchronization2 = dev->capabilities.synchronization2 ? VK_TRUE : VK_FALSE,
     };
 

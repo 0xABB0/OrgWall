@@ -179,6 +179,42 @@ static Mel_Technique_Policy_Result test_mesh_policy_prefer_visibility(Mel_Frame_
     };
 }
 
+static Mel_Technique_Policy_Result test_mesh_policy_prefer_deferred(Mel_Frame_Plan_Technique_Ctx* ctx,
+    const Mel_Technique_Desc* technique, void* user)
+{
+    (void)ctx;
+    (void)user;
+    if (str8_ieq(technique->name, S8("mesh.deferred")))
+    {
+        return (Mel_Technique_Policy_Result){
+            .allow = true,
+            .priority_bias = 500,
+            .kind = MEL_TECHNIQUE_CHECK_OK,
+            .reason = S8("test policy prefers deferred mesh path"),
+        };
+    }
+    return (Mel_Technique_Policy_Result){
+        .allow = true,
+        .priority_bias = 0,
+        .kind = MEL_TECHNIQUE_CHECK_OK,
+        .reason = S8(""),
+    };
+}
+
+static Mel_Technique_Policy_Result test_mesh_policy_allow_default(Mel_Frame_Plan_Technique_Ctx* ctx,
+    const Mel_Technique_Desc* technique, void* user)
+{
+    (void)ctx;
+    (void)technique;
+    (void)user;
+    return (Mel_Technique_Policy_Result){
+        .allow = true,
+        .priority_bias = 0,
+        .kind = MEL_TECHNIQUE_CHECK_OK,
+        .reason = S8(""),
+    };
+}
+
 static Mel_Material_Check_Result test_material_backend_support(Mel_Frame_Plan_Material_Ctx* ctx,
     Mel_Material_Template_Handle material_template)
 {
@@ -419,12 +455,13 @@ MEL_TEST(render_default_3d_builds_mesh_pass_from_gpu_draw_stream_source, .tags =
     MEL_ASSERT(str8_ieq(resolved.technique_name, S8("mesh.draw_stream")));
 
     u32 diagnostic_count = mel_frame_plan_technique_diagnostic_count(mel_render_default_3d_plan(&renderer));
-    MEL_ASSERT_EQ(diagnostic_count, (u32)7);
+    MEL_ASSERT_EQ(diagnostic_count, (u32)8);
 
     bool saw_mesh_shader = false;
     bool saw_compute_indirect_batch = false;
     bool saw_compute_indirect = false;
     bool saw_indirect = false;
+    bool saw_deferred = false;
     bool saw_draw_stream = false;
     bool saw_forward = false;
     for (u32 i = 0; i < diagnostic_count; i++)
@@ -460,6 +497,13 @@ MEL_TEST(render_default_3d_builds_mesh_pass_from_gpu_draw_stream_source, .tags =
             MEL_ASSERT(!diag.selected);
             MEL_ASSERT(str8_ieq(diag.reason, S8("no gpu indirect stream source attached")));
         }
+        else if (str8_ieq(diag.technique_name, S8("mesh.deferred")))
+        {
+            saw_deferred = true;
+            MEL_ASSERT(!diag.matched);
+            MEL_ASSERT(!diag.selected);
+            MEL_ASSERT(str8_ieq(diag.reason, S8("deferred gpu paths require a material-table source")));
+        }
         else if (str8_ieq(diag.technique_name, S8("mesh.draw_stream")))
         {
             saw_draw_stream = true;
@@ -479,6 +523,7 @@ MEL_TEST(render_default_3d_builds_mesh_pass_from_gpu_draw_stream_source, .tags =
     MEL_ASSERT(saw_compute_indirect_batch);
     MEL_ASSERT(saw_compute_indirect);
     MEL_ASSERT(saw_indirect);
+    MEL_ASSERT(saw_deferred);
     MEL_ASSERT(saw_draw_stream);
     MEL_ASSERT(saw_forward);
 
@@ -948,7 +993,7 @@ MEL_TEST(render_default_3d_allows_game_variant_to_extend_mesh_family_with_capabi
     MEL_ASSERT(str8_ieq(resolved.technique_name, S8("mesh.draw_stream")));
 
     u32 diagnostic_count = mel_frame_plan_technique_diagnostic_count(plan);
-    MEL_ASSERT_EQ(diagnostic_count, (u32)8);
+    MEL_ASSERT_EQ(diagnostic_count, (u32)9);
 
     bool saw_accel = false;
     bool saw_mesh_shader = false;
@@ -957,6 +1002,7 @@ MEL_TEST(render_default_3d_allows_game_variant_to_extend_mesh_family_with_capabi
     bool saw_indirect = false;
     bool saw_draw_stream = false;
     bool saw_forward = false;
+    bool saw_deferred = false;
     for (u32 i = 0; i < diagnostic_count; i++)
     {
         Mel_Frame_Plan_Technique_Diagnostic diag = {0};
@@ -1006,6 +1052,12 @@ MEL_TEST(render_default_3d_allows_game_variant_to_extend_mesh_family_with_capabi
             MEL_ASSERT(diag.matched);
             MEL_ASSERT(diag.selected);
         }
+        else if (str8_ieq(diag.technique_name, S8("mesh.deferred")))
+        {
+            saw_deferred = true;
+            MEL_ASSERT(!diag.matched);
+            MEL_ASSERT(!diag.selected);
+        }
         else if (str8_ieq(diag.technique_name, S8("mesh.forward")))
         {
             saw_forward = true;
@@ -1020,6 +1072,7 @@ MEL_TEST(render_default_3d_allows_game_variant_to_extend_mesh_family_with_capabi
     MEL_ASSERT(saw_compute_indirect);
     MEL_ASSERT(saw_indirect);
     MEL_ASSERT(saw_draw_stream);
+    MEL_ASSERT(saw_deferred);
     MEL_ASSERT(saw_forward);
 
     mel_source_destroy(source);
@@ -1496,6 +1549,92 @@ MEL_TEST(render_default_3d_can_build_visibility_buffer_branch, .tags = "render")
     mel_swapchain_registry_remove(swapchain, nullptr);
 }
 
+MEL_TEST(render_default_3d_can_build_deferred_branch, .tags = "render")
+{
+    Mel_Swapchain_Handle swapchain = make_default3d_mock_swapchain();
+
+    Mel_Camera camera = {
+        .view = MEL_MAT4_IDENTITY,
+        .projection = MEL_MAT4_IDENTITY,
+    };
+    Mel_Gpu_Device fake_dev = {0};
+
+    Mel_Render_Default_3D renderer;
+    bool ok = mel_render_default_3d_init(&renderer,
+        .name = S8("default3d_deferred"),
+        .swapchain = swapchain,
+        .camera = &camera,
+        .clear_color_enabled = true,
+        .dev = &fake_dev,
+        .mesh_pass = (Mel_Mesh_Pass*)(uintptr_t)1,
+        .alloc = mel_alloc_heap());
+    MEL_ASSERT(ok);
+
+    Mel_Render_List world;
+    mel_render_list_init(&world,
+        .name = S8("mesh_deferred_world"),
+        .entry_stride = sizeof(Mel_Mesh_Entry),
+        .alloc = mel_alloc_heap());
+    MEL_ASSERT(mel_render_default_3d_attach_mesh_list(&renderer, &world));
+
+    Mel_Material_Template_Handle material_template = mel_material_template_create(&(Mel_Material_Template_Desc){
+        .name = S8("mesh_deferred_surface"),
+        .family = mel_material_family_find(S8("surface")),
+        .profile = S8("surface.standard"),
+        .render_domain = MEL_MATERIAL_DOMAIN_OPAQUE,
+        .fallback_policy = MEL_MATERIAL_FALLBACK_ALLOW,
+        .base_color = mel_vec4(0.8f, 0.7f, 0.6f, 1.0f),
+    });
+    Mel_Material_Instance_Handle material = mel_material_instance_create(material_template);
+
+    Mel_Mesh_Entry* entry = mel_render_list_push(&world, mel_sort_key_mesh_opaque(0.0f));
+    *entry = (Mel_Mesh_Entry){
+        .mesh = &s_test_mesh,
+        .transform = MEL_MAT4_IDENTITY,
+        .color = mel_vec4(1.0f, 1.0f, 1.0f, 1.0f),
+        .material = material,
+    };
+
+    mel_render_technique_set_family_policy(&(Mel_Technique_Family_Policy){
+        .family = MEL_TECHNIQUE_MESH,
+        .fn = test_mesh_policy_prefer_deferred,
+    });
+
+    MEL_ASSERT(mel_render_default_3d_rebuild(&renderer));
+
+    Mel_Render_Graph* graph = mel_render_default_3d_graph(&renderer);
+    MEL_ASSERT_EQ(graph->passes.count, (usize)2);
+    MEL_ASSERT_EQ(graph->passes.items[0].type, (u32)MEL_PASS_GRAPHICS);
+    MEL_ASSERT_EQ(graph->passes.items[1].type, (u32)MEL_PASS_GRAPHICS);
+    u32 fill_write_target_count = 0;
+    for (Mel_Pass_Write_Target* wt = graph->passes.items[0].write_targets; wt && wt->target; wt++)
+        fill_write_target_count++;
+    MEL_ASSERT_EQ(fill_write_target_count, (u32)5);
+    u32 resolve_read_target_count = 0;
+    for (Mel_Render_Target** rt = graph->passes.items[1].read_targets; rt && *rt; rt++)
+        resolve_read_target_count++;
+    MEL_ASSERT_EQ(resolve_read_target_count, (u32)4);
+
+    Mel_Frame_Plan_Handle plan = mel_render_default_3d_plan(&renderer);
+    Mel_Frame_Plan_Resolved_Technique resolved = {0};
+    MEL_ASSERT(mel_frame_plan_resolved_technique_at(plan, 0, &resolved));
+    MEL_ASSERT(str8_ieq(resolved.technique_name, S8("mesh.deferred")));
+
+    Mel_Frame_Plan_Resolved_Material resolved_material = {0};
+    MEL_ASSERT(mel_frame_plan_resolved_material_at(plan, 0, &resolved_material));
+    MEL_ASSERT(str8_ieq(resolved_material.backend_name, S8("surface.standard.deferred")));
+
+    mel_render_technique_set_family_policy(&(Mel_Technique_Family_Policy){
+        .family = MEL_TECHNIQUE_MESH,
+        .fn = test_mesh_policy_allow_default,
+    });
+    mel_material_instance_destroy(material);
+    mel_material_template_destroy(material_template);
+    mel_render_default_3d_shutdown(&renderer);
+    mel_render_list_shutdown(&world);
+    mel_swapchain_registry_remove(swapchain, nullptr);
+}
+
 MEL_TEST(render_default_3d_visibility_buffer_falls_back_for_transparent_materials, .tags = "render")
 {
     Mel_Swapchain_Handle swapchain = make_default3d_mock_swapchain();
@@ -1582,6 +1721,92 @@ MEL_TEST(render_default_3d_visibility_buffer_falls_back_for_transparent_material
 
     mel_render_technique_clear_family_policy(MEL_TECHNIQUE_MESH);
     mel_material_instance_destroy(material_instance);
+    mel_material_template_destroy(material_template);
+    mel_render_default_3d_shutdown(&renderer);
+    mel_render_list_shutdown(&world);
+    mel_swapchain_registry_remove(swapchain, nullptr);
+}
+
+MEL_TEST(render_default_3d_deferred_falls_back_for_transparent_materials, .tags = "render")
+{
+    Mel_Swapchain_Handle swapchain = make_default3d_mock_swapchain();
+
+    Mel_Camera camera = {
+        .view = MEL_MAT4_IDENTITY,
+        .projection = MEL_MAT4_IDENTITY,
+    };
+    Mel_Gpu_Device fake_dev = {0};
+
+    Mel_Render_Default_3D renderer;
+    bool ok = mel_render_default_3d_init(&renderer,
+        .name = S8("default3d_deferred_transparent"),
+        .swapchain = swapchain,
+        .camera = &camera,
+        .clear_color_enabled = true,
+        .dev = &fake_dev,
+        .mesh_pass = (Mel_Mesh_Pass*)(uintptr_t)1,
+        .alloc = mel_alloc_heap());
+    MEL_ASSERT(ok);
+
+    Mel_Render_List world;
+    mel_render_list_init(&world,
+        .name = S8("mesh_deferred_transparent_world"),
+        .entry_stride = sizeof(Mel_Mesh_Entry),
+        .alloc = mel_alloc_heap());
+    MEL_ASSERT(mel_render_default_3d_attach_mesh_list(&renderer, &world));
+
+    Mel_Material_Template_Handle material_template = mel_material_template_create(&(Mel_Material_Template_Desc){
+        .name = S8("mesh_deferred_transparent_surface"),
+        .family = mel_material_family_find(S8("surface")),
+        .profile = S8("surface.standard"),
+        .render_domain = MEL_MATERIAL_DOMAIN_TRANSPARENT,
+        .fallback_policy = MEL_MATERIAL_FALLBACK_ALLOW,
+        .base_color = mel_vec4(0.8f, 0.7f, 0.6f, 0.5f),
+    });
+    Mel_Material_Instance_Handle material = mel_material_instance_create(material_template);
+
+    Mel_Mesh_Entry* entry = mel_render_list_push(&world, mel_sort_key_mesh_opaque(0.0f));
+    *entry = (Mel_Mesh_Entry){
+        .mesh = &s_test_mesh,
+        .transform = MEL_MAT4_IDENTITY,
+        .color = mel_vec4(1.0f, 1.0f, 1.0f, 1.0f),
+        .material = material,
+    };
+
+    mel_render_technique_set_family_policy(&(Mel_Technique_Family_Policy){
+        .family = MEL_TECHNIQUE_MESH,
+        .fn = test_mesh_policy_prefer_deferred,
+    });
+
+    MEL_ASSERT(mel_render_default_3d_rebuild(&renderer));
+
+    Mel_Frame_Plan_Handle plan = mel_render_default_3d_plan(&renderer);
+    Mel_Frame_Plan_Resolved_Technique resolved = {0};
+    MEL_ASSERT(mel_frame_plan_resolved_technique_at(plan, 0, &resolved));
+    MEL_ASSERT(str8_ieq(resolved.technique_name, S8("mesh.forward")));
+
+    Mel_Frame_Plan_Resolved_Material resolved_material = {0};
+    MEL_ASSERT(mel_frame_plan_resolved_material_at(plan, 0, &resolved_material));
+    MEL_ASSERT(str8_ieq(resolved_material.backend_name, S8("surface.standard.forward")));
+
+    bool saw_deferred_diag = false;
+    for (u32 i = 0; i < mel_frame_plan_technique_diagnostic_count(plan); i++)
+    {
+        Mel_Frame_Plan_Technique_Diagnostic diag = {0};
+        MEL_ASSERT(mel_frame_plan_technique_diagnostic_at(plan, i, &diag));
+        if (!str8_ieq(diag.technique_name, S8("mesh.deferred")))
+            continue;
+        saw_deferred_diag = true;
+        MEL_ASSERT(!diag.selected);
+        MEL_ASSERT_EQ(diag.reason_kind, (u32)MEL_TECHNIQUE_CHECK_SOURCE_MISMATCH);
+    }
+    MEL_ASSERT(saw_deferred_diag);
+
+    mel_render_technique_set_family_policy(&(Mel_Technique_Family_Policy){
+        .family = MEL_TECHNIQUE_MESH,
+        .fn = test_mesh_policy_allow_default,
+    });
+    mel_material_instance_destroy(material);
     mel_material_template_destroy(material_template);
     mel_render_default_3d_shutdown(&renderer);
     mel_render_list_shutdown(&world);

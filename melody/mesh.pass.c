@@ -244,6 +244,136 @@ static const char* MESH_VISIBILITY_RESOLVE_SHADER_SOURCE =
 "    return float4(color, attrs.a);\n"
 "}\n";
 
+static const char* MESH_DEFERRED_SHADER_SOURCE =
+"struct VSInput\n"
+"{\n"
+"    float3 position : POSITION;\n"
+"    float3 normal : NORMAL;\n"
+"    float4 color : COLOR0;\n"
+"    uint materialId : TEXCOORD0;\n"
+"};\n"
+"\n"
+"struct MaterialRecord\n"
+"{\n"
+"    float4 baseColor;\n"
+"    float4 emissiveColor;\n"
+"    float4 params0;\n"
+"    float4 params1;\n"
+"};\n"
+"\n"
+"struct VSOutput\n"
+"{\n"
+"    float4 position : SV_Position;\n"
+"    float3 normal : NORMAL;\n"
+"    float4 albedo : COLOR0;\n"
+"    float4 emissiveOcclusion : COLOR1;\n"
+"    float4 params : TEXCOORD0;\n"
+"};\n"
+"\n"
+"struct GBufferOut\n"
+"{\n"
+"    float4 normalRoughness : SV_Target0;\n"
+"    float4 albedoMetallic : SV_Target1;\n"
+"    float4 emissiveOcclusion : SV_Target2;\n"
+"    float4 meta : SV_Target3;\n"
+"};\n"
+"\n"
+"struct PushConstants\n"
+"{\n"
+"    float4x4 projection;\n"
+"};\n"
+"\n"
+"[[vk::push_constant]] PushConstants push;\n"
+"[[vk::binding(0, 0)]] StructuredBuffer<MaterialRecord> gMaterials;\n"
+"\n"
+"[shader(\"vertex\")]\n"
+"VSOutput vertexMain(VSInput input)\n"
+"{\n"
+"    VSOutput output;\n"
+"    MaterialRecord material = gMaterials[input.materialId];\n"
+"    output.position = mul(push.projection, float4(input.position, 1.0));\n"
+"    output.normal = normalize(input.normal);\n"
+"    output.albedo = input.color * material.baseColor;\n"
+"    output.emissiveOcclusion = float4(material.emissiveColor.rgb * material.emissiveColor.a,\n"
+"        saturate(material.params0.w));\n"
+"    output.params = float4(saturate(material.params0.x), saturate(material.params0.y),\n"
+"        saturate(material.params0.z), 0.0);\n"
+"    return output;\n"
+"}\n"
+"\n"
+"[shader(\"fragment\")]\n"
+"GBufferOut fragmentMain(VSOutput input)\n"
+"{\n"
+"    GBufferOut output;\n"
+"    float3 normal = normalize(input.normal) * 0.5 + 0.5;\n"
+"    output.normalRoughness = float4(normal, input.params.x);\n"
+"    output.albedoMetallic = float4(input.albedo.rgb, input.params.y);\n"
+"    output.emissiveOcclusion = input.emissiveOcclusion;\n"
+"    output.meta = float4(input.params.z, input.albedo.a, 0.0, 0.0);\n"
+"    return output;\n"
+"}\n";
+
+static const char* MESH_DEFERRED_RESOLVE_SHADER_SOURCE =
+"struct VSOutput\n"
+"{\n"
+"    float4 position : SV_Position;\n"
+"    float2 uv : TEXCOORD0;\n"
+"};\n"
+"\n"
+"struct PushConstants\n"
+"{\n"
+"    float4 lightDirAmbient;\n"
+"    float4 lightColor;\n"
+"};\n"
+"\n"
+"[[vk::push_constant]] PushConstants push;\n"
+"[[vk::binding(0, 0)]] Sampler2D gNormalRoughness;\n"
+"[[vk::binding(1, 0)]] Sampler2D gAlbedoMetallic;\n"
+"[[vk::binding(2, 0)]] Sampler2D gEmissiveOcclusion;\n"
+"[[vk::binding(3, 0)]] Sampler2D gMeta;\n"
+"\n"
+"[shader(\"vertex\")]\n"
+"VSOutput vertexMain(uint vertexId : SV_VertexID)\n"
+"{\n"
+"    float2 pos;\n"
+"    if (vertexId == 0) pos = float2(-1.0, -1.0);\n"
+"    else if (vertexId == 1) pos = float2(-1.0, 3.0);\n"
+"    else pos = float2(3.0, -1.0);\n"
+"    VSOutput output;\n"
+"    output.position = float4(pos, 0.0, 1.0);\n"
+"    output.uv = pos * float2(0.5, -0.5) + 0.5;\n"
+"    return output;\n"
+"}\n"
+"\n"
+"[shader(\"fragment\")]\n"
+"float4 fragmentMain(VSOutput input) : SV_Target\n"
+"{\n"
+"    float4 normalRoughness = gNormalRoughness.Sample(input.uv);\n"
+"    float4 albedoMetallic = gAlbedoMetallic.Sample(input.uv);\n"
+"    float4 emissiveOcclusion = gEmissiveOcclusion.Sample(input.uv);\n"
+"    float4 meta = gMeta.Sample(input.uv);\n"
+"    if (meta.y < 0.001)\n"
+"        discard;\n"
+"    float3 normal = normalize(normalRoughness.xyz * 2.0 - 1.0);\n"
+"    float roughness = saturate(normalRoughness.w);\n"
+"    float metallic = saturate(albedoMetallic.w);\n"
+"    float occlusion = saturate(emissiveOcclusion.w);\n"
+"    float lightingWeight = saturate(meta.x);\n"
+"    float3 baseColor = albedoMetallic.rgb;\n"
+"    float3 emissive = emissiveOcclusion.rgb;\n"
+"    float3 lightDir = normalize(-push.lightDirAmbient.xyz);\n"
+"    float ndotl = saturate(dot(normal, lightDir));\n"
+"    float diffuseStrength = lerp(1.0, 0.35, roughness) * lerp(1.0, 0.70, metallic);\n"
+"    float specPower = lerp(32.0, 6.0, roughness);\n"
+"    float specular = pow(max(ndotl, 0.0001), specPower) * metallic;\n"
+"    float3 lit = baseColor * (push.lightDirAmbient.www * occlusion);\n"
+"    lit += baseColor * (push.lightColor.rgb * ndotl * diffuseStrength);\n"
+"    lit += push.lightColor.rgb * specular;\n"
+"    lit += emissive;\n"
+"    float3 color = lerp(baseColor, lit, lightingWeight);\n"
+"    return float4(color, meta.y);\n"
+"}\n";
+
 static const char* MESH_INDIRECT_COMPUTE_SHADER_SOURCE =
 "struct CullPushConstants\n"
 "{\n"
@@ -555,6 +685,22 @@ static VkDescriptorSet mel__mesh_pass_visibility_resolve_descriptor(Mel_Mesh_Pas
     return descriptor;
 }
 
+static VkDescriptorSet mel__mesh_pass_deferred_resolve_descriptor(Mel_Mesh_Pass* pass,
+    Mel_Render_Target* normal_roughness_target, Mel_Render_Target* albedo_metallic_target,
+    Mel_Render_Target* emissive_occlusion_target, Mel_Render_Target* meta_target)
+{
+    VkDescriptorSet descriptor = mel_gpu_pipeline_alloc_descriptor(&pass->deferred_resolve_pipeline, pass->dev);
+    mel_gpu_pipeline_write_texture_binding(&pass->deferred_resolve_pipeline, pass->dev, descriptor, 0,
+        mel_render_target_view(normal_roughness_target), pass->visibility_sampler);
+    mel_gpu_pipeline_write_texture_binding(&pass->deferred_resolve_pipeline, pass->dev, descriptor, 1,
+        mel_render_target_view(albedo_metallic_target), pass->visibility_sampler);
+    mel_gpu_pipeline_write_texture_binding(&pass->deferred_resolve_pipeline, pass->dev, descriptor, 2,
+        mel_render_target_view(emissive_occlusion_target), pass->visibility_sampler);
+    mel_gpu_pipeline_write_texture_binding(&pass->deferred_resolve_pipeline, pass->dev, descriptor, 3,
+        mel_render_target_view(meta_target), pass->visibility_sampler);
+    return descriptor;
+}
+
 static void mel__mesh_pass_begin(Mel_Mesh_Pass* pass, u32 frame_index)
 {
     assert(frame_index < MEL_MAX_FRAMES_IN_FLIGHT);
@@ -657,6 +803,18 @@ static void mel__mesh_pass_bind_visibility_attribute_fill(Mel_Mesh_Pass* pass, M
         0, sizeof(Mel_Mat4), projection);
 }
 
+static void mel__mesh_pass_bind_deferred_fill(Mel_Mesh_Pass* pass, Mel_Gpu_Cmd cmd,
+    const Mel_Mat4* projection, VkBuffer material_buffer)
+{
+    mel_gpu_pipeline_bind(&pass->deferred_pipeline, cmd.cmd);
+    VkDescriptorSet descriptor = mel__mesh_pass_descriptor_for_buffer(pass, &pass->deferred_pipeline,
+        material_buffer);
+    vkCmdBindDescriptorSets(cmd.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+        pass->deferred_pipeline.layout, 0, 1, &descriptor, 0, nullptr);
+    vkCmdPushConstants(cmd.cmd, pass->deferred_pipeline.layout, VK_SHADER_STAGE_VERTEX_BIT,
+        0, sizeof(Mel_Mat4), projection);
+}
+
 static void mel__mesh_pass_bind_visibility_resolve(Mel_Mesh_Pass* pass, Mel_Gpu_Cmd cmd,
     Mel_Render_Target* visibility_target, Mel_Render_Target* attribute_target, VkBuffer material_buffer)
 {
@@ -671,6 +829,24 @@ static void mel__mesh_pass_bind_visibility_resolve(Mel_Mesh_Pass* pass, Mel_Gpu_
     vkCmdBindDescriptorSets(cmd.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
         pass->visibility_resolve_pipeline.layout, 0, 1, &descriptor, 0, nullptr);
     vkCmdPushConstants(cmd.cmd, pass->visibility_resolve_pipeline.layout,
+        VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(push), &push);
+}
+
+static void mel__mesh_pass_bind_deferred_resolve(Mel_Mesh_Pass* pass, Mel_Gpu_Cmd cmd,
+    Mel_Render_Target* normal_roughness_target, Mel_Render_Target* albedo_metallic_target,
+    Mel_Render_Target* emissive_occlusion_target, Mel_Render_Target* meta_target)
+{
+    Mel_Mesh_Visibility_Resolve_Push_Constants push = {
+        .light_dir_ambient = mel_vec4(pass->lighting.direction.x, pass->lighting.direction.y,
+            pass->lighting.direction.z, pass->lighting.ambient),
+        .light_color = pass->lighting.color,
+    };
+    mel_gpu_pipeline_bind(&pass->deferred_resolve_pipeline, cmd.cmd);
+    VkDescriptorSet descriptor = mel__mesh_pass_deferred_resolve_descriptor(pass,
+        normal_roughness_target, albedo_metallic_target, emissive_occlusion_target, meta_target);
+    vkCmdBindDescriptorSets(cmd.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+        pass->deferred_resolve_pipeline.layout, 0, 1, &descriptor, 0, nullptr);
+    vkCmdPushConstants(cmd.cmd, pass->deferred_resolve_pipeline.layout,
         VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(push), &push);
 }
 
@@ -844,6 +1020,10 @@ bool mel_mesh_pass_init_opt(Mel_Mesh_Pass* pass, Mel_Mesh_Pass_Init_Opt opt)
         .source = str8_from_cstr(MESH_VISIBILITY_ATTRIBUTE_SHADER_SOURCE));
     mel_gpu_shader_init(&pass->visibility_resolve_shader, opt.dev,
         .source = str8_from_cstr(MESH_VISIBILITY_RESOLVE_SHADER_SOURCE));
+    mel_gpu_shader_init(&pass->deferred_shader, opt.dev,
+        .source = str8_from_cstr(MESH_DEFERRED_SHADER_SOURCE));
+    mel_gpu_shader_init(&pass->deferred_resolve_shader, opt.dev,
+        .source = str8_from_cstr(MESH_DEFERRED_RESOLVE_SHADER_SOURCE));
     mel_gpu_shader_init(&pass->compute_shader, opt.dev,
         .source = str8_from_cstr(MESH_INDIRECT_COMPUTE_SHADER_SOURCE),
         .compute_entry = S8("computeMain"));
@@ -933,6 +1113,45 @@ bool mel_mesh_pass_init_opt(Mel_Mesh_Pass* pass, Mel_Mesh_Pass_Init_Opt opt)
             { .binding = 2, .type = MEL_GPU_DESCRIPTOR_STORAGE_BUFFER, .count = 1, .stages = VK_SHADER_STAGE_FRAGMENT_BIT },
         },
         .descriptor_binding_count = 3);
+    mel_gpu_pipeline_init(&pass->deferred_pipeline, opt.dev,
+        .shader = &pass->deferred_shader,
+        .color_formats = (VkFormat[]){
+            VK_FORMAT_R32G32B32A32_SFLOAT,
+            VK_FORMAT_R32G32B32A32_SFLOAT,
+            VK_FORMAT_R32G32B32A32_SFLOAT,
+            VK_FORMAT_R32G32B32A32_SFLOAT,
+        },
+        .color_format_count = 4,
+        .depth_format = opt.depth_format,
+        .bindings = &binding,
+        .binding_count = 1,
+        .attributes = attributes,
+        .attribute_count = 4,
+        .cull_mode = MEL_GPU_CULL_BACK,
+        .depth_test = true,
+        .depth_write = true,
+        .push_constant_size = sizeof(Mel_Mat4),
+        .push_constant_stages = VK_SHADER_STAGE_VERTEX_BIT,
+        .descriptor_bindings = (Mel_Gpu_Descriptor_Binding[]){
+            { .binding = 0, .type = MEL_GPU_DESCRIPTOR_STORAGE_BUFFER, .count = 1, .stages = VK_SHADER_STAGE_VERTEX_BIT },
+        },
+        .descriptor_binding_count = 1);
+    mel_gpu_pipeline_init(&pass->deferred_resolve_pipeline, opt.dev,
+        .shader = &pass->deferred_resolve_shader,
+        .color_format = opt.color_format,
+        .topology = MEL_GPU_TOPOLOGY_TRIANGLE_LIST,
+        .cull_mode = MEL_GPU_CULL_NONE,
+        .depth_test = false,
+        .depth_write = false,
+        .push_constant_size = sizeof(Mel_Mesh_Visibility_Resolve_Push_Constants),
+        .push_constant_stages = VK_SHADER_STAGE_FRAGMENT_BIT,
+        .descriptor_bindings = (Mel_Gpu_Descriptor_Binding[]){
+            { .binding = 0, .type = MEL_GPU_DESCRIPTOR_COMBINED_IMAGE_SAMPLER, .count = 1, .stages = VK_SHADER_STAGE_FRAGMENT_BIT },
+            { .binding = 1, .type = MEL_GPU_DESCRIPTOR_COMBINED_IMAGE_SAMPLER, .count = 1, .stages = VK_SHADER_STAGE_FRAGMENT_BIT },
+            { .binding = 2, .type = MEL_GPU_DESCRIPTOR_COMBINED_IMAGE_SAMPLER, .count = 1, .stages = VK_SHADER_STAGE_FRAGMENT_BIT },
+            { .binding = 3, .type = MEL_GPU_DESCRIPTOR_COMBINED_IMAGE_SAMPLER, .count = 1, .stages = VK_SHADER_STAGE_FRAGMENT_BIT },
+        },
+        .descriptor_binding_count = 4);
     mel_gpu_pipeline_init(&pass->compute_pipeline, opt.dev,
         .shader = &pass->compute_shader,
         .pipeline_type = MEL_GPU_PIPELINE_COMPUTE,
@@ -1034,6 +1253,8 @@ void mel_mesh_pass_shutdown(Mel_Mesh_Pass* pass)
     mel_gpu_pipeline_shutdown(&pass->mesh_pipeline, pass->dev);
     mel_gpu_pipeline_shutdown(&pass->compute_batch_pipeline, pass->dev);
     mel_gpu_pipeline_shutdown(&pass->compute_pipeline, pass->dev);
+    mel_gpu_pipeline_shutdown(&pass->deferred_resolve_pipeline, pass->dev);
+    mel_gpu_pipeline_shutdown(&pass->deferred_pipeline, pass->dev);
     mel_gpu_pipeline_shutdown(&pass->visibility_resolve_pipeline, pass->dev);
     mel_gpu_pipeline_shutdown(&pass->visibility_attribute_pipeline, pass->dev);
     mel_gpu_pipeline_shutdown(&pass->visibility_pipeline, pass->dev);
@@ -1041,6 +1262,8 @@ void mel_mesh_pass_shutdown(Mel_Mesh_Pass* pass)
     mel_gpu_shader_shutdown(&pass->mesh_shader, pass->dev);
     mel_gpu_shader_shutdown(&pass->compute_batch_shader, pass->dev);
     mel_gpu_shader_shutdown(&pass->compute_shader, pass->dev);
+    mel_gpu_shader_shutdown(&pass->deferred_resolve_shader, pass->dev);
+    mel_gpu_shader_shutdown(&pass->deferred_shader, pass->dev);
     mel_gpu_shader_shutdown(&pass->visibility_resolve_shader, pass->dev);
     mel_gpu_shader_shutdown(&pass->visibility_attribute_shader, pass->dev);
     mel_gpu_shader_shutdown(&pass->visibility_shader, pass->dev);
@@ -1330,6 +1553,70 @@ void mel_mesh_pass_execute_visibility_resolve(Mel_Render_Pass_Ctx* ctx)
         ? external_material_buffer->buffer
         : pass->gpu_frames[pass->gpu_frame_index].material_buffer.buffer;
     mel__mesh_pass_bind_visibility_resolve(pass, ctx->cmd, ctx->read_targets[0], ctx->read_targets[1], material_buffer);
+    vkCmdDraw(ctx->cmd.cmd, 3, 1, 0, 0);
+}
+
+void mel_mesh_pass_execute_deferred_fill(Mel_Render_Pass_Ctx* ctx)
+{
+    Mel_Mesh_Pass* pass = ctx->user;
+    assert(pass != nullptr);
+    assert(ctx->camera != nullptr);
+
+    Mel_Mat4 vp = mel_camera_vp(ctx->camera);
+    mel__mesh_pass_begin(pass, ctx->gpu_frame_index);
+
+    if (ctx->read_lists)
+    {
+        for (u32 i = 0; ctx->read_lists[i] != nullptr; i++)
+            mel__mesh_pass_draw_list(ctx->read_lists[i], pass);
+    }
+
+    bool has_gpu_geometry = false;
+    Mel_Gpu_Buffer* external_material_buffer = nullptr;
+    u32 selected_schema = mel__mesh_pass_pick_visibility_schema(ctx);
+    for (u32 i = 0; ctx->read_sources && mel_source_handle_valid(ctx->read_sources[i]); i++)
+    {
+        Mel_Source_Handle source = ctx->read_sources[i];
+        if (mel_source_kind(source) == MEL_SOURCE_GPU_BUFFER &&
+            mel_source_schema(source) == MEL_SCHEMA_MATERIAL_TABLE)
+        {
+            external_material_buffer = mel_source_gpu_buffer(source);
+        }
+        if (mel_source_kind(source) == MEL_SOURCE_GPU_BUFFER &&
+            mel_source_schema(source) == selected_schema)
+        {
+            has_gpu_geometry = true;
+        }
+    }
+
+    if (has_gpu_geometry && !external_material_buffer && pass->material_count == 0)
+        mel__mesh_pass_push_material(pass, MEL_MATERIAL_INSTANCE_HANDLE_NULL);
+
+    VkBuffer material_buffer = external_material_buffer
+        ? external_material_buffer->buffer
+        : pass->gpu_frames[pass->gpu_frame_index].material_buffer.buffer;
+    if (!external_material_buffer && pass->material_count > 0)
+        mel_gpu_buffer_flush(&pass->gpu_frames[pass->gpu_frame_index].material_buffer, ctx->cmd.dev);
+
+    if (pass->index_count > 0 || has_gpu_geometry)
+        mel__mesh_pass_bind_deferred_fill(pass, ctx->cmd, &vp, material_buffer);
+    mel__mesh_pass_flush(pass, ctx->cmd, false);
+
+    if (has_gpu_geometry)
+        mel__mesh_pass_draw_selected_sources(ctx, selected_schema);
+}
+
+void mel_mesh_pass_execute_deferred_resolve(Mel_Render_Pass_Ctx* ctx)
+{
+    Mel_Mesh_Pass* pass = ctx->user;
+    assert(pass != nullptr);
+
+    if (!ctx->read_targets || !ctx->read_targets[0] || !ctx->read_targets[1] ||
+        !ctx->read_targets[2] || !ctx->read_targets[3])
+        return;
+
+    mel__mesh_pass_bind_deferred_resolve(pass, ctx->cmd,
+        ctx->read_targets[0], ctx->read_targets[1], ctx->read_targets[2], ctx->read_targets[3]);
     vkCmdDraw(ctx->cmd.cmd, 3, 1, 0, 0);
 }
 

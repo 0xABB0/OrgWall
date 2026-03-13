@@ -50,6 +50,8 @@ typedef struct {
     VkVertexInputAttributeDescription* attributes;
     u32 attribute_count;
     VkFormat color_format;
+    VkFormat* color_formats;
+    u32 color_format_count;
     VkFormat depth_format;
     u32 blend_mode;
     u32 cull_mode;

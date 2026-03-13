@@ -554,6 +554,127 @@ static Mel_Technique_Compile_Result mel__compile_mesh_visibility_buffer(const Me
     return ok ? MEL_TECHNIQUE_COMPILE_CONTRIBUTED : MEL_TECHNIQUE_COMPILE_FAIL;
 }
 
+static Mel_Technique_Compile_Result mel__compile_mesh_deferred(const Mel_Technique_Compile_Ctx* ctx)
+{
+    Mel_Mesh_Pass* mesh_pass = ctx->plan_ctx->opt.mesh_pass ? ctx->plan_ctx->opt.mesh_pass : mel_mesh_pass();
+    u32 selected_schema = MEL_SCHEMA_INVALID;
+    Mel_Source_Handle* geometry_sources = mel__collect_preferred_mesh_geometry_sources(ctx->plan_ctx->plan,
+        ctx->plan_ctx->binding.view, &selected_schema);
+    Mel_Source_Handle* material_sources = geometry_sources
+        ? mel_frame_plan_collect_sources(ctx->plan_ctx->plan,
+            ctx->plan_ctx->binding.view, MEL_SOURCE_GPU_BUFFER, MEL_SCHEMA_MATERIAL_TABLE)
+        : nullptr;
+    Mel_Source_Handle* read_sources = mel__merge_mesh_gpu_sources(ctx->plan_ctx->plan, geometry_sources, material_sources);
+    Mel_Render_List** read_lists = geometry_sources ? nullptr
+        : mel_frame_plan_collect_render_lists(ctx->plan_ctx->plan,
+            ctx->plan_ctx->binding.view, MEL_SCHEMA_MESH_INSTANCE);
+
+    if (!read_lists && !read_sources)
+    {
+        mel_frame_plan_free_read_sources(ctx->plan_ctx->plan, geometry_sources);
+        mel_frame_plan_free_read_sources(ctx->plan_ctx->plan, material_sources);
+        return MEL_TECHNIQUE_COMPILE_SKIP;
+    }
+
+    str8 deferred_normal_name = str8_fmt(mel_alloc_heap(), "mesh_deferred_normal_%u", ctx->plan_ctx->binding_index);
+    Mel_Render_Target* deferred_normal_target = mel_frame_plan_named_color_target(ctx->plan_ctx->plan,
+        ctx->plan_ctx->binding.swapchain, deferred_normal_name, VK_FORMAT_R32G32B32A32_SFLOAT);
+    str8 deferred_albedo_name = str8_fmt(mel_alloc_heap(), "mesh_deferred_albedo_%u", ctx->plan_ctx->binding_index);
+    Mel_Render_Target* deferred_albedo_target = mel_frame_plan_named_color_target(ctx->plan_ctx->plan,
+        ctx->plan_ctx->binding.swapchain, deferred_albedo_name, VK_FORMAT_R32G32B32A32_SFLOAT);
+    str8 deferred_emissive_name = str8_fmt(mel_alloc_heap(), "mesh_deferred_emissive_%u", ctx->plan_ctx->binding_index);
+    Mel_Render_Target* deferred_emissive_target = mel_frame_plan_named_color_target(ctx->plan_ctx->plan,
+        ctx->plan_ctx->binding.swapchain, deferred_emissive_name, VK_FORMAT_R32G32B32A32_SFLOAT);
+    str8 deferred_meta_name = str8_fmt(mel_alloc_heap(), "mesh_deferred_meta_%u", ctx->plan_ctx->binding_index);
+    Mel_Render_Target* deferred_meta_target = mel_frame_plan_named_color_target(ctx->plan_ctx->plan,
+        ctx->plan_ctx->binding.swapchain, deferred_meta_name, VK_FORMAT_R32G32B32A32_SFLOAT);
+    Mel_Render_Target* depth_target = mel_frame_plan_swapchain_depth_target(ctx->plan_ctx->plan,
+        ctx->plan_ctx->binding.swapchain);
+
+    bool ok = true;
+    if (selected_schema == MEL_SCHEMA_MESH_CULL_STREAM || selected_schema == MEL_SCHEMA_MESH_CULL_BATCH_STREAM)
+    {
+        str8 compute_name = str8_fmt(mel_alloc_heap(), "%.*s.compute",
+            (int)ctx->technique->name.len, ctx->technique->name.data);
+        ok = mel_frame_plan_add_compute_pass(ctx->plan_ctx, compute_name,
+            mel_mesh_pass_execute_compute_indirect, mesh_pass, read_sources, nullptr);
+        mel_dealloc(mel_alloc_heap(), compute_name.data);
+        if (!ok)
+        {
+            mel_frame_plan_free_read_lists(ctx->plan_ctx->plan, read_lists);
+            mel_frame_plan_free_read_sources(ctx->plan_ctx->plan, geometry_sources);
+            mel_frame_plan_free_read_sources(ctx->plan_ctx->plan, material_sources);
+            if (read_sources)
+                mel_dealloc(mel_alloc_heap(), read_sources);
+            mel_dealloc(mel_alloc_heap(), deferred_normal_name.data);
+            mel_dealloc(mel_alloc_heap(), deferred_albedo_name.data);
+            mel_dealloc(mel_alloc_heap(), deferred_emissive_name.data);
+            mel_dealloc(mel_alloc_heap(), deferred_meta_name.data);
+            return MEL_TECHNIQUE_COMPILE_FAIL;
+        }
+    }
+
+    str8 fill_suffix = str8_fmt(mel_alloc_heap(), "%.*s.fill", (int)ctx->technique->name.len, ctx->technique->name.data);
+    ok = mel_frame_plan_add_graphics_pass(ctx->plan_ctx, fill_suffix,
+        mel_mesh_pass_execute_deferred_fill, mesh_pass, read_lists, read_sources, nullptr,
+        MEL_WRITE_TARGETS(
+            { .target = deferred_normal_target, .load_op = VK_ATTACHMENT_LOAD_OP_CLEAR,
+              .clear.color = { .r = 0.5f, .g = 0.5f, .b = 1.0f, .a = 1.0f } },
+            { .target = deferred_albedo_target, .load_op = VK_ATTACHMENT_LOAD_OP_CLEAR,
+              .clear.color = { .r = 0.0f, .g = 0.0f, .b = 0.0f, .a = 0.0f } },
+            { .target = deferred_emissive_target, .load_op = VK_ATTACHMENT_LOAD_OP_CLEAR,
+              .clear.color = { .r = 0.0f, .g = 0.0f, .b = 0.0f, .a = 1.0f } },
+            { .target = deferred_meta_target, .load_op = VK_ATTACHMENT_LOAD_OP_CLEAR,
+              .clear.color = { .r = 0.0f, .g = 0.0f, .b = 0.0f, .a = 0.0f } },
+            { .target = depth_target, .load_op = VK_ATTACHMENT_LOAD_OP_CLEAR,
+              .clear.depth = { .depth = 1.0f, .stencil = 0 } }));
+    mel_dealloc(mel_alloc_heap(), fill_suffix.data);
+    if (!ok)
+    {
+        mel_frame_plan_free_read_lists(ctx->plan_ctx->plan, read_lists);
+        mel_frame_plan_free_read_sources(ctx->plan_ctx->plan, geometry_sources);
+        mel_frame_plan_free_read_sources(ctx->plan_ctx->plan, material_sources);
+        if (read_sources)
+            mel_dealloc(mel_alloc_heap(), read_sources);
+        mel_dealloc(mel_alloc_heap(), deferred_normal_name.data);
+        mel_dealloc(mel_alloc_heap(), deferred_albedo_name.data);
+        mel_dealloc(mel_alloc_heap(), deferred_emissive_name.data);
+        mel_dealloc(mel_alloc_heap(), deferred_meta_name.data);
+        return MEL_TECHNIQUE_COMPILE_FAIL;
+    }
+
+    VkAttachmentLoadOp color_load_op = (!*ctx->plan_ctx->wrote_any_pass &&
+        (ctx->plan_ctx->first_for_swapchain || ctx->plan_ctx->replace_contents))
+        ? VK_ATTACHMENT_LOAD_OP_CLEAR
+        : VK_ATTACHMENT_LOAD_OP_LOAD;
+    Mel_Vec4 clear = mel_view_clear_color_enabled(ctx->plan_ctx->binding.view)
+        ? mel_view_clear_color(ctx->plan_ctx->binding.view)
+        : mel_vec4(0.0f, 0.0f, 0.0f, 1.0f);
+    Mel_Render_Target* resolve_read_targets[] = {
+        deferred_normal_target,
+        deferred_albedo_target,
+        deferred_emissive_target,
+        deferred_meta_target,
+        nullptr
+    };
+    ok = mel_frame_plan_add_graphics_pass(ctx->plan_ctx, ctx->technique->name,
+        mel_mesh_pass_execute_deferred_resolve, mesh_pass, nullptr, nullptr, resolve_read_targets,
+        MEL_WRITE_TARGETS(
+            { .target = ctx->plan_ctx->target, .load_op = color_load_op,
+              .clear.color = { .r = clear.x, .g = clear.y, .b = clear.z, .a = clear.w } }));
+
+    mel_frame_plan_free_read_lists(ctx->plan_ctx->plan, read_lists);
+    mel_frame_plan_free_read_sources(ctx->plan_ctx->plan, geometry_sources);
+    mel_frame_plan_free_read_sources(ctx->plan_ctx->plan, material_sources);
+    if (read_sources)
+        mel_dealloc(mel_alloc_heap(), read_sources);
+    mel_dealloc(mel_alloc_heap(), deferred_normal_name.data);
+    mel_dealloc(mel_alloc_heap(), deferred_albedo_name.data);
+    mel_dealloc(mel_alloc_heap(), deferred_emissive_name.data);
+    mel_dealloc(mel_alloc_heap(), deferred_meta_name.data);
+    return ok ? MEL_TECHNIQUE_COMPILE_CONTRIBUTED : MEL_TECHNIQUE_COMPILE_FAIL;
+}
+
 static Mel_Technique_Check_Result mel__match_mesh_forward(Mel_Frame_Plan_Technique_Ctx* ctx)
 {
     Mel_Render_List** read_lists = mel_frame_plan_collect_render_lists(ctx->plan, ctx->binding.view, MEL_SCHEMA_MESH_INSTANCE);
@@ -673,6 +794,64 @@ static Mel_Technique_Check_Result mel__match_mesh_visibility_buffer(Mel_Frame_Pl
         .reason = matched
             ? S8("found mesh sources for visibility-buffer shading")
             : S8("no mesh sources attached for visibility-buffer shading"),
+    };
+}
+
+static Mel_Technique_Check_Result mel__match_mesh_deferred(Mel_Frame_Plan_Technique_Ctx* ctx)
+{
+    Mel_Source_Handle* gpu_sources = mel__collect_preferred_mesh_geometry_sources(ctx->plan, ctx->binding.view, nullptr);
+    Mel_Source_Handle* material_sources = gpu_sources
+        ? mel_frame_plan_collect_sources(ctx->plan, ctx->binding.view, MEL_SOURCE_GPU_BUFFER, MEL_SCHEMA_MATERIAL_TABLE)
+        : nullptr;
+    Mel_Render_List** read_lists = gpu_sources ? nullptr
+        : mel_frame_plan_collect_render_lists(ctx->plan, ctx->binding.view, MEL_SCHEMA_MESH_INSTANCE);
+    bool matched = gpu_sources != nullptr || read_lists != nullptr;
+
+    if (matched && gpu_sources && !material_sources)
+    {
+        mel_frame_plan_free_read_sources(ctx->plan, gpu_sources);
+        mel_frame_plan_free_read_sources(ctx->plan, material_sources);
+        mel_frame_plan_free_read_lists(ctx->plan, read_lists);
+        return (Mel_Technique_Check_Result){
+            .ok = false,
+            .kind = MEL_TECHNIQUE_CHECK_SOURCE_MISMATCH,
+            .reason = S8("deferred gpu paths require a material-table source"),
+        };
+    }
+
+    if (matched && read_lists && !mel__mesh_lists_visibility_compatible(read_lists))
+    {
+        mel_frame_plan_free_read_sources(ctx->plan, gpu_sources);
+        mel_frame_plan_free_read_sources(ctx->plan, material_sources);
+        mel_frame_plan_free_read_lists(ctx->plan, read_lists);
+        return (Mel_Technique_Check_Result){
+            .ok = false,
+            .kind = MEL_TECHNIQUE_CHECK_SOURCE_MISMATCH,
+            .reason = S8("deferred currently supports opaque mesh materials only"),
+        };
+    }
+
+    if (matched && material_sources && !mel__material_tables_visibility_compatible(material_sources))
+    {
+        mel_frame_plan_free_read_sources(ctx->plan, gpu_sources);
+        mel_frame_plan_free_read_sources(ctx->plan, material_sources);
+        mel_frame_plan_free_read_lists(ctx->plan, read_lists);
+        return (Mel_Technique_Check_Result){
+            .ok = false,
+            .kind = MEL_TECHNIQUE_CHECK_SOURCE_MISMATCH,
+            .reason = S8("deferred currently supports opaque material-table records only"),
+        };
+    }
+
+    mel_frame_plan_free_read_sources(ctx->plan, gpu_sources);
+    mel_frame_plan_free_read_sources(ctx->plan, material_sources);
+    mel_frame_plan_free_read_lists(ctx->plan, read_lists);
+    return (Mel_Technique_Check_Result){
+        .ok = matched,
+        .kind = matched ? MEL_TECHNIQUE_CHECK_OK : MEL_TECHNIQUE_CHECK_SOURCE_MISMATCH,
+        .reason = matched
+            ? S8("found mesh sources for deferred shading")
+            : S8("no mesh sources attached for deferred shading"),
     };
 }
 
@@ -859,6 +1038,16 @@ static void mel__render_technique_registry_init(void)
         .supports = mel__support_always,
         .matches = mel__match_mesh_visibility_buffer,
         .compile = mel__compile_mesh_visibility_buffer,
+        .refresh = mel__refresh_view_passes,
+    });
+    mel_render_technique_register(&(Mel_Technique_Desc){
+        .family = MEL_TECHNIQUE_MESH,
+        .name = S8("mesh.deferred"),
+        .source_schema = MEL_SCHEMA_INVALID,
+        .priority = 70,
+        .supports = mel__support_always,
+        .matches = mel__match_mesh_deferred,
+        .compile = mel__compile_mesh_deferred,
         .refresh = mel__refresh_view_passes,
     });
     mel_render_technique_register(&(Mel_Technique_Desc){

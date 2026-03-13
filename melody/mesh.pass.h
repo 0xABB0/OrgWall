@@ -109,6 +109,8 @@ struct Mel_Mesh_Pass {
     Mel_Gpu_Shader visibility_shader;
     Mel_Gpu_Shader visibility_attribute_shader;
     Mel_Gpu_Shader visibility_resolve_shader;
+    Mel_Gpu_Shader deferred_shader;
+    Mel_Gpu_Shader deferred_resolve_shader;
     Mel_Gpu_Shader compute_shader;
     Mel_Gpu_Shader compute_batch_shader;
     Mel_Gpu_Shader mesh_shader;
@@ -116,6 +118,8 @@ struct Mel_Mesh_Pass {
     Mel_Gpu_Pipeline visibility_pipeline;
     Mel_Gpu_Pipeline visibility_attribute_pipeline;
     Mel_Gpu_Pipeline visibility_resolve_pipeline;
+    Mel_Gpu_Pipeline deferred_pipeline;
+    Mel_Gpu_Pipeline deferred_resolve_pipeline;
     Mel_Gpu_Pipeline compute_pipeline;
     Mel_Gpu_Pipeline compute_batch_pipeline;
     Mel_Gpu_Pipeline mesh_pipeline;
@@ -162,6 +166,8 @@ void mel_mesh_pass_execute(Mel_Render_Pass_Ctx* ctx);
 void mel_mesh_pass_execute_visibility_fill(Mel_Render_Pass_Ctx* ctx);
 void mel_mesh_pass_execute_visibility_attribute_fill(Mel_Render_Pass_Ctx* ctx);
 void mel_mesh_pass_execute_visibility_resolve(Mel_Render_Pass_Ctx* ctx);
+void mel_mesh_pass_execute_deferred_fill(Mel_Render_Pass_Ctx* ctx);
+void mel_mesh_pass_execute_deferred_resolve(Mel_Render_Pass_Ctx* ctx);
 void mel_mesh_pass_execute_compute_indirect(Mel_Render_Pass_Ctx* ctx);
 void mel_mesh_pass_execute_mesh_shader(Mel_Render_Pass_Ctx* ctx);
 

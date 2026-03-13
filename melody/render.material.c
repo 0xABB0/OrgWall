@@ -199,6 +199,43 @@ static Mel_Material_Check_Result mel__surface_unlit_visibility_match(Mel_Frame_P
     };
 }
 
+static Mel_Material_Check_Result mel__surface_unlit_deferred_match(Mel_Frame_Plan_Material_Ctx* ctx,
+    Mel_Material_Template_Handle material_template)
+{
+    if (!str8_ieq(ctx->technique_name, S8("mesh.deferred")))
+    {
+        return (Mel_Material_Check_Result){
+            .ok = false,
+            .kind = MEL_MATERIAL_CHECK_TECHNIQUE_MISMATCH,
+            .reason = S8("surface.unlit.deferred requires mesh.deferred"),
+        };
+    }
+
+    if (!str8_ieq(mel_material_template_profile(material_template), S8("surface.unlit")))
+    {
+        return (Mel_Material_Check_Result){
+            .ok = false,
+            .kind = MEL_MATERIAL_CHECK_PROFILE_MISMATCH,
+            .reason = S8("backend expects surface.unlit profile"),
+        };
+    }
+
+    if (mel_material_template_render_domain(material_template) != MEL_MATERIAL_DOMAIN_OPAQUE)
+    {
+        return (Mel_Material_Check_Result){
+            .ok = false,
+            .kind = MEL_MATERIAL_CHECK_PROFILE_MISMATCH,
+            .reason = S8("deferred currently supports opaque surface.unlit materials only"),
+        };
+    }
+
+    return (Mel_Material_Check_Result){
+        .ok = true,
+        .kind = MEL_MATERIAL_CHECK_OK,
+        .reason = S8("surface.unlit material matches mesh.deferred"),
+    };
+}
+
 static Mel_Material_Check_Result mel__sprite_unlit_match(Mel_Frame_Plan_Material_Ctx* ctx,
     Mel_Material_Template_Handle material_template)
 {
@@ -292,6 +329,43 @@ static Mel_Material_Check_Result mel__surface_standard_visibility_match(Mel_Fram
     };
 }
 
+static Mel_Material_Check_Result mel__surface_standard_deferred_match(Mel_Frame_Plan_Material_Ctx* ctx,
+    Mel_Material_Template_Handle material_template)
+{
+    if (!str8_ieq(ctx->technique_name, S8("mesh.deferred")))
+    {
+        return (Mel_Material_Check_Result){
+            .ok = false,
+            .kind = MEL_MATERIAL_CHECK_TECHNIQUE_MISMATCH,
+            .reason = S8("surface.standard.deferred requires mesh.deferred"),
+        };
+    }
+
+    if (!str8_ieq(mel_material_template_profile(material_template), S8("surface.standard")))
+    {
+        return (Mel_Material_Check_Result){
+            .ok = false,
+            .kind = MEL_MATERIAL_CHECK_PROFILE_MISMATCH,
+            .reason = S8("backend expects surface.standard profile"),
+        };
+    }
+
+    if (mel_material_template_render_domain(material_template) != MEL_MATERIAL_DOMAIN_OPAQUE)
+    {
+        return (Mel_Material_Check_Result){
+            .ok = false,
+            .kind = MEL_MATERIAL_CHECK_PROFILE_MISMATCH,
+            .reason = S8("deferred currently supports opaque surface.standard materials only"),
+        };
+    }
+
+    return (Mel_Material_Check_Result){
+        .ok = true,
+        .kind = MEL_MATERIAL_CHECK_OK,
+        .reason = S8("surface.standard material matches mesh.deferred"),
+    };
+}
+
 static Mel_Material_Family* mel__material_family_get(Mel_Material_Family_Handle handle)
 {
     assert(s_initialized);
@@ -367,6 +441,16 @@ static void mel__material_registry_init(void)
         .matches = mel__surface_unlit_visibility_match,
     });
     mel_material_backend_register(&(Mel_Material_Backend_Desc){
+        .name = S8("surface.unlit.deferred"),
+        .family = s_surface_family,
+        .profile = S8("surface.unlit"),
+        .technique_family = MEL_TECHNIQUE_MESH,
+        .technique_name = S8("mesh.deferred"),
+        .priority = 100,
+        .supports = mel__material_support_always,
+        .matches = mel__surface_unlit_deferred_match,
+    });
+    mel_material_backend_register(&(Mel_Material_Backend_Desc){
         .name = S8("surface.standard.visibility_buffer"),
         .family = s_surface_family,
         .profile = S8("surface.standard"),
@@ -375,6 +459,16 @@ static void mel__material_registry_init(void)
         .priority = 100,
         .supports = mel__material_support_always,
         .matches = mel__surface_standard_visibility_match,
+    });
+    mel_material_backend_register(&(Mel_Material_Backend_Desc){
+        .name = S8("surface.standard.deferred"),
+        .family = s_surface_family,
+        .profile = S8("surface.standard"),
+        .technique_family = MEL_TECHNIQUE_MESH,
+        .technique_name = S8("mesh.deferred"),
+        .priority = 100,
+        .supports = mel__material_support_always,
+        .matches = mel__surface_standard_deferred_match,
     });
     mel_material_backend_register(&(Mel_Material_Backend_Desc){
         .name = S8("sprite.unlit.sprite"),
