@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core.types.h"
+#include "log.fwd.h"
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
@@ -39,6 +40,8 @@ u32 mel_test_count(void);
 void mel_test_run_one(Mel_Test_Entry* entry);
 void mel_test_run_all(void);
 int mel_test_main(int argc, char** argv);
+
+Mel_Log_Sink* mel_test_log_sink(void);
 
 #define MEL_TEST(tname, ...) \
     static void test_##tname(void); \

@@ -252,6 +252,7 @@ static void mel__push_entry(u32 level, str8 domain, const char* file, u32 line,
     u16 message_len = (u16)message.len;
     u16 context_len = (u16)context.len;
     u32 total_size = (u32)MEL__LOG_ENTRY_HEADER_SIZE + domain_len + file_len + message_len + context_len;
+    total_size = (total_size + 3u) & ~3u;
 
     u64 pos;
     if (!mel__ring_reserve(&ring, total_size, &pos))
@@ -651,6 +652,7 @@ void mel__log_signal(u32 level, const char* static_message)
     while (p && *p) { msg_len++; p++; }
 
     u32 total_size = (u32)MEL__LOG_ENTRY_HEADER_SIZE + msg_len;
+    total_size = (total_size + 3u) & ~3u;
 
     u64 pos;
     if (!mel__ring_reserve(&ring, total_size, &pos))

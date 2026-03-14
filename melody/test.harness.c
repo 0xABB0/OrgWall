@@ -1,10 +1,13 @@
 #include "test.harness.h"
+#include "log.h"
+#include "log.sink.test.h"
 #include <stdlib.h>
 
 Mel_Test_Context s_test_ctx = {0};
 
 static Mel_Test_Entry* s_test_list = NULL;
 static u32 s_test_count = 0;
+static Mel_Log_Sink* s_test_log_sink = NULL;
 
 void mel__test_register(Mel_Test_Entry* entry)
 {
@@ -16,11 +19,32 @@ void mel__test_register(Mel_Test_Entry* entry)
 Mel_Test_Entry* mel_test_list(void) { return s_test_list; }
 u32 mel_test_count(void) { return s_test_count; }
 
+Mel_Log_Sink* mel_test_log_sink(void) { return s_test_log_sink; }
+
 void mel_test_run_one(Mel_Test_Entry* entry)
 {
     u32 failed_before = s_test_ctx.failed;
     s_test_ctx.current_test = entry->name;
+
+#if !MEL_LOG_DISABLED
+    if (s_test_log_sink)
+    {
+        mel_log_sink_flush_all();
+        mel_log_test_clear(s_test_log_sink);
+    }
+#endif
+
     entry->func();
+
+#if !MEL_LOG_DISABLED
+    if (s_test_log_sink)
+    {
+        mel_log_sink_flush_all();
+        if (s_test_ctx.failed > failed_before)
+            mel_log_test_dump(s_test_log_sink);
+    }
+#endif
+
     entry->status = (s_test_ctx.failed > failed_before) ? MEL_TEST_FAILED : MEL_TEST_PASSED;
 }
 
@@ -54,6 +78,11 @@ static bool tag_matches(const char* tags, const char* filter)
 
 int mel_test_main(int argc, char** argv)
 {
+#if !MEL_LOG_DISABLED
+    s_test_log_sink = mel_log_sink_test_create();
+    mel_log_sink_add(s_test_log_sink);
+#endif
+
     bool list_only = false;
     const char* filter = NULL;
     const char* tag = NULL;
