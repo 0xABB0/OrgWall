@@ -17,7 +17,8 @@
 #include "texture.pool.h"
 #include "sprite.pass.h"
 #include "font.atlas.h"
-#include "vfs.h"
+// ASYNC_V2: VFS removed
+// #include "vfs.h"
 #include "math.mat4.h"
 #include "math.vec4.h"
 #include "math.geo.rect.h"

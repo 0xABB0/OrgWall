@@ -96,13 +96,13 @@ static void street_carlos_fight_stage_init_input(Street_Carlos_Fight_Stage* stag
 
 static void street_carlos_fight_stage_release_assets(Street_Carlos_Fight_Stage* stage)
 {
-    Street_Carlos_Ctx* ctx = stage->ctx;
-    if (mel_slotmap_handle_valid(stage->build_task))
-    {
-        mel_task_wait(ctx->task_ctx, stage->build_task);
-        mel_task_release(ctx->task_ctx, stage->build_task);
-        stage->build_task = MEL_TASK_HANDLE_NULL;
-    }
+    // ASYNC_V2: removed, needs migration
+    // if (mel_slotmap_handle_valid(stage->build_task))
+    // {
+    //     mel_task_wait(ctx->task_ctx, stage->build_task);
+    //     mel_task_release(ctx->task_ctx, stage->build_task);
+    //     stage->build_task = MEL_TASK_HANDLE_NULL;
+    // }
 
     Mel_Gpu_Device* dev = mel_gpu_dev();
     if (mel_slotmap_handle_valid(stage->p1_char_tex_handle.handle))
@@ -135,46 +135,37 @@ static void street_carlos_fight_stage_release_assets(Street_Carlos_Fight_Stage* 
 
 static void street_carlos_fight_stage_load_stage_def(Street_Carlos_Fight_Stage* stage)
 {
-    str8 data = mel_vfs_read_text_alloc(&stage->ctx->vfs, stage->selected_stage_path, mel_alloc_heap());
-    if (data.len == 0)
-    {
-        mugen_stage_load(&stage->stage_def, (str8){0}, mel_alloc_heap());
-        return;
-    }
-
-    mugen_stage_load(&stage->stage_def, data, mel_alloc_heap());
-    mel_dealloc(mel_alloc_heap(), data.data);
+    // ASYNC_V2: VFS removed
+    mugen_stage_load(&stage->stage_def, (str8){0}, mel_alloc_heap());
 }
 
 static void street_carlos_fight_stage_load_stage_sff(Street_Carlos_Fight_Stage* stage)
 {
+    // ASYNC_V2: VFS removed
     if (stage->stage_def.spr_path.len == 0)
         return;
 
     u8 path_buf[1024];
     str8 stage_dir = mel_path_parent(stage->selected_stage_path);
     str8 spr_full = mel_path_join(stage_dir, stage->stage_def.spr_path, path_buf, sizeof(path_buf));
-    mugen_sff_load(&stage->stage_sff, &stage->ctx->vfs, spr_full, mel_alloc_heap());
+    mugen_sff_load(&stage->stage_sff, NULL, spr_full, mel_alloc_heap());
 }
 
 static void street_carlos_fight_stage_load_fightdef(Street_Carlos_Fight_Stage* stage)
 {
-    str8 data = mel_vfs_read_text_alloc(&stage->ctx->vfs, S8("/data/fight.def"), mel_alloc_heap());
-    if (data.len == 0)
-        return;
-
-    mugen_fightdef_load(&stage->fightdef, data, mel_alloc_heap());
-    mel_dealloc(mel_alloc_heap(), data.data);
+    // ASYNC_V2: VFS removed
+    MEL_UNUSED(stage);
 }
 
 static void street_carlos_fight_stage_load_hud_sff(Street_Carlos_Fight_Stage* stage)
 {
+    // ASYNC_V2: VFS removed
     if (stage->fightdef.files.sff.len == 0)
         return;
 
     str8 path = str8_fmt_alloc(mel_alloc_heap(), "/data/%.*s",
         (int)stage->fightdef.files.sff.len, (char*)stage->fightdef.files.sff.data);
-    mugen_sff_load(&stage->fight_sff, &stage->ctx->vfs, path, mel_alloc_heap());
+    mugen_sff_load(&stage->fight_sff, NULL, path, mel_alloc_heap());
     mel_dealloc(mel_alloc_heap(), path.data);
 }
 
@@ -280,37 +271,14 @@ static void fight_build_hud_sff_job(i32 range_start, i32 range_end, i32 thread_i
     street_carlos_fight_stage_load_hud_sff(user);
 }
 
-static Mel_Task_Step_Result fight_build_stage_def_step(Mel_Task_Ctx* ctx, void* user_data)
-{
-    return mel_task_step_dispatch_job(ctx, .callback = fight_build_stage_def_job, .user = user_data);
-}
+// ASYNC_V2: removed, needs migration — task steps + build_begin deleted
 
-static Mel_Task_Step_Result fight_build_stage_sff_step(Mel_Task_Ctx* ctx, void* user_data)
+static void street_carlos_fight_stage_build_sync(Street_Carlos_Fight_Stage* stage)
 {
-    return mel_task_step_dispatch_job(ctx, .callback = fight_build_stage_sff_job, .user = user_data);
-}
-
-static Mel_Task_Step_Result fight_build_fightdef_step(Mel_Task_Ctx* ctx, void* user_data)
-{
-    return mel_task_step_dispatch_job(ctx, .callback = fight_build_fightdef_job, .user = user_data);
-}
-
-static Mel_Task_Step_Result fight_build_hud_sff_step(Mel_Task_Ctx* ctx, void* user_data)
-{
-    return mel_task_step_dispatch_job(ctx, .callback = fight_build_hud_sff_job, .user = user_data);
-}
-
-static Mel_Task_Handle street_carlos_fight_stage_build_begin(Street_Carlos_Fight_Stage* stage)
-{
-    Mel_Task_Handle task = mel_task_begin(stage->ctx->task_ctx);
-    u32 stage_def_step = mel_task_add_step(stage->ctx->task_ctx, task, (Mel_Task_Step_Desc){ .fn = fight_build_stage_def_step, .user_data = stage });
-    u32 stage_sff_step = mel_task_add_step(stage->ctx->task_ctx, task, (Mel_Task_Step_Desc){ .fn = fight_build_stage_sff_step, .user_data = stage });
-    u32 fightdef_step = mel_task_add_step(stage->ctx->task_ctx, task, (Mel_Task_Step_Desc){ .fn = fight_build_fightdef_step, .user_data = stage });
-    u32 hud_sff_step = mel_task_add_step(stage->ctx->task_ctx, task, (Mel_Task_Step_Desc){ .fn = fight_build_hud_sff_step, .user_data = stage });
-    mel_task_add_dep(stage->ctx->task_ctx, task, stage_sff_step, stage_def_step);
-    mel_task_add_dep(stage->ctx->task_ctx, task, hud_sff_step, fightdef_step);
-    mel_task_submit(stage->ctx->task_ctx, task);
-    return task;
+    fight_build_stage_def_job(0, 1, 0, stage);
+    fight_build_stage_sff_job(0, 1, 0, stage);
+    fight_build_fightdef_job(0, 1, 0, stage);
+    fight_build_hud_sff_job(0, 1, 0, stage);
 }
 
 Mel_Progress_Status street_carlos_fight_stage_progress(void* user)
@@ -323,8 +291,6 @@ Mel_Progress_Status street_carlos_fight_stage_progress(void* user)
         case STREET_CARLOS_FIGHT_PREP_IDLE: progress = 0.0f; break;
         case STREET_CARLOS_FIGHT_PREP_WAIT_BUILD:
             progress = 0.6f;
-            if (mel_slotmap_handle_valid(stage->build_task))
-                progress *= mel_task_progress(stage->ctx->task_ctx, stage->build_task);
             break;
         case STREET_CARLOS_FIGHT_PREP_UPLOAD_CHAR: progress = 0.6f; break;
         case STREET_CARLOS_FIGHT_PREP_UPLOAD_STAGE: progress = 0.75f; break;
@@ -444,7 +410,7 @@ void street_carlos_fight_stage_prepare(Street_Carlos_Fight_Stage* stage, Street_
         .progress = 0.2f,
     };
     stage->prep_started_at_ticks = SDL_GetTicks();
-    stage->build_task = street_carlos_fight_stage_build_begin(stage);
+    street_carlos_fight_stage_build_sync(stage);
 }
 
 void street_carlos_fight_stage_tick(Street_Carlos_Fight_Stage* stage, Street_Carlos_Ctx* ctx)
@@ -459,23 +425,7 @@ void street_carlos_fight_stage_tick(Street_Carlos_Fight_Stage* stage, Street_Car
 
         case STREET_CARLOS_FIGHT_PREP_WAIT_BUILD:
         {
-            if (!mel_slotmap_handle_valid(stage->build_task))
-            {
-                street_carlos_fight_stage_fail(stage, "Fight build task did not start");
-                return;
-            }
-
-            u32 status = mel_task_status(stage->ctx->task_ctx, stage->build_task);
-            if (status == MEL_TASK_STATUS_BUILDING || status == MEL_TASK_STATUS_RUNNING)
-                return;
-            if (status != MEL_TASK_STATUS_DONE)
-            {
-                street_carlos_fight_stage_fail(stage, "Fight build task failed");
-                return;
-            }
-
-            mel_task_release(stage->ctx->task_ctx, stage->build_task);
-            stage->build_task = MEL_TASK_HANDLE_NULL;
+            // ASYNC_V2: removed, needs migration — builds are now synchronous
             stage->prep.progress = 0.6f;
             stage->prep.phase = STREET_CARLOS_FIGHT_PREP_UPLOAD_CHAR;
         } break;

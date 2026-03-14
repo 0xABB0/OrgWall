@@ -1,5 +1,4 @@
 #include "progress.h"
-#include "async.task.h"
 #include "collection.array.h"
 
 static f32 mel__progress_clamp01(f32 value)
@@ -45,22 +44,23 @@ void mel_progress_add_custom(Mel_Progress* progress, Mel_Progress_Fn fn, void* u
     }));
 }
 
-void mel_progress_add_task(Mel_Progress* progress, Mel_Task_Ctx* ctx, Mel_Task_Handle handle, f32 weight)
-{
-    assert(progress != NULL);
-    assert(ctx != NULL);
-    assert(mel_slotmap_handle_valid(handle));
-    assert(weight > 0.0f);
-
-    mel_array_push(&progress->sources, ((Mel_Progress_Source){
-        .kind = MEL_PROGRESS_SOURCE_TASK,
-        .weight = weight,
-        .task = {
-            .ctx = ctx,
-            .handle = handle,
-        },
-    }));
-}
+// ASYNC_V2: removed, needs migration
+// void mel_progress_add_task(Mel_Progress* progress, Mel_Task_Ctx* ctx, Mel_Task_Handle handle, f32 weight)
+// {
+//     assert(progress != NULL);
+//     assert(ctx != NULL);
+//     assert(mel_slotmap_handle_valid(handle));
+//     assert(weight > 0.0f);
+//
+//     mel_array_push(&progress->sources, ((Mel_Progress_Source){
+//         .kind = MEL_PROGRESS_SOURCE_TASK,
+//         .weight = weight,
+//         .task = {
+//             .ctx = ctx,
+//             .handle = handle,
+//         },
+//     }));
+// }
 
 void mel_progress_add_child(Mel_Progress* progress, const Mel_Progress* child, f32 weight)
 {
@@ -81,13 +81,14 @@ static Mel_Progress_Status mel__progress_source_state(const Mel_Progress_Source*
     case MEL_PROGRESS_SOURCE_CUSTOM:
         return source->custom.fn(source->custom.user);
 
-    case MEL_PROGRESS_SOURCE_TASK: {
-        u32 status = mel_task_status(source->task.ctx, source->task.handle);
-        return (Mel_Progress_Status){
-            .value = mel_task_progress(source->task.ctx, source->task.handle),
-            .failed = status == MEL_TASK_STATUS_FAILED || status == MEL_TASK_STATUS_CANCELLED,
-        };
-    }
+    // ASYNC_V2: removed, needs migration
+    // case MEL_PROGRESS_SOURCE_TASK: {
+    //     u32 status = mel_task_status(source->task.ctx, source->task.handle);
+    //     return (Mel_Progress_Status){
+    //         .value = mel_task_progress(source->task.ctx, source->task.handle),
+    //         .failed = status == MEL_TASK_STATUS_FAILED || status == MEL_TASK_STATUS_CANCELLED,
+    //     };
+    // }
 
     case MEL_PROGRESS_SOURCE_CHILD:
         return mel_progress_state(source->child);

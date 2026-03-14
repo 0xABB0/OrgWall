@@ -10,10 +10,13 @@
 #include "render.list.h"
 #include "render.stage.2d.h"
 #include "sim.ctx.h"
-#include "async.io.h"
-#include "async.task.h"
+// ASYNC_V2: removed, needs migration
+// #include "async.io.h"
+// #include "async.task.h"
 #include "async.job.h"
-#include "vfs.h"
+// ASYNC_V2: VFS removed
+// #include "vfs.h"
+typedef struct Mel_Vfs Mel_Vfs;
 #include "progress.h"
 #include "../../melody/stage.h"
 #include "font.atlas.h"
@@ -49,9 +52,10 @@ typedef struct Street_Carlos_Ctx {
     Mel_Sim_Ctx task_sim;
     u8 task_event_buf[256];
 
-    Mel_Io io;
-    Mel_Vfs vfs;
-    Mel_Task_Ctx* task_ctx;
+    // ASYNC_V2: VFS removed
+    // Mel_Io io;
+    // Mel_Vfs vfs;
+    // Mel_Task_Ctx* task_ctx;
     Mel_Job_Context* job_ctx;
 
     Mugen_Roster roster;

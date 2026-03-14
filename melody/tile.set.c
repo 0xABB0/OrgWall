@@ -3,7 +3,8 @@
 #include "string.str8.h"
 #include "hash.xxh.h"
 #include "allocator.h"
-#include "vfs.h"
+// ASYNC_V2: VFS removed
+// #include "vfs.h"
 #include <cjson/cJSON.h>
 #include <SDL3/SDL.h>
 #include <string.h>
@@ -89,120 +90,9 @@ Mel_Tileset_Handle mel_tileset_pool_load(Mel_Tileset_Pool* pool, str8 path)
         return h;
     }
 
-    str8 text = mel_vfs_read_text_alloc(pool->vfs, path, pool->alloc);
-    if (!text.data)
-    {
-        SDL_Log("tile.set: failed to read '%.*s'", (int)path.len, path.data);
-        return MEL_TILESET_HANDLE_NULL;
-    }
-
-    cJSON* root = cJSON_Parse((char*)text.data);
-    mel_dealloc(pool->alloc, text.data);
-
-    if (!root)
-    {
-        SDL_Log("tile.set: failed to parse JSON '%.*s'", (int)path.len, path.data);
-        return MEL_TILESET_HANDLE_NULL;
-    }
-
-    Mel_Tileset_Entry entry = {0};
-    entry.alloc = pool->alloc;
-
-    cJSON* name_json = cJSON_GetObjectItem(root, "name");
-    if (name_json && cJSON_IsString(name_json))
-        entry.name = str8_dup(str8_from_cstr(name_json->valuestring), pool->alloc);
-
-    cJSON* sources_json = cJSON_GetObjectItem(root, "sources");
-    if (sources_json && cJSON_IsArray(sources_json))
-    {
-        entry.source_count = (u32)cJSON_GetArraySize(sources_json);
-        entry.sources = mel_alloc_array(pool->alloc, Mel_Tile_Source, entry.source_count);
-
-        u32 i = 0;
-        cJSON* src;
-        cJSON_ArrayForEach(src, sources_json)
-        {
-            Mel_Tile_Source* s = &entry.sources[i];
-            *s = (Mel_Tile_Source){0};
-
-            cJSON* tex_path = cJSON_GetObjectItem(src, "texture");
-            if (tex_path && cJSON_IsString(tex_path))
-            {
-                str8 tp = str8_from_cstr(tex_path->valuestring);
-                s->path = str8_dup(tp, pool->alloc);
-                s->texture = mel_texture_pool_load(pool->texture_pool, tp);
-            }
-
-            cJSON* tw = cJSON_GetObjectItem(src, "tile_width");
-            if (tw && cJSON_IsNumber(tw)) s->tile_width = (u32)tw->valueint;
-
-            cJSON* th = cJSON_GetObjectItem(src, "tile_height");
-            if (th && cJSON_IsNumber(th)) s->tile_height = (u32)th->valueint;
-
-            cJSON* cols = cJSON_GetObjectItem(src, "columns");
-            if (cols && cJSON_IsNumber(cols)) s->columns = (u32)cols->valueint;
-
-            cJSON* rows_j = cJSON_GetObjectItem(src, "rows");
-            if (rows_j && cJSON_IsNumber(rows_j)) s->rows = (u32)rows_j->valueint;
-
-            cJSON* pad = cJSON_GetObjectItem(src, "padding");
-            if (pad && cJSON_IsNumber(pad)) s->padding = (u32)pad->valueint;
-
-            cJSON* mar = cJSON_GetObjectItem(src, "margin");
-            if (mar && cJSON_IsNumber(mar)) s->margin = (u32)mar->valueint;
-
-            cJSON* sheet = cJSON_GetObjectItem(src, "is_sheet");
-            s->is_sheet = sheet && cJSON_IsTrue(sheet);
-
-            i++;
-        }
-    }
-
-    cJSON* tiles_json = cJSON_GetObjectItem(root, "tiles");
-    if (tiles_json && cJSON_IsArray(tiles_json))
-    {
-        entry.tile_count = (u32)cJSON_GetArraySize(tiles_json);
-        entry.tiles = mel_alloc_array(pool->alloc, Mel_Tile_Def, entry.tile_count);
-
-        u32 i = 0;
-        cJSON* tile;
-        cJSON_ArrayForEach(tile, tiles_json)
-        {
-            Mel_Tile_Def* t = &entry.tiles[i];
-            *t = (Mel_Tile_Def){0};
-
-            cJSON* id = cJSON_GetObjectItem(tile, "id");
-            if (id && cJSON_IsNumber(id)) t->id = (u32)id->valueint;
-
-            cJSON* si = cJSON_GetObjectItem(tile, "source_idx");
-            if (si && cJSON_IsNumber(si)) t->source_idx = (u32)si->valueint;
-
-            cJSON* sx = cJSON_GetObjectItem(tile, "source_x");
-            if (sx && cJSON_IsNumber(sx)) t->source_x = (u32)sx->valueint;
-
-            cJSON* sy = cJSON_GetObjectItem(tile, "source_y");
-            if (sy && cJSON_IsNumber(sy)) t->source_y = (u32)sy->valueint;
-
-            cJSON* w = cJSON_GetObjectItem(tile, "width");
-            if (w && cJSON_IsNumber(w)) t->width = (u32)w->valueint;
-
-            cJSON* h = cJSON_GetObjectItem(tile, "height");
-            if (h && cJSON_IsNumber(h)) t->height = (u32)h->valueint;
-
-            cJSON* fl = cJSON_GetObjectItem(tile, "flags");
-            if (fl && cJSON_IsNumber(fl)) t->flags = (u32)fl->valueint;
-
-            i++;
-        }
-    }
-
-    cJSON_Delete(root);
-
-    Mel_SlotMap_Handle sm_handle = mel_slotmap_insert(&pool->slotmap, &entry);
-    Mel_Tileset_Handle ts_handle = { .handle = sm_handle };
-    mel_hashmap_put(&pool->path_to_handle, (void*)(usize)hash, mel_slotmap_handle_to_ptr(sm_handle));
-
-    return ts_handle;
+    // ASYNC_V2: VFS removed
+    SDL_Log("tile.set: VFS removed, cannot load '%.*s'", (int)path.len, path.data);
+    return MEL_TILESET_HANDLE_NULL;
 }
 
 Mel_Tileset_Handle mel_tileset_pool_create(Mel_Tileset_Pool* pool, str8 name)
@@ -322,13 +212,10 @@ bool mel_tileset_pool_save(Mel_Tileset_Pool* pool, Mel_Tileset_Handle handle, st
         return false;
     }
 
-    bool result = mel_vfs_write_text(pool->vfs, path, str8_from_cstr(json_text));
+    // ASYNC_V2: VFS removed
     free(json_text);
-
-    if (result)
-        SDL_Log("tile.set: saved '%.*s'", (int)path.len, path.data);
-
-    return result;
+    SDL_Log("tile.set: VFS removed, cannot save '%.*s'", (int)path.len, path.data);
+    return false;
 }
 
 Mel_Tile_Def* mel_tileset_entry_get_tile(Mel_Tileset_Entry* entry, u32 tile_id)

@@ -17,7 +17,8 @@
 #include "sprite.pass.h"
 #include "string.path.h"
 #include "string.str8.h"
-#include "vfs.h"
+// ASYNC_V2: VFS removed
+// #include "vfs.h"
 
 static void draw_centered_text(Street_Carlos_Ctx* ctx, Mel_Render_List* list, Mel_Font_Handle font, str8 text, f32 y, Mel_Vec4 color)
 {
@@ -143,79 +144,16 @@ static void load_stage_preview_meta(Street_Carlos_Ctx* ctx, Street_Carlos_Stage_
     preview->preview_focus = mel_vec2(0.5f, 0.5f);
     preview->preview_zoom = 1.0f;
 
-    u8 preview_path_buf[1024];
-    str8 preview_path = stage_preview_path(stage_path, preview_path_buf, sizeof(preview_path_buf));
-    if (str8_is_empty(preview_path))
-        return;
-
-    str8 preview_data = mel_vfs_read_text_alloc(&ctx->vfs, preview_path, mel_alloc_heap());
-    if (preview_data.len == 0)
-        return;
-
-    size start = 0;
-    while (start < preview_data.len)
-    {
-        size end = start;
-        while (end < preview_data.len && preview_data.data[end] != '\n' && preview_data.data[end] != '\r')
-            end++;
-
-        str8 line = str8_trim(preview_strip_comment(str8_from_parts(preview_data.data + start, end - start)));
-        if (line.len > 0)
-        {
-            str8 key = preview_before_eq(line);
-            str8 val = preview_after_eq(line);
-            if (str8_ieq_cstr(key, "focus"))
-            {
-                preview_parse_vec2(val, &preview->preview_focus);
-            }
-            else if (str8_ieq_cstr(key, "zoom"))
-            {
-                preview->preview_zoom = preview_parse_float(val, preview->preview_zoom);
-            }
-        }
-
-        while (end < preview_data.len && (preview_data.data[end] == '\n' || preview_data.data[end] == '\r'))
-            end++;
-        start = end;
-    }
-
-    preview->preview_focus.x = mel_saturatef(preview->preview_focus.x);
-    preview->preview_focus.y = mel_saturatef(preview->preview_focus.y);
-    preview->preview_zoom = mel_maxf(preview->preview_zoom, 0.25f);
-    mel_dealloc(mel_alloc_heap(), preview_data.data);
+    // ASYNC_V2: VFS removed
+    MEL_UNUSED(ctx);
+    MEL_UNUSED(stage_path);
 }
 
 static void load_stage_preview(Street_Carlos_Ctx* ctx, Street_Carlos_Stage_Preview* preview, str8 stage_path)
 {
+    // ASYNC_V2: VFS removed
     load_stage_preview_meta(ctx, preview, stage_path);
-
-    str8 stage_data = mel_vfs_read_text_alloc(&ctx->vfs, stage_path, mel_alloc_heap());
-    if (stage_data.len == 0)
-        return;
-
-    mugen_stage_load(&preview->stage, stage_data, mel_alloc_heap());
-    mel_dealloc(mel_alloc_heap(), stage_data.data);
-
-    if (preview->stage.spr_path.len == 0)
-        return;
-
-    u8 path_buf[1024];
-    str8 stage_dir = mel_path_parent(stage_path);
-    str8 spr_full = mel_path_join(stage_dir, preview->stage.spr_path, path_buf, sizeof(path_buf));
-    if (!mugen_sff_load(&preview->sff, &ctx->vfs, spr_full, mel_alloc_heap()))
-        return;
-
-    Mel_Gpu_Device* dev = mel_gpu_dev();
-    mel_gpu_texture_init(&preview->texture, dev,
-        .pixels = preview->sff.atlas_pixels,
-        .width = preview->sff.atlas_width,
-        .height = preview->sff.atlas_height,
-        .nearest_filter = true);
-    preview->texture.descriptor = mel_gpu_pipeline_alloc_descriptor(&mel_sprite_pass()->pipeline, dev);
-    mel_gpu_pipeline_write_texture(&mel_sprite_pass()->pipeline, dev,
-        preview->texture.descriptor, preview->texture.image.view, preview->texture.sampler);
-    preview->handle = mel_texture_pool_register(mel_texture_pool(), &preview->texture);
-    preview->loaded = true;
+    MEL_UNUSED(stage_path);
 }
 
 static void street_carlos_stage_select_stage_start(Mel_Stage* base, void* user)

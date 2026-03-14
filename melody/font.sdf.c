@@ -5,7 +5,8 @@
 #include "gpu.submit.h"
 #include "allocator.h"
 #include "math.scalar.h"
-#include "vfs.h"
+// ASYNC_V2: VFS removed
+// #include "vfs.h"
 
 #include <SDL3/SDL.h>
 #include <math.h>
@@ -132,157 +133,9 @@ Mel_Font_Handle mel_font_sdf_pool_load_opt(Mel_Font_SDF_Pool* pool, Mel_Font_SDF
     if (existing)
         return (Mel_Font_Handle){ .handle = mel_slotmap_handle_from_ptr(existing) };
 
-    usize file_size = 0;
-    u8* ttf_data = mel_vfs_read_file_alloc(pool->vfs, opt.path, &file_size, pool->alloc);
-    if (!ttf_data)
-    {
-        SDL_Log("font.sdf: failed to open '%.*s'", (int)opt.path.len, opt.path.data);
-        return MEL_FONT_HANDLE_NULL;
-    }
-
-    stbtt_fontinfo info;
-    if (!stbtt_InitFont(&info, ttf_data, 0))
-    {
-        mel_dealloc(pool->alloc, ttf_data);
-        return MEL_FONT_HANDLE_NULL;
-    }
-
-    f32 font_size = opt.size > 0 ? opt.size : 48.0f;
-    u32 atlas_w = opt.atlas_width > 0 ? opt.atlas_width : 1024;
-    u32 atlas_h = opt.atlas_height > 0 ? opt.atlas_height : 1024;
-    f32 px_range = opt.px_range > 0 ? opt.px_range : 8.0f;
-    u32 padding = opt.padding > 0 ? opt.padding : (u32)ceilf(px_range) + 2;
-    if (padding < (u32)ceilf(px_range) + 2)
-        padding = (u32)ceilf(px_range) + 2;
-
-    u8* rgba = mel_calloc(pool->alloc, atlas_w * atlas_h * 4);
-    f32 scale = stbtt_ScaleForPixelHeight(&info, font_size);
-
-    int ascent_i, descent_i, line_gap_i;
-    stbtt_GetFontVMetrics(&info, &ascent_i, &descent_i, &line_gap_i);
-
-    Mel_Font_SDF_Entry entry = {0};
-    entry.atlas_width = atlas_w;
-    entry.atlas_height = atlas_h;
-    entry.px_range = px_range;
-    entry.desc.first_codepoint = MEL_FONT_SDF_FIRST_CHAR;
-    entry.desc.glyph_count = MEL_FONT_SDF_CHAR_COUNT;
-    entry.desc.glyphs = mel_alloc_array(pool->alloc, Mel_Font_Glyph, entry.desc.glyph_count);
-    entry.desc.ascent = (f32)ascent_i * scale;
-    entry.desc.line_height = (f32)(ascent_i - descent_i + line_gap_i) * scale;
-
-    u32 x = padding;
-    u32 y = padding;
-    u32 row_height = 0;
-
-    for (u32 c = MEL_FONT_SDF_FIRST_CHAR; c < MEL_FONT_SDF_FIRST_CHAR + MEL_FONT_SDF_CHAR_COUNT; c++)
-    {
-        int glyph_idx = stbtt_FindGlyphIndex(&info, (int)c);
-        int advance = 0;
-        int lsb = 0;
-        stbtt_GetGlyphHMetrics(&info, glyph_idx, &advance, &lsb);
-
-        int gw = 0, gh = 0, xoff = 0, yoff = 0;
-        f32 pixel_dist_scale = 128.0f / mel_maxf(px_range, 1.0f);
-        unsigned char* sdf = stbtt_GetGlyphSDF(&info, scale, glyph_idx, (int)padding, 128, pixel_dist_scale,
-            &gw, &gh, &xoff, &yoff);
-        u32 idx = c - MEL_FONT_SDF_FIRST_CHAR;
-        entry.desc.glyphs[idx].xadvance = (f32)advance * scale;
-
-        if (!sdf)
-            continue;
-
-        if (x + (u32)gw + padding > atlas_w)
-        {
-            x = padding;
-            y += row_height + padding;
-            row_height = 0;
-        }
-
-        if (y + (u32)gh + padding > atlas_h)
-        {
-            stbtt_FreeSDF(sdf, nullptr);
-            mel_dealloc(pool->alloc, entry.desc.glyphs);
-            mel_dealloc(pool->alloc, rgba);
-            mel_dealloc(pool->alloc, ttf_data);
-            return MEL_FONT_HANDLE_NULL;
-        }
-
-        for (int row = 0; row < gh; row++)
-        {
-            for (int col = 0; col < gw; col++)
-            {
-                u8 v = sdf[row * gw + col];
-                usize dst = (((usize)(y + (u32)row) * atlas_w) + (x + (u32)col)) * 4;
-                rgba[dst + 0] = v;
-                rgba[dst + 1] = v;
-                rgba[dst + 2] = v;
-                rgba[dst + 3] = v;
-            }
-        }
-        stbtt_FreeSDF(sdf, nullptr);
-
-        entry.desc.glyphs[idx] = (Mel_Font_Glyph){
-            .x0 = (f32)xoff,
-            .y0 = (f32)yoff,
-            .x1 = (f32)(xoff + gw),
-            .y1 = (f32)(yoff + gh),
-            .u0 = x / (f32)atlas_w,
-            .v0 = y / (f32)atlas_h,
-            .u1 = (x + (u32)gw) / (f32)atlas_w,
-            .v1 = (y + (u32)gh) / (f32)atlas_h,
-            .xadvance = entry.desc.glyphs[idx].xadvance,
-        };
-
-        if ((u32)gh > row_height) row_height = (u32)gh;
-        x += (u32)gw + padding;
-    }
-
-    mel_dealloc(pool->alloc, ttf_data);
-
-    Mel_Gpu_Buffer staging;
-    u32 image_size = atlas_w * atlas_h * 4;
-    mel_gpu_buffer_init(&staging, pool->dev,
-        .size = image_size,
-        .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-        .memory_usage = VMA_MEMORY_USAGE_CPU_ONLY);
-    mel_gpu_buffer_upload(&staging, pool->dev, rgba, image_size, 0);
-    mel_dealloc(pool->alloc, rgba);
-
-    mel_gpu_image_init(&entry.texture.image, pool->dev,
-        .width = atlas_w,
-        .height = atlas_h,
-        .format = VK_FORMAT_R8G8B8A8_UNORM,
-        .usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
-        .aspect = VK_IMAGE_ASPECT_COLOR_BIT);
-
-    Mel__Font_SDF_Upload upload = {
-        .image = &entry.texture.image,
-        .staging = &staging,
-        .width = atlas_w,
-        .height = atlas_h,
-    };
-    mel_gpu_submit_immediate(pool->dev, mel__font_sdf_upload_cmd, &upload);
-    mel_gpu_buffer_shutdown(&staging, pool->dev);
-
-    VkSamplerCreateInfo sampler_info = {
-        .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
-        .magFilter = VK_FILTER_LINEAR,
-        .minFilter = VK_FILTER_LINEAR,
-        .mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST,
-        .addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
-        .addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
-        .addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
-    };
-    VkResult result = vkCreateSampler(pool->dev->device, &sampler_info, nullptr, &entry.texture.sampler);
-    assert(result == VK_SUCCESS);
-    MEL_UNUSED(result);
-
-    Mel_SlotMap_Handle sm_handle = mel_slotmap_insert(&pool->slotmap, &entry);
-    mel_hashmap_put(&pool->path_to_handle, (void*)(usize)hash, mel_slotmap_handle_to_ptr(sm_handle));
-
-    SDL_Log("font.sdf: loaded '%.*s' %.0fpx, atlas %ux%u", (int)opt.path.len, opt.path.data, font_size, atlas_w, atlas_h);
-    return (Mel_Font_Handle){ .handle = sm_handle };
+    // ASYNC_V2: VFS removed
+    SDL_Log("font.sdf: VFS removed, cannot load '%.*s'", (int)opt.path.len, opt.path.data);
+    return MEL_FONT_HANDLE_NULL;
 }
 
 Mel_Font_SDF_Entry* mel_font_sdf_pool_get(Mel_Font_SDF_Pool* pool, Mel_Font_Handle handle)

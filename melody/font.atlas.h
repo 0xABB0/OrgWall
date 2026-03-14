@@ -13,7 +13,8 @@
 #include "math.vec4.h"
 #include "render.list.fwd.h"
 #include "texture.pool.fwd.h"
-#include "vfs.fwd.h"
+// ASYNC_V2: VFS removed
+typedef struct Mel_Vfs Mel_Vfs;
 
 struct Mel_Font_Atlas_Entry {
     Mel_Font_Descriptor desc;

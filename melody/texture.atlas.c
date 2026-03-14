@@ -3,7 +3,8 @@
 #include "string.str8.h"
 #include "hash.xxh.h"
 #include "allocator.h"
-#include "vfs.h"
+// ASYNC_V2: VFS removed
+// #include "vfs.h"
 
 #include <cjson/cJSON.h>
 #include <SDL3/SDL.h>
@@ -71,96 +72,9 @@ Mel_Atlas_Handle mel_atlas_pool_load(Mel_Atlas_Pool* pool, str8 path)
         return h;
     }
 
-    str8 text = mel_vfs_read_text_alloc(pool->vfs, path, pool->alloc);
-    if (!text.data)
-    {
-        SDL_Log("texture.atlas: failed to read '%.*s'", (int)path.len, path.data);
-        return MEL_ATLAS_HANDLE_NULL;
-    }
-
-    cJSON* root = cJSON_Parse((char*)text.data);
-    mel_dealloc(pool->alloc, text.data);
-
-    if (!root)
-    {
-        SDL_Log("texture.atlas: failed to parse JSON '%.*s'", (int)path.len, path.data);
-        return MEL_ATLAS_HANDLE_NULL;
-    }
-
-    cJSON* texture_node = cJSON_GetObjectItem(root, "texture");
-    if (!texture_node || !cJSON_IsString(texture_node))
-    {
-        SDL_Log("texture.atlas: missing 'texture' field in '%.*s'", (int)path.len, path.data);
-        cJSON_Delete(root);
-        return MEL_ATLAS_HANDLE_NULL;
-    }
-
-    Mel_Texture_Handle tex_handle = mel_texture_pool_load(pool->texture_pool, str8_from_cstr(texture_node->valuestring));
-    Mel_Gpu_Texture* tex = mel_texture_pool_get(pool->texture_pool, tex_handle);
-
-    cJSON* regions_node = cJSON_GetObjectItem(root, "regions");
-    u32 region_count = 0;
-    if (regions_node && cJSON_IsArray(regions_node))
-        region_count = (u32)cJSON_GetArraySize(regions_node);
-
-    Mel_Atlas_Entry entry = {
-        .texture = tex_handle,
-        .texture_width = tex->image.width,
-        .texture_height = tex->image.height,
-        .regions = nullptr,
-        .region_count = region_count,
-        .region_name_hashes = nullptr,
-        .alloc = pool->alloc,
-    };
-
-    if (region_count > 0)
-    {
-        entry.regions = mel_alloc_array(pool->alloc, Mel_Atlas_Region, region_count);
-        entry.region_name_hashes = mel_alloc_array(pool->alloc, u64, region_count);
-
-        u32 idx = 0;
-        cJSON* r = nullptr;
-        cJSON_ArrayForEach(r, regions_node)
-        {
-            cJSON* name_node = cJSON_GetObjectItem(r, "name");
-            cJSON* x_node = cJSON_GetObjectItem(r, "x");
-            cJSON* y_node = cJSON_GetObjectItem(r, "y");
-            cJSON* w_node = cJSON_GetObjectItem(r, "w");
-            cJSON* h_node = cJSON_GetObjectItem(r, "h");
-            cJSON* ox_node = cJSON_GetObjectItem(r, "offset_x");
-            cJSON* oy_node = cJSON_GetObjectItem(r, "offset_y");
-
-            entry.regions[idx] = (Mel_Atlas_Region){
-                .x = x_node ? (u32)x_node->valueint : 0,
-                .y = y_node ? (u32)y_node->valueint : 0,
-                .width = w_node ? (u32)w_node->valueint : 0,
-                .height = h_node ? (u32)h_node->valueint : 0,
-                .offset_x = ox_node ? ox_node->valueint : 0,
-                .offset_y = oy_node ? oy_node->valueint : 0,
-            };
-
-            if (name_node && cJSON_IsString(name_node))
-            {
-                entry.region_name_hashes[idx] = str8_hash(str8_from_cstr(name_node->valuestring));
-            }
-            else
-            {
-                entry.region_name_hashes[idx] = 0;
-            }
-
-            idx++;
-        }
-    }
-
-    cJSON_Delete(root);
-
-    Mel_SlotMap_Handle sm_handle = mel_slotmap_insert(&pool->slotmap, &entry);
-    Mel_Atlas_Handle atlas_handle = { .handle = sm_handle };
-
-    mel_hashmap_put(&pool->path_to_handle, (void*)(usize)hash, mel_slotmap_handle_to_ptr(sm_handle));
-
-    SDL_Log("texture.atlas: loaded '%.*s' (%u regions)", (int)path.len, path.data, region_count);
-    return atlas_handle;
+    // ASYNC_V2: VFS removed
+    SDL_Log("texture.atlas: VFS removed, cannot load '%.*s'", (int)path.len, path.data);
+    return MEL_ATLAS_HANDLE_NULL;
 }
 
 Mel_Atlas_Entry* mel_atlas_pool_get(Mel_Atlas_Pool* pool, Mel_Atlas_Handle handle)

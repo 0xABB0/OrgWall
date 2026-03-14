@@ -1,7 +1,8 @@
 #pragma once
 
 #include "sprite.sheet.h"
-#include "vfs.fwd.h"
+// ASYNC_V2: VFS removed
+typedef struct Mel_Vfs Mel_Vfs;
 #include "allocator.fwd.h"
 #include "string.str8.fwd.h"
 

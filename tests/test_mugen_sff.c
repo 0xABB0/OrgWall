@@ -1,9 +1,11 @@
 #include "test.harness.h"
 #include "mugen.sff.h"
 #include "math.geo.rect.h"
-#include "vfs.h"
-#include "vfs.backend.os.h"
-#include "async.io.h"
+// ASYNC_V2: VFS removed
+// #include "vfs.h"
+// #include "vfs.backend.os.h"
+// ASYNC_V2: removed, needs migration
+// #include "async.io.h"
 #include "allocator.heap.h"
 #include "string.str8.h"
 #include <SDL3/SDL.h>
@@ -12,9 +14,7 @@
 #include <string.h>
 #include <unistd.h>
 
-static Mel_Io s_io;
-static Mel_Vfs s_vfs;
-static bool s_vfs_ready = false;
+// ASYNC_V2: VFS removed
 
 static void write_u16_le(u8* dst, u16 value)
 {
@@ -102,24 +102,12 @@ static void sample_frame_rgba(Mugen_Sff* sff, u32 frame_idx, u8 rgba[4])
     rgba[3] = sff->atlas_pixels[idx + 3];
 }
 
-static void ensure_vfs(void)
-{
-    if (s_vfs_ready) return;
-
-    mel_io_init(&s_io, &(Mel_Io_Desc){ .allocator = mel_alloc_heap(), .worker_count = 0 });
-    mel_vfs_init(&s_vfs, &(Mel_Vfs_Desc){ .allocator = mel_alloc_heap(), .io = &s_io });
-
-    Mel_Vfs_Backend* os = mel_vfs_backend_os_create(mel_alloc_heap(), S8("demos/street-carlos"));
-    mel_vfs_mount(&s_vfs, S8("/"), os, 0, false);
-    s_vfs_ready = true;
-}
+// ASYNC_V2: VFS removed
 
 MEL_TEST(sff_load_poison, .tags = "mugen")
 {
-    ensure_vfs();
-
     Mugen_Sff sff;
-    bool ok = mugen_sff_load(&sff, &s_vfs, S8("/chars/poi-son/poi-son.sff"), mel_alloc_heap());
+    bool ok = mugen_sff_load(&sff, NULL, S8("/chars/poi-son/poi-son.sff"), mel_alloc_heap());
     MEL_ASSERT(ok);
     MEL_ASSERT_GT(sff.entry_count, (u32)0);
     MEL_ASSERT_GT(sff.atlas_width, (u32)0);
@@ -178,16 +166,9 @@ MEL_TEST(sff_v1_uses_header_shared_palette_flag, .tags = "mugen")
     MEL_ASSERT_EQ(fwrite(bytes, 1, sizeof(bytes), file), sizeof(bytes));
     fclose(file);
 
-    Mel_Io io;
-    mel_io_init(&io, &(Mel_Io_Desc){ .allocator = mel_alloc_heap(), .worker_count = 0 });
-
-    Mel_Vfs vfs;
-    mel_vfs_init(&vfs, &(Mel_Vfs_Desc){ .allocator = mel_alloc_heap(), .io = &io });
-    Mel_Vfs_Backend* os = mel_vfs_backend_os_create(mel_alloc_heap(), str8_from_cstr(dir));
-    mel_vfs_mount(&vfs, S8("/"), os, 0, false);
-
+    // ASYNC_V2: VFS removed
     Mugen_Sff sff;
-    bool ok = mugen_sff_load(&sff, &vfs, S8("/test.sff"), mel_alloc_heap());
+    bool ok = mugen_sff_load(&sff, NULL, S8("/test.sff"), mel_alloc_heap());
     MEL_ASSERT(ok);
 
     u8 first_rgba[4];
@@ -206,9 +187,8 @@ MEL_TEST(sff_v1_uses_header_shared_palette_flag, .tags = "mugen")
     MEL_ASSERT_EQ(second_rgba[3], (u8)255);
 
     mugen_sff_shutdown(&sff, mel_alloc_heap());
-    mel_vfs_shutdown(&vfs);
-    mel_io_shutdown(&io);
 
+    // ASYNC_V2: VFS removed — cleanup
     unlink(sff_path);
     rmdir(dir);
 }

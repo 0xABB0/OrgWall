@@ -22,7 +22,8 @@
 #include "font.atlas.h"
 #include "font.sdf.h"
 #include "font.msdf.h"
-#include "vfs.h"
+// ASYNC_V2: VFS removed
+// #include "vfs.h"
 #include "allocator.heap.h"
 #include "math.mat4.h"
 #include "math.vec4.h"

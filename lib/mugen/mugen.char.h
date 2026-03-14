@@ -6,7 +6,8 @@
 #include "mugen.cmd.h"
 #include "mugen.cns.h"
 #include "allocator.fwd.h"
-#include "vfs.fwd.h"
+// ASYNC_V2: VFS removed
+typedef struct Mel_Vfs Mel_Vfs;
 #include "string.str8.fwd.h"
 
 typedef struct {

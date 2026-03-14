@@ -8,7 +8,8 @@
 #include "window.h"
 #include "swapchain.h"
 #include "gpu.swapchain.h"
-#include "vfs.h"
+// ASYNC_V2: VFS removed
+// #include "vfs.h"
 #include "string.str8.h"
 #include "render.stage.3d.h"
 #include "render.view.h"

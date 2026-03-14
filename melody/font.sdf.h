@@ -10,7 +10,8 @@
 #include "collection.slotmap.h"
 #include "collection.hashmap.h"
 #include "math.vec2.h"
-#include "vfs.fwd.h"
+// ASYNC_V2: VFS removed
+typedef struct Mel_Vfs Mel_Vfs;
 
 typedef struct Mel_Font_SDF_Entry Mel_Font_SDF_Entry;
 typedef struct Mel_Font_SDF_Pool Mel_Font_SDF_Pool;

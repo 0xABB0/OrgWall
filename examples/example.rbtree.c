@@ -17,7 +17,8 @@
 #include "render.camera.h"
 #include "texture.pool.h"
 #include "font.atlas.h"
-#include "vfs.h"
+// ASYNC_V2: VFS removed
+// #include "vfs.h"
 #include "allocator.heap.h"
 #include "sim.ctx.h"
 #include "math.mat4.h"

@@ -9,7 +9,6 @@
 #include "allocator.h"
 #include "allocator.heap.h"
 #include "allocator.tracking.h"
-#include "async.io.h"
 #include "font.atlas.h"
 #include "gpu.shader.h"
 #include "gpu.submit.h"
@@ -19,7 +18,8 @@
 #include "text.pass.h"
 #include "texture.pool.h"
 #include "string.str8.h"
-#include "vfs.h"
+// ASYNC_V2: VFS removed
+// #include "vfs.h"
 #include "debug.backtrace.h"
 
 #include <tracy/TracyC.h>
@@ -37,8 +37,10 @@ static Mel_Sprite_Pass* s_sprite_pass;
 static Mel_Text_Pass* s_text_pass;
 static Mel_Texture_Pool* s_texture_pool;
 static Mel_Font_Atlas_Pool* s_font_pool;
-static Mel_Io s_io;
-static Mel_Vfs s_vfs;
+// ASYNC_V2: removed, needs migration
+// static Mel_Io s_io;
+// ASYNC_V2: VFS removed
+// static Mel_Vfs s_vfs;
 static Mel_Render_Graph* s_render_graph;
 static Mel_Sim_Ctx* s_sim_head;
 static f32 s_max_frame_time;
@@ -148,23 +150,24 @@ bool mel_init_opt(Mel_Init_Opt opt)
         goto fail_device;
     }
 
-    if (!mel_io_init(&s_io, &(Mel_Io_Desc){
-        .allocator = &s_allocator,
-        .worker_count = 0,
-    }))
-    {
-        SDL_Log("Failed to initialize IO");
-        goto fail_slang;
-    }
+    // ASYNC_V2: removed, needs migration
+    // if (!mel_io_init(&s_io, &(Mel_Io_Desc){
+    //     .allocator = &s_allocator,
+    //     .worker_count = 0,
+    // }))
+    // {
+    //     SDL_Log("Failed to initialize IO");
+    //     goto fail_slang;
+    // }
 
-    if (!mel_vfs_init(&s_vfs, &(Mel_Vfs_Desc){
-        .allocator = &s_allocator,
-        .io = &s_io,
-    }))
-    {
-        SDL_Log("Failed to initialize VFS");
-        goto fail_io;
-    }
+    // ASYNC_V2: removed, needs migration
+    // if (!mel_vfs_init(&s_vfs, &(Mel_Vfs_Desc){
+    //     .allocator = &s_allocator,
+    // }))
+    // {
+    //     SDL_Log("Failed to initialize VFS");
+    //     goto fail_io;
+    // }
 
     s_sprite_pass = mel_alloc_type(&s_allocator, Mel_Sprite_Pass);
     if (!mel_sprite_pass_init(s_sprite_pass,
@@ -173,7 +176,7 @@ bool mel_init_opt(Mel_Init_Opt opt)
         .max_sprites = 4096))
     {
         SDL_Log("Failed to initialize sprite pass");
-        goto fail_vfs;
+        goto fail_slang;
     }
 
     s_text_pass = mel_alloc_type(&s_allocator, Mel_Text_Pass);
@@ -204,12 +207,11 @@ bool mel_init_opt(Mel_Init_Opt opt)
 
     s_texture_pool = mel_alloc_type(&s_allocator, Mel_Texture_Pool);
     mel_texture_pool_init(s_texture_pool, &s_allocator, &s_dev,
-        .pipeline = &s_sprite_pass->pipeline,
-        .vfs = &s_vfs);
+        .pipeline = &s_sprite_pass->pipeline);
     s_sprite_pass->pool = s_texture_pool;
 
     s_font_pool = mel_alloc_type(&s_allocator, Mel_Font_Atlas_Pool);
-    mel_font_atlas_pool_init(s_font_pool, &s_allocator, &s_dev, &s_vfs,
+    mel_font_atlas_pool_init(s_font_pool, &s_allocator, &s_dev, NULL,
         .texture_pool = s_texture_pool);
 
     s_max_frame_time = opt.max_frame_time > 0 ? opt.max_frame_time : 0.25f;
@@ -227,10 +229,11 @@ fail_sprite_pass:
     mel_sprite_pass_shutdown(s_sprite_pass);
     mel_dealloc(&s_allocator, s_sprite_pass);
     s_sprite_pass = nullptr;
-fail_vfs:
-    mel_vfs_shutdown(&s_vfs);
-fail_io:
-    mel_io_shutdown(&s_io);
+    // ASYNC_V2: removed, needs migration
+    // fail_vfs:
+    //     mel_vfs_shutdown(&s_vfs);
+    // fail_io:
+    //     mel_io_shutdown(&s_io);
 fail_slang:
     mel_slang_shutdown();
 fail_device:
@@ -277,8 +280,9 @@ void mel_shutdown(void)
     mel_dealloc(&s_allocator, s_texture_pool);
     s_texture_pool = nullptr;
 
-    mel_vfs_shutdown(&s_vfs);
-    mel_io_shutdown(&s_io);
+    // ASYNC_V2: removed, needs migration
+    // mel_vfs_shutdown(&s_vfs);
+    // mel_io_shutdown(&s_io);
 
     mel_mesh_pass_shutdown(s_mesh_pass);
     mel_dealloc(&s_allocator, s_mesh_pass);
@@ -347,17 +351,19 @@ Mel_Font_Atlas_Pool* mel_font_pool(void)
     return s_font_pool;
 }
 
-Mel_Io* mel_io(void)
-{
-    assert(s_initialized);
-    return &s_io;
-}
+// ASYNC_V2: removed, needs migration
+// Mel_Io* mel_io(void)
+// {
+//     assert(s_initialized);
+//     return &s_io;
+// }
 
-Mel_Vfs* mel_vfs(void)
-{
-    assert(s_initialized);
-    return &s_vfs;
-}
+// ASYNC_V2: VFS removed
+// Mel_Vfs* mel_vfs(void)
+// {
+//     assert(s_initialized);
+//     return &s_vfs;
+// }
 
 const Mel_Alloc* mel_allocator(void)
 {
