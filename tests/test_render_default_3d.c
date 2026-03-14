@@ -2,6 +2,7 @@
 #include "../melody/render.default.3d.h"
 #include "../melody/render.frame_plan.h"
 #include "../melody/render.material.h"
+#include "../melody/render.light.h"
 #include "../melody/render.source.h"
 #include "../melody/render.list.h"
 #include "../melody/render.camera.h"
@@ -1603,15 +1604,16 @@ MEL_TEST(render_default_3d_can_build_deferred_branch, .tags = "render")
     MEL_ASSERT(mel_render_default_3d_rebuild(&renderer));
 
     Mel_Render_Graph* graph = mel_render_default_3d_graph(&renderer);
-    MEL_ASSERT_EQ(graph->passes.count, (usize)2);
+    MEL_ASSERT_EQ(graph->passes.count, (usize)3);
     MEL_ASSERT_EQ(graph->passes.items[0].type, (u32)MEL_PASS_GRAPHICS);
-    MEL_ASSERT_EQ(graph->passes.items[1].type, (u32)MEL_PASS_GRAPHICS);
+    MEL_ASSERT_EQ(graph->passes.items[1].type, (u32)MEL_PASS_COMPUTE);
+    MEL_ASSERT_EQ(graph->passes.items[2].type, (u32)MEL_PASS_GRAPHICS);
     u32 fill_write_target_count = 0;
     for (Mel_Pass_Write_Target* wt = graph->passes.items[0].write_targets; wt && wt->target; wt++)
         fill_write_target_count++;
     MEL_ASSERT_EQ(fill_write_target_count, (u32)5);
     u32 resolve_read_target_count = 0;
-    for (Mel_Render_Target** rt = graph->passes.items[1].read_targets; rt && *rt; rt++)
+    for (Mel_Render_Target** rt = graph->passes.items[2].read_targets; rt && *rt; rt++)
         resolve_read_target_count++;
     MEL_ASSERT_EQ(resolve_read_target_count, (u32)4);
 
@@ -1628,6 +1630,86 @@ MEL_TEST(render_default_3d_can_build_deferred_branch, .tags = "render")
         .family = MEL_TECHNIQUE_MESH,
         .fn = test_mesh_policy_allow_default,
     });
+    mel_material_instance_destroy(material);
+    mel_material_template_destroy(material_template);
+    mel_render_default_3d_shutdown(&renderer);
+    mel_render_list_shutdown(&world);
+    mel_swapchain_registry_remove(swapchain, nullptr);
+}
+
+MEL_TEST(render_default_3d_deferred_branch_reads_clustered_light_source, .tags = "render")
+{
+    Mel_Swapchain_Handle swapchain = make_default3d_mock_swapchain();
+
+    Mel_Camera camera = {
+        .view = MEL_MAT4_IDENTITY,
+        .projection = MEL_MAT4_IDENTITY,
+    };
+    Mel_Gpu_Device fake_dev = {0};
+
+    Mel_Render_Default_3D renderer;
+    bool ok = mel_render_default_3d_init(&renderer,
+        .name = S8("default3d_deferred_clustered_light"),
+        .swapchain = swapchain,
+        .camera = &camera,
+        .clear_color_enabled = true,
+        .dev = &fake_dev,
+        .mesh_pass = (Mel_Mesh_Pass*)(uintptr_t)1,
+        .alloc = mel_alloc_heap());
+    MEL_ASSERT(ok);
+
+    Mel_Render_List world;
+    mel_render_list_init(&world,
+        .name = S8("mesh_deferred_light_world"),
+        .entry_stride = sizeof(Mel_Mesh_Entry),
+        .alloc = mel_alloc_heap());
+    MEL_ASSERT(mel_render_default_3d_attach_mesh_list(&renderer, &world));
+
+    Mel_Material_Template_Handle material_template = mel_material_template_create(&(Mel_Material_Template_Desc){
+        .name = S8("mesh_deferred_light_surface"),
+        .family = mel_material_family_find(S8("surface")),
+        .profile = S8("surface.standard"),
+        .render_domain = MEL_MATERIAL_DOMAIN_OPAQUE,
+        .fallback_policy = MEL_MATERIAL_FALLBACK_ALLOW,
+        .base_color = mel_vec4(0.8f, 0.7f, 0.6f, 1.0f),
+    });
+    Mel_Material_Instance_Handle material = mel_material_instance_create(material_template);
+    Mel_Mesh_Entry* entry = mel_render_list_push(&world, mel_sort_key_mesh_opaque(0.0f));
+    *entry = (Mel_Mesh_Entry){
+        .mesh = &s_test_mesh,
+        .transform = MEL_MAT4_IDENTITY,
+        .color = mel_vec4(1.0f, 1.0f, 1.0f, 1.0f),
+        .material = material,
+    };
+
+    Mel_Light_Table light_table = {
+        .dev = &fake_dev,
+        .buffer = { .buffer = (VkBuffer)(uintptr_t)7 },
+        .count = 4,
+    };
+    Mel_Source_Handle light_source = mel_source_from_light_table(&light_table);
+    MEL_ASSERT(mel_render_default_3d_attach_light_source_to_view(&renderer, mel_render_default_3d_view(&renderer), light_source));
+
+    mel_render_technique_set_family_policy(&(Mel_Technique_Family_Policy){
+        .family = MEL_TECHNIQUE_MESH,
+        .fn = test_mesh_policy_prefer_deferred,
+    });
+
+    MEL_ASSERT(mel_render_default_3d_rebuild(&renderer));
+
+    Mel_Render_Graph* graph = mel_render_default_3d_graph(&renderer);
+    MEL_ASSERT_EQ(graph->passes.count, (usize)3);
+    MEL_ASSERT_EQ(graph->passes.items[1].type, (u32)MEL_PASS_COMPUTE);
+    MEL_ASSERT(graph->passes.items[1].read_sources != nullptr);
+    MEL_ASSERT_EQ(mel_source_schema(graph->passes.items[1].read_sources[0]), (u32)MEL_SCHEMA_LIGHT);
+    MEL_ASSERT(graph->passes.items[2].read_sources != nullptr);
+    MEL_ASSERT_EQ(mel_source_schema(graph->passes.items[2].read_sources[0]), (u32)MEL_SCHEMA_LIGHT);
+
+    mel_render_technique_set_family_policy(&(Mel_Technique_Family_Policy){
+        .family = MEL_TECHNIQUE_MESH,
+        .fn = test_mesh_policy_allow_default,
+    });
+    mel_source_destroy(light_source);
     mel_material_instance_destroy(material);
     mel_material_template_destroy(material_template);
     mel_render_default_3d_shutdown(&renderer);

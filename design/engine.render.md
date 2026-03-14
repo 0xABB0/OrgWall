@@ -91,7 +91,7 @@ Mel_Camera cam = {
 
 Mel_Camera ortho_cam = {
     .view = mel_mat4_identity(),
-    .projection = mel_mat4_ortho(0, w, 0, h, -1, 1),
+    .projection = mel_mat4_ortho(0, w, h, 0, -1, 1),
     .position = mel_vec3(0, 0, 0),
 };
 ```

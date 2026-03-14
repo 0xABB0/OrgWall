@@ -7,36 +7,35 @@
 static void mel__verlet_grow_particles(Mel_Verlet_System* sys)
 {
     u32 new_cap = sys->capacity ? sys->capacity * 2 : 64;
-    sys->particles = (Mel_Verlet_Particle*)mel_realloc(
-        sys->alloc, sys->particles,
-        sizeof(Mel_Verlet_Particle) * new_cap);
+    if (sys->particles)
+        sys->particles = (Mel_Verlet_Particle*)mel_realloc(
+            sys->alloc, sys->particles,
+            sizeof(Mel_Verlet_Particle) * new_cap);
+    else
+        sys->particles = (Mel_Verlet_Particle*)mel_alloc(
+            sys->alloc, sizeof(Mel_Verlet_Particle) * new_cap);
     sys->capacity = new_cap;
 }
 
 static void mel__verlet_grow_constraints(Mel_Verlet_System* sys)
 {
     u32 new_cap = sys->constraint_capacity ? sys->constraint_capacity * 2 : 64;
-    sys->constraints = (Mel_Verlet_Constraint*)mel_realloc(
-        sys->alloc, sys->constraints,
-        sizeof(Mel_Verlet_Constraint) * new_cap);
+    if (sys->constraints)
+        sys->constraints = (Mel_Verlet_Constraint*)mel_realloc(
+            sys->alloc, sys->constraints,
+            sizeof(Mel_Verlet_Constraint) * new_cap);
+    else
+        sys->constraints = (Mel_Verlet_Constraint*)mel_alloc(
+            sys->alloc, sizeof(Mel_Verlet_Constraint) * new_cap);
     sys->constraint_capacity = new_cap;
-}
-
-static void mel__verlet_grow_colliders(Mel_Verlet_System* sys)
-{
-    u32 new_cap = sys->collider_capacity ? sys->collider_capacity * 2 : 4;
-    sys->colliders = (Mel_Verlet_Collider*)mel_realloc(
-        sys->alloc, sys->colliders,
-        sizeof(Mel_Verlet_Collider) * new_cap);
-    sys->collider_capacity = new_cap;
 }
 
 void mel_verlet_init_opt(Mel_Verlet_System* sys, Mel_Verlet_Init_Opt opt)
 {
     assert(sys);
     *sys = (Mel_Verlet_System){
-        .damping = opt.damping > 0 ? opt.damping : 0.997f,
-        .solver_iterations = opt.solver_iterations > 0 ? opt.solver_iterations : 4,
+        .damping = opt.damping > 0.0f ? opt.damping : 0.997f,
+        .solver_iterations = opt.solver_iterations > 0 ? opt.solver_iterations : 8,
         .alloc = opt.alloc,
     };
 
@@ -61,8 +60,6 @@ void mel_verlet_shutdown(Mel_Verlet_System* sys)
         mel_dealloc(sys->alloc, sys->particles);
     if (sys->constraints)
         mel_dealloc(sys->alloc, sys->constraints);
-    if (sys->colliders)
-        mel_dealloc(sys->alloc, sys->colliders);
     *sys = (Mel_Verlet_System){0};
 }
 
@@ -197,55 +194,88 @@ void mel_verlet_remove_constraint(Mel_Verlet_System* sys, u32 index)
     sys->constraints[index] = sys->constraints[--sys->constraint_count];
 }
 
+static void mel__solve_sphere(Mel_Verlet_System* sys, void* data)
+{
+    Mel_Sphere* s = (Mel_Sphere*)data;
+    for (u32 i = 0; i < sys->count; i++) {
+        Mel_Verlet_Particle* p = &sys->particles[i];
+        if (p->inv_mass == 0) continue;
+
+        Mel_Vec3 diff = mel_vec3_sub(p->pos, s->center);
+        f32 dist_sq = mel_vec3_len_sq(diff);
+        if (dist_sq >= s->radius * s->radius) continue;
+
+        f32 dist = sqrtf(dist_sq);
+        Mel_Vec3 push_dir;
+        if (dist < 1e-7f)
+            push_dir = MEL_VEC3_UP;
+        else
+            push_dir = mel_vec3_scale(diff, 1.0f / dist);
+        p->pos = mel_vec3_add(s->center, mel_vec3_scale(push_dir, s->radius));
+    }
+}
+
+static void mel__solve_plane(Mel_Verlet_System* sys, void* data)
+{
+    Mel_Plane* pl = (Mel_Plane*)data;
+    Mel_Vec3 n = mel_plane_normal(*pl);
+    for (u32 i = 0; i < sys->count; i++) {
+        Mel_Verlet_Particle* p = &sys->particles[i];
+        if (p->inv_mass == 0) continue;
+
+        f32 d = mel_plane_dist_to_point(*pl, p->pos);
+        if (d < 0)
+            p->pos = mel_vec3_add(p->pos, mel_vec3_scale(n, -d));
+    }
+}
+
 u32 mel_verlet_add_collider_sphere(Mel_Verlet_System* sys, Mel_Sphere sphere)
 {
     assert(sys);
-    if (sys->collider_count >= sys->collider_capacity)
-        mel__verlet_grow_colliders(sys);
+    if (sys->constraint_count >= sys->constraint_capacity)
+        mel__verlet_grow_constraints(sys);
 
-    u32 idx = sys->collider_count++;
-    sys->colliders[idx] = (Mel_Verlet_Collider){
-        .type = MEL_VERLET_COLLIDER_SPHERE,
-        .sphere = sphere,
-    };
+    u32 idx = sys->constraint_count++;
+    Mel_Verlet_Constraint* c = &sys->constraints[idx];
+    c->solve = mel__solve_sphere;
+    c->sphere = sphere;
     return idx;
 }
 
 u32 mel_verlet_add_collider_plane(Mel_Verlet_System* sys, Mel_Plane plane)
 {
     assert(sys);
-    if (sys->collider_count >= sys->collider_capacity)
-        mel__verlet_grow_colliders(sys);
+    if (sys->constraint_count >= sys->constraint_capacity)
+        mel__verlet_grow_constraints(sys);
 
-    u32 idx = sys->collider_count++;
-    sys->colliders[idx] = (Mel_Verlet_Collider){
-        .type = MEL_VERLET_COLLIDER_PLANE,
-        .plane = plane,
-    };
+    u32 idx = sys->constraint_count++;
+    Mel_Verlet_Constraint* c = &sys->constraints[idx];
+    c->solve = mel__solve_plane;
+    c->plane = plane;
     return idx;
 }
 
 void mel_verlet_remove_collider(Mel_Verlet_System* sys, u32 index)
 {
-    assert(sys && index < sys->collider_count);
-    sys->colliders[index] = sys->colliders[--sys->collider_count];
+    mel_verlet_remove_constraint(sys, index);
 }
 
 void mel_verlet_update_collider_sphere(Mel_Verlet_System* sys, u32 index, Mel_Sphere sphere)
 {
-    assert(sys && index < sys->collider_count);
-    assert(sys->colliders[index].type == MEL_VERLET_COLLIDER_SPHERE);
-    sys->colliders[index].sphere = sphere;
+    assert(sys && index < sys->constraint_count);
+    assert(sys->constraints[index].solve == mel__solve_sphere);
+    sys->constraints[index].sphere = sphere;
 }
 
 static void mel__verlet_integrate(Mel_Verlet_System* sys, f32 dt)
 {
     f32 dt2 = dt * dt;
+    f32 damping = powf(sys->damping, dt * 60.0f);
     for (u32 i = 0; i < sys->count; i++) {
         Mel_Verlet_Particle* p = &sys->particles[i];
         if (p->inv_mass == 0) continue;
 
-        Mel_Vec3 vel = mel_vec3_scale(mel_vec3_sub(p->pos, p->old_pos), sys->damping);
+        Mel_Vec3 vel = mel_vec3_scale(mel_vec3_sub(p->pos, p->old_pos), damping);
         Mel_Vec3 accel_step = mel_vec3_scale(p->accel, dt2);
 
         p->old_pos = p->pos;
@@ -263,39 +293,6 @@ static void mel__verlet_solve_constraints(Mel_Verlet_System* sys)
     }
 }
 
-static void mel__verlet_collide(Mel_Verlet_System* sys)
-{
-    for (u32 i = 0; i < sys->count; i++) {
-        Mel_Verlet_Particle* p = &sys->particles[i];
-        if (p->inv_mass == 0) continue;
-
-        for (u32 j = 0; j < sys->collider_count; j++) {
-            Mel_Verlet_Collider* col = &sys->colliders[j];
-
-            if (col->type == MEL_VERLET_COLLIDER_SPHERE) {
-                Mel_Vec3 diff = mel_vec3_sub(p->pos, col->sphere.center);
-                f32 dist_sq = mel_vec3_len_sq(diff);
-                f32 r = col->sphere.radius;
-                if (dist_sq < r * r) {
-                    f32 dist = sqrtf(dist_sq);
-                    if (dist < 1e-7f) {
-                        p->pos = mel_vec3_add(col->sphere.center,
-                            mel_vec3_scale(MEL_VEC3_UP, r));
-                    } else {
-                        p->pos = mel_vec3_add(col->sphere.center,
-                            mel_vec3_scale(diff, r / dist));
-                    }
-                }
-            } else if (col->type == MEL_VERLET_COLLIDER_PLANE) {
-                Mel_Vec3 n = mel_plane_normal(col->plane);
-                f32 d = mel_plane_dist_to_point(col->plane, p->pos);
-                if (d < 0)
-                    p->pos = mel_vec3_add(p->pos, mel_vec3_scale(n, -d));
-            }
-        }
-    }
-}
-
 static void mel__verlet_clear_forces(Mel_Verlet_System* sys)
 {
     for (u32 i = 0; i < sys->count; i++)
@@ -307,6 +304,5 @@ void mel_verlet_step(Mel_Verlet_System* sys, f32 dt)
     assert(sys);
     mel__verlet_integrate(sys, dt);
     mel__verlet_solve_constraints(sys);
-    mel__verlet_collide(sys);
     mel__verlet_clear_forces(sys);
 }

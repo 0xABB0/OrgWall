@@ -20,8 +20,10 @@
 #include "render.view.h"
 #include "render.list.h"
 #include "render.camera.h"
+#include "render.camera.orbit.h"
 #include "render.source.h"
 #include "render.material.h"
+#include "render.light.h"
 #include "mesh.pass.h"
 #include "sprite.pass.h"
 #include "text.pass.h"
@@ -29,6 +31,7 @@
 #include "font.atlas.h"
 #include "allocator.heap.h"
 #include "math.mat4.h"
+#include "math.scalar.h"
 #include "math.vec2.h"
 #include "math.vec3.h"
 #include "math.vec4.h"
@@ -49,6 +52,7 @@
 #define LOD1_PROXY_GRID_Z 3
 #define LOD1_PROXY_CUBES_PER_CHUNK (LOD1_PROXY_GRID_X * LOD1_PROXY_GRID_Z)
 #define TOTAL_CUBES (CHUNK_COUNT * CUBES_PER_CHUNK)
+#define GPU_SCENE_MAX_POINT_LIGHTS 64
 
 typedef enum {
     GPU_SCENE_MODE_LIST = 0,
@@ -106,21 +110,23 @@ static Mel_Render_List s_hud_sprites;
 static Mel_Render_List s_hud_text;
 static Mel_Camera s_world_camera;
 static Mel_Camera s_overlay_camera;
+static Mel_Orbit_Camera s_orbit_camera;
 static Mel_Sim_Ctx s_sim;
 static u8 s_event_buf[4096];
 static Mel_Font_Handle s_font;
 static Mel_Material_Template_Handle s_surface_template;
 static Mel_Material_Instance_Handle s_materials[MATERIAL_VARIANT_COUNT];
 static Mel_Material_Table s_material_table;
+static Mel_Light_Table s_light_table;
 static Mel_Source_Handle s_mesh_list_source;
 static Mel_Source_Handle s_material_table_source;
+static Mel_Source_Handle s_light_table_source;
 static Scene_Chunk s_chunks[CHUNK_COUNT];
 static Scene_Batch s_batch;
 
 static f32 s_time;
+static f32 s_light_time;
 static f32 s_orbit_speed = 0.16f;
-static f32 s_camera_distance = 42.0f;
-static f32 s_camera_height = 18.0f;
 static bool s_pause_animation;
 static bool s_show_expected_visibility = true;
 static Gpu_Scene_Mode s_mode = GPU_SCENE_MODE_AUTO;
@@ -132,10 +138,18 @@ static u32 s_expected_lod1_chunks;
 static f32 s_lod_distance = 34.0f;
 static float s_light_dir[3] = { 0.55f, -1.0f, 0.35f };
 static float s_light_color[4] = { 0.95f, 0.97f, 1.0f, 1.0f };
-static float s_light_ambient = 0.18f;
+static float s_light_ambient = 0.08f;
 static float s_material_roughness_bias = 0.0f;
 static float s_material_metallic_bias = 0.0f;
 static float s_emissive_boost = 1.0f;
+static bool s_point_lights_only;
+static i32 s_point_light_count = 24;
+static float s_point_light_radius = 22.0f;
+static float s_point_light_intensity = 2.25f;
+static float s_point_light_height = 4.5f;
+static float s_point_light_orbit_speed = 1.25f;
+static bool s_animate_point_lights = true;
+static bool s_show_point_light_markers = true;
 
 static const float s_material_base_roughness[MATERIAL_VARIANT_COUNT] = { 0.18f, 0.38f, 0.58f, 0.78f };
 static const float s_material_base_metallic[MATERIAL_VARIANT_COUNT] = { 0.08f, 0.30f, 0.08f, 0.78f };
@@ -235,6 +249,7 @@ static const Mel_Vec4 s_palette[MATERIAL_VARIANT_COUNT] = {
     { .x = 0.98f, .y = 0.78f, .z = 0.26f, .w = 1.0f },
 };
 
+static Mel_Vec3 gpu_scene_chunk_center(i32 chunk_x, i32 chunk_z);
 static bool gpu_scene_chunk_uses_lod1(const Scene_Chunk* chunk);
 
 static str8 gpu_scene_mode_label(Gpu_Scene_Mode mode)
@@ -291,16 +306,26 @@ static str8 gpu_scene_branch_summary(str8 technique_name)
     if (str8_ieq(technique_name, S8("mesh.visibility_buffer")))
         return S8("branch: visibility-buffer shading");
     if (str8_ieq(technique_name, S8("mesh.deferred")))
-        return S8("branch: deferred g-buffer shading");
+        return S8("branch: deferred g-buffer + clustered lights");
     return S8("branch: unknown");
 }
 
 static void gpu_scene_sync_materials_and_lighting(void)
 {
+    Mel_Vec3 light_dir = mel_vec3(s_light_dir[0], s_light_dir[1], s_light_dir[2]);
+    Mel_Vec4 light_color = mel_vec4(s_light_color[0], s_light_color[1], s_light_color[2], s_light_color[3]);
+    f32 ambient = s_light_ambient;
+    if (s_point_lights_only)
+    {
+        light_dir = mel_vec3(0.0f, -1.0f, 0.0f);
+        light_color = mel_vec4(0.0f, 0.0f, 0.0f, 1.0f);
+        ambient = 0.0f;
+    }
+
     Mel_Mesh_Lighting lighting = {
-        .direction = mel_vec3(s_light_dir[0], s_light_dir[1], s_light_dir[2]),
-        .color = mel_vec4(s_light_color[0], s_light_color[1], s_light_color[2], s_light_color[3]),
-        .ambient = s_light_ambient,
+        .direction = light_dir,
+        .color = light_color,
+        .ambient = ambient,
     };
     mel_mesh_pass_set_lighting(mel_mesh_pass(), lighting);
 
@@ -312,7 +337,7 @@ static void gpu_scene_sync_materials_and_lighting(void)
         mel_material_instance_set_f32(s_materials[i], S8("metallic"),
             SDL_clamp(s_material_base_metallic[i] + s_material_metallic_bias, 0.0f, 1.0f));
         mel_material_instance_set_f32(s_materials[i], S8("occlusion"), s_material_base_occlusion[i]);
-        Mel_Vec4 emissive = s_material_base_emissive[i];
+        Mel_Vec4 emissive = s_point_lights_only ? mel_vec4(0.0f, 0.0f, 0.0f, 1.0f) : s_material_base_emissive[i];
         emissive.x *= s_emissive_boost;
         emissive.y *= s_emissive_boost;
         emissive.z *= s_emissive_boost;
@@ -324,6 +349,35 @@ static void gpu_scene_sync_materials_and_lighting(void)
     for (u32 i = 0; i < MATERIAL_VARIANT_COUNT; i++)
         mel_material_table_push(&s_material_table, s_materials[i]);
     mel_material_table_upload(&s_material_table);
+}
+
+static void gpu_scene_sync_light_table(void)
+{
+    mel_light_table_clear(&s_light_table);
+    i32 count = SDL_clamp(s_point_light_count, 0, GPU_SCENE_MAX_POINT_LIGHTS);
+    for (i32 i = 0; i < count; i++)
+    {
+        i32 chunk_index = i % CHUNK_COUNT;
+        i32 chunk_x = chunk_index % CHUNK_GRID_X;
+        i32 chunk_z = chunk_index / CHUNK_GRID_X;
+        Mel_Vec3 chunk_center = gpu_scene_chunk_center(chunk_x, chunk_z);
+        f32 t = (f32)i / (f32)SDL_max(count, 1);
+        f32 angle = t * TAU_F + (s_animate_point_lights ? s_light_time * s_point_light_orbit_speed : 0.0f);
+        f32 orbit_radius = 2.0f + 3.0f * (0.5f + 0.5f * sinf(t * TAU_F + 0.7f));
+        u32 palette_index = (u32)i % MATERIAL_VARIANT_COUNT;
+        Mel_Vec4 base = s_palette[palette_index];
+        Mel_Point_Light light = {
+            .position = mel_vec3(
+                chunk_center.x + cosf(angle) * orbit_radius,
+                s_point_light_height + sinf(angle * 1.7f + t * 2.3f) * 1.8f,
+                chunk_center.z + sinf(angle) * orbit_radius),
+            .radius = s_point_light_radius,
+            .color = mel_vec4(base.x, base.y, base.z, 1.0f),
+            .intensity = s_point_light_intensity,
+        };
+        mel_light_table_push(&s_light_table, light);
+    }
+    mel_light_table_upload(&s_light_table);
 }
 
 static void gpu_scene_draw_panel(Mel_Render_List* list, f32 x, f32 y, f32 w, f32 h, Mel_Vec4 color)
@@ -424,15 +478,18 @@ static void gpu_scene_build_materials(void)
         s_materials[i] = mel_material_instance_create(s_surface_template,
             .base_color = s_palette[i]);
     }
-    gpu_scene_sync_materials_and_lighting();
 
     mel_material_table_init(&s_material_table,
         .dev = mel_gpu_dev(),
         .capacity = MATERIAL_VARIANT_COUNT);
-    for (u32 i = 0; i < MATERIAL_VARIANT_COUNT; i++)
-        mel_material_table_push(&s_material_table, s_materials[i]);
-    mel_material_table_upload(&s_material_table);
+    gpu_scene_sync_materials_and_lighting();
     s_material_table_source = mel_source_from_material_table(&s_material_table);
+
+    mel_light_table_init(&s_light_table,
+        .dev = mel_gpu_dev(),
+        .capacity = GPU_SCENE_MAX_POINT_LIGHTS);
+    gpu_scene_sync_light_table();
+    s_light_table_source = mel_source_from_light_table(&s_light_table);
 }
 
 static void gpu_scene_draw_chunk_lod0_to_list(i32 chunk_x, i32 chunk_z)
@@ -877,10 +934,13 @@ static void gpu_scene_sync_chunk_stream_lods(void)
 
 static void gpu_scene_update_camera(void)
 {
-    f32 angle = s_time * s_orbit_speed;
-    Mel_Vec3 eye = mel_vec3(cosf(angle) * s_camera_distance, s_camera_height, sinf(angle) * s_camera_distance);
-    s_world_camera.position = eye;
-    s_world_camera.view = mel_mat4_look_at(eye, mel_vec3(0.0f, 2.0f, 0.0f), mel_vec3(0.0f, 1.0f, 0.0f));
+    s_orbit_camera.yaw = MEL_HALF_PI + s_time * s_orbit_speed;
+    i32 w = 0;
+    i32 h = 0;
+    mel_window_size_pixels(s_window_handle, &w, &h);
+    if (w <= 0 || h <= 0)
+        return;
+    mel_orbit_camera_update(&s_orbit_camera, &s_world_camera, (f32)w / (f32)h);
 }
 
 static void gpu_scene_sync_viewport(void)
@@ -894,15 +954,14 @@ static void gpu_scene_sync_viewport(void)
         return;
 
     s_overlay_camera.view = MEL_MAT4_IDENTITY;
-    s_overlay_camera.projection = mel_mat4_ortho(0.0f, (f32)w, 0.0f, (f32)h, -1.0f, 1.0f);
+    s_overlay_camera.projection = mel_mat4_ortho(0.0f, (f32)w, (f32)h, 0.0f, -1.0f, 1.0f);
     mel_view_set_clear_color_enabled(world_view, true);
     mel_view_set_clear_color(world_view, mel_vec4(0.05f, 0.07f, 0.10f, 1.0f));
 
     if (sc->extent.width != (u32)w || sc->extent.height != (u32)h)
     {
         mel_swapchain_resize(sc, mel_gpu_dev(), (u32)w, (u32)h);
-        s_world_camera.projection = mel_mat4_perspective(60.0f * (3.14159265f / 180.0f),
-            (f32)w / (f32)h, 0.1f, 250.0f);
+        mel_orbit_camera_update(&s_orbit_camera, &s_world_camera, (f32)w / (f32)h);
     }
 
     bool ok = mel_render_stage_3d_refresh(&s_stage);
@@ -994,6 +1053,8 @@ static void gpu_scene_apply_policy(Gpu_Scene_Policy policy)
         .user = &s_policy,
     });
     s_policy = policy;
+    bool ok = mel_render_stage_3d_rebuild(&s_stage);
+    assert(ok);
 }
 
 static void gpu_scene_request_mode(Gpu_Scene_Mode mode)
@@ -1011,6 +1072,7 @@ static void gpu_scene_detach_world_sources(void)
     Mel_View_Handle world_view = mel_render_stage_3d_view(&s_stage, MEL_RENDER_STAGE_3D_LAYER_WORLD);
     mel_view_detach_source(world_view, s_mesh_list_source);
     mel_view_detach_source(world_view, s_material_table_source);
+    mel_view_detach_source(world_view, s_light_table_source);
     mel_view_detach_source(world_view, s_batch.cull_source);
     for (u32 i = 0; i < CHUNK_COUNT; i++)
         mel_view_detach_source(world_view, s_chunks[i].draw_source);
@@ -1026,10 +1088,14 @@ static void gpu_scene_apply_mode(Gpu_Scene_Mode mode)
         case GPU_SCENE_MODE_LIST:
             ok = mel_render_stage_3d_attach_mesh_source_to_layer(&s_stage,
                 MEL_RENDER_STAGE_3D_LAYER_WORLD, s_mesh_list_source);
+            ok = mel_render_stage_3d_attach_light_source_to_layer(&s_stage,
+                MEL_RENDER_STAGE_3D_LAYER_WORLD, s_light_table_source) && ok;
             break;
         case GPU_SCENE_MODE_DRAW_STREAM:
             ok = mel_render_stage_3d_attach_mesh_source_to_layer(&s_stage,
                 MEL_RENDER_STAGE_3D_LAYER_WORLD, s_material_table_source);
+            ok = mel_render_stage_3d_attach_light_source_to_layer(&s_stage,
+                MEL_RENDER_STAGE_3D_LAYER_WORLD, s_light_table_source) && ok;
             for (u32 i = 0; i < CHUNK_COUNT; i++)
                 ok = mel_render_stage_3d_attach_mesh_source_to_layer(&s_stage,
                     MEL_RENDER_STAGE_3D_LAYER_WORLD, s_chunks[i].draw_source) && ok;
@@ -1037,6 +1103,8 @@ static void gpu_scene_apply_mode(Gpu_Scene_Mode mode)
         case GPU_SCENE_MODE_COMPUTE_INDIRECT:
             ok = mel_render_stage_3d_attach_mesh_source_to_layer(&s_stage,
                 MEL_RENDER_STAGE_3D_LAYER_WORLD, s_material_table_source);
+            ok = mel_render_stage_3d_attach_light_source_to_layer(&s_stage,
+                MEL_RENDER_STAGE_3D_LAYER_WORLD, s_light_table_source) && ok;
             ok = mel_render_stage_3d_attach_mesh_source_to_layer(&s_stage,
                 MEL_RENDER_STAGE_3D_LAYER_WORLD, s_batch.cull_source) && ok;
             break;
@@ -1045,6 +1113,8 @@ static void gpu_scene_apply_mode(Gpu_Scene_Mode mode)
                 MEL_RENDER_STAGE_3D_LAYER_WORLD, s_mesh_list_source);
             ok = mel_render_stage_3d_attach_mesh_source_to_layer(&s_stage,
                 MEL_RENDER_STAGE_3D_LAYER_WORLD, s_material_table_source) && ok;
+            ok = mel_render_stage_3d_attach_light_source_to_layer(&s_stage,
+                MEL_RENDER_STAGE_3D_LAYER_WORLD, s_light_table_source) && ok;
             ok = mel_render_stage_3d_attach_mesh_source_to_layer(&s_stage,
                 MEL_RENDER_STAGE_3D_LAYER_WORLD, s_batch.cull_source) && ok;
             for (u32 i = 0; i < CHUNK_COUNT; i++)
@@ -1137,6 +1207,7 @@ static void gpu_scene_extract(Mel_Sim_Ctx* sim, f32 dt, void* user)
     Mel_Frame_Plan_Resolved_Material resolved_material = {0};
     bool has_resolved = mel_frame_plan_resolved_technique_at(mel_render_stage_3d_plan(&s_stage), 0, &resolved);
     bool has_material = mel_frame_plan_resolved_material_at(mel_render_stage_3d_plan(&s_stage), 0, &resolved_material);
+    bool deferred_active = has_resolved && str8_ieq(resolved.technique_name, S8("mesh.deferred"));
     Mel_Frame_Stats frame = mel_frame_stats();
     Mel_Sim_Stats sim_stats = mel_sim_stats(&s_sim);
     Mel_Gpu_Capabilities caps = mel_gpu_capabilities(mel_gpu_dev());
@@ -1181,6 +1252,11 @@ static void gpu_scene_extract(Mel_Sim_Ctx* sim, f32 dt, void* user)
         graph ? graph->execute_count : 0);
     mel_text_draw_font_atlas(mel_font_pool(), s_font, &s_hud_text, str8_from_cstr(line),
         .x = 48.0f, .y = 240.0f, .style = body);
+    SDL_snprintf(line, sizeof(line), "point lights %d  mode %s",
+        s_point_light_count,
+        s_point_lights_only ? "only" : "mixed");
+    mel_text_draw_font_atlas(mel_font_pool(), s_font, &s_hud_text, str8_from_cstr(line),
+        .x = 48.0f, .y = 268.0f, .style = body);
 
     mel_text_draw_font_atlas(mel_font_pool(), s_font, &s_hud_text, S8("Resolved"),
         .x = hud_w - 320.0f, .y = 42.0f, .style = title);
@@ -1200,16 +1276,43 @@ static void gpu_scene_extract(Mel_Sim_Ctx* sim, f32 dt, void* user)
         mel_text_draw_font_atlas(mel_font_pool(), s_font, &s_hud_text, str8_from_cstr(line),
             .x = hud_w - 320.0f, .y = 126.0f, .style = body);
     }
+    mel_text_draw_font_atlas(mel_font_pool(), s_font, &s_hud_text,
+        deferred_active
+            ? S8("point lights: active in deferred")
+            : S8("point lights: markers only, active lighting needs deferred"),
+        .x = hud_w - 320.0f, .y = has_material ? 150.0f : 126.0f, .style = body);
     for (u32 i = 0; i < diag_count && i < 3; i++)
     {
         mel_text_draw_font_atlas(mel_font_pool(), s_font, &s_hud_text, str8_from_cstr(diag_lines[i]),
-            .x = hud_w - 320.0f, .y = 154.0f + i * 24.0f, .style = body);
+            .x = hud_w - 320.0f, .y = 178.0f + i * 24.0f, .style = body);
     }
     for (u32 i = 0; i < material_count && i < 2; i++)
     {
         mel_text_draw_font_atlas(mel_font_pool(), s_font, &s_hud_text, str8_from_cstr(material_lines[i]),
-            .x = hud_w - 320.0f, .y = 154.0f + (diag_count < 3 ? diag_count : 3) * 24.0f + i * 24.0f,
+            .x = hud_w - 320.0f, .y = 178.0f + (diag_count < 3 ? diag_count : 3) * 24.0f + i * 24.0f,
             .style = body);
+    }
+
+    if (s_show_point_light_markers)
+    {
+        u32 light_count = mel_light_table_count(&s_light_table);
+        Mel_Point_Light_Gpu_Record* lights = mel_light_table_records(&s_light_table);
+        for (u32 i = 0; i < light_count; i++)
+        {
+            Mel_Vec3 pos = mel_vec3(lights[i].position_radius.x, lights[i].position_radius.y, lights[i].position_radius.z);
+            Mel_Vec2 screen = {0};
+            if (!mel_camera_project_to_viewport(&s_world_camera, pos, (f32)viewport_w, (f32)viewport_h, &screen))
+                continue;
+
+            Mel_Vec4 color = mel_vec4(
+                lights[i].color_intensity.x,
+                lights[i].color_intensity.y,
+                lights[i].color_intensity.z,
+                deferred_active ? 0.92f : 0.55f);
+            gpu_scene_draw_panel(&s_hud_sprites, screen.x - 4.0f, screen.y - 4.0f, 8.0f, 8.0f, color);
+            gpu_scene_draw_panel(&s_hud_sprites, screen.x - 1.0f, screen.y - 1.0f, 2.0f, 2.0f,
+                mel_vec4(1.0f, 1.0f, 1.0f, deferred_active ? 1.0f : 0.75f));
+        }
     }
 }
 
@@ -1251,8 +1354,8 @@ static void gpu_scene_tools_imgui(void* user)
         igCheckbox("Pause Orbit", &s_pause_animation);
         igCheckbox("Show Expected Visibility", &s_show_expected_visibility);
         igSliderFloat("Orbit Speed", &s_orbit_speed, 0.0f, 0.60f, "%.2f", 0);
-        igSliderFloat("Camera Distance", &s_camera_distance, 16.0f, 80.0f, "%.2f", 0);
-        igSliderFloat("Camera Height", &s_camera_height, 6.0f, 36.0f, "%.2f", 0);
+        igSliderFloat("Orbit Distance", &s_orbit_camera.distance, 16.0f, 80.0f, "%.2f", 0);
+        igSliderFloat("Orbit Pitch", &s_orbit_camera.pitch, -0.2f, 1.2f, "%.2f", 0);
 
         igSeparator();
         igText("Chunks: %d x %d", CHUNK_GRID_X, CHUNK_GRID_Z);
@@ -1266,10 +1369,20 @@ static void gpu_scene_tools_imgui(void* user)
         igText("Deferred / lighting controls");
         igSliderFloat3("Light Direction", s_light_dir, -1.0f, 1.0f, "%.2f", 0);
         igColorEdit4("Light Color", s_light_color, 0);
-        igSliderFloat("Ambient", &s_light_ambient, 0.0f, 0.8f, "%.2f", 0);
+        igSliderFloat("Ambient", &s_light_ambient, 0.0f, 0.4f, "%.2f", 0);
         igSliderFloat("Roughness Bias", &s_material_roughness_bias, -0.4f, 0.4f, "%.2f", 0);
         igSliderFloat("Metallic Bias", &s_material_metallic_bias, -0.4f, 0.4f, "%.2f", 0);
         igSliderFloat("Emissive Boost", &s_emissive_boost, 0.0f, 2.5f, "%.2f", 0);
+        igCheckbox("Point Lights Only", &s_point_lights_only);
+        igSeparator();
+        igText("Clustered point lights");
+        igCheckbox("Animate Point Lights", &s_animate_point_lights);
+        igCheckbox("Show Point Light Markers", &s_show_point_light_markers);
+        igSliderInt("Point Light Count", &s_point_light_count, 0, GPU_SCENE_MAX_POINT_LIGHTS, "%d", 0);
+        igSliderFloat("Point Light Radius", &s_point_light_radius, 2.0f, 36.0f, "%.1f", 0);
+        igSliderFloat("Point Light Intensity", &s_point_light_intensity, 0.0f, 4.0f, "%.2f", 0);
+        igSliderFloat("Point Light Height", &s_point_light_height, 0.0f, 12.0f, "%.1f", 0);
+        igSliderFloat("Point Light Orbit Speed", &s_point_light_orbit_speed, 0.0f, 3.0f, "%.2f", 0);
     }
     igEnd();
 }
@@ -1286,8 +1399,11 @@ static void gpu_scene_update(Mel_Sim_Ctx* sim, f32 dt, void* user)
 
     if (!s_pause_animation)
         s_time += dt;
+    if (s_animate_point_lights)
+        s_light_time += dt;
     gpu_scene_update_camera();
     gpu_scene_sync_materials_and_lighting();
+    gpu_scene_sync_light_table();
     s_batch.cull_stream.lod_distance = s_lod_distance;
     gpu_scene_sync_chunk_stream_lods();
     gpu_scene_rebuild_cpu_world();
@@ -1336,14 +1452,21 @@ static void gpu_scene_on_init(void)
         .entry_stride = sizeof(Mel_Text_Entry),
         .alloc = mel_alloc_heap());
 
-    s_world_camera = (Mel_Camera){
-        .projection = mel_mat4_perspective(60.0f * (3.14159265f / 180.0f),
-            (f32)sc->extent.width / (f32)sc->extent.height, 0.1f, 250.0f),
-    };
+    s_world_camera = (Mel_Camera){0};
     s_overlay_camera = (Mel_Camera){
         .view = MEL_MAT4_IDENTITY,
-        .projection = mel_mat4_ortho(0.0f, (f32)sc->extent.width, 0.0f, (f32)sc->extent.height, -1.0f, 1.0f),
+        .projection = mel_mat4_ortho(0.0f, (f32)sc->extent.width, (f32)sc->extent.height, 0.0f, -1.0f, 1.0f),
     };
+    mel_orbit_camera_init(&s_orbit_camera,
+        .target = mel_vec3(0.0f, 2.0f, 0.0f),
+        .distance = sqrtf(42.0f * 42.0f + 16.0f * 16.0f),
+        .yaw = MEL_HALF_PI,
+        .pitch = asinf(16.0f / sqrtf(42.0f * 42.0f + 16.0f * 16.0f)),
+        .fov = 60.0f * (3.14159265f / 180.0f),
+        .near_plane = 0.1f,
+        .far_plane = 250.0f,
+        .min_distance = 16.0f,
+        .max_distance = 80.0f);
     gpu_scene_update_camera();
 
     s_font = mel_font_atlas_pool_load(mel_font_pool(),
@@ -1433,7 +1556,9 @@ void app_shutdown(void)
     mel_gpu_buffer_shutdown(&s_batch.index_buffer, mel_gpu_dev());
     mel_gpu_buffer_shutdown(&s_batch.vertex_buffer, mel_gpu_dev());
     mel_source_destroy(s_material_table_source);
+    mel_source_destroy(s_light_table_source);
     mel_source_destroy(s_mesh_list_source);
+    mel_light_table_shutdown(&s_light_table);
     mel_material_table_shutdown(&s_material_table);
     for (u32 i = 0; i < MATERIAL_VARIANT_COUNT; i++)
         mel_material_instance_destroy(s_materials[i]);
@@ -1444,6 +1569,7 @@ void app_shutdown(void)
 void app_event(SDL_Event* event)
 {
     mel_process_event(event);
+    mel_orbit_camera_event(&s_orbit_camera, event);
 
     if (event->type == SDL_EVENT_QUIT)
     {

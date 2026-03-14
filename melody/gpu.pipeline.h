@@ -62,6 +62,7 @@ typedef struct {
     u32 push_constant_size;
     VkShaderStageFlags push_constant_stages;
     bool use_texture;
+    bool dynamic_cull_mode;
     u32 max_descriptor_sets;
     Mel_Gpu_Descriptor_Binding* descriptor_bindings;
     u32 descriptor_binding_count;

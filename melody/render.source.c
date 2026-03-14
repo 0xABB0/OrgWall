@@ -2,6 +2,7 @@
 #include "render.list.h"
 #include "render.target.h"
 #include "render.material.h"
+#include "render.light.h"
 #include "collection.slotmap.h"
 #include "collection.array.h"
 #include "allocator.heap.h"
@@ -201,6 +202,44 @@ Mel_Source_Handle mel_source_from_material_table(Mel_Material_Table* table)
     mel_array_push(&s_wrapper_cache, ((Mel__Source_Wrapper_Cache_Entry){
         .backing = table,
         .schema = MEL_SCHEMA_MATERIAL_TABLE,
+        .kind = MEL_SOURCE_GPU_BUFFER,
+        .handle = handle,
+    }));
+    return handle;
+}
+
+Mel_Source_Handle mel_source_from_light_table(Mel_Light_Table* table)
+{
+    assert(table != nullptr);
+    assert(table->dev != nullptr);
+
+    for (usize i = 0; i < s_wrapper_cache.count; i++)
+    {
+        if (s_wrapper_cache.items[i].backing == table &&
+            s_wrapper_cache.items[i].schema == MEL_SCHEMA_LIGHT &&
+            s_wrapper_cache.items[i].kind == MEL_SOURCE_GPU_BUFFER)
+        {
+            Mel_Source* existing = mel__source_get(s_wrapper_cache.items[i].handle);
+            existing->refcount++;
+            return s_wrapper_cache.items[i].handle;
+        }
+    }
+
+    Mel_Source_Handle handle = mel_source_create(&(Mel_Source_Desc){
+        .name = S8("light_table"),
+        .kind = MEL_SOURCE_GPU_BUFFER,
+        .schema = MEL_SCHEMA_LIGHT,
+        .access_flags = MEL_SOURCE_ACCESS_CPU_WRITE | MEL_SOURCE_ACCESS_GPU_READ,
+        .lifetime = MEL_SOURCE_LIFETIME_RETAINED,
+        .user = table,
+    });
+
+    Mel_Source* source = mel__source_get(handle);
+    source->gpu_buffer = &table->buffer;
+    source->cached_wrapper = true;
+    mel_array_push(&s_wrapper_cache, ((Mel__Source_Wrapper_Cache_Entry){
+        .backing = table,
+        .schema = MEL_SCHEMA_LIGHT,
         .kind = MEL_SOURCE_GPU_BUFFER,
         .handle = handle,
     }));

@@ -92,7 +92,7 @@ static void texttech_sync_viewport(void)
     if (sc->extent.width != (u32)w || sc->extent.height != (u32)h)
     {
         mel_swapchain_resize(sc, mel_gpu_dev(), (u32)w, (u32)h);
-        s_camera.projection = mel_mat4_ortho(0.0f, (f32)w, 0.0f, (f32)h, -1.0f, 1.0f);
+        s_camera.projection = mel_mat4_ortho(0.0f, (f32)w, (f32)h, 0.0f, -1.0f, 1.0f);
     }
 }
 
@@ -247,7 +247,7 @@ static void on_init(void)
 
     s_camera = (Mel_Camera){
         .view = MEL_MAT4_IDENTITY,
-        .projection = mel_mat4_ortho(0.0f, (f32)sc->extent.width, 0.0f, (f32)sc->extent.height, -1.0f, 1.0f),
+        .projection = mel_mat4_ortho(0.0f, (f32)sc->extent.width, (f32)sc->extent.height, 0.0f, -1.0f, 1.0f),
     };
 
     mel_font_sdf_pool_init(&s_sdf_pool, mel_allocator(), dev, mel_vfs());

@@ -616,6 +616,11 @@ u32 mel_material_template_fallback_policy(Mel_Material_Template_Handle handle)
     return mel__material_template_get(handle)->desc.fallback_policy;
 }
 
+u32 mel_material_template_cull_mode(Mel_Material_Template_Handle handle)
+{
+    return mel__material_template_get(handle)->desc.cull_mode;
+}
+
 Mel_Vec4 mel_material_template_base_color(Mel_Material_Template_Handle handle)
 {
     return mel__material_template_get(handle)->desc.base_color;

@@ -486,7 +486,7 @@ static void execute_passes(Mel_Render_Graph* g, Mel_Gpu_Cmd* cmd)
                 .render_height = rh,
             );
 
-            mel_gpu_cmd_set_viewport(cmd, viewport_x, viewport_y, viewport_w, viewport_h, 0.0f, 1.0f);
+            mel_gpu_cmd_set_viewport(cmd, viewport_x, viewport_y + viewport_h, viewport_w, -viewport_h, 0.0f, 1.0f);
             mel_gpu_cmd_set_scissor(cmd, scissor_x, scissor_y, scissor_w, scissor_h);
         }
 
@@ -514,8 +514,8 @@ static void execute_passes(Mel_Render_Graph* g, Mel_Gpu_Cmd* cmd)
                 .write_targets = has_wt ? write_target_ptrs : nullptr,
                 .camera = pass->camera,
                 .user = pass->user,
-                .render_width = rw,
-                .render_height = rh,
+                .render_width = rw > 0 ? rw : pass->render_width,
+                .render_height = rh > 0 ? rh : pass->render_height,
                 .gpu_frame_index = g->current_frame,
             };
             pass->fn(&ctx);
@@ -615,6 +615,8 @@ u32 mel_render_graph_add_pass_opt(Mel_Render_Graph* g, str8 name, Mel_Pass_Desc 
         .viewport_mode = desc.viewport_mode,
         .viewport_design_width = desc.viewport_design_width,
         .viewport_design_height = desc.viewport_design_height,
+        .render_width = desc.render_width,
+        .render_height = desc.render_height,
         .read_lists = copy_list_array(g->alloc, desc.read_lists),
         .read_sources = copy_source_array(g->alloc, desc.read_sources),
         .write_lists = copy_list_array(g->alloc, desc.write_lists),

@@ -6,6 +6,7 @@
 #include "render.list.fwd.h"
 #include "render.target.fwd.h"
 #include "render.material.fwd.h"
+#include "render.light.fwd.h"
 #include "gpu.buffer.h"
 
 typedef enum {
@@ -59,6 +60,7 @@ void mel_source_destroy(Mel_Source_Handle source);
 Mel_Source_Handle mel_source_from_render_list(Mel_Render_List* list, u32 schema);
 Mel_Source_Handle mel_source_from_gpu_buffer(Mel_Gpu_Buffer* buffer, u32 schema);
 Mel_Source_Handle mel_source_from_material_table(Mel_Material_Table* table);
+Mel_Source_Handle mel_source_from_light_table(Mel_Light_Table* table);
 Mel_Source_Handle mel_source_from_target(Mel_Render_Target* target, u32 schema);
 u32 mel_source_refcount(Mel_Source_Handle source);
 

@@ -468,7 +468,7 @@ static void mesh_variants_sync_viewport(void)
         return;
 
     s_overlay_camera.view = MEL_MAT4_IDENTITY;
-    s_overlay_camera.projection = mel_mat4_ortho(0.0f, (f32)w, 0.0f, (f32)h, -1.0f, 1.0f);
+    s_overlay_camera.projection = mel_mat4_ortho(0.0f, (f32)w, (f32)h, 0.0f, -1.0f, 1.0f);
 
     if (sc->extent.width != (u32)w || sc->extent.height != (u32)h)
     {
@@ -796,7 +796,7 @@ static void mesh_variants_on_init(void)
     };
     s_overlay_camera = (Mel_Camera){
         .view = MEL_MAT4_IDENTITY,
-        .projection = mel_mat4_ortho(0.0f, (f32)sc->extent.width, 0.0f, (f32)sc->extent.height, -1.0f, 1.0f),
+        .projection = mel_mat4_ortho(0.0f, (f32)sc->extent.width, (f32)sc->extent.height, 0.0f, -1.0f, 1.0f),
     };
 
     s_font = mel_font_atlas_pool_load(mel_font_pool(),

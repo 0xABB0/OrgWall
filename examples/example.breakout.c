@@ -474,7 +474,7 @@ static void on_init(void)
     s_camera = (Mel_Camera){
         .view = MEL_MAT4_IDENTITY,
         .projection = mel_mat4_ortho(0, (f32)sc->extent.width,
-                                      0, (f32)sc->extent.height, -1, 1),
+                                      (f32)sc->extent.height, 0, -1, 1),
     };
 
     s_sprite_source = mel_source_from_render_list(&s_sprite_list, MEL_SCHEMA_SPRITE);

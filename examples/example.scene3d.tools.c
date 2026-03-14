@@ -203,7 +203,7 @@ static void scene3d_sync_viewport(void)
     }
 
     s_overlay_camera.view = MEL_MAT4_IDENTITY;
-    s_overlay_camera.projection = mel_mat4_ortho(0.0f, (f32)w, 0.0f, (f32)h, -1.0f, 1.0f);
+    s_overlay_camera.projection = mel_mat4_ortho(0.0f, (f32)w, (f32)h, 0.0f, -1.0f, 1.0f);
     mel_view_set_clear_color_enabled(world_view, true);
     mel_view_set_clear_color(world_view,
         mel_vec4(s_scene_clear[0], s_scene_clear[1], s_scene_clear[2], s_scene_clear[3]));
@@ -481,7 +481,7 @@ static void scene3d_on_init(void)
     };
     s_overlay_camera = (Mel_Camera){
         .view = MEL_MAT4_IDENTITY,
-        .projection = mel_mat4_ortho(0.0f, (f32)sc->extent.width, 0.0f, (f32)sc->extent.height, -1.0f, 1.0f),
+        .projection = mel_mat4_ortho(0.0f, (f32)sc->extent.width, (f32)sc->extent.height, 0.0f, -1.0f, 1.0f),
     };
     scene3d_update_camera();
 

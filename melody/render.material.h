@@ -9,6 +9,11 @@
 #include "string.str8.fwd.h"
 #include "math.vec4.h"
 
+#define MEL_MATERIAL_CULL_INHERIT 0
+#define MEL_MATERIAL_CULL_NONE    1
+#define MEL_MATERIAL_CULL_BACK    2
+#define MEL_MATERIAL_CULL_FRONT   3
+
 typedef enum {
     MEL_MATERIAL_DOMAIN_OPAQUE = 0,
     MEL_MATERIAL_DOMAIN_ALPHA_TEST = 1,
@@ -82,6 +87,7 @@ typedef struct {
     str8 profile;
     u32 render_domain;
     u32 fallback_policy;
+    u32 cull_mode;
     Mel_Vec4 base_color;
     const Mel_Material_Param_Desc* params;
     u32 param_count;
@@ -145,6 +151,7 @@ Mel_Material_Family_Handle mel_material_template_family(Mel_Material_Template_Ha
 str8 mel_material_template_profile(Mel_Material_Template_Handle material);
 u32 mel_material_template_render_domain(Mel_Material_Template_Handle material);
 u32 mel_material_template_fallback_policy(Mel_Material_Template_Handle material);
+u32 mel_material_template_cull_mode(Mel_Material_Template_Handle material);
 Mel_Vec4 mel_material_template_base_color(Mel_Material_Template_Handle material);
 
 Mel_Material_Instance_Handle mel_material_instance_create_opt(const Mel_Material_Instance_Desc* desc);

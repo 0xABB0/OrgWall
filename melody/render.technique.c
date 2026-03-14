@@ -564,6 +564,8 @@ static Mel_Technique_Compile_Result mel__compile_mesh_deferred(const Mel_Techniq
         ? mel_frame_plan_collect_sources(ctx->plan_ctx->plan,
             ctx->plan_ctx->binding.view, MEL_SOURCE_GPU_BUFFER, MEL_SCHEMA_MATERIAL_TABLE)
         : nullptr;
+    Mel_Source_Handle* light_sources = mel_frame_plan_collect_sources(ctx->plan_ctx->plan,
+        ctx->plan_ctx->binding.view, MEL_SOURCE_GPU_BUFFER, MEL_SCHEMA_LIGHT);
     Mel_Source_Handle* read_sources = mel__merge_mesh_gpu_sources(ctx->plan_ctx->plan, geometry_sources, material_sources);
     Mel_Render_List** read_lists = geometry_sources ? nullptr
         : mel_frame_plan_collect_render_lists(ctx->plan_ctx->plan,
@@ -604,6 +606,7 @@ static Mel_Technique_Compile_Result mel__compile_mesh_deferred(const Mel_Techniq
             mel_frame_plan_free_read_lists(ctx->plan_ctx->plan, read_lists);
             mel_frame_plan_free_read_sources(ctx->plan_ctx->plan, geometry_sources);
             mel_frame_plan_free_read_sources(ctx->plan_ctx->plan, material_sources);
+            mel_frame_plan_free_read_sources(ctx->plan_ctx->plan, light_sources);
             if (read_sources)
                 mel_dealloc(mel_alloc_heap(), read_sources);
             mel_dealloc(mel_alloc_heap(), deferred_normal_name.data);
@@ -643,6 +646,25 @@ static Mel_Technique_Compile_Result mel__compile_mesh_deferred(const Mel_Techniq
         return MEL_TECHNIQUE_COMPILE_FAIL;
     }
 
+    str8 cluster_suffix = str8_fmt(mel_alloc_heap(), "%.*s.cluster", (int)ctx->technique->name.len, ctx->technique->name.data);
+    ok = mel_frame_plan_add_compute_pass(ctx->plan_ctx, cluster_suffix,
+        mel_mesh_pass_execute_clustered_lighting, mesh_pass, light_sources, nullptr);
+    mel_dealloc(mel_alloc_heap(), cluster_suffix.data);
+    if (!ok)
+    {
+        mel_frame_plan_free_read_lists(ctx->plan_ctx->plan, read_lists);
+        mel_frame_plan_free_read_sources(ctx->plan_ctx->plan, geometry_sources);
+        mel_frame_plan_free_read_sources(ctx->plan_ctx->plan, material_sources);
+        mel_frame_plan_free_read_sources(ctx->plan_ctx->plan, light_sources);
+        if (read_sources)
+            mel_dealloc(mel_alloc_heap(), read_sources);
+        mel_dealloc(mel_alloc_heap(), deferred_normal_name.data);
+        mel_dealloc(mel_alloc_heap(), deferred_albedo_name.data);
+        mel_dealloc(mel_alloc_heap(), deferred_emissive_name.data);
+        mel_dealloc(mel_alloc_heap(), deferred_meta_name.data);
+        return MEL_TECHNIQUE_COMPILE_FAIL;
+    }
+
     VkAttachmentLoadOp color_load_op = (!*ctx->plan_ctx->wrote_any_pass &&
         (ctx->plan_ctx->first_for_swapchain || ctx->plan_ctx->replace_contents))
         ? VK_ATTACHMENT_LOAD_OP_CLEAR
@@ -658,7 +680,7 @@ static Mel_Technique_Compile_Result mel__compile_mesh_deferred(const Mel_Techniq
         nullptr
     };
     ok = mel_frame_plan_add_graphics_pass(ctx->plan_ctx, ctx->technique->name,
-        mel_mesh_pass_execute_deferred_resolve, mesh_pass, nullptr, nullptr, resolve_read_targets,
+        mel_mesh_pass_execute_deferred_resolve, mesh_pass, nullptr, light_sources, resolve_read_targets,
         MEL_WRITE_TARGETS(
             { .target = ctx->plan_ctx->target, .load_op = color_load_op,
               .clear.color = { .r = clear.x, .g = clear.y, .b = clear.z, .a = clear.w } }));
@@ -666,6 +688,7 @@ static Mel_Technique_Compile_Result mel__compile_mesh_deferred(const Mel_Techniq
     mel_frame_plan_free_read_lists(ctx->plan_ctx->plan, read_lists);
     mel_frame_plan_free_read_sources(ctx->plan_ctx->plan, geometry_sources);
     mel_frame_plan_free_read_sources(ctx->plan_ctx->plan, material_sources);
+    mel_frame_plan_free_read_sources(ctx->plan_ctx->plan, light_sources);
     if (read_sources)
         mel_dealloc(mel_alloc_heap(), read_sources);
     mel_dealloc(mel_alloc_heap(), deferred_normal_name.data);

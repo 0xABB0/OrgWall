@@ -445,7 +445,7 @@ static void on_init(void)
     s_camera = (Mel_Camera){
         .view = MEL_MAT4_IDENTITY,
         .projection = mel_mat4_ortho(0, (f32)WINDOW_W,
-                                      0, (f32)WINDOW_H, -1, 1),
+                                      (f32)WINDOW_H, 0, -1, 1),
     };
 
     snake_render_init();

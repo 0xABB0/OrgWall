@@ -155,3 +155,25 @@ Examples:
 
 We do not condone being lazy. If we spot something that's wrong, we either fix it, or we write in the todo file what the problem is
 
+## MEL-X-011: coordinate system
+
+The engine uses a Y-up, right-handed coordinate system for world space. This is the engine's authoritative convention — all math, physics, cameras, and scene graphs assume Y-up.
+
+Each graphics API has its own clip space conventions:
+- Vulkan: Y-down, Z [0,1]
+- DirectX: Y-up, Z [0,1]
+- Metal: Y-up, Z [0,1]
+- WebGPU: Y-up, Z [0,1]
+
+Projection matrices (`mel_mat4_perspective`, `mel_mat4_ortho`) are written in Y-up convention. The API backend is responsible for adapting to its native clip space at the viewport level. For Vulkan, this means negative viewport height (`VkViewport { .y = height, .height = -height }`). Other backends do nothing. This keeps the math layer API-agnostic — projection matrices never contain API-specific corrections.
+
+For 2D screen-space rendering (UI, text, overlays), use `mel_mat4_ortho(0, width, height, 0, ...)` — this maps y=0 to the top of the screen (Y-down screen space). For 2D game-space rendering (platformers, physics), use `mel_mat4_ortho(0, width, 0, height, ...)` — this maps y=0 to the bottom (Y-up, consistent with world space).
+
+## MEL-X-012: matrix layout
+
+Matrices are row-major. `Mel_Mat4.rows[0]` is the first row. Matrix multiplication order is `projection * view * model`. This applies to both CPU math and GPU shader data — push constants and buffers send row-major data, shaders consume it as-is via `mul(matrix, vector)`.
+
+## MEL-X-013: handles
+
+Make heavy use of handles. we should limit the number of pointers in this engine. sometimes it makes more sense to use a generic handle and not a generational handle.
+

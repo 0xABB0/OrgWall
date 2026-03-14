@@ -278,7 +278,7 @@ static void material_sprite_sync_viewport(void)
         return;
 
     s_world_camera.view = MEL_MAT4_IDENTITY;
-    s_world_camera.projection = mel_mat4_ortho(0.0f, (f32)w, 0.0f, (f32)h, -1.0f, 1.0f);
+    s_world_camera.projection = mel_mat4_ortho(0.0f, (f32)w, (f32)h, 0.0f, -1.0f, 1.0f);
     s_hud_camera = s_world_camera;
     mel_view_set_clear_color_enabled(world_view, true);
     mel_view_set_clear_color(world_view,
@@ -507,7 +507,7 @@ static void material_sprite_on_init(void)
 
     s_world_camera = (Mel_Camera){
         .view = MEL_MAT4_IDENTITY,
-        .projection = mel_mat4_ortho(0.0f, (f32)sc->extent.width, 0.0f, (f32)sc->extent.height, -1.0f, 1.0f),
+        .projection = mel_mat4_ortho(0.0f, (f32)sc->extent.width, (f32)sc->extent.height, 0.0f, -1.0f, 1.0f),
     };
     s_hud_camera = s_world_camera;
 

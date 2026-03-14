@@ -149,6 +149,53 @@ void mel_verlet_compute_normals(Mel_Verlet_System* sys, u32 width, u32 height)
     }
 }
 
+void mel_verlet_compute_tangents(Mel_Verlet_System* sys, u32 width, u32 height,
+    Mel_Vec4* out_tangents)
+{
+    assert(sys);
+    assert(width * height <= sys->count);
+    assert(out_tangents);
+
+    for (u32 r = 0; r < height; r++) {
+        for (u32 c = 0; c < width; c++) {
+            u32 idx = mel__cloth_idx(r, c, width);
+            Mel_Vec3 tangent = MEL_VEC3_ZERO;
+            u32 n = 0;
+
+            if (c > 0) {
+                Mel_Vec3 left = sys->particles[mel__cloth_idx(r, c - 1, width)].pos;
+                tangent = mel_vec3_add(tangent,
+                    mel_vec3_sub(sys->particles[idx].pos, left));
+                n++;
+            }
+            if (c + 1 < width) {
+                Mel_Vec3 right = sys->particles[mel__cloth_idx(r, c + 1, width)].pos;
+                tangent = mel_vec3_add(tangent,
+                    mel_vec3_sub(right, sys->particles[idx].pos));
+                n++;
+            }
+
+            if (n > 0) {
+                tangent = mel_vec3_scale(tangent, 1.0f / (f32)n);
+                f32 len = mel_vec3_len(tangent);
+                if (len > 1e-7f)
+                    tangent = mel_vec3_scale(tangent, 1.0f / len);
+                else
+                    tangent = (Mel_Vec3){{1, 0, 0}};
+            } else {
+                tangent = (Mel_Vec3){{1, 0, 0}};
+            }
+
+            Mel_Vec3 normal = sys->particles[idx].normal;
+            Mel_Vec3 bitangent = mel_vec3_cross(normal, tangent);
+            f32 handedness = mel_vec3_dot(bitangent,
+                mel_vec3_cross(normal, (Mel_Vec3){{1, 0, 0}})) < 0 ? -1.0f : 1.0f;
+
+            out_tangents[idx] = (Mel_Vec4){{tangent.x, tangent.y, tangent.z, handedness}};
+        }
+    }
+}
+
 Mel_Verlet_Mesh_Counts mel_verlet_cloth_mesh_counts(u32 width, u32 height)
 {
     return (Mel_Verlet_Mesh_Counts){
@@ -162,6 +209,7 @@ void mel_verlet_cloth_mesh(
     u32 width, u32 height,
     Mel_Vec3* out_positions,
     Mel_Vec3* out_normals,
+    Mel_Vec2* out_uvs,
     Mel_Vec4* out_colors,
     u32* out_indices,
     Mel_Vec4 color)
@@ -172,6 +220,7 @@ void mel_verlet_cloth_mesh(
     for (u32 i = 0; i < width * height; i++) {
         out_positions[i] = sys->particles[i].pos;
         out_normals[i] = sys->particles[i].normal;
+        if (out_uvs) out_uvs[i] = sys->particles[i].uv;
         out_colors[i] = color;
     }
 

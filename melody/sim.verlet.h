@@ -37,20 +37,11 @@ typedef struct {
     union {
         Mel_Verlet_Distance_Data distance;
         Mel_Verlet_Pin_Data pin;
+        Mel_Sphere sphere;
+        Mel_Plane plane;
         void* custom;
     };
 } Mel_Verlet_Constraint;
-
-#define MEL_VERLET_COLLIDER_SPHERE 0
-#define MEL_VERLET_COLLIDER_PLANE  1
-
-typedef struct {
-    u32 type;
-    union {
-        Mel_Sphere sphere;
-        Mel_Plane plane;
-    };
-} Mel_Verlet_Collider;
 
 struct Mel_Verlet_System {
     Mel_Verlet_Particle* particles;
@@ -60,10 +51,6 @@ struct Mel_Verlet_System {
     Mel_Verlet_Constraint* constraints;
     u32 constraint_count;
     u32 constraint_capacity;
-
-    Mel_Verlet_Collider* colliders;
-    u32 collider_count;
-    u32 collider_capacity;
 
     f32 damping;
     u32 solver_iterations;
@@ -80,7 +67,7 @@ typedef struct {
 } Mel_Verlet_Init_Opt;
 
 void mel_verlet_init_opt(Mel_Verlet_System* sys, Mel_Verlet_Init_Opt opt);
-#define mel_verlet_init(sys, ...) mel_verlet_init_opt((sys), (Mel_Verlet_Init_Opt){ .damping = 0.997f, .solver_iterations = 4, __VA_ARGS__ })
+#define mel_verlet_init(sys, ...) mel_verlet_init_opt((sys), (Mel_Verlet_Init_Opt){ __VA_ARGS__ })
 
 void mel_verlet_shutdown(Mel_Verlet_System* sys);
 
@@ -125,9 +112,11 @@ typedef struct {
 } Mel_Verlet_Cloth_Opt;
 
 void mel_verlet_cloth_opt(Mel_Verlet_System* sys, Mel_Verlet_Cloth_Opt opt);
-#define mel_verlet_cloth(sys, ...) mel_verlet_cloth_opt((sys), (Mel_Verlet_Cloth_Opt){ .spacing = 0.2f, .pin_top_left = true, .pin_top_right = true, .add_shear = true, .add_bend = true, __VA_ARGS__ })
+#define mel_verlet_cloth(sys, ...) mel_verlet_cloth_opt((sys), (Mel_Verlet_Cloth_Opt){ __VA_ARGS__ })
 
 void mel_verlet_compute_normals(Mel_Verlet_System* sys, u32 width, u32 height);
+void mel_verlet_compute_tangents(Mel_Verlet_System* sys, u32 width, u32 height,
+    Mel_Vec4* out_tangents);
 
 typedef struct {
     u32 vertex_count;
@@ -141,6 +130,7 @@ void mel_verlet_cloth_mesh(
     u32 width, u32 height,
     Mel_Vec3* out_positions,
     Mel_Vec3* out_normals,
+    Mel_Vec2* out_uvs,
     Mel_Vec4* out_colors,
     u32* out_indices,
     Mel_Vec4 color);

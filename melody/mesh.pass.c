@@ -5,6 +5,7 @@
 #include "render.target.h"
 #include "render.source.h"
 #include "render.material.h"
+#include "render.light.h"
 #include "allocator.heap.h"
 #include "string.str8.h"
 
@@ -22,6 +23,13 @@ typedef struct {
     VkBuffer buffer;
     VkDescriptorSet descriptor;
 } Mel__Mesh_Descriptor_Cache_Entry;
+
+typedef struct {
+    u32 offset;
+    u32 count;
+    u32 _pad0;
+    u32 _pad1;
+} Mel_Mesh_Cluster_Range;
 
 static const char* MESH_FORWARD_SHADER_SOURCE =
 "struct VSInput\n"
@@ -218,10 +226,11 @@ static const char* MESH_VISIBILITY_RESOLVE_SHADER_SOURCE =
 "[shader(\"fragment\")]\n"
 "float4 fragmentMain(VSOutput input) : SV_Target\n"
 "{\n"
-"    float4 vis = gVisibility.Sample(input.uv);\n"
+"    float2 uv = input.uv;\n"
+"    float4 vis = gVisibility.Sample(uv);\n"
 "    if (vis.w < 0.5)\n"
 "        discard;\n"
-"    float4 attrs = gAttributes.Sample(input.uv);\n"
+"    float4 attrs = gAttributes.Sample(uv);\n"
 "    uint materialId = (uint)max(vis.w - 1.0, 0.0);\n"
 "    MaterialRecord material = gMaterials[materialId];\n"
     "    float3 normal = normalize(vis.xyz * 2.0 - 1.0);\n"
@@ -264,6 +273,7 @@ static const char* MESH_DEFERRED_SHADER_SOURCE =
 "struct VSOutput\n"
 "{\n"
 "    float4 position : SV_Position;\n"
+"    float3 worldPosition : TEXCOORD1;\n"
 "    float3 normal : NORMAL;\n"
 "    float4 albedo : COLOR0;\n"
 "    float4 emissiveOcclusion : COLOR1;\n"
@@ -292,6 +302,7 @@ static const char* MESH_DEFERRED_SHADER_SOURCE =
 "    VSOutput output;\n"
 "    MaterialRecord material = gMaterials[input.materialId];\n"
 "    output.position = mul(push.projection, float4(input.position, 1.0));\n"
+"    output.worldPosition = input.position;\n"
 "    output.normal = normalize(input.normal);\n"
 "    output.albedo = input.color * material.baseColor;\n"
 "    output.emissiveOcclusion = float4(material.emissiveColor.rgb * material.emissiveColor.a,\n"
@@ -309,11 +320,25 @@ static const char* MESH_DEFERRED_SHADER_SOURCE =
 "    output.normalRoughness = float4(normal, input.params.x);\n"
 "    output.albedoMetallic = float4(input.albedo.rgb, input.params.y);\n"
 "    output.emissiveOcclusion = input.emissiveOcclusion;\n"
-"    output.meta = float4(input.params.z, input.albedo.a, 0.0, 0.0);\n"
+"    output.meta = float4(input.worldPosition, input.params.z);\n"
 "    return output;\n"
 "}\n";
 
 static const char* MESH_DEFERRED_RESOLVE_SHADER_SOURCE =
+"struct PointLightRecord\n"
+"{\n"
+"    float4 positionRadius;\n"
+"    float4 colorIntensity;\n"
+"};\n"
+"\n"
+"struct ClusterRange\n"
+"{\n"
+"    uint offset;\n"
+"    uint count;\n"
+"    uint _pad0;\n"
+"    uint _pad1;\n"
+"};\n"
+"\n"
 "struct VSOutput\n"
 "{\n"
 "    float4 position : SV_Position;\n"
@@ -324,6 +349,9 @@ static const char* MESH_DEFERRED_RESOLVE_SHADER_SOURCE =
 "{\n"
 "    float4 lightDirAmbient;\n"
 "    float4 lightColor;\n"
+"    float4 cameraPositionMaxDistance;\n"
+"    uint4 clusterInfo0;\n"
+"    uint4 clusterInfo1;\n"
 "};\n"
 "\n"
 "[[vk::push_constant]] PushConstants push;\n"
@@ -331,6 +359,9 @@ static const char* MESH_DEFERRED_RESOLVE_SHADER_SOURCE =
 "[[vk::binding(1, 0)]] Sampler2D gAlbedoMetallic;\n"
 "[[vk::binding(2, 0)]] Sampler2D gEmissiveOcclusion;\n"
 "[[vk::binding(3, 0)]] Sampler2D gMeta;\n"
+"[[vk::binding(4, 0)]] StructuredBuffer<PointLightRecord> gLights;\n"
+"[[vk::binding(5, 0)]] StructuredBuffer<ClusterRange> gClusterRanges;\n"
+"[[vk::binding(6, 0)]] StructuredBuffer<uint> gClusterIndices;\n"
 "\n"
 "[shader(\"vertex\")]\n"
 "VSOutput vertexMain(uint vertexId : SV_VertexID)\n"
@@ -348,19 +379,21 @@ static const char* MESH_DEFERRED_RESOLVE_SHADER_SOURCE =
 "[shader(\"fragment\")]\n"
 "float4 fragmentMain(VSOutput input) : SV_Target\n"
 "{\n"
-"    float4 normalRoughness = gNormalRoughness.Sample(input.uv);\n"
-"    float4 albedoMetallic = gAlbedoMetallic.Sample(input.uv);\n"
-"    float4 emissiveOcclusion = gEmissiveOcclusion.Sample(input.uv);\n"
-"    float4 meta = gMeta.Sample(input.uv);\n"
-"    if (meta.y < 0.001)\n"
+"    float2 uv = input.uv;\n"
+"    float4 normalRoughness = gNormalRoughness.Sample(uv);\n"
+"    float4 albedoMetallic = gAlbedoMetallic.Sample(uv);\n"
+"    float4 emissiveOcclusion = gEmissiveOcclusion.Sample(uv);\n"
+"    float4 meta = gMeta.Sample(uv);\n"
+"    if (dot(normalRoughness.xyz, normalRoughness.xyz) < 0.0001)\n"
 "        discard;\n"
 "    float3 normal = normalize(normalRoughness.xyz * 2.0 - 1.0);\n"
 "    float roughness = saturate(normalRoughness.w);\n"
 "    float metallic = saturate(albedoMetallic.w);\n"
 "    float occlusion = saturate(emissiveOcclusion.w);\n"
-"    float lightingWeight = saturate(meta.x);\n"
+"    float lightingWeight = saturate(meta.w);\n"
 "    float3 baseColor = albedoMetallic.rgb;\n"
 "    float3 emissive = emissiveOcclusion.rgb;\n"
+"    float3 worldPos = meta.xyz;\n"
 "    float3 lightDir = normalize(-push.lightDirAmbient.xyz);\n"
 "    float ndotl = saturate(dot(normal, lightDir));\n"
 "    float diffuseStrength = lerp(1.0, 0.35, roughness) * lerp(1.0, 0.70, metallic);\n"
@@ -369,9 +402,123 @@ static const char* MESH_DEFERRED_RESOLVE_SHADER_SOURCE =
 "    float3 lit = baseColor * (push.lightDirAmbient.www * occlusion);\n"
 "    lit += baseColor * (push.lightColor.rgb * ndotl * diffuseStrength);\n"
 "    lit += push.lightColor.rgb * specular;\n"
+"    uint screenWidth = max(push.clusterInfo0.x, 1u);\n"
+"    uint screenHeight = max(push.clusterInfo0.y, 1u);\n"
+"    uint tileCountX = max(push.clusterInfo0.z, 1u);\n"
+"    uint tileCountY = max(push.clusterInfo0.w, 1u);\n"
+"    uint zSlices = max(push.clusterInfo1.x, 1u);\n"
+"    float maxDistance = max(push.cameraPositionMaxDistance.w, 1.0);\n"
+"    uint tileX = min((uint)(saturate(uv.x) * (float)tileCountX), tileCountX - 1u);\n"
+"    uint tileY = min((uint)(saturate(uv.y) * (float)tileCountY), tileCountY - 1u);\n"
+"    float depthDistance = distance(worldPos, push.cameraPositionMaxDistance.xyz);\n"
+"    uint slice = min((uint)floor(saturate(depthDistance / maxDistance) * (float)zSlices), zSlices - 1u);\n"
+"    uint clusterIndex = tileX + tileY * tileCountX + slice * tileCountX * tileCountY;\n"
+"    ClusterRange range = gClusterRanges[clusterIndex];\n"
+"    for (uint i = 0; i < range.count; i++)\n"
+"    {\n"
+"        PointLightRecord light = gLights[gClusterIndices[range.offset + i]];\n"
+"        float3 toLight = light.positionRadius.xyz - worldPos;\n"
+"        float distSq = dot(toLight, toLight);\n"
+"        float radius = max(light.positionRadius.w, 0.0001);\n"
+"        if (distSq > radius * radius)\n"
+"            continue;\n"
+"        float dist = sqrt(max(distSq, 0.0001));\n"
+"        float3 localDir = toLight / dist;\n"
+"        float localNdotL = saturate(dot(normal, localDir));\n"
+"        float localSpec = pow(max(localNdotL, 0.0001), specPower) * metallic;\n"
+"        float attenuation = pow(saturate(1.0 - dist / radius), 2.0) * light.colorIntensity.a;\n"
+"        lit += baseColor * (light.colorIntensity.rgb * localNdotL * diffuseStrength * attenuation);\n"
+"        lit += light.colorIntensity.rgb * localSpec * attenuation;\n"
+"    }\n"
 "    lit += emissive;\n"
 "    float3 color = lerp(baseColor, lit, lightingWeight);\n"
-"    return float4(color, meta.y);\n"
+"    return float4(color, 1.0);\n"
+"}\n";
+
+static const char* MESH_CLUSTERED_LIGHT_COMPUTE_SHADER_SOURCE =
+"struct PointLightRecord\n"
+"{\n"
+"    float4 positionRadius;\n"
+"    float4 colorIntensity;\n"
+"};\n"
+"\n"
+"struct ClusterRange\n"
+"{\n"
+"    uint offset;\n"
+"    uint count;\n"
+"    uint _pad0;\n"
+"    uint _pad1;\n"
+"};\n"
+"\n"
+"struct PushConstants\n"
+"{\n"
+"    float4x4 viewProjection;\n"
+"    float4 cameraPositionMaxDistance;\n"
+"    uint screenWidth;\n"
+"    uint screenHeight;\n"
+"    uint tileCountX;\n"
+"    uint tileCountY;\n"
+"    uint zSliceCount;\n"
+"    uint lightCount;\n"
+"    uint maxLightsPerCluster;\n"
+"};\n"
+"\n"
+"[[vk::push_constant]] PushConstants push;\n"
+"[[vk::binding(0, 0)]] StructuredBuffer<PointLightRecord> gLights;\n"
+"[[vk::binding(1, 0)]] RWStructuredBuffer<ClusterRange> gClusterRanges;\n"
+"[[vk::binding(2, 0)]] RWStructuredBuffer<uint> gClusterIndices;\n"
+"\n"
+"[shader(\"compute\")]\n"
+"[numthreads(64, 1, 1)]\n"
+"void computeMain(uint3 dispatchThreadID : SV_DispatchThreadID)\n"
+"{\n"
+"    uint clusterIndex = dispatchThreadID.x;\n"
+"    uint clusterCount = push.tileCountX * push.tileCountY * push.zSliceCount;\n"
+"    if (clusterIndex >= clusterCount)\n"
+"        return;\n"
+"    uint clusterStride = max(push.maxLightsPerCluster, 1u);\n"
+"    ClusterRange range;\n"
+"    range.offset = clusterIndex * clusterStride;\n"
+"    range.count = 0;\n"
+"    range._pad0 = 0;\n"
+"    range._pad1 = 0;\n"
+"    uint tilesPerSlice = push.tileCountX * push.tileCountY;\n"
+"    uint slice = clusterIndex / tilesPerSlice;\n"
+"    uint tileLocal = clusterIndex - slice * tilesPerSlice;\n"
+"    uint tileY = tileLocal / push.tileCountX;\n"
+"    uint tileX = tileLocal - tileY * push.tileCountX;\n"
+"    float maxDistance = max(push.cameraPositionMaxDistance.w, 1.0);\n"
+"    for (uint lightIndex = 0; lightIndex < push.lightCount; lightIndex++)\n"
+"    {\n"
+"        PointLightRecord light = gLights[lightIndex];\n"
+"        float radius = max(light.positionRadius.w, 0.0001);\n"
+"        float4 clip = mul(push.viewProjection, float4(light.positionRadius.xyz, 1.0));\n"
+"        if (abs(clip.w) <= 0.0001)\n"
+"            continue;\n"
+"        float2 ndc = clip.xy / clip.w;\n"
+"        float xRadius = radius * length(float3(push.viewProjection[0][0], push.viewProjection[0][1], push.viewProjection[0][2])) / max(abs(clip.w), 0.0001);\n"
+"        float yRadius = radius * length(float3(push.viewProjection[1][0], push.viewProjection[1][1], push.viewProjection[1][2])) / max(abs(clip.w), 0.0001);\n"
+"        float2 minUV = ndc * float2(0.5, -0.5) + 0.5 - float2(xRadius, yRadius) * 0.5;\n"
+"        float2 maxUV = ndc * float2(0.5, -0.5) + 0.5 + float2(xRadius, yRadius) * 0.5;\n"
+"        minUV = clamp(minUV, 0.0.xx, 1.0.xx);\n"
+"        maxUV = clamp(maxUV, 0.0.xx, 1.0.xx);\n"
+"        uint minTileX = min((uint)floor(minUV.x * push.tileCountX), push.tileCountX - 1u);\n"
+"        uint maxTileX = min((uint)floor(max(maxUV.x * push.tileCountX - 0.0001, 0.0)), push.tileCountX - 1u);\n"
+"        uint minTileY = min((uint)floor(minUV.y * push.tileCountY), push.tileCountY - 1u);\n"
+"        uint maxTileY = min((uint)floor(max(maxUV.y * push.tileCountY - 0.0001, 0.0)), push.tileCountY - 1u);\n"
+"        float distToCamera = distance(light.positionRadius.xyz, push.cameraPositionMaxDistance.xyz);\n"
+"        float minDepth = clamp(distToCamera - radius, 0.0, maxDistance);\n"
+"        float maxDepth = clamp(distToCamera + radius, 0.0, maxDistance);\n"
+"        uint minSlice = min((uint)floor((minDepth / maxDistance) * push.zSliceCount), push.zSliceCount - 1u);\n"
+"        uint maxSlice = min((uint)floor((maxDepth / maxDistance) * push.zSliceCount), push.zSliceCount - 1u);\n"
+"        bool overlaps = tileX >= minTileX && tileX <= maxTileX && tileY >= minTileY && tileY <= maxTileY && slice >= minSlice && slice <= maxSlice;\n"
+"        if (overlaps && range.count < clusterStride)\n"
+"        {\n"
+"            gClusterIndices[range.offset + range.count] = lightIndex;\n"
+"            range.count++;\n"
+"        }\n"
+"    }\n"
+"    gClusterRanges[clusterIndex] = range;\n"
 "}\n";
 
 static const char* MESH_INDIRECT_COMPUTE_SHADER_SOURCE =
@@ -584,6 +731,20 @@ typedef struct {
 } Mel_Mesh_Visibility_Resolve_Push_Constants;
 
 typedef struct {
+    Mel_Vec4 light_dir_ambient;
+    Mel_Vec4 light_color;
+    Mel_Vec4 camera_position_max_distance;
+    u32 screen_width;
+    u32 screen_height;
+    u32 tile_count_x;
+    u32 tile_count_y;
+    u32 z_slice_count;
+    u32 max_lights_per_cluster;
+    u32 _pad0;
+    u32 _pad1;
+} Mel_Mesh_Clustered_Light_Push_Constants;
+
+typedef struct {
     Mel_Mat4 view_projection;
     Mel_Vec4 bounds;
     u32 index_count;
@@ -594,6 +755,18 @@ typedef struct {
     Mel_Vec4 camera_position_lod_distance;
     u32 draw_count;
 } Mel_Mesh_Indirect_Cull_Batch_Push_Constants;
+
+typedef struct {
+    Mel_Mat4 view_projection;
+    Mel_Vec4 camera_position_max_distance;
+    u32 screen_width;
+    u32 screen_height;
+    u32 tile_count_x;
+    u32 tile_count_y;
+    u32 z_slice_count;
+    u32 light_count;
+    u32 max_lights_per_cluster;
+} Mel_Mesh_Clustered_Light_Compute_Push_Constants;
 
 static Mel_Vec3 mel__mesh_pass_safe_normalize(Mel_Vec3 v, Mel_Vec3 fallback)
 {
@@ -611,6 +784,83 @@ static Mel_Material_Gpu_Record mel__mesh_pass_default_material_record(void)
         .params0 = mel_vec4(0.45f, 0.0f, 0.0f, 1.0f),
         .params1 = mel_vec4((f32)MEL_MATERIAL_DOMAIN_OPAQUE, 0.0f, 0.0f, 0.0f),
     };
+}
+
+static u32 mel__mesh_pass_cluster_max_x(void)
+{
+    return (MEL_MESH_CLUSTER_MAX_SCREEN_WIDTH + MEL_MESH_CLUSTER_TILE_SIZE - 1) / MEL_MESH_CLUSTER_TILE_SIZE;
+}
+
+static u32 mel__mesh_pass_cluster_max_y(void)
+{
+    return (MEL_MESH_CLUSTER_MAX_SCREEN_HEIGHT + MEL_MESH_CLUSTER_TILE_SIZE - 1) / MEL_MESH_CLUSTER_TILE_SIZE;
+}
+
+static u32 mel__mesh_pass_cluster_capacity(Mel_Mesh_Pass* pass)
+{
+    MEL_UNUSED(pass);
+    return mel__mesh_pass_cluster_max_x() * mel__mesh_pass_cluster_max_y() * MEL_MESH_CLUSTER_Z_SLICES;
+}
+
+static Mel_Light_Table* mel__mesh_pass_light_table(Mel_Render_Pass_Ctx* ctx)
+{
+    for (u32 i = 0; ctx->read_sources && mel_source_handle_valid(ctx->read_sources[i]); i++)
+    {
+        Mel_Source_Handle source = ctx->read_sources[i];
+        if (mel_source_kind(source) == MEL_SOURCE_GPU_BUFFER &&
+            mel_source_schema(source) == MEL_SCHEMA_LIGHT)
+        {
+            return (Mel_Light_Table*)mel_source_user(source);
+        }
+    }
+    return nullptr;
+}
+
+static u32 mel__mesh_pass_resolve_cull_mode(Mel_Material_Instance_Handle material)
+{
+    if (!mel_material_instance_handle_valid(material))
+        return MEL_GPU_CULL_BACK;
+
+    Mel_Material_Template_Handle tmpl = mel_material_instance_template(material);
+    u32 mat_cull = mel_material_template_cull_mode(tmpl);
+    switch (mat_cull)
+    {
+        case MEL_MATERIAL_CULL_NONE:  return MEL_GPU_CULL_NONE;
+        case MEL_MATERIAL_CULL_BACK:  return MEL_GPU_CULL_BACK;
+        case MEL_MATERIAL_CULL_FRONT: return MEL_GPU_CULL_FRONT;
+        default:                      return MEL_GPU_CULL_BACK;
+    }
+}
+
+static void mel__mesh_pass_push_draw_range(Mel_Mesh_Pass* pass, u32 first_index, u32 index_count, u32 cull_mode)
+{
+    if (pass->draw_range_count > 0 &&
+        pass->draw_range_cull_mode[pass->draw_range_count - 1] == cull_mode)
+    {
+        pass->draw_range_index_count[pass->draw_range_count - 1] += index_count;
+        return;
+    }
+
+    if (pass->draw_range_count >= pass->draw_range_capacity)
+    {
+        u32 new_cap = pass->draw_range_capacity == 0 ? 16 : pass->draw_range_capacity * 2;
+        usize sz = sizeof(u32) * new_cap;
+        pass->draw_range_first_index = pass->draw_range_first_index
+            ? mel_realloc(pass->alloc, pass->draw_range_first_index, sz)
+            : mel_alloc(pass->alloc, sz);
+        pass->draw_range_index_count = pass->draw_range_index_count
+            ? mel_realloc(pass->alloc, pass->draw_range_index_count, sz)
+            : mel_alloc(pass->alloc, sz);
+        pass->draw_range_cull_mode = pass->draw_range_cull_mode
+            ? mel_realloc(pass->alloc, pass->draw_range_cull_mode, sz)
+            : mel_alloc(pass->alloc, sz);
+        pass->draw_range_capacity = new_cap;
+    }
+
+    u32 idx = pass->draw_range_count++;
+    pass->draw_range_first_index[idx] = first_index;
+    pass->draw_range_index_count[idx] = index_count;
+    pass->draw_range_cull_mode[idx] = cull_mode;
 }
 
 static u32 mel__mesh_pass_push_material(Mel_Mesh_Pass* pass, Mel_Material_Instance_Handle material)
@@ -687,7 +937,8 @@ static VkDescriptorSet mel__mesh_pass_visibility_resolve_descriptor(Mel_Mesh_Pas
 
 static VkDescriptorSet mel__mesh_pass_deferred_resolve_descriptor(Mel_Mesh_Pass* pass,
     Mel_Render_Target* normal_roughness_target, Mel_Render_Target* albedo_metallic_target,
-    Mel_Render_Target* emissive_occlusion_target, Mel_Render_Target* meta_target)
+    Mel_Render_Target* emissive_occlusion_target, Mel_Render_Target* meta_target, VkBuffer light_buffer,
+    VkBuffer cluster_range_buffer, VkBuffer cluster_index_buffer)
 {
     VkDescriptorSet descriptor = mel_gpu_pipeline_alloc_descriptor(&pass->deferred_resolve_pipeline, pass->dev);
     mel_gpu_pipeline_write_texture_binding(&pass->deferred_resolve_pipeline, pass->dev, descriptor, 0,
@@ -698,6 +949,25 @@ static VkDescriptorSet mel__mesh_pass_deferred_resolve_descriptor(Mel_Mesh_Pass*
         mel_render_target_view(emissive_occlusion_target), pass->visibility_sampler);
     mel_gpu_pipeline_write_texture_binding(&pass->deferred_resolve_pipeline, pass->dev, descriptor, 3,
         mel_render_target_view(meta_target), pass->visibility_sampler);
+    mel_gpu_pipeline_write_buffer_binding(&pass->deferred_resolve_pipeline, pass->dev, descriptor, 4,
+        light_buffer, 0, VK_WHOLE_SIZE, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+    mel_gpu_pipeline_write_buffer_binding(&pass->deferred_resolve_pipeline, pass->dev, descriptor, 5,
+        cluster_range_buffer, 0, VK_WHOLE_SIZE, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+    mel_gpu_pipeline_write_buffer_binding(&pass->deferred_resolve_pipeline, pass->dev, descriptor, 6,
+        cluster_index_buffer, 0, VK_WHOLE_SIZE, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+    return descriptor;
+}
+
+static VkDescriptorSet mel__mesh_pass_clustered_light_descriptor(Mel_Mesh_Pass* pass,
+    VkBuffer light_buffer, VkBuffer cluster_range_buffer, VkBuffer cluster_index_buffer)
+{
+    VkDescriptorSet descriptor = mel_gpu_pipeline_alloc_descriptor(&pass->clustered_light_pipeline, pass->dev);
+    mel_gpu_pipeline_write_buffer_binding(&pass->clustered_light_pipeline, pass->dev, descriptor, 0,
+        light_buffer, 0, VK_WHOLE_SIZE, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+    mel_gpu_pipeline_write_buffer_binding(&pass->clustered_light_pipeline, pass->dev, descriptor, 1,
+        cluster_range_buffer, 0, VK_WHOLE_SIZE, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+    mel_gpu_pipeline_write_buffer_binding(&pass->clustered_light_pipeline, pass->dev, descriptor, 2,
+        cluster_index_buffer, 0, VK_WHOLE_SIZE, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
     return descriptor;
 }
 
@@ -711,6 +981,7 @@ static void mel__mesh_pass_begin(Mel_Mesh_Pass* pass, u32 frame_index)
     pass->vertex_count = 0;
     pass->index_count = 0;
     pass->material_count = 0;
+    pass->draw_range_count = 0;
 }
 
 static bool mel__mesh_pass_push_mesh(Mel_Mesh_Pass* pass, const Mel_Mesh_Entry* entry)
@@ -752,8 +1023,12 @@ static bool mel__mesh_pass_push_mesh(Mel_Mesh_Pass* pass, const Mel_Mesh_Entry* 
         };
     }
 
+    u32 first_index = pass->index_count;
     for (u32 i = 0; i < entry->mesh->index_count; i++)
         pass->indices[pass->index_count++] = base_vertex + entry->mesh->indices[i];
+
+    u32 cull = mel__mesh_pass_resolve_cull_mode(entry->material);
+    mel__mesh_pass_push_draw_range(pass, first_index, entry->mesh->index_count, cull);
 
     return true;
 }
@@ -834,20 +1109,67 @@ static void mel__mesh_pass_bind_visibility_resolve(Mel_Mesh_Pass* pass, Mel_Gpu_
 
 static void mel__mesh_pass_bind_deferred_resolve(Mel_Mesh_Pass* pass, Mel_Gpu_Cmd cmd,
     Mel_Render_Target* normal_roughness_target, Mel_Render_Target* albedo_metallic_target,
-    Mel_Render_Target* emissive_occlusion_target, Mel_Render_Target* meta_target)
+    Mel_Render_Target* emissive_occlusion_target, Mel_Render_Target* meta_target,
+    const Mel_Camera* camera, u32 render_width, u32 render_height, VkBuffer light_buffer,
+    VkBuffer cluster_range_buffer, VkBuffer cluster_index_buffer)
 {
-    Mel_Mesh_Visibility_Resolve_Push_Constants push = {
+    u32 tile_count_x = (render_width + pass->cluster_tile_size - 1) / pass->cluster_tile_size;
+    u32 tile_count_y = (render_height + pass->cluster_tile_size - 1) / pass->cluster_tile_size;
+    Mel_Mesh_Clustered_Light_Push_Constants push = {
         .light_dir_ambient = mel_vec4(pass->lighting.direction.x, pass->lighting.direction.y,
             pass->lighting.direction.z, pass->lighting.ambient),
         .light_color = pass->lighting.color,
+        .camera_position_max_distance = mel_vec4(
+            camera ? camera->position.x : 0.0f,
+            camera ? camera->position.y : 0.0f,
+            camera ? camera->position.z : 0.0f,
+            pass->cluster_max_distance),
+        .screen_width = render_width,
+        .screen_height = render_height,
+        .tile_count_x = tile_count_x,
+        .tile_count_y = tile_count_y,
+        .z_slice_count = pass->cluster_z_slices,
+        .max_lights_per_cluster = pass->cluster_max_lights_per_cluster,
     };
     mel_gpu_pipeline_bind(&pass->deferred_resolve_pipeline, cmd.cmd);
     VkDescriptorSet descriptor = mel__mesh_pass_deferred_resolve_descriptor(pass,
-        normal_roughness_target, albedo_metallic_target, emissive_occlusion_target, meta_target);
+        normal_roughness_target, albedo_metallic_target, emissive_occlusion_target, meta_target,
+        light_buffer, cluster_range_buffer, cluster_index_buffer);
     vkCmdBindDescriptorSets(cmd.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
         pass->deferred_resolve_pipeline.layout, 0, 1, &descriptor, 0, nullptr);
     vkCmdPushConstants(cmd.cmd, pass->deferred_resolve_pipeline.layout,
         VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(push), &push);
+}
+
+static void mel__mesh_pass_bind_clustered_lighting(Mel_Mesh_Pass* pass, Mel_Gpu_Cmd cmd,
+    const Mel_Mat4* vp, const Mel_Camera* camera, u32 render_width, u32 render_height,
+    u32 light_count, VkBuffer light_buffer, VkBuffer cluster_range_buffer, VkBuffer cluster_index_buffer)
+{
+    u32 tile_count_x = (render_width + pass->cluster_tile_size - 1) / pass->cluster_tile_size;
+    u32 tile_count_y = (render_height + pass->cluster_tile_size - 1) / pass->cluster_tile_size;
+    Mel_Mesh_Clustered_Light_Compute_Push_Constants push = {
+        .view_projection = *vp,
+        .camera_position_max_distance = mel_vec4(
+            camera ? camera->position.x : 0.0f,
+            camera ? camera->position.y : 0.0f,
+            camera ? camera->position.z : 0.0f,
+            pass->cluster_max_distance),
+        .screen_width = render_width,
+        .screen_height = render_height,
+        .tile_count_x = tile_count_x,
+        .tile_count_y = tile_count_y,
+        .z_slice_count = pass->cluster_z_slices,
+        .light_count = light_count,
+        .max_lights_per_cluster = pass->cluster_max_lights_per_cluster,
+    };
+
+    mel_gpu_pipeline_bind(&pass->clustered_light_pipeline, cmd.cmd);
+    VkDescriptorSet descriptor = mel__mesh_pass_clustered_light_descriptor(pass, light_buffer,
+        cluster_range_buffer, cluster_index_buffer);
+    vkCmdBindDescriptorSets(cmd.cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+        pass->clustered_light_pipeline.layout, 0, 1, &descriptor, 0, nullptr);
+    vkCmdPushConstants(cmd.cmd, pass->clustered_light_pipeline.layout, VK_SHADER_STAGE_COMPUTE_BIT,
+        0, sizeof(push), &push);
 }
 
 static void mel__mesh_pass_bind_mesh_shader(Mel_Mesh_Pass* pass, Mel_Gpu_Cmd cmd,
@@ -953,7 +1275,21 @@ static void mel__mesh_pass_flush(Mel_Mesh_Pass* pass, Mel_Gpu_Cmd cmd, bool flus
     VkDeviceSize offsets[] = { 0 };
     vkCmdBindVertexBuffers(cmd.cmd, 0, 1, buffers, offsets);
     vkCmdBindIndexBuffer(cmd.cmd, frame->index_buffer.buffer, 0, VK_INDEX_TYPE_UINT32);
-    vkCmdDrawIndexed(cmd.cmd, pass->index_count, 1, 0, 0, 0);
+
+    if (pass->draw_range_count > 0)
+    {
+        for (u32 i = 0; i < pass->draw_range_count; i++)
+        {
+            mel_gpu_cmd_set_cull_mode(&cmd, pass->draw_range_cull_mode[i]);
+            vkCmdDrawIndexed(cmd.cmd, pass->draw_range_index_count[i], 1,
+                pass->draw_range_first_index[i], 0, 0);
+        }
+    }
+    else
+    {
+        mel_gpu_cmd_set_cull_mode(&cmd, MEL_GPU_CULL_BACK);
+        vkCmdDrawIndexed(cmd.cmd, pass->index_count, 1, 0, 0, 0);
+    }
 }
 
 static void mel__mesh_pass_draw_stream(Mel_Gpu_Cmd cmd, const Mel_Mesh_Gpu_Draw_Stream* stream)
@@ -1012,6 +1348,10 @@ bool mel_mesh_pass_init_opt(Mel_Mesh_Pass* pass, Mel_Mesh_Pass_Init_Opt opt)
         .color = mel_vec4(0.95f, 0.97f, 1.0f, 1.0f),
         .ambient = 0.18f,
     };
+    pass->cluster_tile_size = MEL_MESH_CLUSTER_TILE_SIZE;
+    pass->cluster_z_slices = MEL_MESH_CLUSTER_Z_SLICES;
+    pass->cluster_max_lights_per_cluster = MEL_MESH_CLUSTER_MAX_LIGHTS_PER_CLUSTER;
+    pass->cluster_max_distance = 128.0f;
 
     mel_gpu_shader_init(&pass->shader, opt.dev, .source = str8_from_cstr(MESH_FORWARD_SHADER_SOURCE));
     mel_gpu_shader_init(&pass->visibility_shader, opt.dev,
@@ -1024,6 +1364,9 @@ bool mel_mesh_pass_init_opt(Mel_Mesh_Pass* pass, Mel_Mesh_Pass_Init_Opt opt)
         .source = str8_from_cstr(MESH_DEFERRED_SHADER_SOURCE));
     mel_gpu_shader_init(&pass->deferred_resolve_shader, opt.dev,
         .source = str8_from_cstr(MESH_DEFERRED_RESOLVE_SHADER_SOURCE));
+    mel_gpu_shader_init(&pass->clustered_light_shader, opt.dev,
+        .source = str8_from_cstr(MESH_CLUSTERED_LIGHT_COMPUTE_SHADER_SOURCE),
+        .compute_entry = S8("computeMain"));
     mel_gpu_shader_init(&pass->compute_shader, opt.dev,
         .source = str8_from_cstr(MESH_INDIRECT_COMPUTE_SHADER_SOURCE),
         .compute_entry = S8("computeMain"));
@@ -1060,6 +1403,7 @@ bool mel_mesh_pass_init_opt(Mel_Mesh_Pass* pass, Mel_Mesh_Pass_Init_Opt opt)
         .attributes = attributes,
         .attribute_count = 4,
         .cull_mode = MEL_GPU_CULL_BACK,
+        .dynamic_cull_mode = true,
         .depth_test = true,
         .depth_write = true,
         .push_constant_size = sizeof(Mel_Mesh_Push_Constants),
@@ -1143,15 +1487,29 @@ bool mel_mesh_pass_init_opt(Mel_Mesh_Pass* pass, Mel_Mesh_Pass_Init_Opt opt)
         .cull_mode = MEL_GPU_CULL_NONE,
         .depth_test = false,
         .depth_write = false,
-        .push_constant_size = sizeof(Mel_Mesh_Visibility_Resolve_Push_Constants),
+        .push_constant_size = sizeof(Mel_Mesh_Clustered_Light_Push_Constants),
         .push_constant_stages = VK_SHADER_STAGE_FRAGMENT_BIT,
         .descriptor_bindings = (Mel_Gpu_Descriptor_Binding[]){
             { .binding = 0, .type = MEL_GPU_DESCRIPTOR_COMBINED_IMAGE_SAMPLER, .count = 1, .stages = VK_SHADER_STAGE_FRAGMENT_BIT },
             { .binding = 1, .type = MEL_GPU_DESCRIPTOR_COMBINED_IMAGE_SAMPLER, .count = 1, .stages = VK_SHADER_STAGE_FRAGMENT_BIT },
             { .binding = 2, .type = MEL_GPU_DESCRIPTOR_COMBINED_IMAGE_SAMPLER, .count = 1, .stages = VK_SHADER_STAGE_FRAGMENT_BIT },
             { .binding = 3, .type = MEL_GPU_DESCRIPTOR_COMBINED_IMAGE_SAMPLER, .count = 1, .stages = VK_SHADER_STAGE_FRAGMENT_BIT },
+            { .binding = 4, .type = MEL_GPU_DESCRIPTOR_STORAGE_BUFFER, .count = 1, .stages = VK_SHADER_STAGE_FRAGMENT_BIT },
+            { .binding = 5, .type = MEL_GPU_DESCRIPTOR_STORAGE_BUFFER, .count = 1, .stages = VK_SHADER_STAGE_FRAGMENT_BIT },
+            { .binding = 6, .type = MEL_GPU_DESCRIPTOR_STORAGE_BUFFER, .count = 1, .stages = VK_SHADER_STAGE_FRAGMENT_BIT },
         },
-        .descriptor_binding_count = 4);
+        .descriptor_binding_count = 7);
+    mel_gpu_pipeline_init(&pass->clustered_light_pipeline, opt.dev,
+        .shader = &pass->clustered_light_shader,
+        .pipeline_type = MEL_GPU_PIPELINE_COMPUTE,
+        .push_constant_size = sizeof(Mel_Mesh_Clustered_Light_Compute_Push_Constants),
+        .push_constant_stages = VK_SHADER_STAGE_COMPUTE_BIT,
+        .descriptor_bindings = (Mel_Gpu_Descriptor_Binding[]){
+            { .binding = 0, .type = MEL_GPU_DESCRIPTOR_STORAGE_BUFFER, .count = 1, .stages = VK_SHADER_STAGE_COMPUTE_BIT },
+            { .binding = 1, .type = MEL_GPU_DESCRIPTOR_STORAGE_BUFFER, .count = 1, .stages = VK_SHADER_STAGE_COMPUTE_BIT },
+            { .binding = 2, .type = MEL_GPU_DESCRIPTOR_STORAGE_BUFFER, .count = 1, .stages = VK_SHADER_STAGE_COMPUTE_BIT },
+        },
+        .descriptor_binding_count = 3);
     mel_gpu_pipeline_init(&pass->compute_pipeline, opt.dev,
         .shader = &pass->compute_shader,
         .pipeline_type = MEL_GPU_PIPELINE_COMPUTE,
@@ -1199,6 +1557,9 @@ bool mel_mesh_pass_init_opt(Mel_Mesh_Pass* pass, Mel_Mesh_Pass_Init_Opt opt)
     u32 index_bytes = pass->max_indices * sizeof(u32);
     pass->max_materials = pass->max_vertices;
     u32 material_bytes = pass->max_materials * sizeof(Mel_Material_Gpu_Record);
+    u32 cluster_count = mel__mesh_pass_cluster_capacity(pass);
+    u32 cluster_range_bytes = cluster_count * sizeof(Mel_Mesh_Cluster_Range);
+    u32 cluster_index_bytes = cluster_count * pass->cluster_max_lights_per_cluster * sizeof(u32);
 
     for (u32 i = 0; i < MEL_MAX_FRAMES_IN_FLIGHT; i++)
     {
@@ -1215,7 +1576,23 @@ bool mel_mesh_pass_init_opt(Mel_Mesh_Pass* pass, Mel_Mesh_Pass_Init_Opt opt)
             .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
             .memory_usage = VMA_MEMORY_USAGE_CPU_TO_GPU,
             .map_on_create = true);
+        mel_gpu_buffer_init(&pass->gpu_frames[i].cluster_range_buffer, opt.dev,
+            .size = cluster_range_bytes,
+            .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+            .memory_usage = VMA_MEMORY_USAGE_GPU_ONLY);
+        mel_gpu_buffer_init(&pass->gpu_frames[i].cluster_index_buffer, opt.dev,
+            .size = cluster_index_bytes,
+            .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+            .memory_usage = VMA_MEMORY_USAGE_GPU_ONLY);
     }
+
+    mel_gpu_buffer_init(&pass->empty_light_buffer, opt.dev,
+        .size = sizeof(Mel_Point_Light_Gpu_Record),
+        .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+        .memory_usage = VMA_MEMORY_USAGE_CPU_TO_GPU,
+        .map_on_create = true);
+    Mel_Point_Light_Gpu_Record zero_light = {0};
+    mel_gpu_buffer_upload(&pass->empty_light_buffer, opt.dev, &zero_light, sizeof(zero_light), 0);
 
     pass->vertices = pass->gpu_frames[0].vertex_buffer.mapped;
     pass->indices = (u32*)pass->gpu_frames[0].index_buffer.mapped;
@@ -1244,15 +1621,19 @@ void mel_mesh_pass_shutdown(Mel_Mesh_Pass* pass)
 
     for (u32 i = 0; i < MEL_MAX_FRAMES_IN_FLIGHT; i++)
     {
+        mel_gpu_buffer_shutdown(&pass->gpu_frames[i].cluster_index_buffer, pass->dev);
+        mel_gpu_buffer_shutdown(&pass->gpu_frames[i].cluster_range_buffer, pass->dev);
         mel_gpu_buffer_shutdown(&pass->gpu_frames[i].material_buffer, pass->dev);
         mel_gpu_buffer_shutdown(&pass->gpu_frames[i].index_buffer, pass->dev);
         mel_gpu_buffer_shutdown(&pass->gpu_frames[i].vertex_buffer, pass->dev);
     }
+    mel_gpu_buffer_shutdown(&pass->empty_light_buffer, pass->dev);
     if (pass->visibility_sampler)
         vkDestroySampler(pass->dev->device, pass->visibility_sampler, nullptr);
     mel_gpu_pipeline_shutdown(&pass->mesh_pipeline, pass->dev);
     mel_gpu_pipeline_shutdown(&pass->compute_batch_pipeline, pass->dev);
     mel_gpu_pipeline_shutdown(&pass->compute_pipeline, pass->dev);
+    mel_gpu_pipeline_shutdown(&pass->clustered_light_pipeline, pass->dev);
     mel_gpu_pipeline_shutdown(&pass->deferred_resolve_pipeline, pass->dev);
     mel_gpu_pipeline_shutdown(&pass->deferred_pipeline, pass->dev);
     mel_gpu_pipeline_shutdown(&pass->visibility_resolve_pipeline, pass->dev);
@@ -1262,6 +1643,7 @@ void mel_mesh_pass_shutdown(Mel_Mesh_Pass* pass)
     mel_gpu_shader_shutdown(&pass->mesh_shader, pass->dev);
     mel_gpu_shader_shutdown(&pass->compute_batch_shader, pass->dev);
     mel_gpu_shader_shutdown(&pass->compute_shader, pass->dev);
+    mel_gpu_shader_shutdown(&pass->clustered_light_shader, pass->dev);
     mel_gpu_shader_shutdown(&pass->deferred_resolve_shader, pass->dev);
     mel_gpu_shader_shutdown(&pass->deferred_shader, pass->dev);
     mel_gpu_shader_shutdown(&pass->visibility_resolve_shader, pass->dev);
@@ -1270,6 +1652,12 @@ void mel_mesh_pass_shutdown(Mel_Mesh_Pass* pass)
     mel_gpu_shader_shutdown(&pass->shader, pass->dev);
     if (pass->descriptor_cache)
         mel_dealloc(pass->alloc, pass->descriptor_cache);
+    if (pass->draw_range_first_index)
+        mel_dealloc(pass->alloc, pass->draw_range_first_index);
+    if (pass->draw_range_index_count)
+        mel_dealloc(pass->alloc, pass->draw_range_index_count);
+    if (pass->draw_range_cull_mode)
+        mel_dealloc(pass->alloc, pass->draw_range_cull_mode);
     pass->dev = nullptr;
 }
 
@@ -1615,9 +2003,44 @@ void mel_mesh_pass_execute_deferred_resolve(Mel_Render_Pass_Ctx* ctx)
         !ctx->read_targets[2] || !ctx->read_targets[3])
         return;
 
+    Mel_Light_Table* light_table = mel__mesh_pass_light_table(ctx);
+    VkBuffer light_buffer = light_table ? light_table->buffer.buffer : pass->empty_light_buffer.buffer;
+    Mel_Mesh_Gpu_Frame* frame = &pass->gpu_frames[ctx->gpu_frame_index];
     mel__mesh_pass_bind_deferred_resolve(pass, ctx->cmd,
-        ctx->read_targets[0], ctx->read_targets[1], ctx->read_targets[2], ctx->read_targets[3]);
+        ctx->read_targets[0], ctx->read_targets[1], ctx->read_targets[2], ctx->read_targets[3],
+        ctx->camera, ctx->render_width, ctx->render_height,
+        light_buffer, frame->cluster_range_buffer.buffer, frame->cluster_index_buffer.buffer);
     vkCmdDraw(ctx->cmd.cmd, 3, 1, 0, 0);
+}
+
+void mel_mesh_pass_execute_clustered_lighting(Mel_Render_Pass_Ctx* ctx)
+{
+    Mel_Mesh_Pass* pass = ctx->user;
+    assert(pass != nullptr);
+    assert(ctx->camera != nullptr);
+
+    Mel_Mesh_Gpu_Frame* frame = &pass->gpu_frames[ctx->gpu_frame_index];
+    Mel_Light_Table* light_table = mel__mesh_pass_light_table(ctx);
+    VkBuffer light_buffer = light_table ? light_table->buffer.buffer : pass->empty_light_buffer.buffer;
+    u32 light_count = light_table ? mel_light_table_count(light_table) : 0;
+    u32 tile_count_x = (ctx->render_width + pass->cluster_tile_size - 1) / pass->cluster_tile_size;
+    u32 tile_count_y = (ctx->render_height + pass->cluster_tile_size - 1) / pass->cluster_tile_size;
+    u32 cluster_count = tile_count_x * tile_count_y * pass->cluster_z_slices;
+    if (cluster_count == 0)
+        return;
+
+    Mel_Mat4 vp = mel_camera_vp(ctx->camera);
+    mel__mesh_pass_bind_clustered_lighting(pass, ctx->cmd, &vp, ctx->camera,
+        ctx->render_width, ctx->render_height, light_count, light_buffer,
+        frame->cluster_range_buffer.buffer, frame->cluster_index_buffer.buffer);
+    u32 groups_x = (cluster_count + 63u) / 64u;
+    mel_gpu_cmd_dispatch(&ctx->cmd, groups_x, 1, 1);
+    mel_gpu_cmd_buffer_barrier(&ctx->cmd, frame->cluster_range_buffer.buffer,
+        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT,
+        VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT);
+    mel_gpu_cmd_buffer_barrier(&ctx->cmd, frame->cluster_index_buffer.buffer,
+        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT,
+        VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT);
 }
 
 void mel_mesh_pass_execute_compute_indirect(Mel_Render_Pass_Ctx* ctx)

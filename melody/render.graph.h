@@ -21,6 +21,8 @@ struct Mel_Render_Graph_Pass {
     u32 viewport_mode;
     u32 viewport_design_width;
     u32 viewport_design_height;
+    u32 render_width;
+    u32 render_height;
     Mel_Render_List** read_lists;
     Mel_Source_Handle* read_sources;
     Mel_Render_List** write_lists;

@@ -143,6 +143,19 @@ void mel_gpu_cmd_set_scissor(Mel_Gpu_Cmd* c, i32 x, i32 y, u32 w, u32 h)
     vkCmdSetScissor(c->cmd, 0, 1, &scissor);
 }
 
+void mel_gpu_cmd_set_cull_mode(Mel_Gpu_Cmd* c, u32 cull_mode)
+{
+    assert(c != nullptr);
+    VkCullModeFlags vk_cull;
+    switch (cull_mode)
+    {
+        case MEL_GPU_CULL_BACK:  vk_cull = VK_CULL_MODE_BACK_BIT; break;
+        case MEL_GPU_CULL_FRONT: vk_cull = VK_CULL_MODE_FRONT_BIT; break;
+        default:                 vk_cull = VK_CULL_MODE_NONE; break;
+    }
+    vkCmdSetCullMode(c->cmd, vk_cull);
+}
+
 void mel_gpu_cmd_draw(Mel_Gpu_Cmd* c, u32 vertex_count, u32 instance_count, u32 first_vertex, u32 first_instance)
 {
     assert(c != nullptr);

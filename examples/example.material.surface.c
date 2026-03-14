@@ -172,7 +172,7 @@ static void material_surface_sync_viewport(void)
         mel_swapchain_resize(sc, mel_gpu_dev(), (u32)w, (u32)h);
         s_world_camera.projection = mel_mat4_perspective(60.0f * (3.14159265f / 180.0f),
             (f32)w / (f32)h, 0.1f, 100.0f);
-        s_overlay_camera.projection = mel_mat4_ortho(0.0f, (f32)w, 0.0f, (f32)h, -1.0f, 1.0f);
+        s_overlay_camera.projection = mel_mat4_ortho(0.0f, (f32)w, (f32)h, 0.0f, -1.0f, 1.0f);
     }
 
     bool ok = mel_render_stage_3d_refresh(&s_stage);
@@ -329,7 +329,7 @@ static void material_surface_on_init(void)
     };
     s_overlay_camera = (Mel_Camera){
         .view = MEL_MAT4_IDENTITY,
-        .projection = mel_mat4_ortho(0.0f, (f32)sc->extent.width, 0.0f, (f32)sc->extent.height, -1.0f, 1.0f),
+        .projection = mel_mat4_ortho(0.0f, (f32)sc->extent.width, (f32)sc->extent.height, 0.0f, -1.0f, 1.0f),
     };
 
     s_font = mel_font_atlas_pool_load(mel_font_pool(),

@@ -843,7 +843,18 @@ bool mel_frame_plan_add_graphics_pass(Mel_Frame_Plan_Technique_Ctx* ctx, str8 pa
         .read_sources = read_sources,
         .read_targets = read_targets,
         .write_targets = write_targets);
-    *ctx->wrote_any_pass = true;
+
+    if (write_targets)
+    {
+        for (u32 i = 0; write_targets[i].target != nullptr; i++)
+        {
+            if (write_targets[i].target == ctx->target)
+            {
+                *ctx->wrote_any_pass = true;
+                break;
+            }
+        }
+    }
     return true;
 }
 
@@ -865,6 +876,8 @@ bool mel_frame_plan_add_compute_pass(Mel_Frame_Plan_Technique_Ctx* ctx, str8 pas
         .user = user,
         .type = MEL_PASS_COMPUTE,
         .camera = (Mel_Camera*)camera,
+        .render_width = mel_render_target_width(ctx->target),
+        .render_height = mel_render_target_height(ctx->target),
         .read_sources = read_sources,
         .read_targets = read_targets);
     return true;

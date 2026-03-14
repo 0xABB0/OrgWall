@@ -12,6 +12,7 @@
 #include "render.list.fwd.h"
 #include "render.pass.fwd.h"
 #include "render.material.h"
+#include "render.light.fwd.h"
 #include "allocator.fwd.h"
 
 #ifndef MEL_MAX_FRAMES_IN_FLIGHT
@@ -20,6 +21,26 @@
 
 #ifndef MEL_MESH_INDIRECT_BATCH_COMMAND_STRIDE
 #define MEL_MESH_INDIRECT_BATCH_COMMAND_STRIDE 32
+#endif
+
+#ifndef MEL_MESH_CLUSTER_TILE_SIZE
+#define MEL_MESH_CLUSTER_TILE_SIZE 64
+#endif
+
+#ifndef MEL_MESH_CLUSTER_Z_SLICES
+#define MEL_MESH_CLUSTER_Z_SLICES 16
+#endif
+
+#ifndef MEL_MESH_CLUSTER_MAX_LIGHTS_PER_CLUSTER
+#define MEL_MESH_CLUSTER_MAX_LIGHTS_PER_CLUSTER 32
+#endif
+
+#ifndef MEL_MESH_CLUSTER_MAX_SCREEN_WIDTH
+#define MEL_MESH_CLUSTER_MAX_SCREEN_WIDTH 4096
+#endif
+
+#ifndef MEL_MESH_CLUSTER_MAX_SCREEN_HEIGHT
+#define MEL_MESH_CLUSTER_MAX_SCREEN_HEIGHT 4096
 #endif
 
 struct Mel_Mesh {
@@ -102,6 +123,8 @@ typedef struct {
     Mel_Gpu_Buffer vertex_buffer;
     Mel_Gpu_Buffer index_buffer;
     Mel_Gpu_Buffer material_buffer;
+    Mel_Gpu_Buffer cluster_range_buffer;
+    Mel_Gpu_Buffer cluster_index_buffer;
 } Mel_Mesh_Gpu_Frame;
 
 struct Mel_Mesh_Pass {
@@ -111,6 +134,7 @@ struct Mel_Mesh_Pass {
     Mel_Gpu_Shader visibility_resolve_shader;
     Mel_Gpu_Shader deferred_shader;
     Mel_Gpu_Shader deferred_resolve_shader;
+    Mel_Gpu_Shader clustered_light_shader;
     Mel_Gpu_Shader compute_shader;
     Mel_Gpu_Shader compute_batch_shader;
     Mel_Gpu_Shader mesh_shader;
@@ -120,6 +144,7 @@ struct Mel_Mesh_Pass {
     Mel_Gpu_Pipeline visibility_resolve_pipeline;
     Mel_Gpu_Pipeline deferred_pipeline;
     Mel_Gpu_Pipeline deferred_resolve_pipeline;
+    Mel_Gpu_Pipeline clustered_light_pipeline;
     Mel_Gpu_Pipeline compute_pipeline;
     Mel_Gpu_Pipeline compute_batch_pipeline;
     Mel_Gpu_Pipeline mesh_pipeline;
@@ -140,8 +165,19 @@ struct Mel_Mesh_Pass {
     u32 descriptor_cache_count;
     u32 descriptor_cache_capacity;
 
+    u32* draw_range_first_index;
+    u32* draw_range_index_count;
+    u32* draw_range_cull_mode;
+    u32 draw_range_count;
+    u32 draw_range_capacity;
+
     Mel_Mesh_Lighting lighting;
     VkSampler visibility_sampler;
+    Mel_Gpu_Buffer empty_light_buffer;
+    u32 cluster_tile_size;
+    u32 cluster_z_slices;
+    u32 cluster_max_lights_per_cluster;
+    f32 cluster_max_distance;
     const Mel_Alloc* alloc;
 };
 
@@ -167,6 +203,7 @@ void mel_mesh_pass_execute_visibility_fill(Mel_Render_Pass_Ctx* ctx);
 void mel_mesh_pass_execute_visibility_attribute_fill(Mel_Render_Pass_Ctx* ctx);
 void mel_mesh_pass_execute_visibility_resolve(Mel_Render_Pass_Ctx* ctx);
 void mel_mesh_pass_execute_deferred_fill(Mel_Render_Pass_Ctx* ctx);
+void mel_mesh_pass_execute_clustered_lighting(Mel_Render_Pass_Ctx* ctx);
 void mel_mesh_pass_execute_deferred_resolve(Mel_Render_Pass_Ctx* ctx);
 void mel_mesh_pass_execute_compute_indirect(Mel_Render_Pass_Ctx* ctx);
 void mel_mesh_pass_execute_mesh_shader(Mel_Render_Pass_Ctx* ctx);

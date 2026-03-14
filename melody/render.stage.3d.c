@@ -90,6 +90,12 @@ bool mel_render_stage_3d_attach_mesh_source_to_layer(Mel_Render_Stage_3D* stage,
     return mel_render_default_3d_attach_mesh_source_to_view(&stage->renderer, view, source);
 }
 
+bool mel_render_stage_3d_attach_light_source_to_layer(Mel_Render_Stage_3D* stage, Mel_Render_Stage_3D_Layer layer, Mel_Source_Handle source)
+{
+    Mel_View_Handle view = mel__render_stage_3d_require_view(stage, layer);
+    return mel_render_default_3d_attach_light_source_to_view(&stage->renderer, view, source);
+}
+
 bool mel_render_stage_3d_attach_mesh_list_to_layer(Mel_Render_Stage_3D* stage, Mel_Render_Stage_3D_Layer layer, Mel_Render_List* list)
 {
     Mel_View_Handle view = mel__render_stage_3d_require_view(stage, layer);

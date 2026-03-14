@@ -45,6 +45,8 @@ typedef struct {
     u32 viewport_mode;
     u32 viewport_design_width;
     u32 viewport_design_height;
+    u32 render_width;
+    u32 render_height;
 } Mel_Pass_Desc;
 
 struct Mel_Render_Pass_Ctx {

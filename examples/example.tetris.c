@@ -440,7 +440,7 @@ static void on_init(void)
     s_camera = (Mel_Camera){
         .view = MEL_MAT4_IDENTITY,
         .projection = mel_mat4_ortho(0, (f32)sc->extent.width,
-                                      0, (f32)sc->extent.height, -1, 1),
+                                      (f32)sc->extent.height, 0, -1, 1),
     };
 
     mel_render_stage_2d_init(&s_renderer,

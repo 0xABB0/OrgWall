@@ -295,7 +295,7 @@ void mel_gpu_pipeline_init_opt(Mel_Gpu_Pipeline* pipeline, Mel_Gpu_Device* dev, 
         .rasterizerDiscardEnable = VK_FALSE,
         .polygonMode = VK_POLYGON_MODE_FILL,
         .cullMode = cull_mode_to_vk(opt.cull_mode),
-        .frontFace = VK_FRONT_FACE_CLOCKWISE,
+        .frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE,
         .depthBiasEnable = VK_FALSE,
         .lineWidth = 1.0f,
     };
@@ -326,14 +326,17 @@ void mel_gpu_pipeline_init_opt(Mel_Gpu_Pipeline* pipeline, Mel_Gpu_Device* dev, 
         .depthCompareOp = VK_COMPARE_OP_LESS,
     };
 
-    VkDynamicState dynamic_states[] = {
+    VkDynamicState dynamic_states[4] = {
         VK_DYNAMIC_STATE_VIEWPORT,
         VK_DYNAMIC_STATE_SCISSOR,
     };
+    u32 dynamic_state_count = 2;
+    if (opt.dynamic_cull_mode)
+        dynamic_states[dynamic_state_count++] = VK_DYNAMIC_STATE_CULL_MODE;
 
     VkPipelineDynamicStateCreateInfo dynamic_state = {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
-        .dynamicStateCount = 2,
+        .dynamicStateCount = dynamic_state_count,
         .pDynamicStates = dynamic_states,
     };
 

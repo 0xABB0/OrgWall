@@ -62,6 +62,7 @@ void mel_render_stage_3d_shutdown(Mel_Render_Stage_3D* stage);
 bool mel_render_stage_3d_attach_mesh_list(Mel_Render_Stage_3D* stage, Mel_Render_List* list);
 bool mel_render_stage_3d_attach_mesh_list_to_layer(Mel_Render_Stage_3D* stage, Mel_Render_Stage_3D_Layer layer, Mel_Render_List* list);
 bool mel_render_stage_3d_attach_mesh_source_to_layer(Mel_Render_Stage_3D* stage, Mel_Render_Stage_3D_Layer layer, Mel_Source_Handle source);
+bool mel_render_stage_3d_attach_light_source_to_layer(Mel_Render_Stage_3D* stage, Mel_Render_Stage_3D_Layer layer, Mel_Source_Handle source);
 bool mel_render_stage_3d_attach_sprite_list_to_layer(Mel_Render_Stage_3D* stage, Mel_Render_Stage_3D_Layer layer, Mel_Render_List* list);
 bool mel_render_stage_3d_attach_text_list_to_layer(Mel_Render_Stage_3D* stage, Mel_Render_Stage_3D_Layer layer, Mel_Render_List* list);
 
