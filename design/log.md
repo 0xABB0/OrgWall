@@ -9,14 +9,15 @@ Replaces all raw `SDL_Log`/`fprintf`/`printf` calls in the codebase (~100 across
 ## Files
 
 ```
-log.h                // main interface: macros, context stack, level constants, init/shutdown
+log.h                // main interface: macros, context stack, level constants
 log.fwd.h            // forward decls: Mel_Log_Entry, Mel_Log_Sink, Mel_Log_Sink_Handle
-log.cfg.h            // compile-time config: ring buffer default size, max context depth
+log.cfg.h            // compile-time config: ring buffer default size, max context depth, disabled flag
 log.c                // core: ring buffer, writer thread, sink dispatch, level registry
 log.sink.h           // sink interface (vtable)
 log.sink.console.c   // stderr sink with optional color
 log.sink.sqlite.c    // SQLite WAL-mode sink with batched writes
 log.sink.file.c      // plain text file sink
+log.sink.test.c      // test harness sink: captures entries, dumps on failure, queryable for assertions
 ```
 
 ## Levels
@@ -39,7 +40,9 @@ void mel_log_level_register(u32 value, str8 name);
 str8 mel_log_level_name(u32 value);
 ```
 
-Predefined levels are auto-registered during `mel_log_init`. If a level is not registered, `mel_log_level_name` returns `S8("UNKNOWN")`.
+Predefined levels are auto-registered during the constructor. If a level is not registered, `mel_log_level_name` returns `S8("UNKNOWN")`.
+
+The level registry is a stretchy buffer (per MEL-X-004). No fixed capacity.
 
 Sinks filter by threshold: a sink with `level_threshold = MEL_LOG_WARN` (300) accepts entries where `level <= 300` (i.e., FATAL, ERROR, WARN).
 
@@ -49,7 +52,7 @@ Domains are plain `str8` string literals identifying the source subsystem: `S8("
 
 No registration needed. Convention only. Sinks can filter on domain strings if they want to.
 
-Domain strings MUST be string literals or otherwise static-lifetime. The logging system stores the pointer, it does not copy domain bytes.
+Domain strings can be dynamic. The logging system copies domain bytes into the ring buffer entry, same as message and context. No lifetime requirements on the caller's side.
 
 ## Log Entry
 
@@ -69,42 +72,102 @@ typedef struct {
 } Mel_Log_Entry;
 ```
 
-**Ownership:** when a sink's `write` callback receives a `Mel_Log_Entry*`, all fields are valid for the duration of that call only. The `message` and `context` str8 fields point into the writer thread's scratch buffer. If a sink needs to keep the data longer (e.g., batching for SQLite), it must copy.
+**Ownership:** when a sink's `write` callback receives a `Mel_Log_Entry*`, all str8 fields (`domain`, `message`, `file`, `context`) point into the writer thread's scratch buffer and are valid for the duration of that call only. If a sink needs to keep any data longer (e.g., batching for SQLite), it must copy. One rule, no exceptions.
 
-**Static pointers:** `domain` and `file` point to static data (string literals / `__FILE__`). Valid for program lifetime.
+## Compile-Time Configuration (`log.cfg.h`)
+
+```c
+#ifndef MEL_LOG_DISABLED
+#define MEL_LOG_DISABLED 0
+#endif
+
+#ifndef MEL_LOG_RING_SIZE
+#define MEL_LOG_RING_SIZE (1024 * 1024)
+#endif
+
+#ifndef MEL_LOG_OVERFLOW_POLICY
+#define MEL_LOG_OVERFLOW_POLICY 0
+#endif
+
+#ifndef MEL_LOG_MAX_CONTEXT_DEPTH
+#define MEL_LOG_MAX_CONTEXT_DEPTH 16
+#endif
+
+#ifndef MEL_LOG_MAX_MESSAGE_SIZE
+#define MEL_LOG_MAX_MESSAGE_SIZE 4096
+#endif
+
+#ifndef MEL_LOG_CLOCK_TYPE
+#define MEL_LOG_CLOCK_TYPE 0
+#endif
+```
+
+Override any of these via build flags (e.g., `-DMEL_LOG_RING_SIZE=4194304`).
+
+`MEL_LOG_OVERFLOW_POLICY`: 0 = drop (default), 1 = block.
+
+`MEL_LOG_MAX_MESSAGE_SIZE`: size of the thread-local scratch buffer for `vsnprintf`. Messages exceeding this are truncated (trailing bytes replaced with `"..."`). Truncation is silent -- logging must never crash the engine.
+
+`MEL_LOG_CLOCK_TYPE`: 0 = monotonic (default, `clock_gettime(CLOCK_MONOTONIC_RAW)` on macOS/Linux), 1 = wall clock (`clock_gettime(CLOCK_REALTIME)`), 2 = both. When set to 2, the entry stores monotonic in `timestamp_ns` and the SQLite sink computes wall-clock at write time using a base offset captured at init (monotonic epoch -> wall-clock epoch delta).
+
+### Disabled mode (`MEL_LOG_DISABLED = 1`)
+
+When disabled, all logging macros expand to nothing. The entire implementation is compiled out:
+
+```c
+// log.h
+#include "log.cfg.h"
+
+#if MEL_LOG_DISABLED
+#define mel_log_fatal(domain, fmt, ...)
+#define mel_log_error(domain, fmt, ...)
+#define mel_log_warn(domain, fmt, ...)
+#define mel_log_info(domain, fmt, ...)
+#define mel_log_debug(domain, fmt, ...)
+#define mel_log_trace(domain, fmt, ...)
+#define MEL_LOG_SCOPE(tag)
+#else
+// ... real definitions ...
+#endif
+```
+
+```c
+// log.c
+#include "log.h"
+#if !MEL_LOG_DISABLED
+// entire implementation: constructor, destructor, ring buffer, writer thread, everything
+#endif
+```
+
+No constructor, no destructor, no ring buffer, no writer thread, no binary footprint. Since macros are the only public call path, no stub functions needed.
 
 ## Core API
 
 ### Init / Shutdown
 
+Init and shutdown are automatic via `__attribute__((constructor))` and `__attribute__((destructor))`. No manual calls.
+
 ```c
-typedef struct {
-    usize   ring_buffer_size;
-    u32     overflow_policy;
-} Mel_Log_Init_Opt;
+__attribute__((constructor(101)))
+static void mel__log_init(void);
 
-#define MEL_LOG_OVERFLOW_DROP   0
-#define MEL_LOG_OVERFLOW_BLOCK  1
-
-void mel_log_init_opt(Mel_Log_Init_Opt opt);
-#define mel_log_init(...) mel_log_init_opt((Mel_Log_Init_Opt){__VA_ARGS__})
-
-void mel_log_shutdown(void);
+__attribute__((destructor(101)))
+static void mel__log_shutdown(void);
 ```
 
-`mel_log_init`:
-- Allocates the ring buffer (default: 1 MB).
-- Registers predefined levels.
-- Spawns the writer thread.
-- Does NOT add any sinks. Caller adds what they need after init.
+Priority 101 guarantees the log system initializes before any other module's constructor (priorities 102+) and shuts down after them. Other melody modules that want to log from constructors must use a higher priority number (lower priority = runs first for constructors, runs last for destructors).
 
-`mel_log_shutdown`:
-- Signals the writer thread to drain remaining entries and exit.
-- Blocks until the writer thread joins.
-- Calls `destroy` on all registered sinks.
+`mel__log_init` (constructor):
+- Allocates the ring buffer (size from `MEL_LOG_RING_SIZE`).
+- Registers predefined levels.
+- Does NOT spawn the writer thread yet. Does NOT add any sinks.
+
+`mel__log_shutdown` (destructor):
+- If the writer thread is running: signals it to drain remaining entries and exit. Blocks until join.
+- Calls `flush` then `destroy` on all registered sinks.
 - Frees the ring buffer.
 
-**Calling `mel_log` before `mel_log_init` or after `mel_log_shutdown`:** asserts. Offensive programming (MEL-X-006).
+**Writer thread lifecycle:** the writer thread is lazy-spawned on the first `mel_log_sink_add` call. No sinks = no thread = no overhead. If sinks are never added (e.g., unit tests that don't care about log output), entries go into the ring buffer and are silently discarded when the destructor frees it.
 
 ### Logging
 
@@ -134,11 +197,14 @@ mel_log_warn("alloc", "ring buffer at 90%% capacity");
 ```
 
 `mel__log` does:
-1. Format the message into a thread-local scratch buffer (vsnprintf).
-2. Read the current thread's context stack and serialize it (e.g., `"physics/cloth_sim"`).
-3. Read current frame counters (global_frame, sim_frame, fixed_tick) from thread-local state.
-4. Serialize everything into a contiguous blob and push it into the ring buffer.
-5. Return. The call site cost is format + memcpy. No I/O.
+1. Check per-thread recursion guard. If already inside a `mel__log` call, assert (debug) and return (release). This prevents infinite loops from custom sinks that accidentally call `mel_log` from their `write` callback.
+2. Set the recursion guard.
+3. Format the message into a thread-local scratch buffer (vsnprintf, capped at `MEL_LOG_MAX_MESSAGE_SIZE`). If truncated, last 3 bytes become `"..."`.
+4. Read the current thread's context stack and serialize it (e.g., `"physics/cloth_sim"`).
+5. Read current frame counters (global_frame, sim_frame, fixed_tick) from thread-local state.
+6. Serialize everything into a contiguous blob and push it into the ring buffer.
+7. Clear the recursion guard.
+8. Return. The call site cost is format + memcpy. No I/O.
 
 ### Context Stack
 
@@ -215,7 +281,9 @@ void                mel_log_sink_flush_all(void);
 `mel_log_sink_add`:
 - Takes ownership of the sink pointer. The log system will call `destroy` on shutdown or removal.
 - Returns a generational handle for later removal.
-- Thread-safe. Can be called from any thread at any time after init.
+- First call spawns the writer thread.
+- Thread-safe. Can be called from any thread at any time after the constructor has run.
+- Sink list is a stretchy buffer (per MEL-X-004). No fixed capacity.
 
 `mel_log_sink_remove`:
 - Removes the sink from the dispatch list.
@@ -229,6 +297,8 @@ void                mel_log_sink_flush_all(void);
 - Use before crash handlers, before process exit, or when you need logs committed NOW.
 
 **Sink list modification while writer thread is dispatching:** the sink list is protected by a read-write lock. Writer thread takes a read lock during dispatch (multiple sinks called in sequence). `sink_add`/`sink_remove` take a write lock. Adding/removing sinks is infrequent, so the write lock contention is negligible.
+
+**Sink removal while entries are in-flight:** if `mel_log_sink_remove` is called while entries for that sink are still in the ring buffer (not yet consumed by the writer thread), those entries will not be dispatched to the removed sink. They are simply never delivered. This is expected and documented -- removal is not retroactive.
 
 ## Sink Interface
 
@@ -278,20 +348,50 @@ sink->base = (Mel_Log_Sink){
 mel_log_sink_add(&sink->base);
 ```
 
+### Signal-Safe Logging
+
+The normal `mel__log` path is NOT signal-safe (`vsnprintf`, thread-local access, etc.). A separate path exists for signal handlers:
+
+```c
+void mel__log_signal(u32 level, const char* static_message);
+
+#define mel_log_signal(level, msg) mel__log_signal((level), (msg))
+```
+
+Constraints:
+- `static_message` MUST be a string literal or otherwise guaranteed-valid pointer. No formatting.
+- Does not read the context stack (may be corrupted at signal time).
+- Does not read frame counters.
+- Pushes a minimal fixed-size entry into the ring buffer using only atomic operations (CAS on write cursor, atomic store for committed flag). No heap allocation, no locks.
+- The entry has a `signal` flag set so the writer thread knows context/frame fields are absent.
+
+The ring buffer's MPSC CAS-based reservation is async-signal-safe (only uses atomics). The constraint is that the message must already exist as a static string.
+
+Usage (in a signal handler):
+```c
+void crash_handler(int sig) {
+    mel_log_signal(MEL_LOG_FATAL, "SIGSEGV caught");
+    mel_log_sink_flush_all();
+    _exit(128 + sig);
+}
+```
+
+`mel_log_sink_flush_all` from a signal handler: this is best-effort. If the writer thread is alive and not deadlocked, it will drain and flush. If the writer thread IS the crashed thread, this blocks forever. For true crash resilience, consider registering a signal handler that does a direct `write()` syscall to a pre-opened emergency file descriptor as a fallback, bypassing the writer thread entirely. This fallback is a future extension.
+
 ## Ring Buffer Architecture
 
 MPSC (Multiple Producer, Single Consumer) byte ring buffer.
 
 **Producers** (any thread calling `mel__log`):
 1. Format message into thread-local scratch buffer.
-2. Compute total entry size (fixed header + message bytes + context bytes).
+2. Compute total entry size (fixed header + domain + file + message + context bytes).
 3. Atomically reserve space in the ring buffer (CAS on the write cursor).
 4. Write the entry into the reserved region.
 5. Mark the entry as committed (atomic store on a per-entry flag).
 
 **Consumer** (writer thread):
 1. Spin/sleep waiting for committed entries at the read cursor.
-2. Deserialize entry into `Mel_Log_Entry` (pointing message/context into a scratch buffer).
+2. Deserialize entry into `Mel_Log_Entry` (pointing all str8 fields into the scratch buffer).
 3. For each registered sink: if `entry.level <= sink.level_threshold`, call `sink.write`.
 4. Advance the read cursor.
 
@@ -303,12 +403,12 @@ MPSC (Multiple Producer, Single Consumer) byte ring buffer.
 ```
 [u32 total_size] [u32 committed_flag] [u64 timestamp_ns] [u32 level]
 [u32 thread_id] [u64 global_frame] [u64 sim_frame] [u32 fixed_tick]
-[str8_ref domain] [str8_ref file] [u32 line]
-[u16 message_len] [u16 context_len]
-[message bytes ...] [context bytes ...]
+[u32 line]
+[u16 domain_len] [u16 file_len] [u16 message_len] [u16 context_len]
+[domain bytes ...] [file bytes ...] [message bytes ...] [context bytes ...]
 ```
 
-`str8_ref` for domain/file is just the raw str8 (pointer + len) since they point to static data.
+All string data is copied into the ring buffer entry. No pointers to external memory. The entry is fully self-contained.
 
 ## Built-in Sinks
 
@@ -402,11 +502,57 @@ Mel_Log_Sink* mel_log_sink_file_create_opt(Mel_Log_Sink_File_Opt opt);
 
 Plain text append. Same format as console (without ANSI colors). Flushes with fflush on `flush` callback.
 
+### Test Sink (`log.sink.test.c`)
+
+A sink designed for test harness integration. Captures log entries in memory for two purposes:
+
+**1. Context on failure:** when a test fails, the harness dumps captured log entries alongside the assertion failure so you see what the module was doing.
+
+```
+FAIL: test_gpu_pipeline_creation (test_gpu.c:47)
+  MEL_ASSERT_NOT_NULL(pipeline) failed
+
+  Log output:
+  [TRACE] [gpu] compiling shader module "basic.vert"
+  [DEBUG] [gpu] reflection: 2 push constant ranges
+  [ERROR] [gpu] pipeline layout creation failed: VK_ERROR_OUT_OF_DEVICE_MEMORY
+```
+
+**2. Log assertions:** test code can query captured entries to verify that code logs the right things.
+
+```c
+MEL_TEST(arena_overflow_logs_error, .tags = "allocator") {
+    Mel_Arena arena = mel_arena_create(64);
+    mel_arena_push(&arena, 128);
+    MEL_ASSERT(mel_log_test_has_entry(MEL_LOG_ERROR, S8("alloc")));
+}
+```
+
+**API:**
+
+```c
+Mel_Log_Sink* mel_log_sink_test_create(void);
+
+void mel_log_test_clear(Mel_Log_Sink* sink);
+bool mel_log_test_has_entry(Mel_Log_Sink* sink, u32 level, str8 domain);
+u32  mel_log_test_count(Mel_Log_Sink* sink, u32 level);
+void mel_log_test_dump(Mel_Log_Sink* sink);
+```
+
+- `mel_log_test_clear`: called by the test harness before each test. Wipes captured entries.
+- `mel_log_test_has_entry`: returns true if any captured entry matches the given level and domain. Exact level match, not threshold.
+- `mel_log_test_count`: returns how many entries match the given level.
+- `mel_log_test_dump`: writes all captured entries to stderr (same format as console sink, no color). Called by the test harness on failure.
+
+The test harness auto-adds this sink during test binary startup. The sink captures everything (`level_threshold = MEL_LOG_TRACE`). Per-test lifecycle: clear before each test, dump on failure, discard on pass.
+
+The sink stores entries in a stretchy buffer. It copies all str8 field bytes since those are transient in the writer thread's scratch buffer (see entry ownership rules).
+
 ## Thread Safety
 
 | Function | Thread safety |
 |---|---|
-| `mel_log_init` / `mel_log_shutdown` | Main thread only. Not concurrent with anything. |
+| `mel__log_init` / `mel__log_shutdown` | Automatic (constructor/destructor). Not concurrent with anything. |
 | `mel__log` (via macros) | Any thread. Lock-free (ring buffer CAS). |
 | `mel_log_context_push/pop` | Thread-local. No synchronization needed. |
 | `mel_log_set_global_frame` etc. | Thread-local. No synchronization needed. |
@@ -417,9 +563,10 @@ Plain text append. Same format as console (without ANSI colors). Flushes with ff
 
 ## Typical Setup
 
-```c
-mel_log_init(.ring_buffer_size = 2 * 1024 * 1024);
+No init call needed. Just add sinks and start logging.
 
+```c
+// in your app setup (MEL_APP or main):
 mel_log_sink_add(mel_log_sink_console_create(.color = true));
 
 mel_log_sink_add(mel_log_sink_sqlite_create(
@@ -428,7 +575,13 @@ mel_log_sink_add(mel_log_sink_sqlite_create(
     .flush_interval_ms = 500,
 ));
 
+// first sink_add spawns the writer thread. logging is live.
 mel_log_info("engine", "logging system online");
+```
+
+To customize ring buffer size or overflow policy, set build flags:
+```
+-DMEL_LOG_RING_SIZE=2097152 -DMEL_LOG_OVERFLOW_POLICY=1
 ```
 
 ## Future Extensions (not in scope now)
