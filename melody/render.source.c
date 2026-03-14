@@ -29,7 +29,7 @@ static Mel_SlotMap s_sources;
 static Mel_Array(Mel__Source_Wrapper_Cache_Entry) s_wrapper_cache;
 static bool s_initialized;
 
-__attribute__((constructor(210)))
+__attribute__((constructor(510)))
 static void mel__source_registry_init(void)
 {
     mel_slotmap_init(&s_sources, mel_alloc_heap(),
@@ -38,7 +38,7 @@ static void mel__source_registry_init(void)
     s_initialized = true;
 }
 
-__attribute__((destructor(210)))
+__attribute__((destructor(510)))
 static void mel__source_registry_shutdown(void)
 {
     if (!s_initialized) return;

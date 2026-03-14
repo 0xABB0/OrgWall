@@ -20,7 +20,7 @@ struct Mel_Frame_Recipe {
 static Mel_SlotMap s_recipes;
 static bool s_initialized;
 
-__attribute__((constructor(212)))
+__attribute__((constructor(512)))
 static void mel__frame_recipe_registry_init(void)
 {
     mel_slotmap_init(&s_recipes, mel_alloc_heap(),
@@ -28,7 +28,7 @@ static void mel__frame_recipe_registry_init(void)
     s_initialized = true;
 }
 
-__attribute__((destructor(212)))
+__attribute__((destructor(512)))
 static void mel__frame_recipe_registry_shutdown(void)
 {
     if (!s_initialized) return;

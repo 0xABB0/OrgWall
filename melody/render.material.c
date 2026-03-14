@@ -390,7 +390,7 @@ static Mel_Material_Instance* mel__material_instance_get(Mel_Material_Instance_H
     return material;
 }
 
-__attribute__((constructor(215)))
+__attribute__((constructor(515)))
 static void mel__material_registry_init(void)
 {
     mel_slotmap_init(&s_material_families, mel_alloc_heap(),
@@ -482,7 +482,7 @@ static void mel__material_registry_init(void)
     });
 }
 
-__attribute__((destructor(215)))
+__attribute__((destructor(515)))
 static void mel__material_registry_shutdown(void)
 {
     if (!s_initialized)

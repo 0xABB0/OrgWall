@@ -11,7 +11,7 @@ typedef struct Mel_Window {
 static Mel_SlotMap s_windows;
 static bool s_initialized;
 
-__attribute__((constructor(200)))
+__attribute__((constructor(500)))
 static void mel__window_registry_init(void)
 {
     mel_slotmap_init(&s_windows, mel_alloc_heap(),
@@ -19,7 +19,7 @@ static void mel__window_registry_init(void)
     s_initialized = true;
 }
 
-__attribute__((destructor(200)))
+__attribute__((destructor(500)))
 static void mel__window_registry_shutdown(void)
 {
     if (!s_initialized) return;

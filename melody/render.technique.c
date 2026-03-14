@@ -986,7 +986,7 @@ static bool mel__refresh_imgui(const Mel_Technique_Refresh_Ctx* ctx)
     return true;
 }
 
-__attribute__((constructor(214)))
+__attribute__((constructor(514)))
 static void mel__render_technique_registry_init(void)
 {
     mel_array_init(&s_registry, mel_alloc_heap());
@@ -1125,7 +1125,7 @@ static void mel__render_technique_registry_init(void)
     });
 }
 
-__attribute__((destructor(214)))
+__attribute__((destructor(514)))
 static void mel__render_technique_registry_shutdown(void)
 {
     if (!s_initialized)

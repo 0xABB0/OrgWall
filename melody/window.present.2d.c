@@ -77,7 +77,7 @@ static void mel__window_present_2d_refresh_window(Mel_Window_Handle window)
     }
 }
 
-__attribute__((constructor(202)))
+__attribute__((constructor(502)))
 static void mel__window_present_2d_registry_init(void)
 {
     mel_slotmap_init(&s_presentations, mel_alloc_heap(),
@@ -85,7 +85,7 @@ static void mel__window_present_2d_registry_init(void)
     s_initialized = true;
 }
 
-__attribute__((destructor(202)))
+__attribute__((destructor(502)))
 static void mel__window_present_2d_registry_shutdown(void)
 {
     if (!s_initialized) return;

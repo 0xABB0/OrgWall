@@ -13,7 +13,7 @@ struct Mel_View {
 static Mel_SlotMap s_views;
 static bool s_initialized;
 
-__attribute__((constructor(211)))
+__attribute__((constructor(511)))
 static void mel__view_registry_init(void)
 {
     mel_slotmap_init(&s_views, mel_alloc_heap(),
@@ -21,7 +21,7 @@ static void mel__view_registry_init(void)
     s_initialized = true;
 }
 
-__attribute__((destructor(211)))
+__attribute__((destructor(511)))
 static void mel__view_registry_shutdown(void)
 {
     if (!s_initialized) return;

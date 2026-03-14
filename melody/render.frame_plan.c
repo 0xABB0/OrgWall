@@ -73,7 +73,7 @@ struct Mel_Frame_Plan {
 static Mel_SlotMap s_plans;
 static bool s_initialized;
 
-__attribute__((constructor(213)))
+__attribute__((constructor(513)))
 static void mel__frame_plan_registry_init(void)
 {
     mel_slotmap_init(&s_plans, mel_alloc_heap(),
@@ -81,7 +81,7 @@ static void mel__frame_plan_registry_init(void)
     s_initialized = true;
 }
 
-__attribute__((destructor(213)))
+__attribute__((destructor(513)))
 static void mel__frame_plan_registry_shutdown(void)
 {
     if (!s_initialized) return;
