@@ -38,6 +38,7 @@ static const char* LIBS[] = {
     "-lSDL3",
     "-lslang",
     "-lcjson",
+    "-lsqlite3",
 };
 
 static const char* FRAMEWORKS[] = {

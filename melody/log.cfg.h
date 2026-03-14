@@ -1,0 +1,25 @@
+#pragma once
+
+#ifndef MEL_LOG_DISABLED
+#define MEL_LOG_DISABLED 0
+#endif
+
+#ifndef MEL_LOG_RING_SIZE
+#define MEL_LOG_RING_SIZE (1024 * 1024)
+#endif
+
+#ifndef MEL_LOG_OVERFLOW_POLICY
+#define MEL_LOG_OVERFLOW_POLICY 0
+#endif
+
+#ifndef MEL_LOG_MAX_CONTEXT_DEPTH
+#define MEL_LOG_MAX_CONTEXT_DEPTH 16
+#endif
+
+#ifndef MEL_LOG_MAX_MESSAGE_SIZE
+#define MEL_LOG_MAX_MESSAGE_SIZE 4096
+#endif
+
+#ifndef MEL_LOG_CLOCK_TYPE
+#define MEL_LOG_CLOCK_TYPE 0
+#endif
