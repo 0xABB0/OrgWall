@@ -7,8 +7,7 @@
 #include "gpu.buffer.h"
 #include "gpu.submit.h"
 #include "allocator.h"
-// ASYNC_V2: VFS removed
-// #include "vfs.h"
+#include "vfs.h"
 
 #include <SDL3/SDL.h>
 #include <stb_truetype.h>
@@ -74,17 +73,15 @@ static void mel__font_upload_cmd(VkCommandBuffer cmd, void* user)
     mel_gpu_image_transition(data->image, cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 }
 
-void mel_font_atlas_pool_init_opt(Mel_Font_Atlas_Pool* pool, const Mel_Alloc* alloc, Mel_Gpu_Device* dev, Mel_Vfs* vfs, Mel_Font_Atlas_Pool_Init_Opt opt)
+void mel_font_atlas_pool_init_opt(Mel_Font_Atlas_Pool* pool, const Mel_Alloc* alloc, Mel_Gpu_Device* dev, Mel_Font_Atlas_Pool_Init_Opt opt)
 {
     assert(pool != nullptr);
     assert(alloc != nullptr);
     assert(dev != nullptr);
-    // ASYNC_V2: VFS removed — vfs may be NULL
 
     *pool = (Mel_Font_Atlas_Pool){0};
     pool->alloc = alloc;
     pool->dev = dev;
-    pool->vfs = vfs;
     pool->texture_pool = opt.texture_pool;
 
     mel_slotmap_init(&pool->slotmap, alloc, .item_size = sizeof(Mel_Font_Atlas_Entry), .initial_capacity = 8);
@@ -124,9 +121,80 @@ Mel_Font_Handle mel_font_atlas_pool_load_opt(Mel_Font_Atlas_Pool* pool, Mel_Font
         return h;
     }
 
-    // ASYNC_V2: VFS removed
-    SDL_Log("font.atlas: VFS removed, cannot load '%.*s'", (int)opt.path.len, opt.path.data);
-    return MEL_FONT_HANDLE_NULL;
+    i64 fsize = 0;
+    u8* ttf_data = mel_vfs_read_file(opt.path, &fsize, pool->alloc);
+    if (!ttf_data)
+    {
+        SDL_Log("font.atlas: failed to read '%.*s'", (int)opt.path.len, opt.path.data);
+        return MEL_FONT_HANDLE_NULL;
+    }
+
+    f32 font_size = opt.size > 0 ? opt.size : 24.0f;
+    u32 atlas_w = opt.atlas_width > 0 ? opt.atlas_width : 512;
+    u32 atlas_h = opt.atlas_height > 0 ? opt.atlas_height : 512;
+
+    u8* atlas_bitmap = mel_alloc(pool->alloc, (usize)(atlas_w * atlas_h));
+    stbtt_bakedchar cdata[MEL_FONT_ATLAS_CHAR_COUNT];
+    stbtt_BakeFontBitmap(ttf_data, 0, font_size, atlas_bitmap, (int)atlas_w, (int)atlas_h,
+                         MEL_FONT_ATLAS_FIRST_CHAR, MEL_FONT_ATLAS_CHAR_COUNT, cdata);
+
+    u8* rgba = mel_alloc(pool->alloc, (usize)(atlas_w * atlas_h * 4));
+    for (u32 i = 0; i < atlas_w * atlas_h; i++)
+    {
+        rgba[i * 4 + 0] = 255;
+        rgba[i * 4 + 1] = 255;
+        rgba[i * 4 + 2] = 255;
+        rgba[i * 4 + 3] = atlas_bitmap[i];
+    }
+    mel_dealloc(pool->alloc, atlas_bitmap);
+
+    Mel_Font_Atlas_Entry entry = {0};
+    entry.atlas_width = atlas_w;
+    entry.atlas_height = atlas_h;
+
+    mel_gpu_texture_init(&entry.atlas_texture, pool->dev,
+        .pixels = rgba, .width = atlas_w, .height = atlas_h);
+    mel_dealloc(pool->alloc, rgba);
+
+    stbtt_fontinfo font_info;
+    stbtt_InitFont(&font_info, ttf_data, 0);
+    f32 scale = stbtt_ScaleForPixelHeight(&font_info, font_size);
+
+    int ascent_i, descent_i, line_gap_i;
+    stbtt_GetFontVMetrics(&font_info, &ascent_i, &descent_i, &line_gap_i);
+
+    entry.desc.first_codepoint = MEL_FONT_ATLAS_FIRST_CHAR;
+    entry.desc.glyph_count = MEL_FONT_ATLAS_CHAR_COUNT;
+    entry.desc.ascent = (f32)ascent_i * scale;
+    entry.desc.line_height = (f32)(ascent_i - descent_i + line_gap_i) * scale;
+
+    entry.desc.glyphs = mel_alloc_array(pool->alloc, Mel_Font_Glyph, MEL_FONT_ATLAS_CHAR_COUNT);
+    f32 inv_w = 1.0f / (f32)atlas_w;
+    f32 inv_h = 1.0f / (f32)atlas_h;
+
+    for (i32 i = 0; i < MEL_FONT_ATLAS_CHAR_COUNT; i++)
+    {
+        stbtt_bakedchar* bc = &cdata[i];
+        Mel_Font_Glyph* g = &entry.desc.glyphs[i];
+        g->x0 = bc->xoff;
+        g->y0 = bc->yoff;
+        g->x1 = bc->xoff + (f32)(bc->x1 - bc->x0);
+        g->y1 = bc->yoff + (f32)(bc->y1 - bc->y0);
+        g->u0 = (f32)bc->x0 * inv_w;
+        g->v0 = (f32)bc->y0 * inv_h;
+        g->u1 = (f32)bc->x1 * inv_w;
+        g->v1 = (f32)bc->y1 * inv_h;
+        g->xadvance = bc->xadvance;
+    }
+
+    mel_dealloc(pool->alloc, ttf_data);
+
+    if (pool->texture_pool)
+        entry.tex_handle = mel_texture_pool_register(pool->texture_pool, &entry.atlas_texture);
+
+    Mel_SlotMap_Handle sm_handle = mel_slotmap_insert(&pool->slotmap, &entry);
+    mel_hashmap_put(&pool->path_to_handle, (void*)(usize)hash, mel_slotmap_handle_to_ptr(sm_handle));
+    return (Mel_Font_Handle){ .handle = sm_handle };
 }
 
 Mel_Font_Atlas_Entry* mel_font_atlas_pool_get(Mel_Font_Atlas_Pool* pool, Mel_Font_Handle handle)

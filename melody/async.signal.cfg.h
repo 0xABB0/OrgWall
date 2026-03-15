@@ -1,0 +1,17 @@
+#pragma once
+
+#ifndef MEL_SIGNAL_SPIN_COUNT
+#define MEL_SIGNAL_SPIN_COUNT 40
+#endif
+
+#ifndef MEL_SIGNAL_NULL_INDEX
+#define MEL_SIGNAL_NULL_INDEX 0xFFFF
+#endif
+
+#ifndef MEL_SIGNAL_DEBUG_LIFETIME
+#ifdef NDEBUG
+#define MEL_SIGNAL_DEBUG_LIFETIME 0
+#else
+#define MEL_SIGNAL_DEBUG_LIFETIME 1
+#endif
+#endif

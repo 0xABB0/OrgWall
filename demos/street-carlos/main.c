@@ -24,9 +24,6 @@
 #include "math.mat4.h"
 #include "math.vec4.h"
 #include "sim.ctx.h"
-// ASYNC_V2: removed, needs migration
-// #include "async.io.h"
-// #include "async.task.h"
 #include "async.job.h"
 #include "mugen.roster.h"
 #include "string.path.h"
@@ -72,11 +69,8 @@ static void shell_clear_stage_choices(void)
     s_app.stage_choice_count = 0;
 }
 
-// ASYNC_V2: VFS removed — stage_catalog_enum_cb deleted (used Mel_Vfs_Stat)
-
 static void load_stage_choices(void)
 {
-    // ASYNC_V2: VFS removed — mel_vfs_enumerate deleted
     shell_clear_stage_choices();
     s_app.stage_choices[0] = (Street_Carlos_Stage_Choice){
         .path = str8_dup(S8("/stages/kfm.def"), mel_alloc_heap()),
@@ -112,15 +106,13 @@ static void task_sim_update(Mel_Sim_Ctx* sim, f32 dt, void* user)
     MEL_UNUSED(sim);
     MEL_UNUSED(dt);
 
-    // ASYNC_V2: removed, needs migration
-    // mel_task_tick(ctx->task_ctx);
     street_carlos_fight_stage_tick(&s_fight_stage, ctx);
 }
 
 static void load_roster_sync(void)
 {
-    // ASYNC_V2: removed, needs migration
-    SDL_Log("Roster loading disabled (VFS removed)");
+    mugen_roster_load(&s_app.roster, S8("/chars"));
+    SDL_Log("Roster loaded: %u characters", mugen_roster_count(&s_app.roster));
 }
 
 static void init_render(void)
@@ -195,23 +187,13 @@ static void on_init(void)
 
     init_render();
 
-    // ASYNC_V2: VFS removed
-    // mel_io_init(&s_app.io, ...);
-    // mel_vfs_init(&s_app.vfs, ...);
-    // mel_vfs_mount_native(...);
-
-    mel_font_atlas_pool_init(&s_app.font_pool, mel_alloc_heap(), mel_gpu_dev(), NULL, .texture_pool = mel_texture_pool());
+    mel_font_atlas_pool_init(&s_app.font_pool, mel_alloc_heap(), mel_gpu_dev(), .texture_pool = mel_texture_pool());
     s_app.title_font = mel_font_atlas_pool_load(&s_app.font_pool, .path = S8("/fonts/Monaco.ttf"), .size = 20.0f);
     s_app.ui_font = mel_font_atlas_pool_load(&s_app.font_pool, .path = S8("/fonts/Monaco.ttf"), .size = 14.0f);
     s_app.body_font = mel_font_atlas_pool_load(&s_app.font_pool, .path = S8("/fonts/Monaco.ttf"), .size = 10.0f);
 
-    s_app.job_ctx = mel_job_create_context(mel_alloc_heap());
-    // ASYNC_V2: removed, needs migration
-    // s_app.task_ctx = mel_task_ctx_create(&task_desc);
 
     mugen_roster_init(&s_app.roster,
-        .vfs = NULL,
-        .task_ctx = NULL,
         .stcommon_path = S8("/chars/common1.cns"),
         .alloc = mel_alloc_heap());
     load_roster_sync();
@@ -295,12 +277,6 @@ static void app_shutdown(Mel_App* app)
     mel_render_list_shutdown(&s_app.world_list);
 
     mel_font_atlas_pool_shutdown(&s_app.font_pool);
-    // ASYNC_V2: VFS removed
-    // mel_vfs_unmount(&s_app.vfs, ...);
-    // mel_task_ctx_destroy(s_app.task_ctx);
-    mel_job_destroy_context(s_app.job_ctx, mel_alloc_heap());
-    // mel_vfs_shutdown(&s_app.vfs);
-    // mel_io_shutdown(&s_app.io);
 }
 
 static void app_event(Mel_App* app, SDL_Event* event)

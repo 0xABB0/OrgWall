@@ -13,9 +13,6 @@
 #include "math.vec4.h"
 #include "render.list.fwd.h"
 #include "texture.pool.fwd.h"
-// ASYNC_V2: VFS removed
-typedef struct Mel_Vfs Mel_Vfs;
-
 struct Mel_Font_Atlas_Entry {
     Mel_Font_Descriptor desc;
     Mel_Gpu_Texture atlas_texture;
@@ -31,7 +28,6 @@ struct Mel_Font_Atlas_Pool {
     Mel_SlotMap slotmap;
     Mel_HashMap path_to_handle;
     Mel_Gpu_Device* dev;
-    Mel_Vfs* vfs;
     const Mel_Alloc* alloc;
     Mel_Texture_Pool* texture_pool;
 };
@@ -43,8 +39,8 @@ typedef struct {
     u32 atlas_height;
 } Mel_Font_Atlas_Load_Opt;
 
-void              mel_font_atlas_pool_init_opt(Mel_Font_Atlas_Pool* pool, const Mel_Alloc* alloc, Mel_Gpu_Device* dev, Mel_Vfs* vfs, Mel_Font_Atlas_Pool_Init_Opt opt);
-#define mel_font_atlas_pool_init(pool, alloc, dev, vfs, ...) mel_font_atlas_pool_init_opt((pool), (alloc), (dev), (vfs), (Mel_Font_Atlas_Pool_Init_Opt){__VA_ARGS__})
+void              mel_font_atlas_pool_init_opt(Mel_Font_Atlas_Pool* pool, const Mel_Alloc* alloc, Mel_Gpu_Device* dev, Mel_Font_Atlas_Pool_Init_Opt opt);
+#define mel_font_atlas_pool_init(pool, alloc, dev, ...) mel_font_atlas_pool_init_opt((pool), (alloc), (dev), (Mel_Font_Atlas_Pool_Init_Opt){__VA_ARGS__})
 void              mel_font_atlas_pool_shutdown(Mel_Font_Atlas_Pool* pool);
 Mel_Font_Handle   mel_font_atlas_pool_load_opt(Mel_Font_Atlas_Pool* pool, Mel_Font_Atlas_Load_Opt opt);
 #define mel_font_atlas_pool_load(pool, ...) mel_font_atlas_pool_load_opt((pool), (Mel_Font_Atlas_Load_Opt){__VA_ARGS__})

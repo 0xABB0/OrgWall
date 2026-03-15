@@ -1,8 +1,7 @@
 #include "mugen.sff.h"
 #include "sprite.sheet.h"
 #include "math.geo.rect.h"
-// ASYNC_V2: VFS removed
-// #include "vfs.h"
+#include "vfs.h"
 #include "allocator.h"
 #include "string.str8.h"
 #include <SDL3/SDL.h>
@@ -903,14 +902,38 @@ static bool load_v2(Mugen_Sff* sff, const u8* data, usize file_size,
     return true;
 }
 
-bool mugen_sff_load(Mugen_Sff* sff, Mel_Vfs* vfs, str8 path, const Mel_Alloc* alloc)
+bool mugen_sff_load(Mugen_Sff* sff, str8 path, const Mel_Alloc* alloc)
 {
-    // ASYNC_V2: VFS removed
-    (void)vfs; (void)alloc;
     assert(sff);
+    assert(alloc);
     *sff = (Mugen_Sff){0};
-    SDL_Log("SFF: VFS removed, cannot read %.*s", (int)path.len, path.data);
-    return false;
+
+    i64 fsize = 0;
+    u8* data = mel_vfs_read_file(path, &fsize, alloc);
+    if (!data)
+    {
+        SDL_Log("SFF: failed to read '%.*s'", (int)path.len, path.data);
+        return false;
+    }
+
+    Sff_File_Header fh;
+    if (!parse_file_header(data, (usize)fsize, &fh))
+    {
+        SDL_Log("SFF: invalid file header '%.*s'", (int)path.len, path.data);
+        mel_dealloc(alloc, data);
+        return false;
+    }
+
+    bool ok = false;
+    if (fh.version_hi == 1)
+        ok = load_v1(sff, data, (usize)fsize, &fh, alloc);
+    else if (fh.version_hi == 2)
+        ok = load_v2(sff, data, (usize)fsize, &fh, alloc);
+    else
+        SDL_Log("SFF: unsupported version %u '%.*s'", fh.version_hi, (int)path.len, path.data);
+
+    mel_dealloc(alloc, data);
+    return ok;
 }
 
 u32 mugen_sff_find_frame(Mugen_Sff* sff, u16 group, u16 number)

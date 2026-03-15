@@ -5,8 +5,7 @@
 #include "gpu.submit.h"
 #include "allocator.h"
 #include "math.scalar.h"
-// ASYNC_V2: VFS removed
-// #include "vfs.h"
+#include "vfs.h"
 
 #include <SDL3/SDL.h>
 #include <math.h>
@@ -89,17 +88,15 @@ static bool mel__font_sdf_measure_desc(Mel_Font_Descriptor* desc, str8 text, Mel
     return true;
 }
 
-void mel_font_sdf_pool_init(Mel_Font_SDF_Pool* pool, const Mel_Alloc* alloc, Mel_Gpu_Device* dev, Mel_Vfs* vfs)
+void mel_font_sdf_pool_init(Mel_Font_SDF_Pool* pool, const Mel_Alloc* alloc, Mel_Gpu_Device* dev)
 {
     assert(pool != nullptr);
     assert(alloc != nullptr);
     assert(dev != nullptr);
-    assert(vfs != nullptr);
 
     *pool = (Mel_Font_SDF_Pool){0};
     pool->alloc = alloc;
     pool->dev = dev;
-    pool->vfs = vfs;
 
     mel_slotmap_init(&pool->slotmap, alloc, .item_size = sizeof(Mel_Font_SDF_Entry), .initial_capacity = 8);
     mel_hashmap_init(&pool->path_to_handle, mel__font_sdf_pool_hash_key, mel__font_sdf_pool_eq_key, alloc);
@@ -133,9 +130,108 @@ Mel_Font_Handle mel_font_sdf_pool_load_opt(Mel_Font_SDF_Pool* pool, Mel_Font_SDF
     if (existing)
         return (Mel_Font_Handle){ .handle = mel_slotmap_handle_from_ptr(existing) };
 
-    // ASYNC_V2: VFS removed
-    SDL_Log("font.sdf: VFS removed, cannot load '%.*s'", (int)opt.path.len, opt.path.data);
-    return MEL_FONT_HANDLE_NULL;
+    i64 fsize = 0;
+    u8* ttf_data = mel_vfs_read_file(opt.path, &fsize, pool->alloc);
+    if (!ttf_data)
+    {
+        SDL_Log("font.sdf: failed to read '%.*s'", (int)opt.path.len, opt.path.data);
+        return MEL_FONT_HANDLE_NULL;
+    }
+
+    f32 font_size = opt.size > 0 ? opt.size : 32.0f;
+    u32 atlas_w = opt.atlas_width > 0 ? opt.atlas_width : 1024;
+    u32 atlas_h = opt.atlas_height > 0 ? opt.atlas_height : 1024;
+    u32 padding = opt.padding > 0 ? opt.padding : 4;
+    f32 px_range = opt.px_range > 0 ? opt.px_range : 4.0f;
+    u32 on_edge = 128;
+    f32 pixel_dist_scale = (f32)on_edge / px_range;
+
+    stbtt_fontinfo font_info;
+    stbtt_InitFont(&font_info, ttf_data, 0);
+    f32 scale = stbtt_ScaleForPixelHeight(&font_info, font_size);
+
+    int ascent_i, descent_i, line_gap_i;
+    stbtt_GetFontVMetrics(&font_info, &ascent_i, &descent_i, &line_gap_i);
+
+    u8* atlas_bitmap = mel_alloc(pool->alloc, (usize)(atlas_w * atlas_h));
+    memset(atlas_bitmap, 0, atlas_w * atlas_h);
+
+    u32 pen_x = padding, pen_y = padding;
+    u32 row_height = 0;
+
+    Mel_Font_SDF_Entry entry = {0};
+    entry.atlas_width = atlas_w;
+    entry.atlas_height = atlas_h;
+    entry.px_range = px_range;
+    entry.desc.first_codepoint = MEL_FONT_SDF_FIRST_CHAR;
+    entry.desc.glyph_count = MEL_FONT_SDF_CHAR_COUNT;
+    entry.desc.ascent = (f32)ascent_i * scale;
+    entry.desc.line_height = (f32)(ascent_i - descent_i + line_gap_i) * scale;
+    entry.desc.glyphs = mel_alloc_array(pool->alloc, Mel_Font_Glyph, MEL_FONT_SDF_CHAR_COUNT);
+
+    f32 inv_w = 1.0f / (f32)atlas_w;
+    f32 inv_h = 1.0f / (f32)atlas_h;
+
+    for (i32 i = 0; i < MEL_FONT_SDF_CHAR_COUNT; i++)
+    {
+        int codepoint = MEL_FONT_SDF_FIRST_CHAR + i;
+        int gw, gh, xoff, yoff;
+        u8* sdf = stbtt_GetCodepointSDF(&font_info, scale, codepoint, (int)padding,
+                                         (u8)on_edge, pixel_dist_scale, &gw, &gh, &xoff, &yoff);
+
+        Mel_Font_Glyph* g = &entry.desc.glyphs[i];
+        *g = (Mel_Font_Glyph){0};
+
+        int advance, lsb;
+        stbtt_GetCodepointHMetrics(&font_info, codepoint, &advance, &lsb);
+        g->xadvance = (f32)advance * scale;
+
+        if (sdf && gw > 0 && gh > 0)
+        {
+            if (pen_x + (u32)gw + padding > atlas_w)
+            {
+                pen_x = padding;
+                pen_y += row_height + padding;
+                row_height = 0;
+            }
+
+            for (i32 row = 0; row < gh; row++)
+                memcpy(&atlas_bitmap[(pen_y + (u32)row) * atlas_w + pen_x], &sdf[row * gw], (size_t)gw);
+
+            g->x0 = (f32)xoff;
+            g->y0 = (f32)yoff;
+            g->x1 = (f32)(xoff + gw);
+            g->y1 = (f32)(yoff + gh);
+            g->u0 = (f32)pen_x * inv_w;
+            g->v0 = (f32)pen_y * inv_h;
+            g->u1 = (f32)(pen_x + (u32)gw) * inv_w;
+            g->v1 = (f32)(pen_y + (u32)gh) * inv_h;
+
+            pen_x += (u32)gw + padding;
+            if ((u32)gh > row_height) row_height = (u32)gh;
+        }
+
+        if (sdf) stbtt_FreeSDF(sdf, NULL);
+    }
+
+    u8* rgba = mel_alloc(pool->alloc, (usize)(atlas_w * atlas_h * 4));
+    for (u32 j = 0; j < atlas_w * atlas_h; j++)
+    {
+        rgba[j * 4 + 0] = 255;
+        rgba[j * 4 + 1] = 255;
+        rgba[j * 4 + 2] = 255;
+        rgba[j * 4 + 3] = atlas_bitmap[j];
+    }
+    mel_dealloc(pool->alloc, atlas_bitmap);
+
+    mel_gpu_texture_init(&entry.texture, pool->dev,
+        .pixels = rgba, .width = atlas_w, .height = atlas_h);
+    mel_dealloc(pool->alloc, rgba);
+    mel_dealloc(pool->alloc, ttf_data);
+
+    Mel_SlotMap_Handle sm_handle = mel_slotmap_insert(&pool->slotmap, &entry);
+    mel_hashmap_put(&pool->path_to_handle, (void*)(usize)hash, mel_slotmap_handle_to_ptr(sm_handle));
+    return (Mel_Font_Handle){ .handle = sm_handle };
 }
 
 Mel_Font_SDF_Entry* mel_font_sdf_pool_get(Mel_Font_SDF_Pool* pool, Mel_Font_Handle handle)

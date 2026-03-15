@@ -333,6 +333,28 @@ void mel_sprite_pass_shutdown(Mel_Sprite_Pass* sp)
     sp->dev = nullptr;
 }
 
+static void mel__sprite_pass_draw_entry(Mel_Sprite_Pass* sp, Mel_Sprite_Entry* entry)
+{
+    if (sp->pool)
+    {
+        Mel_Gpu_Texture* tex = mel_texture_pool_get(sp->pool, entry->tex);
+        mel__sprite_pass_set_texture(sp, tex);
+    }
+
+    Mel_Rect uv = entry->uv;
+    if (uv.w == 0.0f && uv.h == 0.0f)
+        uv = (Mel_Rect){0, 0, 1, 1};
+
+    Mel_Vec4 color = entry->color;
+    if (mel_material_instance_handle_valid(entry->material))
+        color = mel_vec4_mul(color, mel_material_instance_base_color(entry->material));
+
+    mel__sprite_pass_push_quad(sp,
+        entry->pos.x, entry->pos.y, entry->size.x, entry->size.y,
+        uv.x, uv.y, uv.x + uv.w, uv.y + uv.h,
+        color);
+}
+
 void mel_sprite_pass_draw(Mel_Render_List* list, Mel_Sprite_Pass* sp)
 {
     assert(list != nullptr);
@@ -344,25 +366,7 @@ void mel_sprite_pass_draw(Mel_Render_List* list, Mel_Sprite_Pass* sp)
     for (u32 i = 0; i < list->count; i++)
     {
         Mel_Sprite_Entry* entry = mel_render_list_get(list, list->packets[i].entry_index);
-
-        if (sp->pool)
-        {
-            Mel_Gpu_Texture* tex = mel_texture_pool_get(sp->pool, entry->tex);
-            mel__sprite_pass_set_texture(sp, tex);
-        }
-
-        Mel_Rect uv = entry->uv;
-        if (uv.w == 0.0f && uv.h == 0.0f)
-            uv = (Mel_Rect){0, 0, 1, 1};
-
-        Mel_Vec4 color = entry->color;
-        if (mel_material_instance_handle_valid(entry->material))
-            color = mel_vec4_mul(color, mel_material_instance_base_color(entry->material));
-
-        mel__sprite_pass_push_quad(sp,
-            entry->pos.x, entry->pos.y, entry->size.x, entry->size.y,
-            uv.x, uv.y, uv.x + uv.w, uv.y + uv.h,
-            color);
+        mel__sprite_pass_draw_entry(sp, entry);
     }
 }
 
@@ -377,8 +381,51 @@ void mel_sprite_pass_execute(Mel_Render_Pass_Ctx* ctx)
 
     if (ctx->read_lists)
     {
+        u32 list_count = 0;
         for (u32 i = 0; ctx->read_lists[i] != nullptr; i++)
-            mel_sprite_pass_draw(ctx->read_lists[i], sp);
+        {
+            if (ctx->read_lists[i]->dirty)
+                mel_render_list_sort(ctx->read_lists[i]);
+            list_count++;
+        }
+
+        if (list_count == 1)
+        {
+            mel_sprite_pass_draw(ctx->read_lists[0], sp);
+        }
+        else if (list_count > 1)
+        {
+            u32 cursors[list_count];
+            memset(cursors, 0, sizeof(u32) * list_count);
+
+            u32 total = 0;
+            for (u32 i = 0; i < list_count; i++)
+                total += ctx->read_lists[i]->count;
+
+            for (u32 drawn = 0; drawn < total; drawn++)
+            {
+                u32 best = UINT32_MAX;
+                u64 best_key = UINT64_MAX;
+                for (u32 i = 0; i < list_count; i++)
+                {
+                    Mel_Render_List* list = ctx->read_lists[i];
+                    if (cursors[i] >= list->count)
+                        continue;
+                    u64 key = list->packets[cursors[i]].sort_key;
+                    if (key < best_key)
+                    {
+                        best_key = key;
+                        best = i;
+                    }
+                }
+                if (best == UINT32_MAX) break;
+
+                Mel_Render_List* list = ctx->read_lists[best];
+                Mel_Sprite_Entry* entry = mel_render_list_get(list, list->packets[cursors[best]].entry_index);
+                cursors[best]++;
+                mel__sprite_pass_draw_entry(sp, entry);
+            }
+        }
     }
 
     mel__sprite_pass_flush(sp, ctx->cmd, &vp);

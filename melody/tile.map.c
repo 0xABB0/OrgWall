@@ -3,8 +3,8 @@
 #include "string.str8.h"
 #include "hash.xxh.h"
 #include "allocator.h"
-// ASYNC_V2: VFS removed
-// #include "vfs.h"
+#include "vfs.h"
+
 #include <cjson/cJSON.h>
 #include <SDL3/SDL.h>
 #include <string.h>
@@ -38,17 +38,15 @@ static void mel__tilemap_free_entry(Mel_Tilemap_Entry* e)
     }
 }
 
-void mel_tilemap_pool_init(Mel_Tilemap_Pool* pool, const Mel_Alloc* alloc, Mel_Tileset_Pool* ts_pool, Mel_Vfs* vfs)
+void mel_tilemap_pool_init(Mel_Tilemap_Pool* pool, const Mel_Alloc* alloc, Mel_Tileset_Pool* ts_pool)
 {
     assert(pool != nullptr);
     assert(alloc != nullptr);
     assert(ts_pool != nullptr);
-    assert(vfs != nullptr);
 
     *pool = (Mel_Tilemap_Pool){0};
     pool->alloc = alloc;
     pool->tileset_pool = ts_pool;
-    pool->vfs = vfs;
 
     mel_slotmap_init(&pool->slotmap, alloc, .item_size = sizeof(Mel_Tilemap_Entry), .initial_capacity = 16);
     mel_hashmap_init(&pool->path_to_handle, mel__tilemap_pool_hash_key, mel__tilemap_pool_eq_key, alloc);
@@ -83,9 +81,98 @@ Mel_Tilemap_Handle mel_tilemap_pool_load(Mel_Tilemap_Pool* pool, str8 path)
         return h;
     }
 
-    // ASYNC_V2: VFS removed
-    SDL_Log("tile.map: VFS removed, cannot load '%.*s'", (int)path.len, path.data);
-    return MEL_TILEMAP_HANDLE_NULL;
+    i64 fsize = 0;
+    u8* json_data = mel_vfs_read_file(path, &fsize, pool->alloc);
+    if (!json_data)
+    {
+        SDL_Log("tile.map: failed to read '%.*s'", (int)path.len, path.data);
+        return MEL_TILEMAP_HANDLE_NULL;
+    }
+
+    cJSON* root = cJSON_Parse((const char*)json_data);
+    mel_dealloc(pool->alloc, json_data);
+
+    if (!root)
+    {
+        SDL_Log("tile.map: failed to parse JSON '%.*s'", (int)path.len, path.data);
+        return MEL_TILEMAP_HANDLE_NULL;
+    }
+
+    Mel_Tilemap_Entry entry = {0};
+    entry.alloc = pool->alloc;
+
+    cJSON* name_json = cJSON_GetObjectItem(root, "name");
+    if (name_json && cJSON_IsString(name_json))
+        entry.name = str8_dup(str8_from_cstr(name_json->valuestring), pool->alloc);
+    else
+        entry.name = str8_dup(path, pool->alloc);
+
+    entry.width = (u32)cJSON_GetObjectItem(root, "width")->valuedouble;
+    entry.height = (u32)cJSON_GetObjectItem(root, "height")->valuedouble;
+    entry.grid_width = (u32)cJSON_GetObjectItem(root, "grid_width")->valuedouble;
+    entry.grid_height = (u32)cJSON_GetObjectItem(root, "grid_height")->valuedouble;
+    entry.tileset = MEL_TILESET_HANDLE_NULL;
+
+    cJSON* layers_json = cJSON_GetObjectItem(root, "layers");
+    if (layers_json && cJSON_IsArray(layers_json))
+    {
+        entry.layer_count = (u32)cJSON_GetArraySize(layers_json);
+        entry.layers = mel_alloc_array(pool->alloc, Mel_Tilemap_Layer, entry.layer_count);
+
+        for (u32 i = 0; i < entry.layer_count; i++)
+        {
+            cJSON* layer_json = cJSON_GetArrayItem(layers_json, (int)i);
+            Mel_Tilemap_Layer* l = &entry.layers[i];
+            *l = (Mel_Tilemap_Layer){0};
+
+            cJSON* lname = cJSON_GetObjectItem(layer_json, "name");
+            if (lname && cJSON_IsString(lname))
+                l->name = str8_dup(str8_from_cstr(lname->valuestring), pool->alloc);
+
+            cJSON* vis = cJSON_GetObjectItem(layer_json, "visible");
+            l->visible = vis ? cJSON_IsTrue(vis) : true;
+
+            cJSON* px = cJSON_GetObjectItem(layer_json, "parallax_x");
+            l->parallax_x = px ? (f32)px->valuedouble : 1.0f;
+
+            cJSON* py = cJSON_GetObjectItem(layer_json, "parallax_y");
+            l->parallax_y = py ? (f32)py->valuedouble : 1.0f;
+
+            cJSON* ox = cJSON_GetObjectItem(layer_json, "offset_x");
+            l->offset_x = ox ? (i32)ox->valuedouble : 0;
+
+            cJSON* oy = cJSON_GetObjectItem(layer_json, "offset_y");
+            l->offset_y = oy ? (i32)oy->valuedouble : 0;
+
+            l->width = entry.width;
+            l->height = entry.height;
+
+            cJSON* data_json = cJSON_GetObjectItem(layer_json, "data");
+            u32 tile_count = entry.width * entry.height;
+            l->data = (i32*)mel_alloc(pool->alloc, tile_count * sizeof(i32));
+
+            if (data_json && cJSON_IsArray(data_json))
+            {
+                u32 data_count = (u32)cJSON_GetArraySize(data_json);
+                u32 count = data_count < tile_count ? data_count : tile_count;
+                for (u32 j = 0; j < count; j++)
+                    l->data[j] = (i32)cJSON_GetArrayItem(data_json, (int)j)->valuedouble;
+                for (u32 j = count; j < tile_count; j++)
+                    l->data[j] = -1;
+            }
+            else
+            {
+                for (u32 j = 0; j < tile_count; j++)
+                    l->data[j] = -1;
+            }
+        }
+    }
+
+    cJSON_Delete(root);
+
+    Mel_SlotMap_Handle sm_handle = mel_slotmap_insert(&pool->slotmap, &entry);
+    mel_hashmap_put(&pool->path_to_handle, (void*)(usize)hash, mel_slotmap_handle_to_ptr(sm_handle));
+    return (Mel_Tilemap_Handle){ .handle = sm_handle };
 }
 
 Mel_Tilemap_Handle mel_tilemap_pool_create(Mel_Tilemap_Pool* pool, str8 name, u32 width, u32 height, u32 grid_width, u32 grid_height)
@@ -219,10 +306,14 @@ bool mel_tilemap_pool_save(Mel_Tilemap_Pool* pool, Mel_Tilemap_Handle handle, st
         return false;
     }
 
-    // ASYNC_V2: VFS removed
+    i64 json_len = (i64)strlen(json_text);
+    bool ok = mel_vfs_write_file(path, json_text, json_len);
     free(json_text);
-    SDL_Log("tile.map: VFS removed, cannot save '%.*s'", (int)path.len, path.data);
-    return false;
+
+    if (!ok)
+        SDL_Log("tile.map: failed to write '%.*s'", (int)path.len, path.data);
+
+    return ok;
 }
 
 i32 mel_tilemap_entry_get_tile(Mel_Tilemap_Entry* entry, u32 layer, u32 x, u32 y)

@@ -2,6 +2,7 @@
 
 #include "allocator.fwd.h"
 #include "collection.array.fwd.h"
+#include "async.signal.fwd.h"
 #include "core.types.h"
 
 typedef struct Mel_Progress Mel_Progress;
@@ -13,26 +14,22 @@ typedef struct {
 
 typedef Mel_Progress_Status (*Mel_Progress_Fn)(void* user);
 
-typedef enum {
-    MEL_PROGRESS_SOURCE_CUSTOM,
-    // ASYNC_V2: removed, needs migration
-    // MEL_PROGRESS_SOURCE_TASK,
-    MEL_PROGRESS_SOURCE_CHILD,
-} Mel_Progress_Source_Kind;
+#define MEL_PROGRESS_SOURCE_CUSTOM  0
+#define MEL_PROGRESS_SOURCE_COUNTER 1
+#define MEL_PROGRESS_SOURCE_CHILD   2
 
 typedef struct {
-    Mel_Progress_Source_Kind kind;
-    f32                      weight;
+    u32   kind;
+    f32   weight;
     union {
         struct {
             Mel_Progress_Fn fn;
             void*           user;
         } custom;
-        // ASYNC_V2: removed, needs migration
-        // struct {
-        //     Mel_Task_Ctx*   ctx;
-        //     Mel_Task_Handle handle;
-        // } task;
+        struct {
+            Mel_Counter* counter;
+            i64          total;
+        } counter;
         const Mel_Progress* child;
     };
 } Mel_Progress_Source;
@@ -46,8 +43,7 @@ void                mel_progress_destroy(Mel_Progress* progress);
 void                mel_progress_clear(Mel_Progress* progress);
 
 void                mel_progress_add_custom(Mel_Progress* progress, Mel_Progress_Fn fn, void* user, f32 weight);
-// ASYNC_V2: removed, needs migration
-// void                mel_progress_add_task(Mel_Progress* progress, Mel_Task_Ctx* ctx, Mel_Task_Handle handle, f32 weight);
+void                mel_progress_add_counter(Mel_Progress* progress, Mel_Counter* counter, i64 total, f32 weight);
 void                mel_progress_add_child(Mel_Progress* progress, const Mel_Progress* child, f32 weight);
 
 Mel_Progress_Status mel_progress_state(const Mel_Progress* progress);

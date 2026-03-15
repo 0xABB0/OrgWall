@@ -9,7 +9,6 @@
 #include "gpu.pipeline.fwd.h"
 #include "collection.slotmap.h"
 #include "collection.hashmap.h"
-#include "async.job.fwd.h"
 
 #define MEL_TEXTURE_STATE_UNLOADED 0
 #define MEL_TEXTURE_STATE_LOADING  1
@@ -23,23 +22,17 @@ typedef struct {
     bool external;
 } Mel_Texture_Entry;
 
-typedef struct Mel_Vfs Mel_Vfs;
-
 struct Mel_Texture_Pool {
     Mel_SlotMap slotmap;
     Mel_HashMap path_to_handle;
     Mel_Gpu_Device* dev;
     Mel_Gpu_Pipeline* pipeline;
     Mel_Gpu_Texture fallback;
-    Mel_Job_Context* job_ctx;
     const Mel_Alloc* alloc;
-    Mel_Vfs* vfs;
 };
 
 typedef struct {
     Mel_Gpu_Pipeline* pipeline;
-    Mel_Job_Context* job_ctx;
-    Mel_Vfs* vfs;
 } Mel_Texture_Pool_Opt;
 
 void              mel_texture_pool_init_opt(Mel_Texture_Pool* pool, const Mel_Alloc* alloc, Mel_Gpu_Device* dev, Mel_Texture_Pool_Opt opt);

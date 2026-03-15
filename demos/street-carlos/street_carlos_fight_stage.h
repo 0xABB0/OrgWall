@@ -73,8 +73,6 @@ struct Street_Carlos_Fight_Stage {
 
     Street_Carlos_Fight_Prep_State prep;
     u64 prep_started_at_ticks;
-    // ASYNC_V2: removed, needs migration
-    // Mel_Task_Handle build_task;
 };
 
 void street_carlos_fight_stage_init(Street_Carlos_Fight_Stage* stage, Street_Carlos_Ctx* ctx);

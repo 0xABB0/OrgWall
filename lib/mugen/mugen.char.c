@@ -3,8 +3,7 @@
 #include "mugen.air.h"
 #include "mugen.cmd.h"
 #include "mugen.cns.h"
-// ASYNC_V2: VFS removed
-// #include "vfs.h"
+#include "vfs.h"
 #include "allocator.h"
 #include "string.str8.h"
 #include <string.h>
@@ -183,11 +182,99 @@ static str8 dir_of(str8 path)
 
 bool mugen_char_load_opt(Mugen_Char* mc, Mugen_Char_Load_Opt opt)
 {
-    // ASYNC_V2: VFS removed
-    (void)opt;
+    assert(mc);
+    assert(opt.alloc);
     *mc = (Mugen_Char){0};
-    printf("MUGEN char: VFS removed, cannot load\n");
-    return false;
+
+    i64 def_size = 0;
+    u8* def_data = mel_vfs_read_file(opt.def_path, &def_size, opt.alloc);
+    if (!def_data)
+    {
+        printf("MUGEN char: failed to read def '%.*s'\n", (int)opt.def_path.len, opt.def_path.data);
+        return false;
+    }
+
+    Mugen_Def def;
+    str8 def_str = str8_from_parts(def_data, (size)def_size);
+    bool parsed = mugen_def_parse(&def, def_str);
+    if (!parsed)
+    {
+        printf("MUGEN char: invalid def '%.*s'\n", (int)opt.def_path.len, opt.def_path.data);
+        mel_dealloc(opt.alloc, def_data);
+        return false;
+    }
+
+    str8 char_dir = dir_of(opt.def_path);
+    char path_buf[512];
+
+    str8 sprite_path = resolve_path(char_dir, def.sprite, path_buf, sizeof(path_buf));
+    if (!mugen_sff_load(&mc->sff, sprite_path, opt.alloc))
+    {
+        printf("MUGEN char: failed to load SFF '%.*s'\n", (int)sprite_path.len, sprite_path.data);
+        mel_dealloc(opt.alloc, def_data);
+        return false;
+    }
+
+    str8 anim_path = resolve_path(char_dir, def.anim, path_buf, sizeof(path_buf));
+    i64 anim_size = 0;
+    u8* anim_data = mel_vfs_read_file(anim_path, &anim_size, opt.alloc);
+    if (anim_data)
+    {
+        mugen_air_load(&mc->air, str8_from_parts(anim_data, (size)anim_size), opt.alloc);
+        track_file_data(mc, anim_data, opt.alloc);
+    }
+
+    if (def.cmd.len > 0)
+    {
+        str8 cmd_path = resolve_path(char_dir, def.cmd, path_buf, sizeof(path_buf));
+        i64 cmd_size = 0;
+        u8* cmd_data = mel_vfs_read_file(cmd_path, &cmd_size, opt.alloc);
+        if (cmd_data)
+        {
+            mugen_cmd_load(&mc->cmd, str8_from_parts(cmd_data, (size)cmd_size), opt.alloc);
+            track_file_data(mc, cmd_data, opt.alloc);
+        }
+    }
+
+    if (def.cns.len > 0)
+    {
+        str8 cns_path = resolve_path(char_dir, def.cns, path_buf, sizeof(path_buf));
+        i64 cns_size = 0;
+        u8* cns_data = mel_vfs_read_file(cns_path, &cns_size, opt.alloc);
+        if (cns_data)
+        {
+            mugen_cns_load(&mc->cns, str8_from_parts(cns_data, (size)cns_size), opt.alloc);
+            track_file_data(mc, cns_data, opt.alloc);
+            mc->cns_loaded = true;
+        }
+    }
+
+    if (!str8_is_empty(opt.stcommon_path))
+    {
+        i64 stc_size = 0;
+        u8* stc_data = mel_vfs_read_file(opt.stcommon_path, &stc_size, opt.alloc);
+        if (stc_data)
+        {
+            mugen_cns_load(&mc->common_cns, str8_from_parts(stc_data, (size)stc_size), opt.alloc);
+            track_file_data(mc, stc_data, opt.alloc);
+        }
+    }
+
+    for (u32 i = 0; i < def.st_count; i++)
+    {
+        str8 st_path = resolve_path(char_dir, def.st[i], path_buf, sizeof(path_buf));
+        i64 st_size = 0;
+        u8* st_data = mel_vfs_read_file(st_path, &st_size, opt.alloc);
+        if (st_data)
+        {
+            mugen_cns_load(&mc->cmd_cns, str8_from_parts(st_data, (size)st_size), opt.alloc);
+            track_file_data(mc, st_data, opt.alloc);
+        }
+    }
+
+    mel_dealloc(opt.alloc, def_data);
+    mc->loaded = true;
+    return true;
 }
 
 void mugen_char_shutdown(Mugen_Char* mc, const Mel_Alloc* alloc)

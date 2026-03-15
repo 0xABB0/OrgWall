@@ -22,17 +22,14 @@ struct Mel_Atlas_Entry {
     const Mel_Alloc* alloc;
 };
 
-typedef struct Mel_Vfs Mel_Vfs;
-
 struct Mel_Atlas_Pool {
     Mel_SlotMap slotmap;
     Mel_HashMap path_to_handle;
     Mel_Texture_Pool* texture_pool;
-    Mel_Vfs* vfs;
     const Mel_Alloc* alloc;
 };
 
-void             mel_atlas_pool_init(Mel_Atlas_Pool* pool, const Mel_Alloc* alloc, Mel_Texture_Pool* tex_pool, Mel_Vfs* vfs);
+void             mel_atlas_pool_init(Mel_Atlas_Pool* pool, const Mel_Alloc* alloc, Mel_Texture_Pool* tex_pool);
 void             mel_atlas_pool_shutdown(Mel_Atlas_Pool* pool);
 Mel_Atlas_Handle mel_atlas_pool_load(Mel_Atlas_Pool* pool, str8 path);
 Mel_Atlas_Entry* mel_atlas_pool_get(Mel_Atlas_Pool* pool, Mel_Atlas_Handle handle);

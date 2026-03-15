@@ -1,20 +1,15 @@
 #include "test.harness.h"
 #include "mugen.sff.h"
 #include "math.geo.rect.h"
-// ASYNC_V2: VFS removed
-// #include "vfs.h"
-// #include "vfs.backend.os.h"
-// ASYNC_V2: removed, needs migration
-// #include "async.io.h"
 #include "allocator.heap.h"
 #include "string.str8.h"
+#include "vfs.h"
+#include "vfs.backend.os.h"
 #include <SDL3/SDL.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
-
-// ASYNC_V2: VFS removed
 
 static void write_u16_le(u8* dst, u16 value)
 {
@@ -102,12 +97,12 @@ static void sample_frame_rgba(Mugen_Sff* sff, u32 frame_idx, u8 rgba[4])
     rgba[3] = sff->atlas_pixels[idx + 3];
 }
 
-// ASYNC_V2: VFS removed
-
 MEL_TEST(sff_load_poison, .tags = "mugen")
 {
+    mel_vfs_mount(S8("/"), mel_vfs_backend_os(), .root = S8("/"));
+
     Mugen_Sff sff;
-    bool ok = mugen_sff_load(&sff, NULL, S8("/chars/poi-son/poi-son.sff"), mel_alloc_heap());
+    bool ok = mugen_sff_load(&sff, S8("/chars/poi-son/poi-son.sff"), mel_alloc_heap());
     MEL_ASSERT(ok);
     MEL_ASSERT_GT(sff.entry_count, (u32)0);
     MEL_ASSERT_GT(sff.atlas_width, (u32)0);
@@ -145,6 +140,8 @@ MEL_TEST(sff_load_poison, .tags = "mugen")
     MEL_ASSERT_GT(last_opaque_row, se->height / 2);
 
     mugen_sff_shutdown(&sff, mel_alloc_heap());
+
+    mel_vfs_unmount(S8("/"));
 }
 
 MEL_TEST(sff_v1_uses_header_shared_palette_flag, .tags = "mugen")
@@ -166,9 +163,10 @@ MEL_TEST(sff_v1_uses_header_shared_palette_flag, .tags = "mugen")
     MEL_ASSERT_EQ(fwrite(bytes, 1, sizeof(bytes), file), sizeof(bytes));
     fclose(file);
 
-    // ASYNC_V2: VFS removed
+    mel_vfs_mount(S8("/"), mel_vfs_backend_os(), .root = S8("/"));
+
     Mugen_Sff sff;
-    bool ok = mugen_sff_load(&sff, NULL, S8("/test.sff"), mel_alloc_heap());
+    bool ok = mugen_sff_load(&sff, str8_from_cstr(sff_path), mel_alloc_heap());
     MEL_ASSERT(ok);
 
     u8 first_rgba[4];
@@ -188,7 +186,8 @@ MEL_TEST(sff_v1_uses_header_shared_palette_flag, .tags = "mugen")
 
     mugen_sff_shutdown(&sff, mel_alloc_heap());
 
-    // ASYNC_V2: VFS removed — cleanup
+    mel_vfs_unmount(S8("/"));
+
     unlink(sff_path);
     rmdir(dir);
 }

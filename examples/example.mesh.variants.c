@@ -8,8 +8,8 @@
 #include "swapchain.h"
 #include "gpu.swapchain.h"
 #include "gpu.buffer.h"
-// ASYNC_V2: VFS removed
-// #include "vfs.h"
+#include "vfs.h"
+#include "vfs.backend.os.h"
 #include "string.str8.h"
 #include "render.stage.3d.h"
 #include "render.frame_plan.h"
@@ -924,7 +924,7 @@ void app_init(void)
     s_window_handle = mel_window_create(S8("Melody Mesh Variants"), .width = WIN_W, .height = WIN_H);
     s_swapchain_handle = mel_gpu_swapchain_create_for_window_ex(mel_gpu_dev(), s_window_handle,
         .preferred_present_mode = VK_PRESENT_MODE_MAILBOX_KHR);
-    mel_vfs_mount_native(mel_vfs(), S8("/"), S8("/"), 0, false);
+    mel_vfs_mount(S8("/"), mel_vfs_backend_os(), .root = S8("/"));
 
     mesh_variants_on_init();
 
@@ -962,7 +962,7 @@ void app_shutdown(void)
     mel_gpu_buffer_shutdown(&s_stream_indirect_buffer, mel_gpu_dev());
     mel_gpu_buffer_shutdown(&s_stream_index_buffer, mel_gpu_dev());
     mel_gpu_buffer_shutdown(&s_stream_vertex_buffer, mel_gpu_dev());
-    mel_vfs_unmount(mel_vfs(), S8("/"));
+    mel_vfs_unmount(S8("/"));
 }
 
 void app_event(SDL_Event* event)

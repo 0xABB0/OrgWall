@@ -112,7 +112,10 @@ Mel_Window_Present_2D_Handle mel_window_present_world_2d_opt(Mel_Window_Handle w
         .world = opt.world,
     };
 
-    bool ok = mel_render_ecs_2d_init(&present.renderer,
+    Mel_SlotMap_Handle raw = mel_slotmap_insert(&s_presentations, &present);
+    Mel_Window_Present_2D* stored = mel_slotmap_get(&s_presentations, raw);
+
+    bool ok = mel_render_ecs_2d_init(&stored->renderer,
         .name = opt.name,
         .world = opt.world->world,
         .swapchain = swapchain,
@@ -133,9 +136,11 @@ Mel_Window_Present_2D_Handle mel_window_present_world_2d_opt(Mel_Window_Handle w
         .font_pool = opt.font_pool,
         .alloc = opt.alloc);
     if (!ok)
+    {
+        mel_slotmap_remove(&s_presentations, raw);
         return MEL_WINDOW_PRESENT_2D_HANDLE_NULL;
+    }
 
-    Mel_SlotMap_Handle raw = mel_slotmap_insert(&s_presentations, &present);
     mel__window_present_2d_sync_current_graph();
     return (Mel_Window_Present_2D_Handle){ .handle = raw };
 }

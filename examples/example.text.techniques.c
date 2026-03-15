@@ -22,8 +22,8 @@
 #include "font.atlas.h"
 #include "font.sdf.h"
 #include "font.msdf.h"
-// ASYNC_V2: VFS removed
-// #include "vfs.h"
+#include "vfs.h"
+#include "vfs.backend.os.h"
 #include "allocator.heap.h"
 #include "math.mat4.h"
 #include "math.vec4.h"
@@ -310,7 +310,7 @@ void app_init(void)
 {
     s_window_handle = mel_window_create(S8("Melody Text Techniques"), .width = WIN_W, .height = WIN_H);
     s_swapchain_handle = mel_gpu_swapchain_create_for_window(mel_gpu_dev(), s_window_handle);
-    mel_vfs_mount_native(mel_vfs(), S8("/"), S8("/"), 0, false);
+    mel_vfs_mount(S8("/"), mel_vfs_backend_os(), .root = S8("/"));
 
     on_init();
 
@@ -331,7 +331,7 @@ void app_shutdown(void)
     mel_font_msdf_pool_shutdown(&s_msdf_pool);
     mel_font_sdf_pool_shutdown(&s_sdf_pool);
 
-    mel_vfs_unmount(mel_vfs(), S8("/"));
+    mel_vfs_unmount(S8("/"));
 }
 
 void app_event(SDL_Event* event)

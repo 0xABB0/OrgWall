@@ -33,9 +33,6 @@ void mel_texture_pool_init_opt(Mel_Texture_Pool* pool, const Mel_Alloc* alloc, M
     mel_slotmap_init(&pool->slotmap, alloc, .item_size = sizeof(Mel_Texture_Entry), .initial_capacity = 64);
     mel_hashmap_init(&pool->path_to_handle, mel__texture_pool_hash_key, mel__texture_pool_eq_key, alloc);
 
-    pool->job_ctx = opt.job_ctx;
-    pool->vfs = opt.vfs;
-
     mel_gpu_texture_init_white(&pool->fallback, dev);
 
     if (pool->pipeline)
@@ -87,7 +84,7 @@ Mel_Texture_Handle mel_texture_pool_load(Mel_Texture_Pool* pool, str8 path)
         .state = MEL_TEXTURE_STATE_UNLOADED,
     };
 
-    if (mel_texture_load(&entry.gpu_texture, pool->dev, pool->vfs, pool->alloc, path))
+    if (mel_texture_load(&entry.gpu_texture, pool->dev, pool->alloc, path))
     {
         if (pool->pipeline)
         {
@@ -172,8 +169,7 @@ void mel_texture_pool_tick(Mel_Texture_Pool* pool)
 {
     assert(pool != nullptr);
 
-    if (!pool->job_ctx)
-        return;
+    (void)pool;
 }
 
 Mel_Texture_Handle mel_texture_pool_register(Mel_Texture_Pool* pool, Mel_Gpu_Texture* tex)

@@ -14,8 +14,8 @@
 #include "render.camera.h"
 #include "text.draw.h"
 #include "font.atlas.h"
-// ASYNC_V2: VFS removed
-// #include "vfs.h"
+#include "vfs.h"
+#include "vfs.backend.os.h"
 #include "allocator.heap.h"
 #include "math.mat4.h"
 #include "math.vec2.h"
@@ -376,8 +376,6 @@ static void snake_draw_text(Snake* s, Mel_Render_List* list, Mel_Font_Atlas_Pool
 
 static void build_grid(Mel_Render_List* list)
 {
-    mel_render_list_clear(list);
-
     push_rect(list, GRID_X_OFFSET, GRID_Y_OFFSET,
         (f32)GRID_W * CELL_SIZE, (f32)GRID_H * CELL_SIZE,
         mel_vec4(0.05f, 0.05f, 0.08f, 1.0f), -1.0f);
@@ -393,6 +391,18 @@ static void build_grid(Mel_Render_List* list)
         f32 x = GRID_X_OFFSET + (f32)col * CELL_SIZE;
         push_rect(list, x, GRID_Y_OFFSET, 1.0f, (f32)GRID_H * CELL_SIZE, line_color, -1.0f);
     }
+}
+
+static void produce_grid(Mel_Render_List* list, void* user)
+{
+    MEL_UNUSED(user);
+    build_grid(list);
+}
+
+static void produce_hud_text(Mel_Render_List* list, void* user)
+{
+    MEL_UNUSED(user);
+    snake_draw_text(&s_snake, list, mel_font_pool(), s_font_handle);
 }
 
 static void snake_render_init(void)
@@ -414,12 +424,14 @@ static void snake_render_init(void)
         .entry_stride = sizeof(Mel_Sprite_Entry),
         .mode = MEL_RENDER_LIST_EPHEMERAL,
         .alloc = mel_alloc_heap());
+    mel_render_list_add_producer(&s_grid_list, produce_grid, nullptr);
 
     mel_render_list_init(&s_hud_text_list,
         .name = S8("snake_hud_text"),
         .entry_stride = sizeof(Mel_Text_Entry),
         .mode = MEL_RENDER_LIST_EPHEMERAL,
         .alloc = mel_alloc_heap());
+    mel_render_list_add_producer(&s_hud_text_list, produce_hud_text, nullptr);
 
     bool ok = mel_window_present_2d_attach_sprite_list(s_present, &s_grid_list);
     assert(ok);
@@ -467,7 +479,7 @@ Mel_App_Config app_config(void)
 void app_init(void)
 {
     s_window_handle = mel_window_create(S8("Melody Snake"), .width = WINDOW_W, .height = WINDOW_H);
-    mel_vfs_mount_native(mel_vfs(), S8("/"), S8("/"), 0, false);
+    mel_vfs_mount(S8("/"), mel_vfs_backend_os(), .root = S8("/"));
 
     on_init();
 
@@ -489,7 +501,7 @@ void app_shutdown(void)
     s_snake.follow_query = nullptr;
     mel_ecs_shutdown(&s_snake.ecs);
 
-    mel_vfs_unmount(mel_vfs(), S8("/"));
+    mel_vfs_unmount(S8("/"));
 }
 
 static void app_update(Mel_Sim_Ctx* sim, f32 dt, void* user)
@@ -498,10 +510,6 @@ static void app_update(Mel_Sim_Ctx* sim, f32 dt, void* user)
     MEL_UNUSED(user);
     snake_tick(&s_snake, dt);
     snake_sync_transforms(&s_snake);
-
-    build_grid(&s_grid_list);
-    mel_render_list_clear(&s_hud_text_list);
-    snake_draw_text(&s_snake, &s_hud_text_list, mel_font_pool(), s_font_handle);
 }
 
 void app_event(SDL_Event* event)

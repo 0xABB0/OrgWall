@@ -19,11 +19,13 @@
 #include "render.camera.h"
 #include "texture.pool.h"
 #include "font.atlas.h"
-// ASYNC_V2: VFS removed
-// #include "vfs.h"
 #include "allocator.h"
 #include "allocator.heap.h"
+#include "vfs.h"
+#include "vfs.backend.os.h"
 #include "async.job.h"
+#include "async.signal.h"
+#include <stdatomic.h>
 #include "sim.ctx.h"
 #include "math.mat4.h"
 #include "math.vec4.h"
@@ -63,6 +65,11 @@ typedef struct {
 } Fractal_State;
 
 typedef struct {
+    Fractal_Compute* compute;
+    _Atomic(i32) next_row;
+} Fractal_Job_Data;
+
+typedef struct {
     Mel_Window_Handle    window;
     Mel_Swapchain_Handle swapchain;
     Mel_Sprite_Pass      sprite_pass;
@@ -84,7 +91,6 @@ static Mel_Font_Handle    s_font_handle;
 static Mel_Render_Graph   s_graph;
 static Mel_Sim_Ctx        s_sim;
 static u8                 s_event_buf[4096];
-static Mel_Job_Context*   s_job_ctx;
 static f64                s_julia_cr;
 static f64                s_julia_ci;
 static bool               s_julia_dirty;
@@ -108,77 +114,82 @@ static void fractal_color(i32 iter, i32 max_iter, u8* r, u8* g, u8* b)
     *b = (u8)(127.5 + 127.5 * cos(phase + 4.18879));
 }
 
-static void mandelbrot_compute_rows(i32 range_start, i32 range_end, i32 thread_index, void* user)
+static void mandelbrot_row(Fractal_Compute* fc, i32 y)
 {
-    MEL_UNUSED(thread_index);
-    Fractal_Compute* fc = user;
-
     f64 aspect = (f64)fc->width / (f64)fc->height;
     f64 half_h = 2.0 / fc->zoom;
     f64 half_w = half_h * aspect;
+    f64 ci = fc->center_y + half_h * ((f64)y / (f64)fc->height - 0.5) * 2.0;
 
-    for (i32 y = range_start; y < range_end; y++)
+    for (i32 x = 0; x < fc->width; x++)
     {
-        f64 ci = fc->center_y + half_h * ((f64)y / (f64)fc->height - 0.5) * 2.0;
+        f64 cr = fc->center_x + half_w * ((f64)x / (f64)fc->width - 0.5) * 2.0;
+        f64 zr = 0.0, zi = 0.0;
+        i32 iter = 0;
 
-        for (i32 x = 0; x < fc->width; x++)
+        while (zr * zr + zi * zi <= 4.0 && iter < fc->max_iter)
         {
-            f64 cr = fc->center_x + half_w * ((f64)x / (f64)fc->width - 0.5) * 2.0;
-
-            f64 zr = 0.0, zi = 0.0;
-            i32 iter = 0;
-
-            while (zr * zr + zi * zi <= 4.0 && iter < fc->max_iter)
-            {
-                f64 tmp = zr * zr - zi * zi + cr;
-                zi = 2.0 * zr * zi + ci;
-                zr = tmp;
-                iter++;
-            }
-
-            i32 idx = (y * fc->width + x) * 4;
-            fractal_color(iter, fc->max_iter, &fc->pixels[idx], &fc->pixels[idx + 1], &fc->pixels[idx + 2]);
-            fc->pixels[idx + 3] = 255;
+            f64 tmp = zr * zr - zi * zi + cr;
+            zi = 2.0 * zr * zi + ci;
+            zr = tmp;
+            iter++;
         }
+
+        i32 idx = (y * fc->width + x) * 4;
+        fractal_color(iter, fc->max_iter, &fc->pixels[idx], &fc->pixels[idx + 1], &fc->pixels[idx + 2]);
+        fc->pixels[idx + 3] = 255;
     }
 }
 
-static void julia_compute_rows(i32 range_start, i32 range_end, i32 thread_index, void* user)
+static void julia_row(Fractal_Compute* fc, i32 y)
 {
-    MEL_UNUSED(thread_index);
-    Fractal_Compute* fc = user;
-
     f64 aspect = (f64)fc->width / (f64)fc->height;
     f64 half_h = 2.0 / fc->zoom;
     f64 half_w = half_h * aspect;
+    f64 zi0 = fc->center_y + half_h * ((f64)y / (f64)fc->height - 0.5) * 2.0;
 
-    for (i32 y = range_start; y < range_end; y++)
+    for (i32 x = 0; x < fc->width; x++)
     {
-        f64 zi0 = fc->center_y + half_h * ((f64)y / (f64)fc->height - 0.5) * 2.0;
+        f64 zr = fc->center_x + half_w * ((f64)x / (f64)fc->width - 0.5) * 2.0;
+        f64 zi = zi0;
+        i32 iter = 0;
 
-        for (i32 x = 0; x < fc->width; x++)
+        while (zr * zr + zi * zi <= 4.0 && iter < fc->max_iter)
         {
-            f64 zr = fc->center_x + half_w * ((f64)x / (f64)fc->width - 0.5) * 2.0;
-            f64 zi = zi0;
-
-            i32 iter = 0;
-
-            while (zr * zr + zi * zi <= 4.0 && iter < fc->max_iter)
-            {
-                f64 tmp = zr * zr - zi * zi + fc->julia_cr;
-                zi = 2.0 * zr * zi + fc->julia_ci;
-                zr = tmp;
-                iter++;
-            }
-
-            i32 idx = (y * fc->width + x) * 4;
-            fractal_color(iter, fc->max_iter, &fc->pixels[idx], &fc->pixels[idx + 1], &fc->pixels[idx + 2]);
-            fc->pixels[idx + 3] = 255;
+            f64 tmp = zr * zr - zi * zi + fc->julia_cr;
+            zi = 2.0 * zr * zi + fc->julia_ci;
+            zr = tmp;
+            iter++;
         }
+
+        i32 idx = (y * fc->width + x) * 4;
+        fractal_color(iter, fc->max_iter, &fc->pixels[idx], &fc->pixels[idx + 1], &fc->pixels[idx + 2]);
+        fc->pixels[idx + 3] = 255;
     }
 }
 
-static void fractal_recompute(Fractal_Window* fw, Mel_Job_Cb compute_fn)
+typedef void (*Fractal_Row_Fn)(Fractal_Compute*, i32);
+
+typedef struct {
+    Fractal_Job_Data* job;
+    Fractal_Row_Fn row_fn;
+} Fractal_Worker_Data;
+
+static void fractal_worker(void* arg)
+{
+    Fractal_Worker_Data* wd = (Fractal_Worker_Data*)arg;
+    Fractal_Compute* fc = wd->job->compute;
+
+    for (;;)
+    {
+        i32 row = atomic_fetch_add_explicit(&wd->job->next_row, 1, memory_order_relaxed);
+        if (row >= fc->height)
+            break;
+        wd->row_fn(fc, row);
+    }
+}
+
+static void fractal_recompute(Fractal_Window* fw, Fractal_Row_Fn row_fn)
 {
     fw->compute = (Fractal_Compute){
         .pixels   = fw->pixel_buf,
@@ -192,8 +203,17 @@ static void fractal_recompute(Fractal_Window* fw, Mel_Job_Cb compute_fn)
         .julia_ci = s_julia_ci,
     };
 
-    Mel_Job job = mel_job_dispatch(s_job_ctx, HEIGHT, compute_fn, &fw->compute);
-    mel_job_wait_and_del(s_job_ctx, job);
+    u8 n = mel_job_worker_count();
+    Fractal_Job_Data jd = { .compute = &fw->compute };
+    atomic_store_explicit(&jd.next_row, 0, memory_order_relaxed);
+
+    Fractal_Worker_Data wd = { .job = &jd, .row_fn = row_fn };
+
+    Mel_Counter counter = MEL_COUNTER_INIT;
+    mel_job_run_n(&wd, fractal_worker, &counter, n);
+
+    while (mel__signal_counter(atomic_load_explicit(&counter.signal.state, memory_order_acquire)) > 0)
+        SDL_CPUPauseInstruction();
 
     Mel_Gpu_Device* dev = mel_gpu_dev();
     Mel_Texture_Pool* pool = mel_texture_pool();
@@ -321,13 +341,12 @@ Mel_App_Config app_config(void)
 
 void app_init(void)
 {
+    mel_vfs_mount(S8("/"), mel_vfs_backend_os(), .root = S8("/"));
+
     Mel_Gpu_Device* dev = mel_gpu_dev();
-    mel_vfs_mount_native(mel_vfs(), S8("/"), S8("/"), 0, false);
 
     s_font_handle = mel_font_atlas_pool_load(mel_font_pool(),
         .path = S8("/System/Library/Fonts/Monaco.ttf"), .size = 16.0f);
-
-    s_job_ctx = mel_job_create_context(mel_alloc_heap());
 
     fractal_window_init(&s_mandelbrot, S8("Mandelbrot"), dev);
     fractal_window_init(&s_julia, S8("Julia Set"), dev);
@@ -374,10 +393,12 @@ void app_init(void)
     mel_render_graph_compile(&s_graph);
     mel_set_render_graph(&s_graph);
 
-    fractal_recompute(&s_mandelbrot, mandelbrot_compute_rows);
-    fractal_recompute(&s_julia, julia_compute_rows);
+    mel_job_init();
 
-    i32 threads = mel_job_num_worker_threads(s_job_ctx);
+    fractal_recompute(&s_mandelbrot, mandelbrot_row);
+    fractal_recompute(&s_julia, julia_row);
+
+    i32 threads = mel_job_worker_count();
     SDL_Log("Fractals ready! %d worker threads + main thread", threads);
     SDL_Log("Move mouse on Mandelbrot to change Julia c parameter");
 
@@ -394,9 +415,9 @@ void app_shutdown(void)
     fractal_window_shutdown(&s_julia);
     fractal_window_shutdown(&s_mandelbrot);
 
-    mel_job_destroy_context(s_job_ctx, mel_alloc_heap());
+    mel_vfs_unmount(S8("/"));
+    mel_job_shutdown();
     mel_render_graph_shutdown(&s_graph);
-    mel_vfs_unmount(mel_vfs(), S8("/"));
 }
 
 static void app_update(Mel_Sim_Ctx* sim, f32 dt, void* user)
@@ -406,15 +427,15 @@ static void app_update(Mel_Sim_Ctx* sim, f32 dt, void* user)
     MEL_UNUSED(user);
 
     if (s_mandelbrot.state.dirty)
-        fractal_recompute(&s_mandelbrot, mandelbrot_compute_rows);
+        fractal_recompute(&s_mandelbrot, mandelbrot_row);
 
     if (s_julia.state.dirty || s_julia_dirty)
     {
         s_julia_dirty = false;
-        fractal_recompute(&s_julia, julia_compute_rows);
+        fractal_recompute(&s_julia, julia_row);
     }
 
-    i32 threads = mel_job_num_worker_threads(s_job_ctx) + 1;
+    i32 threads = mel_job_worker_count() + 1;
     char buf[256];
 
     snprintf(buf, sizeof(buf), "zoom: %.2e  center: (%.10f, %.10f)  iter: %d  threads: %d",

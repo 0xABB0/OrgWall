@@ -2,25 +2,28 @@
 #include "gpu.texture.h"
 #include "gpu.pipeline.h"
 #include "string.str8.h"
-// ASYNC_V2: VFS removed
-// #include "vfs.h"
+#include "vfs.h"
 #include "allocator.h"
 #include <SDL3/SDL.h>
 #include <tracy/TracyC.h>
 
-bool mel_texture_load(Mel_Gpu_Texture* tex, Mel_Gpu_Device* dev, Mel_Vfs* vfs, const Mel_Alloc* alloc, str8 path)
+bool mel_texture_load(Mel_Gpu_Texture* tex, Mel_Gpu_Device* dev, const Mel_Alloc* alloc, str8 path)
 {
-    // ASYNC_V2: VFS removed
-    (void)tex; (void)dev; (void)vfs; (void)alloc;
-    SDL_Log("Failed to load texture (VFS removed): %.*s", (int)path.len, path.data);
-    return false;
+    i64 fsize = 0;
+    u8* file_data = mel_vfs_read_file(path, &fsize, alloc);
+    if (!file_data)
+    {
+        SDL_Log("Failed to read texture: %.*s", (int)path.len, path.data);
+        return false;
+    }
+
+    mel_gpu_texture_init(tex, dev, .data = file_data, .data_size = (u32)fsize, .alloc = alloc);
+    mel_dealloc(alloc, file_data);
+    return true;
 }
 
-bool mel_texture_load_and_bind(Mel_Gpu_Texture* tex, Mel_Gpu_Device* dev, Mel_Gpu_Pipeline* pipeline, Mel_Vfs* vfs, const Mel_Alloc* alloc, str8 path)
+bool mel_texture_load_and_bind(Mel_Gpu_Texture* tex, Mel_Gpu_Device* dev, Mel_Gpu_Pipeline* pipeline, const Mel_Alloc* alloc, str8 path)
 {
-    // ASYNC_V2: VFS removed
     (void)pipeline;
-    if (!mel_texture_load(tex, dev, vfs, alloc, path))
-        return false;
-    return true;
+    return mel_texture_load(tex, dev, alloc, path);
 }

@@ -12,8 +12,8 @@
 #include "gpu.swapchain.h"
 #include "gpu.buffer.h"
 #include "gpu.device.h"
-// ASYNC_V2: VFS removed
-// #include "vfs.h"
+#include "vfs.h"
+#include "vfs.backend.os.h"
 #include "string.str8.h"
 #include "render.stage.3d.h"
 #include "render.frame_plan.h"
@@ -1438,7 +1438,7 @@ static void gpu_scene_on_init(void)
     Mel_Gpu_Device* dev = mel_gpu_dev();
     Mel_Swapchain* sc = &mel_swapchain_registry_get(s_swapchain_handle)->swapchain;
 
-    mel_vfs_mount_native(mel_vfs(), S8("/"), S8("/"), 0, false);
+    mel_vfs_mount(S8("/"), mel_vfs_backend_os(), .root = S8("/"));
 
     mel_render_list_init(&s_world_meshes,
         .name = S8("scene3d_gpu_world"),
@@ -1564,7 +1564,7 @@ void app_shutdown(void)
     for (u32 i = 0; i < MATERIAL_VARIANT_COUNT; i++)
         mel_material_instance_destroy(s_materials[i]);
     mel_material_template_destroy(s_surface_template);
-    mel_vfs_unmount(mel_vfs(), S8("/"));
+    mel_vfs_unmount(S8("/"));
 }
 
 void app_event(SDL_Event* event)

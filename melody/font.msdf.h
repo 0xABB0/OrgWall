@@ -10,8 +10,6 @@
 #include "collection.slotmap.h"
 #include "collection.hashmap.h"
 #include "math.vec2.h"
-// ASYNC_V2: VFS removed
-typedef struct Mel_Vfs Mel_Vfs;
 
 typedef struct Mel_Font_MSDF_Entry Mel_Font_MSDF_Entry;
 typedef struct Mel_Font_MSDF_Pool Mel_Font_MSDF_Pool;
@@ -27,7 +25,6 @@ struct Mel_Font_MSDF_Pool {
     Mel_SlotMap slotmap;
     Mel_HashMap path_to_handle;
     Mel_Gpu_Device* dev;
-    Mel_Vfs* vfs;
     const Mel_Alloc* alloc;
 };
 
@@ -40,7 +37,7 @@ typedef struct {
     f32 px_range;
 } Mel_Font_MSDF_Load_Opt;
 
-void mel_font_msdf_pool_init(Mel_Font_MSDF_Pool* pool, const Mel_Alloc* alloc, Mel_Gpu_Device* dev, Mel_Vfs* vfs);
+void mel_font_msdf_pool_init(Mel_Font_MSDF_Pool* pool, const Mel_Alloc* alloc, Mel_Gpu_Device* dev);
 void mel_font_msdf_pool_shutdown(Mel_Font_MSDF_Pool* pool);
 Mel_Font_Handle mel_font_msdf_pool_load_opt(Mel_Font_MSDF_Pool* pool, Mel_Font_MSDF_Load_Opt opt);
 #define mel_font_msdf_pool_load(pool, ...) mel_font_msdf_pool_load_opt((pool), (Mel_Font_MSDF_Load_Opt){__VA_ARGS__})

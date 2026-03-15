@@ -1,0 +1,5 @@
+#pragma once
+
+#ifndef MEL_AIO_COMPLETION_CAPACITY
+#define MEL_AIO_COMPLETION_CAPACITY 1024
+#endif

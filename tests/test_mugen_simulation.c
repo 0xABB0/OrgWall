@@ -1,13 +1,10 @@
 #include "test.harness.h"
 #include "core.engine.h"
 #include "mugen.match.h"
-// ASYNC_V2: VFS removed
-// #include "vfs.h"
-// #include "vfs.backend.os.h"
-// ASYNC_V2: removed, needs migration
-// #include "async.io.h"
 #include "string.str8.h"
 #include "allocator.heap.h"
+#include "vfs.h"
+#include "vfs.backend.os.h"
 #include <string.h>
 
 enum {
@@ -23,7 +20,6 @@ enum {
     ACT_BTN_Z,
 };
 
-// ASYNC_V2: VFS removed — all simulation tests depend on char loading
 static Mugen_Char s_char;
 static bool s_loaded = false;
 static bool s_load_attempted = false;
@@ -37,8 +33,9 @@ static bool ensure_loaded(void)
     SDL_Init(SDL_INIT_VIDEO);
     mel_init(.app_name = S8("test"), .enable_validation = false);
 
+    mel_vfs_mount(S8("/"), mel_vfs_backend_os(), .root = S8("/"));
+
     bool ok = mugen_char_load(&s_char,
-        .vfs = NULL,
         .def_path = S8("/chars/kfm/kfm.def"),
         .stcommon_path = S8("/chars/common1.cns"),
         .alloc = mel_alloc_heap());
@@ -161,7 +158,7 @@ static void run_input_script(Mugen_Match* m, const Sim_Input_Step* steps, u32 st
     }
 }
 
-MEL_TEST(sim_idle_at_start, .tags = "sim")
+MEL_TEST(sim_idle_at_start, .tags = "sim, visual")
 {
     Mugen_Match* m = test_match_create();
     if (!m) return;
@@ -179,7 +176,7 @@ MEL_TEST(sim_idle_at_start, .tags = "sim")
     mugen_match_end(m);
 }
 
-MEL_TEST(sim_start_positions, .tags = "sim")
+MEL_TEST(sim_start_positions, .tags = "sim, visual")
 {
     Mugen_Match* m = test_match_create();
     if (!m) return;
@@ -197,7 +194,7 @@ MEL_TEST(sim_start_positions, .tags = "sim")
     mugen_match_end(m);
 }
 
-MEL_TEST(sim_walk_forward, .tags = "sim")
+MEL_TEST(sim_walk_forward, .tags = "sim, visual")
 {
     Mugen_Match* m = test_match_create();
     if (!m) return;
@@ -221,7 +218,7 @@ MEL_TEST(sim_walk_forward, .tags = "sim")
     mugen_match_end(m);
 }
 
-MEL_TEST(sim_walk_backward, .tags = "sim")
+MEL_TEST(sim_walk_backward, .tags = "sim, visual")
 {
     Mugen_Match* m = test_match_create();
     if (!m) return;
@@ -241,7 +238,7 @@ MEL_TEST(sim_walk_backward, .tags = "sim")
     mugen_match_end(m);
 }
 
-MEL_TEST(sim_crouch, .tags = "sim")
+MEL_TEST(sim_crouch, .tags = "sim, visual")
 {
     Mugen_Match* m = test_match_create();
     if (!m) return;
@@ -263,7 +260,7 @@ MEL_TEST(sim_crouch, .tags = "sim")
     mugen_match_end(m);
 }
 
-MEL_TEST(sim_crouch_to_stand_transition, .tags = "sim")
+MEL_TEST(sim_crouch_to_stand_transition, .tags = "sim, visual")
 {
     Mugen_Match* m = test_match_create();
     if (!m) return;
@@ -288,7 +285,7 @@ MEL_TEST(sim_crouch_to_stand_transition, .tags = "sim")
     mugen_match_end(m);
 }
 
-MEL_TEST(sim_jump, .tags = "sim")
+MEL_TEST(sim_jump, .tags = "sim, visual")
 {
     Mugen_Match* m = test_match_create();
     if (!m) return;
@@ -326,7 +323,7 @@ MEL_TEST(sim_jump, .tags = "sim")
     mugen_match_end(m);
 }
 
-MEL_TEST(sim_jump_forward, .tags = "sim")
+MEL_TEST(sim_jump_forward, .tags = "sim, visual")
 {
     Mugen_Match* m = test_match_create();
     if (!m) return;
@@ -355,7 +352,7 @@ MEL_TEST(sim_jump_forward, .tags = "sim")
     mugen_match_end(m);
 }
 
-MEL_TEST(sim_neutral_jump_preserves_x, .tags = "sim")
+MEL_TEST(sim_neutral_jump_preserves_x, .tags = "sim, visual")
 {
     Mugen_Match* m = test_match_create();
     if (!m) return;
@@ -381,7 +378,7 @@ MEL_TEST(sim_neutral_jump_preserves_x, .tags = "sim")
     mugen_match_end(m);
 }
 
-MEL_TEST(sim_stand_light_punch, .tags = "sim")
+MEL_TEST(sim_stand_light_punch, .tags = "sim, visual")
 {
     Mugen_Match* m = test_match_create();
     if (!m) return;
@@ -415,7 +412,7 @@ MEL_TEST(sim_stand_light_punch, .tags = "sim")
     mugen_match_end(m);
 }
 
-MEL_TEST(sim_attack_returns_to_idle, .tags = "sim")
+MEL_TEST(sim_attack_returns_to_idle, .tags = "sim, visual")
 {
     Mugen_Match* m = test_match_create();
     if (!m) return;
@@ -444,7 +441,7 @@ MEL_TEST(sim_attack_returns_to_idle, .tags = "sim")
     mugen_match_end(m);
 }
 
-MEL_TEST(sim_no_attack_during_attack, .tags = "sim")
+MEL_TEST(sim_no_attack_during_attack, .tags = "sim, visual")
 {
     Mugen_Match* m = test_match_create();
     if (!m) return;
@@ -470,7 +467,7 @@ MEL_TEST(sim_no_attack_during_attack, .tags = "sim")
     mugen_match_end(m);
 }
 
-MEL_TEST(sim_crouch_blocks_walk, .tags = "sim")
+MEL_TEST(sim_crouch_blocks_walk, .tags = "sim, visual")
 {
     Mugen_Match* m = test_match_create();
     if (!m) return;
@@ -496,7 +493,7 @@ MEL_TEST(sim_crouch_blocks_walk, .tags = "sim")
     mugen_match_end(m);
 }
 
-MEL_TEST(sim_stage_boundary_left, .tags = "sim")
+MEL_TEST(sim_stage_boundary_left, .tags = "sim, visual")
 {
     Mugen_Match* m = test_match_create();
     if (!m) return;
@@ -516,7 +513,7 @@ MEL_TEST(sim_stage_boundary_left, .tags = "sim")
     mugen_match_end(m);
 }
 
-MEL_TEST(sim_stage_boundary_right, .tags = "sim")
+MEL_TEST(sim_stage_boundary_right, .tags = "sim, visual")
 {
     Mugen_Match* m = test_match_create();
     if (!m) return;
@@ -536,7 +533,7 @@ MEL_TEST(sim_stage_boundary_right, .tags = "sim")
     mugen_match_end(m);
 }
 
-MEL_TEST(sim_qcf_punch, .tags = "sim")
+MEL_TEST(sim_qcf_punch, .tags = "sim, visual")
 {
     Mugen_Match* m = test_match_create();
     if (!m) return;
@@ -570,7 +567,7 @@ MEL_TEST(sim_qcf_punch, .tags = "sim")
     mugen_match_end(m);
 }
 
-MEL_TEST(sim_both_fighters_independent, .tags = "sim")
+MEL_TEST(sim_both_fighters_independent, .tags = "sim, visual")
 {
     Mugen_Match* m = test_match_create();
     if (!m) return;
@@ -593,7 +590,7 @@ MEL_TEST(sim_both_fighters_independent, .tags = "sim")
     mugen_match_end(m);
 }
 
-MEL_TEST(sim_p2_walks_backward, .tags = "sim")
+MEL_TEST(sim_p2_walks_backward, .tags = "sim, visual")
 {
     Mugen_Match* m = test_match_create();
     if (!m) return;
@@ -614,7 +611,7 @@ MEL_TEST(sim_p2_walks_backward, .tags = "sim")
     mugen_match_end(m);
 }
 
-MEL_TEST(sim_combat_close_range_hit, .tags = "sim")
+MEL_TEST(sim_combat_close_range_hit, .tags = "sim, visual")
 {
     Mugen_Match* m = test_match_create();
     if (!m) return;
@@ -656,7 +653,7 @@ MEL_TEST(sim_combat_close_range_hit, .tags = "sim")
     mugen_match_end(m);
 }
 
-MEL_TEST(sim_repeated_attacks_drain_life, .tags = "sim")
+MEL_TEST(sim_repeated_attacks_drain_life, .tags = "sim, visual")
 {
     Mugen_Match* m = test_match_create();
     if (!m) return;
@@ -698,7 +695,7 @@ MEL_TEST(sim_repeated_attacks_drain_life, .tags = "sim")
     mugen_match_end(m);
 }
 
-MEL_TEST(sim_ko_sets_win_lose, .tags = "sim")
+MEL_TEST(sim_ko_sets_win_lose, .tags = "sim, visual")
 {
     Mugen_Match* m = test_match_create();
     if (!m) return;
@@ -742,7 +739,7 @@ MEL_TEST(sim_ko_sets_win_lose, .tags = "sim")
     mugen_match_end(m);
 }
 
-MEL_TEST(sim_matchover_set_after_enough_wins, .tags = "sim")
+MEL_TEST(sim_matchover_set_after_enough_wins, .tags = "sim, visual")
 {
     Mugen_Match* m = test_match_create();
     if (!m) return;
@@ -781,7 +778,7 @@ MEL_TEST(sim_matchover_set_after_enough_wins, .tags = "sim")
     mugen_match_end(m);
 }
 
-MEL_TEST(sim_round_reset_clears_win_lose, .tags = "sim")
+MEL_TEST(sim_round_reset_clears_win_lose, .tags = "sim, visual")
 {
     Mugen_Match* m = test_match_create();
     if (!m) return;
@@ -809,7 +806,7 @@ MEL_TEST(sim_round_reset_clears_win_lose, .tags = "sim")
     mugen_match_end(m);
 }
 
-MEL_TEST(sim_match_update_drives_ticks, .tags = "sim")
+MEL_TEST(sim_match_update_drives_ticks, .tags = "sim, visual")
 {
     Mugen_Match* m = test_match_create();
     if (!m) return;

@@ -1,5 +1,6 @@
 #include "progress.h"
 #include "collection.array.h"
+#include "async.signal.h"
 
 static f32 mel__progress_clamp01(f32 value)
 {
@@ -44,23 +45,22 @@ void mel_progress_add_custom(Mel_Progress* progress, Mel_Progress_Fn fn, void* u
     }));
 }
 
-// ASYNC_V2: removed, needs migration
-// void mel_progress_add_task(Mel_Progress* progress, Mel_Task_Ctx* ctx, Mel_Task_Handle handle, f32 weight)
-// {
-//     assert(progress != NULL);
-//     assert(ctx != NULL);
-//     assert(mel_slotmap_handle_valid(handle));
-//     assert(weight > 0.0f);
-//
-//     mel_array_push(&progress->sources, ((Mel_Progress_Source){
-//         .kind = MEL_PROGRESS_SOURCE_TASK,
-//         .weight = weight,
-//         .task = {
-//             .ctx = ctx,
-//             .handle = handle,
-//         },
-//     }));
-// }
+void mel_progress_add_counter(Mel_Progress* progress, Mel_Counter* counter, i64 total, f32 weight)
+{
+    assert(progress != NULL);
+    assert(counter != NULL);
+    assert(total > 0);
+    assert(weight > 0.0f);
+
+    mel_array_push(&progress->sources, ((Mel_Progress_Source){
+        .kind = MEL_PROGRESS_SOURCE_COUNTER,
+        .weight = weight,
+        .counter = {
+            .counter = counter,
+            .total = total,
+        },
+    }));
+}
 
 void mel_progress_add_child(Mel_Progress* progress, const Mel_Progress* child, f32 weight)
 {
@@ -81,14 +81,16 @@ static Mel_Progress_Status mel__progress_source_state(const Mel_Progress_Source*
     case MEL_PROGRESS_SOURCE_CUSTOM:
         return source->custom.fn(source->custom.user);
 
-    // ASYNC_V2: removed, needs migration
-    // case MEL_PROGRESS_SOURCE_TASK: {
-    //     u32 status = mel_task_status(source->task.ctx, source->task.handle);
-    //     return (Mel_Progress_Status){
-    //         .value = mel_task_progress(source->task.ctx, source->task.handle),
-    //         .failed = status == MEL_TASK_STATUS_FAILED || status == MEL_TASK_STATUS_CANCELLED,
-    //     };
-    // }
+    case MEL_PROGRESS_SOURCE_COUNTER: {
+        i32 state = atomic_load_explicit(&source->counter.counter->signal.state, memory_order_acquire);
+        u16 remaining = mel__signal_counter(state);
+        i64 completed = source->counter.total - (i64)remaining;
+        f32 frac = (f32)completed / (f32)source->counter.total;
+        return (Mel_Progress_Status){
+            .value = mel__progress_clamp01(frac),
+            .failed = false,
+        };
+    }
 
     case MEL_PROGRESS_SOURCE_CHILD:
         return mel_progress_state(source->child);

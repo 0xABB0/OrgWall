@@ -11,8 +11,6 @@
 #include "text.pass.fwd.h"
 #include "texture.pool.fwd.h"
 #include "font.atlas.fwd.h"
-// ASYNC_V2: VFS removed
-// #include "vfs.fwd.h"
 #include "sim.ctx.fwd.h"
 #include "window.fwd.h"
 
@@ -42,10 +40,6 @@ Mel_Sprite_Pass*   mel_sprite_pass(void);
 Mel_Text_Pass*     mel_text_pass(void);
 Mel_Texture_Pool*  mel_texture_pool(void);
 Mel_Font_Atlas_Pool* mel_font_pool(void);
-// ASYNC_V2: removed, needs migration
-// Mel_Io*            mel_io(void);
-// ASYNC_V2: VFS removed
-// Mel_Vfs*           mel_vfs(void);
 const Mel_Alloc*   mel_allocator(void);
 
 void mel_set_render_graph(Mel_Render_Graph* graph);

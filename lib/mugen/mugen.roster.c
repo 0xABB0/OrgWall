@@ -3,10 +3,7 @@
 #include "collection.slotmap.h"
 #include "string.str8.h"
 #include "allocator.h"
-// ASYNC_V2: VFS removed
-// #include "vfs.h"
-// ASYNC_V2: removed, needs migration
-// #include "async.task.h"
+#include "vfs.h"
 #include <string.h>
 #include <assert.h>
 #include <stdio.h>
@@ -14,8 +11,6 @@
 void mugen_roster_init_opt(Mugen_Roster* r, Mugen_Roster_Init_Opt opt)
 {
     memset(r, 0, sizeof(*r));
-    r->vfs = opt.vfs;
-    r->task_ctx = opt.task_ctx;
     r->stcommon_path = opt.stcommon_path;
     r->alloc = opt.alloc;
 
@@ -62,10 +57,54 @@ typedef struct {
     str8 folder_path;
 } Roster_Load_Ctx;
 
-// ASYNC_V2: VFS removed — roster_find_def_cb, roster_scan_dirs_cb, roster_load_step all used VFS+Task APIs
+typedef struct {
+    Mugen_Roster* roster;
+    str8 folder_path;
+} Roster_Enum_Ctx;
 
-// ASYNC_V2: removed, needs migration
-// mugen_roster_load_opt deleted (returned Mel_Task_Handle, used VFS)
+static bool roster_scan_char_dir(str8 path, const Mel_Vfs_Stat* stat, void* user)
+{
+    Roster_Enum_Ctx* ctx = user;
+    if (!(stat->flags & MEL_VFS_STAT_IS_DIR)) return true;
+
+    str8 name = roster_last_component(path);
+
+    char def_buf[512];
+    size total = path.len + 1 + name.len + 4;
+    if (total >= (size)sizeof(def_buf)) return true;
+
+    memcpy(def_buf, path.data, (size_t)path.len);
+    def_buf[path.len] = '/';
+    memcpy(def_buf + path.len + 1, name.data, (size_t)name.len);
+    memcpy(def_buf + path.len + 1 + name.len, ".def", 4);
+    def_buf[total] = 0;
+
+    str8 def_path = str8_from_parts((u8*)def_buf, total);
+    if (!mel_vfs_exists(def_path)) return true;
+
+    Mugen_Char ch;
+    bool ok = mugen_char_load(&ch,
+        .def_path = def_path,
+        .stcommon_path = ctx->roster->stcommon_path,
+        .alloc = ctx->roster->alloc);
+
+    if (ok)
+    {
+        Mugen_Roster_Entry entry = {0};
+        entry.name = roster_dup_str(name, ctx->roster->alloc);
+        entry.ch = ch;
+        mel_slotmap_insert(&ctx->roster->entries, &entry);
+    }
+
+    return true;
+}
+
+void mugen_roster_load(Mugen_Roster* r, str8 folder_path)
+{
+    assert(r);
+    Roster_Enum_Ctx ctx = { .roster = r, .folder_path = folder_path };
+    mel_vfs_enumerate(folder_path, roster_scan_char_dir, &ctx);
+}
 
 Mugen_Char* mugen_roster_find(Mugen_Roster* r, str8 name)
 {

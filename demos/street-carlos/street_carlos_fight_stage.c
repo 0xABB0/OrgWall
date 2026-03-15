@@ -15,6 +15,7 @@
 #include "mugen.air.h"
 #include "sprite.pass.h"
 #include "string.path.h"
+#include "vfs.h"
 
 #define STREET_CARLOS_FIGHT_SIMULATED_LOAD_MS 900
 
@@ -96,14 +97,6 @@ static void street_carlos_fight_stage_init_input(Street_Carlos_Fight_Stage* stag
 
 static void street_carlos_fight_stage_release_assets(Street_Carlos_Fight_Stage* stage)
 {
-    // ASYNC_V2: removed, needs migration
-    // if (mel_slotmap_handle_valid(stage->build_task))
-    // {
-    //     mel_task_wait(ctx->task_ctx, stage->build_task);
-    //     mel_task_release(ctx->task_ctx, stage->build_task);
-    //     stage->build_task = MEL_TASK_HANDLE_NULL;
-    // }
-
     Mel_Gpu_Device* dev = mel_gpu_dev();
     if (mel_slotmap_handle_valid(stage->p1_char_tex_handle.handle))
         mel_gpu_texture_shutdown(&stage->p1_char_tex, dev);
@@ -135,37 +128,46 @@ static void street_carlos_fight_stage_release_assets(Street_Carlos_Fight_Stage* 
 
 static void street_carlos_fight_stage_load_stage_def(Street_Carlos_Fight_Stage* stage)
 {
-    // ASYNC_V2: VFS removed
-    mugen_stage_load(&stage->stage_def, (str8){0}, mel_alloc_heap());
+    i64 fsize = 0;
+    u8* data = mel_vfs_read_file(stage->selected_stage_path, &fsize, mel_alloc_heap());
+    if (data)
+    {
+        mugen_stage_load(&stage->stage_def, str8_from_parts(data, (size)fsize), mel_alloc_heap());
+        mel_dealloc(mel_alloc_heap(), data);
+    }
 }
 
 static void street_carlos_fight_stage_load_stage_sff(Street_Carlos_Fight_Stage* stage)
 {
-    // ASYNC_V2: VFS removed
     if (stage->stage_def.spr_path.len == 0)
         return;
 
     u8 path_buf[1024];
     str8 stage_dir = mel_path_parent(stage->selected_stage_path);
     str8 spr_full = mel_path_join(stage_dir, stage->stage_def.spr_path, path_buf, sizeof(path_buf));
-    mugen_sff_load(&stage->stage_sff, NULL, spr_full, mel_alloc_heap());
+    mugen_sff_load(&stage->stage_sff, spr_full, mel_alloc_heap());
 }
 
 static void street_carlos_fight_stage_load_fightdef(Street_Carlos_Fight_Stage* stage)
 {
-    // ASYNC_V2: VFS removed
-    MEL_UNUSED(stage);
+    str8 path = S8("/data/fight.def");
+    i64 fsize = 0;
+    u8* data = mel_vfs_read_file(path, &fsize, mel_alloc_heap());
+    if (data)
+    {
+        mugen_fightdef_load(&stage->fightdef, str8_from_parts(data, (size)fsize), mel_alloc_heap());
+        mel_dealloc(mel_alloc_heap(), data);
+    }
 }
 
 static void street_carlos_fight_stage_load_hud_sff(Street_Carlos_Fight_Stage* stage)
 {
-    // ASYNC_V2: VFS removed
     if (stage->fightdef.files.sff.len == 0)
         return;
 
     str8 path = str8_fmt_alloc(mel_alloc_heap(), "/data/%.*s",
         (int)stage->fightdef.files.sff.len, (char*)stage->fightdef.files.sff.data);
-    mugen_sff_load(&stage->fight_sff, NULL, path, mel_alloc_heap());
+    mugen_sff_load(&stage->fight_sff, path, mel_alloc_heap());
     mel_dealloc(mel_alloc_heap(), path.data);
 }
 
@@ -270,8 +272,6 @@ static void fight_build_hud_sff_job(i32 range_start, i32 range_end, i32 thread_i
     MEL_UNUSED(thread_index);
     street_carlos_fight_stage_load_hud_sff(user);
 }
-
-// ASYNC_V2: removed, needs migration — task steps + build_begin deleted
 
 static void street_carlos_fight_stage_build_sync(Street_Carlos_Fight_Stage* stage)
 {
@@ -425,7 +425,6 @@ void street_carlos_fight_stage_tick(Street_Carlos_Fight_Stage* stage, Street_Car
 
         case STREET_CARLOS_FIGHT_PREP_WAIT_BUILD:
         {
-            // ASYNC_V2: removed, needs migration — builds are now synchronous
             stage->prep.progress = 0.6f;
             stage->prep.phase = STREET_CARLOS_FIGHT_PREP_UPLOAD_CHAR;
         } break;

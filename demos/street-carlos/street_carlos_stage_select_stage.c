@@ -17,8 +17,8 @@
 #include "sprite.pass.h"
 #include "string.path.h"
 #include "string.str8.h"
-// ASYNC_V2: VFS removed
-// #include "vfs.h"
+#include "vfs.h"
+#include "mugen.stage.h"
 
 static void draw_centered_text(Street_Carlos_Ctx* ctx, Mel_Render_List* list, Mel_Font_Handle font, str8 text, f32 y, Mel_Vec4 color)
 {
@@ -141,19 +141,32 @@ static str8 stage_preview_path(str8 stage_path, u8* buf, size buf_cap)
 
 static void load_stage_preview_meta(Street_Carlos_Ctx* ctx, Street_Carlos_Stage_Preview* preview, str8 stage_path)
 {
+    MEL_UNUSED(ctx);
     preview->preview_focus = mel_vec2(0.5f, 0.5f);
     preview->preview_zoom = 1.0f;
 
-    // ASYNC_V2: VFS removed
-    MEL_UNUSED(ctx);
-    MEL_UNUSED(stage_path);
+    i64 fsize = 0;
+    u8* data = mel_vfs_read_file(stage_path, &fsize, mel_alloc_heap());
+    if (data)
+    {
+        Mugen_Stage stage_def = {0};
+        if (mugen_stage_load(&stage_def, str8_from_parts(data, (size)fsize), mel_alloc_heap()))
+        {
+            if (stage_def.camera_startx != 0 || stage_def.camera_starty != 0)
+            {
+                preview->preview_focus = mel_vec2(
+                    stage_def.camera_startx / 640.0f,
+                    stage_def.camera_starty / 480.0f);
+            }
+            mugen_stage_shutdown(&stage_def, mel_alloc_heap());
+        }
+        mel_dealloc(mel_alloc_heap(), data);
+    }
 }
 
 static void load_stage_preview(Street_Carlos_Ctx* ctx, Street_Carlos_Stage_Preview* preview, str8 stage_path)
 {
-    // ASYNC_V2: VFS removed
     load_stage_preview_meta(ctx, preview, stage_path);
-    MEL_UNUSED(stage_path);
 }
 
 static void street_carlos_stage_select_stage_start(Mel_Stage* base, void* user)
