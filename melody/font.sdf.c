@@ -217,16 +217,50 @@ Mel_Font_Handle mel_font_sdf_pool_load_opt(Mel_Font_SDF_Pool* pool, Mel_Font_SDF
     u8* rgba = mel_alloc(pool->alloc, (usize)(atlas_w * atlas_h * 4));
     for (u32 j = 0; j < atlas_w * atlas_h; j++)
     {
-        rgba[j * 4 + 0] = 255;
-        rgba[j * 4 + 1] = 255;
-        rgba[j * 4 + 2] = 255;
-        rgba[j * 4 + 3] = atlas_bitmap[j];
+        rgba[j * 4 + 0] = atlas_bitmap[j];
+        rgba[j * 4 + 1] = atlas_bitmap[j];
+        rgba[j * 4 + 2] = atlas_bitmap[j];
+        rgba[j * 4 + 3] = 255;
     }
     mel_dealloc(pool->alloc, atlas_bitmap);
 
-    mel_gpu_texture_init(&entry.texture, pool->dev,
-        .pixels = rgba, .width = atlas_w, .height = atlas_h);
+    Mel_Gpu_Buffer staging;
+    u32 image_size = atlas_w * atlas_h * 4;
+    mel_gpu_buffer_init(&staging, pool->dev,
+        .size = image_size,
+        .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+        .memory_usage = VMA_MEMORY_USAGE_CPU_ONLY);
+    mel_gpu_buffer_upload(&staging, pool->dev, rgba, image_size, 0);
     mel_dealloc(pool->alloc, rgba);
+
+    mel_gpu_image_init(&entry.texture.image, pool->dev,
+        .width = atlas_w,
+        .height = atlas_h,
+        .format = VK_FORMAT_R8G8B8A8_UNORM,
+        .usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+        .aspect = VK_IMAGE_ASPECT_COLOR_BIT);
+
+    Mel__Font_SDF_Upload upload = {
+        .image = &entry.texture.image,
+        .staging = &staging,
+        .width = atlas_w,
+        .height = atlas_h,
+    };
+    mel_gpu_submit_immediate(pool->dev, mel__font_sdf_upload_cmd, &upload);
+    mel_gpu_buffer_shutdown(&staging, pool->dev);
+
+    VkSamplerCreateInfo sampler_info = {
+        .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+        .magFilter = VK_FILTER_LINEAR,
+        .minFilter = VK_FILTER_LINEAR,
+        .mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST,
+        .addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+        .addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+        .addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+    };
+    VkResult result = vkCreateSampler(pool->dev->device, &sampler_info, nullptr, &entry.texture.sampler);
+    assert(result == VK_SUCCESS);
+    MEL_UNUSED(result);
     mel_dealloc(pool->alloc, ttf_data);
 
     Mel_SlotMap_Handle sm_handle = mel_slotmap_insert(&pool->slotmap, &entry);

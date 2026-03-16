@@ -220,16 +220,16 @@ static void app_update(Mel_Sim_Ctx* sim, f32 dt, void* user)
         .x = text_x, .y = panel1_y + 76.0f, .style = atlas);
 
     mel_text_draw_font_sdf(&s_sdf_pool, s_sdf_font, &s_text_list, S8("Signed Distance Field"),
-        .x = text_x, .y = panel2_y + 30.0f, .style = sdf);
+        .x = text_x, .y = panel2_y + 30.0f, .scale = 0.70f, .style = sdf);
     mel_text_draw_font_sdf(&s_sdf_pool, s_sdf_font, &s_text_list,
         S8("Smooth scaling and cheap effects.\nCorners get a little rounder,\nbut fine details soften first."),
-        .x = text_x, .y = panel2_y + 76.0f, .style = sdf);
+        .x = text_x, .y = panel2_y + 76.0f, .scale = 0.70f, .style = sdf);
 
     mel_text_draw_font_msdf(&s_msdf_pool, s_msdf_font, &s_text_list, S8("Multi-Channel SDF"),
-        .x = text_x, .y = panel3_y + 24.0f, .scale = 0.30f, .style = msdf);
+        .x = text_x, .y = panel3_y + 24.0f, .scale = 0.17f, .style = msdf);
     mel_text_draw_font_msdf(&s_msdf_pool, s_msdf_font, &s_text_list,
         S8("Sharper corners and cleaner outlines.\nBest when you need scale headroom."),
-        .x = text_x, .y = panel3_y + 70.0f, .scale = 0.30f, .style = msdf);
+        .x = text_x, .y = panel3_y + 70.0f, .scale = 0.17f, .style = msdf);
 }
 
 static void on_init(void)
@@ -251,8 +251,8 @@ static void on_init(void)
         .projection = mel_mat4_ortho(0.0f, (f32)sc->extent.width, (f32)sc->extent.height, 0.0f, -1.0f, 1.0f),
     };
 
-    mel_font_sdf_pool_init(&s_sdf_pool, mel_allocator(), dev, mel_vfs());
-    mel_font_msdf_pool_init(&s_msdf_pool, mel_allocator(), dev, mel_vfs());
+    mel_font_sdf_pool_init(&s_sdf_pool, mel_allocator(), dev);
+    mel_font_msdf_pool_init(&s_msdf_pool, mel_allocator(), dev);
 
     s_atlas_font = mel_font_atlas_pool_load(mel_font_pool(),
         .path = S8("/System/Library/Fonts/Monaco.ttf"), .size = 28.0f);

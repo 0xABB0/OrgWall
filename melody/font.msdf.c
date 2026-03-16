@@ -155,10 +155,27 @@ Mel_Font_Handle mel_font_msdf_pool_load_opt(Mel_Font_MSDF_Pool* pool, Mel_Font_M
         padding = (u32)ceilf(px_range) + 2;
 
     u8* rgba = mel_calloc(pool->alloc, atlas_w * atlas_h * 4);
-    f32 scale = stbtt_ScaleForPixelHeight(&info, font_size);
 
     int ascent_i, descent_i, line_gap_i;
     stbtt_GetFontVMetrics(&info, &ascent_i, &descent_i, &line_gap_i);
+
+    f32 layout_scale = stbtt_ScaleForPixelHeight(&info, font_size);
+
+    i32 max_gw = 0;
+    i32 max_gh = 0;
+    for (u32 c = MEL_FONT_MSDF_FIRST_CHAR; c < MEL_FONT_MSDF_FIRST_CHAR + MEL_FONT_MSDF_CHAR_COUNT; c++)
+    {
+        int glyph_idx = stbtt_FindGlyphIndex(&info, (int)c);
+        int x0 = 0, y0 = 0, x1 = 0, y1 = 0;
+        stbtt_GetGlyphBitmapBox(&info, glyph_idx, layout_scale, layout_scale, &x0, &y0, &x1, &y1);
+        max_gw = mel_maxi(max_gw, x1 - x0);
+        max_gh = mel_maxi(max_gh, y1 - y0);
+    }
+
+    u32 cell_w = (u32)mel_maxi(max_gw, 1) + padding * 2;
+    u32 cell_h = (u32)mel_maxi(max_gh, 1) + padding * 2;
+
+    f32 gen_scale = stbtt_ScaleForMappingEmToPixels(&info, (f32)cell_h);
 
     Mel_Font_MSDF_Entry entry = {0};
     entry.atlas_width = atlas_w;
@@ -167,22 +184,8 @@ Mel_Font_Handle mel_font_msdf_pool_load_opt(Mel_Font_MSDF_Pool* pool, Mel_Font_M
     entry.desc.first_codepoint = MEL_FONT_MSDF_FIRST_CHAR;
     entry.desc.glyph_count = MEL_FONT_MSDF_CHAR_COUNT;
     entry.desc.glyphs = mel_alloc_array(pool->alloc, Mel_Font_Glyph, entry.desc.glyph_count);
-    entry.desc.ascent = (f32)ascent_i * scale;
-    entry.desc.line_height = (f32)(ascent_i - descent_i + line_gap_i) * scale;
-
-    i32 max_gw = 0;
-    i32 max_gh = 0;
-    for (u32 c = MEL_FONT_MSDF_FIRST_CHAR; c < MEL_FONT_MSDF_FIRST_CHAR + MEL_FONT_MSDF_CHAR_COUNT; c++)
-    {
-        int glyph_idx = stbtt_FindGlyphIndex(&info, (int)c);
-        int x0 = 0, y0 = 0, x1 = 0, y1 = 0;
-        stbtt_GetGlyphBitmapBox(&info, glyph_idx, scale, scale, &x0, &y0, &x1, &y1);
-        max_gw = mel_maxi(max_gw, x1 - x0);
-        max_gh = mel_maxi(max_gh, y1 - y0);
-    }
-
-    u32 cell_w = (u32)mel_maxi(max_gw, 1) + padding * 2;
-    u32 cell_h = (u32)mel_maxi(max_gh, 1) + padding * 2;
+    entry.desc.ascent = (f32)ascent_i * gen_scale;
+    entry.desc.line_height = (f32)(ascent_i - descent_i + line_gap_i) * gen_scale;
     u32 atlas_gutter = (u32)mel_maxi((i32)padding, 8);
 
     float* glyph_bitmap = mel_alloc_array(pool->alloc, float, (usize)cell_w * (usize)cell_h * 3);
@@ -199,10 +202,10 @@ Mel_Font_Handle mel_font_msdf_pool_load_opt(Mel_Font_MSDF_Pool* pool, Mel_Font_M
         stbtt_GetGlyphHMetrics(&info, glyph_idx, &advance, &lsb);
 
         u32 idx = c - MEL_FONT_MSDF_FIRST_CHAR;
-        entry.desc.glyphs[idx].xadvance = (f32)advance * scale;
+        entry.desc.glyphs[idx].xadvance = (f32)advance * gen_scale;
 
         int x0 = 0, y0 = 0, x1 = 0, y1 = 0;
-        stbtt_GetGlyphBitmapBox(&info, glyph_idx, scale, scale, &x0, &y0, &x1, &y1);
+        stbtt_GetGlyphBitmapBox(&info, glyph_idx, gen_scale, gen_scale, &x0, &y0, &x1, &y1);
         i32 gw = x1 - x0;
         i32 gh = y1 - y0;
 
@@ -246,24 +249,18 @@ Mel_Font_Handle mel_font_msdf_pool_load_opt(Mel_Font_MSDF_Pool* pool, Mel_Font_M
             }
         }
 
-        f32 draw_pad = mel_minf((f32)padding, mel_maxf(4.0f, px_range * 0.55f));
-        f32 centered_x = ((f32)cell_w - (f32)gw) * 0.5f;
-        f32 centered_y = ((f32)cell_h - (f32)gh) * 0.5f;
-
-        f32 cell_x0 = mel_clampf(centered_x - draw_pad, 0.0f, (f32)cell_w);
-        f32 cell_y0 = mel_clampf(centered_y - draw_pad, 0.0f, (f32)cell_h);
-        f32 cell_x1 = mel_clampf(centered_x + (f32)gw + draw_pad, 0.0f, (f32)cell_w);
-        f32 cell_y1 = mel_clampf(centered_y + (f32)gh + draw_pad, 0.0f, (f32)cell_h);
+        f32 half_pad_x = ((f32)cell_w - (f32)gw) * 0.5f;
+        f32 half_pad_y = ((f32)cell_h - (f32)gh) * 0.5f;
 
         entry.desc.glyphs[idx] = (Mel_Font_Glyph){
-            .x0 = (f32)x0 - draw_pad,
-            .y0 = (f32)y0 - draw_pad,
-            .x1 = (f32)x1 + draw_pad,
-            .y1 = (f32)y1 + draw_pad,
-            .u0 = (x + cell_x0) / (f32)atlas_w,
-            .v0 = (y + cell_y0) / (f32)atlas_h,
-            .u1 = (x + cell_x1) / (f32)atlas_w,
-            .v1 = (y + cell_y1) / (f32)atlas_h,
+            .x0 = (f32)x0 - half_pad_x,
+            .y0 = (f32)y0 - half_pad_y,
+            .x1 = (f32)x1 + half_pad_x,
+            .y1 = (f32)y1 + half_pad_y,
+            .u0 = (f32)x / (f32)atlas_w,
+            .v0 = (f32)y / (f32)atlas_h,
+            .u1 = (f32)(x + cell_w) / (f32)atlas_w,
+            .v1 = (f32)(y + cell_h) / (f32)atlas_h,
             .xadvance = entry.desc.glyphs[idx].xadvance,
         };
 

@@ -16,6 +16,7 @@ static bool g_timings = false;
 
 static const char* INCLUDE_PATHS[] = {
     "-I/opt/homebrew/include",
+    "-Ithird-party",
     "-I" SUCK_DIR "/third-party",
     "-I" SUCK_DIR "/third-party/slang/include",
     "-I" SUCK_DIR "/third-party/simdutf/singleheader",
