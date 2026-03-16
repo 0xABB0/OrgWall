@@ -1,5 +1,5 @@
 #include "allocator.h"
-#include "allocator.pool.h"
+#include "collection.pool.h"
 
 void mel_pool_init_opt(Mel_Pool* pool, void* buffer, usize buffer_size, Mel_Pool_Init_Opt opt)
 {
@@ -11,14 +11,13 @@ void mel_pool_init_opt(Mel_Pool* pool, void* buffer, usize buffer_size, Mel_Pool
     pool->base        = (u8*)buffer;
     pool->block_size  = opt.block_size;
     pool->block_count = buffer_size / opt.block_size;
-    pool->used_count  = 0;
-    pool->free_list   = NULL;
+    atomic_store_explicit(&pool->used_count, 0, memory_order_relaxed);
 
-#if MEL_ALLOCATOR_POOL_DEBUG
-    pool->peak_used   = 0;
-    pool->alloc_count = 0;
-    pool->free_count  = 0;
-    pool->name        = NULL;
+#if MEL_COLLECTION_POOL_DEBUG
+    atomic_store_explicit(&pool->peak_used, 0, memory_order_relaxed);
+    atomic_store_explicit(&pool->alloc_count, 0, memory_order_relaxed);
+    atomic_store_explicit(&pool->free_count, 0, memory_order_relaxed);
+    pool->name = NULL;
 #endif
 
     mel_pool_reset(pool);
@@ -28,15 +27,19 @@ void mel_pool_reset(Mel_Pool* pool)
 {
     assert(pool != NULL);
 
-    pool->used_count = 0;
-    pool->free_list  = NULL;
+    atomic_store_explicit(&pool->used_count, 0, memory_order_relaxed);
 
     for (usize i = 0; i < pool->block_count; i++)
     {
         u8* block = pool->base + i * pool->block_size;
-        *(void**)block = pool->free_list;
-        pool->free_list = block;
+        u32 next = (i + 1 < pool->block_count) ? (u32)(i + 1) : MEL_POOL_NULL_INDEX;
+        *(u32*)block = next;
     }
+
+    u64 initial = pool->block_count > 0
+        ? mel__pool_tag_pack(0, 0)
+        : mel__pool_tag_pack(MEL_POOL_NULL_INDEX, 0);
+    atomic_store_explicit(&pool->free_stack, initial, memory_order_release);
 }
 
 static void* mel__pool_alloc_cb(void* ptr, usize size, u32 align,

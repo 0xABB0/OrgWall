@@ -1,5 +1,6 @@
 #include "../melody/test.harness.h"
-#include "../melody/allocator.slab.h"
+#include "../melody/collection.slab.h"
+#include <stdatomic.h>
 
 MEL_TEST(slab_init, .tags = "allocator")
 {
@@ -129,17 +130,17 @@ MEL_TEST(slab_free_correct_class, .tags = "allocator")
     void* small = mel_slab_alloc(&slab, 8);
     void* large = mel_slab_alloc(&slab, 48);
 
-    usize small_used = slab.classes[0].pool.used_count;
-    usize large_used = slab.classes[1].pool.used_count;
+    usize small_used = atomic_load(&slab.classes[0].pool.used_count);
+    usize large_used = atomic_load(&slab.classes[1].pool.used_count);
     MEL_ASSERT_EQ(small_used, (usize)1);
     MEL_ASSERT_EQ(large_used, (usize)1);
 
     mel_slab_free(&slab, large);
-    MEL_ASSERT_EQ(slab.classes[0].pool.used_count, (usize)1);
-    MEL_ASSERT_EQ(slab.classes[1].pool.used_count, (usize)0);
+    MEL_ASSERT_EQ(atomic_load(&slab.classes[0].pool.used_count), (usize)1);
+    MEL_ASSERT_EQ(atomic_load(&slab.classes[1].pool.used_count), (usize)0);
 
     mel_slab_free(&slab, small);
-    MEL_ASSERT_EQ(slab.classes[0].pool.used_count, (usize)0);
+    MEL_ASSERT_EQ(atomic_load(&slab.classes[0].pool.used_count), (usize)0);
 }
 
 MEL_TEST(slab_reset_all_classes, .tags = "allocator")
@@ -161,8 +162,8 @@ MEL_TEST(slab_reset_all_classes, .tags = "allocator")
     mel_slab_alloc(&slab, 8);
 
     mel_slab_reset(&slab);
-    MEL_ASSERT_EQ(slab.classes[0].pool.used_count, (usize)0);
-    MEL_ASSERT_EQ(slab.classes[1].pool.used_count, (usize)0);
+    MEL_ASSERT_EQ(atomic_load(&slab.classes[0].pool.used_count), (usize)0);
+    MEL_ASSERT_EQ(atomic_load(&slab.classes[1].pool.used_count), (usize)0);
 
     void* ptr = mel_slab_alloc(&slab, 8);
     MEL_ASSERT_NOT_NULL(ptr);

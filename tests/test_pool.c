@@ -1,6 +1,6 @@
 #include "../melody/test.harness.h"
 #include "../melody/allocator.h"
-#include "../melody/allocator.pool.h"
+#include "../melody/collection.pool.h"
 
 MEL_TEST(pool_init, .tags = "allocator")
 {
@@ -10,8 +10,8 @@ MEL_TEST(pool_init, .tags = "allocator")
 
     MEL_ASSERT_EQ(pool.block_size, (usize)64);
     MEL_ASSERT_EQ(pool.block_count, sizeof(buffer) / 64);
-    MEL_ASSERT_EQ(pool.used_count, (usize)0);
-    MEL_ASSERT_NOT_NULL(pool.free_list);
+    MEL_ASSERT_EQ(atomic_load(&pool.used_count), (usize)0);
+    MEL_ASSERT_NEQ(mel__pool_tag_index(atomic_load(&pool.free_stack)), MEL_POOL_NULL_INDEX);
 }
 
 MEL_TEST(pool_alloc_single, .tags = "allocator")
@@ -24,10 +24,10 @@ MEL_TEST(pool_alloc_single, .tags = "allocator")
     MEL_ASSERT_NOT_NULL(ptr);
     *ptr = 0xDEADBEEF;
     MEL_ASSERT_EQ(*ptr, (i64)0xDEADBEEF);
-    MEL_ASSERT_EQ(pool.used_count, (usize)1);
+    MEL_ASSERT_EQ(atomic_load(&pool.used_count), (usize)1);
 
     mel_pool_free(&pool, ptr);
-    MEL_ASSERT_EQ(pool.used_count, (usize)0);
+    MEL_ASSERT_EQ(atomic_load(&pool.used_count), (usize)0);
 }
 
 MEL_TEST(pool_exhaust_and_reuse, .tags = "allocator")
@@ -44,19 +44,19 @@ MEL_TEST(pool_exhaust_and_reuse, .tags = "allocator")
         ptrs[i] = mel_pool_alloc(&pool);
         MEL_ASSERT_NOT_NULL(ptrs[i]);
     }
-    MEL_ASSERT_EQ(pool.used_count, total);
-    MEL_ASSERT_NULL(pool.free_list);
+    MEL_ASSERT_EQ(atomic_load(&pool.used_count), total);
+    MEL_ASSERT_EQ(mel__pool_tag_index(atomic_load(&pool.free_stack)), MEL_POOL_NULL_INDEX);
 
     mel_pool_free(&pool, ptrs[0]);
-    MEL_ASSERT_EQ(pool.used_count, total - 1);
+    MEL_ASSERT_EQ(atomic_load(&pool.used_count), total - 1);
 
     void* reused = mel_pool_alloc(&pool);
     MEL_ASSERT_NOT_NULL(reused);
-    MEL_ASSERT_EQ(pool.used_count, total);
+    MEL_ASSERT_EQ(atomic_load(&pool.used_count), total);
 
     for (usize i = 1; i < total; i++) mel_pool_free(&pool, ptrs[i]);
     mel_pool_free(&pool, reused);
-    MEL_ASSERT_EQ(pool.used_count, (usize)0);
+    MEL_ASSERT_EQ(atomic_load(&pool.used_count), (usize)0);
 }
 
 MEL_TEST(pool_owns, .tags = "allocator")
@@ -83,11 +83,11 @@ MEL_TEST(pool_reset, .tags = "allocator")
     mel_pool_alloc(&pool);
     mel_pool_alloc(&pool);
     mel_pool_alloc(&pool);
-    MEL_ASSERT_EQ(pool.used_count, (usize)3);
+    MEL_ASSERT_EQ(atomic_load(&pool.used_count), (usize)3);
 
     mel_pool_reset(&pool);
-    MEL_ASSERT_EQ(pool.used_count, (usize)0);
-    MEL_ASSERT_NOT_NULL(pool.free_list);
+    MEL_ASSERT_EQ(atomic_load(&pool.used_count), (usize)0);
+    MEL_ASSERT_NEQ(mel__pool_tag_index(atomic_load(&pool.free_stack)), MEL_POOL_NULL_INDEX);
 
     void* ptr = mel_pool_alloc(&pool);
     MEL_ASSERT_NOT_NULL(ptr);
@@ -130,10 +130,10 @@ MEL_TEST(pool_to_alloc_interface, .tags = "allocator")
 
     void* ptr = mel_alloc(&alloc, 32);
     MEL_ASSERT_NOT_NULL(ptr);
-    MEL_ASSERT_EQ(pool.used_count, (usize)1);
+    MEL_ASSERT_EQ(atomic_load(&pool.used_count), (usize)1);
 
     mel_dealloc(&alloc, ptr);
-    MEL_ASSERT_EQ(pool.used_count, (usize)0);
+    MEL_ASSERT_EQ(atomic_load(&pool.used_count), (usize)0);
 }
 
 MEL_TEST(pool_free_and_realloc_pattern, .tags = "allocator")
@@ -161,7 +161,7 @@ MEL_TEST(pool_free_and_realloc_pattern, .tags = "allocator")
         MEL_ASSERT_NOT_NULL(ptrs[i]);
     }
 
-    MEL_ASSERT_EQ(pool.used_count, total);
+    MEL_ASSERT_EQ(atomic_load(&pool.used_count), total);
 
     for (usize i = 0; i < total; i++)
     {

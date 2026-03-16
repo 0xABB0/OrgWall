@@ -2,19 +2,22 @@
 
 #include "core.types.h"
 
-#include "allocator.pool.cfg.h"
+#include "collection.pool.cfg.h"
 #include "allocator.fwd.h"
+#include <stdatomic.h>
+
+#define MEL_POOL_NULL_INDEX 0xFFFFFFFFu
 
 typedef struct Mel_Pool {
     u8*   base;
     usize block_size;
     usize block_count;
-    usize used_count;
-    void* free_list;
-#if MEL_ALLOCATOR_POOL_DEBUG
-    usize       peak_used;
-    usize       alloc_count;
-    usize       free_count;
+    _Atomic(usize) used_count;
+    _Atomic(u64)   free_stack;
+#if MEL_COLLECTION_POOL_DEBUG
+    _Atomic(usize) peak_used;
+    _Atomic(usize) alloc_count;
+    _Atomic(usize) free_count;
     const char* name;
 #endif
 } Mel_Pool;
@@ -32,4 +35,4 @@ inline static bool  mel_pool_owns(Mel_Pool* pool, void* ptr);
 void  mel_pool_reset(Mel_Pool* pool);
 Mel_Alloc mel_pool_to_alloc(Mel_Pool* pool);
 
-#include "allocator.pool.inl"
+#include "collection.pool.inl"

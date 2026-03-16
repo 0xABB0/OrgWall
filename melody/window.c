@@ -3,6 +3,7 @@
 #include "collection.slotmap.h"
 #include "allocator.heap.h"
 #include "string.str8.h"
+#include "thread.dispatch.h"
 
 typedef struct Mel_Window {
     SDL_Window* sdl;
@@ -34,7 +35,13 @@ static void mel__window_registry_shutdown(void)
     s_initialized = false;
 }
 
-Mel_Window_Handle mel_window_create_opt(str8 title, Mel_Window_Create_Opt opt)
+typedef struct {
+    str8 title;
+    Mel_Window_Create_Opt opt;
+    Mel_Window_Handle result;
+} Mel__Window_Create_Args;
+
+static Mel_Window_Handle mel__window_create_impl(str8 title, Mel_Window_Create_Opt opt)
 {
     assert(s_initialized);
 
@@ -72,7 +79,24 @@ Mel_Window_Handle mel_window_create_opt(str8 title, Mel_Window_Create_Opt opt)
     return (Mel_Window_Handle){ .handle = raw };
 }
 
-void mel_window_destroy(Mel_Window_Handle handle)
+static void* mel__window_create_dispatch(void* data)
+{
+    Mel__Window_Create_Args* args = data;
+    args->result = mel__window_create_impl(args->title, args->opt);
+    return nullptr;
+}
+
+Mel_Window_Handle mel_window_create_opt(str8 title, Mel_Window_Create_Opt opt)
+{
+    if (mel__is_main_thread())
+        return mel__window_create_impl(title, opt);
+
+    Mel__Window_Create_Args args = { .title = title, .opt = opt };
+    mel__main_dispatch_sync(mel__window_create_dispatch, &args);
+    return args.result;
+}
+
+static void mel__window_destroy_impl(Mel_Window_Handle handle)
 {
     assert(s_initialized);
 
@@ -85,6 +109,24 @@ void mel_window_destroy(Mel_Window_Handle handle)
 
     SDL_DestroyWindow(w->sdl);
     mel_slotmap_remove(&s_windows, handle.handle);
+}
+
+static void* mel__window_destroy_dispatch(void* data)
+{
+    Mel_Window_Handle* handle = data;
+    mel__window_destroy_impl(*handle);
+    return nullptr;
+}
+
+void mel_window_destroy(Mel_Window_Handle handle)
+{
+    if (mel__is_main_thread())
+    {
+        mel__window_destroy_impl(handle);
+        return;
+    }
+
+    mel__main_dispatch_sync(mel__window_destroy_dispatch, &handle);
 }
 
 void mel_window_size(Mel_Window_Handle handle, i32* w, i32* h)

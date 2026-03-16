@@ -73,4 +73,13 @@ VkSurfaceKHR mel_gpu_surface_create(Mel_Gpu_Device* dev, SDL_Window* window);
 void mel_gpu_surface_destroy(Mel_Gpu_Device* dev, VkSurfaceKHR surface);
 bool mel_gpu_device_configure_present(Mel_Gpu_Device* dev, VkSurfaceKHR surface);
 
+Mel_Gpu_Device* mel_gpu_dev(void);
+
+typedef struct Mel_Counter Mel_Counter;
+
+typedef struct {
+    Mel_Gpu_Device* dev;
+    Mel_Counter* phase_counter;
+} Mel_Gpu_Ready_Event;
+
 extern Mel_Event_Channel mel_gpu_device_ready;

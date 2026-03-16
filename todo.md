@@ -79,7 +79,6 @@
 
 - [ENGINE] `mel_process_event()` only forwards to imgui — no longer handles `SDL_EVENT_WINDOW_RESIZED`. Swapchain registry has `resize_requested` field on entries but nobody sets or reads it. Need to wire resize events through the swapchain registry.
 - [ENGINE] sprite pass hardcoded to `VK_FORMAT_B8G8R8A8_SRGB` in `mel_init_opt` (core.engine.c:141). Previously used the swapchain's actual format. Could mismatch if swapchain picks a different format.
-- [ENGINE] `mel__engine_init()` / `mel__engine_shutdown()` are vestigial — init just calls `mel_backtrace_init()`, shutdown is empty. Should fold into `mel_init()` / `mel_shutdown()` or become constructors.
 - [ENGINE] `mel_engine_shutdown` still has defensive null-check (`if (!engine->window) return`) instead of asserting — violates MEL-X-006 (from old audit, verify if still applies after refactor)
 
 ## Audit findings (Mar 2026)

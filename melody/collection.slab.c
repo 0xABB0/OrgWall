@@ -1,4 +1,4 @@
-#include "allocator.slab.h"
+#include "collection.slab.h"
 #include <string.h>
 
 void mel_slab_init(Mel_Slab_Alloc* slab, Mel_Slab_Class* class_storage, Mel_Slab_Class_Desc* classes, i32 class_count)
@@ -17,9 +17,9 @@ void mel_slab_init(Mel_Slab_Alloc* slab, Mel_Slab_Class* class_storage, Mel_Slab
         mel_pool_init(&slab->classes[i].pool, classes[i].buffer, classes[i].buffer_size, .block_size = classes[i].block_size);
     }
 
-#if MEL_ALLOCATOR_SLAB_DEBUG
-    slab->alloc_count = 0;
-    slab->free_count = 0;
+#if MEL_COLLECTION_SLAB_DEBUG
+    atomic_store_explicit(&slab->alloc_count, 0, memory_order_relaxed);
+    atomic_store_explicit(&slab->free_count, 0, memory_order_relaxed);
     slab->name = NULL;
 #endif
 }
@@ -33,8 +33,8 @@ void* mel_slab_alloc(Mel_Slab_Alloc* slab, usize size)
     {
         if (slab->classes[i].block_size >= size)
         {
-#if MEL_ALLOCATOR_SLAB_DEBUG
-            slab->alloc_count++;
+#if MEL_COLLECTION_SLAB_DEBUG
+            atomic_fetch_add_explicit(&slab->alloc_count, 1, memory_order_relaxed);
 #endif
             return mel_pool_alloc(&slab->classes[i].pool);
         }
@@ -53,8 +53,8 @@ void mel_slab_free(Mel_Slab_Alloc* slab, void* ptr)
     {
         if (mel_pool_owns(&slab->classes[i].pool, ptr))
         {
-#if MEL_ALLOCATOR_SLAB_DEBUG
-            slab->free_count++;
+#if MEL_COLLECTION_SLAB_DEBUG
+            atomic_fetch_add_explicit(&slab->free_count, 1, memory_order_relaxed);
 #endif
             mel_pool_free(&slab->classes[i].pool, ptr);
             return;

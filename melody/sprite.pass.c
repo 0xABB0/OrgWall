@@ -11,16 +11,40 @@
 #include "allocator.h"
 #include "allocator.heap.h"
 #include "string.str8.h"
+#include "async.job.h"
+#include "async.signal.h"
 
 #include <tracy/TracyC.h>
 #include <string.h>
 
+static Mel_Sprite_Pass s_sprite_pass;
+
+Mel_Sprite_Pass* mel_sprite_pass(void)
+{
+    return &s_sprite_pass;
+}
+
 Mel_Event_Channel mel_sprite_pass_ready;
+
+static void mel__sprite_pass_compile_job(void* data)
+{
+    Mel_Gpu_Device* dev = (Mel_Gpu_Device*)data;
+
+    mel_job_move_to_worker(0);
+
+    mel_sprite_pass_init(&s_sprite_pass,
+        .dev = dev,
+        .color_format = VK_FORMAT_B8G8R8A8_SRGB,
+        .max_sprites = 4096);
+
+    mel_event_channel_fire(&mel_sprite_pass_ready, NULL);
+}
 
 static void mel__sprite_pass_on_gpu_ready(void* ctx, const void* event)
 {
     (void)ctx;
-    (void)event;
+    const Mel_Gpu_Ready_Event* e = event;
+    mel_job_run(e->dev, mel__sprite_pass_compile_job, e->phase_counter);
 }
 
 static void mel__sprite_pass_wire(void)

@@ -331,14 +331,6 @@ static void zoom_at(Fractal_State* fs, f32 mx, f32 my, f64 factor)
 
 static void app_update(Mel_Sim_Ctx* sim, f32 dt, void* user);
 
-Mel_App_Config app_config(void)
-{
-    return (Mel_App_Config){
-        .app_name = S8("Melody Jobs - Fractals"),
-        .enable_validation = true,
-    };
-}
-
 void app_init(void)
 {
     mel_vfs_mount(S8("/"), mel_vfs_backend_os(), .root = S8("/"));

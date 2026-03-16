@@ -15,6 +15,13 @@
 #include <SDL3/SDL.h>
 #include <stdatomic.h>
 
+static Mel_Texture_Pool s_texture_pool;
+
+Mel_Texture_Pool* mel_texture_pool(void)
+{
+    return &s_texture_pool;
+}
+
 Mel_Event_Channel mel_texture_pool_ready;
 
 static _Atomic(i32) s_passes_remaining;
@@ -24,7 +31,13 @@ static void mel__texture_pool_on_pass_ready(void* ctx, const void* event)
     (void)ctx;
     (void)event;
     if (atomic_fetch_sub(&s_passes_remaining, 1) == 1)
+    {
+        Mel_Gpu_Device* dev = mel_sprite_pass()->dev;
+        mel_texture_pool_init(&s_texture_pool, mel_alloc_heap(), dev,
+            .pipeline = &mel_sprite_pass()->pipeline);
+        mel_sprite_pass()->pool = &s_texture_pool;
         mel_event_channel_fire(&mel_texture_pool_ready, NULL);
+    }
 }
 
 static void mel__texture_pool_wire(void)

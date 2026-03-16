@@ -316,14 +316,6 @@ static void setup_scene(void)
     };
 }
 
-Mel_App_Config app_config(void)
-{
-    return (Mel_App_Config){
-        .app_name = S8("Melody Cloth Simulation"),
-        .enable_validation = true,
-    };
-}
-
 void app_init(void)
 {
     s_window = mel_window_create(S8("Melody Cloth Simulation"),

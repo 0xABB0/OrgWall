@@ -48,6 +48,7 @@ typedef struct {
     Mel_Fiber primary_fiber;
 
     SDL_Thread* thread;
+    SDL_Condition* sleep_cond;
     u8 worker_index;
     u8 last_steal_idx;
     _Atomic(bool) finished;
@@ -72,7 +73,6 @@ static struct {
     Mel__Park_Node* park_pool;
 
     SDL_Mutex* sleep_mutex;
-    SDL_Condition* sleep_cond;
     _Atomic(i32) num_sleeping;
 
     SDL_TLSID worker_tls;
@@ -117,14 +117,32 @@ static void mel__work_free(Mel__Work* w)
     mel_mpmc_push(&s_sys.free_work, w);
 }
 
-static void mel__wake_workers(i32 count)
+static void mel__wake_worker(u8 idx)
 {
-    if (atomic_load_explicit(&s_sys.num_sleeping, memory_order_relaxed) == 0)
+    assert(idx < s_sys.num_workers);
+    if (!atomic_load_explicit(&s_sys.workers[idx].is_sleeping, memory_order_acquire))
         return;
 
     SDL_LockMutex(s_sys.sleep_mutex);
-    for (i32 i = 0; i < count; i++)
-        SDL_SignalCondition(s_sys.sleep_cond);
+    SDL_SignalCondition(s_sys.workers[idx].sleep_cond);
+    SDL_UnlockMutex(s_sys.sleep_mutex);
+}
+
+static void mel__wake_workers(i32 count)
+{
+    if (atomic_load_explicit(&s_sys.num_sleeping, memory_order_acquire) == 0)
+        return;
+
+    SDL_LockMutex(s_sys.sleep_mutex);
+    i32 woken = 0;
+    for (u8 i = 0; i < s_sys.num_workers && woken < count; i++)
+    {
+        if (atomic_load_explicit(&s_sys.workers[i].is_sleeping, memory_order_acquire))
+        {
+            SDL_SignalCondition(s_sys.workers[i].sleep_cond);
+            woken++;
+        }
+    }
     SDL_UnlockMutex(s_sys.sleep_mutex);
 }
 
@@ -157,8 +175,7 @@ static void mel__push_work_job(Mel__Job job, u8 worker_index)
         *w = (Mel__Work){ .type = MEL__WORK_JOB, .job = job };
         bool ok = mel_mpmc_push(&s_sys.workers[idx].pinned, w);
         assert(ok && "pinned queue full");
-        if (atomic_load_explicit(&s_sys.workers[idx].is_sleeping, memory_order_relaxed))
-            mel__wake_workers(1);
+        mel__wake_worker(idx);
         return;
     }
 
@@ -230,30 +247,30 @@ static bool mel__pop_work(Mel__Worker* worker, Mel__Work* out)
                 return true;
         }
 
-        atomic_fetch_add_explicit(&s_sys.num_sleeping, 1, memory_order_relaxed);
-        atomic_store_explicit(&worker->is_sleeping, true, memory_order_relaxed);
+        atomic_fetch_add_explicit(&s_sys.num_sleeping, 1, memory_order_release);
+        atomic_store_explicit(&worker->is_sleeping, true, memory_order_release);
 
         SDL_LockMutex(s_sys.sleep_mutex);
 
         if (atomic_load_explicit(&worker->finished, memory_order_seq_cst))
         {
-            atomic_fetch_sub_explicit(&s_sys.num_sleeping, 1, memory_order_relaxed);
-            atomic_store_explicit(&worker->is_sleeping, false, memory_order_relaxed);
+            atomic_fetch_sub_explicit(&s_sys.num_sleeping, 1, memory_order_release);
+            atomic_store_explicit(&worker->is_sleeping, false, memory_order_release);
             SDL_UnlockMutex(s_sys.sleep_mutex);
             return false;
         }
 
         if (mel__try_pop_work(worker, out))
         {
-            atomic_fetch_sub_explicit(&s_sys.num_sleeping, 1, memory_order_relaxed);
-            atomic_store_explicit(&worker->is_sleeping, false, memory_order_relaxed);
+            atomic_fetch_sub_explicit(&s_sys.num_sleeping, 1, memory_order_release);
+            atomic_store_explicit(&worker->is_sleeping, false, memory_order_release);
             SDL_UnlockMutex(s_sys.sleep_mutex);
             return true;
         }
 
-        SDL_WaitCondition(s_sys.sleep_cond, s_sys.sleep_mutex);
-        atomic_fetch_sub_explicit(&s_sys.num_sleeping, 1, memory_order_relaxed);
-        atomic_store_explicit(&worker->is_sleeping, false, memory_order_relaxed);
+        SDL_WaitCondition(worker->sleep_cond, s_sys.sleep_mutex);
+        atomic_fetch_sub_explicit(&s_sys.num_sleeping, 1, memory_order_release);
+        atomic_store_explicit(&worker->is_sleeping, false, memory_order_release);
         SDL_UnlockMutex(s_sys.sleep_mutex);
     }
 
@@ -320,8 +337,7 @@ static void mel__after_switch(void)
         {
             u8 idx = (u8)(target % s_sys.num_workers);
             mel_mpmc_push(&s_sys.workers[idx].pinned, w);
-            if (atomic_load_explicit(&s_sys.workers[idx].is_sleeping, memory_order_relaxed))
-                mel__wake_workers(1);
+            mel__wake_worker(idx);
         }
         else
         {
@@ -414,6 +430,7 @@ static int mel__worker_thread_fn(void* data)
 
 void mel_job_init(void)
 {
+    if (s_sys.num_workers > 0) return;
     memset(&s_sys, 0, sizeof(s_sys));
 
     const Mel_Alloc* alloc = mel_alloc_heap();
@@ -459,7 +476,6 @@ void mel_job_init(void)
     mel_mpmc_init(&s_sys.global_queue, MEL_JOB_GLOBAL_CAPACITY, alloc);
 
     s_sys.sleep_mutex = SDL_CreateMutex();
-    s_sys.sleep_cond = SDL_CreateCondition();
 
     s_sys.workers = mel_alloc(alloc, sizeof(Mel__Worker) * s_sys.num_workers);
     memset(s_sys.workers, 0, sizeof(Mel__Worker) * s_sys.num_workers);
@@ -469,6 +485,7 @@ void mel_job_init(void)
         Mel__Worker* w = &s_sys.workers[i];
         w->worker_index = i;
         w->push_target_worker = -1;
+        w->sleep_cond = SDL_CreateCondition();
         w->wsq = mel_wsq_create(alloc);
         mel_mpmc_init(&w->pinned, MEL_JOB_PINNED_CAPACITY, alloc);
     }
@@ -484,11 +501,13 @@ void mel_job_init(void)
 
 void mel_job_shutdown(void)
 {
+    if (s_sys.num_workers == 0) return;
     for (u8 i = 0; i < s_sys.num_workers; i++)
         atomic_store_explicit(&s_sys.workers[i].finished, true, memory_order_seq_cst);
 
     SDL_LockMutex(s_sys.sleep_mutex);
-    SDL_BroadcastCondition(s_sys.sleep_cond);
+    for (u8 i = 0; i < s_sys.num_workers; i++)
+        SDL_SignalCondition(s_sys.workers[i].sleep_cond);
     SDL_UnlockMutex(s_sys.sleep_mutex);
 
     for (u8 i = 0; i < s_sys.num_workers; i++)
@@ -501,6 +520,7 @@ void mel_job_shutdown(void)
 
     for (u8 i = 0; i < s_sys.num_workers; i++)
     {
+        SDL_DestroyCondition(s_sys.workers[i].sleep_cond);
         mel_wsq_destroy(&s_sys.workers[i].wsq);
         mel_mpmc_free(&s_sys.workers[i].pinned);
     }
@@ -509,7 +529,6 @@ void mel_job_shutdown(void)
     mel_mpmc_free(&s_sys.free_fibers);
     mel_mpmc_free(&s_sys.free_work);
     SDL_DestroyMutex(s_sys.sleep_mutex);
-    SDL_DestroyCondition(s_sys.sleep_cond);
 
     for (u32 i = 0; i < s_sys.fiber_pool_size; i++)
         mel_fiber_stack_release(&s_sys.fiber_stacks[i]);

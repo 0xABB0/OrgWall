@@ -1,7 +1,7 @@
 #pragma once
 #include "core.types.h"
-#include "allocator.slab.cfg.h"
-#include "allocator.pool.h"
+#include "collection.slab.cfg.h"
+#include "collection.pool.h"
 
 typedef struct Mel_Slab_Class {
     Mel_Pool pool;
@@ -11,9 +11,9 @@ typedef struct Mel_Slab_Class {
 typedef struct Mel_Slab_Alloc {
     Mel_Slab_Class* classes;
     i32 class_count;
-#if MEL_ALLOCATOR_SLAB_DEBUG
-    usize alloc_count;
-    usize free_count;
+#if MEL_COLLECTION_SLAB_DEBUG
+    _Atomic(usize) alloc_count;
+    _Atomic(usize) free_count;
     const char* name;
 #endif
 } Mel_Slab_Alloc;
@@ -29,4 +29,4 @@ void* mel_slab_alloc(Mel_Slab_Alloc* slab, usize size);
 void  mel_slab_free(Mel_Slab_Alloc* slab, void* ptr);
 void  mel_slab_reset(Mel_Slab_Alloc* slab);
 
-#include "allocator.slab.inl"
+#include "collection.slab.inl"

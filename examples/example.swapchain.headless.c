@@ -9,7 +9,6 @@
 #include "render.graph.h"
 #include "render.target.h"
 #include "render.pass.h"
-#include "debug.backtrace.h"
 #include "string.str8.h"
 #include "allocator.heap.h"
 
@@ -48,8 +47,6 @@ static void headless_pass(Mel_Render_Pass_Ctx* ctx)
 int main(int argc, char* argv[])
 {
     (void)argc; (void)argv;
-
-    mel_backtrace_init();
 
     if (!SDL_Init(SDL_INIT_VIDEO))
     {

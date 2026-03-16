@@ -51,8 +51,6 @@ bool mel_visual_test_init_opt(Mel_Visual_Test_Ctx* ctx, Mel_Visual_Test_Init_Opt
 
     *ctx = (Mel_Visual_Test_Ctx){ .width = w, .height = h };
 
-    mel_backtrace_init();
-
     if (!SDL_Init(SDL_INIT_VIDEO))
     {
         SDL_Log("visual test: SDL_Init failed: %s", SDL_GetError());

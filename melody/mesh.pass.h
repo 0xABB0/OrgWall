@@ -229,4 +229,6 @@ typedef struct {
 void mel_draw_mesh_opt(Mel_Render_List* list, Mel_Draw_Mesh_Opt opt);
 #define mel_draw_mesh(list, ...) mel_draw_mesh_opt((list), (Mel_Draw_Mesh_Opt){__VA_ARGS__})
 
+Mel_Mesh_Pass* mel_mesh_pass(void);
+
 extern Mel_Event_Channel mel_mesh_pass_ready;

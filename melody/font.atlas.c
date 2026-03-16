@@ -16,12 +16,21 @@
 #include <stb_truetype.h>
 #include <string.h>
 
+static Mel_Font_Atlas_Pool s_font_pool;
+
+Mel_Font_Atlas_Pool* mel_font_pool(void)
+{
+    return &s_font_pool;
+}
+
 Mel_Event_Channel mel_font_pool_ready;
 
 static void mel__font_pool_on_texture_pool_ready(void* ctx, const void* event)
 {
     (void)ctx;
     (void)event;
+    mel_font_atlas_pool_init(&s_font_pool, mel_alloc_heap(), mel_sprite_pass()->dev,
+        .texture_pool = mel_texture_pool());
     mel_event_channel_fire(&mel_font_pool_ready, NULL);
 }
 

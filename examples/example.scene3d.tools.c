@@ -535,14 +535,6 @@ void app_init(void)
     mel_register_sim(&s_sim);
 }
 
-Mel_App_Config app_config(void)
-{
-    return (Mel_App_Config){
-        .app_name = S8("Melody Scene 3D Tools"),
-        .enable_validation = true,
-    };
-}
-
 void app_shutdown(void)
 {
     mel_unregister_sim(&s_sim);

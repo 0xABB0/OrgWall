@@ -6,6 +6,13 @@
 #include "allocator.heap.h"
 #include <string.h>
 
+static Mel_Gpu_Device s_dev;
+
+Mel_Gpu_Device* mel_gpu_dev(void)
+{
+    return &s_dev;
+}
+
 Mel_Event_Channel mel_gpu_device_ready;
 
 __attribute__((constructor))

@@ -83,6 +83,12 @@ void mel_backtrace_init(void)
     sigaction(SIGBUS, &sa, nullptr);
 }
 
+__attribute__((constructor))
+static void mel__backtrace_register(void)
+{
+    mel_backtrace_init();
+}
+
 void mel_backtrace_capture(Mel_Backtrace* bt, i32 skip)
 {
     assert(bt != nullptr);

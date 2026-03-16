@@ -1,5 +1,5 @@
 #pragma once
 
 #ifdef _CLANGD
-#include "allocator.slab.h"
+#include "collection.slab.h"
 #endif

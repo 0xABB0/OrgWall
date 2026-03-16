@@ -10,15 +10,41 @@
 #include "boot.registry.h"
 #include "allocator.heap.h"
 #include "string.str8.h"
+#include "async.job.h"
+#include "async.signal.h"
 
 #include <SDL3/SDL.h>
 
+static Mel_Mesh_Pass s_mesh_pass;
+
+Mel_Mesh_Pass* mel_mesh_pass(void)
+{
+    return &s_mesh_pass;
+}
+
 Mel_Event_Channel mel_mesh_pass_ready;
+
+static void mel__mesh_pass_compile_job(void* data)
+{
+    Mel_Gpu_Device* dev = (Mel_Gpu_Device*)data;
+
+    mel_job_move_to_worker(0);
+
+    mel_mesh_pass_init(&s_mesh_pass,
+        .dev = dev,
+        .color_format = VK_FORMAT_B8G8R8A8_SRGB,
+        .depth_format = VK_FORMAT_D32_SFLOAT,
+        .max_vertices = 65536,
+        .max_indices = 65536 * 3);
+
+    mel_event_channel_fire(&mel_mesh_pass_ready, NULL);
+}
 
 static void mel__mesh_pass_on_gpu_ready(void* ctx, const void* event)
 {
     (void)ctx;
-    (void)event;
+    const Mel_Gpu_Ready_Event* e = event;
+    mel_job_run(e->dev, mel__mesh_pass_compile_job, e->phase_counter);
 }
 
 static void mel__mesh_pass_wire(void)

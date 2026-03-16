@@ -392,14 +392,6 @@ static void on_init(void)
 
 static void app_update(Mel_Sim_Ctx* sim, f32 dt, void* user);
 
-Mel_App_Config app_config(void)
-{
-    return (Mel_App_Config){
-        .app_name = S8("Melody Trie"),
-        .enable_validation = true,
-    };
-}
-
 void app_init(void)
 {
     s_window_handle = mel_window_create(S8("Melody Trie Autocomplete"), .width = 1100, .height = 700);

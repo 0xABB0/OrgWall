@@ -408,14 +408,6 @@ static void material_surface_on_init(void)
     mel_imgui_init(s_window_handle, &mel_swapchain_registry_get(s_swapchain_handle)->swapchain);
 }
 
-Mel_App_Config app_config(void)
-{
-    return (Mel_App_Config){
-        .app_name = S8("Melody Surface Materials"),
-        .enable_validation = true,
-    };
-}
-
 void app_init(void)
 {
     s_window_handle = mel_window_create(S8("Melody Surface Materials"), .width = WIN_W, .height = WIN_H);

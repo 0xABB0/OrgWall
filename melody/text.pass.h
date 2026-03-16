@@ -119,4 +119,6 @@ static inline Mel_Text_Style mel_text_style(Mel_Vec4 color)
     };
 }
 
+Mel_Text_Pass* mel_text_pass(void);
+
 extern Mel_Event_Channel mel_text_pass_ready;

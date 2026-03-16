@@ -121,4 +121,6 @@ typedef struct {
 void mel_draw_sprite_opt(Mel_Render_List* list, Mel_Draw_Sprite_Opt opt);
 #define mel_draw_sprite(list, ...) mel_draw_sprite_opt((list), (Mel_Draw_Sprite_Opt){__VA_ARGS__})
 
+Mel_Sprite_Pass* mel_sprite_pass(void);
+
 extern Mel_Event_Channel mel_sprite_pass_ready;

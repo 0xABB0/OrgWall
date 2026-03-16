@@ -1,6 +1,4 @@
-#define SDL_MAIN_USE_CALLBACKS 1
 #include <SDL3/SDL.h>
-#include <SDL3/SDL_main.h>
 
 #define CIMGUI_USE_SDL3
 #define CIMGUI_USE_VULKAN
@@ -231,16 +229,15 @@ static void on_init(void)
     mel_stage_tick();
 }
 
-static void app_init(Mel_App* app)
+void app_init(void)
 {
-    if (app->argc > 1 && strcmp(app->argv[1], "--test") == 0)
+    if (mel_app_argc() > 1 && strcmp(mel_app_argv()[1], "--test") == 0)
     {
-        int result = mel_test_main(app->argc, app->argv);
-        app->should_quit = true;
+        int result = mel_test_main(mel_app_argc(), mel_app_argv());
+        mel_quit();
         exit(result);
     }
 
-    mel_init(.app_name = S8("Street Carlos"), .enable_validation = true);
     s_app.window_handle = mel_window_create(S8("Street Carlos"), .width = GAME_W * 3, .height = GAME_H * 3);
     s_app.swapchain_handle = mel_gpu_swapchain_create_for_window(mel_gpu_dev(), s_app.window_handle);
     mel_imgui_init(s_app.window_handle, &mel_swapchain_registry_get(s_app.swapchain_handle)->swapchain);
@@ -248,10 +245,8 @@ static void app_init(Mel_App* app)
     on_init();
 }
 
-static void app_shutdown(Mel_App* app)
+void app_shutdown(void)
 {
-    MEL_UNUSED(app);
-
     mel_stage_registry_detach_tagged(&s_app.stage_registry, UINT32_MAX);
     mel_stage_tick();
 
@@ -279,7 +274,7 @@ static void app_shutdown(Mel_App* app)
     mel_font_atlas_pool_shutdown(&s_app.font_pool);
 }
 
-static void app_event(Mel_App* app, SDL_Event* event)
+void app_event(SDL_Event* event)
 {
     if (street_carlos_console_stage_handle_event(&s_console_stage, &s_app, event)) return;
     if (street_carlos_pause_stage_handle_event(&s_pause_stage, &s_app, event)) return;
@@ -291,11 +286,6 @@ static void app_event(Mel_App* app, SDL_Event* event)
     if (street_carlos_title_stage_handle_event(&s_title_stage, &s_app, event)) return;
 
     if (event->type == SDL_EVENT_KEY_DOWN && event->key.scancode == SDL_SCANCODE_ESCAPE)
-        app->should_quit = true;
+        mel_quit();
 }
 
-MEL_APP(
-    .on_init = app_init,
-    .on_shutdown = app_shutdown,
-    .on_event = app_event
-)

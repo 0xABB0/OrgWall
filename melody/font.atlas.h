@@ -56,4 +56,6 @@ void mel_font_atlas_draw_text_ex(Mel_Font_Atlas_Pool* pool, Mel_Font_Handle hand
     mel_font_atlas_draw_text_ex((pool), (handle), (list), (text), (x), (y), (color), 0)
 Mel_Vec2 mel_font_atlas_measure_text(Mel_Font_Atlas_Pool* pool, Mel_Font_Handle handle, str8 text);
 
+Mel_Font_Atlas_Pool* mel_font_pool(void);
+
 extern Mel_Event_Channel mel_font_pool_ready;

@@ -251,8 +251,8 @@ static void on_init(void)
         .projection = mel_mat4_ortho(0.0f, (f32)sc->extent.width, (f32)sc->extent.height, 0.0f, -1.0f, 1.0f),
     };
 
-    mel_font_sdf_pool_init(&s_sdf_pool, mel_allocator(), dev);
-    mel_font_msdf_pool_init(&s_msdf_pool, mel_allocator(), dev);
+    mel_font_sdf_pool_init(&s_sdf_pool, mel_alloc_heap(), dev);
+    mel_font_msdf_pool_init(&s_msdf_pool, mel_alloc_heap(), dev);
 
     s_atlas_font = mel_font_atlas_pool_load(mel_font_pool(),
         .path = S8("/System/Library/Fonts/Monaco.ttf"), .size = 28.0f);
@@ -296,14 +296,6 @@ static void on_init(void)
     mel_set_render_graph(graph);
 
     mel_imgui_init(s_window_handle, &mel_swapchain_registry_get(s_swapchain_handle)->swapchain);
-}
-
-Mel_App_Config app_config(void)
-{
-    return (Mel_App_Config){
-        .app_name = S8("Melody Text Techniques"),
-        .enable_validation = true,
-    };
 }
 
 void app_init(void)

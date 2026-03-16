@@ -49,4 +49,6 @@ u32               mel_texture_pool_count(Mel_Texture_Pool* pool);
 void              mel_texture_pool_tick(Mel_Texture_Pool* pool);
 Mel_Texture_Handle mel_texture_pool_register(Mel_Texture_Pool* pool, Mel_Gpu_Texture* tex);
 
+Mel_Texture_Pool* mel_texture_pool(void);
+
 extern Mel_Event_Channel mel_texture_pool_ready;
