@@ -13,37 +13,42 @@ Things missing from the engine (outside the font system) that must exist before 
 
 ### `Mel_Gpu_Texture_Opt.format`
 
-`gpu.texture.h` currently has no format field. `gpu.texture.c` hardcodes `VK_FORMAT_R8G8B8A8_SRGB`. SDF and MSDF textures MUST use `VK_FORMAT_R8G8B8A8_UNORM` (distance field values are linear data, not color — sRGB gamma-decodes them and breaks the math). Without a format field, every SDF/MSDF technique does ~30 lines of manual staging buffer + image init + sampler creation to bypass the texture helper. Adding `.format` to the opt struct (defaulting to SRGB for backwards compat) collapses all of that into `mel_gpu_texture_init(tex, dev, .pixels = data, .width = w, .height = h, .format = VK_FORMAT_R8G8B8A8_UNORM)`.
+`gpu.texture.h` currently has no format field. `gpu.texture.c` hardcodes SRGB. SDF and MSDF textures MUST use UNORM (distance field values are linear data, not color — sRGB gamma-decodes them and breaks the math). Without a format field, every SDF/MSDF technique does ~30 lines of manual staging buffer + image init + sampler creation to bypass the texture helper. Adding `.format` to the opt struct (defaulting to SRGB for backwards compat) collapses all of that into `mel_gpu_texture_init(tex, dev, .pixels = data, .width = w, .height = h, .format = MEL_FORMAT_RGBA8_UNORM)`.
 
 This is one field and a few lines in `gpu.texture.c`. Small change, massive quality-of-life for any non-sRGB texture.
 
-### Constructor Priority Slots
+### Constructor Priority Slots and Startup Counter
 
-The engine uses `__attribute__((constructor(N)))` for module auto-init. Current priority map:
+See `design/engine.render.architecture.md` → "Module Lifecycle: Static Init & Startup" for the full priority map and startup philosophy.
 
-- 101: log
-- 250: async.aio
-- 280: vfs
-- 500: window
-- 501: swapchain
-- 502: window.present.2d
-- 510: render.source
-- 511: render.view
-- 512: render.frame_recipe
-- 513: render.frame_plan
-- 514: render.technique
-- 515: render.material
+Font module slots:
 
-Font modules need slots. Proposed:
+- 290: `font.desc` (after VFS at 280, after job system at 102). At constructor time, initializes the descriptor pool AND dispatches startup jobs to pre-load default fonts. These jobs run on worker fibers, in parallel with everything else.
+- 301: `font.atlas`, `font.sdf`, `font.msdf`. Initializes technique pools,
+  registers Material Bases, subscribes to `mel_texture_pool_ready`. GPU resources
+  are created when the texture pool fires its ready event (inside the boot cascade).
 
-- 290: `font.desc` (after VFS at 280 — needs VFS to read font files)
-- 520: `font.atlas`, `font.sdf`, `font.msdf` (after render.material at 515 — need to register material backends)
+Font descriptor loading is the poster child for the boot system's parallel init:
+file I/O and font parsing are pure CPU work dispatched as jobs from constructors.
+By the time the boot cascade reaches the GPU phases, the parsed font data is
+sitting in the descriptor pool waiting to be rasterized and uploaded.
 
-The technique pools need GPU device access. Since the GPU device isn't available at constructor time (it's created by the app/engine init), technique pools use lazy initialization: the constructor reserves the pool structure, the first `mel_font_X_create()` call detects the uninitialized GPU state and initializes with the current device. Alternatively, a two-phase init: constructor sets up the data structures, a post-engine-init hook wires up the GPU.
+### Boot System Integration
 
-### Job System
+See `design/engine.boot.md` for the full event-driven boot architecture.
 
-Already exists: `mel_job_run(data, fn, counter)` dispatches work to fiber workers, `Mel_Counter` with `mel_counter_wait()` provides completion signaling. This is exactly what async font loading needs. No prerequisite work here — it's ready.
+Font modules hook into the boot cascade:
+
+- `font.desc` (priority 290): constructor dispatches CPU jobs to read and parse
+  font files. These run on worker fibers, in parallel with everything else.
+- `font.atlas/sdf/msdf` (priority 301): constructors subscribe to
+  `mel_texture_pool_ready`. When the texture pool fires its ready event
+  (after all render passes have compiled their shaders), font techniques
+  initialize their GPU resources and fire their own ready events.
+
+By the time the boot job signals completion and `app_init()` runs,
+all default fonts are fully loaded, rasterized, and GPU-uploaded.
+Zero "is it ready yet?" in user code.
 
 ---
 
@@ -55,9 +60,9 @@ Preparatory refactoring of the existing font code to migrate toward the target a
 
 File: `melody/gpu.texture.h`, `melody/gpu.texture.c`
 
-Add `VkFormat format;` to `Mel_Gpu_Texture_Opt`. Default to `VK_FORMAT_R8G8B8A8_SRGB` when 0 (zero-init). In `mel_gpu_texture_init_opt`, use `opt.format ? opt.format : VK_FORMAT_R8G8B8A8_SRGB` instead of the hardcoded format.
+Add `Mel_Gpu_Format format;` to `Mel_Gpu_Texture_Opt`. Default to `MEL_FORMAT_RGBA8_SRGB` when 0 (zero-init). In `mel_gpu_texture_init_opt`, use `opt.format ? opt.format : MEL_FORMAT_RGBA8_SRGB` instead of the hardcoded format.
 
-Then simplify `font.sdf.c` and `font.msdf.c` to use `mel_gpu_texture_init` with `.format = VK_FORMAT_R8G8B8A8_UNORM` instead of the manual staging+image+sampler dance. The manual code becomes ~3 lines. Current behavior preserved for everything else (format defaults to SRGB).
+Then simplify `font.sdf.c` and `font.msdf.c` to use `mel_gpu_texture_init` with `.format = MEL_FORMAT_RGBA8_UNORM` instead of the manual staging+image+sampler dance. The manual code becomes ~3 lines. Current behavior preserved for everything else (format defaults to SRGB).
 
 ### Step 2: Create `font.desc.h` / `font.desc.c`
 
@@ -79,9 +84,9 @@ struct Mel_Font_Desc {
 
 Define `Mel_Font_Desc_Handle` (generational handle into the descriptor pool).
 
-Implement `mel_font_desc_load_ttf(path)` — reads file via VFS, inits stb_truetype, extracts vertical metrics, inserts into descriptor pool, returns handle. Dedup by path hash.
+Implement `mel_font_desc_load_ttf(path, .on_finish = &counter)` — reserves a slot in the descriptor pool (returns handle immediately), dispatches a job that reads file via VFS, inits stb_truetype, extracts vertical metrics, and decrements the counter. Dedup by path hash (if already loaded, returns existing handle and skips the job).
 
-The descriptor pool is a module-static `Mel_SlotMap` + `Mel_HashMap` inside `font.desc.c`, initialized by constructor at priority 290.
+The descriptor pool is a module-static `Mel_SlotMap` + `Mel_HashMap` inside `font.desc.c`, initialized by constructor at priority 290. The constructor also dispatches CPU jobs to pre-load default fonts — these run in parallel with the boot cascade and are ready before `app_init()`.
 
 This step doesn't touch the existing technique code yet. The descriptor module exists alongside the old code.
 
@@ -130,16 +135,25 @@ Move pools from caller-owned to module-static:
 ```c
 // font.sdf.c
 static Mel_Font_SDF_Pool s_pool;
-static bool s_pool_initialized;
+static bool s_gpu_initialized;
 
 __attribute__((constructor(520)))
 static void mel__font_sdf_init(void) {
-    // Reserve pool structure, defer GPU init
+    mel_slotmap_init(&s_pool.slotmap, mel_alloc_heap(),
+        .item_size = sizeof(Mel_Font_SDF_Entry), .initial_capacity = 8);
+    mel_hashmap_init(&s_pool.path_to_handle, ...);
+
+    mel_material_base_register(&(Mel_Material_Base_Desc){
+        .name = S8("text_sdf"),
+        .param_size = sizeof(Mel_Text_SDF_Params),
+        .shader = s_sdf_text_shader,
+        .compat = MEL_COMPAT_FORWARD,
+    });
 }
 
 __attribute__((destructor(520)))
 static void mel__font_sdf_shutdown(void) {
-    if (s_pool_initialized)
+    if (s_gpu_initialized)
         mel_font_sdf_pool_shutdown(&s_pool);
 }
 ```
@@ -154,7 +168,9 @@ Mel_Font_SDF_Handle h = mel_font_sdf_pool_load(&pool, ...);
 Mel_Font_SDF_Handle h = mel_font_sdf_create(desc, .size = 40.0f);
 ```
 
-GPU-dependent initialization happens lazily on first `_create` call (grabs `mel_gpu_dev()`). The pool is internal — the app never sees it unless it needs to extend or inspect font internals (in which case it uses `mel__font_sdf_pool()` double-underscore accessor per MEL-X-003).
+GPU initialization is triggered by the `mel_texture_pool_ready` event from the boot cascade. For default fonts loaded at startup, the technique pool's event listener initializes GPU resources and uploads textures as part of the cascade.
+
+The pool is internal — the app never sees it unless it needs to extend or inspect font internals (in which case it uses `mel__font_sdf_pool()` double-underscore accessor per MEL-X-003).
 
 ### Step 6: Size normalization
 
@@ -168,22 +184,22 @@ Each technique entry stores `bake_size` (the size used during rasterization). Th
 // Before:
 mel_text_draw_font_sdf(&pool, handle, &list, text, .scale = 0.70f, .style = style);
 
-// After:
-mel_text_draw_sdf(handle, &list, text, .size = 28.0f, .style = style);
+// After (ECS component):
+ecs_set(world, entity, Mel_Text_SDF, { .font = handle, .text = text, .size = 28.0f });
 ```
 
 The pool pointer disappears from the draw API (it reads from the module-static pool internally). The caller thinks in target units, not scale factors.
 
-### Step 7: Material integration
+### Step 7: Material Base registration
 
-Files: `melody/text.pass.h`, `melody/text.pass.c`, `melody/text.draw.c`
+Files: `melody/font.atlas.c`, `melody/font.sdf.c`, `melody/font.msdf.c`
 
-- Register "text" material family in a constructor (priority ~520)
-- Register atlas/sdf/msdf material backends
-- Add `Mel_Material_Instance_Handle material` field to `Mel_Text_Draw_Opt`
-- Add `u32 material_index` to `Mel_Text_Entry`
-- Update text pass shader to read from material table when `material_index > 0`
-- Default text material templates registered at init (atlas_default, sdf_default, msdf_default)
+- Register Material Bases in constructors (priority 520):
+  `text_atlas`, `text_sdf`, `text_msdf` — each with its own `param_size` and shader
+- Material params (edge, softness, outline, px_range, colors) are stored in the
+  Manager's material storage buffer, indexed by `Mel_Render_Info.material_idx`
+- The Pipeline reads material params from the storage buffer during `draw`
+- No families, no templates, no backends — just flat Material Base registrations
 
 ### Step 8: Async creation
 
@@ -201,19 +217,27 @@ Handle is returned immediately (slot reserved). Data becomes valid after counter
 Update `examples/example.text.techniques.c` and any demos using fonts to use the new API:
 
 ```c
-// Init:
 Mel_Font_Desc_Handle desc = mel_font_desc_load_ttf(S8("assets/fonts/monaco.ttf"));
 Mel_Font_Atlas_Handle atlas = mel_font_atlas_create(desc, .size = 28.0f);
 Mel_Font_SDF_Handle sdf = mel_font_sdf_create(desc, .size = 40.0f, .px_range = 8.0f);
 Mel_Font_MSDF_Handle msdf = mel_font_msdf_create(desc, .size = 128.0f, .px_range = 12.0f);
 
-// Draw:
-mel_text_draw_atlas(atlas, &list, S8("Bitmap Atlas"), .x = 10, .y = 10, .size = 28.0f);
-mel_text_draw_sdf(sdf, &list, S8("Signed Distance Field"), .x = 10, .y = 50, .size = 28.0f);
-mel_text_draw_msdf(msdf, &list, S8("Multi-Channel SDF"), .x = 10, .y = 90, .size = 28.0f);
+ecs_entity_t e1 = ecs_new(world);
+ecs_set(world, e1, Mel_Transform_2D, { .pos = { 10, 10 } });
+ecs_set(world, e1, Mel_Text_Atlas, { .font = atlas, .text = S8("Bitmap Atlas"), .size = 28.0f });
+
+ecs_entity_t e2 = ecs_new(world);
+ecs_set(world, e2, Mel_Transform_2D, { .pos = { 10, 50 } });
+ecs_set(world, e2, Mel_Text_SDF, { .font = sdf, .text = S8("Signed Distance Field"), .size = 28.0f });
+
+ecs_entity_t e3 = ecs_new(world);
+ecs_set(world, e3, Mel_Transform_2D, { .pos = { 10, 90 } });
+ecs_set(world, e3, Mel_Text_MSDF, { .font = msdf, .text = S8("Multi-Channel SDF"), .size = 28.0f });
 ```
 
-No pools, no scale factors, no manual init. The example gets radically simpler.
+No pools, no scale factors, no manual init, no per-frame draw calls.
+Text entities go through the Source → Manager → Pipeline path
+automatically. The example gets radically simpler.
 
 ---
 
@@ -278,9 +302,37 @@ Each technique pool is a static inside its own module (`font.atlas.c`, `font.sdf
 
 ## Async Loading
 
-All loading is async. Both descriptor loading and technique handle creation dispatch jobs.
+All loading is async. Both descriptor loading and technique handle creation dispatch jobs to worker fibers. The engine exploits this for free multi-threaded startup.
 
-### Descriptor loading
+### Startup Path (engine-managed, automatic)
+
+Default fonts are loaded at startup without any user code. The `font.desc`
+constructor (priority 290) dispatches CPU jobs that run on worker fibers:
+
+```c
+__attribute__((constructor(290)))
+static void mel__font_desc_init(void) {
+    mel_slotmap_init(&s_desc_pool, ...);
+    mel_job_run(nullptr, mel__load_default_font, nullptr);
+}
+
+static void mel__load_default_font(void* data) {
+    u8* ttf_data = mel_vfs_read_file(S8("assets/fonts/default.ttf"), &size, alloc);
+    stbtt_InitFont(&info, ttf_data, 0);
+}
+```
+
+This job runs in parallel with the boot cascade. By the time the boot
+job fires `mel_gpu_device_ready` and the cascade reaches `mel_texture_pool_ready`,
+the font file is already parsed and sitting in the descriptor pool. The
+font technique listener initializes GPU resources and uploads textures as
+part of the cascade. `app_init()` runs with fonts fully loaded.
+
+If the app loads 10 fonts at startup, all 10 file reads and parses happen in parallel. Startup time = the slowest single font, not the sum.
+
+### Runtime Path (user-managed, explicit)
+
+For fonts loaded after startup (user-triggered, level change, etc.), the caller provides their own counter:
 
 ```c
 Mel_Counter done = MEL_COUNTER_INIT;
@@ -332,11 +384,13 @@ Mel_Counter sdf_done = MEL_COUNTER_INIT;
 Mel_Font_SDF_Handle sdf = mel_font_sdf_create(desc, .size = 40.0f, .on_finish = &sdf_done);
 ```
 
-Or the whole sequence can be wrapped in a single job that loads a descriptor and creates multiple technique handles from it.
+Or the whole sequence can be wrapped in a single job that loads a descriptor and creates multiple technique handles from it. The startup path does exactly this — one job per font that handles desc load → technique creation → GPU upload as a single chain.
 
 ### Drawing before ready
 
 If a technique handle is used for drawing before its counter fires, the draw call is a no-op (the entry has no glyph data yet). No crash, no assert — just no text until the font is ready. This allows fire-and-forget loading where text appears as soon as the font finishes loading.
+
+For startup fonts this never happens — the boot cascade guarantees they're ready before `app_init()`. For runtime-loaded fonts, the no-op behavior provides a graceful loading experience (text pops in when the font is ready).
 
 ---
 
@@ -345,12 +399,12 @@ If a technique handle is used for drawing before its counter fires, the draw cal
 The caller should never compute scale factors. Draw calls take a target `.size`, and the engine computes the ratio internally.
 
 ```c
-mel_text_draw_sdf(sdf, &list, S8("Hello"), .x = 10, .y = 10, .size = 28.0f);
+ecs_set(world, label, Mel_Text_SDF, { .font = sdf, .text = S8("Hello"), .size = 28.0f });
 ```
 
-The SDF was baked at 40px. The engine computes `28 / 40 = 0.70` and applies it. The caller just says "28 units tall."
+The SDF was baked at 40px. The Source's sync computes `28 / 40 = 0.70` and applies it when writing glyph data. The caller just says "28 units tall."
 
-The `.size` value is unitless from the font system's perspective. It means "this many units in whatever coordinate space the render list lives in." If the render list feeds a screen-space HUD camera, `.size = 28` means 28 pixels. If it feeds a world-space camera, `.size = 28` means 28 world units. The font system does not care — it produces quads at the requested size, and the projection matrix determines what that means on screen.
+The `.size` value is unitless from the font system's perspective. It means "this many units in whatever coordinate space the View's camera operates in." If the View has a screen-space HUD camera, `.size = 28` means 28 pixels. If it has a world-space camera, `.size = 28` means 28 world units. The font system does not care — it produces glyph data at the requested size, and the projection matrix determines what that means on screen.
 
 For atlas fonts, `.size` still works but the result looks best when it matches the bake size. Drawing an atlas font at a different size produces pixel artifacts — which is intentional and demonstrable.
 
@@ -378,7 +432,7 @@ Text rendering is a pipeline of discrete stages. The current implementation coll
 
 5. **Effect**: Per-glyph transform and color modification. Wave, shake, typewriter reveal, fade-in, rainbow. Applied as post-layout modifiers before rendering. *Today*: skipped — no per-glyph modification.
 
-6. **Render**: Positioned glyphs → `Mel_Text_Entry` quads in a render list. This is what the current implementation does.
+6. **Render**: Positioned glyphs → glyph buffer entries in the Manager. The Source's `sync` writes glyph data, the Pipeline's `draw` generates quads on the GPU.
 
 ### Intermediate Representation: Positioned Glyph Buffer
 
@@ -419,16 +473,19 @@ Each glyph knows its position in text-local space, its rotation (for curved text
 
 ### Shortcut Path
 
-The simple draw functions (`mel_text_draw_sdf(...)`) collapse stages 1-6 into one call. Internally they produce a single run, do 1:1 glyph mapping, simple left-to-right layout, no effects, and immediately push quads. This is the fast path for common cases.
+The ECS component (`Mel_Text_SDF`) collapses stages 1-6 internally.
+The Source's `sync` produces a single run, does 1:1 glyph mapping,
+simple left-to-right layout, no effects, and writes glyph data into
+the Manager. This is the fast path for common cases.
 
-The pipeline stages are exposed when you need them:
+The pipeline stages are exposed when you need explicit control:
 
 ```c
 Mel_Text_Layout_Result layout = mel_text_layout(sdf, S8("Hello World"),
     .size = 28.0f, .max_width = 200.0f, .align = MEL_TEXT_ALIGN_CENTER);
 
-mel_text_render_layout(sdf, &list, &layout,
-    .x = 10, .y = 10, .material = my_material);
+mel_text_source_add_layout(source, sdf, &layout,
+    .x = 10, .y = 10, .style = style);
 
 mel_text_layout_free(&layout);
 ```
@@ -438,36 +495,35 @@ Or with effects:
 ```c
 Mel_Text_Layout_Result layout = mel_text_layout(sdf, text, .size = 28.0f);
 mel_text_effect_wave(&layout, .amplitude = 3.0f, .frequency = 2.0f, .time = t);
-mel_text_render_layout(sdf, &list, &layout, .x = 10, .y = 10, .style = style);
+mel_text_source_add_layout(source, sdf, &layout, .x = 10, .y = 10, .style = style);
 mel_text_layout_free(&layout);
 ```
 
-The layout result is a plain data buffer. Effects mutate it in place. Rendering consumes it. Each stage is independently replaceable.
+The layout result is a plain data buffer. Effects mutate it in place.
+`_add_layout` writes the final glyph data into the Manager. Each stage
+is independently replaceable.
 
 ---
 
 ## Drawing
 
-### Immediate path: render list
+Text objects live in the Render Manager like everything else. The Source's
+`sync` function creates Manager handles, writes transforms and material
+params, and populates a glyph buffer. The Pipeline's `draw` reads the
+glyph buffer and generates quads on the GPU.
 
-```c
-mel_text_draw_atlas(atlas, &list, S8("Hello"), .x = 10, .y = 10, .size = 28.0f, .style = style);
-mel_text_draw_sdf(sdf, &list, S8("Hello"), .x = 10, .y = 10, .size = 28.0f, .style = style);
-mel_text_draw_msdf(msdf, &list, S8("Hello"), .x = 10, .y = 10, .size = 28.0f, .style = style);
+### One handle per text label
 
-mel_text_draw_sdf(sdf, &list, S8("Hello"), .x = 10, .y = 10, .size = 28.0f, .material = my_material);
-```
+A text label "Hello World" is one Manager object, not one object per glyph:
 
-These push `Mel_Text_Entry` quads into a render list. The text pass consumes them. Either `.style` or `.material` provides appearance — see Material System Integration.
+- **Transform**: position of the text block origin
+- **Bounds**: bounding box of the entire text block (for culling)
+- **Info**: `material_base_id` = text technique, `material_idx` = appearance
+  params, `mesh_idx` = glyph buffer range (start + count)
 
-### Immediate path: draw context
-
-```c
-mel_draw_text_atlas(draw, atlas, S8("Hello"), .pos = mel_vec2(10, 10), .size = 28.0f, .style = style);
-mel_draw_text_sdf(draw, sdf, S8("Hello"), .pos = mel_vec2(10, 10), .size = 28.0f, .style = style);
-```
-
-These go through `Mel_Draw` (render.draw), the retained draw context that manages its own vertex buffers. Same as `mel_draw_rect`, `mel_draw_line`, etc. For users who just want to put text on screen without thinking about render lists.
+The per-glyph data (character UVs, positions relative to label origin)
+lives in a glyph storage buffer. The Manager stores where each label's
+glyphs are in that buffer.
 
 ### ECS path (retained, automatic)
 
@@ -478,19 +534,61 @@ ecs_set(world, label, Mel_Text_SDF, {
     .font = sdf,
     .text = S8("Hello World"),
     .size = 28.0f,
-    .material = my_text_material,
+    .style = mel_text_style(mel_vec4(1, 1, 1, 1)),
 });
 ```
 
-Render sync (ECS observers) picks up text components and pushes entries into render lists automatically. Same pattern as sprites. Three component types: `Mel_Text_Atlas`, `Mel_Text_SDF`, `Mel_Text_MSDF`.
+The ECS Source's `sync` function detects this entity (via flecs observers
+or change detection), runs text pipeline stages 1-5 (layout the glyphs),
+allocates a Manager handle, writes transform/bounds/info/material params,
+and writes glyph data into the glyph buffer.
 
-The ECS path uses material instances for appearance (consistent with sprites/meshes). For quick prototyping without creating materials, a `.style` field is also accepted — the observer creates a transient material record internally.
+On subsequent frames, if nothing changed on this entity, delta-sync
+skips it entirely. If the text changes, sync re-layouts and re-uploads
+only this label's glyph range.
 
-All three paths feed the same `Mel_Text_Entry` into the same text pass. They differ only in how entries get into the render list.
+### Manual Source path (programmatic)
 
-### Integration with Render Stage 2D
+For non-ECS users, a manual Source provides the same functionality:
 
-Text lists attach to `Mel_Render_Stage_2D` layers (world or HUD) as they do today. The text pass executes as part of the render graph. No changes needed at the pass/graph level — the integration happens at the "what feeds the lists" level.
+```c
+Mel_Text_Object text_obj = mel_text_source_add(text_source, sdf,
+    S8("Score: 1000"),
+    .x = 10, .y = 10, .size = 28.0f,
+    .style = mel_text_style(mel_vec4(1, 1, 1, 1)),
+);
+
+mel_text_source_update(text_source, text_obj, S8("Score: 1500"));
+mel_text_source_remove(text_source, text_obj);
+```
+
+Under the hood, `_add` allocates a Manager handle, `_update` marks
+it dirty (delta-sync re-uploads), `_remove` frees the handle.
+
+### Transient text (debug overlay, frame counter)
+
+For text that genuinely changes every frame, a transient Source
+auto-frees all handles at the end of each frame:
+
+```c
+mel_text_transient_push(transient_source, sdf,
+    S8("FPS: 60"), .x = 10, .y = 10, .size = 14.0f);
+```
+
+This allocates a handle, writes glyph data, and the Source's sync
+clears everything at the start of the next frame. Simple, but
+re-uploads every frame (acceptable for debug text, not ideal for
+production UI).
+
+### Why not render lists?
+
+The old architecture pushed `Mel_Text_Entry` quads into render lists
+every frame. This re-uploads ALL text every frame even if nothing
+changed. The Manager approach uploads only what changed (delta-sync).
+For a UI with 100 static labels, that's the difference between
+uploading 100 labels per frame vs uploading zero.
+
+Render lists are gone. Text goes through the Manager via Sources.
 
 ---
 
@@ -530,14 +628,21 @@ The existing `Mel_Font_Descriptor` struct gets absorbed into each technique entr
 
 ## Module Lifecycle
 
-Each font module uses constructor/destructor priorities for init/shutdown:
+See `design/engine.boot.md` for the full boot system architecture.
 
-- `font.desc.c` — after allocators and VFS
-- `font.atlas.c` — after font.desc and GPU device
-- `font.sdf.c` — same
-- `font.msdf.c` — same
+Each font module uses constructors for data structure init + event
+subscriptions. GPU work is triggered by boot cascade events.
 
-Technique modules need the GPU device to be available at init time (for texture/pipeline creation). If the GPU isn't ready at constructor time, the pools initialize lazily on first use.
+- `font.desc.c` (priority 290) — after VFS. Inits descriptor pool,
+  dispatches CPU jobs to parse default fonts.
+- `font.atlas.c` (priority 301) — subscribes to `mel_texture_pool_ready`.
+  GPU init triggered by event listener.
+- `font.sdf.c` (priority 301) — same pattern.
+- `font.msdf.c` (priority 301) — same pattern.
+
+Shutdown is event-driven: each module subscribes to `mel_shutdown_begin`
+and cleans up GPU resources in its listener. Destructors handle data
+structure cleanup.
 
 ---
 
@@ -546,9 +651,9 @@ Technique modules need the GPU device to be available at init time (for texture/
 1. Create `font.X.h` / `font.X.c`
 2. Define `Mel_Font_X_Handle`, entry struct with glyphs + GPU data
 3. Implement `mel_font_X_create(desc, ...)` with `_opt` pattern
-4. Implement `mel_text_draw_X(handle, list, text, ...)` with `_opt` pattern
+4. Register a Material Base (`text_X`) in the constructor
 5. Pool is a static in `font.X.c`, initialized by constructor
-6. Optionally: add `Mel_Text_X` ECS component + observer for retained path
+6. Add `Mel_Text_X` ECS component — the ECS Source's `sync` handles it
 
 Nothing else changes. No central registry, no type dispatch.
 
@@ -556,155 +661,89 @@ Nothing else changes. No central registry, no type dispatch.
 
 ## Material System Integration
 
-Text appearance currently lives in a bespoke `Mel_Text_Style` struct, completely outside the engine's material system. This section defines how font rendering integrates with `render.material` and `render.technique`.
+Text appearance integrates with the rendering architecture's Material Base
+system (see `design/engine.render.architecture.md`).
 
-### Text Material Family
+### Material Bases for Text
 
-A "text" material family is registered at engine init:
-
-```c
-Mel_Material_Family_Handle text_family = mel_material_family_register(&(Mel_Material_Family_Desc){
-    .name = S8("text"),
-});
-```
-
-This is the umbrella under which all text appearance lives. Same pattern as meshes having a "pbr" family or "unlit" family.
-
-### Material Templates and Instances
-
-A text material template defines appearance defaults. The text-specific parameters map to `Mel_Material_Gpu_Record`:
-
-- `base_color` → text color
-- `emissive_color` → outline color
-- `params0` → `(edge, softness, outline, px_range)`
-- `params1` → `(shadow_offset_x, shadow_offset_y, shadow_softness, glow_radius)` — reserved for SDF effects
+Each font technique registers a Material Base at startup:
 
 ```c
-Mel_Material_Template_Handle sdf_text = mel_material_template_create(&(Mel_Material_Template_Desc){
-    .name = S8("sdf_default"),
-    .family = text_family,
-    .profile = S8("sdf"),
-    .render_domain = MEL_MATERIAL_DOMAIN_TRANSPARENT,
-    .base_color = mel_vec4(1, 1, 1, 1),
-    .params = (Mel_Material_Param_Desc[]){
-        { .name = S8("edge"),     .type = MEL_MATERIAL_PARAM_F32, .f32_value = 0.5f },
-        { .name = S8("softness"), .type = MEL_MATERIAL_PARAM_F32, .f32_value = 0.08f },
-        { .name = S8("outline"),  .type = MEL_MATERIAL_PARAM_F32, .f32_value = 0.0f },
-        { .name = S8("px_range"), .type = MEL_MATERIAL_PARAM_F32, .f32_value = 4.0f },
-    },
-    .param_count = 4,
-});
-```
-
-Instances override specific values (e.g. red text with outline):
-
-```c
-Mel_Material_Instance_Handle red_outline = mel_material_instance_create(sdf_text,
-    .override_base_color = true,
-    .base_color = mel_vec4(1, 0, 0, 1),
-    .overrides = (Mel_Material_Param_Desc[]){
-        { .name = S8("outline"), .type = MEL_MATERIAL_PARAM_F32, .f32_value = 0.15f },
-    },
-    .override_count = 1,
-);
-```
-
-### Material Backends Per Technique
-
-Each font rendering technique registers as a material backend for the "text" family. This lets the frame plan compiler resolve which text rendering technique to use for a given view+source combination.
-
-```c
-mel_material_backend_register(&(Mel_Material_Backend_Desc){
+mel_material_base_register(&(Mel_Material_Base_Desc){
     .name = S8("text_sdf"),
-    .family = text_family,
-    .profile = S8("sdf"),
-    .technique_family = MEL_TECHNIQUE_TEXT,
-    .technique_name = S8("sdf"),
-    .priority = 10,
-    .supports = mel__text_sdf_backend_supports,
-    .matches = mel__text_sdf_backend_matches,
+    .param_size = sizeof(Mel_Text_SDF_Params),
+    .shader = s_sdf_text_shader,
+    .compat = MEL_COMPAT_FORWARD,
 });
 ```
 
-Atlas, SDF, and MSDF each register their own backend. The `supports` callback checks whether the source has a compatible font handle. The `matches` callback checks profile alignment between the material template and the backend.
+Atlas, SDF, and MSDF each register their own Material Base. The
+`param_size` determines how much space each object's material params
+occupy in the Manager's material storage buffer.
 
-### Dual API: Style Convenience + Material Integration
+### Material Params
 
-The immediate draw path supports both approaches:
-
-**Style (convenience, simple cases):**
-
-```c
-Mel_Text_Style style = mel_text_style(mel_vec4(1, 1, 1, 1));
-mel_text_draw_sdf(sdf, &list, S8("Hello"), .x = 10, .y = 10, .size = 28.0f, .style = style);
-```
-
-`Mel_Text_Style` stays as a lightweight struct for quick text rendering. Under the hood, the draw function packs it into a `Mel_Text_Entry` the same way it does today. No material system overhead for simple cases.
-
-**Material (full integration, themed/data-driven):**
+Text material params are a flat struct stored in the Manager's
+material storage buffer, indexed by `Mel_Render_Info.material_idx`:
 
 ```c
-mel_text_draw_sdf(sdf, &list, S8("Hello"), .x = 10, .y = 10, .size = 28.0f, .material = red_outline);
-```
-
-When `.material` is set, the draw function reads appearance from the material instance instead of `.style`. The material system handles parameter inheritance (template defaults + instance overrides) and GPU upload (material table).
-
-If both `.style` and `.material` are set, `.material` wins. The style fields are ignored.
-
-### ECS Path Uses Materials
-
-The ECS path uses material instances, consistent with how sprites and meshes work:
-
-```c
-ecs_entity_t label = ecs_new(world);
-ecs_set(world, label, Mel_Transform_2D, { .pos = { 100, 50 } });
-ecs_set(world, label, Mel_Text_SDF, {
-    .font = sdf,
-    .text = S8("Hello World"),
-    .size = 28.0f,
-    .material = my_text_material,
-});
-```
-
-Render sync observers read the material instance, pack the GPU record, and push it into the material table alongside the text entry. The text pass reads material data from the material table buffer, same as the mesh pass reads mesh materials.
-
-This means text in the ECS world benefits from the same material infrastructure as everything else: hot-reloadable parameters, inspector editing, material inheritance.
-
-### Text Pass Changes
-
-The text pass gains awareness of the material table. During execution:
-
-1. If a `Mel_Text_Entry` carries a material table index, read appearance from the material table GPU buffer
-2. If it carries inline style data (the convenience path), use that directly
-3. The shader already has the fields it needs (color, outline_color, edge, softness, outline, px_range) — the change is where those values come from, not what they are
-
-The `Mel_Text_Entry` struct adds an optional material table index:
-
-```c
-struct Mel_Text_Entry {
-    Mel_Vec2 pos;
-    Mel_Vec2 size;
-    Mel_Rect uv;
+typedef struct Mel_Text_SDF_Params {
     Mel_Vec4 color;
     Mel_Vec4 outline_color;
-    Mel_Gpu_Texture* texture;
     f32 edge;
     f32 softness;
     f32 outline;
     f32 px_range;
-    u32 mode;
-    u32 material_index;     // 0 = use inline fields, >0 = index into material table
-};
+    f32 shadow_offset_x;
+    f32 shadow_offset_y;
+    f32 shadow_softness;
+    f32 glow_radius;
+} Mel_Text_SDF_Params;
 ```
+
+The Pipeline's `draw` function reads these from the storage buffer.
+The shader accesses them via `materials[info.material_idx]`.
+
+### Creating Text Objects with Materials
+
+The Source's `sync` function writes material params into the Manager:
+
+```c
+Mel_Render_Handle h = mel_mgr_alloc(mgr);
+mel_mgr_set_transform(mgr, h, transform);
+mel_mgr_set_bounds(mgr, h, bounds);
+mel_mgr_set_info(mgr, h, (Mel_Render_Info){
+    .material_base_id = s_text_sdf_base_id,
+    .material_idx = mat_slot,
+    .mesh_idx = glyph_range_idx,
+    .layer_mask = MEL_LAYER_DEFAULT,
+});
+```
+
+The material params at `mat_slot` contain the SDF appearance
+(color, edge, softness, outline, etc.). Changing appearance is
+a `mel_mgr_set_info` call — delta-sync uploads only what changed.
+
+### Convenience: Mel_Text_Style
+
+For simple cases, `Mel_Text_Style` remains as a lightweight struct
+that the Source translates into material params internally:
+
+```c
+Mel_Text_Style style = mel_text_style(mel_vec4(1, 1, 1, 1));
+```
+
+Under the hood, the Source packs this into `Mel_Text_SDF_Params`
+with default edge/softness/outline values and writes it to the
+Manager's material storage. No manual material setup required.
 
 ### What This Buys
 
-- Text appearance flows through the same material system as sprites, meshes, and everything else
-- Material parameter hot-reload affects text
-- Material inspector in the editor can tweak text appearance
-- Material inheritance lets you define a "UI text" template and override just the color per-label
-- The frame plan compiler can reason about text materials the same way it reasons about mesh materials
-- Simple cases (`mel_text_style(white)`) pay zero material overhead — the dual API ensures this
+- Text appearance lives in the same GPU storage buffers as mesh/sprite materials
+- Delta-sync: static text with unchanged appearance costs zero upload
+- The Pipeline reads text materials the same way it reads mesh materials
+- Material params are inspector-editable (same storage, same access pattern)
+- Simple path (`mel_text_style(white)`) pays no extra complexity — the Source handles the translation
 
 ---
 
@@ -718,7 +757,7 @@ struct Mel_Text_Entry {
 
 **MSDF library quality**: The vendored msdf-c (exezin/msdf-c) has known issues: "glyph alignment seems off", "error correction appears to be wrong (pixel clash)". Error correction is already disabled in our vendored copy. For now, it works well enough after fixing the scale mismatch. Long-term options: fix the library, write our own MSDF generator, or integrate msdfgen (C++, heavier but battle-tested). Not blocking for vNext.
 
-**Texture format**: Add a `.format` field to `Mel_Gpu_Texture_Opt` (defaulting to `VK_FORMAT_R8G8B8A8_SRGB` for backwards compat). SDF/MSDF pass `VK_FORMAT_R8G8B8A8_UNORM`. This eliminates the manual staging buffer + image init + sampler creation dance in the font modules.
+**Texture format**: Add a `.format` field to `Mel_Gpu_Texture_Opt` (defaulting to `MEL_FORMAT_RGBA8_SRGB` for backwards compat). SDF/MSDF pass `MEL_FORMAT_RGBA8_UNORM`. This eliminates the manual staging buffer + image init + sampler creation dance in the font modules.
 
 ---
 
@@ -739,7 +778,7 @@ Mel_Font_Stack_Handle stack = mel_font_stack_create(
 
 The stack handle is usable anywhere a single technique handle is accepted. Draw and measure functions iterate the chain internally — the caller doesn't know or care that multiple fonts are involved.
 
-**Architectural constraint**: all fonts in a stack must be the same technique (all SDF, all MSDF, etc.). Mixing techniques in a single stack would require per-glyph mode switching in the render list, which the text pass already supports (each `Mel_Text_Entry` has a `mode` field). If cross-technique stacks become necessary, the entry's mode and texture would vary per glyph — technically possible but adds complexity to the resolve stage.
+**Architectural constraint**: all fonts in a stack must be the same technique (all SDF, all MSDF, etc.). Mixing techniques in a single stack would require per-glyph mode switching in the glyph buffer (each glyph entry carries a `mode` field). If cross-technique stacks become necessary, the mode and texture would vary per glyph — technically possible but adds complexity to the resolve stage.
 
 **Glyph presence query**: technique entries need a `mel_font_X_has_glyph(handle, codepoint)` function. This is a simple bounds check against the baked codepoint range, or a lookup into the glyph array. Fast enough to call per-codepoint during resolve.
 
@@ -785,9 +824,12 @@ Rich text allows mixed fonts, sizes, colors, and materials within a single text 
 ### Markup
 
 ```c
-mel_text_draw_rich(sdf, &list,
-    S8("[color=#ff0000]Critical:[/color] HP is low!"),
-    .x = 10, .y = 10, .size = 28.0f, .material = base_material);
+ecs_set(world, label, Mel_Text_Rich_SDF, {
+    .font = sdf,
+    .text = S8("[color=#ff0000]Critical:[/color] HP is low!"),
+    .size = 28.0f,
+    .style = mel_text_style(mel_vec4(1, 1, 1, 1)),
+});
 ```
 
 The parser produces runs from markup tags. Each run inherits from the base material unless overridden by a tag. Supported tags (extensible):
@@ -806,7 +848,7 @@ typedef struct {
     u32 start;
     u32 end;
     Mel_Font_Handle font;
-    Mel_Material_Instance_Handle material;
+    u32 material_idx;
     f32 size;
     u32 effect_flags;
 } Mel_Text_Run;
@@ -820,10 +862,10 @@ Markup isn't the only way to create runs. For full control:
 
 ```c
 Mel_Text_Run runs[] = {
-    { .start = 0, .end = 9,  .font = bold_sdf, .material = red_mat, .size = 32.0f },
-    { .start = 9, .end = 20, .font = sdf,      .material = white_mat, .size = 28.0f },
+    { .start = 0, .end = 9,  .font = bold_sdf, .material_idx = red_idx, .size = 32.0f },
+    { .start = 9, .end = 20, .font = sdf,      .material_idx = white_idx, .size = 28.0f },
 };
-mel_text_draw_runs(runs, 2, &list, S8("Critical: HP is low!"),
+mel_text_source_add_runs(source, runs, 2, S8("Critical: HP is low!"),
     .x = 10, .y = 10);
 ```
 
@@ -1010,7 +1052,7 @@ mel_text_effect_path(&layout,
     .path_type = MEL_TEXT_PATH_QUADRATIC_BEZIER,
 );
 
-mel_text_render_layout(sdf, &list, &layout, .x = 0, .y = 0, .style = style);
+mel_text_source_add_layout(source, sdf, &layout, .x = 0, .y = 0, .style = style);
 ```
 
 ### Per-Glyph Positioning
@@ -1042,7 +1084,7 @@ This is a new technique at Level 2: `font.subpixel.c`. The descriptor is unchang
 
 ### Rasterization
 
-The atlas stores each glyph at 3x width. Each color channel (R, G, B) contains the coverage for the corresponding LCD subpixel. The texture format is `VK_FORMAT_R8G8B8A8_UNORM` (same as SDF/MSDF — NOT sRGB, since the values are coverage, not color).
+The atlas stores each glyph at 3x width. Each color channel (R, G, B) contains the coverage for the corresponding LCD subpixel. The texture format is `MEL_FORMAT_RGBA8_UNORM` (same as SDF/MSDF — NOT sRGB, since the values are coverage, not color).
 
 ```c
 Mel_Font_Subpixel_Handle sub = mel_font_subpixel_create(desc,
@@ -1125,7 +1167,7 @@ Mel_Font_Pixel_Handle pixel = mel_font_pixel_create(desc, .size = 8.0f);
 
 - Size normalization is integer-only. If `.size = 8` and bake size is 8, scale is 1.0. If `.size = 16`, scale is 2 (integer doubling — nearest-neighbor upscale). Non-integer scales are rounded to the nearest integer multiplier.
 - Glyph positions are snapped to integer coordinates before quad generation.
-- Atlas texture uses `VK_FILTER_NEAREST` (point sampling), not `VK_FILTER_LINEAR`.
+- Atlas texture uses nearest-neighbor (point sampling), not linear filtering.
 - The sampler is technique-specific — different from SDF/MSDF which require linear filtering.
 
 ### Material
@@ -1158,9 +1200,9 @@ ecs_set(world, label, Mel_Text_SDF_3D, {
 });
 ```
 
-The render sync observer projects the world-space position through the camera and feeds the text into the text pass. The text pass is unmodified — it receives 2D quads as always.
+The Source's `sync` writes the entity's world-space transform into the Manager. The Pipeline projects it through the camera and renders glyph quads as always.
 
-For non-billboard 3D text (e.g. text painted on a wall), the observer transforms the quad vertices by the entity's full 3D transform before pushing to the render list. This requires per-quad vertex transformation in the render stage, not the text pass shader.
+For non-billboard 3D text (e.g. text painted on a wall), the Source writes the entity's full 3D transform into the Manager. The Pipeline applies per-glyph vertex transformation during `draw`.
 
 ### Approach B: Extruded Mesh Text
 
@@ -1175,11 +1217,11 @@ Mel_Font_Mesh_Handle mesh_font = mel_font_mesh_create(desc,
 );
 ```
 
-The technique entry stores triangulated mesh data per glyph (vertices + indices). The draw function produces `Mel_Mesh_Instance` entries, not `Mel_Text_Entry` quads.
+The technique entry stores triangulated mesh data per glyph (vertices + indices). The Source writes mesh geometry into the Manager — these are regular 3D mesh objects, not text glyph buffer entries.
 
 **Glyph outline access**: `stbtt_GetGlyphShape()` returns bezier control points per glyph. The mesh technique triangulates these using ear-clipping or constrained Delaunay triangulation (CDT). Extrusion duplicates the front face, offsets it, and generates side walls. Bevel adds chamfered edges.
 
-**Material**: mesh text uses mesh materials (PBR or unlit), not text materials. It feeds the mesh pass with standard `Mel_Material_Instance_Handle`. The font system's text material family is irrelevant here — this is geometry.
+**Material**: mesh text uses mesh Material Bases (PBR or unlit), not text Material Bases. The Manager objects use a mesh `material_base_id`, not a text one. The font system's text Material Bases are irrelevant here — this is geometry.
 
 ---
 
@@ -1219,7 +1261,7 @@ Mel_Font_Color_Handle emoji = mel_font_color_create(desc,
 
 ### Rendering
 
-Color glyph atlas entries are RGBA (VK_FORMAT_R8G8B8A8_SRGB — actual color, not distance fields). The text entry's `mode` distinguishes color glyphs from SDF/atlas:
+Color glyph atlas entries are RGBA (`MEL_FORMAT_RGBA8_SRGB` — actual color, not distance fields). The glyph entry's `mode` distinguishes color glyphs from SDF/atlas:
 
 ```
 mode == MEL_TEXT_RENDER_COLOR:
@@ -1239,7 +1281,7 @@ Mel_Font_Stack_Handle stack = mel_font_stack_create(
 );
 ```
 
-This is a cross-technique stack (SDF + color). The resolve stage (pipeline stage 3) checks each font in order. When it hits an emoji codepoint, the SDF font doesn't have it, the color font does. The text entry for that glyph gets `mode = MEL_TEXT_RENDER_COLOR` and the color font's texture. Cross-technique stacks are the reason `Mel_Text_Entry` has a per-entry `mode` field — glyphs from different fonts in the same text block can use different rendering modes.
+This is a cross-technique stack (SDF + color). The resolve stage (pipeline stage 3) checks each font in order. When it hits an emoji codepoint, the SDF font doesn't have it, the color font does. The glyph buffer entry for that glyph gets `mode = MEL_TEXT_RENDER_COLOR` and the color font's texture index. Cross-technique stacks are the reason each glyph entry has a `mode` field — glyphs from different fonts in the same text block can use different rendering modes.
 
 ---
 
@@ -1322,7 +1364,7 @@ struct Mel_Font_Atlas_Entry {
 };
 ```
 
-Each glyph's UV data includes a `page_index`. The text entry references a specific page's texture. This adds a texture switch per page boundary, but the render list sort groups entries by texture to minimize switches.
+Each glyph's UV data includes a `page_index`. The glyph buffer entry references a specific page's texture index (via the global texture table for bindless, or a texture slot for non-bindless tiers). The Pipeline sorts draws by texture to minimize switches.
 
 ---
 

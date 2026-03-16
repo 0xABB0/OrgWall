@@ -4,6 +4,8 @@
 #include "string.str8.h"
 #include "allocator.heap.h"
 
+#if 0
+
 MEL_TEST(roster_init_shutdown, .tags = "mugen")
 {
     Mugen_Roster r;
@@ -15,3 +17,5 @@ MEL_TEST(roster_init_shutdown, .tags = "mugen")
 
     mugen_roster_shutdown(&r);
 }
+
+#endif

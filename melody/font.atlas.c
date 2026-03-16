@@ -2,16 +2,46 @@
 #include "render.list.h"
 #include "sprite.pass.h"
 #include "texture.pool.h"
+#include "event.channel.h"
+#include "boot.registry.h"
 #include "string.str8.h"
 #include "hash.xxh.h"
 #include "gpu.buffer.h"
 #include "gpu.submit.h"
 #include "allocator.h"
+#include "allocator.heap.h"
 #include "vfs.h"
 
 #include <SDL3/SDL.h>
 #include <stb_truetype.h>
 #include <string.h>
+
+Mel_Event_Channel mel_font_pool_ready;
+
+static void mel__font_pool_on_texture_pool_ready(void* ctx, const void* event)
+{
+    (void)ctx;
+    (void)event;
+    mel_event_channel_fire(&mel_font_pool_ready, NULL);
+}
+
+static void mel__font_pool_wire(void)
+{
+    mel_event_channel_on(&mel_texture_pool_ready, mel__font_pool_on_texture_pool_ready, NULL);
+}
+
+__attribute__((constructor))
+static void mel__font_pool_register(void)
+{
+    mel_event_channel_init(&mel_font_pool_ready, mel_alloc_heap());
+    mel__boot_register_wire(mel__font_pool_wire);
+}
+
+__attribute__((destructor))
+static void mel__font_pool_unregister(void)
+{
+    mel_event_channel_destroy(&mel_font_pool_ready);
+}
 
 #define MEL_FONT_ATLAS_FIRST_CHAR 32
 #define MEL_FONT_ATLAS_CHAR_COUNT 96

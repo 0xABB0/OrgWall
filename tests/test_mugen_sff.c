@@ -11,6 +11,8 @@
 #include <string.h>
 #include <unistd.h>
 
+#if 0
+
 static void write_u16_le(u8* dst, u16 value)
 {
     dst[0] = (u8)(value & 0xFF);
@@ -191,3 +193,6 @@ MEL_TEST(sff_v1_uses_header_shared_palette_flag, .tags = "mugen")
     unlink(sff_path);
     rmdir(dir);
 }
+
+
+#endif

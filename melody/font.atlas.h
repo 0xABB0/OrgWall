@@ -2,6 +2,7 @@
 
 #include "core.types.h"
 #include "allocator.fwd.h"
+#include "event.channel.fwd.h"
 #include "string.str8.fwd.h"
 #include "font.atlas.fwd.h"
 #include "font.descriptor.h"
@@ -54,3 +55,5 @@ void mel_font_atlas_draw_text_ex(Mel_Font_Atlas_Pool* pool, Mel_Font_Handle hand
 #define mel_font_atlas_draw_text(pool, handle, list, text, x, y, color) \
     mel_font_atlas_draw_text_ex((pool), (handle), (list), (text), (x), (y), (color), 0)
 Mel_Vec2 mel_font_atlas_measure_text(Mel_Font_Atlas_Pool* pool, Mel_Font_Handle handle, str8 text);
+
+extern Mel_Event_Channel mel_font_pool_ready;

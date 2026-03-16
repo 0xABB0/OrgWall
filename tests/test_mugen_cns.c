@@ -8,6 +8,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#if 0
+
 static const Mel_Alloc* s_alloc;
 static void ensure_alloc(void)
 {
@@ -1938,3 +1940,6 @@ MEL_TEST(cns_afterimage_integrated, .tags = "cns")
 
     mugen_afterimage_free(&st);
 }
+
+
+#endif

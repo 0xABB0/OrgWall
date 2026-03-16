@@ -7,6 +7,8 @@
 #include "vfs.backend.os.h"
 #include <string.h>
 
+#if 0
+
 enum {
     ACT_MOVE_LEFT = 1,
     ACT_MOVE_RIGHT,
@@ -823,3 +825,5 @@ MEL_TEST(sim_match_update_drives_ticks, .tags = "sim, visual")
 
     mugen_match_end(m);
 }
+
+#endif

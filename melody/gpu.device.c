@@ -1,9 +1,24 @@
 #define VK_NO_PROTOTYPES
 #include "gpu.device.h"
 #include "gpu.backend.vulkan.h"
+#include "event.channel.h"
 #include "string.str8.h"
 #include "allocator.heap.h"
 #include <string.h>
+
+Mel_Event_Channel mel_gpu_device_ready;
+
+__attribute__((constructor))
+static void mel__gpu_device_register(void)
+{
+    mel_event_channel_init(&mel_gpu_device_ready, mel_alloc_heap());
+}
+
+__attribute__((destructor))
+static void mel__gpu_device_unregister(void)
+{
+    mel_event_channel_destroy(&mel_gpu_device_ready);
+}
 
 static i32 rate_device(VkPhysicalDevice device);
 

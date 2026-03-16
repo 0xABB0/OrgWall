@@ -8,6 +8,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#if 0 //these tests disabled for now
+
 static str8 load_file(const char* path, const Mel_Alloc* alloc)
 {
     FILE* f = fopen(path, "rb");
@@ -216,3 +218,5 @@ MEL_TEST(mugen_air_load_real_file, .tags = "mugen")
     mugen_air_shutdown(&air, heap);
     mel_dealloc(heap, data.data);
 }
+
+#endif

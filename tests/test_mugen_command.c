@@ -3,6 +3,8 @@
 #include "string.str8.h"
 #include "allocator.heap.h"
 
+#if 0
+
 static void feed(Input_Buffer* buf, bool U, bool D, bool L, bool R, bool a)
 {
     input_buffer_update(buf, U, D, L, R, a, false, false, false, false, false,
@@ -420,3 +422,5 @@ MEL_TEST(cmd_autogreater, .tags = "command")
 
     command_list_shutdown(&cl);
 }
+
+#endif

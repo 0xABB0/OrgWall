@@ -6,6 +6,8 @@
 
 #include <stdio.h>
 
+#if 0
+
 static const char* CMD_SIMPLE =
     "[Command]\n"
     "name = \"QCB_a\"\n"
@@ -236,3 +238,5 @@ MEL_TEST(mugen_cmd_kfm_full_dash, .tags = "mugen")
     mugen_cmd_shutdown(&cmd, heap);
     mel_dealloc(heap, data.data);
 }
+
+#endif

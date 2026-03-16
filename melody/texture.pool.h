@@ -2,6 +2,7 @@
 
 #include "core.types.h"
 #include "allocator.fwd.h"
+#include "event.channel.fwd.h"
 #include "string.str8.fwd.h"
 #include "texture.pool.fwd.h"
 #include "gpu.texture.h"
@@ -47,3 +48,5 @@ u32               mel_texture_pool_state(Mel_Texture_Pool* pool, Mel_Texture_Han
 u32               mel_texture_pool_count(Mel_Texture_Pool* pool);
 void              mel_texture_pool_tick(Mel_Texture_Pool* pool);
 Mel_Texture_Handle mel_texture_pool_register(Mel_Texture_Pool* pool, Mel_Gpu_Texture* tex);
+
+extern Mel_Event_Channel mel_texture_pool_ready;

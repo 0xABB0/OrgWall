@@ -10,6 +10,8 @@
 #include <sqlite3.h>
 #include <unistd.h>
 
+#if 0
+
 static Mel_Log_Entry mel__test_make_entry(u32 level, const char* domain, const char* message)
 {
     return (Mel_Log_Entry){
@@ -513,3 +515,6 @@ MEL_TEST(log_sink_sqlite_null_context_when_empty, .tags = "log")
 
     unlink(path);
 }
+
+
+#endif

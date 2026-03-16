@@ -6,10 +6,38 @@
 #include "render.source.h"
 #include "render.material.h"
 #include "render.light.h"
+#include "event.channel.h"
+#include "boot.registry.h"
 #include "allocator.heap.h"
 #include "string.str8.h"
 
 #include <SDL3/SDL.h>
+
+Mel_Event_Channel mel_mesh_pass_ready;
+
+static void mel__mesh_pass_on_gpu_ready(void* ctx, const void* event)
+{
+    (void)ctx;
+    (void)event;
+}
+
+static void mel__mesh_pass_wire(void)
+{
+    mel_event_channel_on(&mel_gpu_device_ready, mel__mesh_pass_on_gpu_ready, NULL);
+}
+
+__attribute__((constructor))
+static void mel__mesh_pass_register(void)
+{
+    mel_event_channel_init(&mel_mesh_pass_ready, mel_alloc_heap());
+    mel__boot_register_wire(mel__mesh_pass_wire);
+}
+
+__attribute__((destructor))
+static void mel__mesh_pass_unregister(void)
+{
+    mel_event_channel_destroy(&mel_mesh_pass_ready);
+}
 
 typedef struct {
     f32 x, y, z;

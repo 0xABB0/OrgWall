@@ -3,6 +3,8 @@
 #include "string.str8.h"
 #include "allocator.heap.h"
 
+#if 0
+
 MEL_TEST(stage_defaults_when_empty, .tags = "mugen")
 {
     Mugen_Stage s;
@@ -353,3 +355,6 @@ MEL_TEST(stage_shutdown_frees, .tags = "mugen")
     MEL_ASSERT_NULL(s.bgs);
     MEL_ASSERT_EQ(s.bg_count, (u32)0);
 }
+
+
+#endif

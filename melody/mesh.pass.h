@@ -2,6 +2,7 @@
 
 #include "mesh.pass.fwd.h"
 #include "core.types.h"
+#include "event.channel.fwd.h"
 #include "math.vec3.h"
 #include "math.vec4.h"
 #include "math.mat4.h"
@@ -227,3 +228,5 @@ typedef struct {
 
 void mel_draw_mesh_opt(Mel_Render_List* list, Mel_Draw_Mesh_Opt opt);
 #define mel_draw_mesh(list, ...) mel_draw_mesh_opt((list), (Mel_Draw_Mesh_Opt){__VA_ARGS__})
+
+extern Mel_Event_Channel mel_mesh_pass_ready;

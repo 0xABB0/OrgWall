@@ -88,6 +88,7 @@ int mel_test_main(int argc, char** argv)
     const char* tag = NULL;
     i32 run_id = -1;
     bool include_visual = false;
+    bool verbose = false;
 
     for (int i = 1; i < argc; i++)
     {
@@ -101,6 +102,8 @@ int mel_test_main(int argc, char** argv)
             run_id = atoi(argv[++i]);
         else if (strcmp(argv[i], "--visual") == 0)
             include_visual = true;
+        else if (strcmp(argv[i], "--verbose") == 0 || strcmp(argv[i], "-v") == 0)
+            verbose = true;
     }
 
     {
@@ -160,7 +163,8 @@ int mel_test_main(int argc, char** argv)
         else
         {
             passed++;
-            printf("  PASS: %s\n", e->name);
+            if (verbose)
+                printf("  PASS: %s\n", e->name);
         }
     }
 

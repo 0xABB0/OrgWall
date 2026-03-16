@@ -2,6 +2,7 @@
 
 #include "sprite.pass.fwd.h"
 #include "core.types.h"
+#include "event.channel.fwd.h"
 #include "math.vec2.h"
 #include "math.vec4.h"
 #include "math.mat4.h"
@@ -119,3 +120,5 @@ typedef struct {
 
 void mel_draw_sprite_opt(Mel_Render_List* list, Mel_Draw_Sprite_Opt opt);
 #define mel_draw_sprite(list, ...) mel_draw_sprite_opt((list), (Mel_Draw_Sprite_Opt){__VA_ARGS__})
+
+extern Mel_Event_Channel mel_sprite_pass_ready;

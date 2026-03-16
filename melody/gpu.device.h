@@ -3,6 +3,7 @@
 #include "core.types.h"
 #include "allocator.h"
 #include "string.str8.fwd.h"
+#include "event.channel.fwd.h"
 
 #include <SDL3/SDL.h>
 
@@ -71,3 +72,5 @@ Mel_Gpu_Capabilities mel_gpu_capabilities(Mel_Gpu_Device* dev);
 VkSurfaceKHR mel_gpu_surface_create(Mel_Gpu_Device* dev, SDL_Window* window);
 void mel_gpu_surface_destroy(Mel_Gpu_Device* dev, VkSurfaceKHR surface);
 bool mel_gpu_device_configure_present(Mel_Gpu_Device* dev, VkSurfaceKHR surface);
+
+extern Mel_Event_Channel mel_gpu_device_ready;

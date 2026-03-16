@@ -273,6 +273,12 @@ Mel_Render_Manager {
 }
 ```
 
+**One handle = one draw call (sub-mesh).** A character model with 3
+materials (head, body, legs) produces 3 handles in the Manager. The
+source is responsible for splitting multi-material objects into
+sub-meshes during sync. This keeps GPU culling and the visibility
+bitfield simple: one bit per handle, one draw per visible handle.
+
 The Manager is NOT rebuilt every frame. Sources delta-sync into it:
 
 ```c
@@ -381,6 +387,27 @@ This means:
   and all view pipelines read from there.
 - Post-process state (TAA history, motion vectors) is per-pipeline-instance
   because it's view-dependent
+- HiZ pyramid (for occlusion culling) is per-pipeline-instance. The
+  two-phase HiZ dance (cull against last frame's HiZ, draw visible,
+  build this frame's HiZ, cull maybes, draw remainder) happens entirely
+  inside the pipeline's `draw` callback. The pipeline maintains its
+  own HiZ texture across frames via the double-buffered instance state.
+
+**Transient scratch pool:** Intermediate targets that only live
+during a single `draw` call (G-buffer textures, temporary resolve
+targets) should be allocated from a global scratch pool, not
+individually per pipeline instance. Views that don't overlap in
+execution can alias the same physical memory. This prevents VRAM
+explosion when many views exist (e.g., 10 editor panels).
+
+The scratch pool uses Vulkan memory aliasing: multiple `VkImage`s
+backed by the same `VkDeviceMemory` at overlapping offsets, valid
+as long as their usage doesn't overlap in time. The pipeline requests
+a transient target at the start of `draw` and releases it at the end.
+
+Persistent state (TAA history, HiZ pyramid, motion vectors) is NOT
+from the scratch pool — it's owned by the pipeline instance and
+survives across frames.
 
 ---
 
@@ -535,6 +562,108 @@ Hardware tessellation is also supported where available (Vulkan, Metal,
 DirectX 12). It's additional shader stages in the traditional pipeline,
 reading displacement data from storage buffers. The Manager doesn't
 care - it's just more data in the buffers.
+
+---
+
+## GPU Abstraction Boundary
+
+The rendering architecture sits on top of the `gpu.*` module layer.
+Everything above `gpu.*` speaks Melody-native types. Everything inside
+`gpu.*` is backend-specific.
+
+### Two Layers of Extensibility
+
+**GPU backend (compile-time):** Selected at build time via
+`MEL_BACKEND_VULKAN`, `MEL_BACKEND_METAL`, `MEL_BACKEND_WEBGPU`.
+Same public function signatures, different `.c` files linked in.
+Zero runtime overhead — no vtable, no indirection.
+
+The backend is infrastructure, not a user-facing extension point.
+On any given platform, the backend is known: Vulkan on Windows/Linux,
+Metal on macOS/iOS, WebGPU on web. There is no runtime switching.
+
+**Rendering architecture (runtime):** Pipeline types, Source types,
+and Material Bases are registered at runtime via function pointer
+vtables. This is where plugins, mods, and game-specific code extend
+the engine. These call the `gpu.*` public API with Melody-native
+types — they never touch raw Vulkan/Metal/WebGPU types.
+
+### What the Abstraction Wraps
+
+The `gpu.*` public headers must use Melody-native types only:
+
+- `Mel_Gpu_Format` instead of `VkFormat` / `MTLPixelFormat`
+- `Mel_Gpu_Usage` flags instead of `VkBufferUsageFlags` / `MTLResourceOptions`
+- `Mel_Gpu_Stage` instead of `VkPipelineStageFlags2`
+- `Mel_Gpu_Load_Op` / `Mel_Gpu_Store_Op` instead of `VkAttachmentLoadOp`
+- `Mel_Gpu_Index_Type` instead of `VkIndexType`
+- `Mel_Gpu_Cull_Mode`, `Mel_Gpu_Blend_Mode`, `Mel_Gpu_Topology` (already
+  partially abstracted via `#define` constants, need to become proper types)
+
+Backend-specific types (`VkBuffer`, `VkImage`, `VmaAllocation`, etc.)
+move into backend-internal headers (`gpu.buffer.vulkan.h`) that are
+only included by `gpu.*.c` implementation files.
+
+### What the Abstraction Does NOT Wrap
+
+The sync/barrier model changes per backend. Instead of exposing
+raw barriers (Vulkan's explicit model), the abstraction tracks
+**usage intent**:
+
+- `MEL_IMAGE_USAGE_COLOR_TARGET`
+- `MEL_IMAGE_USAGE_DEPTH_TARGET`
+- `MEL_IMAGE_USAGE_SHADER_READ`
+- `MEL_IMAGE_USAGE_STORAGE_WRITE`
+- `MEL_IMAGE_USAGE_TRANSFER_SRC` / `_DST`
+- `MEL_IMAGE_USAGE_PRESENT`
+
+The backend translates intent transitions to its native sync
+mechanism. Vulkan emits pipeline barriers with stage+access masks.
+Metal inserts resource hazard tracking (mostly automatic). WebGPU
+handles it implicitly. The render graph already operates on
+read/write intent — this aligns the gpu.* layer with that model.
+
+### Struct Layout
+
+Public structs become opaque or use a backend pointer:
+
+```c
+typedef struct Mel_Gpu_Buffer {
+    u64    size;
+    void*  mapped;
+    u32    usage;
+    void*  _backend;   // Vulkan: points to VkBuffer + VmaAllocation + state
+} Mel_Gpu_Buffer;
+```
+
+Or fully opaque with accessors:
+
+```c
+typedef struct Mel_Gpu_Buffer Mel_Gpu_Buffer;
+
+u64   mel_gpu_buffer_size(Mel_Gpu_Buffer* buf);
+void* mel_gpu_buffer_mapped(Mel_Gpu_Buffer* buf);
+```
+
+Decision: TBD during implementation. The hybrid approach (common
+fields inline, backend pointer for the rest) avoids accessor overhead
+for hot-path reads while keeping backend details hidden.
+
+### File Structure
+
+```
+gpu.buffer.h              <- public API, Melody types only
+gpu.buffer.c              <- dispatches to backend (or #ifdef's)
+gpu.buffer.vulkan.h       <- Vulkan-specific struct, internal only
+gpu.buffer.vulkan.c       <- Vulkan implementation
+gpu.buffer.metal.h        <- Metal-specific struct, internal only
+gpu.buffer.metal.m        <- Metal implementation
+```
+
+The build system links only one backend's `.c`/`.m` files per platform.
+No runtime dispatch overhead. A plugin compiled against `gpu.buffer.h`
+works on any backend without recompilation (as long as it only uses
+the public Melody-typed API).
 
 ---
 
@@ -854,6 +983,150 @@ typedef struct Mel_Pipeline {
 
 ---
 
+## Module Lifecycle: Boot System Integration
+
+The rendering architecture builds on the engine's event-driven boot
+system (see `design/engine.boot.md`).
+
+### How Rendering Modules Hook Into Boot
+
+Rendering subsystems use constructors for two things:
+1. Initialize their own event channels
+2. Subscribe to dependency events (`mel_gpu_device_ready`, etc.)
+
+No GPU work happens in constructors. GPU-dependent init is triggered
+by events fired from the boot job.
+
+### Event Channels for Rendering
+
+```c
+extern Mel_Event_Channel mel_render_source_ready;
+extern Mel_Event_Channel mel_render_view_ready;
+extern Mel_Event_Channel mel_render_material_ready;
+```
+
+### Constructor Priority Map (Rendering Modules)
+
+```
+ 100  job system               — worker threads
+ 101  logging                  — log system
+ 150  gpu.device               — init channel only (no GPU work)
+ 151  gpu.shader (slang)       — init channel only
+ 200  sprite pass              — init channel + subscribe to gpu_ready
+ 201  text pass                — init channel + subscribe to gpu_ready
+ 202  mesh pass                — init channel + subscribe to gpu_ready
+ 250  async.aio                — dispatch_io / io_uring
+ 280  vfs                      — mount table
+ 290  font.desc                — descriptor pool + dispatch CPU font load jobs
+ 300  texture pool             — init channel + subscribe to 3 pass_ready
+ 301  font.atlas/sdf/msdf pool — init channel + subscribe to texture_pool_ready
+ 500  window                   — window management
+ 501  swapchain                — swapchain pool
+ 510  render.source            — source registry + init channel
+ 511  render.view              — view registry
+ 512  render.material          — Material Base registry
+ 520  render.pipeline          — Pipeline type registry + built-in pipeline registration
+```
+
+### Boot Cascade for Rendering
+
+```
+mel_boot_job (fiber)
+    |
+GPU device + Slang init
+    |
+fire(mel_gpu_device_ready)
+ /       |       \
+sprite  text   mesh pass     << parallel shader compilation >>
+pass    pass
+ |       |       |
+fire(own _ready events)
+ \       |       /
+texture_pool (atomic countdown, last pass triggers init)
+    |
+fire(mel_texture_pool_ready)
+    |
+font technique pools init (subscribe to texture_pool_ready)
+    |
+fire(mel_font_pool_ready)
+    |
+rendering registries init their GPU resources
+    |
+---- all inside job functions, before counter decrement ----
+    |
+shader_counter → 0
+    |
+boot job wakes → SDL_SignalSemaphore → main thread resumes
+    |
+app_init()
+```
+
+CPU-heavy startup work (font parsing, file I/O) dispatches as jobs
+from constructors and runs in parallel with the entire boot cascade.
+By the time the boot job signals completion, both CPU and GPU init
+are done.
+
+### Two-Phase Startup: CPU Then GPU
+
+Constructors dispatch **CPU work** — the GPU device doesn't exist yet.
+GPU work is triggered by `mel_gpu_device_ready` events, which fire
+from the boot job after the device is created.
+
+Modules that need both CPU and GPU init subscribe to the appropriate
+event and dispatch their GPU work from the listener:
+
+```c
+__attribute__((constructor(301)))
+static void mel__font_sdf_register(void) {
+    mel_event_channel_init(&mel_font_sdf_ready, mel_alloc_heap());
+    mel_event_channel_on(&mel_texture_pool_ready, mel__font_sdf_on_pool_ready, nullptr);
+}
+
+static void mel__font_sdf_on_pool_ready(void* ctx, const void* event) {
+    mel_font_sdf_pool_init_gpu(&s_pool, ...);
+    mel_event_channel_fire(&mel_font_sdf_ready, nullptr);
+}
+```
+
+### Module-Static Pool Pattern
+
+Modules that manage a pool of resources use a static pool inside
+the .c file, initialized by constructor:
+
+```c
+static Mel_Font_SDF_Pool s_pool;
+
+__attribute__((constructor(301)))
+static void mel__font_sdf_register(void) {
+    s_pool = (Mel_Font_SDF_Pool){0};
+    mel_slotmap_init(&s_pool.slotmap, ...);
+    mel_hashmap_init(&s_pool.path_to_handle, ...);
+    mel_event_channel_init(&mel_font_sdf_ready, mel_alloc_heap());
+    mel_event_channel_on(&mel_texture_pool_ready, mel__font_sdf_on_pool_ready, nullptr);
+}
+```
+
+The public API hides the pool entirely. Callers don't see it:
+
+```c
+Mel_Font_SDF_Handle mel_font_sdf_create(Mel_Font_Desc_Handle desc, ...);
+```
+
+Internally, `_create` uses the static `s_pool`. The pool is exposed
+for internal/extension use via a double-underscore accessor (MEL-X-003):
+
+```c
+Mel_Font_SDF_Pool* mel__font_sdf_pool(void);
+```
+
+### Shutdown
+
+Reverse cascade via `mel_shutdown_begin` event (see `design/engine.boot.md`).
+Each rendering module subscribes in its constructor and cleans up GPU
+resources in the listener. Destructors handle data structure cleanup.
+
+---
+
 ## Prerequisites
 
 What must exist before implementing this architecture.
@@ -1020,6 +1293,66 @@ gpu.indirect.h / .c
 Requires: gpu.buffer.
 Self-contained.
 
+### 9. Transient Scratch Pool
+
+A GPU memory pool for intermediate render targets that only live
+during a single pipeline `draw` call (G-buffer textures, temporary
+resolve targets, blur intermediates). Uses Vulkan memory aliasing:
+multiple VkImages backed by the same VkDeviceMemory at overlapping
+offsets, valid as long as their usage doesn't overlap in time.
+
+```
+gpu.scratch_pool.h / .c
+```
+
+API:
+```c
+Mel_Gpu_Image mel_scratch_acquire(Mel_Scratch_Pool* pool, Mel_Scratch_Desc desc);
+void mel_scratch_release(Mel_Scratch_Pool* pool, Mel_Gpu_Image img);
+```
+
+Acquire at the start of `draw`, release at the end. Views that
+execute sequentially reuse the same physical memory. Prevents VRAM
+explosion with many views (e.g., 10 editor panels each needing a
+G-buffer).
+
+Requires: gpu.image, allocator (for memory aliasing bookkeeping).
+Self-contained. Tests: acquire, release, verify aliasing, verify
+different-sized requests.
+
+### 10. GPU Type Abstraction Pass
+
+Replace all Vulkan types in `gpu.*` public headers with Melody-native
+equivalents. This is the foundation for multi-backend support.
+
+Phase 1: Define Melody-native type constants (`Mel_Gpu_Format`,
+`Mel_Gpu_Usage`, `Mel_Gpu_Stage`, `Mel_Gpu_Load_Op`, etc.)
+
+Phase 2: Replace all `VkFormat`, `VkBufferUsageFlags`,
+`VkImageUsageFlags`, `VkShaderStageFlags`, `VkIndexType`, etc. in
+public headers with Melody types.
+
+Phase 3: Move `VkBuffer`, `VkImage`, `VmaAllocation`, etc. behind
+backend-internal headers. Public structs get `_backend` pointers
+or become opaque.
+
+Phase 4: Add conversion functions in each backend
+(`mel__gpu_format_to_vk()`, etc.)
+
+```
+gpu.types.h               <- Mel_Gpu_Format, Mel_Gpu_Usage, etc.
+gpu.buffer.vulkan.h       <- VkBuffer, VmaAllocation (internal)
+gpu.image.vulkan.h        <- VkImage, VkImageView (internal)
+```
+
+Requires: nothing. Purely mechanical refactor of existing code.
+Self-contained. Can be done file-by-file without breaking anything
+(each file converted independently, old Vk types replaced with
+Mel types + conversion at the backend boundary).
+
+Currently 22 header files include `<vulkan/vulkan.h>`. Goal: only
+`gpu.*.vulkan.*` files include Vulkan headers.
+
 ### Suggested Order
 
 The foreplay items have these dependencies:
@@ -1032,16 +1365,23 @@ The foreplay items have these dependencies:
                       (no deps) 6. ECS Delta Helpers
                       (no deps) 7. Staging System
                       (no deps) 8. Indirect Draw Helpers
+                      (no deps) 9. Scratch Pool
+                      (no deps) 10. GPU Type Abstraction
 ```
 
-Items 3-8 are fully independent and can be done in any order (or
+Items 3-10 are fully independent and can be done in any order (or
 in parallel). Item 2 must come before item 1. All of these can be
 done before touching any render.* code.
+
+Item 10 is unique: it can be done incrementally alongside other work.
+Each gpu.* file can be converted independently. It does NOT block
+any other foreplay item — the Vulkan backend still works, just with
+Melody types at the API boundary and conversion functions internally.
 
 Once all foreplay is done, the main implementation is:
 1. Mel_Render_Manager (uses items 4, 7, 8)
 2. Mel_Render_Source + ECS source (uses item 6)
-3. Mel_Pipeline + default_2d pipeline (uses items 1, 5)
+3. Mel_Pipeline + default_2d pipeline (uses items 1, 5, 9)
 4. Mel_View + Mel_Target + frame loop
-5. default_3d pipeline (uses items 1, 3, 5)
+5. default_3d pipeline (uses items 1, 3, 5, 9)
 6. Multi-window / independent cadence support

@@ -1,5 +1,9 @@
 #define VK_NO_PROTOTYPES
 #include "gpu.shader.h"
+extern "C" {
+#include "event.channel.h"
+#include "allocator.heap.h"
+}
 #include "string.str8.h"
 #include <slang.h>
 #include <slang-deprecated.h>
@@ -7,6 +11,24 @@
 #include <cstring>
 #include <cstdlib>
 #include <cassert>
+
+extern "C" {
+
+Mel_Event_Channel mel_slang_ready;
+
+__attribute__((constructor))
+static void mel__slang_register(void)
+{
+    mel_event_channel_init(&mel_slang_ready, mel_alloc_heap());
+}
+
+__attribute__((destructor))
+static void mel__slang_unregister(void)
+{
+    mel_event_channel_destroy(&mel_slang_ready);
+}
+
+}
 
 static SlangSession* g_slang_session = nullptr;
 

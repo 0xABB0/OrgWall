@@ -2,6 +2,7 @@
 
 #include "text.pass.fwd.h"
 #include "core.types.h"
+#include "event.channel.fwd.h"
 #include "math.vec2.h"
 #include "math.vec4.h"
 #include "math.geo.rect.h"
@@ -117,3 +118,5 @@ static inline Mel_Text_Style mel_text_style(Mel_Vec4 color)
         .sort_key = 0,
     };
 }
+
+extern Mel_Event_Channel mel_text_pass_ready;

@@ -4,6 +4,8 @@
 #include "render.camera.h"
 #include "render.material.h"
 #include "texture.pool.h"
+#include "event.channel.h"
+#include "boot.registry.h"
 #include "gpu.pipeline.h"
 #include "gpu.texture.h"
 #include "allocator.h"
@@ -12,6 +14,32 @@
 
 #include <tracy/TracyC.h>
 #include <string.h>
+
+Mel_Event_Channel mel_sprite_pass_ready;
+
+static void mel__sprite_pass_on_gpu_ready(void* ctx, const void* event)
+{
+    (void)ctx;
+    (void)event;
+}
+
+static void mel__sprite_pass_wire(void)
+{
+    mel_event_channel_on(&mel_gpu_device_ready, mel__sprite_pass_on_gpu_ready, NULL);
+}
+
+__attribute__((constructor))
+static void mel__sprite_pass_register(void)
+{
+    mel_event_channel_init(&mel_sprite_pass_ready, mel_alloc_heap());
+    mel__boot_register_wire(mel__sprite_pass_wire);
+}
+
+__attribute__((destructor))
+static void mel__sprite_pass_unregister(void)
+{
+    mel_event_channel_destroy(&mel_sprite_pass_ready);
+}
 
 typedef struct
 {

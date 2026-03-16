@@ -2,12 +2,40 @@
 #include "render.list.h"
 #include "render.pass.h"
 #include "render.camera.h"
+#include "event.channel.h"
+#include "boot.registry.h"
 #include "allocator.h"
 #include "allocator.heap.h"
 #include "string.str8.h"
 
 #include <SDL3/SDL.h>
 #include <string.h>
+
+Mel_Event_Channel mel_text_pass_ready;
+
+static void mel__text_pass_on_gpu_ready(void* ctx, const void* event)
+{
+    (void)ctx;
+    (void)event;
+}
+
+static void mel__text_pass_wire(void)
+{
+    mel_event_channel_on(&mel_gpu_device_ready, mel__text_pass_on_gpu_ready, NULL);
+}
+
+__attribute__((constructor))
+static void mel__text_pass_register(void)
+{
+    mel_event_channel_init(&mel_text_pass_ready, mel_alloc_heap());
+    mel__boot_register_wire(mel__text_pass_wire);
+}
+
+__attribute__((destructor))
+static void mel__text_pass_unregister(void)
+{
+    mel_event_channel_destroy(&mel_text_pass_ready);
+}
 
 typedef struct {
     f32 x, y;

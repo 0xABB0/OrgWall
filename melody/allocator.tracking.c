@@ -17,6 +17,16 @@ static void* tracking_header_to_user(void* header_ptr)
     return ((Mel_Tracking_Header*)header_ptr) + 1;
 }
 
+static void mel__tracking_update_peak(Mel_Tracking_Allocator* t, usize current)
+{
+    usize peak = atomic_load_explicit(&t->peak_usage, memory_order_relaxed);
+    while (current > peak) {
+        if (atomic_compare_exchange_weak_explicit(&t->peak_usage, &peak, current,
+                memory_order_relaxed, memory_order_relaxed))
+            break;
+    }
+}
+
 static void* tracking_alloc_cb(void* ptr, usize size, u32 align,
                                const char* file, const char* func, u32 line,
                                void* user_data)
@@ -32,11 +42,10 @@ static void* tracking_alloc_cb(void* ptr, usize size, u32 align,
 
         ((Mel_Tracking_Header*)raw)->size = size;
 
-        t->total_allocated += size;
-        t->current_usage += size;
-        t->alloc_count++;
-        if (t->current_usage > t->peak_usage)
-            t->peak_usage = t->current_usage;
+        atomic_fetch_add_explicit(&t->total_allocated, size, memory_order_relaxed);
+        usize current = atomic_fetch_add_explicit(&t->current_usage, size, memory_order_relaxed) + size;
+        atomic_fetch_add_explicit(&t->alloc_count, 1, memory_order_relaxed);
+        mel__tracking_update_peak(t, current);
 
         TracyCAllocN(tracking_header_to_user(raw), size, "tracked");
         TracyCZoneEnd(ctx);
@@ -56,13 +65,16 @@ static void* tracking_alloc_cb(void* ptr, usize size, u32 align,
 
         ((Mel_Tracking_Header*)raw)->size = size;
 
-        t->total_allocated += size;
-        t->total_freed += old_size;
-        t->current_usage = t->current_usage - old_size + size;
-        t->alloc_count++;
-        t->free_count++;
-        if (t->current_usage > t->peak_usage)
-            t->peak_usage = t->current_usage;
+        atomic_fetch_add_explicit(&t->total_allocated, size, memory_order_relaxed);
+        atomic_fetch_add_explicit(&t->total_freed, old_size, memory_order_relaxed);
+        usize current;
+        if (size >= old_size)
+            current = atomic_fetch_add_explicit(&t->current_usage, size - old_size, memory_order_relaxed) + (size - old_size);
+        else
+            current = atomic_fetch_sub_explicit(&t->current_usage, old_size - size, memory_order_relaxed) - (old_size - size);
+        atomic_fetch_add_explicit(&t->alloc_count, 1, memory_order_relaxed);
+        atomic_fetch_add_explicit(&t->free_count, 1, memory_order_relaxed);
+        mel__tracking_update_peak(t, current);
 
         TracyCAllocN(tracking_header_to_user(raw), size, "tracked");
         TracyCZoneEnd(ctx);
@@ -78,9 +90,9 @@ static void* tracking_alloc_cb(void* ptr, usize size, u32 align,
         TracyCFreeN(ptr, "tracked");
         t->backing->alloc_cb(header, 0, align, file, func, line, t->backing->user_data);
 
-        t->total_freed += freed_size;
-        t->current_usage -= freed_size;
-        t->free_count++;
+        atomic_fetch_add_explicit(&t->total_freed, freed_size, memory_order_relaxed);
+        atomic_fetch_sub_explicit(&t->current_usage, freed_size, memory_order_relaxed);
+        atomic_fetch_add_explicit(&t->free_count, 1, memory_order_relaxed);
         TracyCZoneEnd(ctx);
         return NULL;
     }
@@ -93,12 +105,12 @@ void mel_tracking_init(Mel_Tracking_Allocator* t, const Mel_Alloc* backing)
     assert(t != NULL);
     assert(backing != NULL);
     t->backing = backing;
-    t->total_allocated = 0;
-    t->total_freed = 0;
-    t->current_usage = 0;
-    t->peak_usage = 0;
-    t->alloc_count = 0;
-    t->free_count = 0;
+    atomic_store_explicit(&t->total_allocated, 0, memory_order_relaxed);
+    atomic_store_explicit(&t->total_freed, 0, memory_order_relaxed);
+    atomic_store_explicit(&t->current_usage, 0, memory_order_relaxed);
+    atomic_store_explicit(&t->peak_usage, 0, memory_order_relaxed);
+    atomic_store_explicit(&t->alloc_count, 0, memory_order_relaxed);
+    atomic_store_explicit(&t->free_count, 0, memory_order_relaxed);
 }
 
 Mel_Alloc mel_tracking_allocator(Mel_Tracking_Allocator* t)
@@ -112,16 +124,23 @@ Mel_Alloc mel_tracking_allocator(Mel_Tracking_Allocator* t)
 void mel_tracking_report(Mel_Tracking_Allocator* t)
 {
     assert(t != NULL);
+    usize total_alloc = atomic_load_explicit(&t->total_allocated, memory_order_relaxed);
+    usize total_free = atomic_load_explicit(&t->total_freed, memory_order_relaxed);
+    usize current = atomic_load_explicit(&t->current_usage, memory_order_relaxed);
+    usize peak = atomic_load_explicit(&t->peak_usage, memory_order_relaxed);
+    u64 allocs = atomic_load_explicit(&t->alloc_count, memory_order_relaxed);
+    u64 frees = atomic_load_explicit(&t->free_count, memory_order_relaxed);
+
     printf("=== Memory Tracking Report ===\n");
-    printf("Total allocated: %zu bytes\n", t->total_allocated);
-    printf("Total freed:     %zu bytes\n", t->total_freed);
-    printf("Current usage:   %zu bytes\n", t->current_usage);
-    printf("Peak usage:      %zu bytes\n", t->peak_usage);
-    printf("Alloc count:     %llu\n", t->alloc_count);
-    printf("Free count:      %llu\n", t->free_count);
-    if (t->current_usage > 0)
+    printf("Total allocated: %zu bytes\n", total_alloc);
+    printf("Total freed:     %zu bytes\n", total_free);
+    printf("Current usage:   %zu bytes\n", current);
+    printf("Peak usage:      %zu bytes\n", peak);
+    printf("Alloc count:     %llu\n", allocs);
+    printf("Free count:      %llu\n", frees);
+    if (current > 0)
     {
-        printf("WARNING: %zu bytes still allocated (potential leak)\n", t->current_usage);
+        printf("WARNING: %zu bytes still allocated (potential leak)\n", current);
     }
     printf("==============================\n");
 }

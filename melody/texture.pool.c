@@ -1,12 +1,52 @@
 #include "texture.pool.h"
 #include "texture.h"
+#include "sprite.pass.h"
+#include "text.pass.h"
+#include "mesh.pass.h"
+#include "event.channel.h"
+#include "boot.registry.h"
 #include "string.str8.h"
 #include "hash.xxh.h"
 #include "gpu.texture.h"
 #include "gpu.pipeline.h"
 #include "allocator.h"
+#include "allocator.heap.h"
 
 #include <SDL3/SDL.h>
+#include <stdatomic.h>
+
+Mel_Event_Channel mel_texture_pool_ready;
+
+static _Atomic(i32) s_passes_remaining;
+
+static void mel__texture_pool_on_pass_ready(void* ctx, const void* event)
+{
+    (void)ctx;
+    (void)event;
+    if (atomic_fetch_sub(&s_passes_remaining, 1) == 1)
+        mel_event_channel_fire(&mel_texture_pool_ready, NULL);
+}
+
+static void mel__texture_pool_wire(void)
+{
+    atomic_store(&s_passes_remaining, 3);
+    mel_event_channel_on(&mel_sprite_pass_ready, mel__texture_pool_on_pass_ready, NULL);
+    mel_event_channel_on(&mel_text_pass_ready, mel__texture_pool_on_pass_ready, NULL);
+    mel_event_channel_on(&mel_mesh_pass_ready, mel__texture_pool_on_pass_ready, NULL);
+}
+
+__attribute__((constructor))
+static void mel__texture_pool_register(void)
+{
+    mel_event_channel_init(&mel_texture_pool_ready, mel_alloc_heap());
+    mel__boot_register_wire(mel__texture_pool_wire);
+}
+
+__attribute__((destructor))
+static void mel__texture_pool_unregister(void)
+{
+    mel_event_channel_destroy(&mel_texture_pool_ready);
+}
 
 static u64 mel__texture_pool_hash_key(const void* key)
 {

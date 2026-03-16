@@ -1,6 +1,7 @@
 #pragma once
 
 #include "gpu.device.h"
+#include "event.channel.fwd.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -50,6 +51,8 @@ void mel_gpu_shader_shutdown(Mel_Gpu_Shader* shader, Mel_Gpu_Device* dev);
 
 bool mel_slang_init(void);
 void mel_slang_shutdown(void);
+
+extern Mel_Event_Channel mel_slang_ready;
 
 #ifdef __cplusplus
 }
