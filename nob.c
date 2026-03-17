@@ -182,14 +182,14 @@ static bool should_skip_platform_file(const char* name)
 {
     for (size_t i = 0; i < NOB_ARRAY_LEN(PLATFORM_SUFFIXES); i++)
     {
-        if (strstr(name, PLATFORM_SUFFIXES[i].suffix))
-            return !PLATFORM_SUFFIXES[i].active;
+        if (strstr(name, PLATFORM_SUFFIXES[i].suffix) && !PLATFORM_SUFFIXES[i].active)
+            return true;
     }
 
     for (size_t i = 0; i < NOB_ARRAY_LEN(BACKENDS); i++)
     {
-        if (strstr(name, BACKENDS[i].suffix))
-            return strcmp(BACKENDS[i].name, g_backend) != 0;
+        if (strstr(name, BACKENDS[i].suffix) && strcmp(BACKENDS[i].name, g_backend) != 0)
+            return true;
     }
 
     return false;
