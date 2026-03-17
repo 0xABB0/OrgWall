@@ -1,5 +1,7 @@
 #include <SDL3/SDL.h>
 
+#include "gpu.device.h"
+
 #define CIMGUI_USE_SDL3
 #define CIMGUI_USE_VULKAN
 #include <cimgui/cimgui.h>
@@ -10,7 +12,6 @@
 #include "window.h"
 #include "swapchain.h"
 #include "gpu.swapchain.h"
-#include "gpu.device.h"
 #include "string.str8.h"
 #include "sprite.pass.h"
 #include "text.pass.h"

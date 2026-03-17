@@ -19,6 +19,7 @@
 #include "render.stage.2d.h"
 #include "render.list.h"
 #include "sprite.pass.h"
+#include "text.pass.h"
 #include "math.mat4.h"
 #include "math.vec4.h"
 #include "sim.ctx.h"

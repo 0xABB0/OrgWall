@@ -9,6 +9,7 @@
 #include "gpu.swapchain.h"
 #include "gpu.device.h"
 #include "gpu.buffer.h"
+#include "gpu.indirect.h"
 #include "vfs.h"
 #include "vfs.backend.os.h"
 #include "string.str8.h"
@@ -20,6 +21,7 @@
 #include "render.source.h"
 #include "render.material.h"
 #include "mesh.pass.h"
+#include "sprite.pass.h"
 #include "text.pass.h"
 #include "text.draw.h"
 #include "font.atlas.h"
@@ -864,11 +866,11 @@ static void mesh_variants_on_init(void)
         .usage = MEL_GPU_BUFFER_USAGE_INDEX,
         .memory_usage = MEL_GPU_MEMORY_USAGE_CPU_TO_GPU);
     mel_gpu_buffer_init(&s_stream_indirect_buffer, mel_gpu_dev(),
-        .size = sizeof(VkDrawIndexedIndirectCommand),
+        .size = sizeof(Mel_Draw_Indexed_Indirect_Cmd),
         .usage = MEL_GPU_BUFFER_USAGE_INDIRECT | MEL_GPU_BUFFER_USAGE_STORAGE,
         .memory_usage = MEL_GPU_MEMORY_USAGE_CPU_TO_GPU);
     mel_gpu_buffer_upload(&s_stream_index_buffer, mel_gpu_dev(), s_cube_indices, sizeof(s_cube_indices), 0);
-    VkDrawIndexedIndirectCommand indirect_cmd = {
+    Mel_Draw_Indexed_Indirect_Cmd indirect_cmd = {
         .indexCount = SDL_arraysize(s_cube_indices),
         .instanceCount = 1,
         .firstIndex = 0,
@@ -878,14 +880,14 @@ static void mesh_variants_on_init(void)
     mel_gpu_buffer_upload(&s_stream_indirect_buffer, mel_gpu_dev(), &indirect_cmd, sizeof(indirect_cmd), 0);
 
     s_stream = (Mel_Mesh_Gpu_Draw_Stream){
-        .vertex_buffer = s_stream_vertex_buffer.buffer,
-        .index_buffer = s_stream_index_buffer.buffer,
+        ._vertex_buffer = s_stream_vertex_buffer._handle,
+        ._index_buffer = s_stream_index_buffer._handle,
         .index_count = SDL_arraysize(s_cube_indices),
     };
     s_cull_stream = (Mel_Mesh_Gpu_Cull_Stream){
-        .vertex_buffer = s_stream_vertex_buffer.buffer,
-        .index_buffer = s_stream_index_buffer.buffer,
-        .indirect_buffer = s_stream_indirect_buffer.buffer,
+        ._vertex_buffer = s_stream_vertex_buffer._handle,
+        ._index_buffer = s_stream_index_buffer._handle,
+        ._indirect_buffer = s_stream_indirect_buffer._handle,
         .vertex_count = SDL_arraysize(s_cube_positions),
         .index_count = SDL_arraysize(s_cube_indices),
         .bounds_center = mel_vec3(0.0f, 0.0f, 0.0f),

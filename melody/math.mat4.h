@@ -47,6 +47,7 @@ typedef union
 [[nodiscard]] static inline Mel_Vec3 mel_mat4_mul_vec3_xyz0(Mel_Mat4 m, Mel_Vec3 v);
 [[nodiscard]] static inline Mel_Vec3 mel_mat4_mul_vec3_H(Mel_Mat4 m, Mel_Vec3 v);
 [[nodiscard]] static inline Mel_Mat4 mel_mat4_SRT(f32 sx, f32 sy, f32 sz, f32 ax, f32 ay, f32 az, f32 tx, f32 ty, f32 tz);
+[[nodiscard]] static inline Mel_Mat4 mel_mat4_inverse(Mel_Mat4 m);
 [[nodiscard]] static inline Mel_Mat4 mel_mat4_inv_transform(Mel_Mat4 m);
 [[nodiscard]] static inline Mel_Mat4 mel_mat4_proj_flip_handedness(Mel_Mat4 m);
 [[nodiscard]] static inline Mel_Mat4 mel_mat4_view_flip_handedness(Mel_Mat4 m);

@@ -6,6 +6,7 @@
 #include "street_carlos_char_select_stage.h"
 #include "street_carlos_flow.h"
 #include "core.engine.h"
+#include "gpu.device.h"
 #include "allocator.h"
 #include "allocator.heap.h"
 #include "game_draw.h"

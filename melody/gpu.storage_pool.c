@@ -20,7 +20,8 @@ static void mel__storage_pool_ensure_gpu_capacity(Mel_Storage_Pool* pool, Mel_Gp
     mel_gpu_buffer_init(&pool->gpu_buffer, dev,
         .size = (u64)new_cap * pool->item_size,
         .usage = old.usage,
-        .memory_usage = MEL_GPU_MEMORY_USAGE_GPU_ONLY,
+        .memory_usage = MEL_GPU_MEMORY_USAGE_CPU_TO_GPU,
+        .map_on_create = true,
     );
 
     if (old._handle != nullptr)
@@ -65,7 +66,8 @@ void mel_storage_pool_init_opt(Mel_Storage_Pool* pool, Mel_Storage_Pool_Opt opt)
     mel_gpu_buffer_init(&pool->gpu_buffer, opt.dev,
         .size = (u64)cap * opt.item_size,
         .usage = usage,
-        .memory_usage = MEL_GPU_MEMORY_USAGE_GPU_ONLY,
+        .memory_usage = MEL_GPU_MEMORY_USAGE_CPU_TO_GPU,
+        .map_on_create = true,
     );
     pool->gpu_capacity = cap;
 

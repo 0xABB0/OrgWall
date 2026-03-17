@@ -674,14 +674,14 @@ static void gpu_scene_build_chunk(Scene_Chunk* chunk, i32 chunk_x, i32 chunk_z)
         sizeof(u32) * lod1_index_count, 0);
 
     chunk->lod0_draw_stream = (Mel_Mesh_Gpu_Draw_Stream){
-        .vertex_buffer = chunk->lod0_vertex_buffer.buffer,
-        .index_buffer = chunk->lod0_index_buffer.buffer,
+        ._vertex_buffer = chunk->lod0_vertex_buffer._handle,
+        ._index_buffer = chunk->lod0_index_buffer._handle,
         .vertex_count = lod0_vertex_count,
         .index_count = lod0_index_count,
     };
     chunk->lod1_draw_stream = (Mel_Mesh_Gpu_Draw_Stream){
-        .vertex_buffer = chunk->lod1_vertex_buffer.buffer,
-        .index_buffer = chunk->lod1_index_buffer.buffer,
+        ._vertex_buffer = chunk->lod1_vertex_buffer._handle,
+        ._index_buffer = chunk->lod1_index_buffer._handle,
         .vertex_count = lod1_vertex_count,
         .index_count = lod1_index_count,
     };
@@ -870,10 +870,10 @@ static void gpu_scene_build_batch(void)
         MEL_MESH_INDIRECT_BATCH_COMMAND_STRIDE * CHUNK_COUNT, 0);
 
     s_batch.cull_stream = (Mel_Mesh_Gpu_Cull_Batch_Stream){
-        .vertex_buffer = s_batch.vertex_buffer.buffer,
-        .index_buffer = s_batch.index_buffer.buffer,
-        .metadata_buffer = s_batch.metadata_buffer.buffer,
-        .indirect_buffer = s_batch.indirect_buffer.buffer,
+        ._vertex_buffer = s_batch.vertex_buffer._handle,
+        ._index_buffer = s_batch.index_buffer._handle,
+        ._metadata_buffer = s_batch.metadata_buffer._handle,
+        ._indirect_buffer = s_batch.indirect_buffer._handle,
         .vertex_count = total_vertex_count,
         .index_count = total_index_count,
         .draw_count = CHUNK_COUNT,

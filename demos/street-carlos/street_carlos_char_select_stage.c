@@ -5,6 +5,7 @@
 
 #include "street_carlos_flow.h"
 #include "core.engine.h"
+#include "gpu.device.h"
 #include "allocator.h"
 #include "allocator.heap.h"
 #include "game_draw.h"
@@ -62,9 +63,9 @@ static void upload_char_preview(Mugen_Char* ch, Street_Carlos_Char_Preview* prev
         .width = ch->sff.atlas_width,
         .height = ch->sff.atlas_height,
         .nearest_filter = true);
-    preview->texture.descriptor = mel_gpu_pipeline_alloc_descriptor(&mel_sprite_pass()->pipeline, dev);
+    preview->texture._descriptor = mel_gpu_pipeline_alloc_descriptor(&mel_sprite_pass()->pipeline, dev);
     mel_gpu_pipeline_write_texture(&mel_sprite_pass()->pipeline, dev,
-        preview->texture.descriptor, preview->texture.image.view, preview->texture.sampler);
+        preview->texture._descriptor, preview->texture.image._view, preview->texture._sampler);
     preview->handle = mel_texture_pool_register(mel_texture_pool(), &preview->texture);
 }
 

@@ -10,6 +10,7 @@
 #include "core.engine.h"
 #include "game_draw.h"
 #include "game_test.h"
+#include "gpu.device.h"
 #include "gpu.pipeline.h"
 #include "math.scalar.h"
 #include "mugen.air.h"
@@ -179,9 +180,9 @@ static void street_carlos_fight_stage_upload_char_texture(Mugen_Char* ch, Mel_Gp
         .width = ch->sff.atlas_width,
         .height = ch->sff.atlas_height,
         .nearest_filter = true);
-    texture->descriptor = mel_gpu_pipeline_alloc_descriptor(&mel_sprite_pass()->pipeline, dev);
+    texture->_descriptor = mel_gpu_pipeline_alloc_descriptor(&mel_sprite_pass()->pipeline, dev);
     mel_gpu_pipeline_write_texture(&mel_sprite_pass()->pipeline, dev,
-        texture->descriptor, texture->image.view, texture->sampler);
+        texture->_descriptor, texture->image._view, texture->_sampler);
     *out_handle = mel_texture_pool_register(mel_texture_pool(), texture);
 }
 
@@ -202,9 +203,9 @@ static void street_carlos_fight_stage_upload_stage(Street_Carlos_Fight_Stage* st
         .width = stage->stage_sff.atlas_width,
         .height = stage->stage_sff.atlas_height,
         .nearest_filter = true);
-    stage->stage_tex.descriptor = mel_gpu_pipeline_alloc_descriptor(&mel_sprite_pass()->pipeline, dev);
+    stage->stage_tex._descriptor = mel_gpu_pipeline_alloc_descriptor(&mel_sprite_pass()->pipeline, dev);
     mel_gpu_pipeline_write_texture(&mel_sprite_pass()->pipeline, dev,
-        stage->stage_tex.descriptor, stage->stage_tex.image.view, stage->stage_tex.sampler);
+        stage->stage_tex._descriptor, stage->stage_tex.image._view, stage->stage_tex._sampler);
     stage->stage_tex_handle = mel_texture_pool_register(mel_texture_pool(), &stage->stage_tex);
     stage->stage_loaded = true;
 }
@@ -220,9 +221,9 @@ static void street_carlos_fight_stage_upload_hud(Street_Carlos_Fight_Stage* stag
         .width = stage->fight_sff.atlas_width,
         .height = stage->fight_sff.atlas_height,
         .nearest_filter = true);
-    stage->fight_tex.descriptor = mel_gpu_pipeline_alloc_descriptor(&mel_sprite_pass()->pipeline, dev);
+    stage->fight_tex._descriptor = mel_gpu_pipeline_alloc_descriptor(&mel_sprite_pass()->pipeline, dev);
     mel_gpu_pipeline_write_texture(&mel_sprite_pass()->pipeline, dev,
-        stage->fight_tex.descriptor, stage->fight_tex.image.view, stage->fight_tex.sampler);
+        stage->fight_tex._descriptor, stage->fight_tex.image._view, stage->fight_tex._sampler);
     stage->fight_tex_handle = mel_texture_pool_register(mel_texture_pool(), &stage->fight_tex);
 
     stage->hud = (Mugen_Hud){
