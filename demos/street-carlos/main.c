@@ -1,8 +1,6 @@
 #include <SDL3/SDL.h>
 
 #define CIMGUI_USE_SDL3
-#define CIMGUI_USE_VULKAN
-#include <volk.h>
 #include <cimgui/cimgui.h>
 #include <cimgui/cimgui_impl.h>
 
@@ -13,6 +11,7 @@
 #include "window.h"
 #include "swapchain.h"
 #include "gpu.swapchain.h"
+#include "gpu.device.h"
 #include "allocator.heap.h"
 #include "font.atlas.h"
 #include "font.desc.h"

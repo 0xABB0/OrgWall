@@ -2,7 +2,6 @@
 
 #define CIMGUI_USE_SDL3
 #define CIMGUI_USE_VULKAN
-#include <volk.h>
 #include <cimgui/cimgui.h>
 #include <cimgui/cimgui_impl.h>
 
@@ -11,6 +10,7 @@
 #include "window.h"
 #include "swapchain.h"
 #include "gpu.swapchain.h"
+#include "gpu.device.h"
 #include "string.str8.h"
 #include "sprite.pass.h"
 #include "text.pass.h"
@@ -89,7 +89,7 @@ static void texttech_sync_viewport(void)
     if (w <= 0 || h <= 0)
         return;
 
-    if (sc->extent.width != (u32)w || sc->extent.height != (u32)h)
+    if (sc->extent_width != (u32)w || sc->extent_height != (u32)h)
     {
         mel_swapchain_resize(sc, mel_gpu_dev(), (u32)w, (u32)h);
         s_camera.projection = mel_mat4_ortho(0.0f, (f32)w, (f32)h, 0.0f, -1.0f, 1.0f);
@@ -153,7 +153,7 @@ static void texttech_imgui_render_pass(Mel_Render_Pass_Ctx* ctx)
     igRender();
     ImDrawData* draw_data = igGetDrawData();
     if (draw_data && draw_data->CmdListsCount > 0)
-        ImGui_ImplVulkan_RenderDrawData(draw_data, ctx->cmd.cmd, VK_NULL_HANDLE);
+        ImGui_ImplVulkan_RenderDrawData(draw_data, ctx->cmd._cmd, VK_NULL_HANDLE);
 }
 
 static void texttech_add_panel(Mel_Render_List* list, f32 x, f32 y, f32 w, f32 h, Mel_Vec4 color)
@@ -247,7 +247,7 @@ static void on_init(void)
 
     s_camera = (Mel_Camera){
         .view = MEL_MAT4_IDENTITY,
-        .projection = mel_mat4_ortho(0.0f, (f32)sc->extent.width, (f32)sc->extent.height, 0.0f, -1.0f, 1.0f),
+        .projection = mel_mat4_ortho(0.0f, (f32)sc->extent_width, (f32)sc->extent_height, 0.0f, -1.0f, 1.0f),
     };
 
     Mel_Font_Desc_Handle monaco = mel_font_desc_load_ttf(S8("/System/Library/Fonts/Monaco.ttf"));

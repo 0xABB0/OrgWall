@@ -5,6 +5,7 @@
 #include "window.h"
 #include "swapchain.h"
 #include "gpu.swapchain.h"
+#include "gpu.device.h"
 #include "string.str8.h"
 #include "render.stage.3d.h"
 #include "render.list.h"
@@ -119,7 +120,7 @@ static void cube3d_sync_viewport(void)
     if (w <= 0 || h <= 0)
         return;
 
-    if (sc->extent.width != (u32)w || sc->extent.height != (u32)h)
+    if (sc->extent_width != (u32)w || sc->extent_height != (u32)h)
     {
         mel_swapchain_resize(sc, mel_gpu_dev(), (u32)w, (u32)h);
         s_camera.projection = mel_mat4_perspective(60.0f * (3.14159265f / 180.0f), (f32)w / (f32)h, 0.1f, 100.0f);
@@ -155,7 +156,7 @@ static void cube3d_on_init(void)
     s_camera = (Mel_Camera){
         .view = mel_mat4_look_at(mel_vec3(0.0f, 0.0f, 5.0f), mel_vec3(0.0f, 0.0f, 0.0f), mel_vec3(0.0f, 1.0f, 0.0f)),
         .projection = mel_mat4_perspective(60.0f * (3.14159265f / 180.0f),
-            (f32)sc->extent.width / (f32)sc->extent.height, 0.1f, 100.0f),
+            (f32)sc->extent_width / (f32)sc->extent_height, 0.1f, 100.0f),
         .position = mel_vec3(0.0f, 0.0f, 5.0f),
     };
 

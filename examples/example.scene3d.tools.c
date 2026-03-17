@@ -8,6 +8,7 @@
 #include "window.h"
 #include "swapchain.h"
 #include "gpu.swapchain.h"
+#include "gpu.device.h"
 #include "vfs.h"
 #include "vfs.backend.os.h"
 #include "string.str8.h"
@@ -210,7 +211,7 @@ static void scene3d_sync_viewport(void)
     mel_view_set_clear_color(world_view,
         mel_vec4(s_scene_clear[0], s_scene_clear[1], s_scene_clear[2], s_scene_clear[3]));
 
-    if (sc->extent.width != (u32)w || sc->extent.height != (u32)h)
+    if (sc->extent_width != (u32)w || sc->extent_height != (u32)h)
     {
         mel_swapchain_resize(sc, mel_gpu_dev(), (u32)w, (u32)h);
         s_world_camera.projection = mel_mat4_perspective(60.0f * (3.14159265f / 180.0f),
@@ -479,11 +480,11 @@ static void scene3d_on_init(void)
 
     s_world_camera = (Mel_Camera){
         .projection = mel_mat4_perspective(60.0f * (3.14159265f / 180.0f),
-            (f32)sc->extent.width / (f32)sc->extent.height, 0.1f, 100.0f),
+            (f32)sc->extent_width / (f32)sc->extent_height, 0.1f, 100.0f),
     };
     s_overlay_camera = (Mel_Camera){
         .view = MEL_MAT4_IDENTITY,
-        .projection = mel_mat4_ortho(0.0f, (f32)sc->extent.width, (f32)sc->extent.height, 0.0f, -1.0f, 1.0f),
+        .projection = mel_mat4_ortho(0.0f, (f32)sc->extent_width, (f32)sc->extent_height, 0.0f, -1.0f, 1.0f),
     };
     scene3d_update_camera();
 

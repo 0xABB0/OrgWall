@@ -1,14 +1,13 @@
 #include <SDL3/SDL.h>
 
 #define CIMGUI_USE_SDL3
-#define CIMGUI_USE_VULKAN
-#include <volk.h>
 
 #include "core.app.h"
 #include "core.engine.h"
 #include "window.h"
 #include "swapchain.h"
 #include "gpu.swapchain.h"
+#include "gpu.device.h"
 #include "string.str8.h"
 #include "gpu.pipeline.h"
 #include "gpu.buffer.h"
@@ -454,8 +453,8 @@ static void on_init(void)
 
     s_camera = (Mel_Camera){
         .view = MEL_MAT4_IDENTITY,
-        .projection = mel_mat4_ortho(0, (f32)sc->extent.width,
-                                      (f32)sc->extent.height, 0, -1, 1),
+        .projection = mel_mat4_ortho(0, (f32)sc->extent_width,
+                                      (f32)sc->extent_height, 0, -1, 1),
     };
 
     mel_render_graph_init(&s_graph, .dev = dev, .alloc = mel_alloc_heap());

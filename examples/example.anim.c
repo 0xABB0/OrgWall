@@ -1,14 +1,13 @@
 #include <SDL3/SDL.h>
 
 #define CIMGUI_USE_SDL3
-#define CIMGUI_USE_VULKAN
-#include <volk.h>
 
 #include "core.app.h"
 #include "core.engine.h"
 #include "window.h"
 #include "swapchain.h"
 #include "gpu.swapchain.h"
+#include "gpu.device.h"
 #include "string.str8.h"
 #include "gpu.texture.h"
 #include "sprite.pass.h"
@@ -97,9 +96,9 @@ static Mel_Texture_Handle init_texture(Mel_Gpu_Texture* tex, str8 path)
 {
     Mel_Gpu_Device* dev = mel_gpu_dev();
     mel_gpu_texture_init(tex, dev, .path = path, .nearest_filter = true);
-    tex->descriptor = mel_gpu_pipeline_alloc_descriptor(&s_sp->pipeline, dev);
-    mel_gpu_pipeline_write_texture(&s_sp->pipeline, dev, tex->descriptor,
-        tex->image.view, tex->sampler);
+    tex->_descriptor = mel_gpu_pipeline_alloc_descriptor(&s_sp->pipeline, dev);
+    mel_gpu_pipeline_write_texture(&s_sp->pipeline, dev, tex->_descriptor,
+        tex->image._view, tex->_sampler);
     return mel_texture_pool_register(mel_texture_pool(), tex);
 }
 
@@ -267,8 +266,8 @@ static void on_init(void)
 
     s_camera = (Mel_Camera){
         .view = MEL_MAT4_IDENTITY,
-        .projection = mel_mat4_ortho(0, (f32)sc->extent.width,
-                                      (f32)sc->extent.height, 0, -1, 1),
+        .projection = mel_mat4_ortho(0, (f32)sc->extent_width,
+                                      (f32)sc->extent_height, 0, -1, 1),
     };
 
     mel_render_graph_init(&s_graph, .dev = dev, .alloc = mel_alloc_heap());
@@ -336,8 +335,8 @@ static void app_update(Mel_Sim_Ctx* sim, f32 dt, void* user)
         anim_demo_switch_state(d, STATE_IDLE);
 
     Mel_Swapchain* sc = &mel_swapchain_registry_get(s_swapchain_handle)->swapchain;
-    f32 cx = (f32)sc->extent.width / 2.0f;
-    f32 hero_y = (f32)sc->extent.height * 0.33f;
+    f32 cx = (f32)sc->extent_width / 2.0f;
+    f32 hero_y = (f32)sc->extent_height * 0.33f;
 
     mel_render_list_clear(&s_sprite_list);
     draw_hero(&s_sprite_list, d, cx, hero_y);

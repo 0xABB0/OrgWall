@@ -1,8 +1,6 @@
 #include <SDL3/SDL.h>
 
 #define CIMGUI_USE_SDL3
-#define CIMGUI_USE_VULKAN
-#include <volk.h>
 
 #include "core.app.h"
 #include "core.engine.h"

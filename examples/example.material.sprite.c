@@ -7,6 +7,7 @@
 #include "window.h"
 #include "swapchain.h"
 #include "gpu.swapchain.h"
+#include "gpu.device.h"
 #include "vfs.h"
 #include "vfs.backend.os.h"
 #include "string.str8.h"
@@ -286,7 +287,7 @@ static void material_sprite_sync_viewport(void)
     mel_view_set_clear_color(world_view,
         mel_vec4(s_clear_color[0], s_clear_color[1], s_clear_color[2], s_clear_color[3]));
 
-    if (sc->extent.width != (u32)w || sc->extent.height != (u32)h)
+    if (sc->extent_width != (u32)w || sc->extent_height != (u32)h)
         mel_swapchain_resize(sc, mel_gpu_dev(), (u32)w, (u32)h);
 
     bool ok = mel_render_stage_2d_refresh(&s_stage);
@@ -509,7 +510,7 @@ static void material_sprite_on_init(void)
 
     s_world_camera = (Mel_Camera){
         .view = MEL_MAT4_IDENTITY,
-        .projection = mel_mat4_ortho(0.0f, (f32)sc->extent.width, (f32)sc->extent.height, 0.0f, -1.0f, 1.0f),
+        .projection = mel_mat4_ortho(0.0f, (f32)sc->extent_width, (f32)sc->extent_height, 0.0f, -1.0f, 1.0f),
     };
     s_hud_camera = s_world_camera;
 

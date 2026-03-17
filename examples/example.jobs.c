@@ -1,8 +1,6 @@
 #include <SDL3/SDL.h>
 
 #define CIMGUI_USE_SDL3
-#define CIMGUI_USE_VULKAN
-#include <volk.h>
 
 #include "core.app.h"
 #include "core.engine.h"
@@ -261,8 +259,8 @@ static void fractal_window_init(Fractal_Window* fw, str8 title, Mel_Gpu_Device* 
 
     fw->camera = (Mel_Camera){
         .view = MEL_MAT4_IDENTITY,
-        .projection = mel_mat4_ortho(0, (f32)sc->extent.width,
-                                      (f32)sc->extent.height, 0, -1, 1),
+        .projection = mel_mat4_ortho(0, (f32)sc->extent_width,
+                                      (f32)sc->extent_height, 0, -1, 1),
     };
 
     fw->pixel_buf = mel_alloc(mel_alloc_heap(), (usize)(WIDTH * HEIGHT * 4));

@@ -6,6 +6,7 @@
 #include "window.h"
 #include "swapchain.h"
 #include "gpu.swapchain.h"
+#include "gpu.device.h"
 #include "string.str8.h"
 #include "render.stage.3d.h"
 #include "render.list.h"
@@ -137,7 +138,7 @@ static void sync_viewport(void)
     mel_window_size_pixels(s_window, &w, &h);
     if (w <= 0 || h <= 0) return;
 
-    if (sc->extent.width != (u32)w || sc->extent.height != (u32)h) {
+    if (sc->extent_width != (u32)w || sc->extent_height != (u32)h) {
         mel_swapchain_resize(sc, mel_gpu_dev(), (u32)w, (u32)h);
         mel_orbit_camera_update(&s_orbit, &s_camera, (f32)w / (f32)h);
         mel_render_stage_3d_refresh(&s_stage);
@@ -179,7 +180,7 @@ static void render_update(Mel_Sim_Ctx* sim, f32 dt, void* user)
 
     Mel_Swapchain* sc = &mel_swapchain_registry_get(s_swapchain)->swapchain;
     mel_orbit_camera_update(&s_orbit, &s_camera,
-        (f32)sc->extent.width / (f32)sc->extent.height);
+        (f32)sc->extent_width / (f32)sc->extent_height);
 }
 
 static void setup_scene(void)
@@ -198,7 +199,7 @@ static void setup_scene(void)
         .pitch = 0.5f);
 
     mel_orbit_camera_update(&s_orbit, &s_camera,
-        (f32)sc->extent.width / (f32)sc->extent.height);
+        (f32)sc->extent_width / (f32)sc->extent_height);
 
     mel_render_stage_3d_init(&s_stage,
         .name = S8("cloth_demo"),

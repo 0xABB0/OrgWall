@@ -960,7 +960,7 @@ static void gpu_scene_sync_viewport(void)
     mel_view_set_clear_color_enabled(world_view, true);
     mel_view_set_clear_color(world_view, mel_vec4(0.05f, 0.07f, 0.10f, 1.0f));
 
-    if (sc->extent.width != (u32)w || sc->extent.height != (u32)h)
+    if (sc->extent_width != (u32)w || sc->extent_height != (u32)h)
     {
         mel_swapchain_resize(sc, mel_gpu_dev(), (u32)w, (u32)h);
         mel_orbit_camera_update(&s_orbit_camera, &s_world_camera, (f32)w / (f32)h);
@@ -1457,7 +1457,7 @@ static void gpu_scene_on_init(void)
     s_world_camera = (Mel_Camera){0};
     s_overlay_camera = (Mel_Camera){
         .view = MEL_MAT4_IDENTITY,
-        .projection = mel_mat4_ortho(0.0f, (f32)sc->extent.width, (f32)sc->extent.height, 0.0f, -1.0f, 1.0f),
+        .projection = mel_mat4_ortho(0.0f, (f32)sc->extent_width, (f32)sc->extent_height, 0.0f, -1.0f, 1.0f),
     };
     mel_orbit_camera_init(&s_orbit_camera,
         .target = mel_vec3(0.0f, 2.0f, 0.0f),
