@@ -279,14 +279,14 @@ static str8 gpu_scene_policy_label(Gpu_Scene_Policy policy)
     }
 }
 
-static const char* gpu_scene_present_mode_label(VkPresentModeKHR mode)
+static const char* gpu_scene_present_mode_label(Mel_Gpu_Present_Mode mode)
 {
     switch (mode)
     {
-        case VK_PRESENT_MODE_IMMEDIATE_KHR: return "immediate";
-        case VK_PRESENT_MODE_MAILBOX_KHR: return "mailbox";
-        case VK_PRESENT_MODE_FIFO_KHR: return "fifo";
-        case VK_PRESENT_MODE_FIFO_RELAXED_KHR: return "fifo_relaxed";
+        case MEL_GPU_PRESENT_MODE_IMMEDIATE: return "immediate";
+        case MEL_GPU_PRESENT_MODE_MAILBOX: return "mailbox";
+        case MEL_GPU_PRESENT_MODE_FIFO: return "fifo";
+        case MEL_GPU_PRESENT_MODE_FIFO_RELAXED: return "fifo_relaxed";
         default: return "unknown";
     }
 }
@@ -1514,7 +1514,7 @@ void app_init(void)
 {
     s_window_handle = mel_window_create(S8("Melody GPU Scene"), .width = WIN_W, .height = WIN_H);
     s_swapchain_handle = mel_gpu_swapchain_create_for_window_ex(mel_gpu_dev(), s_window_handle,
-        .preferred_present_mode = VK_PRESENT_MODE_MAILBOX_KHR);
+        .preferred_present_mode = MEL_GPU_PRESENT_MODE_MAILBOX);
 
     gpu_scene_on_init();
 

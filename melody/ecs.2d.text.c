@@ -1,6 +1,5 @@
 #include "ecs.2d.text.h"
 #include "ecs.2d.transform.h"
-#include "text.draw.h"
 
 ECS_COMPONENT_DECLARE(Mel_CText);
 

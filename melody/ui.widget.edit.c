@@ -5,8 +5,6 @@
 
 #include "font.atlas.h"
 #include "math.vec2.h"
-#include "render.list.h"
-#include "sprite.pass.h"
 #include "string.str8.h"
 #include "collection.slotmap.h"
 #include "math.scalar.h"

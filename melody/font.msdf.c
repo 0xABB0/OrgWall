@@ -8,7 +8,6 @@
 #include "allocator.heap.h"
 #include "gpu.device.fwd.h"
 #include "math.scalar.h"
-#include "sprite.pass.h"
 #include "texture.pool.h"
 #include "event.channel.h"
 #include "boot.registry.h"

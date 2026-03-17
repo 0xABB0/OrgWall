@@ -291,10 +291,10 @@ static Mel_Technique_Compile_Result mesh_variants_compile_game_accel(const Mel_T
         return MEL_TECHNIQUE_COMPILE_SKIP;
     }
 
-    VkAttachmentLoadOp color_load_op = (!*ctx->plan_ctx->wrote_any_pass &&
+    Mel_Gpu_Load_Op color_load_op = (!*ctx->plan_ctx->wrote_any_pass &&
         (ctx->plan_ctx->first_for_swapchain || ctx->plan_ctx->replace_contents))
-        ? VK_ATTACHMENT_LOAD_OP_CLEAR
-        : VK_ATTACHMENT_LOAD_OP_LOAD;
+        ? MEL_GPU_LOAD_OP_CLEAR
+        : MEL_GPU_LOAD_OP_LOAD;
     Mel_Vec4 clear = mel_view_clear_color_enabled(ctx->plan_ctx->binding.view)
         ? mel_view_clear_color(ctx->plan_ctx->binding.view)
         : mel_vec4(0.0f, 0.0f, 0.0f, 1.0f);
@@ -305,7 +305,7 @@ static Mel_Technique_Compile_Result mesh_variants_compile_game_accel(const Mel_T
         MEL_WRITE_TARGETS(
             { .target = ctx->plan_ctx->target, .load_op = color_load_op,
               .clear.color = { .r = clear.x, .g = clear.y, .b = clear.z, .a = clear.w } },
-            { .target = depth_target, .load_op = VK_ATTACHMENT_LOAD_OP_CLEAR,
+            { .target = depth_target, .load_op = MEL_GPU_LOAD_OP_CLEAR,
               .clear.depth = { .depth = 1.0f, .stencil = 0 } }));
     mel_frame_plan_free_read_sources(ctx->plan_ctx->plan, draw_sources);
     mel_frame_plan_free_read_sources(ctx->plan_ctx->plan, material_sources);
@@ -927,7 +927,7 @@ void app_init(void)
 {
     s_window_handle = mel_window_create(S8("Melody Mesh Variants"), .width = WIN_W, .height = WIN_H);
     s_swapchain_handle = mel_gpu_swapchain_create_for_window_ex(mel_gpu_dev(), s_window_handle,
-        .preferred_present_mode = VK_PRESENT_MODE_MAILBOX_KHR);
+        .preferred_present_mode = MEL_GPU_PRESENT_MODE_MAILBOX);
     mel_vfs_mount(S8("/"), mel_vfs_backend_os(), .root = S8("/"));
 
     mesh_variants_on_init();

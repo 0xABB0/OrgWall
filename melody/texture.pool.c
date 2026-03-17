@@ -1,8 +1,5 @@
 #include "texture.pool.h"
 #include "texture.h"
-#include "sprite.pass.h"
-#include "text.pass.h"
-#include "mesh.pass.h"
 #include "event.channel.h"
 #include "boot.registry.h"
 #include "string.str8.h"

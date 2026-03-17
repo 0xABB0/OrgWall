@@ -1,7 +1,5 @@
 #include "font.atlas.h"
 #include "font.desc.h"
-#include "render.list.h"
-#include "sprite.pass.h"
 #include "texture.pool.h"
 #include "event.channel.h"
 #include "boot.registry.h"

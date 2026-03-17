@@ -1,0 +1,6 @@
+#pragma once
+#include "math.mat4.h"
+
+typedef struct {
+    Mel_Mat4 projection;
+} Mel_Sprite2D_Push_Constants;

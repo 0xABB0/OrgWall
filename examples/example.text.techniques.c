@@ -287,7 +287,7 @@ static void on_init(void)
     u32 imgui_render_pass = mel_render_graph_add_pass(graph, S8("texttech.imgui.render"),
         .fn = texttech_imgui_render_pass,
         .write_targets = MEL_WRITE_TARGETS(
-            { .target = mel_render_stage_2d_target(&s_stage), .load_op = VK_ATTACHMENT_LOAD_OP_LOAD }));
+            { .target = mel_render_stage_2d_target(&s_stage), .load_op = MEL_GPU_LOAD_OP_LOAD }));
     mel_render_graph_pass_depends_on(graph, imgui_build_pass, last_stage_pass);
     mel_render_graph_pass_depends_on(graph, imgui_render_pass, imgui_build_pass);
     mel_render_graph_compile(graph);

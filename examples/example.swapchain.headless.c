@@ -103,7 +103,7 @@ int main(int argc, char* argv[])
     u32 pass_id = mel_render_graph_add_pass(&graph, S8("clear"),
         .fn = headless_pass,
         .write_targets = MEL_WRITE_TARGETS(
-            { .target = &target, .load_op = VK_ATTACHMENT_LOAD_OP_CLEAR,
+            { .target = &target, .load_op = MEL_GPU_LOAD_OP_CLEAR,
               .clear.color = { .r = 0.0f, .g = 0.0f, .b = 0.0f, .a = 1.0f } }));
     mel_render_graph_compile(&graph);
 
@@ -128,7 +128,7 @@ int main(int argc, char* argv[])
             SDL_Log("  %u/%u frames", i + 1, TOTAL_FRAMES);
     }
 
-    vkDeviceWaitIdle(dev.device);
+    mel_gpu_device_wait_idle(&dev);
 
     if (ctx.ffmpeg_pipe)
     {

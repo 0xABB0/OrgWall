@@ -1,6 +1,4 @@
 #include "ui.widget.button.h"
-#include "render.list.h"
-#include "sprite.pass.h"
 
 static void wbutton_draw(Mel_Widget* w, void* ctx)
 {

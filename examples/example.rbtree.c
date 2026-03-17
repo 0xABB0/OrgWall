@@ -386,7 +386,7 @@ static void on_init(void)
         .camera = &s_camera,
         .read_lists = MEL_LISTS(&s_sprite_list, &s_font_list),
         .write_targets = MEL_WRITE_TARGETS(
-            { .target = &s_swapchain_target, .load_op = VK_ATTACHMENT_LOAD_OP_CLEAR,
+            { .target = &s_swapchain_target, .load_op = MEL_GPU_LOAD_OP_CLEAR,
               .clear.color = { .r = 0.08f, .g = 0.08f, .b = 0.1f, .a = 1.0f } }));
     mel_render_graph_compile(&s_graph);
     mel_set_render_graph(&s_graph);

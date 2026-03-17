@@ -10,7 +10,6 @@
 #include "collection.slotmap.h"
 #include "math.vec2.h"
 #include "math.vec4.h"
-#include "render.list.fwd.h"
 #include "texture.pool.fwd.h"
 
 struct Mel_Font_Atlas_Entry {

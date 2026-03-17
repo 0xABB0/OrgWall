@@ -368,7 +368,7 @@ void app_init(void)
         .camera = &s_mandelbrot.camera,
         .read_lists = MEL_LISTS(&s_mandelbrot.sprite_list, &s_mandelbrot.font_list),
         .write_targets = MEL_WRITE_TARGETS(
-            { .target = &s_mandelbrot.target, .load_op = VK_ATTACHMENT_LOAD_OP_CLEAR,
+            { .target = &s_mandelbrot.target, .load_op = MEL_GPU_LOAD_OP_CLEAR,
               .clear.color = { .r = 0.02f, .g = 0.02f, .b = 0.04f, .a = 1.0f } }));
 
     mel_render_graph_add_pass(&s_graph, S8("julia"),
@@ -377,7 +377,7 @@ void app_init(void)
         .camera = &s_julia.camera,
         .read_lists = MEL_LISTS(&s_julia.sprite_list, &s_julia.font_list),
         .write_targets = MEL_WRITE_TARGETS(
-            { .target = &s_julia.target, .load_op = VK_ATTACHMENT_LOAD_OP_CLEAR,
+            { .target = &s_julia.target, .load_op = MEL_GPU_LOAD_OP_CLEAR,
               .clear.color = { .r = 0.02f, .g = 0.02f, .b = 0.04f, .a = 1.0f } }));
 
     mel_render_graph_compile(&s_graph);

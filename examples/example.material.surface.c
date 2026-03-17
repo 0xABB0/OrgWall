@@ -414,7 +414,7 @@ void app_init(void)
 {
     s_window_handle = mel_window_create(S8("Melody Surface Materials"), .width = WIN_W, .height = WIN_H);
     s_swapchain_handle = mel_gpu_swapchain_create_for_window_ex(mel_gpu_dev(), s_window_handle,
-        .preferred_present_mode = VK_PRESENT_MODE_MAILBOX_KHR);
+        .preferred_present_mode = MEL_GPU_PRESENT_MODE_MAILBOX);
     mel_vfs_mount(S8("/"), mel_vfs_backend_os(), .root = S8("/"));
 
     material_surface_on_init();

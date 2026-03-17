@@ -1,6 +1,4 @@
 #include "ui.widget.panel.h"
-#include "render.list.h"
-#include "sprite.pass.h"
 
 static void wpanel_draw(Mel_Widget* w, void* ctx)
 {

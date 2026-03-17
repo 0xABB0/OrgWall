@@ -1,7 +1,5 @@
 #include "ui.widget.label.h"
 #include "font.atlas.h"
-#include "render.list.h"
-#include "sprite.pass.h"
 #include "collection.slotmap.h"
 #include "string.str8.h"
 
