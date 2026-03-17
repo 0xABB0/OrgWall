@@ -11,6 +11,7 @@
 static int g_build_mode = BUILD_MODE_DEBUG;
 static bool g_verbose = false;
 static bool g_timings = false;
+static const char* g_backend = "vulkan";
 
 #define TIMING_LEVEL (g_verbose ? NOB_INFO : NOB_WARNING)
 
@@ -164,6 +165,19 @@ static const Platform_Suffix PLATFORM_SUFFIXES[] = {
 #endif
 };
 
+typedef struct {
+    const char* name;
+    const char* suffix;
+} Backend_Entry;
+
+static const Backend_Entry BACKENDS[] = {
+    { "vulkan", ".vulkan." },
+    { "metal",  ".metal."  },
+    { "dx12",   ".dx12."   },
+    { "opengl", ".opengl." },
+    { "webgpu", ".webgpu." },
+};
+
 static bool should_skip_platform_file(const char* name)
 {
     for (size_t i = 0; i < NOB_ARRAY_LEN(PLATFORM_SUFFIXES); i++)
@@ -171,6 +185,13 @@ static bool should_skip_platform_file(const char* name)
         if (strstr(name, PLATFORM_SUFFIXES[i].suffix))
             return !PLATFORM_SUFFIXES[i].active;
     }
+
+    for (size_t i = 0; i < NOB_ARRAY_LEN(BACKENDS); i++)
+    {
+        if (strstr(name, BACKENDS[i].suffix))
+            return strcmp(BACKENDS[i].name, g_backend) != 0;
+    }
+
     return false;
 }
 
@@ -1338,6 +1359,25 @@ int main(int argc, char** argv)
         {
             g_timings = true;
         }
+        else if (strncmp(argv[arg_idx], "--backend=", 10) == 0)
+        {
+            const char* name = argv[arg_idx] + 10;
+            bool found = false;
+            for (size_t i = 0; i < NOB_ARRAY_LEN(BACKENDS); i++)
+            {
+                if (strcmp(name, BACKENDS[i].name) == 0)
+                {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found)
+            {
+                nob_log(NOB_ERROR, "Unknown backend: %s (available: vulkan, metal, dx12, opengl, webgpu)", name);
+                return 1;
+            }
+            g_backend = name;
+        }
         else
         {
             nob_log(NOB_ERROR, "Unknown flag: %s", argv[arg_idx]);
@@ -1358,6 +1398,9 @@ int main(int argc, char** argv)
         nob_log(NOB_WARNING, "Build mode: SANITIZE (ASan + UBSan)");
         arg_idx++;
     }
+
+    if (strcmp(g_backend, "vulkan") != 0)
+        nob_log(NOB_WARNING, "GPU backend: %s", g_backend);
 
     const char* subcmd = arg_idx < argc ? argv[arg_idx] : "build";
 

@@ -1,5 +1,5 @@
 #include "gpu.descriptor.h"
-#include "gpu.device.h"
+#include "gpu.device.vulkan.h"
 #include "gpu.cmd.h"
 #include "gpu.buffer.h"
 #include "gpu.types.vulkan.h"
@@ -76,7 +76,7 @@ void mel_gpu_descriptor_layout_init_opt(Mel_Gpu_Descriptor_Layout* dl, Mel_Gpu_D
     };
 
     VkDescriptorSetLayout vk_layout = VK_NULL_HANDLE;
-    VkResult r = vkCreateDescriptorSetLayout(dev->device, &layout_info, nullptr, &vk_layout);
+    VkResult r = vkCreateDescriptorSetLayout(mel__gpu_device_vk(dev)->device, &layout_info, nullptr, &vk_layout);
     assert(r == VK_SUCCESS);
     dl->_layout = vk_layout;
 
@@ -90,7 +90,7 @@ void mel_gpu_descriptor_layout_shutdown(Mel_Gpu_Descriptor_Layout* dl, Mel_Gpu_D
 
     if (dl->_layout)
     {
-        vkDestroyDescriptorSetLayout(dev->device, (VkDescriptorSetLayout)dl->_layout, nullptr);
+        vkDestroyDescriptorSetLayout(mel__gpu_device_vk(dev)->device, (VkDescriptorSetLayout)dl->_layout, nullptr);
         dl->_layout = nullptr;
     }
 }
@@ -124,7 +124,7 @@ void mel_gpu_descriptor_pool_init_opt(Mel_Gpu_Descriptor_Pool* dp, Mel_Gpu_Devic
     };
 
     VkDescriptorPool vk_pool = VK_NULL_HANDLE;
-    VkResult r = vkCreateDescriptorPool(dev->device, &pool_info, nullptr, &vk_pool);
+    VkResult r = vkCreateDescriptorPool(mel__gpu_device_vk(dev)->device, &pool_info, nullptr, &vk_pool);
     assert(r == VK_SUCCESS);
     dp->_pool = vk_pool;
 }
@@ -136,7 +136,7 @@ void mel_gpu_descriptor_pool_shutdown(Mel_Gpu_Descriptor_Pool* dp, Mel_Gpu_Devic
 
     if (dp->_pool)
     {
-        vkDestroyDescriptorPool(dev->device, (VkDescriptorPool)dp->_pool, nullptr);
+        vkDestroyDescriptorPool(mel__gpu_device_vk(dev)->device, (VkDescriptorPool)dp->_pool, nullptr);
         dp->_pool = nullptr;
     }
 }
@@ -167,7 +167,7 @@ void* mel_gpu_descriptor_pool_alloc(Mel_Gpu_Descriptor_Pool* dp, Mel_Gpu_Device*
     };
 
     VkDescriptorSet set;
-    VkResult r = vkAllocateDescriptorSets(dev->device, &alloc_info, &set);
+    VkResult r = vkAllocateDescriptorSets(mel__gpu_device_vk(dev)->device, &alloc_info, &set);
     assert(r == VK_SUCCESS);
 
     return set;
@@ -195,7 +195,7 @@ void mel_gpu_descriptor_write_texture(Mel_Gpu_Device* dev, void* set,
         .pImageInfo = &image_info,
     };
 
-    vkUpdateDescriptorSets(dev->device, 1, &write, 0, nullptr);
+    vkUpdateDescriptorSets(mel__gpu_device_vk(dev)->device, 1, &write, 0, nullptr);
 }
 
 void mel_gpu_descriptor_write_buffer(Mel_Gpu_Device* dev, void* set,
@@ -223,7 +223,7 @@ void mel_gpu_descriptor_write_buffer(Mel_Gpu_Device* dev, void* set,
         .pBufferInfo = &buffer_info,
     };
 
-    vkUpdateDescriptorSets(dev->device, 1, &write, 0, nullptr);
+    vkUpdateDescriptorSets(mel__gpu_device_vk(dev)->device, 1, &write, 0, nullptr);
 }
 
 void mel_gpu_descriptor_bind(Mel_Gpu_Cmd* cmd, void* pipeline_layout, void* set)

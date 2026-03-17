@@ -1,6 +1,5 @@
 #include "text.pass.h"
 #include "gpu.device.h"
-#include "gpu.types.vulkan.h"
 #include "render.list.h"
 #include "render.pass.h"
 #include "render.camera.h"

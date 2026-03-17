@@ -1,5 +1,5 @@
 #include "gpu.scratch_pool.h"
-#include "gpu.device.h"
+#include "gpu.device.vulkan.h"
 #include "gpu.types.vulkan.h"
 #include "allocator.heap.h"
 
@@ -23,17 +23,17 @@ static VkDeviceSize mel__scratch_image_size(Mel_Gpu_Device* dev, Mel_Scratch_Des
 
     VkMemoryRequirements reqs;
     VkImage tmp;
-    VkResult r = vkCreateImage(dev->device, &info, nullptr, &tmp);
+    VkResult r = vkCreateImage(mel__gpu_device_vk(dev)->device, &info, nullptr, &tmp);
     assert(r == VK_SUCCESS);
-    vkGetImageMemoryRequirements(dev->device, tmp, &reqs);
-    vkDestroyImage(dev->device, tmp, nullptr);
+    vkGetImageMemoryRequirements(mel__gpu_device_vk(dev)->device, tmp, &reqs);
+    vkDestroyImage(mel__gpu_device_vk(dev)->device, tmp, nullptr);
     return reqs.size;
 }
 
 static u32 mel__scratch_find_memory_type(Mel_Gpu_Device* dev, u32 type_bits, VkMemoryPropertyFlags props)
 {
     VkPhysicalDeviceMemoryProperties mem_props;
-    vkGetPhysicalDeviceMemoryProperties(dev->physical_device, &mem_props);
+    vkGetPhysicalDeviceMemoryProperties(mel__gpu_device_vk(dev)->physical_device, &mem_props);
 
     for (u32 i = 0; i < mem_props.memoryTypeCount; i++)
     {
@@ -57,7 +57,7 @@ static Mel_Scratch_Block mel__scratch_block_create(Mel_Gpu_Device* dev, VkDevice
     };
 
     VkDeviceMemory memory = VK_NULL_HANDLE;
-    VkResult r = vkAllocateMemory(dev->device, &alloc_info, nullptr, &memory);
+    VkResult r = vkAllocateMemory(mel__gpu_device_vk(dev)->device, &alloc_info, nullptr, &memory);
     assert(r == VK_SUCCESS);
     block._memory = memory;
 
@@ -73,14 +73,14 @@ static void mel__scratch_block_destroy(Mel_Gpu_Device* dev, Mel_Scratch_Block* b
     {
         Mel_Scratch_Image* si = &block->images[i];
         if (si->image._view)
-            vkDestroyImageView(dev->device, (VkImageView)si->image._view, nullptr);
+            vkDestroyImageView(mel__gpu_device_vk(dev)->device, (VkImageView)si->image._view, nullptr);
         if (si->image._handle)
-            vkDestroyImage(dev->device, (VkImage)si->image._handle, nullptr);
+            vkDestroyImage(mel__gpu_device_vk(dev)->device, (VkImage)si->image._handle, nullptr);
         if (si->image.subresource_states)
             mel_dealloc(alloc, si->image.subresource_states);
     }
     if (block->_memory)
-        vkFreeMemory(dev->device, (VkDeviceMemory)block->_memory, nullptr);
+        vkFreeMemory(mel__gpu_device_vk(dev)->device, (VkDeviceMemory)block->_memory, nullptr);
     if (block->images)
         mel_dealloc(alloc, block->images);
     *block = (Mel_Scratch_Block){0};
@@ -139,10 +139,10 @@ static Mel_Scratch_Image mel__scratch_image_create(Mel_Gpu_Device* dev, Mel_Scra
     };
 
     VkImage vk_image = VK_NULL_HANDLE;
-    VkResult r = vkCreateImage(dev->device, &image_info, nullptr, &vk_image);
+    VkResult r = vkCreateImage(mel__gpu_device_vk(dev)->device, &image_info, nullptr, &vk_image);
     assert(r == VK_SUCCESS);
 
-    r = vkBindImageMemory(dev->device, vk_image, (VkDeviceMemory)block->_memory, 0);
+    r = vkBindImageMemory(mel__gpu_device_vk(dev)->device, vk_image, (VkDeviceMemory)block->_memory, 0);
     assert(r == VK_SUCCESS);
 
     VkImageView vk_view = VK_NULL_HANDLE;
@@ -160,7 +160,7 @@ static Mel_Scratch_Image mel__scratch_image_create(Mel_Gpu_Device* dev, Mel_Scra
         },
     };
 
-    r = vkCreateImageView(dev->device, &view_info, nullptr, &vk_view);
+    r = vkCreateImageView(mel__gpu_device_vk(dev)->device, &view_info, nullptr, &vk_view);
     assert(r == VK_SUCCESS);
 
     si.image._handle = vk_image;
@@ -258,11 +258,11 @@ Mel_Gpu_Image mel_scratch_acquire_opt(Mel_Scratch_Pool* pool, Mel_Scratch_Desc d
     };
 
     VkImage probe;
-    VkResult r = vkCreateImage(pool->dev->device, &probe_info, nullptr, &probe);
+    VkResult r = vkCreateImage(mel__gpu_device_vk(pool->dev)->device, &probe_info, nullptr, &probe);
     assert(r == VK_SUCCESS);
     VkMemoryRequirements reqs;
-    vkGetImageMemoryRequirements(pool->dev->device, probe, &reqs);
-    vkDestroyImage(pool->dev->device, probe, nullptr);
+    vkGetImageMemoryRequirements(mel__gpu_device_vk(pool->dev)->device, probe, &reqs);
+    vkDestroyImage(mel__gpu_device_vk(pool->dev)->device, probe, nullptr);
 
     if (block_size < reqs.size)
         block_size = reqs.size;

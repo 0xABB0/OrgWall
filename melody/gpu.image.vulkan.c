@@ -1,5 +1,5 @@
 #include "gpu.image.h"
-#include "gpu.device.h"
+#include "gpu.device.vulkan.h"
 #include "gpu.cmd.h"
 #include "gpu.types.vulkan.h"
 #include "allocator.heap.h"
@@ -44,7 +44,7 @@ void mel_gpu_image_init_opt(Mel_Gpu_Image* img, Mel_Gpu_Device* dev, Mel_Gpu_Ima
 
     VkImage vk_image = VK_NULL_HANDLE;
     VmaAllocation vma_alloc = VK_NULL_HANDLE;
-    VkResult r = vmaCreateImage(dev->vma, &image_info, &alloc_info, &vk_image, &vma_alloc, nullptr);
+    VkResult r = vmaCreateImage(mel__gpu_device_vk(dev)->vma, &image_info, &alloc_info, &vk_image, &vma_alloc, nullptr);
     assert(r == VK_SUCCESS);
 
     VkImageView vk_view = VK_NULL_HANDLE;
@@ -62,7 +62,7 @@ void mel_gpu_image_init_opt(Mel_Gpu_Image* img, Mel_Gpu_Device* dev, Mel_Gpu_Ima
         },
     };
 
-    r = vkCreateImageView(dev->device, &view_info, nullptr, &vk_view);
+    r = vkCreateImageView(mel__gpu_device_vk(dev)->device, &view_info, nullptr, &vk_view);
     assert(r == VK_SUCCESS);
 
     img->_handle = vk_image;
@@ -101,13 +101,13 @@ void mel_gpu_image_shutdown(Mel_Gpu_Image* img, Mel_Gpu_Device* dev)
 
     if (img->_view)
     {
-        vkDestroyImageView(dev->device, (VkImageView)img->_view, nullptr);
+        vkDestroyImageView(mel__gpu_device_vk(dev)->device, (VkImageView)img->_view, nullptr);
         img->_view = nullptr;
     }
 
     if (img->_handle && img->_allocation)
     {
-        vmaDestroyImage(dev->vma, (VkImage)img->_handle, (VmaAllocation)img->_allocation);
+        vmaDestroyImage(mel__gpu_device_vk(dev)->vma, (VkImage)img->_handle, (VmaAllocation)img->_allocation);
         img->_handle = nullptr;
         img->_allocation = nullptr;
     }

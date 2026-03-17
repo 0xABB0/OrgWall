@@ -1,5 +1,5 @@
 #include "render.texture_table.h"
-#include "gpu.device.h"
+#include "gpu.device.vulkan.h"
 #include "gpu.cmd.h"
 #include "gpu.types.vulkan.h"
 
@@ -78,7 +78,7 @@ u32 mel_texture_table_add(Mel_Texture_Table* tt, void* view, void* sampler)
         .pImageInfo = &image_info,
     };
 
-    vkUpdateDescriptorSets(tt->dev->device, 1, &write, 0, nullptr);
+    vkUpdateDescriptorSets(mel__gpu_device_vk(tt->dev)->device, 1, &write, 0, nullptr);
 
     return (u32)slot;
 }

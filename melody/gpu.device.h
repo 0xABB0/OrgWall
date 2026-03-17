@@ -7,12 +7,6 @@
 
 #include <SDL3/SDL.h>
 
-#define VK_NO_PROTOTYPES
-#include <vulkan/vulkan.h>
-#include <volk.h>
-#include <vk_mem_alloc.h>
-#include <SDL3/SDL_vulkan.h>
-
 typedef struct Mel_Gpu_Device Mel_Gpu_Device;
 typedef struct Mel_Gpu_Capabilities Mel_Gpu_Capabilities;
 
@@ -31,30 +25,14 @@ struct Mel_Gpu_Capabilities {
 };
 
 struct Mel_Gpu_Device {
-    VkInstance instance;
-    VkDebugUtilsMessengerEXT debug_messenger;
-    VkPhysicalDevice physical_device;
-    VkDevice device;
-
-    VkQueue graphics_queue;
-    VkQueue present_queue;
-    VkQueue transfer_queue;
+    void* _backend;
     u32 graphics_family;
     u32 present_family;
     u32 transfer_family;
-
-    VmaAllocator vma;
-
-    VkPhysicalDeviceProperties2 device_properties;
-    VkPhysicalDeviceDescriptorBufferPropertiesEXT desc_buffer_props;
     Mel_Gpu_Capabilities capabilities;
-
     const Mel_Alloc* alloc;
-
     bool validation_enabled;
-    bool has_descriptor_buffer;
-    bool has_present_queue;
-    bool has_portability_subset;
+    bool ready;
 };
 
 typedef struct {
@@ -70,9 +48,9 @@ void mel_gpu_device_shutdown(Mel_Gpu_Device* dev);
 void mel_gpu_device_wait_idle(Mel_Gpu_Device* dev);
 Mel_Gpu_Capabilities mel_gpu_capabilities(Mel_Gpu_Device* dev);
 
-VkSurfaceKHR mel_gpu_surface_create(Mel_Gpu_Device* dev, SDL_Window* window);
-void mel_gpu_surface_destroy(Mel_Gpu_Device* dev, VkSurfaceKHR surface);
-bool mel_gpu_device_configure_present(Mel_Gpu_Device* dev, VkSurfaceKHR surface);
+void* mel_gpu_surface_create(Mel_Gpu_Device* dev, SDL_Window* window);
+void  mel_gpu_surface_destroy(Mel_Gpu_Device* dev, void* surface);
+bool  mel_gpu_device_configure_present(Mel_Gpu_Device* dev, void* surface);
 
 Mel_Gpu_Device* mel_gpu_dev(void);
 

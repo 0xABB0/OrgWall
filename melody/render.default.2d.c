@@ -58,7 +58,7 @@ bool mel_render_default_2d_init_opt(Mel_Render_Default_2D* renderer, Mel_Render_
     mel_array_init(&renderer->owned_sources, alloc);
 
     mel_render_graph_init(&renderer->graph,
-        .dev = dev && dev->device != VK_NULL_HANDLE ? dev : nullptr,
+        .dev = dev && dev->ready ? dev : nullptr,
         .alloc = alloc);
 
     renderer->view = mel_view_create(&(Mel_View_Desc){

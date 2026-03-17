@@ -1,5 +1,5 @@
 #include "mesh.pass.h"
-#include "gpu.device.h"
+#include "gpu.device.vulkan.h"
 #include "gpu.types.vulkan.h"
 #include "render.list.h"
 #include "render.pass.h"
@@ -976,7 +976,7 @@ static void mel__mesh_pass_create_visibility_sampler(Mel_Mesh_Pass* pass)
         .maxLod = 1.0f,
     };
     VkSampler sampler = nullptr;
-    VkResult r = vkCreateSampler(pass->dev->device, &sampler_info, nullptr, &sampler);
+    VkResult r = vkCreateSampler(mel__gpu_device_vk(pass->dev)->device, &sampler_info, nullptr, &sampler);
     assert(r == VK_SUCCESS);
     pass->_visibility_sampler = sampler;
 }
@@ -1681,7 +1681,7 @@ void mel_mesh_pass_shutdown(Mel_Mesh_Pass* pass)
     }
     mel_gpu_buffer_shutdown(&pass->empty_light_buffer, pass->dev);
     if (pass->_visibility_sampler)
-        vkDestroySampler(pass->dev->device, pass->_visibility_sampler, nullptr);
+        vkDestroySampler(mel__gpu_device_vk(pass->dev)->device, pass->_visibility_sampler, nullptr);
     mel_gpu_pipeline_shutdown(&pass->mesh_pipeline, pass->dev);
     mel_gpu_pipeline_shutdown(&pass->compute_batch_pipeline, pass->dev);
     mel_gpu_pipeline_shutdown(&pass->compute_pipeline, pass->dev);

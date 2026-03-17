@@ -1,5 +1,5 @@
 #include "gpu.storage_pool.h"
-#include "gpu.device.h"
+#include "gpu.device.vulkan.h"
 #include "gpu.types.vulkan.h"
 #include "allocator.h"
 #include "allocator.heap.h"

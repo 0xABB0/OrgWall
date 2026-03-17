@@ -1,5 +1,5 @@
 #include "gpu.buffer.h"
-#include "gpu.device.h"
+#include "gpu.device.vulkan.h"
 #include "gpu.types.vulkan.h"
 #include <string.h>
 #include <tracy/TracyC.h>
@@ -36,7 +36,7 @@ void mel_gpu_buffer_init_opt(Mel_Gpu_Buffer* buf, Mel_Gpu_Device* dev, Mel_Gpu_B
     VmaAllocationInfo allocation_info;
     VkBuffer vk_buffer = VK_NULL_HANDLE;
     VmaAllocation vma_alloc = VK_NULL_HANDLE;
-    VkResult r = vmaCreateBuffer(dev->vma, &buffer_info, &alloc_info, &vk_buffer, &vma_alloc, &allocation_info);
+    VkResult r = vmaCreateBuffer(mel__gpu_device_vk(dev)->vma, &buffer_info, &alloc_info, &vk_buffer, &vma_alloc, &allocation_info);
     assert(r == VK_SUCCESS);
 
     buf->_handle = vk_buffer;
@@ -51,7 +51,7 @@ void mel_gpu_buffer_init_opt(Mel_Gpu_Buffer* buf, Mel_Gpu_Device* dev, Mel_Gpu_B
         .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
         .buffer = vk_buffer,
     };
-    buf->device_address = vkGetBufferDeviceAddress(dev->device, &addr_info);
+    buf->device_address = vkGetBufferDeviceAddress(mel__gpu_device_vk(dev)->device, &addr_info);
     TracyCZoneEnd(ctx);
 }
 
@@ -62,7 +62,7 @@ void mel_gpu_buffer_shutdown(Mel_Gpu_Buffer* buf, Mel_Gpu_Device* dev)
 
     if (buf->_handle)
     {
-        vmaDestroyBuffer(dev->vma, (VkBuffer)buf->_handle, (VmaAllocation)buf->_allocation);
+        vmaDestroyBuffer(mel__gpu_device_vk(dev)->vma, (VkBuffer)buf->_handle, (VmaAllocation)buf->_allocation);
         buf->_handle = nullptr;
         buf->_allocation = nullptr;
         buf->mapped = nullptr;
@@ -76,7 +76,7 @@ void* mel_gpu_buffer_map(Mel_Gpu_Buffer* buf, Mel_Gpu_Device* dev)
     assert(dev != nullptr);
     assert(buf->mapped == nullptr);
 
-    vmaMapMemory(dev->vma, (VmaAllocation)buf->_allocation, &buf->mapped);
+    vmaMapMemory(mel__gpu_device_vk(dev)->vma, (VmaAllocation)buf->_allocation, &buf->mapped);
     return buf->mapped;
 }
 
@@ -86,7 +86,7 @@ void mel_gpu_buffer_unmap(Mel_Gpu_Buffer* buf, Mel_Gpu_Device* dev)
     assert(dev != nullptr);
     assert(buf->mapped != nullptr);
 
-    vmaUnmapMemory(dev->vma, (VmaAllocation)buf->_allocation);
+    vmaUnmapMemory(mel__gpu_device_vk(dev)->vma, (VmaAllocation)buf->_allocation);
     buf->mapped = nullptr;
 }
 
@@ -95,7 +95,7 @@ void mel_gpu_buffer_flush(Mel_Gpu_Buffer* buf, Mel_Gpu_Device* dev)
     assert(buf != nullptr);
     assert(dev != nullptr);
 
-    vmaFlushAllocation(dev->vma, (VmaAllocation)buf->_allocation, 0, buf->size);
+    vmaFlushAllocation(mel__gpu_device_vk(dev)->vma, (VmaAllocation)buf->_allocation, 0, buf->size);
 }
 
 void mel_gpu_buffer_upload(Mel_Gpu_Buffer* buf, Mel_Gpu_Device* dev,

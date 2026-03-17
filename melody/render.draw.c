@@ -3,7 +3,6 @@
 #include "gpu.pipeline.h"
 #include "gpu.cmd.h"
 #include "gpu.texture.h"
-#include "gpu.types.vulkan.h"
 #include "font.atlas.h"
 #include "texture.pool.h"
 #include "string.str8.h"

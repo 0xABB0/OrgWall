@@ -1,5 +1,5 @@
 #include "gpu.cmd.h"
-#include "gpu.device.h"
+#include "gpu.device.vulkan.h"
 #include "gpu.types.vulkan.h"
 #include "gpu.image.h"
 #include "gpu.buffer.h"

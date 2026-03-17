@@ -160,7 +160,7 @@ static void mel__frame_plan_clear_generated(Mel_Frame_Plan* plan)
 {
     if (mel__graph_is_live(plan->graph))
     {
-        if (plan->graph->dev && plan->graph->dev->device != VK_NULL_HANDLE)
+        if (plan->graph->dev && plan->graph->dev->ready)
             mel_gpu_device_wait_idle(plan->graph->dev);
 
         for (usize i = 0; i < plan->generated_pass_names.count; i++)
@@ -491,7 +491,7 @@ static void mel__frame_plan_resolve_materials(Mel_Frame_Plan* plan, Mel_Frame_Pl
 }
 
 static Mel_Frame_Plan_Target* mel__frame_plan_get_target(Mel_Frame_Plan* plan,
-    Mel_Swapchain_Handle handle, Mel_Gpu_Device* dev, u32 role, str8 key_name, VkFormat color_format)
+    Mel_Swapchain_Handle handle, Mel_Gpu_Device* dev, u32 role, str8 key_name, Mel_Gpu_Format color_format)
 {
     for (usize i = 0; i < plan->generated_targets.count; i++)
         if (mel__same_swapchain(plan->generated_targets.items[i].swapchain, handle) &&
@@ -507,7 +507,7 @@ static Mel_Frame_Plan_Target* mel__frame_plan_get_target(Mel_Frame_Plan* plan,
     };
     if (role == MEL_RENDER_TARGET_DEPTH)
     {
-        if (dev && dev->device != VK_NULL_HANDLE)
+        if (dev && dev->ready)
         {
             mel_render_target_init(&gen.target, dev,
                 .name = S8("recipe_depth"),
@@ -531,7 +531,7 @@ static Mel_Frame_Plan_Target* mel__frame_plan_get_target(Mel_Frame_Plan* plan,
     else if (role == MEL_RENDER_TARGET_COLOR)
     {
         str8 target_name = gen.key_name.len ? gen.key_name : S8("recipe_color");
-        if (dev && dev->device != VK_NULL_HANDLE)
+        if (dev && dev->ready)
         {
             mel_render_target_init(&gen.target, dev,
                 .name = target_name,
@@ -579,10 +579,10 @@ static bool mel__frame_plan_refresh_target(Mel_Frame_Plan* plan, Mel_Frame_Plan_
 
     changed = true;
 
-    if (dev && dev->device != VK_NULL_HANDLE)
+    if (dev && dev->ready)
     {
         str8 name = gen->target.name;
-        VkFormat format = gen->target.format;
+        Mel_Gpu_Format format = gen->target.format;
         const Mel_Alloc* alloc = gen->target.alloc ? gen->target.alloc : plan->alloc;
         mel_render_target_shutdown(&gen->target);
         mel_render_target_init(&gen->target, dev,
@@ -886,9 +886,9 @@ bool mel_frame_plan_add_compute_pass(Mel_Frame_Plan_Technique_Ctx* ctx, str8 pas
 bool mel_frame_plan_add_pass(Mel_Frame_Plan_Technique_Ctx* ctx, str8 pass_suffix,
     Mel_Render_Pass_Fn fn, void* user, Mel_Render_List** read_lists, Mel_Source_Handle* read_sources, Mel_Render_Target** read_targets)
 {
-    VkAttachmentLoadOp load_op = (!*ctx->wrote_any_pass && (ctx->first_for_swapchain || ctx->replace_contents))
-        ? VK_ATTACHMENT_LOAD_OP_CLEAR
-        : VK_ATTACHMENT_LOAD_OP_LOAD;
+    Mel_Gpu_Load_Op load_op = (!*ctx->wrote_any_pass && (ctx->first_for_swapchain || ctx->replace_contents))
+        ? MEL_GPU_LOAD_OP_CLEAR
+        : MEL_GPU_LOAD_OP_LOAD;
     Mel_Vec4 clear = mel_view_clear_color_enabled(ctx->binding.view)
         ? mel_view_clear_color(ctx->binding.view)
         : mel_vec4(0.0f, 0.0f, 0.0f, 1.0f);
@@ -1192,7 +1192,7 @@ Mel_Render_Target* mel_frame_plan_swapchain_depth_target(Mel_Frame_Plan_Handle h
 }
 
 Mel_Render_Target* mel_frame_plan_named_color_target(Mel_Frame_Plan_Handle handle, Mel_Swapchain_Handle swapchain,
-    str8 name, VkFormat format)
+    str8 name, Mel_Gpu_Format format)
 {
     Mel_Frame_Plan* plan = mel__frame_plan_get(handle);
     Mel_Gpu_Device* dev = plan->dev ? plan->dev : mel_gpu_dev();

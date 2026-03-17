@@ -7,7 +7,7 @@
 #include "mesh.pass.h"
 #include "sprite.pass.h"
 #include "text.pass.h"
-#include "gpu.device.h"
+#include "gpu.device.vulkan.h"
 #include "core.engine.h"
 #include "collection.array.h"
 #include "allocator.heap.h"
@@ -278,10 +278,10 @@ static Mel_Technique_Compile_Result mel__compile_mesh(const Mel_Technique_Compil
         return MEL_TECHNIQUE_COMPILE_SKIP;
     }
 
-    VkAttachmentLoadOp color_load_op = (!*ctx->plan_ctx->wrote_any_pass &&
+    Mel_Gpu_Load_Op color_load_op = (!*ctx->plan_ctx->wrote_any_pass &&
         (ctx->plan_ctx->first_for_swapchain || ctx->plan_ctx->replace_contents))
-        ? VK_ATTACHMENT_LOAD_OP_CLEAR
-        : VK_ATTACHMENT_LOAD_OP_LOAD;
+        ? MEL_GPU_LOAD_OP_CLEAR
+        : MEL_GPU_LOAD_OP_LOAD;
     Mel_Vec4 clear = mel_view_clear_color_enabled(ctx->plan_ctx->binding.view)
         ? mel_view_clear_color(ctx->plan_ctx->binding.view)
         : mel_vec4(0.0f, 0.0f, 0.0f, 1.0f);
@@ -292,7 +292,7 @@ static Mel_Technique_Compile_Result mel__compile_mesh(const Mel_Technique_Compil
         MEL_WRITE_TARGETS(
             { .target = ctx->plan_ctx->target, .load_op = color_load_op,
               .clear.color = { .r = clear.x, .g = clear.y, .b = clear.z, .a = clear.w } },
-            { .target = depth_target, .load_op = VK_ATTACHMENT_LOAD_OP_CLEAR,
+            { .target = depth_target, .load_op = MEL_GPU_LOAD_OP_CLEAR,
               .clear.depth = { .depth = 1.0f, .stencil = 0 } }));
     mel_frame_plan_free_read_lists(ctx->plan_ctx->plan, read_lists);
     mel_frame_plan_free_read_sources(ctx->plan_ctx->plan, draw_sources);
@@ -329,10 +329,10 @@ static Mel_Technique_Compile_Result mel__compile_mesh_compute_indirect(const Mel
         return MEL_TECHNIQUE_COMPILE_FAIL;
     }
 
-    VkAttachmentLoadOp color_load_op = (!*ctx->plan_ctx->wrote_any_pass &&
+    Mel_Gpu_Load_Op color_load_op = (!*ctx->plan_ctx->wrote_any_pass &&
         (ctx->plan_ctx->first_for_swapchain || ctx->plan_ctx->replace_contents))
-        ? VK_ATTACHMENT_LOAD_OP_CLEAR
-        : VK_ATTACHMENT_LOAD_OP_LOAD;
+        ? MEL_GPU_LOAD_OP_CLEAR
+        : MEL_GPU_LOAD_OP_LOAD;
     Mel_Vec4 clear = mel_view_clear_color_enabled(ctx->plan_ctx->binding.view)
         ? mel_view_clear_color(ctx->plan_ctx->binding.view)
         : mel_vec4(0.0f, 0.0f, 0.0f, 1.0f);
@@ -343,7 +343,7 @@ static Mel_Technique_Compile_Result mel__compile_mesh_compute_indirect(const Mel
         MEL_WRITE_TARGETS(
             { .target = ctx->plan_ctx->target, .load_op = color_load_op,
               .clear.color = { .r = clear.x, .g = clear.y, .b = clear.z, .a = clear.w } },
-            { .target = depth_target, .load_op = VK_ATTACHMENT_LOAD_OP_CLEAR,
+            { .target = depth_target, .load_op = MEL_GPU_LOAD_OP_CLEAR,
               .clear.depth = { .depth = 1.0f, .stencil = 0 } }));
     mel_frame_plan_free_read_sources(ctx->plan_ctx->plan, cull_sources);
     mel_frame_plan_free_read_sources(ctx->plan_ctx->plan, material_sources);
@@ -378,10 +378,10 @@ static Mel_Technique_Compile_Result mel__compile_mesh_compute_indirect_batch(con
         return MEL_TECHNIQUE_COMPILE_FAIL;
     }
 
-    VkAttachmentLoadOp color_load_op = (!*ctx->plan_ctx->wrote_any_pass &&
+    Mel_Gpu_Load_Op color_load_op = (!*ctx->plan_ctx->wrote_any_pass &&
         (ctx->plan_ctx->first_for_swapchain || ctx->plan_ctx->replace_contents))
-        ? VK_ATTACHMENT_LOAD_OP_CLEAR
-        : VK_ATTACHMENT_LOAD_OP_LOAD;
+        ? MEL_GPU_LOAD_OP_CLEAR
+        : MEL_GPU_LOAD_OP_LOAD;
     Mel_Vec4 clear = mel_view_clear_color_enabled(ctx->plan_ctx->binding.view)
         ? mel_view_clear_color(ctx->plan_ctx->binding.view)
         : mel_vec4(0.0f, 0.0f, 0.0f, 1.0f);
@@ -392,7 +392,7 @@ static Mel_Technique_Compile_Result mel__compile_mesh_compute_indirect_batch(con
         MEL_WRITE_TARGETS(
             { .target = ctx->plan_ctx->target, .load_op = color_load_op,
               .clear.color = { .r = clear.x, .g = clear.y, .b = clear.z, .a = clear.w } },
-            { .target = depth_target, .load_op = VK_ATTACHMENT_LOAD_OP_CLEAR,
+            { .target = depth_target, .load_op = MEL_GPU_LOAD_OP_CLEAR,
               .clear.depth = { .depth = 1.0f, .stencil = 0 } }));
     mel_frame_plan_free_read_sources(ctx->plan_ctx->plan, cull_sources);
     mel_frame_plan_free_read_sources(ctx->plan_ctx->plan, material_sources);
@@ -415,10 +415,10 @@ static Mel_Technique_Compile_Result mel__compile_mesh_shader(const Mel_Technique
         return MEL_TECHNIQUE_COMPILE_SKIP;
     }
 
-    VkAttachmentLoadOp color_load_op = (!*ctx->plan_ctx->wrote_any_pass &&
+    Mel_Gpu_Load_Op color_load_op = (!*ctx->plan_ctx->wrote_any_pass &&
         (ctx->plan_ctx->first_for_swapchain || ctx->plan_ctx->replace_contents))
-        ? VK_ATTACHMENT_LOAD_OP_CLEAR
-        : VK_ATTACHMENT_LOAD_OP_LOAD;
+        ? MEL_GPU_LOAD_OP_CLEAR
+        : MEL_GPU_LOAD_OP_LOAD;
     Mel_Vec4 clear = mel_view_clear_color_enabled(ctx->plan_ctx->binding.view)
         ? mel_view_clear_color(ctx->plan_ctx->binding.view)
         : mel_vec4(0.0f, 0.0f, 0.0f, 1.0f);
@@ -429,7 +429,7 @@ static Mel_Technique_Compile_Result mel__compile_mesh_shader(const Mel_Technique
         MEL_WRITE_TARGETS(
             { .target = ctx->plan_ctx->target, .load_op = color_load_op,
               .clear.color = { .r = clear.x, .g = clear.y, .b = clear.z, .a = clear.w } },
-            { .target = depth_target, .load_op = VK_ATTACHMENT_LOAD_OP_CLEAR,
+            { .target = depth_target, .load_op = MEL_GPU_LOAD_OP_CLEAR,
               .clear.depth = { .depth = 1.0f, .stencil = 0 } }));
     mel_frame_plan_free_read_sources(ctx->plan_ctx->plan, draw_sources);
     mel_frame_plan_free_read_sources(ctx->plan_ctx->plan, material_sources);
@@ -493,9 +493,9 @@ static Mel_Technique_Compile_Result mel__compile_mesh_visibility_buffer(const Me
     ok = mel_frame_plan_add_graphics_pass(ctx->plan_ctx, fill_suffix,
         mel_mesh_pass_execute_visibility_fill, mesh_pass, read_lists, read_sources, nullptr,
         MEL_WRITE_TARGETS(
-            { .target = visibility_target, .load_op = VK_ATTACHMENT_LOAD_OP_CLEAR,
+            { .target = visibility_target, .load_op = MEL_GPU_LOAD_OP_CLEAR,
               .clear.color = { .r = 0.5f, .g = 0.5f, .b = 1.0f, .a = 0.0f } },
-            { .target = depth_target, .load_op = VK_ATTACHMENT_LOAD_OP_CLEAR,
+            { .target = depth_target, .load_op = MEL_GPU_LOAD_OP_CLEAR,
               .clear.depth = { .depth = 1.0f, .stencil = 0 } }));
     mel_dealloc(mel_alloc_heap(), fill_suffix.data);
     if (!ok)
@@ -514,9 +514,9 @@ static Mel_Technique_Compile_Result mel__compile_mesh_visibility_buffer(const Me
     ok = mel_frame_plan_add_graphics_pass(ctx->plan_ctx, attr_suffix,
         mel_mesh_pass_execute_visibility_attribute_fill, mesh_pass, read_lists, read_sources, nullptr,
         MEL_WRITE_TARGETS(
-            { .target = attribute_target, .load_op = VK_ATTACHMENT_LOAD_OP_CLEAR,
+            { .target = attribute_target, .load_op = MEL_GPU_LOAD_OP_CLEAR,
               .clear.color = { .r = 0.0f, .g = 0.0f, .b = 0.0f, .a = 0.0f } },
-            { .target = depth_target, .load_op = VK_ATTACHMENT_LOAD_OP_LOAD,
+            { .target = depth_target, .load_op = MEL_GPU_LOAD_OP_LOAD,
               .clear.depth = { .depth = 1.0f, .stencil = 0 } }));
     mel_dealloc(mel_alloc_heap(), attr_suffix.data);
     if (!ok)
@@ -531,10 +531,10 @@ static Mel_Technique_Compile_Result mel__compile_mesh_visibility_buffer(const Me
         return MEL_TECHNIQUE_COMPILE_FAIL;
     }
 
-    VkAttachmentLoadOp color_load_op = (!*ctx->plan_ctx->wrote_any_pass &&
+    Mel_Gpu_Load_Op color_load_op = (!*ctx->plan_ctx->wrote_any_pass &&
         (ctx->plan_ctx->first_for_swapchain || ctx->plan_ctx->replace_contents))
-        ? VK_ATTACHMENT_LOAD_OP_CLEAR
-        : VK_ATTACHMENT_LOAD_OP_LOAD;
+        ? MEL_GPU_LOAD_OP_CLEAR
+        : MEL_GPU_LOAD_OP_LOAD;
     Mel_Vec4 clear = mel_view_clear_color_enabled(ctx->plan_ctx->binding.view)
         ? mel_view_clear_color(ctx->plan_ctx->binding.view)
         : mel_vec4(0.0f, 0.0f, 0.0f, 1.0f);
@@ -622,15 +622,15 @@ static Mel_Technique_Compile_Result mel__compile_mesh_deferred(const Mel_Techniq
     ok = mel_frame_plan_add_graphics_pass(ctx->plan_ctx, fill_suffix,
         mel_mesh_pass_execute_deferred_fill, mesh_pass, read_lists, read_sources, nullptr,
         MEL_WRITE_TARGETS(
-            { .target = deferred_normal_target, .load_op = VK_ATTACHMENT_LOAD_OP_CLEAR,
+            { .target = deferred_normal_target, .load_op = MEL_GPU_LOAD_OP_CLEAR,
               .clear.color = { .r = 0.5f, .g = 0.5f, .b = 1.0f, .a = 1.0f } },
-            { .target = deferred_albedo_target, .load_op = VK_ATTACHMENT_LOAD_OP_CLEAR,
+            { .target = deferred_albedo_target, .load_op = MEL_GPU_LOAD_OP_CLEAR,
               .clear.color = { .r = 0.0f, .g = 0.0f, .b = 0.0f, .a = 0.0f } },
-            { .target = deferred_emissive_target, .load_op = VK_ATTACHMENT_LOAD_OP_CLEAR,
+            { .target = deferred_emissive_target, .load_op = MEL_GPU_LOAD_OP_CLEAR,
               .clear.color = { .r = 0.0f, .g = 0.0f, .b = 0.0f, .a = 1.0f } },
-            { .target = deferred_meta_target, .load_op = VK_ATTACHMENT_LOAD_OP_CLEAR,
+            { .target = deferred_meta_target, .load_op = MEL_GPU_LOAD_OP_CLEAR,
               .clear.color = { .r = 0.0f, .g = 0.0f, .b = 0.0f, .a = 0.0f } },
-            { .target = depth_target, .load_op = VK_ATTACHMENT_LOAD_OP_CLEAR,
+            { .target = depth_target, .load_op = MEL_GPU_LOAD_OP_CLEAR,
               .clear.depth = { .depth = 1.0f, .stencil = 0 } }));
     mel_dealloc(mel_alloc_heap(), fill_suffix.data);
     if (!ok)
@@ -666,10 +666,10 @@ static Mel_Technique_Compile_Result mel__compile_mesh_deferred(const Mel_Techniq
         return MEL_TECHNIQUE_COMPILE_FAIL;
     }
 
-    VkAttachmentLoadOp color_load_op = (!*ctx->plan_ctx->wrote_any_pass &&
+    Mel_Gpu_Load_Op color_load_op = (!*ctx->plan_ctx->wrote_any_pass &&
         (ctx->plan_ctx->first_for_swapchain || ctx->plan_ctx->replace_contents))
-        ? VK_ATTACHMENT_LOAD_OP_CLEAR
-        : VK_ATTACHMENT_LOAD_OP_LOAD;
+        ? MEL_GPU_LOAD_OP_CLEAR
+        : MEL_GPU_LOAD_OP_LOAD;
     Mel_Vec4 clear = mel_view_clear_color_enabled(ctx->plan_ctx->binding.view)
         ? mel_view_clear_color(ctx->plan_ctx->binding.view)
         : mel_vec4(0.0f, 0.0f, 0.0f, 1.0f);

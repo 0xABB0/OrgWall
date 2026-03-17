@@ -1,5 +1,6 @@
 #include "gpu.tracy.h"
-#include "gpu.device.h"
+#include "gpu.device.vulkan.h"
+#include "gpu.cmd.h"
 #include "string.str8.h"
 
 #ifdef new
@@ -19,12 +20,16 @@ struct Mel_Gpu_Tracy_Zone_State {
     tracy::VkCtxScope* scope;
 };
 
-extern "C" bool mel_gpu_tracy_init(Mel_Gpu_Tracy_Ctx** out_ctx, Mel_Gpu_Device* dev, VkQueue queue, VkCommandBuffer cmd, str8 name)
+extern "C" bool mel_gpu_tracy_init(Mel_Gpu_Tracy_Ctx** out_ctx, Mel_Gpu_Device* dev, Mel_Gpu_Cmd* cmd, str8 name)
 {
     assert(out_ctx != nullptr);
     assert(dev != nullptr);
 
-    if (dev->has_portability_subset)
+    Mel_Gpu_Device_Vulkan* vk = mel__gpu_device_vk(dev);
+    VkQueue queue = vk->graphics_queue;
+    VkCommandBuffer vk_cmd = (VkCommandBuffer)cmd->_cmd;
+
+    if (vk->has_portability_subset)
     {
         SDL_Log("Tracy GPU disabled: Vulkan portability subset drivers reject Tracy's default timestamp query pool size");
         Mel_Gpu_Tracy_Ctx* tracy = new Mel_Gpu_Tracy_Ctx{};
@@ -37,10 +42,10 @@ extern "C" bool mel_gpu_tracy_init(Mel_Gpu_Tracy_Ctx** out_ctx, Mel_Gpu_Device* 
     Mel_Gpu_Tracy_Ctx* tracy = new Mel_Gpu_Tracy_Ctx{};
     tracy->enabled = true;
     tracy->ctx = TracyVkContextCalibrated(
-        dev->physical_device,
-        dev->device,
+        vk->physical_device,
+        vk->device,
         queue,
-        cmd,
+        vk_cmd,
         vkGetPhysicalDeviceCalibrateableTimeDomainsEXT,
         vkGetCalibratedTimestampsEXT);
 
@@ -59,15 +64,17 @@ extern "C" void mel_gpu_tracy_shutdown(Mel_Gpu_Tracy_Ctx* ctx)
     delete ctx;
 }
 
-extern "C" void mel_gpu_tracy_collect(Mel_Gpu_Tracy_Ctx* ctx, VkCommandBuffer cmd)
+extern "C" void mel_gpu_tracy_collect(Mel_Gpu_Tracy_Ctx* ctx, Mel_Gpu_Cmd* cmd)
 {
-    if (!ctx || !ctx->enabled || !ctx->ctx || cmd == VK_NULL_HANDLE) return;
-    TracyVkCollect(ctx->ctx, cmd);
+    VkCommandBuffer vk_cmd = (VkCommandBuffer)cmd->_cmd;
+    if (!ctx || !ctx->enabled || !ctx->ctx || !cmd || vk_cmd == VK_NULL_HANDLE) return;
+    TracyVkCollect(ctx->ctx, vk_cmd);
 }
 
-extern "C" Mel_Gpu_Tracy_Zone mel_gpu_tracy_zone_begin(Mel_Gpu_Tracy_Ctx* ctx, VkCommandBuffer cmd, str8 name)
+extern "C" Mel_Gpu_Tracy_Zone mel_gpu_tracy_zone_begin(Mel_Gpu_Tracy_Ctx* ctx, Mel_Gpu_Cmd* cmd, str8 name)
 {
-    if (!ctx || !ctx->enabled || !ctx->ctx || cmd == VK_NULL_HANDLE || str8_is_empty(name))
+    VkCommandBuffer vk_cmd = (VkCommandBuffer)cmd->_cmd;
+    if (!ctx || !ctx->enabled || !ctx->ctx || !cmd || vk_cmd == VK_NULL_HANDLE || str8_is_empty(name))
         return (Mel_Gpu_Tracy_Zone){0};
 
     Mel_Gpu_Tracy_Zone_State* state = new Mel_Gpu_Tracy_Zone_State;
@@ -80,7 +87,7 @@ extern "C" Mel_Gpu_Tracy_Zone mel_gpu_tracy_zone_begin(Mel_Gpu_Tracy_Ctx* ctx, V
         sizeof(__FUNCTION__) - 1,
         (const char*)name.data,
         (size_t)name.len,
-        cmd,
+        vk_cmd,
         true);
     return (Mel_Gpu_Tracy_Zone){ .state = state };
 }

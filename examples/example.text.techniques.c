@@ -1,6 +1,6 @@
 #include <SDL3/SDL.h>
 
-#include "gpu.device.h"
+#include "gpu.device.vulkan.h"
 
 #define CIMGUI_USE_SDL3
 #define CIMGUI_USE_VULKAN

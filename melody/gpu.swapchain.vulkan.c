@@ -1,7 +1,7 @@
 #include "gpu.swapchain.h"
 #include "swapchain.h"
 #include "window.h"
-#include "gpu.device.h"
+#include "gpu.device.vulkan.h"
 #include "gpu.cmd.h"
 #include "gpu.types.vulkan.h"
 #include "allocator.h"
@@ -39,12 +39,12 @@ static VkPresentModeKHR choose_present_mode(Mel_Gpu_Device* dev, VkSurfaceKHR su
                                             VkPresentModeKHR preferred)
 {
     u32 count = 0;
-    vkGetPhysicalDeviceSurfacePresentModesKHR(dev->physical_device, surface, &count, nullptr);
+    vkGetPhysicalDeviceSurfacePresentModesKHR(mel__gpu_device_vk(dev)->physical_device, surface, &count, nullptr);
     if (count == 0)
         return VK_PRESENT_MODE_FIFO_KHR;
 
     VkPresentModeKHR* modes = mel_alloc(mel_alloc_heap(), sizeof(VkPresentModeKHR) * count);
-    vkGetPhysicalDeviceSurfacePresentModesKHR(dev->physical_device, surface, &count, modes);
+    vkGetPhysicalDeviceSurfacePresentModesKHR(mel__gpu_device_vk(dev)->physical_device, surface, &count, modes);
 
     char mode_buf[256] = {0};
     size off = 0;
@@ -123,12 +123,12 @@ static bool create_swapchain(Mel_Swapchain* sc, Mel_Gpu_Device* dev,
     const Mel_Alloc* alloc = khr->alloc;
 
     VkSurfaceCapabilitiesKHR caps;
-    vkGetPhysicalDeviceSurfaceCapabilitiesKHR(dev->physical_device, khr->surface, &caps);
+    vkGetPhysicalDeviceSurfaceCapabilitiesKHR(mel__gpu_device_vk(dev)->physical_device, khr->surface, &caps);
 
     u32 format_count;
-    vkGetPhysicalDeviceSurfaceFormatsKHR(dev->physical_device, khr->surface, &format_count, nullptr);
+    vkGetPhysicalDeviceSurfaceFormatsKHR(mel__gpu_device_vk(dev)->physical_device, khr->surface, &format_count, nullptr);
     VkSurfaceFormatKHR* formats = mel_alloc(alloc, sizeof(VkSurfaceFormatKHR) * format_count);
-    vkGetPhysicalDeviceSurfaceFormatsKHR(dev->physical_device, khr->surface, &format_count, formats);
+    vkGetPhysicalDeviceSurfaceFormatsKHR(mel__gpu_device_vk(dev)->physical_device, khr->surface, &format_count, formats);
 
     VkSurfaceFormatKHR format = choose_format(formats, format_count);
     SDL_Log("Swapchain surface formats: %u, chosen format=%u colorSpace=%u",
@@ -174,7 +174,7 @@ static bool create_swapchain(Mel_Swapchain* sc, Mel_Gpu_Device* dev,
         create_info.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
     }
 
-    VkResult r = vkCreateSwapchainKHR(dev->device, &create_info, nullptr, &khr->handle);
+    VkResult r = vkCreateSwapchainKHR(mel__gpu_device_vk(dev)->device, &create_info, nullptr, &khr->handle);
     if (r != VK_SUCCESS)
     {
         SDL_Log("Failed to create swapchain: %d", r);
@@ -186,10 +186,10 @@ static bool create_swapchain(Mel_Swapchain* sc, Mel_Gpu_Device* dev,
     sc->extent_width = extent.width;
     sc->extent_height = extent.height;
 
-    vkGetSwapchainImagesKHR(dev->device, khr->handle, &sc->image_count, nullptr);
+    vkGetSwapchainImagesKHR(mel__gpu_device_vk(dev)->device, khr->handle, &sc->image_count, nullptr);
 
     VkImage* vk_images = mel_alloc(alloc, sizeof(VkImage) * sc->image_count);
-    vkGetSwapchainImagesKHR(dev->device, khr->handle, &sc->image_count, vk_images);
+    vkGetSwapchainImagesKHR(mel__gpu_device_vk(dev)->device, khr->handle, &sc->image_count, vk_images);
 
     sc->_images = mel_alloc(alloc, sizeof(void*) * sc->image_count);
     for (u32 i = 0; i < sc->image_count; i++)
@@ -222,7 +222,7 @@ static bool create_swapchain(Mel_Swapchain* sc, Mel_Gpu_Device* dev,
         };
 
         VkImageView vk_view = VK_NULL_HANDLE;
-        VkResult rv = vkCreateImageView(dev->device, &view_info, nullptr, &vk_view);
+        VkResult rv = vkCreateImageView(mel__gpu_device_vk(dev)->device, &view_info, nullptr, &vk_view);
         if (rv != VK_SUCCESS)
         {
             SDL_Log("Failed to create swapchain image view %u: %d", i, rv);
@@ -246,7 +246,7 @@ static bool create_sync(Mel_Swapchain* sc, Mel_Gpu_Device* dev)
 
     for (u32 i = 0; i < khr->frame_count; i++)
     {
-        VkResult r = vkCreateSemaphore(dev->device, &sem_info, nullptr, &khr->image_available[i]);
+        VkResult r = vkCreateSemaphore(mel__gpu_device_vk(dev)->device, &sem_info, nullptr, &khr->image_available[i]);
         if (r != VK_SUCCESS)
         {
             SDL_Log("Failed to create image_available semaphore %u: %d", i, r);
@@ -256,7 +256,7 @@ static bool create_sync(Mel_Swapchain* sc, Mel_Gpu_Device* dev)
 
     for (u32 i = 0; i < sc->image_count; i++)
     {
-        VkResult r = vkCreateSemaphore(dev->device, &sem_info, nullptr, &khr->render_finished[i]);
+        VkResult r = vkCreateSemaphore(mel__gpu_device_vk(dev)->device, &sem_info, nullptr, &khr->render_finished[i]);
         if (r != VK_SUCCESS)
         {
             SDL_Log("Failed to create render_finished semaphore %u: %d", i, r);
@@ -275,7 +275,7 @@ static void destroy_sync(Mel_Swapchain* sc, Mel_Gpu_Device* dev)
     if (khr->render_finished)
     {
         for (u32 i = 0; i < sc->image_count; i++)
-            vkDestroySemaphore(dev->device, khr->render_finished[i], nullptr);
+            vkDestroySemaphore(mel__gpu_device_vk(dev)->device, khr->render_finished[i], nullptr);
         mel_dealloc(alloc, khr->render_finished);
         khr->render_finished = nullptr;
     }
@@ -283,7 +283,7 @@ static void destroy_sync(Mel_Swapchain* sc, Mel_Gpu_Device* dev)
     if (khr->image_available)
     {
         for (u32 i = 0; i < khr->frame_count; i++)
-            vkDestroySemaphore(dev->device, khr->image_available[i], nullptr);
+            vkDestroySemaphore(mel__gpu_device_vk(dev)->device, khr->image_available[i], nullptr);
         mel_dealloc(alloc, khr->image_available);
         khr->image_available = nullptr;
     }
@@ -297,7 +297,7 @@ static void destroy_resources(Mel_Swapchain* sc, Mel_Gpu_Device* dev)
     if (sc->_image_views)
     {
         for (u32 i = 0; i < sc->image_count; i++)
-            vkDestroyImageView(dev->device, (VkImageView)sc->_image_views[i], nullptr);
+            vkDestroyImageView(mel__gpu_device_vk(dev)->device, (VkImageView)sc->_image_views[i], nullptr);
         mel_dealloc(alloc, sc->_image_views);
         sc->_image_views = nullptr;
     }
@@ -316,7 +316,7 @@ static void destroy_resources(Mel_Swapchain* sc, Mel_Gpu_Device* dev)
 
     if (khr->handle)
     {
-        vkDestroySwapchainKHR(dev->device, khr->handle, nullptr);
+        vkDestroySwapchainKHR(mel__gpu_device_vk(dev)->device, khr->handle, nullptr);
         khr->handle = VK_NULL_HANDLE;
     }
 }
@@ -327,7 +327,7 @@ static bool khr_acquire(Mel_Swapchain* sc, Mel_Gpu_Device* dev)
     TracyCZoneN(ctx, "swapchain_acquire", true);
 
     VkResult result = vkAcquireNextImageKHR(
-        dev->device, khr->handle, UINT64_MAX,
+        mel__gpu_device_vk(dev)->device, khr->handle, UINT64_MAX,
         khr->image_available[khr->current_frame], VK_NULL_HANDLE,
         &sc->current_image);
 
@@ -404,7 +404,7 @@ static void khr_present(Mel_Swapchain* sc, Mel_Gpu_Device* dev)
         .pImageIndices = &sc->current_image,
     };
 
-    VkResult pr = vkQueuePresentKHR(dev->present_queue, &present_info);
+    VkResult pr = vkQueuePresentKHR(mel__gpu_device_vk(dev)->present_queue, &present_info);
 
     if (khr->image_layouts)
         khr->image_layouts[sc->current_image] = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
@@ -427,7 +427,7 @@ static void khr_resize(Mel_Swapchain* sc, Mel_Gpu_Device* dev, u32 width, u32 he
 
     assert(khr->handle != VK_NULL_HANDLE);
 
-    vkDeviceWaitIdle(dev->device);
+    vkDeviceWaitIdle(mel__gpu_device_vk(dev)->device);
 
     destroy_sync(sc, dev);
 
@@ -435,7 +435,7 @@ static void khr_resize(Mel_Swapchain* sc, Mel_Gpu_Device* dev, u32 width, u32 he
     const Mel_Alloc* alloc = khr->alloc;
 
     for (u32 i = 0; i < sc->image_count; i++)
-        vkDestroyImageView(dev->device, (VkImageView)sc->_image_views[i], nullptr);
+        vkDestroyImageView(mel__gpu_device_vk(dev)->device, (VkImageView)sc->_image_views[i], nullptr);
     mel_dealloc(alloc, sc->_image_views);
     mel_dealloc(alloc, sc->_images);
 
@@ -444,7 +444,7 @@ static void khr_resize(Mel_Swapchain* sc, Mel_Gpu_Device* dev, u32 width, u32 he
     sc->_images = nullptr;
 
     create_swapchain(sc, dev, width, height, old);
-    vkDestroySwapchainKHR(dev->device, old, nullptr);
+    vkDestroySwapchainKHR(mel__gpu_device_vk(dev)->device, old, nullptr);
 
     create_sync(sc, dev);
     khr->current_frame = 0;
@@ -469,7 +469,7 @@ static void khr_shutdown(Mel_Swapchain* sc, Mel_Gpu_Device* dev)
     Mel_Gpu_Swapchain* khr = sc->data;
     if (!khr) return;
 
-    vkDeviceWaitIdle(dev->device);
+    vkDeviceWaitIdle(mel__gpu_device_vk(dev)->device);
     destroy_sync(sc, dev);
     destroy_resources(sc, dev);
 
@@ -551,7 +551,7 @@ Mel_Swapchain_Handle mel_gpu_swapchain_create_for_window_opt(Mel_Gpu_Device* dev
     assert(mel_window_handle_valid(window));
 
     SDL_Window* sdl = mel__window_sdl(window);
-    VkSurfaceKHR surface = mel_gpu_surface_create(dev, sdl);
+    VkSurfaceKHR surface = (VkSurfaceKHR)mel_gpu_surface_create(dev, sdl);
     if (surface == VK_NULL_HANDLE)
         return MEL_SWAPCHAIN_HANDLE_NULL;
 

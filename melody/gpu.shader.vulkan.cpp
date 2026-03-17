@@ -1,5 +1,5 @@
 #include "gpu.shader.h"
-#include "gpu.device.h"
+#include "gpu.device.vulkan.h"
 extern "C" {
 #include "event.channel.h"
 #include "allocator.heap.h"
@@ -64,7 +64,7 @@ static VkShaderModule create_shader_module(Mel_Gpu_Device* dev, const void* code
     create_info.pCode = (const uint32_t*)code;
 
     VkShaderModule module;
-    VkResult result = vkCreateShaderModule(dev->device, &create_info, nullptr, &module);
+    VkResult result = vkCreateShaderModule(mel__gpu_device_vk(dev)->device, &create_info, nullptr, &module);
     assert(result == VK_SUCCESS);
 
     return module;
@@ -210,28 +210,28 @@ extern "C" void mel_gpu_shader_shutdown(Mel_Gpu_Shader* shader, Mel_Gpu_Device* 
 
     if (shader->_vertex)
     {
-        vkDestroyShaderModule(dev->device, (VkShaderModule)shader->_vertex, nullptr);
+        vkDestroyShaderModule(mel__gpu_device_vk(dev)->device, (VkShaderModule)shader->_vertex, nullptr);
         shader->_vertex = nullptr;
     }
 
     if (shader->_fragment)
     {
-        vkDestroyShaderModule(dev->device, (VkShaderModule)shader->_fragment, nullptr);
+        vkDestroyShaderModule(mel__gpu_device_vk(dev)->device, (VkShaderModule)shader->_fragment, nullptr);
         shader->_fragment = nullptr;
     }
     if (shader->_compute)
     {
-        vkDestroyShaderModule(dev->device, (VkShaderModule)shader->_compute, nullptr);
+        vkDestroyShaderModule(mel__gpu_device_vk(dev)->device, (VkShaderModule)shader->_compute, nullptr);
         shader->_compute = nullptr;
     }
     if (shader->_task)
     {
-        vkDestroyShaderModule(dev->device, (VkShaderModule)shader->_task, nullptr);
+        vkDestroyShaderModule(mel__gpu_device_vk(dev)->device, (VkShaderModule)shader->_task, nullptr);
         shader->_task = nullptr;
     }
     if (shader->_mesh)
     {
-        vkDestroyShaderModule(dev->device, (VkShaderModule)shader->_mesh, nullptr);
+        vkDestroyShaderModule(mel__gpu_device_vk(dev)->device, (VkShaderModule)shader->_mesh, nullptr);
         shader->_mesh = nullptr;
     }
 }

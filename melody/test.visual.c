@@ -2,6 +2,7 @@
 #include "render.graph.h"
 #include "render.pass.h"
 #include "swapchain.image.h"
+#include "gpu.device.vulkan.h"
 #include "debug.backtrace.h"
 #include "string.str8.h"
 #include "allocator.heap.h"
@@ -93,7 +94,7 @@ void mel_visual_test_shutdown(Mel_Visual_Test_Ctx* ctx)
 {
     assert(ctx != nullptr);
 
-    vkDeviceWaitIdle(ctx->dev.device);
+    vkDeviceWaitIdle(mel__gpu_device_vk(&ctx->dev)->device);
 
     free(ctx->captured_pixels);
     ctx->captured_pixels = nullptr;
@@ -168,12 +169,12 @@ Mel_Visual_Test_Result mel_visual_test_check_opt(Mel_Visual_Test_Ctx* ctx, const
     mel_render_graph_add_pass(&graph, S8("test"),
         .fn = visual_test_pass,
         .write_targets = MEL_WRITE_TARGETS(
-            { .target = &ctx->target, .load_op = VK_ATTACHMENT_LOAD_OP_CLEAR,
+            { .target = &ctx->target, .load_op = MEL_GPU_LOAD_OP_CLEAR,
               .clear.color = { .r = opt.clear_r, .g = opt.clear_g, .b = opt.clear_b, .a = opt.clear_a } }));
     mel_render_graph_compile(&graph);
 
     mel_render_graph_execute(&graph);
-    vkDeviceWaitIdle(ctx->dev.device);
+    vkDeviceWaitIdle(mel__gpu_device_vk(&ctx->dev)->device);
 
     mel_render_graph_shutdown(&graph);
     s_active_render_fn = nullptr;

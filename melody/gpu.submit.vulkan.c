@@ -1,5 +1,5 @@
 #include "gpu.submit.h"
-#include "gpu.device.h"
+#include "gpu.device.vulkan.h"
 #include "gpu.cmd.h"
 #include <tracy/TracyC.h>
 
@@ -22,7 +22,7 @@ static void ensure_immediate(Mel_Gpu_Device* dev)
         .queueFamilyIndex = dev->graphics_family,
     };
 
-    VkResult r = vkCreateCommandPool(dev->device, &pool_info, nullptr, &s_immediate.pool);
+    VkResult r = vkCreateCommandPool(mel__gpu_device_vk(dev)->device, &pool_info, nullptr, &s_immediate.pool);
     assert(r == VK_SUCCESS);
 
     VkCommandBufferAllocateInfo alloc_info = {
@@ -32,14 +32,14 @@ static void ensure_immediate(Mel_Gpu_Device* dev)
         .commandBufferCount = 1,
     };
 
-    r = vkAllocateCommandBuffers(dev->device, &alloc_info, &s_immediate.cmd);
+    r = vkAllocateCommandBuffers(mel__gpu_device_vk(dev)->device, &alloc_info, &s_immediate.cmd);
     assert(r == VK_SUCCESS);
 
     VkFenceCreateInfo fence_info = {
         .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
     };
 
-    r = vkCreateFence(dev->device, &fence_info, nullptr, &s_immediate.fence);
+    r = vkCreateFence(mel__gpu_device_vk(dev)->device, &fence_info, nullptr, &s_immediate.fence);
     assert(r == VK_SUCCESS);
 
     s_immediate.initialized = true;
@@ -74,11 +74,11 @@ void mel_gpu_submit_immediate(Mel_Gpu_Device* dev, Mel_Gpu_Submit_Fn callback, v
         .pCommandBuffers = &s_immediate.cmd,
     };
 
-    vkResetFences(dev->device, 1, &s_immediate.fence);
-    vkQueueSubmit(dev->graphics_queue, 1, &submit_info, s_immediate.fence);
+    vkResetFences(mel__gpu_device_vk(dev)->device, 1, &s_immediate.fence);
+    vkQueueSubmit(mel__gpu_device_vk(dev)->graphics_queue, 1, &submit_info, s_immediate.fence);
 
     TracyCZoneN(ctx_wait, "gpu_fence_wait", true);
-    vkWaitForFences(dev->device, 1, &s_immediate.fence, VK_TRUE, UINT64_MAX);
+    vkWaitForFences(mel__gpu_device_vk(dev)->device, 1, &s_immediate.fence, VK_TRUE, UINT64_MAX);
     TracyCZoneEnd(ctx_wait);
 
     TracyCZoneEnd(ctx);
@@ -88,7 +88,7 @@ void mel_gpu_submit_shutdown(Mel_Gpu_Device* dev)
 {
     if (!s_immediate.initialized) return;
 
-    vkDestroyFence(dev->device, s_immediate.fence, nullptr);
-    vkDestroyCommandPool(dev->device, s_immediate.pool, nullptr);
+    vkDestroyFence(mel__gpu_device_vk(dev)->device, s_immediate.fence, nullptr);
+    vkDestroyCommandPool(mel__gpu_device_vk(dev)->device, s_immediate.pool, nullptr);
     s_immediate = (Gpu_Immediate_Ctx){0};
 }

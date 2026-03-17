@@ -1,5 +1,5 @@
 #include "gpu.texture.h"
-#include "gpu.device.h"
+#include "gpu.device.vulkan.h"
 #include "gpu.cmd.h"
 #include "gpu.types.vulkan.h"
 #include "string.str8.h"
@@ -64,7 +64,7 @@ static void create_sampler(Mel_Gpu_Texture* tex, Mel_Gpu_Device* dev, bool neare
     };
 
     VkSampler sampler = VK_NULL_HANDLE;
-    VkResult r = vkCreateSampler(dev->device, &sampler_info, nullptr, &sampler);
+    VkResult r = vkCreateSampler(mel__gpu_device_vk(dev)->device, &sampler_info, nullptr, &sampler);
     assert(r == VK_SUCCESS);
     tex->_sampler = sampler;
 }
@@ -190,7 +190,7 @@ void mel_gpu_texture_shutdown(Mel_Gpu_Texture* tex, Mel_Gpu_Device* dev)
 
     if (tex->_sampler)
     {
-        vkDestroySampler(dev->device, (VkSampler)tex->_sampler, nullptr);
+        vkDestroySampler(mel__gpu_device_vk(dev)->device, (VkSampler)tex->_sampler, nullptr);
         tex->_sampler = nullptr;
     }
 

@@ -1,5 +1,5 @@
 #include "gpu.geometry_pool.h"
-#include "gpu.device.h"
+#include "gpu.device.vulkan.h"
 #include "allocator.h"
 #include "allocator.heap.h"
 
@@ -8,7 +8,7 @@
 static bool mel__geometry_is_unified(Mel_Gpu_Device* dev)
 {
     VkPhysicalDeviceMemoryProperties mem = {0};
-    vkGetPhysicalDeviceMemoryProperties(dev->physical_device, &mem);
+    vkGetPhysicalDeviceMemoryProperties(mel__gpu_device_vk(dev)->physical_device, &mem);
 
     for (u32 i = 0; i < mem.memoryHeapCount; i++)
     {

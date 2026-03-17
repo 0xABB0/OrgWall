@@ -10,7 +10,6 @@
 #include "gpu.cmd.h"
 #include "gpu.pipeline.h"
 #include "gpu.texture.h"
-#include "gpu.types.vulkan.h"
 #include "allocator.h"
 #include "allocator.heap.h"
 #include "string.str8.h"

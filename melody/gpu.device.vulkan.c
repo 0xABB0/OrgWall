@@ -1,12 +1,11 @@
-#define VK_NO_PROTOTYPES
-#include "gpu.device.h"
-#include "gpu.backend.vulkan.h"
+#include "gpu.device.vulkan.h"
 #include "event.channel.h"
 #include "string.str8.h"
 #include "allocator.heap.h"
 #include <string.h>
 
 static Mel_Gpu_Device s_dev;
+static Mel_Gpu_Device_Vulkan s_dev_vk;
 
 Mel_Gpu_Device* mel_gpu_dev(void)
 {
@@ -160,7 +159,7 @@ static bool has_extension(VkExtensionProperties* exts, u32 count, const char* na
     return false;
 }
 
-static bool create_instance(Mel_Gpu_Device* dev, Mel_Gpu_Device_Opt* opt)
+static bool create_instance(Mel_Gpu_Device* dev, Mel_Gpu_Device_Vulkan* vk, Mel_Gpu_Device_Opt* opt)
 {
     char app_name_buf[256];
     if (!str8_is_empty(opt->app_name))
@@ -220,18 +219,18 @@ static bool create_instance(Mel_Gpu_Device* dev, Mel_Gpu_Device_Opt* opt)
         .flags = has_portability_enum ? VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR : 0,
     };
 
-    VkResult r = vkCreateInstance(&create_info, nullptr, &dev->instance);
+    VkResult r = vkCreateInstance(&create_info, nullptr, &vk->instance);
     if (r != VK_SUCCESS)
     {
         SDL_Log("Failed to create Vulkan instance: %d", r);
         return false;
     }
 
-    volkLoadInstance(dev->instance);
+    volkLoadInstance(vk->instance);
     return true;
 }
 
-static bool create_debug_messenger(Mel_Gpu_Device* dev)
+static bool create_debug_messenger(Mel_Gpu_Device* dev, Mel_Gpu_Device_Vulkan* vk)
 {
     if (!dev->validation_enabled) return true;
 
@@ -244,7 +243,7 @@ static bool create_debug_messenger(Mel_Gpu_Device* dev)
         .pfnUserCallback = debug_callback,
     };
 
-    VkResult r = vkCreateDebugUtilsMessengerEXT(dev->instance, &create_info, nullptr, &dev->debug_messenger);
+    VkResult r = vkCreateDebugUtilsMessengerEXT(vk->instance, &create_info, nullptr, &vk->debug_messenger);
     if (r != VK_SUCCESS)
     {
         SDL_Log("Failed to create debug messenger: %d", r);
@@ -339,10 +338,10 @@ static i32 rate_device(VkPhysicalDevice device)
     return score;
 }
 
-static bool pick_physical_device(Mel_Gpu_Device* dev)
+static bool pick_physical_device(Mel_Gpu_Device_Vulkan* vk)
 {
     u32 count = 0;
-    vkEnumeratePhysicalDevices(dev->instance, &count, nullptr);
+    vkEnumeratePhysicalDevices(vk->instance, &count, nullptr);
     if (count == 0)
     {
         SDL_Log("No Vulkan devices found");
@@ -350,7 +349,7 @@ static bool pick_physical_device(Mel_Gpu_Device* dev)
     }
 
     VkPhysicalDevice* devices = mel_alloc(mel_alloc_heap(), sizeof(VkPhysicalDevice) * count);
-    vkEnumeratePhysicalDevices(dev->instance, &count, devices);
+    vkEnumeratePhysicalDevices(vk->instance, &count, devices);
 
     log_available_devices(devices, count);
 
@@ -374,30 +373,30 @@ static bool pick_physical_device(Mel_Gpu_Device* dev)
         return false;
     }
 
-    dev->physical_device = best_device;
+    vk->physical_device = best_device;
 
-    dev->desc_buffer_props = (VkPhysicalDeviceDescriptorBufferPropertiesEXT){
+    vk->desc_buffer_props = (VkPhysicalDeviceDescriptorBufferPropertiesEXT){
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_BUFFER_PROPERTIES_EXT,
     };
 
-    dev->device_properties = (VkPhysicalDeviceProperties2){
+    vk->device_properties = (VkPhysicalDeviceProperties2){
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2,
-        .pNext = &dev->desc_buffer_props,
+        .pNext = &vk->desc_buffer_props,
     };
 
-    vkGetPhysicalDeviceProperties2(dev->physical_device, &dev->device_properties);
+    vkGetPhysicalDeviceProperties2(vk->physical_device, &vk->device_properties);
 
     SDL_Log("Selected GPU: %s (%s)",
-        dev->device_properties.properties.deviceName,
-        device_type_name(dev->device_properties.properties.deviceType));
-    log_memory_heaps(dev->physical_device);
-    log_queue_families(dev->physical_device, VK_NULL_HANDLE);
+        vk->device_properties.properties.deviceName,
+        device_type_name(vk->device_properties.properties.deviceType));
+    log_memory_heaps(vk->physical_device);
+    log_queue_families(vk->physical_device, VK_NULL_HANDLE);
     return true;
 }
 
-static bool create_logical_device(Mel_Gpu_Device* dev)
+static bool create_logical_device(Mel_Gpu_Device* dev, Mel_Gpu_Device_Vulkan* vk)
 {
-    find_queue_families(dev->physical_device, VK_NULL_HANDLE,
+    find_queue_families(vk->physical_device, VK_NULL_HANDLE,
         &dev->graphics_family, &dev->present_family, &dev->transfer_family);
 
     f32 priority = 1.0f;
@@ -422,14 +421,14 @@ static bool create_logical_device(Mel_Gpu_Device* dev)
     }
 
     u32 ext_count;
-    vkEnumerateDeviceExtensionProperties(dev->physical_device, nullptr, &ext_count, nullptr);
+    vkEnumerateDeviceExtensionProperties(vk->physical_device, nullptr, &ext_count, nullptr);
     VkExtensionProperties* available_exts = mel_alloc(mel_alloc_heap(), sizeof(VkExtensionProperties) * ext_count);
-    vkEnumerateDeviceExtensionProperties(dev->physical_device, nullptr, &ext_count, available_exts);
+    vkEnumerateDeviceExtensionProperties(vk->physical_device, nullptr, &ext_count, available_exts);
 
-    dev->has_descriptor_buffer = has_extension(available_exts, ext_count, VK_EXT_DESCRIPTOR_BUFFER_EXTENSION_NAME);
+    vk->has_descriptor_buffer = has_extension(available_exts, ext_count, VK_EXT_DESCRIPTOR_BUFFER_EXTENSION_NAME);
     bool has_mesh_shader = has_extension(available_exts, ext_count, VK_EXT_MESH_SHADER_EXTENSION_NAME);
     bool has_portability = has_extension(available_exts, ext_count, "VK_KHR_portability_subset");
-    dev->has_portability_subset = has_portability;
+    vk->has_portability_subset = has_portability;
 
     VkPhysicalDeviceMeshShaderFeaturesEXT mesh_shader_query = {
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT,
@@ -464,22 +463,22 @@ static bool create_logical_device(Mel_Gpu_Device* dev)
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
         .pNext = query_chain,
     };
-    vkGetPhysicalDeviceFeatures2(dev->physical_device, &supported_features);
+    vkGetPhysicalDeviceFeatures2(vk->physical_device, &supported_features);
 
     dev->capabilities = (Mel_Gpu_Capabilities){
         .synchronization2 = sync2_query.synchronization2 == VK_TRUE,
         .dynamic_rendering = dynamic_rendering_query.dynamicRendering == VK_TRUE,
         .buffer_device_address = bda_query.bufferDeviceAddress == VK_TRUE,
-        .descriptor_buffer = dev->has_descriptor_buffer,
+        .descriptor_buffer = vk->has_descriptor_buffer,
         .shader_draw_parameters = vulkan11_query.shaderDrawParameters == VK_TRUE,
         .mesh_shader = has_mesh_shader && mesh_shader_query.meshShader == VK_TRUE,
         .descriptor_indexing = descriptor_indexing_query.descriptorBindingPartiallyBound == VK_TRUE
                             && descriptor_indexing_query.runtimeDescriptorArray == VK_TRUE
                             && descriptor_indexing_query.shaderSampledImageArrayNonUniformIndexing == VK_TRUE,
         .multi_draw_indirect = supported_features.features.multiDrawIndirect == VK_TRUE,
-        .timestamp_queries = dev->device_properties.properties.limits.timestampPeriod > 0.0f,
+        .timestamp_queries = vk->device_properties.properties.limits.timestampPeriod > 0.0f,
         .portability_subset = has_portability,
-        .present_queue = dev->has_present_queue,
+        .present_queue = vk->has_present_queue,
     };
 
     mel_dealloc(mel_alloc_heap(), available_exts);
@@ -489,7 +488,7 @@ static bool create_logical_device(Mel_Gpu_Device* dev)
     enabled_exts[enabled_ext_count++] = VK_KHR_SWAPCHAIN_EXTENSION_NAME;
     if (has_portability)
         enabled_exts[enabled_ext_count++] = "VK_KHR_portability_subset";
-    if (dev->has_descriptor_buffer)
+    if (vk->has_descriptor_buffer)
         enabled_exts[enabled_ext_count++] = VK_EXT_DESCRIPTOR_BUFFER_EXTENSION_NAME;
     if (dev->capabilities.mesh_shader)
         enabled_exts[enabled_ext_count++] = VK_EXT_MESH_SHADER_EXTENSION_NAME;
@@ -556,22 +555,22 @@ static bool create_logical_device(Mel_Gpu_Device* dev)
         .ppEnabledExtensionNames = enabled_exts,
     };
 
-    VkResult r = vkCreateDevice(dev->physical_device, &create_info, nullptr, &dev->device);
+    VkResult r = vkCreateDevice(vk->physical_device, &create_info, nullptr, &vk->device);
     if (r != VK_SUCCESS)
     {
         SDL_Log("Failed to create logical device: %d", r);
         return false;
     }
 
-    volkLoadDevice(dev->device);
+    volkLoadDevice(vk->device);
 
-    vkGetDeviceQueue(dev->device, dev->graphics_family, 0, &dev->graphics_queue);
-    vkGetDeviceQueue(dev->device, dev->present_family, 0, &dev->present_queue);
-    vkGetDeviceQueue(dev->device, dev->transfer_family, 0, &dev->transfer_queue);
+    vkGetDeviceQueue(vk->device, dev->graphics_family, 0, &vk->graphics_queue);
+    vkGetDeviceQueue(vk->device, dev->present_family, 0, &vk->present_queue);
+    vkGetDeviceQueue(vk->device, dev->transfer_family, 0, &vk->transfer_queue);
     return true;
 }
 
-static bool create_vma(Mel_Gpu_Device* dev)
+static bool create_vma(Mel_Gpu_Device_Vulkan* vk)
 {
     VmaVulkanFunctions funcs = {
         .vkGetInstanceProcAddr = vkGetInstanceProcAddr,
@@ -580,14 +579,14 @@ static bool create_vma(Mel_Gpu_Device* dev)
 
     VmaAllocatorCreateInfo create_info = {
         .flags = VMA_ALLOCATOR_CREATE_EXT_MEMORY_BUDGET_BIT | VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT,
-        .physicalDevice = dev->physical_device,
-        .device = dev->device,
-        .instance = dev->instance,
+        .physicalDevice = vk->physical_device,
+        .device = vk->device,
+        .instance = vk->instance,
         .vulkanApiVersion = VK_API_VERSION_1_3,
         .pVulkanFunctions = &funcs,
     };
 
-    VkResult r = vmaCreateAllocator(&create_info, &dev->vma);
+    VkResult r = vmaCreateAllocator(&create_info, &vk->vma);
     if (r != VK_SUCCESS)
     {
         SDL_Log("Failed to create VMA allocator: %d", r);
@@ -601,7 +600,11 @@ bool mel_gpu_device_init_opt(Mel_Gpu_Device* dev, Mel_Gpu_Device_Opt opt)
     assert(dev != nullptr);
 
     *dev = (Mel_Gpu_Device){0};
+    s_dev_vk = (Mel_Gpu_Device_Vulkan){0};
+    dev->_backend = &s_dev_vk;
     dev->alloc = opt.allocator;
+
+    Mel_Gpu_Device_Vulkan* vk = &s_dev_vk;
 
     PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr_func = mel_gpu_vulkan_load();
     if (!vkGetInstanceProcAddr_func)
@@ -612,14 +615,15 @@ bool mel_gpu_device_init_opt(Mel_Gpu_Device* dev, Mel_Gpu_Device_Opt opt)
 
     volkInitializeCustom(vkGetInstanceProcAddr_func);
 
-    if (!create_instance(dev, &opt))                                            goto fail;
-    if (!create_debug_messenger(dev))                                           goto fail;
-    if (!pick_physical_device(dev))                                             goto fail;
-    if (!create_logical_device(dev))                                            goto fail;
-    if (!create_vma(dev))                                                       goto fail;
+    if (!create_instance(dev, vk, &opt))                                        goto fail;
+    if (!create_debug_messenger(dev, vk))                                       goto fail;
+    if (!pick_physical_device(vk))                                              goto fail;
+    if (!create_logical_device(dev, vk))                                        goto fail;
+    if (!create_vma(vk))                                                        goto fail;
 
+    dev->ready = true;
     SDL_Log("Vulkan device initialized (Vulkan 1.3, sync2, dynamic rendering, BDA%s%s)",
-        dev->has_descriptor_buffer ? ", descriptor buffer" : "",
+        vk->has_descriptor_buffer ? ", descriptor buffer" : "",
         dev->capabilities.descriptor_indexing ? ", descriptor indexing" : "");
     return true;
 
@@ -632,19 +636,25 @@ void mel_gpu_device_shutdown(Mel_Gpu_Device* dev)
 {
     assert(dev != nullptr);
 
-    if (dev->device) vkDeviceWaitIdle(dev->device);
-    if (dev->vma) vmaDestroyAllocator(dev->vma);
-    if (dev->device) vkDestroyDevice(dev->device, nullptr);
-    if (dev->debug_messenger) vkDestroyDebugUtilsMessengerEXT(dev->instance, dev->debug_messenger, nullptr);
-    if (dev->instance) vkDestroyInstance(dev->instance, nullptr);
+    Mel_Gpu_Device_Vulkan* vk = (Mel_Gpu_Device_Vulkan*)dev->_backend;
+    if (vk)
+    {
+        if (vk->device) vkDeviceWaitIdle(vk->device);
+        if (vk->vma) vmaDestroyAllocator(vk->vma);
+        if (vk->device) vkDestroyDevice(vk->device, nullptr);
+        if (vk->debug_messenger) vkDestroyDebugUtilsMessengerEXT(vk->instance, vk->debug_messenger, nullptr);
+        if (vk->instance) vkDestroyInstance(vk->instance, nullptr);
+    }
 
+    dev->ready = false;
     SDL_Log("Vulkan device shutdown");
 }
 
 void mel_gpu_device_wait_idle(Mel_Gpu_Device* dev)
 {
     assert(dev != nullptr);
-    vkDeviceWaitIdle(dev->device);
+    Mel_Gpu_Device_Vulkan* vk = mel__gpu_device_vk(dev);
+    vkDeviceWaitIdle(vk->device);
 }
 
 Mel_Gpu_Capabilities mel_gpu_capabilities(Mel_Gpu_Device* dev)
@@ -653,46 +663,54 @@ Mel_Gpu_Capabilities mel_gpu_capabilities(Mel_Gpu_Device* dev)
     return dev->capabilities;
 }
 
-VkSurfaceKHR mel_gpu_surface_create(Mel_Gpu_Device* dev, SDL_Window* window)
+void* mel_gpu_surface_create(Mel_Gpu_Device* dev, SDL_Window* window)
 {
     assert(dev != nullptr);
     assert(window != nullptr);
 
+    Mel_Gpu_Device_Vulkan* vk = mel__gpu_device_vk(dev);
+
     VkSurfaceKHR surface = VK_NULL_HANDLE;
-    if (!SDL_Vulkan_CreateSurface(window, dev->instance, nullptr, &surface))
+    if (!SDL_Vulkan_CreateSurface(window, vk->instance, nullptr, &surface))
     {
         SDL_Log("Failed to create Vulkan surface: %s", SDL_GetError());
-        return VK_NULL_HANDLE;
+        return nullptr;
     }
 
-    if (!dev->has_present_queue)
-        mel_gpu_device_configure_present(dev, surface);
+    if (!vk->has_present_queue)
+        mel_gpu_device_configure_present(dev, (void*)surface);
 
-    return surface;
+    return (void*)surface;
 }
 
-void mel_gpu_surface_destroy(Mel_Gpu_Device* dev, VkSurfaceKHR surface)
+void mel_gpu_surface_destroy(Mel_Gpu_Device* dev, void* surface)
 {
     assert(dev != nullptr);
-    if (surface != VK_NULL_HANDLE)
-        vkDestroySurfaceKHR(dev->instance, surface, nullptr);
+    if (surface != nullptr)
+    {
+        Mel_Gpu_Device_Vulkan* vk = mel__gpu_device_vk(dev);
+        vkDestroySurfaceKHR(vk->instance, (VkSurfaceKHR)surface, nullptr);
+    }
 }
 
-bool mel_gpu_device_configure_present(Mel_Gpu_Device* dev, VkSurfaceKHR surface)
+bool mel_gpu_device_configure_present(Mel_Gpu_Device* dev, void* surface)
 {
     assert(dev != nullptr);
-    assert(surface != VK_NULL_HANDLE);
+    assert(surface != nullptr);
+
+    Mel_Gpu_Device_Vulkan* vk = mel__gpu_device_vk(dev);
+    VkSurfaceKHR vk_surface = (VkSurfaceKHR)surface;
 
     u32 graphics, present, transfer;
-    if (!find_queue_families(dev->physical_device, surface, &graphics, &present, &transfer))
+    if (!find_queue_families(vk->physical_device, vk_surface, &graphics, &present, &transfer))
         return false;
 
     dev->present_family = present;
-    vkGetDeviceQueue(dev->device, dev->present_family, 0, &dev->present_queue);
-    dev->has_present_queue = true;
+    vkGetDeviceQueue(vk->device, dev->present_family, 0, &vk->present_queue);
+    vk->has_present_queue = true;
     dev->capabilities.present_queue = true;
     SDL_Log("Present queue configured: graphics=%u present=%u transfer=%u",
         graphics, present, transfer);
-    log_queue_families(dev->physical_device, surface);
+    log_queue_families(vk->physical_device, vk_surface);
     return true;
 }

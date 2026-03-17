@@ -1,5 +1,5 @@
 #include "gpu.pipeline.h"
-#include "gpu.device.h"
+#include "gpu.device.vulkan.h"
 #include "gpu.shader.h"
 #include "gpu.cmd.h"
 #include "gpu.types.vulkan.h"
@@ -122,7 +122,7 @@ static VkDescriptorPool mel__gpu_pipeline_create_descriptor_pool(Mel_Gpu_Device*
     };
 
     VkDescriptorPool pool = VK_NULL_HANDLE;
-    VkResult r = vkCreateDescriptorPool(dev->device, &pool_info, nullptr, &pool);
+    VkResult r = vkCreateDescriptorPool(mel__gpu_device_vk(dev)->device, &pool_info, nullptr, &pool);
     assert(r == VK_SUCCESS);
     return pool;
 }
@@ -192,7 +192,7 @@ void mel_gpu_pipeline_init_opt(Mel_Gpu_Pipeline* pipeline, Mel_Gpu_Device* dev, 
         };
 
         VkDescriptorSetLayout desc_layout = VK_NULL_HANDLE;
-        VkResult r = vkCreateDescriptorSetLayout(dev->device, &layout_info, nullptr, &desc_layout);
+        VkResult r = vkCreateDescriptorSetLayout(mel__gpu_device_vk(dev)->device, &layout_info, nullptr, &desc_layout);
         assert(r == VK_SUCCESS);
         pipeline->_descriptor_layout = desc_layout;
 
@@ -220,7 +220,7 @@ void mel_gpu_pipeline_init_opt(Mel_Gpu_Pipeline* pipeline, Mel_Gpu_Device* dev, 
     };
 
     VkPipelineLayout vk_layout = VK_NULL_HANDLE;
-    VkResult r = vkCreatePipelineLayout(dev->device, &pipe_layout_info, nullptr, &vk_layout);
+    VkResult r = vkCreatePipelineLayout(mel__gpu_device_vk(dev)->device, &pipe_layout_info, nullptr, &vk_layout);
     assert(r == VK_SUCCESS);
     pipeline->_layout = vk_layout;
 
@@ -239,7 +239,7 @@ void mel_gpu_pipeline_init_opt(Mel_Gpu_Pipeline* pipeline, Mel_Gpu_Device* dev, 
             .layout = (VkPipelineLayout)pipeline->_layout,
         };
         VkPipeline vk_pipeline = VK_NULL_HANDLE;
-        VkResult r = vkCreateComputePipelines(dev->device, VK_NULL_HANDLE, 1, &pipeline_info, nullptr, &vk_pipeline);
+        VkResult r = vkCreateComputePipelines(mel__gpu_device_vk(dev)->device, VK_NULL_HANDLE, 1, &pipeline_info, nullptr, &vk_pipeline);
         assert(r == VK_SUCCESS);
         pipeline->_pipeline = vk_pipeline;
         SDL_Log("Pipeline created successfully");
@@ -409,7 +409,7 @@ void mel_gpu_pipeline_init_opt(Mel_Gpu_Pipeline* pipeline, Mel_Gpu_Device* dev, 
     };
 
     VkPipeline vk_pipeline = VK_NULL_HANDLE;
-    r = vkCreateGraphicsPipelines(dev->device, VK_NULL_HANDLE, 1, &pipeline_info, nullptr, &vk_pipeline);
+    r = vkCreateGraphicsPipelines(mel__gpu_device_vk(dev)->device, VK_NULL_HANDLE, 1, &pipeline_info, nullptr, &vk_pipeline);
     assert(r == VK_SUCCESS);
     pipeline->_pipeline = vk_pipeline;
 
@@ -421,11 +421,11 @@ void mel_gpu_pipeline_shutdown(Mel_Gpu_Pipeline* pipeline, Mel_Gpu_Device* dev)
     assert(pipeline != nullptr);
     assert(dev != nullptr);
 
-    if (pipeline->_pipeline) { vkDestroyPipeline(dev->device, (VkPipeline)pipeline->_pipeline, nullptr); pipeline->_pipeline = nullptr; }
-    if (pipeline->_layout) { vkDestroyPipelineLayout(dev->device, (VkPipelineLayout)pipeline->_layout, nullptr); pipeline->_layout = nullptr; }
+    if (pipeline->_pipeline) { vkDestroyPipeline(mel__gpu_device_vk(dev)->device, (VkPipeline)pipeline->_pipeline, nullptr); pipeline->_pipeline = nullptr; }
+    if (pipeline->_layout) { vkDestroyPipelineLayout(mel__gpu_device_vk(dev)->device, (VkPipelineLayout)pipeline->_layout, nullptr); pipeline->_layout = nullptr; }
     for (u32 i = 0; i < pipeline->descriptor_pool_count; i++)
         if (pipeline->_descriptor_pools[i])
-            vkDestroyDescriptorPool(dev->device, (VkDescriptorPool)pipeline->_descriptor_pools[i], nullptr);
+            vkDestroyDescriptorPool(mel__gpu_device_vk(dev)->device, (VkDescriptorPool)pipeline->_descriptor_pools[i], nullptr);
     if (pipeline->_descriptor_pools)
         mel_dealloc(mel_alloc_heap(), pipeline->_descriptor_pools);
     pipeline->_descriptor_pools = nullptr;
@@ -436,7 +436,7 @@ void mel_gpu_pipeline_shutdown(Mel_Gpu_Pipeline* pipeline, Mel_Gpu_Device* dev)
         mel_dealloc(mel_alloc_heap(), pipeline->descriptor_bindings);
     pipeline->descriptor_bindings = nullptr;
     pipeline->descriptor_binding_count = 0;
-    if (pipeline->_descriptor_layout) { vkDestroyDescriptorSetLayout(dev->device, (VkDescriptorSetLayout)pipeline->_descriptor_layout, nullptr); pipeline->_descriptor_layout = nullptr; }
+    if (pipeline->_descriptor_layout) { vkDestroyDescriptorSetLayout(mel__gpu_device_vk(dev)->device, (VkDescriptorSetLayout)pipeline->_descriptor_layout, nullptr); pipeline->_descriptor_layout = nullptr; }
 }
 
 void mel_gpu_pipeline_bind(Mel_Gpu_Pipeline* pipeline, Mel_Gpu_Cmd* cmd)
@@ -466,7 +466,7 @@ void* mel_gpu_pipeline_alloc_descriptor(Mel_Gpu_Pipeline* pipeline, Mel_Gpu_Devi
     };
 
     VkDescriptorSet set = VK_NULL_HANDLE;
-    VkResult r = vkAllocateDescriptorSets(dev->device, &alloc_info, &set);
+    VkResult r = vkAllocateDescriptorSets(mel__gpu_device_vk(dev)->device, &alloc_info, &set);
     if (r == VK_ERROR_OUT_OF_POOL_MEMORY || r == VK_ERROR_FRAGMENTED_POOL)
     {
         u32 next_max_sets = pipeline->descriptor_pool_max_sets > 0 ? pipeline->descriptor_pool_max_sets * 2 : 16;
@@ -475,7 +475,7 @@ void* mel_gpu_pipeline_alloc_descriptor(Mel_Gpu_Pipeline* pipeline, Mel_Gpu_Devi
         mel__gpu_pipeline_track_descriptor_pool(pipeline, new_pool);
         pipeline->descriptor_pool_max_sets = next_max_sets;
         alloc_info.descriptorPool = (VkDescriptorPool)pipeline->_descriptor_pool;
-        r = vkAllocateDescriptorSets(dev->device, &alloc_info, &set);
+        r = vkAllocateDescriptorSets(mel__gpu_device_vk(dev)->device, &alloc_info, &set);
     }
     assert(r == VK_SUCCESS);
 

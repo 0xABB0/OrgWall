@@ -1,6 +1,6 @@
 #include "swapchain.image.h"
 #include "swapchain.h"
-#include "gpu.device.h"
+#include "gpu.device.vulkan.h"
 #include "gpu.cmd.h"
 #include "gpu.buffer.h"
 #include "gpu.format.h"
@@ -57,7 +57,7 @@ static bool create_images(Mel_Swapchain* sc, Mel_Gpu_Device* dev)
         };
 
         VkImage vk_image = VK_NULL_HANDLE;
-        VkResult r = vmaCreateImage(dev->vma, &image_info, &vma_info,
+        VkResult r = vmaCreateImage(mel__gpu_device_vk(dev)->vma, &image_info, &vma_info,
                                      &vk_image, &img->image_allocs[i], nullptr);
         if (r != VK_SUCCESS)
         {
@@ -88,11 +88,11 @@ static bool create_images(Mel_Swapchain* sc, Mel_Gpu_Device* dev)
         };
 
         VkImageView vk_view = VK_NULL_HANDLE;
-        VkResult rv = vkCreateImageView(dev->device, &view_info, nullptr, &vk_view);
+        VkResult rv = vkCreateImageView(mel__gpu_device_vk(dev)->device, &view_info, nullptr, &vk_view);
         if (rv != VK_SUCCESS)
         {
             SDL_Log("Failed to create image swapchain view %u: %d", i, rv);
-            vmaDestroyImage(dev->vma, vk_image, img->image_allocs[i]);
+            vmaDestroyImage(mel__gpu_device_vk(dev)->vma, vk_image, img->image_allocs[i]);
             sc->image_count = i;
             return false;
         }
@@ -110,7 +110,7 @@ static void destroy_images(Mel_Swapchain* sc, Mel_Gpu_Device* dev)
     if (sc->_image_views)
     {
         for (u32 i = 0; i < sc->image_count; i++)
-            vkDestroyImageView(dev->device, (VkImageView)sc->_image_views[i], nullptr);
+            vkDestroyImageView(mel__gpu_device_vk(dev)->device, (VkImageView)sc->_image_views[i], nullptr);
         mel_dealloc(alloc, sc->_image_views);
         sc->_image_views = nullptr;
     }
@@ -118,7 +118,7 @@ static void destroy_images(Mel_Swapchain* sc, Mel_Gpu_Device* dev)
     if (sc->_images && img->image_allocs)
     {
         for (u32 i = 0; i < sc->image_count; i++)
-            vmaDestroyImage(dev->vma, (VkImage)sc->_images[i], img->image_allocs[i]);
+            vmaDestroyImage(mel__gpu_device_vk(dev)->vma, (VkImage)sc->_images[i], img->image_allocs[i]);
         mel_dealloc(alloc, sc->_images);
         mel_dealloc(alloc, img->image_allocs);
         sc->_images = nullptr;
@@ -200,7 +200,7 @@ static void image_present(Mel_Swapchain* sc, Mel_Gpu_Device* dev)
 
     if (img->on_present)
     {
-        vkDeviceWaitIdle(dev->device);
+        vkDeviceWaitIdle(mel__gpu_device_vk(dev)->device);
 
         u32 pixel_size = mel_gpu_format_size(sc->format);
         u32 stride = sc->extent_width * pixel_size;
@@ -220,7 +220,7 @@ static void image_resize(Mel_Swapchain* sc, Mel_Gpu_Device* dev, u32 width, u32 
 {
     Mel_Image_Swapchain* img = sc->data;
 
-    vkDeviceWaitIdle(dev->device);
+    vkDeviceWaitIdle(mel__gpu_device_vk(dev)->device);
 
     destroy_images(sc, dev);
 
@@ -250,7 +250,7 @@ static void image_shutdown(Mel_Swapchain* sc, Mel_Gpu_Device* dev)
     Mel_Image_Swapchain* img = sc->data;
     if (!img) return;
 
-    vkDeviceWaitIdle(dev->device);
+    vkDeviceWaitIdle(mel__gpu_device_vk(dev)->device);
 
     if (img->has_staging)
         mel_gpu_buffer_shutdown(&img->staging, dev);

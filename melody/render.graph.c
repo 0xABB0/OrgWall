@@ -3,7 +3,7 @@
 #include "render.target.h"
 #include "render.camera.fwd.h"
 #include "swapchain.h"
-#include "gpu.device.h"
+#include "gpu.device.vulkan.h"
 #include "gpu.tracy.h"
 #include "gpu.image.h"
 #include "gpu.types.vulkan.h"
@@ -395,7 +395,7 @@ static void execute_passes(Mel_Render_Graph* g, Mel_Gpu_Cmd* cmd)
     {
         u32 pi = g->sorted_order.items[si];
         Mel_Render_Graph_Pass* pass = &g->passes.items[pi];
-        Mel_Gpu_Tracy_Zone gpu_zone = mel_gpu_tracy_zone_begin(g->tracy_ctx, (VkCommandBuffer)cmd->_cmd, pass->name);
+        Mel_Gpu_Tracy_Zone gpu_zone = mel_gpu_tracy_zone_begin(g->tracy_ctx, cmd, pass->name);
 
         while (barrier_cursor < g->barriers.count &&
                g->barriers.items[barrier_cursor].pass_index == pi)
@@ -554,7 +554,7 @@ void mel_render_graph_init_opt(Mel_Render_Graph* g, Mel_Render_Graph_Opt opt)
                 .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
                 .queueFamilyIndex = g->dev->graphics_family,
             };
-            vkCreateCommandPool(g->dev->device, &pool_info, nullptr, &vk_pool);
+            vkCreateCommandPool(mel__gpu_device_vk(g->dev)->device, &pool_info, nullptr, &vk_pool);
             g->frames[i]._pool = vk_pool;
 
             VkCommandBuffer vk_cmd = VK_NULL_HANDLE;
@@ -564,7 +564,7 @@ void mel_render_graph_init_opt(Mel_Render_Graph* g, Mel_Render_Graph_Opt opt)
                 .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
                 .commandBufferCount = 1,
             };
-            vkAllocateCommandBuffers(g->dev->device, &alloc_info, &vk_cmd);
+            vkAllocateCommandBuffers(mel__gpu_device_vk(g->dev)->device, &alloc_info, &vk_cmd);
             g->frames[i]._cmd = vk_cmd;
 
             VkFence vk_fence = VK_NULL_HANDLE;
@@ -572,7 +572,7 @@ void mel_render_graph_init_opt(Mel_Render_Graph* g, Mel_Render_Graph_Opt opt)
                 .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
                 .flags = VK_FENCE_CREATE_SIGNALED_BIT,
             };
-            vkCreateFence(g->dev->device, &fence_info, nullptr, &vk_fence);
+            vkCreateFence(mel__gpu_device_vk(g->dev)->device, &fence_info, nullptr, &vk_fence);
             g->frames[i]._fence = vk_fence;
         }
     }
@@ -584,14 +584,14 @@ void mel_render_graph_shutdown(Mel_Render_Graph* g)
 
     if (g->dev)
     {
-        vkDeviceWaitIdle(g->dev->device);
+        vkDeviceWaitIdle(mel__gpu_device_vk(g->dev)->device);
 
         for (u32 i = 0; i < g->frame_count; i++)
         {
             if (g->frames[i]._fence)
-                vkDestroyFence(g->dev->device, (VkFence)g->frames[i]._fence, nullptr);
+                vkDestroyFence(mel__gpu_device_vk(g->dev)->device, (VkFence)g->frames[i]._fence, nullptr);
             if (g->frames[i]._pool)
-                vkDestroyCommandPool(g->dev->device, (VkCommandPool)g->frames[i]._pool, nullptr);
+                vkDestroyCommandPool(mel__gpu_device_vk(g->dev)->device, (VkCommandPool)g->frames[i]._pool, nullptr);
         }
     }
 
@@ -875,21 +875,22 @@ bool mel_render_graph_execute(Mel_Render_Graph* g)
         VkCommandBuffer vk_cmd = (VkCommandBuffer)fd->_cmd;
 
         TracyCZoneN(ctx_fence_wait, "render_graph_fence_wait", true);
-        vkWaitForFences(g->dev->device, 1, &vk_fence, VK_TRUE, UINT64_MAX);
+        vkWaitForFences(mel__gpu_device_vk(g->dev)->device, 1, &vk_fence, VK_TRUE, UINT64_MAX);
         TracyCZoneEnd(ctx_fence_wait);
 
         for (u32 i = 0; i < swapchains.count; i++)
             swapchains.acquired[i] = mel_swapchain_acquire(swapchains.items[i], g->dev);
 
-        vkResetFences(g->dev->device, 1, &vk_fence);
-        vkResetCommandPool(g->dev->device, vk_pool, 0);
+        vkResetFences(mel__gpu_device_vk(g->dev)->device, 1, &vk_fence);
+        vkResetCommandPool(mel__gpu_device_vk(g->dev)->device, vk_pool, 0);
 
         if (!g->tracy_ctx)
         {
-            bool tracy_ok = mel_gpu_tracy_init(&g->tracy_ctx, g->dev, g->dev->graphics_queue, vk_cmd, S8("render_graph"));
+            Mel_Gpu_Cmd init_cmd = { ._cmd = vk_cmd, .dev = g->dev };
+            bool tracy_ok = mel_gpu_tracy_init(&g->tracy_ctx, g->dev, &init_cmd, S8("render_graph"));
             assert(tracy_ok);
             MEL_UNUSED(tracy_ok);
-            vkResetCommandPool(g->dev->device, vk_pool, 0);
+            vkResetCommandPool(mel__gpu_device_vk(g->dev)->device, vk_pool, 0);
         }
 
         VkCommandBufferBeginInfo begin = {
@@ -913,7 +914,8 @@ bool mel_render_graph_execute(Mel_Render_Graph* g)
         VkCommandBuffer vk_cmd = (VkCommandBuffer)fd->_cmd;
         VkFence vk_fence = (VkFence)fd->_fence;
 
-        mel_gpu_tracy_collect(g->tracy_ctx, vk_cmd);
+        Mel_Gpu_Cmd collect_cmd = { ._cmd = vk_cmd, .dev = g->dev };
+        mel_gpu_tracy_collect(g->tracy_ctx, &collect_cmd);
 
         for (u32 i = 0; i < swapchains.count; i++)
         {
@@ -945,7 +947,7 @@ bool mel_render_graph_execute(Mel_Render_Graph* g)
             .pSignalSemaphores = gather.signal_count > 0 ? (VkSemaphore*)gather._signal_semaphores : nullptr,
         };
 
-        VkResult r = vkQueueSubmit(g->dev->graphics_queue, 1, &submit_info, vk_fence);
+        VkResult r = vkQueueSubmit(mel__gpu_device_vk(g->dev)->graphics_queue, 1, &submit_info, vk_fence);
         assert(r == VK_SUCCESS);
         MEL_UNUSED(r);
 

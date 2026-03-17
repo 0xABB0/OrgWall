@@ -1,7 +1,7 @@
 #include "core.engine.h"
 #include "render.graph.h"
 #include "sim.ctx.h"
-#include "gpu.device.h"
+#include "gpu.device.vulkan.h"
 #include "gpu.swapchain.h"
 #include "swapchain.h"
 #include "window.h"
@@ -144,7 +144,7 @@ bool mel_imgui_init(Mel_Window_Handle window, Mel_Swapchain* swapchain)
         .pPoolSizes = pool_sizes,
     };
 
-    if (vkCreateDescriptorPool(dev->device, &pool_info, NULL, &s_imgui_pool) != VK_SUCCESS)
+    if (vkCreateDescriptorPool(mel__gpu_device_vk(dev)->device, &pool_info, NULL, &s_imgui_pool) != VK_SUCCESS)
     {
         SDL_Log("Failed to create ImGui descriptor pool");
         return false;
@@ -176,11 +176,11 @@ bool mel_imgui_init(Mel_Window_Handle window, Mel_Swapchain* swapchain)
 
     ImGui_ImplVulkan_InitInfo init_info = {
         .ApiVersion = VK_API_VERSION_1_3,
-        .Instance = dev->instance,
-        .PhysicalDevice = dev->physical_device,
-        .Device = dev->device,
+        .Instance = mel__gpu_device_vk(dev)->instance,
+        .PhysicalDevice = mel__gpu_device_vk(dev)->physical_device,
+        .Device = mel__gpu_device_vk(dev)->device,
         .QueueFamily = dev->graphics_family,
-        .Queue = dev->graphics_queue,
+        .Queue = mel__gpu_device_vk(dev)->graphics_queue,
         .DescriptorPool = s_imgui_pool,
         .MinImageCount = 2,
         .ImageCount = swapchain->image_count,
@@ -203,7 +203,7 @@ void mel_shutdown(void)
     if (!s_initialized) return;
 
     Mel_Gpu_Device* dev = mel_gpu_dev();
-    vkDeviceWaitIdle(dev->device);
+    vkDeviceWaitIdle(mel__gpu_device_vk(dev)->device);
     mel_stage_shutdown_all();
     mel__window_present_2d_shutdown_all();
 
@@ -215,7 +215,7 @@ void mel_shutdown(void)
 
         if (s_imgui_pool)
         {
-            vkDestroyDescriptorPool(dev->device, s_imgui_pool, NULL);
+            vkDestroyDescriptorPool(mel__gpu_device_vk(dev)->device, s_imgui_pool, NULL);
             s_imgui_pool = VK_NULL_HANDLE;
         }
 
