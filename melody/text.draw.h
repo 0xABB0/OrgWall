@@ -13,17 +13,17 @@ typedef struct {
     Mel_Text_Style style;
 } Mel_Text_Draw_Opt;
 
-void mel_text_draw_font_atlas_opt(Mel_Font_Atlas_Pool* pool, Mel_Font_Handle handle,
+void mel_text_draw_font_atlas_opt(Mel_Font_Atlas_Handle handle,
     Mel_Render_List* list, str8 text, Mel_Text_Draw_Opt opt);
-#define mel_text_draw_font_atlas(pool, handle, list, text, ...) \
-    mel_text_draw_font_atlas_opt((pool), (handle), (list), (text), (Mel_Text_Draw_Opt){__VA_ARGS__})
+#define mel_text_draw_font_atlas(handle, list, text, ...) \
+    mel_text_draw_font_atlas_opt((handle), (list), (text), (Mel_Text_Draw_Opt){__VA_ARGS__})
 
-void mel_text_draw_font_sdf_opt(Mel_Font_SDF_Pool* pool, Mel_Font_Handle handle,
+void mel_text_draw_font_sdf_opt(Mel_Font_SDF_Handle handle,
     Mel_Render_List* list, str8 text, Mel_Text_Draw_Opt opt);
-#define mel_text_draw_font_sdf(pool, handle, list, text, ...) \
-    mel_text_draw_font_sdf_opt((pool), (handle), (list), (text), (Mel_Text_Draw_Opt){__VA_ARGS__})
+#define mel_text_draw_font_sdf(handle, list, text, ...) \
+    mel_text_draw_font_sdf_opt((handle), (list), (text), (Mel_Text_Draw_Opt){__VA_ARGS__})
 
-void mel_text_draw_font_msdf_opt(Mel_Font_MSDF_Pool* pool, Mel_Font_Handle handle,
+void mel_text_draw_font_msdf_opt(Mel_Font_MSDF_Handle handle,
     Mel_Render_List* list, str8 text, Mel_Text_Draw_Opt opt);
-#define mel_text_draw_font_msdf(pool, handle, list, text, ...) \
-    mel_text_draw_font_msdf_opt((pool), (handle), (list), (text), (Mel_Text_Draw_Opt){__VA_ARGS__})
+#define mel_text_draw_font_msdf(handle, list, text, ...) \
+    mel_text_draw_font_msdf_opt((handle), (list), (text), (Mel_Text_Draw_Opt){__VA_ARGS__})

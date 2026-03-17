@@ -6,8 +6,11 @@
 #include "texture.pool.h"
 #include "event.channel.h"
 #include "boot.registry.h"
+#include "gpu.device.h"
+#include "gpu.cmd.h"
 #include "gpu.pipeline.h"
 #include "gpu.texture.h"
+#include "gpu.types.vulkan.h"
 #include "allocator.h"
 #include "allocator.heap.h"
 #include "string.str8.h"
@@ -34,7 +37,7 @@ static void mel__sprite_pass_compile_job(void* data)
 
     mel_sprite_pass_init(&s_sprite_pass,
         .dev = dev,
-        .color_format = VK_FORMAT_B8G8R8A8_SRGB,
+        .color_format = MEL_GPU_FORMAT_B8G8R8A8_SRGB,
         .max_sprites = 4096);
 
     mel_event_channel_fire(&mel_sprite_pass_ready, NULL);
@@ -121,7 +124,7 @@ static void mel__sprite_pass_push_draw(Mel_Sprite_Pass* sp)
         prev->index_count = sp->index_count - prev->index_offset;
         if (prev->index_count == 0)
         {
-            prev->descriptor = sp->current_descriptor;
+            prev->_descriptor = sp->_current_descriptor;
             return;
         }
     }
@@ -138,7 +141,7 @@ static void mel__sprite_pass_push_draw(Mel_Sprite_Pass* sp)
     }
 
     sp->draws[sp->draw_count++] = (Mel_Sprite_Draw_Cmd){
-        .descriptor = sp->current_descriptor,
+        ._descriptor = sp->_current_descriptor,
         .index_offset = sp->index_count,
         .index_count = 0,
     };
@@ -151,7 +154,7 @@ static void mel__sprite_pass_set_texture(Mel_Sprite_Pass* sp, Mel_Gpu_Texture* t
     if (sp->current_texture == texture) return;
 
     sp->current_texture = texture;
-    sp->current_descriptor = texture ? texture->descriptor : VK_NULL_HANDLE;
+    sp->_current_descriptor = texture ? texture->_descriptor : nullptr;
 
     mel__sprite_pass_push_draw(sp);
 }
@@ -239,13 +242,13 @@ static void mel__sprite_pass_begin(Mel_Sprite_Pass* sp, u32 frame_index)
     sp->index_count = 0;
     sp->draw_count = 0;
     sp->current_texture = nullptr;
-    sp->current_descriptor = VK_NULL_HANDLE;
+    sp->_current_descriptor = nullptr;
 
     mel__sprite_pass_set_texture(sp, &sp->white_texture);
     TracyCZoneEnd(ctx);
 }
 
-static void mel__sprite_pass_flush(Mel_Sprite_Pass* sp, Mel_Gpu_Cmd cmd, Mel_Mat4* projection)
+static void mel__sprite_pass_flush(Mel_Sprite_Pass* sp, Mel_Gpu_Cmd* cmd, Mel_Mat4* projection)
 {
     TracyCZoneN(ctx, "sprite_pass_flush", true);
     assert(sp != nullptr);
@@ -265,18 +268,17 @@ static void mel__sprite_pass_flush(Mel_Sprite_Pass* sp, Mel_Gpu_Cmd cmd, Mel_Mat
     Mel_Sprite_Gpu_Frame* frame = &sp->gpu_frames[sp->gpu_frame_index];
 
     TracyCZoneN(ctx_flush, "buffer_flush", true);
-    mel_gpu_buffer_flush(&frame->vertex_buffer, cmd.dev);
-    mel_gpu_buffer_flush(&frame->index_buffer, cmd.dev);
+    mel_gpu_buffer_flush(&frame->vertex_buffer, cmd->dev);
+    mel_gpu_buffer_flush(&frame->index_buffer, cmd->dev);
     TracyCZoneEnd(ctx_flush);
 
-    mel_gpu_pipeline_bind(&sp->pipeline, cmd.cmd);
+    mel_gpu_pipeline_bind(&sp->pipeline, cmd);
 
-    vkCmdPushConstants(cmd.cmd, sp->pipeline.layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(Mel_Mat4), projection);
+    mel_gpu_cmd_push_constants(cmd, &sp->pipeline, MEL_GPU_SHADER_STAGE_VERTEX,
+                               0, sizeof(Mel_Mat4), projection);
 
-    VkBuffer buffers[] = { frame->vertex_buffer.buffer };
-    VkDeviceSize offsets[] = { 0 };
-    vkCmdBindVertexBuffers(cmd.cmd, 0, 1, buffers, offsets);
-    vkCmdBindIndexBuffer(cmd.cmd, frame->index_buffer.buffer, 0, VK_INDEX_TYPE_UINT16);
+    mel_gpu_cmd_bind_vertex_buffer(cmd, &frame->vertex_buffer, 0);
+    mel_gpu_cmd_bind_index_buffer(cmd, &frame->index_buffer, 0, MEL_GPU_INDEX_TYPE_U16);
 
     TracyCZoneN(ctx_draw, "vkCmdDrawIndexed", true);
     for (u32 i = 0; i < sp->draw_count; i++)
@@ -284,13 +286,12 @@ static void mel__sprite_pass_flush(Mel_Sprite_Pass* sp, Mel_Gpu_Cmd cmd, Mel_Mat
         Mel_Sprite_Draw_Cmd* draw = &sp->draws[i];
         if (draw->index_count == 0) continue;
 
-        if (draw->descriptor)
+        if (draw->_descriptor)
         {
-            vkCmdBindDescriptorSets(cmd.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, sp->pipeline.layout,
-                0, 1, &draw->descriptor, 0, nullptr);
+            mel_gpu_cmd_bind_descriptor_set(cmd, &sp->pipeline, draw->_descriptor);
         }
 
-        vkCmdDrawIndexed(cmd.cmd, draw->index_count, 1, draw->index_offset, 0, 0);
+        mel_gpu_cmd_draw_indexed(cmd, draw->index_count, 1, draw->index_offset, 0, 0);
     }
     TracyCZoneEnd(ctx_draw);
 
@@ -309,18 +310,18 @@ bool mel_sprite_pass_init_opt(Mel_Sprite_Pass* sp, Mel_Sprite_Pass_Init_Opt opt)
     mel_gpu_shader_init(&sp->shader, opt.dev,
         .source = str8_from_cstr(SPRITE_SHADER_SOURCE));
 
-    VkVertexInputBindingDescription binding = {
+    Mel_Gpu_Vertex_Binding binding = {
         .binding = 0,
         .stride = sizeof(Mel_SpriteVertex),
-        .inputRate = VK_VERTEX_INPUT_RATE_VERTEX,
+        .input_rate = 0,
     };
 
-    VkVertexInputAttributeDescription attributes[] = {
-        { .location = 0, .binding = 0, .format = VK_FORMAT_R32G32_SFLOAT,
+    Mel_Gpu_Vertex_Attribute attributes[] = {
+        { .location = 0, .binding = 0, .format = MEL_GPU_FORMAT_R32G32_SFLOAT,
           .offset = offsetof(Mel_SpriteVertex, x) },
-        { .location = 1, .binding = 0, .format = VK_FORMAT_R32G32_SFLOAT,
+        { .location = 1, .binding = 0, .format = MEL_GPU_FORMAT_R32G32_SFLOAT,
           .offset = offsetof(Mel_SpriteVertex, u) },
-        { .location = 2, .binding = 0, .format = VK_FORMAT_R32G32B32A32_SFLOAT,
+        { .location = 2, .binding = 0, .format = MEL_GPU_FORMAT_R32G32B32A32_SFLOAT,
           .offset = offsetof(Mel_SpriteVertex, r) },
     };
 
@@ -345,13 +346,13 @@ bool mel_sprite_pass_init_opt(Mel_Sprite_Pass* sp, Mel_Sprite_Pass_Init_Opt opt)
     {
         mel_gpu_buffer_init(&sp->gpu_frames[i].vertex_buffer, opt.dev,
             .size = vertex_size,
-            .usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-            .memory_usage = VMA_MEMORY_USAGE_CPU_TO_GPU);
+            .usage = MEL_GPU_BUFFER_USAGE_VERTEX,
+            .memory_usage = MEL_GPU_MEMORY_USAGE_CPU_TO_GPU);
 
         mel_gpu_buffer_init(&sp->gpu_frames[i].index_buffer, opt.dev,
             .size = index_size,
-            .usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-            .memory_usage = VMA_MEMORY_USAGE_CPU_TO_GPU);
+            .usage = MEL_GPU_BUFFER_USAGE_INDEX,
+            .memory_usage = MEL_GPU_MEMORY_USAGE_CPU_TO_GPU);
     }
 
     sp->gpu_frame_index = 0;
@@ -359,9 +360,9 @@ bool mel_sprite_pass_init_opt(Mel_Sprite_Pass* sp, Mel_Sprite_Pass_Init_Opt opt)
     sp->indices = (u16*)sp->gpu_frames[0].index_buffer.mapped;
 
     mel_gpu_texture_init_white(&sp->white_texture, opt.dev);
-    sp->white_texture.descriptor = mel_gpu_pipeline_alloc_descriptor(&sp->pipeline, opt.dev);
-    mel_gpu_pipeline_write_texture(&sp->pipeline, opt.dev, sp->white_texture.descriptor,
-        sp->white_texture.image.view, sp->white_texture.sampler);
+    sp->white_texture._descriptor = mel_gpu_pipeline_alloc_descriptor(&sp->pipeline, opt.dev);
+    mel_gpu_pipeline_write_texture(&sp->pipeline, opt.dev, sp->white_texture._descriptor,
+        sp->white_texture.image._view, sp->white_texture._sampler);
 
     return true;
 }
@@ -480,7 +481,7 @@ void mel_sprite_pass_execute(Mel_Render_Pass_Ctx* ctx)
         }
     }
 
-    mel__sprite_pass_flush(sp, ctx->cmd, &vp);
+    mel__sprite_pass_flush(sp, &ctx->cmd, &vp);
 }
 
 void mel_draw_sprite_opt(Mel_Render_List* list, Mel_Draw_Sprite_Opt opt)

@@ -1,4 +1,6 @@
 #include "text.pass.h"
+#include "gpu.device.h"
+#include "gpu.types.vulkan.h"
 #include "render.list.h"
 #include "render.pass.h"
 #include "render.camera.h"
@@ -30,7 +32,7 @@ static void mel__text_pass_compile_job(void* data)
 
     mel_text_pass_init(&s_text_pass,
         .dev = dev,
-        .color_format = VK_FORMAT_B8G8R8A8_SRGB,
+        .color_format = MEL_GPU_FORMAT_B8G8R8A8_SRGB,
         .max_glyphs = 4096);
 
     mel_event_channel_fire(&mel_text_pass_ready, NULL);
@@ -174,11 +176,11 @@ static const char* TEXT_SHADER_SOURCE =
 "    return float4(rgb, alpha);\n"
 "}\n";
 
-static VkDescriptorSet mel__text_pass_descriptor_for(Mel_Text_Pass* pass, Mel_Gpu_Texture* texture)
+static void* mel__text_pass_descriptor_for(Mel_Text_Pass* pass, Mel_Gpu_Texture* texture)
 {
     for (u32 i = 0; i < pass->descriptor_cache_count; i++)
         if (pass->descriptor_cache[i].texture == texture)
-            return pass->descriptor_cache[i].descriptor;
+            return pass->descriptor_cache[i]._descriptor;
 
     if (pass->descriptor_cache_count >= pass->descriptor_cache_capacity)
     {
@@ -190,13 +192,13 @@ static VkDescriptorSet mel__text_pass_descriptor_for(Mel_Text_Pass* pass, Mel_Gp
         pass->descriptor_cache_capacity = new_cap;
     }
 
-    VkDescriptorSet descriptor = mel_gpu_pipeline_alloc_descriptor(&pass->pipeline, pass->dev);
+    void* descriptor = mel_gpu_pipeline_alloc_descriptor(&pass->pipeline, pass->dev);
     mel_gpu_pipeline_write_texture(&pass->pipeline, pass->dev, descriptor,
-        texture->image.view, texture->sampler);
+        texture->image._view, texture->_sampler);
 
     pass->descriptor_cache[pass->descriptor_cache_count++] = (Mel_Text_Descriptor_Cache_Entry){
         .texture = texture,
-        .descriptor = descriptor,
+        ._descriptor = descriptor,
     };
     return descriptor;
 }
@@ -209,7 +211,7 @@ static void mel__text_pass_push_draw(Mel_Text_Pass* pass)
         prev->index_count = pass->index_count - prev->index_offset;
         if (prev->index_count == 0)
         {
-            prev->descriptor = pass->current_descriptor;
+            prev->_descriptor = pass->_current_descriptor;
             return;
         }
     }
@@ -223,7 +225,7 @@ static void mel__text_pass_push_draw(Mel_Text_Pass* pass)
     }
 
     pass->draws[pass->draw_count++] = (Mel_Text_Draw_Cmd){
-        .descriptor = pass->current_descriptor,
+        ._descriptor = pass->_current_descriptor,
         .index_offset = pass->index_count,
         .index_count = 0,
     };
@@ -237,7 +239,7 @@ static void mel__text_pass_set_texture(Mel_Text_Pass* pass, Mel_Gpu_Texture* tex
         return;
 
     pass->current_texture = texture;
-    pass->current_descriptor = mel__text_pass_descriptor_for(pass, texture);
+    pass->_current_descriptor = mel__text_pass_descriptor_for(pass, texture);
     mel__text_pass_push_draw(pass);
 }
 
@@ -295,11 +297,11 @@ static void mel__text_pass_begin(Mel_Text_Pass* pass, u32 frame_index)
     pass->index_count = 0;
     pass->draw_count = 0;
     pass->current_texture = nullptr;
-    pass->current_descriptor = VK_NULL_HANDLE;
+    pass->_current_descriptor = nullptr;
     mel__text_pass_set_texture(pass, &pass->white_texture);
 }
 
-static void mel__text_pass_flush(Mel_Text_Pass* pass, Mel_Gpu_Cmd cmd, Mel_Mat4* projection)
+static void mel__text_pass_flush(Mel_Text_Pass* pass, Mel_Gpu_Cmd* cmd, Mel_Mat4* projection)
 {
     if (pass->draw_count > 0)
     {
@@ -311,24 +313,22 @@ static void mel__text_pass_flush(Mel_Text_Pass* pass, Mel_Gpu_Cmd cmd, Mel_Mat4*
         return;
 
     Mel_Text_Gpu_Frame* frame = &pass->gpu_frames[pass->gpu_frame_index];
-    mel_gpu_buffer_flush(&frame->vertex_buffer, cmd.dev);
-    mel_gpu_buffer_flush(&frame->index_buffer, cmd.dev);
+    mel_gpu_buffer_flush(&frame->vertex_buffer, cmd->dev);
+    mel_gpu_buffer_flush(&frame->index_buffer, cmd->dev);
 
-    mel_gpu_pipeline_bind(&pass->pipeline, cmd.cmd);
-    vkCmdPushConstants(cmd.cmd, pass->pipeline.layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(Mel_Mat4), projection);
+    mel_gpu_pipeline_bind(&pass->pipeline, cmd);
+    mel_gpu_cmd_push_constants(cmd, &pass->pipeline, MEL_GPU_SHADER_STAGE_VERTEX,
+        0, sizeof(Mel_Mat4), projection);
 
-    VkBuffer buffers[] = { frame->vertex_buffer.buffer };
-    VkDeviceSize offsets[] = { 0 };
-    vkCmdBindVertexBuffers(cmd.cmd, 0, 1, buffers, offsets);
-    vkCmdBindIndexBuffer(cmd.cmd, frame->index_buffer.buffer, 0, VK_INDEX_TYPE_UINT16);
+    mel_gpu_cmd_bind_vertex_buffer(cmd, &frame->vertex_buffer, 0);
+    mel_gpu_cmd_bind_index_buffer(cmd, &frame->index_buffer, 0, MEL_GPU_INDEX_TYPE_U16);
 
     for (u32 i = 0; i < pass->draw_count; i++)
     {
         Mel_Text_Draw_Cmd* draw = &pass->draws[i];
         if (draw->index_count == 0) continue;
-        vkCmdBindDescriptorSets(cmd.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pass->pipeline.layout,
-            0, 1, &draw->descriptor, 0, nullptr);
-        vkCmdDrawIndexed(cmd.cmd, draw->index_count, 1, draw->index_offset, 0, 0);
+        mel_gpu_cmd_bind_descriptor_set(cmd, &pass->pipeline, draw->_descriptor);
+        mel_gpu_cmd_draw_indexed(cmd, draw->index_count, 1, draw->index_offset, 0, 0);
     }
 }
 
@@ -343,19 +343,19 @@ bool mel_text_pass_init_opt(Mel_Text_Pass* pass, Mel_Text_Pass_Init_Opt opt)
 
     mel_gpu_shader_init(&pass->shader, opt.dev, .source = str8_from_cstr(TEXT_SHADER_SOURCE));
 
-    VkVertexInputBindingDescription binding = {
+    Mel_Gpu_Vertex_Binding binding = {
         .binding = 0,
         .stride = sizeof(Mel_Text_Vertex),
-        .inputRate = VK_VERTEX_INPUT_RATE_VERTEX,
+        .input_rate = 0,
     };
 
-    VkVertexInputAttributeDescription attributes[] = {
-        { .location = 0, .binding = 0, .format = VK_FORMAT_R32G32_SFLOAT, .offset = offsetof(Mel_Text_Vertex, x) },
-        { .location = 1, .binding = 0, .format = VK_FORMAT_R32G32_SFLOAT, .offset = offsetof(Mel_Text_Vertex, u) },
-        { .location = 2, .binding = 0, .format = VK_FORMAT_R32G32B32A32_SFLOAT, .offset = offsetof(Mel_Text_Vertex, r) },
-        { .location = 3, .binding = 0, .format = VK_FORMAT_R32G32B32A32_SFLOAT, .offset = offsetof(Mel_Text_Vertex, or_) },
-        { .location = 4, .binding = 0, .format = VK_FORMAT_R32G32B32A32_SFLOAT, .offset = offsetof(Mel_Text_Vertex, mode) },
-        { .location = 5, .binding = 0, .format = VK_FORMAT_R32G32B32A32_SFLOAT, .offset = offsetof(Mel_Text_Vertex, px_range) },
+    Mel_Gpu_Vertex_Attribute attributes[] = {
+        { .location = 0, .binding = 0, .format = MEL_GPU_FORMAT_R32G32_SFLOAT, .offset = offsetof(Mel_Text_Vertex, x) },
+        { .location = 1, .binding = 0, .format = MEL_GPU_FORMAT_R32G32_SFLOAT, .offset = offsetof(Mel_Text_Vertex, u) },
+        { .location = 2, .binding = 0, .format = MEL_GPU_FORMAT_R32G32B32A32_SFLOAT, .offset = offsetof(Mel_Text_Vertex, r) },
+        { .location = 3, .binding = 0, .format = MEL_GPU_FORMAT_R32G32B32A32_SFLOAT, .offset = offsetof(Mel_Text_Vertex, or_) },
+        { .location = 4, .binding = 0, .format = MEL_GPU_FORMAT_R32G32B32A32_SFLOAT, .offset = offsetof(Mel_Text_Vertex, mode) },
+        { .location = 5, .binding = 0, .format = MEL_GPU_FORMAT_R32G32B32A32_SFLOAT, .offset = offsetof(Mel_Text_Vertex, px_range) },
     };
 
     mel_gpu_pipeline_init(&pass->pipeline, opt.dev,
@@ -377,12 +377,12 @@ bool mel_text_pass_init_opt(Mel_Text_Pass* pass, Mel_Text_Pass_Init_Opt opt)
     {
         mel_gpu_buffer_init(&pass->gpu_frames[i].vertex_buffer, opt.dev,
             .size = vertex_size,
-            .usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-            .memory_usage = VMA_MEMORY_USAGE_CPU_TO_GPU);
+            .usage = MEL_GPU_BUFFER_USAGE_VERTEX,
+            .memory_usage = MEL_GPU_MEMORY_USAGE_CPU_TO_GPU);
         mel_gpu_buffer_init(&pass->gpu_frames[i].index_buffer, opt.dev,
             .size = index_size,
-            .usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-            .memory_usage = VMA_MEMORY_USAGE_CPU_TO_GPU);
+            .usage = MEL_GPU_BUFFER_USAGE_INDEX,
+            .memory_usage = MEL_GPU_MEMORY_USAGE_CPU_TO_GPU);
     }
 
     pass->gpu_frame_index = 0;
@@ -441,5 +441,5 @@ void mel_text_pass_execute(Mel_Render_Pass_Ctx* ctx)
             mel__text_pass_draw_list(ctx->read_lists[i], pass);
     }
 
-    mel__text_pass_flush(pass, ctx->cmd, &vp);
+    mel__text_pass_flush(pass, &ctx->cmd, &vp);
 }

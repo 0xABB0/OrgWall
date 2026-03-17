@@ -110,7 +110,6 @@ void street_carlos_pause_stage_init(Street_Carlos_Pause_Stage* stage, Street_Car
     mel_widget_add_child(&stage->backdrop.base, &stage->card.base);
 
     mel_wlabel_init(&stage->title);
-    stage->title.font_pool = &ctx->font_pool;
     stage->title.font = ctx->title_font;
     stage->title.text_color = mel_vec4(1.0f, 0.35f, 0.35f, 1.0f);
     mel_wlabel_set_text(&stage->title, S8("PAUSED"));
@@ -125,7 +124,6 @@ void street_carlos_pause_stage_init(Street_Carlos_Pause_Stage* stage, Street_Car
         mel_widget_add_child(&stage->backdrop.base, &stage->buttons[i].base);
 
         mel_wlabel_init(&stage->button_labels[i]);
-        stage->button_labels[i].font_pool = &ctx->font_pool;
         stage->button_labels[i].font = ctx->ui_font;
         mel_wlabel_set_text(&stage->button_labels[i], s_pause_labels[i]);
         mel_widget_add_child(&stage->backdrop.base, &stage->button_labels[i].base);

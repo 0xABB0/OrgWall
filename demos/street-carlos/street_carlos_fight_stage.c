@@ -229,7 +229,6 @@ static void street_carlos_fight_stage_upload_hud(Street_Carlos_Fight_Stage* stag
         .fightdef = &stage->fightdef,
         .fight_sff = &stage->fight_sff,
         .fight_tex = stage->fight_tex_handle,
-        .font_pool = &stage->ctx->font_pool,
         .font = stage->ctx->body_font,
         .p1_mid_ratio = 1.0f,
         .p2_mid_ratio = 1.0f,
@@ -571,15 +570,15 @@ void street_carlos_fight_stage_draw_hud(Street_Carlos_Fight_Stage* stage, Street
         Mugen_Player_Inputs p1_inputs = mugen_match_get_player_inputs(stage->match, MUGEN_MATCH_PLAYER_1);
         Mugen_Player_Inputs p2_inputs = mugen_match_get_player_inputs(stage->match, MUGEN_MATCH_PLAYER_2);
         game_draw_input_display(p1_inputs, &p1->commands, p1->cns_state.stateno,
-            &ctx->font_pool, ctx->body_font, 4.0f, 24.0f, list);
+            ctx->body_font, 4.0f, 24.0f, list);
         game_draw_input_display(p2_inputs, &p2->commands, p2->cns_state.stateno,
-            &ctx->font_pool, ctx->body_font, (f32)GAME_W - 80.0f, 24.0f, list);
+            ctx->body_font, (f32)GAME_W - 80.0f, 24.0f, list);
     }
 
     if (stage->show_moves)
     {
         game_draw_move_list(&stage->p1_char->cmd, p1->cns_state.stateno,
-            &ctx->font_pool, ctx->body_font, (f32)GAME_W * 0.5f - 60.0f, 24.0f, (f32)GAME_H - 30.0f, list);
+            ctx->body_font, (f32)GAME_W * 0.5f - 60.0f, 24.0f, (f32)GAME_H - 30.0f, list);
     }
 }
 

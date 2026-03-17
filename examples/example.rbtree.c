@@ -17,6 +17,7 @@
 #include "render.camera.h"
 #include "texture.pool.h"
 #include "font.atlas.h"
+#include "font.desc.h"
 #include "vfs.h"
 #include "vfs.backend.os.h"
 #include "allocator.heap.h"
@@ -45,7 +46,7 @@
 
 static Mel_Window_Handle s_window_handle;
 static Mel_Swapchain_Handle s_swapchain_handle;
-static Mel_Font_Handle s_font_handle;
+static Mel_Font_Atlas_Handle s_font_handle;
 static Mel_Render_List s_sprite_list;
 static Mel_Render_List s_font_list;
 
@@ -264,7 +265,7 @@ static void draw_nodes(RBTreeDemo* d, Mel_Render_List* list, f32 ox, f32 oy)
     }
 }
 
-static void draw_node_labels(RBTreeDemo* d, Mel_Font_Atlas_Pool* pool, Mel_Font_Handle font, Mel_Render_List* list, f32 ox, f32 oy)
+static void draw_node_labels(RBTreeDemo* d, Mel_Font_Atlas_Handle font, Mel_Render_List* list, f32 ox, f32 oy)
 {
     Mel_Vec4 white = mel_vec4(1.0f, 1.0f, 1.0f, 1.0f);
 
@@ -273,11 +274,11 @@ static void draw_node_labels(RBTreeDemo* d, Mel_Font_Atlas_Pool* pool, Mel_Font_
         char buf[16];
         snprintf(buf, sizeof(buf), "%d", (int)d->positions[i].key);
 
-        Mel_Vec2 text_size = mel_font_atlas_measure_text(pool, font, str8_from_cstr(buf));
+        Mel_Vec2 text_size = mel_font_atlas_measure_text(font, str8_from_cstr(buf));
         f32 nx = ox + d->positions[i].x + NODE_SIZE * 0.5f - text_size.x * 0.5f;
         f32 ny = oy + d->positions[i].y + NODE_SIZE * 0.5f - text_size.y * 0.5f;
 
-        mel_font_atlas_draw_text(pool, font, list, str8_from_cstr(buf), nx, ny, white);
+        mel_font_atlas_draw_text(font, list, str8_from_cstr(buf), nx, ny, white);
     }
 }
 
@@ -290,7 +291,7 @@ static void draw_panel(Mel_Render_List* list, f32 panel_x, f32 win_h)
     push_rect(list, panel_x, 0, 2.0f, win_h, border);
 }
 
-static void draw_panel_text(Mel_Font_Atlas_Pool* pool, Mel_Font_Handle font, Mel_Render_List* list, f32 panel_x, RBTreeDemo* d)
+static void draw_panel_text(Mel_Font_Atlas_Handle font, Mel_Render_List* list, f32 panel_x, RBTreeDemo* d)
 {
     Mel_Vec4 white = mel_vec4(1.0f, 1.0f, 1.0f, 1.0f);
     Mel_Vec4 dim = mel_vec4(0.6f, 0.6f, 0.6f, 1.0f);
@@ -299,12 +300,12 @@ static void draw_panel_text(Mel_Font_Atlas_Pool* pool, Mel_Font_Handle font, Mel
     f32 tx = panel_x + 16.0f;
     f32 ty = 20.0f;
 
-    mel_font_atlas_draw_text(pool, font, list, S8("RED-BLACK TREE"), tx, ty, white);
+    mel_font_atlas_draw_text(font, list, S8("RED-BLACK TREE"), tx, ty, white);
     ty += 40.0f;
 
     char buf[64];
     snprintf(buf, sizeof(buf), "Nodes: %d", (int)mel_rbtree_count(&d->tree));
-    mel_font_atlas_draw_text(pool, font, list, str8_from_cstr(buf), tx, ty, green);
+    mel_font_atlas_draw_text(font, list, str8_from_cstr(buf), tx, ty, green);
     ty += 30.0f;
 
     if (d->last_op != OP_NONE)
@@ -320,36 +321,36 @@ static void draw_panel_text(Mel_Font_Atlas_Pool* pool, Mel_Font_Handle font, Mel
         else
             snprintf(buf, sizeof(buf), "Last: %s %d", op_str, d->last_op_key);
 
-        mel_font_atlas_draw_text(pool, font, list, str8_from_cstr(buf), tx, ty, dim);
+        mel_font_atlas_draw_text(font, list, str8_from_cstr(buf), tx, ty, dim);
         ty += 30.0f;
     }
 
     ty += 10.0f;
     char input_display[32];
     snprintf(input_display, sizeof(input_display), "Input: %.*s_", d->input_len, d->input_buf);
-    mel_font_atlas_draw_text(pool, font, list, str8_from_cstr(input_display), tx, ty, white);
+    mel_font_atlas_draw_text(font, list, str8_from_cstr(input_display), tx, ty, white);
     ty += 40.0f;
 
     Mel_Vec4 ctrl = mel_vec4(0.5f, 0.5f, 0.55f, 1.0f);
-    mel_font_atlas_draw_text(pool, font, list, S8("CONTROLS"), tx, ty, white);
+    mel_font_atlas_draw_text(font, list, S8("CONTROLS"), tx, ty, white);
     ty += 28.0f;
-    mel_font_atlas_draw_text(pool, font, list, S8("0-9    Type number"), tx, ty, ctrl);
+    mel_font_atlas_draw_text(font, list, S8("0-9    Type number"), tx, ty, ctrl);
     ty += 22.0f;
-    mel_font_atlas_draw_text(pool, font, list, S8("Enter  Insert"), tx, ty, ctrl);
+    mel_font_atlas_draw_text(font, list, S8("Enter  Insert"), tx, ty, ctrl);
     ty += 22.0f;
-    mel_font_atlas_draw_text(pool, font, list, S8("Del    Remove"), tx, ty, ctrl);
+    mel_font_atlas_draw_text(font, list, S8("Del    Remove"), tx, ty, ctrl);
     ty += 22.0f;
-    mel_font_atlas_draw_text(pool, font, list, S8("F      Find"), tx, ty, ctrl);
+    mel_font_atlas_draw_text(font, list, S8("F      Find"), tx, ty, ctrl);
     ty += 22.0f;
-    mel_font_atlas_draw_text(pool, font, list, S8("Bksp   Delete char"), tx, ty, ctrl);
+    mel_font_atlas_draw_text(font, list, S8("Bksp   Delete char"), tx, ty, ctrl);
     ty += 22.0f;
-    mel_font_atlas_draw_text(pool, font, list, S8("Space  Random insert"), tx, ty, ctrl);
+    mel_font_atlas_draw_text(font, list, S8("Space  Random insert"), tx, ty, ctrl);
     ty += 22.0f;
-    mel_font_atlas_draw_text(pool, font, list, S8("I      Insert 7 rand"), tx, ty, ctrl);
+    mel_font_atlas_draw_text(font, list, S8("I      Insert 7 rand"), tx, ty, ctrl);
     ty += 22.0f;
-    mel_font_atlas_draw_text(pool, font, list, S8("C      Clear tree"), tx, ty, ctrl);
+    mel_font_atlas_draw_text(font, list, S8("C      Clear tree"), tx, ty, ctrl);
     ty += 22.0f;
-    mel_font_atlas_draw_text(pool, font, list, S8("Esc    Quit"), tx, ty, ctrl);
+    mel_font_atlas_draw_text(font, list, S8("Esc    Quit"), tx, ty, ctrl);
 }
 
 static void on_init(void)
@@ -357,8 +358,8 @@ static void on_init(void)
     Mel_Gpu_Device* dev = mel_gpu_dev();
     Mel_Swapchain* sc = &mel_swapchain_registry_get(s_swapchain_handle)->swapchain;
 
-    s_font_handle = mel_font_atlas_pool_load(mel_font_pool(),
-        .path = S8("/System/Library/Fonts/Monaco.ttf"), .size = 18.0f);
+    s_font_handle = mel_font_atlas_load(
+        .desc = mel_font_desc_load_ttf(S8("/System/Library/Fonts/Monaco.ttf")), .size = 18.0f);
 
 
     demo_init(&s_demo);
@@ -476,10 +477,10 @@ static void app_update(Mel_Sim_Ctx* sim, f32 dt, void* user)
         draw_edges(&s_demo, &s_sprite_list, ox, oy);
         draw_nodes(&s_demo, &s_sprite_list, ox, oy);
 
-        draw_node_labels(&s_demo, mel_font_pool(), s_font_handle, &s_font_list, ox, oy);
+        draw_node_labels(&s_demo, s_font_handle, &s_font_list, ox, oy);
     }
 
-    draw_panel_text(mel_font_pool(), s_font_handle, &s_font_list, panel_x, &s_demo);
+    draw_panel_text(s_font_handle, &s_font_list, panel_x, &s_demo);
 }
 
 void app_event(SDL_Event* event)

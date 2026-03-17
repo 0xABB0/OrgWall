@@ -1,5 +1,6 @@
-#define VK_NO_PROTOTYPES
 #include "gpu.buffer.h"
+#include "gpu.device.h"
+#include "gpu.types.vulkan.h"
 #include <string.h>
 #include <tracy/TracyC.h>
 
@@ -12,7 +13,7 @@ void mel_gpu_buffer_init_opt(Mel_Gpu_Buffer* buf, Mel_Gpu_Device* dev, Mel_Gpu_B
     TracyCZoneN(ctx, "gpu_buffer_init", true);
     *buf = (Mel_Gpu_Buffer){0};
 
-    VkBufferUsageFlags usage = opt.usage | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
+    VkBufferUsageFlags usage = mel__gpu_buffer_usage_to_vk(opt.usage) | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
 
     VkBufferCreateInfo buffer_info = {
         .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
@@ -21,26 +22,34 @@ void mel_gpu_buffer_init_opt(Mel_Gpu_Buffer* buf, Mel_Gpu_Device* dev, Mel_Gpu_B
         .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
     };
 
+    VmaMemoryUsage vma_usage = opt.memory_usage
+        ? mel__gpu_memory_usage_to_vma(opt.memory_usage)
+        : VMA_MEMORY_USAGE_GPU_ONLY;
+
     VmaAllocationCreateInfo alloc_info = {
-        .usage = opt.memory_usage ? opt.memory_usage : VMA_MEMORY_USAGE_GPU_ONLY,
+        .usage = vma_usage,
     };
 
-    if (alloc_info.usage == VMA_MEMORY_USAGE_CPU_TO_GPU || alloc_info.usage == VMA_MEMORY_USAGE_CPU_ONLY)
+    if (vma_usage == VMA_MEMORY_USAGE_CPU_TO_GPU || vma_usage == VMA_MEMORY_USAGE_CPU_ONLY)
         alloc_info.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
 
     VmaAllocationInfo allocation_info;
-    VkResult r = vmaCreateBuffer(dev->vma, &buffer_info, &alloc_info, &buf->buffer, &buf->allocation, &allocation_info);
+    VkBuffer vk_buffer = VK_NULL_HANDLE;
+    VmaAllocation vma_alloc = VK_NULL_HANDLE;
+    VkResult r = vmaCreateBuffer(dev->vma, &buffer_info, &alloc_info, &vk_buffer, &vma_alloc, &allocation_info);
     assert(r == VK_SUCCESS);
 
+    buf->_handle = vk_buffer;
+    buf->_allocation = vma_alloc;
     buf->size = opt.size;
-    buf->usage = usage;
+    buf->usage = opt.usage | MEL_GPU_BUFFER_USAGE_DEVICE_ADDRESS;
     buf->mapped = allocation_info.pMappedData;
-    buf->current_stage = VK_PIPELINE_STAGE_2_NONE;
-    buf->current_access = VK_ACCESS_2_NONE;
+    buf->current_stage = MEL_GPU_STAGE_NONE;
+    buf->current_access = MEL_GPU_ACCESS_NONE;
 
     VkBufferDeviceAddressInfo addr_info = {
         .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
-        .buffer = buf->buffer,
+        .buffer = vk_buffer,
     };
     buf->device_address = vkGetBufferDeviceAddress(dev->device, &addr_info);
     TracyCZoneEnd(ctx);
@@ -51,11 +60,11 @@ void mel_gpu_buffer_shutdown(Mel_Gpu_Buffer* buf, Mel_Gpu_Device* dev)
     assert(buf != nullptr);
     assert(dev != nullptr);
 
-    if (buf->buffer)
+    if (buf->_handle)
     {
-        vmaDestroyBuffer(dev->vma, buf->buffer, buf->allocation);
-        buf->buffer = VK_NULL_HANDLE;
-        buf->allocation = VK_NULL_HANDLE;
+        vmaDestroyBuffer(dev->vma, (VkBuffer)buf->_handle, (VmaAllocation)buf->_allocation);
+        buf->_handle = nullptr;
+        buf->_allocation = nullptr;
         buf->mapped = nullptr;
         buf->device_address = 0;
     }
@@ -67,7 +76,7 @@ void* mel_gpu_buffer_map(Mel_Gpu_Buffer* buf, Mel_Gpu_Device* dev)
     assert(dev != nullptr);
     assert(buf->mapped == nullptr);
 
-    vmaMapMemory(dev->vma, buf->allocation, &buf->mapped);
+    vmaMapMemory(dev->vma, (VmaAllocation)buf->_allocation, &buf->mapped);
     return buf->mapped;
 }
 
@@ -77,7 +86,7 @@ void mel_gpu_buffer_unmap(Mel_Gpu_Buffer* buf, Mel_Gpu_Device* dev)
     assert(dev != nullptr);
     assert(buf->mapped != nullptr);
 
-    vmaUnmapMemory(dev->vma, buf->allocation);
+    vmaUnmapMemory(dev->vma, (VmaAllocation)buf->_allocation);
     buf->mapped = nullptr;
 }
 
@@ -86,11 +95,11 @@ void mel_gpu_buffer_flush(Mel_Gpu_Buffer* buf, Mel_Gpu_Device* dev)
     assert(buf != nullptr);
     assert(dev != nullptr);
 
-    vmaFlushAllocation(dev->vma, buf->allocation, 0, buf->size);
+    vmaFlushAllocation(dev->vma, (VmaAllocation)buf->_allocation, 0, buf->size);
 }
 
 void mel_gpu_buffer_upload(Mel_Gpu_Buffer* buf, Mel_Gpu_Device* dev,
-                           const void* data, VkDeviceSize size, VkDeviceSize offset)
+                           const void* data, u64 size, u64 offset)
 {
     assert(buf != nullptr);
     assert(dev != nullptr);

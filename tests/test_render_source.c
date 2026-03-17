@@ -3,6 +3,7 @@
 #include "../melody/render.material.h"
 #include "../melody/render.list.h"
 #include "../melody/gpu.buffer.h"
+#include "../melody/gpu.device.h"
 #include "../melody/allocator.heap.h"
 #include "../melody/string.str8.h"
 

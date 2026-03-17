@@ -5,7 +5,6 @@
 #include "sprite.pass.h"
 #include "text.draw.h"
 #include "texture.pool.h"
-#include "core.engine.h"
 #include "allocator.heap.h"
 #include "string.str8.h"
 
@@ -40,7 +39,6 @@ bool mel_render_ecs_2d_init_opt(Mel_Render_ECS_2D* renderer, Mel_Render_ECS_2D_O
     assert(opt.world_camera != nullptr);
 
     const Mel_Alloc* alloc = opt.alloc ? opt.alloc : mel_alloc_heap();
-    Mel_Font_Atlas_Pool* font_pool = opt.font_pool ? opt.font_pool : mel_font_pool();
     Mel_Render_Stage_2D_Layer sprite_layer = opt.sprite_layer < MEL_RENDER_STAGE_2D_LAYER_COUNT
         ? opt.sprite_layer
         : MEL_RENDER_STAGE_2D_LAYER_WORLD;
@@ -50,7 +48,6 @@ bool mel_render_ecs_2d_init_opt(Mel_Render_ECS_2D* renderer, Mel_Render_ECS_2D_O
 
     *renderer = (Mel_Render_ECS_2D){
         .world = opt.world,
-        .font_pool = font_pool,
         .alloc = alloc,
     };
 
@@ -121,8 +118,7 @@ void mel_render_ecs_2d_extract(Mel_Render_ECS_2D* renderer)
     mel_render_sync_update(&renderer->sprite_sync);
     mel_render_list_clear(&renderer->text_list);
     mel_text_system_run(renderer->world,
-        .list = &renderer->text_list,
-        .font_pool = renderer->font_pool);
+        .list = &renderer->text_list);
 }
 
 Mel_Render_Stage_2D* mel_render_ecs_2d_stage(Mel_Render_ECS_2D* renderer)

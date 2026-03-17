@@ -15,6 +15,7 @@
 #include "gpu.swapchain.h"
 #include "allocator.heap.h"
 #include "font.atlas.h"
+#include "font.desc.h"
 #include "render.frame_plan.h"
 #include "render.stage.2d.h"
 #include "render.list.h"
@@ -185,10 +186,10 @@ static void on_init(void)
 
     init_render();
 
-    mel_font_atlas_pool_init(&s_app.font_pool, mel_alloc_heap(), mel_gpu_dev(), .texture_pool = mel_texture_pool());
-    s_app.title_font = mel_font_atlas_pool_load(&s_app.font_pool, .path = S8("/fonts/Monaco.ttf"), .size = 20.0f);
-    s_app.ui_font = mel_font_atlas_pool_load(&s_app.font_pool, .path = S8("/fonts/Monaco.ttf"), .size = 14.0f);
-    s_app.body_font = mel_font_atlas_pool_load(&s_app.font_pool, .path = S8("/fonts/Monaco.ttf"), .size = 10.0f);
+    Mel_Font_Desc_Handle monaco = mel_font_desc_load_ttf(S8("/fonts/Monaco.ttf"));
+    s_app.title_font = mel_font_atlas_load(.desc = monaco, .size = 20.0f);
+    s_app.ui_font = mel_font_atlas_load(.desc = monaco, .size = 14.0f);
+    s_app.body_font = mel_font_atlas_load(.desc = monaco, .size = 10.0f);
 
 
     mugen_roster_init(&s_app.roster,
@@ -271,7 +272,6 @@ void app_shutdown(void)
     mel_render_list_shutdown(&s_app.hud_list);
     mel_render_list_shutdown(&s_app.world_list);
 
-    mel_font_atlas_pool_shutdown(&s_app.font_pool);
 }
 
 void app_event(SDL_Event* event)

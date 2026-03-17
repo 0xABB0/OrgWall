@@ -224,7 +224,7 @@ void mel_shutdown(void)
         SDL_Log("ImGui shutdown");
     }
 
-    mel_font_atlas_pool_shutdown(mel_font_pool());
+    mel__font_atlas_shutdown();
     mel_texture_pool_shutdown(mel_texture_pool());
     mel_mesh_pass_shutdown(mel_mesh_pass());
     mel_text_pass_shutdown(mel_text_pass());

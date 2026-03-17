@@ -11,9 +11,9 @@ static void grow(Mel_Render_List* list)
     {
         Mel_Gpu_Buffer new_buf;
         mel_gpu_buffer_init(&new_buf, list->dev,
-            .size = (VkDeviceSize)new_cap * list->entry_stride,
-            .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-            .memory_usage = VMA_MEMORY_USAGE_CPU_TO_GPU);
+            .size = (u64)new_cap * list->entry_stride,
+            .usage = MEL_GPU_BUFFER_USAGE_STORAGE,
+            .memory_usage = MEL_GPU_MEMORY_USAGE_CPU_TO_GPU);
 
         if (list->entries)
             memcpy(new_buf.mapped, list->entries, (usize)list->capacity * list->entry_stride);
@@ -106,9 +106,9 @@ void mel_render_list_init_gpu_opt(Mel_Render_List* list, Mel_Gpu_Device* dev, Me
     list->capacity = capacity;
 
     mel_gpu_buffer_init(&list->gpu_buffer, dev,
-        .size = (VkDeviceSize)capacity * opt.entry_stride,
-        .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-        .memory_usage = VMA_MEMORY_USAGE_CPU_TO_GPU);
+        .size = (u64)capacity * opt.entry_stride,
+        .usage = MEL_GPU_BUFFER_USAGE_STORAGE,
+        .memory_usage = MEL_GPU_MEMORY_USAGE_CPU_TO_GPU);
 
     list->entries = (u8*)list->gpu_buffer.mapped;
     list->packets = mel_alloc(list->alloc, sizeof(Mel_Render_Packet) * capacity);

@@ -171,7 +171,7 @@ MEL_TEST(draw_ctx_no_texture_no_draws, .tags = "render")
 MEL_TEST(draw_ctx_with_texture_initial_draw, .tags = "render")
 {
     Mel_Gpu_Texture fake_tex = {0};
-    fake_tex.descriptor = (VkDescriptorSet)(uintptr_t)0xDEAD;
+    fake_tex._descriptor = (void*)(uintptr_t)0xDEAD;
 
     Mel_Draw_Ctx ctx;
     mel_draw_ctx_init(&ctx, .texture = &fake_tex, .alloc = mel_alloc_heap());
@@ -180,7 +180,7 @@ MEL_TEST(draw_ctx_with_texture_initial_draw, .tags = "render")
     MEL_ASSERT_NOT_NULL(ctx.draws);
     MEL_ASSERT_EQ(ctx.draws[0].index_offset, 0u);
     MEL_ASSERT_EQ(ctx.draws[0].index_count, 0u);
-    MEL_ASSERT(ctx.draws[0].descriptor == (VkDescriptorSet)(uintptr_t)0xDEAD);
+    MEL_ASSERT(ctx.draws[0]._descriptor == (void*)(uintptr_t)0xDEAD);
 
     mel_draw_ctx_rect(&ctx, 0, 0, 10, 10, mel_vec4(1, 1, 1, 1));
     mel_draw_ctx_rect(&ctx, 20, 0, 10, 10, mel_vec4(1, 1, 1, 1));
@@ -195,7 +195,7 @@ MEL_TEST(draw_ctx_with_texture_initial_draw, .tags = "render")
 MEL_TEST(draw_ctx_clear_with_texture_resets_draws, .tags = "render")
 {
     Mel_Gpu_Texture fake_tex = {0};
-    fake_tex.descriptor = (VkDescriptorSet)(uintptr_t)0xBEEF;
+    fake_tex._descriptor = (void*)(uintptr_t)0xBEEF;
 
     Mel_Draw_Ctx ctx;
     mel_draw_ctx_init(&ctx, .texture = &fake_tex, .alloc = mel_alloc_heap());
@@ -208,7 +208,7 @@ MEL_TEST(draw_ctx_clear_with_texture_resets_draws, .tags = "render")
     MEL_ASSERT_EQ(ctx.index_count, 0u);
     MEL_ASSERT_EQ(ctx.draw_count, 1u);
     MEL_ASSERT_EQ(ctx.draws[0].index_offset, 0u);
-    MEL_ASSERT(ctx.draws[0].descriptor == (VkDescriptorSet)(uintptr_t)0xBEEF);
+    MEL_ASSERT(ctx.draws[0]._descriptor == (void*)(uintptr_t)0xBEEF);
     MEL_ASSERT(ctx.current_texture == &fake_tex);
 
     mel_draw_ctx_shutdown(&ctx);

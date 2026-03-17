@@ -1,5 +1,8 @@
-#define VK_NO_PROTOTYPES
 #include "gpu.descriptor.h"
+#include "gpu.device.h"
+#include "gpu.cmd.h"
+#include "gpu.buffer.h"
+#include "gpu.types.vulkan.h"
 
 static VkDescriptorType descriptor_type_to_vk(u32 type)
 {
@@ -23,26 +26,59 @@ void mel_gpu_descriptor_layout_init_opt(Mel_Gpu_Descriptor_Layout* dl, Mel_Gpu_D
     assert(opt.binding_count > 0);
 
     VkDescriptorSetLayoutBinding vk_bindings[16];
+    VkDescriptorBindingFlags vk_binding_flags[16];
     assert(opt.binding_count <= 16);
 
+    bool needs_binding_flags = false;
     for (u32 i = 0; i < opt.binding_count; i++)
     {
         vk_bindings[i] = (VkDescriptorSetLayoutBinding){
             .binding = opt.bindings[i].binding,
             .descriptorType = descriptor_type_to_vk(opt.bindings[i].type),
             .descriptorCount = opt.bindings[i].count > 0 ? opt.bindings[i].count : 1,
-            .stageFlags = opt.bindings[i].stages,
+            .stageFlags = mel__gpu_shader_stage_to_vk(opt.bindings[i].stages),
         };
+
+        VkDescriptorBindingFlags flags = 0;
+        if (opt.bindings[i].flags & MEL_GPU_DESCRIPTOR_BINDING_PARTIALLY_BOUND)
+            flags |= VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT;
+        if (opt.bindings[i].flags & MEL_GPU_DESCRIPTOR_BINDING_VARIABLE_COUNT)
+            flags |= VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT;
+        if (opt.bindings[i].flags & MEL_GPU_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND)
+            flags |= VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT;
+        vk_binding_flags[i] = flags;
+        if (flags)
+            needs_binding_flags = true;
+    }
+
+    VkDescriptorSetLayoutBindingFlagsCreateInfo binding_flags_info = {
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO,
+        .bindingCount = opt.binding_count,
+        .pBindingFlags = vk_binding_flags,
+    };
+
+    VkDescriptorSetLayoutCreateFlags layout_flags = 0;
+    for (u32 i = 0; i < opt.binding_count; i++)
+    {
+        if (opt.bindings[i].flags & MEL_GPU_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND)
+        {
+            layout_flags |= VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
+            break;
+        }
     }
 
     VkDescriptorSetLayoutCreateInfo layout_info = {
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+        .pNext = needs_binding_flags ? &binding_flags_info : nullptr,
+        .flags = layout_flags,
         .bindingCount = opt.binding_count,
         .pBindings = vk_bindings,
     };
 
-    VkResult r = vkCreateDescriptorSetLayout(dev->device, &layout_info, nullptr, &dl->layout);
+    VkDescriptorSetLayout vk_layout = VK_NULL_HANDLE;
+    VkResult r = vkCreateDescriptorSetLayout(dev->device, &layout_info, nullptr, &vk_layout);
     assert(r == VK_SUCCESS);
+    dl->_layout = vk_layout;
 
     dl->binding_count = opt.binding_count;
 }
@@ -52,10 +88,10 @@ void mel_gpu_descriptor_layout_shutdown(Mel_Gpu_Descriptor_Layout* dl, Mel_Gpu_D
     assert(dl != nullptr);
     assert(dev != nullptr);
 
-    if (dl->layout)
+    if (dl->_layout)
     {
-        vkDestroyDescriptorSetLayout(dev->device, dl->layout, nullptr);
-        dl->layout = VK_NULL_HANDLE;
+        vkDestroyDescriptorSetLayout(dev->device, (VkDescriptorSetLayout)dl->_layout, nullptr);
+        dl->_layout = nullptr;
     }
 }
 
@@ -66,23 +102,31 @@ void mel_gpu_descriptor_pool_init_opt(Mel_Gpu_Descriptor_Pool* dp, Mel_Gpu_Devic
     assert(opt.layout != nullptr);
     assert(opt.max_sets > 0);
 
-    dp->layout = opt.layout->layout;
+    dp->_layout = opt.layout->_layout;
     dp->max_sets = opt.max_sets;
+    dp->variable_count = opt.variable_count;
 
     VkDescriptorPoolSize pool_size = {
         .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
         .descriptorCount = opt.max_sets,
     };
 
+    VkDescriptorPoolCreateFlags pool_flags = 0;
+    if (opt.update_after_bind)
+        pool_flags |= VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT;
+
     VkDescriptorPoolCreateInfo pool_info = {
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+        .flags = pool_flags,
         .maxSets = opt.max_sets,
         .poolSizeCount = 1,
         .pPoolSizes = &pool_size,
     };
 
-    VkResult r = vkCreateDescriptorPool(dev->device, &pool_info, nullptr, &dp->pool);
+    VkDescriptorPool vk_pool = VK_NULL_HANDLE;
+    VkResult r = vkCreateDescriptorPool(dev->device, &pool_info, nullptr, &vk_pool);
     assert(r == VK_SUCCESS);
+    dp->_pool = vk_pool;
 }
 
 void mel_gpu_descriptor_pool_shutdown(Mel_Gpu_Descriptor_Pool* dp, Mel_Gpu_Device* dev)
@@ -90,25 +134,36 @@ void mel_gpu_descriptor_pool_shutdown(Mel_Gpu_Descriptor_Pool* dp, Mel_Gpu_Devic
     assert(dp != nullptr);
     assert(dev != nullptr);
 
-    if (dp->pool)
+    if (dp->_pool)
     {
-        vkDestroyDescriptorPool(dev->device, dp->pool, nullptr);
-        dp->pool = VK_NULL_HANDLE;
+        vkDestroyDescriptorPool(dev->device, (VkDescriptorPool)dp->_pool, nullptr);
+        dp->_pool = nullptr;
     }
 }
 
-VkDescriptorSet mel_gpu_descriptor_pool_alloc(Mel_Gpu_Descriptor_Pool* dp, Mel_Gpu_Device* dev)
+void* mel_gpu_descriptor_pool_alloc(Mel_Gpu_Descriptor_Pool* dp, Mel_Gpu_Device* dev)
 {
     assert(dp != nullptr);
     assert(dev != nullptr);
-    assert(dp->pool != VK_NULL_HANDLE);
-    assert(dp->layout != VK_NULL_HANDLE);
+    assert(dp->_pool != nullptr);
+    assert(dp->_layout != nullptr);
+
+    VkDescriptorSetLayout vk_layout = (VkDescriptorSetLayout)dp->_layout;
+    VkDescriptorPool vk_pool = (VkDescriptorPool)dp->_pool;
+
+    u32 variable_count = dp->variable_count;
+    VkDescriptorSetVariableDescriptorCountAllocateInfo variable_info = {
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_VARIABLE_DESCRIPTOR_COUNT_ALLOCATE_INFO,
+        .descriptorSetCount = 1,
+        .pDescriptorCounts = &variable_count,
+    };
 
     VkDescriptorSetAllocateInfo alloc_info = {
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-        .descriptorPool = dp->pool,
+        .pNext = variable_count > 0 ? &variable_info : nullptr,
+        .descriptorPool = vk_pool,
         .descriptorSetCount = 1,
-        .pSetLayouts = &dp->layout,
+        .pSetLayouts = &vk_layout,
     };
 
     VkDescriptorSet set;
@@ -118,21 +173,21 @@ VkDescriptorSet mel_gpu_descriptor_pool_alloc(Mel_Gpu_Descriptor_Pool* dp, Mel_G
     return set;
 }
 
-void mel_gpu_descriptor_write_texture(Mel_Gpu_Device* dev, VkDescriptorSet set,
-                                      u32 binding, VkImageView view, VkSampler sampler)
+void mel_gpu_descriptor_write_texture(Mel_Gpu_Device* dev, void* set,
+                                      u32 binding, void* view, void* sampler)
 {
     assert(dev != nullptr);
-    assert(set != VK_NULL_HANDLE);
+    assert(set != nullptr);
 
     VkDescriptorImageInfo image_info = {
-        .sampler = sampler,
-        .imageView = view,
+        .sampler = (VkSampler)sampler,
+        .imageView = (VkImageView)view,
         .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
     };
 
     VkWriteDescriptorSet write = {
         .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-        .dstSet = set,
+        .dstSet = (VkDescriptorSet)set,
         .dstBinding = binding,
         .dstArrayElement = 0,
         .descriptorCount = 1,
@@ -143,37 +198,42 @@ void mel_gpu_descriptor_write_texture(Mel_Gpu_Device* dev, VkDescriptorSet set,
     vkUpdateDescriptorSets(dev->device, 1, &write, 0, nullptr);
 }
 
-void mel_gpu_descriptor_write_buffer(Mel_Gpu_Device* dev, VkDescriptorSet set,
-                                     u32 binding, VkBuffer buffer, VkDeviceSize offset, VkDeviceSize range,
-                                     VkDescriptorType type)
+void mel_gpu_descriptor_write_buffer(Mel_Gpu_Device* dev, void* set,
+                                     u32 binding, Mel_Gpu_Buffer* buffer, u64 offset, u64 range,
+                                     u32 type)
 {
     assert(dev != nullptr);
-    assert(set != VK_NULL_HANDLE);
-    assert(buffer != VK_NULL_HANDLE);
+    assert(set != nullptr);
+    assert(buffer != nullptr);
+    assert(buffer->_handle != nullptr);
 
     VkDescriptorBufferInfo buffer_info = {
-        .buffer = buffer,
+        .buffer = (VkBuffer)buffer->_handle,
         .offset = offset,
         .range = range,
     };
 
     VkWriteDescriptorSet write = {
         .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-        .dstSet = set,
+        .dstSet = (VkDescriptorSet)set,
         .dstBinding = binding,
         .dstArrayElement = 0,
         .descriptorCount = 1,
-        .descriptorType = type,
+        .descriptorType = descriptor_type_to_vk(type),
         .pBufferInfo = &buffer_info,
     };
 
     vkUpdateDescriptorSets(dev->device, 1, &write, 0, nullptr);
 }
 
-void mel_gpu_descriptor_bind(VkCommandBuffer cmd, VkPipelineLayout layout, VkDescriptorSet set)
+void mel_gpu_descriptor_bind(Mel_Gpu_Cmd* cmd, void* pipeline_layout, void* set)
 {
-    assert(cmd != VK_NULL_HANDLE);
-    assert(layout != VK_NULL_HANDLE);
-    assert(set != VK_NULL_HANDLE);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 0, 1, &set, 0, nullptr);
+    assert(cmd != nullptr);
+    assert(cmd->_cmd != nullptr);
+    assert(pipeline_layout != nullptr);
+    assert(set != nullptr);
+
+    VkDescriptorSet vk_set = (VkDescriptorSet)set;
+    vkCmdBindDescriptorSets((VkCommandBuffer)cmd->_cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+        (VkPipelineLayout)pipeline_layout, 0, 1, &vk_set, 0, nullptr);
 }

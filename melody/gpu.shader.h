@@ -1,7 +1,10 @@
 #pragma once
 
-#include "gpu.device.h"
+#include "gpu.types.h"
+#include "gpu.device.fwd.h"
 #include "event.channel.fwd.h"
+#include "string.str8.fwd.h"
+#include "allocator.fwd.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -22,15 +25,21 @@ typedef struct {
 
 typedef struct Mel_Gpu_Shader Mel_Gpu_Shader;
 
+typedef struct {
+    Mel_Gpu_Shader_Stage stages;
+    u32 offset;
+    u32 size;
+} Mel_Gpu_Push_Constant_Range;
+
 struct Mel_Gpu_Shader {
-    VkShaderModule vertex;
-    VkShaderModule fragment;
-    VkShaderModule compute;
-    VkShaderModule task;
-    VkShaderModule mesh;
+    void* _vertex;
+    void* _fragment;
+    void* _compute;
+    void* _task;
+    void* _mesh;
     Mel_Gpu_Shader_Binding* bindings;
     u32 binding_count;
-    VkPushConstantRange* push_ranges;
+    Mel_Gpu_Push_Constant_Range* push_ranges;
     u32 push_range_count;
     const Mel_Alloc* alloc;
 };

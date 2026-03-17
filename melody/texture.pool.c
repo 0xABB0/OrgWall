@@ -90,8 +90,8 @@ void mel_texture_pool_init_opt(Mel_Texture_Pool* pool, const Mel_Alloc* alloc, M
 
     if (pool->pipeline)
     {
-        pool->fallback.descriptor = mel_gpu_pipeline_alloc_descriptor(pool->pipeline, dev);
-        mel_gpu_pipeline_write_texture(pool->pipeline, dev, pool->fallback.descriptor, pool->fallback.image.view, pool->fallback.sampler);
+        pool->fallback._descriptor = mel_gpu_pipeline_alloc_descriptor(pool->pipeline, dev);
+        mel_gpu_pipeline_write_texture(pool->pipeline, dev, pool->fallback._descriptor, pool->fallback.image._view, pool->fallback._sampler);
     }
 }
 
@@ -141,9 +141,9 @@ Mel_Texture_Handle mel_texture_pool_load(Mel_Texture_Pool* pool, str8 path)
     {
         if (pool->pipeline)
         {
-            entry.gpu_texture.descriptor = mel_gpu_pipeline_alloc_descriptor(pool->pipeline, pool->dev);
-            mel_gpu_pipeline_write_texture(pool->pipeline, pool->dev, entry.gpu_texture.descriptor,
-                                           entry.gpu_texture.image.view, entry.gpu_texture.sampler);
+            entry.gpu_texture._descriptor = mel_gpu_pipeline_alloc_descriptor(pool->pipeline, pool->dev);
+            mel_gpu_pipeline_write_texture(pool->pipeline, pool->dev, entry.gpu_texture._descriptor,
+                                           entry.gpu_texture.image._view, entry.gpu_texture._sampler);
         }
         entry.state = MEL_TEXTURE_STATE_LOADED;
     }
@@ -239,9 +239,9 @@ Mel_Texture_Handle mel_texture_pool_register(Mel_Texture_Pool* pool, Mel_Gpu_Tex
 
     if (pool->pipeline)
     {
-        entry.gpu_texture.descriptor = mel_gpu_pipeline_alloc_descriptor(pool->pipeline, pool->dev);
-        mel_gpu_pipeline_write_texture(pool->pipeline, pool->dev, entry.gpu_texture.descriptor,
-                                       entry.gpu_texture.image.view, entry.gpu_texture.sampler);
+        entry.gpu_texture._descriptor = mel_gpu_pipeline_alloc_descriptor(pool->pipeline, pool->dev);
+        mel_gpu_pipeline_write_texture(pool->pipeline, pool->dev, entry.gpu_texture._descriptor,
+                                       entry.gpu_texture.image._view, entry.gpu_texture._sampler);
     }
 
     Mel_SlotMap_Handle sm_handle = mel_slotmap_insert(&pool->slotmap, &entry);

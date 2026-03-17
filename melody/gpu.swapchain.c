@@ -1,8 +1,9 @@
-#define VK_NO_PROTOTYPES
 #include "gpu.swapchain.h"
 #include "swapchain.h"
 #include "window.h"
 #include "gpu.device.h"
+#include "gpu.cmd.h"
+#include "gpu.types.vulkan.h"
 #include "allocator.h"
 #include "allocator.heap.h"
 #include <tracy/TracyC.h>
@@ -180,24 +181,31 @@ static bool create_swapchain(Mel_Swapchain* sc, Mel_Gpu_Device* dev,
         return false;
     }
 
-    sc->format = format.format;
+    sc->format = mel__gpu_format_from_vk(format.format);
     khr->color_space = format.colorSpace;
-    sc->extent = extent;
+    sc->extent_width = extent.width;
+    sc->extent_height = extent.height;
 
     vkGetSwapchainImagesKHR(dev->device, khr->handle, &sc->image_count, nullptr);
-    sc->images = mel_alloc(alloc, sizeof(VkImage) * sc->image_count);
-    vkGetSwapchainImagesKHR(dev->device, khr->handle, &sc->image_count, sc->images);
 
-    sc->image_views = mel_alloc(alloc, sizeof(VkImageView) * sc->image_count);
+    VkImage* vk_images = mel_alloc(alloc, sizeof(VkImage) * sc->image_count);
+    vkGetSwapchainImagesKHR(dev->device, khr->handle, &sc->image_count, vk_images);
+
+    sc->_images = mel_alloc(alloc, sizeof(void*) * sc->image_count);
+    for (u32 i = 0; i < sc->image_count; i++)
+        sc->_images[i] = vk_images[i];
+    mel_dealloc(alloc, vk_images);
+
+    sc->_image_views = mel_alloc(alloc, sizeof(void*) * sc->image_count);
     khr->image_layouts = mel_alloc(alloc, sizeof(VkImageLayout) * sc->image_count);
     for (u32 i = 0; i < sc->image_count; i++)
     {
         khr->image_layouts[i] = VK_IMAGE_LAYOUT_UNDEFINED;
         VkImageViewCreateInfo view_info = {
             .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-            .image = sc->images[i],
+            .image = (VkImage)sc->_images[i],
             .viewType = VK_IMAGE_VIEW_TYPE_2D,
-            .format = sc->format,
+            .format = mel__gpu_format_to_vk(sc->format),
             .components = {
                 .r = VK_COMPONENT_SWIZZLE_IDENTITY,
                 .g = VK_COMPONENT_SWIZZLE_IDENTITY,
@@ -213,13 +221,15 @@ static bool create_swapchain(Mel_Swapchain* sc, Mel_Gpu_Device* dev,
             },
         };
 
-        VkResult rv = vkCreateImageView(dev->device, &view_info, nullptr, &sc->image_views[i]);
+        VkImageView vk_view = VK_NULL_HANDLE;
+        VkResult rv = vkCreateImageView(dev->device, &view_info, nullptr, &vk_view);
         if (rv != VK_SUCCESS)
         {
             SDL_Log("Failed to create swapchain image view %u: %d", i, rv);
             sc->image_count = i;
             return false;
         }
+        sc->_image_views[i] = vk_view;
     }
     return true;
 }
@@ -284,12 +294,12 @@ static void destroy_resources(Mel_Swapchain* sc, Mel_Gpu_Device* dev)
     Mel_Gpu_Swapchain* khr = sc->data;
     const Mel_Alloc* alloc = khr->alloc;
 
-    if (sc->image_views)
+    if (sc->_image_views)
     {
         for (u32 i = 0; i < sc->image_count; i++)
-            vkDestroyImageView(dev->device, sc->image_views[i], nullptr);
-        mel_dealloc(alloc, sc->image_views);
-        sc->image_views = nullptr;
+            vkDestroyImageView(dev->device, (VkImageView)sc->_image_views[i], nullptr);
+        mel_dealloc(alloc, sc->_image_views);
+        sc->_image_views = nullptr;
     }
 
     if (khr->image_layouts)
@@ -298,10 +308,10 @@ static void destroy_resources(Mel_Swapchain* sc, Mel_Gpu_Device* dev)
         khr->image_layouts = nullptr;
     }
 
-    if (sc->images)
+    if (sc->_images)
     {
-        mel_dealloc(alloc, sc->images);
-        sc->images = nullptr;
+        mel_dealloc(alloc, sc->_images);
+        sc->_images = nullptr;
     }
 
     if (khr->handle)
@@ -332,8 +342,10 @@ static bool khr_acquire(Mel_Swapchain* sc, Mel_Gpu_Device* dev)
     return true;
 }
 
-static void khr_prepare_present(Mel_Swapchain* sc, VkCommandBuffer cmd)
+static void khr_prepare_present(Mel_Swapchain* sc, Mel_Gpu_Cmd* cmd)
 {
+    VkCommandBuffer vk_cmd = (VkCommandBuffer)cmd->_cmd;
+
     VkImageMemoryBarrier2 barrier = {
         .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
         .srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
@@ -344,7 +356,7 @@ static void khr_prepare_present(Mel_Swapchain* sc, VkCommandBuffer cmd)
         .newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
         .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
         .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-        .image = sc->images[sc->current_image],
+        .image = (VkImage)sc->_images[sc->current_image],
         .subresourceRange = {
             .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
             .baseMipLevel = 0,
@@ -359,7 +371,7 @@ static void khr_prepare_present(Mel_Swapchain* sc, VkCommandBuffer cmd)
         .imageMemoryBarrierCount = 1,
         .pImageMemoryBarriers = &barrier,
     };
-    vkCmdPipelineBarrier2(cmd, &dep);
+    vkCmdPipelineBarrier2(vk_cmd, &dep);
 }
 
 static void khr_collect_sync(Mel_Swapchain* sc, Mel_Gpu_Submit_Gather* gather)
@@ -367,12 +379,12 @@ static void khr_collect_sync(Mel_Swapchain* sc, Mel_Gpu_Submit_Gather* gather)
     Mel_Gpu_Swapchain* khr = sc->data;
 
     assert(gather->wait_count < MEL_MAX_SWAPCHAINS);
-    gather->wait_semaphores[gather->wait_count] = khr->image_available[khr->current_frame];
-    gather->wait_stages[gather->wait_count] = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    gather->_wait_semaphores[gather->wait_count] = khr->image_available[khr->current_frame];
+    gather->_wait_stages[gather->wait_count] = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
     gather->wait_count++;
 
     assert(gather->signal_count < MEL_MAX_SWAPCHAINS);
-    gather->signal_semaphores[gather->signal_count] = khr->render_finished[sc->current_image];
+    gather->_signal_semaphores[gather->signal_count] = khr->render_finished[sc->current_image];
     gather->signal_count++;
 }
 
@@ -423,13 +435,13 @@ static void khr_resize(Mel_Swapchain* sc, Mel_Gpu_Device* dev, u32 width, u32 he
     const Mel_Alloc* alloc = khr->alloc;
 
     for (u32 i = 0; i < sc->image_count; i++)
-        vkDestroyImageView(dev->device, sc->image_views[i], nullptr);
-    mel_dealloc(alloc, sc->image_views);
-    mel_dealloc(alloc, sc->images);
+        vkDestroyImageView(dev->device, (VkImageView)sc->_image_views[i], nullptr);
+    mel_dealloc(alloc, sc->_image_views);
+    mel_dealloc(alloc, sc->_images);
 
     khr->handle = VK_NULL_HANDLE;
-    sc->image_views = nullptr;
-    sc->images = nullptr;
+    sc->_image_views = nullptr;
+    sc->_images = nullptr;
 
     create_swapchain(sc, dev, width, height, old);
     vkDestroySwapchainKHR(dev->device, old, nullptr);
@@ -438,18 +450,18 @@ static void khr_resize(Mel_Swapchain* sc, Mel_Gpu_Device* dev, u32 width, u32 he
     khr->current_frame = 0;
 }
 
-static VkImageLayout khr_current_image_layout(Mel_Swapchain* sc)
+static Mel_Gpu_Image_Layout khr_current_image_layout(Mel_Swapchain* sc)
 {
     Mel_Gpu_Swapchain* khr = sc->data;
     if (!khr->image_layouts)
-        return VK_IMAGE_LAYOUT_UNDEFINED;
-    return khr->image_layouts[sc->current_image];
+        return MEL_GPU_IMAGE_LAYOUT_UNDEFINED;
+    return mel__gpu_image_layout_from_vk(khr->image_layouts[sc->current_image]);
 }
 
-static VkPresentModeKHR khr_present_mode(Mel_Swapchain* sc)
+static Mel_Gpu_Present_Mode khr_present_mode(Mel_Swapchain* sc)
 {
     Mel_Gpu_Swapchain* khr = sc->data;
-    return khr ? khr->present_mode : VK_PRESENT_MODE_FIFO_KHR;
+    return khr ? mel__gpu_present_mode_from_vk(khr->present_mode) : MEL_GPU_PRESENT_MODE_FIFO;
 }
 
 static void khr_shutdown(Mel_Swapchain* sc, Mel_Gpu_Device* dev)
@@ -481,22 +493,26 @@ bool mel_gpu_swapchain_init_opt(Mel_Swapchain* sc, Mel_Gpu_Device* dev, Mel_Gpu_
 {
     assert(sc != nullptr);
     assert(dev != nullptr);
-    assert(opt.surface != VK_NULL_HANDLE);
+    assert(opt._surface != nullptr);
     assert(opt.width > 0 && opt.height > 0);
 
     const Mel_Alloc* alloc = opt.alloc ? opt.alloc : mel_alloc_heap();
+    VkSurfaceKHR surface = (VkSurfaceKHR)opt._surface;
 
     Mel_Gpu_Swapchain* khr = mel_alloc_type(alloc, Mel_Gpu_Swapchain);
+    VkPresentModeKHR preferred = opt.preferred_present_mode
+        ? (VkPresentModeKHR)opt.preferred_present_mode
+        : VK_PRESENT_MODE_FIFO_KHR;
+
     *khr = (Mel_Gpu_Swapchain){
-        .surface = opt.surface,
-        .present_mode = choose_present_mode(dev, opt.surface,
-            opt.preferred_present_mode ? opt.preferred_present_mode : VK_PRESENT_MODE_FIFO_KHR),
+        .surface = surface,
+        .present_mode = choose_present_mode(dev, surface, preferred),
         .alloc = alloc,
         .frame_count = opt.frame_count > 0 ? opt.frame_count : 2,
     };
 
     SDL_Log("Swapchain present mode: requested=%s chosen=%s",
-        present_mode_name(opt.preferred_present_mode ? opt.preferred_present_mode : VK_PRESENT_MODE_FIFO_KHR),
+        present_mode_name(preferred),
         present_mode_name(khr->present_mode));
 
     *sc = (Mel_Swapchain){
@@ -543,12 +559,12 @@ Mel_Swapchain_Handle mel_gpu_swapchain_create_for_window_opt(Mel_Gpu_Device* dev
     SDL_GetWindowSizeInPixels(sdl, &w, &h);
 
     Mel_Swapchain_Entry entry = {
-        .surface = surface,
+        ._surface = surface,
         .window = window,
     };
 
     if (!mel_gpu_swapchain_init(&entry.swapchain, dev,
-        .surface = surface,
+        ._surface = surface,
         .width = (u32)w,
         .height = (u32)h,
         .frame_count = opt.frame_count,

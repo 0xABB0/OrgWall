@@ -1,6 +1,9 @@
-#define VK_NO_PROTOTYPES
 #include "gpu.pipeline.h"
+#include "gpu.device.h"
 #include "gpu.shader.h"
+#include "gpu.cmd.h"
+#include "gpu.types.vulkan.h"
+#include "allocator.h"
 #include "allocator.heap.h"
 #include <SDL3/SDL_log.h>
 #include <string.h>
@@ -129,15 +132,15 @@ static void mel__gpu_pipeline_track_descriptor_pool(Mel_Gpu_Pipeline* pipeline, 
     if (pipeline->descriptor_pool_count >= pipeline->descriptor_pool_capacity)
     {
         u32 new_capacity = pipeline->descriptor_pool_capacity == 0 ? 4 : pipeline->descriptor_pool_capacity * 2;
-        usize size = sizeof(VkDescriptorPool) * new_capacity;
-        pipeline->descriptor_pools = pipeline->descriptor_pools
-            ? mel_realloc(mel_alloc_heap(), pipeline->descriptor_pools, size)
+        usize size = sizeof(void*) * new_capacity;
+        pipeline->_descriptor_pools = pipeline->_descriptor_pools
+            ? mel_realloc(mel_alloc_heap(), pipeline->_descriptor_pools, size)
             : mel_alloc(mel_alloc_heap(), size);
         pipeline->descriptor_pool_capacity = new_capacity;
     }
 
-    pipeline->descriptor_pools[pipeline->descriptor_pool_count++] = pool;
-    pipeline->descriptor_pool = pool;
+    pipeline->_descriptor_pools[pipeline->descriptor_pool_count++] = pool;
+    pipeline->_descriptor_pool = pool;
 }
 
 void mel_gpu_pipeline_init_opt(Mel_Gpu_Pipeline* pipeline, Mel_Gpu_Device* dev, Mel_Gpu_Pipeline_Opt opt)
@@ -147,15 +150,13 @@ void mel_gpu_pipeline_init_opt(Mel_Gpu_Pipeline* pipeline, Mel_Gpu_Device* dev, 
     assert(opt.shader != nullptr);
 
     *pipeline = (Mel_Gpu_Pipeline){0};
-    pipeline->bind_point = opt.pipeline_type == MEL_GPU_PIPELINE_COMPUTE
-        ? VK_PIPELINE_BIND_POINT_COMPUTE
-        : VK_PIPELINE_BIND_POINT_GRAPHICS;
+    pipeline->_bind_point = opt.pipeline_type;
 
     Mel_Gpu_Descriptor_Binding default_texture_binding = {
         .binding = 0,
         .type = MEL_GPU_DESCRIPTOR_COMBINED_IMAGE_SAMPLER,
         .count = 1,
-        .stages = VK_SHADER_STAGE_FRAGMENT_BIT,
+        .stages = MEL_GPU_SHADER_STAGE_FRAGMENT,
     };
     Mel_Gpu_Descriptor_Binding* descriptor_bindings = opt.descriptor_bindings;
     u32 descriptor_binding_count = opt.descriptor_binding_count;
@@ -181,7 +182,7 @@ void mel_gpu_pipeline_init_opt(Mel_Gpu_Pipeline* pipeline, Mel_Gpu_Device* dev, 
                 .binding = descriptor_bindings[i].binding,
                 .descriptorType = mel__pipeline_descriptor_type_to_vk(descriptor_bindings[i].type),
                 .descriptorCount = descriptor_bindings[i].count > 0 ? descriptor_bindings[i].count : 1,
-                .stageFlags = descriptor_bindings[i].stages,
+                .stageFlags = mel__gpu_shader_stage_to_vk(descriptor_bindings[i].stages),
             };
         }
         VkDescriptorSetLayoutCreateInfo layout_info = {
@@ -190,8 +191,10 @@ void mel_gpu_pipeline_init_opt(Mel_Gpu_Pipeline* pipeline, Mel_Gpu_Device* dev, 
             .pBindings = layout_bindings,
         };
 
-        VkResult r = vkCreateDescriptorSetLayout(dev->device, &layout_info, nullptr, &pipeline->descriptor_layout);
+        VkDescriptorSetLayout desc_layout = VK_NULL_HANDLE;
+        VkResult r = vkCreateDescriptorSetLayout(dev->device, &layout_info, nullptr, &desc_layout);
         assert(r == VK_SUCCESS);
+        pipeline->_descriptor_layout = desc_layout;
 
         pipeline->descriptor_pool_max_sets = opt.max_descriptor_sets > 0 ? opt.max_descriptor_sets : 16;
         mel__gpu_pipeline_track_descriptor_pool(pipeline,
@@ -200,81 +203,112 @@ void mel_gpu_pipeline_init_opt(Mel_Gpu_Pipeline* pipeline, Mel_Gpu_Device* dev, 
     }
 
     VkPushConstantRange push_range = {
-        .stageFlags = opt.push_constant_stages ? opt.push_constant_stages : VK_SHADER_STAGE_VERTEX_BIT,
+        .stageFlags = opt.push_constant_stages
+            ? mel__gpu_shader_stage_to_vk(opt.push_constant_stages)
+            : VK_SHADER_STAGE_VERTEX_BIT,
         .offset = 0,
         .size = opt.push_constant_size > 0 ? opt.push_constant_size : 64,
     };
 
+    VkDescriptorSetLayout vk_desc_layout = (VkDescriptorSetLayout)pipeline->_descriptor_layout;
     VkPipelineLayoutCreateInfo pipe_layout_info = {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
         .setLayoutCount = descriptor_binding_count > 0 ? 1 : 0,
-        .pSetLayouts = descriptor_binding_count > 0 ? &pipeline->descriptor_layout : nullptr,
+        .pSetLayouts = descriptor_binding_count > 0 ? &vk_desc_layout : nullptr,
         .pushConstantRangeCount = opt.push_constant_size > 0 ? 1 : 0,
         .pPushConstantRanges = opt.push_constant_size > 0 ? &push_range : nullptr,
     };
 
-    VkResult r = vkCreatePipelineLayout(dev->device, &pipe_layout_info, nullptr, &pipeline->layout);
+    VkPipelineLayout vk_layout = VK_NULL_HANDLE;
+    VkResult r = vkCreatePipelineLayout(dev->device, &pipe_layout_info, nullptr, &vk_layout);
     assert(r == VK_SUCCESS);
+    pipeline->_layout = vk_layout;
 
     if (opt.pipeline_type == MEL_GPU_PIPELINE_COMPUTE)
     {
-        assert(opt.shader->compute != VK_NULL_HANDLE);
+        assert(opt.shader->_compute != nullptr);
         VkPipelineShaderStageCreateInfo stage = {
             .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
             .stage = VK_SHADER_STAGE_COMPUTE_BIT,
-            .module = opt.shader->compute,
+            .module = (VkShaderModule)opt.shader->_compute,
             .pName = "main",
         };
         VkComputePipelineCreateInfo pipeline_info = {
             .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
             .stage = stage,
-            .layout = pipeline->layout,
+            .layout = (VkPipelineLayout)pipeline->_layout,
         };
-        VkResult r = vkCreateComputePipelines(dev->device, VK_NULL_HANDLE, 1, &pipeline_info, nullptr, &pipeline->pipeline);
+        VkPipeline vk_pipeline = VK_NULL_HANDLE;
+        VkResult r = vkCreateComputePipelines(dev->device, VK_NULL_HANDLE, 1, &pipeline_info, nullptr, &vk_pipeline);
         assert(r == VK_SUCCESS);
+        pipeline->_pipeline = vk_pipeline;
         SDL_Log("Pipeline created successfully");
         return;
     }
 
-    assert(opt.color_format != VK_FORMAT_UNDEFINED ||
+    assert(opt.color_format != MEL_GPU_FORMAT_UNDEFINED ||
         (opt.color_formats != nullptr && opt.color_format_count > 0));
 
     VkPipelineShaderStageCreateInfo stages[3] = {0};
     u32 stage_count = 0;
     if (opt.pipeline_type == MEL_GPU_PIPELINE_MESH)
     {
-        assert(opt.shader->mesh != VK_NULL_HANDLE);
+        assert(opt.shader->_mesh != nullptr);
         stages[stage_count++] = (VkPipelineShaderStageCreateInfo){
             .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
             .stage = VK_SHADER_STAGE_MESH_BIT_EXT,
-            .module = opt.shader->mesh,
+            .module = (VkShaderModule)opt.shader->_mesh,
             .pName = "main",
         };
     }
     else
     {
-        assert(opt.shader->vertex != VK_NULL_HANDLE);
+        assert(opt.shader->_vertex != nullptr);
         stages[stage_count++] = (VkPipelineShaderStageCreateInfo){
             .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
             .stage = VK_SHADER_STAGE_VERTEX_BIT,
-            .module = opt.shader->vertex,
+            .module = (VkShaderModule)opt.shader->_vertex,
             .pName = "main",
         };
     }
-    assert(opt.shader->fragment != VK_NULL_HANDLE);
+    assert(opt.shader->_fragment != nullptr);
     stages[stage_count++] = (VkPipelineShaderStageCreateInfo){
         .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
         .stage = VK_SHADER_STAGE_FRAGMENT_BIT,
-        .module = opt.shader->fragment,
+        .module = (VkShaderModule)opt.shader->_fragment,
         .pName = "main",
     };
+
+    VkVertexInputBindingDescription vk_bindings[16] = {0};
+    assert(opt.binding_count <= SDL_arraysize(vk_bindings));
+    for (u32 i = 0; i < opt.binding_count; i++)
+    {
+        vk_bindings[i] = (VkVertexInputBindingDescription){
+            .binding = opt.bindings[i].binding,
+            .stride = opt.bindings[i].stride,
+            .inputRate = opt.bindings[i].input_rate == 0
+                ? VK_VERTEX_INPUT_RATE_VERTEX : VK_VERTEX_INPUT_RATE_INSTANCE,
+        };
+    }
+
+    VkVertexInputAttributeDescription vk_attributes[16] = {0};
+    assert(opt.attribute_count <= SDL_arraysize(vk_attributes));
+    for (u32 i = 0; i < opt.attribute_count; i++)
+    {
+        vk_attributes[i] = (VkVertexInputAttributeDescription){
+            .location = opt.attributes[i].location,
+            .binding = opt.attributes[i].binding,
+            .format = mel__gpu_format_to_vk(opt.attributes[i].format),
+            .offset = opt.attributes[i].offset,
+        };
+    }
 
     VkPipelineVertexInputStateCreateInfo vertex_input = {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
         .vertexBindingDescriptionCount = opt.binding_count,
-        .pVertexBindingDescriptions = opt.bindings,
+        .pVertexBindingDescriptions = vk_bindings,
         .vertexAttributeDescriptionCount = opt.attribute_count,
-        .pVertexAttributeDescriptions = opt.attributes,
+        .pVertexAttributeDescriptions = vk_attributes,
     };
 
     VkPipelineInputAssemblyStateCreateInfo input_assembly = {
@@ -343,18 +377,19 @@ void mel_gpu_pipeline_init_opt(Mel_Gpu_Pipeline* pipeline, Mel_Gpu_Device* dev, 
     VkFormat color_formats_local[8] = {0};
     if (opt.color_format_count > 0)
     {
-        memcpy(color_formats_local, opt.color_formats, sizeof(VkFormat) * opt.color_format_count);
+        for (u32 i = 0; i < opt.color_format_count; i++)
+            color_formats_local[i] = mel__gpu_format_to_vk(opt.color_formats[i]);
     }
     else
     {
-        color_formats_local[0] = opt.color_format;
+        color_formats_local[0] = mel__gpu_format_to_vk(opt.color_format);
     }
 
     VkPipelineRenderingCreateInfo rendering_info = {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO,
         .colorAttachmentCount = color_attachment_count,
         .pColorAttachmentFormats = color_formats_local,
-        .depthAttachmentFormat = opt.depth_format,
+        .depthAttachmentFormat = mel__gpu_format_to_vk(opt.depth_format),
     };
 
     VkGraphicsPipelineCreateInfo pipeline_info = {
@@ -370,11 +405,13 @@ void mel_gpu_pipeline_init_opt(Mel_Gpu_Pipeline* pipeline, Mel_Gpu_Device* dev, 
         .pDepthStencilState = &depth_stencil,
         .pColorBlendState = &color_blending,
         .pDynamicState = &dynamic_state,
-        .layout = pipeline->layout,
+        .layout = (VkPipelineLayout)pipeline->_layout,
     };
 
-    r = vkCreateGraphicsPipelines(dev->device, VK_NULL_HANDLE, 1, &pipeline_info, nullptr, &pipeline->pipeline);
+    VkPipeline vk_pipeline = VK_NULL_HANDLE;
+    r = vkCreateGraphicsPipelines(dev->device, VK_NULL_HANDLE, 1, &pipeline_info, nullptr, &vk_pipeline);
     assert(r == VK_SUCCESS);
+    pipeline->_pipeline = vk_pipeline;
 
     SDL_Log("Pipeline created successfully");
 }
@@ -384,42 +421,48 @@ void mel_gpu_pipeline_shutdown(Mel_Gpu_Pipeline* pipeline, Mel_Gpu_Device* dev)
     assert(pipeline != nullptr);
     assert(dev != nullptr);
 
-    if (pipeline->pipeline) { vkDestroyPipeline(dev->device, pipeline->pipeline, nullptr); pipeline->pipeline = VK_NULL_HANDLE; }
-    if (pipeline->layout) { vkDestroyPipelineLayout(dev->device, pipeline->layout, nullptr); pipeline->layout = VK_NULL_HANDLE; }
+    if (pipeline->_pipeline) { vkDestroyPipeline(dev->device, (VkPipeline)pipeline->_pipeline, nullptr); pipeline->_pipeline = nullptr; }
+    if (pipeline->_layout) { vkDestroyPipelineLayout(dev->device, (VkPipelineLayout)pipeline->_layout, nullptr); pipeline->_layout = nullptr; }
     for (u32 i = 0; i < pipeline->descriptor_pool_count; i++)
-        if (pipeline->descriptor_pools[i])
-            vkDestroyDescriptorPool(dev->device, pipeline->descriptor_pools[i], nullptr);
-    if (pipeline->descriptor_pools)
-        mel_dealloc(mel_alloc_heap(), pipeline->descriptor_pools);
-    pipeline->descriptor_pools = nullptr;
+        if (pipeline->_descriptor_pools[i])
+            vkDestroyDescriptorPool(dev->device, (VkDescriptorPool)pipeline->_descriptor_pools[i], nullptr);
+    if (pipeline->_descriptor_pools)
+        mel_dealloc(mel_alloc_heap(), pipeline->_descriptor_pools);
+    pipeline->_descriptor_pools = nullptr;
     pipeline->descriptor_pool_count = 0;
     pipeline->descriptor_pool_capacity = 0;
-    pipeline->descriptor_pool = VK_NULL_HANDLE;
+    pipeline->_descriptor_pool = nullptr;
     if (pipeline->descriptor_bindings)
         mel_dealloc(mel_alloc_heap(), pipeline->descriptor_bindings);
     pipeline->descriptor_bindings = nullptr;
     pipeline->descriptor_binding_count = 0;
-    if (pipeline->descriptor_layout) { vkDestroyDescriptorSetLayout(dev->device, pipeline->descriptor_layout, nullptr); pipeline->descriptor_layout = VK_NULL_HANDLE; }
+    if (pipeline->_descriptor_layout) { vkDestroyDescriptorSetLayout(dev->device, (VkDescriptorSetLayout)pipeline->_descriptor_layout, nullptr); pipeline->_descriptor_layout = nullptr; }
 }
 
-void mel_gpu_pipeline_bind(Mel_Gpu_Pipeline* pipeline, VkCommandBuffer cmd)
+void mel_gpu_pipeline_bind(Mel_Gpu_Pipeline* pipeline, Mel_Gpu_Cmd* cmd)
 {
     assert(pipeline != nullptr);
-    assert(pipeline->pipeline != VK_NULL_HANDLE);
-    vkCmdBindPipeline(cmd, pipeline->bind_point, pipeline->pipeline);
+    assert(pipeline->_pipeline != nullptr);
+    VkPipelineBindPoint bind_point;
+    switch (pipeline->_bind_point) {
+        case MEL_GPU_PIPELINE_COMPUTE: bind_point = VK_PIPELINE_BIND_POINT_COMPUTE; break;
+        default: bind_point = VK_PIPELINE_BIND_POINT_GRAPHICS; break;
+    }
+    vkCmdBindPipeline((VkCommandBuffer)cmd->_cmd, bind_point, (VkPipeline)pipeline->_pipeline);
 }
 
-VkDescriptorSet mel_gpu_pipeline_alloc_descriptor(Mel_Gpu_Pipeline* pipeline, Mel_Gpu_Device* dev)
+void* mel_gpu_pipeline_alloc_descriptor(Mel_Gpu_Pipeline* pipeline, Mel_Gpu_Device* dev)
 {
     assert(pipeline != nullptr);
     assert(dev != nullptr);
-    assert(pipeline->descriptor_pool != VK_NULL_HANDLE);
+    assert(pipeline->_descriptor_pool != nullptr);
 
+    VkDescriptorSetLayout vk_desc_layout = (VkDescriptorSetLayout)pipeline->_descriptor_layout;
     VkDescriptorSetAllocateInfo alloc_info = {
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-        .descriptorPool = pipeline->descriptor_pool,
+        .descriptorPool = (VkDescriptorPool)pipeline->_descriptor_pool,
         .descriptorSetCount = 1,
-        .pSetLayouts = &pipeline->descriptor_layout,
+        .pSetLayouts = &vk_desc_layout,
     };
 
     VkDescriptorSet set = VK_NULL_HANDLE;
@@ -431,7 +474,7 @@ VkDescriptorSet mel_gpu_pipeline_alloc_descriptor(Mel_Gpu_Pipeline* pipeline, Me
             pipeline->descriptor_bindings, pipeline->descriptor_binding_count, next_max_sets);
         mel__gpu_pipeline_track_descriptor_pool(pipeline, new_pool);
         pipeline->descriptor_pool_max_sets = next_max_sets;
-        alloc_info.descriptorPool = pipeline->descriptor_pool;
+        alloc_info.descriptorPool = (VkDescriptorPool)pipeline->_descriptor_pool;
         r = vkAllocateDescriptorSets(dev->device, &alloc_info, &set);
     }
     assert(r == VK_SUCCESS);
@@ -440,13 +483,13 @@ VkDescriptorSet mel_gpu_pipeline_alloc_descriptor(Mel_Gpu_Pipeline* pipeline, Me
 }
 
 void mel_gpu_pipeline_write_texture(Mel_Gpu_Pipeline* pipeline, Mel_Gpu_Device* dev,
-                                    VkDescriptorSet set, VkImageView view, VkSampler sampler)
+                                    void* set, void* view, void* sampler)
 {
     mel_gpu_pipeline_write_texture_binding(pipeline, dev, set, 0, view, sampler);
 }
 
 void mel_gpu_pipeline_write_texture_binding(Mel_Gpu_Pipeline* pipeline, Mel_Gpu_Device* dev,
-                                            VkDescriptorSet set, u32 binding, VkImageView view, VkSampler sampler)
+                                            void* set, u32 binding, void* view, void* sampler)
 {
     MEL_UNUSED(pipeline);
     assert(dev != nullptr);
@@ -454,8 +497,8 @@ void mel_gpu_pipeline_write_texture_binding(Mel_Gpu_Pipeline* pipeline, Mel_Gpu_
 }
 
 void mel_gpu_pipeline_write_buffer_binding(Mel_Gpu_Pipeline* pipeline, Mel_Gpu_Device* dev,
-                                           VkDescriptorSet set, u32 binding, VkBuffer buffer,
-                                           VkDeviceSize offset, VkDeviceSize range, VkDescriptorType type)
+                                           void* set, u32 binding, Mel_Gpu_Buffer* buffer,
+                                           u64 offset, u64 range, u32 type)
 {
     MEL_UNUSED(pipeline);
     assert(dev != nullptr);

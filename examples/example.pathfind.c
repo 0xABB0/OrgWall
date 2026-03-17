@@ -17,6 +17,7 @@
 #include "render.camera.h"
 #include "texture.pool.h"
 #include "font.atlas.h"
+#include "font.desc.h"
 #include "vfs.h"
 #include "vfs.backend.os.h"
 #include "math.mat4.h"
@@ -79,7 +80,7 @@ static Mel_Gpu_Texture s_stone_texture;
 static Mel_Texture_Handle s_grass_handle;
 static Mel_Texture_Handle s_stone_handle;
 static Mel_Texture_Handle s_white_handle;
-static Mel_Font_Handle s_font_handle;
+static Mel_Font_Atlas_Handle s_font_handle;
 static Pathfinder s_pf;
 static Mel_Render_Target s_swapchain_target;
 static Mel_Render_Graph s_graph;
@@ -373,7 +374,7 @@ static void pathfinder_draw_grid_lines(Mel_Render_List* list)
 }
 
 static void pathfinder_draw_text(Pathfinder* pf, Mel_Render_List* list,
-                                  Mel_Font_Atlas_Pool* pool, Mel_Font_Handle font)
+                                  Mel_Font_Atlas_Handle font)
 {
     f32 text_y = GRID_Y_OFFSET + (f32)GRID_H * CELL_SIZE + 8.0f;
     Mel_Vec4 white = mel_vec4(1.0f, 1.0f, 1.0f, 1.0f);
@@ -381,7 +382,7 @@ static void pathfinder_draw_text(Pathfinder* pf, Mel_Render_List* list,
 
     char buf[256];
     snprintf(buf, sizeof(buf), "Nodes: %d  Path: %d", pf->nodes_explored, pf->path_length);
-    mel_font_atlas_draw_text(pool, font, list, str8_from_cstr(buf), GRID_X_OFFSET, text_y, white);
+    mel_font_atlas_draw_text(font, list, str8_from_cstr(buf), GRID_X_OFFSET, text_y, white);
 
     const char* state_str = "";
     Mel_Vec4 state_color = dim;
@@ -403,11 +404,11 @@ static void pathfinder_draw_text(Pathfinder* pf, Mel_Render_List* list,
 
     if (state_str[0] != '\0')
     {
-        mel_font_atlas_draw_text(pool, font, list, str8_from_cstr(state_str),
+        mel_font_atlas_draw_text(font, list, str8_from_cstr(state_str),
             GRID_X_OFFSET + 300.0f, text_y, state_color);
     }
 
-    mel_font_atlas_draw_text(pool, font, list,
+    mel_font_atlas_draw_text(font, list,
         S8("LMB: wall  RMB: start/end  SPACE: solve  R: reset  C: clear  ESC: quit"),
         GRID_X_OFFSET, text_y + 22.0f, dim);
 }
@@ -427,8 +428,8 @@ static void on_init(void)
 
     s_white_handle = mel_texture_pool_register(mel_texture_pool(), &mel_sprite_pass()->white_texture);
 
-    s_font_handle = mel_font_atlas_pool_load(mel_font_pool(),
-        .path = S8("/System/Library/Fonts/Monaco.ttf"), .size = 16.0f);
+    s_font_handle = mel_font_atlas_load(
+        .desc = mel_font_desc_load_ttf(S8("/System/Library/Fonts/Monaco.ttf")), .size = 16.0f);
 
 
     pathfinder_init(&s_pf);
@@ -514,7 +515,7 @@ static void app_update(Mel_Sim_Ctx* sim, f32 dt, void* user)
     pathfinder_draw_overlays(&s_pf, &s_sprite_list);
     pathfinder_draw_grid_lines(&s_sprite_list);
 
-    pathfinder_draw_text(&s_pf, &s_font_list, mel_font_pool(), s_font_handle);
+    pathfinder_draw_text(&s_pf, &s_font_list, s_font_handle);
 }
 
 static GridPos screen_to_grid(f32 sx, f32 sy)

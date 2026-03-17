@@ -21,8 +21,7 @@ typedef struct {
     Mugen_Fightdef* fightdef;
     Mugen_Sff* fight_sff;
     Mel_Texture_Handle fight_tex;
-    Mel_Font_Atlas_Pool* font_pool;
-    Mel_Font_Handle font;
+    Mel_Font_Atlas_Handle font;
     f32 p1_mid_ratio, p2_mid_ratio;
     f32 p1_power_mid, p2_power_mid;
     f32 scale_x, scale_y;

@@ -1,11 +1,17 @@
 #include "font.msdf.h"
+#include "font.desc.h"
 #include "string.str8.h"
 #include "hash.xxh.h"
-#include "gpu.buffer.h"
-#include "gpu.submit.h"
+#include "collection.slotmap.h"
+#include "collection.hashmap.h"
 #include "allocator.h"
+#include "allocator.heap.h"
+#include "gpu.device.fwd.h"
 #include "math.scalar.h"
-#include "vfs.h"
+#include "sprite.pass.h"
+#include "texture.pool.h"
+#include "event.channel.h"
+#include "boot.registry.h"
 
 #include <SDL3/SDL.h>
 #include <math.h>
@@ -15,42 +21,74 @@
 #define MEL_FONT_MSDF_FIRST_CHAR 32
 #define MEL_FONT_MSDF_CHAR_COUNT 96
 
-static u64 mel__font_msdf_pool_hash_key(const void* key)
+typedef struct {
+    Mel_SlotMap slotmap;
+    Mel_HashMap dedup;
+    Mel_Gpu_Device* dev;
+    const Mel_Alloc* alloc;
+} Mel__Font_MSDF_Pool;
+
+static Mel__Font_MSDF_Pool s_pool;
+static bool s_initialized;
+
+static u64 mel__font_msdf_hash_key(const void* key)
 {
     u64 val = (u64)(usize)key;
     return mel_xxh64(&val, sizeof(val), 0);
 }
 
-static bool mel__font_msdf_pool_eq_key(const void* a, const void* b)
+static bool mel__font_msdf_eq_key(const void* a, const void* b)
 {
     return (u64)(usize)a == (u64)(usize)b;
 }
 
-typedef struct {
-    Mel_Gpu_Image* image;
-    Mel_Gpu_Buffer* staging;
-    u32 width;
-    u32 height;
-} Mel__Font_MSDF_Upload;
-
-static void mel__font_msdf_upload_cmd(VkCommandBuffer cmd, void* user)
+static void mel__font_msdf_ensure_init(void)
 {
-    Mel__Font_MSDF_Upload* data = user;
+    if (s_initialized) return;
+    s_initialized = true;
 
-    mel_gpu_image_transition(data->image, cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    const Mel_Alloc* alloc = mel_alloc_heap();
+    s_pool.alloc = alloc;
+    mel_slotmap_init(&s_pool.slotmap, alloc,
+        .item_size = sizeof(Mel_Font_MSDF_Entry), .initial_capacity = 8);
+    mel_hashmap_init(&s_pool.dedup, mel__font_msdf_hash_key, mel__font_msdf_eq_key, alloc);
+}
 
-    VkBufferImageCopy region = {
-        .imageSubresource = {
-            .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-            .layerCount = 1,
-        },
-        .imageExtent = { data->width, data->height, 1 },
-    };
+void mel__font_msdf_set_device(Mel_Gpu_Device* dev)
+{
+    mel__font_msdf_ensure_init();
+    s_pool.dev = dev;
+}
 
-    vkCmdCopyBufferToImage(cmd, data->staging->buffer, data->image->image,
-        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+static void mel__font_msdf_on_texture_pool_ready(void* ctx, const void* event)
+{
+    (void)ctx;
+    (void)event;
+    mel__font_msdf_set_device(mel_sprite_pass()->dev);
+}
 
-    mel_gpu_image_transition(data->image, cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+static void mel__font_msdf_wire(void)
+{
+    mel_event_channel_on(&mel_texture_pool_ready, mel__font_msdf_on_texture_pool_ready, NULL);
+}
+
+__attribute__((constructor))
+static void mel__font_msdf_register(void)
+{
+    mel__boot_register_wire(mel__font_msdf_wire);
+}
+
+static u64 mel__font_msdf_dedup_key(Mel_Font_MSDF_Load_Opt opt)
+{
+    u64 key = mel_slotmap_handle_pack64(opt.desc.handle);
+    f32 font_size = opt.size > 0 ? opt.size : 48.0f;
+    u32 atlas_w = opt.atlas_width > 0 ? opt.atlas_width : 1024;
+    u32 atlas_h = opt.atlas_height > 0 ? opt.atlas_height : 1024;
+
+    key = mel_xxh64(&font_size, sizeof(font_size), key);
+    key = mel_xxh64(&atlas_w, sizeof(atlas_w), key);
+    key = mel_xxh64(&atlas_h, sizeof(atlas_h), key);
+    return key;
 }
 
 static bool mel__font_msdf_measure_desc(Mel_Font_Descriptor* desc, str8 text, Mel_Vec2* out)
@@ -89,62 +127,19 @@ static bool mel__font_msdf_measure_desc(Mel_Font_Descriptor* desc, str8 text, Me
     return true;
 }
 
-void mel_font_msdf_pool_init(Mel_Font_MSDF_Pool* pool, const Mel_Alloc* alloc, Mel_Gpu_Device* dev)
+Mel_Font_MSDF_Handle mel_font_msdf_load_opt(Mel_Font_MSDF_Load_Opt opt)
 {
-    assert(pool != nullptr);
-    assert(alloc != nullptr);
-    assert(dev != nullptr);
+    mel__font_msdf_ensure_init();
+    assert(s_pool.dev != nullptr);
+    assert(mel_slotmap_handle_valid(opt.desc.handle));
 
-    *pool = (Mel_Font_MSDF_Pool){0};
-    pool->alloc = alloc;
-    pool->dev = dev;
-
-    mel_slotmap_init(&pool->slotmap, alloc, .item_size = sizeof(Mel_Font_MSDF_Entry), .initial_capacity = 8);
-    mel_hashmap_init(&pool->path_to_handle, mel__font_msdf_pool_hash_key, mel__font_msdf_pool_eq_key, alloc);
-}
-
-void mel_font_msdf_pool_shutdown(Mel_Font_MSDF_Pool* pool)
-{
-    assert(pool != nullptr);
-
-    Mel_Font_MSDF_Entry* entries = mel_slotmap_data(&pool->slotmap);
-    u32 count = mel_slotmap_count(&pool->slotmap);
-    for (u32 i = 0; i < count; i++)
-    {
-        mel_gpu_texture_shutdown(&entries[i].texture, pool->dev);
-        if (entries[i].desc.glyphs)
-            mel_dealloc(pool->alloc, entries[i].desc.glyphs);
-    }
-
-    mel_slotmap_free(&pool->slotmap);
-    mel_hashmap_free(&pool->path_to_handle);
-    *pool = (Mel_Font_MSDF_Pool){0};
-}
-
-Mel_Font_Handle mel_font_msdf_pool_load_opt(Mel_Font_MSDF_Pool* pool, Mel_Font_MSDF_Load_Opt opt)
-{
-    assert(pool != nullptr);
-    assert(!str8_is_empty(opt.path));
-
-    u64 hash = str8_hash(opt.path);
-    void* existing = mel_hashmap_get(&pool->path_to_handle, (void*)(usize)hash);
+    u64 hash = mel__font_msdf_dedup_key(opt);
+    void* existing = mel_hashmap_get(&s_pool.dedup, (void*)(usize)hash);
     if (existing)
-        return (Mel_Font_Handle){ .handle = mel_slotmap_handle_from_ptr(existing) };
+        return (Mel_Font_MSDF_Handle){ .handle = mel_slotmap_handle_from_ptr(existing) };
 
-    i64 fsize = 0;
-    u8* ttf_data = mel_vfs_read_file(opt.path, &fsize, pool->alloc);
-    if (!ttf_data)
-    {
-        SDL_Log("font.msdf: failed to open '%.*s'", (int)opt.path.len, opt.path.data);
-        return MEL_FONT_HANDLE_NULL;
-    }
-
-    stbtt_fontinfo info;
-    if (!stbtt_InitFont(&info, ttf_data, 0))
-    {
-        mel_dealloc(pool->alloc, ttf_data);
-        return MEL_FONT_HANDLE_NULL;
-    }
+    Mel_Font_Desc* font = mel_font_desc_get(opt.desc);
+    assert(font != nullptr);
 
     f32 font_size = opt.size > 0 ? opt.size : 48.0f;
     u32 atlas_w = opt.atlas_width > 0 ? opt.atlas_width : 1024;
@@ -154,20 +149,17 @@ Mel_Font_Handle mel_font_msdf_pool_load_opt(Mel_Font_MSDF_Pool* pool, Mel_Font_M
     if (padding < (u32)ceilf(px_range) + 2)
         padding = (u32)ceilf(px_range) + 2;
 
-    u8* rgba = mel_calloc(pool->alloc, atlas_w * atlas_h * 4);
+    u8* rgba = mel_calloc(s_pool.alloc, atlas_w * atlas_h * 4);
 
-    int ascent_i, descent_i, line_gap_i;
-    stbtt_GetFontVMetrics(&info, &ascent_i, &descent_i, &line_gap_i);
-
-    f32 layout_scale = stbtt_ScaleForPixelHeight(&info, font_size);
+    f32 layout_scale = stbtt_ScaleForPixelHeight(&font->info, font_size);
 
     i32 max_gw = 0;
     i32 max_gh = 0;
     for (u32 c = MEL_FONT_MSDF_FIRST_CHAR; c < MEL_FONT_MSDF_FIRST_CHAR + MEL_FONT_MSDF_CHAR_COUNT; c++)
     {
-        int glyph_idx = stbtt_FindGlyphIndex(&info, (int)c);
+        int glyph_idx = stbtt_FindGlyphIndex(&font->info, (int)c);
         int x0 = 0, y0 = 0, x1 = 0, y1 = 0;
-        stbtt_GetGlyphBitmapBox(&info, glyph_idx, layout_scale, layout_scale, &x0, &y0, &x1, &y1);
+        stbtt_GetGlyphBitmapBox(&font->info, glyph_idx, layout_scale, layout_scale, &x0, &y0, &x1, &y1);
         max_gw = mel_maxi(max_gw, x1 - x0);
         max_gh = mel_maxi(max_gh, y1 - y0);
     }
@@ -175,20 +167,21 @@ Mel_Font_Handle mel_font_msdf_pool_load_opt(Mel_Font_MSDF_Pool* pool, Mel_Font_M
     u32 cell_w = (u32)mel_maxi(max_gw, 1) + padding * 2;
     u32 cell_h = (u32)mel_maxi(max_gh, 1) + padding * 2;
 
-    f32 gen_scale = stbtt_ScaleForMappingEmToPixels(&info, (f32)cell_h);
+    f32 gen_scale = stbtt_ScaleForMappingEmToPixels(&font->info, (f32)cell_h);
 
     Mel_Font_MSDF_Entry entry = {0};
     entry.atlas_width = atlas_w;
     entry.atlas_height = atlas_h;
     entry.px_range = px_range;
+    entry.font_desc = opt.desc;
     entry.desc.first_codepoint = MEL_FONT_MSDF_FIRST_CHAR;
     entry.desc.glyph_count = MEL_FONT_MSDF_CHAR_COUNT;
-    entry.desc.glyphs = mel_alloc_array(pool->alloc, Mel_Font_Glyph, entry.desc.glyph_count);
-    entry.desc.ascent = (f32)ascent_i * gen_scale;
-    entry.desc.line_height = (f32)(ascent_i - descent_i + line_gap_i) * gen_scale;
+    entry.desc.glyphs = mel_alloc_array(s_pool.alloc, Mel_Font_Glyph, entry.desc.glyph_count);
+    entry.desc.ascent = (f32)font->ascent * gen_scale;
+    entry.desc.line_height = (f32)(font->ascent - font->descent + font->line_gap) * gen_scale;
     u32 atlas_gutter = (u32)mel_maxi((i32)padding, 8);
 
-    float* glyph_bitmap = mel_alloc_array(pool->alloc, float, (usize)cell_w * (usize)cell_h * 3);
+    float* glyph_bitmap = mel_alloc_array(s_pool.alloc, float, (usize)cell_w * (usize)cell_h * 3);
 
     u32 x = atlas_gutter;
     u32 y = atlas_gutter;
@@ -196,16 +189,16 @@ Mel_Font_Handle mel_font_msdf_pool_load_opt(Mel_Font_MSDF_Pool* pool, Mel_Font_M
 
     for (u32 c = MEL_FONT_MSDF_FIRST_CHAR; c < MEL_FONT_MSDF_FIRST_CHAR + MEL_FONT_MSDF_CHAR_COUNT; c++)
     {
-        int glyph_idx = stbtt_FindGlyphIndex(&info, (int)c);
+        int glyph_idx = stbtt_FindGlyphIndex(&font->info, (int)c);
         int advance = 0;
         int lsb = 0;
-        stbtt_GetGlyphHMetrics(&info, glyph_idx, &advance, &lsb);
+        stbtt_GetGlyphHMetrics(&font->info, glyph_idx, &advance, &lsb);
 
         u32 idx = c - MEL_FONT_MSDF_FIRST_CHAR;
         entry.desc.glyphs[idx].xadvance = (f32)advance * gen_scale;
 
         int x0 = 0, y0 = 0, x1 = 0, y1 = 0;
-        stbtt_GetGlyphBitmapBox(&info, glyph_idx, gen_scale, gen_scale, &x0, &y0, &x1, &y1);
+        stbtt_GetGlyphBitmapBox(&font->info, glyph_idx, gen_scale, gen_scale, &x0, &y0, &x1, &y1);
         i32 gw = x1 - x0;
         i32 gh = y1 - y0;
 
@@ -221,16 +214,15 @@ Mel_Font_Handle mel_font_msdf_pool_load_opt(Mel_Font_MSDF_Pool* pool, Mel_Font_M
 
         if (y + cell_h + atlas_gutter > atlas_h)
         {
-            mel_dealloc(pool->alloc, glyph_bitmap);
-            mel_dealloc(pool->alloc, entry.desc.glyphs);
-            mel_dealloc(pool->alloc, rgba);
-            mel_dealloc(pool->alloc, ttf_data);
-            return MEL_FONT_HANDLE_NULL;
+            mel_dealloc(s_pool.alloc, glyph_bitmap);
+            mel_dealloc(s_pool.alloc, entry.desc.glyphs);
+            mel_dealloc(s_pool.alloc, rgba);
+            return MEL_FONT_MSDF_HANDLE_NULL;
         }
 
         memset(glyph_bitmap, 0, sizeof(float) * (usize)cell_w * (usize)cell_h * 3);
         ex_metrics_t metrics = {0};
-        if (!ex_msdf_glyph_mem(&info, c, cell_w, cell_h, glyph_bitmap, &metrics, 0))
+        if (!ex_msdf_glyph_mem(&font->info, c, cell_w, cell_h, glyph_bitmap, &metrics, 0))
             continue;
 
         for (u32 row = 0; row < cell_h; row++)
@@ -267,69 +259,35 @@ Mel_Font_Handle mel_font_msdf_pool_load_opt(Mel_Font_MSDF_Pool* pool, Mel_Font_M
         x += cell_w + atlas_gutter;
     }
 
-    mel_dealloc(pool->alloc, glyph_bitmap);
-    mel_dealloc(pool->alloc, ttf_data);
+    mel_dealloc(s_pool.alloc, glyph_bitmap);
 
-    Mel_Gpu_Buffer staging;
-    u32 image_size = atlas_w * atlas_h * 4;
-    mel_gpu_buffer_init(&staging, pool->dev,
-        .size = image_size,
-        .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-        .memory_usage = VMA_MEMORY_USAGE_CPU_ONLY);
-    mel_gpu_buffer_upload(&staging, pool->dev, rgba, image_size, 0);
-    mel_dealloc(pool->alloc, rgba);
+    mel_gpu_texture_init(&entry.texture, s_pool.dev,
+        .pixels = rgba, .width = atlas_w, .height = atlas_h,
+        .format = MEL_GPU_FORMAT_R8G8B8A8_UNORM);
+    mel_dealloc(s_pool.alloc, rgba);
 
-    mel_gpu_image_init(&entry.texture.image, pool->dev,
-        .width = atlas_w,
-        .height = atlas_h,
-        .format = VK_FORMAT_R8G8B8A8_UNORM,
-        .usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
-        .aspect = VK_IMAGE_ASPECT_COLOR_BIT);
+    Mel_SlotMap_Handle sm_handle = mel_slotmap_insert(&s_pool.slotmap, &entry);
+    mel_hashmap_put(&s_pool.dedup, (void*)(usize)hash, mel_slotmap_handle_to_ptr(sm_handle));
 
-    Mel__Font_MSDF_Upload upload = {
-        .image = &entry.texture.image,
-        .staging = &staging,
-        .width = atlas_w,
-        .height = atlas_h,
-    };
-    mel_gpu_submit_immediate(pool->dev, mel__font_msdf_upload_cmd, &upload);
-    mel_gpu_buffer_shutdown(&staging, pool->dev);
-
-    VkSamplerCreateInfo sampler_info = {
-        .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
-        .magFilter = VK_FILTER_LINEAR,
-        .minFilter = VK_FILTER_LINEAR,
-        .mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST,
-        .addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
-        .addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
-        .addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
-    };
-    VkResult result = vkCreateSampler(pool->dev->device, &sampler_info, nullptr, &entry.texture.sampler);
-    assert(result == VK_SUCCESS);
-    MEL_UNUSED(result);
-
-    Mel_SlotMap_Handle sm_handle = mel_slotmap_insert(&pool->slotmap, &entry);
-    mel_hashmap_put(&pool->path_to_handle, (void*)(usize)hash, mel_slotmap_handle_to_ptr(sm_handle));
-
-    SDL_Log("font.msdf: loaded '%.*s' %.0fpx, atlas %ux%u", (int)opt.path.len, opt.path.data, font_size, atlas_w, atlas_h);
-    return (Mel_Font_Handle){ .handle = sm_handle };
+    SDL_Log("font.msdf: loaded %.0fpx, atlas %ux%u", font_size, atlas_w, atlas_h);
+    return (Mel_Font_MSDF_Handle){ .handle = sm_handle };
 }
 
-Mel_Font_MSDF_Entry* mel_font_msdf_pool_get(Mel_Font_MSDF_Pool* pool, Mel_Font_Handle handle)
+Mel_Font_MSDF_Entry* mel_font_msdf_get(Mel_Font_MSDF_Handle handle)
 {
-    assert(pool != nullptr);
-    return mel_slotmap_get(&pool->slotmap, handle.handle);
+    mel__font_msdf_ensure_init();
+    return mel_slotmap_get(&s_pool.slotmap, handle.handle);
 }
 
-Mel_Gpu_Texture* mel_font_msdf_pool_get_texture(Mel_Font_MSDF_Pool* pool, Mel_Font_Handle handle)
+Mel_Gpu_Texture* mel_font_msdf_get_texture(Mel_Font_MSDF_Handle handle)
 {
-    Mel_Font_MSDF_Entry* entry = mel_font_msdf_pool_get(pool, handle);
+    Mel_Font_MSDF_Entry* entry = mel_font_msdf_get(handle);
     return entry ? &entry->texture : nullptr;
 }
 
-Mel_Vec2 mel_font_msdf_measure_text(Mel_Font_MSDF_Pool* pool, Mel_Font_Handle handle, str8 text)
+Mel_Vec2 mel_font_msdf_measure_text(Mel_Font_MSDF_Handle handle, str8 text)
 {
-    Mel_Font_MSDF_Entry* entry = mel_font_msdf_pool_get(pool, handle);
+    Mel_Font_MSDF_Entry* entry = mel_font_msdf_get(handle);
     assert(entry != nullptr);
     Mel_Vec2 out = {0};
     mel__font_msdf_measure_desc(&entry->desc, text, &out);

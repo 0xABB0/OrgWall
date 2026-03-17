@@ -19,6 +19,7 @@
 #include "render.camera.h"
 #include "texture.pool.h"
 #include "font.atlas.h"
+#include "font.desc.h"
 #include "allocator.h"
 #include "allocator.heap.h"
 #include "vfs.h"
@@ -87,7 +88,7 @@ typedef struct {
 
 static Fractal_Window     s_mandelbrot;
 static Fractal_Window     s_julia;
-static Mel_Font_Handle    s_font_handle;
+static Mel_Font_Atlas_Handle    s_font_handle;
 static Mel_Render_Graph   s_graph;
 static Mel_Sim_Ctx        s_sim;
 static u8                 s_event_buf[4096];
@@ -244,7 +245,7 @@ static void fractal_window_init(Fractal_Window* fw, str8 title, Mel_Gpu_Device* 
 
     mel_sprite_pass_init(&fw->sprite_pass,
         .dev = dev,
-        .color_format = VK_FORMAT_B8G8R8A8_SRGB,
+        .color_format = MEL_GPU_FORMAT_B8G8R8A8_SRGB,
         .max_sprites = 4096);
     fw->sprite_pass.pool = mel_texture_pool();
 
@@ -293,12 +294,11 @@ static void fractal_window_draw(Fractal_Window* fw, str8 hud_line)
         .color = mel_vec4(1.0f, 1.0f, 1.0f, 1.0f),
         .tex  = fw->tex_handle);
 
-    Mel_Font_Atlas_Pool* fp = mel_font_pool();
     Mel_Vec4 white = mel_vec4(1.0f, 1.0f, 1.0f, 0.9f);
     Mel_Vec4 dim   = mel_vec4(0.6f, 0.6f, 0.6f, 0.8f);
 
-    mel_font_atlas_draw_text(fp, s_font_handle, &fw->font_list, hud_line, 8.0f, 4.0f, white);
-    mel_font_atlas_draw_text(fp, s_font_handle, &fw->font_list,
+    mel_font_atlas_draw_text(s_font_handle, &fw->font_list, hud_line, 8.0f, 4.0f, white);
+    mel_font_atlas_draw_text(s_font_handle, &fw->font_list,
         S8("scroll=zoom  drag=pan  +/-=iter  R=reset  ESC=quit"),
         8.0f, 22.0f, dim);
 }
@@ -337,8 +337,8 @@ void app_init(void)
 
     Mel_Gpu_Device* dev = mel_gpu_dev();
 
-    s_font_handle = mel_font_atlas_pool_load(mel_font_pool(),
-        .path = S8("/System/Library/Fonts/Monaco.ttf"), .size = 16.0f);
+    s_font_handle = mel_font_atlas_load(
+        .desc = mel_font_desc_load_ttf(S8("/System/Library/Fonts/Monaco.ttf")), .size = 16.0f);
 
     fractal_window_init(&s_mandelbrot, S8("Mandelbrot"), dev);
     fractal_window_init(&s_julia, S8("Julia Set"), dev);

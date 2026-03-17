@@ -37,6 +37,20 @@ MEL_TEST(ecs_text_component_register, .tags = "render")
     ecs_fini(world);
 }
 
+static Mel_Font_Atlas_Handle mel__test_make_fake_font(Mel_Font_Glyph* glyphs, u32 count, f32 ascent, f32 line_height)
+{
+    Mel_Font_Atlas_Entry fake_entry = {
+        .desc = {
+            .glyphs = glyphs,
+            .glyph_count = count,
+            .first_codepoint = 32,
+            .ascent = ascent,
+            .line_height = line_height,
+        },
+    };
+    return mel__font_atlas_insert_entry(&fake_entry);
+}
+
 MEL_TEST(ecs_text_system_pushes_glyphs, .tags = "render")
 {
     const Mel_Alloc* alloc = mel_alloc_heap();
@@ -45,20 +59,7 @@ MEL_TEST(ecs_text_system_pushes_glyphs, .tags = "render")
     glyphs['A' - 32] = (Mel_Font_Glyph){ .x0 = 0, .y0 = -10, .x1 = 8, .y1 = 0, .u0 = 0, .v0 = 0, .u1 = 0.1f, .v1 = 0.1f, .xadvance = 10 };
     glyphs['B' - 32] = (Mel_Font_Glyph){ .x0 = 0, .y0 = -10, .x1 = 8, .y1 = 0, .u0 = 0.1f, .v0 = 0, .u1 = 0.2f, .v1 = 0.1f, .xadvance = 10 };
 
-    Mel_Font_Atlas_Entry fake_entry = {
-        .desc = {
-            .glyphs = glyphs,
-            .glyph_count = 96,
-            .first_codepoint = 32,
-            .ascent = 12.0f,
-            .line_height = 16.0f,
-        },
-    };
-
-    Mel_Font_Atlas_Pool pool = {0};
-    mel_slotmap_init(&pool.slotmap, alloc, .item_size = sizeof(Mel_Font_Atlas_Entry), .initial_capacity = 4);
-    Mel_SlotMap_Handle sm_handle = mel_slotmap_insert(&pool.slotmap, &fake_entry);
-    Mel_Font_Handle font_handle = { .handle = sm_handle };
+    Mel_Font_Atlas_Handle font_handle = mel__test_make_fake_font(glyphs, 96, 12.0f, 16.0f);
 
     Mel_Render_List list;
     mel_render_list_init(&list, .entry_stride = sizeof(Mel_Sprite_Entry), .alloc = alloc);
@@ -77,7 +78,7 @@ MEL_TEST(ecs_text_system_pushes_glyphs, .tags = "render")
 
     ecs_progress(world, 0);
 
-    mel_text_system_run(world, .list = &list, .font_pool = &pool);
+    mel_text_system_run(world, .list = &list);
 
     MEL_ASSERT_EQ(list.count, 2u);
 
@@ -88,7 +89,6 @@ MEL_TEST(ecs_text_system_pushes_glyphs, .tags = "render")
 
     ecs_fini(world);
     mel_render_list_shutdown(&list);
-    mel_slotmap_free(&pool.slotmap);
 }
 
 MEL_TEST(ecs_text_system_skips_empty_text, .tags = "render")
@@ -98,20 +98,7 @@ MEL_TEST(ecs_text_system_skips_empty_text, .tags = "render")
     Mel_Font_Glyph glyphs[96] = {0};
     glyphs['X' - 32] = (Mel_Font_Glyph){ .x0 = 0, .y0 = -8, .x1 = 6, .y1 = 0, .xadvance = 8 };
 
-    Mel_Font_Atlas_Entry fake_entry = {
-        .desc = {
-            .glyphs = glyphs,
-            .glyph_count = 96,
-            .first_codepoint = 32,
-            .ascent = 10.0f,
-            .line_height = 14.0f,
-        },
-    };
-
-    Mel_Font_Atlas_Pool pool = {0};
-    mel_slotmap_init(&pool.slotmap, alloc, .item_size = sizeof(Mel_Font_Atlas_Entry), .initial_capacity = 4);
-    Mel_SlotMap_Handle sm_handle = mel_slotmap_insert(&pool.slotmap, &fake_entry);
-    Mel_Font_Handle font_handle = { .handle = sm_handle };
+    Mel_Font_Atlas_Handle font_handle = mel__test_make_fake_font(glyphs, 96, 10.0f, 14.0f);
 
     Mel_Render_List list;
     mel_render_list_init(&list, .entry_stride = sizeof(Mel_Sprite_Entry), .alloc = alloc);
@@ -130,13 +117,12 @@ MEL_TEST(ecs_text_system_skips_empty_text, .tags = "render")
 
     ecs_progress(world, 0);
 
-    mel_text_system_run(world, .list = &list, .font_pool = &pool);
+    mel_text_system_run(world, .list = &list);
 
     MEL_ASSERT_EQ(list.count, 0u);
 
     ecs_fini(world);
     mel_render_list_shutdown(&list);
-    mel_slotmap_free(&pool.slotmap);
 }
 
 MEL_TEST(ecs_text_system_multiple_entities, .tags = "render")
@@ -146,20 +132,7 @@ MEL_TEST(ecs_text_system_multiple_entities, .tags = "render")
     Mel_Font_Glyph glyphs[96] = {0};
     glyphs['A' - 32] = (Mel_Font_Glyph){ .x0 = 0, .y0 = -10, .x1 = 8, .y1 = 0, .xadvance = 10 };
 
-    Mel_Font_Atlas_Entry fake_entry = {
-        .desc = {
-            .glyphs = glyphs,
-            .glyph_count = 96,
-            .first_codepoint = 32,
-            .ascent = 12.0f,
-            .line_height = 16.0f,
-        },
-    };
-
-    Mel_Font_Atlas_Pool pool = {0};
-    mel_slotmap_init(&pool.slotmap, alloc, .item_size = sizeof(Mel_Font_Atlas_Entry), .initial_capacity = 4);
-    Mel_SlotMap_Handle sm_handle = mel_slotmap_insert(&pool.slotmap, &fake_entry);
-    Mel_Font_Handle font_handle = { .handle = sm_handle };
+    Mel_Font_Atlas_Handle font_handle = mel__test_make_fake_font(glyphs, 96, 12.0f, 16.0f);
 
     Mel_Render_List list;
     mel_render_list_init(&list, .entry_stride = sizeof(Mel_Sprite_Entry), .alloc = alloc);
@@ -186,11 +159,10 @@ MEL_TEST(ecs_text_system_multiple_entities, .tags = "render")
 
     ecs_progress(world, 0);
 
-    mel_text_system_run(world, .list = &list, .font_pool = &pool);
+    mel_text_system_run(world, .list = &list);
 
     MEL_ASSERT_EQ(list.count, 5u);
 
     ecs_fini(world);
     mel_render_list_shutdown(&list);
-    mel_slotmap_free(&pool.slotmap);
 }

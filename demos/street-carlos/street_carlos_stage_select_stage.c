@@ -20,11 +20,11 @@
 #include "vfs.h"
 #include "mugen.stage.h"
 
-static void draw_centered_text(Street_Carlos_Ctx* ctx, Mel_Render_List* list, Mel_Font_Handle font, str8 text, f32 y, Mel_Vec4 color)
+static void draw_centered_text(Street_Carlos_Ctx* ctx, Mel_Render_List* list, Mel_Font_Atlas_Handle font, str8 text, f32 y, Mel_Vec4 color)
 {
-    Mel_Vec2 size = mel_font_atlas_measure_text(&ctx->font_pool, font, text);
+    Mel_Vec2 size = mel_font_atlas_measure_text(font, text);
     f32 x = (f32)GAME_W * 0.5f - size.x * 0.5f;
-    mel_font_atlas_draw_text(&ctx->font_pool, font, list, text, x, y, color);
+    mel_font_atlas_draw_text(font, list, text, x, y, color);
 }
 
 static void draw_box_outline(Mel_Render_List* list, f32 x, f32 y, f32 w, f32 h, Mel_Vec4 color)
@@ -279,8 +279,8 @@ void street_carlos_stage_select_stage_draw_world(Street_Carlos_Stage_Select_Stag
         if (i == stage->cursor)
             draw_box_outline(list, x, y, cell_w, cell_h, mel_vec4(1.0f, 1.0f, 0.4f, 1.0f));
 
-        Mel_Vec2 size = mel_font_atlas_measure_text(&ctx->font_pool, ctx->ui_font, ctx->stage_choices[i].label);
-        mel_font_atlas_draw_text(&ctx->font_pool, ctx->ui_font, list, ctx->stage_choices[i].label,
+        Mel_Vec2 size = mel_font_atlas_measure_text(ctx->ui_font, ctx->stage_choices[i].label);
+        mel_font_atlas_draw_text(ctx->ui_font, list, ctx->stage_choices[i].label,
             x + (cell_w - size.x) * 0.5f, y + 28.0f, mel_vec4(1, 1, 1, 1));
     }
 

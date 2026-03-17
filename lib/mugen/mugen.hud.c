@@ -161,7 +161,7 @@ static void draw_hud_text(Mugen_Hud* hud, Mel_Render_List* list,
     if (fref.fontno == 0) return;
     if (text.len == 0) return;
 
-    Mel_Vec2 sz = mel_font_atlas_measure_text(hud->font_pool, hud->font, text);
+    Mel_Vec2 sz = mel_font_atlas_measure_text(hud->font, text);
 
     f32 draw_x = x;
     if (fref.alignment == 0)
@@ -169,7 +169,7 @@ static void draw_hud_text(Mugen_Hud* hud, Mel_Render_List* list,
     else if (fref.alignment == -1)
         draw_x = x - sz.x;
 
-    mel_font_atlas_draw_text_ex(hud->font_pool, hud->font, list, text,
+    mel_font_atlas_draw_text_ex(hud->font, list, text,
         draw_x, y, mel_vec4(1, 1, 1, 1), hud_key());
 }
 

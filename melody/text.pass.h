@@ -51,14 +51,14 @@ struct Mel_Text_Entry {
 };
 
 typedef struct {
-    VkDescriptorSet descriptor;
+    void* _descriptor;
     u32 index_offset;
     u32 index_count;
 } Mel_Text_Draw_Cmd;
 
 typedef struct {
     Mel_Gpu_Texture* texture;
-    VkDescriptorSet descriptor;
+    void* _descriptor;
 } Mel_Text_Descriptor_Cache_Entry;
 
 typedef struct {
@@ -83,7 +83,7 @@ struct Mel_Text_Pass {
     Mel_Text_Draw_Cmd* draws;
     u32 draw_count;
     u32 draw_capacity;
-    VkDescriptorSet current_descriptor;
+    void* _current_descriptor;
     Mel_Gpu_Texture* current_texture;
 
     Mel_Text_Descriptor_Cache_Entry* descriptor_cache;
@@ -95,7 +95,7 @@ struct Mel_Text_Pass {
 
 typedef struct {
     Mel_Gpu_Device* dev;
-    VkFormat color_format;
+    Mel_Gpu_Format color_format;
     u32 max_glyphs;
     const Mel_Alloc* alloc;
 } Mel_Text_Pass_Init_Opt;

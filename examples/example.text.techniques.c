@@ -22,6 +22,7 @@
 #include "font.atlas.h"
 #include "font.sdf.h"
 #include "font.msdf.h"
+#include "font.desc.h"
 #include "vfs.h"
 #include "vfs.backend.os.h"
 #include "allocator.heap.h"
@@ -50,11 +51,9 @@ static Mel_Camera s_camera;
 static Mel_Sim_Ctx s_sim;
 static u8 s_event_buf[4096];
 
-static Mel_Font_SDF_Pool s_sdf_pool;
-static Mel_Font_MSDF_Pool s_msdf_pool;
-static Mel_Font_Handle s_atlas_font;
-static Mel_Font_Handle s_sdf_font;
-static Mel_Font_Handle s_msdf_font;
+static Mel_Font_Atlas_Handle s_atlas_font;
+static Mel_Font_SDF_Handle s_sdf_font;
+static Mel_Font_MSDF_Handle s_msdf_font;
 
 static TextTechniqueParams s_atlas_params = {
     .edge = 0.45f,
@@ -213,21 +212,21 @@ static void app_update(Mel_Sim_Ctx* sim, f32 dt, void* user)
     Mel_Text_Style sdf = texttech_style_from(&s_sdf_params);
     Mel_Text_Style msdf = texttech_style_from(&s_msdf_params);
 
-    mel_text_draw_font_atlas(mel_font_pool(), s_atlas_font, &s_text_list, S8("Bitmap Atlas"),
+    mel_text_draw_font_atlas(s_atlas_font, &s_text_list, S8("Bitmap Atlas"),
         .x = text_x, .y = panel1_y + 32.0f, .style = atlas);
-    mel_text_draw_font_atlas(mel_font_pool(), s_atlas_font, &s_text_list,
+    mel_text_draw_font_atlas(s_atlas_font, &s_text_list,
         S8("Fast, crisp at the native size,\nbut scaling exposes the pixels."),
         .x = text_x, .y = panel1_y + 76.0f, .style = atlas);
 
-    mel_text_draw_font_sdf(&s_sdf_pool, s_sdf_font, &s_text_list, S8("Signed Distance Field"),
+    mel_text_draw_font_sdf(s_sdf_font, &s_text_list, S8("Signed Distance Field"),
         .x = text_x, .y = panel2_y + 30.0f, .scale = 0.70f, .style = sdf);
-    mel_text_draw_font_sdf(&s_sdf_pool, s_sdf_font, &s_text_list,
+    mel_text_draw_font_sdf(s_sdf_font, &s_text_list,
         S8("Smooth scaling and cheap effects.\nCorners get a little rounder,\nbut fine details soften first."),
         .x = text_x, .y = panel2_y + 76.0f, .scale = 0.70f, .style = sdf);
 
-    mel_text_draw_font_msdf(&s_msdf_pool, s_msdf_font, &s_text_list, S8("Multi-Channel SDF"),
+    mel_text_draw_font_msdf(s_msdf_font, &s_text_list, S8("Multi-Channel SDF"),
         .x = text_x, .y = panel3_y + 24.0f, .scale = 0.17f, .style = msdf);
-    mel_text_draw_font_msdf(&s_msdf_pool, s_msdf_font, &s_text_list,
+    mel_text_draw_font_msdf(s_msdf_font, &s_text_list,
         S8("Sharper corners and cleaner outlines.\nBest when you need scale headroom."),
         .x = text_x, .y = panel3_y + 70.0f, .scale = 0.17f, .style = msdf);
 }
@@ -251,15 +250,13 @@ static void on_init(void)
         .projection = mel_mat4_ortho(0.0f, (f32)sc->extent.width, (f32)sc->extent.height, 0.0f, -1.0f, 1.0f),
     };
 
-    mel_font_sdf_pool_init(&s_sdf_pool, mel_alloc_heap(), dev);
-    mel_font_msdf_pool_init(&s_msdf_pool, mel_alloc_heap(), dev);
-
-    s_atlas_font = mel_font_atlas_pool_load(mel_font_pool(),
-        .path = S8("/System/Library/Fonts/Monaco.ttf"), .size = 28.0f);
-    s_sdf_font = mel_font_sdf_pool_load(&s_sdf_pool,
-        .path = S8("/System/Library/Fonts/Monaco.ttf"), .size = 40.0f);
-    s_msdf_font = mel_font_msdf_pool_load(&s_msdf_pool,
-        .path = S8("/System/Library/Fonts/Monaco.ttf"),
+    Mel_Font_Desc_Handle monaco = mel_font_desc_load_ttf(S8("/System/Library/Fonts/Monaco.ttf"));
+    s_atlas_font = mel_font_atlas_load(
+        .desc = monaco, .size = 28.0f);
+    s_sdf_font = mel_font_sdf_load(
+        .desc = monaco, .size = 40.0f);
+    s_msdf_font = mel_font_msdf_load(
+        .desc = monaco,
         .size = 128.0f,
         .atlas_width = 2048,
         .atlas_height = 2048,
@@ -319,9 +316,6 @@ void app_shutdown(void)
     mel_render_stage_2d_shutdown(&s_stage);
     mel_render_list_shutdown(&s_text_list);
     mel_render_list_shutdown(&s_bg_list);
-
-    mel_font_msdf_pool_shutdown(&s_msdf_pool);
-    mel_font_sdf_pool_shutdown(&s_sdf_pool);
 
     mel_vfs_unmount(S8("/"));
 }

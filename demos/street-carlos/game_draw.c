@@ -535,7 +535,7 @@ void game_draw_stage_preview(Mugen_Stage* stage, Mugen_Sff* sff,
 }
 
 void game_draw_input_display(Mugen_Player_Inputs inputs, Command_List* cmds,
-    i32 stateno, Mel_Font_Atlas_Pool* fonts, Mel_Font_Handle font,
+    i32 stateno, Mel_Font_Atlas_Handle font,
     f32 base_x, f32 base_y, Mel_Render_List* list)
 {
     f32 y = base_y;
@@ -550,7 +550,7 @@ void game_draw_input_display(Mugen_Player_Inputs inputs, Command_List* cmds,
         inputs.down ? 'D' : '.',
         inputs.left ? 'L' : '.',
         inputs.right ? 'R' : '.');
-    mel_font_atlas_draw_text(fonts, font, list,
+    mel_font_atlas_draw_text(font, list,
         str8_from_cstr(dir_buf), base_x, y, inputs.up || inputs.down || inputs.left || inputs.right ? active : dim);
     y += line_h;
 
@@ -558,13 +558,13 @@ void game_draw_input_display(Mugen_Player_Inputs inputs, Command_List* cmds,
     snprintf(btn_buf, sizeof(btn_buf), "%c%c%c %c%c%c",
         inputs.x ? 'X' : '.', inputs.y ? 'Y' : '.', inputs.z ? 'Z' : '.',
         inputs.a ? 'A' : '.', inputs.b ? 'B' : '.', inputs.c ? 'C' : '.');
-    mel_font_atlas_draw_text(fonts, font, list,
+    mel_font_atlas_draw_text(font, list,
         str8_from_cstr(btn_buf), base_x, y, inputs.x || inputs.y || inputs.z || inputs.a || inputs.b || inputs.c ? active : dim);
     y += line_h;
 
     char state_buf[32];
     snprintf(state_buf, sizeof(state_buf), "st:%d", stateno);
-    mel_font_atlas_draw_text(fonts, font, list,
+    mel_font_atlas_draw_text(font, list,
         str8_from_cstr(state_buf), base_x, y, white);
     y += line_h + 2;
 
@@ -575,7 +575,7 @@ void game_draw_input_display(Mugen_Player_Inputs inputs, Command_List* cmds,
         Command* cmd = &cmds->commands[i];
         if (!cmd->complete_frame) continue;
 
-        mel_font_atlas_draw_text(fonts, font, list,
+        mel_font_atlas_draw_text(font, list,
             cmd->name, base_x, y, mel_vec4(0.2f, 1.0f, 0.4f, 1));
         y += line_h;
         if (y > base_y + 120.0f) break;
@@ -593,7 +593,7 @@ static str8 find_command_input(Mugen_Cmd* cmd, str8 name)
 }
 
 void game_draw_move_list(Mugen_Cmd* cmd, i32 current_stateno,
-    Mel_Font_Atlas_Pool* fonts, Mel_Font_Handle font,
+    Mel_Font_Atlas_Handle font,
     f32 base_x, f32 base_y, f32 max_h, Mel_Render_List* list)
 {
     if (!cmd || cmd->state_entry_count == 0) return;
@@ -604,7 +604,7 @@ void game_draw_move_list(Mugen_Cmd* cmd, i32 current_stateno,
     Mel_Vec4 highlight = mel_vec4(0.2f, 1.0f, 0.4f, 1);
     Mel_Vec4 dim = mel_vec4(0.6f, 0.6f, 0.6f, 1);
 
-    mel_font_atlas_draw_text(fonts, font, list, S8("-- MOVES --"), base_x, y, white);
+    mel_font_atlas_draw_text(font, list, S8("-- MOVES --"), base_x, y, white);
     y += line_h + 2;
 
     for (u32 i = 0; i < cmd->state_entry_count; i++)
@@ -626,7 +626,7 @@ void game_draw_move_list(Mugen_Cmd* cmd, i32 current_stateno,
                 (int)input.len, (char*)input.data);
 
         bool active = (i32)e->action_number == current_stateno;
-        mel_font_atlas_draw_text(fonts, font, list,
+        mel_font_atlas_draw_text(font, list,
             str8_from_cstr(buf), base_x, y, active ? highlight : dim);
 
         y += line_h;

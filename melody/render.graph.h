@@ -35,13 +35,13 @@ struct Mel_Render_Graph_Barrier {
     u32 pass_index;
     Mel_Render_Target* target;
     Mel_Render_List* list;
-    VkPipelineStageFlags2 src_stage;
-    VkAccessFlags2 src_access;
-    VkPipelineStageFlags2 dst_stage;
-    VkAccessFlags2 dst_access;
-    VkImageLayout old_layout;
-    VkImageLayout new_layout;
-    VkImageAspectFlags aspect;
+    Mel_Gpu_Stage src_stage;
+    Mel_Gpu_Access src_access;
+    Mel_Gpu_Stage dst_stage;
+    Mel_Gpu_Access dst_access;
+    Mel_Gpu_Image_Layout old_layout;
+    Mel_Gpu_Image_Layout new_layout;
+    Mel_Gpu_Aspect aspect;
 };
 
 struct Mel_Render_Graph_Dep {
@@ -50,9 +50,9 @@ struct Mel_Render_Graph_Dep {
 };
 
 typedef struct {
-    VkCommandPool pool;
-    VkCommandBuffer cmd;
-    VkFence fence;
+    void* _pool;
+    void* _cmd;
+    void* _fence;
 } Mel_Render_Graph_Frame;
 
 struct Mel_Render_Graph {

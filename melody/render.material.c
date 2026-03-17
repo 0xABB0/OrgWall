@@ -805,8 +805,8 @@ bool mel_material_table_init_opt(Mel_Material_Table* table, Mel_Material_Table_I
     table->capacity = opt.capacity > 0 ? opt.capacity : 256;
     mel_gpu_buffer_init(&table->buffer, opt.dev,
         .size = sizeof(Mel_Material_Gpu_Record) * table->capacity,
-        .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-        .memory_usage = VMA_MEMORY_USAGE_CPU_TO_GPU,
+        .usage = MEL_GPU_BUFFER_USAGE_STORAGE,
+        .memory_usage = MEL_GPU_MEMORY_USAGE_CPU_TO_GPU,
         .map_on_create = true);
     table->records = table->buffer.mapped;
     return true;

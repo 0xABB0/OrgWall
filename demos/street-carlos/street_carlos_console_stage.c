@@ -232,7 +232,6 @@ void street_carlos_console_stage_init(Street_Carlos_Console_Stage* stage, Street
     mel_widget_set_visible(&stage->panel.base, false);
 
     mel_wlabel_init(&stage->title);
-    stage->title.font_pool = &ctx->font_pool;
     stage->title.font = ctx->ui_font;
     stage->title.text_color = mel_vec4(0.95f, 0.45f, 0.45f, 1.0f);
     mel_wlabel_set_text(&stage->title, S8("CONSOLE"));
@@ -241,14 +240,12 @@ void street_carlos_console_stage_init(Street_Carlos_Console_Stage* stage, Street
     for (u32 i = 0; i < STREET_CARLOS_CONSOLE_LINE_COUNT; i++)
     {
         mel_wlabel_init(&stage->lines[i]);
-        stage->lines[i].font_pool = &ctx->font_pool;
         stage->lines[i].font = ctx->ui_font;
         stage->lines[i].text_color = mel_vec4(0.88f, 0.88f, 0.90f, 1.0f);
         mel_widget_add_child(&stage->panel.base, &stage->lines[i].base);
     }
 
     mel_wedit_init(&stage->input);
-    stage->input.font_pool = &ctx->font_pool;
     stage->input.font = ctx->ui_font;
     stage->input.on_confirm = street_carlos_console_stage_on_confirm;
     stage->input.user_data = stage;

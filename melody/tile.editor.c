@@ -4,6 +4,7 @@
 #include "texture.pool.h"
 #include "collection.slotmap.h"
 #include "string.str8.h"
+#include "allocator.h"
 
 #include <cimgui/cimgui.h>
 #include <string.h>
@@ -313,7 +314,7 @@ static void draw_tile_palette(Mel_EdTiles* ed)
             {
                 Mel_Tile_Source* source = &ed->tileset->sources[entry->source_idx];
                 Mel_Gpu_Texture* tex = mel_texture_pool_get(ed->texture_pool, source->texture);
-                if (tex && tex->descriptor)
+                if (tex && tex->_descriptor)
                 {
                     f32 tex_w = (f32)tex->image.width;
                     f32 tex_h = (f32)tex->image.height;
@@ -323,7 +324,7 @@ static void draw_tile_palette(Mel_EdTiles* ed)
                     f32 u1 = (f32)(entry->source_x + entry->width) / tex_w;
                     f32 v1 = (f32)(entry->source_y + entry->height) / tex_h;
 
-                    ImTextureRef_c tex_ref = {._TexData = nullptr, ._TexID = (ImTextureID)tex->descriptor};
+                    ImTextureRef_c tex_ref = {._TexData = nullptr, ._TexID = (ImTextureID)tex->_descriptor};
                     ImDrawList_AddImage(draw_list, tex_ref,
                         p0, p1, (ImVec2){u0, v0}, (ImVec2){u1, v1}, IM_COL32(255, 255, 255, 255));
                 }
@@ -406,7 +407,7 @@ static void draw_brush_preview(Mel_EdTiles* ed, Mel_TileBrush* brush, f32 max_si
             {
                 Mel_Tile_Source* source = &ed->tileset->sources[entry->source_idx];
                 Mel_Gpu_Texture* tex = mel_texture_pool_get(ed->texture_pool, source->texture);
-                if (tex && tex->descriptor)
+                if (tex && tex->_descriptor)
                 {
                     f32 tex_w = (f32)tex->image.width;
                     f32 tex_h = (f32)tex->image.height;
@@ -415,7 +416,7 @@ static void draw_brush_preview(Mel_EdTiles* ed, Mel_TileBrush* brush, f32 max_si
                     f32 u1 = (f32)(entry->source_x + entry->width) / tex_w;
                     f32 v1 = (f32)(entry->source_y + entry->height) / tex_h;
 
-                    ImTextureRef_c tex_ref = {._TexData = nullptr, ._TexID = (ImTextureID)tex->descriptor};
+                    ImTextureRef_c tex_ref = {._TexData = nullptr, ._TexID = (ImTextureID)tex->_descriptor};
                     ImDrawList_AddImage(draw_list, tex_ref, p0, p1, (ImVec2){u0, v0}, (ImVec2){u1, v1}, IM_COL32(255, 255, 255, 255));
                 }
             }
@@ -510,7 +511,7 @@ static void draw_brush_panel(Mel_EdTiles* ed)
                         {
                             Mel_Tile_Source* source = &ed->tileset->sources[entry->source_idx];
                             Mel_Gpu_Texture* tex = mel_texture_pool_get(ed->texture_pool, source->texture);
-                            if (tex && tex->descriptor)
+                            if (tex && tex->_descriptor)
                             {
                                 f32 tex_w = (f32)tex->image.width;
                                 f32 tex_h = (f32)tex->image.height;
@@ -519,7 +520,7 @@ static void draw_brush_panel(Mel_EdTiles* ed)
                                 f32 u1 = (f32)(entry->source_x + entry->width) / tex_w;
                                 f32 v1 = (f32)(entry->source_y + entry->height) / tex_h;
 
-                                ImTextureRef_c tex_ref = {._TexData = nullptr, ._TexID = (ImTextureID)tex->descriptor};
+                                ImTextureRef_c tex_ref = {._TexData = nullptr, ._TexID = (ImTextureID)tex->_descriptor};
                                 ImDrawList_AddImage(draw_list, tex_ref, p0, p1, (ImVec2){u0, v0}, (ImVec2){u1, v1}, IM_COL32(255, 255, 255, 255));
                             }
                         }
@@ -647,7 +648,7 @@ static void draw_map_canvas(Mel_EdTiles* ed)
                         {
                             Mel_Tile_Source* source = &ed->tileset->sources[entry->source_idx];
                             Mel_Gpu_Texture* tex = mel_texture_pool_get(ed->texture_pool, source->texture);
-                            if (tex && tex->descriptor)
+                            if (tex && tex->_descriptor)
                             {
                                 f32 tex_w = (f32)tex->image.width;
                                 f32 tex_h = (f32)tex->image.height;
@@ -657,7 +658,7 @@ static void draw_map_canvas(Mel_EdTiles* ed)
                                 f32 u1 = (f32)(entry->source_x + entry->width) / tex_w;
                                 f32 v1 = (f32)(entry->source_y + entry->height) / tex_h;
 
-                                ImTextureRef_c tex_ref = {._TexData = nullptr, ._TexID = (ImTextureID)tex->descriptor};
+                                ImTextureRef_c tex_ref = {._TexData = nullptr, ._TexID = (ImTextureID)tex->_descriptor};
                                 ImDrawList_AddImage(draw_list, tex_ref,
                                     p0, p1, (ImVec2){u0, v0}, (ImVec2){u1, v1}, IM_COL32(255, 255, 255, 255));
                             }
@@ -1062,7 +1063,7 @@ static void draw_import_dialog(Mel_EdTiles* ed)
 
         igText("Preview");
         Mel_Gpu_Texture* preview = mel_texture_pool_get(ed->texture_pool, ed->import_preview_texture);
-        if (preview && preview->descriptor)
+        if (preview && preview->_descriptor)
         {
             f32 tex_w = (f32)preview->image.width;
             f32 tex_h = (f32)preview->image.height;
@@ -1079,7 +1080,7 @@ static void draw_import_dialog(Mel_EdTiles* ed)
             ImVec2_c cursor_pos = igGetCursorScreenPos();
             ImDrawList* draw_list = igGetWindowDrawList();
 
-            ImTextureRef_c tex_ref = {._TexData = nullptr, ._TexID = (ImTextureID)preview->descriptor};
+            ImTextureRef_c tex_ref = {._TexData = nullptr, ._TexID = (ImTextureID)preview->_descriptor};
             ImVec2 p0 = {cursor_pos.x, cursor_pos.y};
             ImVec2 p1 = {cursor_pos.x + display_w, cursor_pos.y + display_h};
             ImDrawList_AddImage(draw_list, tex_ref, p0, p1, (ImVec2){0, 0}, (ImVec2){1, 1}, IM_COL32(255, 255, 255, 255));

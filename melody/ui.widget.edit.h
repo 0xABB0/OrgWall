@@ -12,8 +12,7 @@ typedef void (*Mel_WEdit_Confirm_Fn)(Mel_WEdit* edit, void* user_data);
 
 struct Mel_WEdit {
     Mel_Widget base;
-    Mel_Font_Handle font;
-    Mel_Font_Atlas_Pool* font_pool;
+    Mel_Font_Atlas_Handle font;
     Mel_Vec4 bg_color;
     Mel_Vec4 border_color;
     Mel_Vec4 focus_border_color;

@@ -1,5 +1,7 @@
 #include "../melody/test.harness.h"
 #include "../melody/swapchain.h"
+#include "../melody/gpu.types.h"
+#include "../melody/gpu.cmd.fwd.h"
 
 typedef struct {
     u32 acquire_count;
@@ -24,7 +26,7 @@ static bool mock_acquire(Mel_Swapchain* sc, Mel_Gpu_Device* dev)
     return mock->acquire_result;
 }
 
-static void mock_prepare_present(Mel_Swapchain* sc, VkCommandBuffer cmd)
+static void mock_prepare_present(Mel_Swapchain* sc, Mel_Gpu_Cmd* cmd)
 {
     (void)cmd;
     Mock_Swapchain* mock = sc->data;
@@ -52,7 +54,8 @@ static void mock_resize(Mel_Swapchain* sc, Mel_Gpu_Device* dev, u32 width, u32 h
     mock->resize_count++;
     mock->last_resize_w = width;
     mock->last_resize_h = height;
-    sc->extent = (VkExtent2D){ width, height };
+    sc->extent_width = width;
+    sc->extent_height = height;
 }
 
 static void mock_shutdown(Mel_Swapchain* sc, Mel_Gpu_Device* dev)
@@ -81,8 +84,9 @@ static void init_mock(Mel_Swapchain* sc, Mock_Swapchain* mock)
     *sc = (Mel_Swapchain){
         .vtable = &mock_vtable,
         .data = mock,
-        .format = VK_FORMAT_B8G8R8A8_SRGB,
-        .extent = { 800, 600 },
+        .format = MEL_GPU_FORMAT_B8G8R8A8_SRGB,
+        .extent_width = 800,
+        .extent_height = 600,
         .image_count = 3,
         .current_image = 0,
     };
@@ -131,8 +135,8 @@ MEL_TEST(vtable_resize_dispatches, .tags = "gpu")
     MEL_ASSERT_EQ(mock.resize_count, 1u);
     MEL_ASSERT_EQ(mock.last_resize_w, 1920u);
     MEL_ASSERT_EQ(mock.last_resize_h, 1080u);
-    MEL_ASSERT_EQ(sc.extent.width, 1920u);
-    MEL_ASSERT_EQ(sc.extent.height, 1080u);
+    MEL_ASSERT_EQ(sc.extent_width, 1920u);
+    MEL_ASSERT_EQ(sc.extent_height, 1080u);
 
 }
 
@@ -201,9 +205,9 @@ MEL_TEST(fields_accessible, .tags = "gpu")
     Mock_Swapchain mock;
     init_mock(&sc, &mock);
 
-    MEL_ASSERT_EQ(sc.format, VK_FORMAT_B8G8R8A8_SRGB);
-    MEL_ASSERT_EQ(sc.extent.width, 800u);
-    MEL_ASSERT_EQ(sc.extent.height, 600u);
+    MEL_ASSERT_EQ(sc.format, MEL_GPU_FORMAT_B8G8R8A8_SRGB);
+    MEL_ASSERT_EQ(sc.extent_width, 800u);
+    MEL_ASSERT_EQ(sc.extent_height, 600u);
     MEL_ASSERT_EQ(sc.image_count, 3u);
     MEL_ASSERT_EQ(sc.current_image, 0u);
     MEL_ASSERT_NOT_NULL(sc.vtable);
@@ -218,7 +222,8 @@ MEL_TEST(multiple_swapchains_independent, .tags = "gpu")
     init_mock(&sc_a, &mock_a);
     init_mock(&sc_b, &mock_b);
 
-    sc_b.extent = (VkExtent2D){ 1280, 720 };
+    sc_b.extent_width = 1280;
+    sc_b.extent_height = 720;
     sc_b.image_count = 2;
 
     mel_swapchain_acquire(&sc_a, nullptr);
@@ -228,8 +233,8 @@ MEL_TEST(multiple_swapchains_independent, .tags = "gpu")
     mel_swapchain_resize(&sc_b, nullptr, 640, 480);
     MEL_ASSERT_EQ(mock_a.resize_count, 0u);
     MEL_ASSERT_EQ(mock_b.resize_count, 1u);
-    MEL_ASSERT_EQ(sc_a.extent.width, 800u);
-    MEL_ASSERT_EQ(sc_b.extent.width, 640u);
+    MEL_ASSERT_EQ(sc_a.extent_width, 800u);
+    MEL_ASSERT_EQ(sc_b.extent_width, 640u);
 
 }
 
@@ -248,7 +253,8 @@ static void alt_present(Mel_Swapchain* sc, Mel_Gpu_Device* dev)
 static void alt_resize(Mel_Swapchain* sc, Mel_Gpu_Device* dev, u32 w, u32 h)
 {
     (void)dev;
-    sc->extent = (VkExtent2D){ w * 2, h * 2 };
+    sc->extent_width = w * 2;
+    sc->extent_height = h * 2;
 }
 
 static void alt_shutdown(Mel_Swapchain* sc, Mel_Gpu_Device* dev)
@@ -279,8 +285,8 @@ MEL_TEST(different_vtables_dispatch_independently, .tags = "gpu")
     MEL_ASSERT_EQ(sc_alt.current_image, 42u);
 
     mel_swapchain_resize(&sc_alt, nullptr, 100, 200);
-    MEL_ASSERT_EQ(sc_alt.extent.width, 200u);
-    MEL_ASSERT_EQ(sc_alt.extent.height, 400u);
+    MEL_ASSERT_EQ(sc_alt.extent_width, 200u);
+    MEL_ASSERT_EQ(sc_alt.extent_height, 400u);
 
     mel_swapchain_acquire(&sc_mock, nullptr);
     MEL_ASSERT_EQ(sc_mock.current_image, 1u);
@@ -302,7 +308,7 @@ MEL_TEST(full_lifecycle, .tags = "gpu")
     mel_swapchain_present(&sc, nullptr);
 
     mel_swapchain_resize(&sc, nullptr, 1920, 1080);
-    MEL_ASSERT_EQ(sc.extent.width, 1920u);
+    MEL_ASSERT_EQ(sc.extent_width, 1920u);
 
     r = mel_swapchain_acquire(&sc, nullptr);
     MEL_ASSERT(r);

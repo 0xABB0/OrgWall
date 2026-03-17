@@ -30,6 +30,7 @@
 #include "text.pass.h"
 #include "text.draw.h"
 #include "font.atlas.h"
+#include "font.desc.h"
 #include "allocator.heap.h"
 #include "math.mat4.h"
 #include "math.scalar.h"
@@ -114,7 +115,7 @@ static Mel_Camera s_overlay_camera;
 static Mel_Orbit_Camera s_orbit_camera;
 static Mel_Sim_Ctx s_sim;
 static u8 s_event_buf[4096];
-static Mel_Font_Handle s_font;
+static Mel_Font_Atlas_Handle s_font;
 static Mel_Material_Template_Handle s_surface_template;
 static Mel_Material_Instance_Handle s_materials[MATERIAL_VARIANT_COUNT];
 static Mel_Material_Table s_material_table;
@@ -648,20 +649,20 @@ static void gpu_scene_build_chunk(Scene_Chunk* chunk, i32 chunk_x, i32 chunk_z)
 
     mel_gpu_buffer_init(&chunk->lod0_vertex_buffer, mel_gpu_dev(),
         .size = sizeof(Scene_Stream_Vertex) * lod0_vertex_count,
-        .usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-        .memory_usage = VMA_MEMORY_USAGE_CPU_TO_GPU);
+        .usage = MEL_GPU_BUFFER_USAGE_VERTEX | MEL_GPU_BUFFER_USAGE_STORAGE,
+        .memory_usage = MEL_GPU_MEMORY_USAGE_CPU_TO_GPU);
     mel_gpu_buffer_init(&chunk->lod0_index_buffer, mel_gpu_dev(),
         .size = sizeof(u32) * lod0_index_count,
-        .usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-        .memory_usage = VMA_MEMORY_USAGE_CPU_TO_GPU);
+        .usage = MEL_GPU_BUFFER_USAGE_INDEX | MEL_GPU_BUFFER_USAGE_STORAGE,
+        .memory_usage = MEL_GPU_MEMORY_USAGE_CPU_TO_GPU);
     mel_gpu_buffer_init(&chunk->lod1_vertex_buffer, mel_gpu_dev(),
         .size = sizeof(Scene_Stream_Vertex) * lod1_vertex_count,
-        .usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-        .memory_usage = VMA_MEMORY_USAGE_CPU_TO_GPU);
+        .usage = MEL_GPU_BUFFER_USAGE_VERTEX | MEL_GPU_BUFFER_USAGE_STORAGE,
+        .memory_usage = MEL_GPU_MEMORY_USAGE_CPU_TO_GPU);
     mel_gpu_buffer_init(&chunk->lod1_index_buffer, mel_gpu_dev(),
         .size = sizeof(u32) * lod1_index_count,
-        .usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-        .memory_usage = VMA_MEMORY_USAGE_CPU_TO_GPU);
+        .usage = MEL_GPU_BUFFER_USAGE_INDEX | MEL_GPU_BUFFER_USAGE_STORAGE,
+        .memory_usage = MEL_GPU_MEMORY_USAGE_CPU_TO_GPU);
 
     mel_gpu_buffer_upload(&chunk->lod0_vertex_buffer, mel_gpu_dev(), lod0_vertices,
         sizeof(Scene_Stream_Vertex) * lod0_vertex_count, 0);
@@ -844,20 +845,20 @@ static void gpu_scene_build_batch(void)
 
     mel_gpu_buffer_init(&s_batch.vertex_buffer, mel_gpu_dev(),
         .size = sizeof(Scene_Stream_Vertex) * total_vertex_count,
-        .usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-        .memory_usage = VMA_MEMORY_USAGE_CPU_TO_GPU);
+        .usage = MEL_GPU_BUFFER_USAGE_VERTEX | MEL_GPU_BUFFER_USAGE_STORAGE,
+        .memory_usage = MEL_GPU_MEMORY_USAGE_CPU_TO_GPU);
     mel_gpu_buffer_init(&s_batch.index_buffer, mel_gpu_dev(),
         .size = sizeof(u32) * total_index_count,
-        .usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-        .memory_usage = VMA_MEMORY_USAGE_CPU_TO_GPU);
+        .usage = MEL_GPU_BUFFER_USAGE_INDEX | MEL_GPU_BUFFER_USAGE_STORAGE,
+        .memory_usage = MEL_GPU_MEMORY_USAGE_CPU_TO_GPU);
     mel_gpu_buffer_init(&s_batch.metadata_buffer, mel_gpu_dev(),
         .size = sizeof(Mel_Mesh_Gpu_Cull_Batch_Record) * CHUNK_COUNT,
-        .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-        .memory_usage = VMA_MEMORY_USAGE_CPU_TO_GPU);
+        .usage = MEL_GPU_BUFFER_USAGE_STORAGE,
+        .memory_usage = MEL_GPU_MEMORY_USAGE_CPU_TO_GPU);
     mel_gpu_buffer_init(&s_batch.indirect_buffer, mel_gpu_dev(),
         .size = MEL_MESH_INDIRECT_BATCH_COMMAND_STRIDE * CHUNK_COUNT,
-        .usage = VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-        .memory_usage = VMA_MEMORY_USAGE_CPU_TO_GPU);
+        .usage = MEL_GPU_BUFFER_USAGE_INDIRECT | MEL_GPU_BUFFER_USAGE_STORAGE,
+        .memory_usage = MEL_GPU_MEMORY_USAGE_CPU_TO_GPU);
 
     mel_gpu_buffer_upload(&s_batch.vertex_buffer, mel_gpu_dev(), vertices,
         sizeof(Scene_Stream_Vertex) * total_vertex_count, 0);
@@ -1218,78 +1219,78 @@ static void gpu_scene_extract(Mel_Sim_Ctx* sim, f32 dt, void* user)
     gpu_scene_draw_panel(&s_hud_sprites, 28.0f, 28.0f, 470.0f, 228.0f, panel);
     gpu_scene_draw_panel(&s_hud_sprites, hud_w - 340.0f, 28.0f, 312.0f, 188.0f, subpanel);
 
-    mel_text_draw_font_atlas(mel_font_pool(), s_font, &s_hud_text, S8("GPU Scene Playground"),
+    mel_text_draw_font_atlas(s_font, &s_hud_text, S8("GPU Scene Playground"),
         .x = 48.0f, .y = 42.0f, .style = title);
-    mel_text_draw_font_atlas(mel_font_pool(), s_font, &s_hud_text,
+    mel_text_draw_font_atlas(s_font, &s_hud_text,
         S8("Chunk-clustered scene using the same stage/view/recipe model across cpu, draw-stream,\nclustered compute-indirect LOD, and auto-selected modern rendering paths."),
         .x = 48.0f, .y = 76.0f, .style = body);
 
     SDL_snprintf(line, sizeof(line), "mode %.*s  policy %.*s",
         (int)gpu_scene_mode_label(s_mode).len, gpu_scene_mode_label(s_mode).data,
         (int)gpu_scene_policy_label(s_policy).len, gpu_scene_policy_label(s_policy).data);
-    mel_text_draw_font_atlas(mel_font_pool(), s_font, &s_hud_text, str8_from_cstr(line),
+    mel_text_draw_font_atlas(s_font, &s_hud_text, str8_from_cstr(line),
         .x = 48.0f, .y = 128.0f, .style = body);
 
     SDL_snprintf(line, sizeof(line), "clusters %u total  expected visible %u  lod1 %u  cubes %u",
         CHUNK_COUNT, s_expected_visible_chunks, s_expected_lod1_chunks, TOTAL_CUBES);
-    mel_text_draw_font_atlas(mel_font_pool(), s_font, &s_hud_text, str8_from_cstr(line),
+    mel_text_draw_font_atlas(s_font, &s_hud_text, str8_from_cstr(line),
         .x = 48.0f, .y = 156.0f, .style = body);
 
     SDL_snprintf(line, sizeof(line), "frame %.2f ms  fps %.1f  sim dt %.2f ms  steps %u",
         frame.dt * 1000.0f, frame.fps, sim_stats.last_scaled_dt * 1000.0f, sim_stats.fixed_steps);
-    mel_text_draw_font_atlas(mel_font_pool(), s_font, &s_hud_text, str8_from_cstr(line),
+    mel_text_draw_font_atlas(s_font, &s_hud_text, str8_from_cstr(line),
         .x = 48.0f, .y = 184.0f, .style = body);
 
     SDL_snprintf(line, sizeof(line), "caps mesh_shader=%s bda=%s portability=%s",
         caps.mesh_shader ? "yes" : "no",
         caps.buffer_device_address ? "yes" : "no",
         caps.portability_subset ? "yes" : "no");
-    mel_text_draw_font_atlas(mel_font_pool(), s_font, &s_hud_text, str8_from_cstr(line),
+    mel_text_draw_font_atlas(s_font, &s_hud_text, str8_from_cstr(line),
         .x = 48.0f, .y = 212.0f, .style = body);
 
     SDL_snprintf(line, sizeof(line), "present %s  passes %zu  exec %" PRIu64,
         gpu_scene_present_mode_label(mel_swapchain_present_mode(sc)),
         graph ? graph->passes.count : 0,
         graph ? graph->execute_count : 0);
-    mel_text_draw_font_atlas(mel_font_pool(), s_font, &s_hud_text, str8_from_cstr(line),
+    mel_text_draw_font_atlas(s_font, &s_hud_text, str8_from_cstr(line),
         .x = 48.0f, .y = 240.0f, .style = body);
     SDL_snprintf(line, sizeof(line), "point lights %d  mode %s",
         s_point_light_count,
         s_point_lights_only ? "only" : "mixed");
-    mel_text_draw_font_atlas(mel_font_pool(), s_font, &s_hud_text, str8_from_cstr(line),
+    mel_text_draw_font_atlas(s_font, &s_hud_text, str8_from_cstr(line),
         .x = 48.0f, .y = 268.0f, .style = body);
 
-    mel_text_draw_font_atlas(mel_font_pool(), s_font, &s_hud_text, S8("Resolved"),
+    mel_text_draw_font_atlas(s_font, &s_hud_text, S8("Resolved"),
         .x = hud_w - 320.0f, .y = 42.0f, .style = title);
     if (has_resolved)
     {
         SDL_snprintf(line, sizeof(line), "technique: %.*s",
             (int)resolved.technique_name.len, resolved.technique_name.data);
-        mel_text_draw_font_atlas(mel_font_pool(), s_font, &s_hud_text, str8_from_cstr(line),
+        mel_text_draw_font_atlas(s_font, &s_hud_text, str8_from_cstr(line),
             .x = hud_w - 320.0f, .y = 78.0f, .style = body);
-        mel_text_draw_font_atlas(mel_font_pool(), s_font, &s_hud_text, gpu_scene_branch_summary(resolved.technique_name),
+        mel_text_draw_font_atlas(s_font, &s_hud_text, gpu_scene_branch_summary(resolved.technique_name),
             .x = hud_w - 320.0f, .y = 102.0f, .style = body);
     }
     if (has_material)
     {
         SDL_snprintf(line, sizeof(line), "material: %.*s",
             (int)resolved_material.backend_name.len, resolved_material.backend_name.data);
-        mel_text_draw_font_atlas(mel_font_pool(), s_font, &s_hud_text, str8_from_cstr(line),
+        mel_text_draw_font_atlas(s_font, &s_hud_text, str8_from_cstr(line),
             .x = hud_w - 320.0f, .y = 126.0f, .style = body);
     }
-    mel_text_draw_font_atlas(mel_font_pool(), s_font, &s_hud_text,
+    mel_text_draw_font_atlas(s_font, &s_hud_text,
         deferred_active
             ? S8("point lights: active in deferred")
             : S8("point lights: markers only, active lighting needs deferred"),
         .x = hud_w - 320.0f, .y = has_material ? 150.0f : 126.0f, .style = body);
     for (u32 i = 0; i < diag_count && i < 3; i++)
     {
-        mel_text_draw_font_atlas(mel_font_pool(), s_font, &s_hud_text, str8_from_cstr(diag_lines[i]),
+        mel_text_draw_font_atlas(s_font, &s_hud_text, str8_from_cstr(diag_lines[i]),
             .x = hud_w - 320.0f, .y = 178.0f + i * 24.0f, .style = body);
     }
     for (u32 i = 0; i < material_count && i < 2; i++)
     {
-        mel_text_draw_font_atlas(mel_font_pool(), s_font, &s_hud_text, str8_from_cstr(material_lines[i]),
+        mel_text_draw_font_atlas(s_font, &s_hud_text, str8_from_cstr(material_lines[i]),
             .x = hud_w - 320.0f, .y = 178.0f + (diag_count < 3 ? diag_count : 3) * 24.0f + i * 24.0f,
             .style = body);
     }
@@ -1470,8 +1471,8 @@ static void gpu_scene_on_init(void)
         .max_distance = 80.0f);
     gpu_scene_update_camera();
 
-    s_font = mel_font_atlas_pool_load(mel_font_pool(),
-        .path = S8("/System/Library/Fonts/Monaco.ttf"),
+    s_font = mel_font_atlas_load(
+        .desc = mel_font_desc_load_ttf(S8("/System/Library/Fonts/Monaco.ttf")),
         .size = 20.0f);
 
     gpu_scene_build_materials();

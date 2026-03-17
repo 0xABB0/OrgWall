@@ -87,7 +87,7 @@ int main(int argc, char* argv[])
     if (!mel_swapchain_image_init(&sc, &dev,
         .width = WIDTH,
         .height = HEIGHT,
-        .format = VK_FORMAT_R8G8B8A8_SRGB,
+        .format = MEL_GPU_FORMAT_R8G8B8A8_SRGB,
         .on_present = on_present,
         .user_data = &ctx))
     {

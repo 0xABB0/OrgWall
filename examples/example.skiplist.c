@@ -17,6 +17,7 @@
 #include "texture.pool.h"
 #include "sprite.pass.h"
 #include "font.atlas.h"
+#include "font.desc.h"
 #include "vfs.h"
 #include "vfs.backend.os.h"
 #include "math.mat4.h"
@@ -68,7 +69,7 @@ typedef struct {
 
 static Mel_Window_Handle s_window_handle;
 static Mel_Swapchain_Handle s_swapchain_handle;
-static Mel_Font_Handle s_font_handle;
+static Mel_Font_Atlas_Handle s_font_handle;
 static SkipListDemo s_demo;
 static Mel_Render_Target s_swapchain_target;
 static Mel_Render_Graph s_graph;
@@ -203,7 +204,7 @@ static void push_rect(Mel_Render_List* list, f32 x, f32 y, f32 w, f32 h, Mel_Vec
 }
 
 static void skiplist_draw(SkipListDemo* demo, Mel_Render_List* list,
-                          Mel_Font_Atlas_Pool* pool, Mel_Font_Handle font,
+                          Mel_Font_Atlas_Handle font,
                           f32 win_w, f32 win_h)
 {
     Mel_Texture_Handle white = MEL_TEXTURE_HANDLE_NULL;
@@ -319,7 +320,7 @@ static void skiplist_draw(SkipListDemo* demo, Mel_Render_List* list,
         }
     }
 
-    if (pool)
+    if (mel_slotmap_handle_valid(font.handle))
     {
         Mel_Vec4 w = mel_vec4(1.0f, 1.0f, 1.0f, 1.0f);
         Mel_Vec4 dim = mel_vec4(0.6f, 0.6f, 0.6f, 1.0f);
@@ -328,7 +329,7 @@ static void skiplist_draw(SkipListDemo* demo, Mel_Render_List* list,
         for (u32 lvl = 0; lvl < max_level; lvl++)
         {
             f32 y = bottom_y - (f32)lvl * (BOX_H + LEVEL_GAP) + 4.0f;
-            mel_font_atlas_draw_text(pool, font, list, S8("H"), header_x + 16.0f, y, w);
+            mel_font_atlas_draw_text(font, list, S8("H"), header_x + 16.0f, y, w);
         }
 
         char buf[64];
@@ -338,15 +339,15 @@ static void skiplist_draw(SkipListDemo* demo, Mel_Render_List* list,
             f32 y = bottom_y + 4.0f;
             snprintf(buf, sizeof(buf), "%d", positions[i].key);
             str8 label = str8_from_cstr(buf);
-            Mel_Vec2 sz = mel_font_atlas_measure_text(pool, font, label);
+            Mel_Vec2 sz = mel_font_atlas_measure_text(font, label);
             f32 text_x = nx + (BOX_W - sz.x) / 2.0f;
-            mel_font_atlas_draw_text(pool, font, list, label, text_x, y, w);
+            mel_font_atlas_draw_text(font, list, label, text_x, y, w);
         }
 
         f32 tx = panel_x + PANEL_PAD;
         f32 ty = PANEL_PAD;
 
-        mel_font_atlas_draw_text(pool, font, list, S8("SKIP LIST"), tx, ty, w);
+        mel_font_atlas_draw_text(font, list, S8("SKIP LIST"), tx, ty, w);
         ty += 30.0f;
 
         push_rect(list, panel_x + PANEL_PAD, ty, PANEL_W - PANEL_PAD * 2, 1.0f,
@@ -354,18 +355,18 @@ static void skiplist_draw(SkipListDemo* demo, Mel_Render_List* list,
         ty += 12.0f;
 
         snprintf(buf, sizeof(buf), "Count: %zu", mel_skiplist_count(&demo->list));
-        mel_font_atlas_draw_text(pool, font, list, str8_from_cstr(buf), tx, ty, dim);
+        mel_font_atlas_draw_text(font, list, str8_from_cstr(buf), tx, ty, dim);
         ty += 24.0f;
 
         snprintf(buf, sizeof(buf), "Levels: %u", demo->list.level);
-        mel_font_atlas_draw_text(pool, font, list, str8_from_cstr(buf), tx, ty, dim);
+        mel_font_atlas_draw_text(font, list, str8_from_cstr(buf), tx, ty, dim);
         ty += 24.0f;
 
         snprintf(buf, sizeof(buf), "Seed: %llu", (unsigned long long)demo->seed_counter);
-        mel_font_atlas_draw_text(pool, font, list, str8_from_cstr(buf), tx, ty, dim);
+        mel_font_atlas_draw_text(font, list, str8_from_cstr(buf), tx, ty, dim);
         ty += 36.0f;
 
-        mel_font_atlas_draw_text(pool, font, list, S8("Input:"), tx, ty, dim);
+        mel_font_atlas_draw_text(font, list, S8("Input:"), tx, ty, dim);
         ty += 24.0f;
 
         push_rect(list, tx, ty, PANEL_W - PANEL_PAD * 3, 26.0f,
@@ -376,11 +377,11 @@ static void skiplist_draw(SkipListDemo* demo, Mel_Render_List* list,
             char display[17];
             memcpy(display, demo->input_buf, (usize)demo->input_len);
             display[demo->input_len] = '\0';
-            mel_font_atlas_draw_text(pool, font, list, str8_from_cstr(display), tx + 6.0f, ty + 4.0f, w);
+            mel_font_atlas_draw_text(font, list, str8_from_cstr(display), tx + 6.0f, ty + 4.0f, w);
         }
         else
         {
-            mel_font_atlas_draw_text(pool, font, list, S8("_"), tx + 6.0f, ty + 4.0f, dim);
+            mel_font_atlas_draw_text(font, list, S8("_"), tx + 6.0f, ty + 4.0f, dim);
         }
         ty += 38.0f;
 
@@ -402,7 +403,7 @@ static void skiplist_draw(SkipListDemo* demo, Mel_Render_List* list,
             else
                 snprintf(op_buf, sizeof(op_buf), "Last: %s %d", op_str, demo->last_op_key);
 
-            mel_font_atlas_draw_text(pool, font, list, str8_from_cstr(op_buf), tx, ty, yellow);
+            mel_font_atlas_draw_text(font, list, str8_from_cstr(op_buf), tx, ty, yellow);
         }
         ty += 40.0f;
 
@@ -410,26 +411,26 @@ static void skiplist_draw(SkipListDemo* demo, Mel_Render_List* list,
             mel_vec4(0.3f, 0.3f, 0.35f, 1.0f), white);
         ty += 16.0f;
 
-        mel_font_atlas_draw_text(pool, font, list, S8("Controls:"), tx, ty, w);
+        mel_font_atlas_draw_text(font, list, S8("Controls:"), tx, ty, w);
         ty += 28.0f;
 
-        mel_font_atlas_draw_text(pool, font, list, S8("0-9     type number"), tx, ty, dim);
+        mel_font_atlas_draw_text(font, list, S8("0-9     type number"), tx, ty, dim);
         ty += 22.0f;
-        mel_font_atlas_draw_text(pool, font, list, S8("Enter   insert"), tx, ty, dim);
+        mel_font_atlas_draw_text(font, list, S8("Enter   insert"), tx, ty, dim);
         ty += 22.0f;
-        mel_font_atlas_draw_text(pool, font, list, S8("Delete  remove"), tx, ty, dim);
+        mel_font_atlas_draw_text(font, list, S8("Delete  remove"), tx, ty, dim);
         ty += 22.0f;
-        mel_font_atlas_draw_text(pool, font, list, S8("F       find"), tx, ty, dim);
+        mel_font_atlas_draw_text(font, list, S8("F       find"), tx, ty, dim);
         ty += 22.0f;
-        mel_font_atlas_draw_text(pool, font, list, S8("Space   random insert"), tx, ty, dim);
+        mel_font_atlas_draw_text(font, list, S8("Space   random insert"), tx, ty, dim);
         ty += 22.0f;
-        mel_font_atlas_draw_text(pool, font, list, S8("I       10x random"), tx, ty, dim);
+        mel_font_atlas_draw_text(font, list, S8("I       10x random"), tx, ty, dim);
         ty += 22.0f;
-        mel_font_atlas_draw_text(pool, font, list, S8("S       reseed+clear"), tx, ty, dim);
+        mel_font_atlas_draw_text(font, list, S8("S       reseed+clear"), tx, ty, dim);
         ty += 22.0f;
-        mel_font_atlas_draw_text(pool, font, list, S8("C       clear all"), tx, ty, dim);
+        mel_font_atlas_draw_text(font, list, S8("C       clear all"), tx, ty, dim);
         ty += 22.0f;
-        mel_font_atlas_draw_text(pool, font, list, S8("Esc     quit"), tx, ty, dim);
+        mel_font_atlas_draw_text(font, list, S8("Esc     quit"), tx, ty, dim);
     }
 }
 
@@ -438,8 +439,8 @@ static void on_init(void)
     Mel_Gpu_Device* dev = mel_gpu_dev();
     Mel_Swapchain* sc = &mel_swapchain_registry_get(s_swapchain_handle)->swapchain;
 
-    s_font_handle = mel_font_atlas_pool_load(mel_font_pool(),
-        .path = S8("/System/Library/Fonts/Monaco.ttf"), .size = 18.0f);
+    s_font_handle = mel_font_atlas_load(
+        .desc = mel_font_desc_load_ttf(S8("/System/Library/Fonts/Monaco.ttf")), .size = 18.0f);
 
 
     skiplist_demo_init(&s_demo);
@@ -525,7 +526,7 @@ static void app_update(Mel_Sim_Ctx* sim, f32 dt, void* user)
     i32 win_w, win_h;
     mel_window_size_pixels(s_window_handle, &win_w, &win_h);
 
-    skiplist_draw(&s_demo, &s_sprite_list, mel_font_pool(), s_font_handle,
+    skiplist_draw(&s_demo, &s_sprite_list, s_font_handle,
         (f32)win_w, (f32)win_h);
 }
 

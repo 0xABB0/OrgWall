@@ -20,6 +20,7 @@
 #include "text.pass.h"
 #include "text.draw.h"
 #include "font.atlas.h"
+#include "font.desc.h"
 #include "allocator.heap.h"
 #include "math.mat4.h"
 #include "math.vec3.h"
@@ -38,7 +39,7 @@ static Mel_Camera s_world_camera;
 static Mel_Camera s_overlay_camera;
 static Mel_Sim_Ctx s_sim;
 static u8 s_event_buf[4096];
-static Mel_Font_Handle s_font;
+static Mel_Font_Atlas_Handle s_font;
 static Mel_Material_Template_Handle s_unlit_template;
 static Mel_Material_Template_Handle s_standard_template;
 static Mel_Material_Instance_Handle s_unlit_material;
@@ -256,23 +257,23 @@ static void material_surface_extract(Mel_Sim_Ctx* sim, f32 dt, void* user)
     SDL_snprintf(line_a, sizeof(line_a), "surface.unlit -> %.*s", (int)unlit.len, unlit.data);
     SDL_snprintf(line_b, sizeof(line_b), "surface.standard -> %.*s", (int)standard.len, standard.data);
 
-    mel_text_draw_font_atlas(mel_font_pool(), s_font, &s_hud_text, S8("Surface Material Demo"),
+    mel_text_draw_font_atlas(s_font, &s_hud_text, S8("Surface Material Demo"),
         .x = 56.0f, .y = 748.0f,
         .style = { .color = mel_vec4(0.95f, 0.96f, 0.98f, 1.0f) });
-    mel_text_draw_font_atlas(mel_font_pool(), s_font, &s_hud_text,
+    mel_text_draw_font_atlas(s_font, &s_hud_text,
         S8("Same mesh technique, different material backends. Standard forward adds simple directional lighting."),
         .x = 56.0f, .y = 716.0f,
         .style = { .color = mel_vec4(0.74f, 0.78f, 0.84f, 1.0f) });
-    mel_text_draw_font_atlas(mel_font_pool(), s_font, &s_hud_text, str8_from_cstr(line_a),
+    mel_text_draw_font_atlas(s_font, &s_hud_text, str8_from_cstr(line_a),
         .x = 56.0f, .y = 684.0f,
         .style = { .color = mel_vec4(0.70f, 0.86f, 0.98f, 1.0f) });
-    mel_text_draw_font_atlas(mel_font_pool(), s_font, &s_hud_text, str8_from_cstr(line_b),
+    mel_text_draw_font_atlas(s_font, &s_hud_text, str8_from_cstr(line_b),
         .x = 56.0f, .y = 656.0f,
         .style = { .color = mel_vec4(0.95f, 0.84f, 0.38f, 1.0f) });
-    mel_text_draw_font_atlas(mel_font_pool(), s_font, &s_hud_text, S8("UNLIT"),
+    mel_text_draw_font_atlas(s_font, &s_hud_text, S8("UNLIT"),
         .x = 314.0f, .y = 148.0f,
         .style = { .color = mel_vec4(0.83f, 0.90f, 0.98f, 1.0f) });
-    mel_text_draw_font_atlas(mel_font_pool(), s_font, &s_hud_text, S8("STANDARD FORWARD"),
+    mel_text_draw_font_atlas(s_font, &s_hud_text, S8("STANDARD FORWARD"),
         .x = 748.0f, .y = 148.0f,
         .style = { .color = mel_vec4(0.98f, 0.90f, 0.64f, 1.0f) });
 }
@@ -333,8 +334,8 @@ static void material_surface_on_init(void)
         .projection = mel_mat4_ortho(0.0f, (f32)sc->extent.width, (f32)sc->extent.height, 0.0f, -1.0f, 1.0f),
     };
 
-    s_font = mel_font_atlas_pool_load(mel_font_pool(),
-        .path = S8("/System/Library/Fonts/Monaco.ttf"),
+    s_font = mel_font_atlas_load(
+        .desc = mel_font_desc_load_ttf(S8("/System/Library/Fonts/Monaco.ttf")),
         .size = 20.0f);
 
     s_unlit_template = mel_material_template_create(&(Mel_Material_Template_Desc){

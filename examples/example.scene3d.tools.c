@@ -20,6 +20,7 @@
 #include "text.pass.h"
 #include "text.draw.h"
 #include "font.atlas.h"
+#include "font.desc.h"
 #include "allocator.heap.h"
 #include "math.mat4.h"
 #include "math.vec2.h"
@@ -59,7 +60,7 @@ static Mel_Camera s_world_camera;
 static Mel_Camera s_overlay_camera;
 static Mel_Sim_Ctx s_sim;
 static u8 s_event_buf[4096];
-static Mel_Font_Handle s_font;
+static Mel_Font_Atlas_Handle s_font;
 static Scene_Actor s_actors[ACTOR_COUNT];
 
 static f32 s_time;
@@ -395,9 +396,9 @@ static void scene3d_extract(Mel_Sim_Ctx* sim, f32 dt, void* user)
     scene3d_draw_panel(&s_hud_sprites, 28.0f, 28.0f, 360.0f, 152.0f, panel);
     scene3d_draw_panel(&s_hud_sprites, 28.0f, hud_h - 96.0f, 420.0f, 64.0f, subpanel);
 
-    mel_text_draw_font_atlas(mel_font_pool(), s_font, &s_hud_text, S8("SECTOR DELTA / LIVE"),
+    mel_text_draw_font_atlas(s_font, &s_hud_text, S8("SECTOR DELTA / LIVE"),
         .x = 52.0f, .y = 44.0f, .style = title_style);
-    mel_text_draw_font_atlas(mel_font_pool(), s_font, &s_hud_text,
+    mel_text_draw_font_atlas(s_font, &s_hud_text,
         S8("Objective: keep the drone in orbit,\nhold the beacon online, and monitor the tool feed."),
         .x = 52.0f, .y = 82.0f, .style = body_style);
 
@@ -406,7 +407,7 @@ static void scene3d_extract(Mel_Sim_Ctx* sim, f32 dt, void* user)
     SDL_snprintf(stats_buf, sizeof(stats_buf),
         "cam %.1fm  orbit %.2fx  fps %.0f",
         s_camera_distance, s_orbit_speed, frame.fps);
-    mel_text_draw_font_atlas(mel_font_pool(), s_font, &s_hud_text, str8_from_cstr(stats_buf),
+    mel_text_draw_font_atlas(s_font, &s_hud_text, str8_from_cstr(stats_buf),
         .x = 52.0f, .y = hud_h - 78.0f, .style = body_style);
 
     if (s_show_minimap)
@@ -416,7 +417,7 @@ static void scene3d_extract(Mel_Sim_Ctx* sim, f32 dt, void* user)
         f32 map_x = hud_w - map_w - 32.0f;
         f32 map_y = 28.0f;
         scene3d_draw_panel(&s_hud_sprites, map_x, map_y, map_w, map_h, subpanel);
-        mel_text_draw_font_atlas(mel_font_pool(), s_font, &s_hud_text, S8("TACTICAL OVERLAY"),
+        mel_text_draw_font_atlas(s_font, &s_hud_text, S8("TACTICAL OVERLAY"),
             .x = map_x + 18.0f, .y = map_y + 16.0f, .style = title_style);
 
         f32 inner_x = map_x + 18.0f;
@@ -486,8 +487,8 @@ static void scene3d_on_init(void)
     };
     scene3d_update_camera();
 
-    s_font = mel_font_atlas_pool_load(mel_font_pool(),
-        .path = S8("/fonts/Monaco.ttf"),
+    s_font = mel_font_atlas_load(
+        .desc = mel_font_desc_load_ttf(S8("/fonts/Monaco.ttf")),
         .size = 20.0f);
 
     bool ok = mel_render_stage_3d_init(&s_stage,

@@ -7,8 +7,8 @@ typedef struct Mel_Gpu_Texture Mel_Gpu_Texture;
 
 struct Mel_Gpu_Texture {
     Mel_Gpu_Image image;
-    VkSampler sampler;
-    VkDescriptorSet descriptor;
+    void* _sampler;
+    void* _descriptor;
 };
 
 typedef struct {
@@ -18,6 +18,7 @@ typedef struct {
     const u8* pixels;
     u32 width;
     u32 height;
+    Mel_Gpu_Format format;
     bool nearest_filter;
     const Mel_Alloc* alloc;
 } Mel_Gpu_Texture_Opt;

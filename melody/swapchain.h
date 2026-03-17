@@ -1,46 +1,45 @@
 #pragma once
 
 #include "swapchain.fwd.h"
-#include "core.types.h"
+#include "gpu.types.h"
 #include "gpu.device.fwd.h"
+#include "gpu.cmd.fwd.h"
 #include "window.fwd.h"
-
-#define VK_NO_PROTOTYPES
-#include <vulkan/vulkan.h>
 
 typedef struct Mel_Gpu_Submit_Gather Mel_Gpu_Submit_Gather;
 
 #define MEL_MAX_SWAPCHAINS 8
 
 struct Mel_Gpu_Submit_Gather {
-    VkSemaphore wait_semaphores[MEL_MAX_SWAPCHAINS];
-    VkPipelineStageFlags wait_stages[MEL_MAX_SWAPCHAINS];
+    void* _wait_semaphores[MEL_MAX_SWAPCHAINS];
+    u32 _wait_stages[MEL_MAX_SWAPCHAINS];
     u32 wait_count;
-    VkSemaphore signal_semaphores[MEL_MAX_SWAPCHAINS];
+    void* _signal_semaphores[MEL_MAX_SWAPCHAINS];
     u32 signal_count;
 };
 
 struct Mel_Swapchain_Vtable {
     bool (*acquire)(Mel_Swapchain* sc, Mel_Gpu_Device* dev);
-    void (*prepare_present)(Mel_Swapchain* sc, VkCommandBuffer cmd);
+    void (*prepare_present)(Mel_Swapchain* sc, Mel_Gpu_Cmd* cmd);
     void (*collect_sync)(Mel_Swapchain* sc, Mel_Gpu_Submit_Gather* gather);
     void (*present)(Mel_Swapchain* sc, Mel_Gpu_Device* dev);
     void (*resize)(Mel_Swapchain* sc, Mel_Gpu_Device* dev, u32 width, u32 height);
     void (*shutdown)(Mel_Swapchain* sc, Mel_Gpu_Device* dev);
-    VkImageLayout (*current_image_layout)(Mel_Swapchain* sc);
-    VkPresentModeKHR (*present_mode)(Mel_Swapchain* sc);
+    Mel_Gpu_Image_Layout (*current_image_layout)(Mel_Swapchain* sc);
+    Mel_Gpu_Present_Mode (*present_mode)(Mel_Swapchain* sc);
 };
 
 struct Mel_Swapchain {
     const Mel_Swapchain_Vtable* vtable;
     void* data;
 
-    VkFormat format;
-    VkExtent2D extent;
+    Mel_Gpu_Format format;
+    u32 extent_width;
+    u32 extent_height;
     u32 image_count;
     u32 current_image;
-    VkImage* images;
-    VkImageView* image_views;
+    void** _images;
+    void** _image_views;
 };
 
 #define mel_swapchain_acquire(sc, dev)                    (sc)->vtable->acquire((sc), (dev))
@@ -50,23 +49,23 @@ struct Mel_Swapchain {
 #define mel_swapchain_resize(sc, dev, w, h)               (sc)->vtable->resize((sc), (dev), (w), (h))
 #define mel_swapchain_shutdown(sc, dev)                    (sc)->vtable->shutdown((sc), (dev))
 
-static inline VkImageLayout mel_swapchain_current_image_layout(Mel_Swapchain* sc)
+static inline Mel_Gpu_Image_Layout mel_swapchain_current_image_layout(Mel_Swapchain* sc)
 {
     if (!sc->vtable->current_image_layout)
-        return VK_IMAGE_LAYOUT_UNDEFINED;
+        return MEL_GPU_IMAGE_LAYOUT_UNDEFINED;
     return sc->vtable->current_image_layout(sc);
 }
 
-static inline VkPresentModeKHR mel_swapchain_present_mode(Mel_Swapchain* sc)
+static inline Mel_Gpu_Present_Mode mel_swapchain_present_mode(Mel_Swapchain* sc)
 {
     if (!sc->vtable->present_mode)
-        return VK_PRESENT_MODE_FIFO_KHR;
+        return MEL_GPU_PRESENT_MODE_FIFO;
     return sc->vtable->present_mode(sc);
 }
 
 struct Mel_Swapchain_Entry {
     Mel_Swapchain swapchain;
-    VkSurfaceKHR surface;
+    void* _surface;
     Mel_Window_Handle window;
     bool resize_requested;
 };

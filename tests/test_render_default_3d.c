@@ -1,4 +1,6 @@
 #include "../melody/test.harness.h"
+#include "../melody/gpu.types.h"
+#include "../melody/gpu.device.h"
 #include "../melody/render.default.3d.h"
 #include "../melody/render.frame_plan.h"
 #include "../melody/render.material.h"
@@ -35,7 +37,7 @@ static void default3d_mock_present(Mel_Swapchain* sc, Mel_Gpu_Device* dev)
 static void default3d_mock_resize(Mel_Swapchain* sc, Mel_Gpu_Device* dev, u32 width, u32 height)
 {
     (void)dev;
-    sc->extent = (VkExtent2D){ width, height };
+    sc->extent_width = width; sc->extent_height = height;
 }
 
 static void default3d_mock_shutdown(Mel_Swapchain* sc, Mel_Gpu_Device* dev)
@@ -62,8 +64,8 @@ static Mel_Swapchain_Handle make_default3d_mock_swapchain(void)
         .swapchain = {
             .vtable = &s_default3d_mock_vtable,
             .data = mock,
-            .format = VK_FORMAT_B8G8R8A8_SRGB,
-            .extent = { 960, 540 },
+            .format = MEL_GPU_FORMAT_B8G8R8A8_SRGB,
+            .extent_width = 960, .extent_height = 540,
             .image_count = 2,
         },
     };
@@ -328,7 +330,7 @@ MEL_TEST(render_default_3d_builds_single_mesh_pass_with_depth_target, .tags = "r
     MEL_ASSERT_EQ(graph->passes.count, (usize)1);
     MEL_ASSERT(graph->passes.items[0].read_lists[0] == &world);
     MEL_ASSERT(graph->passes.items[0].write_targets[0].target == mel_render_default_3d_target(&renderer));
-    MEL_ASSERT_EQ(graph->passes.items[0].write_targets[0].load_op, (VkAttachmentLoadOp)VK_ATTACHMENT_LOAD_OP_CLEAR);
+    MEL_ASSERT_EQ(graph->passes.items[0].write_targets[0].load_op, (Mel_Gpu_Load_Op)MEL_GPU_LOAD_OP_CLEAR);
     MEL_ASSERT(graph->passes.items[0].write_targets[1].target != nullptr);
     MEL_ASSERT_EQ(graph->passes.items[0].write_targets[1].target->kind, (u32)MEL_RENDER_TARGET_DEPTH);
     MEL_ASSERT_EQ(mel_frame_plan_resolved_technique_count(mel_render_default_3d_plan(&renderer)), (u32)1);
@@ -345,8 +347,8 @@ MEL_TEST(render_default_3d_builds_single_mesh_pass_with_depth_target, .tags = "r
         if (barrier->target == mel_render_default_3d_target(&renderer))
         {
             saw_swapchain_barrier = true;
-            MEL_ASSERT_EQ(barrier->old_layout, (VkImageLayout)VK_IMAGE_LAYOUT_UNDEFINED);
-            MEL_ASSERT_EQ(barrier->new_layout, (VkImageLayout)VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+            MEL_ASSERT_EQ(barrier->old_layout, (Mel_Gpu_Image_Layout)MEL_GPU_IMAGE_LAYOUT_UNDEFINED);
+            MEL_ASSERT_EQ(barrier->new_layout, (Mel_Gpu_Image_Layout)MEL_GPU_IMAGE_LAYOUT_COLOR_ATTACHMENT);
             break;
         }
     }
@@ -426,10 +428,10 @@ MEL_TEST(render_default_3d_builds_mesh_pass_from_gpu_draw_stream_source, .tags =
         .alloc = mel_alloc_heap());
     MEL_ASSERT(ok);
 
-    Mel_Gpu_Buffer gpu_buffer = { .buffer = (VkBuffer)(uintptr_t)1 };
+    Mel_Gpu_Buffer gpu_buffer = { ._handle = (void*)(uintptr_t)1 };
     Mel_Mesh_Gpu_Draw_Stream stream = {
-        .vertex_buffer = (VkBuffer)(uintptr_t)2,
-        .index_buffer = (VkBuffer)(uintptr_t)3,
+        ._vertex_buffer = (void*)(uintptr_t)2,
+        ._index_buffer = (void*)(uintptr_t)3,
         .index_count = 36,
     };
     Mel_Source_Handle source = mel_source_create(&(Mel_Source_Desc){
@@ -554,11 +556,11 @@ MEL_TEST(render_default_3d_builds_mesh_pass_from_gpu_indirect_stream_source, .ta
         .alloc = mel_alloc_heap());
     MEL_ASSERT(ok);
 
-    Mel_Gpu_Buffer indirect_buffer = { .buffer = (VkBuffer)(uintptr_t)1 };
+    Mel_Gpu_Buffer indirect_buffer = { ._handle = (void*)(uintptr_t)1 };
     Mel_Mesh_Gpu_Indirect_Stream stream = {
-        .vertex_buffer = (VkBuffer)(uintptr_t)2,
-        .index_buffer = (VkBuffer)(uintptr_t)3,
-        .indirect_buffer = (VkBuffer)(uintptr_t)4,
+        ._vertex_buffer = (void*)(uintptr_t)2,
+        ._index_buffer = (void*)(uintptr_t)3,
+        ._indirect_buffer = (void*)(uintptr_t)4,
         .draw_count = 2,
         .stride = MEL_MESH_INDIRECT_BATCH_COMMAND_STRIDE,
     };
@@ -610,11 +612,11 @@ MEL_TEST(render_default_3d_builds_compute_and_graphics_passes_from_gpu_cull_stre
         .alloc = mel_alloc_heap());
     MEL_ASSERT(ok);
 
-    Mel_Gpu_Buffer cull_buffer = { .buffer = (VkBuffer)(uintptr_t)1 };
+    Mel_Gpu_Buffer cull_buffer = { ._handle = (void*)(uintptr_t)1 };
     Mel_Mesh_Gpu_Cull_Stream stream = {
-        .vertex_buffer = (VkBuffer)(uintptr_t)2,
-        .index_buffer = (VkBuffer)(uintptr_t)3,
-        .indirect_buffer = (VkBuffer)(uintptr_t)4,
+        ._vertex_buffer = (void*)(uintptr_t)2,
+        ._index_buffer = (void*)(uintptr_t)3,
+        ._indirect_buffer = (void*)(uintptr_t)4,
         .vertex_count = 24,
         .index_count = 36,
         .bounds_center = mel_vec3(0.0f, 0.0f, 0.0f),
@@ -632,7 +634,7 @@ MEL_TEST(render_default_3d_builds_compute_and_graphics_passes_from_gpu_cull_stre
 
     Mel_Material_Table table = {
         .dev = &fake_dev,
-        .buffer = { .buffer = (VkBuffer)(uintptr_t)5 },
+        .buffer = { ._handle = (void*)(uintptr_t)5 },
     };
     Mel_Source_Handle material_source = mel_source_from_material_table(&table);
 
@@ -644,7 +646,7 @@ MEL_TEST(render_default_3d_builds_compute_and_graphics_passes_from_gpu_cull_stre
     MEL_ASSERT_EQ(graph->passes.count, (usize)2);
     MEL_ASSERT_EQ(graph->passes.items[0].type, (u32)MEL_PASS_COMPUTE);
     MEL_ASSERT_EQ(graph->passes.items[1].type, (u32)MEL_PASS_GRAPHICS);
-    MEL_ASSERT_EQ(graph->passes.items[1].write_targets[0].load_op, (VkAttachmentLoadOp)VK_ATTACHMENT_LOAD_OP_CLEAR);
+    MEL_ASSERT_EQ(graph->passes.items[1].write_targets[0].load_op, (Mel_Gpu_Load_Op)MEL_GPU_LOAD_OP_CLEAR);
     Mel_Frame_Plan_Resolved_Technique resolved = {0};
     MEL_ASSERT(mel_frame_plan_resolved_technique_at(mel_render_default_3d_plan(&renderer), 0, &resolved));
     MEL_ASSERT(str8_ieq(resolved.technique_name, S8("mesh.compute_indirect")));
@@ -676,12 +678,12 @@ MEL_TEST(render_default_3d_builds_compute_and_graphics_passes_from_gpu_cull_batc
         .alloc = mel_alloc_heap());
     MEL_ASSERT(ok);
 
-    Mel_Gpu_Buffer indirect_buffer = { .buffer = (VkBuffer)(uintptr_t)1 };
+    Mel_Gpu_Buffer indirect_buffer = { ._handle = (void*)(uintptr_t)1 };
     Mel_Mesh_Gpu_Cull_Batch_Stream stream = {
-        .vertex_buffer = (VkBuffer)(uintptr_t)2,
-        .index_buffer = (VkBuffer)(uintptr_t)3,
-        .metadata_buffer = (VkBuffer)(uintptr_t)4,
-        .indirect_buffer = (VkBuffer)(uintptr_t)5,
+        ._vertex_buffer = (void*)(uintptr_t)2,
+        ._index_buffer = (void*)(uintptr_t)3,
+        ._metadata_buffer = (void*)(uintptr_t)4,
+        ._indirect_buffer = (void*)(uintptr_t)5,
         .vertex_count = 24 * 4,
         .index_count = 36 * 4,
         .draw_count = 4,
@@ -699,7 +701,7 @@ MEL_TEST(render_default_3d_builds_compute_and_graphics_passes_from_gpu_cull_batc
 
     Mel_Material_Table table = {
         .dev = &fake_dev,
-        .buffer = { .buffer = (VkBuffer)(uintptr_t)6 },
+        .buffer = { ._handle = (void*)(uintptr_t)6 },
     };
     Mel_Source_Handle material_source = mel_source_from_material_table(&table);
 
@@ -711,7 +713,7 @@ MEL_TEST(render_default_3d_builds_compute_and_graphics_passes_from_gpu_cull_batc
     MEL_ASSERT_EQ(graph->passes.count, (usize)2);
     MEL_ASSERT_EQ(graph->passes.items[0].type, (u32)MEL_PASS_COMPUTE);
     MEL_ASSERT_EQ(graph->passes.items[1].type, (u32)MEL_PASS_GRAPHICS);
-    MEL_ASSERT_EQ(graph->passes.items[1].write_targets[0].load_op, (VkAttachmentLoadOp)VK_ATTACHMENT_LOAD_OP_CLEAR);
+    MEL_ASSERT_EQ(graph->passes.items[1].write_targets[0].load_op, (Mel_Gpu_Load_Op)MEL_GPU_LOAD_OP_CLEAR);
 
     Mel_Frame_Plan_Resolved_Technique resolved = {0};
     MEL_ASSERT(mel_frame_plan_resolved_technique_at(mel_render_default_3d_plan(&renderer), 0, &resolved));
@@ -745,10 +747,10 @@ MEL_TEST(render_default_3d_prefers_mesh_shader_variant_when_capability_and_sourc
         .alloc = mel_alloc_heap());
     MEL_ASSERT(ok);
 
-    Mel_Gpu_Buffer stream_buffer = { .buffer = (VkBuffer)(uintptr_t)1 };
+    Mel_Gpu_Buffer stream_buffer = { ._handle = (void*)(uintptr_t)1 };
     Mel_Mesh_Gpu_Draw_Stream stream = {
-        .vertex_buffer = (VkBuffer)(uintptr_t)2,
-        .index_buffer = (VkBuffer)(uintptr_t)3,
+        ._vertex_buffer = (void*)(uintptr_t)2,
+        ._index_buffer = (void*)(uintptr_t)3,
         .vertex_count = 24,
         .index_count = 36,
     };
@@ -764,7 +766,7 @@ MEL_TEST(render_default_3d_prefers_mesh_shader_variant_when_capability_and_sourc
 
     Mel_Material_Table table = {
         .dev = &fake_dev,
-        .buffer = { .buffer = (VkBuffer)(uintptr_t)4 },
+        .buffer = { ._handle = (void*)(uintptr_t)4 },
     };
     Mel_Source_Handle material_source = mel_source_from_material_table(&table);
 
@@ -827,10 +829,10 @@ MEL_TEST(render_default_3d_forwards_material_table_source_with_gpu_draw_stream, 
         .alloc = mel_alloc_heap());
     MEL_ASSERT(ok);
 
-    Mel_Gpu_Buffer stream_buffer = { .buffer = (VkBuffer)(uintptr_t)1 };
+    Mel_Gpu_Buffer stream_buffer = { ._handle = (void*)(uintptr_t)1 };
     Mel_Mesh_Gpu_Draw_Stream stream = {
-        .vertex_buffer = (VkBuffer)(uintptr_t)2,
-        .index_buffer = (VkBuffer)(uintptr_t)3,
+        ._vertex_buffer = (void*)(uintptr_t)2,
+        ._index_buffer = (void*)(uintptr_t)3,
         .index_count = 36,
     };
     Mel_Source_Handle stream_source = mel_source_create(&(Mel_Source_Desc){
@@ -845,7 +847,7 @@ MEL_TEST(render_default_3d_forwards_material_table_source_with_gpu_draw_stream, 
 
     Mel_Material_Table table = {
         .dev = &fake_dev,
-        .buffer = { .buffer = (VkBuffer)(uintptr_t)4 },
+        .buffer = { ._handle = (void*)(uintptr_t)4 },
     };
     Mel_Source_Handle material_source = mel_source_from_material_table(&table);
 
@@ -901,10 +903,10 @@ MEL_TEST(render_default_3d_both_mesh_source_shapes_compile_only_selected_variant
         .color = mel_vec4(1.0f, 1.0f, 1.0f, 1.0f),
     };
 
-    Mel_Gpu_Buffer stream_buffer = { .buffer = (VkBuffer)(uintptr_t)1 };
+    Mel_Gpu_Buffer stream_buffer = { ._handle = (void*)(uintptr_t)1 };
     Mel_Mesh_Gpu_Draw_Stream stream = {
-        .vertex_buffer = (VkBuffer)(uintptr_t)2,
-        .index_buffer = (VkBuffer)(uintptr_t)3,
+        ._vertex_buffer = (void*)(uintptr_t)2,
+        ._index_buffer = (void*)(uintptr_t)3,
         .index_count = 36,
     };
     Mel_Source_Handle stream_source = mel_source_create(&(Mel_Source_Desc){
@@ -969,10 +971,10 @@ MEL_TEST(render_default_3d_allows_game_variant_to_extend_mesh_family_with_capabi
         .alloc = mel_alloc_heap());
     MEL_ASSERT(ok);
 
-    Mel_Gpu_Buffer gpu_buffer = { .buffer = (VkBuffer)(uintptr_t)1 };
+    Mel_Gpu_Buffer gpu_buffer = { ._handle = (void*)(uintptr_t)1 };
     Mel_Mesh_Gpu_Draw_Stream stream = {
-        .vertex_buffer = (VkBuffer)(uintptr_t)2,
-        .index_buffer = (VkBuffer)(uintptr_t)3,
+        ._vertex_buffer = (void*)(uintptr_t)2,
+        ._index_buffer = (void*)(uintptr_t)3,
         .index_count = 36,
     };
     Mel_Source_Handle source = mel_source_create(&(Mel_Source_Desc){
@@ -1110,10 +1112,10 @@ MEL_TEST(render_default_3d_family_policy_can_override_default_mesh_variant_choic
         .alloc = mel_alloc_heap());
     MEL_ASSERT(mel_render_default_3d_attach_mesh_list(&renderer, &world));
 
-    Mel_Gpu_Buffer gpu_buffer = { .buffer = (VkBuffer)(uintptr_t)1 };
+    Mel_Gpu_Buffer gpu_buffer = { ._handle = (void*)(uintptr_t)1 };
     Mel_Mesh_Gpu_Draw_Stream stream = {
-        .vertex_buffer = (VkBuffer)(uintptr_t)2,
-        .index_buffer = (VkBuffer)(uintptr_t)3,
+        ._vertex_buffer = (void*)(uintptr_t)2,
+        ._index_buffer = (void*)(uintptr_t)3,
         .index_count = 36,
     };
     Mel_Source_Handle source = mel_source_create(&(Mel_Source_Desc){
@@ -1684,7 +1686,7 @@ MEL_TEST(render_default_3d_deferred_branch_reads_clustered_light_source, .tags =
 
     Mel_Light_Table light_table = {
         .dev = &fake_dev,
-        .buffer = { .buffer = (VkBuffer)(uintptr_t)7 },
+        .buffer = { ._handle = (void*)(uintptr_t)7 },
         .count = 4,
     };
     Mel_Source_Handle light_source = mel_source_from_light_table(&light_table);

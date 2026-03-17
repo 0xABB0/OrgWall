@@ -1,7 +1,9 @@
-#define VK_NO_PROTOTYPES
 #include "render.draw.h"
+#include "gpu.device.h"
 #include "gpu.pipeline.h"
+#include "gpu.cmd.h"
 #include "gpu.texture.h"
+#include "gpu.types.vulkan.h"
 #include "font.atlas.h"
 #include "texture.pool.h"
 #include "string.str8.h"
@@ -57,7 +59,7 @@ static void mel__draw_ctx_push_draw(Mel_Draw_Ctx* ctx)
     }
 
     ctx->draws[ctx->draw_count++] = (Mel_Draw_Cmd){
-        .descriptor = ctx->current_descriptor,
+        ._descriptor = ctx->_current_descriptor,
         .index_offset = ctx->index_count,
         .index_count = 0,
     };
@@ -70,7 +72,7 @@ static void mel__draw_ctx_set_texture(Mel_Draw_Ctx* ctx, Mel_Gpu_Texture* textur
     if (ctx->current_texture == texture) return;
 
     ctx->current_texture = texture;
-    ctx->current_descriptor = texture ? texture->descriptor : VK_NULL_HANDLE;
+    ctx->_current_descriptor = texture ? texture->_descriptor : nullptr;
 
     mel__draw_ctx_push_draw(ctx);
 }
@@ -82,9 +84,8 @@ void mel_draw_ctx_init_opt(Mel_Draw_Ctx* ctx, Mel_Draw_Ctx_Opt opt)
     ctx->pipeline = opt.pipeline;
     ctx->default_texture = opt.texture;
     ctx->current_texture = opt.texture;
-    ctx->current_descriptor = opt.texture ? opt.texture->descriptor : VK_NULL_HANDLE;
+    ctx->_current_descriptor = opt.texture ? opt.texture->_descriptor : nullptr;
     ctx->pool = opt.pool;
-    ctx->font_pool = opt.font_pool;
     ctx->dev = opt.dev;
     ctx->alloc = opt.alloc ? opt.alloc : mel_alloc_heap();
 
@@ -99,8 +100,8 @@ void mel_draw_ctx_shutdown(Mel_Draw_Ctx* ctx)
     for (u32 i = 0; i < MEL_MAX_FRAMES_IN_FLIGHT; i++)
     {
         Mel_Draw_Gpu_Frame* f = &ctx->gpu_frames[i];
-        if (f->vertex_buffer.buffer) mel_gpu_buffer_shutdown(&f->vertex_buffer, ctx->dev);
-        if (f->index_buffer.buffer) mel_gpu_buffer_shutdown(&f->index_buffer, ctx->dev);
+        if (f->vertex_buffer._handle) mel_gpu_buffer_shutdown(&f->vertex_buffer, ctx->dev);
+        if (f->index_buffer._handle) mel_gpu_buffer_shutdown(&f->index_buffer, ctx->dev);
     }
 
     if (ctx->vertices) mel_dealloc(ctx->alloc, ctx->vertices);
@@ -119,7 +120,7 @@ void mel_draw_ctx_clear(Mel_Draw_Ctx* ctx)
     ctx->gpu_frame_index = (ctx->gpu_frame_index + 1) % MEL_MAX_FRAMES_IN_FLIGHT;
 
     ctx->current_texture = ctx->default_texture;
-    ctx->current_descriptor = ctx->default_texture ? ctx->default_texture->descriptor : VK_NULL_HANDLE;
+    ctx->_current_descriptor = ctx->default_texture ? ctx->default_texture->_descriptor : nullptr;
 
     if (ctx->default_texture)
         mel__draw_ctx_push_draw(ctx);
@@ -188,11 +189,10 @@ void mel_draw_ctx_text_opt(Mel_Draw_Ctx* ctx, Mel_Draw_Ctx_Text_Opt opt)
 {
     assert(ctx != nullptr);
     assert(ctx->pool != nullptr);
-    assert(ctx->font_pool != nullptr);
 
     if (str8_is_empty(opt.text)) return;
 
-    Mel_Font_Atlas_Entry* font = mel_font_atlas_pool_get(ctx->font_pool, opt.font);
+    Mel_Font_Atlas_Entry* font = mel_font_atlas_get(opt.font);
     assert(font != nullptr);
 
     Mel_Gpu_Texture* tex = mel_texture_pool_get(ctx->pool, font->tex_handle);
@@ -272,23 +272,23 @@ void mel_draw_ctx_commit(Mel_Draw_Ctx* ctx)
 
     if (ctx->vertex_count > f->vertex_capacity)
     {
-        if (f->vertex_buffer.buffer)
+        if (f->vertex_buffer._handle)
             mel_gpu_buffer_shutdown(&f->vertex_buffer, ctx->dev);
         mel_gpu_buffer_init(&f->vertex_buffer, ctx->dev,
             .size = ctx->vertex_count * sizeof(Mel_Draw_Vertex),
-            .usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-            .memory_usage = VMA_MEMORY_USAGE_CPU_TO_GPU);
+            .usage = MEL_GPU_BUFFER_USAGE_VERTEX,
+            .memory_usage = MEL_GPU_MEMORY_USAGE_CPU_TO_GPU);
         f->vertex_capacity = ctx->vertex_count;
     }
 
     if (ctx->index_count > f->index_capacity)
     {
-        if (f->index_buffer.buffer)
+        if (f->index_buffer._handle)
             mel_gpu_buffer_shutdown(&f->index_buffer, ctx->dev);
         mel_gpu_buffer_init(&f->index_buffer, ctx->dev,
             .size = ctx->index_count * sizeof(u16),
-            .usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-            .memory_usage = VMA_MEMORY_USAGE_CPU_TO_GPU);
+            .usage = MEL_GPU_BUFFER_USAGE_INDEX,
+            .memory_usage = MEL_GPU_MEMORY_USAGE_CPU_TO_GPU);
         f->index_capacity = ctx->index_count;
     }
 
@@ -301,7 +301,7 @@ void mel_draw_ctx_commit(Mel_Draw_Ctx* ctx)
     ctx->committed = true;
 }
 
-void mel_draw_ctx_render(Mel_Draw_Ctx* ctx, VkCommandBuffer cmd, Mel_Mat4* projection)
+void mel_draw_ctx_render(Mel_Draw_Ctx* ctx, Mel_Gpu_Cmd* cmd, Mel_Mat4* projection)
 {
     assert(ctx != nullptr);
     assert(ctx->committed);
@@ -312,25 +312,22 @@ void mel_draw_ctx_render(Mel_Draw_Ctx* ctx, VkCommandBuffer cmd, Mel_Mat4* proje
 
     mel_gpu_pipeline_bind(ctx->pipeline, cmd);
 
-    vkCmdPushConstants(cmd, ctx->pipeline->layout, VK_SHADER_STAGE_VERTEX_BIT,
-                       0, sizeof(Mel_Mat4), projection);
+    mel_gpu_cmd_push_constants(cmd, ctx->pipeline, MEL_GPU_SHADER_STAGE_VERTEX,
+                               0, sizeof(Mel_Mat4), projection);
 
-    VkBuffer buffers[] = { f->vertex_buffer.buffer };
-    VkDeviceSize offsets[] = { 0 };
-    vkCmdBindVertexBuffers(cmd, 0, 1, buffers, offsets);
-    vkCmdBindIndexBuffer(cmd, f->index_buffer.buffer, 0, VK_INDEX_TYPE_UINT16);
+    mel_gpu_cmd_bind_vertex_buffer(cmd, &f->vertex_buffer, 0);
+    mel_gpu_cmd_bind_index_buffer(cmd, &f->index_buffer, 0, MEL_GPU_INDEX_TYPE_U16);
 
     for (u32 i = 0; i < ctx->draw_count; i++)
     {
         Mel_Draw_Cmd* draw = &ctx->draws[i];
         if (draw->index_count == 0) continue;
 
-        if (draw->descriptor)
+        if (draw->_descriptor)
         {
-            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, ctx->pipeline->layout,
-                                    0, 1, &draw->descriptor, 0, nullptr);
+            mel_gpu_cmd_bind_descriptor_set(cmd, ctx->pipeline, draw->_descriptor);
         }
 
-        vkCmdDrawIndexed(cmd, draw->index_count, 1, draw->index_offset, 0, 0);
+        mel_gpu_cmd_draw_indexed(cmd, draw->index_count, 1, draw->index_offset, 0, 0);
     }
 }

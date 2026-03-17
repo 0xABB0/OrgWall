@@ -18,6 +18,7 @@
 #include "text.draw.h"
 #include "texture.pool.h"
 #include "font.atlas.h"
+#include "font.desc.h"
 #include "vfs.h"
 #include "vfs.backend.os.h"
 #include "allocator.heap.h"
@@ -91,7 +92,7 @@ typedef struct {
 
 static Mel_Window_Handle s_window_handle;
 static Mel_Swapchain_Handle s_swapchain_handle;
-static Mel_Font_Handle s_font_handle;
+static Mel_Font_Atlas_Handle s_font_handle;
 static Tetris s_tetris;
 static Mel_Sim_Ctx s_sim;
 static u8 s_event_buf[4096];
@@ -383,27 +384,27 @@ static void tetris_draw_grid(Tetris* t, Mel_Render_List* list)
     }
 }
 
-static void tetris_draw_text(Tetris* t, Mel_Render_List* list, Mel_Font_Atlas_Pool* pool, Mel_Font_Handle font)
+static void tetris_draw_text(Tetris* t, Mel_Render_List* list, Mel_Font_Atlas_Handle font)
 {
     Mel_Vec4 white = mel_vec4(1.0f, 1.0f, 1.0f, 1.0f);
     Mel_Vec4 dim = mel_vec4(0.6f, 0.6f, 0.6f, 1.0f);
     Mel_Text_Style white_style = mel_text_style(white);
     Mel_Text_Style dim_style = mel_text_style(dim);
 
-    mel_text_draw_font_atlas(pool, font, list, S8("NEXT"),
+    mel_text_draw_font_atlas(font, list, S8("NEXT"),
         .x = PREVIEW_X, .y = GRID_Y_OFFSET, .style = dim_style);
 
     char buf[64];
     snprintf(buf, sizeof(buf), "SCORE\n%u", t->score);
-    mel_text_draw_font_atlas(pool, font, list, str8_from_cstr(buf),
+    mel_text_draw_font_atlas(font, list, str8_from_cstr(buf),
         .x = PREVIEW_X, .y = PREVIEW_Y + 120.0f, .style = white_style);
 
     snprintf(buf, sizeof(buf), "LEVEL\n%u", t->level);
-    mel_text_draw_font_atlas(pool, font, list, str8_from_cstr(buf),
+    mel_text_draw_font_atlas(font, list, str8_from_cstr(buf),
         .x = PREVIEW_X, .y = PREVIEW_Y + 200.0f, .style = white_style);
 
     snprintf(buf, sizeof(buf), "LINES\n%u", t->lines);
-    mel_text_draw_font_atlas(pool, font, list, str8_from_cstr(buf),
+    mel_text_draw_font_atlas(font, list, str8_from_cstr(buf),
         .x = PREVIEW_X, .y = PREVIEW_Y + 280.0f, .style = white_style);
 
     if (t->game_over)
@@ -412,9 +413,9 @@ static void tetris_draw_text(Tetris* t, Mel_Render_List* list, Mel_Font_Atlas_Po
         Mel_Text_Style red_style = mel_text_style(red);
         f32 cx = GRID_X_OFFSET + 30.0f;
         f32 cy = GRID_Y_OFFSET + GRID_H * CELL_SIZE / 2.0f - 10.0f;
-        mel_text_draw_font_atlas(pool, font, list, S8("GAME OVER"),
+        mel_text_draw_font_atlas(font, list, S8("GAME OVER"),
             .x = cx, .y = cy, .style = red_style);
-        mel_text_draw_font_atlas(pool, font, list, S8("R to restart"),
+        mel_text_draw_font_atlas(font, list, S8("R to restart"),
             .x = cx + 10.0f, .y = cy + 30.0f, .style = dim_style);
     }
 }
@@ -424,8 +425,8 @@ static void on_init(void)
     Mel_Gpu_Device* dev = mel_gpu_dev();
     Mel_Swapchain* sc = &mel_swapchain_registry_get(s_swapchain_handle)->swapchain;
 
-    s_font_handle = mel_font_atlas_pool_load(mel_font_pool(),
-        .path = S8("/System/Library/Fonts/Monaco.ttf"), .size = 18.0f);
+    s_font_handle = mel_font_atlas_load(
+        .desc = mel_font_desc_load_ttf(S8("/System/Library/Fonts/Monaco.ttf")), .size = 18.0f);
 
 
     tetris_init(&s_tetris);
@@ -500,7 +501,7 @@ static void app_update(Mel_Sim_Ctx* sim, f32 dt, void* user)
 
     tetris_draw_grid(&s_tetris, &s_sprite_list);
 
-    tetris_draw_text(&s_tetris, &s_font_list, mel_font_pool(), s_font_handle);
+    tetris_draw_text(&s_tetris, &s_font_list, s_font_handle);
 }
 
 void app_event(SDL_Event* event)

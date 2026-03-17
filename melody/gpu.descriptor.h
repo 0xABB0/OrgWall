@@ -1,6 +1,9 @@
 #pragma once
 
-#include "gpu.device.h"
+#include "gpu.types.h"
+#include "gpu.device.fwd.h"
+#include "gpu.cmd.fwd.h"
+#include "gpu.buffer.fwd.h"
 
 #define MEL_GPU_DESCRIPTOR_UNIFORM_BUFFER  0
 #define MEL_GPU_DESCRIPTOR_STORAGE_BUFFER  1
@@ -13,22 +16,28 @@ typedef struct Mel_Gpu_Descriptor_Binding Mel_Gpu_Descriptor_Binding;
 typedef struct Mel_Gpu_Descriptor_Layout Mel_Gpu_Descriptor_Layout;
 typedef struct Mel_Gpu_Descriptor_Pool Mel_Gpu_Descriptor_Pool;
 
+#define MEL_GPU_DESCRIPTOR_BINDING_PARTIALLY_BOUND    (1u << 0)
+#define MEL_GPU_DESCRIPTOR_BINDING_VARIABLE_COUNT     (1u << 1)
+#define MEL_GPU_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND  (1u << 2)
+
 struct Mel_Gpu_Descriptor_Binding {
     u32 binding;
     u32 type;
     u32 count;
-    VkShaderStageFlags stages;
+    Mel_Gpu_Shader_Stage stages;
+    u32 flags;
 };
 
 struct Mel_Gpu_Descriptor_Layout {
-    VkDescriptorSetLayout layout;
+    void* _layout;
     u32 binding_count;
 };
 
 struct Mel_Gpu_Descriptor_Pool {
-    VkDescriptorPool pool;
-    VkDescriptorSetLayout layout;
+    void* _pool;
+    void* _layout;
     u32 max_sets;
+    u32 variable_count;
 };
 
 typedef struct {
@@ -44,6 +53,8 @@ void mel_gpu_descriptor_layout_shutdown(Mel_Gpu_Descriptor_Layout* dl, Mel_Gpu_D
 typedef struct {
     Mel_Gpu_Descriptor_Layout* layout;
     u32 max_sets;
+    bool update_after_bind;
+    u32 variable_count;
 } Mel_Gpu_Descriptor_Pool_Opt;
 
 void mel_gpu_descriptor_pool_init_opt(Mel_Gpu_Descriptor_Pool* dp, Mel_Gpu_Device* dev, Mel_Gpu_Descriptor_Pool_Opt opt);
@@ -51,13 +62,13 @@ void mel_gpu_descriptor_pool_init_opt(Mel_Gpu_Descriptor_Pool* dp, Mel_Gpu_Devic
 
 void mel_gpu_descriptor_pool_shutdown(Mel_Gpu_Descriptor_Pool* dp, Mel_Gpu_Device* dev);
 
-VkDescriptorSet mel_gpu_descriptor_pool_alloc(Mel_Gpu_Descriptor_Pool* dp, Mel_Gpu_Device* dev);
+void* mel_gpu_descriptor_pool_alloc(Mel_Gpu_Descriptor_Pool* dp, Mel_Gpu_Device* dev);
 
-void mel_gpu_descriptor_write_texture(Mel_Gpu_Device* dev, VkDescriptorSet set,
-                                      u32 binding, VkImageView view, VkSampler sampler);
+void mel_gpu_descriptor_write_texture(Mel_Gpu_Device* dev, void* set,
+                                      u32 binding, void* view, void* sampler);
 
-void mel_gpu_descriptor_write_buffer(Mel_Gpu_Device* dev, VkDescriptorSet set,
-                                     u32 binding, VkBuffer buffer, VkDeviceSize offset, VkDeviceSize range,
-                                     VkDescriptorType type);
+void mel_gpu_descriptor_write_buffer(Mel_Gpu_Device* dev, void* set,
+                                     u32 binding, Mel_Gpu_Buffer* buffer, u64 offset, u64 range,
+                                     u32 type);
 
-void mel_gpu_descriptor_bind(VkCommandBuffer cmd, VkPipelineLayout layout, VkDescriptorSet set);
+void mel_gpu_descriptor_bind(Mel_Gpu_Cmd* cmd, void* pipeline_layout, void* set);

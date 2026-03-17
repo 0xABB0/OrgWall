@@ -1,16 +1,17 @@
-#define VK_NO_PROTOTYPES
 #include "swapchain.image.h"
 #include "swapchain.h"
 #include "gpu.device.h"
+#include "gpu.cmd.h"
 #include "gpu.buffer.h"
 #include "gpu.format.h"
+#include "gpu.types.vulkan.h"
 #include "allocator.h"
 #include "allocator.heap.h"
 
 typedef struct {
     const Mel_Alloc* alloc;
     VmaAllocation* image_allocs;
-    VkImageLayout* image_layouts;
+    Mel_Gpu_Image_Layout* image_layouts;
 
     Mel_Gpu_Buffer staging;
     bool has_staging;
@@ -27,21 +28,21 @@ static bool create_images(Mel_Swapchain* sc, Mel_Gpu_Device* dev)
     Mel_Image_Swapchain* img = sc->data;
     const Mel_Alloc* alloc = img->alloc;
 
-    sc->images = mel_alloc(alloc, sizeof(VkImage) * sc->image_count);
-    sc->image_views = mel_alloc(alloc, sizeof(VkImageView) * sc->image_count);
+    sc->_images = mel_alloc(alloc, sizeof(void*) * sc->image_count);
+    sc->_image_views = mel_alloc(alloc, sizeof(void*) * sc->image_count);
     img->image_allocs = mel_alloc(alloc, sizeof(VmaAllocation) * sc->image_count);
-    img->image_layouts = mel_alloc(alloc, sizeof(VkImageLayout) * sc->image_count);
+    img->image_layouts = mel_alloc(alloc, sizeof(Mel_Gpu_Image_Layout) * sc->image_count);
 
     VkImageUsageFlags usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
 
     for (u32 i = 0; i < sc->image_count; i++)
     {
-        img->image_layouts[i] = VK_IMAGE_LAYOUT_UNDEFINED;
+        img->image_layouts[i] = MEL_GPU_IMAGE_LAYOUT_UNDEFINED;
         VkImageCreateInfo image_info = {
             .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
             .imageType = VK_IMAGE_TYPE_2D,
-            .format = sc->format,
-            .extent = { sc->extent.width, sc->extent.height, 1 },
+            .format = mel__gpu_format_to_vk(sc->format),
+            .extent = { sc->extent_width, sc->extent_height, 1 },
             .mipLevels = 1,
             .arrayLayers = 1,
             .samples = VK_SAMPLE_COUNT_1_BIT,
@@ -55,20 +56,22 @@ static bool create_images(Mel_Swapchain* sc, Mel_Gpu_Device* dev)
             .usage = VMA_MEMORY_USAGE_GPU_ONLY,
         };
 
+        VkImage vk_image = VK_NULL_HANDLE;
         VkResult r = vmaCreateImage(dev->vma, &image_info, &vma_info,
-                                     &sc->images[i], &img->image_allocs[i], nullptr);
+                                     &vk_image, &img->image_allocs[i], nullptr);
         if (r != VK_SUCCESS)
         {
             SDL_Log("Failed to create image swapchain image %u: %d", i, r);
             sc->image_count = i;
             return false;
         }
+        sc->_images[i] = vk_image;
 
         VkImageViewCreateInfo view_info = {
             .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-            .image = sc->images[i],
+            .image = vk_image,
             .viewType = VK_IMAGE_VIEW_TYPE_2D,
-            .format = sc->format,
+            .format = mel__gpu_format_to_vk(sc->format),
             .components = {
                 .r = VK_COMPONENT_SWIZZLE_IDENTITY,
                 .g = VK_COMPONENT_SWIZZLE_IDENTITY,
@@ -84,14 +87,16 @@ static bool create_images(Mel_Swapchain* sc, Mel_Gpu_Device* dev)
             },
         };
 
-        VkResult rv = vkCreateImageView(dev->device, &view_info, nullptr, &sc->image_views[i]);
+        VkImageView vk_view = VK_NULL_HANDLE;
+        VkResult rv = vkCreateImageView(dev->device, &view_info, nullptr, &vk_view);
         if (rv != VK_SUCCESS)
         {
             SDL_Log("Failed to create image swapchain view %u: %d", i, rv);
-            vmaDestroyImage(dev->vma, sc->images[i], img->image_allocs[i]);
+            vmaDestroyImage(dev->vma, vk_image, img->image_allocs[i]);
             sc->image_count = i;
             return false;
         }
+        sc->_image_views[i] = vk_view;
     }
 
     return true;
@@ -102,21 +107,21 @@ static void destroy_images(Mel_Swapchain* sc, Mel_Gpu_Device* dev)
     Mel_Image_Swapchain* img = sc->data;
     const Mel_Alloc* alloc = img->alloc;
 
-    if (sc->image_views)
+    if (sc->_image_views)
     {
         for (u32 i = 0; i < sc->image_count; i++)
-            vkDestroyImageView(dev->device, sc->image_views[i], nullptr);
-        mel_dealloc(alloc, sc->image_views);
-        sc->image_views = nullptr;
+            vkDestroyImageView(dev->device, (VkImageView)sc->_image_views[i], nullptr);
+        mel_dealloc(alloc, sc->_image_views);
+        sc->_image_views = nullptr;
     }
 
-    if (sc->images && img->image_allocs)
+    if (sc->_images && img->image_allocs)
     {
         for (u32 i = 0; i < sc->image_count; i++)
-            vmaDestroyImage(dev->vma, sc->images[i], img->image_allocs[i]);
-        mel_dealloc(alloc, sc->images);
+            vmaDestroyImage(dev->vma, (VkImage)sc->_images[i], img->image_allocs[i]);
+        mel_dealloc(alloc, sc->_images);
         mel_dealloc(alloc, img->image_allocs);
-        sc->images = nullptr;
+        sc->_images = nullptr;
         img->image_allocs = nullptr;
     }
 
@@ -135,11 +140,13 @@ static bool image_acquire(Mel_Swapchain* sc, Mel_Gpu_Device* dev)
     return true;
 }
 
-static void image_prepare_present(Mel_Swapchain* sc, VkCommandBuffer cmd)
+static void image_prepare_present(Mel_Swapchain* sc, Mel_Gpu_Cmd* cmd)
 {
     Mel_Image_Swapchain* img = sc->data;
     if (!img->on_present)
         return;
+
+    VkCommandBuffer vk_cmd = (VkCommandBuffer)cmd->_cmd;
 
     VkImageMemoryBarrier2 barrier = {
         .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
@@ -151,7 +158,7 @@ static void image_prepare_present(Mel_Swapchain* sc, VkCommandBuffer cmd)
         .newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
         .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
         .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-        .image = sc->images[sc->current_image],
+        .image = (VkImage)sc->_images[sc->current_image],
         .subresourceRange = {
             .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
             .baseMipLevel = 0,
@@ -166,7 +173,7 @@ static void image_prepare_present(Mel_Swapchain* sc, VkCommandBuffer cmd)
         .imageMemoryBarrierCount = 1,
         .pImageMemoryBarriers = &barrier,
     };
-    vkCmdPipelineBarrier2(cmd, &dep);
+    vkCmdPipelineBarrier2(vk_cmd, &dep);
 
     VkBufferImageCopy region = {
         .bufferOffset = 0,
@@ -179,12 +186,12 @@ static void image_prepare_present(Mel_Swapchain* sc, VkCommandBuffer cmd)
             .layerCount = 1,
         },
         .imageOffset = { 0, 0, 0 },
-        .imageExtent = { sc->extent.width, sc->extent.height, 1 },
+        .imageExtent = { sc->extent_width, sc->extent_height, 1 },
     };
 
-    vkCmdCopyImageToBuffer(cmd, sc->images[sc->current_image],
+    vkCmdCopyImageToBuffer(vk_cmd, (VkImage)sc->_images[sc->current_image],
                            VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                           img->staging.buffer, 1, &region);
+                           (VkBuffer)img->staging._handle, 1, &region);
 }
 
 static void image_present(Mel_Swapchain* sc, Mel_Gpu_Device* dev)
@@ -196,14 +203,14 @@ static void image_present(Mel_Swapchain* sc, Mel_Gpu_Device* dev)
         vkDeviceWaitIdle(dev->device);
 
         u32 pixel_size = mel_gpu_format_size(sc->format);
-        u32 stride = sc->extent.width * pixel_size;
+        u32 stride = sc->extent_width * pixel_size;
 
-        img->on_present(img->staging.mapped, sc->extent.width, sc->extent.height, stride, img->user_data);
-        img->image_layouts[sc->current_image] = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+        img->on_present(img->staging.mapped, sc->extent_width, sc->extent_height, stride, img->user_data);
+        img->image_layouts[sc->current_image] = MEL_GPU_IMAGE_LAYOUT_TRANSFER_SRC;
     }
     else
     {
-        img->image_layouts[sc->current_image] = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        img->image_layouts[sc->current_image] = MEL_GPU_IMAGE_LAYOUT_COLOR_ATTACHMENT;
     }
 
     img->current_frame = (img->current_frame + 1) % img->frame_count;
@@ -220,7 +227,8 @@ static void image_resize(Mel_Swapchain* sc, Mel_Gpu_Device* dev, u32 width, u32 
     if (img->has_staging)
         mel_gpu_buffer_shutdown(&img->staging, dev);
 
-    sc->extent = (VkExtent2D){ width, height };
+    sc->extent_width = width;
+    sc->extent_height = height;
     sc->image_count = img->frame_count;
 
     create_images(sc, dev);
@@ -229,9 +237,9 @@ static void image_resize(Mel_Swapchain* sc, Mel_Gpu_Device* dev, u32 width, u32 
     {
         u32 pixel_size = mel_gpu_format_size(sc->format);
         mel_gpu_buffer_init(&img->staging, dev,
-            .size = (VkDeviceSize)width * height * pixel_size,
-            .usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-            .memory_usage = VMA_MEMORY_USAGE_CPU_ONLY,
+            .size = (u64)width * height * pixel_size,
+            .usage = MEL_GPU_BUFFER_USAGE_TRANSFER_DST,
+            .memory_usage = MEL_GPU_MEMORY_USAGE_GPU_TO_CPU,
             .map_on_create = true);
         img->has_staging = true;
     }
@@ -254,11 +262,11 @@ static void image_shutdown(Mel_Swapchain* sc, Mel_Gpu_Device* dev)
     sc->data = nullptr;
 }
 
-static VkImageLayout image_current_image_layout(Mel_Swapchain* sc)
+static Mel_Gpu_Image_Layout image_current_image_layout(Mel_Swapchain* sc)
 {
     Mel_Image_Swapchain* img = sc->data;
     if (!img->image_layouts)
-        return VK_IMAGE_LAYOUT_UNDEFINED;
+        return MEL_GPU_IMAGE_LAYOUT_UNDEFINED;
     return img->image_layouts[sc->current_image];
 }
 
@@ -278,7 +286,7 @@ bool mel_swapchain_image_init_opt(Mel_Swapchain* sc, Mel_Gpu_Device* dev, Mel_Sw
     assert(opt.width > 0 && opt.height > 0);
 
     const Mel_Alloc* alloc = opt.alloc ? opt.alloc : mel_alloc_heap();
-    VkFormat format = opt.format ? opt.format : VK_FORMAT_B8G8R8A8_SRGB;
+    Mel_Gpu_Format format = opt.format ? opt.format : MEL_GPU_FORMAT_B8G8R8A8_SRGB;
     u32 frame_count = opt.frame_count > 0 ? opt.frame_count : 2;
 
     Mel_Image_Swapchain* img = mel_alloc_type(alloc, Mel_Image_Swapchain);
@@ -293,7 +301,8 @@ bool mel_swapchain_image_init_opt(Mel_Swapchain* sc, Mel_Gpu_Device* dev, Mel_Sw
         .vtable = &image_vtable,
         .data = img,
         .format = format,
-        .extent = { opt.width, opt.height },
+        .extent_width = opt.width,
+        .extent_height = opt.height,
         .image_count = frame_count,
     };
 
@@ -309,9 +318,9 @@ bool mel_swapchain_image_init_opt(Mel_Swapchain* sc, Mel_Gpu_Device* dev, Mel_Sw
     {
         u32 pixel_size = mel_gpu_format_size(format);
         mel_gpu_buffer_init(&img->staging, dev,
-            .size = (VkDeviceSize)opt.width * opt.height * pixel_size,
-            .usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-            .memory_usage = VMA_MEMORY_USAGE_CPU_ONLY,
+            .size = (u64)opt.width * opt.height * pixel_size,
+            .usage = MEL_GPU_BUFFER_USAGE_TRANSFER_DST,
+            .memory_usage = MEL_GPU_MEMORY_USAGE_GPU_TO_CPU,
             .map_on_create = true);
         img->has_staging = true;
     }

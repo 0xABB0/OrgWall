@@ -18,6 +18,7 @@
 #include "render.camera.h"
 #include "texture.pool.h"
 #include "font.atlas.h"
+#include "font.desc.h"
 #include "vfs.h"
 #include "vfs.backend.os.h"
 #include "math.mat4.h"
@@ -66,7 +67,7 @@ typedef struct {
 static Mel_Window_Handle s_window_handle;
 static Mel_Swapchain_Handle s_swapchain_handle;
 static Mel_Sprite_Pass* s_sp;
-static Mel_Font_Handle s_font_handle;
+static Mel_Font_Atlas_Handle s_font_handle;
 
 static Mel_Gpu_Texture s_idle_tex;
 static Mel_Gpu_Texture s_walk_tex;
@@ -207,7 +208,7 @@ static void draw_hero(Mel_Render_List* list, AnimDemo* d, f32 cx, f32 cy)
     };
 }
 
-static void draw_info(Mel_Render_List* list, Mel_Font_Atlas_Pool* pool, Mel_Font_Handle font, AnimDemo* d, f32 cx, f32 y)
+static void draw_info(Mel_Render_List* list, Mel_Font_Atlas_Handle font, AnimDemo* d, f32 cx, f32 y)
 {
     Mel_Vec4 white = mel_vec4(1.0f, 1.0f, 1.0f, 1.0f);
     Mel_Vec4 dim = mel_vec4(0.5f, 0.5f, 0.5f, 1.0f);
@@ -218,23 +219,23 @@ static void draw_info(Mel_Render_List* list, Mel_Font_Atlas_Pool* pool, Mel_Font
     u32 frame = anim_demo_frame_index(d);
 
     snprintf(buf, sizeof(buf), "State: %s", s_state_names[state]);
-    mel_font_atlas_draw_text(pool, font, list, str8_from_cstr(buf), cx - 60.0f, y, green);
+    mel_font_atlas_draw_text(font, list, str8_from_cstr(buf), cx - 60.0f, y, green);
 
     snprintf(buf, sizeof(buf), "Frame: %u / %u", frame, d->sheets[state].frame_count);
-    mel_font_atlas_draw_text(pool, font, list, str8_from_cstr(buf), cx - 60.0f, y + 24.0f, white);
+    mel_font_atlas_draw_text(font, list, str8_from_cstr(buf), cx - 60.0f, y + 24.0f, white);
 
     f32 controls_y = y + 64.0f;
-    mel_font_atlas_draw_text(pool, font, list, S8("[W] Walk  [R] Run"), cx - 80.0f, controls_y, dim);
-    mel_font_atlas_draw_text(pool, font, list, S8("[I] Idle  [H] Hit"), cx - 80.0f, controls_y + 22.0f, dim);
-    mel_font_atlas_draw_text(pool, font, list, S8("[ESC] Quit"), cx - 80.0f, controls_y + 44.0f, dim);
+    mel_font_atlas_draw_text(font, list, S8("[W] Walk  [R] Run"), cx - 80.0f, controls_y, dim);
+    mel_font_atlas_draw_text(font, list, S8("[I] Idle  [H] Hit"), cx - 80.0f, controls_y + 22.0f, dim);
+    mel_font_atlas_draw_text(font, list, S8("[ESC] Quit"), cx - 80.0f, controls_y + 44.0f, dim);
 
     f32 diagram_y = controls_y + 84.0f;
     Mel_Vec4 cyan = mel_vec4(0.3f, 0.8f, 0.9f, 1.0f);
-    mel_font_atlas_draw_text(pool, font, list, S8("IDLE --W--> WALK --R--> RUN"), cx - 140.0f, diagram_y, cyan);
-    mel_font_atlas_draw_text(pool, font, list, S8("  ^           |           |"), cx - 140.0f, diagram_y + 18.0f, cyan);
-    mel_font_atlas_draw_text(pool, font, list, S8("  +----I------+-----I-----+"), cx - 140.0f, diagram_y + 36.0f, cyan);
-    mel_font_atlas_draw_text(pool, font, list, S8("  ^                        "), cx - 140.0f, diagram_y + 54.0f, cyan);
-    mel_font_atlas_draw_text(pool, font, list, S8("  +------HIT<---H----------"), cx - 140.0f, diagram_y + 72.0f, cyan);
+    mel_font_atlas_draw_text(font, list, S8("IDLE --W--> WALK --R--> RUN"), cx - 140.0f, diagram_y, cyan);
+    mel_font_atlas_draw_text(font, list, S8("  ^           |           |"), cx - 140.0f, diagram_y + 18.0f, cyan);
+    mel_font_atlas_draw_text(font, list, S8("  +----I------+-----I-----+"), cx - 140.0f, diagram_y + 36.0f, cyan);
+    mel_font_atlas_draw_text(font, list, S8("  ^                        "), cx - 140.0f, diagram_y + 54.0f, cyan);
+    mel_font_atlas_draw_text(font, list, S8("  +------HIT<---H----------"), cx - 140.0f, diagram_y + 72.0f, cyan);
 }
 
 static void on_init(void)
@@ -243,8 +244,8 @@ static void on_init(void)
     Mel_Swapchain* sc = &mel_swapchain_registry_get(s_swapchain_handle)->swapchain;
     s_sp = mel_sprite_pass();
 
-    s_font_handle = mel_font_atlas_pool_load(mel_font_pool(),
-        .path = S8("/System/Library/Fonts/Monaco.ttf"), .size = 18.0f);
+    s_font_handle = mel_font_atlas_load(
+        .desc = mel_font_desc_load_ttf(S8("/System/Library/Fonts/Monaco.ttf")), .size = 18.0f);
 
 
     s_idle_handle = init_texture(&s_idle_tex, S8("assets/hero/idle_DOWN.png"));
@@ -342,7 +343,7 @@ static void app_update(Mel_Sim_Ctx* sim, f32 dt, void* user)
     draw_hero(&s_sprite_list, d, cx, hero_y);
 
     mel_render_list_clear(&s_font_list);
-    draw_info(&s_font_list, mel_font_pool(), s_font_handle, d, cx, hero_y + SPRITE_SIZE / 2.0f + 20.0f);
+    draw_info(&s_font_list, s_font_handle, d, cx, hero_y + SPRITE_SIZE / 2.0f + 20.0f);
 }
 
 void app_event(SDL_Event* event)

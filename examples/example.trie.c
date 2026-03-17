@@ -17,6 +17,7 @@
 #include "render.camera.h"
 #include "texture.pool.h"
 #include "font.atlas.h"
+#include "font.desc.h"
 #include "vfs.h"
 #include "vfs.backend.os.h"
 #include "allocator.heap.h"
@@ -67,7 +68,7 @@ typedef struct {
 
 static Mel_Window_Handle s_window_handle;
 static Mel_Swapchain_Handle s_swapchain_handle;
-static Mel_Font_Handle s_font_handle;
+static Mel_Font_Atlas_Handle s_font_handle;
 static TrieDemo s_demo;
 static Mel_Sim_Ctx s_sim;
 static u8 s_event_buf[4096];
@@ -159,7 +160,7 @@ static void draw_trie_node(Mel_TrieNode* node, u8 edge_key, i32 depth,
                            f32 x_min, f32 x_max, f32 y,
                            const char* prefix, i32 prefix_len,
                            Mel_Render_List* list, Mel_Render_List* font_list,
-                           Mel_Font_Atlas_Pool* pool, Mel_Font_Handle font, bool on_path)
+                           Mel_Font_Atlas_Handle font, bool on_path)
 {
     if (depth >= TRIE_VIS_MAX_DEPTH) return;
 
@@ -184,8 +185,8 @@ static void draw_trie_node(Mel_TrieNode* node, u8 edge_key, i32 depth,
         label[0] = (char)edge_key;
 
     Mel_Vec4 label_color = mel_vec4(1.0f, 1.0f, 1.0f, 1.0f);
-    Mel_Vec2 label_size = mel_font_atlas_measure_text(pool, font, str8_from_cstr(label));
-    mel_font_atlas_draw_text(pool, font, font_list, str8_from_cstr(label),
+    Mel_Vec2 label_size = mel_font_atlas_measure_text(font, str8_from_cstr(label));
+    mel_font_atlas_draw_text(font, font_list, str8_from_cstr(label),
         cx - label_size.x / 2, y + (node_size - label_size.y) / 2, label_color);
 
     if (node->child_count > 0)
@@ -219,14 +220,14 @@ static void draw_trie_node(Mel_TrieNode* node, u8 edge_key, i32 depth,
             draw_trie_node(node->children[i], node->child_keys[i], depth + 1,
                           child_x_min, child_x_max, child_y,
                           prefix, prefix_len,
-                          list, font_list, pool, font, child_on_path);
+                          list, font_list, font, child_on_path);
         }
     }
 }
 
 static void draw_left_panel(TrieDemo* demo, Mel_Render_List* list,
-                            Mel_Render_List* font_list, Mel_Font_Atlas_Pool* pool,
-                            Mel_Font_Handle font, f32 panel_w, f32 panel_h)
+                            Mel_Render_List* font_list,
+                            Mel_Font_Atlas_Handle font, f32 panel_w, f32 panel_h)
 {
     Mel_Vec4 bg = mel_vec4(0.1f, 0.1f, 0.13f, 1.0f);
     Mel_Vec4 input_bg = mel_vec4(0.15f, 0.15f, 0.2f, 1.0f);
@@ -247,19 +248,19 @@ static void draw_left_panel(TrieDemo* demo, Mel_Render_List* list,
 
     if (demo->input_len > 0)
     {
-        mel_font_atlas_draw_text(pool, font, font_list, str8_from_cstr(demo->input_buf),
+        mel_font_atlas_draw_text(font, font_list, str8_from_cstr(demo->input_buf),
             input_x + 6, input_y + 6, white);
     }
     else
     {
-        mel_font_atlas_draw_text(pool, font, font_list, S8("type to search..."),
+        mel_font_atlas_draw_text(font, font_list, S8("type to search..."),
             input_x + 6, input_y + 6, dim);
     }
 
     f32 cursor_x = input_x + 6;
     if (demo->input_len > 0)
     {
-        Mel_Vec2 text_size = mel_font_atlas_measure_text(pool, font, str8_from_cstr(demo->input_buf));
+        Mel_Vec2 text_size = mel_font_atlas_measure_text(font, str8_from_cstr(demo->input_buf));
         cursor_x += text_size.x;
     }
 
@@ -289,13 +290,13 @@ static void draw_left_panel(TrieDemo* demo, Mel_Render_List* list,
         prefix_str[plen] = '\0';
         strcpy(suffix_str, result + plen);
 
-        mel_font_atlas_draw_text(pool, font, font_list, str8_from_cstr(prefix_str),
+        mel_font_atlas_draw_text(font, font_list, str8_from_cstr(prefix_str),
             input_x + 6, ry, green);
 
         if (suffix_str[0] != '\0')
         {
-            Mel_Vec2 prefix_size = mel_font_atlas_measure_text(pool, font, str8_from_cstr(prefix_str));
-            mel_font_atlas_draw_text(pool, font, font_list, str8_from_cstr(suffix_str),
+            Mel_Vec2 prefix_size = mel_font_atlas_measure_text(font, str8_from_cstr(prefix_str));
+            mel_font_atlas_draw_text(font, font_list, str8_from_cstr(suffix_str),
                 input_x + 6 + prefix_size.x, ry, white);
         }
     }
@@ -308,32 +309,32 @@ static void draw_left_panel(TrieDemo* demo, Mel_Render_List* list,
             demo->scroll_offset + visible_count,
             demo->result_count);
         f32 scroll_y = results_y + (f32)MAX_VISIBLE_RESULTS * line_height + 5.0f;
-        mel_font_atlas_draw_text(pool, font, font_list, str8_from_cstr(scroll_buf),
+        mel_font_atlas_draw_text(font, font_list, str8_from_cstr(scroll_buf),
             input_x + 6, scroll_y, dim);
     }
 
     char word_buf[64];
     snprintf(word_buf, sizeof(word_buf), "Words: %d", demo->word_count);
     f32 word_y = panel_h - 60.0f;
-    mel_font_atlas_draw_text(pool, font, font_list, str8_from_cstr(word_buf),
+    mel_font_atlas_draw_text(font, font_list, str8_from_cstr(word_buf),
         input_x + 6, word_y, dim);
 
-    mel_font_atlas_draw_text(pool, font, font_list, S8("A-Z:type  BS:delete  TAB:complete"),
+    mel_font_atlas_draw_text(font, font_list, S8("A-Z:type  BS:delete  TAB:complete"),
         input_x + 6, word_y + 20.0f, dim);
-    mel_font_atlas_draw_text(pool, font, font_list, S8("ENTER:add  DEL:remove  Shift+C:clear  ESC:quit"),
+    mel_font_atlas_draw_text(font, font_list, S8("ENTER:add  DEL:remove  Shift+C:clear  ESC:quit"),
         input_x + 6, word_y + 38.0f, dim);
 }
 
 static void draw_right_panel(TrieDemo* demo, Mel_Render_List* list,
-                             Mel_Render_List* font_list, Mel_Font_Atlas_Pool* pool,
-                             Mel_Font_Handle font, f32 x_offset, f32 panel_w, f32 panel_h)
+                             Mel_Render_List* font_list,
+                             Mel_Font_Atlas_Handle font, f32 x_offset, f32 panel_w, f32 panel_h)
 {
     Mel_Vec4 bg = mel_vec4(0.08f, 0.08f, 0.1f, 1.0f);
 
     push_rect(list, x_offset, 0, panel_w, panel_h, bg);
 
     Mel_Vec4 title_color = mel_vec4(0.6f, 0.6f, 0.7f, 1.0f);
-    mel_font_atlas_draw_text(pool, font, font_list, S8("Trie Structure"),
+    mel_font_atlas_draw_text(font, font_list, S8("Trie Structure"),
         x_offset + 10.0f, 10.0f, title_color);
 
     if (!demo->trie.root) return;
@@ -345,7 +346,7 @@ static void draw_right_panel(TrieDemo* demo, Mel_Render_List* list,
     draw_trie_node(demo->trie.root, '.', 0,
                   tree_x_min, tree_x_max, tree_y,
                   demo->input_buf, demo->input_len,
-                  list, font_list, pool, font, true);
+                  list, font_list, font, true);
 }
 
 static void on_init(void)
@@ -353,8 +354,8 @@ static void on_init(void)
     Mel_Gpu_Device* dev = mel_gpu_dev();
     Mel_Swapchain* sc = &mel_swapchain_registry_get(s_swapchain_handle)->swapchain;
 
-    s_font_handle = mel_font_atlas_pool_load(mel_font_pool(),
-        .path = S8("/System/Library/Fonts/Monaco.ttf"), .size = 18.0f);
+    s_font_handle = mel_font_atlas_load(
+        .desc = mel_font_desc_load_ttf(S8("/System/Library/Fonts/Monaco.ttf")), .size = 18.0f);
 
 
     demo_init(&s_demo);
@@ -438,8 +439,8 @@ static void app_update(Mel_Sim_Ctx* sim, f32 dt, void* user)
     f32 left_w = sw * 0.38f;
     f32 right_w = sw - left_w;
 
-    draw_left_panel(&s_demo, &s_sprite_list, &s_font_list, mel_font_pool(), s_font_handle, left_w, sh);
-    draw_right_panel(&s_demo, &s_sprite_list, &s_font_list, mel_font_pool(), s_font_handle, left_w, right_w, sh);
+    draw_left_panel(&s_demo, &s_sprite_list, &s_font_list, s_font_handle, left_w, sh);
+    draw_right_panel(&s_demo, &s_sprite_list, &s_font_list, s_font_handle, left_w, right_w, sh);
 }
 
 void app_event(SDL_Event* event)

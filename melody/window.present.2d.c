@@ -1,6 +1,7 @@
 #include "window.present.2d.h"
 #include "ecs.world.h"
 #include "render.ecs.2d.h"
+#include "gpu.device.h"
 #include "gpu.swapchain.h"
 #include "swapchain.h"
 #include "window.h"
@@ -133,7 +134,6 @@ Mel_Window_Present_2D_Handle mel_window_present_world_2d_opt(Mel_Window_Handle w
         .imgui_fn = opt.imgui_fn,
         .imgui_user = opt.imgui_user,
         .install_as_current_graph = true,
-        .font_pool = opt.font_pool,
         .alloc = opt.alloc);
     if (!ok)
     {

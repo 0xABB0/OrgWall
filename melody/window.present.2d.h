@@ -33,7 +33,6 @@ typedef struct {
     bool enable_imgui;
     Mel_Render_Default_2D_ImGui_Fn imgui_fn;
     void* imgui_user;
-    Mel_Font_Atlas_Pool* font_pool;
     const Mel_Alloc* alloc;
 } Mel_Window_Present_2D_Opt;
 

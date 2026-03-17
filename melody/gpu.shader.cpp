@@ -1,5 +1,5 @@
-#define VK_NO_PROTOTYPES
 #include "gpu.shader.h"
+#include "gpu.device.h"
 extern "C" {
 #include "event.channel.h"
 #include "allocator.heap.h"
@@ -163,8 +163,8 @@ extern "C" void mel_gpu_shader_init_opt(Mel_Gpu_Shader* shader, Mel_Gpu_Device* 
         if (!frag_ok) { free(vert_code); }
         assert(frag_ok);
 
-        shader->vertex = create_shader_module(dev, vert_code, vert_size);
-        shader->fragment = create_shader_module(dev, frag_code, frag_size);
+        shader->_vertex = create_shader_module(dev, vert_code, vert_size);
+        shader->_fragment = create_shader_module(dev, frag_code, frag_size);
 
         free(vert_code);
         free(frag_code);
@@ -179,7 +179,7 @@ extern "C" void mel_gpu_shader_init_opt(Mel_Gpu_Shader* shader, Mel_Gpu_Device* 
         size_t compute_size = 0;
         bool ok = compile_entry_point(source_buf, compute_entry_buf, SLANG_STAGE_COMPUTE, &compute_code, &compute_size);
         assert(ok);
-        shader->compute = create_shader_module(dev, compute_code, compute_size);
+        shader->_compute = create_shader_module(dev, compute_code, compute_size);
         free(compute_code);
         SDL_Log("Shader compiled successfully (compute)");
         return;
@@ -196,8 +196,8 @@ extern "C" void mel_gpu_shader_init_opt(Mel_Gpu_Shader* shader, Mel_Gpu_Device* 
         free(mesh_code);
     assert(frag_ok);
 
-    shader->mesh = create_shader_module(dev, mesh_code, mesh_size);
-    shader->fragment = create_shader_module(dev, frag_code, frag_size);
+    shader->_mesh = create_shader_module(dev, mesh_code, mesh_size);
+    shader->_fragment = create_shader_module(dev, frag_code, frag_size);
     free(mesh_code);
     free(frag_code);
     SDL_Log("Shader compiled successfully (mesh + fragment)");
@@ -208,30 +208,30 @@ extern "C" void mel_gpu_shader_shutdown(Mel_Gpu_Shader* shader, Mel_Gpu_Device* 
     assert(shader != nullptr);
     assert(dev != nullptr);
 
-    if (shader->vertex)
+    if (shader->_vertex)
     {
-        vkDestroyShaderModule(dev->device, shader->vertex, nullptr);
-        shader->vertex = VK_NULL_HANDLE;
+        vkDestroyShaderModule(dev->device, (VkShaderModule)shader->_vertex, nullptr);
+        shader->_vertex = nullptr;
     }
 
-    if (shader->fragment)
+    if (shader->_fragment)
     {
-        vkDestroyShaderModule(dev->device, shader->fragment, nullptr);
-        shader->fragment = VK_NULL_HANDLE;
+        vkDestroyShaderModule(dev->device, (VkShaderModule)shader->_fragment, nullptr);
+        shader->_fragment = nullptr;
     }
-    if (shader->compute)
+    if (shader->_compute)
     {
-        vkDestroyShaderModule(dev->device, shader->compute, nullptr);
-        shader->compute = VK_NULL_HANDLE;
+        vkDestroyShaderModule(dev->device, (VkShaderModule)shader->_compute, nullptr);
+        shader->_compute = nullptr;
     }
-    if (shader->task)
+    if (shader->_task)
     {
-        vkDestroyShaderModule(dev->device, shader->task, nullptr);
-        shader->task = VK_NULL_HANDLE;
+        vkDestroyShaderModule(dev->device, (VkShaderModule)shader->_task, nullptr);
+        shader->_task = nullptr;
     }
-    if (shader->mesh)
+    if (shader->_mesh)
     {
-        vkDestroyShaderModule(dev->device, shader->mesh, nullptr);
-        shader->mesh = VK_NULL_HANDLE;
+        vkDestroyShaderModule(dev->device, (VkShaderModule)shader->_mesh, nullptr);
+        shader->_mesh = nullptr;
     }
 }

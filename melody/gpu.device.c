@@ -434,6 +434,9 @@ static bool create_logical_device(Mel_Gpu_Device* dev)
     VkPhysicalDeviceMeshShaderFeaturesEXT mesh_shader_query = {
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT,
     };
+    VkPhysicalDeviceDescriptorIndexingFeatures descriptor_indexing_query = {
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES,
+    };
     VkPhysicalDeviceBufferDeviceAddressFeatures bda_query = {
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES,
     };
@@ -450,6 +453,8 @@ static bool create_logical_device(Mel_Gpu_Device* dev)
         .pNext = &sync2_query,
     };
     void* query_chain = &dynamic_rendering_query;
+    descriptor_indexing_query.pNext = query_chain;
+    query_chain = &descriptor_indexing_query;
     if (has_mesh_shader)
     {
         mesh_shader_query.pNext = query_chain;
@@ -468,6 +473,9 @@ static bool create_logical_device(Mel_Gpu_Device* dev)
         .descriptor_buffer = dev->has_descriptor_buffer,
         .shader_draw_parameters = vulkan11_query.shaderDrawParameters == VK_TRUE,
         .mesh_shader = has_mesh_shader && mesh_shader_query.meshShader == VK_TRUE,
+        .descriptor_indexing = descriptor_indexing_query.descriptorBindingPartiallyBound == VK_TRUE
+                            && descriptor_indexing_query.runtimeDescriptorArray == VK_TRUE
+                            && descriptor_indexing_query.shaderSampledImageArrayNonUniformIndexing == VK_TRUE,
         .multi_draw_indirect = supported_features.features.multiDrawIndirect == VK_TRUE,
         .timestamp_queries = dev->device_properties.properties.limits.timestampPeriod > 0.0f,
         .portability_subset = has_portability,
@@ -489,6 +497,15 @@ static bool create_logical_device(Mel_Gpu_Device* dev)
     VkPhysicalDeviceMeshShaderFeaturesEXT mesh_shader_features = {
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT,
         .meshShader = dev->capabilities.mesh_shader ? VK_TRUE : VK_FALSE,
+    };
+
+    VkPhysicalDeviceDescriptorIndexingFeatures descriptor_indexing_features = {
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES,
+        .descriptorBindingPartiallyBound = dev->capabilities.descriptor_indexing ? VK_TRUE : VK_FALSE,
+        .runtimeDescriptorArray = dev->capabilities.descriptor_indexing ? VK_TRUE : VK_FALSE,
+        .shaderSampledImageArrayNonUniformIndexing = dev->capabilities.descriptor_indexing ? VK_TRUE : VK_FALSE,
+        .descriptorBindingVariableDescriptorCount = dev->capabilities.descriptor_indexing ? VK_TRUE : VK_FALSE,
+        .descriptorBindingSampledImageUpdateAfterBind = dev->capabilities.descriptor_indexing ? VK_TRUE : VK_FALSE,
     };
 
     VkPhysicalDeviceBufferDeviceAddressFeatures bda_features = {
@@ -513,14 +530,18 @@ static bool create_logical_device(Mel_Gpu_Device* dev)
         .pNext = &sync2_features,
         .dynamicRendering = dev->capabilities.dynamic_rendering ? VK_TRUE : VK_FALSE,
     };
+
+    descriptor_indexing_features.pNext = &dynamic_rendering_features;
+    void* feature_chain = &descriptor_indexing_features;
     if (dev->capabilities.mesh_shader)
     {
-        mesh_shader_features.pNext = &dynamic_rendering_features;
+        mesh_shader_features.pNext = feature_chain;
+        feature_chain = &mesh_shader_features;
     }
 
     VkPhysicalDeviceFeatures2 features2 = {
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
-        .pNext = dev->capabilities.mesh_shader ? (void*)&mesh_shader_features : &dynamic_rendering_features,
+        .pNext = feature_chain,
         .features = {
             .multiDrawIndirect = dev->capabilities.multi_draw_indirect ? VK_TRUE : VK_FALSE,
         },
@@ -597,8 +618,9 @@ bool mel_gpu_device_init_opt(Mel_Gpu_Device* dev, Mel_Gpu_Device_Opt opt)
     if (!create_logical_device(dev))                                            goto fail;
     if (!create_vma(dev))                                                       goto fail;
 
-    SDL_Log("Vulkan device initialized (Vulkan 1.3, sync2, dynamic rendering, BDA%s)",
-        dev->has_descriptor_buffer ? ", descriptor buffer" : "");
+    SDL_Log("Vulkan device initialized (Vulkan 1.3, sync2, dynamic rendering, BDA%s%s)",
+        dev->has_descriptor_buffer ? ", descriptor buffer" : "",
+        dev->capabilities.descriptor_indexing ? ", descriptor indexing" : "");
     return true;
 
 fail:

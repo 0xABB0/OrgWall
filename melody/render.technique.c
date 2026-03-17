@@ -7,6 +7,7 @@
 #include "mesh.pass.h"
 #include "sprite.pass.h"
 #include "text.pass.h"
+#include "gpu.device.h"
 #include "core.engine.h"
 #include "collection.array.h"
 #include "allocator.heap.h"
@@ -460,10 +461,10 @@ static Mel_Technique_Compile_Result mel__compile_mesh_visibility_buffer(const Me
 
     str8 visibility_name = str8_fmt(mel_alloc_heap(), "mesh_visibility_%u", ctx->plan_ctx->binding_index);
     Mel_Render_Target* visibility_target = mel_frame_plan_named_color_target(ctx->plan_ctx->plan,
-        ctx->plan_ctx->binding.swapchain, visibility_name, VK_FORMAT_R32G32B32A32_SFLOAT);
+        ctx->plan_ctx->binding.swapchain, visibility_name, MEL_GPU_FORMAT_R32G32B32A32_SFLOAT);
     str8 attribute_name = str8_fmt(mel_alloc_heap(), "mesh_visibility_attr_%u", ctx->plan_ctx->binding_index);
     Mel_Render_Target* attribute_target = mel_frame_plan_named_color_target(ctx->plan_ctx->plan,
-        ctx->plan_ctx->binding.swapchain, attribute_name, VK_FORMAT_R32G32B32A32_SFLOAT);
+        ctx->plan_ctx->binding.swapchain, attribute_name, MEL_GPU_FORMAT_R32G32B32A32_SFLOAT);
     Mel_Render_Target* depth_target = mel_frame_plan_swapchain_depth_target(ctx->plan_ctx->plan,
         ctx->plan_ctx->binding.swapchain);
 
@@ -580,16 +581,16 @@ static Mel_Technique_Compile_Result mel__compile_mesh_deferred(const Mel_Techniq
 
     str8 deferred_normal_name = str8_fmt(mel_alloc_heap(), "mesh_deferred_normal_%u", ctx->plan_ctx->binding_index);
     Mel_Render_Target* deferred_normal_target = mel_frame_plan_named_color_target(ctx->plan_ctx->plan,
-        ctx->plan_ctx->binding.swapchain, deferred_normal_name, VK_FORMAT_R32G32B32A32_SFLOAT);
+        ctx->plan_ctx->binding.swapchain, deferred_normal_name, MEL_GPU_FORMAT_R32G32B32A32_SFLOAT);
     str8 deferred_albedo_name = str8_fmt(mel_alloc_heap(), "mesh_deferred_albedo_%u", ctx->plan_ctx->binding_index);
     Mel_Render_Target* deferred_albedo_target = mel_frame_plan_named_color_target(ctx->plan_ctx->plan,
-        ctx->plan_ctx->binding.swapchain, deferred_albedo_name, VK_FORMAT_R32G32B32A32_SFLOAT);
+        ctx->plan_ctx->binding.swapchain, deferred_albedo_name, MEL_GPU_FORMAT_R32G32B32A32_SFLOAT);
     str8 deferred_emissive_name = str8_fmt(mel_alloc_heap(), "mesh_deferred_emissive_%u", ctx->plan_ctx->binding_index);
     Mel_Render_Target* deferred_emissive_target = mel_frame_plan_named_color_target(ctx->plan_ctx->plan,
-        ctx->plan_ctx->binding.swapchain, deferred_emissive_name, VK_FORMAT_R32G32B32A32_SFLOAT);
+        ctx->plan_ctx->binding.swapchain, deferred_emissive_name, MEL_GPU_FORMAT_R32G32B32A32_SFLOAT);
     str8 deferred_meta_name = str8_fmt(mel_alloc_heap(), "mesh_deferred_meta_%u", ctx->plan_ctx->binding_index);
     Mel_Render_Target* deferred_meta_target = mel_frame_plan_named_color_target(ctx->plan_ctx->plan,
-        ctx->plan_ctx->binding.swapchain, deferred_meta_name, VK_FORMAT_R32G32B32A32_SFLOAT);
+        ctx->plan_ctx->binding.swapchain, deferred_meta_name, MEL_GPU_FORMAT_R32G32B32A32_SFLOAT);
     Mel_Render_Target* depth_target = mel_frame_plan_swapchain_depth_target(ctx->plan_ctx->plan,
         ctx->plan_ctx->binding.swapchain);
 
@@ -939,7 +940,7 @@ static void mel__imgui_execute(Mel_Render_Pass_Ctx* ctx)
     igRender();
     ImDrawData* draw_data = igGetDrawData();
     if (draw_data && draw_data->CmdListsCount > 0)
-        ImGui_ImplVulkan_RenderDrawData(draw_data, ctx->cmd.cmd, VK_NULL_HANDLE);
+        ImGui_ImplVulkan_RenderDrawData(draw_data, (VkCommandBuffer)ctx->cmd._cmd, VK_NULL_HANDLE);
 }
 
 static Mel_Technique_Compile_Result mel__compile_imgui(const Mel_Technique_Compile_Ctx* ctx)

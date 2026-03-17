@@ -69,26 +69,26 @@ static void mel__text_draw_desc(Mel_Font_Descriptor* desc, Mel_Gpu_Texture* text
     }
 }
 
-void mel_text_draw_font_atlas_opt(Mel_Font_Atlas_Pool* pool, Mel_Font_Handle handle,
+void mel_text_draw_font_atlas_opt(Mel_Font_Atlas_Handle handle,
     Mel_Render_List* list, str8 text, Mel_Text_Draw_Opt opt)
 {
-    Mel_Font_Atlas_Entry* entry = mel_font_atlas_pool_get(pool, handle);
+    Mel_Font_Atlas_Entry* entry = mel_font_atlas_get(handle);
     assert(entry != nullptr);
     mel__text_draw_desc(&entry->desc, &entry->atlas_texture, MEL_TEXT_RENDER_ATLAS, 1.0f, list, text, opt);
 }
 
-void mel_text_draw_font_sdf_opt(Mel_Font_SDF_Pool* pool, Mel_Font_Handle handle,
+void mel_text_draw_font_sdf_opt(Mel_Font_SDF_Handle handle,
     Mel_Render_List* list, str8 text, Mel_Text_Draw_Opt opt)
 {
-    Mel_Font_SDF_Entry* entry = mel_font_sdf_pool_get(pool, handle);
+    Mel_Font_SDF_Entry* entry = mel_font_sdf_get(handle);
     assert(entry != nullptr);
     mel__text_draw_desc(&entry->desc, &entry->texture, MEL_TEXT_RENDER_SDF, entry->px_range, list, text, opt);
 }
 
-void mel_text_draw_font_msdf_opt(Mel_Font_MSDF_Pool* pool, Mel_Font_Handle handle,
+void mel_text_draw_font_msdf_opt(Mel_Font_MSDF_Handle handle,
     Mel_Render_List* list, str8 text, Mel_Text_Draw_Opt opt)
 {
-    Mel_Font_MSDF_Entry* entry = mel_font_msdf_pool_get(pool, handle);
+    Mel_Font_MSDF_Entry* entry = mel_font_msdf_get(handle);
     assert(entry != nullptr);
     mel__text_draw_desc(&entry->desc, &entry->texture, MEL_TEXT_RENDER_MSDF, entry->px_range, list, text, opt);
 }

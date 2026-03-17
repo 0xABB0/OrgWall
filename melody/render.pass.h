@@ -20,7 +20,7 @@ typedef struct Mel_Pass_Write_Target Mel_Pass_Write_Target;
 
 struct Mel_Pass_Write_Target {
     Mel_Render_Target* target;
-    VkAttachmentLoadOp load_op;
+    Mel_Gpu_Load_Op load_op;
     union {
         struct { f32 r, g, b, a; } color;
         struct { f32 depth; u32 stencil; } depth;

@@ -43,8 +43,8 @@ void mel_swapchain_registry_remove(Mel_Swapchain_Handle handle, Mel_Gpu_Device* 
 
     mel_swapchain_shutdown(&entry->swapchain, dev);
 
-    if (entry->surface != VK_NULL_HANDLE)
-        mel_gpu_surface_destroy(dev, entry->surface);
+    if (entry->_surface != nullptr)
+        mel_gpu_surface_destroy(dev, entry->_surface);
 
     mel_slotmap_remove(&s_swapchains, handle.handle);
 }
@@ -95,8 +95,8 @@ void mel_swapchain_registry_destroy_all(Mel_Gpu_Device* dev)
     for (u32 i = 0; i < count; i++)
     {
         mel_swapchain_shutdown(&entries[i].swapchain, dev);
-        if (entries[i].surface != VK_NULL_HANDLE)
-            mel_gpu_surface_destroy(dev, entries[i].surface);
+        if (entries[i]._surface != nullptr)
+            mel_gpu_surface_destroy(dev, entries[i]._surface);
     }
 
     mel_slotmap_free(&s_swapchains);

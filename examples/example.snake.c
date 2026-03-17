@@ -14,6 +14,7 @@
 #include "render.camera.h"
 #include "text.draw.h"
 #include "font.atlas.h"
+#include "font.desc.h"
 #include "vfs.h"
 #include "vfs.backend.os.h"
 #include "allocator.heap.h"
@@ -63,7 +64,7 @@ typedef struct {
 
 static Mel_Window_Handle s_window_handle;
 static Mel_Window_Present_2D_Handle s_present;
-static Mel_Font_Handle s_font_handle;
+static Mel_Font_Atlas_Handle s_font_handle;
 static Snake s_snake;
 static Mel_Sim_Ctx s_sim;
 static u8 s_event_buf[4096];
@@ -341,7 +342,7 @@ static void push_rect(Mel_Render_List* list, f32 x, f32 y, f32 w, f32 h, Mel_Vec
         .depth = depth);
 }
 
-static void snake_draw_text(Snake* s, Mel_Render_List* list, Mel_Font_Atlas_Pool* pool, Mel_Font_Handle font)
+static void snake_draw_text(Snake* s, Mel_Render_List* list, Mel_Font_Atlas_Handle font)
 {
     Mel_Vec4 white = mel_vec4(1.0f, 1.0f, 1.0f, 1.0f);
     Mel_Vec4 dim = mel_vec4(0.6f, 0.6f, 0.6f, 1.0f);
@@ -350,15 +351,15 @@ static void snake_draw_text(Snake* s, Mel_Render_List* list, Mel_Font_Atlas_Pool
 
     char buf[64];
 
-    mel_text_draw_font_atlas(pool, font, list, S8("SNAKE"),
+    mel_text_draw_font_atlas(font, list, S8("SNAKE"),
         .x = GRID_X_OFFSET, .y = 20.0f, .style = white_style);
 
     snprintf(buf, sizeof(buf), "SCORE: %u", s->score);
-    mel_text_draw_font_atlas(pool, font, list, str8_from_cstr(buf),
+    mel_text_draw_font_atlas(font, list, str8_from_cstr(buf),
         .x = INFO_X, .y = GRID_Y_OFFSET, .style = white_style);
 
     snprintf(buf, sizeof(buf), "LENGTH: %u", s->length);
-    mel_text_draw_font_atlas(pool, font, list, str8_from_cstr(buf),
+    mel_text_draw_font_atlas(font, list, str8_from_cstr(buf),
         .x = INFO_X, .y = GRID_Y_OFFSET + 40.0f, .style = white_style);
 
     if (s->game_over)
@@ -367,9 +368,9 @@ static void snake_draw_text(Snake* s, Mel_Render_List* list, Mel_Font_Atlas_Pool
         Mel_Text_Style red_style = mel_text_style(red);
         f32 cx = GRID_X_OFFSET + 30.0f;
         f32 cy = GRID_Y_OFFSET + GRID_H * CELL_SIZE / 2.0f - 10.0f;
-        mel_text_draw_font_atlas(pool, font, list, S8("GAME OVER"),
+        mel_text_draw_font_atlas(font, list, S8("GAME OVER"),
             .x = cx, .y = cy, .style = red_style);
-        mel_text_draw_font_atlas(pool, font, list, S8("R to restart"),
+        mel_text_draw_font_atlas(font, list, S8("R to restart"),
             .x = cx + 10.0f, .y = cy + 30.0f, .style = dim_style);
     }
 }
@@ -402,7 +403,7 @@ static void produce_grid(Mel_Render_List* list, void* user)
 static void produce_hud_text(Mel_Render_List* list, void* user)
 {
     MEL_UNUSED(user);
-    snake_draw_text(&s_snake, list, mel_font_pool(), s_font_handle);
+    snake_draw_text(&s_snake, list, s_font_handle);
 }
 
 static void snake_render_init(void)
@@ -450,8 +451,8 @@ static void snake_render_shutdown(void)
 
 static void on_init(void)
 {
-    s_font_handle = mel_font_atlas_pool_load(mel_font_pool(),
-        .path = S8("/System/Library/Fonts/Monaco.ttf"), .size = 18.0f);
+    s_font_handle = mel_font_atlas_load(
+        .desc = mel_font_desc_load_ttf(S8("/System/Library/Fonts/Monaco.ttf")), .size = 18.0f);
 
     snake_init(&s_snake);
 

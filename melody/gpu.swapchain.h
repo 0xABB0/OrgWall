@@ -1,25 +1,22 @@
 #pragma once
 
 #include "swapchain.fwd.h"
-#include "core.types.h"
+#include "gpu.types.h"
 #include "gpu.device.fwd.h"
 #include "window.fwd.h"
 #include "allocator.fwd.h"
 
-#define VK_NO_PROTOTYPES
-#include <vulkan/vulkan.h>
-
 typedef struct {
-    VkSurfaceKHR surface;
+    void* _surface;
     u32 width;
     u32 height;
     u32 frame_count;
-    VkPresentModeKHR preferred_present_mode;
+    Mel_Gpu_Present_Mode preferred_present_mode;
     const Mel_Alloc* alloc;
 } Mel_Gpu_Swapchain_Opt;
 
 typedef struct {
-    VkPresentModeKHR preferred_present_mode;
+    Mel_Gpu_Present_Mode preferred_present_mode;
     u32 frame_count;
     const Mel_Alloc* alloc;
 } Mel_Gpu_Window_Swapchain_Opt;

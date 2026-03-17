@@ -1,8 +1,11 @@
 #pragma once
 
-#include "gpu.device.h"
+#include "gpu.types.h"
+#include "gpu.device.fwd.h"
 #include "gpu.descriptor.h"
 #include "gpu.shader.fwd.h"
+#include "gpu.cmd.fwd.h"
+#include "gpu.buffer.fwd.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -26,15 +29,28 @@ extern "C" {
 #define MEL_GPU_PIPELINE_COMPUTE  1
 #define MEL_GPU_PIPELINE_MESH     2
 
+typedef struct Mel_Gpu_Vertex_Binding {
+    u32 binding;
+    u32 stride;
+    u32 input_rate;
+} Mel_Gpu_Vertex_Binding;
+
+typedef struct Mel_Gpu_Vertex_Attribute {
+    u32 location;
+    u32 binding;
+    Mel_Gpu_Format format;
+    u32 offset;
+} Mel_Gpu_Vertex_Attribute;
+
 typedef struct Mel_Gpu_Pipeline Mel_Gpu_Pipeline;
 
 struct Mel_Gpu_Pipeline {
-    VkPipeline pipeline;
-    VkPipelineLayout layout;
-    VkPipelineBindPoint bind_point;
-    VkDescriptorSetLayout descriptor_layout;
-    VkDescriptorPool descriptor_pool;
-    VkDescriptorPool* descriptor_pools;
+    void* _pipeline;
+    void* _layout;
+    u32 _bind_point;
+    void* _descriptor_layout;
+    void* _descriptor_pool;
+    void** _descriptor_pools;
     u32 descriptor_pool_count;
     u32 descriptor_pool_capacity;
     u32 descriptor_pool_max_sets;
@@ -45,14 +61,14 @@ struct Mel_Gpu_Pipeline {
 
 typedef struct {
     Mel_Gpu_Shader* shader;
-    VkVertexInputBindingDescription* bindings;
+    Mel_Gpu_Vertex_Binding* bindings;
     u32 binding_count;
-    VkVertexInputAttributeDescription* attributes;
+    Mel_Gpu_Vertex_Attribute* attributes;
     u32 attribute_count;
-    VkFormat color_format;
-    VkFormat* color_formats;
+    Mel_Gpu_Format color_format;
+    Mel_Gpu_Format* color_formats;
     u32 color_format_count;
-    VkFormat depth_format;
+    Mel_Gpu_Format depth_format;
     u32 blend_mode;
     u32 cull_mode;
     u32 topology;
@@ -60,7 +76,7 @@ typedef struct {
     bool depth_test;
     bool depth_write;
     u32 push_constant_size;
-    VkShaderStageFlags push_constant_stages;
+    Mel_Gpu_Shader_Stage push_constant_stages;
     bool use_texture;
     bool dynamic_cull_mode;
     u32 max_descriptor_sets;
@@ -73,16 +89,16 @@ void mel_gpu_pipeline_init_opt(Mel_Gpu_Pipeline* pipeline, Mel_Gpu_Device* dev, 
 
 void mel_gpu_pipeline_shutdown(Mel_Gpu_Pipeline* pipeline, Mel_Gpu_Device* dev);
 
-void mel_gpu_pipeline_bind(Mel_Gpu_Pipeline* pipeline, VkCommandBuffer cmd);
+void mel_gpu_pipeline_bind(Mel_Gpu_Pipeline* pipeline, Mel_Gpu_Cmd* cmd);
 
-VkDescriptorSet mel_gpu_pipeline_alloc_descriptor(Mel_Gpu_Pipeline* pipeline, Mel_Gpu_Device* dev);
+void* mel_gpu_pipeline_alloc_descriptor(Mel_Gpu_Pipeline* pipeline, Mel_Gpu_Device* dev);
 void mel_gpu_pipeline_write_texture(Mel_Gpu_Pipeline* pipeline, Mel_Gpu_Device* dev,
-                                    VkDescriptorSet set, VkImageView view, VkSampler sampler);
+                                    void* set, void* view, void* sampler);
 void mel_gpu_pipeline_write_texture_binding(Mel_Gpu_Pipeline* pipeline, Mel_Gpu_Device* dev,
-                                            VkDescriptorSet set, u32 binding, VkImageView view, VkSampler sampler);
+                                            void* set, u32 binding, void* view, void* sampler);
 void mel_gpu_pipeline_write_buffer_binding(Mel_Gpu_Pipeline* pipeline, Mel_Gpu_Device* dev,
-                                           VkDescriptorSet set, u32 binding, VkBuffer buffer,
-                                           VkDeviceSize offset, VkDeviceSize range, VkDescriptorType type);
+                                           void* set, u32 binding, Mel_Gpu_Buffer* buffer,
+                                           u64 offset, u64 range, u32 type);
 
 #ifdef __cplusplus
 }

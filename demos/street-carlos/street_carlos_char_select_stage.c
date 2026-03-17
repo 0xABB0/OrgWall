@@ -16,11 +16,11 @@
 #include "render.list.h"
 #include "sprite.pass.h"
 
-static void draw_centered_text(Street_Carlos_Ctx* ctx, Mel_Render_List* list, Mel_Font_Handle font, str8 text, f32 y, Mel_Vec4 color)
+static void draw_centered_text(Street_Carlos_Ctx* ctx, Mel_Render_List* list, Mel_Font_Atlas_Handle font, str8 text, f32 y, Mel_Vec4 color)
 {
-    Mel_Vec2 size = mel_font_atlas_measure_text(&ctx->font_pool, font, text);
+    Mel_Vec2 size = mel_font_atlas_measure_text(font, text);
     f32 x = (f32)GAME_W * 0.5f - size.x * 0.5f;
-    mel_font_atlas_draw_text(&ctx->font_pool, font, list, text, x, y, color);
+    mel_font_atlas_draw_text(font, list, text, x, y, color);
 }
 
 static void draw_box_outline(Mel_Render_List* list, f32 x, f32 y, f32 w, f32 h, Mel_Vec4 color)
@@ -224,8 +224,8 @@ void street_carlos_char_select_stage_draw_world(Street_Carlos_Char_Select_Stage*
         game_draw_char_portrait_preview(ch, stage->previews[i].handle, 9000, 0, true,
             mel_rect(x + 4.0f, y + 3.0f, 18.0f, cell_h - 6.0f), list);
 
-        Mel_Vec2 size = mel_font_atlas_measure_text(&ctx->font_pool, ctx->ui_font, name);
-        mel_font_atlas_draw_text(&ctx->font_pool, ctx->ui_font, list, name,
+        Mel_Vec2 size = mel_font_atlas_measure_text(ctx->ui_font, name);
+        mel_font_atlas_draw_text(ctx->ui_font, list, name,
             x + 26.0f + mel_maxf((cell_w - 30.0f - size.x) * 0.5f, 0.0f), y + 7.0f, mel_vec4(1, 1, 1, 1));
     }
 

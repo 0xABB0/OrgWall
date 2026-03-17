@@ -214,21 +214,27 @@ editor.entities.* // entity list/inspector editor
 editor.helpers.* // shared editor utilities
 editor.registry.* // editor registration system
 
-font.atlas.* // font texture atlas
-font.descriptor.* // font descriptor metadata
+font.atlas.* // font texture atlas (module-static pool, typed Mel_Font_Atlas_Handle)
+font.desc.* // font descriptor (technique-agnostic font metadata, Mel_Font_Desc_Handle)
+font.sdf.* // SDF font rendering (module-static pool, typed Mel_Font_SDF_Handle)
+font.msdf.* // MSDF font rendering (typed Mel_Font_MSDF_Handle)
 
 gpu.buffer.* // GPU buffer management
-gpu.cmd.* // GPU command buffers
-gpu.descriptor.* // descriptor sets/layouts
-gpu.device.* // GPU device abstraction
+gpu.cmd.* // GPU command buffers (includes mesh shader indirect dispatch)
+gpu.descriptor.* // descriptor sets/layouts (descriptor indexing / partially bound support)
+gpu.device.* // GPU device abstraction (capabilities: descriptor_indexing, mesh_shader)
 gpu.format.* // GPU format helpers
 gpu.image.* // GPU image/texture backing
 gpu.impl.c // volk implementation (single compilation unit)
+gpu.indirect.* // indirect draw buffer helpers (typed VkDrawIndexedIndirectCommand wrapper)
 gpu.pipeline.* // graphics pipelines
+gpu.scratch_pool.* // transient GPU memory pool (memory-aliased render targets)
 gpu.shader.* // shader compilation/reflection (C++ for slang)
+gpu.staging.* // per-frame CPU->GPU staging system (batched copy commands)
+gpu.storage_pool.* // handle-indexed storage buffer (slotmap + dirty tracking + bulk upload)
 gpu.submit.* // command submission
 gpu.swapchain.* // swapchain management
-gpu.texture.* // texture abstraction layer
+gpu.texture.* // texture abstraction layer (format field for UNORM/SRGB selection)
 
 hash.xxh.* // xxHash (XXH3-64)
 
@@ -247,13 +253,16 @@ math.geo.irect.* // rectangle (integer)
 math.geo.plane.* // plane
 
 render.blackboard.* // render data storage (name->value)
-render.draw.* // retained draw context (rects, lines → GPU vertex buffers)
 render.camera.* // camera (view, projection, position)
+render.cull.* // GPU compute culling (frustum cull → visibility bitfield)
+render.draw.* // retained draw context (rects, lines → GPU vertex buffers)
+render.ecs.delta.* // ECS change detection helpers (added/removed/modified delta lists)
 render.graph.* // render graph (data-driven pass execution, owns per-frame resources)
 render.list.* // typed render list (retained insert/remove + ephemeral push, sort by key)
 render.pass.* // render passes
 render.sync.* // ECS→render list sync (flecs observers + bulk update)
 render.target.* // render target abstraction (swapchain or offscreen)
+render.texture_table.* // bindless descriptor set manager (global texture table)
 
 string.str8.* // utf-8 string (non-owning view)
 string.str16.* // utf-16 string (stub)

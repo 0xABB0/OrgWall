@@ -1,4 +1,6 @@
 #include "../melody/test.harness.h"
+#include "../melody/gpu.types.h"
+#include "../melody/gpu.device.h"
 #include "../melody/render.default.2d.h"
 #include "../melody/render.frame_plan.h"
 #include "../melody/render.material.h"
@@ -35,7 +37,7 @@ static void default2d_mock_present(Mel_Swapchain* sc, Mel_Gpu_Device* dev)
 static void default2d_mock_resize(Mel_Swapchain* sc, Mel_Gpu_Device* dev, u32 width, u32 height)
 {
     (void)dev;
-    sc->extent = (VkExtent2D){ width, height };
+    sc->extent_width = width; sc->extent_height = height;
 }
 
 static void default2d_mock_shutdown(Mel_Swapchain* sc, Mel_Gpu_Device* dev)
@@ -62,8 +64,8 @@ static Mel_Swapchain_Handle make_default2d_mock_swapchain(void)
         .swapchain = {
             .vtable = &s_default2d_mock_vtable,
             .data = mock,
-            .format = VK_FORMAT_B8G8R8A8_SRGB,
-            .extent = { 640, 480 },
+            .format = MEL_GPU_FORMAT_B8G8R8A8_SRGB,
+            .extent_width = 640, .extent_height = 480,
             .image_count = 2,
         },
     };
@@ -187,8 +189,8 @@ MEL_TEST(render_default_2d_supports_extra_overlay_views_and_exposes_primitives, 
     MEL_ASSERT_EQ(graph->passes.count, (usize)2);
     MEL_ASSERT(graph->passes.items[0].read_lists[0] == &world);
     MEL_ASSERT(graph->passes.items[1].read_lists[0] == &hud);
-    MEL_ASSERT_EQ(graph->passes.items[0].write_targets[0].load_op, (VkAttachmentLoadOp)VK_ATTACHMENT_LOAD_OP_CLEAR);
-    MEL_ASSERT_EQ(graph->passes.items[1].write_targets[0].load_op, (VkAttachmentLoadOp)VK_ATTACHMENT_LOAD_OP_LOAD);
+    MEL_ASSERT_EQ(graph->passes.items[0].write_targets[0].load_op, (Mel_Gpu_Load_Op)MEL_GPU_LOAD_OP_CLEAR);
+    MEL_ASSERT_EQ(graph->passes.items[1].write_targets[0].load_op, (Mel_Gpu_Load_Op)MEL_GPU_LOAD_OP_LOAD);
 
     mel_render_default_2d_shutdown(&renderer);
     mel_render_list_shutdown(&hud);
@@ -234,7 +236,7 @@ MEL_TEST(render_default_2d_can_append_imgui_pass_after_compiled_views, .tags = "
     MEL_ASSERT_EQ(graph->passes.count, (usize)2);
     MEL_ASSERT(graph->passes.items[0].read_lists[0] == &world);
     MEL_ASSERT_NULL(graph->passes.items[1].read_lists);
-    MEL_ASSERT_EQ(graph->passes.items[1].write_targets[0].load_op, (VkAttachmentLoadOp)VK_ATTACHMENT_LOAD_OP_LOAD);
+    MEL_ASSERT_EQ(graph->passes.items[1].write_targets[0].load_op, (Mel_Gpu_Load_Op)MEL_GPU_LOAD_OP_LOAD);
     MEL_ASSERT(mel_render_default_2d_target(&renderer) == graph->passes.items[1].write_targets[0].target);
     MEL_ASSERT_EQ(mel_frame_plan_resolved_technique_count(mel_render_default_2d_plan(&renderer)), (u32)2);
 

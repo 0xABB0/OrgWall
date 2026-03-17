@@ -3,7 +3,6 @@
 #include "core.types.h"
 #include "render.stage.2d.h"
 #include "render.sync.h"
-#include "font.atlas.fwd.h"
 #include "allocator.fwd.h"
 
 #include <flecs.h>
@@ -29,7 +28,6 @@ typedef struct {
     Mel_Gpu_Device* dev;
     Mel_Sprite_Pass* sprite_pass;
     Mel_Text_Pass* text_pass;
-    Mel_Font_Atlas_Pool* font_pool;
     const Mel_Alloc* alloc;
 } Mel_Render_ECS_2D_Opt;
 
@@ -39,7 +37,6 @@ typedef struct {
     Mel_Render_List text_list;
     Mel_Render_Sync sprite_sync;
     ecs_world_t* world;
-    Mel_Font_Atlas_Pool* font_pool;
     const Mel_Alloc* alloc;
 } Mel_Render_ECS_2D;
 

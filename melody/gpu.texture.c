@@ -1,5 +1,7 @@
-#define VK_NO_PROTOTYPES
 #include "gpu.texture.h"
+#include "gpu.device.h"
+#include "gpu.cmd.h"
+#include "gpu.types.vulkan.h"
 #include "string.str8.h"
 #include "gpu.buffer.h"
 #include "gpu.submit.h"
@@ -12,11 +14,11 @@ typedef struct {
     u32 height;
 } Gpu_Texture_Upload;
 
-static void upload_cmd(VkCommandBuffer cmd, void* user)
+static void upload_cmd(Mel_Gpu_Cmd* cmd, void* user)
 {
     Gpu_Texture_Upload* data = (Gpu_Texture_Upload*)user;
 
-    mel_gpu_image_transition(data->image, cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    mel_gpu_image_transition(data->image, cmd, MEL_GPU_IMAGE_LAYOUT_TRANSFER_DST);
 
     VkBufferImageCopy region = {
         .bufferOffset = 0,
@@ -32,10 +34,11 @@ static void upload_cmd(VkCommandBuffer cmd, void* user)
         .imageExtent = { data->width, data->height, 1 },
     };
 
-    vkCmdCopyBufferToImage(cmd, data->staging->buffer, data->image->image,
+    vkCmdCopyBufferToImage((VkCommandBuffer)cmd->_cmd,
+        (VkBuffer)data->staging->_handle, (VkImage)data->image->_handle,
         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
 
-    mel_gpu_image_transition(data->image, cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    mel_gpu_image_transition(data->image, cmd, MEL_GPU_IMAGE_LAYOUT_SHADER_READ_ONLY);
 }
 
 static void create_sampler(Mel_Gpu_Texture* tex, Mel_Gpu_Device* dev, bool nearest)
@@ -60,8 +63,10 @@ static void create_sampler(Mel_Gpu_Texture* tex, Mel_Gpu_Device* dev, bool neare
         .unnormalizedCoordinates = VK_FALSE,
     };
 
-    VkResult r = vkCreateSampler(dev->device, &sampler_info, nullptr, &tex->sampler);
+    VkSampler sampler = VK_NULL_HANDLE;
+    VkResult r = vkCreateSampler(dev->device, &sampler_info, nullptr, &sampler);
     assert(r == VK_SUCCESS);
+    tex->_sampler = sampler;
 }
 
 void mel_gpu_texture_init_opt(Mel_Gpu_Texture* tex, Mel_Gpu_Device* dev, Mel_Gpu_Texture_Opt opt)
@@ -109,19 +114,21 @@ void mel_gpu_texture_init_opt(Mel_Gpu_Texture* tex, Mel_Gpu_Device* dev, Mel_Gpu
     Mel_Gpu_Buffer staging;
     mel_gpu_buffer_init(&staging, dev,
         .size = image_size,
-        .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-        .memory_usage = VMA_MEMORY_USAGE_CPU_ONLY);
+        .usage = MEL_GPU_BUFFER_USAGE_TRANSFER_SRC,
+        .memory_usage = MEL_GPU_MEMORY_USAGE_CPU_TO_GPU);
 
     mel_gpu_buffer_upload(&staging, dev, pixel_data, image_size, 0);
     if (free_pixels)
         stbi_image_free((void*)pixel_data);
 
+    Mel_Gpu_Format format = opt.format ? opt.format : MEL_GPU_FORMAT_R8G8B8A8_SRGB;
+
     mel_gpu_image_init(&tex->image, dev,
         .width = w,
         .height = h,
-        .format = VK_FORMAT_R8G8B8A8_SRGB,
-        .usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
-        .aspect = VK_IMAGE_ASPECT_COLOR_BIT,
+        .format = format,
+        .usage = MEL_GPU_IMAGE_USAGE_SAMPLED | MEL_GPU_IMAGE_USAGE_TRANSFER_DST,
+        .aspect = MEL_GPU_ASPECT_COLOR,
         .alloc = opt.alloc);
 
     Gpu_Texture_Upload upload = {
@@ -151,17 +158,17 @@ void mel_gpu_texture_init_white(Mel_Gpu_Texture* tex, Mel_Gpu_Device* dev)
     Mel_Gpu_Buffer staging;
     mel_gpu_buffer_init(&staging, dev,
         .size = 4,
-        .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-        .memory_usage = VMA_MEMORY_USAGE_CPU_ONLY);
+        .usage = MEL_GPU_BUFFER_USAGE_TRANSFER_SRC,
+        .memory_usage = MEL_GPU_MEMORY_USAGE_CPU_TO_GPU);
 
     mel_gpu_buffer_upload(&staging, dev, white_pixel, 4, 0);
 
     mel_gpu_image_init(&tex->image, dev,
         .width = 1,
         .height = 1,
-        .format = VK_FORMAT_R8G8B8A8_SRGB,
-        .usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
-        .aspect = VK_IMAGE_ASPECT_COLOR_BIT);
+        .format = MEL_GPU_FORMAT_R8G8B8A8_SRGB,
+        .usage = MEL_GPU_IMAGE_USAGE_SAMPLED | MEL_GPU_IMAGE_USAGE_TRANSFER_DST,
+        .aspect = MEL_GPU_ASPECT_COLOR);
 
     Gpu_Texture_Upload upload = {
         .image = &tex->image,
@@ -181,10 +188,10 @@ void mel_gpu_texture_shutdown(Mel_Gpu_Texture* tex, Mel_Gpu_Device* dev)
     assert(tex != nullptr);
     assert(dev != nullptr);
 
-    if (tex->sampler)
+    if (tex->_sampler)
     {
-        vkDestroySampler(dev->device, tex->sampler, nullptr);
-        tex->sampler = VK_NULL_HANDLE;
+        vkDestroySampler(dev->device, (VkSampler)tex->_sampler, nullptr);
+        tex->_sampler = nullptr;
     }
 
     mel_gpu_image_shutdown(&tex->image, dev);

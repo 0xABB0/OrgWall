@@ -1166,7 +1166,7 @@ What must exist before implementing this architecture.
 Work that can be done independently BEFORE touching the rendering
 architecture. Each item is self-contained and valuable on its own.
 
-### 1. Global Texture Table
+### 1. Global Texture Table — DONE
 
 A bindless descriptor set manager. Allocates slots in a large
 descriptor array, returns indices. Textures are added/removed at
@@ -1180,7 +1180,7 @@ Requires: descriptor indexing capability in gpu.device.
 Self-contained: no dependency on the rest of the architecture.
 Tests: create table, add textures, verify indices, remove, reuse slots.
 
-### 2. Descriptor Indexing Support
+### 2. Descriptor Indexing Support — DONE
 
 Add `descriptor_indexing` to `Mel_Gpu_Capabilities`. Enable
 `VK_EXT_descriptor_indexing` (or Vulkan 1.2 descriptorIndexing feature)
@@ -1195,7 +1195,7 @@ gpu.descriptor.c (binding flags)
 
 Self-contained. Prerequisite for the texture table.
 
-### 3. Mesh Shader Command Support
+### 3. Mesh Shader Command Support — DONE
 
 Add `mel_gpu_cmd_draw_mesh_tasks_indirect` to `gpu.cmd`. Load
 `vkCmdDrawMeshTasksIndirectEXT` via volk. Gate behind
@@ -1207,7 +1207,7 @@ gpu.cmd.h / .c
 
 Self-contained. Small addition to existing module.
 
-### 4. Storage Buffer Handle-Indexed Wrapper
+### 4. Storage Buffer Handle-Indexed Wrapper — DONE
 
 A typed wrapper around `Mel_Gpu_Buffer` that provides:
 - Handle-based alloc/free (backed by slotmap)
@@ -1219,27 +1219,28 @@ This is the Manager's internal storage primitive. Building it
 standalone makes the Manager implementation trivial.
 
 ```
-gpu.storage_pool.h / .c
+gpu.storage_pool.h / .fwd.h / .c
 ```
 
 Requires: gpu.buffer, collection.slotmap, collection.bitset.
 Tests: alloc handles, set data, verify dirty tracking, upload dirty,
 free and reuse.
 
-### 5. Compute Culling Shader
+### 5. Compute Culling Shader — DONE
 
 A compute shader that reads an array of AABBs + a frustum (6 planes)
 and writes a visibility bitfield. One bit per object.
 
 ```
 shaders/cull_objects.slang
+render.cull.h
 ```
 
 Self-contained. Can be tested independently with a test compute
 pipeline: upload N bounds + frustum, dispatch, read back bitfield,
 verify against CPU reference implementation.
 
-### 6. ECS Change Detection Helpers
+### 6. ECS Change Detection Helpers — DONE
 
 Wrappers around flecs change detection to efficiently produce
 delta lists (added, removed, modified entities) for the ECS source's
@@ -1261,7 +1262,7 @@ render.ecs.delta.h / .c
 Requires: ecs.world.
 Tests: add entities, modify, remove, verify delta lists are correct.
 
-### 7. Per-Frame Staging System
+### 7. Per-Frame Staging System — DONE
 
 A ring buffer or per-frame arena for CPU->GPU uploads. Instead of
 mapping/unmapping buffers per dirty range, batch all dirty writes into
@@ -1278,7 +1279,7 @@ gpu.staging.h / .c
 Requires: gpu.buffer, gpu.cmd, allocator.arena.
 Self-contained.
 
-### 8. Indirect Draw Buffer Helpers
+### 8. Indirect Draw Buffer Helpers — DONE
 
 Typed buffer for `VkDrawIndexedIndirectCommand` or
 `VkDrawMeshTasksIndirectCommandEXT`. Provides:
@@ -1293,7 +1294,7 @@ gpu.indirect.h / .c
 Requires: gpu.buffer.
 Self-contained.
 
-### 9. Transient Scratch Pool
+### 9. Transient Scratch Pool — DONE
 
 A GPU memory pool for intermediate render targets that only live
 during a single pipeline `draw` call (G-buffer textures, temporary
@@ -1320,7 +1321,7 @@ Requires: gpu.image, allocator (for memory aliasing bookkeeping).
 Self-contained. Tests: acquire, release, verify aliasing, verify
 different-sized requests.
 
-### 10. GPU Type Abstraction Pass
+### 10. GPU Type Abstraction Pass — IN PROGRESS
 
 Replace all Vulkan types in `gpu.*` public headers with Melody-native
 equivalents. This is the foundation for multi-backend support.

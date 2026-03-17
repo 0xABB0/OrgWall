@@ -48,10 +48,9 @@ typedef struct Street_Carlos_Ctx {
 
     Mugen_Roster roster;
 
-    Mel_Font_Atlas_Pool font_pool;
-    Mel_Font_Handle title_font;
-    Mel_Font_Handle ui_font;
-    Mel_Font_Handle body_font;
+    Mel_Font_Atlas_Handle title_font;
+    Mel_Font_Atlas_Handle ui_font;
+    Mel_Font_Atlas_Handle body_font;
 
     Mel_Progress load_progress;
     Mel_Stage_Registry stage_registry;

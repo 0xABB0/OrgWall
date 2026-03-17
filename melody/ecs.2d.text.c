@@ -13,7 +13,6 @@ void mel_text_system_run_opt(ecs_world_t* world, Mel_Text_System_Opt opt)
 {
     assert(world != nullptr);
     assert(opt.list != nullptr);
-    assert(opt.font_pool != nullptr);
 
     if (ecs_id(Mel_CTransform) == 0 || ecs_id(Mel_CText) == 0)
         return;
@@ -35,7 +34,7 @@ void mel_text_system_run_opt(ecs_world_t* world, Mel_Text_System_Opt opt)
 
         for (int i = 0; i < it.count; i++)
         {
-            mel_text_draw_font_atlas(opt.font_pool, texts[i].font, opt.list, texts[i].text,
+            mel_text_draw_font_atlas(texts[i].font, opt.list, texts[i].text,
                 .x = transforms[i].pos.x,
                 .y = transforms[i].pos.y,
                 .style = mel_text_style(texts[i].color));

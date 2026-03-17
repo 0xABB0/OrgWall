@@ -76,7 +76,7 @@ bool mel_visual_test_init_opt(Mel_Visual_Test_Ctx* ctx, Mel_Visual_Test_Init_Opt
     if (!mel_swapchain_image_init(&ctx->sc, &ctx->dev,
         .width = w,
         .height = h,
-        .format = VK_FORMAT_R8G8B8A8_UNORM,
+        .format = MEL_GPU_FORMAT_R8G8B8A8_UNORM,
         .on_present = on_present,
         .user_data = ctx))
     {

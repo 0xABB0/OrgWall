@@ -22,6 +22,7 @@
 #include "text.pass.h"
 #include "text.draw.h"
 #include "font.atlas.h"
+#include "font.desc.h"
 #include "allocator.heap.h"
 #include "math.mat4.h"
 #include "math.vec3.h"
@@ -62,7 +63,7 @@ static Mel_Camera s_world_camera;
 static Mel_Camera s_overlay_camera;
 static Mel_Sim_Ctx s_sim;
 static u8 s_event_buf[4096];
-static Mel_Font_Handle s_font;
+static Mel_Font_Atlas_Handle s_font;
 static Mel_Material_Template_Handle s_surface_template;
 static Mel_Material_Instance_Handle s_surface_material;
 static Mel_Material_Table s_material_table;
@@ -711,30 +712,30 @@ static void mesh_variants_extract(Mel_Sim_Ctx* sim, f32 dt, void* user)
     SDL_snprintf(material_line, sizeof(material_line), "Material backend: %.*s",
         (int)material_backend.len, material_backend.data);
 
-    mel_text_draw_font_atlas(mel_font_pool(), s_font, &s_hud_text, S8("Mesh Technique Variant Demo"),
+    mel_text_draw_font_atlas(s_font, &s_hud_text, S8("Mesh Technique Variant Demo"),
         .x = 28.0f,
         .y = 740.0f,
         .style = { .color = mel_vec4(0.95f, 0.96f, 0.98f, 1.0f) });
-    mel_text_draw_font_atlas(mel_font_pool(), s_font, &s_hud_text, str8_from_cstr(line),
+    mel_text_draw_font_atlas(s_font, &s_hud_text, str8_from_cstr(line),
         .x = 28.0f,
         .y = 708.0f,
         .style = { .color = mel_vec4(0.75f, 0.86f, 0.96f, 1.0f) });
-    mel_text_draw_font_atlas(mel_font_pool(), s_font, &s_hud_text,
+    mel_text_draw_font_atlas(s_font, &s_hud_text,
         S8("Same world view and family request. The GPU paths now carry either a direct draw stream or an indirect stream plus a material table source, and the engine still resolves the winning technique variant against capabilities and policy."),
         .x = 28.0f,
         .y = 676.0f,
         .style = { .color = mel_vec4(0.78f, 0.80f, 0.84f, 1.0f) });
-    mel_text_draw_font_atlas(mel_font_pool(), s_font, &s_hud_text, str8_from_cstr(material_line),
+    mel_text_draw_font_atlas(s_font, &s_hud_text, str8_from_cstr(material_line),
         .x = 28.0f,
         .y = 648.0f,
         .style = { .color = mel_vec4(0.88f, 0.76f, 0.68f, 1.0f) });
-    mel_text_draw_font_atlas(mel_font_pool(), s_font, &s_hud_text, str8_from_cstr(caps_line),
+    mel_text_draw_font_atlas(s_font, &s_hud_text, str8_from_cstr(caps_line),
         .x = 28.0f,
         .y = 620.0f,
         .style = { .color = mel_vec4(0.76f, 0.84f, 0.92f, 1.0f) });
     for (u32 i = 0; i < diag_count; i++)
     {
-        mel_text_draw_font_atlas(mel_font_pool(), s_font, &s_hud_text, str8_from_cstr(diag_lines[i]),
+        mel_text_draw_font_atlas(s_font, &s_hud_text, str8_from_cstr(diag_lines[i]),
             .x = 28.0f,
             .y = 588.0f - (f32)(i * 28),
             .style = { .color = i == 0
@@ -800,8 +801,8 @@ static void mesh_variants_on_init(void)
         .projection = mel_mat4_ortho(0.0f, (f32)sc->extent.width, (f32)sc->extent.height, 0.0f, -1.0f, 1.0f),
     };
 
-    s_font = mel_font_atlas_pool_load(mel_font_pool(),
-        .path = S8("/System/Library/Fonts/Monaco.ttf"),
+    s_font = mel_font_atlas_load(
+        .desc = mel_font_desc_load_ttf(S8("/System/Library/Fonts/Monaco.ttf")),
         .size = 20.0f);
 
     Mel_Material_Family_Handle surface = mel_material_family_find(S8("surface"));
@@ -855,16 +856,16 @@ static void mesh_variants_on_init(void)
 
     mel_gpu_buffer_init(&s_stream_vertex_buffer, mel_gpu_dev(),
         .size = sizeof(Mesh_Stream_Vertex) * SDL_arraysize(s_cube_positions),
-        .usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-        .memory_usage = VMA_MEMORY_USAGE_CPU_TO_GPU);
+        .usage = MEL_GPU_BUFFER_USAGE_VERTEX,
+        .memory_usage = MEL_GPU_MEMORY_USAGE_CPU_TO_GPU);
     mel_gpu_buffer_init(&s_stream_index_buffer, mel_gpu_dev(),
         .size = sizeof(s_cube_indices),
-        .usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-        .memory_usage = VMA_MEMORY_USAGE_CPU_TO_GPU);
+        .usage = MEL_GPU_BUFFER_USAGE_INDEX,
+        .memory_usage = MEL_GPU_MEMORY_USAGE_CPU_TO_GPU);
     mel_gpu_buffer_init(&s_stream_indirect_buffer, mel_gpu_dev(),
         .size = sizeof(VkDrawIndexedIndirectCommand),
-        .usage = VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-        .memory_usage = VMA_MEMORY_USAGE_CPU_TO_GPU);
+        .usage = MEL_GPU_BUFFER_USAGE_INDIRECT | MEL_GPU_BUFFER_USAGE_STORAGE,
+        .memory_usage = MEL_GPU_MEMORY_USAGE_CPU_TO_GPU);
     mel_gpu_buffer_upload(&s_stream_index_buffer, mel_gpu_dev(), s_cube_indices, sizeof(s_cube_indices), 0);
     VkDrawIndexedIndirectCommand indirect_cmd = {
         .indexCount = SDL_arraysize(s_cube_indices),

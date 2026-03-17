@@ -1,4 +1,6 @@
 #include "mesh.pass.h"
+#include "gpu.device.h"
+#include "gpu.types.vulkan.h"
 #include "render.list.h"
 #include "render.pass.h"
 #include "render.camera.h"
@@ -8,6 +10,7 @@
 #include "render.light.h"
 #include "event.channel.h"
 #include "boot.registry.h"
+#include "allocator.h"
 #include "allocator.heap.h"
 #include "string.str8.h"
 #include "async.job.h"
@@ -32,8 +35,8 @@ static void mel__mesh_pass_compile_job(void* data)
 
     mel_mesh_pass_init(&s_mesh_pass,
         .dev = dev,
-        .color_format = VK_FORMAT_B8G8R8A8_SRGB,
-        .depth_format = VK_FORMAT_D32_SFLOAT,
+        .color_format = MEL_GPU_FORMAT_B8G8R8A8_SRGB,
+        .depth_format = MEL_GPU_FORMAT_D32_SFLOAT,
         .max_vertices = 65536,
         .max_indices = 65536 * 3);
 
@@ -74,8 +77,8 @@ typedef struct {
 
 typedef struct {
     Mel_Gpu_Pipeline* pipeline;
-    VkBuffer buffer;
-    VkDescriptorSet descriptor;
+    Mel_Gpu_Buffer* buffer;
+    void* descriptor;
 } Mel__Mesh_Descriptor_Cache_Entry;
 
 typedef struct {
@@ -927,7 +930,7 @@ static u32 mel__mesh_pass_push_material(Mel_Mesh_Pass* pass, Mel_Material_Instan
     return index;
 }
 
-static VkDescriptorSet mel__mesh_pass_descriptor_for_buffer(Mel_Mesh_Pass* pass, Mel_Gpu_Pipeline* pipeline, VkBuffer buffer)
+static void* mel__mesh_pass_descriptor_for_buffer(Mel_Mesh_Pass* pass, Mel_Gpu_Pipeline* pipeline, Mel_Gpu_Buffer* buffer)
 {
     for (u32 i = 0; i < pass->descriptor_cache_count; i++)
     {
@@ -946,9 +949,9 @@ static VkDescriptorSet mel__mesh_pass_descriptor_for_buffer(Mel_Mesh_Pass* pass,
         pass->descriptor_cache_capacity = new_capacity;
     }
 
-    VkDescriptorSet descriptor = mel_gpu_pipeline_alloc_descriptor(pipeline, pass->dev);
+    void* descriptor = mel_gpu_pipeline_alloc_descriptor(pipeline, pass->dev);
     mel_gpu_pipeline_write_buffer_binding(pipeline, pass->dev, descriptor, 0,
-        buffer, 0, VK_WHOLE_SIZE, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+        buffer, 0, ~(u64)0, MEL_GPU_DESCRIPTOR_STORAGE_BUFFER);
     ((Mel__Mesh_Descriptor_Cache_Entry*)pass->descriptor_cache)[pass->descriptor_cache_count++] =
         (Mel__Mesh_Descriptor_Cache_Entry){ .pipeline = pipeline, .buffer = buffer, .descriptor = descriptor };
     return descriptor;
@@ -972,56 +975,58 @@ static void mel__mesh_pass_create_visibility_sampler(Mel_Mesh_Pass* pass)
         .minLod = 0.0f,
         .maxLod = 1.0f,
     };
-    VkResult r = vkCreateSampler(pass->dev->device, &sampler_info, nullptr, &pass->visibility_sampler);
+    VkSampler sampler = nullptr;
+    VkResult r = vkCreateSampler(pass->dev->device, &sampler_info, nullptr, &sampler);
     assert(r == VK_SUCCESS);
+    pass->_visibility_sampler = sampler;
 }
 
-static VkDescriptorSet mel__mesh_pass_visibility_resolve_descriptor(Mel_Mesh_Pass* pass,
-    Mel_Render_Target* visibility_target, Mel_Render_Target* attribute_target, VkBuffer material_buffer)
+static void* mel__mesh_pass_visibility_resolve_descriptor(Mel_Mesh_Pass* pass,
+    Mel_Render_Target* visibility_target, Mel_Render_Target* attribute_target, Mel_Gpu_Buffer* material_buffer)
 {
-    VkDescriptorSet descriptor = mel_gpu_pipeline_alloc_descriptor(&pass->visibility_resolve_pipeline, pass->dev);
+    void* descriptor = mel_gpu_pipeline_alloc_descriptor(&pass->visibility_resolve_pipeline, pass->dev);
     mel_gpu_pipeline_write_texture_binding(&pass->visibility_resolve_pipeline, pass->dev, descriptor, 0,
-        mel_render_target_view(visibility_target), pass->visibility_sampler);
+        mel_render_target_view(visibility_target), pass->_visibility_sampler);
     mel_gpu_pipeline_write_texture_binding(&pass->visibility_resolve_pipeline, pass->dev, descriptor, 1,
-        mel_render_target_view(attribute_target), pass->visibility_sampler);
+        mel_render_target_view(attribute_target), pass->_visibility_sampler);
     mel_gpu_pipeline_write_buffer_binding(&pass->visibility_resolve_pipeline, pass->dev, descriptor, 2,
-        material_buffer, 0, VK_WHOLE_SIZE, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+        material_buffer, 0, ~(u64)0, MEL_GPU_DESCRIPTOR_STORAGE_BUFFER);
     return descriptor;
 }
 
-static VkDescriptorSet mel__mesh_pass_deferred_resolve_descriptor(Mel_Mesh_Pass* pass,
+static void* mel__mesh_pass_deferred_resolve_descriptor(Mel_Mesh_Pass* pass,
     Mel_Render_Target* normal_roughness_target, Mel_Render_Target* albedo_metallic_target,
-    Mel_Render_Target* emissive_occlusion_target, Mel_Render_Target* meta_target, VkBuffer light_buffer,
-    VkBuffer cluster_range_buffer, VkBuffer cluster_index_buffer)
+    Mel_Render_Target* emissive_occlusion_target, Mel_Render_Target* meta_target, Mel_Gpu_Buffer* light_buffer,
+    Mel_Gpu_Buffer* cluster_range_buffer, Mel_Gpu_Buffer* cluster_index_buffer)
 {
-    VkDescriptorSet descriptor = mel_gpu_pipeline_alloc_descriptor(&pass->deferred_resolve_pipeline, pass->dev);
+    void* descriptor = mel_gpu_pipeline_alloc_descriptor(&pass->deferred_resolve_pipeline, pass->dev);
     mel_gpu_pipeline_write_texture_binding(&pass->deferred_resolve_pipeline, pass->dev, descriptor, 0,
-        mel_render_target_view(normal_roughness_target), pass->visibility_sampler);
+        mel_render_target_view(normal_roughness_target), pass->_visibility_sampler);
     mel_gpu_pipeline_write_texture_binding(&pass->deferred_resolve_pipeline, pass->dev, descriptor, 1,
-        mel_render_target_view(albedo_metallic_target), pass->visibility_sampler);
+        mel_render_target_view(albedo_metallic_target), pass->_visibility_sampler);
     mel_gpu_pipeline_write_texture_binding(&pass->deferred_resolve_pipeline, pass->dev, descriptor, 2,
-        mel_render_target_view(emissive_occlusion_target), pass->visibility_sampler);
+        mel_render_target_view(emissive_occlusion_target), pass->_visibility_sampler);
     mel_gpu_pipeline_write_texture_binding(&pass->deferred_resolve_pipeline, pass->dev, descriptor, 3,
-        mel_render_target_view(meta_target), pass->visibility_sampler);
+        mel_render_target_view(meta_target), pass->_visibility_sampler);
     mel_gpu_pipeline_write_buffer_binding(&pass->deferred_resolve_pipeline, pass->dev, descriptor, 4,
-        light_buffer, 0, VK_WHOLE_SIZE, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+        light_buffer, 0, ~(u64)0, MEL_GPU_DESCRIPTOR_STORAGE_BUFFER);
     mel_gpu_pipeline_write_buffer_binding(&pass->deferred_resolve_pipeline, pass->dev, descriptor, 5,
-        cluster_range_buffer, 0, VK_WHOLE_SIZE, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+        cluster_range_buffer, 0, ~(u64)0, MEL_GPU_DESCRIPTOR_STORAGE_BUFFER);
     mel_gpu_pipeline_write_buffer_binding(&pass->deferred_resolve_pipeline, pass->dev, descriptor, 6,
-        cluster_index_buffer, 0, VK_WHOLE_SIZE, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+        cluster_index_buffer, 0, ~(u64)0, MEL_GPU_DESCRIPTOR_STORAGE_BUFFER);
     return descriptor;
 }
 
-static VkDescriptorSet mel__mesh_pass_clustered_light_descriptor(Mel_Mesh_Pass* pass,
-    VkBuffer light_buffer, VkBuffer cluster_range_buffer, VkBuffer cluster_index_buffer)
+static void* mel__mesh_pass_clustered_light_descriptor(Mel_Mesh_Pass* pass,
+    Mel_Gpu_Buffer* light_buffer, Mel_Gpu_Buffer* cluster_range_buffer, Mel_Gpu_Buffer* cluster_index_buffer)
 {
-    VkDescriptorSet descriptor = mel_gpu_pipeline_alloc_descriptor(&pass->clustered_light_pipeline, pass->dev);
+    void* descriptor = mel_gpu_pipeline_alloc_descriptor(&pass->clustered_light_pipeline, pass->dev);
     mel_gpu_pipeline_write_buffer_binding(&pass->clustered_light_pipeline, pass->dev, descriptor, 0,
-        light_buffer, 0, VK_WHOLE_SIZE, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+        light_buffer, 0, ~(u64)0, MEL_GPU_DESCRIPTOR_STORAGE_BUFFER);
     mel_gpu_pipeline_write_buffer_binding(&pass->clustered_light_pipeline, pass->dev, descriptor, 1,
-        cluster_range_buffer, 0, VK_WHOLE_SIZE, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+        cluster_range_buffer, 0, ~(u64)0, MEL_GPU_DESCRIPTOR_STORAGE_BUFFER);
     mel_gpu_pipeline_write_buffer_binding(&pass->clustered_light_pipeline, pass->dev, descriptor, 2,
-        cluster_index_buffer, 0, VK_WHOLE_SIZE, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+        cluster_index_buffer, 0, ~(u64)0, MEL_GPU_DESCRIPTOR_STORAGE_BUFFER);
     return descriptor;
 }
 
@@ -1100,72 +1105,69 @@ static void mel__mesh_pass_draw_list(Mel_Render_List* list, Mel_Mesh_Pass* pass)
     }
 }
 
-static void mel__mesh_pass_bind(Mel_Mesh_Pass* pass, Mel_Gpu_Cmd cmd, const Mel_Mat4* projection, VkBuffer material_buffer)
+static void mel__mesh_pass_bind(Mel_Mesh_Pass* pass, Mel_Gpu_Cmd cmd, const Mel_Mat4* projection, Mel_Gpu_Buffer* material_buffer)
 {
     Mel_Mesh_Push_Constants push = {
         .projection = *projection,
         .light_dir_ambient = mel_vec4(pass->lighting.direction.x, pass->lighting.direction.y, pass->lighting.direction.z, pass->lighting.ambient),
         .light_color = pass->lighting.color,
     };
-    mel_gpu_pipeline_bind(&pass->pipeline, cmd.cmd);
-    VkDescriptorSet descriptor = mel__mesh_pass_descriptor_for_buffer(pass, &pass->pipeline, material_buffer);
-    vkCmdBindDescriptorSets(cmd.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pass->pipeline.layout, 0, 1, &descriptor, 0, nullptr);
-    vkCmdPushConstants(cmd.cmd, pass->pipeline.layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(push), &push);
+    mel_gpu_pipeline_bind(&pass->pipeline, &cmd);
+    void* descriptor = mel__mesh_pass_descriptor_for_buffer(pass, &pass->pipeline, material_buffer);
+    mel_gpu_cmd_bind_descriptor_set(&cmd, &pass->pipeline, descriptor);
+    mel_gpu_cmd_push_constants(&cmd, &pass->pipeline, MEL_GPU_SHADER_STAGE_VERTEX, 0, sizeof(push), &push);
 }
 
 static void mel__mesh_pass_bind_visibility_fill(Mel_Mesh_Pass* pass, Mel_Gpu_Cmd cmd, const Mel_Mat4* projection)
 {
-    mel_gpu_pipeline_bind(&pass->visibility_pipeline, cmd.cmd);
-    vkCmdPushConstants(cmd.cmd, pass->visibility_pipeline.layout, VK_SHADER_STAGE_VERTEX_BIT,
+    mel_gpu_pipeline_bind(&pass->visibility_pipeline, &cmd);
+    mel_gpu_cmd_push_constants(&cmd, &pass->visibility_pipeline, MEL_GPU_SHADER_STAGE_VERTEX,
         0, sizeof(Mel_Mat4), projection);
 }
 
 static void mel__mesh_pass_bind_visibility_attribute_fill(Mel_Mesh_Pass* pass, Mel_Gpu_Cmd cmd,
-    const Mel_Mat4* projection, VkBuffer material_buffer)
+    const Mel_Mat4* projection, Mel_Gpu_Buffer* material_buffer)
 {
-    mel_gpu_pipeline_bind(&pass->visibility_attribute_pipeline, cmd.cmd);
-    VkDescriptorSet descriptor = mel__mesh_pass_descriptor_for_buffer(pass, &pass->visibility_attribute_pipeline,
+    mel_gpu_pipeline_bind(&pass->visibility_attribute_pipeline, &cmd);
+    void* descriptor = mel__mesh_pass_descriptor_for_buffer(pass, &pass->visibility_attribute_pipeline,
         material_buffer);
-    vkCmdBindDescriptorSets(cmd.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-        pass->visibility_attribute_pipeline.layout, 0, 1, &descriptor, 0, nullptr);
-    vkCmdPushConstants(cmd.cmd, pass->visibility_attribute_pipeline.layout, VK_SHADER_STAGE_VERTEX_BIT,
+    mel_gpu_cmd_bind_descriptor_set(&cmd, &pass->visibility_attribute_pipeline, descriptor);
+    mel_gpu_cmd_push_constants(&cmd, &pass->visibility_attribute_pipeline, MEL_GPU_SHADER_STAGE_VERTEX,
         0, sizeof(Mel_Mat4), projection);
 }
 
 static void mel__mesh_pass_bind_deferred_fill(Mel_Mesh_Pass* pass, Mel_Gpu_Cmd cmd,
-    const Mel_Mat4* projection, VkBuffer material_buffer)
+    const Mel_Mat4* projection, Mel_Gpu_Buffer* material_buffer)
 {
-    mel_gpu_pipeline_bind(&pass->deferred_pipeline, cmd.cmd);
-    VkDescriptorSet descriptor = mel__mesh_pass_descriptor_for_buffer(pass, &pass->deferred_pipeline,
+    mel_gpu_pipeline_bind(&pass->deferred_pipeline, &cmd);
+    void* descriptor = mel__mesh_pass_descriptor_for_buffer(pass, &pass->deferred_pipeline,
         material_buffer);
-    vkCmdBindDescriptorSets(cmd.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-        pass->deferred_pipeline.layout, 0, 1, &descriptor, 0, nullptr);
-    vkCmdPushConstants(cmd.cmd, pass->deferred_pipeline.layout, VK_SHADER_STAGE_VERTEX_BIT,
+    mel_gpu_cmd_bind_descriptor_set(&cmd, &pass->deferred_pipeline, descriptor);
+    mel_gpu_cmd_push_constants(&cmd, &pass->deferred_pipeline, MEL_GPU_SHADER_STAGE_VERTEX,
         0, sizeof(Mel_Mat4), projection);
 }
 
 static void mel__mesh_pass_bind_visibility_resolve(Mel_Mesh_Pass* pass, Mel_Gpu_Cmd cmd,
-    Mel_Render_Target* visibility_target, Mel_Render_Target* attribute_target, VkBuffer material_buffer)
+    Mel_Render_Target* visibility_target, Mel_Render_Target* attribute_target, Mel_Gpu_Buffer* material_buffer)
 {
     Mel_Mesh_Visibility_Resolve_Push_Constants push = {
         .light_dir_ambient = mel_vec4(pass->lighting.direction.x, pass->lighting.direction.y,
             pass->lighting.direction.z, pass->lighting.ambient),
         .light_color = pass->lighting.color,
     };
-    mel_gpu_pipeline_bind(&pass->visibility_resolve_pipeline, cmd.cmd);
-    VkDescriptorSet descriptor = mel__mesh_pass_visibility_resolve_descriptor(pass, visibility_target,
+    mel_gpu_pipeline_bind(&pass->visibility_resolve_pipeline, &cmd);
+    void* descriptor = mel__mesh_pass_visibility_resolve_descriptor(pass, visibility_target,
         attribute_target, material_buffer);
-    vkCmdBindDescriptorSets(cmd.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-        pass->visibility_resolve_pipeline.layout, 0, 1, &descriptor, 0, nullptr);
-    vkCmdPushConstants(cmd.cmd, pass->visibility_resolve_pipeline.layout,
-        VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(push), &push);
+    mel_gpu_cmd_bind_descriptor_set(&cmd, &pass->visibility_resolve_pipeline, descriptor);
+    mel_gpu_cmd_push_constants(&cmd, &pass->visibility_resolve_pipeline,
+        MEL_GPU_SHADER_STAGE_FRAGMENT, 0, sizeof(push), &push);
 }
 
 static void mel__mesh_pass_bind_deferred_resolve(Mel_Mesh_Pass* pass, Mel_Gpu_Cmd cmd,
     Mel_Render_Target* normal_roughness_target, Mel_Render_Target* albedo_metallic_target,
     Mel_Render_Target* emissive_occlusion_target, Mel_Render_Target* meta_target,
-    const Mel_Camera* camera, u32 render_width, u32 render_height, VkBuffer light_buffer,
-    VkBuffer cluster_range_buffer, VkBuffer cluster_index_buffer)
+    const Mel_Camera* camera, u32 render_width, u32 render_height, Mel_Gpu_Buffer* light_buffer,
+    Mel_Gpu_Buffer* cluster_range_buffer, Mel_Gpu_Buffer* cluster_index_buffer)
 {
     u32 tile_count_x = (render_width + pass->cluster_tile_size - 1) / pass->cluster_tile_size;
     u32 tile_count_y = (render_height + pass->cluster_tile_size - 1) / pass->cluster_tile_size;
@@ -1185,19 +1187,18 @@ static void mel__mesh_pass_bind_deferred_resolve(Mel_Mesh_Pass* pass, Mel_Gpu_Cm
         .z_slice_count = pass->cluster_z_slices,
         .max_lights_per_cluster = pass->cluster_max_lights_per_cluster,
     };
-    mel_gpu_pipeline_bind(&pass->deferred_resolve_pipeline, cmd.cmd);
-    VkDescriptorSet descriptor = mel__mesh_pass_deferred_resolve_descriptor(pass,
+    mel_gpu_pipeline_bind(&pass->deferred_resolve_pipeline, &cmd);
+    void* descriptor = mel__mesh_pass_deferred_resolve_descriptor(pass,
         normal_roughness_target, albedo_metallic_target, emissive_occlusion_target, meta_target,
         light_buffer, cluster_range_buffer, cluster_index_buffer);
-    vkCmdBindDescriptorSets(cmd.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-        pass->deferred_resolve_pipeline.layout, 0, 1, &descriptor, 0, nullptr);
-    vkCmdPushConstants(cmd.cmd, pass->deferred_resolve_pipeline.layout,
-        VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(push), &push);
+    mel_gpu_cmd_bind_descriptor_set(&cmd, &pass->deferred_resolve_pipeline, descriptor);
+    mel_gpu_cmd_push_constants(&cmd, &pass->deferred_resolve_pipeline,
+        MEL_GPU_SHADER_STAGE_FRAGMENT, 0, sizeof(push), &push);
 }
 
 static void mel__mesh_pass_bind_clustered_lighting(Mel_Mesh_Pass* pass, Mel_Gpu_Cmd cmd,
     const Mel_Mat4* vp, const Mel_Camera* camera, u32 render_width, u32 render_height,
-    u32 light_count, VkBuffer light_buffer, VkBuffer cluster_range_buffer, VkBuffer cluster_index_buffer)
+    u32 light_count, Mel_Gpu_Buffer* light_buffer, Mel_Gpu_Buffer* cluster_range_buffer, Mel_Gpu_Buffer* cluster_index_buffer)
 {
     u32 tile_count_x = (render_width + pass->cluster_tile_size - 1) / pass->cluster_tile_size;
     u32 tile_count_y = (render_height + pass->cluster_tile_size - 1) / pass->cluster_tile_size;
@@ -1217,17 +1218,16 @@ static void mel__mesh_pass_bind_clustered_lighting(Mel_Mesh_Pass* pass, Mel_Gpu_
         .max_lights_per_cluster = pass->cluster_max_lights_per_cluster,
     };
 
-    mel_gpu_pipeline_bind(&pass->clustered_light_pipeline, cmd.cmd);
-    VkDescriptorSet descriptor = mel__mesh_pass_clustered_light_descriptor(pass, light_buffer,
+    mel_gpu_pipeline_bind(&pass->clustered_light_pipeline, &cmd);
+    void* descriptor = mel__mesh_pass_clustered_light_descriptor(pass, light_buffer,
         cluster_range_buffer, cluster_index_buffer);
-    vkCmdBindDescriptorSets(cmd.cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
-        pass->clustered_light_pipeline.layout, 0, 1, &descriptor, 0, nullptr);
-    vkCmdPushConstants(cmd.cmd, pass->clustered_light_pipeline.layout, VK_SHADER_STAGE_COMPUTE_BIT,
+    mel_gpu_cmd_bind_descriptor_set(&cmd, &pass->clustered_light_pipeline, descriptor);
+    mel_gpu_cmd_push_constants(&cmd, &pass->clustered_light_pipeline, MEL_GPU_SHADER_STAGE_COMPUTE,
         0, sizeof(push), &push);
 }
 
 static void mel__mesh_pass_bind_mesh_shader(Mel_Mesh_Pass* pass, Mel_Gpu_Cmd cmd,
-    const Mel_Mat4* projection, VkBuffer vertex_buffer, VkBuffer index_buffer, VkBuffer material_buffer,
+    const Mel_Mat4* projection, Mel_Gpu_Buffer* vertex_buffer, Mel_Gpu_Buffer* index_buffer, Mel_Gpu_Buffer* material_buffer,
     u32 vertex_count, u32 index_count)
 {
     Mel_Mesh_Push_Constants push = {
@@ -1245,25 +1245,25 @@ static void mel__mesh_pass_bind_mesh_shader(Mel_Mesh_Pass* pass, Mel_Gpu_Cmd cmd
         .index_count = index_count,
     };
 
-    mel_gpu_pipeline_bind(&pass->mesh_pipeline, cmd.cmd);
-    VkDescriptorSet vertex_descriptor = mel__mesh_pass_descriptor_for_buffer(pass, &pass->mesh_pipeline, vertex_buffer);
-    VkDescriptorSet index_descriptor = mel_gpu_pipeline_alloc_descriptor(&pass->mesh_pipeline, pass->dev);
+    mel_gpu_pipeline_bind(&pass->mesh_pipeline, &cmd);
+    void* vertex_descriptor = mel__mesh_pass_descriptor_for_buffer(pass, &pass->mesh_pipeline, vertex_buffer);
+    void* index_descriptor = mel_gpu_pipeline_alloc_descriptor(&pass->mesh_pipeline, pass->dev);
     mel_gpu_pipeline_write_buffer_binding(&pass->mesh_pipeline, pass->dev, index_descriptor, 0,
-        vertex_buffer, 0, VK_WHOLE_SIZE, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+        vertex_buffer, 0, ~(u64)0, MEL_GPU_DESCRIPTOR_STORAGE_BUFFER);
     mel_gpu_pipeline_write_buffer_binding(&pass->mesh_pipeline, pass->dev, index_descriptor, 1,
-        index_buffer, 0, VK_WHOLE_SIZE, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+        index_buffer, 0, ~(u64)0, MEL_GPU_DESCRIPTOR_STORAGE_BUFFER);
     mel_gpu_pipeline_write_buffer_binding(&pass->mesh_pipeline, pass->dev, index_descriptor, 2,
-        material_buffer, 0, VK_WHOLE_SIZE, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+        material_buffer, 0, ~(u64)0, MEL_GPU_DESCRIPTOR_STORAGE_BUFFER);
     MEL_UNUSED(vertex_descriptor);
-    vkCmdBindDescriptorSets(cmd.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pass->mesh_pipeline.layout, 0, 1, &index_descriptor, 0, nullptr);
-    vkCmdPushConstants(cmd.cmd, pass->mesh_pipeline.layout,
-        VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(mesh_push), &mesh_push);
+    mel_gpu_cmd_bind_descriptor_set(&cmd, &pass->mesh_pipeline, index_descriptor);
+    mel_gpu_cmd_push_constants(&cmd, &pass->mesh_pipeline,
+        MEL_GPU_SHADER_STAGE_MESH | MEL_GPU_SHADER_STAGE_FRAGMENT, 0, sizeof(mesh_push), &mesh_push);
 }
 
 static void mel__mesh_pass_dispatch_cull(Mel_Mesh_Pass* pass, Mel_Gpu_Cmd cmd, const Mel_Mat4* vp,
     const Mel_Mesh_Gpu_Cull_Stream* stream)
 {
-    if (!stream || stream->indirect_buffer == VK_NULL_HANDLE)
+    if (!stream || stream->_indirect_buffer == nullptr)
         return;
 
     Mel_Mesh_Indirect_Cull_Push_Constants push = {
@@ -1272,20 +1272,20 @@ static void mel__mesh_pass_dispatch_cull(Mel_Mesh_Pass* pass, Mel_Gpu_Cmd cmd, c
         .index_count = stream->index_count,
     };
 
-    mel_gpu_pipeline_bind(&pass->compute_pipeline, cmd.cmd);
-    VkDescriptorSet descriptor = mel__mesh_pass_descriptor_for_buffer(pass, &pass->compute_pipeline, stream->indirect_buffer);
-    vkCmdBindDescriptorSets(cmd.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pass->compute_pipeline.layout, 0, 1, &descriptor, 0, nullptr);
-    vkCmdPushConstants(cmd.cmd, pass->compute_pipeline.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push), &push);
+    mel_gpu_pipeline_bind(&pass->compute_pipeline, &cmd);
+    void* descriptor = mel__mesh_pass_descriptor_for_buffer(pass, &pass->compute_pipeline, stream->_indirect_buffer);
+    mel_gpu_cmd_bind_descriptor_set(&cmd, &pass->compute_pipeline, descriptor);
+    mel_gpu_cmd_push_constants(&cmd, &pass->compute_pipeline, MEL_GPU_SHADER_STAGE_COMPUTE, 0, sizeof(push), &push);
     mel_gpu_cmd_dispatch(&cmd, 1, 1, 1);
-    mel_gpu_cmd_buffer_barrier(&cmd, stream->indirect_buffer,
-        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT,
-        VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT);
+    mel_gpu_cmd_buffer_barrier(&cmd, stream->_indirect_buffer,
+        MEL_GPU_STAGE_COMPUTE_SHADER, MEL_GPU_ACCESS_SHADER_WRITE,
+        MEL_GPU_STAGE_DRAW_INDIRECT, MEL_GPU_ACCESS_INDIRECT_COMMAND_READ);
 }
 
 static void mel__mesh_pass_dispatch_cull_batch(Mel_Mesh_Pass* pass, Mel_Gpu_Cmd cmd, const Mel_Mat4* vp,
     const Mel_Camera* camera, const Mel_Mesh_Gpu_Cull_Batch_Stream* stream)
 {
-    if (!stream || stream->metadata_buffer == VK_NULL_HANDLE || stream->indirect_buffer == VK_NULL_HANDLE || stream->draw_count == 0)
+    if (!stream || stream->_metadata_buffer == nullptr || stream->_indirect_buffer == nullptr || stream->draw_count == 0)
         return;
 
     Mel_Mesh_Indirect_Cull_Batch_Push_Constants push = {
@@ -1298,20 +1298,20 @@ static void mel__mesh_pass_dispatch_cull_batch(Mel_Mesh_Pass* pass, Mel_Gpu_Cmd 
         .draw_count = stream->draw_count,
     };
 
-    mel_gpu_pipeline_bind(&pass->compute_batch_pipeline, cmd.cmd);
-    VkDescriptorSet descriptor = mel_gpu_pipeline_alloc_descriptor(&pass->compute_batch_pipeline, pass->dev);
+    mel_gpu_pipeline_bind(&pass->compute_batch_pipeline, &cmd);
+    void* descriptor = mel_gpu_pipeline_alloc_descriptor(&pass->compute_batch_pipeline, pass->dev);
     mel_gpu_pipeline_write_buffer_binding(&pass->compute_batch_pipeline, pass->dev, descriptor, 0,
-        stream->metadata_buffer, 0, VK_WHOLE_SIZE, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+        stream->_metadata_buffer, 0, ~(u64)0, MEL_GPU_DESCRIPTOR_STORAGE_BUFFER);
     mel_gpu_pipeline_write_buffer_binding(&pass->compute_batch_pipeline, pass->dev, descriptor, 1,
-        stream->indirect_buffer, 0, VK_WHOLE_SIZE, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-    vkCmdBindDescriptorSets(cmd.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pass->compute_batch_pipeline.layout, 0, 1, &descriptor, 0, nullptr);
-    vkCmdPushConstants(cmd.cmd, pass->compute_batch_pipeline.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push), &push);
+        stream->_indirect_buffer, 0, ~(u64)0, MEL_GPU_DESCRIPTOR_STORAGE_BUFFER);
+    mel_gpu_cmd_bind_descriptor_set(&cmd, &pass->compute_batch_pipeline, descriptor);
+    mel_gpu_cmd_push_constants(&cmd, &pass->compute_batch_pipeline, MEL_GPU_SHADER_STAGE_COMPUTE, 0, sizeof(push), &push);
 
     u32 groups_x = (stream->draw_count + 63u) / 64u;
     mel_gpu_cmd_dispatch(&cmd, groups_x, 1, 1);
-    mel_gpu_cmd_buffer_barrier(&cmd, stream->indirect_buffer,
-        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT,
-        VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT);
+    mel_gpu_cmd_buffer_barrier(&cmd, stream->_indirect_buffer,
+        MEL_GPU_STAGE_COMPUTE_SHADER, MEL_GPU_ACCESS_SHADER_WRITE,
+        MEL_GPU_STAGE_DRAW_INDIRECT, MEL_GPU_ACCESS_INDIRECT_COMMAND_READ);
 }
 
 static void mel__mesh_pass_flush(Mel_Mesh_Pass* pass, Mel_Gpu_Cmd cmd, bool flush_material_buffer)
@@ -1325,64 +1325,62 @@ static void mel__mesh_pass_flush(Mel_Mesh_Pass* pass, Mel_Gpu_Cmd cmd, bool flus
     if (flush_material_buffer)
         mel_gpu_buffer_flush(&frame->material_buffer, cmd.dev);
 
-    VkBuffer buffers[] = { frame->vertex_buffer.buffer };
-    VkDeviceSize offsets[] = { 0 };
-    vkCmdBindVertexBuffers(cmd.cmd, 0, 1, buffers, offsets);
-    vkCmdBindIndexBuffer(cmd.cmd, frame->index_buffer.buffer, 0, VK_INDEX_TYPE_UINT32);
+    mel_gpu_cmd_bind_vertex_buffer(&cmd, &frame->vertex_buffer, 0);
+    mel_gpu_cmd_bind_index_buffer(&cmd, &frame->index_buffer, 0, MEL_GPU_INDEX_TYPE_U32);
 
     if (pass->draw_range_count > 0)
     {
         for (u32 i = 0; i < pass->draw_range_count; i++)
         {
             mel_gpu_cmd_set_cull_mode(&cmd, pass->draw_range_cull_mode[i]);
-            vkCmdDrawIndexed(cmd.cmd, pass->draw_range_index_count[i], 1,
+            mel_gpu_cmd_draw_indexed(&cmd, pass->draw_range_index_count[i], 1,
                 pass->draw_range_first_index[i], 0, 0);
         }
     }
     else
     {
         mel_gpu_cmd_set_cull_mode(&cmd, MEL_GPU_CULL_BACK);
-        vkCmdDrawIndexed(cmd.cmd, pass->index_count, 1, 0, 0, 0);
+        mel_gpu_cmd_draw_indexed(&cmd, pass->index_count, 1, 0, 0, 0);
     }
 }
 
 static void mel__mesh_pass_draw_stream(Mel_Gpu_Cmd cmd, const Mel_Mesh_Gpu_Draw_Stream* stream)
 {
-    if (!stream || stream->vertex_buffer == VK_NULL_HANDLE || stream->index_buffer == VK_NULL_HANDLE || stream->index_count == 0)
+    if (!stream || stream->_vertex_buffer == nullptr || stream->_index_buffer == nullptr || stream->index_count == 0)
         return;
 
-    VkBuffer buffers[] = { stream->vertex_buffer };
-    VkDeviceSize offsets[] = { 0 };
-    vkCmdBindVertexBuffers(cmd.cmd, 0, 1, buffers, offsets);
-    vkCmdBindIndexBuffer(cmd.cmd, stream->index_buffer, 0, VK_INDEX_TYPE_UINT32);
-    vkCmdDrawIndexed(cmd.cmd, stream->index_count, 1, 0, 0, 0);
+    VkBuffer vk_buffers[] = { (VkBuffer)stream->_vertex_buffer };
+    u64 vk_offsets[] = { 0 };
+    vkCmdBindVertexBuffers((VkCommandBuffer)cmd._cmd, 0, 1, vk_buffers, vk_offsets);
+    vkCmdBindIndexBuffer((VkCommandBuffer)cmd._cmd, (VkBuffer)stream->_index_buffer, 0, VK_INDEX_TYPE_UINT32);
+    vkCmdDrawIndexed((VkCommandBuffer)cmd._cmd, stream->index_count, 1, 0, 0, 0);
 }
 
 static void mel__mesh_pass_draw_indirect_stream(Mel_Gpu_Cmd cmd, const Mel_Mesh_Gpu_Indirect_Stream* stream)
 {
     if (!stream ||
-        stream->vertex_buffer == VK_NULL_HANDLE ||
-        stream->index_buffer == VK_NULL_HANDLE ||
-        stream->indirect_buffer == VK_NULL_HANDLE ||
+        stream->_vertex_buffer == nullptr ||
+        stream->_index_buffer == nullptr ||
+        stream->_indirect_buffer == nullptr ||
         stream->draw_count == 0)
         return;
 
-    VkBuffer buffers[] = { stream->vertex_buffer };
-    VkDeviceSize offsets[] = { 0 };
-    vkCmdBindVertexBuffers(cmd.cmd, 0, 1, buffers, offsets);
-    vkCmdBindIndexBuffer(cmd.cmd, stream->index_buffer, 0, VK_INDEX_TYPE_UINT32);
-    mel_gpu_cmd_draw_indexed_indirect(&cmd, stream->indirect_buffer, 0, stream->draw_count,
+    VkBuffer vk_buffers[] = { (VkBuffer)stream->_vertex_buffer };
+    u64 vk_offsets[] = { 0 };
+    vkCmdBindVertexBuffers((VkCommandBuffer)cmd._cmd, 0, 1, vk_buffers, vk_offsets);
+    vkCmdBindIndexBuffer((VkCommandBuffer)cmd._cmd, (VkBuffer)stream->_index_buffer, 0, VK_INDEX_TYPE_UINT32);
+    vkCmdDrawIndexedIndirect((VkCommandBuffer)cmd._cmd, (VkBuffer)stream->_indirect_buffer, 0, stream->draw_count,
         stream->stride ? stream->stride : sizeof(VkDrawIndexedIndirectCommand));
 }
 
 static void mel__mesh_pass_draw_mesh_shader_stream(Mel_Mesh_Pass* pass, Mel_Gpu_Cmd cmd,
-    const Mel_Mat4* vp, VkBuffer material_buffer, const Mel_Mesh_Gpu_Draw_Stream* stream)
+    const Mel_Mat4* vp, Mel_Gpu_Buffer* material_buffer, const Mel_Mesh_Gpu_Draw_Stream* stream)
 {
-    if (!stream || stream->vertex_buffer == VK_NULL_HANDLE || stream->index_buffer == VK_NULL_HANDLE ||
-        stream->vertex_count == 0 || stream->index_count == 0 || pass->mesh_pipeline.pipeline == VK_NULL_HANDLE)
+    if (!stream || stream->_vertex_buffer == nullptr || stream->_index_buffer == nullptr ||
+        stream->vertex_count == 0 || stream->index_count == 0 || pass->mesh_pipeline._pipeline == nullptr)
         return;
 
-    mel__mesh_pass_bind_mesh_shader(pass, cmd, vp, stream->vertex_buffer, stream->index_buffer,
+    mel__mesh_pass_bind_mesh_shader(pass, cmd, vp, stream->_vertex_buffer, stream->_index_buffer,
         material_buffer, stream->vertex_count, stream->index_count);
     mel_gpu_cmd_draw_mesh_tasks(&cmd, 1, 1, 1);
 }
@@ -1435,17 +1433,17 @@ bool mel_mesh_pass_init_opt(Mel_Mesh_Pass* pass, Mel_Mesh_Pass_Init_Opt opt)
             .fragment_entry = S8("fragmentMain"));
     }
 
-    VkVertexInputBindingDescription binding = {
+    Mel_Gpu_Vertex_Binding binding = {
         .binding = 0,
         .stride = sizeof(Mel_Mesh_Vertex),
-        .inputRate = VK_VERTEX_INPUT_RATE_VERTEX,
+        .input_rate = 0,
     };
 
-    VkVertexInputAttributeDescription attributes[] = {
-        { .location = 0, .binding = 0, .format = VK_FORMAT_R32G32B32_SFLOAT, .offset = offsetof(Mel_Mesh_Vertex, x) },
-        { .location = 1, .binding = 0, .format = VK_FORMAT_R32G32B32_SFLOAT, .offset = offsetof(Mel_Mesh_Vertex, nx) },
-        { .location = 2, .binding = 0, .format = VK_FORMAT_R32G32B32A32_SFLOAT, .offset = offsetof(Mel_Mesh_Vertex, r) },
-        { .location = 3, .binding = 0, .format = VK_FORMAT_R32_UINT, .offset = offsetof(Mel_Mesh_Vertex, material_id) },
+    Mel_Gpu_Vertex_Attribute attributes[] = {
+        { .location = 0, .binding = 0, .format = MEL_GPU_FORMAT_R32G32B32_SFLOAT, .offset = offsetof(Mel_Mesh_Vertex, x) },
+        { .location = 1, .binding = 0, .format = MEL_GPU_FORMAT_R32G32B32_SFLOAT, .offset = offsetof(Mel_Mesh_Vertex, nx) },
+        { .location = 2, .binding = 0, .format = MEL_GPU_FORMAT_R32G32B32A32_SFLOAT, .offset = offsetof(Mel_Mesh_Vertex, r) },
+        { .location = 3, .binding = 0, .format = MEL_GPU_FORMAT_R32_UINT, .offset = offsetof(Mel_Mesh_Vertex, material_id) },
     };
 
     mel_gpu_pipeline_init(&pass->pipeline, opt.dev,
@@ -1461,14 +1459,14 @@ bool mel_mesh_pass_init_opt(Mel_Mesh_Pass* pass, Mel_Mesh_Pass_Init_Opt opt)
         .depth_test = true,
         .depth_write = true,
         .push_constant_size = sizeof(Mel_Mesh_Push_Constants),
-        .push_constant_stages = VK_SHADER_STAGE_VERTEX_BIT,
+        .push_constant_stages = MEL_GPU_SHADER_STAGE_VERTEX,
         .descriptor_bindings = (Mel_Gpu_Descriptor_Binding[]){
-            { .binding = 0, .type = MEL_GPU_DESCRIPTOR_STORAGE_BUFFER, .count = 1, .stages = VK_SHADER_STAGE_VERTEX_BIT },
+            { .binding = 0, .type = MEL_GPU_DESCRIPTOR_STORAGE_BUFFER, .count = 1, .stages = MEL_GPU_SHADER_STAGE_VERTEX },
         },
         .descriptor_binding_count = 1);
     mel_gpu_pipeline_init(&pass->visibility_pipeline, opt.dev,
         .shader = &pass->visibility_shader,
-        .color_format = VK_FORMAT_R32G32B32A32_SFLOAT,
+        .color_format = MEL_GPU_FORMAT_R32G32B32A32_SFLOAT,
         .depth_format = opt.depth_format,
         .bindings = &binding,
         .binding_count = 1,
@@ -1478,10 +1476,10 @@ bool mel_mesh_pass_init_opt(Mel_Mesh_Pass* pass, Mel_Mesh_Pass_Init_Opt opt)
         .depth_test = true,
         .depth_write = true,
         .push_constant_size = sizeof(Mel_Mat4),
-        .push_constant_stages = VK_SHADER_STAGE_VERTEX_BIT);
+        .push_constant_stages = MEL_GPU_SHADER_STAGE_VERTEX);
     mel_gpu_pipeline_init(&pass->visibility_attribute_pipeline, opt.dev,
         .shader = &pass->visibility_attribute_shader,
-        .color_format = VK_FORMAT_R32G32B32A32_SFLOAT,
+        .color_format = MEL_GPU_FORMAT_R32G32B32A32_SFLOAT,
         .depth_format = opt.depth_format,
         .bindings = &binding,
         .binding_count = 1,
@@ -1491,9 +1489,9 @@ bool mel_mesh_pass_init_opt(Mel_Mesh_Pass* pass, Mel_Mesh_Pass_Init_Opt opt)
         .depth_test = true,
         .depth_write = false,
         .push_constant_size = sizeof(Mel_Mat4),
-        .push_constant_stages = VK_SHADER_STAGE_VERTEX_BIT,
+        .push_constant_stages = MEL_GPU_SHADER_STAGE_VERTEX,
         .descriptor_bindings = (Mel_Gpu_Descriptor_Binding[]){
-            { .binding = 0, .type = MEL_GPU_DESCRIPTOR_STORAGE_BUFFER, .count = 1, .stages = VK_SHADER_STAGE_VERTEX_BIT },
+            { .binding = 0, .type = MEL_GPU_DESCRIPTOR_STORAGE_BUFFER, .count = 1, .stages = MEL_GPU_SHADER_STAGE_VERTEX },
         },
         .descriptor_binding_count = 1);
     mel_gpu_pipeline_init(&pass->visibility_resolve_pipeline, opt.dev,
@@ -1504,20 +1502,20 @@ bool mel_mesh_pass_init_opt(Mel_Mesh_Pass* pass, Mel_Mesh_Pass_Init_Opt opt)
         .depth_test = false,
         .depth_write = false,
         .push_constant_size = sizeof(Mel_Mesh_Visibility_Resolve_Push_Constants),
-        .push_constant_stages = VK_SHADER_STAGE_FRAGMENT_BIT,
+        .push_constant_stages = MEL_GPU_SHADER_STAGE_FRAGMENT,
         .descriptor_bindings = (Mel_Gpu_Descriptor_Binding[]){
-            { .binding = 0, .type = MEL_GPU_DESCRIPTOR_COMBINED_IMAGE_SAMPLER, .count = 1, .stages = VK_SHADER_STAGE_FRAGMENT_BIT },
-            { .binding = 1, .type = MEL_GPU_DESCRIPTOR_COMBINED_IMAGE_SAMPLER, .count = 1, .stages = VK_SHADER_STAGE_FRAGMENT_BIT },
-            { .binding = 2, .type = MEL_GPU_DESCRIPTOR_STORAGE_BUFFER, .count = 1, .stages = VK_SHADER_STAGE_FRAGMENT_BIT },
+            { .binding = 0, .type = MEL_GPU_DESCRIPTOR_COMBINED_IMAGE_SAMPLER, .count = 1, .stages = MEL_GPU_SHADER_STAGE_FRAGMENT },
+            { .binding = 1, .type = MEL_GPU_DESCRIPTOR_COMBINED_IMAGE_SAMPLER, .count = 1, .stages = MEL_GPU_SHADER_STAGE_FRAGMENT },
+            { .binding = 2, .type = MEL_GPU_DESCRIPTOR_STORAGE_BUFFER, .count = 1, .stages = MEL_GPU_SHADER_STAGE_FRAGMENT },
         },
         .descriptor_binding_count = 3);
     mel_gpu_pipeline_init(&pass->deferred_pipeline, opt.dev,
         .shader = &pass->deferred_shader,
-        .color_formats = (VkFormat[]){
-            VK_FORMAT_R32G32B32A32_SFLOAT,
-            VK_FORMAT_R32G32B32A32_SFLOAT,
-            VK_FORMAT_R32G32B32A32_SFLOAT,
-            VK_FORMAT_R32G32B32A32_SFLOAT,
+        .color_formats = (Mel_Gpu_Format[]){
+            MEL_GPU_FORMAT_R32G32B32A32_SFLOAT,
+            MEL_GPU_FORMAT_R32G32B32A32_SFLOAT,
+            MEL_GPU_FORMAT_R32G32B32A32_SFLOAT,
+            MEL_GPU_FORMAT_R32G32B32A32_SFLOAT,
         },
         .color_format_count = 4,
         .depth_format = opt.depth_format,
@@ -1529,9 +1527,9 @@ bool mel_mesh_pass_init_opt(Mel_Mesh_Pass* pass, Mel_Mesh_Pass_Init_Opt opt)
         .depth_test = true,
         .depth_write = true,
         .push_constant_size = sizeof(Mel_Mat4),
-        .push_constant_stages = VK_SHADER_STAGE_VERTEX_BIT,
+        .push_constant_stages = MEL_GPU_SHADER_STAGE_VERTEX,
         .descriptor_bindings = (Mel_Gpu_Descriptor_Binding[]){
-            { .binding = 0, .type = MEL_GPU_DESCRIPTOR_STORAGE_BUFFER, .count = 1, .stages = VK_SHADER_STAGE_VERTEX_BIT },
+            { .binding = 0, .type = MEL_GPU_DESCRIPTOR_STORAGE_BUFFER, .count = 1, .stages = MEL_GPU_SHADER_STAGE_VERTEX },
         },
         .descriptor_binding_count = 1);
     mel_gpu_pipeline_init(&pass->deferred_resolve_pipeline, opt.dev,
@@ -1542,45 +1540,45 @@ bool mel_mesh_pass_init_opt(Mel_Mesh_Pass* pass, Mel_Mesh_Pass_Init_Opt opt)
         .depth_test = false,
         .depth_write = false,
         .push_constant_size = sizeof(Mel_Mesh_Clustered_Light_Push_Constants),
-        .push_constant_stages = VK_SHADER_STAGE_FRAGMENT_BIT,
+        .push_constant_stages = MEL_GPU_SHADER_STAGE_FRAGMENT,
         .descriptor_bindings = (Mel_Gpu_Descriptor_Binding[]){
-            { .binding = 0, .type = MEL_GPU_DESCRIPTOR_COMBINED_IMAGE_SAMPLER, .count = 1, .stages = VK_SHADER_STAGE_FRAGMENT_BIT },
-            { .binding = 1, .type = MEL_GPU_DESCRIPTOR_COMBINED_IMAGE_SAMPLER, .count = 1, .stages = VK_SHADER_STAGE_FRAGMENT_BIT },
-            { .binding = 2, .type = MEL_GPU_DESCRIPTOR_COMBINED_IMAGE_SAMPLER, .count = 1, .stages = VK_SHADER_STAGE_FRAGMENT_BIT },
-            { .binding = 3, .type = MEL_GPU_DESCRIPTOR_COMBINED_IMAGE_SAMPLER, .count = 1, .stages = VK_SHADER_STAGE_FRAGMENT_BIT },
-            { .binding = 4, .type = MEL_GPU_DESCRIPTOR_STORAGE_BUFFER, .count = 1, .stages = VK_SHADER_STAGE_FRAGMENT_BIT },
-            { .binding = 5, .type = MEL_GPU_DESCRIPTOR_STORAGE_BUFFER, .count = 1, .stages = VK_SHADER_STAGE_FRAGMENT_BIT },
-            { .binding = 6, .type = MEL_GPU_DESCRIPTOR_STORAGE_BUFFER, .count = 1, .stages = VK_SHADER_STAGE_FRAGMENT_BIT },
+            { .binding = 0, .type = MEL_GPU_DESCRIPTOR_COMBINED_IMAGE_SAMPLER, .count = 1, .stages = MEL_GPU_SHADER_STAGE_FRAGMENT },
+            { .binding = 1, .type = MEL_GPU_DESCRIPTOR_COMBINED_IMAGE_SAMPLER, .count = 1, .stages = MEL_GPU_SHADER_STAGE_FRAGMENT },
+            { .binding = 2, .type = MEL_GPU_DESCRIPTOR_COMBINED_IMAGE_SAMPLER, .count = 1, .stages = MEL_GPU_SHADER_STAGE_FRAGMENT },
+            { .binding = 3, .type = MEL_GPU_DESCRIPTOR_COMBINED_IMAGE_SAMPLER, .count = 1, .stages = MEL_GPU_SHADER_STAGE_FRAGMENT },
+            { .binding = 4, .type = MEL_GPU_DESCRIPTOR_STORAGE_BUFFER, .count = 1, .stages = MEL_GPU_SHADER_STAGE_FRAGMENT },
+            { .binding = 5, .type = MEL_GPU_DESCRIPTOR_STORAGE_BUFFER, .count = 1, .stages = MEL_GPU_SHADER_STAGE_FRAGMENT },
+            { .binding = 6, .type = MEL_GPU_DESCRIPTOR_STORAGE_BUFFER, .count = 1, .stages = MEL_GPU_SHADER_STAGE_FRAGMENT },
         },
         .descriptor_binding_count = 7);
     mel_gpu_pipeline_init(&pass->clustered_light_pipeline, opt.dev,
         .shader = &pass->clustered_light_shader,
         .pipeline_type = MEL_GPU_PIPELINE_COMPUTE,
         .push_constant_size = sizeof(Mel_Mesh_Clustered_Light_Compute_Push_Constants),
-        .push_constant_stages = VK_SHADER_STAGE_COMPUTE_BIT,
+        .push_constant_stages = MEL_GPU_SHADER_STAGE_COMPUTE,
         .descriptor_bindings = (Mel_Gpu_Descriptor_Binding[]){
-            { .binding = 0, .type = MEL_GPU_DESCRIPTOR_STORAGE_BUFFER, .count = 1, .stages = VK_SHADER_STAGE_COMPUTE_BIT },
-            { .binding = 1, .type = MEL_GPU_DESCRIPTOR_STORAGE_BUFFER, .count = 1, .stages = VK_SHADER_STAGE_COMPUTE_BIT },
-            { .binding = 2, .type = MEL_GPU_DESCRIPTOR_STORAGE_BUFFER, .count = 1, .stages = VK_SHADER_STAGE_COMPUTE_BIT },
+            { .binding = 0, .type = MEL_GPU_DESCRIPTOR_STORAGE_BUFFER, .count = 1, .stages = MEL_GPU_SHADER_STAGE_COMPUTE },
+            { .binding = 1, .type = MEL_GPU_DESCRIPTOR_STORAGE_BUFFER, .count = 1, .stages = MEL_GPU_SHADER_STAGE_COMPUTE },
+            { .binding = 2, .type = MEL_GPU_DESCRIPTOR_STORAGE_BUFFER, .count = 1, .stages = MEL_GPU_SHADER_STAGE_COMPUTE },
         },
         .descriptor_binding_count = 3);
     mel_gpu_pipeline_init(&pass->compute_pipeline, opt.dev,
         .shader = &pass->compute_shader,
         .pipeline_type = MEL_GPU_PIPELINE_COMPUTE,
         .push_constant_size = sizeof(Mel_Mesh_Indirect_Cull_Push_Constants),
-        .push_constant_stages = VK_SHADER_STAGE_COMPUTE_BIT,
+        .push_constant_stages = MEL_GPU_SHADER_STAGE_COMPUTE,
         .descriptor_bindings = (Mel_Gpu_Descriptor_Binding[]){
-            { .binding = 0, .type = MEL_GPU_DESCRIPTOR_STORAGE_BUFFER, .count = 1, .stages = VK_SHADER_STAGE_COMPUTE_BIT },
+            { .binding = 0, .type = MEL_GPU_DESCRIPTOR_STORAGE_BUFFER, .count = 1, .stages = MEL_GPU_SHADER_STAGE_COMPUTE },
         },
         .descriptor_binding_count = 1);
     mel_gpu_pipeline_init(&pass->compute_batch_pipeline, opt.dev,
         .shader = &pass->compute_batch_shader,
         .pipeline_type = MEL_GPU_PIPELINE_COMPUTE,
         .push_constant_size = sizeof(Mel_Mesh_Indirect_Cull_Batch_Push_Constants),
-        .push_constant_stages = VK_SHADER_STAGE_COMPUTE_BIT,
+        .push_constant_stages = MEL_GPU_SHADER_STAGE_COMPUTE,
         .descriptor_bindings = (Mel_Gpu_Descriptor_Binding[]){
-            { .binding = 0, .type = MEL_GPU_DESCRIPTOR_STORAGE_BUFFER, .count = 1, .stages = VK_SHADER_STAGE_COMPUTE_BIT },
-            { .binding = 1, .type = MEL_GPU_DESCRIPTOR_STORAGE_BUFFER, .count = 1, .stages = VK_SHADER_STAGE_COMPUTE_BIT },
+            { .binding = 0, .type = MEL_GPU_DESCRIPTOR_STORAGE_BUFFER, .count = 1, .stages = MEL_GPU_SHADER_STAGE_COMPUTE },
+            { .binding = 1, .type = MEL_GPU_DESCRIPTOR_STORAGE_BUFFER, .count = 1, .stages = MEL_GPU_SHADER_STAGE_COMPUTE },
         },
         .descriptor_binding_count = 2);
     if (opt.dev->capabilities.mesh_shader)
@@ -1598,11 +1596,11 @@ bool mel_mesh_pass_init_opt(Mel_Mesh_Pass* pass, Mel_Mesh_Pass_Init_Opt opt)
                 u32 vertex_count;
                 u32 index_count;
             }),
-            .push_constant_stages = VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_FRAGMENT_BIT,
+            .push_constant_stages = MEL_GPU_SHADER_STAGE_MESH | MEL_GPU_SHADER_STAGE_FRAGMENT,
             .descriptor_bindings = (Mel_Gpu_Descriptor_Binding[]){
-                { .binding = 0, .type = MEL_GPU_DESCRIPTOR_STORAGE_BUFFER, .count = 1, .stages = VK_SHADER_STAGE_MESH_BIT_EXT },
-                { .binding = 1, .type = MEL_GPU_DESCRIPTOR_STORAGE_BUFFER, .count = 1, .stages = VK_SHADER_STAGE_MESH_BIT_EXT },
-                { .binding = 2, .type = MEL_GPU_DESCRIPTOR_STORAGE_BUFFER, .count = 1, .stages = VK_SHADER_STAGE_MESH_BIT_EXT },
+                { .binding = 0, .type = MEL_GPU_DESCRIPTOR_STORAGE_BUFFER, .count = 1, .stages = MEL_GPU_SHADER_STAGE_MESH },
+                { .binding = 1, .type = MEL_GPU_DESCRIPTOR_STORAGE_BUFFER, .count = 1, .stages = MEL_GPU_SHADER_STAGE_MESH },
+                { .binding = 2, .type = MEL_GPU_DESCRIPTOR_STORAGE_BUFFER, .count = 1, .stages = MEL_GPU_SHADER_STAGE_MESH },
             },
             .descriptor_binding_count = 3);
     }
@@ -1619,31 +1617,31 @@ bool mel_mesh_pass_init_opt(Mel_Mesh_Pass* pass, Mel_Mesh_Pass_Init_Opt opt)
     {
         mel_gpu_buffer_init(&pass->gpu_frames[i].vertex_buffer, opt.dev,
             .size = vertex_bytes,
-            .usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-            .memory_usage = VMA_MEMORY_USAGE_CPU_TO_GPU);
+            .usage = MEL_GPU_BUFFER_USAGE_VERTEX,
+            .memory_usage = MEL_GPU_MEMORY_USAGE_CPU_TO_GPU);
         mel_gpu_buffer_init(&pass->gpu_frames[i].index_buffer, opt.dev,
             .size = index_bytes,
-            .usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-            .memory_usage = VMA_MEMORY_USAGE_CPU_TO_GPU);
+            .usage = MEL_GPU_BUFFER_USAGE_INDEX,
+            .memory_usage = MEL_GPU_MEMORY_USAGE_CPU_TO_GPU);
         mel_gpu_buffer_init(&pass->gpu_frames[i].material_buffer, opt.dev,
             .size = material_bytes,
-            .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-            .memory_usage = VMA_MEMORY_USAGE_CPU_TO_GPU,
+            .usage = MEL_GPU_BUFFER_USAGE_STORAGE,
+            .memory_usage = MEL_GPU_MEMORY_USAGE_CPU_TO_GPU,
             .map_on_create = true);
         mel_gpu_buffer_init(&pass->gpu_frames[i].cluster_range_buffer, opt.dev,
             .size = cluster_range_bytes,
-            .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-            .memory_usage = VMA_MEMORY_USAGE_GPU_ONLY);
+            .usage = MEL_GPU_BUFFER_USAGE_STORAGE,
+            .memory_usage = MEL_GPU_MEMORY_USAGE_GPU_ONLY);
         mel_gpu_buffer_init(&pass->gpu_frames[i].cluster_index_buffer, opt.dev,
             .size = cluster_index_bytes,
-            .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-            .memory_usage = VMA_MEMORY_USAGE_GPU_ONLY);
+            .usage = MEL_GPU_BUFFER_USAGE_STORAGE,
+            .memory_usage = MEL_GPU_MEMORY_USAGE_GPU_ONLY);
     }
 
     mel_gpu_buffer_init(&pass->empty_light_buffer, opt.dev,
         .size = sizeof(Mel_Point_Light_Gpu_Record),
-        .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-        .memory_usage = VMA_MEMORY_USAGE_CPU_TO_GPU,
+        .usage = MEL_GPU_BUFFER_USAGE_STORAGE,
+        .memory_usage = MEL_GPU_MEMORY_USAGE_CPU_TO_GPU,
         .map_on_create = true);
     Mel_Point_Light_Gpu_Record zero_light = {0};
     mel_gpu_buffer_upload(&pass->empty_light_buffer, opt.dev, &zero_light, sizeof(zero_light), 0);
@@ -1682,8 +1680,8 @@ void mel_mesh_pass_shutdown(Mel_Mesh_Pass* pass)
         mel_gpu_buffer_shutdown(&pass->gpu_frames[i].vertex_buffer, pass->dev);
     }
     mel_gpu_buffer_shutdown(&pass->empty_light_buffer, pass->dev);
-    if (pass->visibility_sampler)
-        vkDestroySampler(pass->dev->device, pass->visibility_sampler, nullptr);
+    if (pass->_visibility_sampler)
+        vkDestroySampler(pass->dev->device, pass->_visibility_sampler, nullptr);
     mel_gpu_pipeline_shutdown(&pass->mesh_pipeline, pass->dev);
     mel_gpu_pipeline_shutdown(&pass->compute_batch_pipeline, pass->dev);
     mel_gpu_pipeline_shutdown(&pass->compute_pipeline, pass->dev);
@@ -1738,9 +1736,9 @@ static void mel__mesh_pass_draw_selected_sources(Mel_Render_Pass_Ctx* ctx, u32 s
         {
             const Mel_Mesh_Gpu_Cull_Stream* stream = mel_source_user(source);
             Mel_Mesh_Gpu_Indirect_Stream indirect = {
-                .vertex_buffer = stream ? stream->vertex_buffer : VK_NULL_HANDLE,
-                .index_buffer = stream ? stream->index_buffer : VK_NULL_HANDLE,
-                .indirect_buffer = stream ? stream->indirect_buffer : VK_NULL_HANDLE,
+                ._vertex_buffer = stream ? stream->_vertex_buffer : nullptr,
+                ._index_buffer = stream ? stream->_index_buffer : nullptr,
+                ._indirect_buffer = stream ? stream->_indirect_buffer : nullptr,
                 .vertex_count = stream ? stream->vertex_count : 0,
                 .index_count = stream ? stream->index_count : 0,
                 .draw_count = 1,
@@ -1752,9 +1750,9 @@ static void mel__mesh_pass_draw_selected_sources(Mel_Render_Pass_Ctx* ctx, u32 s
         {
             const Mel_Mesh_Gpu_Cull_Batch_Stream* stream = mel_source_user(source);
             Mel_Mesh_Gpu_Indirect_Stream indirect = {
-                .vertex_buffer = stream ? stream->vertex_buffer : VK_NULL_HANDLE,
-                .index_buffer = stream ? stream->index_buffer : VK_NULL_HANDLE,
-                .indirect_buffer = stream ? stream->indirect_buffer : VK_NULL_HANDLE,
+                ._vertex_buffer = stream ? stream->_vertex_buffer : nullptr,
+                ._index_buffer = stream ? stream->_index_buffer : nullptr,
+                ._indirect_buffer = stream ? stream->_indirect_buffer : nullptr,
                 .vertex_count = stream ? stream->vertex_count : 0,
                 .index_count = stream ? stream->index_count : 0,
                 .draw_count = stream ? stream->draw_count : 0,
@@ -1849,9 +1847,9 @@ void mel_mesh_pass_execute(Mel_Render_Pass_Ctx* ctx)
         !external_material_buffer && pass->material_count == 0)
         mel__mesh_pass_push_material(pass, MEL_MATERIAL_INSTANCE_HANDLE_NULL);
 
-    VkBuffer material_buffer = external_material_buffer
-        ? external_material_buffer->buffer
-        : pass->gpu_frames[pass->gpu_frame_index].material_buffer.buffer;
+    Mel_Gpu_Buffer* material_buffer = external_material_buffer
+        ? external_material_buffer
+        : &pass->gpu_frames[pass->gpu_frame_index].material_buffer;
 
     if (!external_material_buffer && pass->material_count > 0)
         mel_gpu_buffer_flush(&pass->gpu_frames[pass->gpu_frame_index].material_buffer, ctx->cmd.dev);
@@ -1952,9 +1950,9 @@ static void mel__mesh_pass_execute_visibility_attribute_fill_internal(Mel_Render
     if (has_gpu_geometry && !external_material_buffer && pass->material_count == 0)
         mel__mesh_pass_push_material(pass, MEL_MATERIAL_INSTANCE_HANDLE_NULL);
 
-    VkBuffer material_buffer = external_material_buffer
-        ? external_material_buffer->buffer
-        : pass->gpu_frames[pass->gpu_frame_index].material_buffer.buffer;
+    Mel_Gpu_Buffer* material_buffer = external_material_buffer
+        ? external_material_buffer
+        : &pass->gpu_frames[pass->gpu_frame_index].material_buffer;
     if (!external_material_buffer && pass->material_count > 0)
         mel_gpu_buffer_flush(&pass->gpu_frames[pass->gpu_frame_index].material_buffer, ctx->cmd.dev);
 
@@ -1991,11 +1989,11 @@ void mel_mesh_pass_execute_visibility_resolve(Mel_Render_Pass_Ctx* ctx)
         }
     }
 
-    VkBuffer material_buffer = external_material_buffer
-        ? external_material_buffer->buffer
-        : pass->gpu_frames[pass->gpu_frame_index].material_buffer.buffer;
+    Mel_Gpu_Buffer* material_buffer = external_material_buffer
+        ? external_material_buffer
+        : &pass->gpu_frames[pass->gpu_frame_index].material_buffer;
     mel__mesh_pass_bind_visibility_resolve(pass, ctx->cmd, ctx->read_targets[0], ctx->read_targets[1], material_buffer);
-    vkCmdDraw(ctx->cmd.cmd, 3, 1, 0, 0);
+    mel_gpu_cmd_draw(&ctx->cmd, 3, 1, 0, 0);
 }
 
 void mel_mesh_pass_execute_deferred_fill(Mel_Render_Pass_Ctx* ctx)
@@ -2034,9 +2032,9 @@ void mel_mesh_pass_execute_deferred_fill(Mel_Render_Pass_Ctx* ctx)
     if (has_gpu_geometry && !external_material_buffer && pass->material_count == 0)
         mel__mesh_pass_push_material(pass, MEL_MATERIAL_INSTANCE_HANDLE_NULL);
 
-    VkBuffer material_buffer = external_material_buffer
-        ? external_material_buffer->buffer
-        : pass->gpu_frames[pass->gpu_frame_index].material_buffer.buffer;
+    Mel_Gpu_Buffer* material_buffer = external_material_buffer
+        ? external_material_buffer
+        : &pass->gpu_frames[pass->gpu_frame_index].material_buffer;
     if (!external_material_buffer && pass->material_count > 0)
         mel_gpu_buffer_flush(&pass->gpu_frames[pass->gpu_frame_index].material_buffer, ctx->cmd.dev);
 
@@ -2058,13 +2056,13 @@ void mel_mesh_pass_execute_deferred_resolve(Mel_Render_Pass_Ctx* ctx)
         return;
 
     Mel_Light_Table* light_table = mel__mesh_pass_light_table(ctx);
-    VkBuffer light_buffer = light_table ? light_table->buffer.buffer : pass->empty_light_buffer.buffer;
+    Mel_Gpu_Buffer* light_buffer = light_table ? &light_table->buffer : &pass->empty_light_buffer;
     Mel_Mesh_Gpu_Frame* frame = &pass->gpu_frames[ctx->gpu_frame_index];
     mel__mesh_pass_bind_deferred_resolve(pass, ctx->cmd,
         ctx->read_targets[0], ctx->read_targets[1], ctx->read_targets[2], ctx->read_targets[3],
         ctx->camera, ctx->render_width, ctx->render_height,
-        light_buffer, frame->cluster_range_buffer.buffer, frame->cluster_index_buffer.buffer);
-    vkCmdDraw(ctx->cmd.cmd, 3, 1, 0, 0);
+        light_buffer, &frame->cluster_range_buffer, &frame->cluster_index_buffer);
+    mel_gpu_cmd_draw(&ctx->cmd, 3, 1, 0, 0);
 }
 
 void mel_mesh_pass_execute_clustered_lighting(Mel_Render_Pass_Ctx* ctx)
@@ -2075,7 +2073,7 @@ void mel_mesh_pass_execute_clustered_lighting(Mel_Render_Pass_Ctx* ctx)
 
     Mel_Mesh_Gpu_Frame* frame = &pass->gpu_frames[ctx->gpu_frame_index];
     Mel_Light_Table* light_table = mel__mesh_pass_light_table(ctx);
-    VkBuffer light_buffer = light_table ? light_table->buffer.buffer : pass->empty_light_buffer.buffer;
+    Mel_Gpu_Buffer* light_buffer = light_table ? &light_table->buffer : &pass->empty_light_buffer;
     u32 light_count = light_table ? mel_light_table_count(light_table) : 0;
     u32 tile_count_x = (ctx->render_width + pass->cluster_tile_size - 1) / pass->cluster_tile_size;
     u32 tile_count_y = (ctx->render_height + pass->cluster_tile_size - 1) / pass->cluster_tile_size;
@@ -2086,15 +2084,15 @@ void mel_mesh_pass_execute_clustered_lighting(Mel_Render_Pass_Ctx* ctx)
     Mel_Mat4 vp = mel_camera_vp(ctx->camera);
     mel__mesh_pass_bind_clustered_lighting(pass, ctx->cmd, &vp, ctx->camera,
         ctx->render_width, ctx->render_height, light_count, light_buffer,
-        frame->cluster_range_buffer.buffer, frame->cluster_index_buffer.buffer);
+        &frame->cluster_range_buffer, &frame->cluster_index_buffer);
     u32 groups_x = (cluster_count + 63u) / 64u;
     mel_gpu_cmd_dispatch(&ctx->cmd, groups_x, 1, 1);
-    mel_gpu_cmd_buffer_barrier(&ctx->cmd, frame->cluster_range_buffer.buffer,
-        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT,
-        VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT);
-    mel_gpu_cmd_buffer_barrier(&ctx->cmd, frame->cluster_index_buffer.buffer,
-        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT,
-        VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT);
+    mel_gpu_cmd_buffer_barrier(&ctx->cmd, &frame->cluster_range_buffer,
+        MEL_GPU_STAGE_COMPUTE_SHADER, MEL_GPU_ACCESS_SHADER_WRITE,
+        MEL_GPU_STAGE_FRAGMENT_SHADER, MEL_GPU_ACCESS_SHADER_READ);
+    mel_gpu_cmd_buffer_barrier(&ctx->cmd, &frame->cluster_index_buffer,
+        MEL_GPU_STAGE_COMPUTE_SHADER, MEL_GPU_ACCESS_SHADER_WRITE,
+        MEL_GPU_STAGE_FRAGMENT_SHADER, MEL_GPU_ACCESS_SHADER_READ);
 }
 
 void mel_mesh_pass_execute_compute_indirect(Mel_Render_Pass_Ctx* ctx)
@@ -2161,7 +2159,7 @@ void mel_mesh_pass_execute_mesh_shader(Mel_Render_Pass_Ctx* ctx)
             continue;
 
         const Mel_Mesh_Gpu_Draw_Stream* stream = mel_source_user(source);
-        mel__mesh_pass_draw_mesh_shader_stream(pass, ctx->cmd, &vp, external_material_buffer->buffer, stream);
+        mel__mesh_pass_draw_mesh_shader_stream(pass, ctx->cmd, &vp, external_material_buffer, stream);
     }
 }
 

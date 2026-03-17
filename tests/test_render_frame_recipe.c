@@ -1,4 +1,6 @@
 #include "../melody/test.harness.h"
+#include "../melody/gpu.types.h"
+#include "../melody/gpu.device.h"
 #include "../melody/render.source.h"
 #include "../melody/render.view.h"
 #include "../melody/render.frame_recipe.h"
@@ -34,7 +36,7 @@ static void mock_present(Mel_Swapchain* sc, Mel_Gpu_Device* dev)
 static void mock_resize(Mel_Swapchain* sc, Mel_Gpu_Device* dev, u32 width, u32 height)
 {
     (void)dev;
-    sc->extent = (VkExtent2D){ width, height };
+    sc->extent_width = width; sc->extent_height = height;
 }
 
 static void mock_shutdown(Mel_Swapchain* sc, Mel_Gpu_Device* dev)
@@ -64,8 +66,8 @@ static Mel_Swapchain_Handle make_mock_swapchain(void)
         .swapchain = {
             .vtable = &s_mock_vtable,
             .data = mock,
-            .format = VK_FORMAT_B8G8R8A8_SRGB,
-            .extent = { 640, 480 },
+            .format = MEL_GPU_FORMAT_B8G8R8A8_SRGB,
+            .extent_width = 640, .extent_height = 480,
             .image_count = 2,
         },
     };
@@ -689,8 +691,8 @@ MEL_TEST(frame_plan_orders_same_swapchain_views_by_explicit_binding_order, .tags
     MEL_ASSERT(graph.passes.items[1].read_lists != nullptr);
     MEL_ASSERT(graph.passes.items[0].read_lists[0] == &world_list);
     MEL_ASSERT(graph.passes.items[1].read_lists[0] == &hud_list);
-    MEL_ASSERT_EQ(graph.passes.items[0].write_targets[0].load_op, (VkAttachmentLoadOp)VK_ATTACHMENT_LOAD_OP_CLEAR);
-    MEL_ASSERT_EQ(graph.passes.items[1].write_targets[0].load_op, (VkAttachmentLoadOp)VK_ATTACHMENT_LOAD_OP_LOAD);
+    MEL_ASSERT_EQ(graph.passes.items[0].write_targets[0].load_op, (Mel_Gpu_Load_Op)MEL_GPU_LOAD_OP_CLEAR);
+    MEL_ASSERT_EQ(graph.passes.items[1].write_targets[0].load_op, (Mel_Gpu_Load_Op)MEL_GPU_LOAD_OP_LOAD);
 
     mel_frame_recipe_present_ordered(recipe, world_view, swapchain, 30);
     mel_frame_recipe_overlay_ordered(recipe, hud_view, swapchain, 10);
@@ -704,8 +706,8 @@ MEL_TEST(frame_plan_orders_same_swapchain_views_by_explicit_binding_order, .tags
     MEL_ASSERT_EQ(graph.passes.count, (usize)2);
     MEL_ASSERT(graph.passes.items[0].read_lists[0] == &hud_list);
     MEL_ASSERT(graph.passes.items[1].read_lists[0] == &world_list);
-    MEL_ASSERT_EQ(graph.passes.items[0].write_targets[0].load_op, (VkAttachmentLoadOp)VK_ATTACHMENT_LOAD_OP_CLEAR);
-    MEL_ASSERT_EQ(graph.passes.items[1].write_targets[0].load_op, (VkAttachmentLoadOp)VK_ATTACHMENT_LOAD_OP_CLEAR);
+    MEL_ASSERT_EQ(graph.passes.items[0].write_targets[0].load_op, (Mel_Gpu_Load_Op)MEL_GPU_LOAD_OP_CLEAR);
+    MEL_ASSERT_EQ(graph.passes.items[1].write_targets[0].load_op, (Mel_Gpu_Load_Op)MEL_GPU_LOAD_OP_CLEAR);
 
     mel_render_graph_shutdown(&graph);
     mel_frame_plan_destroy(plan);

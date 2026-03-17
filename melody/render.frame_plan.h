@@ -104,7 +104,7 @@ u32 mel_frame_plan_dirty_flags(Mel_Frame_Plan_Handle plan);
 Mel_Render_Target* mel_frame_plan_swapchain_target(Mel_Frame_Plan_Handle plan, Mel_Swapchain_Handle swapchain);
 Mel_Render_Target* mel_frame_plan_swapchain_depth_target(Mel_Frame_Plan_Handle plan, Mel_Swapchain_Handle swapchain);
 Mel_Render_Target* mel_frame_plan_named_color_target(Mel_Frame_Plan_Handle plan, Mel_Swapchain_Handle swapchain,
-    str8 name, VkFormat format);
+    str8 name, Mel_Gpu_Format format);
 u32 mel_frame_plan_resolved_technique_count(Mel_Frame_Plan_Handle plan);
 bool mel_frame_plan_resolved_technique_at(Mel_Frame_Plan_Handle plan, u32 index, Mel_Frame_Plan_Resolved_Technique* out);
 u32 mel_frame_plan_resolved_material_count(Mel_Frame_Plan_Handle plan);

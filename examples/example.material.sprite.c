@@ -20,6 +20,7 @@
 #include "text.pass.h"
 #include "text.draw.h"
 #include "font.atlas.h"
+#include "font.desc.h"
 #include "allocator.heap.h"
 #include "math.mat4.h"
 #include "math.vec2.h"
@@ -47,7 +48,7 @@ static Mel_Camera s_world_camera;
 static Mel_Camera s_hud_camera;
 static Mel_Sim_Ctx s_sim;
 static u8 s_event_buf[4096];
-static Mel_Font_Handle s_font;
+static Mel_Font_Atlas_Handle s_font;
 
 static Mel_Material_Template_Handle s_card_template;
 static Mel_Material_Template_Handle s_badge_template;
@@ -439,23 +440,23 @@ static void material_sprite_extract(Mel_Sim_Ctx* sim, f32 dt, void* user)
     SDL_snprintf(line2, sizeof(line2), "Badge backend: %.*s",
         (int)badge_backend.len, badge_backend.data);
 
-    mel_text_draw_font_atlas(mel_font_pool(), s_font, &s_hud_text, S8("Sprite Material Playground"),
+    mel_text_draw_font_atlas(s_font, &s_hud_text, S8("Sprite Material Playground"),
         .x = 72.0f, .y = 104.0f,
         .style = { .color = mel_vec4(0.95f, 0.96f, 0.98f, 1.0f) });
-    mel_text_draw_font_atlas(mel_font_pool(), s_font, &s_hud_text,
+    mel_text_draw_font_atlas(s_font, &s_hud_text,
         S8("Instance colors are the visible parameter path in this slice. Backend selection is shown explicitly in diagnostics."),
         .x = 72.0f, .y = 72.0f,
         .style = { .color = mel_vec4(0.74f, 0.78f, 0.84f, 1.0f) });
-    mel_text_draw_font_atlas(mel_font_pool(), s_font, &s_hud_text, str8_from_cstr(line),
+    mel_text_draw_font_atlas(s_font, &s_hud_text, str8_from_cstr(line),
         .x = 72.0f, .y = 40.0f,
         .style = { .color = mel_vec4(0.80f, 0.88f, 0.98f, 1.0f) });
-    mel_text_draw_font_atlas(mel_font_pool(), s_font, &s_hud_text, str8_from_cstr(line2),
+    mel_text_draw_font_atlas(s_font, &s_hud_text, str8_from_cstr(line2),
         .x = 72.0f, .y = 12.0f,
         .style = { .color = mel_vec4(0.94f, 0.83f, 0.64f, 1.0f) });
 
     for (u32 i = 0; i < diag_count; i++)
     {
-        mel_text_draw_font_atlas(mel_font_pool(), s_font, &s_hud_text, str8_from_cstr(diag_lines[i]),
+        mel_text_draw_font_atlas(s_font, &s_hud_text, str8_from_cstr(diag_lines[i]),
             .x = 72.0f,
             .y = 694.0f - (f32)(i * 28),
             .style = { .color = i == 0
@@ -463,13 +464,13 @@ static void material_sprite_extract(Mel_Sim_Ctx* sim, f32 dt, void* user)
                 : mel_vec4(0.68f, 0.72f, 0.78f, 1.0f) });
     }
 
-    mel_text_draw_font_atlas(mel_font_pool(), s_font, &s_hud_text, S8("PLAYER MATERIAL"),
+    mel_text_draw_font_atlas(s_font, &s_hud_text, S8("PLAYER MATERIAL"),
         .x = 116.0f, .y = 586.0f,
         .style = { .color = mel_vec4(0.08f, 0.11f, 0.14f, 1.0f) });
-    mel_text_draw_font_atlas(mel_font_pool(), s_font, &s_hud_text, S8("ENEMY MATERIAL"),
+    mel_text_draw_font_atlas(s_font, &s_hud_text, S8("ENEMY MATERIAL"),
         .x = 436.0f, .y = 586.0f,
         .style = { .color = mel_vec4(0.08f, 0.11f, 0.14f, 1.0f) });
-    mel_text_draw_font_atlas(mel_font_pool(), s_font, &s_hud_text, S8("CUSTOM BADGE PROFILE"),
+    mel_text_draw_font_atlas(s_font, &s_hud_text, S8("CUSTOM BADGE PROFILE"),
         .x = 232.0f, .y = 286.0f,
         .style = { .color = mel_vec4(0.16f, 0.14f, 0.08f, 1.0f) });
 }
@@ -512,8 +513,8 @@ static void material_sprite_on_init(void)
     };
     s_hud_camera = s_world_camera;
 
-    s_font = mel_font_atlas_pool_load(mel_font_pool(),
-        .path = S8("/System/Library/Fonts/Monaco.ttf"),
+    s_font = mel_font_atlas_load(
+        .desc = mel_font_desc_load_ttf(S8("/System/Library/Fonts/Monaco.ttf")),
         .size = 20.0f);
 
     s_card_template = mel_material_template_create(&(Mel_Material_Template_Desc){

@@ -511,18 +511,18 @@ static Mel_Frame_Plan_Target* mel__frame_plan_get_target(Mel_Frame_Plan* plan,
         {
             mel_render_target_init(&gen.target, dev,
                 .name = S8("recipe_depth"),
-                .width = sc->extent.width,
-                .height = sc->extent.height,
-                .format = VK_FORMAT_D32_SFLOAT);
+                .width = sc->extent_width,
+                .height = sc->extent_height,
+                .format = MEL_GPU_FORMAT_D32_SFLOAT);
         }
         else
         {
             gen.target = (Mel_Render_Target){
                 .name = S8("recipe_depth"),
                 .kind = MEL_RENDER_TARGET_DEPTH,
-                .width = sc->extent.width,
-                .height = sc->extent.height,
-                .format = VK_FORMAT_D32_SFLOAT,
+                .width = sc->extent_width,
+                .height = sc->extent_height,
+                .format = MEL_GPU_FORMAT_D32_SFLOAT,
                 .dev = dev,
                 .alloc = plan->alloc,
             };
@@ -535,8 +535,8 @@ static Mel_Frame_Plan_Target* mel__frame_plan_get_target(Mel_Frame_Plan* plan,
         {
             mel_render_target_init(&gen.target, dev,
                 .name = target_name,
-                .width = sc->extent.width,
-                .height = sc->extent.height,
+                .width = sc->extent_width,
+                .height = sc->extent_height,
                 .format = color_format);
         }
         else
@@ -544,8 +544,8 @@ static Mel_Frame_Plan_Target* mel__frame_plan_get_target(Mel_Frame_Plan* plan,
             gen.target = (Mel_Render_Target){
                 .name = target_name,
                 .kind = MEL_RENDER_TARGET_COLOR,
-                .width = sc->extent.width,
-                .height = sc->extent.height,
+                .width = sc->extent_width,
+                .height = sc->extent_height,
                 .format = color_format,
                 .dev = dev,
                 .alloc = plan->alloc,
@@ -567,14 +567,14 @@ static bool mel__frame_plan_refresh_target(Mel_Frame_Plan* plan, Mel_Frame_Plan_
 
     if (gen->target.kind == MEL_RENDER_TARGET_SWAPCHAIN)
     {
-        gen->target.width = sc->extent.width;
-        gen->target.height = sc->extent.height;
+        gen->target.width = sc->extent_width;
+        gen->target.height = sc->extent_height;
         gen->target.format = sc->format;
         return true;
     }
 
-    if (gen->target.width == sc->extent.width &&
-        gen->target.height == sc->extent.height)
+    if (gen->target.width == sc->extent_width &&
+        gen->target.height == sc->extent_height)
         return true;
 
     changed = true;
@@ -587,20 +587,20 @@ static bool mel__frame_plan_refresh_target(Mel_Frame_Plan* plan, Mel_Frame_Plan_
         mel_render_target_shutdown(&gen->target);
         mel_render_target_init(&gen->target, dev,
             .name = name,
-            .width = sc->extent.width,
-            .height = sc->extent.height,
+            .width = sc->extent_width,
+            .height = sc->extent_height,
             .format = format,
             .alloc = alloc);
     }
     else
     {
-        gen->target.width = sc->extent.width;
-        gen->target.height = sc->extent.height;
-        gen->target.format = gen->role == MEL_RENDER_TARGET_DEPTH ? VK_FORMAT_D32_SFLOAT : sc->format;
+        gen->target.width = sc->extent_width;
+        gen->target.height = sc->extent_height;
+        gen->target.format = gen->role == MEL_RENDER_TARGET_DEPTH ? MEL_GPU_FORMAT_D32_SFLOAT : sc->format;
         gen->target.dev = dev;
     }
 
-    return !changed || (gen->target.width == sc->extent.width && gen->target.height == sc->extent.height);
+    return !changed || (gen->target.width == sc->extent_width && gen->target.height == sc->extent_height);
 }
 
 Mel_Render_List** mel_frame_plan_collect_render_lists(Mel_Frame_Plan_Handle handle,
@@ -931,7 +931,7 @@ bool mel_frame_plan_compile_opt(Mel_Frame_Plan_Handle handle, Mel_Frame_Recipe_H
     {
         Mel_Frame_Recipe_Binding_Desc binding = bindings[i].binding;
         Mel_Frame_Plan_Target* gen_target = mel__frame_plan_get_target(plan, binding.swapchain, dev,
-            MEL_RENDER_TARGET_SWAPCHAIN, S8(""), VK_FORMAT_UNDEFINED);
+            MEL_RENDER_TARGET_SWAPCHAIN, S8(""), MEL_GPU_FORMAT_UNDEFINED);
         bool first_for_swapchain = true;
         for (u32 j = 0; j < i; j++)
         {
@@ -1178,7 +1178,7 @@ Mel_Render_Target* mel_frame_plan_swapchain_target(Mel_Frame_Plan_Handle handle,
     Mel_Frame_Plan* plan = mel__frame_plan_get(handle);
     Mel_Gpu_Device* dev = plan->dev ? plan->dev : mel_gpu_dev();
     Mel_Frame_Plan_Target* target = mel__frame_plan_get_target(plan, swapchain, dev,
-        MEL_RENDER_TARGET_SWAPCHAIN, S8(""), VK_FORMAT_UNDEFINED);
+        MEL_RENDER_TARGET_SWAPCHAIN, S8(""), MEL_GPU_FORMAT_UNDEFINED);
     return target ? &target->target : nullptr;
 }
 
@@ -1187,7 +1187,7 @@ Mel_Render_Target* mel_frame_plan_swapchain_depth_target(Mel_Frame_Plan_Handle h
     Mel_Frame_Plan* plan = mel__frame_plan_get(handle);
     Mel_Gpu_Device* dev = plan->dev ? plan->dev : mel_gpu_dev();
     Mel_Frame_Plan_Target* target = mel__frame_plan_get_target(plan, swapchain, dev,
-        MEL_RENDER_TARGET_DEPTH, S8(""), VK_FORMAT_UNDEFINED);
+        MEL_RENDER_TARGET_DEPTH, S8(""), MEL_GPU_FORMAT_UNDEFINED);
     return target ? &target->target : nullptr;
 }
 

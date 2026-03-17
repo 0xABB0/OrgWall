@@ -1,5 +1,6 @@
 #include "../melody/test.harness.h"
 #include "../melody/render.graph.h"
+#include "../melody/gpu.types.h"
 #include "../melody/render.target.h"
 #include "../melody/render.list.h"
 #include "../melody/string.str8.h"
@@ -262,9 +263,9 @@ MEL_TEST(graph_barrier_computation, .tags = "render")
     for (usize i = 0; i < g.barriers.count; i++)
     {
         Mel_Render_Graph_Barrier* b = &g.barriers.items[i];
-        if (b->new_layout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL)
+        if (b->new_layout == MEL_GPU_IMAGE_LAYOUT_COLOR_ATTACHMENT)
             found_write_barrier = true;
-        if (b->new_layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+        if (b->new_layout == MEL_GPU_IMAGE_LAYOUT_SHADER_READ_ONLY)
             found_read_barrier = true;
     }
     MEL_ASSERT(found_write_barrier);
@@ -294,10 +295,10 @@ MEL_TEST(graph_compute_target_read_uses_compute_stage, .tags = "render")
     {
         Mel_Render_Graph_Barrier* b = &g.barriers.items[i];
         if (b->pass_index == compute_reader && b->target == &color &&
-            b->new_layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+            b->new_layout == MEL_GPU_IMAGE_LAYOUT_SHADER_READ_ONLY)
         {
             found_compute_read_barrier = true;
-            MEL_ASSERT((b->dst_stage & VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT) != 0);
+            MEL_ASSERT((b->dst_stage & MEL_GPU_STAGE_COMPUTE_SHADER) != 0);
         }
     }
 

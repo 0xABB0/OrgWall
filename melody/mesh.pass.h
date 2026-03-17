@@ -62,16 +62,16 @@ struct Mel_Mesh_Entry {
 typedef struct Mel_Mesh_Entry Mel_Mesh_Entry;
 
 typedef struct {
-    VkBuffer vertex_buffer;
-    VkBuffer index_buffer;
+    void* _vertex_buffer;
+    void* _index_buffer;
     u32 vertex_count;
     u32 index_count;
 } Mel_Mesh_Gpu_Draw_Stream;
 
 typedef struct {
-    VkBuffer vertex_buffer;
-    VkBuffer index_buffer;
-    VkBuffer indirect_buffer;
+    void* _vertex_buffer;
+    void* _index_buffer;
+    void* _indirect_buffer;
     u32 vertex_count;
     u32 index_count;
     u32 draw_count;
@@ -79,9 +79,9 @@ typedef struct {
 } Mel_Mesh_Gpu_Indirect_Stream;
 
 typedef struct {
-    VkBuffer vertex_buffer;
-    VkBuffer index_buffer;
-    VkBuffer indirect_buffer;
+    void* _vertex_buffer;
+    void* _index_buffer;
+    void* _indirect_buffer;
     u32 vertex_count;
     u32 index_count;
     Mel_Vec3 bounds_center;
@@ -103,10 +103,10 @@ _Static_assert(sizeof(Mel_Mesh_Gpu_Cull_Batch_Record) == 48,
     "Mel_Mesh_Gpu_Cull_Batch_Record must match GPU StructuredBuffer stride");
 
 typedef struct {
-    VkBuffer vertex_buffer;
-    VkBuffer index_buffer;
-    VkBuffer metadata_buffer;
-    VkBuffer indirect_buffer;
+    void* _vertex_buffer;
+    void* _index_buffer;
+    void* _metadata_buffer;
+    void* _indirect_buffer;
     u32 vertex_count;
     u32 index_count;
     u32 draw_count;
@@ -173,7 +173,7 @@ struct Mel_Mesh_Pass {
     u32 draw_range_capacity;
 
     Mel_Mesh_Lighting lighting;
-    VkSampler visibility_sampler;
+    void* _visibility_sampler;
     Mel_Gpu_Buffer empty_light_buffer;
     u32 cluster_tile_size;
     u32 cluster_z_slices;
@@ -184,8 +184,8 @@ struct Mel_Mesh_Pass {
 
 typedef struct {
     Mel_Gpu_Device* dev;
-    VkFormat color_format;
-    VkFormat depth_format;
+    Mel_Gpu_Format color_format;
+    Mel_Gpu_Format depth_format;
     u32 max_vertices;
     u32 max_indices;
     const Mel_Alloc* alloc;

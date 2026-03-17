@@ -52,7 +52,7 @@ struct Mel_Sprite_Entry {
 }
 
 typedef struct {
-    VkDescriptorSet descriptor;
+    void* _descriptor;
     u32 index_offset;
     u32 index_count;
 } Mel_Sprite_Draw_Cmd;
@@ -86,14 +86,14 @@ struct Mel_Sprite_Pass {
     Mel_Sprite_Draw_Cmd* draws;
     u32 draw_count;
     u32 draw_capacity;
-    VkDescriptorSet current_descriptor;
+    void* _current_descriptor;
     Mel_Gpu_Texture* current_texture;
     const Mel_Alloc* alloc;
 };
 
 typedef struct {
     Mel_Gpu_Device* dev;
-    VkFormat color_format;
+    Mel_Gpu_Format color_format;
     u32 max_sprites;
     const Mel_Alloc* alloc;
 } Mel_Sprite_Pass_Init_Opt;

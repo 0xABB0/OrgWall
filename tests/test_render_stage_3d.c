@@ -1,4 +1,6 @@
 #include "../melody/test.harness.h"
+#include "../melody/gpu.types.h"
+#include "../melody/gpu.device.h"
 #include "../melody/render.stage.3d.h"
 #include "../melody/render.frame_plan.h"
 #include "../melody/render.camera.h"
@@ -34,7 +36,7 @@ static void stage3d_mock_present(Mel_Swapchain* sc, Mel_Gpu_Device* dev)
 static void stage3d_mock_resize(Mel_Swapchain* sc, Mel_Gpu_Device* dev, u32 width, u32 height)
 {
     (void)dev;
-    sc->extent = (VkExtent2D){ width, height };
+    sc->extent_width = width; sc->extent_height = height;
 }
 
 static void stage3d_mock_shutdown(Mel_Swapchain* sc, Mel_Gpu_Device* dev)
@@ -61,8 +63,8 @@ static Mel_Swapchain_Handle make_stage3d_mock_swapchain(void)
         .swapchain = {
             .vtable = &s_stage3d_mock_vtable,
             .data = mock,
-            .format = VK_FORMAT_B8G8R8A8_SRGB,
-            .extent = { 960, 540 },
+            .format = MEL_GPU_FORMAT_B8G8R8A8_SRGB,
+            .extent_width = 960, .extent_height = 540,
             .image_count = 2,
         },
     };

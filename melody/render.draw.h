@@ -2,6 +2,7 @@
 
 #include "core.types.h"
 #include "gpu.buffer.h"
+#include "gpu.cmd.fwd.h"
 #include "gpu.pipeline.fwd.h"
 #include "gpu.texture.fwd.h"
 #include "allocator.fwd.h"
@@ -19,7 +20,7 @@ typedef struct {
 } Mel_Draw_Vertex;
 
 typedef struct {
-    VkDescriptorSet descriptor;
+    void* _descriptor;
     u32 index_offset;
     u32 index_count;
 } Mel_Draw_Cmd;
@@ -55,10 +56,10 @@ struct Mel_Draw_Ctx {
     Mel_Gpu_Pipeline* pipeline;
     Mel_Gpu_Texture* default_texture;
     Mel_Gpu_Texture* current_texture;
-    VkDescriptorSet current_descriptor;
+    void* _current_descriptor;
 
     Mel_Texture_Pool* pool;
-    Mel_Font_Atlas_Pool* font_pool;
+
     Mel_Gpu_Device* dev;
     const Mel_Alloc* alloc;
 
@@ -69,7 +70,7 @@ typedef struct {
     Mel_Gpu_Pipeline* pipeline;
     Mel_Gpu_Texture* texture;
     Mel_Texture_Pool* pool;
-    Mel_Font_Atlas_Pool* font_pool;
+
     Mel_Gpu_Device* dev;
     const Mel_Alloc* alloc;
 } Mel_Draw_Ctx_Opt;
@@ -84,7 +85,7 @@ void mel_draw_ctx_rect(Mel_Draw_Ctx* ctx, f32 x, f32 y, f32 w, f32 h, Mel_Vec4 c
 void mel_draw_ctx_line(Mel_Draw_Ctx* ctx, Mel_Vec2 from, Mel_Vec2 to, f32 thickness, Mel_Vec4 color);
 
 typedef struct {
-    Mel_Font_Handle font;
+    Mel_Font_Atlas_Handle font;
     str8 text;
     f32 x;
     f32 y;
@@ -95,4 +96,4 @@ void mel_draw_ctx_text_opt(Mel_Draw_Ctx* ctx, Mel_Draw_Ctx_Text_Opt opt);
 #define mel_draw_ctx_text(ctx, ...) mel_draw_ctx_text_opt((ctx), (Mel_Draw_Ctx_Text_Opt){__VA_ARGS__})
 
 void mel_draw_ctx_commit(Mel_Draw_Ctx* ctx);
-void mel_draw_ctx_render(Mel_Draw_Ctx* ctx, VkCommandBuffer cmd, Mel_Mat4* projection);
+void mel_draw_ctx_render(Mel_Draw_Ctx* ctx, Mel_Gpu_Cmd* cmd, Mel_Mat4* projection);

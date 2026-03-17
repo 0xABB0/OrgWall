@@ -1,6 +1,7 @@
 #include "ui.widget.edit.h"
 
 #include <string.h>
+#include <SDL3/SDL.h>
 
 #include "font.atlas.h"
 #include "math.vec2.h"
@@ -34,7 +35,7 @@ static void wedit_draw(Mel_Widget* w, void* ctx)
     wedit_draw_box(list, mel_rect(w->pos.x, w->pos.y, 1.0f, w->size.y), border, 1);
     wedit_draw_box(list, mel_rect(w->pos.x + w->size.x - 1.0f, w->pos.y, 1.0f, w->size.y), border, 1);
 
-    if (!edit->font_pool || !mel_slotmap_handle_valid(edit->font.handle))
+    if (!mel_slotmap_handle_valid(edit->font.handle))
         return;
 
     str8 text = str8_from_parts((u8*)edit->text, edit->text_len);
@@ -45,14 +46,14 @@ static void wedit_draw(Mel_Widget* w, void* ctx)
     f32 text_y = w->pos.y + (w->size.y - 10.0f) * 0.5f;
 
     if (shown.len > 0)
-        mel_font_atlas_draw_text(edit->font_pool, edit->font, list, shown, text_x, text_y, color);
+        mel_font_atlas_draw_text(edit->font, list, shown, text_x, text_y, color);
 
     if (w->state & MEL_WIDGET_STATE_FOCUSED)
     {
         u64 ticks = SDL_GetTicks();
         if (((ticks / 400) & 1ull) == 0)
         {
-            Mel_Vec2 text_size = mel_font_atlas_measure_text(edit->font_pool, edit->font, text);
+            Mel_Vec2 text_size = mel_font_atlas_measure_text(edit->font, text);
             mel_draw_sprite(list,
                 .pos = mel_vec2(text_x + text_size.x + 1.0f, w->pos.y + 5.0f),
                 .size = mel_vec2(1.0f, mel_maxf(w->size.y - 10.0f, 6.0f)),
@@ -127,8 +128,7 @@ void mel_wedit_init(Mel_WEdit* edit)
     edit->focus_border_color = mel_vec4(0.95f, 0.35f, 0.35f, 1.0f);
     edit->text_color = mel_vec4(1.0f, 1.0f, 1.0f, 1.0f);
     edit->placeholder_color = mel_vec4(0.55f, 0.55f, 0.60f, 1.0f);
-    edit->font = MEL_FONT_HANDLE_NULL;
-    edit->font_pool = nullptr;
+    edit->font = MEL_FONT_ATLAS_HANDLE_NULL;
 }
 
 void mel_wedit_set_text(Mel_WEdit* edit, str8 text)

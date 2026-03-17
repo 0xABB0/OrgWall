@@ -1,4 +1,5 @@
 #include "render.light.h"
+#include "allocator.h"
 #include "allocator.heap.h"
 
 Mel_Point_Light_Gpu_Record mel_point_light_pack_gpu_record(Mel_Point_Light light)
@@ -24,8 +25,8 @@ bool mel_light_table_init_opt(Mel_Light_Table* table, Mel_Light_Table_Init_Opt o
 
     mel_gpu_buffer_init(&table->buffer, opt.dev,
         .size = sizeof(Mel_Point_Light_Gpu_Record) * capacity,
-        .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-        .memory_usage = VMA_MEMORY_USAGE_CPU_TO_GPU,
+        .usage = MEL_GPU_BUFFER_USAGE_STORAGE,
+        .memory_usage = MEL_GPU_MEMORY_USAGE_CPU_TO_GPU,
         .map_on_create = true);
 
     return true;

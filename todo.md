@@ -165,6 +165,34 @@
 - [DEMOS] 100% reimplementation of these examples: /Users/gabbo/repo/suck/island/apps/examples/
 - [RENDER GRAPH] 100% feature parity with /Users/gabbo/repo/suck/pumex
 
+## Foreplay implementation status (Mar 2026)
+
+Render architecture foreplay (design/engine.render.architecture.md):
+- [DONE] 1. Global Texture Table — render.texture_table.h/.c
+- [DONE] 2. Descriptor Indexing — gpu.device.h (capabilities.descriptor_indexing), gpu.descriptor
+- [DONE] 3. Mesh Shader Commands — gpu.cmd.h (mel_gpu_cmd_draw_mesh_tasks_indirect)
+- [DONE] 4. Storage Pool — gpu.storage_pool.h/.fwd.h/.c
+- [DONE] 5. Compute Culling — shaders/cull_objects.slang + render.cull.h
+- [DONE] 6. ECS Delta — render.ecs.delta.h/.c
+- [DONE] 7. Staging — gpu.staging.h/.c
+- [DONE] 8. Indirect Draws — gpu.indirect.h/.c
+- [DONE] 9. Scratch Pool — gpu.scratch_pool.h/.c
+- [IN PROGRESS] 10. GPU Type Abstraction — gpu.types.h not yet created, public headers still use VkFormat/VkBuffer etc directly
+
+Font foreplay (design/engine.fonts.md):
+- [DONE] Step 1: .format field on Mel_Gpu_Texture_Opt (uses VkFormat, pending gpu type abstraction)
+- [DONE] Step 2: font.desc.h/.fwd.h/.c
+- [DONE] Step 3: Techniques take descriptors
+- [DONE] Step 4: Typed handles (Mel_Font_Atlas_Handle, Mel_Font_SDF_Handle, Mel_Font_MSDF_Handle)
+- [IN PROGRESS] Step 5: Module-static pools (font.atlas.c and font.sdf.c have s_pool, missing constructor init + Material Base registration)
+- [NOT STARTED] Steps 6-9: Size normalization, Material Base registration, Async creation, Example updates
+
+Next steps after foreplay:
+- [RENDER] Implement Mel_Render_Manager (uses storage pool, staging, indirect draws)
+- [RENDER] Implement Mel_Render_Source + ECS source (uses ECS delta helpers)
+- [RENDER] Implement Mel_Pipeline + default_2d pipeline (uses texture table, culling, scratch pool)
+- [FONT] Complete font foreplay steps 5-9, then fonts integrate into the render architecture via Material Bases
+
 ## Higher level systems:
 - Gyms
 - Zoos

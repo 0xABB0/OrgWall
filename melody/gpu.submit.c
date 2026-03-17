@@ -1,5 +1,6 @@
-#define VK_NO_PROTOTYPES
 #include "gpu.submit.h"
+#include "gpu.device.h"
+#include "gpu.cmd.h"
 #include <tracy/TracyC.h>
 
 typedef struct {
@@ -61,7 +62,10 @@ void mel_gpu_submit_immediate(Mel_Gpu_Device* dev, Mel_Gpu_Submit_Fn callback, v
     };
 
     vkBeginCommandBuffer(s_immediate.cmd, &begin_info);
-    callback(s_immediate.cmd, user);
+
+    Mel_Gpu_Cmd wrap = { ._cmd = s_immediate.cmd };
+    callback(&wrap, user);
+
     vkEndCommandBuffer(s_immediate.cmd);
 
     VkSubmitInfo submit_info = {

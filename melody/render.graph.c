@@ -1,11 +1,12 @@
-#define VK_NO_PROTOTYPES
 #include "render.graph.h"
 #include "render.list.h"
 #include "render.target.h"
 #include "render.camera.fwd.h"
 #include "swapchain.h"
+#include "gpu.device.h"
 #include "gpu.tracy.h"
 #include "gpu.image.h"
+#include "gpu.types.vulkan.h"
 #include "string.str8.h"
 #include "allocator.heap.h"
 #include <string.h>
@@ -146,7 +147,7 @@ static bool has_list(Mel_Render_List** arr, Mel_Render_List* l)
 
 typedef struct {
     Mel_Render_Target* target;
-    VkImageLayout layout;
+    Mel_Gpu_Image_Layout layout;
 } Target_State;
 
 typedef struct {
@@ -155,12 +156,12 @@ typedef struct {
     u32 writer_pass_type;
 } List_State;
 
-static VkImageLayout find_target_layout(Target_State* states, usize count, Mel_Render_Target* t)
+static Mel_Gpu_Image_Layout find_target_layout(Target_State* states, usize count, Mel_Render_Target* t)
 {
     for (usize i = 0; i < count; i++)
         if (states[i].target == t)
             return states[i].layout;
-    return VK_IMAGE_LAYOUT_UNDEFINED;
+    return MEL_GPU_IMAGE_LAYOUT_UNDEFINED;
 }
 
 static List_State* find_list_state(List_State* states, usize count, Mel_Render_List* l)
@@ -172,7 +173,7 @@ static List_State* find_list_state(List_State* states, usize count, Mel_Render_L
 }
 
 static void set_target_layout(Target_State* states, usize* count, usize capacity,
-                               Mel_Render_Target* t, VkImageLayout layout)
+                               Mel_Render_Target* t, Mel_Gpu_Image_Layout layout)
 {
     for (usize i = 0; i < *count; i++)
     {
@@ -196,11 +197,11 @@ static List_State* ensure_list_state(List_State* states, usize* count, usize cap
     return &states[(*count)++];
 }
 
-static VkPipelineStageFlags2 list_stage_for_pass(u32 pass_type)
+static Mel_Gpu_Stage list_stage_for_pass(u32 pass_type)
 {
     return pass_type == MEL_PASS_COMPUTE
-        ? VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT
-        : VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT;
+        ? MEL_GPU_STAGE_COMPUTE_SHADER
+        : MEL_GPU_STAGE_ALL_GRAPHICS;
 }
 
 static void compute_barriers(Mel_Render_Graph* g)
@@ -242,13 +243,13 @@ static void compute_barriers(Mel_Render_Graph* g)
         {
             for (Mel_Render_Target** t = pass->read_targets; *t; t++)
             {
-                VkImageLayout cur = find_target_layout(target_states, target_state_count, *t);
-                if (cur != VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+                Mel_Gpu_Image_Layout cur = find_target_layout(target_states, target_state_count, *t);
+                if (cur != MEL_GPU_IMAGE_LAYOUT_SHADER_READ_ONLY)
                 {
                     bool depth = ((*t)->kind == MEL_RENDER_TARGET_DEPTH);
-                    VkPipelineStageFlags2 dst_stage = pass->type == MEL_PASS_COMPUTE
-                        ? VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT
-                        : VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+                    Mel_Gpu_Stage dst_stage = pass->type == MEL_PASS_COMPUTE
+                        ? MEL_GPU_STAGE_COMPUTE_SHADER
+                        : MEL_GPU_STAGE_FRAGMENT_SHADER;
                     Mel_Render_Graph_Barrier b = {
                         .pass_index = pi,
                         .target = *t,
@@ -256,14 +257,14 @@ static void compute_barriers(Mel_Render_Graph* g)
                         .src_stage = mel_gpu_image_layout_stage(cur),
                         .src_access = mel_gpu_image_layout_access(cur),
                         .dst_stage = dst_stage,
-                        .dst_access = VK_ACCESS_2_SHADER_READ_BIT,
+                        .dst_access = MEL_GPU_ACCESS_SHADER_READ,
                         .old_layout = cur,
-                        .new_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                        .aspect = depth ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT,
+                        .new_layout = MEL_GPU_IMAGE_LAYOUT_SHADER_READ_ONLY,
+                        .aspect = depth ? MEL_GPU_ASPECT_DEPTH : MEL_GPU_ASPECT_COLOR,
                     };
                     mel_array_push(&g->barriers, b);
                     set_target_layout(target_states, &target_state_count, max_targets, *t,
-                                      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                                      MEL_GPU_IMAGE_LAYOUT_SHADER_READ_ONLY);
                 }
             }
         }
@@ -273,11 +274,11 @@ static void compute_barriers(Mel_Render_Graph* g)
             for (Mel_Pass_Write_Target* wt = pass->write_targets; wt->target; wt++)
             {
                 Mel_Render_Target* t = wt->target;
-                VkImageLayout cur = find_target_layout(target_states, target_state_count, t);
+                Mel_Gpu_Image_Layout cur = find_target_layout(target_states, target_state_count, t);
                 bool depth = (t->kind == MEL_RENDER_TARGET_DEPTH);
-                VkImageLayout target_layout = depth
-                    ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
-                    : VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+                Mel_Gpu_Image_Layout target_layout = depth
+                    ? MEL_GPU_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT
+                    : MEL_GPU_IMAGE_LAYOUT_COLOR_ATTACHMENT;
 
                 if (cur != target_layout)
                 {
@@ -291,7 +292,7 @@ static void compute_barriers(Mel_Render_Graph* g)
                         .dst_access = mel_gpu_image_layout_access(target_layout),
                         .old_layout = cur,
                         .new_layout = target_layout,
-                        .aspect = depth ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT,
+                        .aspect = depth ? MEL_GPU_ASPECT_DEPTH : MEL_GPU_ASPECT_COLOR,
                     };
                     mel_array_push(&g->barriers, b);
                     set_target_layout(target_states, &target_state_count, max_targets, t, target_layout);
@@ -311,9 +312,9 @@ static void compute_barriers(Mel_Render_Graph* g)
                         .target = nullptr,
                         .list = *l,
                         .src_stage = list_stage_for_pass(st->writer_pass_type),
-                        .src_access = VK_ACCESS_2_SHADER_WRITE_BIT,
+                        .src_access = MEL_GPU_ACCESS_SHADER_WRITE,
                         .dst_stage = list_stage_for_pass(pass->type),
-                        .dst_access = VK_ACCESS_2_SHADER_READ_BIT,
+                        .dst_access = MEL_GPU_ACCESS_SHADER_READ,
                     };
                     mel_array_push(&g->barriers, b);
                 }
@@ -333,9 +334,9 @@ static void compute_barriers(Mel_Render_Graph* g)
                         .target = nullptr,
                         .list = *l,
                         .src_stage = list_stage_for_pass(st->writer_pass_type),
-                        .src_access = VK_ACCESS_2_SHADER_WRITE_BIT,
+                        .src_access = MEL_GPU_ACCESS_SHADER_WRITE,
                         .dst_stage = list_stage_for_pass(pass->type),
-                        .dst_access = VK_ACCESS_2_SHADER_WRITE_BIT,
+                        .dst_access = MEL_GPU_ACCESS_SHADER_WRITE,
                     };
                     mel_array_push(&g->barriers, b);
                 }
@@ -394,7 +395,7 @@ static void execute_passes(Mel_Render_Graph* g, Mel_Gpu_Cmd* cmd)
     {
         u32 pi = g->sorted_order.items[si];
         Mel_Render_Graph_Pass* pass = &g->passes.items[pi];
-        Mel_Gpu_Tracy_Zone gpu_zone = mel_gpu_tracy_zone_begin(g->tracy_ctx, cmd->cmd, pass->name);
+        Mel_Gpu_Tracy_Zone gpu_zone = mel_gpu_tracy_zone_begin(g->tracy_ctx, (VkCommandBuffer)cmd->_cmd, pass->name);
 
         while (barrier_cursor < g->barriers.count &&
                g->barriers.items[barrier_cursor].pass_index == pi)
@@ -402,9 +403,9 @@ static void execute_passes(Mel_Render_Graph* g, Mel_Gpu_Cmd* cmd)
             Mel_Render_Graph_Barrier* b = &g->barriers.items[barrier_cursor++];
             if (b->target)
             {
-                VkImageLayout old_layout = b->old_layout;
-                VkPipelineStageFlags2 src_stage = b->src_stage;
-                VkAccessFlags2 src_access = b->src_access;
+                Mel_Gpu_Image_Layout old_layout = b->old_layout;
+                Mel_Gpu_Stage src_stage = b->src_stage;
+                Mel_Gpu_Access src_access = b->src_access;
 
                 if (b->target->kind == MEL_RENDER_TARGET_SWAPCHAIN)
                 {
@@ -422,9 +423,8 @@ static void execute_passes(Mel_Render_Graph* g, Mel_Gpu_Cmd* cmd)
             }
             else if (b->list)
             {
-                VkBuffer buffer = b->list->gpu_buffer.buffer;
-                if (buffer != VK_NULL_HANDLE)
-                    mel_gpu_cmd_buffer_barrier(cmd, buffer,
+                if (b->list->gpu_buffer._handle != nullptr)
+                    mel_gpu_cmd_buffer_barrier(cmd, &b->list->gpu_buffer,
                         b->src_stage, b->src_access,
                         b->dst_stage, b->dst_access);
             }
@@ -444,10 +444,10 @@ static void execute_passes(Mel_Render_Graph* g, Mel_Gpu_Cmd* cmd)
                 if (wt->target->kind == MEL_RENDER_TARGET_DEPTH)
                 {
                     depth_att = (Mel_Gpu_Depth_Attachment){
-                        .image_view = mel_render_target_view(wt->target),
-                        .layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+                        ._image_view = mel_render_target_view(wt->target),
+                        .layout = MEL_GPU_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT,
                         .load_op = wt->load_op,
-                        .store_op = VK_ATTACHMENT_STORE_OP_STORE,
+                        .store_op = MEL_GPU_STORE_OP_STORE,
                         .clear_depth = wt->clear.depth.depth,
                         .clear_stencil = wt->clear.depth.stencil,
                     };
@@ -457,10 +457,10 @@ static void execute_passes(Mel_Render_Graph* g, Mel_Gpu_Cmd* cmd)
 
                 assert(color_count < 8);
                 color_attachments[color_count++] = (Mel_Gpu_Color_Attachment){
-                    .image_view = mel_render_target_view(wt->target),
-                    .layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                    ._image_view = mel_render_target_view(wt->target),
+                    .layout = MEL_GPU_IMAGE_LAYOUT_COLOR_ATTACHMENT,
                     .load_op = wt->load_op,
-                    .store_op = VK_ATTACHMENT_STORE_OP_STORE,
+                    .store_op = MEL_GPU_STORE_OP_STORE,
                     .clear_r = wt->clear.color.r,
                     .clear_g = wt->clear.color.g,
                     .clear_b = wt->clear.color.b,
@@ -548,26 +548,32 @@ void mel_render_graph_init_opt(Mel_Render_Graph* g, Mel_Render_Graph_Opt opt)
 
         for (u32 i = 0; i < g->frame_count; i++)
         {
+            VkCommandPool vk_pool = VK_NULL_HANDLE;
             VkCommandPoolCreateInfo pool_info = {
                 .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
                 .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
                 .queueFamilyIndex = g->dev->graphics_family,
             };
-            vkCreateCommandPool(g->dev->device, &pool_info, nullptr, &g->frames[i].pool);
+            vkCreateCommandPool(g->dev->device, &pool_info, nullptr, &vk_pool);
+            g->frames[i]._pool = vk_pool;
 
+            VkCommandBuffer vk_cmd = VK_NULL_HANDLE;
             VkCommandBufferAllocateInfo alloc_info = {
                 .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-                .commandPool = g->frames[i].pool,
+                .commandPool = vk_pool,
                 .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
                 .commandBufferCount = 1,
             };
-            vkAllocateCommandBuffers(g->dev->device, &alloc_info, &g->frames[i].cmd);
+            vkAllocateCommandBuffers(g->dev->device, &alloc_info, &vk_cmd);
+            g->frames[i]._cmd = vk_cmd;
 
+            VkFence vk_fence = VK_NULL_HANDLE;
             VkFenceCreateInfo fence_info = {
                 .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
                 .flags = VK_FENCE_CREATE_SIGNALED_BIT,
             };
-            vkCreateFence(g->dev->device, &fence_info, nullptr, &g->frames[i].fence);
+            vkCreateFence(g->dev->device, &fence_info, nullptr, &vk_fence);
+            g->frames[i]._fence = vk_fence;
         }
     }
 }
@@ -582,10 +588,10 @@ void mel_render_graph_shutdown(Mel_Render_Graph* g)
 
         for (u32 i = 0; i < g->frame_count; i++)
         {
-            if (g->frames[i].fence)
-                vkDestroyFence(g->dev->device, g->frames[i].fence, nullptr);
-            if (g->frames[i].pool)
-                vkDestroyCommandPool(g->dev->device, g->frames[i].pool, nullptr);
+            if (g->frames[i]._fence)
+                vkDestroyFence(g->dev->device, (VkFence)g->frames[i]._fence, nullptr);
+            if (g->frames[i]._pool)
+                vkDestroyCommandPool(g->dev->device, (VkCommandPool)g->frames[i]._pool, nullptr);
         }
     }
 
@@ -864,23 +870,26 @@ bool mel_render_graph_execute(Mel_Render_Graph* g)
         collect_swapchain_targets(g, &swapchains);
 
         Mel_Render_Graph_Frame* fd = &g->frames[g->current_frame];
+        VkFence vk_fence = (VkFence)fd->_fence;
+        VkCommandPool vk_pool = (VkCommandPool)fd->_pool;
+        VkCommandBuffer vk_cmd = (VkCommandBuffer)fd->_cmd;
 
         TracyCZoneN(ctx_fence_wait, "render_graph_fence_wait", true);
-        vkWaitForFences(g->dev->device, 1, &fd->fence, VK_TRUE, UINT64_MAX);
+        vkWaitForFences(g->dev->device, 1, &vk_fence, VK_TRUE, UINT64_MAX);
         TracyCZoneEnd(ctx_fence_wait);
 
         for (u32 i = 0; i < swapchains.count; i++)
             swapchains.acquired[i] = mel_swapchain_acquire(swapchains.items[i], g->dev);
 
-        vkResetFences(g->dev->device, 1, &fd->fence);
-        vkResetCommandPool(g->dev->device, fd->pool, 0);
+        vkResetFences(g->dev->device, 1, &vk_fence);
+        vkResetCommandPool(g->dev->device, vk_pool, 0);
 
         if (!g->tracy_ctx)
         {
-            bool tracy_ok = mel_gpu_tracy_init(&g->tracy_ctx, g->dev, g->dev->graphics_queue, fd->cmd, S8("render_graph"));
+            bool tracy_ok = mel_gpu_tracy_init(&g->tracy_ctx, g->dev, g->dev->graphics_queue, vk_cmd, S8("render_graph"));
             assert(tracy_ok);
             MEL_UNUSED(tracy_ok);
-            vkResetCommandPool(g->dev->device, fd->pool, 0);
+            vkResetCommandPool(g->dev->device, vk_pool, 0);
         }
 
         VkCommandBufferBeginInfo begin = {
@@ -888,10 +897,10 @@ bool mel_render_graph_execute(Mel_Render_Graph* g)
             .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
         };
         TracyCZoneN(ctx_cmd_begin, "render_graph_begin_cmd", true);
-        vkBeginCommandBuffer(fd->cmd, &begin);
+        vkBeginCommandBuffer(vk_cmd, &begin);
         TracyCZoneEnd(ctx_cmd_begin);
 
-        cmd = (Mel_Gpu_Cmd){ .cmd = fd->cmd, .dev = g->dev };
+        cmd = (Mel_Gpu_Cmd){ ._cmd = vk_cmd, .dev = g->dev };
     }
 
     TracyCZoneN(ctx_execute_passes, "render_graph_execute_passes", true);
@@ -901,15 +910,21 @@ bool mel_render_graph_execute(Mel_Render_Graph* g)
     if (has_gpu)
     {
         Mel_Render_Graph_Frame* fd = &g->frames[g->current_frame];
-        mel_gpu_tracy_collect(g->tracy_ctx, fd->cmd);
+        VkCommandBuffer vk_cmd = (VkCommandBuffer)fd->_cmd;
+        VkFence vk_fence = (VkFence)fd->_fence;
+
+        mel_gpu_tracy_collect(g->tracy_ctx, vk_cmd);
 
         for (u32 i = 0; i < swapchains.count; i++)
         {
             if (swapchains.acquired[i])
-                mel_swapchain_prepare_present(swapchains.items[i], fd->cmd);
+            {
+                Mel_Gpu_Cmd present_cmd = { ._cmd = vk_cmd, .dev = g->dev };
+                mel_swapchain_prepare_present(swapchains.items[i], &present_cmd);
+            }
         }
 
-        VkResult end_r = vkEndCommandBuffer(fd->cmd);
+        VkResult end_r = vkEndCommandBuffer(vk_cmd);
         assert(end_r == VK_SUCCESS);
 
         Mel_Gpu_Submit_Gather gather = {0};
@@ -922,15 +937,15 @@ bool mel_render_graph_execute(Mel_Render_Graph* g)
         VkSubmitInfo submit_info = {
             .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
             .waitSemaphoreCount = gather.wait_count,
-            .pWaitSemaphores = gather.wait_count > 0 ? gather.wait_semaphores : nullptr,
-            .pWaitDstStageMask = gather.wait_count > 0 ? gather.wait_stages : nullptr,
+            .pWaitSemaphores = gather.wait_count > 0 ? (VkSemaphore*)gather._wait_semaphores : nullptr,
+            .pWaitDstStageMask = gather.wait_count > 0 ? gather._wait_stages : nullptr,
             .commandBufferCount = 1,
-            .pCommandBuffers = &fd->cmd,
+            .pCommandBuffers = &vk_cmd,
             .signalSemaphoreCount = gather.signal_count,
-            .pSignalSemaphores = gather.signal_count > 0 ? gather.signal_semaphores : nullptr,
+            .pSignalSemaphores = gather.signal_count > 0 ? (VkSemaphore*)gather._signal_semaphores : nullptr,
         };
 
-        VkResult r = vkQueueSubmit(g->dev->graphics_queue, 1, &submit_info, fd->fence);
+        VkResult r = vkQueueSubmit(g->dev->graphics_queue, 1, &submit_info, vk_fence);
         assert(r == VK_SUCCESS);
         MEL_UNUSED(r);
 

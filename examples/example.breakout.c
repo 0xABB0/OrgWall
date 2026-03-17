@@ -22,6 +22,7 @@
 #include "render.technique.h"
 #include "texture.pool.h"
 #include "font.atlas.h"
+#include "font.desc.h"
 #include "vfs.h"
 #include "vfs.backend.os.h"
 #include "math.mat4.h"
@@ -88,7 +89,7 @@ typedef struct {
 
 static Mel_Window_Handle s_window_handle;
 static Mel_Swapchain_Handle s_swapchain_handle;
-static Mel_Font_Handle s_font_handle;
+static Mel_Font_Atlas_Handle s_font_handle;
 static Breakout s_breakout;
 static Mel_Render_Graph s_graph;
 static Mel_Camera s_camera;
@@ -406,26 +407,26 @@ static void breakout_draw(Breakout* g, Mel_Render_List* list)
     }
 }
 
-static void breakout_draw_text(Breakout* g, Mel_Render_List* list, Mel_Font_Atlas_Pool* pool, Mel_Font_Handle font)
+static void breakout_draw_text(Breakout* g, Mel_Render_List* list, Mel_Font_Atlas_Handle font)
 {
     Mel_Vec4 white = mel_vec4(1.0f, 1.0f, 1.0f, 1.0f);
     Mel_Vec4 dim = mel_vec4(0.6f, 0.6f, 0.6f, 1.0f);
 
     char buf[128];
     snprintf(buf, sizeof(buf), "SCORE: %u", g->score);
-    mel_font_atlas_draw_text(pool, font, list, str8_from_cstr(buf), 10.0f, 10.0f, white);
+    mel_font_atlas_draw_text(font, list, str8_from_cstr(buf), 10.0f, 10.0f, white);
 
     snprintf(buf, sizeof(buf), "LIVES: %d", g->lives);
-    mel_font_atlas_draw_text(pool, font, list, str8_from_cstr(buf), (f32)WIDTH - 120.0f, 10.0f, white);
+    mel_font_atlas_draw_text(font, list, str8_from_cstr(buf), (f32)WIDTH - 120.0f, 10.0f, white);
 
     snprintf(buf, sizeof(buf), "LEVEL: %u", g->level);
-    mel_font_atlas_draw_text(pool, font, list, str8_from_cstr(buf), (f32)WIDTH / 2.0f - 40.0f, 10.0f, white);
+    mel_font_atlas_draw_text(font, list, str8_from_cstr(buf), (f32)WIDTH / 2.0f - 40.0f, 10.0f, white);
 
     if (!g->ball_launched && !g->game_over)
     {
         str8 prompt = S8("SPACE to launch");
-        Mel_Vec2 sz = mel_font_atlas_measure_text(pool, font, prompt);
-        mel_font_atlas_draw_text(pool, font, list, prompt,
+        Mel_Vec2 sz = mel_font_atlas_measure_text(font, prompt);
+        mel_font_atlas_draw_text(font, list, prompt,
             (f32)WIDTH / 2.0f - sz.x / 2.0f, PADDLE_Y + 40.0f, dim);
     }
 
@@ -433,21 +434,21 @@ static void breakout_draw_text(Breakout* g, Mel_Render_List* list, Mel_Font_Atla
     {
         Mel_Vec4 red = mel_vec4(1.0f, 0.2f, 0.2f, 1.0f);
         str8 go_text = S8("GAME OVER");
-        Mel_Vec2 go_sz = mel_font_atlas_measure_text(pool, font, go_text);
-        mel_font_atlas_draw_text(pool, font, list, go_text,
+        Mel_Vec2 go_sz = mel_font_atlas_measure_text(font, go_text);
+        mel_font_atlas_draw_text(font, list, go_text,
             (f32)WIDTH / 2.0f - go_sz.x / 2.0f,
             (f32)HEIGHT / 2.0f - go_sz.y, red);
 
         snprintf(buf, sizeof(buf), "FINAL SCORE: %u", g->score);
         str8 score_text = str8_from_cstr(buf);
-        Mel_Vec2 sc_sz = mel_font_atlas_measure_text(pool, font, score_text);
-        mel_font_atlas_draw_text(pool, font, list, score_text,
+        Mel_Vec2 sc_sz = mel_font_atlas_measure_text(font, score_text);
+        mel_font_atlas_draw_text(font, list, score_text,
             (f32)WIDTH / 2.0f - sc_sz.x / 2.0f,
             (f32)HEIGHT / 2.0f + 10.0f, white);
 
         str8 restart_text = S8("R to restart");
-        Mel_Vec2 rs_sz = mel_font_atlas_measure_text(pool, font, restart_text);
-        mel_font_atlas_draw_text(pool, font, list, restart_text,
+        Mel_Vec2 rs_sz = mel_font_atlas_measure_text(font, restart_text);
+        mel_font_atlas_draw_text(font, list, restart_text,
             (f32)WIDTH / 2.0f - rs_sz.x / 2.0f,
             (f32)HEIGHT / 2.0f + 40.0f, dim);
     }
@@ -458,8 +459,8 @@ static void on_init(void)
     Mel_Gpu_Device* dev = mel_gpu_dev();
     Mel_Swapchain* sc = &mel_swapchain_registry_get(s_swapchain_handle)->swapchain;
 
-    s_font_handle = mel_font_atlas_pool_load(mel_font_pool(),
-        .path = S8("/System/Library/Fonts/Monaco.ttf"), .size = 18.0f);
+    s_font_handle = mel_font_atlas_load(
+        .desc = mel_font_desc_load_ttf(S8("/System/Library/Fonts/Monaco.ttf")), .size = 18.0f);
 
 
     breakout_init(&s_breakout, mel_alloc_heap());
@@ -564,7 +565,7 @@ static void app_update(Mel_Sim_Ctx* sim, f32 dt, void* user)
 
     breakout_draw(g, &s_sprite_list);
 
-    breakout_draw_text(g, &s_font_list, mel_font_pool(), s_font_handle);
+    breakout_draw_text(g, &s_font_list, s_font_handle);
 }
 
 void app_event(SDL_Event* event)

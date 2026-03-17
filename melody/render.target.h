@@ -15,7 +15,7 @@ struct Mel_Render_Target {
     u32 kind;
     u32 width;
     u32 height;
-    VkFormat format;
+    Mel_Gpu_Format format;
     Mel_Gpu_Image image;
     Mel_Swapchain* swapchain;
     Mel_Gpu_Device* dev;
@@ -26,8 +26,8 @@ typedef struct {
     str8 name;
     u32 width;
     u32 height;
-    VkFormat format;
-    VkImageUsageFlags extra_usage;
+    Mel_Gpu_Format format;
+    Mel_Gpu_Image_Usage extra_usage;
     const Mel_Alloc* alloc;
 } Mel_Render_Target_Opt;
 
@@ -38,7 +38,7 @@ void mel_render_target_init_swapchain(Mel_Render_Target* t, Mel_Swapchain* swapc
 
 void mel_render_target_shutdown(Mel_Render_Target* t);
 
-VkImageView mel_render_target_view(Mel_Render_Target* t);
-VkImage mel_render_target_image(Mel_Render_Target* t);
+void* mel_render_target_view(Mel_Render_Target* t);
+void* mel_render_target_image(Mel_Render_Target* t);
 u32 mel_render_target_width(Mel_Render_Target* t);
 u32 mel_render_target_height(Mel_Render_Target* t);
