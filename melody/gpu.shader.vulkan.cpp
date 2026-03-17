@@ -2,7 +2,10 @@
 #include "gpu.device.vulkan.h"
 extern "C" {
 #include "event.channel.h"
+#include "allocator.h"
 #include "allocator.heap.h"
+#include "vfs.h"
+#include "async.job.h"
 }
 #include "string.str8.h"
 #include <slang.h>
@@ -11,6 +14,7 @@ extern "C" {
 #include <cstring>
 #include <cstdlib>
 #include <cassert>
+#include <cstdio>
 
 extern "C" {
 
@@ -201,6 +205,91 @@ extern "C" void mel_gpu_shader_init_opt(Mel_Gpu_Shader* shader, Mel_Gpu_Device* 
     free(mesh_code);
     free(frag_code);
     SDL_Log("Shader compiled successfully (mesh + fragment)");
+}
+
+typedef struct {
+    Mel_Gpu_Shader* shader;
+    str8 path;
+    Mel_Gpu_Device* dev;
+    Mel_Gpu_Shader_Opt shader_opt;
+    const Mel_Alloc* alloc;
+} Mel__Shader_Load_Job_Ctx;
+
+static void mel__shader_load_execute(Mel__Shader_Load_Job_Ctx* ctx)
+{
+    const Mel_Alloc* alloc = ctx->alloc ? ctx->alloc : mel_alloc_heap();
+
+    i64 file_size = 0;
+    u8* file_data = mel_vfs_read_file(ctx->path, &file_size, alloc);
+
+    if (!file_data)
+    {
+        SDL_LogWarn(SDL_LOG_CATEGORY_GPU, "Shader '%.*s' not found in VFS, falling back to filesystem",
+                    (int)ctx->path.len, (const char*)ctx->path.data);
+
+        char path_buf[1024];
+        str8_to_buf(ctx->path, path_buf, sizeof(path_buf));
+
+        FILE* f = fopen(path_buf, "rb");
+        assert(f != nullptr);
+        fseek(f, 0, SEEK_END);
+        long len = ftell(f);
+        fseek(f, 0, SEEK_SET);
+        file_data = (u8*)mel_alloc(alloc, (usize)len);
+        size_t n_read = fread(file_data, 1, (usize)len, f);
+        assert((long)n_read == len);
+        fclose(f);
+        file_size = len;
+    }
+
+    ctx->shader_opt.source = (str8){ .data = file_data, .len = (size)file_size };
+    mel_gpu_shader_init_opt(ctx->shader, ctx->dev, ctx->shader_opt);
+
+    mel_dealloc(alloc, file_data);
+}
+
+static void mel__shader_load_job(void* data)
+{
+    Mel__Shader_Load_Job_Ctx* ctx = (Mel__Shader_Load_Job_Ctx*)data;
+    mel__shader_load_execute(ctx);
+    const Mel_Alloc* alloc = ctx->alloc ? ctx->alloc : mel_alloc_heap();
+    mel_dealloc(alloc, ctx);
+}
+
+extern "C" void mel_gpu_shader_load_opt(Mel_Gpu_Shader* shader, Mel_Gpu_Shader_Load_Opt opt)
+{
+    assert(shader != nullptr);
+    assert(opt.dev != nullptr);
+    assert(!str8_is_empty(opt.path));
+
+    Mel_Gpu_Shader_Opt shader_opt = {};
+    shader_opt.vertex_entry   = opt.vertex_entry;
+    shader_opt.fragment_entry = opt.fragment_entry;
+    shader_opt.compute_entry  = opt.compute_entry;
+    shader_opt.task_entry     = opt.task_entry;
+    shader_opt.mesh_entry     = opt.mesh_entry;
+
+    if (!opt.on_finish)
+    {
+        Mel__Shader_Load_Job_Ctx ctx = {};
+        ctx.shader     = shader;
+        ctx.path       = opt.path;
+        ctx.dev        = opt.dev;
+        ctx.shader_opt = shader_opt;
+        ctx.alloc      = opt.alloc;
+        mel__shader_load_execute(&ctx);
+        return;
+    }
+
+    const Mel_Alloc* alloc = opt.alloc ? opt.alloc : mel_alloc_heap();
+    Mel__Shader_Load_Job_Ctx* ctx = (Mel__Shader_Load_Job_Ctx*)mel_alloc(alloc, sizeof(Mel__Shader_Load_Job_Ctx));
+    ctx->shader     = shader;
+    ctx->path       = opt.path;
+    ctx->dev        = opt.dev;
+    ctx->shader_opt = shader_opt;
+    ctx->alloc      = alloc;
+
+    mel_job_run(ctx, mel__shader_load_job, opt.on_finish);
 }
 
 extern "C" void mel_gpu_shader_shutdown(Mel_Gpu_Shader* shader, Mel_Gpu_Device* dev)

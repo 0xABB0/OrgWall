@@ -9,7 +9,6 @@
 
 Mel_Render_View* mel_render_view_create_opt(Mel_Render_View_Desc desc)
 {
-    assert(desc.source != nullptr);
     assert(desc.dev != nullptr);
 
     const Mel_Alloc* alloc = desc.alloc ? desc.alloc : mel_alloc_heap();
@@ -24,7 +23,8 @@ Mel_Render_View* mel_render_view_create_opt(Mel_Render_View_Desc desc)
     view->priority = desc.priority;
     view->active = true;
 
-    mel__render_source_ensure_manager(desc.source, desc.dev, alloc);
+    if (desc.source)
+        mel__render_source_ensure_manager(desc.source, desc.dev, alloc);
 
     const Mel_Render_Pipeline_Type* pipeline_type = nullptr;
     if (desc.pipeline.len > 0)
@@ -80,9 +80,7 @@ void mel_render_view_draw(Mel_Render_View* view, Mel_Render_Draw_Ctx* ctx)
     if (!view->active || view->pipeline == nullptr)
         return;
 
-    void* mgr = mel_render_source_manager(view->source);
-    if (mgr == nullptr)
-        return;
+    void* mgr = view->source ? mel_render_source_manager(view->source) : nullptr;
 
     mel_pipeline_init_frame(view->pipeline, view);
     mel_pipeline_draw(view->pipeline, mgr, ctx);

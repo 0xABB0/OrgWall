@@ -180,22 +180,6 @@ static void frame_render_batch_cb(Mel_Gpu_Cmd* cmd, void* user)
 {
     Frame_Render_Batch* batch = (Frame_Render_Batch*)user;
 
-    if (batch->view_count > 0 && batch->views[0]->target != nullptr)
-    {
-        void* iv = mel_render_target_image_view(batch->views[0]->target);
-        u32 w = mel_render_target_width(batch->views[0]->target);
-        u32 h = mel_render_target_height(batch->views[0]->target);
-        Mel_Gpu_Color_Attachment test_att = {
-            ._image_view = iv,
-            .layout = MEL_GPU_IMAGE_LAYOUT_COLOR_ATTACHMENT,
-            .load_op = MEL_GPU_LOAD_OP_CLEAR,
-            .store_op = MEL_GPU_STORE_OP_STORE,
-            .clear_r = 1.0f, .clear_g = 0.0f, .clear_b = 1.0f, .clear_a = 1.0f,
-        };
-        mel_gpu_cmd_begin_rendering(cmd, .color_attachments = &test_att, .color_count = 1, .render_width = w, .render_height = h);
-        mel_gpu_cmd_end_rendering(cmd);
-    }
-
     for (u32 i = 0; i < batch->view_count; i++)
     {
         Mel_Render_View* view = batch->views[i];
@@ -276,7 +260,6 @@ static void mel__engine_render_frame(void)
         }
     }
 
-    SDL_Log("render_frame: views=%u swapchains=%u", total_views, visited_count);
     if (visited_count == 0)
         return;
 
@@ -288,7 +271,6 @@ static void mel__engine_render_frame(void)
 
         if (!mel_swapchain_acquire(sc, dev))
         {
-            SDL_Log("swapchain acquire failed");
             continue;
         }
 

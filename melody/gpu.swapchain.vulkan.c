@@ -6,6 +6,7 @@
 #include "gpu.types.vulkan.h"
 #include "allocator.h"
 #include "allocator.heap.h"
+#include "thread.dispatch.h"
 #include <tracy/TracyC.h>
 
 typedef struct {
@@ -540,12 +541,14 @@ bool mel_gpu_swapchain_init_opt(Mel_Swapchain* sc, Mel_Gpu_Device* dev, Mel_Gpu_
     return true;
 }
 
-Mel_Swapchain_Handle mel_gpu_swapchain_create_for_window(Mel_Gpu_Device* dev, Mel_Window_Handle window)
-{
-    return mel_gpu_swapchain_create_for_window_opt(dev, window, (Mel_Gpu_Window_Swapchain_Opt){0});
-}
+typedef struct {
+    Mel_Gpu_Device* dev;
+    Mel_Window_Handle window;
+    Mel_Gpu_Window_Swapchain_Opt opt;
+    Mel_Swapchain_Handle result;
+} Mel__Swapchain_Create_Args;
 
-Mel_Swapchain_Handle mel_gpu_swapchain_create_for_window_opt(Mel_Gpu_Device* dev, Mel_Window_Handle window, Mel_Gpu_Window_Swapchain_Opt opt)
+static Mel_Swapchain_Handle mel__swapchain_create_for_window_impl(Mel_Gpu_Device* dev, Mel_Window_Handle window, Mel_Gpu_Window_Swapchain_Opt opt)
 {
     assert(dev != nullptr);
     assert(mel_window_handle_valid(window));
@@ -576,4 +579,26 @@ Mel_Swapchain_Handle mel_gpu_swapchain_create_for_window_opt(Mel_Gpu_Device* dev
     }
 
     return mel_swapchain_registry_insert(&entry);
+}
+
+static void* mel__swapchain_create_dispatch(void* data)
+{
+    Mel__Swapchain_Create_Args* args = data;
+    args->result = mel__swapchain_create_for_window_impl(args->dev, args->window, args->opt);
+    return nullptr;
+}
+
+Mel_Swapchain_Handle mel_gpu_swapchain_create_for_window(Mel_Gpu_Device* dev, Mel_Window_Handle window)
+{
+    return mel_gpu_swapchain_create_for_window_opt(dev, window, (Mel_Gpu_Window_Swapchain_Opt){0});
+}
+
+Mel_Swapchain_Handle mel_gpu_swapchain_create_for_window_opt(Mel_Gpu_Device* dev, Mel_Window_Handle window, Mel_Gpu_Window_Swapchain_Opt opt)
+{
+    if (mel__is_main_thread())
+        return mel__swapchain_create_for_window_impl(dev, window, opt);
+
+    Mel__Swapchain_Create_Args args = { .dev = dev, .window = window, .opt = opt };
+    mel__main_dispatch_sync(mel__swapchain_create_dispatch, &args);
+    return args.result;
 }

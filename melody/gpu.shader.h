@@ -5,6 +5,8 @@
 #include "event.channel.fwd.h"
 #include "string.str8.fwd.h"
 #include "allocator.fwd.h"
+#include "async.job.fwd.h"
+#include "async.signal.fwd.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -55,6 +57,21 @@ typedef struct {
 
 void mel_gpu_shader_init_opt(Mel_Gpu_Shader* shader, Mel_Gpu_Device* dev, Mel_Gpu_Shader_Opt opt);
 #define mel_gpu_shader_init(shader, dev, ...) mel_gpu_shader_init_opt((shader), (dev), (Mel_Gpu_Shader_Opt){__VA_ARGS__})
+
+typedef struct {
+    str8 path;
+    Mel_Gpu_Device* dev;
+    Mel_Counter* on_finish;
+    str8 vertex_entry;
+    str8 fragment_entry;
+    str8 compute_entry;
+    str8 task_entry;
+    str8 mesh_entry;
+    const Mel_Alloc* alloc;
+} Mel_Gpu_Shader_Load_Opt;
+
+void mel_gpu_shader_load_opt(Mel_Gpu_Shader* shader, Mel_Gpu_Shader_Load_Opt opt);
+#define mel_gpu_shader_load(shader, ...) mel_gpu_shader_load_opt((shader), (Mel_Gpu_Shader_Load_Opt){__VA_ARGS__})
 
 void mel_gpu_shader_shutdown(Mel_Gpu_Shader* shader, Mel_Gpu_Device* dev);
 

@@ -153,9 +153,7 @@ void mel_gpu_submit_frame_opt(Mel_Gpu_Device* dev, Mel_Gpu_Submit_Frame_Opt opt)
     };
 
     vkResetFences(mel__gpu_device_vk(dev)->device, 1, &s_immediate.fence);
-    SDL_Log("submit_frame: wait=%u signal=%u cmd=%p", gather.wait_count, gather.signal_count, (void*)s_immediate.cmd);
-    VkResult submit_result = vkQueueSubmit(mel__gpu_device_vk(dev)->graphics_queue, 1, &submit_info, s_immediate.fence);
-    SDL_Log("submit_frame result: %d", submit_result);
+    vkQueueSubmit(mel__gpu_device_vk(dev)->graphics_queue, 1, &submit_info, s_immediate.fence);
 
     TracyCZoneN(ctx_wait, "gpu_frame_fence_wait", true);
     vkWaitForFences(mel__gpu_device_vk(dev)->device, 1, &s_immediate.fence, VK_TRUE, UINT64_MAX);

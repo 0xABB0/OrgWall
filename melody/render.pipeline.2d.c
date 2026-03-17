@@ -13,14 +13,11 @@
 #include "gpu.cmd.h"
 #include "gpu.buffer.h"
 #include "gpu.descriptor.h"
-#include "allocator.h"
 #include "allocator.heap.h"
 #include "string.str8.h"
 #include "math.mat4.h"
-#include "vfs.h"
 #include "async.job.h"
 
-#include <stdio.h>
 #include <assert.h>
 
 #define PIPELINE_2D_TIER_BINDLESS    2
@@ -59,13 +56,12 @@ static void draw_tier2(Mel_Render_Pipeline* self, Mel_Render_Manager_2D* mgr2d, 
         .layout      = MEL_GPU_IMAGE_LAYOUT_COLOR_ATTACHMENT,
         .load_op     = MEL_GPU_LOAD_OP_CLEAR,
         .store_op    = MEL_GPU_STORE_OP_STORE,
-        .clear_r     = 0.2f,
+        .clear_r     = 0.0f,
         .clear_g     = 0.0f,
-        .clear_b     = 0.4f,
+        .clear_b     = 0.0f,
         .clear_a     = 1.0f,
     };
 
-    SDL_Log("begin_rendering: %ux%u view=%p", ctx->target_width, ctx->target_height, color_att._image_view);
     mel_gpu_cmd_begin_rendering(ctx->cmd,
         .color_attachments = &color_att,
         .color_count       = 1,
@@ -124,10 +120,7 @@ static void pipeline_2d_draw(Mel_Render_Pipeline* self, void* mgr, Mel_Render_Dr
     assert(ctx->cmd != nullptr);
 
     if (!s_ready)
-    {
-        SDL_Log("pipeline_2d_draw: not ready");
         return;
-    }
 
     Mel_Render_Manager_2D* mgr2d = mgr;
     assert(mgr2d != nullptr);
@@ -135,14 +128,6 @@ static void pipeline_2d_draw(Mel_Render_Pipeline* self, void* mgr, Mel_Render_Dr
     mel_mgr_2d_upload_dirty(mgr2d);
 
     u32 sprite_count = mel_mgr_2d_count(mgr2d);
-    if (sprite_count > 0)
-    {
-        Mel_Render_Transform_2D* raw = (Mel_Render_Transform_2D*)mgr2d->transforms.slots.data;
-        SDL_Log("sprite[0] pos=(%.1f, %.1f) scale=(%.1f, %.1f)", raw[0].pos.x, raw[0].pos.y, raw[0].scale.x, raw[0].scale.y);
-        Mel_Render_Sprite_Info* info = (Mel_Render_Sprite_Info*)mgr2d->sprite_infos.slots.data;
-        SDL_Log("sprite[0] color=(%.2f, %.2f, %.2f, %.2f) tex=%u", info[0].color.r, info[0].color.g, info[0].color.b, info[0].color.a, info[0].texture_idx);
-        SDL_Log("target=%ux%u image_view=%p", ctx->target_width, ctx->target_height, mel_render_target_image_view(ctx->target));
-    }
     if (sprite_count == 0)
         return;
 
@@ -223,29 +208,7 @@ static void mel__pipeline_2d_compile(void* data)
 {
     (void)data;
 
-    const Mel_Alloc* alloc = mel_alloc_heap();
-
-    i64 file_size = 0;
-    u8* file_data = mel_vfs_read_file(S8("shaders/sprite_2d.slang"), &file_size, alloc);
-    if (!file_data)
-    {
-        FILE* f = fopen("shaders/sprite_2d.slang", "rb");
-        assert(f != nullptr);
-        fseek(f, 0, SEEK_END);
-        long len = ftell(f);
-        fseek(f, 0, SEEK_SET);
-        file_data = mel_alloc(alloc, (usize)len);
-        size_t read = fread(file_data, 1, (usize)len, f);
-        assert((long)read == len);
-        fclose(f);
-        file_size = len;
-    }
-
-    str8 source = { .data = file_data, .len = (size)file_size };
-
-    mel_gpu_shader_init(&s_shader, s_dev, .source = source);
-
-    mel_dealloc(alloc, file_data);
+    mel_gpu_shader_load(&s_shader, .path = S8("shaders/sprite_2d.slang"), .dev = s_dev);
 
     mel_pipeline_register(&s_pipeline_2d_type);
 
