@@ -2,13 +2,11 @@
 
 #include "render.source.type.h"
 #include "render.pipeline.h"
-#include "render.manager.h"
-#include "render.cull.h"
+#include "render.target.fwd.h"
 #include "math.mat4.h"
 #include "math.vec4.h"
+#include "gpu.device.fwd.h"
 #include "allocator.fwd.h"
-
-typedef struct Mel_Render_Target Mel_Render_Target;
 
 typedef struct {
     Mel_Mat4   view;
@@ -34,10 +32,8 @@ struct Mel_Render_View {
     Mel_Render_Camera camera;
     Mel_Render_Target* target;
     Mel_Render_Pipeline* pipeline;
-    Mel_Render_Manager* manager;
+    Mel_Gpu_Device* dev;
     i32 priority;
-    Mel_BitSet visibility;
-    Mel_Frustum frustum;
     bool active;
 };
 
@@ -47,6 +43,7 @@ typedef struct {
     Mel_Render_Target* target;
     str8 pipeline;
     i32 priority;
+    Mel_Gpu_Device* dev;
     const Mel_Alloc* alloc;
 } Mel_Render_View_Desc;
 
@@ -58,8 +55,5 @@ void mel_render_view_destroy(Mel_Render_View* view);
 void mel_render_view_set_camera(Mel_Render_View* view, Mel_Render_Camera camera);
 void mel_render_view_set_active(Mel_Render_View* view, bool active);
 
-Mel_Frustum mel_render_view_extract_frustum(const Mel_Render_Camera* camera);
-
 void mel_render_view_sync(Mel_Render_View* view);
-void mel_render_view_cull(Mel_Render_View* view);
-void mel_render_view_draw(Mel_Render_View* view);
+void mel_render_view_draw(Mel_Render_View* view, Mel_Render_Draw_Ctx* ctx);

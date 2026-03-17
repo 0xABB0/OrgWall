@@ -1,10 +1,9 @@
 #pragma once
 
 #include "event.channel.fwd.h"
-#include "render.manager.2d.fwd.h"
 
-typedef struct Mel_Render_Pipeline Mel_Render_Pipeline;
+typedef struct Mel_Texture_Table Mel_Texture_Table;
 
 extern Mel_Event_Channel mel_pipeline_2d_ready;
 
-void mel_pipeline_2d_set_manager(Mel_Render_Pipeline* pipeline, Mel_Render_Manager_2D* mgr);
+void mel_pipeline_2d_set_texture_table(Mel_Texture_Table* tt);

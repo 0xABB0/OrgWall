@@ -2,6 +2,7 @@
 #include "render.source.type.h"
 #include "render.manager.h"
 #include "collection.array.h"
+#include "allocator.h"
 #include "allocator.heap.h"
 
 typedef struct {
@@ -20,22 +21,40 @@ typedef struct {
     bool has_pending;
 } Mel_Manual_Source_Data;
 
-static void manual_sync(Mel_Render_Source* self, Mel_Render_Manager* mgr)
+static void* manual_create_manager(Mel_Render_Source* self, Mel_Gpu_Device* dev, const Mel_Alloc* alloc)
+{
+    (void)self;
+    Mel_Render_Manager* mgr = mel_alloc(alloc, sizeof(Mel_Render_Manager));
+    mel_mgr_init(mgr, .dev = dev, .alloc = alloc);
+    return mgr;
+}
+
+static void manual_destroy_manager(Mel_Render_Source* self, void* mgr)
+{
+    (void)self;
+    Mel_Render_Manager* m = mgr;
+    mel_mgr_shutdown(m);
+    mel_dealloc(mel_alloc_heap(), m);
+}
+
+static void manual_sync(Mel_Render_Source* self, void* mgr)
 {
     Mel_Manual_Source_Data* data = mel_render_source_instance(self);
+    Mel_Render_Manager* m = mgr;
+
     if (!data->has_pending)
         return;
 
     for (usize i = 0; i < data->pending_removes.count; i++)
-        mel_mgr_free(mgr, data->pending_removes.items[i]);
+        mel_mgr_free(m, data->pending_removes.items[i]);
     data->pending_removes.count = 0;
 
     for (usize i = 0; i < data->pending_adds.count; i++)
     {
         Mel_Manual_Pending_Add* add = &data->pending_adds.items[i];
-        mel_mgr_set_transform(mgr, add->handle, add->transform);
-        mel_mgr_set_bounds(mgr, add->handle, add->bounds);
-        mel_mgr_set_info(mgr, add->handle, add->info);
+        mel_mgr_set_transform(m, add->handle, add->transform);
+        mel_mgr_set_bounds(m, add->handle, add->bounds);
+        mel_mgr_set_info(m, add->handle, add->info);
     }
     data->pending_adds.count = 0;
 
@@ -51,6 +70,8 @@ static void manual_shutdown(Mel_Render_Source* self)
 
 const Mel_Render_Source_Type mel_source_manual_type = {
     .name = { .data = (u8*)"manual", .len = 6 },
+    .create_manager = manual_create_manager,
+    .destroy_manager = manual_destroy_manager,
     .sync = manual_sync,
     .shutdown = manual_shutdown,
     .instance_size = sizeof(Mel_Manual_Source_Data),
@@ -80,8 +101,9 @@ Mel_Render_Handle mel_source_manual_add(Mel_Render_Source* source,
     assert(source->manager != nullptr);
 
     Mel_Manual_Source_Data* data = mel_render_source_instance(source);
+    Mel_Render_Manager* mgr = source->manager;
 
-    Mel_Render_Handle h = mel_mgr_alloc(source->manager);
+    Mel_Render_Handle h = mel_mgr_alloc(mgr);
 
     mel_array_push(&data->pending_adds, ((Mel_Manual_Pending_Add){
         .handle = h,

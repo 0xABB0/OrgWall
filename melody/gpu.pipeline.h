@@ -82,6 +82,8 @@ typedef struct {
     u32 max_descriptor_sets;
     Mel_Gpu_Descriptor_Binding* descriptor_bindings;
     u32 descriptor_binding_count;
+    void** extra_set_layouts;
+    u32 extra_set_layout_count;
 } Mel_Gpu_Pipeline_Opt;
 
 void mel_gpu_pipeline_init_opt(Mel_Gpu_Pipeline* pipeline, Mel_Gpu_Device* dev, Mel_Gpu_Pipeline_Opt opt);

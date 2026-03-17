@@ -210,11 +210,20 @@ void mel_gpu_pipeline_init_opt(Mel_Gpu_Pipeline* pipeline, Mel_Gpu_Device* dev, 
         .size = opt.push_constant_size > 0 ? opt.push_constant_size : 64,
     };
 
-    VkDescriptorSetLayout vk_desc_layout = (VkDescriptorSetLayout)pipeline->_descriptor_layout;
+    u32 total_set_count = (descriptor_binding_count > 0 ? 1 : 0) + opt.extra_set_layout_count;
+    VkDescriptorSetLayout all_set_layouts[8];
+    assert(total_set_count <= 8);
+
+    u32 set_idx = 0;
+    if (descriptor_binding_count > 0)
+        all_set_layouts[set_idx++] = (VkDescriptorSetLayout)pipeline->_descriptor_layout;
+    for (u32 i = 0; i < opt.extra_set_layout_count; i++)
+        all_set_layouts[set_idx++] = (VkDescriptorSetLayout)opt.extra_set_layouts[i];
+
     VkPipelineLayoutCreateInfo pipe_layout_info = {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-        .setLayoutCount = descriptor_binding_count > 0 ? 1 : 0,
-        .pSetLayouts = descriptor_binding_count > 0 ? &vk_desc_layout : nullptr,
+        .setLayoutCount = total_set_count,
+        .pSetLayouts = total_set_count > 0 ? all_set_layouts : nullptr,
         .pushConstantRangeCount = opt.push_constant_size > 0 ? 1 : 0,
         .pPushConstantRanges = opt.push_constant_size > 0 ? &push_range : nullptr,
     };

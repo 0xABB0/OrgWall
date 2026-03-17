@@ -1,5 +1,6 @@
 #include "font.msdf.h"
 #include "font.desc.h"
+#include "core.engine.h"
 #include "string.str8.h"
 #include "hash.xxh.h"
 #include "collection.slotmap.h"
@@ -59,16 +60,44 @@ void mel__font_msdf_set_device(Mel_Gpu_Device* dev)
     s_pool.dev = dev;
 }
 
+static void mel__font_msdf_shutdown(void)
+{
+    if (!s_initialized) return;
+
+    Mel_Font_MSDF_Entry* entries = mel_slotmap_data(&s_pool.slotmap);
+    u32 count = mel_slotmap_count(&s_pool.slotmap);
+
+    for (u32 i = 0; i < count; i++)
+    {
+        mel_gpu_texture_shutdown(&entries[i].texture, s_pool.dev);
+        if (entries[i].desc.glyphs)
+            mel_dealloc(s_pool.alloc, entries[i].desc.glyphs);
+    }
+
+    mel_slotmap_free(&s_pool.slotmap);
+    mel_hashmap_free(&s_pool.dedup);
+    s_pool = (Mel__Font_MSDF_Pool){0};
+    s_initialized = false;
+}
+
+static void mel__font_msdf_on_shutdown(void* ctx, const void* event)
+{
+    (void)ctx;
+    (void)event;
+    mel__font_msdf_shutdown();
+}
+
 static void mel__font_msdf_on_texture_pool_ready(void* ctx, const void* event)
 {
     (void)ctx;
     (void)event;
-    mel__font_msdf_set_device(mel_sprite_pass()->dev);
+    mel__font_msdf_set_device(mel_texture_pool()->dev);
 }
 
 static void mel__font_msdf_wire(void)
 {
     mel_event_channel_on(&mel_texture_pool_ready, mel__font_msdf_on_texture_pool_ready, NULL);
+    mel_event_channel_on(&mel_shutdown_begin, mel__font_msdf_on_shutdown, NULL);
 }
 
 __attribute__((constructor))

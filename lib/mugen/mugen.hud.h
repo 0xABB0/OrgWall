@@ -5,7 +5,6 @@
 #include "mugen.sff.h"
 #include "font.atlas.fwd.h"
 #include "texture.pool.fwd.h"
-#include "render.list.fwd.h"
 
 typedef struct {
     f32 p1_life_ratio, p2_life_ratio;
@@ -27,4 +26,4 @@ typedef struct {
     f32 scale_x, scale_y;
 } Mugen_Hud;
 
-void mugen_hud_draw(Mugen_Hud* hud, Mugen_Hud_State* state, Mel_Render_List* list);
+void mugen_hud_draw(Mugen_Hud* hud, Mugen_Hud_State* state);

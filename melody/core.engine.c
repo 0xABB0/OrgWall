@@ -2,20 +2,22 @@
 #include "sim.ctx.h"
 #include "gpu.device.h"
 #include "gpu.swapchain.h"
+#include "gpu.submit.h"
+#include "gpu.cmd.h"
 #include "swapchain.h"
 #include "window.h"
 #include "allocator.h"
 #include "allocator.heap.h"
-#include "font.atlas.h"
 #include "gpu.shader.h"
-#include "gpu.submit.h"
-#include "texture.pool.h"
 #include "string.str8.h"
 #include "boot.registry.h"
 #include "async.job.h"
 #include "async.signal.h"
 #include "event.channel.h"
 #include "thread.dispatch.h"
+#include "render.viewport.h"
+#include "render.view.registry.h"
+#include "render.target.h"
 
 #include <stdatomic.h>
 
@@ -29,6 +31,8 @@
 #define MEL_APP_NAME "Melody"
 #endif
 
+Mel_Event_Channel mel_shutdown_begin;
+
 static Mel_Sim_Ctx* s_sim_head;
 static Mel_Frame_Stats s_frame_stats;
 static f32 s_fps_accum;
@@ -36,6 +40,18 @@ static u32 s_fps_frames;
 static u64 s_last_time;
 static u64 s_frame_count;
 static bool s_initialized;
+
+__attribute__((constructor))
+static void mel__engine_register(void)
+{
+    mel_event_channel_init(&mel_shutdown_begin, mel_alloc_heap());
+}
+
+__attribute__((destructor))
+static void mel__engine_unregister(void)
+{
+    mel_event_channel_destroy(&mel_shutdown_begin);
+}
 
 extern void app_init(void);
 extern void app_shutdown(void);
@@ -107,16 +123,10 @@ void mel_shutdown(void)
 
     Mel_Gpu_Device* dev = mel_gpu_dev();
     mel_gpu_device_wait_idle(dev);
-    mel_stage_shutdown_all();
 
-    mel__font_atlas_shutdown();
-    mel_texture_pool_shutdown(mel_texture_pool());
-    mel_mesh_pass_shutdown(mel_mesh_pass());
-    mel_text_pass_shutdown(mel_text_pass());
-    mel_sprite_pass_shutdown(mel_sprite_pass());
+    mel_event_channel_fire(&mel_shutdown_begin, nullptr);
 
     mel_swapchain_registry_destroy_all(dev);
-
     mel_slang_shutdown();
     mel_gpu_submit_shutdown(dev);
     mel_gpu_device_shutdown(dev);
@@ -158,6 +168,178 @@ void mel_unregister_sim(Mel_Sim_Ctx* sim)
     assert(false);
 }
 
+typedef struct {
+    Mel_Render_View** views;
+    u32 view_count;
+    Mel_Render_Source** synced_sources;
+    u32* synced_count;
+    u32 synced_cap;
+} Frame_Render_Batch;
+
+static void frame_render_batch_cb(Mel_Gpu_Cmd* cmd, void* user)
+{
+    Frame_Render_Batch* batch = (Frame_Render_Batch*)user;
+
+    if (batch->view_count > 0 && batch->views[0]->target != nullptr)
+    {
+        void* iv = mel_render_target_image_view(batch->views[0]->target);
+        u32 w = mel_render_target_width(batch->views[0]->target);
+        u32 h = mel_render_target_height(batch->views[0]->target);
+        Mel_Gpu_Color_Attachment test_att = {
+            ._image_view = iv,
+            .layout = MEL_GPU_IMAGE_LAYOUT_COLOR_ATTACHMENT,
+            .load_op = MEL_GPU_LOAD_OP_CLEAR,
+            .store_op = MEL_GPU_STORE_OP_STORE,
+            .clear_r = 1.0f, .clear_g = 0.0f, .clear_b = 1.0f, .clear_a = 1.0f,
+        };
+        mel_gpu_cmd_begin_rendering(cmd, .color_attachments = &test_att, .color_count = 1, .render_width = w, .render_height = h);
+        mel_gpu_cmd_end_rendering(cmd);
+    }
+
+    for (u32 i = 0; i < batch->view_count; i++)
+    {
+        Mel_Render_View* view = batch->views[i];
+
+        Mel_Render_Source* src = view->source;
+        bool already_synced = false;
+        for (u32 j = 0; j < *batch->synced_count; j++)
+        {
+            if (batch->synced_sources[j] == src)
+            {
+                already_synced = true;
+                break;
+            }
+        }
+
+        if (!already_synced)
+        {
+            mel_render_view_sync(view);
+            assert(*batch->synced_count < batch->synced_cap);
+            batch->synced_sources[(*batch->synced_count)++] = src;
+        }
+
+        Mel_Render_Draw_Ctx ctx = {
+            .cmd           = cmd,
+            .target        = view->target,
+            .target_width  = mel_render_target_width(view->target),
+            .target_height = mel_render_target_height(view->target),
+            .target_format = mel_render_target_format(view->target),
+        };
+
+        mel_render_view_draw(view, &ctx);
+    }
+}
+
+static void mel__engine_render_frame(void)
+{
+    u32 total_views = mel__view_registry_count();
+    if (total_views == 0)
+        return;
+
+    Mel_Gpu_Device* dev = mel_gpu_dev();
+    if (!dev->ready)
+        return;
+
+    Mel_Render_Source* synced_sources[64];
+    u32 synced_count = 0;
+
+    Mel_Swapchain* visited_swapchains[MEL_MAX_SWAPCHAINS];
+    u32 visited_count = 0;
+
+    for (u32 vi = 0; vi < total_views; vi++)
+    {
+        Mel_Render_View* view = mel__view_registry_at(vi);
+        if (!view->active || view->target == nullptr)
+            continue;
+        if (view->target->type != MEL_TARGET_WINDOW)
+            continue;
+
+        Mel_Swapchain_Entry* entry = mel_swapchain_registry_get(view->target->swapchain);
+        if (!entry)
+            continue;
+
+        Mel_Swapchain* sc = &entry->swapchain;
+        bool already_visited = false;
+        for (u32 j = 0; j < visited_count; j++)
+        {
+            if (visited_swapchains[j] == sc)
+            {
+                already_visited = true;
+                break;
+            }
+        }
+
+        if (!already_visited)
+        {
+            assert(visited_count < MEL_MAX_SWAPCHAINS);
+            visited_swapchains[visited_count++] = sc;
+        }
+    }
+
+    SDL_Log("render_frame: views=%u swapchains=%u", total_views, visited_count);
+    if (visited_count == 0)
+        return;
+
+    Mel_Render_View* sc_views[64];
+
+    for (u32 si = 0; si < visited_count; si++)
+    {
+        Mel_Swapchain* sc = visited_swapchains[si];
+
+        if (!mel_swapchain_acquire(sc, dev))
+        {
+            SDL_Log("swapchain acquire failed");
+            continue;
+        }
+
+        u32 sc_view_count = 0;
+        for (u32 vi = 0; vi < total_views; vi++)
+        {
+            Mel_Render_View* view = mel__view_registry_at(vi);
+            if (!view->active || view->target == nullptr)
+                continue;
+            if (view->target->type != MEL_TARGET_WINDOW)
+                continue;
+
+            Mel_Swapchain_Entry* entry = mel_swapchain_registry_get(view->target->swapchain);
+            if (!entry || &entry->swapchain != sc)
+                continue;
+
+            mel_render_target_begin_frame(view->target);
+
+            assert(sc_view_count < 64);
+            sc_views[sc_view_count++] = view;
+        }
+
+        for (u32 a = 1; a < sc_view_count; a++)
+        {
+            Mel_Render_View* key = sc_views[a];
+            i32 b = (i32)a - 1;
+            while (b >= 0 && sc_views[b]->priority > key->priority)
+            {
+                sc_views[b + 1] = sc_views[b];
+                b--;
+            }
+            sc_views[b + 1] = key;
+        }
+
+        Frame_Render_Batch batch = {
+            .views          = sc_views,
+            .view_count     = sc_view_count,
+            .synced_sources = synced_sources,
+            .synced_count   = &synced_count,
+            .synced_cap     = 64,
+        };
+
+        mel_gpu_submit_frame(dev,
+            .callback  = frame_render_batch_cb,
+            .user      = &batch,
+            .swapchain = sc);
+
+        mel_swapchain_present(sc, dev);
+    }
+}
+
 void mel_frame(void)
 {
     mel__main_dispatch_drain();
@@ -196,9 +378,9 @@ void mel_frame(void)
     }
 
     {
-        TracyCZoneN(ctx_stages, "tick_stages", true);
-        mel_stage_tick();
-        TracyCZoneEnd(ctx_stages);
+        TracyCZoneN(ctx_render, "render_frame", true);
+        mel__engine_render_frame();
+        TracyCZoneEnd(ctx_render);
     }
 
     s_frame_count++;

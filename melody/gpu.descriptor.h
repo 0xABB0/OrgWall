@@ -31,6 +31,7 @@ struct Mel_Gpu_Descriptor_Binding {
 struct Mel_Gpu_Descriptor_Layout {
     void* _layout;
     u32 binding_count;
+    Mel_Gpu_Descriptor_Binding _bindings[16];
 };
 
 struct Mel_Gpu_Descriptor_Pool {

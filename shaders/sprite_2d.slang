@@ -64,7 +64,7 @@ VSOutput vertexMain(uint vertex_id : SV_VertexID, uint instance_id : SV_Instance
     Transform2D t = transforms[instance_id];
     SpriteInfo s = sprite_infos[instance_id];
 
-    if (t.flags & RF2D_HIDDEN)
+    if ((t.flags & RF2D_HIDDEN) != 0)
     {
         output.position = float4(0.0, 0.0, 0.0, 0.0);
         output.uv = float2(0.0, 0.0);
@@ -94,10 +94,10 @@ VSOutput vertexMain(uint vertex_id : SV_VertexID, uint instance_id : SV_Instance
 
     float2 uv_local = local + float2(0.5, 0.5);
 
-    if (t.flags & RF2D_FLIP_X)
+    if ((t.flags & RF2D_FLIP_X) != 0)
         uv_local.x = 1.0 - uv_local.x;
 
-    if (t.flags & RF2D_FLIP_Y)
+    if ((t.flags & RF2D_FLIP_Y) != 0)
         uv_local.y = 1.0 - uv_local.y;
 
     output.uv = uv_origin + uv_local * uv_size;

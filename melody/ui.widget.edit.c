@@ -16,49 +16,10 @@ static void wedit_notify_change(Mel_WEdit* edit)
         edit->on_change(edit, edit->user_data);
 }
 
-static void wedit_draw_box(Mel_Render_List* list, Mel_Rect rect, Mel_Vec4 color, u8 layer)
-{
-    mel_draw_sprite(list, .pos = mel_vec2(rect.x, rect.y), .size = mel_vec2(rect.w, rect.h), .color = color, .layer = layer);
-}
-
 static void wedit_draw(Mel_Widget* w, void* ctx)
 {
-    Mel_WEdit* edit = (Mel_WEdit*)w;
-    Mel_Render_List* list = (Mel_Render_List*)ctx;
-    Mel_Vec4 border = (w->state & MEL_WIDGET_STATE_FOCUSED) ? edit->focus_border_color : edit->border_color;
-
-    wedit_draw_box(list, mel_rect(w->pos.x, w->pos.y, w->size.x, w->size.y), edit->bg_color, 0);
-    wedit_draw_box(list, mel_rect(w->pos.x, w->pos.y, w->size.x, 1.0f), border, 1);
-    wedit_draw_box(list, mel_rect(w->pos.x, w->pos.y + w->size.y - 1.0f, w->size.x, 1.0f), border, 1);
-    wedit_draw_box(list, mel_rect(w->pos.x, w->pos.y, 1.0f, w->size.y), border, 1);
-    wedit_draw_box(list, mel_rect(w->pos.x + w->size.x - 1.0f, w->pos.y, 1.0f, w->size.y), border, 1);
-
-    if (!mel_slotmap_handle_valid(edit->font.handle))
-        return;
-
-    str8 text = str8_from_parts((u8*)edit->text, edit->text_len);
-    str8 placeholder = str8_from_parts((u8*)edit->placeholder, edit->placeholder_len);
-    str8 shown = text.len > 0 ? text : placeholder;
-    Mel_Vec4 color = text.len > 0 ? edit->text_color : edit->placeholder_color;
-    f32 text_x = w->pos.x + 6.0f;
-    f32 text_y = w->pos.y + (w->size.y - 10.0f) * 0.5f;
-
-    if (shown.len > 0)
-        mel_font_atlas_draw_text(edit->font, list, shown, text_x, text_y, color);
-
-    if (w->state & MEL_WIDGET_STATE_FOCUSED)
-    {
-        u64 ticks = SDL_GetTicks();
-        if (((ticks / 400) & 1ull) == 0)
-        {
-            Mel_Vec2 text_size = mel_font_atlas_measure_text(edit->font, text);
-            mel_draw_sprite(list,
-                .pos = mel_vec2(text_x + text_size.x + 1.0f, w->pos.y + 5.0f),
-                .size = mel_vec2(1.0f, mel_maxf(w->size.y - 10.0f, 6.0f)),
-                .color = border,
-                .layer = 1);
-        }
-    }
+    (void)w;
+    (void)ctx;
 }
 
 static bool wedit_mouse_down(Mel_Widget* w, Mel_Vec2 pos, i32 button)

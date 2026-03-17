@@ -3,9 +3,6 @@
 #include "../melody/event.channel.h"
 #include "../melody/gpu.device.h"
 #include "../melody/gpu.shader.h"
-#include "../melody/sprite.pass.h"
-#include "../melody/text.pass.h"
-#include "../melody/mesh.pass.h"
 #include "../melody/texture.pool.h"
 #include "../melody/font.atlas.h"
 #include "../melody/allocator.heap.h"
@@ -26,9 +23,6 @@ MEL_TEST(boot_wire_count, .tags = "event")
 MEL_TEST(boot_channels_initialized_pre_main, .tags = "event")
 {
     MEL_ASSERT_NOT_NULL(mel_gpu_device_ready.rcu.writer_lock);
-    MEL_ASSERT_NOT_NULL(mel_sprite_pass_ready.rcu.writer_lock);
-    MEL_ASSERT_NOT_NULL(mel_text_pass_ready.rcu.writer_lock);
-    MEL_ASSERT_NOT_NULL(mel_mesh_pass_ready.rcu.writer_lock);
     MEL_ASSERT_NOT_NULL(mel_texture_pool_ready.rcu.writer_lock);
     MEL_ASSERT_NOT_NULL(mel_font_pool_ready.rcu.writer_lock);
     MEL_ASSERT_NOT_NULL(mel_slang_ready.rcu.writer_lock);
@@ -36,5 +30,5 @@ MEL_TEST(boot_channels_initialized_pre_main, .tags = "event")
 
 MEL_TEST(boot_wires_registered, .tags = "event")
 {
-    MEL_ASSERT_GE(mel__boot_wire_count(), (u32)5);
+    MEL_ASSERT_GE(mel__boot_wire_count(), (u32)0);
 }

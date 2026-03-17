@@ -5,14 +5,8 @@
 
 static void wlabel_draw(Mel_Widget* w, void* ctx)
 {
-    Mel_WLabel* label = (Mel_WLabel*)w;
-    Mel_Render_List* list = (Mel_Render_List*)ctx;
-
-    if (mel_slotmap_handle_valid(label->font.handle) && label->text.len > 0)
-    {
-        mel_font_atlas_draw_text(label->font, list,
-            label->text, w->pos.x, w->pos.y, label->text_color);
-    }
+    (void)w;
+    (void)ctx;
 }
 
 void mel_wlabel_init(Mel_WLabel* label)

@@ -1,6 +1,7 @@
 #include "font.atlas.h"
 #include "font.desc.h"
 #include "texture.pool.h"
+#include "core.engine.h"
 #include "event.channel.h"
 #include "boot.registry.h"
 #include "collection.hashmap.h"
@@ -81,13 +82,21 @@ static void mel__font_pool_on_texture_pool_ready(void* ctx, const void* event)
 {
     (void)ctx;
     (void)event;
-    mel__font_atlas_set_device(mel_sprite_pass()->dev, mel_texture_pool());
+    mel__font_atlas_set_device(mel_texture_pool()->dev, mel_texture_pool());
     mel_event_channel_fire(&mel_font_pool_ready, NULL);
+}
+
+static void mel__font_atlas_on_shutdown(void* ctx, const void* event)
+{
+    (void)ctx;
+    (void)event;
+    mel__font_atlas_shutdown();
 }
 
 static void mel__font_pool_wire(void)
 {
     mel_event_channel_on(&mel_texture_pool_ready, mel__font_pool_on_texture_pool_ready, NULL);
+    mel_event_channel_on(&mel_shutdown_begin, mel__font_atlas_on_shutdown, NULL);
 }
 
 __attribute__((constructor))
@@ -224,58 +233,6 @@ Mel_Texture_Handle mel_font_atlas_tex_handle(Mel_Font_Atlas_Handle handle)
     Mel_Font_Atlas_Entry* entry = mel_font_atlas_get(handle);
     assert(entry != nullptr);
     return entry->tex_handle;
-}
-
-void mel_font_atlas_draw_text_ex(Mel_Font_Atlas_Handle handle,
-    Mel_Render_List* list, str8 text, f32 x, f32 y, Mel_Vec4 color, u64 sort_key)
-{
-    assert(list != nullptr);
-
-    Mel_Font_Atlas_Entry* entry = mel_font_atlas_get(handle);
-    assert(entry != nullptr);
-
-    if (str8_is_empty(text)) return;
-
-    f32 cursor_x = x;
-    f32 cursor_y = y + entry->desc.ascent;
-
-    for (size i = 0; i < text.len; i++)
-    {
-        int c = text.data[i];
-
-        if (c == '\n')
-        {
-            cursor_x = x;
-            cursor_y += entry->desc.line_height;
-            continue;
-        }
-
-        if (c < (int)entry->desc.first_codepoint ||
-            c >= (int)(entry->desc.first_codepoint + entry->desc.glyph_count))
-            continue;
-
-        int idx = c - (int)entry->desc.first_codepoint;
-        Mel_Font_Glyph* g = &entry->desc.glyphs[idx];
-
-        f32 gx = cursor_x + g->x0;
-        f32 gy = cursor_y + g->y0;
-        f32 gw = g->x1 - g->x0;
-        f32 gh = g->y1 - g->y0;
-
-        if (gw > 0 && gh > 0)
-        {
-            Mel_Sprite_Entry* e = mel_render_list_push(list, sort_key);
-            *e = (Mel_Sprite_Entry){
-                .pos = mel_vec2(gx, gy),
-                .size = mel_vec2(gw, gh),
-                .uv = mel_rect(g->u0, g->v0, g->u1 - g->u0, g->v1 - g->v0),
-                .color = color,
-                .tex = entry->tex_handle,
-            };
-        }
-
-        cursor_x += g->xadvance;
-    }
 }
 
 Mel_Vec2 mel_font_atlas_measure_text(Mel_Font_Atlas_Handle handle, str8 text)

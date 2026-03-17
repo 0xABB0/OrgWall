@@ -2,6 +2,7 @@
 
 #include "core.types.h"
 #include "sim.ctx.fwd.h"
+#include "event.channel.fwd.h"
 
 #include <SDL3/SDL.h>
 
@@ -10,6 +11,8 @@ typedef struct {
     f32 fps;
     u64 frame_count;
 } Mel_Frame_Stats;
+
+extern Mel_Event_Channel mel_shutdown_begin;
 
 void mel_boot(void);
 void mel_shutdown(void);

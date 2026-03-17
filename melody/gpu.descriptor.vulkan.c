@@ -43,7 +43,11 @@ void mel_gpu_descriptor_layout_init_opt(Mel_Gpu_Descriptor_Layout* dl, Mel_Gpu_D
         if (opt.bindings[i].flags & MEL_GPU_DESCRIPTOR_BINDING_PARTIALLY_BOUND)
             flags |= VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT;
         if (opt.bindings[i].flags & MEL_GPU_DESCRIPTOR_BINDING_VARIABLE_COUNT)
-            flags |= VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT;
+        {
+            Mel_Gpu_Device_Vulkan* vk = mel__gpu_device_vk(dev);
+            if (!vk->has_portability_subset)
+                flags |= VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT;
+        }
         if (opt.bindings[i].flags & MEL_GPU_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND)
             flags |= VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT;
         vk_binding_flags[i] = flags;
@@ -81,6 +85,8 @@ void mel_gpu_descriptor_layout_init_opt(Mel_Gpu_Descriptor_Layout* dl, Mel_Gpu_D
     dl->_layout = vk_layout;
 
     dl->binding_count = opt.binding_count;
+    for (u32 i = 0; i < opt.binding_count; i++)
+        dl->_bindings[i] = opt.bindings[i];
 }
 
 void mel_gpu_descriptor_layout_shutdown(Mel_Gpu_Descriptor_Layout* dl, Mel_Gpu_Device* dev)
@@ -106,10 +112,33 @@ void mel_gpu_descriptor_pool_init_opt(Mel_Gpu_Descriptor_Pool* dp, Mel_Gpu_Devic
     dp->max_sets = opt.max_sets;
     dp->variable_count = opt.variable_count;
 
-    VkDescriptorPoolSize pool_size = {
-        .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-        .descriptorCount = opt.max_sets,
-    };
+    VkDescriptorPoolSize pool_sizes[16];
+    u32 pool_size_count = 0;
+
+    for (u32 i = 0; i < opt.layout->binding_count; i++)
+    {
+        VkDescriptorType vk_type = descriptor_type_to_vk(opt.layout->_bindings[i].type);
+        u32 count = opt.layout->_bindings[i].count > 0 ? opt.layout->_bindings[i].count : 1;
+
+        bool merged = false;
+        for (u32 j = 0; j < pool_size_count; j++)
+        {
+            if (pool_sizes[j].type == vk_type)
+            {
+                pool_sizes[j].descriptorCount += count * opt.max_sets;
+                merged = true;
+                break;
+            }
+        }
+        if (!merged)
+        {
+            assert(pool_size_count < 16);
+            pool_sizes[pool_size_count++] = (VkDescriptorPoolSize){
+                .type = vk_type,
+                .descriptorCount = count * opt.max_sets,
+            };
+        }
+    }
 
     VkDescriptorPoolCreateFlags pool_flags = 0;
     if (opt.update_after_bind)
@@ -119,8 +148,8 @@ void mel_gpu_descriptor_pool_init_opt(Mel_Gpu_Descriptor_Pool* dp, Mel_Gpu_Devic
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
         .flags = pool_flags,
         .maxSets = opt.max_sets,
-        .poolSizeCount = 1,
-        .pPoolSizes = &pool_size,
+        .poolSizeCount = pool_size_count,
+        .pPoolSizes = pool_sizes,
     };
 
     VkDescriptorPool vk_pool = VK_NULL_HANDLE;
@@ -152,6 +181,8 @@ void* mel_gpu_descriptor_pool_alloc(Mel_Gpu_Descriptor_Pool* dp, Mel_Gpu_Device*
     VkDescriptorPool vk_pool = (VkDescriptorPool)dp->_pool;
 
     u32 variable_count = dp->variable_count;
+    bool use_variable_count = variable_count > 0 && !mel__gpu_device_vk(dev)->has_portability_subset;
+
     VkDescriptorSetVariableDescriptorCountAllocateInfo variable_info = {
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_VARIABLE_DESCRIPTOR_COUNT_ALLOCATE_INFO,
         .descriptorSetCount = 1,
@@ -160,7 +191,7 @@ void* mel_gpu_descriptor_pool_alloc(Mel_Gpu_Descriptor_Pool* dp, Mel_Gpu_Device*
 
     VkDescriptorSetAllocateInfo alloc_info = {
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-        .pNext = variable_count > 0 ? &variable_info : nullptr,
+        .pNext = use_variable_count ? &variable_info : nullptr,
         .descriptorPool = vk_pool,
         .descriptorSetCount = 1,
         .pSetLayouts = &vk_layout,

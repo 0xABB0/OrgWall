@@ -3,6 +3,7 @@
 #include "string.str8.h"
 #include "allocator.heap.h"
 #include <string.h>
+#include <stdlib.h>
 
 static Mel_Gpu_Device s_dev;
 static Mel_Gpu_Device_Vulkan s_dev_vk;
@@ -614,6 +615,10 @@ bool mel_gpu_device_init_opt(Mel_Gpu_Device* dev, Mel_Gpu_Device_Opt opt)
     }
 
     volkInitializeCustom(vkGetInstanceProcAddr_func);
+
+#if defined(__APPLE__)
+    setenv("MVK_CONFIG_USE_METAL_ARGUMENT_BUFFERS", "2", 0);
+#endif
 
     if (!create_instance(dev, vk, &opt))                                        goto fail;
     if (!create_debug_messenger(dev, vk))                                       goto fail;

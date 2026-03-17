@@ -191,6 +191,8 @@ Next steps after foreplay:
 - [RENDER] Implement Mel_Render_Manager (uses storage pool, staging, indirect draws)
 - [RENDER] Implement Mel_Render_Source + ECS source (uses ECS delta helpers)
 - [RENDER] Implement Mel_Pipeline + default_2d pipeline (uses texture table, culling, scratch pool)
+- [RENDER] render.pipeline.2d.c Tier 4 (traditional VB/IB draw path) requires a dedicated shader variant that does not use storage buffers in the vertex stage — the current sprite_2d.slang reads from StructuredBuffer<> which requires descriptor_indexing or at least storage buffer support in the vertex stage. Tier 4 needs a new shaders/sprite_2d_tier4.slang with vertex attributes, a separate Mel_Gpu_Pipeline for it, and per-frame VB/IB management in Pipeline_2D_Data.
+- [RENDER] render.pipeline.2d.c Tier 3 (no bindless, batched by texture) also deferred — currently falls through to Tier 4 assert. Needs the Tier 4 shader first, then adds per-batch texture binding on top.
 - [FONT] Complete font foreplay steps 5-9, then fonts integrate into the render architecture via Material Bases
 
 ## Higher level systems:

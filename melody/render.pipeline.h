@@ -1,17 +1,28 @@
 #pragma once
 
 #include "string.str8.h"
-#include "render.manager.fwd.h"
+#include "gpu.cmd.fwd.h"
+#include "gpu.types.h"
 #include "allocator.fwd.h"
 
 typedef struct Mel_Render_View Mel_Render_View;
+typedef struct Mel_Render_Target Mel_Render_Target;
 typedef struct Mel_Render_Pipeline Mel_Render_Pipeline;
 typedef struct Mel_Render_Pipeline_Type Mel_Render_Pipeline_Type;
+typedef struct Mel_Render_Draw_Ctx Mel_Render_Draw_Ctx;
+
+struct Mel_Render_Draw_Ctx {
+    Mel_Gpu_Cmd* cmd;
+    Mel_Render_Target* target;
+    u32 target_width;
+    u32 target_height;
+    Mel_Gpu_Format target_format;
+};
 
 struct Mel_Render_Pipeline_Type {
     str8  name;
     void  (*init)(Mel_Render_Pipeline* self, Mel_Render_View* view);
-    void  (*draw)(Mel_Render_Pipeline* self, Mel_Render_Manager* mgr);
+    void  (*draw)(Mel_Render_Pipeline* self, void* mgr, Mel_Render_Draw_Ctx* ctx);
     void  (*shutdown)(Mel_Render_Pipeline* self);
     usize instance_size;
 };
@@ -31,5 +42,5 @@ Mel_Render_Pipeline* mel_pipeline_create(const Mel_Render_Pipeline_Type* type,
                                           const Mel_Alloc* alloc);
 void mel_pipeline_destroy(Mel_Render_Pipeline* pipeline);
 void mel_pipeline_init_frame(Mel_Render_Pipeline* pipeline, Mel_Render_View* view);
-void mel_pipeline_draw(Mel_Render_Pipeline* pipeline, Mel_Render_Manager* mgr);
+void mel_pipeline_draw(Mel_Render_Pipeline* pipeline, void* mgr, Mel_Render_Draw_Ctx* ctx);
 void* mel_pipeline_instance(Mel_Render_Pipeline* pipeline);

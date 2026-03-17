@@ -17,7 +17,7 @@ extern ECS_COMPONENT_DECLARE(Mel_CText);
 void mel_component_text_register(ecs_world_t* world);
 
 typedef struct {
-    Mel_Render_List* list;
+    void* _reserved;
 } Mel_Text_System_Opt;
 
 void mel_text_system_run_opt(ecs_world_t* world, Mel_Text_System_Opt opt);
