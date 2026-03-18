@@ -125,17 +125,27 @@ static void copy_entry_name(str8 entry, char* buf, size_t buf_size, const char* 
         strncpy(buf, fallback, buf_size);
 }
 
-extern "C" void mel_gpu_shader_init_opt(Mel_Gpu_Shader* shader, Mel_Gpu_Device* dev, Mel_Gpu_Shader_Opt opt)
+typedef struct {
+    void* code;
+    size_t size;
+} Mel__Spirv_Bytecode;
+
+typedef struct {
+    Mel__Spirv_Bytecode vertex;
+    Mel__Spirv_Bytecode fragment;
+    Mel__Spirv_Bytecode compute;
+    Mel__Spirv_Bytecode task;
+    Mel__Spirv_Bytecode mesh;
+} Mel__Compiled_Spirv;
+
+static Mel__Compiled_Spirv mel__slang_compile(str8 source, Mel_Gpu_Shader_Opt opt)
 {
-    assert(shader != nullptr);
-    assert(dev != nullptr);
-    assert(!str8_is_empty(opt.source));
     assert(g_slang_session != nullptr);
 
-    *shader = {};
+    Mel__Compiled_Spirv result = {};
 
     char source_buf[32768];
-    str8_to_buf(opt.source, source_buf, sizeof(source_buf));
+    str8_to_buf(source, source_buf, sizeof(source_buf));
 
     char vert_entry_buf[256] = {0};
     char frag_entry_buf[256] = {0};
@@ -155,56 +165,75 @@ extern "C" void mel_gpu_shader_init_opt(Mel_Gpu_Shader* shader, Mel_Gpu_Device* 
 
     if (wants_graphics)
     {
-        void* vert_code = nullptr;
-        size_t vert_size = 0;
-        void* frag_code = nullptr;
-        size_t frag_size = 0;
-
-        bool vert_ok = compile_entry_point(source_buf, vert_entry_buf, SLANG_STAGE_VERTEX, &vert_code, &vert_size);
+        bool vert_ok = compile_entry_point(source_buf, vert_entry_buf, SLANG_STAGE_VERTEX, &result.vertex.code, &result.vertex.size);
         assert(vert_ok);
-
-        bool frag_ok = compile_entry_point(source_buf, frag_entry_buf, SLANG_STAGE_FRAGMENT, &frag_code, &frag_size);
-        if (!frag_ok) { free(vert_code); }
+        bool frag_ok = compile_entry_point(source_buf, frag_entry_buf, SLANG_STAGE_FRAGMENT, &result.fragment.code, &result.fragment.size);
+        if (!frag_ok) { free(result.vertex.code); result.vertex = {}; }
         assert(frag_ok);
-
-        shader->_vertex = create_shader_module(dev, vert_code, vert_size);
-        shader->_fragment = create_shader_module(dev, frag_code, frag_size);
-
-        free(vert_code);
-        free(frag_code);
-
-        SDL_Log("Shader compiled successfully (vertex + fragment)");
-        return;
     }
-
-    if (wants_compute)
+    else if (wants_compute)
     {
-        void* compute_code = nullptr;
-        size_t compute_size = 0;
-        bool ok = compile_entry_point(source_buf, compute_entry_buf, SLANG_STAGE_COMPUTE, &compute_code, &compute_size);
+        bool ok = compile_entry_point(source_buf, compute_entry_buf, SLANG_STAGE_COMPUTE, &result.compute.code, &result.compute.size);
         assert(ok);
-        shader->_compute = create_shader_module(dev, compute_code, compute_size);
-        free(compute_code);
-        SDL_Log("Shader compiled successfully (compute)");
-        return;
+    }
+    else
+    {
+        bool mesh_ok = compile_entry_point(source_buf, mesh_entry_buf, SLANG_STAGE_MESH, &result.mesh.code, &result.mesh.size);
+        assert(mesh_ok);
+        bool frag_ok = compile_entry_point(source_buf, frag_entry_buf, SLANG_STAGE_FRAGMENT, &result.fragment.code, &result.fragment.size);
+        if (!frag_ok) { free(result.mesh.code); result.mesh = {}; }
+        assert(frag_ok);
     }
 
-    void* mesh_code = nullptr;
-    size_t mesh_size = 0;
-    void* frag_code = nullptr;
-    size_t frag_size = 0;
-    bool mesh_ok = compile_entry_point(source_buf, mesh_entry_buf, SLANG_STAGE_MESH, &mesh_code, &mesh_size);
-    assert(mesh_ok);
-    bool frag_ok = compile_entry_point(source_buf, frag_entry_buf, SLANG_STAGE_FRAGMENT, &frag_code, &frag_size);
-    if (!frag_ok)
-        free(mesh_code);
-    assert(frag_ok);
+    return result;
+}
 
-    shader->_mesh = create_shader_module(dev, mesh_code, mesh_size);
-    shader->_fragment = create_shader_module(dev, frag_code, frag_size);
-    free(mesh_code);
-    free(frag_code);
-    SDL_Log("Shader compiled successfully (mesh + fragment)");
+static void mel__create_vulkan_modules(Mel_Gpu_Shader* shader, Mel_Gpu_Device* dev, Mel__Compiled_Spirv* spirv)
+{
+    if (spirv->vertex.code)
+    {
+        shader->_vertex = create_shader_module(dev, spirv->vertex.code, spirv->vertex.size);
+        free(spirv->vertex.code);
+    }
+    if (spirv->fragment.code)
+    {
+        shader->_fragment = create_shader_module(dev, spirv->fragment.code, spirv->fragment.size);
+        free(spirv->fragment.code);
+    }
+    if (spirv->compute.code)
+    {
+        shader->_compute = create_shader_module(dev, spirv->compute.code, spirv->compute.size);
+        free(spirv->compute.code);
+    }
+    if (spirv->task.code)
+    {
+        shader->_task = create_shader_module(dev, spirv->task.code, spirv->task.size);
+        free(spirv->task.code);
+    }
+    if (spirv->mesh.code)
+    {
+        shader->_mesh = create_shader_module(dev, spirv->mesh.code, spirv->mesh.size);
+        free(spirv->mesh.code);
+    }
+
+    const char* type = shader->_compute ? "compute" : (shader->_mesh ? "mesh + fragment" : "vertex + fragment");
+    SDL_Log("Shader compiled successfully (%s)", type);
+}
+
+extern "C" void mel_gpu_shader_init_opt(Mel_Gpu_Shader* shader, Mel_Gpu_Device* dev, Mel_Gpu_Shader_Opt opt)
+{
+    assert(shader != nullptr);
+    assert(dev != nullptr);
+    assert(!str8_is_empty(opt.source));
+
+    *shader = {};
+
+    u8 home = mel_job_current_worker();
+    mel_job_move_to_worker(0);
+    Mel__Compiled_Spirv spirv = mel__slang_compile(opt.source, opt);
+    mel_job_move_to_worker(home);
+
+    mel__create_vulkan_modules(shader, dev, &spirv);
 }
 
 typedef struct {

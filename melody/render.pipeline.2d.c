@@ -7,6 +7,7 @@
 #include "render.target.h"
 #include "event.channel.h"
 #include "boot.registry.h"
+#include "core.engine.h"
 #include "gpu.device.h"
 #include "gpu.shader.h"
 #include "gpu.pipeline.h"
@@ -226,9 +227,23 @@ static void mel__pipeline_2d_on_gpu_ready(void* ctx, const void* event)
     mel_job_run(e->phase_counter, mel__pipeline_2d_compile, e->phase_counter);
 }
 
+static void mel__pipeline_2d_on_shutdown(void* ctx, const void* event)
+{
+    (void)ctx;
+    (void)event;
+
+    if (s_ready)
+    {
+        mel_gpu_pipeline_shutdown(&s_gpu_pipeline, s_dev);
+        mel_gpu_shader_shutdown(&s_shader, s_dev);
+        s_ready = false;
+    }
+}
+
 static void mel__pipeline_2d_wire(void)
 {
     mel_event_channel_on(&mel_gpu_device_ready, mel__pipeline_2d_on_gpu_ready, nullptr);
+    mel_event_channel_on(&mel_shutdown_begin, mel__pipeline_2d_on_shutdown, nullptr);
 }
 
 __attribute__((constructor))

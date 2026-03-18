@@ -141,15 +141,18 @@ void mel_gpu_submit_frame_opt(Mel_Gpu_Device* dev, Mel_Gpu_Submit_Frame_Opt opt)
     Mel_Gpu_Submit_Gather gather = {0};
     mel_swapchain_collect_sync(opt.swapchain, &gather);
 
+    VkSemaphore wait_sem = (VkSemaphore)gather._wait_semaphore;
+    VkSemaphore signal_sem = (VkSemaphore)gather._signal_semaphore;
+
     VkSubmitInfo submit_info = {
         .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-        .waitSemaphoreCount   = gather.wait_count,
-        .pWaitSemaphores      = (VkSemaphore*)gather._wait_semaphores,
-        .pWaitDstStageMask    = gather._wait_stages,
+        .waitSemaphoreCount   = gather.has_wait ? 1 : 0,
+        .pWaitSemaphores      = gather.has_wait ? &wait_sem : nullptr,
+        .pWaitDstStageMask    = gather.has_wait ? &gather._wait_stage : nullptr,
         .commandBufferCount   = 1,
         .pCommandBuffers      = &s_immediate.cmd,
-        .signalSemaphoreCount = gather.signal_count,
-        .pSignalSemaphores    = (VkSemaphore*)gather._signal_semaphores,
+        .signalSemaphoreCount = gather.has_signal ? 1 : 0,
+        .pSignalSemaphores    = gather.has_signal ? &signal_sem : nullptr,
     };
 
     vkResetFences(mel__gpu_device_vk(dev)->device, 1, &s_immediate.fence);

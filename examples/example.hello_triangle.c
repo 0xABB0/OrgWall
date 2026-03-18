@@ -22,7 +22,7 @@
 
 static Mel_Window_Handle    s_window;
 static Mel_Swapchain_Handle s_swapchain;
-static Mel_Render_Target*   s_target;
+static Mel_Render_Target_Handle s_target;
 static Mel_Render_View*     s_view;
 static Mel_Gpu_Shader       s_shader;
 static Mel_Gpu_Pipeline     s_gpu_pipeline;
@@ -102,7 +102,7 @@ void app_init(void)
 
     s_window    = mel_window_create(S8("Hello Triangle"), .width = WIN_W, .height = WIN_H);
     s_swapchain = mel_gpu_swapchain_create_for_window(s_dev, s_window);
-    s_target    = mel_render_target_from_swapchain(s_swapchain, alloc);
+    s_target    = mel_render_target_from_swapchain(s_swapchain);
 
     mel_gpu_shader_load(&s_shader, .path = S8("shaders/hello_triangle.slang"), .dev = s_dev, .alloc = alloc);
 

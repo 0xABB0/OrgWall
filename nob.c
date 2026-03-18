@@ -706,7 +706,7 @@ bool build_melody(void)
 
 static void cmd_append_melody_link_deps(Nob_Cmd* cmd)
 {
-    nob_cmd_append(cmd, BUILD_DIR "/libmelody.a");
+    nob_cmd_append(cmd, "-force_load", BUILD_DIR "/libmelody.a");
 
     for (size_t i = 0; i < NOB_ARRAY_LEN(LIB_PATHS); i++)
         nob_cmd_append(cmd, LIB_PATHS[i]);

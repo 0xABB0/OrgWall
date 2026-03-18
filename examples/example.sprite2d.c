@@ -26,7 +26,7 @@
 
 static Mel_Window_Handle     s_window;
 static Mel_Swapchain_Handle  s_swapchain;
-static Mel_Render_Target*    s_target;
+static Mel_Render_Target_Handle s_target;
 static Mel_Render_Source*    s_source;
 static Mel_Render_View*      s_view;
 static Mel_Texture_Table     s_texture_table;
@@ -40,7 +40,7 @@ void app_init(void)
 
     s_window = mel_window_create(S8("Sprite 2D"), .width = WIN_W, .height = WIN_H);
     s_swapchain = mel_gpu_swapchain_create_for_window(dev, s_window);
-    s_target = mel_render_target_from_swapchain(s_swapchain, alloc);
+    s_target = mel_render_target_from_swapchain(s_swapchain);
 
     mel_texture_table_init(&s_texture_table, dev, alloc, .capacity = 64);
 

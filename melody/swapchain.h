@@ -8,14 +8,12 @@
 
 typedef struct Mel_Gpu_Submit_Gather Mel_Gpu_Submit_Gather;
 
-#define MEL_MAX_SWAPCHAINS 8
-
 struct Mel_Gpu_Submit_Gather {
-    void* _wait_semaphores[MEL_MAX_SWAPCHAINS];
-    u32 _wait_stages[MEL_MAX_SWAPCHAINS];
-    u32 wait_count;
-    void* _signal_semaphores[MEL_MAX_SWAPCHAINS];
-    u32 signal_count;
+    void* _wait_semaphore;
+    u32 _wait_stage;
+    void* _signal_semaphore;
+    bool has_wait;
+    bool has_signal;
 };
 
 struct Mel_Swapchain_Vtable {

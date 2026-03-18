@@ -26,16 +26,21 @@ typedef struct {
 typedef struct {
     u32 material_base_id;
     u32 material_idx;
-    u32 mesh_idx;
+    Mel_Geometry_Handle mesh;
     u32 flags;
     u32 layer_mask;
-    u32 _pad[3];
+    u32 _pad[2];
 } Mel_Render_Info;
+
+_Static_assert(sizeof(Mel_Render_Bounds) == 32, "Mel_Render_Bounds must be 32 bytes (two Mel_Vec3 at 16 bytes each)");
+_Static_assert(sizeof(Mel_Render_Info) == 32, "Mel_Render_Info must be 32 bytes");
 
 typedef struct {
     Mel_Mat4 model;
     Mel_Mat4 model_inverse;
 } Mel_Render_Transform;
+
+_Static_assert(sizeof(Mel_Render_Transform) == 128, "Mel_Render_Transform must be 128 bytes (two mat4)");
 
 struct Mel_Render_Manager {
     Mel_Storage_Pool transforms;

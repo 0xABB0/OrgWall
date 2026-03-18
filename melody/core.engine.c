@@ -5,6 +5,8 @@
 #include "gpu.submit.h"
 #include "gpu.cmd.h"
 #include "swapchain.h"
+#include "render.blit.h"
+#include "gpu.image.h"
 #include "window.h"
 #include "allocator.h"
 #include "allocator.heap.h"
@@ -174,6 +176,7 @@ typedef struct {
     Mel_Render_Source** synced_sources;
     u32* synced_count;
     u32 synced_cap;
+    Mel_Gpu_Device* dev;
 } Frame_Render_Batch;
 
 static void frame_render_batch_cb(Mel_Gpu_Cmd* cmd, void* user)
@@ -202,15 +205,32 @@ static void frame_render_batch_cb(Mel_Gpu_Cmd* cmd, void* user)
             batch->synced_sources[(*batch->synced_count)++] = src;
         }
 
+        Mel_Render_Target* target = mel_render_target_get(view->target);
+
         Mel_Render_Draw_Ctx ctx = {
             .cmd           = cmd,
-            .target        = view->target,
-            .target_width  = mel_render_target_width(view->target),
-            .target_height = mel_render_target_height(view->target),
-            .target_format = mel_render_target_format(view->target),
+            .target        = target,
+            .target_width  = mel_render_target_width(target),
+            .target_height = mel_render_target_height(target),
+            .target_format = mel_render_target_format(target),
         };
 
+        if (mel_render_view_has_design_resolution(view))
+        {
+            Mel_Render_Target* design = mel_render_target_get(view->design_target);
+            mel_gpu_cmd_transition_image(cmd, &design->offscreen_image, MEL_GPU_IMAGE_LAYOUT_COLOR_ATTACHMENT);
+        }
+
         mel_render_view_draw(view, &ctx);
+        if (mel_render_view_has_design_resolution(view))
+        {
+            Mel_Render_Target* design = mel_render_target_get(view->design_target);
+            mel__blit_to_target(cmd, batch->dev,
+                design, target,
+                mel_render_target_width(target),
+                mel_render_target_height(target),
+                view->scale_mode);
+        }
     }
 }
 
@@ -224,21 +244,23 @@ static void mel__engine_render_frame(void)
     if (!dev->ready)
         return;
 
-    Mel_Render_Source* synced_sources[64];
+    Mel_Render_Source* synced_sources[total_views];
     u32 synced_count = 0;
 
-    Mel_Swapchain* visited_swapchains[MEL_MAX_SWAPCHAINS];
+    Mel_Swapchain* visited_swapchains[total_views];
     u32 visited_count = 0;
 
     for (u32 vi = 0; vi < total_views; vi++)
     {
         Mel_Render_View* view = mel__view_registry_at(vi);
-        if (!view->active || view->target == nullptr)
-            continue;
-        if (view->target->type != MEL_TARGET_WINDOW)
+        if (!view->active || !mel_render_target_alive(view->target))
             continue;
 
-        Mel_Swapchain_Entry* entry = mel_swapchain_registry_get(view->target->swapchain);
+        Mel_Render_Target* target = mel_render_target_get(view->target);
+        if (target->type != MEL_TARGET_WINDOW)
+            continue;
+
+        Mel_Swapchain_Entry* entry = mel_swapchain_registry_get(target->swapchain);
         if (!entry)
             continue;
 
@@ -255,7 +277,6 @@ static void mel__engine_render_frame(void)
 
         if (!already_visited)
         {
-            assert(visited_count < MEL_MAX_SWAPCHAINS);
             visited_swapchains[visited_count++] = sc;
         }
     }
@@ -263,11 +284,29 @@ static void mel__engine_render_frame(void)
     if (visited_count == 0)
         return;
 
-    Mel_Render_View* sc_views[64];
+    Mel_Render_View* sc_views[total_views];
 
     for (u32 si = 0; si < visited_count; si++)
     {
         Mel_Swapchain* sc = visited_swapchains[si];
+
+        for (u32 vi = 0; vi < total_views; vi++)
+        {
+            Mel_Render_View* view = mel__view_registry_at(vi);
+            if (!view->active || !mel_render_target_alive(view->target)) continue;
+            Mel_Render_Target* target = mel_render_target_get(view->target);
+            if (target->type != MEL_TARGET_WINDOW) continue;
+            Mel_Swapchain_Entry* entry = mel_swapchain_registry_get(target->swapchain);
+            if (entry && &entry->swapchain == sc && entry->resize_requested)
+            {
+                i32 pw = 0, ph = 0;
+                mel_window_size_pixels(entry->window, &pw, &ph);
+                if (pw > 0 && ph > 0)
+                    mel_swapchain_resize(sc, dev, (u32)pw, (u32)ph);
+                entry->resize_requested = false;
+                break;
+            }
+        }
 
         if (!mel_swapchain_acquire(sc, dev))
         {
@@ -278,18 +317,19 @@ static void mel__engine_render_frame(void)
         for (u32 vi = 0; vi < total_views; vi++)
         {
             Mel_Render_View* view = mel__view_registry_at(vi);
-            if (!view->active || view->target == nullptr)
-                continue;
-            if (view->target->type != MEL_TARGET_WINDOW)
+            if (!view->active || !mel_render_target_alive(view->target))
                 continue;
 
-            Mel_Swapchain_Entry* entry = mel_swapchain_registry_get(view->target->swapchain);
+            Mel_Render_Target* target = mel_render_target_get(view->target);
+            if (target->type != MEL_TARGET_WINDOW)
+                continue;
+
+            Mel_Swapchain_Entry* entry = mel_swapchain_registry_get(target->swapchain);
             if (!entry || &entry->swapchain != sc)
                 continue;
 
-            mel_render_target_begin_frame(view->target);
+            mel_render_target_begin_frame(target);
 
-            assert(sc_view_count < 64);
             sc_views[sc_view_count++] = view;
         }
 
@@ -310,7 +350,8 @@ static void mel__engine_render_frame(void)
             .view_count     = sc_view_count,
             .synced_sources = synced_sources,
             .synced_count   = &synced_count,
-            .synced_cap     = 64,
+            .synced_cap     = total_views,
+            .dev            = dev,
         };
 
         mel_gpu_submit_frame(dev,
@@ -374,7 +415,20 @@ void mel_frame(void)
 
 void mel_process_event(SDL_Event* event)
 {
-    (void)event;
+    if (event->type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED)
+    {
+        Mel_Window_Handle wh = mel__window_find_by_id(event->window.windowID);
+        if (!mel_window_handle_valid(wh))
+            return;
+
+        Mel_Swapchain_Handle sh = mel_swapchain_registry_find_by_window(wh);
+        if (!mel_swapchain_handle_valid(sh))
+            return;
+
+        Mel_Swapchain_Entry* entry = mel_swapchain_registry_get(sh);
+        if (entry)
+            entry->resize_requested = true;
+    }
 }
 
 Mel_Frame_Stats mel_frame_stats(void)

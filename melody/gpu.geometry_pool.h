@@ -23,6 +23,8 @@ typedef struct {
     u32 _pad;
 } Mel_Geometry_Region;
 
+_Static_assert(sizeof(Mel_Geometry_Region) == 32, "Mel_Geometry_Region must be 32 bytes for GPU cache alignment");
+
 typedef struct {
     u64 offset;
     u64 size;

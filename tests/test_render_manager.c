@@ -128,10 +128,11 @@ MEL_TEST(mgr_set_bounds_and_info, .tags = "render, visual")
     };
     mel_mgr_set_bounds(&mgr, h, b);
 
+    Mel_Geometry_Handle test_mesh = { .handle = { .index = 3, .generation = 1 } };
     Mel_Render_Info info = {
         .material_base_id = 7,
         .material_idx = 42,
-        .mesh_idx = 3,
+        .mesh = test_mesh,
         .flags = MEL_RF_CAST_SHADOW,
         .layer_mask = 0xFF,
     };
@@ -143,7 +144,7 @@ MEL_TEST(mgr_set_bounds_and_info, .tags = "render, visual")
 
     Mel_Render_Info* ip = mel_storage_pool_get(&mgr.infos, h.handle);
     MEL_ASSERT_EQ(ip->material_base_id, 7);
-    MEL_ASSERT_EQ(ip->mesh_idx, 3);
+    MEL_ASSERT_EQ(ip->mesh.handle.index, 3);
     MEL_ASSERT_EQ(ip->flags, MEL_RF_CAST_SHADOW);
 
     mel_mgr_shutdown(&mgr);
@@ -195,7 +196,7 @@ MEL_TEST(mgr_upload_dirty, .tags = "render, visual")
     });
     mel_mgr_set_info(&mgr, h, (Mel_Render_Info){
         .material_base_id = 1,
-        .mesh_idx = 0,
+        .mesh = MEL_GEOMETRY_HANDLE_NULL,
         .layer_mask = 0xFFFFFFFF,
     });
 

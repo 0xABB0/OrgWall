@@ -379,14 +379,12 @@ static void khr_collect_sync(Mel_Swapchain* sc, Mel_Gpu_Submit_Gather* gather)
 {
     Mel_Gpu_Swapchain* khr = sc->data;
 
-    assert(gather->wait_count < MEL_MAX_SWAPCHAINS);
-    gather->_wait_semaphores[gather->wait_count] = khr->image_available[khr->current_frame];
-    gather->_wait_stages[gather->wait_count] = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-    gather->wait_count++;
+    gather->_wait_semaphore = khr->image_available[khr->current_frame];
+    gather->_wait_stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    gather->has_wait = true;
 
-    assert(gather->signal_count < MEL_MAX_SWAPCHAINS);
-    gather->_signal_semaphores[gather->signal_count] = khr->render_finished[sc->current_image];
-    gather->signal_count++;
+    gather->_signal_semaphore = khr->render_finished[sc->current_image];
+    gather->has_signal = true;
 }
 
 static void khr_present(Mel_Swapchain* sc, Mel_Gpu_Device* dev)

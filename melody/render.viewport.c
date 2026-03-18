@@ -2,6 +2,7 @@
 #include "render.view.registry.h"
 #include "render.source.type.h"
 #include "render.pipeline.h"
+#include "render.target.h"
 #include "allocator.h"
 #include "allocator.heap.h"
 
@@ -22,6 +23,23 @@ Mel_Render_View* mel_render_view_create_opt(Mel_Render_View_Desc desc)
     view->dev = desc.dev;
     view->priority = desc.priority;
     view->active = true;
+    view->design_width = desc.design_width;
+    view->design_height = desc.design_height;
+    view->scale_mode = desc.scale_mode;
+
+    if (desc.design_width > 0 && desc.design_height > 0)
+    {
+        Mel_Gpu_Format fmt = MEL_GPU_FORMAT_B8G8R8A8_SRGB;
+        if (mel_render_target_handle_valid(desc.target))
+            fmt = mel_render_target_get(desc.target)->format;
+
+        view->design_target = mel_render_target_offscreen(
+            .dev = desc.dev,
+            .width = desc.design_width,
+            .height = desc.design_height,
+            .format = fmt,
+            .alloc = alloc);
+    }
 
     if (desc.source)
         mel__render_source_ensure_manager(desc.source, desc.dev, alloc);
@@ -47,6 +65,9 @@ void mel_render_view_destroy(Mel_Render_View* view)
     if (view->pipeline)
         mel_pipeline_destroy(view->pipeline);
 
+    if (mel_render_target_handle_valid(view->design_target))
+        mel_render_target_destroy(view->design_target);
+
     mel_dealloc(mel_alloc_heap(), view);
 }
 
@@ -60,6 +81,23 @@ void mel_render_view_set_active(Mel_Render_View* view, bool active)
 {
     assert(view != nullptr);
     view->active = active;
+}
+
+bool mel_render_view_has_design_resolution(Mel_Render_View* view)
+{
+    assert(view != nullptr);
+    return view->design_width > 0 && view->design_height > 0
+        && mel_render_target_alive(view->design_target);
+}
+
+Mel_Render_Target* mel_render_view_effective_target(Mel_Render_View* view)
+{
+    assert(view != nullptr);
+    if (mel_render_target_alive(view->design_target))
+        return mel_render_target_get(view->design_target);
+    if (mel_render_target_alive(view->target))
+        return mel_render_target_get(view->target);
+    return nullptr;
 }
 
 void mel_render_view_sync(Mel_Render_View* view)
@@ -82,6 +120,17 @@ void mel_render_view_draw(Mel_Render_View* view, Mel_Render_Draw_Ctx* ctx)
 
     void* mgr = view->source ? mel_render_source_manager(view->source) : nullptr;
 
+    Mel_Render_Draw_Ctx effective_ctx = *ctx;
+
+    if (mel_render_view_has_design_resolution(view))
+    {
+        Mel_Render_Target* design = mel_render_target_get(view->design_target);
+        effective_ctx.target = design;
+        effective_ctx.target_width = view->design_width;
+        effective_ctx.target_height = view->design_height;
+        effective_ctx.target_format = mel_render_target_format(design);
+    }
+
     mel_pipeline_init_frame(view->pipeline, view);
-    mel_pipeline_draw(view->pipeline, mgr, ctx);
+    mel_pipeline_draw(view->pipeline, mgr, &effective_ctx);
 }

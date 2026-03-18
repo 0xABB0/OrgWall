@@ -110,6 +110,22 @@ void mel_ecs_delta_init_opt(Mel_ECS_Delta* delta, Mel_ECS_Delta_Opt opt)
 
     delta->on_set_observer = ecs_observer_init(opt.world, &set_desc);
     assert(delta->on_set_observer != 0);
+
+    ecs_query_desc_t query_desc = {0};
+    for (i32 i = 0; i < term_count; i++)
+        query_desc.terms[i].id = opt.components[i];
+
+    ecs_query_t* q = ecs_query_init(opt.world, &query_desc);
+    assert(q != nullptr);
+
+    ecs_iter_t it = ecs_query_iter(opt.world, q);
+    while (ecs_query_next(&it))
+    {
+        for (i32 i = 0; i < it.count; i++)
+            mel__delta_list_push(&delta->added, it.entities[i], delta->alloc);
+    }
+
+    ecs_query_fini(q);
 }
 
 void mel_ecs_delta_shutdown(Mel_ECS_Delta* delta)

@@ -36,6 +36,10 @@ typedef struct {
     u32 _pad;
 } Mel_Render_Sprite_Info;
 
+_Static_assert(sizeof(Mel_Render_Transform_2D) == 32, "Mel_Render_Transform_2D must be 32 bytes");
+_Static_assert(sizeof(Mel_Render_Bounds_2D) == 16, "Mel_Render_Bounds_2D must be 16 bytes");
+_Static_assert(sizeof(Mel_Render_Sprite_Info) == 48, "Mel_Render_Sprite_Info must be 48 bytes");
+
 struct Mel_Render_Manager_2D {
     Mel_Storage_Pool transforms;
     Mel_Storage_Pool bounds;
