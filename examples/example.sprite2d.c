@@ -28,7 +28,7 @@ static Mel_Window_Handle     s_window;
 static Mel_Swapchain_Handle  s_swapchain;
 static Mel_Render_Target_Handle s_target;
 static Mel_Render_Source*    s_source;
-static Mel_Render_View*      s_view;
+static Mel_Render_View_Handle s_view;
 static Mel_Texture_Table     s_texture_table;
 static Mel_Gpu_Texture       s_white_tex;
 static ecs_world_t*          s_world;

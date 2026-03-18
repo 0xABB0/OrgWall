@@ -3,29 +3,28 @@
 #include "render.source.type.h"
 #include "render.pipeline.h"
 #include "render.target.h"
+#include "collection.slotmap.fwd.h"
 #include "allocator.h"
 #include "allocator.heap.h"
 
 #include <string.h>
 
-Mel_Render_View* mel_render_view_create_opt(Mel_Render_View_Desc desc)
+Mel_Render_View_Handle mel_render_view_create_opt(Mel_Render_View_Desc desc)
 {
     assert(desc.dev != nullptr);
 
     const Mel_Alloc* alloc = desc.alloc ? desc.alloc : mel_alloc_heap();
 
-    Mel_Render_View* view = mel_alloc(alloc, sizeof(Mel_Render_View));
-    memset(view, 0, sizeof(Mel_Render_View));
-
-    view->source = desc.source;
-    view->camera = desc.camera.view_count > 0 ? desc.camera : MEL_RENDER_CAMERA_DEFAULT;
-    view->target = desc.target;
-    view->dev = desc.dev;
-    view->priority = desc.priority;
-    view->active = true;
-    view->design_width = desc.design_width;
-    view->design_height = desc.design_height;
-    view->scale_mode = desc.scale_mode;
+    Mel_Render_View view = {0};
+    view.source = desc.source;
+    view.camera = desc.camera.view_count > 0 ? desc.camera : MEL_RENDER_CAMERA_DEFAULT;
+    view.target = desc.target;
+    view.dev = desc.dev;
+    view.priority = desc.priority;
+    view.active = true;
+    view.design_width = desc.design_width;
+    view.design_height = desc.design_height;
+    view.scale_mode = desc.scale_mode;
 
     if (desc.design_width > 0 && desc.design_height > 0)
     {
@@ -33,7 +32,7 @@ Mel_Render_View* mel_render_view_create_opt(Mel_Render_View_Desc desc)
         if (mel_render_target_handle_valid(desc.target))
             fmt = mel_render_target_get(desc.target)->format;
 
-        view->design_target = mel_render_target_offscreen(
+        view.design_target = mel_render_target_offscreen(
             .dev = desc.dev,
             .width = desc.design_width,
             .height = desc.design_height,
@@ -44,42 +43,57 @@ Mel_Render_View* mel_render_view_create_opt(Mel_Render_View_Desc desc)
     if (desc.source)
         mel__render_source_ensure_manager(desc.source, desc.dev, alloc);
 
+    Mel_SlotMap_Handle raw = mel__view_registry_insert(&view);
+
+    Mel_Render_View* stored = mel__view_registry_get(raw);
+
     const Mel_Render_Pipeline_Type* pipeline_type = nullptr;
     if (desc.pipeline.len > 0)
         pipeline_type = mel_pipeline_find(desc.pipeline);
 
     if (pipeline_type != nullptr)
-        view->pipeline = mel_pipeline_create(pipeline_type, view, alloc);
+        stored->pipeline = mel_pipeline_create(pipeline_type, stored, alloc);
 
-    mel__view_registry_add(view);
-
-    return view;
+    return (Mel_Render_View_Handle){ .handle = raw };
 }
 
-void mel_render_view_destroy(Mel_Render_View* view)
+void mel_render_view_destroy(Mel_Render_View_Handle handle)
 {
-    assert(view != nullptr);
+    if (!mel__view_registry_alive(handle.handle)) return;
 
-    mel__view_registry_remove(view);
+    Mel_Render_View* view = mel__view_registry_get(handle.handle);
+    assert(view != nullptr);
 
     if (view->pipeline)
         mel_pipeline_destroy(view->pipeline);
 
-    if (mel_render_target_handle_valid(view->design_target))
+    if (mel_render_target_alive(view->design_target))
         mel_render_target_destroy(view->design_target);
 
-    mel_dealloc(mel_alloc_heap(), view);
+    mel__view_registry_remove(handle.handle);
 }
 
-void mel_render_view_set_camera(Mel_Render_View* view, Mel_Render_Camera camera)
+bool mel_render_view_alive(Mel_Render_View_Handle handle)
 {
+    return mel__view_registry_alive(handle.handle);
+}
+
+Mel_Render_View* mel_render_view_get(Mel_Render_View_Handle handle)
+{
+    Mel_Render_View* view = mel__view_registry_get(handle.handle);
     assert(view != nullptr);
+    return view;
+}
+
+void mel_render_view_set_camera(Mel_Render_View_Handle handle, Mel_Render_Camera camera)
+{
+    Mel_Render_View* view = mel_render_view_get(handle);
     view->camera = camera;
 }
 
-void mel_render_view_set_active(Mel_Render_View* view, bool active)
+void mel_render_view_set_active(Mel_Render_View_Handle handle, bool active)
 {
-    assert(view != nullptr);
+    Mel_Render_View* view = mel_render_view_get(handle);
     view->active = active;
 }
 
@@ -133,4 +147,19 @@ void mel_render_view_draw(Mel_Render_View* view, Mel_Render_Draw_Ctx* ctx)
 
     mel_pipeline_init_frame(view->pipeline, view);
     mel_pipeline_draw(view->pipeline, mgr, &effective_ctx);
+}
+
+void mel_render_view_destroy_by_target(Mel_Render_Target_Handle target)
+{
+    for (u32 i = mel__view_registry_count(); i > 0; i--)
+    {
+        Mel_Render_View* views = mel__view_registry_data();
+        Mel_Render_View* v = &views[i - 1];
+
+        if (v->target.handle.index != target.handle.index ||
+            v->target.handle.generation != target.handle.generation) continue;
+
+        Mel_Render_View_Handle h = mel__view_registry_handle_at(i - 1);
+        mel_render_view_destroy(h);
+    }
 }

@@ -1,9 +1,13 @@
 #include "window.h"
 #include "swapchain.h"
+#include "gpu.device.h"
 #include "collection.slotmap.h"
+#include "event.channel.h"
 #include "allocator.heap.h"
 #include "string.str8.h"
 #include "thread.dispatch.h"
+
+Mel_Event_Channel mel_window_close_requested;
 
 typedef struct Mel_Window {
     SDL_Window* sdl;
@@ -17,6 +21,7 @@ static void mel__window_registry_init(void)
 {
     mel_slotmap_init(&s_windows, mel_alloc_heap(),
         .item_size = sizeof(Mel_Window), .initial_capacity = 4);
+    mel_event_channel_init(&mel_window_close_requested, mel_alloc_heap());
     s_initialized = true;
 }
 
@@ -32,6 +37,7 @@ static void mel__window_registry_shutdown(void)
         SDL_DestroyWindow(windows[i].sdl);
 
     mel_slotmap_free(&s_windows);
+    mel_event_channel_destroy(&mel_window_close_requested);
     s_initialized = false;
 }
 
@@ -105,7 +111,7 @@ static void mel__window_destroy_impl(Mel_Window_Handle handle)
 
     Mel_Swapchain_Handle sc = mel_swapchain_registry_find_by_window(handle);
     if (mel_swapchain_handle_valid(sc))
-        mel_swapchain_registry_remove(sc, nullptr);
+        mel_swapchain_registry_remove(sc, mel_gpu_dev());
 
     SDL_DestroyWindow(w->sdl);
     mel_slotmap_remove(&s_windows, handle.handle);

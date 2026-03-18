@@ -23,7 +23,7 @@
 static Mel_Window_Handle    s_window;
 static Mel_Swapchain_Handle s_swapchain;
 static Mel_Render_Target_Handle s_target;
-static Mel_Render_View*     s_view;
+static Mel_Render_View_Handle s_view;
 static Mel_Gpu_Shader       s_shader;
 static Mel_Gpu_Pipeline     s_gpu_pipeline;
 static Mel_Gpu_Device*      s_dev;

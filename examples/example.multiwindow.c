@@ -38,8 +38,8 @@ static Mel_Render_Target_Handle s_target_3d;
 
 static Mel_Render_Source* s_source_2d;
 static Mel_Render_Source* s_source_3d;
-static Mel_Render_View* s_view_2d;
-static Mel_Render_View* s_view_3d;
+static Mel_Render_View_Handle s_view_2d;
+static Mel_Render_View_Handle s_view_3d;
 
 static Mel_Texture_Table s_texture_table;
 static Mel_Gpu_Texture s_white_tex;

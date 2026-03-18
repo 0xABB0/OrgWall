@@ -1,4 +1,5 @@
 #include "core.engine.h"
+#include "core.app.h"
 #include "sim.ctx.h"
 #include "gpu.device.h"
 #include "gpu.swapchain.h"
@@ -413,6 +414,48 @@ void mel_frame(void)
     TracyCFrameMark;
 }
 
+static void mel__handle_window_close(Mel_Window_Handle wh)
+{
+    Mel_Window_Close_Event close_event = {
+        .window = wh,
+        .prevent_default = false,
+    };
+
+    mel_event_channel_fire(&mel_window_close_requested, &close_event);
+
+    if (close_event.prevent_default)
+        return;
+
+    Mel_Gpu_Device* dev = mel_gpu_dev();
+    mel_gpu_device_wait_idle(dev);
+
+    Mel_Swapchain_Handle sc = mel_swapchain_registry_find_by_window(wh);
+    if (mel_swapchain_handle_valid(sc))
+    {
+        u32 view_count = mel__view_registry_count();
+        for (u32 i = view_count; i > 0; i--)
+        {
+            Mel_Render_View* view = mel__view_registry_at(i - 1);
+            if (!mel_render_target_alive(view->target)) continue;
+
+            Mel_Render_Target* target = mel_render_target_get(view->target);
+            if (target->type != MEL_TARGET_WINDOW) continue;
+            if (target->swapchain.handle.index != sc.handle.index ||
+                target->swapchain.handle.generation != sc.handle.generation) continue;
+
+            Mel_Render_View_Handle vh = mel__view_registry_handle_at(i - 1);
+            mel_render_view_destroy(vh);
+        }
+
+        mel_render_target_destroy_by_swapchain(sc);
+    }
+
+    mel_window_destroy(wh);
+
+    if (mel_window_count() == 0)
+        mel_quit();
+}
+
 void mel_process_event(SDL_Event* event)
 {
     if (event->type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED)
@@ -428,6 +471,13 @@ void mel_process_event(SDL_Event* event)
         Mel_Swapchain_Entry* entry = mel_swapchain_registry_get(sh);
         if (entry)
             entry->resize_requested = true;
+    }
+
+    if (event->type == SDL_EVENT_WINDOW_CLOSE_REQUESTED)
+    {
+        Mel_Window_Handle wh = mel__window_find_by_id(event->window.windowID);
+        if (mel_window_handle_valid(wh))
+            mel__handle_window_close(wh);
     }
 }
 

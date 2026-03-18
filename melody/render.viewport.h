@@ -4,6 +4,7 @@
 #include "render.pipeline.h"
 #include "render.target.fwd.h"
 #include "render.target.h"
+#include "render.viewport.fwd.h"
 #include "math.mat4.h"
 #include "math.vec4.h"
 #include "gpu.device.fwd.h"
@@ -62,16 +63,20 @@ typedef struct {
     u32 scale_mode;
 } Mel_Render_View_Desc;
 
-Mel_Render_View* mel_render_view_create_opt(Mel_Render_View_Desc desc);
+Mel_Render_View_Handle mel_render_view_create_opt(Mel_Render_View_Desc desc);
 #define mel_render_view_create(...) mel_render_view_create_opt((Mel_Render_View_Desc){__VA_ARGS__})
 
-void mel_render_view_destroy(Mel_Render_View* view);
+void mel_render_view_destroy(Mel_Render_View_Handle handle);
+bool mel_render_view_alive(Mel_Render_View_Handle handle);
+Mel_Render_View* mel_render_view_get(Mel_Render_View_Handle handle);
 
-void mel_render_view_set_camera(Mel_Render_View* view, Mel_Render_Camera camera);
-void mel_render_view_set_active(Mel_Render_View* view, bool active);
+void mel_render_view_set_camera(Mel_Render_View_Handle handle, Mel_Render_Camera camera);
+void mel_render_view_set_active(Mel_Render_View_Handle handle, bool active);
 
 bool mel_render_view_has_design_resolution(Mel_Render_View* view);
 Mel_Render_Target* mel_render_view_effective_target(Mel_Render_View* view);
 
 void mel_render_view_sync(Mel_Render_View* view);
 void mel_render_view_draw(Mel_Render_View* view, Mel_Render_Draw_Ctx* ctx);
+
+void mel_render_view_destroy_by_target(Mel_Render_Target_Handle target);

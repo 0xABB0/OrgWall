@@ -36,7 +36,7 @@ static Mel_Window_Handle s_window;
 static Mel_Swapchain_Handle s_swapchain;
 static Mel_Render_Target_Handle s_target;
 static Mel_Render_Source* s_source;
-static Mel_Render_View* s_view;
+static Mel_Render_View_Handle s_view;
 static Mel_Geometry_Pool s_geo_pool;
 static Mel_Geometry_Handle s_cube_mesh;
 static Mel_Render_Handle s_cube_handle;
