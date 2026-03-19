@@ -186,6 +186,22 @@ Good:
 anim.sprite.h
 anim.sprite.editor.h
 
+This extends to all supporting files. Tests, benchmarks, and documentation live alongside the module they belong to, not in separate directories. The full file family for a module:
+
+```
+domain.module.h              // main interface
+domain.module.fwd.h          // forward declarations
+domain.module.cfg.h          // configuration macros
+domain.module.inl             // inline implementations
+domain.module.c               // main implementation
+domain.module.xxx.c           // split implementations / platform variants
+domain.module.md              // module documentation (design notes, API contracts, usage)
+domain.module.test.spec.c     // tests (nob filters these out of libmelody.a)
+domain.module.bench.spec.c    // benchmarks (nob filters these out of libmelody.a)
+```
+
+nob uses the `.test.` and `.bench.` segments to filter: these files are never compiled into the library, only collected when running `./nob test` or `./nob bench`.
+
 ## MEL-X-009: language
 
 We prefer using only c as our language of choice, though sometimes we are forced to use another language. This should be done sparingly and only when there is no other choice.

@@ -1,6 +1,8 @@
 #include "font.atlas.h"
 #include "font.desc.h"
 #include "texture.pool.h"
+#include "text.material.h"
+#include "render.material_base.h"
 #include "core.engine.h"
 #include "event.channel.h"
 #include "boot.registry.h"
@@ -9,7 +11,9 @@
 #include "hash.xxh.h"
 #include "allocator.h"
 #include "allocator.heap.h"
-#include "gpu.device.fwd.h"
+#include "gpu.device.h"
+#include "gpu.shader.h"
+#include "async.job.h"
 
 #include <SDL3/SDL.h>
 #include <stb_truetype.h>
@@ -25,6 +29,9 @@ typedef struct {
 
 static Mel__Font_Atlas_Pool s_pool;
 static bool s_initialized;
+static Mel_Gpu_Shader s_text_atlas_shader;
+static Mel_Gpu_Device* s_text_atlas_dev;
+static Mel_Material_Base_Id s_text_atlas_mat_id = MEL_MATERIAL_BASE_ID_INVALID;
 
 Mel_Event_Channel mel_font_pool_ready;
 
@@ -90,13 +97,37 @@ static void mel__font_atlas_on_shutdown(void* ctx, const void* event)
 {
     (void)ctx;
     (void)event;
+    if (s_text_atlas_shader._vertex != nullptr)
+        mel_gpu_shader_shutdown(&s_text_atlas_shader, s_text_atlas_dev);
     mel__font_atlas_shutdown();
+}
+
+static void mel__font_atlas_compile(void* data)
+{
+    (void)data;
+    mel_gpu_shader_load(&s_text_atlas_shader, .path = S8("shaders/text_atlas.slang"), .dev = s_text_atlas_dev);
+    mel_material_base_set_shader(s_text_atlas_mat_id, &s_text_atlas_shader);
+}
+
+static void mel__font_atlas_on_gpu_ready(void* ctx, const void* event)
+{
+    (void)ctx;
+    const Mel_Gpu_Ready_Event* e = event;
+    s_text_atlas_dev = e->dev;
+    mel_job_run(e->phase_counter, mel__font_atlas_compile, NULL);
 }
 
 static void mel__font_pool_wire(void)
 {
     mel_event_channel_on(&mel_texture_pool_ready, mel__font_pool_on_texture_pool_ready, NULL);
+    mel_event_channel_on(&mel_gpu_device_ready, mel__font_atlas_on_gpu_ready, NULL);
     mel_event_channel_on(&mel_shutdown_begin, mel__font_atlas_on_shutdown, NULL);
+
+    s_text_atlas_mat_id = mel_material_base_register(&(Mel_Material_Base_Desc){
+        .name = S8("text_atlas"),
+        .param_size = sizeof(Mel_Text_Atlas_Params),
+        .compat = MEL_COMPAT_2D,
+    });
 }
 
 __attribute__((constructor))
@@ -180,6 +211,7 @@ Mel_Font_Atlas_Handle mel_font_atlas_load_opt(Mel_Font_Atlas_Load_Opt opt)
     entry.desc.glyph_count = MEL_FONT_ATLAS_CHAR_COUNT;
     entry.desc.ascent = (f32)font->ascent * scale;
     entry.desc.line_height = (f32)(font->ascent - font->descent + font->line_gap) * scale;
+    entry.desc.bake_size = font_size;
 
     entry.desc.glyphs = mel_alloc_array(s_pool.alloc, Mel_Font_Glyph, MEL_FONT_ATLAS_CHAR_COUNT);
     f32 inv_w = 1.0f / (f32)atlas_w;

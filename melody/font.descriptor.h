@@ -15,4 +15,5 @@ struct Mel_Font_Descriptor {
     u32 first_codepoint;
     f32 line_height;
     f32 ascent;
+    f32 bake_size;
 };

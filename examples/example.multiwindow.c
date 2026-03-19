@@ -12,7 +12,7 @@
 #include "render.source.manual.h"
 #include "render.pipeline.2d.h"
 #include "render.pipeline.forward3d.h"
-#include "render.manager.h"
+#include "render.types.3d.h"
 #include "render.material_base.h"
 #include "gpu.geometry_pool.h"
 #include "ecs.2d.transform.h"
@@ -41,8 +41,6 @@ static Mel_Render_Source* s_source_3d;
 static Mel_Render_View_Handle s_view_2d;
 static Mel_Render_View_Handle s_view_3d;
 
-static Mel_Texture_Table s_texture_table;
-static Mel_Gpu_Texture s_white_tex;
 static Mel_Geometry_Pool s_geo_pool;
 static Mel_Geometry_Handle s_cube_mesh;
 static Mel_Render_Handle s_cube_handle;
@@ -99,11 +97,6 @@ void app_init(void)
     s_win_3d = mel_window_create(S8("3D Cube"), .width = 640, .height = 480);
     s_sc_3d = mel_gpu_swapchain_create_for_window(dev, s_win_3d);
     s_target_3d = mel_render_target_from_swapchain(s_sc_3d);
-
-    mel_texture_table_init(&s_texture_table, dev, alloc, .capacity = 64);
-    mel_gpu_texture_init_white(&s_white_tex, dev);
-    mel_texture_table_add(&s_texture_table, s_white_tex.image._view, s_white_tex._sampler);
-    mel_pipeline_2d_set_texture_table(&s_texture_table);
 
     s_world = ecs_init();
     mel_component_transform_register(s_world);
@@ -197,8 +190,6 @@ void app_shutdown(void)
     mel_render_target_destroy(s_target_3d);
     mel_render_target_destroy(s_target_2d);
     mel_geometry_pool_shutdown(&s_geo_pool);
-    mel_texture_table_shutdown(&s_texture_table);
-    mel_gpu_texture_shutdown(&s_white_tex, dev);
     ecs_fini(s_world);
 }
 

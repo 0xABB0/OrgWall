@@ -1,6 +1,5 @@
 #include "render.material_base.h"
 #include "gpu.device.h"
-#include "gpu.shader.h"
 #include "allocator.h"
 #include "allocator.heap.h"
 #include "core.engine.h"
@@ -16,7 +15,6 @@ Mel_Material_Base_Id mel_material_base_register(const Mel_Material_Base_Desc* de
 {
     assert(desc != nullptr);
     assert(desc->name.len > 0);
-    assert(desc->param_size > 0);
     assert(s_base_count < MEL_MATERIAL_BASE_MAX);
 
     for (u32 i = 0; i < s_base_count; i++)
@@ -31,11 +29,20 @@ Mel_Material_Base_Id mel_material_base_register(const Mel_Material_Base_Desc* de
     base->compat = desc->compat;
     base->alloc = mel_alloc_heap();
 
-    u32 initial_cap = 16;
-    base->params = mel_alloc(base->alloc, (usize)initial_cap * desc->param_size);
-    memset(base->params, 0, (usize)initial_cap * desc->param_size);
-    base->instance_count = 0;
-    base->instance_capacity = initial_cap;
+    if (desc->shader)
+    {
+        base->shader = desc->shader;
+        base->shader_ready = true;
+    }
+
+    if (desc->param_size > 0)
+    {
+        u32 initial_cap = 16;
+        base->params = mel_alloc(base->alloc, (usize)initial_cap * desc->param_size);
+        memset(base->params, 0, (usize)initial_cap * desc->param_size);
+        base->instance_count = 0;
+        base->instance_capacity = initial_cap;
+    }
 
     return id;
 }
@@ -67,6 +74,7 @@ Mel_Material_Instance_Id mel_material_base_alloc_instance(Mel_Material_Base_Id b
     assert(initial_params != nullptr);
 
     Mel_Material_Base* base = &s_bases[base_id];
+    assert(base->param_size > 0);
 
     if (base->instance_count >= base->instance_capacity)
     {
@@ -108,6 +116,7 @@ void mel_material_base_set_params(Mel_Material_Base_Id base_id, Mel_Material_Ins
     assert(params != nullptr);
 
     Mel_Material_Base* base = &s_bases[base_id];
+    assert(base->param_size > 0);
     assert(instance_id < base->instance_count);
 
     memcpy(base->params + (usize)instance_id * base->param_size, params, base->param_size);
@@ -118,6 +127,7 @@ const void* mel_material_base_get_params(Mel_Material_Base_Id base_id, Mel_Mater
 {
     assert(base_id < s_base_count);
     Mel_Material_Base* base = &s_bases[base_id];
+    assert(base->param_size > 0);
     assert(instance_id < base->instance_count);
 
     return base->params + (usize)instance_id * base->param_size;
@@ -129,6 +139,8 @@ void mel_material_base_upload_dirty(Mel_Material_Base_Id base_id, Mel_Gpu_Device
     assert(dev != nullptr);
 
     Mel_Material_Base* base = &s_bases[base_id];
+    if (base->param_size == 0)
+        return;
     if (!base->param_buffer_dirty || base->instance_count == 0)
         return;
 
@@ -159,11 +171,12 @@ Mel_Gpu_Buffer* mel_material_base_param_buffer(Mel_Material_Base_Id base_id)
     return &s_bases[base_id].param_buffer;
 }
 
-void mel__material_base_init_gpu(Mel_Material_Base_Id base_id, Mel_Gpu_Device* dev)
+void mel_material_base_set_shader(Mel_Material_Base_Id id, Mel_Gpu_Shader* shader)
 {
-    assert(base_id < s_base_count);
-    (void)dev;
-    s_bases[base_id].shader_ready = true;
+    assert(id < s_base_count);
+    assert(shader != nullptr);
+    s_bases[id].shader = shader;
+    s_bases[id].shader_ready = true;
 }
 
 static void mel__material_base_on_shutdown(void* ctx, const void* event)
@@ -176,7 +189,7 @@ static void mel__material_base_on_shutdown(void* ctx, const void* event)
     {
         if (s_bases[i].param_buffer._handle != nullptr)
             mel_gpu_buffer_shutdown(&s_bases[i].param_buffer, dev);
-        if (s_bases[i].params)
+        if (s_bases[i].params && s_bases[i].param_size > 0)
             mel_dealloc(s_bases[i].alloc, s_bases[i].params);
         s_bases[i] = (Mel_Material_Base){0};
     }

@@ -2,6 +2,7 @@
 #include "render.pipeline.h"
 #include "render.viewport.h"
 #include "render.manager.h"
+#include "render.types.3d.h"
 #include "render.material_base.h"
 #include "render.target.h"
 #include "gpu.geometry_pool.h"
@@ -163,9 +164,9 @@ static void forward3d_draw(Mel_Render_Pipeline* self, void* mgr, Mel_Render_Draw
 
     mel_gpu_cmd_bind_descriptor_set(ctx->cmd, &s_gpu_pipeline, desc);
 
-    Mel_Render_Transform* transforms = (Mel_Render_Transform*)m->transforms.slots.data;
-    Mel_Render_Info* infos = (Mel_Render_Info*)m->infos.slots.data;
-    u32 packed = m->transforms.slots.packed_count;
+    const Mel_Render_Transform* transforms = mel_mgr_pool_data(m, MEL_3D_POOL_TRANSFORMS);
+    const Mel_Render_Info* infos = mel_mgr_pool_data(m, MEL_3D_POOL_INFOS);
+    u32 packed = mel_mgr_count(m);
 
     Mel_Mat4 vp = mel_mat4_mul(view->camera.projection, view->camera.view);
 

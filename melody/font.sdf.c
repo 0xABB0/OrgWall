@@ -1,5 +1,7 @@
 #include "font.sdf.h"
 #include "font.desc.h"
+#include "text.material.h"
+#include "render.material_base.h"
 #include "core.engine.h"
 #include "string.str8.h"
 #include "hash.xxh.h"
@@ -7,11 +9,13 @@
 #include "collection.hashmap.h"
 #include "allocator.h"
 #include "allocator.heap.h"
-#include "gpu.device.fwd.h"
+#include "gpu.device.h"
+#include "gpu.shader.h"
 #include "math.scalar.h"
 #include "texture.pool.h"
 #include "event.channel.h"
 #include "boot.registry.h"
+#include "async.job.h"
 
 #include <SDL3/SDL.h>
 #include <math.h>
@@ -29,6 +33,9 @@ typedef struct {
 
 static Mel__Font_SDF_Pool s_pool;
 static bool s_initialized;
+static Mel_Gpu_Shader s_text_sdf_shader;
+static Mel_Gpu_Device* s_text_sdf_dev;
+static Mel_Material_Base_Id s_text_sdf_mat_id = MEL_MATERIAL_BASE_ID_INVALID;
 
 static u64 mel__font_sdf_hash_key(const void* key)
 {
@@ -83,6 +90,8 @@ static void mel__font_sdf_on_shutdown(void* ctx, const void* event)
 {
     (void)ctx;
     (void)event;
+    if (s_text_sdf_shader._vertex != nullptr)
+        mel_gpu_shader_shutdown(&s_text_sdf_shader, s_text_sdf_dev);
     mel__font_sdf_shutdown();
 }
 
@@ -93,10 +102,32 @@ static void mel__font_sdf_on_texture_pool_ready(void* ctx, const void* event)
     mel__font_sdf_set_device(mel_texture_pool()->dev);
 }
 
+static void mel__font_sdf_compile(void* data)
+{
+    (void)data;
+    mel_gpu_shader_load(&s_text_sdf_shader, .path = S8("shaders/text_sdf.slang"), .dev = s_text_sdf_dev);
+    mel_material_base_set_shader(s_text_sdf_mat_id, &s_text_sdf_shader);
+}
+
+static void mel__font_sdf_on_gpu_ready(void* ctx, const void* event)
+{
+    (void)ctx;
+    const Mel_Gpu_Ready_Event* e = event;
+    s_text_sdf_dev = e->dev;
+    mel_job_run(e->phase_counter, mel__font_sdf_compile, NULL);
+}
+
 static void mel__font_sdf_wire(void)
 {
     mel_event_channel_on(&mel_texture_pool_ready, mel__font_sdf_on_texture_pool_ready, NULL);
+    mel_event_channel_on(&mel_gpu_device_ready, mel__font_sdf_on_gpu_ready, NULL);
     mel_event_channel_on(&mel_shutdown_begin, mel__font_sdf_on_shutdown, NULL);
+
+    s_text_sdf_mat_id = mel_material_base_register(&(Mel_Material_Base_Desc){
+        .name = S8("text_sdf"),
+        .param_size = sizeof(Mel_Text_SDF_Params),
+        .compat = MEL_COMPAT_2D,
+    });
 }
 
 __attribute__((constructor))
@@ -193,6 +224,7 @@ Mel_Font_SDF_Handle mel_font_sdf_load_opt(Mel_Font_SDF_Load_Opt opt)
     entry.desc.glyph_count = MEL_FONT_SDF_CHAR_COUNT;
     entry.desc.ascent = (f32)font->ascent * scale;
     entry.desc.line_height = (f32)(font->ascent - font->descent + font->line_gap) * scale;
+    entry.desc.bake_size = font_size;
     entry.desc.glyphs = mel_alloc_array(s_pool.alloc, Mel_Font_Glyph, MEL_FONT_SDF_CHAR_COUNT);
 
     f32 inv_w = 1.0f / (f32)atlas_w;

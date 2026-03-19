@@ -1,7 +1,7 @@
 #pragma once
 
 #include "render.source.type.h"
-#include "render.manager.h"
+#include "render.manager.fwd.h"
 #include "ecs.world.fwd.h"
 #include "allocator.fwd.h"
 

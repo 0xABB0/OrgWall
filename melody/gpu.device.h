@@ -4,6 +4,7 @@
 #include "allocator.h"
 #include "string.str8.fwd.h"
 #include "event.channel.fwd.h"
+#include "gpu.pipeline_cache.fwd.h"
 
 #include <SDL3/SDL.h>
 
@@ -31,6 +32,7 @@ struct Mel_Gpu_Device {
     u32 transfer_family;
     Mel_Gpu_Capabilities capabilities;
     const Mel_Alloc* alloc;
+    Mel_Gpu_Pipeline_Cache* pipeline_cache;
     bool validation_enabled;
     bool ready;
 };

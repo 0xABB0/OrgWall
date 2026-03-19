@@ -1,3 +1,8 @@
+struct TextAtlasParams
+{
+    float4 color;
+};
+
 struct Transform2D
 {
     float2 pos;
@@ -18,26 +23,27 @@ struct SpriteInfo
     uint _pad;
 };
 
-struct VSOutput
+struct TextAtlasVSOutput
 {
     float4 position : SV_Position;
     float2 uv : TEXCOORD0;
     float4 color : COLOR0;
     uint texture_idx : TEXCOORD1;
+    uint material_idx : TEXCOORD2;
 };
 
 static const uint RF2D_HIDDEN = 1 << 0;
 static const uint RF2D_FLIP_X = 1 << 1;
 static const uint RF2D_FLIP_Y = 1 << 2;
 
-struct PushConstants
+struct TextAtlasPush
 {
     float4x4 projection;
     uint draw_offset;
 };
 
 [[vk::push_constant]]
-PushConstants push;
+TextAtlasPush push;
 
 [[vk::binding(0, 0)]]
 StructuredBuffer<Transform2D> transforms;
@@ -46,6 +52,9 @@ StructuredBuffer<Transform2D> transforms;
 StructuredBuffer<SpriteInfo> sprite_infos;
 
 [[vk::binding(2, 0)]]
+StructuredBuffer<TextAtlasParams> materials;
+
+[[vk::binding(3, 0)]]
 StructuredBuffer<uint> draw_order;
 
 [[vk::binding(0, 1)]]
@@ -61,9 +70,9 @@ static const float2 QUAD_VERTS[4] = {
 static const uint QUAD_INDICES[6] = { 0, 1, 2, 0, 2, 3 };
 
 [shader("vertex")]
-VSOutput vertexMain(uint vertex_id : SV_VertexID, uint instance_id : SV_InstanceID)
+TextAtlasVSOutput vertexMain(uint vertex_id : SV_VertexID, uint instance_id : SV_InstanceID)
 {
-    VSOutput output;
+    TextAtlasVSOutput output;
 
     uint slot = draw_order[push.draw_offset + instance_id];
     Transform2D t = transforms[slot];
@@ -71,55 +80,45 @@ VSOutput vertexMain(uint vertex_id : SV_VertexID, uint instance_id : SV_Instance
 
     if ((t.flags & RF2D_HIDDEN) != 0)
     {
-        output.position = float4(0.0, 0.0, 0.0, 0.0);
-        output.uv = float2(0.0, 0.0);
-        output.color = float4(0.0, 0.0, 0.0, 0.0);
+        output.position = float4(0, 0, 0, 0);
+        output.uv = float2(0, 0);
+        output.color = float4(0, 0, 0, 0);
         output.texture_idx = 0;
+        output.material_idx = 0;
         return output;
     }
 
     uint vi = QUAD_INDICES[vertex_id];
     float2 local = QUAD_VERTS[vi];
-
     float2 scaled = local * t.scale;
 
     float cs = cos(t.rotation);
     float sn = sin(t.rotation);
-    float2 rotated = float2(
-        scaled.x * cs - scaled.y * sn,
-        scaled.x * sn + scaled.y * cs
-    );
-
+    float2 rotated = float2(scaled.x * cs - scaled.y * sn, scaled.x * sn + scaled.y * cs);
     float2 world = rotated + t.pos;
 
     output.position = mul(push.projection, float4(world, t.depth, 1.0));
 
-    float2 uv_origin = s.uv.xy;
-    float2 uv_size = s.uv.zw;
-
     float2 uv_local = local + float2(0.5, 0.5);
+    if ((t.flags & RF2D_FLIP_X) != 0) uv_local.x = 1.0 - uv_local.x;
+    if ((t.flags & RF2D_FLIP_Y) != 0) uv_local.y = 1.0 - uv_local.y;
 
-    if ((t.flags & RF2D_FLIP_X) != 0)
-        uv_local.x = 1.0 - uv_local.x;
-
-    if ((t.flags & RF2D_FLIP_Y) != 0)
-        uv_local.y = 1.0 - uv_local.y;
-
-    output.uv = uv_origin + uv_local * uv_size;
+    output.uv = s.uv.xy + uv_local * s.uv.zw;
     output.color = s.color;
     output.texture_idx = s.texture_idx;
+    output.material_idx = s.layer;
 
     return output;
 }
 
 [shader("fragment")]
-float4 fragmentMain(VSOutput input) : SV_Target
+float4 fragmentMain(TextAtlasVSOutput input) : SV_Target
 {
     float4 texColor = textures[NonUniformResourceIndex(input.texture_idx)].Sample(input.uv);
-    float4 result = texColor * input.color;
+    float alpha = texColor.a * input.color.a;
 
-    if (result.a < 0.01)
+    if (alpha < 0.01)
         discard;
 
-    return result;
+    return float4(input.color.rgb, alpha);
 }

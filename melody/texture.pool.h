@@ -23,12 +23,16 @@ typedef struct {
     bool external;
 } Mel_Texture_Entry;
 
+typedef struct Mel_Texture_Table Mel_Texture_Table;
+
 struct Mel_Texture_Pool {
     Mel_SlotMap slotmap;
     Mel_HashMap path_to_handle;
     Mel_Gpu_Device* dev;
     Mel_Gpu_Pipeline* pipeline;
     Mel_Gpu_Texture fallback;
+    Mel_Texture_Table* table;
+    u32 white_table_idx;
     const Mel_Alloc* alloc;
 };
 
@@ -50,5 +54,7 @@ void              mel_texture_pool_tick(Mel_Texture_Pool* pool);
 Mel_Texture_Handle mel_texture_pool_register(Mel_Texture_Pool* pool, Mel_Gpu_Texture* tex);
 
 Mel_Texture_Pool* mel_texture_pool(void);
+Mel_Texture_Table* mel_texture_pool_get_table(void);
+u32 mel_texture_pool_add_to_table(Mel_Gpu_Texture* tex);
 
 extern Mel_Event_Channel mel_texture_pool_ready;

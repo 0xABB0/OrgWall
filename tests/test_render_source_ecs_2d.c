@@ -1,11 +1,11 @@
 #include "../melody/test.harness.h"
 #include "../melody/render.source.ecs.2d.h"
 #include "../melody/render.source.type.h"
-#include "../melody/render.manager.2d.h"
+#include "../melody/render.manager.h"
+#include "../melody/render.types.2d.h"
 #include "../melody/ecs.2d.transform.h"
 #include "../melody/ecs.2d.sprite.h"
 #include "../melody/gpu.device.h"
-#include "../melody/gpu.storage_pool.h"
 #include "../melody/allocator.heap.h"
 
 #include <SDL3/SDL.h>
@@ -72,25 +72,25 @@ MEL_TEST(source_ecs_2d_sync_added, .tags = "render, visual")
     });
 
     mel_render_source_sync(source);
-    Mel_Render_Manager_2D* mgr = mel_render_source_manager(source);
+    Mel_Render_Manager* mgr = mel_render_source_manager(source);
 
-    MEL_ASSERT_EQ(mel_mgr_2d_count(mgr), 2);
+    MEL_ASSERT_EQ(mel_mgr_count(mgr), 2);
 
-    Mel_Render_Handle_2D h1 = mel_source_ecs_2d_handle_for_entity(source, e1);
-    MEL_ASSERT(mel_render_handle_2d_valid(h1));
+    Mel_Render_Handle h1 = mel_source_ecs_2d_handle_for_entity(source, e1);
+    MEL_ASSERT(mel_render_handle_valid(h1));
 
-    Mel_Render_Transform_2D* t1 = mel_storage_pool_get(&mgr->transforms, h1.handle);
+    Mel_Render_Transform_2D* t1 = mel_mgr_get(mgr, MEL_2D_POOL_TRANSFORMS, h1);
     MEL_ASSERT_NOT_NULL(t1);
     MEL_ASSERT_FLOAT_EQ(t1->pos.x, 10.0f, 0.001f);
     MEL_ASSERT_FLOAT_EQ(t1->pos.y, 20.0f, 0.001f);
     MEL_ASSERT_FLOAT_EQ(t1->scale.x, 32.0f, 0.001f);
 
-    Mel_Render_Sprite_Info* info1 = mel_storage_pool_get(&mgr->sprite_infos, h1.handle);
+    Mel_Render_Sprite_Info* info1 = mel_mgr_get(mgr, MEL_2D_POOL_INFOS, h1);
     MEL_ASSERT_NOT_NULL(info1);
     MEL_ASSERT_FLOAT_EQ(info1->color.r, 1.0f, 0.001f);
 
-    Mel_Render_Handle_2D h2 = mel_source_ecs_2d_handle_for_entity(source, e2);
-    MEL_ASSERT(mel_render_handle_2d_valid(h2));
+    Mel_Render_Handle h2 = mel_source_ecs_2d_handle_for_entity(source, e2);
+    MEL_ASSERT(mel_render_handle_valid(h2));
 
     mel_render_source_destroy(source);
     ecs_fini(world);
@@ -117,16 +117,16 @@ MEL_TEST(source_ecs_2d_sync_modified, .tags = "render, visual")
     });
 
     mel_render_source_sync(source);
-    Mel_Render_Manager_2D* mgr = mel_render_source_manager(source);
-    MEL_ASSERT_EQ(mel_mgr_2d_count(mgr), 1);
+    Mel_Render_Manager* mgr = mel_render_source_manager(source);
+    MEL_ASSERT_EQ(mel_mgr_count(mgr), 1);
 
     ecs_set(world, e, Mel_CTransform, { .pos = mel_vec2(100.0f, 200.0f) });
 
     mel_render_source_sync(source);
-    MEL_ASSERT_EQ(mel_mgr_2d_count(mgr), 1);
+    MEL_ASSERT_EQ(mel_mgr_count(mgr), 1);
 
-    Mel_Render_Handle_2D h = mel_source_ecs_2d_handle_for_entity(source, e);
-    Mel_Render_Transform_2D* t = mel_storage_pool_get(&mgr->transforms, h.handle);
+    Mel_Render_Handle h = mel_source_ecs_2d_handle_for_entity(source, e);
+    Mel_Render_Transform_2D* t = mel_mgr_get(mgr, MEL_2D_POOL_TRANSFORMS, h);
     MEL_ASSERT_NOT_NULL(t);
     MEL_ASSERT_FLOAT_EQ(t->pos.x, 100.0f, 0.001f);
     MEL_ASSERT_FLOAT_EQ(t->pos.y, 200.0f, 0.001f);
@@ -164,19 +164,19 @@ MEL_TEST(source_ecs_2d_sync_removed, .tags = "render, visual")
     });
 
     mel_render_source_sync(source);
-    Mel_Render_Manager_2D* mgr = mel_render_source_manager(source);
-    MEL_ASSERT_EQ(mel_mgr_2d_count(mgr), 2);
+    Mel_Render_Manager* mgr = mel_render_source_manager(source);
+    MEL_ASSERT_EQ(mel_mgr_count(mgr), 2);
 
     ecs_delete(world, e1);
 
     mel_render_source_sync(source);
-    MEL_ASSERT_EQ(mel_mgr_2d_count(mgr), 1);
+    MEL_ASSERT_EQ(mel_mgr_count(mgr), 1);
 
-    Mel_Render_Handle_2D h1 = mel_source_ecs_2d_handle_for_entity(source, e1);
-    MEL_ASSERT(!mel_render_handle_2d_valid(h1));
+    Mel_Render_Handle h1 = mel_source_ecs_2d_handle_for_entity(source, e1);
+    MEL_ASSERT(!mel_render_handle_valid(h1));
 
-    Mel_Render_Handle_2D h2 = mel_source_ecs_2d_handle_for_entity(source, e2);
-    MEL_ASSERT(mel_render_handle_2d_valid(h2));
+    Mel_Render_Handle h2 = mel_source_ecs_2d_handle_for_entity(source, e2);
+    MEL_ASSERT(mel_render_handle_valid(h2));
 
     mel_render_source_destroy(source);
     ecs_fini(world);
@@ -194,8 +194,8 @@ MEL_TEST(source_ecs_2d_handle_lookup, .tags = "render, visual")
     Mel_Render_Source* source = mel_source_ecs_2d_create(.world = world, .alloc = mel_alloc_heap());
     mel__render_source_ensure_manager(source, dev, mel_alloc_heap());
 
-    Mel_Render_Handle_2D before = mel_source_ecs_2d_handle_for_entity(source, 9999);
-    MEL_ASSERT(!mel_render_handle_2d_valid(before));
+    Mel_Render_Handle before = mel_source_ecs_2d_handle_for_entity(source, 9999);
+    MEL_ASSERT(!mel_render_handle_valid(before));
 
     ecs_entity_t e = ecs_new(world);
     ecs_set(world, e, Mel_CTransform, { .pos = mel_vec2(5.0f, 5.0f) });
@@ -207,14 +207,14 @@ MEL_TEST(source_ecs_2d_handle_lookup, .tags = "render, visual")
 
     mel_render_source_sync(source);
 
-    Mel_Render_Handle_2D after = mel_source_ecs_2d_handle_for_entity(source, e);
-    MEL_ASSERT(mel_render_handle_2d_valid(after));
+    Mel_Render_Handle after = mel_source_ecs_2d_handle_for_entity(source, e);
+    MEL_ASSERT(mel_render_handle_valid(after));
 
     ecs_delete(world, e);
     mel_render_source_sync(source);
 
-    Mel_Render_Handle_2D gone = mel_source_ecs_2d_handle_for_entity(source, e);
-    MEL_ASSERT(!mel_render_handle_2d_valid(gone));
+    Mel_Render_Handle gone = mel_source_ecs_2d_handle_for_entity(source, e);
+    MEL_ASSERT(!mel_render_handle_valid(gone));
 
     mel_render_source_destroy(source);
     ecs_fini(world);

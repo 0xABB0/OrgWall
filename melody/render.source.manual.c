@@ -1,9 +1,11 @@
 #include "render.source.manual.h"
 #include "render.source.type.h"
 #include "render.manager.h"
+#include "render.types.3d.h"
 #include "collection.array.h"
 #include "allocator.h"
 #include "allocator.heap.h"
+#include "math.mat4.h"
 
 typedef struct {
     Mel_Render_Handle handle;
@@ -25,7 +27,12 @@ static void* manual_create_manager(Mel_Render_Source* self, Mel_Gpu_Device* dev,
 {
     (void)self;
     Mel_Render_Manager* mgr = mel_alloc(alloc, sizeof(Mel_Render_Manager));
-    mel_mgr_init(mgr, .dev = dev, .alloc = alloc);
+    Mel_Mgr_Pool_Desc pools[] = {
+        { .item_size = sizeof(Mel_Render_Transform) },
+        { .item_size = sizeof(Mel_Render_Bounds) },
+        { .item_size = sizeof(Mel_Render_Info) },
+    };
+    mel_mgr_init(mgr, .dev = dev, .alloc = alloc, .pools = pools, .pool_count = MEL_3D_POOL_COUNT);
     return mgr;
 }
 
@@ -52,9 +59,10 @@ static void manual_sync(Mel_Render_Source* self, void* mgr)
     for (usize i = 0; i < data->pending_adds.count; i++)
     {
         Mel_Manual_Pending_Add* add = &data->pending_adds.items[i];
-        mel_mgr_set_transform(m, add->handle, add->transform);
-        mel_mgr_set_bounds(m, add->handle, add->bounds);
-        mel_mgr_set_info(m, add->handle, add->info);
+        Mel_Render_Transform t = { .model = add->transform, .model_inverse = mel_mat4_inverse(add->transform) };
+        mel_mgr_set(m, MEL_3D_POOL_TRANSFORMS, add->handle, &t);
+        mel_mgr_set(m, MEL_3D_POOL_BOUNDS, add->handle, &add->bounds);
+        mel_mgr_set(m, MEL_3D_POOL_INFOS, add->handle, &add->info);
     }
     data->pending_adds.count = 0;
 
@@ -103,7 +111,7 @@ Mel_Render_Handle mel_source_manual_add(Mel_Render_Source* source,
     Mel_Manual_Source_Data* data = mel_render_source_instance(source);
     Mel_Render_Manager* mgr = source->manager;
 
-    Mel_Render_Handle h = mel_mgr_alloc(mgr);
+    Mel_Render_Handle h = mel_mgr_alloc(mgr, info.material_base_id);
 
     mel_array_push(&data->pending_adds, ((Mel_Manual_Pending_Add){
         .handle = h,
@@ -130,7 +138,8 @@ void mel_source_manual_set_transform(Mel_Render_Source* source,
 {
     assert(source != nullptr);
     assert(source->manager != nullptr);
-    mel_mgr_set_transform(source->manager, h, transform);
+    Mel_Render_Transform t = { .model = transform, .model_inverse = mel_mat4_inverse(transform) };
+    mel_mgr_set(source->manager, MEL_3D_POOL_TRANSFORMS, h, &t);
 }
 
 void mel_source_manual_set_bounds(Mel_Render_Source* source,
@@ -138,7 +147,7 @@ void mel_source_manual_set_bounds(Mel_Render_Source* source,
 {
     assert(source != nullptr);
     assert(source->manager != nullptr);
-    mel_mgr_set_bounds(source->manager, h, bounds);
+    mel_mgr_set(source->manager, MEL_3D_POOL_BOUNDS, h, &bounds);
 }
 
 void mel_source_manual_set_info(Mel_Render_Source* source,
@@ -146,5 +155,5 @@ void mel_source_manual_set_info(Mel_Render_Source* source,
 {
     assert(source != nullptr);
     assert(source->manager != nullptr);
-    mel_mgr_set_info(source->manager, h, info);
+    mel_mgr_set(source->manager, MEL_3D_POOL_INFOS, h, &info);
 }

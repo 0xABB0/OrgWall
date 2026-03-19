@@ -1,6 +1,8 @@
 #include "gpu.device.vulkan.h"
+#include "gpu.pipeline_cache.h"
 #include "event.channel.h"
 #include "string.str8.h"
+#include "allocator.h"
 #include "allocator.heap.h"
 #include <string.h>
 #include <stdlib.h>
@@ -626,6 +628,10 @@ bool mel_gpu_device_init_opt(Mel_Gpu_Device* dev, Mel_Gpu_Device_Opt opt)
     if (!create_logical_device(dev, vk))                                        goto fail;
     if (!create_vma(vk))                                                        goto fail;
 
+    const Mel_Alloc* alloc = opt.allocator ? opt.allocator : mel_alloc_heap();
+    dev->pipeline_cache = mel_alloc(alloc, sizeof(Mel_Gpu_Pipeline_Cache));
+    mel_gpu_pipeline_cache_init(dev->pipeline_cache, alloc);
+
     dev->ready = true;
     SDL_Log("Vulkan device initialized (Vulkan 1.3, sync2, dynamic rendering, BDA%s%s)",
         vk->has_descriptor_buffer ? ", descriptor buffer" : "",
@@ -640,6 +646,13 @@ fail:
 void mel_gpu_device_shutdown(Mel_Gpu_Device* dev)
 {
     assert(dev != nullptr);
+
+    if (dev->pipeline_cache)
+    {
+        mel_gpu_pipeline_cache_shutdown(dev->pipeline_cache, dev);
+        mel_dealloc(dev->alloc ? dev->alloc : mel_alloc_heap(), dev->pipeline_cache);
+        dev->pipeline_cache = nullptr;
+    }
 
     Mel_Gpu_Device_Vulkan* vk = (Mel_Gpu_Device_Vulkan*)dev->_backend;
     if (vk)

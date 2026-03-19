@@ -31,8 +31,6 @@ static Mel_Swapchain_Handle s_swapchain;
 static Mel_Render_Target_Handle s_target;
 static Mel_Render_Source* s_source;
 static Mel_Render_View_Handle s_view;
-static Mel_Texture_Table s_tex_table;
-static Mel_Gpu_Texture s_white_tex;
 static ecs_world_t* s_world;
 
 void app_init(void)
@@ -44,11 +42,6 @@ void app_init(void)
         .width = WIN_W, .height = WIN_H, .flags = SDL_WINDOW_RESIZABLE);
     s_swapchain = mel_gpu_swapchain_create_for_window(dev, s_window);
     s_target = mel_render_target_from_swapchain(s_swapchain);
-
-    mel_texture_table_init(&s_tex_table, dev, alloc, .capacity = 64);
-    mel_gpu_texture_init_white(&s_white_tex, dev);
-    mel_texture_table_add(&s_tex_table, s_white_tex.image._view, s_white_tex._sampler);
-    mel_pipeline_2d_set_texture_table(&s_tex_table);
 
     s_world = ecs_init();
     mel_component_transform_register(s_world);
@@ -104,8 +97,6 @@ void app_shutdown(void)
     mel_render_view_destroy(s_view);
     mel_render_source_destroy(s_source);
     mel_render_target_destroy(s_target);
-    mel_texture_table_shutdown(&s_tex_table);
-    mel_gpu_texture_shutdown(&s_white_tex, dev);
     ecs_fini(s_world);
 }
 

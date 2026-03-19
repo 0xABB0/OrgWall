@@ -1,11 +1,13 @@
 #include "texture.pool.h"
 #include "texture.h"
+#include "render.texture_table.h"
 #include "core.engine.h"
 #include "event.channel.h"
 #include "boot.registry.h"
 #include "string.str8.h"
 #include "hash.xxh.h"
 #include "gpu.texture.h"
+#include "gpu.device.h"
 #include "gpu.pipeline.h"
 #include "allocator.h"
 #include "allocator.heap.h"
@@ -13,24 +15,59 @@
 #include <SDL3/SDL.h>
 
 static Mel_Texture_Pool s_texture_pool;
+static Mel_Texture_Table s_texture_table;
 
 Mel_Texture_Pool* mel_texture_pool(void)
 {
     return &s_texture_pool;
 }
 
+Mel_Texture_Table* mel_texture_pool_get_table(void)
+{
+    return &s_texture_table;
+}
+
+u32 mel_texture_pool_add_to_table(Mel_Gpu_Texture* tex)
+{
+    assert(tex != nullptr);
+    assert(s_texture_table.capacity > 0);
+    return mel_texture_table_add(&s_texture_table, tex->image._view, tex->_sampler);
+}
+
 Mel_Event_Channel mel_texture_pool_ready;
+
+static void mel__texture_pool_on_gpu_ready(void* ctx, const void* event)
+{
+    (void)ctx;
+    const Mel_Gpu_Ready_Event* e = event;
+    Mel_Gpu_Device* dev = e->dev;
+    const Mel_Alloc* alloc = mel_alloc_heap();
+
+    mel_texture_pool_init(&s_texture_pool, alloc, dev);
+
+    mel_texture_table_init(&s_texture_table, dev, alloc, .capacity = 1024);
+
+    s_texture_pool.table = &s_texture_table;
+    s_texture_pool.white_table_idx = mel_texture_table_add(&s_texture_table,
+        s_texture_pool.fallback.image._view, s_texture_pool.fallback._sampler);
+
+    mel_event_channel_fire(&mel_texture_pool_ready, NULL);
+    SDL_Log("texture.pool: initialized with bindless table (cap=%u)", 1024);
+}
 
 static void mel__texture_pool_on_shutdown(void* ctx, const void* event)
 {
     (void)ctx;
     (void)event;
+    if (s_texture_table.capacity > 0)
+        mel_texture_table_shutdown(&s_texture_table);
     if (s_texture_pool.dev)
         mel_texture_pool_shutdown(&s_texture_pool);
 }
 
 static void mel__texture_pool_wire(void)
 {
+    mel_event_channel_on(&mel_gpu_device_ready, mel__texture_pool_on_gpu_ready, NULL);
     mel_event_channel_on(&mel_shutdown_begin, mel__texture_pool_on_shutdown, NULL);
 }
 

@@ -79,9 +79,13 @@ allocator, collection, math, anim, async, hash, gpu, render, string, ui, event, 
 
 ### Adding a new test file
 
-1. Create `tests/test_yourmodule.c`
+Tests live in `melody/` alongside the modules they test, using the naming convention `domain.module.test.spec.c`.
+
+1. Create `melody/domain.module.test.yourspec.c`
 2. Write `MEL_TEST(...)` functions with appropriate tags
-3. That's it — nob discovers all `.c` files in `tests/` automatically
+3. That's it — nob discovers all `.test.*.c` files in `melody/` automatically
+
+Legacy tests in `tests/` still work but new tests should use the colocated convention.
 
 ## Types
 
@@ -121,6 +125,9 @@ allocator.arena.fwd.h // forward declaration
 allocator.arena.inl // inline definitions (still declared inside the .h. this file is still included by the .h)
 allocator.arena.c // main (not inlined) implementation
 allocator.arena.xxx.c // if there is a need to split the file into multiple implementations
+allocator.arena.md // module documentation (design notes, API contracts, usage)
+allocator.arena.test.basic.c // tests (filtered by nob, not compiled into libmelody.a)
+allocator.arena.bench.throughput.c // benchmarks (filtered by nob, not compiled into libmelody.a)
 
 the general rule for inclusion is:
 never include the main interface from an interface file. if you are in a .h, include the .fwd.h file.
@@ -151,7 +158,7 @@ Outside of that:
 - `assets/` — game assets (images, data files)
 - `examples/` — standalone examples showcasing individual engine features (example.{domain}.{name}.c)
 - `demos/` — larger demo projects showcasing the full engine working together
-- `tests/` — unit tests (test\_{module}.c)
+- `tests/` — legacy unit tests (test\_{module}.c) — new tests go in `melody/` as `domain.module.test.spec.c`
 - `design/` — design documents and feature discussions
 - `tools/` — standalone utility programs (gen\_test\_texture.c)
 - `asm/` — platform-specific assembly for fibers/coroutines (boost.context ports)

@@ -1,7 +1,8 @@
 #pragma once
 
 #include "render.source.type.h"
-#include "render.manager.h"
+#include "render.manager.fwd.h"
+#include "render.types.3d.h"
 #include "allocator.fwd.h"
 
 extern const Mel_Render_Source_Type mel_source_manual_type;

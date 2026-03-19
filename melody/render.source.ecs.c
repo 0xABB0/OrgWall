@@ -1,6 +1,7 @@
 #include "render.source.ecs.h"
 #include "render.source.type.h"
 #include "render.manager.h"
+#include "render.types.3d.h"
 #include "render.ecs.delta.h"
 #include "collection.hashmap.h"
 #include "allocator.h"
@@ -15,11 +16,26 @@ typedef struct {
     const Mel_Alloc* alloc;
 } Mel_ECS_Source_Data;
 
+static u64 mel__ecs_pack_handle(Mel_Render_Handle h)
+{
+    return ((u64)h.gen << 32) | (u64)h.idx;
+}
+
+static Mel_Render_Handle mel__ecs_unpack_handle(u64 packed)
+{
+    return (Mel_Render_Handle){ .idx = (u32)(packed & 0xFFFFFFFF), .gen = (u32)(packed >> 32) };
+}
+
 static void* ecs_create_manager(Mel_Render_Source* self, Mel_Gpu_Device* dev, const Mel_Alloc* alloc)
 {
     (void)self;
     Mel_Render_Manager* mgr = mel_alloc(alloc, sizeof(Mel_Render_Manager));
-    mel_mgr_init(mgr, .dev = dev, .alloc = alloc);
+    Mel_Mgr_Pool_Desc pools[] = {
+        { .item_size = sizeof(Mel_Render_Transform) },
+        { .item_size = sizeof(Mel_Render_Bounds) },
+        { .item_size = sizeof(Mel_Render_Info) },
+    };
+    mel_mgr_init(mgr, .dev = dev, .alloc = alloc, .pools = pools, .pool_count = MEL_3D_POOL_COUNT);
     return mgr;
 }
 
@@ -45,8 +61,7 @@ static void ecs_sync(Mel_Render_Source* self, void* mgr)
         void* val = mel_hashmap_get(&data->entity_to_handle, (void*)(usize)removed[i]);
         if (val != nullptr)
         {
-            Mel_Render_Handle h;
-            h.handle = mel_slotmap_handle_unpack64((u64)(usize)val);
+            Mel_Render_Handle h = mel__ecs_unpack_handle((u64)(usize)val);
             mel_mgr_free(m, h);
             mel_hashmap_remove(&data->entity_to_handle, (void*)(usize)removed[i]);
         }
@@ -56,8 +71,8 @@ static void ecs_sync(Mel_Render_Source* self, void* mgr)
     const ecs_entity_t* added = mel_ecs_delta_added(&data->delta);
     for (u32 i = 0; i < added_count; i++)
     {
-        Mel_Render_Handle h = mel_mgr_alloc(m);
-        u64 packed = mel_slotmap_handle_pack64(h.handle);
+        Mel_Render_Handle h = mel_mgr_alloc(m, 0);
+        u64 packed = mel__ecs_pack_handle(h);
         mel_hashmap_put(&data->entity_to_handle,
             (void*)(usize)added[i], (void*)(usize)packed);
 
@@ -73,8 +88,7 @@ static void ecs_sync(Mel_Render_Source* self, void* mgr)
         if (val == nullptr)
             continue;
 
-        Mel_Render_Handle h;
-        h.handle = mel_slotmap_handle_unpack64((u64)(usize)val);
+        Mel_Render_Handle h = mel__ecs_unpack_handle((u64)(usize)val);
 
         if (data->on_modify)
             data->on_modify(self, m, data->world, modified[i], h);
@@ -135,9 +149,7 @@ Mel_Render_Handle mel_source_ecs_handle_for_entity(Mel_Render_Source* source, ec
     Mel_ECS_Source_Data* data = mel_render_source_instance(source);
     void* val = mel_hashmap_get(&data->entity_to_handle, (void*)(usize)entity);
     if (val == nullptr)
-        return MEL_RENDER_HANDLE_NULL;
+        return MEL_RENDER_HANDLE_NONE;
 
-    Mel_Render_Handle h;
-    h.handle = mel_slotmap_handle_unpack64((u64)(usize)val);
-    return h;
+    return mel__ecs_unpack_handle((u64)(usize)val);
 }
