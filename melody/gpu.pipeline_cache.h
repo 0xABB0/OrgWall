@@ -19,8 +19,10 @@ typedef u64 Mel_Gpu_Pipeline_State;
 #define MEL_PSO_DEPTH_CMP_MASK    0x7u
 #define MEL_PSO_PIPE_TYPE_SHIFT   14
 #define MEL_PSO_PIPE_TYPE_MASK    0x3u
-#define MEL_PSO_DYN_CULL_SHIFT    16
-#define MEL_PSO_USE_TEX_SHIFT     17
+#define MEL_PSO_DEPTH_CMP_OP_SHIFT 16
+#define MEL_PSO_DEPTH_CMP_OP_MASK 0x7u
+#define MEL_PSO_DYN_CULL_SHIFT    19
+#define MEL_PSO_USE_TEX_SHIFT     20
 
 typedef struct {
     u64 vertex_in_hash;

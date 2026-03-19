@@ -75,6 +75,7 @@ typedef struct {
     u32 pipeline_type;
     bool depth_test;
     bool depth_write;
+    Mel_Gpu_Compare_Op depth_compare;
     u32 push_constant_size;
     Mel_Gpu_Shader_Stage push_constant_stages;
     bool use_texture;

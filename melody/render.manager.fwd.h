@@ -22,3 +22,13 @@ static inline bool mel_render_handle_eq(Mel_Render_Handle a, Mel_Render_Handle b
 {
     return a.idx == b.idx && a.gen == b.gen;
 }
+
+static inline u64 mel_render_handle_pack64(Mel_Render_Handle h)
+{
+    return ((u64)h.gen << 32) | (u64)h.idx;
+}
+
+static inline Mel_Render_Handle mel_render_handle_unpack64(u64 v)
+{
+    return (Mel_Render_Handle){ .idx = (u32)(v & 0xFFFFFFFF), .gen = (u32)(v >> 32) };
+}

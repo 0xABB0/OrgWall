@@ -16,6 +16,7 @@ static Mel_Gpu_Pipeline_State mel__pso_pack(Mel_Gpu_Pipeline_Opt* opt)
     s |= ((u64)(opt->depth_test  ? 1 : 0))                  << MEL_PSO_DEPTH_TEST_SHIFT;
     s |= ((u64)(opt->depth_write ? 1 : 0))                  << MEL_PSO_DEPTH_WRITE_SHIFT;
     s |= ((u64)(opt->pipeline_type & MEL_PSO_PIPE_TYPE_MASK)) << MEL_PSO_PIPE_TYPE_SHIFT;
+    s |= ((u64)(opt->depth_compare & MEL_PSO_DEPTH_CMP_OP_MASK)) << MEL_PSO_DEPTH_CMP_OP_SHIFT;
     s |= ((u64)(opt->dynamic_cull_mode ? 1 : 0))            << MEL_PSO_DYN_CULL_SHIFT;
     s |= ((u64)(opt->use_texture ? 1 : 0))                  << MEL_PSO_USE_TEX_SHIFT;
     return s;

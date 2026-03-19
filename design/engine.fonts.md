@@ -56,7 +56,7 @@ Zero "is it ready yet?" in user code.
 
 Preparatory refactoring of the existing font code to migrate toward the target architecture. These are ordered — each step builds on the previous one. None of these change external behavior (the example and demos should still work after each step).
 
-### Step 1: Add `.format` to `Mel_Gpu_Texture_Opt` — DONE
+### Step 1: Add `.format` to `Mel_Gpu_Texture_Opt` — DONE ✅
 
 File: `melody/gpu.texture.h`, `melody/gpu.texture.c`
 
@@ -64,7 +64,7 @@ Add format field to `Mel_Gpu_Texture_Opt`. Default to SRGB when 0 (zero-init). I
 
 Note: field currently uses `VkFormat` (not `Mel_Gpu_Format`) since the GPU type abstraction pass is still in progress. Will be updated when `gpu.types.h` lands.
 
-### Step 2: Create `font.desc.h` / `font.desc.c` — DONE
+### Step 2: Create `font.desc.h` / `font.desc.c` — PARTIAL
 
 New files: `melody/font.desc.h`, `melody/font.desc.fwd.h`, `melody/font.desc.c`
 
@@ -90,7 +90,11 @@ The descriptor pool is a module-static `Mel_SlotMap` + `Mel_HashMap` inside `fon
 
 This step doesn't touch the existing technique code yet. The descriptor module exists alongside the old code.
 
-### Step 3: Refactor techniques to take descriptors — DONE
+**What's done**: files exist, struct matches design, slotmap pool with dedup by path hash works, `mel_font_desc_load_ttf` loads synchronously and returns handle.
+
+**What's missing**: async loading (`on_finish` counter, job dispatch), constructor-based init (no priority 290 constructor), no pre-loading default fonts at startup.
+
+### Step 3: Refactor techniques to take descriptors — PARTIAL
 
 Files: `melody/font.atlas.c`, `melody/font.sdf.c`, `melody/font.msdf.c` and their headers.
 
@@ -112,7 +116,15 @@ Mel_Font_SDF_Handle h = mel_font_sdf_create(desc, .size = 40.0f, .px_range = 8.0
 
 The old `Mel_Font_Descriptor` struct (which had UVs and technique-specific data) gets replaced by technique-entry-local glyph data. Each technique entry owns its own `Mel_Font_Glyph` array — same as today, but the shared descriptor is gone.
 
-### Step 4: Typed handles — DONE
+**What's done**: techniques take `Mel_Font_Desc_Handle` in their load opts. Old `_pool_load` functions are gone.
+
+**What's missing**:
+- `Mel_Font_Descriptor` NOT dissolved — all three entries still embed `Mel_Font_Descriptor desc` instead of owning glyph fields directly.
+- API is `mel_font_*_load` not `mel_font_*_create` as designed.
+- `Mel_CText` still holds a raw `Mel_Font_Descriptor*` instead of per-technique ECS components (`Mel_Text_Atlas`, `Mel_Text_SDF`, `Mel_Text_MSDF`).
+- `font.descriptor.h` and `font.descriptor.fwd.h` still exist.
+
+### Step 4: Typed handles — DONE ✅
 
 Files: `melody/font.atlas.fwd.h`, `melody/font.sdf.fwd.h`, `melody/font.msdf.fwd.h`
 
@@ -126,11 +138,13 @@ typedef struct { Mel_SlotMap_Handle handle; } Mel_Font_MSDF_Handle;
 
 These are type-safe wrappers around the same slotmap handle. You can't accidentally pass an SDF handle to an atlas function. Update all function signatures and call sites.
 
-### Step 5: Module-static pools — IN PROGRESS
+### Step 5: Module-static pools — PARTIAL
 
 Files: `melody/font.atlas.c`, `melody/font.sdf.c`, `melody/font.msdf.c`
 
-Status: font.atlas.c and font.sdf.c have module-static pools with lazy init via `mel__font_*_ensure_init()`. GPU device binding via `mel__font_*_set_device()`. Remaining: constructor-based init, Material Base registration, `mel_texture_pool_ready` event listener.
+**What's done**: all three have `static s_pool` with lazy init via `mel__font_*_ensure_init()`. GPU device binding via `mel__font_*_set_device()`. Atlas has a wire function and texture pool ready listener.
+
+**What's missing**: constructor-based init (currently lazy via ensure_init), Material Base registration in constructors, SDF/MSDF don't have `mel_texture_pool_ready` event listener wiring (atlas does). Pools still take no user pointer — they're module-static but not fully boot-cascade integrated.
 
 Move pools from caller-owned to module-static:
 

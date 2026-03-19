@@ -9,6 +9,7 @@
 #include "gpu.texture.h"
 #include "gpu.device.h"
 #include "gpu.pipeline.h"
+#include "collection.hashmap.h"
 #include "allocator.h"
 #include "allocator.heap.h"
 
@@ -16,6 +17,7 @@
 
 static Mel_Texture_Pool s_texture_pool;
 static Mel_Texture_Table s_texture_table;
+static Mel_HashMap s_table_dedup;
 
 Mel_Texture_Pool* mel_texture_pool(void)
 {
@@ -31,7 +33,15 @@ u32 mel_texture_pool_add_to_table(Mel_Gpu_Texture* tex)
 {
     assert(tex != nullptr);
     assert(s_texture_table.capacity > 0);
-    return mel_texture_table_add(&s_texture_table, tex->image._view, tex->_sampler);
+
+    void* key = tex->image._view;
+    void* existing = mel_hashmap_get(&s_table_dedup, key);
+    if (existing)
+        return (u32)(usize)existing - 1;
+
+    u32 idx = mel_texture_table_add(&s_texture_table, tex->image._view, tex->_sampler);
+    mel_hashmap_put(&s_table_dedup, key, (void*)(usize)(idx + 1));
+    return idx;
 }
 
 Mel_Event_Channel mel_texture_pool_ready;
@@ -46,6 +56,7 @@ static void mel__texture_pool_on_gpu_ready(void* ctx, const void* event)
     mel_texture_pool_init(&s_texture_pool, alloc, dev);
 
     mel_texture_table_init(&s_texture_table, dev, alloc, .capacity = 1024);
+    mel_hashmap_init(&s_table_dedup, mel_hashmap_hash_ptr, mel_hashmap_eq_u64, alloc);
 
     s_texture_pool.table = &s_texture_table;
     s_texture_pool.white_table_idx = mel_texture_table_add(&s_texture_table,
@@ -59,6 +70,7 @@ static void mel__texture_pool_on_shutdown(void* ctx, const void* event)
 {
     (void)ctx;
     (void)event;
+    mel_hashmap_free(&s_table_dedup);
     if (s_texture_table.capacity > 0)
         mel_texture_table_shutdown(&s_texture_table);
     if (s_texture_pool.dev)

@@ -211,12 +211,8 @@ void mel_mgr_free(Mel_Render_Manager* mgr, Mel_Render_Handle h)
                    pool->data + (usize)last * pool->item_size,
                    pool->item_size);
 
-            bool last_dirty = mel_bitset_get(&pool->dirty, last);
             mel_bitset_clear_bit(&pool->dirty, last);
-            if (last_dirty)
-                mel_bitset_set(&pool->dirty, packed);
-            else
-                mel_bitset_set(&pool->dirty, packed);
+            mel_bitset_set(&pool->dirty, packed);
         }
 
         mgr->packed_to_sparse[packed] = last_sparse;

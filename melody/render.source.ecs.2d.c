@@ -28,15 +28,6 @@ typedef struct {
     bool has_text_delta;
 } Mel_ECS_2D_Source_Data;
 
-static u64 mel__ecs_2d_pack_handle(Mel_Render_Handle h)
-{
-    return ((u64)h.gen << 32) | (u64)h.idx;
-}
-
-static Mel_Render_Handle mel__ecs_2d_unpack_handle(u64 packed)
-{
-    return (Mel_Render_Handle){ .idx = (u32)(packed & 0xFFFFFFFF), .gen = (u32)(packed >> 32) };
-}
 
 static void sync_sprite(Mel_Render_Manager* mgr, ecs_world_t* world,
                          ecs_entity_t entity, Mel_Render_Handle h)
@@ -182,7 +173,7 @@ static void ecs_2d_sync(Mel_Render_Source* self, void* mgr)
         void* val = mel_hashmap_get(&data->entity_to_handle, (void*)(usize)sprite_removed[i]);
         if (val != nullptr)
         {
-            Mel_Render_Handle h = mel__ecs_2d_unpack_handle((u64)(usize)val);
+            Mel_Render_Handle h = mel_render_handle_unpack64((u64)(usize)val);
             mel_mgr_free(m, h);
             mel_hashmap_remove(&data->entity_to_handle, (void*)(usize)sprite_removed[i]);
         }
@@ -193,7 +184,7 @@ static void ecs_2d_sync(Mel_Render_Source* self, void* mgr)
     for (u32 i = 0; i < sprite_added_count; i++)
     {
         Mel_Render_Handle h = mel_mgr_alloc(m, mel_sprite_material_id());
-        u64 packed = mel__ecs_2d_pack_handle(h);
+        u64 packed = mel_render_handle_pack64(h);
         mel_hashmap_put(&data->entity_to_handle,
             (void*)(usize)sprite_added[i], (void*)(usize)packed);
         sync_sprite(m, data->world, sprite_added[i], h);
@@ -205,7 +196,7 @@ static void ecs_2d_sync(Mel_Render_Source* self, void* mgr)
     {
         void* val = mel_hashmap_get(&data->entity_to_handle, (void*)(usize)sprite_modified[i]);
         if (val == nullptr) continue;
-        Mel_Render_Handle h = mel__ecs_2d_unpack_handle((u64)(usize)val);
+        Mel_Render_Handle h = mel_render_handle_unpack64((u64)(usize)val);
         sync_sprite(m, data->world, sprite_modified[i], h);
     }
 
@@ -328,5 +319,5 @@ Mel_Render_Handle mel_source_ecs_2d_handle_for_entity(Mel_Render_Source* source,
     if (val == nullptr)
         return MEL_RENDER_HANDLE_NONE;
 
-    return mel__ecs_2d_unpack_handle((u64)(usize)val);
+    return mel_render_handle_unpack64((u64)(usize)val);
 }

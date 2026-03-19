@@ -362,11 +362,24 @@ void mel_gpu_pipeline_init_opt(Mel_Gpu_Pipeline* pipeline, Mel_Gpu_Device* dev, 
         .pAttachments = blend_attachments,
     };
 
+    static const VkCompareOp s_compare_map[] = {
+        [MEL_GPU_COMPARE_LESS]             = VK_COMPARE_OP_LESS,
+        [MEL_GPU_COMPARE_NEVER]            = VK_COMPARE_OP_NEVER,
+        [MEL_GPU_COMPARE_EQUAL]            = VK_COMPARE_OP_EQUAL,
+        [MEL_GPU_COMPARE_LESS_OR_EQUAL]    = VK_COMPARE_OP_LESS_OR_EQUAL,
+        [MEL_GPU_COMPARE_GREATER]          = VK_COMPARE_OP_GREATER,
+        [MEL_GPU_COMPARE_NOT_EQUAL]        = VK_COMPARE_OP_NOT_EQUAL,
+        [MEL_GPU_COMPARE_GREATER_OR_EQUAL] = VK_COMPARE_OP_GREATER_OR_EQUAL,
+        [MEL_GPU_COMPARE_ALWAYS]           = VK_COMPARE_OP_ALWAYS,
+    };
+    assert(opt.depth_compare < 8);
+    VkCompareOp vk_compare = s_compare_map[opt.depth_compare];
+
     VkPipelineDepthStencilStateCreateInfo depth_stencil = {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
         .depthTestEnable = opt.depth_test ? VK_TRUE : VK_FALSE,
         .depthWriteEnable = opt.depth_write ? VK_TRUE : VK_FALSE,
-        .depthCompareOp = VK_COMPARE_OP_LESS,
+        .depthCompareOp = vk_compare,
     };
 
     VkDynamicState dynamic_states[4] = {

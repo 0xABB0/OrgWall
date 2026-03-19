@@ -160,6 +160,17 @@ typedef u32 Mel_Gpu_Aspect;
 #define MEL_GPU_ASPECT_DEPTH                       (1u << 1)
 #define MEL_GPU_ASPECT_STENCIL                     (1u << 2)
 
+typedef u32 Mel_Gpu_Compare_Op;
+
+#define MEL_GPU_COMPARE_LESS             0
+#define MEL_GPU_COMPARE_NEVER            1
+#define MEL_GPU_COMPARE_EQUAL            2
+#define MEL_GPU_COMPARE_LESS_OR_EQUAL    3
+#define MEL_GPU_COMPARE_GREATER          4
+#define MEL_GPU_COMPARE_NOT_EQUAL        5
+#define MEL_GPU_COMPARE_GREATER_OR_EQUAL 6
+#define MEL_GPU_COMPARE_ALWAYS           7
+
 typedef u32 Mel_Gpu_Load_Op;
 
 #define MEL_GPU_LOAD_OP_LOAD                       0

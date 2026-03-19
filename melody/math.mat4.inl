@@ -115,7 +115,7 @@ static inline Mel_Mat4 mel_mat4_ortho(f32 left, f32 right, f32 bottom, f32 top, 
     return (Mel_Mat4){ .rows = {
         (f32x4){2.0f * rl,       0,                0,           -(right + left) * rl},
         (f32x4){0,               2.0f * tb,        0,           -(top + bottom) * tb},
-        (f32x4){0,               0,               -fn,          -near * fn},
+        (f32x4){0,               0,                fn,          -near * fn},
         (f32x4){0,               0,                0,            1}
     }};
 }
