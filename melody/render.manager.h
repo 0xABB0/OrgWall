@@ -2,54 +2,19 @@
 
 #include "render.manager.fwd.h"
 #include "collection.bitset.h"
-#include "render.types.3d.h"
-#include "math.geo.rect.h"
-#include "math.mat4.h"
-#include "math.vec2.h"
-#include "math.vec4.h"
 #include "allocator.fwd.h"
 
-#define MEL_MGR_FREE_END UINT32_MAX
+typedef struct Mel_Render_Source Mel_Render_Source;
 
-#define MEL_RENDER_OBJECT_NONE      0
-#define MEL_RENDER_OBJECT_SPRITE_2D 1
-#define MEL_RENDER_OBJECT_MESH_3D   2
+#define MEL_MGR_FREE_END 0xFFFFFFFFu
 
-typedef struct {
-    Mel_Vec2 pos;
-    Mel_Vec2 scale;
-    f32 rotation;
-    f32 depth;
-    u32 flags;
-    u32 _pad[3];
-} Mel_Render_Object_Sprite2D;
-
-typedef struct {
-    Mel_Mat4 model;
-    Mel_Mat4 model_inverse;
-} Mel_Render_Object_Mesh3D;
-
-typedef struct Mel_Render_Object {
-    u32 kind;
+typedef struct Mel_Render_Instance {
+    Mel_Render_Source* source;
     u32 material_base_id;
     u32 material_idx;
     u32 flags;
-    u32 layer_mask;
-    u32 texture_idx;
-    u32 _pad0[2];
-
-    Mel_Geometry_Handle mesh;
-    u32 _pad1[2];
-
-    Mel_Rect uv;
-    Mel_Vec4 color;
-    Mel_Render_Bounds bounds;
-
-    union {
-        Mel_Render_Object_Sprite2D sprite2d;
-        Mel_Render_Object_Mesh3D mesh3d;
-    };
-} Mel_Render_Object;
+    u32 visibility_mask;
+} Mel_Render_Instance;
 
 struct Mel_Render_Manager {
     u32* sparse;
@@ -60,7 +25,7 @@ struct Mel_Render_Manager {
     u32 packed_count;
     u32 free_head;
 
-    Mel_Render_Object* objects;
+    Mel_Render_Instance* instances;
     Mel_BitSet dirty;
     u64 mutation_serial;
 
@@ -81,10 +46,10 @@ Mel_Render_Handle mel_mgr_alloc(Mel_Render_Manager* mgr);
 void              mel_mgr_free(Mel_Render_Manager* mgr, Mel_Render_Handle h);
 bool              mel_mgr_alive(Mel_Render_Manager* mgr, Mel_Render_Handle h);
 
-void                mel_mgr_set_object(Mel_Render_Manager* mgr, Mel_Render_Handle h, const Mel_Render_Object* object);
-Mel_Render_Object*  mel_mgr_get_object(Mel_Render_Manager* mgr, Mel_Render_Handle h);
-void                mel_mgr_mark_dirty(Mel_Render_Manager* mgr, Mel_Render_Handle h);
+void                  mel_mgr_set_instance(Mel_Render_Manager* mgr, Mel_Render_Handle h, const Mel_Render_Instance* instance);
+Mel_Render_Instance*  mel_mgr_get_instance(Mel_Render_Manager* mgr, Mel_Render_Handle h);
+void                  mel_mgr_mark_dirty(Mel_Render_Manager* mgr, Mel_Render_Handle h);
 
-u32                       mel_mgr_count(Mel_Render_Manager* mgr);
-const Mel_Render_Object*  mel_mgr_objects(Mel_Render_Manager* mgr);
-u64                       mel_mgr_mutation_serial(Mel_Render_Manager* mgr);
+u32                          mel_mgr_count(Mel_Render_Manager* mgr);
+const Mel_Render_Instance*   mel_mgr_instances(Mel_Render_Manager* mgr);
+u64                          mel_mgr_mutation_serial(Mel_Render_Manager* mgr);

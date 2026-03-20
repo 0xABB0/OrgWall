@@ -1,7 +1,6 @@
 #include "render.source.ecs.h"
 #include "render.source.type.h"
 #include "render.manager.h"
-#include "render.types.3d.h"
 #include "render.ecs.delta.h"
 #include "collection.hashmap.h"
 #include "allocator.h"
@@ -73,6 +72,7 @@ static void ecs_shutdown(Mel_Render_Source* self)
 const Mel_Render_Source_Type mel_source_ecs_type = {
     .name = { .data = (u8*)"ecs", .len = 3 },
     .sync = ecs_sync,
+    .scene_forward_emit = nullptr,
     .shutdown = ecs_shutdown,
     .instance_size = sizeof(Mel_ECS_Source_Data),
 };

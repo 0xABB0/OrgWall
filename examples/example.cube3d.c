@@ -11,7 +11,7 @@
 #include "render.target.h"
 #include "render.scene.h"
 #include "render.source.manual.h"
-#include "render.pipeline.forward3d.h"
+#include "render.pipeline.scene_forward.h"
 #include "render.material_base.h"
 #include "render.types.3d.h"
 #include "allocator.heap.h"
@@ -118,7 +118,7 @@ void app_init(void)
     };
     s_cube_mesh = mel_geometry_pool_upload(&s_geo_pool, &upload);
 
-    mel_pipeline_forward3d_set_geometry_pool(&s_geo_pool);
+    mel_pipeline_scene_forward_set_geometry_pool(&s_geo_pool);
 
     Mel_Material_Base_Id unlit_id = mel_material_base_find(S8("unlit"));
     if (unlit_id == MEL_MATERIAL_BASE_ID_INVALID)
@@ -155,7 +155,7 @@ void app_init(void)
         .scene = s_scene,
         .camera = camera,
         .target = s_target,
-        .pipeline = S8("forward_3d"),
+        .pipeline = S8("scene_forward"),
         .dev = dev,
         .alloc = alloc);
 

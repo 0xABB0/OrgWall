@@ -7,10 +7,16 @@
 
 typedef struct Mel_Render_Source Mel_Render_Source;
 typedef struct Mel_Render_Source_Type Mel_Render_Source_Type;
+typedef struct Mel_Scene_Forward_Emitter Mel_Scene_Forward_Emitter;
+typedef struct Mel_Render_Instance Mel_Render_Instance;
 
 struct Mel_Render_Source_Type {
     str8  name;
     void  (*sync)(Mel_Render_Source* self, Mel_Render_Manager* mgr);
+    void  (*scene_forward_emit)(Mel_Render_Source* self,
+                                Mel_Render_Handle h,
+                                const Mel_Render_Instance* instance,
+                                Mel_Scene_Forward_Emitter* emitter);
     void  (*shutdown)(Mel_Render_Source* self);
     usize instance_size;
 };

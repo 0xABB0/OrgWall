@@ -90,13 +90,17 @@ MEL_TEST(source_ecs_2d_sync_added, .tags = "render, visual")
     Mel_Render_Handle h1 = mel_source_ecs_2d_handle_for_entity(source, e1);
     MEL_ASSERT(mel_render_handle_valid(h1));
 
-    Mel_Render_Object* o1 = mel_mgr_get_object(mgr, h1);
-    MEL_ASSERT_NOT_NULL(o1);
-    MEL_ASSERT_EQ(o1->kind, MEL_RENDER_OBJECT_SPRITE_2D);
-    MEL_ASSERT_FLOAT_EQ(o1->sprite2d.pos.x, 10.0f, 0.001f);
-    MEL_ASSERT_FLOAT_EQ(o1->sprite2d.pos.y, 20.0f, 0.001f);
-    MEL_ASSERT_FLOAT_EQ(o1->sprite2d.scale.x, 32.0f, 0.001f);
-    MEL_ASSERT_FLOAT_EQ(o1->color.r, 1.0f, 0.001f);
+    Mel_Render_Instance* i1 = mel_mgr_get_instance(mgr, h1);
+    MEL_ASSERT_NOT_NULL(i1);
+    MEL_ASSERT_EQ(i1->source, source);
+
+    Mel_Render_Transform_2D t1 = {0};
+    Mel_Render_Sprite_Info s1 = {0};
+    MEL_ASSERT(mel_source_ecs_2d_get_sprite_payload(source, h1, &t1, &s1));
+    MEL_ASSERT_FLOAT_EQ(t1.pos.x, 10.0f, 0.001f);
+    MEL_ASSERT_FLOAT_EQ(t1.pos.y, 20.0f, 0.001f);
+    MEL_ASSERT_FLOAT_EQ(t1.scale.x, 32.0f, 0.001f);
+    MEL_ASSERT_FLOAT_EQ(s1.color.r, 1.0f, 0.001f);
 
     Mel_Render_Handle h2 = mel_source_ecs_2d_handle_for_entity(source, e2);
     MEL_ASSERT(mel_render_handle_valid(h2));
@@ -137,10 +141,10 @@ MEL_TEST(source_ecs_2d_sync_modified, .tags = "render, visual")
     MEL_ASSERT_EQ(mel_mgr_count(mgr), 1);
 
     Mel_Render_Handle h = mel_source_ecs_2d_handle_for_entity(source, e);
-    Mel_Render_Object* object = mel_mgr_get_object(mgr, h);
-    MEL_ASSERT_NOT_NULL(object);
-    MEL_ASSERT_FLOAT_EQ(object->sprite2d.pos.x, 100.0f, 0.001f);
-    MEL_ASSERT_FLOAT_EQ(object->sprite2d.pos.y, 200.0f, 0.001f);
+    Mel_Render_Transform_2D t = {0};
+    MEL_ASSERT(mel_source_ecs_2d_get_sprite_payload(source, h, &t, nullptr));
+    MEL_ASSERT_FLOAT_EQ(t.pos.x, 100.0f, 0.001f);
+    MEL_ASSERT_FLOAT_EQ(t.pos.y, 200.0f, 0.001f);
 
     mel_render_source_destroy(source);
     mel_render_scene_destroy(scene);

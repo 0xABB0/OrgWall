@@ -10,7 +10,7 @@
 #include "render.scene.h"
 #include "render.texture_table.h"
 #include "render.source.ecs.2d.h"
-#include "render.pipeline.2d.h"
+#include "render.pipeline.scene_forward.h"
 #include "render.types.2d.h"
 #include "ecs.2d.transform.h"
 #include "ecs.2d.sprite.h"
@@ -88,7 +88,7 @@ void app_init(void)
         .scene = s_scene,
         .camera = camera,
         .target = s_target,
-        .pipeline = S8("default_2d"),
+        .pipeline = S8("scene_forward"),
         .dev = dev,
         .alloc = alloc,
         .design_width = DESIGN_W,

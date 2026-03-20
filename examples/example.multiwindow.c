@@ -11,8 +11,7 @@
 #include "render.texture_table.h"
 #include "render.source.ecs.2d.h"
 #include "render.source.manual.h"
-#include "render.pipeline.2d.h"
-#include "render.pipeline.forward3d.h"
+#include "render.pipeline.scene_forward.h"
 #include "render.types.3d.h"
 #include "render.material_base.h"
 #include "gpu.geometry_pool.h"
@@ -130,7 +129,7 @@ void app_init(void)
 
     s_view_2d = mel_render_view_create(
         .scene = s_scene_2d, .camera = cam_2d, .target = s_target_2d,
-        .pipeline = S8("default_2d"), .dev = dev, .alloc = alloc);
+        .pipeline = S8("scene_forward"), .dev = dev, .alloc = alloc);
 
     mel_geometry_pool_init(&s_geo_pool, .dev = dev, .alloc = alloc,
         .vertex_stride = sizeof(Cube_Vert),
@@ -149,7 +148,7 @@ void app_init(void)
         &(Mel_Geometry_Upload){ .vertices = verts, .vertex_count = 24,
             .indices = indices, .index_count = 36, .index_type = MEL_GPU_INDEX_TYPE_U32 });
 
-    mel_pipeline_forward3d_set_geometry_pool(&s_geo_pool);
+    mel_pipeline_scene_forward_set_geometry_pool(&s_geo_pool);
 
     Mel_Material_Base_Id unlit = mel_material_base_find(S8("unlit"));
     if (unlit == MEL_MATERIAL_BASE_ID_INVALID)
@@ -176,7 +175,7 @@ void app_init(void)
 
     s_view_3d = mel_render_view_create(
         .scene = s_scene_3d, .camera = cam_3d, .target = s_target_3d,
-        .pipeline = S8("forward_3d"), .dev = dev, .alloc = alloc);
+        .pipeline = S8("scene_forward"), .dev = dev, .alloc = alloc);
 
     s_cube_handle = mel_source_manual_add(s_source_3d, MEL_MAT4_IDENTITY,
         (Mel_Render_Bounds){ .center = mel_vec3(0,0,0), .extents = mel_vec3(1,1,1) },

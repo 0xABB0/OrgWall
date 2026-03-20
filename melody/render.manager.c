@@ -56,19 +56,19 @@ static void mel__mgr_grow_packed(Mel_Render_Manager* mgr, u32 needed)
     while (new_cap < needed)
         new_cap *= 2;
 
-    Mel_Render_Object* new_objects = mel_alloc(mgr->alloc, (usize)new_cap * sizeof(Mel_Render_Object));
+    Mel_Render_Instance* new_instances = mel_alloc(mgr->alloc, (usize)new_cap * sizeof(Mel_Render_Instance));
     u32* new_pts = mel_alloc(mgr->alloc, new_cap * sizeof(u32));
 
     if (mgr->packed_count > 0)
     {
-        memcpy(new_objects, mgr->objects, (usize)mgr->packed_count * sizeof(Mel_Render_Object));
+        memcpy(new_instances, mgr->instances, (usize)mgr->packed_count * sizeof(Mel_Render_Instance));
         memcpy(new_pts, mgr->packed_to_sparse, mgr->packed_count * sizeof(u32));
     }
 
-    if (mgr->objects) mel_dealloc(mgr->alloc, mgr->objects);
+    if (mgr->instances) mel_dealloc(mgr->alloc, mgr->instances);
     if (mgr->packed_to_sparse) mel_dealloc(mgr->alloc, mgr->packed_to_sparse);
 
-    mgr->objects = new_objects;
+    mgr->instances = new_instances;
     mgr->packed_to_sparse = new_pts;
     mel_bitset_resize(&mgr->dirty, new_cap);
     mgr->packed_capacity = new_cap;
@@ -95,7 +95,7 @@ void mel_mgr_shutdown(Mel_Render_Manager* mgr)
 {
     assert(mgr != nullptr);
 
-    if (mgr->objects) mel_dealloc(mgr->alloc, mgr->objects);
+    if (mgr->instances) mel_dealloc(mgr->alloc, mgr->instances);
     if (mgr->sparse) mel_dealloc(mgr->alloc, mgr->sparse);
     if (mgr->generations) mel_dealloc(mgr->alloc, mgr->generations);
     if (mgr->packed_to_sparse) mel_dealloc(mgr->alloc, mgr->packed_to_sparse);
@@ -122,7 +122,7 @@ Mel_Render_Handle mel_mgr_alloc(Mel_Render_Manager* mgr)
 
     mgr->sparse[idx] = packed;
     mgr->packed_to_sparse[packed] = idx;
-    mgr->objects[packed] = (Mel_Render_Object){0};
+    mgr->instances[packed] = (Mel_Render_Instance){0};
     mel_bitset_set(&mgr->dirty, packed);
     mgr->mutation_serial++;
 
@@ -148,7 +148,7 @@ void mel_mgr_free(Mel_Render_Manager* mgr, Mel_Render_Handle h)
     if (packed != last)
     {
         u32 last_sparse = mgr->packed_to_sparse[last];
-        mgr->objects[packed] = mgr->objects[last];
+        mgr->instances[packed] = mgr->instances[last];
         mgr->packed_to_sparse[packed] = last_sparse;
         mgr->sparse[last_sparse] = packed;
         mel_bitset_set(&mgr->dirty, packed);
@@ -162,25 +162,25 @@ void mel_mgr_free(Mel_Render_Manager* mgr, Mel_Render_Handle h)
     mgr->mutation_serial++;
 }
 
-void mel_mgr_set_object(Mel_Render_Manager* mgr, Mel_Render_Handle h, const Mel_Render_Object* object)
+void mel_mgr_set_instance(Mel_Render_Manager* mgr, Mel_Render_Handle h, const Mel_Render_Instance* instance)
 {
     assert(mgr != nullptr);
     assert(mel_mgr_alive(mgr, h));
-    assert(object != nullptr);
+    assert(instance != nullptr);
 
     u32 packed = mgr->sparse[h.idx];
-    mgr->objects[packed] = *object;
+    mgr->instances[packed] = *instance;
     mel_bitset_set(&mgr->dirty, packed);
     mgr->mutation_serial++;
 }
 
-Mel_Render_Object* mel_mgr_get_object(Mel_Render_Manager* mgr, Mel_Render_Handle h)
+Mel_Render_Instance* mel_mgr_get_instance(Mel_Render_Manager* mgr, Mel_Render_Handle h)
 {
     assert(mgr != nullptr);
     assert(mel_mgr_alive(mgr, h));
 
     u32 packed = mgr->sparse[h.idx];
-    return &mgr->objects[packed];
+    return &mgr->instances[packed];
 }
 
 void mel_mgr_mark_dirty(Mel_Render_Manager* mgr, Mel_Render_Handle h)
@@ -199,10 +199,10 @@ u32 mel_mgr_count(Mel_Render_Manager* mgr)
     return mgr->packed_count;
 }
 
-const Mel_Render_Object* mel_mgr_objects(Mel_Render_Manager* mgr)
+const Mel_Render_Instance* mel_mgr_instances(Mel_Render_Manager* mgr)
 {
     assert(mgr != nullptr);
-    return mgr->objects;
+    return mgr->instances;
 }
 
 u64 mel_mgr_mutation_serial(Mel_Render_Manager* mgr)
