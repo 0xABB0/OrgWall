@@ -16,32 +16,9 @@ typedef struct {
     const Mel_Alloc* alloc;
 } Mel_ECS_Source_Data;
 
-
-static void* ecs_create_manager(Mel_Render_Source* self, Mel_Gpu_Device* dev, const Mel_Alloc* alloc)
-{
-    (void)self;
-    Mel_Render_Manager* mgr = mel_alloc(alloc, sizeof(Mel_Render_Manager));
-    Mel_Mgr_Pool_Desc pools[] = {
-        { .item_size = sizeof(Mel_Render_Transform) },
-        { .item_size = sizeof(Mel_Render_Bounds) },
-        { .item_size = sizeof(Mel_Render_Info) },
-    };
-    mel_mgr_init(mgr, .dev = dev, .alloc = alloc, .pools = pools, .pool_count = MEL_3D_POOL_COUNT);
-    return mgr;
-}
-
-static void ecs_destroy_manager(Mel_Render_Source* self, void* mgr)
-{
-    (void)self;
-    Mel_Render_Manager* m = mgr;
-    mel_mgr_shutdown(m);
-    mel_dealloc(mel_alloc_heap(), m);
-}
-
-static void ecs_sync(Mel_Render_Source* self, void* mgr)
+static void ecs_sync(Mel_Render_Source* self, Mel_Render_Manager* mgr)
 {
     Mel_ECS_Source_Data* data = mel_render_source_instance(self);
-    Mel_Render_Manager* m = mgr;
 
     mel_ecs_delta_begin_frame(&data->delta);
 
@@ -53,7 +30,7 @@ static void ecs_sync(Mel_Render_Source* self, void* mgr)
         if (val != nullptr)
         {
             Mel_Render_Handle h = mel_render_handle_unpack64((u64)(usize)val);
-            mel_mgr_free(m, h);
+            mel_mgr_free(mgr, h);
             mel_hashmap_remove(&data->entity_to_handle, (void*)(usize)removed[i]);
         }
     }
@@ -62,13 +39,13 @@ static void ecs_sync(Mel_Render_Source* self, void* mgr)
     const ecs_entity_t* added = mel_ecs_delta_added(&data->delta);
     for (u32 i = 0; i < added_count; i++)
     {
-        Mel_Render_Handle h = mel_mgr_alloc(m, 0);
+        Mel_Render_Handle h = mel_mgr_alloc(mgr);
         u64 packed = mel_render_handle_pack64(h);
         mel_hashmap_put(&data->entity_to_handle,
             (void*)(usize)added[i], (void*)(usize)packed);
 
         if (data->on_add)
-            data->on_add(self, m, data->world, added[i], h);
+            data->on_add(self, mgr, data->world, added[i], h);
     }
 
     u32 modified_count = mel_ecs_delta_modified_count(&data->delta);
@@ -82,7 +59,7 @@ static void ecs_sync(Mel_Render_Source* self, void* mgr)
         Mel_Render_Handle h = mel_render_handle_unpack64((u64)(usize)val);
 
         if (data->on_modify)
-            data->on_modify(self, m, data->world, modified[i], h);
+            data->on_modify(self, mgr, data->world, modified[i], h);
     }
 }
 
@@ -95,8 +72,6 @@ static void ecs_shutdown(Mel_Render_Source* self)
 
 const Mel_Render_Source_Type mel_source_ecs_type = {
     .name = { .data = (u8*)"ecs", .len = 3 },
-    .create_manager = ecs_create_manager,
-    .destroy_manager = ecs_destroy_manager,
     .sync = ecs_sync,
     .shutdown = ecs_shutdown,
     .instance_size = sizeof(Mel_ECS_Source_Data),

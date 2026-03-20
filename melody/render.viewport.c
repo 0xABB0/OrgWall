@@ -1,6 +1,6 @@
 #include "render.viewport.h"
 #include "render.view.registry.h"
-#include "render.source.type.h"
+#include "render.scene.h"
 #include "render.pipeline.h"
 #include "render.target.h"
 #include "collection.slotmap.fwd.h"
@@ -16,7 +16,7 @@ Mel_Render_View_Handle mel_render_view_create_opt(Mel_Render_View_Desc desc)
     const Mel_Alloc* alloc = desc.alloc ? desc.alloc : mel_alloc_heap();
 
     Mel_Render_View view = {0};
-    view.source = desc.source;
+    view.scene = desc.scene;
     view.camera = desc.camera.view_count > 0 ? desc.camera : MEL_RENDER_CAMERA_DEFAULT;
     view.target = desc.target;
     view.dev = desc.dev;
@@ -40,9 +40,6 @@ Mel_Render_View_Handle mel_render_view_create_opt(Mel_Render_View_Desc desc)
             .alloc = alloc);
     }
 
-    if (desc.source)
-        mel__render_source_ensure_manager(desc.source, desc.dev, alloc);
-
     Mel_SlotMap_Handle raw = mel__view_registry_insert(&view);
 
     Mel_Render_View* stored = mel__view_registry_get(raw);
@@ -52,7 +49,12 @@ Mel_Render_View_Handle mel_render_view_create_opt(Mel_Render_View_Desc desc)
         pipeline_type = mel_pipeline_find(desc.pipeline);
 
     if (pipeline_type != nullptr)
-        stored->pipeline = mel_pipeline_create(pipeline_type, stored, alloc);
+    {
+        Mel_Render_Pipeline_Scene* pipeline_scene = nullptr;
+        if (desc.scene != nullptr)
+            pipeline_scene = mel_render_scene_pipeline_scene(desc.scene, pipeline_type);
+        stored->pipeline = mel_pipeline_create(pipeline_type, stored, pipeline_scene, alloc);
+    }
 
     return (Mel_Render_View_Handle){ .handle = raw };
 }
@@ -118,10 +120,10 @@ void mel_render_view_sync(Mel_Render_View* view)
 {
     assert(view != nullptr);
 
-    if (!view->active || view->source == nullptr)
+    if (!view->active || view->scene == nullptr)
         return;
 
-    mel_render_source_sync(view->source);
+    mel_render_scene_sync(view->scene);
 }
 
 void mel_render_view_draw(Mel_Render_View* view, Mel_Render_Draw_Ctx* ctx)
@@ -132,7 +134,10 @@ void mel_render_view_draw(Mel_Render_View* view, Mel_Render_Draw_Ctx* ctx)
     if (!view->active || view->pipeline == nullptr)
         return;
 
-    void* mgr = view->source ? mel_render_source_manager(view->source) : nullptr;
+    Mel_Render_Manager* mgr = view->scene ? mel_render_scene_manager(view->scene) : nullptr;
+
+    if (view->scene != nullptr)
+        view->pipeline->scene = mel_render_scene_pipeline_scene(view->scene, view->pipeline->type);
 
     Mel_Render_Draw_Ctx effective_ctx = *ctx;
 
@@ -145,7 +150,7 @@ void mel_render_view_draw(Mel_Render_View* view, Mel_Render_Draw_Ctx* ctx)
         effective_ctx.target_format = mel_render_target_format(design);
     }
 
-    mel_pipeline_init_frame(view->pipeline, view);
+    mel_pipeline_begin_frame(view->pipeline, view);
     mel_pipeline_draw(view->pipeline, mgr, &effective_ctx);
 }
 

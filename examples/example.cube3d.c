@@ -9,9 +9,11 @@
 #include "gpu.geometry_pool.h"
 #include "render.viewport.h"
 #include "render.target.h"
+#include "render.scene.h"
 #include "render.source.manual.h"
 #include "render.pipeline.forward3d.h"
 #include "render.material_base.h"
+#include "render.types.3d.h"
 #include "allocator.heap.h"
 #include "math.mat4.h"
 #include "math.vec3.h"
@@ -35,6 +37,7 @@ typedef struct {
 static Mel_Window_Handle s_window;
 static Mel_Swapchain_Handle s_swapchain;
 static Mel_Render_Target_Handle s_target;
+static Mel_Render_Scene* s_scene;
 static Mel_Render_Source* s_source;
 static Mel_Render_View_Handle s_view;
 static Mel_Geometry_Pool s_geo_pool;
@@ -131,6 +134,10 @@ void app_init(void)
     Mel_Material_Instance_Id mat_inst = mel_material_base_alloc_instance(unlit_id, &white);
 
     s_source = mel_source_manual_create(alloc);
+    s_scene = mel_render_scene_create(
+        .dev = dev,
+        .alloc = alloc);
+    mel_render_scene_attach_source(s_scene, s_source);
 
     Mel_Swapchain_Entry* sc_entry = mel_swapchain_registry_get(s_swapchain);
     Mel_Render_Camera camera = {
@@ -145,7 +152,7 @@ void app_init(void)
     };
 
     s_view = mel_render_view_create(
-        .source = s_source,
+        .scene = s_scene,
         .camera = camera,
         .target = s_target,
         .pipeline = S8("forward_3d"),
@@ -176,6 +183,7 @@ void app_shutdown(void)
     mel_sim_shutdown(&s_sim);
     mel_render_view_destroy(s_view);
     mel_render_source_destroy(s_source);
+    mel_render_scene_destroy(s_scene);
     mel_render_target_destroy(s_target);
     mel_geometry_pool_shutdown(&s_geo_pool);
 }

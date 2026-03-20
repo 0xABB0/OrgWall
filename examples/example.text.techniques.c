@@ -6,8 +6,10 @@
 #include "gpu.swapchain.h"
 #include "render.viewport.h"
 #include "render.target.h"
+#include "render.scene.h"
 #include "render.source.ecs.2d.h"
 #include "render.pipeline.2d.h"
+#include "render.types.2d.h"
 #include "ecs.2d.transform.h"
 #include "ecs.2d.sprite.h"
 #include "ecs.2d.text.h"
@@ -32,6 +34,7 @@
 static Mel_Window_Handle s_window;
 static Mel_Swapchain_Handle s_swapchain;
 static Mel_Render_Target_Handle s_target;
+static Mel_Render_Scene* s_scene;
 static Mel_Render_Source* s_source;
 static Mel_Render_View_Handle s_view;
 static ecs_world_t* s_world;
@@ -53,6 +56,10 @@ void app_init(void)
     mel_component_text_register(s_world);
 
     s_source = mel_source_ecs_2d_create(.world = s_world, .alloc = alloc);
+    s_scene = mel_render_scene_create(
+        .dev = dev,
+        .alloc = alloc);
+    mel_render_scene_attach_source(s_scene, s_source);
 
     Mel_Render_Camera camera = {
         .view = MEL_MAT4_IDENTITY,
@@ -64,7 +71,7 @@ void app_init(void)
     };
 
     s_view = mel_render_view_create(
-        .source   = s_source,
+        .scene    = s_scene,
         .camera   = camera,
         .target   = s_target,
         .pipeline = S8("default_2d"),
@@ -155,6 +162,7 @@ void app_shutdown(void)
 
     mel_render_view_destroy(s_view);
     mel_render_source_destroy(s_source);
+    mel_render_scene_destroy(s_scene);
     mel_render_target_destroy(s_target);
     ecs_fini(s_world);
 }

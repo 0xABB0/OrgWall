@@ -174,7 +174,7 @@ void mel_unregister_sim(Mel_Sim_Ctx* sim)
 typedef struct {
     Mel_Render_View** views;
     u32 view_count;
-    Mel_Render_Source** synced_sources;
+    Mel_Render_Scene** synced_scenes;
     u32* synced_count;
     u32 synced_cap;
     Mel_Gpu_Device* dev;
@@ -188,22 +188,22 @@ static void frame_render_batch_cb(Mel_Gpu_Cmd* cmd, void* user)
     {
         Mel_Render_View* view = batch->views[i];
 
-        Mel_Render_Source* src = view->source;
+        Mel_Render_Scene* scene = view->scene;
         bool already_synced = false;
         for (u32 j = 0; j < *batch->synced_count; j++)
         {
-            if (batch->synced_sources[j] == src)
+            if (batch->synced_scenes[j] == scene)
             {
                 already_synced = true;
                 break;
             }
         }
 
-        if (!already_synced)
+        if (!already_synced && scene != nullptr)
         {
             mel_render_view_sync(view);
             assert(*batch->synced_count < batch->synced_cap);
-            batch->synced_sources[(*batch->synced_count)++] = src;
+            batch->synced_scenes[(*batch->synced_count)++] = scene;
         }
 
         Mel_Render_Target* target = mel_render_target_get(view->target);
@@ -245,7 +245,7 @@ static void mel__engine_render_frame(void)
     if (!dev->ready)
         return;
 
-    Mel_Render_Source* synced_sources[total_views];
+    Mel_Render_Scene* synced_scenes[total_views];
     u32 synced_count = 0;
 
     Mel_Swapchain* visited_swapchains[total_views];
@@ -349,7 +349,7 @@ static void mel__engine_render_frame(void)
         Frame_Render_Batch batch = {
             .views          = sc_views,
             .view_count     = sc_view_count,
-            .synced_sources = synced_sources,
+            .synced_scenes  = synced_scenes,
             .synced_count   = &synced_count,
             .synced_cap     = total_views,
             .dev            = dev,
@@ -485,4 +485,3 @@ Mel_Frame_Stats mel_frame_stats(void)
 {
     return s_frame_stats;
 }
-

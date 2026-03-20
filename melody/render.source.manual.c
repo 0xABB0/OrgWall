@@ -1,5 +1,6 @@
 #include "render.source.manual.h"
 #include "render.source.type.h"
+#include "render.scene.h"
 #include "render.manager.h"
 #include "render.types.3d.h"
 #include "collection.array.h"
@@ -23,46 +24,42 @@ typedef struct {
     bool has_pending;
 } Mel_Manual_Source_Data;
 
-static void* manual_create_manager(Mel_Render_Source* self, Mel_Gpu_Device* dev, const Mel_Alloc* alloc)
+static Mel_Manual_Pending_Add* manual_find_pending_add(Mel_Manual_Source_Data* data, Mel_Render_Handle h)
 {
-    (void)self;
-    Mel_Render_Manager* mgr = mel_alloc(alloc, sizeof(Mel_Render_Manager));
-    Mel_Mgr_Pool_Desc pools[] = {
-        { .item_size = sizeof(Mel_Render_Transform) },
-        { .item_size = sizeof(Mel_Render_Bounds) },
-        { .item_size = sizeof(Mel_Render_Info) },
-    };
-    mel_mgr_init(mgr, .dev = dev, .alloc = alloc, .pools = pools, .pool_count = MEL_3D_POOL_COUNT);
-    return mgr;
+    for (usize i = 0; i < data->pending_adds.count; i++)
+    {
+        if (mel_render_handle_eq(data->pending_adds.items[i].handle, h))
+            return &data->pending_adds.items[i];
+    }
+
+    return nullptr;
 }
 
-static void manual_destroy_manager(Mel_Render_Source* self, void* mgr)
-{
-    (void)self;
-    Mel_Render_Manager* m = mgr;
-    mel_mgr_shutdown(m);
-    mel_dealloc(mel_alloc_heap(), m);
-}
-
-static void manual_sync(Mel_Render_Source* self, void* mgr)
+static void manual_sync(Mel_Render_Source* self, Mel_Render_Manager* mgr)
 {
     Mel_Manual_Source_Data* data = mel_render_source_instance(self);
-    Mel_Render_Manager* m = mgr;
 
     if (!data->has_pending)
         return;
 
     for (usize i = 0; i < data->pending_removes.count; i++)
-        mel_mgr_free(m, data->pending_removes.items[i]);
+        mel_mgr_free(mgr, data->pending_removes.items[i]);
     data->pending_removes.count = 0;
 
     for (usize i = 0; i < data->pending_adds.count; i++)
     {
         Mel_Manual_Pending_Add* add = &data->pending_adds.items[i];
-        Mel_Render_Transform t = { .model = add->transform, .model_inverse = mel_mat4_inverse(add->transform) };
-        mel_mgr_set(m, MEL_3D_POOL_TRANSFORMS, add->handle, &t);
-        mel_mgr_set(m, MEL_3D_POOL_BOUNDS, add->handle, &add->bounds);
-        mel_mgr_set(m, MEL_3D_POOL_INFOS, add->handle, &add->info);
+        Mel_Render_Object object = {0};
+        object.kind = MEL_RENDER_OBJECT_MESH_3D;
+        object.material_base_id = add->info.material_base_id;
+        object.material_idx = add->info.material_idx;
+        object.flags = add->info.flags;
+        object.layer_mask = add->info.layer_mask;
+        object.mesh = add->info.mesh;
+        object.bounds = add->bounds;
+        object.mesh3d.model = add->transform;
+        object.mesh3d.model_inverse = mel_mat4_inverse(add->transform);
+        mel_mgr_set_object(mgr, add->handle, &object);
     }
     data->pending_adds.count = 0;
 
@@ -78,8 +75,6 @@ static void manual_shutdown(Mel_Render_Source* self)
 
 const Mel_Render_Source_Type mel_source_manual_type = {
     .name = { .data = (u8*)"manual", .len = 6 },
-    .create_manager = manual_create_manager,
-    .destroy_manager = manual_destroy_manager,
     .sync = manual_sync,
     .shutdown = manual_shutdown,
     .instance_size = sizeof(Mel_Manual_Source_Data),
@@ -106,12 +101,12 @@ Mel_Render_Handle mel_source_manual_add(Mel_Render_Source* source,
                                          Mel_Render_Info info)
 {
     assert(source != nullptr);
-    assert(source->manager != nullptr);
+    assert(source->scene != nullptr);
 
     Mel_Manual_Source_Data* data = mel_render_source_instance(source);
-    Mel_Render_Manager* mgr = source->manager;
+    Mel_Render_Manager* mgr = mel_render_scene_manager(source->scene);
 
-    Mel_Render_Handle h = mel_mgr_alloc(mgr, info.material_base_id);
+    Mel_Render_Handle h = mel_mgr_alloc(mgr);
 
     mel_array_push(&data->pending_adds, ((Mel_Manual_Pending_Add){
         .handle = h,
@@ -129,6 +124,18 @@ void mel_source_manual_remove(Mel_Render_Source* source, Mel_Render_Handle h)
     assert(source != nullptr);
 
     Mel_Manual_Source_Data* data = mel_render_source_instance(source);
+    Mel_Manual_Pending_Add* pending = manual_find_pending_add(data, h);
+    if (pending != nullptr)
+    {
+        usize idx = (usize)(pending - data->pending_adds.items);
+        data->pending_adds.items[idx] = data->pending_adds.items[data->pending_adds.count - 1];
+        data->pending_adds.count--;
+
+        if (source->scene != nullptr)
+            mel_mgr_free(mel_render_scene_manager(source->scene), h);
+        return;
+    }
+
     mel_array_push(&data->pending_removes, h);
     data->has_pending = true;
 }
@@ -137,23 +144,66 @@ void mel_source_manual_set_transform(Mel_Render_Source* source,
                                       Mel_Render_Handle h, Mel_Mat4 transform)
 {
     assert(source != nullptr);
-    assert(source->manager != nullptr);
-    Mel_Render_Transform t = { .model = transform, .model_inverse = mel_mat4_inverse(transform) };
-    mel_mgr_set(source->manager, MEL_3D_POOL_TRANSFORMS, h, &t);
+    assert(source->scene != nullptr);
+
+    Mel_Manual_Source_Data* data = mel_render_source_instance(source);
+    Mel_Manual_Pending_Add* pending = manual_find_pending_add(data, h);
+    if (pending != nullptr)
+    {
+        pending->transform = transform;
+        return;
+    }
+
+    Mel_Render_Object* object = mel_mgr_get_object(mel_render_scene_manager(source->scene), h);
+    assert(object != nullptr);
+    assert(object->kind == MEL_RENDER_OBJECT_MESH_3D);
+    object->mesh3d.model = transform;
+    object->mesh3d.model_inverse = mel_mat4_inverse(transform);
+    mel_mgr_mark_dirty(mel_render_scene_manager(source->scene), h);
 }
 
 void mel_source_manual_set_bounds(Mel_Render_Source* source,
                                    Mel_Render_Handle h, Mel_Render_Bounds bounds)
 {
     assert(source != nullptr);
-    assert(source->manager != nullptr);
-    mel_mgr_set(source->manager, MEL_3D_POOL_BOUNDS, h, &bounds);
+    assert(source->scene != nullptr);
+
+    Mel_Manual_Source_Data* data = mel_render_source_instance(source);
+    Mel_Manual_Pending_Add* pending = manual_find_pending_add(data, h);
+    if (pending != nullptr)
+    {
+        pending->bounds = bounds;
+        return;
+    }
+
+    Mel_Render_Object* object = mel_mgr_get_object(mel_render_scene_manager(source->scene), h);
+    assert(object != nullptr);
+    assert(object->kind == MEL_RENDER_OBJECT_MESH_3D);
+    object->bounds = bounds;
+    mel_mgr_mark_dirty(mel_render_scene_manager(source->scene), h);
 }
 
 void mel_source_manual_set_info(Mel_Render_Source* source,
                                  Mel_Render_Handle h, Mel_Render_Info info)
 {
     assert(source != nullptr);
-    assert(source->manager != nullptr);
-    mel_mgr_set(source->manager, MEL_3D_POOL_INFOS, h, &info);
+    assert(source->scene != nullptr);
+
+    Mel_Manual_Source_Data* data = mel_render_source_instance(source);
+    Mel_Manual_Pending_Add* pending = manual_find_pending_add(data, h);
+    if (pending != nullptr)
+    {
+        pending->info = info;
+        return;
+    }
+
+    Mel_Render_Object* object = mel_mgr_get_object(mel_render_scene_manager(source->scene), h);
+    assert(object != nullptr);
+    assert(object->kind == MEL_RENDER_OBJECT_MESH_3D);
+    object->material_base_id = info.material_base_id;
+    object->material_idx = info.material_idx;
+    object->flags = info.flags;
+    object->layer_mask = info.layer_mask;
+    object->mesh = info.mesh;
+    mel_mgr_mark_dirty(mel_render_scene_manager(source->scene), h);
 }

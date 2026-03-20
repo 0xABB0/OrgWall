@@ -54,8 +54,65 @@ u32 mel_pipeline_registered_count(void)
     return (u32)s_types.count;
 }
 
+Mel_Render_Pipeline_Scene* mel_pipeline_scene_create(const Mel_Render_Pipeline_Type* type,
+                                                     Mel_Render_Manager* mgr,
+                                                     Mel_Gpu_Device* dev,
+                                                     const Mel_Alloc* alloc)
+{
+    assert(type != nullptr);
+    assert(mgr != nullptr);
+    assert(dev != nullptr);
+    if (!alloc) alloc = mel_alloc_heap();
+
+    usize total = sizeof(Mel_Render_Pipeline_Scene) + type->scene_size;
+    Mel_Render_Pipeline_Scene* scene = mel_alloc(alloc, total);
+    memset(scene, 0, total);
+
+    scene->type = type;
+    scene->manager = mgr;
+    scene->dev = dev;
+    scene->alloc = alloc;
+
+    if (type->scene_size > 0)
+        scene->instance = (u8*)scene + sizeof(Mel_Render_Pipeline_Scene);
+    else
+        scene->instance = nullptr;
+
+    if (type->scene_init)
+        type->scene_init(scene, mgr, dev);
+
+    return scene;
+}
+
+void mel_pipeline_scene_destroy(Mel_Render_Pipeline_Scene* scene)
+{
+    assert(scene != nullptr);
+
+    if (scene->type->scene_shutdown)
+        scene->type->scene_shutdown(scene);
+
+    mel_dealloc(scene->alloc, scene);
+}
+
+void mel_pipeline_scene_sync(Mel_Render_Pipeline_Scene* scene, Mel_Render_Manager* mgr)
+{
+    assert(scene != nullptr);
+    assert(mgr != nullptr);
+
+    scene->manager = mgr;
+    if (scene->type->scene_sync)
+        scene->type->scene_sync(scene, mgr);
+}
+
+void* mel_pipeline_scene_instance(Mel_Render_Pipeline_Scene* scene)
+{
+    assert(scene != nullptr);
+    return scene->instance;
+}
+
 Mel_Render_Pipeline* mel_pipeline_create(const Mel_Render_Pipeline_Type* type,
                                           Mel_Render_View* view,
+                                          Mel_Render_Pipeline_Scene* scene,
                                           const Mel_Alloc* alloc)
 {
     assert(type != nullptr);
@@ -67,14 +124,16 @@ Mel_Render_Pipeline* mel_pipeline_create(const Mel_Render_Pipeline_Type* type,
 
     pipeline->type = type;
     pipeline->view = view;
+    pipeline->scene = scene;
+    pipeline->alloc = alloc;
 
     if (type->instance_size > 0)
         pipeline->instance = (u8*)pipeline + sizeof(Mel_Render_Pipeline);
     else
         pipeline->instance = nullptr;
 
-    if (type->init)
-        type->init(pipeline, view);
+    if (type->view_init)
+        type->view_init(pipeline, view, scene);
 
     return pipeline;
 }
@@ -83,28 +142,30 @@ void mel_pipeline_destroy(Mel_Render_Pipeline* pipeline)
 {
     assert(pipeline != nullptr);
 
-    if (pipeline->type->shutdown)
-        pipeline->type->shutdown(pipeline);
+    if (pipeline->type->view_shutdown)
+        pipeline->type->view_shutdown(pipeline);
 
-    mel_dealloc(mel_alloc_heap(), pipeline);
+    mel_dealloc(pipeline->alloc, pipeline);
 }
 
-void mel_pipeline_init_frame(Mel_Render_Pipeline* pipeline, Mel_Render_View* view)
+void mel_pipeline_begin_frame(Mel_Render_Pipeline* pipeline, Mel_Render_View* view)
 {
     assert(pipeline != nullptr);
 
     pipeline->view = view;
-    if (pipeline->type->init)
-        pipeline->type->init(pipeline, view);
+    if (pipeline->type->begin_frame)
+        pipeline->type->begin_frame(pipeline, view, pipeline->scene);
 }
 
-void mel_pipeline_draw(Mel_Render_Pipeline* pipeline, void* mgr, Mel_Render_Draw_Ctx* ctx)
+void mel_pipeline_draw(Mel_Render_Pipeline* pipeline, Mel_Render_Manager* mgr, Mel_Render_Draw_Ctx* ctx)
 {
     assert(pipeline != nullptr);
     assert(pipeline->type->draw != nullptr);
     assert(ctx != nullptr);
 
-    pipeline->type->draw(pipeline, mgr, ctx);
+    if (pipeline->scene != nullptr)
+        pipeline->scene->manager = mgr;
+    pipeline->type->draw(pipeline, pipeline->scene, mgr, ctx);
 }
 
 void* mel_pipeline_instance(Mel_Render_Pipeline* pipeline)

@@ -7,6 +7,7 @@
 #include "gpu.texture.h"
 #include "render.viewport.h"
 #include "render.target.h"
+#include "render.scene.h"
 #include "render.texture_table.h"
 #include "render.source.ecs.2d.h"
 #include "render.source.manual.h"
@@ -36,6 +37,8 @@ static Mel_Swapchain_Handle s_sc_3d;
 static Mel_Render_Target_Handle s_target_2d;
 static Mel_Render_Target_Handle s_target_3d;
 
+static Mel_Render_Scene* s_scene_2d;
+static Mel_Render_Scene* s_scene_3d;
 static Mel_Render_Source* s_source_2d;
 static Mel_Render_Source* s_source_3d;
 static Mel_Render_View_Handle s_view_2d;
@@ -111,6 +114,10 @@ void app_init(void)
     ecs_set(s_world, e1, Mel_Sprite, { .size = mel_vec2(60, 60), .color = {{ 0.3f, 1, 0.3f, 1 }}, .uv = mel_rect(0,0,1,1) });
 
     s_source_2d = mel_source_ecs_2d_create(.world = s_world, .alloc = alloc);
+    s_scene_2d = mel_render_scene_create(
+        .dev = dev,
+        .alloc = alloc);
+    mel_render_scene_attach_source(s_scene_2d, s_source_2d);
 
     Mel_Render_Camera cam_2d = {
         .view = MEL_MAT4_IDENTITY,
@@ -122,7 +129,7 @@ void app_init(void)
     };
 
     s_view_2d = mel_render_view_create(
-        .source = s_source_2d, .camera = cam_2d, .target = s_target_2d,
+        .scene = s_scene_2d, .camera = cam_2d, .target = s_target_2d,
         .pipeline = S8("default_2d"), .dev = dev, .alloc = alloc);
 
     mel_geometry_pool_init(&s_geo_pool, .dev = dev, .alloc = alloc,
@@ -153,6 +160,10 @@ void app_init(void)
     Mel_Material_Instance_Id mat = mel_material_base_alloc_instance(unlit, &white);
 
     s_source_3d = mel_source_manual_create(alloc);
+    s_scene_3d = mel_render_scene_create(
+        .dev = dev,
+        .alloc = alloc);
+    mel_render_scene_attach_source(s_scene_3d, s_source_3d);
 
     Mel_Render_Camera cam_3d = {
         .view = mel_mat4_look_at(mel_vec3(0,0,5), mel_vec3(0,0,0), mel_vec3(0,1,0)),
@@ -164,7 +175,7 @@ void app_init(void)
     };
 
     s_view_3d = mel_render_view_create(
-        .source = s_source_3d, .camera = cam_3d, .target = s_target_3d,
+        .scene = s_scene_3d, .camera = cam_3d, .target = s_target_3d,
         .pipeline = S8("forward_3d"), .dev = dev, .alloc = alloc);
 
     s_cube_handle = mel_source_manual_add(s_source_3d, MEL_MAT4_IDENTITY,
@@ -187,6 +198,8 @@ void app_shutdown(void)
     mel_render_view_destroy(s_view_2d);
     mel_render_source_destroy(s_source_3d);
     mel_render_source_destroy(s_source_2d);
+    mel_render_scene_destroy(s_scene_3d);
+    mel_render_scene_destroy(s_scene_2d);
     mel_render_target_destroy(s_target_3d);
     mel_render_target_destroy(s_target_2d);
     mel_geometry_pool_shutdown(&s_geo_pool);

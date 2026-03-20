@@ -1,7 +1,7 @@
 #pragma once
 
-#include "render.source.type.h"
 #include "render.pipeline.h"
+#include "render.scene.fwd.h"
 #include "render.target.fwd.h"
 #include "render.target.h"
 #include "render.viewport.fwd.h"
@@ -36,7 +36,7 @@ typedef struct {
 #define MEL_SCALE_STRETCH 3
 
 struct Mel_Render_View {
-    Mel_Render_Source* source;
+    Mel_Render_Scene* scene;
     Mel_Render_Camera camera;
     Mel_Render_Target_Handle target;
     Mel_Render_Pipeline* pipeline;
@@ -51,7 +51,7 @@ struct Mel_Render_View {
 };
 
 typedef struct {
-    Mel_Render_Source* source;
+    Mel_Render_Scene* scene;
     Mel_Render_Camera camera;
     Mel_Render_Target_Handle target;
     str8 pipeline;

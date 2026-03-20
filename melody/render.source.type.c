@@ -1,4 +1,5 @@
 #include "render.source.type.h"
+#include "render.scene.h"
 #include "allocator.h"
 #include "allocator.heap.h"
 
@@ -15,7 +16,8 @@ Mel_Render_Source* mel_render_source_create_opt(Mel_Render_Source_Create_Opt opt
     memset(source, 0, total);
 
     source->type = opt.type;
-    source->manager = nullptr;
+    source->scene = nullptr;
+    source->alloc = alloc;
 
     if (opt.type->instance_size > 0)
         source->instance = (u8*)source + sizeof(Mel_Render_Source);
@@ -29,39 +31,22 @@ void mel_render_source_destroy(Mel_Render_Source* source)
 {
     assert(source != nullptr);
 
+    if (source->scene != nullptr)
+        mel_render_scene_detach_source(source->scene, source);
+
     if (source->type->shutdown)
         source->type->shutdown(source);
 
-    if (source->manager != nullptr && source->type->destroy_manager)
-        source->type->destroy_manager(source, source->manager);
-
-    mel_dealloc(mel_alloc_heap(), source);
+    mel_dealloc(source->alloc, source);
 }
 
-void mel__render_source_ensure_manager(Mel_Render_Source* source, Mel_Gpu_Device* dev, const Mel_Alloc* alloc)
+void mel_render_source_sync(Mel_Render_Source* source, Mel_Render_Manager* mgr)
 {
     assert(source != nullptr);
-
-    if (source->manager != nullptr)
-        return;
-
-    assert(source->type->create_manager != nullptr);
-    source->manager = source->type->create_manager(source, dev, alloc ? alloc : mel_alloc_heap());
-}
-
-void mel_render_source_sync(Mel_Render_Source* source)
-{
-    assert(source != nullptr);
-    assert(source->manager != nullptr);
+    assert(mgr != nullptr);
     assert(source->type->sync != nullptr);
 
-    source->type->sync(source, source->manager);
-}
-
-void* mel_render_source_manager(Mel_Render_Source* source)
-{
-    assert(source != nullptr);
-    return source->manager;
+    source->type->sync(source, mgr);
 }
 
 void* mel_render_source_instance(Mel_Render_Source* source)

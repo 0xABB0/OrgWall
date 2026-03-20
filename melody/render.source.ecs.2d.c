@@ -27,8 +27,6 @@ typedef struct {
     const Mel_Alloc* alloc;
     bool has_text_delta;
 } Mel_ECS_2D_Source_Data;
-
-
 static void sync_sprite(Mel_Render_Manager* mgr, ecs_world_t* world,
                          ecs_entity_t entity, Mel_Render_Handle h)
 {
@@ -43,16 +41,21 @@ static void sync_sprite(Mel_Render_Manager* mgr, ecs_world_t* world,
         .flags = 0,
     };
 
-    Mel_Render_Sprite_Info info = {
-        .uv = s ? s->uv : mel_rect(0, 0, 1, 1),
-        .color = s ? s->color : MEL_VEC4_ONE,
-        .texture_idx = 0,
-        .material_base_id = mel_sprite_material_id(),
-        .layer = 0,
-    };
+    Mel_Render_Object object = {0};
+    object.kind = MEL_RENDER_OBJECT_SPRITE_2D;
+    object.material_base_id = mel_sprite_material_id();
+    object.material_idx = 0;
+    object.layer_mask = 0xFFFFFFFFu;
+    object.texture_idx = 0;
+    object.uv = s ? s->uv : mel_rect(0, 0, 1, 1);
+    object.color = s ? s->color : MEL_VEC4_ONE;
+    object.sprite2d.pos = transform.pos;
+    object.sprite2d.scale = transform.scale;
+    object.sprite2d.rotation = transform.rotation;
+    object.sprite2d.depth = transform.depth;
+    object.sprite2d.flags = transform.flags;
 
-    mel_mgr_set(mgr, MEL_2D_POOL_TRANSFORMS, h, &transform);
-    mel_mgr_set(mgr, MEL_2D_POOL_INFOS, h, &info);
+    mel_mgr_set_object(mgr, h, &object);
 }
 
 static void expand_text(Mel_Render_Manager* mgr, Mel_Vec2 base_pos,
@@ -106,24 +109,23 @@ static void expand_text(Mel_Render_Manager* mgr, Mel_Vec2 base_pos,
         f32 gw = (g->x1 - g->x0) * scale;
         f32 gh = (g->y1 - g->y0) * scale;
 
-        Mel_Render_Handle h = mel_mgr_alloc(mgr, ct->material_id);
+        Mel_Render_Handle h = mel_mgr_alloc(mgr);
 
-        Mel_Render_Transform_2D transform = {
-            .pos = mel_vec2(gx + gw * 0.5f, gy + gh * 0.5f),
-            .scale = mel_vec2(gw, gh),
-            .depth = 0.0f,
-        };
+        Mel_Render_Object object = {0};
+        object.kind = MEL_RENDER_OBJECT_SPRITE_2D;
+        object.material_base_id = ct->material_id;
+        object.material_idx = ct->material_instance;
+        object.layer_mask = 0xFFFFFFFFu;
+        object.texture_idx = ct->texture_idx;
+        object.uv = mel_rect(g->u0, g->v0, g->u1 - g->u0, g->v1 - g->v0);
+        object.color = ct->color;
+        object.sprite2d.pos = mel_vec2(gx + gw * 0.5f, gy + gh * 0.5f);
+        object.sprite2d.scale = mel_vec2(gw, gh);
+        object.sprite2d.rotation = 0.0f;
+        object.sprite2d.depth = 0.0f;
+        object.sprite2d.flags = 0;
 
-        Mel_Render_Sprite_Info info = {
-            .uv = mel_rect(g->u0, g->v0, g->u1 - g->u0, g->v1 - g->v0),
-            .color = ct->color,
-            .texture_idx = ct->texture_idx,
-            .material_base_id = ct->material_id,
-            .layer = ct->material_instance,
-        };
-
-        mel_mgr_set(mgr, MEL_2D_POOL_TRANSFORMS, h, &transform);
-        mel_mgr_set(mgr, MEL_2D_POOL_INFOS, h, &info);
+        mel_mgr_set_object(mgr, h, &object);
 
         block->handles[gi++] = h;
         cursor_x += g->xadvance * scale;
@@ -141,30 +143,9 @@ static void free_text_block(Mel_Render_Manager* mgr, Mel_Text_Glyph_Block* block
     block->count = 0;
 }
 
-static void* ecs_2d_create_manager(Mel_Render_Source* self, Mel_Gpu_Device* dev, const Mel_Alloc* alloc)
-{
-    (void)self;
-    Mel_Render_Manager* mgr = mel_alloc(alloc, sizeof(Mel_Render_Manager));
-    Mel_Mgr_Pool_Desc pools[] = {
-        { .item_size = sizeof(Mel_Render_Transform_2D) },
-        { .item_size = sizeof(Mel_Render_Sprite_Info) },
-    };
-    mel_mgr_init(mgr, .dev = dev, .alloc = alloc, .pools = pools, .pool_count = MEL_2D_POOL_COUNT);
-    return mgr;
-}
-
-static void ecs_2d_destroy_manager(Mel_Render_Source* self, void* mgr)
-{
-    (void)self;
-    Mel_Render_Manager* m = mgr;
-    mel_mgr_shutdown(m);
-    mel_dealloc(mel_alloc_heap(), m);
-}
-
-static void ecs_2d_sync(Mel_Render_Source* self, void* mgr)
+static void ecs_2d_sync(Mel_Render_Source* self, Mel_Render_Manager* mgr)
 {
     Mel_ECS_2D_Source_Data* data = mel_render_source_instance(self);
-    Mel_Render_Manager* m = mgr;
 
     u32 sprite_removed_count = mel_ecs_delta_removed_count(&data->sprite_delta);
     const ecs_entity_t* sprite_removed = mel_ecs_delta_removed(&data->sprite_delta);
@@ -174,7 +155,7 @@ static void ecs_2d_sync(Mel_Render_Source* self, void* mgr)
         if (val != nullptr)
         {
             Mel_Render_Handle h = mel_render_handle_unpack64((u64)(usize)val);
-            mel_mgr_free(m, h);
+            mel_mgr_free(mgr, h);
             mel_hashmap_remove(&data->entity_to_handle, (void*)(usize)sprite_removed[i]);
         }
     }
@@ -183,11 +164,11 @@ static void ecs_2d_sync(Mel_Render_Source* self, void* mgr)
     const ecs_entity_t* sprite_added = mel_ecs_delta_added(&data->sprite_delta);
     for (u32 i = 0; i < sprite_added_count; i++)
     {
-        Mel_Render_Handle h = mel_mgr_alloc(m, mel_sprite_material_id());
+        Mel_Render_Handle h = mel_mgr_alloc(mgr);
         u64 packed = mel_render_handle_pack64(h);
         mel_hashmap_put(&data->entity_to_handle,
             (void*)(usize)sprite_added[i], (void*)(usize)packed);
-        sync_sprite(m, data->world, sprite_added[i], h);
+        sync_sprite(mgr, data->world, sprite_added[i], h);
     }
 
     u32 sprite_modified_count = mel_ecs_delta_modified_count(&data->sprite_delta);
@@ -197,7 +178,7 @@ static void ecs_2d_sync(Mel_Render_Source* self, void* mgr)
         void* val = mel_hashmap_get(&data->entity_to_handle, (void*)(usize)sprite_modified[i]);
         if (val == nullptr) continue;
         Mel_Render_Handle h = mel_render_handle_unpack64((u64)(usize)val);
-        sync_sprite(m, data->world, sprite_modified[i], h);
+        sync_sprite(mgr, data->world, sprite_modified[i], h);
     }
 
     mel_ecs_delta_begin_frame(&data->sprite_delta);
@@ -213,7 +194,7 @@ static void ecs_2d_sync(Mel_Render_Source* self, void* mgr)
         if (val != nullptr)
         {
             Mel_Text_Glyph_Block* block = (Mel_Text_Glyph_Block*)val;
-            free_text_block(m, block, data->alloc);
+            free_text_block(mgr, block, data->alloc);
             mel_dealloc(data->alloc, block);
             mel_hashmap_remove(&data->text_entity_to_block, (void*)(usize)text_removed[i]);
         }
@@ -228,7 +209,7 @@ static void ecs_2d_sync(Mel_Render_Source* self, void* mgr)
         if (!t || !ct || !ct->desc) continue;
 
         Mel_Text_Glyph_Block* block = mel_alloc(data->alloc, sizeof(Mel_Text_Glyph_Block));
-        expand_text(m, t->pos, ct, block, data->alloc);
+        expand_text(mgr, t->pos, ct, block, data->alloc);
         mel_hashmap_put(&data->text_entity_to_block,
             (void*)(usize)text_added[i], block);
     }
@@ -241,13 +222,13 @@ static void ecs_2d_sync(Mel_Render_Source* self, void* mgr)
         if (val == nullptr) continue;
 
         Mel_Text_Glyph_Block* block = (Mel_Text_Glyph_Block*)val;
-        free_text_block(m, block, data->alloc);
+        free_text_block(mgr, block, data->alloc);
 
         const Mel_CTransform* t = ecs_get(data->world, text_modified[i], Mel_CTransform);
         const Mel_CText* ct = ecs_get(data->world, text_modified[i], Mel_CText);
         if (!t || !ct || !ct->desc) continue;
 
-        expand_text(m, t->pos, ct, block, data->alloc);
+        expand_text(mgr, t->pos, ct, block, data->alloc);
     }
 
     mel_ecs_delta_begin_frame(&data->text_delta);
@@ -265,8 +246,6 @@ static void ecs_2d_shutdown(Mel_Render_Source* self)
 
 const Mel_Render_Source_Type mel_source_ecs_2d_type = {
     .name = { .data = (u8*)"ecs_2d", .len = 6 },
-    .create_manager = ecs_2d_create_manager,
-    .destroy_manager = ecs_2d_destroy_manager,
     .sync = ecs_2d_sync,
     .shutdown = ecs_2d_shutdown,
     .instance_size = sizeof(Mel_ECS_2D_Source_Data),

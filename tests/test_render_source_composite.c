@@ -1,6 +1,7 @@
 #include "../melody/test.harness.h"
 #include "../melody/render.source.composite.h"
 #include "../melody/render.source.type.h"
+#include "../melody/render.manager.fwd.h"
 #include "../melody/allocator.heap.h"
 #include "../melody/collection.array.h"
 
@@ -11,19 +12,7 @@ typedef struct {
     void* last_mgr;
 } Mock_Source_Data;
 
-static void* mock_create_manager(Mel_Render_Source* self, Mel_Gpu_Device* dev, const Mel_Alloc* alloc)
-{
-    (void)self; (void)dev; (void)alloc;
-    static u32 fake_mgr = 0xDEADBEEF;
-    return &fake_mgr;
-}
-
-static void mock_destroy_manager(Mel_Render_Source* self, void* mgr)
-{
-    (void)self; (void)mgr;
-}
-
-static void mock_sync(Mel_Render_Source* self, void* mgr)
+static void mock_sync(Mel_Render_Source* self, Mel_Render_Manager* mgr)
 {
     Mock_Source_Data* data = mel_render_source_instance(self);
     data->sync_call_count++;
@@ -32,8 +21,6 @@ static void mock_sync(Mel_Render_Source* self, void* mgr)
 
 static const Mel_Render_Source_Type mock_source_type = {
     .name = { .data = (u8*)"mock", .len = 4 },
-    .create_manager  = mock_create_manager,
-    .destroy_manager = mock_destroy_manager,
     .sync            = mock_sync,
     .shutdown        = nullptr,
     .instance_size   = sizeof(Mock_Source_Data),
@@ -92,10 +79,9 @@ MEL_TEST(composite_sync_propagates_to_children, .tags = "render")
     mel_source_composite_add(composite, child_a);
     mel_source_composite_add(composite, child_b);
 
-    mel__render_source_ensure_manager(composite, nullptr, mel_alloc_heap());
-    MEL_ASSERT_NOT_NULL(composite->manager);
+    u32 fake_mgr = 0xDEADBEEF;
 
-    mel_render_source_sync(composite);
+    mel_render_source_sync(composite, (Mel_Render_Manager*)&fake_mgr);
 
     Mock_Source_Data* da = mel_render_source_instance(child_a);
     Mock_Source_Data* db = mel_render_source_instance(child_b);
@@ -103,10 +89,10 @@ MEL_TEST(composite_sync_propagates_to_children, .tags = "render")
     MEL_ASSERT_EQ(da->sync_call_count, (u32)1);
     MEL_ASSERT_EQ(db->sync_call_count, (u32)1);
 
-    MEL_ASSERT(da->last_mgr == composite->manager);
-    MEL_ASSERT(db->last_mgr == composite->manager);
+    MEL_ASSERT(da->last_mgr == &fake_mgr);
+    MEL_ASSERT(db->last_mgr == &fake_mgr);
 
-    mel_render_source_sync(composite);
+    mel_render_source_sync(composite, (Mel_Render_Manager*)&fake_mgr);
 
     MEL_ASSERT_EQ(da->sync_call_count, (u32)2);
     MEL_ASSERT_EQ(db->sync_call_count, (u32)2);
@@ -116,7 +102,7 @@ MEL_TEST(composite_sync_propagates_to_children, .tags = "render")
     mel_render_source_destroy(child_b);
 }
 
-MEL_TEST(composite_children_share_manager, .tags = "render")
+MEL_TEST(composite_children_share_sync_target, .tags = "render")
 {
     Mel_Render_Source* composite = mel_source_composite_create(mel_alloc_heap());
 
@@ -126,11 +112,14 @@ MEL_TEST(composite_children_share_manager, .tags = "render")
     mel_source_composite_add(composite, child_a);
     mel_source_composite_add(composite, child_b);
 
-    mel__render_source_ensure_manager(composite, nullptr, mel_alloc_heap());
-    mel_render_source_sync(composite);
+    u32 fake_mgr = 0x12345678;
+    mel_render_source_sync(composite, (Mel_Render_Manager*)&fake_mgr);
 
-    MEL_ASSERT(child_a->manager == composite->manager);
-    MEL_ASSERT(child_b->manager == composite->manager);
+    Mock_Source_Data* da = mel_render_source_instance(child_a);
+    Mock_Source_Data* db = mel_render_source_instance(child_b);
+
+    MEL_ASSERT(da->last_mgr == &fake_mgr);
+    MEL_ASSERT(db->last_mgr == &fake_mgr);
 
     mel_render_source_destroy(composite);
     mel_render_source_destroy(child_a);

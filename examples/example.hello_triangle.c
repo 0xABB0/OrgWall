@@ -10,6 +10,7 @@
 #include "../melody/render.viewport.h"
 #include "../melody/render.target.h"
 #include "../melody/render.pipeline.h"
+#include "../melody/render.manager.fwd.h"
 #include "../melody/allocator.h"
 #include "../melody/allocator.heap.h"
 #include "../melody/math.mat4.h"
@@ -32,14 +33,23 @@ typedef struct {
     Mel_Mat4 projection;
 } Hello_Triangle_Push_Constants;
 
-static void triangle_init(Mel_Render_Pipeline* self, Mel_Render_View* view)
+static void triangle_view_init(Mel_Render_Pipeline* self, Mel_Render_View* view, Mel_Render_Pipeline_Scene* scene)
 {
     (void)self;
     (void)view;
+    (void)scene;
 }
 
-static void triangle_draw(Mel_Render_Pipeline* self, void* mgr, Mel_Render_Draw_Ctx* ctx)
+static void triangle_begin_frame(Mel_Render_Pipeline* self, Mel_Render_View* view, Mel_Render_Pipeline_Scene* scene)
 {
+    (void)self;
+    (void)view;
+    (void)scene;
+}
+
+static void triangle_draw(Mel_Render_Pipeline* self, Mel_Render_Pipeline_Scene* scene, Mel_Render_Manager* mgr, Mel_Render_Draw_Ctx* ctx)
+{
+    (void)scene;
     (void)mgr;
 
     Mel_Gpu_Color_Attachment color_att = {
@@ -89,9 +99,14 @@ static void triangle_shutdown(Mel_Render_Pipeline* self)
 
 static const Mel_Render_Pipeline_Type s_hello_triangle_type = {
     .name          = { .data = (u8*)"hello_triangle", .len = 14 },
-    .init          = triangle_init,
+    .scene_init    = nullptr,
+    .scene_sync    = nullptr,
+    .scene_shutdown = nullptr,
+    .scene_size    = 0,
+    .view_init     = triangle_view_init,
+    .begin_frame   = triangle_begin_frame,
     .draw          = triangle_draw,
-    .shutdown      = triangle_shutdown,
+    .view_shutdown = triangle_shutdown,
     .instance_size = 0,
 };
 
@@ -129,7 +144,7 @@ void app_init(void)
     };
 
     s_view = mel_render_view_create(
-        .source   = nullptr,
+        .scene    = nullptr,
         .camera   = camera,
         .target   = s_target,
         .pipeline = S8("hello_triangle"),
