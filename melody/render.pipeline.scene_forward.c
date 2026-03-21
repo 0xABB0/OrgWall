@@ -105,6 +105,8 @@ typedef struct {
 struct Mel_Scene_Forward_Emitter {
     Scene_Forward_Scene_Data* data;
     const Mel_Render_Instance* instance;
+    const Mel_Render_Material_Binding* material_bindings;
+    u32 material_binding_count;
     u32 mode;
     u32 base_count;
     u32* sprite_counts;
@@ -112,6 +114,25 @@ struct Mel_Scene_Forward_Emitter {
     u32* sprite_fill;
     u32* mesh_fill;
 };
+
+static const Mel_Render_Material_Binding* scene_forward_emitter_binding(
+    Mel_Scene_Forward_Emitter* emitter, u32 binding_index, u32 compat_mask)
+{
+    assert(emitter != nullptr);
+
+    if (binding_index >= emitter->material_binding_count)
+        return nullptr;
+
+    const Mel_Render_Material_Binding* binding = &emitter->material_bindings[binding_index];
+    if (binding->material_base_id >= emitter->base_count || binding->material_base_id >= MEL_MATERIAL_BASE_MAX)
+        return nullptr;
+
+    Mel_Material_Base* base = mel_material_base_get(binding->material_base_id);
+    if (base == nullptr || !(base->compat & compat_mask))
+        return nullptr;
+
+    return binding;
+}
 
 static Mel_Gpu_Device* s_dev;
 static Mel_Gpu_Shader s_mesh_shader;
@@ -249,13 +270,11 @@ void mel_scene_forward_emit_sprite(Mel_Scene_Forward_Emitter* emitter,
     assert(sprite != nullptr);
     assert(emitter->instance != nullptr);
 
-    u32 base_id = emitter->instance->material_base_id;
-    if (base_id >= emitter->base_count || base_id >= MEL_MATERIAL_BASE_MAX)
+    const Mel_Render_Material_Binding* binding =
+        scene_forward_emitter_binding(emitter, sprite->material_binding_index, MEL_COMPAT_2D);
+    if (binding == nullptr)
         return;
-
-    Mel_Material_Base* base = mel_material_base_get(base_id);
-    if (base == nullptr || !(base->compat & MEL_COMPAT_2D))
-        return;
+    u32 base_id = binding->material_base_id;
 
     if (emitter->mode == SCENE_FORWARD_EMIT_MODE_COUNT)
     {
@@ -272,8 +291,8 @@ void mel_scene_forward_emit_sprite(Mel_Scene_Forward_Emitter* emitter,
         .uv = sprite->uv,
         .color = sprite->color,
         .texture_idx = sprite->texture_idx,
-        .material_base_id = emitter->instance->material_base_id,
-        .layer = emitter->instance->material_idx,
+        .material_base_id = binding->material_base_id,
+        .layer = binding->material_idx,
     };
     emitter->data->sprite_draw_order[slot] = slot;
 }
@@ -285,13 +304,11 @@ void mel_scene_forward_emit_mesh(Mel_Scene_Forward_Emitter* emitter,
     assert(mesh != nullptr);
     assert(emitter->instance != nullptr);
 
-    u32 base_id = emitter->instance->material_base_id;
-    if (base_id >= emitter->base_count || base_id >= MEL_MATERIAL_BASE_MAX)
+    const Mel_Render_Material_Binding* binding =
+        scene_forward_emitter_binding(emitter, mesh->material_binding_index, MEL_COMPAT_FORWARD);
+    if (binding == nullptr)
         return;
-
-    Mel_Material_Base* base = mel_material_base_get(base_id);
-    if (base == nullptr || !(base->compat & MEL_COMPAT_FORWARD))
-        return;
+    u32 base_id = binding->material_base_id;
 
     if (emitter->mode == SCENE_FORWARD_EMIT_MODE_COUNT)
     {
@@ -306,9 +323,9 @@ void mel_scene_forward_emit_mesh(Mel_Scene_Forward_Emitter* emitter,
     emitter->data->mesh_items[slot] = (Scene_Forward_Mesh_Item){
         .model = mesh->model,
         .mesh = mesh->mesh,
-        .material_base_id = emitter->instance->material_base_id,
-        .material_idx = emitter->instance->material_idx,
-        .flags = emitter->instance->flags,
+        .material_base_id = binding->material_base_id,
+        .material_idx = binding->material_idx,
+        .flags = emitter->instance->flags | binding->flags,
         .layer_mask = emitter->instance->visibility_mask,
     };
 }
@@ -414,6 +431,7 @@ static void scene_forward_scene_sync(Mel_Render_Pipeline_Scene* self, Mel_Render
                 .idx = mgr->packed_to_sparse[i],
                 .gen = mgr->generations[mgr->packed_to_sparse[i]],
             };
+            emitter.material_bindings = mel_mgr_get_material_bindings(mgr, h, &emitter.material_binding_count);
             instance->source->type->scene_forward_emit(instance->source, h, instance, &emitter);
         }
 
@@ -496,6 +514,7 @@ static void scene_forward_scene_sync(Mel_Render_Pipeline_Scene* self, Mel_Render
                 .idx = mgr->packed_to_sparse[i],
                 .gen = mgr->generations[mgr->packed_to_sparse[i]],
             };
+            emitter.material_bindings = mel_mgr_get_material_bindings(mgr, h, &emitter.material_binding_count);
             instance->source->type->scene_forward_emit(instance->source, h, instance, &emitter);
         }
 

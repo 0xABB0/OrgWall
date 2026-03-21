@@ -1,38 +1,73 @@
 # render.manager
 
-Unified GPU-side object database. Stores per-object data in configurable storage pools. Bridges sources (who populate it) and pipelines (who draw from it). One manager type for both 2D and 3D — the pool layout determines the data shape, not the manager.
+Canonical render-scene database.
 
-## Design
+The manager owns render instance truth. It does not own source payload. It does not own packed execution buffers. It gives the renderer stable handles, compact storage, and canonical bindings that techniques can derive from.
 
-The manager is bytes. The shader interprets. The source writes whatever layout the material's shader expects. The pipeline binds the pool buffers and draws.
+## What lives here
 
-Custom sparse set with generational handles (`Mel_Render_Handle = {u32 idx, u32 gen}`). No slotmap dependency. Packed array with swap-on-free compaction.
+- `Mel_Render_Handle`: stable instance handle with generation
+- `Mel_Render_Instance`: scene-level binding record
+- `Mel_Render_Material_Binding`: per-instance material bindings
+- `Mel_Render_Space_Handle`: scene-level space binding
+- typed space payload storage and lifetime
+- dirty tracking and mutation serial
 
-Each object belongs to a **group** (assigned at alloc, changeable via `mel_mgr_change_group`). Groups determine draw ordering — the pipeline draws one group at a time, binding the appropriate GPU pipeline per group.
+## What does not live here
 
-## Pools
+- sprite payload
+- mesh payload
+- text/glyph payload
+- packed draw lists
+- GPU-ready execution caches
+- post/effect resources
 
-Configurable at init. Each pool has a CPU data array, GPU buffer, and per-slot dirty bitset. Item size is fixed per pool, set at creation.
+Those belong to sources or technique caches.
 
-Convention (not enforced):
-- 2D: pool 0 = transforms (32 bytes), pool 1 = render info (48 bytes)
-- 3D: pool 0 = transforms (128 bytes), pool 1 = bounds (32 bytes), pool 2 = render info (32 bytes)
+## Current instance model
 
-## Draw Order
+An instance currently binds:
 
-A `draw_order` GPU buffer of u32 indices sorted by group via counting sort. Rebuilt when `order_dirty` is set (alloc, free, or group change). Per-group ranges (`Mel_Mgr_Range = {group, start, count}`) fall out directly from the prefix sums.
+- `source`
+- `space`
+- `flags`
+- `visibility_mask`
+- material-binding count
 
-The shader reads through indirection: `uint slot = draw_order[push.draw_offset + SV_InstanceID]`. The `draw_offset` is passed via push constants because `SV_InstanceID` does not include Vulkan's `firstInstance`.
+Material bindings are sidecar storage keyed by instance handle. This keeps the core instance compact and allows one instance to bind multiple materials without baking fixed slots into the struct.
 
-## API
+Spaces are also sidecar storage keyed by space handle. A space owns typed payload for spatial state. The current engine uses this for:
 
-```c
-mel_mgr_init(mgr, .dev = dev, .pools = pool_descs, .pool_count = 2);
-Mel_Render_Handle h = mel_mgr_alloc(mgr, group);
-mel_mgr_set(mgr, pool_index, h, &data);
-mel_mgr_upload_dirty(mgr);
+- manual 3D model matrices
+- ECS 2D sprite transforms
 
-const Mel_Mgr_Range* ranges = mel_mgr_group_ranges(mgr);
-Mel_Gpu_Buffer* buf = mel_mgr_pool_buffer(mgr, pool_index);
-Mel_Gpu_Buffer* order = mel_mgr_draw_order_buffer(mgr);
-```
+The important rule is:
+
+`instance` says which space is used.
+`space payload` says what the spatial data is.
+
+## Design rules
+
+- canonical truth only
+- handle-indexed ownership
+- swap-on-free packed storage
+- only allocate sidecars when used
+- no closed object union
+- no technique-shaped canonical storage
+
+## Why this shape
+
+This module exists so scenes can express:
+
+- one instance, many material bindings
+- one instance, explicit space binding
+- one source reused by many instances
+- sources with very different payload shapes
+
+without forcing the manager to know every renderable payload layout in advance.
+
+## Current limits
+
+- spaces are typed, but still very lightweight
+- there is no higher-level scene-global light/world model here yet
+- material bindings are per-instance, but source/technique support for using many bindings is still growing

@@ -671,6 +671,9 @@ bool build_melody(void)
 
     if (any_recompiled || nob_file_exists(BUILD_DIR "/libmelody.a") != 1)
     {
+        if (nob_file_exists(BUILD_DIR "/libmelody.a") == 1)
+            remove(BUILD_DIR "/libmelody.a");
+
         Nob_Cmd cmd = {0};
         nob_cmd_append(&cmd, "ar", "rcs", BUILD_DIR "/libmelody.a");
 

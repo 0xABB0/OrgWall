@@ -2,5 +2,6 @@
 
 ## TODO
 
-- MEL_MATERIAL_BASE_MAX (32) stack arrays used in counting sort (`mel__mgr_rebuild_draw_order`). `u32 counts[32]`, `u32 offsets[32]`, `u32 write_pos[32]` on the stack. Violates MEL-X-004 (no static-size buffers). Should dynamically allocate based on actual max group ID. The material_base module itself also uses `s_bases[MEL_MATERIAL_BASE_MAX]` — same underlying issue.
-- Storage buffers are always allocated as `MEL_GPU_MEMORY_USAGE_CPU_TO_GPU`, including draw order. This bakes one storage policy into the manager and prevents GPU-local placement for GPU-only pipelines. Split "CPU-side mirror + upload path" from "GPU allocation policy" so the manager can choose GPU-local storage when the active pipelines do not need CPU-visible buffers.
+- Spaces are still low-level typed payload blobs with no higher-level scene helpers. Add explicit scene-facing helpers for common space kinds so sources do not keep reinventing local payload conventions.
+- The manager now owns instance/material/space truth, but there is still no first-class scene-global model for lights, environment, or other world-level render state. Add that without contaminating technique caches.
+- Material bindings are stored per instance, but there is no richer binding model yet for things like named slots, submesh conventions, or validation of source-emitted binding indices. Tighten that contract so bad bindings fail early and clearly.

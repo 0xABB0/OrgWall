@@ -14,12 +14,14 @@ typedef struct {
     Mel_Rect uv;
     Mel_Vec4 color;
     u32 texture_idx;
+    u32 material_binding_index;
 } Mel_Scene_Forward_Sprite;
 
 typedef struct {
     Mel_Mat4 model;
     Mel_Render_Bounds bounds;
     Mel_Geometry_Handle mesh;
+    u32 material_binding_index;
 } Mel_Scene_Forward_Mesh;
 
 void mel_scene_forward_emit_sprite(Mel_Scene_Forward_Emitter* emitter,

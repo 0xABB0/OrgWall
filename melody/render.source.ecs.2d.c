@@ -22,7 +22,6 @@ typedef struct {
 
 typedef struct {
     Mel_Render_Handle handle;
-    Mel_Render_Transform_2D transform;
     Mel_Rect uv;
     Mel_Vec4 color;
     u32 texture_idx;
@@ -41,6 +40,14 @@ typedef struct {
     bool has_text_delta;
 } Mel_ECS_2D_Source_Data;
 
+typedef struct {
+    Mel_Render_Transform_2D transform;
+} Mel_ECS_2D_Space;
+
+static const Mel_Render_Space_Type s_ecs_2d_space_type = {
+    .payload_size = sizeof(Mel_ECS_2D_Space),
+};
+
 static Mel_ECS_2D_Slot* ecs_2d_find_slot(Mel_ECS_2D_Source_Data* data, Mel_Render_Handle h)
 {
     for (usize i = 0; i < data->slots.count; i++)
@@ -53,7 +60,6 @@ static Mel_ECS_2D_Slot* ecs_2d_find_slot(Mel_ECS_2D_Source_Data* data, Mel_Rende
 
 static void ecs_2d_store_slot(Mel_ECS_2D_Source_Data* data,
                               Mel_Render_Handle h,
-                              Mel_Render_Transform_2D transform,
                               Mel_Rect uv,
                               Mel_Vec4 color,
                               u32 texture_idx)
@@ -61,7 +67,6 @@ static void ecs_2d_store_slot(Mel_ECS_2D_Source_Data* data,
     Mel_ECS_2D_Slot* slot = ecs_2d_find_slot(data, h);
     if (slot != nullptr)
     {
-        slot->transform = transform;
         slot->uv = uv;
         slot->color = color;
         slot->texture_idx = texture_idx;
@@ -70,7 +75,6 @@ static void ecs_2d_store_slot(Mel_ECS_2D_Source_Data* data,
 
     mel_array_push(&data->slots, ((Mel_ECS_2D_Slot){
         .handle = h,
-        .transform = transform,
         .uv = uv,
         .color = color,
         .texture_idx = texture_idx,
@@ -108,19 +112,29 @@ static void sync_sprite(Mel_Render_Source* self,
         .flags = 0,
     };
 
+    Mel_ECS_2D_Slot* slot = ecs_2d_find_slot(data, h);
+    Mel_Render_Space_Handle space = slot
+        ? mel_mgr_get_instance(mgr, h)->space
+        : mel_mgr_space_alloc(mgr, &s_ecs_2d_space_type);
+    ((Mel_ECS_2D_Space*)mel_mgr_space_payload(mgr, space, &s_ecs_2d_space_type))->transform = transform;
+
     ecs_2d_store_slot(data, h,
-        transform,
         s ? s->uv : mel_rect(0, 0, 1, 1),
         s ? s->color : MEL_VEC4_ONE,
         0);
 
     mel_mgr_set_instance(mgr, h, &(Mel_Render_Instance){
         .source = self,
-        .material_base_id = mel_sprite_material_id(),
-        .material_idx = 0,
+        .space = space,
         .flags = 0,
         .visibility_mask = 0xFFFFFFFFu,
     });
+    mel_mgr_set_material_bindings(mgr, h, &(Mel_Render_Material_Binding){
+        .slot = 0,
+        .material_base_id = mel_sprite_material_id(),
+        .material_idx = 0,
+        .flags = 0,
+    }, 1);
 }
 
 static void expand_text(Mel_Render_Source* self,
@@ -179,6 +193,7 @@ static void expand_text(Mel_Render_Source* self,
         f32 gh = (g->y1 - g->y0) * scale;
 
         Mel_Render_Handle h = mel_mgr_alloc(mgr);
+        Mel_Render_Space_Handle space = mel_mgr_space_alloc(mgr, &s_ecs_2d_space_type);
         Mel_Render_Transform_2D transform = {
             .pos = mel_vec2(gx + gw * 0.5f, gy + gh * 0.5f),
             .scale = mel_vec2(gw, gh),
@@ -186,20 +201,25 @@ static void expand_text(Mel_Render_Source* self,
             .depth = 0.0f,
             .flags = 0,
         };
+        ((Mel_ECS_2D_Space*)mel_mgr_space_payload(mgr, space, &s_ecs_2d_space_type))->transform = transform;
 
         ecs_2d_store_slot(data, h,
-            transform,
             mel_rect(g->u0, g->v0, g->u1 - g->u0, g->v1 - g->v0),
             ct->color,
             ct->texture_idx);
 
         mel_mgr_set_instance(mgr, h, &(Mel_Render_Instance){
             .source = self,
-            .material_base_id = ct->material_id,
-            .material_idx = ct->material_instance,
+            .space = space,
             .flags = 0,
             .visibility_mask = 0xFFFFFFFFu,
         });
+        mel_mgr_set_material_bindings(mgr, h, &(Mel_Render_Material_Binding){
+            .slot = 0,
+            .material_base_id = ct->material_id,
+            .material_idx = ct->material_instance,
+            .flags = 0,
+        }, 1);
 
         block->handles[gi++] = h;
         cursor_x += g->xadvance * scale;
@@ -213,6 +233,9 @@ static void free_text_block(Mel_Render_Manager* mgr,
 {
     for (u32 i = 0; i < block->count; i++)
     {
+        Mel_Render_Instance* instance = mel_mgr_get_instance(mgr, block->handles[i]);
+        if (mel_render_space_handle_valid(instance->space))
+            mel_mgr_space_free(mgr, instance->space);
         ecs_2d_remove_slot(data, block->handles[i]);
         mel_mgr_free(mgr, block->handles[i]);
     }
@@ -234,6 +257,9 @@ static void ecs_2d_sync(Mel_Render_Source* self, Mel_Render_Manager* mgr)
         if (val != nullptr)
         {
             Mel_Render_Handle h = mel_render_handle_unpack64((u64)(usize)val);
+            Mel_Render_Instance* instance = mel_mgr_get_instance(mgr, h);
+            if (mel_render_space_handle_valid(instance->space))
+                mel_mgr_space_free(mgr, instance->space);
             ecs_2d_remove_slot(data, h);
             mel_mgr_free(mgr, h);
             mel_hashmap_remove(&data->entity_to_handle, (void*)(usize)sprite_removed[i]);
@@ -325,10 +351,12 @@ static void ecs_2d_scene_forward_emit(Mel_Render_Source* self,
         return;
 
     mel_scene_forward_emit_sprite(emitter, &(Mel_Scene_Forward_Sprite){
-        .transform = slot->transform,
+        .transform = ((Mel_ECS_2D_Space*)mel_mgr_space_payload(
+            mel_render_scene_manager(self->scene), instance->space, &s_ecs_2d_space_type))->transform,
         .uv = slot->uv,
         .color = slot->color,
         .texture_idx = slot->texture_idx,
+        .material_binding_index = 0,
     });
     (void)instance;
 }
@@ -417,21 +445,31 @@ bool mel_source_ecs_2d_get_sprite_payload(Mel_Render_Source* source,
     if (slot == nullptr)
         return false;
 
+    Mel_Render_Instance* instance = source->scene
+        ? mel_mgr_get_instance(mel_render_scene_manager(source->scene), h)
+        : nullptr;
+
     if (transform)
-        *transform = slot->transform;
+    {
+        if (instance == nullptr)
+            return false;
+        *transform = ((Mel_ECS_2D_Space*)mel_mgr_space_payload(
+            mel_render_scene_manager(source->scene), instance->space, &s_ecs_2d_space_type))->transform;
+    }
 
     if (info)
     {
-        Mel_Render_Instance* instance = source->scene
-            ? mel_mgr_get_instance(mel_render_scene_manager(source->scene), h)
-            : nullptr;
+        const Mel_Render_Material_Binding* bindings = nullptr;
+        u32 binding_count = 0;
+        if (source->scene)
+            bindings = mel_mgr_get_material_bindings(mel_render_scene_manager(source->scene), h, &binding_count);
 
         *info = (Mel_Render_Sprite_Info){
             .uv = slot->uv,
             .color = slot->color,
             .texture_idx = slot->texture_idx,
-            .material_base_id = instance ? instance->material_base_id : 0,
-            .layer = instance ? instance->material_idx : 0,
+            .material_base_id = (instance && bindings && binding_count > 0) ? bindings[0].material_base_id : 0,
+            .layer = (instance && bindings && binding_count > 0) ? bindings[0].material_idx : 0,
         };
     }
 
