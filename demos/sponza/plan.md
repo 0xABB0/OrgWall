@@ -61,9 +61,24 @@ Those can come later.
 
 Target output:
 
-- `demos/demo.sponza.c`
+- `demos/sponza/demo.sponza.c`
 
 Supporting data may live under `assets/` if needed, but the demo code should stay self-contained and readable.
+
+## Current status
+
+Completed:
+
+- M0: Khronos glTF Sponza chosen and loaded directly from `assets/sponza/khronos/glTF/Sponza.gltf`
+- M1: static geometry is on screen through `scene_forward`
+- M2: base-color textures, alpha-mask materials, normal maps, metallic-roughness maps, and double-sided raster state are wired
+- M3: one instance with many material bindings and many emitted mesh parts is exercised by the import path
+- M4: free-fly navigation and startup controls are in place
+
+Still open:
+
+- M5 is only partially addressed. Startup/upload behavior is sane, but scene-scale visibility/culling is still a renderer follow-up rather than a finished pass.
+- M6 remains open for renderer-level follow-ups exposed by Sponza, especially scene lighting ownership and alpha-blend support.
 
 ## Milestones
 
@@ -107,6 +122,7 @@ Requirements:
 
 - diffuse/base-color textures
 - normal maps if supported by the active material path
+- metallic-roughness textures if supported by the active material path
 - alpha-tested surfaces where needed
 - material instances correctly bound at scale
 
@@ -183,6 +199,11 @@ Success:
 - scene renders correctly enough to inspect materials and structure
 - renderer architecture remains clean
 - no demo-specific shortcuts in core render modules
+
+Current read:
+
+- satisfied for static inspection and navigation
+- not a claim that scene lighting, blended transparency, or scene-scale culling are fully solved
 
 ## Known likely pressure points
 

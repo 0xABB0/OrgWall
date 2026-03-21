@@ -13,13 +13,14 @@ typedef struct {
     Mel_Gpu_Buffer* staging;
     u32 width;
     u32 height;
+    bool generate_mips;
 } Gpu_Texture_Upload;
 
 static void upload_cmd(Mel_Gpu_Cmd* cmd, void* user)
 {
     Gpu_Texture_Upload* data = (Gpu_Texture_Upload*)user;
 
-    mel_gpu_image_transition(data->image, cmd, MEL_GPU_IMAGE_LAYOUT_TRANSFER_DST);
+    mel_gpu_image_transition_subresource(data->image, cmd, 0, 0, MEL_GPU_IMAGE_LAYOUT_TRANSFER_DST);
 
     VkBufferImageCopy region = {
         .bufferOffset = 0,
@@ -39,27 +40,113 @@ static void upload_cmd(Mel_Gpu_Cmd* cmd, void* user)
         (VkBuffer)data->staging->_handle, (VkImage)data->image->_handle,
         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
 
-    mel_gpu_image_transition(data->image, cmd, MEL_GPU_IMAGE_LAYOUT_SHADER_READ_ONLY);
+    if (!data->generate_mips)
+    {
+        mel_gpu_image_transition_subresource(data->image, cmd, 0, 0, MEL_GPU_IMAGE_LAYOUT_SHADER_READ_ONLY);
+        return;
+    }
+
+    mel_gpu_image_transition_subresource(data->image, cmd, 0, 0, MEL_GPU_IMAGE_LAYOUT_TRANSFER_SRC);
+
+    u32 src_w = data->width;
+    u32 src_h = data->height;
+    for (u32 mip = 1; mip < data->image->mip_levels; mip++)
+    {
+        u32 dst_w = src_w > 1 ? src_w / 2 : 1;
+        u32 dst_h = src_h > 1 ? src_h / 2 : 1;
+
+        mel_gpu_image_transition_subresource(data->image, cmd, mip, 0, MEL_GPU_IMAGE_LAYOUT_TRANSFER_DST);
+
+        VkImageBlit region_blit = {
+            .srcSubresource = {
+                .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                .mipLevel = mip - 1,
+                .baseArrayLayer = 0,
+                .layerCount = 1,
+            },
+            .srcOffsets = {
+                { 0, 0, 0 },
+                { (i32)src_w, (i32)src_h, 1 },
+            },
+            .dstSubresource = {
+                .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                .mipLevel = mip,
+                .baseArrayLayer = 0,
+                .layerCount = 1,
+            },
+            .dstOffsets = {
+                { 0, 0, 0 },
+                { (i32)dst_w, (i32)dst_h, 1 },
+            },
+        };
+
+        vkCmdBlitImage((VkCommandBuffer)cmd->_cmd,
+            (VkImage)data->image->_handle, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+            (VkImage)data->image->_handle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            1, &region_blit, VK_FILTER_LINEAR);
+
+        mel_gpu_image_transition_subresource(data->image, cmd, mip - 1, 0, MEL_GPU_IMAGE_LAYOUT_SHADER_READ_ONLY);
+        if (mip + 1 < data->image->mip_levels)
+            mel_gpu_image_transition_subresource(data->image, cmd, mip, 0, MEL_GPU_IMAGE_LAYOUT_TRANSFER_SRC);
+        else
+            mel_gpu_image_transition_subresource(data->image, cmd, mip, 0, MEL_GPU_IMAGE_LAYOUT_SHADER_READ_ONLY);
+
+        src_w = dst_w;
+        src_h = dst_h;
+    }
 }
 
-static void create_sampler(Mel_Gpu_Texture* tex, Mel_Gpu_Device* dev, bool nearest)
+static VkSamplerAddressMode mel__gpu_texture_vk_address_mode(u32 mode)
 {
-    VkFilter filter = nearest ? VK_FILTER_NEAREST : VK_FILTER_LINEAR;
+    switch (mode)
+    {
+        case MEL_GPU_SAMPLER_ADDRESS_REPEAT:          return VK_SAMPLER_ADDRESS_MODE_REPEAT;
+        case MEL_GPU_SAMPLER_ADDRESS_MIRRORED_REPEAT: return VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT;
+        case MEL_GPU_SAMPLER_ADDRESS_CLAMP_TO_EDGE:
+        case MEL_GPU_SAMPLER_ADDRESS_DEFAULT:
+        default:                                      return VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    }
+}
+
+static bool mel__gpu_texture_can_generate_mips(Mel_Gpu_Device* dev, Mel_Gpu_Format format)
+{
+    VkFormatProperties props;
+    vkGetPhysicalDeviceFormatProperties(mel__gpu_device_vk(dev)->physical_device,
+        mel__gpu_format_to_vk(format), &props);
+    return (props.optimalTilingFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT) != 0;
+}
+
+static u32 mel__gpu_texture_mip_count(u32 width, u32 height)
+{
+    u32 levels = 1;
+    u32 dim = width > height ? width : height;
+    while (dim > 1)
+    {
+        dim >>= 1;
+        levels++;
+    }
+    return levels;
+}
+
+static void create_sampler(Mel_Gpu_Texture* tex, Mel_Gpu_Device* dev, Mel_Gpu_Texture_Opt opt)
+{
+    VkFilter filter = opt.nearest_filter ? VK_FILTER_NEAREST : VK_FILTER_LINEAR;
+    f32 max_lod = tex->image.mip_levels > 0 ? (f32)(tex->image.mip_levels - 1) : 0.0f;
 
     VkSamplerCreateInfo sampler_info = {
         .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
         .magFilter = filter,
         .minFilter = filter,
-        .mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST,
-        .addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
-        .addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
-        .addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+        .mipmapMode = opt.nearest_filter ? VK_SAMPLER_MIPMAP_MODE_NEAREST : VK_SAMPLER_MIPMAP_MODE_LINEAR,
+        .addressModeU = mel__gpu_texture_vk_address_mode(opt.address_mode_u),
+        .addressModeV = mel__gpu_texture_vk_address_mode(opt.address_mode_v),
+        .addressModeW = mel__gpu_texture_vk_address_mode(opt.address_mode_w),
         .mipLodBias = 0.0f,
         .anisotropyEnable = VK_FALSE,
         .maxAnisotropy = 1.0f,
         .compareEnable = VK_FALSE,
         .minLod = 0.0f,
-        .maxLod = 0.0f,
+        .maxLod = max_lod,
         .borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK,
         .unnormalizedCoordinates = VK_FALSE,
     };
@@ -123,13 +210,23 @@ void mel_gpu_texture_init_opt(Mel_Gpu_Texture* tex, Mel_Gpu_Device* dev, Mel_Gpu
         stbi_image_free((void*)pixel_data);
 
     Mel_Gpu_Format format = opt.format ? opt.format : MEL_GPU_FORMAT_R8G8B8A8_SRGB;
+    bool generate_mips = opt.generate_mips;
+    if (generate_mips && !mel__gpu_texture_can_generate_mips(dev, format))
+    {
+        mel_log_warn("gpu.texture", "format %u does not support linear-blit mip generation; falling back to single mip", format);
+        generate_mips = false;
+    }
+    u32 mip_levels = generate_mips ? mel__gpu_texture_mip_count(w, h) : 1;
 
     mel_gpu_image_init(&tex->image, dev,
         .width = w,
         .height = h,
         .format = format,
-        .usage = MEL_GPU_IMAGE_USAGE_SAMPLED | MEL_GPU_IMAGE_USAGE_TRANSFER_DST,
+        .usage = MEL_GPU_IMAGE_USAGE_SAMPLED |
+                 MEL_GPU_IMAGE_USAGE_TRANSFER_DST |
+                 (generate_mips ? MEL_GPU_IMAGE_USAGE_TRANSFER_SRC : 0),
         .aspect = MEL_GPU_ASPECT_COLOR,
+        .mip_levels = mip_levels,
         .alloc = opt.alloc);
 
     Gpu_Texture_Upload upload = {
@@ -137,12 +234,13 @@ void mel_gpu_texture_init_opt(Mel_Gpu_Texture* tex, Mel_Gpu_Device* dev, Mel_Gpu
         .staging = &staging,
         .width = w,
         .height = h,
+        .generate_mips = generate_mips,
     };
 
     mel_gpu_submit_immediate(dev, upload_cmd, &upload);
     mel_gpu_buffer_shutdown(&staging, dev);
 
-    create_sampler(tex, dev, opt.nearest_filter);
+    create_sampler(tex, dev, opt);
 
     mel_log_debug("gpu.texture", "Texture loaded: %ux%u", w, h);
 }
@@ -181,7 +279,13 @@ void mel_gpu_texture_init_white(Mel_Gpu_Texture* tex, Mel_Gpu_Device* dev)
     mel_gpu_submit_immediate(dev, upload_cmd, &upload);
     mel_gpu_buffer_shutdown(&staging, dev);
 
-    create_sampler(tex, dev, true);
+    create_sampler(tex, dev, (Mel_Gpu_Texture_Opt){
+        .nearest_filter = true,
+        .generate_mips = false,
+        .address_mode_u = MEL_GPU_SAMPLER_ADDRESS_CLAMP_TO_EDGE,
+        .address_mode_v = MEL_GPU_SAMPLER_ADDRESS_CLAMP_TO_EDGE,
+        .address_mode_w = MEL_GPU_SAMPLER_ADDRESS_CLAMP_TO_EDGE,
+    });
 }
 
 void mel_gpu_texture_shutdown(Mel_Gpu_Texture* tex, Mel_Gpu_Device* dev)

@@ -25,20 +25,33 @@
 #include "allocator.h"
 #include "allocator.heap.h"
 #include "string.str8.h"
+#include "math.mat3.h"
 #include "math.mat4.h"
 #include "async.job.h"
 
 #include <assert.h>
 
 typedef struct {
-    Mel_Mat4 mvp;
+    Mel_Vec4 model_row0;
+    Mel_Vec4 model_row1;
+    Mel_Vec4 model_row2;
+    Mel_Vec4 normal_row0;
+    Mel_Vec4 normal_row1;
+    Mel_Vec4 normal_row2;
     u32 vertex_offset;
     u32 index_offset;
     u32 material_idx;
     u32 _pad;
 } Forward3D_Push;
 
-_Static_assert(sizeof(Forward3D_Push) == 80, "Forward3D_Push must be 80 bytes (within 128 push constant limit)");
+typedef struct {
+    Mel_Mat4 view_projection;
+    Mel_Vec4 camera_position;
+    Mel_Vec4 light_direction;
+} Scene_Forward_Mesh_View_Params;
+
+_Static_assert(sizeof(Forward3D_Push) == 112, "Forward3D_Push must be 112 bytes");
+_Static_assert(sizeof(Scene_Forward_Mesh_View_Params) == 96, "Scene_Forward_Mesh_View_Params must be 96 bytes");
 
 #define SCENE_FORWARD_MESH_STRATEGY_NONE                   0u
 #define SCENE_FORWARD_MESH_STRATEGY_CLASSIC_VERTEX_PULLING 1u
@@ -51,6 +64,7 @@ typedef struct {
     u32 mesh_strategy;
     u32 sprite_strategy;
     Mel_Gpu_Image depth_image;
+    Mel_Gpu_Buffer mesh_view_buffer;
     u32 last_width;
     u32 last_height;
 } Scene_Forward_View_Data;
@@ -619,6 +633,13 @@ static void scene_forward_draw_meshes(Mel_Render_Pipeline* self,
         return;
 
     Mel_Mat4 vp = mel_mat4_mul(view->camera.projection, view->camera.view);
+    Mel_Mat4 inv_view = mel_mat4_inverse(view->camera.view);
+    Scene_Forward_Mesh_View_Params view_params = {
+        .view_projection = vp,
+        .camera_position = mel_vec4(inv_view.m[0][3], inv_view.m[1][3], inv_view.m[2][3], 1.0f),
+        .light_direction = mel_vec4(0.3f, 1.0f, 0.5f, 0.0f),
+    };
+    scene_forward_scene_upload_buffer(&data->mesh_view_buffer, s_dev, sizeof(view_params), &view_params);
     Mel_Gpu_Pipeline* bound_pipeline = nullptr;
     u32 bound_cull_mode = 0xFFFFFFFFu;
 
@@ -644,6 +665,8 @@ static void scene_forward_draw_meshes(Mel_Render_Pipeline* self,
             idx_buf, 0, idx_buf->size, MEL_GPU_DESCRIPTOR_STORAGE_BUFFER);
         mel_gpu_pipeline_write_buffer_binding(&s_mesh_pipeline, s_dev, desc, 2,
             mat_buf, 0, mat_buf->size, MEL_GPU_DESCRIPTOR_STORAGE_BUFFER);
+        mel_gpu_pipeline_write_buffer_binding(&s_mesh_pipeline, s_dev, desc, 3,
+            &data->mesh_view_buffer, 0, data->mesh_view_buffer.size, MEL_GPU_DESCRIPTOR_STORAGE_BUFFER);
 
         for (u32 i = range.start; i < range.start + range.count; i++)
         {
@@ -667,11 +690,17 @@ static void scene_forward_draw_meshes(Mel_Render_Pipeline* self,
                 bound_cull_mode = cull_mode;
             }
 
-            Mel_Mat4 mvp = mel_mat4_mul(vp, item->model);
             Mel_Geometry_Region region = mel_geometry_pool_region(s_geometry_pool, item->mesh);
+            Mel_Mat3 model_3x3 = mel_mat3_from_mat4(item->model);
+            Mel_Mat3 normal_3x3 = mel_mat3_transpose(mel_mat3_inverse(model_3x3));
 
             Forward3D_Push pc = {
-                .mvp = mvp,
+                .model_row0 = mel_vec4(item->model.m[0][0], item->model.m[0][1], item->model.m[0][2], item->model.m[0][3]),
+                .model_row1 = mel_vec4(item->model.m[1][0], item->model.m[1][1], item->model.m[1][2], item->model.m[1][3]),
+                .model_row2 = mel_vec4(item->model.m[2][0], item->model.m[2][1], item->model.m[2][2], item->model.m[2][3]),
+                .normal_row0 = mel_vec4(normal_3x3.m[0][0], normal_3x3.m[0][1], normal_3x3.m[0][2], 0.0f),
+                .normal_row1 = mel_vec4(normal_3x3.m[1][0], normal_3x3.m[1][1], normal_3x3.m[1][2], 0.0f),
+                .normal_row2 = mel_vec4(normal_3x3.m[2][0], normal_3x3.m[2][1], normal_3x3.m[2][2], 0.0f),
                 .vertex_offset = region.vertex_offset,
                 .index_offset = region.index_offset,
                 .material_idx = item->material_idx,
@@ -801,6 +830,8 @@ static void scene_forward_scene_shutdown(Mel_Render_Pipeline_Scene* self)
 static void scene_forward_view_shutdown(Mel_Render_Pipeline* self)
 {
     Scene_Forward_View_Data* d = mel_pipeline_instance(self);
+    if (d->mesh_view_buffer._handle != nullptr)
+        mel_gpu_buffer_shutdown(&d->mesh_view_buffer, s_dev);
     if (d->depth_image._handle != nullptr)
         mel_gpu_image_shutdown(&d->depth_image, s_dev);
 }
@@ -837,6 +868,7 @@ static void mel__scene_forward_compile(void* data)
         { .binding = 0, .type = MEL_GPU_DESCRIPTOR_STORAGE_BUFFER, .count = 1, .stages = MEL_GPU_SHADER_STAGE_VERTEX },
         { .binding = 1, .type = MEL_GPU_DESCRIPTOR_STORAGE_BUFFER, .count = 1, .stages = MEL_GPU_SHADER_STAGE_VERTEX },
         { .binding = 2, .type = MEL_GPU_DESCRIPTOR_STORAGE_BUFFER, .count = 1, .stages = MEL_GPU_SHADER_STAGE_VERTEX | MEL_GPU_SHADER_STAGE_FRAGMENT },
+        { .binding = 3, .type = MEL_GPU_DESCRIPTOR_STORAGE_BUFFER, .count = 1, .stages = MEL_GPU_SHADER_STAGE_VERTEX | MEL_GPU_SHADER_STAGE_FRAGMENT },
     };
     void* extra_layouts[] = { texture_table->layout._layout };
 
@@ -853,7 +885,7 @@ static void mel__scene_forward_compile(void* data)
         .push_constant_size = sizeof(Forward3D_Push),
         .push_constant_stages = MEL_GPU_SHADER_STAGE_VERTEX | MEL_GPU_SHADER_STAGE_FRAGMENT,
         .descriptor_bindings = bindings,
-        .descriptor_binding_count = 3,
+        .descriptor_binding_count = 4,
         .extra_set_layouts = extra_layouts,
         .extra_set_layout_count = 1,
         .max_descriptor_sets = 16);

@@ -27,6 +27,7 @@
 typedef struct {
     f32 px, py, pz, _pad0;
     f32 nx, ny, nz, _pad1;
+    f32 tx, ty, tz, tw;
     f32 r, g, b, a;
     f32 u, v, _pad2, _pad3;
 } Cube_Vertex;
@@ -34,10 +35,14 @@ typedef struct {
 typedef struct {
     Mel_Vec4 base_color;
     u32 base_color_texture_idx;
+    u32 normal_texture_idx;
+    u32 metallic_roughness_texture_idx;
     u32 flags;
     f32 alpha_cutoff;
-    f32 _pad;
-} Unlit_Params;
+    f32 normal_scale;
+    f32 metallic_factor;
+    f32 roughness_factor;
+} Forward_Lit_Params;
 
 static Mel_Window_Handle s_window;
 static Mel_Swapchain_Handle s_swapchain;
@@ -58,12 +63,13 @@ static void make_face(Cube_Vertex* out, u32* idx_out, u32 base,
                        f32 p2x, f32 p2y, f32 p2z,
                        f32 p3x, f32 p3y, f32 p3z,
                        f32 nx, f32 ny, f32 nz,
+                       f32 tx, f32 ty, f32 tz,
                        f32 cr, f32 cg, f32 cb)
 {
-    out[0] = (Cube_Vertex){ p0x, p0y, p0z, 0, nx, ny, nz, 0, cr, cg, cb, 1, 0, 0, 0, 0 };
-    out[1] = (Cube_Vertex){ p1x, p1y, p1z, 0, nx, ny, nz, 0, cr, cg, cb, 1, 1, 0, 0, 0 };
-    out[2] = (Cube_Vertex){ p2x, p2y, p2z, 0, nx, ny, nz, 0, cr, cg, cb, 1, 1, 1, 0, 0 };
-    out[3] = (Cube_Vertex){ p3x, p3y, p3z, 0, nx, ny, nz, 0, cr, cg, cb, 1, 0, 1, 0, 0 };
+    out[0] = (Cube_Vertex){ p0x, p0y, p0z, 0, nx, ny, nz, 0, tx, ty, tz, 1, cr, cg, cb, 1, 0, 0, 0, 0 };
+    out[1] = (Cube_Vertex){ p1x, p1y, p1z, 0, nx, ny, nz, 0, tx, ty, tz, 1, cr, cg, cb, 1, 1, 0, 0, 0 };
+    out[2] = (Cube_Vertex){ p2x, p2y, p2z, 0, nx, ny, nz, 0, tx, ty, tz, 1, cr, cg, cb, 1, 1, 1, 0, 0 };
+    out[3] = (Cube_Vertex){ p3x, p3y, p3z, 0, nx, ny, nz, 0, tx, ty, tz, 1, cr, cg, cb, 1, 0, 1, 0, 0 };
 
     idx_out[0] = base;     idx_out[1] = base + 1; idx_out[2] = base + 2;
     idx_out[3] = base + 2; idx_out[4] = base + 3; idx_out[5] = base;
@@ -107,12 +113,12 @@ void app_init(void)
     Cube_Vertex verts[24];
     u32 indices[36];
 
-    make_face(&verts[0],  &indices[0],  0,  -1,-1, 1,  1,-1, 1,  1, 1, 1, -1, 1, 1,  0, 0, 1, 0.90f, 0.32f, 0.28f);
-    make_face(&verts[4],  &indices[6],  4,   1,-1,-1, -1,-1,-1, -1, 1,-1,  1, 1,-1,  0, 0,-1, 0.23f, 0.52f, 0.92f);
-    make_face(&verts[8],  &indices[12], 8,  -1,-1,-1, -1,-1, 1, -1, 1, 1, -1, 1,-1, -1, 0, 0, 0.18f, 0.78f, 0.48f);
-    make_face(&verts[12], &indices[18], 12,  1,-1, 1,  1,-1,-1,  1, 1,-1,  1, 1, 1,  1, 0, 0, 0.95f, 0.72f, 0.22f);
-    make_face(&verts[16], &indices[24], 16, -1, 1, 1,  1, 1, 1,  1, 1,-1, -1, 1,-1,  0, 1, 0, 0.64f, 0.42f, 0.90f);
-    make_face(&verts[20], &indices[30], 20, -1,-1,-1,  1,-1,-1,  1,-1, 1, -1,-1, 1,  0,-1, 0, 0.20f, 0.82f, 0.88f);
+    make_face(&verts[0],  &indices[0],  0,  -1,-1, 1,  1,-1, 1,  1, 1, 1, -1, 1, 1,  0, 0, 1,  1, 0, 0, 0.90f, 0.32f, 0.28f);
+    make_face(&verts[4],  &indices[6],  4,   1,-1,-1, -1,-1,-1, -1, 1,-1,  1, 1,-1,  0, 0,-1, -1, 0, 0, 0.23f, 0.52f, 0.92f);
+    make_face(&verts[8],  &indices[12], 8,  -1,-1,-1, -1,-1, 1, -1, 1, 1, -1, 1,-1, -1, 0, 0,  0, 0, 1, 0.18f, 0.78f, 0.48f);
+    make_face(&verts[12], &indices[18], 12,  1,-1, 1,  1,-1,-1,  1, 1,-1,  1, 1, 1,  1, 0, 0,  0, 0,-1, 0.95f, 0.72f, 0.22f);
+    make_face(&verts[16], &indices[24], 16, -1, 1, 1,  1, 1, 1,  1, 1,-1, -1, 1,-1,  0, 1, 0,  1, 0, 0, 0.64f, 0.42f, 0.90f);
+    make_face(&verts[20], &indices[30], 20, -1,-1,-1,  1,-1,-1,  1,-1, 1, -1,-1, 1,  0,-1, 0,  1, 0, 0, 0.20f, 0.82f, 0.88f);
 
     Mel_Geometry_Upload upload = {
         .vertices = verts,
@@ -125,18 +131,18 @@ void app_init(void)
 
     mel_pipeline_scene_forward_set_geometry_pool(&s_geo_pool);
 
-    Mel_Material_Base_Id unlit_id = mel_material_base_find(S8("unlit"));
-    if (unlit_id == MEL_MATERIAL_BASE_ID_INVALID)
+    Mel_Material_Base_Id forward_lit_id = mel_material_base_find(S8("forward_lit"));
+    if (forward_lit_id == MEL_MATERIAL_BASE_ID_INVALID)
     {
-        unlit_id = mel_material_base_register(&(Mel_Material_Base_Desc){
-            .name = S8("unlit"),
-            .param_size = sizeof(Unlit_Params),
+        forward_lit_id = mel_material_base_register(&(Mel_Material_Base_Desc){
+            .name = S8("forward_lit"),
+            .param_size = sizeof(Forward_Lit_Params),
             .compat = MEL_COMPAT_FORWARD,
         });
     }
 
-    Unlit_Params white = { .base_color = {{ 1, 1, 1, 1 }} };
-    Mel_Material_Instance_Id mat_inst = mel_material_base_alloc_instance(unlit_id, &white);
+    Forward_Lit_Params white = { .base_color = {{ 1, 1, 1, 1 }}, .normal_scale = 1.0f, .roughness_factor = 1.0f };
+    Mel_Material_Instance_Id mat_inst = mel_material_base_alloc_instance(forward_lit_id, &white);
 
     s_source = mel_source_manual_create(alloc);
     s_scene = mel_render_scene_create(
@@ -168,7 +174,7 @@ void app_init(void)
         MEL_MAT4_IDENTITY,
         (Mel_Render_Bounds){ .center = mel_vec3(0,0,0), .extents = mel_vec3(1,1,1) },
         (Mel_Render_Info){
-            .material_base_id = unlit_id,
+            .material_base_id = forward_lit_id,
             .material_idx = mat_inst,
             .mesh = s_cube_mesh,
             .layer_mask = 0xFFFFFFFF,

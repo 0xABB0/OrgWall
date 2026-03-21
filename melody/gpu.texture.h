@@ -5,6 +5,11 @@
 
 typedef struct Mel_Gpu_Texture Mel_Gpu_Texture;
 
+#define MEL_GPU_SAMPLER_ADDRESS_DEFAULT         0u
+#define MEL_GPU_SAMPLER_ADDRESS_CLAMP_TO_EDGE   1u
+#define MEL_GPU_SAMPLER_ADDRESS_REPEAT          2u
+#define MEL_GPU_SAMPLER_ADDRESS_MIRRORED_REPEAT 3u
+
 struct Mel_Gpu_Texture {
     Mel_Gpu_Image image;
     void* _sampler;
@@ -20,6 +25,10 @@ typedef struct {
     u32 height;
     Mel_Gpu_Format format;
     bool nearest_filter;
+    bool generate_mips;
+    u32 address_mode_u;
+    u32 address_mode_v;
+    u32 address_mode_w;
     const Mel_Alloc* alloc;
 } Mel_Gpu_Texture_Opt;
 

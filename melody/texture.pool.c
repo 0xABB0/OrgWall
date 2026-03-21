@@ -153,12 +153,29 @@ void mel_texture_pool_shutdown(Mel_Texture_Pool* pool)
     *pool = (Mel_Texture_Pool){0};
 }
 
-Mel_Texture_Handle mel_texture_pool_load(Mel_Texture_Pool* pool, str8 path)
+Mel_Texture_Handle mel_texture_pool_load_opt(Mel_Texture_Pool* pool, str8 path, Mel_Texture_Pool_Load_Opt opt)
 {
     assert(pool != nullptr);
     assert(!str8_is_empty(path));
 
-    u64 hash = str8_hash(path);
+    struct {
+        u64 path_hash;
+        u32 format;
+        u8 nearest_filter;
+        u8 generate_mips;
+        u8 address_mode_u;
+        u8 address_mode_v;
+        u8 address_mode_w;
+    } key_desc = {
+        .path_hash = str8_hash(path),
+        .format = opt.format ? opt.format : MEL_GPU_FORMAT_R8G8B8A8_SRGB,
+        .nearest_filter = opt.nearest_filter ? 1u : 0u,
+        .generate_mips = opt.generate_mips ? 1u : 0u,
+        .address_mode_u = (u8)opt.address_mode_u,
+        .address_mode_v = (u8)opt.address_mode_v,
+        .address_mode_w = (u8)opt.address_mode_w,
+    };
+    u64 hash = mel_xxh64(&key_desc, sizeof(key_desc), 0);
 
     void* existing = mel_hashmap_get(&pool->path_to_handle, (void*)(usize)hash);
     if (existing)
@@ -173,7 +190,13 @@ Mel_Texture_Handle mel_texture_pool_load(Mel_Texture_Pool* pool, str8 path)
         .state = MEL_TEXTURE_STATE_UNLOADED,
     };
 
-    if (mel_texture_load(&entry.gpu_texture, pool->dev, pool->alloc, path))
+    if (mel_texture_load(&entry.gpu_texture, pool->dev, pool->alloc, path,
+            .format = key_desc.format,
+            .nearest_filter = key_desc.nearest_filter != 0,
+            .generate_mips = key_desc.generate_mips != 0,
+            .address_mode_u = key_desc.address_mode_u,
+            .address_mode_v = key_desc.address_mode_v,
+            .address_mode_w = key_desc.address_mode_w))
     {
         if (pool->pipeline)
         {

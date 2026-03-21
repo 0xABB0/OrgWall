@@ -27,6 +27,7 @@
 typedef struct {
     f32 px, py, pz, _pad0;
     f32 nx, ny, nz, _pad1;
+    f32 tx, ty, tz, tw;
     f32 r, g, b, a;
     f32 u, v, _pad2, _pad3;
 } Demo_Vertex;
@@ -34,10 +35,14 @@ typedef struct {
 typedef struct {
     Mel_Vec4 base_color;
     u32 base_color_texture_idx;
+    u32 normal_texture_idx;
+    u32 metallic_roughness_texture_idx;
     u32 flags;
     f32 alpha_cutoff;
-    f32 _pad;
-} Unlit_Params;
+    f32 normal_scale;
+    f32 metallic_factor;
+    f32 roughness_factor;
+} Forward_Lit_Params;
 
 static Mel_Window_Handle s_window;
 static Mel_Swapchain_Handle s_swapchain;
@@ -58,12 +63,13 @@ static void make_face(Demo_Vertex* out, u32* idx_out, u32 base,
                       f32 p1x, f32 p1y, f32 p1z,
                       f32 p2x, f32 p2y, f32 p2z,
                       f32 p3x, f32 p3y, f32 p3z,
-                      f32 nx, f32 ny, f32 nz)
+                      f32 nx, f32 ny, f32 nz,
+                      f32 tx, f32 ty, f32 tz)
 {
-    out[0] = (Demo_Vertex){ p0x, p0y, p0z, 0, nx, ny, nz, 0, 1, 1, 1, 1, 0, 0, 0, 0 };
-    out[1] = (Demo_Vertex){ p1x, p1y, p1z, 0, nx, ny, nz, 0, 1, 1, 1, 1, 1, 0, 0, 0 };
-    out[2] = (Demo_Vertex){ p2x, p2y, p2z, 0, nx, ny, nz, 0, 1, 1, 1, 1, 1, 1, 0, 0 };
-    out[3] = (Demo_Vertex){ p3x, p3y, p3z, 0, nx, ny, nz, 0, 1, 1, 1, 1, 0, 1, 0, 0 };
+    out[0] = (Demo_Vertex){ p0x, p0y, p0z, 0, nx, ny, nz, 0, tx, ty, tz, 1, 1, 1, 1, 1, 0, 0, 0, 0 };
+    out[1] = (Demo_Vertex){ p1x, p1y, p1z, 0, nx, ny, nz, 0, tx, ty, tz, 1, 1, 1, 1, 1, 1, 0, 0, 0 };
+    out[2] = (Demo_Vertex){ p2x, p2y, p2z, 0, nx, ny, nz, 0, tx, ty, tz, 1, 1, 1, 1, 1, 1, 1, 0, 0 };
+    out[3] = (Demo_Vertex){ p3x, p3y, p3z, 0, nx, ny, nz, 0, tx, ty, tz, 1, 1, 1, 1, 1, 0, 1, 0, 0 };
 
     idx_out[0] = base;
     idx_out[1] = base + 1;
@@ -84,12 +90,12 @@ static Mel_Geometry_Handle make_box_mesh(Mel_Geometry_Pool* pool, f32 cx, f32 sx
     f32 z0 = -0.35f;
     f32 z1 = 0.35f;
 
-    make_face(&verts[0],  &indices[0],  0,  x0,y0,z1,  x1,y0,z1,  x1,y1,z1,  x0,y1,z1,  0, 0, 1);
-    make_face(&verts[4],  &indices[6],  4,  x1,y0,z0,  x0,y0,z0,  x0,y1,z0,  x1,y1,z0,  0, 0,-1);
-    make_face(&verts[8],  &indices[12], 8,  x0,y0,z0,  x0,y0,z1,  x0,y1,z1,  x0,y1,z0, -1, 0, 0);
-    make_face(&verts[12], &indices[18], 12, x1,y0,z1,  x1,y0,z0,  x1,y1,z0,  x1,y1,z1,  1, 0, 0);
-    make_face(&verts[16], &indices[24], 16, x0,y1,z1,  x1,y1,z1,  x1,y1,z0,  x0,y1,z0,  0, 1, 0);
-    make_face(&verts[20], &indices[30], 20, x0,y0,z0,  x1,y0,z0,  x1,y0,z1,  x0,y0,z1,  0,-1, 0);
+    make_face(&verts[0],  &indices[0],  0,  x0,y0,z1,  x1,y0,z1,  x1,y1,z1,  x0,y1,z1,  0, 0, 1,  1, 0, 0);
+    make_face(&verts[4],  &indices[6],  4,  x1,y0,z0,  x0,y0,z0,  x0,y1,z0,  x1,y1,z0,  0, 0,-1, -1, 0, 0);
+    make_face(&verts[8],  &indices[12], 8,  x0,y0,z0,  x0,y0,z1,  x0,y1,z1,  x0,y1,z0, -1, 0, 0,  0, 0, 1);
+    make_face(&verts[12], &indices[18], 12, x1,y0,z1,  x1,y0,z0,  x1,y1,z0,  x1,y1,z1,  1, 0, 0,  0, 0,-1);
+    make_face(&verts[16], &indices[24], 16, x0,y1,z1,  x1,y1,z1,  x1,y1,z0,  x0,y1,z0,  0, 1, 0,  1, 0, 0);
+    make_face(&verts[20], &indices[30], 20, x0,y0,z0,  x1,y0,z0,  x1,y0,z1,  x0,y0,z1,  0,-1, 0,  1, 0, 0);
 
     Mel_Geometry_Upload upload = {
         .vertices = verts,
@@ -132,20 +138,20 @@ void app_init(void)
     s_right_mesh = make_box_mesh(&s_geo_pool, 0.55f, 0.38f);
     mel_pipeline_scene_forward_set_geometry_pool(&s_geo_pool);
 
-    Mel_Material_Base_Id unlit_id = mel_material_base_find(S8("unlit"));
-    if (unlit_id == MEL_MATERIAL_BASE_ID_INVALID)
+    Mel_Material_Base_Id forward_lit_id = mel_material_base_find(S8("forward_lit"));
+    if (forward_lit_id == MEL_MATERIAL_BASE_ID_INVALID)
     {
-        unlit_id = mel_material_base_register(&(Mel_Material_Base_Desc){
-            .name = S8("unlit"),
-            .param_size = sizeof(Unlit_Params),
+        forward_lit_id = mel_material_base_register(&(Mel_Material_Base_Desc){
+            .name = S8("forward_lit"),
+            .param_size = sizeof(Forward_Lit_Params),
             .compat = MEL_COMPAT_FORWARD,
         });
     }
 
-    Mel_Material_Instance_Id red_mat = mel_material_base_alloc_instance(unlit_id,
-        &(Unlit_Params){ .base_color = {{ 0.95f, 0.24f, 0.18f, 1.0f }} });
-    Mel_Material_Instance_Id blue_mat = mel_material_base_alloc_instance(unlit_id,
-        &(Unlit_Params){ .base_color = {{ 0.16f, 0.44f, 0.95f, 1.0f }} });
+    Mel_Material_Instance_Id red_mat = mel_material_base_alloc_instance(forward_lit_id,
+        &(Forward_Lit_Params){ .base_color = {{ 0.95f, 0.24f, 0.18f, 1.0f }} });
+    Mel_Material_Instance_Id blue_mat = mel_material_base_alloc_instance(forward_lit_id,
+        &(Forward_Lit_Params){ .base_color = {{ 0.16f, 0.44f, 0.95f, 1.0f }} });
 
     s_source = mel_source_manual_create(alloc);
     s_scene = mel_render_scene_create(.dev = dev, .alloc = alloc);
@@ -175,15 +181,15 @@ void app_init(void)
         MEL_MAT4_IDENTITY,
         (Mel_Render_Bounds){ .center = mel_vec3(0,0,0), .extents = mel_vec3(1.2f, 1.0f, 0.5f) },
         (Mel_Render_Info){
-            .material_base_id = unlit_id,
+            .material_base_id = forward_lit_id,
             .material_idx = red_mat,
             .mesh = s_left_mesh,
             .layer_mask = 0xFFFFFFFF,
         });
 
     mel_source_manual_set_material_bindings(s_source, s_object_handle, (Mel_Render_Material_Binding[2]){
-        { .slot = 0, .material_base_id = unlit_id, .material_idx = red_mat, .flags = 0 },
-        { .slot = 1, .material_base_id = unlit_id, .material_idx = blue_mat, .flags = 0 },
+        { .slot = 0, .material_base_id = forward_lit_id, .material_idx = red_mat, .flags = 0 },
+        { .slot = 1, .material_base_id = forward_lit_id, .material_idx = blue_mat, .flags = 0 },
     }, 2);
 
     mel_source_manual_set_mesh_parts(s_source, s_object_handle, (Mel_Render_Mesh_Part[2]){

@@ -40,11 +40,22 @@ typedef struct {
     Mel_Gpu_Pipeline* pipeline;
 } Mel_Texture_Pool_Opt;
 
+typedef struct {
+    u32 format;
+    bool nearest_filter;
+    bool generate_mips;
+    u32 address_mode_u;
+    u32 address_mode_v;
+    u32 address_mode_w;
+} Mel_Texture_Pool_Load_Opt;
+
 void              mel_texture_pool_init_opt(Mel_Texture_Pool* pool, const Mel_Alloc* alloc, Mel_Gpu_Device* dev, Mel_Texture_Pool_Opt opt);
 #define mel_texture_pool_init(pool, alloc, dev, ...) mel_texture_pool_init_opt((pool), (alloc), (dev), (Mel_Texture_Pool_Opt){__VA_ARGS__})
 
 void              mel_texture_pool_shutdown(Mel_Texture_Pool* pool);
-Mel_Texture_Handle mel_texture_pool_load(Mel_Texture_Pool* pool, str8 path);
+Mel_Texture_Handle mel_texture_pool_load_opt(Mel_Texture_Pool* pool, str8 path, Mel_Texture_Pool_Load_Opt opt);
+#define mel_texture_pool_load(pool, path, ...) \
+    mel_texture_pool_load_opt((pool), (path), (Mel_Texture_Pool_Load_Opt){__VA_ARGS__})
 Mel_Gpu_Texture*  mel_texture_pool_get(Mel_Texture_Pool* pool, Mel_Texture_Handle handle);
 bool              mel_texture_pool_unload(Mel_Texture_Pool* pool, Mel_Texture_Handle handle);
 bool              mel_texture_pool_is_loaded(Mel_Texture_Pool* pool, Mel_Texture_Handle handle);
