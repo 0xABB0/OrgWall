@@ -1,6 +1,7 @@
 #include "editor.h"
 #include "editor.registry.h"
 #include "string.str8.h"
+#include "log.h"
 
 #include <cimgui/cimgui.h>
 #include <SDL3/SDL.h>
@@ -73,7 +74,7 @@ void mel_game_editor_toggle(Mel_GameEditor* ge)
     assert(ge != nullptr);
 
     ge->visible = !ge->visible;
-    SDL_Log("Editor %s", ge->visible ? "shown" : "hidden");
+    mel_log_info("editor", "Editor %s", ge->visible ? "shown" : "hidden");
 }
 
 void mel_game_editor_show_texture_picker(Mel_GameEditor* ge, Mel_TexturePickerCallback cb, void* userdata)
@@ -190,12 +191,12 @@ static void draw_texture_picker_popup(Mel_GameEditor* ge)
                     ge->texture_picker_callback(filename, ge->texture_picker_userdata);
                 }
 
-                SDL_Log("Imported texture: %s", ge->pending_file_path);
+                mel_log_info("editor", "Imported texture: %s", ge->pending_file_path);
                 ge->show_texture_picker = false;
             }
             else
             {
-                SDL_Log("Failed to import texture: %s", ge->pending_file_path);
+                mel_log_error("editor", "Failed to import texture: %s", ge->pending_file_path);
             }
         }
         ge->pending_file_path[0] = '\0';
@@ -260,7 +261,7 @@ static void draw_texture_picker_popup(Mel_GameEditor* ge)
                             ge->texture_picker_callback(str8_from_cstr(manual_path), ge->texture_picker_userdata);
                         }
                         ge->show_texture_picker = false;
-                        SDL_Log("Loaded texture: %s", manual_path);
+                        mel_log_info("editor", "Loaded texture: %s", manual_path);
                     }
                 }
             }

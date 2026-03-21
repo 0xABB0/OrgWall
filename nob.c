@@ -1,5 +1,6 @@
 #define NOB_IMPLEMENTATION
 #include "nob.h"
+#include "melody/allocator.guard.cfg.h"
 
 #define BUILD_DIR "build"
 #define SUCK_DIR "/Users/gabbo/repo/suck"
@@ -12,6 +13,8 @@ static int g_build_mode = BUILD_MODE_DEBUG;
 static bool g_verbose = false;
 static bool g_timings = false;
 static const char* g_backend = "vulkan";
+static const char* g_build_signature_path = BUILD_DIR "/.build_signature";
+static int g_memory_debug = MEL_MEMORY_DEBUG_NONE;
 
 #define TIMING_LEVEL (g_verbose ? NOB_INFO : NOB_WARNING)
 
@@ -76,10 +79,36 @@ static const char* CXXFLAGS_BASE[] = {
     "-DFLECS_NO_CPP",
 };
 
+static const char* memory_debug_name(int level)
+{
+    switch (level)
+    {
+    case MEL_MEMORY_DEBUG_NONE: return "none";
+    case MEL_MEMORY_DEBUG_LIGHT: return "light";
+    case MEL_MEMORY_DEBUG_HEAVY: return "heavy";
+    case MEL_MEMORY_DEBUG_PARANOID: return "paranoid";
+    default: return "unknown";
+    }
+}
+
+static const char* memory_debug_define(int level)
+{
+    switch (level)
+    {
+    case MEL_MEMORY_DEBUG_NONE: return "-DMEL_MEMORY_DEBUG=MEL_MEMORY_DEBUG_NONE";
+    case MEL_MEMORY_DEBUG_LIGHT: return "-DMEL_MEMORY_DEBUG=MEL_MEMORY_DEBUG_LIGHT";
+    case MEL_MEMORY_DEBUG_HEAVY: return "-DMEL_MEMORY_DEBUG=MEL_MEMORY_DEBUG_HEAVY";
+    case MEL_MEMORY_DEBUG_PARANOID: return "-DMEL_MEMORY_DEBUG=MEL_MEMORY_DEBUG_PARANOID";
+    default: return "-DMEL_MEMORY_DEBUG=MEL_MEMORY_DEBUG_NONE";
+    }
+}
+
 static void cmd_append_cflags(Nob_Cmd* cmd)
 {
     for (size_t i = 0; i < NOB_ARRAY_LEN(CFLAGS_BASE); i++)
         nob_cmd_append(cmd, CFLAGS_BASE[i]);
+
+    nob_cmd_append(cmd, memory_debug_define(g_memory_debug));
 
     if (g_build_mode == BUILD_MODE_RELEASE)
     {
@@ -102,6 +131,8 @@ static void cmd_append_cxxflags(Nob_Cmd* cmd)
 {
     for (size_t i = 0; i < NOB_ARRAY_LEN(CXXFLAGS_BASE); i++)
         nob_cmd_append(cmd, CXXFLAGS_BASE[i]);
+
+    nob_cmd_append(cmd, memory_debug_define(g_memory_debug));
 
     if (g_build_mode == BUILD_MODE_RELEASE)
     {
@@ -240,6 +271,101 @@ typedef enum {
     CPP_MODE_TRACY,
 } Cpp_Mode;
 
+static bool ensure_build_signature(void)
+{
+    if (!nob_mkdir_if_not_exists(BUILD_DIR)) return false;
+
+    Nob_String_Builder sb = {0};
+
+    nob_sb_append_cstr(&sb, "build_mode=");
+    nob_sb_append_cstr(&sb, g_build_mode == BUILD_MODE_RELEASE ? "release" :
+                            g_build_mode == BUILD_MODE_SANITIZE ? "sanitize" : "debug");
+    nob_sb_append_cstr(&sb, "\nbackend=");
+    nob_sb_append_cstr(&sb, g_backend);
+    nob_sb_append_cstr(&sb, "\nmemory_debug=");
+    nob_sb_append_cstr(&sb, memory_debug_name(g_memory_debug));
+    nob_sb_append_cstr(&sb, "\n\n[cflags]\n");
+    for (size_t i = 0; i < NOB_ARRAY_LEN(CFLAGS_BASE); i++)
+    {
+        nob_sb_append_cstr(&sb, CFLAGS_BASE[i]);
+        nob_sb_append_cstr(&sb, "\n");
+    }
+
+    nob_sb_append_cstr(&sb, "\n[cxxflags]\n");
+    for (size_t i = 0; i < NOB_ARRAY_LEN(CXXFLAGS_BASE); i++)
+    {
+        nob_sb_append_cstr(&sb, CXXFLAGS_BASE[i]);
+        nob_sb_append_cstr(&sb, "\n");
+    }
+
+    nob_sb_append_cstr(&sb, "\n[platform suffixes]\n");
+    for (size_t i = 0; i < NOB_ARRAY_LEN(PLATFORM_SUFFIXES); i++)
+    {
+        nob_sb_append_cstr(&sb, PLATFORM_SUFFIXES[i].suffix);
+        nob_sb_append_cstr(&sb, "=");
+        nob_sb_append_cstr(&sb, PLATFORM_SUFFIXES[i].active ? "1" : "0");
+        nob_sb_append_cstr(&sb, "\n");
+    }
+
+    nob_sb_append_cstr(&sb, "\n[backends]\n");
+    for (size_t i = 0; i < NOB_ARRAY_LEN(BACKENDS); i++)
+    {
+        nob_sb_append_cstr(&sb, BACKENDS[i].name);
+        nob_sb_append_cstr(&sb, "=");
+        nob_sb_append_cstr(&sb, BACKENDS[i].suffix);
+        nob_sb_append_cstr(&sb, "\n");
+    }
+
+    if (g_build_mode == BUILD_MODE_RELEASE)
+    {
+        nob_sb_append_cstr(&sb, "\n[mode flags]\n");
+        nob_sb_append_cstr(&sb, memory_debug_define(g_memory_debug));
+        nob_sb_append_cstr(&sb, "\n-O2\n-DNDEBUG\n-flto\n");
+    }
+    else if (g_build_mode == BUILD_MODE_SANITIZE)
+    {
+        nob_sb_append_cstr(&sb, "\n[mode flags]\n");
+        nob_sb_append_cstr(&sb, memory_debug_define(g_memory_debug));
+        nob_sb_append_cstr(&sb, "\n-g\n-O0\n-DTRACY_ENABLE\n-DMEL_CONFIG_DEBUG_ALLOCATOR\n");
+        nob_sb_append_cstr(&sb, "-fsanitize=address,undefined\n-fno-omit-frame-pointer\n");
+    }
+    else
+    {
+        nob_sb_append_cstr(&sb, "\n[mode flags]\n");
+        nob_sb_append_cstr(&sb, memory_debug_define(g_memory_debug));
+        nob_sb_append_cstr(&sb, "\n-g\n-O0\n-DTRACY_ENABLE\n-DMEL_CONFIG_DEBUG_ALLOCATOR\n");
+    }
+
+    nob_sb_append_null(&sb);
+
+    Nob_String_Builder existing = {0};
+    bool same = false;
+    if (nob_read_entire_file(g_build_signature_path, &existing))
+    {
+        same = strcmp(existing.items, sb.items) == 0;
+        free(existing.items);
+    }
+
+    if (same)
+    {
+        free(sb.items);
+        return true;
+    }
+
+    FILE* f = fopen(g_build_signature_path, "wb");
+    if (!f)
+    {
+        nob_log(NOB_ERROR, "Failed to write build signature: %s", g_build_signature_path);
+        free(sb.items);
+        return false;
+    }
+
+    fwrite(sb.items, 1, sb.count - 1, f);
+    fclose(f);
+    free(sb.items);
+    return true;
+}
+
 const char* obj_to_depfile(const char* obj)
 {
     char* dep = nob_temp_strdup(obj);
@@ -314,6 +440,8 @@ int needs_compile(const char* src, const char* obj)
 
     Nob_File_Paths deps = {0};
     if (!parse_depfile(depfile, &deps)) return 1;
+
+    nob_da_append(&deps, nob_temp_strdup(g_build_signature_path));
 
     int result = nob_needs_rebuild(obj, deps.items, deps.count);
     free(deps.items);
@@ -467,6 +595,8 @@ static const char* CIMGUI_SOURCES[] = {
 
 bool build_libs(void)
 {
+    if (!ensure_build_signature()) return false;
+
     uint64_t t_total_start = nob_nanos_since_unspecified_epoch();
 
     uint64_t t0 = nob_nanos_since_unspecified_epoch();
@@ -878,6 +1008,32 @@ void compdb_append_args(Nob_String_Builder* sb, const char** args, size_t count)
     }
 }
 
+static void compdb_append_mode_flags(Nob_String_Builder* sb, bool cpp)
+{
+    nob_sb_append_cstr(sb, " ");
+    nob_sb_append_cstr(sb, memory_debug_define(g_memory_debug));
+
+    if (g_build_mode == BUILD_MODE_RELEASE)
+    {
+        nob_sb_append_cstr(sb, " -O2 -DNDEBUG -flto");
+    }
+    else if (g_build_mode == BUILD_MODE_SANITIZE)
+    {
+        nob_sb_append_cstr(sb, " -g -O0");
+        if (!cpp)
+            nob_sb_append_cstr(sb, " -DTRACY_ENABLE");
+        nob_sb_append_cstr(sb, " -DMEL_CONFIG_DEBUG_ALLOCATOR");
+        nob_sb_append_cstr(sb, " -fsanitize=address,undefined -fno-omit-frame-pointer");
+    }
+    else
+    {
+        nob_sb_append_cstr(sb, " -g -O0");
+        if (!cpp)
+            nob_sb_append_cstr(sb, " -DTRACY_ENABLE");
+        nob_sb_append_cstr(sb, " -DMEL_CONFIG_DEBUG_ALLOCATOR");
+    }
+}
+
 void compdb_write_json_string(FILE* f, const char* s, size_t len)
 {
     fputc('"', f);
@@ -1016,7 +1172,7 @@ bool build_compdb(void)
         Nob_String_Builder sb = {0};
         nob_sb_append_cstr(&sb, "clang");
         compdb_append_args(&sb, CFLAGS_BASE, NOB_ARRAY_LEN(CFLAGS_BASE));
-        nob_sb_append_cstr(&sb, " -g -O0 -DTRACY_ENABLE -DMEL_CONFIG_DEBUG_ALLOCATOR");
+        compdb_append_mode_flags(&sb, false);
         compdb_append_args(&sb, INCLUDE_PATHS, NOB_ARRAY_LEN(INCLUDE_PATHS));
         nob_sb_append_cstr(&sb, " -c ");
         nob_sb_append_cstr(&sb, c_files.items[i]);
@@ -1030,7 +1186,7 @@ bool build_compdb(void)
         Nob_String_Builder sb = {0};
         nob_sb_append_cstr(&sb, "clang");
         compdb_append_args(&sb, CFLAGS_BASE, NOB_ARRAY_LEN(CFLAGS_BASE));
-        nob_sb_append_cstr(&sb, " -g -O0 -DTRACY_ENABLE -DMEL_CONFIG_DEBUG_ALLOCATOR");
+        compdb_append_mode_flags(&sb, false);
         nob_sb_append_cstr(&sb, " -fobjc-arc");
         compdb_append_args(&sb, INCLUDE_PATHS, NOB_ARRAY_LEN(INCLUDE_PATHS));
         nob_sb_append_cstr(&sb, " -c ");
@@ -1045,7 +1201,7 @@ bool build_compdb(void)
         Nob_String_Builder sb = {0};
         nob_sb_append_cstr(&sb, "clang++");
         compdb_append_args(&sb, CXXFLAGS_BASE, NOB_ARRAY_LEN(CXXFLAGS_BASE));
-        nob_sb_append_cstr(&sb, " -g -O0 -DMEL_CONFIG_DEBUG_ALLOCATOR");
+        compdb_append_mode_flags(&sb, true);
         compdb_append_args(&sb, INCLUDE_PATHS, NOB_ARRAY_LEN(INCLUDE_PATHS));
         nob_sb_append_cstr(&sb, " -c ");
         nob_sb_append_cstr(&sb, cpp_files.items[i]);
@@ -1059,7 +1215,7 @@ bool build_compdb(void)
         Nob_String_Builder sb = {0};
         nob_sb_append_cstr(&sb, "clang++");
         compdb_append_args(&sb, CXXFLAGS_BASE, NOB_ARRAY_LEN(CXXFLAGS_BASE));
-        nob_sb_append_cstr(&sb, " -g -O0 -DMEL_CONFIG_DEBUG_ALLOCATOR");
+        compdb_append_mode_flags(&sb, true);
         compdb_append_args(&sb, INCLUDE_PATHS, NOB_ARRAY_LEN(INCLUDE_PATHS));
         nob_sb_append_cstr(&sb, " \"-DIMGUI_IMPL_API=extern \\\"C\\\"\"");
         nob_sb_append_cstr(&sb, " -DCIMGUI_USE_SDL3 -DCIMGUI_USE_VULKAN -DIMGUI_IMPL_VULKAN_USE_VOLK");
@@ -1089,7 +1245,7 @@ bool build_compdb(void)
         Nob_String_Builder sb = {0};
         nob_sb_append_cstr(&sb, "clang");
         compdb_append_args(&sb, CFLAGS_BASE, NOB_ARRAY_LEN(CFLAGS_BASE));
-        nob_sb_append_cstr(&sb, " -g -O0 -DTRACY_ENABLE -DMEL_CONFIG_DEBUG_ALLOCATOR");
+        compdb_append_mode_flags(&sb, false);
         compdb_append_args(&sb, INCLUDE_PATHS, NOB_ARRAY_LEN(INCLUDE_PATHS));
         nob_sb_append_cstr(&sb, " -c ");
         nob_sb_append_cstr(&sb, flecs_src);
@@ -1381,6 +1537,23 @@ int main(int argc, char** argv)
             }
             g_backend = name;
         }
+        else if (strncmp(argv[arg_idx], "--memory-debug=", 15) == 0)
+        {
+            const char* level = argv[arg_idx] + 15;
+            if (strcmp(level, "none") == 0)
+                g_memory_debug = MEL_MEMORY_DEBUG_NONE;
+            else if (strcmp(level, "light") == 0)
+                g_memory_debug = MEL_MEMORY_DEBUG_LIGHT;
+            else if (strcmp(level, "heavy") == 0)
+                g_memory_debug = MEL_MEMORY_DEBUG_HEAVY;
+            else if (strcmp(level, "paranoid") == 0)
+                g_memory_debug = MEL_MEMORY_DEBUG_PARANOID;
+            else
+            {
+                nob_log(NOB_ERROR, "Unknown memory debug level: %s (available: none, light, heavy, paranoid)", level);
+                return 1;
+            }
+        }
         else
         {
             nob_log(NOB_ERROR, "Unknown flag: %s", argv[arg_idx]);
@@ -1404,6 +1577,8 @@ int main(int argc, char** argv)
 
     if (strcmp(g_backend, "vulkan") != 0)
         nob_log(NOB_WARNING, "GPU backend: %s", g_backend);
+    if (g_memory_debug != MEL_MEMORY_DEBUG_NONE)
+        nob_log(NOB_WARNING, "Memory debug: %s", memory_debug_name(g_memory_debug));
 
     const char* subcmd = arg_idx < argc ? argv[arg_idx] : "build";
 
@@ -1515,7 +1690,7 @@ int main(int argc, char** argv)
     else
     {
         nob_log(NOB_ERROR, "Unknown command: %s", subcmd);
-        nob_log(NOB_ERROR, "Usage: ./nob [--verbose] [--timings] [release|sanitize] [libs|melody|build|test|demo|run|run-only|debug|compdb|clean]");
+        nob_log(NOB_ERROR, "Usage: ./nob [--verbose] [--timings] [--backend=<name>] [--memory-debug=<none|light|heavy|paranoid>] [release|sanitize] [libs|melody|build|test|demo|run|run-only|debug|compdb|clean]");
         return 1;
     }
 

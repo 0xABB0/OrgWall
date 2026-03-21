@@ -4,6 +4,7 @@
 
 #include "core.app.h"
 #include "core.engine.h"
+#include "log.h"
 #include "window.h"
 #include "swapchain.h"
 #include "gpu.swapchain.h"
@@ -461,7 +462,7 @@ static void on_init(void)
     mel_render_graph_compile(&s_graph);
     mel_set_render_graph(&s_graph);
 
-    SDL_Log("A* Pathfinder ready! LMB: walls, RMB: start/end, Space: solve, R: reset, C: clear");
+    mel_log_info("pathfind", "A* Pathfinder ready! LMB: walls, RMB: start/end, Space: solve, R: reset, C: clear");
 }
 
 static void app_update(Mel_Sim_Ctx* sim, f32 dt, void* user);

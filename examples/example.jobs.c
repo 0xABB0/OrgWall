@@ -4,6 +4,7 @@
 
 #include "core.app.h"
 #include "core.engine.h"
+#include "log.h"
 #include "window.h"
 #include "swapchain.h"
 #include "gpu.swapchain.h"
@@ -389,8 +390,8 @@ void app_init(void)
     fractal_recompute(&s_julia, julia_row);
 
     i32 threads = mel_job_worker_count();
-    SDL_Log("Fractals ready! %d worker threads + main thread", threads);
-    SDL_Log("Move mouse on Mandelbrot to change Julia c parameter");
+    mel_log_info("jobs", "Fractals ready! %d worker threads + main thread", threads);
+    mel_log_info("jobs", "Move mouse on Mandelbrot to change Julia c parameter");
 
     mel_sim_init(&s_sim, .event_buffer = s_event_buf, .event_buffer_size = sizeof(s_event_buf));
     mel_sim_add_variable(&s_sim, app_update);

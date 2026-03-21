@@ -2,7 +2,7 @@
 #include "mugen.air.h"
 #include "string.str8.h"
 #include "allocator.h"
-#include <SDL3/SDL.h>
+#include "log.h"
 #include <string.h>
 #include <stdlib.h>
 #include <assert.h>
@@ -597,7 +597,7 @@ bool mugen_cns_load(Mugen_Cns* out, str8 data, const Mel_Alloc* alloc)
     out->statedef_count = statedefs.count;
     out->constants = constants;
 
-    SDL_Log("CNS: parsed %u statedefs", statedefs.count);
+    mel_log_info("mugen.cns", "parsed %u statedefs", statedefs.count);
     return true;
 }
 

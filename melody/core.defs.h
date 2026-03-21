@@ -2,8 +2,13 @@
 
 #define unused(x) ((void)(x))
 
+#ifdef __cplusplus
+template<class T, size_t N> char (&mel__countof_helper(T (&)[N]))[N];
+#define countof(a)    (size)(sizeof(mel__countof_helper(a)))
+#else
 #define countof(a)    (size)(sizeof(a) / sizeof(*(a)) \
     + 0 * sizeof(char[1 - 2 * __builtin_types_compatible_p(__typeof__(a), __typeof__(&(a)[0]))]))
+#endif
 #define lengthof(s)   (countof(s) - 1)
 #define new(a, t, n)  (t *)alloc(a, sizeof(t), _Alignof(t), n)
 

@@ -305,12 +305,34 @@ test.harness.h/c // test framework (auto-registration, unified runner)
 gpu.vma.cpp // Vulkan Memory Allocator implementation unit
 lib.stb.c // STB image/truetype implementation unit
 
+log.* // logging system (lock-free ring buffer, sink architecture, TLS context)
+log.sink.* // log sink interface + built-in sinks (console, file, sqlite, test)
+
 // todo, find the domain and possibly, splitting in modules for these systems:
 - time
 - threads
 - sound
-- debug/logging (profiling, assertions, visualization)
+- debug (profiling, assertions, visualization)
 - scripting
+
+## Logging
+
+All logging MUST go through the engine's logging system (`mel_log_*` macros from `log.h`). Never use `SDL_Log`, `printf`, or `fprintf(stderr, ...)` for logging. The logging system provides:
+- Domain-tagged messages: `mel_log_info("gpu.device", "Selected GPU: %s", name)`
+- Automatic file/line capture
+- Lock-free ring buffer with dedicated writer thread
+- Multiple sinks (console, file, sqlite, test)
+- TLS context stacking, frame numbers, thread IDs
+
+Available levels (lower value = higher severity):
+- `mel_log_fatal` — unrecoverable failures
+- `mel_log_error` — operation failures (creation, I/O, parse)
+- `mel_log_warn` — degraded paths, fallbacks
+- `mel_log_info` — lifecycle events (init, shutdown, config)
+- `mel_log_debug` — diagnostic details (queue info, memory heaps, dimensions)
+- `mel_log_trace` — verbose tracing
+
+Domain strings should match the module: `"gpu.device"`, `"texture.pool"`, `"font.msdf"`, etc. For demos/examples, use the app name: `"street-carlos"`, `"tetris"`, etc.
 
 ## Warning:
 

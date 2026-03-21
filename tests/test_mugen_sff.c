@@ -4,6 +4,7 @@
 #include "allocator.heap.h"
 #include "string.str8.h"
 #include "vfs.h"
+#include "log.h"
 #include "vfs.backend.os.h"
 #include <SDL3/SDL.h>
 #include <stdlib.h>
@@ -112,7 +113,7 @@ MEL_TEST(sff_load_poison, .tags = "mugen")
     MEL_ASSERT_NOT_NULL(sff.atlas_pixels);
     MEL_ASSERT_EQ(sff.sheet.frame_count, sff.entry_count);
 
-    SDL_Log("  Sprites: %u, Atlas: %ux%u", sff.entry_count, sff.atlas_width, sff.atlas_height);
+    mel_log_debug("mugen.sff", "  Sprites: %u, Atlas: %ux%u", sff.entry_count, sff.atlas_width, sff.atlas_height);
 
     u32 frame_0_0 = mugen_sff_find_frame(&sff, 0, 0);
     Mel_Rect uv = mel_sprite_sheet_frame(&sff.sheet, frame_0_0);
@@ -123,7 +124,7 @@ MEL_TEST(sff_load_poison, .tags = "mugen")
     MEL_ASSERT_GT(e->width, (u16)0);
     MEL_ASSERT_GT(e->height, (u16)0);
 
-    SDL_Log("  Sprite [0,0]: %ux%u uv(%.3f,%.3f,%.3f,%.3f) offset(%d,%d)",
+    mel_log_debug("mugen.sff", "  Sprite [0,0]: %ux%u uv(%.3f,%.3f,%.3f,%.3f) offset(%d,%d)",
             e->width, e->height, uv.x, uv.y, uv.w, uv.h, e->offset_x, e->offset_y);
 
     Mugen_Sff_Entry* se = &sff.entries[frame_0_0];

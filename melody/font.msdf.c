@@ -13,6 +13,7 @@
 #include "gpu.shader.h"
 #include "math.scalar.h"
 #include "texture.pool.h"
+#include "log.h"
 #include "event.channel.h"
 #include "boot.registry.h"
 #include "async.job.h"
@@ -329,7 +330,7 @@ Mel_Font_MSDF_Handle mel_font_msdf_load_opt(Mel_Font_MSDF_Load_Opt opt)
     Mel_SlotMap_Handle sm_handle = mel_slotmap_insert(&s_pool.slotmap, &entry);
     mel_hashmap_put(&s_pool.dedup, (void*)(usize)hash, mel_slotmap_handle_to_ptr(sm_handle));
 
-    SDL_Log("font.msdf: loaded %.0fpx, atlas %ux%u", font_size, atlas_w, atlas_h);
+    mel_log_info("font.msdf", "loaded %.0fpx, atlas %ux%u", font_size, atlas_w, atlas_h);
     return (Mel_Font_MSDF_Handle){ .handle = sm_handle };
 }
 

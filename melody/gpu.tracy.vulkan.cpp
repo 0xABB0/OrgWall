@@ -9,7 +9,7 @@
 
 #include <tracy/TracyVulkan.hpp>
 
-#include <SDL3/SDL.h>
+#include "log.h"
 
 struct Mel_Gpu_Tracy_Ctx {
     TracyVkCtx ctx;
@@ -31,7 +31,7 @@ extern "C" bool mel_gpu_tracy_init(Mel_Gpu_Tracy_Ctx** out_ctx, Mel_Gpu_Device* 
 
     if (vk->has_portability_subset)
     {
-        SDL_Log("Tracy GPU disabled: Vulkan portability subset drivers reject Tracy's default timestamp query pool size");
+        mel_log_warn("gpu.tracy", "Tracy GPU disabled: Vulkan portability subset drivers reject Tracy's default timestamp query pool size");
         Mel_Gpu_Tracy_Ctx* tracy = new Mel_Gpu_Tracy_Ctx{};
         tracy->ctx = nullptr;
         tracy->enabled = false;

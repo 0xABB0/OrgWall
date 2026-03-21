@@ -5,7 +5,7 @@
 #include "gpu.types.vulkan.h"
 #include "allocator.h"
 #include "allocator.heap.h"
-#include <SDL3/SDL_log.h>
+#include "log.h"
 #include <string.h>
 
 static VkCullModeFlags cull_mode_to_vk(u32 mode)
@@ -251,7 +251,7 @@ void mel_gpu_pipeline_init_opt(Mel_Gpu_Pipeline* pipeline, Mel_Gpu_Device* dev, 
         VkResult r = vkCreateComputePipelines(mel__gpu_device_vk(dev)->device, VK_NULL_HANDLE, 1, &pipeline_info, nullptr, &vk_pipeline);
         assert(r == VK_SUCCESS);
         pipeline->_pipeline = vk_pipeline;
-        SDL_Log("Pipeline created successfully");
+        mel_log_debug("gpu.pipeline", "Pipeline created successfully");
         return;
     }
 
@@ -435,7 +435,7 @@ void mel_gpu_pipeline_init_opt(Mel_Gpu_Pipeline* pipeline, Mel_Gpu_Device* dev, 
     assert(r == VK_SUCCESS);
     pipeline->_pipeline = vk_pipeline;
 
-    SDL_Log("Pipeline created successfully");
+    mel_log_debug("gpu.pipeline", "Pipeline created successfully");
 }
 
 void mel_gpu_pipeline_shutdown(Mel_Gpu_Pipeline* pipeline, Mel_Gpu_Device* dev)

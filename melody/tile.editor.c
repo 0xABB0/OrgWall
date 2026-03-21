@@ -5,6 +5,7 @@
 #include "collection.slotmap.h"
 #include "string.str8.h"
 #include "allocator.h"
+#include "log.h"
 
 #include <cimgui/cimgui.h>
 #include <string.h>
@@ -155,13 +156,13 @@ void mel_ed_tiles_draw(Mel_EdTiles* ed)
             if (mel_tilemap_pool_save(ed->tilemap_pool, ed->tilemap_handle, str8_from_cstr(ed->tilemap_path)))
             {
                 ed->dirty = false;
-                SDL_Log("Saved tilemap: %s", ed->tilemap_path);
+                mel_log_info("tile.editor", "Saved tilemap: %s", ed->tilemap_path);
             }
         }
         if (ed->tileset && ed->tileset_pool && strlen(ed->tileset_path) > 0)
         {
             mel_tileset_pool_save(ed->tileset_pool, ed->tileset_handle, str8_from_cstr(ed->tileset_path));
-            SDL_Log("Saved tileset: %s", ed->tileset_path);
+            mel_log_info("tile.editor", "Saved tileset: %s", ed->tileset_path);
         }
     }
 }

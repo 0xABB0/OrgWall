@@ -6,8 +6,7 @@
 #include "allocator.h"
 #include "allocator.heap.h"
 #include "vfs.h"
-
-#include <SDL3/SDL.h>
+#include "log.h"
 
 static Mel_SlotMap  s_pool;
 static Mel_HashMap  s_path_map;
@@ -50,7 +49,7 @@ Mel_Font_Desc_Handle mel_font_desc_load_ttf(str8 path)
     u8* ttf_data = mel_vfs_read_file(path, &fsize, alloc);
     if (!ttf_data)
     {
-        SDL_Log("font.desc: failed to read '%.*s'", (int)path.len, path.data);
+        mel_log_error("font.desc", "failed to read '%.*s'", (int)path.len, path.data);
         return MEL_FONT_DESC_HANDLE_NULL;
     }
 
@@ -60,7 +59,7 @@ Mel_Font_Desc_Handle mel_font_desc_load_ttf(str8 path)
 
     if (!stbtt_InitFont(&desc.info, ttf_data, 0))
     {
-        SDL_Log("font.desc: failed to parse '%.*s'", (int)path.len, path.data);
+        mel_log_error("font.desc", "failed to parse '%.*s'", (int)path.len, path.data);
         mel_dealloc(alloc, ttf_data);
         return MEL_FONT_DESC_HANDLE_NULL;
     }
@@ -73,7 +72,7 @@ Mel_Font_Desc_Handle mel_font_desc_load_ttf(str8 path)
     Mel_SlotMap_Handle sm_handle = mel_slotmap_insert(&s_pool, &desc);
     mel_hashmap_put(&s_path_map, (void*)(usize)hash, mel_slotmap_handle_to_ptr(sm_handle));
 
-    SDL_Log("font.desc: loaded '%.*s' (upem=%d, ascent=%d, descent=%d)",
+    mel_log_info("font.desc", "loaded '%.*s' (upem=%d, ascent=%d, descent=%d)",
         (int)path.len, path.data, desc.units_per_em, desc.ascent, desc.descent);
 
     return (Mel_Font_Desc_Handle){ .handle = sm_handle };

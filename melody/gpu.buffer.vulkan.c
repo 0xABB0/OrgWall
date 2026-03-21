@@ -31,7 +31,11 @@ void mel_gpu_buffer_init_opt(Mel_Gpu_Buffer* buf, Mel_Gpu_Device* dev, Mel_Gpu_B
     };
 
     if (vma_usage == VMA_MEMORY_USAGE_CPU_TO_GPU || vma_usage == VMA_MEMORY_USAGE_CPU_ONLY)
-        alloc_info.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
+    {
+        alloc_info.flags |= VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
+        if (opt.map_on_create)
+            alloc_info.flags |= VMA_ALLOCATION_CREATE_MAPPED_BIT;
+    }
 
     VmaAllocationInfo allocation_info;
     VkBuffer vk_buffer = VK_NULL_HANDLE;

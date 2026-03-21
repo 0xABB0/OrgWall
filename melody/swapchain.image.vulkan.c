@@ -7,6 +7,7 @@
 #include "gpu.types.vulkan.h"
 #include "allocator.h"
 #include "allocator.heap.h"
+#include "log.h"
 
 typedef struct {
     const Mel_Alloc* alloc;
@@ -61,7 +62,7 @@ static bool create_images(Mel_Swapchain* sc, Mel_Gpu_Device* dev)
                                      &vk_image, &img->image_allocs[i], nullptr);
         if (r != VK_SUCCESS)
         {
-            SDL_Log("Failed to create image swapchain image %u: %d", i, r);
+            mel_log_error("gpu.swapchain", "Failed to create image swapchain image %u: %d", i, r);
             sc->image_count = i;
             return false;
         }
@@ -91,7 +92,7 @@ static bool create_images(Mel_Swapchain* sc, Mel_Gpu_Device* dev)
         VkResult rv = vkCreateImageView(mel__gpu_device_vk(dev)->device, &view_info, nullptr, &vk_view);
         if (rv != VK_SUCCESS)
         {
-            SDL_Log("Failed to create image swapchain view %u: %d", i, rv);
+            mel_log_error("gpu.swapchain", "Failed to create image swapchain view %u: %d", i, rv);
             vmaDestroyImage(mel__gpu_device_vk(dev)->vma, vk_image, img->image_allocs[i]);
             sc->image_count = i;
             return false;

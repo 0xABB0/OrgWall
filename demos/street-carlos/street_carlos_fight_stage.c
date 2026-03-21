@@ -17,6 +17,7 @@
 #include "sprite.pass.h"
 #include "string.path.h"
 #include "vfs.h"
+#include "log.h"
 
 #define STREET_CARLOS_FIGHT_SIMULATED_LOAD_MS 900
 
@@ -313,7 +314,7 @@ Mel_Progress_Status street_carlos_fight_stage_progress(void* user)
 
 static void street_carlos_fight_stage_fail(Street_Carlos_Fight_Stage* stage, const char* message)
 {
-    SDL_Log("%s", message);
+    mel_log_info("street-carlos", "%s", message);
     stage->prep.phase = STREET_CARLOS_FIGHT_PREP_FAILED;
     street_carlos_fight_stage_release_assets(stage);
     mel_progress_clear(&stage->ctx->load_progress);
@@ -335,7 +336,7 @@ static void street_carlos_fight_stage_enter(Street_Carlos_Fight_Stage* stage)
     stage->show_inputs = true;
     stage->paused = false;
     stage->initialized = true;
-    SDL_Log("FIGHT! P1: WASD + UIO(xyz) JKL(abc)  P2: Arrows + Numpad  Tab: hitboxes  T: tests  ESC: pause  `: console");
+    mel_log_info("street-carlos", "FIGHT! P1: WASD + UIO(xyz) JKL(abc)  P2: Arrows + Numpad  Tab: hitboxes  T: tests  ESC: pause  `: console");
 }
 
 static void street_carlos_fight_stage_leave(Street_Carlos_Fight_Stage* stage)
@@ -366,7 +367,7 @@ static void street_carlos_fight_stage_start(Mel_Stage* base, void* user)
 
     if (stage->prep.phase != STREET_CARLOS_FIGHT_PREP_READY || !stage->p1_char || !stage->p2_char)
     {
-        SDL_Log("Fight stage enabled before preparation was ready");
+        mel_log_warn("street-carlos", "Fight stage enabled before preparation was ready");
         street_carlos_show_main_menu(stage->ctx);
         mel_stage_detach(&stage->stage);
         return;

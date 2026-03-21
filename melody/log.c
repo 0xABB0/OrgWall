@@ -3,6 +3,7 @@
 #if !MEL_LOG_DISABLED
 
 #include "log.sink.h"
+#include "log.sink.console.h"
 #include "string.str8.h"
 
 #include <SDL3/SDL.h>
@@ -712,6 +713,8 @@ static void mel__log_init(void)
     mel_log_level_register(MEL_LOG_INFO,  S8("INFO"));
     mel_log_level_register(MEL_LOG_DEBUG, S8("DEBUG"));
     mel_log_level_register(MEL_LOG_TRACE, S8("TRACE"));
+
+    mel_log_sink_add(mel_log_sink_console_create(.color = true));
 }
 
 __attribute__((destructor(101)))

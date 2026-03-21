@@ -4,6 +4,7 @@
 
 #include "core.app.h"
 #include "core.engine.h"
+#include "log.h"
 #include "window.h"
 #include "swapchain.h"
 #include "gpu.swapchain.h"
@@ -282,7 +283,7 @@ static void on_init(void)
     mel_render_graph_compile(&s_graph);
     mel_set_render_graph(&s_graph);
 
-    SDL_Log("Anim demo ready! W=Walk, R=Run, I=Idle, H=Hit, ESC=Quit");
+    mel_log_info("anim", "Anim demo ready! W=Walk, R=Run, I=Idle, H=Hit, ESC=Quit");
 }
 
 static void app_update(Mel_Sim_Ctx* sim, f32 dt, void* user);

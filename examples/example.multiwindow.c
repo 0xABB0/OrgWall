@@ -56,10 +56,15 @@ typedef struct {
     f32 px, py, pz, _p0;
     f32 nx, ny, nz, _p1;
     f32 r, g, b, a;
+    f32 u, v, _p2, _p3;
 } Cube_Vert;
 
 typedef struct {
     Mel_Vec4 base_color;
+    u32 base_color_texture_idx;
+    u32 flags;
+    f32 alpha_cutoff;
+    f32 _pad;
 } Unlit_Params;
 
 static void make_face(Cube_Vert* out, u32* idx, u32 base,
@@ -67,10 +72,10 @@ static void make_face(Cube_Vert* out, u32* idx, u32 base,
                        f32 p2x,f32 p2y,f32 p2z, f32 p3x,f32 p3y,f32 p3z,
                        f32 nx,f32 ny,f32 nz, f32 cr,f32 cg,f32 cb)
 {
-    out[0] = (Cube_Vert){p0x,p0y,p0z,0, nx,ny,nz,0, cr,cg,cb,1};
-    out[1] = (Cube_Vert){p1x,p1y,p1z,0, nx,ny,nz,0, cr,cg,cb,1};
-    out[2] = (Cube_Vert){p2x,p2y,p2z,0, nx,ny,nz,0, cr,cg,cb,1};
-    out[3] = (Cube_Vert){p3x,p3y,p3z,0, nx,ny,nz,0, cr,cg,cb,1};
+    out[0] = (Cube_Vert){p0x,p0y,p0z,0, nx,ny,nz,0, cr,cg,cb,1, 0,0,0,0};
+    out[1] = (Cube_Vert){p1x,p1y,p1z,0, nx,ny,nz,0, cr,cg,cb,1, 1,0,0,0};
+    out[2] = (Cube_Vert){p2x,p2y,p2z,0, nx,ny,nz,0, cr,cg,cb,1, 1,1,0,0};
+    out[3] = (Cube_Vert){p3x,p3y,p3z,0, nx,ny,nz,0, cr,cg,cb,1, 0,1,0,0};
     idx[0]=base; idx[1]=base+1; idx[2]=base+2;
     idx[3]=base+2; idx[4]=base+3; idx[5]=base;
 }

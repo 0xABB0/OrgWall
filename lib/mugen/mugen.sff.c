@@ -4,7 +4,7 @@
 #include "vfs.h"
 #include "allocator.h"
 #include "string.str8.h"
-#include <SDL3/SDL.h>
+#include "log.h"
 #include <string.h>
 #include <assert.h>
 
@@ -100,7 +100,7 @@ static bool parse_file_header(const u8* data, usize size, Sff_File_Header* out)
         return true;
     }
 
-    SDL_Log("SFF: unsupported version %u", out->version_hi);
+    mel_log_error("mugen.sff", "unsupported version %u", out->version_hi);
     return false;
 }
 
@@ -912,14 +912,14 @@ bool mugen_sff_load(Mugen_Sff* sff, str8 path, const Mel_Alloc* alloc)
     u8* data = mel_vfs_read_file(path, &fsize, alloc);
     if (!data)
     {
-        SDL_Log("SFF: failed to read '%.*s'", (int)path.len, path.data);
+        mel_log_error("mugen.sff", "failed to read '%.*s'", (int)path.len, path.data);
         return false;
     }
 
     Sff_File_Header fh;
     if (!parse_file_header(data, (usize)fsize, &fh))
     {
-        SDL_Log("SFF: invalid file header '%.*s'", (int)path.len, path.data);
+        mel_log_error("mugen.sff", "invalid file header '%.*s'", (int)path.len, path.data);
         mel_dealloc(alloc, data);
         return false;
     }
@@ -930,7 +930,7 @@ bool mugen_sff_load(Mugen_Sff* sff, str8 path, const Mel_Alloc* alloc)
     else if (fh.version_hi == 2)
         ok = load_v2(sff, data, (usize)fsize, &fh, alloc);
     else
-        SDL_Log("SFF: unsupported version %u '%.*s'", fh.version_hi, (int)path.len, path.data);
+        mel_log_error("mugen.sff", "unsupported version %u '%.*s'", fh.version_hi, (int)path.len, path.data);
 
     mel_dealloc(alloc, data);
     return ok;

@@ -1,7 +1,7 @@
 #include "mugen.cmd.h"
 #include "string.str8.h"
 #include "allocator.h"
-#include <SDL3/SDL.h>
+#include "log.h"
 #include <string.h>
 #include <assert.h>
 #include <stdlib.h>
@@ -326,7 +326,7 @@ bool mugen_cmd_load(Mugen_Cmd* out, str8 data, const Mel_Alloc* alloc)
     out->state_entries = entries.items;
     out->state_entry_count = entries.count;
 
-    SDL_Log("CMD: parsed %u commands, %u state entries", cmds.count, entries.count);
+    mel_log_info("mugen.cmd", "parsed %u commands, %u state entries", cmds.count, entries.count);
 
     return true;
 }

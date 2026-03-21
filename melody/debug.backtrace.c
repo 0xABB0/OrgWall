@@ -1,4 +1,5 @@
 #include "debug.backtrace.h"
+#include "async.job.h"
 #include "core.platform.h"
 
 #if MEL_PLATFORM_POSIX
@@ -40,6 +41,33 @@ static void sig_write_hex(uintptr_t val)
     write(STDERR_FILENO, &buf[pos], 19 - pos);
 }
 
+static void sig_write_u32(u32 val)
+{
+    char buf[16];
+    i32 pos = 15;
+    buf[pos] = '\0';
+
+    if (val == 0)
+    {
+        buf[--pos] = '0';
+    }
+    else
+    {
+        while (val > 0 && pos > 0)
+        {
+            buf[--pos] = (char)('0' + (val % 10));
+            val /= 10;
+        }
+    }
+
+    write(STDERR_FILENO, &buf[pos], 15 - pos);
+}
+
+static void sig_write_u16(u16 val)
+{
+    sig_write_u32((u32)val);
+}
+
 static void signal_handler(int sig)
 {
     sig_write("\n=== CRASH: ");
@@ -55,6 +83,85 @@ static void signal_handler(int sig)
     }
 
     sig_write(" ===\n");
+
+    Mel_Job_Debug_Info job_info;
+    if (mel_job_debug_current(&job_info) && job_info.on_worker)
+    {
+        sig_write("Worker context:\n");
+        sig_write("  worker_index: ");
+        sig_write_u32(job_info.worker_index);
+        sig_write("\n");
+        sig_write("  on_fiber: ");
+        sig_write(job_info.on_fiber ? "yes\n" : "no\n");
+        if (job_info.on_fiber)
+        {
+            sig_write("  fiber_index: ");
+            sig_write_u16(job_info.fiber_index);
+            sig_write("\n");
+            if (job_info.fiber_state)
+            {
+                sig_write("  fiber_state: ");
+                sig_write(job_info.fiber_state);
+                sig_write("\n");
+            }
+        }
+        if (job_info.resume_reason)
+        {
+            sig_write("  resume_reason: ");
+            sig_write(job_info.resume_reason);
+            sig_write("\n");
+            sig_write("  resume_fiber_index: ");
+            sig_write_u16(job_info.resume_fiber_index);
+            sig_write("\n");
+        }
+
+        if (job_info.has_current_job)
+        {
+            sig_write("  current_job.task: ");
+            sig_write_hex((uintptr_t)job_info.task);
+            sig_write("\n");
+
+            if (job_info.debug_name)
+            {
+                sig_write("  current_job.name: ");
+                sig_write(job_info.debug_name);
+                sig_write("\n");
+            }
+
+            if (job_info.debug_file)
+            {
+                sig_write("  current_job.submitted_at: ");
+                sig_write(job_info.debug_file);
+                sig_write(":");
+                sig_write_u32(job_info.debug_line);
+                sig_write("\n");
+            }
+        }
+        else
+        {
+            sig_write("  current_job: <none>\n");
+            if (job_info.task)
+            {
+                sig_write("  last_job.task: ");
+                sig_write_hex((uintptr_t)job_info.task);
+                sig_write("\n");
+            }
+            if (job_info.debug_name)
+            {
+                sig_write("  last_job.name: ");
+                sig_write(job_info.debug_name);
+                sig_write("\n");
+            }
+            if (job_info.debug_file)
+            {
+                sig_write("  last_job.submitted_at: ");
+                sig_write(job_info.debug_file);
+                sig_write(":");
+                sig_write_u32(job_info.debug_line);
+                sig_write("\n");
+            }
+        }
+    }
 
     void* frames[MEL_BACKTRACE_MAX_FRAMES];
     int frame_count = backtrace(frames, MEL_BACKTRACE_MAX_FRAMES);

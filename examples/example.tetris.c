@@ -4,6 +4,7 @@
 
 #include "core.app.h"
 #include "core.engine.h"
+#include "log.h"
 #include "window.h"
 #include "swapchain.h"
 #include "gpu.swapchain.h"
@@ -459,7 +460,7 @@ static void on_init(void)
     mel_render_stage_2d_attach_text_list_to_layer(&s_renderer, MEL_RENDER_STAGE_2D_LAYER_HUD, &s_font_list);
     mel_render_stage_2d_rebuild(&s_renderer);
 
-    SDL_Log("Tetris ready! Arrow keys to move/rotate, Space to hard drop, R to restart, ESC to quit");
+    mel_log_info("tetris", "Tetris ready! Arrow keys to move/rotate, Space to hard drop, R to restart, ESC to quit");
 }
 
 static void app_update(Mel_Sim_Ctx* sim, f32 dt, void* user);

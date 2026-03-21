@@ -8,9 +8,9 @@ extern "C" {
 #include "async.job.h"
 }
 #include "string.str8.h"
+#include "log.h"
 #include <slang.h>
 #include <slang-deprecated.h>
-#include <SDL3/SDL_log.h>
 #include <cstring>
 #include <cstdlib>
 #include <cassert>
@@ -46,7 +46,7 @@ extern "C" bool mel_slang_init(void)
     SlangResult result = spSessionCheckCompileTargetSupport(g_slang_session, SLANG_SPIRV);
     assert(SLANG_SUCCEEDED(result) && "Slang does not support SPIRV target");
 
-    SDL_Log("Slang session initialized");
+    mel_log_info("gpu.shader", "Slang session initialized");
     return true;
 }
 
@@ -56,7 +56,7 @@ extern "C" void mel_slang_shutdown(void)
     {
         spDestroySession(g_slang_session);
         g_slang_session = nullptr;
-        SDL_Log("Slang session shut down");
+        mel_log_info("gpu.shader", "Slang session shut down");
     }
 }
 
@@ -95,14 +95,14 @@ static bool compile_entry_point(const char* source, const char* entry_name, Slan
     {
         const char* diagnostics = spGetDiagnosticOutput(request);
         if (diagnostics && diagnostics[0])
-            SDL_Log("Slang compilation failed:\n%s", diagnostics);
+            mel_log_error("gpu.shader", "Slang compilation failed:\n%s", diagnostics);
         spDestroyCompileRequest(request);
         return false;
     }
 
     const char* diagnostics = spGetDiagnosticOutput(request);
     if (diagnostics && diagnostics[0])
-        SDL_Log("Slang warnings:\n%s", diagnostics);
+        mel_log_warn("gpu.shader", "Slang warnings:\n%s", diagnostics);
 
     size_t code_size = 0;
     const void* code = spGetEntryPointCode(request, 0, &code_size);
@@ -217,7 +217,7 @@ static void mel__create_vulkan_modules(Mel_Gpu_Shader* shader, Mel_Gpu_Device* d
     }
 
     const char* type = shader->_compute ? "compute" : (shader->_mesh ? "mesh + fragment" : "vertex + fragment");
-    SDL_Log("Shader compiled successfully (%s)", type);
+    mel_log_info("gpu.shader", "Shader compiled successfully (%s)", type);
 }
 
 extern "C" void mel_gpu_shader_init_opt(Mel_Gpu_Shader* shader, Mel_Gpu_Device* dev, Mel_Gpu_Shader_Opt opt)
@@ -253,7 +253,7 @@ static void mel__shader_load_execute(Mel__Shader_Load_Job_Ctx* ctx)
 
     if (!file_data)
     {
-        SDL_LogWarn(SDL_LOG_CATEGORY_GPU, "Shader '%.*s' not found in VFS, falling back to filesystem",
+        mel_log_warn("gpu.shader", "Shader '%.*s' not found in VFS, falling back to filesystem",
                     (int)ctx->path.len, (const char*)ctx->path.data);
 
         char path_buf[1024];

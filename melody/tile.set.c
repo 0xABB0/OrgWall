@@ -4,8 +4,8 @@
 #include "hash.xxh.h"
 #include "allocator.h"
 #include "vfs.h"
+#include "log.h"
 #include <cjson/cJSON.h>
-#include <SDL3/SDL.h>
 #include <string.h>
 
 static u64 mel__tileset_pool_hash_key(const void* key)
@@ -91,7 +91,7 @@ Mel_Tileset_Handle mel_tileset_pool_load(Mel_Tileset_Pool* pool, str8 path)
     u8* json_data = mel_vfs_read_file(path, &fsize, pool->alloc);
     if (!json_data)
     {
-        SDL_Log("tile.set: failed to read '%.*s'", (int)path.len, path.data);
+        mel_log_error("tile.set", "failed to read '%.*s'", (int)path.len, path.data);
         return MEL_TILESET_HANDLE_NULL;
     }
 
@@ -100,7 +100,7 @@ Mel_Tileset_Handle mel_tileset_pool_load(Mel_Tileset_Pool* pool, str8 path)
 
     if (!root)
     {
-        SDL_Log("tile.set: failed to parse JSON '%.*s'", (int)path.len, path.data);
+        mel_log_error("tile.set", "failed to parse JSON '%.*s'", (int)path.len, path.data);
         return MEL_TILESET_HANDLE_NULL;
     }
 
@@ -297,7 +297,7 @@ bool mel_tileset_pool_save(Mel_Tileset_Pool* pool, Mel_Tileset_Handle handle, st
 
     if (!json_text)
     {
-        SDL_Log("tile.set: failed to serialize JSON");
+        mel_log_error("tile.set", "failed to serialize JSON");
         return false;
     }
 
@@ -306,7 +306,7 @@ bool mel_tileset_pool_save(Mel_Tileset_Pool* pool, Mel_Tileset_Handle handle, st
     free(json_text);
 
     if (!ok)
-        SDL_Log("tile.set: failed to write '%.*s'", (int)path.len, path.data);
+        mel_log_error("tile.set", "failed to write '%.*s'", (int)path.len, path.data);
 
     return ok;
 }

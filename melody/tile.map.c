@@ -4,9 +4,9 @@
 #include "hash.xxh.h"
 #include "allocator.h"
 #include "vfs.h"
+#include "log.h"
 
 #include <cjson/cJSON.h>
-#include <SDL3/SDL.h>
 #include <string.h>
 
 static u64 mel__tilemap_pool_hash_key(const void* key)
@@ -85,7 +85,7 @@ Mel_Tilemap_Handle mel_tilemap_pool_load(Mel_Tilemap_Pool* pool, str8 path)
     u8* json_data = mel_vfs_read_file(path, &fsize, pool->alloc);
     if (!json_data)
     {
-        SDL_Log("tile.map: failed to read '%.*s'", (int)path.len, path.data);
+        mel_log_error("tile.map", "failed to read '%.*s'", (int)path.len, path.data);
         return MEL_TILEMAP_HANDLE_NULL;
     }
 
@@ -94,7 +94,7 @@ Mel_Tilemap_Handle mel_tilemap_pool_load(Mel_Tilemap_Pool* pool, str8 path)
 
     if (!root)
     {
-        SDL_Log("tile.map: failed to parse JSON '%.*s'", (int)path.len, path.data);
+        mel_log_error("tile.map", "failed to parse JSON '%.*s'", (int)path.len, path.data);
         return MEL_TILEMAP_HANDLE_NULL;
     }
 
@@ -302,7 +302,7 @@ bool mel_tilemap_pool_save(Mel_Tilemap_Pool* pool, Mel_Tilemap_Handle handle, st
 
     if (!json_text)
     {
-        SDL_Log("tile.map: failed to serialize JSON");
+        mel_log_error("tile.map", "failed to serialize JSON");
         return false;
     }
 
@@ -311,7 +311,7 @@ bool mel_tilemap_pool_save(Mel_Tilemap_Pool* pool, Mel_Tilemap_Handle handle, st
     free(json_text);
 
     if (!ok)
-        SDL_Log("tile.map: failed to write '%.*s'", (int)path.len, path.data);
+        mel_log_error("tile.map", "failed to write '%.*s'", (int)path.len, path.data);
 
     return ok;
 }

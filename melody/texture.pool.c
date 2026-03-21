@@ -12,6 +12,7 @@
 #include "collection.hashmap.h"
 #include "allocator.h"
 #include "allocator.heap.h"
+#include "log.h"
 
 #include <SDL3/SDL.h>
 
@@ -63,7 +64,7 @@ static void mel__texture_pool_on_gpu_ready(void* ctx, const void* event)
         s_texture_pool.fallback.image._view, s_texture_pool.fallback._sampler);
 
     mel_event_channel_fire(&mel_texture_pool_ready, NULL);
-    SDL_Log("texture.pool: initialized with bindless table (cap=%u)", 1024);
+    mel_log_info("texture.pool", "initialized with bindless table (cap=%u)", 1024);
 }
 
 static void mel__texture_pool_on_shutdown(void* ctx, const void* event)
@@ -185,7 +186,7 @@ Mel_Texture_Handle mel_texture_pool_load(Mel_Texture_Pool* pool, str8 path)
     else
     {
         entry.state = MEL_TEXTURE_STATE_FAILED;
-        SDL_Log("texture.pool: failed to load '%.*s'", (int)path.len, path.data);
+        mel_log_error("texture.pool", "failed to load '%.*s'", (int)path.len, path.data);
     }
 
     Mel_SlotMap_Handle sm_handle = mel_slotmap_insert(&pool->slotmap, &entry);

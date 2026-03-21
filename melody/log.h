@@ -4,6 +4,10 @@
 #include "log.fwd.h"
 #include "string.str8.fwd.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #if MEL_LOG_DISABLED
 
 #define MEL_LOG(level, domain, fmt, ...)
@@ -48,7 +52,7 @@ void mel__log(u32 level, str8 domain, const char* file, u32 line, const char* fm
     __attribute__((format(printf, 5, 6)));
 
 #define MEL_LOG(level, domain, fmt, ...) \
-    mel__log((level), S8(domain), __FILE__, __LINE__, (fmt), ##__VA_ARGS__)
+    mel__log((level), (str8){(u8*)(domain), sizeof(domain) - 1}, __FILE__, __LINE__, (fmt), ##__VA_ARGS__)
 
 #define mel_log_fatal(domain, fmt, ...)  MEL_LOG(MEL_LOG_FATAL, domain, fmt, ##__VA_ARGS__)
 #define mel_log_error(domain, fmt, ...)  MEL_LOG(MEL_LOG_ERROR, domain, fmt, ##__VA_ARGS__)
@@ -90,4 +94,8 @@ str8 mel_log_level_name(u32 value);
 void mel__log_signal(u32 level, const char* static_message);
 #define mel_log_signal(level, msg) mel__log_signal((level), (msg))
 
+#endif
+
+#ifdef __cplusplus
+}
 #endif

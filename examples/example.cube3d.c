@@ -28,10 +28,15 @@ typedef struct {
     f32 px, py, pz, _pad0;
     f32 nx, ny, nz, _pad1;
     f32 r, g, b, a;
+    f32 u, v, _pad2, _pad3;
 } Cube_Vertex;
 
 typedef struct {
     Mel_Vec4 base_color;
+    u32 base_color_texture_idx;
+    u32 flags;
+    f32 alpha_cutoff;
+    f32 _pad;
 } Unlit_Params;
 
 static Mel_Window_Handle s_window;
@@ -55,10 +60,10 @@ static void make_face(Cube_Vertex* out, u32* idx_out, u32 base,
                        f32 nx, f32 ny, f32 nz,
                        f32 cr, f32 cg, f32 cb)
 {
-    out[0] = (Cube_Vertex){ p0x, p0y, p0z, 0, nx, ny, nz, 0, cr, cg, cb, 1 };
-    out[1] = (Cube_Vertex){ p1x, p1y, p1z, 0, nx, ny, nz, 0, cr, cg, cb, 1 };
-    out[2] = (Cube_Vertex){ p2x, p2y, p2z, 0, nx, ny, nz, 0, cr, cg, cb, 1 };
-    out[3] = (Cube_Vertex){ p3x, p3y, p3z, 0, nx, ny, nz, 0, cr, cg, cb, 1 };
+    out[0] = (Cube_Vertex){ p0x, p0y, p0z, 0, nx, ny, nz, 0, cr, cg, cb, 1, 0, 0, 0, 0 };
+    out[1] = (Cube_Vertex){ p1x, p1y, p1z, 0, nx, ny, nz, 0, cr, cg, cb, 1, 1, 0, 0, 0 };
+    out[2] = (Cube_Vertex){ p2x, p2y, p2z, 0, nx, ny, nz, 0, cr, cg, cb, 1, 1, 1, 0, 0 };
+    out[3] = (Cube_Vertex){ p3x, p3y, p3z, 0, nx, ny, nz, 0, cr, cg, cb, 1, 0, 1, 0, 0 };
 
     idx_out[0] = base;     idx_out[1] = base + 1; idx_out[2] = base + 2;
     idx_out[3] = base + 2; idx_out[4] = base + 3; idx_out[5] = base;

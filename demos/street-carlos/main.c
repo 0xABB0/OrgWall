@@ -8,6 +8,7 @@
 
 #include "core.app.h"
 #include "core.engine.h"
+#include "log.h"
 #include "window.h"
 #include "swapchain.h"
 #include "gpu.swapchain.h"
@@ -111,7 +112,7 @@ static void task_sim_update(Mel_Sim_Ctx* sim, f32 dt, void* user)
 static void load_roster_sync(void)
 {
     mugen_roster_load(&s_app.roster, S8("/chars"));
-    SDL_Log("Roster loaded: %u characters", mugen_roster_count(&s_app.roster));
+    mel_log_info("street-carlos", "Roster loaded: %u characters", mugen_roster_count(&s_app.roster));
 }
 
 static void init_render(void)

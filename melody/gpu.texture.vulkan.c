@@ -5,6 +5,7 @@
 #include "string.str8.h"
 #include "gpu.buffer.h"
 #include "gpu.submit.h"
+#include "log.h"
 #include <stb_image.h>
 
 typedef struct {
@@ -143,7 +144,7 @@ void mel_gpu_texture_init_opt(Mel_Gpu_Texture* tex, Mel_Gpu_Device* dev, Mel_Gpu
 
     create_sampler(tex, dev, opt.nearest_filter);
 
-    SDL_Log("Texture loaded: %ux%u", w, h);
+    mel_log_debug("gpu.texture", "Texture loaded: %ux%u", w, h);
 }
 
 void mel_gpu_texture_init_white(Mel_Gpu_Texture* tex, Mel_Gpu_Device* dev)

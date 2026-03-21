@@ -6,6 +6,7 @@
 
 #include "../melody/ui.widget.h"
 #include "../melody/math.vec4.h"
+#include "../melody/log.h"
 
 #define SCALE 2.0f
 #define WIN_W 800
@@ -417,7 +418,7 @@ SDL_AppResult SDL_AppInit(void** appstate, int argc, char* argv[])
 
     build_ui();
 
-    SDL_Log("Widget demo ready!");
+    mel_log_info("widget", "Widget demo ready!");
     return SDL_APP_CONTINUE;
 }
 

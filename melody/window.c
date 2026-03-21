@@ -6,6 +6,7 @@
 #include "allocator.heap.h"
 #include "string.str8.h"
 #include "thread.dispatch.h"
+#include "log.h"
 
 Mel_Event_Channel mel_window_close_requested;
 
@@ -64,7 +65,7 @@ static Mel_Window_Handle mel__window_create_impl(str8 title, Mel_Window_Create_O
     SDL_Window* sdl = SDL_CreateWindow(title_buf, (int)w, (int)h, flags);
     if (!sdl)
     {
-        SDL_Log("Failed to create window: %s", SDL_GetError());
+        mel_log_error("window", "Failed to create window: %s", SDL_GetError());
         return MEL_WINDOW_HANDLE_NULL;
     }
 
@@ -79,7 +80,7 @@ static Mel_Window_Handle mel__window_create_impl(str8 title, Mel_Window_Create_O
     float display_scale = SDL_GetWindowDisplayScale(sdl);
     const SDL_DisplayMode* mode = display ? SDL_GetCurrentDisplayMode(display) : nullptr;
 
-    SDL_Log("Window created: \"%s\" logical=%ux%u pixels=%dx%d scale=%.2f display=%u refresh=%.2fHz",
+    mel_log_info("window", "Window created: \"%s\" logical=%ux%u pixels=%dx%d scale=%.2f display=%u refresh=%.2fHz",
         title_buf, w, h, pixel_w, pixel_h, display_scale, (u32)display,
         mode ? mode->refresh_rate : 0.0f);
     return (Mel_Window_Handle){ .handle = raw };

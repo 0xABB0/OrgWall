@@ -4,7 +4,7 @@
 #include "string.str8.h"
 #include "vfs.h"
 #include "allocator.h"
-#include <SDL3/SDL.h>
+#include "log.h"
 #include <tracy/TracyC.h>
 
 bool mel_texture_load(Mel_Gpu_Texture* tex, Mel_Gpu_Device* dev, const Mel_Alloc* alloc, str8 path)
@@ -13,7 +13,7 @@ bool mel_texture_load(Mel_Gpu_Texture* tex, Mel_Gpu_Device* dev, const Mel_Alloc
     u8* file_data = mel_vfs_read_file(path, &fsize, alloc);
     if (!file_data)
     {
-        SDL_Log("Failed to read texture: %.*s", (int)path.len, path.data);
+        mel_log_error("texture", "Failed to read texture: %.*s", (int)path.len, path.data);
         return false;
     }
 

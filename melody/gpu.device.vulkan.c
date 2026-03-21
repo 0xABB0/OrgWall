@@ -4,6 +4,7 @@
 #include "string.str8.h"
 #include "allocator.h"
 #include "allocator.heap.h"
+#include "log.h"
 #include <string.h>
 #include <stdlib.h>
 
@@ -59,7 +60,7 @@ static void log_queue_families(VkPhysicalDevice device, VkSurfaceKHR surface)
         if (surface != VK_NULL_HANDLE)
             vkGetPhysicalDeviceSurfaceSupportKHR(device, i, surface, &present_support);
 
-        SDL_Log("Queue family %u: count=%u flags=%s%s%s%s present=%s",
+        mel_log_debug("gpu.device", "Queue family %u: count=%u flags=%s%s%s%s present=%s",
             i,
             props[i].queueCount,
             (props[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) ? "graphics " : "",
@@ -80,7 +81,7 @@ static void log_memory_heaps(VkPhysicalDevice device)
     for (u32 i = 0; i < mem.memoryHeapCount; i++)
     {
         f64 gib = (f64)mem.memoryHeaps[i].size / (1024.0 * 1024.0 * 1024.0);
-        SDL_Log("Memory heap %u: %.2f GiB flags=%s%s",
+        mel_log_debug("gpu.device", "Memory heap %u: %.2f GiB flags=%s%s",
             i,
             gib,
             (mem.memoryHeaps[i].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) ? "device_local " : "",
@@ -95,7 +96,7 @@ static void log_available_devices(VkPhysicalDevice* devices, u32 count)
         VkPhysicalDeviceProperties props = {0};
         vkGetPhysicalDeviceProperties(devices[i], &props);
         i32 score = rate_device(devices[i]);
-        SDL_Log("GPU candidate %u: %s (%s, Vulkan %u.%u.%u, score=%d)",
+        mel_log_debug("gpu.device", "GPU candidate %u: %s (%s, Vulkan %u.%u.%u, score=%d)",
             i,
             props.deviceName,
             device_type_name(props.deviceType),
@@ -114,18 +115,19 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL debug_callback(
 {
     MEL_UNUSED(user_data);
 
-    const char* severity_str = "UNKNOWN";
-    if (severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) severity_str = "ERROR";
-    else if (severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) severity_str = "WARNING";
-    else if (severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT) severity_str = "INFO";
-    else if (severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT) severity_str = "VERBOSE";
-
     const char* type_str = "";
     if (type & VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT) type_str = "VALIDATION";
     else if (type & VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT) type_str = "PERFORMANCE";
     else if (type & VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT) type_str = "GENERAL";
 
-    SDL_Log("[Vulkan %s %s] %s", severity_str, type_str, callback_data->pMessage);
+    if (severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT)
+        mel_log_error("vulkan", "[%s] %s", type_str, callback_data->pMessage);
+    else if (severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT)
+        mel_log_warn("vulkan", "[%s] %s", type_str, callback_data->pMessage);
+    else if (severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT)
+        mel_log_info("vulkan", "[%s] %s", type_str, callback_data->pMessage);
+    else
+        mel_log_trace("vulkan", "[%s] %s", type_str, callback_data->pMessage);
 
     return VK_FALSE;
 }
@@ -225,7 +227,7 @@ static bool create_instance(Mel_Gpu_Device* dev, Mel_Gpu_Device_Vulkan* vk, Mel_
     VkResult r = vkCreateInstance(&create_info, nullptr, &vk->instance);
     if (r != VK_SUCCESS)
     {
-        SDL_Log("Failed to create Vulkan instance: %d", r);
+        mel_log_error("gpu.device", "Failed to create Vulkan instance: %d", r);
         return false;
     }
 
@@ -249,7 +251,7 @@ static bool create_debug_messenger(Mel_Gpu_Device* dev, Mel_Gpu_Device_Vulkan* v
     VkResult r = vkCreateDebugUtilsMessengerEXT(vk->instance, &create_info, nullptr, &vk->debug_messenger);
     if (r != VK_SUCCESS)
     {
-        SDL_Log("Failed to create debug messenger: %d", r);
+        mel_log_error("gpu.device", "Failed to create debug messenger: %d", r);
         return false;
     }
     return true;
@@ -347,7 +349,7 @@ static bool pick_physical_device(Mel_Gpu_Device_Vulkan* vk)
     vkEnumeratePhysicalDevices(vk->instance, &count, nullptr);
     if (count == 0)
     {
-        SDL_Log("No Vulkan devices found");
+        mel_log_error("gpu.device", "No Vulkan devices found");
         return false;
     }
 
@@ -372,7 +374,7 @@ static bool pick_physical_device(Mel_Gpu_Device_Vulkan* vk)
     mel_dealloc(mel_alloc_heap(), devices);
     if (best_device == VK_NULL_HANDLE)
     {
-        SDL_Log("No suitable Vulkan device found");
+        mel_log_error("gpu.device", "No suitable Vulkan device found");
         return false;
     }
 
@@ -389,7 +391,7 @@ static bool pick_physical_device(Mel_Gpu_Device_Vulkan* vk)
 
     vkGetPhysicalDeviceProperties2(vk->physical_device, &vk->device_properties);
 
-    SDL_Log("Selected GPU: %s (%s)",
+    mel_log_info("gpu.device", "Selected GPU: %s (%s)",
         vk->device_properties.properties.deviceName,
         device_type_name(vk->device_properties.properties.deviceType));
     log_memory_heaps(vk->physical_device);
@@ -561,7 +563,7 @@ static bool create_logical_device(Mel_Gpu_Device* dev, Mel_Gpu_Device_Vulkan* vk
     VkResult r = vkCreateDevice(vk->physical_device, &create_info, nullptr, &vk->device);
     if (r != VK_SUCCESS)
     {
-        SDL_Log("Failed to create logical device: %d", r);
+        mel_log_error("gpu.device", "Failed to create logical device: %d", r);
         return false;
     }
 
@@ -592,7 +594,7 @@ static bool create_vma(Mel_Gpu_Device_Vulkan* vk)
     VkResult r = vmaCreateAllocator(&create_info, &vk->vma);
     if (r != VK_SUCCESS)
     {
-        SDL_Log("Failed to create VMA allocator: %d", r);
+        mel_log_error("gpu.device", "Failed to create VMA allocator: %d", r);
         return false;
     }
     return true;
@@ -612,7 +614,7 @@ bool mel_gpu_device_init_opt(Mel_Gpu_Device* dev, Mel_Gpu_Device_Opt opt)
     PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr_func = mel_gpu_vulkan_load();
     if (!vkGetInstanceProcAddr_func)
     {
-        SDL_Log("Failed to load Vulkan");
+        mel_log_fatal("gpu.device", "Failed to load Vulkan");
         return false;
     }
 
@@ -633,7 +635,7 @@ bool mel_gpu_device_init_opt(Mel_Gpu_Device* dev, Mel_Gpu_Device_Opt opt)
     mel_gpu_pipeline_cache_init(dev->pipeline_cache, alloc);
 
     dev->ready = true;
-    SDL_Log("Vulkan device initialized (Vulkan 1.3, sync2, dynamic rendering, BDA%s%s)",
+    mel_log_info("gpu.device", "Vulkan device initialized (Vulkan 1.3, sync2, dynamic rendering, BDA%s%s)",
         vk->has_descriptor_buffer ? ", descriptor buffer" : "",
         dev->capabilities.descriptor_indexing ? ", descriptor indexing" : "");
     return true;
@@ -665,7 +667,7 @@ void mel_gpu_device_shutdown(Mel_Gpu_Device* dev)
     }
 
     dev->ready = false;
-    SDL_Log("Vulkan device shutdown");
+    mel_log_info("gpu.device", "Vulkan device shutdown");
 }
 
 void mel_gpu_device_wait_idle(Mel_Gpu_Device* dev)
@@ -691,7 +693,7 @@ void* mel_gpu_surface_create(Mel_Gpu_Device* dev, SDL_Window* window)
     VkSurfaceKHR surface = VK_NULL_HANDLE;
     if (!SDL_Vulkan_CreateSurface(window, vk->instance, nullptr, &surface))
     {
-        SDL_Log("Failed to create Vulkan surface: %s", SDL_GetError());
+        mel_log_error("gpu.device", "Failed to create Vulkan surface: %s", SDL_GetError());
         return nullptr;
     }
 
@@ -727,7 +729,7 @@ bool mel_gpu_device_configure_present(Mel_Gpu_Device* dev, void* surface)
     vkGetDeviceQueue(vk->device, dev->present_family, 0, &vk->present_queue);
     vk->has_present_queue = true;
     dev->capabilities.present_queue = true;
-    SDL_Log("Present queue configured: graphics=%u present=%u transfer=%u",
+    mel_log_info("gpu.device", "Present queue configured: graphics=%u present=%u transfer=%u",
         graphics, present, transfer);
     log_queue_families(vk->physical_device, vk_surface);
     return true;

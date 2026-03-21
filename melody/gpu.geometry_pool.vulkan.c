@@ -275,7 +275,8 @@ void mel_geometry_pool_init_opt(Mel_Geometry_Pool* pool, Mel_Geometry_Pool_Opt o
             .usage = MEL_GPU_BUFFER_USAGE_STORAGE | MEL_GPU_BUFFER_USAGE_TRANSFER_DST,
             .memory_usage = (pool->storage_mode == MEL_GEOMETRY_STORAGE_UNIFIED)
                 ? MEL_GPU_MEMORY_USAGE_CPU_TO_GPU
-                : MEL_GPU_MEMORY_USAGE_CPU_TO_GPU);
+                : MEL_GPU_MEMORY_USAGE_CPU_TO_GPU,
+            .map_on_create = (pool->storage_mode == MEL_GEOMETRY_STORAGE_UNIFIED));
     }
 
     mel_bitset_init(&pool->catalog_dirty, 32, alloc);
@@ -462,7 +463,8 @@ static void mel__catalog_ensure_gpu_capacity(Mel_Geometry_Pool* pool, u32 needed
         .usage = MEL_GPU_BUFFER_USAGE_STORAGE | MEL_GPU_BUFFER_USAGE_TRANSFER_DST,
         .memory_usage = (pool->storage_mode == MEL_GEOMETRY_STORAGE_UNIFIED)
             ? MEL_GPU_MEMORY_USAGE_CPU_TO_GPU
-            : MEL_GPU_MEMORY_USAGE_CPU_TO_GPU);
+            : MEL_GPU_MEMORY_USAGE_CPU_TO_GPU,
+        .map_on_create = (pool->storage_mode == MEL_GEOMETRY_STORAGE_UNIFIED));
 
     if (old._handle != nullptr)
         mel_gpu_buffer_shutdown(&old, pool->dev);

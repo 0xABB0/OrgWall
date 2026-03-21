@@ -7,6 +7,7 @@
 #include "allocator.h"
 #include "allocator.heap.h"
 #include "thread.dispatch.h"
+#include "log.h"
 #include <tracy/TracyC.h>
 
 typedef struct {
@@ -57,7 +58,7 @@ static VkPresentModeKHR choose_present_mode(Mel_Gpu_Device* dev, VkSurfaceKHR su
             break;
         off += (size)wrote;
     }
-    SDL_Log("Swapchain present modes: %s", mode_buf);
+    mel_log_debug("gpu.swapchain", "Swapchain present modes: %s", mode_buf);
 
     VkPresentModeKHR chosen = VK_PRESENT_MODE_FIFO_KHR;
     for (u32 i = 0; i < count; i++)
@@ -132,12 +133,12 @@ static bool create_swapchain(Mel_Swapchain* sc, Mel_Gpu_Device* dev,
     vkGetPhysicalDeviceSurfaceFormatsKHR(mel__gpu_device_vk(dev)->physical_device, khr->surface, &format_count, formats);
 
     VkSurfaceFormatKHR format = choose_format(formats, format_count);
-    SDL_Log("Swapchain surface formats: %u, chosen format=%u colorSpace=%u",
+    mel_log_debug("gpu.swapchain", "Swapchain surface formats: %u, chosen format=%u colorSpace=%u",
         format_count, format.format, format.colorSpace);
     mel_dealloc(alloc, formats);
 
     VkExtent2D extent = choose_extent(&caps, width, height);
-    SDL_Log("Swapchain surface caps: min=%ux%u max=%ux%u current=%ux%u minImages=%u maxImages=%u",
+    mel_log_debug("gpu.swapchain", "Swapchain surface caps: min=%ux%u max=%ux%u current=%ux%u minImages=%u maxImages=%u",
         caps.minImageExtent.width, caps.minImageExtent.height,
         caps.maxImageExtent.width, caps.maxImageExtent.height,
         caps.currentExtent.width, caps.currentExtent.height,
@@ -178,7 +179,7 @@ static bool create_swapchain(Mel_Swapchain* sc, Mel_Gpu_Device* dev,
     VkResult r = vkCreateSwapchainKHR(mel__gpu_device_vk(dev)->device, &create_info, nullptr, &khr->handle);
     if (r != VK_SUCCESS)
     {
-        SDL_Log("Failed to create swapchain: %d", r);
+        mel_log_error("gpu.swapchain", "Failed to create swapchain: %d", r);
         return false;
     }
 
@@ -226,7 +227,7 @@ static bool create_swapchain(Mel_Swapchain* sc, Mel_Gpu_Device* dev,
         VkResult rv = vkCreateImageView(mel__gpu_device_vk(dev)->device, &view_info, nullptr, &vk_view);
         if (rv != VK_SUCCESS)
         {
-            SDL_Log("Failed to create swapchain image view %u: %d", i, rv);
+            mel_log_error("gpu.swapchain", "Failed to create swapchain image view %u: %d", i, rv);
             sc->image_count = i;
             return false;
         }
@@ -250,7 +251,7 @@ static bool create_sync(Mel_Swapchain* sc, Mel_Gpu_Device* dev)
         VkResult r = vkCreateSemaphore(mel__gpu_device_vk(dev)->device, &sem_info, nullptr, &khr->image_available[i]);
         if (r != VK_SUCCESS)
         {
-            SDL_Log("Failed to create image_available semaphore %u: %d", i, r);
+            mel_log_error("gpu.swapchain", "Failed to create image_available semaphore %u: %d", i, r);
             return false;
         }
     }
@@ -260,7 +261,7 @@ static bool create_sync(Mel_Swapchain* sc, Mel_Gpu_Device* dev)
         VkResult r = vkCreateSemaphore(mel__gpu_device_vk(dev)->device, &sem_info, nullptr, &khr->render_finished[i]);
         if (r != VK_SUCCESS)
         {
-            SDL_Log("Failed to create render_finished semaphore %u: %d", i, r);
+            mel_log_error("gpu.swapchain", "Failed to create render_finished semaphore %u: %d", i, r);
             return false;
         }
     }
@@ -510,7 +511,7 @@ bool mel_gpu_swapchain_init_opt(Mel_Swapchain* sc, Mel_Gpu_Device* dev, Mel_Gpu_
         .frame_count = opt.frame_count > 0 ? opt.frame_count : 2,
     };
 
-    SDL_Log("Swapchain present mode: requested=%s chosen=%s",
+    mel_log_info("gpu.swapchain", "Swapchain present mode: requested=%s chosen=%s",
         present_mode_name(preferred),
         present_mode_name(khr->present_mode));
 

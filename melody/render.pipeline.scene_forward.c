@@ -137,6 +137,7 @@ static const Mel_Render_Material_Binding* scene_forward_emitter_binding(
 static Mel_Gpu_Device* s_dev;
 static Mel_Gpu_Shader s_mesh_shader;
 static Mel_Gpu_Pipeline s_mesh_pipeline;
+static Mel_Gpu_Pipeline s_mesh_pipeline_double_sided;
 static Mel_Geometry_Pool* s_geometry_pool;
 static bool s_mesh_ready;
 static bool s_scene_forward_registered;
@@ -606,10 +607,12 @@ static void scene_forward_draw_meshes(Mel_Render_Pipeline* self,
     if (data->mesh_strategy != SCENE_FORWARD_MESH_STRATEGY_CLASSIC_VERTEX_PULLING)
         return;
 
+    Mel_Texture_Table* texture_table = mel_texture_pool_get_table();
+    if (texture_table == nullptr || texture_table->capacity == 0)
+        return;
+
     Mel_Render_View* view = self->view;
     assert(view != nullptr);
-
-    mel_gpu_cmd_bind_pipeline(ctx->cmd, &s_mesh_pipeline);
 
     Mel_Gpu_Buffer* vert_buf = mel_geometry_pool_vertex_buffer(s_geometry_pool);
     Mel_Gpu_Buffer* idx_buf = mel_geometry_pool_index_buffer_u32(s_geometry_pool);
@@ -617,6 +620,7 @@ static void scene_forward_draw_meshes(Mel_Render_Pipeline* self,
         return;
 
     Mel_Mat4 vp = mel_mat4_mul(view->camera.projection, view->camera.view);
+    Mel_Gpu_Pipeline* bound_pipeline = nullptr;
 
     for (u32 range_index = 0; range_index < scene_data->mesh_range_count; range_index++)
     {
@@ -640,13 +644,24 @@ static void scene_forward_draw_meshes(Mel_Render_Pipeline* self,
             idx_buf, 0, idx_buf->size, MEL_GPU_DESCRIPTOR_STORAGE_BUFFER);
         mel_gpu_pipeline_write_buffer_binding(&s_mesh_pipeline, s_dev, desc, 2,
             mat_buf, 0, mat_buf->size, MEL_GPU_DESCRIPTOR_STORAGE_BUFFER);
-        mel_gpu_cmd_bind_descriptor_set(ctx->cmd, &s_mesh_pipeline, desc);
 
         for (u32 i = range.start; i < range.start + range.count; i++)
         {
             Scene_Forward_Mesh_Item* item = &scene_data->mesh_items[i];
             if (item->flags & MEL_RF_HIDDEN)
                 continue;
+
+            Mel_Gpu_Pipeline* mesh_pipeline =
+                (item->flags & MEL_RENDER_MATERIAL_DOUBLE_SIDED)
+                ? &s_mesh_pipeline_double_sided
+                : &s_mesh_pipeline;
+            if (bound_pipeline != mesh_pipeline)
+            {
+                mel_gpu_cmd_bind_pipeline(ctx->cmd, mesh_pipeline);
+                mel_gpu_cmd_bind_descriptor_set(ctx->cmd, mesh_pipeline, desc);
+                mel_texture_table_bind(texture_table, ctx->cmd, mesh_pipeline->_layout, 1);
+                bound_pipeline = mesh_pipeline;
+            }
 
             Mel_Mat4 mvp = mel_mat4_mul(vp, item->model);
             Mel_Geometry_Region region = mel_geometry_pool_region(s_geometry_pool, item->mesh);
@@ -658,8 +673,8 @@ static void scene_forward_draw_meshes(Mel_Render_Pipeline* self,
                 .material_idx = item->material_idx,
             };
 
-            mel_gpu_cmd_push_constants(ctx->cmd, &s_mesh_pipeline,
-                MEL_GPU_SHADER_STAGE_VERTEX, 0, sizeof(pc), &pc);
+            mel_gpu_cmd_push_constants(ctx->cmd, mesh_pipeline,
+                MEL_GPU_SHADER_STAGE_VERTEX | MEL_GPU_SHADER_STAGE_FRAGMENT, 0, sizeof(pc), &pc);
             mel_gpu_cmd_draw(ctx->cmd, region.index_count, 1, 0, 0);
         }
     }
@@ -811,11 +826,15 @@ static void mel__scene_forward_compile(void* data)
 
     mel_gpu_shader_load(&s_mesh_shader, .path = S8("shaders/mesh_forward.slang"), .dev = s_dev);
 
+    Mel_Texture_Table* texture_table = mel_texture_pool_get_table();
+    assert(texture_table != nullptr);
+
     Mel_Gpu_Descriptor_Binding bindings[] = {
         { .binding = 0, .type = MEL_GPU_DESCRIPTOR_STORAGE_BUFFER, .count = 1, .stages = MEL_GPU_SHADER_STAGE_VERTEX },
         { .binding = 1, .type = MEL_GPU_DESCRIPTOR_STORAGE_BUFFER, .count = 1, .stages = MEL_GPU_SHADER_STAGE_VERTEX },
-        { .binding = 2, .type = MEL_GPU_DESCRIPTOR_STORAGE_BUFFER, .count = 1, .stages = MEL_GPU_SHADER_STAGE_VERTEX },
+        { .binding = 2, .type = MEL_GPU_DESCRIPTOR_STORAGE_BUFFER, .count = 1, .stages = MEL_GPU_SHADER_STAGE_VERTEX | MEL_GPU_SHADER_STAGE_FRAGMENT },
     };
+    void* extra_layouts[] = { texture_table->layout._layout };
 
     mel_gpu_pipeline_init(&s_mesh_pipeline, s_dev,
         .shader = &s_mesh_shader,
@@ -827,9 +846,27 @@ static void mel__scene_forward_compile(void* data)
         .depth_test = true,
         .depth_write = true,
         .push_constant_size = sizeof(Forward3D_Push),
-        .push_constant_stages = MEL_GPU_SHADER_STAGE_VERTEX,
+        .push_constant_stages = MEL_GPU_SHADER_STAGE_VERTEX | MEL_GPU_SHADER_STAGE_FRAGMENT,
         .descriptor_bindings = bindings,
         .descriptor_binding_count = 3,
+        .extra_set_layouts = extra_layouts,
+        .extra_set_layout_count = 1,
+        .max_descriptor_sets = 16);
+    mel_gpu_pipeline_init(&s_mesh_pipeline_double_sided, s_dev,
+        .shader = &s_mesh_shader,
+        .color_format = MEL_GPU_FORMAT_B8G8R8A8_SRGB,
+        .depth_format = MEL_GPU_FORMAT_D32_SFLOAT,
+        .blend_mode = MEL_GPU_BLEND_NONE,
+        .cull_mode = MEL_GPU_CULL_NONE,
+        .topology = MEL_GPU_TOPOLOGY_TRIANGLE_LIST,
+        .depth_test = true,
+        .depth_write = true,
+        .push_constant_size = sizeof(Forward3D_Push),
+        .push_constant_stages = MEL_GPU_SHADER_STAGE_VERTEX | MEL_GPU_SHADER_STAGE_FRAGMENT,
+        .descriptor_bindings = bindings,
+        .descriptor_binding_count = 3,
+        .extra_set_layouts = extra_layouts,
+        .extra_set_layout_count = 1,
         .max_descriptor_sets = 16);
 
     s_mesh_ready = true;
@@ -858,6 +895,7 @@ static void mel__scene_forward_on_shutdown(void* ctx, const void* event)
 
     if (s_mesh_ready)
     {
+        mel_gpu_pipeline_shutdown(&s_mesh_pipeline_double_sided, s_dev);
         mel_gpu_pipeline_shutdown(&s_mesh_pipeline, s_dev);
         mel_gpu_shader_shutdown(&s_mesh_shader, s_dev);
         s_mesh_ready = false;

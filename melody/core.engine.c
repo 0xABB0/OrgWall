@@ -13,6 +13,7 @@
 #include "allocator.heap.h"
 #include "gpu.shader.h"
 #include "string.str8.h"
+#include "log.h"
 #include "boot.registry.h"
 #include "async.job.h"
 #include "async.signal.h"
@@ -73,13 +74,13 @@ static void mel__boot_job(void* data)
         .enable_validation = false,
         .app_name = app_name))
     {
-        SDL_Log("Failed to initialize GPU device");
+        mel_log_fatal("engine", "Failed to initialize GPU device");
         goto done;
     }
 
     if (!mel_slang_init())
     {
-        SDL_Log("Failed to initialize Slang");
+        mel_log_fatal("engine", "Failed to initialize Slang");
         goto done;
     }
 
@@ -96,7 +97,7 @@ static void mel__boot_job(void* data)
     s_last_time = SDL_GetPerformanceCounter();
     s_initialized = true;
 
-    SDL_Log("Melody Engine initialized!");
+    mel_log_info("engine", "Melody Engine initialized!");
 
     app_init();
 
@@ -140,7 +141,7 @@ void mel_shutdown(void)
     mel_job_shutdown();
     mel__main_dispatch_shutdown();
 
-    SDL_Log("Melody Engine shutdown complete");
+    mel_log_info("engine", "Melody Engine shutdown complete");
 }
 
 void mel_register_sim(Mel_Sim_Ctx* sim)
