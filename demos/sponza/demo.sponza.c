@@ -374,7 +374,7 @@ static bool sponza_load(Sponza_Load_Result* out, Mel_Geometry_Pool* pool,
         u32 base_color_texture_idx = white_texture_idx;
         u32 flags = 0;
         f32 alpha_cutoff = 0.5f;
-        u32 binding_flags = 0;
+        u32 cull_mode = MEL_GPU_CULL_BACK;
         json_vec4_or_default(pbr ? json_obj(pbr, "baseColorFactor") : nullptr, &base_color, base_color);
 
         cJSON* base_color_tex = pbr ? json_obj(pbr, "baseColorTexture") : nullptr;
@@ -403,7 +403,7 @@ static bool sponza_load(Sponza_Load_Result* out, Mel_Geometry_Pool* pool,
 
         cJSON* double_sided = material ? json_obj(material, "doubleSided") : nullptr;
         if (double_sided && cJSON_IsBool(double_sided) && cJSON_IsTrue(double_sided))
-            binding_flags |= MEL_RENDER_MATERIAL_DOUBLE_SIDED;
+            cull_mode = MEL_GPU_CULL_NONE;
 
         Unlit_Params params = {
             .base_color = base_color,
@@ -412,11 +412,12 @@ static bool sponza_load(Sponza_Load_Result* out, Mel_Geometry_Pool* pool,
             .alpha_cutoff = alpha_cutoff,
         };
         Mel_Material_Instance_Id mat_inst = mel_material_base_alloc_instance(unlit_id, &params);
+        mel_material_base_set_cull_mode(unlit_id, mat_inst, cull_mode);
         bindings[i] = (Mel_Render_Material_Binding){
             .slot = i,
             .material_base_id = unlit_id,
             .material_idx = mat_inst,
-            .flags = binding_flags,
+            .flags = 0,
         };
     }
 

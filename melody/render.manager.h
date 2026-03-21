@@ -40,8 +40,6 @@ typedef struct Mel_Render_Material_Binding {
     u32 flags;
 } Mel_Render_Material_Binding;
 
-#define MEL_RENDER_MATERIAL_DOUBLE_SIDED (1u << 0)
-
 struct Mel_Render_Manager {
     u32* sparse;
     u32* generations;

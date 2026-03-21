@@ -2,6 +2,7 @@
 
 #include "render.material_base.fwd.h"
 #include "string.str8.h"
+#include "gpu.pipeline.h"
 #include "gpu.shader.fwd.h"
 #include "gpu.buffer.h"
 #include "gpu.device.fwd.h"
@@ -21,6 +22,7 @@ struct Mel_Material_Base {
     bool shader_ready;
 
     u8* params;
+    u32* cull_modes;
     u32 instance_count;
     u32 instance_capacity;
 
@@ -46,6 +48,8 @@ Mel_Material_Instance_Id mel_material_base_alloc_instance(Mel_Material_Base_Id b
 void mel_material_base_free_instance(Mel_Material_Base_Id base_id, Mel_Material_Instance_Id instance_id);
 void mel_material_base_set_params(Mel_Material_Base_Id base_id, Mel_Material_Instance_Id instance_id, const void* params);
 const void* mel_material_base_get_params(Mel_Material_Base_Id base_id, Mel_Material_Instance_Id instance_id);
+void mel_material_base_set_cull_mode(Mel_Material_Base_Id base_id, Mel_Material_Instance_Id instance_id, u32 cull_mode);
+u32  mel_material_base_get_cull_mode(Mel_Material_Base_Id base_id, Mel_Material_Instance_Id instance_id);
 
 void mel_material_base_upload_dirty(Mel_Material_Base_Id base_id, Mel_Gpu_Device* dev);
 Mel_Gpu_Buffer* mel_material_base_param_buffer(Mel_Material_Base_Id base_id);

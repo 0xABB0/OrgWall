@@ -137,7 +137,6 @@ static const Mel_Render_Material_Binding* scene_forward_emitter_binding(
 static Mel_Gpu_Device* s_dev;
 static Mel_Gpu_Shader s_mesh_shader;
 static Mel_Gpu_Pipeline s_mesh_pipeline;
-static Mel_Gpu_Pipeline s_mesh_pipeline_double_sided;
 static Mel_Geometry_Pool* s_geometry_pool;
 static bool s_mesh_ready;
 static bool s_scene_forward_registered;
@@ -621,6 +620,7 @@ static void scene_forward_draw_meshes(Mel_Render_Pipeline* self,
 
     Mel_Mat4 vp = mel_mat4_mul(view->camera.projection, view->camera.view);
     Mel_Gpu_Pipeline* bound_pipeline = nullptr;
+    u32 bound_cull_mode = 0xFFFFFFFFu;
 
     for (u32 range_index = 0; range_index < scene_data->mesh_range_count; range_index++)
     {
@@ -651,16 +651,20 @@ static void scene_forward_draw_meshes(Mel_Render_Pipeline* self,
             if (item->flags & MEL_RF_HIDDEN)
                 continue;
 
-            Mel_Gpu_Pipeline* mesh_pipeline =
-                (item->flags & MEL_RENDER_MATERIAL_DOUBLE_SIDED)
-                ? &s_mesh_pipeline_double_sided
-                : &s_mesh_pipeline;
+            Mel_Gpu_Pipeline* mesh_pipeline = &s_mesh_pipeline;
             if (bound_pipeline != mesh_pipeline)
             {
                 mel_gpu_cmd_bind_pipeline(ctx->cmd, mesh_pipeline);
                 mel_gpu_cmd_bind_descriptor_set(ctx->cmd, mesh_pipeline, desc);
                 mel_texture_table_bind(texture_table, ctx->cmd, mesh_pipeline->_layout, 1);
                 bound_pipeline = mesh_pipeline;
+            }
+
+            u32 cull_mode = mel_material_base_get_cull_mode(item->material_base_id, item->material_idx);
+            if (bound_cull_mode != cull_mode)
+            {
+                mel_gpu_cmd_set_cull_mode(ctx->cmd, cull_mode);
+                bound_cull_mode = cull_mode;
             }
 
             Mel_Mat4 mvp = mel_mat4_mul(vp, item->model);
@@ -842,22 +846,7 @@ static void mel__scene_forward_compile(void* data)
         .depth_format = MEL_GPU_FORMAT_D32_SFLOAT,
         .blend_mode = MEL_GPU_BLEND_NONE,
         .cull_mode = MEL_GPU_CULL_BACK,
-        .topology = MEL_GPU_TOPOLOGY_TRIANGLE_LIST,
-        .depth_test = true,
-        .depth_write = true,
-        .push_constant_size = sizeof(Forward3D_Push),
-        .push_constant_stages = MEL_GPU_SHADER_STAGE_VERTEX | MEL_GPU_SHADER_STAGE_FRAGMENT,
-        .descriptor_bindings = bindings,
-        .descriptor_binding_count = 3,
-        .extra_set_layouts = extra_layouts,
-        .extra_set_layout_count = 1,
-        .max_descriptor_sets = 16);
-    mel_gpu_pipeline_init(&s_mesh_pipeline_double_sided, s_dev,
-        .shader = &s_mesh_shader,
-        .color_format = MEL_GPU_FORMAT_B8G8R8A8_SRGB,
-        .depth_format = MEL_GPU_FORMAT_D32_SFLOAT,
-        .blend_mode = MEL_GPU_BLEND_NONE,
-        .cull_mode = MEL_GPU_CULL_NONE,
+        .dynamic_cull_mode = true,
         .topology = MEL_GPU_TOPOLOGY_TRIANGLE_LIST,
         .depth_test = true,
         .depth_write = true,
@@ -895,7 +884,6 @@ static void mel__scene_forward_on_shutdown(void* ctx, const void* event)
 
     if (s_mesh_ready)
     {
-        mel_gpu_pipeline_shutdown(&s_mesh_pipeline_double_sided, s_dev);
         mel_gpu_pipeline_shutdown(&s_mesh_pipeline, s_dev);
         mel_gpu_shader_shutdown(&s_mesh_shader, s_dev);
         s_mesh_ready = false;
