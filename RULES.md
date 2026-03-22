@@ -2,13 +2,11 @@
 
 Practical rules for writing code in the Melody engine. Philosophy: @vision.md. File layout: @STRUCTURE.md.
 
-Each rule has a unique identifier (e.g. `MEL-001`).
-
 # MEL-STYLE: Code style
 
 ## MEL-STYLE-001: Enums are banned
 
-Enums are non-extendable at runtime.
+Enums are non-extendable at runtime and force to think in a model that's antithetical to this engine's spirit.
 
 ## MEL-STYLE-002: Star stays with the type
 
@@ -100,7 +98,7 @@ Prefer handles over pointers. Use generational handles when needed, plain handle
 
 ## MEL-014: Logging
 
-All logging through `mel_log_*` from `log.h`. Never `SDL_Log`, `printf`, or `fprintf(stderr, ...)`.
+All logging through `mel_log_*` from `log.h`.
 
 Levels (lower = more severe):
 - `mel_log_fatal` — unrecoverable

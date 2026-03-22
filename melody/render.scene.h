@@ -26,16 +26,6 @@ typedef struct {
 } Mel_Render_Scene_Point_Light;
 
 typedef struct {
-    Mel_Vec4 ambient_color;
-    Mel_Vec4 sky_color;
-    Mel_Vec4 ground_color;
-    f32 exposure;
-    f32 _pad0;
-    f32 _pad1;
-    f32 _pad2;
-} Mel_Render_Scene_Environment;
-
-typedef struct {
     Mel_Gpu_Device* dev;
     const Mel_Alloc* alloc;
     u32 initial_capacity;
@@ -54,9 +44,6 @@ void mel_render_scene_sync(Mel_Render_Scene* scene);
 Mel_Render_Manager* mel_render_scene_manager(Mel_Render_Scene* scene);
 void mel_render_scene_set_ambient_color(Mel_Render_Scene* scene, Mel_Vec4 ambient_color);
 Mel_Vec4 mel_render_scene_ambient_color(Mel_Render_Scene* scene);
-void mel_render_scene_set_environment(Mel_Render_Scene* scene,
-                                      Mel_Render_Scene_Environment environment);
-Mel_Render_Scene_Environment mel_render_scene_environment(Mel_Render_Scene* scene);
 void mel_render_scene_clear_directional_lights(Mel_Render_Scene* scene);
 void mel_render_scene_push_directional_light(Mel_Render_Scene* scene,
                                              Mel_Render_Scene_Directional_Light light);

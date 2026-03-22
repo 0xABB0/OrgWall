@@ -170,7 +170,7 @@ Notes:
 ## M3. Lighting model
 
 Status:
-- complete
+- partial
 
 Goal:
 - Sponza is lit by a scene-owned lighting model that is sufficient for this scene
@@ -198,9 +198,9 @@ Graduation candidates after this milestone:
 - scene-light authoring helpers if they prove general
 
 Notes:
-- scene-owned environment now includes ambient, sky, ground, and exposure
-- `scene_forward` consumes scene lighting truth instead of carrying hidden technique-owned light state
-- Sponza now authors its environment and light setup through `sponza.scene.*`
+- scene-owned direct lighting is now explicit and no longer hidden inside `scene_forward`
+- the correct ownership split for world/environment input versus view/output response is still under design
+- `M3` is not complete until that split is explicit and forward-facing
 
 ## M4. Shadowing
 

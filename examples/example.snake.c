@@ -112,7 +112,7 @@ static ecs_entity_t create_segment(ecs_world_t* world, i32 gx, i32 gy, Mel_Vec4 
     ecs_set(world, e, Mel_CTransform, {
         .pos = mel_vec2(GRID_X_OFFSET + ((f32)gx + 0.5f) * CELL_SIZE,
                         GRID_Y_OFFSET + ((f32)gy + 0.5f) * CELL_SIZE),
-        .depth = 0.5f,
+        .depth = 0.0f,
     });
     ecs_set(world, e, Mel_Sprite, {
         .size = mel_vec2(CELL_SIZE - pad * 2, CELL_SIZE - pad * 2),
@@ -142,7 +142,7 @@ static void spawn_food(Snake* s)
     ecs_set(world, s->food, Mel_CTransform, {
         .pos = mel_vec2(GRID_X_OFFSET + ((f32)fx + 0.5f) * CELL_SIZE,
                         GRID_Y_OFFSET + ((f32)fy + 0.5f) * CELL_SIZE),
-        .depth = 0.5f,
+        .depth = 0.0f,
     });
     ecs_set(world, s->food, Mel_Sprite, {
         .size = mel_vec2(CELL_SIZE - pad * 2, CELL_SIZE - pad * 2),
@@ -223,7 +223,7 @@ static void snake_spawn(Snake* s)
     ecs_set(world, bg, Mel_CTransform, {
         .pos = mel_vec2(GRID_X_OFFSET + (f32)GRID_W * CELL_SIZE * 0.5f,
                         GRID_Y_OFFSET + (f32)GRID_H * CELL_SIZE * 0.5f),
-        .depth = -0.5f,
+        .depth = 0.9f,
     });
     ecs_set(world, bg, Mel_Sprite, {
         .size = mel_vec2((f32)GRID_W * CELL_SIZE, (f32)GRID_H * CELL_SIZE),
@@ -239,7 +239,7 @@ static void snake_spawn(Snake* s)
         ecs_add(world, e, Snake_CGrid);
         ecs_set(world, e, Mel_CTransform, {
             .pos = mel_vec2(GRID_X_OFFSET + (f32)GRID_W * CELL_SIZE * 0.5f, y + 0.5f),
-            .depth = -0.5f,
+            .depth = 0.5f,
         });
         ecs_set(world, e, Mel_Sprite, {
             .size = mel_vec2((f32)GRID_W * CELL_SIZE, 1.0f),
@@ -254,7 +254,7 @@ static void snake_spawn(Snake* s)
         ecs_add(world, e, Snake_CGrid);
         ecs_set(world, e, Mel_CTransform, {
             .pos = mel_vec2(x + 0.5f, GRID_Y_OFFSET + (f32)GRID_H * CELL_SIZE * 0.5f),
-            .depth = -0.5f,
+            .depth = 0.5f,
         });
         ecs_set(world, e, Mel_Sprite, {
             .size = mel_vec2(1.0f, (f32)GRID_H * CELL_SIZE),
@@ -474,7 +474,7 @@ static void snake_sync_transforms(Snake* s)
             ecs_set(world, it.entities[i], Mel_CTransform, {
                 .pos = mel_vec2(GRID_X_OFFSET + ((f32)seg[i].gx + 0.5f) * CELL_SIZE,
                                 GRID_Y_OFFSET + ((f32)seg[i].gy + 0.5f) * CELL_SIZE),
-                .depth = 0.5f,
+                .depth = 0.0f,
             });
         }
     }

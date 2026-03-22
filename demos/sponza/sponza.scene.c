@@ -4,12 +4,7 @@ void sponza_scene_apply_lighting(Mel_Render_Scene* scene,
                                  Mel_Vec3 world_center,
                                  Mel_Vec3 world_extents)
 {
-    mel_render_scene_set_environment(scene, (Mel_Render_Scene_Environment){
-        .ambient_color = mel_vec4(0.05f, 0.05f, 0.06f, 1.0f),
-        .sky_color = mel_vec4(0.22f, 0.24f, 0.28f, 1.0f),
-        .ground_color = mel_vec4(0.08f, 0.07f, 0.05f, 1.0f),
-        .exposure = 1.0f,
-    });
+    mel_render_scene_set_ambient_color(scene, mel_vec4(0.14f, 0.15f, 0.17f, 1.0f));
     mel_render_scene_clear_directional_lights(scene);
     mel_render_scene_push_directional_light(scene, (Mel_Render_Scene_Directional_Light){
         .direction_intensity = {{ 0.35f, 1.0f, 0.4f, 1.15f }},

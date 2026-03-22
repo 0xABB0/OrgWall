@@ -17,18 +17,6 @@ MEL_TEST(render_scene_lighting_lists, .tags = "render")
     MEL_ASSERT_FLOAT_EQ(ambient.y, 0.3f, 0.0001f);
     MEL_ASSERT_FLOAT_EQ(ambient.z, 0.4f, 0.0001f);
 
-    mel_render_scene_set_environment(scene, (Mel_Render_Scene_Environment){
-        .ambient_color = mel_vec4(0.18f, 0.19f, 0.20f, 1.0f),
-        .sky_color = mel_vec4(0.4f, 0.5f, 0.6f, 1.0f),
-        .ground_color = mel_vec4(0.1f, 0.2f, 0.3f, 1.0f),
-        .exposure = 1.25f,
-    });
-    Mel_Render_Scene_Environment environment = mel_render_scene_environment(scene);
-    MEL_ASSERT_FLOAT_EQ(environment.ambient_color.x, 0.18f, 0.0001f);
-    MEL_ASSERT_FLOAT_EQ(environment.sky_color.y, 0.5f, 0.0001f);
-    MEL_ASSERT_FLOAT_EQ(environment.ground_color.z, 0.3f, 0.0001f);
-    MEL_ASSERT_FLOAT_EQ(environment.exposure, 1.25f, 0.0001f);
-
     mel_render_scene_clear_directional_lights(scene);
     mel_render_scene_clear_point_lights(scene);
 
