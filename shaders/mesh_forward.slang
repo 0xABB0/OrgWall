@@ -56,7 +56,10 @@ struct MeshViewParams
     float4x4 shadow_view_projection;
     float4 camera_position;
     float4 ambient_color;
+    float4 sky_color;
+    float4 ground_color;
     float4 shadow_params;
+    float4 response_params;
     uint directional_light_count;
     uint point_light_count;
     uint shadow_directional_light_index;
@@ -130,6 +133,14 @@ float meshShadowFactor(MeshViewParams view, float3 world_pos, float3 normal, flo
     return 1.0;
 }
 
+float3 meshEnvironmentLighting(MeshViewParams view, float3 normal, float3 surface_color, float metallic)
+{
+    float hemi_t = saturate(normal.y * 0.5 + 0.5);
+    float3 hemi = lerp(view.ground_color.rgb, view.sky_color.rgb, hemi_t);
+    float3 ambient = view.ambient_color.rgb + hemi;
+    return surface_color * ambient * (1.0 - 0.35 * metallic);
+}
+
 [shader("vertex")]
 MeshForwardVSOutput vertexMain(uint vid : SV_VertexID)
 {
@@ -162,7 +173,7 @@ MeshForwardVSOutput vertexMain(uint vid : SV_VertexID)
 }
 
 [shader("fragment")]
-float4 fragmentMain(MeshForwardVSOutput input) : SV_Target
+float4 fragmentMain(MeshForwardVSOutput input, bool is_front_face : SV_IsFrontFace) : SV_Target
 {
     MaterialParams mat = materials[push.material_idx];
     MeshViewParams view = view_params[0];
@@ -175,12 +186,14 @@ float4 fragmentMain(MeshForwardVSOutput input) : SV_Target
         discard;
 
     float3 N = normalize(input.normal);
+    float face_sign = is_front_face ? 1.0 : -1.0;
+    N *= face_sign;
     if ((mat.flags & MATERIAL_FLAG_USE_NORMAL_TEXTURE) != 0)
     {
         float3 tangent_sample = textures[NonUniformResourceIndex(mat.normal_texture_idx)].Sample(input.uv).xyz * 2.0 - 1.0;
         tangent_sample.xy *= mat.normal_scale;
 
-        float3 T = normalize(input.tangent.xyz);
+        float3 T = normalize(input.tangent.xyz) * face_sign;
         float3 B = normalize(cross(N, T) * input.tangent.w);
         N = normalize(T * tangent_sample.x + B * tangent_sample.y + N * tangent_sample.z);
     }
@@ -194,12 +207,11 @@ float4 fragmentMain(MeshForwardVSOutput input) : SV_Target
         metallic = clamp(metallic * mr.b, 0.0, 1.0);
     }
 
-    float3 ambient_color = view.ambient_color.rgb;
     float3 view_dir = normalize(view.camera_position.xyz - input.world_pos);
     float shininess = lerp(64.0, 4.0, roughness);
     float specular_strength = lerp(1.0, 0.25, roughness);
     float3 f0 = lerp(float3(0.04, 0.04, 0.04), surface.rgb, metallic);
-    float3 ambient = surface.rgb * ambient_color * (1.0 - 0.35 * metallic);
+    float3 ambient = meshEnvironmentLighting(view, N, surface.rgb, metallic);
 
     float3 lit = ambient;
 
@@ -249,5 +261,6 @@ float4 fragmentMain(MeshForwardVSOutput input) : SV_Target
         lit += diffuse + specular;
     }
 
+    lit *= max(view.response_params.x, 0.0);
     return float4(lit, surface.a);
 }

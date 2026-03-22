@@ -28,6 +28,9 @@ Pipelines do not invent their own scene truth. They derive from:
 Scene lighting is now authored as explicit scene-owned inputs:
 
 - ambient color
+- sky color
+- ground color
+- exposure
 - directional light list
 - point light list
 

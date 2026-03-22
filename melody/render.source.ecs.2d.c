@@ -25,6 +25,7 @@ typedef struct {
     Mel_Rect uv;
     Mel_Vec4 color;
     u32 texture_idx;
+    u32 layer;
 } Mel_ECS_2D_Slot;
 
 typedef Mel_Array(Mel_ECS_2D_Slot) Mel_ECS_2D_Slot_List;
@@ -62,7 +63,8 @@ static void ecs_2d_store_slot(Mel_ECS_2D_Source_Data* data,
                               Mel_Render_Handle h,
                               Mel_Rect uv,
                               Mel_Vec4 color,
-                              u32 texture_idx)
+                              u32 texture_idx,
+                              u32 layer)
 {
     Mel_ECS_2D_Slot* slot = ecs_2d_find_slot(data, h);
     if (slot != nullptr)
@@ -70,6 +72,7 @@ static void ecs_2d_store_slot(Mel_ECS_2D_Source_Data* data,
         slot->uv = uv;
         slot->color = color;
         slot->texture_idx = texture_idx;
+        slot->layer = layer;
         return;
     }
 
@@ -78,6 +81,7 @@ static void ecs_2d_store_slot(Mel_ECS_2D_Source_Data* data,
         .uv = uv,
         .color = color,
         .texture_idx = texture_idx,
+        .layer = layer,
     }));
 }
 
@@ -108,7 +112,7 @@ static void sync_sprite(Mel_Render_Source* self,
         .pos = t ? t->pos : MEL_VEC2_ZERO,
         .scale = s ? s->size : MEL_VEC2_ONE,
         .rotation = 0,
-        .depth = 0.5f,
+        .depth = t ? t->depth : 0.0f,
         .flags = 0,
     };
 
@@ -121,7 +125,8 @@ static void sync_sprite(Mel_Render_Source* self,
     ecs_2d_store_slot(data, h,
         s ? s->uv : mel_rect(0, 0, 1, 1),
         s ? s->color : MEL_VEC4_ONE,
-        0);
+        0,
+        s ? s->layer : 0);
 
     mel_mgr_set_instance(mgr, h, &(Mel_Render_Instance){
         .source = self,
@@ -206,7 +211,8 @@ static void expand_text(Mel_Render_Source* self,
         ecs_2d_store_slot(data, h,
             mel_rect(g->u0, g->v0, g->u1 - g->u0, g->v1 - g->v0),
             ct->color,
-            ct->texture_idx);
+            ct->texture_idx,
+            0);
 
         mel_mgr_set_instance(mgr, h, &(Mel_Render_Instance){
             .source = self,

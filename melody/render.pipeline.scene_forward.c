@@ -32,6 +32,8 @@
 #include "math.mat4.h"
 #include "async.job.h"
 
+#include "log.h"
+
 #include <assert.h>
 #include <float.h>
 #include <math.h>
@@ -64,7 +66,10 @@ typedef struct {
     Mel_Mat4 shadow_view_projection;
     Mel_Vec4 camera_position;
     Mel_Vec4 ambient_color;
+    Mel_Vec4 sky_color;
+    Mel_Vec4 ground_color;
     Mel_Vec4 shadow_params;
+    Mel_Vec4 response_params;
     u32 directional_light_count;
     u32 point_light_count;
     u32 shadow_directional_light_index;
@@ -77,7 +82,7 @@ typedef struct {
 
 _Static_assert(sizeof(Forward3D_Push) == 112, "Forward3D_Push must be 112 bytes");
 _Static_assert(sizeof(Forward3D_Shadow_Push) == 64, "Forward3D_Shadow_Push must be 64 bytes");
-_Static_assert(sizeof(Scene_Forward_Mesh_View_Params) == 192, "Scene_Forward_Mesh_View_Params must be 192 bytes");
+_Static_assert(sizeof(Scene_Forward_Mesh_View_Params) == 240, "Scene_Forward_Mesh_View_Params must be 240 bytes");
 _Static_assert(sizeof(Scene_Forward_Shadow_View_Params) == 64, "Scene_Forward_Shadow_View_Params must be 64 bytes");
 
 #define SCENE_FORWARD_MESH_STRATEGY_NONE                   0u
@@ -576,6 +581,9 @@ static void scene_forward_scene_sync(Mel_Render_Pipeline_Scene* self, Mel_Render
             }
         }
 
+        mel_log_debug("scene_forward", "sync: instances=%u sprites=%u ranges=%u meshes=%u",
+            instance_count, sprite_count, sprite_range_count, mesh_count);
+
         scene_forward_scene_ensure_sprite_capacity(data, self->alloc, sprite_count, sprite_range_count);
         scene_forward_scene_ensure_mesh_capacity(data, self->alloc, mesh_count, mesh_range_count, transparent_mesh_count);
 
@@ -1046,6 +1054,8 @@ static void scene_forward_draw_meshes(Mel_Render_Pipeline* self,
         mel_render_scene_directional_lights(scene->owner_scene, &directional_light_count);
     const Mel_Render_Scene_Point_Light* point_lights =
         mel_render_scene_point_lights(scene->owner_scene, &point_light_count);
+    Mel_Render_Scene_Environment environment =
+        mel_render_scene_environment(scene->owner_scene);
     Mel_Render_Scene_Directional_Light directional_light_dummy = {0};
     Mel_Render_Scene_Point_Light point_light_dummy = {0};
 
@@ -1058,8 +1068,11 @@ static void scene_forward_draw_meshes(Mel_Render_Pipeline* self,
         .view_projection = vp,
         .shadow_view_projection = shadow_setup->view_projection,
         .camera_position = mel_vec4(inv_view.m[0][3], inv_view.m[1][3], inv_view.m[2][3], 1.0f),
-        .ambient_color = mel_render_scene_ambient_color(scene->owner_scene),
+        .ambient_color = environment.ambient_color,
+        .sky_color = environment.sky_color,
+        .ground_color = environment.ground_color,
         .shadow_params = shadow_setup->params,
+        .response_params = mel_vec4(environment.exposure, 0.0f, 0.0f, 0.0f),
         .directional_light_count = directional_light_count,
         .point_light_count = point_light_count,
         .shadow_directional_light_index = shadow_setup->enabled ? shadow_setup->directional_light_index : 0xFFFFFFFFu,
@@ -1341,6 +1354,21 @@ static void scene_forward_draw_sprites(Mel_Render_Pipeline* self,
                                        Scene_Forward_Scene_Data* scene_data,
                                        Mel_Render_Draw_Ctx* ctx)
 {
+    static bool s_sprite_draw_logged = false;
+    if (!s_sprite_draw_logged)
+    {
+        mel_log_debug("scene_forward", "draw: sprite_count=%u ranges=%u",
+            scene_data->sprite_count, scene_data->sprite_range_count);
+        for (u32 di = 0; di < scene_data->sprite_range_count; di++)
+        {
+            Mel_Material_Base* m = mel_material_base_get(scene_data->sprite_ranges[di].group);
+            mel_log_debug("scene_forward", "  range[%u] group=%u start=%u count=%u shader_ready=%d",
+                di, scene_data->sprite_ranges[di].group,
+                scene_data->sprite_ranges[di].start, scene_data->sprite_ranges[di].count,
+                m ? m->shader_ready : -1);
+        }
+        s_sprite_draw_logged = true;
+    }
     if (scene_data->sprite_count == 0)
         return;
 

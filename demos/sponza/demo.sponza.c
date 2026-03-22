@@ -152,15 +152,36 @@ void app_shutdown(void)
         s_camera.mouse_captured = false;
     }
     if (mel_render_view_handle_valid(s_view))
+    {
         mel_render_view_destroy(s_view);
+        s_view = MEL_RENDER_VIEW_HANDLE_NULL;
+    }
     if (s_source != nullptr)
+    {
         mel_render_source_destroy(s_source);
+        s_source = nullptr;
+    }
     if (s_scene != nullptr)
+    {
         mel_render_scene_destroy(s_scene);
+        s_scene = nullptr;
+    }
     if (mel_render_target_handle_valid(s_target))
+    {
         mel_render_target_destroy(s_target);
+        s_target = MEL_RENDER_TARGET_HANDLE_NULL;
+    }
     if (s_geo_pool.dev != nullptr)
+    {
         mel_geometry_pool_shutdown(&s_geo_pool);
+        s_geo_pool = (Mel_Geometry_Pool){0};
+    }
+
+    s_sponza_handle = (Mel_Render_Handle){0};
+    s_swapchain = MEL_SWAPCHAIN_HANDLE_NULL;
+    s_window = MEL_WINDOW_HANDLE_NULL;
+
+    mel_vfs_unmount(S8("/"));
 }
 
 void app_event(SDL_Event* event)

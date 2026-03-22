@@ -14,6 +14,7 @@ typedef struct Mel_Sprite
     Mel_Vec4 color;
     Mel_Texture_Handle tex;
     Mel_Rect uv;
+    u32 layer;
 } Mel_Sprite;
 
 extern ECS_COMPONENT_DECLARE(Mel_Sprite);

@@ -109,6 +109,197 @@ static double json_num(cJSON* obj, const char* key, double fallback)
     return item ? item->valuedouble : fallback;
 }
 
+static bool sponza_gltf_material_uses_textures(cJSON* material)
+{
+    if (material == nullptr)
+        return false;
+
+    cJSON* pbr = json_obj(material, "pbrMetallicRoughness");
+    return (pbr && json_obj(pbr, "baseColorTexture")) ||
+           (pbr && json_obj(pbr, "metallicRoughnessTexture")) ||
+           json_obj(material, "normalTexture") != nullptr;
+}
+
+static bool sponza_gltf_validate_supported_usage(const Sponza_Gltf* gltf)
+{
+    assert(gltf != nullptr);
+    cJSON* root = gltf->root;
+    assert(root != nullptr);
+
+    cJSON* extensions_used = json_obj(root, "extensionsUsed");
+    cJSON* extensions_required = json_obj(root, "extensionsRequired");
+    cJSON* scenes = json_obj(root, "scenes");
+    cJSON* meshes = json_obj(root, "meshes");
+    cJSON* nodes = json_obj(root, "nodes");
+    cJSON* materials = json_obj(root, "materials");
+
+    if ((extensions_used && cJSON_GetArraySize(extensions_used) > 0) ||
+        (extensions_required && cJSON_GetArraySize(extensions_required) > 0))
+    {
+        mel_log_error("demo.sponza", "unsupported glTF extensions in Sponza asset");
+        return false;
+    }
+
+    if (!scenes || cJSON_GetArraySize(scenes) != 1)
+    {
+        mel_log_error("demo.sponza", "Sponza loader expects exactly one glTF scene");
+        return false;
+    }
+    if (!meshes || cJSON_GetArraySize(meshes) != 1)
+    {
+        mel_log_error("demo.sponza", "Sponza loader expects exactly one glTF mesh");
+        return false;
+    }
+    if (!nodes || cJSON_GetArraySize(nodes) < 1)
+    {
+        mel_log_error("demo.sponza", "Sponza loader expects at least one glTF node");
+        return false;
+    }
+
+    cJSON* scene0 = cJSON_GetArrayItem(scenes, 0);
+    cJSON* scene_nodes = scene0 ? json_obj(scene0, "nodes") : nullptr;
+    if (!scene_nodes || !cJSON_IsArray(scene_nodes) || cJSON_GetArraySize(scene_nodes) != 1)
+    {
+        mel_log_error("demo.sponza", "Sponza loader expects exactly one root node");
+        return false;
+    }
+    cJSON* root_node_index = cJSON_GetArrayItem(scene_nodes, 0);
+    if (!root_node_index || root_node_index->valueint != 0)
+    {
+        mel_log_error("demo.sponza", "Sponza loader expects root node 0");
+        return false;
+    }
+
+    cJSON* node0 = cJSON_GetArrayItem(nodes, 0);
+    if (json_obj(node0, "children") != nullptr)
+    {
+        mel_log_error("demo.sponza", "Sponza loader does not support nested node hierarchies yet");
+        return false;
+    }
+    if (json_int(node0, "mesh", -1) != 0)
+    {
+        mel_log_error("demo.sponza", "Sponza loader expects node 0 to reference mesh 0");
+        return false;
+    }
+
+    if (materials == nullptr)
+    {
+        mel_log_error("demo.sponza", "Sponza loader requires a material array");
+        return false;
+    }
+
+    for (u32 i = 0; i < (u32)cJSON_GetArraySize(materials); i++)
+    {
+        cJSON* material = cJSON_GetArrayItem(materials, (int)i);
+        cJSON* pbr = material ? json_obj(material, "pbrMetallicRoughness") : nullptr;
+        cJSON* alpha_mode = material ? json_obj(material, "alphaMode") : nullptr;
+        cJSON* emissive_texture = material ? json_obj(material, "emissiveTexture") : nullptr;
+        cJSON* occlusion_texture = material ? json_obj(material, "occlusionTexture") : nullptr;
+        cJSON* emissive_factor = material ? json_obj(material, "emissiveFactor") : nullptr;
+
+        if (occlusion_texture != nullptr)
+        {
+            mel_log_error("demo.sponza", "material %u uses occlusionTexture, which this Sponza loader does not support", i);
+            return false;
+        }
+        if (emissive_texture != nullptr)
+        {
+            mel_log_error("demo.sponza", "material %u uses emissiveTexture, which this Sponza loader does not support", i);
+            return false;
+        }
+        if (emissive_factor && cJSON_IsArray(emissive_factor) && cJSON_GetArraySize(emissive_factor) >= 3)
+        {
+            f32 ex = (f32)cJSON_GetArrayItem(emissive_factor, 0)->valuedouble;
+            f32 ey = (f32)cJSON_GetArrayItem(emissive_factor, 1)->valuedouble;
+            f32 ez = (f32)cJSON_GetArrayItem(emissive_factor, 2)->valuedouble;
+            if (fabsf(ex) > 0.0001f || fabsf(ey) > 0.0001f || fabsf(ez) > 0.0001f)
+            {
+                mel_log_error("demo.sponza", "material %u uses emissiveFactor, which this Sponza loader does not support", i);
+                return false;
+            }
+        }
+        if (alpha_mode && cJSON_IsString(alpha_mode))
+        {
+            if (strcmp(alpha_mode->valuestring, "OPAQUE") != 0 &&
+                strcmp(alpha_mode->valuestring, "MASK") != 0)
+            {
+                mel_log_error("demo.sponza", "material %u uses unsupported alphaMode %s", i, alpha_mode->valuestring);
+                return false;
+            }
+        }
+
+        if (pbr == nullptr)
+        {
+            mel_log_error("demo.sponza", "material %u is missing pbrMetallicRoughness", i);
+            return false;
+        }
+    }
+
+    cJSON* mesh0 = cJSON_GetArrayItem(meshes, 0);
+    cJSON* primitives = mesh0 ? json_obj(mesh0, "primitives") : nullptr;
+    if (!primitives || !cJSON_IsArray(primitives))
+    {
+        mel_log_error("demo.sponza", "Sponza loader requires mesh 0 primitives");
+        return false;
+    }
+
+    for (u32 i = 0; i < (u32)cJSON_GetArraySize(primitives); i++)
+    {
+        cJSON* primitive = cJSON_GetArrayItem(primitives, (int)i);
+        cJSON* attrs = primitive ? json_obj(primitive, "attributes") : nullptr;
+        if (attrs == nullptr)
+        {
+            mel_log_error("demo.sponza", "primitive %u is missing attributes", i);
+            return false;
+        }
+        if (json_obj(attrs, "POSITION") == nullptr || json_obj(attrs, "NORMAL") == nullptr)
+        {
+            mel_log_error("demo.sponza", "primitive %u is missing POSITION or NORMAL", i);
+            return false;
+        }
+        if (json_obj(primitive, "indices") == nullptr)
+        {
+            mel_log_error("demo.sponza", "primitive %u is missing indices", i);
+            return false;
+        }
+
+        for (cJSON* child = attrs->child; child != nullptr; child = child->next)
+        {
+            const char* name = child->string;
+            if (name == nullptr)
+                continue;
+            if (strcmp(name, "POSITION") == 0) continue;
+            if (strcmp(name, "NORMAL") == 0) continue;
+            if (strcmp(name, "TANGENT") == 0) continue;
+            if (strcmp(name, "TEXCOORD_0") == 0) continue;
+
+            mel_log_error("demo.sponza", "primitive %u uses unsupported attribute %s", i, name);
+            return false;
+        }
+
+        int material_index = json_int(primitive, "material", -1);
+        if (material_index < 0 || material_index >= cJSON_GetArraySize(materials))
+        {
+            mel_log_error("demo.sponza", "primitive %u references invalid material %d", i, material_index);
+            return false;
+        }
+
+        cJSON* material = cJSON_GetArrayItem(materials, material_index);
+        if (sponza_gltf_material_uses_textures(material) && json_obj(attrs, "TEXCOORD_0") == nullptr)
+        {
+            mel_log_error("demo.sponza", "primitive %u uses textured material %d without TEXCOORD_0", i, material_index);
+            return false;
+        }
+        if (json_obj(material, "normalTexture") != nullptr && json_obj(attrs, "TANGENT") == nullptr)
+        {
+            mel_log_error("demo.sponza", "primitive %u uses normal-mapped material %d without TANGENT", i, material_index);
+            return false;
+        }
+    }
+
+    return true;
+}
+
 static void json_vec4_or_default(cJSON* arr, Mel_Vec4* out, Mel_Vec4 fallback)
 {
     *out = fallback;
@@ -486,6 +677,11 @@ bool sponza_scan(Sponza_Scan_Result* out, const Mel_Alloc* alloc)
     Sponza_Gltf gltf = {0};
     if (!sponza_gltf_open(&gltf, alloc))
         return false;
+    if (!sponza_gltf_validate_supported_usage(&gltf))
+    {
+        sponza_gltf_close(&gltf, alloc);
+        return false;
+    }
 
     cJSON* root = gltf.root;
     cJSON* materials = json_obj(root, "materials");
@@ -536,6 +732,11 @@ bool sponza_load(Sponza_Load_Result* out,
     Sponza_Gltf gltf = {0};
     if (!sponza_gltf_open(&gltf, alloc))
         return false;
+    if (!sponza_gltf_validate_supported_usage(&gltf))
+    {
+        sponza_gltf_close(&gltf, alloc);
+        return false;
+    }
 
     cJSON* root = gltf.root;
     str8 gltf_dir = gltf.gltf_dir;

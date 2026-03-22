@@ -45,7 +45,17 @@ void sponza_camera_update(Sponza_Camera* camera,
                           Mel_Render_View_Handle view,
                           f32 dt)
 {
+    if (!mel_swapchain_handle_valid(swapchain))
+        return;
+    if (!mel_render_view_handle_valid(view))
+        return;
+
     Mel_Swapchain_Entry* sc_entry = mel_swapchain_registry_get(swapchain);
+    if (sc_entry == nullptr)
+        return;
+    if (sc_entry->swapchain.extent_width == 0 || sc_entry->swapchain.extent_height == 0)
+        return;
+
     f32 aspect = (f32)sc_entry->swapchain.extent_width / (f32)sc_entry->swapchain.extent_height;
     const bool* keys = SDL_GetKeyboardState(nullptr);
 
