@@ -12,6 +12,7 @@ This is the current unified top-level scene renderer. It is not a `2d renderer` 
 - spaces from `render.manager`
 - material bindings from `render.manager`
 - source-authored payload through `scene_forward_emit`
+- scene-owned lighting from `render.scene`
 
 That contract is the important part. The technique should not need private knowledge of how a source stores its payload internally.
 
@@ -19,6 +20,20 @@ That contract is the important part. The technique should not need private knowl
 
 - mesh path
 - sprite path
+
+The mesh path also has a directional shadow pass. The scene authors shadow intent on directional lights, and `scene_forward` consumes that intent to build exactly one shadow map for the first shadow-casting directional light.
+
+The shadow map fit is derived from the camera-visible mesh bounds for the active view. That keeps the pass tied to the scene the camera is actually seeing, without turning bounds fitting into canonical scene truth.
+
+The mesh path now has explicit opaque and alpha-blend submission phases. Blend state comes from material-instance truth, not from the scene model.
+
+Its lighting path now consumes:
+
+- ambient scene color
+- a scene-owned directional light list
+- a scene-owned point light list
+
+and uploads compact per-view light buffers for the shader to consume. That keeps light truth in the scene while keeping execution data in the technique.
 
 Both are internal to the same technique. They are not separate top-level pipelines anymore.
 
@@ -33,6 +48,19 @@ Today it builds:
 - uploaded sprite transform/info/draw-order buffers
 
 This cache is execution data, not canonical scene truth.
+
+## Visibility today
+
+The mesh path now performs basic scene-scale CPU frustum culling at draw time.
+
+It uses:
+
+- the active view frustum
+- item bounds transformed by item model
+- item hidden flags
+- the view visibility mask against item layer masks
+
+This keeps culling in derived execution, where it belongs, instead of polluting canonical scene truth.
 
 ## Source emitter contract
 
@@ -69,3 +97,9 @@ If both parts render with the same material, the binding-selection path is wrong
 - mesh path still assumes whole-geometry handles, not explicit submesh index ranges inside one geometry handle
 - there is no general scene-composition/effects layer here
 - this technique is still one renderer strategy, not the whole rendering architecture
+- lighting is now scene-owned and no longer single-light, but it is still a basic forward model: ambient plus directional and point lights
+- shadowing is currently directional-only and limited to one shadow-casting directional light per `scene_forward` view
+- point-light shadows and cascades are not implemented yet
+- the shadow map is fitted from camera-visible mesh bounds, not from a scene-wide light clustering or cascade system
+- alpha-blend mesh sorting is still basic: back-to-front by item bounds center
+- culling is currently CPU frustum culling in the draw path, not a richer scene-wide GPU/async visibility system

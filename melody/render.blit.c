@@ -2,11 +2,11 @@
 #include "render.target.h"
 #include "render.viewport.h"
 #include "gpu.device.h"
-#include "gpu.device.vulkan.h"
 #include "gpu.shader.h"
 #include "gpu.pipeline.h"
 #include "gpu.cmd.h"
 #include "gpu.image.h"
+#include "gpu.texture.h"
 #include "boot.registry.h"
 #include "event.channel.h"
 #include "core.engine.h"
@@ -149,18 +149,15 @@ static void mel__blit_compile(void* data)
         .descriptor_binding_count = 1,
         .max_descriptor_sets = 16);
 
-    VkSamplerCreateInfo sampler_info = {
-        .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
-        .magFilter = VK_FILTER_LINEAR,
-        .minFilter = VK_FILTER_LINEAR,
-        .mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR,
-        .addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
-        .addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
-        .addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
-    };
-    VkSampler sampler;
-    vkCreateSampler(mel__gpu_device_vk(s_dev)->device, &sampler_info, nullptr, &sampler);
-    s_blit_sampler = sampler;
+    s_blit_sampler = mel_gpu_sampler_create(s_dev,
+        .nearest_filter = false,
+        .address_mode_u = MEL_GPU_SAMPLER_ADDRESS_CLAMP_TO_EDGE,
+        .address_mode_v = MEL_GPU_SAMPLER_ADDRESS_CLAMP_TO_EDGE,
+        .address_mode_w = MEL_GPU_SAMPLER_ADDRESS_CLAMP_TO_EDGE,
+        .compare_enable = false,
+        .compare_op = MEL_GPU_COMPARE_ALWAYS,
+        .min_lod = 0.0f,
+        .max_lod = 0.0f);
 
     s_blit_ready = true;
 }
@@ -179,7 +176,7 @@ static void mel__blit_on_shutdown(void* ctx, const void* event)
     if (s_blit_ready)
     {
         if (s_blit_sampler)
-            vkDestroySampler(mel__gpu_device_vk(s_dev)->device, (VkSampler)s_blit_sampler, nullptr);
+            mel_gpu_sampler_destroy(s_dev, s_blit_sampler);
         mel_gpu_pipeline_shutdown(&s_blit_pipeline, s_dev);
         mel_gpu_shader_shutdown(&s_blit_shader, s_dev);
         s_blit_sampler = nullptr;

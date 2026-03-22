@@ -128,10 +128,14 @@ static u32 mel__gpu_texture_mip_count(u32 width, u32 height)
     return levels;
 }
 
-static void create_sampler(Mel_Gpu_Texture* tex, Mel_Gpu_Device* dev, Mel_Gpu_Texture_Opt opt)
+void* mel_gpu_sampler_create_opt(Mel_Gpu_Device* dev, Mel_Gpu_Sampler_Opt opt)
 {
+    assert(dev != nullptr);
+
     VkFilter filter = opt.nearest_filter ? VK_FILTER_NEAREST : VK_FILTER_LINEAR;
-    f32 max_lod = tex->image.mip_levels > 0 ? (f32)(tex->image.mip_levels - 1) : 0.0f;
+    f32 max_lod = opt.max_lod;
+    if (max_lod < opt.min_lod)
+        max_lod = opt.min_lod;
 
     VkSamplerCreateInfo sampler_info = {
         .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
@@ -144,8 +148,18 @@ static void create_sampler(Mel_Gpu_Texture* tex, Mel_Gpu_Device* dev, Mel_Gpu_Te
         .mipLodBias = 0.0f,
         .anisotropyEnable = VK_FALSE,
         .maxAnisotropy = 1.0f,
-        .compareEnable = VK_FALSE,
-        .minLod = 0.0f,
+        .compareEnable = opt.compare_enable ? VK_TRUE : VK_FALSE,
+        .compareOp = (VkCompareOp[]){ 
+            [MEL_GPU_COMPARE_LESS] = VK_COMPARE_OP_LESS,
+            [MEL_GPU_COMPARE_NEVER] = VK_COMPARE_OP_NEVER,
+            [MEL_GPU_COMPARE_EQUAL] = VK_COMPARE_OP_EQUAL,
+            [MEL_GPU_COMPARE_LESS_OR_EQUAL] = VK_COMPARE_OP_LESS_OR_EQUAL,
+            [MEL_GPU_COMPARE_GREATER] = VK_COMPARE_OP_GREATER,
+            [MEL_GPU_COMPARE_NOT_EQUAL] = VK_COMPARE_OP_NOT_EQUAL,
+            [MEL_GPU_COMPARE_GREATER_OR_EQUAL] = VK_COMPARE_OP_GREATER_OR_EQUAL,
+            [MEL_GPU_COMPARE_ALWAYS] = VK_COMPARE_OP_ALWAYS,
+        }[opt.compare_op],
+        .minLod = opt.min_lod,
         .maxLod = max_lod,
         .borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK,
         .unnormalizedCoordinates = VK_FALSE,
@@ -154,7 +168,28 @@ static void create_sampler(Mel_Gpu_Texture* tex, Mel_Gpu_Device* dev, Mel_Gpu_Te
     VkSampler sampler = VK_NULL_HANDLE;
     VkResult r = vkCreateSampler(mel__gpu_device_vk(dev)->device, &sampler_info, nullptr, &sampler);
     assert(r == VK_SUCCESS);
-    tex->_sampler = sampler;
+    return sampler;
+}
+
+void mel_gpu_sampler_destroy(Mel_Gpu_Device* dev, void* sampler)
+{
+    assert(dev != nullptr);
+    if (sampler != nullptr)
+        vkDestroySampler(mel__gpu_device_vk(dev)->device, (VkSampler)sampler, nullptr);
+}
+
+static void create_sampler(Mel_Gpu_Texture* tex, Mel_Gpu_Device* dev, Mel_Gpu_Texture_Opt opt)
+{
+    f32 max_lod = tex->image.mip_levels > 0 ? (f32)(tex->image.mip_levels - 1) : 0.0f;
+    tex->_sampler = mel_gpu_sampler_create(dev,
+        .nearest_filter = opt.nearest_filter,
+        .address_mode_u = opt.address_mode_u,
+        .address_mode_v = opt.address_mode_v,
+        .address_mode_w = opt.address_mode_w,
+        .min_lod = 0.0f,
+        .max_lod = max_lod,
+        .compare_enable = false,
+        .compare_op = MEL_GPU_COMPARE_ALWAYS);
 }
 
 void mel_gpu_texture_init_opt(Mel_Gpu_Texture* tex, Mel_Gpu_Device* dev, Mel_Gpu_Texture_Opt opt)
@@ -295,7 +330,7 @@ void mel_gpu_texture_shutdown(Mel_Gpu_Texture* tex, Mel_Gpu_Device* dev)
 
     if (tex->_sampler)
     {
-        vkDestroySampler(mel__gpu_device_vk(dev)->device, (VkSampler)tex->_sampler, nullptr);
+        mel_gpu_sampler_destroy(dev, tex->_sampler);
         tex->_sampler = nullptr;
     }
 

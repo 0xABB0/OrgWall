@@ -23,6 +23,7 @@ struct Mel_Material_Base {
 
     u8* params;
     u32* cull_modes;
+    u32* blend_modes;
     u32 instance_count;
     u32 instance_capacity;
 
@@ -50,6 +51,8 @@ void mel_material_base_set_params(Mel_Material_Base_Id base_id, Mel_Material_Ins
 const void* mel_material_base_get_params(Mel_Material_Base_Id base_id, Mel_Material_Instance_Id instance_id);
 void mel_material_base_set_cull_mode(Mel_Material_Base_Id base_id, Mel_Material_Instance_Id instance_id, u32 cull_mode);
 u32  mel_material_base_get_cull_mode(Mel_Material_Base_Id base_id, Mel_Material_Instance_Id instance_id);
+void mel_material_base_set_blend_mode(Mel_Material_Base_Id base_id, Mel_Material_Instance_Id instance_id, u32 blend_mode);
+u32  mel_material_base_get_blend_mode(Mel_Material_Base_Id base_id, Mel_Material_Instance_Id instance_id);
 
 void mel_material_base_upload_dirty(Mel_Material_Base_Id base_id, Mel_Gpu_Device* dev);
 Mel_Gpu_Buffer* mel_material_base_param_buffer(Mel_Material_Base_Id base_id);

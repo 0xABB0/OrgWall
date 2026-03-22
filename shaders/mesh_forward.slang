@@ -53,8 +53,26 @@ struct MeshForwardPush
 struct MeshViewParams
 {
     float4x4 view_projection;
+    float4x4 shadow_view_projection;
     float4 camera_position;
-    float4 light_direction;
+    float4 ambient_color;
+    float4 shadow_params;
+    uint directional_light_count;
+    uint point_light_count;
+    uint shadow_directional_light_index;
+    uint _pad0;
+};
+
+struct DirectionalLight
+{
+    float4 direction_intensity;
+    float4 color;
+};
+
+struct PointLight
+{
+    float4 position_range;
+    float4 color_intensity;
 };
 
 [[vk::push_constant]]
@@ -72,8 +90,45 @@ StructuredBuffer<MaterialParams> materials;
 [[vk::binding(3, 0)]]
 StructuredBuffer<MeshViewParams> view_params;
 
+[[vk::binding(4, 0)]]
+StructuredBuffer<DirectionalLight> directional_lights;
+
+[[vk::binding(5, 0)]]
+StructuredBuffer<PointLight> point_lights;
+
+[[vk::binding(6, 0)]]
+Sampler2D shadow_map;
+
 [[vk::binding(0, 1)]]
 Sampler2D textures[];
+
+float meshShadowFactor(MeshViewParams view, float3 world_pos, float3 normal, float3 light_dir)
+{
+    if (view.shadow_directional_light_index == 0xFFFFFFFF)
+        return 1.0;
+
+    float3 shadow_pos = world_pos + normal * view.shadow_params.y;
+    float4 shadow_clip = mul(view.shadow_view_projection, float4(shadow_pos, 1.0));
+    float shadow_w = shadow_clip.w;
+    if (abs(shadow_w) < 1e-6)
+        return 1.0;
+
+    float3 shadow_ndc = shadow_clip.xyz / shadow_w;
+    float2 shadow_uv = float2(
+        shadow_ndc.x * 0.5 + 0.5,
+        1.0 - (shadow_ndc.y * 0.5 + 0.5));
+    if (shadow_uv.x <= 0.0 || shadow_uv.x >= 1.0 || shadow_uv.y <= 0.0 || shadow_uv.y >= 1.0)
+        return 1.0;
+    if (shadow_ndc.z <= 0.0 || shadow_ndc.z >= 1.0)
+        return 1.0;
+
+    float ndotl = max(dot(normal, light_dir), 0.0);
+    float bias = view.shadow_params.x + (1.0 - ndotl) * view.shadow_params.y;
+    float shadow_depth = shadow_map.Sample(shadow_uv).x;
+    if (shadow_ndc.z - bias > shadow_depth)
+        return 1.0 - saturate(view.shadow_params.z);
+    return 1.0;
+}
 
 [shader("vertex")]
 MeshForwardVSOutput vertexMain(uint vid : SV_VertexID)
@@ -139,20 +194,60 @@ float4 fragmentMain(MeshForwardVSOutput input) : SV_Target
         metallic = clamp(metallic * mr.b, 0.0, 1.0);
     }
 
-    float3 light_dir = normalize(view.light_direction.xyz);
+    float3 ambient_color = view.ambient_color.rgb;
     float3 view_dir = normalize(view.camera_position.xyz - input.world_pos);
-    float3 half_dir = normalize(light_dir + view_dir);
-
-    float ndotl = max(dot(N, light_dir), 0.0);
-    float ndoth = max(dot(N, half_dir), 0.0);
-
-    float3 diffuse = surface.rgb * ndotl * (1.0 - metallic);
     float shininess = lerp(64.0, 4.0, roughness);
     float specular_strength = lerp(1.0, 0.25, roughness);
     float3 f0 = lerp(float3(0.04, 0.04, 0.04), surface.rgb, metallic);
-    float3 specular = f0 * pow(ndoth, shininess) * specular_strength;
-    float3 ambient = surface.rgb * (0.12 + 0.08 * (1.0 - metallic));
+    float3 ambient = surface.rgb * ambient_color * (1.0 - 0.35 * metallic);
 
-    float3 lit = ambient + diffuse + specular;
+    float3 lit = ambient;
+
+    for (uint i = 0; i < view.directional_light_count; i++)
+    {
+        DirectionalLight light = directional_lights[i];
+        float3 light_dir = light.direction_intensity.xyz;
+        if (dot(light_dir, light_dir) > 0.000001)
+            light_dir = normalize(light_dir);
+        else
+            light_dir = float3(0.0, 1.0, 0.0);
+
+        float3 light_color = light.color.rgb * light.direction_intensity.w;
+        if (i == view.shadow_directional_light_index)
+            light_color *= meshShadowFactor(view, input.world_pos, N, light_dir);
+        float3 half_dir = normalize(light_dir + view_dir);
+        float ndotl = max(dot(N, light_dir), 0.0);
+        float ndoth = max(dot(N, half_dir), 0.0);
+        float3 diffuse = surface.rgb * ndotl * (1.0 - metallic) * light_color;
+        float3 specular = f0 * pow(ndoth, shininess) * specular_strength * light_color;
+        lit += diffuse + specular;
+    }
+
+    for (uint i = 0; i < view.point_light_count; i++)
+    {
+        PointLight light = point_lights[i];
+        float3 to_light = light.position_range.xyz - input.world_pos;
+        float dist_sq = dot(to_light, to_light);
+        if (dist_sq <= 0.000001)
+            continue;
+
+        float range = max(light.position_range.w, 0.0001);
+        float dist = sqrt(dist_sq);
+        if (dist >= range)
+            continue;
+
+        float attenuation = saturate(1.0 - dist / range);
+        attenuation *= attenuation;
+
+        float3 light_dir = to_light / dist;
+        float3 light_color = light.color_intensity.rgb * (light.color_intensity.w * attenuation);
+        float3 half_dir = normalize(light_dir + view_dir);
+        float ndotl = max(dot(N, light_dir), 0.0);
+        float ndoth = max(dot(N, half_dir), 0.0);
+        float3 diffuse = surface.rgb * ndotl * (1.0 - metallic) * light_color;
+        float3 specular = f0 * pow(ndoth, shininess) * specular_strength * light_color;
+        lit += diffuse + specular;
+    }
+
     return float4(lit, surface.a);
 }

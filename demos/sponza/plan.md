@@ -65,6 +65,15 @@ Target output:
 
 Supporting data may live under `assets/` if needed, but the demo code should stay self-contained and readable.
 
+Current code layout:
+
+- `demo.sponza.c`: app shell and lifecycle wiring
+- `sponza.loader.*`: Sponza-shaped glTF/material import path
+- `sponza.scene.*`: scene-authored lighting/layout setup
+- `sponza.camera.*`: free-fly controller and camera event handling
+
+This split is intentional so future renderer work such as shadows does not keep accumulating into one giant demo file.
+
 ## Current status
 
 Completed:
@@ -74,11 +83,16 @@ Completed:
 - M2: base-color textures, alpha-mask materials, normal maps, metallic-roughness maps, and double-sided raster state are wired
 - M3: one instance with many material bindings and many emitted mesh parts is exercised by the import path
 - M4: free-fly navigation and startup controls are in place
+- scene-owned lighting is now authored through `render.scene` and consumed by `scene_forward`, and Sponza now exercises ambient + directional + point light inputs instead of a hidden hardcoded light
+- basic scene-scale frustum culling is now active in `scene_forward` for mesh submission
+- directional shadow support is now active for the first shadow-casting directional light in `scene_forward`, with the shadow map fitted from camera-visible mesh bounds
 
 Still open:
 
-- M5 is only partially addressed. Startup/upload behavior is sane, but scene-scale visibility/culling is still a renderer follow-up rather than a finished pass.
-- M6 remains open for renderer-level follow-ups exposed by Sponza, especially scene lighting ownership and alpha-blend support.
+- M5 is still only partially addressed. Basic frustum culling is in, but broader visibility work and deeper performance tuning are still renderer follow-ups rather than a finished pass.
+- M6 remains open for renderer-level follow-ups exposed by Sponza, especially richer shadow coverage, environment lighting, transparency quality beyond the current basic alpha-blend path, and deeper visibility/perf work.
+- The demo loader is still intentionally Sponza-shaped, not a general glTF scene importer. It is acceptable for this demo scope, but it should not be mistaken for a generic asset pipeline.
+- Startup currently does a lightweight glTF pre-scan to size the geometry pool to the actual asset. That is an explicit memory-vs-startup tradeoff, not a hidden cost.
 
 ## Milestones
 
@@ -180,10 +194,12 @@ Success:
 
 Possible examples:
 
+- richer shadow coverage
 - alpha-tested materials needing better treatment
 - better submesh/material import
 - culling improvements
-- lighting/shadow needs
+- lighting/environment needs
+- transparency improvements beyond the current basic alpha-blend path
 
 Success:
 
@@ -204,6 +220,8 @@ Current read:
 
 - satisfied for static inspection and navigation
 - not a claim that scene lighting, blended transparency, or scene-scale culling are fully solved
+- not a claim that shadows beyond the current single directional shadow map, probes, or richer environment lighting are solved
+- not a claim that the demo loader is a general-purpose glTF scene importer
 
 ## Known likely pressure points
 
@@ -227,3 +245,5 @@ Current read:
 - Sponza is allowed to reveal missing engine pieces
 - the answer to missing engine pieces is not demo-local hacks
 - keep this file updated when the plan changes materially
+- the loader may stay asset-specific for this demo, but that limitation must stay explicit
+- memory-saving startup work such as pre-sizing pools is acceptable when it is deliberate, visible, and local to the demo

@@ -2,6 +2,7 @@
 
 #include "string.str8.h"
 #include "render.manager.fwd.h"
+#include "render.scene.fwd.h"
 #include "gpu.cmd.fwd.h"
 #include "gpu.device.fwd.h"
 #include "gpu.types.h"
@@ -38,6 +39,7 @@ struct Mel_Render_Pipeline_Type {
 struct Mel_Render_Pipeline_Scene {
     const Mel_Render_Pipeline_Type* type;
     void* instance;
+    Mel_Render_Scene* owner_scene;
     Mel_Render_Manager* manager;
     Mel_Gpu_Device* dev;
     const Mel_Alloc* alloc;
@@ -56,6 +58,7 @@ const Mel_Render_Pipeline_Type* mel_pipeline_find(str8 name);
 u32 mel_pipeline_registered_count(void);
 
 Mel_Render_Pipeline_Scene* mel_pipeline_scene_create(const Mel_Render_Pipeline_Type* type,
+                                                     Mel_Render_Scene* owner_scene,
                                                      Mel_Render_Manager* mgr,
                                                      Mel_Gpu_Device* dev,
                                                      const Mel_Alloc* alloc);

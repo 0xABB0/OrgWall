@@ -255,8 +255,10 @@ void mel_gpu_pipeline_init_opt(Mel_Gpu_Pipeline* pipeline, Mel_Gpu_Device* dev, 
         return;
     }
 
-    assert(opt.color_format != MEL_GPU_FORMAT_UNDEFINED ||
-        (opt.color_formats != nullptr && opt.color_format_count > 0));
+    bool has_color_attachments =
+        opt.color_format != MEL_GPU_FORMAT_UNDEFINED ||
+        (opt.color_formats != nullptr && opt.color_format_count > 0);
+    assert(has_color_attachments || opt.depth_format != MEL_GPU_FORMAT_UNDEFINED);
 
     VkPipelineShaderStageCreateInfo stages[3] = {0};
     u32 stage_count = 0;
@@ -350,7 +352,9 @@ void mel_gpu_pipeline_init_opt(Mel_Gpu_Pipeline* pipeline, Mel_Gpu_Device* dev, 
     };
 
     VkPipelineColorBlendAttachmentState blend_attachments[8] = {0};
-    u32 color_attachment_count = opt.color_format_count > 0 ? opt.color_format_count : 1;
+    u32 color_attachment_count = 0;
+    if (has_color_attachments)
+        color_attachment_count = opt.color_format_count > 0 ? opt.color_format_count : 1;
     assert(color_attachment_count <= SDL_arraysize(blend_attachments));
     for (u32 i = 0; i < color_attachment_count; i++)
         setup_blend(&blend_attachments[i], opt.blend_mode);
@@ -402,7 +406,7 @@ void mel_gpu_pipeline_init_opt(Mel_Gpu_Pipeline* pipeline, Mel_Gpu_Device* dev, 
         for (u32 i = 0; i < opt.color_format_count; i++)
             color_formats_local[i] = mel__gpu_format_to_vk(opt.color_formats[i]);
     }
-    else
+    else if (opt.color_format != MEL_GPU_FORMAT_UNDEFINED)
     {
         color_formats_local[0] = mel__gpu_format_to_vk(opt.color_format);
     }

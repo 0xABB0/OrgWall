@@ -17,6 +17,17 @@ struct Mel_Gpu_Texture {
 };
 
 typedef struct {
+    bool nearest_filter;
+    u32 address_mode_u;
+    u32 address_mode_v;
+    u32 address_mode_w;
+    bool compare_enable;
+    Mel_Gpu_Compare_Op compare_op;
+    f32 min_lod;
+    f32 max_lod;
+} Mel_Gpu_Sampler_Opt;
+
+typedef struct {
     str8 path;
     const u8* data;
     u32 data_size;
@@ -38,3 +49,7 @@ void mel_gpu_texture_init_opt(Mel_Gpu_Texture* tex, Mel_Gpu_Device* dev, Mel_Gpu
 void mel_gpu_texture_init_white(Mel_Gpu_Texture* tex, Mel_Gpu_Device* dev);
 
 void mel_gpu_texture_shutdown(Mel_Gpu_Texture* tex, Mel_Gpu_Device* dev);
+
+void* mel_gpu_sampler_create_opt(Mel_Gpu_Device* dev, Mel_Gpu_Sampler_Opt opt);
+#define mel_gpu_sampler_create(dev, ...) mel_gpu_sampler_create_opt((dev), (Mel_Gpu_Sampler_Opt){__VA_ARGS__})
+void mel_gpu_sampler_destroy(Mel_Gpu_Device* dev, void* sampler);

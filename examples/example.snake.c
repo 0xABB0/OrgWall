@@ -15,6 +15,11 @@
 #include "ecs.world.h"
 #include "ecs.2d.transform.h"
 #include "ecs.2d.sprite.h"
+#include "ecs.2d.text.h"
+#include "font.atlas.h"
+#include "font.desc.h"
+#include "vfs.h"
+#include "vfs.backend.os.h"
 #include "allocator.heap.h"
 #include "string.str8.h"
 #include "math.mat4.h"
@@ -40,6 +45,7 @@ ECS_COMPONENT_DECLARE(Snake_CDirection);
 ECS_COMPONENT_DECLARE(Snake_CFollows);
 ECS_TAG_DECLARE(Snake_CHead);
 ECS_TAG_DECLARE(Snake_CFood);
+ECS_TAG_DECLARE(Snake_CGrid);
 
 typedef struct {
     Mel_ECS ecs;
@@ -56,6 +62,15 @@ typedef struct {
     u32 length;
     bool game_over;
     u32 rng_state;
+    ecs_entity_t hud_score;
+    ecs_entity_t hud_length;
+    ecs_entity_t hud_gameover;
+    ecs_entity_t hud_restart;
+    u32 prev_score;
+    u32 prev_length;
+    bool prev_game_over;
+    char score_buf[64];
+    char length_buf[64];
 } Snake;
 
 static Mel_Window_Handle     s_window;
@@ -65,6 +80,7 @@ static Mel_Render_Scene*     s_scene;
 static Mel_Render_Source*    s_source;
 static Mel_Render_View_Handle s_view;
 static Snake s_snake;
+static Mel_Font_Atlas_Handle s_font;
 static Mel_Sim_Ctx s_sim;
 static u8 s_event_buf[4096];
 
@@ -94,12 +110,13 @@ static ecs_entity_t create_segment(ecs_world_t* world, i32 gx, i32 gy, Mel_Vec4 
     ecs_set(world, e, Snake_CSegment, { .gx = gx, .gy = gy });
     f32 pad = 1.0f;
     ecs_set(world, e, Mel_CTransform, {
-        .pos = mel_vec2(GRID_X_OFFSET + (f32)gx * CELL_SIZE + pad,
-                        GRID_Y_OFFSET + (f32)gy * CELL_SIZE + pad),
+        .pos = mel_vec2(GRID_X_OFFSET + ((f32)gx + 0.5f) * CELL_SIZE,
+                        GRID_Y_OFFSET + ((f32)gy + 0.5f) * CELL_SIZE),
     });
     ecs_set(world, e, Mel_Sprite, {
         .size = mel_vec2(CELL_SIZE - pad * 2, CELL_SIZE - pad * 2),
         .color = color,
+        .uv = mel_rect(0, 0, 1, 1),
     });
     return e;
 }
@@ -122,12 +139,13 @@ static void spawn_food(Snake* s)
     ecs_add(world, s->food, Snake_CFood);
     f32 pad = 1.0f;
     ecs_set(world, s->food, Mel_CTransform, {
-        .pos = mel_vec2(GRID_X_OFFSET + (f32)fx * CELL_SIZE + pad,
-                        GRID_Y_OFFSET + (f32)fy * CELL_SIZE + pad),
+        .pos = mel_vec2(GRID_X_OFFSET + ((f32)fx + 0.5f) * CELL_SIZE,
+                        GRID_Y_OFFSET + ((f32)fy + 0.5f) * CELL_SIZE),
     });
     ecs_set(world, s->food, Mel_Sprite, {
         .size = mel_vec2(CELL_SIZE - pad * 2, CELL_SIZE - pad * 2),
         .color = mel_vec4(0.9f, 0.2f, 0.2f, 1.0f),
+        .uv = mel_rect(0, 0, 1, 1),
     });
 }
 
@@ -141,9 +159,11 @@ static void snake_init_world(Snake* s)
     ECS_COMPONENT_DEFINE(world, Snake_CFollows);
     ECS_TAG_DEFINE(world, Snake_CHead);
     ECS_TAG_DEFINE(world, Snake_CFood);
+    ECS_TAG_DEFINE(world, Snake_CGrid);
 
     mel_component_transform_register(world);
     mel_component_sprite_register(world);
+    mel_component_text_register(world);
 
     s->segment_query = ecs_query(world, {
         .terms = { { .id = ecs_id(Snake_CSegment) } }
@@ -169,6 +189,17 @@ static void snake_clear_entities(Snake* s)
     s->head = 0;
     s->tail = 0;
     s->food = 0;
+
+    if (s->hud_score) ecs_delete(world, s->hud_score);
+    if (s->hud_length) ecs_delete(world, s->hud_length);
+    if (s->hud_gameover) ecs_delete(world, s->hud_gameover);
+    if (s->hud_restart) ecs_delete(world, s->hud_restart);
+    s->hud_score = 0;
+    s->hud_length = 0;
+    s->hud_gameover = 0;
+    s->hud_restart = 0;
+
+    ecs_delete_with(world, ecs_id(Snake_CGrid));
 }
 
 static void snake_spawn(Snake* s)
@@ -184,6 +215,48 @@ static void snake_spawn(Snake* s)
     s->queued_dy = 0;
 
     ecs_world_t* world = s->ecs.world;
+
+    ecs_entity_t bg = ecs_new(world);
+    ecs_add(world, bg, Snake_CGrid);
+    ecs_set(world, bg, Mel_CTransform, {
+        .pos = mel_vec2(GRID_X_OFFSET + (f32)GRID_W * CELL_SIZE * 0.5f,
+                        GRID_Y_OFFSET + (f32)GRID_H * CELL_SIZE * 0.5f),
+    });
+    ecs_set(world, bg, Mel_Sprite, {
+        .size = mel_vec2((f32)GRID_W * CELL_SIZE, (f32)GRID_H * CELL_SIZE),
+        .color = mel_vec4(0.05f, 0.05f, 0.08f, 1.0f),
+        .uv = mel_rect(0, 0, 1, 1),
+    });
+
+    Mel_Vec4 line_color = mel_vec4(0.1f, 0.1f, 0.13f, 1.0f);
+    for (i32 row = 0; row <= GRID_H; row++)
+    {
+        f32 y = GRID_Y_OFFSET + (f32)row * CELL_SIZE;
+        ecs_entity_t e = ecs_new(world);
+        ecs_add(world, e, Snake_CGrid);
+        ecs_set(world, e, Mel_CTransform, {
+            .pos = mel_vec2(GRID_X_OFFSET + (f32)GRID_W * CELL_SIZE * 0.5f, y + 0.5f),
+        });
+        ecs_set(world, e, Mel_Sprite, {
+            .size = mel_vec2((f32)GRID_W * CELL_SIZE, 1.0f),
+            .color = line_color,
+            .uv = mel_rect(0, 0, 1, 1),
+        });
+    }
+    for (i32 col = 0; col <= GRID_W; col++)
+    {
+        f32 x = GRID_X_OFFSET + (f32)col * CELL_SIZE;
+        ecs_entity_t e = ecs_new(world);
+        ecs_add(world, e, Snake_CGrid);
+        ecs_set(world, e, Mel_CTransform, {
+            .pos = mel_vec2(x + 0.5f, GRID_Y_OFFSET + (f32)GRID_H * CELL_SIZE * 0.5f),
+        });
+        ecs_set(world, e, Mel_Sprite, {
+            .size = mel_vec2(1.0f, (f32)GRID_H * CELL_SIZE),
+            .color = line_color,
+            .uv = mel_rect(0, 0, 1, 1),
+        });
+    }
 
     i32 start_x = GRID_W / 2;
     i32 start_y = GRID_H / 2;
@@ -212,6 +285,67 @@ static void snake_spawn(Snake* s)
     s->queued_dy = 0;
 
     spawn_food(s);
+
+    Mel_Vec4 white = mel_vec4(1.0f, 1.0f, 1.0f, 1.0f);
+    f32 info_x = GRID_X_OFFSET + (GRID_W + 1) * CELL_SIZE;
+
+    snprintf(s->score_buf, sizeof(s->score_buf), "SCORE: %u", s->score);
+    snprintf(s->length_buf, sizeof(s->length_buf), "LENGTH: %u", s->length);
+
+    Mel_CText ct_score = mel_ctext_atlas(s_font, str8_from_cstr(s->score_buf), white);
+    s->hud_score = ecs_new(world);
+    ecs_set(world, s->hud_score, Mel_CTransform, { .pos = mel_vec2(info_x, GRID_Y_OFFSET) });
+    ecs_set_id(world, s->hud_score, ecs_id(Mel_CText), sizeof(Mel_CText), &ct_score);
+
+    Mel_CText ct_length = mel_ctext_atlas(s_font, str8_from_cstr(s->length_buf), white);
+    s->hud_length = ecs_new(world);
+    ecs_set(world, s->hud_length, Mel_CTransform, { .pos = mel_vec2(info_x, GRID_Y_OFFSET + 40.0f) });
+    ecs_set_id(world, s->hud_length, ecs_id(Mel_CText), sizeof(Mel_CText), &ct_length);
+
+    s->hud_gameover = 0;
+    s->hud_restart = 0;
+    s->prev_score = s->score;
+    s->prev_length = s->length;
+    s->prev_game_over = false;
+}
+
+static void snake_update_hud(Snake* s)
+{
+    ecs_world_t* world = s->ecs.world;
+
+    if (s->score != s->prev_score)
+    {
+        snprintf(s->score_buf, sizeof(s->score_buf), "SCORE: %u", s->score);
+        Mel_CText ct = mel_ctext_atlas(s_font, str8_from_cstr(s->score_buf), mel_vec4(1, 1, 1, 1));
+        ecs_set_id(world, s->hud_score, ecs_id(Mel_CText), sizeof(Mel_CText), &ct);
+        s->prev_score = s->score;
+    }
+
+    if (s->length != s->prev_length)
+    {
+        snprintf(s->length_buf, sizeof(s->length_buf), "LENGTH: %u", s->length);
+        Mel_CText ct = mel_ctext_atlas(s_font, str8_from_cstr(s->length_buf), mel_vec4(1, 1, 1, 1));
+        ecs_set_id(world, s->hud_length, ecs_id(Mel_CText), sizeof(Mel_CText), &ct);
+        s->prev_length = s->length;
+    }
+
+    if (s->game_over && !s->prev_game_over)
+    {
+        f32 go_x = GRID_X_OFFSET + 30.0f;
+        f32 go_y = GRID_Y_OFFSET + GRID_H * CELL_SIZE / 2.0f - 10.0f;
+
+        Mel_CText ct_go = mel_ctext_atlas(s_font, S8("GAME OVER"), mel_vec4(1, 0.2f, 0.2f, 1));
+        s->hud_gameover = ecs_new(world);
+        ecs_set(world, s->hud_gameover, Mel_CTransform, { .pos = mel_vec2(go_x, go_y) });
+        ecs_set_id(world, s->hud_gameover, ecs_id(Mel_CText), sizeof(Mel_CText), &ct_go);
+
+        Mel_CText ct_r = mel_ctext_atlas(s_font, S8("R to restart"), mel_vec4(0.6f, 0.6f, 0.6f, 1));
+        s->hud_restart = ecs_new(world);
+        ecs_set(world, s->hud_restart, Mel_CTransform, { .pos = mel_vec2(go_x + 10.0f, go_y + 30.0f) });
+        ecs_set_id(world, s->hud_restart, ecs_id(Mel_CText), sizeof(Mel_CText), &ct_r);
+
+        s->prev_game_over = true;
+    }
 }
 
 static void snake_grow(Snake* s)
@@ -332,19 +466,12 @@ static void snake_sync_transforms(Snake* s)
         Snake_CSegment* seg = ecs_field(&it, Snake_CSegment, 0);
         for (int i = 0; i < it.count; i++)
         {
-            f32 pad = 1.0f;
             ecs_set(world, it.entities[i], Mel_CTransform, {
-                .pos = mel_vec2(GRID_X_OFFSET + (f32)seg[i].gx * CELL_SIZE + pad,
-                                GRID_Y_OFFSET + (f32)seg[i].gy * CELL_SIZE + pad),
+                .pos = mel_vec2(GRID_X_OFFSET + ((f32)seg[i].gx + 0.5f) * CELL_SIZE,
+                                GRID_Y_OFFSET + ((f32)seg[i].gy + 0.5f) * CELL_SIZE),
             });
         }
     }
-}
-
-static void snake_render_init(void)
-{
-    s_source = mel_source_ecs_2d_create(.world = s_snake.ecs.world, .alloc = mel_alloc_heap());
-    mel_render_scene_attach_source(s_scene, s_source);
 }
 
 static void app_update(Mel_Sim_Ctx* sim, f32 dt, void* user);
@@ -358,7 +485,15 @@ void app_init(void)
     s_swapchain = mel_gpu_swapchain_create_for_window(dev, s_window);
     s_target = mel_render_target_from_swapchain(s_swapchain);
 
+    mel_vfs_mount(S8("/"), mel_vfs_backend_os(), .root = S8("/"));
+    s_font = mel_font_atlas_load(
+        .desc = mel_font_desc_load_ttf(S8("/System/Library/Fonts/Monaco.ttf")), .size = 18.0f);
+
+    snake_init_world(&s_snake);
+
+    s_source = mel_source_ecs_2d_create(.world = s_snake.ecs.world, .alloc = alloc);
     s_scene = mel_render_scene_create(.dev = dev, .alloc = alloc);
+    mel_render_scene_attach_source(s_scene, s_source);
 
     Mel_Render_Camera camera = {
         .view = MEL_MAT4_IDENTITY,
@@ -377,8 +512,6 @@ void app_init(void)
         .dev      = dev,
         .alloc    = alloc);
 
-    snake_init_world(&s_snake);
-    snake_render_init();
     snake_spawn(&s_snake);
 
     mel_sim_init(&s_sim, .event_buffer = s_event_buf, .event_buffer_size = sizeof(s_event_buf));
@@ -406,6 +539,8 @@ void app_shutdown(void)
     s_snake.segment_query = nullptr;
     s_snake.follow_query = nullptr;
     mel_ecs_shutdown(&s_snake.ecs);
+
+    mel_vfs_unmount(S8("/"));
 }
 
 static void app_update(Mel_Sim_Ctx* sim, f32 dt, void* user)
@@ -414,6 +549,7 @@ static void app_update(Mel_Sim_Ctx* sim, f32 dt, void* user)
     MEL_UNUSED(user);
     snake_tick(&s_snake, dt);
     snake_sync_transforms(&s_snake);
+    snake_update_hud(&s_snake);
 }
 
 void app_event(SDL_Event* event)

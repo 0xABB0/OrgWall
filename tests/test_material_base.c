@@ -96,3 +96,20 @@ MEL_TEST(material_base_instance_cull_mode, .tags = "render")
     mel_material_base_set_cull_mode(id, inst, MEL_GPU_CULL_NONE);
     MEL_ASSERT_EQ(mel_material_base_get_cull_mode(id, inst), MEL_GPU_CULL_NONE);
 }
+
+MEL_TEST(material_base_instance_blend_mode, .tags = "render")
+{
+    Mel_Material_Base_Id id = mel_material_base_register(&(Mel_Material_Base_Desc){
+        .name = S8("test_blend_mode"),
+        .param_size = sizeof(Unlit_Params),
+        .compat = MEL_COMPAT_FORWARD,
+    });
+
+    Unlit_Params initial = { .base_color = {{ 1.0f, 1.0f, 1.0f, 1.0f }} };
+    Mel_Material_Instance_Id inst = mel_material_base_alloc_instance(id, &initial);
+
+    MEL_ASSERT_EQ(mel_material_base_get_blend_mode(id, inst), MEL_GPU_BLEND_NONE);
+
+    mel_material_base_set_blend_mode(id, inst, MEL_GPU_BLEND_ALPHA);
+    MEL_ASSERT_EQ(mel_material_base_get_blend_mode(id, inst), MEL_GPU_BLEND_ALPHA);
+}

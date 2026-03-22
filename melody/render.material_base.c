@@ -41,8 +41,12 @@ Mel_Material_Base_Id mel_material_base_register(const Mel_Material_Base_Desc* de
         base->params = mel_alloc(base->alloc, (usize)initial_cap * desc->param_size);
         memset(base->params, 0, (usize)initial_cap * desc->param_size);
         base->cull_modes = mel_alloc(base->alloc, (usize)initial_cap * sizeof(u32));
+        base->blend_modes = mel_alloc(base->alloc, (usize)initial_cap * sizeof(u32));
         for (u32 i = 0; i < initial_cap; i++)
+        {
             base->cull_modes[i] = MEL_GPU_CULL_BACK;
+            base->blend_modes[i] = MEL_GPU_BLEND_NONE;
+        }
         base->instance_count = 0;
         base->instance_capacity = initial_cap;
     }
@@ -84,20 +88,28 @@ Mel_Material_Instance_Id mel_material_base_alloc_instance(Mel_Material_Base_Id b
         u32 new_cap = base->instance_capacity * 2;
         u8* new_params = mel_alloc(base->alloc, (usize)new_cap * base->param_size);
         u32* new_cull_modes = mel_alloc(base->alloc, (usize)new_cap * sizeof(u32));
+        u32* new_blend_modes = mel_alloc(base->alloc, (usize)new_cap * sizeof(u32));
         memcpy(new_params, base->params, (usize)base->instance_count * base->param_size);
         memcpy(new_cull_modes, base->cull_modes, (usize)base->instance_count * sizeof(u32));
+        memcpy(new_blend_modes, base->blend_modes, (usize)base->instance_count * sizeof(u32));
         for (u32 i = base->instance_count; i < new_cap; i++)
+        {
             new_cull_modes[i] = MEL_GPU_CULL_BACK;
+            new_blend_modes[i] = MEL_GPU_BLEND_NONE;
+        }
         mel_dealloc(base->alloc, base->params);
         mel_dealloc(base->alloc, base->cull_modes);
+        mel_dealloc(base->alloc, base->blend_modes);
         base->params = new_params;
         base->cull_modes = new_cull_modes;
+        base->blend_modes = new_blend_modes;
         base->instance_capacity = new_cap;
     }
 
     Mel_Material_Instance_Id id = base->instance_count++;
     memcpy(base->params + (usize)id * base->param_size, initial_params, base->param_size);
     base->cull_modes[id] = MEL_GPU_CULL_BACK;
+    base->blend_modes[id] = MEL_GPU_BLEND_NONE;
     base->param_buffer_dirty = true;
 
     return id;
@@ -116,6 +128,7 @@ void mel_material_base_free_instance(Mel_Material_Base_Id base_id, Mel_Material_
                base->params + (usize)last * base->param_size,
                base->param_size);
         base->cull_modes[instance_id] = base->cull_modes[last];
+        base->blend_modes[instance_id] = base->blend_modes[last];
     }
     base->instance_count--;
     base->param_buffer_dirty = true;
@@ -165,6 +178,32 @@ u32 mel_material_base_get_cull_mode(Mel_Material_Base_Id base_id, Mel_Material_I
     assert(instance_id < base->instance_count);
 
     return base->cull_modes[instance_id];
+}
+
+void mel_material_base_set_blend_mode(Mel_Material_Base_Id base_id, Mel_Material_Instance_Id instance_id, u32 blend_mode)
+{
+    assert(base_id < s_base_count);
+
+    Mel_Material_Base* base = &s_bases[base_id];
+    assert(base->param_size > 0);
+    assert(instance_id < base->instance_count);
+    assert(blend_mode == MEL_GPU_BLEND_NONE ||
+           blend_mode == MEL_GPU_BLEND_ALPHA ||
+           blend_mode == MEL_GPU_BLEND_ADD ||
+           blend_mode == MEL_GPU_BLEND_MULTIPLY);
+
+    base->blend_modes[instance_id] = blend_mode;
+}
+
+u32 mel_material_base_get_blend_mode(Mel_Material_Base_Id base_id, Mel_Material_Instance_Id instance_id)
+{
+    assert(base_id < s_base_count);
+
+    Mel_Material_Base* base = &s_bases[base_id];
+    assert(base->param_size > 0);
+    assert(instance_id < base->instance_count);
+
+    return base->blend_modes[instance_id];
 }
 
 void mel_material_base_upload_dirty(Mel_Material_Base_Id base_id, Mel_Gpu_Device* dev)
@@ -227,6 +266,8 @@ static void mel__material_base_on_shutdown(void* ctx, const void* event)
             mel_dealloc(s_bases[i].alloc, s_bases[i].params);
         if (s_bases[i].cull_modes && s_bases[i].param_size > 0)
             mel_dealloc(s_bases[i].alloc, s_bases[i].cull_modes);
+        if (s_bases[i].blend_modes && s_bases[i].param_size > 0)
+            mel_dealloc(s_bases[i].alloc, s_bases[i].blend_modes);
         s_bases[i] = (Mel_Material_Base){0};
     }
     s_base_count = 0;

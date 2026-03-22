@@ -55,11 +55,13 @@ u32 mel_pipeline_registered_count(void)
 }
 
 Mel_Render_Pipeline_Scene* mel_pipeline_scene_create(const Mel_Render_Pipeline_Type* type,
+                                                     Mel_Render_Scene* owner_scene,
                                                      Mel_Render_Manager* mgr,
                                                      Mel_Gpu_Device* dev,
                                                      const Mel_Alloc* alloc)
 {
     assert(type != nullptr);
+    assert(owner_scene != nullptr);
     assert(mgr != nullptr);
     assert(dev != nullptr);
     if (!alloc) alloc = mel_alloc_heap();
@@ -69,6 +71,7 @@ Mel_Render_Pipeline_Scene* mel_pipeline_scene_create(const Mel_Render_Pipeline_T
     memset(scene, 0, total);
 
     scene->type = type;
+    scene->owner_scene = owner_scene;
     scene->manager = mgr;
     scene->dev = dev;
     scene->alloc = alloc;
