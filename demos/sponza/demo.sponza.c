@@ -12,6 +12,7 @@
 #include "render.scene.h"
 #include "render.source.manual.h"
 #include "render.pipeline.scene_forward.h"
+#include "render.response.h"
 #include "allocator.heap.h"
 #include "log.h"
 #include "sim.ctx.h"
@@ -102,6 +103,8 @@ void app_init(void)
         .pipeline = S8("scene_forward"),
         .dev = dev,
         .alloc = alloc);
+    mel_render_view_response_op_add(s_view, &mel_render_response_exposure_manual,
+        &(Mel_Render_Response_Exposure_Manual_Params){ .value = 0.35f });
 
     s_sponza_handle = mel_source_manual_add(s_source,
         loaded.model,

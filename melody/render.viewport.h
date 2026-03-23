@@ -36,6 +36,7 @@ typedef struct {
 #define MEL_SCALE_STRETCH 3
 
 struct Mel_Render_View {
+    Mel_Render_View_Handle self;
     Mel_Render_Scene* scene;
     Mel_Render_Camera camera;
     Mel_Render_Target_Handle target;

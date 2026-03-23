@@ -1,446 +1,486 @@
 # Melody Render Interface Proposal
 
-This note proposes the next concrete interfaces for Melody's render chain.
+This note replaces the earlier overly-generic proposal.
 
-It follows:
+It is based on:
 
 - [render.blender-comparison.md](/Users/gabbo/repo/orgwall/melody/design/render.blender-comparison.md)
 - [render.stage-chain.md](/Users/gabbo/repo/orgwall/melody/design/render.stage-chain.md)
 
-The goal is to define three things precisely:
+The previous proposal had three big problems:
 
-1. view-owned response / output contract
-2. scene-owned world / environment input contract
-3. first explicit stage hook seam for `scene_forward`
+1. it tried to generalize world input too early
+2. it tried to generalize stage hooks too early
+3. it was drifting toward a generic event bus / blob-registry design
 
-This is an interface proposal.
-It exists so we can negotiate the exact seams before pushing more renderer code.
+That is not aligned with the engine spirit.
 
-## Design constraints
+This proposal is intentionally narrower.
 
-The interface must satisfy these rules:
+## Core position
 
-- scene truth stays canonical
-- exposure / output response are not scene-owned
-- direct lights remain explicit scene truth
-- environment/world input stays open
-- app code can hook in deliberately
-- no fixed lighting approximation becomes canonical truth
-- no giant closed struct
-- no fake "temporary final" solution
+Do **not** build:
 
-## What stays explicit and built-in
+- a generic world-input registry
+- a generic stage-hook registry
+- a generic public stage-value registry
 
-These scene-owned inputs are already good and should stay explicit:
+yet.
 
-- ambient color
-- directional light list
-- point light list
-- shadow intent on lights
+Instead:
 
-Why:
+1. keep canonical scene truth explicit
+2. keep view/output response explicit
+3. expose only one real extensibility seam now:
+   - the per-view response / resolve chain
 
-- they are canonical scene truth
-- they are common enough to deserve direct APIs
-- their ownership is clear
+When another stage becomes real and justified, give it its own dedicated contract.
 
-These should **not** be generalized away just to be abstract.
+No speculative framework first.
 
-## What becomes open-ended
+## Ownership split
 
-Two parts are still legitimately open-shaped:
+### Scene-owned truth
 
-1. scene-owned world/environment inputs
-2. view-owned output/response inputs
-
-These should use extensible registries instead of fixed engine structs.
-
-## 1. Scene-owned world/environment input contract
-
-### Purpose
-
-This contract is for scene-authored inputs that are not direct light emitters and are not view/output policy.
-
-Examples:
-
-- sky material source
-- environment map source
-- probe set
-- atmosphere input
-- fog/media input
-- custom game lighting contributor
-
-### Type definition
-
-```c
-typedef struct {
-    str8  name;
-    usize item_size;
-    usize item_align;
-} Mel_Render_World_Input_Type;
-```
-
-This is a registered schema for one kind of world input.
-
-Examples:
-
-- `mel_render_world_input_environment_map`
-- `mel_render_world_input_probe_volume`
-- `mel_render_world_input_atmosphere`
-
-### Record definition
-
-```c
-typedef struct {
-    const Mel_Render_World_Input_Type* type;
-    void* items;
-    u32 count;
-} Mel_Render_World_Input_Record;
-```
-
-### Proposed API
-
-```c
-void mel_render_scene_world_input_set(Mel_Render_Scene* scene,
-                                      const Mel_Render_World_Input_Type* type,
-                                      const void* items,
-                                      u32 count,
-                                      usize item_size);
-
-const void* mel_render_scene_world_input_get(Mel_Render_Scene* scene,
-                                             const Mel_Render_World_Input_Type* type,
-                                             u32* out_count,
-                                             usize* out_item_size);
-
-void mel_render_scene_world_input_clear(Mel_Render_Scene* scene,
-                                        const Mel_Render_World_Input_Type* type);
-```
-
-### Ownership and lifetime
-
-- `scene` copies the payload
-- caller retains ownership of the source memory
-- returned pointer is owned by `scene`
-- returned pointer stays valid until:
-  - the same input type is overwritten
-  - the input type is cleared
-  - the scene is destroyed
-
-### Capacity and failure rules
-
-- `item_size` must equal `type->item_size`
-- `items != nullptr` when `count > 0`
-- invalid size or null misuse asserts
-- allocation failure follows engine allocation/assert behavior
-
-### Threading
-
-- not safe to mutate concurrently with rendering
-- should be authored on the same thread currently used for scene mutation
-- render techniques may read during sync/draw, not write
-
-### Why this is the right level
-
-This keeps:
-
-- direct lights explicit
-- world/environment input open
-- scene truth canonical
-
-Without pretending we already know the final world model.
-
-## 2. View-owned response / output contract
-
-### Purpose
-
-This contract is for view-specific output policy.
-
-Examples:
-
-- exposure
-- tonemap operator
-- output color transform
-- debug response override
-- background opacity policy
-
-These are properties of observing/rendering the scene, not properties of the scene itself.
-
-### Type definition
-
-```c
-typedef struct {
-    str8  name;
-    usize value_size;
-    usize value_align;
-} Mel_Render_View_Response_Type;
-```
-
-Examples:
-
-- `mel_render_view_response_exposure`
-- `mel_render_view_response_tonemap`
-- `mel_render_view_response_background`
-
-### Record definition
-
-```c
-typedef struct {
-    const Mel_Render_View_Response_Type* type;
-    void* value;
-} Mel_Render_View_Response_Record;
-```
-
-### Proposed API
-
-```c
-void mel_render_view_response_set(Mel_Render_View_Handle view,
-                                  const Mel_Render_View_Response_Type* type,
-                                  const void* value,
-                                  usize value_size);
-
-const void* mel_render_view_response_get(Mel_Render_View* view,
-                                         const Mel_Render_View_Response_Type* type,
-                                         usize* out_value_size);
-
-void mel_render_view_response_clear(Mel_Render_View_Handle view,
-                                    const Mel_Render_View_Response_Type* type);
-```
-
-### Ownership and lifetime
-
-- view copies the payload
-- caller retains ownership of source memory
-- returned pointer is owned by the view
-- returned pointer stays valid until:
-  - the same response type is overwritten
-  - the response type is cleared
-  - the view is destroyed
-
-### Capacity and failure rules
-
-- `value_size` must equal `type->value_size`
-- invalid usage asserts
-- missing response type means "no override present"
-
-### Threading
-
-- not safe to mutate concurrently with rendering
-- authored on the same thread as other view mutations
-- read by pipeline/view execution
-
-### Why this is the right level
-
-It lets two views of the same scene diverge cleanly:
-
-- main camera
-- minimap
-- monitor-in-scene
-- reflection view
-- debug/editor view
-
-Without contaminating `render.scene`.
-
-## 3. First explicit stage hook seam for `scene_forward`
-
-### Purpose
-
-This is the first renderer execution hook seam.
-
-It does **not** attempt to make every internal detail pluggable at once.
-It introduces one explicit, honest mechanism for app or higher-level engine code to extend `scene_forward` at deliberate stage boundaries.
-
-### Stage names
-
-Initial stage names:
-
-- `visibility`
-- `shadow.prepare`
-- `shadow.render`
-- `lighting.prepare`
-- `main.draw`
-- `transparency.draw`
-- `resolve`
-
-These are string IDs, not enums.
-
-### Hook type
-
-```c
-typedef struct {
-    str8  name;
-    str8  pipeline;
-    str8  stage;
-    i32   order;
-    void  (*run)(struct Mel_Render_Stage_Ctx* ctx);
-    void* user_data;
-} Mel_Render_Stage_Hook_Desc;
-```
-
-### Hook handle
-
-```c
-typedef struct {
-    u32 id;
-} Mel_Render_Stage_Hook_Handle;
-```
-
-### Stage context
-
-```c
-typedef struct Mel_Render_Stage_Ctx {
-    str8                        pipeline;
-    str8                        stage;
-    Mel_Render_View*            view;
-    Mel_Render_Scene*           scene;
-    Mel_Render_Manager*         manager;
-    Mel_Render_Pipeline*        pipeline_instance;
-    Mel_Render_Pipeline_Scene*  pipeline_scene;
-    Mel_Render_Draw_Ctx*        draw_ctx;
-    void*                       user_data;
-} Mel_Render_Stage_Ctx;
-```
-
-Notes:
-
-- `draw_ctx` may be null for non-draw stages
-- pointers in the context are transient and must not be retained after the callback returns
-
-### Stage value types
-
-The hook seam needs a way to pass derived stage-local data between hooks and the technique.
-
-```c
-typedef struct {
-    str8  name;
-    usize value_size;
-    usize value_align;
-} Mel_Render_Stage_Value_Type;
-```
-
-### Stage value API
-
-```c
-void mel_render_stage_value_set(Mel_Render_Stage_Ctx* ctx,
-                                const Mel_Render_Stage_Value_Type* type,
-                                const void* value,
-                                usize value_size);
-
-const void* mel_render_stage_value_get(Mel_Render_Stage_Ctx* ctx,
-                                       const Mel_Render_Stage_Value_Type* type,
-                                       usize* out_value_size);
-
-void mel_render_stage_value_clear(Mel_Render_Stage_Ctx* ctx,
-                                  const Mel_Render_Stage_Value_Type* type);
-```
-
-### Hook registration API
-
-```c
-Mel_Render_Stage_Hook_Handle mel_render_stage_hook_register_opt(Mel_Render_Stage_Hook_Desc desc);
-#define mel_render_stage_hook_register(...) \
-    mel_render_stage_hook_register_opt((Mel_Render_Stage_Hook_Desc){__VA_ARGS__})
-
-void mel_render_stage_hook_unregister(Mel_Render_Stage_Hook_Handle handle);
-bool mel_render_stage_hook_alive(Mel_Render_Stage_Hook_Handle handle);
-```
-
-### Lifetime rules
-
-- stage hooks are registered globally
-- execution order is increasing `order`, then registration order
-- stage values live only for the duration of one view render for one frame
-- all stage values are cleared before the next frame for that view
-
-### Threading
-
-- hooks execute on the render thread for that view
-- hooks for a single view/stage execute serially
-- hooks must not retain `ctx` pointers after return
-- hook registration/unregistration must not race active execution
-
-### Failure rules
-
-- invalid stage names assert in debug when a hook is executed or registered against an unknown pipeline/stage combination
-- invalid type sizes assert
-- hooks fail loudly by assertion if they violate contracts
-- there is no partial-success protocol at this layer
-
-### First intended use cases
-
-#### `visibility`
-
-- custom culling masks
-- portal visibility
-- software LOD decisions
-
-#### `shadow.prepare`
-
-- custom caster filtering
-- alternate directional split selection
-
-#### `lighting.prepare`
-
-- inject environment approximation derived from scene world inputs
-- select probes
-- add atmosphere contribution
-
-#### `resolve`
-
-- exposure
-- tonemap
-- output conversion
-- debug output transform
-
-## Why this is better than a fixed `scene_environment`
-
-Because it keeps the chain honest:
-
-- scene truth stays in the scene
-- response stays with the view
-- renderer approximations stay in the renderer
-- app code gets explicit extension seams
-
-Instead of one fixed struct pretending to be all of those things at once.
-
-## Minimal migration path from current Melody
-
-### Keep as-is
+Scene-owned render truth currently includes:
 
 - ambient color
 - directional lights
 - point lights
-- scene shadow intent
+- shadow intent on lights
+- instances / source bindings / material bindings in the scene DB
 
-### Add first
+This stays explicit.
 
-1. `Mel_Render_View_Response_Type`
-2. response storage on `Mel_Render_View`
-3. one built-in response type for exposure
-4. one `scene_forward` stage seam:
-   - `lighting.prepare` or `resolve`
+Do **not** add to `render.scene` yet:
 
-### Add second
+- exposure
+- tonemap
+- fixed sky/ground approximations
+- generic environment blobs
 
-1. `Mel_Render_World_Input_Type`
-2. world input storage on `Mel_Render_Scene`
-3. first built-in world input type:
-   - environment map or sky source reference
+Future scene/world systems should arrive as explicit engine modules when they become real:
 
-### Add third
+- `render.environment`
+- `render.probe`
+- `render.atmosphere`
+- `render.fog`
 
-- broader `scene_forward` stage hook coverage
+or similarly scoped modules.
+
+The key rule is:
+
+- scene truth gets explicit APIs when the concept is canonical
+- we do not hide uncertainty behind a generic blob registry
+
+### View-owned truth
+
+View-owned truth should include:
+
+- camera
+- target
+- visibility mask
+- output response policy
+
+This is the correct home for:
+
+- exposure
+- tonemap
+- output transform
+- response/debug overrides
+
+Why:
+
+- multiple views of the same scene must be allowed to diverge
+- this matches Blender's world-vs-film split
+- this matches how serious engines tend to separate scene inputs from output response
+
+### Technique-owned truth
+
+Technique-owned truth remains:
+
+- visibility structures
+- shadow data
+- intermediate render targets
+- clustered light data
+- draw generation data
+- transparency queues
+- per-view persistent response state
+
+This data is derived.
+It is not canonical scene or view truth.
+
+## What we expose first
+
+The first explicit extension subsystem should be:
+
+- per-view response / resolve
+
+Not:
+
+- visibility replacement
+- shadow replacement
+- generic lighting-preparation hooks
+
+Why:
+
+- exposure/tonemap/output response clearly belong on the view side
+- the seam is conceptually clean
+- it is useful immediately
+- it does not require us to invent fake generality for all stages
+
+It is still mechanically expensive.
+But it is the first honest seam.
+
+## View response chain
+
+This is the one subsystem we should add next.
+
+### Concept
+
+A view owns an ordered response chain.
+
+Each response operation consumes an input image and produces an output image for the next step.
+
+Typical uses:
+
+- exposure
+- tonemap
+- output transform
+- debug response visualization
+
+This is **not** a generic stage-hook system.
+It is a dedicated subsystem for the resolve/output stage.
+
+### Public type
+
+```c
+typedef struct Mel_Render_Response_Op_Type {
+    str8  name;
+    usize params_size;
+    usize params_align;
+    void  (*run)(struct Mel_Render_Response_Ctx* ctx, const void* params);
+} Mel_Render_Response_Op_Type;
+```
+
+This is a response operation type.
+
+Examples:
+
+- `mel_render_response_exposure_manual`
+- `mel_render_response_tonemap_aces`
+- `mel_render_response_output_srgb`
+
+### Response op instance
+
+```c
+typedef struct {
+    const Mel_Render_Response_Op_Type* type;
+    void* params;
+    i32 order;
+} Mel_Render_Response_Op;
+```
+
+### Response op handle
+
+```c
+typedef struct {
+    u32 id;
+} Mel_Render_View_Response_Op_Handle;
+```
+
+### Response context
+
+```c
+typedef struct Mel_Render_Response_Ctx {
+    Mel_Render_View*     view;
+    Mel_Render_Scene*    scene;
+    Mel_Render_Draw_Ctx* draw_ctx;
+    Mel_Gpu_Image*       src;
+    u32                  src_texture_idx;
+    Mel_Render_Target*   dst_target;
+    Mel_Gpu_Image*       dst;
+    void*                user_data;
+} Mel_Render_Response_Ctx;
+```
+
+Important:
+
+- `src` is the rendered HDR source image for this resolve step
+- `src_texture_idx` is the ready-to-sample source binding for `src`
+- `dst_target` is the render target for this step
+- `dst` is the underlying image when `dst_target` is offscreen, otherwise `nullptr`
+- if an op needs the rendered frame, it gets it here explicitly
+- this is not "leaking internals"; this is the documented contract of the resolve subsystem
+
+A raw `Mel_Gpu_Image*` alone is not enough for a useful custom response op.
+The context must carry:
+
+- whatever ready-to-sample handle the engine uses for source-image sampling
+- and the actual render target that the op is expected to render into
+
+This matters because the final resolve destination may be a swapchain target, not an offscreen image.
+
+### Public API
+
+```c
+typedef struct {
+    Mel_Render_View_Handle view;
+    const Mel_Render_Response_Op_Type* type;
+    const void* params;
+    usize params_size;
+    i32 order;
+    void* user_data;
+} Mel_Render_View_Response_Op_Desc;
+
+Mel_Render_View_Response_Op_Handle
+mel_render_view_response_op_add_impl(Mel_Render_View_Response_Op_Desc desc);
+
+#define mel_render_view_response_op_add(view, type, params_ptr, ...) \
+    mel_render_view_response_op_add_impl((Mel_Render_View_Response_Op_Desc){ \
+        .view = (view), \
+        .type = (type), \
+        .params = (params_ptr), \
+        .params_size = sizeof(*(params_ptr)), \
+        __VA_ARGS__ \
+    })
+
+void mel_render_view_response_op_clear(Mel_Render_View_Handle view,
+                                       const Mel_Render_Response_Op_Type* type);
+
+void mel_render_view_response_ops_clear_all(Mel_Render_View_Handle view);
+
+void mel_render_view_response_op_remove(Mel_Render_View_Response_Op_Handle handle);
+bool mel_render_view_response_op_alive(Mel_Render_View_Response_Op_Handle handle);
+```
+
+### Ordering
+
+Response ops execute in:
+
+1. increasing `order`
+2. registration order as the tie-breaker
+
+### Ownership and lifetime
+
+- the view copies response-op params
+- op params are view-owned
+- response-op registration is per-view
+- response ops are destroyed automatically when the view is destroyed
+- `user_data` is not copied
+- `user_data` remains caller-owned and must remain valid while the op is registered
+
+### Dynamic params
+
+Response-op params are copied at add-time.
+
+That makes them appropriate for static configuration.
+
+If a value must change every frame:
+
+- either remove and re-add the op
+- or point `user_data` at live app state and read that in `run(...)`
+
+The engine should not pretend copied params are a live mutable binding.
+
+### Alignment guarantee
+
+Response-op param storage must honor `type->params_align`.
+
+This is a hard guarantee.
+
+### Failure rules
+
+- misuse asserts in debug
+- size mismatch asserts
+- null params for non-zero-sized types assert
+- there is no recoverable failure return path here
+
+### Threading
+
+- view response mutation is not concurrent-safe with rendering
+- mutate on the same thread used for other view mutations
+- execution happens on the render thread for that view
+
+## First built-in response type
+
+The first built-in response op should be manual exposure only.
+
+```c
+typedef struct {
+    f32 value;
+} Mel_Render_Response_Exposure_Manual_Params;
+```
+
+This keeps the first step honest.
+
+It does **not** pretend to solve auto-exposure.
+
+If auto-exposure is added later, it should be a separate response op type with:
+
+- view-authored params
+- technique-owned temporal adaptation state
+
+That split is important:
+
+- authored control stays on the view
+- temporal feedback state stays in the technique's per-view instance data
+
+## scene_forward integration
+
+### What changes
+
+To support a real response chain, `scene_forward` needs:
+
+- an intermediate HDR color target
+- a resolve pass
+- a resolve shader/pipeline or direct op-dispatch path
+- mesh and sprite output redirected into the intermediate instead of the final target
+- ping-pong intermediates when more than one response op is active
+
+Example chains:
+
+- `0` ops: direct write to final target
+- `1` op: HDR intermediate -> final target
+- `2` ops: HDR intermediate -> ping -> final target
+- `3` ops: HDR intermediate -> ping -> pong -> final target
+
+These ping-pong intermediates are technique-owned execution resources.
+The response subsystem does not own them.
+
+This is not a tiny refactor.
+
+### Resolve elision rule
+
+`scene_forward` must not always pay this cost.
+
+If all of the following are true:
+
+- the view has no response ops
+- `scene_forward` has no built-in resolve work active for that view
+
+then `scene_forward` may bypass the intermediate HDR target and write directly to the final target.
+
+This is mandatory.
+
+Otherwise we would violate:
+
+- no hidden GPU memory cost
+- no unnecessary fullscreen pass
+- no paying for what is not used
+
+### Why resolve is still the first seam
+
+Because even though it is expensive mechanically, it is the cleanest architectural seam:
+
+- view-owned response belongs here
+- it does not require exposing deeper technique internals
+- it does not require pretending visibility/shadow replacement is cheap
+
+## What we are deliberately *not* exposing yet
+
+### Not yet: world-input registry
+
+Why not:
+
+- we still do not know the correct canonical world/environment model
+- a registry here would be abstraction before understanding
+
+When a real environment system arrives, define it explicitly.
+
+### Not yet: generic stage hooks
+
+Why not:
+
+- too easy to become a shadow second renderer
+- too easy to create undocumented cooperative protocols
+- current `scene_forward` execution structure does not have clean boundaries for this yet
+
+### Not yet: visibility replacement
+
+Why not:
+
+- current draw/shadow code computes culling inline
+- a hook would be fake unless draw/shadow stages become consumers of produced visibility data
+- that is a much deeper structural refactor
+
+## Future stage exposure rule
+
+When a deeper stage becomes worth exposing, do **not** reuse a generic hook system.
+
+Instead:
+
+1. refactor that stage into a real sub-phase
+2. define the exact stable input/output contract for that one stage
+3. add a dedicated stage-specific API
+4. document producer/consumer behavior explicitly
+
+Examples of future dedicated APIs:
+
+- `scene_forward.visibility`
+- `scene_forward.shadow_setup`
+- `scene_forward.light_selection`
+
+But only when those stages are structurally real.
+
+## Why this is better
+
+Because it removes the fake generality.
+
+It gives us:
+
+- explicit scene truth
+- explicit view response
+- one real extension subsystem
+
+Without:
+
+- a generic event bus
+- a public stage-value blob registry
+- speculative world/environment registries
+- pretending all stages are already hookable
+
+## Remaining open problems
+
+These are still real and should remain explicit.
+
+### 1. Resolve is still mechanically expensive
+
+Architecturally clean does not mean cheap to implement.
+
+### 2. Response op model may still be too generic
+
+This is much narrower than the earlier proposal, but it is still a mini framework.
+That is acceptable only if we keep the first implementation tight.
+
+### 3. Some response controls still need sharper ownership
+
+Examples:
+
+- background opacity
+- debug output transforms
+- certain presentation/output policies
+
+The direction is "view/output, not scene," but some exact splits with technique ownership remain open.
+
+### 4. Future environment systems still need real design
+
+We explicitly chose not to solve that with a fake registry.
+That means the actual environment/world-input model still needs to be designed when the concrete feature arrives.
 
 ## Recommendation
 
-Do not continue `M3` implementation work until these three interfaces are accepted:
+Do not implement a generic world-input or generic stage-hook system now.
 
-1. view response
-2. world input
-3. first stage hook seam
+Implement only:
 
-Once these are accepted, continue by implementing the smallest real slice:
+1. per-view response chain
+2. first built-in response op: manual exposure
+3. `scene_forward` resolve integration with resolve elision
 
-- view-owned exposure response
-- `resolve` stage hook
+That is the first slice that is:
 
-That is the first clean step that moves the engine forward without hardcoding the wrong model.
+- forward-facing
+- extensible
+- aligned with other serious engines
+- honest about cost

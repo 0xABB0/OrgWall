@@ -2,6 +2,7 @@
 #include "render.view.registry.h"
 #include "render.scene.h"
 #include "render.pipeline.h"
+#include "render.response.h"
 #include "render.target.h"
 #include "collection.slotmap.fwd.h"
 #include "allocator.h"
@@ -43,6 +44,7 @@ Mel_Render_View_Handle mel_render_view_create_opt(Mel_Render_View_Desc desc)
     Mel_SlotMap_Handle raw = mel__view_registry_insert(&view);
 
     Mel_Render_View* stored = mel__view_registry_get(raw);
+    stored->self = (Mel_Render_View_Handle){ .handle = raw };
 
     const Mel_Render_Pipeline_Type* pipeline_type = nullptr;
     if (desc.pipeline.len > 0)
@@ -68,6 +70,8 @@ void mel_render_view_destroy(Mel_Render_View_Handle handle)
 
     if (view->pipeline)
         mel_pipeline_destroy(view->pipeline);
+
+    mel_render_view_response_view_destroy(handle);
 
     if (mel_render_target_alive(view->design_target))
         mel_render_target_destroy(view->design_target);

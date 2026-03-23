@@ -10,6 +10,7 @@
 #include "render.sprite2d.shader.h"
 #include "render.texture_table.h"
 #include "render.material_base.h"
+#include "render.response.h"
 #include "render.target.h"
 #include "texture.pool.h"
 #include "gpu.geometry_pool.h"
@@ -92,6 +93,9 @@ typedef struct {
     u32 sprite_strategy;
     Mel_Gpu_Image depth_image;
     Mel_Gpu_Image shadow_image;
+    Mel_Render_Target_Handle hdr_target;
+    Mel_Render_Target_Handle response_ping;
+    Mel_Render_Target_Handle response_pong;
     void* shadow_sampler;
     Mel_Gpu_Buffer mesh_view_buffer;
     Mel_Gpu_Buffer shadow_view_buffer;
@@ -200,8 +204,6 @@ static const Mel_Render_Material_Binding* scene_forward_emitter_binding(
 static Mel_Gpu_Device* s_dev;
 static Mel_Gpu_Shader s_mesh_shader;
 static Mel_Gpu_Shader s_shadow_shader;
-static Mel_Gpu_Pipeline s_mesh_pipeline;
-static Mel_Gpu_Pipeline s_mesh_alpha_pipeline;
 static Mel_Gpu_Pipeline s_shadow_pipeline;
 static Mel_Geometry_Pool* s_geometry_pool;
 static bool s_mesh_ready;
@@ -249,6 +251,76 @@ static u32 scene_forward_shadow_map_size(u32 w, u32 h)
     if (max_dim <= 1280)
         return 1024;
     return 2048;
+}
+
+static void scene_forward_destroy_color_targets(Scene_Forward_View_Data* d)
+{
+    if (mel_render_target_alive(d->hdr_target))
+        mel_render_target_destroy(d->hdr_target);
+    if (mel_render_target_alive(d->response_ping))
+        mel_render_target_destroy(d->response_ping);
+    if (mel_render_target_alive(d->response_pong))
+        mel_render_target_destroy(d->response_pong);
+
+    d->hdr_target = MEL_RENDER_TARGET_HANDLE_NULL;
+    d->response_ping = MEL_RENDER_TARGET_HANDLE_NULL;
+    d->response_pong = MEL_RENDER_TARGET_HANDLE_NULL;
+}
+
+static void scene_forward_ensure_color_target(Mel_Render_Target_Handle* handle,
+                                              u32 width,
+                                              u32 height,
+                                              Mel_Gpu_Format format,
+                                              const Mel_Alloc* alloc)
+{
+    if (mel_render_target_alive(*handle))
+    {
+        Mel_Render_Target* target = mel_render_target_get(*handle);
+        if (target->width == width && target->height == height && target->format == format)
+            return;
+        mel_render_target_destroy(*handle);
+        *handle = MEL_RENDER_TARGET_HANDLE_NULL;
+    }
+
+    *handle = mel_render_target_offscreen(
+        .dev = s_dev,
+        .width = width,
+        .height = height,
+        .format = format,
+        .alloc = alloc);
+}
+
+static void scene_forward_ensure_response_targets(Scene_Forward_View_Data* d,
+                                                  Mel_Render_Pipeline* self,
+                                                  Mel_Render_Draw_Ctx* ctx,
+                                                  u32 op_count)
+{
+    if (op_count == 0)
+    {
+        scene_forward_destroy_color_targets(d);
+        return;
+    }
+
+    scene_forward_ensure_color_target(&d->hdr_target,
+        ctx->target_width, ctx->target_height, MEL_GPU_FORMAT_R16G16B16A16_SFLOAT, self->alloc);
+
+    if (op_count > 1)
+        scene_forward_ensure_color_target(&d->response_ping,
+            ctx->target_width, ctx->target_height, MEL_GPU_FORMAT_R16G16B16A16_SFLOAT, self->alloc);
+    else if (mel_render_target_alive(d->response_ping))
+    {
+        mel_render_target_destroy(d->response_ping);
+        d->response_ping = MEL_RENDER_TARGET_HANDLE_NULL;
+    }
+
+    if (op_count > 2)
+        scene_forward_ensure_color_target(&d->response_pong,
+            ctx->target_width, ctx->target_height, MEL_GPU_FORMAT_R16G16B16A16_SFLOAT, self->alloc);
+    else if (mel_render_target_alive(d->response_pong))
+    {
+        mel_render_target_destroy(d->response_pong);
+        d->response_pong = MEL_RENDER_TARGET_HANDLE_NULL;
+    }
 }
 
 static void ensure_shadow_map(Scene_Forward_View_Data* d, u32 target_width, u32 target_height)
@@ -990,6 +1062,42 @@ static void* scene_forward_mesh_write_descriptor(Mel_Gpu_Pipeline* pipeline,
     return desc;
 }
 
+static Mel_Gpu_Pipeline* scene_forward_get_mesh_pipeline(Mel_Gpu_Format color_format,
+                                                         u32 blend_mode)
+{
+    Mel_Texture_Table* texture_table = mel_texture_pool_get_table();
+    assert(texture_table != nullptr);
+
+    Mel_Gpu_Descriptor_Binding bindings[] = {
+        { .binding = 0, .type = MEL_GPU_DESCRIPTOR_STORAGE_BUFFER, .count = 1, .stages = MEL_GPU_SHADER_STAGE_VERTEX },
+        { .binding = 1, .type = MEL_GPU_DESCRIPTOR_STORAGE_BUFFER, .count = 1, .stages = MEL_GPU_SHADER_STAGE_VERTEX },
+        { .binding = 2, .type = MEL_GPU_DESCRIPTOR_STORAGE_BUFFER, .count = 1, .stages = MEL_GPU_SHADER_STAGE_VERTEX | MEL_GPU_SHADER_STAGE_FRAGMENT },
+        { .binding = 3, .type = MEL_GPU_DESCRIPTOR_STORAGE_BUFFER, .count = 1, .stages = MEL_GPU_SHADER_STAGE_VERTEX | MEL_GPU_SHADER_STAGE_FRAGMENT },
+        { .binding = 4, .type = MEL_GPU_DESCRIPTOR_STORAGE_BUFFER, .count = 1, .stages = MEL_GPU_SHADER_STAGE_FRAGMENT },
+        { .binding = 5, .type = MEL_GPU_DESCRIPTOR_STORAGE_BUFFER, .count = 1, .stages = MEL_GPU_SHADER_STAGE_FRAGMENT },
+        { .binding = 6, .type = MEL_GPU_DESCRIPTOR_COMBINED_IMAGE_SAMPLER, .count = 1, .stages = MEL_GPU_SHADER_STAGE_FRAGMENT },
+    };
+    void* extra_layouts[] = { texture_table->layout._layout };
+
+    return mel_gpu_pipeline_cache_get(s_dev->pipeline_cache, s_dev,
+        .shader = &s_mesh_shader,
+        .color_format = color_format,
+        .depth_format = MEL_GPU_FORMAT_D32_SFLOAT,
+        .blend_mode = blend_mode,
+        .cull_mode = MEL_GPU_CULL_BACK,
+        .dynamic_cull_mode = true,
+        .topology = MEL_GPU_TOPOLOGY_TRIANGLE_LIST,
+        .depth_test = true,
+        .depth_write = blend_mode == MEL_GPU_BLEND_NONE,
+        .push_constant_size = sizeof(Forward3D_Push),
+        .push_constant_stages = MEL_GPU_SHADER_STAGE_VERTEX | MEL_GPU_SHADER_STAGE_FRAGMENT,
+        .descriptor_bindings = bindings,
+        .descriptor_binding_count = 7,
+        .extra_set_layouts = extra_layouts,
+        .extra_set_layout_count = 1,
+        .max_descriptor_sets = 16);
+}
+
 static void* scene_forward_shadow_write_descriptor(Mel_Gpu_Buffer* vert_buf,
                                                    Mel_Gpu_Buffer* idx_buf,
                                                    Mel_Gpu_Buffer* mat_buf,
@@ -1087,7 +1195,8 @@ static void scene_forward_draw_meshes(Mel_Render_Pipeline* self,
         if (mat_buf == nullptr || mat_buf->_handle == nullptr)
             continue;
 
-        void* desc = scene_forward_mesh_write_descriptor(&s_mesh_pipeline,
+        Mel_Gpu_Pipeline* mesh_pipeline = scene_forward_get_mesh_pipeline(ctx->target_format, MEL_GPU_BLEND_NONE);
+        void* desc = scene_forward_mesh_write_descriptor(mesh_pipeline,
             vert_buf, idx_buf, mat_buf,
             &data->mesh_view_buffer,
             &data->mesh_directional_light_buffer,
@@ -1103,7 +1212,6 @@ static void scene_forward_draw_meshes(Mel_Render_Pipeline* self,
             if (mel_material_base_get_blend_mode(item->material_base_id, item->material_idx) != MEL_GPU_BLEND_NONE)
                 continue;
 
-            Mel_Gpu_Pipeline* mesh_pipeline = &s_mesh_pipeline;
             if (bound_pipeline != mesh_pipeline)
             {
                 mel_gpu_cmd_bind_pipeline(ctx->cmd, mesh_pipeline);
@@ -1200,7 +1308,8 @@ static void scene_forward_draw_meshes(Mel_Render_Pipeline* self,
 
         if (bound_material_base_id != item->material_base_id)
         {
-            desc = scene_forward_mesh_write_descriptor(&s_mesh_alpha_pipeline,
+            Mel_Gpu_Pipeline* mesh_pipeline = scene_forward_get_mesh_pipeline(ctx->target_format, MEL_GPU_BLEND_ALPHA);
+            desc = scene_forward_mesh_write_descriptor(mesh_pipeline,
                 vert_buf, idx_buf, mat_buf,
                 &data->mesh_view_buffer,
                 &data->mesh_directional_light_buffer,
@@ -1211,7 +1320,7 @@ static void scene_forward_draw_meshes(Mel_Render_Pipeline* self,
             bound_pipeline = nullptr;
         }
 
-        Mel_Gpu_Pipeline* mesh_pipeline = &s_mesh_alpha_pipeline;
+        Mel_Gpu_Pipeline* mesh_pipeline = scene_forward_get_mesh_pipeline(ctx->target_format, MEL_GPU_BLEND_ALPHA);
         if (bound_pipeline != mesh_pipeline)
         {
             mel_gpu_cmd_bind_pipeline(ctx->cmd, mesh_pipeline);
@@ -1425,6 +1534,8 @@ static void scene_forward_draw(Mel_Render_Pipeline* self,
 
     Scene_Forward_View_Data* data = mel_pipeline_instance(self);
     assert(data != nullptr);
+    u32 response_op_count = mel_render_view_response_op_count(self->view->self);
+    scene_forward_ensure_response_targets(data, self, ctx, response_op_count);
 
     Mel_Mat4 vp = mel_mat4_mul(self->view->camera.projection, self->view->camera.view);
     Mel_Frustum camera_frustum = scene_forward_extract_frustum(vp);
@@ -1437,10 +1548,37 @@ static void scene_forward_draw(Mel_Render_Pipeline* self,
     else
         mel_gpu_cmd_transition_image(ctx->cmd, &data->shadow_image, MEL_GPU_IMAGE_LAYOUT_SHADER_READ_ONLY);
 
-    scene_forward_begin_rendering(data, ctx);
-    scene_forward_draw_meshes(self, scene, scene_data, ctx, &shadow_setup);
-    scene_forward_draw_sprites(self, scene_data, ctx);
-    mel_gpu_cmd_end_rendering(ctx->cmd);
+    Mel_Render_Draw_Ctx scene_ctx = *ctx;
+    if (response_op_count > 0)
+    {
+        Mel_Render_Target* hdr_target = mel_render_target_get(data->hdr_target);
+        assert(hdr_target != nullptr);
+        scene_ctx.target = hdr_target;
+        scene_ctx.target_width = hdr_target->width;
+        scene_ctx.target_height = hdr_target->height;
+        scene_ctx.target_format = hdr_target->format;
+    }
+
+    scene_forward_begin_rendering(data, &scene_ctx);
+    scene_forward_draw_meshes(self, scene, scene_data, &scene_ctx, &shadow_setup);
+    scene_forward_draw_sprites(self, scene_data, &scene_ctx);
+    mel_gpu_cmd_end_rendering(scene_ctx.cmd);
+
+    if (response_op_count > 0)
+    {
+        Mel_Render_Response_Ctx response_ctx = {
+            .view = self->view,
+            .scene = scene->owner_scene,
+            .draw_ctx = ctx,
+        };
+
+        mel_render_view_response_execute(self->view->self,
+            &response_ctx,
+            mel_render_target_get(data->hdr_target),
+            mel_render_target_alive(data->response_ping) ? mel_render_target_get(data->response_ping) : nullptr,
+            mel_render_target_alive(data->response_pong) ? mel_render_target_get(data->response_pong) : nullptr,
+            ctx->target);
+    }
 }
 
 static void scene_forward_scene_shutdown(Mel_Render_Pipeline_Scene* self)
@@ -1468,6 +1606,7 @@ static void scene_forward_view_shutdown(Mel_Render_Pipeline* self)
     Scene_Forward_View_Data* d = mel_pipeline_instance(self);
     mel_dealloc(self->alloc, d->transparent_mesh_order);
     mel_dealloc(self->alloc, d->transparent_mesh_depths);
+    scene_forward_destroy_color_targets(d);
     if (d->mesh_view_buffer._handle != nullptr)
         mel_gpu_buffer_shutdown(&d->mesh_view_buffer, s_dev);
     if (d->shadow_view_buffer._handle != nullptr)
@@ -1513,15 +1652,6 @@ static void mel__scene_forward_compile(void* data)
     Mel_Texture_Table* texture_table = mel_texture_pool_get_table();
     assert(texture_table != nullptr);
 
-    Mel_Gpu_Descriptor_Binding bindings[] = {
-        { .binding = 0, .type = MEL_GPU_DESCRIPTOR_STORAGE_BUFFER, .count = 1, .stages = MEL_GPU_SHADER_STAGE_VERTEX },
-        { .binding = 1, .type = MEL_GPU_DESCRIPTOR_STORAGE_BUFFER, .count = 1, .stages = MEL_GPU_SHADER_STAGE_VERTEX },
-        { .binding = 2, .type = MEL_GPU_DESCRIPTOR_STORAGE_BUFFER, .count = 1, .stages = MEL_GPU_SHADER_STAGE_VERTEX | MEL_GPU_SHADER_STAGE_FRAGMENT },
-        { .binding = 3, .type = MEL_GPU_DESCRIPTOR_STORAGE_BUFFER, .count = 1, .stages = MEL_GPU_SHADER_STAGE_VERTEX | MEL_GPU_SHADER_STAGE_FRAGMENT },
-        { .binding = 4, .type = MEL_GPU_DESCRIPTOR_STORAGE_BUFFER, .count = 1, .stages = MEL_GPU_SHADER_STAGE_FRAGMENT },
-        { .binding = 5, .type = MEL_GPU_DESCRIPTOR_STORAGE_BUFFER, .count = 1, .stages = MEL_GPU_SHADER_STAGE_FRAGMENT },
-        { .binding = 6, .type = MEL_GPU_DESCRIPTOR_COMBINED_IMAGE_SAMPLER, .count = 1, .stages = MEL_GPU_SHADER_STAGE_FRAGMENT },
-    };
     Mel_Gpu_Descriptor_Binding shadow_bindings[] = {
         { .binding = 0, .type = MEL_GPU_DESCRIPTOR_STORAGE_BUFFER, .count = 1, .stages = MEL_GPU_SHADER_STAGE_VERTEX },
         { .binding = 1, .type = MEL_GPU_DESCRIPTOR_STORAGE_BUFFER, .count = 1, .stages = MEL_GPU_SHADER_STAGE_VERTEX },
@@ -1529,42 +1659,6 @@ static void mel__scene_forward_compile(void* data)
         { .binding = 3, .type = MEL_GPU_DESCRIPTOR_STORAGE_BUFFER, .count = 1, .stages = MEL_GPU_SHADER_STAGE_VERTEX },
     };
     void* extra_layouts[] = { texture_table->layout._layout };
-
-    mel_gpu_pipeline_init(&s_mesh_pipeline, s_dev,
-        .shader = &s_mesh_shader,
-        .color_format = MEL_GPU_FORMAT_B8G8R8A8_SRGB,
-        .depth_format = MEL_GPU_FORMAT_D32_SFLOAT,
-        .blend_mode = MEL_GPU_BLEND_NONE,
-        .cull_mode = MEL_GPU_CULL_BACK,
-        .dynamic_cull_mode = true,
-        .topology = MEL_GPU_TOPOLOGY_TRIANGLE_LIST,
-        .depth_test = true,
-        .depth_write = true,
-        .push_constant_size = sizeof(Forward3D_Push),
-        .push_constant_stages = MEL_GPU_SHADER_STAGE_VERTEX | MEL_GPU_SHADER_STAGE_FRAGMENT,
-        .descriptor_bindings = bindings,
-        .descriptor_binding_count = 7,
-        .extra_set_layouts = extra_layouts,
-        .extra_set_layout_count = 1,
-        .max_descriptor_sets = 16);
-
-    mel_gpu_pipeline_init(&s_mesh_alpha_pipeline, s_dev,
-        .shader = &s_mesh_shader,
-        .color_format = MEL_GPU_FORMAT_B8G8R8A8_SRGB,
-        .depth_format = MEL_GPU_FORMAT_D32_SFLOAT,
-        .blend_mode = MEL_GPU_BLEND_ALPHA,
-        .cull_mode = MEL_GPU_CULL_BACK,
-        .dynamic_cull_mode = true,
-        .topology = MEL_GPU_TOPOLOGY_TRIANGLE_LIST,
-        .depth_test = true,
-        .depth_write = false,
-        .push_constant_size = sizeof(Forward3D_Push),
-        .push_constant_stages = MEL_GPU_SHADER_STAGE_VERTEX | MEL_GPU_SHADER_STAGE_FRAGMENT,
-        .descriptor_bindings = bindings,
-        .descriptor_binding_count = 7,
-        .extra_set_layouts = extra_layouts,
-        .extra_set_layout_count = 1,
-        .max_descriptor_sets = 16);
 
     mel_gpu_pipeline_init(&s_shadow_pipeline, s_dev,
         .shader = &s_shadow_shader,
@@ -1609,8 +1703,6 @@ static void mel__scene_forward_on_shutdown(void* ctx, const void* event)
     if (s_mesh_ready)
     {
         mel_gpu_pipeline_shutdown(&s_shadow_pipeline, s_dev);
-        mel_gpu_pipeline_shutdown(&s_mesh_alpha_pipeline, s_dev);
-        mel_gpu_pipeline_shutdown(&s_mesh_pipeline, s_dev);
         mel_gpu_shader_shutdown(&s_shadow_shader, s_dev);
         mel_gpu_shader_shutdown(&s_mesh_shader, s_dev);
         s_mesh_ready = false;

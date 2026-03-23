@@ -195,13 +195,27 @@ Before more lighting work lands:
 1. keep `M3` partial
 2. keep direct lights in `render.scene`
 3. do not add exposure or fixed environment approximation to scene truth
-4. design the view/output response interface
-5. design the first explicit stage hook seam
+4. design and implement the view/output response interface first
+5. defer generic world/environment registries and generic stage hooks until a real concrete feature justifies them
 
-## First concrete next interfaces to negotiate
+## Immediate next interface
+
+The earlier direction in this note was broader:
 
 1. view-owned response contract
 2. scene-owned world/environment input contract
 3. stage hook registration contract for `scene_forward`
 
-Only after those are defined should richer environment lighting continue.
+That is no longer the active recommendation.
+
+The newer interface proposal supersedes it:
+
+- implement only the per-view response / resolve chain now
+- defer generic world-input and generic stage-hook systems
+- add deeper stage-specific contracts only when those stages become structurally real
+
+So the immediate next interface is:
+
+1. the per-view response / resolve contract
+
+Only after that is proven should richer environment and deeper stage seams continue.
