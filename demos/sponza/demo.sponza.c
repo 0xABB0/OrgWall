@@ -9,6 +9,7 @@
 #include "gpu.geometry_pool.h"
 #include "render.viewport.h"
 #include "render.target.h"
+#include "render.environment.h"
 #include "render.scene.h"
 #include "render.source.manual.h"
 #include "render.pipeline.scene_forward.h"
@@ -32,6 +33,7 @@ static Mel_Render_Source* s_source;
 static Mel_Render_View_Handle s_view;
 static Mel_Geometry_Pool s_geo_pool;
 static Mel_Render_Handle s_sponza_handle;
+static Mel_Render_Environment_Handle s_environment;
 static Mel_Sim_Ctx s_sim;
 static u8 s_event_buf[4096];
 static Sponza_Camera s_camera;
@@ -123,7 +125,7 @@ void app_init(void)
     mel_source_manual_set_material_bindings(s_source, s_sponza_handle, loaded.bindings, loaded.binding_count);
     mel_source_manual_set_mesh_parts(s_source, s_sponza_handle, loaded.parts, loaded.part_count);
 
-    sponza_scene_apply_lighting(s_scene, loaded.world_center, loaded.world_extents);
+    s_environment = sponza_scene_apply_lighting(s_scene, loaded.world_center, loaded.world_extents);
     sponza_camera_init(&s_camera, loaded.world_center, loaded.world_extents);
     sponza_load_result_free(&loaded, alloc);
 
@@ -173,6 +175,11 @@ void app_shutdown(void)
     {
         mel_render_scene_destroy(s_scene);
         s_scene = nullptr;
+    }
+    if (mel_render_environment_alive(s_environment))
+    {
+        mel_render_environment_destroy(s_environment);
+        s_environment = MEL_RENDER_ENVIRONMENT_HANDLE_NULL;
     }
     if (mel_render_target_handle_valid(s_target))
     {

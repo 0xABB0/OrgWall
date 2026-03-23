@@ -55,7 +55,7 @@ struct MeshViewParams
     float4x4 view_projection;
     float4x4 shadow_view_projection;
     float4 camera_position;
-    float4 ambient_color;
+    float4 environment_radiance;
     float4 shadow_params;
     uint directional_light_count;
     uint point_light_count;
@@ -200,8 +200,8 @@ float4 fragmentMain(MeshForwardVSOutput input, bool is_front_face : SV_IsFrontFa
     float shininess = lerp(64.0, 4.0, roughness);
     float specular_strength = lerp(1.0, 0.25, roughness);
     float3 f0 = lerp(float3(0.04, 0.04, 0.04), surface.rgb, metallic);
-    float3 ambient_color = view.ambient_color.rgb;
-    float3 ambient = surface.rgb * ambient_color * (1.0 - 0.35 * metallic);
+    float3 environment_radiance = view.environment_radiance.rgb;
+    float3 ambient = surface.rgb * environment_radiance * (1.0 - 0.35 * metallic);
 
     float3 lit = ambient;
 

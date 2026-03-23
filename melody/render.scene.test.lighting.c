@@ -1,4 +1,5 @@
 #include "test.harness.h"
+#include "render.environment.h"
 #include "render.scene.h"
 #include "gpu.device.h"
 #include "allocator.heap.h"
@@ -11,11 +12,15 @@ MEL_TEST(render_scene_lighting_lists, .tags = "render")
     Mel_Render_Scene* scene = mel_render_scene_create(.dev = dev, .alloc = mel_alloc_heap());
     MEL_ASSERT_NOT_NULL(scene);
 
-    mel_render_scene_set_ambient_color(scene, mel_vec4(0.2f, 0.3f, 0.4f, 1.0f));
-    Mel_Vec4 ambient = mel_render_scene_ambient_color(scene);
-    MEL_ASSERT_FLOAT_EQ(ambient.x, 0.2f, 0.0001f);
-    MEL_ASSERT_FLOAT_EQ(ambient.y, 0.3f, 0.0001f);
-    MEL_ASSERT_FLOAT_EQ(ambient.z, 0.4f, 0.0001f);
+    Mel_Render_Environment_Handle environment =
+        mel_render_environment_create_constant(mel_vec4(0.2f, 0.3f, 0.4f, 1.0f));
+    mel_render_scene_set_environment(scene, environment);
+    MEL_ASSERT(mel_render_environment_alive(mel_render_scene_environment(scene)));
+    Mel_Render_Environment* env = mel_render_environment_get(mel_render_scene_environment(scene));
+    MEL_ASSERT_EQ(env->type, MEL_RENDER_ENVIRONMENT_CONSTANT);
+    MEL_ASSERT_FLOAT_EQ(env->constant_radiance.x, 0.2f, 0.0001f);
+    MEL_ASSERT_FLOAT_EQ(env->constant_radiance.y, 0.3f, 0.0001f);
+    MEL_ASSERT_FLOAT_EQ(env->constant_radiance.z, 0.4f, 0.0001f);
 
     mel_render_scene_clear_directional_lights(scene);
     mel_render_scene_clear_point_lights(scene);
@@ -50,4 +55,5 @@ MEL_TEST(render_scene_lighting_lists, .tags = "render")
     MEL_ASSERT_FLOAT_EQ(points[0].color_intensity.z, 1.0f, 0.0001f);
 
     mel_render_scene_destroy(scene);
+    mel_render_environment_destroy(environment);
 }

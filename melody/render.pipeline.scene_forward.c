@@ -2,6 +2,7 @@
 #include "render.pipeline.h"
 #include "render.viewport.h"
 #include "render.manager.h"
+#include "render.environment.h"
 #include "render.scene.h"
 #include "render.cull.h"
 #include "render.source.type.h"
@@ -64,7 +65,7 @@ typedef struct {
     Mel_Mat4 view_projection;
     Mel_Mat4 shadow_view_projection;
     Mel_Vec4 camera_position;
-    Mel_Vec4 ambient_color;
+    Mel_Vec4 environment_radiance;
     Mel_Vec4 shadow_params;
     u32 directional_light_count;
     u32 point_light_count;
@@ -1162,11 +1163,21 @@ static void scene_forward_draw_meshes(Mel_Render_Pipeline* self,
     if (point_light_count == 0)
         point_lights = &point_light_dummy;
 
+    Mel_Vec4 environment_radiance = mel_vec4(0.0f, 0.0f, 0.0f, 1.0f);
+    Mel_Render_Environment_Handle environment_handle =
+        mel_render_scene_environment(scene->owner_scene);
+    if (mel_render_environment_alive(environment_handle))
+    {
+        Mel_Render_Environment* environment = mel_render_environment_get(environment_handle);
+        if (environment->type == MEL_RENDER_ENVIRONMENT_CONSTANT)
+            environment_radiance = environment->constant_radiance;
+    }
+
     Scene_Forward_Mesh_View_Params view_params = {
         .view_projection = vp,
         .shadow_view_projection = shadow_setup->view_projection,
         .camera_position = mel_vec4(inv_view.m[0][3], inv_view.m[1][3], inv_view.m[2][3], 1.0f),
-        .ambient_color = mel_render_scene_ambient_color(scene->owner_scene),
+        .environment_radiance = environment_radiance,
         .shadow_params = shadow_setup->params,
         .directional_light_count = directional_light_count,
         .point_light_count = point_light_count,

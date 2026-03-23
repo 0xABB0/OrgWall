@@ -20,7 +20,7 @@ struct Mel_Render_Scene {
     Mel_Render_Manager manager;
     Mel_Render_Source_Array sources;
     Mel_Render_Scene_Pipeline_Array pipelines;
-    Mel_Vec4 ambient_color;
+    Mel_Render_Environment_Handle environment;
     Mel_Render_Scene_Directional_Light_Array directional_lights;
     Mel_Render_Scene_Point_Light_Array point_lights;
     Mel_Gpu_Device* dev;
@@ -39,7 +39,6 @@ Mel_Render_Scene* mel_render_scene_create_opt(Mel_Render_Scene_Opt opt)
     scene->dev = opt.dev;
     scene->alloc = alloc;
     scene->sync_serial = 1;
-    scene->ambient_color = (Mel_Vec4){{ 0.12f, 0.12f, 0.12f, 1.0f }};
 
     mel_array_init(&scene->sources, alloc);
     mel_array_init(&scene->pipelines, alloc);
@@ -123,16 +122,17 @@ Mel_Render_Manager* mel_render_scene_manager(Mel_Render_Scene* scene)
     return &scene->manager;
 }
 
-void mel_render_scene_set_ambient_color(Mel_Render_Scene* scene, Mel_Vec4 ambient_color)
+void mel_render_scene_set_environment(Mel_Render_Scene* scene,
+                                      Mel_Render_Environment_Handle environment)
 {
     assert(scene != nullptr);
-    scene->ambient_color = ambient_color;
+    scene->environment = environment;
 }
 
-Mel_Vec4 mel_render_scene_ambient_color(Mel_Render_Scene* scene)
+Mel_Render_Environment_Handle mel_render_scene_environment(Mel_Render_Scene* scene)
 {
     assert(scene != nullptr);
-    return scene->ambient_color;
+    return scene->environment;
 }
 
 void mel_render_scene_clear_directional_lights(Mel_Render_Scene* scene)

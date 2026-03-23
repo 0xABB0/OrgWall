@@ -1,6 +1,7 @@
 #pragma once
 
 #include "render.scene.fwd.h"
+#include "render.environment.h"
 #include "render.manager.h"
 #include "render.pipeline.h"
 #include "render.source.type.h"
@@ -42,8 +43,9 @@ void mel_render_scene_detach_source(Mel_Render_Scene* scene, Mel_Render_Source* 
 void mel_render_scene_sync(Mel_Render_Scene* scene);
 
 Mel_Render_Manager* mel_render_scene_manager(Mel_Render_Scene* scene);
-void mel_render_scene_set_ambient_color(Mel_Render_Scene* scene, Mel_Vec4 ambient_color);
-Mel_Vec4 mel_render_scene_ambient_color(Mel_Render_Scene* scene);
+void mel_render_scene_set_environment(Mel_Render_Scene* scene,
+                                      Mel_Render_Environment_Handle environment);
+Mel_Render_Environment_Handle mel_render_scene_environment(Mel_Render_Scene* scene);
 void mel_render_scene_clear_directional_lights(Mel_Render_Scene* scene);
 void mel_render_scene_push_directional_light(Mel_Render_Scene* scene,
                                              Mel_Render_Scene_Directional_Light light);
