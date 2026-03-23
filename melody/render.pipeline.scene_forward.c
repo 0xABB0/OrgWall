@@ -874,6 +874,26 @@ static void scene_forward_aabb_min_max(Mel_AABB bounds, Mel_Vec3* out_min, Mel_V
                         bounds.center.z + bounds.extents.z);
 }
 
+static Mel_Vec3 scene_forward_clip_to_world(Mel_Mat4 inv_view_projection, f32 x, f32 y, f32 z)
+{
+    Mel_Vec4 clip = mel_vec4(x, y, z, 1.0f);
+    Mel_Vec4 world = mel_mat4_mul_vec4(inv_view_projection, clip);
+    f32 inv_w = fabsf(world.w) > 1e-6f ? 1.0f / world.w : 1.0f;
+    return mel_vec3(world.x * inv_w, world.y * inv_w, world.z * inv_w);
+}
+
+static void scene_forward_frustum_corners(Mel_Mat4 inv_view_projection, Mel_Vec3 out_corners[8])
+{
+    out_corners[0] = scene_forward_clip_to_world(inv_view_projection, -1.0f, -1.0f, 0.0f);
+    out_corners[1] = scene_forward_clip_to_world(inv_view_projection,  1.0f, -1.0f, 0.0f);
+    out_corners[2] = scene_forward_clip_to_world(inv_view_projection, -1.0f,  1.0f, 0.0f);
+    out_corners[3] = scene_forward_clip_to_world(inv_view_projection,  1.0f,  1.0f, 0.0f);
+    out_corners[4] = scene_forward_clip_to_world(inv_view_projection, -1.0f, -1.0f, 1.0f);
+    out_corners[5] = scene_forward_clip_to_world(inv_view_projection,  1.0f, -1.0f, 1.0f);
+    out_corners[6] = scene_forward_clip_to_world(inv_view_projection, -1.0f,  1.0f, 1.0f);
+    out_corners[7] = scene_forward_clip_to_world(inv_view_projection,  1.0f,  1.0f, 1.0f);
+}
+
 static bool scene_forward_mesh_item_visible(const Scene_Forward_Mesh_Item* item,
                                             const Mel_Frustum* frustum,
                                             u32 visibility_mask);
@@ -929,9 +949,9 @@ static Scene_Forward_Shadow_Setup scene_forward_shadow_setup(Mel_Render_View* vi
     if (shadow_light == nullptr)
         return result;
 
-    bool any_bounds = false;
-    Mel_Vec3 world_min = mel_vec3(FLT_MAX, FLT_MAX, FLT_MAX);
-    Mel_Vec3 world_max = mel_vec3(-FLT_MAX, -FLT_MAX, -FLT_MAX);
+    bool any_visible_bounds = false;
+    Mel_Vec3 visible_world_min = mel_vec3(FLT_MAX, FLT_MAX, FLT_MAX);
+    Mel_Vec3 visible_world_max = mel_vec3(-FLT_MAX, -FLT_MAX, -FLT_MAX);
 
     for (u32 i = 0; i < scene_data->mesh_item_count; i++)
     {
@@ -943,20 +963,40 @@ static Scene_Forward_Shadow_Setup scene_forward_shadow_setup(Mel_Render_View* vi
 
         Mel_Vec3 bmin, bmax;
         scene_forward_aabb_min_max(scene_forward_world_bounds(item), &bmin, &bmax);
-        world_min.x = fminf(world_min.x, bmin.x);
-        world_min.y = fminf(world_min.y, bmin.y);
-        world_min.z = fminf(world_min.z, bmin.z);
-        world_max.x = fmaxf(world_max.x, bmax.x);
-        world_max.y = fmaxf(world_max.y, bmax.y);
-        world_max.z = fmaxf(world_max.z, bmax.z);
-        any_bounds = true;
+        visible_world_min.x = fminf(visible_world_min.x, bmin.x);
+        visible_world_min.y = fminf(visible_world_min.y, bmin.y);
+        visible_world_min.z = fminf(visible_world_min.z, bmin.z);
+        visible_world_max.x = fmaxf(visible_world_max.x, bmax.x);
+        visible_world_max.y = fmaxf(visible_world_max.y, bmax.y);
+        visible_world_max.z = fmaxf(visible_world_max.z, bmax.z);
+        any_visible_bounds = true;
     }
 
-    if (!any_bounds)
+    Mel_Mat4 view_projection = mel_mat4_mul(view->camera.projection, view->camera.view);
+    Mel_Mat4 inv_view_projection = mel_mat4_inverse(view_projection);
+    Mel_Vec3 frustum_corners[8];
+    scene_forward_frustum_corners(inv_view_projection, frustum_corners);
+
+    Mel_Vec3 frustum_center = mel_vec3(0.0f, 0.0f, 0.0f);
+    for (u32 i = 0; i < 8; i++)
+        frustum_center = mel_vec3_add(frustum_center, frustum_corners[i]);
+    frustum_center = mel_vec3_scale(frustum_center, 1.0f / 8.0f);
+
+    f32 frustum_radius_sq = 0.0f;
+    for (u32 i = 0; i < 8; i++)
+    {
+        Mel_Vec3 d = mel_vec3_sub(frustum_corners[i], frustum_center);
+        f32 dist_sq = mel_vec3_len_sq(d);
+        if (dist_sq > frustum_radius_sq)
+            frustum_radius_sq = dist_sq;
+    }
+    f32 frustum_radius = sqrtf(frustum_radius_sq);
+    if (frustum_radius < 1.0f)
+        frustum_radius = 1.0f;
+
+    if (!any_visible_bounds)
         return result;
 
-    Mel_Vec3 world_center = mel_vec3_scale(mel_vec3_add(world_min, world_max), 0.5f);
-    Mel_Vec3 world_extents = mel_vec3_scale(mel_vec3_sub(world_max, world_min), 0.5f);
     Mel_Vec3 light_dir = mel_vec3(shadow_light->direction_intensity.x,
                                   shadow_light->direction_intensity.y,
                                   shadow_light->direction_intensity.z);
@@ -969,46 +1009,70 @@ static Scene_Forward_Shadow_Setup scene_forward_shadow_setup(Mel_Render_View* vi
     if (fabsf(mel_vec3_dot(light_dir, up)) > 0.95f)
         up = mel_vec3(0.0f, 0.0f, 1.0f);
 
-    f32 radius = sqrtf(mel_vec3_len_sq(world_extents));
-    if (radius < 1.0f)
-        radius = 1.0f;
-    f32 margin = radius * 0.15f + 2.0f;
+    f32 margin = frustum_radius * 0.15f + 2.0f;
 
-    Mel_Vec3 eye = mel_vec3_add(world_center, mel_vec3_scale(light_dir, radius + margin));
-    Mel_Mat4 light_view = mel_mat4_look_at(eye, world_center, up);
+    Mel_Vec3 eye = mel_vec3_add(frustum_center, mel_vec3_scale(light_dir, frustum_radius + margin));
+    Mel_Mat4 light_view = mel_mat4_look_at(eye, frustum_center, up);
 
-    Mel_Vec3 corners[8] = {
-        mel_vec3(world_min.x, world_min.y, world_min.z),
-        mel_vec3(world_max.x, world_min.y, world_min.z),
-        mel_vec3(world_min.x, world_max.y, world_min.z),
-        mel_vec3(world_max.x, world_max.y, world_min.z),
-        mel_vec3(world_min.x, world_min.y, world_max.z),
-        mel_vec3(world_max.x, world_min.y, world_max.z),
-        mel_vec3(world_min.x, world_max.y, world_max.z),
-        mel_vec3(world_max.x, world_max.y, world_max.z),
-    };
-
-    Mel_Vec3 light_min = mel_vec3(FLT_MAX, FLT_MAX, FLT_MAX);
-    Mel_Vec3 light_max = mel_vec3(-FLT_MAX, -FLT_MAX, -FLT_MAX);
+    Mel_Vec3 frustum_light_min = mel_vec3(FLT_MAX, FLT_MAX, FLT_MAX);
+    Mel_Vec3 frustum_light_max = mel_vec3(-FLT_MAX, -FLT_MAX, -FLT_MAX);
     for (u32 i = 0; i < 8; i++)
     {
-        Mel_Vec3 p = mel_mat4_mul_point(light_view, corners[i]);
-        light_min.x = fminf(light_min.x, p.x);
-        light_min.y = fminf(light_min.y, p.y);
-        light_min.z = fminf(light_min.z, p.z);
-        light_max.x = fmaxf(light_max.x, p.x);
-        light_max.y = fmaxf(light_max.y, p.y);
-        light_max.z = fmaxf(light_max.z, p.z);
+        Mel_Vec3 p = mel_mat4_mul_point(light_view, frustum_corners[i]);
+        frustum_light_min.x = fminf(frustum_light_min.x, p.x);
+        frustum_light_min.y = fminf(frustum_light_min.y, p.y);
+        frustum_light_min.z = fminf(frustum_light_min.z, p.z);
+        frustum_light_max.x = fmaxf(frustum_light_max.x, p.x);
+        frustum_light_max.y = fmaxf(frustum_light_max.y, p.y);
+        frustum_light_max.z = fmaxf(frustum_light_max.z, p.z);
     }
 
-    if (light_max.x - light_min.x < 0.01f) { light_min.x -= 0.5f; light_max.x += 0.5f; }
-    if (light_max.y - light_min.y < 0.01f) { light_min.y -= 0.5f; light_max.y += 0.5f; }
-    if (light_max.z - light_min.z < 0.01f) { light_min.z -= 0.5f; light_max.z += 0.5f; }
+    Mel_Vec3 visible_corners[8] = {
+        mel_vec3(visible_world_min.x, visible_world_min.y, visible_world_min.z),
+        mel_vec3(visible_world_max.x, visible_world_min.y, visible_world_min.z),
+        mel_vec3(visible_world_min.x, visible_world_max.y, visible_world_min.z),
+        mel_vec3(visible_world_max.x, visible_world_max.y, visible_world_min.z),
+        mel_vec3(visible_world_min.x, visible_world_min.y, visible_world_max.z),
+        mel_vec3(visible_world_max.x, visible_world_min.y, visible_world_max.z),
+        mel_vec3(visible_world_min.x, visible_world_max.y, visible_world_max.z),
+        mel_vec3(visible_world_max.x, visible_world_max.y, visible_world_max.z),
+    };
+    f32 visible_light_min_z = FLT_MAX;
+    f32 visible_light_max_z = -FLT_MAX;
+    for (u32 i = 0; i < 8; i++)
+    {
+        Mel_Vec3 p = mel_mat4_mul_point(light_view, visible_corners[i]);
+        visible_light_min_z = fminf(visible_light_min_z, p.z);
+        visible_light_max_z = fmaxf(visible_light_max_z, p.z);
+    }
+
+    if (frustum_light_max.x - frustum_light_min.x < 0.01f) { frustum_light_min.x -= 0.5f; frustum_light_max.x += 0.5f; }
+    if (frustum_light_max.y - frustum_light_min.y < 0.01f) { frustum_light_min.y -= 0.5f; frustum_light_max.y += 0.5f; }
+    if (visible_light_max_z - visible_light_min_z < 0.01f) { visible_light_min_z -= 0.5f; visible_light_max_z += 0.5f; }
+
+    Mel_Render_Target* effective_target = mel_render_view_effective_target(view);
+    u32 shadow_map_size = effective_target
+        ? scene_forward_shadow_map_size(effective_target->width, effective_target->height)
+        : 1024u;
+    f32 shadow_extent_x = frustum_light_max.x - frustum_light_min.x;
+    f32 shadow_extent_y = frustum_light_max.y - frustum_light_min.y;
+    f32 texel_size_x = shadow_extent_x / (f32)shadow_map_size;
+    f32 texel_size_y = shadow_extent_y / (f32)shadow_map_size;
+    f32 light_center_x = 0.5f * (frustum_light_min.x + frustum_light_max.x);
+    f32 light_center_y = 0.5f * (frustum_light_min.y + frustum_light_max.y);
+    if (texel_size_x > 0.0f)
+        light_center_x = floorf(light_center_x / texel_size_x) * texel_size_x;
+    if (texel_size_y > 0.0f)
+        light_center_y = floorf(light_center_y / texel_size_y) * texel_size_y;
+    frustum_light_min.x = light_center_x - shadow_extent_x * 0.5f;
+    frustum_light_max.x = light_center_x + shadow_extent_x * 0.5f;
+    frustum_light_min.y = light_center_y - shadow_extent_y * 0.5f;
+    frustum_light_max.y = light_center_y + shadow_extent_y * 0.5f;
 
     Mel_Mat4 light_proj = mel_mat4_ortho(
-        light_min.x, light_max.x,
-        light_min.y, light_max.y,
-        light_min.z - margin, light_max.z + margin);
+        frustum_light_min.x, frustum_light_max.x,
+        frustum_light_min.y, frustum_light_max.y,
+        visible_light_min_z - margin, visible_light_max_z + margin);
 
     result.enabled = true;
     result.view_projection = mel_mat4_mul(light_proj, light_view);
