@@ -52,6 +52,7 @@ static u64 s_next_response_sequence = 1;
 
 static Mel_Gpu_Device* s_dev;
 static Mel_Gpu_Shader s_exposure_shader;
+static Mel_Gpu_Shader s_tonemap_shader;
 static void* s_response_sampler;
 static bool s_response_ready;
 
@@ -252,6 +253,63 @@ const Mel_Render_Response_Op_Type mel_render_response_exposure_manual = {
     .params_size = sizeof(Mel_Render_Response_Exposure_Manual_Params),
     .params_align = _Alignof(Mel_Render_Response_Exposure_Manual_Params),
     .run = mel__render_response_exposure_run,
+};
+
+static Mel_Gpu_Pipeline* mel__render_response_tonemap_pipeline(Mel_Gpu_Format color_format)
+{
+    Mel_Gpu_Descriptor_Binding binding = {
+        .binding = 0,
+        .type = MEL_GPU_DESCRIPTOR_COMBINED_IMAGE_SAMPLER,
+        .count = 1,
+        .stages = MEL_GPU_SHADER_STAGE_FRAGMENT,
+    };
+
+    return mel_gpu_pipeline_cache_get(s_dev->pipeline_cache, s_dev,
+        .shader = &s_tonemap_shader,
+        .color_format = color_format,
+        .blend_mode = MEL_GPU_BLEND_NONE,
+        .cull_mode = MEL_GPU_CULL_NONE,
+        .topology = MEL_GPU_TOPOLOGY_TRIANGLE_LIST,
+        .depth_test = false,
+        .depth_write = false,
+        .descriptor_bindings = &binding,
+        .descriptor_binding_count = 1,
+        .max_descriptor_sets = 16);
+}
+
+static void mel__render_response_tonemap_aces_run(Mel_Render_Response_Ctx* ctx, const void* params)
+{
+    MEL_UNUSED(params);
+    assert(ctx != nullptr);
+    assert(ctx->draw_ctx != nullptr);
+    assert(ctx->src != nullptr);
+    assert(ctx->dst_target != nullptr);
+    assert(s_response_ready);
+
+    Mel_Gpu_Pipeline* pipeline =
+        mel__render_response_tonemap_pipeline(mel_render_target_format(ctx->dst_target));
+    assert(pipeline != nullptr);
+
+    mel_gpu_cmd_transition_image(ctx->draw_ctx->cmd, ctx->src, MEL_GPU_IMAGE_LAYOUT_SHADER_READ_ONLY);
+
+    mel__render_response_begin_target(ctx);
+    mel_gpu_cmd_bind_pipeline(ctx->draw_ctx->cmd, pipeline);
+
+    void* desc = mel_gpu_pipeline_alloc_descriptor(pipeline, s_dev);
+    assert(desc != nullptr);
+
+    mel_gpu_pipeline_write_texture(pipeline, s_dev, desc,
+        ctx->src->_view, s_response_sampler);
+    mel_gpu_cmd_bind_descriptor_set(ctx->draw_ctx->cmd, pipeline, desc);
+    mel_gpu_cmd_draw(ctx->draw_ctx->cmd, 6, 1, 0, 0);
+    mel_gpu_cmd_end_rendering(ctx->draw_ctx->cmd);
+}
+
+const Mel_Render_Response_Op_Type mel_render_response_tonemap_aces = {
+    .name = { .data = (u8*)"tonemap.aces", .len = 12 },
+    .params_size = 0,
+    .params_align = 1,
+    .run = mel__render_response_tonemap_aces_run,
 };
 
 Mel_Render_View_Response_Op_Handle
@@ -487,6 +545,7 @@ static void mel__render_response_compile(void* data)
     (void)data;
 
     mel_gpu_shader_load(&s_exposure_shader, .path = S8("shaders/response_exposure.slang"), .dev = s_dev);
+    mel_gpu_shader_load(&s_tonemap_shader, .path = S8("shaders/response_tonemap_aces.slang"), .dev = s_dev);
     s_response_sampler = mel_gpu_sampler_create(s_dev,
         .nearest_filter = false,
         .address_mode_u = MEL_GPU_SAMPLER_ADDRESS_CLAMP_TO_EDGE,
@@ -520,6 +579,7 @@ static void mel__render_response_on_shutdown(void* ctx, const void* event)
     {
         if (s_response_sampler != nullptr)
             mel_gpu_sampler_destroy(s_dev, s_response_sampler);
+        mel_gpu_shader_shutdown(&s_tonemap_shader, s_dev);
         mel_gpu_shader_shutdown(&s_exposure_shader, s_dev);
     }
 

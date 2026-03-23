@@ -105,6 +105,11 @@ void app_init(void)
         .alloc = alloc);
     mel_render_view_response_op_add(s_view, &mel_render_response_exposure_manual,
         &(Mel_Render_Response_Exposure_Manual_Params){ .value = 0.35f });
+    mel_render_view_response_op_add_impl((Mel_Render_View_Response_Op_Desc){
+        .view = s_view,
+        .type = &mel_render_response_tonemap_aces,
+        .order = 100,
+    });
 
     s_sponza_handle = mel_source_manual_add(s_source,
         loaded.model,

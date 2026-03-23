@@ -41,6 +41,7 @@ The current public seam is intentionally narrow:
 ## Current built-in op
 
 - `mel_render_response_exposure_manual`
+- `mel_render_response_tonemap_aces`
 
 This is deliberately small.
 Auto-exposure is not faked here.

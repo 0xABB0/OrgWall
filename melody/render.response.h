@@ -87,3 +87,4 @@ typedef struct {
 } Mel_Render_Response_Exposure_Manual_Params;
 
 extern const Mel_Render_Response_Op_Type mel_render_response_exposure_manual;
+extern const Mel_Render_Response_Op_Type mel_render_response_tonemap_aces;
