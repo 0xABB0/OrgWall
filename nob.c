@@ -1117,6 +1117,21 @@ bool build_compdb(void)
 
     {
         Nob_File_Paths entries = {0};
+        if (nob_read_entire_dir("showcase", &entries))
+        {
+            for (size_t i = 0; i < entries.count; i++)
+            {
+                const char* name = entries.items[i];
+                if (name[0] == '.') continue;
+                size_t len = strlen(name);
+                if (len < 3 || name[len-2] != '.' || name[len-1] != 'c') continue;
+                nob_da_append(&c_files, nob_temp_strdup(nob_temp_sprintf("showcase/%s", name)));
+            }
+        }
+    }
+
+    {
+        Nob_File_Paths entries = {0};
         if (nob_read_entire_dir("demos", &entries))
         {
             for (size_t i = 0; i < entries.count; i++)
@@ -1389,6 +1404,64 @@ bool build_example(const char* name)
     return true;
 }
 
+bool build_showcase(const char* name)
+{
+    if (!build_melody()) return false;
+
+    const char* src = nob_temp_sprintf("showcase/showcase.%s.c", name);
+    const char* out = nob_temp_sprintf(BUILD_DIR "/showcase.%s", name);
+    const char* obj = nob_temp_sprintf(BUILD_DIR "/showcase.%s.o", name);
+    const char* app_entry_obj = BUILD_DIR "/core.app.entry.o";
+    const char* app_callbacks_obj = BUILD_DIR "/core.app.callbacks.o";
+    bool needs_app_entry = false;
+    bool needs_app_callbacks = true;
+
+    {
+        Nob_String_Builder sb = {0};
+        if (nob_read_entire_file(src, &sb))
+            needs_app_entry = strstr(sb.items, "SDL_MAIN_USE_CALLBACKS") == NULL;
+        free(sb.items);
+    }
+
+    bool any_recompiled = false;
+
+    if (needs_compile(src, obj))
+    {
+        if (!compile_c_to_obj(src, obj)) return false;
+        any_recompiled = true;
+    }
+
+    if (needs_app_callbacks && needs_compile("melody/core.app.callbacks.c", app_callbacks_obj))
+    {
+        if (!compile_c_to_obj("melody/core.app.callbacks.c", app_callbacks_obj)) return false;
+        any_recompiled = true;
+    }
+
+    if (needs_app_entry && needs_compile("melody/core.app.entry.c", app_entry_obj))
+    {
+        if (!compile_c_to_obj("melody/core.app.entry.c", app_entry_obj)) return false;
+        any_recompiled = true;
+    }
+
+    const char* lib_dep = BUILD_DIR "/libmelody.a";
+    bool melody_changed = nob_needs_rebuild(out, &lib_dep, 1) != 0;
+
+    if (any_recompiled || melody_changed || nob_file_exists(out) != 1)
+    {
+        Nob_Cmd cmd = {0};
+        nob_cmd_append(&cmd, "clang", "-g");
+        nob_cmd_append(&cmd, obj);
+        if (needs_app_callbacks) nob_cmd_append(&cmd, app_callbacks_obj);
+        if (needs_app_entry) nob_cmd_append(&cmd, app_entry_obj);
+        nob_cmd_append(&cmd, "-o", out);
+        cmd_append_melody_link_deps(&cmd);
+
+        if (!nob_cmd_run_sync(cmd)) return false;
+    }
+
+    return true;
+}
+
 bool build_demo(const char* name)
 {
     if (!build_melody()) return false;
@@ -1639,6 +1712,23 @@ int main(int argc, char** argv)
         nob_log(NOB_INFO, "Running example: %s", name);
         Nob_Cmd cmd = {0};
         nob_cmd_append(&cmd, nob_temp_sprintf(BUILD_DIR "/example.%s", name));
+        return nob_cmd_run_sync(cmd) ? 0 : 1;
+    }
+    else if (strcmp(subcmd, "showcase") == 0)
+    {
+        const char* name = (arg_idx + 1) < argc ? argv[arg_idx + 1] : NULL;
+        if (!name)
+        {
+            nob_log(NOB_ERROR, "Usage: ./nob showcase <name>");
+            return 1;
+        }
+        nob_log(NOB_INFO, "Building showcase: %s", name);
+
+        if (!build_showcase(name)) return 1;
+
+        nob_log(NOB_INFO, "Running showcase: %s", name);
+        Nob_Cmd cmd = {0};
+        nob_cmd_append(&cmd, nob_temp_sprintf(BUILD_DIR "/showcase.%s", name));
         return nob_cmd_run_sync(cmd) ? 0 : 1;
     }
     else if (strcmp(subcmd, "demo") == 0)

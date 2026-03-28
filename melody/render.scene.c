@@ -47,11 +47,6 @@ Mel_Render_Scene* mel_render_scene_create_opt(Mel_Render_Scene_Opt opt)
     mel_mgr_init(&scene->manager,
         .alloc = alloc,
         .initial_capacity = opt.initial_capacity);
-    mel_array_push(&scene->directional_lights, ((Mel_Render_Scene_Directional_Light){
-        .direction_intensity = {{ 0.3f, 1.0f, 0.5f, 1.0f }},
-        .color = {{ 1.0f, 1.0f, 1.0f, 1.0f }},
-        .shadow_params = {{ 0.0f, 0.0f, 1.0f, 0.0f }},
-    }));
 
     return scene;
 }

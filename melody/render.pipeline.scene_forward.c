@@ -1079,7 +1079,7 @@ static Scene_Forward_Shadow_Setup scene_forward_shadow_setup(Mel_Render_View* vi
     result.params = mel_vec4(shadow_light->shadow_params.x,
                              shadow_light->shadow_params.y,
                              shadow_light->shadow_params.z,
-                             1.0f);
+                             1.0f / (f32)shadow_map_size);
     return result;
 }
 

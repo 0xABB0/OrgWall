@@ -124,10 +124,23 @@ float meshShadowFactor(MeshViewParams view, float3 world_pos, float3 normal, flo
 
     float ndotl = max(dot(normal, light_dir), 0.0);
     float bias = view.shadow_params.x + (1.0 - ndotl) * view.shadow_params.y;
-    float shadow_depth = shadow_map.Sample(shadow_uv).x;
-    if (shadow_ndc.z - bias > shadow_depth)
-        return 1.0 - saturate(view.shadow_params.z);
-    return 1.0;
+    float texel = max(view.shadow_params.w, 1.0 / 4096.0);
+    float shadow_accum = 0.0;
+
+    [unroll]
+    for (int y = -1; y <= 1; y++)
+    {
+        [unroll]
+        for (int x = -1; x <= 1; x++)
+        {
+            float2 sample_uv = shadow_uv + float2((float)x * texel, (float)y * texel);
+            float shadow_depth = shadow_map.Sample(sample_uv).x;
+            shadow_accum += (shadow_ndc.z - bias > shadow_depth) ? 1.0 : 0.0;
+        }
+    }
+
+    float shadow = shadow_accum / 9.0;
+    return 1.0 - shadow * saturate(view.shadow_params.z);
 }
 
 [shader("vertex")]

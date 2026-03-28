@@ -237,6 +237,10 @@ Graduation candidates after this milestone:
 - shadow resource helpers
 - strategy-selection helpers
 
+Notes:
+- single-directional shadowing exists and is now fitted from the camera frustum with texel snapping, rather than from camera-visible mesh bounds
+- basic PCF filtering and biasing are in progress, but shadow quality is still not where we would call M4 complete
+
 ## M5. Transparency
 
 Status:

@@ -1,18 +1,4 @@
-struct ResponseVSOutput
-{
-    float4 position : SV_Position;
-    float2 uv : TEXCOORD0;
-};
-
-static const float2 QUAD_POS[6] = {
-    float2(-1, -1), float2( 1, -1), float2( 1,  1),
-    float2(-1, -1), float2( 1,  1), float2(-1,  1),
-};
-
-static const float2 QUAD_UV[6] = {
-    float2(0, 0), float2(1, 0), float2(1, 1),
-    float2(0, 0), float2(1, 1), float2(0, 1),
-};
+import response_fullscreen;
 
 [[vk::binding(0, 0)]]
 Sampler2D source_texture;
@@ -30,10 +16,7 @@ float3 aces_tonemap(float3 x)
 [shader("vertex")]
 ResponseVSOutput vertexMain(uint vid : SV_VertexID)
 {
-    ResponseVSOutput o;
-    o.position = float4(QUAD_POS[vid], 0.0, 1.0);
-    o.uv = QUAD_UV[vid];
-    return o;
+    return fullscreenVertex(vid);
 }
 
 [shader("fragment")]

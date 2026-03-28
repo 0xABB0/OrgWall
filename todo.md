@@ -1,5 +1,8 @@
 --- THE EVER GROWING LIST OF THINGS TO DO ---
 
+## Manual code review
+- The camera in sponza should not be a separate entity, but should be inside the world. Either that, or there should be a way to link the camera object to the camera entity inside the world through its position. But probably it's better to just have the camera be inside the world and support that
+
 ## Gabbo's notes (sacred and untouchable - any ai should never add to this list)
 - [CORE] implement stacktrace capturing for every allocation (debug mode) — DISCUSS: storage format (inline in tracking header vs linked list), debug-only toggling, interaction with Tracy memory profiling. Infrastructure ready (mel\_backtrace\_capture exists).
 - [CORE] handle init failure cleanup — PARTIALLY DONE: gpu.device, gpu.swapchain return bool, engine init has goto-based cleanup. Remaining: imgui init failure doesn't fully unwind (skips the feature flag)
