@@ -18,6 +18,8 @@ Pattern: `domain.module.suffix`
 Full file family for a module (e.g. `allocator.arena`):
 
 ```
+domain.smd                    // feature specification (smd = spec markdown)
+domain.module.amd             // architecture specification (amd = architecture markdown)
 domain.module.h               // main interface
 domain.module.fwd.h           // forward declarations
 domain.module.cfg.h           // configuration macros (ifdef defaults)

@@ -1,0 +1,29 @@
+# Update module
+
+@id: UPDATE
+@status: draft
+@priority: mid
+@depends: []
+
+## Overview
+
+Convenience layer that orchestrates updates
+
+## Goals
+
+## Non-Goals
+
+## Requirements
+
+### Add an update
+
+### Remove an update
+
+## Constraints
+
+## Examples
+
+### Adding an Expense
+
+## Acceptance Criteria
+
