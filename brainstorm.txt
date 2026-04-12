@@ -1,0 +1,26 @@
+
+
+
+Render World: A collection of renderable content
+- RenderScene: A 3D Render World
+- RenderCanvas: A 2D Render World
+View: Defines how a world is seen (camera, projection, render settings).
+Surface: A renderable and/or sampleable image output (offscreen or presentable).
+Composition: Arranges multiple sources into a single final image for a target.
+Composition Layer: A single element in a composition that draws a source into a region with ordering and blending.
+Layer Source: The input of a layer, typically a View or a Surface.
+Window (or Presentation Target): A platform surface that displays the final composed result.
+Render Device: The abstraction over the GPU that manages resources, capabilities, and execution.
+Resource (Buffer/Texture/Sampler): GPU data used during rendering.
+Material (Definition + Instance): Describes how something is shaded and provides the parameters/resources for it.
+Renderable (or Render Proxy): A world object that can produce draw data.
+Draw Item: A concrete render submission generated per frame from renderables.
+Render Extraction: The step that converts world state into frame-local render data.
+Render Scene Data: Immutable, per-frame data used for rendering after extraction.
+Visibility System: Determines which draw items are visible for a given view.
+Render Path (or Technique): Defines how a view is rendered (forward, deferred, UI, etc.).
+Render Graph (internal): A frame-level plan of passes and dependencies used to execute rendering efficiently.
+Pass (Render/Compute): A unit of GPU work that reads/writes resources.
+Command Recorder: Builds GPU commands for execution without exposing API specifics.
+Frame Scheduler: Decides when and how different targets (windows, VR, etc.) are rendered.
+Frame Context: Transient state and allocators for a single frame’s execution.

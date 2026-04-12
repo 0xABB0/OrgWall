@@ -1,0 +1,3 @@
+- instead of u32 for the stack size, why don't we have a u8 that signals the power of two that represents the stack size?
+- do we even need Mel\_Fiber\_Stack? can't we use another type?
+- write fiber.md
