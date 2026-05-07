@@ -48,23 +48,23 @@ size        str8_levenshtein_arena(str8 a, str8 b, Mel_Arena* arena);
 size        str8_levenshtein_alloc(str8 a, str8 b, const Mel_Alloc* alloc);
 
 #define str8_dup(s, allocator) _Generic((allocator), \
-    Mel_Arena*:       str8_dup_arena,                 \
-    const Mel_Alloc*: str8_dup_alloc                  \
+    Mel_Arena*: str8_dup_arena, \
+    const Mel_Alloc*: str8_dup_alloc \
 )(s, allocator)
 
 #define str8_to_cstr(s, allocator) _Generic((allocator), \
-    Mel_Arena*:       str8_to_cstr_arena,                 \
-    const Mel_Alloc*: str8_to_cstr_alloc                  \
+    Mel_Arena*: str8_to_cstr_arena, \
+    const Mel_Alloc*: str8_to_cstr_alloc \
 )(s, allocator)
 
 #define str8_fmt(allocator, fmt, ...) _Generic((allocator), \
-    Mel_Arena*:       str8_fmt_arena,                        \
-    const Mel_Alloc*: str8_fmt_alloc                         \
+    Mel_Arena*: str8_fmt_arena, \
+    const Mel_Alloc*: str8_fmt_alloc \
 )(allocator, fmt, ##__VA_ARGS__)
 
 #define str8_levenshtein(a, b, allocator) _Generic((allocator), \
-    Mel_Arena*:       str8_levenshtein_arena,                    \
-    const Mel_Alloc*: str8_levenshtein_alloc                     \
+    Mel_Arena*: str8_levenshtein_arena, \
+    const Mel_Alloc*: str8_levenshtein_alloc \
 )(a, b, allocator)
 
 #include "string.str8.inl"

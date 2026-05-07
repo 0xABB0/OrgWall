@@ -16,10 +16,8 @@ typedef struct {
     u32 address_mode_w;
 } Mel_Texture_Load_Opt;
 
-bool mel_texture_load_opt(Mel_Gpu_Texture* tex, Mel_Gpu_Device* dev, const Mel_Alloc* alloc, str8 path,
-                          Mel_Texture_Load_Opt opt);
-#define mel_texture_load(tex, dev, alloc, path, ...) \
-    mel_texture_load_opt((tex), (dev), (alloc), (path), (Mel_Texture_Load_Opt){__VA_ARGS__})
+bool mel_texture_load_opt(Mel_Gpu_Texture* tex, Mel_Gpu_Device* dev, const Mel_Alloc* alloc, str8 path, Mel_Texture_Load_Opt opt);
+#define mel_texture_load(tex, dev, alloc, path, ...) mel_texture_load_opt((tex), (dev), (alloc), (path), (Mel_Texture_Load_Opt){__VA_ARGS__})
 
 bool mel_texture_load_and_bind_opt(Mel_Gpu_Texture* tex, Mel_Gpu_Device* dev, Mel_Gpu_Pipeline* pipeline, const Mel_Alloc* alloc, str8 path,
                                    Mel_Texture_Load_Opt opt);
