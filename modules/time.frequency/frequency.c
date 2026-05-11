@@ -122,16 +122,6 @@ void __attribute__((overloadable)) mel_freq_ratio(mpfr_ptr out, Mel_Hz a, Mel_Hz
   mpfr_div(out, a.value, b.value, MPFR_RNDN);
 }
 
-void mel_freq_cents(mpfr_ptr out, Mel_Hz a, Mel_Hz b)
-{
-  mpfr_t ratio;
-  mpfr_init2(ratio, mel_freq_precision());
-  mpfr_div(ratio, a.value, b.value, MPFR_RNDN);
-  mpfr_log2(out, ratio, MPFR_RNDN);
-  mpfr_mul_ui(out, out, 1200, MPFR_RNDN);
-  mpfr_clear(ratio);
-}
-
 Mel_Hz mel_freq_transpose(Mel_Hz f, mpq_srcptr ratio)
 {
   Mel_Hz r;
