@@ -1,6 +1,6 @@
 #pragma once
 
-#include "core.types.h"
+#include <core/types.h>
 #include "allocator.fwd.h"
 #include "collection.slotmap.fwd.h"
 
@@ -31,13 +31,13 @@ typedef struct {
     u32 initial_capacity;
 } Mel_SlotMap_Opt;
 
-void              mel_slotmap_init_opt(Mel_SlotMap* sm, const Mel_Alloc* alloc, Mel_SlotMap_Opt opt);
+void mel_slotmap_init_opt(Mel_SlotMap* sm, const Mel_Alloc* alloc, Mel_SlotMap_Opt opt);
 #define mel_slotmap_init(sm, alloc, ...) mel_slotmap_init_opt((sm), (alloc), (Mel_SlotMap_Opt){__VA_ARGS__})
 
-void              mel_slotmap_free(Mel_SlotMap* sm);
+void               mel_slotmap_free(Mel_SlotMap* sm);
 Mel_SlotMap_Handle mel_slotmap_insert(Mel_SlotMap* sm, const void* item);
-void*             mel_slotmap_get(Mel_SlotMap* sm, Mel_SlotMap_Handle handle);
-bool              mel_slotmap_remove(Mel_SlotMap* sm, Mel_SlotMap_Handle handle);
-bool              mel_slotmap_alive(Mel_SlotMap* sm, Mel_SlotMap_Handle handle);
-u32               mel_slotmap_count(Mel_SlotMap* sm);
-void*             mel_slotmap_data(Mel_SlotMap* sm);
+void*              mel_slotmap_get(Mel_SlotMap* sm, Mel_SlotMap_Handle handle);
+bool               mel_slotmap_remove(Mel_SlotMap* sm, Mel_SlotMap_Handle handle);
+bool               mel_slotmap_alive(Mel_SlotMap* sm, Mel_SlotMap_Handle handle);
+u32                mel_slotmap_count(Mel_SlotMap* sm);
+void*              mel_slotmap_data(Mel_SlotMap* sm);

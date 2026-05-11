@@ -29,8 +29,7 @@ static void mel__font_desc_ensure_init(void)
     s_initialized = true;
 
     const Mel_Alloc* alloc = mel_alloc_heap();
-    mel_slotmap_init(&s_pool, alloc,
-        .item_size = sizeof(Mel_Font_Desc), .initial_capacity = 8);
+    mel_slotmap_init(&s_pool, alloc, .item_size = sizeof(Mel_Font_Desc), .initial_capacity = 8);
     mel_hashmap_init(&s_path_map, mel__font_desc_hash_key, mel__font_desc_eq_key, alloc);
 }
 

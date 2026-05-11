@@ -1,4 +1,4 @@
-#include "collection.slotmap.h"
+#include "slotmap.h"
 #include "allocator.h"
 
 #include <string.h>
