@@ -1,4 +1,5 @@
 #include "process.h"
+#include "string.str8.h"
 
 #ifdef _WIN32
 
@@ -29,39 +30,37 @@ static char *mel_win32_error_message(DWORD err)
     return msg;
 }
 
-static void mel__win32_cmd_quote(Mel_Cmd cmd, char *buf, usize buf_size)
+static void mel__win32_cmd_quote(Mel_Cmd cmd, Mel_String_Builder *quoted)
 {
-    usize off = 0;
     for (usize i = 0; i < cmd.count; i++) {
         const char *arg = cmd.items[i];
         if (!arg) break;
         usize len = strlen(arg);
-        if (i > 0 && off < buf_size - 1) buf[off++] = ' ';
+        if (i > 0) mel_array_push(quoted, ' ');
         if (len != 0 && strpbrk(arg, " \t\n\v\"") == NULL) {
-            for (usize j = 0; j < len && off < buf_size - 1; j++)
-                buf[off++] = arg[j];
+            mel_sb_append_buf(quoted, arg, len);
         } else {
             usize backslashes = 0;
-            if (off < buf_size - 1) buf[off++] = '\"';
+            mel_array_push(quoted, '\"');
             for (usize j = 0; j < len; j++) {
                 char x = arg[j];
                 if (x == '\\') {
                     backslashes += 1;
                 } else {
                     if (x == '\"') {
-                        for (usize k = 0; k < 1 + backslashes && off < buf_size - 1; k++)
-                            buf[off++] = '\\';
+                        for (usize k = 0; k < 1 + backslashes; k++)
+                            mel_array_push(quoted, '\\');
                     }
                     backslashes = 0;
                 }
-                if (off < buf_size - 1) buf[off++] = x;
+                mel_array_push(quoted, x);
             }
-            for (usize k = 0; k < backslashes && off < buf_size - 1; k++)
-                buf[off++] = '\\';
-            if (off < buf_size - 1) buf[off++] = '\"';
+            for (usize k = 0; k < backslashes; k++)
+                mel_array_push(quoted, '\\');
+            mel_array_push(quoted, '\"');
         }
     }
-    buf[off] = '\0';
+    mel_sb_append_null(quoted);
 }
 
 Mel_Proc mel__cmd_start_process__platform(Mel_Cmd cmd, Mel_Fd *fdin, Mel_Fd *fdout, Mel_Fd *fderr)
@@ -77,11 +76,11 @@ Mel_Proc mel__cmd_start_process__platform(Mel_Cmd cmd, Mel_Fd *fdin, Mel_Fd *fdo
     PROCESS_INFORMATION piProcInfo;
     ZeroMemory(&piProcInfo, sizeof(PROCESS_INFORMATION));
 
-    char quoted[32768];
-    mel__win32_cmd_quote(cmd, quoted, sizeof(quoted));
-
-    BOOL bSuccess = CreateProcessA(NULL, quoted, NULL, NULL, TRUE, 0, NULL, NULL,
+    Mel_String_Builder quoted = {0};
+    mel__win32_cmd_quote(cmd, &quoted);
+    BOOL bSuccess = CreateProcessA(NULL, quoted.items, NULL, NULL, TRUE, 0, NULL, NULL,
                                    &siStartInfo, &piProcInfo);
+    mel_sb_free(&quoted);
 
     if (!bSuccess) {
         mel_log_error("process", "Could not create child process for %s: %s",

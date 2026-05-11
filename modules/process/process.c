@@ -1,22 +1,22 @@
 #include "process.h"
+#include "string.str8.h"
 
 #ifndef MEL_NO_ECHO
 static void mel__cmd_echo(Mel_Cmd cmd)
 {
-    char buf[4096];
-    usize off = 0;
+    Mel_String_Builder sb = {0};
     for (usize i = 0; i < cmd.count; i++) {
         const char *arg = cmd.items[i];
         if (!arg) break;
-        if (i > 0 && off < sizeof(buf) - 1) buf[off++] = ' ';
+        if (i > 0) mel_array_push(&sb, ' ');
         bool needs_quote = strchr(arg, ' ') != NULL;
-        if (needs_quote && off < sizeof(buf) - 1) buf[off++] = '\'';
-        for (const char *p = arg; *p && off < sizeof(buf) - 1; p++)
-            buf[off++] = *p;
-        if (needs_quote && off < sizeof(buf) - 1) buf[off++] = '\'';
+        if (needs_quote) mel_array_push(&sb, '\'');
+        mel_sb_append_cstr(&sb, arg);
+        if (needs_quote) mel_array_push(&sb, '\'');
     }
-    buf[off] = '\0';
-    mel_log_info("process", "CMD: %s", buf);
+    mel_sb_append_null(&sb);
+    mel_log_info("process", "CMD: %s", sb.items);
+    mel_sb_free(&sb);
 }
 #endif
 

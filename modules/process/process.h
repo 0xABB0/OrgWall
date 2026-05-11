@@ -1,9 +1,9 @@
 #pragma once
 
 #include "core.types.h"
+#include "collection.array.h"
 #include "allocator.heap.h"
 #include "log.h"
-#include <string.h>
 
 #ifdef _WIN32
 #include <Windows.h>
@@ -18,17 +18,8 @@ typedef int Mel_Fd;
 #define MEL_INVALID_FD (-1)
 #endif
 
-typedef struct {
-    Mel_Proc *items;
-    usize count;
-    usize capacity;
-} Mel_Procs;
-
-typedef struct {
-    const char **items;
-    usize count;
-    usize capacity;
-} Mel_Cmd;
+typedef Mel_Array(Mel_Proc)    Mel_Procs;
+typedef Mel_Array(const char*) Mel_Cmd;
 
 typedef struct {
     Mel_Procs *async;
@@ -39,66 +30,25 @@ typedef struct {
     const char *stderr_path;
 } Mel_Cmd_Opt;
 
-#define MEL_DA_INIT_CAP 8
-
-#define mel__da_reserve(da, expected)                                                       \
-    do {                                                                                    \
-        if ((expected) > (da)->capacity) {                                                  \
-            if ((da)->capacity == 0) {                                                      \
-                (da)->capacity = MEL_DA_INIT_CAP;                                           \
-            }                                                                               \
-            while ((expected) > (da)->capacity) {                                           \
-                (da)->capacity *= 2;                                                        \
-            }                                                                               \
-            if ((da)->items == NULL) {                                                      \
-                (da)->items = mel_alloc(mel_alloc_heap(), (da)->capacity * sizeof(*(da)->items)); \
-            } else {                                                                        \
-                (da)->items = mel_realloc(mel_alloc_heap(), (da)->items,                    \
-                                          (da)->capacity * sizeof(*(da)->items));           \
-            }                                                                               \
-        }                                                                                   \
-    } while (0)
-
-#define mel__da_free(da)                                                \
-    do {                                                                \
-        if ((da).items) {                                               \
-            mel_dealloc(mel_alloc_heap(), (da).items);                  \
-            (da).items = NULL;                                          \
-            (da).count = 0;                                             \
-            (da).capacity = 0;                                          \
-        }                                                               \
-    } while (0)
-
 #define mel_cmd_append(cmd, ...)                                                              \
     do {                                                                                      \
+        if ((cmd)->allocator == NULL) mel_array_init((cmd), mel_alloc_heap());                \
         const char *__mel_args[] = {__VA_ARGS__};                                             \
         usize __mel_n = sizeof(__mel_args) / sizeof(__mel_args[0]);                           \
-        mel__da_reserve((cmd), (cmd)->count + __mel_n);                                       \
-        memcpy((cmd)->items + (cmd)->count, __mel_args, __mel_n * sizeof(const char *));      \
-        (cmd)->count += __mel_n;                                                              \
+        for (usize __mel_i = 0; __mel_i < __mel_n; __mel_i++)                                 \
+            mel_array_push((cmd), __mel_args[__mel_i]);                                       \
     } while (0)
 
-#define mel_cmd_extend(cmd, other)                                                  \
-    do {                                                                            \
-        mel__da_reserve((cmd), (cmd)->count + (other)->count);                      \
-        memcpy((cmd)->items + (cmd)->count, (other)->items,                         \
-               (other)->count * sizeof(const char *));                              \
-        (cmd)->count += (other)->count;                                             \
+#define mel_cmd_extend(cmd, other)                                          \
+    do {                                                                    \
+        for (usize __mel_i = 0; __mel_i < (other)->count; __mel_i++)       \
+            mel_array_push((cmd), (other)->items[__mel_i]);                \
     } while (0)
 
-#define mel_cmd_free(cmd) mel__da_free(*(cmd))
+#define mel_cmd_free(cmd) mel_array_free(cmd)
 
-#define mel_da_append(da, item)                   \
-    do {                                          \
-        mel__da_reserve((da), (da)->count + 1);   \
-        (da)->items[(da)->count++] = (item);      \
-    } while (0)
-
-#define mel_da_remove_unordered(da, i)                  \
-    do {                                                \
-        assert((usize)(i) < (da)->count);               \
-        (da)->items[(i)] = (da)->items[--(da)->count];  \
-    } while (0)
+#define mel_da_append mel_array_push
+#define mel_da_remove_unordered mel_array_remove_unordered
 
 Mel_Proc mel__cmd_start_process(Mel_Cmd cmd, Mel_Fd *fdin, Mel_Fd *fdout, Mel_Fd *fderr);
 bool     mel_cmd_run_opt(Mel_Cmd *cmd, Mel_Cmd_Opt opt);

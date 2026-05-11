@@ -43,6 +43,7 @@ Mel_Proc mel__cmd_start_process__platform(Mel_Cmd cmd, Mel_Fd *fdin, Mel_Fd *fdo
         }
 
         Mel_Cmd cmd_null = {0};
+        mel_array_init(&cmd_null, mel_alloc_heap());
         for (usize i = 0; i < cmd.count; i++) {
             mel_da_append(&cmd_null, cmd.items[i]);
         }

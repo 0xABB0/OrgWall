@@ -4,6 +4,8 @@
 #include "core.defs.h"
 #include "allocator.fwd.h"
 #include "allocator.arena.fwd.h"
+#include "collection.array.h"
+#include "allocator.heap.h"
 
 #include <string.h>
 #include <stdarg.h>
@@ -66,5 +68,28 @@ size        str8_levenshtein_alloc(str8 a, str8 b, const Mel_Alloc* alloc);
     Mel_Arena*: str8_levenshtein_arena, \
     const Mel_Alloc*: str8_levenshtein_alloc \
 )(a, b, allocator)
+
+typedef Mel_Array(char) Mel_String_Builder;
+
+#define mel_sb_append_buf(sb, buf, size)                            \
+    do {                                                            \
+        if ((sb)->allocator == NULL) mel_array_init((sb), mel_alloc_heap()); \
+        usize __mel_sb_n = (size);                                  \
+        mel_array_reserve((sb), (sb)->count + __mel_sb_n);           \
+        memcpy((sb)->items + (sb)->count, (buf), __mel_sb_n);        \
+        (sb)->count += __mel_sb_n;                                   \
+    } while (0)
+
+#define mel_sb_append_cstr(sb, cstr)                \
+    do {                                            \
+        const char *__mel_s = (cstr);               \
+        mel_sb_append_buf((sb), __mel_s, strlen(__mel_s)); \
+    } while (0)
+
+#define mel_sb_append_null(sb) mel_array_push((sb), '\0')
+
+#define mel_sb_free(sb) mel_array_free(sb)
+
+#define mel_sb_to_str8(sb) str8_from_parts((u8*)(sb)->items, (sb)->count)
 
 #include "string.str8.inl"
