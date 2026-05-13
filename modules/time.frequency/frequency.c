@@ -1,5 +1,14 @@
 #include "frequency.h"
 
+static inline void mel_freq_flags_restore(const mpfr_flags_t *saved)
+{
+  mpfr_flags_restore(*saved, MPFR_FLAGS_ALL);
+}
+
+#define MEL_FREQ_PROTECT_FLAGS \
+  __attribute__((cleanup(mel_freq_flags_restore))) \
+  mpfr_flags_t _mel_freq_saved_flags = mpfr_flags_save()
+
 static inline void mel_freq_bind_out(mpfr_t out, Mel_Hz *r)
 {
   mpfr_custom_init(r->limbs, MEL_FREQ_PRECISION);
@@ -18,8 +27,9 @@ static inline void mel_freq_scratch(mpfr_t out, mp_limb_t *limbs)
   mpfr_custom_init_set(out, MPFR_REGULAR_KIND, 0, MEL_FREQ_PRECISION, limbs);
 }
 
-[[nodiscard]] Mel_Hz __attribute__((overloadable)) mel_freq(double value)
+MEL_NODISCARD MEL_OVERLOADABLE Mel_Hz mel_freq(double value)
 {
+  MEL_FREQ_PROTECT_FLAGS;
   Mel_Hz f;
   mpfr_t v;
   mel_freq_bind_out(v, &f);
@@ -28,8 +38,9 @@ static inline void mel_freq_scratch(mpfr_t out, mp_limb_t *limbs)
   return f;
 }
 
-[[nodiscard]] Mel_Hz __attribute__((overloadable)) mel_freq(mpfr_srcptr value)
+MEL_NODISCARD MEL_OVERLOADABLE Mel_Hz mel_freq(mpfr_srcptr value)
 {
+  MEL_FREQ_PROTECT_FLAGS;
   Mel_Hz f;
   mpfr_t v;
   mel_freq_bind_out(v, &f);
@@ -38,8 +49,9 @@ static inline void mel_freq_scratch(mpfr_t out, mp_limb_t *limbs)
   return f;
 }
 
-[[nodiscard]] Mel_Hz __attribute__((overloadable)) mel_freq(mpq_srcptr value)
+MEL_NODISCARD MEL_OVERLOADABLE Mel_Hz mel_freq(mpq_srcptr value)
 {
+  MEL_FREQ_PROTECT_FLAGS;
   Mel_Hz f;
   mpfr_t v;
   mel_freq_bind_out(v, &f);
@@ -48,8 +60,9 @@ static inline void mel_freq_scratch(mpfr_t out, mp_limb_t *limbs)
   return f;
 }
 
-[[nodiscard]] Mel_Hz __attribute__((overloadable)) mel_freq(unsigned num, unsigned den)
+MEL_NODISCARD MEL_OVERLOADABLE Mel_Hz mel_freq(unsigned num, unsigned den)
 {
+  MEL_FREQ_PROTECT_FLAGS;
   Mel_Hz f;
   mpfr_t v;
   mel_freq_bind_out(v, &f);
@@ -59,15 +72,17 @@ static inline void mel_freq_scratch(mpfr_t out, mp_limb_t *limbs)
   return f;
 }
 
-[[nodiscard]] double mel_freq_to_double(Mel_Hz f)
+MEL_NODISCARD double mel_freq_to_double(Mel_Hz f)
 {
+  MEL_FREQ_PROTECT_FLAGS;
   mpfr_t v;
   mel_freq_view(v, &f);
   return mpfr_get_d(v, MPFR_RNDN);
 }
 
-[[nodiscard]] Mel_Hz mel_freq_add(Mel_Hz a, Mel_Hz b)
+MEL_NODISCARD Mel_Hz mel_freq_add(Mel_Hz a, Mel_Hz b)
 {
+  MEL_FREQ_PROTECT_FLAGS;
   Mel_Hz r;
   mpfr_t va, vb, vr;
   mel_freq_view(va, &a);
@@ -78,8 +93,9 @@ static inline void mel_freq_scratch(mpfr_t out, mp_limb_t *limbs)
   return r;
 }
 
-[[nodiscard]] Mel_Hz mel_freq_sub(Mel_Hz a, Mel_Hz b)
+MEL_NODISCARD Mel_Hz mel_freq_sub(Mel_Hz a, Mel_Hz b)
 {
+  MEL_FREQ_PROTECT_FLAGS;
   Mel_Hz r;
   mpfr_t va, vb, vr;
   mel_freq_view(va, &a);
@@ -90,8 +106,9 @@ static inline void mel_freq_scratch(mpfr_t out, mp_limb_t *limbs)
   return r;
 }
 
-[[nodiscard]] Mel_Hz mel_freq_neg(Mel_Hz f)
+MEL_NODISCARD Mel_Hz mel_freq_neg(Mel_Hz f)
 {
+  MEL_FREQ_PROTECT_FLAGS;
   Mel_Hz r;
   mpfr_t vf, vr;
   mel_freq_view(vf, &f);
@@ -101,8 +118,9 @@ static inline void mel_freq_scratch(mpfr_t out, mp_limb_t *limbs)
   return r;
 }
 
-[[nodiscard]] Mel_Hz __attribute__((overloadable)) mel_freq_mul(Mel_Hz a, mpfr_srcptr b)
+MEL_NODISCARD MEL_OVERLOADABLE Mel_Hz mel_freq_mul(Mel_Hz a, mpfr_srcptr b)
 {
+  MEL_FREQ_PROTECT_FLAGS;
   Mel_Hz r;
   mpfr_t va, vr;
   mel_freq_view(va, &a);
@@ -112,8 +130,9 @@ static inline void mel_freq_scratch(mpfr_t out, mp_limb_t *limbs)
   return r;
 }
 
-[[nodiscard]] Mel_Hz __attribute__((overloadable)) mel_freq_mul(Mel_Hz a, double b)
+MEL_NODISCARD MEL_OVERLOADABLE Mel_Hz mel_freq_mul(Mel_Hz a, double b)
 {
+  MEL_FREQ_PROTECT_FLAGS;
   Mel_Hz r;
   mpfr_t va, vr;
   mel_freq_view(va, &a);
@@ -123,8 +142,9 @@ static inline void mel_freq_scratch(mpfr_t out, mp_limb_t *limbs)
   return r;
 }
 
-[[nodiscard]] Mel_Hz __attribute__((overloadable)) mel_freq_div(Mel_Hz a, mpfr_srcptr b)
+MEL_NODISCARD MEL_OVERLOADABLE Mel_Hz mel_freq_div(Mel_Hz a, mpfr_srcptr b)
 {
+  MEL_FREQ_PROTECT_FLAGS;
   Mel_Hz r;
   mpfr_t va, vr;
   mel_freq_view(va, &a);
@@ -134,8 +154,9 @@ static inline void mel_freq_scratch(mpfr_t out, mp_limb_t *limbs)
   return r;
 }
 
-[[nodiscard]] Mel_Hz __attribute__((overloadable)) mel_freq_div(Mel_Hz a, double b)
+MEL_NODISCARD MEL_OVERLOADABLE Mel_Hz mel_freq_div(Mel_Hz a, double b)
 {
+  MEL_FREQ_PROTECT_FLAGS;
   Mel_Hz r;
   mpfr_t va, vr;
   mel_freq_view(va, &a);
@@ -145,8 +166,9 @@ static inline void mel_freq_scratch(mpfr_t out, mp_limb_t *limbs)
   return r;
 }
 
-[[nodiscard]] double __attribute__((overloadable)) mel_freq_ratio(Mel_Hz a, Mel_Hz b)
+MEL_NODISCARD MEL_OVERLOADABLE double mel_freq_ratio(Mel_Hz a, Mel_Hz b)
 {
+  MEL_FREQ_PROTECT_FLAGS;
   mpfr_t va, vb, r;
   mp_limb_t r_limbs[MEL_FREQ_LIMBS];
   mel_freq_view(va, &a);
@@ -156,7 +178,7 @@ static inline void mel_freq_scratch(mpfr_t out, mp_limb_t *limbs)
   return mpfr_get_d(r, MPFR_RNDN);
 }
 
-void __attribute__((overloadable)) mel_freq_ratio(mpfr_ptr out, Mel_Hz a, Mel_Hz b)
+MEL_OVERLOADABLE void mel_freq_ratio(mpfr_ptr out, Mel_Hz a, Mel_Hz b)
 {
   mpfr_t va, vb;
   mel_freq_view(va, &a);
@@ -164,8 +186,9 @@ void __attribute__((overloadable)) mel_freq_ratio(mpfr_ptr out, Mel_Hz a, Mel_Hz
   mpfr_div(out, va, vb, MPFR_RNDN);
 }
 
-[[nodiscard]] Mel_Hz mel_freq_transpose(Mel_Hz f, mpq_srcptr ratio)
+MEL_NODISCARD Mel_Hz mel_freq_transpose(Mel_Hz f, mpq_srcptr ratio)
 {
+  MEL_FREQ_PROTECT_FLAGS;
   Mel_Hz r;
   mpfr_t vf, vr, factor;
   mp_limb_t factor_limbs[MEL_FREQ_LIMBS];
@@ -178,8 +201,9 @@ void __attribute__((overloadable)) mel_freq_ratio(mpfr_ptr out, Mel_Hz a, Mel_Hz
   return r;
 }
 
-[[nodiscard]] Mel_Hz mel_freq_transpose_cents(Mel_Hz f, mpfr_srcptr cents)
+MEL_NODISCARD Mel_Hz mel_freq_transpose_cents(Mel_Hz f, mpfr_srcptr cents)
 {
+  MEL_FREQ_PROTECT_FLAGS;
   Mel_Hz r;
   mpfr_t vf, vr, factor;
   mp_limb_t factor_limbs[MEL_FREQ_LIMBS];
@@ -193,8 +217,9 @@ void __attribute__((overloadable)) mel_freq_ratio(mpfr_ptr out, Mel_Hz a, Mel_Hz
   return r;
 }
 
-[[nodiscard]] Mel_Hz mel_freq_transpose_semitones(Mel_Hz f, mpfr_srcptr semitones)
+MEL_NODISCARD Mel_Hz mel_freq_transpose_semitones(Mel_Hz f, mpfr_srcptr semitones)
 {
+  MEL_FREQ_PROTECT_FLAGS;
   Mel_Hz r;
   mpfr_t vf, vr, factor;
   mp_limb_t factor_limbs[MEL_FREQ_LIMBS];
@@ -208,8 +233,9 @@ void __attribute__((overloadable)) mel_freq_ratio(mpfr_ptr out, Mel_Hz a, Mel_Hz
   return r;
 }
 
-[[nodiscard]] Mel_Hz mel_freq_octave_up(Mel_Hz f)
+MEL_NODISCARD Mel_Hz mel_freq_octave_up(Mel_Hz f)
 {
+  MEL_FREQ_PROTECT_FLAGS;
   Mel_Hz r;
   mpfr_t vf, vr;
   mel_freq_view(vf, &f);
@@ -219,8 +245,9 @@ void __attribute__((overloadable)) mel_freq_ratio(mpfr_ptr out, Mel_Hz a, Mel_Hz
   return r;
 }
 
-[[nodiscard]] Mel_Hz mel_freq_octave_down(Mel_Hz f)
+MEL_NODISCARD Mel_Hz mel_freq_octave_down(Mel_Hz f)
 {
+  MEL_FREQ_PROTECT_FLAGS;
   Mel_Hz r;
   mpfr_t vf, vr;
   mel_freq_view(vf, &f);
@@ -230,8 +257,9 @@ void __attribute__((overloadable)) mel_freq_ratio(mpfr_ptr out, Mel_Hz a, Mel_Hz
   return r;
 }
 
-[[nodiscard]] Mel_Hz mel_freq_harmonic(Mel_Hz f, unsigned n)
+MEL_NODISCARD Mel_Hz mel_freq_harmonic(Mel_Hz f, unsigned n)
 {
+  MEL_FREQ_PROTECT_FLAGS;
   Mel_Hz r;
   mpfr_t vf, vr;
   mel_freq_view(vf, &f);
@@ -241,8 +269,9 @@ void __attribute__((overloadable)) mel_freq_ratio(mpfr_ptr out, Mel_Hz a, Mel_Hz
   return r;
 }
 
-[[nodiscard]] Mel_Hz mel_freq_midpoint(Mel_Hz a, Mel_Hz b)
+MEL_NODISCARD Mel_Hz mel_freq_midpoint(Mel_Hz a, Mel_Hz b)
 {
+  MEL_FREQ_PROTECT_FLAGS;
   Mel_Hz r;
   mpfr_t va, vb, vr;
   mel_freq_view(va, &a);
@@ -254,8 +283,9 @@ void __attribute__((overloadable)) mel_freq_ratio(mpfr_ptr out, Mel_Hz a, Mel_Hz
   return r;
 }
 
-[[nodiscard]] Mel_Hz mel_freq_mod(Mel_Hz a, Mel_Hz b)
+MEL_NODISCARD Mel_Hz mel_freq_mod(Mel_Hz a, Mel_Hz b)
 {
+  MEL_FREQ_PROTECT_FLAGS;
   Mel_Hz r;
   mpfr_t va, vb, vr, q;
   mp_limb_t q_limbs[MEL_FREQ_LIMBS];
@@ -271,8 +301,9 @@ void __attribute__((overloadable)) mel_freq_ratio(mpfr_ptr out, Mel_Hz a, Mel_Hz
   return r;
 }
 
-[[nodiscard]] Mel_Hz mel_freq_floordiv(Mel_Hz a, Mel_Hz b)
+MEL_NODISCARD Mel_Hz mel_freq_floordiv(Mel_Hz a, Mel_Hz b)
 {
+  MEL_FREQ_PROTECT_FLAGS;
   Mel_Hz r;
   mpfr_t va, vb, vr;
   mel_freq_view(va, &a);
@@ -284,8 +315,9 @@ void __attribute__((overloadable)) mel_freq_ratio(mpfr_ptr out, Mel_Hz a, Mel_Hz
   return r;
 }
 
-[[nodiscard]] Mel_Hz mel_freq_abs(Mel_Hz a)
+MEL_NODISCARD Mel_Hz mel_freq_abs(Mel_Hz a)
 {
+  MEL_FREQ_PROTECT_FLAGS;
   Mel_Hz r;
   mpfr_t va, vr;
   mel_freq_view(va, &a);
@@ -295,8 +327,9 @@ void __attribute__((overloadable)) mel_freq_ratio(mpfr_ptr out, Mel_Hz a, Mel_Hz
   return r;
 }
 
-[[nodiscard]] Mel_Hz mel_freq_min(Mel_Hz a, Mel_Hz b)
+MEL_NODISCARD Mel_Hz mel_freq_min(Mel_Hz a, Mel_Hz b)
 {
+  MEL_FREQ_PROTECT_FLAGS;
   Mel_Hz r;
   mpfr_t va, vb, vr;
   mel_freq_view(va, &a);
@@ -307,8 +340,9 @@ void __attribute__((overloadable)) mel_freq_ratio(mpfr_ptr out, Mel_Hz a, Mel_Hz
   return r;
 }
 
-[[nodiscard]] Mel_Hz mel_freq_max(Mel_Hz a, Mel_Hz b)
+MEL_NODISCARD Mel_Hz mel_freq_max(Mel_Hz a, Mel_Hz b)
 {
+  MEL_FREQ_PROTECT_FLAGS;
   Mel_Hz r;
   mpfr_t va, vb, vr;
   mel_freq_view(va, &a);
@@ -319,8 +353,9 @@ void __attribute__((overloadable)) mel_freq_ratio(mpfr_ptr out, Mel_Hz a, Mel_Hz
   return r;
 }
 
-[[nodiscard]] uint8_t mel_freq_cmp(Mel_Hz a, Mel_Hz b)
+MEL_NODISCARD uint8_t mel_freq_cmp(Mel_Hz a, Mel_Hz b)
 {
+  MEL_FREQ_PROTECT_FLAGS;
   mpfr_t va, vb;
   mel_freq_view(va, &a);
   mel_freq_view(vb, &b);
@@ -330,16 +365,18 @@ void __attribute__((overloadable)) mel_freq_ratio(mpfr_ptr out, Mel_Hz a, Mel_Hz
   return 1;
 }
 
-[[nodiscard]] uint8_t mel_freq_eq(Mel_Hz a, Mel_Hz b)
+MEL_NODISCARD uint8_t mel_freq_eq(Mel_Hz a, Mel_Hz b)
 {
+  MEL_FREQ_PROTECT_FLAGS;
   mpfr_t va, vb;
   mel_freq_view(va, &a);
   mel_freq_view(vb, &b);
   return mpfr_equal_p(va, vb) ? 1 : 0;
 }
 
-[[nodiscard]] uint8_t mel_freq_near(Mel_Hz a, Mel_Hz b, mpfr_srcptr tolerance)
+MEL_NODISCARD uint8_t mel_freq_near(Mel_Hz a, Mel_Hz b, mpfr_srcptr tolerance)
 {
+  MEL_FREQ_PROTECT_FLAGS;
   mpfr_t va, vb, diff;
   mp_limb_t diff_limbs[MEL_FREQ_LIMBS];
   mel_freq_view(va, &a);
@@ -350,15 +387,17 @@ void __attribute__((overloadable)) mel_freq_ratio(mpfr_ptr out, Mel_Hz a, Mel_Hz
   return mpfr_lessequal_p(diff, tolerance) ? 1 : 0;
 }
 
-[[nodiscard]] uint8_t mel_freq_is_zero(Mel_Hz f)
+MEL_NODISCARD uint8_t mel_freq_is_zero(Mel_Hz f)
 {
+  MEL_FREQ_PROTECT_FLAGS;
   mpfr_t vf;
   mel_freq_view(vf, &f);
   return mpfr_zero_p(vf) ? 1 : 0;
 }
 
-[[nodiscard]] Mel_Hz mel_freq_beat(Mel_Hz a, Mel_Hz b)
+MEL_NODISCARD Mel_Hz mel_freq_beat(Mel_Hz a, Mel_Hz b)
 {
+  MEL_FREQ_PROTECT_FLAGS;
   Mel_Hz r;
   mpfr_t va, vb, vr;
   mel_freq_view(va, &a);
