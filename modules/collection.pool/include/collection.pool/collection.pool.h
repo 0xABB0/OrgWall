@@ -2,7 +2,7 @@
 
 #include "core.types.h"
 
-#include "collection.pool.cfg.h"
+#include "cfg.h"
 #include "allocator.fwd.h"
 #include <stdatomic.h>
 

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "allocator.guard.cfg.h"
+#include "cfg.h"
 #include "allocator.fwd.h"
 #include "core.types.h"
 

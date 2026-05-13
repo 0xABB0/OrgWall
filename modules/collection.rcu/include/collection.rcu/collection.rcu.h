@@ -1,6 +1,6 @@
 #pragma once
 
-#include "collection.rcu.fwd.h"
+#include "fwd.h"
 #include "allocator.fwd.h"
 
 typedef struct SDL_Mutex SDL_Mutex;

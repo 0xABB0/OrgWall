@@ -1,6 +1,6 @@
 #pragma once
 #include "core.types.h"
-#include "allocator.block.cfg.h"
+#include "cfg.h"
 
 typedef struct Mel_Block_Header {
     usize size;

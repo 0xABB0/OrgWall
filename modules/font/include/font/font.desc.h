@@ -1,6 +1,6 @@
 #pragma once
 
-#include "core.types.h"
+#include <core/types.h>
 #include "font.desc.fwd.h"
 #include "string.str8.fwd.h"
 
