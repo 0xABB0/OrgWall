@@ -1,4 +1,5 @@
-#include "frequency.h"
+#include <time.frequency/frequency.h>
+
 #include <core/compiler.h>
 
 static inline void mel_freq_flags_restore(const mpfr_flags_t *saved)
