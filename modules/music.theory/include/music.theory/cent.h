@@ -1,11 +1,11 @@
 #pragma once
 
 #include <core/compiler.h>
+#include <time.frequency/frequency.h>
 
 #include <stdint.h>
 #include <mpfr.h>
 #include <gmp.h>
-#include "../time.frequency/frequency.h"
 
 #define MEL_CENT_PRECISION 256
 #define MEL_CENT_LIMBS ((MEL_CENT_PRECISION + GMP_NUMB_BITS - 1) / GMP_NUMB_BITS)
