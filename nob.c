@@ -25,7 +25,6 @@ static const char *base_cflags[] = {
 };
 
 static const char *extra_include_dirs[] = {
-    MODULES_DIR,
     "third-party",
     "/opt/homebrew/include",
 };
@@ -60,15 +59,22 @@ static bool discover(Layout *L) {
         const char *mod_path = temp_sprintf("%s/%s", MODULES_DIR, name);
         if (get_file_type(mod_path) != NOB_FILE_DIRECTORY) continue;
 
+        const char *include_path = temp_sprintf("%s/include", mod_path);
+        if (get_file_type(include_path) == NOB_FILE_DIRECTORY) {
+            da_append(&L->includes, temp_strdup(include_path));
+        }
+
         da_append(&L->modules, temp_strdup(name));
-        da_append(&L->includes, temp_strdup(mod_path));
+
+        const char *src_path = temp_sprintf("%s/src", mod_path);
+        if (get_file_type(src_path) != NOB_FILE_DIRECTORY) continue;
 
         File_Paths files = {0};
-        if (!read_entire_dir(mod_path, &files)) return false;
+        if (!read_entire_dir(src_path, &files)) return false;
         for (size_t j = 0; j < files.count; j++) {
             const char *fname = files.items[j];
             if (!source_is_buildable(fname)) continue;
-            const char *fpath = temp_sprintf("%s/%s", mod_path, fname);
+            const char *fpath = temp_sprintf("%s/%s", src_path, fname);
             if (get_file_type(fpath) != NOB_FILE_REGULAR) continue;
             da_append(&L->sources, temp_strdup(fpath));
         }
