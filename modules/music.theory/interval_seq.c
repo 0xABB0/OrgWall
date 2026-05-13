@@ -35,8 +35,6 @@ Mel_IntervalSeq mel_interval_seq_from_diffs(const Mel_Tuning* tuning, const int6
     Mel_Pitch target = mel_pitch_transpose(ref, diffs[i]);
     Mel_Interval iv = mel_interval_from_pitches(ref, target);
     mel_interval_seq_add(&s, iv);
-    mpfr_clear(ref.frequency.value);
-    mpfr_clear(target.frequency.value);
   }
   return s;
 }
@@ -55,9 +53,7 @@ Mel_IntervalSeq mel_interval_seq_from_ratios(const Mel_Tuning* tuning, const uin
     mpfr_set_ui(ratio, nums[i], MPFR_RNDN);
     mpfr_div_ui(ratio, ratio, dens[i], MPFR_RNDN);
 
-    Mel_Hz target_freq;
-    mpfr_init2(target_freq.value, 256);
-    mpfr_mul(target_freq.value, root.frequency.value, ratio, MPFR_RNDN);
+    Mel_Hz target_freq = mel_freq_mul(root.frequency, ratio);
 
     int64_t target_idx = mel_tuning_find_index(tuning, target_freq);
     Mel_Interval iv = mel_interval_from_pitches(mel_pitch_make(tuning, prev_idx), mel_pitch_make(tuning, target_idx));
@@ -65,10 +61,8 @@ Mel_IntervalSeq mel_interval_seq_from_ratios(const Mel_Tuning* tuning, const uin
     prev_idx = target_idx;
 
     mpfr_clear(ratio);
-    mpfr_clear(target_freq.value);
   }
 
-  mpfr_clear(root.frequency.value);
   return s;
 }
 
@@ -87,9 +81,7 @@ Mel_IntervalSeq mel_interval_seq_from_cents(const Mel_Tuning* tuning, const doub
     mpfr_div_ui(ratio, ratio, 1200, MPFR_RNDN);
     mpfr_exp2(ratio, ratio, MPFR_RNDN);
 
-    Mel_Hz target_freq;
-    mpfr_init2(target_freq.value, 256);
-    mpfr_mul(target_freq.value, root.frequency.value, ratio, MPFR_RNDN);
+    Mel_Hz target_freq = mel_freq_mul(root.frequency, ratio);
 
     int64_t target_idx = mel_tuning_find_index(tuning, target_freq);
     Mel_Interval iv = mel_interval_from_pitches(mel_pitch_make(tuning, prev_idx), mel_pitch_make(tuning, target_idx));
@@ -97,10 +89,8 @@ Mel_IntervalSeq mel_interval_seq_from_cents(const Mel_Tuning* tuning, const doub
     prev_idx = target_idx;
 
     mpfr_clear(ratio);
-    mpfr_clear(target_freq.value);
   }
 
-  mpfr_clear(root.frequency.value);
   return s;
 }
 
@@ -166,15 +156,13 @@ Mel_Scale mel_interval_seq_to_scale(const Mel_IntervalSeq* s, Mel_Pitch start)
   Mel_Scale scale = mel_scale_make(s->tuning);
   mel_scale_add_pitch(&scale, start);
 
-  Mel_Pitch current = mel_pitch_copy(start);
+  Mel_Pitch current = start;
   for (int32_t i = 0; i < s->count; i++)
   {
     current.pitch_index += s->intervals[i].pitch_diff;
-    mpfr_clear(current.frequency.value);
     current.frequency = mel_tuning_frequency_for_index(s->tuning, current.pitch_index);
     mel_scale_add_pitch(&scale, current);
   }
-  mpfr_clear(current.frequency.value);
 
   return scale;
 }

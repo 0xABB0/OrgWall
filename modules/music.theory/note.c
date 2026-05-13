@@ -5,7 +5,6 @@
 void mel_note_free(Mel_Note* n)
 {
   if (!n) return;
-  mpfr_clear(n->pitch.frequency.value);
   free(n->symbol);
   free(n->acc_vector);
 }
@@ -60,7 +59,6 @@ Mel_Note mel_note_transpose_bi(Mel_Note n, int32_t bi_diff)
 {
   Mel_Note r = mel_note_copy(n);
   r.nat_bi_index += bi_diff;
-  mpfr_clear(r.pitch.frequency.value);
   r.pitch = mel_pitch_transpose_bi(r.pitch, bi_diff);
   return r;
 }

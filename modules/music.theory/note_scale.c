@@ -39,7 +39,6 @@ Mel_Note mel_note_scale_get(const Mel_NoteScale* ns, int32_t idx)
       (Mel_Notation*)ns->notation,
       note.pitch
     );
-    mpfr_clear(note.pitch.frequency.value);
     return guessed;
   }
 

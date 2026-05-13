@@ -11,10 +11,6 @@ struct Mel_PitchAdjusted
   Mel_Cent adjustment;
 };
 
-void mel_pitch_adjusted_free(Mel_PitchAdjusted* pa);
-static inline void mel_pitch_adjusted_cleanup(Mel_PitchAdjusted* pa) { mel_pitch_adjusted_free(pa); }
-#define Mel_PitchAdjusted_AUTO __attribute__((cleanup(mel_pitch_adjusted_cleanup))) Mel_PitchAdjusted
-
 Mel_PitchAdjusted mel_pitch_adjusted_make(Mel_Pitch base, Mel_Cent adjustment);
 
 Mel_Hz mel_pitch_adjusted_frequency(Mel_PitchAdjusted pa);

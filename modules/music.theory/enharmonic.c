@@ -41,8 +41,6 @@ static Mel_Note pc_blueprint_note_transpose(void* ctx, Mel_Note note, int64_t pi
   else
     result = note;
 
-  mpfr_clear(pitch.frequency.value);
-  mpfr_clear(transposed.frequency.value);
   return result;
 }
 

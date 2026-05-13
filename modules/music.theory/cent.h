@@ -2,20 +2,27 @@
 
 #include <stdint.h>
 #include <mpfr.h>
+#include <gmp.h>
 #include "../time.frequency/frequency.h"
+
+#define MEL_CENT_PRECISION 256
+#define MEL_CENT_LIMBS ((MEL_CENT_PRECISION + GMP_NUMB_BITS - 1) / GMP_NUMB_BITS)
 
 typedef struct Mel_Cent Mel_Cent;
 
 struct Mel_Cent
 {
-  mpfr_t value;
+  int        kind;
+  mpfr_exp_t exp;
+  mp_limb_t  limbs[MEL_CENT_LIMBS];
 };
 
-void mel_cent_free(Mel_Cent* c);
-
-static inline void mel_cent_cleanup(Mel_Cent* c) { mel_cent_free(c); }
-
-#define Mel_Cent_AUTO __attribute__((cleanup(mel_cent_cleanup))) Mel_Cent
+static inline void mel_cent_view(mpfr_t out, const Mel_Cent* c)
+{
+  mp_limb_t* limbs = (mp_limb_t*)c->limbs;
+  mpfr_custom_init(limbs, MEL_CENT_PRECISION);
+  mpfr_custom_init_set(out, c->kind, c->exp, MEL_CENT_PRECISION, limbs);
+}
 
 Mel_Cent __attribute__((overloadable)) mel_cent(double value);
 Mel_Cent __attribute__((overloadable)) mel_cent(mpfr_srcptr value);

@@ -14,10 +14,6 @@ struct Mel_Pitch
   int64_t pitch_index;
 };
 
-void mel_pitch_free(Mel_Pitch* p);
-static inline void mel_pitch_cleanup(Mel_Pitch* p) { mel_pitch_free(p); }
-#define Mel_Pitch_AUTO __attribute__((cleanup(mel_pitch_cleanup))) Mel_Pitch
-
 Mel_Pitch mel_pitch_make(const Mel_Tuning* tuning, int64_t pitch_index);
 
 Mel_Pitch mel_pitch_copy(Mel_Pitch pitch);

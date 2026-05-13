@@ -23,7 +23,7 @@ Mel_Interval mel_interval_from_pitches(Mel_Pitch source, Mel_Pitch target)
   i.pitch_diff = target.pitch_index - source.pitch_index;
   i.ref_pitch_index = source.pitch_index;
   mpfr_init2(i.ratio, mel_interval_precision());
-  mpfr_div(i.ratio, target.frequency.value, source.frequency.value, MPFR_RNDN);
+  mel_freq_ratio(i.ratio, target.frequency, source.frequency);
   return i;
 }
 

@@ -9,8 +9,6 @@
 void mel_scale_free(Mel_Scale* s)
 {
   if (!s) return;
-  for (int32_t i = 0; i < s->count; i++)
-    mpfr_clear(s->pitches[i].frequency.value);
   free(s->pitches);
   s->pitches = NULL;
   s->count = 0;
@@ -95,7 +93,6 @@ void mel_scale_add_index(Mel_Scale* s, int64_t index)
 {
   Mel_Pitch p = mel_pitch_make(s->tuning, index);
   mel_scale_add_pitch(s, p);
-  mpfr_clear(p.frequency.value);
 }
 
 Mel_Pitch mel_scale_get(const Mel_Scale* s, int32_t idx)
@@ -121,9 +118,7 @@ uint8_t mel_scale_contains_pitch(const Mel_Scale* s, Mel_Pitch pitch)
 uint8_t mel_scale_contains_index(const Mel_Scale* s, int64_t index)
 {
   Mel_Pitch p = mel_pitch_make(s->tuning, index);
-  uint8_t result = mel_scale_contains_pitch(s, p);
-  mpfr_clear(p.frequency.value);
-  return result;
+  return mel_scale_contains_pitch(s, p);
 }
 
 Mel_Interval mel_scale_spec_interval(const Mel_Scale* s, int32_t source_idx, int32_t target_idx)
@@ -287,7 +282,6 @@ Mel_Scale mel_scale_rotated_up(const Mel_Scale* s)
     mel_scale_add_pitch(&r, s->pitches[i]);
   mel_scale_add_pitch(&r, new_first);
 
-  mpfr_clear(new_first.frequency.value);
   return r;
 }
 
@@ -308,7 +302,6 @@ Mel_Scale mel_scale_rotated_down(const Mel_Scale* s)
   for (int32_t i = 0; i < s->count - 1; i++)
     mel_scale_add_pitch(&r, s->pitches[i]);
 
-  mpfr_clear(new_last.frequency.value);
   return r;
 }
 
@@ -343,7 +336,6 @@ Mel_Scale mel_scale_pcs_normalized(const Mel_Scale* s)
   {
     Mel_Pitch normalized = mel_pitch_pcs_normalized(s->pitches[i]);
     mel_scale_add_pitch(&r, normalized);
-    mpfr_clear(normalized.frequency.value);
   }
   return r;
 }
@@ -364,7 +356,6 @@ Mel_Scale mel_scale_period_normalized(const Mel_Scale* s)
 
     if (mel_pitch_cmp(elem, root) != 2)
     {
-      mpfr_clear(elem.frequency.value);
       continue;
     }
     if (mel_pitch_cmp(elem, root) == 0)
@@ -373,7 +364,6 @@ Mel_Scale mel_scale_period_normalized(const Mel_Scale* s)
     }
 
     mel_scale_add_pitch(&r, elem);
-    mpfr_clear(elem.frequency.value);
   }
 
   return r;

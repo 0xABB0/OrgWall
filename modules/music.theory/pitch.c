@@ -1,11 +1,6 @@
 #include "pitch.h"
 #include <stdlib.h>
 
-void mel_pitch_free(Mel_Pitch* p)
-{
-  if (p) mpfr_clear(p->frequency.value);
-}
-
 Mel_Pitch mel_pitch_make(const Mel_Tuning* tuning, int64_t pitch_index)
 {
   Mel_Pitch p;
@@ -17,12 +12,7 @@ Mel_Pitch mel_pitch_make(const Mel_Tuning* tuning, int64_t pitch_index)
 
 Mel_Pitch mel_pitch_copy(Mel_Pitch pitch)
 {
-  Mel_Pitch p;
-  p.tuning = pitch.tuning;
-  p.pitch_index = pitch.pitch_index;
-  mpfr_init2(p.frequency.value, mpfr_get_prec(pitch.frequency.value));
-  mpfr_set(p.frequency.value, pitch.frequency.value, MPFR_RNDN);
-  return p;
+  return pitch;
 }
 
 Mel_Pitch mel_pitch_transpose(Mel_Pitch pitch, int64_t diff)
@@ -101,7 +91,7 @@ int64_t mel_pitch_generator_distance(Mel_Pitch pitch, Mel_Pitch generator)
 uint8_t mel_pitch_eq(Mel_Pitch a, Mel_Pitch b)
 {
   if (a.tuning == b.tuning) return a.pitch_index == b.pitch_index ? 1 : 0;
-  return mpfr_equal_p(a.frequency.value, b.frequency.value) ? 1 : 0;
+  return mel_freq_eq(a.frequency, b.frequency);
 }
 
 uint8_t mel_pitch_cmp(Mel_Pitch a, Mel_Pitch b)
@@ -112,9 +102,5 @@ uint8_t mel_pitch_cmp(Mel_Pitch a, Mel_Pitch b)
     if (a.pitch_index > b.pitch_index) return 2;
     return 1;
   }
-
-  int cmp = mpfr_cmp(a.frequency.value, b.frequency.value);
-  if (cmp < 0) return 0;
-  if (cmp > 0) return 2;
-  return 1;
+  return mel_freq_cmp(a.frequency, b.frequency);
 }

@@ -1,38 +1,49 @@
 #include "cent.h"
 #include "../time.frequency/frequency.h"
-#include <stdlib.h>
 
-#define MEL_CENT_PRECISION 256
-
-static mpfr_prec_t mel_cent_precision(void)
+static inline void mel_cent_bind_out(mpfr_t out, Mel_Cent* r)
 {
-  return MEL_CENT_PRECISION;
+  mpfr_custom_init(r->limbs, MEL_CENT_PRECISION);
+  mpfr_custom_init_set(out, MPFR_REGULAR_KIND, 0, MEL_CENT_PRECISION, r->limbs);
 }
 
-void mel_cent_free(Mel_Cent* c)
+static inline void mel_cent_store(Mel_Cent* r, mpfr_srcptr v)
 {
-  if (c) mpfr_clear(c->value);
+  r->kind = mpfr_custom_get_kind(v);
+  r->exp  = mpfr_custom_get_exp(v);
+}
+
+static inline void mel_cent_scratch(mpfr_t out, mp_limb_t* limbs)
+{
+  mpfr_custom_init(limbs, MEL_CENT_PRECISION);
+  mpfr_custom_init_set(out, MPFR_REGULAR_KIND, 0, MEL_CENT_PRECISION, limbs);
 }
 
 Mel_Cent __attribute__((overloadable)) mel_cent(double value)
 {
   Mel_Cent c;
-  mpfr_init2(c.value, mel_cent_precision());
-  mpfr_set_d(c.value, value, MPFR_RNDN);
+  mpfr_t v;
+  mel_cent_bind_out(v, &c);
+  mpfr_set_d(v, value, MPFR_RNDN);
+  mel_cent_store(&c, v);
   return c;
 }
 
 Mel_Cent __attribute__((overloadable)) mel_cent(mpfr_srcptr value)
 {
   Mel_Cent c;
-  mpfr_init2(c.value, mel_cent_precision());
-  mpfr_set(c.value, value, MPFR_RNDN);
+  mpfr_t v;
+  mel_cent_bind_out(v, &c);
+  mpfr_set(v, value, MPFR_RNDN);
+  mel_cent_store(&c, v);
   return c;
 }
 
 double mel_cent_to_double(Mel_Cent c)
 {
-  return mpfr_get_d(c.value, MPFR_RNDN);
+  mpfr_t v;
+  mel_cent_view(v, &c);
+  return mpfr_get_d(v, MPFR_RNDN);
 }
 
 void mel_cent_from_ratio(mpfr_ptr out, mpfr_srcptr ratio)
@@ -44,125 +55,172 @@ void mel_cent_from_ratio(mpfr_ptr out, mpfr_srcptr ratio)
 Mel_Cent mel_cent_from_ratio_c(mpfr_srcptr ratio)
 {
   Mel_Cent c;
-  mpfr_init2(c.value, mel_cent_precision());
-  mel_cent_from_ratio(c.value, ratio);
+  mpfr_t v;
+  mel_cent_bind_out(v, &c);
+  mel_cent_from_ratio(v, ratio);
+  mel_cent_store(&c, v);
   return c;
 }
 
 void mel_cent_to_ratio(mpfr_ptr out, Mel_Cent c)
 {
-  mpfr_div_ui(out, c.value, 1200, MPFR_RNDN);
+  mpfr_t vc;
+  mel_cent_view(vc, &c);
+  mpfr_div_ui(out, vc, 1200, MPFR_RNDN);
   mpfr_exp2(out, out, MPFR_RNDN);
 }
 
 Mel_Cent mel_cent_to_ratio_c(Mel_Cent c)
 {
   Mel_Cent r;
-  mpfr_init2(r.value, mel_cent_precision());
-  mel_cent_to_ratio(r.value, c);
+  mpfr_t vr;
+  mel_cent_bind_out(vr, &r);
+  mel_cent_to_ratio(vr, c);
+  mel_cent_store(&r, vr);
   return r;
 }
 
 void mel_cent_from_freqs(mpfr_ptr out, const Mel_Hz* a, const Mel_Hz* b)
 {
-  mpfr_t ratio;
-  mpfr_init2(ratio, mel_cent_precision());
-  mpfr_div(ratio, a->value, b->value, MPFR_RNDN);
+  mpfr_t va, vb, ratio;
+  mp_limb_t ratio_limbs[MEL_CENT_LIMBS];
+  mel_freq_view(va, a);
+  mel_freq_view(vb, b);
+  mel_cent_scratch(ratio, ratio_limbs);
+  mpfr_div(ratio, va, vb, MPFR_RNDN);
   mel_cent_from_ratio(out, ratio);
-  mpfr_clear(ratio);
 }
 
 Mel_Cent mel_cent_from_freqs_c(const Mel_Hz* a, const Mel_Hz* b)
 {
   Mel_Cent c;
-  mpfr_init2(c.value, mel_cent_precision());
-  mel_cent_from_freqs(c.value, a, b);
+  mpfr_t v;
+  mel_cent_bind_out(v, &c);
+  mel_cent_from_freqs(v, a, b);
+  mel_cent_store(&c, v);
   return c;
 }
 
 Mel_Cent mel_cent_add(Mel_Cent a, Mel_Cent b)
 {
   Mel_Cent r;
-  mpfr_init2(r.value, mel_cent_precision());
-  mpfr_add(r.value, a.value, b.value, MPFR_RNDN);
+  mpfr_t va, vb, vr;
+  mel_cent_view(va, &a);
+  mel_cent_view(vb, &b);
+  mel_cent_bind_out(vr, &r);
+  mpfr_add(vr, va, vb, MPFR_RNDN);
+  mel_cent_store(&r, vr);
   return r;
 }
 
 Mel_Cent mel_cent_sub(Mel_Cent a, Mel_Cent b)
 {
   Mel_Cent r;
-  mpfr_init2(r.value, mel_cent_precision());
-  mpfr_sub(r.value, a.value, b.value, MPFR_RNDN);
+  mpfr_t va, vb, vr;
+  mel_cent_view(va, &a);
+  mel_cent_view(vb, &b);
+  mel_cent_bind_out(vr, &r);
+  mpfr_sub(vr, va, vb, MPFR_RNDN);
+  mel_cent_store(&r, vr);
   return r;
 }
 
 Mel_Cent mel_cent_neg(Mel_Cent c)
 {
   Mel_Cent r;
-  mpfr_init2(r.value, mel_cent_precision());
-  mpfr_neg(r.value, c.value, MPFR_RNDN);
+  mpfr_t vc, vr;
+  mel_cent_view(vc, &c);
+  mel_cent_bind_out(vr, &r);
+  mpfr_neg(vr, vc, MPFR_RNDN);
+  mel_cent_store(&r, vr);
   return r;
 }
 
 Mel_Cent __attribute__((overloadable)) mel_cent_mul(Mel_Cent c, mpfr_srcptr scalar)
 {
   Mel_Cent r;
-  mpfr_init2(r.value, mel_cent_precision());
-  mpfr_mul(r.value, c.value, scalar, MPFR_RNDN);
+  mpfr_t vc, vr;
+  mel_cent_view(vc, &c);
+  mel_cent_bind_out(vr, &r);
+  mpfr_mul(vr, vc, scalar, MPFR_RNDN);
+  mel_cent_store(&r, vr);
   return r;
 }
 
 Mel_Cent __attribute__((overloadable)) mel_cent_mul(Mel_Cent c, double scalar)
 {
   Mel_Cent r;
-  mpfr_init2(r.value, mel_cent_precision());
-  mpfr_mul_d(r.value, c.value, scalar, MPFR_RNDN);
+  mpfr_t vc, vr;
+  mel_cent_view(vc, &c);
+  mel_cent_bind_out(vr, &r);
+  mpfr_mul_d(vr, vc, scalar, MPFR_RNDN);
+  mel_cent_store(&r, vr);
   return r;
 }
 
 Mel_Cent __attribute__((overloadable)) mel_cent_div(Mel_Cent c, mpfr_srcptr scalar)
 {
   Mel_Cent r;
-  mpfr_init2(r.value, mel_cent_precision());
-  mpfr_div(r.value, c.value, scalar, MPFR_RNDN);
+  mpfr_t vc, vr;
+  mel_cent_view(vc, &c);
+  mel_cent_bind_out(vr, &r);
+  mpfr_div(vr, vc, scalar, MPFR_RNDN);
+  mel_cent_store(&r, vr);
   return r;
 }
 
 Mel_Cent __attribute__((overloadable)) mel_cent_div(Mel_Cent c, double scalar)
 {
   Mel_Cent r;
-  mpfr_init2(r.value, mel_cent_precision());
-  mpfr_div_d(r.value, c.value, scalar, MPFR_RNDN);
+  mpfr_t vc, vr;
+  mel_cent_view(vc, &c);
+  mel_cent_bind_out(vr, &r);
+  mpfr_div_d(vr, vc, scalar, MPFR_RNDN);
+  mel_cent_store(&r, vr);
   return r;
 }
 
 Mel_Cent mel_cent_abs(Mel_Cent c)
 {
   Mel_Cent r;
-  mpfr_init2(r.value, mel_cent_precision());
-  mpfr_abs(r.value, c.value, MPFR_RNDN);
+  mpfr_t vc, vr;
+  mel_cent_view(vc, &c);
+  mel_cent_bind_out(vr, &r);
+  mpfr_abs(vr, vc, MPFR_RNDN);
+  mel_cent_store(&r, vr);
   return r;
 }
 
 Mel_Cent mel_cent_min(Mel_Cent a, Mel_Cent b)
 {
   Mel_Cent r;
-  mpfr_init2(r.value, mel_cent_precision());
-  mpfr_min(r.value, a.value, b.value, MPFR_RNDN);
+  mpfr_t va, vb, vr;
+  mel_cent_view(va, &a);
+  mel_cent_view(vb, &b);
+  mel_cent_bind_out(vr, &r);
+  mpfr_min(vr, va, vb, MPFR_RNDN);
+  mel_cent_store(&r, vr);
   return r;
 }
 
 Mel_Cent mel_cent_max(Mel_Cent a, Mel_Cent b)
 {
   Mel_Cent r;
-  mpfr_init2(r.value, mel_cent_precision());
-  mpfr_max(r.value, a.value, b.value, MPFR_RNDN);
+  mpfr_t va, vb, vr;
+  mel_cent_view(va, &a);
+  mel_cent_view(vb, &b);
+  mel_cent_bind_out(vr, &r);
+  mpfr_max(vr, va, vb, MPFR_RNDN);
+  mel_cent_store(&r, vr);
   return r;
 }
 
 uint8_t mel_cent_cmp(Mel_Cent a, Mel_Cent b)
 {
-  int cmp = mpfr_cmp(a.value, b.value);
+  mpfr_t va, vb;
+  mel_cent_view(va, &a);
+  mel_cent_view(vb, &b);
+  int cmp = mpfr_cmp(va, vb);
   if (cmp < 0) return 0;
   if (cmp > 0) return 2;
   return 1;
@@ -170,21 +228,27 @@ uint8_t mel_cent_cmp(Mel_Cent a, Mel_Cent b)
 
 uint8_t mel_cent_eq(Mel_Cent a, Mel_Cent b)
 {
-  return mpfr_equal_p(a.value, b.value) ? 1 : 0;
+  mpfr_t va, vb;
+  mel_cent_view(va, &a);
+  mel_cent_view(vb, &b);
+  return mpfr_equal_p(va, vb) ? 1 : 0;
 }
 
 uint8_t mel_cent_near(Mel_Cent a, Mel_Cent b, mpfr_srcptr tolerance)
 {
-  mpfr_t diff;
-  mpfr_init2(diff, mel_cent_precision());
-  mpfr_sub(diff, a.value, b.value, MPFR_RNDN);
+  mpfr_t va, vb, diff;
+  mp_limb_t diff_limbs[MEL_CENT_LIMBS];
+  mel_cent_view(va, &a);
+  mel_cent_view(vb, &b);
+  mel_cent_scratch(diff, diff_limbs);
+  mpfr_sub(diff, va, vb, MPFR_RNDN);
   mpfr_abs(diff, diff, MPFR_RNDN);
-  int result = mpfr_lessequal_p(diff, tolerance);
-  mpfr_clear(diff);
-  return result ? 1 : 0;
+  return mpfr_lessequal_p(diff, tolerance) ? 1 : 0;
 }
 
 uint8_t mel_cent_is_zero(Mel_Cent c)
 {
-  return mpfr_zero_p(c.value) ? 1 : 0;
+  mpfr_t vc;
+  mel_cent_view(vc, &c);
+  return mpfr_zero_p(vc) ? 1 : 0;
 }

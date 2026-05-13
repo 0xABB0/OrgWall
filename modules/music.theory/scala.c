@@ -127,8 +127,7 @@ Mel_Tuning mel_scala_parse_to_tuning(const char* data, Mel_Hz ref_frequency)
   mpfr_init2(t.custom.eq_ratio, 256);
   mpfr_set(t.custom.eq_ratio, values[pitch_count - 1], MPFR_RNDN);
 
-  mpfr_init2(t.ref_frequency.value, 256);
-  mpfr_set(t.ref_frequency.value, ref_frequency.value, MPFR_RNDN);
+  t.ref_frequency = ref_frequency;
 
   free(buf);
   return t;

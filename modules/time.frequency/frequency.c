@@ -1,287 +1,371 @@
 #include "frequency.h"
-#include <stdlib.h>
 
-#define MEL_FREQ_PRECISION 256
-
-static mpfr_prec_t mel_freq_precision(void)
+static inline void mel_freq_bind_out(mpfr_t out, Mel_Hz *r)
 {
-  return MEL_FREQ_PRECISION;
+  mpfr_custom_init(r->limbs, MEL_FREQ_PRECISION);
+  mpfr_custom_init_set(out, MPFR_REGULAR_KIND, 0, MEL_FREQ_PRECISION, r->limbs);
 }
 
-void mel_freq_free(Mel_Hz *f)
+static inline void mel_freq_store(Mel_Hz *r, mpfr_srcptr v)
 {
-  if (f) mpfr_clear(f->value);
+  r->kind = mpfr_custom_get_kind(v);
+  r->exp  = mpfr_custom_get_exp(v);
 }
 
-Mel_Hz __attribute__((overloadable)) mel_freq(double value)
+static inline void mel_freq_scratch(mpfr_t out, mp_limb_t *limbs)
+{
+  mpfr_custom_init(limbs, MEL_FREQ_PRECISION);
+  mpfr_custom_init_set(out, MPFR_REGULAR_KIND, 0, MEL_FREQ_PRECISION, limbs);
+}
+
+[[nodiscard]] Mel_Hz __attribute__((overloadable)) mel_freq(double value)
 {
   Mel_Hz f;
-  mpfr_init2(f.value, mel_freq_precision());
-  mpfr_set_d(f.value, value, MPFR_RNDN);
+  mpfr_t v;
+  mel_freq_bind_out(v, &f);
+  mpfr_set_d(v, value, MPFR_RNDN);
+  mel_freq_store(&f, v);
   return f;
 }
 
-Mel_Hz __attribute__((overloadable)) mel_freq(mpfr_srcptr value)
+[[nodiscard]] Mel_Hz __attribute__((overloadable)) mel_freq(mpfr_srcptr value)
 {
   Mel_Hz f;
-  mpfr_init2(f.value, mel_freq_precision());
-  mpfr_set(f.value, value, MPFR_RNDN);
+  mpfr_t v;
+  mel_freq_bind_out(v, &f);
+  mpfr_set(v, value, MPFR_RNDN);
+  mel_freq_store(&f, v);
   return f;
 }
 
-Mel_Hz __attribute__((overloadable)) mel_freq(mpq_srcptr value)
+[[nodiscard]] Mel_Hz __attribute__((overloadable)) mel_freq(mpq_srcptr value)
 {
   Mel_Hz f;
-  mpfr_init2(f.value, mel_freq_precision());
-  mpfr_set_q(f.value, value, MPFR_RNDN);
+  mpfr_t v;
+  mel_freq_bind_out(v, &f);
+  mpfr_set_q(v, value, MPFR_RNDN);
+  mel_freq_store(&f, v);
   return f;
 }
 
-Mel_Hz __attribute__((overloadable)) mel_freq(unsigned num, unsigned den)
+[[nodiscard]] Mel_Hz __attribute__((overloadable)) mel_freq(unsigned num, unsigned den)
 {
   Mel_Hz f;
-  mpfr_init2(f.value, mel_freq_precision());
-  mpfr_set_ui(f.value, num, MPFR_RNDN);
-  mpfr_div_ui(f.value, f.value, den, MPFR_RNDN);
+  mpfr_t v;
+  mel_freq_bind_out(v, &f);
+  mpfr_set_ui(v, num, MPFR_RNDN);
+  mpfr_div_ui(v, v, den, MPFR_RNDN);
+  mel_freq_store(&f, v);
   return f;
 }
 
-double mel_freq_to_double(Mel_Hz f)
+[[nodiscard]] double mel_freq_to_double(Mel_Hz f)
 {
-  return mpfr_get_d(f.value, MPFR_RNDN);
+  mpfr_t v;
+  mel_freq_view(v, &f);
+  return mpfr_get_d(v, MPFR_RNDN);
 }
 
-Mel_Hz mel_freq_add(Mel_Hz a, Mel_Hz b)
+[[nodiscard]] Mel_Hz mel_freq_add(Mel_Hz a, Mel_Hz b)
 {
   Mel_Hz r;
-  mpfr_init2(r.value, mel_freq_precision());
-  mpfr_add(r.value, a.value, b.value, MPFR_RNDN);
+  mpfr_t va, vb, vr;
+  mel_freq_view(va, &a);
+  mel_freq_view(vb, &b);
+  mel_freq_bind_out(vr, &r);
+  mpfr_add(vr, va, vb, MPFR_RNDN);
+  mel_freq_store(&r, vr);
   return r;
 }
 
-Mel_Hz mel_freq_sub(Mel_Hz a, Mel_Hz b)
+[[nodiscard]] Mel_Hz mel_freq_sub(Mel_Hz a, Mel_Hz b)
 {
   Mel_Hz r;
-  mpfr_init2(r.value, mel_freq_precision());
-  mpfr_sub(r.value, a.value, b.value, MPFR_RNDN);
+  mpfr_t va, vb, vr;
+  mel_freq_view(va, &a);
+  mel_freq_view(vb, &b);
+  mel_freq_bind_out(vr, &r);
+  mpfr_sub(vr, va, vb, MPFR_RNDN);
+  mel_freq_store(&r, vr);
   return r;
 }
 
-Mel_Hz mel_freq_neg(Mel_Hz f)
+[[nodiscard]] Mel_Hz mel_freq_neg(Mel_Hz f)
 {
   Mel_Hz r;
-  mpfr_init2(r.value, mel_freq_precision());
-  mpfr_neg(r.value, f.value, MPFR_RNDN);
+  mpfr_t vf, vr;
+  mel_freq_view(vf, &f);
+  mel_freq_bind_out(vr, &r);
+  mpfr_neg(vr, vf, MPFR_RNDN);
+  mel_freq_store(&r, vr);
   return r;
 }
 
-Mel_Hz __attribute__((overloadable)) mel_freq_mul(Mel_Hz a, mpfr_srcptr b)
+[[nodiscard]] Mel_Hz __attribute__((overloadable)) mel_freq_mul(Mel_Hz a, mpfr_srcptr b)
 {
   Mel_Hz r;
-  mpfr_init2(r.value, mel_freq_precision());
-  mpfr_mul(r.value, a.value, b, MPFR_RNDN);
+  mpfr_t va, vr;
+  mel_freq_view(va, &a);
+  mel_freq_bind_out(vr, &r);
+  mpfr_mul(vr, va, b, MPFR_RNDN);
+  mel_freq_store(&r, vr);
   return r;
 }
 
-Mel_Hz __attribute__((overloadable)) mel_freq_mul(Mel_Hz a, double b)
+[[nodiscard]] Mel_Hz __attribute__((overloadable)) mel_freq_mul(Mel_Hz a, double b)
 {
   Mel_Hz r;
-  mpfr_init2(r.value, mel_freq_precision());
-  mpfr_mul_d(r.value, a.value, b, MPFR_RNDN);
+  mpfr_t va, vr;
+  mel_freq_view(va, &a);
+  mel_freq_bind_out(vr, &r);
+  mpfr_mul_d(vr, va, b, MPFR_RNDN);
+  mel_freq_store(&r, vr);
   return r;
 }
 
-Mel_Hz __attribute__((overloadable)) mel_freq_div(Mel_Hz a, mpfr_srcptr b)
+[[nodiscard]] Mel_Hz __attribute__((overloadable)) mel_freq_div(Mel_Hz a, mpfr_srcptr b)
 {
   Mel_Hz r;
-  mpfr_init2(r.value, mel_freq_precision());
-  mpfr_div(r.value, a.value, b, MPFR_RNDN);
+  mpfr_t va, vr;
+  mel_freq_view(va, &a);
+  mel_freq_bind_out(vr, &r);
+  mpfr_div(vr, va, b, MPFR_RNDN);
+  mel_freq_store(&r, vr);
   return r;
 }
 
-Mel_Hz __attribute__((overloadable)) mel_freq_div(Mel_Hz a, double b)
+[[nodiscard]] Mel_Hz __attribute__((overloadable)) mel_freq_div(Mel_Hz a, double b)
 {
   Mel_Hz r;
-  mpfr_init2(r.value, mel_freq_precision());
-  mpfr_div_d(r.value, a.value, b, MPFR_RNDN);
+  mpfr_t va, vr;
+  mel_freq_view(va, &a);
+  mel_freq_bind_out(vr, &r);
+  mpfr_div_d(vr, va, b, MPFR_RNDN);
+  mel_freq_store(&r, vr);
   return r;
 }
 
-double __attribute__((overloadable)) mel_freq_ratio(Mel_Hz a, Mel_Hz b)
+[[nodiscard]] double __attribute__((overloadable)) mel_freq_ratio(Mel_Hz a, Mel_Hz b)
 {
-  mpfr_t r;
-  mpfr_init2(r, mel_freq_precision());
-  mpfr_div(r, a.value, b.value, MPFR_RNDN);
-  double result = mpfr_get_d(r, MPFR_RNDN);
-  mpfr_clear(r);
-  return result;
+  mpfr_t va, vb, r;
+  mp_limb_t r_limbs[MEL_FREQ_LIMBS];
+  mel_freq_view(va, &a);
+  mel_freq_view(vb, &b);
+  mel_freq_scratch(r, r_limbs);
+  mpfr_div(r, va, vb, MPFR_RNDN);
+  return mpfr_get_d(r, MPFR_RNDN);
 }
 
 void __attribute__((overloadable)) mel_freq_ratio(mpfr_ptr out, Mel_Hz a, Mel_Hz b)
 {
-  mpfr_div(out, a.value, b.value, MPFR_RNDN);
+  mpfr_t va, vb;
+  mel_freq_view(va, &a);
+  mel_freq_view(vb, &b);
+  mpfr_div(out, va, vb, MPFR_RNDN);
 }
 
-Mel_Hz mel_freq_transpose(Mel_Hz f, mpq_srcptr ratio)
+[[nodiscard]] Mel_Hz mel_freq_transpose(Mel_Hz f, mpq_srcptr ratio)
 {
   Mel_Hz r;
-  mpfr_init2(r.value, mel_freq_precision());
-
-  mpfr_t factor;
-  mpfr_init2(factor, mel_freq_precision());
+  mpfr_t vf, vr, factor;
+  mp_limb_t factor_limbs[MEL_FREQ_LIMBS];
+  mel_freq_view(vf, &f);
+  mel_freq_bind_out(vr, &r);
+  mel_freq_scratch(factor, factor_limbs);
   mpfr_set_q(factor, ratio, MPFR_RNDN);
-  mpfr_mul(r.value, f.value, factor, MPFR_RNDN);
-
-  mpfr_clear(factor);
+  mpfr_mul(vr, vf, factor, MPFR_RNDN);
+  mel_freq_store(&r, vr);
   return r;
 }
 
-Mel_Hz mel_freq_transpose_cents(Mel_Hz f, mpfr_srcptr cents)
+[[nodiscard]] Mel_Hz mel_freq_transpose_cents(Mel_Hz f, mpfr_srcptr cents)
 {
   Mel_Hz r;
-  mpfr_init2(r.value, mel_freq_precision());
-
-  mpfr_t factor;
-  mpfr_init2(factor, mel_freq_precision());
+  mpfr_t vf, vr, factor;
+  mp_limb_t factor_limbs[MEL_FREQ_LIMBS];
+  mel_freq_view(vf, &f);
+  mel_freq_bind_out(vr, &r);
+  mel_freq_scratch(factor, factor_limbs);
   mpfr_div_ui(factor, cents, 1200, MPFR_RNDN);
   mpfr_exp2(factor, factor, MPFR_RNDN);
-  mpfr_mul(r.value, f.value, factor, MPFR_RNDN);
-
-  mpfr_clear(factor);
+  mpfr_mul(vr, vf, factor, MPFR_RNDN);
+  mel_freq_store(&r, vr);
   return r;
 }
 
-Mel_Hz mel_freq_transpose_semitones(Mel_Hz f, mpfr_srcptr semitones)
+[[nodiscard]] Mel_Hz mel_freq_transpose_semitones(Mel_Hz f, mpfr_srcptr semitones)
 {
   Mel_Hz r;
-  mpfr_init2(r.value, mel_freq_precision());
-
-  mpfr_t factor;
-  mpfr_init2(factor, mel_freq_precision());
+  mpfr_t vf, vr, factor;
+  mp_limb_t factor_limbs[MEL_FREQ_LIMBS];
+  mel_freq_view(vf, &f);
+  mel_freq_bind_out(vr, &r);
+  mel_freq_scratch(factor, factor_limbs);
   mpfr_div_ui(factor, semitones, 12, MPFR_RNDN);
   mpfr_exp2(factor, factor, MPFR_RNDN);
-  mpfr_mul(r.value, f.value, factor, MPFR_RNDN);
-
-  mpfr_clear(factor);
+  mpfr_mul(vr, vf, factor, MPFR_RNDN);
+  mel_freq_store(&r, vr);
   return r;
 }
 
-Mel_Hz mel_freq_octave_up(Mel_Hz f)
+[[nodiscard]] Mel_Hz mel_freq_octave_up(Mel_Hz f)
 {
   Mel_Hz r;
-  mpfr_init2(r.value, mel_freq_precision());
-  mpfr_mul_ui(r.value, f.value, 2, MPFR_RNDN);
+  mpfr_t vf, vr;
+  mel_freq_view(vf, &f);
+  mel_freq_bind_out(vr, &r);
+  mpfr_mul_ui(vr, vf, 2, MPFR_RNDN);
+  mel_freq_store(&r, vr);
   return r;
 }
 
-Mel_Hz mel_freq_octave_down(Mel_Hz f)
+[[nodiscard]] Mel_Hz mel_freq_octave_down(Mel_Hz f)
 {
   Mel_Hz r;
-  mpfr_init2(r.value, mel_freq_precision());
-  mpfr_div_ui(r.value, f.value, 2, MPFR_RNDN);
+  mpfr_t vf, vr;
+  mel_freq_view(vf, &f);
+  mel_freq_bind_out(vr, &r);
+  mpfr_div_ui(vr, vf, 2, MPFR_RNDN);
+  mel_freq_store(&r, vr);
   return r;
 }
 
-Mel_Hz mel_freq_harmonic(Mel_Hz f, unsigned n)
+[[nodiscard]] Mel_Hz mel_freq_harmonic(Mel_Hz f, unsigned n)
 {
   Mel_Hz r;
-  mpfr_init2(r.value, mel_freq_precision());
-  mpfr_mul_ui(r.value, f.value, n, MPFR_RNDN);
+  mpfr_t vf, vr;
+  mel_freq_view(vf, &f);
+  mel_freq_bind_out(vr, &r);
+  mpfr_mul_ui(vr, vf, n, MPFR_RNDN);
+  mel_freq_store(&r, vr);
   return r;
 }
 
-Mel_Hz mel_freq_midpoint(Mel_Hz a, Mel_Hz b)
+[[nodiscard]] Mel_Hz mel_freq_midpoint(Mel_Hz a, Mel_Hz b)
 {
   Mel_Hz r;
-  mpfr_init2(r.value, mel_freq_precision());
-  mpfr_add(r.value, a.value, b.value, MPFR_RNDN);
-  mpfr_div_ui(r.value, r.value, 2, MPFR_RNDN);
+  mpfr_t va, vb, vr;
+  mel_freq_view(va, &a);
+  mel_freq_view(vb, &b);
+  mel_freq_bind_out(vr, &r);
+  mpfr_add(vr, va, vb, MPFR_RNDN);
+  mpfr_div_ui(vr, vr, 2, MPFR_RNDN);
+  mel_freq_store(&r, vr);
   return r;
 }
 
-Mel_Hz mel_freq_mod(Mel_Hz a, Mel_Hz b)
+[[nodiscard]] Mel_Hz mel_freq_mod(Mel_Hz a, Mel_Hz b)
 {
   Mel_Hz r;
-  mpfr_init2(r.value, mel_freq_precision());
-
-  mpfr_t q;
-  mpfr_init2(q, mel_freq_precision());
-  mpfr_div(q, a.value, b.value, MPFR_RNDN);
+  mpfr_t va, vb, vr, q;
+  mp_limb_t q_limbs[MEL_FREQ_LIMBS];
+  mel_freq_view(va, &a);
+  mel_freq_view(vb, &b);
+  mel_freq_bind_out(vr, &r);
+  mel_freq_scratch(q, q_limbs);
+  mpfr_div(q, va, vb, MPFR_RNDN);
   mpfr_trunc(q, q);
-  mpfr_mul(q, q, b.value, MPFR_RNDN);
-  mpfr_sub(r.value, a.value, q, MPFR_RNDN);
-
-  mpfr_clear(q);
+  mpfr_mul(q, q, vb, MPFR_RNDN);
+  mpfr_sub(vr, va, q, MPFR_RNDN);
+  mel_freq_store(&r, vr);
   return r;
 }
 
-Mel_Hz mel_freq_floordiv(Mel_Hz a, Mel_Hz b)
+[[nodiscard]] Mel_Hz mel_freq_floordiv(Mel_Hz a, Mel_Hz b)
 {
   Mel_Hz r;
-  mpfr_init2(r.value, mel_freq_precision());
-  mpfr_div(r.value, a.value, b.value, MPFR_RNDN);
-  mpfr_floor(r.value, r.value);
+  mpfr_t va, vb, vr;
+  mel_freq_view(va, &a);
+  mel_freq_view(vb, &b);
+  mel_freq_bind_out(vr, &r);
+  mpfr_div(vr, va, vb, MPFR_RNDN);
+  mpfr_floor(vr, vr);
+  mel_freq_store(&r, vr);
   return r;
 }
 
-Mel_Hz mel_freq_abs(Mel_Hz a)
+[[nodiscard]] Mel_Hz mel_freq_abs(Mel_Hz a)
 {
   Mel_Hz r;
-  mpfr_init2(r.value, mel_freq_precision());
-  mpfr_abs(r.value, a.value, MPFR_RNDN);
+  mpfr_t va, vr;
+  mel_freq_view(va, &a);
+  mel_freq_bind_out(vr, &r);
+  mpfr_abs(vr, va, MPFR_RNDN);
+  mel_freq_store(&r, vr);
   return r;
 }
 
-Mel_Hz mel_freq_min(Mel_Hz a, Mel_Hz b)
+[[nodiscard]] Mel_Hz mel_freq_min(Mel_Hz a, Mel_Hz b)
 {
   Mel_Hz r;
-  mpfr_init2(r.value, mel_freq_precision());
-  mpfr_min(r.value, a.value, b.value, MPFR_RNDN);
+  mpfr_t va, vb, vr;
+  mel_freq_view(va, &a);
+  mel_freq_view(vb, &b);
+  mel_freq_bind_out(vr, &r);
+  mpfr_min(vr, va, vb, MPFR_RNDN);
+  mel_freq_store(&r, vr);
   return r;
 }
 
-Mel_Hz mel_freq_max(Mel_Hz a, Mel_Hz b)
+[[nodiscard]] Mel_Hz mel_freq_max(Mel_Hz a, Mel_Hz b)
 {
   Mel_Hz r;
-  mpfr_init2(r.value, mel_freq_precision());
-  mpfr_max(r.value, a.value, b.value, MPFR_RNDN);
+  mpfr_t va, vb, vr;
+  mel_freq_view(va, &a);
+  mel_freq_view(vb, &b);
+  mel_freq_bind_out(vr, &r);
+  mpfr_max(vr, va, vb, MPFR_RNDN);
+  mel_freq_store(&r, vr);
   return r;
 }
 
-uint8_t mel_freq_cmp(Mel_Hz a, Mel_Hz b)
+[[nodiscard]] uint8_t mel_freq_cmp(Mel_Hz a, Mel_Hz b)
 {
-  int cmp = mpfr_cmp(a.value, b.value);
+  mpfr_t va, vb;
+  mel_freq_view(va, &a);
+  mel_freq_view(vb, &b);
+  int cmp = mpfr_cmp(va, vb);
   if (cmp < 0) return 0;
   if (cmp > 0) return 2;
   return 1;
 }
 
-uint8_t mel_freq_eq(Mel_Hz a, Mel_Hz b)
+[[nodiscard]] uint8_t mel_freq_eq(Mel_Hz a, Mel_Hz b)
 {
-  return mpfr_equal_p(a.value, b.value) ? 1 : 0;
+  mpfr_t va, vb;
+  mel_freq_view(va, &a);
+  mel_freq_view(vb, &b);
+  return mpfr_equal_p(va, vb) ? 1 : 0;
 }
 
-uint8_t mel_freq_near(Mel_Hz a, Mel_Hz b, mpfr_srcptr tolerance)
+[[nodiscard]] uint8_t mel_freq_near(Mel_Hz a, Mel_Hz b, mpfr_srcptr tolerance)
 {
-  mpfr_t diff;
-  mpfr_init2(diff, mel_freq_precision());
-  mpfr_sub(diff, a.value, b.value, MPFR_RNDN);
+  mpfr_t va, vb, diff;
+  mp_limb_t diff_limbs[MEL_FREQ_LIMBS];
+  mel_freq_view(va, &a);
+  mel_freq_view(vb, &b);
+  mel_freq_scratch(diff, diff_limbs);
+  mpfr_sub(diff, va, vb, MPFR_RNDN);
   mpfr_abs(diff, diff, MPFR_RNDN);
-  int result = mpfr_lessequal_p(diff, tolerance);
-  mpfr_clear(diff);
-  return result ? 1 : 0;
+  return mpfr_lessequal_p(diff, tolerance) ? 1 : 0;
 }
 
-uint8_t mel_freq_is_zero(Mel_Hz f)
+[[nodiscard]] uint8_t mel_freq_is_zero(Mel_Hz f)
 {
-  return mpfr_zero_p(f.value) ? 1 : 0;
+  mpfr_t vf;
+  mel_freq_view(vf, &f);
+  return mpfr_zero_p(vf) ? 1 : 0;
 }
 
-Mel_Hz mel_freq_beat(Mel_Hz a, Mel_Hz b)
+[[nodiscard]] Mel_Hz mel_freq_beat(Mel_Hz a, Mel_Hz b)
 {
   Mel_Hz r;
-  mpfr_init2(r.value, mel_freq_precision());
-  mpfr_sub(r.value, a.value, b.value, MPFR_RNDN);
-  mpfr_abs(r.value, r.value, MPFR_RNDN);
+  mpfr_t va, vb, vr;
+  mel_freq_view(va, &a);
+  mel_freq_view(vb, &b);
+  mel_freq_bind_out(vr, &r);
+  mpfr_sub(vr, va, vb, MPFR_RNDN);
+  mpfr_abs(vr, vr, MPFR_RNDN);
+  mel_freq_store(&r, vr);
   return r;
 }
