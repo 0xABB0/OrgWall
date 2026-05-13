@@ -1,5 +1,7 @@
 #pragma once
 
+#include <core/compiler.h>
+
 #include "notation.h"
 #include "note.h"
 #include "scale.h"
@@ -14,7 +16,7 @@ struct Mel_NoteScale
 
 void mel_note_scale_free(Mel_NoteScale* ns);
 static inline void mel_note_scale_cleanup(Mel_NoteScale* ns) { mel_note_scale_free(ns); }
-#define Mel_NoteScale_AUTO __attribute__((cleanup(mel_note_scale_cleanup))) Mel_NoteScale
+#define Mel_NoteScale_AUTO MEL_CLEANUP(mel_note_scale_cleanup) Mel_NoteScale
 
 Mel_NoteScale mel_note_scale_make(const Mel_Notation* n, Mel_Note* notes, int32_t count);
 

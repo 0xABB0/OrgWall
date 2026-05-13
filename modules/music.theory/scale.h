@@ -1,5 +1,7 @@
 #pragma once
 
+#include <core/compiler.h>
+
 #include <stdint.h>
 #include "tuning.h"
 #include "pitch.h"
@@ -17,7 +19,7 @@ struct Mel_Scale
 
 void mel_scale_free(Mel_Scale* s);
 static inline void mel_scale_cleanup(Mel_Scale* s) { mel_scale_free(s); }
-#define Mel_Scale_AUTO __attribute__((cleanup(mel_scale_cleanup))) Mel_Scale
+#define Mel_Scale_AUTO MEL_CLEANUP(mel_scale_cleanup) Mel_Scale
 
 Mel_Scale mel_scale_make(const Mel_Tuning* tuning);
 

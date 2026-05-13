@@ -1,4 +1,5 @@
 #include "font.atlas.h"
+#include <core/compiler.h>
 #include "font.desc.h"
 #include "texture.pool.h"
 #include "text.material.h"
@@ -130,14 +131,14 @@ static void mel__font_pool_wire(void)
     });
 }
 
-__attribute__((constructor))
+MEL_CONSTRUCTOR
 static void mel__font_pool_register(void)
 {
     mel_event_channel_init(&mel_font_pool_ready, mel_alloc_heap());
     mel__boot_register_wire(mel__font_pool_wire);
 }
 
-__attribute__((destructor))
+MEL_DESTRUCTOR
 static void mel__font_pool_unregister(void)
 {
     mel_event_channel_destroy(&mel_font_pool_ready);

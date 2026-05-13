@@ -203,3 +203,193 @@
 #else
     #define MEL_OVERLOADABLE
 #endif
+
+#if MEL_COMPILER_CLANG || MEL_COMPILER_GCC
+    #define MEL_CLEANUP(fn)         __attribute__((cleanup(fn)))
+    #define MEL_CONSTRUCTOR         __attribute__((constructor))
+    #define MEL_CONSTRUCTOR_PRIO(p) __attribute__((constructor(p)))
+    #define MEL_DESTRUCTOR          __attribute__((destructor))
+    #define MEL_DESTRUCTOR_PRIO(p)  __attribute__((destructor(p)))
+    #define MEL_WEAK                __attribute__((weak))
+    #define MEL_SECTION(name)       __attribute__((section(name)))
+    #define MEL_MODE(m)             __attribute__((mode(m)))
+    #define MEL_INTERRUPT           __attribute__((interrupt()))
+#else
+    #define MEL_CLEANUP(fn)
+    #define MEL_CONSTRUCTOR
+    #define MEL_CONSTRUCTOR_PRIO(p)
+    #define MEL_DESTRUCTOR
+    #define MEL_DESTRUCTOR_PRIO(p)
+    #define MEL_WEAK
+    #define MEL_SECTION(name)
+    #define MEL_MODE(m)
+    #define MEL_INTERRUPT
+#endif
+
+#if defined(__cplusplus) && __cplusplus >= MEL_LANG_CPP17
+    #define MEL_MAYBE_UNUSED [[maybe_unused]]
+#elif MEL_COMPILER_CLANG || MEL_COMPILER_GCC
+    #define MEL_MAYBE_UNUSED __attribute__((unused))
+#else
+    #define MEL_MAYBE_UNUSED
+#endif
+
+#if MEL_COMPILER_CLANG
+    #define MEL_VECTOR_TYPE(n) __attribute__((ext_vector_type(n)))
+#else
+    #define MEL_VECTOR_TYPE(n)
+#endif
+
+#if __has_attribute(nonnull)
+    #define MEL_NONNULL(...) __attribute__((nonnull(__VA_ARGS__)))
+    #define MEL_NONNULL_ALL  __attribute__((nonnull))
+#else
+    #define MEL_NONNULL(...)
+    #define MEL_NONNULL_ALL
+#endif
+
+#if __has_attribute(returns_nonnull)
+    #define MEL_RETURNS_NONNULL __attribute__((returns_nonnull))
+#else
+    #define MEL_RETURNS_NONNULL
+#endif
+
+#if __has_attribute(null_terminated_string_arg)
+    #define MEL_NULL_TERMINATED_STRING_ARG(n) __attribute__((null_terminated_string_arg(n)))
+#else
+    #define MEL_NULL_TERMINATED_STRING_ARG(n)
+#endif
+
+#if __has_attribute(sentinel)
+    #define MEL_SENTINEL       __attribute__((sentinel))
+    #define MEL_SENTINEL_AT(n) __attribute__((sentinel(n)))
+#else
+    #define MEL_SENTINEL
+    #define MEL_SENTINEL_AT(n)
+#endif
+
+#if __has_attribute(access)
+    #define MEL_ACCESS_RO(...)  __attribute__((access(read_only,  __VA_ARGS__)))
+    #define MEL_ACCESS_WO(...)  __attribute__((access(write_only, __VA_ARGS__)))
+    #define MEL_ACCESS_RW(...)  __attribute__((access(read_write, __VA_ARGS__)))
+    #define MEL_ACCESS_NONE(n)  __attribute__((access(none, n)))
+#else
+    #define MEL_ACCESS_RO(...)
+    #define MEL_ACCESS_WO(...)
+    #define MEL_ACCESS_RW(...)
+    #define MEL_ACCESS_NONE(n)
+#endif
+
+#if __has_attribute(malloc)
+    #define MEL_MALLOC                   __attribute__((malloc))
+    #define MEL_MALLOC_DEALLOC(fn)       __attribute__((malloc(fn)))
+    #define MEL_MALLOC_DEALLOC_AT(fn, n) __attribute__((malloc(fn, n)))
+#else
+    #define MEL_MALLOC
+    #define MEL_MALLOC_DEALLOC(fn)
+    #define MEL_MALLOC_DEALLOC_AT(fn, n)
+#endif
+
+#if __has_attribute(alloc_size)
+    #define MEL_ALLOC_SIZE(n)      __attribute__((alloc_size(n)))
+    #define MEL_ALLOC_SIZE_2(n, m) __attribute__((alloc_size(n, m)))
+#else
+    #define MEL_ALLOC_SIZE(n)
+    #define MEL_ALLOC_SIZE_2(n, m)
+#endif
+
+#if __has_attribute(alloc_align)
+    #define MEL_ALLOC_ALIGN(n) __attribute__((alloc_align(n)))
+#else
+    #define MEL_ALLOC_ALIGN(n)
+#endif
+
+#if __has_attribute(assume_aligned)
+    #define MEL_ASSUME_ALIGNED(n) __attribute__((assume_aligned(n)))
+#else
+    #define MEL_ASSUME_ALIGNED(n)
+#endif
+
+#if __has_attribute(format)
+    #define MEL_SCANF_FORMAT(fmt, args)   __attribute__((format(scanf,   fmt, args)))
+    #define MEL_STRFTIME_FORMAT(fmt)      __attribute__((format(strftime, fmt, 0)))
+    #define MEL_STRFMON_FORMAT(fmt, args) __attribute__((format(strfmon, fmt, args)))
+#else
+    #define MEL_SCANF_FORMAT(fmt, args)
+    #define MEL_STRFTIME_FORMAT(fmt)
+    #define MEL_STRFMON_FORMAT(fmt, args)
+#endif
+
+#if __has_attribute(format_arg)
+    #define MEL_FORMAT_ARG(n) __attribute__((format_arg(n)))
+#else
+    #define MEL_FORMAT_ARG(n)
+#endif
+
+#if __has_attribute(hot)
+    #define MEL_HOT __attribute__((hot))
+#else
+    #define MEL_HOT
+#endif
+
+#if __has_attribute(cold)
+    #define MEL_COLD __attribute__((cold))
+#else
+    #define MEL_COLD
+#endif
+
+#if __has_attribute(flatten)
+    #define MEL_FLATTEN __attribute__((flatten))
+#else
+    #define MEL_FLATTEN
+#endif
+
+#if __has_attribute(optimize)
+    #define MEL_OPTIMIZE(s) __attribute__((optimize(s)))
+#else
+    #define MEL_OPTIMIZE(s)
+#endif
+
+#if __has_attribute(target)
+    #define MEL_TARGET(s) __attribute__((target(s)))
+#else
+    #define MEL_TARGET(s)
+#endif
+
+#if __has_attribute(target_clones)
+    #define MEL_TARGET_CLONES(s) __attribute__((target_clones(s)))
+#else
+    #define MEL_TARGET_CLONES(s)
+#endif
+
+#if __has_attribute(visibility)
+    #define MEL_VISIBILITY(v) __attribute__((visibility(v)))
+    #define MEL_EXPORT        __attribute__((visibility("default")))
+    #define MEL_HIDDEN        __attribute__((visibility("hidden")))
+#elif MEL_COMPILER_MSVC
+    #define MEL_VISIBILITY(v)
+    #define MEL_EXPORT        __declspec(dllexport)
+    #define MEL_HIDDEN
+#else
+    #define MEL_VISIBILITY(v)
+    #define MEL_EXPORT
+    #define MEL_HIDDEN
+#endif
+
+#if __has_attribute(used)
+    #define MEL_USED __attribute__((used))
+#else
+    #define MEL_USED
+#endif
+
+#if __has_attribute(error)
+    #define MEL_DIAG_ERROR(msg) __attribute__((error(msg)))
+#else
+    #define MEL_DIAG_ERROR(msg)
+#endif
+
+#if __has_attribute(warning)
+    #define MEL_DIAG_WARNING(msg) __attribute__((warning(msg)))
+#else
+    #define MEL_DIAG_WARNING(msg)
+#endif

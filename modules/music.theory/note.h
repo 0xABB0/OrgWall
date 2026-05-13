@@ -1,5 +1,7 @@
 #pragma once
 
+#include <core/compiler.h>
+
 #include "pitch.h"
 #include "interval.h"
 
@@ -30,11 +32,11 @@ struct Mel_NoteInterval
 
 void mel_note_free(Mel_Note* n);
 static inline void mel_note_cleanup(Mel_Note* n) { mel_note_free(n); }
-#define Mel_Note_AUTO __attribute__((cleanup(mel_note_cleanup))) Mel_Note
+#define Mel_Note_AUTO MEL_CLEANUP(mel_note_cleanup) Mel_Note
 
 void mel_note_interval_free(Mel_NoteInterval* ni);
 static inline void mel_note_interval_cleanup(Mel_NoteInterval* ni) { mel_note_interval_free(ni); }
-#define Mel_NoteInterval_AUTO __attribute__((cleanup(mel_note_interval_cleanup))) Mel_NoteInterval
+#define Mel_NoteInterval_AUTO MEL_CLEANUP(mel_note_interval_cleanup) Mel_NoteInterval
 
 Mel_Note mel_note_copy(Mel_Note n);
 

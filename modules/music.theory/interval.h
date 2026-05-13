@@ -1,5 +1,7 @@
 #pragma once
 
+#include <core/compiler.h>
+
 #include <stdint.h>
 #include <mpfr.h>
 #include "tuning.h"
@@ -17,7 +19,7 @@ struct Mel_Interval
 
 void mel_interval_free(Mel_Interval* i);
 static inline void mel_interval_cleanup(Mel_Interval* i) { mel_interval_free(i); }
-#define Mel_Interval_AUTO __attribute__((cleanup(mel_interval_cleanup))) Mel_Interval
+#define Mel_Interval_AUTO MEL_CLEANUP(mel_interval_cleanup) Mel_Interval
 
 Mel_Interval mel_interval_from_pitches(Mel_Pitch source, Mel_Pitch target);
 

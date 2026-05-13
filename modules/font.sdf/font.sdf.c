@@ -1,4 +1,5 @@
 #include "font.sdf.h"
+#include <core/compiler.h>
 #include "font.desc.h"
 #include "text.material.h"
 #include "render.material_base.h"
@@ -130,7 +131,7 @@ static void mel__font_sdf_wire(void)
     });
 }
 
-__attribute__((constructor))
+MEL_CONSTRUCTOR
 static void mel__font_sdf_register(void)
 {
     mel__boot_register_wire(mel__font_sdf_wire);

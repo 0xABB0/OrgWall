@@ -1,4 +1,5 @@
 #include "frequency.h"
+#include <core/compiler.h>
 
 static inline void mel_freq_flags_restore(const mpfr_flags_t *saved)
 {
@@ -6,7 +7,7 @@ static inline void mel_freq_flags_restore(const mpfr_flags_t *saved)
 }
 
 #define MEL_FREQ_PROTECT_FLAGS \
-  __attribute__((cleanup(mel_freq_flags_restore))) \
+  MEL_CLEANUP(mel_freq_flags_restore) \
   mpfr_flags_t _mel_freq_saved_flags = mpfr_flags_save()
 
 static inline void mel_freq_bind_out(mpfr_t out, Mel_Hz *r)

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <core/compiler.h>
+
 #include "notation.h"
 #include "note.h"
 #include "symbol.h"
@@ -28,7 +30,7 @@ struct Mel_NatAccNotation
 
 void mel_nat_acc_notation_free(Mel_NatAccNotation* nn);
 static inline void mel_nat_acc_notation_cleanup(Mel_NatAccNotation* nn) { mel_nat_acc_notation_free(nn); }
-#define Mel_NatAccNotation_AUTO __attribute__((cleanup(mel_nat_acc_notation_cleanup))) Mel_NatAccNotation
+#define Mel_NatAccNotation_AUTO MEL_CLEANUP(mel_nat_acc_notation_cleanup) Mel_NatAccNotation
 
 Mel_NatAccNotation mel_nat_acc_notation_make(const Mel_Tuning* tuning);
 

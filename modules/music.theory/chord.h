@@ -1,5 +1,7 @@
 #pragma once
 
+#include <core/compiler.h>
+
 #include "tuning.h"
 #include "interval.h"
 #include "interval_seq.h"
@@ -14,7 +16,7 @@ struct Mel_Chord
 
 void mel_chord_free(Mel_Chord* c);
 static inline void mel_chord_cleanup(Mel_Chord* c) { mel_chord_free(c); }
-#define Mel_Chord_AUTO __attribute__((cleanup(mel_chord_cleanup))) Mel_Chord
+#define Mel_Chord_AUTO MEL_CLEANUP(mel_chord_cleanup) Mel_Chord
 
 Mel_Chord mel_chord_from_root(Mel_Pitch root, Mel_IntervalSeq pattern);
 

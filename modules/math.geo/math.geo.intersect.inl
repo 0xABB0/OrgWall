@@ -3,7 +3,7 @@
 #include "math.geo.intersect.h"
 #endif
 
-[[nodiscard]] static inline Mel_Raycast_Hit mel_ray_vs_aabb(Mel_Ray ray, Mel_AABB aabb)
+MEL_NODISCARD static inline Mel_Raycast_Hit mel_ray_vs_aabb(Mel_Ray ray, Mel_AABB aabb)
 {
     Mel_Vec3 inv_dir = mel_vec3_rcp(ray.dir);
 
@@ -42,7 +42,7 @@
     return (Mel_Raycast_Hit){ .t = t, .point = point, .normal = normal, .hit = true };
 }
 
-[[nodiscard]] static inline Mel_Raycast_Hit mel_ray_vs_sphere(Mel_Ray ray, Mel_Sphere sphere)
+MEL_NODISCARD static inline Mel_Raycast_Hit mel_ray_vs_sphere(Mel_Ray ray, Mel_Sphere sphere)
 {
     Mel_Vec3 oc = mel_vec3_sub(ray.origin, sphere.center);
     f32 b = mel_vec3_dot(oc, ray.dir);
@@ -65,7 +65,7 @@
     return (Mel_Raycast_Hit){ .t = t, .point = point, .normal = normal, .hit = true };
 }
 
-[[nodiscard]] static inline Mel_Raycast_Hit mel_ray_vs_plane(Mel_Ray ray, Mel_Plane plane)
+MEL_NODISCARD static inline Mel_Raycast_Hit mel_ray_vs_plane(Mel_Ray ray, Mel_Plane plane)
 {
     Mel_Vec3 n = mel_plane_normal(plane);
     f32 denom = mel_vec3_dot(n, ray.dir);
@@ -81,34 +81,34 @@
     return (Mel_Raycast_Hit){ .t = t, .point = point, .normal = n, .hit = true };
 }
 
-[[nodiscard]] static inline bool mel_sphere_vs_sphere(Mel_Sphere a, Mel_Sphere b)
+MEL_NODISCARD static inline bool mel_sphere_vs_sphere(Mel_Sphere a, Mel_Sphere b)
 {
     f32 r = a.radius + b.radius;
     return mel_vec3_dist_sq(a.center, b.center) <= r * r;
 }
 
-[[nodiscard]] static inline bool mel_sphere_vs_aabb(Mel_Sphere s, Mel_AABB a)
+MEL_NODISCARD static inline bool mel_sphere_vs_aabb(Mel_Sphere s, Mel_AABB a)
 {
     f32 d = mel_aabb_distance_to_point(a, s.center);
     return d <= s.radius;
 }
 
-[[nodiscard]] static inline bool mel_aabb_vs_aabb(Mel_AABB a, Mel_AABB b)
+MEL_NODISCARD static inline bool mel_aabb_vs_aabb(Mel_AABB a, Mel_AABB b)
 {
     return mel_aabb_overlaps(a, b);
 }
 
-[[nodiscard]] static inline bool mel_point_in_sphere(Mel_Vec3 p, Mel_Sphere s)
+MEL_NODISCARD static inline bool mel_point_in_sphere(Mel_Vec3 p, Mel_Sphere s)
 {
     return mel_vec3_dist_sq(p, s.center) <= s.radius * s.radius;
 }
 
-[[nodiscard]] static inline bool mel_point_in_aabb(Mel_Vec3 p, Mel_AABB a)
+MEL_NODISCARD static inline bool mel_point_in_aabb(Mel_Vec3 p, Mel_AABB a)
 {
     return mel_aabb_contains_point(a, p);
 }
 
-[[nodiscard]] static inline Mel_Vec3 mel_closest_point_on_sphere(Mel_Vec3 p, Mel_Sphere s)
+MEL_NODISCARD static inline Mel_Vec3 mel_closest_point_on_sphere(Mel_Vec3 p, Mel_Sphere s)
 {
     Mel_Vec3 dir = mel_vec3_sub(p, s.center);
     f32 len = mel_vec3_len(dir);

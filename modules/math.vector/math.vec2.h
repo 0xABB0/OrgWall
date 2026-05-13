@@ -1,9 +1,11 @@
 #pragma once
 
+#include <core/compiler.h>
+
 #include "core.types.h"
 #include <math.h>
 
-typedef f32 f32x2 __attribute__((ext_vector_type(2)));
+typedef f32 f32x2 MEL_VECTOR_TYPE(2);
 
 typedef union
 {
@@ -22,25 +24,25 @@ typedef union
 #define MEL_VEC2_RIGHT ((Mel_Vec2){ .v = (f32x2){1, 0} })
 #define MEL_VEC2(x, y) ((Mel_Vec2){ .v = (f32x2){(x), (y)} })
 
-[[nodiscard]] static inline Mel_Vec2 mel_vec2(f32 x, f32 y);
-[[nodiscard]] static inline Mel_Vec2 mel_vec2_add(Mel_Vec2 a, Mel_Vec2 b);
-[[nodiscard]] static inline Mel_Vec2 mel_vec2_sub(Mel_Vec2 a, Mel_Vec2 b);
-[[nodiscard]] static inline Mel_Vec2 mel_vec2_mul(Mel_Vec2 a, Mel_Vec2 b);
-[[nodiscard]] static inline Mel_Vec2 mel_vec2_div(Mel_Vec2 a, Mel_Vec2 b);
-[[nodiscard]] static inline Mel_Vec2 mel_vec2_scale(Mel_Vec2 v, f32 s);
-[[nodiscard]] static inline Mel_Vec2 mel_vec2_negate(Mel_Vec2 v);
-[[nodiscard]] static inline f32 mel_vec2_dot(Mel_Vec2 a, Mel_Vec2 b);
-[[nodiscard]] static inline f32 mel_vec2_len_sq(Mel_Vec2 v);
-[[nodiscard]] static inline f32 mel_vec2_len(Mel_Vec2 v);
-[[nodiscard]] static inline Mel_Vec2 mel_vec2_normalize(Mel_Vec2 v);
-[[nodiscard]] static inline Mel_Vec2 mel_vec2_lerp(Mel_Vec2 a, Mel_Vec2 b, f32 t);
-[[nodiscard]] static inline f32 mel_vec2_dist_sq(Mel_Vec2 a, Mel_Vec2 b);
-[[nodiscard]] static inline f32 mel_vec2_dist(Mel_Vec2 a, Mel_Vec2 b);
-[[nodiscard]] static inline Mel_Vec2 mel_vec2_min(Mel_Vec2 a, Mel_Vec2 b);
-[[nodiscard]] static inline Mel_Vec2 mel_vec2_max(Mel_Vec2 a, Mel_Vec2 b);
-[[nodiscard]] static inline Mel_Vec2 mel_vec2_abs(Mel_Vec2 v);
-[[nodiscard]] static inline Mel_Vec2 mel_vec2_floor(Mel_Vec2 v);
-[[nodiscard]] static inline Mel_Vec2 mel_vec2_ceil(Mel_Vec2 v);
-[[nodiscard]] static inline Mel_Vec2 mel_vec2_round(Mel_Vec2 v);
+MEL_NODISCARD static inline Mel_Vec2 mel_vec2(f32 x, f32 y);
+MEL_NODISCARD static inline Mel_Vec2 mel_vec2_add(Mel_Vec2 a, Mel_Vec2 b);
+MEL_NODISCARD static inline Mel_Vec2 mel_vec2_sub(Mel_Vec2 a, Mel_Vec2 b);
+MEL_NODISCARD static inline Mel_Vec2 mel_vec2_mul(Mel_Vec2 a, Mel_Vec2 b);
+MEL_NODISCARD static inline Mel_Vec2 mel_vec2_div(Mel_Vec2 a, Mel_Vec2 b);
+MEL_NODISCARD static inline Mel_Vec2 mel_vec2_scale(Mel_Vec2 v, f32 s);
+MEL_NODISCARD static inline Mel_Vec2 mel_vec2_negate(Mel_Vec2 v);
+MEL_NODISCARD static inline f32 mel_vec2_dot(Mel_Vec2 a, Mel_Vec2 b);
+MEL_NODISCARD static inline f32 mel_vec2_len_sq(Mel_Vec2 v);
+MEL_NODISCARD static inline f32 mel_vec2_len(Mel_Vec2 v);
+MEL_NODISCARD static inline Mel_Vec2 mel_vec2_normalize(Mel_Vec2 v);
+MEL_NODISCARD static inline Mel_Vec2 mel_vec2_lerp(Mel_Vec2 a, Mel_Vec2 b, f32 t);
+MEL_NODISCARD static inline f32 mel_vec2_dist_sq(Mel_Vec2 a, Mel_Vec2 b);
+MEL_NODISCARD static inline f32 mel_vec2_dist(Mel_Vec2 a, Mel_Vec2 b);
+MEL_NODISCARD static inline Mel_Vec2 mel_vec2_min(Mel_Vec2 a, Mel_Vec2 b);
+MEL_NODISCARD static inline Mel_Vec2 mel_vec2_max(Mel_Vec2 a, Mel_Vec2 b);
+MEL_NODISCARD static inline Mel_Vec2 mel_vec2_abs(Mel_Vec2 v);
+MEL_NODISCARD static inline Mel_Vec2 mel_vec2_floor(Mel_Vec2 v);
+MEL_NODISCARD static inline Mel_Vec2 mel_vec2_ceil(Mel_Vec2 v);
+MEL_NODISCARD static inline Mel_Vec2 mel_vec2_round(Mel_Vec2 v);
 
 #include "math.vec2.inl"

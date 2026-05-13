@@ -1,5 +1,7 @@
 #pragma once
 
+#include <core/compiler.h>
+
 #include "log.cfg.h"
 #include "log.fwd.h"
 #include "string.str8.fwd.h"
@@ -48,7 +50,7 @@ struct Mel_Log_Entry {
     str8    context;
 };
 
-void mel__log(u32 level, str8 domain, const char* file, u32 line, const char* fmt, ...) __attribute__((format(printf, 5, 6)));
+void mel__log(u32 level, str8 domain, const char* file, u32 line, const char* fmt, ...) MEL_PRINTF_FORMAT(5, 6);
 
 #define MEL_LOG(level, domain, fmt, ...) mel__log((level), (str8){(u8*)(domain), sizeof(domain) - 1}, __FILE__, __LINE__, (fmt), ##__VA_ARGS__)
 
@@ -64,7 +66,7 @@ void mel_log_context_pop(void);
 void mel__log_context_cleanup(str8* tag);
 
 #define MEL_LOG_SCOPE(tag) \
-    __attribute__((cleanup(mel__log_context_cleanup))) \
+    MEL_CLEANUP(mel__log_context_cleanup) \
     str8 mel__log_scope_##__LINE__ = (mel_log_context_push(S8(tag)), S8(tag))
 
 void mel_log_set_global_frame(u64 frame);

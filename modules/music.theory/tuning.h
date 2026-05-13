@@ -1,5 +1,7 @@
 #pragma once
 
+#include <core/compiler.h>
+
 #include <stdint.h>
 #include <mpfr.h>
 #include <gmp.h>
@@ -40,7 +42,7 @@ struct Mel_Tuning
 
 void mel_tuning_free(Mel_Tuning* t);
 static inline void mel_tuning_cleanup(Mel_Tuning* t) { mel_tuning_free(t); }
-#define Mel_Tuning_AUTO __attribute__((cleanup(mel_tuning_cleanup))) Mel_Tuning
+#define Mel_Tuning_AUTO MEL_CLEANUP(mel_tuning_cleanup) Mel_Tuning
 
 Mel_Tuning mel_tuning_ed(uint32_t divisions, uint64_t eq_num, uint64_t eq_den, Mel_Hz ref_frequency);
 Mel_Tuning mel_tuning_edo(uint32_t divisions, Mel_Hz ref_frequency);

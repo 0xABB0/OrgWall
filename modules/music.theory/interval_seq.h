@@ -1,5 +1,7 @@
 #pragma once
 
+#include <core/compiler.h>
+
 #include <stdint.h>
 #include "tuning.h"
 #include "interval.h"
@@ -19,7 +21,7 @@ struct Mel_IntervalSeq
 
 void mel_interval_seq_free(Mel_IntervalSeq* s);
 static inline void mel_interval_seq_cleanup(Mel_IntervalSeq* s) { mel_interval_seq_free(s); }
-#define Mel_IntervalSeq_AUTO __attribute__((cleanup(mel_interval_seq_cleanup))) Mel_IntervalSeq
+#define Mel_IntervalSeq_AUTO MEL_CLEANUP(mel_interval_seq_cleanup) Mel_IntervalSeq
 
 Mel_IntervalSeq mel_interval_seq_make(const Mel_Tuning* tuning);
 

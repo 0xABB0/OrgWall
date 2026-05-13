@@ -4,7 +4,7 @@
 #include <mpfr.h>
 #include <gmp.h>
 
-#include "../core/compiler.h"
+#include <core/compiler.h>
 
 #define MEL_FREQ_PRECISION 256
 #define MEL_FREQ_LIMBS ((MEL_FREQ_PRECISION + GMP_NUMB_BITS - 1) / GMP_NUMB_BITS)

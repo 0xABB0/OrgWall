@@ -1,5 +1,7 @@
 #pragma once
 
+#include <core/compiler.h>
+
 #include "tuning.h"
 #include "enharmonic.h"
 
@@ -18,7 +20,7 @@ struct Mel_Notation
 
 void mel_notation_free(Mel_Notation* n);
 static inline void mel_notation_cleanup(Mel_Notation* n) { mel_notation_free(n); }
-#define Mel_Notation_AUTO __attribute__((cleanup(mel_notation_cleanup))) Mel_Notation
+#define Mel_Notation_AUTO MEL_CLEANUP(mel_notation_cleanup) Mel_Notation
 
 Mel_Notation mel_notation_make(const Mel_Tuning* tuning);
 

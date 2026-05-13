@@ -1,4 +1,5 @@
 #include "cent.h"
+#include <core/compiler.h>
 #include "../time.frequency/frequency.h"
 
 static inline void mel_cent_flags_restore(const mpfr_flags_t* saved)
@@ -7,7 +8,7 @@ static inline void mel_cent_flags_restore(const mpfr_flags_t* saved)
 }
 
 #define MEL_CENT_PROTECT_FLAGS \
-  __attribute__((cleanup(mel_cent_flags_restore))) \
+  MEL_CLEANUP(mel_cent_flags_restore) \
   mpfr_flags_t _mel_cent_saved_flags = mpfr_flags_save()
 
 static inline void mel_cent_bind_out(mpfr_t out, Mel_Cent* r)
@@ -28,7 +29,7 @@ static inline void mel_cent_scratch(mpfr_t out, mp_limb_t* limbs)
   mpfr_custom_init_set(out, MPFR_REGULAR_KIND, 0, MEL_CENT_PRECISION, limbs);
 }
 
-Mel_Cent __attribute__((overloadable)) mel_cent(double value)
+Mel_Cent MEL_OVERLOADABLE mel_cent(double value)
 {
   MEL_CENT_PROTECT_FLAGS;
   Mel_Cent c;
@@ -39,7 +40,7 @@ Mel_Cent __attribute__((overloadable)) mel_cent(double value)
   return c;
 }
 
-Mel_Cent __attribute__((overloadable)) mel_cent(mpfr_srcptr value)
+Mel_Cent MEL_OVERLOADABLE mel_cent(mpfr_srcptr value)
 {
   MEL_CENT_PROTECT_FLAGS;
   Mel_Cent c;
@@ -154,7 +155,7 @@ Mel_Cent mel_cent_neg(Mel_Cent c)
   return r;
 }
 
-Mel_Cent __attribute__((overloadable)) mel_cent_mul(Mel_Cent c, mpfr_srcptr scalar)
+Mel_Cent MEL_OVERLOADABLE mel_cent_mul(Mel_Cent c, mpfr_srcptr scalar)
 {
   MEL_CENT_PROTECT_FLAGS;
   Mel_Cent r;
@@ -166,7 +167,7 @@ Mel_Cent __attribute__((overloadable)) mel_cent_mul(Mel_Cent c, mpfr_srcptr scal
   return r;
 }
 
-Mel_Cent __attribute__((overloadable)) mel_cent_mul(Mel_Cent c, double scalar)
+Mel_Cent MEL_OVERLOADABLE mel_cent_mul(Mel_Cent c, double scalar)
 {
   MEL_CENT_PROTECT_FLAGS;
   Mel_Cent r;
@@ -178,7 +179,7 @@ Mel_Cent __attribute__((overloadable)) mel_cent_mul(Mel_Cent c, double scalar)
   return r;
 }
 
-Mel_Cent __attribute__((overloadable)) mel_cent_div(Mel_Cent c, mpfr_srcptr scalar)
+Mel_Cent MEL_OVERLOADABLE mel_cent_div(Mel_Cent c, mpfr_srcptr scalar)
 {
   MEL_CENT_PROTECT_FLAGS;
   Mel_Cent r;
@@ -190,7 +191,7 @@ Mel_Cent __attribute__((overloadable)) mel_cent_div(Mel_Cent c, mpfr_srcptr scal
   return r;
 }
 
-Mel_Cent __attribute__((overloadable)) mel_cent_div(Mel_Cent c, double scalar)
+Mel_Cent MEL_OVERLOADABLE mel_cent_div(Mel_Cent c, double scalar)
 {
   MEL_CENT_PROTECT_FLAGS;
   Mel_Cent r;

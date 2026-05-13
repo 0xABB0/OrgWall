@@ -1,5 +1,7 @@
 #pragma once
 
+#include <core/compiler.h>
+
 #include "core.types.h"
 #include "string.str8.fwd.h"
 #include "server.fwd.h"
@@ -22,8 +24,8 @@ void  mel_server_conn_user_data_set  (Mel_Server_Handle s, Mel_Server_Conn_Handl
 i32   mel_server_conn_close          (Mel_Server_Handle s, Mel_Server_Conn_Handle c);
 
 i32   mel_server_ws_send_text        (Mel_Server_Handle s, Mel_Server_Conn_Handle c, str8 data);
-i32   mel_server_ws_send_textf       (Mel_Server_Handle s, Mel_Server_Conn_Handle c, const char* fmt, ...) __attribute__((format(printf, 3, 4)));
+i32   mel_server_ws_send_textf       (Mel_Server_Handle s, Mel_Server_Conn_Handle c, const char* fmt, ...) MEL_PRINTF_FORMAT(3, 4);
 i32   mel_server_ws_send_bytes       (Mel_Server_Handle s, Mel_Server_Conn_Handle c, const void* p, usize n);
 
 i32   mel_server_ws_broadcast_text   (Mel_Server_Handle s, const char* path, str8 data);
-i32   mel_server_ws_broadcast_textf  (Mel_Server_Handle s, const char* path, const char* fmt, ...) __attribute__((format(printf, 3, 4)));
+i32   mel_server_ws_broadcast_textf  (Mel_Server_Handle s, const char* path, const char* fmt, ...) MEL_PRINTF_FORMAT(3, 4);

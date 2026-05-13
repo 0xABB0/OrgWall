@@ -1,5 +1,7 @@
 #pragma once
 
+#include <core/compiler.h>
+
 #include <stdint.h>
 
 typedef struct Mel_SymbolCode Mel_SymbolCode;
@@ -21,7 +23,7 @@ struct Mel_SymbolCode
 
 void mel_symbol_code_free(Mel_SymbolCode* sc);
 static inline void mel_symbol_code_cleanup(Mel_SymbolCode* sc) { mel_symbol_code_free(sc); }
-#define Mel_SymbolCode_AUTO __attribute__((cleanup(mel_symbol_code_cleanup))) Mel_SymbolCode
+#define Mel_SymbolCode_AUTO MEL_CLEANUP(mel_symbol_code_cleanup) Mel_SymbolCode
 
 Mel_SymbolCode mel_symbol_code_make(void);
 

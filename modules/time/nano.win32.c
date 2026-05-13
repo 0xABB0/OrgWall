@@ -1,4 +1,5 @@
 #include "nano.h"
+#include <core/compiler.h>
 
 #ifdef _WIN32
 
@@ -6,7 +7,7 @@
 
 static LARGE_INTEGER Frequency = {0};
 
-__attribute__((constructor))
+MEL_CONSTRUCTOR
 static void mel_nano_win32_init(void)
 {
     QueryPerformanceFrequency(&Frequency);

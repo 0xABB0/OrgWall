@@ -1,5 +1,7 @@
 #pragma once
 
+#include <core/compiler.h>
+
 #include "core.types.h"
 #include "string.str8.fwd.h"
 #include "server.fwd.h"
@@ -29,7 +31,7 @@ str8                  mel_server_rpc_params_json  (Mel_Server_RPC_Req* r);
 Mel_Server_Conn_Handle mel_server_rpc_conn        (Mel_Server_RPC_Req* r);
 void*                 mel_server_rpc_user_data    (Mel_Server_RPC_Req* r);
 
-void                  mel_server_rpc_ok           (Mel_Server_RPC_Req* r, const char* result_fmt, ...) __attribute__((format(printf, 2, 3)));
+void                  mel_server_rpc_ok           (Mel_Server_RPC_Req* r, const char* result_fmt, ...) MEL_PRINTF_FORMAT(2, 3);
 void                  mel_server_rpc_err          (Mel_Server_RPC_Req* r, i32 code, const char* msg);
 
 #define MEL_SERVER_RPC_ERR_PARSE          -32700

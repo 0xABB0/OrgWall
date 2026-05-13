@@ -1,4 +1,5 @@
 #include "log.h"
+#include <core/compiler.h>
 
 #if !MEL_LOG_DISABLED
 
@@ -695,7 +696,7 @@ void mel__log_signal(u32 level, const char* static_message)
     mel__ring_commit(&ring, pos);
 }
 
-__attribute__((constructor(101)))
+MEL_CONSTRUCTOR_PRIO(101)
 static void mel__log_init(void)
 {
     mel__ring_init(&ring, MEL_LOG_RING_SIZE);
@@ -722,7 +723,7 @@ static void mel__log_init(void)
     mel_log_sink_add(mel_log_sink_console_create(.color = true));
 }
 
-__attribute__((destructor(101)))
+MEL_DESTRUCTOR_PRIO(101)
 static void mel__log_shutdown(void)
 {
     if (atomic_load_explicit(&writer_running, memory_order_acquire))
