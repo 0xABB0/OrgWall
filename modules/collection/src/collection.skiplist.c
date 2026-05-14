@@ -1,5 +1,5 @@
 #include <allocator/allocator.h>
-#include <collection.skiplist/collection.skiplist.h>
+#include <collection.skiplist/skiplist.h>
 
 static u64 mel__skiplist_xorshift64(u64* state)
 {

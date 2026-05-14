@@ -2,8 +2,8 @@
 
 #include <core/types.h>
 
-#include "cfg.h"
-#include <allocator/fwd.h>
+#include "pool.cfg.h"
+#include <allocator/allocator.fwd.h>
 #include <stdatomic.h>
 
 #define MEL_POOL_NULL_INDEX 0xFFFFFFFFu
@@ -35,4 +35,4 @@ inline static bool  mel_pool_owns(Mel_Pool* pool, void* ptr);
 void  mel_pool_reset(Mel_Pool* pool);
 Mel_Alloc mel_pool_to_alloc(Mel_Pool* pool);
 
-#include "collection.pool.inl"
+#include "pool.inl"

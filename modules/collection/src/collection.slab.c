@@ -1,4 +1,4 @@
-#include <collection.slab/collection.slab.h>
+#include <collection.slab/slab.h>
 #include <string.h>
 
 void mel_slab_init(Mel_Slab_Alloc* slab, Mel_Slab_Class* class_storage, Mel_Slab_Class_Desc* classes, i32 class_count)

@@ -3,7 +3,7 @@
 #include <core/types.h>
 #include <async.fiber/fiber.h>
 #include <async.coroutine/coroutine.cfg.h>
-#include <allocator/fwd.h>
+#include <allocator/allocator.fwd.h>
 
 typedef struct Mel_Coro_Context Mel_Coro_Context;
 

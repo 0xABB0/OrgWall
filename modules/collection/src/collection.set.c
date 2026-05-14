@@ -1,4 +1,4 @@
-#include <collection.set/collection.set.h>
+#include <collection.set/set.h>
 #include <collection.map.hashmap/hashmap.h>
 
 void mel_set_init(Mel_Set* s, Mel_HashMap_Hash hash_fn, Mel_HashMap_Eq eq_fn, const Mel_Alloc* alloc)

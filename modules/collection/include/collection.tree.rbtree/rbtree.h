@@ -1,7 +1,7 @@
 #pragma once
 
 #include <core/types.h>
-#include <allocator/fwd.h>
+#include <allocator/allocator.fwd.h>
 
 #define MEL_RB_RED   0
 #define MEL_RB_BLACK 1

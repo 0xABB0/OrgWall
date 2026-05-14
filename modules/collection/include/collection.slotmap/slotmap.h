@@ -1,7 +1,7 @@
 #pragma once
 
 #include <core/types.h>
-#include <allocator/fwd.h>
+#include <allocator/allocator.fwd.h>
 #include <collection.slotmap/slotmap.fwd.h>
 
 #define MEL_SLOTMAP_SENTINEL UINT32_MAX

@@ -1,7 +1,7 @@
 #pragma once
 #include <core/types.h>
-#include "cfg.h"
-#include <collection.pool/collection.pool.h>
+#include "slab.cfg.h"
+#include <collection.pool/pool.h>
 
 typedef struct Mel_Slab_Class {
     Mel_Pool pool;
@@ -29,4 +29,4 @@ void* mel_slab_alloc(Mel_Slab_Alloc* slab, usize size);
 void  mel_slab_free(Mel_Slab_Alloc* slab, void* ptr);
 void  mel_slab_reset(Mel_Slab_Alloc* slab);
 
-#include "collection.slab.inl"
+#include "slab.inl"

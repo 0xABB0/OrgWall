@@ -1,6 +1,6 @@
 #pragma once
 
-#include "fwd.h"
+#include "ring.fwd.h"
 #include <allocator/allocator.h>
 
 #define mel_ring_init(r, cap, alloc) do { \

@@ -1,7 +1,7 @@
 #pragma once
 
 #include <core/types.h>
-#include <allocator/fwd.h>
+#include <allocator/allocator.fwd.h>
 
 typedef struct Mel_BitSet Mel_BitSet;
 struct Mel_BitSet

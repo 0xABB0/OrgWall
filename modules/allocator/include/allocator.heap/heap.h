@@ -1,6 +1,6 @@
 #pragma once
 
-#include <allocator/fwd.h>
+#include <allocator/allocator.fwd.h>
 #include <core/types.h>
 
 const Mel_Alloc* mel_alloc_heap(void);

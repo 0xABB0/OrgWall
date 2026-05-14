@@ -2,7 +2,7 @@
 
 #include <core/types.h>
 
-#include "cfg.h"
+#include "arena.cfg.h"
 
 typedef struct Mel_Arena {
     u8*   base;
@@ -47,4 +47,4 @@ inline static Mel_Arena_Scratch mel_arena_scratch_begin(Mel_Arena* a);
 inline static void              mel_arena_scratch_discard(Mel_Arena_Scratch);
 inline static void              mel_arena_scratch_keep(Mel_Arena_Scratch);
 
-#include "allocator.arena.inl"
+#include "arena.inl"

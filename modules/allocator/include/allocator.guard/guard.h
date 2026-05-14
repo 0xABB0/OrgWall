@@ -1,7 +1,7 @@
 #pragma once
 
-#include "cfg.h"
-#include <allocator/fwd.h>
+#include "guard.cfg.h"
+#include <allocator/allocator.fwd.h>
 #include <core/types.h>
 
 typedef struct Mel_Guard_Allocator Mel_Guard_Allocator;

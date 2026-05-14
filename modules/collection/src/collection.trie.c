@@ -1,4 +1,4 @@
-#include <collection.trie/collection.trie.h>
+#include <collection.trie/trie.h>
 #include <allocator/allocator.h>
 
 static Mel_TrieNode* mel__trie_node_create(const Mel_Alloc* alloc)

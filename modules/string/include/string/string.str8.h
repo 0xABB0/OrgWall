@@ -3,10 +3,10 @@
 #include <core/compiler.h>
 
 #include "string.str8.fwd.h"
-#include <allocator/fwd.h>
-#include <allocator.arena/fwd.h>
-#include <collection.array/collection.array.h>
-#include <allocator.heap/allocator.heap.h>
+#include <allocator/allocator.fwd.h>
+#include <allocator.arena/arena.fwd.h>
+#include <collection.array/array.h>
+#include <allocator.heap/heap.h>
 
 #include <string.h>
 #include <stdarg.h>

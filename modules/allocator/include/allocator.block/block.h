@@ -1,6 +1,6 @@
 #pragma once
 #include <core/types.h>
-#include "cfg.h"
+#include "block.cfg.h"
 
 typedef struct Mel_Block_Header {
     usize size;
@@ -35,4 +35,4 @@ bool           mel_block_iter_end(Mel_Block_Iter* iter);
 #define mel_block_push_struct(a, T) (T*)mel_block_push((a), sizeof(T), _Alignof(T))
 #define mel_block_push_array(a, T, count) (T*)mel_block_push((a), sizeof(T) * (count), _Alignof(T))
 
-#include "allocator.block.inl"
+#include "block.inl"

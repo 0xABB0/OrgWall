@@ -1,7 +1,7 @@
 #pragma once
 
 #include <core/types.h>
-#include <allocator/fwd.h>
+#include <allocator/allocator.fwd.h>
 #include "server.fwd.h"
 #include "server.cfg.h"
 

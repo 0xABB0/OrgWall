@@ -1,4 +1,4 @@
-#include <allocator.buddy/allocator.buddy.h>
+#include <allocator.buddy/buddy.h>
 #include <string.h>
 #include <stdlib.h>
 

@@ -1,7 +1,7 @@
 #pragma once
 
 #ifdef _CLANGD
-#include "allocator.arena.h"
+#include "arena.h"
 #endif
 
 #include <string.h>

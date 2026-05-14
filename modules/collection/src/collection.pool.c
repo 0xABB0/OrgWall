@@ -1,5 +1,5 @@
 #include <allocator/allocator.h>
-#include <collection.pool/collection.pool.h>
+#include <collection.pool/pool.h>
 
 void mel_pool_init_opt(Mel_Pool* pool, void* buffer, usize buffer_size, Mel_Pool_Init_Opt opt)
 {

@@ -1,5 +1,5 @@
 #pragma once
 
 #ifdef _CLANGD
-#include "allocator.stack.h"
+#include "stack.h"
 #endif

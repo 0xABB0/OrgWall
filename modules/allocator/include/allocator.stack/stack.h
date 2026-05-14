@@ -1,7 +1,7 @@
 #pragma once
 
 #include <core/types.h>
-#include "cfg.h"
+#include "stack.cfg.h"
 
 typedef struct Mel_Stack_Header {
     usize prev_offset;
@@ -36,4 +36,4 @@ void  mel_stack_reset(Mel_Stack_Alloc* stack);
 #define mel_stack_push_struct(s, T) (T*)mel_stack_push((s), sizeof(T), _Alignof(T))
 #define mel_stack_push_array(s, T, count) (T*)mel_stack_push((s), sizeof(T) * (count), _Alignof(T))
 
-#include "allocator.stack.inl"
+#include "stack.inl"

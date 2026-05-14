@@ -1,7 +1,7 @@
 #pragma once
 
 #include <core/types.h>
-#include <allocator/fwd.h>
+#include <allocator/allocator.fwd.h>
 #include <stdatomic.h>
 
 typedef struct Mel_Wsq_Array Mel_Wsq_Array;

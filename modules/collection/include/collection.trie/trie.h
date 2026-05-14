@@ -1,6 +1,6 @@
 #pragma once
 #include <core/types.h>
-#include <allocator/fwd.h>
+#include <allocator/allocator.fwd.h>
 
 #include <string.h>
 

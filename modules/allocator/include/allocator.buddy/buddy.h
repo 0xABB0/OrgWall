@@ -1,6 +1,6 @@
 #pragma once
 #include <core/types.h>
-#include "cfg.h"
+#include "buddy.cfg.h"
 
 #define MEL_BUDDY_FREE  0
 #define MEL_BUDDY_SPLIT 1
@@ -34,4 +34,4 @@ void* mel_buddy_alloc(Mel_Buddy_Alloc* buddy, usize size);
 void  mel_buddy_free(Mel_Buddy_Alloc* buddy, void* ptr);
 void  mel_buddy_reset(Mel_Buddy_Alloc* buddy);
 
-#include "allocator.buddy.inl"
+#include "buddy.inl"

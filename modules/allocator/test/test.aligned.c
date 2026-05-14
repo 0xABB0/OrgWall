@@ -1,6 +1,6 @@
-#include <allocator.guard/allocator.guard.h>
+#include <allocator.guard/guard.h>
 #include <allocator/allocator.h>
-#include <allocator.heap/allocator.heap.h>
+#include <allocator.heap/heap.h>
 #include "test.harness.h"
 
 MEL_TEST(allocator_guard_aligned_alloc_roundtrip, .tags = "allocator")

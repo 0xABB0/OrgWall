@@ -1,6 +1,6 @@
 #pragma once
 #include <core/types.h>
-#include "cfg.h"
+#include "ring.cfg.h"
 
 typedef struct Mel_Ring_Header {
     usize size;
@@ -30,4 +30,4 @@ usize  mel_ring_available(Mel_Ring_Alloc* ring);
 #define mel_ring_push_struct(r, T) (T*)mel_ring_push((r), sizeof(T))
 #define mel_ring_push_array(r, T, count) (T*)mel_ring_push((r), sizeof(T) * (count))
 
-#include "allocator.ring.inl"
+#include "ring.inl"

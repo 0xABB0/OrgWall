@@ -1,4 +1,4 @@
-#include <collection.rcu/collection.rcu.h>
+#include <collection.rcu/rcu.h>
 #include <allocator/allocator.h>
 #include <SDL3/SDL.h>
 #include <stdatomic.h>

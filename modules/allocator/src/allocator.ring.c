@@ -1,4 +1,4 @@
-#include <allocator.ring/allocator.ring.h>
+#include <allocator.ring/ring.h>
 #include <string.h>
 
 void mel_ring_init(Mel_Ring_Alloc* ring, void* buffer, usize size)

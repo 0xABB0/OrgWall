@@ -1,7 +1,7 @@
 #pragma once
 
 #ifdef _CLANGD
-#include "collection.pool.h"
+#include "pool.h"
 #endif
 
 static inline u32 mel__pool_tag_index(u64 tag) { return (u32)(tag & 0xFFFFFFFF); }

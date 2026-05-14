@@ -1,8 +1,8 @@
 #pragma once
 
 #include <core/types.h>
-#include <collection.array/collection.array.h>
-#include <allocator.heap/allocator.heap.h>
+#include <collection.array/array.h>
+#include <allocator.heap/heap.h>
 #include <log/log.h>
 
 #ifdef _WIN32

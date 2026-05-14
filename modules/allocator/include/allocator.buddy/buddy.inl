@@ -1,5 +1,5 @@
 #pragma once
 
 #ifdef _CLANGD
-#include "allocator.block.h"
+#include "buddy.h"
 #endif

@@ -1,6 +1,6 @@
 #pragma once
 
-#include <allocator/fwd.h>
+#include <allocator/allocator.fwd.h>
 #include <core/types.h>
 
 typedef void (*Mel_Leak_Report_Cb)(const char* file, const char* func, u32 line, usize size, void* user_data);

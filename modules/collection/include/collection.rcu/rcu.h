@@ -1,7 +1,7 @@
 #pragma once
 
-#include "fwd.h"
-#include <allocator/fwd.h>
+#include "rcu.fwd.h"
+#include <allocator/allocator.fwd.h>
 
 typedef struct SDL_Mutex SDL_Mutex;
 typedef struct Mel__Rcu_Garbage Mel__Rcu_Garbage;

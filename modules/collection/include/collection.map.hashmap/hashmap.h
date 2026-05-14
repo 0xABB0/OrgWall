@@ -1,7 +1,7 @@
 #pragma once
 
 #include <core/types.h>
-#include <allocator/fwd.h>
+#include <allocator/allocator.fwd.h>
 
 #define MEL_HASHMAP_EMPTY    0
 #define MEL_HASHMAP_OCCUPIED 1

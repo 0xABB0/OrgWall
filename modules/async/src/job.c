@@ -2,9 +2,9 @@
 #include <async.signal/signal.h>
 #include <async.fiber/fiber.h>
 #include <allocator/allocator.h>
-#include <allocator.heap/allocator.heap.h>
-#include <allocator.vmem/allocator.vmem.h>
-#include <collection.mpmc/collection.mpmc.h>
+#include <allocator.heap/heap.h>
+#include <allocator.vmem/vmem.h>
+#include <collection.mpmc/mpmc.h>
 #include <collection.workstealingqueue/wsq.h>
 
 #include <SDL3/SDL.h>

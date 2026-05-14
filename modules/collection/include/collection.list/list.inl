@@ -1,7 +1,7 @@
 #pragma once
 
 #ifdef _CLANGD
-#include "collection.list.h"
+#include "list.h"
 #endif
 
 static inline void mel_list_init(Mel_ListNode* node)

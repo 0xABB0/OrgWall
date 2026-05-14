@@ -1,5 +1,5 @@
-#include <allocator.heap/allocator.heap.h>
-#include <allocator.guard/allocator.guard.h>
+#include <allocator.heap/heap.h>
+#include <allocator.guard/guard.h>
 #include <allocator/allocator.h>
 
 #include <assert.h>

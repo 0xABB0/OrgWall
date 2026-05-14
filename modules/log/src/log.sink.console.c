@@ -2,10 +2,10 @@
 
 #if !MEL_LOG_DISABLED
 
-#include <log.sink/log.sink.h>
-#include <log.sink.console/log.sink.console.h>
+#include <log.sink/sink.h>
+#include <log.sink.console/sink.console.h>
 #include <allocator/allocator.h>
-#include <allocator.heap/allocator.heap.h>
+#include <allocator.heap/heap.h>
 
 #include <stdio.h>
 #include <inttypes.h>

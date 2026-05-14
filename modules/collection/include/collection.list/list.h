@@ -31,4 +31,4 @@ static inline Mel_ListNode* mel_list_back(Mel_ListNode* head);
 static inline void mel_list_splice(Mel_ListNode* dst, Mel_ListNode* src);
 static inline usize mel_list_count(Mel_ListNode* head);
 
-#include "collection.list.inl"
+#include "list.inl"

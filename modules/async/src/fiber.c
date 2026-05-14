@@ -1,5 +1,5 @@
 #include <async.fiber/fiber.h>
-#include <allocator.vmem/allocator.vmem.h>
+#include <allocator.vmem/vmem.h>
 
 Mel_Fiber_Transfer jump_fcontext(Mel_Fiber to, void* user);
 Mel_Fiber          make_fcontext(void* sp, usize size, Mel_Fiber_Cb cb);
