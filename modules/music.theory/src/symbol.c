@@ -1,4 +1,4 @@
-#include "symbol.h"
+#include <music.theory/symbol.h>
 #include <stdlib.h>
 #include <string.h>
 

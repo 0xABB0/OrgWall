@@ -1,6 +1,6 @@
-#include "scale.h"
-#include "interval_seq.h"
-#include "pitch.h"
+#include <music.theory/scale.h>
+#include <music.theory/interval_seq.h>
+#include <music.theory/pitch.h>
 #include <stdlib.h>
 #include <string.h>
 

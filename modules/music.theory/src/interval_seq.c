@@ -1,5 +1,5 @@
-#include "interval_seq.h"
-#include "scale.h"
+#include <music.theory/interval_seq.h>
+#include <music.theory/scale.h>
 #include <stdlib.h>
 #include <string.h>
 

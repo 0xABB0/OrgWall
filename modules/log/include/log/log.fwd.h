@@ -1,6 +1,6 @@
 #pragma once
 
-#include "core.types.h"
+#include <core/types.h>
 
 typedef struct Mel_Log_Entry Mel_Log_Entry;
 typedef struct Mel_Log_Sink Mel_Log_Sink;

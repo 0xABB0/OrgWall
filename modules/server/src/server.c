@@ -1,23 +1,23 @@
-#include "core.types.h"
-#include "allocator.h"
-#include "string.str8.h"
-#include "log.h"
-#include "collection.array.h"
-#include "collection.hashmap.h"
-#include "collection.slotmap.h"
-#include "collection.mpmc.h"
+#include <core/types.h>
+#include <allocator/allocator.h>
+#include <string/string.str8.h>
+#include <log/log.h>
+#include <collection.array/collection.array.h>
+#include <collection.map.hashmap/hashmap.h>
+#include <collection.slotmap/slotmap.h>
+#include <collection.mpmc/collection.mpmc.h>
 
-#include "server.fwd.h"
-#include "server.cfg.h"
-#include "server.h"
-#include "server.req.h"
-#include "server.http.h"
-#include "server.ws.h"
-#include "server.rpc.h"
-#include "server.pubsub.h"
-#include "server.tls.h"
+#include <server/server.fwd.h>
+#include <server/server.cfg.h>
+#include <server/server.h>
+#include <server/server.req.h>
+#include <server/server.http.h>
+#include <server/server.ws.h>
+#include <server/server.rpc.h>
+#include <server/server.pubsub.h>
+#include <server/server.tls.h>
 
-#include "mongoose.h"
+#include <server/mongoose.h>
 
 #include <stdarg.h>
 #include <string.h>

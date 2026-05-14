@@ -1,4 +1,4 @@
-#include "tuning.h"
+#include <music.theory/tuning.h>
 #include <stdlib.h>
 
 #define MEL_TUNING_PRECISION 256

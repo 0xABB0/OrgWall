@@ -1,5 +1,5 @@
-#include "nat_acc.h"
-#include "pitch.h"
+#include <music.theory/nat_acc.h>
+#include <music.theory/pitch.h>
 #include <stdlib.h>
 #include <string.h>
 

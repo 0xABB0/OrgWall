@@ -1,4 +1,4 @@
-#include "pitch.h"
+#include <music.theory/pitch.h>
 #include <stdlib.h>
 
 Mel_Pitch mel_pitch_make(const Mel_Tuning* tuning, int64_t pitch_index)

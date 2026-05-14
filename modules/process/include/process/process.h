@@ -1,9 +1,9 @@
 #pragma once
 
-#include "core.types.h"
-#include "collection.array.h"
-#include "allocator.heap.h"
-#include "log.h"
+#include <core/types.h>
+#include <collection.array/collection.array.h>
+#include <allocator.heap/allocator.heap.h>
+#include <log/log.h>
 
 #ifdef _WIN32
 #include <Windows.h>

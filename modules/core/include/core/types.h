@@ -29,3 +29,12 @@ static_assert(sizeof(f32) == 4, "f32 must be 4 bytes");
 static_assert(sizeof(f64) == 8, "f64 must be 8 bytes");
 
 #define MEL_UNUSED(x) ((void)(x))
+
+#ifdef __cplusplus
+template<class T, size_t N> char (&mel__countof_helper(T (&)[N]))[N];
+#define countof(a)    (size)(sizeof(mel__countof_helper(a)))
+#else
+#define countof(a)    (size)(sizeof(a) / sizeof(*(a)) \
+    + 0 * sizeof(char[1 - 2 * __builtin_types_compatible_p(__typeof__(a), __typeof__(&(a)[0]))]))
+#endif
+#define lengthof(s)   (countof(s) - 1)

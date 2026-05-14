@@ -1,4 +1,4 @@
-#include "scala.h"
+#include <music.theory/scala.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>

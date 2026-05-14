@@ -2,8 +2,8 @@
 
 #include <core/compiler.h>
 
-#include "core.types.h"
-#include "string.str8.fwd.h"
+#include <core/types.h>
+#include <string/string.str8.fwd.h>
 #include "server.fwd.h"
 
 str8                      mel_server_req_method     (Mel_Server_Req* req);

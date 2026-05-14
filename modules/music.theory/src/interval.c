@@ -1,6 +1,6 @@
-#include "interval.h"
-#include "cent.h"
-#include "pitch.h"
+#include <music.theory/interval.h>
+#include <music.theory/cent.h>
+#include <music.theory/pitch.h>
 #include <stdlib.h>
 
 #define MEL_INTERVAL_PRECISION 256

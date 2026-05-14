@@ -1,13 +1,13 @@
-#include "log.h"
+#include <log/log.h>
 #include <core/compiler.h>
 
 #if !MEL_LOG_DISABLED
 
-#include "log.sink.h"
-#include "log.sink.console.h"
-#include "allocator.h"
-#include "allocator.heap.h"
-#include "string.str8.h"
+#include <log.sink/log.sink.h>
+#include <log.sink.console/log.sink.console.h>
+#include <allocator/allocator.h>
+#include <allocator.heap/allocator.heap.h>
+#include <string/string.str8.h>
 
 #include <SDL3/SDL.h>
 #include <stdatomic.h>

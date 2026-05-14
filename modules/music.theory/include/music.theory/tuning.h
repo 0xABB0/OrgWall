@@ -5,7 +5,7 @@
 #include <stdint.h>
 #include <mpfr.h>
 #include <gmp.h>
-#include "../time.frequency/frequency.h"
+#include <time.frequency/frequency.h>
 
 typedef struct Mel_Tuning Mel_Tuning;
 

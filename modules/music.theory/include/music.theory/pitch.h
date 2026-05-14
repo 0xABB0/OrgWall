@@ -3,7 +3,7 @@
 #include <stdint.h>
 #include <mpfr.h>
 #include "tuning.h"
-#include "../time.frequency/frequency.h"
+#include <time.frequency/frequency.h>
 
 typedef struct Mel_Pitch Mel_Pitch;
 

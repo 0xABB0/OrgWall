@@ -1,7 +1,7 @@
-#include "notation.h"
-#include "note.h"
-#include "note_scale.h"
-#include "note_interval_seq.h"
+#include <music.theory/notation.h>
+#include <music.theory/note.h>
+#include <music.theory/note_scale.h>
+#include <music.theory/note_interval_seq.h>
 #include <stdlib.h>
 
 void mel_notation_free(Mel_Notation* n)
