@@ -3,7 +3,6 @@
 #include <core/types.h>
 
 typedef struct Mel_Gui_Handle__* Mel_Gui_Handle;
-typedef struct Mel_Gui_Backend Mel_Gui_Backend;
 typedef struct Mel_Gui_Class_Desc Mel_Gui_Class_Desc;
 typedef struct Mel_Gui_Create_Desc Mel_Gui_Create_Desc;
 typedef struct Mel_Gui_Message Mel_Gui_Message;

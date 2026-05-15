@@ -17,18 +17,18 @@ enum {
 };
 
 enum {
-    MEL_GUI_WS_NONE        = 0,
-    MEL_GUI_WS_CHILD       = 1u << 0,
-    MEL_GUI_WS_VISIBLE     = 1u << 1,
-    MEL_GUI_WS_DISABLED    = 1u << 2,
-    MEL_GUI_WS_TABSTOP     = 1u << 3,
-    MEL_GUI_WS_CLIPCHILDREN= 1u << 4,
-    MEL_GUI_WS_OVERLAPPED  = 1u << 5,
-    MEL_GUI_WS_TITLED      = 1u << 6,
-    MEL_GUI_WS_RESIZABLE   = 1u << 7,
-    MEL_GUI_WS_CLOSABLE    = 1u << 8,
-    MEL_GUI_WS_MINIMIZABLE = 1u << 9,
-    MEL_GUI_WS_MAXIMIZABLE = 1u << 10,
+    MEL_GUI_WS_NONE         = 0,
+    MEL_GUI_WS_CHILD        = 1u << 0,
+    MEL_GUI_WS_VISIBLE      = 1u << 1,
+    MEL_GUI_WS_DISABLED     = 1u << 2,
+    MEL_GUI_WS_TABSTOP      = 1u << 3,
+    MEL_GUI_WS_CLIPCHILDREN = 1u << 4,
+    MEL_GUI_WS_OVERLAPPED   = 1u << 5,
+    MEL_GUI_WS_TITLED       = 1u << 6,
+    MEL_GUI_WS_RESIZABLE    = 1u << 7,
+    MEL_GUI_WS_CLOSABLE     = 1u << 8,
+    MEL_GUI_WS_MINIMIZABLE  = 1u << 9,
+    MEL_GUI_WS_MAXIMIZABLE  = 1u << 10,
 };
 
 enum {
@@ -73,14 +73,9 @@ enum {
     MEL_GUI_MSG_USER = 0x4000,
 };
 
-#define MEL_GUI_CLASS_WINDOW S8("mel.window")
-#define MEL_GUI_CLASS_PANEL  S8("mel.panel")
-#define MEL_GUI_CLASS_LABEL  S8("mel.label")
-#define MEL_GUI_CLASS_BUTTON S8("mel.button")
-#define MEL_GUI_CLASS_EDIT   S8("mel.edit")
-
 struct Mel_Gui_Class_Desc {
     str8 name;
+    str8 base_name;
     u32 style;
     Mel_Gui_Proc proc;
 };
@@ -107,27 +102,7 @@ struct Mel_Gui_Message {
     Mel_Gui_LParam lparam;
 };
 
-struct Mel_Gui_Backend {
-    bool (*init)(void);
-    void (*shutdown)(void);
-
-    Mel_Gui_Atom (*register_class)(const Mel_Gui_Class_Desc* desc);
-    Mel_Gui_Handle (*create)(const Mel_Gui_Create_Desc* desc);
-    void (*destroy)(Mel_Gui_Handle h);
-
-    Mel_Gui_Result (*send_message)(Mel_Gui_Handle h, Mel_Gui_Msg msg, Mel_Gui_WParam wparam, Mel_Gui_LParam lparam);
-    bool (*post_message)(Mel_Gui_Handle h, Mel_Gui_Msg msg, Mel_Gui_WParam wparam, Mel_Gui_LParam lparam);
-    bool (*get_message)(Mel_Gui_Message* out);
-    Mel_Gui_Result (*dispatch_message)(const Mel_Gui_Message* message);
-
-    void (*show)(Mel_Gui_Handle h, bool visible);
-    void (*enable)(Mel_Gui_Handle h, bool enabled);
-    void (*set_text)(Mel_Gui_Handle h, str8 text);
-    void (*set_rect)(Mel_Gui_Handle h, i32 x, i32 y, i32 width, i32 height);
-    void* (*native_handle)(Mel_Gui_Handle h);
-};
-
-bool mel_gui_init(const Mel_Gui_Backend* backend);
+bool mel_gui_init(void);
 void mel_gui_shutdown(void);
 
 Mel_Gui_Atom mel_gui_register_class(const Mel_Gui_Class_Desc* desc);
@@ -144,36 +119,7 @@ void mel_gui_enable(Mel_Gui_Handle h, bool enabled);
 void mel_gui_set_text(Mel_Gui_Handle h, str8 text);
 void mel_gui_set_rect(Mel_Gui_Handle h, i32 x, i32 y, i32 width, i32 height);
 void* mel_gui_native_handle(Mel_Gui_Handle h);
-
-static inline Mel_Gui_Handle mel_gui_create_window(str8 title, i32 w, i32 h, Mel_Gui_Proc proc, void* user)
-{
-    Mel_Gui_Create_Desc desc = {
-        .class_name = MEL_GUI_CLASS_WINDOW,
-        .text = title,
-        .style = MEL_GUI_WS_WINDOW | MEL_GUI_WS_VISIBLE,
-        .x = (i32)MEL_GUI_USE_DEFAULT,
-        .y = (i32)MEL_GUI_USE_DEFAULT,
-        .w = w,
-        .h = h,
-        .proc = proc,
-        .user = user,
-    };
-    return mel_gui_create(&desc);
-}
-
-static inline Mel_Gui_Handle mel_gui_create_child(
-    Mel_Gui_Handle parent, str8 class_name, str8 text, u32 id, i32 x, i32 y, i32 w, i32 h)
-{
-    Mel_Gui_Create_Desc desc = {
-        .class_name = class_name,
-        .text = text,
-        .style = MEL_GUI_WS_CHILD | MEL_GUI_WS_VISIBLE | MEL_GUI_WS_TABSTOP,
-        .x = x,
-        .y = y,
-        .w = w,
-        .h = h,
-        .parent = parent,
-        .id = id,
-    };
-    return mel_gui_create(&desc);
-}
+Mel_Gui_Handle mel_gui_parent(Mel_Gui_Handle h);
+u32 mel_gui_id(Mel_Gui_Handle h);
+void* mel_gui_user(Mel_Gui_Handle h);
+void mel_gui_set_user(Mel_Gui_Handle h, void* user);

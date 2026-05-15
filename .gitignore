@@ -40,6 +40,8 @@
 # debug information files
 *.dwo
 .idea
+.project
+.settings/
 cmake-build-debug
 .vs
 out/build/x64-Debug
@@ -62,8 +64,10 @@ compile_commands.json
 
 # Android / Gradle
 .gradle/
+.cxx/
 local.properties
 captures/
+apps/android/app/src/main/jniLibs/
 *.apk
 *.ap_
 *.aab
