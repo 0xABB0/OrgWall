@@ -59,3 +59,11 @@ bought_assets
 .letta/claude
 .superset
 compile_commands.json
+
+# Android / Gradle
+.gradle/
+local.properties
+captures/
+*.apk
+*.ap_
+*.aab
