@@ -894,6 +894,8 @@ static bool macos_build_app(const char *app_name) {
     cmd_append(&cmd, temp_sprintf("-L%s", target_lib(target_host())));
     cmd_append(&cmd, "-lmelody", "-lmpfr", "-lgmp", "-lSDL3", "-lsqlite3");
     cmd_append(&cmd, "-framework", "Cocoa");
+    cmd_append(&cmd, "-framework", "CoreMIDI");
+    cmd_append(&cmd, "-framework", "CoreFoundation");
     cmd_append(&cmd, "-o", bin);
     if (!cmd_run_sync_and_reset(&cmd)) return false;
 
@@ -904,6 +906,132 @@ static bool macos_build_app(const char *app_name) {
 static bool macos_launch(const char *app_name) {
     Cmd cmd = {0};
     cmd_append(&cmd, macos_binary_path(app_name));
+    return cmd_run_sync_and_reset(&cmd);
+}
+
+static const char *windows_binary_path(const char *app_name) {
+    return temp_sprintf("%s/windows/%s/%s.exe", BUILD_DIR, app_name, app_name);
+}
+
+static bool windows_build_app(const char *app_name) {
+    if (!build_library()) return false;
+
+    Layout L = {0};
+    if (!discover_for_platform(&L, "windows")) return false;
+
+    File_Paths bridge_sources = {0};
+    for (size_t i = 0; i < L.sources.count; i++) {
+        const char *s = L.sources.items[i];
+        if (source_is_bridge(s)) da_append(&bridge_sources, s);
+    }
+
+    File_Paths app_sources = {0};
+    if (!collect_dir_sources(temp_sprintf("%s/%s/src", APPS_DIR, app_name), &app_sources)) return false;
+    if (app_sources.count == 0) {
+        nob_log(NOB_ERROR, "no app sources found under %s/%s/src", APPS_DIR, app_name);
+        return false;
+    }
+
+    const char *out_dir = temp_sprintf("%s/windows/%s", BUILD_DIR, app_name);
+    if (!mkdir_if_not_exists(temp_sprintf("%s/windows", BUILD_DIR))) return false;
+    if (!mkdir_if_not_exists(out_dir)) return false;
+
+    File_Paths link_objs = {0};
+    for (size_t i = 0; i < bridge_sources.count; i++) {
+        const char *src = bridge_sources.items[i];
+        const char *obj = object_for(src);
+        if (!target_compile_one(target_host(), &L, src, obj, NULL)) return false;
+        da_append(&link_objs, obj);
+    }
+    for (size_t i = 0; i < app_sources.count; i++) {
+        const char *src = app_sources.items[i];
+        const char *obj = object_for(src);
+        if (!target_compile_one(target_host(), &L, src, obj, NULL)) return false;
+        da_append(&link_objs, obj);
+    }
+
+    const char *bin = windows_binary_path(app_name);
+
+    Cmd cmd = {0};
+    cmd_append(&cmd, "clang");
+    for (size_t i = 0; i < link_objs.count; i++) cmd_append(&cmd, link_objs.items[i]);
+    cmd_append(&cmd, "-L" BUILD_DIR);
+    cmd_append(&cmd, temp_sprintf("-L%s", target_lib(target_host())));
+    cmd_append(&cmd, "-lmelody", "-lmpfr", "-lgmp", "-lSDL3", "-lsqlite3");
+    cmd_append(&cmd, "-lwinmm");
+    cmd_append(&cmd, "-o", bin);
+    if (!cmd_run_sync_and_reset(&cmd)) return false;
+
+    nob_log(NOB_INFO, "wrote %s", bin);
+    return true;
+}
+
+static bool windows_launch(const char *app_name) {
+    Cmd cmd = {0};
+    cmd_append(&cmd, windows_binary_path(app_name));
+    return cmd_run_sync_and_reset(&cmd);
+}
+
+static const char *linux_binary_path(const char *app_name) {
+    return temp_sprintf("%s/linux/%s/%s", BUILD_DIR, app_name, app_name);
+}
+
+static bool linux_build_app(const char *app_name) {
+    if (!build_library()) return false;
+
+    Layout L = {0};
+    if (!discover_for_platform(&L, "linux")) return false;
+
+    File_Paths bridge_sources = {0};
+    for (size_t i = 0; i < L.sources.count; i++) {
+        const char *s = L.sources.items[i];
+        if (source_is_bridge(s)) da_append(&bridge_sources, s);
+    }
+
+    File_Paths app_sources = {0};
+    if (!collect_dir_sources(temp_sprintf("%s/%s/src", APPS_DIR, app_name), &app_sources)) return false;
+    if (app_sources.count == 0) {
+        nob_log(NOB_ERROR, "no app sources found under %s/%s/src", APPS_DIR, app_name);
+        return false;
+    }
+
+    const char *out_dir = temp_sprintf("%s/linux/%s", BUILD_DIR, app_name);
+    if (!mkdir_if_not_exists(temp_sprintf("%s/linux", BUILD_DIR))) return false;
+    if (!mkdir_if_not_exists(out_dir)) return false;
+
+    File_Paths link_objs = {0};
+    for (size_t i = 0; i < bridge_sources.count; i++) {
+        const char *src = bridge_sources.items[i];
+        const char *obj = object_for(src);
+        if (!target_compile_one(target_host(), &L, src, obj, NULL)) return false;
+        da_append(&link_objs, obj);
+    }
+    for (size_t i = 0; i < app_sources.count; i++) {
+        const char *src = app_sources.items[i];
+        const char *obj = object_for(src);
+        if (!target_compile_one(target_host(), &L, src, obj, NULL)) return false;
+        da_append(&link_objs, obj);
+    }
+
+    const char *bin = linux_binary_path(app_name);
+
+    Cmd cmd = {0};
+    cmd_append(&cmd, "clang");
+    for (size_t i = 0; i < link_objs.count; i++) cmd_append(&cmd, link_objs.items[i]);
+    cmd_append(&cmd, "-L" BUILD_DIR);
+    cmd_append(&cmd, temp_sprintf("-L%s", target_lib(target_host())));
+    cmd_append(&cmd, "-lmelody", "-lmpfr", "-lgmp", "-lSDL3", "-lsqlite3");
+    cmd_append(&cmd, "-lasound", "-lpthread", "-lm");
+    cmd_append(&cmd, "-o", bin);
+    if (!cmd_run_sync_and_reset(&cmd)) return false;
+
+    nob_log(NOB_INFO, "wrote %s", bin);
+    return true;
+}
+
+static bool linux_launch(const char *app_name) {
+    Cmd cmd = {0};
+    cmd_append(&cmd, linux_binary_path(app_name));
     return cmd_run_sync_and_reset(&cmd);
 }
 
@@ -931,6 +1059,18 @@ static int run_app_command(const char *cmd, int argc, char **argv) {
         if (!macos_build_app(name)) return 1;
         if (strcmp(cmd, "build") == 0) return 0;
         return macos_launch(name) ? 0 : 1;
+    }
+
+    if (strcmp(platform, "windows") == 0) {
+        if (!windows_build_app(name)) return 1;
+        if (strcmp(cmd, "build") == 0) return 0;
+        return windows_launch(name) ? 0 : 1;
+    }
+
+    if (strcmp(platform, "linux") == 0) {
+        if (!linux_build_app(name)) return 1;
+        if (strcmp(cmd, "build") == 0) return 0;
+        return linux_launch(name) ? 0 : 1;
     }
 
     nob_log(NOB_ERROR, "platform '%s' is not implemented yet", platform);
