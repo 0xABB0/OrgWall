@@ -1,4 +1,4 @@
-#include <music.midi/midi_port.h>
+#include <music.midi/midi_port_priv.h>
 
 #include <core/platform.h>
 

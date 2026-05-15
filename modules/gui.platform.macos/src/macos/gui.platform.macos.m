@@ -181,20 +181,21 @@ void* mel_gui_platform_create(Mel_Gui_Handle h, const Mel_Gui_Create_Desc* desc,
     NSView* v = cb(h, desc);
     if (v == nil) return NULL;
 
-    NSView* parent_view = nil;
+    NSView* parent_view;
     if (!mel_gui_handle_is_none(desc->parent)) {
         void* p = mel_gui_platform_native(desc->parent);
-        if (p != NULL) parent_view = (__bridge NSView*)p;
+        parent_view = p != NULL ? (__bridge NSView*)p : nil;
     } else {
         parent_view = mel__macos_root;
     }
 
-    if (v != mel__macos_root && v.superview == nil && parent_view != nil) {
-        CGFloat x = (desc->x == MEL_GUI_DEFAULT_POSITION) ? 0 : (CGFloat)desc->x;
-        CGFloat y = (desc->y == MEL_GUI_DEFAULT_POSITION) ? 0 : (CGFloat)desc->y;
-        CGFloat w = (CGFloat)desc->w;
-        CGFloat hgt = (CGFloat)desc->h;
-        [v setFrame:NSMakeRect(x, y, w, hgt)];
+    if (parent_view != nil && v.superview == nil) {
+        NSRect frame = v.frame;
+        if (desc->x != MEL_GUI_DEFAULT_POSITION) frame.origin.x = (CGFloat)desc->x;
+        if (desc->y != MEL_GUI_DEFAULT_POSITION) frame.origin.y = (CGFloat)desc->y;
+        if (desc->w > 0) frame.size.width  = (CGFloat)desc->w;
+        if (desc->h > 0) frame.size.height = (CGFloat)desc->h;
+        [v setFrame:frame];
         [parent_view addSubview:v];
     }
 
@@ -206,7 +207,7 @@ void mel_gui_platform_destroy(Mel_Gui_Handle h)
     void* native = mel_gui_platform_native(h);
     if (native == NULL) return;
     NSView* v = (__bridge_transfer NSView*)native;
-    if (v != mel__macos_root) [v removeFromSuperview];
+    [v removeFromSuperview];
     mel_gui_platform_bind_native(h, NULL);
     (void)v;
 }

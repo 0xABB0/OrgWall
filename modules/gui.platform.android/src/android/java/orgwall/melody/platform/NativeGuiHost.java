@@ -45,7 +45,11 @@ public final class NativeGuiHost {
 
     public Activity getActivity() { return activity; }
 
-    public View createWindow() { return root; }
+    public View createWindow() {
+        return new FrameLayout(activity);
+    }
+
+    public View getRoot() { return root; }
 
     public View createButton(String text) {
         Button b = new Button(activity);
@@ -114,12 +118,13 @@ public final class NativeGuiHost {
     }
 
     public void attach(View parent, View view, int x, int y, int w, int h) {
-        if (view == null || view.getParent() != null) return;
-        ViewGroup target = (parent instanceof ViewGroup) ? (ViewGroup) parent : root;
-        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(dp(w), dp(h));
+        if (view == null || !(parent instanceof ViewGroup) || view.getParent() != null) return;
+        int width  = (w > 0) ? dp(w) : ViewGroup.LayoutParams.MATCH_PARENT;
+        int height = (h > 0) ? dp(h) : ViewGroup.LayoutParams.MATCH_PARENT;
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(width, height);
         params.leftMargin = dp(x);
         params.topMargin = dp(y);
-        target.addView(view, params);
+        ((ViewGroup) parent).addView(view, params);
     }
 
     public void detach(View view) {

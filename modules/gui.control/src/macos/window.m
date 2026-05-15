@@ -3,6 +3,12 @@
 #include <gui.control/window.h>
 #include <gui.platform.macos/gui.platform.macos.h>
 
+@interface MelWindowView : NSView
+@end
+@implementation MelWindowView
+- (BOOL)isFlipped { return YES; }
+@end
+
 static NSView* mel__window_construct(Mel_Gui_Handle h, const Mel_Gui_Create_Desc* desc)
 {
     (void)h;
@@ -14,7 +20,10 @@ static NSView* mel__window_construct(Mel_Gui_Handle h, const Mel_Gui_Create_Desc
         if (title) [mel_gui_macos_window() setTitle:title];
     }
 
-    return mel_gui_macos_root();
+    NSView* root = mel_gui_macos_root();
+    MelWindowView* v = [[MelWindowView alloc] initWithFrame:root.bounds];
+    v.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+    return v;
 }
 
 void mel_gui_window_platform_register(Mel_Atom atom)

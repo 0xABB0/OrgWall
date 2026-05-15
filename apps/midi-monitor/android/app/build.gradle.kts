@@ -5,11 +5,11 @@ plugins {
 val melodyRoot = rootProject.projectDir.parentFile.parentFile.parentFile
 
 android {
-    namespace = "orgwall.helloworld"
+    namespace = "orgwall.midimonitor"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "orgwall.helloworld"
+        applicationId = "orgwall.midimonitor"
         minSdk = 23
         targetSdk = 36
         versionCode = 1

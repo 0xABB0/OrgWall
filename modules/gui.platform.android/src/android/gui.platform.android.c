@@ -25,6 +25,7 @@ static jmethodID mel__a_set_window_pos;
 static jmethodID mel__a_bind_handle;
 static jmethodID mel__a_start_activity;
 static jmethodID mel__a_get_activity;
+static jmethodID mel__a_get_root;
 static jmethodID mel__a_post;
 static jmethodID mel__a_request_exit;
 
@@ -166,12 +167,13 @@ bool mel_gui_android_attach(JavaVM* vm, JNIEnv* env, jobject host)
     mel__a_bind_handle    = (*env)->GetMethodID(env, mel__a_host_class, "bindNativeHandle","(Landroid/view/View;J)V");
     mel__a_start_activity = (*env)->GetMethodID(env, mel__a_host_class, "scheduleStartActivity", "(Ljava/lang/String;)V");
     mel__a_get_activity   = (*env)->GetMethodID(env, mel__a_host_class, "getActivity",    "()Landroid/app/Activity;");
+    mel__a_get_root       = (*env)->GetMethodID(env, mel__a_host_class, "getRoot",        "()Landroid/view/View;");
     mel__a_post           = (*env)->GetMethodID(env, mel__a_host_class, "post",           "(JIJJ)V");
     mel__a_request_exit   = (*env)->GetMethodID(env, mel__a_host_class, "requestExit",    "()V");
 
     return mel__a_attach != NULL && mel__a_set_text != NULL && mel__a_set_window_pos != NULL
         && mel__a_bind_handle != NULL && mel__a_start_activity != NULL && mel__a_get_activity != NULL
-        && mel__a_post != NULL && mel__a_request_exit != NULL;
+        && mel__a_get_root != NULL && mel__a_post != NULL && mel__a_request_exit != NULL;
 }
 
 bool mel_gui_platform_init(void)  { return true; }
@@ -213,15 +215,20 @@ void* mel_gui_platform_create(Mel_Gui_Handle h, const Mel_Gui_Create_Desc* desc,
 
     jobject global = (*env)->NewGlobalRef(env, local);
 
-    jobject parent_view = NULL;
+    jobject parent_view;
     if (!mel_gui_handle_is_none(desc->parent)) {
         parent_view = (jobject)mel_gui_platform_native(desc->parent);
+    } else {
+        parent_view = (*env)->CallObjectMethod(env, mel__a_host, mel__a_get_root);
     }
 
     jlong packed = (jlong)((u64)h.handle.generation << 32 | (u64)h.handle.index);
     (*env)->CallVoidMethod(env, mel__a_host, mel__a_attach, parent_view, local, desc->x, desc->y, desc->w, desc->h);
     (*env)->CallVoidMethod(env, mel__a_host, mel__a_bind_handle, local, packed);
 
+    if (mel_gui_handle_is_none(desc->parent)) {
+        (*env)->DeleteLocalRef(env, parent_view);
+    }
     (*env)->DeleteLocalRef(env, local);
     return global;
 }

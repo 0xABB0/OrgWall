@@ -1,32 +1,10 @@
-#include <music.midi/midi_port.h>
+#include <music.midi/midi_port_priv.h>
 
 #include <core/compiler.h>
 #include <core/platform.h>
 
 #include <stdlib.h>
 #include <string.h>
-
-// ── Port struct ────────────────────────────────────────────────────────────
-
-struct Mel_Midi_Port
-{
-    int32_t id;
-    char*   name;
-    bool    is_open;
-
-    // Opaque platform handle (HMIDIIN on Windows, MIDIPortRef on macOS, etc.)
-    void* platform_handle;
-
-    // Ring buffer for incoming chunks (filled by platform callback)
-    Mel_Midi_Chunk* ring;
-    int32_t ring_capacity;
-    volatile int32_t ring_read;
-    volatile int32_t ring_write;
-
-    // Platform-specific synchronisation primitive
-    void* platform_lock;
-    void* platform_signal;
-};
 
 // ── Platform hooks (implemented in src/<platform>/midi_port_<platform>.c) ──
 
