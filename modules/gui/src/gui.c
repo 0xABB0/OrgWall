@@ -1,239 +1,451 @@
-#include <gui/gui.platform.h>
+#include <gui/gui.h>
+#include <gui.platform/gui.platform.h>
 
+#include <allocator/allocator.h>
 #include <allocator.heap/heap.h>
 #include <collection.array/array.h>
-#include <stdlib.h>
+#include <collection.slotmap/slotmap.h>
+#include <string/string.str8.h>
+#include <string/table.h>
 
-typedef struct Mel_Gui_Class_Storage {
-    char name[64];
-    char base_name[64];
-    u32 style;
+typedef struct Mel_Gui_Class {
+    Mel_Atom     atom;
+    Mel_Atom     base;
+    u32          style;
     Mel_Gui_Proc proc;
-} Mel_Gui_Class_Storage;
+} Mel_Gui_Class;
 
-static Mel_Array(Mel_Gui_Class_Storage) mel__gui_classes;
-static bool mel__gui_initialized;
+typedef struct Mel_Gui_Window {
+    Mel_Gui_Handle self;
+    Mel_Atom       class_atom;
+    Mel_Gui_Handle parent;
+    u32            id;
+    u32            style;
+    void*          user;
+    void*          native;
+    Mel_Array(Mel_Gui_Proc) chain;
+} Mel_Gui_Window;
 
-static void mel__gui_ensure_classes(void)
+#define MEL_GUI_FRAME_STACK_CAP 64u
+
+typedef struct Mel_Gui_Frame {
+    Mel_Gui_Handle h;
+    i32            chain_idx;
+} Mel_Gui_Frame;
+
+static _Thread_local Mel_Gui_Frame mel__gui_frames[MEL_GUI_FRAME_STACK_CAP];
+static _Thread_local i32           mel__gui_frame_top = -1;
+
+static Mel_Atom_Table*           mel__gui_atoms;
+static Mel_Array(Mel_Gui_Class)  mel__gui_classes;
+static Mel_SlotMap               mel__gui_windows;
+static bool                      mel__gui_initialized;
+
+static const Mel_Alloc* mel__gui_alloc(void) { return mel_alloc_heap(); }
+
+static Mel_Gui_Window* mel__gui_window_get(Mel_Gui_Handle h)
 {
-    if (mel__gui_classes.allocator == NULL) {
-        mel_array_init(&mel__gui_classes, mel_alloc_heap());
-    }
+    if (!mel__gui_initialized) return NULL;
+    return (Mel_Gui_Window*)mel_slotmap_get(&mel__gui_windows, h.handle);
 }
 
-static void mel__gui_cstr_from_str8(str8 s, char* buf, size buf_size)
+static Mel_Gui_Class* mel__gui_class_get(Mel_Atom atom)
 {
-    if (buf_size == 0) return;
-    size n = str8_to_buf(s, buf, buf_size - 1);
-    buf[n] = 0;
-}
-
-static Mel_Gui_Class_Storage* mel__gui_class_storage_from_name(str8 name)
-{
-    if (mel__gui_classes.allocator == NULL) return NULL;
-
-    for (usize i = 0; i < mel__gui_classes.count; i += 1) {
-        if (str8_equals(str8_from_cstr(mel__gui_classes.items[i].name), name)) {
-            return &mel__gui_classes.items[i];
-        }
-    }
-    return NULL;
+    if (atom == MEL_ATOM_NONE) return NULL;
+    if ((usize)atom > mel__gui_classes.count) return NULL;
+    Mel_Gui_Class* c = &mel__gui_classes.items[atom - 1u];
+    return c->atom == atom ? c : NULL;
 }
 
 bool mel_gui_init(void)
 {
-    if (!mel__gui_initialized) {
-        mel__gui_ensure_classes();
-        if (!mel_gui_platform_init()) return false;
-        mel__gui_initialized = true;
+    if (mel__gui_initialized) return true;
+
+    const Mel_Alloc* alloc = mel__gui_alloc();
+
+    mel__gui_atoms = mel_atom_table_create(alloc);
+    if (mel__gui_atoms == NULL) return false;
+
+    mel_array_init(&mel__gui_classes, alloc);
+    mel_slotmap_init(&mel__gui_windows, alloc, .item_size = sizeof(Mel_Gui_Window), .initial_capacity = 32);
+
+    mel__gui_initialized = true;
+
+    if (!mel_gui_platform_init()) {
+        mel_gui_shutdown();
+        return false;
     }
     return true;
 }
 
 void mel_gui_shutdown(void)
 {
-    if (mel__gui_initialized) {
-        mel_gui_platform_shutdown();
-        mel__gui_initialized = false;
+    if (!mel__gui_initialized) return;
+
+    mel_gui_platform_shutdown();
+
+    u32 count = mel_slotmap_count(&mel__gui_windows);
+    Mel_Gui_Window* data = (Mel_Gui_Window*)mel_slotmap_data(&mel__gui_windows);
+    for (u32 i = 0; i < count; i++) {
+        mel_array_free(&data[i].chain);
     }
 
-    if (mel__gui_classes.allocator != NULL) {
-        mel_array_free(&mel__gui_classes);
-        mel__gui_classes.allocator = NULL;
+    mel_slotmap_free(&mel__gui_windows);
+    mel_array_free(&mel__gui_classes);
+    mel_atom_table_destroy(mel__gui_atoms);
+    mel__gui_atoms = NULL;
+    mel__gui_initialized = false;
+}
+
+bool mel_gui_is_initialized(void) { return mel__gui_initialized; }
+
+Mel_Atom_Table* mel_gui_atom_table(void) { return mel__gui_atoms; }
+
+Mel_Atom mel_gui_register_class(const Mel_Gui_Class_Desc* desc)
+{
+    if (desc == NULL || str8_is_empty(desc->name) || desc->proc == NULL) return MEL_ATOM_NONE;
+    if (!mel_gui_init()) return MEL_ATOM_NONE;
+
+    Mel_Atom atom = mel_atom_intern(mel__gui_atoms, desc->name);
+    if (atom == MEL_ATOM_NONE) return MEL_ATOM_NONE;
+
+    while ((usize)atom > mel__gui_classes.count) {
+        mel_array_push(&mel__gui_classes, ((Mel_Gui_Class){0}));
+    }
+
+    Mel_Gui_Class* c = &mel__gui_classes.items[atom - 1u];
+    c->atom  = atom;
+    c->base  = desc->base_class;
+    c->style = desc->style;
+    c->proc  = desc->proc;
+    return atom;
+}
+
+Mel_Atom mel_gui_class_atom(str8 name)
+{
+    if (!mel__gui_initialized) return MEL_ATOM_NONE;
+    return mel_atom_lookup(mel__gui_atoms, name);
+}
+
+Mel_Atom mel_gui_class_base(Mel_Atom class_atom)
+{
+    Mel_Gui_Class* c = mel__gui_class_get(class_atom);
+    return c ? c->base : MEL_ATOM_NONE;
+}
+
+str8 mel_gui_class_name(Mel_Atom class_atom)
+{
+    return mel_atom_get(mel__gui_atoms, class_atom);
+}
+
+#define MEL_GUI_CLASS_CHAIN_MAX 32u
+
+static u32 mel__gui_class_chain(Mel_Atom class_atom, Mel_Atom out[MEL_GUI_CLASS_CHAIN_MAX])
+{
+    u32 n = 0;
+    Mel_Atom cur = class_atom;
+    while (cur != MEL_ATOM_NONE && n < MEL_GUI_CLASS_CHAIN_MAX) {
+        Mel_Gui_Class* c = mel__gui_class_get(cur);
+        if (c == NULL) break;
+        out[n++] = cur;
+        cur = c->base;
+    }
+    return n;
+}
+
+static Mel_Gui_Result mel__gui_dispatch(Mel_Gui_Window* w, Mel_Gui_Msg msg, Mel_Gui_WParam wp, Mel_Gui_LParam lp)
+{
+    if (mel__gui_frame_top + 1 >= (i32)MEL_GUI_FRAME_STACK_CAP) return MEL_GUI_ERR_PLATFORM;
+
+    mel__gui_frame_top += 1;
+    mel__gui_frames[mel__gui_frame_top].h         = w->self;
+    mel__gui_frames[mel__gui_frame_top].chain_idx = (i32)w->chain.count - 1;
+
+    Mel_Gui_Result r = MEL_GUI_OK;
+    if (w->chain.count > 0) {
+        Mel_Gui_Proc top_proc = w->chain.items[w->chain.count - 1u];
+        r = top_proc(w->self, msg, wp, lp);
+    } else {
+        r = mel_gui_def_proc(w->self, msg, wp, lp);
+    }
+
+    mel__gui_frame_top -= 1;
+    return r;
+}
+
+Mel_Gui_Result mel_gui_send_message(Mel_Gui_Handle h, Mel_Gui_Msg msg, Mel_Gui_WParam wp, Mel_Gui_LParam lp)
+{
+    if (!mel__gui_initialized) return MEL_GUI_ERR_NOT_INITIALIZED;
+    Mel_Gui_Window* w = mel__gui_window_get(h);
+    if (w == NULL) return MEL_GUI_ERR_INVALID_HANDLE;
+    return mel__gui_dispatch(w, msg, wp, lp);
+}
+
+Mel_Gui_Result mel_gui_call_super(Mel_Gui_Handle h, Mel_Gui_Msg msg, Mel_Gui_WParam wp, Mel_Gui_LParam lp)
+{
+    if (mel__gui_frame_top < 0) return mel_gui_def_proc(h, msg, wp, lp);
+
+    Mel_Gui_Frame* f = &mel__gui_frames[mel__gui_frame_top];
+    if (!mel_gui_handle_eq(f->h, h)) return MEL_GUI_ERR_INVALID_HANDLE;
+
+    f->chain_idx -= 1;
+    if (f->chain_idx < 0) return mel_gui_def_proc(h, msg, wp, lp);
+
+    Mel_Gui_Window* w = mel__gui_window_get(h);
+    if (w == NULL) return MEL_GUI_ERR_INVALID_HANDLE;
+    if ((u32)f->chain_idx >= w->chain.count) return mel_gui_def_proc(h, msg, wp, lp);
+
+    Mel_Gui_Proc p = w->chain.items[f->chain_idx];
+    return p(h, msg, wp, lp);
+}
+
+Mel_Gui_Result mel_gui_def_proc(Mel_Gui_Handle h, Mel_Gui_Msg msg, Mel_Gui_WParam wp, Mel_Gui_LParam lp)
+{
+    (void)wp;
+    (void)lp;
+    switch (msg) {
+        case MEL_GUI_MSG_CLOSE:
+            mel_gui_destroy(h);
+            return MEL_GUI_OK;
+        default:
+            return MEL_GUI_OK;
     }
 }
 
-Mel_Gui_Atom mel_gui_register_class(const Mel_Gui_Class_Desc* desc)
+bool mel_gui_post_message(Mel_Gui_Handle h, Mel_Gui_Msg msg, Mel_Gui_WParam wp, Mel_Gui_LParam lp)
 {
-    if (desc == NULL || str8_is_empty(desc->name)) return MEL_GUI_ATOM_NONE;
+    if (!mel__gui_initialized) return false;
+    if (mel__gui_window_get(h) == NULL) return false;
+    return mel_gui_platform_post_message(h, msg, wp, lp);
+}
 
-    mel__gui_ensure_classes();
-    Mel_Gui_Class_Storage* cls = mel__gui_class_storage_from_name(desc->name);
-    if (cls == NULL) {
-        mel_array_push(&mel__gui_classes, ((Mel_Gui_Class_Storage){0}));
-        cls = &mel_array_last(&mel__gui_classes);
+bool mel_gui_attach_proc(Mel_Gui_Handle h, Mel_Gui_Proc proc)
+{
+    if (proc == NULL) return false;
+    Mel_Gui_Window* w = mel__gui_window_get(h);
+    if (w == NULL) return false;
+    mel_array_push(&w->chain, proc);
+    return true;
+}
+
+bool mel_gui_detach_proc(Mel_Gui_Handle h, Mel_Gui_Proc proc)
+{
+    Mel_Gui_Window* w = mel__gui_window_get(h);
+    if (w == NULL || proc == NULL) return false;
+    for (usize i = w->chain.count; i > 0; i--) {
+        if (w->chain.items[i - 1u] == proc) {
+            for (usize j = i - 1u; j + 1u < w->chain.count; j++) {
+                w->chain.items[j] = w->chain.items[j + 1u];
+            }
+            w->chain.count -= 1;
+            return true;
+        }
     }
-
-    mel__gui_cstr_from_str8(desc->name, cls->name, (size)sizeof(cls->name));
-    mel__gui_cstr_from_str8(str8_is_empty(desc->base_name) ? desc->name : desc->base_name, cls->base_name, (size)sizeof(cls->base_name));
-    cls->style = desc->style;
-    cls->proc = desc->proc;
-
-    return (Mel_Gui_Atom)(cls - mel__gui_classes.items + 1);
+    return false;
 }
 
 Mel_Gui_Handle mel_gui_create(const Mel_Gui_Create_Desc* desc)
 {
-    if (desc == NULL || str8_is_empty(desc->class_name)) return NULL;
-    if (!mel_gui_init()) return NULL;
+    if (desc == NULL) return MEL_GUI_HANDLE_NONE;
+    if (!mel_gui_init()) return MEL_GUI_HANDLE_NONE;
 
-    Mel_Gui_Class_Storage* cls = mel__gui_class_storage_from_name(desc->class_name);
-    str8 platform_class_name = desc->class_name;
-    if (cls != NULL && cls->base_name[0] != 0) {
-        platform_class_name = str8_from_cstr(cls->base_name);
+    Mel_Atom chain[MEL_GUI_CLASS_CHAIN_MAX];
+    u32 chain_len = mel__gui_class_chain(desc->class_atom, chain);
+    if (chain_len == 0) return MEL_GUI_HANDLE_NONE;
+
+    Mel_Gui_Class* most_derived = mel__gui_class_get(chain[0]);
+
+    Mel_Gui_Window w0 = {0};
+    w0.class_atom = desc->class_atom;
+    w0.parent     = desc->parent;
+    w0.id         = desc->id;
+    w0.style      = desc->style | most_derived->style;
+    w0.user       = desc->user;
+    mel_array_init(&w0.chain, mel__gui_alloc());
+    for (u32 i = chain_len; i > 0; i--) {
+        Mel_Gui_Class* c = mel__gui_class_get(chain[i - 1u]);
+        if (c != NULL && c->proc != NULL) {
+            mel_array_push(&w0.chain, c->proc);
+        }
+    }
+    if (desc->proc != NULL && (w0.chain.count == 0 || mel_array_last(&w0.chain) != desc->proc)) {
+        mel_array_push(&w0.chain, desc->proc);
     }
 
-    Mel_Gui_Handle h = calloc(1, sizeof(*h));
-    if (h == NULL) return NULL;
+    Mel_SlotMap_Handle sh = mel_slotmap_insert(&mel__gui_windows, &w0);
+    Mel_Gui_Handle h = (Mel_Gui_Handle){ .handle = sh };
 
-    h->parent = desc->parent;
-    h->id = desc->id;
-    h->class_atom = cls ? (Mel_Gui_Atom)(cls - mel__gui_classes.items + 1) : MEL_GUI_ATOM_NONE;
-    h->proc = desc->proc ? desc->proc : (cls ? cls->proc : NULL);
-    h->user = desc->user;
+    Mel_Gui_Window* w = (Mel_Gui_Window*)mel_slotmap_get(&mel__gui_windows, sh);
+    if (w == NULL) {
+        mel_array_free(&w0.chain);
+        return MEL_GUI_HANDLE_NONE;
+    }
+    w->self = h;
 
-    if (!mel_gui_platform_realize(h, desc, platform_class_name)) {
-        free(h);
-        return NULL;
+    Mel_Gui_Result nc = mel__gui_dispatch(w, MEL_GUI_MSG_NCCREATE, 0, (Mel_Gui_LParam)(intptr_t)desc);
+    if (nc < 0) {
+        w = (Mel_Gui_Window*)mel_slotmap_get(&mel__gui_windows, sh);
+        if (w != NULL) mel_array_free(&w->chain);
+        mel_slotmap_remove(&mel__gui_windows, sh);
+        return MEL_GUI_HANDLE_NONE;
     }
 
-    mel_gui_send_message(h, MEL_GUI_MSG_CREATE, 0, 0);
+    Mel_Atom platform_class = chain[chain_len - 1u];
+    void* native = mel_gui_platform_create(h, desc, platform_class);
+    if (native == NULL) {
+        w = (Mel_Gui_Window*)mel_slotmap_get(&mel__gui_windows, sh);
+        if (w != NULL) {
+            mel__gui_dispatch(w, MEL_GUI_MSG_NCDESTROY, 0, 0);
+            mel_array_free(&w->chain);
+        }
+        mel_slotmap_remove(&mel__gui_windows, sh);
+        return MEL_GUI_HANDLE_NONE;
+    }
+    w = (Mel_Gui_Window*)mel_slotmap_get(&mel__gui_windows, sh);
+    w->native = native;
+
+    mel__gui_dispatch(w, MEL_GUI_MSG_CREATE, 0, (Mel_Gui_LParam)(intptr_t)desc);
     return h;
 }
 
-void mel_gui_destroy(Mel_Gui_Handle h)
+bool mel_gui_destroy(Mel_Gui_Handle h)
 {
-    if (h == NULL) return;
+    Mel_Gui_Window* w = mel__gui_window_get(h);
+    if (w == NULL) return false;
 
-    mel_gui_send_message(h, MEL_GUI_MSG_DESTROY, 0, 0);
-    mel_gui_platform_destroy(h);
-    free(h);
-}
+    mel__gui_dispatch(w, MEL_GUI_MSG_DESTROY, 0, 0);
 
-Mel_Gui_Result mel_gui_send_message(Mel_Gui_Handle h, Mel_Gui_Msg msg, Mel_Gui_WParam wparam, Mel_Gui_LParam lparam)
-{
-    if (h != NULL && h->proc != NULL) {
-        return h->proc(h, msg, wparam, lparam);
+    u32 count = mel_slotmap_count(&mel__gui_windows);
+    Mel_Gui_Window* all = (Mel_Gui_Window*)mel_slotmap_data(&mel__gui_windows);
+    for (u32 i = 0; i < count; ) {
+        if (mel_gui_handle_eq(all[i].parent, h)) {
+            Mel_Gui_Handle child = all[i].self;
+            mel_gui_destroy(child);
+            count = mel_slotmap_count(&mel__gui_windows);
+            all = (Mel_Gui_Window*)mel_slotmap_data(&mel__gui_windows);
+            continue;
+        }
+        i += 1;
     }
-    return 0;
-}
 
-bool mel_gui_post_message(Mel_Gui_Handle h, Mel_Gui_Msg msg, Mel_Gui_WParam wparam, Mel_Gui_LParam lparam)
-{
-    mel_gui_send_message(h, msg, wparam, lparam);
+    w = mel__gui_window_get(h);
+    if (w == NULL) return true;
+
+    mel__gui_dispatch(w, MEL_GUI_MSG_NCDESTROY, 0, 0);
+
+    mel_gui_platform_destroy(h);
+
+    w = mel__gui_window_get(h);
+    if (w != NULL) {
+        mel_array_free(&w->chain);
+    }
+    mel_slotmap_remove(&mel__gui_windows, h.handle);
     return true;
 }
 
-bool mel_gui_get_message(Mel_Gui_Message* out)
+bool mel_gui_alive(Mel_Gui_Handle h)
 {
-    MEL_UNUSED(out);
-    return false;
+    if (!mel__gui_initialized) return false;
+    return mel_slotmap_alive(&mel__gui_windows, h.handle);
 }
 
-Mel_Gui_Result mel_gui_dispatch_message(const Mel_Gui_Message* message)
+void mel_gui_destroy_all_roots(void)
 {
-    if (message == NULL) return 0;
-    return mel_gui_send_message(message->h, message->msg, message->wparam, message->lparam);
+    if (!mel__gui_initialized) return;
+
+    for (;;) {
+        Mel_Gui_Handle root = MEL_GUI_HANDLE_NONE;
+        u32 count = mel_slotmap_count(&mel__gui_windows);
+        Mel_Gui_Window* all = (Mel_Gui_Window*)mel_slotmap_data(&mel__gui_windows);
+        for (u32 i = 0; i < count; i++) {
+            if (mel_gui_handle_is_none(all[i].parent)) {
+                root = all[i].self;
+                break;
+            }
+        }
+        if (mel_gui_handle_is_none(root)) break;
+        mel_gui_destroy(root);
+    }
 }
 
-void mel_gui_show(Mel_Gui_Handle h, bool visible)
+bool mel_gui_set_window_pos(Mel_Gui_Handle h, i32 x, i32 y, i32 w, i32 hgt, u32 flags)
 {
-    if (h == NULL) return;
-    mel_gui_platform_show(h, visible);
-    mel_gui_send_message(h, visible ? MEL_GUI_MSG_SHOW : MEL_GUI_MSG_HIDE, visible ? 1 : 0, 0);
+    Mel_Gui_Window* win = mel__gui_window_get(h);
+    if (win == NULL) return false;
+    if (!mel_gui_platform_set_window_pos(h, x, y, w, hgt, flags)) return false;
+
+    if (!(flags & MEL_GUI_SWP_NOMOVE)) {
+        mel__gui_dispatch(win, MEL_GUI_MSG_MOVE, 0, mel_gui_pack_xy(x, y));
+    }
+    if (!(flags & MEL_GUI_SWP_NOSIZE)) {
+        mel__gui_dispatch(win, MEL_GUI_MSG_SIZE, 0, mel_gui_pack_wh(w, hgt));
+    }
+    if (flags & MEL_GUI_SWP_SHOW)    mel__gui_dispatch(win, MEL_GUI_MSG_SHOW, 1, 0);
+    if (flags & MEL_GUI_SWP_HIDE)    mel__gui_dispatch(win, MEL_GUI_MSG_HIDE, 0, 0);
+    if (flags & MEL_GUI_SWP_ENABLE)  mel__gui_dispatch(win, MEL_GUI_MSG_ENABLE, 1, 0);
+    if (flags & MEL_GUI_SWP_DISABLE) mel__gui_dispatch(win, MEL_GUI_MSG_ENABLE, 0, 0);
+    return true;
 }
 
-void mel_gui_enable(Mel_Gui_Handle h, bool enabled)
+bool mel_gui_set_text(Mel_Gui_Handle h, str8 text)
 {
-    if (h == NULL) return;
-    mel_gui_platform_enable(h, enabled);
-    mel_gui_send_message(h, MEL_GUI_MSG_ENABLE, enabled ? 1 : 0, 0);
-}
-
-void mel_gui_set_text(Mel_Gui_Handle h, str8 text)
-{
-    if (h == NULL) return;
-    mel_gui_platform_set_text(h, text);
-    mel_gui_send_message(h, MEL_GUI_MSG_SET_TEXT, 0, (Mel_Gui_LParam)(intptr_t)&text);
-}
-
-void mel_gui_set_rect(Mel_Gui_Handle h, i32 x, i32 y, i32 width, i32 height)
-{
-    if (h == NULL) return;
-    mel_gui_platform_set_rect(h, x, y, width, height);
-    mel_gui_send_message(h, MEL_GUI_MSG_MOVE, 0, 0);
-    mel_gui_send_message(h, MEL_GUI_MSG_SIZE, (Mel_Gui_WParam)(u32)width, (Mel_Gui_LParam)height);
-}
-
-void* mel_gui_native_handle(Mel_Gui_Handle h)
-{
-    return h ? h->platform_handle : NULL;
+    Mel_Gui_Window* w = mel__gui_window_get(h);
+    if (w == NULL) return false;
+    if (!mel_gui_platform_set_text(h, text)) return false;
+    mel__gui_dispatch(w, MEL_GUI_MSG_SET_TEXT, (Mel_Gui_WParam)(usize)text.len, (Mel_Gui_LParam)(intptr_t)text.data);
+    return true;
 }
 
 Mel_Gui_Handle mel_gui_parent(Mel_Gui_Handle h)
 {
-    return h ? h->parent : NULL;
+    Mel_Gui_Window* w = mel__gui_window_get(h);
+    return w ? w->parent : MEL_GUI_HANDLE_NONE;
 }
 
 u32 mel_gui_id(Mel_Gui_Handle h)
 {
-    return h ? h->id : MEL_GUI_ID_NONE;
+    Mel_Gui_Window* w = mel__gui_window_get(h);
+    return w ? w->id : MEL_GUI_ID_NONE;
+}
+
+u32 mel_gui_style(Mel_Gui_Handle h)
+{
+    Mel_Gui_Window* w = mel__gui_window_get(h);
+    return w ? w->style : 0u;
 }
 
 void* mel_gui_user(Mel_Gui_Handle h)
 {
-    return h ? h->user : NULL;
+    Mel_Gui_Window* w = mel__gui_window_get(h);
+    return w ? w->user : NULL;
 }
 
 void mel_gui_set_user(Mel_Gui_Handle h, void* user)
 {
-    if (h != NULL) h->user = user;
+    Mel_Gui_Window* w = mel__gui_window_get(h);
+    if (w != NULL) w->user = user;
 }
 
-void mel_gui__set_platform_handle(Mel_Gui_Handle h, void* platform_handle)
+void* mel_gui_native(Mel_Gui_Handle h)
 {
-    if (h != NULL) h->platform_handle = platform_handle;
+    Mel_Gui_Window* w = mel__gui_window_get(h);
+    return w ? w->native : NULL;
 }
 
-void* mel_gui__platform_handle(Mel_Gui_Handle h)
+Mel_Atom mel_gui_class_of(Mel_Gui_Handle h)
 {
-    return h ? h->platform_handle : NULL;
+    Mel_Gui_Window* w = mel__gui_window_get(h);
+    return w ? w->class_atom : MEL_ATOM_NONE;
 }
 
-#if defined(__GNUC__) || defined(__clang__)
-#define MEL_GUI_WEAK __attribute__((weak))
-#else
-#define MEL_GUI_WEAK
-#endif
-
-MEL_GUI_WEAK bool mel_gui_platform_init(void) { return true; }
-MEL_GUI_WEAK void mel_gui_platform_shutdown(void) {}
-MEL_GUI_WEAK bool mel_gui_platform_realize(Mel_Gui_Handle h, const Mel_Gui_Create_Desc* desc, str8 platform_class_name)
+void* mel_gui_platform_native(Mel_Gui_Handle h)
 {
-    MEL_UNUSED(h);
-    MEL_UNUSED(desc);
-    MEL_UNUSED(platform_class_name);
-    return false;
+    Mel_Gui_Window* w = mel__gui_window_get(h);
+    return w ? w->native : NULL;
 }
-MEL_GUI_WEAK void mel_gui_platform_destroy(Mel_Gui_Handle h) { MEL_UNUSED(h); }
-MEL_GUI_WEAK void mel_gui_platform_show(Mel_Gui_Handle h, bool visible) { MEL_UNUSED(h); MEL_UNUSED(visible); }
-MEL_GUI_WEAK void mel_gui_platform_enable(Mel_Gui_Handle h, bool enabled) { MEL_UNUSED(h); MEL_UNUSED(enabled); }
-MEL_GUI_WEAK void mel_gui_platform_set_text(Mel_Gui_Handle h, str8 text) { MEL_UNUSED(h); MEL_UNUSED(text); }
-MEL_GUI_WEAK void mel_gui_platform_set_rect(Mel_Gui_Handle h, i32 x, i32 y, i32 width, i32 height)
+
+void mel_gui_platform_bind_native(Mel_Gui_Handle h, void* native)
 {
-    MEL_UNUSED(h);
-    MEL_UNUSED(x);
-    MEL_UNUSED(y);
-    MEL_UNUSED(width);
-    MEL_UNUSED(height);
+    Mel_Gui_Window* w = mel__gui_window_get(h);
+    if (w != NULL) w->native = native;
 }

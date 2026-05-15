@@ -1,5 +1,6 @@
 #define NOB_IMPLEMENTATION
 #define NOB_STRIP_PREFIX
+#define NOB_NO_ECHO
 #include "nob.h"
 
 #define BUILD_DIR     "build"
@@ -293,10 +294,20 @@ static bool ends_with(const char *s, const char *suffix) {
 }
 
 static bool source_is_buildable(const char *name) {
-    if (!ends_with(name, ".c")) return false;
+    bool is_c = ends_with(name, ".c");
+    bool is_m = ends_with(name, ".m");
+    if (!is_c && !is_m) return false;
     if (ends_with(name, ".build.c")) return false;
     if (!PLATFORM_WIN32 && ends_with(name, ".win32.c")) return false;
     return true;
+}
+
+static bool source_is_objc(const char *name) {
+    return ends_with(name, ".m");
+}
+
+static bool source_is_bridge(const char *name) {
+    return ends_with(name, ".bridge.c") || ends_with(name, ".bridge.m");
 }
 
 static bool collect_dir_sources(const char *dir, File_Paths *out) {
@@ -382,6 +393,7 @@ static bool compile_all(const Target *t, const Layout *L, File_Paths *objects) {
         Cmd cmd = {0};
         cmd_append(&cmd, "clang");
         append_base_cflags(&cmd);
+        if (source_is_objc(src)) cmd_append(&cmd, "-fobjc-arc");
         append_include_flags(&cmd, t, L);
         cmd_append(&cmd, "-c", src, "-o", obj);
 
@@ -463,13 +475,20 @@ static bool build_library(void) {
     if (!mkdir_if_not_exists(OBJ_DIR))   return false;
 
     Layout L = {0};
-    if (!discover(&L)) {
+    if (!discover_for_platform(&L, host_platform())) {
         nob_log(NOB_ERROR, "failed to discover modules under %s/", MODULES_DIR);
         return false;
     }
 
+    Layout archived = L;
+    archived.sources = (File_Paths){0};
+    for (size_t i = 0; i < L.sources.count; i++) {
+        const char *s = L.sources.items[i];
+        if (!source_is_bridge(s)) da_append(&archived.sources, s);
+    }
+
     nob_log(NOB_INFO, "discovered %zu modules, %zu source files",
-            L.modules.count, L.sources.count);
+            archived.modules.count, archived.sources.count);
 
     if (!emit_compile_commands(target_host(), &L)) {
         nob_log(NOB_ERROR, "failed to write %s", CCMDS_PATH);
@@ -478,7 +497,7 @@ static bool build_library(void) {
     nob_log(NOB_INFO, "wrote %s", CCMDS_PATH);
 
     File_Paths objects = {0};
-    bool ok = compile_all(target_host(), &L, &objects);
+    bool ok = compile_all(target_host(), &archived, &objects);
     if (!ok) {
         nob_log(NOB_WARNING, "one or more translation units failed to compile");
     }
@@ -645,6 +664,7 @@ static bool target_compile_one(const Target *t, const Layout *L, const char *src
     Cmd cmd = {0};
     cmd_append(&cmd, t->cc ? t->cc : "clang");
     append_base_cflags(&cmd);
+    if (source_is_objc(src)) cmd_append(&cmd, "-fobjc-arc");
     if (extra_define) cmd_append(&cmd, extra_define);
     cmd_append(&cmd, temp_sprintf("-I%s", target_include(t)));
     for (size_t i = 0; i < L->includes.count; i++) {
@@ -824,6 +844,69 @@ static int usage(void) {
     return 1;
 }
 
+static const char *macos_binary_path(const char *app_name) {
+    return temp_sprintf("%s/macos/%s/%s", BUILD_DIR, app_name, app_name);
+}
+
+static bool macos_build_app(const char *app_name) {
+    if (!build_library()) return false;
+
+    Layout L = {0};
+    if (!discover_for_platform(&L, "macos")) return false;
+
+    File_Paths bridge_sources = {0};
+    for (size_t i = 0; i < L.sources.count; i++) {
+        const char *s = L.sources.items[i];
+        if (source_is_bridge(s)) da_append(&bridge_sources, s);
+    }
+
+    File_Paths app_sources = {0};
+    if (!collect_dir_sources(temp_sprintf("%s/%s/src", APPS_DIR, app_name), &app_sources)) return false;
+    if (app_sources.count == 0) {
+        nob_log(NOB_ERROR, "no app sources found under %s/%s/src", APPS_DIR, app_name);
+        return false;
+    }
+
+    const char *out_dir = temp_sprintf("%s/macos/%s", BUILD_DIR, app_name);
+    if (!mkdir_if_not_exists(temp_sprintf("%s/macos", BUILD_DIR))) return false;
+    if (!mkdir_if_not_exists(out_dir)) return false;
+
+    File_Paths link_objs = {0};
+    for (size_t i = 0; i < bridge_sources.count; i++) {
+        const char *src = bridge_sources.items[i];
+        const char *obj = object_for(src);
+        if (!target_compile_one(target_host(), &L, src, obj, NULL)) return false;
+        da_append(&link_objs, obj);
+    }
+    for (size_t i = 0; i < app_sources.count; i++) {
+        const char *src = app_sources.items[i];
+        const char *obj = object_for(src);
+        if (!target_compile_one(target_host(), &L, src, obj, NULL)) return false;
+        da_append(&link_objs, obj);
+    }
+
+    const char *bin = macos_binary_path(app_name);
+
+    Cmd cmd = {0};
+    cmd_append(&cmd, "clang");
+    for (size_t i = 0; i < link_objs.count; i++) cmd_append(&cmd, link_objs.items[i]);
+    cmd_append(&cmd, "-L" BUILD_DIR);
+    cmd_append(&cmd, temp_sprintf("-L%s", target_lib(target_host())));
+    cmd_append(&cmd, "-lmelody", "-lmpfr", "-lgmp", "-lSDL3", "-lsqlite3");
+    cmd_append(&cmd, "-framework", "Cocoa");
+    cmd_append(&cmd, "-o", bin);
+    if (!cmd_run_sync_and_reset(&cmd)) return false;
+
+    nob_log(NOB_INFO, "wrote %s", bin);
+    return true;
+}
+
+static bool macos_launch(const char *app_name) {
+    Cmd cmd = {0};
+    cmd_append(&cmd, macos_binary_path(app_name));
+    return cmd_run_sync_and_reset(&cmd);
+}
+
 static int run_app_command(const char *cmd, int argc, char **argv) {
     if (argc < 2 || strcmp(argv[0], "app") != 0) return usage();
     const char *name = argv[1];
@@ -842,6 +925,12 @@ static int run_app_command(const char *cmd, int argc, char **argv) {
         if (!android_launch(name)) return 1;
         if (strcmp(cmd, "run") == 0) return 0;
         return android_logcat(name) ? 0 : 1;
+    }
+
+    if (strcmp(platform, "macos") == 0) {
+        if (!macos_build_app(name)) return 1;
+        if (strcmp(cmd, "build") == 0) return 0;
+        return macos_launch(name) ? 0 : 1;
     }
 
     nob_log(NOB_ERROR, "platform '%s' is not implemented yet", platform);
