@@ -67,7 +67,7 @@ compile_commands.json
 .cxx/
 local.properties
 captures/
-apps/android/app/src/main/jniLibs/
+apps/hello-world-gui/android/app/src/main/jniLibs/
 *.apk
 *.ap_
 *.aab

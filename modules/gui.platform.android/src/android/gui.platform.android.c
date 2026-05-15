@@ -1,5 +1,6 @@
 #include <gui.platform.android/gui.platform.android.h>
 
+#include <gui.app/gui.app.h>
 #include <gui/gui.platform.h>
 #include <stdint.h>
 
@@ -155,7 +156,7 @@ void mel_gui_platform_set_rect(Mel_Gui_Handle h, i32 x, i32 y, i32 width, i32 he
     (*env)->CallVoidMethod(env, mel__gui_host, mel__gui_set_rect, (jobject)mel_gui__platform_handle(h), x, y, width, height);
 }
 
-bool mel_gui_android_start_activity(str8 activity_name)
+bool mel_gui_app_start_activity(str8 activity_name)
 {
     if (mel__gui_host == NULL || mel__gui_start_activity == NULL) return false;
 
