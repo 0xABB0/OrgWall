@@ -50,6 +50,9 @@ bool mel_gui_init(void);
 void mel_gui_shutdown(void);
 bool mel_gui_is_initialized(void);
 
+bool mel_gui_is_ui_thread(void);
+void mel_gui_assert_ui_thread(void);
+
 Mel_Atom_Table* mel_gui_atom_table(void);
 
 Mel_Atom mel_gui_register_class(const Mel_Gui_Class_Desc* desc);
@@ -67,6 +70,8 @@ Mel_Gui_Result mel_gui_call_super(Mel_Gui_Handle h, Mel_Gui_Msg msg, Mel_Gui_WPa
 Mel_Gui_Result mel_gui_def_proc(Mel_Gui_Handle h, Mel_Gui_Msg msg, Mel_Gui_WParam w, Mel_Gui_LParam l);
 
 bool           mel_gui_post_message(Mel_Gui_Handle h, Mel_Gui_Msg msg, Mel_Gui_WParam w, Mel_Gui_LParam l);
+
+void           mel_gui_dispatch_app_message(Mel_Gui_Msg msg, Mel_Gui_WParam w, Mel_Gui_LParam l);
 
 bool mel_gui_attach_proc(Mel_Gui_Handle h, Mel_Gui_Proc proc);
 bool mel_gui_detach_proc(Mel_Gui_Handle h, Mel_Gui_Proc proc);

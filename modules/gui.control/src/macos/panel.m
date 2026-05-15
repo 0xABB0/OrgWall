@@ -1,6 +1,6 @@
 #import <Cocoa/Cocoa.h>
 
-#include <gui.control.panel/panel.h>
+#include <gui.control/panel.h>
 #include <gui.platform.macos/gui.platform.macos.h>
 
 static NSView* mel__panel_construct(Mel_Gui_Handle h, const Mel_Gui_Create_Desc* desc)

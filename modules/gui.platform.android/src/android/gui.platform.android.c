@@ -26,6 +26,7 @@ static jmethodID mel__a_bind_handle;
 static jmethodID mel__a_start_activity;
 static jmethodID mel__a_get_activity;
 static jmethodID mel__a_post;
+static jmethodID mel__a_request_exit;
 
 static Mel_Array(Mel_Android_Ctor) mel__a_ctors;
 static bool mel__a_ctors_inited;
@@ -158,18 +159,19 @@ bool mel_gui_android_attach(JavaVM* vm, JNIEnv* env, jobject host)
     mel__a_host_class = (*env)->NewGlobalRef(env, local);
     (*env)->DeleteLocalRef(env, local);
 
-    mel__a_attach         = (*env)->GetMethodID(env, mel__a_host_class, "attach",         "(Landroid/view/View;IIII)V");
+    mel__a_attach         = (*env)->GetMethodID(env, mel__a_host_class, "attach",         "(Landroid/view/View;Landroid/view/View;IIII)V");
     mel__a_detach         = (*env)->GetMethodID(env, mel__a_host_class, "detach",         "(Landroid/view/View;)V");
     mel__a_set_text       = (*env)->GetMethodID(env, mel__a_host_class, "setText",        "(Landroid/view/View;Ljava/lang/String;)V");
     mel__a_set_window_pos = (*env)->GetMethodID(env, mel__a_host_class, "setWindowPos",   "(Landroid/view/View;IIIII)V");
     mel__a_bind_handle    = (*env)->GetMethodID(env, mel__a_host_class, "bindNativeHandle","(Landroid/view/View;J)V");
-    mel__a_start_activity = (*env)->GetMethodID(env, mel__a_host_class, "startActivity",  "(Ljava/lang/String;)V");
+    mel__a_start_activity = (*env)->GetMethodID(env, mel__a_host_class, "scheduleStartActivity", "(Ljava/lang/String;)V");
     mel__a_get_activity   = (*env)->GetMethodID(env, mel__a_host_class, "getActivity",    "()Landroid/app/Activity;");
     mel__a_post           = (*env)->GetMethodID(env, mel__a_host_class, "post",           "(JIJJ)V");
+    mel__a_request_exit   = (*env)->GetMethodID(env, mel__a_host_class, "requestExit",    "()V");
 
     return mel__a_attach != NULL && mel__a_set_text != NULL && mel__a_set_window_pos != NULL
         && mel__a_bind_handle != NULL && mel__a_start_activity != NULL && mel__a_get_activity != NULL
-        && mel__a_post != NULL;
+        && mel__a_post != NULL && mel__a_request_exit != NULL;
 }
 
 bool mel_gui_platform_init(void)  { return true; }
@@ -211,8 +213,13 @@ void* mel_gui_platform_create(Mel_Gui_Handle h, const Mel_Gui_Create_Desc* desc,
 
     jobject global = (*env)->NewGlobalRef(env, local);
 
+    jobject parent_view = NULL;
+    if (!mel_gui_handle_is_none(desc->parent)) {
+        parent_view = (jobject)mel_gui_platform_native(desc->parent);
+    }
+
     jlong packed = (jlong)((u64)h.handle.generation << 32 | (u64)h.handle.index);
-    (*env)->CallVoidMethod(env, mel__a_host, mel__a_attach, local, desc->x, desc->y, desc->w, desc->h);
+    (*env)->CallVoidMethod(env, mel__a_host, mel__a_attach, parent_view, local, desc->x, desc->y, desc->w, desc->h);
     (*env)->CallVoidMethod(env, mel__a_host, mel__a_bind_handle, local, packed);
 
     (*env)->DeleteLocalRef(env, local);
@@ -260,6 +267,13 @@ bool mel_gui_platform_post_message(Mel_Gui_Handle h, Mel_Gui_Msg msg, Mel_Gui_WP
     jlong packed = (jlong)((u64)h.handle.generation << 32 | (u64)h.handle.index);
     (*env)->CallVoidMethod(env, mel__a_host, mel__a_post, packed, (jint)msg, (jlong)(i64)w, (jlong)l);
     return true;
+}
+
+void mel_gui_platform_request_exit(void)
+{
+    if (mel__a_host == NULL || mel__a_request_exit == NULL) return;
+    JNIEnv* env = mel_gui_android_env();
+    (*env)->CallVoidMethod(env, mel__a_host, mel__a_request_exit);
 }
 
 bool mel_gui_app_start_activity(str8 activity_name)

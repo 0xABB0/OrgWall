@@ -8,6 +8,10 @@
 #include <string/string.str8.h>
 #include <string/table.h>
 
+#include <pthread.h>
+#include <stdio.h>
+#include <stdlib.h>
+
 typedef struct Mel_Gui_Class {
     Mel_Atom     atom;
     Mel_Atom     base;
@@ -40,6 +44,8 @@ static Mel_Atom_Table*           mel__gui_atoms;
 static Mel_Array(Mel_Gui_Class)  mel__gui_classes;
 static Mel_SlotMap               mel__gui_windows;
 static bool                      mel__gui_initialized;
+static pthread_t                 mel__gui_ui_thread;
+static bool                      mel__gui_ui_thread_set;
 
 static const Mel_Alloc* mel__gui_alloc(void) { return mel_alloc_heap(); }
 
@@ -57,9 +63,27 @@ static Mel_Gui_Class* mel__gui_class_get(Mel_Atom atom)
     return c->atom == atom ? c : NULL;
 }
 
+bool mel_gui_is_ui_thread(void)
+{
+    return mel__gui_ui_thread_set && pthread_equal(pthread_self(), mel__gui_ui_thread);
+}
+
+void mel_gui_assert_ui_thread(void)
+{
+    if (mel_gui_is_ui_thread()) return;
+    fprintf(stderr, "[melody] gui call from non-UI thread; aborting\n");
+    abort();
+}
+
 bool mel_gui_init(void)
 {
-    if (mel__gui_initialized) return true;
+    if (mel__gui_initialized) {
+        mel_gui_assert_ui_thread();
+        return true;
+    }
+
+    mel__gui_ui_thread     = pthread_self();
+    mel__gui_ui_thread_set = true;
 
     const Mel_Alloc* alloc = mel__gui_alloc();
 
@@ -81,6 +105,7 @@ bool mel_gui_init(void)
 void mel_gui_shutdown(void)
 {
     if (!mel__gui_initialized) return;
+    mel_gui_assert_ui_thread();
 
     mel_gui_platform_shutdown();
 
@@ -105,6 +130,7 @@ Mel_Atom mel_gui_register_class(const Mel_Gui_Class_Desc* desc)
 {
     if (desc == NULL || str8_is_empty(desc->name) || desc->proc == NULL) return MEL_ATOM_NONE;
     if (!mel_gui_init()) return MEL_ATOM_NONE;
+    mel_gui_assert_ui_thread();
 
     Mel_Atom atom = mel_atom_intern(mel__gui_atoms, desc->name);
     if (atom == MEL_ATOM_NONE) return MEL_ATOM_NONE;
@@ -124,17 +150,20 @@ Mel_Atom mel_gui_register_class(const Mel_Gui_Class_Desc* desc)
 Mel_Atom mel_gui_class_atom(str8 name)
 {
     if (!mel__gui_initialized) return MEL_ATOM_NONE;
+    mel_gui_assert_ui_thread();
     return mel_atom_lookup(mel__gui_atoms, name);
 }
 
 Mel_Atom mel_gui_class_base(Mel_Atom class_atom)
 {
+    mel_gui_assert_ui_thread();
     Mel_Gui_Class* c = mel__gui_class_get(class_atom);
     return c ? c->base : MEL_ATOM_NONE;
 }
 
 str8 mel_gui_class_name(Mel_Atom class_atom)
 {
+    mel_gui_assert_ui_thread();
     return mel_atom_get(mel__gui_atoms, class_atom);
 }
 
@@ -176,6 +205,7 @@ static Mel_Gui_Result mel__gui_dispatch(Mel_Gui_Window* w, Mel_Gui_Msg msg, Mel_
 Mel_Gui_Result mel_gui_send_message(Mel_Gui_Handle h, Mel_Gui_Msg msg, Mel_Gui_WParam wp, Mel_Gui_LParam lp)
 {
     if (!mel__gui_initialized) return MEL_GUI_ERR_NOT_INITIALIZED;
+    mel_gui_assert_ui_thread();
     Mel_Gui_Window* w = mel__gui_window_get(h);
     if (w == NULL) return MEL_GUI_ERR_INVALID_HANDLE;
     return mel__gui_dispatch(w, msg, wp, lp);
@@ -183,6 +213,7 @@ Mel_Gui_Result mel_gui_send_message(Mel_Gui_Handle h, Mel_Gui_Msg msg, Mel_Gui_W
 
 Mel_Gui_Result mel_gui_call_super(Mel_Gui_Handle h, Mel_Gui_Msg msg, Mel_Gui_WParam wp, Mel_Gui_LParam lp)
 {
+    mel_gui_assert_ui_thread();
     if (mel__gui_frame_top < 0) return mel_gui_def_proc(h, msg, wp, lp);
 
     Mel_Gui_Frame* f = &mel__gui_frames[mel__gui_frame_top];
@@ -201,11 +232,15 @@ Mel_Gui_Result mel_gui_call_super(Mel_Gui_Handle h, Mel_Gui_Msg msg, Mel_Gui_WPa
 
 Mel_Gui_Result mel_gui_def_proc(Mel_Gui_Handle h, Mel_Gui_Msg msg, Mel_Gui_WParam wp, Mel_Gui_LParam lp)
 {
+    mel_gui_assert_ui_thread();
     (void)wp;
     (void)lp;
     switch (msg) {
         case MEL_GUI_MSG_CLOSE:
             mel_gui_destroy(h);
+            return MEL_GUI_OK;
+        case MEL_GUI_MSG_APP_BACK:
+            mel_gui_platform_request_exit();
             return MEL_GUI_OK;
         default:
             return MEL_GUI_OK;
@@ -219,8 +254,34 @@ bool mel_gui_post_message(Mel_Gui_Handle h, Mel_Gui_Msg msg, Mel_Gui_WParam wp, 
     return mel_gui_platform_post_message(h, msg, wp, lp);
 }
 
+#define MEL_GUI_APP_DISPATCH_MAX 64u
+
+void mel_gui_dispatch_app_message(Mel_Gui_Msg msg, Mel_Gui_WParam wp, Mel_Gui_LParam lp)
+{
+    if (!mel__gui_initialized) return;
+    mel_gui_assert_ui_thread();
+
+    Mel_Gui_Handle roots[MEL_GUI_APP_DISPATCH_MAX];
+    u32 n = 0;
+    u32 count = mel_slotmap_count(&mel__gui_windows);
+    Mel_Gui_Window* all = (Mel_Gui_Window*)mel_slotmap_data(&mel__gui_windows);
+    for (u32 i = 0; i < count && n < MEL_GUI_APP_DISPATCH_MAX; i++) {
+        if (mel_gui_handle_is_none(all[i].parent)) {
+            roots[n++] = all[i].self;
+        }
+    }
+
+    for (u32 i = 0; i < n; i++) {
+        if (mel_slotmap_alive(&mel__gui_windows, roots[i].handle)) {
+            Mel_Gui_Window* w = mel__gui_window_get(roots[i]);
+            if (w != NULL) mel__gui_dispatch(w, msg, wp, lp);
+        }
+    }
+}
+
 bool mel_gui_attach_proc(Mel_Gui_Handle h, Mel_Gui_Proc proc)
 {
+    mel_gui_assert_ui_thread();
     if (proc == NULL) return false;
     Mel_Gui_Window* w = mel__gui_window_get(h);
     if (w == NULL) return false;
@@ -230,6 +291,7 @@ bool mel_gui_attach_proc(Mel_Gui_Handle h, Mel_Gui_Proc proc)
 
 bool mel_gui_detach_proc(Mel_Gui_Handle h, Mel_Gui_Proc proc)
 {
+    mel_gui_assert_ui_thread();
     Mel_Gui_Window* w = mel__gui_window_get(h);
     if (w == NULL || proc == NULL) return false;
     for (usize i = w->chain.count; i > 0; i--) {
@@ -248,6 +310,7 @@ Mel_Gui_Handle mel_gui_create(const Mel_Gui_Create_Desc* desc)
 {
     if (desc == NULL) return MEL_GUI_HANDLE_NONE;
     if (!mel_gui_init()) return MEL_GUI_HANDLE_NONE;
+    mel_gui_assert_ui_thread();
 
     Mel_Atom chain[MEL_GUI_CLASS_CHAIN_MAX];
     u32 chain_len = mel__gui_class_chain(desc->class_atom, chain);
@@ -310,6 +373,7 @@ Mel_Gui_Handle mel_gui_create(const Mel_Gui_Create_Desc* desc)
 
 bool mel_gui_destroy(Mel_Gui_Handle h)
 {
+    mel_gui_assert_ui_thread();
     Mel_Gui_Window* w = mel__gui_window_get(h);
     if (w == NULL) return false;
 
@@ -346,12 +410,14 @@ bool mel_gui_destroy(Mel_Gui_Handle h)
 bool mel_gui_alive(Mel_Gui_Handle h)
 {
     if (!mel__gui_initialized) return false;
+    mel_gui_assert_ui_thread();
     return mel_slotmap_alive(&mel__gui_windows, h.handle);
 }
 
 void mel_gui_destroy_all_roots(void)
 {
     if (!mel__gui_initialized) return;
+    mel_gui_assert_ui_thread();
 
     for (;;) {
         Mel_Gui_Handle root = MEL_GUI_HANDLE_NONE;
@@ -370,6 +436,7 @@ void mel_gui_destroy_all_roots(void)
 
 bool mel_gui_set_window_pos(Mel_Gui_Handle h, i32 x, i32 y, i32 w, i32 hgt, u32 flags)
 {
+    mel_gui_assert_ui_thread();
     Mel_Gui_Window* win = mel__gui_window_get(h);
     if (win == NULL) return false;
     if (!mel_gui_platform_set_window_pos(h, x, y, w, hgt, flags)) return false;
@@ -389,6 +456,7 @@ bool mel_gui_set_window_pos(Mel_Gui_Handle h, i32 x, i32 y, i32 w, i32 hgt, u32 
 
 bool mel_gui_set_text(Mel_Gui_Handle h, str8 text)
 {
+    mel_gui_assert_ui_thread();
     Mel_Gui_Window* w = mel__gui_window_get(h);
     if (w == NULL) return false;
     if (!mel_gui_platform_set_text(h, text)) return false;
@@ -398,54 +466,63 @@ bool mel_gui_set_text(Mel_Gui_Handle h, str8 text)
 
 Mel_Gui_Handle mel_gui_parent(Mel_Gui_Handle h)
 {
+    mel_gui_assert_ui_thread();
     Mel_Gui_Window* w = mel__gui_window_get(h);
     return w ? w->parent : MEL_GUI_HANDLE_NONE;
 }
 
 u32 mel_gui_id(Mel_Gui_Handle h)
 {
+    mel_gui_assert_ui_thread();
     Mel_Gui_Window* w = mel__gui_window_get(h);
     return w ? w->id : MEL_GUI_ID_NONE;
 }
 
 u32 mel_gui_style(Mel_Gui_Handle h)
 {
+    mel_gui_assert_ui_thread();
     Mel_Gui_Window* w = mel__gui_window_get(h);
     return w ? w->style : 0u;
 }
 
 void* mel_gui_user(Mel_Gui_Handle h)
 {
+    mel_gui_assert_ui_thread();
     Mel_Gui_Window* w = mel__gui_window_get(h);
     return w ? w->user : NULL;
 }
 
 void mel_gui_set_user(Mel_Gui_Handle h, void* user)
 {
+    mel_gui_assert_ui_thread();
     Mel_Gui_Window* w = mel__gui_window_get(h);
     if (w != NULL) w->user = user;
 }
 
 void* mel_gui_native(Mel_Gui_Handle h)
 {
+    mel_gui_assert_ui_thread();
     Mel_Gui_Window* w = mel__gui_window_get(h);
     return w ? w->native : NULL;
 }
 
 Mel_Atom mel_gui_class_of(Mel_Gui_Handle h)
 {
+    mel_gui_assert_ui_thread();
     Mel_Gui_Window* w = mel__gui_window_get(h);
     return w ? w->class_atom : MEL_ATOM_NONE;
 }
 
 void* mel_gui_platform_native(Mel_Gui_Handle h)
 {
+    mel_gui_assert_ui_thread();
     Mel_Gui_Window* w = mel__gui_window_get(h);
     return w ? w->native : NULL;
 }
 
 void mel_gui_platform_bind_native(Mel_Gui_Handle h, void* native)
 {
+    mel_gui_assert_ui_thread();
     Mel_Gui_Window* w = mel__gui_window_get(h);
     if (w != NULL) w->native = native;
 }

@@ -1,7 +1,6 @@
 package orgwall.melody.platform;
 
 import android.app.Activity;
-import android.content.Intent;
 import android.graphics.Color;
 import android.os.Handler;
 import android.os.Looper;
@@ -18,6 +17,9 @@ import android.widget.FrameLayout;
 import android.widget.SeekBar;
 import android.widget.TextView;
 
+import java.util.Map;
+import java.util.WeakHashMap;
+
 public final class NativeGuiHost {
     public static final int SWP_NOMOVE  = 1 << 0;
     public static final int SWP_NOSIZE  = 1 << 1;
@@ -32,6 +34,8 @@ public final class NativeGuiHost {
     private final Activity activity;
     private final FrameLayout root;
     private final Handler mainHandler;
+    private final Map<EditText, TextWatcher> editWatchers = new WeakHashMap<>();
+    private final Map<View, Long> nativeHandles = new WeakHashMap<>();
 
     public NativeGuiHost(Activity activity, FrameLayout root) {
         this.activity = activity;
@@ -69,13 +73,15 @@ public final class NativeGuiHost {
         e.setTextSize(15.0f);
         e.setSelectAllOnFocus(false);
         e.setBackgroundColor(Color.rgb(38, 51, 65));
-        e.addTextChangedListener(new TextWatcher() {
+        TextWatcher watcher = new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
             @Override public void onTextChanged(CharSequence s, int start, int before, int count) {
                 nativeDispatchTextChanged(nativeHandle(e), s.toString());
             }
             @Override public void afterTextChanged(Editable s) {}
-        });
+        };
+        e.addTextChangedListener(watcher);
+        editWatchers.put(e, watcher);
         return e;
     }
 
@@ -107,12 +113,13 @@ public final class NativeGuiHost {
         return f;
     }
 
-    public void attach(View view, int x, int y, int w, int h) {
+    public void attach(View parent, View view, int x, int y, int w, int h) {
         if (view == null || view.getParent() != null) return;
+        ViewGroup target = (parent instanceof ViewGroup) ? (ViewGroup) parent : root;
         FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(dp(w), dp(h));
         params.leftMargin = dp(x);
         params.topMargin = dp(y);
-        root.addView(view, params);
+        target.addView(view, params);
     }
 
     public void detach(View view) {
@@ -122,7 +129,18 @@ public final class NativeGuiHost {
     }
 
     public void setText(View view, String text) {
-        if (view instanceof TextView) ((TextView) view).setText(text);
+        if (!(view instanceof TextView)) return;
+        if (view instanceof EditText) {
+            EditText e = (EditText) view;
+            TextWatcher w = editWatchers.get(e);
+            if (w != null) {
+                e.removeTextChangedListener(w);
+                e.setText(text);
+                e.addTextChangedListener(w);
+                return;
+            }
+        }
+        ((TextView) view).setText(text);
     }
 
     public void setWindowPos(View view, int x, int y, int w, int h, int flags) {
@@ -142,22 +160,24 @@ public final class NativeGuiHost {
     }
 
     public void bindNativeHandle(View view, long handle) {
-        if (view != null) view.setTag(Long.valueOf(handle));
+        if (view != null) nativeHandles.put(view, Long.valueOf(handle));
     }
 
-    public void startActivity(String activityName) {
-        Intent intent = new Intent(activity, MelodyActivity.class);
-        intent.putExtra(MelodyActivity.EXTRA_ACTIVITY_NAME, activityName);
-        activity.startActivity(intent);
+    public void scheduleStartActivity(String activityName) {
+        mainHandler.post(() -> nativeStartActivity(activityName));
+    }
+
+    public void requestExit() {
+        activity.finish();
     }
 
     public void post(final long handle, final int msg, final long wparam, final long lparam) {
         mainHandler.post(() -> nativeDispatchPosted(handle, msg, wparam, lparam));
     }
 
-    private static long nativeHandle(View view) {
-        Object tag = view.getTag();
-        return tag instanceof Long ? ((Long) tag).longValue() : 0L;
+    private long nativeHandle(View view) {
+        Long v = nativeHandles.get(view);
+        return v == null ? 0L : v.longValue();
     }
 
     private int dp(int value) {
@@ -171,4 +191,5 @@ public final class NativeGuiHost {
     private static native void nativeDispatchValueChanged(long handle, int value);
     private static native void nativeDispatchTextChanged(long handle, String value);
     private static native void nativeDispatchPosted(long handle, int msg, long wparam, long lparam);
+    private static native void nativeStartActivity(String name);
 }

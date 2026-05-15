@@ -13,6 +13,8 @@ bool   mel_gui_platform_set_text(Mel_Gui_Handle h, str8 text);
 
 bool   mel_gui_platform_post_message(Mel_Gui_Handle h, Mel_Gui_Msg msg, Mel_Gui_WParam w, Mel_Gui_LParam l);
 
+void   mel_gui_platform_request_exit(void);
+
 void*  mel_gui_platform_native(Mel_Gui_Handle h);
 void   mel_gui_platform_bind_native(Mel_Gui_Handle h, void* native);
 

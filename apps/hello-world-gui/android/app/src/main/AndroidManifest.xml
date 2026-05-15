@@ -7,7 +7,9 @@
         <activity
             android:name="orgwall.melody.platform.MelodyActivity"
             android:exported="true"
-            android:launchMode="standard">
+            android:launchMode="standard"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|density|fontScale|locale|layoutDirection"
+            android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

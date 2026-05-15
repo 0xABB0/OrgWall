@@ -1,5 +1,6 @@
 #include <gui.platform.android/gui.platform.android.h>
 #include <gui/gui.h>
+#include <gui.platform/gui.platform.h>
 
 #include <allocator.heap/heap.h>
 #include <string/string.str8.h>
@@ -37,14 +38,38 @@ JNIEXPORT void JNICALL Java_orgwall_melody_platform_MelodyActivity_nativeBuildAc
     str8 name = mel_gui_android_str8(env, activity_name, mel_alloc_heap());
     mel_gui_app_build_activity(name);
     mel_gui_android_str8_free(env, name, mel_alloc_heap());
+
+    mel_gui_dispatch_app_message(MEL_GUI_MSG_APP_CREATE, 0, 0);
 }
 
-JNIEXPORT void JNICALL Java_orgwall_melody_platform_MelodyActivity_nativeResumeActivity(
-    JNIEnv* env, jclass cls, jobject host, jstring activity_name)
+JNIEXPORT void JNICALL Java_orgwall_melody_platform_MelodyActivity_nativeAppResume(JNIEnv* env, jclass cls)
 {
-    MEL_UNUSED(cls);
-    MEL_UNUSED(activity_name);
-    mel__attach_activity(env, host);
+    MEL_UNUSED(env); MEL_UNUSED(cls);
+    mel_gui_dispatch_app_message(MEL_GUI_MSG_APP_RESUME, 0, 0);
+}
+
+JNIEXPORT void JNICALL Java_orgwall_melody_platform_MelodyActivity_nativeAppPause(JNIEnv* env, jclass cls)
+{
+    MEL_UNUSED(env); MEL_UNUSED(cls);
+    mel_gui_dispatch_app_message(MEL_GUI_MSG_APP_PAUSE, 0, 0);
+}
+
+JNIEXPORT void JNICALL Java_orgwall_melody_platform_MelodyActivity_nativeAppDestroy(JNIEnv* env, jclass cls)
+{
+    MEL_UNUSED(env); MEL_UNUSED(cls);
+    mel_gui_dispatch_app_message(MEL_GUI_MSG_APP_DESTROY, 0, 0);
+}
+
+JNIEXPORT void JNICALL Java_orgwall_melody_platform_MelodyActivity_nativeAppBack(JNIEnv* env, jclass cls)
+{
+    MEL_UNUSED(env); MEL_UNUSED(cls);
+    mel_gui_dispatch_app_message(MEL_GUI_MSG_APP_BACK, 0, 0);
+}
+
+JNIEXPORT void JNICALL Java_orgwall_melody_platform_MelodyActivity_nativeAppConfigChanged(JNIEnv* env, jclass cls)
+{
+    MEL_UNUSED(env); MEL_UNUSED(cls);
+    mel_gui_dispatch_app_message(MEL_GUI_MSG_APP_CONFIG_CHANGED, 0, 0);
 }
 
 JNIEXPORT void JNICALL Java_orgwall_melody_platform_NativeGuiHost_nativeDispatchClick(
@@ -78,4 +103,14 @@ JNIEXPORT void JNICALL Java_orgwall_melody_platform_NativeGuiHost_nativeDispatch
     MEL_UNUSED(env);
     MEL_UNUSED(cls);
     mel_gui_send_message(mel__unpack_handle(handle), (Mel_Gui_Msg)(u32)msg, (Mel_Gui_WParam)(u64)wparam, (Mel_Gui_LParam)lparam);
+}
+
+JNIEXPORT void JNICALL Java_orgwall_melody_platform_NativeGuiHost_nativeStartActivity(
+    JNIEnv* env, jclass cls, jstring name)
+{
+    MEL_UNUSED(cls);
+    str8 s = mel_gui_android_str8(env, name, mel_alloc_heap());
+    mel_gui_destroy_all_roots();
+    mel_gui_app_build_activity(s);
+    mel_gui_android_str8_free(env, s, mel_alloc_heap());
 }

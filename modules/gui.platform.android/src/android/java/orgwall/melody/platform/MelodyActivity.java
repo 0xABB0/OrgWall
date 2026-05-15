@@ -3,8 +3,12 @@ package orgwall.melody.platform;
 import android.app.Activity;
 import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
+import android.content.res.Configuration;
 import android.graphics.Color;
+import android.graphics.Insets;
+import android.os.Build;
 import android.os.Bundle;
+import android.view.WindowInsets;
 import android.widget.FrameLayout;
 
 public final class MelodyActivity extends Activity {
@@ -20,7 +24,11 @@ public final class MelodyActivity extends Activity {
     private String activityName;
 
     private static native void nativeBuildActivity(NativeGuiHost host, String activityName);
-    private static native void nativeResumeActivity(NativeGuiHost host, String activityName);
+    private static native void nativeAppResume();
+    private static native void nativeAppPause();
+    private static native void nativeAppDestroy();
+    private static native void nativeAppBack();
+    private static native void nativeAppConfigChanged();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -30,7 +38,21 @@ public final class MelodyActivity extends Activity {
 
         FrameLayout root = new FrameLayout(this);
         root.setBackgroundColor(Color.rgb(21, 31, 42));
-        root.setPadding(0, statusBarHeight(), 0, 0);
+        root.setOnApplyWindowInsetsListener((v, insets) -> {
+            int l, t, r, b;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                int mask = WindowInsets.Type.systemBars() | WindowInsets.Type.ime();
+                Insets in = insets.getInsets(mask);
+                l = in.left; t = in.top; r = in.right; b = in.bottom;
+            } else {
+                l = insets.getSystemWindowInsetLeft();
+                t = insets.getSystemWindowInsetTop();
+                r = insets.getSystemWindowInsetRight();
+                b = insets.getSystemWindowInsetBottom();
+            }
+            v.setPadding(l, t, r, b);
+            return insets;
+        });
         setContentView(root);
 
         host = new NativeGuiHost(this, root);
@@ -40,9 +62,30 @@ public final class MelodyActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
-        if (host != null) {
-            nativeResumeActivity(host, activityName);
-        }
+        if (host != null) nativeAppResume();
+    }
+
+    @Override
+    protected void onPause() {
+        if (host != null) nativeAppPause();
+        super.onPause();
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (host != null) nativeAppDestroy();
+        super.onDestroy();
+    }
+
+    @Override
+    public void onBackPressed() {
+        if (host != null) nativeAppBack();
+    }
+
+    @Override
+    public void onConfigurationChanged(Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        if (host != null) nativeAppConfigChanged();
     }
 
     private String resolveActivityName() {
@@ -62,8 +105,4 @@ public final class MelodyActivity extends Activity {
         return DEFAULT_ACTIVITY_NAME;
     }
 
-    private int statusBarHeight() {
-        int id = getResources().getIdentifier("status_bar_height", "dimen", "android");
-        return id > 0 ? getResources().getDimensionPixelSize(id) : 0;
-    }
 }

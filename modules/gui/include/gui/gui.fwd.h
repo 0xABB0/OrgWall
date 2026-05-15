@@ -4,7 +4,7 @@
 #include <collection.slotmap/slotmap.fwd.h>
 #include <string/table.h>
 #include <string/string.str8.fwd.h>
-#include <gui.message/gui.message.h>
+#include <gui/gui.message.h>
 
 typedef struct { Mel_SlotMap_Handle handle; } Mel_Gui_Handle;
 

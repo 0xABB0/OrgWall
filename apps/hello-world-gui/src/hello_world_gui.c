@@ -1,12 +1,12 @@
 #include <stdio.h>
 #include <string.h>
 
-#include <gui.control.button/button.h>
-#include <gui.control.checkbox/checkbox.h>
-#include <gui.control.edit/edit.h>
-#include <gui.control.label/label.h>
-#include <gui.control.slider/slider.h>
-#include <gui.control.window/window.h>
+#include <gui.control/button.h>
+#include <gui.control/checkbox.h>
+#include <gui.control/edit.h>
+#include <gui.control/label.h>
+#include <gui.control/slider.h>
+#include <gui.control/window.h>
 #include <gui.platform/gui.platform.h>
 
 #define DEMO_CLASS_COUNTER_BUTTON      S8("demo.counter_button")

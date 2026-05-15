@@ -24,6 +24,8 @@ static NSWindow* mel__macos_window;
 static NSView*   mel__macos_root;
 static Mel_Array(Mel_Macos_Ctor) mel__macos_ctors;
 static bool mel__macos_ctors_inited;
+static bool mel__macos_exit_inflight;
+static bool mel__macos_in_should_terminate;
 
 static void mel__macos_ensure_ctors(void)
 {
@@ -95,9 +97,38 @@ static void mel__macos_install_menu(void)
     (void)sender;
     return YES;
 }
+- (void)applicationDidFinishLaunching:(NSNotification*)notification
+{
+    (void)notification;
+    mel_gui_dispatch_app_message(MEL_GUI_MSG_APP_CREATE, 0, 0);
+}
+- (void)applicationDidBecomeActive:(NSNotification*)notification
+{
+    (void)notification;
+    mel_gui_dispatch_app_message(MEL_GUI_MSG_APP_RESUME, 0, 0);
+}
+- (void)applicationWillResignActive:(NSNotification*)notification
+{
+    (void)notification;
+    mel_gui_dispatch_app_message(MEL_GUI_MSG_APP_PAUSE, 0, 0);
+}
+- (NSApplicationTerminateReply)applicationShouldTerminate:(NSApplication*)sender
+{
+    (void)sender;
+    mel__macos_in_should_terminate = true;
+    mel__macos_exit_inflight = false;
+    mel_gui_dispatch_app_message(MEL_GUI_MSG_APP_BACK, 0, 0);
+    mel__macos_in_should_terminate = false;
+    if (mel__macos_exit_inflight) {
+        mel__macos_exit_inflight = false;
+        return NSTerminateNow;
+    }
+    return NSTerminateCancel;
+}
 - (void)applicationWillTerminate:(NSNotification*)notification
 {
     (void)notification;
+    mel_gui_dispatch_app_message(MEL_GUI_MSG_APP_DESTROY, 0, 0);
     mel_gui_destroy_all_roots();
     mel_gui_shutdown();
 }
@@ -150,13 +181,21 @@ void* mel_gui_platform_create(Mel_Gui_Handle h, const Mel_Gui_Create_Desc* desc,
     NSView* v = cb(h, desc);
     if (v == nil) return NULL;
 
-    if (v != mel__macos_root && v.superview == nil) {
+    NSView* parent_view = nil;
+    if (!mel_gui_handle_is_none(desc->parent)) {
+        void* p = mel_gui_platform_native(desc->parent);
+        if (p != NULL) parent_view = (__bridge NSView*)p;
+    } else {
+        parent_view = mel__macos_root;
+    }
+
+    if (v != mel__macos_root && v.superview == nil && parent_view != nil) {
         CGFloat x = (desc->x == MEL_GUI_DEFAULT_POSITION) ? 0 : (CGFloat)desc->x;
         CGFloat y = (desc->y == MEL_GUI_DEFAULT_POSITION) ? 0 : (CGFloat)desc->y;
         CGFloat w = (CGFloat)desc->w;
         CGFloat hgt = (CGFloat)desc->h;
         [v setFrame:NSMakeRect(x, y, w, hgt)];
-        [mel__macos_root addSubview:v];
+        [parent_view addSubview:v];
     }
 
     return (__bridge_retained void*)v;
@@ -212,6 +251,21 @@ bool mel_gui_platform_post_message(Mel_Gui_Handle h, Mel_Gui_Msg msg, Mel_Gui_WP
         mel_gui_send_message(h, msg, w, l);
     });
     return true;
+}
+
+void mel_gui_platform_request_exit(void)
+{
+    if (mel__macos_in_should_terminate) {
+        mel__macos_exit_inflight = true;
+        return;
+    }
+    mel__macos_exit_inflight = true;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (mel__macos_exit_inflight) {
+            mel__macos_exit_inflight = false;
+            [NSApp terminate:nil];
+        }
+    });
 }
 
 bool mel_gui_app_start_activity(str8 activity_name)
