@@ -991,15 +991,35 @@ static bool win32_build_app(const char *app_name) {
         da_append(&link_objs, obj);
     }
 
+    File_Paths res_files = {0};
+    const char *win32_dir = temp_sprintf("%s/%s/win32", APPS_DIR, app_name);
+    if (file_exists(win32_dir) && get_file_type(win32_dir) == NOB_FILE_DIRECTORY) {
+        File_Paths win32_entries = {0};
+        if (!read_entire_dir(win32_dir, &win32_entries)) return false;
+        for (size_t i = 0; i < win32_entries.count; i++) {
+            const char *n = win32_entries.items[i];
+            if (!ends_with(n, ".rc")) continue;
+            const char *rc_path = temp_sprintf("%s/%s", win32_dir, n);
+            const char *res_path = temp_sprintf("%s/%s.res", out_dir, n);
+            Cmd rc = {0};
+            cmd_append(&rc, "llvm-rc", "/nologo");
+            cmd_append(&rc, temp_sprintf("/I%s", win32_dir));
+            cmd_append(&rc, "/fo", res_path, rc_path);
+            if (!cmd_run_sync_and_reset(&rc)) return false;
+            da_append(&res_files, temp_strdup(res_path));
+        }
+    }
+
     const char *bin = win32_binary_path(app_name);
 
     Cmd cmd = {0};
     cmd_append(&cmd, "clang");
     for (size_t i = 0; i < link_objs.count; i++) cmd_append(&cmd, link_objs.items[i]);
+    for (size_t i = 0; i < res_files.count; i++) cmd_append(&cmd, res_files.items[i]);
     cmd_append(&cmd, "-L" BUILD_DIR);
     cmd_append(&cmd, "-lmelody");
     cmd_append(&cmd, "-luser32", "-lgdi32", "-lcomctl32", "-lcomdlg32", "-lkernel32", "-lwinmm");
-    cmd_append(&cmd, "-Wl,/SUBSYSTEM:WINDOWS", "-Wl,/ENTRY:WinMainCRTStartup");
+    cmd_append(&cmd, "-Wl,/SUBSYSTEM:WINDOWS", "-Wl,/ENTRY:WinMainCRTStartup", "-Wl,/MANIFEST:NO");
     cmd_append(&cmd, "-o", bin);
     if (!cmd_run_sync_and_reset(&cmd)) return false;
 
