@@ -7,7 +7,11 @@
 #define OBJ_DIR       "build/obj"
 #define MODULES_DIR   "modules"
 #define APPS_DIR      "apps"
+#if defined(_WIN32)
+#define LIB_PATH      "build/melody.lib"
+#else
 #define LIB_PATH      "build/libmelody.a"
+#endif
 #define CCMDS_PATH    "compile_commands.json"
 #define THIRD_PARTY_DIR    "third-party"
 #define TP_BUILD_DIR       "build/third-party"
@@ -25,7 +29,9 @@ static const char *base_cflags[] = {
     "-Wno-unused-parameter",
     "-Wno-unused-function",
     "-Wno-missing-field-initializers",
+#if !defined(_WIN32)
     "-fPIC",
+#endif
 };
 
 typedef struct {
@@ -66,7 +72,7 @@ static const char *host_platform(void) {
 #elif defined(__linux__)
     return "linux";
 #elif defined(_WIN32)
-    return "windows";
+    return "win32";
 #else
     return "unknown";
 #endif
@@ -299,7 +305,38 @@ static bool source_is_buildable(const char *name) {
     if (!is_c && !is_m) return false;
     if (ends_with(name, ".build.c")) return false;
     if (!PLATFORM_WIN32 && ends_with(name, ".win32.c")) return false;
+    if (PLATFORM_WIN32 && is_m) return false;
     return true;
+}
+
+static const char *win32_skip_modules[] = {
+    "async",
+    "log",
+    "math",
+    "music.theory",
+    "music.midi",
+    "server",
+    "process",
+    "time",
+    "debug",
+    "gui.platform.android",
+    "gui.platform.macos",
+};
+
+static bool module_enabled_on_host(const char *name) {
+    if (PLATFORM_WIN32) {
+        for (size_t i = 0; i < NOB_ARRAY_LEN(win32_skip_modules); i++) {
+            if (strcmp(name, win32_skip_modules[i]) == 0) return false;
+        }
+    }
+    return true;
+}
+
+static bool source_excluded_on_host(const char *src) {
+    if (PLATFORM_WIN32) {
+        if (strstr(src, "collection.rcu.c") != NULL) return true;
+    }
+    return false;
 }
 
 static bool source_is_objc(const char *name) {
@@ -319,6 +356,7 @@ static bool collect_dir_sources(const char *dir, File_Paths *out) {
         if (!source_is_buildable(n)) continue;
         const char *full = temp_sprintf("%s/%s", dir, n);
         if (get_file_type(full) != NOB_FILE_REGULAR) continue;
+        if (source_excluded_on_host(full)) continue;
         da_append(out, temp_strdup(full));
     }
     return true;
@@ -334,6 +372,7 @@ static bool discover(Layout *L) {
 
         const char *mod_path = temp_sprintf("%s/%s", MODULES_DIR, name);
         if (get_file_type(mod_path) != NOB_FILE_DIRECTORY) continue;
+        if (!module_enabled_on_host(name)) continue;
 
         const char *include_path = temp_sprintf("%s/include", mod_path);
         if (get_file_type(include_path) == NOB_FILE_DIRECTORY) {
@@ -406,7 +445,7 @@ static bool compile_all(const Target *t, const Layout *L, File_Paths *objects) {
 static bool archive(const File_Paths *objects) {
     if (file_exists(LIB_PATH)) delete_file(LIB_PATH);
     Cmd cmd = {0};
-    cmd_append(&cmd, "ar", "rcs", LIB_PATH);
+    cmd_append(&cmd, PLATFORM_WIN32 ? "llvm-ar" : "ar", "rcs", LIB_PATH);
     for (size_t i = 0; i < objects->count; i++) {
         cmd_append(&cmd, objects->items[i]);
     }
@@ -469,7 +508,9 @@ static bool emit_compile_commands(const Target *t, const Layout *L) {
 }
 
 static bool build_library(void) {
-    if (!bootstrap_third_party(target_host())) return false;
+    if (!PLATFORM_WIN32) {
+        if (!bootstrap_third_party(target_host())) return false;
+    }
 
     if (!mkdir_if_not_exists(BUILD_DIR)) return false;
     if (!mkdir_if_not_exists(OBJ_DIR))   return false;
@@ -909,15 +950,15 @@ static bool macos_launch(const char *app_name) {
     return cmd_run_sync_and_reset(&cmd);
 }
 
-static const char *windows_binary_path(const char *app_name) {
-    return temp_sprintf("%s/windows/%s/%s.exe", BUILD_DIR, app_name, app_name);
+static const char *win32_binary_path(const char *app_name) {
+    return temp_sprintf("%s/win32/%s/%s.exe", BUILD_DIR, app_name, app_name);
 }
 
-static bool windows_build_app(const char *app_name) {
+static bool win32_build_app(const char *app_name) {
     if (!build_library()) return false;
 
     Layout L = {0};
-    if (!discover_for_platform(&L, "windows")) return false;
+    if (!discover_for_platform(&L, "win32")) return false;
 
     File_Paths bridge_sources = {0};
     for (size_t i = 0; i < L.sources.count; i++) {
@@ -932,8 +973,8 @@ static bool windows_build_app(const char *app_name) {
         return false;
     }
 
-    const char *out_dir = temp_sprintf("%s/windows/%s", BUILD_DIR, app_name);
-    if (!mkdir_if_not_exists(temp_sprintf("%s/windows", BUILD_DIR))) return false;
+    const char *out_dir = temp_sprintf("%s/win32/%s", BUILD_DIR, app_name);
+    if (!mkdir_if_not_exists(temp_sprintf("%s/win32", BUILD_DIR))) return false;
     if (!mkdir_if_not_exists(out_dir)) return false;
 
     File_Paths link_objs = {0};
@@ -950,15 +991,15 @@ static bool windows_build_app(const char *app_name) {
         da_append(&link_objs, obj);
     }
 
-    const char *bin = windows_binary_path(app_name);
+    const char *bin = win32_binary_path(app_name);
 
     Cmd cmd = {0};
     cmd_append(&cmd, "clang");
     for (size_t i = 0; i < link_objs.count; i++) cmd_append(&cmd, link_objs.items[i]);
     cmd_append(&cmd, "-L" BUILD_DIR);
-    cmd_append(&cmd, temp_sprintf("-L%s", target_lib(target_host())));
-    cmd_append(&cmd, "-lmelody", "-lmpfr", "-lgmp", "-lSDL3", "-lsqlite3");
-    cmd_append(&cmd, "-lwinmm");
+    cmd_append(&cmd, "-lmelody");
+    cmd_append(&cmd, "-luser32", "-lgdi32", "-lcomctl32", "-lcomdlg32", "-lkernel32", "-lwinmm");
+    cmd_append(&cmd, "-Wl,/SUBSYSTEM:WINDOWS", "-Wl,/ENTRY:WinMainCRTStartup");
     cmd_append(&cmd, "-o", bin);
     if (!cmd_run_sync_and_reset(&cmd)) return false;
 
@@ -966,9 +1007,9 @@ static bool windows_build_app(const char *app_name) {
     return true;
 }
 
-static bool windows_launch(const char *app_name) {
+static bool win32_launch(const char *app_name) {
     Cmd cmd = {0};
-    cmd_append(&cmd, windows_binary_path(app_name));
+    cmd_append(&cmd, win32_binary_path(app_name));
     return cmd_run_sync_and_reset(&cmd);
 }
 
@@ -1061,10 +1102,10 @@ static int run_app_command(const char *cmd, int argc, char **argv) {
         return macos_launch(name) ? 0 : 1;
     }
 
-    if (strcmp(platform, "windows") == 0) {
-        if (!windows_build_app(name)) return 1;
+    if (strcmp(platform, "win32") == 0) {
+        if (!win32_build_app(name)) return 1;
         if (strcmp(cmd, "build") == 0) return 0;
-        return windows_launch(name) ? 0 : 1;
+        return win32_launch(name) ? 0 : 1;
     }
 
     if (strcmp(platform, "linux") == 0) {

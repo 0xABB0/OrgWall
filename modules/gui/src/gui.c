@@ -8,7 +8,21 @@
 #include <string/string.str8.h>
 #include <string/table.h>
 
-#include <pthread.h>
+#include <core/platform.h>
+
+#if MEL_PLATFORM_WINDOWS
+    #define WIN32_LEAN_AND_MEAN
+    #include <windows.h>
+    typedef DWORD mel__gui_thread_id;
+    static inline mel__gui_thread_id mel__gui_self(void)     { return GetCurrentThreadId(); }
+    static inline bool mel__gui_eq(mel__gui_thread_id a, mel__gui_thread_id b) { return a == b; }
+#else
+    #include <pthread.h>
+    typedef pthread_t mel__gui_thread_id;
+    static inline mel__gui_thread_id mel__gui_self(void)     { return pthread_self(); }
+    static inline bool mel__gui_eq(mel__gui_thread_id a, mel__gui_thread_id b) { return pthread_equal(a, b) != 0; }
+#endif
+
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -44,7 +58,7 @@ static Mel_Atom_Table*           mel__gui_atoms;
 static Mel_Array(Mel_Gui_Class)  mel__gui_classes;
 static Mel_SlotMap               mel__gui_windows;
 static bool                      mel__gui_initialized;
-static pthread_t                 mel__gui_ui_thread;
+static mel__gui_thread_id        mel__gui_ui_thread;
 static bool                      mel__gui_ui_thread_set;
 
 static const Mel_Alloc* mel__gui_alloc(void) { return mel_alloc_heap(); }
@@ -65,7 +79,7 @@ static Mel_Gui_Class* mel__gui_class_get(Mel_Atom atom)
 
 bool mel_gui_is_ui_thread(void)
 {
-    return mel__gui_ui_thread_set && pthread_equal(pthread_self(), mel__gui_ui_thread);
+    return mel__gui_ui_thread_set && mel__gui_eq(mel__gui_self(), mel__gui_ui_thread);
 }
 
 void mel_gui_assert_ui_thread(void)
@@ -82,7 +96,7 @@ bool mel_gui_init(void)
         return true;
     }
 
-    mel__gui_ui_thread     = pthread_self();
+    mel__gui_ui_thread     = mel__gui_self();
     mel__gui_ui_thread_set = true;
 
     const Mel_Alloc* alloc = mel__gui_alloc();
