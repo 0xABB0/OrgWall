@@ -1,7 +1,16 @@
 #include <stdio.h>
 #include <string.h>
-#include <pthread.h>
-#include <unistd.h>
+
+#ifdef _WIN32
+    #ifndef WIN32_LEAN_AND_MEAN
+        #define WIN32_LEAN_AND_MEAN
+    #endif
+    #include <windows.h>
+    #include <process.h>
+#else
+    #include <pthread.h>
+    #include <unistd.h>
+#endif
 
 #include <gui.control/button.h>
 #include <gui.control/label.h>
@@ -21,7 +30,11 @@ typedef struct App_State {
     Mel_Gui_Handle count_label;
     Mel_Gui_Handle device_rows[DEVICE_ROW_COUNT];
     Mel_Midi_Port* port;
+#ifdef _WIN32
+    HANDLE         poll_thread;
+#else
     pthread_t      poll_thread;
+#endif
     volatile bool  poll_running;
     bool           poll_started;
     int32_t        event_count;
@@ -54,9 +67,8 @@ static void refresh_devices(void)
     }
 }
 
-static void* poll_thread_fn(void* arg)
+static void poll_loop(Mel_Gui_Handle window)
 {
-    Mel_Gui_Handle window = *(Mel_Gui_Handle*)arg;
     while (g_app.poll_running) {
         Mel_Midi_Chunk chunk;
         if (g_app.port != NULL && mel_midi_port_poll(g_app.port, &chunk)) {
@@ -66,11 +78,28 @@ static void* poll_thread_fn(void* arg)
                             | ((uint64_t)(uint8_t)chunk.length << 24);
             mel_gui_post_message(window, MSG_MIDI_CHUNK, (Mel_Gui_WParam)packed, 0);
         } else {
+#ifdef _WIN32
+            Sleep(2);
+#else
             usleep(2000);
+#endif
         }
     }
+}
+
+#ifdef _WIN32
+static unsigned __stdcall poll_thread_fn(void* arg)
+{
+    poll_loop(*(Mel_Gui_Handle*)arg);
+    return 0;
+}
+#else
+static void* poll_thread_fn(void* arg)
+{
+    poll_loop(*(Mel_Gui_Handle*)arg);
     return NULL;
 }
+#endif
 
 static void start_polling(void)
 {
@@ -78,18 +107,34 @@ static void start_polling(void)
     g_app.poll_running = true;
     static Mel_Gui_Handle window_copy;
     window_copy = g_app.window;
+#ifdef _WIN32
+    uintptr_t h = _beginthreadex(NULL, 0, poll_thread_fn, &window_copy, 0, NULL);
+    if (h != 0) {
+        g_app.poll_thread = (HANDLE)h;
+        g_app.poll_started = true;
+    } else {
+        g_app.poll_running = false;
+    }
+#else
     if (pthread_create(&g_app.poll_thread, NULL, poll_thread_fn, &window_copy) == 0) {
         g_app.poll_started = true;
     } else {
         g_app.poll_running = false;
     }
+#endif
 }
 
 static void stop_polling(void)
 {
     if (!g_app.poll_started) return;
     g_app.poll_running = false;
+#ifdef _WIN32
+    WaitForSingleObject(g_app.poll_thread, INFINITE);
+    CloseHandle(g_app.poll_thread);
+    g_app.poll_thread = NULL;
+#else
     pthread_join(g_app.poll_thread, NULL);
+#endif
     g_app.poll_started = false;
 }
 

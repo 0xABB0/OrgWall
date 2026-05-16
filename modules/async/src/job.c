@@ -8,6 +8,7 @@
 #include <collection.workstealingqueue/wsq.h>
 
 #include <SDL3/SDL.h>
+#include <stdio.h>
 #include <string.h>
 
 #define MEL__JOB_ANY_WORKER 0xFF

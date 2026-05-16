@@ -181,7 +181,8 @@ static LRESULT CALLBACK mel__w_root_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM 
             Mel_Gui_Handle h = mel__w_handle_from_hwnd(hwnd);
             if (!mel_gui_handle_is_none(h)) {
                 mel_gui_send_message(h, MEL_GUI_MSG_CLOSE, 0, 0);
-            } else {
+            }
+            if (GetWindowLongPtrW(hwnd, GWLP_USERDATA) == 0 && mel__w_pending_activity.data == NULL) {
                 DestroyWindow(hwnd);
             }
             return 0;
@@ -224,7 +225,7 @@ void mel_gui_win32_run(void (*setup)(void))
     RegisterClassExW(&wc);
 
     mel__w_root = CreateWindowExW(
-        0,
+        WS_EX_COMPOSITED,
         MEL_WIN32_MAIN_CLASS, L"Melody",
         WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
         CW_USEDEFAULT, CW_USEDEFAULT, 480, 720,

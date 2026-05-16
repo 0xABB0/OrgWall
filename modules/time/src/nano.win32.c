@@ -20,7 +20,7 @@ uint64_t mel_nanos_since_unspecified_epoch(void)
     QueryPerformanceCounter(&Time);
 
     uint64_t Secs  = Time.QuadPart / Frequency.QuadPart;
-    uint64_t Nanos = Time.QuadPart % Frequency.QuadPart * NOB_NANOS_PER_SEC / Frequency.QuadPart;
+    uint64_t Nanos = Time.QuadPart % Frequency.QuadPart * MEL_NANOS_PER_SEC / Frequency.QuadPart;
     return MEL_NANOS_PER_SEC * Secs + Nanos;
 }
 

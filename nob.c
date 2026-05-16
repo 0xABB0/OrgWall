@@ -79,7 +79,16 @@ static const char *host_platform(void) {
 }
 
 static const Target *target_host(void) {
+#if PLATFORM_WIN32
+    static Target host = {
+        .name   = "host",
+        .cc     = "clang",
+        .ar     = "llvm-ar",
+        .ranlib = NULL,
+    };
+#else
     static Target host = { .name = "host" };
+#endif
     return &host;
 }
 
@@ -101,6 +110,59 @@ static const char *target_prefix_rel(const Target *t) {
     return temp_sprintf("%s/%s", TP_BUILD_DIR, t->name);
 }
 
+#if PLATFORM_WIN32
+// Autotools' configure scripts reject paths containing backslashes (unsafe srcdir).
+// Keep Windows drive paths intact and only normalize slashes. MSYS tools accept
+// "D:/foo/bar", and Windows-target compilers can still open those paths.
+static const char *to_autotools_path(const char *p) {
+    if (!p) return p;
+    size_t len = strlen(p);
+    char *out = (char*)temp_alloc(len + 1);
+    for (size_t i = 0; i < len; i++) {
+        out[i] = (p[i] == '\\') ? '/' : p[i];
+    }
+    out[len] = 0;
+    return out;
+}
+
+// GNU make on Windows resolves $(SHELL) by searching PATH for sh.exe and
+// substitutes the resolved path verbatim into recipes. Git for Windows ships
+// sh at "C:\Program Files\Git\usr\bin\sh.exe" -- the embedded space then
+// crashes libtool recipes like `$(SHELL) ../libtool ...`. Prepend the 8.3
+// short form of the chosen sh's directory so make picks a path with no spaces.
+static void win32_ensure_no_space_sh_in_path(void) {
+    static bool done = false;
+    if (done) return;
+    done = true;
+
+    char sh_full[MAX_PATH];
+    DWORD n = SearchPathA(NULL, "sh.exe", NULL, MAX_PATH, sh_full, NULL);
+    if (n == 0 || n >= MAX_PATH) return;
+
+    bool has_space = false;
+    for (const char *p = sh_full; *p; p++) if (*p == ' ') { has_space = true; break; }
+    if (!has_space) return;
+
+    char *sep = strrchr(sh_full, '\\');
+    if (!sep) sep = strrchr(sh_full, '/');
+    if (!sep) return;
+    *sep = '\0';
+
+    char short_dir[MAX_PATH];
+    if (GetShortPathNameA(sh_full, short_dir, MAX_PATH) == 0) return;
+
+    const char *old_path = getenv("PATH");
+    if (!old_path) old_path = "";
+    size_t need = strlen(short_dir) + 1 + strlen(old_path) + 1;
+    char *new_path = (char*)temp_alloc(need);
+    snprintf(new_path, need, "%s;%s", short_dir, old_path);
+    _putenv_s("PATH", new_path);
+}
+#else
+static const char *to_autotools_path(const char *p) { return p; }
+static void win32_ensure_no_space_sh_in_path(void) {}
+#endif
+
 static const char *target_prefix_abs(const Target *t) {
     return temp_sprintf("%s/%s", get_current_dir_temp(), target_prefix_rel(t));
 }
@@ -113,12 +175,26 @@ static const char *target_lib(const Target *t) {
     return temp_sprintf("%s/lib", target_prefix_rel(t));
 }
 
+static bool target_uses_msvc_lib_names(const Target *t) {
+    return PLATFORM_WIN32 && t->configure_host == NULL;
+}
+
+static const char *autotools_static_lib(const Target *t, const char *name) {
+    const char *prefix = target_prefix_rel(t);
+    if (target_uses_msvc_lib_names(t)) {
+        return temp_sprintf("%s/lib/%s.lib", prefix, name);
+    }
+    return temp_sprintf("%s/lib/lib%s.a", prefix, name);
+}
+
 static bool autotools_build(const Target *t, const char *src_rel, const char *name, const char *extra_arg) {
+    win32_ensure_no_space_sh_in_path();
+
     const char *cwd = get_current_dir_temp();
-    const char *abs_src = temp_sprintf("%s/%s", cwd, src_rel);
     const char *abs_prefix = target_prefix_abs(t);
     const char *build_dir_rel = temp_sprintf("%s/%s-build", target_prefix_rel(t), name);
     const char *abs_build = temp_sprintf("%s/%s", cwd, build_dir_rel);
+    const char *configure = temp_sprintf("../../../../%s/configure", src_rel);
 
     if (!mkdir_if_not_exists(build_dir_rel)) return false;
     if (!set_current_dir(abs_build)) return false;
@@ -126,14 +202,24 @@ static bool autotools_build(const Target *t, const char *src_rel, const char *na
     bool ok = true;
 
     Cmd cmd = {0};
-    cmd_append(&cmd, temp_sprintf("%s/configure", abs_src));
-    cmd_append(&cmd, temp_sprintf("--prefix=%s", abs_prefix));
-    cmd_append(&cmd, "--disable-shared", "--enable-static", "--with-pic");
+#if PLATFORM_WIN32
+    cmd_append(&cmd, "sh");
+#endif
+    cmd_append(&cmd, to_autotools_path(configure));
+    cmd_append(&cmd, temp_sprintf("--prefix=%s", to_autotools_path(abs_prefix)));
+    cmd_append(&cmd, "--disable-shared", "--enable-static", "--with-pic", "--disable-maintainer-mode");
     if (t->configure_host) cmd_append(&cmd, temp_sprintf("--host=%s", t->configure_host));
     if (extra_arg) cmd_append(&cmd, extra_arg);
     if (t->cc)     cmd_append(&cmd, temp_sprintf("CC=%s",     t->cc));
     if (t->ar)     cmd_append(&cmd, temp_sprintf("AR=%s",     t->ar));
     if (t->ranlib) cmd_append(&cmd, temp_sprintf("RANLIB=%s", t->ranlib));
+#if PLATFORM_WIN32
+    // VS LLVM ships ld.lld / llvm-nm / llvm-strip but no GNU-named aliases.
+    // Autotools/libtool probe for "ld" / "nm" by name and bail otherwise.
+    cmd_append(&cmd, "LD=ld.lld");
+    cmd_append(&cmd, "NM=llvm-nm");
+    cmd_append(&cmd, "STRIP=llvm-strip");
+#endif
     if (!cmd_run_sync_and_reset(&cmd)) ok = false;
 
     if (ok) {
@@ -164,7 +250,10 @@ static bool single_tu_build(const Target *t, const char *src_rel, const char *na
     const char *obj = temp_sprintf("%s/%s.o", build_dir_rel, name);
     Cmd cmd = {0};
     cmd_append(&cmd, t->cc ? t->cc : "clang");
-    cmd_append(&cmd, "-c", "-fPIC", "-O2");
+    cmd_append(&cmd, "-c", "-O2");
+#if !PLATFORM_WIN32
+    cmd_append(&cmd, "-fPIC");
+#endif
     for (size_t i = 0; i < extra_cflags_count; i++) cmd_append(&cmd, extra_cflags[i]);
     cmd_append(&cmd, abs_src, "-o", obj);
     if (!cmd_run_sync_and_reset(&cmd)) return false;
@@ -221,19 +310,23 @@ static bool cmake_build(const Target *t, const char *src_rel, const char *name, 
     if (!cmd_run_sync_and_reset(&cmd)) return false;
 
     Cmd build = {0};
-    cmd_append(&build, "cmake", "--build", build_dir_rel, "--parallel", temp_sprintf("%d", nob_nprocs()));
+    cmd_append(&build, "cmake", "--build", build_dir_rel, "--config", "Release", "--parallel", temp_sprintf("%d", nob_nprocs()));
     if (!cmd_run_sync_and_reset(&build)) return false;
 
     Cmd install = {0};
-    cmd_append(&install, "cmake", "--install", build_dir_rel);
+    cmd_append(&install, "cmake", "--install", build_dir_rel, "--config", "Release");
     return cmd_run_sync_and_reset(&install);
 }
 
 static bool bootstrap_third_party(const Target *t) {
     const char *prefix = target_prefix_rel(t);
-    const char *gmp_a    = temp_sprintf("%s/lib/libgmp.a",     prefix);
-    const char *mpfr_a   = temp_sprintf("%s/lib/libmpfr.a",    prefix);
+    const char *gmp_a    = autotools_static_lib(t, "gmp");
+    const char *mpfr_a   = autotools_static_lib(t, "mpfr");
+#if PLATFORM_WIN32
+    const char *sdl_a    = temp_sprintf("%s/lib/SDL3-static.lib", prefix);
+#else
     const char *sdl_a    = temp_sprintf("%s/lib/libSDL3.a",    prefix);
+#endif
     const char *sqlite_a = temp_sprintf("%s/lib/libsqlite3.a", prefix);
 
     if (file_exists(gmp_a) && file_exists(mpfr_a) && file_exists(sdl_a) && file_exists(sqlite_a)) return true;
@@ -248,7 +341,7 @@ static bool bootstrap_third_party(const Target *t) {
         if (!autotools_build(t, "third-party/gmp", "gmp", NULL)) return false;
     }
     if (!file_exists(mpfr_a)) {
-        const char *with_gmp = temp_sprintf("--with-gmp=%s", target_prefix_abs(t));
+        const char *with_gmp = temp_sprintf("--with-gmp=%s", to_autotools_path(target_prefix_abs(t)));
         if (!autotools_build(t, "third-party/mpfr", "mpfr", with_gmp)) return false;
     }
     if (!file_exists(sdl_a)) {
@@ -305,38 +398,9 @@ static bool source_is_buildable(const char *name) {
     if (!is_c && !is_m) return false;
     if (ends_with(name, ".build.c")) return false;
     if (!PLATFORM_WIN32 && ends_with(name, ".win32.c")) return false;
+    if (PLATFORM_WIN32 && (ends_with(name, ".posix.c") || ends_with(name, ".unix.c"))) return false;
     if (PLATFORM_WIN32 && is_m) return false;
     return true;
-}
-
-static const char *win32_skip_modules[] = {
-    "async",
-    "log",
-    "math",
-    "music.theory",
-    "music.midi",
-    "server",
-    "process",
-    "time",
-    "debug",
-    "gui.platform.android",
-    "gui.platform.macos",
-};
-
-static bool module_enabled_on_host(const char *name) {
-    if (PLATFORM_WIN32) {
-        for (size_t i = 0; i < NOB_ARRAY_LEN(win32_skip_modules); i++) {
-            if (strcmp(name, win32_skip_modules[i]) == 0) return false;
-        }
-    }
-    return true;
-}
-
-static bool source_excluded_on_host(const char *src) {
-    if (PLATFORM_WIN32) {
-        if (strstr(src, "collection.rcu.c") != NULL) return true;
-    }
-    return false;
 }
 
 static bool source_is_objc(const char *name) {
@@ -356,7 +420,6 @@ static bool collect_dir_sources(const char *dir, File_Paths *out) {
         if (!source_is_buildable(n)) continue;
         const char *full = temp_sprintf("%s/%s", dir, n);
         if (get_file_type(full) != NOB_FILE_REGULAR) continue;
-        if (source_excluded_on_host(full)) continue;
         da_append(out, temp_strdup(full));
     }
     return true;
@@ -372,7 +435,6 @@ static bool discover(Layout *L) {
 
         const char *mod_path = temp_sprintf("%s/%s", MODULES_DIR, name);
         if (get_file_type(mod_path) != NOB_FILE_DIRECTORY) continue;
-        if (!module_enabled_on_host(name)) continue;
 
         const char *include_path = temp_sprintf("%s/include", mod_path);
         if (get_file_type(include_path) == NOB_FILE_DIRECTORY) {
@@ -508,9 +570,7 @@ static bool emit_compile_commands(const Target *t, const Layout *L) {
 }
 
 static bool build_library(void) {
-    if (!PLATFORM_WIN32) {
-        if (!bootstrap_third_party(target_host())) return false;
-    }
+    if (!bootstrap_third_party(target_host())) return false;
 
     if (!mkdir_if_not_exists(BUILD_DIR)) return false;
     if (!mkdir_if_not_exists(OBJ_DIR))   return false;

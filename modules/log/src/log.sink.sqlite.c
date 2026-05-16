@@ -8,6 +8,7 @@
 #include <allocator.heap/heap.h>
 #include <string/string.str8.h>
 #include <core/platform.h>
+#include <time/nano.h>
 
 #include <sqlite3.h>
 #include <stdio.h>
@@ -27,9 +28,7 @@ typedef struct {
 
 static u64 mel__sqlite_sink_now_ns(void)
 {
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (u64)ts.tv_sec * 1000000000ULL + (u64)ts.tv_nsec;
+    return (u64)mel_nanos_since_unspecified_epoch();
 }
 
 static bool mel__sqlite_sink_exec(sqlite3* db, const char* sql)
@@ -195,7 +194,11 @@ static bool mel__sqlite_sink_insert_metadata(sqlite3* db)
 {
     time_t now = time(NULL);
     struct tm tm_buf;
+#ifdef _WIN32
+    gmtime_s(&tm_buf, &now);
+#else
     gmtime_r(&now, &tm_buf);
+#endif
     char iso_buf[64];
     strftime(iso_buf, sizeof(iso_buf), "%Y-%m-%dT%H:%M:%SZ", &tm_buf);
 
