@@ -64,7 +64,6 @@ static const Android_Abi android_abis[] = {
 
 // --- Subsystems (included for single-compilation-unit build) ---
 #include "nob_third_party.c"
-#include "nob_android.c"
 
 // --- Platform detection ---
 
@@ -236,6 +235,8 @@ static bool discover_for_platform(Layout *L, const char *platform) {
     }
     return true;
 }
+
+#include "nob_android.c"
 
 // --- Library compilation ---
 

@@ -71,3 +71,4 @@ apps/hello-world-gui/android/app/src/main/jniLibs/
 *.apk
 *.ap_
 *.aab
+nob.exe.old
