@@ -76,8 +76,19 @@ void           mel_gui_dispatch_app_message(Mel_Gui_Msg msg, Mel_Gui_WParam w, M
 bool mel_gui_attach_proc(Mel_Gui_Handle h, Mel_Gui_Proc proc);
 bool mel_gui_detach_proc(Mel_Gui_Handle h, Mel_Gui_Proc proc);
 
+Mel_Gui_Handle mel_gui_focus(void);
+bool           mel_gui_set_focus(Mel_Gui_Handle h);
+void           mel_gui_dispatch_focus(Mel_Gui_Handle h);
+
+Mel_Gui_Handle mel_gui_handle_from_native(void* native);
+
 bool mel_gui_set_window_pos(Mel_Gui_Handle h, i32 x, i32 y, i32 w, i32 hgt, u32 flags);
 bool mel_gui_set_text(Mel_Gui_Handle h, str8 text);
+
+bool mel_gui_invalidate(Mel_Gui_Handle h);
+bool mel_gui_invalidate_rect(Mel_Gui_Handle h, i32 x, i32 y, i32 w, i32 hgt);
+
+size mel_gui_get_text(Mel_Gui_Handle h, char* buf, size cap);
 
 Mel_Gui_Handle mel_gui_parent(Mel_Gui_Handle h);
 u32            mel_gui_id(Mel_Gui_Handle h);

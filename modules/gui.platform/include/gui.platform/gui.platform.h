@@ -11,7 +11,14 @@ void   mel_gui_platform_destroy(Mel_Gui_Handle h);
 bool   mel_gui_platform_set_window_pos(Mel_Gui_Handle h, i32 x, i32 y, i32 w, i32 hgt, u32 flags);
 bool   mel_gui_platform_set_text(Mel_Gui_Handle h, str8 text);
 
+bool   mel_gui_platform_invalidate(Mel_Gui_Handle h);
+bool   mel_gui_platform_invalidate_rect(Mel_Gui_Handle h, i32 x, i32 y, i32 w, i32 hgt);
+
+size   mel_gui_platform_get_text(Mel_Gui_Handle h, char* buf, size cap);
+
 bool   mel_gui_platform_post_message(Mel_Gui_Handle h, Mel_Gui_Msg msg, Mel_Gui_WParam w, Mel_Gui_LParam l);
+
+bool   mel_gui_platform_set_focus(Mel_Gui_Handle h);
 
 void   mel_gui_platform_request_exit(void);
 

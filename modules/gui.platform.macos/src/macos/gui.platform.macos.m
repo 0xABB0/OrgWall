@@ -15,6 +15,26 @@
 - (BOOL)isFlipped { return YES; }
 @end
 
+@interface MelWindow : NSWindow
+@end
+@implementation MelWindow
+- (BOOL)makeFirstResponder:(NSResponder*)responder
+{
+    BOOL ok = [super makeFirstResponder:responder];
+    Mel_Gui_Handle h = MEL_GUI_HANDLE_NONE;
+    NSResponder* r = self.firstResponder;
+    while (r != nil) {
+        if ([r isKindOfClass:[NSView class]]) {
+            Mel_Gui_Handle found = mel_gui_handle_from_native((__bridge void*)r);
+            if (!mel_gui_handle_is_none(found)) { h = found; break; }
+        }
+        r = r.nextResponder;
+    }
+    mel_gui_dispatch_focus(h);
+    return ok;
+}
+@end
+
 typedef struct {
     Mel_Atom                 atom;
     Mel_Gui_Macos_Construct  cb;
@@ -151,10 +171,10 @@ void mel_gui_macos_dispatch_main(void (*setup)(void))
                          | NSWindowStyleMaskClosable
                          | NSWindowStyleMaskMiniaturizable
                          | NSWindowStyleMaskResizable;
-        mel__macos_window = [[NSWindow alloc] initWithContentRect:frame
-                                                        styleMask:style
-                                                          backing:NSBackingStoreBuffered
-                                                            defer:NO];
+        mel__macos_window = [[MelWindow alloc] initWithContentRect:frame
+                                                         styleMask:style
+                                                           backing:NSBackingStoreBuffered
+                                                             defer:NO];
         [mel__macos_window setTitle:@"Melody"];
         [mel__macos_window center];
 
@@ -244,6 +264,60 @@ bool mel_gui_platform_set_text(Mel_Gui_Handle h, str8 text)
         [(NSButton*)v setTitle:(s ?: @"")];
     }
     return true;
+}
+
+size mel_gui_platform_get_text(Mel_Gui_Handle h, char* buf, size cap)
+{
+    void* native = mel_gui_platform_native(h);
+    if (native == NULL) return 0;
+    NSView* v = (__bridge NSView*)native;
+
+    NSString* s = nil;
+    if ([v respondsToSelector:@selector(stringValue)]) {
+        s = [(NSControl*)v stringValue];
+    } else if ([v respondsToSelector:@selector(title)]) {
+        s = [(NSButton*)v title];
+    }
+    if (s == nil) return 0;
+
+    NSData* data = [s dataUsingEncoding:NSUTF8StringEncoding];
+    size n = (size)data.length;
+    if (buf != NULL && cap > 0) {
+        size to_copy = (n < cap - 1) ? n : (cap - 1);
+        if (to_copy > 0) memcpy(buf, data.bytes, (usize)to_copy);
+        buf[to_copy] = 0;
+    }
+    return n;
+}
+
+bool mel_gui_platform_invalidate(Mel_Gui_Handle h)
+{
+    void* native = mel_gui_platform_native(h);
+    if (native == NULL) return false;
+    NSView* v = (__bridge NSView*)native;
+    [v setNeedsDisplay:YES];
+    return true;
+}
+
+bool mel_gui_platform_invalidate_rect(Mel_Gui_Handle h, i32 x, i32 y, i32 w, i32 hgt)
+{
+    void* native = mel_gui_platform_native(h);
+    if (native == NULL) return false;
+    NSView* v = (__bridge NSView*)native;
+    [v setNeedsDisplayInRect:NSMakeRect(x, y, w, hgt)];
+    return true;
+}
+
+bool mel_gui_platform_set_focus(Mel_Gui_Handle h)
+{
+    if (mel__macos_window == nil) return false;
+    if (mel_gui_handle_is_none(h)) {
+        return [mel__macos_window makeFirstResponder:nil];
+    }
+    void* native = mel_gui_platform_native(h);
+    if (native == NULL) return false;
+    NSView* v = (__bridge NSView*)native;
+    return [mel__macos_window makeFirstResponder:v];
 }
 
 bool mel_gui_platform_post_message(Mel_Gui_Handle h, Mel_Gui_Msg msg, Mel_Gui_WParam w, Mel_Gui_LParam l)

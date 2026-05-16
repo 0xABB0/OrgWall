@@ -60,6 +60,7 @@ static Mel_SlotMap               mel__gui_windows;
 static bool                      mel__gui_initialized;
 static mel__gui_thread_id        mel__gui_ui_thread;
 static bool                      mel__gui_ui_thread_set;
+static Mel_Gui_Handle            mel__gui_focus;
 
 static const Mel_Alloc* mel__gui_alloc(void) { return mel_alloc_heap(); }
 
@@ -247,8 +248,6 @@ Mel_Gui_Result mel_gui_call_super(Mel_Gui_Handle h, Mel_Gui_Msg msg, Mel_Gui_WPa
 Mel_Gui_Result mel_gui_def_proc(Mel_Gui_Handle h, Mel_Gui_Msg msg, Mel_Gui_WParam wp, Mel_Gui_LParam lp)
 {
     mel_gui_assert_ui_thread();
-    (void)wp;
-    (void)lp;
     switch (msg) {
         case MEL_GUI_MSG_CLOSE:
             mel_gui_destroy(h);
@@ -256,7 +255,11 @@ Mel_Gui_Result mel_gui_def_proc(Mel_Gui_Handle h, Mel_Gui_Msg msg, Mel_Gui_WPara
         case MEL_GUI_MSG_APP_BACK:
             mel_gui_platform_request_exit();
             return MEL_GUI_OK;
+        case MEL_GUI_MSG_GET_TEXT:
+            return (Mel_Gui_Result)mel_gui_platform_get_text(h, (char*)(intptr_t)lp, (size)wp);
         default:
+            (void)wp;
+            (void)lp;
             return MEL_GUI_OK;
     }
 }
@@ -290,6 +293,50 @@ void mel_gui_dispatch_app_message(Mel_Gui_Msg msg, Mel_Gui_WParam wp, Mel_Gui_LP
             Mel_Gui_Window* w = mel__gui_window_get(roots[i]);
             if (w != NULL) mel__gui_dispatch(w, msg, wp, lp);
         }
+    }
+}
+
+Mel_Gui_Handle mel_gui_focus(void)
+{
+    mel_gui_assert_ui_thread();
+    if (mel_gui_handle_is_none(mel__gui_focus)) return MEL_GUI_HANDLE_NONE;
+    if (!mel_slotmap_alive(&mel__gui_windows, mel__gui_focus.handle)) return MEL_GUI_HANDLE_NONE;
+    return mel__gui_focus;
+}
+
+Mel_Gui_Handle mel_gui_handle_from_native(void* native)
+{
+    mel_gui_assert_ui_thread();
+    if (native == NULL || !mel__gui_initialized) return MEL_GUI_HANDLE_NONE;
+    u32 count = mel_slotmap_count(&mel__gui_windows);
+    Mel_Gui_Window* all = (Mel_Gui_Window*)mel_slotmap_data(&mel__gui_windows);
+    for (u32 i = 0; i < count; i++) {
+        if (all[i].native == native) return all[i].self;
+    }
+    return MEL_GUI_HANDLE_NONE;
+}
+
+bool mel_gui_set_focus(Mel_Gui_Handle h)
+{
+    mel_gui_assert_ui_thread();
+    return mel_gui_platform_set_focus(h);
+}
+
+void mel_gui_dispatch_focus(Mel_Gui_Handle h)
+{
+    mel_gui_assert_ui_thread();
+    if (mel_gui_handle_eq(mel__gui_focus, h)) return;
+
+    Mel_Gui_Handle prev = mel__gui_focus;
+    mel__gui_focus = h;
+
+    if (!mel_gui_handle_is_none(prev) && mel_slotmap_alive(&mel__gui_windows, prev.handle)) {
+        Mel_Gui_Window* w = mel__gui_window_get(prev);
+        if (w != NULL) mel__gui_dispatch(w, MEL_GUI_MSG_FOCUS_LOST, 0, 0);
+    }
+    if (!mel_gui_handle_is_none(h) && mel_slotmap_alive(&mel__gui_windows, h.handle)) {
+        Mel_Gui_Window* w = mel__gui_window_get(h);
+        if (w != NULL) mel__gui_dispatch(w, MEL_GUI_MSG_FOCUS_GAINED, 0, 0);
     }
 }
 
@@ -391,6 +438,8 @@ bool mel_gui_destroy(Mel_Gui_Handle h)
     Mel_Gui_Window* w = mel__gui_window_get(h);
     if (w == NULL) return false;
 
+    if (mel_gui_handle_eq(mel__gui_focus, h)) mel__gui_focus = MEL_GUI_HANDLE_NONE;
+
     mel__gui_dispatch(w, MEL_GUI_MSG_DESTROY, 0, 0);
 
     u32 count = mel_slotmap_count(&mel__gui_windows);
@@ -466,6 +515,29 @@ bool mel_gui_set_window_pos(Mel_Gui_Handle h, i32 x, i32 y, i32 w, i32 hgt, u32 
     if (flags & MEL_GUI_SWP_ENABLE)  mel__gui_dispatch(win, MEL_GUI_MSG_ENABLE, 1, 0);
     if (flags & MEL_GUI_SWP_DISABLE) mel__gui_dispatch(win, MEL_GUI_MSG_ENABLE, 0, 0);
     return true;
+}
+
+size mel_gui_get_text(Mel_Gui_Handle h, char* buf, size cap)
+{
+    mel_gui_assert_ui_thread();
+    Mel_Gui_Result r = mel_gui_send_message(h, MEL_GUI_MSG_GET_TEXT, (Mel_Gui_WParam)cap, (Mel_Gui_LParam)(intptr_t)buf);
+    return r < 0 ? 0 : (size)r;
+}
+
+bool mel_gui_invalidate(Mel_Gui_Handle h)
+{
+    mel_gui_assert_ui_thread();
+    Mel_Gui_Window* w = mel__gui_window_get(h);
+    if (w == NULL) return false;
+    return mel_gui_platform_invalidate(h);
+}
+
+bool mel_gui_invalidate_rect(Mel_Gui_Handle h, i32 x, i32 y, i32 width, i32 hgt)
+{
+    mel_gui_assert_ui_thread();
+    Mel_Gui_Window* w = mel__gui_window_get(h);
+    if (w == NULL) return false;
+    return mel_gui_platform_invalidate_rect(h, x, y, width, hgt);
 }
 
 bool mel_gui_set_text(Mel_Gui_Handle h, str8 text)
