@@ -1,3 +1,5 @@
+#include <string.h>
+#include "core/compiler.h"
 #ifdef _CLANGD
 #pragma once
 #include "string.str8.h"
@@ -17,6 +19,24 @@ static inline str8 str8_from_cstr(const char* s)
 {
     if (!s) return (str8){0};
     return (str8){ .data = (u8*)s, .len = (size)strlen(s) };
+}
+
+static inline MEL_OVERLOADABLE bool str8_clone_cstr(str8* str, const char* s, Mel_Alloc* alloc) {
+    if (str == NULL) return false;
+    usize len = strlen(s);
+    return str8_clone_cstr(str, s, len, alloc);
+}
+
+static inline MEL_OVERLOADABLE bool str8_clone_cstr(str8* str, const char* s, usize len, Mel_Alloc* alloc) {
+    if (str == NULL) return false;
+    u8* data = mel_alloc(alloc, len + 1);
+    if (data == NULL) return false;
+    memcpy(data, s, len);
+    data[len] = '\0';
+
+    str->data = data;
+    str->len = len;
+    return true;
 }
 
 static inline bool str8_is_empty(str8 s)

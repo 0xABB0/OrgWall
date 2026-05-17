@@ -18,6 +18,9 @@
 static inline str8 str8_from_parts(u8* data, size len);
 static inline str8 str8_from_range(u8* begin, u8* end);
 static inline str8 str8_from_cstr(const char* s);
+static inline MEL_OVERLOADABLE bool str8_clone_cstr(str8* str, const char* s, Mel_Alloc* alloc);
+static inline MEL_OVERLOADABLE bool str8_clone_cstr(str8* str, const char* s, usize len, Mel_Alloc* alloc);
+
 static inline bool str8_is_empty(str8 s);
 static inline bool str8_equals(str8 a, str8 b);
 static inline bool str8_ieq(str8 a, str8 b);
