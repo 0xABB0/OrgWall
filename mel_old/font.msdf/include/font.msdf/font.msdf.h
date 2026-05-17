@@ -1,7 +1,7 @@
 #pragma once
 
 #include <core/types.h>
-#include <string/string.str8.fwd.h>
+#include <string/str8.fwd.h>
 #include "font.msdf.fwd.h"
 #include <font/font.desc.fwd.h>
 #include <font/font.descriptor.h>

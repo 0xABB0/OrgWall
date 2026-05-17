@@ -2,7 +2,7 @@
 
 #include "window.fwd.h"
 #include "core.types.h"
-#include "string.str8.fwd.h"
+#include "str8.fwd.h"
 #include "swapchain.fwd.h"
 #include "event.channel.fwd.h"
 

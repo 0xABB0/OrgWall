@@ -1,6 +1,6 @@
 #include "texture.atlas.h"
 #include "texture.pool.h"
-#include "string.str8.h"
+#include "str8.h"
 #include "hash.xxh.h"
 #include "allocator.h"
 #include "vfs.h"

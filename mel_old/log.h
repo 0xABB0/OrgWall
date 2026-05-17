@@ -2,7 +2,7 @@
 
 #include "log.cfg.h"
 #include "log.fwd.h"
-#include "string.str8.fwd.h"
+#include "str8.fwd.h"
 
 #ifdef __cplusplus
 extern "C" {

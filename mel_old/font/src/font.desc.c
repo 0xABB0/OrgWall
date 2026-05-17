@@ -1,5 +1,5 @@
 #include <font/font.desc.h>
-#include <string/string.str8.h>
+#include <string/str8.h>
 #include <hash/xxh.h>
 #include <collection.slotmap/slotmap.h>
 #include <collection.map.hashmap/hashmap.h>

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "ui.native.ctrl.h"
-#include "string.str8.fwd.h"
+#include "str8.fwd.h"
 
 typedef void (*Mel_NEdit_Change_Cb)(str8 text, void* user);
 typedef void (*Mel_NEdit_Confirm_Cb)(str8 text, void* user);

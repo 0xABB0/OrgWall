@@ -4,7 +4,7 @@
 #include "math.vec4.h"
 #include "font.descriptor.h"
 #include "render.material_base.fwd.h"
-#include "string.str8.fwd.h"
+#include "str8.fwd.h"
 #include "font.atlas.fwd.h"
 #include "font.sdf.fwd.h"
 #include "font.msdf.fwd.h"

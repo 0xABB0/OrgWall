@@ -1,7 +1,7 @@
 #pragma once
 
 #include "ui.native.ctrl.h"
-#include "string.str8.fwd.h"
+#include "str8.fwd.h"
 
 typedef struct Mel_NMenu {
     Mel_NCtrl base;

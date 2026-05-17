@@ -5,7 +5,7 @@
 #include "text.material.h"
 #include "render.material_base.h"
 #include "texture.pool.h"
-#include "string.str8.h"
+#include "str8.h"
 
 ECS_COMPONENT_DECLARE(Mel_CText);
 

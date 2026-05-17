@@ -12,7 +12,7 @@
 #include "allocator.h"
 #include "allocator.heap.h"
 #include "gpu.shader.h"
-#include "string.str8.h"
+#include "str8.h"
 #include "log.h"
 #include "boot.registry.h"
 #include "async.job.h"

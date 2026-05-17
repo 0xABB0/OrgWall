@@ -1,5 +1,5 @@
 #include "ui.native.combo.h"
-#include "string.str8.h"
+#include "str8.h"
 
 void mel_ncombo_init_opt(Mel_NCombo* combo, Mel_NCombo_Opt opt)
 {

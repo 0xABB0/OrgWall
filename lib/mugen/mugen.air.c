@@ -1,6 +1,6 @@
 #include "mugen.air.h"
 #include "allocator.h"
-#include "string.str8.h"
+#include "str8.h"
 
 #include <stdlib.h>
 #include <string.h>

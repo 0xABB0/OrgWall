@@ -1,5 +1,5 @@
 #include "ui.native.button.h"
-#include "string.str8.h"
+#include "str8.h"
 
 void mel_nbutton_init_opt(Mel_NButton* button, Mel_NButton_Opt opt)
 {

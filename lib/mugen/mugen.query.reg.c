@@ -1,5 +1,5 @@
 #include "mugen.cns.h"
-#include "string.str8.h"
+#include "str8.h"
 #include <string.h>
 
 static Mugen_Query_Reg query_table[MUGEN_QUERY_MAX];

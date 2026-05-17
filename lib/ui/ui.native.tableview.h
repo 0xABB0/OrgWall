@@ -1,7 +1,7 @@
 #pragma once
 
 #include "ui.native.ctrl.h"
-#include "string.str8.fwd.h"
+#include "str8.fwd.h"
 
 typedef str8 (*Mel_NTableView_Data_Cb)(i32 row, i32 col, void* user);
 typedef void (*Mel_NTableView_Select_Cb)(i32 row, void* user);

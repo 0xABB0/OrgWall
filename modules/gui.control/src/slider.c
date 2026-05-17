@@ -1,7 +1,7 @@
 #include <gui.control/slider.h>
 
 #include <core/compiler.h>
-#include <string/string.str8.h>
+#include <string/str8.h>
 
 static Mel_Atom mel__slider_atom;
 

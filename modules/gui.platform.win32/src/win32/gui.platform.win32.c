@@ -5,7 +5,7 @@
 #include <allocator/allocator.h>
 #include <allocator.heap/heap.h>
 #include <collection.array/array.h>
-#include <string/string.str8.h>
+#include <string/str8.h>
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "core.types.h"
-#include "string.str8.fwd.h"
+#include "str8.fwd.h"
 #include "editor.registry.fwd.h"
 #include "texture.pool.fwd.h"
 #include "tile.set.fwd.h"

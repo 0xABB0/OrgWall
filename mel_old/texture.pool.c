@@ -4,7 +4,7 @@
 #include "core.engine.h"
 #include "event.channel.h"
 #include "boot.registry.h"
-#include "string.str8.h"
+#include "str8.h"
 #include "hash.xxh.h"
 #include "gpu.texture.h"
 #include "gpu.device.h"

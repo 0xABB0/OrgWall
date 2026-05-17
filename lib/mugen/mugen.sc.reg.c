@@ -1,5 +1,5 @@
 #include "mugen.cns.h"
-#include "string.str8.h"
+#include "str8.h"
 #include <string.h>
 
 static Mugen_SC_Reg sc_table[MUGEN_SC_MAX];

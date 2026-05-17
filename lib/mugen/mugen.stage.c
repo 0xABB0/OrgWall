@@ -1,5 +1,5 @@
 #include "mugen.stage.h"
-#include "string.str8.h"
+#include "str8.h"
 #include "allocator.h"
 #include "collection.array.h"
 #include <string.h>

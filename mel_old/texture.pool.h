@@ -3,7 +3,7 @@
 #include "core.types.h"
 #include "allocator.fwd.h"
 #include "event.channel.fwd.h"
-#include "string.str8.fwd.h"
+#include "str8.fwd.h"
 #include "texture.pool.fwd.h"
 #include "gpu.texture.h"
 #include "gpu.device.fwd.h"

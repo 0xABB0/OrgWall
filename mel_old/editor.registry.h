@@ -2,7 +2,7 @@
 
 #include "core.types.h"
 #include "allocator.fwd.h"
-#include "string.str8.fwd.h"
+#include "str8.fwd.h"
 #include "collection.array.fwd.h"
 
 #include <SDL3/SDL_events.h>

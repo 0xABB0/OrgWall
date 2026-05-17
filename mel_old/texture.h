@@ -4,7 +4,7 @@
 #include "gpu.pipeline.fwd.h"
 #include "gpu.device.fwd.h"
 #include "gpu.types.h"
-#include "string.str8.fwd.h"
+#include "str8.fwd.h"
 #include "allocator.fwd.h"
 
 typedef struct {

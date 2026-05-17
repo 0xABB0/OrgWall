@@ -1,6 +1,6 @@
 #include "editor.h"
 #include "editor.registry.h"
-#include "string.str8.h"
+#include "str8.h"
 #include "log.h"
 
 #include <cimgui/cimgui.h>

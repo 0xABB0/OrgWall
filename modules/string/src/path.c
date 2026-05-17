@@ -1,5 +1,5 @@
-#include <string/string.path.h>
-#include <string/string.str8.h>
+#include <string/path.h>
+#include <string/str8.h>
 
 str8 mel_path_normalize(str8 path, u8* buf, usize buf_cap)
 {

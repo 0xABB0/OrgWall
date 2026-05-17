@@ -1,5 +1,5 @@
 #include "ui.native.window.h"
-#include "string.str8.h"
+#include "str8.h"
 
 void mel_nwindow_init_opt(Mel_NWindow* window, Mel_NWindow_Opt opt)
 {

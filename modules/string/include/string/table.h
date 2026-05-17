@@ -2,7 +2,7 @@
 
 #include <core/types.h>
 #include <allocator/allocator.fwd.h>
-#include "string.str8.fwd.h"
+#include "str8.fwd.h"
 
 typedef u32 Mel_Atom;
 

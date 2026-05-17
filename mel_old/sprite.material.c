@@ -5,7 +5,7 @@
 #include "gpu.shader.h"
 #include "event.channel.h"
 #include "boot.registry.h"
-#include "string.str8.h"
+#include "str8.h"
 #include "async.job.h"
 
 #include <assert.h>

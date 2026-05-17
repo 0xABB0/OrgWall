@@ -1,7 +1,7 @@
 #pragma once
 
 #include "log.fwd.h"
-#include "string.str8.fwd.h"
+#include "str8.fwd.h"
 
 typedef struct {
     str8    db_path;

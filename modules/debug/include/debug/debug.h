@@ -3,7 +3,7 @@
 #include "debug.cfg.h"
 
 #include <debug/stacktrace.h>
-#include <string/string.str8.h>
+#include <string/str8.h>
 
 typedef enum {
     ASSERT_DIALOG_RESULT_ABORT,

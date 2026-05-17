@@ -1,6 +1,6 @@
 #include "mugen.cns.h"
 #include "mugen.air.h"
-#include "string.str8.h"
+#include "str8.h"
 
 static f32 eval_const(Mugen_Expr* arg, Mugen_Char_State* state)
 {

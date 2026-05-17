@@ -6,7 +6,7 @@
 #include "mugen.cmd.h"
 #include "mugen.cns.h"
 #include "allocator.fwd.h"
-#include "string.str8.fwd.h"
+#include "str8.fwd.h"
 
 typedef struct {
     Mugen_Sff sff;

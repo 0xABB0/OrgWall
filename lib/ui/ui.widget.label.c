@@ -1,7 +1,7 @@
 #include "ui.widget.label.h"
 #include "font.atlas.h"
 #include "collection.slotmap.h"
-#include "string.str8.h"
+#include "str8.h"
 
 static void wlabel_draw(Mel_Widget* w, void* ctx)
 {

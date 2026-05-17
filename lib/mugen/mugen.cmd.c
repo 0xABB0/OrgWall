@@ -1,5 +1,5 @@
 #include "mugen.cmd.h"
-#include "string.str8.h"
+#include "str8.h"
 #include "allocator.h"
 #include "log.h"
 #include <string.h>

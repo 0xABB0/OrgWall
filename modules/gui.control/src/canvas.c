@@ -1,7 +1,7 @@
 #include <gui.control/canvas.h>
 
 #include <core/compiler.h>
-#include <string/string.str8.h>
+#include <string/str8.h>
 
 static Mel_Atom mel__canvas_atom;
 

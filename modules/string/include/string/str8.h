@@ -2,7 +2,7 @@
 
 #include <core/compiler.h>
 
-#include "string.str8.fwd.h"
+#include "str8.fwd.h"
 #include <allocator/allocator.fwd.h>
 #include <allocator.arena/arena.fwd.h>
 #include <collection.array/array.h>
@@ -50,9 +50,6 @@ const char* str8_to_cstr_alloc(str8 s, const Mel_Alloc* alloc);
 str8        str8_fmt_arena(Mel_Arena* arena, const char* fmt, ...) MEL_PRINTF_FORMAT(2, 3);
 str8        str8_fmt_alloc(const Mel_Alloc* alloc, const char* fmt, ...) MEL_PRINTF_FORMAT(2, 3);
 
-size        str8_levenshtein_arena(str8 a, str8 b, Mel_Arena* arena);
-size        str8_levenshtein_alloc(str8 a, str8 b, const Mel_Alloc* alloc);
-
 #define str8_dup(s, allocator) _Generic((allocator), \
     Mel_Arena*: str8_dup_arena, \
     const Mel_Alloc*: str8_dup_alloc \
@@ -68,9 +65,4 @@ size        str8_levenshtein_alloc(str8 a, str8 b, const Mel_Alloc* alloc);
     const Mel_Alloc*: str8_fmt_alloc \
 )(allocator, fmt, ##__VA_ARGS__)
 
-#define str8_levenshtein(a, b, allocator) _Generic((allocator), \
-    Mel_Arena*: str8_levenshtein_arena, \
-    const Mel_Alloc*: str8_levenshtein_alloc \
-)(a, b, allocator)
-
-#include "string.str8.inl"
+#include "str8.inl"

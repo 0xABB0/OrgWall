@@ -8,7 +8,7 @@
 #include "event.channel.h"
 #include "boot.registry.h"
 #include <collection.map.hashmap/hashmap.h>
-#include <string/string.str8.h>
+#include <string/str8.h>
 #include <hash/xxh.h>
 #include <allocator/allocator.h>
 #include <allocator.heap/allocator.heap.h>

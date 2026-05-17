@@ -1,7 +1,7 @@
 #include "texture.h"
 #include "gpu.texture.h"
 #include "gpu.pipeline.h"
-#include "string.str8.h"
+#include "str8.h"
 #include "vfs.h"
 #include "allocator.h"
 #include "log.h"

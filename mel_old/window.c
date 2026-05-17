@@ -4,7 +4,7 @@
 #include "collection.slotmap.h"
 #include "event.channel.h"
 #include "allocator.heap.h"
-#include "string.str8.h"
+#include "str8.h"
 #include "thread.dispatch.h"
 #include "log.h"
 

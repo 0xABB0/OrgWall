@@ -1,5 +1,5 @@
 #include "ui.native.checkbox.h"
-#include "string.str8.h"
+#include "str8.h"
 
 void mel_ncheckbox_init_opt(Mel_NCheckbox* checkbox, Mel_NCheckbox_Opt opt)
 {

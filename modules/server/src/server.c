@@ -1,6 +1,6 @@
 #include <core/types.h>
 #include <allocator/allocator.h>
-#include <string/string.str8.h>
+#include <string/str8.h>
 #include <log/log.h>
 #include <collection.array/array.h>
 #include <collection.map.hashmap/hashmap.h>

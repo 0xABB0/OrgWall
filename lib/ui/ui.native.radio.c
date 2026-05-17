@@ -1,5 +1,5 @@
 #include "ui.native.radio.h"
-#include "string.str8.h"
+#include "str8.h"
 
 void mel_nradio_init_opt(Mel_NRadio* radio, Mel_NRadio_Opt opt)
 {

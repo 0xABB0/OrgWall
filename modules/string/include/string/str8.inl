@@ -2,7 +2,7 @@
 #include "core/compiler.h"
 #ifdef _CLANGD
 #pragma once
-#include "string.str8.h"
+#include "str8.h"
 #endif
 
 static inline str8 str8_from_parts(u8* data, size len)

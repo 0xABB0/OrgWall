@@ -6,7 +6,7 @@
 #include "log.sink.sqlite.h"
 #include "allocator.h"
 #include "allocator.heap.h"
-#include "string.str8.h"
+#include "str8.h"
 #include "core.platform.h"
 
 #include <sqlite3.h>

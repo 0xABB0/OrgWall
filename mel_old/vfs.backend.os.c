@@ -1,6 +1,6 @@
 #include "vfs.backend.os.h"
 #include "vfs.h"
-#include "string.str8.h"
+#include "str8.h"
 #include "core.platform.h"
 
 #include <sys/stat.h>

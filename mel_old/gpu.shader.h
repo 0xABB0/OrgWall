@@ -3,7 +3,7 @@
 #include "gpu.types.h"
 #include "gpu.device.fwd.h"
 #include "event.channel.fwd.h"
-#include "string.str8.fwd.h"
+#include "str8.fwd.h"
 #include "allocator.fwd.h"
 #include "async.job.fwd.h"
 #include "async.signal.fwd.h"

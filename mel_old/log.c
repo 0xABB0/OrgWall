@@ -4,7 +4,7 @@
 
 #include "log.sink.h"
 #include "log.sink.console.h"
-#include "string.str8.h"
+#include "str8.h"
 
 #include <SDL3/SDL.h>
 #include <stdatomic.h>

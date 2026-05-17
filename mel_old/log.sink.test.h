@@ -1,7 +1,7 @@
 #pragma once
 
 #include "log.fwd.h"
-#include "string.str8.fwd.h"
+#include "str8.fwd.h"
 
 #include <stdbool.h>
 

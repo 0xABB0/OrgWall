@@ -3,7 +3,7 @@
 #include "math.geo.rect.h"
 #include "vfs.h"
 #include "allocator.h"
-#include "string.str8.h"
+#include "str8.h"
 #include "log.h"
 #include <string.h>
 #include <assert.h>

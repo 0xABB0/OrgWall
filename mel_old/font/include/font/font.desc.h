@@ -2,7 +2,7 @@
 
 #include <core/types.h>
 #include "font.desc.fwd.h"
-#include <string/string.str8.fwd.h>
+#include <string/str8.fwd.h>
 
 #include <stb_truetype.h>
 

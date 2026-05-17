@@ -1,6 +1,6 @@
 #pragma once
 
-#include "string.str8.fwd.h"
+#include "str8.fwd.h"
 
 str8  mel_path_normalize(str8 path, u8* buf, usize buf_cap);
 str8  mel_path_join(str8 base, str8 relative, u8* buf, usize buf_cap);

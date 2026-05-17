@@ -5,7 +5,7 @@
 #include <allocator.heap/heap.h>
 #include <collection.array/array.h>
 #include <collection.slotmap/slotmap.h>
-#include <string/string.str8.h>
+#include <string/str8.h>
 #include <string/table.h>
 
 #include <core/platform.h>

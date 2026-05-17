@@ -2,7 +2,7 @@
 
 #include <core/platform.h>
 #include <string.h>
-#include "string/string.str8.h"
+#include "string/str8.h"
 
 #include <core/compiler.h>
 

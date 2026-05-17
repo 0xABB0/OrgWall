@@ -1,7 +1,7 @@
 #pragma once
 
 #include "core.types.h"
-#include "string.str8.h"
+#include "str8.h"
 #include "allocator.fwd.h"
 
 #define MUGEN_AIR_NO_LOOP UINT32_MAX

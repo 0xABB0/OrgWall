@@ -7,7 +7,7 @@
 #include <log.sink.console/sink.console.h>
 #include <allocator/allocator.h>
 #include <allocator.heap/heap.h>
-#include <string/string.str8.h>
+#include <string/str8.h>
 
 #include <SDL3/SDL.h>
 #include <stdatomic.h>

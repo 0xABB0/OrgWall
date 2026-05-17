@@ -3,7 +3,7 @@
 #include <gui.platform/gui.platform.h>
 
 #include <allocator.heap/heap.h>
-#include <string/string.str8.h>
+#include <string/str8.h>
 
 #include <jni.h>
 #include <android/log.h>

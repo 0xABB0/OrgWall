@@ -2,7 +2,7 @@
 #include "mugen.fighter.h"
 #include "mugen.command.h"
 #include "mugen.cns.h"
-#include "string.str8.h"
+#include "str8.h"
 #include <stdio.h>
 
 static bool boxes_overlap(Fighter_Box a, Fighter_Box b)

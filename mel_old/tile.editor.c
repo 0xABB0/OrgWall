@@ -3,7 +3,7 @@
 #include "tile.map.h"
 #include "texture.pool.h"
 #include "collection.slotmap.h"
-#include "string.str8.h"
+#include "str8.h"
 #include "allocator.h"
 #include "log.h"
 

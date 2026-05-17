@@ -109,7 +109,7 @@ render.sync.* // ECS→render list sync (flecs observers + bulk update)
 render.target.* // render target abstraction (swapchain or offscreen)
 render.texture_table.* // bindless descriptor set manager (global texture table)
 
-string.str8.* // utf-8 string (non-owning view)
+str8.* // utf-8 string (non-owning view)
 string.str16.* // utf-16 string (stub)
 
 sprite.batch.* // sprite batching/rendering

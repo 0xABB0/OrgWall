@@ -6,7 +6,7 @@
 #include "log.sink.file.h"
 #include "allocator.h"
 #include "allocator.heap.h"
-#include "string.str8.h"
+#include "str8.h"
 
 #include <stdio.h>
 #include <inttypes.h>

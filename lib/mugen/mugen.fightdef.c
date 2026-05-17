@@ -1,5 +1,5 @@
 #include "mugen.fightdef.h"
-#include "string.str8.h"
+#include "str8.h"
 #include "allocator.h"
 #include <string.h>
 #include <stdlib.h>

@@ -2,7 +2,7 @@
 
 #include "sprite.sheet.h"
 #include "allocator.fwd.h"
-#include "string.str8.fwd.h"
+#include "str8.fwd.h"
 
 typedef struct {
     u16 group;

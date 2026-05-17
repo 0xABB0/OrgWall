@@ -1,5 +1,5 @@
 #include "ui.native.textview.h"
-#include "string.str8.h"
+#include "str8.h"
 
 void mel_ntextview_init_opt(Mel_NTextView* tv, Mel_NTextView_Opt opt)
 {

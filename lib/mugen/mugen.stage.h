@@ -1,7 +1,7 @@
 #pragma once
 
 #include "core.types.h"
-#include "string.str8.fwd.h"
+#include "str8.fwd.h"
 #include "allocator.fwd.h"
 
 #define MUGEN_BG_NORMAL   0

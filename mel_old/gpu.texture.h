@@ -1,7 +1,7 @@
 #pragma once
 
 #include "gpu.image.h"
-#include "string.str8.fwd.h"
+#include "str8.fwd.h"
 
 typedef struct Mel_Gpu_Texture Mel_Gpu_Texture;
 

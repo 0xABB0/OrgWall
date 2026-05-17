@@ -3,7 +3,7 @@
 #include "core.types.h"
 #include "vfs.cfg.h"
 #include "vfs.fwd.h"
-#include "string.str8.fwd.h"
+#include "str8.fwd.h"
 #include "allocator.fwd.h"
 
 #define MEL_VFS_STAT_IS_FILE     (1u << 0)

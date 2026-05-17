@@ -1,7 +1,7 @@
 #include "gpu.device.vulkan.h"
 #include "gpu.pipeline_cache.h"
 #include "event.channel.h"
-#include "string.str8.h"
+#include "str8.h"
 #include "allocator.h"
 #include "allocator.heap.h"
 #include "log.h"

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "mugen.input.h"
-#include "string.str8.fwd.h"
+#include "str8.fwd.h"
 #include "allocator.h"
 
 typedef struct {

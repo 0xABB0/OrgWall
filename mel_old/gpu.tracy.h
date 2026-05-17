@@ -3,7 +3,7 @@
 #include "gpu.tracy.fwd.h"
 #include "gpu.device.fwd.h"
 #include "gpu.cmd.fwd.h"
-#include "string.str8.fwd.h"
+#include "str8.fwd.h"
 
 #ifdef __cplusplus
 extern "C" {

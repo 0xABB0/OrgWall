@@ -4,7 +4,7 @@
 #include "text.material.h"
 #include "render.material_base.h"
 #include "core.engine.h"
-#include <string/string.str8.h>
+#include <string/str8.h>
 #include <hash/xxh.h>
 #include <collection.slotmap/slotmap.h>
 #include <collection.map.hashmap/hashmap.h>

@@ -5,7 +5,7 @@
 #include "mugen.cns.h"
 #include "vfs.h"
 #include "allocator.h"
-#include "string.str8.h"
+#include "str8.h"
 #include <string.h>
 #include <assert.h>
 #include <stdio.h>

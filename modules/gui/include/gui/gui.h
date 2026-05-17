@@ -2,7 +2,7 @@
 
 #include "gui.fwd.h"
 
-#include <string/string.str8.h>
+#include <string/str8.h>
 
 #define MEL_GUI_ID_NONE          ((u32)0)
 #define MEL_GUI_DEFAULT_POSITION ((i32)0x80000000)

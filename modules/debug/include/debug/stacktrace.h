@@ -2,7 +2,7 @@
 
 #include "stacktrace.cfg.h"
 
-#include <string/string.str8.h>
+#include <string/str8.h>
 
 typedef struct Mel_Stackframe Mel_Stackframe;
 

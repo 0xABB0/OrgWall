@@ -2,7 +2,7 @@
 
 #include "core.types.h"
 #include "allocator.h"
-#include "string.str8.fwd.h"
+#include "str8.fwd.h"
 #include "event.channel.fwd.h"
 #include "gpu.pipeline_cache.fwd.h"
 

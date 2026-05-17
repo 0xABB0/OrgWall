@@ -1,7 +1,7 @@
 #pragma once
 
 #include "ui.native.ctrl.h"
-#include "string.str8.fwd.h"
+#include "str8.fwd.h"
 
 #define MEL_NWINDOW_STYLE_TITLED         (1 << 0)
 #define MEL_NWINDOW_STYLE_CLOSABLE       (1 << 1)

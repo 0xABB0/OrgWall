@@ -1,5 +1,5 @@
 #include <process/process.h>
-#include <string/string.str8.h>
+#include <string/str8.h>
 
 #ifndef MEL_NO_ECHO
 static void mel__cmd_echo(Mel_Cmd cmd)

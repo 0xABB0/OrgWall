@@ -1,5 +1,5 @@
 #include "ui.native.edit.h"
-#include "string.str8.h"
+#include "str8.h"
 
 void mel_nedit_init_opt(Mel_NEdit* edit, Mel_NEdit_Opt opt)
 {

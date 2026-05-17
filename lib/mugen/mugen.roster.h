@@ -3,7 +3,7 @@
 #include "core.types.h"
 #include "mugen.char.h"
 #include "collection.slotmap.h"
-#include "string.str8.h"
+#include "str8.h"
 #include "allocator.fwd.h"
 
 typedef Mel_SlotMap_Handle Mugen_Char_Handle;

@@ -1,5 +1,5 @@
 #include "vfs.h"
-#include "string.str8.h"
+#include "str8.h"
 #include "allocator.h"
 #include "allocator.heap.h"
 #include "async.aio.h"

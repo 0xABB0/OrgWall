@@ -1,6 +1,6 @@
 #include <string/table.h>
 
-#include <string/string.str8.h>
+#include <string/str8.h>
 #include <allocator/allocator.h>
 #include <allocator.heap/heap.h>
 #include <collection.array/array.h>

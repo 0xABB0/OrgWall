@@ -1,5 +1,5 @@
 #include <process/process.h>
-#include <string/string.str8.h>
+#include <string/str8.h>
 
 #ifdef _WIN32
 

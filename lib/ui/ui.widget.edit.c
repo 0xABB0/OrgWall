@@ -5,7 +5,7 @@
 
 #include "font.atlas.h"
 #include "math.vec2.h"
-#include "string.str8.h"
+#include "str8.h"
 #include "collection.slotmap.h"
 #include "math.scalar.h"
 #include <SDL3/SDL_keyboard.h>

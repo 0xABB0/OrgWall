@@ -1,6 +1,6 @@
 #include "mugen.fighter.h"
 #include "mugen.air.h"
-#include "string.str8.h"
+#include "str8.h"
 #include "allocator.h"
 #include <string.h>
 #include <assert.h>

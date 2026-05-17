@@ -2,7 +2,7 @@
 
 #include <core/types.h>
 #include "event.channel.fwd.h"
-#include <string/string.str8.fwd.h>
+#include <string/str8.fwd.h>
 #include "font.atlas.fwd.h"
 #include <font/font.desc.fwd.h>
 #include <font/font.descriptor.h>

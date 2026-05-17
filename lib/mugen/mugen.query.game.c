@@ -1,5 +1,5 @@
 #include "mugen.cns.h"
-#include "string.str8.h"
+#include "str8.h"
 
 static u64 mugen_rng_next(u64* s)
 {

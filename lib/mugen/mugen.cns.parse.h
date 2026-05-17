@@ -1,7 +1,7 @@
 #pragma once
 
 #include "mugen.cns.h"
-#include "string.str8.h"
+#include "str8.h"
 #include "allocator.h"
 #include <string.h>
 #include <stdlib.h>

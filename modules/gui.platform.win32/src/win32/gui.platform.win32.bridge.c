@@ -1,7 +1,7 @@
 #include <gui.platform.win32/gui.platform.win32.h>
 #include <gui.platform/gui.platform.h>
 #include <gui/gui.h>
-#include <string/string.str8.h>
+#include <string/str8.h>
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>

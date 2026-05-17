@@ -1,6 +1,6 @@
 #include "ui.native.menuitem.h"
 #include "ui.native.menu.h"
-#include "string.str8.h"
+#include "str8.h"
 
 void mel_nmenuitem_init_opt(Mel_NMenuItem* item, Mel_NMenuItem_Opt opt)
 {

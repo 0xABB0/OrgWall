@@ -1,7 +1,7 @@
 #include "mugen.roster.h"
 #include "mugen.char.h"
 #include "collection.slotmap.h"
-#include "string.str8.h"
+#include "str8.h"
 #include "allocator.h"
 #include "vfs.h"
 #include <string.h>

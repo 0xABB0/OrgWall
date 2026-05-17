@@ -1,5 +1,5 @@
 #include "ui.native.label.h"
-#include "string.str8.h"
+#include "str8.h"
 
 void mel_nlabel_init_opt(Mel_NLabel* label, Mel_NLabel_Opt opt)
 {
