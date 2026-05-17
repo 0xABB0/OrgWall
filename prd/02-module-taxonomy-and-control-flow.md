@@ -21,7 +21,7 @@ Coroutines split cleanly inside `control`:
 - `control.coroutine` is the stackful coroutine. Built on `control.fiber`. Can yield from arbitrary nested call depth. Has its own stack; pays for the stack at creation time.
 - `control.generator` is the stackless coroutine. A state machine with no stack of its own. Yields only from the coroutine's top-level body. Costs essentially nothing to create. Perfect for sequence producers.
 
-A user who knows the established terms reads `control.coroutine` and `control.generator` and immediately understands which is which and what each costs. The terms "stackful" and "stackless" do not appear in module or symbol names.
+A user who knows the established terms reads `control.coroutine` and `control.generator` and immediately understands which is which and what each costs.
 
 ## Implementation Decisions
 
