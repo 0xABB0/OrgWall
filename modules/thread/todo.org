@@ -1,0 +1,16 @@
+
+
+* Spinlock implementation
+
+** API to use
+
+__sync_lock_test_and_set from gcc
+InterlockedExchange on msc (if i compile this repo using clang on windows, what should we choose? if this is available on windows)
+OSAtomicCompareAndSwap32Barrier on apple devices
+
+inline assembly maybe?
+what about different compilers?
+
+** Spinning strategy
+
+should we let the spinlock spin forever?

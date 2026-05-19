@@ -363,8 +363,7 @@ static void json_append_escaped(String_Builder *sb, const char *s) {
     sb_append_cstr(sb, "\"");
 }
 
-static void append_compile_command(String_Builder *sb, size_t *entries, const char *cwd,
-                                    const char *src, Cmd cmd) {
+static void append_compile_command(String_Builder *sb, size_t *entries, const char *cwd, const char *src, Cmd cmd) {
     String_Builder cmdline = {0};
     cmd_render(cmd, &cmdline);
     sb_append_null(&cmdline);

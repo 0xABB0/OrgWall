@@ -1,7 +1,6 @@
 #pragma once
 
 #include <core/types.h>
-#include <core/compiler.h>
 #include <reactor/reactor.cfg.h>
 #include <reactor/reactor.fwd.h>
 #include <reactor/lifecycle.h>
