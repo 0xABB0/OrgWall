@@ -2,7 +2,7 @@
 
 #include <gui.platform.macos/gui.platform.macos.h>
 #include <gui/gui.h>
-#include <string/string.str8.h>
+#include <string/str8.h>
 
 extern void mel_gui_app_build_activity(str8 activity_name);
 
