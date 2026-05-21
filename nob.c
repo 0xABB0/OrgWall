@@ -227,11 +227,71 @@ static bool discover(Layout *L) {
     return true;
 }
 
+static const char *const macos_chain[]   = { "macos",   "apple", "posix", NULL };
+static const char *const ios_chain[]     = { "ios",     "apple", "posix", NULL };
+static const char *const linux_chain[]   = { "linux",   "posix", NULL };
+static const char *const android_chain[] = { "android", "posix", NULL };
+static const char *const win32_chain[]   = { "win32",   "win",   NULL };
+
+typedef struct { const char *platform; const char *const *chain; } Platform_Chain;
+
+static const Platform_Chain platform_chains[] = {
+    { "macos",   macos_chain   },
+    { "ios",     ios_chain     },
+    { "linux",   linux_chain   },
+    { "android", android_chain },
+    { "win32",   win32_chain   },
+};
+
+static const char *const *find_platform_chain(const char *platform) {
+    for (size_t i = 0; i < NOB_ARRAY_LEN(platform_chains); i++) {
+        if (strcmp(platform_chains[i].platform, platform) == 0) return platform_chains[i].chain;
+    }
+    return NULL;
+}
+
+static bool collect_dir_sources_filtered(const char *dir, File_Paths *out, File_Paths *seen_names) {
+    if (!file_exists(dir) || get_file_type(dir) != NOB_FILE_DIRECTORY) return true;
+    File_Paths files = {0};
+    if (!read_entire_dir(dir, &files)) return false;
+    for (size_t i = 0; i < files.count; i++) {
+        const char *n = files.items[i];
+        if (!source_is_buildable(n)) continue;
+
+        bool shadowed = false;
+        for (size_t k = 0; k < seen_names->count; k++) {
+            if (strcmp(seen_names->items[k], n) == 0) { shadowed = true; break; }
+        }
+        if (shadowed) continue;
+
+        const char *full = temp_sprintf("%s/%s", dir, n);
+        if (get_file_type(full) != NOB_FILE_REGULAR) continue;
+
+        da_append(seen_names, temp_strdup(n));
+        da_append(out, temp_strdup(full));
+    }
+    return true;
+}
+
 static bool discover_for_platform(Layout *L, const char *platform) {
     if (!discover(L)) return false;
+
+    const char *const *chain = find_platform_chain(platform);
+    if (chain == NULL) {
+        for (size_t i = 0; i < L->modules.count; i++) {
+            const char *mod = L->modules.items[i];
+            if (!collect_dir_sources(temp_sprintf("%s/%s/src/%s", MODULES_DIR, mod, platform), &L->sources)) return false;
+        }
+        return true;
+    }
+
     for (size_t i = 0; i < L->modules.count; i++) {
         const char *mod = L->modules.items[i];
-        if (!collect_dir_sources(temp_sprintf("%s/%s/src/%s", MODULES_DIR, mod, platform), &L->sources)) return false;
+        File_Paths seen = {0};
+        for (size_t c = 0; chain[c] != NULL; c++) {
+            const char *dir = temp_sprintf("%s/%s/src/%s", MODULES_DIR, mod, chain[c]);
+            if (!collect_dir_sources_filtered(dir, &L->sources, &seen)) return false;
+        }
     }
     return true;
 }
@@ -303,8 +363,7 @@ static void json_append_escaped(String_Builder *sb, const char *s) {
     sb_append_cstr(sb, "\"");
 }
 
-static void append_compile_command(String_Builder *sb, size_t *entries, const char *cwd,
-                                    const char *src, Cmd cmd) {
+static void append_compile_command(String_Builder *sb, size_t *entries, const char *cwd, const char *src, Cmd cmd) {
     String_Builder cmdline = {0};
     cmd_render(cmd, &cmdline);
     sb_append_null(&cmdline);

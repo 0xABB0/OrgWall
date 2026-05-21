@@ -1,0 +1,7 @@
+#+TITLE: Reactor
+
+Reactor is the main-loop abstraction for graphical applications.
+
+The reactor is the abstraction that enables an application written for Melody to have a singular main function (mel_main) and be compatible with all the platforms we can target.
+
+
