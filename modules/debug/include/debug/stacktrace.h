@@ -34,3 +34,5 @@ struct Mel_Stacktrace {
 bool mel_stacktrace_capture(Mel_Stacktrace* stacktrace, usize skip, size keep, Mel_Alloc* alloc);
 
 void mel_stacktrace_free(Mel_Stacktrace* stacktrace);
+
+str8 mel_stacktrace_format(Mel_Stacktrace* stacktrace, Mel_Alloc* alloc);
