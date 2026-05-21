@@ -224,7 +224,7 @@ static bool android_build_so(const char *app_name) {
         for (size_t j = 0; j < link_objects.count; j++) cmd_append(&cmd, link_objects.items[j]);
         cmd_append(&cmd, temp_sprintf("-L%s/%s", BUILD_DIR, t->name));
         cmd_append(&cmd, temp_sprintf("-L%s", target_lib(t)));
-        cmd_append(&cmd, "-lmelody", "-lmpfr", "-lgmp", "-lSDL3", "-lsqlite3", "-llog");
+        cmd_append(&cmd, "-lmelody", "-lmpfr", "-lgmp", "-lSDL3", "-lsqlite3", "-llog", "-landroid");
         cmd_append(&cmd, "-o", temp_sprintf("%s/libmelody.so", abi_dir));
         if (!cmd_run_sync_and_reset(&cmd)) return false;
     }

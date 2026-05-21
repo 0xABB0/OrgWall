@@ -7,6 +7,7 @@
 #define MEL_PLATFORM_ANDROID  0
 #define MEL_PLATFORM_POSIX    0
 #define MEL_PLATFORM_APPLE    0
+#define MEL_PLATFORM_WEB      0
 #define MEL_CPU_ARM           0
 #define MEL_CPU_X86           0
 #define MEL_ARCH_32BIT        0
@@ -15,6 +16,9 @@
 #if defined(_WIN32) || defined(_WIN64)
     #undef  MEL_PLATFORM_WINDOWS
     #define MEL_PLATFORM_WINDOWS 1
+#elif defined(__EMSCRIPTEN__)
+    #undef  MEL_PLATFORM_WEB
+    #define MEL_PLATFORM_WEB 1
 #elif defined(__APPLE__)
     #include <TargetConditionals.h>
     #undef  MEL_PLATFORM_APPLE

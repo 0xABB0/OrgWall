@@ -2,4 +2,4 @@
 
 #include <reactor/reactor.h>
 
-void mel_app_setup(Mel_Reactor system);
+void mel_app_setup(Mel_Reactor* reactor);

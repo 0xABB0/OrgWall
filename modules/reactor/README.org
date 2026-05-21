@@ -1,7 +1,170 @@
 #+TITLE: Reactor
 
-Reactor is the main-loop abstraction for graphical applications.
+Reactor is the main-loop abstraction for Melody applications.
 
-The reactor is the abstraction that enables an application written for Melody to have a singular main function (mel_main) and be compatible with all the platforms we can target.
+The reactor lets an app written for Melody have a single entry point and run
+unchanged on every platform target: windows, macos, linux, android, ios, web.
+
+* The pattern
+
+This module is a direct implementation of the *Reactor* pattern (Schmidt,
+POSA). The vocabulary maps onto GLib's =GMainContext= / =GSource= one-to-one:
+
+| Melody              | GLib           | Role                                  |
+|---------------------+----------------+---------------------------------------|
+| =Mel_Reactor=       | =GMainContext= | the loop / synchronous demultiplexer  |
+| =Mel_Reactor_Source=| =GSource=      | a participant the loop drives         |
+| =Mel_Reactor_Poll=  | =GPollFD=      | an OS waitable a source watches       |
+
+A *source* is anything that can make the loop do work: a game tick, a timer,
+a socket, a GPU vsync waitable. A source implements up to four hook methods
+(=Mel_Reactor_Source_Callbacks=) — the =GSourceFuncs= equivalent:
+
+- =prepare(source, *timeout)= — before the wait. Returns =true= if the source
+  is already ready; writes into =*timeout= how long the loop may block on its
+  behalf (=MEL_REACTOR_NOWAIT= / a millisecond budget / =MEL_REACTOR_FOREVER=).
+- =check(source)= — after the wait. Returns =true= if the source now needs
+  servicing (e.g. it inspects =revents= on its registered polls).
+- =dispatch(source, callback, user)= — invokes the source's callback. Returns
+  =false= to remove the source.
+- =finalize(source)= — teardown.
+
+* One iteration
+
+=mel_reactor_iterate= runs the canonical four phases:
+
+1. *prepare* — every source's =prepare= runs; the loop folds all timeouts to
+   the minimum (treating =FOREVER= as infinity). If any source is already
+   ready, the effective timeout collapses to =NOWAIT=.
+2. *poll* — the platform backend's =wait()= blocks up to the folded timeout on
+   the union of every source's poll registrations, and services the platform's
+   native event queue.
+3. *check* — every source's =check= runs.
+4. *dispatch* — every ready source's =dispatch= runs.
+
+=mel_reactor_run= is just =while (running) iterate(may_block = true)=. A game
+that owns its own loop can instead call =mel_reactor_iterate(r, false)= once
+per frame.
+
+* Use cases
+
+** Games — fast loop
+
+Attach an idle source (=mel_reactor_idle_new=). Its =prepare= always returns
+=NOWAIT=, so the loop never blocks and spins as fast as the CPU allows. The
+folded timeout of =0= selects the backend's non-blocking path — on Win32 a pure
+=PeekMessage= drain, the classic game-loop pump, with no kernel wait at all.
+
+** Games — paced loop ("fire at 60 Hz")
+
+Attach a timer source: =mel_reactor_timer_new(MEL_NANOS_PER_SEC / 60, ...)=.
+Its =prepare= reports the time until the next tick as the timeout, so the loop
+sleeps precisely between frames instead of spinning.
+
+** Normal apps — no source at all
+
+A forms app on a platform with a native event queue (Win32, macOS, Android)
+needs *zero* sources. With no sources the folded timeout is =FOREVER=; the
+backend blocks in the OS event wait — on Win32 a real =GetMessage= — and the
+app is fully event-driven and idle when nothing happens.
+
+** Mixing
+
+Sources are independent. A level editor can run a paced timer source for its
+3D preview while the surrounding native UI is serviced by the same backend's
+event pump in the same loop.
+
+** Runtime edits
+
+Sources can be added (=attach=), removed (=detach= / =destroy=) and updated at
+any time, including from inside a dispatch callback (structural changes are
+deferred to the end of the iteration). Throttling a game loop when the window
+is minimised is just =mel_reactor_timer_set_interval= with a longer interval —
+that decision belongs to the app, not to this module.
+
+* Backends
+
+The portable core and the one platform backend compile as a *single translation
+unit*: =reactor.c= =#include=s exactly one =reactor_backend.inl=, chosen by
+=core/platform.h=. The backend's =wait()= / =wake()= are =static= and inline
+straight into =mel_reactor_iterate= — no cross-module call, no function-pointer
+indirection. Backend state (a thread id, a wake pipe, run-loop handles) lives
+inside the reactor struct, so a reactor needs *zero dynamic allocation* and its
+size is fixed at compile time. Each backend uses the platform's native
+demultiplexer:
+
+| Platform     | File                              | Demultiplexer                                  |
+|--------------+-----------------------------------+------------------------------------------------|
+| win32        | =src/win32/reactor_backend.inl=   | =GetMessage= / =PeekMessage= / =MsgWaitFor...= |
+| linux        | =src/posix/reactor_backend.inl=   | =poll(2)= + self-pipe wake                     |
+| macos / ios  | =src/apple/reactor_backend.inl=   | =CFRunLoopRunInMode= + =CFFileDescriptor=      |
+| android      | =src/android/reactor_backend.inl= | =ALooper_addFd= + =timerfd= (non-blocking)     |
+| web          | =src/web/reactor_backend.inl=     | =emscripten_set_main_loop= (rAF)               |
+
+*** Win32: which message pump
+
+The Win32 backend picks the cheapest primitive for the folded timeout:
+
+- timeout =0= — pure =PeekMessage= drain. No kernel wait; the loop returns
+  immediately. This is the fast game-loop pump.
+- timeout =FOREVER= and no poll handles — a real blocking =GetMessage=. This is
+  the idle forms-app pump.
+- a finite timeout, or any poll handles registered — =MsgWaitForMultipleObjectsEx=,
+  the only Win32 primitive that waits on handles and the message queue together,
+  or on the queue with a deadline.
+
+=wake()= posts =WM_NULL= with =PostThreadMessage=, which breaks all three pumps
+(=PeekMessage= drains it, =GetMessage= returns it, =MsgWaitFor...= reports it as
+queue input), so cross-thread =wake= / =quit= works regardless of which pump the
+loop is currently parked in.
+
+All three paths plus cross-thread =quit= are verified on a Windows host. The
+=posix=, =apple=, =android= and =web= backends are written against the standard
+platform APIs but are =#include=d only when building for their target.
+
+*** Web and Android: the platform owns the loop
+
+On Win32, Linux and macOS the reactor's thread is its own and may block in the
+native wait. On *web* and *Android* it may not. A browser tab and an Android UI
+thread each already run an event loop (=requestAnimationFrame= scheduling; Java's
+=Looper.loop()=); blocking that thread freezes the app — and Android kills a UI
+thread that stops responding within seconds.
+
+So on these two platforms the reactor does not drive its own =while= loop.
+=mel_reactor_run= hands =mel_reactor_iterate= to the platform and returns:
+
+- *web* — =emscripten_set_main_loop= calls =iterate= once per animation frame.
+- *Android* — a =timerfd= is registered on the thread's existing =ALooper= (the
+  one =Looper.loop()= already pumps) with =ALooper_addFd=; each expiry runs one
+  =iterate=, which re-arms the timerfd for the folded timeout. The reactor never
+  calls =ALooper_pollOnce= itself — that would block the UI thread.
+
+=reactor_backend_wait= never blocks on either platform; it only does a
+non-blocking =poll()= to refresh =revents=. When the folded timeout is =FOREVER=
+with no fds the reactor is idle and the drive is *suspended* (rAF cancelled /
+timerfd disarmed); =wake()= re-arms it — the same "sleep until something happens"
+contract the blocking backends get for free.
+
+Because =mel_reactor_run= returns immediately on Android, the JNI entry shim must
+return to the Activity after calling it and call =mel_reactor_shutdown= from
+=onDestroy= — not =run()= then =shutdown()= back-to-back the way a desktop bridge
+does. Wiring the Emscripten / NDK reactor drive into the build is separate
+build-system work; the backends themselves are complete.
+
+* Performance
+
+The abstraction's cost lives only in the uncapped fast-loop path — a blocking
+loop's cost is dwarfed by the kernel wait. =modules/reactor/bench/reactor_bench.c=
+measures it against the canonical hand-written Win32 loop, both at =-O2=, both
+draining the message queue once per iteration.
+
+On a Windows host: native loop ~6.1 ns/iter, reactor ~15.4 ns/iter — *~9.3 ns of
+abstraction overhead* per iteration. That is one indirect call to the source's
+callback plus two single-node list walks; the prepare/poll/check/dispatch
+scaffolding folds to almost nothing. Against a real frame budget it is noise
+(0.0009% of a 1000 Hz frame). The =iterate= hot path performs no allocation, no
+syscall beyond the message pump, and no function-pointer indirection except the
+one unavoidable call into user code.
 
 
+compile benchmark:   clang -std=c23 -O2 -DNDEBUG -Imodules/reactor/include -Imodules/core/include -Imodules/time/include modules/reactor/bench/reactor_bench.c modules/reactor/src/reactor.c modules/time/src/nano.win32.c -luser32 -o build/reactor_bench.exe
