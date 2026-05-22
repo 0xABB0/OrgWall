@@ -1,6 +1,11 @@
-#include <platform/win32/win32_globals.h>
+#include <core/compiler.h>
 
+#include <windows.h>
+#include <windowsx.h>
+#include <commctrl.h>
 #include <dbghelp.h>
+
+#include <platform/win32/win32_globals.h>
 
 HANDLE current_process;
 HINSTANCE current_hinst;
@@ -13,12 +18,12 @@ static void win32_globals_init(void) {
     current_hinst = GetModuleHandleW(NULL);
 
     
-    SymInitialize(current_process, NULL, TRUE);
-    SymSetOptions(SYMOPT_DEFERRED_LOADS | SYMOPT_LOAD_LINES);
+    //SymInitialize(current_process, NULL, TRUE);
+    //SymSetOptions(SYMOPT_DEFERRED_LOADS | SYMOPT_LOAD_LINES);
 }
 
 
 MEL_DESTRUCTOR
 static void win32_globals_shutdown(void) {
-    SymCleanup(current_process);
+    //SymCleanup(current_process);
 }
