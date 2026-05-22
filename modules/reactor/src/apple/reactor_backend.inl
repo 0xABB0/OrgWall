@@ -1,3 +1,8 @@
+#ifdef _CLANGD
+#pragma once
+#include "../reactor.c"
+#endif
+
 #include <CoreFoundation/CoreFoundation.h>
 
 static void reactor_apple_wake_perform(void* info)

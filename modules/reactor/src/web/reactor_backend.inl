@@ -1,3 +1,8 @@
+#ifdef _CLANGD
+#pragma once
+#include "../reactor.c"
+#endif
+
 #include <emscripten.h>
 #include <poll.h>
 

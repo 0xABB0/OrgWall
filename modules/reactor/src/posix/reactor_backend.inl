@@ -1,3 +1,8 @@
+#ifdef _CLANGD
+#pragma once
+#include "../reactor.c"
+#endif
+
 #include <errno.h>
 #include <fcntl.h>
 #include <poll.h>

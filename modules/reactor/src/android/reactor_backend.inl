@@ -1,3 +1,8 @@
+#ifdef _CLANGD
+#pragma once
+#include "../reactor.c"
+#endif
+
 #include <android/looper.h>
 #include <sys/timerfd.h>
 #include <poll.h>
