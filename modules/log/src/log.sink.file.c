@@ -69,7 +69,9 @@ Mel_Log_Sink* mel_log_sink_file_create_opt(Mel_Log_Sink_File_Opt opt)
     memcpy(path_buf, opt.file_path.data, (usize)opt.file_path.len);
     path_buf[opt.file_path.len] = '\0';
 
-    FILE* handle = fopen(path_buf, "a");
+    FILE* handle = NULL;
+    errno_t err = fopen_s(&handle, path_buf, "a");
+    (void)err;
     assert(handle && "mel_log_sink_file_create: failed to open log file");
 
     Mel_Log_Sink_File* file_sink = mel_alloc_type(mel_alloc_heap(), Mel_Log_Sink_File);

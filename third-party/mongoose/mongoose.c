@@ -17,7 +17,7 @@
 //
 // SPDX-License-Identifier: GPL-2.0-only or commercial
 
-#include <server/mongoose.h>
+#include "mongoose.h"
 
 #ifdef MG_ENABLE_LINES
 #line 1 "src/base64.c"

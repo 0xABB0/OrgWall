@@ -17,7 +17,7 @@
 #include <server/server.pubsub.h>
 #include <server/server.tls.h>
 
-#include <server/mongoose.h>
+#include <mongoose.h>
 
 #include <stdarg.h>
 #include <string.h>

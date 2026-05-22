@@ -120,12 +120,21 @@ static bool source_is_bridge(const char *name) {
     return ends_with(name, ".bridge.c") || ends_with(name, ".bridge.m");
 }
 
+static bool source_is_third_party(const char *name) {
+    return strstr(name, "third-party/") != NULL;
+}
+
 // --- Compilation helpers ---
 
 static void append_include_flags(Cmd *cmd, const Target *t, const Layout *L) {
     cmd_append(cmd, temp_sprintf("-I%s", target_include(t)));
     for (size_t i = 0; i < L->includes.count; i++) {
-        cmd_append(cmd, temp_sprintf("-I%s", L->includes.items[i]));
+        const char *inc = L->includes.items[i];
+        if (strstr(inc, "third-party/") == inc || strstr(inc, "third-party\\") == inc) {
+            cmd_append(cmd, "-isystem", inc);
+        } else {
+            cmd_append(cmd, temp_sprintf("-I%s", inc));
+        }
     }
 }
 
@@ -163,6 +172,7 @@ static bool target_compile_one(const Target *t, const Layout *L, const char *src
     append_base_cflags(&cmd);
     if (source_is_objc(src)) cmd_append(&cmd, "-fobjc-arc");
     if (extra_define) cmd_append(&cmd, extra_define);
+    if (source_is_third_party(src)) cmd_append(&cmd, "-Wno-deprecated-declarations");
     cmd_append(&cmd, temp_sprintf("-I%s", target_include(t)));
     for (size_t i = 0; i < L->includes.count; i++) {
         cmd_append(&cmd, temp_sprintf("-I%s", L->includes.items[i]));
@@ -398,6 +408,7 @@ static bool emit_compile_commands(const Target *t, const Layout *L) {
         Cmd cmd = {0};
         cmd_append(&cmd, "clang");
         append_base_cflags(&cmd);
+        if (source_is_third_party(src)) cmd_append(&cmd, "-Wno-deprecated-declarations");
         append_include_flags(&cmd, t, L);
         cmd_append(&cmd, "-c", src, "-o", obj);
         append_compile_command(&sb, &entries, cwd, src, cmd);
@@ -420,6 +431,10 @@ static bool build_library(void) {
         nob_log(NOB_ERROR, "failed to discover modules under %s/", MODULES_DIR);
         return false;
     }
+
+    // Third-party libraries compiled directly into melody.lib
+    da_append(&L.includes, "third-party/mongoose");
+    da_append(&L.sources, "third-party/mongoose/mongoose.c");
 
     Layout archived = L;
     archived.sources = (File_Paths){0};
@@ -523,6 +538,9 @@ static bool desktop_build_app(const char *app_name, const PlatformConfig *cfg) {
 
     Layout L = {0};
     if (!discover_for_platform(&L, cfg->platform)) return false;
+
+    // Third-party includes needed by modules
+    da_append(&L.includes, "third-party/mongoose");
 
     // Split bridge sources from regular module sources
     File_Paths bridge_sources = {0};

@@ -11,6 +11,10 @@
 #include <stdatomic.h>
 #include <string.h>
 
+#ifdef _CLANGD
+#pragma once
+#endif
+
 #define MEL_REACTOR_MAX_POLLS        64
 #define MEL_REACTOR_PRIORITY_BUCKETS  8
 

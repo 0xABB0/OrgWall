@@ -147,7 +147,7 @@ Mel_Midi_Port* mel_midi_port_platform_open_input(int32_t id, Mel_Midi_Port* port
     MIDIINCAPSA caps;
     if (midiInGetDevCapsA(pw->device_id, &caps, sizeof(caps)) == MMSYSERR_NOERROR)
     {
-        port->name = strdup(caps.szPname);
+        port->name = _strdup(caps.szPname);
     }
 
     port->platform_handle = pw;

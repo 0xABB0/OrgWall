@@ -39,7 +39,7 @@ void mel_symbol_code_add_at(Mel_SymbolCode* sc, const char* symbol, int32_t valu
 {
   if (sc->count >= sc->capacity) mel_symbol_code_grow(sc);
 
-  sc->entries[sc->count].symbol = strdup(symbol);
+  sc->entries[sc->count].symbol = _strdup(symbol);
   sc->entries[sc->count].value = value;
   sc->entries[sc->count].position = position;
   sc->count++;
@@ -120,7 +120,7 @@ char* mel_symbol_code_generate(const Mel_SymbolCode* sc, int32_t value)
     int32_t v = sorted[best_idx].value;
     while ((remaining > 0 && remaining >= v) || (remaining < 0 && remaining <= v))
     {
-      strcat(buf, sorted[best_idx].symbol);
+      strcat_s(buf, 4096, sorted[best_idx].symbol);
       remaining -= v;
     }
   }

@@ -35,7 +35,7 @@ void mel_nat_acc_add_natural(Mel_NatAccNotation* nn, const char* symbol, int32_t
   nn->naturals.count++;
   nn->naturals.symbols = realloc(nn->naturals.symbols, nn->naturals.count * sizeof(char*));
   nn->naturals.pitch_indices = realloc(nn->naturals.pitch_indices, nn->naturals.count * sizeof(int32_t));
-  nn->naturals.symbols[idx] = strdup(symbol);
+  nn->naturals.symbols[idx] = _strdup(symbol);
   nn->naturals.pitch_indices[idx] = pitch_index;
 }
 
@@ -92,7 +92,7 @@ Mel_Note mel_nat_acc_note(Mel_NatAccNotation* nn, const char* symbol, int32_t na
 {
   Mel_Note note;
   note.notation = &nn->base;
-  note.symbol = strdup(symbol);
+  note.symbol = _strdup(symbol);
   note.nat_bi_index = nat_bi_index;
   note.acc_count = 0;
   note.acc_vector = NULL;
@@ -185,8 +185,8 @@ char* mel_nat_acc_note_symbol(Mel_NatAccNotation* nn, Mel_Note note)
 
   size_t len = strlen(nat_str) + strlen(acc_str) + 1;
   char* symbol = malloc(len);
-  strcpy(symbol, nat_str);
-  strcat(symbol, acc_str);
+  strcpy_s(symbol, len, nat_str);
+  strcat_s(symbol, len, acc_str);
   free(acc_str);
 
   return symbol;
