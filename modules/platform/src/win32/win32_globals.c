@@ -2,6 +2,9 @@
 
 #include <dbghelp.h>
 
+HANDLE current_process;
+HINSTANCE current_hinst;
+
 MEL_CONSTRUCTOR
 static void win32_globals_init(void) {
     current_process = GetCurrentProcess();
