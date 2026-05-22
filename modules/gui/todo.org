@@ -6,69 +6,48 @@ this file is what remains to do and the resume point for the next agent.
 Status keys: TODO (not started), WIP (in progress), DONE.
 Order within "First slice" is the intended build order.
 
-* First slice — win32, hello-world-gui without hacks
+* First slice — win32, hello-world-gui without hacks  [COMPLETE]
 
-** TODO Core: handle + slotmap backing
-   - =include/gui/handle.h= — =Mel_Gui_Handle=, =MEL_GUI_HANDLE_NONE=,
-     =mel_gui_handle_is_none=, =mel_gui_alive=, 64-bit pack/unpack.
-   - =src/gui.c= — one =Mel_SlotMap= of widget records; insert/get/remove;
-     generational validation; deferred-destroy support.
+Built and verified: =./nob build app hello-world-gui win32= succeeds and the
+app runs on a Windows host (window titled "Hello World Main", reactor-driven,
+no stubs, no nob.c change needed — the existing win32 platform chain picks up
+=modules/gui/src= and =src/win32=).
 
-** TODO Core: init + module allocator
-   - =include/gui/init.h= — =mel_gui_init(Mel_Reactor*)=,
-     =mel_gui_backend_supports=.
-   - Record reactor pointer; default allocator =mel_alloc_heap()=.
+** DONE Core: handle, slotmap, init, allocator
+   =include/gui/handle.h=, =include/gui/init.h=, =src/gui.c=. =Mel_Gui_Handle=
+   over one =Mel_SlotMap= of widget records, generational validation,
+   =mel_gui_init(Mel_Reactor*)=, module allocator =mel_alloc_heap()=.
 
-** TODO Core: provisional input types
-   - =include/gui/input.h= — provisional =Mel_Key=, =Mel_Mouse_Button=.
-   - Mark clearly for migration to the PRD 09 Input module.
+** DONE Core: provisional input types
+   =include/gui/input.h= — provisional =Mel_Key= / =Mel_Mouse_Button=.
 
-** TODO Core: capability callbacks + lazy storage
-   - =include/gui/callbacks.h= — the four locked PRD 05 structs
-     (=Mel_Gui_Lifecycle_Cb=, =_Focus_Cb=, =_Pointer_Cb=, =_Keyboard_Cb=).
-   - =src/callbacks.c= — lazy per-widget callback struct (allocated on first
-     install); per-slot setters; per-capability bulk setters; NULL removes.
-   - Framework dispatch wrapper that the win32 =WndProc= calls.
+** DONE Core: capability callbacks + lazy storage
+   =include/gui/callbacks.h=, =src/callbacks.c=. Four PRD-05 capability
+   structs, lazy per-widget storage, =mel_gui__fire_*= dispatch helpers.
+   NOTE: only the four per-capability bulk setters ship; the per-slot
+   setters (=mel_gui_set_pointer_on_click= etc.) are deferred — see
+   "Deferred — subsystems".
 
-** TODO Core: shared widget ops
-   - =include/gui/widget.h= + =src/widget.c= — set/get text, frame (x,y,w,h),
-     visible, enabled, focus, user pointer, =mel_gui_native_handle=,
-     =mel_gui_focused=.
+** DONE Core: shared widget ops
+   =include/gui/widget.h=, =src/widget.c=.
 
-** TODO Core: Screen navigation
-   - =include/gui/screen.h= + =src/screen.c= — =Mel_Screen_Build=,
-     =mel_app_register_screen=, =mel_app_present=. Desktop: present = create/
-     raise the Screen's Frame.
+** DONE Core: Screen navigation
+   =include/gui/screen.h=, =src/screen.c=. =mel_app_register_screen= /
+   =mel_app_present=; a Screen's Frame auto-sizes to its children's bbox.
 
-** TODO Win32 backend: foundation
-   - =src/win32/backend.c= — window-class registration, =InitCommonControlsEx=
-     for =ICC_BAR_CLASSES=, the hidden per-class =WndProc=, =SetWindowSubclass=
-     instance subclassing, native↔capability message translation.
-   - Bare by default: no v6 manifest, no Segoe UI override, no DPI awareness.
+** DONE Win32 backend
+   =src/win32/backend.c= (one TU: frame + canvas =WndProc=s, control
+   subclassing, message translation, every =mel_gui__backend_*=). Tab
+   traversal via =GetNextDlgTabItem=. Bare by default (the app's own
+   =app.manifest= opts into v6 controls + DPI; the backend does not).
 
-** TODO Widgets (portable half + win32 half), in this order
-   - Frame      — =frame.h=, =src/frame.c=, =src/win32/frame.c=
-   - Label      — =label.h=, =src/label.c=, =src/win32/label.c=
-   - Button     — =button.h=, =src/button.c=, =src/win32/button.c=
-   - CheckBox   — =checkbox.h=, =src/checkbox.c=, =src/win32/checkbox.c=
-   - TextField  — =textfield.h=, =src/textfield.c=, =src/win32/textfield.c=
-   - Slider     — =slider.h=, =src/slider.c=, =src/win32/slider.c=
-   - Canvas     — =canvas.h=, =src/canvas.c=, =src/win32/canvas.c=
-   - Panel      — only if hello-world-gui needs it (currently it does not).
+** DONE Widgets: Frame, Label, Button, CheckBox, TextField, Slider, Canvas
+   Headers + portable =src/<widget>.c=. Panel not needed by hello-world,
+   not built.
 
-** TODO Rewrite apps/hello-world-gui onto the new API
-   - Remove the dead =Mel_Gui_*= proc / =mel_gui_register_class= API usage.
-   - Custom-class buttons become plain =Button= + =.pointer.on_click=.
-   - =main= / =details= become registered Screens; "open details" button
-     calls =mel_app_present(S8("details"))=.
-   - Keep the per-platform =#ifdef= canvas drawing (placeholder; see below).
-
-** TODO Build + verify
-   - Confirm =nob.c= picks up =modules/gui/src= and =src/win32= via the
-     existing win32 chain — no =nob.c= change expected for the first slice.
-   - =./nob build app hello-world-gui win32=, then run on the Windows host
-     and observe: clicks, checkbox, slider, text entry, focus, canvas paint,
-     and the main→details Screen switch.
+** DONE Rewrite apps/hello-world-gui onto the new API
+   Screens + capability callbacks; old proc / =mel_gui_register_class= API
+   removed; a win32 GDI branch added to the canvas =#ifdef= drawing.
 
 * Deferred — backends
 
@@ -121,6 +100,11 @@ Each is specified in =readme.org= and must be delivered first-class.
 
 ** TODO Migrate Mel_Key / Mel_Mouse_Button to the PRD 09 Input module
    Remove the provisional =<gui/input.h>= definition once that module exists.
+
+** TODO Per-callback-slot setters
+   PRD 05 wants a setter per individual callback slot
+   (=mel_gui_set_pointer_on_click= and friends). The first slice ships only
+   the four per-capability bulk setters (=mel_gui_set_pointer_cb= etc.).
 
 ** TODO Win32 opt-in polish APIs
    =<gui/win32/...>=: Common Controls v6 visual styles, default-font override,

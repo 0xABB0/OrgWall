@@ -2,28 +2,15 @@
 
 #include <core/platform.h>
 #include <string.h>
-#include "string/str8.h"
-
+#include <string/str8.h>
 #include <core/compiler.h>
+#include <platform/win32/win32_globals.h>
 
 #include <Windows.h>
 #include <dbghelp.h>
 
-static HANDLE current_process;
-
 // TODO: this stacktrace init seems like it's going to be a pain in the ass if it's always enabled like this. maybe we should have a way to not get initialized?
 
-MEL_CONSTRUCTOR
-static void stacktrace_init(void) {
-    current_process = GetCurrentProcess();
-    SymInitialize(current_process, NULL, TRUE);
-    SymSetOptions(SYMOPT_DEFERRED_LOADS | SYMOPT_LOAD_LINES);
-}
-
-MEL_DESTRUCTOR
-static void stacktrace_shutdown(void) {
-    SymCleanup(current_process);
-}
 
 static bool translate_address_to_fn_name(DWORD64 address, str8* str, Mel_Alloc* alloc) {
     if (str == NULL) return true;
