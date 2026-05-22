@@ -9,8 +9,6 @@
 #include <Windows.h>
 #include <dbghelp.h>
 
-// TODO: this stacktrace init seems like it's going to be a pain in the ass if it's always enabled like this. maybe we should have a way to not get initialized?
-
 
 static bool translate_address_to_fn_name(DWORD64 address, str8* str, Mel_Alloc* alloc) {
     if (str == NULL) return true;

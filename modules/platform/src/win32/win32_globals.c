@@ -5,6 +5,8 @@
 HANDLE current_process;
 HINSTANCE current_hinst;
 
+// TODO: this stacktrace init seems like it's going to be a pain in the ass if it's always enabled like this. maybe we should have a way to not get initialized?
+
 MEL_CONSTRUCTOR
 static void win32_globals_init(void) {
     current_process = GetCurrentProcess();
