@@ -1,0 +1,535 @@
+#+TITLE: GUI
+
+The GUI module is Melody's native user-interface layer. It gives an app one
+source tree that builds a real, native interface on every Melody target:
+Windows, macOS, Linux, iOS, Android, Web, Apple Vision Pro and Meta Quest.
+
+This document is the complete design. It is exhaustive on purpose: a second
+agent must be able to resume the work from this file plus =todo.org= alone.
+=todo.org= is the execution checklist; this file is the specification.
+
+* Status
+
+Design locked. Implementation in progress.
+
+The *first slice* is the =win32= backend driving =apps/hello-world-gui= with no
+stubs and no hacks. Every other backend and every widget not listed under
+"First slice" below is specified here and tracked in =todo.org=, unbuilt.
+
+Mandates that override convenience everywhere in this module:
+
+- *Performance first.* Zero-allocation handle path, no vtable on the hot path,
+  compile-time backend selection, lazy per-widget callback storage.
+- *No hacks.* No stubbed backend, no =#ifdef= soup standing in for a real
+  abstraction, no "degrades naturally" substitutes for a named native path.
+- *Every target is first-class.* No crippled target. A target that is not yet
+  built is tracked in =todo.org=; it is never designed as second-class.
+- *Polish over completeness.* A smaller surface done well beats a wide surface
+  done badly. Unbuilt scope goes to =todo.org=, honestly.
+
+* The pattern at a glance
+
+#+begin_src c
+void mel_app_setup(Mel_Reactor* reactor)          /* app entry, called by the bridge */
+{
+    mel_gui_init(reactor);
+    mel_app_register_screen(S8("main"),    build_main);
+    mel_app_register_screen(S8("details"), build_details);
+    mel_app_present(S8("main"));
+}
+
+static void build_main(Mel_Gui_Handle frame, void* user)
+{
+    mel_label_create (frame, .text = S8("Hello"), .x = 24, .y = 20, .w = 200, .h = 32);
+    mel_button_create(frame, .text = S8("OK"),    .x = 24, .y = 60, .w = 120, .h = 36,
+                      .pointer.on_click = on_ok_clicked,
+                      .user             = user);
+}
+#+end_src
+
+* Design principles
+
+** Not the lowest common denominator
+
+The vocabulary is a rich /superset/ of meaningful UI concepts, never the
+intersection of what every platform happens to support. Four mechanisms keep
+it that way:
+
+1. *Adaptive concepts* — one API, different platform shape. A =Frame= is a
+   decorated window on desktop, a full-screen scene on mobile, a mounted root
+   on web, a floating panel in XR. Same handle, same calls.
+2. *Emulate, never drop* — a concept absent natively on a backend is emulated
+   by that backend (e.g. a drawn =StatusBar= where the OS has none). The
+   concept never disappears from the API.
+3. *Escape hatches* — per-backend opt sub-structs (=opt.win32 = {...}=), raw
+   native handle access (=mel_gui_native_handle=), and a per-widget custom
+   native handler. Anything a platform can do uniquely stays reachable.
+4. *Capability queries* — =mel_gui_backend_supports(cap)= lets an app adapt if
+   it wants, but the API never /forbids/ a concept because one backend lacks it.
+
+** Backend is the discriminator, not the platform
+
+The unit of selection is the *backend*, not the OS. =gtk4= can be built on
+Windows; =qt= can be built on macOS. A backend declares which platform classes
+it supports. One backend is selected per build (see "Backend selection").
+
+* The handle
+
+Every widget — native or drawn, of any kind — is referred to by one opaque
+value:
+
+#+begin_src c
+typedef struct { u32 index; u32 generation; } Mel_Gui_Handle;
+#define MEL_GUI_HANDLE_NONE ((Mel_Gui_Handle){0})
+
+bool mel_gui_handle_is_none(Mel_Gui_Handle h);
+bool mel_gui_alive        (Mel_Gui_Handle h);
+#+end_src
+
+It is a generational handle, not a pointer. Backing store is one
+=Mel_SlotMap= (=collection.slotmap=) owned by the module. Rationale:
+
+- A stale handle (widget destroyed) is /detected/ via the generation, not a
+  use-after-free. Destruction can therefore be deferred safely, exactly the
+  way =Mel_Reactor= defers source destruction inside an iteration.
+- Lookup is index + generation compare: no allocation, no locking on the read
+  path.
+
+The handle packs into 64 bits for storage in native control user-data slots
+(=GWLP_USERDATA= on Win32, the =tag= on a Java =View=, =objc= associated
+objects, a DOM dataset attribute).
+
+* Three-tier header hierarchy
+
+Headers are *additive layers over the same handle*. Each tier =#include='s the
+one below and unlocks more API on the identical =Mel_Gui_Handle=.
+
+| Tier    | Include                  | Unlocks                                            |
+|---------+--------------------------+----------------------------------------------------|
+| core    | =<gui/button.h>=         | the universal API — every target                  |
+| class   | =<gui/desktop/frame.h>=  | platform-class power (resize, multi-window, menus) |
+| backend | =<gui/win32/frame.h>=    | raw native power (=HWND=, native styles, subclass) |
+
+Classes: =desktop=, =mobile=, =web=, =xr=. Backends: =win32=, =uwp=, =appkit=,
+=uikit=, =gtk4=, =qt=, =android=, =compose=, =web=, =drawn=.
+
+The honesty rule: including a tier commits the app to that tier's reach.
+=<gui/desktop/frame.h>= on a =mobile=-class build is a hard =#error=, never a
+silently degraded stub. This is how "every target first-class" and "not LCD"
+coexist: a portable app uses core only (still rich); an app that wants desktop
+power asks for it explicitly and the compiler enforces the commitment.
+
+Umbrella headers exist for convenience: =<gui/gui.h>= (all core widgets),
+=<gui/desktop.h>=, =<gui/win32.h>=.
+
+* The creation API: the =_opt= pattern
+
+Locked by PRD 05. Every configurable object in the module follows it.
+
+#+begin_src c
+typedef struct {
+    /* all fields optional; every field has a meaningful zero default */
+} Mel_Button_Opt;
+
+Mel_Gui_Handle mel_button_create_opt(Mel_Gui_Handle parent, Mel_Button_Opt opt);
+#define mel_button_create(parent, ...) \
+    mel_button_create_opt((parent), (Mel_Button_Opt){__VA_ARGS__})
+#+end_src
+
+=parent= is the *only* positional argument, and only on widgets that have a
+parent. The rule (user's): an argument is positional when it is (a) shared
+across virtually every API in the family, (b) mandatory, and (c) not really
+part of the /options/. =parent= satisfies all three. Top-level objects
+(=Frame=, =Dialog=) have no parent, so their macro is =mel_frame_create(...)=
+with no positional argument — consistent with =mel_reactor_spawn=.
+
+Everything else is a designated-initializer field. Pass-by-value enables the
+compound literal.
+
+* Capability callbacks
+
+Locked by PRD 05. Events common to many widgets are grouped into one struct
+per orthogonal capability, defined once and reused:
+
+#+begin_src c
+typedef struct {
+    void (*on_show)   (Mel_Gui_Handle, void* user);
+    void (*on_hide)   (Mel_Gui_Handle, void* user);
+    void (*on_enable) (Mel_Gui_Handle, bool enabled, void* user);
+    void (*on_destroy)(Mel_Gui_Handle, void* user);
+    void (*on_resize) (Mel_Gui_Handle, i32 w, i32 h, void* user);
+} Mel_Gui_Lifecycle_Cb;
+
+typedef struct {
+    void (*on_focus_in) (Mel_Gui_Handle, void* user);
+    void (*on_focus_out)(Mel_Gui_Handle, void* user);
+} Mel_Gui_Focus_Cb;
+
+typedef struct {
+    void (*on_pointer_down) (Mel_Gui_Handle, i32 x, i32 y, void* user);
+    void (*on_pointer_up)   (Mel_Gui_Handle, i32 x, i32 y, void* user);
+    void (*on_pointer_move) (Mel_Gui_Handle, i32 x, i32 y, void* user);
+    void (*on_pointer_enter)(Mel_Gui_Handle, void* user);
+    void (*on_pointer_leave)(Mel_Gui_Handle, void* user);
+    void (*on_click)        (Mel_Gui_Handle, void* user);
+    void (*on_double_click) (Mel_Gui_Handle, void* user);
+} Mel_Gui_Pointer_Cb;
+
+typedef struct {
+    void (*on_key_down)(Mel_Gui_Handle, Mel_Key, void* user);
+    void (*on_key_up)  (Mel_Gui_Handle, Mel_Key, void* user);
+    void (*on_char)    (Mel_Gui_Handle, u32 codepoint, void* user);
+} Mel_Gui_Keyboard_Cb;
+#+end_src
+
+A widget's =_opt= embeds each capability it supports as a named field
+(=.lifecycle=, =.focus=, =.pointer=, =.keyboard=). Widget-specific events are
+grouped under a control-specific struct named =.on_= in the opt
+(=.on_.on_value_changed= for =Slider=, =.on_.on_text_changed= for =TextField=).
+
+=Mel_Key= and =Mel_Mouse_Button= are owned by PRD 09 (Input). Until that
+module exists, the GUI module carries a *provisional* definition in
+=<gui/input.h>=, flagged in =todo.org= for migration. This is a documented
+forward dependency, not a hack — the locked PRD 05 struct shapes require the
+type to exist.
+
+* Setters, lazy storage, the custom handler
+
+For every create-time callback field there is a runtime setter; the setter and
+the field are functionally equivalent.
+
+- Per-slot: =mel_gui_set_pointer_on_click(h, fn, user)= — NULL removes it.
+- Per-capability bulk: =mel_gui_set_pointer_cb(h, const Mel_Gui_Pointer_Cb*)=.
+
+Storage is lazy. A widget with no callbacks installed has no callback struct
+allocated. The first installation allocates one struct for that instance, from
+the module allocator. =mel_alloc_array=/=mel_calloc= over =mel_alloc_heap()= by
+default; overridable via =mel_gui_init=.
+
+Composition with a fully custom native handler (the deepest escape hatch):
+each backend exposes, in its backend-tier header, a way to install a raw
+native event handler (a =WndProc= subclass on win32). If installed, it runs
+first; it may explicitly delegate to the framework wrapper, after which the
+capability callbacks fire. Not delegating (intercept-and-consume) is valid and
+documented, not enforced.
+
+* Component vocabulary
+
+Names were chosen for /correctness/ first, recognisability second (the user's
+rule — cf. "reactor", a 1960s term used because it is exactly right). Origins:
+=[wx]= wxWidgets, =[gtk]= GTK, =[—]= chosen over both for cross-platform
+correctness. The naming decision log at the end of this file records every
+non-obvious choice.
+
+** Top-level surfaces
+
+| Concept | Tier | Cross-platform shape                                                    |
+|---------+------+-------------------------------------------------------------------------|
+| Frame   | core | desktop: decorated resizable window · mobile: full-screen scene · web: mounted root/tab · xr: floating window panel. =[wx]= |
+| Dialog  | core | desktop: dialog window · mobile: modal sheet · web: modal overlay. =[wx]= |
+
+** Containers
+
+| Concept    | Tier | Notes                                                          |
+|------------+------+----------------------------------------------------------------|
+| Panel      | core | plain child container / grouping surface. =[wx]=               |
+| GroupBox   | core | titled border around related controls (=[—]=; wxStaticBox / GtkFrame both rejected — GtkFrame name collides with our Frame) |
+| ScrollView | core | scrollable viewport (=[—]=; clearer than wx/gtk "Scrolled…")   |
+| TabView    | core | tabbed pages (=[—]=; consistent with ScrollView/ImageView; SwiftUI/WinUI pedigree) |
+| Splitter   | core | draggable pane divider. =[wx]=                                 |
+| Canvas     | core | raw drawing surface; also the host for a drawn-widget subtree inside a native Frame. =[gtk]= |
+
+** Controls
+
+| Concept      | Tier | Notes                                                        |
+|--------------+------+--------------------------------------------------------------|
+| Button       | core | =[wx]=/=[gtk]=                                                |
+| Label        | core | static text (=[gtk]=; wxStaticText rejected as clunky)       |
+| TextField    | core | single-line text input (=[—]=; NSTextField/UITextField/JTextField pedigree) |
+| TextArea     | core | multi-line text input (=[—]=; HTML/Swing pedigree)           |
+| CheckBox     | core | =[wx]=                                                       |
+| RadioButton  | core | =[wx]=                                                       |
+| ToggleButton | core | =[wx]=/=[gtk]=                                                |
+| Slider       | core | =[wx]= (GtkScale rejected)                                    |
+| ProgressBar  | core | =[gtk]= (wxGauge rejected as opaque)                          |
+| SpinBox      | core | numeric stepper (=[—]=; Qt term)                             |
+| ChoiceBox    | core | non-editable pick-one (=[—]=; JavaFX precise pair with ComboBox) |
+| ComboBox     | core | editable text + list. =[wx]=/=[gtk]=                          |
+| ListBox      | core | selectable list. =[wx]=                                       |
+| ImageView    | core | static image display (=[—]=; it is a /view/ of image data; consistent with ScrollView) |
+
+** Frame chrome
+
+| Concept                  | Tier   | Notes                                                  |
+|--------------------------+--------+--------------------------------------------------------|
+| MenuBar / Menu / MenuItem| core   | macOS: global bar · mobile: overflow / app-bar menu. =[wx]= |
+| ToolBar                  | core   | =[wx]=                                                 |
+| StatusBar                | core   | emulated where no native equivalent exists. =[wx]=     |
+
+** Layout
+
+Deferred. When added, layout is the *one* place a vtable is justified (the
+user's explicit exception). Until then, widgets are positioned with absolute
+=.x .y .w .h= in their opt. wx "Sizer" / gtk "Box+Grid" vocabulary will be
+revisited at that time. Tracked in =todo.org=.
+
+* Native widgets versus drawn widgets
+
+Two parallel widget /families/, both in this one module, distinguished by two
+sets of create functions — never by a runtime vtable.
+
+- *Native family* — =mel_button_create(...)= and friends. Backed by a real OS
+  control through the compile-time-selected backend.
+- *Drawn family* — framework-rendered (CPU or GPU), no OS control. For games
+  (the whole Frame is GPU-drawn; nothing is OS-owned) and for fully
+  custom-skinned apps (a music app skins everything). Distinct create
+  functions, e.g. =mel_draw_button_create(...)=.
+
+They coexist because a =Frame= is either native-hosted or drawn-hosted, and a
+native Frame may embed a =Canvas= that hosts a drawn subtree. The drawn family
+is *not* in the first slice; =hello-world-gui= is 100% native. Its vocabulary
+mirrors the native one and its naming is finalised when it is built
+(=todo.org=). The CPU and GPU renderers are separate, interchangeable
+consumers of a shared draw-list; that draw-list (and a unified Canvas drawing
+API) is also =todo.org=.
+
+* Backends
+
+One backend per build. Imperative backends map the create/setter API directly.
+Declarative backends (=uwp=/XAML, =swiftui=, =compose=) map it by mutating a
+backend-held observable model that the declarative runtime recomposes;
+capability callbacks bridge from the declarative event handlers.
+
+| Backend       | Class       | Targets                                  | Bridge        | Paradigm     |
+|---------------+-------------+------------------------------------------+---------------+--------------|
+| win32         | desktop     | Windows                                  | C, native     | imperative   |
+| uwp / WinUI   | desktop     | Windows, Xbox                            | C++/WinRT     | declarative  |
+| appkit        | desktop     | macOS                                    | Objective-C   | imperative   |
+| swiftui       | desktop, xr | macOS, visionOS ornaments/volumes        | Swift         | declarative  |
+| uikit         | mobile      | iOS, iPadOS, visionOS (windowed)         | Objective-C   | imperative   |
+| gtk4          | desktop     | Linux (portable to Windows, macOS)       | C, GObject    | imperative   |
+| qt            | desktop     | portable (Linux, Windows, macOS)         | C++ shim TU   | imperative   |
+| android       | mobile      | Android, Meta Quest (2D panel app)       | JNI / Java    | imperative   |
+| compose       | mobile      | Android, Meta Quest (2D panel app)       | JNI / Kotlin  | declarative  |
+| web           | web         | browsers (DOM)                           | Emscripten    | imperative   |
+| drawn         | xr, games   | all; required for immersive Quest/visionOS | C, native renderer | own |
+
+Every backend is specified as first-class. Only =win32= is built in the first
+slice; every other row is a =todo.org= entry. Immersive Quest and Vision Pro
+are the =drawn= backend rendering into an OpenXR / CompositorServices
+swapchain — no separate XR backend exists under the backend-is-discriminator
+model.
+
+** Win32 backend (first slice)
+
+- Each =Frame= is a top-level =HWND= of a module-registered window class.
+- Each control is its native class: =Label= → =STATIC=, =Button= →
+  =BUTTON/BS_PUSHBUTTON=, =CheckBox= → =BUTTON/BS_AUTOCHECKBOX=, =TextField= →
+  =EDIT/ES_AUTOHSCROLL=, =Slider= → =msctls_trackbar32=, =Canvas= → a
+  module-registered class that forwards =WM_PAINT=.
+- =InitCommonControlsEx= is called for the control classes the backend uses
+  (=ICC_BAR_CLASSES= for the trackbar). This /registers window classes/; it is
+  required for those controls to exist and is *not* visual theming.
+- The backend owns one hidden =WndProc= per control class plus per-instance
+  subclassing (=SetWindowSubclass=, comctl32) to translate native messages
+  (=WM_COMMAND/BN_CLICKED=, =WM_HSCROLL=, =WM_SETFOCUS/WM_KILLFOCUS=,
+  =EN_CHANGE=, =WM_KEYDOWN=, =WM_PAINT=) into capability-callback dispatch.
+  The =WndProc= is a backend implementation detail; the app never sees it.
+- *Bare by default* (existing project feedback): no auto-embedded Common
+  Controls v6 manifest, no =DEFAULT_GUI_FONT= override to Segoe UI, no
+  =SetProcessDpiAwarenessContext=. Visual styles, fonts and DPI awareness are
+  opt-in APIs in =<gui/win32/...>=, never flipped by the backend or link line.
+- The win32 link set already present in =nob.c= (=-luser32 -lgdi32 -lcomctl32
+  -lcomdlg32=) covers it; no link changes needed.
+
+* Reactor integration
+
+The GUI runs *no loop of its own*. It rides =Mel_Reactor=.
+
+- =mel_gui_init(reactor)= records the reactor and binds the module to it.
+- *Native backends* — =Mel_Reactor='s platform backend already drains the OS
+  event queue in its =wait()= phase (see =reactor/README.org=). A native GUI
+  backend creates widgets and wires callbacks; it needs no reactor source. On
+  win32 the reactor's =GetMessage/PeekMessage/MsgWaitFor…= pump /is/ the GUI
+  pump.
+- *Portable toolkit backends* (=gtk4=, =qt=) — they do not run their own loop
+  (=gtk_main=, =QApplication::exec=). Their event context is driven as a
+  =Mel_Reactor_Source=: =prepare/check/dispatch= map onto =GSource= /
+  =QAbstractEventDispatcher= one-to-one (the reactor README documents the
+  =GMainContext= correspondence), and their poll fds become reactor polls.
+- *Drawn backend* — attaches one vsync/idle =Mel_Reactor_Source=; each
+  iteration redraws.
+- *Cross-thread "run on the UI thread"* is =mel_reactor_post=. The GUI defines
+  no new threading primitive. All widget mutation must occur on the reactor's
+  owner thread; calls from other threads go through =mel_reactor_post=.
+
+* Backend selection and the build
+
+=nob.c= discovers each =modules/<name>/= with an =include/= and =src/=. Sources
+come from =src/= plus =src/<platform-chain>/= (win32 chain: =win32=, =win=).
+
+- *Default backend = platform default.* The win32 backend lives in
+  =modules/gui/src/win32/= and is compiled automatically on a win32 build by
+  the existing platform chain. No =nob.c= change is needed for the first
+  slice.
+- *Non-default backend* (e.g. =gtk4= on Windows) requires =nob.c= to learn a
+  =--gui-backend=<name>= selector that overrides which =src/<backend>/=
+  directory is compiled and sets a =MEL_GUI_BACKEND_<NAME>= define. This is
+  specified here and tracked in =todo.org=; it is not in the first slice.
+- Exactly one =src/<backend>/= directory compiles per build. The portable
+  half of each widget calls backend functions resolved at link time. This
+  satisfies "one backend, compile-time, no vtable".
+
+* Frames and the Screen model
+
+An app is a set of named *Screens*. A Screen is a builder callback that
+populates one Frame's content:
+
+#+begin_src c
+typedef void (*Mel_Screen_Build)(Mel_Gui_Handle frame, void* user);
+
+void mel_app_register_screen(str8 name, Mel_Screen_Build build);
+void mel_app_present         (str8 name);
+#+end_src
+
+Cross-platform shape (adaptive concept, not LCD):
+
+- desktop: presenting a Screen creates/raises its Frame as an OS window;
+  multiple Frames may be visible at once.
+- mobile: a Screen maps to a real Activity (Android) or scene/UIViewController
+  (iOS); =mel_app_present= pushes onto the OS navigation/back stack.
+- web: a Screen maps to a route.
+
+=apps/hello-world-gui= has two Screens, =main= and =details= — on win32 these
+are two Frames. Full Screen lifecycle (back stack, save/restore, the mobile
+Activity mapping) beyond the two-Frame desktop flow is tracked in =todo.org=.
+
+* Accessibility
+
+Accessibility is first-class and customisable. Every widget carries an
+accessibility node (role, label, description, value, traits) reachable via
+=mel_gui_set_a11y_*=.
+
+- Native backends default the node from the underlying OS control; overrides
+  are pushed back into the native a11y system.
+- The drawn backend has no OS control to inherit from, so it /must/ publish
+  the node through the platform a11y API (UI Automation, NSAccessibility, an
+  AccessKit-equivalent). A fully custom control must populate its node.
+
+The a11y override API is specified here; the per-backend a11y bridges are
+=todo.org= (the first slice relies on the native win32 control defaults).
+
+* Memory and performance
+
+- Handles are generational indices into one =Mel_SlotMap=; the read path does
+  not allocate or lock.
+- Per-widget callback storage is lazy: no callbacks installed ⇒ no allocation.
+- No vtable on any path except the future layout system.
+- Backend selection is compile-time; backend calls resolve at link time.
+- Widget creation allocates; event dispatch does not. The win32 hidden
+  =WndProc= performs no per-event allocation.
+- The module allocator is set once in =mel_gui_init= (default
+  =mel_alloc_heap()=).
+
+* Module and file layout
+
+#+begin_example
+modules/gui/
+  readme.org              this file
+  todo.org                execution checklist / resumable scope
+  include/gui/
+    gui.h                 umbrella: all core widgets
+    handle.h              Mel_Gui_Handle + helpers
+    callbacks.h           capability structs + setters
+    input.h               provisional Mel_Key / Mel_Mouse_Button (todo: migrate)
+    init.h                mel_gui_init, mel_gui_backend_supports
+    screen.h              Mel_Screen_Build, mel_app_register_screen/present
+    widget.h              shared widget ops (frame/text/visible/enable/focus)
+    frame.h panel.h label.h button.h checkbox.h radiobutton.h
+    togglebutton.h textfield.h textarea.h slider.h progressbar.h
+    spinbox.h choicebox.h combobox.h listbox.h imageview.h
+    scrollview.h tabview.h splitter.h groupbox.h canvas.h
+    menu.h toolbar.h statusbar.h dialog.h
+    desktop/  ...          class tier (todo)
+    mobile/   web/  xr/    class tiers (todo)
+    win32/    ...          backend tier — raw Win32 power
+    uwp/ appkit/ uikit/ gtk4/ qt/ android/ compose/ web/ drawn/   (todo)
+  src/
+    gui.c                 slotmap, registry, dispatch core
+    callbacks.c           lazy callback storage + setters + dispatch
+    widget.c              shared widget ops
+    screen.c              Screen registry + navigation
+    <widget>.c            per-widget portable half (opt parse, defaults)
+    win32/
+      backend.c           class registration, hidden WndProc, subclassing
+      <widget>.c          per-widget native half
+#+end_example
+
+The first slice creates only the files it needs (see below); every other file
+is a =todo.org= entry.
+
+* First slice — exact scope
+
+Goal: =apps/hello-world-gui= builds and runs on win32 with no stubs and no
+hacks, on the new API.
+
+In scope:
+
+- Core: =handle=, =callbacks= (capability structs + lazy storage + setters),
+  =init=, =widget= ops, =screen= navigation, the =_opt= macros.
+- Widgets: =Frame=, =Label=, =Button=, =CheckBox=, =TextField=, =Slider=,
+  =Canvas=. (=Panel= only if =hello-world-gui= needs it; it currently parents
+  all children to the Frame.)
+- Backend: =win32= only, complete for those seven widgets.
+- =apps/hello-world-gui/src/hello_world_gui.c= rewritten onto the new API:
+  the old =Mel_Gui_*= proc/class-registration API is removed; the "custom
+  class" buttons become plain =Button=s with =.pointer.on_click=; =main= and
+  =details= become registered Screens.
+- =Mel_Key= provisional definition in =<gui/input.h>=.
+
+Out of the first slice (⇒ =todo.org=): every other backend; the drawn family;
+=desktop/mobile/web/xr= class tiers; layout; the unified Canvas drawing API;
+per-backend a11y bridges; the =nob.c= =--gui-backend= selector; widgets beyond
+the seven above.
+
+The =#ifdef __APPLE__= / Android canvas drawing currently in
+=hello_world_gui.c= is expected to remain until the unified Canvas drawing API
+exists. It is a documented placeholder, not a hack; it is a =todo.org= entry.
+
+* Testing
+
+Per PRD 05: tests live in =gui/= for callback storage, dispatch and setters,
+and per-widget for native event routing. The pattern: create a widget with
+known callbacks, simulate an event via the =input.replay= module (PRD 09),
+assert the callback fired with the expected arguments. The =input.replay=
+dependency is not yet present; first-slice verification is running
+=hello-world-gui= on a Windows host and observing behaviour. Automated
+callback tests are a =todo.org= entry, gated on PRD 09.
+
+* Naming decision log
+
+- *Frame* — top-level window. AWT/wxWidgets pedigree; user-blessed.
+- *TabView* — over "Notebook" (a skeuomorphic metaphor) and "TabbedPane"
+  ("Pane" is inconsistent with our "Panel"). Consistent suffix with
+  ScrollView/ImageView.
+- *TextField* + *TextArea* — two separate controls (user decision), not one
+  multiline-flagged control. "Field" connotes single-line; strong
+  NSTextField/UITextField/JTextField pedigree.
+- *ChoiceBox* (non-editable) paired with *ComboBox* (editable) — JavaFX's
+  precise pair, over the behaviour-named "Dropdown" and the Mac-specific
+  "PopUpButton".
+- *ScrollView* — over wx/gtk "ScrolledWindow"; clearer, matches mobile usage.
+- *ImageView* — over "Image"; it is a view of image data, consistent with
+  ScrollView.
+- *GroupBox* — over wxStaticBox and GtkFrame (the latter name would collide
+  with our Frame).
+- *Label*, *ProgressBar*, *Canvas* — GTK names, clearer than the wx
+  equivalents (wxStaticText, wxGauge, none).
+- *Screen* — the cross-platform term for a named navigable destination; maps
+  to a real Android Activity / iOS scene without leaking the Android term.
+
+* Out of scope
+
+Everything not in "First slice" is specified above and itemised in =todo.org=.
+=todo.org= is authoritative for what remains and is the resume point for the
+next agent.

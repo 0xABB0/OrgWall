@@ -1,0 +1,136 @@
+#+TITLE: GUI — TODO
+
+Execution checklist for the GUI module. =readme.org= is the specification;
+this file is what remains to do and the resume point for the next agent.
+
+Status keys: TODO (not started), WIP (in progress), DONE.
+Order within "First slice" is the intended build order.
+
+* First slice — win32, hello-world-gui without hacks
+
+** TODO Core: handle + slotmap backing
+   - =include/gui/handle.h= — =Mel_Gui_Handle=, =MEL_GUI_HANDLE_NONE=,
+     =mel_gui_handle_is_none=, =mel_gui_alive=, 64-bit pack/unpack.
+   - =src/gui.c= — one =Mel_SlotMap= of widget records; insert/get/remove;
+     generational validation; deferred-destroy support.
+
+** TODO Core: init + module allocator
+   - =include/gui/init.h= — =mel_gui_init(Mel_Reactor*)=,
+     =mel_gui_backend_supports=.
+   - Record reactor pointer; default allocator =mel_alloc_heap()=.
+
+** TODO Core: provisional input types
+   - =include/gui/input.h= — provisional =Mel_Key=, =Mel_Mouse_Button=.
+   - Mark clearly for migration to the PRD 09 Input module.
+
+** TODO Core: capability callbacks + lazy storage
+   - =include/gui/callbacks.h= — the four locked PRD 05 structs
+     (=Mel_Gui_Lifecycle_Cb=, =_Focus_Cb=, =_Pointer_Cb=, =_Keyboard_Cb=).
+   - =src/callbacks.c= — lazy per-widget callback struct (allocated on first
+     install); per-slot setters; per-capability bulk setters; NULL removes.
+   - Framework dispatch wrapper that the win32 =WndProc= calls.
+
+** TODO Core: shared widget ops
+   - =include/gui/widget.h= + =src/widget.c= — set/get text, frame (x,y,w,h),
+     visible, enabled, focus, user pointer, =mel_gui_native_handle=,
+     =mel_gui_focused=.
+
+** TODO Core: Screen navigation
+   - =include/gui/screen.h= + =src/screen.c= — =Mel_Screen_Build=,
+     =mel_app_register_screen=, =mel_app_present=. Desktop: present = create/
+     raise the Screen's Frame.
+
+** TODO Win32 backend: foundation
+   - =src/win32/backend.c= — window-class registration, =InitCommonControlsEx=
+     for =ICC_BAR_CLASSES=, the hidden per-class =WndProc=, =SetWindowSubclass=
+     instance subclassing, native↔capability message translation.
+   - Bare by default: no v6 manifest, no Segoe UI override, no DPI awareness.
+
+** TODO Widgets (portable half + win32 half), in this order
+   - Frame      — =frame.h=, =src/frame.c=, =src/win32/frame.c=
+   - Label      — =label.h=, =src/label.c=, =src/win32/label.c=
+   - Button     — =button.h=, =src/button.c=, =src/win32/button.c=
+   - CheckBox   — =checkbox.h=, =src/checkbox.c=, =src/win32/checkbox.c=
+   - TextField  — =textfield.h=, =src/textfield.c=, =src/win32/textfield.c=
+   - Slider     — =slider.h=, =src/slider.c=, =src/win32/slider.c=
+   - Canvas     — =canvas.h=, =src/canvas.c=, =src/win32/canvas.c=
+   - Panel      — only if hello-world-gui needs it (currently it does not).
+
+** TODO Rewrite apps/hello-world-gui onto the new API
+   - Remove the dead =Mel_Gui_*= proc / =mel_gui_register_class= API usage.
+   - Custom-class buttons become plain =Button= + =.pointer.on_click=.
+   - =main= / =details= become registered Screens; "open details" button
+     calls =mel_app_present(S8("details"))=.
+   - Keep the per-platform =#ifdef= canvas drawing (placeholder; see below).
+
+** TODO Build + verify
+   - Confirm =nob.c= picks up =modules/gui/src= and =src/win32= via the
+     existing win32 chain — no =nob.c= change expected for the first slice.
+   - =./nob build app hello-world-gui win32=, then run on the Windows host
+     and observe: clicks, checkbox, slider, text entry, focus, canvas paint,
+     and the main→details Screen switch.
+
+* Deferred — backends
+
+Each is specified in =readme.org= and must be delivered first-class.
+
+** TODO uwp / WinUI backend (declarative; observable-model bridge)
+** TODO appkit backend (macOS)
+** TODO uikit backend (iOS, iPadOS, windowed visionOS)
+** TODO swiftui backend (macOS/visionOS ornaments & volumes; declarative)
+** TODO gtk4 backend (Linux default; portable to win32/macos)
+** TODO qt backend (portable; C++ shim TU)
+** TODO android backend (android.view; also Meta Quest 2D panel app)
+** TODO compose backend (Jetpack Compose; declarative; JNI/Kotlin bridge)
+** TODO web backend (DOM via Emscripten)
+** TODO drawn backend (CPU + GPU renderers; immersive Quest & visionOS)
+
+* Deferred — class-tier headers
+
+** TODO desktop/ class tier — resizable, decorations, multi-window, monitor placement
+** TODO mobile/ class tier — back stack, scenes, lifecycle hooks
+** TODO web/ class tier
+** TODO xr/ class tier — volumes, ornaments, immersive spaces
+
+* Deferred — widgets beyond the first slice
+
+** TODO Dialog, GroupBox, ScrollView, TabView, Splitter
+** TODO RadioButton, ToggleButton, ProgressBar, SpinBox
+** TODO ChoiceBox, ComboBox, ListBox, ImageView, TextArea
+** TODO MenuBar / Menu / MenuItem, ToolBar, StatusBar
+** TODO Drawn-widget family (mel_draw_*) — finalise its vocabulary when built
+
+* Deferred — subsystems
+
+** TODO Layout system
+   The one sanctioned vtable. Decide vocabulary (wx "Sizer" vs gtk "Box/Grid")
+   when built. Until then widgets use absolute .x/.y/.w/.h.
+
+** TODO Unified Canvas drawing API
+   Backend-agnostic draw-list (paths, text runs, images, clips, transforms);
+   separate, interchangeable CPU and GPU consumers. Removes the per-platform
+   =#ifdef= canvas drawing currently in hello-world-gui.c.
+
+** TODO Per-backend accessibility bridges
+   UI Automation (win32/uwp), NSAccessibility (appkit/uikit), AccessKit-style
+   for the drawn backend. First slice relies on native control a11y defaults.
+
+** TODO nob.c --gui-backend selector
+   Override the compiled =src/<backend>/= directory and define
+   =MEL_GUI_BACKEND_<NAME>=; default per platform. Enables e.g. gtk4 on win32.
+
+** TODO Migrate Mel_Key / Mel_Mouse_Button to the PRD 09 Input module
+   Remove the provisional =<gui/input.h>= definition once that module exists.
+
+** TODO Win32 opt-in polish APIs
+   =<gui/win32/...>=: Common Controls v6 visual styles, default-font override,
+   per-monitor DPI awareness — opt-in only, never defaults.
+
+** TODO Automated callback tests
+   Gated on the PRD 09 input.replay module. Per PRD 05: callback fires on
+   event, NULL slots skipped, runtime setters change dispatch, bulk setters
+   apply wholesale, lazy allocation survives stress.
+
+** TODO Full Screen lifecycle
+   Back stack, save/restore, the mobile Activity / iOS scene mapping beyond
+   the desktop two-Frame flow.
