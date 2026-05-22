@@ -3,6 +3,7 @@
 @implementation MelGuiCheckBox
 
 - (BOOL)acceptsFirstResponder { return YES; }
+- (BOOL)canBecomeKeyView      { return YES; }
 
 - (BOOL)becomeFirstResponder
 {
@@ -35,6 +36,18 @@
     if (!impl || !impl->on_.on_toggled) return;
     bool checked = (self.state == NSControlStateValueOn);
     impl->on_.on_toggled(self.handle, checked, w->user);
+}
+
+- (void)keyDown:(NSEvent*)e
+{
+    mel_gui__fire_key_down(self.handle, mel_gui__macos_key_for_event(e));
+    [super keyDown:e];
+}
+
+- (void)keyUp:(NSEvent*)e
+{
+    mel_gui__fire_key_up(self.handle, mel_gui__macos_key_for_event(e));
+    [super keyUp:e];
 }
 
 @end

@@ -9,6 +9,41 @@
 - (BOOL)canBecomeKeyView       { return YES; }
 - (BOOL)isOpaque               { return YES; }
 
+- (void)updateTrackingAreas
+{
+    [super updateTrackingAreas];
+    for (NSTrackingArea* ta in self.trackingAreas) {
+        [self removeTrackingArea:ta];
+    }
+    NSTrackingAreaOptions opts = NSTrackingMouseMoved
+                               | NSTrackingMouseEnteredAndExited
+                               | NSTrackingActiveInActiveApp
+                               | NSTrackingInVisibleRect;
+    NSTrackingArea* ta = [[NSTrackingArea alloc] initWithRect:NSZeroRect
+                                                      options:opts
+                                                        owner:self
+                                                     userInfo:nil];
+    [self addTrackingArea:ta];
+}
+
+- (void)mouseEntered:(NSEvent*)e
+{
+    (void)e;
+    Mel_Gui_Widget* w = mel_gui__get(self.handle);
+    if (w && w->cb && w->cb->pointer.on_pointer_enter) {
+        w->cb->pointer.on_pointer_enter(self.handle, w->user);
+    }
+}
+
+- (void)mouseExited:(NSEvent*)e
+{
+    (void)e;
+    Mel_Gui_Widget* w = mel_gui__get(self.handle);
+    if (w && w->cb && w->cb->pointer.on_pointer_leave) {
+        w->cb->pointer.on_pointer_leave(self.handle, w->user);
+    }
+}
+
 - (BOOL)becomeFirstResponder
 {
     BOOL ok = [super becomeFirstResponder];

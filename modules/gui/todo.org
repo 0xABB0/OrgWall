@@ -54,7 +54,25 @@ no stubs, no nob.c change needed — the existing win32 platform chain picks up
 Each is specified in =readme.org= and must be delivered first-class.
 
 ** TODO uwp / WinUI backend (declarative; observable-model bridge)
-** TODO appkit backend (macOS)
+** WIP  appkit backend (macOS)
+   First slice landed: =modules/gui/src/macos/= covers Frame, Label, Button,
+   CheckBox, TextField, Slider, Canvas; hello-world-gui builds and runs.
+   Tab traversal, click/focus/key callbacks, slider drag, checkbox toggle,
+   text-changed, canvas mouse + hover (=NSTrackingArea=) all wired.
+   NSWindow release is deferred via =dispatch_async= so closing from any
+   path (X button or =NSApp terminate:=) is reentrancy-safe.
+   Open items before this can move to DONE:
+   - Drain NSEvents inside =reactor='s apple backend =wait()= so the gui
+     module needs no reactor source (matches the readme's "native backend
+     needs no reactor source"). Currently the macos backend attaches one
+     because =CFRunLoopRunInMode= does not itself dispatch =NSEvent=s.
+     This crosses module boundaries; tracked here, not silently hacked.
+   - =keyDown:= forwarding on =NSTextField= (the field editor consumes
+     key events, so on_key_* on a textfield will not fire on macOS today;
+     a custom field-editor subclass is needed for parity with win32).
+   - Per-backend escape hatches: =<gui/appkit/*.h>= class-tier headers
+     exposing =NSWindow=/=NSView= styles and ornaments beyond the core
+     API.
 ** TODO uikit backend (iOS, iPadOS, windowed visionOS)
 ** TODO swiftui backend (macOS/visionOS ornaments & volumes; declarative)
 ** TODO gtk4 backend (Linux default; portable to win32/macos)

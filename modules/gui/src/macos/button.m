@@ -3,6 +3,7 @@
 @implementation MelGuiButton
 
 - (BOOL)acceptsFirstResponder { return YES; }
+- (BOOL)canBecomeKeyView      { return YES; }
 
 - (BOOL)becomeFirstResponder
 {
@@ -30,6 +31,18 @@
 {
     (void)sender;
     mel_gui__fire_click(self.handle);
+}
+
+- (void)keyDown:(NSEvent*)e
+{
+    mel_gui__fire_key_down(self.handle, mel_gui__macos_key_for_event(e));
+    [super keyDown:e];
+}
+
+- (void)keyUp:(NSEvent*)e
+{
+    mel_gui__fire_key_up(self.handle, mel_gui__macos_key_for_event(e));
+    [super keyUp:e];
 }
 
 @end

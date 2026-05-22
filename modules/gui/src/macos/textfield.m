@@ -3,6 +3,7 @@
 #import <objc/runtime.h>
 
 @implementation MelGuiTextField
+- (BOOL)canBecomeKeyView { return YES; }
 @end
 
 void mel_gui__backend_textfield_create(Mel_Gui_Widget* w, str8 text)

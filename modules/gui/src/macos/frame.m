@@ -25,12 +25,19 @@
     }
 
     Mel_Gui_Widget* fw = mel_gui__get(frame_h);
+    void* window_native = NULL;
     if (fw && fw->native) {
-        CFBridgingRelease(fw->native);
-        fw->native = NULL;
+        window_native = fw->native;
+        fw->native    = NULL;
     }
 
     mel_gui__destroy_tree(frame_h);
+
+    if (window_native) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            CFBridgingRelease(window_native);
+        });
+    }
 
     if (mel_gui__frames_dec() == 0) {
         Mel_Reactor* r = mel_gui__reactor();
@@ -43,6 +50,15 @@
     NSWindow* window = (NSWindow*)note.object;
     NSSize    sz     = window.contentView.bounds.size;
     mel_gui__fire_resize(self.frame_handle, (i32)sz.width, (i32)sz.height);
+}
+
+- (void)windowDidBecomeKey:(NSNotification*)note
+{
+    NSWindow* window = (NSWindow*)note.object;
+    NSResponder* fr  = window.firstResponder;
+    if (fr == nil || fr == (NSResponder*)window || fr == (NSResponder*)window.contentView) {
+        [window selectNextKeyView:nil];
+    }
 }
 
 @end
@@ -79,11 +95,8 @@ void mel_gui__backend_frame_create(Mel_Gui_Widget* w, str8 title)
         [window center];
 
         w->native = (void*)CFBridgingRetain(window);
-
-        NSRect fr = window.frame;
-        w->x = (i32)fr.origin.x;
-        w->y = (i32)fr.origin.y;
-
+        w->x = 0;
+        w->y = 0;
         mel_gui__frames_inc();
     }
 }
