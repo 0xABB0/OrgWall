@@ -1,37 +1,44 @@
 #include <reactor/reactor.h>
 #include <core/types.h>
 
-#define WIN32_LEAN_AND_MEAN
-#include <windows.h>
+#include <CoreFoundation/CoreFoundation.h>
+#include <mach/mach_time.h>
+#include <mach/thread_act.h>
+#include <mach/thread_policy.h>
+#include <pthread.h>
 #include <stdio.h>
 
 #define BENCH_ITERS 2000000u
 #define BENCH_REPS  11
 
 static volatile u64 g_sink;
+static double       g_tick_ns;
 
-static void drain_queue(void)
+static u64 mono_ns(void)
 {
-    MSG msg;
-    while (PeekMessageW(&msg, NULL, 0, 0, PM_REMOVE)) {
-        TranslateMessage(&msg);
-        DispatchMessageW(&msg);
-    }
+    return (u64)((double)mach_absolute_time() * g_tick_ns);
 }
+
+static void native_wake_perform(void* info) { (void)info; }
 
 static void bench_native(u64 iters)
 {
-    MSG  msg;
-    u64  count   = 0;
-    bool running = true;
-    while (running) {
-        while (PeekMessageW(&msg, NULL, 0, 0, PM_REMOVE)) {
-            if (msg.message == WM_QUIT) { running = false; break; }
-            TranslateMessage(&msg);
-            DispatchMessageW(&msg);
-        }
-        if (++count >= iters) running = false;
+    CFRunLoopRef           loop = CFRunLoopGetCurrent();
+    CFRunLoopSourceContext ctx  = {0};
+    ctx.perform = native_wake_perform;
+    CFRunLoopSourceRef wake = CFRunLoopSourceCreate(kCFAllocatorDefault, 0, &ctx);
+    CFRunLoopAddSource(loop, wake, kCFRunLoopCommonModes);
+
+    u64 count = 0;
+    while (count < iters) {
+        CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.0, true);
+        count++;
     }
+
+    CFRunLoopRemoveSource(loop, wake, kCFRunLoopCommonModes);
+    CFRunLoopSourceInvalidate(wake);
+    CFRelease(wake);
+
     g_sink += count;
 }
 
@@ -65,14 +72,23 @@ static void stats(const double* v, int n, double* out_min, double* out_mean, dou
     *out_mean = sum / (double)n;
 }
 
+static void pin_and_boost(void)
+{
+    pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);
+    thread_affinity_policy_data_t aff = { 1 };
+    thread_policy_set(pthread_mach_thread_np(pthread_self()),
+                      THREAD_AFFINITY_POLICY,
+                      (thread_policy_t)&aff,
+                      THREAD_AFFINITY_POLICY_COUNT);
+}
+
 int main(void)
 {
-    SetPriorityClass(GetCurrentProcess(), HIGH_PRIORITY_CLASS);
-    SetThreadAffinityMask(GetCurrentThread(), 1);
+    pin_and_boost();
 
-    LARGE_INTEGER freq;
-    QueryPerformanceFrequency(&freq);
-    double tick_ns = 1.0e9 / (double)freq.QuadPart;
+    mach_timebase_info_data_t tb;
+    mach_timebase_info(&tb);
+    g_tick_ns = (double)tb.numer / (double)tb.denom;
 
     g_reactor_limit = BENCH_ITERS;
 
@@ -84,34 +100,34 @@ int main(void)
     double reactor_ns[BENCH_REPS];
 
     for (int rep = 0; rep < BENCH_REPS; rep++) {
-        LARGE_INTEGER t0, t1;
+        u64 t0, t1;
 
-        drain_queue();
-        QueryPerformanceCounter(&t0);
+        t0 = mono_ns();
         bench_native(BENCH_ITERS);
-        QueryPerformanceCounter(&t1);
-        native_ns[rep] = (double)(t1.QuadPart - t0.QuadPart) * tick_ns / (double)BENCH_ITERS;
+        t1 = mono_ns();
+        native_ns[rep] = (double)(t1 - t0) / (double)BENCH_ITERS;
 
         g_reactor_count = 0;
-        drain_queue();
-        QueryPerformanceCounter(&t0);
+        t0 = mono_ns();
         mel_reactor_spawn(MEL_REACTOR_THREADED, bench_setup, NULL);
-        QueryPerformanceCounter(&t1);
-        reactor_ns[rep] = (double)(t1.QuadPart - t0.QuadPart) * tick_ns / (double)BENCH_ITERS;
+        t1 = mono_ns();
+        reactor_ns[rep] = (double)(t1 - t0) / (double)BENCH_ITERS;
     }
 
     double nmin, nmean, nmax, rmin, rmean, rmax;
     stats(native_ns,  BENCH_REPS, &nmin, &nmean, &nmax);
     stats(reactor_ns, BENCH_REPS, &rmin, &rmean, &rmax);
 
-    double overhead = rmin - nmin;
+    double overhead     = rmin - nmin;
     double overhead_pct = overhead / nmin * 100.0;
 
-    printf("Reactor abstraction vs native Win32 loop\n");
+    printf("Reactor abstraction vs native CFRunLoop\n");
     printf("  workload : uncapped fast loop, trivial per-iteration work\n");
     printf("  per run  : %u iterations   runs: %d\n", BENCH_ITERS, BENCH_REPS);
     printf("  build    : -O2, no LTO; reactor is one TU, called across the library boundary\n");
-    printf("  fairness : both loops drain the Win32 message queue once per iteration\n\n");
+    printf("  fairness : both loops call CFRunLoopRunInMode(default, 0.0, true) once per\n");
+    printf("             iteration against a loop with one no-op wake source attached\n");
+    printf("  caveats  : macOS affinity is advisory; QoS raised to USER_INTERACTIVE\n\n");
 
     printf("                  min        mean         max\n");
     printf("  native     %8.2f   %9.2f   %9.2f   ns/iter\n", nmin, nmean, nmax);
