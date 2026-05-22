@@ -1,12 +1,24 @@
 #include <emscripten.h>
 #include <poll.h>
 
+#define MEL_REACTOR_BACKEND_HAS_ATTACHED 1
+
 static void reactor_web_tick(void* arg)
 {
     Mel_Reactor* r = arg;
-    if (!mel_reactor_iterate(r, true)) {
+    if (!r->init_done) {
+        r->init_done = true;
+        if (r->init && !r->init(r, r->init_user)) {
+            r->web_looping = false;
+            emscripten_cancel_main_loop();
+            reactor_attached_destroy(r);
+            return;
+        }
+    }
+    if (!reactor_iterate(r, true)) {
         r->web_looping = false;
         emscripten_cancel_main_loop();
+        reactor_attached_destroy(r);
     }
 }
 
@@ -32,7 +44,7 @@ static void reactor_backend_wake(Mel_Reactor* r)
     }
 }
 
-static void reactor_backend_run(Mel_Reactor* r)
+static void reactor_backend_attached_run(Mel_Reactor* r)
 {
     r->web_looping = true;
     emscripten_set_main_loop_arg(reactor_web_tick, r, 0, 1);

@@ -152,12 +152,12 @@ void mel_counter_wait(Mel_Counter* c)
     mel_signal_wait(&c->signal);
 }
 
-void mel_mutex_enter(Mel_Mutex* m)
+void mel_fiber_mutex_enter(Mel_Fiber_Mutex* m)
 {
     mel_signal_wait_and_set(&m->signal);
 }
 
-void mel_mutex_exit(Mel_Mutex* m)
+void mel_fiber_mutex_exit(Mel_Fiber_Mutex* m)
 {
     for (;;)
     {

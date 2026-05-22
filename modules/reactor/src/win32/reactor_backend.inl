@@ -5,7 +5,8 @@
 
 static bool reactor_backend_init(Mel_Reactor* r)
 {
-    r->win32_thread = GetCurrentThreadId();
+    r->owner     = mel_thread_current_id();
+    r->has_owner = true;
     MSG msg;
     PeekMessageW(&msg, NULL, WM_USER, WM_USER, PM_NOREMOVE);
     return true;
@@ -13,11 +14,12 @@ static bool reactor_backend_init(Mel_Reactor* r)
 
 static void reactor_backend_shutdown(Mel_Reactor* r)
 {
+    (void)r;
 }
 
 static void reactor_backend_wake(Mel_Reactor* r)
 {
-    PostThreadMessageW(r->win32_thread, WM_NULL, 0, 0);
+    PostThreadMessageW((DWORD)r->owner, WM_NULL, 0, 0);
 }
 
 static bool reactor_win32_drain(void)
@@ -70,7 +72,7 @@ static bool reactor_backend_wait(Mel_Reactor* r, Mel_Reactor_Poll** polls, usize
     DWORD ms = timeout < 0 ? INFINITE : (DWORD)timeout;
     DWORD wr = MsgWaitForMultipleObjectsEx(nh, nh ? handles : NULL, ms,
                                            QS_ALLINPUT, MWMO_INPUTAVAILABLE);
-    if (wr >= WAIT_OBJECT_0 && wr < WAIT_OBJECT_0 + nh) {
+    if (wr < WAIT_OBJECT_0 + nh) {
         slots[wr - WAIT_OBJECT_0]->revents |= MEL_REACTOR_POLL_IN;
     }
     bool keep = reactor_win32_drain();

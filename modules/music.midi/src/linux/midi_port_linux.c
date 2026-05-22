@@ -7,7 +7,7 @@
 #endif
 
 #include <alsa/asoundlib.h>
-#include <pthread.h>
+#include <thread/thread.h>
 #include <time.h>
 
 #include <stdlib.h>
@@ -27,20 +27,20 @@ struct Mel_Midi_Port_Linux
     int              port_id;
     int              src_client;
     int              src_port;
-    pthread_t        thread;
+    Mel_Thread       thread;
     volatile bool    running;
     volatile bool    closed;
 };
 
 // ── Reader thread ──────────────────────────────────────────────────────────
 
-static void* mel__midi_reader_thread(void* arg)
+static int mel__midi_reader_thread(void* arg)
 {
     Mel_Midi_Port* port = (Mel_Midi_Port*)arg;
-    if (!port) return NULL;
+    if (!port) return 0;
 
     Mel_Midi_Port_Linux* pl = (Mel_Midi_Port_Linux*)port->platform_handle;
-    if (!pl) return NULL;
+    if (!pl) return 0;
 
     struct timespec ts;
     ts.tv_sec  = 0;
@@ -142,7 +142,7 @@ static void* mel__midi_reader_thread(void* arg)
         nanosleep(&ts, NULL);
     }
 
-    return NULL;
+    return 0;
 }
 
 // ── Enumerate ──────────────────────────────────────────────────────────────
@@ -268,9 +268,8 @@ Mel_Midi_Port* mel_midi_port_platform_open_input(int32_t id, Mel_Midi_Port* port
         return NULL;
     }
 
-    // Start reader thread
     pl->running = true;
-    if (pthread_create(&pl->thread, NULL, mel__midi_reader_thread, port) != 0)
+    if (!mel_thread_spawn(&pl->thread, mel__midi_reader_thread, port, .name = "mel_midi_reader"))
     {
         snd_seq_disconnect_from(pl->seq, pl->port_id, pl->src_client, pl->src_port);
         snd_seq_delete_simple_port(pl->seq, pl->port_id);
@@ -295,7 +294,7 @@ void mel_midi_port_platform_close(Mel_Midi_Port* port)
     pl->closed  = true;
     pl->running = false;
 
-    pthread_join(pl->thread, NULL);
+    mel_thread_join(&pl->thread, NULL);
 
     snd_seq_disconnect_from(pl->seq, pl->port_id, pl->src_client, pl->src_port);
     snd_seq_delete_simple_port(pl->seq, pl->port_id);

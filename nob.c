@@ -227,20 +227,24 @@ static bool discover(Layout *L) {
     return true;
 }
 
-static const char *const macos_chain[]   = { "macos",   "apple", "posix", NULL };
-static const char *const ios_chain[]     = { "ios",     "apple", "posix", NULL };
-static const char *const linux_chain[]   = { "linux",   "posix", NULL };
-static const char *const android_chain[] = { "android", "posix", NULL };
-static const char *const win32_chain[]   = { "win32",   "win",   NULL };
+static const char *const macos_chain[]      = { "macos",      "apple", "posix", NULL };
+static const char *const ios_chain[]        = { "ios",        "apple", "posix", NULL };
+static const char *const linux_chain[]      = { "linux",      "posix", NULL };
+static const char *const android_chain[]    = { "android",    "posix", NULL };
+static const char *const win32_chain[]      = { "win32",      "win",   NULL };
+static const char *const web_chain[]        = { "web",        "posix", NULL };
+static const char *const emscripten_chain[] = { "emscripten", "web",   "posix", NULL };
 
 typedef struct { const char *platform; const char *const *chain; } Platform_Chain;
 
 static const Platform_Chain platform_chains[] = {
-    { "macos",   macos_chain   },
-    { "ios",     ios_chain     },
-    { "linux",   linux_chain   },
-    { "android", android_chain },
-    { "win32",   win32_chain   },
+    { "macos",      macos_chain      },
+    { "ios",        ios_chain        },
+    { "linux",      linux_chain      },
+    { "android",    android_chain    },
+    { "win32",      win32_chain      },
+    { "web",        web_chain        },
+    { "emscripten", emscripten_chain },
 };
 
 static const char *const *find_platform_chain(const char *platform) {

@@ -3,6 +3,8 @@
 #include <poll.h>
 #include <unistd.h>
 
+#define MEL_REACTOR_BACKEND_HAS_ATTACHED 1
+
 static int reactor_android_tick(int fd, int events, void* data);
 
 static void reactor_android_arm(Mel_Reactor* r, i32 timeout_ms)
@@ -57,14 +59,23 @@ static int reactor_android_tick(int fd, int events, void* data)
     ssize_t      got = read(fd, &expirations, sizeof expirations);
     (void)events;
     (void)got;
-    if (!mel_reactor_iterate(r, true)) {
+    if (!r->init_done) {
+        r->init_done = true;
+        if (r->init && !r->init(r, r->init_user)) {
+            r->android_looping = false;
+            reactor_attached_destroy(r);
+            return 0;
+        }
+    }
+    if (!reactor_iterate(r, true)) {
         r->android_looping = false;
+        reactor_attached_destroy(r);
         return 0;
     }
     return 1;
 }
 
-static void reactor_backend_run(Mel_Reactor* r)
+static void reactor_backend_attached_run(Mel_Reactor* r)
 {
     if (!r->android_looping) {
         r->android_looping = true;

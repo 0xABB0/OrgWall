@@ -8,8 +8,12 @@
 #include <allocator/allocator.h>
 #include <allocator.heap/heap.h>
 #include <string/str8.h>
+#include <thread/thread.h>
+#include <thread/mutex.h>
+#include <thread/cond.h>
+#include <thread/rwlock.h>
+#include <time/nano.h>
 
-#include <SDL3/SDL.h>
 #include <stdatomic.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -54,29 +58,29 @@ static Mel__Log_Sink_Slot* sinks;
 static u32 sink_count;
 static u32 sink_capacity;
 static u32 sink_next_id;
-static SDL_RWLock* sink_lock;
+static Mel_RWLock sink_lock;
 
 static Mel__Log_Level_Entry* levels;
 static u32 level_count;
 static u32 level_capacity;
-static SDL_Mutex* level_lock;
+static Mel_Mutex level_lock;
 
-static SDL_Thread* writer_thread;
+static Mel_Thread writer_thread;
 static _Atomic(bool) writer_running;
 static _Atomic(bool) writer_shutdown;
 static _Atomic(bool) flush_requested;
-static SDL_Mutex* flush_mutex;
-static SDL_Condition* flush_cond;
+static Mel_Mutex flush_mutex;
+static Mel_Cond flush_cond;
 static _Atomic(bool) flush_done;
 
 static u64 mel__log_timestamp(void)
 {
-    return SDL_GetTicksNS();
+    return mel_nanos_since_unspecified_epoch();
 }
 
 static u32 mel__log_thread_id(void)
 {
-    return (u32)SDL_GetCurrentThreadID();
+    return (u32)mel_thread_current_id();
 }
 
 static void mel__ring_init(Mel__Log_Ring* r, u64 capacity)
@@ -339,14 +343,14 @@ static bool mel__drain_one(void)
     mel__ring_clear_committed(&ring, pos);
     atomic_store_explicit(&ring.read_cursor, pos + total_size, memory_order_release);
 
-    SDL_LockRWLockForReading(sink_lock);
+    mel_rwlock_lock_shared(&sink_lock);
     for (u32 i = 0; i < sink_count; i++)
     {
         Mel__Log_Sink_Slot* slot = &sinks[i];
         if (slot->sink && entry.level <= slot->sink->level_threshold)
             slot->sink->write(slot->sink, &entry);
     }
-    SDL_UnlockRWLock(sink_lock);
+    mel_rwlock_unlock_shared(&sink_lock);
 
     return true;
 }
@@ -377,29 +381,29 @@ static void mel__drain_all(void)
             .context = STR8_EMPTY,
         };
 
-        SDL_LockRWLockForReading(sink_lock);
+        mel_rwlock_lock_shared(&sink_lock);
         for (u32 i = 0; i < sink_count; i++)
         {
             Mel__Log_Sink_Slot* slot = &sinks[i];
             if (slot->sink && drop_entry.level <= slot->sink->level_threshold)
                 slot->sink->write(slot->sink, &drop_entry);
         }
-        SDL_UnlockRWLock(sink_lock);
+        mel_rwlock_unlock_shared(&sink_lock);
     }
 }
 
 static void mel__flush_sinks(void)
 {
-    SDL_LockRWLockForReading(sink_lock);
+    mel_rwlock_lock_shared(&sink_lock);
     for (u32 i = 0; i < sink_count; i++)
     {
         if (sinks[i].sink && sinks[i].sink->flush)
             sinks[i].sink->flush(sinks[i].sink);
     }
-    SDL_UnlockRWLock(sink_lock);
+    mel_rwlock_unlock_shared(&sink_lock);
 }
 
-static int SDLCALL mel__writer_thread_fn(void* arg)
+static int mel__writer_thread_fn(void* arg)
 {
     (void)arg;
 
@@ -411,12 +415,12 @@ static int SDLCALL mel__writer_thread_fn(void* arg)
         {
             mel__flush_sinks();
             atomic_store_explicit(&flush_done, true, memory_order_release);
-            SDL_LockMutex(flush_mutex);
-            SDL_SignalCondition(flush_cond);
-            SDL_UnlockMutex(flush_mutex);
+            mel_mutex_lock(&flush_mutex);
+            mel_cond_signal(&flush_cond);
+            mel_mutex_unlock(&flush_mutex);
         }
 
-        SDL_DelayNS(SDL_NS_PER_MS);
+        mel_thread_sleep(1000000);
     }
 
     mel__drain_all();
@@ -433,8 +437,9 @@ static void mel__ensure_writer_thread(void)
                                                 memory_order_relaxed))
     {
         atomic_store_explicit(&writer_shutdown, false, memory_order_relaxed);
-        writer_thread = SDL_CreateThread(mel__writer_thread_fn, "mel_log_writer", NULL);
-        assert(writer_thread);
+        bool ok = mel_thread_spawn(&writer_thread, mel__writer_thread_fn, NULL, .name = "mel_log_writer");
+        assert(ok);
+        (void)ok;
     }
 }
 
@@ -540,7 +545,7 @@ Mel_Log_Sink_Handle mel_log_sink_add(Mel_Log_Sink* sink)
     assert(sink);
     assert(sink->write);
 
-    SDL_LockRWLockForWriting(sink_lock);
+    mel_rwlock_lock(&sink_lock);
 
     if (sink_count >= sink_capacity)
     {
@@ -562,7 +567,7 @@ Mel_Log_Sink_Handle mel_log_sink_add(Mel_Log_Sink* sink)
 
     Mel_Log_Sink_Handle handle = { .id = id, .gen = 1 };
 
-    SDL_UnlockRWLock(sink_lock);
+    mel_rwlock_unlock(&sink_lock);
 
     mel__ensure_writer_thread();
 
@@ -573,7 +578,7 @@ void mel_log_sink_remove(Mel_Log_Sink_Handle handle)
 {
     Mel_Log_Sink* removed = NULL;
 
-    SDL_LockRWLockForWriting(sink_lock);
+    mel_rwlock_lock(&sink_lock);
     for (u32 i = 0; i < sink_count; i++)
     {
         if (sinks[i].id == handle.id && sinks[i].gen == handle.gen)
@@ -583,7 +588,7 @@ void mel_log_sink_remove(Mel_Log_Sink_Handle handle)
             break;
         }
     }
-    SDL_UnlockRWLock(sink_lock);
+    mel_rwlock_unlock(&sink_lock);
 
     if (removed)
     {
@@ -602,22 +607,22 @@ void mel_log_sink_flush_all(void)
     atomic_store_explicit(&flush_done, false, memory_order_release);
     atomic_store_explicit(&flush_requested, true, memory_order_release);
 
-    SDL_LockMutex(flush_mutex);
+    mel_mutex_lock(&flush_mutex);
     while (!atomic_load_explicit(&flush_done, memory_order_acquire))
-        SDL_WaitCondition(flush_cond, flush_mutex);
-    SDL_UnlockMutex(flush_mutex);
+        mel_cond_wait(&flush_cond, &flush_mutex);
+    mel_mutex_unlock(&flush_mutex);
 }
 
 void mel_log_level_register(u32 value, str8 name)
 {
-    SDL_LockMutex(level_lock);
+    mel_mutex_lock(&level_lock);
 
     for (u32 i = 0; i < level_count; i++)
     {
         if (levels[i].value == value)
         {
             levels[i].name = name;
-            SDL_UnlockMutex(level_lock);
+            mel_mutex_unlock(&level_lock);
             return;
         }
     }
@@ -633,22 +638,22 @@ void mel_log_level_register(u32 value, str8 name)
     }
 
     levels[level_count++] = (Mel__Log_Level_Entry){ .value = value, .name = name };
-    SDL_UnlockMutex(level_lock);
+    mel_mutex_unlock(&level_lock);
 }
 
 str8 mel_log_level_name(u32 value)
 {
-    SDL_LockMutex(level_lock);
+    mel_mutex_lock(&level_lock);
     for (u32 i = 0; i < level_count; i++)
     {
         if (levels[i].value == value)
         {
             str8 name = levels[i].name;
-            SDL_UnlockMutex(level_lock);
+            mel_mutex_unlock(&level_lock);
             return name;
         }
     }
-    SDL_UnlockMutex(level_lock);
+    mel_mutex_unlock(&level_lock);
     return S8("UNKNOWN");
 }
 
@@ -701,17 +706,10 @@ static void mel__log_init(void)
 {
     mel__ring_init(&ring, MEL_LOG_RING_SIZE);
 
-    sink_lock = SDL_CreateRWLock();
-    assert(sink_lock);
-
-    level_lock = SDL_CreateMutex();
-    assert(level_lock);
-
-    flush_mutex = SDL_CreateMutex();
-    assert(flush_mutex);
-
-    flush_cond = SDL_CreateCondition();
-    assert(flush_cond);
+    mel_rwlock_init(&sink_lock);
+    mel_mutex_init(&level_lock, MEL_MUTEX_PLAIN);
+    mel_mutex_init(&flush_mutex, MEL_MUTEX_PLAIN);
+    mel_cond_init(&flush_cond);
 
     mel_log_level_register(MEL_LOG_FATAL, S8("FATAL"));
     mel_log_level_register(MEL_LOG_ERROR, S8("ERROR"));
@@ -729,8 +727,7 @@ static void mel__log_shutdown(void)
     if (atomic_load_explicit(&writer_running, memory_order_acquire))
     {
         atomic_store_explicit(&writer_shutdown, true, memory_order_release);
-        SDL_WaitThread(writer_thread, NULL);
-        writer_thread = NULL;
+        mel_thread_join(&writer_thread, NULL);
         atomic_store_explicit(&writer_running, false, memory_order_relaxed);
     }
 
@@ -757,14 +754,10 @@ static void mel__log_shutdown(void)
 
     mel__ring_free(&ring);
 
-    SDL_DestroyCondition(flush_cond);
-    SDL_DestroyMutex(flush_mutex);
-    SDL_DestroyMutex(level_lock);
-    SDL_DestroyRWLock(sink_lock);
-    flush_cond = NULL;
-    flush_mutex = NULL;
-    level_lock = NULL;
-    sink_lock = NULL;
+    mel_cond_destroy(&flush_cond);
+    mel_mutex_destroy(&flush_mutex);
+    mel_mutex_destroy(&level_lock);
+    mel_rwlock_destroy(&sink_lock);
 }
 
 #endif

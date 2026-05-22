@@ -19,9 +19,9 @@ typedef struct Mel_Counter {
     Mel_Signal signal;
 } Mel_Counter;
 
-typedef struct Mel_Mutex {
+typedef struct Mel_Fiber_Mutex {
     Mel_Signal signal;
-} Mel_Mutex;
+} Mel_Fiber_Mutex;
 
 typedef struct {
     Mel__Park_Node* park_pool;
@@ -40,7 +40,7 @@ static inline i32 mel__signal_pack(u16 counter, u16 head) {
 
 #define MEL_SIGNAL_INIT  { .state = MEL__SIGNAL_GREEN, .generation = 0 }
 #define MEL_COUNTER_INIT { .signal = MEL_SIGNAL_INIT }
-#define MEL_MUTEX_INIT   { .signal = MEL_SIGNAL_INIT }
+#define MEL_FIBER_MUTEX_INIT   { .signal = MEL_SIGNAL_INIT }
 
 void mel__signal_init_runtime(Mel__Signal_Runtime rt);
 u32  mel__signal_next_generation(void);
@@ -54,5 +54,5 @@ void mel_counter_increment(Mel_Counter* c);
 void mel_counter_decrement(Mel_Counter* c);
 void mel_counter_wait(Mel_Counter* c);
 
-void mel_mutex_enter(Mel_Mutex* m);
-void mel_mutex_exit(Mel_Mutex* m);
+void mel_fiber_mutex_enter(Mel_Fiber_Mutex* m);
+void mel_fiber_mutex_exit(Mel_Fiber_Mutex* m);
