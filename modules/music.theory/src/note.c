@@ -22,7 +22,11 @@ Mel_Note mel_note_copy(Mel_Note n)
   Mel_Note c;
   c.notation = n.notation;
   c.pitch = mel_pitch_copy(n.pitch);
+#ifdef _WIN32
   c.symbol = n.symbol ? _strdup(n.symbol) : NULL;
+#else
+  c.symbol = n.symbol ? strdup(n.symbol) : NULL;
+#endif
   c.nat_bi_index = n.nat_bi_index;
   c.acc_count = n.acc_count;
   if (n.acc_vector && n.acc_count > 0)
@@ -86,7 +90,11 @@ Mel_NoteInterval mel_note_interval_copy(Mel_NoteInterval ni)
   {
     c.acc_vector = NULL;
   }
+#ifdef _WIN32
   c.symbol = ni.symbol ? _strdup(ni.symbol) : NULL;
+#else
+  c.symbol = ni.symbol ? strdup(ni.symbol) : NULL;
+#endif
   c.number = ni.number;
   return c;
 }
