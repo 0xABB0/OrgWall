@@ -1,4 +1,4 @@
-#include "gui_internal.h"
+#include "../gui_internal.h"
 
 Mel_Gui_Handle mel_frame_create_opt(Mel_Frame_Opt o)
 {

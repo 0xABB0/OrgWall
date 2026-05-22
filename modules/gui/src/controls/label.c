@@ -1,4 +1,4 @@
-#include "gui_internal.h"
+#include "../gui_internal.h"
 
 Mel_Gui_Handle mel_label_create_opt(Mel_Gui_Handle parent, Mel_Label_Opt o)
 {

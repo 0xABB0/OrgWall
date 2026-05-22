@@ -3,8 +3,8 @@
 #include <core/types.h>
 #include <string/str8.h>
 
-#include "handle.h"
-#include "callbacks.h"
+#include <gui/handle.h>
+#include <gui/callbacks.h>
 
 typedef struct {
     str8  title;

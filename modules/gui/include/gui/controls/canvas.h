@@ -2,8 +2,8 @@
 
 #include <core/types.h>
 
-#include "handle.h"
-#include "callbacks.h"
+#include <gui/handle.h>
+#include <gui/callbacks.h>
 
 typedef struct {
     void (*on_paint)(Mel_Gui_Handle h, void* ctx, i32 w, i32 h_, void* user);

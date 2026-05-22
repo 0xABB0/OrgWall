@@ -1,4 +1,4 @@
-#include "gui_internal.h"
+#include "../gui_internal.h"
 
 Mel_Gui_Handle mel_checkbox_create_opt(Mel_Gui_Handle parent, Mel_CheckBox_Opt o)
 {

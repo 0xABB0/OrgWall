@@ -2,8 +2,8 @@
 
 #include <core/types.h>
 
-#include "handle.h"
-#include "callbacks.h"
+#include <gui/handle.h>
+#include <gui/callbacks.h>
 
 typedef struct {
     void (*on_value_changed)(Mel_Gui_Handle h, i32 value, void* user);

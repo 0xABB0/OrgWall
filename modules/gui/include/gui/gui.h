@@ -6,10 +6,10 @@
 #include <gui/init.h>
 #include <gui/widget.h>
 #include <gui/screen.h>
-#include <gui/frame.h>
-#include <gui/label.h>
-#include <gui/button.h>
-#include <gui/checkbox.h>
-#include <gui/textfield.h>
-#include <gui/slider.h>
-#include <gui/canvas.h>
+#include <gui/controls/frame.h>
+#include <gui/controls/label.h>
+#include <gui/controls/button.h>
+#include <gui/controls/checkbox.h>
+#include <gui/controls/textfield.h>
+#include <gui/controls/slider.h>
+#include <gui/controls/canvas.h>

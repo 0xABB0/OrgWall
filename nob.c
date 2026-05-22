@@ -200,16 +200,33 @@ static bool target_archive(const Target *t, const File_Paths *objects) {
 
 // --- Module discovery ---
 
+static bool is_platform_subdir(const char *name) {
+    static const char *const platform_names[] = {
+        "macos", "ios", "linux", "android", "win32", "windows", "web", "emscripten",
+        "apple", "posix", "win", "asm",
+    };
+    for (size_t i = 0; i < NOB_ARRAY_LEN(platform_names); i++) {
+        if (strcmp(name, platform_names[i]) == 0) return true;
+    }
+    return false;
+}
+
 static bool collect_dir_sources(const char *dir, File_Paths *out) {
     if (!file_exists(dir) || get_file_type(dir) != NOB_FILE_DIRECTORY) return true;
     File_Paths files = {0};
     if (!read_entire_dir(dir, &files)) return false;
     for (size_t i = 0; i < files.count; i++) {
         const char *n = files.items[i];
-        if (!source_is_buildable(n)) continue;
+        if (strcmp(n, ".") == 0 || strcmp(n, "..") == 0) continue;
         const char *full = temp_sprintf("%s/%s", dir, n);
-        if (get_file_type(full) != NOB_FILE_REGULAR) continue;
-        da_append(out, temp_strdup(full));
+        Nob_File_Type ft = get_file_type(full);
+        if (ft == NOB_FILE_DIRECTORY) {
+            if (is_platform_subdir(n)) continue;
+            if (!collect_dir_sources(full, out)) return false;
+        } else if (ft == NOB_FILE_REGULAR) {
+            if (!source_is_buildable(n)) continue;
+            da_append(out, temp_strdup(full));
+        }
     }
     return true;
 }
@@ -270,6 +287,14 @@ static bool collect_dir_sources_filtered(const char *dir, File_Paths *out, File_
     if (!read_entire_dir(dir, &files)) return false;
     for (size_t i = 0; i < files.count; i++) {
         const char *n = files.items[i];
+        if (strcmp(n, ".") == 0 || strcmp(n, "..") == 0) continue;
+        const char *full = temp_sprintf("%s/%s", dir, n);
+        Nob_File_Type ft = get_file_type(full);
+        if (ft == NOB_FILE_DIRECTORY) {
+            if (!collect_dir_sources_filtered(full, out, seen_names)) return false;
+            continue;
+        }
+        if (ft != NOB_FILE_REGULAR) continue;
         if (!source_is_buildable(n)) continue;
 
         bool shadowed = false;
@@ -277,9 +302,6 @@ static bool collect_dir_sources_filtered(const char *dir, File_Paths *out, File_
             if (strcmp(seen_names->items[k], n) == 0) { shadowed = true; break; }
         }
         if (shadowed) continue;
-
-        const char *full = temp_sprintf("%s/%s", dir, n);
-        if (get_file_type(full) != NOB_FILE_REGULAR) continue;
 
         da_append(seen_names, temp_strdup(n));
         da_append(out, temp_strdup(full));

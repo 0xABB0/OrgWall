@@ -51,7 +51,7 @@ Mel_Reactor* mel_gui__reactor(void)
 
 bool mel_gui_backend_supports(Mel_Gui_Capability cap)
 {
-#if MEL_PLATFORM_WINDOWS
+#if MEL_PLATFORM_WINDOWS || MEL_PLATFORM_OSX
     switch (cap) {
         case MEL_GUI_CAP_MULTI_WINDOW: return true;
         case MEL_GUI_CAP_NATIVE_MENUS: return true;
