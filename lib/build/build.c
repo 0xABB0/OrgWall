@@ -8,9 +8,14 @@
 // reachable through the Mel_Build_Target* / Mel_Build_Context* it is handed.
 
 #include "build.h"
+#include "sha256.h"
 
 #include <dlfcn.h>
 #include <stdint.h>
+#include <sys/stat.h>
+#include <sys/time.h>
+#include <time.h>
+#include <unistd.h>
 
 #ifndef MEL_BUILD_DIR
 #define MEL_BUILD_DIR "build"
@@ -483,6 +488,18 @@ static const char *object_for(const Mel_Build_Target *t, Mel_Platform p, Mel_Con
     return temp_strdup(sb.items);
 }
 
+// Config-independent depfile path for a source: the recorded header list is the
+// same for debug and release, so both configs share one depfile and either can
+// derive the other's content key from it.
+static const char *depfile_for_src(const Mel_Build_Target *t, Mel_Platform p, const char *src) {
+    String_Builder sb = {0};
+    sb_appendf(&sb, "%s/obj/%s/%s/deps/", MEL_BUILD_DIR, mel_platform_name(p), t->name);
+    for (const char *q = src; *q; q++) sb_append_buf(&sb, (*q == '/') ? "." : q, 1);
+    sb_append_cstr(&sb, ".d");
+    sb_append_null(&sb);
+    return temp_strdup(sb.items);
+}
+
 // =============================================================================
 // Property propagation
 // =============================================================================
@@ -567,8 +584,6 @@ static void append_resolved_flags(Cmd *cmd, Mel_Build_Context *ctx, const char *
     }
 }
 
-static const char *depfile_for(const char *obj) { return temp_sprintf("%s.d", obj); }
-
 // Parse a make-style .d file, appending listed prerequisites to out.
 static bool parse_depfile(const char *path, File_Paths *out) {
     String_Builder sb = {0};
@@ -597,11 +612,11 @@ static bool parse_depfile(const char *path, File_Paths *out) {
     return true;
 }
 
-static bool obj_needs_rebuild(const char *obj, const char *src) {
+static bool obj_needs_rebuild(const char *obj, const char *src, const char *dep) {
     if (!file_exists(obj)) return true;
     File_Paths prereqs = {0};
     da_append(&prereqs, src);
-    parse_depfile(depfile_for(obj), &prereqs); // best-effort; missing -> just src
+    parse_depfile(dep, &prereqs); // best-effort; missing -> just src
     int r = needs_rebuild(obj, prereqs.items, prereqs.count);
     return r != 0; // treat error as "rebuild"
 }
@@ -630,6 +645,176 @@ static bool mkdirs_parent(const char *path) {
     memcpy(dir, path, n);
     dir[n] = '\0';
     return mel_mkdirs(dir);
+}
+
+// =============================================================================
+// Content-addressed cache
+// =============================================================================
+//
+// An object's cache key is a SHA-256 over: the compiler identity, the exact
+// flag vector, the source bytes, and the bytes of every header the compiler
+// reported via -MD. Because config-affecting flags (-O0 vs -O2) sit inside the
+// key, debug and release objects coexist under build/cache/objects and flipping
+// config is a hardlink, not a recompile. Linked artifacts key the same way over
+// their input object bytes and link flags.
+
+#define MEL_CACHE_DIR MEL_BUILD_DIR "/cache"
+
+static bool same_inode(const char *a, const char *b) {
+    struct stat sa, sb;
+    if (stat(a, &sa) != 0 || stat(b, &sb) != 0) return false;
+    return sa.st_dev == sb.st_dev && sa.st_ino == sb.st_ino;
+}
+
+// Populate dst from src sharing storage when possible; fall back to a copy
+// across filesystem boundaries. Both ends end up as independent paths to the
+// same content.
+static bool hardlink_or_copy(const char *src, const char *dst) {
+    if (!mkdirs_parent(dst)) return false;
+    if (file_exists(dst)) {
+        if (same_inode(src, dst)) return true;
+        delete_file(dst);
+    }
+    if (link(src, dst) == 0) return true;
+    return copy_file(src, dst);
+}
+
+// Bump a cache entry's mtime so age-based gc treats it as recently used.
+static void cache_touch(const char *path) { utimes(path, NULL); }
+
+// `<cc> --version` output, cached per distinct compiler invocation name. Mixed
+// into every object key so a toolchain upgrade invalidates the cache.
+static const char *cc_identity(const char *cc) {
+    static struct { const char *cc; const char *ver; } cache[16];
+    static int count;
+    for (int i = 0; i < count; i++)
+        if (strcmp(cache[i].cc, cc) == 0) return cache[i].ver;
+
+    const char *ver = cc;
+    FILE *p = popen(temp_sprintf("%s --version 2>/dev/null", cc), "r");
+    if (p) {
+        String_Builder sb = {0};
+        char buf[512];
+        size_t n;
+        while ((n = fread(buf, 1, sizeof buf, p)) > 0) sb_append_buf(&sb, buf, n);
+        pclose(p);
+        sb_append_null(&sb);
+        ver = temp_strdup(sb.items);
+        free(sb.items);
+    }
+    if (count < (int)NOB_ARRAY_LEN(cache)) {
+        cache[count].cc = temp_strdup(cc);
+        cache[count].ver = ver;
+        count++;
+    }
+    return ver;
+}
+
+static void sha256_str(Mel_Sha256 *c, const char *s) {
+    mel_sha256_update(c, s, strlen(s) + 1); // include the NUL as a separator
+}
+
+static bool sha256_file(Mel_Sha256 *c, const char *path) {
+    String_Builder sb = {0};
+    if (!read_entire_file(path, &sb)) { free(sb.items); return false; }
+    uint64_t len = sb.count;
+    mel_sha256_update(c, &len, sizeof len); // length-prefix to avoid concatenation ambiguity
+    mel_sha256_update(c, sb.items, sb.count);
+    free(sb.items);
+    return true;
+}
+
+// Compute the object content key. `flags` carries the compiler name followed by
+// the flag vector (no -c/-o/obj/-MD/-MF). The depfile is config-independent (the
+// header list does not vary with -O), so a never-built config can still derive
+// its key from a sibling config's depfile and hit the cache. Returns false when
+// the depfile is absent or any prerequisite cannot be read (treated as a miss).
+static bool compute_obj_key(const Cmd *flags, const char *cc, const char *dep, char out_hex[MEL_SHA256_HEX_LEN]) {
+    if (!file_exists(dep)) return false;
+    File_Paths prereqs = {0};
+    if (!parse_depfile(dep, &prereqs)) return false;
+    if (prereqs.count == 0) return false;
+
+    Mel_Sha256 c;
+    mel_sha256_init(&c);
+    sha256_str(&c, cc_identity(cc));
+    for (size_t i = 0; i < flags->count; i++) sha256_str(&c, flags->items[i]);
+    for (size_t i = 0; i < prereqs.count; i++) {
+        sha256_str(&c, prereqs.items[i]);
+        if (!sha256_file(&c, prereqs.items[i])) return false;
+    }
+
+    uint8_t digest[MEL_SHA256_DIGEST_LEN];
+    mel_sha256_final(&c, digest);
+    mel_sha256_hex(digest, out_hex);
+    return true;
+}
+
+static const char *cache_obj_path(const char *hex) {
+    return temp_sprintf("%s/objects/%s.o", MEL_CACHE_DIR, hex);
+}
+
+// Restore an object from cache. Returns true (obj now in place, no compile
+// needed) on a hit. `flags` is [cc, flag...].
+static bool cache_obj_restore(const Cmd *flags, const char *cc, const char *obj, const char *dep) {
+    char hex[MEL_SHA256_HEX_LEN];
+    if (!compute_obj_key(flags, cc, dep, hex)) return false;
+    const char *cached = cache_obj_path(hex);
+    if (!file_exists(cached)) return false;
+    if (!hardlink_or_copy(cached, obj)) return false;
+    cache_touch(cached);
+    return true;
+}
+
+// Publish a freshly compiled (or already up-to-date) object into the cache.
+static void cache_obj_store(const Cmd *flags, const char *cc, const char *obj, const char *dep) {
+    if (!file_exists(obj)) return;
+    char hex[MEL_SHA256_HEX_LEN];
+    if (!compute_obj_key(flags, cc, dep, hex)) return;
+    const char *cached = cache_obj_path(hex);
+    if (!file_exists(cached)) hardlink_or_copy(obj, cached);
+    cache_touch(cached);
+}
+
+// --- Linked/packaged artifact caching ---
+//
+// Key = identity args (linker + flags) plus the bytes of every input file.
+
+static const char *cache_artifact_path(const char *hex) {
+    return temp_sprintf("%s/artifacts/%s", MEL_CACHE_DIR, hex);
+}
+
+static bool compute_artifact_key(const Cmd *args, const File_Paths *inputs, char out_hex[MEL_SHA256_HEX_LEN]) {
+    Mel_Sha256 c;
+    mel_sha256_init(&c);
+    for (size_t i = 0; i < args->count; i++) sha256_str(&c, args->items[i]);
+    for (size_t i = 0; i < inputs->count; i++) {
+        sha256_str(&c, inputs->items[i]);
+        if (!sha256_file(&c, inputs->items[i])) return false;
+    }
+    uint8_t digest[MEL_SHA256_DIGEST_LEN];
+    mel_sha256_final(&c, digest);
+    mel_sha256_hex(digest, out_hex);
+    return true;
+}
+
+static bool cache_artifact_restore(const Cmd *args, const File_Paths *inputs, const char *artifact) {
+    char hex[MEL_SHA256_HEX_LEN];
+    if (!compute_artifact_key(args, inputs, hex)) return false;
+    const char *cached = cache_artifact_path(hex);
+    if (!file_exists(cached)) return false;
+    if (!hardlink_or_copy(cached, artifact)) return false;
+    cache_touch(cached);
+    return true;
+}
+
+static void cache_artifact_store(const Cmd *args, const File_Paths *inputs, const char *artifact) {
+    if (!file_exists(artifact)) return;
+    char hex[MEL_SHA256_HEX_LEN];
+    if (!compute_artifact_key(args, inputs, hex)) return;
+    const char *cached = cache_artifact_path(hex);
+    if (!file_exists(cached)) hardlink_or_copy(artifact, cached);
+    cache_touch(cached);
 }
 
 // Read a template, replacing {{KEY}} tokens with the target's config values,
@@ -713,6 +898,40 @@ static bool emit_compile_commands(void) {
     return ok;
 }
 
+// Compile one translation unit through the cache. `flags` is [cc, flag...] with
+// no -c/-o/-MD/-MF. On a cache hit the object is hardlinked into place and
+// *spawned stays false. On a miss the compile is launched asynchronously into
+// *procs (with -MD so the next run has a depfile); the caller publishes it to
+// the cache after the batch completes. Setting emit_ccmds records the clean
+// command (no -MD/-MF) for compile_commands.json.
+static bool compile_tu(const char *cc, Cmd flags, const char *src, const char *obj, const char *dep,
+                       bool emit_ccmds, const char *cwd, Procs *procs, size_t parallelism,
+                       bool *spawned) {
+    *spawned = false;
+
+    if (emit_ccmds) {
+        Cmd render = {0};
+        for (size_t i = 0; i < flags.count; i++) cmd_append(&render, flags.items[i]);
+        cmd_append(&render, "-c", src, "-o", obj);
+        ccmds_add(cwd, src, render);
+        free(render.items);
+    }
+
+    if (cache_obj_restore(&flags, cc, obj, dep)) return true;
+
+    // Miss: rebuild only when the object is actually stale; otherwise the
+    // existing object is sound and just needs publishing to the cache.
+    if (file_exists(obj) && !obj_needs_rebuild(obj, src, dep)) return true;
+
+    if (!mkdirs_parent(dep)) return false;
+    Cmd cmd = {0};
+    for (size_t i = 0; i < flags.count; i++) cmd_append(&cmd, flags.items[i]);
+    cmd_append(&cmd, "-c", src, "-o", obj, "-MD", "-MF", dep);
+    Proc p = cmd_run_async_and_reset(&cmd);
+    *spawned = true;
+    return procs_append_with_flush(procs, p, parallelism);
+}
+
 static bool compile_sources(Mel_Build_Context *ctx, const char *cc) {
     if (!mel_mkdirs(target_obj_dir(ctx->target, ctx->platform, ctx->config))) return false;
 
@@ -725,21 +944,33 @@ static bool compile_sources(Mel_Build_Context *ctx, const char *cc) {
     for (size_t i = 0; i < ctx->sources.count; i++) {
         const char *src = ctx->sources.items[i];
         const char *obj = object_for(ctx->target, ctx->platform, ctx->config, src);
+        const char *dep = depfile_for_src(ctx->target, ctx->platform, src);
         da_append(&ctx->objects, obj);
 
-        Cmd cmd = {0};
-        cmd_append(&cmd, cc);
-        append_resolved_flags(&cmd, ctx, src);
-        cmd_append(&cmd, "-c", src, "-o", obj);
-        ccmds_add(cwd, src, cmd); // render before -MD/-MF noise so editors stay clean
+        Cmd flags = {0};
+        cmd_append(&flags, cc);
+        append_resolved_flags(&flags, ctx, src);
 
-        if (!obj_needs_rebuild(obj, src)) { free(cmd.items); continue; }
-
-        cmd_append(&cmd, "-MD", "-MF", depfile_for(obj));
-        Proc p = cmd_run_async_and_reset(&cmd);
-        if (!procs_append_with_flush(&procs, p, parallelism)) ok = false;
+        bool spawned = false;
+        if (!compile_tu(cc, flags, src, obj, dep, true, cwd, &procs, parallelism, &spawned)) ok = false;
+        free(flags.items);
     }
     if (!procs_wait_and_reset(&procs)) ok = false;
+    if (!ok) return false;
+
+    // Publish every object to the cache from its now-current depfile. Cheap when
+    // already present (a touch); the store of freshly compiled objects is what
+    // makes a later config flip a hardlink instead of a recompile.
+    for (size_t i = 0; i < ctx->sources.count; i++) {
+        const char *src = ctx->sources.items[i];
+        const char *obj = ctx->objects.items[i];
+        const char *dep = depfile_for_src(ctx->target, ctx->platform, src);
+        Cmd flags = {0};
+        cmd_append(&flags, cc);
+        append_resolved_flags(&flags, ctx, src);
+        cache_obj_store(&flags, cc, obj, dep);
+        free(flags.items);
+    }
     return ok;
 }
 
@@ -860,11 +1091,22 @@ static bool default_compile(Mel_Build_Context *ctx) {
 }
 
 static bool archive_objects(const char *lib, const File_Paths *objects) {
+    Cmd ident = {0};
+    cmd_append(&ident, "ar", "rcs");
+    if (cache_artifact_restore(&ident, objects, lib)) { free(ident.items); return true; }
+    free(ident.items);
+
     if (file_exists(lib)) delete_file(lib);
     Cmd cmd = {0};
     cmd_append(&cmd, "ar", "rcs", lib);
     for (size_t i = 0; i < objects->count; i++) cmd_append(&cmd, objects->items[i]);
-    return cmd_run_sync_and_reset(&cmd);
+    if (!cmd_run_sync_and_reset(&cmd)) return false;
+
+    Cmd ident2 = {0};
+    cmd_append(&ident2, "ar", "rcs");
+    cache_artifact_store(&ident2, objects, lib);
+    free(ident2.items);
+    return true;
 }
 
 static bool android_build(Mel_Build_Context *ctx);
@@ -903,6 +1145,21 @@ static bool default_link(Mel_Build_Context *ctx) {
             }
         }
 
+        File_Paths link_inputs = {0};
+        for (size_t i = 0; i < ctx->objects.count; i++) da_append(&link_inputs, ctx->objects.items[i]);
+        if (res_obj) da_append(&link_inputs, res_obj);
+
+        Cmd ident = {0};
+        cmd_append(&ident, "clang");
+        for (size_t i = 0; i < ctx->resolved.link_flags.count; i++)
+            cmd_append(&ident, ctx->resolved.link_flags.items[i]);
+        if (cache_artifact_restore(&ident, &link_inputs, out_bin)) {
+            free(ident.items);
+            nob_log(NOB_INFO, "linked %s (cached)", out_bin);
+            return true;
+        }
+        free(ident.items);
+
         Cmd cmd = {0};
         cmd_append(&cmd, "clang");
         for (size_t i = 0; i < ctx->objects.count; i++) cmd_append(&cmd, ctx->objects.items[i]);
@@ -912,6 +1169,13 @@ static bool default_link(Mel_Build_Context *ctx) {
         cmd_append(&cmd, "-o", out_bin);
         if (!cmd_run_sync_and_reset(&cmd)) return false;
         nob_log(NOB_INFO, "linked %s", out_bin);
+
+        Cmd ident2 = {0};
+        cmd_append(&ident2, "clang");
+        for (size_t i = 0; i < ctx->resolved.link_flags.count; i++)
+            cmd_append(&ident2, ctx->resolved.link_flags.items[i]);
+        cache_artifact_store(&ident2, &link_inputs, out_bin);
+        free(ident2.items);
         return true;
     }
 
@@ -1201,6 +1465,64 @@ static void append_android_includes(Cmd *cmd, Mel_Build_Target *melody,
         cmd_append(cmd, "-isystem", temp_sprintf("%s/include", tp_prefix_named(MEL_PLATFORM_ANDROID, abi, tp[i]->name)));
 }
 
+static const char *android_obj_path(const char *objdir, const char *src) {
+    String_Builder mangle = {0};
+    for (const char *q = src; *q; q++) sb_append_buf(&mangle, (*q == '/') ? "." : q, 1);
+    sb_append_null(&mangle);
+    const char *obj = temp_sprintf("%s/%s.o", objdir, mangle.items);
+    free(mangle.items);
+    return obj;
+}
+
+static void android_tu_flags(Cmd *flags, const Cross *cross, Mel_Build_Context *ctx,
+                             Mel_Build_Target *melody, Mel_Build_Target **tp, size_t tp_count,
+                             const char *abi, const char *src) {
+    cmd_append(flags, cross->cc);
+    for (size_t k = 0; k < NOB_ARRAY_LEN(k_base_cflags); k++) cmd_append(flags, k_base_cflags[k]);
+    cmd_append(flags, ctx->config == MEL_CONFIG_RELEASE ? "-O2" : "-O0", "-g", "-fPIC", "-DANDROID");
+    if (source_is_objc(src)) cmd_append(flags, "-fobjc-arc");
+    append_android_includes(flags, melody, tp, tp_count, abi);
+}
+
+// Compile a source set with the NDK toolchain, appending the produced objects to
+// out_objs. Shares the content-addressed cache with the host compile path, so a
+// second Android build skips unchanged translation units.
+static bool android_compile_set(const Cross *cross, Mel_Build_Context *ctx,
+                                Mel_Build_Target *melody, Mel_Build_Target **tp, size_t tp_count,
+                                const char *abi, const char *objdir,
+                                const File_Paths *srcs, File_Paths *out_objs) {
+    size_t par = nob_nprocs(); if (par < 1) par = 1;
+    const char *cwd = get_current_dir_temp();
+    size_t base_n = out_objs->count;
+
+    Procs procs = {0};
+    for (size_t i = 0; i < srcs->count; i++) {
+        const char *src = srcs->items[i];
+        const char *obj = android_obj_path(objdir, src);
+        da_append(out_objs, obj);
+
+        Cmd flags = {0};
+        android_tu_flags(&flags, cross, ctx, melody, tp, tp_count, abi, src);
+        bool spawned = false;
+        if (!compile_tu(cross->cc, flags, src, obj, temp_sprintf("%s.d", obj), false, cwd, &procs, par, &spawned)) {
+            free(flags.items);
+            return false;
+        }
+        free(flags.items);
+    }
+    if (!procs_wait_and_reset(&procs)) return false;
+
+    for (size_t i = 0; i < srcs->count; i++) {
+        const char *src = srcs->items[i];
+        const char *obj = out_objs->items[base_n + i];
+        Cmd flags = {0};
+        android_tu_flags(&flags, cross, ctx, melody, tp, tp_count, abi, src);
+        cache_obj_store(&flags, cross->cc, obj, temp_sprintf("%s.d", obj));
+        free(flags.items);
+    }
+    return true;
+}
+
 static bool android_build(Mel_Build_Context *ctx) {
     Mel_Build_Target *app = ctx->target;
     const char *sdk = android_sdk_dir(app->name);
@@ -1237,36 +1559,11 @@ static bool android_build(Mel_Build_Context *ctx) {
         const char *objdir = temp_sprintf("%s/obj/%s", meldir, app->name);
         if (!mel_mkdirs(objdir)) return false;
 
-        // Compile a source set with the NDK toolchain, returning the objects.
-        size_t par = nob_nprocs(); if (par < 1) par = 1;
-        #define ANDROID_COMPILE(SRCS, OUT)                                                       \
-            do {                                                                                 \
-                Procs procs = {0};                                                               \
-                for (size_t i = 0; i < (SRCS).count; i++) {                                       \
-                    const char *src = (SRCS).items[i];                                           \
-                    String_Builder mangle = {0};                                                 \
-                    for (const char *q = src; *q; q++) sb_append_buf(&mangle, (*q=='/')?".":q,1); \
-                    sb_append_null(&mangle);                                                      \
-                    const char *obj = temp_sprintf("%s/%s.o", objdir, mangle.items);             \
-                    da_append(&(OUT), obj);                                                       \
-                    Cmd cmd = {0};                                                               \
-                    cmd_append(&cmd, cross.cc);                                                  \
-                    for (size_t k = 0; k < NOB_ARRAY_LEN(k_base_cflags); k++) cmd_append(&cmd, k_base_cflags[k]); \
-                    cmd_append(&cmd, ctx->config == MEL_CONFIG_RELEASE ? "-O2" : "-O0", "-g", "-fPIC", "-DANDROID"); \
-                    if (source_is_objc(src)) cmd_append(&cmd, "-fobjc-arc");                      \
-                    append_android_includes(&cmd, melody, tp, tp_count, abi->abi);                \
-                    cmd_append(&cmd, "-c", src, "-o", obj);                                       \
-                    Proc p = cmd_run_async_and_reset(&cmd);                                       \
-                    if (!procs_append_with_flush(&procs, p, par)) return false;                   \
-                }                                                                                \
-                if (!procs_wait_and_reset(&procs)) return false;                                  \
-            } while (0)
-
         // Library sources go into a per-ABI archive; linking the .so against
         // -lmelody pulls only the members the app and bridges actually need, so
         // unreferenced objects (and their third-party deps) are dropped.
         File_Paths lib_objs = {0};
-        ANDROID_COMPILE(lib_srcs, lib_objs);
+        if (!android_compile_set(&cross, ctx, melody, tp, tp_count, abi->abi, objdir, &lib_srcs, &lib_objs)) return false;
         const char *melody_a = temp_sprintf("%s/libmelody.a", meldir);
         if (file_exists(melody_a)) delete_file(melody_a);
         Cmd ar = {0};
@@ -1275,9 +1572,8 @@ static bool android_build(Mel_Build_Context *ctx) {
         if (!cmd_run_sync_and_reset(&ar)) return false;
 
         File_Paths link_objs = {0};
-        ANDROID_COMPILE(bridges, link_objs);
-        ANDROID_COMPILE(app_srcs, link_objs);
-        #undef ANDROID_COMPILE
+        if (!android_compile_set(&cross, ctx, melody, tp, tp_count, abi->abi, objdir, &bridges, &link_objs)) return false;
+        if (!android_compile_set(&cross, ctx, melody, tp, tp_count, abi->abi, objdir, &app_srcs, &link_objs)) return false;
 
         const char *abidir = temp_sprintf("%s/%s", jnilibs, abi->abi);
         if (!mel_mkdirs(abidir)) return false;
@@ -1516,17 +1812,72 @@ static bool launch_app(Mel_Build_Target *t, Mel_Platform p, Mel_Config c) {
     return cmd_run_sync_and_reset(&cmd);
 }
 
+// Remove cache entries whose last-access (mtime, bumped on every hit) is older
+// than max_age_days. A live build keeps everything it touches fresh, so anything
+// stale is unreferenced by the current build set.
+static bool cache_gc_dir(const char *dir, time_t cutoff, size_t *removed, size_t *kept) {
+    if (get_file_type(dir) != NOB_FILE_DIRECTORY) return true;
+    File_Paths entries = {0};
+    if (!read_entire_dir(dir, &entries)) return false;
+    for (size_t i = 0; i < entries.count; i++) {
+        const char *n = entries.items[i];
+        if (strcmp(n, ".") == 0 || strcmp(n, "..") == 0) continue;
+        const char *full = temp_sprintf("%s/%s", dir, n);
+        struct stat st;
+        if (stat(full, &st) != 0) continue;
+        if (!S_ISREG(st.st_mode)) continue;
+        if (st.st_mtime < cutoff) {
+            if (delete_file(full)) (*removed)++;
+        } else {
+            (*kept)++;
+        }
+    }
+    return true;
+}
+
+static int cache_gc(int max_age_days) {
+    time_t cutoff = time(NULL) - (time_t)max_age_days * 24 * 60 * 60;
+    size_t removed = 0, kept = 0;
+    bool ok = true;
+    ok &= cache_gc_dir(MEL_CACHE_DIR "/objects", cutoff, &removed, &kept);
+    ok &= cache_gc_dir(MEL_CACHE_DIR "/artifacts", cutoff, &removed, &kept);
+    nob_log(NOB_INFO, "cache gc: removed %zu, kept %zu (threshold %d days)", removed, kept, max_age_days);
+    return ok ? 0 : 1;
+}
+
 int mel_build_main(int argc, char **argv) {
     const char *command = argc >= 2 ? argv[1] : "build";
-    const char *target_name = argc >= 3 ? argv[2] : NULL;
-    const char *platform_name = argc >= 4 ? argv[3] : NULL;
+
+    // --release / --debug select the build configuration anywhere on the line;
+    // the remaining positionals are target then platform.
+    Mel_Config config = MEL_CONFIG_DEBUG;
+    const char *target_name = NULL;
+    const char *platform_name = NULL;
+    for (int i = 2; i < argc; i++) {
+        const char *a = argv[i];
+        if (strcmp(a, "--release") == 0)      { config = MEL_CONFIG_RELEASE; continue; }
+        if (strcmp(a, "--debug") == 0)        { config = MEL_CONFIG_DEBUG;   continue; }
+        if (!target_name)        target_name = a;
+        else if (!platform_name) platform_name = a;
+    }
+
+    // Cache maintenance needs no target discovery: ./nob cache gc [days].
+    if (strcmp(command, "cache") == 0) {
+        const char *sub = argc >= 3 ? argv[2] : NULL;
+        if (!sub || strcmp(sub, "gc") != 0) {
+            nob_log(NOB_ERROR, "usage: nob cache gc [max_age_days]");
+            return 1;
+        }
+        int days = argc >= 4 ? atoi(argv[3]) : 14;
+        if (days <= 0) days = 14;
+        return cache_gc(days);
+    }
 
     Mel_Platform platform = mel_host_platform();
     if (platform_name && !mel_platform_from_name(platform_name, &platform)) {
         nob_log(NOB_ERROR, "unknown platform '%s'", platform_name);
         return 1;
     }
-    Mel_Config config = MEL_CONFIG_DEBUG;
 
     if (!discover_targets()) return 1;
 
