@@ -1601,13 +1601,18 @@ static bool android_build(Mel_Build_Context *ctx) {
 
 static bool package_android(Mel_Build_Context *ctx) {
     const char *proj = temp_sprintf("%s/%s/android", MEL_BUILD_DIR, ctx->target->name);
+    const char *task = ctx->config == MEL_CONFIG_RELEASE ? ":app:assembleRelease" : ":app:assembleDebug";
     Cmd cmd = {0};
-    cmd_append(&cmd, "gradle", "-p", proj, ":app:assembleDebug");
+    cmd_append(&cmd, "gradle", "-p", proj, task);
     return cmd_run_sync_and_reset(&cmd);
 }
 
-static const char *android_apk_path(const char *app_name) {
-    return temp_sprintf("%s/%s/android/app/build/outputs/apk/debug/app-debug.apk", MEL_BUILD_DIR, app_name);
+// Release builds have no signingConfig (signing is out of scope), so Gradle
+// emits the unsigned variant — which adb refuses to install.
+static const char *android_apk_path(const char *app_name, Mel_Config c) {
+    const char *base = temp_sprintf("%s/%s/android/app/build/outputs/apk", MEL_BUILD_DIR, app_name);
+    if (c == MEL_CONFIG_RELEASE) return temp_sprintf("%s/release/app-release-unsigned.apk", base);
+    return temp_sprintf("%s/debug/app-debug.apk", base);
 }
 
 static const char *adb_path(const char *app_name) {
@@ -1615,9 +1620,13 @@ static const char *adb_path(const char *app_name) {
     return sdk ? temp_sprintf("%s/platform-tools/adb", sdk) : "adb";
 }
 
-static bool android_install(const char *app_name) {
-    const char *apk = android_apk_path(app_name);
+static bool android_install(const char *app_name, Mel_Config c) {
+    const char *apk = android_apk_path(app_name, c);
     if (!file_exists(apk)) { nob_log(NOB_ERROR, "APK not found at %s", apk); return false; }
+    if (c == MEL_CONFIG_RELEASE) {
+        nob_log(NOB_ERROR, "release APK %s is unsigned; adb cannot install it (add a signingConfig)", apk);
+        return false;
+    }
     Cmd cmd = {0};
     cmd_append(&cmd, adb_path(app_name), "install", "-r", apk);
     return cmd_run_sync_and_reset(&cmd);
@@ -1915,7 +1924,7 @@ int mel_build_main(int argc, char **argv) {
             return 1;
         }
         if (platform == MEL_PLATFORM_ANDROID) {
-            if (!android_install(root->name)) return 1;
+            if (!android_install(root->name, config)) return 1;
             if (!android_launch(root)) return 1;
             return (do_debug ? android_logcat(root->name) : true) ? 0 : 1;
         }
