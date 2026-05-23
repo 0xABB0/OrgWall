@@ -1443,15 +1443,19 @@ static bool load_target(const char *dir) {
     sb_append_null(&slug);
     const char *so = temp_sprintf("%s/build-modules/%s.%s", MEL_BUILD_DIR, slug.items, module_so_ext());
 
+    Cmd cmd = {0};
+    cmd_append(&cmd, "clang", "-shared", "-fPIC", "-undefined", "dynamic_lookup");
+    cmd_append(&cmd, "-Ilib/build");
+    cmd_append(&cmd, src, "-o", so);
+    ccmds_add(get_current_dir_temp(), src, cmd);
+
     if (needs_rebuild1(so, src) != 0) {
-        Cmd cmd = {0};
-        cmd_append(&cmd, "clang", "-shared", "-fPIC", "-undefined", "dynamic_lookup");
-        cmd_append(&cmd, "-Ilib/build");
-        cmd_append(&cmd, src, "-o", so);
         if (!cmd_run_sync_and_reset(&cmd)) {
             nob_log(NOB_ERROR, "failed to compile build module %s", src);
             return false;
         }
+    } else {
+        free(cmd.items);
     }
 
     void *handle = dlopen(so, RTLD_NOW | RTLD_LOCAL);

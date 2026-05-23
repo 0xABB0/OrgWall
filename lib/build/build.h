@@ -1,6 +1,12 @@
 #ifndef MEL_BUILD_H
 #define MEL_BUILD_H
 
+#if defined(_CLANGD) && !defined(NOB_H_)
+#define NOB_STRIP_PREFIX
+#include "../../nob.h"
+#include <string.h>
+#endif
+
 #include <stdbool.h>
 #include <stddef.h>
 
