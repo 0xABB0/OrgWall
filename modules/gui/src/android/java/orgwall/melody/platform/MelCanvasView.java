@@ -2,6 +2,7 @@ package orgwall.melody.platform;
 
 import android.content.Context;
 import android.graphics.Canvas;
+import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
 
@@ -14,6 +15,7 @@ public final class MelCanvasView extends View {
         this.handle = handle;
         setFocusable(true);
         setFocusableInTouchMode(true);
+        setOnFocusChangeListener((view, hasFocus) -> MelGui.nativeFireFocus(handle, hasFocus));
     }
 
     @Override
@@ -22,7 +24,7 @@ public final class MelCanvasView extends View {
         float d = MelGui.density();
         int save = canvas.save();
         canvas.scale(d, d);
-        MelGui.nativeFireCanvasPaint(handle, canvas,
+        nativePaint(handle, canvas,
                 Math.round(getWidth()  / d),
                 Math.round(getHeight() / d));
         canvas.restoreToCount(save);
@@ -36,17 +38,33 @@ public final class MelCanvasView extends View {
         switch (ev.getActionMasked()) {
             case MotionEvent.ACTION_DOWN:
                 requestFocus();
-                MelGui.nativeFirePointer(handle, 0, x, y);
+                nativePointer(handle, 0, x, y);
                 return true;
             case MotionEvent.ACTION_MOVE:
-                MelGui.nativeFirePointer(handle, 1, x, y);
+                nativePointer(handle, 1, x, y);
                 return true;
             case MotionEvent.ACTION_UP:
             case MotionEvent.ACTION_CANCEL:
-                MelGui.nativeFirePointer(handle, 2, x, y);
+                nativePointer(handle, 2, x, y);
                 return true;
             default:
                 return super.onTouchEvent(ev);
         }
     }
+
+    @Override
+    public boolean onKeyDown(int keyCode, KeyEvent event) {
+        nativeKey(handle, keyCode, true);
+        return super.onKeyDown(keyCode, event);
+    }
+
+    @Override
+    public boolean onKeyUp(int keyCode, KeyEvent event) {
+        nativeKey(handle, keyCode, false);
+        return super.onKeyUp(keyCode, event);
+    }
+
+    public static native void nativePaint  (long handle, Canvas canvas, int w, int h);
+    public static native void nativePointer(long handle, int kind, int x, int y);
+    public static native void nativeKey    (long handle, int key, boolean down);
 }

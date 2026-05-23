@@ -6,13 +6,6 @@
 
 typedef struct {
     jclass    cls;
-    jmethodID createFrame;
-    jmethodID createLabel;
-    jmethodID createButton;
-    jmethodID createCheckBox;
-    jmethodID createTextField;
-    jmethodID createSlider;
-    jmethodID createCanvas;
     jmethodID destroyView;
     jmethodID setText;
     jmethodID getText;
@@ -21,10 +14,8 @@ typedef struct {
     jmethodID setEnabled;
     jmethodID setFocus;
     jmethodID invalidate;
-    jmethodID sliderValue;
-    jmethodID setSliderValue;
-    jmethodID checkBoxChecked;
     jmethodID presentFrame;
+    jmethodID setActivityTitle;
 } Mel_Gui_Android;
 
 Mel_Gui_Android* mel_gui__android(void);
@@ -32,3 +23,11 @@ JNIEnv*          mel_gui__android_env(void);
 jstring          mel_gui__android_jstring(JNIEnv* env, str8 s);
 jlong            mel_gui__android_pack(Mel_Gui_Handle h);
 Mel_Gui_Handle   mel_gui__android_unpack(jlong p);
+
+bool mel_gui__android_frame_register_jni    (JNIEnv* env);
+bool mel_gui__android_label_register_jni    (JNIEnv* env);
+bool mel_gui__android_button_register_jni   (JNIEnv* env);
+bool mel_gui__android_checkbox_register_jni (JNIEnv* env);
+bool mel_gui__android_textfield_register_jni(JNIEnv* env);
+bool mel_gui__android_slider_register_jni   (JNIEnv* env);
+bool mel_gui__android_canvas_register_jni   (JNIEnv* env);

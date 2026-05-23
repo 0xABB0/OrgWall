@@ -96,45 +96,142 @@ Each is specified in =readme.org= and must be delivered first-class.
    JNI plumbing was consolidated: =JNI_OnLoad= moved to a new
    =modules/platform/src/android/jni.bridge.c=; midi now uses
    =mel_platform_android_env()=.
-   Layout integration: =MelGui.createFrame= installs an
-   =OnLayoutChangeListener= that fires =nativeFireResize(handle, w, h)= on
-   size change (first layout pass, rotation), which calls
-   =mel_gui__fire_resize= and re-runs the column layout. DPI is handled at
-   the Java boundary: =MelGui.start= reads =DisplayMetrics.density=,
-   =attach/setBounds= multiply incoming coords by density, =nativeFireResize=
-   divides outgoing coords by density, =MelCanvasView= scales its Canvas
-   and divides touch x/y. Net effect: every coordinate the C side sees is
-   in density-independent units (dp on Android, matching macOS points).
+   Layout integration: =MelFrame.create= installs an =OnLayoutChangeListener=
+   that fires =nativeFireResize(handle, w, h)= on size change (first layout
+   pass, rotation), which calls =mel_gui__fire_resize= and re-runs the column
+   layout. DPI is handled at the Java boundary: =MelGui.start= reads
+   =DisplayMetrics.density=, =attach/setBounds= multiply incoming coords by
+   density, =nativeFireResize= divides outgoing coords by density,
+   =MelCanvasView= scales its Canvas and divides touch x/y. Net effect:
+   every coordinate the C side sees is in density-independent units (dp on
+   Android, matching macOS points).
+   Architecture cleanup (2026-05-23 audit):
+   - Java side split per-widget: =MelFrame=, =MelLabel=, =MelButton=,
+     =MelCheckBox=, =MelTextField=, =MelSlider=, =MelCanvas= +
+     =MelCanvasView=, =MelScreenFragment=, all under one slim =MelGui=
+     core (start/stop, density, shared ops, presentFrame). Mirrors the
+     per-widget structure of =modules/gui/src/macos/= and
+     =modules/gui/src/android/=.
+   - JNI registration is per-widget: each =modules/gui/src/android/<widget>.c=
+     owns its =jclass= + =jmethodID= statics and exposes a register fn that
+     =mel_gui__android_register= calls. =Mel_Gui_Android= struct shrank to
+     shared cross-widget operations only. Adding a widget is now: new
+     =<widget>.c= + =Mel<Widget>.java= + one line in
+     =mel_gui__android_register=.
+   - =w->native= now holds a =NewGlobalRef= jobject pointing at the Java
+     View (mirroring macOS's =CFBridgingRetain= pattern). The old
+     =(void*)1= sentinel is gone; =backend_destroy= releases the global ref.
+   - Frame title moved from a Java =titles= =HashMap= to a fixed-size buffer
+     in =Mel_Gui_Frame_Impl=. Java has no titles state; the C side is the
+     source of truth and calls =setActivityTitle= when the frame is the
+     visible one. =presentFrame= also takes the title as a parameter.
+   - Navigation uses =FragmentManager= rather than a hand-rolled =ArrayDeque=:
+     each Screen wraps in a =MelScreenFragment= and =mel_app_present=
+     becomes =fm.beginTransaction().replace(...).addToBackStack(null).commit()=.
+     =MelodyActivity= registers an =OnBackInvokedCallback= (Tiramisu+) and
+     keeps =onBackPressed= for pre-33; both call =popBackStack= when count
+     > 1 else =finish()=. The custom in-Activity navStack is gone.
+   - Android =backend_set_focus= on a toplevel is now a no-op (was double-
+     navigating because both =set_visible= and =set_focus= were calling
+     =presentFrame=, pushing the same frame twice). Toplevel focus is
+     implicit in being the currently-presented frame; multi-frame
+     navigation goes through =set_visible= only.
    Open items before this can move to DONE:
+   - Drop the deprecated framework =Fragment= navigation. =MelScreenFragment=,
+     =MelGui.presentFrame= and =MelodyActivity.handleBack= use
+     =android.app.Fragment= / =FragmentManager=, deprecated since API 28 and
+     muted with =@SuppressWarnings("deprecation")=. The build pulls zero
+     AndroidX (only =com.android.application=, no =dependencies {}= block), so
+     the AndroidX =fragment= replacement is off the table by design. Fragments
+     here are only a back-stack of top-level frames, and the backend already
+     tracks every View by handle and owns the back gesture
+     (=OnBackInvokedCallback= on Tiramisu+, =onBackPressed= pre-33). Replace
+     them with a backend-owned stack of frame handles that swaps the
+     container's single child View on present/back. Deletes =MelScreenFragment=
+     and the =@SuppressWarnings=, removes the =FragmentManager= back-stack
+     count logic from =handleBack=, and keeps the no-AndroidX stance. Same pass
+     should retire the deprecated =WindowInsets.getSystemWindowInset*= /
+     =consumeSystemWindowInsets= in =MelodyActivity.onCreate= (deprecated API
+     30; matters under =targetSdk 36= edge-to-edge) for
+     =getInsets(WindowInsets.Type.systemBars())= + =WindowInsets.CONSUMED=.
+   - Per-control direct integration, no generic indirection (the core rework).
+     The current shape forces every control through a fixed Java→native chain
+     and a generic =MelGui= denominator: e.g. a click is
+     =OnClickListener= → =Java_..._MelButton_nativeClicked= →
+     =mel_gui__fire_click= → the user callback, wired unconditionally at
+     create time whether or not the app set =on_click=. Consequences: the
+     control cannot be piloted from C (everything is decided in Java), and the
+     design groups code by what controls share rather than by the platform
+     capability each one actually exposes — which is the opposite of how the
+     native widgets want to be driven. Target: each control integrates as
+     directly as possible with its =android.view.View=; a listener is
+     installed only when the corresponding callback slot is set (and removed
+     when cleared), and the native entry point dispatches straight to the
+     handler rather than through the generic =fire_*= layer. This is the same
+     smell in =modules/gui/src/macos/= and =modules/gui/src/win32/=; Android
+     first, the other two follow the pattern once it settles. Note this
+     subsumes the redundant-=w->native=-ref item below.
+   - Redundant =w->native= global ref. Every view is pinned twice: by the
+     =NewGlobalRef= stored in =w->native= and by the Java =MelGui.views=
+     =HashMap=. The C side never dereferences =w->native= as a =jobject= — it
+     is only a non-null "created" flag plus a =DeleteGlobalRef= target, while
+     all ops route handle → map lookup in Java. The map already owns lifetime,
+     so the global ref is dead weight. Fold this into the direct-integration
+     rework above (a control that is piloted from C may want the ref back as a
+     real cached =jobject=, so settle it there rather than removing it blind).
+   - Modified-UTF-8 vs standard UTF-8 at the JNI text boundary.
+     =mel_gui__android_jstring= uses =NewStringUTF= and the inbound paths
+     (=backend_get_text=, =MelTextField.nativeTextChanged=) use
+     =GetStringUTFChars=; both speak JNI *modified* UTF-8, not standard UTF-8.
+     This is correct for ASCII and the whole BMP, and only mis-encodes
+     supplementary characters (emoji, U+10000+, which become surrogate-pair
+     6-byte sequences instead of 4). Fix all three paths together — outbound
+     via =NewByteArray= + =SetByteArrayRegion= + =new String(bytes, "UTF-8")=,
+     inbound via =String.getBytes("UTF-8")= → =byte[]= — caching the
+     =java/lang/String= class, the =([BLjava/lang/String;)V= ctor and the
+     =getBytes(Ljava/lang/String;)[B= method id once. Half-fixing one
+     direction is incoherent, so it stayed deferred.
    - Drain UI events / wake from C: the reactor's android backend uses its
      own timerfd to schedule ticks; views are manipulated synchronously from
      C on the UI thread, which is correct, but =mel_reactor_post= from a
      non-UI thread should wake the looper — verify =ALooper_wake= path.
-   - Real Activity back stack for =mel_app_present= at the OS level (the
-     readme's mobile scene mapping). The Java =MelGui.navStack= ships a
-     functional in-Activity back stack (Back from a non-root screen pops
-     to the previous, Back from root finishes the Activity), but each
-     Screen is a sibling =FrameLayout= inside one Activity — not a real
-     Android Activity push. Multi-Activity / Fragment-based navigation is
-     a future refinement, gated on the mobile class tier.
    - =keyDown:= forwarding for =EditText= — Android consumes most key events
      in the IME, so on_key_* on a textfield won't fire on Android today.
    - Per-backend escape hatches: =<gui/android/*.h>= class-tier headers
      exposing raw =android.view.View= access beyond the core API.
+   - =savedInstanceState= / =Bundle= state preservation. Today if the OS
+     kills the process under memory pressure, all C-side state is lost
+     and the app restarts at the root screen. Real Android apps serialize
+     the current screen + the user-visible bits of session state into a
+     Bundle in =onSaveInstanceState= and restore in =onCreate=. Requires
+     Melody apps to declare what state is screen-saveable.
+   - Activity-result / intent system. No way today to launch a system
+     activity (camera, share, file picker) and receive a result. The
+     readme calls multi-window / native-menus first-class but doesn't
+     yet name intent dispatch; the mobile class tier should.
+   - Custom-Android-View extension story. An app that wants to ship a
+     widget Android has no native equivalent for (e.g. a music keyboard)
+     must today add code to =modules/gui/src/android/=. There is no
+     out-of-tree extension point: a Melody app should be able to register
+     its own =android.view.View= subclass as a widget kind without
+     touching the gui module's android backend sources.
+   - Opt-in multi-Activity =mel_app_present= mode. Today every Screen is
+     a sibling Fragment-equivalent in one Activity. Some apps (deep
+     linking, intent return, per-screen task isolation) want each Screen
+     pushed as its own Android Activity. A =MEL_FRAME_OWN_ACTIVITY= flag
+     on =Mel_Frame_Opt= would change =mel_app_present= for that frame to
+     =startActivity=, while the default stays single-Activity (modern
+     Android best practice). Gated on the mobile class tier.
    Lifecycle closed: =mel_gui_shutdown()= (public) walks the slotmap calling
    =mel_gui__backend_destroy= per widget (which decrements the frame
    counter and triggers =mel_reactor_quit= on the last toplevel), frees
    per-widget allocations, =mel_slotmap_free=s the widget store, calls
    =mel_gui__screens_reset=, and zeroes all module globals. =nativeStop=
    in =modules/app/src/android/app.bridge.c= calls it. =MelGui.stop=
-   clears =views/titles/navStack/activity/root/density=. After Back from
-   root finishes the Activity, the next =onCreate= re-runs =mel_app_setup=
-   from a clean slate even when the process is retained.
-   Back navigation closed: =MelodyActivity= registers an
-   =OnBackInvokedCallback= (Tiramisu+) and keeps =onBackPressed= for
-   pre-33 — both delegate to =MelGui.popOrExit()= which pops the
-   =navStack= and shows the previous Screen, returning false when the
-   stack has one entry so the system finishes the Activity.
+   clears =views/activity/root/density= and tears down the FragmentManager
+   container. After Back from the root screen finishes the Activity, the
+   next =onCreate= re-runs =mel_app_setup= from a clean slate even when
+   the process is retained.
    Status bar / nav bar inset closed: =MelodyActivity.onCreate= installs a
    =setOnApplyWindowInsetsListener= on root that pads by the system bar
    insets and consumes them, so frame children draw inside the safe area.

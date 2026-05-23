@@ -49,6 +49,7 @@ typedef struct {
     u32            native_style;
     u32            native_ex_style;
     bool           has_menu;
+    char           title[128];
 } Mel_Gui_Frame_Impl;
 
 const Mel_Alloc* mel_gui__alloc(void);

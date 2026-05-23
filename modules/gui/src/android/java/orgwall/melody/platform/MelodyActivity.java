@@ -1,6 +1,7 @@
 package orgwall.melody.platform;
 
 import android.app.Activity;
+import android.app.FragmentManager;
 import android.graphics.Color;
 import android.os.Build;
 import android.os.Bundle;
@@ -31,20 +32,28 @@ public final class MelodyActivity extends Activity {
         });
         setContentView(root);
 
+        MelGui.start(this, root);
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            backCallback = () -> {
-                if (!MelGui.popOrExit()) finish();
-            };
+            backCallback = this::handleBack;
             getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
                     OnBackInvokedDispatcher.PRIORITY_DEFAULT, backCallback);
         }
-
-        MelGui.start(this, root);
     }
 
     @Override
     public void onBackPressed() {
-        if (!MelGui.popOrExit()) super.onBackPressed();
+        handleBack();
+    }
+
+    @SuppressWarnings("deprecation")
+    private void handleBack() {
+        FragmentManager fm = getFragmentManager();
+        if (fm.getBackStackEntryCount() > 1) {
+            fm.popBackStack();
+        } else {
+            finish();
+        }
     }
 
     @Override
