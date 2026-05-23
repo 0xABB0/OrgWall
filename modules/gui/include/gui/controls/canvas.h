@@ -5,9 +5,10 @@
 #include <gui/handle.h>
 #include <gui/callbacks.h>
 #include <gui/layout.h>
+#include <gui/painter.h>
 
 typedef struct {
-    void (*on_paint)(Mel_Gui_Handle h, void* ctx, i32 w, i32 h_, void* user);
+    void (*on_paint)(Mel_Gui_Handle h, Mel_Painter* p, i32 w, i32 h_, void* user);
 } Mel_Canvas_On;
 
 typedef struct {

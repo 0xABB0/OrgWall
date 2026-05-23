@@ -5,13 +5,6 @@
 #include <app/app.h>
 #include <gui/gui.h>
 
-#if MEL_PLATFORM_WINDOWS
-#define WIN32_LEAN_AND_MEAN
-#include <windows.h>
-#elif MEL_PLATFORM_OSX
-#include <CoreGraphics/CoreGraphics.h>
-#endif
-
 #include "tapcounter.h"
 
 
@@ -131,41 +124,26 @@ static void main_edit_key_down(Mel_Gui_Handle h, Mel_Key key, void* user)
     update_main_key_label();
 }
 
-static void canvas_paint(Mel_Gui_Handle h, void* ctx, i32 w, i32 height, void* user)
+static void canvas_paint(Mel_Gui_Handle h, Mel_Painter* p, i32 w, i32 height, void* user)
 {
     (void)h;
     (void)user;
     g_main.canvas_w = w;
     g_main.canvas_h = height;
-#if MEL_PLATFORM_WINDOWS
-    HDC  dc = (HDC)ctx;
-    RECT rc = { 0, 0, w, height };
-    HBRUSH bg = CreateSolidBrush(RGB(38, 51, 65));
-    FillRect(dc, &rc, bg);
-    DeleteObject(bg);
+
+    mel_painter_clear(p, mel_rgb(38, 51, 65));
+    mel_painter_stroke_rect(p, mel_rect(1, 1, (f32)w - 2, (f32)height - 2),
+                            mel_rgb(90, 110, 130), 1.5f);
+    mel_painter_draw_line(p, mel_vec2(0, 28), mel_vec2((f32)w, 28),
+                          mel_rgb(90, 110, 130), 1.0f);
+    mel_painter_draw_text(p, S8("canvas: drag to paint"), mel_vec2(10, 7),
+                          mel_rgb(150, 170, 190), 13.0f);
+
     if (g_main.pointer_down) {
-        HBRUSH  fg   = CreateSolidBrush(RGB(255, 190, 96));
-        HGDIOBJ oldb = SelectObject(dc, fg);
-        HGDIOBJ oldp = SelectObject(dc, GetStockObject(NULL_PEN));
-        Ellipse(dc,
-            g_main.pointer_x - 18, g_main.pointer_y - 18,
-            g_main.pointer_x + 18, g_main.pointer_y + 18);
-        SelectObject(dc, oldb);
-        SelectObject(dc, oldp);
-        DeleteObject(fg);
+        mel_painter_fill_ellipse(p,
+            mel_rect((f32)g_main.pointer_x - 18, (f32)g_main.pointer_y - 18, 36, 36),
+            mel_rgb(255, 190, 96));
     }
-#elif MEL_PLATFORM_OSX
-    CGContextRef cg = (CGContextRef)ctx;
-    CGContextSetRGBFillColor(cg, 38.0/255.0, 51.0/255.0, 65.0/255.0, 1.0);
-    CGContextFillRect(cg, CGRectMake(0, 0, w, height));
-    if (g_main.pointer_down) {
-        CGContextSetRGBFillColor(cg, 255.0/255.0, 190.0/255.0, 96.0/255.0, 1.0);
-        CGContextFillEllipseInRect(cg,
-            CGRectMake(g_main.pointer_x - 18, g_main.pointer_y - 18, 36, 36));
-    }
-#else
-    (void)ctx;
-#endif
 }
 
 static void canvas_pointer_down(Mel_Gui_Handle h, i32 x, i32 y, void* user)

@@ -58,7 +58,8 @@
     NSRect b = self.bounds;
     if (self.on_.on_paint) {
         CGContextRef ctx = [[NSGraphicsContext currentContext] CGContext];
-        self.on_.on_paint(self.handle, ctx, (i32)b.size.width, (i32)b.size.height, mel_gui_user(self.handle));
+        struct Mel_Painter p = { .cg = ctx, .w = (f32)b.size.width, .h = (f32)b.size.height };
+        self.on_.on_paint(self.handle, &p, (i32)b.size.width, (i32)b.size.height, mel_gui_user(self.handle));
     } else {
         [[NSColor controlBackgroundColor] set];
         NSRectFill(b);

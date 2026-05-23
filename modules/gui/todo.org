@@ -366,10 +366,43 @@ fixed in the first pass; the seven items below landed in a follow-up pass.
      slice parent so this works. When Panel/GroupBox land they need both
      fields on the same opt, which is already supported by the chosen naming.
 
-** TODO Unified Canvas drawing API
-   Backend-agnostic draw-list (paths, text runs, images, clips, transforms);
-   separate, interchangeable CPU and GPU consumers. Removes the per-platform
-   =#ifdef= canvas drawing currently in hello-world-gui.c.
+** WIP  Unified Canvas drawing API  [2026-05-23]
+   First slice landed: =Mel_Painter=, an immediate-mode drawing surface handed
+   to =Canvas= =on_paint= (replaced the raw =void* ctx=). The readme's
+   "draw-list" framing is refined — the API is immediate-mode, defined directly
+   in =src/<backend>/= (no vtable, no draw-list, no heap alloc on native
+   backends); the draw-list becomes the =drawn= backend's /implementation/ of
+   the same surface. See readme "Canvas drawing — the Painter".
+   Ops shipped: =clear=, =fill_rect=, =fill_ellipse=, =stroke_rect=,
+   =draw_line=, =fill_round_rect=, =draw_text=. Geometry reuses =math.geo=
+   =Mel_Rect= / =math.vector= =Mel_Vec2= (f32, logical units); =Mel_Color= is
+   RGBA8 in =<gui/color.h>=. New: =include/gui/painter.h=, =include/gui/color.h=,
+   =src/win32/painter.c=, =src/macos/painter.m=, =src/android/painter.c=
+   (+ =MelCanvasView= reuses one =Paint=; =nativePaint= gained a =Paint= arg).
+   =hello-world-gui='s =canvas_paint= is now platform-free; the app's
+   =#if MEL_PLATFORM_*= drawing block and =windows.h=/=CoreGraphics.h= includes
+   are deleted.
+   Verification:
+   - *appkit* — builds + runs (=./nob build app hello-world-gui=); window opens
+     with no paint crash. Visual output (border, divider, label text, drag
+     ellipse) not auto-verified — eyeball recommended.
+   - *android* — =.so= (both ABIs) + Java + APK build clean
+     (=./nob build app hello-world-gui android=). On-device run not exercised.
+   - *win32* — written *blind* (no clang-on-Windows host here); pattern-matched
+     to the verified appkit/android shape + the existing win32 canvas. The GDI
+     calls (=DC_BRUSH=/=DC_PEN= stock objects, =CreateFontW= cache, =TextOutW=)
+     are *unverified* — build with clang on Windows before trusting.
+   Open items / deferred surface:
+   - Arbitrary paths (move/line/curve/close, fill + stroke), polygons.
+   - Images / bitmaps (=draw_image=), with source + dest rect and scaling.
+   - Clip regions (rect + path) and affine transforms (translate/scale/rotate).
+   - Gradients (linear/radial) and per-shape alpha/blend modes.
+   - Text: only a single run with the system font + size ships; rich text,
+     font family selection, measurement (=measure_text=), alignment and
+     wrapping are deferred. Android/win32 text goes through JNI modified-UTF-8 /
+     UTF-16 — same supplementary-char caveat as the other text paths.
+   - Drawn backend: implement =mel_painter_*= by recording into the shared
+     draw-list its CPU/GPU renderers play back (the original readme vision).
 
 ** TODO Per-backend accessibility bridges
    UI Automation (win32/uwp), NSAccessibility (appkit/uikit), AccessKit-style

@@ -138,6 +138,7 @@ bool mel_gui__android_register(JNIEnv* env, jclass cls)
     ok &= mel_gui__android_textfield_register_jni(env);
     ok &= mel_gui__android_slider_register_jni   (env);
     ok &= mel_gui__android_canvas_register_jni   (env);
+    ok &= mel_gui__android_painter_register_jni  (env);
     return ok;
 }
 

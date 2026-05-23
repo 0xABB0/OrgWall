@@ -318,8 +318,45 @@ native Frame may embed a =Canvas= that hosts a drawn subtree. The drawn family
 is *not* in the first slice; =hello-world-gui= is 100% native. Its vocabulary
 mirrors the native one and its naming is finalised when it is built
 (=todo.org=). The CPU and GPU renderers are separate, interchangeable
-consumers of a shared draw-list; that draw-list (and a unified Canvas drawing
-API) is also =todo.org=.
+consumers of a shared draw-list; that draw-list is how the drawn backend will
+implement the =Painter= surface described next (=todo.org=).
+
+* Canvas drawing — the Painter
+
+A =Canvas='s =on_paint= receives a =Mel_Painter*=, an *immediate-mode* drawing
+surface. The app issues =mel_painter_*= calls; on a native backend each call
+translates straight to the platform 2D API, with the function defined directly
+in =src/<backend>/= and selected at compile time — the same backend-owned model
+as the widget ops. *No vtable, no draw-list, no heap allocation on a native
+backend.* This is the deliberate refinement of the earlier "draw-list" framing:
+the draw-list is not the app-facing API, it is one backend's /implementation/ of
+this surface. When the =drawn= backend lands, the identical =mel_painter_*= calls
+record into its list, which its CPU/GPU renderer plays back. Same app code,
+backend is the discriminator, "emulate, never drop" preserved.
+
+#+begin_src c
+void mel_painter_clear        (Mel_Painter*, Mel_Color);
+void mel_painter_fill_rect    (Mel_Painter*, Mel_Rect, Mel_Color);
+void mel_painter_fill_ellipse (Mel_Painter*, Mel_Rect, Mel_Color);
+void mel_painter_stroke_rect  (Mel_Painter*, Mel_Rect, Mel_Color, f32 width);
+void mel_painter_draw_line    (Mel_Painter*, Mel_Vec2 a, Mel_Vec2 b, Mel_Color, f32 width);
+void mel_painter_fill_round_rect(Mel_Painter*, Mel_Rect, f32 radius, Mel_Color);
+void mel_painter_draw_text    (Mel_Painter*, str8 text, Mel_Vec2 pos, Mel_Color, f32 size);
+#+end_src
+
+- =Mel_Painter= is opaque; its concrete type is backend-defined and stack-built
+  inside the paint handler (win32 wraps the =HDC=, appkit the =CGContextRef=,
+  android a =Canvas=+reused =Paint=). The app only ever holds the pointer.
+- Geometry reuses =Mel_Rect=/=Mel_Vec2= from =math.geo=/=math.vector= (f32,
+  logical units — same convention as the rest of the module). =Mel_Color= is
+  RGBA8 (=<gui/color.h>=, =mel_rgb=/=mel_rgba=).
+- Backend allocation discipline: win32 fills via the =DC_BRUSH=/=DC_PEN= stock
+  objects (no per-call GDI object churn; a wider pen is the only case that needs
+  =CreatePen=), and caches one =HFONT= keyed by pixel height; android reuses one
+  =Paint= per view; appkit/CoreGraphics is stateless per call.
+
+The richer surface — arbitrary paths, images, clips, transforms, gradients —
+and the drawn backend's list playback are =todo.org=.
 
 * Backends
 
@@ -476,6 +513,8 @@ modules/gui/
     init.h                mel_gui_init, mel_gui_backend_supports
     screen.h              Mel_Screen_Build, mel_app_register_screen/present
     widget.h              shared widget ops (frame/text/visible/enable/focus)
+    color.h               Mel_Color (RGBA8) + mel_rgb / mel_rgba
+    painter.h             Mel_Painter immediate-mode drawing surface (Canvas on_paint)
     frame.h panel.h label.h button.h checkbox.h radiobutton.h
     togglebutton.h textfield.h textarea.h slider.h progressbar.h
     spinbox.h choicebox.h combobox.h listbox.h imageview.h
@@ -526,9 +565,10 @@ Out of the first slice (⇒ =todo.org=): every other backend; the drawn family;
 per-backend a11y bridges; the =nob.c= =--gui-backend= selector; widgets beyond
 the seven above.
 
-The =#ifdef __APPLE__= / Android canvas drawing currently in
-=hello_world_gui.c= is expected to remain until the unified Canvas drawing API
-exists. It is a documented placeholder, not a hack; it is a =todo.org= entry.
+The per-platform =#ifdef= canvas drawing that once lived in the app is gone:
+=mainscreen.c='s =canvas_paint= now draws through the backend-agnostic
+=Mel_Painter= (see "Canvas drawing — the Painter"). No platform headers remain
+in the app's drawing path.
 
 * Testing
 

@@ -46,12 +46,13 @@ Mel_Gui_Handle mel_canvas_create_opt(Mel_Gui_Handle parent, Mel_Canvas_Opt o)
 }
 
 JNIEXPORT void JNICALL
-Java_orgwall_melody_platform_MelCanvasView_nativePaint(JNIEnv* env, jclass cls, jlong h, jlong fn, jobject canvas, jint w, jint height)
+Java_orgwall_melody_platform_MelCanvasView_nativePaint(JNIEnv* env, jclass cls, jlong h, jlong fn, jobject canvas, jobject paint, jint w, jint height)
 {
-    (void)env; (void)cls;
+    (void)cls;
     if (!fn) return;
-    Mel_Gui_Handle handle = mel_gui__android_unpack(h);
-    ((Mel_Cb_Paint)(intptr_t)fn)(handle, (void*)canvas, (i32)w, (i32)height, mel_gui_user(handle));
+    Mel_Gui_Handle    handle = mel_gui__android_unpack(h);
+    struct Mel_Painter p     = { .env = env, .canvas = canvas, .paint = paint, .w = (i32)w, .h = (i32)height };
+    ((Mel_Cb_Paint)(intptr_t)fn)(handle, &p, (i32)w, (i32)height, mel_gui_user(handle));
 }
 
 JNIEXPORT void JNICALL

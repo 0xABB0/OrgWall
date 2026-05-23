@@ -11,6 +11,8 @@
 
 #define MEL_REFLECT(m) ((UINT)(WM_APP + (m)))
 
+struct Mel_Painter { HDC dc; i32 w, h; };
+
 /* Per-HWND state. A pointer to one of these lives in GWLP_USERDATA — this is
  * where a control's callbacks live (the win32 analogue of "inside the View").
  * Every control struct starts with Mel_Win32_Ctl so the shared focus/key

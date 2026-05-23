@@ -16,7 +16,8 @@ static LRESULT CALLBACK canvas_wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp
             RECT rc;
             GetClientRect(hwnd, &rc);
             if (c && c->on_.on_paint) {
-                c->on_.on_paint(h, dc, rc.right - rc.left, rc.bottom - rc.top, u);
+                struct Mel_Painter p = { .dc = dc, .w = rc.right - rc.left, .h = rc.bottom - rc.top };
+                c->on_.on_paint(h, &p, rc.right - rc.left, rc.bottom - rc.top, u);
             } else {
                 FillRect(dc, &rc, GetSysColorBrush(COLOR_WINDOW));
             }

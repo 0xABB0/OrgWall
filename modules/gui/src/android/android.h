@@ -4,6 +4,10 @@
 
 #include <jni.h>
 
+#include <gui/painter.h>
+
+struct Mel_Painter { JNIEnv* env; jobject canvas; jobject paint; i32 w, h; };
+
 /* Cross-widget JNI handles. The View/TextView/ViewGroup ids are framework
  * methods we drive w->native (the cached View jobject) with directly — there is
  * no generic MelGui denominator and no handle->view map on the Java side. */
@@ -48,7 +52,7 @@ typedef void (*Mel_Cb_Bool)  (Mel_Gui_Handle, bool, void*);
 typedef void (*Mel_Cb_I32)   (Mel_Gui_Handle, i32, void*);
 typedef void (*Mel_Cb_Point) (Mel_Gui_Handle, i32, i32, void*);
 typedef void (*Mel_Cb_Str8)  (Mel_Gui_Handle, str8, void*);
-typedef void (*Mel_Cb_Paint) (Mel_Gui_Handle, void*, i32, i32, void*);
+typedef void (*Mel_Cb_Paint) (Mel_Gui_Handle, Mel_Painter*, i32, i32, void*);
 typedef void (*Mel_Cb_Resize)(Mel_Gui_Handle, i32, i32, void*);
 
 Mel_Gui_Android* mel_gui__android(void);
@@ -75,3 +79,4 @@ bool mel_gui__android_checkbox_register_jni (JNIEnv* env);
 bool mel_gui__android_textfield_register_jni(JNIEnv* env);
 bool mel_gui__android_slider_register_jni   (JNIEnv* env);
 bool mel_gui__android_canvas_register_jni   (JNIEnv* env);
+bool mel_gui__android_painter_register_jni  (JNIEnv* env);

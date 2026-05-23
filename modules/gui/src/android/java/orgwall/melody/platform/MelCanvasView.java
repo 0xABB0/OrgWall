@@ -2,6 +2,7 @@ package orgwall.melody.platform;
 
 import android.content.Context;
 import android.graphics.Canvas;
+import android.graphics.Paint;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
@@ -10,6 +11,7 @@ public final class MelCanvasView extends View {
 
     private final long handle;
     private final long fnPaint, fnDown, fnMove, fnUp, fnKeyDown, fnKeyUp;
+    private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
 
     public MelCanvasView(Context ctx, long handle, long fnPaint,
                          long fnDown, long fnMove, long fnUp, long fnKeyDown, long fnKeyUp) {
@@ -32,7 +34,7 @@ public final class MelCanvasView extends View {
         float d = MelGui.density();
         int save = canvas.save();
         canvas.scale(d, d);
-        nativePaint(handle, fnPaint, canvas,
+        nativePaint(handle, fnPaint, canvas, paint,
                 Math.round(getWidth()  / d),
                 Math.round(getHeight() / d));
         canvas.restoreToCount(save);
@@ -72,7 +74,7 @@ public final class MelCanvasView extends View {
         return super.onKeyUp(keyCode, event);
     }
 
-    public static native void nativePaint  (long handle, long fn, Canvas canvas, int w, int h);
+    public static native void nativePaint  (long handle, long fn, Canvas canvas, Paint paint, int w, int h);
     public static native void nativePointer(long handle, long fn, int x, int y);
     public static native void nativeKey    (long handle, long fn, int key);
 }
