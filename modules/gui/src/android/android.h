@@ -36,6 +36,7 @@ typedef struct {
 
     jclass    mel_cls;               /* orgwall/melody/platform/MelGui */
     jmethodID mel_presentFrame;      /* (Landroid/view/View;Ljava/lang/String;)V */
+    jmethodID mel_popScreen;         /* ()V */
     jmethodID mel_setActivityTitle;  /* (Ljava/lang/String;)V */
     jmethodID mel_installFocus;      /* (Landroid/view/View;JJJ)V */
 } Mel_Gui_Android;

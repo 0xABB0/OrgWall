@@ -300,6 +300,20 @@ void mel_gui_set_focus(Mel_Gui_Handle h)
     }
 }
 
+void mel_gui__nav_replace(Mel_Gui_Handle next, Mel_Gui_Handle prev)
+{
+    mel_gui_set_visible(next, true);
+    mel_gui_set_focus(next);
+    if (!mel_gui_handle_is_none(prev)) mel_gui_set_visible(prev, false);
+}
+
+void mel_gui__nav_back(Mel_Gui_Handle prev, Mel_Gui_Handle cur)
+{
+    mel_gui_set_visible(prev, true);
+    mel_gui_set_focus(prev);
+    if (!mel_gui_handle_is_none(cur)) mel_gui_set_visible(cur, false);
+}
+
 void mel_gui_invalidate(Mel_Gui_Handle h)
 {
     Mel_Gui_Node* n = mel_gui__node(h);

@@ -13,10 +13,16 @@ typedef struct {
 static Mel_Gui_Screen g_screens[MEL_GUI_MAX_SCREENS];
 static u32            g_screen_count;
 
+static Mel_Gui_Screen* g_current;
+static Mel_Gui_Screen* g_history[MEL_GUI_MAX_SCREENS];
+static u32             g_history_count;
+
 void mel_gui__screens_reset(void)
 {
     for (u32 i = 0; i < g_screen_count; i++) g_screens[i] = (Mel_Gui_Screen){0};
-    g_screen_count = 0;
+    g_screen_count  = 0;
+    g_current       = NULL;
+    g_history_count = 0;
 }
 
 void mel_app_register_screen(str8 name, Mel_Screen_Build build, void* user)
@@ -82,18 +88,50 @@ static void autosize_frame(Mel_Gui_Handle frame)
     }
 }
 
+static void ensure_created(Mel_Gui_Screen* s)
+{
+    if (s->created) return;
+    s->frame   = mel_frame_create(.title = s->name);
+    s->created = true;
+    if (s->build) s->build(s->frame, s->user);
+    autosize_frame(s->frame);
+}
+
 void mel_app_present(str8 name)
 {
     Mel_Gui_Screen* s = find_screen(name);
     if (!s) return;
 
-    if (!s->created) {
-        s->frame   = mel_frame_create(.title = name);
-        s->created = true;
-        if (s->build) s->build(s->frame, s->user);
-        autosize_frame(s->frame);
-    }
-
+    ensure_created(s);
     mel_gui_set_visible(s->frame, true);
     mel_gui_set_focus(s->frame);
+
+    /* present is the additive op: on desktop each call is its own top-level
+     * window. Only the first one establishes the surface that replace/back
+     * navigate; later presents must not hijack it. */
+    if (!g_current) g_current = s;
+}
+
+void mel_app_replace(str8 name)
+{
+    Mel_Gui_Screen* s = find_screen(name);
+    if (!s || s == g_current) return;
+
+    Mel_Gui_Screen* prev = g_current;
+    ensure_created(s);
+
+    mel_gui__nav_replace(s->frame, prev ? prev->frame : MEL_GUI_HANDLE_NONE);
+
+    if (prev && g_history_count < MEL_GUI_MAX_SCREENS) g_history[g_history_count++] = prev;
+    g_current = s;
+}
+
+void mel_app_back(void)
+{
+    if (g_history_count == 0) return;
+    Mel_Gui_Screen* prev = g_history[--g_history_count];
+    Mel_Gui_Screen* cur  = g_current;
+
+    mel_gui__nav_back(prev->frame, cur ? cur->frame : MEL_GUI_HANDLE_NONE);
+    g_current = prev;
 }

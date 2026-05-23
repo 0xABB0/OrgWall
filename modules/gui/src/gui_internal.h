@@ -39,6 +39,14 @@ void           mel_gui__destroy_tree(Mel_Gui_Handle root);
 
 void           mel_gui__screens_reset(void);
 
+/* Screen-to-screen transitions. Each backend owns the platform mechanics:
+ * desktop swaps window visibility, Android drives the fragment back stack.
+ *  - nav_replace: make `next` the active screen in place of `prev`.
+ *  - nav_back:    return from `cur` to the earlier `prev`.
+ * Handles may be MEL_GUI_HANDLE_NONE when there is no counterpart. */
+void           mel_gui__nav_replace(Mel_Gui_Handle next, Mel_Gui_Handle prev);
+void           mel_gui__nav_back   (Mel_Gui_Handle prev, Mel_Gui_Handle cur);
+
 void           mel_gui__set_focused(Mel_Gui_Handle h);
 
 i32            mel_gui__frames_inc(void);

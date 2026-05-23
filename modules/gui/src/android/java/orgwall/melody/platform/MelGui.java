@@ -68,6 +68,13 @@ public final class MelGui {
         if (title != null) activity.setTitle(title);
     }
 
+    @SuppressWarnings("deprecation")
+    public static void popScreen() {
+        if (activity == null) return;
+        FragmentManager fm = activity.getFragmentManager();
+        if (fm.getBackStackEntryCount() > 1) fm.popBackStack();
+    }
+
     public static native void nativeRegister(float density);
     public static native void nativeStart();
     public static native void nativeStop();

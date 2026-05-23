@@ -123,6 +123,7 @@ bool mel_gui__android_register(JNIEnv* env, jclass cls)
 {
     g_a.mel_cls            = (jclass)(*env)->NewGlobalRef(env, cls);
     g_a.mel_presentFrame     = (*env)->GetStaticMethodID(env, g_a.mel_cls, "presentFrame",     "(Landroid/view/View;Ljava/lang/String;)V");
+    g_a.mel_popScreen        = (*env)->GetStaticMethodID(env, g_a.mel_cls, "popScreen",        "()V");
     g_a.mel_setActivityTitle = (*env)->GetStaticMethodID(env, g_a.mel_cls, "setActivityTitle", "(Ljava/lang/String;)V");
     g_a.mel_installFocus     = (*env)->GetStaticMethodID(env, g_a.mel_cls, "installFocus",     "(Landroid/view/View;JJJ)V");
 
@@ -263,6 +264,20 @@ void mel_gui_set_visible(Mel_Gui_Handle h, bool visible)
         (*env)->CallVoidMethod(env, view, g_a.view_setVisibility,
                                visible ? MEL_ANDROID_VISIBLE : MEL_ANDROID_GONE);
     }
+}
+
+void mel_gui__nav_replace(Mel_Gui_Handle next, Mel_Gui_Handle prev)
+{
+    (void)prev;
+    mel_gui_set_visible(next, true);
+}
+
+void mel_gui__nav_back(Mel_Gui_Handle prev, Mel_Gui_Handle cur)
+{
+    (void)prev;
+    (void)cur;
+    JNIEnv* env = mel_gui__android_env();
+    if (env) (*env)->CallStaticVoidMethod(env, g_a.mel_cls, g_a.mel_popScreen);
 }
 
 void mel_gui_set_enabled(Mel_Gui_Handle h, bool enabled)
