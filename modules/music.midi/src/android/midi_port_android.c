@@ -11,7 +11,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-extern JNIEnv* mel_midi_android_env(void);
+#include <platform/android/jni.h>
 
 #define MEL_MIDI_MAX_DEVICES 64
 
@@ -67,7 +67,7 @@ static void mel__copy_jstring_utf8(JNIEnv* env, jstring jstr, char* out, size_t 
 
 int32_t mel_midi_port_platform_enumerate(Mel_Midi_Port_Info* out_infos, int32_t max_count)
 {
-    JNIEnv* env = mel_midi_android_env();
+    JNIEnv* env = mel_platform_android_env();
     if (env == NULL || !mel__midi_resolve(env)) return 0;
 
     jobjectArray names = (*env)->CallStaticObjectMethod(env, mel__midi_class, mel__midi_enumerate);
@@ -95,7 +95,7 @@ int32_t mel_midi_port_platform_enumerate(Mel_Midi_Port_Info* out_infos, int32_t 
 
 Mel_Midi_Port* mel_midi_port_platform_open_input(int32_t id, Mel_Midi_Port* port)
 {
-    JNIEnv* env = mel_midi_android_env();
+    JNIEnv* env = mel_platform_android_env();
     if (env == NULL || !mel__midi_resolve(env)) return NULL;
 
     jobject handle_local = (*env)->CallStaticObjectMethod(
@@ -123,7 +123,7 @@ Mel_Midi_Port* mel_midi_port_platform_open_input(int32_t id, Mel_Midi_Port* port
 void mel_midi_port_platform_close(Mel_Midi_Port* port)
 {
     if (port == NULL || port->platform_handle == NULL) return;
-    JNIEnv* env = mel_midi_android_env();
+    JNIEnv* env = mel_platform_android_env();
     if (env == NULL) return;
 
     jobject handle = (jobject)port->platform_handle;

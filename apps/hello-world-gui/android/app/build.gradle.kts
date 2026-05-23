@@ -25,7 +25,7 @@ android {
         getByName("main") {
             java.srcDirs(
                 "src/main/java",
-                File(melodyRoot, "modules/gui.platform.android/src/android/java"),
+                File(melodyRoot, "modules/gui/src/android/java"),
                 File(melodyRoot, "modules/music.midi/src/android/java"),
             )
         }

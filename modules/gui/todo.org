@@ -77,7 +77,50 @@ Each is specified in =readme.org= and must be delivered first-class.
 ** TODO swiftui backend (macOS/visionOS ornaments & volumes; declarative)
 ** TODO gtk4 backend (Linux default; portable to win32/macos)
 ** TODO qt backend (portable; C++ shim TU)
-** TODO android backend (android.view; also Meta Quest 2D panel app)
+** WIP  android backend (android.view; also Meta Quest 2D panel app)
+   First slice landed: =modules/gui/src/android/= covers Frame, Label, Button,
+   CheckBox, TextField, Slider, Canvas; =./nob build app hello-world-gui android=
+   produces the APK with =libmelody.so= for arm64-v8a and x86_64 and Java
+   classes =orgwall.melody.platform.MelodyActivity/MelGui/MelCanvasView=
+   compiled in. Click/toggle/slider/text-changed/focus/pointer/key all wired;
+   canvas =onDraw= bridges to =on_paint= (paint context passed through as an
+   opaque =jobject= so the current hello-world-gui Windows-only =#ifdef=
+   branch is unaffected). Reactor runs in =MEL_REACTOR_ATTACHED= mode on the
+   Android main looper via the existing reactor android backend.
+   Frame model: each =mel_frame= is a =FrameLayout= child of the activity
+   root; =mel_app_present= calls =MelGui.presentFrame= which hides siblings
+   and shows the requested one (mobile-class screen swap, not yet a real
+   back stack — that's the "mobile/" class tier todo).
+   JNI plumbing was consolidated: =JNI_OnLoad= moved to a new
+   =modules/platform/src/android/jni.bridge.c=; midi now uses
+   =mel_platform_android_env()=.
+   Open items before this can move to DONE:
+   - DPI scaling. =Mel_*_Opt.x/y/w/h= are absolute pixels (sized for
+     desktop). =FrameLayout.LayoutParams= takes raw pixels too, so the
+     hello-world widgets render in the top ~400px of a 1080×2400 phone.
+     Belongs to the layout system / mobile class tier, not the android
+     backend per se — but tracking here because it shows on screen.
+   - Status-bar inset: =Theme.Material.Light.NoActionBar= draws content
+     under the system status bar. Either =fitsSystemWindows="true"= on the
+     activity root, or apply a top inset to the frame layouts.
+   - Drain UI events / wake from C: the reactor's android backend uses its
+     own timerfd to schedule ticks; views are manipulated synchronously from
+     C on the UI thread, which is correct, but =mel_reactor_post= from a
+     non-UI thread should wake the looper — verify =ALooper_wake= path.
+   - Real Activity back stack for =mel_app_present= (the readme's mobile
+     scene mapping). Today a present is a view-swap, not an Activity push.
+   - =keyDown:= forwarding for =EditText= — Android consumes most key events
+     in the IME, so on_key_* on a textfield won't fire on Android today.
+   - Per-backend escape hatches: =<gui/android/*.h>= class-tier headers
+     exposing raw =android.view.View= access beyond the core API.
+   - Clean shutdown: =MelGui.stop()= currently doesn't quit the reactor; the
+     activity tearing down should =mel_reactor_quit= the attached reactor.
+   - Class+methodID caching ships via =MelGui.nativeRegister()= called from
+     =MelGui.start()=, because =FindClass()= from the reactor's deferred
+     ALooper tick uses the system classloader (no Java→native transition in
+     progress) and cannot resolve app classes. Documented here so the
+     pattern is reused for any future backend that needs the app
+     classloader from a non-JNI context.
 ** TODO compose backend (Jetpack Compose; declarative; JNI/Kotlin bridge)
 ** TODO web backend (DOM via Emscripten)
 ** TODO drawn backend (CPU + GPU renderers; immersive Quest & visionOS)

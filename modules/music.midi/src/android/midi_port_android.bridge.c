@@ -11,27 +11,6 @@
 
 extern void mel_midi_port_push_chunk(Mel_Midi_Port* port, const Mel_Midi_Chunk* chunk);
 
-static JavaVM* mel__midi_vm;
-
-JavaVM* mel_midi_android_vm(void) { return mel__midi_vm; }
-
-JNIEnv* mel_midi_android_env(void)
-{
-    if (mel__midi_vm == NULL) return NULL;
-    JNIEnv* env = NULL;
-    if ((*mel__midi_vm)->GetEnv(mel__midi_vm, (void**)&env, JNI_VERSION_1_6) != JNI_OK) {
-        (*mel__midi_vm)->AttachCurrentThread(mel__midi_vm, &env, NULL);
-    }
-    return env;
-}
-
-JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved)
-{
-    (void)reserved;
-    mel__midi_vm = vm;
-    return JNI_VERSION_1_6;
-}
-
 JNIEXPORT void JNICALL Java_orgwall_melody_midi_MelodyMidi_nativeReceive(
     JNIEnv* env, jclass cls, jlong native_port, jbyteArray data, jint offset, jint count, jlong timestamp_ns)
 {

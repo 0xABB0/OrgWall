@@ -157,6 +157,8 @@ static bool android_build_so(const char *app_name) {
     Layout L = {0};
     if (!discover_for_platform(&L, "android")) return false;
 
+    da_append(&L.includes, "third-party/mongoose");
+
     File_Paths lib_sources = {0};
     File_Paths bridge_sources = {0};
     for (size_t i = 0; i < L.sources.count; i++) {
