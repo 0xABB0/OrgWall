@@ -24,7 +24,7 @@ def build_source_map():
     nob encodes a source path by replacing '/' with '.', so directories with
     literal dots (music.theory) are irreversible from the name alone. We instead
     encode every existing source forward and match."""
-    smap = {}
+    smap: dict[str, str] = {}
     for root in ("modules", "apps", "lib"):
         for dirpath, _, files in os.walk(root):
             for f in files:
@@ -34,7 +34,7 @@ def build_source_map():
     return smap
 
 
-def normalize_instr(text, addr, func_start, reloc_sym):
+def normalize_instr(text: str, addr, func_start, reloc_sym) -> str:
     text = text.split(";")[0]  # drop objdump comment annotations (e.g. "; =48")
 
     def repl(m):
@@ -51,7 +51,7 @@ def normalize_instr(text, addr, func_start, reloc_sym):
     return text
 
 
-def analyze_object(path):
+def analyze_object(path: str) -> list[str]:
     """Return list of (func_name, instr_count, sha1) for one object file."""
     try:
         out = subprocess.run(
@@ -64,10 +64,10 @@ def analyze_object(path):
     funcs = []
     cur_name = None
     cur_start = 0
-    body = []
+    body : list[str] = []
     pending = None  # (addr, text) of last instruction awaiting possible reloc
 
-    def flush_pending(reloc_sym=None):
+    def flush_pending(reloc_sym : re.Match[str] | None = None):
         nonlocal pending
         if pending is not None:
             addr, text = pending
@@ -123,10 +123,10 @@ def main():
         names = {name for name, _, _ in g}
         (cross if len(names) > 1 else same).append((h, g))
 
-    print("scanned %d live object files (%d stale .o skipped), "
+    print("scanned %d live object files (%d stale .o skipped), " +
           "%d functions (>=%d instrs)"
           % (len(objs), len(stale), total, MIN_INSTRS))
-    print("%d cross-name groups (copy-paste smell), %d same-name groups "
+    print("%d cross-name groups (copy-paste smell), %d same-name groups " +
           "(header static/inline)\n" % (len(cross), len(same)))
 
     def dump(title, items):
