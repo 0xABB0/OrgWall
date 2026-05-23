@@ -6,6 +6,44 @@ this file is what remains to do and the resume point for the next agent.
 Status keys: TODO (not started), WIP (in progress), DONE.
 Order within "First slice" is the intended build order.
 
+* Architecture inversion — backend-owned API  [2026-05-23]
+
+The portable "two-phase create" (=mel_<widget>_create → mel_gui__create →
+mel_gui__backend_<widget>_create=) and the fat =Mel_Gui_Widget= are gone. The
+public API now /is/ the platform implementation: =mel_<widget>_create_opt= and
+the =mel_gui_*= ops are defined directly in =src/<backend>/=. The portable core
+keeps only the slotmap registry, screen nav, layout, and handle accessors over a
+thin =Mel_Gui_Node= (handle/parent/native/user/id + layout working set). See
+readme.org "Architecture: backend-owned, no generic indirection".
+
+Done across *all three* imperative backends (appkit, android, win32):
+- Callbacks live on the native object (NSView subclass properties / a =jlong= on
+  the Java listener / a per-=HWND= struct), wired only when an opt slot is set;
+  the node carries none. =callbacks.c=, =mel_gui__fire_*=, =src/controls/= and
+  =widget.c='s ops were deleted.
+- Android ops are direct C→JNI on the cached =View= jobject (=w->native=); the
+  =MelGui.views= map and its generic Java ops are gone, density is cached C-side.
+  This closes the old "Per-control direct integration" and "Redundant w->native
+  ref" items below.
+
+Verification state:
+- *appkit* — builds + runs (=./nob build app hello-world-gui=). Interactive
+  click/slider/etc. not auto-tested in CI; eyeball recommended.
+- *android* — =.so= (both ABIs) + Java + APK build clean
+  (=./nob build app hello-world-gui android=). On-device run not yet exercised.
+- *win32* — rewritten *blind*: this host has no win32 toolchain that accepts the
+  codebase's clang-only features (=MEL_OVERLOADABLE=, C23 =nullptr=), so it was
+  pattern-matched to the verified appkit/android shape and the prior win32
+  structure. *Must be built with clang on Windows before trusting.*
+
+Known gaps from the inversion (small, were latent before):
+- =on_destroy= (lifecycle) no longer fires from the inverted backends — it used
+  to come from the generic node->cb in =destroy_tree=. Re-wire per-backend from
+  the native teardown if/when an app needs it. (Unused by hello-world-gui.)
+- Runtime per-capability bulk setters (=mel_gui_set_*_cb=) were removed (they
+  were unused and type-erasure-hostile under native-stored callbacks); add back
+  per-backend when needed. Folds into the "Per-callback-slot setters" item.
+
 * First slice — win32, hello-world-gui without hacks  [COMPLETE]
 
 Built and verified: =./nob build app hello-world-gui win32= succeeds and the
@@ -154,31 +192,12 @@ Each is specified in =readme.org= and must be delivered first-class.
      =consumeSystemWindowInsets= in =MelodyActivity.onCreate= (deprecated API
      30; matters under =targetSdk 36= edge-to-edge) for
      =getInsets(WindowInsets.Type.systemBars())= + =WindowInsets.CONSUMED=.
-   - Per-control direct integration, no generic indirection (the core rework).
-     The current shape forces every control through a fixed Java→native chain
-     and a generic =MelGui= denominator: e.g. a click is
-     =OnClickListener= → =Java_..._MelButton_nativeClicked= →
-     =mel_gui__fire_click= → the user callback, wired unconditionally at
-     create time whether or not the app set =on_click=. Consequences: the
-     control cannot be piloted from C (everything is decided in Java), and the
-     design groups code by what controls share rather than by the platform
-     capability each one actually exposes — which is the opposite of how the
-     native widgets want to be driven. Target: each control integrates as
-     directly as possible with its =android.view.View=; a listener is
-     installed only when the corresponding callback slot is set (and removed
-     when cleared), and the native entry point dispatches straight to the
-     handler rather than through the generic =fire_*= layer. This is the same
-     smell in =modules/gui/src/macos/= and =modules/gui/src/win32/=; Android
-     first, the other two follow the pattern once it settles. Note this
-     subsumes the redundant-=w->native=-ref item below.
-   - Redundant =w->native= global ref. Every view is pinned twice: by the
-     =NewGlobalRef= stored in =w->native= and by the Java =MelGui.views=
-     =HashMap=. The C side never dereferences =w->native= as a =jobject= — it
-     is only a non-null "created" flag plus a =DeleteGlobalRef= target, while
-     all ops route handle → map lookup in Java. The map already owns lifetime,
-     so the global ref is dead weight. Fold this into the direct-integration
-     rework above (a control that is piloted from C may want the ref back as a
-     real cached =jobject=, so settle it there rather than removing it blind).
+   - DONE Per-control direct integration, no generic indirection. See the
+     "Architecture inversion" section at the top: listeners are installed only
+     when the opt slot is set, callbacks live on the =View=, ops are direct
+     C→JNI on =w->native=. Done for android + appkit + win32.
+   - DONE Redundant =w->native= global ref. =w->native= is now the real, used
+     =View= jobject (ops dereference it); the =MelGui.views= map is gone.
    - Modified-UTF-8 vs standard UTF-8 at the JNI text boundary.
      =mel_gui__android_jstring= uses =NewStringUTF= and the inbound paths
      (=backend_get_text=, =MelTextField.nativeTextChanged=) use

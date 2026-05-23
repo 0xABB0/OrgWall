@@ -40,7 +40,7 @@ static Mel_Gui_Screen* find_screen(str8 name)
 
 static void autosize_frame(Mel_Gui_Handle frame)
 {
-    Mel_Gui_Widget* fw = mel_gui__get(frame);
+    Mel_Gui_Node* fw = mel_gui__node(frame);
     if (!fw) return;
 
     i32 cw, ch;
@@ -49,15 +49,15 @@ static void autosize_frame(Mel_Gui_Handle frame)
         mel_gui__layout_measure(frame, 0, 0, &cw, &ch);
     } else {
         u32 count = 0;
-        Mel_Gui_Widget* data = mel_gui__widgets(&count);
+        Mel_Gui_Node* data = mel_gui__nodes(&count);
 
         i32 max_x = 0;
         i32 max_y = 0;
         for (u32 i = 0; i < count; i++) {
-            Mel_Gui_Widget* w = &data[i];
-            if (!mel_gui_handle_eq(w->parent, frame)) continue;
-            i32 rx = w->x + w->width;
-            i32 ry = w->y + w->height;
+            Mel_Gui_Node* n = &data[i];
+            if (!mel_gui_handle_eq(n->parent, frame)) continue;
+            i32 rx = n->x + n->width;
+            i32 ry = n->y + n->height;
             if (rx > max_x) max_x = rx;
             if (ry > max_y) max_y = ry;
         }
@@ -73,7 +73,7 @@ static void autosize_frame(Mel_Gui_Handle frame)
     mel_gui_set_bounds(frame, fw->x, fw->y, cw, ch);
 
     if (fw->layout) {
-        Mel_Gui_Widget* refreshed = mel_gui__get(frame);
+        Mel_Gui_Node* refreshed = mel_gui__node(frame);
         if (refreshed) {
             refreshed->width  = cw;
             refreshed->height = ch;

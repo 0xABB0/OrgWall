@@ -4,52 +4,58 @@ static LRESULT CALLBACK checkbox_subclass(HWND hwnd, UINT msg, WPARAM wp, LPARAM
                                           UINT_PTR id, DWORD_PTR ref)
 {
     (void)ref;
-    Mel_Gui_Handle h = mel_gui__win32_handle_of(hwnd);
-
     if (msg == MEL_REFLECT(WM_COMMAND)) {
         if (HIWORD(wp) == BN_CLICKED) {
-            bool            checked = SendMessageW(hwnd, BM_GETCHECK, 0, 0) == BST_CHECKED;
-            Mel_Gui_Widget* w       = mel_gui__get(h);
-            Mel_Gui_CheckBox_Impl* impl = w ? (Mel_Gui_CheckBox_Impl*)w->impl : NULL;
-            if (impl && impl->on_.on_toggled) {
-                impl->on_.on_toggled(h, checked, w->user);
+            Mel_Win32_CheckBox* cb = (Mel_Win32_CheckBox*)mel_gui__win32_ctl(hwnd);
+            if (cb && cb->on_.on_toggled) {
+                bool checked = SendMessageW(hwnd, BM_GETCHECK, 0, 0) == BST_CHECKED;
+                cb->on_.on_toggled(cb->base.handle, checked, mel_gui_user(cb->base.handle));
             }
         }
         return 0;
     }
-    if (msg == WM_NCDESTROY) RemoveWindowSubclass(hwnd, checkbox_subclass, id);
-    if (mel_gui__win32_subclass_common(hwnd, msg, wp, lp, h)) return 0;
+    if (msg == WM_NCDESTROY) {
+        RemoveWindowSubclass(hwnd, checkbox_subclass, id);
+        mel_gui__win32_free_ctl(hwnd);
+        return DefSubclassProc(hwnd, msg, wp, lp);
+    }
+    if (mel_gui__win32_subclass_common(hwnd, msg, wp, lp)) return 0;
     return DefSubclassProc(hwnd, msg, wp, lp);
 }
 
-void mel_gui__backend_checkbox_create(Mel_Gui_Widget* w, str8 text)
+Mel_Gui_Handle mel_checkbox_create_opt(Mel_Gui_Handle parent, Mel_CheckBox_Opt o)
 {
-    HWND parent = mel_gui__win32_parent_hwnd(w);
-    if (!parent) return;
+    Mel_Gui_Handle h = mel_gui__node_new(parent, o.x, o.y, o.w, o.h, o.id, o.user, o.hidden,
+                                         &o.layoutable, NULL);
+    Mel_Gui_Node* n = mel_gui__node(h);
+    if (!n) return h;
+
+    HWND par = mel_gui__win32_parent_hwnd(n);
+    if (!par) return h;
 
     wchar_t wbuf[1024];
-    mel_gui__win32_widen(text, wbuf, 1024);
+    mel_gui__win32_widen(o.text, wbuf, 1024);
 
     HWND hwnd = CreateWindowExW(0, L"BUTTON", wbuf,
-        mel_gui__win32_child_style(w) | WS_TABSTOP | BS_AUTOCHECKBOX,
-        w->x, w->y, w->width, w->height, parent, NULL, current_hinst, NULL);
+        mel_gui__win32_child_style(n, o.disabled) | WS_TABSTOP | BS_AUTOCHECKBOX,
+        n->x, n->y, n->width, n->height, par, NULL, current_hinst, NULL);
+    n->native = hwnd;
+    if (!hwnd) return h;
 
-    w->native = hwnd;
-    if (!hwnd) return;
-
-    mel_gui__win32_bind(hwnd, w->self);
-
-    Mel_Gui_CheckBox_Impl* impl = (Mel_Gui_CheckBox_Impl*)w->impl;
-    if (impl) {
-        SendMessageW(hwnd, BM_SETCHECK,
-            impl->initial_checked ? BST_CHECKED : BST_UNCHECKED, 0);
+    Mel_Win32_CheckBox* cb = (Mel_Win32_CheckBox*)mel_gui__win32_alloc_ctl(hwnd, sizeof *cb, h);
+    if (cb) {
+        cb->base.focus    = o.focus;
+        cb->base.keyboard = o.keyboard;
+        cb->on_           = o.on_;
     }
-
+    SendMessageW(hwnd, BM_SETCHECK, o.checked ? BST_CHECKED : BST_UNCHECKED, 0);
     SetWindowSubclass(hwnd, checkbox_subclass, 1, 0);
+    return h;
 }
 
-bool mel_gui__backend_checkbox_checked(Mel_Gui_Widget* w)
+bool mel_checkbox_checked(Mel_Gui_Handle h)
 {
-    if (!w || !w->native) return false;
-    return SendMessageW((HWND)w->native, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    Mel_Gui_Node* n = mel_gui__node(h);
+    if (!n || !n->native) return false;
+    return SendMessageW((HWND)n->native, BM_GETCHECK, 0, 0) == BST_CHECKED;
 }

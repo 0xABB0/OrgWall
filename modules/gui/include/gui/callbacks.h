@@ -34,8 +34,3 @@ typedef struct {
     void (*on_key_up)  (Mel_Gui_Handle h, Mel_Key key, void* user);
     void (*on_char)    (Mel_Gui_Handle h, u32 codepoint, void* user);
 } Mel_Gui_Keyboard_Cb;
-
-void mel_gui_set_lifecycle_cb(Mel_Gui_Handle h, const Mel_Gui_Lifecycle_Cb* cb);
-void mel_gui_set_focus_cb    (Mel_Gui_Handle h, const Mel_Gui_Focus_Cb* cb);
-void mel_gui_set_pointer_cb  (Mel_Gui_Handle h, const Mel_Gui_Pointer_Cb* cb);
-void mel_gui_set_keyboard_cb (Mel_Gui_Handle h, const Mel_Gui_Keyboard_Cb* cb);

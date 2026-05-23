@@ -29,54 +29,36 @@
 - (void)mouseEntered:(NSEvent*)e
 {
     (void)e;
-    Mel_Gui_Widget* w = mel_gui__get(self.handle);
-    if (w && w->cb && w->cb->pointer.on_pointer_enter) {
-        w->cb->pointer.on_pointer_enter(self.handle, w->user);
-    }
+    if (self.pointer.on_pointer_enter) self.pointer.on_pointer_enter(self.handle, mel_gui_user(self.handle));
 }
 
 - (void)mouseExited:(NSEvent*)e
 {
     (void)e;
-    Mel_Gui_Widget* w = mel_gui__get(self.handle);
-    if (w && w->cb && w->cb->pointer.on_pointer_leave) {
-        w->cb->pointer.on_pointer_leave(self.handle, w->user);
-    }
+    if (self.pointer.on_pointer_leave) self.pointer.on_pointer_leave(self.handle, mel_gui_user(self.handle));
 }
 
 - (BOOL)becomeFirstResponder
 {
     BOOL ok = [super becomeFirstResponder];
-    if (ok) {
-        mel_gui__set_focused(self.handle);
-        mel_gui__macos_fire_focus_in(self.handle);
-    }
+    if (ok) mel_gui__macos_focus_in(self.handle, self.focus);
     return ok;
 }
 
 - (BOOL)resignFirstResponder
 {
     BOOL ok = [super resignFirstResponder];
-    if (ok) {
-        if (mel_gui_handle_eq(mel_gui_focused(), self.handle)) {
-            mel_gui__set_focused(MEL_GUI_HANDLE_NONE);
-        }
-        mel_gui__macos_fire_focus_out(self.handle);
-    }
+    if (ok) mel_gui__macos_focus_out(self.handle, self.focus);
     return ok;
 }
 
 - (void)drawRect:(NSRect)dirty
 {
     (void)dirty;
-    Mel_Gui_Widget* w = mel_gui__get(self.handle);
-    if (!w) return;
-    Mel_Gui_Canvas_Impl* impl = (Mel_Gui_Canvas_Impl*)w->impl;
     NSRect b = self.bounds;
-
-    if (impl && impl->on_.on_paint) {
+    if (self.on_.on_paint) {
         CGContextRef ctx = [[NSGraphicsContext currentContext] CGContext];
-        impl->on_.on_paint(self.handle, ctx, (i32)b.size.width, (i32)b.size.height, w->user);
+        self.on_.on_paint(self.handle, ctx, (i32)b.size.width, (i32)b.size.height, mel_gui_user(self.handle));
     } else {
         [[NSColor controlBackgroundColor] set];
         NSRectFill(b);
@@ -85,8 +67,7 @@
 
 - (NSPoint)pointFromEvent:(NSEvent*)e
 {
-    NSPoint p = [self convertPoint:e.locationInWindow fromView:nil];
-    return p;
+    return [self convertPoint:e.locationInWindow fromView:nil];
 }
 
 - (void)mouseDown:(NSEvent*)e
@@ -94,54 +75,61 @@
     _pointer_down = true;
     NSPoint p = [self pointFromEvent:e];
     [self.window makeFirstResponder:self];
-    mel_gui__fire_pointer_down(self.handle, (i32)p.x, (i32)p.y);
+    if (self.pointer.on_pointer_down) self.pointer.on_pointer_down(self.handle, (i32)p.x, (i32)p.y, mel_gui_user(self.handle));
 }
 
 - (void)mouseDragged:(NSEvent*)e
 {
     NSPoint p = [self pointFromEvent:e];
-    mel_gui__fire_pointer_move(self.handle, (i32)p.x, (i32)p.y);
+    if (self.pointer.on_pointer_move) self.pointer.on_pointer_move(self.handle, (i32)p.x, (i32)p.y, mel_gui_user(self.handle));
 }
 
 - (void)mouseMoved:(NSEvent*)e
 {
     NSPoint p = [self pointFromEvent:e];
-    mel_gui__fire_pointer_move(self.handle, (i32)p.x, (i32)p.y);
+    if (self.pointer.on_pointer_move) self.pointer.on_pointer_move(self.handle, (i32)p.x, (i32)p.y, mel_gui_user(self.handle));
 }
 
 - (void)mouseUp:(NSEvent*)e
 {
     NSPoint p = [self pointFromEvent:e];
     _pointer_down = false;
-    mel_gui__fire_pointer_up(self.handle, (i32)p.x, (i32)p.y);
+    if (self.pointer.on_pointer_up) self.pointer.on_pointer_up(self.handle, (i32)p.x, (i32)p.y, mel_gui_user(self.handle));
 }
 
 - (void)keyDown:(NSEvent*)e
 {
-    Mel_Key k = mel_gui__macos_key_for_event(e);
-    mel_gui__fire_key_down(self.handle, k);
-
-    NSString* chars = e.characters;
-    for (NSUInteger i = 0; i < chars.length; i++) {
-        unichar c = [chars characterAtIndex:i];
-        mel_gui__fire_char(self.handle, (u32)c);
+    mel_gui__macos_key(self.handle, self.keyboard, e, true);
+    if (self.keyboard.on_char) {
+        NSString* chars = e.characters;
+        for (NSUInteger i = 0; i < chars.length; i++) {
+            self.keyboard.on_char(self.handle, (u32)[chars characterAtIndex:i], mel_gui_user(self.handle));
+        }
     }
 }
 
 - (void)keyUp:(NSEvent*)e
 {
-    Mel_Key k = mel_gui__macos_key_for_event(e);
-    mel_gui__fire_key_up(self.handle, k);
+    mel_gui__macos_key(self.handle, self.keyboard, e, false);
 }
 
 @end
 
-void mel_gui__backend_canvas_create(Mel_Gui_Widget* w, str8 text)
+Mel_Gui_Handle mel_canvas_create_opt(Mel_Gui_Handle parent, Mel_Canvas_Opt o)
 {
-    (void)text;
+    Mel_Gui_Handle h = mel_gui__node_new(parent, o.x, o.y, o.w, o.h, o.id, o.user, o.hidden,
+                                         &o.layoutable, NULL);
+    Mel_Gui_Node* n = mel_gui__node(h);
+    if (!n) return h;
+
     @autoreleasepool {
-        MelGuiCanvasView* view = [[MelGuiCanvasView alloc] initWithFrame:NSMakeRect(0, 0, w->width, w->height)];
-        view.handle = w->self;
-        mel_gui__macos_install_child(w, view);
+        MelGuiCanvasView* view = [[MelGuiCanvasView alloc] initWithFrame:NSMakeRect(0, 0, n->width, n->height)];
+        view.handle   = h;
+        view.pointer  = o.pointer;
+        view.focus    = o.focus;
+        view.keyboard = o.keyboard;
+        view.on_      = o.on_;
+        mel_gui__macos_install_child(n, view);
     }
+    return h;
 }

@@ -10,10 +10,10 @@
     Mel_Gui_Handle frame_h = self.frame_handle;
     if (mel_gui_handle_is_none(frame_h)) return;
 
-    u32             count = 0;
-    Mel_Gui_Widget* data  = mel_gui__widgets(&count);
+    u32           count = 0;
+    Mel_Gui_Node* data  = mel_gui__nodes(&count);
     for (u32 i = 0; i < count; i++) {
-        Mel_Gui_Widget* cw = &data[i];
+        Mel_Gui_Node* cw = &data[i];
         if (!mel_gui_handle_eq(cw->parent, frame_h)) continue;
         if (!cw->native) continue;
         id obj = (__bridge id)cw->native;
@@ -24,7 +24,7 @@
         cw->native = NULL;
     }
 
-    Mel_Gui_Widget* fw = mel_gui__get(frame_h);
+    Mel_Gui_Node* fw = mel_gui__node(frame_h);
     void* window_native = NULL;
     if (fw && fw->native) {
         window_native = fw->native;
@@ -49,7 +49,11 @@
 {
     NSWindow* window = (NSWindow*)note.object;
     NSSize    sz     = window.contentView.bounds.size;
-    mel_gui__fire_resize(self.frame_handle, (i32)sz.width, (i32)sz.height);
+    mel_gui__resized(self.frame_handle, (i32)sz.width, (i32)sz.height);
+    if (self.lifecycle.on_resize) {
+        self.lifecycle.on_resize(self.frame_handle, (i32)sz.width, (i32)sz.height,
+                                 mel_gui_user(self.frame_handle));
+    }
 }
 
 - (void)windowDidBecomeKey:(NSNotification*)note
@@ -68,40 +72,47 @@
 
 @end
 
-void mel_gui__backend_frame_create(Mel_Gui_Widget* w, str8 title)
+Mel_Gui_Handle mel_frame_create_opt(Mel_Frame_Opt o)
 {
+    Mel_Gui_Handle h = mel_gui__node_new(MEL_GUI_HANDLE_NONE, o.x, o.y, o.w, o.h, 0, o.user,
+                                         o.initial_state == MEL_FRAME_HIDDEN, NULL, o.layout);
+    Mel_Gui_Node* n = mel_gui__node(h);
+    if (!n) return h;
+
     @autoreleasepool {
-        i32 cw = w->width  > 0 ? w->width  : 480;
-        i32 ch = w->height > 0 ? w->height : 360;
+        i32 cw = n->width  > 0 ? n->width  : 480;
+        i32 ch = n->height > 0 ? n->height : 360;
 
         NSUInteger style = NSWindowStyleMaskTitled
                          | NSWindowStyleMaskClosable
                          | NSWindowStyleMaskMiniaturizable
                          | NSWindowStyleMaskResizable;
 
-        NSRect content = NSMakeRect(0, 0, cw, ch);
-        NSWindow* window = [[NSWindow alloc] initWithContentRect:content
-                                                       styleMask:style
-                                                         backing:NSBackingStoreBuffered
-                                                           defer:NO];
+        NSRect    content = NSMakeRect(0, 0, cw, ch);
+        NSWindow* window  = [[NSWindow alloc] initWithContentRect:content
+                                                        styleMask:style
+                                                          backing:NSBackingStoreBuffered
+                                                            defer:NO];
 
         MelGuiContentView* root = [[MelGuiContentView alloc] initWithFrame:content];
-        root.frame_handle = w->self;
+        root.frame_handle = h;
         [window setContentView:root];
 
         MelGuiWindowDelegate* delegate = [[MelGuiWindowDelegate alloc] init];
-        delegate.frame_handle = w->self;
+        delegate.frame_handle = h;
+        delegate.lifecycle    = o.lifecycle;
         [window setDelegate:delegate];
         objc_setAssociatedObject(window, "mel_gui_delegate", delegate,
                                  OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 
         [window setReleasedWhenClosed:NO];
-        [window setTitle:mel_gui__macos_nsstring(title)];
+        [window setTitle:mel_gui__macos_nsstring(o.title)];
         [window center];
 
-        w->native = (void*)CFBridgingRetain(window);
-        w->x = 0;
-        w->y = 0;
+        n->native = (void*)CFBridgingRetain(window);
+        n->x = 0;
+        n->y = 0;
         mel_gui__frames_inc();
     }
+    return h;
 }

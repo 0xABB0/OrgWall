@@ -1,81 +1,81 @@
 #include "android.h"
 
+#include <stdint.h>
+
 static jclass    s_cls;
-static jmethodID s_create;
-static jmethodID s_value;
-static jmethodID s_setValue;
+static jmethodID s_create;         /* (III)Landroid/view/View; */
+static jmethodID s_installChange;  /* (Landroid/view/View;JJ)V */
+static jmethodID s_value;          /* MelSeekBar.melValue ()I */
+static jmethodID s_setValue;       /* MelSeekBar.melSetValue (I)V */
 
 bool mel_gui__android_slider_register_jni(JNIEnv* env)
 {
     jclass cls = (*env)->FindClass(env, "orgwall/melody/platform/MelSlider");
-    if (!cls) return false;
+    jclass sb  = (*env)->FindClass(env, "orgwall/melody/platform/MelSeekBar");
+    if (!cls || !sb) return false;
     s_cls = (jclass)(*env)->NewGlobalRef(env, cls);
     (*env)->DeleteLocalRef(env, cls);
 
-    s_create   = (*env)->GetStaticMethodID(env, s_cls, "create",   "(JJIIIIIII)Landroid/view/View;");
-    s_value    = (*env)->GetStaticMethodID(env, s_cls, "value",    "(J)I");
-    s_setValue = (*env)->GetStaticMethodID(env, s_cls, "setValue", "(JI)V");
+    s_create        = (*env)->GetStaticMethodID(env, s_cls, "create",        "(III)Landroid/view/View;");
+    s_installChange = (*env)->GetStaticMethodID(env, s_cls, "installChange", "(Landroid/view/View;JJ)V");
+    s_value         = (*env)->GetMethodID(env, sb, "melValue",    "()I");
+    s_setValue      = (*env)->GetMethodID(env, sb, "melSetValue", "(I)V");
+    (*env)->DeleteLocalRef(env, sb);
     if ((*env)->ExceptionCheck(env)) { (*env)->ExceptionClear(env); return false; }
-    return s_create != NULL && s_value != NULL && s_setValue != NULL;
+    return s_create && s_installChange && s_value && s_setValue;
 }
 
-void mel_gui__backend_slider_create(Mel_Gui_Widget* w, str8 text)
+Mel_Gui_Handle mel_slider_create_opt(Mel_Gui_Handle parent, Mel_Slider_Opt o)
 {
-    (void)text;
+    Mel_Gui_Handle h = mel_gui__node_new(parent, o.x, o.y, o.w, o.h, o.id, o.user, o.hidden,
+                                         &o.layoutable, NULL);
+    Mel_Gui_Node* n = mel_gui__node(h);
+    if (!n) return h;
+
+    i32 max_value = (o.max_value > o.min_value) ? o.max_value : o.min_value + 100;
+
     JNIEnv* env = mel_gui__android_env();
-    if (!env) return;
+    if (!env) return h;
 
-    Mel_Gui_Slider_Impl* impl = (Mel_Gui_Slider_Impl*)w->impl;
-    i32 mn  = impl ? impl->min_value : 0;
-    i32 mx  = impl ? impl->max_value : 100;
-    i32 val = impl ? impl->value     : 0;
+    jobject view = (*env)->CallStaticObjectMethod(env, s_cls, s_create, o.min_value, max_value, o.value);
+    if ((*env)->ExceptionCheck(env)) { (*env)->ExceptionClear(env); return h; }
+    if (!view) return h;
 
-    jobject view = (*env)->CallStaticObjectMethod(env, s_cls, s_create,
-        mel_gui__android_pack(w->self),
-        mel_gui__android_pack(w->parent),
-        w->x, w->y, w->width, w->height,
-        mn, mx, val);
-    if ((*env)->ExceptionCheck(env)) { (*env)->ExceptionClear(env); return; }
+    mel_gui__android_attach(n, view);
 
-    if (view) {
-        w->native = (*env)->NewGlobalRef(env, view);
-        (*env)->DeleteLocalRef(env, view);
+    if (o.on_.on_value_changed) {
+        (*env)->CallStaticVoidMethod(env, s_cls, s_installChange, view,
+            mel_gui__android_pack(h), (jlong)(intptr_t)o.on_.on_value_changed);
     }
+    mel_gui__android_install_focus(env, view, h, o.focus);
+
+    (*env)->DeleteLocalRef(env, view);
+    return h;
 }
 
-i32 mel_gui__backend_slider_value(Mel_Gui_Widget* w)
+i32 mel_slider_value(Mel_Gui_Handle h)
 {
-    if (!w || !w->native) return 0;
+    Mel_Gui_Node* n = mel_gui__node(h);
+    if (!n || !n->native) return 0;
     JNIEnv* env = mel_gui__android_env();
     if (!env) return 0;
-    Mel_Gui_Slider_Impl* impl = (Mel_Gui_Slider_Impl*)w->impl;
-    i32 progress = (i32)(*env)->CallStaticIntMethod(env, s_cls, s_value,
-        mel_gui__android_pack(w->self));
-    return progress + (impl ? impl->min_value : 0);
+    return (i32)(*env)->CallIntMethod(env, (jobject)n->native, s_value);
 }
 
-void mel_gui__backend_slider_set_value(Mel_Gui_Widget* w, i32 value)
+void mel_slider_set_value(Mel_Gui_Handle h, i32 value)
 {
-    if (!w || !w->native) return;
+    Mel_Gui_Node* n = mel_gui__node(h);
+    if (!n || !n->native) return;
     JNIEnv* env = mel_gui__android_env();
     if (!env) return;
-    Mel_Gui_Slider_Impl* impl = (Mel_Gui_Slider_Impl*)w->impl;
-    if (impl) impl->value = value;
-    (*env)->CallStaticVoidMethod(env, s_cls, s_setValue,
-        mel_gui__android_pack(w->self), value - (impl ? impl->min_value : 0));
+    (*env)->CallVoidMethod(env, (jobject)n->native, s_setValue, value);
 }
 
 JNIEXPORT void JNICALL
-Java_orgwall_melody_platform_MelSlider_nativeValueChanged(JNIEnv* env, jclass cls, jlong h, jint progress)
+Java_orgwall_melody_platform_MelSlider_nativeChange(JNIEnv* env, jclass cls, jlong h, jlong fn, jint value)
 {
     (void)env; (void)cls;
+    if (!fn) return;
     Mel_Gui_Handle handle = mel_gui__android_unpack(h);
-    Mel_Gui_Widget* w = mel_gui__get(handle);
-    if (!w) return;
-    Mel_Gui_Slider_Impl* impl = (Mel_Gui_Slider_Impl*)w->impl;
-    i32 value = progress + (impl ? impl->min_value : 0);
-    if (impl) impl->value = value;
-    if (impl && impl->on_.on_value_changed) {
-        impl->on_.on_value_changed(handle, value, w->user);
-    }
+    ((Mel_Cb_I32)(intptr_t)fn)(handle, (i32)value, mel_gui_user(handle));
 }

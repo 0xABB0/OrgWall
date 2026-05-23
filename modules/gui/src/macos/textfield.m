@@ -21,10 +21,10 @@
 {
     MelGuiTextField* tf = [self mel_owning_textfield];
     if (tf) {
-        mel_gui__fire_key_down(tf.handle, mel_gui__macos_key_for_event(e));
+        mel_gui__macos_key(tf.handle, tf.keyboard, e, true);
         NSString* chars = e.characters;
-        if (chars.length > 0) {
-            mel_gui__fire_char(tf.handle, (u32)[chars characterAtIndex:0]);
+        if (chars.length > 0 && tf.keyboard.on_char) {
+            tf.keyboard.on_char(tf.handle, (u32)[chars characterAtIndex:0], mel_gui_user(tf.handle));
         }
     }
     [super keyDown:e];
@@ -33,9 +33,7 @@
 - (void)keyUp:(NSEvent*)e
 {
     MelGuiTextField* tf = [self mel_owning_textfield];
-    if (tf) {
-        mel_gui__fire_key_up(tf.handle, mel_gui__macos_key_for_event(e));
-    }
+    if (tf) mel_gui__macos_key(tf.handle, tf.keyboard, e, false);
     [super keyUp:e];
 }
 
@@ -54,23 +52,33 @@ NSText* mel_gui__macos_field_editor(NSWindow* window, id client)
     return fe;
 }
 
-void mel_gui__backend_textfield_create(Mel_Gui_Widget* w, str8 text)
+Mel_Gui_Handle mel_textfield_create_opt(Mel_Gui_Handle parent, Mel_TextField_Opt o)
 {
+    Mel_Gui_Handle h = mel_gui__node_new(parent, o.x, o.y, o.w, o.h, o.id, o.user, o.hidden,
+                                         &o.layoutable, NULL);
+    Mel_Gui_Node* n = mel_gui__node(h);
+    if (!n) return h;
+
     @autoreleasepool {
-        MelGuiTextField* tf = [[MelGuiTextField alloc] initWithFrame:NSMakeRect(0, 0, w->width, w->height)];
-        tf.handle          = w->self;
+        MelGuiTextField* tf = [[MelGuiTextField alloc] initWithFrame:NSMakeRect(0, 0, n->width, n->height)];
+        tf.handle          = h;
+        tf.on_             = o.on_;
+        tf.focus           = o.focus;
+        tf.keyboard        = o.keyboard;
         tf.editable        = YES;
         tf.selectable      = YES;
         tf.bezeled         = YES;
         tf.drawsBackground = YES;
-        tf.stringValue     = mel_gui__macos_nsstring(text);
+        tf.stringValue     = mel_gui__macos_nsstring(o.text);
+        if (o.disabled) tf.enabled = NO;
 
         MelGuiTextFieldDelegate* delegate = [[MelGuiTextFieldDelegate alloc] init];
-        delegate.handle = w->self;
+        delegate.handle = h;
         tf.delegate     = delegate;
         objc_setAssociatedObject(tf, "mel_gui_tf_delegate", delegate,
                                  OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 
-        mel_gui__macos_install_child(w, tf);
+        mel_gui__macos_install_child(n, tf);
     }
+    return h;
 }

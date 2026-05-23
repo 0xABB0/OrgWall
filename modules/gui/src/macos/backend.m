@@ -3,17 +3,17 @@
 
 NSWindow* mel_gui_appkit_nswindow(Mel_Gui_Handle h)
 {
-    Mel_Gui_Widget* w = mel_gui__get(h);
-    if (!w || !w->native) return nil;
-    id obj = (__bridge id)w->native;
+    Mel_Gui_Node* n = mel_gui__node(h);
+    if (!n || !n->native) return nil;
+    id obj = (__bridge id)n->native;
     return [obj isKindOfClass:[NSWindow class]] ? (NSWindow*)obj : nil;
 }
 
 NSView* mel_gui_appkit_nsview(Mel_Gui_Handle h)
 {
-    Mel_Gui_Widget* w = mel_gui__get(h);
-    if (!w || !w->native) return nil;
-    id obj = (__bridge id)w->native;
+    Mel_Gui_Node* n = mel_gui__node(h);
+    if (!n || !n->native) return nil;
+    id obj = (__bridge id)n->native;
     if ([obj isKindOfClass:[NSView   class]]) return (NSView*)obj;
     if ([obj isKindOfClass:[NSWindow class]]) return [(NSWindow*)obj contentView];
     return nil;
@@ -26,31 +26,29 @@ NSView* mel_gui_appkit_nsview(Mel_Gui_Handle h)
 @implementation MelGuiTextFieldDelegate
 - (void)controlTextDidChange:(NSNotification*)note
 {
-    Mel_Gui_Widget* w = mel_gui__get(self.handle);
-    if (!w) return;
-    Mel_Gui_TextField_Impl* impl = (Mel_Gui_TextField_Impl*)w->impl;
-    if (!impl || !impl->on_.on_text_changed) return;
+    MelGuiTextField* tf = (MelGuiTextField*)note.object;
+    if (![tf isKindOfClass:[MelGuiTextField class]]) return;
+    if (!tf.on_.on_text_changed) return;
 
-    NSTextField* tf = (NSTextField*)note.object;
-    NSString*    s  = tf.stringValue;
-    const char*  c  = [s UTF8String];
-    size         n  = c ? (size)strlen(c) : 0;
-    str8         t  = { (u8*)c, n };
-    impl->on_.on_text_changed(self.handle, t, w->user);
+    NSString*   s = tf.stringValue;
+    const char* c = [s UTF8String];
+    size        n = c ? (size)strlen(c) : 0;
+    str8        t = { (u8*)c, n };
+    tf.on_.on_text_changed(tf.handle, t, mel_gui_user(tf.handle));
 }
 - (void)controlTextDidBeginEditing:(NSNotification*)note
 {
-    (void)note;
-    mel_gui__set_focused(self.handle);
-    mel_gui__macos_fire_focus_in(self.handle);
+    MelGuiTextField* tf = (MelGuiTextField*)note.object;
+    if ([tf isKindOfClass:[MelGuiTextField class]]) {
+        mel_gui__macos_focus_in(tf.handle, tf.focus);
+    }
 }
 - (void)controlTextDidEndEditing:(NSNotification*)note
 {
-    (void)note;
-    if (mel_gui_handle_eq(mel_gui_focused(), self.handle)) {
-        mel_gui__set_focused(MEL_GUI_HANDLE_NONE);
+    MelGuiTextField* tf = (MelGuiTextField*)note.object;
+    if ([tf isKindOfClass:[MelGuiTextField class]]) {
+        mel_gui__macos_focus_out(tf.handle, tf.focus);
     }
-    mel_gui__macos_fire_focus_out(self.handle);
 }
 @end
 
@@ -62,9 +60,9 @@ NSString* mel_gui__macos_nsstring(str8 s)
                                   encoding:NSUTF8StringEncoding] ?: @"";
 }
 
-NSView* mel_gui__macos_parent_view(Mel_Gui_Widget* w)
+NSView* mel_gui__macos_parent_view(Mel_Gui_Node* n)
 {
-    Mel_Gui_Widget* p = mel_gui__get(w->parent);
+    Mel_Gui_Node* p = mel_gui__node(n->parent);
     if (!p || !p->native) return nil;
     id obj = (__bridge id)p->native;
     if ([obj isKindOfClass:[NSWindow class]]) return [(NSWindow*)obj contentView];
@@ -72,24 +70,35 @@ NSView* mel_gui__macos_parent_view(Mel_Gui_Widget* w)
     return nil;
 }
 
-void mel_gui__macos_install_child(Mel_Gui_Widget* w, NSView* view)
+void mel_gui__macos_install_child(Mel_Gui_Node* n, NSView* view)
 {
-    NSView* parent = mel_gui__macos_parent_view(w);
+    NSView* parent = mel_gui__macos_parent_view(n);
     if (!parent) return;
-    [view setFrame:NSMakeRect(w->x, w->y, w->width, w->height)];
-    view.hidden = w->hidden;
+    [view setFrame:NSMakeRect(n->x, n->y, n->width, n->height)];
+    view.hidden = n->hidden;
     [parent addSubview:view];
-    w->native = (void*)CFBridgingRetain(view);
+    n->native = (void*)CFBridgingRetain(view);
 }
 
-void mel_gui__macos_fire_focus_in(Mel_Gui_Handle h)
+void mel_gui__macos_focus_in(Mel_Gui_Handle h, Mel_Gui_Focus_Cb fc)
 {
-    mel_gui__fire_focus_in(h);
+    mel_gui__set_focused(h);
+    if (fc.on_focus_in) fc.on_focus_in(h, mel_gui_user(h));
 }
 
-void mel_gui__macos_fire_focus_out(Mel_Gui_Handle h)
+void mel_gui__macos_focus_out(Mel_Gui_Handle h, Mel_Gui_Focus_Cb fc)
 {
-    mel_gui__fire_focus_out(h);
+    if (mel_gui_handle_eq(mel_gui_focused(), h)) {
+        mel_gui__set_focused(MEL_GUI_HANDLE_NONE);
+    }
+    if (fc.on_focus_out) fc.on_focus_out(h, mel_gui_user(h));
+}
+
+void mel_gui__macos_key(Mel_Gui_Handle h, Mel_Gui_Keyboard_Cb kc, NSEvent* e, bool down)
+{
+    Mel_Key k = mel_gui__macos_key_for_event(e);
+    if (down) { if (kc.on_key_down) kc.on_key_down(h, k, mel_gui_user(h)); }
+    else      { if (kc.on_key_up)   kc.on_key_up  (h, k, mel_gui_user(h)); }
 }
 
 Mel_Key mel_gui__macos_key_for_event(NSEvent* e)
@@ -148,10 +157,10 @@ bool mel_gui__backend_init(void)
     return true;
 }
 
-void mel_gui__backend_destroy(Mel_Gui_Widget* w)
+void mel_gui__backend_destroy(Mel_Gui_Node* n)
 {
-    if (!w || !w->native) return;
-    id obj = (__bridge id)w->native;
+    if (!n || !n->native) return;
+    id obj = (__bridge id)n->native;
 
     if ([obj isKindOfClass:[NSWindow class]]) {
         [(NSWindow*)obj close];
@@ -162,15 +171,16 @@ void mel_gui__backend_destroy(Mel_Gui_Widget* w)
         [(NSView*)obj removeFromSuperview];
     }
 
-    CFBridgingRelease(w->native);
-    w->native = NULL;
+    CFBridgingRelease(n->native);
+    n->native = NULL;
 }
 
-void mel_gui__backend_set_text(Mel_Gui_Widget* w, str8 text)
+void mel_gui_set_text(Mel_Gui_Handle h, str8 text)
 {
-    if (!w || !w->native) return;
+    Mel_Gui_Node* n = mel_gui__node(h);
+    if (!n || !n->native) return;
     NSString* s   = mel_gui__macos_nsstring(text);
-    id        obj = (__bridge id)w->native;
+    id        obj = (__bridge id)n->native;
 
     if ([obj isKindOfClass:[NSWindow class]]) {
         [(NSWindow*)obj setTitle:s];
@@ -181,13 +191,14 @@ void mel_gui__backend_set_text(Mel_Gui_Widget* w, str8 text)
     }
 }
 
-size mel_gui__backend_get_text(Mel_Gui_Widget* w, char* buf, size cap)
+size mel_gui_get_text(Mel_Gui_Handle h, char* buf, size cap)
 {
     if (buf && cap > 0) buf[0] = 0;
-    if (!w || !w->native || !buf || cap <= 0) return 0;
+    Mel_Gui_Node* n = mel_gui__node(h);
+    if (!n || !n->native || !buf || cap <= 0) return 0;
 
     NSString* s = nil;
-    id        obj = (__bridge id)w->native;
+    id        obj = (__bridge id)n->native;
 
     if ([obj isKindOfClass:[NSWindow class]]) {
         s = [(NSWindow*)obj title];
@@ -201,17 +212,20 @@ size mel_gui__backend_get_text(Mel_Gui_Widget* w, char* buf, size cap)
     const char* c = [s UTF8String];
     if (!c) { buf[0] = 0; return 0; }
 
-    size n = (size)strlen(c);
-    if (n > cap - 1) n = cap - 1;
-    memcpy(buf, c, (usize)n);
-    buf[n] = 0;
-    return n;
+    size m = (size)strlen(c);
+    if (m > cap - 1) m = cap - 1;
+    memcpy(buf, c, (usize)m);
+    buf[m] = 0;
+    return m;
 }
 
-void mel_gui__backend_set_bounds(Mel_Gui_Widget* w, i32 x, i32 y, i32 width, i32 height)
+void mel_gui_set_bounds(Mel_Gui_Handle h, i32 x, i32 y, i32 width, i32 height)
 {
-    if (!w || !w->native) return;
-    id obj = (__bridge id)w->native;
+    Mel_Gui_Node* n = mel_gui__node(h);
+    if (!n) return;
+    n->x = x; n->y = y; n->width = width; n->height = height;
+    if (!n->native) return;
+    id obj = (__bridge id)n->native;
 
     if ([obj isKindOfClass:[NSWindow class]]) {
         NSWindow* window = (NSWindow*)obj;
@@ -240,10 +254,13 @@ void mel_gui__backend_set_bounds(Mel_Gui_Widget* w, i32 x, i32 y, i32 width, i32
     }
 }
 
-void mel_gui__backend_set_visible(Mel_Gui_Widget* w, bool visible)
+void mel_gui_set_visible(Mel_Gui_Handle h, bool visible)
 {
-    if (!w || !w->native) return;
-    id obj = (__bridge id)w->native;
+    Mel_Gui_Node* n = mel_gui__node(h);
+    if (!n) return;
+    n->hidden = !visible;
+    if (!n->native) return;
+    id obj = (__bridge id)n->native;
 
     if ([obj isKindOfClass:[NSWindow class]]) {
         NSWindow* window = (NSWindow*)obj;
@@ -257,19 +274,21 @@ void mel_gui__backend_set_visible(Mel_Gui_Widget* w, bool visible)
     }
 }
 
-void mel_gui__backend_set_enabled(Mel_Gui_Widget* w, bool enabled)
+void mel_gui_set_enabled(Mel_Gui_Handle h, bool enabled)
 {
-    if (!w || !w->native) return;
-    id obj = (__bridge id)w->native;
+    Mel_Gui_Node* n = mel_gui__node(h);
+    if (!n || !n->native) return;
+    id obj = (__bridge id)n->native;
     if ([obj isKindOfClass:[NSControl class]]) {
         [(NSControl*)obj setEnabled:enabled];
     }
 }
 
-void mel_gui__backend_set_focus(Mel_Gui_Widget* w)
+void mel_gui_set_focus(Mel_Gui_Handle h)
 {
-    if (!w || !w->native) return;
-    id obj = (__bridge id)w->native;
+    Mel_Gui_Node* n = mel_gui__node(h);
+    if (!n || !n->native) return;
+    id obj = (__bridge id)n->native;
 
     if ([obj isKindOfClass:[NSWindow class]]) {
         NSWindow* window = (NSWindow*)obj;
@@ -281,10 +300,11 @@ void mel_gui__backend_set_focus(Mel_Gui_Widget* w)
     }
 }
 
-void mel_gui__backend_invalidate(Mel_Gui_Widget* w)
+void mel_gui_invalidate(Mel_Gui_Handle h)
 {
-    if (!w || !w->native) return;
-    id obj = (__bridge id)w->native;
+    Mel_Gui_Node* n = mel_gui__node(h);
+    if (!n || !n->native) return;
+    id obj = (__bridge id)n->native;
     if ([obj isKindOfClass:[NSView class]]) {
         [(NSView*)obj setNeedsDisplay:YES];
     } else if ([obj isKindOfClass:[NSWindow class]]) {

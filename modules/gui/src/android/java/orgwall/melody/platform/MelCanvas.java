@@ -6,10 +6,10 @@ public final class MelCanvas {
 
     private MelCanvas() {}
 
-    public static View create(long handle, long parent, int x, int y, int w, int h) {
-        MelCanvasView v = new MelCanvasView(MelGui.activity(), handle);
-        MelGui.attach(v, parent, x, y, w, h);
-        MelGui.registerView(handle, v);
-        return v;
+    public static View create(long handle, long fnPaint,
+                              long fnDown, long fnMove, long fnUp,
+                              long fnKeyDown, long fnKeyUp) {
+        return new MelCanvasView(MelGui.activity(), handle,
+                fnPaint, fnDown, fnMove, fnUp, fnKeyDown, fnKeyUp);
     }
 }

@@ -7,16 +7,16 @@ public final class MelButton {
 
     private MelButton() {}
 
-    public static View create(long handle, long parent, int x, int y, int w, int h, String text) {
+    public static View create(String text) {
         Button v = new Button(MelGui.activity());
         v.setText(text);
         v.setAllCaps(false);
-        v.setOnClickListener(view -> nativeClicked(handle));
-        v.setOnFocusChangeListener((view, hasFocus) -> MelGui.nativeFireFocus(handle, hasFocus));
-        MelGui.attach(v, parent, x, y, w, h);
-        MelGui.registerView(handle, v);
         return v;
     }
 
-    public static native void nativeClicked(long handle);
+    public static void installClick(View v, long handle, long fn) {
+        v.setOnClickListener(view -> nativeClick(handle, fn));
+    }
+
+    public static native void nativeClick(long handle, long fn);
 }

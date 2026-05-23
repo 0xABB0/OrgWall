@@ -193,18 +193,46 @@ module exists, the GUI module carries a *provisional* definition in
 forward dependency, not a hack — the locked PRD 05 struct shapes require the
 type to exist.
 
-* Setters, lazy storage, the custom handler
+* Architecture: backend-owned, no generic indirection
 
-For every create-time callback field there is a runtime setter; the setter and
-the field are functionally equivalent.
+The public API /is/ the platform implementation. =mel_<widget>_create_opt= and
+the ops (=mel_gui_set_text=, =mel_gui_set_bounds=, =mel_gui_set_visible=, …) are
+defined *directly* in =src/<backend>/=. There is no portable per-widget half, no
+=mel_gui__backend_*= delegation layer, and no generic two-phase create. An
+earlier design routed every widget through =mel_<widget>_create → generic
+=mel_gui__create= → =mel_gui__backend_<widget>_create=; that forced the backend
+to conform to a fat generic record and earned nothing, so it was removed.
 
-- Per-slot: =mel_gui_set_pointer_on_click(h, fn, user)= — NULL removes it.
-- Per-capability bulk: =mel_gui_set_pointer_cb(h, const Mel_Gui_Pointer_Cb*)=.
+The portable core (=src/gui.c=, =screen.c=, =layout.c=, =column.c=, =widget.c=)
+owns only what is genuinely backend-independent: the generational-handle slotmap
+registry (=mel_gui__node_new= / =mel_gui__node=), screen navigation, the layout
+engine, and the handle accessors (=mel_gui_id=, =mel_gui_user=,
+=mel_gui_native_handle=). Layout reaches the backend through exactly one public
+op, =mel_gui_set_bounds=.
 
-Storage is lazy. A widget with no callbacks installed has no callback struct
-allocated. The first installation allocates one struct for that instance, from
-the module allocator. =mel_alloc_array=/=mel_calloc= over =mel_alloc_heap()= by
-default; overridable via =mel_gui_init=.
+The backing record is a thin =Mel_Gui_Node=: handle, parent, =native=, =user=,
+=id=, the layout working set (=x/y/width/height=, =hidden=, =Mel_Layoutable=,
+=Mel_Layout*=). It carries *no* callbacks and *no* widget-specific state — those
+live in the native object.
+
+** Callbacks live in the native object
+
+A widget's callbacks are stored on the native control, never in a generic
+per-node struct, and a listener is wired only when the matching opt slot is set:
+
+- *appkit* — the =MelGui*= =NSView=/=NSControl= subclass carries the capability
+  structs as properties; its action/delegate/responder methods dispatch straight
+  to them.
+- *android* — the C handler pointer round-trips through Java as a =jlong= held by
+  the listener installed on the =View=; a thin JNI trampoline casts it back and
+  invokes it. =if (opt.pointer.on_click) MelButton.installClick(view, h, fn)=.
+- *win32* — a per-=HWND= struct (in =GWLP_USERDATA=) holds the callbacks; the
+  =WndProc= / subclass proc dispatches from it.
+
+=user= stays on the node; dispatch reads it by handle, so the native side stores
+only function pointers. There is no generic =fire_*= layer and no lazy callback
+allocation. Runtime per-capability bulk setters (=mel_gui_set_pointer_cb= …) are
+deferred — they return per-backend when first needed.
 
 Composition with a fully custom native handler (the deepest escape hatch):
 each backend exposes, in its backend-tier header, a way to install a raw
@@ -376,9 +404,11 @@ come from =src/= plus =src/<platform-chain>/= (win32 chain: =win32=, =win=).
   =--gui-backend=<name>= selector that overrides which =src/<backend>/=
   directory is compiled and sets a =MEL_GUI_BACKEND_<NAME>= define. This is
   specified here and tracked in =todo.org=; it is not in the first slice.
-- Exactly one =src/<backend>/= directory compiles per build. The portable
-  half of each widget calls backend functions resolved at link time. This
-  satisfies "one backend, compile-time, no vtable".
+- Exactly one =src/<backend>/= directory compiles per build, and it supplies the
+  public =mel_<widget>_create_opt= and =mel_gui_*= op symbols directly. =nob=
+  recurses =src/= for the portable core (skipping platform-named subdirs) and
+  adds the selected backend dir via the platform chain. This satisfies "one
+  backend, compile-time, no vtable".
 
 * Frames and the Screen model
 
@@ -423,7 +453,8 @@ The a11y override API is specified here; the per-backend a11y bridges are
 
 - Handles are generational indices into one =Mel_SlotMap=; the read path does
   not allocate or lock.
-- Per-widget callback storage is lazy: no callbacks installed ⇒ no allocation.
+- Callbacks live on the native object, wired only when an opt slot is set; the
+  node carries none. No generic =fire_*= dispatch on the event path.
 - No vtable on any path except the future layout system.
 - Backend selection is compile-time; backend calls resolve at link time.
 - Widget creation allocates; event dispatch does not. The win32 hidden
@@ -455,15 +486,18 @@ modules/gui/
     win32/    ...          backend tier — raw Win32 power
     uwp/ appkit/ uikit/ gtk4/ qt/ android/ compose/ web/ drawn/   (todo)
   src/
-    gui.c                 slotmap, registry, dispatch core
-    callbacks.c           lazy callback storage + setters + dispatch
-    widget.c              shared widget ops
+    gui_internal.h        Mel_Gui_Node + registry/layout/screen internals
+    gui.c                 slotmap registry, node lifecycle, frame count, focus
+    widget.c              portable handle accessors (id/user/native_handle)
     screen.c              Screen registry + navigation
-    <widget>.c            per-widget portable half (opt parse, defaults)
-    win32/
-      backend.c           class registration, hidden WndProc, subclassing
-      <widget>.c          per-widget native half
+    layout.c column.c     layout engine (reaches backends via mel_gui_set_bounds)
+    win32/  macos/  android/
+      backend.c|.m        shared helpers + the mel_gui_* ops, defined directly
+      <widget>.c|.m       mel_<widget>_create_opt + that widget's native dispatch
 #+end_example
+
+There is no =callbacks.c= and no =src/controls/=: each backend owns the whole
+public surface for its widgets.
 
 The first slice creates only the files it needs (see below); every other file
 is a =todo.org= entry.

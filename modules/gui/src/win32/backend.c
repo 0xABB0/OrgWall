@@ -2,21 +2,10 @@
 
 #include <gui/win32/frame.h>
 
-static HINSTANCE g_hinst;
-
-HINSTANCE mel_gui__win32_hinst(void)
-{
-    if (!g_hinst) g_hinst = GetModuleHandleW(NULL);
-    return g_hinst;
-}
-
 int mel_gui__win32_widen(str8 s, wchar_t* buf, int cap)
 {
     if (cap <= 0) return 0;
-    if (s.len <= 0 || s.data == NULL) {
-        buf[0] = 0;
-        return 0;
-    }
+    if (s.len <= 0 || s.data == NULL) { buf[0] = 0; return 0; }
     int n = MultiByteToWideChar(CP_UTF8, 0, (const char*)s.data, (int)s.len, buf, cap - 1);
     if (n < 0) n = 0;
     buf[n] = 0;
@@ -26,38 +15,54 @@ int mel_gui__win32_widen(str8 s, wchar_t* buf, int cap)
 size mel_gui__win32_narrow(const wchar_t* w, int wlen, char* buf, size cap)
 {
     if (!buf || cap <= 0) return 0;
-    if (wlen <= 0) {
-        buf[0] = 0;
-        return 0;
-    }
+    if (wlen <= 0) { buf[0] = 0; return 0; }
     int n = WideCharToMultiByte(CP_UTF8, 0, w, wlen, buf, (int)cap - 1, NULL, NULL);
     if (n < 0) n = 0;
     buf[n] = 0;
     return (size)n;
 }
 
+Mel_Win32_Ctl* mel_gui__win32_ctl(HWND hwnd)
+{
+    if (!hwnd) return NULL;
+    return (Mel_Win32_Ctl*)GetWindowLongPtrW(hwnd, GWLP_USERDATA);
+}
+
 Mel_Gui_Handle mel_gui__win32_handle_of(HWND hwnd)
 {
-    if (!hwnd) return MEL_GUI_HANDLE_NONE;
-    return mel_gui_handle_unpack((u64)GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+    Mel_Win32_Ctl* c = mel_gui__win32_ctl(hwnd);
+    return c ? c->handle : MEL_GUI_HANDLE_NONE;
 }
 
-void mel_gui__win32_bind(HWND hwnd, Mel_Gui_Handle h)
+void* mel_gui__win32_alloc_ctl(HWND hwnd, usize size, Mel_Gui_Handle h)
 {
-    SetWindowLongPtrW(hwnd, GWLP_USERDATA, (LONG_PTR)mel_gui_handle_pack(h));
+    Mel_Win32_Ctl* c = (Mel_Win32_Ctl*)mel_calloc(mel_gui__alloc(), size);
+    if (!c) return NULL;
+    c->handle = h;
+    if (hwnd) SetWindowLongPtrW(hwnd, GWLP_USERDATA, (LONG_PTR)c);
+    return c;
 }
 
-HWND mel_gui__win32_parent_hwnd(Mel_Gui_Widget* w)
+void mel_gui__win32_free_ctl(HWND hwnd)
 {
-    Mel_Gui_Widget* p = mel_gui__get(w->parent);
+    Mel_Win32_Ctl* c = mel_gui__win32_ctl(hwnd);
+    if (c) {
+        SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
+        mel_dealloc(mel_gui__alloc(), c);
+    }
+}
+
+HWND mel_gui__win32_parent_hwnd(Mel_Gui_Node* n)
+{
+    Mel_Gui_Node* p = mel_gui__node(n->parent);
     return p ? (HWND)p->native : NULL;
 }
 
-DWORD mel_gui__win32_child_style(Mel_Gui_Widget* w)
+DWORD mel_gui__win32_child_style(Mel_Gui_Node* n, bool disabled)
 {
     DWORD style = WS_CHILD;
-    if (!w->hidden)  style |= WS_VISIBLE;
-    if (w->disabled) style |= WS_DISABLED;
+    if (!n->hidden) style |= WS_VISIBLE;
+    if (disabled)   style |= WS_DISABLED;
     return style;
 }
 
@@ -103,31 +108,33 @@ static void traverse_tab(HWND hwnd)
     if (next && next != hwnd) SetFocus(next);
 }
 
-bool mel_gui__win32_subclass_common(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp, Mel_Gui_Handle h)
+bool mel_gui__win32_subclass_common(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 {
     (void)lp;
+    Mel_Win32_Ctl* c = mel_gui__win32_ctl(hwnd);
+    if (!c) return false;
+    Mel_Gui_Handle h = c->handle;
+    void*          u = mel_gui_user(h);
+
     switch (msg) {
         case WM_SETFOCUS:
             mel_gui__set_focused(h);
-            mel_gui__fire_focus_in(h);
+            if (c->focus.on_focus_in) c->focus.on_focus_in(h, u);
             return false;
         case WM_KILLFOCUS:
-            mel_gui__set_focused(MEL_GUI_HANDLE_NONE);
-            mel_gui__fire_focus_out(h);
+            if (mel_gui_handle_eq(mel_gui_focused(), h)) mel_gui__set_focused(MEL_GUI_HANDLE_NONE);
+            if (c->focus.on_focus_out) c->focus.on_focus_out(h, u);
             return false;
         case WM_KEYDOWN:
-            if (wp == VK_TAB) {
-                traverse_tab(hwnd);
-                return true;
-            }
-            mel_gui__fire_key_down(h, vk_to_key(wp));
+            if (wp == VK_TAB) { traverse_tab(hwnd); return true; }
+            if (c->keyboard.on_key_down) c->keyboard.on_key_down(h, vk_to_key(wp), u);
             return false;
         case WM_KEYUP:
-            mel_gui__fire_key_up(h, vk_to_key(wp));
+            if (c->keyboard.on_key_up) c->keyboard.on_key_up(h, vk_to_key(wp), u);
             return false;
         case WM_CHAR:
             if (wp == VK_TAB) return true;
-            mel_gui__fire_char(h, (u32)wp);
+            if (c->keyboard.on_char) c->keyboard.on_char(h, (u32)wp, u);
             return false;
         default:
             return false;
@@ -141,100 +148,104 @@ bool mel_gui__backend_init(void)
     return true;
 }
 
-void mel_gui__backend_destroy(Mel_Gui_Widget* w)
+void mel_gui__backend_destroy(Mel_Gui_Node* n)
 {
-    if (w && w->native) {
-        HWND hwnd = (HWND)w->native;
-        w->native = NULL;
+    if (n && n->native) {
+        HWND hwnd = (HWND)n->native;
+        n->native = NULL;
         DestroyWindow(hwnd);
     }
 }
 
-void mel_gui__backend_set_text(Mel_Gui_Widget* w, str8 text)
+void mel_gui_set_text(Mel_Gui_Handle h, str8 text)
 {
-    if (!w || !w->native) return;
+    Mel_Gui_Node* n = mel_gui__node(h);
+    if (!n || !n->native) return;
     wchar_t wbuf[2048];
     mel_gui__win32_widen(text, wbuf, 2048);
-    SetWindowTextW((HWND)w->native, wbuf);
+    SetWindowTextW((HWND)n->native, wbuf);
 }
 
-size mel_gui__backend_get_text(Mel_Gui_Widget* w, char* buf, size cap)
+size mel_gui_get_text(Mel_Gui_Handle h, char* buf, size cap)
 {
     if (buf && cap > 0) buf[0] = 0;
-    if (!w || !w->native || !buf || cap <= 0) return 0;
+    Mel_Gui_Node* n = mel_gui__node(h);
+    if (!n || !n->native || !buf || cap <= 0) return 0;
     wchar_t wbuf[2048];
-    int n = GetWindowTextW((HWND)w->native, wbuf, 2048);
-    return mel_gui__win32_narrow(wbuf, n, buf, cap);
+    int got = GetWindowTextW((HWND)n->native, wbuf, 2048);
+    return mel_gui__win32_narrow(wbuf, got, buf, cap);
 }
 
-void mel_gui__backend_set_bounds(Mel_Gui_Widget* w, i32 x, i32 y, i32 width, i32 height)
+void mel_gui_set_bounds(Mel_Gui_Handle h, i32 x, i32 y, i32 width, i32 height)
 {
-    if (!w || !w->native) return;
-    if (mel_gui__is_toplevel(w)) {
-        Mel_Gui_Frame_Impl* fi = (Mel_Gui_Frame_Impl*)w->impl;
-        DWORD style    = fi ? (DWORD)fi->native_style    : WS_OVERLAPPEDWINDOW;
-        DWORD ex_style = fi ? (DWORD)fi->native_ex_style : 0;
-        BOOL  has_menu = fi ? (BOOL)fi->has_menu         : FALSE;
+    Mel_Gui_Node* n = mel_gui__node(h);
+    if (!n) return;
+    n->x = x; n->y = y; n->width = width; n->height = height;
+    if (!n->native) return;
+    HWND hwnd = (HWND)n->native;
+
+    if (mel_gui__is_toplevel(n)) {
+        Mel_Win32_Frame* f = (Mel_Win32_Frame*)mel_gui__win32_ctl(hwnd);
+        DWORD style    = f ? f->style    : WS_OVERLAPPEDWINDOW;
+        DWORD ex_style = f ? f->ex_style : 0;
+        BOOL  has_menu = f ? f->has_menu : FALSE;
         RECT  rc       = { 0, 0, width, height };
         AdjustWindowRectEx(&rc, style, has_menu, ex_style);
-        MoveWindow((HWND)w->native, x, y,
-                   rc.right - rc.left, rc.bottom - rc.top, TRUE);
+        MoveWindow(hwnd, x, y, rc.right - rc.left, rc.bottom - rc.top, TRUE);
     } else {
-        MoveWindow((HWND)w->native, x, y, width, height, TRUE);
+        MoveWindow(hwnd, x, y, width, height, TRUE);
     }
 }
 
-void mel_gui__backend_set_visible(Mel_Gui_Widget* w, bool visible)
+void mel_gui_set_visible(Mel_Gui_Handle h, bool visible)
 {
-    if (!w || !w->native) return;
-    HWND hwnd = (HWND)w->native;
-    if (!visible) {
-        ShowWindow(hwnd, SW_HIDE);
-        return;
-    }
+    Mel_Gui_Node* n = mel_gui__node(h);
+    if (!n) return;
+    n->hidden = !visible;
+    if (!n->native) return;
+    HWND hwnd = (HWND)n->native;
+
+    if (!visible) { ShowWindow(hwnd, SW_HIDE); return; }
+
     int ncmd = SW_SHOW;
-    if (mel_gui__is_toplevel(w)) {
-        Mel_Gui_Frame_Impl* fi = (Mel_Gui_Frame_Impl*)w->impl;
-        if (fi && !fi->first_show_done) {
-            switch (fi->initial_state) {
+    if (mel_gui__is_toplevel(n)) {
+        Mel_Win32_Frame* f = (Mel_Win32_Frame*)mel_gui__win32_ctl(hwnd);
+        if (f && !f->first_show_done) {
+            switch (f->initial_state) {
                 case MEL_FRAME_MINIMIZED: ncmd = SW_SHOWMINIMIZED; break;
                 case MEL_FRAME_MAXIMIZED: ncmd = SW_SHOWMAXIMIZED; break;
                 default:                  ncmd = SW_SHOWNORMAL;    break;
             }
-            fi->first_show_done = true;
+            f->first_show_done = true;
         }
     }
     ShowWindow(hwnd, ncmd);
 }
 
-void mel_gui__backend_set_enabled(Mel_Gui_Widget* w, bool enabled)
+void mel_gui_set_enabled(Mel_Gui_Handle h, bool enabled)
 {
-    if (w && w->native) {
-        EnableWindow((HWND)w->native, enabled);
-    }
+    Mel_Gui_Node* n = mel_gui__node(h);
+    if (n && n->native) EnableWindow((HWND)n->native, enabled);
 }
 
-void mel_gui__backend_set_focus(Mel_Gui_Widget* w)
+void mel_gui_set_focus(Mel_Gui_Handle h)
 {
-    if (!w || !w->native) return;
-    if (mel_gui__is_toplevel(w)) {
-        SetForegroundWindow((HWND)w->native);
-    } else {
-        SetFocus((HWND)w->native);
-    }
+    Mel_Gui_Node* n = mel_gui__node(h);
+    if (!n || !n->native) return;
+    if (mel_gui__is_toplevel(n)) SetForegroundWindow((HWND)n->native);
+    else                         SetFocus((HWND)n->native);
 }
 
-void mel_gui__backend_invalidate(Mel_Gui_Widget* w)
+void mel_gui_invalidate(Mel_Gui_Handle h)
 {
-    if (w && w->native) {
-        InvalidateRect((HWND)w->native, NULL, TRUE);
-    }
+    Mel_Gui_Node* n = mel_gui__node(h);
+    if (n && n->native) InvalidateRect((HWND)n->native, NULL, TRUE);
 }
 
 HWND mel_gui_win32_hwnd(Mel_Gui_Handle h)
 {
-    Mel_Gui_Widget* w = mel_gui__get(h);
-    return w ? (HWND)w->native : NULL;
+    Mel_Gui_Node* n = mel_gui__node(h);
+    return n ? (HWND)n->native : NULL;
 }
 
 bool mel_gui_win32_install_subclass(Mel_Gui_Handle h, SUBCLASSPROC proc,

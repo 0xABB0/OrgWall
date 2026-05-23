@@ -9,7 +9,7 @@ typedef struct {
     u8         cross_align;
 } Mel_Column_Layout;
 
-static bool is_child_of(const Mel_Gui_Widget* child, Mel_Gui_Handle parent)
+static bool is_child_of(const Mel_Gui_Node* child, Mel_Gui_Handle parent)
 {
     return mel_gui_handle_eq(child->parent, parent);
 }
@@ -22,7 +22,7 @@ static u8 resolve_cross(u8 child_align, u8 default_align)
     return child_align;
 }
 
-static void child_preferred(const Mel_Gui_Widget* c, i32* pw, i32* ph)
+static void child_preferred(const Mel_Gui_Node* c, i32* pw, i32* ph)
 {
     *pw = c->layoutable.fixed_w ? c->layoutable.fixed_w
         : c->layoutable.preferred_w ? c->layoutable.preferred_w
@@ -39,14 +39,14 @@ static void column_measure(Mel_Layout* layout, Mel_Gui_Handle container,
     (void)avail_w; (void)avail_h;
 
     u32 count = 0;
-    Mel_Gui_Widget* data = mel_gui__widgets(&count);
+    Mel_Gui_Node* data = mel_gui__nodes(&count);
 
     i32 primary = 0;
     i32 cross   = 0;
     i32 visible_count = 0;
 
     for (u32 i = 0; i < count; i++) {
-        Mel_Gui_Widget* c = &data[i];
+        Mel_Gui_Node* c = &data[i];
         if (!is_child_of(c, container) || c->hidden) continue;
 
         i32 pw, ph;
@@ -71,18 +71,18 @@ static void column_measure(Mel_Layout* layout, Mel_Gui_Handle container,
 static void column_arrange(Mel_Layout* layout, Mel_Gui_Handle container)
 {
     Mel_Column_Layout* col = (Mel_Column_Layout*)layout;
-    Mel_Gui_Widget*    parent = mel_gui__get(container);
+    Mel_Gui_Node*      parent = mel_gui__node(container);
     if (!parent) return;
 
     u32 count = 0;
-    Mel_Gui_Widget* data = mel_gui__widgets(&count);
+    Mel_Gui_Node* data = mel_gui__nodes(&count);
 
     i32 fixed_primary  = 0;
     i32 total_weight   = 0;
     i32 visible_count  = 0;
 
     for (u32 i = 0; i < count; i++) {
-        Mel_Gui_Widget* c = &data[i];
+        Mel_Gui_Node* c = &data[i];
         if (!is_child_of(c, container) || c->hidden) continue;
 
         i32 pw, ph;
@@ -102,7 +102,7 @@ static void column_arrange(Mel_Layout* layout, Mel_Gui_Handle container)
     i32 cursor = col->margin;
 
     for (u32 i = 0; i < count; i++) {
-        Mel_Gui_Widget* c = &data[i];
+        Mel_Gui_Node* c = &data[i];
         if (!is_child_of(c, container) || c->hidden) continue;
 
         i32 pw, ph;

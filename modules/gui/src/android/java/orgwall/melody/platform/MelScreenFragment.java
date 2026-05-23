@@ -9,27 +9,21 @@ import android.view.ViewGroup;
 @SuppressWarnings("deprecation")
 public class MelScreenFragment extends Fragment {
 
-    private static final String ARG_HANDLE = "mel.handle";
+    private View view;
 
-    public static MelScreenFragment forHandle(long handle) {
+    public static MelScreenFragment forView(View v) {
         MelScreenFragment f = new MelScreenFragment();
-        Bundle args = new Bundle();
-        args.putLong(ARG_HANDLE, handle);
-        f.setArguments(args);
+        f.view = v;
         return f;
     }
 
-    public long handle() {
-        Bundle args = getArguments();
-        return args != null ? args.getLong(ARG_HANDLE) : 0L;
-    }
+    public View view() { return view; }
 
     @Override
     public View onCreateView(LayoutInflater inflater, ViewGroup container, Bundle saved) {
-        View v = MelGui.viewFor(handle());
-        if (v != null && v.getParent() instanceof ViewGroup) {
-            ((ViewGroup) v.getParent()).removeView(v);
+        if (view != null && view.getParent() instanceof ViewGroup) {
+            ((ViewGroup) view.getParent()).removeView(view);
         }
-        return v;
+        return view;
     }
 }

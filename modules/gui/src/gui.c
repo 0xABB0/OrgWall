@@ -2,7 +2,7 @@
 
 #include <allocator.heap/heap.h>
 
-static Mel_SlotMap      g_widgets;
+static Mel_SlotMap      g_nodes;
 static const Mel_Alloc* g_alloc;
 static Mel_Reactor*     g_reactor;
 static bool             g_inited;
@@ -19,22 +19,13 @@ static Mel_Gui_Handle from_sm(Mel_SlotMap_Handle h)
     return (Mel_Gui_Handle){ .index = h.index, .generation = h.generation };
 }
 
-static bool nonzero(const void* p, usize n)
-{
-    const u8* b = (const u8*)p;
-    for (usize i = 0; i < n; i++) {
-        if (b[i] != 0) return true;
-    }
-    return false;
-}
-
 void mel_gui_init(Mel_Reactor* reactor)
 {
     if (g_inited) return;
     g_alloc   = mel_alloc_heap();
     g_reactor = reactor;
-    mel_slotmap_init(&g_widgets, g_alloc,
-        .item_size = sizeof(Mel_Gui_Widget), .initial_capacity = 64);
+    mel_slotmap_init(&g_nodes, g_alloc,
+        .item_size = sizeof(Mel_Gui_Node), .initial_capacity = 64);
     mel_gui__backend_init();
     g_inited = true;
 }
@@ -61,137 +52,114 @@ bool mel_gui_backend_supports(Mel_Gui_Capability cap)
     return false;
 }
 
-Mel_Gui_Widget* mel_gui__get(Mel_Gui_Handle h)
+Mel_Gui_Node* mel_gui__node(Mel_Gui_Handle h)
 {
     if (mel_gui_handle_is_none(h)) return NULL;
-    return (Mel_Gui_Widget*)mel_slotmap_get(&g_widgets, to_sm(h));
+    return (Mel_Gui_Node*)mel_slotmap_get(&g_nodes, to_sm(h));
+}
+
+Mel_Gui_Node* mel_gui__nodes(u32* count_out)
+{
+    if (count_out) *count_out = mel_slotmap_count(&g_nodes);
+    return (Mel_Gui_Node*)mel_slotmap_data(&g_nodes);
 }
 
 bool mel_gui_alive(Mel_Gui_Handle h)
 {
     if (mel_gui_handle_is_none(h)) return false;
-    return mel_slotmap_alive(&g_widgets, to_sm(h));
+    return mel_slotmap_alive(&g_nodes, to_sm(h));
 }
 
-bool mel_gui__is_toplevel(const Mel_Gui_Widget* w)
+bool mel_gui__is_toplevel(const Mel_Gui_Node* n)
 {
-    return w && mel_gui_handle_is_none(w->parent);
+    return n && mel_gui_handle_is_none(n->parent);
 }
 
-Mel_Gui_Widget* mel_gui__widgets(u32* count_out)
+Mel_Gui_Handle mel_gui__node_new(Mel_Gui_Handle parent,
+                                 i32 x, i32 y, i32 w, i32 h, u32 id, void* user,
+                                 bool hidden,
+                                 const Mel_Layoutable* layoutable, Mel_Layout* layout)
 {
-    if (count_out) *count_out = mel_slotmap_count(&g_widgets);
-    return (Mel_Gui_Widget*)mel_slotmap_data(&g_widgets);
-}
-
-Mel_Gui_Handle mel_gui__create(Mel_Gui_Handle parent,
-                               i32 x, i32 y, i32 width, i32 height, u32 id, void* user,
-                               bool disabled, bool hidden, usize impl_size,
-                               const Mel_Gui_Lifecycle_Cb* lc,
-                               const Mel_Gui_Focus_Cb* fc,
-                               const Mel_Gui_Pointer_Cb* pc,
-                               const Mel_Gui_Keyboard_Cb* kc,
-                               const Mel_Layoutable* layoutable,
-                               Mel_Layout* layout)
-{
-    Mel_Gui_Widget init = {0};
+    Mel_Gui_Node init = {0};
     init.parent = parent;
 
-    Mel_SlotMap_Handle sh = mel_slotmap_insert(&g_widgets, &init);
-    Mel_Gui_Handle     h  = from_sm(sh);
+    Mel_SlotMap_Handle sh = mel_slotmap_insert(&g_nodes, &init);
+    Mel_Gui_Handle     handle = from_sm(sh);
 
-    Mel_Gui_Widget* w = (Mel_Gui_Widget*)mel_slotmap_get(&g_widgets, sh);
-    if (!w) return MEL_GUI_HANDLE_NONE;
+    Mel_Gui_Node* n = (Mel_Gui_Node*)mel_slotmap_get(&g_nodes, sh);
+    if (!n) return MEL_GUI_HANDLE_NONE;
 
-    w->self     = h;
-    w->id       = id;
-    w->user     = user;
-    w->x        = x;
-    w->y        = y;
-    w->width    = width;
-    w->height   = height;
-    w->disabled = disabled;
-    w->hidden   = hidden;
-    if (layoutable) w->layoutable = *layoutable;
-    w->layout = layout;
+    n->self   = handle;
+    n->id     = id;
+    n->user   = user;
+    n->x      = x;
+    n->y      = y;
+    n->width  = w;
+    n->height = h;
+    n->hidden = hidden;
+    if (layoutable) n->layoutable = *layoutable;
+    n->layout = layout;
 
-    if (impl_size > 0) {
-        w->impl = mel_calloc(mel_gui__alloc(), impl_size);
-    }
-
-    bool any = (lc && nonzero(lc, sizeof *lc))
-            || (fc && nonzero(fc, sizeof *fc))
-            || (pc && nonzero(pc, sizeof *pc))
-            || (kc && nonzero(kc, sizeof *kc));
-
-    if (any) {
-        Mel_Gui_Callbacks* cb = (Mel_Gui_Callbacks*)mel_calloc(mel_gui__alloc(), sizeof *cb);
-        if (cb) {
-            if (lc) cb->lifecycle = *lc;
-            if (fc) cb->focus     = *fc;
-            if (pc) cb->pointer   = *pc;
-            if (kc) cb->keyboard  = *kc;
-        }
-        w->cb = cb;
-    }
-
-    return h;
+    return handle;
 }
 
-static void release_widget(Mel_Gui_Widget* w)
+void mel_gui__node_release(Mel_Gui_Handle h)
 {
-    if (w->impl)   mel_dealloc(mel_gui__alloc(), w->impl);
-    if (w->cb)     mel_dealloc(mel_gui__alloc(), w->cb);
-    if (w->layout) mel_gui__layout_free(w->layout);
+    Mel_Gui_Node* n = mel_gui__node(h);
+    if (!n) return;
+    if (n->layout) mel_gui__layout_free(n->layout);
+    mel_slotmap_remove(&g_nodes, to_sm(h));
 }
 
 void mel_gui_destroy(Mel_Gui_Handle h)
 {
-    Mel_Gui_Widget* w = mel_gui__get(h);
-    if (!w) return;
+    Mel_Gui_Node* n = mel_gui__node(h);
+    if (!n) return;
 
-    if (mel_gui__is_toplevel(w)) {
-        mel_gui__backend_destroy(w);
+    if (mel_gui__is_toplevel(n)) {
+        mel_gui__backend_destroy(n);
         return;
     }
 
-    if (w->cb && w->cb->lifecycle.on_destroy) {
-        w->cb->lifecycle.on_destroy(h, w->user);
-    }
-    mel_gui__backend_destroy(w);
-    release_widget(w);
-    mel_slotmap_remove(&g_widgets, to_sm(h));
+    mel_gui__backend_destroy(n);
+    mel_gui__node_release(h);
 }
 
 void mel_gui__destroy_tree(Mel_Gui_Handle root)
 {
-    u32 count = mel_slotmap_count(&g_widgets);
+    u32 count = mel_slotmap_count(&g_nodes);
     if (count == 0) return;
 
     Mel_Gui_Handle* hits = (Mel_Gui_Handle*)mel_alloc(mel_gui__alloc(),
                                                       sizeof(Mel_Gui_Handle) * count);
     if (!hits) return;
 
-    Mel_Gui_Widget* data = (Mel_Gui_Widget*)mel_slotmap_data(&g_widgets);
+    Mel_Gui_Node* data = (Mel_Gui_Node*)mel_slotmap_data(&g_nodes);
     u32 n = 0;
     for (u32 i = 0; i < count; i++) {
-        Mel_Gui_Widget* w = &data[i];
-        if (mel_gui_handle_eq(w->self, root) || mel_gui_handle_eq(w->parent, root)) {
-            hits[n++] = w->self;
+        Mel_Gui_Node* node = &data[i];
+        if (mel_gui_handle_eq(node->self, root) || mel_gui_handle_eq(node->parent, root)) {
+            hits[n++] = node->self;
         }
     }
 
     for (u32 i = 0; i < n; i++) {
-        Mel_Gui_Widget* w = mel_gui__get(hits[i]);
-        if (!w) continue;
-        if (w->cb && w->cb->lifecycle.on_destroy) {
-            w->cb->lifecycle.on_destroy(hits[i], w->user);
-        }
-        release_widget(w);
-        mel_slotmap_remove(&g_widgets, to_sm(hits[i]));
+        Mel_Gui_Node* node = mel_gui__node(hits[i]);
+        if (!node) continue;
+        mel_gui__backend_destroy(node);
+        mel_gui__node_release(hits[i]);
     }
 
     mel_dealloc(mel_gui__alloc(), hits);
+}
+
+void mel_gui__resized(Mel_Gui_Handle h, i32 w, i32 height)
+{
+    Mel_Gui_Node* n = mel_gui__node(h);
+    if (!n) return;
+    n->width  = w;
+    n->height = height;
+    if (n->layout) mel_gui__layout_arrange(h);
 }
 
 void mel_gui__set_focused(Mel_Gui_Handle h)
@@ -219,25 +187,21 @@ void mel_gui_shutdown(void)
 {
     if (!g_inited) return;
 
-    u32 count = mel_slotmap_count(&g_widgets);
-    Mel_Gui_Widget* data = (Mel_Gui_Widget*)mel_slotmap_data(&g_widgets);
+    u32           count = mel_slotmap_count(&g_nodes);
+    Mel_Gui_Node* data  = (Mel_Gui_Node*)mel_slotmap_data(&g_nodes);
 
     for (u32 i = 0; i < count; i++) {
-        Mel_Gui_Widget* w = &data[i];
-        if (w->native) mel_gui__backend_destroy(w);
+        Mel_Gui_Node* n = &data[i];
+        if (n->native) mel_gui__backend_destroy(n);
     }
 
     for (u32 i = 0; i < count; i++) {
-        Mel_Gui_Widget* w = &data[i];
-        if (w->impl)   mel_dealloc(g_alloc, w->impl);
-        if (w->cb)     mel_dealloc(g_alloc, w->cb);
-        if (w->layout) mel_gui__layout_free(w->layout);
-        w->impl   = NULL;
-        w->cb     = NULL;
-        w->layout = NULL;
+        Mel_Gui_Node* n = &data[i];
+        if (n->layout) mel_gui__layout_free(n->layout);
+        n->layout = NULL;
     }
 
-    mel_slotmap_free(&g_widgets);
+    mel_slotmap_free(&g_nodes);
     mel_gui__screens_reset();
 
     g_focused     = MEL_GUI_HANDLE_NONE;
