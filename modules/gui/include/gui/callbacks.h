@@ -11,6 +11,7 @@ typedef struct {
     void (*on_enable) (Mel_Gui_Handle h, bool enabled, void* user);
     void (*on_destroy)(Mel_Gui_Handle h, void* user);
     void (*on_resize) (Mel_Gui_Handle h, i32 w, i32 h_, void* user);
+    bool (*on_close)  (Mel_Gui_Handle h, void* user);
 } Mel_Gui_Lifecycle_Cb;
 
 typedef struct {

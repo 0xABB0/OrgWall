@@ -97,6 +97,50 @@ Each is specified in =readme.org= and must be delivered first-class.
 ** TODO MenuBar / Menu / MenuItem, ToolBar, StatusBar
 ** TODO Drawn-widget family (mel_draw_*) — finalise its vocabulary when built
 
+* Frame / win32 windowing gaps  [COMPLETE]
+
+Surfaced during a post-first-slice review (2026-05-23) and closed the same day.
+The two state-staleness bugs and the =CW_USEDEFAULT= positioning bug were
+fixed in the first pass; the seven items below landed in a follow-up pass.
+
+** DONE Dispatch lifecycle on_show / on_hide / on_enable from the win32 frame
+   =frame_wndproc= now handles =WM_SHOWWINDOW= → on_show / on_hide and
+   =WM_ENABLE= → on_enable, with matching =mel_gui__fire_show / fire_hide /
+   fire_enable= in =src/callbacks.c=.
+
+** DONE on_close on Mel_Gui_Lifecycle_Cb + WM_CLOSE veto path
+   =bool (*on_close)(Mel_Gui_Handle, void* user)= added to the lifecycle
+   struct; =frame_wndproc= =WM_CLOSE= consults =mel_gui__fire_close= and only
+   calls =DestroyWindow= if it returns true (default: true when no handler).
+
+** DONE Frame_Opt: icon, min/max size, resizable, decorated, closable, owner, initial state
+   Polarity is "default on" for the booleans: =.not_resizable=, =.undecorated=,
+   =.not_closable=. =.min_w/h=, =.max_w/h= drive =WM_GETMINMAXINFO=.
+   =.owner= is a =Mel_Gui_Handle=. =.icon_large/.icon_small= are platform-opaque
+   =void*= (HICON on win32). =.initial_state= is the new =Mel_Frame_State= enum
+   (NORMAL/MINIMIZED/MAXIMIZED/HIDDEN) and is honoured on the first
+   =mel_gui_set_visible(true)= call.
+
+** DONE Frame_Opt: .focus and .keyboard capability fields
+   Both fields added; =frame_wndproc= routes =WM_SETFOCUS / WM_KILLFOCUS /
+   WM_KEYDOWN / WM_KEYUP / WM_CHAR= directly (fires only when the frame itself
+   is focused, since key/focus messages otherwise go to the focused child).
+
+** DONE AdjustWindowRectEx: track real style, dwExStyle, menu presence
+   The chosen style/ex-style is cached on =Mel_Gui_Frame_Impl= and read back in
+   both =mel_gui__backend_frame_create= and =mel_gui__backend_set_bounds=.
+   =has_menu= is wired up too, awaiting the MenuBar widget to flip it.
+
+** DONE WM_COMMAND / WM_HSCROLL: fall through when lp==0
+   Both branches now =return 0= only when =lp != 0= (reflected message sent
+   to the child) and otherwise fall through to =DefWindowProc=, so menus and
+   accelerators won't be silently swallowed once a MenuBar exists.
+
+** DONE Backend-tier header: include/gui/win32/frame.h
+   First file in the third tier. Exposes =mel_gui_win32_hwnd(Mel_Gui_Handle)=
+   plus =mel_gui_win32_install_subclass= / =_remove_subclass= for raw WndProc
+   interception. Per-widget backend-tier headers can grow from here.
+
 * Deferred — subsystems
 
 ** TODO Layout system

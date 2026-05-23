@@ -1,5 +1,7 @@
 #include "win32.h"
 
+#include <gui/win32/frame.h>
+
 static HINSTANCE g_hinst;
 
 HINSTANCE mel_gui__win32_hinst(void)
@@ -169,8 +171,12 @@ void mel_gui__backend_set_bounds(Mel_Gui_Widget* w, i32 x, i32 y, i32 width, i32
 {
     if (!w || !w->native) return;
     if (mel_gui__is_toplevel(w)) {
-        RECT rc = { 0, 0, width, height };
-        AdjustWindowRectEx(&rc, WS_OVERLAPPEDWINDOW, FALSE, 0);
+        Mel_Gui_Frame_Impl* fi = (Mel_Gui_Frame_Impl*)w->impl;
+        DWORD style    = fi ? (DWORD)fi->native_style    : WS_OVERLAPPEDWINDOW;
+        DWORD ex_style = fi ? (DWORD)fi->native_ex_style : 0;
+        BOOL  has_menu = fi ? (BOOL)fi->has_menu         : FALSE;
+        RECT  rc       = { 0, 0, width, height };
+        AdjustWindowRectEx(&rc, style, has_menu, ex_style);
         MoveWindow((HWND)w->native, x, y,
                    rc.right - rc.left, rc.bottom - rc.top, TRUE);
     } else {
@@ -180,9 +186,25 @@ void mel_gui__backend_set_bounds(Mel_Gui_Widget* w, i32 x, i32 y, i32 width, i32
 
 void mel_gui__backend_set_visible(Mel_Gui_Widget* w, bool visible)
 {
-    if (w && w->native) {
-        ShowWindow((HWND)w->native, visible ? SW_SHOW : SW_HIDE);
+    if (!w || !w->native) return;
+    HWND hwnd = (HWND)w->native;
+    if (!visible) {
+        ShowWindow(hwnd, SW_HIDE);
+        return;
     }
+    int ncmd = SW_SHOW;
+    if (mel_gui__is_toplevel(w)) {
+        Mel_Gui_Frame_Impl* fi = (Mel_Gui_Frame_Impl*)w->impl;
+        if (fi && !fi->first_show_done) {
+            switch (fi->initial_state) {
+                case MEL_FRAME_MINIMIZED: ncmd = SW_SHOWMINIMIZED; break;
+                case MEL_FRAME_MAXIMIZED: ncmd = SW_SHOWMAXIMIZED; break;
+                default:                  ncmd = SW_SHOWNORMAL;    break;
+            }
+            fi->first_show_done = true;
+        }
+    }
+    ShowWindow(hwnd, ncmd);
 }
 
 void mel_gui__backend_set_enabled(Mel_Gui_Widget* w, bool enabled)
@@ -207,4 +229,25 @@ void mel_gui__backend_invalidate(Mel_Gui_Widget* w)
     if (w && w->native) {
         InvalidateRect((HWND)w->native, NULL, TRUE);
     }
+}
+
+HWND mel_gui_win32_hwnd(Mel_Gui_Handle h)
+{
+    Mel_Gui_Widget* w = mel_gui__get(h);
+    return w ? (HWND)w->native : NULL;
+}
+
+bool mel_gui_win32_install_subclass(Mel_Gui_Handle h, SUBCLASSPROC proc,
+                                    UINT_PTR id, DWORD_PTR ref)
+{
+    HWND hwnd = mel_gui_win32_hwnd(h);
+    if (!hwnd || !proc) return false;
+    return SetWindowSubclass(hwnd, proc, id, ref) != FALSE;
+}
+
+bool mel_gui_win32_remove_subclass(Mel_Gui_Handle h, SUBCLASSPROC proc, UINT_PTR id)
+{
+    HWND hwnd = mel_gui_win32_hwnd(h);
+    if (!hwnd || !proc) return false;
+    return RemoveWindowSubclass(hwnd, proc, id) != FALSE;
 }

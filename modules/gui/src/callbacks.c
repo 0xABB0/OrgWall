@@ -120,3 +120,34 @@ void mel_gui__fire_resize(Mel_Gui_Handle h, i32 w, i32 height)
         widget->cb->lifecycle.on_resize(h, w, height, widget->user);
     }
 }
+
+void mel_gui__fire_show(Mel_Gui_Handle h)
+{
+    Mel_Gui_Widget* w = mel_gui__get(h);
+    if (w && w->cb && w->cb->lifecycle.on_show) {
+        w->cb->lifecycle.on_show(h, w->user);
+    }
+}
+
+void mel_gui__fire_hide(Mel_Gui_Handle h)
+{
+    Mel_Gui_Widget* w = mel_gui__get(h);
+    if (w && w->cb && w->cb->lifecycle.on_hide) {
+        w->cb->lifecycle.on_hide(h, w->user);
+    }
+}
+
+void mel_gui__fire_enable(Mel_Gui_Handle h, bool enabled)
+{
+    Mel_Gui_Widget* w = mel_gui__get(h);
+    if (w && w->cb && w->cb->lifecycle.on_enable) {
+        w->cb->lifecycle.on_enable(h, enabled, w->user);
+    }
+}
+
+bool mel_gui__fire_close(Mel_Gui_Handle h)
+{
+    Mel_Gui_Widget* w = mel_gui__get(h);
+    if (!w || !w->cb || !w->cb->lifecycle.on_close) return true;
+    return w->cb->lifecycle.on_close(h, w->user);
+}

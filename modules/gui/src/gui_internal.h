@@ -34,6 +34,21 @@ typedef struct { Mel_TextField_On on_; }                                 Mel_Gui
 typedef struct { Mel_Slider_On    on_; i32 min_value, max_value, value; } Mel_Gui_Slider_Impl;
 typedef struct { Mel_Canvas_On    on_; }                                 Mel_Gui_Canvas_Impl;
 
+typedef struct {
+    i32            min_w, min_h, max_w, max_h;
+    bool           resizable;
+    bool           decorated;
+    bool           closable;
+    Mel_Gui_Handle owner;
+    void*          icon_large;
+    void*          icon_small;
+    u8             initial_state;
+    bool           first_show_done;
+    u32            native_style;
+    u32            native_ex_style;
+    bool           has_menu;
+} Mel_Gui_Frame_Impl;
+
 const Mel_Alloc* mel_gui__alloc(void);
 Mel_Reactor*     mel_gui__reactor(void);
 
@@ -70,6 +85,10 @@ void mel_gui__fire_pointer_down(Mel_Gui_Handle h, i32 x, i32 y);
 void mel_gui__fire_pointer_up  (Mel_Gui_Handle h, i32 x, i32 y);
 void mel_gui__fire_pointer_move(Mel_Gui_Handle h, i32 x, i32 y);
 void mel_gui__fire_resize      (Mel_Gui_Handle h, i32 w, i32 height);
+void mel_gui__fire_show        (Mel_Gui_Handle h);
+void mel_gui__fire_hide        (Mel_Gui_Handle h);
+void mel_gui__fire_enable      (Mel_Gui_Handle h, bool enabled);
+bool mel_gui__fire_close       (Mel_Gui_Handle h);
 
 bool mel_gui__backend_init(void);
 
