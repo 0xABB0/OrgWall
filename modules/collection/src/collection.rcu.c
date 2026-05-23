@@ -1,6 +1,6 @@
 #include <collection.rcu/rcu.h>
 #include <allocator/allocator.h>
-#include <SDL3/SDL.h>
+#include <thread/mutex.h>
 #include <stdatomic.h>
 
 struct Mel__Rcu_Garbage {
@@ -17,7 +17,7 @@ static void mel__rcu_collect(Mel_Rcu* rcu)
         if (atomic_load_explicit(&rcu->readers[node->bucket], memory_order_acquire) == 0) {
             *pp = node->next;
             mel_dealloc(rcu->alloc, node->ptr);
-            SDL_free(node);
+            mel_dealloc(rcu->alloc, node);
         } else {
             pp = &node->next;
         }
@@ -26,7 +26,7 @@ static void mel__rcu_collect(Mel_Rcu* rcu)
 
 static void mel__rcu_retire(Mel_Rcu* rcu, void* old_ptr, u32 bucket)
 {
-    Mel__Rcu_Garbage* node = SDL_malloc(sizeof(Mel__Rcu_Garbage));
+    Mel__Rcu_Garbage* node = mel_alloc_type(rcu->alloc, Mel__Rcu_Garbage);
     node->ptr = old_ptr;
     node->bucket = bucket;
     node->next = rcu->garbage;
@@ -41,8 +41,8 @@ void mel_rcu_init(Mel_Rcu* rcu, const Mel_Alloc* alloc)
     atomic_store_explicit(&rcu->epoch, 0, memory_order_relaxed);
     atomic_store_explicit(&rcu->readers[0], 0, memory_order_relaxed);
     atomic_store_explicit(&rcu->readers[1], 0, memory_order_relaxed);
-    rcu->writer_lock = SDL_CreateMutex();
-    assert(rcu->writer_lock != NULL);
+    bool ok = mel_mutex_init(&rcu->writer_lock, MEL_MUTEX_PLAIN);
+    assert(ok);
     rcu->garbage = NULL;
     rcu->alloc = alloc;
 }
@@ -60,8 +60,7 @@ void mel_rcu_destroy(Mel_Rcu* rcu)
     if (current)
         mel_dealloc(rcu->alloc, current);
 
-    SDL_DestroyMutex(rcu->writer_lock);
-    rcu->writer_lock = NULL;
+    mel_mutex_destroy(&rcu->writer_lock);
     rcu->alloc = NULL;
 }
 
@@ -86,14 +85,14 @@ void mel_rcu_read_end(Mel_Rcu* rcu, Mel_Rcu_Token token)
 void mel_rcu_writer_lock(Mel_Rcu* rcu)
 {
     assert(rcu != NULL);
-    SDL_LockMutex(rcu->writer_lock);
+    mel_mutex_lock(&rcu->writer_lock);
     mel__rcu_collect(rcu);
 }
 
 void mel_rcu_writer_unlock(Mel_Rcu* rcu)
 {
     assert(rcu != NULL);
-    SDL_UnlockMutex(rcu->writer_lock);
+    mel_mutex_unlock(&rcu->writer_lock);
 }
 
 void* mel_rcu_writer_load(Mel_Rcu* rcu)

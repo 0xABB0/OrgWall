@@ -45,16 +45,17 @@
 cmake-build-debug
 .vs
 out/build/x64-Debug
-build
+/build/
 .vscode
 .cache/clangd/index
 .claude
 .DS_Store
-CLAUDE.md
-imgui.ini
 
 nob
 nob.old
+nob.exe.old
+/nob.dSYM/Contents
+build/
 
 assets
 bought_assets
@@ -71,4 +72,5 @@ apps/hello-world-gui/android/app/src/main/jniLibs/
 *.apk
 *.ap_
 *.aab
-nob.exe.old
+
+CLAUDE.md

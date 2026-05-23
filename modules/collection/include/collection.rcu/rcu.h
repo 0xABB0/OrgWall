@@ -2,15 +2,15 @@
 
 #include "rcu.fwd.h"
 #include <allocator/allocator.fwd.h>
+#include <thread/mutex.h>
 
-typedef struct SDL_Mutex SDL_Mutex;
 typedef struct Mel__Rcu_Garbage Mel__Rcu_Garbage;
 
 struct Mel_Rcu {
     _Atomic(void*) ptr;
     _Atomic(u32) epoch;
     _Atomic(i32) readers[2];
-    SDL_Mutex* writer_lock;
+    Mel_Mutex writer_lock;
     Mel__Rcu_Garbage* garbage;
     const Mel_Alloc* alloc;
 };
