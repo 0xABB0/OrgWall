@@ -47,4 +47,5 @@ void      mel_gui__macos_install_child(Mel_Gui_Widget* w, NSView* view);
 void      mel_gui__macos_fire_focus_in (Mel_Gui_Handle h);
 void      mel_gui__macos_fire_focus_out(Mel_Gui_Handle h);
 Mel_Key   mel_gui__macos_key_for_event(NSEvent* e);
+NSText*   mel_gui__macos_field_editor (NSWindow* window, id client);
 #endif

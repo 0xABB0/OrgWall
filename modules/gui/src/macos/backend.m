@@ -118,61 +118,6 @@ static void install_default_menu(void)
     [app_item setSubmenu:app_menu];
 }
 
-static bool macos_src_prepare(Mel_Reactor_Source* s, i32* timeout)
-{
-    (void)s;
-    NSEvent* e = [NSApp nextEventMatchingMask:NSEventMaskAny
-                                    untilDate:[NSDate distantPast]
-                                       inMode:NSDefaultRunLoopMode
-                                      dequeue:NO];
-    if (e) {
-        *timeout = MEL_REACTOR_NOWAIT;
-        return true;
-    }
-    *timeout = MEL_REACTOR_FOREVER;
-    return false;
-}
-
-static bool macos_src_check(Mel_Reactor_Source* s)
-{
-    (void)s;
-    NSEvent* e = [NSApp nextEventMatchingMask:NSEventMaskAny
-                                    untilDate:[NSDate distantPast]
-                                       inMode:NSDefaultRunLoopMode
-                                      dequeue:NO];
-    return e != nil;
-}
-
-static bool macos_drain_events(void* user)
-{
-    (void)user;
-    @autoreleasepool {
-        while (true) {
-            NSEvent* event = [NSApp nextEventMatchingMask:NSEventMaskAny
-                                                untilDate:[NSDate distantPast]
-                                                   inMode:NSDefaultRunLoopMode
-                                                  dequeue:YES];
-            if (!event) break;
-            [NSApp sendEvent:event];
-        }
-        [NSApp updateWindows];
-    }
-    return true;
-}
-
-static bool macos_src_dispatch(Mel_Reactor_Source* s, Mel_Reactor_Source_Proc cb, void* user)
-{
-    (void)s;
-    if (cb) cb(user);
-    return true;
-}
-
-static const Mel_Reactor_Source_Callbacks g_macos_src_cb = {
-    .prepare  = macos_src_prepare,
-    .check    = macos_src_check,
-    .dispatch = macos_src_dispatch,
-};
-
 bool mel_gui__backend_init(void)
 {
     @autoreleasepool {
@@ -180,15 +125,6 @@ bool mel_gui__backend_init(void)
         [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
         install_default_menu();
         [NSApp finishLaunching];
-
-        Mel_Reactor* r = mel_gui__reactor();
-        if (r) {
-            Mel_Reactor_Source* src = mel_reactor_source_new(&g_macos_src_cb, sizeof *src);
-            if (src) {
-                mel_reactor_source_set_callback(src, macos_drain_events, NULL);
-                mel_reactor_source_attach(r, src);
-            }
-        }
     }
     return true;
 }

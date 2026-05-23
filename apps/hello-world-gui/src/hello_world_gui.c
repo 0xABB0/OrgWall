@@ -153,6 +153,14 @@ static void main_edit_changed(Mel_Gui_Handle h, str8 text, void* user)
     update_main_key_label();
 }
 
+static void main_edit_key_down(Mel_Gui_Handle h, Mel_Key key, void* user)
+{
+    (void)h;
+    (void)user;
+    g_main.last_key = (i32)key;
+    update_main_key_label();
+}
+
 static void canvas_paint(Mel_Gui_Handle h, void* ctx, i32 w, i32 height, void* user)
 {
     (void)h;
@@ -265,9 +273,10 @@ static void build_main(Mel_Gui_Handle frame, void* user)
 
     g_main.edit = mel_textfield_create(frame, .text = S8("native ui"),
         .x = 24, .y = 148, .w = 320, .h = 26, .id = 10,
-        .on_.on_text_changed = main_edit_changed,
-        .focus.on_focus_in   = main_focus_in,
-        .focus.on_focus_out  = main_focus_out,
+        .on_.on_text_changed   = main_edit_changed,
+        .focus.on_focus_in     = main_focus_in,
+        .focus.on_focus_out    = main_focus_out,
+        .keyboard.on_key_down  = main_edit_key_down,
         .user = &g_main);
 
     g_main.counter_button = mel_button_create(frame, .text = S8("Tap this button"),

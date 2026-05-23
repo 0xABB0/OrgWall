@@ -61,6 +61,11 @@
     }
 }
 
+- (id)windowWillReturnFieldEditor:(NSWindow*)window toObject:(id)client
+{
+    return mel_gui__macos_field_editor(window, client);
+}
+
 @end
 
 void mel_gui__backend_frame_create(Mel_Gui_Widget* w, str8 title)

@@ -5,8 +5,13 @@
 
 #include <CoreFoundation/CoreFoundation.h>
 
+#if MEL_PLATFORM_OSX
+extern void mel_reactor__macos_drain_events(void);
+#endif
+
 static void reactor_apple_wake_perform(void* info)
 {
+    (void)info;
 }
 
 static bool reactor_backend_init(Mel_Reactor* r)
@@ -84,6 +89,10 @@ static bool reactor_backend_wait(Mel_Reactor* r, Mel_Reactor_Poll** polls, usize
     else                   secs = (CFTimeInterval)timeout / 1000.0;
 
     CFRunLoopRunInMode(kCFRunLoopDefaultMode, secs, true);
+
+#if MEL_PLATFORM_OSX
+    mel_reactor__macos_drain_events();
+#endif
 
     for (usize i = 0; i < n; i++) {
         CFRunLoopRemoveSource(loop, srcs[i], kCFRunLoopDefaultMode);
