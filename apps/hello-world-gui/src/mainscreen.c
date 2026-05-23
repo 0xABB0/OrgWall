@@ -12,16 +12,16 @@
 #include <CoreGraphics/CoreGraphics.h>
 #endif
 
+#include "tapcounter.h"
+
 
 typedef struct {
     Mel_Gui_Handle frame;
     Mel_Gui_Handle edit;
-    Mel_Gui_Handle counter_button;
     Mel_Gui_Handle slider_label;
     Mel_Gui_Handle status;
     Mel_Gui_Handle key_label;
     Mel_Gui_Handle canvas;
-    i32  clicks;
     i32  slider;
     bool checked;
     bool focused;
@@ -38,8 +38,7 @@ static void update_main_status(void)
 {
     char text[320];
     snprintf(text, sizeof text,
-        "C saw: clicks=%d, checked=%s, slider=%d, edit=\"%s\", focus=%s",
-        g_main.clicks,
+        "C saw: checked=%s, slider=%d, edit=\"%s\", focus=%s",
         g_main.checked ? "yes" : "no",
         g_main.slider,
         g_main.edit_text,
@@ -91,17 +90,8 @@ static void open_details_clicked(Mel_Gui_Handle h, void* user)
 
 static void replace_screen_clicked(Mel_Gui_Handle h, void* user)
 {
-    (void)h;
     (void)user;
-    mel_app_replace(S8("replaced"));
-}
-
-static void counter_clicked(Mel_Gui_Handle h, void* user)
-{
-    (void)user;
-    g_main.clicks += 1;
-    mel_gui_set_text(h, S8("Handled by C callback"));
-    update_main_status();
+    mel_app_replace(h, S8("replaced"));
 }
 
 static void main_checkbox_toggled(Mel_Gui_Handle h, bool checked, void* user)
@@ -253,12 +243,7 @@ void build_main(Mel_Gui_Handle frame, void* user)
         .user = &g_main,
         .layoutable = { .preferred_h = 40 });
 
-    g_main.counter_button = mel_button_create(frame, .text = S8("Tap this button"),
-        .pointer.on_click   = counter_clicked,
-        .focus.on_focus_in  = main_focus_in,
-        .focus.on_focus_out = main_focus_out,
-        .user = &g_main,
-        .layoutable = { .preferred_h = 40 });
+    tapcounter_create(frame, S8("Tap this button"));
 
     mel_checkbox_create(frame, .text = S8("Toggle this checkbox"),
         .on_.on_toggled     = main_checkbox_toggled,
