@@ -119,3 +119,10 @@ Java_orgwall_melody_platform_MelGui_nativeFireCanvasPaint(JNIEnv* env, jclass cl
         impl->on_.on_paint(handle, (void*)canvas, w, height, widget->user);
     }
 }
+
+JNIEXPORT void JNICALL
+Java_orgwall_melody_platform_MelGui_nativeFireResize(JNIEnv* env, jclass cls, jlong h, jint w, jint height)
+{
+    (void)env; (void)cls;
+    mel_gui__fire_resize(unpack(h), w, height);
+}

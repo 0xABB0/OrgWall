@@ -8,6 +8,8 @@
 #if MEL_PLATFORM_WINDOWS
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#elif MEL_PLATFORM_OSX
+#include <CoreGraphics/CoreGraphics.h>
 #endif
 
 typedef struct {
@@ -21,8 +23,8 @@ typedef struct {
     i32  clicks;
     i32  slider;
     bool checked;
+    bool focused;
     char edit_text[128];
-    char focused_name[32];
     i32  pointer_x, pointer_y;
     bool pointer_down;
     i32  canvas_w, canvas_h;
@@ -33,7 +35,7 @@ typedef struct {
     Mel_Gui_Handle frame;
     Mel_Gui_Handle status;
     i32  taps;
-    char focused_name[32];
+    bool focused;
 } Details_State;
 
 static Main_State    g_main;
@@ -48,7 +50,7 @@ static void update_main_status(void)
         g_main.checked ? "yes" : "no",
         g_main.slider,
         g_main.edit_text,
-        g_main.focused_name[0] ? g_main.focused_name : "(none)");
+        g_main.focused ? "yes" : "no");
     mel_gui_set_text(g_main.status, str8_from_cstr(text));
 }
 
@@ -75,27 +77,15 @@ static void update_details_status(void)
     snprintf(text, sizeof text,
         "Details screen keeps its own C state: taps=%d, focus=%s",
         g_details.taps,
-        g_details.focused_name[0] ? g_details.focused_name : "(none)");
+        g_details.focused ? "yes" : "no");
     mel_gui_set_text(g_details.status, str8_from_cstr(text));
-}
-
-static const char* main_name_for_id(u32 id)
-{
-    switch (id) {
-        case 3:  return "open-details";
-        case 10: return "edit";
-        case 11: return "counter-button";
-        case 12: return "checkbox";
-        case 14: return "slider";
-        default: return "?";
-    }
 }
 
 static void main_focus_in(Mel_Gui_Handle h, void* user)
 {
+    (void)h;
     (void)user;
-    snprintf(g_main.focused_name, sizeof g_main.focused_name, "%s",
-             main_name_for_id(mel_gui_id(h)));
+    g_main.focused = true;
     update_main_status();
 }
 
@@ -104,7 +94,7 @@ static void main_focus_out(Mel_Gui_Handle h, void* user)
     (void)h;
     (void)user;
     if (mel_gui_handle_is_none(mel_gui_focused())) {
-        g_main.focused_name[0] = 0;
+        g_main.focused = false;
         update_main_status();
     }
 }
@@ -184,6 +174,15 @@ static void canvas_paint(Mel_Gui_Handle h, void* ctx, i32 w, i32 height, void* u
         SelectObject(dc, oldp);
         DeleteObject(fg);
     }
+#elif MEL_PLATFORM_OSX
+    CGContextRef cg = (CGContextRef)ctx;
+    CGContextSetRGBFillColor(cg, 38.0/255.0, 51.0/255.0, 65.0/255.0, 1.0);
+    CGContextFillRect(cg, CGRectMake(0, 0, w, height));
+    if (g_main.pointer_down) {
+        CGContextSetRGBFillColor(cg, 255.0/255.0, 190.0/255.0, 96.0/255.0, 1.0);
+        CGContextFillEllipseInRect(cg,
+            CGRectMake(g_main.pointer_x - 18, g_main.pointer_y - 18, 36, 36));
+    }
 #else
     (void)ctx;
 #endif
@@ -225,9 +224,9 @@ static void canvas_key_down(Mel_Gui_Handle h, Mel_Key key, void* user)
 
 static void details_focus_in(Mel_Gui_Handle h, void* user)
 {
+    (void)h;
     (void)user;
-    snprintf(g_details.focused_name, sizeof g_details.focused_name, "%s",
-             mel_gui_id(h) == 21 ? "details-button" : "?");
+    g_details.focused = true;
     update_details_status();
 }
 
@@ -236,7 +235,7 @@ static void details_focus_out(Mel_Gui_Handle h, void* user)
     (void)h;
     (void)user;
     if (mel_gui_handle_is_none(mel_gui_focused())) {
-        g_details.focused_name[0] = 0;
+        g_details.focused = false;
         update_details_status();
     }
 }
@@ -259,65 +258,68 @@ static void build_main(Mel_Gui_Handle frame, void* user)
 
     mel_gui_set_text(frame, S8("Hello World Main"));
 
+    mel_gui_set_layout(frame, mel_column_layout(
+        .spacing = 8, .margin = 16, .cross_align = MEL_ALIGN_STRETCH));
+
     mel_label_create(frame, .text = S8("Main Screen"),
-        .x = 24, .y = 20, .w = 380, .h = 30, .id = 1);
+        .layoutable = { .preferred_w = 380, .preferred_h = 30 });
     mel_label_create(frame, .text = S8("This screen is selected and built from C."),
-        .x = 24, .y = 56, .w = 380, .h = 24, .id = 2);
+        .layoutable = { .preferred_h = 24 });
 
     mel_button_create(frame, .text = S8("Open C-defined Details Screen"),
-        .x = 24, .y = 92, .w = 320, .h = 40, .id = 3,
         .pointer.on_click   = open_details_clicked,
         .focus.on_focus_in  = main_focus_in,
         .focus.on_focus_out = main_focus_out,
-        .user = &g_main);
+        .user = &g_main,
+        .layoutable = { .preferred_h = 40 });
 
     g_main.edit = mel_textfield_create(frame, .text = S8("native ui"),
-        .x = 24, .y = 148, .w = 320, .h = 26, .id = 10,
         .on_.on_text_changed   = main_edit_changed,
         .focus.on_focus_in     = main_focus_in,
         .focus.on_focus_out    = main_focus_out,
         .keyboard.on_key_down  = main_edit_key_down,
-        .user = &g_main);
+        .user = &g_main,
+        .layoutable = { .preferred_h = 40 });
 
     g_main.counter_button = mel_button_create(frame, .text = S8("Tap this button"),
-        .x = 24, .y = 188, .w = 220, .h = 40, .id = 11,
         .pointer.on_click   = counter_clicked,
         .focus.on_focus_in  = main_focus_in,
         .focus.on_focus_out = main_focus_out,
-        .user = &g_main);
+        .user = &g_main,
+        .layoutable = { .preferred_h = 40 });
 
     mel_checkbox_create(frame, .text = S8("Toggle this checkbox"),
-        .x = 24, .y = 240, .w = 320, .h = 26, .id = 12,
         .on_.on_toggled     = main_checkbox_toggled,
         .focus.on_focus_in  = main_focus_in,
         .focus.on_focus_out = main_focus_out,
-        .user = &g_main);
+        .user = &g_main,
+        .layoutable = { .preferred_h = 26 });
 
     mel_label_create(frame, .text = S8("Slider value"),
-        .x = 24, .y = 280, .w = 100, .h = 24, .id = 13);
+        .layoutable = { .preferred_h = 24, .cross_align = MEL_ALIGN_START, .preferred_w = 120 });
     mel_slider_create(frame,
-        .x = 130, .y = 276, .w = 180, .h = 32, .id = 14,
         .min_value = 0, .max_value = 100, .value = 65,
         .on_.on_value_changed = main_slider_changed,
         .focus.on_focus_in    = main_focus_in,
         .focus.on_focus_out   = main_focus_out,
-        .user = &g_main);
+        .user = &g_main,
+        .layoutable = { .preferred_h = 32 });
     g_main.slider_label = mel_label_create(frame, .text = S8("65"),
-        .x = 320, .y = 280, .w = 60, .h = 24, .id = 15);
+        .layoutable = { .preferred_h = 24, .cross_align = MEL_ALIGN_START, .preferred_w = 60 });
 
     g_main.status = mel_label_create(frame, .text = S8(""),
-        .x = 24, .y = 320, .w = 380, .h = 56, .id = 16);
+        .layoutable = { .preferred_h = 56 });
     g_main.key_label = mel_label_create(frame, .text = S8("last key: (none)"),
-        .x = 24, .y = 384, .w = 380, .h = 24, .id = 17);
+        .layoutable = { .preferred_h = 24 });
 
     g_main.canvas = mel_canvas_create(frame,
-        .x = 24, .y = 416, .w = 360, .h = 140, .id = 18,
         .on_.on_paint            = canvas_paint,
         .pointer.on_pointer_down = canvas_pointer_down,
         .pointer.on_pointer_move = canvas_pointer_move,
         .pointer.on_pointer_up   = canvas_pointer_up,
         .keyboard.on_key_down    = canvas_key_down,
-        .user = &g_main);
+        .user = &g_main,
+        .layoutable = { .preferred_h = 140, .weight = 1 });
 
     update_main_status();
     update_main_key_label();
@@ -332,19 +334,19 @@ static void build_details(Mel_Gui_Handle frame, void* user)
     mel_gui_set_text(frame, S8("Hello World Details"));
 
     mel_label_create(frame, .text = S8("Details Screen"),
-        .x = 24, .y = 20, .w = 380, .h = 30, .id = 1);
+        .x = 24, .y = 20, .w = 380, .h = 30);
     mel_label_create(frame, .text = S8("Different surface, same melody build code."),
-        .x = 24, .y = 56, .w = 380, .h = 24, .id = 2);
+        .x = 24, .y = 56, .w = 380, .h = 24);
 
     mel_button_create(frame, .text = S8("Tap details-local handler"),
-        .x = 24, .y = 96, .w = 280, .h = 40, .id = 21,
+        .x = 24, .y = 96, .w = 280, .h = 40,
         .pointer.on_click   = details_button_clicked,
         .focus.on_focus_in  = details_focus_in,
         .focus.on_focus_out = details_focus_out,
         .user = &g_details);
 
     g_details.status = mel_label_create(frame, .text = S8(""),
-        .x = 24, .y = 148, .w = 380, .h = 56, .id = 22);
+        .x = 24, .y = 148, .w = 380, .h = 56);
 
     update_details_status();
 }

@@ -5,7 +5,8 @@ Mel_Gui_Handle mel_canvas_create_opt(Mel_Gui_Handle parent, Mel_Canvas_Opt o)
     Mel_Gui_Handle h = mel_gui__create(parent,
         o.x, o.y, o.w, o.h, o.id, o.user, false, o.hidden,
         sizeof(Mel_Gui_Canvas_Impl),
-        &o.lifecycle, &o.focus, &o.pointer, &o.keyboard);
+        &o.lifecycle, &o.focus, &o.pointer, &o.keyboard,
+        &o.layoutable, NULL);
 
     Mel_Gui_Widget* w = mel_gui__get(h);
     if (!w) return h;

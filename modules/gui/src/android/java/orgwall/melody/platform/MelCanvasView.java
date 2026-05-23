@@ -19,13 +19,20 @@ public final class MelCanvasView extends View {
     @Override
     protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
-        MelGui.nativeFireCanvasPaint(handle, canvas, getWidth(), getHeight());
+        float d = MelGui.density();
+        int save = canvas.save();
+        canvas.scale(d, d);
+        MelGui.nativeFireCanvasPaint(handle, canvas,
+                Math.round(getWidth()  / d),
+                Math.round(getHeight() / d));
+        canvas.restoreToCount(save);
     }
 
     @Override
     public boolean onTouchEvent(MotionEvent ev) {
-        int x = (int) ev.getX();
-        int y = (int) ev.getY();
+        float d = MelGui.density();
+        int x = Math.round(ev.getX() / d);
+        int y = Math.round(ev.getY() / d);
         switch (ev.getActionMasked()) {
             case MotionEvent.ACTION_DOWN:
                 requestFocus();

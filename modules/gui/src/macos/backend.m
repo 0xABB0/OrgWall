@@ -1,4 +1,23 @@
 #include "macos.h"
+#include <gui/appkit/frame.h>
+
+NSWindow* mel_gui_appkit_nswindow(Mel_Gui_Handle h)
+{
+    Mel_Gui_Widget* w = mel_gui__get(h);
+    if (!w || !w->native) return nil;
+    id obj = (__bridge id)w->native;
+    return [obj isKindOfClass:[NSWindow class]] ? (NSWindow*)obj : nil;
+}
+
+NSView* mel_gui_appkit_nsview(Mel_Gui_Handle h)
+{
+    Mel_Gui_Widget* w = mel_gui__get(h);
+    if (!w || !w->native) return nil;
+    id obj = (__bridge id)w->native;
+    if ([obj isKindOfClass:[NSView   class]]) return (NSView*)obj;
+    if ([obj isKindOfClass:[NSWindow class]]) return [(NSWindow*)obj contentView];
+    return nil;
+}
 
 @implementation MelGuiContentView
 - (BOOL)isFlipped { return YES; }

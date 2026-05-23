@@ -6,6 +6,8 @@
 #include <gui/init.h>
 #include <gui/widget.h>
 #include <gui/screen.h>
+#include <gui/layout.h>
+#include <gui/layouts/column.h>
 #include <gui/controls/frame.h>
 #include <gui/controls/label.h>
 #include <gui/controls/button.h>

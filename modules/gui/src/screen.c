@@ -13,6 +13,12 @@ typedef struct {
 static Mel_Gui_Screen g_screens[MEL_GUI_MAX_SCREENS];
 static u32            g_screen_count;
 
+void mel_gui__screens_reset(void)
+{
+    for (u32 i = 0; i < g_screen_count; i++) g_screens[i] = (Mel_Gui_Screen){0};
+    g_screen_count = 0;
+}
+
 void mel_app_register_screen(str8 name, Mel_Screen_Build build, void* user)
 {
     if (g_screen_count >= MEL_GUI_MAX_SCREENS || !build) return;
@@ -34,28 +40,46 @@ static Mel_Gui_Screen* find_screen(str8 name)
 
 static void autosize_frame(Mel_Gui_Handle frame)
 {
-    u32 count = 0;
-    Mel_Gui_Widget* data = mel_gui__widgets(&count);
+    Mel_Gui_Widget* fw = mel_gui__get(frame);
+    if (!fw) return;
 
-    i32 max_x = 0;
-    i32 max_y = 0;
-    for (u32 i = 0; i < count; i++) {
-        Mel_Gui_Widget* w = &data[i];
-        if (!mel_gui_handle_eq(w->parent, frame)) continue;
-        i32 rx = w->x + w->width;
-        i32 ry = w->y + w->height;
-        if (rx > max_x) max_x = rx;
-        if (ry > max_y) max_y = ry;
+    i32 cw, ch;
+
+    if (fw->layout) {
+        mel_gui__layout_measure(frame, 0, 0, &cw, &ch);
+    } else {
+        u32 count = 0;
+        Mel_Gui_Widget* data = mel_gui__widgets(&count);
+
+        i32 max_x = 0;
+        i32 max_y = 0;
+        for (u32 i = 0; i < count; i++) {
+            Mel_Gui_Widget* w = &data[i];
+            if (!mel_gui_handle_eq(w->parent, frame)) continue;
+            i32 rx = w->x + w->width;
+            i32 ry = w->y + w->height;
+            if (rx > max_x) max_x = rx;
+            if (ry > max_y) max_y = ry;
+        }
+
+        i32 margin = 24;
+        cw = max_x + margin;
+        ch = max_y + margin;
     }
 
-    i32 margin = 24;
-    i32 cw = max_x + margin;
-    i32 ch = max_y + margin;
     if (cw < 320) cw = 320;
     if (ch < 240) ch = 240;
 
-    Mel_Gui_Widget* fw = mel_gui__get(frame);
-    if (fw) mel_gui_set_bounds(frame, fw->x, fw->y, cw, ch);
+    mel_gui_set_bounds(frame, fw->x, fw->y, cw, ch);
+
+    if (fw->layout) {
+        Mel_Gui_Widget* refreshed = mel_gui__get(frame);
+        if (refreshed) {
+            refreshed->width  = cw;
+            refreshed->height = ch;
+        }
+        mel_gui__layout_arrange(frame);
+    }
 }
 
 void mel_app_present(str8 name)

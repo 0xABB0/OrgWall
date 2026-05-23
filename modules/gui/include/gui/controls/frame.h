@@ -5,6 +5,7 @@
 
 #include <gui/handle.h>
 #include <gui/callbacks.h>
+#include <gui/layout.h>
 
 typedef enum {
     MEL_FRAME_NORMAL = 0,
@@ -33,6 +34,7 @@ typedef struct {
     Mel_Gui_Lifecycle_Cb lifecycle;
     Mel_Gui_Focus_Cb     focus;
     Mel_Gui_Keyboard_Cb  keyboard;
+    Mel_Layout*          layout;
 } Mel_Frame_Opt;
 
 Mel_Gui_Handle mel_frame_create_opt(Mel_Frame_Opt opt);

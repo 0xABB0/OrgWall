@@ -116,9 +116,13 @@ void mel_gui__fire_pointer_move(Mel_Gui_Handle h, i32 x, i32 y)
 void mel_gui__fire_resize(Mel_Gui_Handle h, i32 w, i32 height)
 {
     Mel_Gui_Widget* widget = mel_gui__get(h);
-    if (widget && widget->cb && widget->cb->lifecycle.on_resize) {
+    if (!widget) return;
+    widget->width  = w;
+    widget->height = height;
+    if (widget->cb && widget->cb->lifecycle.on_resize) {
         widget->cb->lifecycle.on_resize(h, w, height, widget->user);
     }
+    if (widget->layout) mel_gui__layout_arrange(h);
 }
 
 void mel_gui__fire_show(Mel_Gui_Handle h)

@@ -90,7 +90,9 @@ Mel_Gui_Handle mel_gui__create(Mel_Gui_Handle parent,
                                const Mel_Gui_Lifecycle_Cb* lc,
                                const Mel_Gui_Focus_Cb* fc,
                                const Mel_Gui_Pointer_Cb* pc,
-                               const Mel_Gui_Keyboard_Cb* kc)
+                               const Mel_Gui_Keyboard_Cb* kc,
+                               const Mel_Layoutable* layoutable,
+                               Mel_Layout* layout)
 {
     Mel_Gui_Widget init = {0};
     init.parent = parent;
@@ -110,6 +112,8 @@ Mel_Gui_Handle mel_gui__create(Mel_Gui_Handle parent,
     w->height   = height;
     w->disabled = disabled;
     w->hidden   = hidden;
+    if (layoutable) w->layoutable = *layoutable;
+    w->layout = layout;
 
     if (impl_size > 0) {
         w->impl = mel_calloc(mel_gui__alloc(), impl_size);
@@ -136,8 +140,9 @@ Mel_Gui_Handle mel_gui__create(Mel_Gui_Handle parent,
 
 static void release_widget(Mel_Gui_Widget* w)
 {
-    if (w->impl) mel_dealloc(mel_gui__alloc(), w->impl);
-    if (w->cb)   mel_dealloc(mel_gui__alloc(), w->cb);
+    if (w->impl)   mel_dealloc(mel_gui__alloc(), w->impl);
+    if (w->cb)     mel_dealloc(mel_gui__alloc(), w->cb);
+    if (w->layout) mel_gui__layout_free(w->layout);
 }
 
 void mel_gui_destroy(Mel_Gui_Handle h)
@@ -208,4 +213,36 @@ i32 mel_gui__frames_dec(void)
 {
     if (g_frame_count > 0) g_frame_count--;
     return g_frame_count;
+}
+
+void mel_gui_shutdown(void)
+{
+    if (!g_inited) return;
+
+    u32 count = mel_slotmap_count(&g_widgets);
+    Mel_Gui_Widget* data = (Mel_Gui_Widget*)mel_slotmap_data(&g_widgets);
+
+    for (u32 i = 0; i < count; i++) {
+        Mel_Gui_Widget* w = &data[i];
+        if (w->native) mel_gui__backend_destroy(w);
+    }
+
+    for (u32 i = 0; i < count; i++) {
+        Mel_Gui_Widget* w = &data[i];
+        if (w->impl)   mel_dealloc(g_alloc, w->impl);
+        if (w->cb)     mel_dealloc(g_alloc, w->cb);
+        if (w->layout) mel_gui__layout_free(w->layout);
+        w->impl   = NULL;
+        w->cb     = NULL;
+        w->layout = NULL;
+    }
+
+    mel_slotmap_free(&g_widgets);
+    mel_gui__screens_reset();
+
+    g_focused     = MEL_GUI_HANDLE_NONE;
+    g_frame_count = 0;
+    g_inited      = false;
+    g_alloc       = NULL;
+    g_reactor     = NULL;
 }

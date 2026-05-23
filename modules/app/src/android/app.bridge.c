@@ -7,6 +7,7 @@
 #include <jni.h>
 
 #include <app/app.h>
+#include <gui/init.h>
 #include <reactor/reactor.h>
 
 static bool app_init(Mel_Reactor* reactor, void* user)
@@ -27,4 +28,5 @@ JNIEXPORT void JNICALL
 Java_orgwall_melody_platform_MelGui_nativeStop(JNIEnv* env, jclass cls)
 {
     (void)env; (void)cls;
+    mel_gui_shutdown();
 }

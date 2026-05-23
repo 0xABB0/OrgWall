@@ -5,6 +5,7 @@
 
 #include <gui/handle.h>
 #include <gui/callbacks.h>
+#include <gui/layout.h>
 
 typedef struct {
     void (*on_toggled)(Mel_Gui_Handle h, bool checked, void* user);
@@ -22,6 +23,7 @@ typedef struct {
     Mel_Gui_Focus_Cb     focus;
     Mel_Gui_Keyboard_Cb  keyboard;
     Mel_CheckBox_On      on_;
+    Mel_Layoutable       layoutable;
 } Mel_CheckBox_Opt;
 
 Mel_Gui_Handle mel_checkbox_create_opt(Mel_Gui_Handle parent, Mel_CheckBox_Opt opt);

@@ -15,26 +15,63 @@ import android.widget.FrameLayout;
 import android.widget.SeekBar;
 import android.widget.TextView;
 
+import java.util.ArrayDeque;
 import java.util.HashMap;
 
 public final class MelGui {
 
     private static Activity activity;
     private static FrameLayout root;
-    private static final HashMap<Long, View>   views  = new HashMap<>();
-    private static final HashMap<Long, String> titles = new HashMap<>();
+    private static float density = 1.0f;
+    private static final HashMap<Long, View>   views    = new HashMap<>();
+    private static final HashMap<Long, String> titles   = new HashMap<>();
+    private static final ArrayDeque<Long>      navStack = new ArrayDeque<>();
 
     private MelGui() {}
 
     public static void start(Activity act, FrameLayout container) {
         activity = act;
         root = container;
+        density = act.getResources().getDisplayMetrics().density;
         nativeRegister();
         nativeStart();
     }
 
+    public static float density() { return density; }
+
+    private static int dp2px(int dp) { return Math.round(dp * density); }
+    private static int px2dp(int px) { return Math.round(px / density); }
+
     public static void stop() {
         nativeStop();
+        views.clear();
+        titles.clear();
+        navStack.clear();
+        activity = null;
+        root     = null;
+        density  = 1.0f;
+    }
+
+    public static boolean popOrExit() {
+        if (navStack.size() <= 1) return false;
+        navStack.pop();
+        Long top = navStack.peek();
+        if (top == null) return false;
+        showOnly(top);
+        return true;
+    }
+
+    private static void showOnly(long handle) {
+        if (root == null) return;
+        for (int i = 0; i < root.getChildCount(); i++) {
+            root.getChildAt(i).setVisibility(View.GONE);
+        }
+        View v = views.get(handle);
+        if (v != null) {
+            v.setVisibility(View.VISIBLE);
+            String t = titles.get(handle);
+            if (t != null && activity != null) activity.setTitle(t);
+        }
     }
 
     public static void createFrame(long handle, String title) {
@@ -43,6 +80,13 @@ public final class MelGui {
         frame.setLayoutParams(new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT));
+        frame.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or_, ob) -> {
+            int w = r - l;
+            int h = b - t;
+            if (w != or_ - ol || h != ob - ot) {
+                nativeFireResize(handle, px2dp(w), px2dp(h));
+            }
+        });
         views.put(handle, frame);
         titles.put(handle, title);
         root.addView(frame);
@@ -154,9 +198,9 @@ public final class MelGui {
         View v = views.get(handle);
         if (v == null) return;
         if (v instanceof FrameLayout && v.getParent() == root) return;
-        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(w, h);
-        lp.leftMargin = x;
-        lp.topMargin  = y;
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(dp2px(w), dp2px(h));
+        lp.leftMargin = dp2px(x);
+        lp.topMargin  = dp2px(y);
         v.setLayoutParams(lp);
     }
 
@@ -198,22 +242,15 @@ public final class MelGui {
     }
 
     public static void presentFrame(long handle) {
-        for (int i = 0; i < root.getChildCount(); i++) {
-            View child = root.getChildAt(i);
-            child.setVisibility(View.GONE);
-        }
-        View v = views.get(handle);
-        if (v != null) {
-            v.setVisibility(View.VISIBLE);
-            String t = titles.get(handle);
-            if (t != null) activity.setTitle(t);
-        }
+        navStack.remove(handle);
+        navStack.push(handle);
+        showOnly(handle);
     }
 
     private static void attach(View v, long parent, int x, int y, int w, int h) {
-        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(w, h);
-        lp.leftMargin = x;
-        lp.topMargin  = y;
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(dp2px(w), dp2px(h));
+        lp.leftMargin = dp2px(x);
+        lp.topMargin  = dp2px(y);
         v.setLayoutParams(lp);
         View p = views.get(parent);
         if (p instanceof ViewGroup) ((ViewGroup) p).addView(v);
@@ -230,4 +267,5 @@ public final class MelGui {
     public static native void nativeFirePointer(long handle, int kind, int x, int y);
     public static native void nativeFireKey(long handle, int key, boolean down);
     public static native void nativeFireCanvasPaint(long handle, Canvas canvas, int w, int h);
+    public static native void nativeFireResize(long handle, int w, int h);
 }

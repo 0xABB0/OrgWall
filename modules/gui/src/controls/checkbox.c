@@ -5,7 +5,8 @@ Mel_Gui_Handle mel_checkbox_create_opt(Mel_Gui_Handle parent, Mel_CheckBox_Opt o
     Mel_Gui_Handle h = mel_gui__create(parent,
         o.x, o.y, o.w, o.h, o.id, o.user, o.disabled, o.hidden,
         sizeof(Mel_Gui_CheckBox_Impl),
-        &o.lifecycle, &o.focus, NULL, &o.keyboard);
+        &o.lifecycle, &o.focus, NULL, &o.keyboard,
+        &o.layoutable, NULL);
 
     Mel_Gui_Widget* w = mel_gui__get(h);
     if (!w) return h;

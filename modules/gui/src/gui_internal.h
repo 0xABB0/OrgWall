@@ -27,6 +27,8 @@ typedef struct Mel_Gui_Widget {
     bool               disabled;
     bool               hidden;
     Mel_Gui_Callbacks* cb;
+    Mel_Layoutable     layoutable;
+    Mel_Layout*        layout;
 } Mel_Gui_Widget;
 
 typedef struct { Mel_CheckBox_On  on_; bool initial_checked; }            Mel_Gui_CheckBox_Impl;
@@ -60,7 +62,17 @@ Mel_Gui_Handle  mel_gui__create(Mel_Gui_Handle parent,
                                 const Mel_Gui_Lifecycle_Cb* lc,
                                 const Mel_Gui_Focus_Cb* fc,
                                 const Mel_Gui_Pointer_Cb* pc,
-                                const Mel_Gui_Keyboard_Cb* kc);
+                                const Mel_Gui_Keyboard_Cb* kc,
+                                const Mel_Layoutable* layoutable,
+                                Mel_Layout* layout);
+
+void mel_gui__screens_reset (void);
+
+void mel_gui__layout_free   (Mel_Layout* layout);
+void mel_gui__layout_measure(Mel_Gui_Handle h, i32 avail_w, i32 avail_h,
+                             i32* out_w, i32* out_h);
+void mel_gui__layout_arrange(Mel_Gui_Handle h);
+void mel_gui__push_bounds   (Mel_Gui_Handle h);
 
 void mel_gui__destroy_tree(Mel_Gui_Handle root);
 

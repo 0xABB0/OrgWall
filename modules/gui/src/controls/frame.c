@@ -6,7 +6,8 @@ Mel_Gui_Handle mel_frame_create_opt(Mel_Frame_Opt o)
         o.x, o.y, o.w, o.h, 0, o.user,
         false, o.initial_state == MEL_FRAME_HIDDEN,
         sizeof(Mel_Gui_Frame_Impl),
-        &o.lifecycle, &o.focus, NULL, &o.keyboard);
+        &o.lifecycle, &o.focus, NULL, &o.keyboard,
+        NULL, o.layout);
 
     Mel_Gui_Widget* w = mel_gui__get(h);
     if (!w) return h;

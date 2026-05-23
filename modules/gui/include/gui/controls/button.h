@@ -5,6 +5,7 @@
 
 #include <gui/handle.h>
 #include <gui/callbacks.h>
+#include <gui/layout.h>
 
 typedef struct {
     str8  text;
@@ -17,6 +18,7 @@ typedef struct {
     Mel_Gui_Focus_Cb     focus;
     Mel_Gui_Pointer_Cb   pointer;
     Mel_Gui_Keyboard_Cb  keyboard;
+    Mel_Layoutable       layoutable;
 } Mel_Button_Opt;
 
 Mel_Gui_Handle mel_button_create_opt(Mel_Gui_Handle parent, Mel_Button_Opt opt);
