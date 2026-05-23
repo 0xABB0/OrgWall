@@ -417,6 +417,48 @@ static void append_compile_command(String_Builder *sb, size_t *entries, const ch
     free(cmd.items);
 }
 
+static void append_android_compile_commands(String_Builder *sb, size_t *entries, const char *cwd) {
+    const char *sdk = android_sdk_dir_any();
+    if (sdk == NULL) {
+        nob_log(NOB_INFO, "compile_commands: no Android SDK found, skipping android entries");
+        return;
+    }
+    const char *ndk = android_ndk_dir(sdk);
+    if (ndk == NULL) return;
+    const char *toolchain_bin = android_toolchain_bin(ndk);
+    if (toolchain_bin == NULL) return;
+    const char *sysroot = android_sysroot_dir(toolchain_bin);
+
+    const Android_Abi *abi = &android_abis[0];
+    Target *t = target_android(abi, toolchain_bin, ndk);
+
+    Layout L = {0};
+    if (!discover_for_platform(&L, "android")) return;
+    da_append(&L.includes, "third-party/mongoose");
+
+    const char *triple = temp_sprintf("%s%d", abi->configure_host, t->android_api);
+
+    size_t emitted = 0;
+    for (size_t i = 0; i < L.sources.count; i++) {
+        const char *src = L.sources.items[i];
+        if (strstr(src, "/android/") == NULL) continue;
+
+        const char *obj = target_object_for(t, src);
+        Cmd cmd = {0};
+        cmd_append(&cmd, t->cc);
+        append_base_cflags(&cmd);
+        cmd_append(&cmd, temp_sprintf("--target=%s", triple));
+        cmd_append(&cmd, temp_sprintf("--sysroot=%s", sysroot));
+        cmd_append(&cmd, "-DANDROID");
+        if (source_is_third_party(src)) cmd_append(&cmd, "-Wno-deprecated-declarations");
+        append_include_flags(&cmd, t, &L);
+        cmd_append(&cmd, "-c", src, "-o", obj);
+        append_compile_command(sb, entries, cwd, src, cmd);
+        emitted++;
+    }
+    nob_log(NOB_INFO, "compile_commands: added %zu android entries", emitted);
+}
+
 static bool emit_compile_commands(const Target *t, const Layout *L) {
     const char *cwd = get_current_dir_temp();
     String_Builder sb = {0};
@@ -435,6 +477,8 @@ static bool emit_compile_commands(const Target *t, const Layout *L) {
         cmd_append(&cmd, "-c", src, "-o", obj);
         append_compile_command(&sb, &entries, cwd, src, cmd);
     }
+
+    append_android_compile_commands(&sb, &entries, cwd);
 
     sb_append_cstr(&sb, "\n]\n");
     return write_entire_file(CCMDS_PATH, sb.items, sb.count);

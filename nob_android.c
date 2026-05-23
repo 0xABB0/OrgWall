@@ -80,6 +80,29 @@ static const char *android_toolchain_bin(const char *ndk) {
     return NULL;
 }
 
+static const char *android_sysroot_dir(const char *toolchain_bin) {
+    size_t n = strlen(toolchain_bin);
+    if (n >= 4 && strcmp(toolchain_bin + n - 4, "/bin") == 0) n -= 4;
+    return temp_sprintf("%.*s/sysroot", (int)n, toolchain_bin);
+}
+
+static const char *android_sdk_dir_any(void) {
+    const char *sdk = getenv("ANDROID_HOME");
+    if (sdk && sdk[0]) return sdk;
+    sdk = getenv("ANDROID_SDK_ROOT");
+    if (sdk && sdk[0]) return sdk;
+
+    File_Paths apps = {0};
+    if (!read_entire_dir(APPS_DIR, &apps)) return NULL;
+    for (size_t i = 0; i < apps.count; i++) {
+        const char *n = apps.items[i];
+        if (strcmp(n, ".") == 0 || strcmp(n, "..") == 0) continue;
+        const char *got = android_sdk_dir(n);
+        if (got) return got;
+    }
+    return NULL;
+}
+
 static const char *android_gradle_dir(const char *app_name) {
     return temp_sprintf("%s/%s/android", APPS_DIR, app_name);
 }
