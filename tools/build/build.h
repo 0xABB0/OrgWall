@@ -10,16 +10,13 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+// The mel_build_*/mel_tp_* API is statically linked into each target module
+// (via libmelbuild.a), so no import/export annotations are needed. project()
+// lives in the target DLL and must stay visible for the runner to dlsym it.
+#define MEL_API
 #if defined(_WIN32)
-#  if defined(MEL_BUILD_HOST)
-#    define MEL_API     __declspec(dllexport)
-#    define MEL_EXPORT  /* project() lives in target DLLs, not the host */
-#  else
-#    define MEL_API     __declspec(dllimport)
-#    define MEL_EXPORT  __declspec(dllexport)
-#  endif
+#  define MEL_EXPORT __declspec(dllexport)
 #else
-#  define MEL_API
 #  define MEL_EXPORT
 #endif
 
@@ -98,17 +95,31 @@ MEL_API void mel_build_exclude_source_on(Mel_Build_Target *t, Mel_Platform p, co
 // dependency propagate to this target transitively.
 MEL_API void mel_build_add_dependency(Mel_Build_Target *t, const char *dep_name);
 
-// PUBLIC properties propagate to dependents; PRIVATE stay local.
-MEL_API void mel_build_add_cflag(Mel_Build_Target *t, Mel_Visibility vis, const char *flag);
-MEL_API void mel_build_add_include(Mel_Build_Target *t, Mel_Visibility vis, const char *dir);
-MEL_API void mel_build_add_define(Mel_Build_Target *t, Mel_Visibility vis, const char *def);
-MEL_API void mel_build_add_link_flag(Mel_Build_Target *t, Mel_Visibility vis, const char *flag);
+// PUBLIC properties propagate to dependents; PRIVATE stay local. Each accepts
+// one or more value tokens, recorded as distinct flags — pass split arguments
+// for flags that the compiler/linker expects as separate argv entries, e.g.
+// mel_build_add_link_flag_on(t, MEL_PUBLIC, MEL_PLATFORM_MACOS, "-framework", "Cocoa").
+// The wrapper macros append the NULL terminator the variadic impls scan for.
+MEL_API void mel_build_add_cflag_(Mel_Build_Target *t, Mel_Visibility vis, ...);
+MEL_API void mel_build_add_include_(Mel_Build_Target *t, Mel_Visibility vis, ...);
+MEL_API void mel_build_add_define_(Mel_Build_Target *t, Mel_Visibility vis, ...);
+MEL_API void mel_build_add_link_flag_(Mel_Build_Target *t, Mel_Visibility vis, ...);
+
+#define mel_build_add_cflag(t, vis, ...)     mel_build_add_cflag_(t, vis, __VA_ARGS__, NULL)
+#define mel_build_add_include(t, vis, ...)   mel_build_add_include_(t, vis, __VA_ARGS__, NULL)
+#define mel_build_add_define(t, vis, ...)    mel_build_add_define_(t, vis, __VA_ARGS__, NULL)
+#define mel_build_add_link_flag(t, vis, ...) mel_build_add_link_flag_(t, vis, __VA_ARGS__, NULL)
 
 // Platform-gated variants: the property applies only when building for p.
-MEL_API void mel_build_add_cflag_on(Mel_Build_Target *t, Mel_Visibility vis, Mel_Platform p, const char *flag);
-MEL_API void mel_build_add_include_on(Mel_Build_Target *t, Mel_Visibility vis, Mel_Platform p, const char *dir);
-MEL_API void mel_build_add_define_on(Mel_Build_Target *t, Mel_Visibility vis, Mel_Platform p, const char *def);
-MEL_API void mel_build_add_link_flag_on(Mel_Build_Target *t, Mel_Visibility vis, Mel_Platform p, const char *flag);
+MEL_API void mel_build_add_cflag_on_(Mel_Build_Target *t, Mel_Visibility vis, Mel_Platform p, ...);
+MEL_API void mel_build_add_include_on_(Mel_Build_Target *t, Mel_Visibility vis, Mel_Platform p, ...);
+MEL_API void mel_build_add_define_on_(Mel_Build_Target *t, Mel_Visibility vis, Mel_Platform p, ...);
+MEL_API void mel_build_add_link_flag_on_(Mel_Build_Target *t, Mel_Visibility vis, Mel_Platform p, ...);
+
+#define mel_build_add_cflag_on(t, vis, p, ...)     mel_build_add_cflag_on_(t, vis, p, __VA_ARGS__, NULL)
+#define mel_build_add_include_on(t, vis, p, ...)   mel_build_add_include_on_(t, vis, p, __VA_ARGS__, NULL)
+#define mel_build_add_define_on(t, vis, p, ...)    mel_build_add_define_on_(t, vis, p, __VA_ARGS__, NULL)
+#define mel_build_add_link_flag_on(t, vis, p, ...) mel_build_add_link_flag_on_(t, vis, p, __VA_ARGS__, NULL)
 
 // Which UI backend a platform uses; gates per-backend widget sources.
 MEL_API void mel_build_backend(Mel_Build_Target *t, Mel_Platform p, const char *backend);

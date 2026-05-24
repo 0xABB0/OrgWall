@@ -1,38 +1,16 @@
-// Melody build framework engine.
+// Melody build runner (engine).
 //
-// Compiled as part of the nob driver translation unit: nob.c includes nob.h
-// (with NOB_IMPLEMENTATION) and then this file. Per-target build.c modules are
-// compiled separately into dlopen-able shared objects that resolve the
-// mel_build_* API against this single copy at load time. The framework keeps no
-// global build state beyond the target registry; everything a callback needs is
-// reachable through the Mel_Build_Target* / Mel_Build_Context* it is handed.
+// The build graph driver: source discovery, the content-addressed cache, the
+// default configure/compile/link/package stages, the Android NDK pipeline, and
+// target discovery + module loading. Part of the nob driver translation unit
+// (nob.c includes build.c, then this file); it reuses the static helpers and
+// the public API defined in build.c. Per-target build.c modules statically link
+// libmelbuild.a (built from build.c) and are dlopen'd here purely for project().
 
-#include "build.h"
+#include "internal.h"
 #include "sha256.h"
 
-#include <stdint.h>
-#include <sys/stat.h>
-#include <time.h>
-
-#ifndef _WIN32
-#include <sys/time.h>
-#include <unistd.h>
-#endif
-
 #ifdef _WIN32
-#ifndef WIN32_LEAN_AND_MEAN
-#  define WIN32_LEAN_AND_MEAN
-#endif
-#include <windows.h>
-#include <stdio.h>
-#include <stdlib.h>
-
-// Win32 shims for the small POSIX surface the build-cache uses.
-#ifndef S_ISREG
-#  define S_ISREG(m) (((m) & _S_IFMT) == _S_IFREG)
-#endif
-#define popen  _popen
-#define pclose _pclose
 // CreateHardLinkA returns BOOL (nonzero on success); link() returns 0 on success.
 static int link(const char *src, const char *dst) {
     return CreateHardLinkA(dst, src, NULL) ? 0 : -1;
@@ -62,88 +40,21 @@ static const char *mel_dlerror(void) {
     if (n == 0) snprintf(buf, sizeof buf, "win32 error %lu", (unsigned long)err);
     return buf;
 }
-
-// Autotools' configure scripts reject paths containing backslashes ("unsafe
-// srcdir"); flip Windows separators to forward slashes. Drive letters are
-// preserved verbatim and MSYS tools accept "D:/foo/bar" without complaint.
-static const char *mel_to_autotools_path(const char *p) {
-    if (!p) return p;
-    size_t len = strlen(p);
-    char *out = (char *)malloc(len + 1);
-    for (size_t i = 0; i < len; i++) out[i] = (p[i] == '\\') ? '/' : p[i];
-    out[len] = 0;
-    return out;
-}
-
-// GNU make on Windows resolves $(SHELL) by searching PATH for sh.exe and
-// substitutes the resolved path verbatim into recipes. Git for Windows ships
-// sh at "C:\Program Files\Git\usr\bin\sh.exe" — the embedded space then
-// crashes libtool recipes like `$(SHELL) ../libtool ...`. Prepend the 8.3
-// short form of the chosen sh's directory so make picks a path with no spaces.
-static void mel_win32_ensure_no_space_sh_in_path(void) {
-    static bool done = false;
-    if (done) return;
-    done = true;
-
-    char sh_full[MAX_PATH];
-    DWORD n = SearchPathA(NULL, "sh.exe", NULL, MAX_PATH, sh_full, NULL);
-    if (n == 0 || n >= MAX_PATH) return;
-
-    bool has_space = false;
-    for (const char *p = sh_full; *p; p++) if (*p == ' ') { has_space = true; break; }
-    if (!has_space) return;
-
-    char *sep = strrchr(sh_full, '\\');
-    if (!sep) sep = strrchr(sh_full, '/');
-    if (!sep) return;
-    *sep = '\0';
-
-    char short_dir[MAX_PATH];
-    if (GetShortPathNameA(sh_full, short_dir, MAX_PATH) == 0) return;
-
-    const char *old_path = getenv("PATH");
-    if (!old_path) old_path = "";
-    size_t need = strlen(short_dir) + 1 + strlen(old_path) + 1;
-    char *new_path = (char *)malloc(need);
-    snprintf(new_path, need, "%s;%s", short_dir, old_path);
-    _putenv_s("PATH", new_path);
-    free(new_path);
-}
 #else
 #include <dlfcn.h>
 static void *mel_dlopen(const char *path) { return dlopen(path, RTLD_NOW | RTLD_LOCAL); }
 static void *mel_dlsym(void *h, const char *name) { return dlsym(h, name); }
 static void  mel_dlclose(void *h) { if (h) dlclose(h); }
 static const char *mel_dlerror(void) { const char *e = dlerror(); return e ? e : "unknown"; }
-static const char *mel_to_autotools_path(const char *p) { return p; }
-static void mel_win32_ensure_no_space_sh_in_path(void) {}
-#endif
-
-#ifndef MEL_BUILD_DIR
-#define MEL_BUILD_DIR "build"
 #endif
 
 // =============================================================================
 // Platforms
 // =============================================================================
 
-static const char *const k_platform_names[MEL_PLATFORM_COUNT] = {
-    [MEL_PLATFORM_MACOS]   = "macos",
-    [MEL_PLATFORM_IOS]     = "ios",
-    [MEL_PLATFORM_LINUX]   = "linux",
-    [MEL_PLATFORM_ANDROID] = "android",
-    [MEL_PLATFORM_WIN32]   = "win32",
-    [MEL_PLATFORM_WEB]     = "web",
-};
-
-const char *mel_platform_name(Mel_Platform p) {
-    if (p < 0 || p >= MEL_PLATFORM_COUNT) return "unknown";
-    return k_platform_names[p];
-}
-
 static bool mel_platform_from_name(const char *name, Mel_Platform *out) {
     for (int i = 0; i < MEL_PLATFORM_COUNT; i++) {
-        if (strcmp(name, k_platform_names[i]) == 0) { *out = (Mel_Platform)i; return true; }
+        if (strcmp(name, mel_platform_name((Mel_Platform)i)) == 0) { *out = (Mel_Platform)i; return true; }
     }
     return false;
 }
@@ -220,35 +131,6 @@ static bool source_is_buildable(const char *name, Mel_Platform p) {
     return true;
 }
 
-// =============================================================================
-// Target / context structures (opaque to build.c modules)
-// =============================================================================
-
-// A property value carries a platform mask: 0 means "all platforms", otherwise
-// bit (1u << platform) gates the value to specific platforms.
-typedef struct { const char *value; uint32_t mask; } Prop;
-typedef struct { Prop *items; size_t count, capacity; } Prop_List;
-
-typedef struct {
-    Prop_List cflags;
-    Prop_List includes;
-    Prop_List defines;
-    Prop_List link_flags;
-} Props;
-
-// Platform-resolved (flat) properties for a single build context.
-typedef struct {
-    File_Paths cflags;
-    File_Paths includes;
-    File_Paths defines;
-    File_Paths link_flags;
-} Resolved;
-
-static void prop_add(Prop_List *l, const char *v, uint32_t mask) {
-    Prop p = { temp_strdup(v), mask };
-    da_append(l, p);
-}
-
 static void prop_resolve(File_Paths *dst, const Prop_List *src, Mel_Platform p) {
     uint32_t bit = 1u << p;
     for (size_t i = 0; i < src->count; i++) {
@@ -258,69 +140,9 @@ static void prop_resolve(File_Paths *dst, const Prop_List *src, Mel_Platform p) 
     }
 }
 
-#define MEL_MAX_STAGE_CBS 16
-
-struct Mel_Build_Target {
-    const char *name;
-    const char *dir;            // directory containing this target's build.c
-    Mel_Target_Kind kind;
-
-    bool platform_set;
-    bool platforms[MEL_PLATFORM_COUNT];
-
-    File_Paths source_roots;    // recursively globbed, platform-aware
-    File_Paths module_roots;    // dirs whose immediate children are modules
-    File_Paths deps;            // dependency target names
-    Prop_List  excluded_modules;// platform-masked module-basename exclusions
-    Prop_List  excluded_sources;// platform-masked source-basename exclusions
-
-    File_Paths cfg_keys;        // scaffolding template substitution keys
-    File_Paths cfg_vals;        // parallel to cfg_keys
-
-    Props pub;
-    Props priv;
-
-    const char *backends[MEL_PLATFORM_COUNT];
-
-    Mel_Build_Stage_Fn user_cbs[MEL_STAGE_COUNT][MEL_MAX_STAGE_CBS];
-    size_t             user_cb_count[MEL_STAGE_COUNT];
-    bool               suppress_default[MEL_STAGE_COUNT];
-
-    // third-party prefix (set when kind == THIRD_PARTY)
-    const char *tp_prefix;
-
-    void *dl_handle;
-};
-
-// Cross-compilation descriptor; non-NULL on the context selects a toolchain and
-// an ABI sub-axis (used by Android, which builds per-ABI).
-typedef struct {
-    const char *abi;      // e.g. "arm64-v8a"
-    const char *triple;   // e.g. "aarch64-linux-android"
-    int         api;      // e.g. 23
-    const char *cc;       // NDK clang wrapper
-    const char *ar;
-    const char *ranlib;
-    const char *sysroot;
-    const char *ndk;      // NDK root (for the cmake toolchain file)
-} Cross;
-
-struct Mel_Build_Context {
-    Mel_Build_Target *target;
-    Mel_Platform platform;
-    Mel_Config config;
-    const Cross *cross;   // NULL for native host builds
-
-    const char *out_dir;
-    const char *artifact;
-
-    // Fully resolved compile inputs (own + transitive public from deps).
-    Resolved resolved;
-
-    File_Paths sources;       // sources to compile this target
-    File_Paths bridge_sources;// bridge sources (compiled into dependents, not archived)
-    File_Paths objects;       // produced object files
-};
+// =============================================================================
+// Target registry
+// =============================================================================
 
 typedef struct {
     Mel_Build_Target *items;
@@ -334,35 +156,6 @@ static Mel_Build_Target *registry_find(const char *name) {
         if (strcmp(g_targets.items[i].name, name) == 0) return &g_targets.items[i];
     }
     return NULL;
-}
-
-// =============================================================================
-// Declarative configuration API
-// =============================================================================
-
-void mel_build_set_name(Mel_Build_Target *t, const char *name) { t->name = temp_strdup(name); }
-void mel_build_set_kind(Mel_Build_Target *t, Mel_Target_Kind kind) { t->kind = kind; }
-
-void mel_build_set_platforms(Mel_Build_Target *t, const Mel_Platform *platforms, size_t count) {
-    t->platform_set = true;
-    for (int i = 0; i < MEL_PLATFORM_COUNT; i++) t->platforms[i] = false;
-    for (size_t i = 0; i < count; i++) t->platforms[platforms[i]] = true;
-}
-
-void mel_build_add_source_root(Mel_Build_Target *t, const char *dir) {
-    da_append(&t->source_roots, temp_strdup(dir));
-}
-
-void mel_build_add_modules(Mel_Build_Target *t, const char *modules_dir) {
-    da_append(&t->module_roots, temp_strdup(modules_dir));
-}
-
-void mel_build_exclude_module_on(Mel_Build_Target *t, Mel_Platform p, const char *module_name) {
-    prop_add(&t->excluded_modules, module_name, 1u << p);
-}
-
-void mel_build_exclude_source_on(Mel_Build_Target *t, Mel_Platform p, const char *basename) {
-    prop_add(&t->excluded_sources, basename, 1u << p);
 }
 
 static bool module_excluded(const Mel_Build_Target *t, Mel_Platform p, const char *name) {
@@ -394,94 +187,11 @@ static void filter_excluded_sources(const Mel_Build_Target *t, Mel_Platform p, F
     paths->count = w;
 }
 
-void mel_build_add_dependency(Mel_Build_Target *t, const char *dep_name) {
-    da_append(&t->deps, temp_strdup(dep_name));
-}
-
-static void target_config_set(Mel_Build_Target *t, const char *key, const char *value) {
-    for (size_t i = 0; i < t->cfg_keys.count; i++) {
-        if (strcmp(t->cfg_keys.items[i], key) == 0) { t->cfg_vals.items[i] = temp_strdup(value); return; }
-    }
-    da_append(&t->cfg_keys, temp_strdup(key));
-    da_append(&t->cfg_vals, temp_strdup(value));
-}
-
 static const char *target_config_get(const Mel_Build_Target *t, const char *key) {
     for (size_t i = 0; i < t->cfg_keys.count; i++) {
         if (strcmp(t->cfg_keys.items[i], key) == 0) return t->cfg_vals.items[i];
     }
     return NULL;
-}
-
-void mel_build_set_config(Mel_Build_Target *t, const char *key, const char *value) {
-    target_config_set(t, key, value);
-}
-
-static Props *props_for(Mel_Build_Target *t, Mel_Visibility vis) {
-    return vis == MEL_PUBLIC ? &t->pub : &t->priv;
-}
-
-void mel_build_add_cflag(Mel_Build_Target *t, Mel_Visibility vis, const char *flag) {
-    prop_add(&props_for(t, vis)->cflags, flag, 0);
-}
-void mel_build_add_include(Mel_Build_Target *t, Mel_Visibility vis, const char *dir) {
-    prop_add(&props_for(t, vis)->includes, dir, 0);
-}
-void mel_build_add_define(Mel_Build_Target *t, Mel_Visibility vis, const char *def) {
-    prop_add(&props_for(t, vis)->defines, def, 0);
-}
-void mel_build_add_link_flag(Mel_Build_Target *t, Mel_Visibility vis, const char *flag) {
-    prop_add(&props_for(t, vis)->link_flags, flag, 0);
-}
-
-void mel_build_add_cflag_on(Mel_Build_Target *t, Mel_Visibility vis, Mel_Platform p, const char *flag) {
-    prop_add(&props_for(t, vis)->cflags, flag, 1u << p);
-}
-void mel_build_add_include_on(Mel_Build_Target *t, Mel_Visibility vis, Mel_Platform p, const char *dir) {
-    prop_add(&props_for(t, vis)->includes, dir, 1u << p);
-}
-void mel_build_add_define_on(Mel_Build_Target *t, Mel_Visibility vis, Mel_Platform p, const char *def) {
-    prop_add(&props_for(t, vis)->defines, def, 1u << p);
-}
-void mel_build_add_link_flag_on(Mel_Build_Target *t, Mel_Visibility vis, Mel_Platform p, const char *flag) {
-    prop_add(&props_for(t, vis)->link_flags, flag, 1u << p);
-}
-
-void mel_build_backend(Mel_Build_Target *t, Mel_Platform p, const char *backend) {
-    t->backends[p] = temp_strdup(backend);
-}
-
-static void register_cb(Mel_Build_Target *t, Mel_Stage stage, Mel_Build_Stage_Fn fn) {
-    size_t *n = &t->user_cb_count[stage];
-    if (*n >= MEL_MAX_STAGE_CBS) {
-        nob_log(NOB_ERROR, "target '%s': too many callbacks for stage %d", t->name, stage);
-        return;
-    }
-    t->user_cbs[stage][(*n)++] = fn;
-}
-
-void mel_build_on_configure(Mel_Build_Target *t, Mel_Build_Stage_Fn fn) { register_cb(t, MEL_STAGE_CONFIGURE, fn); }
-void mel_build_on_compile(Mel_Build_Target *t, Mel_Build_Stage_Fn fn)   { register_cb(t, MEL_STAGE_COMPILE, fn); }
-void mel_build_on_link(Mel_Build_Target *t, Mel_Build_Stage_Fn fn)      { register_cb(t, MEL_STAGE_LINK, fn); }
-void mel_build_on_package(Mel_Build_Target *t, Mel_Build_Stage_Fn fn)   { register_cb(t, MEL_STAGE_PACKAGE, fn); }
-
-void mel_build_suppress_default(Mel_Build_Target *t, Mel_Stage stage) {
-    t->suppress_default[stage] = true;
-}
-
-// =============================================================================
-// Context API
-// =============================================================================
-
-Mel_Platform mel_build_ctx_platform(const Mel_Build_Context *ctx) { return ctx->platform; }
-Mel_Config   mel_build_ctx_config(const Mel_Build_Context *ctx)   { return ctx->config; }
-const char  *mel_build_ctx_target_name(const Mel_Build_Context *ctx) { return ctx->target->name; }
-const char  *mel_build_ctx_backend(const Mel_Build_Context *ctx) { return ctx->target->backends[ctx->platform]; }
-const char  *mel_build_ctx_out_dir(const Mel_Build_Context *ctx) { return ctx->out_dir; }
-const char  *mel_build_ctx_artifact(const Mel_Build_Context *ctx) { return ctx->artifact; }
-
-void mel_build_ctx_add_source(Mel_Build_Context *ctx, const char *path) {
-    da_append(&ctx->sources, temp_strdup(path));
 }
 
 // =============================================================================
@@ -617,11 +327,6 @@ static const char *target_obj_dir(const Mel_Build_Target *t, Mel_Platform p, Mel
     return temp_sprintf("%s/obj/%s/%s/%s", MEL_BUILD_DIR, mel_platform_name(p), config_name(c), t->name);
 }
 
-static const char *tp_prefix_named(Mel_Platform p, const char *abi, const char *name) {
-    if (abi) return temp_sprintf("%s/third-party/%s-%s/%s", MEL_BUILD_DIR, mel_platform_name(p), abi, name);
-    return temp_sprintf("%s/third-party/%s/%s", MEL_BUILD_DIR, mel_platform_name(p), name);
-}
-
 static const char *thirdparty_prefix(const Mel_Build_Target *t, Mel_Platform p) {
     return tp_prefix_named(p, NULL, t->name);
 }
@@ -629,10 +334,6 @@ static const char *thirdparty_prefix(const Mel_Build_Target *t, Mel_Platform p) 
 static const char *library_artifact(const Mel_Build_Target *t, Mel_Platform p, Mel_Config c) {
     if (p == MEL_PLATFORM_WIN32) return temp_sprintf("%s/%s.lib", target_out_dir(t, p, c), t->name);
     return temp_sprintf("%s/lib%s.a", target_out_dir(t, p, c), t->name);
-}
-
-static const char *static_ar_tool(Mel_Platform p) {
-    return p == MEL_PLATFORM_WIN32 ? "llvm-ar" : "ar";
 }
 
 static const char *app_artifact(const Mel_Build_Target *t, Mel_Platform p, Mel_Config c) {
@@ -793,21 +494,6 @@ static bool obj_needs_rebuild(const char *obj, const char *src, const char *dep)
     return r != 0; // treat error as "rebuild"
 }
 
-static bool mel_mkdirs(const char *path) {
-    char buf[4096];
-    size_t n = strlen(path);
-    if (n >= sizeof buf) return false;
-    memcpy(buf, path, n + 1);
-    for (size_t i = 1; i < n; i++) {
-        if (buf[i] == '/') {
-            buf[i] = '\0';
-            if (!mkdir_if_not_exists(buf)) return false;
-            buf[i] = '/';
-        }
-    }
-    return mkdir_if_not_exists(buf);
-}
-
 static bool mkdirs_parent(const char *path) {
     const char *slash = strrchr(path, '/');
     if (!slash) return true;
@@ -829,8 +515,6 @@ static bool mkdirs_parent(const char *path) {
 // key, debug and release objects coexist under build/cache/objects and flipping
 // config is a hardlink, not a recompile. Linked artifacts key the same way over
 // their input object bytes and link flags.
-
-#define MEL_CACHE_DIR MEL_BUILD_DIR "/cache"
 
 #ifdef _WIN32
 // MSVC's stat() leaves st_ino == 0 for every file, so the POSIX
@@ -1210,10 +894,10 @@ static bool configure_android(Mel_Build_Context *ctx) {
     target_config_set(t, "APP_OVERRIDE_DIR", temp_sprintf("%s/apps/%s/android", cwd, t->name));
     target_config_set(t, "MODULE_JAVA_SRCDIRS", android_module_java_srcdirs());
 
-    if (!expand_template(t, "lib/build/android/settings.gradle.kts.tmpl", temp_sprintf("%s/settings.gradle.kts", out))) return false;
-    if (!expand_template(t, "lib/build/android/build.gradle.kts.tmpl", temp_sprintf("%s/build.gradle.kts", out))) return false;
-    if (!expand_template(t, "lib/build/android/gradle.properties.tmpl", temp_sprintf("%s/gradle.properties", out))) return false;
-    if (!expand_template(t, "lib/build/android/app.build.gradle.kts.tmpl", temp_sprintf("%s/app/build.gradle.kts", out))) return false;
+    if (!expand_template(t, "tools/build/android/settings.gradle.kts.tmpl", temp_sprintf("%s/settings.gradle.kts", out))) return false;
+    if (!expand_template(t, "tools/build/android/build.gradle.kts.tmpl", temp_sprintf("%s/build.gradle.kts", out))) return false;
+    if (!expand_template(t, "tools/build/android/gradle.properties.tmpl", temp_sprintf("%s/gradle.properties", out))) return false;
+    if (!expand_template(t, "tools/build/android/app.build.gradle.kts.tmpl", temp_sprintf("%s/app/build.gradle.kts", out))) return false;
 
     // Gradle needs an SDK location; generate local.properties from the resolved SDK.
     const char *sdk = android_sdk_dir(t->name);
@@ -1239,7 +923,7 @@ static bool configure_apple(Mel_Build_Context *ctx) {
     target_config_set(t, "EXECUTABLE", t->name);
 
     const char *out = temp_sprintf("%s/Info.plist", configure_out_dir(t, ctx->platform));
-    if (!expand_template(t, "lib/build/apple/Info.plist.tmpl", out)) return false;
+    if (!expand_template(t, "tools/build/apple/Info.plist.tmpl", out)) return false;
     nob_log(NOB_INFO, "configured Info.plist at %s", out);
     return true;
 }
@@ -1250,8 +934,8 @@ static bool configure_win32(Mel_Build_Context *ctx) {
     if (!target_config_get(t, "ASSEMBLY_VERSION")) target_config_set(t, "ASSEMBLY_VERSION", "1.0.0.0");
 
     const char *out = configure_out_dir(t, ctx->platform);
-    if (!expand_template(t, "lib/build/win32/app.manifest.tmpl", temp_sprintf("%s/app.manifest", out))) return false;
-    if (!expand_template(t, "lib/build/win32/app.rc.tmpl", temp_sprintf("%s/app.rc", out))) return false;
+    if (!expand_template(t, "tools/build/win32/app.manifest.tmpl", temp_sprintf("%s/app.manifest", out))) return false;
+    if (!expand_template(t, "tools/build/win32/app.rc.tmpl", temp_sprintf("%s/app.rc", out))) return false;
     nob_log(NOB_INFO, "configured win32 resources at %s", out);
     return true;
 }
@@ -1429,177 +1113,6 @@ static bool run_stage(Mel_Build_Context *ctx, Mel_Stage stage) {
         if (!ctx->target->user_cbs[stage][i](ctx)) return false;
     }
     return true;
-}
-
-// =============================================================================
-// Third-party build helpers (exposed to third-party/*/build.c via build.h is
-// unnecessary: they are invoked through on_compile callbacks that live in those
-// modules but call back into helpers declared here). For phase 1 these are the
-// minimal autotools/cmake/single-translation-unit drivers ported from the old
-// nob_third_party.c, operating on the target's resolved prefix.
-// =============================================================================
-
-static const char *ctx_abi(const Mel_Build_Context *ctx) { return ctx->cross ? ctx->cross->abi : NULL; }
-static const char *ctx_tp_prefix(const Mel_Build_Context *ctx) {
-    return tp_prefix_named(ctx->platform, ctx_abi(ctx), ctx->target->name);
-}
-
-bool mel_tp_single_tu(Mel_Build_Context *ctx, const char *src, const char *const *cflags,
-                      size_t cflags_count, const char *const *headers, size_t headers_count) {
-    const char *prefix = ctx_tp_prefix(ctx);
-    const char *lib_dir = temp_sprintf("%s/lib", prefix);
-    const char *inc_dir = temp_sprintf("%s/include", prefix);
-    if (!mel_mkdirs(lib_dir)) return false;
-    if (!mel_mkdirs(inc_dir)) return false;
-
-    const char *lib = ctx->platform == MEL_PLATFORM_WIN32
-        ? temp_sprintf("%s/%s.lib", lib_dir, ctx->target->name)
-        : temp_sprintf("%s/lib%s.a", lib_dir, ctx->target->name);
-    if (file_exists(lib) && needs_rebuild1(lib, src) == 0) goto headers;
-
-    const char *obj = temp_sprintf("%s/%s.o", prefix, ctx->target->name);
-    Cmd cmd = {0};
-    cmd_append(&cmd, ctx->cross ? ctx->cross->cc : "clang", "-c", "-O2");
-    if (ctx->platform != MEL_PLATFORM_WIN32) cmd_append(&cmd, "-fPIC");
-    for (size_t i = 0; i < cflags_count; i++) cmd_append(&cmd, cflags[i]);
-    cmd_append(&cmd, src, "-o", obj);
-    if (!cmd_run_sync_and_reset(&cmd)) return false;
-
-    if (file_exists(lib)) delete_file(lib);
-    Cmd ar = {0};
-    const char *ar_tool = ctx->cross ? ctx->cross->ar : static_ar_tool(ctx->platform);
-    cmd_append(&ar, ar_tool, "rcs", lib, obj);
-    if (!cmd_run_sync_and_reset(&ar)) return false;
-
-headers:
-    for (size_t i = 0; i < headers_count; i++) {
-        const char *base = strrchr(headers[i], '/');
-        base = base ? base + 1 : headers[i];
-        if (!copy_file(headers[i], temp_sprintf("%s/%s", inc_dir, base))) return false;
-    }
-    return true;
-}
-
-bool mel_tp_cmake(Mel_Build_Context *ctx, const char *src_rel,
-                  const char *const *args, size_t args_count, const char *produced_lib) {
-    const char *cwd = get_current_dir_temp();
-    const char *prefix = ctx_tp_prefix(ctx);
-    if (produced_lib && file_exists(temp_sprintf("%s/lib/%s", prefix, produced_lib))) return true;
-
-    const char *abs_src = temp_sprintf("%s/%s", cwd, src_rel);
-    const char *abs_prefix = temp_sprintf("%s/%s", cwd, prefix);
-    const char *build_rel = temp_sprintf("%s/%s-build", prefix, ctx->target->name);
-    if (!mel_mkdirs(build_rel)) return false;
-
-    Cmd cmd = {0};
-    cmd_append(&cmd, "cmake", "-S", abs_src, "-B", build_rel);
-    cmd_append(&cmd, temp_sprintf("-DCMAKE_INSTALL_PREFIX=%s", abs_prefix));
-    cmd_append(&cmd, "-DCMAKE_BUILD_TYPE=Release", "-DBUILD_SHARED_LIBS=OFF");
-    if (ctx->cross) {
-        cmd_append(&cmd, temp_sprintf("-DCMAKE_TOOLCHAIN_FILE=%s/build/cmake/android.toolchain.cmake", ctx->cross->ndk));
-        cmd_append(&cmd, temp_sprintf("-DANDROID_ABI=%s", ctx->cross->abi));
-        cmd_append(&cmd, temp_sprintf("-DANDROID_PLATFORM=android-%d", ctx->cross->api));
-    }
-    for (size_t i = 0; i < args_count; i++) cmd_append(&cmd, args[i]);
-    if (!cmd_run_sync_and_reset(&cmd)) return false;
-
-    Cmd build = {0};
-    cmd_append(&build, "cmake", "--build", build_rel, "--config", "Release",
-               "--parallel", temp_sprintf("%d", nob_nprocs()));
-    if (!cmd_run_sync_and_reset(&build)) return false;
-
-    Cmd install = {0};
-    cmd_append(&install, "cmake", "--install", build_rel, "--config", "Release");
-    return cmd_run_sync_and_reset(&install);
-}
-
-bool mel_tp_autotools(Mel_Build_Context *ctx, const char *src_rel, const char *extra_arg,
-                      const char *produced_lib) {
-    const char *cwd = get_current_dir_temp();
-    const char *prefix = ctx_tp_prefix(ctx);
-    if (produced_lib && file_exists(temp_sprintf("%s/lib/%s", prefix, produced_lib))) return true;
-    const char *abs_prefix = temp_sprintf("%s/%s", cwd, prefix);
-    const char *build_rel = temp_sprintf("%s/%s-build", prefix, ctx->target->name);
-    const char *abs_build = temp_sprintf("%s/%s", cwd, build_rel);
-    if (!mel_mkdirs(build_rel)) return false;
-
-    const char *abs_src = temp_sprintf("%s/%s", cwd, src_rel);
-    const char *configure = temp_sprintf("%s/configure", abs_src);
-
-    // On Win32, autotools shells out to sh.exe for $(SHELL); make sure the
-    // chosen sh's directory has no embedded space, and flip any backslashes
-    // we pass into configure to forward slashes (autotools refuses backslashes
-    // in srcdir/prefix as "unsafe"). We also avoid handing configure an
-    // absolute path containing a drive letter: configure splits its aux-dir
-    // candidate list on $PATH_SEPARATOR, which is `:` under MSYS sh, so
-    // "D:/repo/..." gets shredded into "D" + "/repo/..." and the aux-file
-    // probe fails. A relative srcdir from the build dir sidesteps that.
-    bool win32_native = (ctx->platform == MEL_PLATFORM_WIN32) && (ctx->cross == NULL);
-    const char *cfg_prefix = abs_prefix;
-    const char *cfg_path = configure;
-    if (win32_native) {
-        mel_win32_ensure_no_space_sh_in_path();
-        cfg_prefix = mel_to_autotools_path(abs_prefix);
-        // build_rel sits N components below cwd; reach repo root with N "../".
-        size_t ups = 1;
-        for (const char *q = build_rel; *q; q++) if (*q == '/') ups++;
-        String_Builder rel = {0};
-        for (size_t i = 0; i < ups; i++) sb_append_cstr(&rel, "../");
-        sb_append_cstr(&rel, src_rel);
-        sb_append_cstr(&rel, "/configure");
-        sb_append_null(&rel);
-        cfg_path = temp_strdup(rel.items);
-        free(rel.items);
-    }
-
-    if (!set_current_dir(abs_build)) return false;
-    bool ok = true;
-
-    Cmd cmd = {0};
-    if (win32_native) cmd_append(&cmd, "sh");
-    cmd_append(&cmd, cfg_path, temp_sprintf("--prefix=%s", cfg_prefix));
-    cmd_append(&cmd, "--disable-shared", "--enable-static", "--with-pic", "--disable-maintainer-mode");
-    if (ctx->cross) {
-        cmd_append(&cmd, temp_sprintf("--host=%s", ctx->cross->triple));
-        cmd_append(&cmd, temp_sprintf("CC=%s", ctx->cross->cc));
-        cmd_append(&cmd, temp_sprintf("AR=%s", ctx->cross->ar));
-        cmd_append(&cmd, temp_sprintf("RANLIB=%s", ctx->cross->ranlib));
-    } else if (win32_native) {
-        cmd_append(&cmd, "CC=clang", "AR=llvm-ar");
-        // VS LLVM ships ld.lld / llvm-nm / llvm-strip but no GNU-named
-        // aliases. Autotools/libtool probe for "ld" / "nm" by name and bail
-        // otherwise.
-        cmd_append(&cmd, "LD=ld.lld", "NM=llvm-nm", "STRIP=llvm-strip");
-    }
-    if (extra_arg) cmd_append(&cmd, extra_arg);
-    if (!cmd_run_sync_and_reset(&cmd)) ok = false;
-
-    if (ok) {
-        Cmd make = {0};
-        cmd_append(&make, "make", temp_sprintf("-j%d", nob_nprocs()));
-        if (!cmd_run_sync_and_reset(&make)) ok = false;
-    }
-    if (ok) {
-        Cmd install = {0};
-        cmd_append(&install, "make", "install");
-        if (!cmd_run_sync_and_reset(&install)) ok = false;
-    }
-    set_current_dir(cwd);
-    return ok;
-}
-
-const char *mel_tp_prefix(Mel_Build_Context *ctx) {
-    return ctx_tp_prefix(ctx);
-}
-
-// Absolute install prefix of another third-party target (same platform/ABI).
-// On Win32 the cwd comes back with backslashes; autotools refuses backslash
-// paths as srcdir/prefix and cmake doesn't care either way, so we always
-// hand back a forward-slash path.
-const char *mel_tp_dep_prefix(Mel_Build_Context *ctx, const char *target_name) {
-    const char *cwd = get_current_dir_temp();
-    const char *p = temp_sprintf("%s/%s", cwd, tp_prefix_named(ctx->platform, ctx_abi(ctx), target_name));
-    return (ctx->platform == MEL_PLATFORM_WIN32) ? mel_to_autotools_path(p) : p;
 }
 
 // =============================================================================
@@ -1963,6 +1476,57 @@ static bool build_graph(Mel_Build_Target *root, Mel_Platform p, Mel_Config c, Me
 // Target discovery + module loading
 // =============================================================================
 
+// Path of the statically-linked build library each target's build.c links
+// against. Built once per run from tools/build/build.c.
+static const char *build_lib_path(void) {
+#ifdef _WIN32
+    return MEL_BUILD_DIR "/build-modules/melbuild.lib";
+#else
+    return MEL_BUILD_DIR "/build-modules/libmelbuild.a";
+#endif
+}
+
+static const char *g_build_lib;
+
+// Compile tools/build/build.c into the build library archive. Rebuilt only when
+// the library source or its headers change. Target build.c modules statically
+// link this, so they resolve the mel_build_*/mel_tp_* API at their own link time
+// instead of against the running nob binary.
+static bool ensure_build_lib(void) {
+    if (!mkdir_if_not_exists(MEL_BUILD_DIR)) return false;
+    if (!mkdir_if_not_exists(MEL_BUILD_DIR "/build-modules")) return false;
+
+    const char *src = "tools/build/build.c";
+    const char *obj = MEL_BUILD_DIR "/build-modules/melbuild.o";
+    const char *lib = build_lib_path();
+    g_build_lib = lib;
+
+    const char *deps[] = {
+        "tools/build/build.c", "tools/build/build.h", "tools/build/internal.h",
+    };
+    if (file_exists(lib) && needs_rebuild(lib, deps, NOB_ARRAY_LEN(deps)) == 0) return true;
+
+    Cmd cc = {0};
+    cmd_append(&cc, "clang", "-std=c23", "-g");
+#ifndef _WIN32
+    cmd_append(&cc, "-fPIC");
+#endif
+    cmd_append(&cc, "-c", "-Itools/build", src, "-o", obj);
+    if (!cmd_run_sync_and_reset(&cc)) {
+        nob_log(NOB_ERROR, "failed to compile build library %s", src);
+        return false;
+    }
+
+    if (file_exists(lib)) delete_file(lib);
+    Cmd ar = {0};
+    cmd_append(&ar, static_ar_tool(mel_host_platform()), "rcs", lib, obj);
+    if (!cmd_run_sync_and_reset(&ar)) {
+        nob_log(NOB_ERROR, "failed to archive build library %s", lib);
+        return false;
+    }
+    return true;
+}
+
 static const char *module_so_ext(void) {
 #if defined(__APPLE__)
     return "dylib";
@@ -1985,24 +1549,18 @@ static bool load_target(const char *dir) {
     sb_append_null(&slug);
     const char *so = temp_sprintf("%s/build-modules/%s.%s", MEL_BUILD_DIR, slug.items, module_so_ext());
 
+    // The module statically links libmelbuild.a, so the mel_build_*/mel_tp_* API
+    // is resolved at this link rather than against the nob binary at load time.
     Cmd cmd = {0};
-    cmd_append(&cmd, "clang", "-shared", "-Ilib/build");
-#ifdef _WIN32
-    // Resolve mel_build_* against nob.exe via the import library produced
-    // by the host link (nob.lib lives next to nob.exe).
-    cmd_append(&cmd, src, "nob.lib", "-o", so);
-#elif defined(__APPLE__)
-    // Defer host-symbol resolution to dlopen time on macOS.
-    cmd_append(&cmd, "-fPIC", "-undefined", "dynamic_lookup");
-    cmd_append(&cmd, src, "-o", so);
-#else
-    // -rdynamic on the host exposes the mel_build_* symbols to dlopen.
+    cmd_append(&cmd, "clang", "-shared", "-Itools/build");
+#ifndef _WIN32
     cmd_append(&cmd, "-fPIC");
-    cmd_append(&cmd, src, "-o", so);
 #endif
+    cmd_append(&cmd, src, g_build_lib, "-o", so);
     ccmds_add(get_current_dir_temp(), src, cmd);
 
-    if (needs_rebuild1(so, src) != 0) {
+    const char *deps[] = { src, g_build_lib };
+    if (needs_rebuild(so, deps, NOB_ARRAY_LEN(deps)) != 0) {
         if (!cmd_run_sync_and_reset(&cmd)) {
             nob_log(NOB_ERROR, "failed to compile build module %s", src);
             return false;
@@ -2040,6 +1598,8 @@ static bool load_target(const char *dir) {
 }
 
 static bool discover_targets(void) {
+    if (!ensure_build_lib()) return false;
+
     // The melody library plus any other root-level targets.
     if (!load_target("modules")) return false;
 

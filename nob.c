@@ -1,30 +1,20 @@
-// nob is a thin driver over the Melody build framework (lib/build). It rebuilds
-// itself when any framework source changes, then hands off to mel_build_main,
-// which discovers per-target build.c modules, loads them, and runs the build
-// graph. The mel_build_* API must be reachable from the dynamically loaded
-// target modules: on ELF hosts -rdynamic exposes the binary's symbol table; on
-// Windows we generate an import library (nob.lib) so the target module DLLs
-// can link against it. MEL_BUILD_HOST gates __declspec(dllexport) annotations
-// on the API declarations (a no-op on non-Windows).
-#ifdef _WIN32
+// nob is a thin driver over the Melody build framework (tools/build). It
+// rebuilds itself when any framework source changes, then hands off to
+// mel_build_main, which discovers per-target build.c modules, loads them, and
+// runs the build graph. The framework is split into a build library (build.c,
+// the mel_build_*/mel_tp_* API archived into libmelbuild.a and statically
+// linked into each target module) and the runner engine (runner.c). Both are
+// compiled into this translation unit, so nob no longer needs to export its
+// symbols to dynamically loaded modules.
 #define NOB_REBUILD_URSELF(binary_path, source_path) \
-    "clang", "-std=c23", "-g", "-DMEL_BUILD_HOST", \
-    "-o", binary_path, source_path, "-Wl,/IMPLIB:nob.lib"
-#else
-#define NOB_REBUILD_URSELF(binary_path, source_path) \
-    "clang", "-std=c23", "-g", "-rdynamic", "-DMEL_BUILD_HOST", \
-    "-o", binary_path, source_path
-#endif
+    "clang", "-std=c23", "-g", "-o", binary_path, source_path
 
-#define NOB_IMPLEMENTATION
-#define NOB_STRIP_PREFIX
-#define NOB_NO_ECHO
-#define NOB_TEMP_CAPACITY (64*1024*1024)
-#include "nob.h"
-
-#include "lib/build/build.c"
+#include "tools/build/build.c"
+#include "tools/build/runner.c"
 
 int main(int argc, char **argv) {
-    NOB_GO_REBUILD_URSELF_PLUS(argc, argv, "lib/build/build.c", "lib/build/build.h");
+    NOB_GO_REBUILD_URSELF_PLUS(argc, argv,
+                               "tools/build/build.c", "tools/build/build.h",
+                               "tools/build/internal.h", "tools/build/runner.c");
     return mel_build_main(argc, argv);
 }
