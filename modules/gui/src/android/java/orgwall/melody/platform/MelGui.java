@@ -40,6 +40,7 @@ public final class MelGui {
     public static Activity activity() { return activity; }
     public static float    density()  { return density; }
     public static int      px2dp(int px) { return Math.round(px / density); }
+    public static int      dp2px(int dp) { return Math.round(dp * density); }
 
     public static void setActivityTitle(String title) {
         if (activity != null && title != null) activity.setTitle(title);

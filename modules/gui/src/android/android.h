@@ -73,6 +73,12 @@ void mel_gui__android_install_focus(JNIEnv* env, jobject view, Mel_Gui_Handle h,
                                     Mel_Gui_Focus_Cb focus);
 
 bool mel_gui__android_frame_register_jni    (JNIEnv* env);
+bool mel_gui__android_dialog_register_jni   (JNIEnv* env);
+bool mel_gui__android_panel_register_jni    (JNIEnv* env);
+bool mel_gui__android_groupbox_register_jni (JNIEnv* env);
+bool mel_gui__android_scrollview_register_jni(JNIEnv* env);
+bool mel_gui__android_tabview_register_jni  (JNIEnv* env);
+bool mel_gui__android_splitter_register_jni (JNIEnv* env);
 bool mel_gui__android_label_register_jni    (JNIEnv* env);
 bool mel_gui__android_button_register_jni   (JNIEnv* env);
 bool mel_gui__android_checkbox_register_jni (JNIEnv* env);

@@ -11,6 +11,12 @@
 #include <gui/color.h>
 #include <gui/painter.h>
 #include <gui/controls/frame.h>
+#include <gui/controls/dialog.h>
+#include <gui/controls/panel.h>
+#include <gui/controls/groupbox.h>
+#include <gui/controls/scrollview.h>
+#include <gui/controls/tabview.h>
+#include <gui/controls/splitter.h>
 #include <gui/controls/label.h>
 #include <gui/controls/button.h>
 #include <gui/controls/checkbox.h>

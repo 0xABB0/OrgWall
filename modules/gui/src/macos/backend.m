@@ -63,7 +63,9 @@ NSString* mel_gui__macos_nsstring(str8 s)
 NSView* mel_gui__macos_parent_view(Mel_Gui_Node* n)
 {
     Mel_Gui_Node* p = mel_gui__node(n->parent);
-    if (!p || !p->native) return nil;
+    if (!p) return nil;
+    if (p->content) return (__bridge NSView*)p->content;
+    if (!p->native) return nil;
     id obj = (__bridge id)p->native;
     if ([obj isKindOfClass:[NSWindow class]]) return [(NSWindow*)obj contentView];
     if ([obj isKindOfClass:[NSView   class]]) return (NSView*)obj;

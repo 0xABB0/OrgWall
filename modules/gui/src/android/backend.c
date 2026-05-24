@@ -52,7 +52,7 @@ void mel_gui__android_attach(Mel_Gui_Node* n, jobject view)
     if (!env || !view) return;
 
     Mel_Gui_Node* parent = mel_gui__node(n->parent);
-    jobject pview = parent ? (jobject)parent->native : NULL;
+    jobject pview = parent ? (jobject)(parent->content ? parent->content : parent->native) : NULL;
     if (pview) {
         jobject lp = (*env)->NewObject(env, g_a.lp_cls, g_a.lp_ctor,
                                        mel_gui__android_dp2px(n->width),
@@ -132,6 +132,12 @@ bool mel_gui__android_register(JNIEnv* env, jclass cls)
 
     bool ok = true;
     ok &= mel_gui__android_frame_register_jni    (env);
+    ok &= mel_gui__android_dialog_register_jni   (env);
+    ok &= mel_gui__android_panel_register_jni    (env);
+    ok &= mel_gui__android_groupbox_register_jni (env);
+    ok &= mel_gui__android_scrollview_register_jni(env);
+    ok &= mel_gui__android_tabview_register_jni  (env);
+    ok &= mel_gui__android_splitter_register_jni (env);
     ok &= mel_gui__android_label_register_jni    (env);
     ok &= mel_gui__android_button_register_jni   (env);
     ok &= mel_gui__android_checkbox_register_jni (env);
@@ -165,8 +171,10 @@ void mel_gui__backend_destroy(Mel_Gui_Node* n)
             (*env)->DeleteLocalRef(env, parent);
         }
         (*env)->DeleteGlobalRef(env, view);
+        if (n->content) (*env)->DeleteGlobalRef(env, (jobject)n->content);
     }
-    n->native = NULL;
+    n->native  = NULL;
+    n->content = NULL;
 
     if (toplevel && mel_gui__frames_dec() == 0) {
         Mel_Reactor* r = mel_gui__reactor();

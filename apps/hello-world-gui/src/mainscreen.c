@@ -87,6 +87,13 @@ static void replace_screen_clicked(Mel_Gui_Handle h, void* user)
     mel_app_replace(h, S8("replaced"));
 }
 
+static void open_struct_clicked(Mel_Gui_Handle h, void* user)
+{
+    (void)h;
+    (void)user;
+    mel_app_present(S8("structural"));
+}
+
 static void main_checkbox_toggled(Mel_Gui_Handle h, bool checked, void* user)
 {
     (void)h;
@@ -208,6 +215,13 @@ void build_main(Mel_Gui_Handle frame, void* user)
 
     mel_button_create(frame, .text = S8("Replace With Replaced Screen"),
         .pointer.on_click   = replace_screen_clicked,
+        .focus.on_focus_in  = main_focus_in,
+        .focus.on_focus_out = main_focus_out,
+        .user = &g_main,
+        .layoutable = { .preferred_h = 40 });
+
+    mel_button_create(frame, .text = S8("Open Structural Widgets"),
+        .pointer.on_click   = open_struct_clicked,
         .focus.on_focus_in  = main_focus_in,
         .focus.on_focus_out = main_focus_out,
         .user = &g_main,

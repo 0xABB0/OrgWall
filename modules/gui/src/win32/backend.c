@@ -55,7 +55,8 @@ void mel_gui__win32_free_ctl(HWND hwnd)
 HWND mel_gui__win32_parent_hwnd(Mel_Gui_Node* n)
 {
     Mel_Gui_Node* p = mel_gui__node(n->parent);
-    return p ? (HWND)p->native : NULL;
+    if (!p) return NULL;
+    return (HWND)(p->content ? p->content : p->native);
 }
 
 DWORD mel_gui__win32_child_style(Mel_Gui_Node* n, bool disabled)

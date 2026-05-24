@@ -11,9 +11,39 @@ struct Mel_Painter { CGContextRef cg; f32 w, h; };
 @property (assign) Mel_Gui_Handle frame_handle;
 @end
 
+@interface MelGuiContainerView : NSView
+@property (assign) Mel_Gui_Handle      handle;
+@property (assign) Mel_Gui_Pointer_Cb  pointer;
+@property (assign) Mel_Gui_Focus_Cb    focus;
+@property (assign) Mel_Gui_Keyboard_Cb keyboard;
+@end
+
 @interface MelGuiWindowDelegate : NSObject <NSWindowDelegate>
 @property (assign) Mel_Gui_Handle       frame_handle;
 @property (assign) Mel_Gui_Lifecycle_Cb lifecycle;
+@end
+
+@interface MelGuiDialogDelegate : NSObject <NSWindowDelegate>
+@property (assign) Mel_Gui_Handle       dialog_handle;
+@property (assign) Mel_Gui_Handle       owner_handle;
+@property (assign) Mel_Gui_Lifecycle_Cb lifecycle;
+@property (assign) Mel_Dialog_On        on_;
+@property (assign) Mel_Gui_Focus_Cb     focus;
+@property (assign) Mel_Gui_Keyboard_Cb  keyboard;
+@property (assign) i32                   result;
+@property (assign) BOOL                  result_set;
+@end
+
+@interface MelGuiTabView : NSTabView <NSTabViewDelegate>
+@property (assign) Mel_Gui_Handle   handle;
+@property (assign) Mel_Gui_Focus_Cb focus;
+@property (assign) void (*on_select)(Mel_Gui_Handle h, i32 index, void* user);
+@end
+
+@interface MelGuiSplitView : NSSplitView <NSSplitViewDelegate>
+@property (assign)   Mel_Gui_Handle   handle;
+@property (assign)   Mel_Gui_Focus_Cb focus;
+@property (strong)   NSMutableArray<NSNumber*>* mins;
 @end
 
 @interface MelGuiButton : NSButton

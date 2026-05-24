@@ -5,6 +5,7 @@
 #include "mainscreen.h"
 #include "detailscreen.h"
 #include "replacescreen.h"
+#include "structscreen.h"
 
 
 void mel_app_setup(Mel_Reactor* reactor)
@@ -13,5 +14,6 @@ void mel_app_setup(Mel_Reactor* reactor)
     mel_app_register_screen(S8("main"),     build_main,    NULL);
     mel_app_register_screen(S8("details"),  build_details, NULL);
     mel_app_register_screen(S8("replaced"), build_replace, NULL);
+    mel_app_register_screen(S8("structural"), build_struct, NULL);
     mel_app_present(S8("main"));
 }

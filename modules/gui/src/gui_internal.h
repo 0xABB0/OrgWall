@@ -13,6 +13,7 @@ typedef struct Mel_Gui_Node {
     Mel_Gui_Handle self;
     Mel_Gui_Handle parent;
     void*          native;
+    void*          content;
     void*          user;
     u32            id;
     i32            x, y, width, height;

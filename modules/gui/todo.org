@@ -29,12 +29,10 @@ Done across *all three* imperative backends (appkit, android, win32):
 Verification state:
 - *appkit* — builds + runs (=./nob build app hello-world-gui=). Interactive
   click/slider/etc. not auto-tested in CI; eyeball recommended.
-- *android* — =.so= (both ABIs) + Java + APK build clean
-  (=./nob build app hello-world-gui android=). On-device run not yet exercised.
-- *win32* — rewritten *blind*: this host has no win32 toolchain that accepts the
-  codebase's clang-only features (=MEL_OVERLOADABLE=, C23 =nullptr=), so it was
-  pattern-matched to the verified appkit/android shape and the prior win32
-  structure. *Must be built with clang on Windows before trusting.*
+- *android* — builds + runs on-device (=./nob build app hello-world-gui
+  android=). The inverted backend is verified working.
+- *win32* — builds + runs on Windows under clang. The inverted backend is
+  verified working.
 
 Known gaps from the inversion (small, were latent before):
 - =on_destroy= (lifecycle) no longer fires from the inverted backends — it used
@@ -117,9 +115,10 @@ Each is specified in =readme.org= and must be delivered first-class.
 ** TODO swiftui backend (macOS/visionOS ornaments & volumes; declarative)
 ** TODO gtk4 backend (Linux default; portable to win32/macos)
 ** TODO qt backend (portable; C++ shim TU)
-** WIP  android backend (android.view; also Meta Quest 2D panel app)
-   First slice landed: =modules/gui/src/android/= covers Frame, Label, Button,
-   CheckBox, TextField, Slider, Canvas; =./nob build app hello-world-gui android=
+** DONE android backend (android.view; also Meta Quest 2D panel app)
+   First slice landed and verified on-device: =modules/gui/src/android/= covers
+   Frame, Label, Button, CheckBox, TextField, Slider, Canvas;
+   =./nob build app hello-world-gui android=
    produces the APK with =libmelody.so= for arm64-v8a and x86_64 and Java
    classes =orgwall.melody.platform.MelodyActivity/MelGui/MelCanvasView=
    compiled in. Click/toggle/slider/text-changed/focus/pointer/key all wired;
@@ -174,7 +173,7 @@ Each is specified in =readme.org= and must be delivered first-class.
      =presentFrame=, pushing the same frame twice). Toplevel focus is
      implicit in being the currently-presented frame; multi-frame
      navigation goes through =set_visible= only.
-   Open items before this can move to DONE:
+   Deferred follow-ups (do not block the backend; tracked for later):
    - Drop the deprecated framework =Fragment= navigation. =MelScreenFragment=,
      =MelGui.presentFrame= and =MelodyActivity.handleBack= use
      =android.app.Fragment= / =FragmentManager=, deprecated since API 28 and
@@ -271,9 +270,125 @@ Each is specified in =readme.org= and must be delivered first-class.
 ** TODO web/ class tier
 ** TODO xr/ class tier — volumes, ornaments, immersive spaces
 
+* Containers — Panel, GroupBox, ScrollView  [2026-05-24]
+
+Built across win32, appkit and android. Headers at
+=include/gui/controls/{panel,groupbox,scrollview}.h=; each opt carries both
+=.layout= (algorithm for its own children) and =.layoutable= (hints for its
+placement in its parent), so a container nests inside another container's
+layout. =gui.h= includes all three.
+
+Content-host model: a container whose children must attach somewhere other than
+its own native object stores that host in the new =Mel_Gui_Node.content= field.
+=content == NULL= means children attach to =native= (Panel, Frame, every leaf
+widget). Each backend's parent resolver consults it:
+=mel_gui__win32_parent_hwnd=, =mel_gui__macos_parent_view= and
+=mel_gui__android_attach= all return =parent->content ? content : native=.
+Android =backend_destroy= releases the content global ref alongside native.
+
+- Panel — plain grouping surface; =content == NULL=.
+  win32: a shared =MelGuiContainer= window class (=src/win32/panel.c=, also the
+  inner host for GroupBox/ScrollView) reflecting WM_COMMAND/WM_HSCROLL and
+  WM_CTLCOLORSTATIC so child controls dispatch. appkit: flipped
+  =MelGuiContainerView=. android: =FrameLayout=.
+- GroupBox — titled border; =content= = the inset interior.
+  win32: native =BS_GROUPBOX= button + an inner container child, kept inset via a
+  WM_SIZE subclass. appkit: =NSBox= with a flipped =MelGuiContainerView= as its
+  =contentView=. android: emulated — bordered vertical =LinearLayout= with a
+  title =TextView= over an inner =FrameLayout= (=content=).
+- ScrollView — scrollable viewport; =.content_w/.content_h= give the scrollable
+  extent (0 = viewport size, no scroll on that axis); =content= = the inner host.
+  win32: a =MelGuiScroll= class with WS_VSCROLL/WS_HSCROLL that repositions the
+  oversized inner container on WM_VSCROLL/WM_HSCROLL/WM_MOUSEWHEEL. appkit:
+  =NSScrollView= with a flipped =documentView=. android: =ScrollView= + inner
+  =FrameLayout=.
+
+Verification:
+- *appkit* — builds + runs; a Panel + GroupBox + ScrollView demo on
+  =hello-world-gui='s details screen was presented at startup and ran with no
+  crash (content-host parenting + nested column layout exercised). Visual output
+  not eyeballed.
+- *android* — =.so= (both ABIs) + Java + APK build clean. On-device run not
+  exercised.
+- *win32* — written *blind* (no clang-on-Windows host here), pattern-matched to
+  the verified appkit/android shape + the existing win32 widgets. The BS_GROUPBOX
+  inner-inset subclass and the WS_*SCROLL repositioning are *unverified* — build
+  with clang on Windows before trusting.
+
+Open items:
+- ScrollView nested layout: a layout set on a ScrollView arranges children
+  against the *viewport* height, not =content_h=, so layout-driven content does
+  not fill the scrollable extent (the demo uses absolute child coords). A layout
+  needs to measure/arrange against the content size when the parent is a
+  scroll host.
+- GroupBox/ScrollView focus is the only capability wired on the content node;
+  pointer/keyboard on the container surface ship on Panel (appkit) only.
+
+* Structural — Dialog, TabView, Splitter  [2026-05-24]
+
+Built across win32, appkit and android. Headers at
+=include/gui/controls/{dialog,tabview,splitter}.h=; =gui.h= includes all three.
+Two design forks were settled with Gabbo before building:
+
+1. *Page-as-node* for the multi-pane containers. A node has a single
+   =content= pointer, so TabView/Splitter cannot host N children directly.
+   Instead each tab/pane is its *own* node (=mel_tab_create(tabview, …)= /
+   =mel_splitpane_create(splitter, …)=) whose =content= is that pane's host;
+   children parent to the page — the same content-host shape as GroupBox. The
+   container owns a private =Mel_Layout= (not user-supplied) that places its
+   page nodes and recurses into each page's own =.layout=. =Mel_{TabView,
+   Splitter}_Opt= therefore expose =.layoutable= but no =.layout=.
+2. *Modeless dialog* with a result callback, not a blocking modal loop — a
+   nested platform pump fights the reactor. =mel_dialog_create= returns
+   immediately; =on_.on_result(h, result, user)= fires on close, and
+   =mel_dialog_close(h, result)= dismisses programmatically.
+
+- Dialog — owned top-level surface; children parent to =native= (=content ==
+  NULL=). win32: a =MelGuiDialog= window owned by =.owner= with the owner
+  =EnableWindow(FALSE)= for the lifetime (modal-feel, no nested loop); its ctl
+  embeds =Mel_Win32_Frame= as the first member so the toplevel branch of
+  =mel_gui_set_bounds= reads valid style. appkit: an =NSWindow= added as a child
+  window of the owner, =NSFloatingWindowLevel=, =MelGuiDialogDelegate= fires
+  on_result from =windowWillClose=. android: =android.app.Dialog= overlay;
+  cancel and =close= both route through =nativeResult=, which fires the callback
+  and tears the subtree down. Dialogs participate in =frames_inc/dec=.
+- TabView — native tab strip + one content host per tab.
+  win32: =SysTabControl32=; pages are container children positioned at
+  =TabCtrl_AdjustRect=, shown/hidden on =TCN_SELCHANGE= caught by a subclass on
+  the tab control's *parent*. appkit: =NSTabView= with a flipped
+  =MelGuiContainerView= per =NSTabViewItem=. android: =MelTabView= (a vertical
+  =LinearLayout= — button strip over a content =FrameLayout=) swaps page
+  visibility in Java. =mel_tabview_select/selected= + an =on_select= callback.
+- Splitter — =.orientation= horizontal/vertical, draggable divider, N panes,
+  per-pane =.min_size=.
+  win32: a custom =MelGuiSplitter= class hit-tests divider bands, drags with
+  mouse capture, and proportionally rescales pane extents on WM_SIZE. appkit:
+  =NSSplitView= (arranged subviews = pane hosts) with min-coordinate constraints
+  from =.min_size=. android: =MelSplitter= is a custom =ViewGroup= that owns its
+  own measure/layout, paints the divider bars, and drags via
+  =onInterceptTouchEvent=/=onTouchEvent= on the gap bands (clamped to
+  =.min_size=). After each layout pass it calls =nativeLayout=, where C reads the
+  measured pane sizes (px→dp) and arranges that pane's children — the same
+  Java-owns-geometry / C-arranges-children split as =NSSplitView= on appkit.
+
+Verification:
+- *appkit* — builds + runs; the structural screen (TabView with two tabs,
+  Splitter with two panes) plus an auto-opened Dialog was presented at startup
+  and ran with no crash. Visual output not eyeballed.
+- *android* — =.so= (both ABIs) + Java + APK build clean. On-device run not
+  exercised.
+- *win32* — written *blind* (no clang-on-Windows host here). The tab-control
+  parent subclass, the dialog owner-disable/result path and the custom splitter
+  drag math are *unverified* — build with clang on Windows before trusting.
+
+Open items:
+- TabView/Splitter page nodes are grandchildren of the frame, so the shallow
+  one-level =mel_gui__destroy_tree= leaks their node slots (and, on appkit, the
+  page host global ref) when the frame closes — a pre-existing limitation of the
+  destroy walk that also affects nested Panel/GroupBox children, not new here.
+
 * Deferred — widgets beyond the first slice
 
-** TODO Dialog, GroupBox, ScrollView, TabView, Splitter
 ** TODO RadioButton, ToggleButton, ProgressBar, SpinBox
 ** TODO ChoiceBox, ComboBox, ListBox, ImageView, TextArea
 ** TODO MenuBar / Menu / MenuItem, ToolBar, StatusBar
@@ -386,12 +501,11 @@ fixed in the first pass; the seven items below landed in a follow-up pass.
    - *appkit* — builds + runs (=./nob build app hello-world-gui=); window opens
      with no paint crash. Visual output (border, divider, label text, drag
      ellipse) not auto-verified — eyeball recommended.
-   - *android* — =.so= (both ABIs) + Java + APK build clean
-     (=./nob build app hello-world-gui android=). On-device run not exercised.
-   - *win32* — written *blind* (no clang-on-Windows host here); pattern-matched
-     to the verified appkit/android shape + the existing win32 canvas. The GDI
-     calls (=DC_BRUSH=/=DC_PEN= stock objects, =CreateFontW= cache, =TextOutW=)
-     are *unverified* — build with clang on Windows before trusting.
+   - *android* — builds + runs on-device
+     (=./nob build app hello-world-gui android=); Painter output verified.
+   - *win32* — builds + runs on Windows under clang; the GDI Painter path
+     (=DC_BRUSH=/=DC_PEN= stock objects, =CreateFontW= cache, =TextOutW=)
+     is verified working.
    Open items / deferred surface:
    - Arbitrary paths (move/line/curve/close, fill + stroke), polygons.
    - Images / bitmaps (=draw_image=), with source + dest rect and scaling.
