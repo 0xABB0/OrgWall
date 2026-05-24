@@ -10,12 +10,114 @@
 #include "build.h"
 #include "sha256.h"
 
-#include <dlfcn.h>
 #include <stdint.h>
 #include <sys/stat.h>
-#include <sys/time.h>
 #include <time.h>
+
+#ifndef _WIN32
+#include <sys/time.h>
 #include <unistd.h>
+#endif
+
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#  define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+// Win32 shims for the small POSIX surface the build-cache uses.
+#ifndef S_ISREG
+#  define S_ISREG(m) (((m) & _S_IFMT) == _S_IFREG)
+#endif
+#define popen  _popen
+#define pclose _pclose
+// CreateHardLinkA returns BOOL (nonzero on success); link() returns 0 on success.
+static int link(const char *src, const char *dst) {
+    return CreateHardLinkA(dst, src, NULL) ? 0 : -1;
+}
+// utimes(path, NULL) bumps mtime/atime to now. On Win32 we open the file and
+// stamp it with the current time via SetFileTime.
+static int utimes(const char *path, void *unused) {
+    (void)unused;
+    HANDLE h = CreateFileA(path, FILE_WRITE_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                           NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (h == INVALID_HANDLE_VALUE) return -1;
+    SYSTEMTIME st_now; GetSystemTime(&st_now);
+    FILETIME ft; SystemTimeToFileTime(&st_now, &ft);
+    BOOL ok = SetFileTime(h, NULL, &ft, &ft);
+    CloseHandle(h);
+    return ok ? 0 : -1;
+}
+
+static void *mel_dlopen(const char *path) { return (void *)LoadLibraryA(path); }
+static void *mel_dlsym(void *h, const char *name) { return (void *)GetProcAddress((HMODULE)h, name); }
+static void  mel_dlclose(void *h) { if (h) FreeLibrary((HMODULE)h); }
+static const char *mel_dlerror(void) {
+    static char buf[1024];
+    DWORD err = GetLastError();
+    DWORD n = FormatMessageA(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+                             NULL, err, 0, buf, sizeof buf, NULL);
+    if (n == 0) snprintf(buf, sizeof buf, "win32 error %lu", (unsigned long)err);
+    return buf;
+}
+
+// Autotools' configure scripts reject paths containing backslashes ("unsafe
+// srcdir"); flip Windows separators to forward slashes. Drive letters are
+// preserved verbatim and MSYS tools accept "D:/foo/bar" without complaint.
+static const char *mel_to_autotools_path(const char *p) {
+    if (!p) return p;
+    size_t len = strlen(p);
+    char *out = (char *)malloc(len + 1);
+    for (size_t i = 0; i < len; i++) out[i] = (p[i] == '\\') ? '/' : p[i];
+    out[len] = 0;
+    return out;
+}
+
+// GNU make on Windows resolves $(SHELL) by searching PATH for sh.exe and
+// substitutes the resolved path verbatim into recipes. Git for Windows ships
+// sh at "C:\Program Files\Git\usr\bin\sh.exe" — the embedded space then
+// crashes libtool recipes like `$(SHELL) ../libtool ...`. Prepend the 8.3
+// short form of the chosen sh's directory so make picks a path with no spaces.
+static void mel_win32_ensure_no_space_sh_in_path(void) {
+    static bool done = false;
+    if (done) return;
+    done = true;
+
+    char sh_full[MAX_PATH];
+    DWORD n = SearchPathA(NULL, "sh.exe", NULL, MAX_PATH, sh_full, NULL);
+    if (n == 0 || n >= MAX_PATH) return;
+
+    bool has_space = false;
+    for (const char *p = sh_full; *p; p++) if (*p == ' ') { has_space = true; break; }
+    if (!has_space) return;
+
+    char *sep = strrchr(sh_full, '\\');
+    if (!sep) sep = strrchr(sh_full, '/');
+    if (!sep) return;
+    *sep = '\0';
+
+    char short_dir[MAX_PATH];
+    if (GetShortPathNameA(sh_full, short_dir, MAX_PATH) == 0) return;
+
+    const char *old_path = getenv("PATH");
+    if (!old_path) old_path = "";
+    size_t need = strlen(short_dir) + 1 + strlen(old_path) + 1;
+    char *new_path = (char *)malloc(need);
+    snprintf(new_path, need, "%s;%s", short_dir, old_path);
+    _putenv_s("PATH", new_path);
+    free(new_path);
+}
+#else
+#include <dlfcn.h>
+static void *mel_dlopen(const char *path) { return dlopen(path, RTLD_NOW | RTLD_LOCAL); }
+static void *mel_dlsym(void *h, const char *name) { return dlsym(h, name); }
+static void  mel_dlclose(void *h) { if (h) dlclose(h); }
+static const char *mel_dlerror(void) { const char *e = dlerror(); return e ? e : "unknown"; }
+static const char *mel_to_autotools_path(const char *p) { return p; }
+static void mel_win32_ensure_no_space_sh_in_path(void) {}
+#endif
 
 #ifndef MEL_BUILD_DIR
 #define MEL_BUILD_DIR "build"
@@ -169,6 +271,8 @@ struct Mel_Build_Target {
     File_Paths source_roots;    // recursively globbed, platform-aware
     File_Paths module_roots;    // dirs whose immediate children are modules
     File_Paths deps;            // dependency target names
+    Prop_List  excluded_modules;// platform-masked module-basename exclusions
+    Prop_List  excluded_sources;// platform-masked source-basename exclusions
 
     File_Paths cfg_keys;        // scaffolding template substitution keys
     File_Paths cfg_vals;        // parallel to cfg_keys
@@ -251,6 +355,43 @@ void mel_build_add_source_root(Mel_Build_Target *t, const char *dir) {
 
 void mel_build_add_modules(Mel_Build_Target *t, const char *modules_dir) {
     da_append(&t->module_roots, temp_strdup(modules_dir));
+}
+
+void mel_build_exclude_module_on(Mel_Build_Target *t, Mel_Platform p, const char *module_name) {
+    prop_add(&t->excluded_modules, module_name, 1u << p);
+}
+
+void mel_build_exclude_source_on(Mel_Build_Target *t, Mel_Platform p, const char *basename) {
+    prop_add(&t->excluded_sources, basename, 1u << p);
+}
+
+static bool module_excluded(const Mel_Build_Target *t, Mel_Platform p, const char *name) {
+    uint32_t bit = 1u << p;
+    for (size_t i = 0; i < t->excluded_modules.count; i++) {
+        const Prop *e = &t->excluded_modules.items[i];
+        if ((e->mask & bit) && strcmp(e->value, name) == 0) return true;
+    }
+    return false;
+}
+
+static bool source_excluded(const Mel_Build_Target *t, Mel_Platform p, const char *path) {
+    const char *base = strrchr(path, '/');
+    base = base ? base + 1 : path;
+    uint32_t bit = 1u << p;
+    for (size_t i = 0; i < t->excluded_sources.count; i++) {
+        const Prop *e = &t->excluded_sources.items[i];
+        if ((e->mask & bit) && strcmp(e->value, base) == 0) return true;
+    }
+    return false;
+}
+
+static void filter_excluded_sources(const Mel_Build_Target *t, Mel_Platform p, File_Paths *paths) {
+    size_t w = 0;
+    for (size_t r = 0; r < paths->count; r++) {
+        if (source_excluded(t, p, paths->items[r])) continue;
+        paths->items[w++] = paths->items[r];
+    }
+    paths->count = w;
 }
 
 void mel_build_add_dependency(Mel_Build_Target *t, const char *dep_name) {
@@ -397,7 +538,9 @@ static bool resolve_source_root(const char *root, Mel_Platform p,
 
 // Module include dirs are platform-independent, so they are resolved into the
 // target's public includes at load time (before property propagation snapshots
-// them), separately from per-platform source resolution.
+// them), separately from per-platform source resolution. Per-platform module
+// exclusions are encoded by recording the include with the inverted platform
+// mask (so the property only resolves on platforms where the module applies).
 static bool resolve_module_includes(Mel_Build_Target *t) {
     for (size_t r = 0; r < t->module_roots.count; r++) {
         const char *modules_dir = t->module_roots.items[r];
@@ -409,20 +552,29 @@ static bool resolve_module_includes(Mel_Build_Target *t) {
             const char *mod = temp_sprintf("%s/%s", modules_dir, name);
             if (get_file_type(mod) != NOB_FILE_DIRECTORY) continue;
             const char *inc = temp_sprintf("%s/include", mod);
-            if (get_file_type(inc) == NOB_FILE_DIRECTORY) {
-                bool dup = false;
-                for (size_t k = 0; k < t->pub.includes.count; k++) {
-                    if (strcmp(t->pub.includes.items[k].value, inc) == 0) { dup = true; break; }
-                }
-                if (!dup) prop_add(&t->pub.includes, inc, 0);
+            if (get_file_type(inc) != NOB_FILE_DIRECTORY) continue;
+
+            uint32_t excl_mask = 0;
+            for (size_t k = 0; k < t->excluded_modules.count; k++) {
+                const Prop *e = &t->excluded_modules.items[k];
+                if (strcmp(e->value, name) == 0) excl_mask |= e->mask;
             }
+            // mask == 0 means "all platforms"; otherwise restrict to the
+            // complement of the exclusion mask (within the known platform set).
+            uint32_t all = (excl_mask == 0) ? 0 : (((1u << MEL_PLATFORM_COUNT) - 1) & ~excl_mask);
+
+            bool dup = false;
+            for (size_t k = 0; k < t->pub.includes.count; k++) {
+                if (strcmp(t->pub.includes.items[k].value, inc) == 0) { dup = true; break; }
+            }
+            if (!dup) prop_add(&t->pub.includes, inc, all);
         }
     }
     return true;
 }
 
 // Expand a module-root's sources: each immediate subdir is a module whose <m>/src
-// is a platform-aware source root.
+// is a platform-aware source root. Modules excluded on this platform are skipped.
 static bool resolve_module_root(Mel_Build_Target *t, const char *modules_dir, Mel_Platform p,
                                 File_Paths *out_sources, File_Paths *out_bridges) {
     File_Paths entries = {0};
@@ -432,6 +584,7 @@ static bool resolve_module_root(Mel_Build_Target *t, const char *modules_dir, Me
         if (strcmp(name, ".") == 0 || strcmp(name, "..") == 0) continue;
         const char *mod = temp_sprintf("%s/%s", modules_dir, name);
         if (get_file_type(mod) != NOB_FILE_DIRECTORY) continue;
+        if (module_excluded(t, p, name)) continue;
         if (!resolve_source_root(temp_sprintf("%s/src", mod), p, out_sources, out_bridges)) return false;
     }
     return true;
@@ -445,6 +598,8 @@ static bool target_resolve_sources(Mel_Build_Target *t, Mel_Platform p,
     for (size_t i = 0; i < t->source_roots.count; i++) {
         if (!resolve_source_root(t->source_roots.items[i], p, out_sources, out_bridges)) return false;
     }
+    filter_excluded_sources(t, p, out_sources);
+    filter_excluded_sources(t, p, out_bridges);
     return true;
 }
 
@@ -472,7 +627,12 @@ static const char *thirdparty_prefix(const Mel_Build_Target *t, Mel_Platform p) 
 }
 
 static const char *library_artifact(const Mel_Build_Target *t, Mel_Platform p, Mel_Config c) {
+    if (p == MEL_PLATFORM_WIN32) return temp_sprintf("%s/%s.lib", target_out_dir(t, p, c), t->name);
     return temp_sprintf("%s/lib%s.a", target_out_dir(t, p, c), t->name);
+}
+
+static const char *static_ar_tool(Mel_Platform p) {
+    return p == MEL_PLATFORM_WIN32 ? "llvm-ar" : "ar";
 }
 
 static const char *app_artifact(const Mel_Build_Target *t, Mel_Platform p, Mel_Config c) {
@@ -511,6 +671,8 @@ static void props_resolve_into(Resolved *dst, const Props *src, Mel_Platform p) 
     prop_resolve(&dst->link_flags, &src->link_flags, p);
 }
 
+static bool target_supports(const Mel_Build_Target *t, Mel_Platform p);
+
 static void collect_deps_recursive(Mel_Build_Target *t, Mel_Platform p, Mel_Config c,
                                     Resolved *out, File_Paths *visited, File_Paths *bridges) {
     for (size_t i = 0; i < t->deps.count; i++) {
@@ -523,6 +685,11 @@ static void collect_deps_recursive(Mel_Build_Target *t, Mel_Platform p, Mel_Conf
             nob_log(NOB_ERROR, "target '%s' depends on unknown target '%s'", t->name, dep_name);
             continue;
         }
+
+        // Silently drop deps that don't support this platform — the consumer
+        // is expected to have either gated its own use of the dep's API or
+        // marked itself as not supporting this platform either.
+        if (!target_supports(d, p)) continue;
 
         // The dependency's public interface (platform-filtered).
         props_resolve_into(out, &d->pub, p);
@@ -584,7 +751,11 @@ static void append_resolved_flags(Cmd *cmd, Mel_Build_Context *ctx, const char *
     }
 }
 
-// Parse a make-style .d file, appending listed prerequisites to out.
+// Parse a make-style .d file, appending listed prerequisites to out. Handles
+// the only two escapes clang emits on Windows: "\<newline>" (line continuation)
+// and "\ " (literal space). A bare "\" preceding any other character is part
+// of the path (Windows paths use backslash as the native separator) and is
+// kept verbatim.
 static bool parse_depfile(const char *path, File_Paths *out) {
     String_Builder sb = {0};
     if (!read_entire_file(path, &sb)) return false;
@@ -596,6 +767,7 @@ static bool parse_depfile(const char *path, File_Paths *out) {
     for (const char *p = s; *p; p++) {
         char ch = *p;
         if (ch == '\\' && (p[1] == '\n' || p[1] == '\r')) { p++; continue; }
+        if (ch == '\\' && p[1] == ' ') { sb_append_buf(&tok, " ", 1); p++; continue; }
         if (ch == ' ' || ch == '\n' || ch == '\r' || ch == '\t') {
             if (tok.count > 0) {
                 sb_append_null(&tok);
@@ -660,11 +832,32 @@ static bool mkdirs_parent(const char *path) {
 
 #define MEL_CACHE_DIR MEL_BUILD_DIR "/cache"
 
+#ifdef _WIN32
+// MSVC's stat() leaves st_ino == 0 for every file, so the POSIX
+// (st_dev, st_ino) trick reports every pair as identical. Fall back to
+// BY_HANDLE_FILE_INFORMATION (FileIndex + VolumeSerialNumber).
+static bool same_inode(const char *a, const char *b) {
+    HANDLE ha = CreateFileA(a, 0, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                            NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL);
+    if (ha == INVALID_HANDLE_VALUE) return false;
+    HANDLE hb = CreateFileA(b, 0, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                            NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL);
+    if (hb == INVALID_HANDLE_VALUE) { CloseHandle(ha); return false; }
+    BY_HANDLE_FILE_INFORMATION ia, ib;
+    bool ok = GetFileInformationByHandle(ha, &ia) && GetFileInformationByHandle(hb, &ib);
+    CloseHandle(ha); CloseHandle(hb);
+    if (!ok) return false;
+    return ia.dwVolumeSerialNumber == ib.dwVolumeSerialNumber &&
+           ia.nFileIndexHigh == ib.nFileIndexHigh &&
+           ia.nFileIndexLow  == ib.nFileIndexLow;
+}
+#else
 static bool same_inode(const char *a, const char *b) {
     struct stat sa, sb;
     if (stat(a, &sa) != 0 || stat(b, &sb) != 0) return false;
     return sa.st_dev == sb.st_dev && sa.st_ino == sb.st_ino;
 }
+#endif
 
 // Populate dst from src sharing storage when possible; fall back to a copy
 // across filesystem boundaries. Both ends end up as independent paths to the
@@ -1090,20 +1283,21 @@ static bool default_compile(Mel_Build_Context *ctx) {
     return compile_sources(ctx, "clang");
 }
 
-static bool archive_objects(const char *lib, const File_Paths *objects) {
+static bool archive_objects(Mel_Platform p, const char *lib, const File_Paths *objects) {
+    const char *ar = static_ar_tool(p);
     Cmd ident = {0};
-    cmd_append(&ident, "ar", "rcs");
+    cmd_append(&ident, ar, "rcs");
     if (cache_artifact_restore(&ident, objects, lib)) { free(ident.items); return true; }
     free(ident.items);
 
     if (file_exists(lib)) delete_file(lib);
     Cmd cmd = {0};
-    cmd_append(&cmd, "ar", "rcs", lib);
+    cmd_append(&cmd, ar, "rcs", lib);
     for (size_t i = 0; i < objects->count; i++) cmd_append(&cmd, objects->items[i]);
     if (!cmd_run_sync_and_reset(&cmd)) return false;
 
     Cmd ident2 = {0};
-    cmd_append(&ident2, "ar", "rcs");
+    cmd_append(&ident2, ar, "rcs");
     cache_artifact_store(&ident2, objects, lib);
     free(ident2.items);
     return true;
@@ -1121,7 +1315,7 @@ static bool default_link(Mel_Build_Context *ctx) {
 
     if (t->kind == MEL_TARGET_LIBRARY) {
         if (!mel_mkdirs(target_out_dir(t, ctx->platform, ctx->config))) return false;
-        if (!archive_objects(ctx->artifact, &ctx->objects)) return false;
+        if (!archive_objects(ctx->platform, ctx->artifact, &ctx->objects)) return false;
         nob_log(NOB_INFO, "archived %s (%zu objects)", ctx->artifact, ctx->objects.count);
         return true;
     }
@@ -1258,7 +1452,9 @@ bool mel_tp_single_tu(Mel_Build_Context *ctx, const char *src, const char *const
     if (!mel_mkdirs(lib_dir)) return false;
     if (!mel_mkdirs(inc_dir)) return false;
 
-    const char *lib = temp_sprintf("%s/lib%s.a", lib_dir, ctx->target->name);
+    const char *lib = ctx->platform == MEL_PLATFORM_WIN32
+        ? temp_sprintf("%s/%s.lib", lib_dir, ctx->target->name)
+        : temp_sprintf("%s/lib%s.a", lib_dir, ctx->target->name);
     if (file_exists(lib) && needs_rebuild1(lib, src) == 0) goto headers;
 
     const char *obj = temp_sprintf("%s/%s.o", prefix, ctx->target->name);
@@ -1271,7 +1467,8 @@ bool mel_tp_single_tu(Mel_Build_Context *ctx, const char *src, const char *const
 
     if (file_exists(lib)) delete_file(lib);
     Cmd ar = {0};
-    cmd_append(&ar, ctx->cross ? ctx->cross->ar : "ar", "rcs", lib, obj);
+    const char *ar_tool = ctx->cross ? ctx->cross->ar : static_ar_tool(ctx->platform);
+    cmd_append(&ar, ar_tool, "rcs", lib, obj);
     if (!cmd_run_sync_and_reset(&ar)) return false;
 
 headers:
@@ -1329,17 +1526,50 @@ bool mel_tp_autotools(Mel_Build_Context *ctx, const char *src_rel, const char *e
     const char *abs_src = temp_sprintf("%s/%s", cwd, src_rel);
     const char *configure = temp_sprintf("%s/configure", abs_src);
 
+    // On Win32, autotools shells out to sh.exe for $(SHELL); make sure the
+    // chosen sh's directory has no embedded space, and flip any backslashes
+    // we pass into configure to forward slashes (autotools refuses backslashes
+    // in srcdir/prefix as "unsafe"). We also avoid handing configure an
+    // absolute path containing a drive letter: configure splits its aux-dir
+    // candidate list on $PATH_SEPARATOR, which is `:` under MSYS sh, so
+    // "D:/repo/..." gets shredded into "D" + "/repo/..." and the aux-file
+    // probe fails. A relative srcdir from the build dir sidesteps that.
+    bool win32_native = (ctx->platform == MEL_PLATFORM_WIN32) && (ctx->cross == NULL);
+    const char *cfg_prefix = abs_prefix;
+    const char *cfg_path = configure;
+    if (win32_native) {
+        mel_win32_ensure_no_space_sh_in_path();
+        cfg_prefix = mel_to_autotools_path(abs_prefix);
+        // build_rel sits N components below cwd; reach repo root with N "../".
+        size_t ups = 1;
+        for (const char *q = build_rel; *q; q++) if (*q == '/') ups++;
+        String_Builder rel = {0};
+        for (size_t i = 0; i < ups; i++) sb_append_cstr(&rel, "../");
+        sb_append_cstr(&rel, src_rel);
+        sb_append_cstr(&rel, "/configure");
+        sb_append_null(&rel);
+        cfg_path = temp_strdup(rel.items);
+        free(rel.items);
+    }
+
     if (!set_current_dir(abs_build)) return false;
     bool ok = true;
 
     Cmd cmd = {0};
-    cmd_append(&cmd, configure, temp_sprintf("--prefix=%s", abs_prefix));
+    if (win32_native) cmd_append(&cmd, "sh");
+    cmd_append(&cmd, cfg_path, temp_sprintf("--prefix=%s", cfg_prefix));
     cmd_append(&cmd, "--disable-shared", "--enable-static", "--with-pic", "--disable-maintainer-mode");
     if (ctx->cross) {
         cmd_append(&cmd, temp_sprintf("--host=%s", ctx->cross->triple));
         cmd_append(&cmd, temp_sprintf("CC=%s", ctx->cross->cc));
         cmd_append(&cmd, temp_sprintf("AR=%s", ctx->cross->ar));
         cmd_append(&cmd, temp_sprintf("RANLIB=%s", ctx->cross->ranlib));
+    } else if (win32_native) {
+        cmd_append(&cmd, "CC=clang", "AR=llvm-ar");
+        // VS LLVM ships ld.lld / llvm-nm / llvm-strip but no GNU-named
+        // aliases. Autotools/libtool probe for "ld" / "nm" by name and bail
+        // otherwise.
+        cmd_append(&cmd, "LD=ld.lld", "NM=llvm-nm", "STRIP=llvm-strip");
     }
     if (extra_arg) cmd_append(&cmd, extra_arg);
     if (!cmd_run_sync_and_reset(&cmd)) ok = false;
@@ -1363,9 +1593,13 @@ const char *mel_tp_prefix(Mel_Build_Context *ctx) {
 }
 
 // Absolute install prefix of another third-party target (same platform/ABI).
+// On Win32 the cwd comes back with backslashes; autotools refuses backslash
+// paths as srcdir/prefix and cmake doesn't care either way, so we always
+// hand back a forward-slash path.
 const char *mel_tp_dep_prefix(Mel_Build_Context *ctx, const char *target_name) {
     const char *cwd = get_current_dir_temp();
-    return temp_sprintf("%s/%s", cwd, tp_prefix_named(ctx->platform, ctx_abi(ctx), target_name));
+    const char *p = temp_sprintf("%s/%s", cwd, tp_prefix_named(ctx->platform, ctx_abi(ctx), target_name));
+    return (ctx->platform == MEL_PLATFORM_WIN32) ? mel_to_autotools_path(p) : p;
 }
 
 // =============================================================================
@@ -1692,14 +1926,17 @@ static bool build_target_through(Mel_Build_Target *t, Mel_Platform p, Mel_Config
     return true;
 }
 
-// Topologically order a target and its transitive deps (deps first).
+// Topologically order a target and its transitive deps (deps first). Deps that
+// don't support the target platform are skipped (and so are their transitive
+// deps that are only reachable through them).
 static void topo_visit(Mel_Build_Target *t, Mel_Platform p, Mel_Config c,
                        File_Paths *visited, Mel_Build_Target ***order, size_t *order_count) {
     if (name_seen(visited, t->name)) return;
     da_append(visited, t->name);
     for (size_t i = 0; i < t->deps.count; i++) {
         Mel_Build_Target *d = registry_find(t->deps.items[i]);
-        if (d) topo_visit(d, p, c, visited, order, order_count);
+        if (!d || !target_supports(d, p)) continue;
+        topo_visit(d, p, c, visited, order, order_count);
     }
     (*order)[(*order_count)++] = t;
 }
@@ -1749,9 +1986,20 @@ static bool load_target(const char *dir) {
     const char *so = temp_sprintf("%s/build-modules/%s.%s", MEL_BUILD_DIR, slug.items, module_so_ext());
 
     Cmd cmd = {0};
-    cmd_append(&cmd, "clang", "-shared", "-fPIC", "-undefined", "dynamic_lookup");
-    cmd_append(&cmd, "-Ilib/build");
+    cmd_append(&cmd, "clang", "-shared", "-Ilib/build");
+#ifdef _WIN32
+    // Resolve mel_build_* against nob.exe via the import library produced
+    // by the host link (nob.lib lives next to nob.exe).
+    cmd_append(&cmd, src, "nob.lib", "-o", so);
+#elif defined(__APPLE__)
+    // Defer host-symbol resolution to dlopen time on macOS.
+    cmd_append(&cmd, "-fPIC", "-undefined", "dynamic_lookup");
     cmd_append(&cmd, src, "-o", so);
+#else
+    // -rdynamic on the host exposes the mel_build_* symbols to dlopen.
+    cmd_append(&cmd, "-fPIC");
+    cmd_append(&cmd, src, "-o", so);
+#endif
     ccmds_add(get_current_dir_temp(), src, cmd);
 
     if (needs_rebuild1(so, src) != 0) {
@@ -1763,15 +2011,15 @@ static bool load_target(const char *dir) {
         free(cmd.items);
     }
 
-    void *handle = dlopen(so, RTLD_NOW | RTLD_LOCAL);
+    void *handle = mel_dlopen(so);
     if (!handle) {
-        nob_log(NOB_ERROR, "dlopen(%s) failed: %s", so, dlerror());
+        nob_log(NOB_ERROR, "load(%s) failed: %s", so, mel_dlerror());
         return false;
     }
-    bool (*project_fn)(Mel_Build_Target *) = (bool (*)(Mel_Build_Target *))dlsym(handle, "project");
+    bool (*project_fn)(Mel_Build_Target *) = (bool (*)(Mel_Build_Target *))mel_dlsym(handle, "project");
     if (!project_fn) {
         nob_log(NOB_ERROR, "build module %s does not export project()", so);
-        dlclose(handle);
+        mel_dlclose(handle);
         return false;
     }
 
@@ -1817,7 +2065,9 @@ static bool discover_targets(void) {
 
 static bool launch_app(Mel_Build_Target *t, Mel_Platform p, Mel_Config c) {
     Cmd cmd = {0};
-    cmd_append(&cmd, app_artifact(t, p, c));
+    const char *bin = app_artifact(t, p, c);
+    if (p == MEL_PLATFORM_WIN32) bin = temp_sprintf("%s.exe", bin);
+    cmd_append(&cmd, bin);
     return cmd_run_sync_and_reset(&cmd);
 }
 

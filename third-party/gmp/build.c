@@ -1,7 +1,11 @@
 #include "build.h"
 
 static bool build_gmp(Mel_Build_Context *ctx) {
-    return mel_tp_autotools(ctx, "third-party/gmp", NULL, "libgmp.a");
+    // libtool produces MSVC-style names (`gmp.lib`) when configured against
+    // clang-cl with no `--host`; everywhere else it's the GNU `libgmp.a`.
+    const char *lib = (mel_build_ctx_platform(ctx) == MEL_PLATFORM_WIN32)
+        ? "gmp.lib" : "libgmp.a";
+    return mel_tp_autotools(ctx, "third-party/gmp", NULL, lib);
 }
 
 bool project(Mel_Build_Target *t) {

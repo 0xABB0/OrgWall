@@ -4,7 +4,11 @@
 static bool build_mpfr(Mel_Build_Context *ctx) {
     char with_gmp[1024];
     snprintf(with_gmp, sizeof with_gmp, "--with-gmp=%s", mel_tp_dep_prefix(ctx, "gmp"));
-    return mel_tp_autotools(ctx, "third-party/mpfr", with_gmp, "libmpfr.a");
+    // libtool produces MSVC-style names (`mpfr.lib`) when configured against
+    // clang-cl with no `--host`; everywhere else it's the GNU `libmpfr.a`.
+    const char *lib = (mel_build_ctx_platform(ctx) == MEL_PLATFORM_WIN32)
+        ? "mpfr.lib" : "libmpfr.a";
+    return mel_tp_autotools(ctx, "third-party/mpfr", with_gmp, lib);
 }
 
 bool project(Mel_Build_Target *t) {

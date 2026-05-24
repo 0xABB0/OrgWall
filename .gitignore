@@ -50,6 +50,7 @@ out/build/x64-Debug
 .cache/clangd/index
 .claude
 .DS_Store
+*.exp
 
 nob
 nob.old
