@@ -5,6 +5,7 @@
 
 #include <gui/handle.h>
 #include <gui/callbacks.h>
+#include <gui/insets.h>
 #include <gui/layout.h>
 
 typedef enum {
@@ -29,11 +30,13 @@ typedef struct {
     void*           icon_large;
     void*           icon_small;
     Mel_Frame_State initial_state;
+    Mel_Inset_Mode  inset_mode;
 
     void* user;
     Mel_Gui_Lifecycle_Cb lifecycle;
     Mel_Gui_Focus_Cb     focus;
     Mel_Gui_Keyboard_Cb  keyboard;
+    Mel_Gui_Insets_Cb    insets;
     Mel_Layout*          layout;
 } Mel_Frame_Opt;
 

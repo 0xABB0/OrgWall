@@ -96,6 +96,8 @@ Mel_Gui_Handle mel_frame_create_opt(Mel_Frame_Opt o)
 
         MelGuiContentView* root = [[MelGuiContentView alloc] initWithFrame:content];
         root.frame_handle = h;
+        root.inset_mode   = o.inset_mode;
+        root.insets_cb    = o.insets;
         [window setContentView:root];
 
         MelGuiWindowDelegate* delegate = [[MelGuiWindowDelegate alloc] init];
@@ -115,4 +117,21 @@ Mel_Gui_Handle mel_frame_create_opt(Mel_Frame_Opt o)
         mel_gui__frames_inc();
     }
     return h;
+}
+
+Mel_Frame_Insets mel_frame_insets(Mel_Gui_Handle h)
+{
+    Mel_Frame_Insets out = {0};
+    Mel_Gui_Node*    n   = mel_gui__node(mel_gui__toplevel(h));
+    if (!n || !n->native) return out;
+
+    NSWindow* window = (__bridge NSWindow*)n->native;
+    NSView*   root   = window.contentView;
+    NSEdgeInsets s = {0};
+    if (@available(macOS 11.0, *)) s = root.safeAreaInsets;
+
+    Mel_Insets safe = { (i32)s.left, (i32)s.top, (i32)s.right, (i32)s.bottom };
+    out.safe_area   = safe;
+    out.system_bars = safe;
+    return out;
 }

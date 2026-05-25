@@ -2,6 +2,7 @@
 
 #include <gui/handle.h>
 #include <gui/input.h>
+#include <gui/insets.h>
 #include <gui/callbacks.h>
 #include <gui/init.h>
 #include <gui/widget.h>

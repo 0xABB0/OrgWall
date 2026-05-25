@@ -400,6 +400,68 @@ Open items:
   page host global ref) when the frame closes — a pre-existing limitation of the
   destroy walk that also affects nested Panel/GroupBox children, not new here.
 
+* Insets / safe area  [2026-05-25]
+
+Typed, first-class Frame insets. Spec in =readme.org= "Insets and the safe area".
+=<gui/insets.h>=: =Mel_Insets= (four logical-unit edges), =Mel_Frame_Insets=
+(=safe_area=, =system_bars=, =display_cutout=, =ime=, =system_gestures=),
+=Mel_Inset_Mode= (=MEL_FRAME_PAD= default / =MEL_FRAME_EDGE_TO_EDGE=), the
+=Mel_Gui_Insets_Cb= callback (=on_insets_changed=, lives in =insets.h= beside
+its type, not in =callbacks.h=), and the query =mel_frame_insets(h)=.
+=Mel_Frame_Opt= gained =.inset_mode= + =.insets=.
+
+Storage is *backend-owned* — the =Mel_Gui_Node= carries no inset data. Each
+backend is the source of truth and =mel_frame_insets= is a per-backend op:
+appkit/win32 read it live (=NSView.safeAreaInsets= / zero), android pulls it via
+=MelFrame.insets(View)= over =getRootWindowInsets()=. The query resolves the
+toplevel through the shared =mel_gui__toplevel(h)= helper (=gui.c=). The
+=on_insets_changed= pointer rides the native object (appkit: a =MelGuiContentView=
+property; android: a =jlong= through Java like the resize fn); the callback gets
+a pointer to a stack-local =Mel_Frame_Insets=, valid for the synchronous call.
+
+Typed-not-merged was a deliberate call (Gabbo): Apple gives one merged safe area,
+Android splits it, and a merged-only core would force a refactor later. The
+Android-only status/nav split and =tappableElement=/=waterfall= stay out of the
+core struct — they belong in a future =<gui/android/frame.h>= escape hatch.
+
+- *android* — fields straight from =WindowInsets.Type= (=systemBars=,
+  =displayCutout=, =ime=, =mandatorySystemGestures=); =safe_area = systemBars ∪
+  displayCutout=. The listener moved off the activity root onto each Frame's
+  View (=MelFrame.applyInsets=), px→dp at the boundary; =MelodyActivity= no
+  longer consumes at root. =PAD= pads the Frame View by =safe_area=; values
+  round-trip to C via =MelFrame.nativeInsets(handle, fn, int[20])=. =MelGui=
+  calls =requestApplyInsets()= on present so a freshly-shown Frame re-samples.
+- *appkit* — =safe_area= from =NSView.safeAreaInsets=, sampled in
+  =MelGuiContentView -layout= (AppKit has no =safeAreaInsetsDidChange=), fired
+  only on change; =system_bars= mirrors it, rest zero.
+- *win32* — zero (client area already excludes chrome); only stores
+  =inset_mode=. Built *blind* — verify with clang on Windows (trivial one-liner).
+
+Verification:
+- *appkit* — builds + links clean (=./nob build hello-world-gui=).
+- *android* — =.so= (both ABIs) + Java compile clean (gradle
+  =compileDebugJavaWithJavac= + =assembleDebug=, forced rerun). Gabbo verified
+  the back-stack pass on-device; insets not yet eyeballed on-device.
+- *win32* — unverified (no host).
+
+Open items:
+- *PAD width/height reduction in landscape.* Android =PAD= pads the Frame's
+  =FrameLayout=, which =FrameLayout= honours for child positioning, so the
+  dominant portrait case (status top / nav bottom) is correct. But the C column
+  layout still arranges against the *full* Frame size, so a left/right inset
+  (landscape nav bar, side notch) shifts children right without shrinking the
+  arranged width — content can clip. The fix is to feed =safe_area= into the
+  layout as an outer margin (reduce available size + offset origin) rather than
+  Java padding; folds into the WIP layout system.
+- *appkit PAD child-offset.* For normal decorated windows =safeAreaInsets= is 0,
+  so PAD is a visual no-op and nothing is offset today. Real child-offset only
+  bites under full-size-content / custom-titlebar windows, which the desktop
+  class tier introduces — wire PAD offset there.
+- *Typed extras as escape hatches.* status-vs-navigation split,
+  =tappableElement=, =waterfall= (Android); =keyboardLayoutGuide=-driven =ime=
+  on appkit/uikit; web =env(safe-area-inset-*)= + =visualViewport= for =ime=.
+- iOS/web/uikit fills land with those backends.
+
 * Deferred — widgets beyond the first slice
 
 ** TODO RadioButton, ToggleButton, ProgressBar, SpinBox

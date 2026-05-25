@@ -75,6 +75,13 @@ bool mel_gui__is_toplevel(const Mel_Gui_Node* n)
     return n && mel_gui_handle_is_none(n->parent);
 }
 
+Mel_Gui_Handle mel_gui__toplevel(Mel_Gui_Handle h)
+{
+    Mel_Gui_Node* n = mel_gui__node(h);
+    while (n && !mel_gui__is_toplevel(n)) n = mel_gui__node(n->parent);
+    return n ? n->self : MEL_GUI_HANDLE_NONE;
+}
+
 Mel_Gui_Handle mel_gui__node_new(Mel_Gui_Handle parent,
                                  i32 x, i32 y, i32 w, i32 h, u32 id, void* user,
                                  bool hidden,

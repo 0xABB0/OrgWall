@@ -1,6 +1,8 @@
 #include "macos.h"
 #include <gui/appkit/frame.h>
 
+#include <string.h>
+
 NSWindow* mel_gui_appkit_nswindow(Mel_Gui_Handle h)
 {
     Mel_Gui_Node* n = mel_gui__node(h);
@@ -21,6 +23,28 @@ NSView* mel_gui_appkit_nsview(Mel_Gui_Handle h)
 
 @implementation MelGuiContentView
 - (BOOL)isFlipped { return YES; }
+
+/* AppKit has no safeAreaInsetsDidChange (that is UIKit); safe-area changes flow
+ * through layout, so we sample there and fire only on an actual change. */
+- (void)layout
+{
+    [super layout];
+
+    NSEdgeInsets s = {0};
+    if (@available(macOS 11.0, *)) s = self.safeAreaInsets;
+
+    Mel_Insets safe = { (i32)s.left, (i32)s.top, (i32)s.right, (i32)s.bottom };
+    Mel_Frame_Insets in = { .safe_area = safe, .system_bars = safe };
+
+    Mel_Frame_Insets prev = self.last_insets;
+    if (memcmp(&in, &prev, sizeof in) == 0) return;
+    self.last_insets = in;
+
+    if (self.insets_cb.on_insets_changed) {
+        self.insets_cb.on_insets_changed(self.frame_handle, &in,
+                                         mel_gui_user(self.frame_handle));
+    }
+}
 @end
 
 @implementation MelGuiTextFieldDelegate

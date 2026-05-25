@@ -54,6 +54,7 @@ typedef void (*Mel_Cb_Point) (Mel_Gui_Handle, i32, i32, void*);
 typedef void (*Mel_Cb_Str8)  (Mel_Gui_Handle, str8, void*);
 typedef void (*Mel_Cb_Paint) (Mel_Gui_Handle, Mel_Painter*, i32, i32, void*);
 typedef void (*Mel_Cb_Resize)(Mel_Gui_Handle, i32, i32, void*);
+typedef void (*Mel_Cb_Insets)(Mel_Gui_Handle, const Mel_Frame_Insets*, void*);
 
 Mel_Gui_Android* mel_gui__android(void);
 JNIEnv*          mel_gui__android_env(void);

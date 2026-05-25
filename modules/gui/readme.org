@@ -471,6 +471,40 @@ Cross-platform shape (adaptive concept, not LCD):
 are two Frames. Full Screen lifecycle (back stack, save/restore, the mobile
 Activity mapping) beyond the two-Frame desktop flow is tracked in =todo.org=.
 
+* Insets and the safe area
+
+Insets are a first-class, adaptive Frame concept — the same "one API, different
+platform shape" rule as the Frame itself. =<gui/insets.h>= defines a *typed*
+=Mel_Frame_Insets=: =safe_area=, =system_bars=, =display_cutout=, =ime= and
+=system_gestures=, each a four-edge =Mel_Insets= in logical units. Typed (not a
+single merged rect) on purpose: Apple platforms expose one merged safe area
+while Android splits it into categories, and a merged-only core would force a
+refactor the moment an app wanted to treat the keyboard or a cutout differently.
+
+Each backend fills what it can express natively, emulates where it can, and
+reports *honest zeros* where the platform has no such region — never a stub:
+
+- *android* — every field straight from the matching =WindowInsets.Type=
+  (=systemBars=, =displayCutout=, =ime=, =mandatorySystemGestures=);
+  =safe_area = systemBars ∪ displayCutout=. The inset listener lives on each
+  Frame's View, not the activity root, so the Frame owns its insets.
+- *appkit* — =safe_area= from =NSView.safeAreaInsets= (the MacBook camera notch
+  and full-size-content title bars), sampled in =-layout= since AppKit has no
+  =safeAreaInsetsDidChange=; =system_bars= mirrors it, the rest are zero.
+- *win32* — all zero: the client area already excludes chrome.
+- iOS/web fill =safe_area= (+ =ime=) natively when those backends land.
+
+Two ways an app consumes them:
+
+1. =Mel_Frame_Opt.inset_mode=: =MEL_FRAME_PAD= (default) insets the Frame's
+   content to =safe_area= automatically — the normal app keeps working with no
+   code. =MEL_FRAME_EDGE_TO_EDGE= lets the Frame fill the whole surface and
+   hands the app the insets — for games, a full-bleed Canvas, or any app that
+   reacts to them itself.
+2. The query =mel_frame_insets(handle)= (resolves to the toplevel) and the
+   capability callback =Mel_Frame_Opt.insets.on_insets_changed=, which fires on
+   rotation, cutout, bar and keyboard changes.
+
 * Accessibility
 
 Accessibility is first-class and customisable. Every widget carries an

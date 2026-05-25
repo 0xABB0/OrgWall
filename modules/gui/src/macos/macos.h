@@ -8,7 +8,10 @@
 struct Mel_Painter { CGContextRef cg; f32 w, h; };
 
 @interface MelGuiContentView : NSView
-@property (assign) Mel_Gui_Handle frame_handle;
+@property (assign) Mel_Gui_Handle    frame_handle;
+@property (assign) Mel_Inset_Mode    inset_mode;
+@property (assign) Mel_Gui_Insets_Cb insets_cb;
+@property (assign) Mel_Frame_Insets  last_insets;
 @end
 
 @interface MelGuiContainerView : NSView

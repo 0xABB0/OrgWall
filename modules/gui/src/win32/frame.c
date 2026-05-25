@@ -222,3 +222,9 @@ Mel_Gui_Handle mel_frame_create_opt(Mel_Frame_Opt o)
     mel_gui__frames_inc();
     return h;
 }
+
+Mel_Frame_Insets mel_frame_insets(Mel_Gui_Handle h)
+{
+    (void)h;
+    return (Mel_Frame_Insets){0};
+}

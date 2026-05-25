@@ -35,6 +35,7 @@ Mel_Gui_Handle mel_gui__node_new(Mel_Gui_Handle parent,
 void           mel_gui__node_release(Mel_Gui_Handle h);
 
 bool           mel_gui__is_toplevel(const Mel_Gui_Node* n);
+Mel_Gui_Handle mel_gui__toplevel(Mel_Gui_Handle h);
 
 void           mel_gui__destroy_tree(Mel_Gui_Handle root);
 

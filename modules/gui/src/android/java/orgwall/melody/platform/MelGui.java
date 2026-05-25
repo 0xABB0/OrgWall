@@ -96,6 +96,7 @@ public final class MelGui {
                 container.addView(top, new FrameLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT,
                         ViewGroup.LayoutParams.MATCH_PARENT));
+                top.requestApplyInsets();
             }
         }
         if (top != null) {
