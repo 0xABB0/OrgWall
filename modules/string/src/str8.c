@@ -1,7 +1,7 @@
 #include <string/str8.h>
 #include <hash/xxh.h>
 #include <allocator/allocator.h>
-#include <allocator.arena/arena.h>
+#include <allocator/arena.h>
 
 #include <ctype.h>
 

@@ -1,4 +1,4 @@
-#include <allocator.vmem/vmem.h>
+#include <allocator/vmem.h>
 #include <core/platform.h>
 
 #if MEL_PLATFORM_WINDOWS

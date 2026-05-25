@@ -1,6 +1,6 @@
 #include "gui_internal.h"
 
-#include <allocator.heap/heap.h>
+#include <allocator/heap.h>
 
 static Mel_SlotMap      g_nodes;
 static const Mel_Alloc* g_alloc;

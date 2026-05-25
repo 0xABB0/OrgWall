@@ -6,7 +6,7 @@
 #include <log.sink/sink.h>
 #include <log.sink.console/sink.console.h>
 #include <allocator/allocator.h>
-#include <allocator.heap/heap.h>
+#include <allocator/heap.h>
 #include <string/str8.h>
 #include <thread/thread.h>
 #include <thread/mutex.h>

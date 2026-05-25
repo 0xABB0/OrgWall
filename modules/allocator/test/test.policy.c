@@ -1,4 +1,4 @@
-#include <allocator.heap/heap.h>
+#include <allocator/heap.h>
 #include "test.harness.h"
 
 MEL_TEST(allocator_heap_reports_compile_time_memory_debug_level, .tags = "allocator")

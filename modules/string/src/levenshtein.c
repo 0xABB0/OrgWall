@@ -1,6 +1,6 @@
 #include <string/levenshtein.h>
 #include <allocator/allocator.h>
-#include <allocator.arena/arena.h>
+#include <allocator/arena.h>
 
 size str8_levenshtein_arena(str8 a, str8 b, Mel_Arena* arena)
 {

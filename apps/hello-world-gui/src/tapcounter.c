@@ -1,7 +1,7 @@
 #include <stdio.h>
 
 #include <allocator/allocator.h>
-#include <allocator.heap/heap.h>
+#include <allocator/heap.h>
 #include <gui/gui.h>
 
 #include "tapcounter.h"

@@ -1,6 +1,6 @@
-#include <allocator.guard/guard.h>
+#include <allocator/guard.h>
 #include <allocator/allocator.h>
-#include <allocator.heap/heap.h>
+#include <allocator/heap.h>
 #include "test.harness.h"
 
 MEL_TEST(allocator_guard_alloc_free_roundtrip, .tags = "allocator")

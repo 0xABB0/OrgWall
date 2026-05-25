@@ -4,9 +4,9 @@
 
 #include "str8.fwd.h"
 #include <allocator/allocator.fwd.h>
-#include <allocator.arena/arena.fwd.h>
+#include <allocator/arena.fwd.h>
 #include <collection.array/array.h>
-#include <allocator.heap/heap.h>
+#include <allocator/heap.h>
 
 #include <string.h>
 #include <stdarg.h>

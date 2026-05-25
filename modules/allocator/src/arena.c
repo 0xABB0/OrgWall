@@ -1,4 +1,4 @@
-#include <allocator.arena/arena.h>
+#include <allocator/arena.h>
 
 void mel_arena_init(Mel_Arena* arena, void* buffer, usize size)
 {

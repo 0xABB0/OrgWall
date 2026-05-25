@@ -1,6 +1,6 @@
 #include <debug/debug.h>
 
-#include <allocator.heap/heap.h>
+#include <allocator/heap.h>
 
 Mel_Assert_Dialog_Result mel__native_assert_dialog(str8 text, str8 caption);
 

@@ -4,7 +4,7 @@
 #include <core/platform.h>
 #include <time/nano.h>
 #include <allocator/allocator.h>
-#include <allocator.heap/heap.h>
+#include <allocator/heap.h>
 #include <collection.mpsc/mpsc.h>
 #include <thread/thread.h>
 

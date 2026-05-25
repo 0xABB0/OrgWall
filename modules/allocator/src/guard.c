@@ -1,6 +1,6 @@
-#include <allocator.guard/guard.h>
+#include <allocator/guard.h>
 #include <allocator/allocator.h>
-#include <allocator.vmem/vmem.h>
+#include <allocator/vmem.h>
 
 #include <assert.h>
 #include <stdatomic.h>

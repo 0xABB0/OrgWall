@@ -2,8 +2,8 @@
 #include <async.signal/signal.h>
 #include <async.fiber/fiber.h>
 #include <allocator/allocator.h>
-#include <allocator.heap/heap.h>
-#include <allocator.vmem/vmem.h>
+#include <allocator/heap.h>
+#include <allocator/vmem.h>
 #include <collection.mpmc/mpmc.h>
 #include <collection.workstealingqueue/wsq.h>
 #include <thread/thread.h>

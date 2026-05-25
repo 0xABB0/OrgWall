@@ -5,7 +5,7 @@
 #include <log.sink/sink.h>
 #include <log.sink/sink.test.h>
 #include <collection.array/array.h>
-#include <allocator.heap/heap.h>
+#include <allocator/heap.h>
 
 #include <stdio.h>
 #include <string.h>

@@ -5,7 +5,7 @@
 #include <log.sink/sink.h>
 #include <log.sink.sqlite/sink.sqlite.h>
 #include <allocator/allocator.h>
-#include <allocator.heap/heap.h>
+#include <allocator/heap.h>
 #include <string/str8.h>
 #include <core/platform.h>
 #include <time/nano.h>
