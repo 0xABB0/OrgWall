@@ -18,5 +18,4 @@ typedef struct {
 } Mel_Label_Opt;
 
 Mel_Gui_Handle mel_label_create_opt(Mel_Gui_Handle parent, Mel_Label_Opt opt);
-#define mel_label_create(parent, ...) \
-    mel_label_create_opt((parent), (Mel_Label_Opt){__VA_ARGS__})
+#define mel_label_create(parent, ...) mel_label_create_opt((parent), (Mel_Label_Opt){ __VA_ARGS__ })
