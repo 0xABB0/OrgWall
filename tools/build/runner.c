@@ -1350,7 +1350,7 @@ static bool package_android(Mel_Build_Context *ctx) {
     const char *proj = temp_sprintf("%s/%s/android", MEL_BUILD_DIR, ctx->target->name);
     const char *task = ctx->config == MEL_CONFIG_RELEASE ? ":app:assembleRelease" : ":app:assembleDebug";
     Cmd cmd = {0};
-    cmd_append(&cmd, "gradle", "-p", proj, task);
+    cmd_append(&cmd, "gradle", "-q", "-p", proj, task);
     return cmd_run_sync_and_reset(&cmd);
 }
 

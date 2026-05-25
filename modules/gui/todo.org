@@ -126,10 +126,11 @@ Each is specified in =readme.org= and must be delivered first-class.
    opaque =jobject= so the current hello-world-gui Windows-only =#ifdef=
    branch is unaffected). Reactor runs in =MEL_REACTOR_ATTACHED= mode on the
    Android main looper via the existing reactor android backend.
-   Frame model: each =mel_frame= is a =FrameLayout= child of the activity
-   root; =mel_app_present= calls =MelGui.presentFrame= which hides siblings
-   and shows the requested one (mobile-class screen swap, not yet a real
-   back stack — that's the "mobile/" class tier todo).
+   Frame model: each =mel_frame= is a detached =FrameLayout=; =mel_app_present=
+   calls =MelGui.presentFrame=, which keeps a backend-owned =ArrayDeque<View>=
+   back stack and shows its top as the activity container's single child
+   (see the "Backend-owned back stack" DONE entry below). A full cross-platform
+   back-stack model still lives under the "mobile/" class tier todo.
    JNI plumbing was consolidated: =JNI_OnLoad= moved to a new
    =modules/platform/src/android/jni.bridge.c=; midi now uses
    =mel_platform_android_env()=.
@@ -161,36 +162,48 @@ Each is specified in =readme.org= and must be delivered first-class.
    - Frame title moved from a Java =titles= =HashMap= to a fixed-size buffer
      in =Mel_Gui_Frame_Impl=. Java has no titles state; the C side is the
      source of truth and calls =setActivityTitle= when the frame is the
-     visible one. =presentFrame= also takes the title as a parameter.
-   - Navigation uses =FragmentManager= rather than a hand-rolled =ArrayDeque=:
-     each Screen wraps in a =MelScreenFragment= and =mel_app_present=
-     becomes =fm.beginTransaction().replace(...).addToBackStack(null).commit()=.
-     =MelodyActivity= registers an =OnBackInvokedCallback= (Tiramisu+) and
-     keeps =onBackPressed= for pre-33; both call =popBackStack= when count
-     > 1 else =finish()=. The custom in-Activity navStack is gone.
+     visible one.
+   - Navigation (SUPERSEDED 2026-05-25 — see the "Backend-owned back stack"
+     DONE entry under "Deferred follow-ups" below). This audit pass routed
+     navigation through =FragmentManager= / =MelScreenFragment=; that has since
+     been replaced by a backend-owned =ArrayDeque<View>= in =MelGui=. The
+     =OnBackInvokedCallback= (Tiramisu+) / =onBackPressed= (pre-33) split
+     survives, now registered only while there is in-app history to pop.
    - Android =backend_set_focus= on a toplevel is now a no-op (was double-
      navigating because both =set_visible= and =set_focus= were calling
      =presentFrame=, pushing the same frame twice). Toplevel focus is
      implicit in being the currently-presented frame; multi-frame
      navigation goes through =set_visible= only.
    Deferred follow-ups (do not block the backend; tracked for later):
-   - Drop the deprecated framework =Fragment= navigation. =MelScreenFragment=,
-     =MelGui.presentFrame= and =MelodyActivity.handleBack= use
-     =android.app.Fragment= / =FragmentManager=, deprecated since API 28 and
-     muted with =@SuppressWarnings("deprecation")=. The build pulls zero
-     AndroidX (only =com.android.application=, no =dependencies {}= block), so
-     the AndroidX =fragment= replacement is off the table by design. Fragments
-     here are only a back-stack of top-level frames, and the backend already
-     tracks every View by handle and owns the back gesture
-     (=OnBackInvokedCallback= on Tiramisu+, =onBackPressed= pre-33). Replace
-     them with a backend-owned stack of frame handles that swaps the
-     container's single child View on present/back. Deletes =MelScreenFragment=
-     and the =@SuppressWarnings=, removes the =FragmentManager= back-stack
-     count logic from =handleBack=, and keeps the no-AndroidX stance. Same pass
-     should retire the deprecated =WindowInsets.getSystemWindowInset*= /
-     =consumeSystemWindowInsets= in =MelodyActivity.onCreate= (deprecated API
-     30; matters under =targetSdk 36= edge-to-edge) for
-     =getInsets(WindowInsets.Type.systemBars())= + =WindowInsets.CONSUMED=.
+   - DONE Backend-owned back stack; deprecated =Fragment= navigation dropped
+     [2026-05-25]. =MelScreenFragment= and all =android.app.Fragment= /
+     =FragmentManager= use are gone (no =@SuppressWarnings("deprecation")= left
+     for it; the only remaining suppress is the pre-API-30 =WindowInsets=
+     fallback and the pre-33 =onBackPressed= override, both genuinely needed for
+     =minSdk 23=). The no-AndroidX stance holds. =MelGui= now owns an
+     =ArrayDeque<View>= of frame Views and shows the top as the container's
+     single child. Navigation is one general operation, not a previous-entry
+     special case: =presentFrame(view)= collapses the stack to =view= if it is
+     already present, otherwise pushes it; =back()= pops one and returns false at
+     the root. =mel_app_present='s =set_visible= drives =presentFrame=;
+     =mel_gui__nav_back= drives =back()=. Backend-local: =screen.c='s back-chain
+     is untouched (a real cross-platform stack stays under "Full Screen
+     lifecycle"). =MelGui.presentFrame= lost its title arg — the frame's tag
+     carries the title and =showTop= applies it. JNI surface: =presentFrame=
+     is now =(Landroid/view/View;)V=, =popScreen= became =back ()Z=.
+     OS back integrates with the suggested pattern: =MelodyActivity= implements
+     =MelGui.BackHost=; =MelGui= notifies it on every depth change, and the
+     activity registers the =OnBackInvokedCallback= only while there is in-app
+     history (>1 frame) and unregisters at the root, so the system performs its
+     own default back / predictive-back-to-home there. Both apps' manifests opt
+     in via =android:enableOnBackInvokedCallback="true"= (required for the
+     callback to fire on API 33+). Pre-33 falls back to =onBackPressed=.
+     Same pass retired the deprecated =WindowInsets.getSystemWindowInset*= /
+     =consumeSystemWindowInsets=: =MelodyActivity.onCreate= uses
+     =getInsets(WindowInsets.Type.systemBars())= + =WindowInsets.CONSUMED= on
+     API 30+, with the legacy path kept behind a version guard for 23–29.
+     Verified: =./nob build hello-world-gui android= builds the APK clean
+     (on-device run not exercised here).
    - DONE Per-control direct integration, no generic indirection. See the
      "Architecture inversion" section at the top: listeners are installed only
      when the opt slot is set, callbacks live on the =View=, ops are direct

@@ -1,27 +1,32 @@
 package orgwall.melody.platform;
 
 import android.app.Activity;
-import android.app.Fragment;
-import android.app.FragmentManager;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.ViewParent;
 import android.widget.FrameLayout;
+
+import java.util.ArrayDeque;
 
 public final class MelGui {
 
-    private static Activity activity;
+    public interface BackHost { void onBackAvailable(boolean canGoBack); }
+
+    private static Activity   activity;
     private static FrameLayout container;
-    private static int containerId;
-    private static float density = 1.0f;
+    private static float      density = 1.0f;
+    private static BackHost   backHost;
+
+    private static final ArrayDeque<View> stack = new ArrayDeque<>();
 
     private MelGui() {}
 
+    public static void setBackHost(BackHost h) { backHost = h; }
+
     public static void start(Activity act, FrameLayout root) {
-        activity    = act;
-        density     = act.getResources().getDisplayMetrics().density;
-        container   = new FrameLayout(act);
-        containerId = View.generateViewId();
-        container.setId(containerId);
+        activity  = act;
+        density   = act.getResources().getDisplayMetrics().density;
+        container = new FrameLayout(act);
         root.addView(container, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT));
@@ -31,10 +36,12 @@ public final class MelGui {
 
     public static void stop() {
         nativeStop();
-        activity    = null;
-        container   = null;
-        containerId = 0;
-        density     = 1.0f;
+        stack.clear();
+        if (container != null) container.removeAllViews();
+        activity  = null;
+        container = null;
+        density   = 1.0f;
+        backHost  = null;
     }
 
     public static Activity activity() { return activity; }
@@ -52,28 +59,53 @@ public final class MelGui {
         v.setOnFocusChangeListener((view, hasFocus) -> nativeFocus(handle, hasFocus, fnIn, fnOut));
     }
 
-    @SuppressWarnings("deprecation")
-    public static void presentFrame(View frameView, String title) {
-        if (activity == null || frameView == null) return;
-        FragmentManager fm = activity.getFragmentManager();
-        Fragment current   = fm.findFragmentById(containerId);
-        if (current instanceof MelScreenFragment
-                && ((MelScreenFragment) current).view() == frameView) {
-            if (title != null) activity.setTitle(title);
-            return;
+    /* Navigate to frameView: if it is already on the stack, collapse to it;
+     * otherwise push it. The container shows exactly the top of the stack. */
+    public static void presentFrame(View frameView) {
+        if (container == null || frameView == null) return;
+        if (stack.contains(frameView)) {
+            while (stack.peek() != frameView) stack.pop();
+        } else {
+            stack.push(frameView);
         }
-        fm.beginTransaction()
-          .replace(containerId, MelScreenFragment.forView(frameView))
-          .addToBackStack(null)
-          .commit();
-        if (title != null) activity.setTitle(title);
+        showTop();
+        notifyBack();
     }
 
-    @SuppressWarnings("deprecation")
-    public static void popScreen() {
-        if (activity == null) return;
-        FragmentManager fm = activity.getFragmentManager();
-        if (fm.getBackStackEntryCount() > 1) fm.popBackStack();
+    /* Pop one frame off the stack. Returns false when already at the root, so a
+     * caller (the OS back gesture) can let the system finish the activity. */
+    public static boolean back() {
+        if (stack.size() <= 1) return false;
+        stack.pop();
+        showTop();
+        notifyBack();
+        return true;
+    }
+
+    public static int backDepth() { return stack.size(); }
+
+    private static void showTop() {
+        if (container == null) return;
+        View top = stack.peek();
+        View cur = container.getChildCount() > 0 ? container.getChildAt(0) : null;
+        if (cur != top) {
+            if (cur != null) container.removeView(cur);
+            if (top != null) {
+                ViewParent p = top.getParent();
+                if (p instanceof ViewGroup) ((ViewGroup) p).removeView(top);
+                container.addView(top, new FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT));
+            }
+        }
+        if (top != null) {
+            Object tag = top.getTag();
+            if (activity != null && tag != null) activity.setTitle(tag.toString());
+        }
+    }
+
+    private static void notifyBack() {
+        if (backHost != null) backHost.onBackAvailable(stack.size() > 1);
     }
 
     public static native void nativeRegister(float density);
