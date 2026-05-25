@@ -244,8 +244,7 @@ void build_main(Mel_Gui_Handle frame, void* user)
         .user = &g_main,
         .layoutable = { .preferred_h = 26 });
 
-    mel_label_create(frame, .text = S8("Slider value"),
-        .layoutable = { .preferred_h = 24, .cross_align = MEL_ALIGN_START, .preferred_w = 120 });
+    mel_label_create(frame, .text = S8("Slider value"), .layoutable = { .preferred_h = 24, .cross_align = MEL_ALIGN_START, .preferred_w = 120 });
     mel_slider_create(frame,
         .min_value = 0, .max_value = 100, .value = 65,
         .on_.on_value_changed = main_slider_changed,
