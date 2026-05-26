@@ -91,6 +91,12 @@ MEL_API void mel_build_exclude_module_on(Mel_Build_Target *t, Mel_Platform p, co
 // third-party library not available on the excluded platform.
 MEL_API void mel_build_exclude_source_on(Mel_Build_Target *t, Mel_Platform p, const char *basename);
 
+// Exclude a module on a given runtime (e.g. "wasi"). The platform axis can't
+// distinguish web's two runtimes, so use this when a module makes sense under
+// one wasm runtime but not the other (e.g. a DOM GUI under emscripten but not
+// the DOM-less wasi compute runtime).
+MEL_API void mel_build_exclude_module_on_runtime(Mel_Build_Target *t, const char *runtime, const char *module_name);
+
 // Name of another target this one depends on. Public properties of the
 // dependency propagate to this target transitively.
 MEL_API void mel_build_add_dependency(Mel_Build_Target *t, const char *dep_name);

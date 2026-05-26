@@ -60,6 +60,11 @@
 typedef struct { const char *value; uint32_t mask; } Prop;
 typedef struct { Prop *items; size_t count, capacity; } Prop_List;
 
+// Runtime-gated exclusion: the platform mask can't express "web but only the
+// wasi runtime", so runtime exclusions carry the runtime name verbatim.
+typedef struct { const char *runtime; const char *value; } Rt_Prop;
+typedef struct { Rt_Prop *items; size_t count, capacity; } Rt_Prop_List;
+
 typedef struct {
     Prop_List cflags;
     Prop_List includes;
@@ -88,6 +93,7 @@ struct Mel_Build_Target {
     File_Paths deps;            // dependency target names
     Prop_List  excluded_modules;// platform-masked module-basename exclusions
     Prop_List  excluded_sources;// platform-masked source-basename exclusions
+    Rt_Prop_List excluded_modules_rt; // runtime-gated module-basename exclusions
 
     File_Paths cfg_keys;        // scaffolding template substitution keys
     File_Paths cfg_vals;        // parallel to cfg_keys

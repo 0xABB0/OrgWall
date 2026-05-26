@@ -6,15 +6,15 @@ bool project(Mel_Build_Target *t) {
 
     mel_build_add_modules(t, "modules");
 
-    // Web has no GMP/MPFR/SQLite/mongoose. Drop the modules and individual
-    // sources that depend on them; the arbitrary-precision math, music, and
-    // server stacks are outside the web target's surface.
+    // gmp, mpfr and sqlite3 now cross-compile for both wasm runtimes, so the
+    // arbitrary-precision math, music theory/midi and sqlite log sink build on
+    // web. Only the server stays out: mongoose needs a listening socket, which
+    // a browser/wasi sandbox can't provide.
     mel_build_exclude_module_on(t, MEL_PLATFORM_WEB, "server");
-    mel_build_exclude_module_on(t, MEL_PLATFORM_WEB, "music.theory");
-    mel_build_exclude_module_on(t, MEL_PLATFORM_WEB, "music.midi");
-    mel_build_exclude_source_on(t, MEL_PLATFORM_WEB, "real.c");
-    mel_build_exclude_source_on(t, MEL_PLATFORM_WEB, "frequency.c");
-    mel_build_exclude_source_on(t, MEL_PLATFORM_WEB, "log.sink.sqlite.c");
+
+    // wasi is a DOM-less compute runtime; the emscripten DOM GUI backend can't
+    // compile there. Keep the GUI on emscripten, drop it under wasi.
+    mel_build_exclude_module_on_runtime(t, "wasi", "gui");
 
     mel_build_add_dependency(t, "mongoose");
     mel_build_add_dependency(t, "sqlite3");

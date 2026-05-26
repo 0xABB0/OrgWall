@@ -19,7 +19,8 @@ int main(int argc, char **argv) {
                                "tools/build/runner.c",
                                "tools/build/runner_platform.c", "tools/build/runner_discovery.c",
                                "tools/build/runner_resolve.c", "tools/build/runner_compile.c",
-                               "tools/build/runner_stages.c", "tools/build/runner_android.c",
+                               "tools/build/runner_stages.c", "tools/build/runner_ninja.c",
+                               "tools/build/runner_android.c",
                                "tools/build/runner_graph.c", "tools/build/runner_driver.c");
     return mel_build_main(argc, argv);
 }

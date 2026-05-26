@@ -5,17 +5,20 @@ static bool build_gmp(Mel_Build_Context *ctx) {
     // clang-cl with no `--host`; everywhere else it's the GNU `libgmp.a`.
     const char *lib = (mel_build_ctx_platform(ctx) == MEL_PLATFORM_WIN32)
         ? "gmp.lib" : "libgmp.a";
-    return mel_tp_autotools(ctx, "third-party/gmp", NULL, lib);
+    // wasm has no GMP assembly slice; force the generic-C mpn build.
+    const char *extra = (mel_build_ctx_platform(ctx) == MEL_PLATFORM_WEB)
+        ? "--disable-assembly" : NULL;
+    return mel_tp_autotools(ctx, "third-party/gmp", extra, lib);
 }
 
 bool project(Mel_Build_Target *t) {
     mel_build_set_name(t, "gmp");
     mel_build_set_kind(t, MEL_TARGET_THIRD_PARTY);
-    static const Mel_Platform native_only[] = {
+    static const Mel_Platform platforms[] = {
         MEL_PLATFORM_MACOS, MEL_PLATFORM_IOS, MEL_PLATFORM_LINUX,
-        MEL_PLATFORM_ANDROID, MEL_PLATFORM_WIN32,
+        MEL_PLATFORM_ANDROID, MEL_PLATFORM_WIN32, MEL_PLATFORM_WEB,
     };
-    mel_build_set_platforms(t, native_only, 5);
+    mel_build_set_platforms(t, platforms, 6);
     mel_build_add_link_flag(t, MEL_PUBLIC, "-lgmp");
     mel_build_suppress_default(t, MEL_STAGE_COMPILE);
     mel_build_suppress_default(t, MEL_STAGE_LINK);

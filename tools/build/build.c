@@ -154,6 +154,11 @@ void mel_build_exclude_source_on(Mel_Build_Target *t, Mel_Platform p, const char
     prop_add(&t->excluded_sources, basename, 1u << p);
 }
 
+void mel_build_exclude_module_on_runtime(Mel_Build_Target *t, const char *runtime, const char *module_name) {
+    Rt_Prop e = { temp_strdup(runtime), temp_strdup(module_name) };
+    da_append(&t->excluded_modules_rt, e);
+}
+
 void mel_build_add_dependency(Mel_Build_Target *t, const char *dep_name) {
     da_append(&t->deps, temp_strdup(dep_name));
 }
@@ -289,9 +294,32 @@ static bool mel_mkdirs(const char *path) {
 // prefix's include/ and lib/ automatically through dependency propagation.
 // =============================================================================
 
-static const char *ctx_abi(const Mel_Build_Context *ctx) { return ctx->cross ? ctx->cross->abi : NULL; }
+// The per-target third-party prefix is keyed on an "abi" segment so toolchain
+// variants don't clobber each other's archives. Android carries the NDK abi;
+// web carries its wasm runtime (emscripten vs wasi build distinct, incompatible
+// objects into the same build/third-party/web tree otherwise).
+static const char *ctx_abi(const Mel_Build_Context *ctx) {
+    if (ctx->cross) return ctx->cross->abi;
+    if (ctx->platform == MEL_PLATFORM_WEB) return ctx->runtime;
+    return NULL;
+}
 static const char *ctx_tp_prefix(const Mel_Build_Context *ctx) {
     return tp_prefix_named(ctx->platform, ctx_abi(ctx), ctx->target->name);
+}
+
+// Web has two wasm runtimes: emscripten (emcc/emar, drives its own target) and
+// wasi (the wasi-sdk clang/llvm-ar, pinned to wasm32-wasip1 + sysroot). These
+// mirror runner_platform.c's resolution, duplicated here because build.c also
+// compiles standalone into libmelbuild.a and must not reach into runner.c.
+static bool web_ctx_is_wasi(const Mel_Build_Context *ctx) {
+    return ctx->platform == MEL_PLATFORM_WEB && ctx->runtime && strcmp(ctx->runtime, "wasi") == 0;
+}
+
+static const char *web_wasi_sdk_dir(void) {
+    const char *e = getenv("WASI_SDK_PATH");
+    if (e && e[0]) return e;
+    const char *home = getenv("HOME");
+    return temp_sprintf("%s/wasi-sdk", home ? home : ".");
 }
 
 // iOS simulator cross-compilation. We pin a single slice: arm64 against the
@@ -334,10 +362,17 @@ bool mel_tp_single_tu(Mel_Build_Context *ctx, const char *src, const char *const
     if (file_exists(lib) && needs_rebuild1(lib, src) == 0) goto headers;
 
     const char *obj = temp_sprintf("%s/%s.o", prefix, ctx->target->name);
+    const char *cc = ctx->cross ? ctx->cross->cc : "clang";
+    if (ctx->platform == MEL_PLATFORM_WEB)
+        cc = web_ctx_is_wasi(ctx) ? temp_sprintf("%s/bin/clang", web_wasi_sdk_dir()) : "emcc";
     Cmd cmd = {0};
-    cmd_append(&cmd, ctx->cross ? ctx->cross->cc : "clang", "-c", "-O2");
+    cmd_append(&cmd, cc, "-c", "-O2");
     if (ctx->platform != MEL_PLATFORM_WIN32) cmd_append(&cmd, "-fPIC");
     if (ctx->platform == MEL_PLATFORM_IOS) mel_ios_clang_flags(&cmd);
+    if (web_ctx_is_wasi(ctx)) {
+        cmd_append(&cmd, "--target=wasm32-wasip1");
+        cmd_append(&cmd, temp_sprintf("--sysroot=%s/share/wasi-sysroot", web_wasi_sdk_dir()));
+    }
     for (size_t i = 0; i < cflags_count; i++) cmd_append(&cmd, cflags[i]);
     cmd_append(&cmd, src, "-o", obj);
     if (!cmd_run_sync_and_reset(&cmd)) return false;
@@ -345,6 +380,8 @@ bool mel_tp_single_tu(Mel_Build_Context *ctx, const char *src, const char *const
     if (file_exists(lib)) delete_file(lib);
     Cmd ar = {0};
     const char *ar_tool = ctx->cross ? ctx->cross->ar : static_ar_tool(ctx->platform);
+    if (ctx->platform == MEL_PLATFORM_WEB)
+        ar_tool = web_ctx_is_wasi(ctx) ? temp_sprintf("%s/bin/llvm-ar", web_wasi_sdk_dir()) : "emar";
     cmd_append(&ar, ar_tool, "rcs", lib, obj);
     if (!cmd_run_sync_and_reset(&ar)) return false;
 
@@ -352,7 +389,9 @@ headers:
     for (size_t i = 0; i < headers_count; i++) {
         const char *base = strrchr(headers[i], '/');
         base = base ? base + 1 : headers[i];
-        if (!copy_file(headers[i], temp_sprintf("%s/%s", inc_dir, base))) return false;
+        const char *dst = temp_sprintf("%s/%s", inc_dir, base);
+        if (file_exists(dst) && needs_rebuild1(dst, headers[i]) == 0) continue;
+        if (!copy_file(headers[i], dst)) return false;
     }
     return true;
 }
@@ -437,8 +476,14 @@ bool mel_tp_autotools(Mel_Build_Context *ctx, const char *src_rel, const char *e
     if (!set_current_dir(abs_build)) return false;
     bool ok = true;
 
+    // Emscripten drives configure/make through its emconfigure/emmake wrappers
+    // (they export CC=emcc, AR=emar, ...). wasi has no wrapper, so we hand the
+    // wasi-sdk clang/ar/ranlib to configure explicitly like any other cross.
+    bool web_emscripten = (ctx->platform == MEL_PLATFORM_WEB) && !web_ctx_is_wasi(ctx);
+
     Cmd cmd = {0};
     if (win32_native) cmd_append(&cmd, "sh");
+    else if (web_emscripten) cmd_append(&cmd, "emconfigure");
     cmd_append(&cmd, cfg_path, temp_sprintf("--prefix=%s", cfg_prefix));
     cmd_append(&cmd, "--disable-shared", "--enable-static", "--with-pic", "--disable-maintainer-mode");
     if (ctx->cross) {
@@ -456,17 +501,41 @@ bool mel_tp_autotools(Mel_Build_Context *ctx, const char *src_rel, const char *e
         // aliases. Autotools/libtool probe for "ld" / "nm" by name and bail
         // otherwise.
         cmd_append(&cmd, "LD=ld.lld", "NM=llvm-nm", "STRIP=llvm-strip");
+    } else if (ctx->platform == MEL_PLATFORM_WEB) {
+        // wasm has no native assembly slice and a host of a different word size;
+        // --host=none forces gmp's generic-C, standard-ABI build for both wasm
+        // runtimes. Code-generator programs gmp builds and runs during the build
+        // must target the build machine, so point those at the native cc.
+        cmd_append(&cmd, "--host=none", "CC_FOR_BUILD=cc");
+        if (web_ctx_is_wasi(ctx)) {
+            const char *sdk = web_wasi_sdk_dir();
+            // gmp's divide-by-zero trap raises SIGFPE via kill(getpid()); neither
+            // exists in bare wasi-libc. The wasi-sdk ships emulation behind these
+            // defines (symbols resolved at the app link by -lwasi-emulated-*).
+            // wasi's <signal.h> also hides SIGFPE/kill/raise behind a POSIX
+            // feature gate, so _GNU_SOURCE is needed to expose the declarations.
+            cmd_append(&cmd, temp_sprintf("CC=%s/bin/clang --target=wasm32-wasip1 --sysroot=%s/share/wasi-sysroot "
+                                          "-D_WASI_EMULATED_SIGNAL -D_WASI_EMULATED_GETPID -D_GNU_SOURCE", sdk, sdk));
+            cmd_append(&cmd, temp_sprintf("AR=%s/bin/llvm-ar", sdk));
+            cmd_append(&cmd, temp_sprintf("RANLIB=%s/bin/llvm-ranlib", sdk));
+            // Let configure's link probes see the emulation libs so it detects
+            // raise() as present (HAVE_RAISE=1); otherwise gmp falls back to a
+            // kill(getpid()) macro whose kill is unavailable on wasi.
+            cmd_append(&cmd, "LIBS=-lwasi-emulated-signal -lwasi-emulated-getpid");
+        }
     }
     if (extra_arg) cmd_append(&cmd, extra_arg);
     if (!cmd_run_sync_and_reset(&cmd)) ok = false;
 
     if (ok) {
         Cmd make = {0};
+        if (web_emscripten) cmd_append(&make, "emmake");
         cmd_append(&make, "make", temp_sprintf("-j%d", nob_nprocs()));
         if (!cmd_run_sync_and_reset(&make)) ok = false;
     }
     if (ok) {
         Cmd install = {0};
+        if (web_emscripten) cmd_append(&install, "emmake");
         cmd_append(&install, "make", "install");
         if (!cmd_run_sync_and_reset(&install)) ok = false;
     }

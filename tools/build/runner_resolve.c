@@ -37,7 +37,10 @@ static const char *target_obj_dir(const Mel_Build_Target *t, Mel_Platform p, Mel
 }
 
 static const char *thirdparty_prefix(const Mel_Build_Target *t, Mel_Platform p) {
-    return tp_prefix_named(p, NULL, t->name);
+    // Mirror ctx_abi: web archives are keyed on the wasm runtime so an
+    // emscripten consumer never links the wasi build of a dep, or vice versa.
+    const char *abi = (p == MEL_PLATFORM_WEB) ? g_runtime : NULL;
+    return tp_prefix_named(p, abi, t->name);
 }
 
 static const char *library_artifact(const Mel_Build_Target *t, Mel_Platform p, Mel_Config c) {

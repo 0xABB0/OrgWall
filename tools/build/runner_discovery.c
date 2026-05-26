@@ -61,6 +61,10 @@ static bool module_excluded(const Mel_Build_Target *t, Mel_Platform p, const cha
         const Prop *e = &t->excluded_modules.items[i];
         if ((e->mask & bit) && strcmp(e->value, name) == 0) return true;
     }
+    for (size_t i = 0; i < t->excluded_modules_rt.count; i++) {
+        const Rt_Prop *e = &t->excluded_modules_rt.items[i];
+        if (g_runtime && strcmp(e->runtime, g_runtime) == 0 && strcmp(e->value, name) == 0) return true;
+    }
     return false;
 }
 

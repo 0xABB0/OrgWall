@@ -58,20 +58,69 @@ static void topo_visit(Mel_Build_Target *t, Mel_Platform p, Mel_Config c,
     (*order)[(*order_count)++] = t;
 }
 
+static bool build_graph_imperative(Mel_Build_Target **order, size_t order_count,
+                                   Mel_Build_Target *root, Mel_Platform p, Mel_Config c, Mel_Stage last) {
+    // Dependencies only need building (through link) when the root actually
+    // compiles. A configure-only invocation runs configure on the root alone.
+    Mel_Stage dep_last = (last >= MEL_STAGE_COMPILE) ? MEL_STAGE_LINK : last;
+    for (size_t i = 0; i < order_count; i++) {
+        Mel_Stage target_last = (order[i] == root) ? last : dep_last;
+        if (!build_target_through(order[i], p, c, target_last)) return false;
+    }
+    return true;
+}
+
+// Native clang platforms drive the compile/archive/link through a generated
+// ninja file. Configure (codegen) and package (bundling) stay imperative, as
+// does the third-party build (cmake/autotools produce the .a inputs).
+static bool platform_uses_ninja(Mel_Platform p) {
+    return p == MEL_PLATFORM_MACOS || p == MEL_PLATFORM_IOS || p == MEL_PLATFORM_LINUX;
+}
+
+static bool run_target_stage(Mel_Build_Target *t, Mel_Platform p, Mel_Config c, Mel_Stage stage) {
+    Mel_Build_Context ctx;
+    context_init(&ctx, t, p, c);
+    return run_stage(&ctx, stage);
+}
+
+static bool build_graph_ninja(Mel_Build_Target **order, size_t order_count,
+                              Mel_Build_Target *root, Mel_Platform p, Mel_Config c, Mel_Stage last) {
+    for (size_t i = 0; i < order_count; i++)
+        if (!run_target_stage(order[i], p, c, MEL_STAGE_CONFIGURE)) return false;
+    if (last == MEL_STAGE_CONFIGURE) return true;
+
+    for (size_t i = 0; i < order_count; i++) {
+        if (order[i]->kind != MEL_TARGET_THIRD_PARTY) continue;
+        if (!run_target_stage(order[i], p, c, MEL_STAGE_COMPILE)) return false;
+        if (!run_target_stage(order[i], p, c, MEL_STAGE_LINK)) return false;
+    }
+
+    ninja_begin();
+    const char *root_artifact = NULL;
+    for (size_t i = 0; i < order_count; i++) {
+        Mel_Build_Target *t = order[i];
+        if (t->kind != MEL_TARGET_LIBRARY && t->kind != MEL_TARGET_APPLICATION) continue;
+        Mel_Build_Context ctx;
+        context_init(&ctx, t, p, c);
+        if (!emit_target_edges(&ctx)) return false;
+        if (t == root) root_artifact = ctx.artifact;
+    }
+    const char *target = (last == MEL_STAGE_COMPILE) ? "compile" : root_artifact;
+    if (!run_ninja(p, c, root_artifact, target)) return false;
+    if (last < MEL_STAGE_PACKAGE) return true;
+
+    return run_target_stage(root, p, c, MEL_STAGE_PACKAGE);
+}
+
 static bool build_graph(Mel_Build_Target *root, Mel_Platform p, Mel_Config c, Mel_Stage last) {
     Mel_Build_Target **order = malloc(sizeof(*order) * (g_targets.count + 1));
     size_t order_count = 0;
     File_Paths visited = {0};
     topo_visit(root, p, c, &visited, &order, &order_count);
 
-    // Dependencies only need building (through link) when the root actually
-    // compiles. A configure-only invocation runs configure on the root alone.
-    Mel_Stage dep_last = (last >= MEL_STAGE_COMPILE) ? MEL_STAGE_LINK : last;
-    bool ok = true;
-    for (size_t i = 0; i < order_count && ok; i++) {
-        Mel_Stage target_last = (order[i] == root) ? last : dep_last;
-        ok = build_target_through(order[i], p, c, target_last);
-    }
+    bool ok = platform_uses_ninja(p)
+        ? build_graph_ninja(order, order_count, root, p, c, last)
+        : build_graph_imperative(order, order_count, root, p, c, last);
     free(order);
     return ok;
 }

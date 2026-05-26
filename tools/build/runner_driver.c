@@ -144,7 +144,8 @@ int mel_build_main(int argc, char **argv) {
 
     if (!build_graph(root, platform, config, last)) return 1;
 
-    if (!emit_compile_commands()) nob_log(NOB_WARNING, "failed to write compile_commands.json");
+    if (!platform_uses_ninja(platform) && !emit_compile_commands())
+        nob_log(NOB_WARNING, "failed to write compile_commands.json");
 
     if (do_run) {
         if (root->kind != MEL_TARGET_APPLICATION) {

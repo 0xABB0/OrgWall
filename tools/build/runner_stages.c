@@ -195,6 +195,10 @@ static bool link_web_app(Mel_Build_Context *ctx) {
         if (g_web_threading) cmd_append(&cmd, "-pthread", "-sPTHREAD_POOL_SIZE=4");
         const char *shell = "tools/build/web/shell.html";
         if (file_exists(shell)) cmd_append(&cmd, "--shell-file", shell);
+    } else {
+        // gmp (and any other dep) compiled against wasi's signal/getpid
+        // emulation resolves those shims here.
+        cmd_append(&cmd, "-lwasi-emulated-signal", "-lwasi-emulated-getpid");
     }
     cmd_append(&cmd, "-o", artifact);
 

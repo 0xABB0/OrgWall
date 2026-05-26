@@ -73,3 +73,5 @@ captures/
 *.apk
 *.ap_
 *.aab
+/.ninja_deps
+/.ninja_log
