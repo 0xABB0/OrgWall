@@ -15,6 +15,11 @@
 int main(int argc, char **argv) {
     NOB_GO_REBUILD_URSELF_PLUS(argc, argv,
                                "tools/build/build.c", "tools/build/build.h",
-                               "tools/build/internal.h", "tools/build/runner.c");
+                               "tools/build/internal.h", "tools/build/runner_internal.h",
+                               "tools/build/runner.c",
+                               "tools/build/runner_platform.c", "tools/build/runner_discovery.c",
+                               "tools/build/runner_resolve.c", "tools/build/runner_compile.c",
+                               "tools/build/runner_stages.c", "tools/build/runner_android.c",
+                               "tools/build/runner_graph.c", "tools/build/runner_driver.c");
     return mel_build_main(argc, argv);
 }

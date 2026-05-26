@@ -1,0 +1,353 @@
+#include "runner_internal.h"
+
+// =============================================================================
+// Default stages
+// =============================================================================
+
+static const char *android_java_srcdirs_csv(const char *cwd) {
+    String_Builder sb = {0};
+    File_Paths mods = {0};
+    if (read_entire_dir("modules", &mods)) {
+        for (size_t i = 0; i < mods.count; i++) {
+            const char *m = mods.items[i];
+            if (strcmp(m, ".") == 0 || strcmp(m, "..") == 0) continue;
+            const char *jd = temp_sprintf("modules/%s/src/android/java", m);
+            if (file_exists(jd) && get_file_type(jd) == NOB_FILE_DIRECTORY) {
+                if (sb.count) sb_append_cstr(&sb, ",");
+                sb_appendf(&sb, "%s/%s", cwd, jd);
+            }
+        }
+    }
+    sb_append_null(&sb);
+    return temp_strdup(sb.items);
+}
+
+static const char *configure_out_dir(const Mel_Build_Target *t, Mel_Platform p) {
+    return temp_sprintf("%s/%s/%s", MEL_BUILD_DIR, t->name, mel_platform_name(p));
+}
+
+static const char *android_sdk_dir(const char *app_name);
+
+static void android_config_defaults(Mel_Build_Target *t) {
+    if (!target_config_get(t, "COMPILE_SDK"))      target_config_set(t, "COMPILE_SDK", "36");
+    if (!target_config_get(t, "MIN_SDK"))          target_config_set(t, "MIN_SDK", "23");
+    if (!target_config_get(t, "TARGET_SDK"))       target_config_set(t, "TARGET_SDK", "36");
+    if (!target_config_get(t, "VERSION_CODE"))     target_config_set(t, "VERSION_CODE", "1");
+    if (!target_config_get(t, "VERSION_NAME"))     target_config_set(t, "VERSION_NAME", "0.1.0");
+    if (!target_config_get(t, "ROOTPROJECT_NAME")) target_config_set(t, "ROOTPROJECT_NAME", t->name);
+    if (!target_config_get(t, "NAMESPACE"))        target_config_set(t, "NAMESPACE", temp_sprintf("orgwall.%s", t->name));
+    if (!target_config_get(t, "APPLICATION_ID"))   target_config_set(t, "APPLICATION_ID", target_config_get(t, "NAMESPACE"));
+    if (!target_config_get(t, "APP_LABEL"))        target_config_set(t, "APP_LABEL", target_config_get(t, "ROOTPROJECT_NAME"));
+}
+
+static bool configure_android(Mel_Build_Context *ctx) {
+    Mel_Build_Target *t = ctx->target;
+    const char *out = temp_sprintf("%s/%s/android", MEL_BUILD_DIR, t->name);
+
+    android_config_defaults(t);
+
+    if (!mel_mkdirs(out)) return false;
+    if (!copy_directory_recursively("tools/build/android", out)) return false;
+
+    const char *sdk = android_sdk_dir(t->name);
+    if (sdk) {
+        const char *lp = temp_sprintf("sdk.dir=%s\n", sdk);
+        if (!write_entire_file(temp_sprintf("%s/local.properties", out), lp, strlen(lp))) return false;
+    } else {
+        nob_log(NOB_WARNING, "no Android SDK resolved; gradle will need ANDROID_HOME");
+    }
+
+    nob_log(NOB_INFO, "configured Android project at %s", out);
+    return true;
+}
+
+static bool plist_set(const char *plist, const char *key, const char *value) {
+    Cmd c = {0};
+    cmd_append(&c, "/usr/libexec/PlistBuddy", "-c", temp_sprintf("Set :%s %s", key, value), plist);
+    return cmd_run_sync_and_reset(&c);
+}
+
+static bool configure_apple(Mel_Build_Context *ctx) {
+    Mel_Build_Target *t = ctx->target;
+    bool ios = ctx->platform == MEL_PLATFORM_IOS;
+
+    const char *label = target_config_get(t, "APP_LABEL");
+    if (!target_config_get(t, "BUNDLE_NAME"))         target_config_set(t, "BUNDLE_NAME", t->name);
+    if (!target_config_get(t, "BUNDLE_DISPLAY_NAME")) target_config_set(t, "BUNDLE_DISPLAY_NAME", label ? label : t->name);
+    if (!target_config_get(t, "BUNDLE_ID"))           target_config_set(t, "BUNDLE_ID", temp_sprintf("orgwall.%s", t->name));
+    if (!target_config_get(t, "VERSION_CODE"))        target_config_set(t, "VERSION_CODE", "1");
+    if (!target_config_get(t, "VERSION_NAME"))        target_config_set(t, "VERSION_NAME", "0.1.0");
+    if (!target_config_get(t, "MIN_MACOS"))           target_config_set(t, "MIN_MACOS", "11.0");
+    if (!target_config_get(t, "MIN_IOS"))             target_config_set(t, "MIN_IOS", "13.0");
+    target_config_set(t, "EXECUTABLE", t->name);
+
+    const char *out = configure_out_dir(t, ctx->platform);
+    if (!mel_mkdirs(out)) return false;
+    const char *plist = temp_sprintf("%s/Info.plist", out);
+    const char *base = ios ? "tools/build/apple/Info.ios.plist" : "tools/build/apple/Info.macos.plist";
+    if (!copy_file(base, plist)) return false;
+
+    bool ok = plist_set(plist, "CFBundleName",            target_config_get(t, "BUNDLE_NAME"))
+           && plist_set(plist, "CFBundleDisplayName",     target_config_get(t, "BUNDLE_DISPLAY_NAME"))
+           && plist_set(plist, "CFBundleIdentifier",      target_config_get(t, "BUNDLE_ID"))
+           && plist_set(plist, "CFBundleExecutable",      target_config_get(t, "EXECUTABLE"))
+           && plist_set(plist, "CFBundleVersion",         target_config_get(t, "VERSION_CODE"))
+           && plist_set(plist, "CFBundleShortVersionString", target_config_get(t, "VERSION_NAME"));
+    ok = ok && (ios ? plist_set(plist, "MinimumOSVersion",     target_config_get(t, "MIN_IOS"))
+                    : plist_set(plist, "LSMinimumSystemVersion", target_config_get(t, "MIN_MACOS")));
+    if (!ok) return false;
+
+    nob_log(NOB_INFO, "configured Info.plist at %s", plist);
+    return true;
+}
+
+static bool configure_win32(Mel_Build_Context *ctx) {
+    Mel_Build_Target *t = ctx->target;
+    const char *out = configure_out_dir(t, ctx->platform);
+    if (!mel_mkdirs(out)) return false;
+    if (!copy_file("tools/build/win32/app.manifest", temp_sprintf("%s/app.manifest", out))) return false;
+    if (!copy_file("tools/build/win32/app.rc", temp_sprintf("%s/app.rc", out))) return false;
+    nob_log(NOB_INFO, "configured win32 resources at %s", out);
+    return true;
+}
+
+static bool default_configure(Mel_Build_Context *ctx) {
+    if (ctx->target->kind != MEL_TARGET_APPLICATION) return true;
+    switch (ctx->platform) {
+        case MEL_PLATFORM_ANDROID: return configure_android(ctx);
+        case MEL_PLATFORM_MACOS:
+        case MEL_PLATFORM_IOS:     return configure_apple(ctx);
+        case MEL_PLATFORM_WIN32:   return configure_win32(ctx);
+        default:                   return true;
+    }
+}
+
+static bool default_compile(Mel_Build_Context *ctx) {
+    // Android compiles every ABI inside the application's link stage.
+    if (ctx->platform == MEL_PLATFORM_ANDROID) return true;
+
+    File_Paths bridges = {0};
+    if (!target_resolve_sources(ctx->target, ctx->platform, &ctx->sources, &bridges)) return false;
+
+    // Libraries archive only their own non-bridge sources. Applications also
+    // compile the bridge sources contributed by their library dependencies.
+    if (ctx->target->kind == MEL_TARGET_APPLICATION) {
+        for (size_t i = 0; i < ctx->bridge_sources.count; i++)
+            da_append(&ctx->sources, ctx->bridge_sources.items[i]);
+    }
+    return compile_sources(ctx, cc_for(ctx));
+}
+
+static bool archive_objects(const char *ar, const char *lib, const File_Paths *objects) {
+    Cmd ident = {0};
+    cmd_append(&ident, ar, "rcs");
+    if (cache_artifact_restore(&ident, objects, lib)) { free(ident.items); return true; }
+    free(ident.items);
+
+    if (file_exists(lib)) delete_file(lib);
+    Cmd cmd = {0};
+    cmd_append(&cmd, ar, "rcs", lib);
+    for (size_t i = 0; i < objects->count; i++) cmd_append(&cmd, objects->items[i]);
+    if (!cmd_run_sync_and_reset(&cmd)) return false;
+
+    Cmd ident2 = {0};
+    cmd_append(&ident2, ar, "rcs");
+    cache_artifact_store(&ident2, objects, lib);
+    free(ident2.items);
+    return true;
+}
+
+static bool android_build(Mel_Build_Context *ctx);
+
+// Link the application to a wasm bundle. Emscripten emits the HTML shell, the
+// loader JS, and app.wasm in one go; wasi-sdk produces a bare app.wasm (no DOM,
+// run under a wasi host). Both pull -lmelody and any web-supporting third-party
+// archives from the resolved link flags. The final bundle is the hot, one-shot
+// last step, so it is linked directly rather than through the artifact cache.
+static bool link_web_app(Mel_Build_Context *ctx) {
+    Mel_Build_Target *t = ctx->target;
+    const char *out = web_out_dir(t, ctx->config);
+    if (!mel_mkdirs(out)) return false;
+
+    bool wasi = (g_web_tc == WEB_WASI);
+    const char *artifact = wasi ? temp_sprintf("%s/app.wasm", out)
+                                : temp_sprintf("%s/app.html", out);
+
+    Cmd cmd = {0};
+    cmd_append(&cmd, web_cc());
+    web_target_flags(&cmd); // wasi target + sysroot; no-op for emcc
+    for (size_t i = 0; i < ctx->objects.count; i++) cmd_append(&cmd, ctx->objects.items[i]);
+    for (size_t i = 0; i < ctx->resolved.link_flags.count; i++)
+        cmd_append(&cmd, ctx->resolved.link_flags.items[i]);
+    if (ctx->config == MEL_CONFIG_RELEASE) cmd_append(&cmd, "-O2");
+    else                                   cmd_append(&cmd, "-g");
+
+    if (!wasi) {
+        cmd_append(&cmd, "-sALLOW_MEMORY_GROWTH=1");
+        if (g_web_asyncify)  cmd_append(&cmd, "-sASYNCIFY");
+        if (g_web_threading) cmd_append(&cmd, "-pthread", "-sPTHREAD_POOL_SIZE=4");
+        const char *shell = "tools/build/web/shell.html";
+        if (file_exists(shell)) cmd_append(&cmd, "--shell-file", shell);
+    }
+    cmd_append(&cmd, "-o", artifact);
+
+    if (!cmd_run_sync_and_reset(&cmd)) return false;
+    nob_log(NOB_INFO, "linked %s", artifact);
+    return true;
+}
+
+static bool default_link(Mel_Build_Context *ctx) {
+    Mel_Build_Target *t = ctx->target;
+
+    if (ctx->platform == MEL_PLATFORM_ANDROID) {
+        if (t->kind == MEL_TARGET_APPLICATION) return android_build(ctx);
+        return true;
+    }
+
+    if (t->kind == MEL_TARGET_LIBRARY) {
+        if (!mel_mkdirs(target_out_dir(t, ctx->platform, ctx->config))) return false;
+        if (!archive_objects(ar_for(ctx), ctx->artifact, &ctx->objects)) return false;
+        nob_log(NOB_INFO, "archived %s (%zu objects)", ctx->artifact, ctx->objects.count);
+        return true;
+    }
+
+    if (t->kind == MEL_TARGET_APPLICATION) {
+        if (ctx->platform == MEL_PLATFORM_WEB) return link_web_app(ctx);
+
+        const char *app_out = temp_sprintf("%s/%s", target_out_dir(t, ctx->platform, ctx->config), t->name);
+        if (!mel_mkdirs(app_out)) return false;
+
+        // Win32: compile the generated resource script and emit an .exe.
+        const char *res_obj = NULL;
+        const char *out_bin = ctx->artifact;
+        if (ctx->platform == MEL_PLATFORM_WIN32) {
+            out_bin = temp_sprintf("%s.exe", ctx->artifact);
+            const char *rc_dir = configure_out_dir(t, ctx->platform);
+            const char *rc = temp_sprintf("%s/app.rc", rc_dir);
+            if (file_exists(rc)) {
+                res_obj = temp_sprintf("%s/app.res", app_out);
+                const char *label = target_config_get(t, "APP_LABEL");
+                if (!label) label = t->name;
+                const char *ver = target_config_get(t, "VERSION_NAME");
+                if (!ver) ver = "0.1.0";
+                Cmd rcc = {0};
+                cmd_append(&rcc, "llvm-rc", "/nologo", temp_sprintf("/I%s", rc_dir));
+                cmd_append(&rcc, temp_sprintf("/DMEL_APP_NAME=\"%s\"", label));
+                cmd_append(&rcc, temp_sprintf("/DMEL_APP_VERSION=\"%s\"", ver));
+                const char *icon = temp_sprintf("%s/apps/%s/win32/app.ico", get_current_dir_temp(), t->name);
+                if (file_exists(icon)) cmd_append(&rcc, temp_sprintf("/DMEL_APP_ICON=\"%s\"", icon));
+                cmd_append(&rcc, "/fo", res_obj, rc);
+                if (!cmd_run_sync_and_reset(&rcc)) return false;
+            }
+        }
+
+        File_Paths link_inputs = {0};
+        for (size_t i = 0; i < ctx->objects.count; i++) da_append(&link_inputs, ctx->objects.items[i]);
+        if (res_obj) da_append(&link_inputs, res_obj);
+
+        Cmd ident = {0};
+        cmd_append(&ident, "clang");
+        if (ctx->platform == MEL_PLATFORM_IOS) mel_ios_clang_flags(&ident);
+        for (size_t i = 0; i < ctx->resolved.link_flags.count; i++)
+            cmd_append(&ident, ctx->resolved.link_flags.items[i]);
+        if (cache_artifact_restore(&ident, &link_inputs, out_bin)) {
+            free(ident.items);
+            nob_log(NOB_INFO, "linked %s (cached)", out_bin);
+            return true;
+        }
+        free(ident.items);
+
+        Cmd cmd = {0};
+        cmd_append(&cmd, "clang");
+        if (ctx->platform == MEL_PLATFORM_IOS) mel_ios_clang_flags(&cmd);
+        for (size_t i = 0; i < ctx->objects.count; i++) cmd_append(&cmd, ctx->objects.items[i]);
+        if (res_obj) cmd_append(&cmd, res_obj);
+        for (size_t i = 0; i < ctx->resolved.link_flags.count; i++)
+            cmd_append(&cmd, ctx->resolved.link_flags.items[i]);
+        cmd_append(&cmd, "-o", out_bin);
+        if (!cmd_run_sync_and_reset(&cmd)) return false;
+        nob_log(NOB_INFO, "linked %s", out_bin);
+
+        Cmd ident2 = {0};
+        cmd_append(&ident2, "clang");
+        if (ctx->platform == MEL_PLATFORM_IOS) mel_ios_clang_flags(&ident2);
+        for (size_t i = 0; i < ctx->resolved.link_flags.count; i++)
+            cmd_append(&ident2, ctx->resolved.link_flags.items[i]);
+        cache_artifact_store(&ident2, &link_inputs, out_bin);
+        free(ident2.items);
+        return true;
+    }
+
+    return true; // third-party / meta: linkage handled by custom callbacks
+}
+
+static bool copy_preserving(const char *src, const char *dst) {
+    Cmd cmd = {0};
+    cmd_append(&cmd, "cp", "-p", src, dst);
+    return cmd_run_sync_and_reset(&cmd);
+}
+
+// Assemble an apple .app bundle from the linked executable and generated plist.
+// macOS uses the nested Contents/MacOS layout; iOS bundles are flat (executable
+// and Info.plist at the .app root).
+static bool package_apple(Mel_Build_Context *ctx) {
+    Mel_Build_Target *t = ctx->target;
+    const char *pname     = mel_platform_name(ctx->platform);
+    const char *bundle    = temp_sprintf("%s/%s/%s/%s.app", MEL_BUILD_DIR, t->name, pname, t->name);
+    const char *plist_src = temp_sprintf("%s/%s/%s/Info.plist", MEL_BUILD_DIR, t->name, pname);
+
+    if (ctx->platform == MEL_PLATFORM_IOS) {
+        if (!mel_mkdirs(bundle)) return false;
+        if (!copy_preserving(ctx->artifact, temp_sprintf("%s/%s", bundle, t->name))) return false;
+        if (!copy_file(plist_src, temp_sprintf("%s/Info.plist", bundle))) return false;
+        // The simulator refuses to install an unsigned bundle; an ad-hoc
+        // signature is enough (no identity, no provisioning profile).
+        Cmd sign = {0};
+        cmd_append(&sign, "codesign", "--force", "--sign", "-", bundle);
+        if (!cmd_run_sync_and_reset(&sign)) return false;
+        nob_log(NOB_INFO, "packaged %s", bundle);
+        return true;
+    }
+
+    const char *contents = temp_sprintf("%s/Contents", bundle);
+    const char *macos    = temp_sprintf("%s/MacOS", contents);
+    const char *res      = temp_sprintf("%s/Resources", contents);
+    if (!mel_mkdirs(macos)) return false;
+    if (!mel_mkdirs(res)) return false;
+
+    if (!copy_preserving(ctx->artifact, temp_sprintf("%s/%s", macos, t->name))) return false;
+    if (!copy_file(plist_src, temp_sprintf("%s/Info.plist", contents))) return false;
+
+    nob_log(NOB_INFO, "packaged %s", bundle);
+    return true;
+}
+
+static bool package_android(Mel_Build_Context *ctx);
+
+static bool default_package(Mel_Build_Context *ctx) {
+    if (ctx->target->kind != MEL_TARGET_APPLICATION) return true;
+    switch (ctx->platform) {
+        case MEL_PLATFORM_MACOS:
+        case MEL_PLATFORM_IOS:     return package_apple(ctx);
+        case MEL_PLATFORM_ANDROID: return package_android(ctx);
+        default:                   return true;
+    }
+}
+
+typedef bool (*Default_Fn)(Mel_Build_Context *);
+static const Default_Fn k_defaults[MEL_STAGE_COUNT] = {
+    [MEL_STAGE_CONFIGURE] = default_configure,
+    [MEL_STAGE_COMPILE]   = default_compile,
+    [MEL_STAGE_LINK]      = default_link,
+    [MEL_STAGE_PACKAGE]   = default_package,
+};
+
+static bool run_stage(Mel_Build_Context *ctx, Mel_Stage stage) {
+    if (!ctx->target->suppress_default[stage] && k_defaults[stage]) {
+        if (!k_defaults[stage](ctx)) return false;
+    }
+    for (size_t i = 0; i < ctx->target->user_cb_count[stage]; i++) {
+        if (!ctx->target->user_cbs[stage][i](ctx)) return false;
+    }
+    return true;
+}
