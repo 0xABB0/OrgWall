@@ -9,6 +9,8 @@ static void context_init(Mel_Build_Context *ctx, Mel_Build_Target *t, Mel_Platfo
     ctx->target = t;
     ctx->platform = p;
     ctx->config = c;
+    ctx->backend = g_backend;
+    ctx->runtime = g_runtime;
     ctx->out_dir = target_out_dir(t, p, c);
     if (t->kind == MEL_TARGET_LIBRARY)          ctx->artifact = library_artifact(t, p, c);
     else if (t->kind == MEL_TARGET_APPLICATION) ctx->artifact = app_artifact(t, p, c);

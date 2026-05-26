@@ -4,6 +4,15 @@
 // Default stages
 // =============================================================================
 
+static void append_java_dir(String_Builder *sb, const char *cwd, const char *m, const char *tag) {
+    if (!tag) return;
+    const char *jd = temp_sprintf("modules/%s/src/%s/java", m, tag);
+    if (file_exists(jd) && get_file_type(jd) == NOB_FILE_DIRECTORY) {
+        if (sb->count) sb_append_cstr(sb, ",");
+        sb_appendf(sb, "%s/%s", cwd, jd);
+    }
+}
+
 static const char *android_java_srcdirs_csv(const char *cwd) {
     String_Builder sb = {0};
     File_Paths mods = {0};
@@ -11,11 +20,9 @@ static const char *android_java_srcdirs_csv(const char *cwd) {
         for (size_t i = 0; i < mods.count; i++) {
             const char *m = mods.items[i];
             if (strcmp(m, ".") == 0 || strcmp(m, "..") == 0) continue;
-            const char *jd = temp_sprintf("modules/%s/src/android/java", m);
-            if (file_exists(jd) && get_file_type(jd) == NOB_FILE_DIRECTORY) {
-                if (sb.count) sb_append_cstr(&sb, ",");
-                sb_appendf(&sb, "%s/%s", cwd, jd);
-            }
+            const char *const *chain = mel_platform_chain(MEL_PLATFORM_ANDROID);
+            for (size_t c = 0; chain && chain[c]; c++) append_java_dir(&sb, cwd, m, chain[c]);
+            append_java_dir(&sb, cwd, m, g_backend);
         }
     }
     sb_append_null(&sb);
@@ -169,7 +176,7 @@ static bool link_web_app(Mel_Build_Context *ctx) {
     const char *out = web_out_dir(t, ctx->config);
     if (!mel_mkdirs(out)) return false;
 
-    bool wasi = (g_web_tc == WEB_WASI);
+    bool wasi = web_is_wasi();
     const char *artifact = wasi ? temp_sprintf("%s/app.wasm", out)
                                 : temp_sprintf("%s/app.html", out);
 

@@ -115,7 +115,7 @@ static bool collect_dir(const char *dir, Mel_Platform p, bool skip_platform_dirs
         const char *full = temp_sprintf("%s/%s", dir, n);
         Nob_File_Type ft = get_file_type(full);
         if (ft == NOB_FILE_DIRECTORY) {
-            if (skip_platform_dirs && is_platform_subdir(n)) continue;
+            if (skip_platform_dirs && is_axis_dir(n)) continue;
             if (!collect_dir(full, p, skip_platform_dirs, seen, out_sources, out_bridges)) return false;
         } else if (ft == NOB_FILE_REGULAR) {
             if (!source_is_buildable(n, p)) continue;
@@ -130,7 +130,11 @@ static bool collect_dir(const char *dir, Mel_Platform p, bool skip_platform_dirs
     return true;
 }
 
-// Resolve one source root: common sources plus the platform chain with shadowing.
+// Resolve one source root across the three axes: common sources (dirs owned by
+// no axis), then the platform chain with basename shadowing, then the active
+// backend dir and active runtime dir. Backend/runtime dirs are additive (their
+// basenames are toolkit/runtime-specific and do not collide with the platform
+// chain), so shadowing stays confined to the platform chain.
 static bool resolve_source_root(const char *root, Mel_Platform p,
                                 File_Paths *out_sources, File_Paths *out_bridges) {
     if (!collect_dir(root, p, true, NULL, out_sources, out_bridges)) return false;
@@ -139,6 +143,14 @@ static bool resolve_source_root(const char *root, Mel_Platform p,
     for (size_t c = 0; chain && chain[c]; c++) {
         const char *sub = temp_sprintf("%s/%s", root, chain[c]);
         if (!collect_dir(sub, p, false, &seen, out_sources, out_bridges)) return false;
+    }
+    if (g_backend) {
+        const char *sub = temp_sprintf("%s/%s", root, g_backend);
+        if (!collect_dir(sub, p, false, NULL, out_sources, out_bridges)) return false;
+    }
+    if (g_runtime && strcmp(g_runtime, "native") != 0) {
+        const char *sub = temp_sprintf("%s/%s", root, g_runtime);
+        if (!collect_dir(sub, p, false, NULL, out_sources, out_bridges)) return false;
     }
     return true;
 }

@@ -11,7 +11,7 @@ bool project(Mel_Build_Target *t)
 
     static const Mel_Platform web_only[] = { MEL_PLATFORM_WEB };
     mel_build_set_platforms(t, web_only, 1);
-    mel_build_web_toolchain(t, "wasi-sdk");
+    mel_build_use_runtime_on(t, MEL_PLATFORM_WEB, "wasi");
 
     mel_build_add_source_root(t, "apps/melody-wasi/src");
     mel_build_add_dependency(t, "melody");

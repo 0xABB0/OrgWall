@@ -190,15 +190,15 @@ void mel_build_add_link_flag_on_(Mel_Build_Target *t, Mel_Visibility vis, Mel_Pl
     va_end(ap);
 }
 
-void mel_build_backend(Mel_Build_Target *t, Mel_Platform p, const char *backend) {
+void mel_build_use_backend_on(Mel_Build_Target *t, Mel_Platform p, const char *backend) {
     t->backends[p] = temp_strdup(backend);
+}
+void mel_build_use_runtime_on(Mel_Build_Target *t, Mel_Platform p, const char *runtime) {
+    t->runtimes[p] = temp_strdup(runtime);
 }
 
 void mel_build_web_threading(Mel_Build_Target *t, bool enable) { t->web_threading = enable; }
 void mel_build_web_asyncify(Mel_Build_Target *t, bool enable)  { t->web_asyncify = enable; }
-void mel_build_web_toolchain(Mel_Build_Target *t, const char *toolchain) {
-    t->web_toolchain = temp_strdup(toolchain);
-}
 
 static void register_cb(Mel_Build_Target *t, Mel_Stage stage, Mel_Build_Stage_Fn fn) {
     size_t *n = &t->user_cb_count[stage];
@@ -225,7 +225,8 @@ void mel_build_suppress_default(Mel_Build_Target *t, Mel_Stage stage) {
 Mel_Platform mel_build_ctx_platform(const Mel_Build_Context *ctx) { return ctx->platform; }
 Mel_Config   mel_build_ctx_config(const Mel_Build_Context *ctx)   { return ctx->config; }
 const char  *mel_build_ctx_target_name(const Mel_Build_Context *ctx) { return ctx->target->name; }
-const char  *mel_build_ctx_backend(const Mel_Build_Context *ctx) { return ctx->target->backends[ctx->platform]; }
+const char  *mel_build_ctx_backend(const Mel_Build_Context *ctx) { return ctx->backend; }
+const char  *mel_build_ctx_runtime(const Mel_Build_Context *ctx) { return ctx->runtime; }
 const char  *mel_build_ctx_out_dir(const Mel_Build_Context *ctx) { return ctx->out_dir; }
 const char  *mel_build_ctx_artifact(const Mel_Build_Context *ctx) { return ctx->artifact; }
 

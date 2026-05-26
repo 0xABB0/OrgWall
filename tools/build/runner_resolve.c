@@ -6,12 +6,34 @@
 
 static const char *config_name(Mel_Config c) { return c == MEL_CONFIG_RELEASE ? "release" : "debug"; }
 
+static bool variant_is_default(const char *val, const char *def) {
+    if (!val && !def) return true;
+    if (!val || !def) return false;
+    return strcmp(val, def) == 0;
+}
+
+// Platform path segment, suffixed with the backend and/or runtime whenever
+// either departs from the framework default, so variant builds (e.g. web vs
+// web-wasi, win32 vs win32-qt) never share an output directory.
+static const char *variant_dir(Mel_Platform p) {
+    const char *base = mel_platform_name(p);
+    bool b_def = variant_is_default(g_backend, k_default_backend[p]);
+    bool r_def = variant_is_default(g_runtime, k_default_runtime[p]);
+    if (b_def && r_def) return base;
+    String_Builder sb = {0};
+    sb_appendf(&sb, "%s", base);
+    if (!b_def && g_backend) sb_appendf(&sb, "-%s", g_backend);
+    if (!r_def && g_runtime) sb_appendf(&sb, "-%s", g_runtime);
+    sb_append_null(&sb);
+    return temp_strdup(sb.items);
+}
+
 static const char *target_out_dir(const Mel_Build_Target *t, Mel_Platform p, Mel_Config c) {
-    return temp_sprintf("%s/%s/%s", MEL_BUILD_DIR, mel_platform_name(p), config_name(c));
+    return temp_sprintf("%s/%s/%s", MEL_BUILD_DIR, variant_dir(p), config_name(c));
 }
 
 static const char *target_obj_dir(const Mel_Build_Target *t, Mel_Platform p, Mel_Config c) {
-    return temp_sprintf("%s/obj/%s/%s/%s", MEL_BUILD_DIR, mel_platform_name(p), config_name(c), t->name);
+    return temp_sprintf("%s/obj/%s/%s/%s", MEL_BUILD_DIR, variant_dir(p), config_name(c), t->name);
 }
 
 static const char *thirdparty_prefix(const Mel_Build_Target *t, Mel_Platform p) {
@@ -47,7 +69,7 @@ static const char *object_for(const Mel_Build_Target *t, Mel_Platform p, Mel_Con
 // derive the other's content key from it.
 static const char *depfile_for_src(const Mel_Build_Target *t, Mel_Platform p, const char *src) {
     String_Builder sb = {0};
-    sb_appendf(&sb, "%s/obj/%s/%s/deps/", MEL_BUILD_DIR, mel_platform_name(p), t->name);
+    sb_appendf(&sb, "%s/obj/%s/%s/deps/", MEL_BUILD_DIR, variant_dir(p), t->name);
     for (const char *q = src; *q; q++) sb_append_buf(&sb, (*q == '/') ? "." : q, 1);
     sb_append_cstr(&sb, ".d");
     sb_append_null(&sb);

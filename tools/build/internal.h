@@ -96,11 +96,11 @@ struct Mel_Build_Target {
     Props priv;
 
     const char *backends[MEL_PLATFORM_COUNT];
+    const char *runtimes[MEL_PLATFORM_COUNT];
 
-    // Web platform knobs (see build.h). web_toolchain NULL => emscripten.
+    // Emscripten-runtime knobs (see build.h).
     bool        web_threading;
     bool        web_asyncify;
-    const char *web_toolchain;
 
     Mel_Build_Stage_Fn user_cbs[MEL_STAGE_COUNT][MEL_MAX_STAGE_CBS];
     size_t             user_cb_count[MEL_STAGE_COUNT];
@@ -129,6 +129,8 @@ struct Mel_Build_Context {
     Mel_Build_Target *target;
     Mel_Platform platform;
     Mel_Config config;
+    const char *backend;
+    const char *runtime;
     const Cross *cross;   // NULL for native host builds
 
     const char *out_dir;

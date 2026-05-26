@@ -121,8 +121,10 @@ MEL_API void mel_build_add_link_flag_on_(Mel_Build_Target *t, Mel_Visibility vis
 #define mel_build_add_define_on(t, vis, p, ...)    mel_build_add_define_on_(t, vis, p, __VA_ARGS__, NULL)
 #define mel_build_add_link_flag_on(t, vis, p, ...) mel_build_add_link_flag_on_(t, vis, p, __VA_ARGS__, NULL)
 
-// Which UI backend a platform uses; gates per-backend widget sources.
-MEL_API void mel_build_backend(Mel_Build_Target *t, Mel_Platform p, const char *backend);
+// Override the UI backend or runtime for a platform. Omit to take the
+// framework default (e.g. macos -> cocoa backend, web -> emscripten runtime).
+MEL_API void mel_build_use_backend_on(Mel_Build_Target *t, Mel_Platform p, const char *backend);
+MEL_API void mel_build_use_runtime_on(Mel_Build_Target *t, Mel_Platform p, const char *runtime);
 
 // --- Web platform configuration (consulted only when building for web) ---
 //
@@ -136,10 +138,6 @@ MEL_API void mel_build_web_threading(Mel_Build_Target *t, bool enable);
 // Enable Asyncify so blocking C can yield into JS-backed async I/O. Roughly
 // doubles the wasm size.
 MEL_API void mel_build_web_asyncify(Mel_Build_Target *t, bool enable);
-
-// "emscripten" (default; DOM, JS interop) or "wasi-sdk" (cleaner standards
-// story, no DOM, for compute targets). Resolved from the root target.
-MEL_API void mel_build_web_toolchain(Mel_Build_Target *t, const char *toolchain);
 
 // Key/value used to expand {{KEY}} placeholders in platform scaffolding
 // templates during the configure stage.
@@ -162,6 +160,7 @@ MEL_API Mel_Platform  mel_build_ctx_platform(const Mel_Build_Context *ctx);
 MEL_API Mel_Config    mel_build_ctx_config(const Mel_Build_Context *ctx);
 MEL_API const char   *mel_build_ctx_target_name(const Mel_Build_Context *ctx);
 MEL_API const char   *mel_build_ctx_backend(const Mel_Build_Context *ctx);
+MEL_API const char   *mel_build_ctx_runtime(const Mel_Build_Context *ctx);
 
 // Add a source for the compile stage to build (used from fetch_sources-style
 // callbacks for code generation outputs, etc.).

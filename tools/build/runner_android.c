@@ -338,7 +338,7 @@ static bool ios_run(const Mel_Build_Target *app, Mel_Config c) {
 // later from a detached subshell so the page loads after the socket is up. With
 // threading on, the server adds COOP/COEP so SharedArrayBuffer is available.
 static bool web_run(Mel_Build_Target *t, Mel_Config c) {
-    if (g_web_tc == WEB_WASI) {
+    if (web_is_wasi()) {
         nob_log(NOB_ERROR, "wasi-sdk produces a bare app.wasm; run it under a wasi host (wasmtime), not the browser");
         return false;
     }

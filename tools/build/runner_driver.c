@@ -73,10 +73,25 @@ int mel_build_main(int argc, char **argv) {
         return cache_gc(days);
     }
 
+    // The platform positional is platform[:backend[:runtime]]; an empty axis
+    // field (e.g. "web::wasi") falls back to that axis's default.
     Mel_Platform platform = mel_host_platform();
-    if (platform_name && !mel_platform_from_name(platform_name, &platform)) {
-        nob_log(NOB_ERROR, "unknown platform '%s'", platform_name);
-        return 1;
+    const char *cli_backend = NULL, *cli_runtime = NULL;
+    if (platform_name) {
+        char *spec = temp_strdup(platform_name);
+        char *c1 = strchr(spec, ':');
+        if (c1) {
+            *c1 = '\0';
+            cli_backend = c1 + 1;
+            char *c2 = strchr(c1 + 1, ':');
+            if (c2) { *c2 = '\0'; cli_runtime = c2 + 1; }
+        }
+        if (cli_backend && !*cli_backend) cli_backend = NULL;
+        if (cli_runtime && !*cli_runtime) cli_runtime = NULL;
+        if (!mel_platform_from_name(spec, &platform)) {
+            nob_log(NOB_ERROR, "unknown platform '%s'", spec);
+            return 1;
+        }
     }
 
     if (!discover_targets()) return 1;
@@ -107,19 +122,25 @@ int mel_build_main(int argc, char **argv) {
         if (!root) { nob_log(NOB_ERROR, "no default target 'melody' found"); return 1; }
     }
 
-    // The web toolchain + feature knobs come from the root target and bind the
-    // whole dependency graph, so melody compiles with the same toolchain as the
-    // app linking it.
+    // The variant (backend + runtime) binds the whole dependency graph, with
+    // precedence CLI > target override > framework default.
+    g_backend = cli_backend ? cli_backend : resolve_backend(root, platform);
+    g_runtime = cli_runtime ? cli_runtime : resolve_runtime(root, platform);
+    if (g_backend && !axis_in_list(valid_backends(platform), g_backend)) {
+        nob_log(NOB_ERROR, "backend '%s' is not valid for platform '%s'", g_backend, mel_platform_name(platform));
+        return 1;
+    }
+    if (!axis_in_list(valid_runtimes(platform), g_runtime)) {
+        nob_log(NOB_ERROR, "runtime '%s' is not valid for platform '%s'", g_runtime, mel_platform_name(platform));
+        return 1;
+    }
     if (platform == MEL_PLATFORM_WEB) {
-        g_web_tc = (root->web_toolchain && strcmp(root->web_toolchain, "wasi-sdk") == 0)
-                       ? WEB_WASI : WEB_EMSCRIPTEN;
         g_web_threading = root->web_threading;
         g_web_asyncify  = root->web_asyncify;
-        nob_log(NOB_INFO, "web toolchain: %s%s%s",
-                g_web_tc == WEB_WASI ? "wasi-sdk" : "emscripten",
-                g_web_threading ? " +threading" : "",
-                g_web_asyncify ? " +asyncify" : "");
     }
+    nob_log(NOB_INFO, "variant %s/%s/%s%s%s",
+            mel_platform_name(platform), g_backend ? g_backend : "headless", g_runtime,
+            g_web_threading ? " +threading" : "", g_web_asyncify ? " +asyncify" : "");
 
     if (!build_graph(root, platform, config, last)) return 1;
 

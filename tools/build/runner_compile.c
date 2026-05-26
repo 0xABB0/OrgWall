@@ -24,7 +24,7 @@ static void append_resolved_flags(Cmd *cmd, Mel_Build_Context *ctx, const char *
         // macros that strict -std=c23 leaves undefined; the desktop Apple/glibc
         // headers expose them anyway, so this only bites on web.
         cmd_append(cmd, "-D_GNU_SOURCE");
-        if (g_web_tc == WEB_EMSCRIPTEN && g_web_threading) cmd_append(cmd, "-pthread");
+        if (!web_is_wasi() && g_web_threading) cmd_append(cmd, "-pthread");
     }
     if (source_is_objc(src)) cmd_append(cmd, "-fobjc-arc");
 

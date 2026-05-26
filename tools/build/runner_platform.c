@@ -61,25 +61,19 @@ static Mel_Platform mel_host_platform(void) {
 #endif
 }
 
-// The web "platform" carries a toolchain sub-axis: emscripten (DOM/JS) and
-// wasi-sdk (standards-only, no DOM) are genuinely different runtimes, so they
-// resolve different source-chains. Resolved from the root target in
-// mel_build_main; read by mel_platform_chain and the compiler/flag helpers.
-typedef enum { WEB_EMSCRIPTEN, WEB_WASI } Web_Toolchain;
+static bool g_web_threading;
+static bool g_web_asyncify;
 
-static Web_Toolchain g_web_tc = WEB_EMSCRIPTEN;
-static bool          g_web_threading;
-static bool          g_web_asyncify;
-
-// Source-subdirectory resolution chains: a more specific platform shadows a
-// more general one when two files share a basename within the same module.
+// Platform source-subdirectory chains: a more specific platform dir shadows a
+// more general one when two files share a basename within the same module. The
+// backend and runtime axes are resolved separately (see resolve_source_root),
+// so emscripten/wasi no longer live in the web chain.
 static const char *const k_macos_chain[]   = { "macos", "apple", "posix", NULL };
 static const char *const k_ios_chain[]     = { "ios",   "apple", "posix", NULL };
 static const char *const k_linux_chain[]   = { "linux", "posix", NULL };
 static const char *const k_android_chain[] = { "android", "posix", NULL };
 static const char *const k_win32_chain[]   = { "win32", "win", NULL };
-static const char *const k_emscripten_chain[] = { "emscripten", "web", "posix", NULL };
-static const char *const k_wasi_chain[]       = { "wasi", "web", "posix", NULL };
+static const char *const k_web_chain[]     = { "web", "posix", NULL };
 
 static const char *const *mel_platform_chain(Mel_Platform p) {
     switch (p) {
@@ -88,15 +82,19 @@ static const char *const *mel_platform_chain(Mel_Platform p) {
         case MEL_PLATFORM_LINUX:   return k_linux_chain;
         case MEL_PLATFORM_ANDROID: return k_android_chain;
         case MEL_PLATFORM_WIN32:   return k_win32_chain;
-        case MEL_PLATFORM_WEB:     return g_web_tc == WEB_WASI ? k_wasi_chain : k_emscripten_chain;
+        case MEL_PLATFORM_WEB:     return k_web_chain;
         default:                   return NULL;
     }
 }
 
-static bool is_platform_subdir(const char *name) {
+// A directory name owned by one of the three axes (platform/family, backend, or
+// runtime). Such dirs are never collected as common sources; they are pulled in
+// only when their axis value is the active one for the build.
+static bool is_axis_dir(const char *name) {
     static const char *const all[] = {
         "macos", "ios", "linux", "android", "win32", "windows", "web", "emscripten", "wasi",
         "apple", "posix", "win", "asm",
+        "cocoa", "uikit", "winui", "androidnative", "dom", "qt", "compose",
     };
     for (size_t i = 0; i < NOB_ARRAY_LEN(all); i++) {
         if (strcmp(name, all[i]) == 0) return true;
@@ -104,17 +102,73 @@ static bool is_platform_subdir(const char *name) {
     return false;
 }
 
+static const char *const k_default_backend[MEL_PLATFORM_COUNT] = {
+    [MEL_PLATFORM_MACOS]   = "cocoa",
+    [MEL_PLATFORM_IOS]     = "uikit",
+    [MEL_PLATFORM_LINUX]   = NULL,
+    [MEL_PLATFORM_ANDROID] = "androidnative",
+    [MEL_PLATFORM_WIN32]   = "winui",
+    [MEL_PLATFORM_WEB]     = "dom",
+};
+
+static const char *const k_default_runtime[MEL_PLATFORM_COUNT] = {
+    [MEL_PLATFORM_MACOS]   = "native",
+    [MEL_PLATFORM_IOS]     = "native",
+    [MEL_PLATFORM_LINUX]   = "native",
+    [MEL_PLATFORM_ANDROID] = "native",
+    [MEL_PLATFORM_WIN32]   = "native",
+    [MEL_PLATFORM_WEB]     = "emscripten",
+};
+
+static const char *g_backend;
+static const char *g_runtime;
+
+static const char *resolve_backend(const Mel_Build_Target *root, Mel_Platform p) {
+    return root->backends[p] ? root->backends[p] : k_default_backend[p];
+}
+static const char *resolve_runtime(const Mel_Build_Target *root, Mel_Platform p) {
+    return root->runtimes[p] ? root->runtimes[p] : k_default_runtime[p];
+}
+
+static const char *const k_macos_backends[]   = { "cocoa", NULL };
+static const char *const k_ios_backends[]     = { "uikit", NULL };
+static const char *const k_android_backends[] = { "androidnative", NULL };
+static const char *const k_win32_backends[]   = { "winui", NULL };
+static const char *const k_web_backends[]     = { "dom", NULL };
+static const char *const k_no_backends[]      = { NULL };
+
+static const char *const *valid_backends(Mel_Platform p) {
+    switch (p) {
+        case MEL_PLATFORM_MACOS:   return k_macos_backends;
+        case MEL_PLATFORM_IOS:     return k_ios_backends;
+        case MEL_PLATFORM_ANDROID: return k_android_backends;
+        case MEL_PLATFORM_WIN32:   return k_win32_backends;
+        case MEL_PLATFORM_WEB:     return k_web_backends;
+        default:                   return k_no_backends;
+    }
+}
+
+static const char *const k_web_runtimes[]    = { "emscripten", "wasi", NULL };
+static const char *const k_native_runtimes[] = { "native", NULL };
+static const char *const *valid_runtimes(Mel_Platform p) {
+    return p == MEL_PLATFORM_WEB ? k_web_runtimes : k_native_runtimes;
+}
+
+static bool axis_in_list(const char *const *list, const char *v) {
+    for (; *list; list++) if (strcmp(*list, v) == 0) return true;
+    return false;
+}
+
 // =============================================================================
 // Web toolchains
 // =============================================================================
 //
-// Two toolchains target wasm: emscripten (emcc/emar, DOM + JS interop) and
-// wasi-sdk (its bundled clang/llvm-ar, standards-only, no DOM). The choice plus
-// the threading/Asyncify knobs are resolved once from the root target at the
-// start of a build (mel_build_main) and read here, so every target in the graph
-// — melody included — compiles against one agreed-upon toolchain. The toolchain
-// enum + globals live up in the Platforms section because the source-chain
-// selection (mel_platform_chain) needs them.
+// Two runtimes target wasm: emscripten (emcc/emar, DOM + JS interop) and wasi
+// (the wasi-sdk clang/llvm-ar, standards-only, no DOM). The runtime is resolved
+// once from the root target into g_runtime, so every target in the graph builds
+// against one agreed-upon toolchain.
+
+static bool web_is_wasi(void) { return g_runtime && strcmp(g_runtime, "wasi") == 0; }
 
 static const char *wasi_sdk_dir(void) {
     const char *e = getenv("WASI_SDK_PATH");
@@ -124,12 +178,12 @@ static const char *wasi_sdk_dir(void) {
 }
 
 static const char *web_cc(void) {
-    if (g_web_tc == WEB_WASI) return temp_sprintf("%s/bin/clang", wasi_sdk_dir());
+    if (web_is_wasi()) return temp_sprintf("%s/bin/clang", wasi_sdk_dir());
     return "emcc";
 }
 
 static const char *web_ar(void) {
-    if (g_web_tc == WEB_WASI) return temp_sprintf("%s/bin/llvm-ar", wasi_sdk_dir());
+    if (web_is_wasi()) return temp_sprintf("%s/bin/llvm-ar", wasi_sdk_dir());
     return "emar";
 }
 
@@ -144,7 +198,7 @@ static const char *ar_for(const Mel_Build_Context *ctx) {
 // Compile/link flags pinning the wasi target triple + sysroot. Emscripten needs
 // none (emcc drives target selection itself).
 static void web_target_flags(Cmd *cmd) {
-    if (g_web_tc == WEB_WASI) {
+    if (web_is_wasi()) {
         cmd_append(cmd, "--target=wasm32-wasip1");
         cmd_append(cmd, temp_sprintf("--sysroot=%s/share/wasi-sysroot", wasi_sdk_dir()));
     }
