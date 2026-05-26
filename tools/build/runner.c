@@ -440,6 +440,7 @@ static void append_resolved_flags(Cmd *cmd, Mel_Build_Context *ctx, const char *
     if (ctx->config == MEL_CONFIG_DEBUG) cmd_append(cmd, "-g", "-O0");
     else                                 cmd_append(cmd, "-O2");
     if (ctx->platform != MEL_PLATFORM_WIN32) cmd_append(cmd, "-fPIC");
+    if (ctx->platform == MEL_PLATFORM_IOS) mel_ios_clang_flags(cmd);
     if (source_is_objc(src)) cmd_append(cmd, "-fobjc-arc");
 
     Resolved *r = &ctx->resolved;
@@ -1026,6 +1027,7 @@ static bool default_link(Mel_Build_Context *ctx) {
 
         Cmd ident = {0};
         cmd_append(&ident, "clang");
+        if (ctx->platform == MEL_PLATFORM_IOS) mel_ios_clang_flags(&ident);
         for (size_t i = 0; i < ctx->resolved.link_flags.count; i++)
             cmd_append(&ident, ctx->resolved.link_flags.items[i]);
         if (cache_artifact_restore(&ident, &link_inputs, out_bin)) {
@@ -1037,6 +1039,7 @@ static bool default_link(Mel_Build_Context *ctx) {
 
         Cmd cmd = {0};
         cmd_append(&cmd, "clang");
+        if (ctx->platform == MEL_PLATFORM_IOS) mel_ios_clang_flags(&cmd);
         for (size_t i = 0; i < ctx->objects.count; i++) cmd_append(&cmd, ctx->objects.items[i]);
         if (res_obj) cmd_append(&cmd, res_obj);
         for (size_t i = 0; i < ctx->resolved.link_flags.count; i++)
@@ -1047,6 +1050,7 @@ static bool default_link(Mel_Build_Context *ctx) {
 
         Cmd ident2 = {0};
         cmd_append(&ident2, "clang");
+        if (ctx->platform == MEL_PLATFORM_IOS) mel_ios_clang_flags(&ident2);
         for (size_t i = 0; i < ctx->resolved.link_flags.count; i++)
             cmd_append(&ident2, ctx->resolved.link_flags.items[i]);
         cache_artifact_store(&ident2, &link_inputs, out_bin);
@@ -1063,10 +1067,28 @@ static bool copy_preserving(const char *src, const char *dst) {
     return cmd_run_sync_and_reset(&cmd);
 }
 
-// Assemble a macOS .app bundle from the linked executable and generated plist.
+// Assemble an apple .app bundle from the linked executable and generated plist.
+// macOS uses the nested Contents/MacOS layout; iOS bundles are flat (executable
+// and Info.plist at the .app root).
 static bool package_apple(Mel_Build_Context *ctx) {
     Mel_Build_Target *t = ctx->target;
-    const char *bundle   = temp_sprintf("%s/%s/macos/%s.app", MEL_BUILD_DIR, t->name, t->name);
+    const char *pname     = mel_platform_name(ctx->platform);
+    const char *bundle    = temp_sprintf("%s/%s/%s/%s.app", MEL_BUILD_DIR, t->name, pname, t->name);
+    const char *plist_src = temp_sprintf("%s/%s/%s/Info.plist", MEL_BUILD_DIR, t->name, pname);
+
+    if (ctx->platform == MEL_PLATFORM_IOS) {
+        if (!mel_mkdirs(bundle)) return false;
+        if (!copy_preserving(ctx->artifact, temp_sprintf("%s/%s", bundle, t->name))) return false;
+        if (!copy_file(plist_src, temp_sprintf("%s/Info.plist", bundle))) return false;
+        // The simulator refuses to install an unsigned bundle; an ad-hoc
+        // signature is enough (no identity, no provisioning profile).
+        Cmd sign = {0};
+        cmd_append(&sign, "codesign", "--force", "--sign", "-", bundle);
+        if (!cmd_run_sync_and_reset(&sign)) return false;
+        nob_log(NOB_INFO, "packaged %s", bundle);
+        return true;
+    }
+
     const char *contents = temp_sprintf("%s/Contents", bundle);
     const char *macos    = temp_sprintf("%s/MacOS", contents);
     const char *res      = temp_sprintf("%s/Resources", contents);
@@ -1074,9 +1096,7 @@ static bool package_apple(Mel_Build_Context *ctx) {
     if (!mel_mkdirs(res)) return false;
 
     if (!copy_preserving(ctx->artifact, temp_sprintf("%s/%s", macos, t->name))) return false;
-
-    const char *plist = temp_sprintf("%s/%s/macos/Info.plist", MEL_BUILD_DIR, t->name);
-    if (!copy_file(plist, temp_sprintf("%s/Info.plist", contents))) return false;
+    if (!copy_file(plist_src, temp_sprintf("%s/Info.plist", contents))) return false;
 
     nob_log(NOB_INFO, "packaged %s", bundle);
     return true;
@@ -1419,6 +1439,32 @@ static bool android_logcat(const char *app_name) {
     return cmd_run_sync_and_reset(&cmd);
 }
 
+// Boot a simulator (whatever Simulator.app last used), install the flat bundle,
+// and launch it by bundle id. No device target / signing identity is involved.
+static bool ios_run(const Mel_Build_Target *app, Mel_Config c) {
+    (void)c;
+    const char *bundle = temp_sprintf("%s/%s/ios/%s.app", MEL_BUILD_DIR, app->name, app->name);
+    if (!file_exists(bundle)) { nob_log(NOB_ERROR, "iOS app not found at %s", bundle); return false; }
+    const char *bid = target_config_get(app, "BUNDLE_ID");
+    if (!bid) bid = temp_sprintf("orgwall.%s", app->name);
+
+    Cmd open = {0};
+    cmd_append(&open, "open", "-a", "Simulator");
+    if (!cmd_run_sync_and_reset(&open)) return false;
+
+    Cmd wait = {0};
+    cmd_append(&wait, "xcrun", "simctl", "bootstatus", "booted");
+    if (!cmd_run_sync_and_reset(&wait)) return false;
+
+    Cmd install = {0};
+    cmd_append(&install, "xcrun", "simctl", "install", "booted", bundle);
+    if (!cmd_run_sync_and_reset(&install)) return false;
+
+    Cmd launch = {0};
+    cmd_append(&launch, "xcrun", "simctl", "launch", "--console-pty", "booted", bid);
+    return cmd_run_sync_and_reset(&launch);
+}
+
 // =============================================================================
 // Build orchestration
 // =============================================================================
@@ -1759,6 +1805,7 @@ int mel_build_main(int argc, char **argv) {
             if (!android_launch(root)) return 1;
             return (do_debug ? android_logcat(root->name) : true) ? 0 : 1;
         }
+        if (platform == MEL_PLATFORM_IOS) return ios_run(root, config) ? 0 : 1;
         return launch_app(root, platform, config) ? 0 : 1;
     }
     return 0;

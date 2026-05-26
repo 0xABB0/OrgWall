@@ -266,6 +266,32 @@ static const char *ctx_tp_prefix(const Mel_Build_Context *ctx) {
     return tp_prefix_named(ctx->platform, ctx_abi(ctx), ctx->target->name);
 }
 
+// iOS simulator cross-compilation. We pin a single slice: arm64 against the
+// iphonesimulator SDK, with the deployment target carried in the clang/cmake
+// target triple. xcrun resolves the SDK path lazily and caches it.
+#define MEL_IOS_SIM_TRIPLE "arm64-apple-ios13.0-simulator"
+
+static const char *mel_ios_sdk_path(void) {
+    static const char *cached = NULL;
+    if (cached) return cached;
+    FILE *p = popen("xcrun --sdk iphonesimulator --show-sdk-path 2>/dev/null", "r");
+    if (!p) return NULL;
+    char buf[1024];
+    size_t n = fread(buf, 1, sizeof buf - 1, p);
+    pclose(p);
+    if (n == 0) return NULL;
+    buf[n] = 0;
+    while (n && (buf[n - 1] == '\n' || buf[n - 1] == '\r' || buf[n - 1] == ' ')) buf[--n] = 0;
+    cached = temp_strdup(buf);
+    return cached;
+}
+
+static void mel_ios_clang_flags(Cmd *cmd) {
+    cmd_append(cmd, "-target", MEL_IOS_SIM_TRIPLE);
+    const char *sdk = mel_ios_sdk_path();
+    if (sdk) cmd_append(cmd, "-isysroot", sdk);
+}
+
 bool mel_tp_single_tu(Mel_Build_Context *ctx, const char *src, const char *const *cflags,
                       size_t cflags_count, const char *const *headers, size_t headers_count) {
     const char *prefix = ctx_tp_prefix(ctx);
@@ -283,6 +309,7 @@ bool mel_tp_single_tu(Mel_Build_Context *ctx, const char *src, const char *const
     Cmd cmd = {0};
     cmd_append(&cmd, ctx->cross ? ctx->cross->cc : "clang", "-c", "-O2");
     if (ctx->platform != MEL_PLATFORM_WIN32) cmd_append(&cmd, "-fPIC");
+    if (ctx->platform == MEL_PLATFORM_IOS) mel_ios_clang_flags(&cmd);
     for (size_t i = 0; i < cflags_count; i++) cmd_append(&cmd, cflags[i]);
     cmd_append(&cmd, src, "-o", obj);
     if (!cmd_run_sync_and_reset(&cmd)) return false;
@@ -321,6 +348,11 @@ bool mel_tp_cmake(Mel_Build_Context *ctx, const char *src_rel,
         cmd_append(&cmd, temp_sprintf("-DCMAKE_TOOLCHAIN_FILE=%s/build/cmake/android.toolchain.cmake", ctx->cross->ndk));
         cmd_append(&cmd, temp_sprintf("-DANDROID_ABI=%s", ctx->cross->abi));
         cmd_append(&cmd, temp_sprintf("-DANDROID_PLATFORM=android-%d", ctx->cross->api));
+    } else if (ctx->platform == MEL_PLATFORM_IOS) {
+        cmd_append(&cmd, "-DCMAKE_SYSTEM_NAME=iOS");
+        cmd_append(&cmd, "-DCMAKE_OSX_SYSROOT=iphonesimulator");
+        cmd_append(&cmd, "-DCMAKE_OSX_ARCHITECTURES=arm64");
+        cmd_append(&cmd, "-DCMAKE_OSX_DEPLOYMENT_TARGET=13.0");
     }
     for (size_t i = 0; i < args_count; i++) cmd_append(&cmd, args[i]);
     if (!cmd_run_sync_and_reset(&cmd)) return false;
@@ -386,6 +418,10 @@ bool mel_tp_autotools(Mel_Build_Context *ctx, const char *src_rel, const char *e
         cmd_append(&cmd, temp_sprintf("CC=%s", ctx->cross->cc));
         cmd_append(&cmd, temp_sprintf("AR=%s", ctx->cross->ar));
         cmd_append(&cmd, temp_sprintf("RANLIB=%s", ctx->cross->ranlib));
+    } else if (ctx->platform == MEL_PLATFORM_IOS) {
+        const char *sdk = mel_ios_sdk_path();
+        cmd_append(&cmd, "--host=aarch64-apple-darwin");
+        cmd_append(&cmd, temp_sprintf("CC=clang -target %s -isysroot %s", MEL_IOS_SIM_TRIPLE, sdk ? sdk : ""));
     } else if (win32_native) {
         cmd_append(&cmd, "CC=clang", "AR=llvm-ar");
         // VS LLVM ships ld.lld / llvm-nm / llvm-strip but no GNU-named
