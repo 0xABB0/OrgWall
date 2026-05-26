@@ -16,6 +16,12 @@ bool project(Mel_Build_Target *t) {
     mel_build_add_link_flag_on(t, MEL_PUBLIC, MEL_PLATFORM_MACOS, "-framework", "CoreMIDI");
     mel_build_add_link_flag_on(t, MEL_PUBLIC, MEL_PLATFORM_MACOS, "-framework", "CoreFoundation");
 
+    mel_build_add_link_flag_on(t, MEL_PUBLIC, MEL_PLATFORM_IOS, "-framework", "UIKit");
+    mel_build_add_link_flag_on(t, MEL_PUBLIC, MEL_PLATFORM_IOS, "-framework", "Foundation");
+    mel_build_add_link_flag_on(t, MEL_PUBLIC, MEL_PLATFORM_IOS, "-framework", "CoreGraphics");
+    mel_build_add_link_flag_on(t, MEL_PUBLIC, MEL_PLATFORM_IOS, "-framework", "QuartzCore");
+    mel_build_add_link_flag_on(t, MEL_PUBLIC, MEL_PLATFORM_IOS, "-framework", "CoreFoundation");
+
     mel_build_add_link_flag_on(t, MEL_PUBLIC, MEL_PLATFORM_LINUX, "-lasound");
     mel_build_add_link_flag_on(t, MEL_PUBLIC, MEL_PLATFORM_LINUX, "-lpthread");
     mel_build_add_link_flag_on(t, MEL_PUBLIC, MEL_PLATFORM_LINUX, "-lm");
