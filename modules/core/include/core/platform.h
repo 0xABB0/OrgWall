@@ -8,6 +8,8 @@
 #define MEL_PLATFORM_POSIX    0
 #define MEL_PLATFORM_APPLE    0
 #define MEL_PLATFORM_WEB      0
+#define MEL_PLATFORM_EMSCRIPTEN 0
+#define MEL_PLATFORM_WASI     0
 #define MEL_CPU_ARM           0
 #define MEL_CPU_X86           0
 #define MEL_ARCH_32BIT        0
@@ -19,6 +21,13 @@
 #elif defined(__EMSCRIPTEN__)
     #undef  MEL_PLATFORM_WEB
     #define MEL_PLATFORM_WEB 1
+    #undef  MEL_PLATFORM_EMSCRIPTEN
+    #define MEL_PLATFORM_EMSCRIPTEN 1
+#elif defined(__wasi__)
+    #undef  MEL_PLATFORM_WEB
+    #define MEL_PLATFORM_WEB 1
+    #undef  MEL_PLATFORM_WASI
+    #define MEL_PLATFORM_WASI 1
 #elif defined(__APPLE__)
     #include <TargetConditionals.h>
     #undef  MEL_PLATFORM_APPLE

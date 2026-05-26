@@ -6,6 +6,16 @@ bool project(Mel_Build_Target *t) {
 
     mel_build_add_modules(t, "modules");
 
+    // Web has no GMP/MPFR/SQLite/mongoose. Drop the modules and individual
+    // sources that depend on them; the arbitrary-precision math, music, and
+    // server stacks are outside the web target's surface.
+    mel_build_exclude_module_on(t, MEL_PLATFORM_WEB, "server");
+    mel_build_exclude_module_on(t, MEL_PLATFORM_WEB, "music.theory");
+    mel_build_exclude_module_on(t, MEL_PLATFORM_WEB, "music.midi");
+    mel_build_exclude_source_on(t, MEL_PLATFORM_WEB, "real.c");
+    mel_build_exclude_source_on(t, MEL_PLATFORM_WEB, "frequency.c");
+    mel_build_exclude_source_on(t, MEL_PLATFORM_WEB, "log.sink.sqlite.c");
+
     mel_build_add_dependency(t, "mongoose");
     mel_build_add_dependency(t, "sqlite3");
     mel_build_add_dependency(t, "sdl3");

@@ -71,6 +71,16 @@ static Mel_Platform mel_host_platform(void) {
 #endif
 }
 
+// The web "platform" carries a toolchain sub-axis: emscripten (DOM/JS) and
+// wasi-sdk (standards-only, no DOM) are genuinely different runtimes, so they
+// resolve different source-chains. Resolved from the root target in
+// mel_build_main; read by mel_platform_chain and the compiler/flag helpers.
+typedef enum { WEB_EMSCRIPTEN, WEB_WASI } Web_Toolchain;
+
+static Web_Toolchain g_web_tc = WEB_EMSCRIPTEN;
+static bool          g_web_threading;
+static bool          g_web_asyncify;
+
 // Source-subdirectory resolution chains: a more specific platform shadows a
 // more general one when two files share a basename within the same module.
 static const char *const k_macos_chain[]   = { "macos", "apple", "posix", NULL };
@@ -78,7 +88,8 @@ static const char *const k_ios_chain[]     = { "ios",   "apple", "posix", NULL }
 static const char *const k_linux_chain[]   = { "linux", "posix", NULL };
 static const char *const k_android_chain[] = { "android", "posix", NULL };
 static const char *const k_win32_chain[]   = { "win32", "win", NULL };
-static const char *const k_web_chain[]     = { "web", "posix", NULL };
+static const char *const k_emscripten_chain[] = { "emscripten", "web", "posix", NULL };
+static const char *const k_wasi_chain[]       = { "wasi", "web", "posix", NULL };
 
 static const char *const *mel_platform_chain(Mel_Platform p) {
     switch (p) {
@@ -87,20 +98,66 @@ static const char *const *mel_platform_chain(Mel_Platform p) {
         case MEL_PLATFORM_LINUX:   return k_linux_chain;
         case MEL_PLATFORM_ANDROID: return k_android_chain;
         case MEL_PLATFORM_WIN32:   return k_win32_chain;
-        case MEL_PLATFORM_WEB:     return k_web_chain;
+        case MEL_PLATFORM_WEB:     return g_web_tc == WEB_WASI ? k_wasi_chain : k_emscripten_chain;
         default:                   return NULL;
     }
 }
 
 static bool is_platform_subdir(const char *name) {
     static const char *const all[] = {
-        "macos", "ios", "linux", "android", "win32", "windows", "web", "emscripten",
+        "macos", "ios", "linux", "android", "win32", "windows", "web", "emscripten", "wasi",
         "apple", "posix", "win", "asm",
     };
     for (size_t i = 0; i < NOB_ARRAY_LEN(all); i++) {
         if (strcmp(name, all[i]) == 0) return true;
     }
     return false;
+}
+
+// =============================================================================
+// Web toolchains
+// =============================================================================
+//
+// Two toolchains target wasm: emscripten (emcc/emar, DOM + JS interop) and
+// wasi-sdk (its bundled clang/llvm-ar, standards-only, no DOM). The choice plus
+// the threading/Asyncify knobs are resolved once from the root target at the
+// start of a build (mel_build_main) and read here, so every target in the graph
+// — melody included — compiles against one agreed-upon toolchain. The toolchain
+// enum + globals live up in the Platforms section because the source-chain
+// selection (mel_platform_chain) needs them.
+
+static const char *wasi_sdk_dir(void) {
+    const char *e = getenv("WASI_SDK_PATH");
+    if (e && e[0]) return e;
+    const char *home = getenv("HOME");
+    return temp_sprintf("%s/wasi-sdk", home ? home : ".");
+}
+
+static const char *web_cc(void) {
+    if (g_web_tc == WEB_WASI) return temp_sprintf("%s/bin/clang", wasi_sdk_dir());
+    return "emcc";
+}
+
+static const char *web_ar(void) {
+    if (g_web_tc == WEB_WASI) return temp_sprintf("%s/bin/llvm-ar", wasi_sdk_dir());
+    return "emar";
+}
+
+// Per-context compiler / archiver: the web toolchain on web, clang otherwise.
+static const char *cc_for(const Mel_Build_Context *ctx) {
+    return ctx->platform == MEL_PLATFORM_WEB ? web_cc() : "clang";
+}
+static const char *ar_for(const Mel_Build_Context *ctx) {
+    return ctx->platform == MEL_PLATFORM_WEB ? web_ar() : static_ar_tool(ctx->platform);
+}
+
+// Compile/link flags pinning the wasi target triple + sysroot. Emscripten needs
+// none (emcc drives target selection itself).
+static void web_target_flags(Cmd *cmd) {
+    if (g_web_tc == WEB_WASI) {
+        cmd_append(cmd, "--target=wasm32-wasip1");
+        cmd_append(cmd, temp_sprintf("--sysroot=%s/share/wasi-sysroot", wasi_sdk_dir()));
+    }
 }
 
 // =============================================================================
@@ -340,6 +397,12 @@ static const char *app_artifact(const Mel_Build_Target *t, Mel_Platform p, Mel_C
     return temp_sprintf("%s/%s/%s", target_out_dir(t, p, c), t->name, t->name);
 }
 
+// Web bundles live target-first (build/<target>/web/<config>/) so the wasm, its
+// loader JS, and the HTML shell sit together ready to host.
+static const char *web_out_dir(const Mel_Build_Target *t, Mel_Config c) {
+    return temp_sprintf("%s/%s/web/%s", MEL_BUILD_DIR, t->name, config_name(c));
+}
+
 static const char *object_for(const Mel_Build_Target *t, Mel_Platform p, Mel_Config c, const char *src) {
     String_Builder sb = {0};
     sb_appendf(&sb, "%s/", target_obj_dir(t, p, c));
@@ -439,8 +502,19 @@ static void append_resolved_flags(Cmd *cmd, Mel_Build_Context *ctx, const char *
     for (size_t i = 0; i < NOB_ARRAY_LEN(k_base_cflags); i++) cmd_append(cmd, k_base_cflags[i]);
     if (ctx->config == MEL_CONFIG_DEBUG) cmd_append(cmd, "-g", "-O0");
     else                                 cmd_append(cmd, "-O2");
-    if (ctx->platform != MEL_PLATFORM_WIN32) cmd_append(cmd, "-fPIC");
+    // wasm is not position-independent in the ELF sense; -fPIC means SIDE_MODULE
+    // to emscripten and is rejected by wasi clang, so it is dropped on web.
+    if (ctx->platform != MEL_PLATFORM_WIN32 && ctx->platform != MEL_PLATFORM_WEB)
+        cmd_append(cmd, "-fPIC");
     if (ctx->platform == MEL_PLATFORM_IOS) mel_ios_clang_flags(cmd);
+    if (ctx->platform == MEL_PLATFORM_WEB) {
+        web_target_flags(cmd);
+        // musl (emscripten/wasi libc) gates POSIX/GNU symbols behind feature
+        // macros that strict -std=c23 leaves undefined; the desktop Apple/glibc
+        // headers expose them anyway, so this only bites on web.
+        cmd_append(cmd, "-D_GNU_SOURCE");
+        if (g_web_tc == WEB_EMSCRIPTEN && g_web_threading) cmd_append(cmd, "-pthread");
+    }
     if (source_is_objc(src)) cmd_append(cmd, "-fobjc-arc");
 
     Resolved *r = &ctx->resolved;
@@ -953,11 +1027,10 @@ static bool default_compile(Mel_Build_Context *ctx) {
         for (size_t i = 0; i < ctx->bridge_sources.count; i++)
             da_append(&ctx->sources, ctx->bridge_sources.items[i]);
     }
-    return compile_sources(ctx, "clang");
+    return compile_sources(ctx, cc_for(ctx));
 }
 
-static bool archive_objects(Mel_Platform p, const char *lib, const File_Paths *objects) {
-    const char *ar = static_ar_tool(p);
+static bool archive_objects(const char *ar, const char *lib, const File_Paths *objects) {
     Cmd ident = {0};
     cmd_append(&ident, ar, "rcs");
     if (cache_artifact_restore(&ident, objects, lib)) { free(ident.items); return true; }
@@ -978,6 +1051,43 @@ static bool archive_objects(Mel_Platform p, const char *lib, const File_Paths *o
 
 static bool android_build(Mel_Build_Context *ctx);
 
+// Link the application to a wasm bundle. Emscripten emits the HTML shell, the
+// loader JS, and app.wasm in one go; wasi-sdk produces a bare app.wasm (no DOM,
+// run under a wasi host). Both pull -lmelody and any web-supporting third-party
+// archives from the resolved link flags. The final bundle is the hot, one-shot
+// last step, so it is linked directly rather than through the artifact cache.
+static bool link_web_app(Mel_Build_Context *ctx) {
+    Mel_Build_Target *t = ctx->target;
+    const char *out = web_out_dir(t, ctx->config);
+    if (!mel_mkdirs(out)) return false;
+
+    bool wasi = (g_web_tc == WEB_WASI);
+    const char *artifact = wasi ? temp_sprintf("%s/app.wasm", out)
+                                : temp_sprintf("%s/app.html", out);
+
+    Cmd cmd = {0};
+    cmd_append(&cmd, web_cc());
+    web_target_flags(&cmd); // wasi target + sysroot; no-op for emcc
+    for (size_t i = 0; i < ctx->objects.count; i++) cmd_append(&cmd, ctx->objects.items[i]);
+    for (size_t i = 0; i < ctx->resolved.link_flags.count; i++)
+        cmd_append(&cmd, ctx->resolved.link_flags.items[i]);
+    if (ctx->config == MEL_CONFIG_RELEASE) cmd_append(&cmd, "-O2");
+    else                                   cmd_append(&cmd, "-g");
+
+    if (!wasi) {
+        cmd_append(&cmd, "-sALLOW_MEMORY_GROWTH=1");
+        if (g_web_asyncify)  cmd_append(&cmd, "-sASYNCIFY");
+        if (g_web_threading) cmd_append(&cmd, "-pthread", "-sPTHREAD_POOL_SIZE=4");
+        const char *shell = "tools/build/web/shell.html";
+        if (file_exists(shell)) cmd_append(&cmd, "--shell-file", shell);
+    }
+    cmd_append(&cmd, "-o", artifact);
+
+    if (!cmd_run_sync_and_reset(&cmd)) return false;
+    nob_log(NOB_INFO, "linked %s", artifact);
+    return true;
+}
+
 static bool default_link(Mel_Build_Context *ctx) {
     Mel_Build_Target *t = ctx->target;
 
@@ -988,12 +1098,14 @@ static bool default_link(Mel_Build_Context *ctx) {
 
     if (t->kind == MEL_TARGET_LIBRARY) {
         if (!mel_mkdirs(target_out_dir(t, ctx->platform, ctx->config))) return false;
-        if (!archive_objects(ctx->platform, ctx->artifact, &ctx->objects)) return false;
+        if (!archive_objects(ar_for(ctx), ctx->artifact, &ctx->objects)) return false;
         nob_log(NOB_INFO, "archived %s (%zu objects)", ctx->artifact, ctx->objects.count);
         return true;
     }
 
     if (t->kind == MEL_TARGET_APPLICATION) {
+        if (ctx->platform == MEL_PLATFORM_WEB) return link_web_app(ctx);
+
         const char *app_out = temp_sprintf("%s/%s", target_out_dir(t, ctx->platform, ctx->config), t->name);
         if (!mel_mkdirs(app_out)) return false;
 
@@ -1465,6 +1577,30 @@ static bool ios_run(const Mel_Build_Target *app, Mel_Config c) {
     return cmd_run_sync_and_reset(&launch);
 }
 
+// Serve the web bundle with a local HTTP server and open the browser. The
+// server runs in the foreground (ctrl-c to stop); the browser is opened a beat
+// later from a detached subshell so the page loads after the socket is up. With
+// threading on, the server adds COOP/COEP so SharedArrayBuffer is available.
+static bool web_run(Mel_Build_Target *t, Mel_Config c) {
+    if (g_web_tc == WEB_WASI) {
+        nob_log(NOB_ERROR, "wasi-sdk produces a bare app.wasm; run it under a wasi host (wasmtime), not the browser");
+        return false;
+    }
+    const char *dir = web_out_dir(t, c);
+    const char *page = temp_sprintf("%s/app.html", dir);
+    if (!file_exists(page)) { nob_log(NOB_ERROR, "web bundle not found at %s", page); return false; }
+
+    int port = 8080;
+    const char *url = temp_sprintf("http://localhost:%d/app.html", port);
+    nob_log(NOB_INFO, "serving %s", url);
+
+    Cmd cmd = {0};
+    cmd_append(&cmd, "sh", "-c",
+               temp_sprintf("(sleep 1; open '%s') & exec python3 tools/build/web/serve.py '%s' %d %d",
+                            url, dir, port, g_web_threading ? 1 : 0));
+    return cmd_run_sync_and_reset(&cmd);
+}
+
 // =============================================================================
 // Build orchestration
 // =============================================================================
@@ -1793,6 +1929,20 @@ int mel_build_main(int argc, char **argv) {
         if (!root) { nob_log(NOB_ERROR, "no default target 'melody' found"); return 1; }
     }
 
+    // The web toolchain + feature knobs come from the root target and bind the
+    // whole dependency graph, so melody compiles with the same toolchain as the
+    // app linking it.
+    if (platform == MEL_PLATFORM_WEB) {
+        g_web_tc = (root->web_toolchain && strcmp(root->web_toolchain, "wasi-sdk") == 0)
+                       ? WEB_WASI : WEB_EMSCRIPTEN;
+        g_web_threading = root->web_threading;
+        g_web_asyncify  = root->web_asyncify;
+        nob_log(NOB_INFO, "web toolchain: %s%s%s",
+                g_web_tc == WEB_WASI ? "wasi-sdk" : "emscripten",
+                g_web_threading ? " +threading" : "",
+                g_web_asyncify ? " +asyncify" : "");
+    }
+
     if (!build_graph(root, platform, config, last)) return 1;
 
     if (!emit_compile_commands()) nob_log(NOB_WARNING, "failed to write compile_commands.json");
@@ -1808,6 +1958,7 @@ int mel_build_main(int argc, char **argv) {
             return (do_debug ? android_logcat(root->name) : true) ? 0 : 1;
         }
         if (platform == MEL_PLATFORM_IOS) return ios_run(root, config) ? 0 : 1;
+        if (platform == MEL_PLATFORM_WEB) return web_run(root, config) ? 0 : 1;
         return launch_app(root, platform, config) ? 0 : 1;
     }
     return 0;

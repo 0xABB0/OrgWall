@@ -97,6 +97,11 @@ struct Mel_Build_Target {
 
     const char *backends[MEL_PLATFORM_COUNT];
 
+    // Web platform knobs (see build.h). web_toolchain NULL => emscripten.
+    bool        web_threading;
+    bool        web_asyncify;
+    const char *web_toolchain;
+
     Mel_Build_Stage_Fn user_cbs[MEL_STAGE_COUNT][MEL_MAX_STAGE_CBS];
     size_t             user_cb_count[MEL_STAGE_COUNT];
     bool               suppress_default[MEL_STAGE_COUNT];

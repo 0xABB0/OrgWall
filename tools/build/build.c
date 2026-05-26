@@ -194,6 +194,12 @@ void mel_build_backend(Mel_Build_Target *t, Mel_Platform p, const char *backend)
     t->backends[p] = temp_strdup(backend);
 }
 
+void mel_build_web_threading(Mel_Build_Target *t, bool enable) { t->web_threading = enable; }
+void mel_build_web_asyncify(Mel_Build_Target *t, bool enable)  { t->web_asyncify = enable; }
+void mel_build_web_toolchain(Mel_Build_Target *t, const char *toolchain) {
+    t->web_toolchain = temp_strdup(toolchain);
+}
+
 static void register_cb(Mel_Build_Target *t, Mel_Stage stage, Mel_Build_Stage_Fn fn) {
     size_t *n = &t->user_cb_count[stage];
     if (*n >= MEL_MAX_STAGE_CBS) {

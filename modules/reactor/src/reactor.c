@@ -58,7 +58,8 @@ struct Mel_Reactor {
     int   timer_fd;
     bool  android_looping;
 #elif MEL_PLATFORM_WEB
-    bool web_looping;
+    long web_id;
+    int  web_kind;
 #elif MEL_PLATFORM_POSIX
     int wake_pipe[2];
 #else
@@ -75,8 +76,10 @@ static bool reactor_iterate                          (Mel_Reactor* r, bool may_b
     #include "apple/reactor_backend.inl"
 #elif MEL_PLATFORM_ANDROID
     #include "android/reactor_backend.inl"
-#elif MEL_PLATFORM_WEB
+#elif MEL_PLATFORM_EMSCRIPTEN
     #include "web/reactor_backend.inl"
+#elif MEL_PLATFORM_WASI
+    #include "wasi/reactor_backend.inl"
 #elif MEL_PLATFORM_POSIX
     #include "posix/reactor_backend.inl"
 #endif
@@ -328,12 +331,22 @@ int mel_reactor_spawn_opt(Mel_Reactor_Mode mode, Mel_Reactor_Init_Proc init,
 
     switch (mode) {
         case MEL_REACTOR_THREADED: {
+#if MEL_PLATFORM_EMSCRIPTEN
+            // The browser owns the event loop; a blocking run would freeze the
+            // tab. Drive the reactor from the main-loop backend (requestAnimation
+            // Frame) and return to the browser, exactly like the attached mode.
+            // wasi has no such constraint and uses the normal blocking run below.
+            atomic_store(&r->running, true);
+            reactor_backend_attached_run(r);
+            return 0;
+#else
             int rc = reactor_run_threaded(r);
             reactor_drain_posts(r);
             reactor_destroy_all_sources(r);
             reactor_backend_shutdown(r);
             mel_dealloc(alloc, r);
             return rc;
+#endif
         }
         case MEL_REACTOR_ATTACHED: {
 #if MEL_REACTOR_BACKEND_HAS_ATTACHED

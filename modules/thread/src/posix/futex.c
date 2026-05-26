@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <time.h>
 #include <errno.h>
+#include <math.h> // INFINITY, for the emscripten futex "wait forever" timeout
 
 #if defined(__linux__) || defined(__ANDROID__)
     #include <linux/futex.h>
@@ -62,6 +63,16 @@
     {
         emscripten_futex_wake((void*)addr, INT32_MAX);
     }
+
+#elif defined(__wasi__)
+    // wasm32-wasip1 is single-threaded: there is no sibling thread to change the
+    // value or to wake, so wait is a no-op return and wake does nothing.
+    void mel_futex_wait(_Atomic(u32)* addr, u32 expected) { (void)addr; (void)expected; }
+    bool mel_futex_wait_for(_Atomic(u32)* addr, u32 expected, i64 timeout_ns) {
+        (void)addr; (void)expected; (void)timeout_ns; return false;
+    }
+    void mel_futex_wake_one(_Atomic(u32)* addr) { (void)addr; }
+    void mel_futex_wake_all(_Atomic(u32)* addr) { (void)addr; }
 
 #else
     #error "no futex backend for this posix platform"

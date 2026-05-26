@@ -124,6 +124,23 @@ MEL_API void mel_build_add_link_flag_on_(Mel_Build_Target *t, Mel_Visibility vis
 // Which UI backend a platform uses; gates per-backend widget sources.
 MEL_API void mel_build_backend(Mel_Build_Target *t, Mel_Platform p, const char *backend);
 
+// --- Web platform configuration (consulted only when building for web) ---
+//
+// Defaults aim at the smallest viable web app: single-threaded, no Asyncify,
+// emscripten toolchain. Apps that need more flip these in project().
+
+// Spin up real Workers backed by SharedArrayBuffer. Requires the deployment to
+// serve COOP/COEP headers; the dev server started by `nob run` sets them.
+MEL_API void mel_build_web_threading(Mel_Build_Target *t, bool enable);
+
+// Enable Asyncify so blocking C can yield into JS-backed async I/O. Roughly
+// doubles the wasm size.
+MEL_API void mel_build_web_asyncify(Mel_Build_Target *t, bool enable);
+
+// "emscripten" (default; DOM, JS interop) or "wasi-sdk" (cleaner standards
+// story, no DOM, for compute targets). Resolved from the root target.
+MEL_API void mel_build_web_toolchain(Mel_Build_Target *t, const char *toolchain);
+
 // Key/value used to expand {{KEY}} placeholders in platform scaffolding
 // templates during the configure stage.
 MEL_API void mel_build_set_config(Mel_Build_Target *t, const char *key, const char *value);
