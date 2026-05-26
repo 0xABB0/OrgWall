@@ -64,9 +64,30 @@ static void mel_win32_ensure_no_space_sh_in_path(void) {
     _putenv_s("PATH", new_path);
     free(new_path);
 }
+// GMP's bundled libtool predates the MSVC-mode rules and installs static
+// archives as `libNAME.a` even when downstream consumers (clang driving
+// link.exe) expect `NAME.lib`. Walk the install lib/ dir and create the
+// missing MSVC-style alias for every GNU-named archive.
+static void mel_win32_alias_gnu_archives(const char *lib_dir) {
+    Nob_File_Paths entries = {0};
+    if (!nob_read_entire_dir(lib_dir, &entries)) return;
+    for (size_t i = 0; i < entries.count; i++) {
+        const char *name = entries.items[i];
+        size_t n = strlen(name);
+        if (n < 6 || strncmp(name, "lib", 3) != 0 || strcmp(name + n - 2, ".a") != 0) continue;
+        const char *src = temp_sprintf("%s/%s", lib_dir, name);
+        char *alias = (char *)temp_alloc(n);
+        memcpy(alias, name + 3, n - 5);
+        memcpy(alias + n - 5, ".lib", 5);
+        const char *dst = temp_sprintf("%s/%s", lib_dir, alias);
+        if (!file_exists(dst)) nob_copy_file(src, dst);
+    }
+    free(entries.items);
+}
 #else
 static const char *mel_to_autotools_path(const char *p) { return p; }
 static void mel_win32_ensure_no_space_sh_in_path(void) {}
+static void mel_win32_alias_gnu_archives(const char *lib_dir) { (void)lib_dir; }
 #endif
 
 // =============================================================================
@@ -450,6 +471,7 @@ bool mel_tp_autotools(Mel_Build_Context *ctx, const char *src_rel, const char *e
         if (!cmd_run_sync_and_reset(&install)) ok = false;
     }
     set_current_dir(cwd);
+    if (ok && win32_native) mel_win32_alias_gnu_archives(temp_sprintf("%s/lib", abs_prefix));
     return ok;
 }
 
