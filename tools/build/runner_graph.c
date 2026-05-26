@@ -23,26 +23,6 @@ static bool target_supports(const Mel_Build_Target *t, Mel_Platform p) {
     return t->platforms[p];
 }
 
-static bool build_target_through(Mel_Build_Target *t, Mel_Platform p, Mel_Config c, Mel_Stage last) {
-    if (!target_supports(t, p)) {
-        nob_log(NOB_ERROR, "target '%s' does not support platform '%s'", t->name, mel_platform_name(p));
-        return false;
-    }
-    // Android builds melody and all third-party libs per-ABI inside the
-    // application's link stage, so dependency targets are skipped here.
-    if (p == MEL_PLATFORM_ANDROID && t->kind != MEL_TARGET_APPLICATION) return true;
-
-    Mel_Build_Context ctx;
-    context_init(&ctx, t, p, c);
-    for (int s = 0; s <= (int)last; s++) {
-        if (!run_stage(&ctx, (Mel_Stage)s)) {
-            nob_log(NOB_ERROR, "target '%s': stage %d failed", t->name, s);
-            return false;
-        }
-    }
-    return true;
-}
-
 // Topologically order a target and its transitive deps (deps first). Deps that
 // don't support the target platform are skipped (and so are their transitive
 // deps that are only reachable through them).
@@ -58,25 +38,6 @@ static void topo_visit(Mel_Build_Target *t, Mel_Platform p, Mel_Config c,
     (*order)[(*order_count)++] = t;
 }
 
-static bool build_graph_imperative(Mel_Build_Target **order, size_t order_count,
-                                   Mel_Build_Target *root, Mel_Platform p, Mel_Config c, Mel_Stage last) {
-    // Dependencies only need building (through link) when the root actually
-    // compiles. A configure-only invocation runs configure on the root alone.
-    Mel_Stage dep_last = (last >= MEL_STAGE_COMPILE) ? MEL_STAGE_LINK : last;
-    for (size_t i = 0; i < order_count; i++) {
-        Mel_Stage target_last = (order[i] == root) ? last : dep_last;
-        if (!build_target_through(order[i], p, c, target_last)) return false;
-    }
-    return true;
-}
-
-// Native clang platforms drive the compile/archive/link through a generated
-// ninja file. Configure (codegen) and package (bundling) stay imperative, as
-// does the third-party build (cmake/autotools produce the .a inputs).
-static bool platform_uses_ninja(Mel_Platform p) {
-    return p == MEL_PLATFORM_MACOS || p == MEL_PLATFORM_IOS || p == MEL_PLATFORM_LINUX;
-}
-
 static bool run_target_stage(Mel_Build_Target *t, Mel_Platform p, Mel_Config c, Mel_Stage stage) {
     Mel_Build_Context ctx;
     context_init(&ctx, t, p, c);
@@ -89,10 +50,14 @@ static bool build_graph_ninja(Mel_Build_Target **order, size_t order_count,
         if (!run_target_stage(order[i], p, c, MEL_STAGE_CONFIGURE)) return false;
     if (last == MEL_STAGE_CONFIGURE) return true;
 
-    for (size_t i = 0; i < order_count; i++) {
-        if (order[i]->kind != MEL_TARGET_THIRD_PARTY) continue;
-        if (!run_target_stage(order[i], p, c, MEL_STAGE_COMPILE)) return false;
-        if (!run_target_stage(order[i], p, c, MEL_STAGE_LINK)) return false;
+    // Android builds its third-party deps per-ABI inside emit_android_edges; on
+    // every other platform the host third-party archives are built here first.
+    if (p != MEL_PLATFORM_ANDROID) {
+        for (size_t i = 0; i < order_count; i++) {
+            if (order[i]->kind != MEL_TARGET_THIRD_PARTY) continue;
+            if (!run_target_stage(order[i], p, c, MEL_STAGE_COMPILE)) return false;
+            if (!run_target_stage(order[i], p, c, MEL_STAGE_LINK)) return false;
+        }
     }
 
     ninja_begin();
@@ -103,10 +68,11 @@ static bool build_graph_ninja(Mel_Build_Target **order, size_t order_count,
         Mel_Build_Context ctx;
         context_init(&ctx, t, p, c);
         if (!emit_target_edges(&ctx)) return false;
-        if (t == root) root_artifact = ctx.artifact;
+        if (t == root) root_artifact = target_ninja_output(&ctx);
     }
-    const char *target = (last == MEL_STAGE_COMPILE) ? "compile" : root_artifact;
-    if (!run_ninja(p, c, root_artifact, target)) return false;
+    const char *default_target = (p == MEL_PLATFORM_ANDROID) ? "android" : root_artifact;
+    const char *target = (last == MEL_STAGE_COMPILE) ? "compile" : default_target;
+    if (!run_ninja(p, c, default_target, target)) return false;
     if (last < MEL_STAGE_PACKAGE) return true;
 
     return run_target_stage(root, p, c, MEL_STAGE_PACKAGE);
@@ -118,9 +84,7 @@ static bool build_graph(Mel_Build_Target *root, Mel_Platform p, Mel_Config c, Me
     File_Paths visited = {0};
     topo_visit(root, p, c, &visited, &order, &order_count);
 
-    bool ok = platform_uses_ninja(p)
-        ? build_graph_ninja(order, order_count, root, p, c, last)
-        : build_graph_imperative(order, order_count, root, p, c, last);
+    bool ok = build_graph_ninja(order, order_count, root, p, c, last);
     free(order);
     return ok;
 }
@@ -210,7 +174,6 @@ static bool load_target(const char *dir) {
     cmd_append(&cmd, "-fPIC");
 #endif
     cmd_append(&cmd, src, g_build_lib, "-o", so);
-    ccmds_add(get_current_dir_temp(), src, cmd);
 
     const char *deps[] = { src, g_build_lib };
     if (needs_rebuild(so, deps, NOB_ARRAY_LEN(deps)) != 0) {

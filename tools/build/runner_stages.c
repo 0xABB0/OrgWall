@@ -113,7 +113,24 @@ static bool configure_win32(Mel_Build_Context *ctx) {
     const char *out = configure_out_dir(t, ctx->platform);
     if (!mel_mkdirs(out)) return false;
     if (!copy_file("tools/build/win32/app.manifest", temp_sprintf("%s/app.manifest", out))) return false;
-    if (!copy_file("tools/build/win32/app.rc", temp_sprintf("%s/app.rc", out))) return false;
+    const char *rc = temp_sprintf("%s/app.rc", out);
+    if (!copy_file("tools/build/win32/app.rc", rc)) return false;
+
+    // Compile the resource script to app.res here (proper argv quoting) so the
+    // ninja link edge can consume it as a plain input.
+    const char *res = temp_sprintf("%s/app.res", out);
+    if (!file_exists(res) || needs_rebuild1(res, rc) != 0) {
+        const char *label = target_config_get(t, "APP_LABEL"); if (!label) label = t->name;
+        const char *ver = target_config_get(t, "VERSION_NAME"); if (!ver) ver = "0.1.0";
+        Cmd rcc = {0};
+        cmd_append(&rcc, "llvm-rc", "/nologo", temp_sprintf("/I%s", out));
+        cmd_append(&rcc, temp_sprintf("/DMEL_APP_NAME=\"%s\"", label));
+        cmd_append(&rcc, temp_sprintf("/DMEL_APP_VERSION=\"%s\"", ver));
+        const char *icon = temp_sprintf("%s/apps/%s/win32/app.ico", get_current_dir_temp(), t->name);
+        if (file_exists(icon)) cmd_append(&rcc, temp_sprintf("/DMEL_APP_ICON=\"%s\"", icon));
+        cmd_append(&rcc, "/fo", res, rc);
+        if (!cmd_run_sync_and_reset(&rcc)) return false;
+    }
     nob_log(NOB_INFO, "configured win32 resources at %s", out);
     return true;
 }
@@ -127,169 +144,6 @@ static bool default_configure(Mel_Build_Context *ctx) {
         case MEL_PLATFORM_WIN32:   return configure_win32(ctx);
         default:                   return true;
     }
-}
-
-static bool default_compile(Mel_Build_Context *ctx) {
-    // Android compiles every ABI inside the application's link stage.
-    if (ctx->platform == MEL_PLATFORM_ANDROID) return true;
-
-    File_Paths bridges = {0};
-    if (!target_resolve_sources(ctx->target, ctx->platform, &ctx->sources, &bridges)) return false;
-
-    // Libraries archive only their own non-bridge sources. Applications also
-    // compile the bridge sources contributed by their library dependencies.
-    if (ctx->target->kind == MEL_TARGET_APPLICATION) {
-        for (size_t i = 0; i < ctx->bridge_sources.count; i++)
-            da_append(&ctx->sources, ctx->bridge_sources.items[i]);
-    }
-    return compile_sources(ctx, cc_for(ctx));
-}
-
-static bool archive_objects(const char *ar, const char *lib, const File_Paths *objects) {
-    Cmd ident = {0};
-    cmd_append(&ident, ar, "rcs");
-    if (cache_artifact_restore(&ident, objects, lib)) { free(ident.items); return true; }
-    free(ident.items);
-
-    if (file_exists(lib)) delete_file(lib);
-    Cmd cmd = {0};
-    cmd_append(&cmd, ar, "rcs", lib);
-    for (size_t i = 0; i < objects->count; i++) cmd_append(&cmd, objects->items[i]);
-    if (!cmd_run_sync_and_reset(&cmd)) return false;
-
-    Cmd ident2 = {0};
-    cmd_append(&ident2, ar, "rcs");
-    cache_artifact_store(&ident2, objects, lib);
-    free(ident2.items);
-    return true;
-}
-
-static bool android_build(Mel_Build_Context *ctx);
-
-// Link the application to a wasm bundle. Emscripten emits the HTML shell, the
-// loader JS, and app.wasm in one go; wasi-sdk produces a bare app.wasm (no DOM,
-// run under a wasi host). Both pull -lmelody and any web-supporting third-party
-// archives from the resolved link flags. The final bundle is the hot, one-shot
-// last step, so it is linked directly rather than through the artifact cache.
-static bool link_web_app(Mel_Build_Context *ctx) {
-    Mel_Build_Target *t = ctx->target;
-    const char *out = web_out_dir(t, ctx->config);
-    if (!mel_mkdirs(out)) return false;
-
-    bool wasi = web_is_wasi();
-    const char *artifact = wasi ? temp_sprintf("%s/app.wasm", out)
-                                : temp_sprintf("%s/app.html", out);
-
-    Cmd cmd = {0};
-    cmd_append(&cmd, web_cc());
-    web_target_flags(&cmd); // wasi target + sysroot; no-op for emcc
-    for (size_t i = 0; i < ctx->objects.count; i++) cmd_append(&cmd, ctx->objects.items[i]);
-    for (size_t i = 0; i < ctx->resolved.link_flags.count; i++)
-        cmd_append(&cmd, ctx->resolved.link_flags.items[i]);
-    if (ctx->config == MEL_CONFIG_RELEASE) cmd_append(&cmd, "-O2");
-    else                                   cmd_append(&cmd, "-g");
-
-    if (!wasi) {
-        cmd_append(&cmd, "-sALLOW_MEMORY_GROWTH=1");
-        if (g_web_asyncify)  cmd_append(&cmd, "-sASYNCIFY");
-        if (g_web_threading) cmd_append(&cmd, "-pthread", "-sPTHREAD_POOL_SIZE=4");
-        const char *shell = "tools/build/web/shell.html";
-        if (file_exists(shell)) cmd_append(&cmd, "--shell-file", shell);
-    } else {
-        // gmp (and any other dep) compiled against wasi's signal/getpid
-        // emulation resolves those shims here.
-        cmd_append(&cmd, "-lwasi-emulated-signal", "-lwasi-emulated-getpid");
-    }
-    cmd_append(&cmd, "-o", artifact);
-
-    if (!cmd_run_sync_and_reset(&cmd)) return false;
-    nob_log(NOB_INFO, "linked %s", artifact);
-    return true;
-}
-
-static bool default_link(Mel_Build_Context *ctx) {
-    Mel_Build_Target *t = ctx->target;
-
-    if (ctx->platform == MEL_PLATFORM_ANDROID) {
-        if (t->kind == MEL_TARGET_APPLICATION) return android_build(ctx);
-        return true;
-    }
-
-    if (t->kind == MEL_TARGET_LIBRARY) {
-        if (!mel_mkdirs(target_out_dir(t, ctx->platform, ctx->config))) return false;
-        if (!archive_objects(ar_for(ctx), ctx->artifact, &ctx->objects)) return false;
-        nob_log(NOB_INFO, "archived %s (%zu objects)", ctx->artifact, ctx->objects.count);
-        return true;
-    }
-
-    if (t->kind == MEL_TARGET_APPLICATION) {
-        if (ctx->platform == MEL_PLATFORM_WEB) return link_web_app(ctx);
-
-        const char *app_out = temp_sprintf("%s/%s", target_out_dir(t, ctx->platform, ctx->config), t->name);
-        if (!mel_mkdirs(app_out)) return false;
-
-        // Win32: compile the generated resource script and emit an .exe.
-        const char *res_obj = NULL;
-        const char *out_bin = ctx->artifact;
-        if (ctx->platform == MEL_PLATFORM_WIN32) {
-            out_bin = temp_sprintf("%s.exe", ctx->artifact);
-            const char *rc_dir = configure_out_dir(t, ctx->platform);
-            const char *rc = temp_sprintf("%s/app.rc", rc_dir);
-            if (file_exists(rc)) {
-                res_obj = temp_sprintf("%s/app.res", app_out);
-                const char *label = target_config_get(t, "APP_LABEL");
-                if (!label) label = t->name;
-                const char *ver = target_config_get(t, "VERSION_NAME");
-                if (!ver) ver = "0.1.0";
-                Cmd rcc = {0};
-                cmd_append(&rcc, "llvm-rc", "/nologo", temp_sprintf("/I%s", rc_dir));
-                cmd_append(&rcc, temp_sprintf("/DMEL_APP_NAME=\"%s\"", label));
-                cmd_append(&rcc, temp_sprintf("/DMEL_APP_VERSION=\"%s\"", ver));
-                const char *icon = temp_sprintf("%s/apps/%s/win32/app.ico", get_current_dir_temp(), t->name);
-                if (file_exists(icon)) cmd_append(&rcc, temp_sprintf("/DMEL_APP_ICON=\"%s\"", icon));
-                cmd_append(&rcc, "/fo", res_obj, rc);
-                if (!cmd_run_sync_and_reset(&rcc)) return false;
-            }
-        }
-
-        File_Paths link_inputs = {0};
-        for (size_t i = 0; i < ctx->objects.count; i++) da_append(&link_inputs, ctx->objects.items[i]);
-        if (res_obj) da_append(&link_inputs, res_obj);
-
-        Cmd ident = {0};
-        cmd_append(&ident, "clang");
-        if (ctx->platform == MEL_PLATFORM_IOS) mel_ios_clang_flags(&ident);
-        for (size_t i = 0; i < ctx->resolved.link_flags.count; i++)
-            cmd_append(&ident, ctx->resolved.link_flags.items[i]);
-        if (cache_artifact_restore(&ident, &link_inputs, out_bin)) {
-            free(ident.items);
-            nob_log(NOB_INFO, "linked %s (cached)", out_bin);
-            return true;
-        }
-        free(ident.items);
-
-        Cmd cmd = {0};
-        cmd_append(&cmd, "clang");
-        if (ctx->platform == MEL_PLATFORM_IOS) mel_ios_clang_flags(&cmd);
-        for (size_t i = 0; i < ctx->objects.count; i++) cmd_append(&cmd, ctx->objects.items[i]);
-        if (res_obj) cmd_append(&cmd, res_obj);
-        for (size_t i = 0; i < ctx->resolved.link_flags.count; i++)
-            cmd_append(&cmd, ctx->resolved.link_flags.items[i]);
-        cmd_append(&cmd, "-o", out_bin);
-        if (!cmd_run_sync_and_reset(&cmd)) return false;
-        nob_log(NOB_INFO, "linked %s", out_bin);
-
-        Cmd ident2 = {0};
-        cmd_append(&ident2, "clang");
-        if (ctx->platform == MEL_PLATFORM_IOS) mel_ios_clang_flags(&ident2);
-        for (size_t i = 0; i < ctx->resolved.link_flags.count; i++)
-            cmd_append(&ident2, ctx->resolved.link_flags.items[i]);
-        cache_artifact_store(&ident2, &link_inputs, out_bin);
-        free(ident2.items);
-        return true;
-    }
-
-    return true; // third-party / meta: linkage handled by custom callbacks
 }
 
 static bool copy_preserving(const char *src, const char *dst) {
@@ -348,8 +202,6 @@ static bool default_package(Mel_Build_Context *ctx) {
 typedef bool (*Default_Fn)(Mel_Build_Context *);
 static const Default_Fn k_defaults[MEL_STAGE_COUNT] = {
     [MEL_STAGE_CONFIGURE] = default_configure,
-    [MEL_STAGE_COMPILE]   = default_compile,
-    [MEL_STAGE_LINK]      = default_link,
     [MEL_STAGE_PACKAGE]   = default_package,
 };
 

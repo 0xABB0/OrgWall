@@ -117,46 +117,22 @@ static void android_tu_flags(Cmd *flags, const Cross *cross, Mel_Build_Context *
     append_android_includes(flags, melody, tp, tp_count, abi);
 }
 
-// Compile a source set with the NDK toolchain, appending the produced objects to
-// out_objs. Shares the content-addressed cache with the host compile path, so a
-// second Android build skips unchanged translation units.
-static bool android_compile_set(const Cross *cross, Mel_Build_Context *ctx,
-                                Mel_Build_Target *melody, Mel_Build_Target **tp, size_t tp_count,
-                                const char *abi, const char *objdir,
-                                const File_Paths *srcs, File_Paths *out_objs) {
-    size_t par = nob_nprocs(); if (par < 1) par = 1;
-    const char *cwd = get_current_dir_temp();
-    size_t base_n = out_objs->count;
-
-    Procs procs = {0};
+static void emit_android_compile(const Cross *cross, Mel_Build_Context *ctx, Mel_Build_Target *melody,
+                                 Mel_Build_Target **tp, size_t tp_count, const char *abi,
+                                 const char *objdir, const File_Paths *srcs, File_Paths *out_objs) {
     for (size_t i = 0; i < srcs->count; i++) {
         const char *src = srcs->items[i];
         const char *obj = android_obj_path(objdir, src);
+        Cmd flags = {0};
+        android_tu_flags(&flags, cross, ctx, melody, tp, tp_count, abi, src);
+        const char *cflags = flags_to_value(&flags, 1);
+        free(flags.items);
+        emit_cc_edge_raw(cross->cc, cflags, src, obj);
         da_append(out_objs, obj);
-
-        Cmd flags = {0};
-        android_tu_flags(&flags, cross, ctx, melody, tp, tp_count, abi, src);
-        bool spawned = false;
-        if (!compile_tu(cross->cc, flags, src, obj, temp_sprintf("%s.d", obj), false, cwd, &procs, par, &spawned)) {
-            free(flags.items);
-            return false;
-        }
-        free(flags.items);
     }
-    if (!procs_wait_and_reset(&procs)) return false;
-
-    for (size_t i = 0; i < srcs->count; i++) {
-        const char *src = srcs->items[i];
-        const char *obj = out_objs->items[base_n + i];
-        Cmd flags = {0};
-        android_tu_flags(&flags, cross, ctx, melody, tp, tp_count, abi, src);
-        cache_obj_store(&flags, cross->cc, obj, temp_sprintf("%s.d", obj));
-        free(flags.items);
-    }
-    return true;
 }
 
-static bool android_build(Mel_Build_Context *ctx) {
+static bool emit_android_edges(Mel_Build_Context *ctx) {
     Mel_Build_Target *app = ctx->target;
     const char *sdk = android_sdk_dir(app->name);
     if (!sdk) { nob_log(NOB_ERROR, "Android SDK not found (set ANDROID_HOME or sdk.dir in ./local.properties)"); return false; }
@@ -190,44 +166,44 @@ static bool android_build(Mel_Build_Context *ctx) {
 
         const char *meldir = temp_sprintf("%s/android-%s", MEL_BUILD_DIR, abi->abi);
         const char *objdir = temp_sprintf("%s/obj/%s", meldir, app->name);
-        if (!mel_mkdirs(objdir)) return false;
 
-        // Library sources go into a per-ABI archive; linking the .so against
-        // -lmelody pulls only the members the app and bridges actually need, so
-        // unreferenced objects (and their third-party deps) are dropped.
         File_Paths lib_objs = {0};
-        if (!android_compile_set(&cross, ctx, melody, tp, tp_count, abi->abi, objdir, &lib_srcs, &lib_objs)) return false;
+        emit_android_compile(&cross, ctx, melody, tp, tp_count, abi->abi, objdir, &lib_srcs, &lib_objs);
         const char *melody_a = temp_sprintf("%s/libmelody.a", meldir);
-        if (file_exists(melody_a)) delete_file(melody_a);
-        Cmd ar = {0};
-        cmd_append(&ar, cross.ar, "rcs", melody_a);
-        for (size_t i = 0; i < lib_objs.count; i++) cmd_append(&ar, lib_objs.items[i]);
-        if (!cmd_run_sync_and_reset(&ar)) return false;
+        emit_ar_edge(melody_a, cross.ar, &lib_objs);
 
         File_Paths link_objs = {0};
-        if (!android_compile_set(&cross, ctx, melody, tp, tp_count, abi->abi, objdir, &bridges, &link_objs)) return false;
-        if (!android_compile_set(&cross, ctx, melody, tp, tp_count, abi->abi, objdir, &app_srcs, &link_objs)) return false;
+        emit_android_compile(&cross, ctx, melody, tp, tp_count, abi->abi, objdir, &bridges, &link_objs);
+        emit_android_compile(&cross, ctx, melody, tp, tp_count, abi->abi, objdir, &app_srcs, &link_objs);
 
-        const char *abidir = temp_sprintf("%s/%s", jnilibs, abi->abi);
-        if (!mel_mkdirs(abidir)) return false;
-
-        Cmd link = {0};
-        cmd_append(&link, cross.cc, "-shared", "-fPIC", "-Wl,--gc-sections", "-Wl,--as-needed");
-        for (size_t i = 0; i < link_objs.count; i++) cmd_append(&link, link_objs.items[i]);
-        cmd_append(&link, temp_sprintf("-L%s", meldir), "-lmelody");
-        // Third-party archives, dependents-first (reverse of build order).
+        Cmd ld = {0};
+        cmd_append(&ld, "-shared", "-fPIC", "-Wl,--gc-sections", "-Wl,--as-needed");
+        cmd_append(&ld, temp_sprintf("-L%s", meldir), "-lmelody");
         for (size_t i = tp_count; i-- > 0; ) {
-            cmd_append(&link, temp_sprintf("-L%s/lib", tp_prefix_named(MEL_PLATFORM_ANDROID, abi->abi, tp[i]->name)));
+            cmd_append(&ld, temp_sprintf("-L%s/lib", tp_prefix_named(MEL_PLATFORM_ANDROID, abi->abi, tp[i]->name)));
             File_Paths ls = {0};
             prop_resolve(&ls, &tp[i]->pub.link_flags, MEL_PLATFORM_ANDROID);
-            for (size_t k = 0; k < ls.count; k++) cmd_append(&link, ls.items[k]);
+            for (size_t k = 0; k < ls.count; k++) cmd_append(&ld, ls.items[k]);
         }
         File_Paths mel_ls = {0};
         prop_resolve(&mel_ls, &melody->pub.link_flags, MEL_PLATFORM_ANDROID);
-        for (size_t k = 0; k < mel_ls.count; k++) cmd_append(&link, mel_ls.items[k]);
-        cmd_append(&link, "-o", temp_sprintf("%s/libmelody.so", abidir));
-        if (!cmd_run_sync_and_reset(&link)) return false;
-        nob_log(NOB_INFO, "linked %s/libmelody.so", abidir);
+        for (size_t k = 0; k < mel_ls.count; k++) cmd_append(&ld, mel_ls.items[k]);
+        const char *ldflags = flags_to_value(&ld, 0);
+        free(ld.items);
+
+        const char *so = temp_sprintf("%s/%s/libmelody.so", jnilibs, abi->abi);
+        sb_append_cstr(&g_ninja, "build ");
+        ninja_path(&g_ninja, so);
+        sb_append_cstr(&g_ninja, ": link");
+        for (size_t i = 0; i < link_objs.count; i++) { sb_append_cstr(&g_ninja, " "); ninja_path(&g_ninja, link_objs.items[i]); }
+        sb_append_cstr(&g_ninja, " | ");
+        ninja_path(&g_ninja, melody_a);
+        sb_append_cstr(&g_ninja, "\n  ld = ");
+        ninja_value(&g_ninja, cross.cc);
+        sb_append_cstr(&g_ninja, "\n  ldflags = ");
+        sb_append_cstr(&g_ninja, ldflags);
+        sb_append_cstr(&g_ninja, "\n");
+        da_append(&g_android_sos, temp_strdup(so));
     }
     return true;
 }

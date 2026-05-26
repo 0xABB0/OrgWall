@@ -12,39 +12,6 @@ static bool launch_app(Mel_Build_Target *t, Mel_Platform p, Mel_Config c) {
     return cmd_run_sync_and_reset(&cmd);
 }
 
-// Remove cache entries whose last-access (mtime, bumped on every hit) is older
-// than max_age_days. A live build keeps everything it touches fresh, so anything
-// stale is unreferenced by the current build set.
-static bool cache_gc_dir(const char *dir, time_t cutoff, size_t *removed, size_t *kept) {
-    if (get_file_type(dir) != NOB_FILE_DIRECTORY) return true;
-    File_Paths entries = {0};
-    if (!read_entire_dir(dir, &entries)) return false;
-    for (size_t i = 0; i < entries.count; i++) {
-        const char *n = entries.items[i];
-        if (strcmp(n, ".") == 0 || strcmp(n, "..") == 0) continue;
-        const char *full = temp_sprintf("%s/%s", dir, n);
-        struct stat st;
-        if (stat(full, &st) != 0) continue;
-        if (!S_ISREG(st.st_mode)) continue;
-        if (st.st_mtime < cutoff) {
-            if (delete_file(full)) (*removed)++;
-        } else {
-            (*kept)++;
-        }
-    }
-    return true;
-}
-
-static int cache_gc(int max_age_days) {
-    time_t cutoff = time(NULL) - (time_t)max_age_days * 24 * 60 * 60;
-    size_t removed = 0, kept = 0;
-    bool ok = true;
-    ok &= cache_gc_dir(MEL_CACHE_DIR "/objects", cutoff, &removed, &kept);
-    ok &= cache_gc_dir(MEL_CACHE_DIR "/artifacts", cutoff, &removed, &kept);
-    nob_log(NOB_INFO, "cache gc: removed %zu, kept %zu (threshold %d days)", removed, kept, max_age_days);
-    return ok ? 0 : 1;
-}
-
 int mel_build_main(int argc, char **argv) {
     const char *command = argc >= 2 ? argv[1] : "build";
 
@@ -59,18 +26,6 @@ int mel_build_main(int argc, char **argv) {
         if (strcmp(a, "--debug") == 0)        { config = MEL_CONFIG_DEBUG;   continue; }
         if (!target_name)        target_name = a;
         else if (!platform_name) platform_name = a;
-    }
-
-    // Cache maintenance needs no target discovery: ./nob cache gc [days].
-    if (strcmp(command, "cache") == 0) {
-        const char *sub = argc >= 3 ? argv[2] : NULL;
-        if (!sub || strcmp(sub, "gc") != 0) {
-            nob_log(NOB_ERROR, "usage: nob cache gc [max_age_days]");
-            return 1;
-        }
-        int days = argc >= 4 ? atoi(argv[3]) : 14;
-        if (days <= 0) days = 14;
-        return cache_gc(days);
     }
 
     // The platform positional is platform[:backend[:runtime]]; an empty axis
@@ -143,9 +98,6 @@ int mel_build_main(int argc, char **argv) {
             g_web_threading ? " +threading" : "", g_web_asyncify ? " +asyncify" : "");
 
     if (!build_graph(root, platform, config, last)) return 1;
-
-    if (!platform_uses_ninja(platform) && !emit_compile_commands())
-        nob_log(NOB_WARNING, "failed to write compile_commands.json");
 
     if (do_run) {
         if (root->kind != MEL_TARGET_APPLICATION) {
