@@ -7,8 +7,10 @@ bool project(Mel_Build_Target *t) {
     mel_build_add_dependency(t, "melody");
 
     mel_build_set_config(t, "ROOTPROJECT_NAME", "HelloWorldGui");
+    mel_build_set_config(t, "APP_LABEL", "Hello World GUI");
     mel_build_set_config(t, "NAMESPACE", "orgwall.helloworld");
     mel_build_set_config(t, "APPLICATION_ID", "orgwall.helloworld");
     mel_build_set_config(t, "BUNDLE_ID", "orgwall.helloworld");
+    mel_build_set_config(t, "VERSION_NAME", "1.0.0");
     return true;
 }

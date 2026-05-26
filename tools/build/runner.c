@@ -694,40 +694,6 @@ static void cache_artifact_store(const Cmd *args, const File_Paths *inputs, cons
     cache_touch(cached);
 }
 
-// Read a template, replacing {{KEY}} tokens with the target's config values,
-// and write the result to out_path (creating parent dirs).
-static bool expand_template(const Mel_Build_Target *t, const char *tmpl_path, const char *out_path) {
-    String_Builder in = {0};
-    if (!read_entire_file(tmpl_path, &in)) {
-        nob_log(NOB_ERROR, "cannot read template %s", tmpl_path);
-        return false;
-    }
-    String_Builder out = {0};
-    for (size_t i = 0; i < in.count; ) {
-        if (i + 1 < in.count && in.items[i] == '{' && in.items[i + 1] == '{') {
-            size_t j = i + 2;
-            while (j + 1 < in.count && !(in.items[j] == '}' && in.items[j + 1] == '}')) j++;
-            size_t klen = j - (i + 2);
-            char key[256];
-            const char *val = "";
-            if (klen < sizeof key) {
-                memcpy(key, &in.items[i + 2], klen);
-                key[klen] = '\0';
-                val = target_config_get(t, key);
-                if (!val) { nob_log(NOB_WARNING, "%s: unset {{%s}}", tmpl_path, key); val = ""; }
-            }
-            sb_append_cstr(&out, val);
-            i = j + 2;
-        } else {
-            sb_append_buf(&out, &in.items[i], 1);
-            i++;
-        }
-    }
-    bool ok = mkdirs_parent(out_path) && write_entire_file(out_path, out.items, out.count);
-    free(in.items);
-    free(out.items);
-    return ok;
-}
 
 // --- compile_commands.json collection ---
 
@@ -855,7 +821,7 @@ static bool compile_sources(Mel_Build_Context *ctx, const char *cc) {
 // Default stages
 // =============================================================================
 
-static const char *android_module_java_srcdirs(void) {
+static const char *android_java_srcdirs_csv(const char *cwd) {
     String_Builder sb = {0};
     File_Paths mods = {0};
     if (read_entire_dir("modules", &mods)) {
@@ -864,7 +830,8 @@ static const char *android_module_java_srcdirs(void) {
             if (strcmp(m, ".") == 0 || strcmp(m, "..") == 0) continue;
             const char *jd = temp_sprintf("modules/%s/src/android/java", m);
             if (file_exists(jd) && get_file_type(jd) == NOB_FILE_DIRECTORY) {
-                sb_appendf(&sb, "                File(melodyRoot, \"modules/%s/src/android/java\"),\n", m);
+                if (sb.count) sb_append_cstr(&sb, ",");
+                sb_appendf(&sb, "%s/%s", cwd, jd);
             }
         }
     }
@@ -878,28 +845,27 @@ static const char *configure_out_dir(const Mel_Build_Target *t, Mel_Platform p) 
 
 static const char *android_sdk_dir(const char *app_name);
 
-static bool configure_android(Mel_Build_Context *ctx) {
-    Mel_Build_Target *t = ctx->target;
-    const char *cwd = get_current_dir_temp();
-    const char *out = temp_sprintf("%s/%s/android", MEL_BUILD_DIR, t->name);
-
-    if (!target_config_get(t, "AGP_VERSION"))      target_config_set(t, "AGP_VERSION", "8.13.2");
+static void android_config_defaults(Mel_Build_Target *t) {
     if (!target_config_get(t, "COMPILE_SDK"))      target_config_set(t, "COMPILE_SDK", "36");
     if (!target_config_get(t, "MIN_SDK"))          target_config_set(t, "MIN_SDK", "23");
     if (!target_config_get(t, "TARGET_SDK"))       target_config_set(t, "TARGET_SDK", "36");
     if (!target_config_get(t, "VERSION_CODE"))     target_config_set(t, "VERSION_CODE", "1");
     if (!target_config_get(t, "VERSION_NAME"))     target_config_set(t, "VERSION_NAME", "0.1.0");
     if (!target_config_get(t, "ROOTPROJECT_NAME")) target_config_set(t, "ROOTPROJECT_NAME", t->name);
-    target_config_set(t, "MELODY_ROOT", cwd);
-    target_config_set(t, "APP_OVERRIDE_DIR", temp_sprintf("%s/apps/%s/android", cwd, t->name));
-    target_config_set(t, "MODULE_JAVA_SRCDIRS", android_module_java_srcdirs());
+    if (!target_config_get(t, "NAMESPACE"))        target_config_set(t, "NAMESPACE", temp_sprintf("orgwall.%s", t->name));
+    if (!target_config_get(t, "APPLICATION_ID"))   target_config_set(t, "APPLICATION_ID", target_config_get(t, "NAMESPACE"));
+    if (!target_config_get(t, "APP_LABEL"))        target_config_set(t, "APP_LABEL", target_config_get(t, "ROOTPROJECT_NAME"));
+}
 
-    if (!expand_template(t, "tools/build/android/settings.gradle.kts.tmpl", temp_sprintf("%s/settings.gradle.kts", out))) return false;
-    if (!expand_template(t, "tools/build/android/build.gradle.kts.tmpl", temp_sprintf("%s/build.gradle.kts", out))) return false;
-    if (!expand_template(t, "tools/build/android/gradle.properties.tmpl", temp_sprintf("%s/gradle.properties", out))) return false;
-    if (!expand_template(t, "tools/build/android/app.build.gradle.kts.tmpl", temp_sprintf("%s/app/build.gradle.kts", out))) return false;
+static bool configure_android(Mel_Build_Context *ctx) {
+    Mel_Build_Target *t = ctx->target;
+    const char *out = temp_sprintf("%s/%s/android", MEL_BUILD_DIR, t->name);
 
-    // Gradle needs an SDK location; generate local.properties from the resolved SDK.
+    android_config_defaults(t);
+
+    if (!mel_mkdirs(out)) return false;
+    if (!copy_directory_recursively("tools/build/android", out)) return false;
+
     const char *sdk = android_sdk_dir(t->name);
     if (sdk) {
         const char *lp = temp_sprintf("sdk.dir=%s\n", sdk);
@@ -912,30 +878,52 @@ static bool configure_android(Mel_Build_Context *ctx) {
     return true;
 }
 
+static bool plist_set(const char *plist, const char *key, const char *value) {
+    Cmd c = {0};
+    cmd_append(&c, "/usr/libexec/PlistBuddy", "-c", temp_sprintf("Set :%s %s", key, value), plist);
+    return cmd_run_sync_and_reset(&c);
+}
+
 static bool configure_apple(Mel_Build_Context *ctx) {
     Mel_Build_Target *t = ctx->target;
+    bool ios = ctx->platform == MEL_PLATFORM_IOS;
+
+    const char *label = target_config_get(t, "APP_LABEL");
     if (!target_config_get(t, "BUNDLE_NAME"))         target_config_set(t, "BUNDLE_NAME", t->name);
-    if (!target_config_get(t, "BUNDLE_DISPLAY_NAME")) target_config_set(t, "BUNDLE_DISPLAY_NAME", t->name);
+    if (!target_config_get(t, "BUNDLE_DISPLAY_NAME")) target_config_set(t, "BUNDLE_DISPLAY_NAME", label ? label : t->name);
     if (!target_config_get(t, "BUNDLE_ID"))           target_config_set(t, "BUNDLE_ID", temp_sprintf("orgwall.%s", t->name));
     if (!target_config_get(t, "VERSION_CODE"))        target_config_set(t, "VERSION_CODE", "1");
     if (!target_config_get(t, "VERSION_NAME"))        target_config_set(t, "VERSION_NAME", "0.1.0");
     if (!target_config_get(t, "MIN_MACOS"))           target_config_set(t, "MIN_MACOS", "11.0");
+    if (!target_config_get(t, "MIN_IOS"))             target_config_set(t, "MIN_IOS", "13.0");
     target_config_set(t, "EXECUTABLE", t->name);
 
-    const char *out = temp_sprintf("%s/Info.plist", configure_out_dir(t, ctx->platform));
-    if (!expand_template(t, "tools/build/apple/Info.plist.tmpl", out)) return false;
-    nob_log(NOB_INFO, "configured Info.plist at %s", out);
+    const char *out = configure_out_dir(t, ctx->platform);
+    if (!mel_mkdirs(out)) return false;
+    const char *plist = temp_sprintf("%s/Info.plist", out);
+    const char *base = ios ? "tools/build/apple/Info.ios.plist" : "tools/build/apple/Info.macos.plist";
+    if (!copy_file(base, plist)) return false;
+
+    bool ok = plist_set(plist, "CFBundleName",            target_config_get(t, "BUNDLE_NAME"))
+           && plist_set(plist, "CFBundleDisplayName",     target_config_get(t, "BUNDLE_DISPLAY_NAME"))
+           && plist_set(plist, "CFBundleIdentifier",      target_config_get(t, "BUNDLE_ID"))
+           && plist_set(plist, "CFBundleExecutable",      target_config_get(t, "EXECUTABLE"))
+           && plist_set(plist, "CFBundleVersion",         target_config_get(t, "VERSION_CODE"))
+           && plist_set(plist, "CFBundleShortVersionString", target_config_get(t, "VERSION_NAME"));
+    ok = ok && (ios ? plist_set(plist, "MinimumOSVersion",     target_config_get(t, "MIN_IOS"))
+                    : plist_set(plist, "LSMinimumSystemVersion", target_config_get(t, "MIN_MACOS")));
+    if (!ok) return false;
+
+    nob_log(NOB_INFO, "configured Info.plist at %s", plist);
     return true;
 }
 
 static bool configure_win32(Mel_Build_Context *ctx) {
     Mel_Build_Target *t = ctx->target;
-    if (!target_config_get(t, "ASSEMBLY_NAME"))    target_config_set(t, "ASSEMBLY_NAME", temp_sprintf("orgwall.%s", t->name));
-    if (!target_config_get(t, "ASSEMBLY_VERSION")) target_config_set(t, "ASSEMBLY_VERSION", "1.0.0.0");
-
     const char *out = configure_out_dir(t, ctx->platform);
-    if (!expand_template(t, "tools/build/win32/app.manifest.tmpl", temp_sprintf("%s/app.manifest", out))) return false;
-    if (!expand_template(t, "tools/build/win32/app.rc.tmpl", temp_sprintf("%s/app.rc", out))) return false;
+    if (!mel_mkdirs(out)) return false;
+    if (!copy_file("tools/build/win32/app.manifest", temp_sprintf("%s/app.manifest", out))) return false;
+    if (!copy_file("tools/build/win32/app.rc", temp_sprintf("%s/app.rc", out))) return false;
     nob_log(NOB_INFO, "configured win32 resources at %s", out);
     return true;
 }
@@ -1017,8 +1005,17 @@ static bool default_link(Mel_Build_Context *ctx) {
             const char *rc = temp_sprintf("%s/app.rc", rc_dir);
             if (file_exists(rc)) {
                 res_obj = temp_sprintf("%s/app.res", app_out);
+                const char *label = target_config_get(t, "APP_LABEL");
+                if (!label) label = t->name;
+                const char *ver = target_config_get(t, "VERSION_NAME");
+                if (!ver) ver = "0.1.0";
                 Cmd rcc = {0};
-                cmd_append(&rcc, "llvm-rc", "/nologo", temp_sprintf("/I%s", rc_dir), "/fo", res_obj, rc);
+                cmd_append(&rcc, "llvm-rc", "/nologo", temp_sprintf("/I%s", rc_dir));
+                cmd_append(&rcc, temp_sprintf("/DMEL_APP_NAME=\"%s\"", label));
+                cmd_append(&rcc, temp_sprintf("/DMEL_APP_VERSION=\"%s\"", ver));
+                const char *icon = temp_sprintf("%s/apps/%s/win32/app.ico", get_current_dir_temp(), t->name);
+                if (file_exists(icon)) cmd_append(&rcc, temp_sprintf("/DMEL_APP_ICON=\"%s\"", icon));
+                cmd_append(&rcc, "/fo", res_obj, rc);
                 if (!cmd_run_sync_and_reset(&rcc)) return false;
             }
         }
@@ -1127,10 +1124,11 @@ static const Android_Abi k_android_abis[] = {
 #define ANDROID_API 23
 
 static const char *android_sdk_dir(const char *app_name) {
+    (void)app_name;
     const char *sdk = getenv("ANDROID_HOME"); if (sdk && sdk[0]) return sdk;
     sdk = getenv("ANDROID_SDK_ROOT");         if (sdk && sdk[0]) return sdk;
     String_Builder sb = {0};
-    if (!read_entire_file(temp_sprintf("apps/%s/android/local.properties", app_name), &sb)) return NULL;
+    if (!read_entire_file("local.properties", &sb)) return NULL;
     sb_append_null(&sb);
     char *p = strstr(sb.items, "sdk.dir=");
     if (!p) return NULL;
@@ -1273,7 +1271,7 @@ static bool android_compile_set(const Cross *cross, Mel_Build_Context *ctx,
 static bool android_build(Mel_Build_Context *ctx) {
     Mel_Build_Target *app = ctx->target;
     const char *sdk = android_sdk_dir(app->name);
-    if (!sdk) { nob_log(NOB_ERROR, "Android SDK not found (set ANDROID_HOME or apps/%s/android/local.properties)", app->name); return false; }
+    if (!sdk) { nob_log(NOB_ERROR, "Android SDK not found (set ANDROID_HOME or sdk.dir in ./local.properties)"); return false; }
     const char *ndk = android_ndk_dir(sdk);
     if (!ndk) { nob_log(NOB_ERROR, "Android NDK not found under %s/ndk", sdk); return false; }
     const char *bin = android_toolchain_bin(ndk);
@@ -1346,20 +1344,43 @@ static bool android_build(Mel_Build_Context *ctx) {
     return true;
 }
 
+static void android_gradle_props(Cmd *cmd, const Mel_Build_Target *t) {
+    const char *cwd = get_current_dir_temp();
+    cmd_append(cmd, temp_sprintf("-Pmelody.namespace=%s",       target_config_get(t, "NAMESPACE")));
+    cmd_append(cmd, temp_sprintf("-Pmelody.applicationId=%s",   target_config_get(t, "APPLICATION_ID")));
+    cmd_append(cmd, temp_sprintf("-Pmelody.appLabel=%s",        target_config_get(t, "APP_LABEL")));
+    cmd_append(cmd, temp_sprintf("-Pmelody.compileSdk=%s",      target_config_get(t, "COMPILE_SDK")));
+    cmd_append(cmd, temp_sprintf("-Pmelody.minSdk=%s",          target_config_get(t, "MIN_SDK")));
+    cmd_append(cmd, temp_sprintf("-Pmelody.targetSdk=%s",       target_config_get(t, "TARGET_SDK")));
+    cmd_append(cmd, temp_sprintf("-Pmelody.versionCode=%s",     target_config_get(t, "VERSION_CODE")));
+    cmd_append(cmd, temp_sprintf("-Pmelody.versionName=%s",     target_config_get(t, "VERSION_NAME")));
+    cmd_append(cmd, temp_sprintf("-Pmelody.rootProjectName=%s", target_config_get(t, "ROOTPROJECT_NAME")));
+    cmd_append(cmd, temp_sprintf("-Pmelody.javaSrcDirs=%s",     android_java_srcdirs_csv(cwd)));
+
+    const char *manifest = temp_sprintf("%s/apps/%s/android/manifest-overlay/AndroidManifest.xml", cwd, t->name);
+    if (file_exists(manifest)) cmd_append(cmd, temp_sprintf("-Pmelody.manifestOverlay=%s", manifest));
+    const char *appjava = temp_sprintf("%s/apps/%s/android/java", cwd, t->name);
+    if (file_exists(appjava)) cmd_append(cmd, temp_sprintf("-Pmelody.appJavaDir=%s", appjava));
+    const char *res = temp_sprintf("%s/apps/%s/android/res", cwd, t->name);
+    if (file_exists(res)) cmd_append(cmd, temp_sprintf("-Pmelody.resOverlayDir=%s", res));
+}
+
 static bool package_android(Mel_Build_Context *ctx) {
     const char *proj = temp_sprintf("%s/%s/android", MEL_BUILD_DIR, ctx->target->name);
-    const char *task = ctx->config == MEL_CONFIG_RELEASE ? ":app:assembleRelease" : ":app:assembleDebug";
+    const char *task = ctx->config == MEL_CONFIG_RELEASE ? ":app:assembleMelodyRelease" : ":app:assembleMelodyDebug";
     Cmd cmd = {0};
-    cmd_append(&cmd, "gradle", "-q", "-p", proj, task);
+    cmd_append(&cmd, "gradle", "-q", "-p", proj);
+    android_gradle_props(&cmd, ctx->target);
+    cmd_append(&cmd, task);
     return cmd_run_sync_and_reset(&cmd);
 }
 
 // Release builds have no signingConfig (signing is out of scope), so Gradle
 // emits the unsigned variant — which adb refuses to install.
 static const char *android_apk_path(const char *app_name, Mel_Config c) {
-    const char *base = temp_sprintf("%s/%s/android/app/build/outputs/apk", MEL_BUILD_DIR, app_name);
-    if (c == MEL_CONFIG_RELEASE) return temp_sprintf("%s/release/app-release-unsigned.apk", base);
-    return temp_sprintf("%s/debug/app-debug.apk", base);
+    const char *base = temp_sprintf("%s/%s/android/app/build/outputs/apk/melody", MEL_BUILD_DIR, app_name);
+    if (c == MEL_CONFIG_RELEASE) return temp_sprintf("%s/release/app-melody-release-unsigned.apk", base);
+    return temp_sprintf("%s/debug/app-melody-debug.apk", base);
 }
 
 static const char *adb_path(const char *app_name) {

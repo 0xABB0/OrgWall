@@ -3,21 +3,21 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleName</key>
-    <string>{{BUNDLE_NAME}}</string>
+    <string>Melody App</string>
     <key>CFBundleDisplayName</key>
-    <string>{{BUNDLE_DISPLAY_NAME}}</string>
+    <string>Melody App</string>
     <key>CFBundleIdentifier</key>
-    <string>{{BUNDLE_ID}}</string>
+    <string>orgwall.melody.app</string>
     <key>CFBundleExecutable</key>
-    <string>{{EXECUTABLE}}</string>
+    <string>melody-app</string>
     <key>CFBundleVersion</key>
-    <string>{{VERSION_CODE}}</string>
+    <string>1</string>
     <key>CFBundleShortVersionString</key>
-    <string>{{VERSION_NAME}}</string>
+    <string>0.1.0</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>LSMinimumSystemVersion</key>
-    <string>{{MIN_MACOS}}</string>
+    <string>11.0</string>
     <key>NSHighResolutionCapable</key>
     <true/>
 </dict>

@@ -7,8 +7,10 @@ bool project(Mel_Build_Target *t) {
     mel_build_add_dependency(t, "melody");
 
     mel_build_set_config(t, "ROOTPROJECT_NAME", "MidiMonitor");
+    mel_build_set_config(t, "APP_LABEL", "MIDI Monitor");
     mel_build_set_config(t, "NAMESPACE", "orgwall.midimonitor");
     mel_build_set_config(t, "APPLICATION_ID", "orgwall.midimonitor");
     mel_build_set_config(t, "BUNDLE_ID", "orgwall.midimonitor");
+    mel_build_set_config(t, "VERSION_NAME", "0.3.0");
     return true;
 }

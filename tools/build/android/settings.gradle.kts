@@ -4,6 +4,9 @@ pluginManagement {
         mavenCentral()
         gradlePluginPortal()
     }
+    plugins {
+        id("com.android.application") version "8.13.2"
+    }
 }
 
 dependencyResolutionManagement {
@@ -14,5 +17,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "HelloWorldGui"
+rootProject.name = providers.gradleProperty("melody.rootProjectName").orNull ?: "melody-app"
 include(":app")
