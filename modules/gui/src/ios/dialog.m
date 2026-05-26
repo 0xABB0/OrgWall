@@ -1,6 +1,6 @@
 #include "uikit.h"
 
-@implementation MelDialogWindow
+@implementation MelDialogController
 @end
 
 Mel_Gui_Handle mel_dialog_create_opt(Mel_Dialog_Opt o)
@@ -9,21 +9,21 @@ Mel_Gui_Handle mel_dialog_create_opt(Mel_Dialog_Opt o)
                                          false, NULL, o.layout);
     Mel_Gui_Node* n = mel_gui__node(h);
     if (!n) return h;
+    NSString* title = mel_gui__ios_nsstring(o.title);
 
-    mel_gui__ios_sync(^{
-        MelDialogWindow*  window = [[MelDialogWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
-        UIViewController* vc     = [[UIViewController alloc] init];
-        UIView*           root   = vc.view;
-        root.backgroundColor      = [UIColor systemBackgroundColor];
-        window.rootViewController  = vc;
-        window.handle              = h;
-        window.on_                 = o.on_;
-        window.windowLevel         = UIWindowLevelAlert;
+    MelDialogController* vc = [[MelDialogController alloc] init];
+    vc.frame_handle = h;
+    vc.inset_mode   = MEL_FRAME_PAD;
+    vc.dlg_on       = o.on_;
+    vc.title        = title;
+    (void)vc.view;
 
-        n->native  = (void*)CFBridgingRetain(window);
-        n->content = (void*)CFBridgingRetain(root);
-        [window makeKeyAndVisible];
-    });
+    n->native  = (void*)CFBridgingRetain(vc);
+    n->content = (void*)CFBridgingRetain(vc.content);
+
+    UINavigationController* nav = mel_gui__ios_nav();
+    UIViewController* presenter = nav.topViewController ?: (UIViewController*)nav;
+    [presenter presentViewController:vc animated:YES completion:nil];
 
     n->x = 0;
     n->y = 0;
@@ -36,9 +36,9 @@ void mel_dialog_close(Mel_Gui_Handle dialog, i32 result)
     if (!n || !n->native) return;
 
     id obj = (__bridge id)n->native;
-    if ([obj isKindOfClass:[MelDialogWindow class]]) {
-        MelDialogWindow* w = (MelDialogWindow*)obj;
-        if (w.on_.on_result) w.on_.on_result(dialog, result, mel_gui_user(dialog));
+    if ([obj isKindOfClass:[MelDialogController class]]) {
+        MelDialogController* vc = (MelDialogController*)obj;
+        if (vc.dlg_on.on_result) vc.dlg_on.on_result(dialog, result, mel_gui_user(dialog));
     }
     mel_gui_destroy(dialog);
 }

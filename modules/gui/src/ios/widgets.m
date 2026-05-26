@@ -58,16 +58,13 @@ Mel_Gui_Handle mel_button_create_opt(Mel_Gui_Handle parent, Mel_Button_Opt o)
     Mel_Gui_Node* n = mel_gui__node(h);
     if (!n) return h;
     NSString* title = mel_gui__ios_nsstring(o.text);
-    __block MelButton* b = nil;
-    mel_gui__ios_sync(^{
-        b = [MelButton buttonWithType:UIButtonTypeSystem];
-        b.frame   = CGRectMake(0, 0, n->width, n->height);
-        b.handle  = h;
-        b.pointer = o.pointer;
-        [b setTitle:title forState:UIControlStateNormal];
-        b.enabled = !o.disabled;
-        [b addTarget:b action:@selector(melTapped) forControlEvents:UIControlEventTouchUpInside];
-    });
+    MelButton* b = [MelButton buttonWithType:UIButtonTypeSystem];
+    b.frame   = CGRectMake(0, 0, n->width, n->height);
+    b.handle  = h;
+    b.pointer = o.pointer;
+    [b setTitle:title forState:UIControlStateNormal];
+    b.enabled = !o.disabled;
+    [b addTarget:b action:@selector(melTapped) forControlEvents:UIControlEventTouchUpInside];
     mel_gui__ios_install_child(n, b);
     return h;
 }
@@ -78,13 +75,10 @@ Mel_Gui_Handle mel_label_create_opt(Mel_Gui_Handle parent, Mel_Label_Opt o)
     Mel_Gui_Node* n = mel_gui__node(h);
     if (!n) return h;
     NSString* text = mel_gui__ios_nsstring(o.text);
-    __block MelLabel* l = nil;
-    mel_gui__ios_sync(^{
-        l = [[MelLabel alloc] initWithFrame:CGRectMake(0, 0, n->width, n->height)];
-        l.handle        = h;
-        l.text          = text;
-        l.numberOfLines = 0;
-    });
+    MelLabel* l = [[MelLabel alloc] initWithFrame:CGRectMake(0, 0, n->width, n->height)];
+    l.handle        = h;
+    l.text          = text;
+    l.numberOfLines = 0;
     mel_gui__ios_install_child(n, l);
     return h;
 }
@@ -94,15 +88,12 @@ Mel_Gui_Handle mel_checkbox_create_opt(Mel_Gui_Handle parent, Mel_CheckBox_Opt o
     Mel_Gui_Handle h = mel_gui__node_new(parent, o.x, o.y, o.w, o.h, o.id, o.user, o.hidden, &o.layoutable, NULL);
     Mel_Gui_Node* n = mel_gui__node(h);
     if (!n) return h;
-    __block MelSwitch* s = nil;
-    mel_gui__ios_sync(^{
-        s = [[MelSwitch alloc] initWithFrame:CGRectMake(0, 0, n->width, n->height)];
-        s.handle  = h;
-        s.on_     = o.on_;
-        s.enabled = !o.disabled;
-        [s setOn:o.checked];
-        [s addTarget:s action:@selector(melToggled) forControlEvents:UIControlEventValueChanged];
-    });
+    MelSwitch* s = [[MelSwitch alloc] initWithFrame:CGRectMake(0, 0, n->width, n->height)];
+    s.handle  = h;
+    s.on_     = o.on_;
+    s.enabled = !o.disabled;
+    [s setOn:o.checked];
+    [s addTarget:s action:@selector(melToggled) forControlEvents:UIControlEventValueChanged];
     mel_gui__ios_install_child(n, s);
     return h;
 }
@@ -111,12 +102,8 @@ bool mel_checkbox_checked(Mel_Gui_Handle h)
 {
     Mel_Gui_Node* n = mel_gui__node(h);
     if (!n || !n->native) return false;
-    __block bool on = false;
-    mel_gui__ios_sync(^{
-        id obj = (__bridge id)n->native;
-        if ([obj isKindOfClass:[UISwitch class]]) on = ((UISwitch*)obj).isOn;
-    });
-    return on;
+    id obj = (__bridge id)n->native;
+    return [obj isKindOfClass:[UISwitch class]] ? ((UISwitch*)obj).isOn : false;
 }
 
 Mel_Gui_Handle mel_slider_create_opt(Mel_Gui_Handle parent, Mel_Slider_Opt o)
@@ -124,17 +111,14 @@ Mel_Gui_Handle mel_slider_create_opt(Mel_Gui_Handle parent, Mel_Slider_Opt o)
     Mel_Gui_Handle h = mel_gui__node_new(parent, o.x, o.y, o.w, o.h, o.id, o.user, o.hidden, &o.layoutable, NULL);
     Mel_Gui_Node* n = mel_gui__node(h);
     if (!n) return h;
-    __block MelSlider* s = nil;
-    mel_gui__ios_sync(^{
-        s = [[MelSlider alloc] initWithFrame:CGRectMake(0, 0, n->width, n->height)];
-        s.handle       = h;
-        s.on_          = o.on_;
-        s.minimumValue = o.min_value;
-        s.maximumValue = o.max_value;
-        s.value        = o.value;
-        s.enabled      = !o.disabled;
-        [s addTarget:s action:@selector(melChanged) forControlEvents:UIControlEventValueChanged];
-    });
+    MelSlider* s = [[MelSlider alloc] initWithFrame:CGRectMake(0, 0, n->width, n->height)];
+    s.handle       = h;
+    s.on_          = o.on_;
+    s.minimumValue = o.min_value;
+    s.maximumValue = o.max_value;
+    s.value        = o.value;
+    s.enabled      = !o.disabled;
+    [s addTarget:s action:@selector(melChanged) forControlEvents:UIControlEventValueChanged];
     mel_gui__ios_install_child(n, s);
     return h;
 }
@@ -143,22 +127,16 @@ i32 mel_slider_value(Mel_Gui_Handle h)
 {
     Mel_Gui_Node* n = mel_gui__node(h);
     if (!n || !n->native) return 0;
-    __block i32 v = 0;
-    mel_gui__ios_sync(^{
-        id obj = (__bridge id)n->native;
-        if ([obj isKindOfClass:[UISlider class]]) v = (i32)((UISlider*)obj).value;
-    });
-    return v;
+    id obj = (__bridge id)n->native;
+    return [obj isKindOfClass:[UISlider class]] ? (i32)((UISlider*)obj).value : 0;
 }
 
 void mel_slider_set_value(Mel_Gui_Handle h, i32 value)
 {
     Mel_Gui_Node* n = mel_gui__node(h);
     if (!n || !n->native) return;
-    mel_gui__ios_sync(^{
-        id obj = (__bridge id)n->native;
-        if ([obj isKindOfClass:[UISlider class]]) ((UISlider*)obj).value = value;
-    });
+    id obj = (__bridge id)n->native;
+    if ([obj isKindOfClass:[UISlider class]]) ((UISlider*)obj).value = value;
 }
 
 Mel_Gui_Handle mel_textfield_create_opt(Mel_Gui_Handle parent, Mel_TextField_Opt o)
@@ -167,17 +145,14 @@ Mel_Gui_Handle mel_textfield_create_opt(Mel_Gui_Handle parent, Mel_TextField_Opt
     Mel_Gui_Node* n = mel_gui__node(h);
     if (!n) return h;
     NSString* text = mel_gui__ios_nsstring(o.text);
-    __block MelField* f = nil;
-    mel_gui__ios_sync(^{
-        f = [[MelField alloc] initWithFrame:CGRectMake(0, 0, n->width, n->height)];
-        f.handle        = h;
-        f.on_           = o.on_;
-        f.focus         = o.focus;
-        f.text          = text;
-        f.borderStyle   = UITextBorderStyleRoundedRect;
-        f.enabled       = !o.disabled;
-        [f addTarget:f action:@selector(melChanged) forControlEvents:UIControlEventEditingChanged];
-    });
+    MelField* f = [[MelField alloc] initWithFrame:CGRectMake(0, 0, n->width, n->height)];
+    f.handle        = h;
+    f.on_           = o.on_;
+    f.focus         = o.focus;
+    f.text          = text;
+    f.borderStyle   = UITextBorderStyleRoundedRect;
+    f.enabled       = !o.disabled;
+    [f addTarget:f action:@selector(melChanged) forControlEvents:UIControlEventEditingChanged];
     mel_gui__ios_install_child(n, f);
     return h;
 }
@@ -194,13 +169,10 @@ static Mel_Gui_Handle make_container(Mel_Gui_Handle parent, i32 x, i32 y, i32 w,
     Mel_Gui_Handle h = mel_gui__node_new(parent, x, y, w, hh, id, user, hidden, lo, layout);
     Mel_Gui_Node* n = mel_gui__node(h);
     if (!n) return h;
-    __block MelView* v = nil;
-    mel_gui__ios_sync(^{
-        v = [[MelView alloc] initWithFrame:CGRectMake(0, 0, n->width, n->height)];
-        v.handle  = h;
-        v.pointer = pointer;
-        v.focus   = focus;
-    });
+    MelView* v = [[MelView alloc] initWithFrame:CGRectMake(0, 0, n->width, n->height)];
+    v.handle  = h;
+    v.pointer = pointer;
+    v.focus   = focus;
     mel_gui__ios_install_child(n, v);
     return h;
 }
@@ -223,11 +195,8 @@ Mel_Gui_Handle mel_scrollview_create_opt(Mel_Gui_Handle parent, Mel_ScrollView_O
     Mel_Gui_Node* n = mel_gui__node(h);
     if (!n) return h;
     i32 cw = o.content_w, ch = o.content_h;
-    __block UIScrollView* sv = nil;
-    mel_gui__ios_sync(^{
-        sv = [[UIScrollView alloc] initWithFrame:CGRectMake(0, 0, n->width, n->height)];
-        sv.contentSize = CGSizeMake(cw > 0 ? cw : n->width, ch > 0 ? ch : n->height);
-    });
+    UIScrollView* sv = [[UIScrollView alloc] initWithFrame:CGRectMake(0, 0, n->width, n->height)];
+    sv.contentSize = CGSizeMake(cw > 0 ? cw : n->width, ch > 0 ? ch : n->height);
     mel_gui__ios_install_child(n, sv);
     return h;
 }

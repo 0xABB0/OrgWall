@@ -123,16 +123,13 @@ Mel_Gui_Handle mel_canvas_create_opt(Mel_Gui_Handle parent, Mel_Canvas_Opt o)
     Mel_Gui_Node* n = mel_gui__node(h);
     if (!n) return h;
 
-    __block MelCanvas* view = nil;
-    mel_gui__ios_sync(^{
-        view = [[MelCanvas alloc] initWithFrame:CGRectMake(0, 0, n->width, n->height)];
-        view.handle  = h;
-        view.pointer = o.pointer;
-        view.focus   = o.focus;
-        view.on_     = o.on_;
-        view.backgroundColor = [UIColor clearColor];
-        view.contentMode     = UIViewContentModeRedraw;
-    });
+    MelCanvas* view = [[MelCanvas alloc] initWithFrame:CGRectMake(0, 0, n->width, n->height)];
+    view.handle  = h;
+    view.pointer = o.pointer;
+    view.focus   = o.focus;
+    view.on_     = o.on_;
+    view.backgroundColor = [UIColor clearColor];
+    view.contentMode     = UIViewContentModeRedraw;
     mel_gui__ios_install_child(n, view);
     return h;
 }

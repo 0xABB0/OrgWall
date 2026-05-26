@@ -18,12 +18,10 @@ static bool app_init(Mel_Reactor* reactor, void* user)
         didFinishLaunchingWithOptions:(NSDictionary*)options
 {
     (void)application; (void)options;
-    // UIApplicationMain owns the main thread; the reactor (and the screen
-    // construction it drives) runs on a dedicated thread. The GUI backend
-    // marshals every UIKit touch back to the main thread.
-    [NSThread detachNewThreadWithBlock:^{
-        mel_reactor_spawn(MEL_REACTOR_THREADED, app_init, NULL);
-    }];
+    // Attach the reactor to the main run loop UIApplicationMain is already
+    // running: it installs a tick and returns, so the reactor and all UIKit
+    // work share the main thread. No extra thread, no cross-thread marshalling.
+    mel_reactor_spawn(MEL_REACTOR_ATTACHED, app_init, NULL);
     return YES;
 }
 @end

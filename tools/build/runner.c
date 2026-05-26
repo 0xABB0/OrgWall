@@ -1778,9 +1778,11 @@ int mel_build_main(int argc, char **argv) {
     else if (strcmp(command, "debug") == 0) { full = true; do_run = true; do_debug = true; }
     else { nob_log(NOB_ERROR, "unknown command '%s'", command); return 1; }
 
-    // A full build produces the platform's final artifact: an APK (package) on
-    // Android, otherwise the linked binary.
-    if (full) last = (platform == MEL_PLATFORM_ANDROID) ? MEL_STAGE_PACKAGE : MEL_STAGE_LINK;
+    // A full build produces the platform's final artifact: an APK on Android, a
+    // .app bundle on iOS (both needed to install/run), otherwise the linked
+    // binary.
+    if (full) last = (platform == MEL_PLATFORM_ANDROID || platform == MEL_PLATFORM_IOS)
+                         ? MEL_STAGE_PACKAGE : MEL_STAGE_LINK;
 
     Mel_Build_Target *root = NULL;
     if (target_name) {

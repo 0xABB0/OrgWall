@@ -3,332 +3,17 @@
 Execution checklist for the GUI module. =readme.org= is the specification;
 this file is what remains to do and the resume point for the next agent.
 
-Status keys: TODO (not started), WIP (in progress), DONE.
-Order within "First slice" is the intended build order.
+Status keys: TODO (not started), WIP (in progress). Completed work has been
+removed; the shipped design lives in =readme.org=.
 
-* Architecture inversion — backend-owned API  [2026-05-23]
+* Open items from shipped work
 
-The portable "two-phase create" (=mel_<widget>_create → mel_gui__create →
-mel_gui__backend_<widget>_create=) and the fat =Mel_Gui_Widget= are gone. The
-public API now /is/ the platform implementation: =mel_<widget>_create_opt= and
-the =mel_gui_*= ops are defined directly in =src/<backend>/=. The portable core
-keeps only the slotmap registry, screen nav, layout, and handle accessors over a
-thin =Mel_Gui_Node= (handle/parent/native/user/id + layout working set). See
-readme.org "Architecture: backend-owned, no generic indirection".
+** Inversion lifecycle
+- =on_destroy= no longer fires from the inverted backends (it used to come from
+  the generic node->cb in =destroy_tree=). Re-wire per-backend from the native
+  teardown if/when an app needs it. Unused by hello-world-gui today.
 
-Done across *all three* imperative backends (appkit, android, win32):
-- Callbacks live on the native object (NSView subclass properties / a =jlong= on
-  the Java listener / a per-=HWND= struct), wired only when an opt slot is set;
-  the node carries none. =callbacks.c=, =mel_gui__fire_*=, =src/controls/= and
-  =widget.c='s ops were deleted.
-- Android ops are direct C→JNI on the cached =View= jobject (=w->native=); the
-  =MelGui.views= map and its generic Java ops are gone, density is cached C-side.
-  This closes the old "Per-control direct integration" and "Redundant w->native
-  ref" items below.
-
-Verification state:
-- *appkit* — builds + runs (=./nob build app hello-world-gui=). Interactive
-  click/slider/etc. not auto-tested in CI; eyeball recommended.
-- *android* — builds + runs on-device (=./nob build app hello-world-gui
-  android=). The inverted backend is verified working.
-- *win32* — builds + runs on Windows under clang. The inverted backend is
-  verified working.
-
-Known gaps from the inversion (small, were latent before):
-- =on_destroy= (lifecycle) no longer fires from the inverted backends — it used
-  to come from the generic node->cb in =destroy_tree=. Re-wire per-backend from
-  the native teardown if/when an app needs it. (Unused by hello-world-gui.)
-- Runtime per-capability bulk setters (=mel_gui_set_*_cb=) were removed (they
-  were unused and type-erasure-hostile under native-stored callbacks); add back
-  per-backend when needed. Folds into the "Per-callback-slot setters" item.
-
-* First slice — win32, hello-world-gui without hacks  [COMPLETE]
-
-Built and verified: =./nob build app hello-world-gui win32= succeeds and the
-app runs on a Windows host (window titled "Hello World Main", reactor-driven,
-no stubs, no nob.c change needed — the existing win32 platform chain picks up
-=modules/gui/src= and =src/win32=).
-
-** DONE Core: handle, slotmap, init, allocator
-   =include/gui/handle.h=, =include/gui/init.h=, =src/gui.c=. =Mel_Gui_Handle=
-   over one =Mel_SlotMap= of widget records, generational validation,
-   =mel_gui_init(Mel_Reactor*)=, module allocator =mel_alloc_heap()=.
-
-** DONE Core: provisional input types
-   =include/gui/input.h= — provisional =Mel_Key= / =Mel_Mouse_Button=.
-
-** DONE Core: capability callbacks + lazy storage
-   =include/gui/callbacks.h=, =src/callbacks.c=. Four PRD-05 capability
-   structs, lazy per-widget storage, =mel_gui__fire_*= dispatch helpers.
-   NOTE: only the four per-capability bulk setters ship; the per-slot
-   setters (=mel_gui_set_pointer_on_click= etc.) are deferred — see
-   "Deferred — subsystems".
-
-** DONE Core: shared widget ops
-   =include/gui/widget.h=, =src/widget.c=.
-
-** DONE Core: Screen navigation
-   =include/gui/screen.h=, =src/screen.c=. =mel_app_register_screen= /
-   =mel_app_present=; a Screen's Frame auto-sizes to its children's bbox.
-
-** DONE Win32 backend
-   =src/win32/backend.c= (one TU: frame + canvas =WndProc=s, control
-   subclassing, message translation, every =mel_gui__backend_*=). Tab
-   traversal via =GetNextDlgTabItem=. Bare by default (the app's own
-   =app.manifest= opts into v6 controls + DPI; the backend does not).
-
-** DONE Widgets: Frame, Label, Button, CheckBox, TextField, Slider, Canvas
-   Headers + portable =src/<widget>.c=. Panel not needed by hello-world,
-   not built.
-
-** DONE Rewrite apps/hello-world-gui onto the new API
-   Screens + capability callbacks; old proc / =mel_gui_register_class= API
-   removed; a win32 GDI branch added to the canvas =#ifdef= drawing.
-
-* Deferred — backends
-
-Each is specified in =readme.org= and must be delivered first-class.
-
-** TODO uwp / WinUI backend (declarative; observable-model bridge)
-** DONE appkit backend (macOS)
-   =modules/gui/src/macos/= covers Frame, Label, Button, CheckBox, TextField,
-   Slider, Canvas; hello-world-gui builds and runs.
-   Tab traversal, click/focus/key callbacks, slider drag, checkbox toggle,
-   text-changed, canvas mouse + hover (=NSTrackingArea=) all wired.
-   NSWindow release is deferred via =dispatch_async= so closing from any
-   path (X button or =NSApp terminate:=) is reentrancy-safe.
-   NSEvent drain moved into =reactor='s apple backend =wait()= via
-   =modules/reactor/src/macos/event_pump.m= →
-   =mel_reactor__macos_drain_events()=; the macos gui backend no
-   longer attaches a reactor source (matches the readme's "native
-   backend needs no reactor source").
-   =keyDown:= / =keyUp:= forwarding on =NSTextField= via a custom
-   =MelGuiFieldEditor : NSTextView= installed through
-   =windowWillReturnFieldEditor:toObject:=. =on_key_down=, =on_key_up= and
-   =on_char= fire on a focused textfield, for parity with win32. Editor
-   instance is cached per-window via =objc_setAssociatedObject= and reused
-   across text fields.
-   Backend-tier header landed at =include/gui/appkit/frame.h= exposing
-   =mel_gui_appkit_nswindow(h)= and =mel_gui_appkit_nsview(h)=. Per-widget
-   appkit-tier headers can grow from here.
-** TODO uikit backend (iOS, iPadOS, windowed visionOS)
-** TODO swiftui backend (macOS/visionOS ornaments & volumes; declarative)
-** TODO gtk4 backend (Linux default; portable to win32/macos)
-** TODO qt backend (portable; C++ shim TU)
-** DONE android backend (android.view; also Meta Quest 2D panel app)
-   First slice landed and verified on-device: =modules/gui/src/android/= covers
-   Frame, Label, Button, CheckBox, TextField, Slider, Canvas;
-   =./nob build app hello-world-gui android=
-   produces the APK with =libmelody.so= for arm64-v8a and x86_64 and Java
-   classes =orgwall.melody.platform.MelodyActivity/MelGui/MelCanvasView=
-   compiled in. Click/toggle/slider/text-changed/focus/pointer/key all wired;
-   canvas =onDraw= bridges to =on_paint= (paint context passed through as an
-   opaque =jobject= so the current hello-world-gui Windows-only =#ifdef=
-   branch is unaffected). Reactor runs in =MEL_REACTOR_ATTACHED= mode on the
-   Android main looper via the existing reactor android backend.
-   Frame model: each =mel_frame= is a detached =FrameLayout=; =mel_app_present=
-   calls =MelGui.presentFrame=, which keeps a backend-owned =ArrayDeque<View>=
-   back stack and shows its top as the activity container's single child
-   (see the "Backend-owned back stack" DONE entry below). A full cross-platform
-   back-stack model still lives under the "mobile/" class tier todo.
-   JNI plumbing was consolidated: =JNI_OnLoad= moved to a new
-   =modules/platform/src/android/jni.bridge.c=; midi now uses
-   =mel_platform_android_env()=.
-   Layout integration: =MelFrame.create= installs an =OnLayoutChangeListener=
-   that fires =nativeFireResize(handle, w, h)= on size change (first layout
-   pass, rotation), which calls =mel_gui__fire_resize= and re-runs the column
-   layout. DPI is handled at the Java boundary: =MelGui.start= reads
-   =DisplayMetrics.density=, =attach/setBounds= multiply incoming coords by
-   density, =nativeFireResize= divides outgoing coords by density,
-   =MelCanvasView= scales its Canvas and divides touch x/y. Net effect:
-   every coordinate the C side sees is in density-independent units (dp on
-   Android, matching macOS points).
-   Architecture cleanup (2026-05-23 audit):
-   - Java side split per-widget: =MelFrame=, =MelLabel=, =MelButton=,
-     =MelCheckBox=, =MelTextField=, =MelSlider=, =MelCanvas= +
-     =MelCanvasView=, =MelScreenFragment=, all under one slim =MelGui=
-     core (start/stop, density, shared ops, presentFrame). Mirrors the
-     per-widget structure of =modules/gui/src/macos/= and
-     =modules/gui/src/android/=.
-   - JNI registration is per-widget: each =modules/gui/src/android/<widget>.c=
-     owns its =jclass= + =jmethodID= statics and exposes a register fn that
-     =mel_gui__android_register= calls. =Mel_Gui_Android= struct shrank to
-     shared cross-widget operations only. Adding a widget is now: new
-     =<widget>.c= + =Mel<Widget>.java= + one line in
-     =mel_gui__android_register=.
-   - =w->native= now holds a =NewGlobalRef= jobject pointing at the Java
-     View (mirroring macOS's =CFBridgingRetain= pattern). The old
-     =(void*)1= sentinel is gone; =backend_destroy= releases the global ref.
-   - Frame title moved from a Java =titles= =HashMap= to a fixed-size buffer
-     in =Mel_Gui_Frame_Impl=. Java has no titles state; the C side is the
-     source of truth and calls =setActivityTitle= when the frame is the
-     visible one.
-   - Navigation (SUPERSEDED 2026-05-25 — see the "Backend-owned back stack"
-     DONE entry under "Deferred follow-ups" below). This audit pass routed
-     navigation through =FragmentManager= / =MelScreenFragment=; that has since
-     been replaced by a backend-owned =ArrayDeque<View>= in =MelGui=. The
-     =OnBackInvokedCallback= (Tiramisu+) / =onBackPressed= (pre-33) split
-     survives, now registered only while there is in-app history to pop.
-   - Android =backend_set_focus= on a toplevel is now a no-op (was double-
-     navigating because both =set_visible= and =set_focus= were calling
-     =presentFrame=, pushing the same frame twice). Toplevel focus is
-     implicit in being the currently-presented frame; multi-frame
-     navigation goes through =set_visible= only.
-   Deferred follow-ups (do not block the backend; tracked for later):
-   - DONE Backend-owned back stack; deprecated =Fragment= navigation dropped
-     [2026-05-25]. =MelScreenFragment= and all =android.app.Fragment= /
-     =FragmentManager= use are gone (no =@SuppressWarnings("deprecation")= left
-     for it; the only remaining suppress is the pre-API-30 =WindowInsets=
-     fallback and the pre-33 =onBackPressed= override, both genuinely needed for
-     =minSdk 23=). The no-AndroidX stance holds. =MelGui= now owns an
-     =ArrayDeque<View>= of frame Views and shows the top as the container's
-     single child. Navigation is one general operation, not a previous-entry
-     special case: =presentFrame(view)= collapses the stack to =view= if it is
-     already present, otherwise pushes it; =back()= pops one and returns false at
-     the root. =mel_app_present='s =set_visible= drives =presentFrame=;
-     =mel_gui__nav_back= drives =back()=. Backend-local: =screen.c='s back-chain
-     is untouched (a real cross-platform stack stays under "Full Screen
-     lifecycle"). =MelGui.presentFrame= lost its title arg — the frame's tag
-     carries the title and =showTop= applies it. JNI surface: =presentFrame=
-     is now =(Landroid/view/View;)V=, =popScreen= became =back ()Z=.
-     OS back integrates with the suggested pattern: =MelodyActivity= implements
-     =MelGui.BackHost=; =MelGui= notifies it on every depth change, and the
-     activity registers the =OnBackInvokedCallback= only while there is in-app
-     history (>1 frame) and unregisters at the root, so the system performs its
-     own default back / predictive-back-to-home there. Both apps' manifests opt
-     in via =android:enableOnBackInvokedCallback="true"= (required for the
-     callback to fire on API 33+). Pre-33 falls back to =onBackPressed=.
-     Same pass retired the deprecated =WindowInsets.getSystemWindowInset*= /
-     =consumeSystemWindowInsets=: =MelodyActivity.onCreate= uses
-     =getInsets(WindowInsets.Type.systemBars())= + =WindowInsets.CONSUMED= on
-     API 30+, with the legacy path kept behind a version guard for 23–29.
-     Verified: =./nob build hello-world-gui android= builds the APK clean
-     (on-device run not exercised here).
-   - DONE Per-control direct integration, no generic indirection. See the
-     "Architecture inversion" section at the top: listeners are installed only
-     when the opt slot is set, callbacks live on the =View=, ops are direct
-     C→JNI on =w->native=. Done for android + appkit + win32.
-   - DONE Redundant =w->native= global ref. =w->native= is now the real, used
-     =View= jobject (ops dereference it); the =MelGui.views= map is gone.
-   - Modified-UTF-8 vs standard UTF-8 at the JNI text boundary.
-     =mel_gui__android_jstring= uses =NewStringUTF= and the inbound paths
-     (=backend_get_text=, =MelTextField.nativeTextChanged=) use
-     =GetStringUTFChars=; both speak JNI *modified* UTF-8, not standard UTF-8.
-     This is correct for ASCII and the whole BMP, and only mis-encodes
-     supplementary characters (emoji, U+10000+, which become surrogate-pair
-     6-byte sequences instead of 4). Fix all three paths together — outbound
-     via =NewByteArray= + =SetByteArrayRegion= + =new String(bytes, "UTF-8")=,
-     inbound via =String.getBytes("UTF-8")= → =byte[]= — caching the
-     =java/lang/String= class, the =([BLjava/lang/String;)V= ctor and the
-     =getBytes(Ljava/lang/String;)[B= method id once. Half-fixing one
-     direction is incoherent, so it stayed deferred.
-   - Drain UI events / wake from C: the reactor's android backend uses its
-     own timerfd to schedule ticks; views are manipulated synchronously from
-     C on the UI thread, which is correct, but =mel_reactor_post= from a
-     non-UI thread should wake the looper — verify =ALooper_wake= path.
-   - =keyDown:= forwarding for =EditText= — Android consumes most key events
-     in the IME, so on_key_* on a textfield won't fire on Android today.
-   - Per-backend escape hatches: =<gui/android/*.h>= class-tier headers
-     exposing raw =android.view.View= access beyond the core API.
-   - =savedInstanceState= / =Bundle= state preservation. Today if the OS
-     kills the process under memory pressure, all C-side state is lost
-     and the app restarts at the root screen. Real Android apps serialize
-     the current screen + the user-visible bits of session state into a
-     Bundle in =onSaveInstanceState= and restore in =onCreate=. Requires
-     Melody apps to declare what state is screen-saveable.
-   - Activity-result / intent system. No way today to launch a system
-     activity (camera, share, file picker) and receive a result. The
-     readme calls multi-window / native-menus first-class but doesn't
-     yet name intent dispatch; the mobile class tier should.
-   - Custom-Android-View extension story. An app that wants to ship a
-     widget Android has no native equivalent for (e.g. a music keyboard)
-     must today add code to =modules/gui/src/android/=. There is no
-     out-of-tree extension point: a Melody app should be able to register
-     its own =android.view.View= subclass as a widget kind without
-     touching the gui module's android backend sources.
-   - Opt-in multi-Activity =mel_app_present= mode. Today every Screen is
-     a sibling Fragment-equivalent in one Activity. Some apps (deep
-     linking, intent return, per-screen task isolation) want each Screen
-     pushed as its own Android Activity. A =MEL_FRAME_OWN_ACTIVITY= flag
-     on =Mel_Frame_Opt= would change =mel_app_present= for that frame to
-     =startActivity=, while the default stays single-Activity (modern
-     Android best practice). Gated on the mobile class tier.
-   Lifecycle closed: =mel_gui_shutdown()= (public) walks the slotmap calling
-   =mel_gui__backend_destroy= per widget (which decrements the frame
-   counter and triggers =mel_reactor_quit= on the last toplevel), frees
-   per-widget allocations, =mel_slotmap_free=s the widget store, calls
-   =mel_gui__screens_reset=, and zeroes all module globals. =nativeStop=
-   in =modules/app/src/android/app.bridge.c= calls it. =MelGui.stop=
-   clears =views/activity/root/density= and tears down the FragmentManager
-   container. After Back from the root screen finishes the Activity, the
-   next =onCreate= re-runs =mel_app_setup= from a clean slate even when
-   the process is retained.
-   Status bar / nav bar inset closed: =MelodyActivity.onCreate= installs a
-   =setOnApplyWindowInsetsListener= on root that pads by the system bar
-   insets and consumes them, so frame children draw inside the safe area.
-   - Class+methodID caching ships via =MelGui.nativeRegister()= called from
-     =MelGui.start()=, because =FindClass()= from the reactor's deferred
-     ALooper tick uses the system classloader (no Java→native transition in
-     progress) and cannot resolve app classes. Documented here so the
-     pattern is reused for any future backend that needs the app
-     classloader from a non-JNI context.
-** TODO compose backend (Jetpack Compose; declarative; JNI/Kotlin bridge)
-** TODO web backend (DOM via Emscripten)
-** TODO drawn backend (CPU + GPU renderers; immersive Quest & visionOS)
-
-* Deferred — class-tier headers
-
-** TODO desktop/ class tier — resizable, decorations, multi-window, monitor placement
-** TODO mobile/ class tier — back stack, scenes, lifecycle hooks
-** TODO web/ class tier
-** TODO xr/ class tier — volumes, ornaments, immersive spaces
-
-* Containers — Panel, GroupBox, ScrollView  [2026-05-24]
-
-Built across win32, appkit and android. Headers at
-=include/gui/controls/{panel,groupbox,scrollview}.h=; each opt carries both
-=.layout= (algorithm for its own children) and =.layoutable= (hints for its
-placement in its parent), so a container nests inside another container's
-layout. =gui.h= includes all three.
-
-Content-host model: a container whose children must attach somewhere other than
-its own native object stores that host in the new =Mel_Gui_Node.content= field.
-=content == NULL= means children attach to =native= (Panel, Frame, every leaf
-widget). Each backend's parent resolver consults it:
-=mel_gui__win32_parent_hwnd=, =mel_gui__macos_parent_view= and
-=mel_gui__android_attach= all return =parent->content ? content : native=.
-Android =backend_destroy= releases the content global ref alongside native.
-
-- Panel — plain grouping surface; =content == NULL=.
-  win32: a shared =MelGuiContainer= window class (=src/win32/panel.c=, also the
-  inner host for GroupBox/ScrollView) reflecting WM_COMMAND/WM_HSCROLL and
-  WM_CTLCOLORSTATIC so child controls dispatch. appkit: flipped
-  =MelGuiContainerView=. android: =FrameLayout=.
-- GroupBox — titled border; =content= = the inset interior.
-  win32: native =BS_GROUPBOX= button + an inner container child, kept inset via a
-  WM_SIZE subclass. appkit: =NSBox= with a flipped =MelGuiContainerView= as its
-  =contentView=. android: emulated — bordered vertical =LinearLayout= with a
-  title =TextView= over an inner =FrameLayout= (=content=).
-- ScrollView — scrollable viewport; =.content_w/.content_h= give the scrollable
-  extent (0 = viewport size, no scroll on that axis); =content= = the inner host.
-  win32: a =MelGuiScroll= class with WS_VSCROLL/WS_HSCROLL that repositions the
-  oversized inner container on WM_VSCROLL/WM_HSCROLL/WM_MOUSEWHEEL. appkit:
-  =NSScrollView= with a flipped =documentView=. android: =ScrollView= + inner
-  =FrameLayout=.
-
-Verification:
-- *appkit* — builds + runs; a Panel + GroupBox + ScrollView demo on
-  =hello-world-gui='s details screen was presented at startup and ran with no
-  crash (content-host parenting + nested column layout exercised). Visual output
-  not eyeballed.
-- *android* — =.so= (both ABIs) + Java + APK build clean. On-device run not
-  exercised.
-- *win32* — written *blind* (no clang-on-Windows host here), pattern-matched to
-  the verified appkit/android shape + the existing win32 widgets. The BS_GROUPBOX
-  inner-inset subclass and the WS_*SCROLL repositioning are *unverified* — build
-  with clang on Windows before trusting.
-
-Open items:
+** Containers (Panel / GroupBox / ScrollView)
 - ScrollView nested layout: a layout set on a ScrollView arranges children
   against the *viewport* height, not =content_h=, so layout-driven content does
   not fill the scrollable extent (the demo uses absolute child coords). A layout
@@ -337,130 +22,105 @@ Open items:
 - GroupBox/ScrollView focus is the only capability wired on the content node;
   pointer/keyboard on the container surface ship on Panel (appkit) only.
 
-* Structural — Dialog, TabView, Splitter  [2026-05-24]
-
-Built across win32, appkit and android. Headers at
-=include/gui/controls/{dialog,tabview,splitter}.h=; =gui.h= includes all three.
-Two design forks were settled with Gabbo before building:
-
-1. *Page-as-node* for the multi-pane containers. A node has a single
-   =content= pointer, so TabView/Splitter cannot host N children directly.
-   Instead each tab/pane is its *own* node (=mel_tab_create(tabview, …)= /
-   =mel_splitpane_create(splitter, …)=) whose =content= is that pane's host;
-   children parent to the page — the same content-host shape as GroupBox. The
-   container owns a private =Mel_Layout= (not user-supplied) that places its
-   page nodes and recurses into each page's own =.layout=. =Mel_{TabView,
-   Splitter}_Opt= therefore expose =.layoutable= but no =.layout=.
-2. *Modeless dialog* with a result callback, not a blocking modal loop — a
-   nested platform pump fights the reactor. =mel_dialog_create= returns
-   immediately; =on_.on_result(h, result, user)= fires on close, and
-   =mel_dialog_close(h, result)= dismisses programmatically.
-
-- Dialog — owned top-level surface; children parent to =native= (=content ==
-  NULL=). win32: a =MelGuiDialog= window owned by =.owner= with the owner
-  =EnableWindow(FALSE)= for the lifetime (modal-feel, no nested loop); its ctl
-  embeds =Mel_Win32_Frame= as the first member so the toplevel branch of
-  =mel_gui_set_bounds= reads valid style. appkit: an =NSWindow= added as a child
-  window of the owner, =NSFloatingWindowLevel=, =MelGuiDialogDelegate= fires
-  on_result from =windowWillClose=. android: =android.app.Dialog= overlay;
-  cancel and =close= both route through =nativeResult=, which fires the callback
-  and tears the subtree down. Dialogs participate in =frames_inc/dec=.
-- TabView — native tab strip + one content host per tab.
-  win32: =SysTabControl32=; pages are container children positioned at
-  =TabCtrl_AdjustRect=, shown/hidden on =TCN_SELCHANGE= caught by a subclass on
-  the tab control's *parent*. appkit: =NSTabView= with a flipped
-  =MelGuiContainerView= per =NSTabViewItem=. android: =MelTabView= (a vertical
-  =LinearLayout= — button strip over a content =FrameLayout=) swaps page
-  visibility in Java. =mel_tabview_select/selected= + an =on_select= callback.
-- Splitter — =.orientation= horizontal/vertical, draggable divider, N panes,
-  per-pane =.min_size=.
-  win32: a custom =MelGuiSplitter= class hit-tests divider bands, drags with
-  mouse capture, and proportionally rescales pane extents on WM_SIZE. appkit:
-  =NSSplitView= (arranged subviews = pane hosts) with min-coordinate constraints
-  from =.min_size=. android: =MelSplitter= is a custom =ViewGroup= that owns its
-  own measure/layout, paints the divider bars, and drags via
-  =onInterceptTouchEvent=/=onTouchEvent= on the gap bands (clamped to
-  =.min_size=). After each layout pass it calls =nativeLayout=, where C reads the
-  measured pane sizes (px→dp) and arranges that pane's children — the same
-  Java-owns-geometry / C-arranges-children split as =NSSplitView= on appkit.
-
-Verification:
-- *appkit* — builds + runs; the structural screen (TabView with two tabs,
-  Splitter with two panes) plus an auto-opened Dialog was presented at startup
-  and ran with no crash. Visual output not eyeballed.
-- *android* — =.so= (both ABIs) + Java + APK build clean. On-device run not
-  exercised.
-- *win32* — written *blind* (no clang-on-Windows host here). The tab-control
-  parent subclass, the dialog owner-disable/result path and the custom splitter
-  drag math are *unverified* — build with clang on Windows before trusting.
-
-Open items:
+** Structural (Dialog / TabView / Splitter)
 - TabView/Splitter page nodes are grandchildren of the frame, so the shallow
   one-level =mel_gui__destroy_tree= leaks their node slots (and, on appkit, the
   page host global ref) when the frame closes — a pre-existing limitation of the
-  destroy walk that also affects nested Panel/GroupBox children, not new here.
+  destroy walk that also affects nested Panel/GroupBox children.
 
-* Insets / safe area  [2026-05-25]
-
-Typed, first-class Frame insets. Spec in =readme.org= "Insets and the safe area".
-=<gui/insets.h>=: =Mel_Insets= (four logical-unit edges), =Mel_Frame_Insets=
-(=safe_area=, =system_bars=, =display_cutout=, =ime=, =system_gestures=),
-=Mel_Inset_Mode= (=MEL_FRAME_PAD= default / =MEL_FRAME_EDGE_TO_EDGE=), the
-=Mel_Gui_Insets_Cb= callback (=on_insets_changed=, lives in =insets.h= beside
-its type, not in =callbacks.h=), and the query =mel_frame_insets(h)=.
-=Mel_Frame_Opt= gained =.inset_mode= + =.insets=.
-
-Storage is *backend-owned* — the =Mel_Gui_Node= carries no inset data. Each
-backend is the source of truth and =mel_frame_insets= is a per-backend op:
-appkit/win32 read it live (=NSView.safeAreaInsets= / zero), android pulls it via
-=MelFrame.insets(View)= over =getRootWindowInsets()=. The query resolves the
-toplevel through the shared =mel_gui__toplevel(h)= helper (=gui.c=). The
-=on_insets_changed= pointer rides the native object (appkit: a =MelGuiContentView=
-property; android: a =jlong= through Java like the resize fn); the callback gets
-a pointer to a stack-local =Mel_Frame_Insets=, valid for the synchronous call.
-
-Typed-not-merged was a deliberate call (Gabbo): Apple gives one merged safe area,
-Android splits it, and a merged-only core would force a refactor later. The
-Android-only status/nav split and =tappableElement=/=waterfall= stay out of the
-core struct — they belong in a future =<gui/android/frame.h>= escape hatch.
-
-- *android* — fields straight from =WindowInsets.Type= (=systemBars=,
-  =displayCutout=, =ime=, =mandatorySystemGestures=); =safe_area = systemBars ∪
-  displayCutout=. The listener moved off the activity root onto each Frame's
-  View (=MelFrame.applyInsets=), px→dp at the boundary; =MelodyActivity= no
-  longer consumes at root. =PAD= pads the Frame View by =safe_area=; values
-  round-trip to C via =MelFrame.nativeInsets(handle, fn, int[20])=. =MelGui=
-  calls =requestApplyInsets()= on present so a freshly-shown Frame re-samples.
-- *appkit* — =safe_area= from =NSView.safeAreaInsets=, sampled in
-  =MelGuiContentView -layout= (AppKit has no =safeAreaInsetsDidChange=), fired
-  only on change; =system_bars= mirrors it, rest zero.
-- *win32* — zero (client area already excludes chrome); only stores
-  =inset_mode=. Built *blind* — verify with clang on Windows (trivial one-liner).
-
-Verification:
-- *appkit* — builds + links clean (=./nob build hello-world-gui=).
-- *android* — =.so= (both ABIs) + Java compile clean (gradle
-  =compileDebugJavaWithJavac= + =assembleDebug=, forced rerun). Gabbo verified
-  the back-stack pass on-device; insets not yet eyeballed on-device.
-- *win32* — unverified (no host).
-
-Open items:
+** Insets / safe area
 - *PAD width/height reduction in landscape.* Android =PAD= pads the Frame's
-  =FrameLayout=, which =FrameLayout= honours for child positioning, so the
-  dominant portrait case (status top / nav bottom) is correct. But the C column
-  layout still arranges against the *full* Frame size, so a left/right inset
-  (landscape nav bar, side notch) shifts children right without shrinking the
-  arranged width — content can clip. The fix is to feed =safe_area= into the
-  layout as an outer margin (reduce available size + offset origin) rather than
-  Java padding; folds into the WIP layout system.
+  =FrameLayout=, which honours it for child positioning, so portrait
+  (status top / nav bottom) is correct. But the C column layout still arranges
+  against the *full* Frame size, so a left/right inset (landscape nav bar, side
+  notch) shifts children right without shrinking the arranged width — content can
+  clip. Fix: feed =safe_area= into the layout as an outer margin (reduce
+  available size + offset origin) rather than Java padding; folds into the WIP
+  layout system.
 - *appkit PAD child-offset.* For normal decorated windows =safeAreaInsets= is 0,
-  so PAD is a visual no-op and nothing is offset today. Real child-offset only
-  bites under full-size-content / custom-titlebar windows, which the desktop
-  class tier introduces — wire PAD offset there.
+  so PAD is a visual no-op. Real child-offset only bites under
+  full-size-content / custom-titlebar windows, which the desktop class tier
+  introduces — wire PAD offset there.
 - *Typed extras as escape hatches.* status-vs-navigation split,
   =tappableElement=, =waterfall= (Android); =keyboardLayoutGuide=-driven =ime=
   on appkit/uikit; web =env(safe-area-inset-*)= + =visualViewport= for =ime=.
-- iOS/web/uikit fills land with those backends.
+- iOS/web/uikit inset fills land with those backends.
+
+** win32 verification debt
+Containers, Structural and Insets were written *blind* on win32 (no clang-on-
+Windows host). Unverified until built with clang on Windows: the BS_GROUPBOX
+inner-inset subclass, the WS_*SCROLL repositioning, the tab-control parent
+subclass, the dialog owner-disable/result path, the custom splitter drag math,
+and the (trivial) zero-inset path.
+
+* Deferred — backends
+
+Each is specified in =readme.org= and must be delivered first-class.
+
+** WIP  uikit backend (iOS, iPadOS, windowed visionOS)
+   =modules/gui/src/ios/= implements Frame, Dialog, Canvas, Button, Label,
+   CheckBox, Slider, TextField, Panel, GroupBox, ScrollView, Splitter, TabView
+   over UIKit; the build is wired (=ios= chain, =ios_run=, =Info.ios.plist=,
+   =-framework UIKit=). Uncommitted and not yet verified on a simulator/device.
+   Resume point: build + run hello-world-gui on iOS, eyeball, then commit.
+** TODO uwp / WinUI backend (declarative; observable-model bridge)
+** TODO swiftui backend (macOS/visionOS ornaments & volumes; declarative)
+** TODO gtk4 backend (Linux default; portable to win32/macos)
+** TODO qt backend (portable; C++ shim TU)
+** TODO compose backend (Jetpack Compose; declarative; JNI/Kotlin bridge)
+** TODO web backend (DOM via Emscripten)
+** TODO drawn backend (CPU + GPU renderers; immersive Quest & visionOS)
+
+* Deferred — android follow-ups
+
+Do not block the android backend; tracked for later.
+
+- Modified-UTF-8 vs standard UTF-8 at the JNI text boundary.
+  =mel_gui__android_jstring= uses =NewStringUTF= and the inbound paths
+  (=backend_get_text=, =MelTextField.nativeTextChanged=) use
+  =GetStringUTFChars=; both speak JNI *modified* UTF-8, not standard UTF-8.
+  Correct for ASCII and the whole BMP, mis-encodes supplementary characters
+  (emoji, U+10000+). Fix all three paths together — outbound via =NewByteArray=
+  + =SetByteArrayRegion= + =new String(bytes, "UTF-8")=, inbound via
+  =String.getBytes("UTF-8")= → =byte[]= — caching the =java/lang/String= class,
+  the =([BLjava/lang/String;)V= ctor and the =getBytes(Ljava/lang/String;)[B=
+  method id once. Half-fixing one direction is incoherent.
+- Drain UI events / wake from C: the reactor's android backend uses its own
+  timerfd to schedule ticks; views are manipulated synchronously from C on the
+  UI thread, which is correct, but =mel_reactor_post= from a non-UI thread
+  should wake the looper — verify =ALooper_wake= path.
+- =keyDown:= forwarding for =EditText= — Android consumes most key events in the
+  IME, so on_key_* on a textfield won't fire on Android today.
+- Per-backend escape hatches: =<gui/android/*.h>= class-tier headers exposing
+  raw =android.view.View= access beyond the core API.
+- =savedInstanceState= / =Bundle= state preservation. Today if the OS kills the
+  process under memory pressure, all C-side state is lost and the app restarts
+  at the root screen. Real Android apps serialize the current screen + the
+  user-visible bits of session state into a Bundle in =onSaveInstanceState= and
+  restore in =onCreate=. Requires Melody apps to declare what state is
+  screen-saveable.
+- Activity-result / intent system. No way today to launch a system activity
+  (camera, share, file picker) and receive a result. The readme calls
+  multi-window / native-menus first-class but doesn't yet name intent dispatch;
+  the mobile class tier should.
+- Custom-Android-View extension story. An app that wants a widget Android has no
+  native equivalent for (e.g. a music keyboard) must today add code to
+  =modules/gui/src/android/=. There is no out-of-tree extension point: a Melody
+  app should be able to register its own =android.view.View= subclass as a
+  widget kind without touching the gui module's android backend sources.
+- Opt-in multi-Activity =mel_app_present= mode. Today every Screen is a sibling
+  in one Activity. Some apps (deep linking, intent return, per-screen task
+  isolation) want each Screen pushed as its own Android Activity. A
+  =MEL_FRAME_OWN_ACTIVITY= flag on =Mel_Frame_Opt= would switch
+  =mel_app_present= for that frame to =startActivity=, default stays
+  single-Activity. Gated on the mobile class tier.
+
+* Deferred — class-tier headers
+
+** TODO desktop/ class tier — resizable, decorations, multi-window, monitor placement
+** TODO mobile/ class tier — back stack, scenes, lifecycle hooks
+** TODO web/ class tier
+** TODO xr/ class tier — volumes, ornaments, immersive spaces
 
 * Deferred — widgets beyond the first slice
 
@@ -469,118 +129,29 @@ Open items:
 ** TODO MenuBar / Menu / MenuItem, ToolBar, StatusBar
 ** TODO Drawn-widget family (mel_draw_*) — finalise its vocabulary when built
 
-* Frame / win32 windowing gaps  [COMPLETE]
-
-Surfaced during a post-first-slice review (2026-05-23) and closed the same day.
-The two state-staleness bugs and the =CW_USEDEFAULT= positioning bug were
-fixed in the first pass; the seven items below landed in a follow-up pass.
-
-** DONE Dispatch lifecycle on_show / on_hide / on_enable from the win32 frame
-   =frame_wndproc= now handles =WM_SHOWWINDOW= → on_show / on_hide and
-   =WM_ENABLE= → on_enable, with matching =mel_gui__fire_show / fire_hide /
-   fire_enable= in =src/callbacks.c=.
-
-** DONE on_close on Mel_Gui_Lifecycle_Cb + WM_CLOSE veto path
-   =bool (*on_close)(Mel_Gui_Handle, void* user)= added to the lifecycle
-   struct; =frame_wndproc= =WM_CLOSE= consults =mel_gui__fire_close= and only
-   calls =DestroyWindow= if it returns true (default: true when no handler).
-
-** DONE Frame_Opt: icon, min/max size, resizable, decorated, closable, owner, initial state
-   Polarity is "default on" for the booleans: =.not_resizable=, =.undecorated=,
-   =.not_closable=. =.min_w/h=, =.max_w/h= drive =WM_GETMINMAXINFO=.
-   =.owner= is a =Mel_Gui_Handle=. =.icon_large/.icon_small= are platform-opaque
-   =void*= (HICON on win32). =.initial_state= is the new =Mel_Frame_State= enum
-   (NORMAL/MINIMIZED/MAXIMIZED/HIDDEN) and is honoured on the first
-   =mel_gui_set_visible(true)= call.
-
-** DONE Frame_Opt: .focus and .keyboard capability fields
-   Both fields added; =frame_wndproc= routes =WM_SETFOCUS / WM_KILLFOCUS /
-   WM_KEYDOWN / WM_KEYUP / WM_CHAR= directly (fires only when the frame itself
-   is focused, since key/focus messages otherwise go to the focused child).
-
-** DONE AdjustWindowRectEx: track real style, dwExStyle, menu presence
-   The chosen style/ex-style is cached on =Mel_Gui_Frame_Impl= and read back in
-   both =mel_gui__backend_frame_create= and =mel_gui__backend_set_bounds=.
-   =has_menu= is wired up too, awaiting the MenuBar widget to flip it.
-
-** DONE WM_COMMAND / WM_HSCROLL: fall through when lp==0
-   Both branches now =return 0= only when =lp != 0= (reflected message sent
-   to the child) and otherwise fall through to =DefWindowProc=, so menus and
-   accelerators won't be silently swallowed once a MenuBar exists.
-
-** DONE Backend-tier header: include/gui/win32/frame.h
-   First file in the third tier. Exposes =mel_gui_win32_hwnd(Mel_Gui_Handle)=
-   plus =mel_gui_win32_install_subclass= / =_remove_subclass= for raw WndProc
-   interception. Per-widget backend-tier headers can grow from here.
-
 * Deferred — subsystems
 
 ** WIP  Layout system
-   First slice landed: =Mel_Layoutable= data struct embedded in every widget
-   (=preferred/fixed_w_h=, =weight=, =cross_align=, four-side =margin=);
-   =Mel_Layout= opaque + single sanctioned vtable (=measure=/=arrange=);
-   =Mel_Align= = =DEFAULT/START/CENTER/END/STRETCH= (DEFAULT means "inherit
-   container's cross_align"). =Mel_Column_Layout= is the one algorithm shipped:
-   stacks children top-to-bottom, distributes leftover primary-axis space by
-   =weight=, applies cross_align per child. Layouts are heap-allocated via
-   =mel_column_layout(...)= and freed when the owning widget is destroyed.
-   Trigger points: =mel_app_present= replaces bbox autosize with
-   =measure+arrange= when the frame has a layout; =mel_gui__fire_resize=
-   updates the widget's =width/height= and re-arranges if a layout is set.
-   Default is still absolute positioning — set =.layout= on a parent to opt in.
-   =hello-world-gui='s main screen demos the column; details stays on absolute
-   coords to verify the no-layout path.
-   Units: all coordinates the C side passes (in opts, in =Mel_Layoutable=,
-   in pointer-event callbacks) are *logical* — density-independent. Backends
-   translate to physical pixels at the boundary. macOS already works in
-   points (1pt = 1dp). Android scales by =DisplayMetrics.density= in
-   =MelGui.attach/setBounds= and inverts on =nativeFireResize= /
-   =MelCanvasView=. Win32 currently maps 1dp = 1px (bare-by-default, no DPI
-   awareness yet — see "Win32 opt-in polish APIs").
+   Shipped: =Mel_Layoutable= per widget (=preferred/fixed_w_h=, =weight=,
+   =cross_align=, four-side =margin=); =Mel_Layout= opaque + single vtable
+   (=measure=/=arrange=); =Mel_Align=; =Mel_Column_Layout= (the one algorithm).
    Open items:
    - =Mel_Row_Layout= — horizontal sibling of column.
    - =Mel_Grid_Layout= — 2D with row/col spans + stretch factors per track.
    - Stack/Overlay layout — z-stacked siblings, naming still deferred.
-   - Intrinsic-size query: today =preferred_h = 0= on a child means "use
-     the widget's current width/height" which is whatever was passed in
-     the opt. The right semantic is "ask the native control" — e.g. an
-     =EditText= on Android needs ~40dp tall for its built-in padding,
-     while an =NSTextField= on macOS is happy at ~22pt. Add a
-     =mel_gui__backend_natural_size(w, *nw, *nh)= per-widget hook the
-     layout consults when preferred is 0; ship per-widget defaults from
-     each backend. Until then, opt heights are picked conservatively for
-     the platform with the largest intrinsic.
-   - Naming collision on =.layout= field: today every parent opt uses
-     =.layout = Mel_Layout*= for the algorithm and every child opt uses
-     =.layoutable = Mel_Layoutable= for the hints. Frame is the only first-
-     slice parent so this works. When Panel/GroupBox land they need both
-     fields on the same opt, which is already supported by the chosen naming.
+   - Intrinsic-size query: today =preferred_h = 0= on a child means "use the
+     widget's current width/height" (whatever the opt passed). The right
+     semantic is "ask the native control" — e.g. an =EditText= on Android needs
+     ~40dp tall, an =NSTextField= ~22pt. Add a
+     =mel_gui__backend_natural_size(w, *nw, *nh)= per-widget hook the layout
+     consults when preferred is 0; ship per-widget defaults from each backend.
+     Until then, opt heights are picked conservatively.
 
-** WIP  Unified Canvas drawing API  [2026-05-23]
-   First slice landed: =Mel_Painter=, an immediate-mode drawing surface handed
-   to =Canvas= =on_paint= (replaced the raw =void* ctx=). The readme's
-   "draw-list" framing is refined — the API is immediate-mode, defined directly
-   in =src/<backend>/= (no vtable, no draw-list, no heap alloc on native
-   backends); the draw-list becomes the =drawn= backend's /implementation/ of
-   the same surface. See readme "Canvas drawing — the Painter".
-   Ops shipped: =clear=, =fill_rect=, =fill_ellipse=, =stroke_rect=,
-   =draw_line=, =fill_round_rect=, =draw_text=. Geometry reuses =math.geo=
-   =Mel_Rect= / =math.vector= =Mel_Vec2= (f32, logical units); =Mel_Color= is
-   RGBA8 in =<gui/color.h>=. New: =include/gui/painter.h=, =include/gui/color.h=,
-   =src/win32/painter.c=, =src/macos/painter.m=, =src/android/painter.c=
-   (+ =MelCanvasView= reuses one =Paint=; =nativePaint= gained a =Paint= arg).
-   =hello-world-gui='s =canvas_paint= is now platform-free; the app's
-   =#if MEL_PLATFORM_*= drawing block and =windows.h=/=CoreGraphics.h= includes
-   are deleted.
-   Verification:
-   - *appkit* — builds + runs (=./nob build app hello-world-gui=); window opens
-     with no paint crash. Visual output (border, divider, label text, drag
-     ellipse) not auto-verified — eyeball recommended.
-   - *android* — builds + runs on-device
-     (=./nob build app hello-world-gui android=); Painter output verified.
-   - *win32* — builds + runs on Windows under clang; the GDI Painter path
-     (=DC_BRUSH=/=DC_PEN= stock objects, =CreateFontW= cache, =TextOutW=)
-     is verified working.
+** WIP  Unified Canvas drawing API
+   Shipped: =Mel_Painter= immediate-mode surface handed to Canvas =on_paint=.
+   Ops: =clear=, =fill_rect=, =fill_ellipse=, =stroke_rect=, =draw_line=,
+   =fill_round_rect=, =draw_text=. Geometry reuses =math.geo=/=math.vector=;
+   =Mel_Color= is RGBA8.
    Open items / deferred surface:
    - Arbitrary paths (move/line/curve/close, fill + stroke), polygons.
    - Images / bitmaps (=draw_image=), with source + dest rect and scaling.
@@ -591,13 +162,13 @@ fixed in the first pass; the seven items below landed in a follow-up pass.
      wrapping are deferred. Android/win32 text goes through JNI modified-UTF-8 /
      UTF-16 — same supplementary-char caveat as the other text paths.
    - Drawn backend: implement =mel_painter_*= by recording into the shared
-     draw-list its CPU/GPU renderers play back (the original readme vision).
+     draw-list its CPU/GPU renderers play back.
 
 ** TODO Per-backend accessibility bridges
    UI Automation (win32/uwp), NSAccessibility (appkit/uikit), AccessKit-style
    for the drawn backend. First slice relies on native control a11y defaults.
 
-** TODO nob.c --gui-backend selector
+** TODO --gui-backend selector
    Override the compiled =src/<backend>/= directory and define
    =MEL_GUI_BACKEND_<NAME>=; default per platform. Enables e.g. gtk4 on win32.
 
@@ -606,8 +177,10 @@ fixed in the first pass; the seven items below landed in a follow-up pass.
 
 ** TODO Per-callback-slot setters
    PRD 05 wants a setter per individual callback slot
-   (=mel_gui_set_pointer_on_click= and friends). The first slice ships only
-   the four per-capability bulk setters (=mel_gui_set_pointer_cb= etc.).
+   (=mel_gui_set_pointer_on_click= and friends). None ship today — the
+   per-capability bulk setters (=mel_gui_set_*_cb=) were removed as unused and
+   type-erasure-hostile under native-stored callbacks. Add per-backend when
+   needed.
 
 ** TODO Win32 opt-in polish APIs
    =<gui/win32/...>=: Common Controls v6 visual styles, default-font override,
@@ -615,15 +188,13 @@ fixed in the first pass; the seven items below landed in a follow-up pass.
 
 ** TODO Rename =src/macos/= → =src/appkit/=
    Aligns the source dir with the backend name used in =readme.org= and with
-   the public include path =<gui/appkit/...>=. Today =src/macos/= compiles
-   because the nob.c platform chain picks up the platform-named directory;
-   the rename is gated on the =--gui-backend= selector landing so swiftui
-   can coexist on macOS (=src/appkit/= vs =src/swiftui/=).
+   the public include path =<gui/appkit/...>=. Gated on the =--gui-backend=
+   selector landing so swiftui can coexist on macOS.
 
 ** TODO Automated callback tests
    Gated on the PRD 09 input.replay module. Per PRD 05: callback fires on
-   event, NULL slots skipped, runtime setters change dispatch, bulk setters
-   apply wholesale, lazy allocation survives stress.
+   event, NULL slots skipped, runtime setters change dispatch, lazy allocation
+   survives stress.
 
 ** TODO Full Screen lifecycle
    Back stack, save/restore, the mobile Activity / iOS scene mapping beyond

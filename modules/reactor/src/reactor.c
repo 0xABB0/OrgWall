@@ -49,6 +49,10 @@ struct Mel_Reactor {
 #elif MEL_PLATFORM_APPLE
     void* cf_loop;
     void* cf_wake;
+    void* cf_tick;
+    void* cf_fd_refs[MEL_REACTOR_MAX_POLLS];
+    void* cf_fd_srcs[MEL_REACTOR_MAX_POLLS];
+    usize cf_fd_count;
 #elif MEL_PLATFORM_ANDROID
     void* looper;
     int   timer_fd;
