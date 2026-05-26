@@ -97,9 +97,10 @@ demultiplexer:
 |--------------+-----------------------------------+------------------------------------------------|
 | win32        | =src/win32/reactor_backend.inl=   | =GetMessage= / =PeekMessage= / =MsgWaitFor...= |
 | linux        | =src/posix/reactor_backend.inl=   | =poll(2)= + self-pipe wake                     |
-| macos / ios  | =src/apple/reactor_backend.inl=   | =CFRunLoopRunInMode= + =CFFileDescriptor=      |
+| macos        | =src/apple/reactor_backend.inl=   | =CFRunLoopRunInMode= + =CFFileDescriptor=      |
+| ios          | =src/apple/reactor_backend.inl=   | =CFRunLoopTimer= + =CFFileDescriptor= (attached) |
 | android      | =src/android/reactor_backend.inl= | =ALooper_addFd= + =timerfd= (non-blocking)     |
-| web          | =src/web/reactor_backend.inl=     | =emscripten_set_main_loop= (rAF)               |
+| web          | =src/web/reactor_backend.inl=     | =requestAnimationFrame= / =setTimeout= (attached) |
 
 *** Win32: which message pump
 
@@ -122,34 +123,47 @@ All three paths plus cross-thread =quit= are verified on a Windows host. The
 =posix=, =apple=, =android= and =web= backends are written against the standard
 platform APIs but are =#include=d only when building for their target.
 
-*** Web and Android: the platform owns the loop
+*** Web, Android and iOS: the platform owns the loop
 
 On Win32, Linux and macOS the reactor's thread is its own and may block in the
-native wait. On *web* and *Android* it may not. A browser tab and an Android UI
-thread each already run an event loop (=requestAnimationFrame= scheduling; Java's
-=Looper.loop()=); blocking that thread freezes the app — and Android kills a UI
-thread that stops responding within seconds.
+native wait. On *web*, *Android* and *iOS* it may not: a browser tab, an Android
+UI thread and an iOS app each already run an event loop (the browser's task /
+animation-frame scheduler, Java's =Looper.loop()=, =UIApplicationMain='s
+=CFRunLoop=). Blocking that thread freezes the app — and Android kills a UI thread
+that stops responding within seconds.
 
-So on these two platforms the reactor does not drive its own =while= loop.
-=mel_reactor_run= hands =mel_reactor_iterate= to the platform and returns:
+So on these platforms the reactor does not drive its own =while= loop.
+=mel_reactor_run= (=MEL_REACTOR_ATTACHED=) runs =init= inline, performs the first
+=iterate=, hands the next iteration to the platform, and returns. Each backend
+turns the folded timeout into a single *one-shot* platform wakeup and re-arms
+from the next =iterate=:
 
-- *web* — =emscripten_set_main_loop= calls =iterate= once per animation frame.
-- *Android* — a =timerfd= is registered on the thread's existing =ALooper= (the
-  one =Looper.loop()= already pumps) with =ALooper_addFd=; each expiry runs one
-  =iterate=, which re-arms the timerfd for the folded timeout. The reactor never
-  calls =ALooper_pollOnce= itself — that would block the UI thread.
+- *web* — the folded timeout selects the primitive: =0= → =requestAnimationFrame=
+  (the vsync-paced fast / frame loop, which also pauses with the tab), a finite
+  timeout → =setTimeout= at that deadline, =FOREVER= → nothing scheduled. The
+  module is kept alive with =emscripten_exit_with_live_runtime=; DOM event
+  handlers re-enter through =wake=. There is no persistent frame loop.
+- *Android* — a =timerfd= on the thread's existing =ALooper= (=ALooper_addFd=);
+  each expiry runs one =iterate=, which re-arms the timerfd for the folded
+  timeout. The reactor never calls =ALooper_pollOnce= itself — that would block
+  the UI thread.
+- *iOS* — a =CFRunLoopTimer= on =UIApplicationMain='s main =CFRunLoop=, armed to
+  the folded timeout (created on demand, removed when idle); fd sources are
+  registered as =CFFileDescriptor= run-loop sources that wake an =iterate= on
+  activity.
 
-=reactor_backend_wait= never blocks on either platform; it only does a
+=reactor_backend_wait= never blocks on these platforms; it only does a
 non-blocking =poll()= to refresh =revents=. When the folded timeout is =FOREVER=
-with no fds the reactor is idle and the drive is *suspended* (rAF cancelled /
-timerfd disarmed); =wake()= re-arms it — the same "sleep until something happens"
-contract the blocking backends get for free.
+with no fds the reactor is idle and *nothing* is scheduled (no rAF / timeout,
+timerfd disarmed, =CFRunLoopTimer= removed); =wake()= re-arms it — the same
+"sleep until something happens" contract the blocking backends get for free.
 
-Because =mel_reactor_run= returns immediately on Android, the JNI entry shim must
-return to the Activity after calling it and call =mel_reactor_shutdown= from
-=onDestroy= — not =run()= then =shutdown()= back-to-back the way a desktop bridge
-does. Wiring the Emscripten / NDK reactor drive into the build is separate
-build-system work; the backends themselves are complete.
+Because =mel_reactor_run= returns immediately here, the platform entry shim must
+return to the host after calling it (the iOS =UIApplicationMain= app delegate,
+the Android Activity) and call =mel_reactor_shutdown= from teardown
+(=onDestroy=) — not =run()= then =shutdown()= back-to-back the way a desktop
+bridge does. The iOS drive is wired through =modules/app/src/ios=; wiring the
+Emscripten / NDK drive into an app entry is separate build-system work.
 
 * Performance
 

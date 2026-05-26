@@ -44,31 +44,16 @@ removed; the shipped design lives in =readme.org=.
 - *Typed extras as escape hatches.* status-vs-navigation split,
   =tappableElement=, =waterfall= (Android); =keyboardLayoutGuide=-driven =ime=
   on appkit/uikit; web =env(safe-area-inset-*)= + =visualViewport= for =ime=.
-- iOS/web/uikit inset fills land with those backends.
-
-** win32 verification debt
-Containers, Structural and Insets were written *blind* on win32 (no clang-on-
-Windows host). Unverified until built with clang on Windows: the BS_GROUPBOX
-inner-inset subclass, the WS_*SCROLL repositioning, the tab-control parent
-subclass, the dialog owner-disable/result path, the custom splitter drag math,
-and the (trivial) zero-inset path.
 
 * Deferred — backends
 
 Each is specified in =readme.org= and must be delivered first-class.
 
-** WIP  uikit backend (iOS, iPadOS, windowed visionOS)
-   =modules/gui/src/ios/= implements Frame, Dialog, Canvas, Button, Label,
-   CheckBox, Slider, TextField, Panel, GroupBox, ScrollView, Splitter, TabView
-   over UIKit; the build is wired (=ios= chain, =ios_run=, =Info.ios.plist=,
-   =-framework UIKit=). Uncommitted and not yet verified on a simulator/device.
-   Resume point: build + run hello-world-gui on iOS, eyeball, then commit.
 ** TODO uwp / WinUI backend (declarative; observable-model bridge)
 ** TODO swiftui backend (macOS/visionOS ornaments & volumes; declarative)
 ** TODO gtk4 backend (Linux default; portable to win32/macos)
 ** TODO qt backend (portable; C++ shim TU)
 ** TODO compose backend (Jetpack Compose; declarative; JNI/Kotlin bridge)
-** TODO web backend (DOM via Emscripten)
 ** TODO drawn backend (CPU + GPU renderers; immersive Quest & visionOS)
 
 * Deferred — android follow-ups
