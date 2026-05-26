@@ -68,49 +68,30 @@ void build_struct(Mel_Gui_Handle frame, void* user)
     g_struct_status = MEL_GUI_HANDLE_NONE;
 
     mel_gui_set_text(frame, S8("Structural Widgets"));
-    mel_gui_set_layout(frame, mel_column_layout(
-        .spacing = 8, .margin = 16, .cross_align = MEL_ALIGN_STRETCH));
+    mel_gui_set_layout(frame, mel_column_layout(.spacing = 8, .margin = 16, .cross_align = MEL_ALIGN_STRETCH));
 
-    mel_label_create(frame, .text = S8("TabView, Splitter, Dialog"),
-        .layoutable = { .preferred_w = 380, .preferred_h = 28 });
+    mel_label_create(frame, .text = S8("TabView, Splitter, Dialog"), .layoutable = { .preferred_w = 380, .preferred_h = 28 });
 
-    Mel_Gui_Handle tabs = mel_tabview_create(frame,
-        .layoutable = { .preferred_h = 160, .weight = 1 });
+    Mel_Gui_Handle tabs = mel_tabview_create(frame, .layoutable = { .preferred_h = 160, .weight = 1 });
 
-    Mel_Gui_Handle t1 = mel_tab_create(tabs, .title = S8("First"),
-        .layout = mel_column_layout(.spacing = 6, .margin = 12, .cross_align = MEL_ALIGN_STRETCH));
-    mel_label_create(t1, .text = S8("Each tab is its own node."),
-        .layoutable = { .preferred_h = 24 });
-    mel_button_create(t1, .text = S8("Children parent to the tab."),
-        .layoutable = { .preferred_h = 34 });
+    Mel_Gui_Handle t1 = mel_tab_create(tabs, .title = S8("First"), .layout = mel_column_layout(.spacing = 6, .margin = 12, .cross_align = MEL_ALIGN_STRETCH));
+    mel_label_create(t1, .text = S8("Each tab is its own node."), .layoutable = { .preferred_h = 24 });
+    mel_button_create(t1, .text = S8("Children parent to the tab."), .layoutable = { .preferred_h = 34 });
 
-    Mel_Gui_Handle t2 = mel_tab_create(tabs, .title = S8("Second"),
-        .layout = mel_column_layout(.spacing = 6, .margin = 12, .cross_align = MEL_ALIGN_STRETCH));
-    mel_label_create(t2, .text = S8("Second page content."),
-        .layoutable = { .preferred_h = 24 });
+    Mel_Gui_Handle t2 = mel_tab_create(tabs, .title = S8("Second"), .layout = mel_column_layout(.spacing = 6, .margin = 12, .cross_align = MEL_ALIGN_STRETCH));
+    mel_label_create(t2, .text = S8("Second page content."), .layoutable = { .preferred_h = 24 });
 
-    Mel_Gui_Handle split = mel_splitter_create(frame,
-        .orientation = MEL_SPLIT_HORIZONTAL,
-        .layoutable = { .preferred_h = 140, .weight = 1 });
+    Mel_Gui_Handle split = mel_splitter_create(frame, .orientation = MEL_SPLIT_HORIZONTAL, .layoutable = { .preferred_h = 140, .weight = 1 });
 
-    Mel_Gui_Handle left = mel_splitpane_create(split, .min_size = 80,
-        .layout = mel_column_layout(.spacing = 6, .margin = 10, .cross_align = MEL_ALIGN_STRETCH));
-    mel_label_create(left, .text = S8("Left pane"),
-        .layoutable = { .preferred_h = 24 });
+    Mel_Gui_Handle left = mel_splitpane_create(split, .min_size = 80, .layout = mel_column_layout(.spacing = 6, .margin = 10, .cross_align = MEL_ALIGN_STRETCH));
+    mel_label_create(left, .text = S8("Left pane"), .layoutable = { .preferred_h = 24 });
 
-    Mel_Gui_Handle right = mel_splitpane_create(split, .min_size = 80,
-        .layout = mel_column_layout(.spacing = 6, .margin = 10, .cross_align = MEL_ALIGN_STRETCH));
-    mel_label_create(right, .text = S8("Right pane, drag the divider"),
-        .layoutable = { .preferred_h = 24 });
+    Mel_Gui_Handle right = mel_splitpane_create(split, .min_size = 80, .layout = mel_column_layout(.spacing = 6, .margin = 10, .cross_align = MEL_ALIGN_STRETCH));
+    mel_label_create(right, .text = S8("Right pane, drag the divider"), .layoutable = { .preferred_h = 24 });
 
-    mel_button_create(frame, .text = S8("Open Dialog"),
-        .pointer.on_click = open_dialog_clicked,
-        .layoutable = { .preferred_h = 38 });
+    mel_button_create(frame, .text = S8("Open Dialog"), .pointer.on_click = open_dialog_clicked, .layoutable = { .preferred_h = 38 });
 
-    g_struct_status = mel_label_create(frame, .text = S8("dialog: (not opened)"),
-        .layoutable = { .preferred_h = 24 });
+    g_struct_status = mel_label_create(frame, .text = S8("dialog: (not opened)"), .layoutable = { .preferred_h = 24 });
 
-    mel_button_create(frame, .text = S8("Back to Main"),
-        .pointer.on_click = back_clicked,
-        .layoutable = { .preferred_h = 38 });
+    mel_button_create(frame, .text = S8("Back to Main"), .pointer.on_click = back_clicked, .layoutable = { .preferred_h = 38 });
 }
