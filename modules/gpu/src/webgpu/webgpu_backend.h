@@ -15,9 +15,10 @@ struct Mel_Gpu_Device {
 };
 
 struct Mel_Gpu_Buffer {
-    WGPUBuffer buf;
-    usize      size;
-    bool       host_visible;
+    Mel_Gpu_Device* device;
+    WGPUBuffer      buf;
+    usize           size;
+    bool            host_visible;
 };
 
 struct Mel_Gpu_Shader {

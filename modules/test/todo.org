@@ -1,0 +1,140 @@
+#+TITLE: test — roadmap
+#+STARTUP: showall
+
+* Status
+Tier 1 (unit) is built: the =MEL_TEST= macro and assertions in
+=include/test/test.h=, the runner in =tools/test/src/=, and the =test= verb in
+the build (synthesizes a =melody-test= application that links =melody= and
+compiles every =modules/*/test/*.c=). Tiers 2 and 3 are designed here, not yet
+built.
+
+Decisions already taken (do not relitigate without cause):
+- Native host only; no CI. The =test= verb runs the linked binary directly.
+- Crash isolation is fork-per-test on POSIX (a fired assertion is a reported
+  failure, never a dead suite — MEL-ENGINE-VIII). Windows runs in-process until
+  a spawn path lands.
+- Registration is constructor self-registration, no linker-set magic, so it
+  holds on every toolchain (MEL-ENGINE-VII).
+- Tier-3 events enter at the *logical* layer first; OS-level synthesis is a
+  later, platform-gated fidelity upgrade.
+
+* Tier 2 — deterministic replay
+Goal: "spawn this app, replay this input stream; the state at frame N must equal
+this golden value." The whole runtime is reactor-driven (=mel_app_setup= takes a
+=Mel_Reactor*=), so determinism is a *reactor capability*, not a runner feature.
+The test module merely drives it.
+
+** Driven reactor mode
+A new spawn mode (beside =MEL_REACTOR_THREADED=/=ATTACHED=) in which the reactor
+takes none of its inputs from the OS:
+- Virtual monotonic clock. =ready_time= is already =monotonic_ns= (see
+  =reactor/reactor.h=); in driven mode the clock is a value the harness advances
+  explicitly, never =clock_gettime=. The per-platform =reactor_backend.inl= /
+  =event_pump= must consult an injected clock rather than the system one.
+- Synthetic event source. The OS pump (=macos/event_pump.m=, the
+  =*_backend.inl= waiters) is replaced by a queue the harness fills. No
+  =poll()=/=GCD= wait; "wait until next ready_time" becomes "advance the virtual
+  clock to it."
+- Explicit stepping. =mel_reactor_step(reactor, n)= dispatches exactly =n=
+  ready iterations and returns, so the harness owns the frame boundary.
+
+This honors MEL-ENGINE-III: driven mode spends no cycle the harness did not ask
+for; nothing waits, nothing wakes on its own.
+
+** Corralling nondeterminism (the hard part)
+Every nondeterministic source must route through a seam the harness pins:
+- Time: the virtual clock above.
+- RNG: a seedable engine source; the harness fixes the seed. Audit for any
+  ad-hoc =rand()=/time-seeded paths.
+- Thread / async scheduling: =MEL_REACTOR_THREADED= and the =thread=/=async=
+  modules defeat reproducibility. Driven mode must run single-threaded, or async
+  completions must be ordered deterministically (a recorded completion order).
+- Address-derived behavior: anything that hashes or orders by pointer value
+  leaks ASLR into output. Hash tables iterated for output need a stable order.
+
+** Record / replay
+- Record mode: serialize the synthetic event stream plus all seeds to a file.
+- Replay mode: feed that file back through the synthetic source.
+- Golden state: a =snapshot(reactor) -> bytes= and =compare(snapshot, golden)=.
+  Open question — what is snapshotted? Candidates: a registered set of state
+  blobs, or a frame hash the app computes. Start with an app-provided hash; a
+  general heap snapshot is a much larger commitment.
+
+** Test surface (sketch)
+#+begin_src c
+MEL_SIM_TEST(replay, level_one) {
+    Mel_Sim* s = mel_sim_open("apps/foo");      // spawn driven, app's setup runs
+    mel_sim_load_inputs(s, "fixtures/level_one.inputs");
+    mel_sim_run_to_frame(s, 600);
+    MEL_EXPECT_EQ_U64(mel_sim_state_hash(s), 0xDEADBEEFu);
+    mel_sim_close(s);
+}
+#+end_src
+
+** Open questions
+- Does driven mode forbid =MEL_REACTOR_THREADED=, or impose an ordering on it?
+- Where do fixtures (inputs, goldens) live — =modules/*/test/fixtures/=, or by
+  the app under test?
+- A driven app needs no window/GPU; can a headless reactor variant bring the app
+  up without the gui/gpu modules, or do we stub a surface?
+
+* Tier 3 — UI end-to-end
+Goal: "open the app, click this button, a window appears bearing these
+components, and this component's text is X." Two seams are missing in =gui=;
+both are first-class engine features the test module consumes (MEL-ENGINE-IX).
+
+** Widget-tree query
+Reading is half-present: =mel_gui_get_text(h, buf, cap)= already pulls text.
+Missing is *finding* a widget. Add a query API over the retained tree:
+- enumerate children of a handle / roots of a screen;
+- find by stable id (=mel_gui_id= exists), by role/kind, by text;
+- read role, bounds, visibility, enabled, focus (setters exist in =widget.h=;
+  add the getters).
+Backed by the existing generational handle table (=gui/handle.h=).
+
+** Logical event injection
+Events today arrive only from the native backend into the =Mel_Gui_*_Cb=
+callbacks (=gui/callbacks.h=). Add an injection seam that routes a synthetic
+event through the *same* dispatch the backend feeds, so a test exercises real
+widget logic without a real OS event:
+- =mel_gui_test_click(h)=, =mel_gui_test_pointer(h, x, y, kind)=,
+  =mel_gui_test_key(h, key)=, =mel_gui_test_text(h, codepoint)=.
+This is deterministic and portable across cocoa/dom/winui; it does *not*
+exercise the native backend glue — accepted, per the decision above.
+
+** OS-level synthesis (later)
+A higher-fidelity tier that posts real OS events per backend (=CGEvent= on macos,
+=SendInput= on win32, DOM events on web). Per-platform, flaky, needs a display;
+platform-gated and built only where one exists. Linux has no UI backend, so
+tier 3 cannot run there at all.
+
+** Test surface (sketch)
+#+begin_src c
+MEL_UI_TEST(mainscreen, open_detail) {
+    Mel_Ui* u = mel_ui_open("apps/hello-world-gui");
+    Mel_Gui_Handle btn = mel_ui_find_by_id(u, BTN_OPEN_DETAIL);
+    mel_gui_test_click(btn);
+    Mel_Gui_Handle lbl = mel_ui_find_by_text(u, S8("Detail"));
+    MEL_EXPECT(mel_gui_alive(lbl));
+    char buf[64];
+    mel_gui_get_text(lbl, buf, sizeof buf);
+    MEL_EXPECT(/* buf == expected */ 1);
+    mel_ui_close(u);
+}
+#+end_src
+A UI test is a driven-reactor session (tier 2) plus the query/injection seams,
+so tier 2 lands first.
+
+** Open questions
+- Stable widget identity for tests: lean on =mel_gui_id=, or add an explicit
+  test-id property?
+- Does the cocoa/dom backend need a real run-loop turn to realize a click's
+  effect, or does logical dispatch suffice synchronously? (Determines whether
+  tier 3 must step the reactor between action and assertion.)
+
+* Build / runner backlog (tier 1 follow-ups)
+- =-jN= parallel execution (independent forks).
+- =--timeout= override (default is 30s).
+- JUnit-XML output if a machine consumer ever appears (none today — no CI).
+- Per-test setup/teardown and shared fixtures.
+- Windows process isolation (spawn child with a =--filter= naming one test).

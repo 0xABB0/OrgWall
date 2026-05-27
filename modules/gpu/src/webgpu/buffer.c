@@ -27,6 +27,7 @@ Mel_Gpu_Buffer* mel_gpu_buffer_create_opt(Mel_Gpu_Device* dev, Mel_Gpu_Buffer_Op
 
     Mel_Gpu_Buffer* buf = calloc(1, sizeof *buf);
     if (!buf) { wgpuBufferRelease(b); return NULL; }
+    buf->device       = dev;
     buf->buf          = b;
     buf->size         = size;
     buf->host_visible = (opt.memory != MEL_GPU_MEMORY_GPU_ONLY);
@@ -43,5 +44,14 @@ void mel_gpu_buffer_destroy(Mel_Gpu_Buffer* buf)
 void* mel_gpu_buffer_map(Mel_Gpu_Buffer* buf)
 {
     (void)buf;
-    return NULL; // WebGPU mapping is asynchronous; not exposed synchronously here
+    return NULL; // WebGPU mapping is asynchronous; use mel_gpu_buffer_write
+}
+
+void mel_gpu_buffer_write(Mel_Gpu_Buffer* buf, const void* data, usize size)
+{
+    if (!buf || !data || size == 0) return;
+    if (size > buf->size) size = buf->size;
+    size &= ~(usize)3u; // wgpuQueueWriteBuffer requires a 4-byte-multiple size
+    if (size == 0) return;
+    wgpuQueueWriteBuffer(buf->device->queue, buf->buf, 0, data, size);
 }

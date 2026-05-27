@@ -5,12 +5,28 @@
 
 #include "gpu_host.h"
 #include "triangle.h"
+#include "cube.h"
+#include "lorenz.h"
 
 static void open_triangle_clicked(Mel_Gui_Handle h, void* user)
 {
     (void)h;
     (void)user;
     gpu_host_open(&TRIANGLE_APP);
+}
+
+static void open_cube_clicked(Mel_Gui_Handle h, void* user)
+{
+    (void)h;
+    (void)user;
+    gpu_host_open(&CUBE_APP);
+}
+
+static void open_lorenz_clicked(Mel_Gui_Handle h, void* user)
+{
+    (void)h;
+    (void)user;
+    gpu_host_open(&LORENZ_APP);
 }
 
 static void build_host(Mel_Gui_Handle frame, void* user)
@@ -27,6 +43,16 @@ static void build_host(Mel_Gui_Handle frame, void* user)
     mel_button_create(frame,
         .text = S8("Open hello-triangle"),
         .pointer.on_click = open_triangle_clicked,
+        .layoutable = { .preferred_h = 44 });
+
+    mel_button_create(frame,
+        .text = S8("Open spinning-cube"),
+        .pointer.on_click = open_cube_clicked,
+        .layoutable = { .preferred_h = 44 });
+
+    mel_button_create(frame,
+        .text = S8("Open lorenz-attractor"),
+        .pointer.on_click = open_lorenz_clicked,
         .layoutable = { .preferred_h = 44 });
 }
 

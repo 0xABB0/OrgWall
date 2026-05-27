@@ -57,6 +57,7 @@ static void window_resized(Mel_Gui_Handle h, i32 cw, i32 ch, void* user)
 
     if (w->swapchain) {
         mel_gpu_swapchain_resize(w->swapchain, cw, ch);
+        if (w->app->resize) w->app->resize(w->state, cw, ch);
         return;
     }
 
@@ -68,6 +69,7 @@ static void window_resized(Mel_Gui_Handle h, i32 cw, i32 ch, void* user)
     if (!w->swapchain) return;
 
     w->state  = w->app->init ? w->app->init(g_device, w->swapchain) : NULL;
+    if (w->app->resize) w->app->resize(w->state, cw, ch);
     w->source = mel_gpu_render_source_new(g_reactor, w->swapchain, 60, window_render, w);
 }
 

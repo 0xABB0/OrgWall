@@ -136,5 +136,15 @@ void mel_gpu_buffer_destroy(Mel_Gpu_Buffer* buf)
 void* mel_gpu_buffer_map(Mel_Gpu_Buffer* buf)
 {
     (void)buf;
-    return NULL; // persistent mapping not exposed; use the data field at creation
+    return NULL; // persistent mapping not exposed; use mel_gpu_buffer_write
+}
+
+void mel_gpu_buffer_write(Mel_Gpu_Buffer* buf, const void* data, usize size)
+{
+    if (!buf || !buf->host_visible || !data || size == 0) return;
+    if (size > buf->size) size = buf->size;
+    void* p;
+    if (vkMapMemory(buf->device->device, buf->mem, 0, size, 0, &p) != VK_SUCCESS) return;
+    memcpy(p, data, size);
+    vkUnmapMemory(buf->device->device, buf->mem);
 }

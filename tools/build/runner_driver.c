@@ -12,6 +12,15 @@ static bool launch_app(Mel_Build_Target *t, Mel_Platform p, Mel_Config c) {
     return cmd_run_sync_and_reset(&cmd);
 }
 
+static bool launch_test(Mel_Build_Target *t, Mel_Platform p, Mel_Config c, int argc, char **argv) {
+    Cmd cmd = {0};
+    const char *bin = app_artifact(t, p, c);
+    if (p == MEL_PLATFORM_WIN32) bin = temp_sprintf("%s.exe", bin);
+    cmd_append(&cmd, bin);
+    for (int i = 0; i < argc; i++) cmd_append(&cmd, argv[i]);
+    return cmd_run_sync_and_reset(&cmd);
+}
+
 #ifdef _WIN32
 static bool tool_on_path(const char *tool) {
     char found[MAX_PATH];
@@ -28,6 +37,33 @@ static bool tool_on_path(const char *tool) {
     return false;
 }
 #endif
+
+// Synthesize the test target in-code: an application linking melody, whose
+// sources are the runner plus every modules/<m>/test directory. No build.c on
+// disk; appended straight into the registry. Module test/ dirs are invisible to
+// the ordinary build (source discovery only descends <m>/src), so this is the
+// sole path that compiles them.
+static Mel_Build_Target *synthesize_test_target(void) {
+    Mel_Build_Target t = {0};
+    t.dir = temp_strdup(".");
+    mel_build_set_name(&t, "melody-test");
+    mel_build_set_kind(&t, MEL_TARGET_APPLICATION);
+    mel_build_add_dependency(&t, "melody");
+    mel_build_suppress_default(&t, MEL_STAGE_CONFIGURE);
+    mel_build_add_source_root(&t, "tools/test/src");
+
+    File_Paths mods = {0};
+    if (!read_entire_dir("modules", &mods)) return NULL;
+    for (size_t i = 0; i < mods.count; i++) {
+        const char *m = mods.items[i];
+        if (strcmp(m, ".") == 0 || strcmp(m, "..") == 0) continue;
+        const char *td = temp_sprintf("modules/%s/test", m);
+        if (get_file_type(td) == NOB_FILE_DIRECTORY) mel_build_add_source_root(&t, td);
+    }
+
+    da_append(&g_targets, t);
+    return &g_targets.items[g_targets.count - 1];
+}
 
 static bool structural_lint(void) {
     if (!tool_on_path("ast-grep")) {
@@ -49,14 +85,24 @@ int mel_build_main(int argc, char **argv) {
     const char *target_name = NULL;
     const char *platform_name = NULL;
     const char *cli_gpu = NULL;
+    char **test_args = NULL;
+    int    test_argc = 0;
     for (int i = 2; i < argc; i++) {
         const char *a = argv[i];
+        if (strcmp(a, "--") == 0)             { test_args = &argv[i + 1]; test_argc = argc - (i + 1); break; }
         if (strcmp(a, "--release") == 0)      { config = MEL_CONFIG_RELEASE; continue; }
         if (strcmp(a, "--debug") == 0)        { config = MEL_CONFIG_DEBUG;   continue; }
         if (strncmp(a, "--gpu=", 6) == 0)     { cli_gpu = a + 6; continue; }
         if (strcmp(a, "--gpu") == 0)          { if (i + 1 < argc) cli_gpu = argv[++i]; continue; }
         if (!target_name)        target_name = a;
         else if (!platform_name) platform_name = a;
+    }
+
+    // `test` takes no target name (the target is synthesized), so its lone
+    // positional is the platform.
+    if (strcmp(command, "test") == 0 && target_name && !platform_name) {
+        platform_name = target_name;
+        target_name = NULL;
     }
 
     // The platform positional is platform[:backend[:runtime]]; an empty axis
@@ -83,7 +129,7 @@ int mel_build_main(int argc, char **argv) {
     if (!discover_targets()) return 1;
 
     Mel_Stage last = MEL_STAGE_LINK;
-    bool do_run = false, do_debug = false, full = false;
+    bool do_run = false, do_debug = false, do_test = false, full = false;
     if (strcmp(command, "configure") == 0) last = MEL_STAGE_CONFIGURE;
     else if (strcmp(command, "compile") == 0) last = MEL_STAGE_COMPILE;
     else if (strcmp(command, "link") == 0) last = MEL_STAGE_LINK;
@@ -91,6 +137,7 @@ int mel_build_main(int argc, char **argv) {
     else if (strcmp(command, "build") == 0) full = true;
     else if (strcmp(command, "run") == 0) { full = true; do_run = true; }
     else if (strcmp(command, "debug") == 0) { full = true; do_run = true; do_debug = true; }
+    else if (strcmp(command, "test") == 0) { full = true; do_test = true; }
     else { nob_log(NOB_ERROR, "unknown command '%s'", command); return 1; }
 
     // A full build produces the platform's final artifact: an APK on Android, a
@@ -100,7 +147,10 @@ int mel_build_main(int argc, char **argv) {
                          ? MEL_STAGE_PACKAGE : MEL_STAGE_LINK;
 
     Mel_Build_Target *root = NULL;
-    if (target_name) {
+    if (do_test) {
+        root = synthesize_test_target();
+        if (!root) return 1;
+    } else if (target_name) {
         root = registry_find(target_name);
         if (!root) { nob_log(NOB_ERROR, "unknown target '%s'", target_name); return 1; }
     } else {
@@ -137,6 +187,8 @@ int mel_build_main(int argc, char **argv) {
     if (last >= MEL_STAGE_COMPILE && !structural_lint()) return 1;
 
     if (!build_graph(root, platform, config, last)) return 1;
+
+    if (do_test) return launch_test(root, platform, config, test_argc, test_args) ? 0 : 1;
 
     if (do_run) {
         if (root->kind != MEL_TARGET_APPLICATION) {

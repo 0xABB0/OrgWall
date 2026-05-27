@@ -1,3 +1,5 @@
+#include <string.h>
+
 #include "metal.h"
 
 Mel_Gpu_Buffer* mel_gpu_buffer_create_opt(Mel_Gpu_Device* dev, Mel_Gpu_Buffer_Opt opt)
@@ -44,4 +46,11 @@ void* mel_gpu_buffer_map(Mel_Gpu_Buffer* buf)
 {
     if (!buf || !buf->host_visible) return NULL;
     return [buf->mtl contents];
+}
+
+void mel_gpu_buffer_write(Mel_Gpu_Buffer* buf, const void* data, usize size)
+{
+    if (!buf || !buf->host_visible || !data || size == 0) return;
+    if (size > buf->size) size = buf->size;
+    memcpy([buf->mtl contents], data, size);
 }
