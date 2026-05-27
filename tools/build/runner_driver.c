@@ -12,6 +12,34 @@ static bool launch_app(Mel_Build_Target *t, Mel_Platform p, Mel_Config c) {
     return cmd_run_sync_and_reset(&cmd);
 }
 
+#ifdef _WIN32
+static bool tool_on_path(const char *tool) {
+    char found[MAX_PATH];
+    return SearchPathA(NULL, temp_sprintf("%s.exe", tool), NULL, MAX_PATH, found, NULL) != 0;
+}
+#else
+static bool tool_on_path(const char *tool) {
+    const char *path = getenv("PATH");
+    if (!path || !*path) return false;
+    char *dup = temp_strdup(path);
+    for (char *dir = strtok(dup, ":"); dir; dir = strtok(NULL, ":")) {
+        if (file_exists(temp_sprintf("%s/%s", dir, tool)) > 0) return true;
+    }
+    return false;
+}
+#endif
+
+static bool structural_lint(void) {
+    if (!tool_on_path("ast-grep")) {
+        nob_log(NOB_WARNING, "ast-grep not on PATH; skipping structural lint");
+        return true;
+    }
+    nob_log(NOB_INFO, "structural lint (ast-grep)");
+    Cmd cmd = {0};
+    cmd_append(&cmd, "ast-grep", "scan");
+    return cmd_run_sync_and_reset(&cmd);
+}
+
 int mel_build_main(int argc, char **argv) {
     const char *command = argc >= 2 ? argv[1] : "build";
 
@@ -105,6 +133,8 @@ int mel_build_main(int argc, char **argv) {
             mel_platform_name(platform), g_backend ? g_backend : "headless",
             g_gpu_backend ? g_gpu_backend : "no-gpu", g_runtime,
             g_web_threading ? " +threading" : "", g_web_asyncify ? " +asyncify" : "");
+
+    if (last >= MEL_STAGE_COMPILE && !structural_lint()) return 1;
 
     if (!build_graph(root, platform, config, last)) return 1;
 

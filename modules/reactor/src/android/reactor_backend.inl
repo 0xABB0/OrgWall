@@ -11,6 +11,40 @@
 #define MEL_REACTOR_BACKEND_HAS_ATTACHED 1
 
 static int reactor_android_tick(int fd, int events, void* data);
+static int reactor_android_fd_cb(int fd, int events, void* data);
+
+// Reconcile the looper's registered source fds to exactly the desired poll set:
+// add the newly desired, remove those gone, leave stable ones in place. Each fd
+// going ready wakes the looper, which arms the tick so the next iterate pulls
+// its readiness with the non-blocking poll() in reactor_backend_wait. The
+// add/remove syscalls happen only on change.
+static void reactor_android_reconcile_fds(Mel_Reactor* r, Mel_Reactor_Poll** polls, usize poll_count)
+{
+    for (usize i = 0; i < r->reg_fd_count;) {
+        bool desired = false;
+        for (usize j = 0; j < poll_count; j++) {
+            if (polls[j] && (int)polls[j]->handle == r->reg_fds[i]) { desired = true; break; }
+        }
+        if (desired) { i++; continue; }
+        ALooper_removeFd((ALooper*)r->looper, r->reg_fds[i]);
+        r->reg_fds[i] = r->reg_fds[--r->reg_fd_count];
+    }
+
+    for (usize j = 0; j < poll_count && r->reg_fd_count < MEL_REACTOR_MAX_POLLS; j++) {
+        if (!polls[j]) continue;
+        int fd = (int)polls[j]->handle;
+        bool registered = false;
+        for (usize i = 0; i < r->reg_fd_count; i++) {
+            if (r->reg_fds[i] == fd) { registered = true; break; }
+        }
+        if (registered) continue;
+        int events = 0;
+        if (polls[j]->events & MEL_REACTOR_POLL_IN)  events |= ALOOPER_EVENT_INPUT;
+        if (polls[j]->events & MEL_REACTOR_POLL_OUT) events |= ALOOPER_EVENT_OUTPUT;
+        ALooper_addFd((ALooper*)r->looper, fd, 0, events, reactor_android_fd_cb, r);
+        r->reg_fds[r->reg_fd_count++] = fd;
+    }
+}
 
 static void reactor_android_arm(Mel_Reactor* r, i32 timeout_ms)
 {
@@ -43,18 +77,29 @@ static bool reactor_backend_init(Mel_Reactor* r)
         return false;
     }
     r->looper          = looper;
+    r->reg_fd_count    = 0;
     r->android_looping = false;
     return true;
 }
 
 static void reactor_backend_shutdown(Mel_Reactor* r)
 {
+    reactor_android_reconcile_fds(r, NULL, 0);
     if (r->android_looping) {
         ALooper_removeFd((ALooper*)r->looper, r->timer_fd);
         r->android_looping = false;
     }
     if (r->timer_fd >= 0) close(r->timer_fd);
     if (r->looper) ALooper_release((ALooper*)r->looper);
+}
+
+// A source fd going ready wakes the looper here; record nothing (the iterate's
+// poll() pulls readiness) and just arm the tick so an iterate runs now.
+static int reactor_android_fd_cb(int fd, int events, void* data)
+{
+    (void)fd; (void)events;
+    reactor_android_arm((Mel_Reactor*)data, 0);
+    return 1;
 }
 
 static int reactor_android_tick(int fd, int events, void* data)
@@ -100,6 +145,8 @@ static void reactor_backend_wake(Mel_Reactor* r)
 
 static bool reactor_backend_wait(Mel_Reactor* r, Mel_Reactor_Poll** polls, usize poll_count, i32 timeout)
 {
+    reactor_android_reconcile_fds(r, polls, poll_count);
+
     struct pollfd fds[MEL_REACTOR_MAX_POLLS];
     nfds_t        n = 0;
     for (usize i = 0; i < poll_count && n < MEL_REACTOR_MAX_POLLS; i++) {
@@ -130,12 +177,10 @@ static bool reactor_backend_wait(Mel_Reactor* r, Mel_Reactor_Poll** polls, usize
         }
     }
 
-    if (timeout >= 0) {
-        reactor_android_arm(r, timeout);
-    } else if (poll_count > 0) {
-        reactor_android_arm(r, 16);
-    } else {
-        reactor_android_disarm(r);
-    }
+    // Timers set a deadline; fd readiness wakes the looper through the
+    // registered fd callback. With neither pending the reactor is idle and
+    // nothing is scheduled.
+    if (timeout >= 0) reactor_android_arm(r, timeout);
+    else              reactor_android_disarm(r);
     return true;
 }

@@ -192,6 +192,7 @@ MEL_API Mel_Config    mel_build_ctx_config(const Mel_Build_Context *ctx);
 MEL_API const char   *mel_build_ctx_target_name(const Mel_Build_Context *ctx);
 MEL_API const char   *mel_build_ctx_backend(const Mel_Build_Context *ctx);
 MEL_API const char   *mel_build_ctx_runtime(const Mel_Build_Context *ctx);
+MEL_API const char   *mel_build_ctx_gpu_backend(const Mel_Build_Context *ctx);
 
 // Add a source for the compile stage to build (used from fetch_sources-style
 // callbacks for code generation outputs, etc.).
@@ -216,6 +217,8 @@ MEL_API bool mel_tp_cmake(Mel_Build_Context *ctx, const char *src_rel,
                           const char *const *args, size_t args_count, const char *produced_lib);
 MEL_API bool mel_tp_autotools(Mel_Build_Context *ctx, const char *src_rel, const char *extra_arg,
                               const char *produced_lib);
+MEL_API bool mel_tp_fetch_prebuilt(Mel_Build_Context *ctx, const char *url, const char *produced_lib);
+MEL_API bool mel_tp_fetch_git(const char *repo, const char *tag, const char *dest_rel);
 MEL_API const char *mel_tp_prefix(Mel_Build_Context *ctx);
 MEL_API const char *mel_tp_dep_prefix(Mel_Build_Context *ctx, const char *target_name);
 

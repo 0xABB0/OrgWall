@@ -78,7 +78,7 @@ The engine shall embrace every feature the domain demandeth. Where a capability 
 
 ## MEL-ENGINE-II: Thou shalt hide thy complexity, not thy power
 
-The engine shall bear the burden of complexity so that the user need not. Snake shall be written in 150 lines. A chat application in 300. Yet beneath those few lines liveth the same machinery that rendereth millions of triangles and manageth thousands of connections. The simple path and the powerful path are the same path — the user merely walketh further along it.
+The engine shall bear the burden of complexity so that the user need not. Yet beneath those few lines liveth the same machinery that rendereth millions of triangles and manageth thousands of connections. The simple path and the powerful path are the same path — the user merely walketh further along it.
 
 ## MEL-ENGINE-III: Thou shalt not steal what is not thine
 

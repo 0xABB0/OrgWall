@@ -24,7 +24,16 @@ static void reactor_apple_wake_perform(void* info)
 
 static void reactor_apple_arm(Mel_Reactor* r, CFAbsoluteTime when);
 static void reactor_apple_disarm(Mel_Reactor* r);
-static void reactor_apple_unregister_fds(Mel_Reactor* r);
+static void reactor_apple_reconcile_fds(Mel_Reactor* r, Mel_Reactor_Poll** polls, usize poll_count);
+
+// Threaded uses the loop's default mode (CFRunLoopRunInMode runs that mode);
+// attached registers in the common modes so the host loop fires us whatever
+// mode it is parked in. The mode is fixed for a reactor's lifetime, so an fd
+// source is always removed from the mode it was added to.
+static CFStringRef reactor_apple_mode(const Mel_Reactor* r)
+{
+    return r->mode == MEL_REACTOR_ATTACHED ? kCFRunLoopCommonModes : kCFRunLoopDefaultMode;
+}
 
 static bool reactor_backend_init(Mel_Reactor* r)
 {
@@ -52,7 +61,7 @@ static void reactor_backend_shutdown(Mel_Reactor* r)
         CFRunLoopSourceInvalidate((CFRunLoopSourceRef)r->cf_wake);
         CFRelease((CFRunLoopSourceRef)r->cf_wake);
     }
-    reactor_apple_unregister_fds(r);
+    reactor_apple_reconcile_fds(r, NULL, 0);
     if (r->cf_loop) CFRelease((CFRunLoopRef)r->cf_loop);
 }
 
@@ -100,6 +109,90 @@ static void reactor_apple_disarm(Mel_Reactor* r)
     r->cf_tick = NULL;
 }
 
+// Threaded (own-loop) fd callback: runs inside CFRunLoopRunInMode and records
+// readiness straight onto the poll. The callback is one-shot per enable, so the
+// run-mode path re-enables before each wait.
+static void reactor_apple_fd_callback(CFFileDescriptorRef fdref, CFOptionFlags types, void* info)
+{
+    (void)fdref;
+    Mel_Reactor_Poll* poll = info;
+    if (!poll) return;
+    if (types & kCFFileDescriptorReadCallBack)  poll->revents |= MEL_REACTOR_POLL_IN;
+    if (types & kCFFileDescriptorWriteCallBack) poll->revents |= MEL_REACTOR_POLL_OUT;
+}
+
+// Attached fd callback: the host loop owns the wait, so an fd going ready only
+// needs to wake an iteration — the readiness itself is captured by the poll()
+// inside reactor_backend_wait_attached.
+static void reactor_apple_fd_wake(CFFileDescriptorRef fdref, CFOptionFlags types, void* info)
+{
+    (void)fdref; (void)types;
+    reactor_apple_arm((Mel_Reactor*)info, CFAbsoluteTimeGetCurrent());
+}
+
+// Reconcile the registered CFFileDescriptor set to exactly the desired poll set:
+// drop registrations no longer desired, create the newly desired, leave stable
+// ones in place. The expensive create/add and remove/release happen only on
+// change, so a steady fd set costs nothing across iterations. A NULL/empty
+// desired set (shutdown) tears everything down.
+static void reactor_apple_reconcile_fds(Mel_Reactor* r, Mel_Reactor_Poll** polls, usize poll_count)
+{
+    CFRunLoopRef loop = (CFRunLoopRef)r->cf_loop;
+    CFStringRef  mode = reactor_apple_mode(r);
+
+    for (usize i = 0; i < r->cf_fd_count;) {
+        bool desired = false;
+        for (usize j = 0; j < poll_count; j++) {
+            if (polls[j] && polls[j] == r->cf_fd_polls[i]) { desired = true; break; }
+        }
+        if (desired) { i++; continue; }
+        CFRunLoopRemoveSource(loop, (CFRunLoopSourceRef)r->cf_fd_srcs[i], mode);
+        CFRelease((CFRunLoopSourceRef)r->cf_fd_srcs[i]);
+        CFFileDescriptorInvalidate((CFFileDescriptorRef)r->cf_fd_refs[i]);
+        CFRelease((CFFileDescriptorRef)r->cf_fd_refs[i]);
+        usize last = --r->cf_fd_count;
+        r->cf_fd_polls[i] = r->cf_fd_polls[last];
+        r->cf_fd_refs[i]  = r->cf_fd_refs[last];
+        r->cf_fd_srcs[i]  = r->cf_fd_srcs[last];
+    }
+
+    for (usize j = 0; j < poll_count && r->cf_fd_count < MEL_REACTOR_MAX_POLLS; j++) {
+        if (!polls[j]) continue;
+        bool registered = false;
+        for (usize i = 0; i < r->cf_fd_count; i++) {
+            if (r->cf_fd_polls[i] == polls[j]) { registered = true; break; }
+        }
+        if (registered) continue;
+
+        CFFileDescriptorContext ctx = {0};
+        ctx.info = r->mode == MEL_REACTOR_ATTACHED ? (void*)r : (void*)polls[j];
+        CFFileDescriptorCallBack cb = r->mode == MEL_REACTOR_ATTACHED
+            ? reactor_apple_fd_wake : reactor_apple_fd_callback;
+        CFFileDescriptorRef fdref = CFFileDescriptorCreate(
+            kCFAllocatorDefault, (CFFileDescriptorNativeDescriptor)polls[j]->handle, false, cb, &ctx);
+        if (!fdref) continue;
+        CFRunLoopSourceRef src = CFFileDescriptorCreateRunLoopSource(kCFAllocatorDefault, fdref, 0);
+        CFRunLoopAddSource(loop, src, mode);
+        r->cf_fd_polls[r->cf_fd_count] = polls[j];
+        r->cf_fd_refs[r->cf_fd_count]  = fdref;
+        r->cf_fd_srcs[r->cf_fd_count]  = src;
+        r->cf_fd_count++;
+    }
+}
+
+// CFFileDescriptor callbacks disable themselves once they fire, so re-arm every
+// registered fd for the events its poll currently wants before each wait.
+static void reactor_apple_enable_fds(Mel_Reactor* r)
+{
+    for (usize i = 0; i < r->cf_fd_count; i++) {
+        Mel_Reactor_Poll* p = r->cf_fd_polls[i];
+        CFOptionFlags want = 0;
+        if (p->events & MEL_REACTOR_POLL_IN)  want |= kCFFileDescriptorReadCallBack;
+        if (p->events & MEL_REACTOR_POLL_OUT) want |= kCFFileDescriptorWriteCallBack;
+        CFFileDescriptorEnableCallBacks((CFFileDescriptorRef)r->cf_fd_refs[i], want);
+    }
+}
+
 static void reactor_backend_attached_run(Mel_Reactor* r)
 {
     // We are already on the thread whose run loop will drive us, so run init
@@ -114,48 +207,15 @@ static void reactor_backend_attached_run(Mel_Reactor* r)
     if (!reactor_iterate(r, true)) reactor_attached_destroy(r);
 }
 
-// Threaded (own-loop) fd callback: runs inside CFRunLoopRunInMode and records
-// readiness straight onto the poll.
-static void reactor_apple_fd_callback(CFFileDescriptorRef fdref, CFOptionFlags types, void* info)
-{
-    (void)fdref;
-    Mel_Reactor_Poll* poll = info;
-    if (!poll) return;
-    if (types & kCFFileDescriptorReadCallBack)  poll->revents |= MEL_REACTOR_POLL_IN;
-    if (types & kCFFileDescriptorWriteCallBack) poll->revents |= MEL_REACTOR_POLL_OUT;
-}
-
-// Attached fd callback: the host loop owns the wait, so an fd going ready only
-// needs to wake an iteration — the readiness itself is captured by the poll()
-// inside reactor_backend_wait_attached. One-shot is fine: each iterate tears the
-// sources down and rebuilds them.
-static void reactor_apple_fd_wake(CFFileDescriptorRef fdref, CFOptionFlags types, void* info)
-{
-    (void)fdref; (void)types;
-    reactor_apple_arm((Mel_Reactor*)info, CFAbsoluteTimeGetCurrent());
-}
-
-static void reactor_apple_unregister_fds(Mel_Reactor* r)
-{
-    for (usize i = 0; i < r->cf_fd_count; i++) {
-        CFRunLoopRemoveSource((CFRunLoopRef)r->cf_loop, (CFRunLoopSourceRef)r->cf_fd_srcs[i],
-                              kCFRunLoopCommonModes);
-        CFRelease((CFRunLoopSourceRef)r->cf_fd_srcs[i]);
-        CFFileDescriptorInvalidate((CFFileDescriptorRef)r->cf_fd_refs[i]);
-        CFRelease((CFFileDescriptorRef)r->cf_fd_refs[i]);
-    }
-    r->cf_fd_count = 0;
-}
-
 // ATTACHED never blocks. It captures current fd readiness with a single
-// non-blocking poll() for this iterate, registers each fd as a CFFileDescriptor
-// source so future activity wakes the host loop (no polling), and arms the tick
-// only when a timer is pending. With nothing pending it leaves the run loop with
-// no reactor wakeups at all.
+// non-blocking poll() for this iterate (the persistent CFFileDescriptor sources
+// only wake future iterates), and arms the tick only when a timer is pending.
+// With nothing pending it leaves the run loop with no reactor wakeups at all.
 static bool reactor_backend_wait_attached(Mel_Reactor* r, Mel_Reactor_Poll** polls,
                                           usize poll_count, i32 timeout)
 {
-    reactor_apple_unregister_fds(r);
+    reactor_apple_reconcile_fds(r, polls, poll_count);
+    reactor_apple_enable_fds(r);
 
     struct pollfd fds[MEL_REACTOR_MAX_POLLS];
     nfds_t        n = 0;
@@ -183,25 +243,6 @@ static bool reactor_backend_wait_attached(Mel_Reactor* r, Mel_Reactor_Poll** pol
         }
     }
 
-    for (usize i = 0; i < poll_count && r->cf_fd_count < MEL_REACTOR_MAX_POLLS; i++) {
-        if (!polls[i]) continue;
-        CFFileDescriptorContext ctx = {0};
-        ctx.info = r;
-        CFFileDescriptorRef fdref = CFFileDescriptorCreate(
-            kCFAllocatorDefault, (CFFileDescriptorNativeDescriptor)polls[i]->handle,
-            false, reactor_apple_fd_wake, &ctx);
-        if (!fdref) continue;
-        CFOptionFlags want = 0;
-        if (polls[i]->events & MEL_REACTOR_POLL_IN)  want |= kCFFileDescriptorReadCallBack;
-        if (polls[i]->events & MEL_REACTOR_POLL_OUT) want |= kCFFileDescriptorWriteCallBack;
-        CFFileDescriptorEnableCallBacks(fdref, want);
-        CFRunLoopSourceRef src = CFFileDescriptorCreateRunLoopSource(kCFAllocatorDefault, fdref, 0);
-        CFRunLoopAddSource((CFRunLoopRef)r->cf_loop, src, kCFRunLoopCommonModes);
-        r->cf_fd_refs[r->cf_fd_count] = fdref;
-        r->cf_fd_srcs[r->cf_fd_count] = src;
-        r->cf_fd_count++;
-    }
-
     if (timeout >= 0) reactor_apple_arm(r, CFAbsoluteTimeGetCurrent() + (CFTimeInterval)timeout / 1000.0);
     else              reactor_apple_disarm(r);
     return true;
@@ -212,34 +253,14 @@ static bool reactor_backend_wait(Mel_Reactor* r, Mel_Reactor_Poll** polls, usize
     if (r->mode == MEL_REACTOR_ATTACHED)
         return reactor_backend_wait_attached(r, polls, poll_count, timeout);
 
-    CFRunLoopRef        loop = (CFRunLoopRef)r->cf_loop;
-    CFFileDescriptorRef fdrefs[MEL_REACTOR_MAX_POLLS];
-    CFRunLoopSourceRef  srcs[MEL_REACTOR_MAX_POLLS];
-    usize               n = 0;
-
-    for (usize i = 0; i < poll_count && n < MEL_REACTOR_MAX_POLLS; i++) {
-        if (!polls[i]) continue;
-        polls[i]->revents = 0;
-
-        CFFileDescriptorContext ctx = {0};
-        ctx.info = polls[i];
-        CFFileDescriptorRef fdref = CFFileDescriptorCreate(
-            kCFAllocatorDefault, (CFFileDescriptorNativeDescriptor)polls[i]->handle,
-            false, reactor_apple_fd_callback, &ctx);
-        if (!fdref) continue;
-
-        CFOptionFlags want = 0;
-        if (polls[i]->events & MEL_REACTOR_POLL_IN)  want |= kCFFileDescriptorReadCallBack;
-        if (polls[i]->events & MEL_REACTOR_POLL_OUT) want |= kCFFileDescriptorWriteCallBack;
-        CFFileDescriptorEnableCallBacks(fdref, want);
-
-        CFRunLoopSourceRef src = CFFileDescriptorCreateRunLoopSource(kCFAllocatorDefault, fdref, 0);
-        CFRunLoopAddSource(loop, src, kCFRunLoopDefaultMode);
-
-        fdrefs[n] = fdref;
-        srcs[n]   = src;
-        n++;
+    // THREADED owns the loop and blocks in it. Persistent CFFileDescriptor
+    // sources both break the wait when an fd goes ready and record readiness
+    // onto the poll, so no extra poll() syscall is needed.
+    reactor_apple_reconcile_fds(r, polls, poll_count);
+    for (usize i = 0; i < poll_count; i++) {
+        if (polls[i]) polls[i]->revents = 0;
     }
+    reactor_apple_enable_fds(r);
 
     CFTimeInterval secs;
     if      (timeout < 0)  secs = 1.0e9;
@@ -251,12 +272,5 @@ static bool reactor_backend_wait(Mel_Reactor* r, Mel_Reactor_Poll** polls, usize
 #if MEL_PLATFORM_OSX
     mel_reactor__macos_drain_events();
 #endif
-
-    for (usize i = 0; i < n; i++) {
-        CFRunLoopRemoveSource(loop, srcs[i], kCFRunLoopDefaultMode);
-        CFRelease(srcs[i]);
-        CFFileDescriptorInvalidate(fdrefs[i]);
-        CFRelease(fdrefs[i]);
-    }
     return true;
 }

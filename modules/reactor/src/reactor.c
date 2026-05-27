@@ -50,12 +50,15 @@ struct Mel_Reactor {
     void* cf_loop;
     void* cf_wake;
     void* cf_tick;
+    void* cf_fd_polls[MEL_REACTOR_MAX_POLLS];
     void* cf_fd_refs[MEL_REACTOR_MAX_POLLS];
     void* cf_fd_srcs[MEL_REACTOR_MAX_POLLS];
     usize cf_fd_count;
 #elif MEL_PLATFORM_ANDROID
     void* looper;
     int   timer_fd;
+    int   reg_fds[MEL_REACTOR_MAX_POLLS];
+    usize reg_fd_count;
     bool  android_looping;
 #elif MEL_PLATFORM_WEB
     long web_id;

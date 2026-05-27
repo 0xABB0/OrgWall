@@ -1,0 +1,81 @@
+#+TITLE: Reactor — TODO
+
+Open work for the reactor module. =README.org= is the specification; this file
+is what remains and the resume point for the next agent.
+
+Status keys: TODO (not started), WIP (in progress), BLOCKED (waiting on
+something else). Completed work is removed; the shipped design lives in the
+README.
+
+* Correctness
+
+** TODO Source allocator asymmetry
+=mel_reactor_source_new= always allocates the source from =mel_alloc_heap()=
+(it has no reactor yet), but =reactor_source_dispose= frees it — and
+=mel_reactor_source_add_poll= grows the poll array — through =s->reactor->alloc=
+once attached. With a non-default =Mel_Reactor_Spawn_Opt.alloc= the source and
+its polls are freed by an allocator that never allocated them. Latent: every
+current call site uses the default heap, so heap == heap and it never fires,
+which is exactly why it will rot unseen. Either thread the reactor's allocator
+into source creation (requires the reactor at =_new= time) or commit to
+heap-only source storage and say so in the header. Touches MEL-ENGINE-III.
+
+** TODO Decide the manual-drive story
+The README's old "a game owns its loop and calls =iterate= per frame" claim was
+removed because no such public entry exists, and =spawn= owns the loop with no
+handle handed back. If an app genuinely needs to own the =while= itself (custom
+frame pacing, embedding in a foreign loop we don't have a backend for), expose a
+deliberate surface — a handle accessor plus a public single-iterate — rather
+than letting it leak in by accident. Until then the idle-source fast loop is the
+sanctioned answer. MEL-ENGINE-IV (bend, don't break) argues for eventually
+offering it.
+
+* Integration
+
+** TODO hello-gpu render source outlives its surface (UAF)
+=apps/hello-gpu= attaches a per-window 60 Hz render-timer source but installs no
+close/destroy handler, and the cocoa frame backend never fires
+=lifecycle.on_destroy= / =on_close= from =windowWillClose= (see
+=modules/gui/todo.org=, "Inversion lifecycle" — =on_destroy= no longer fires).
+On window close =mel_gui__destroy_tree= releases the NSView while the render
+source stays attached and ready; the next dispatch renders into a freed surface.
+Multi-window (close a non-last window) makes it a sustained use-after-free.
+Fix: fire =on_destroy= from the cocoa frame's =windowWillClose=, have hello-gpu
+tear down its render source (and free the leaked =Gpu_Window=) from that hook.
+The reactor's deferred-destroy then suppresses the stray final dispatch.
+
+* Backends
+
+** TODO Validate the android backend on device
+The looper-registered fd path (=ALooper_addFd= for both the =timerfd= and the
+source fds, reconciled each =wait=) and the attached teardown via
+=mel_reactor_quit= → tick → =reactor_attached_destroy= are written against the
+NDK API but have not run on a device or emulator (no NDK build available in the
+session that wrote them). Confirm: a fixed fd set registers once and is not
+re-added per iterate; a removed source unregisters; closing the last window
+tears the reactor down without leaking the =timerfd= on the looper.
+
+** BLOCKED Wire the ios / web / android drive into an app entry
+=README.org= notes attached =spawn= must return to the host. The iOS app
+delegate calls =spawn= and returns; the Android JNI =nativeStart= does too. The
+Emscripten and full NDK app-entry wiring (and a UIKit GUI backend for iOS) is
+separate build-system + GUI work, not reactor work. Blocked on those modules.
+
+** TODO Cross-thread post on wasi is silently undeliverable
+=wasi= =wake()= is a no-op (single-threaded; no pipe/eventfd), which is correct
+for that target, but it means a =mel_reactor_post= from "another thread" can
+never wake the loop. There are no other threads on wasi today, so this is
+theoretical — but if a future wasi threads build appears, either implement a
+real wake or assert that post is owner-only on that target.
+
+* Notes / non-issues
+
+- The priority-bucket dispatch walks the source list once per populated bucket
+  (8 buckets). For the small source counts Melody apps carry this is noise; if a
+  workload ever attaches hundreds of sources, revisit (e.g. skip empty buckets
+  or index by bucket). Not worth complicating the hot path now.
+- Per-iterate fd reconciliation diffs ≤=MEL_REACTOR_MAX_POLLS= pointers. This is
+  intentional: the expensive native register/unregister fire only on change.
+  Backend add/remove *hooks* from the core were considered and rejected — they
+  would spread state across five core lifecycle functions and four otherwise
+  stateless backends to save a bounded pointer diff. Reconcile stays.

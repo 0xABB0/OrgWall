@@ -166,10 +166,10 @@ static const char *const *valid_backends(Mel_Platform p) {
     }
 }
 
-static const char *const k_macos_gpu[]   = { "metal", "vulkan", NULL };
+static const char *const k_macos_gpu[]   = { "metal", "vulkan", "webgpu", NULL };
 static const char *const k_ios_gpu[]     = { "metal", NULL };
 static const char *const k_linux_gpu[]   = { "vulkan", NULL };
-static const char *const k_android_gpu[] = { "vulkan", NULL };
+static const char *const k_android_gpu[] = { "vulkan", "webgpu", NULL };
 static const char *const k_win32_gpu[]   = { "dx12", "vulkan", NULL };
 static const char *const k_web_gpu[]     = { "webgpu", NULL };
 

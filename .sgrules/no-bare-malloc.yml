@@ -1,0 +1,15 @@
+id: no-bare-malloc
+language: c
+severity: warning
+message: route allocations through the arena, not raw malloc/calloc/realloc
+rule:
+  any:
+    - pattern:
+        context: void _f(void) { malloc($$$); }
+        selector: call_expression
+    - pattern:
+        context: void _f(void) { calloc($$$); }
+        selector: call_expression
+    - pattern:
+        context: void _f(void) { realloc($$$); }
+        selector: call_expression

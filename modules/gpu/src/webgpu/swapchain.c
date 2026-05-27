@@ -1,17 +1,21 @@
 #include <stdio.h>
 
-#include <emscripten.h>
-
 #include "webgpu_backend.h"
+
+#if defined(__EMSCRIPTEN__)
+#include <emscripten.h>
 
 EM_JS(void, mel_gpu__webgpu_canvas_size, (const char* sel, int w, int h), {
     const el = document.querySelector(UTF8ToString(sel));
     if (el) { el.width = w; el.height = h; }
 });
+#endif
 
 static void configure(Mel_Gpu_Swapchain* sc)
 {
+#if defined(__EMSCRIPTEN__)
     mel_gpu__webgpu_canvas_size(sc->selector, sc->width, sc->height);
+#endif
 
     WGPUSurfaceConfiguration cfg = {
         .device      = sc->device->device,
@@ -37,15 +41,37 @@ Mel_Gpu_Swapchain* mel_gpu_swapchain_create_opt(Mel_Gpu_Device* dev, Mel_Gpu_Swa
     sc->width      = opt.width  > 0 ? opt.width  : 1;
     sc->height     = opt.height > 0 ? opt.height : 1;
     sc->cmd.swapchain = sc;
+#if defined(__EMSCRIPTEN__)
     snprintf(sc->selector, sizeof sc->selector, "%s", (const char*)opt.native_window);
+#endif
 
-    WGPUEmscriptenSurfaceSourceCanvasHTMLSelector canvas = {
-        .chain    = { .next = NULL, .sType = WGPUSType_EmscriptenSurfaceSourceCanvasHTMLSelector },
-        .selector = mel_gpu__sv(sc->selector),
-    };
-    WGPUSurfaceDescriptor sd = { .nextInChain = &canvas.chain };
-    sc->surface = wgpuInstanceCreateSurface(dev->instance, &sd);
+    sc->surface = mel_gpu__webgpu_surface_create(dev->instance, opt.native_window);
     if (!sc->surface) { free(sc); return NULL; }
+
+#if !defined(__EMSCRIPTEN__)
+    // The hardcoded BGRA8 default is right for Metal but unrepresentable in
+    // Android's gralloc, which has no BGRA AHardwareBuffer mapping. Adopt a
+    // format the surface actually advertises, preferring a plain (non-sRGB)
+    // RGBA8/BGRA8 so the shader's linear output lands correctly.
+    if (dev->adapter) {
+        WGPUSurfaceCapabilities caps = {0};
+        if (wgpuSurfaceGetCapabilities(sc->surface, dev->adapter, &caps) == WGPUStatus_Success
+            && caps.formatCount > 0) {
+            WGPUTextureFormat chosen = caps.formats[0];
+            for (size_t i = 0; i < caps.formatCount; i++) {
+                if (caps.formats[i] == WGPUTextureFormat_BGRA8Unorm
+                    || caps.formats[i] == WGPUTextureFormat_RGBA8Unorm) {
+                    chosen = caps.formats[i];
+                    break;
+                }
+            }
+            sc->format = chosen;
+            Mel_Gpu_Format m = mel_gpu__mel_color_format(chosen);
+            if (m != MEL_GPU_FORMAT_UNDEFINED) sc->mel_format = m;
+        }
+        wgpuSurfaceCapabilitiesFreeMembers(caps);
+    }
+#endif
 
     configure(sc);
     return sc;

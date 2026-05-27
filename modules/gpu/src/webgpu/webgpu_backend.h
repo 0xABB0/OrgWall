@@ -9,6 +9,7 @@
 
 struct Mel_Gpu_Device {
     WGPUInstance instance;
+    WGPUAdapter  adapter; // retained on native for surface-format negotiation; NULL on emscripten
     WGPUDevice   device;
     WGPUQueue    queue;
 };
@@ -63,6 +64,15 @@ static inline WGPUTextureFormat mel_gpu__wgpu_color_format(Mel_Gpu_Format f)
     }
 }
 
+static inline Mel_Gpu_Format mel_gpu__mel_color_format(WGPUTextureFormat f)
+{
+    switch (f) {
+        case WGPUTextureFormat_RGBA8Unorm: return MEL_GPU_FORMAT_RGBA8_UNORM;
+        case WGPUTextureFormat_BGRA8Unorm: return MEL_GPU_FORMAT_BGRA8_UNORM;
+        default:                           return MEL_GPU_FORMAT_UNDEFINED;
+    }
+}
+
 static inline WGPUVertexFormat mel_gpu__wgpu_vertex_format(Mel_Gpu_Format f)
 {
     switch (f) {
@@ -82,3 +92,8 @@ static inline WGPUPrimitiveTopology mel_gpu__wgpu_topology(Mel_Gpu_Topology t)
         default:                              return WGPUPrimitiveTopology_TriangleList;
     }
 }
+
+// Per-platform presentation surface. native_window is the platform handle the
+// swapchain attaches to: an NSView* (cocoa), an ANativeWindow* (android), or a
+// "#canvas" selector string (emscripten). Implemented in surface_<platform>.{m,c}.
+WGPUSurface mel_gpu__webgpu_surface_create(WGPUInstance instance, void* native_window);

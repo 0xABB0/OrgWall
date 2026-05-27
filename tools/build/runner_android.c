@@ -79,6 +79,7 @@ static bool android_build_tp(Mel_Build_Target *tp, const Cross *cross, Mel_Confi
     tctx.platform = MEL_PLATFORM_ANDROID;
     tctx.config = cfg;
     tctx.cross = cross;
+    tctx.gpu_backend = g_gpu_backend;
     return run_stage(&tctx, MEL_STAGE_COMPILE);
 }
 
@@ -165,6 +166,26 @@ static bool emit_android_edges(Mel_Build_Context *ctx) {
         File_Paths built = {0};
         for (size_t i = 0; i < tp_count; i++)
             if (!android_build_tp(tp[i], &cross, ctx->config, &built)) return false;
+
+        // Android has no rpath/@loader_path: a third-party shared library must
+        // ride in the APK beside libmelody.so for the runtime loader to resolve
+        // it. Copy each dependency's .so (Dawn's libwebgpu_dawn.so today) into
+        // the ABI's jniLibs; static deps (.a) contribute nothing here.
+        const char *abidir = temp_sprintf("%s/%s", jnilibs, abi->abi);
+        if (!mel_mkdirs(abidir)) return false;
+        for (size_t i = 0; i < tp_count; i++) {
+            const char *libdir = temp_sprintf("%s/lib",
+                tp_prefix_named(MEL_PLATFORM_ANDROID, abi->abi, tp[i]->name));
+            File_Paths libs = {0};
+            if (!read_entire_dir(libdir, &libs)) continue;
+            for (size_t k = 0; k < libs.count; k++) {
+                const char *n = libs.items[k];
+                size_t len = strlen(n);
+                if (len < 3 || strcmp(n + len - 3, ".so") != 0) continue;
+                if (!copy_file(temp_sprintf("%s/%s", libdir, n),
+                               temp_sprintf("%s/%s", abidir, n))) return false;
+            }
+        }
 
         const char *meldir = temp_sprintf("%s/android-%s", MEL_BUILD_DIR, abi->abi);
         const char *objdir = temp_sprintf("%s/obj/%s", meldir, app->name);

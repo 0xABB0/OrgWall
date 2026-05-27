@@ -31,6 +31,27 @@ bool project(Mel_Build_Target *t) {
     mel_build_add_dependency(t, "mpfr");
     mel_build_add_dependency(t, "gmp");
 
+    // Dawn (native WebGPU) backs the webgpu gpu axis on macOS/Android. The dep
+    // supports only those platforms (dropped elsewhere) and Dawn is provisioned
+    // only when gpu==webgpu; on metal/vulkan builds the -lwebgpu_dawn flag is
+    // gpu-gated away, so this stays inert. The macOS dylib carries an @rpath
+    // install name; point it at the third-party prefix relative to the binary
+    // (build/macos/<config>/<target>/<bin> -> build/third-party/macos/webgpu/lib).
+    mel_build_add_dependency(t, "webgpu");
+    mel_build_add_link_flag_on(t, MEL_PUBLIC, MEL_PLATFORM_MACOS,
+                               "-Wl,-rpath,@loader_path/../../../third-party/macos/webgpu/lib");
+
+    // The webgpu backend's native presentation surfaces are platform-specific
+    // and share the mel_gpu__webgpu_surface_create entry point. Each source
+    // compiles only on its platform; basenames are unique so they never collide
+    // with the vulkan backend's surface.m / android_surface.c.
+    mel_build_exclude_source_on(t, MEL_PLATFORM_ANDROID, "surface_cocoa.m");
+    mel_build_exclude_source_on(t, MEL_PLATFORM_WEB,     "surface_cocoa.m");
+    mel_build_exclude_source_on(t, MEL_PLATFORM_MACOS,   "surface_android.c");
+    mel_build_exclude_source_on(t, MEL_PLATFORM_WEB,     "surface_android.c");
+    mel_build_exclude_source_on(t, MEL_PLATFORM_MACOS,   "surface_web.c");
+    mel_build_exclude_source_on(t, MEL_PLATFORM_ANDROID, "surface_web.c");
+
     mel_build_add_link_flag_on(t, MEL_PUBLIC, MEL_PLATFORM_MACOS, "-framework", "Cocoa");
     mel_build_add_link_flag_on(t, MEL_PUBLIC, MEL_PLATFORM_MACOS, "-framework", "CoreMIDI");
     mel_build_add_link_flag_on(t, MEL_PUBLIC, MEL_PLATFORM_MACOS, "-framework", "CoreFoundation");

@@ -1,0 +1,156 @@
+#+TITLE: Reactor — Tests
+
+Descriptions of the tests to implement once a reactor test harness exists. These
+are specifications, not code: each names what to assert and the fixtures it
+needs. Status keys: TODO (unwritten), WIP, DONE (links to the test once landed).
+
+* Fixtures the harness must provide
+
+- *Spy backend* :: a build-time-selectable backend that records every
+  =wake= / =wait= / fd register / fd unregister call instead of touching an OS.
+  Lets a single-threaded test step the loop deterministically and assert on the
+  exact native operations performed. Most tests below need it; without it the
+  "reconcile, don't churn" guarantees are unobservable.
+- *Controllable clock* :: a seam over =mel_nanos_since_unspecified_epoch= so
+  timer and =ready_time= tests advance time explicitly rather than sleeping.
+- *Single-step drive* :: a test-only entry to run exactly one iteration with a
+  given =may_block=, since the public surface only exposes =spawn=.
+
+* Iteration & timeout folding
+
+** TODO Fold to the minimum, FOREVER is infinity
+Two sources reporting timeouts =50= and =FOREVER= → folded =50=. Source
+reporting =FOREVER= alone → folded =FOREVER=. No sources → =FOREVER=.
+
+** TODO Any-ready collapses to NOWAIT
+A source ready in =prepare= forces the folded timeout to =0= regardless of other
+sources' budgets; the backend =wait= is called with =0=.
+
+** TODO may_block=false forces NOWAIT
+Even with all sources reporting =FOREVER=, a non-blocking iteration waits =0=.
+
+** TODO ready_time scheduling and millisecond rounding
+=ready_time= in the future yields a folded timeout that rounds *up* to whole
+milliseconds and is never =0= for a sub-millisecond-but-nonzero delta (a 1 ns
+delta folds to =1=, not =0=, so it cannot busy-spin). =ready_time <= now= marks
+the source ready this iteration.
+
+* Source lifecycle
+
+** TODO attach / detach / destroy outside iteration
+Attach links into the list and wakes the loop; detach unlinks; destroy finalizes
++ frees. =mel_reactor_source_reactor= reflects attachment.
+
+** TODO Deferred destroy during dispatch
+A source that calls =destroy= on itself (or a sibling) from inside its dispatch
+is not freed until the iteration unwinds (=iterating= back to 0); the reap then
+disposes it exactly once. No use-after-free when the dispatch loop reads =next=.
+
+** TODO dispatch returning false removes the source
+A callback / dispatch returning =false= marks the source for reap; it is gone
+next iteration and its =finalize= ran.
+
+** TODO Deferred detach during iteration
+=detach= from inside a dispatch defers to reap, then the source is unlinked but
+*not* freed (caller still owns external storage). Re-attachable afterwards.
+
+** TODO attach from inside dispatch defers to next iteration
+A source attached mid-dispatch is not visited in the current iteration's
+dispatch walk (it was prepended ahead of the cursor) and runs the next one.
+
+** TODO External-storage sources are never freed by the reactor
+A source created with =mel_reactor_source_init= (external_storage) is unlinked
+on destroy but its memory is left to the caller.
+
+* Priority
+
+** TODO Dispatch order is HIGH → IDLE
+Sources at =PRIORITY_HIGH=, =DEFAULT=, =IDLE= ready in the same iteration
+dispatch in bucket order. Bucketing of arbitrary priority values lands in the
+expected bucket (boundaries of the HIGH..IDLE span clamp).
+
+* Timers & idle
+
+** TODO Timer reschedules by interval, catches up on overshoot
+After dispatch, =ready_time += interval=; if that is still =<= now= (a long
+stall) it resets to =now + interval= rather than firing a backlog. =set_interval=
+re-arms from now and wakes the loop.
+
+** TODO Idle source spins at NOWAIT, priority IDLE
+An idle source is always ready, folds the timeout to =0=, and dispatches in the
+IDLE bucket.
+
+* Posts (cross-thread)
+
+** TODO Same-thread post runs inline
+=post= from the loop thread (=is_owner=) invokes the callback synchronously and
+does not enqueue.
+
+** TODO Cross-thread post enqueues and wakes
+=post= from another thread enqueues on the MPSC queue and calls =wake= once; the
+next iteration drains it in FIFO order. (Spy backend asserts the wake.)
+
+** TODO Posts drained both before and after the wait
+A post enqueued while the loop is parked in =wait= is drained in the same
+iteration it wakes; a post enqueued before =prepare= is drained at the top.
+
+* Quit & state
+
+** TODO quit stops the loop on the next iteration
+=quit= sets =running=false= and wakes; the current iteration finishes (including
+dispatch) and the loop then exits. =is_running= reflects the transition.
+
+** TODO quit from a non-owner thread breaks the wait
+With the loop parked in a blocking wait, a =quit= from another thread wakes it
+and it exits. (Per backend that has a real blocking wait.)
+
+** TODO quit during dispatch
+=quit= called from inside a dispatch does not corrupt the in-flight iteration;
+the remaining ready sources in that iteration still dispatch, then the loop ends.
+
+* Owner identity
+
+** TODO is_owner is true only on the loop thread
+True from inside =init= / dispatch / a same-thread call; false from any other
+thread and false before the owner is captured.
+
+* Backend: fd reconciliation (spy backend)
+
+** TODO A stable fd set registers once
+A source with a fixed poll registered across N iterations triggers exactly one
+register call and zero unregister calls until it is removed — proving the
+per-iterate reconcile does not churn native registrations.
+
+** TODO add_poll / remove_poll reconcile incrementally
+Adding a second poll registers only the new fd; removing one unregisters only
+that fd, leaving the other in place.
+
+** TODO Detach / destroy unregister the source's fds
+Destroying or detaching a source with registered polls unregisters exactly its
+fds; shutdown unregisters all remaining.
+
+** TODO revents mapping
+=POLLIN/OUT/ERR/HUP= (or the platform equivalent) map to
+=MEL_REACTOR_POLL_IN/OUT/ERR/HUP=; =revents= is reset before each wait and
+reflects only the latest readiness.
+
+* Backend: win32 pump selection (host test)
+
+** TODO Pump primitive matches folded timeout
+timeout =0= → =PeekMessage= drain (no kernel wait); =FOREVER= + no handles →
+=GetMessage=; finite timeout or any handle → =MsgWaitForMultipleObjectsEx=.
+
+** TODO WM_QUIT stops the loop; cross-thread wake breaks every pump
+A =WM_QUIT= drained by any pump ends the loop; a =PostThreadMessage= wake from
+another thread breaks each of the three pumps.
+
+* Backend: attached mode (host / device test)
+
+** TODO Attached spawn returns immediately and schedules at most one wakeup
+=spawn(ATTACHED, ...)= runs init + first iterate and returns; with no pending
+work it schedules nothing (no timer/rAF armed, fds aside).
+
+** TODO Attached teardown frees the reactor exactly once
+A =quit= → next iterate → =reactor_attached_destroy= drains posts, destroys
+sources, shuts the backend down and frees the reactor, with no double-free and
+no native registration left behind.

@@ -298,6 +298,7 @@ Mel_Config   mel_build_ctx_config(const Mel_Build_Context *ctx)   { return ctx->
 const char  *mel_build_ctx_target_name(const Mel_Build_Context *ctx) { return ctx->target->name; }
 const char  *mel_build_ctx_backend(const Mel_Build_Context *ctx) { return ctx->backend; }
 const char  *mel_build_ctx_runtime(const Mel_Build_Context *ctx) { return ctx->runtime; }
+const char  *mel_build_ctx_gpu_backend(const Mel_Build_Context *ctx) { return ctx->gpu_backend; }
 const char  *mel_build_ctx_out_dir(const Mel_Build_Context *ctx) { return ctx->out_dir; }
 const char  *mel_build_ctx_artifact(const Mel_Build_Context *ctx) { return ctx->artifact; }
 
@@ -587,6 +588,40 @@ bool mel_tp_autotools(Mel_Build_Context *ctx, const char *src_rel, const char *e
     set_current_dir(cwd);
     if (ok && win32_native) mel_win32_alias_gnu_archives(temp_sprintf("%s/lib", abs_prefix));
     return ok;
+}
+
+// Provision a prebuilt binary package (a zip whose root holds include/ and lib/)
+// into the target's prefix. Used for dependencies that publish ready-made
+// release archives rather than buildable source. The archive is fetched with
+// curl and expanded straight into the prefix, so include/ and lib/ land where
+// dependency propagation expects them.
+bool mel_tp_fetch_prebuilt(Mel_Build_Context *ctx, const char *url, const char *produced_lib) {
+    const char *prefix = ctx_tp_prefix(ctx);
+    if (produced_lib && file_exists(temp_sprintf("%s/lib/%s", prefix, produced_lib))) return true;
+    if (!mel_mkdirs(prefix)) return false;
+
+    const char *zip = temp_sprintf("%s/_prebuilt.zip", prefix);
+    Cmd dl = {0};
+    cmd_append(&dl, "curl", "-fSL", "-o", zip, url);
+    if (!cmd_run_sync_and_reset(&dl)) return false;
+
+    Cmd ex = {0};
+    cmd_append(&ex, "unzip", "-oq", zip, "-d", prefix);
+    if (!cmd_run_sync_and_reset(&ex)) return false;
+    delete_file(zip);
+
+    return !produced_lib || file_exists(temp_sprintf("%s/lib/%s", prefix, produced_lib));
+}
+
+// Shallow-clone a source tree at a fixed tag into dest_rel (relative to the repo
+// root) if it isn't already there. For dependencies built from source whose tree
+// is too large to vendor in-repo. Idempotent: an existing checkout is left
+// untouched, so the clone cost is paid once and shared across ABIs/configs.
+bool mel_tp_fetch_git(const char *repo, const char *tag, const char *dest_rel) {
+    if (get_file_type(dest_rel) == NOB_FILE_DIRECTORY) return true;
+    Cmd cmd = {0};
+    cmd_append(&cmd, "git", "clone", "--depth", "1", "--branch", tag, repo, dest_rel);
+    return cmd_run_sync_and_reset(&cmd);
 }
 
 const char *mel_tp_prefix(Mel_Build_Context *ctx) {
