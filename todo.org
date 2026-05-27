@@ -1,5 +1,6 @@
 
 
 
-Verifying windows works (need to find a way to test more easily on windows than using my home tower pc, since i'm almost never home)
-Verify GPU app compiles and runs under ios (simulator. i don't have an ios device. need to verify all three rendering backends: Metal, Vulkan, Webgpu)
+- Verifying windows works (need to find a way to test more easily on windows than using my home tower pc, since i'm almost never home)
+- Verify GPU app compiles and runs under ios (simulator. i don't have an ios device. need to verify all three rendering backends: Metal, Vulkan, Webgpu)
+- Is it finally time to get out the meta quest vr?
