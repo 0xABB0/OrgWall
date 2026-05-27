@@ -24,3 +24,4 @@
 #include <gui/controls/textfield.h>
 #include <gui/controls/slider.h>
 #include <gui/controls/canvas.h>
+#include <gui/controls/gpu_view.h>

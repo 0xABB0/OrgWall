@@ -9,7 +9,9 @@ static const Android_Abi k_android_abis[] = {
     { "arm64-v8a", "aarch64-linux-android" },
     { "x86_64",    "x86_64-linux-android"  },
 };
-#define ANDROID_API 23
+// API 24 is the floor for the Vulkan loader (libvulkan.so first ships in the
+// NDK at android-24); the gpu module's vulkan backend links it.
+#define ANDROID_API 24
 
 static const char *android_sdk_dir(const char *app_name) {
     (void)app_name;

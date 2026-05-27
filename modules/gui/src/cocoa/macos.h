@@ -93,6 +93,14 @@ struct Mel_Painter { CGContextRef cg; f32 w, h; };
 @property (assign) Mel_Canvas_On       on_;
 @end
 
+@interface MelGuiGpuView : NSView
+@property (assign) Mel_Gui_Handle      handle;
+@property (assign) Mel_Gui_Pointer_Cb  pointer;
+@property (assign) Mel_Gui_Focus_Cb    focus;
+@property (assign) Mel_Gui_Keyboard_Cb keyboard;
+@property (assign) Mel_Gpu_View_On     on_;
+@end
+
 NSString* mel_gui__macos_nsstring   (str8 s);
 NSView*   mel_gui__macos_parent_view (Mel_Gui_Node* n);
 void      mel_gui__macos_install_child(Mel_Gui_Node* n, NSView* view);

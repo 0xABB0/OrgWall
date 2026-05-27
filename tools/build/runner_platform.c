@@ -95,6 +95,7 @@ static bool is_axis_dir(const char *name) {
         "macos", "ios", "linux", "android", "win32", "windows", "web", "emscripten", "wasi",
         "apple", "posix", "win", "asm",
         "cocoa", "uikit", "winui", "androidnative", "dom", "qt", "compose",
+        "metal", "vulkan", "dx12", "webgpu",
     };
     for (size_t i = 0; i < NOB_ARRAY_LEN(all); i++) {
         if (strcmp(name, all[i]) == 0) return true;
@@ -120,11 +121,28 @@ static const char *const k_default_runtime[MEL_PLATFORM_COUNT] = {
     [MEL_PLATFORM_WEB]     = "emscripten",
 };
 
+// The GPU backend axis is independent of the UI backend axis: it selects which
+// src/<gpu_backend>/ subdir a module compiles, mapping each platform to its
+// native API by default. Overridable per platform (e.g. vulkan on macOS via
+// MoltenVK) through mel_build_use_gpu_backend_on.
+static const char *const k_default_gpu_backend[MEL_PLATFORM_COUNT] = {
+    [MEL_PLATFORM_MACOS]   = "metal",
+    [MEL_PLATFORM_IOS]     = "metal",
+    [MEL_PLATFORM_LINUX]   = "vulkan",
+    [MEL_PLATFORM_ANDROID] = "vulkan",
+    [MEL_PLATFORM_WIN32]   = "dx12",
+    [MEL_PLATFORM_WEB]     = "webgpu",
+};
+
 static const char *g_backend;
+static const char *g_gpu_backend;
 static const char *g_runtime;
 
 static const char *resolve_backend(const Mel_Build_Target *root, Mel_Platform p) {
     return root->backends[p] ? root->backends[p] : k_default_backend[p];
+}
+static const char *resolve_gpu_backend(const Mel_Build_Target *root, Mel_Platform p) {
+    return root->gpu_backends[p] ? root->gpu_backends[p] : k_default_gpu_backend[p];
 }
 static const char *resolve_runtime(const Mel_Build_Target *root, Mel_Platform p) {
     return root->runtimes[p] ? root->runtimes[p] : k_default_runtime[p];
@@ -144,6 +162,25 @@ static const char *const *valid_backends(Mel_Platform p) {
         case MEL_PLATFORM_ANDROID: return k_android_backends;
         case MEL_PLATFORM_WIN32:   return k_win32_backends;
         case MEL_PLATFORM_WEB:     return k_web_backends;
+        default:                   return k_no_backends;
+    }
+}
+
+static const char *const k_macos_gpu[]   = { "metal", "vulkan", NULL };
+static const char *const k_ios_gpu[]     = { "metal", NULL };
+static const char *const k_linux_gpu[]   = { "vulkan", NULL };
+static const char *const k_android_gpu[] = { "vulkan", NULL };
+static const char *const k_win32_gpu[]   = { "dx12", "vulkan", NULL };
+static const char *const k_web_gpu[]     = { "webgpu", NULL };
+
+static const char *const *valid_gpu_backends(Mel_Platform p) {
+    switch (p) {
+        case MEL_PLATFORM_MACOS:   return k_macos_gpu;
+        case MEL_PLATFORM_IOS:     return k_ios_gpu;
+        case MEL_PLATFORM_LINUX:   return k_linux_gpu;
+        case MEL_PLATFORM_ANDROID: return k_android_gpu;
+        case MEL_PLATFORM_WIN32:   return k_win32_gpu;
+        case MEL_PLATFORM_WEB:     return k_web_gpu;
         default:                   return k_no_backends;
     }
 }

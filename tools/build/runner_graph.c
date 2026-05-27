@@ -10,6 +10,7 @@ static void context_init(Mel_Build_Context *ctx, Mel_Build_Target *t, Mel_Platfo
     ctx->platform = p;
     ctx->config = c;
     ctx->backend = g_backend;
+    ctx->gpu_backend = g_gpu_backend;
     ctx->runtime = g_runtime;
     ctx->out_dir = target_out_dir(t, p, c);
     if (t->kind == MEL_TARGET_LIBRARY)          ctx->artifact = library_artifact(t, p, c);

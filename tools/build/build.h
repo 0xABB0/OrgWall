@@ -127,10 +127,35 @@ MEL_API void mel_build_add_link_flag_on_(Mel_Build_Target *t, Mel_Visibility vis
 #define mel_build_add_define_on(t, vis, p, ...)    mel_build_add_define_on_(t, vis, p, __VA_ARGS__, NULL)
 #define mel_build_add_link_flag_on(t, vis, p, ...) mel_build_add_link_flag_on_(t, vis, p, __VA_ARGS__, NULL)
 
+// Runtime-gated variants: the property applies only when the active runtime
+// matches (e.g. "emscripten" but not "wasi"). Use for toolchain flags that one
+// runtime understands and another rejects.
+MEL_API void mel_build_add_cflag_on_runtime_(Mel_Build_Target *t, Mel_Visibility vis, const char *runtime, ...);
+MEL_API void mel_build_add_link_flag_on_runtime_(Mel_Build_Target *t, Mel_Visibility vis, const char *runtime, ...);
+
+#define mel_build_add_cflag_on_runtime(t, vis, rt, ...)     mel_build_add_cflag_on_runtime_(t, vis, rt, __VA_ARGS__, NULL)
+#define mel_build_add_link_flag_on_runtime(t, vis, rt, ...) mel_build_add_link_flag_on_runtime_(t, vis, rt, __VA_ARGS__, NULL)
+
+// GPU-backend-gated variants: the property applies only when the active gpu
+// backend matches (e.g. "vulkan", "metal", "webgpu"). Use for backend-specific
+// libraries (e.g. the Vulkan loader only when the vulkan backend is built).
+MEL_API void mel_build_add_cflag_on_gpu_(Mel_Build_Target *t, Mel_Visibility vis, const char *gpu_backend, ...);
+MEL_API void mel_build_add_link_flag_on_gpu_(Mel_Build_Target *t, Mel_Visibility vis, const char *gpu_backend, ...);
+
+#define mel_build_add_cflag_on_gpu(t, vis, gpu, ...)     mel_build_add_cflag_on_gpu_(t, vis, gpu, __VA_ARGS__, NULL)
+#define mel_build_add_link_flag_on_gpu(t, vis, gpu, ...) mel_build_add_link_flag_on_gpu_(t, vis, gpu, __VA_ARGS__, NULL)
+
 // Override the UI backend or runtime for a platform. Omit to take the
 // framework default (e.g. macos -> cocoa backend, web -> emscripten runtime).
 MEL_API void mel_build_use_backend_on(Mel_Build_Target *t, Mel_Platform p, const char *backend);
 MEL_API void mel_build_use_runtime_on(Mel_Build_Target *t, Mel_Platform p, const char *runtime);
+
+// Override the GPU backend for a platform. This axis is independent of the UI
+// backend: it selects which src/<gpu_backend>/ subdir a module compiles (metal,
+// vulkan, dx12, webgpu). Omit to take the per-platform default (apple -> metal,
+// win32 -> dx12, linux/android -> vulkan, web -> webgpu). Lets a portable
+// backend (e.g. vulkan via MoltenVK) be forced where another is the default.
+MEL_API void mel_build_use_gpu_backend_on(Mel_Build_Target *t, Mel_Platform p, const char *gpu_backend);
 
 // --- Web platform configuration (consulted only when building for web) ---
 //

@@ -56,8 +56,10 @@
 #define MEL_MAX_STAGE_CBS 16
 
 // A property value carries a platform mask: 0 means "all platforms", otherwise
-// bit (1u << platform) gates the value to specific platforms.
-typedef struct { const char *value; uint32_t mask; } Prop;
+// bit (1u << platform) gates the value to specific platforms. Optional runtime
+// and gpu_backend names gate it further to one runtime (e.g. "emscripten") or
+// one gpu backend (e.g. "vulkan"); NULL means any.
+typedef struct { const char *value; uint32_t mask; const char *runtime; const char *gpu_backend; } Prop;
 typedef struct { Prop *items; size_t count, capacity; } Prop_List;
 
 // Runtime-gated exclusion: the platform mask can't express "web but only the
@@ -102,6 +104,7 @@ struct Mel_Build_Target {
     Props priv;
 
     const char *backends[MEL_PLATFORM_COUNT];
+    const char *gpu_backends[MEL_PLATFORM_COUNT];
     const char *runtimes[MEL_PLATFORM_COUNT];
 
     // Emscripten-runtime knobs (see build.h).
@@ -136,6 +139,7 @@ struct Mel_Build_Context {
     Mel_Platform platform;
     Mel_Config config;
     const char *backend;
+    const char *gpu_backend;
     const char *runtime;
     const Cross *cross;   // NULL for native host builds
 

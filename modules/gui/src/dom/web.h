@@ -35,6 +35,7 @@ typedef struct {
     Mel_Slider_On       slider;
     Mel_TextField_On    textfield;
     Mel_Canvas_On       canvas;
+    Mel_Gpu_View_On     gpu_view;
     // on_select doubles for tabview selection and dialog result (same shape).
     void              (*on_select)(Mel_Gui_Handle h, i32 index, void* user);
     int                 aux0, aux1, aux2; // widget scratch (tabview bar/count/selected)
@@ -62,6 +63,7 @@ static inline u32 mel_web__rgba(Mel_Color c) {
 int  mel_web__el_create(const char* tag);
 void mel_web__el_append(int parent, int child); // parent 0 -> #mel-root
 void mel_web__el_class(int id, const char* cls);
+void mel_web__el_html_id(int id, const char* html_id);
 void mel_web__el_bounds(int id, i32 x, i32 y, i32 w, i32 h);
 void mel_web__el_text(int id, const char* s);
 int  mel_web__el_get_text(int id, char* buf, int cap);

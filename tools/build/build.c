@@ -113,7 +113,17 @@ const char *mel_platform_name(Mel_Platform p) {
 // =============================================================================
 
 static void prop_add(Prop_List *l, const char *v, uint32_t mask) {
-    Prop p = { temp_strdup(v), mask };
+    Prop p = { temp_strdup(v), mask, NULL, NULL };
+    da_append(l, p);
+}
+
+static void prop_add_rt(Prop_List *l, const char *v, uint32_t mask, const char *runtime) {
+    Prop p = { temp_strdup(v), mask, runtime ? temp_strdup(runtime) : NULL, NULL };
+    da_append(l, p);
+}
+
+static void prop_add_gpu(Prop_List *l, const char *v, const char *gpu_backend) {
+    Prop p = { temp_strdup(v), 0, NULL, gpu_backend ? temp_strdup(gpu_backend) : NULL };
     da_append(l, p);
 }
 
@@ -174,6 +184,16 @@ static void prop_add_v(Prop_List *l, uint32_t mask, va_list ap) {
     while ((v = va_arg(ap, const char *)) != NULL) prop_add(l, v, mask);
 }
 
+static void prop_add_v_rt(Prop_List *l, const char *runtime, va_list ap) {
+    const char *v;
+    while ((v = va_arg(ap, const char *)) != NULL) prop_add_rt(l, v, 0, runtime);
+}
+
+static void prop_add_v_gpu(Prop_List *l, const char *gpu_backend, va_list ap) {
+    const char *v;
+    while ((v = va_arg(ap, const char *)) != NULL) prop_add_gpu(l, v, gpu_backend);
+}
+
 void mel_build_add_cflag_(Mel_Build_Target *t, Mel_Visibility vis, ...) {
     va_list ap; va_start(ap, vis);
     prop_add_v(&props_for(t, vis)->cflags, 0, ap);
@@ -216,8 +236,33 @@ void mel_build_add_link_flag_on_(Mel_Build_Target *t, Mel_Visibility vis, Mel_Pl
     va_end(ap);
 }
 
+void mel_build_add_cflag_on_runtime_(Mel_Build_Target *t, Mel_Visibility vis, const char *runtime, ...) {
+    va_list ap; va_start(ap, runtime);
+    prop_add_v_rt(&props_for(t, vis)->cflags, runtime, ap);
+    va_end(ap);
+}
+void mel_build_add_link_flag_on_runtime_(Mel_Build_Target *t, Mel_Visibility vis, const char *runtime, ...) {
+    va_list ap; va_start(ap, runtime);
+    prop_add_v_rt(&props_for(t, vis)->link_flags, runtime, ap);
+    va_end(ap);
+}
+
+void mel_build_add_cflag_on_gpu_(Mel_Build_Target *t, Mel_Visibility vis, const char *gpu_backend, ...) {
+    va_list ap; va_start(ap, gpu_backend);
+    prop_add_v_gpu(&props_for(t, vis)->cflags, gpu_backend, ap);
+    va_end(ap);
+}
+void mel_build_add_link_flag_on_gpu_(Mel_Build_Target *t, Mel_Visibility vis, const char *gpu_backend, ...) {
+    va_list ap; va_start(ap, gpu_backend);
+    prop_add_v_gpu(&props_for(t, vis)->link_flags, gpu_backend, ap);
+    va_end(ap);
+}
+
 void mel_build_use_backend_on(Mel_Build_Target *t, Mel_Platform p, const char *backend) {
     t->backends[p] = temp_strdup(backend);
+}
+void mel_build_use_gpu_backend_on(Mel_Build_Target *t, Mel_Platform p, const char *gpu_backend) {
+    t->gpu_backends[p] = temp_strdup(gpu_backend);
 }
 void mel_build_use_runtime_on(Mel_Build_Target *t, Mel_Platform p, const char *runtime) {
     t->runtimes[p] = temp_strdup(runtime);

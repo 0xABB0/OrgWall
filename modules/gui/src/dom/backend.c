@@ -26,6 +26,7 @@ EM_JS(void, mel_web__js_init, (void), {
         '.mel-groupbox-body{position:absolute;left:8px;top:24px;right:8px;bottom:8px}' +
         '.mel-scroll{overflow:auto;background:#252525;border:1px solid #444}' +
         '.mel-canvas{display:block;background:#26333f}' +
+        '.mel-gpu{display:block;background:#101418}' +
         '.mel-tabview{display:flex;flex-direction:column}' +
         '.mel-splitter{display:flex}';
     document.head.appendChild(style);
@@ -51,6 +52,10 @@ EM_JS(void, mel_web__el_append, (int parent, int child), {
 
 EM_JS(void, mel_web__el_class, (int id, const char* cls), {
     const el = MelWeb.els[id]; if (el) el.className = UTF8ToString(cls);
+});
+
+EM_JS(void, mel_web__el_html_id, (int id, const char* html_id), {
+    const el = MelWeb.els[id]; if (el) el.id = UTF8ToString(html_id);
 });
 
 EM_JS(void, mel_web__el_bounds, (int id, int x, int y, int w, int h), {
@@ -325,6 +330,7 @@ void mel_gui_set_bounds(Mel_Gui_Handle h, i32 x, i32 y, i32 width, i32 height) {
     mel_web__el_bounds(id, x, y, width, height);
     Mel_Web_Ctl* c = mel_web__ctl(id);
     if (c && c->canvas.on_paint) mel_web__canvas_repaint(n);
+    if (c && c->gpu_view.on_resize) c->gpu_view.on_resize(h, width, height, mel_gui_user(h));
 }
 
 void mel_gui_set_visible(Mel_Gui_Handle h, bool visible) {

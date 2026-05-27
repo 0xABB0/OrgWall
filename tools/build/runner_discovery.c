@@ -31,9 +31,11 @@ static bool source_is_buildable(const char *name, Mel_Platform p) {
 static void prop_resolve(File_Paths *dst, const Prop_List *src, Mel_Platform p) {
     uint32_t bit = 1u << p;
     for (size_t i = 0; i < src->count; i++) {
-        if (src->items[i].mask == 0 || (src->items[i].mask & bit)) {
-            da_append(dst, src->items[i].value);
-        }
+        const Prop *e = &src->items[i];
+        if (e->mask != 0 && !(e->mask & bit)) continue;
+        if (e->runtime && (!g_runtime || strcmp(e->runtime, g_runtime) != 0)) continue;
+        if (e->gpu_backend && (!g_gpu_backend || strcmp(e->gpu_backend, g_gpu_backend) != 0)) continue;
+        da_append(dst, e->value);
     }
 }
 
@@ -150,6 +152,10 @@ static bool resolve_source_root(const char *root, Mel_Platform p,
     }
     if (g_backend) {
         const char *sub = temp_sprintf("%s/%s", root, g_backend);
+        if (!collect_dir(sub, p, false, NULL, out_sources, out_bridges)) return false;
+    }
+    if (g_gpu_backend) {
+        const char *sub = temp_sprintf("%s/%s", root, g_gpu_backend);
         if (!collect_dir(sub, p, false, NULL, out_sources, out_bridges)) return false;
     }
     if (g_runtime && strcmp(g_runtime, "native") != 0) {

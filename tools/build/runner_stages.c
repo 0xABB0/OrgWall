@@ -37,7 +37,7 @@ static const char *android_sdk_dir(const char *app_name);
 
 static void android_config_defaults(Mel_Build_Target *t) {
     if (!target_config_get(t, "COMPILE_SDK"))      target_config_set(t, "COMPILE_SDK", "36");
-    if (!target_config_get(t, "MIN_SDK"))          target_config_set(t, "MIN_SDK", "23");
+    if (!target_config_get(t, "MIN_SDK"))          target_config_set(t, "MIN_SDK", "24");
     if (!target_config_get(t, "TARGET_SDK"))       target_config_set(t, "TARGET_SDK", "36");
     if (!target_config_get(t, "VERSION_CODE"))     target_config_set(t, "VERSION_CODE", "1");
     if (!target_config_get(t, "VERSION_NAME"))     target_config_set(t, "VERSION_NAME", "0.1.0");
