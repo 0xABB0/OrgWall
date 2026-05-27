@@ -135,6 +135,15 @@ static void emit_android_compile(const Cross *cross, Mel_Build_Context *ctx, Mel
     }
 }
 
+static bool so_referenced_by_link(const File_Paths *flags, const char *soname) {
+    size_t len = strlen(soname);
+    if (len <= 6 || strncmp(soname, "lib", 3) != 0 || strcmp(soname + len - 3, ".so") != 0) return false;
+    const char *stem = temp_sprintf("-l%.*s", (int)(len - 6), soname + 3);
+    for (size_t i = 0; i < flags->count; i++)
+        if (strcmp(flags->items[i], stem) == 0) return true;
+    return false;
+}
+
 static bool emit_android_edges(Mel_Build_Context *ctx) {
     Mel_Build_Target *app = ctx->target;
     const char *sdk = android_sdk_dir(app->name);
@@ -159,6 +168,11 @@ static bool emit_android_edges(Mel_Build_Context *ctx) {
 
     const char *jnilibs = temp_sprintf("%s/%s/android/app/src/main/jniLibs", MEL_BUILD_DIR, app->name);
 
+    File_Paths active_link = {0};
+    prop_resolve(&active_link, &melody->pub.link_flags, MEL_PLATFORM_ANDROID);
+    for (size_t i = 0; i < tp_count; i++)
+        prop_resolve(&active_link, &tp[i]->pub.link_flags, MEL_PLATFORM_ANDROID);
+
     for (size_t ai = 0; ai < NOB_ARRAY_LEN(k_android_abis); ai++) {
         const Android_Abi *abi = &k_android_abis[ai];
         Cross cross = make_android_cross(abi, bin, ndk);
@@ -169,10 +183,13 @@ static bool emit_android_edges(Mel_Build_Context *ctx) {
 
         // Android has no rpath/@loader_path: a third-party shared library must
         // ride in the APK beside libmelody.so for the runtime loader to resolve
-        // it. Copy each dependency's .so (Dawn's libwebgpu_dawn.so today) into
-        // the ABI's jniLibs; static deps (.a) contribute nothing here.
+        // it. Copy a dependency's .so (Dawn's libwebgpu_dawn.so today) into the
+        // ABI's jniLibs only when the active, gpu-resolved link line references
+        // it; a .so left on disk by a prior backend's build never stows away.
+        // Static deps (.a) contribute nothing here.
         const char *abidir = temp_sprintf("%s/%s", jnilibs, abi->abi);
         if (!mel_mkdirs(abidir)) return false;
+        File_Paths packaged = {0};
         for (size_t i = 0; i < tp_count; i++) {
             const char *libdir = temp_sprintf("%s/lib",
                 tp_prefix_named(MEL_PLATFORM_ANDROID, abi->abi, tp[i]->name));
@@ -182,8 +199,28 @@ static bool emit_android_edges(Mel_Build_Context *ctx) {
                 const char *n = libs.items[k];
                 size_t len = strlen(n);
                 if (len < 3 || strcmp(n + len - 3, ".so") != 0) continue;
+                if (!so_referenced_by_link(&active_link, n)) continue;
                 if (!copy_file(temp_sprintf("%s/%s", libdir, n),
                                temp_sprintf("%s/%s", abidir, n))) return false;
+                da_append(&packaged, temp_strdup(n));
+            }
+        }
+        // jniLibs persists across builds; a dependency .so dropped by switching
+        // the gpu axis (Dawn after webgpu -> vulkan) would otherwise linger and
+        // gradle would still pack it. Prune any .so this configuration no longer
+        // packages. libmelody.so is the link edge's own output, owned by ninja.
+        File_Paths present = {0};
+        if (read_entire_dir(abidir, &present)) {
+            for (size_t k = 0; k < present.count; k++) {
+                const char *n = present.items[k];
+                size_t len = strlen(n);
+                if (len < 3 || strcmp(n + len - 3, ".so") != 0) continue;
+                if (strcmp(n, "libmelody.so") == 0) continue;
+                bool keep = false;
+                for (size_t j = 0; j < packaged.count; j++)
+                    if (strcmp(packaged.items[j], n) == 0) { keep = true; break; }
+                if (keep) continue;
+                if (!delete_file(temp_sprintf("%s/%s", abidir, n))) return false;
             }
         }
 
