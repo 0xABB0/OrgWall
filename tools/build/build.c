@@ -621,7 +621,12 @@ bool mel_tp_fetch_git(const char *repo, const char *tag, const char *dest_rel) {
     if (get_file_type(dest_rel) == NOB_FILE_DIRECTORY) return true;
     Cmd cmd = {0};
     cmd_append(&cmd, "git", "clone", "--depth", "1", "--branch", tag, repo, dest_rel);
-    return cmd_run_sync_and_reset(&cmd);
+    if (!cmd_run_sync_and_reset(&cmd)) return false;
+    // Drop the clone's own .git so the checkout is a plain source tree, not an
+    // embedded repo that git would treat as a submodule boundary.
+    Cmd rm = {0};
+    cmd_append(&rm, "rm", "-rf", temp_sprintf("%s/.git", dest_rel));
+    return cmd_run_sync_and_reset(&rm);
 }
 
 const char *mel_tp_prefix(Mel_Build_Context *ctx) {

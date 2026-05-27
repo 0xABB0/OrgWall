@@ -65,6 +65,9 @@ bought_assets
 .superset
 compile_commands.json
 
+# Dawn source, shallow-cloned on demand for the Android from-source webgpu build
+/third-party/webgpu/dawn/
+
 # Android / Gradle
 .gradle/
 .cxx/

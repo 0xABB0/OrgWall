@@ -1,10 +1,12 @@
-# Native WebGPU (Dawn) on desktop — macOS delivered, Android wired
+# Native WebGPU (Dawn) — macOS and Android, both verified on hardware
 
 Until now the `webgpu` backend was reachable only under Emscripten: `device.c`
 called `emscripten_webgpu_get_device()` and `swapchain.c` built its surface from
 an HTML canvas selector. This session lifted the backend onto native targets via
-Dawn, so `--gpu webgpu` is a real choice on macOS (verified) and Android (wired,
-unverified). The web path is untouched.
+Dawn, so `--gpu webgpu` is a real choice on macOS (prebuilt Dawn) and Android
+(Dawn built from source). The web path is untouched. Both render the
+`hello-triangle` on hardware: macOS, and a Pixel 4a (arm64-v8a, Vulkan-backed
+Dawn on the Adreno driver).
 
 ## Work done
 
@@ -27,9 +29,29 @@ team withholds prebuilts pending webgpu.h ABI stabilization.
 - **Android**: shallow-clones Dawn at `chromium/7187` and drives `mel_tp_cmake`
   with `-DDAWN_BUILD_MONOLITHIC_LIBRARY=SHARED -DDAWN_FETCH_DEPENDENCIES=ON`,
   reusing the NDK toolchain `mel_tp_cmake` already injects from `ctx->cross`.
+  Two further configure flags were needed to make Dawn build cleanly here:
+  `-DDAWN_ENABLE_DESKTOP_GL=OFF -DDAWN_ENABLE_OPENGLES=OFF` (Android wants only
+  the Vulkan backend, and the GL path drags in an OpenGL loader generator) and
+  `-DPython3_EXECUTABLE=/usr/bin/python3` (Dawn's generators parse XML via
+  Python's `pyexpat`; the Homebrew `python3` on this host ships without it,
+  while the macOS system interpreter has it).
 - The actual `-lwebgpu_dawn` is gpu-gated to `webgpu`, so metal/vulkan builds
   inherit only the (empty, harmless) `-L`/`-I` that third-party deps propagate
   unconditionally, never the library.
+
+### Android pipeline fixes — `tools/build/runner_android.c`
+Two defects in the per-ABI Android build path surfaced only when actually
+building/running for the device:
+- The per-ABI third-party build context was zero-initialized and never carried
+  `gpu_backend`, so the Dawn `on_compile` saw `NULL` and silently no-op'd,
+  leaving an empty prefix and a missing-header failure when melody's webgpu
+  sources compiled. Fixed by propagating `g_gpu_backend` into that context, the
+  Android-side analogue of what `context_init` already did elsewhere.
+- The APK bundled only `libmelody.so`. Android has no rpath/`@loader_path`, so
+  the runtime loader could not resolve `libwebgpu_dawn.so` and crashed at launch
+  with `UnsatisfiedLinkError`. Fixed by copying every third-party `.so` (just
+  Dawn's today) into `jniLibs/<abi>/` beside `libmelody.so`, after the per-ABI
+  third-party build completes.
 
 Two reusable framework helpers were added rather than open-coding shell calls in
 the module (which sees only the `mel_*` API, not nob): `mel_tp_fetch_prebuilt`
@@ -56,17 +78,33 @@ the module (which sees only the `mel_*` API, not nob): `mel_tp_fetch_prebuilt`
   `WGPUSurfaceSourceAndroidNativeWindow`), `surface_web.c` (the former canvas
   path). `swapchain.c` now calls the helper and guards its Emscripten-only
   canvas-resize and selector copy.
+- Swapchain format negotiation: the hardcoded `BGRA8Unorm` default is fine on
+  Metal but unrepresentable in Android's gralloc (no BGRA `AHardwareBuffer`
+  mapping), so the surface texture would not allocate and the view stayed blank.
+  `swapchain.c` now, on native, queries `wgpuSurfaceGetCapabilities` and adopts a
+  surface-advertised format, preferring a plain RGBA8/BGRA8 — RGBA8 on Android,
+  BGRA8 on macOS. This required retaining the adapter on `Mel_Gpu_Device`
+  (released before), and a reverse `WGPUTextureFormat → Mel_Gpu_Format` map so
+  the negotiated format reaches pipeline creation through
+  `mel_gpu_swapchain_format`.
 - `command.c`/`buffer.c`/`pipeline.c`/`shader.c`: unchanged. `command.c` already
   carried the native `wgpuSurfacePresent` branch, so steady-state rendering
   needed no work.
 
 ### Verification
-`./nob build hello-gpu macos --gpu webgpu` links cleanly. The running app shows
-the triangle (confirmed by Gabbo). Two proofs it is WebGPU and not a Metal
-fallback: `ar t libmelody.a` carries only `gpu/src/webgpu/*` objects (no
-metal/vulkan compiled in), and `vmmap` of the live process shows
-`libwebgpu_dawn.dylib` mapped. Device creation idles at ~4% CPU in a sleeping
-state, so the adapter-acquire loop terminates rather than busy-spinning.
+Both targets render the `hello-triangle` on hardware.
+- **macOS** (`./nob run hello-gpu macos --gpu webgpu`): the triangle draws. Two
+  proofs it is WebGPU and not a Metal fallback: `ar t libmelody.a` carries only
+  `gpu/src/webgpu/*` objects (no metal/vulkan compiled in), and `vmmap` of the
+  live process shows `libwebgpu_dawn.dylib` mapped. Device creation idles at
+  ~4% CPU in a sleeping state, so the adapter-acquire loop terminates rather
+  than busy-spinning.
+- **Android** (`./nob run hello-gpu android --gpu webgpu`, Pixel 4a, arm64-v8a):
+  the gradient triangle draws into the `mel_gpu_view` beside the native label.
+  `logcat` shows Dawn on the Adreno Vulkan driver (`AdrenoVK-0`,
+  `/vendor/lib64/hw/vulkan.adreno.so`). The residual `4×4 format 56` gralloc
+  errors are Dawn probing `AHardwareBuffer` format support at init — non-fatal,
+  present even on the host screen, independent of rendering.
 
 ## Kludges
 
@@ -80,12 +118,19 @@ state, so the adapter-acquire loop terminates rather than busy-spinning.
   spins without the reference's `sleep`. Harmless for a one-shot at startup
   (resolves in milliseconds), but it is a hot loop; if device creation ever
   stalls it pegs a core.
-- **Android is wired, not exercised.** The from-source path has not been run
-  once. The cross→Dawn-CMake hand-off, the monolithic-shared install layout
-  landing `libwebgpu_dawn.so` where the prefix expects it, and the
-  `DAWN_FETCH_DEPENDENCIES` clone all remain unverified. The chromium/7187 pin
-  was chosen for desktop-prebuilt parity, not because that tag is known to build
-  cleanly from source under the NDK.
+- **Hardcoded host Python path for Dawn's generators.**
+  `-DPython3_EXECUTABLE=/usr/bin/python3` is baked into the Android cmake args to
+  dodge a Homebrew `python3` that lacks `pyexpat`. It assumes a macOS build host
+  with a working system interpreter; on a Linux CI host or a machine without
+  that path it is wrong. Debt: detect a `pyexpat`-capable interpreter rather than
+  pinning one.
+- **Android Dawn build is single-ABI in practice but built per-ABI.** The
+  emit loop builds every `k_android_abis` entry, so an `x86_64` slice is built
+  too (a second ~20-min from-source Dawn). Only `arm64-v8a` was exercised on
+  device; the `x86_64` Dawn compiled but was not run.
+- **325 MB debug `.so` shipped in the APK.** The from-source monolithic Dawn is
+  an unstripped debug build; it bloats the APK enormously. No release/stripped
+  variant selection yet.
 - **Single-arch macOS slice.** Arch is resolved at module-compile time via
   `__aarch64__`, so a cross or universal build would fetch the wrong slice. No
   fat-binary handling.
@@ -101,19 +146,21 @@ state, so the adapter-acquire loop terminates rather than busy-spinning.
 
 - `docs/` and `tools/build/platforms.md` both assert WebGPU is "web only, via
   the Emscripten emdawnwebgpu port" and that DX12/native-webgpu are absent. That
-  is now stale for macOS. Worth a line in `platforms.md` recording that webgpu
-  is a selectable native backend on macOS (prebuilt Dawn) and Android
-  (from-source), and updating the `valid_gpu_backends` prose.
+  is now stale: webgpu is a verified, selectable native backend on macOS
+  (prebuilt Dawn) and Android (Dawn from source). Worth refreshing that section
+  and the `valid_gpu_backends` prose, and adding the host prerequisites
+  (CMake + a `pyexpat`-capable Python + Git for the Android from-source path).
 - No CLAUDE.md change proposed beyond doc-content refresh; the root and module
   CLAUDE.md instructions held up fine for this task.
 
 ## Suggestions
 
-- **Verify the Android build before claiming the axis.** Run
-  `./nob build hello-gpu android --gpu webgpu` to shake out the cross→Dawn-CMake
-  seam. Expect a long first build and likely a few `-DTINT_*`/`-DDAWN_*` toggles
-  to prune the dependency download. Until then, treat Android webgpu as
-  scaffolding.
+- **Build a release/stripped Dawn for Android.** The shipped `.so` is a 325 MB
+  unstripped debug build. Drive the from-source build at `CMAKE_BUILD_TYPE=Release`
+  (and/or strip in the `jniLibs` copy) before this is shippable.
+- **Detect a `pyexpat`-capable Python instead of pinning one.** Replace the
+  hardcoded `/usr/bin/python3` with a probe so the Android build is not bound to
+  a macOS host layout.
 - **Generalize the prebuilt fetch into the cache.** `mel_tp_fetch_prebuilt`
   duplicates download/extract logic that the content-addressed cache
   (`./nob cache`) could own, keyed on the URL, giving deduplication and `gc`.
