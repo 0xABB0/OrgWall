@@ -2,8 +2,6 @@
 
 #if defined(__EMSCRIPTEN__)
 
-#include <emscripten/html5_webgpu.h>
-
 Mel_Gpu_Device* mel_gpu_device_create_opt(Mel_Gpu_Device_Opt opt)
 {
     (void)opt;

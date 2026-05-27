@@ -1,9 +1,9 @@
 #include <allocator/guard.h>
 #include <allocator/allocator.h>
 #include <allocator/heap.h>
-#include "test.harness.h"
+#include <test/test.h>
 
-MEL_TEST(allocator_guard_page_protect_routes_selected_allocs, .tags = "allocator")
+MEL_TEST(alloc_page, guard_page_protect_routes_selected_allocs)
 {
     Mel_Guard_Allocator guard;
     mel_guard_init(&guard, (Mel_Guard_Allocator_Opt){
@@ -17,11 +17,11 @@ MEL_TEST(allocator_guard_page_protect_routes_selected_allocs, .tags = "allocator
 
     Mel_Alloc alloc = mel_guard_allocator(&guard);
     void* p = mel_alloc(&alloc, 32);
-    MEL_ASSERT_NOT_NULL(p);
+    MEL_REQUIRE_NOT_NULL(p);
 
     Mel_Guard_Allocator_Stats stats = mel_guard_stats(&guard);
-    MEL_ASSERT_EQ(stats.live_allocs, 1);
-    MEL_ASSERT_EQ(stats.protected_allocs, 1);
+    MEL_REQUIRE_EQ(stats.live_allocs, 1);
+    MEL_REQUIRE_EQ(stats.protected_allocs, 1);
 
     mel_dealloc(&alloc, p);
     mel_guard_shutdown(&guard);

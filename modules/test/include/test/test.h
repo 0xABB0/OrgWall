@@ -1,6 +1,7 @@
 #pragma once
 
 #include <core/types.h>
+#include <string.h>
 
 typedef void (*Mel_Test_Fn)(void);
 
@@ -28,28 +29,46 @@ void mel_test_abort    (void);
     }                                                                              \
     static void mel__test_##suite_##_##name_(void)
 
-#define MEL_EXPECT(cond)                                                           \
-    do { if (!(cond)) mel_test_fail(__FILE__, __LINE__, "expected: %s", #cond); }  \
-    while (0)
-
-#define MEL_REQUIRE(cond)                                                          \
-    do { if (!(cond)) {                                                            \
-        mel_test_fail(__FILE__, __LINE__, "required: %s", #cond);                  \
-        mel_test_abort();                                                          \
+// Two families share one core. MEL_EXPECT_* records the failure and continues,
+// so one run reports every broken check. MEL_REQUIRE_* records and then aborts
+// the test (longjmp back to the harness), for guards whose failure makes the
+// rest of the test meaningless or unsafe (a null deref to follow, say).
+#define MEL__CHECK(abort_, cond_, ...)                                             \
+    do { if (!(cond_)) {                                                           \
+        mel_test_fail(__FILE__, __LINE__, __VA_ARGS__);                            \
+        if (abort_) mel_test_abort();                                              \
     } } while (0)
 
-#define MEL_EXPECT_EQ_INT(a, b)                                                    \
-    do { i64 mel__a = (i64)(a), mel__b = (i64)(b);                                 \
-        if (mel__a != mel__b)                                                      \
-            mel_test_fail(__FILE__, __LINE__, "expected %s == %s (%lld vs %lld)",  \
-                          #a, #b, (long long)mel__a, (long long)mel__b);           \
-    } while (0)
+#define MEL_EXPECT(c)            MEL__CHECK(0, (c), "expected: %s", #c)
+#define MEL_REQUIRE(c)           MEL__CHECK(1, (c), "required: %s", #c)
 
-// Requires <string/str8.h> at the use site.
-#define MEL_EXPECT_EQ_STR8(a, b)                                                   \
-    do { if (!str8_equals((a), (b)))                                               \
-        mel_test_fail(__FILE__, __LINE__, "expected %s == %s", #a, #b); }          \
-    while (0)
+#define MEL_EXPECT_EQ(a, b)      MEL__CHECK(0, (a) == (b), "expected %s == %s", #a, #b)
+#define MEL_REQUIRE_EQ(a, b)     MEL__CHECK(1, (a) == (b), "expected %s == %s", #a, #b)
+#define MEL_EXPECT_NEQ(a, b)     MEL__CHECK(0, (a) != (b), "expected %s != %s", #a, #b)
+#define MEL_REQUIRE_NEQ(a, b)    MEL__CHECK(1, (a) != (b), "expected %s != %s", #a, #b)
+#define MEL_EXPECT_LT(a, b)      MEL__CHECK(0, (a) <  (b), "expected %s < %s",  #a, #b)
+#define MEL_REQUIRE_LT(a, b)     MEL__CHECK(1, (a) <  (b), "expected %s < %s",  #a, #b)
+#define MEL_EXPECT_LE(a, b)      MEL__CHECK(0, (a) <= (b), "expected %s <= %s", #a, #b)
+#define MEL_REQUIRE_LE(a, b)     MEL__CHECK(1, (a) <= (b), "expected %s <= %s", #a, #b)
+#define MEL_EXPECT_GT(a, b)      MEL__CHECK(0, (a) >  (b), "expected %s > %s",  #a, #b)
+#define MEL_REQUIRE_GT(a, b)     MEL__CHECK(1, (a) >  (b), "expected %s > %s",  #a, #b)
+#define MEL_EXPECT_GE(a, b)      MEL__CHECK(0, (a) >= (b), "expected %s >= %s", #a, #b)
+#define MEL_REQUIRE_GE(a, b)     MEL__CHECK(1, (a) >= (b), "expected %s >= %s", #a, #b)
 
-#define MEL_FAIL(msg)    mel_test_fail(__FILE__, __LINE__, "%s", (msg))
+#define MEL_EXPECT_NULL(p)       MEL__CHECK(0, (p) == NULL, "expected %s == NULL", #p)
+#define MEL_REQUIRE_NULL(p)      MEL__CHECK(1, (p) == NULL, "expected %s == NULL", #p)
+#define MEL_EXPECT_NOT_NULL(p)   MEL__CHECK(0, (p) != NULL, "expected %s != NULL", #p)
+#define MEL_REQUIRE_NOT_NULL(p)  MEL__CHECK(1, (p) != NULL, "expected %s != NULL", #p)
+
+// C-string equality (strcmp). For str8, use MEL_*_EQ_STR8 with <string/str8.h>.
+#define MEL_EXPECT_STR_EQ(a, b)  MEL__CHECK(0, strcmp((a), (b)) == 0, "expected %s == %s (cstr)", #a, #b)
+#define MEL_REQUIRE_STR_EQ(a, b) MEL__CHECK(1, strcmp((a), (b)) == 0, "expected %s == %s (cstr)", #a, #b)
+
+#define MEL_EXPECT_EQ_STR8(a, b)  MEL__CHECK(0, str8_equals((a), (b)), "expected %s == %s (str8)", #a, #b)
+#define MEL_REQUIRE_EQ_STR8(a, b) MEL__CHECK(1, str8_equals((a), (b)), "expected %s == %s (str8)", #a, #b)
+
+#define MEL_EXPECT_FLOAT_EQ(a, b, eps)  MEL__CHECK(0, __builtin_fabs((double)((a) - (b))) <= (eps), "expected %s ~= %s", #a, #b)
+#define MEL_REQUIRE_FLOAT_EQ(a, b, eps) MEL__CHECK(1, __builtin_fabs((double)((a) - (b))) <= (eps), "expected %s ~= %s", #a, #b)
+
+#define MEL_FAIL(msg)    do { mel_test_fail(__FILE__, __LINE__, "%s", (msg)); mel_test_abort(); } while (0)
 #define MEL_SKIP(reason) do { mel_test_skip(reason); mel_test_abort(); } while (0)

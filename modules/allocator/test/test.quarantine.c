@@ -1,9 +1,9 @@
 #include <allocator/guard.h>
 #include <allocator/allocator.h>
 #include <allocator/heap.h>
-#include "test.harness.h"
+#include <test/test.h>
 
-MEL_TEST(allocator_guard_quarantine_tracks_freed_blocks, .tags = "allocator")
+MEL_TEST(alloc_quarantine, guard_quarantine_tracks_freed_blocks)
 {
     Mel_Guard_Allocator guard;
     mel_guard_init(&guard, (Mel_Guard_Allocator_Opt){
@@ -17,13 +17,13 @@ MEL_TEST(allocator_guard_quarantine_tracks_freed_blocks, .tags = "allocator")
 
     Mel_Alloc alloc = mel_guard_allocator(&guard);
     void* p = mel_alloc(&alloc, 64);
-    MEL_ASSERT_NOT_NULL(p);
+    MEL_REQUIRE_NOT_NULL(p);
     mel_dealloc(&alloc, p);
 
     Mel_Guard_Allocator_Stats stats = mel_guard_stats(&guard);
-    MEL_ASSERT_EQ(stats.live_allocs, 0);
-    MEL_ASSERT_EQ(stats.quarantined_allocs, 1);
-    MEL_ASSERT_EQ(stats.quarantined_bytes, 64);
+    MEL_REQUIRE_EQ(stats.live_allocs, 0);
+    MEL_REQUIRE_EQ(stats.quarantined_allocs, 1);
+    MEL_REQUIRE_EQ(stats.quarantined_bytes, 64);
 
     mel_guard_shutdown(&guard);
 }
