@@ -5,3 +5,96 @@
 - Verify GPU app compiles and runs under ios (simulator. i don't have an ios device. need to verify all three rendering backends: Metal, Vulkan, Webgpu)
 - Is it finally time to get out the meta quest vr?
 - android's apk should not be multi-abi. the size on that thing explodes with all the bundled libs TWICE
+
+* GPU RHI design tensions (from docs/gpu-rhi.md review)
+  Open architectural questions surfaced by the spec audit. Each is a real
+  cost / coherence problem to resolve before the implementation locks it in.
+
+** Variant cache-key fan-out
+   §9.9 stacks 12+ cache-key dimensions on top of the base pipeline-binary
+   key (descriptor hash, Slang version, granted-caps fingerprint, spec
+   constants, GPL link plan, provider ABI, vendor/arch, compiler fingerprint,
+   subgroup width, matrix tier, root-record payload, tiler profile,
+   reconstruction provider). Cardinality is real even with two values per
+   axis. Spec does not pin eviction policy, cache budget, or telemetry on
+   miss rates. Without those the on-disk cache will silently blow up the
+   user's install size; with a naive LRU the hot-path pipelines may evict
+   under cold-pass churn. Resolve: pick the policy, instrument the miss
+   reasons, set a default budget.
+
+** VK_EXT_shader_object parallel pipeline path
+   §6.5 keeps two pipeline-create families that produce the same
+   Mel_Gpu_Pipeline handle (`pipeline_*_create_shader_objects` vs.
+   `pipeline_*_create`). User code is unified ; the engine pays for two
+   implementations through every layout / cache / reflection / hot-reload
+   touch for the life of the codebase. Largest internal maintenance cost in
+   the spec. Decide whether the shader-object lane is worth the duplication
+   for an engine-managed renderer's permutation-explosion win, and if so,
+   commit to it explicitly — otherwise drop it to "P2 escape via native
+   interop" and stop carrying the dual path.
+
+** Render graph does not model pipelines as a dependency
+   §8.4 forbids `recordFn` from creating pipelines and tells the user to
+   warm them ahead of time and capture handles in `userData`. This pushes
+   the pipeline cache to every render-graph user ; the graph never
+   deduplicates compile requests across passes nor uses pipeline-existence
+   as a build-time edge. A `pipeline_dependency` access kind that the graph
+   compiler treats as a hard build-time edge (forcing pipeline existence,
+   bumping reuse, contributing to the cache key) would compose more
+   coherently. Pick: keep current "user owns it" pattern, or introduce the
+   new access kind and update §8.1 / §8.2 / §8.4 accordingly.
+
+** P2 escape composition is unspec'd
+   Five disjoint P2 hatches (mid-CL native injection, raw bindless heap
+   writes, raw SBT, raw barriers, raw memory pools). Spec covers the
+   state-resync hook for the first. Spec is silent on what happens when two
+   P2 escapes coexist on the same command list / resource. Likely the
+   answer is "the user owns the composition" — pin it explicitly so the
+   engine isn't blamed when two escapes desynchronize. Possibly require
+   each P2 escape to declare its scope so the validator can detect overlap
+   in debug.
+
+** Direct/indirect handle migration hazard
+   §3.1 ships `*_make_indirect(direct) → indirect` that invalidates the
+   prior direct handle's generation. Any code holding the prior handle now
+   fails `alive()`. Hazard: an unrelated module silently breaks after a
+   migration somewhere else. Three options: (a) remove the migration entry
+   point from the public API ; the rare engine-driven compaction path lives
+   in internal-only headers ; (b) keep the entry point but require an
+   explicit `*_migrate_subscribers(direct, callback)` so consumers can opt
+   into being notified ; (c) document the hazard louder and accept that
+   `*_make_indirect` is "you'd better know what you're doing." Pick one.
+
+** Cross-thread reactor-post backpressure semantics in release
+   §3.3 line 100 specifies a 4× hard-ceiling assert on the cross-thread
+   `mel_reactor_post` queue. Spec says "debug-asserting fail." Confirm the
+   release-mode behavior is "drop with a warning + a U2-channel diagnostic
+   + telemetry counter," not crash. Legitimate slow-reactor cases (Web
+   under tab-throttling, laptop on battery, OS scheduling) must not crash
+   production. Decide release behavior, document it in §3.3, and add the
+   telemetry counter to the planned counter set (U24-adjacent).
+
+** Status-discriminant explosion
+   Per-action status enums + per-action warning bitsets across ~30-40
+   fallible actions ≈ 60-80 small enums. Generic logging / Tracy / Perfetto
+   integration needs a stringifier per action. Decide: ship a generated
+   `*_status_to_string(action_id, code) → const char *` table alongside
+   each header, or accept the duplication and commit to manual maintenance.
+   The generated path needs a build-time codegen step in `tools/build` ; the
+   manual path needs a per-action review discipline. Pick before M1.
+
+** XR object family fork
+   §10 introduces `Mel_Xr_*` parallel to `Mel_Gpu_*`. Justifiable — XR
+   consumes GPU services. But duplicates session / surface / present
+   concepts. Alternative: `Mel_Gpu_Xr_Session` carries XR-specific fields,
+   sharing surface / present plumbing. Decide the boundary intentionally
+   before M3 XR work lands. The fork buys clean separation ; the merge buys
+   one less object family to maintain.
+
+** Pipeline-binary cache eviction (subset of variant fan-out, but distinct)
+   §6.5 specifies the cache discipline (atomic per-binary, defensive load,
+   keying) but not what happens when the on-disk cache crosses a budget.
+   LRU? Generational sweep tied to Slang/SDK version? User-managed clear
+   via a public entry point? The P2 primitives already let the user
+   reimplement the whole cache, but the engine-default needs a policy.
+
