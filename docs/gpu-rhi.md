@@ -55,11 +55,13 @@ Every signature in the RHI inherits the five primitives in this tier.
 
 Resources are referenced by **typed handles, value types, each a thin struct wrapping `Mel_SlotMap_Handle`**. One slotmap per resource type, owned by the `Mel_Gpu_Device`. Distinct wrapper types (`Mel_Gpu_Buffer`, `Mel_Gpu_Texture`, `Mel_Gpu_Texture_View`, `Mel_Gpu_Sampler`, `Mel_Gpu_Shader`, `Mel_Gpu_Pipeline`, `Mel_Gpu_Command_List`, `Mel_Gpu_Query_Pool`, `Mel_Gpu_Sync`, `Mel_Gpu_Swapchain`, etc.) give compile-time safety — a texture handle cannot be passed where a buffer is expected. The generation field turns use-after-free into a loud `alive()` failure instead of a dangling-pointer crash (MEL-ENGINE-VIII).
 
-Every live slot carries a **stable bindless slot field** for U14. The default allocator makes that slot equal to the handle's integer index wherever the backend can support the direct mapping, so the fast path is one integer and no lookup. The equality is an optimization, not a semantic law: constrained backends, compact descriptor heaps, deferred-destroy windows, imported resources, and explicit user descriptor tables may use a separate table index while the handle identity remains stable. The rule is: identity never constrains residency, and descriptor pressure never invalidates identity (MEL-ENGINE-IX). Value handles are trivially copyable, threadable, and serializable.
+**Bindless slot identity is contractual, and the direct / indirect type split makes the contract visible at the type level.** Engine-created persistent resources of the *direct* family — `Mel_Gpu_Buffer`, `Mel_Gpu_Texture_View`, `Mel_Gpu_Sampler`, `Mel_Gpu_Accel_Struct` — guarantee `bindless_slot == handle.index`: the allocator reserves the heap slot at the slotmap's index at creation time and never relocates it. The fast path is the integer index itself; no per-use lookup is generated, and the engine's per-draw root-record fill consumes `handle.index` directly. **Imported, compacted-heap, and `bindless = capped` (WebGPU floor) resources use *indirect* peer types** — `Mel_Gpu_Buffer_Indirect`, `Mel_Gpu_Texture_View_Indirect`, `Mel_Gpu_Sampler_Indirect`, `Mel_Gpu_Accel_Struct_Indirect` — that carry the slot field separately and require `*_bindless_slot(handle) → u32` to resolve. The two families do not implicitly convert: a function taking a direct handle cannot silently accept an indirect (MEL-ENGINE-VIII). Polymorphic call sites (engine binding-fill code that admits both) take a `u32 slot` rather than a polymorphic handle, so the resolve happens at the call site where the cost is visible. An explicit transition operator `*_make_indirect(direct) → indirect` is provided for the rare engine-driven compaction path that needs to migrate a direct allocation into a compacted heap; it invalidates the original direct handle's generation. Identity never constrains residency, and descriptor pressure never invalidates identity (MEL-ENGINE-IX). Value handles are trivially copyable, threadable, and serializable.
 
-Each slot carries an **`Owned`/`Borrowed` ownership flag** for the inbound-import path in U5. `Borrowed` slots are not freed on destroy, and their memory is never aliased by the allocator. Ownership is internal — imported and engine-created resources are indistinguishable at use sites (MEL-ENGINE-IX).
+Each slot carries an **`Owned`/`Borrowed` ownership flag** for the inbound-import path in U5, **orthogonal to the direct / indirect split**: engine-created allocations are `Owned` (direct in the common case, indirect when compacted into a tight heap or allocated on a `bindless = capped` backend); imports are `Borrowed` (always indirect). `Borrowed` slots are not freed on destroy and their memory is never aliased by the allocator. Non-bindless use sites — copy / blit / barrier / vertex-input / index-buffer records — accept either family identically (MEL-ENGINE-IX). Re-export eligibility rides the import descriptor's flag from U5, not the ownership flag alone.
 
-No uniform `destroy_any_handle`. Each resource type has its own `destroy`.
+**Capture-replay metadata.** Resources, samplers, acceleration structures, and the underlying memory pools admit a `capture_replay` creation flag (cap-gated by `caps.debug.capture_replay`, requested on device-create through U4) that records the opaque capture-replay handle in slot metadata. Tools like RenderDoc / PIX / Aftermath require this so that a replayed capture reconstructs identical descriptor addresses and bindless slot indices — without it, captures of a session using the §6.7 ceiling are unreplayable. Flag and metadata live in U1 because they cross every resource type; lowering and per-resource consumption happen in §6.1 / §6.2 / §6.6 / §6.7.
+
+No uniform `destroy_any_handle`. Each resource type has its own `destroy`. The indirect peer types share the same destroy entry points by overload on the typed pointer; both family destroys resolve to the same slotmap-free path.
 
 ### 3.2 Status and result model (U2)
 
@@ -95,13 +97,15 @@ All creation operations return a future. The future is **reactor-driven** as the
 
 **Cancellation.** In-flight futures are **not cancellable** in M1-M2: the reactor-core pump cannot interrupt a Slang compile, a `vkCreateGraphicsPipelines` call on the compile pool, or a WebGPU async resolve without driver cooperation. A future awaiting a device that is destroyed resolves with `Severity = Error` and a `device_lost` code (U6). Explicit `*_cancel` is reserved as a future additive surface if a concrete need emerges; introducing it later does not change existing futures' contract.
 
+**Backpressure.** The pump's cross-thread post path through `mel_reactor_post` is bounded. Each pump carries a high-water mark on in-flight cross-thread continuations (default sized to roughly one frame's worth of pipeline / readback / present completions, configurable at device creation); above the mark, completions for the *same* future coalesce (a second resolve-post for an already-pending future is a no-op, not a queue duplicate), and a U2 warning surfaces on the next device-level event. The pump never silently drops a unique completion ※ coalescing only collapses redundant posts. The hard ceiling is a debug-asserting fail at 4× the high-water mark — the symptom of a real bug (a reactor that has stopped pumping), not a load condition the engine should paper over (MEL-ENGINE-VIII).
+
 **Retirement is future-gated.** Every reclamation that must wait until the GPU has finished consuming a resource — command-pool reset (U15), transient-ring reset (U8/U9), deferred-destroy of resource slots (U1), bindless-slot reclamation (U14) — takes a dependency on the completion future of the last submission consuming it. There is no public `Mel_Gpu_Frame_Index`; the engine tracks retirement internally as the set of pending futures gating each resource. The render loop's frame cadence is incidental to retirement, not the basis for it. This pins the answer to "when is it safe to free this" to one mechanism across every unit (MEL-ENGINE-IX).
 
 ### 3.4 Capability / feature model (U4)
 
-`Mel_Gpu_Caps` is immutable, queried from the device. It is a **feature database**, not a flat grab-bag. Top-level domains: `memory`, `queues`, `shader`, `compute`, `raster`, `ray_tracing`, `work_graphs`, `media`, `presentation`, `interop`, `queries`, and `debug`. Graduated features are **tiered enums** (`bindless = none | capped | full`; `multi_adapter = none | external_share | linked_device`; `ray_tracing = none | inline | pipeline`; `timeline = native | emulated`; `tile_local = none | emulated | native`; `work_graphs = none | emulated | native`; `video_decode = none | import_only | hardware`; `video_encode = none | import_only | hardware`; `video_process = none | shader_emulated | hardware`; `protected_media = none | decode_only | process_present`; `ml_tensor = none | shader_emulated | native`; `vrs = none | per_draw | per_primitive | per_image`; `foveation = none | static | gaze_driven`; `asset_io = none | cpu_staged | gpu_decompress`; `latency_marker = none | reflex | anti_lag | xess_fg | platform_native`). Binary features remain bools only when the feature is truly yes/no.
+`Mel_Gpu_Caps` is immutable, queried from the device. It is a **feature database**, not a flat grab-bag. Top-level domains: `adapter`, `memory`, `queues`, `shader`, `compute`, `raster`, `tessellation`, `ray_tracing`, `work_graphs`, `media`, `presentation`, `interop`, `queries`, `power`, and `debug`. Graduated features are **tiered enums** (`bindless = none | capped | full`; `multi_adapter = none | external_share | linked_device`; `ray_tracing = none | inline | pipeline`; `cluster_accel_struct = none | emulated | vendor | core`; `partitioned_tlas = none | emulated | vendor | core`; `timeline = native | emulated`; `tile_local = none | emulated | native`; `work_graphs = none | emulated | native`; `video_decode = none | import_only | hardware`; `video_encode = none | import_only | hardware`; `video_process = none | shader_emulated | hardware`; `protected_media = none | decode_only | process_present`; `ml_tensor = none | shader_emulated | native`; `matrix_scope = none | thread | wave | group | full` (SM 6.10 LinAlg alignment); `vrs = none | per_draw | per_primitive | per_image`; `foveation = none | static | gaze_driven`; `sampler_feedback = none | tier1 | tier2`; `sparse_buffer = none | partial | full`; `sparse_texture = none | tier1 | tier2`; `asset_io = none | cpu_staged | gpu_decompress`; `latency_marker = none | reflex | anti_lag | xess_fg | platform_native`; `tessellation = none | partial | full`; `pipeline_robustness = none | per_pipeline | per_stage`; `indirect_state_change = none | tier1 | tier2`; `mutable_descriptor_type = none | partial | full`; `capture_replay = none | partial | full`; `performance_query = none | passes | streaming`; `internally_synchronized_queues = none | partial | full`; `adapter_type = discrete | integrated | software | virtual | external`; `power_source = ac | battery | unknown`; `low_power_mode = off | on`). Binary features remain bools only when the feature is truly yes/no.
 
-Limits live inside the domain that owns them: descriptor-table sizes and heap residency under `memory/bindless`; max texture dimensions and sparse page shape under `memory/textures`; max workgroup size, shared memory, subgroup sizes, dispatch dimensions, and indirect-dispatch support under `compute`; wave/subgroup operations, numeric formats (`fp64`, `fp32`, `fp16`, `bf16`, `fp8`, `int64`, `int16`, `int8`), integer-dot-product, cooperative matrix/vector/tensor support, barycentrics, derivatives, memory scopes, and atomics under `shader`; codec/profile/bit-depth/chroma support under `media`; color spaces, HDR metadata, present modes, VRR, and timing under `presentation`. Caps also carry per-format support tiers (`sampled`, `storage`, `attachment`, `blend`, `linear_filter`, `ycbcr_sampled`, `video_decode_output`, `video_encode_input`, `external_only`).
+Limits live inside the domain that owns them: descriptor-table sizes, heap residency, max bindless slots per heap, and per-resource indirect-slot budget under `memory/bindless`; max texture dimensions and sparse page shape under `memory/textures`; max workgroup size, shared memory, subgroup sizes, dispatch dimensions, and indirect-dispatch support under `compute`; wave/subgroup operations, numeric formats (`fp64`, `fp32`, `fp16`, `bf16`, `fp8` E4M3/E5M2, `int64`, `int16`, `int8`, `int4`), integer-dot-product, packed-dot integer-8/16, cooperative matrix/vector/tensor support, barycentrics, derivatives, memory scopes, atomics-by-type (`atomic_int64`, `atomic_float32`, `atomic_float16`, `image_atomic_int64`), and shader clock under `shader`; max tess patch control points, isoline support, point-mode tessellation, and per-patch outputs under `tessellation`; codec/profile/bit-depth/chroma support under `media`; color spaces, HDR metadata, present modes, VRR, shared-presentable-image, and timing under `presentation`; CPU↔GPU calibrated timestamp tier, HW performance-counter passes / streaming under `queries`. The `adapter` domain exposes `adapter_type`, vendor ID, device ID, driver version, `luid` (Windows / D3D12), `uuid` (Vulkan / Metal), and the OpenXR-runtime-published required-adapter LUID matcher when the runtime is present. The `power` domain exposes `power_source` and `low_power_mode`, both event-driven (callbacks installed on `Mel_Gpu_Instance`). Caps also carry per-format support tiers (`sampled`, `storage`, `attachment`, `blend`, `linear_filter`, `ycbcr_sampled`, `video_decode_output`, `video_encode_input`, `external_only`, `sampler_feedback_pair`).
 
 **Enablement is request-and-grant only — no auto default.** Device creation requires an explicit desired feature set; the backend enables only the corresponding extensions; `caps` reports what was actually granted. Users name what they want. The battery-conscious build enables nothing it does not use (MEL-ENGINE-III).
 
@@ -115,11 +119,13 @@ The highest-value escape is grabbing the native command buffer **mid-recording**
 
 **Outbound — export.** Export is a first-class interop operation, not merely "ask for the native pointer." Exportable buffers, textures, swapchain image sets, memory pools, and sync primitives declare their export intent and allowed handle families at creation/import time (`fd`, Win32 `HANDLE`, `IOSurface`, `AHardwareBuffer`, DXGI shared resource, `MTLSharedEvent`, Dawn `SharedTextureMemory` / `SharedFence`, etc.). `buffer_export`, `texture_export`, `memory_pool_export`, and `sync_export` return typed export records carrying ownership, state/layout, queue-family or node ownership, protection restrictions, and close/release obligations. Borrowed resources may be re-exported only if the import descriptor grants that right. Protected media resources refuse export unless the protected path explicitly permits it. Browser WebGPU reports export support as absent; Dawn-native and platform backends report the exact external-memory and external-sync tiers they can honor.
 
-**Inbound — import.** External native resources (`VkImage`, `MTLTexture`, `WGPUTexture`, external buffers, camera/video frames, multiplanar image planes, swapchain image sets) are wrapped into **uniform `Mel_Gpu_*` handles** with the internal `Owned`/`Borrowed` flag from U1. At use sites they are byte-for-byte indistinguishable from engine-created resources (MEL-ENGINE-IX). The flag governs only destroy (no underlying free), the allocator (no memory aliasing), and whether the resource is eligible for a global bindless slot.
+**Inbound — import.** External native resources (`VkImage`, `MTLTexture`, `WGPUTexture`, external buffers, camera/video frames, multiplanar image planes, swapchain image sets) are wrapped into **`Mel_Gpu_*_Indirect` handle types** (§3.1's indirect family) carrying the `Borrowed` flag. At non-bindless use sites — copy / blit / barrier / vertex-input / index-buffer records — they are interchangeable with direct engine-created handles (MEL-ENGINE-IX). At bindless use sites the user resolves the slot via `*_bindless_slot(indirect_handle) → u32`; the engine's binding-fill code paths take a `u32 slot` precisely to admit both families through one entry. The indirect type stores the slot field separately because imports cannot honor the slot-equals-index contract — the resource's heap slot is whatever the engine allocates at import time. The `Borrowed` flag governs destroy (no underlying free), allocator behavior (no memory aliasing), and re-export eligibility.
 
 External memory imports go through the U8 allocator (which wraps borrowed `VkDeviceMemory`/`MTLHeap`). External-swapchain image sets are first-class in U18 for OpenXR and video interop.
 
-**External sync is unified with internal sync.** The U17 binary semaphore, timeline semaphore, and submission completion-future are each constructible **internally OR from an external native handle** (fd, Win32 `HANDLE`, `MTLSharedEvent`). The user waits and signals them at submission identically regardless of origin. Cross-API and cross-process interop — a video decoder, OpenXR, CUDA handing you a frame plus a semaphore — is "import the texture, import the semaphore, wait on it before your pass." Same primitives, one path. Capability-gated by `external_memory` and `external_sync` tiers, honestly absent on WebGPU.
+**External sync is unified with internal sync.** The U17 binary semaphore, timeline semaphore, and submission completion-future are each constructible **internally OR from an external native handle** (fd, Win32 `HANDLE`, `MTLSharedEvent`). The user waits and signals them at submission identically regardless of origin. Cross-API and cross-process interop — a video decoder, OpenXR, CUDA, OpenCL, GStreamer DMA-BUF chain handing you a frame plus a semaphore — is "import the texture, import the semaphore, wait on it before your pass." Same primitives, one path.
+
+**Named cross-API interop targets.** The U5 import surface explicitly designs for the following sources so the implementation never has to retrofit them: **CUDA** (`cuImportExternalMemory` / `cuImportExternalSemaphore` over `VK_KHR_external_memory_fd|win32` + `VK_KHR_external_semaphore_fd|win32`; D3D12 shared NT handles; Metal `IOSurface` + `MTLSharedEvent` bridged via Apple's MPS / CoreML interop), **OpenCL** (`cl_khr_external_memory` + `cl_khr_external_semaphore` family), **GStreamer / V4L2 / PipeWire** (DMA-BUF fd import with implicit-sync→explicit-sync conversion via Linux sync_file fds), and **WebCodecs / browser composition** (already covered via the WebGPU `importExternalTexture` + `SharedTextureMemory` paths in §6.2 / §7.4). Capability-gated by `external_memory` and `external_sync` tiers and the `interop.cuda_compat` / `interop.opencl_compat` flags; honestly absent on browser WebGPU.
 
 ---
 
@@ -130,7 +136,7 @@ All mobile GPUs (Apple, Mali, Adreno, PowerVR) are **tile-based deferred** (TBDR
 - **Tile-local read is first-class** in the rendering API, expressed as a **semantic dependency declaration** ("pass B reads attachment A on-tile"), never as a backend-specific primitive. Each backend lowers idiomatically: Metal tile shaders / framebuffer fetch where available; Vulkan `dynamic_rendering_local_read` on 1.4 or the extension, otherwise subpasses/separate passes; D3D12 separate passes + barriers; WebGPU separate passes (P1 emulate). Declare intent, the backend chooses the idiom.
 - **Device class (TBDR vs IMR) is a runtime capability, not a compile-time class split.** One Vulkan binary spans Mali (TBDR) and desktop NVIDIA/AMD (IMR); one Metal binary spans Apple Silicon (TBDR) and Intel Mac (IMR). A `Desktop`/`Mobile` translation-unit split would mis-specialize. Cap tier `tile_local = none | emulated | native` reports the runtime fact. Per-platform backend TUs still dead-strip impossible code paths (the web TU contains no tile-local machinery at all), giving the compile-time leanness as a side effect of the per-platform build, not as a user-facing class split.
 
-Specific mobile requirements land in their home units: per-attachment load/store/clear actions and on-tile MSAA resolve in U16; memoryless / transient attachments in U8 and U10; unified-memory-aware allocation that skips staging in U8 and U9; platform-vsync and on-demand frame pacing in U19.
+Specific mobile requirements land in their home units: per-attachment load/store/clear actions and on-tile MSAA resolve in U16; memoryless / transient attachments in U8 and U10; unified-memory-aware allocation that skips staging in U8 and U9; platform-vsync and on-demand frame pacing in U19. The tiler-specific optimization surface — `Mel_Gpu_Tiler_Profile` and the per-vendor mobile providers (Apple, Adreno, Mali / Immortalis, PowerVR) plus the Meta Quest mobile-budget contract — lives in §9.7 (U33).
 
 ---
 
@@ -140,8 +146,8 @@ Specific mobile requirements land in their home units: per-attachment load/store
 
 A three-object phased model, **nothing hidden**:
 
-- **`Mel_Gpu_Instance`** — the enumeration root and validation-config owner (`VkInstance`, `WGPUInstance`; trivial on Metal). Created explicitly.
-- **`Mel_Gpu_Adapter`** — a candidate GPU whose caps the user **inspects before committing** (`VkPhysicalDevice`, `WGPUAdapter`, `MTLDevice`-as-adapter). The adapter interface is **uniform across all backends**: enumerate adapters + inspect caps (features/limits/info) + power preference.
+- **`Mel_Gpu_Instance`** — the enumeration root, validation-config owner, and host of the `adapter_removed`, `power_source_changed`, and `low_power_mode_changed` event callbacks (`VkInstance`, `WGPUInstance`; trivial on Metal). Created explicitly.
+- **`Mel_Gpu_Adapter`** — a candidate GPU whose caps the user **inspects before committing** (`VkPhysicalDevice`, `WGPUAdapter`, `MTLDevice`-as-adapter). The adapter interface is **uniform across all backends**: enumerate adapters + inspect caps (features/limits/info) + power preference. Each adapter exposes `adapter_type ∈ { discrete | integrated | software | virtual | external }`, vendor / device IDs, driver version, the platform-native identity (`luid` on D3D12 / DXGI, `uuid` on Vulkan, registry ID on Metal), and the OpenXR-runtime-published required-adapter LUID matcher when an OpenXR runtime is present (so XR sessions can deterministically pick the runtime-required adapter without the user reaching through native interop). Software adapters (WARP, lavapipe, SwiftShader) are first-class enumeration entries; apps that exclude them filter on `adapter_type`.
 - **`Mel_Gpu_Device`** — created from a chosen adapter with the U4 request-and-grant feature set.
 
 **WebGPU presents a synthetic adapter set**, not true enumeration. The backend requests the meaningful candidates the platform exposes (`Default`, `HighPerformance`, `LowPower`, and `Compatibility` where available), de-duplicates adapters whose privacy-limited identity and caps collapse to the same object, and reports that set through the uniform `Mel_Gpu_Adapter` interface. Caps come from `adapter.features` / `adapter.limits`; identity from `adapter.info` is advisory and privacy-limited. Emulated, not degraded — but not falsely equivalent to native physical-device enumeration.
@@ -160,7 +166,7 @@ A three-object phased model, **nothing hidden**:
 
 **Display / output enumeration is first-class.** Each adapter exposes a list of `Mel_Gpu_Output` candidates — `IDXGIOutput6` on DXGI, `VkDisplayKHR` on `VK_KHR_display` where granted, `NSScreen` on macOS, `UIScreen` on iOS, `wl_output` on Wayland — carrying display name, native resolution, supported refresh modes, **VRR range** (Variable Refresh Rate minimum and maximum Hz), **HDR / wide-color capabilities** (peak / average / minimum luminance from `DXGI_OUTPUT_DESC1` and `EDR` reference values, supported color spaces, mastering-primary support), per-output color profile (ICC where the OS publishes it), and current occlusion / power state. The swapchain (U18) optionally targets a specific output where the platform admits it (Windows exclusive-fullscreen flip, direct-output composition); apps that ignore outputs get the system-default association; apps that care can pick. Output handles invalidate together with their adapter on `adapter_removed`. WebGPU reports a synthetic single-output entry (the rendering canvas's containing screen) with the privacy-limited fields the browser admits.
 
-An optional `mel_gpu_device_create_default(power_preference, features)` is pure composition of the public phased calls — hides nothing.
+An optional `mel_gpu_device_create_default(power_preference, features) → Mel_Gpu_Device_Create_Future` is pure composition of the public phased calls — hides nothing — and returns a future so it composes coherently with the rest of U3. The convenience is callable from any thread, including the reactor thread (the U3 `*_sync` deadlock applies only to the *user's* explicit sync wrapper, not to the futures the convenience itself returns).
 
 ### 5.2 Queues and submission (U7)
 
@@ -180,6 +186,8 @@ Vulkan pre-creates the planned hardware queue set at device creation. A late req
 Hard-fail only if no role-compatible queue exists at all. Acquire/release lifecycle — `queue_release` returns the queue to availability.
 
 **Global priority hint.** `queue_request` admits an optional `priority ∈ { Low, Normal, High, Realtime }`, lowering to `VK_KHR_global_priority` (Roadmap 2026 mandatory: `VK_QUEUE_GLOBAL_PRIORITY_LOW_KHR` / `_MEDIUM_KHR` / `_HIGH_KHR` / `_REALTIME_KHR`) on Vulkan, `D3D12_COMMAND_QUEUE_PRIORITY_NORMAL` / `_HIGH` / `_GLOBAL_REALTIME` on D3D12, Metal's advisory queue priority where available, and no-op on WebGPU. On Vulkan the requested priority must already exist in the device-create `queue_plan`; if it does not, request demotes within the granted lanes and emits a U2 warning. **Realtime requires platform privilege** (Windows dev-mode or admin for `_GLOBAL_REALTIME`; Linux `CAP_SYS_NICE`; Vulkan driver-policy). Callers that require the exact priority use `queue_request_exact` or a fail-on-demote flag (MEL-ENGINE-VIII reports the demotion honestly).
+
+**Internally synchronized queues** (`VK_KHR_internally_synchronized_queues`, Roadmap 2026; promoted from EXT and shipping in NVIDIA driver 582.29 January 2026). `queue_request` admits an `internally_synchronized: bool` flag (gated by `caps.queues.internally_synchronized`). When set and granted, the per-queue submit lock collapses — the queue is safe to submit from any thread concurrently, and the engine-internal mutex around `queue_submit` (otherwise required by §7.1) becomes a no-op for that queue. Vulkan lowers to `VK_DEVICE_QUEUE_CREATE_INTERNALLY_SYNCHRONIZED_BIT_KHR` at device-create (the flag must already be present in the `queue_plan`; late requests upgrade only when a matching pre-created queue exists). D3D12 / Metal / WebGPU report the cap as absent and the flag downgrades silently to the locked path. The internally-synchronized path is the default for media / asset-IO queues where producers naturally run on many threads.
 
 **Submission is the sync site and returns a completion future.** `queue_submit(queue, { command_lists[], wait[], signal[] }) → future<void>`. The `wait` and `signal` arrays are U17 timeline or binary semaphores (possibly imported, U5). The returned future (U3) resolves when the GPU finishes the batch — "await GPU completion" is the same await as everything else.
 
@@ -223,7 +231,7 @@ WebGPU has no residency control — `caps.residency_control = none`; the residen
 
 Operations:
 
-- **`buffer_create({ size, usage, role, pool?, initial_data? }) → Mel_Gpu_Buffer_Create_Future`.** Resolves to `{ Mel_Gpu_Buffer, status }`. Usage flags: `VERTEX | INDEX | UNIFORM | STORAGE | STORAGE_TEXEL | INDIRECT | INDIRECT_COUNT | COPY_SRC | COPY_DST | SHADER_DEVICE_ADDRESS | AS_BUILD_INPUT | AS_STORAGE | SBT | VIDEO_BITSTREAM | VIDEO_PARAMETER | ML_TENSOR`. Storage, indirect, device-address, acceleration-structure, video-bitstream, and tensor usages are the essentials for GPU-driven rendering, compute, media, and ML-shaped workloads. `initial_data` does the right thing per role — direct write on UMA, persistent-map memcpy on native UPLOAD, staging blit on DEVICE — and the future is the ordering edge for any deferred copy or allocation work.
+- **`buffer_create({ size, usage, role, pool?, flags?, initial_data? }) → Mel_Gpu_Buffer_Create_Future`.** Resolves to `{ Mel_Gpu_Buffer, status }`. Usage flags: `VERTEX | INDEX | UNIFORM | STORAGE | STORAGE_TEXEL | INDIRECT | INDIRECT_COUNT | COPY_SRC | COPY_DST | SHADER_DEVICE_ADDRESS | AS_BUILD_INPUT | AS_STORAGE | SBT | VIDEO_BITSTREAM | VIDEO_PARAMETER | ML_TENSOR | CLUSTER_AS_BUILD_INPUT | CLUSTER_AS_STORAGE | PARTITIONED_TLAS_INSTANCE | SAMPLER_FEEDBACK_PAIRED`. Storage, indirect, device-address, acceleration-structure, cluster-AS, video-bitstream, and tensor usages are the essentials for GPU-driven rendering, compute, media, and ML-shaped workloads. **Creation flags** (`flags?`) include `CAPTURE_REPLAY` (caps-gated by `caps.debug.capture_replay`; reserves a stable BDA / descriptor address so RenderDoc / PIX / Aftermath captures replay identically — required for any buffer that is referenced through bindless or BDA in a debuggable build) and `SHADER_DEVICE_ADDRESS_CAPTURE_REPLAY` (paired flag for buffers whose addresses appear inside other buffers' contents, e.g. SBT records, work-graph node IO). `initial_data` does the right thing per role — direct write on UMA, persistent-map memcpy on native UPLOAD, staging blit on DEVICE — and the future is the ordering edge for any deferred copy or allocation work.
 - **`buffer_write(buf, offset, data, size, ordering) → Mel_Gpu_Buffer_Write_Future`** — the **portable streaming primitive**, no map needed. Lowers to `queueWriteBuffer` on WebGPU, persistent-map memcpy on native UPLOAD, staging blit on DEVICE. The returned future / sync edge is what later submissions wait on; a synchronous helper may wait, but the base call never hides an untracked GPU copy behind a `void` return. Debug-asserts a 4-byte-granular convention on `offset` and `size` — WebGPU's `writeBuffer` / `MAP_WRITE` constraint, distinct from binding-alignment constraints (e.g., the 256-byte uniform-buffer binding offset alignment), which are reported through caps limits and validated at bind time.
 - **`buffer_map_async(buf, mode, range) → future<Mel_Gpu_Mapped_Buffer>`** — portable for read-back and write staging. `mode = Read | Write`; read-modify-write is an explicit helper built from readback plus upload, not a pretend direct map on backends that cannot provide one. The mapped object carries `ptr`, `size`, `flush`, `invalidate`, and `unmap`. Native upload/readback heaps resolve eagerly with the persistent pointer; WebGPU direct mapping obeys its `MAP_READ` / `MAP_WRITE` usage restrictions and otherwise lowers through staging/readback helpers resolved by the U3 pump.
 - **`buffer_persistent_ptr(buf, range) → { ptr, status }`** (UPLOAD / READBACK only) — native zero-cost live pointer. **WebGPU hard-errors** (status severity = `ERROR`); `caps.persistent_map = none`. P1 sync-impossible: the contract cannot be honored synchronously on WebGPU, so do not fake it.
@@ -234,11 +242,15 @@ The buffer's default bindless slot is stored in the slot metadata from U1. It is
 
 ### 6.2 Textures and views (U10)
 
-**`Mel_Gpu_Texture` and `Mel_Gpu_Texture_View` are separate handle types.** The texture owns dimensions, mips, layers, samples, planes, and external-origin metadata; the view subsets it (mip range, layer range, plane, format reinterpret, swizzle, view dimension override). The **view owns the bindless slot**, not the texture. That slot is usually the view-handle index but remains queried through `texture_view_bindless_slot(view)` for the same reason as buffers. A convenience `texture_default_view(tex)` yields a full-resource view for the trivial case.
+**`Mel_Gpu_Texture` and `Mel_Gpu_Texture_View` are separate handle types.** The texture owns dimensions, mips, layers, samples, planes, and external-origin metadata; the view subsets it (mip range, layer range, plane, format reinterpret, component mapping, view dimension override). The **view owns the bindless slot**, not the texture, and the §3.1 direct / indirect contract applies: engine-created views are `Mel_Gpu_Texture_View` with `slot == handle.index`; imported and compacted-heap views are `Mel_Gpu_Texture_View_Indirect`. A convenience `texture_default_view(tex)` yields a full-resource view for the trivial case. **View bindless-slot budget is a hard limit** reported by `caps.memory.bindless.max_texture_view_slots`: a heavily-reused texture with N distinct views (format reinterpret / aspect / mip-range subsets) consumes N slots. The engine never silently compacts; if the budget is exceeded, view creation returns a `BindlessSlotExhausted` status and the app either explicitly migrates to indirect views via `texture_view_create_indirect(...)` or rebuilds heap sizing through U4 device-recreate.
 
-**`texture_create`** accepts `resource_kind` (`1D`/`2D`/`3D`), `extent`, `array_layers`, `format`, `mip_levels`, `sample_count`, `usage` (`SAMPLED | STORAGE | ATTACHMENT | COPY_SRC | COPY_DST | TRANSIENT | VIDEO_DECODE_OUTPUT | VIDEO_ENCODE_INPUT | VIDEO_PROCESS_INPUT | VIDEO_PROCESS_OUTPUT | EXTERNAL_CAMERA | EXTERNAL_VIDEO`), the `memoryless` flag (U8/U22), `cube_compatible` for 2D arrays, `role`, optional `pool`, optional `initial_data`. Views carry their own `view_dimension` (`1D`, `1DArray`, `2D`, `2DArray`, `3D`, `Cube`, `CubeArray`) plus the subresource range they expose; cube is a view over a compatible 2D array, not a distinct resource kind.
+**`texture_create`** accepts `resource_kind` (`1D`/`2D`/`3D`), `extent`, `array_layers`, `format`, `mip_levels`, `sample_count`, `usage` (`SAMPLED | STORAGE | ATTACHMENT | COPY_SRC | COPY_DST | TRANSIENT | VIDEO_DECODE_OUTPUT | VIDEO_ENCODE_INPUT | VIDEO_PROCESS_INPUT | VIDEO_PROCESS_OUTPUT | EXTERNAL_CAMERA | EXTERNAL_VIDEO | SAMPLER_FEEDBACK_MIP_REGION | SAMPLER_FEEDBACK_MIN_MIP | SHADING_RATE_SOURCE | FRAGMENT_DENSITY_MAP`), the `memoryless` flag (U8/U22), `cube_compatible` for 2D arrays, `role`, optional `pool`, optional `initial_data`, and creation `flags?` including `CAPTURE_REPLAY` (gated by `caps.debug.capture_replay`; required for any texture that appears in a bindless heap that needs to be RenderDoc / PIX replayable). Views carry their own `view_dimension` (`1D`, `1DArray`, `2D`, `2DArray`, `3D`, `Cube`, `CubeArray`) plus the subresource range they expose; cube is a view over a compatible 2D array, not a distinct resource kind.
 
-**Comprehensive format enum.** BGRA8 / RGBA8 in UNORM and SRGB; R / RG / RGBA in 8/16/32 float and int/uint; packed HDR `RGBA16F`, `R11G11B10F`, `RGB10A2`; depth/stencil `D32_FLOAT`, `D24_UNORM_S8_UINT`, `D16_UNORM`; compressed — BC1–7 (desktop), ETC2/EAC (Android baseline), **ASTC** (modern mobile, MEL-ENGINE-VI); multiplanar/video formats — `NV12`, `P010`, `P016`, `YUY2`, `UYVY`, opaque platform external formats, and per-plane view formats where the backend exposes them. Caps report per-format support tier (sampled/storage/attachment/blend/linear-filter/YCbCr-sampled/video-decode-output/video-encode-input/external-only); the user inspects before relying.
+**View component mapping is Vulkan-style `Mel_Gpu_Component_Mapping`** with identity default — each of `r`, `g`, `b`, `a` independently selectable from `{ Identity, Zero, One, R, G, B, A }`. Identity is encoded as `{ Identity, Identity, Identity, Identity }` and is always free / no-op-lowered on every backend. Non-identity mapping lowers to `VkComponentMapping` directly on Vulkan, to D3D12 component-mapping bits in the view descriptor (D3D12 supports the same enum precisely; the engine does not synthesize a sampling shader), to Metal `textureSwizzle:` on view-create, and to WebGPU-equivalent format-reinterpret-plus-shader where the backend lacks native swizzle (caps gate via `caps.memory.textures.component_mapping = identity_only | full`).
+
+**Format enum — concrete named set.** Color UNORM/SNORM/UINT/SINT/FLOAT/SRGB variants across R8, RG8, RGBA8, BGRA8, R16, RG16, RGBA16, R32, RG32, RGBA32, plus B5G6R5_UNORM_PACK16, B5G5R5A1_UNORM_PACK16, A2R10G10B10_UNORM, A2B10G10R10_UNORM, R10G10B10A2_UINT, R11G11B10_UFLOAT, R9G9B9E5_UFLOAT_PACK32, RGBA1010102_XR (Metal). Depth/stencil D16_UNORM, D32_FLOAT, D24_UNORM_S8_UINT, D32_FLOAT_S8X24_UINT, S8_UINT. Compressed — BC1/BC2/BC3 (UNORM + SRGB), BC4/BC5 (UNORM + SNORM), BC6H (UFLOAT + SFLOAT), BC7 (UNORM + SRGB); ETC2_R8G8B8/A1/RGBA8 (UNORM + SRGB), EAC_R11/RG11 (UNORM + SNORM); ASTC LDR + HDR for every block from 4×4 through 12×12, both UNORM and SRGB and HDR profiles; PVRTC1/2 where the platform exposes it. Multiplanar / video — `NV12`, `NV21`, `P010`, `P012`, `P016`, `YUY2`, `UYVY`, `Y210`, `Y216`, `Y410`, `Y416`, `AYUV`, plus opaque platform external formats and the per-plane view formats the backend exposes (`G8_B8R8_2PLANE_420_UNORM` style per-plane views on Vulkan, equivalents on D3D12 / Metal). Caps report per-format support tier (sampled/storage/attachment/blend/linear-filter/YCbCr-sampled/video-decode-output/video-encode-input/external-only/sampler-feedback-pair); the user inspects before relying.
+
+**Sampler feedback** (`caps.sampler_feedback = none | tier1 | tier2`). A sampler-feedback texture is created with `SAMPLER_FEEDBACK_MIP_REGION` or `SAMPLER_FEEDBACK_MIN_MIP` usage, paired with the sampled texture at view creation. Shaders write feedback via `WriteSamplerFeedback(...)` (HLSL) / `feedback.write_min_mip(...)` (MSL) / Slang's vendored equivalent. The CPU reads the feedback texture as an ordinary readback to drive virtual-texture page-in decisions. Lowering: D3D12 `D3D12_FEATURE_SAMPLER_FEEDBACK` Tier 1 / Tier 2; Vulkan via `VK_EXT_image_view_min_lod` + driver-extension for write-feedback (gating to `vendor` tier where the cross-vendor KHR is not yet ratified); Metal sparse texture access counters where the cap lowers; WebGPU honestly absent.
 
 **YCbCr and external texture sampling are first-class.** A texture view may carry a color model (`RGB`, `BT.601`, `BT.709`, `BT.2020`), transfer (`linear`, `sRGB`, `PQ`, `HLG`), range (`full`/`limited`), chroma siting, and plane mapping. Shader sampling lowers to Vulkan sampler-YCbCr conversion, Metal/CoreVideo texture caches or native texture views, D3D12 video-process/sample paths, or WebGPU external-texture/import-plus-shader conversion. Camera and video frames are not demoted to ad hoc app-side blits.
 
@@ -258,7 +270,9 @@ Descriptor: filter (min/mag/mip), wrap (s/t/r), max anisotropy (bounded by `caps
 
 ### 6.4 Shaders (U12)
 
-Slang single-source. Full stage coverage from day one: `VERTEX`, `FRAGMENT`, `COMPUTE`, `MESH`, `TASK`, and the ray-tracing set — `RAYGEN`, `MISS`, `CLOSESTHIT`, `ANYHIT`, `INTERSECTION`, `CALLABLE`. **Work-graph node shaders** (D3D12 Work Graphs 1.0 retail on the Agility/SM 6.9 ceiling path; Slang `[Shader("node")]` / `[NodeLaunch(...)]` / NodeIO records via its HLSL-superset path; mesh nodes preview-tier under Work Graphs 1.1 / `lib_6_9`) and the **cooperative-vector / LinAlg intrinsics surface** (SM 6.10 preview LinAlg unifying the previously-separate cooperative-vector and wave-matrix tracks; Slang shipped cooperative vectors January 2025 targeting `SPV_NV_cooperative_vector` and `dx::linalg::MatVec`) are also expressible. Capability-gated where the backend lacks the stage or intrinsic.
+Slang single-source. Full stage coverage from day one: `VERTEX`, `TESS_CONTROL` (Hull), `TESS_EVALUATION` (Domain), `GEOMETRY` (cap-gated, mostly legacy — kept for porting), `FRAGMENT`, `COMPUTE`, `MESH`, `TASK`, and the ray-tracing set — `RAYGEN`, `MISS`, `CLOSESTHIT`, `ANYHIT`, `INTERSECTION`, `CALLABLE`. **Work-graph node shaders** (D3D12 Work Graphs 1.0 retail on the Agility/SM 6.9 ceiling path; Slang `[Shader("node")]` / `[NodeLaunch(...)]` / NodeIO records via its HLSL-superset path; mesh nodes preview-tier under Work Graphs 1.1 / `lib_6_9`) and the **LinAlg matrix-scope surface** (SM 6.10 preview LinAlg unifying the previously-separate cooperative-vector and wave-matrix tracks into `MatrixScope::Thread | Wave | Group`; Slang shipped cooperative vectors January 2025 targeting `SPV_NV_cooperative_vector` and `dx::linalg::MatVec`, transitioning to the LinAlg surface) are also expressible. Capability-gated where the backend lacks the stage or intrinsic — tessellation gates through `caps.tessellation = none | partial | full`, gated absent on mobile / WebGPU core / pre-Metal-tessellation hardware. Tessellation pipeline state (patch control points, tess factors, partitioning mode, output topology, point mode) lives in U13 alongside the other pipeline state.
+
+**Raw-bytecode passthrough is a first-class peer to the Slang path** (P2). `shader_create_from_bytecode({ target, blob, entry, stage, reflection? }) → Mel_Gpu_Shader_Create_Future` accepts a precompiled blob for the target backend's native form — SPIR-V on Vulkan, DXIL on D3D12, MSL / Metal IR on Metal, WGSL or compiled WGSL on WebGPU. The user supplies reflection metadata directly (or asks the engine to extract it from the blob via the backend's reflection facility — SPIRV-Reflect, DXC reflection, MTLLibrary introspection, WGSL parse). Bundle generation, hot reload, and the U12 `melody.binding` mixin are Slang conveniences over this primitive; an app that hand-rolls its shader pipeline (third-party material editor, AOT-baked variants, shader obfuscation, custom optimizer chains) ships only raw blobs and bypasses Slang entirely. Capability-gated by `caps.shader.bytecode_passthrough.<target>` so the user can introspect what the backend will accept.
 
 **Multi-entry modules.** A single Slang source compiles to a module exposing N entry points; pipeline creation picks `(entry_name, stage)` pairs from it. Idiomatic Slang.
 
@@ -271,6 +285,8 @@ Slang single-source. Full stage coverage from day one: `VERTEX`, `FRAGMENT`, `CO
 One Slang authoring detail the spec acknowledges (current Slang limitation, tracked as Slang issue #9643 "Overlapping push constant ranges in SPIR-V target," open as of 2026-01-16): `[shader("...")]` entry-point parameters map to push constants starting at offset 0 per stage, but Vulkan shares one push-constant range across all stages in a pipeline, and Slang does not currently expose offset control per entry-point parameter. The supportable pattern is a **global-scope `[[vk::push_constant]]` struct** that all stages reference; reflection picks it up and U13 lays it out as one shared range. Bundle generation in U12 validates that per-entry push-constant uses are reconcilable and emits an honest error otherwise. This is what U14's per-draw root-record carrier rides on.
 
 **Capability-system coordination with Slang.** Slang ships its own capability system — `[require(...)]`, `__target_switch`, `CapabilityAtom`, hierarchical atoms with inheritance (e.g., `_spirv_1_5 : _spirv_1_4`), and aliases (`alias raytracing = glsl + GL_EXT_ray_tracing | spirv + SPV_KHR_ray_tracing | hlsl + _sm_6_4`) — and selects overloads by capability subset at IR link time. This overlaps directly with U4 / U25. The engine **wraps** Slang's capability system rather than duplicating it: U4's request-and-grant set is translated to `-capability` flags on the Slang compile, Slang's link-time capability errors surface as the bundle-generation gate, and Slang reflection records the feature mask required by each entry point so U13 can fail pipeline creation early when the granted device lacks the capability. Caveat: Slang's documentation flags `__target_switch` and friends as "internal compiler features… subject to breaking changes" (see Slang issue #9210); the engine treats the Slang capability surface as a versioned vendored dependency, not a stable public ABI, and pins to a known-good Slang release per Melody version.
+
+**Slang version is part of the bundle key and the `pipeline_binary` cache key.** Each Melody version pins one Slang release (vendored at `tools/build/vendor/slang`); the version string ends up in every emitted bundle's container header and contributes to the cache fingerprint described in §6.5. A Slang upgrade therefore invalidates the persisted pipeline-binary cache deterministically rather than silently producing miscompiled shaders. Major Slang regressions that block a Melody release path are handled by pinning back; the `tools/build/vendor/slang` directory carries a `SLANG_VERSION.lock` file with the upstream commit hash and a `MIGRATION.md` of any source-level deltas the engine consumes from one pin to the next.
 
 **Bundle-load capability check.** Every compiled bundle records the union of `[require(...)]` capability atoms across all entry points alongside per-entry masks. Bundle load validates the container, target metadata, and reflection schema. Per-entry capability checks happen when an entry or pipeline is selected, so one unsupported entry does not block other entries in the same bundle. Tools and strict startup paths can opt into `require_all_entries_supported`; that eager check is one set-difference operation and the failure status carries the missing atoms verbatim (`requires _spirv_1_5, raytracing_pipeline; granted _spirv_1_4`) instead of an opaque pipeline-create failure later.
 
@@ -288,19 +304,21 @@ Compute is not treated as "rendering without color attachments." It has its own 
 
 **Shader/subgroup surface.** Caps expose subgroup/wave size range, supported stages, quad operations, vote/ballot/shuffle/arithmetic/clustered ops, derivative support in compute (Vulkan `VK_KHR_compute_shader_derivatives`, Roadmap 2026 mandatory), memory scopes, memory semantics, atomics by type, barycentrics, clip/cull distances, dual-source blending, interpolation controls, shader clock (`VK_KHR_shader_clock`), explicit workgroup-memory layout (`VK_KHR_workgroup_memory_explicit_layout`), and untyped pointers (`VK_KHR_shader_untyped_pointers`). Slang reflection records the feature mask required by each entry point; pipeline creation fails early when an entry requires a feature the granted device lacks.
 
-**Numeric surface.** Caps expose `fp64`, `fp32`, `fp16`, `bf16`, `fp8`, signed/unsigned `int64`/`int32`/`int16`/`int8`, packed dot products, saturation modes, denormal/rounding behavior where the backend reports it, and three distinct ML-acceleration tiers — cooperative matrix, cooperative vector, and tensor/ML — each named by its extension because the cross-vendor surface is uneven: `VK_KHR_cooperative_matrix` is KHR (Roadmap 2026 mandatory); `VK_NV_cooperative_vector` and `VK_NV_cooperative_matrix2` are **NV-only** (no KHR analog yet); `VK_ARM_tensors` (1.4.317) supplies tensor aliasing on ARM. D3D12 surfaces them through SM 6.9 (Long Vectors, mandatory 16-/64-bit + wave ops) and SM 6.10 preview **LinAlg** (unified replacement for the previously-separate cooperative-vector and wave-matrix tracks). Metal 4 surfaces them through `MTLTensor` (first-class resource peer to buffer and texture, with MSL 4 cooperative-tensor reductions and `Convolution2d` descriptors) and **Shader ML** (inline small networks in fragment/vertex/compute, no encoder round-trip). No precision is silently promoted or demoted. If a shader asks for `fp16` or `int8` math and the backend cannot honor it, creation fails instead of compiling an accidentally slower or less precise program.
+**Atomic operations are enumerated per-type per-storage**, not collapsed into a single bool. Caps expose `atomic_int32_buffer`, `atomic_int64_buffer` (`VK_KHR_shader_atomic_int64`, SM 6.0+), `atomic_int32_image`, `atomic_int64_image` (`VK_EXT_shader_image_atomic_int64`, mandatory carrier for software-rasterization-into-storage and GPU-driven shading techniques), `atomic_int32_shared`, `atomic_int64_shared`, `atomic_float32_*` (`VK_EXT_shader_atomic_float` add / load / store / exchange / min / max per storage class), `atomic_float64_*`, `atomic_float16_*` (`VK_EXT_shader_atomic_float2` — used in HW BVH builds, neural training inner loops). Slang reflection records which atomic-by-type the shader needs; pipeline creation fails when the granted device lacks it. No silent promotion.
+
+**Numeric surface.** Caps expose `fp64`, `fp32`, `fp16`, `bf16`, `fp8` (E4M3, E5M2), signed/unsigned `int64`/`int32`/`int16`/`int8`/`int4`, packed dot products (`int8` and `int16` cross-vendor), saturation modes, denormal/rounding behavior where the backend reports it. **ML acceleration is unified under `caps.matrix_scope ∈ { none | thread | wave | group | full }`** — the SM 6.10 LinAlg axis, which subsumes the previously-separate cooperative-vector and wave-matrix tracks into one orthogonal surface. The matmul-profile descriptor (below) resolves into a matrix scope and an element-type pair. Underlying cross-vendor extensions stay named so power users can branch: `VK_KHR_cooperative_matrix` is KHR (Roadmap 2026 mandatory); `VK_NV_cooperative_vector` and `VK_NV_cooperative_matrix2` are **NV-only**; `VK_ARM_tensors` (1.4.317) supplies tensor aliasing on ARM. D3D12 surfaces them through SM 6.9 (Long Vectors, mandatory 16-/64-bit + wave ops) and SM 6.10 preview **LinAlg** (the unified replacement, Microsoft preview April 2026, retail expected late 2026). Metal 4 surfaces them through `MTLTensor` (first-class resource peer to buffer and texture, with MSL 4 cooperative-tensor reductions and `Convolution2d` / `matmul2d_descriptor` Metal Performance Primitives) and **Shader ML** (inline small networks in fragment/vertex/compute, no encoder round-trip). No precision is silently promoted or demoted. If a shader asks for `fp16` or `int8` math and the backend cannot honor it, creation fails instead of compiling an accidentally slower or less precise program.
 
 **Dispatch surface.** Workgroup size, **subgroup-size control** (`VK_EXT_subgroup_size_control`, core 1.3 — pin a required subgroup size for the compute pipeline so ML kernels and cooperative-matrix shaders get the wave-width they were tuned for, with `caps.subgroup_size_control = { min, max, supported_stages }`), shared-memory size, dispatch dimension limits, indirect dispatch, indirect-count dispatch (U15 `cmd_dispatch_indirect_count`), device-address availability, device-side copy/fill (Vulkan `VK_KHR_copy_memory_indirect`, Roadmap 2026 mandatory), memory decompression, and async-compute overlap are all explicit. `cmd_dispatch` remains the universal primitive; specialized helpers (`cmd_dispatch_tensor`, `cmd_dispatch_cooperative_matrix` if they exist) are conveniences over the same shader/caps contract, not separate compute worlds.
 
-**Matmul profile.** `Mel_Gpu_Matmul_Profile { element_type, accum_type, m, n, k, layout_a, layout_b }` is a declarative descriptor that resolves at pipeline-create to the best granted tier — `tensor` (Metal 4 `MTLTensor` + Shader ML / ARM `VK_ARM_tensors` / D3D12 SM 6.10 LinAlg) → `cooperative_vector` (NV-only `VK_NV_cooperative_vector` / SM 6.10 LinAlg) → `cooperative_matrix` (`VK_KHR_cooperative_matrix`) → `subgroup_arithmetic` shader-emulated. The resolved tier is returned in the U2 status so the user *can* introspect and branch when the cost differential matters; the default path does not require it. Without this descriptor the engine forces the user to write three lowerings by hand against three vendor extensions ※ which is the duplication MEL-ENGINE-II forbids.
+**Matmul profile.** `Mel_Gpu_Matmul_Profile { element_type, accum_type, m, n, k, layout_a, layout_b, scope_hint? }` is a declarative descriptor that resolves at pipeline-create to a `{ matrix_scope, extension }` pair. The scope axis is the SM 6.10 LinAlg taxonomy: `thread` (per-thread MatVec, what the previous-gen `cooperative_vector` proposal called itself), `wave` (wave-uniform matmul, the cooperative-matrix shape, and Metal MPS wave-scope reductions), or `group` (workgroup-scope matmul; D3D12 SM 6.10 group-scope LinAlg + Metal Shader ML group ops + Vulkan `VK_NV_cooperative_matrix2`). The resolution prefers `group` → `wave` → `thread` → `subgroup_arithmetic` (shader-emulated last-resort) by default; `scope_hint` lets the user pin a scope. Returned in the U2 status so the user *can* introspect and branch when the cost differential matters; the default path does not require it. Without this descriptor the engine forces the user to write three lowerings by hand against three vendor extensions ※ which is the duplication MEL-ENGINE-II forbids.
 
 **Lowering.** Vulkan uses subgroups, shader float/int controls (`VK_KHR_shader_float_controls2`, core 1.4), integer-dot-product, `VK_KHR_cooperative_matrix` plus the NV-only `VK_NV_cooperative_vector` / `VK_NV_cooperative_matrix2` and ARM `VK_ARM_tensors` where present. D3D12 uses the highest granted shader-model wave ops; cooperative-vector and wave-matrix are reached through SM 6.10 **LinAlg** (preview), not SM 6.9. Metal uses the highest available MSL 4 features plus `MTLTensor` resources, Shader ML inline networks, and `MTL4MachineLearningCommandEncoder` for full network dispatch. WebGPU exposes only its granted optional features (`shader-f16`, `subgroups`, `subgroup_uniformity`, `dual-source-blending`, `float32-filterable`, `float32-blendable`, `clip-distances`, and friends) and reports the rest as absent or shader-emulated.
 
 ### 6.5 Pipelines (U13)
 
-**Per-type create**, distinct state spaces: `pipeline_graphics_create`, `pipeline_compute_create`, `pipeline_mesh_create`, `pipeline_rt_create`, `pipeline_work_graph_create` (D3D12 work graphs; cap-gated). No unifying tagged descriptor.
+**Per-type create**, distinct state spaces: `pipeline_graphics_create`, `pipeline_compute_create`, `pipeline_mesh_create`, `pipeline_tess_create` (vertex + tess-control + tess-evaluation + fragment; cap-gated by `caps.tessellation`), `pipeline_rt_create`, `pipeline_work_graph_create` (D3D12 work graphs; cap-gated). No unifying tagged descriptor.
 
-**Full state coverage.** Vertex input layout (reflection default, manual override); topology; full rasterization (cull, fill, front-face, depth bias, conservative raster cap-gated); full depth/stencil (per-face stencil ops, depth bounds); **per-attachment blend** (separate color/alpha, full factor/op enumeration, per-attachment color write mask). No current single-blend-state shortcuts.
+**Full state coverage.** Vertex input layout (reflection default, manual override); topology (including patch-list topologies for tessellation pipelines); full rasterization (cull, fill, front-face, depth bias, conservative raster cap-gated); full depth/stencil (per-face stencil ops, depth bounds); **per-attachment blend** (separate color/alpha, full factor/op enumeration, per-attachment color write mask). **Tessellation state** (patch control point count, primitive partition mode ∈ `{ Integer, FractionalEven, FractionalOdd, Pow2 }`, output topology ∈ `{ Point, Line, TriangleCW, TriangleCCW }`, point-mode flag, max tessellation factor) lives on `pipeline_tess_create`. **Pipeline robustness selector** `robustness ∈ { default | disabled | enabled | per_stage }` (cap-gated by `caps.pipeline_robustness`; lowers to `VK_EXT_pipeline_robustness` per-pipeline, D3D12 root-signature robustness, Metal advisory) — apps that need predictable performance opt out of robustness on hot pipelines and keep it on cold / user-content-driven pipelines. No current single-blend-state shortcuts.
 
 **Maximize dynamic state by default** where the backend supports it (`VK_EXT_extended_dynamic_state{1,2,3}` or the promoted Vulkan 1.4 path; Metal encoder state; WebGPU fewer). Viewport, scissor, blend constants, stencil ref, depth bias, primitive topology, cull mode, front face, depth-test/write, depth-compare, stencil-test/op, **VRS shading-rate + combiner ops** (U16), **sample positions** via `VK_EXT_sample_locations` (programmable MSAA sample positions for TAA-stable jitter; cap `sample_locations = none | per_pipeline | per_subpass`), **sample shading enable + min-sample-shading factor**, and **logic-op state** — all dynamic where possible. The practical lever against pipeline-permutation explosion. Caps report what is actually dynamic.
 
@@ -322,9 +340,13 @@ Compute is not treated as "rendering without color attachments." It has its own 
 
 ### 6.6 Acceleration structures and shader binding tables (U26)
 
-Ray tracing is not complete without acceleration-structure resources. `Mel_Gpu_Accel_Struct` is a typed handle with the same `Owned`/`Borrowed` import rules as buffers and textures. Types: bottom-level, top-level, and backend-specific cluster/partitioned forms when caps report them.
+Ray tracing is not complete without acceleration-structure resources. `Mel_Gpu_Accel_Struct` is a typed handle following the §3.1 direct / indirect contract — engine-created is direct; imports use `Mel_Gpu_Accel_Struct_Indirect`. Types: **bottom-level** (BLAS), **top-level** (TLAS), **cluster-level** (CLAS — `Mel_Gpu_Cluster_Accel_Struct`, the new resource at the leaf of the hierarchy that groups triangles by spatial locality, up to the backend-reported per-cluster triangle / vertex maxima), and **partitioned top-level** (`Mel_Gpu_Partitioned_Tlas` — the incremental-update TLAS shape that maintains internal partitions so only affected partitions rebuild when their instances change).
 
-**Build workflow.** `accel_struct_get_build_sizes(desc)` reports result/scratch/update sizes; `accel_struct_create({ type, size, role, pool?, flags })` allocates backing; recording exposes `cmd_build_accel_struct`, `cmd_update_accel_struct`, `cmd_copy_accel_struct`, `cmd_compact_accel_struct`, `cmd_serialize_accel_struct`, `cmd_deserialize_accel_struct`, and `cmd_trace_rays_indirect` / `cmd_trace_rays_indirect2` (the latter with dispatch dims read entirely from GPU memory — Vulkan `VK_KHR_ray_tracing_maintenance1` `vkCmdTraceRaysIndirect2KHR`, D3D12 DXR 1.1 indirect dispatch from compute). Build inputs accept vertex/index/AABB buffers, transform buffers, instance buffers, opacity micromaps, displacement/motion data, and procedural intersection records as capability-gated descriptors.
+**Build workflow.** `accel_struct_get_build_sizes(desc)` reports result/scratch/update sizes; `accel_struct_create({ type, size, role, pool?, flags })` allocates backing; recording exposes `cmd_build_accel_struct`, `cmd_update_accel_struct`, `cmd_copy_accel_struct`, `cmd_compact_accel_struct`, `cmd_serialize_accel_struct`, `cmd_deserialize_accel_struct`, and `cmd_trace_rays_indirect` / `cmd_trace_rays_indirect2` (the latter with dispatch dims read entirely from GPU memory — Vulkan `VK_KHR_ray_tracing_maintenance1` `vkCmdTraceRaysIndirect2KHR`, D3D12 DXR 1.1 indirect dispatch from compute). Build inputs accept vertex/index/AABB buffers, transform buffers, instance buffers, opacity micromaps, displacement/motion data, procedural intersection records, and **per-vertex position fetch** (`VK_KHR_ray_tracing_position_fetch` / D3D12 `TriangleObjectPositions`, SM 6.9 mandatory) as capability-gated descriptors. **Ray-tracing motion blur** (instance and transform interpolation) is admitted through `VK_NV_ray_tracing_motion_blur` lowering on Vulkan plus the matching D3D12 motion-instance flags, capability-gated.
+
+**Cluster acceleration structures (CLAS) and partitioned TLAS.** A CLAS contains a fixed-upper-limit group of triangles (typically 128 triangles / 128 vertices, exact bound reported in `caps.ray_tracing.cluster_max_triangles` / `_max_vertices`), spatially grouped so axis-aligned bounding boxes minimize overlap. CLAS references compose into a BLAS via `cmd_build_blas_from_clusters(blas, clusters[], flags)`, enabling the Nanite-style cluster-LOD streaming and view-dependent tessellation paths. A partitioned TLAS replaces full TLAS rebuilds with instance-write / instance-update / partition-translation-write operations: `cmd_partitioned_tlas_update(ptlas, ops[])` mutates only the partitions whose instances changed, and the unchanged partitions reuse their prior internal BVH. **Shader access**: cluster ID is reachable via Slang's vendored equivalent of `gl_ClusterIDNV` / HLSL `ClusterID()` (SM 6.9), with reflection requiring `[require(cluster_acceleration_structure)]` on the RT pipeline so U13 fails creation early when the granted device cannot honor it (including the emulated tier below). Lowering: Vulkan via `VK_NV_cluster_acceleration_structure` + `VK_NV_partitioned_acceleration_structure` (NV-vendor at spec time; the engine carries the cap tier `vendor` and a future-additive path to KHR when ratification lands), D3D12 via the SM 6.9 + Agility 1.619.3 cluster intrinsics and the new D3D12 cluster-build APIs (cross-vendor on NVIDIA RTX, AMD RDNA 4, Intel Arc B-series), Metal honestly absent (`cluster_accel_struct = none`), WebGPU absent.
+
+**Cluster-LOD fallback on `cluster_accel_struct = emulated`** (symmetric to U14's `descriptor_heap → descriptor_buffer → descriptor_indexing` ladder). Where hardware cluster acceleration is missing but the user's renderer wants the cluster-LOD pattern — AMD pre-RDNA 4 Vulkan, Intel Arc pre-B-series Vulkan, every non-NV Vulkan device pre-KHR-ratification, Apple Silicon — the cluster-build commands remain functional and lower behavior-faithfully: `cmd_build_cluster_accel_struct` emits a scratch record of the cluster's triangles plus a cluster→primitive-ID-range mapping; `cmd_build_blas_from_clusters` produces a *standard* `Mel_Gpu_Accel_Struct` BLAS where each cluster's triangles occupy a contiguous primitive-ID range (the per-cluster `firstPrimitive` + `clusterPrimitiveStride` are recorded on the BLAS metadata); Slang's `ClusterID()` builtin lowers to `gl_PrimitiveID / clusterPrimitiveStride` instead of the HW intrinsic, gated by the engine-registered Slang capability atom `cluster_accel_struct_emulated`; `cmd_partitioned_tlas_update` falls back to a full TLAS rebuild driven by the partition's instance set. Rays hit the same triangles and the shader sees the same cluster ID (P1 fidelity); incremental BLAS sharing across CLAS rebuilds and the partitioned-update savings collapse to full rebuilds (P1 honesty — `caps.cluster_accel_struct = emulated` reports the cost so power users can branch, e.g., use a coarser cluster size when emulated to recoup some of the rebuild cost). The `none` tier remains the honest gate: backends without RT at all (`ray_tracing = none`), or runtimes where the user's RT pipeline cannot honor the cluster-AS contract even via emulation, refuse cluster creation with `MissingFeature` rather than silently degrading further (MEL-ENGINE-VIII).
 
 **Compaction protocol — new handle, explicit reference update.** `cmd_compact_accel_struct(src, dst)` writes the compacted form into a freshly-allocated `dst` handle (sized from `cmd_write_acceleration_structures_properties` post-build); it does **not** swap the source in place. TLAS instances that point at the source BLAS continue to point at the source until the user issues a TLAS rebuild or update with the new handle's device address — the engine refuses to mutate TLAS instance data behind the user's back (MEL-ENGINE-VIII, no silent substitution). The honest cost: the user runs build → query compacted size → allocate dst → compact → rebuild TLAS pointing at dst → destroy src once the rebuild's completion future resolves (§3.3 future-gated retire). The alternative — engine swaps the slot's backing in place — was rejected because it forces the engine to re-emit TLAS-touched barriers and silently mutate user state.
 
@@ -344,11 +366,13 @@ The binding model is **two layers, ceiling and floor**, both first-class. Caps r
 
 The ceiling requires `caps.bindless = full` and a backend-specific root-record carrier. **The carrier per backend is pinned**: Vulkan delivers a root-record address or index through a reflected push-constant range; D3D12 uses a **root CBV** or root constants at a fixed root parameter index containing descriptor heap indices; Metal 4 uses one `MTL4ArgumentTable` slot carrying the argument table / buffer reference. The size, alignment, and binding location of the carrier are reflected through U12 onto the pipeline layout so the user never picks them by hand. On Vulkan ceiling backends without `VK_EXT_descriptor_heap` granted, the carrier still rides push constants but the heap-index resolution path differs (`descriptor_buffer` offsets vs. `descriptor_indexing` set bindings); the user-visible resource schema is unchanged. `caps.root_record_payload = pointers | descriptor_indices | mixed` reports whether buffer fields are real addresses, descriptor indices, or a combination; `caps.root_record_update = persistent_map | upload_ring | staging_copy | gpu_generated` reports how root records may be produced. The ceiling backends are **Vulkan with `VK_EXT_descriptor_heap`** (23 January 2026 with Vulkan 1.4.340 / Roadmap 2026; intended replacement for `VK_EXT_descriptor_buffer` and the legacy `VkDescriptorSetLayout` / `VkPipelineLayout` machinery, DX12-style two-heap split — one resource heap, one sampler heap — requiring `VK_KHR_buffer_device_address` or Vulkan 1.2 plus `VK_KHR_shader_untyped_pointers`), with `VK_EXT_descriptor_buffer` as the transitional path where `descriptor_heap` is not yet granted, plus `buffer_device_address` (core 1.2, mature in 1.4); D3D12 SM 6.6+ with `ResourceDescriptorHeap` / `SamplerDescriptorHeap` direct indexing plus a root-record carrier; Metal 4 with `MTL4ArgumentTable` carrying pointer-bearing or table-indexed argument-buffer references plus integrated `MTLResidencySet`. The previous-generation Vulkan ceiling — `buffer_device_address` + `VK_EXT_descriptor_indexing` with `UPDATE_AFTER_BIND` — remains a supported lowering for runtimes that haven't reached `descriptor_buffer`/`descriptor_heap`.
 
-**Floor — per-type descriptor tables.** Where the ceiling caps are absent (WebGPU, older runtimes lacking BDA, direct heap indexing, or another root-address carrier), the same RHI surface lowers to **per-resource-class descriptor tables** — one for texture views, one for samplers, one for storage buffers, one for uniform buffers, one for acceleration structures, plus optional app-defined tables for classic descriptor-set layouts. Each resource slot stores its shader-visible table index; the default policy assigns table index = handle index where possible, preserving the zero-bookkeeping fast path. The API does not promise equality because descriptor residency, heap compaction, WebGPU caps, and borrowed resources may require a separate index. Per-draw indices ride **push constants** on Vulkan/Metal/D3D12, or a tiny uniform buffer with dynamic offset on WebGPU. This is the classical bindless-tables model — still first-class on the floor, never a degraded fallback.
+**Floor — per-type descriptor tables, with optional mutable descriptors.** Where the ceiling caps are absent (WebGPU, older runtimes lacking BDA, direct heap indexing, or another root-address carrier), the same RHI surface lowers to **per-resource-class descriptor tables** — one for texture views, one for samplers, one for storage buffers, one for uniform buffers, one for acceleration structures, plus optional app-defined tables for classic descriptor-set layouts. Direct handles (§3.1) guarantee table-index = handle-index by allocator contract: the table slot is reserved at the slotmap's index at creation time and never relocates. Indirect handles store their table index separately and resolve via `*_bindless_slot`. Per-draw indices ride **push constants** on Vulkan/Metal/D3D12, or a tiny uniform buffer with dynamic offset on WebGPU. This is the classical bindless-tables model — still first-class on the floor, never a degraded fallback.
+
+**Mutable descriptor types** (`caps.mutable_descriptor_type = none | partial | full`) collapse the per-class tables when granted. `VK_EXT_mutable_descriptor_type` (KHR ratification pending; broadly granted on NV / AMD / Intel today) lets one descriptor slot accept any of N declared resource kinds — texture-view ∪ storage-image ∪ uniform-texel-buffer ∪ storage-buffer ∪ … — making the floor's descriptor pressure 4-5× more compact on hardware that supports it. The engine exposes a `Mel_Gpu_Mutable_Descriptor_Layout` admitting the kind union explicitly; pipeline layouts that take a mutable layout get one descriptor table sized to the union rather than N parallel per-class tables. On `mutable_descriptor_type = none` backends (WebGPU, older runtimes) the same source-level layout falls back to N per-class tables transparently.
 
 **One source for both layers.** Slang authors the per-draw struct in either form — pointer-bearing where the backend can use real device addresses, index-bearing where descriptors are the portable currency; reflection (U12) tells U13 which lowering applies. The pipeline layout reflects either a root-record carrier plus heap declarations, or the descriptor-table layout. The user declares "this draw consumes this resource set" the same way. `caps.binding_model = root_record | descriptor_tables` and `caps.root_record_payload = pointers | descriptor_indices | mixed` are queryable so a hand-tuned variant can be written, but the simple path does not require it. Persistent slots remain: a resource stays at its pointer-or-index until destroyed; pipelines reference slots dynamically; no per-frame rebinding ceremony.
 
-**Heaps as resources, with P2 introspection.** The texture / sampler / AS heaps are themselves resources the user can introspect — query the heap, read or write descriptor entries, swap entries. Full reimplementability per P2.
+**Heaps as resources, with P2 introspection.** The texture / sampler / AS heaps are themselves resources the user can introspect — query the heap, read or write descriptor entries, swap entries. Full reimplementability per P2. Heap creation admits a `CAPTURE_REPLAY` flag (`caps.debug.capture_replay`) that opts the heap and its memory into the `descriptorBufferCaptureReplay` (Vulkan) / `D3D12_HEAP_FLAG_TOOLS_USE_MANUAL_WRITE_TRACKING` (D3D12) discipline so RenderDoc / PIX / Aftermath can replay the bindless surface deterministically. Resources allocated into a capture-replay heap must themselves carry the resource-level `CAPTURE_REPLAY` flag from §6.1 / §6.2 / §6.6; engine validation enforces the pairing.
 
 **Heap write visibility to in-flight submissions.** Descriptor-heap writes (both engine-managed and P2-direct) follow update-after-bind semantics on Vulkan (`VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT` + `DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT`), `D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE` on D3D12, and Metal 4 `MTL4ArgumentTable` slot writes (always visible). The contract: **writing a heap slot that an in-flight submission is sampling-from is undefined**; the engine never writes a live slot — destroy-then-rewrite is gated on the consumer's completion future (§3.3 retire). P2-direct writers carry the same contract; the engine cannot police user writes past the hatch.
 
@@ -384,9 +408,9 @@ GPU work is fed by *bytes from disk* as often as by compute output. The platform
 
 **Single-use by default** — Metal and WebGPU mandate it; the portable contract is "record, close, submit, discard." **Reusable command lists** (record once, submit many) are a capability tier — Vulkan/D3D12 native; Metal indirect-command-buffer approximates; WebGPU is an honest gate, `caps.reusable_cmd_lists = false`.
 
-**GPU-driven indirect commands first-class** (no deferral) with a capability tier: `cmd_execute_indirect` lowers to Metal `MTLIndirectCommandBuffer`, D3D12 `ExecuteIndirect`, Vulkan `VK_EXT_device_generated_commands`. WebGPU has partial support via `drawIndirect` / `dispatchIndirect`; tier reports it.
+**GPU-driven indirect commands first-class** (no deferral) with a capability tier: `cmd_execute_indirect(layout, args_buffer, count?, max_count)` lowers to Metal `MTLIndirectCommandBuffer`, D3D12 `ExecuteIndirect`, Vulkan `VK_EXT_device_generated_commands`. WebGPU has partial support via `drawIndirect` / `dispatchIndirect`; tier reports it. **`Mel_Gpu_Indirect_Layout`** describes the per-command structure — which state changes the indirect command may encode (root-constant write, root-CBV / root-SRV / root-UAV update, vertex-buffer / index-buffer rebind, pipeline switch) followed by the terminating draw / dispatch / dispatch-mesh / dispatch-rays call. This is the D3D12 `ID3D12CommandSignature` analog and the Vulkan `VkIndirectExecutionSetEXT` / `VkIndirectCommandsLayoutEXT` carrier. Caps gate the admissible state changes via `caps.indirect_state_change = none | tier1 | tier2` — `tier1` admits root-constant writes and draw / dispatch calls (WebGPU equivalent); `tier2` admits binding-table rebinds and pipeline switches (D3D12 native, Vulkan EXT). The layout is built once at start-up, hashed, and referenced from `cmd_execute_indirect` calls.
 
-**Full modern recording surface**: `cmd_bind_pipeline` (or `cmd_bind_shader_objects` on the `VK_EXT_shader_object` pipeline-less lane from §6.5), `cmd_push_constants` (rides the U12 global-`[[vk::push_constant]]` struct discipline; the offset/range come from reflection, not from hand-pick), `cmd_push_descriptors` (`VK_KHR_push_descriptor` core 1.4 — cheap-per-draw lane for bindings that change every draw and the bindless heap is overkill), `cmd_bind_index_buffer` (carries an explicit size parameter so the modern `vkCmdBindIndexBuffer2KHR` from `maintenance5` is reachable), `cmd_bind_vertex_buffers`, `cmd_draw` / `_indexed` / `_indirect` / **`_indirect_count`** / **`_indexed_indirect_count`** (count buffer GPU-produced, no CPU round-trip — Vulkan `vkCmdDrawIndirectCount` Roadmap 2024 mandatory; D3D12 via `ExecuteIndirect` with predicate-count; Metal indirect command buffers; Dawn-native `multi-draw-indirect`+count), `cmd_dispatch` / `_indirect` / **`_indirect_count`**, `cmd_trace_rays` / **`_indirect`** / **`_indirect2`** (RT — `VK_KHR_ray_tracing_maintenance1`, DXR 1.1 from compute), `cmd_draw_mesh_tasks` / `_indirect` / `_indirect_count` (mesh), `cmd_execute_indirect`, `cmd_dispatch_graph` (work graphs, cap-gated, U28), `cmd_build_accel_struct` / `cmd_update_accel_struct` / `cmd_copy_accel_struct` / `cmd_compact_accel_struct` (U26), `cmd_video_decode` / `cmd_video_encode` / `cmd_video_process` (U27), `cmd_io_load` / `cmd_io_decompress` / `cmd_io_decode_block_compressed` (U29), `cmd_copy_*`, `cmd_blit`, `cmd_clear_*`, `cmd_generate_mips`, `cmd_begin_rendering` / `_end` (U16), `cmd_next_subpass` (U16), `cmd_barrier` / **`cmd_aliasing_barrier(prev_resource, next_resource)`** / **`cmd_queue_ownership_release(resource, dst_queue, subresource_range)`** / **`cmd_queue_ownership_acquire(resource, src_queue, subresource_range)`** (U17), `cmd_set_dynamic_state_*` (viewport, scissor, blend constants, stencil ref, depth bias, primitive topology, cull mode, front face, depth-test / write / compare, stencil-test / op, **`cmd_set_shading_rate`** for VRS, **`cmd_set_sample_locations`**), **`cmd_begin_conditional_rendering(buffer, offset, flags)` / `_end`** (`VK_EXT_conditional_rendering` / D3D12 `SetPredication` — draws within the scope are no-ops when the predicate is zero, cap-gated `conditional_rendering = none | predicate | inverted`), `cmd_begin_debug_marker` / `_end` (U21), `cmd_bind_descriptor_set` / `cmd_bind_bind_group` (U14 classic escape), `cmd_write_timestamp` / `cmd_begin_query` / `cmd_end_query` (U24), `cmd_latency_mark(point)` (U19 vendor-latency markers). Subgroup size remains pipeline / shader creation state, exposed through U25 caps and validated by U13, not command-list dynamic state.
+**Full modern recording surface**: `cmd_bind_pipeline` (or `cmd_bind_shader_objects` on the `VK_EXT_shader_object` pipeline-less lane from §6.5), `cmd_push_constants` (rides the U12 global-`[[vk::push_constant]]` struct discipline; the offset/range come from reflection, not from hand-pick), `cmd_push_descriptors` (`VK_KHR_push_descriptor` core 1.4 — cheap-per-draw lane for bindings that change every draw and the bindless heap is overkill), `cmd_bind_index_buffer` (carries an explicit size parameter so the modern `vkCmdBindIndexBuffer2KHR` from `maintenance5` is reachable), `cmd_bind_vertex_buffers`, `cmd_draw` / `_indexed` / `_indirect` / **`_indirect_count`** / **`_indexed_indirect_count`** (count buffer GPU-produced, no CPU round-trip — Vulkan `vkCmdDrawIndirectCount` Roadmap 2024 mandatory; D3D12 via `ExecuteIndirect` with predicate-count; Metal indirect command buffers; Dawn-native `multi-draw-indirect`+count), `cmd_dispatch` / `_indirect` / **`_indirect_count`**, `cmd_trace_rays` / **`_indirect`** / **`_indirect2`** (RT — `VK_KHR_ray_tracing_maintenance1`, DXR 1.1 from compute), `cmd_draw_mesh_tasks` / `_indirect` / `_indirect_count` (mesh), `cmd_execute_indirect`, `cmd_dispatch_graph` (work graphs, cap-gated, U28), `cmd_build_accel_struct` / `cmd_update_accel_struct` / `cmd_copy_accel_struct` / `cmd_compact_accel_struct` / **`cmd_build_cluster_accel_struct`** / **`cmd_build_blas_from_clusters`** / **`cmd_partitioned_tlas_update`** (U26), `cmd_video_decode` / `cmd_video_encode` / `cmd_video_process` (U27), `cmd_io_load` / `cmd_io_decompress` / `cmd_io_decode_block_compressed` (U29), `cmd_copy_*`, `cmd_blit`, `cmd_clear_*`, `cmd_generate_mips`, `cmd_begin_rendering` / `_end` (U16), `cmd_next_subpass` (U16), `cmd_barrier` / **`cmd_aliasing_barrier(prev_resource, next_resource)`** / **`cmd_queue_ownership_release(resource, dst_queue, subresource_range)`** / **`cmd_queue_ownership_acquire(resource, src_queue, subresource_range)`** (U17), `cmd_set_dynamic_state_*` (viewport, scissor, blend constants, stencil ref, depth bias, primitive topology, cull mode, front face, depth-test / write / compare, stencil-test / op, **`cmd_set_shading_rate`** for VRS, **`cmd_set_sample_locations`**, **`cmd_set_patch_control_points`** for tessellation pipelines, **`cmd_set_tessellation_domain_origin`**), **`cmd_begin_conditional_rendering(buffer, offset, flags)` / `_end`** (`VK_EXT_conditional_rendering` / D3D12 `SetPredication` — draws within the scope are no-ops when the predicate is zero, cap-gated `conditional_rendering = none | predicate | inverted`), `cmd_begin_debug_marker` / `_end` (U21), `cmd_bind_descriptor_set` / `cmd_bind_bind_group` (U14 classic escape), `cmd_write_timestamp` / `cmd_begin_query` / `cmd_end_query` (U24), `cmd_latency_mark(point)` (U19 vendor-latency markers). Subgroup size remains pipeline / shader creation state, exposed through U25 caps and validated by U13, not command-list dynamic state.
 
 Recording calls are infallible per U2 — debug-asserted on misuse, validated by U21 layers in debug, branch-free in release.
 
@@ -456,6 +480,8 @@ All sync primitives carry **importable backing** (U5) — constructible internal
 
 **`Mel_Gpu_Surface` wraps a platform window** — `NSView*`, `ANativeWindow*`, `HWND`, canvas selector, EGL surface — decoupled from the swapchain so the surface outlives swapchain rebuilds.
 
+**Extent semantics are pinned in device pixels for the GPU surface and reported in OS-native units separately for the input / UI surface.** `surface.pixel_extent` is the swapchain's natural extent — the unit the GPU rasterizes into, the unit `swapchain_acquire` returns. `surface.point_extent` is the OS-coordinate-system size — `NSView.bounds` in points on macOS, the `CALayer` size before `contentsScale` on iOS, the DPI-adjusted window size on Windows, the `wl_surface` configure size pre-scale on Wayland, the CSS-pixel canvas size on Web. `surface.scale_factor` is the ratio (Retina = 2.0, fractional on Wayland HiDPI, 1.0 elsewhere). The DPI / scale-factor change event fires when *any* of these changes — moving a window between Retina and non-Retina displays, Wayland output scale change, Web `devicePixelRatio` change — and the app is responsible for deciding whether to resize the swapchain or re-flow its UI. The engine never silently re-scales the swapchain on a scale-factor change.
+
 **Surface lifecycle is explicit.** A surface has state independent of the swapchain: `Alive`, `Occluded`, `Minimized`, `Backgrounded`, `Lost`, and `Destroyed`. It emits events for resize, drawable-size change, DPI / scale-factor change, orientation change, display migration (a window moved to a different `Mel_Gpu_Output` from U6), HDR / EDR capability change, occlusion, background / foreground transition, platform-layer replacement, canvas reconfiguration, and surface loss. Android `ANativeWindow` destroy / recreate, iOS `CAMetalLayer` drawable-size changes, macOS window scale / display moves, Windows swapchain resize / occlusion, Wayland configure, and Web canvas resizing all lower to this same event stream.
 
 **Surface-lifecycle event handlers run synchronously on the platform's UI thread.** On Android specifically, `surfaceDestroyed` requires the engine to release the Vulkan swapchain *before the callback returns* — the UI thread will not unblock otherwise, and the next `surfaceCreated` arrives with the prior swapchain still bound to a dead `ANativeWindow`. The RHI honors this: the swapchain release path is callable synchronously from the handler, and in-flight submission completion futures detach (resolved with `surface_lost` status when the submission finishes draining on the GPU) so the handler does not block on GPU work. The reactor-driven completion pump is decoupled from surface event delivery for exactly this reason.
@@ -477,6 +503,8 @@ All sync primitives carry **importable backing** (U5) — constructible internal
 **Per-image render-finished sync** — array sized to image count, indexed by acquired image (fixes the old hazard of one shared semaphore being signaled before its prior present consumed it). **GC discipline pinned**: each per-image render-finished semaphore is reused only after the prior present's `presentFenceInfo` fence (from `VK_KHR_swapchain_maintenance1`, below) signals — not by frame index. The reactor pump observes the present fence and the binary-semaphore reset is gated on it (§3.3 future-gated retire). Under variable image counts (swapchain rebuild changing count) the array is re-sized and the old semaphores destroyed once their gating fences resolve.
 
 **External / borrowed image sets** (U5): `swapchain_create_borrowed(image_set, ...)` for OpenXR swapchain images, visionOS Compositor Services `cp_layer_renderer` image sets, and video interop; the swapchain wraps but does not own.
+
+**Shared presentable images** (`caps.presentation.shared_presentable_image`, lowered via `VK_KHR_shared_presentable_image` on Vulkan, equivalent direct-mode flips on D3D12 / Metal where exposed) admit a present mode `SharedDemandRefresh` / `SharedContinuousRefresh` for VR / low-latency / direct-scanout paths where the compositor is bypassed and the GPU writes directly into a scanout buffer the display reads concurrently. `swapchain_create_shared(...)` is the carrier; OpenXR direct-mode HMDs and visionOS Compositor Services consume this transparently through borrowed image sets, but the primitive is available for any low-latency direct-scanout use case. WebGPU honestly absent.
 
 **OpenXR integration depth.** Borrowed-image swapchains carry the OpenXR view-configuration (mono / stereo / quad / foveated), the per-frame `XrFrameState` predicted display time, and the per-view projection state. `swapchain_present_xr(image_set, layer_descriptors[])` admits the OpenXR compositor layer types — `XR_COMPOSITION_LAYER_PROJECTION`, `_QUAD`, `_EQUIRECT2`, `_CYLINDER`, `_CUBE`, `_PASSTHROUGH_FB`, `_DEPTH_INFO` — so a Melody-built XR app does not have to reach through the native hatch to submit a multi-layer compositor frame. Foveation per-eye is consumed via U16 (`fragment_density_map`). The U19 pacing source for an XR swapchain ticks off `xrWaitFrame`'s predicted-display-time, not the desktop vsync.
 
@@ -515,11 +543,13 @@ Fallback to a high-precision reactor timer where no native vsync exists.
 - **`Capped(target_fps)`** — render at most `target_fps`, skipping vsyncs to hold the cap (e.g., 60 fps on a 120 Hz panel). The mobile battery lever.
 - **`Adaptive(target_frame_ms)`** — target a frame-time budget; the engine exposes "budget left" each frame and the app decides how to scale quality.
 
-**Frame budget exposed each frame.** `Frame_Info` passed to the render callback carries previous GPU time (from U24 timestamp queries straddling submission), CPU time, predicted next-vsync time (from U18 present-timing), headroom, mode-specific state, **the current frame's subpixel jitter offset and the prior frame's jitter offset** (so reprojection for TAA / upscaling stays reproducible without engine-side bookkeeping), **the current thermal-pressure tier** (`nominal | fair | serious | critical`, from `caps.thermal`), and **the current latency-marker context** (set by `cmd_latency_mark`, below).
+**Frame budget exposed each frame.** `Frame_Info` (pacing-tick context, not a retirement index — §3.3 retirement is future-gated and never exposed publicly) passed to the render callback carries previous GPU time (from U24 timestamp queries straddling submission), CPU time, predicted next-vsync time (from U18 present-timing), headroom, mode-specific state, **the current frame's subpixel jitter offset and the prior frame's jitter offset** (so reprojection for TAA / upscaling stays reproducible without engine-side bookkeeping), **the current thermal-pressure tier** (`nominal | fair | serious | critical`, from `caps.thermal`), **the current power source and low-power-mode flag** (`power_source ∈ { ac | battery | unknown }`, `low_power_mode ∈ { off | on }`, both updated from the U6 instance-level events), and **the current latency-marker context** (set by `cmd_latency_mark`, below).
 
 **Latency-marker primitive.** `cmd_latency_mark(point)` and `mel_gpu_latency_sleep(target)` integrate vendor latency reduction surfaces uniformly. Points: `SimStart`, `SimEnd`, `RenderSubmitStart`, `RenderSubmitEnd`, `PresentStart`, `PresentEnd`, `InputSample`. Lowering: NVIDIA Reflex (`NvAPI_D3D_SetLatencyMarker` on D3D12, `VK_NV_low_latency2` on Vulkan), AMD Anti-Lag 2 (`AMD_AGS_Lib` / `VK_AMD_anti_lag`), Intel XeSS Frame Generation latency markers, Metal native low-latency hints, no-op on WebGPU. `mel_gpu_latency_sleep` blocks the reactor until the vendor-recommended pre-input deadline. Cap `caps.latency_marker = none | reflex | anti_lag | xess_fg | platform_native` reports the available surface; one app code path serves them all.
 
 **Thermal-pressure event.** Mobile and laptop devices throttle under heat; the engine raises a `thermal_pressure_changed(tier)` event upward to a user-registered callback when iOS `NSProcessInfo.thermalState`, Android thermal API, or Apple Silicon Mac thermal pressure transitions. The streaming / quality / pacing system holds the semantic knowledge of how to respond (drop to `Capped(30)`, lower internal render resolution, suspend non-critical compute); the engine reports the tier and does not impose a policy (MEL-ENGINE-V: respect the user's product, do not impose your own opinion on his content model).
+
+**Power-source and low-power-mode events.** Independent of thermal pressure, the OS reports power-supply state and user-initiated low-power modes. The `Mel_Gpu_Instance` raises `power_source_changed(source)` when AC ↔ battery transitions occur (Windows `GetSystemPowerStatus` / `RegisterPowerSettingNotification`, macOS / iOS `IOPSCopyPowerSourcesInfo`, Linux `UPower` / `org.freedesktop.UPower`, Android `BatteryManager`, Web `navigator.getBattery()`), and `low_power_mode_changed(on/off)` when the OS-level battery-saver / Low Power Mode toggles (Windows Battery Saver `SYSTEM_POWER_STATUS.SystemStatusFlag`, macOS / iOS `NSProcessInfo.isLowPowerModeEnabled`, Android `PowerManager.isPowerSaveMode`). These are independent signals from thermal because a laptop on AC may be in user-initiated Low Power Mode (the user wants quiet, not cool), and a phone at 90% battery may still be in Low Power Mode (the user is conserving for later). The app picks a pacing / quality / streaming response per its content model.
 
 **Multi-swapchain pacing.** Each swapchain has its own pacing source; one reactor pumps all. A window in the background can auto-drop to `OnDemand` (battery on multi-window UIs).
 
@@ -623,15 +653,519 @@ Passes are added via `mel_gpu_graph_add_pass(g, desc)`. Resources declared symbo
 
 **`recordFn` is forbidden from creating pipelines, accel structs, or other compile-time resources.** Pipelines must exist at graph-compile time; reaching for `pipeline_*_create` inside `recordFn` either blocks the record thread on async compile (defeating the cache reuse the graph's hash is built on) or returns a `MissingPipeline` status that recording cannot recover from. The pattern: warm pipelines before the graph is added, capture their handles in `userData`, retrieve them in `recordFn`. Debug-asserts on creation calls issued inside a record callback (MEL-ENGINE-VIII).
 
+**Work-graph dispatch composes inside a render-graph pass.** A `WorkGraph` pass type takes a `Mel_Gpu_Work_Graph` handle and the entry-node record buffer; `recordFn` issues `cmd_dispatch_graph(graph, entry, records, count)` and nothing else. The render graph's resource-access records still drive U17 state transitions for the work-graph's input and output resources; the engine treats the work-graph dispatch as one opaque pass for scheduling purposes — its internal node DAG is the GPU's concern, not the render graph's. This composition is the natural carrier for GPU-driven scenes where the CPU sketches the rendergraph topology (passes, attachments, dependencies) and the GPU produces the actual draw lists inside a work-graph pass.
+
 ### 8.5 P2 escape
 
 Skip the graph entirely. Use Layer 0 directly — manual U16 sub-pass topology, manual U17 barriers, manual U8 pools, manual U7 submission. The graph is one path; Layer 0 manual is the peer.
 
 ---
 
-## 9. Debug and queries
+## 9. Vendor optimization providers (Layer 2)
 
-### 9.1 Validation and debug wiring (U21)
+Layer 2 sits atop Layer 0 (the RHI) and Layer 1 (the render graph) and exposes vendor SDKs and architecture-specific paths as **optional providers**. The rule for every item in this layer is simple: **vendor paths are optimization surfaces, never correctness surfaces**. If a provider is absent, unavailable on the user's driver, blocked by platform policy, or not worth enabling for the current workload, the engine falls back, gates loudly, or returns a precise missing-capability status (MEL-ENGINE-VIII). No game code should have to spell "NVIDIA", "AMD", "Intel", "Apple", "Qualcomm", "Arm", or "Imagination" to be correct.
+
+### 9.1 Vendor and architecture profile (U30)
+
+`Mel_Gpu_Vendor_Profile` is an immutable device-side record adjacent to U4 caps:
+
+- `vendor`: `Nvidia | Amd | Intel | Apple | Qualcomm | Arm | Imagination | Microsoft | Mesa | Unknown`.
+- `architecture_family`: backend-specific string plus a stable enum where known, e.g. `Ada`, `Blackwell`, `RDNA3`, `RDNA4`, `XeHPG`, `Xe2`, `AppleGpuFamily10`, `Adreno7xx`, `MaliImmortalis`, `PowerVR`.
+- `driver`: vendor driver name, branch, version, feature-profile ID, and shader compiler fingerprint.
+- `render_architecture`: `Immediate | Tiler | HybridTiler | Unknown`.
+- `subgroup`: supported wave sizes, preferred wave size by stage, quad-op support, subgroup-size-control tier.
+- `memory`: UMA/discrete, ReBAR/GPU-upload availability, cacheline hints where exposed, tile-memory behavior, compression friendliness.
+- `rt`: ray-tracing tier, traversal stack limits where exposed, SER/reordering support, micromap/micromesh support.
+- `matrix`: tensor/XMX/tensor-core/cooperative-matrix/cooperative-vector tiers.
+- `presentation`: low-latency provider, frame-generation provider, variable-refresh behavior, display timing provider.
+- `tooling`: capture, counter, crash-dump, and shader-disassembly providers available on this machine.
+
+The profile is for choosing variants, not for changing semantics. Public APIs should ask caps first; vendor profile is a tie-breaker for quality/performance choices.
+
+### 9.2 Provider loading model (U31)
+
+Vendor SDKs are loaded through a single provider registry:
+
+- `mel_gpu_provider_enumerate(device) -> provider[]`
+- `mel_gpu_provider_request(device, provider_kind, request_desc) -> { provider_handle, status }`
+- `mel_gpu_provider_release(provider_handle)`
+
+Provider kinds:
+
+- `TemporalReconstruction`
+- `FrameGeneration`
+- `LatencyControl`
+- `RayTracingOptimization`
+- `GpuProfiling`
+- `CrashDiagnostics`
+- `ShaderAnalysis`
+- `MobilePower`
+- `XrRuntimeBridge`
+
+Loading rules:
+
+- Providers are runtime-loaded unless a platform requires static framework linkage.
+- Provider ABI version, SDK version, driver version, GPU architecture, and granted caps are part of all pipeline and effect cache keys.
+- Provider failure cannot invalidate the base device. It returns a U2 error and the engine falls back.
+- Provider-owned resources use normal U1 handles where possible. Native handles are exposed only through U5 interop.
+- Provider callbacks enter the U3 completion pump, not ad hoc threads.
+- Licensing and redistribution constraints are build-system facts, not RHI facts. A build that does not ship a provider reports it absent.
+
+### 9.3 Temporal reconstruction and frame generation (U32)
+
+`Mel_Gpu_Reconstruction_Context` is a provider-backed object for temporal upscaling, denoising, ray reconstruction, and frame generation.
+
+Provider enum:
+
+- `EngineTaaU`
+- `EngineSpatialUpscale`
+- `NvidiaDlss`
+- `NvidiaNis`
+- `AmdFsr`
+- `IntelXeSS`
+- `AppleMetalFX`
+- `QualcommSnapdragonGsr`
+- `RuntimeXrReprojection`
+
+Capabilities:
+
+- `super_resolution = none | spatial | temporal | ml_temporal`
+- `ray_reconstruction = none | denoise | provider_ml`
+- `frame_generation = none | single_interpolated | multi_frame`
+- `hud_separation = none | app_composited_after | provider_composited`
+- `xr_safe = false | runtime_only | provider_certified`
+- `hdr = none | sdr_only | hdr10 | sc_rgb | platform_hdr`
+
+Creation:
+
+`reconstruction_context_create(device, desc) -> future<context>`
+
+`desc` contains provider preference order, internal render size, output size, color space, HDR metadata, motion-vector convention, depth convention, jitter convention, exposure convention, reactive-mask convention, and whether the output enters a normal swapchain or an XR runtime.
+
+Per-frame dispatch:
+
+`reconstruction_dispatch(context, frame_desc) -> future<Mel_Gpu_Texture_View>`
+
+`frame_desc` must carry:
+
+- color input.
+- depth input.
+- motion vectors, with declared scale and whether they are low-resolution or output-resolution.
+- exposure or luminance texture.
+- jitter current/prior.
+- camera matrices current/prior.
+- near/far planes.
+- FOV per view.
+- reactive / transparency / disocclusion masks where available.
+- HUD/UI texture if provider can composite it safely, otherwise UI is composited after reconstruction.
+- frame ID, present ID, and U19 pacing metadata.
+
+Provider lowerings:
+
+- NVIDIA: Streamline/DLSS for super resolution, ray reconstruction, frame generation, and Reflex coordination; NGX/NVAPI direct path remains a P2 provider.
+- AMD: FidelityFX SDK for FSR super resolution and frame generation, with Anti-Lag coordination.
+- Intel: XeSS super resolution, XeSS frame generation, and XeLL pacing.
+- Apple: MetalFX spatial scaler, temporal scaler, frame interpolator, and temporal denoised scaler where available.
+- Qualcomm: Snapdragon Game Super Resolution / GSR2 as a mobile spatial or temporal provider where available.
+- Engine fallback: TAAU, CAS/RCAS-like sharpening, and a simple spatial upscaler.
+
+Frame-generation rules:
+
+- The engine never generates hidden presents. Every real and generated frame has a present ID, pacing record, and latency-marker record.
+- UI/HUD and pointer layers are either provider-composited through an explicit provider input or composited after generated frames.
+- Generated frames cannot consume game simulation state that does not exist. The game callback runs once per real simulation frame.
+- XR frame generation is off by default. It is enabled only through an XR runtime-approved path or a provider whose caps report `xr_safe = provider_certified`; otherwise XR uses runtime reprojection/timewarp only.
+
+### 9.4 Latency control providers (extends U19)
+
+U19's latency markers become provider-backed:
+
+- NVIDIA: Reflex through Streamline/NVAPI and Vulkan `VK_NV_low_latency2`.
+- AMD: Anti-Lag through AGS/FidelityFX and Vulkan `VK_AMD_anti_lag`.
+- Intel: Xe Low Latency.
+- Platform: DXGI frame-latency waitable object, Metal display timing, OpenXR frame pacing, Web `requestAnimationFrame`.
+
+Public API:
+
+- `mel_gpu_latency_provider_request(device, swapchain_or_xr_session, preference[])`
+- `mel_gpu_latency_set_mode(provider, mode)`
+- `mel_gpu_latency_mark(provider, frame_id, point)`
+- `mel_gpu_latency_sleep(provider, frame_id, before_input_sample_deadline)`
+- `mel_gpu_latency_get_report(provider, frame_id) -> report`
+
+Marker points:
+
+- `FrameStart`
+- `InputSample`
+- `SimStart`
+- `SimEnd`
+- `RenderSubmitStart`
+- `RenderSubmitEnd`
+- `PresentSubmit`
+- `PresentDisplayed`
+- `GeneratedPresentSubmit`
+- `GeneratedPresentDisplayed`
+
+Rules:
+
+- The sleep point is before input sampling, not after simulation has already started.
+- Frame generation must register both real and generated presents.
+- Device groups and multi-adapter must be opt-in per provider; if a provider cannot support them, it reports absent.
+- Latency providers can suggest pacing. They cannot silently change swapchain image count, present mode, simulation cadence, or XR runtime timing.
+
+### 9.5 Ray and path tracing optimization providers (extends U26)
+
+U26 gets an optional `Mel_Gpu_Rt_Optimization_Profile`.
+
+Caps:
+
+- `shader_execution_reordering = none | shader_hint | hit_object | provider_native`
+- `opacity_micromap = none | ext | provider_sdk`
+- `displaced_micromesh = none | ext | provider_sdk`
+- `ray_denoiser = none | engine | provider`
+- `many_light_sampling = none | engine | provider`
+- `ray_reconstruction = none | reconstruction_provider`
+- `rt_shader_analysis = none | offline | live_capture`
+
+APIs:
+
+- `rt_provider_create(device, provider_kind, desc)`
+- `rt_build_optimizer_create(provider, scene_desc)`
+- `rt_build_optimizer_encode(cmd, optimizer, blas_or_tlas_desc)`
+- `rt_shader_reorder_hint(shader, key_expr, flags)`
+- `rt_denoise_dispatch(provider, frame_desc)`
+
+Provider examples:
+
+- NVIDIA: SER where exposed, Opacity Micro-Map SDK, displaced micromesh / RTX micro-mesh paths, RTXDI, NRD, DLSS Ray Reconstruction, Nsight shader and crash paths.
+- AMD: SER where exposed through DXR/Vulkan, FidelityFX denoisers and frame-generation swapchain, Radeon Raytracing Analyzer, Radeon GPU Detective.
+- Intel: SER where exposed through DXR/Vulkan, XeSS reconstruction where appropriate, Intel GPA and XeSS tooling.
+- Apple: Metal ray-tracing lowerings and MetalFX denoised scaler where available.
+
+Rules:
+
+- AS compaction still follows the U26 new-handle protocol. A provider may suggest when to compact; it may not silently swap BLAS storage under a TLAS.
+- SER/reorder hints are shader decorations or provider metadata. If unsupported, shaders run with normal ordering.
+- Denoisers and ray reconstruction consume declared inputs only. They cannot sample arbitrary hidden renderer state.
+
+### 9.6 GPU-driven and indirect work optimization providers (extends U15/U28)
+
+Provider caps extend U15/U28:
+
+- `device_generated_commands = none | ext | provider_native`
+- `work_graphs = none | emulated | native`
+- `meshlet_generation = none | compute | provider`
+- `shader_table_compaction = none | provider`
+- `indirect_count_fast_path = none | native | provider`
+
+Lowerings:
+
+- D3D12: ExecuteIndirect and Work Graphs where granted.
+- Vulkan: `VK_EXT_device_generated_commands`; `VK_AMDX_shader_enqueue` where present.
+- Metal: indirect command buffers and Metal 4 command model.
+- WebGPU: browser-supported indirect only; no hidden command generation.
+
+Rules:
+
+- Provider-generated command memory is a normal U9 buffer with explicit U17 states.
+- Any provider that writes commands must declare the exact buffer ranges it writes.
+- The render graph sees generated-command producers and consumers as ordinary pass dependencies.
+
+### 9.7 Mobile and tiler-specific optimization (U33, extends §4)
+
+`Mel_Gpu_Tiler_Profile` is the tiler-specific complement to U30's vendor profile, exposed adjacent to U4 caps:
+
+- `tiler = none | tile_based | tile_based_deferred | apple_tile | adreno_gmem | mali_tile | powervr_tile`
+- `tile_memory = hidden | explicit | shader_visible`
+- `memoryless_attachments = none | transient_attachment | native_memoryless`
+- `local_read = none | subpass_input | dynamic_rendering_local_read | framebuffer_fetch | tile_shader`
+- `foveation = none | fixed | dynamic | eye_tracked`
+- `thermal = none | advisory | enforced_budget`
+
+Graph compiler rules:
+
+- Prefer keeping color, depth, and short-lived G-buffer attachments on tile.
+- Prefer `DontCare` load/store where content is not needed.
+- Prefer on-tile MSAA resolve over storing MSAA images.
+- Avoid splitting a mobile render pass if the split forces a store/load round trip.
+- Keep attachment feedback loops explicit.
+- Treat a fullscreen pass on mobile as a bandwidth event, not a free operation.
+- Prefer clustered/forward+ or tile-local deferred paths over storing large deferred buffers when the tiler profile says memory bandwidth is the bottleneck.
+
+Provider paths:
+
+- Apple: memoryless attachments, tile shaders/imageblocks where available, framebuffer fetch, MetalFX, Metal HUD/counter samples.
+- Qualcomm Adreno: Vulkan multiview, fixed/dynamic foveation, `VK_QCOM_tile_shading` where present, Snapdragon GSR, Snapdragon Profiler / Adreno tooling.
+- Arm Mali / Immortalis: Vulkan render-pass and memoryless discipline, Arm Performance Studio / Streamline counters, AFBC-friendly render-target use where the platform exposes it.
+- Imagination PowerVR: tile-based deferred rendering profile, PVRTune/PVR tooling where available, store/load minimization.
+
+Meta Quest-specific mobile budget:
+
+- Standalone Quest targets Horizon OS on Android and uses OpenXR plus Vulkan as the Melody backend.
+- The renderer must model 72 Hz as the minimum comfort target for store submission, with 90 Hz and 120 Hz modes as higher-budget caps when the runtime reports them.
+- Frame budgets are expressed in milliseconds in U19, not only FPS: 72 Hz is about 13.9 ms, 90 Hz about 11.1 ms, 120 Hz about 8.3 ms.
+- Dynamic foveation and dynamic resolution are coordinated so they do not fight each other. On Quest, platform dynamic foveation wins over generic dynamic resolution when both are requested.
+
+### 9.8 Vendor tooling, counters, and crash diagnostics (extends U21/U24)
+
+U21/U24 admit a `Mel_Gpu_Tooling_Provider` as the carrier for vendor capture, counter, and crash-diagnostics SDKs.
+
+Capabilities:
+
+- `capture = none | manual | programmatic`
+- `counters = none | timestamp | hardware_basic | hardware_detailed`
+- `crash_dump = none | device_removed | shader_marked | full_provider_dump`
+- `shader_disassembly = none | offline | capture_linked`
+- `markers = none | debug_labels | provider_labels`
+
+APIs:
+
+- `tooling_provider_request(device, kind, desc)`
+- `tooling_capture_begin(provider, label)`
+- `tooling_capture_end(provider)`
+- `tooling_counter_set_enumerate(provider)`
+- `tooling_counter_sample(cmd_or_queue, counter_set, label)`
+- `tooling_shader_disassembly_export(pipeline_or_shader, desc)`
+- `tooling_crash_metadata_attach(device, key, bytes)`
+
+Provider examples:
+
+- NVIDIA: Nsight Graphics, Nsight Aftermath, Nsight Perf SDK.
+- AMD: Radeon GPU Profiler, Radeon Raytracing Analyzer, Radeon GPU Detective, Radeon Memory Visualizer, Radeon GPU Analyzer, GPUPerfAPI.
+- Intel: Intel Graphics Performance Analyzers, XeSS Inspector where applicable.
+- Apple: Xcode GPU capture, Metal Performance HUD, Metal counter sample buffers.
+- Arm: Arm Performance Studio / Streamline.
+- Qualcomm: Snapdragon Profiler and Adreno tooling.
+- Imagination: PVRTune and PowerVR analysis tools.
+
+Rules:
+
+- Tooling providers never ship in release by accident; build config must opt in.
+- Tooling labels must reuse U21 debug marker names so captures line up across tools.
+- Crash metadata is bounded and privacy-safe by default. Native provider dumps are opt-in.
+
+### 9.9 Vendor shader variant policy (extends U12/U13/U14)
+
+Shader and pipeline cache keys gain:
+
+- provider ABI versions.
+- vendor and architecture profile.
+- compiler fingerprint.
+- requested subgroup width.
+- matrix/tensor tier.
+- root-record payload model.
+- tiler profile where it changes shader lowering.
+- reconstruction provider where shader outputs are provider-specific.
+
+The engine may compile multiple variants:
+
+- generic portable variant.
+- vendor architecture variant.
+- mobile tiler variant.
+- XR multiview/foveated variant.
+- reconstruction-provider variant.
+
+Selection rules:
+
+- Generic variant always exists unless the feature itself is vendor-only and explicitly requested.
+- Vendor variants are selected only when caps and provider status match.
+- Variant mismatch is a cache miss, not undefined behavior.
+- Autotuning is permitted only if it writes deterministic cache records keyed by device/driver/compiler.
+
+---
+
+## 10. XR target family (U34)
+
+XR is a first-class target family, not a swapchain mode. The RHI does not present XR images to an OS window. It renders into runtime-provided image sets and submits composition layers to an XR compositor.
+
+### 10.1 Targets and non-goals
+
+Targets:
+
+- `DesktopOpenXR`: PC VR through OpenXR runtimes such as SteamVR, Meta Quest Link, Windows Mixed Reality / OpenXR-compatible runtimes, Varjo, Pimax, Vive, Monado, and similar conformant runtimes.
+- `MetaQuestStandalone`: Horizon OS / Android on Quest, OpenXR runtime, Vulkan Melody backend.
+- `AppleVisionPro`: visionOS, Compositor Services, Metal Melody backend.
+
+Non-goals:
+
+- OpenVR is not the primary API. It can be a P2 compatibility provider later.
+- XR frame generation outside a runtime-approved path is off by default.
+- The engine does not fake head tracking, hand tracking, passthrough, or foveation when the runtime does not expose it.
+
+### 10.2 XR object model
+
+New objects:
+
+- `Mel_Xr_Instance`: owns OpenXR instance or platform XR bridge.
+- `Mel_Xr_System`: selected headset/runtime/device profile.
+- `Mel_Xr_Session`: running interaction session.
+- `Mel_Xr_Space`: reference spaces and app-defined spaces.
+- `Mel_Xr_View_Set`: per-frame view poses, projection matrices, recommended image size, visibility mask, foveation profile, and blend mode.
+- `Mel_Xr_Image_Set`: borrowed runtime swapchain images wrapped as U10 textures/views.
+- `Mel_Xr_Frame`: frame state from the runtime, including predicted display time and frame ID.
+- `Mel_Xr_Composition_Layer`: projection, quad, cylinder, equirect, cube, passthrough, depth, and platform-specific layers.
+
+Object relationships:
+
+- U6 device selection and XR system selection are coordinated. On desktop OpenXR, the runtime may dictate the graphics adapter. On Quest and Vision Pro, the device is effectively fixed.
+- U18 borrowed-image-set swapchains are the bridge between XR images and the RHI.
+- U19 pacing source is the XR runtime frame loop, not the desktop display link.
+- U20 render graph receives one pass DAG per XR frame, with per-view resource ranges.
+
+### 10.3 XR frame loop
+
+Portable frame loop:
+
+1. Runtime wait begins the frame and returns predicted display time.
+2. Runtime locates views for the requested reference space.
+3. RHI wraps/acquires runtime swapchain images as borrowed U10 texture views.
+4. Render graph records multiview or per-eye passes.
+5. Queue submit returns the normal U3 future.
+6. Runtime composition layers are submitted with color, depth, and optional motion/foveation metadata.
+7. Completion futures gate image reuse; runtime ownership rules gate image release.
+
+Rules:
+
+- `Frame_Info.predicted_next_present_ns` is the XR predicted display time.
+- Every per-eye view has its own jitter, projection, culling frustum, TAA history, and foveation center.
+- Multiview rendering is preferred when the backend/runtime supports it. Per-eye rendering remains the fallback.
+- Depth submission is first-class through OpenXR depth layers or platform equivalents.
+- The app supplies stable world scale, near/far planes, and tracking-origin transforms so reprojection remains correct.
+
+### 10.4 Desktop VR through OpenXR
+
+Desktop VR uses OpenXR as the primary API.
+
+Required features:
+
+- OpenXR instance/session creation.
+- Graphics binding for D3D12 and/or Vulkan, depending on runtime support.
+- Stereo projection layers.
+- Runtime-owned swapchain images.
+- predicted display time from the OpenXR frame loop.
+- action sets for controllers, hands, and haptics.
+
+Important extensions to model:
+
+- `XR_KHR_D3D12_enable`
+- `XR_KHR_vulkan_enable2`
+- `XR_KHR_vulkan_swapchain_format_list`
+- `XR_KHR_composition_layer_depth`
+- `XR_EXT_hand_tracking`
+- `XR_EXT_eye_gaze_interaction`
+- foveated / quad-view extensions where the runtime exposes them.
+
+Desktop provider policy:
+
+- D3D12 is the preferred Melody backend on Windows when the chosen runtime's D3D12 binding is strong.
+- Vulkan is the preferred cross-platform backend and the Linux/OpenXR path.
+- The runtime chooses final scanout timing. U19 observes and feeds the runtime, not the other way around.
+- Runtime reprojection/timewarp is the default comfort path. Vendor frame generation is enabled only if the runtime/provider explicitly reports XR-safe support.
+- Desktop mirror-window rendering is a separate ordinary swapchain and never drives XR pacing.
+
+### 10.5 Meta Quest standalone
+
+Quest standalone target:
+
+- Platform: Horizon OS / Android.
+- XR API: OpenXR.
+- Melody GPU backend: Vulkan only for the RHI target. GLES is not a peer backend for this spec.
+- Presentation: OpenXR projection layers, optional passthrough and overlay layers.
+- Pacing: OpenXR frame loop with Quest refresh targets exposed to U19.
+
+Quest-specific caps:
+
+- `quest_refresh_rates`: runtime-reported 72/80/90/120 Hz set.
+- `quest_foveation = none | fixed | dynamic | eye_tracked`.
+- `quest_space_warp = none | app_space_warp`.
+- `quest_passthrough = none | compositor_passthrough | camera2_rgb`.
+- `quest_scene = none | anchors | scene_mesh | semantic_scene`.
+- `quest_hand_tracking = none | hands | simultaneous_hands_and_controllers`.
+- `quest_thermal = advisory | enforced_budget`.
+
+Important extension families:
+
+- `XR_FB_foveation`, `XR_FB_foveation_configuration`, `XR_FB_foveation_vulkan`, `XR_FB_swapchain_update_state`.
+- `XR_META_foveation_eye_tracked` where hardware/runtime grants eye-tracked foveation.
+- `XR_FB_display_refresh_rate`.
+- `XR_FB_space_warp` where application space warp is granted.
+- `XR_FB_passthrough` and companion geometry/color extensions where granted.
+- `XR_EXT_hand_tracking` plus Meta multimodal extensions where granted.
+
+Quest rendering policy:
+
+- Keep passes tile-friendly and bandwidth-light.
+- Prefer multiview.
+- Prefer memoryless/transient attachments for depth and MSAA.
+- Coordinate dynamic foveation, render scale, and reconstruction provider selection through one quality governor.
+- Keep camera/passthrough access permission-gated and privacy-labeled. Passthrough camera frames are device-user data; importing them into U10 textures must carry a protected/privacy flag.
+- Thermal pressure can force a quality-mode downgrade. This is a U19 event plus app policy, not a hidden engine decision.
+
+### 10.6 Apple Vision Pro
+
+Vision Pro target:
+
+- Platform: visionOS.
+- XR API: Compositor Services for fully immersive Metal rendering.
+- Melody GPU backend: Metal.
+- Presentation: Compositor Services `LayerRenderer` drawables wrapped as borrowed U10 texture views.
+- Pacing: layer-renderer timing, not a window display link.
+
+Vision Pro caps:
+
+- `visionos_compositor = compositor_services`.
+- `visionos_layered_drawables = stereo | capture_extended`.
+- `visionos_foveation = runtime_managed | app_profiled` as exposed by Compositor Services.
+- `visionos_passthrough = system_composited`.
+- `visionos_input = hands | gaze_indirect | controller_optional | arkit_anchors`, depending on permissions and APIs used.
+- `visionos_metalfx = none | spatial | temporal | frame_interpolator | temporal_denoised`.
+
+Rules:
+
+- Vision Pro is not routed through OpenXR in this spec.
+- A fully immersive Metal app draws the scene content for both eyes; the system compositor owns final display timing and passthrough environment composition.
+- `LayerRenderer` drawables are borrowed image sets. The engine never assumes it can retain them beyond the compositor's lifetime rules.
+- Rendering must honor compositor-provided view transforms, projection, texture layout, pixel format, and timing.
+- RealityKit/SwiftUI layers can coexist with the RHI path, but the RHI path is Compositor Services plus Metal.
+- Eye/gaze and camera-derived data are privacy-gated. The RHI surfaces capability and permission status; it does not promise raw sensor access.
+- MetalFX can be a reconstruction provider, but XR frame interpolation is enabled only if the compositor/provider reports it as valid for the immersive layer.
+
+### 10.7 XR render graph requirements
+
+U20 needs XR access records:
+
+- `view_mask`: which views a pass reads/writes.
+- `view_local_resources`: per-eye histories and foveation maps.
+- `shared_view_resources`: resources shared across eyes.
+- `late_latched_uniforms`: pose-dependent constants updated as late as the backend admits.
+- `composition_layer_output`: projection/quad/cylinder/passthrough/depth layer records.
+- `runtime_ownership`: acquire/wait/release state for runtime images.
+
+Graph rules:
+
+- Per-eye TAA history never aliases the other eye's history.
+- Depth for reprojection is not optional when the runtime can consume it and the app renders 3D geometry.
+- Motion vectors must be per-view and in the convention declared to the reconstruction/runtime provider.
+- Foveation maps are per-view resources and are part of pipeline cache keys when they change shader lowering.
+- XR render passes can render a mirror view, but mirror output is a dependent copy, not the primary output.
+
+### 10.8 XR comfort and safety contract
+
+The RHI enforces these as validation rules in debug and status warnings/errors in release:
+
+- The frame loop must be runtime-paced.
+- The app must not block the XR frame loop on unrelated file IO, shader compile, or asset streaming.
+- The app must declare world scale.
+- The app must declare tracking origin and recenter behavior.
+- Runtime image ownership must be returned even when rendering fails; failed frames submit a safe fallback layer if the runtime allows it.
+- Quality governors must prefer resolution/foveation/LOD reductions over missing frame deadlines.
+- Any camera/passthrough/imported-environment data carries privacy/protected flags through U5/U10/U21 capture.
+
+---
+
+## 11. Debug and queries
+
+### 11.1 Validation and debug wiring (U21)
 
 **Per-backend validation routing:**
 
@@ -654,9 +1188,9 @@ Skip the graph entirely. Use Layer 0 directly — manual U16 sub-pass topology, 
 
 **GPU crash diagnostics first-class.** `VK_EXT_device_fault` for page-fault and hung-shader reports, AMD/NVIDIA Aftermath, Metal command-buffer error state on device-lost, D3D12 DRED. Engine consumes these on the device-lost callback and dumps a crash report — active passes, last-issued resource, page-fault address where available — to a log file. The difference between a useful field report and "the driver crashed, good luck." No deferral.
 
-### 9.2 GPU queries (U24)
+### 11.2 GPU queries (U24)
 
-**Query types.** Timestamp (GPU clock at insertion point); occlusion (binary + counter); pipeline statistics (per-stage invocations, primitives generated, clip-tested); mesh/task statistics where the backend exposes them; acceleration-structure size / compaction / serialization size (RT cap-gated); video encode/decode/process counters where exposed; work-graph/node-dispatch counters where exposed; transform-feedback statistics (cap-gated, mostly legacy).
+**Query types.** Timestamp (GPU clock at insertion point); occlusion (binary + counter); pipeline statistics (per-stage invocations, primitives generated, clip-tested); mesh/task statistics where the backend exposes them; acceleration-structure size / compaction / serialization size (RT cap-gated); video encode/decode/process counters where exposed; work-graph/node-dispatch counters where exposed; transform-feedback statistics (cap-gated, mostly legacy); **hardware performance counters** (`Mel_Gpu_Perf_Counter_Pool`) — `VK_KHR_performance_query` on Vulkan, D3D12 `ID3D12QueryHeap` performance heaps + AMD GPA / NVIDIA PerfKit / Intel Graphics Performance Analyzers interop, Metal `MTLCounterSet` / `MTLCommonCounter` set, no carrier on WebGPU. Counter enumeration is descriptor-driven (the user picks counter UUIDs from the device's published set), submission is pass-aware (some counters need multi-pass capture; `caps.performance_query = none | passes | streaming` reports which), and reading is async via the U24 resolve-future path. In-game profiler overlays consume this for ALU / cache / memory-bandwidth instrumentation without reaching through native interop.
 
 **Pools.** `Mel_Gpu_Query_Pool` over `VkQueryPool` / D3D12 query heap / `MTLCounterSampleBuffer` / WebGPU `GPUQuerySet`. Engine-managed default with TLS pools handed to recording threads — same pattern as U15 command pools. **P2 escape**: explicit `query_pool_create(device, type, count)` for power users (custom pool sizes, cross-frame sharing).
 
@@ -672,19 +1206,19 @@ Skip the graph entirely. Use Layer 0 directly — manual U16 sub-pass topology, 
 
 ---
 
-## 10. Implementation milestones
+## 12. Implementation milestones
 
 Phased so each milestone is shippable and the seams the next one depends on are proven in real use before being committed to.
 
 **M1 — Skeleton + async spine.** Vulkan backend first, with **Vulkan 1.2 + feature probes** as the support floor, **Roadmap 2024 Milestone** as the preferred profile, and **Roadmap 2026 Milestone** over the 1.4 line as the ceiling path. Vulkan Profiles (VPK) declares preferred profile requests at device creation; if a profile is not granted and the app allows the 1.2 floor, the backend falls back to explicit feature probes. If the model maps cleanly to Vulkan's floor/profile/ceiling split, Metal and WebGPU follow without baking one API version into the RHI. Vulkan runs on macOS through MoltenVK / `vkCreateMetalSurfaceEXT`, so it is runnable on the dev machine. Deliverables:
 
-- U1 typed handles + slotmap-per-type ownership.
+- U1 typed handles + slotmap-per-type ownership; **direct / indirect handle family split with the slot-equals-index contract on direct handles**; capture-replay slot metadata threaded through every resource type.
 - U2 status/result model + log routing.
-- U3 reactor-driven future spine, completion pump, three completion primitives, `*_sync` wrapper.
-- U4 immutable domain-structured caps + request-and-grant device creation, including false/absent reporting for shader numeric, media, RT/AS, work-graph, and interop domains before their command implementations land.
-- U5 outbound native-integration headers under `include/gpu/vulkan/`; inbound import scaffolding for buffers/textures (external memory + external semaphore import).
-- U6 Instance/Adapter/Device three-object phased API on Vulkan; headless support; no singleton.
-- U7 availability/acquire queue model on Vulkan; submission completion futures; per-queue thread-safe submit.
+- U3 reactor-driven future spine, completion pump, three completion primitives, `*_sync` wrapper; **cross-thread `mel_reactor_post` backpressure with coalescing high-water mark + 4× hard ceiling**.
+- U4 immutable domain-structured caps + request-and-grant device creation, including false/absent reporting for shader numeric, media, RT/AS, work-graph, and interop domains before their command implementations land; **`adapter_type`, `luid`/`uuid`, `power_source`, `low_power_mode`, `internally_synchronized_queues`, `capture_replay`, `pipeline_robustness`, `mutable_descriptor_type`, `cluster_accel_struct`, `partitioned_tlas`, `tessellation`, `matrix_scope`, atomic-by-type, `sampler_feedback`, `sparse_buffer`, `shared_presentable_image`, `performance_query` all exposed at M1** so apps can branch from day one even when the command implementations land later.
+- U5 outbound native-integration headers under `include/gpu/vulkan/`; inbound import scaffolding for buffers/textures (external memory + external semaphore import); **CUDA / OpenCL / GStreamer (DMA-BUF) interop paths named in the import descriptor, even if the corresponding extension wiring lands later**.
+- U6 Instance/Adapter/Device three-object phased API on Vulkan; **`mel_gpu_device_create_default` returns a `Mel_Gpu_Device_Create_Future`**; **adapter LUID / UUID + adapter_type exposed**; **`adapter_removed`, `power_source_changed`, `low_power_mode_changed` events on instance**; headless support; no singleton.
+- U7 availability/acquire queue model on Vulkan; submission completion futures; per-queue thread-safe submit; **`internally_synchronized` queue flag opt-in from day one (no lock when granted)**.
 - U8 allocator on `modules/allocator/buddy` + dedicated allocations + per-frame ring; roles DEVICE/UPLOAD/READBACK; UMA detection; residency mechanism (budget query + explicit `make_resident`/`evict`, no engine-side eviction policy).
 - U21 validation wiring + failure logging + object naming + leak detection.
 
@@ -695,20 +1229,22 @@ The existing `apps/hello-gpu` triangle and cube run on the new RHI by M1's end. 
 - U9 buffers with `buffer_write`, `buffer_map_async`, persistent ptr on native, transient ring slices (lifetime gated on consumer-submission completion futures).
 - U10 textures + views with the full format enum, including video / multiplanar / external formats; the virtual texture handle architecture; mip-gen, blit, copy.
 - U11 sampler dedup **plus static / immutable samplers** (D3D12 root-signature static samplers, Vulkan immutable samplers) — landed at M2 alongside U11, not deferred.
-- U12 Slang offline shaders + bundle format + reflection extraction; per-entry required-feature masks; bundle container validation plus optional strict all-entry capability check; engine-shipped **`melody.binding` mixin module** so one resource-set declaration synthesizes both ceiling and floor root records.
-- U13 graphics + compute pipelines async-created on both backends; reflection-driven layouts; engine-managed pipeline persistence via `VK_KHR_pipeline_binary` + DXIL library archives with `VkPipelineCache` defensive-load fallback + P2 primitives; **`VK_EXT_graphics_pipeline_library` (GPL) + DXIL library composition** for fragmented compile; `VK_EXT_shader_object` pipeline-less lane where granted; sample-locations, conditional rendering, stencil export, conservative rasterization, depth-clamp-zero-one admitted cap-gated.
-- U25 shader-model / compute numeric caps + **subgroup-size control** + **matmul-profile descriptor**, exposed in caps and validated during pipeline creation.
-- U14 per-type bindless tables on both backends; Vulkan advances `VK_EXT_descriptor_indexing` → `VK_EXT_descriptor_buffer` → `VK_EXT_descriptor_heap` as granted; D3D12 uses `ResourceDescriptorHeap` / `SamplerDescriptorHeap` + root-record descriptor indices from day one; per-backend root-record carrier pinned per §6.7; **`MissingBindlessSlot` distinguished from `MissingFeature`** in the pipeline-create status.
-- U15 multithreaded command pools (TLS); single-use recording; full recording surface — including `cmd_draw_indirect_count` / `_indexed_indirect_count` / `cmd_dispatch_indirect_count`, `cmd_push_descriptors`, `cmd_bind_index_buffer` with size, `cmd_set_shading_rate`, `cmd_set_sample_locations`, `cmd_begin_conditional_rendering` / `_end`, `cmd_aliasing_barrier`, `cmd_queue_ownership_release` / `_acquire`, `cmd_latency_mark` — and parallel render-pass recording.
+- U12 Slang offline shaders + bundle format + reflection extraction; per-entry required-feature masks; bundle container validation plus optional strict all-entry capability check; engine-shipped **`melody.binding` mixin module** so one resource-set declaration synthesizes both ceiling and floor root records; **`shader_create_from_bytecode` raw-passthrough peer for SPIR-V / DXIL / MSL / WGSL from day one (P2 peer to the Slang convenience)**; **Slang version pinned via `tools/build/vendor/slang/SLANG_VERSION.lock` and contributing to the bundle / pipeline-binary cache key**; tessellation control / evaluation stages reflected and exposed.
+- U13 graphics + compute pipelines async-created on both backends; reflection-driven layouts; engine-managed pipeline persistence via `VK_KHR_pipeline_binary` + DXIL library archives with `VkPipelineCache` defensive-load fallback + P2 primitives; **`VK_EXT_graphics_pipeline_library` (GPL) + DXIL library composition** for fragmented compile; `VK_EXT_shader_object` pipeline-less lane where granted; sample-locations, conditional rendering, stencil export, conservative rasterization, depth-clamp-zero-one admitted cap-gated; **`pipeline_tess_create` with full tessellation state**; **`pipeline_robustness` selector**; **`Mel_Gpu_Indirect_Layout` (command-signature analog) for `cmd_execute_indirect`**.
+- U25 shader-model / compute numeric caps + **subgroup-size control** + **matmul-profile descriptor with matrix-scope resolution** + **atomic-by-type / image-atomic-int64 / atomic-float caps**, exposed in caps and validated during pipeline creation.
+- U14 per-type bindless tables on both backends; Vulkan advances `VK_EXT_descriptor_indexing` → `VK_EXT_descriptor_buffer` → `VK_EXT_descriptor_heap` as granted; D3D12 uses `ResourceDescriptorHeap` / `SamplerDescriptorHeap` + root-record descriptor indices from day one; per-backend root-record carrier pinned per §6.7; **`MissingBindlessSlot` distinguished from `MissingFeature`** in the pipeline-create status; **`Mel_Gpu_Mutable_Descriptor_Layout` admitted from day one (cap-gated)**; **`CAPTURE_REPLAY` flag wired through resource and heap creation** so RenderDoc / PIX / Aftermath captures of the bindless surface replay deterministically.
+- U15 multithreaded command pools (TLS); single-use recording; full recording surface — including `cmd_draw_indirect_count` / `_indexed_indirect_count` / `cmd_dispatch_indirect_count`, `cmd_push_descriptors`, `cmd_bind_index_buffer` with size, `cmd_set_shading_rate`, `cmd_set_sample_locations`, `cmd_set_patch_control_points`, `cmd_begin_conditional_rendering` / `_end`, `cmd_aliasing_barrier`, `cmd_queue_ownership_release` / `_acquire`, `cmd_latency_mark`, `cmd_execute_indirect(layout, ...)` — and parallel render-pass recording.
 - U16 declarative sub-pass topology + per-attachment load/store/resolve + memoryless attachments + attachment feedback loops + **VRS Tier 1 (per-draw) and Tier 2 (per-primitive + per-image)** + **foveation `static` tier** + multiview view-mask + motion-vector / reactive-mask attachment compatibility. Vulkan lowers to 1.4 `dynamic_rendering_local_read` + `VK_EXT_dynamic_rendering_unused_attachments` + `VK_EXT_attachment_feedback_loop_layout` / `dynamic_state` + `VK_KHR_fragment_shading_rate` + `VK_EXT_fragment_density_map`; D3D12 uses enhanced-barrier separate passes + VRS Tier 2.
 - U17 timeline + binary semaphores; D3D12-style state barriers (lowered to Vulkan synchronization2 / D3D12 enhanced barriers natively); `VK_KHR_unified_image_layouts` fast path where granted; `cmd_aliasing_barrier`, `cmd_queue_ownership_release` / `_acquire`; subresource-range argument on `cmd_barrier`; fine-grained P2 escape; state-resync hook.
-- U18 surface lifecycle states/events + **Android UI-thread synchronous release discipline**; `Mel_Gpu_Output` enumeration on both backends; swapchain with HDR set + **HDR metadata setters** (`IDXGISwapChain4::SetHDRMetaData`, `VK_EXT_hdr_metadata`, macOS EDR); per-image render-finished with `presentFenceInfo` GC; present timing (`VK_KHR_present_wait2` / `present_id2`, `VK_EXT_present_timing` where available, `VK_KHR_swapchain_maintenance1`, **DXGI frame-latency waitable**); **tearing flag** (`DXGI_PRESENT_ALLOW_TEARING`); multi-swapchain; Wayland color-management protocol where granted on the Linux backend.
-- U19 four-mode pacing source; native vsync wiring; **latency-marker primitive** (Reflex on D3D12+Vulkan-NV / Anti-Lag on AMD / XeSS-FG / platform-native); **thermal-pressure event** (iOS / Android / Apple Silicon Mac); OpenXR-driven pacing as the P2 canonical example; `Frame_Info` carries current and prior-frame jitter offsets.
-- U24 timestamp + occlusion queries; calibrated timestamps; frame-budget integration.
+- U18 surface lifecycle states/events + **Android UI-thread synchronous release discipline**; **DPI / extent pinned (pixel_extent / point_extent / scale_factor)**; `Mel_Gpu_Output` enumeration on both backends; swapchain with HDR set + **HDR metadata setters** (`IDXGISwapChain4::SetHDRMetaData`, `VK_EXT_hdr_metadata`, macOS EDR); per-image render-finished with `presentFenceInfo` GC; present timing (`VK_KHR_present_wait2` / `present_id2`, `VK_EXT_present_timing` where available, `VK_KHR_swapchain_maintenance1`, **DXGI frame-latency waitable**); **tearing flag** (`DXGI_PRESENT_ALLOW_TEARING`); multi-swapchain; Wayland color-management protocol where granted on the Linux backend.
+- U19 four-mode pacing source; native vsync wiring; **latency-marker primitive** (Reflex on D3D12+Vulkan-NV / Anti-Lag on AMD / XeSS-FG / platform-native); **thermal-pressure event** (iOS / Android / Apple Silicon Mac); **`power_source_changed` and `low_power_mode_changed` events** (independent of thermal); OpenXR-driven pacing as the P2 canonical example; `Frame_Info` carries current and prior-frame jitter offsets plus current power-source and low-power-mode.
+- U24 timestamp + occlusion queries; calibrated timestamps; frame-budget integration; **hardware performance-counter query pool** (`Mel_Gpu_Perf_Counter_Pool`) with `VK_KHR_performance_query` + D3D12 / Metal counter-set lowering.
 
 **M3 — Bleeding-edge and general-application capabilities.**
 
-- U13 mesh + RT pipelines on both backends; U26 acceleration structures, AS build / update / compact / serialize commands following the **new-handle compaction protocol** per §6.6, engine-managed SBT with the **pipeline-bound regeneration discipline** + raw escape; `cmd_trace_rays_indirect` / `_indirect2` (`VK_KHR_ray_tracing_maintenance1`, DXR 1.1 indirect from compute); `VK_EXT_ray_tracing_invocation_reorder` (multi-vendor SER) + DXR 1.2 `HitObject` (required by SM 6.9) + opacity micromaps where granted.
+- U13 mesh + RT pipelines on both backends; U26 acceleration structures, AS build / update / compact / serialize commands following the **new-handle compaction protocol** per §6.6, engine-managed SBT with the **pipeline-bound regeneration discipline** + raw escape; `cmd_trace_rays_indirect` / `_indirect2` (`VK_KHR_ray_tracing_maintenance1`, DXR 1.1 indirect from compute); `VK_EXT_ray_tracing_invocation_reorder` (multi-vendor SER) + DXR 1.2 `HitObject` (required by SM 6.9) + opacity micromaps + **position fetch** (`VK_KHR_ray_tracing_position_fetch` / D3D12 `TriangleObjectPositions`) + **motion blur** (`VK_NV_ray_tracing_motion_blur` / D3D12 motion-instance) where granted.
+- U26 **cluster acceleration structures and partitioned TLAS** — `Mel_Gpu_Cluster_Accel_Struct`, `Mel_Gpu_Partitioned_Tlas`, `cmd_build_cluster_accel_struct`, `cmd_build_blas_from_clusters`, `cmd_partitioned_tlas_update` — Vulkan via `VK_NV_cluster_acceleration_structure` + `VK_NV_partitioned_acceleration_structure` (NV-vendor at M3, KHR-additive when ratified), D3D12 via SM 6.9 cluster intrinsics + the Agility 1.619.3 cluster-build APIs (cross-vendor on NVIDIA RTX, AMD RDNA 4, Intel Arc B-series), Metal / WebGPU absent. **Emulated tier ships at M3** (`cluster_accel_struct = emulated` per §6.6) so AMD pre-RDNA 4, Intel Arc pre-B-series, and pre-KHR-ratification Vulkan devices honor the API surface with standard-BLAS-plus-primitive-ID-stride lowering — Slang capability atom `cluster_accel_struct_emulated` registered with the vendored Slang at M3. The Nanite-style cluster-LOD streaming path is reachable from M3 on the full Vulkan device matrix, not just NV; cost differs per cap tier, behavior does not.
+- U10 **sampler feedback Tier 1 + Tier 2** — paired feedback textures and `WriteSamplerFeedback` shader API consumed by the streaming / virtual-texturing layer.
 - U14 bindless **full** tier on supporting hardware — `VK_EXT_descriptor_heap` ceiling on Vulkan as ratification matures, `VK_EXT_descriptor_buffer` transitional path remains. **Fallback policy**: if `descriptor_heap` has not ratified by M3 ship, U14 ceiling on Vulkan rests on `descriptor_buffer` + `descriptor_indexing`; M3 ships without `descriptor_heap` and admits it later as purely additive (no API change).
 - U15 indirect commands (`VK_EXT_device_generated_commands` + `ExecuteIndirect` already at M2; M3 admits the reusable-command-list tier where supported).
 - U16 **foveation `gaze_driven` tier** (eye-tracker-driven density-map updates), Metal tile shaders on Apple Silicon (M4 backend).
@@ -718,54 +1254,118 @@ The existing `apps/hello-gpu` triangle and cube run on the new RHI by M1's end. 
 - U17 import of external sync primitives wired end-to-end.
 - U21 frame capture integration + GPU crash diagnostics (DRED, Aftermath, `VK_EXT_device_fault`, Metal command-buffer error state).
 - OpenXR compositor-layer submission surface from U18 wired end-to-end with the visionOS `cp_layer_renderer` integration.
+- **U30 vendor and architecture profile** (`Mel_Gpu_Vendor_Profile` adjacent to U4 caps; vendor / architecture_family / driver / render_architecture / subgroup / memory / rt / matrix / presentation / tooling records).
+- **U31 provider loading model** — `mel_gpu_provider_enumerate` / `_request` / `_release` registry, all nine provider kinds enumerated (`TemporalReconstruction`, `FrameGeneration`, `LatencyControl`, `RayTracingOptimization`, `GpuProfiling`, `CrashDiagnostics`, `ShaderAnalysis`, `MobilePower`, `XrRuntimeBridge`); provider ABI / SDK / driver / arch / granted-caps included in pipeline and effect cache keys.
+- **U32 reconstruction context** — `Mel_Gpu_Reconstruction_Context` with `reconstruction_context_create` / `reconstruction_dispatch`; NVIDIA Streamline / DLSS, AMD FSR, Intel XeSS providers wired on Vulkan + D3D12; engine TAAU / spatial upscaler fallback; frame-generation present-ID and pacing-record discipline enforced.
+- **U19 latency providers (§9.4)** — `mel_gpu_latency_provider_request` / `_set_mode` / `_mark` / `_sleep` / `_get_report` wraps the M2 latency-marker primitive; NVIDIA Reflex (Streamline/NVAPI, `VK_NV_low_latency2`), AMD Anti-Lag (AGS/FidelityFX, `VK_AMD_anti_lag`), Intel Xe Low Latency, and platform fallbacks (DXGI frame-latency waitable, Metal display timing, OpenXR frame pacing, `requestAnimationFrame`) selected through one preference list.
+- **U26 RT optimization providers (§9.5)** — `Mel_Gpu_Rt_Optimization_Profile`; SER, opacity micromap, displaced micromesh, ray denoiser, many-light sampling, ray reconstruction, RT shader analysis caps; NVIDIA / AMD / Intel / Apple provider lowerings; `rt_provider_create`, `rt_build_optimizer_*`, `rt_shader_reorder_hint`, `rt_denoise_dispatch` APIs.
+- **U15/U28 GPU-driven optimization providers (§9.6)** — `device_generated_commands`, `work_graphs`, `meshlet_generation`, `shader_table_compaction`, `indirect_count_fast_path` caps wired to D3D12 / Vulkan / Metal / WebGPU lowerings; provider-generated command memory is normal U9 buffer with declared write ranges.
+- **U21/U24 tooling providers (§9.8)** — `Mel_Gpu_Tooling_Provider` for vendor capture, counter sets, crash diagnostics, shader disassembly; Nsight / Radeon GPU Profiler / Intel GPA / Xcode GPU / Arm Performance Studio / Snapdragon Profiler / PVRTune providers wired through `tooling_provider_request` and reusing U21 debug marker names.
+- **U12/U13/U14 variant policy (§9.9)** — pipeline and effect cache keys gain provider ABI / vendor / compiler fingerprint / subgroup width / matrix tier / root-record payload / tiler profile / reconstruction-provider entries; variant table (generic / vendor / mobile-tiler / XR multiview-foveated / reconstruction) compiled where caps justify.
+- **U34 XR target family — desktop OpenXR (§10.4)** — `Mel_Xr_Instance` / `_System` / `_Session` / `_Space` / `_View_Set` / `_Image_Set` / `_Frame` / `_Composition_Layer` objects; OpenXR graphics binding for D3D12 (`XR_KHR_D3D12_enable`) and Vulkan (`XR_KHR_vulkan_enable2` + `XR_KHR_vulkan_swapchain_format_list`); stereo projection layers, runtime-owned swapchain images, predicted display time, action sets; `XR_KHR_composition_layer_depth`, `XR_EXT_hand_tracking`, `XR_EXT_eye_gaze_interaction` plus foveated/quad-view extensions where granted; XR render-graph access records (`view_mask`, `view_local_resources`, `shared_view_resources`, `late_latched_uniforms`, `composition_layer_output`, `runtime_ownership`) and XR comfort/safety contract enforced.
 
-**M4 — Metal and WebGPU backends to parity.** Metal backend with Metal 4 fast paths (`MTL4CommandBuffer`, `MTL4ArgumentTable`, `MTL4Compiler`, `MTL4MachineLearningCommandEncoder`, integrated `MTLResidencySet`, `MTLTensor`, Shader ML, Metal 4 low-overhead barriers, placement sparse) plus availability-checked earlier Metal lowerings where behavior remains faithful; WebGPU (Dawn native + Emscripten web) with the three cap profiles — Dawn-native, browser-core, Compatibility-mode — split per §2; Chrome 146+ memoryless attachments via `TRANSIENT_ATTACHMENT`; subgroups + dual-source-blending + float32-blendable / filterable + timestamp-query (100 µs quantized) consumed where granted; `importExternalTexture` + WebCodecs `VideoFrame` source-specific lifetime enforced; `GPUResourceTable` bindless landed forward-compatibly as the GPU Web working group's Milestone 3 surface lands.
+**M4 — Metal and WebGPU backends to parity.** Metal backend with Metal 4 fast paths (`MTL4CommandBuffer`, `MTL4ArgumentTable`, `MTL4Compiler`, `MTL4MachineLearningCommandEncoder`, integrated `MTLResidencySet`, `MTLTensor`, Shader ML, Metal 4 low-overhead barriers, placement sparse) plus availability-checked earlier Metal lowerings where behavior remains faithful; WebGPU (Dawn native + Emscripten web) with the three cap profiles — Dawn-native, browser-core, Compatibility-mode — split per §2; Chrome 146+ memoryless attachments via `TRANSIENT_ATTACHMENT`; subgroups + dual-source-blending + float32-blendable / filterable + timestamp-query (100 µs quantized) consumed where granted; `importExternalTexture` + WebCodecs `VideoFrame` source-specific lifetime enforced; `GPUResourceTable` bindless landed forward-compatibly as the GPU Web working group's Milestone 3 surface lands. Also at M4:
 
-**M5 — Layer 1: render graph (U20).** Full design from this spec.
+- **U33 tiler profile** — `Mel_Gpu_Tiler_Profile` (tiler / tile_memory / memoryless_attachments / local_read / foveation / thermal axes) fully populated on Metal (Apple Silicon), Vulkan-Adreno, Vulkan-Mali / Immortalis, and Vulkan-PowerVR backends; render-graph compiler consumes tiler hints (on-tile attachments, `DontCare` load/store, on-tile MSAA resolve, store/load-round-trip avoidance, clustered/forward+/tile-local-deferred preference).
+- **U32 reconstruction — Apple MetalFX provider** (spatial / temporal / frame interpolator / temporal denoised scaler where available) and **Qualcomm Snapdragon GSR / GSR2** mobile providers wired alongside the M3 desktop providers.
+- **U34 XR target family — Meta Quest standalone (§10.5)** — Horizon OS / Android, OpenXR + Vulkan backend, projection / passthrough / overlay composition layers; Quest-specific caps (`quest_refresh_rates`, `quest_foveation`, `quest_space_warp`, `quest_passthrough`, `quest_scene`, `quest_hand_tracking`, `quest_thermal`) and extension families (`XR_FB_foveation*`, `XR_META_foveation_eye_tracked`, `XR_FB_display_refresh_rate`, `XR_FB_space_warp`, `XR_FB_passthrough`, `XR_EXT_hand_tracking` + Meta multimodal); 72/90/120 Hz frame-budget targets fed to U19; passthrough-camera privacy/protected flag propagated through U10/U21.
+- **U34 XR target family — Apple Vision Pro (§10.6)** — visionOS, Compositor Services `LayerRenderer` drawables wrapped as borrowed U10 texture views, layer-renderer pacing; Vision Pro caps (`visionos_compositor`, `visionos_layered_drawables`, `visionos_foveation`, `visionos_passthrough`, `visionos_input`, `visionos_metalfx`); MetalFX as a reconstruction provider with `xr_safe` enforced for frame interpolation; eye/gaze and camera-derived data privacy-gated.
+
+**M5 — Layer 1: render graph (U20).** Full design from this spec, including the XR access records from §10.7 (`view_mask`, `view_local_resources`, `shared_view_resources`, `late_latched_uniforms`, `composition_layer_output`, `runtime_ownership`) and the tiler-aware compilation rules from §9.7.
 
 **M6+ — Additive capabilities.** Sparse texture residency (Vulkan 1.0 sparse feature flags + queue, D3D12 tiled resources, Metal placement sparse). Native ML / tensor backends beyond shader dispatch where future cooperative-tensor extensions land. Advanced capture integrations beyond M3. Higher-level streaming / residency policies outside the RHI layer. Explicit `*_cancel` future surface if a concrete need emerges. Further bleeding-edge features as they become required.
 
 ---
 
-## 11. Module structure and dependencies
+## 13. Module structure and dependencies
 
 ```
 modules/gpu/
   include/
     gpu.h                 -- umbrella include (backend-clean)
     gpu/
-      caps.h              -- Mel_Gpu_Caps + tiers
+      caps.h              -- Mel_Gpu_Caps + tiers (incl. adapter_type, power_source, low_power_mode,
+                             internally_synchronized_queues, capture_replay, mutable_descriptor_type,
+                             cluster_accel_struct, partitioned_tlas, tessellation, matrix_scope,
+                             atomic-by-type, sampler_feedback, sparse_buffer, shared_presentable_image,
+                             pipeline_robustness, indirect_state_change, performance_query)
       status.h            -- per-action status types are declared with each action
       result.h            -- helpers
-      future.h            -- Mel_Gpu_*_Future, target_reactor
-      format.h            -- Mel_Gpu_Format enum (shared by texture/swapchain/video)
-      device.h            -- Mel_Gpu_Instance / Adapter / Device; adapter_removed event
+      future.h            -- Mel_Gpu_*_Future, target_reactor, reactor-post backpressure policy
+      format.h            -- Mel_Gpu_Format enum (shared by texture/swapchain/video); component mapping
+      device.h            -- Mel_Gpu_Instance / Adapter / Device; adapter_removed, power_source_changed,
+                             low_power_mode_changed events; adapter_type / luid / uuid / OpenXR LUID matcher
       output.h            -- Mel_Gpu_Output; per-adapter display enumeration, refresh range, HDR caps
-      queue.h             -- queue role, request/release, submit, global priority; Mel_Gpu_Queue
-      memory.h            -- pool, placed, aliasing, residency; role enum
-      buffer.h            -- Mel_Gpu_Buffer + buffer usage enum
-      texture.h           -- Mel_Gpu_Texture, Mel_Gpu_Texture_View + texture usage enum
-      sampler.h           -- Mel_Gpu_Sampler (incl. static / immutable sampler descriptors)
-      shader.h            -- Mel_Gpu_Shader, Slang bundle, reflection types, capability mask
-      accel_struct.h      -- Mel_Gpu_Accel_Struct; BLAS/TLAS, scratch/build/update/compact/serialize
-      pipeline.h          -- Mel_Gpu_Pipeline, pipeline_binary, GPL library lane, shader_object lane
-      bindless.h          -- descriptor heaps, root-record layout, push constants, push_descriptor
+      queue.h             -- queue role, request/release, submit, global priority,
+                             internally_synchronized flag; Mel_Gpu_Queue
+      memory.h            -- pool, placed, aliasing, residency; role enum; sparse buffer + texture
+      buffer.h            -- Mel_Gpu_Buffer + Mel_Gpu_Buffer_Indirect + buffer usage + capture_replay flag
+      texture.h           -- Mel_Gpu_Texture, Mel_Gpu_Texture_View + Mel_Gpu_Texture_View_Indirect +
+                             texture usage enum + component mapping + sampler-feedback usage + capture_replay
+      sampler.h           -- Mel_Gpu_Sampler + Mel_Gpu_Sampler_Indirect (incl. static / immutable sampler
+                             descriptors)
+      shader.h            -- Mel_Gpu_Shader, Slang bundle, reflection types, capability mask,
+                             shader_create_from_bytecode raw-passthrough peer, tessellation stages
+      accel_struct.h      -- Mel_Gpu_Accel_Struct + Mel_Gpu_Accel_Struct_Indirect;
+                             Mel_Gpu_Cluster_Accel_Struct, Mel_Gpu_Partitioned_Tlas; BLAS/TLAS, cluster
+                             build, partition-update, position fetch, motion blur, scratch/build/update/
+                             compact/serialize
+      pipeline.h          -- Mel_Gpu_Pipeline, pipeline_binary, GPL library lane, shader_object lane,
+                             pipeline_robustness selector, pipeline_tess_create
+      indirect.h          -- Mel_Gpu_Indirect_Layout (D3D12 command-signature analog); execute_indirect
+      bindless.h          -- descriptor heaps, root-record layout, push constants, push_descriptor,
+                             Mel_Gpu_Mutable_Descriptor_Layout, capture-replay heap flag
       command.h           -- Mel_Gpu_Command_List, record surface (incl. indirect-count, aliasing barrier,
-                             queue-ownership transfer, conditional rendering, latency mark)
+                             queue-ownership transfer, conditional rendering, latency mark,
+                             cluster-AS build, partitioned-TLAS update, patch-control-points dynamic)
       rendering.h         -- begin/end_rendering, sub-pass, attachments, feedback loops, VRS, foveation,
                              multiview, sample locations
       sync.h              -- Mel_Gpu_Sync; timeline/binary semaphores, state model, aliasing-barrier,
                              queue-ownership-transfer
-      surface.h           -- Mel_Gpu_Surface; lifecycle events, UI-thread synchronous-release discipline
+      surface.h           -- Mel_Gpu_Surface; lifecycle events, UI-thread synchronous-release discipline,
+                             pixel_extent / point_extent / scale_factor pinned
       swapchain.h         -- Mel_Gpu_Swapchain; HDR set + metadata setters, present timing, tearing,
-                             external/borrowed image sets, OpenXR + visionOS layer descriptors
-      pacing.h            -- Mel_Gpu_Render_Source modes; latency markers, thermal-pressure event
+                             external/borrowed image sets, shared-presentable-image,
+                             OpenXR + visionOS layer descriptors
+      pacing.h            -- Mel_Gpu_Render_Source modes; latency markers, thermal-pressure event,
+                             power_source / low_power_mode events; Frame_Info pacing context
       media.h             -- video sessions, frames, color metadata, process/decode/encode, protected flag
       work_graph.h        -- Mel_Gpu_Work_Graph; GPU-side scheduling declarations
+      vendor.h            -- Mel_Gpu_Vendor_Profile (vendor / architecture_family / driver /
+                             render_architecture / subgroup / memory / rt / matrix / presentation /
+                             tooling); Mel_Gpu_Tiler_Profile (tiler / tile_memory /
+                             memoryless_attachments / local_read / foveation / thermal)
+      provider.h          -- provider registry: enumerate / request / release; provider kinds
+                             (TemporalReconstruction, FrameGeneration, LatencyControl,
+                             RayTracingOptimization, GpuProfiling, CrashDiagnostics,
+                             ShaderAnalysis, MobilePower, XrRuntimeBridge);
+                             Mel_Gpu_Tooling_Provider (capture / counters / crash_dump /
+                             shader_disassembly / markers)
+      reconstruction.h    -- Mel_Gpu_Reconstruction_Context; provider enum (EngineTaaU /
+                             EngineSpatialUpscale / NvidiaDlss / NvidiaNis / AmdFsr / IntelXeSS /
+                             AppleMetalFX / QualcommSnapdragonGsr / RuntimeXrReprojection);
+                             reconstruction_context_create / reconstruction_dispatch; frame_desc
+                             (color/depth/motion/exposure/jitter/camera/masks/HUD)
+      latency.h           -- mel_gpu_latency_provider_request / _set_mode / _mark / _sleep /
+                             _get_report; marker points (FrameStart, InputSample, SimStart,
+                             SimEnd, RenderSubmitStart, RenderSubmitEnd, PresentSubmit,
+                             PresentDisplayed, GeneratedPresentSubmit, GeneratedPresentDisplayed)
+      rt_optimization.h   -- Mel_Gpu_Rt_Optimization_Profile (SER / opacity_micromap /
+                             displaced_micromesh / ray_denoiser / many_light_sampling /
+                             ray_reconstruction / rt_shader_analysis); rt_provider_create,
+                             rt_build_optimizer_create / _encode, rt_shader_reorder_hint,
+                             rt_denoise_dispatch
       io.h                -- Mel_Gpu_Io_Queue; asset IO + GPU decompression (U29)
-      query.h             -- Mel_Gpu_Query_Pool
-      graph.h             -- (M5) render graph
-      debug.h             -- capture, crash diagnostics
+      query.h             -- Mel_Gpu_Query_Pool, Mel_Gpu_Perf_Counter_Pool
+      xr.h                -- Mel_Xr_Instance / _System / _Session / _Space / _View_Set /
+                             _Image_Set / _Frame / _Composition_Layer; OpenXR + visionOS
+                             Compositor Services bridges; Quest and Vision Pro caps surfaces;
+                             XR render-graph access records (view_mask, view_local_resources,
+                             shared_view_resources, late_latched_uniforms,
+                             composition_layer_output, runtime_ownership); XR comfort/safety
+                             validation contract
+      graph.h             -- (M5) render graph (incl. WorkGraph pass type)
+      debug.h             -- capture, crash diagnostics, capture-replay discipline
       -- Opt-in per-backend native integration (NOT pulled in by gpu.h):
       vulkan/             -- include/gpu/vulkan/<integration>.h — typed accessors for VkDevice / VkQueue / VkCommandBuffer / VkImage / VkBuffer / external memory/sync import / raw-command injection / mid-record state-resync hook
       metal/              -- include/gpu/metal/<integration>.h — typed accessors for MTLDevice / MTL4CommandQueue / MTL4CommandBuffer / MTLTexture / MTLBuffer / MTLSharedEvent / CVPixelBuffer
@@ -798,7 +1398,7 @@ Dependencies (additions): `core`, `allocator`, `collection.slotmap`, `collection
 
 ---
 
-## 12. What this spec replaces and what survives
+## 14. What this spec replaces and what survives
 
 **Retired by M1.** `modules/gpu` in its current form — the one-shot device, single render pass, hardcoded format, single-frame-in-flight, per-action reactor source, NULL-on-failure model. All of it. The existing `mel_old/gpu.*` reference code remains for historical lookup.
 
@@ -806,7 +1406,7 @@ Dependencies (additions): `core`, `allocator`, `collection.slotmap`, `collection
 
 ---
 
-## 13. Notes for the reader
+## 15. Notes for the reader
 
 This document is the *spec*. It pins decisions; it does not justify them re-litigably — each unit's resolution captures the trade-off considered and the principle it followed. The trackable per-unit resolutions live in the task list that backed this spec's drafting; cross-reference them when revisiting any unit.
 
@@ -815,3 +1415,19 @@ When implementing, three tests catch most drift:
 1. **"Can the app fully reimplement this?"** — if not, P2 primitives are missing.
 2. **"Does this emulate, or does it lie?"** — if behavior diverges under load, gate honestly (P1).
 3. **"Would adding this later force rework of existing API?"** — if yes, it cannot be deferred.
+
+---
+
+## 16. Vendor and XR source references
+
+Recheck these primary sources whenever revisiting Sections 9 (vendor providers) or 10 (XR target family); version drift in these documents is the most common driver of staleness in those sections.
+
+- Khronos OpenXR registry and OpenXR 1.1 spec, especially graphics bindings, depth layers, hand tracking, foveation, passthrough, and runtime conformance.
+- Apple Compositor Services and MetalFX documentation for Vision Pro/visionOS.
+- Meta Horizon OS Quest performance, foveation, passthrough camera, and OpenXR extension documentation.
+- NVIDIA Streamline, DLSS, Reflex, Nsight Aftermath, and OMM/micromesh SDK docs.
+- AMD FidelityFX, Anti-Lag, Radeon GPU Profiler, Radeon Raytracing Analyzer, Radeon GPU Detective, and GPUPerfAPI docs.
+- Intel XeSS, XeSS-FG, XeLL, and Intel Graphics Performance Analyzers docs.
+- Arm Performance Studio and Mali Vulkan best-practices docs.
+- Qualcomm Snapdragon Game Super Resolution, Snapdragon Profiler, Adreno, and `VK_QCOM_tile_shading` docs.
+- Imagination PowerVR/PVRTune docs.
