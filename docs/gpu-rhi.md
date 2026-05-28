@@ -103,9 +103,9 @@ All creation operations return a future. The future is **reactor-driven** as the
 
 ### 3.4 Capability / feature model (U4)
 
-`Mel_Gpu_Caps` is immutable, queried from the device. It is a **feature database**, not a flat grab-bag. Top-level domains: `adapter`, `memory`, `queues`, `shader`, `compute`, `sampler`, `raster`, `mesh`, `tessellation`, `ray_tracing`, `work_graphs`, `media`, `presentation`, `interop`, `queries`, `power`, and `debug`. Graduated features are **tiered enums** (`bindless = none | capped | full`; `multi_adapter = none | external_share | linked_device`; `ray_tracing = none | inline | pipeline`; `cluster_accel_struct = none | emulated | vendor | core`; `partitioned_tlas = none | emulated | vendor | core`; `timeline = native | emulated`; `tile_local = none | emulated | native`; `work_graphs = none | emulated | native`; `video_decode = none | import_only | hardware`; `video_encode = none | import_only | hardware`; `video_process = none | shader_emulated | hardware`; `protected_media = none | decode_only | process_present`; `ml_tensor = none | shader_emulated | native`; `matrix_scope = none | thread | wave | group | full` (SM 6.10 LinAlg alignment); `vrs = none | per_draw | per_primitive | per_image` (paired with `caps.raster.vrs.shading_rate_texel_size_{min,max}: { width, height }` because the shading-rate-image texel size is vendor-dependent — NVIDIA 16×16, AMD 8×8, Intel variable — and a portable consumer cannot size the attachment without it); `foveation = none | static | gaze_driven`; `sampler_feedback = none | vendor | tier1 | tier2`; `sparse_buffer = none | partial | full`; `sparse_texture = none | tier1 | tier2`; `asset_io = none | cpu_staged | gpu_decompress`; `residency_control = none | budget_only | explicit`; `latency_marker = none | reflex | anti_lag | xess_fg | platform_native`; `tessellation = none | partial | full`; `pipeline_robustness = none | per_pipeline | per_stage`; `indirect_state_change = none | tier1 | tier2`; `mutable_descriptor_type = none | partial | full`; `capture_replay = none | partial | full`; `performance_query = none | passes | streaming`; `internally_synchronized_queues = none | partial | full`; `adapter_type = discrete | integrated | software | virtual | external`; `power_source = ac | battery | unknown`; `low_power_mode = off | on`; `host_visible_device_local = none | rebar | full_uma` (split from a single UMA flag because ReBAR / D3D12 `D3D12_HEAP_TYPE_GPU_UPLOAD` exposes a host-visible window into VRAM without the system being unified — the allocator policy and `buffer_write` lowering differ between the two cases); `opacity_micromap = none | ext | khr` (KHR ratified Vulkan 1.4.351 May 2026 changes the API shape — micromap becomes an AS type via `vkCreateAccelerationStructure2KHR` — so both lowerings carry, see §6.6); `present_barrier = none | per_adapter | multi_adapter`; `present_wait = none | present_id | present_id_wait`; `present_timing_feedback = none | completion_only | timestamps | scheduled_present` (cross-monitor presentation sync and pacing feedback stay distinct)). Binary features remain bools only when the feature is truly yes/no.
+`Mel_Gpu_Caps` is immutable, queried from the device. It is a **feature database**, not a flat grab-bag. Top-level domains: `adapter`, `memory`, `queues`, `shader`, `compute`, `sampler`, `raster`, `mesh`, `tessellation`, `ray_tracing`, `work_graphs`, `media`, `presentation`, `interop`, `queries`, `power`, and `debug`. Graduated features are **tiered enums** (`bindless = none | capped | full`; `multi_adapter = none | external_share | linked_device`; `ray_tracing = none | inline | pipeline`; `cluster_accel_struct = none | emulated | vendor | core`; `partitioned_tlas = none | emulated | vendor | core`; `timeline = native | emulated`; `tile_local = none | emulated | native`; `work_graphs = none | emulated | native`; `video_decode = none | import_only | hardware`; `video_encode = none | import_only | hardware`; `video_process = none | shader_emulated | hardware`; `protected_media = none | decode_only | process_present`; `ml_tensor = none | shader_emulated | native`; `matrix_scope = none | thread | wave | group | full` (SM 6.10 LinAlg alignment); `vrs = none | per_draw | per_primitive | per_image` (paired with `caps.raster.vrs.shading_rate_texel_size_{min,max}: { width, height }` because the shading-rate-image texel size is vendor-dependent — NVIDIA 16×16, AMD 8×8, Intel variable — and a portable consumer cannot size the attachment without it); `foveation = none | static | gaze_driven`; `sampler_feedback = none | vendor | tier1 | tier2`; `sparse_buffer = none | partial | full`; `sparse_texture = none | tier1 | tier2`; `asset_io = none | cpu_staged | gpu_decompress`; `residency_control = none | budget_only | explicit`; `latency_marker = none | reflex | anti_lag | xess_fg | platform_native`; `tessellation = none | partial | full`; `pipeline_robustness = none | per_pipeline | per_stage`; `indirect_state_change = none | tier1 | tier2`; `mutable_descriptor_type = none | partial | full`; `capture_replay = none | partial | full`; `performance_query = none | passes | streaming`; `internally_synchronized_queues = none | partial | full`; `adapter_type = discrete | integrated | software | virtual | external`; `host_visible_device_local = none | rebar | full_uma` (split from a single UMA flag because ReBAR / D3D12 `D3D12_HEAP_TYPE_GPU_UPLOAD` exposes a host-visible window into VRAM without the system being unified — the allocator policy and `buffer_write` lowering differ between the two cases); `opacity_micromap = none | ext | khr` (KHR ratified Vulkan 1.4.351 May 2026 changes the API shape — micromap becomes an AS type via `vkCreateAccelerationStructure2KHR` — so both lowerings carry, see §6.6); `present_barrier = none | per_adapter | multi_adapter`; `present_wait = none | present_id | present_id_wait`; `present_timing_feedback = none | completion_only | timestamps | scheduled_present` (cross-monitor presentation sync and pacing feedback stay distinct)). Binary features remain bools only when the feature is truly yes/no.
 
-Limits live inside the domain that owns them: descriptor-table sizes, heap residency, max bindless slots per heap, and per-resource indirect-slot budget under `memory/bindless`; max texture dimensions and sparse page shape under `memory/textures`; mesh-shader output budget under `mesh` — `max_output_vertices`, `max_output_primitives`, `max_workgroup_size`, `max_workgroup_count[3]`, `max_payload_size`, `prefers_local_invocation_vertex_output`, `prefers_local_invocation_primitive_output`, `max_preferred_workgroup_size` — because portable mesh-shader code is impossible without every one of these; max workgroup size, shared memory, subgroup sizes, dispatch dimensions, async-compute overlap, and indirect-dispatch support under `compute`; sampler anisotropy limits under `sampler`; wave/subgroup operations, numeric formats (`fp64`, `fp32`, `fp16`, `bf16`, `fp8` E4M3/E5M2, `int64`, `int16`, `int8`, `int4`), integer-dot-product, packed-dot integer-8/16, cooperative matrix/vector/tensor support, barycentrics, derivatives, memory scopes, atomics-by-type (`atomic_int64`, `atomic_float32`, `atomic_float16`, `image_atomic_int64`), shader clock, and `memory_model ∈ { workgroup_scope_only | device_scope | device_scope_with_chains }` (the formal `VK_KHR_vulkan_memory_model` / SPIR-V memory-model tier — required to pin cross-queue cooperative-algorithm portability; without device-scope availability/visibility chains, cross-queue atomic algorithms compile but read stale data) under `shader`; max tess patch control points, isoline support, point-mode tessellation, and per-patch outputs under `tessellation`; codec/profile/bit-depth/chroma support under `media`; color spaces, HDR metadata, present modes, VRR, tearing, shared-presentable-image, present waits, frame-latency waitables, and timing feedback under `presentation`; CPU↔GPU calibrated timestamp tier, timestamp queue coverage, occlusion precision, and HW performance-counter passes / streaming under `queries`. The `adapter` domain exposes `adapter_type`, vendor ID, device ID, driver version, `luid` (Windows / D3D12), `uuid` (Vulkan / Metal), and the OpenXR-runtime-published required-adapter LUID matcher when the runtime is present. The `power` domain exposes `power_source`, `low_power_mode`, and `thermal_pressure`, all event-driven (callbacks installed on `Mel_Gpu_Instance`). Caps also carry per-format support tiers (`sampled`, `storage`, `attachment`, `blend`, `linear_filter`, `ycbcr_sampled`, `video_decode_output`, `video_encode_input`, `external_only`, `sampler_feedback_pair`).
+Limits live inside the domain that owns them: descriptor-table sizes, heap residency, max bindless slots per heap, and per-resource indirect-slot budget under `memory/bindless`; max texture dimensions and sparse page shape under `memory/textures`; mesh-shader output budget under `mesh` — `max_output_vertices`, `max_output_primitives`, `max_workgroup_size`, `max_workgroup_count[3]`, `max_payload_size`, `prefers_local_invocation_vertex_output`, `prefers_local_invocation_primitive_output`, `max_preferred_workgroup_size` — because portable mesh-shader code is impossible without every one of these; max workgroup size, shared memory, subgroup sizes, dispatch dimensions, async-compute overlap, and indirect-dispatch support under `compute`; sampler anisotropy limits under `sampler`; wave/subgroup operations, numeric formats (`fp64`, `fp32`, `fp16`, `bf16`, `fp8` E4M3/E5M2, `int64`, `int16`, `int8`, `int4`), integer-dot-product, packed-dot integer-8/16, cooperative matrix/vector/tensor support, barycentrics, derivatives, memory scopes, atomics-by-type (`atomic_int64`, `atomic_float32`, `atomic_float16`, `image_atomic_int64`), shader clock, and `memory_model ∈ { workgroup_scope_only | device_scope | device_scope_with_chains }` (the formal `VK_KHR_vulkan_memory_model` / SPIR-V memory-model tier — required to pin cross-queue cooperative-algorithm portability; without device-scope availability/visibility chains, cross-queue atomic algorithms compile but read stale data) under `shader`; max tess patch control points, isoline support, point-mode tessellation, and per-patch outputs under `tessellation`; codec/profile/bit-depth/chroma support under `media`; color spaces, HDR metadata, present modes, VRR, tearing, shared-presentable-image, present waits, frame-latency waitables, and timing feedback under `presentation`; CPU↔GPU calibrated timestamp tier, timestamp queue coverage, occlusion precision, and HW performance-counter passes / streaming under `queries`. The `adapter` domain exposes `adapter_type`, vendor ID, device ID, driver version, `luid` (Windows / D3D12), `uuid` (Vulkan / Metal), and the OpenXR-runtime-published required-adapter LUID matcher when the runtime is present. The `power` domain re-exports `platform.sensors` state as a read-only view: `caps.power.thermal_pressure`, `caps.power.power_source`, `caps.power.low_power_mode` mirror the values published by `platform.sensors.thermal` and `platform.sensors.power`. OS lowerings live in `docs/platform-sensors.md`; `Mel_Gpu_Instance` re-emits the same three events upward for callers already holding a GPU handle. `adapter_removed` is GPU-owned (it is about an adapter being unplugged, not an environmental tier). Caps also carry per-format support tiers (`sampled`, `storage`, `attachment`, `blend`, `linear_filter`, `ycbcr_sampled`, `video_decode_output`, `video_encode_input`, `external_only`, `sampler_feedback_pair`).
 
 Public cap names are canonical; domain-qualified names are used wherever more than one domain could plausibly own a feature. Prose may omit the domain only when the owning section has just introduced it. Examples: `caps.compute.async_compute`, `caps.memory.residency_control`, `caps.memory.persistent_map`, `caps.memory.sparse_buffer`, `caps.memory.sparse_texture`, `caps.sampler.max_anisotropy`, `caps.presentation.allow_tearing`, `caps.presentation.frame_latency_waitable`, `caps.presentation.present_wait`, `caps.presentation.present_timing_feedback`, `caps.power.thermal_pressure`, `caps.queries.timestamp_calibrated`, `caps.queries.timestamp_compute_and_graphics`, and `caps.queries.occlusion_precise`.
 
@@ -172,7 +172,7 @@ Specific mobile requirements land in their home units: per-attachment load/store
 
 A three-object phased model, **nothing hidden**:
 
-- **`Mel_Gpu_Instance`** — the enumeration root, validation-config owner, and host of the `adapter_removed`, `power_source_changed`, and `low_power_mode_changed` event callbacks (`VkInstance`, `WGPUInstance`; trivial on Metal). Created explicitly.
+- **`Mel_Gpu_Instance`** — the enumeration root, validation-config owner, and host of the `adapter_removed` event callback (`VkInstance`, `WGPUInstance`; trivial on Metal). `power_source_changed` and `low_power_mode_changed` are re-emitted by the instance as a convenience view over `platform.sensors.power` (see `docs/platform-sensors.md`); they are not GPU-originated. Created explicitly.
 - **`Mel_Gpu_Adapter`** — a candidate GPU whose caps the user **inspects before committing** (`VkPhysicalDevice`, `WGPUAdapter`, `MTLDevice`-as-adapter). The adapter interface is **uniform across all backends**: enumerate adapters + inspect caps (features/limits/info) + power preference. Each adapter exposes `adapter_type ∈ { discrete | integrated | software | virtual | external }`, vendor / device IDs, driver version, the platform-native identity (`luid` on D3D12 / DXGI, `uuid` on Vulkan, registry ID on Metal), and the OpenXR-runtime-published required-adapter LUID matcher when an OpenXR runtime is present (so XR sessions can deterministically pick the runtime-required adapter without the user reaching through native interop). Software adapters (WARP, lavapipe, SwiftShader) are first-class enumeration entries; apps that exclude them filter on `adapter_type`.
 - **`Mel_Gpu_Device`** — created from a chosen adapter with the U4 request-and-grant feature set.
 
@@ -188,15 +188,15 @@ A three-object phased model, **nothing hidden**:
 
 **Device loss is a first-class lifecycle event.** Vulkan returns `VK_ERROR_DEVICE_LOST` from submit/wait; D3D12 reports device removal; Metal's `MTLDevice` becomes invalid; WebGPU's `device.lost` promise resolves. The RHI carries a `device_lost` callback on `Mel_Gpu_Device`, installed at device creation; on a loss event the engine routes the callback, **invalidates every handle issued by that device** (slotmap generations roll), **resolves every in-flight future with an `ERROR`-severity status** carrying a `device_lost` code, **tears down the U3 completion pump** for that device, and reports the loss reason through U21's crash-diagnostics path (DRED, Aftermath, `VK_EXT_device_fault`, Metal command-buffer error state) where available. Recovery is the app's job: re-enumerate adapters via the phased model above, create a new device, rebuild resources. The engine **never silently substitutes** a fresh device for the lost one — the contract is to fail loudly, then let the user reconstruct (MEL-ENGINE-VIII). The callback slot is part of the device contract from M1 day one, even if the app's recovery flow starts as "log and exit"; adding it later would change every device-destruction contract.
 
-**Adapter loss is a first-class lifecycle event paralleling device loss.** Adapters can be removed at runtime (eGPU disconnect, NVIDIA / AMD hot-unplug, monitor reconfiguration triggering DXGI adapter renumber, `MTLDeviceWasRemovedNotification`, `DXGI_ERROR_NOT_CURRENT`, Vulkan hot-unplug). The `Mel_Gpu_Instance` carries an `adapter_removed` callback installed at instance creation; on removal the engine invalidates the affected `Mel_Gpu_Adapter` handle, cascades device loss on every device created from it (each device's `device_lost` callback fires with reason `adapter_removed`), and detaches the affected outputs (see below). Re-enumeration is the app's responsibility; the engine never silently substitutes. Adapter handles carry generations so use-after-removal is a loud `alive()` failure, not a dangling-pointer crash (MEL-ENGINE-VIII).
+**Adapter loss is a first-class lifecycle event paralleling device loss.** Adapters can be removed at runtime (eGPU disconnect, NVIDIA / AMD hot-unplug, monitor reconfiguration triggering DXGI adapter renumber, `MTLDeviceWasRemovedNotification`, `DXGI_ERROR_NOT_CURRENT`, Vulkan hot-unplug). The `Mel_Gpu_Instance` carries an `adapter_removed` callback installed at instance creation; on removal the engine invalidates the affected `Mel_Gpu_Adapter` handle, cascades device loss on every device created from it (each device's `device_lost` callback fires with reason `adapter_removed`), and cascades `display_removed` on every affected `Mel_Display` (`docs/platform-display.md`) on the same reactor tick (MEL-ENGINE-IX). Re-enumeration is the app's responsibility; the engine never silently substitutes. Adapter handles carry generations so use-after-removal is a loud `alive()` failure, not a dangling-pointer crash (MEL-ENGINE-VIII).
 
-**Display / output enumeration is first-class.** Each adapter exposes a list of `Mel_Gpu_Output` candidates — `IDXGIOutput6` on DXGI, `VkDisplayKHR` on `VK_KHR_display` where granted, `NSScreen` on macOS, `UIScreen` on iOS, `wl_output` on Wayland — carrying display name, native resolution, supported refresh modes, **VRR range** (Variable Refresh Rate minimum and maximum Hz), **HDR / wide-color capabilities** (peak / average / minimum luminance from `DXGI_OUTPUT_DESC1` and `EDR` reference values, supported color spaces, mastering-primary support), per-output color profile (ICC where the OS publishes it), and current occlusion / power state. The swapchain (U18) optionally targets a specific output where the platform admits it (Windows exclusive-fullscreen flip, direct-output composition); apps that ignore outputs get the system-default association; apps that care can pick. Output handles invalidate together with their adapter on `adapter_removed`. WebGPU reports a synthetic single-output entry (the rendering canvas's containing screen) with the privacy-limited fields the browser admits.
+**Display enumeration lives in `display`.** Each adapter exposes `adapter_displays(a) → Mel_Display[]` — the subset of system displays the adapter can drive. The display handle, descriptor (name, native resolution, refresh modes, VRR range, HDR / wide-color caps, ICC profile, occlusion / power state, native-handle escape), and event stream are specified in `docs/platform-display.md`. Swapchain creation (§7.4) optionally targets a specific display via `target_display: Option<Mel_Display>` where the platform admits direct-output composition. WebGPU's privacy-limited synthetic single-display entry is specified there as well.
 
 An optional `mel_gpu_device_create_default(power_preference, features) → Mel_Gpu_Device_Create_Future` is pure composition of the public phased calls — hides nothing — and returns a future so it composes coherently with the rest of U3. The convenience is callable from any thread, including the reactor thread (the U3 `*_sync` deadlock applies only to the *user's* explicit sync wrapper, not to the futures the convenience itself returns).
 
 ### 5.2 Queues and submission (U7)
 
-**Availability/acquire model over an explicit device-create queue plan.** `mel_gpu_queue_available(device, role, priority)` reports remaining acquirable queues for that role and priority. `mel_gpu_queue_request(device, role, priority)` hands out an explicit, addressable `Mel_Gpu_Queue` object. Device creation accepts an optional `queue_plan[]` of `{ role, count, priority }` entries; the default plan requests one `Graphics` queue at `Normal` plus the queues required by enabled features. Vulkan commits queue families and global-priority lanes at device creation, so priority cannot be upgraded by a later request; D3D12 creates command queues lazily and Metal exposes logical scheduling lanes, but both still report the same planned availability surface. Roles: `Graphics`, `Compute`, `Transfer`, `AsyncCompute`, `VideoDecode`, `VideoEncode`, `VideoProcess`, `SparseBinding`, `AssetIo`. Media roles collapse onto compute/graphics or external platform engines where the backend has no addressable GPU queue; caps report `native`, `emulated`, or `import_only`. `SparseBinding` lands in the role enum from M1 even though sparse residency commands gate to false until M6+ — Vulkan's `VK_QUEUE_SPARSE_BINDING_BIT` is a distinct queue family bit and adding the role later would change every existing `queue_request` call site (not API-additive). `AssetIo` is the §6.8 / U29 asset-IO queue, requested through the same availability/acquire model and lowered to D3D12 `IDStorageQueue` / Metal `MTLIOCommandQueue` / Vulkan CPU-staged fallback.
+**Availability/acquire model over an explicit device-create queue plan.** `mel_gpu_queue_available(device, role, priority)` reports remaining acquirable queues for that role and priority. `mel_gpu_queue_request(device, role, priority)` hands out an explicit, addressable `Mel_Gpu_Queue` object. Device creation accepts an optional `queue_plan[]` of `{ role, count, priority }` entries; the default plan requests one `Graphics` queue at `Normal` plus the queues required by enabled features. Vulkan commits queue families and global-priority lanes at device creation, so priority cannot be upgraded by a later request; D3D12 creates command queues lazily and Metal exposes logical scheduling lanes, but both still report the same planned availability surface. Roles: `Graphics`, `Compute`, `Transfer`, `AsyncCompute`, `VideoDecode`, `VideoEncode`, `VideoProcess`, `SparseBinding`, `AssetIo`. Media roles collapse onto compute/graphics or external platform engines where the backend has no addressable GPU queue; caps report `native`, `emulated`, or `import_only`. `SparseBinding` lands in the role enum from M1 even though sparse residency commands gate to false until M6+ — Vulkan's `VK_QUEUE_SPARSE_BINDING_BIT` is a distinct queue family bit and adding the role later would change every existing `queue_request` call site (not API-additive). `AssetIo` is the asset-IO queue (`docs/io-asset.md`), requested through the same availability/acquire model and lowered to D3D12 `IDStorageQueue` / Metal `MTLIOCommandQueue` / Vulkan CPU-staged fallback. The queue object, its command-list class, source wrap, codec enum, and lowerings are specified in that module.
 
 Vulkan pre-creates the planned hardware queue set at device creation. A late request allocates from that pool and reports `would_require_device_reopen` when a missing family, count, or priority lane would require a new device.
 
@@ -209,7 +209,7 @@ Vulkan pre-creates the planned hardware queue set at device creation. A late req
 - `VideoProcess → ComputeShaderEmulated (color-convert, scale, deinterlace via compute) → ImportOnly`.
 - `Transfer → Compute → Graphics` — pure copy/upload work widens upward where the dedicated transfer queue is absent.
 - `SparseBinding → SparseBinding-capable Graphics/Compute` — Vulkan permits the sparse-binding capability to coexist on any queue family; the chain widens to whichever granted family carries the bit. On D3D12, sparse / tiled-resource bind operations are issued on the same queue that owns the resource (no separate family), so the role lowers to a no-op tag plus the queue-class restriction. On Metal, placement-sparse resources bind without a queue handoff; the role is informational. WebGPU has no sparse, so the request hard-fails when `caps.sparse_texture = none` and `caps.sparse_buffer = none`.
-- `AssetIo → CPU-staged Transfer` — where the platform lacks an addressable IO queue (Vulkan today, browser WebGPU), `queue_request(AssetIo)` lowers to a Transfer queue that the U29 `Mel_Gpu_Io_Queue` services through CPU staging; `caps.asset_io` reports the tier.
+- `AssetIo → CPU-staged Transfer` — where the platform lacks an addressable IO queue (Vulkan today, browser WebGPU), `queue_request(AssetIo)` lowers to a Transfer queue that `io.asset`'s `Mel_Io_Asset_Queue` services through CPU staging (see `docs/io-asset.md`); `caps.asset_io` reports the tier.
 
 Hard-fail only if no role-compatible queue exists at all. Acquire/release lifecycle — `queue_release` returns the queue to availability.
 
@@ -432,19 +432,9 @@ The ceiling requires `caps.bindless = full` and a backend-specific root-record c
 
 Static / immutable samplers from U11 are part of the M2 pipeline-layout admission, not deferred — `pipeline_layout.static_samplers[]` carries the descriptor + binding from day one (D3D12 root-signature `D3D12_STATIC_SAMPLER_DESC`, Vulkan immutable samplers, Metal arg-table baked, WebGPU engine-bound ordinary sampler binding).
 
-### 6.8 Asset IO and GPU decompression (U29)
+### 6.8 Asset IO and GPU decompression (U29) — moved
 
-GPU work is fed by *bytes from disk* as often as by compute output. The platforms have built explicit asset-IO surfaces — D3D12 **DirectStorage** 1.x (NVMe→VRAM bypass of CPU staging, GPU-side GDeflate decompression) and Apple **`MTLIOCommandQueue`** with `MTLIOCompressionMethod` (parallel asset loading with hardware Lossless block decompression) — so that the load path is a peer of the render path, not an app-side reinvention per platform. Vulkan has no shipped equivalent (proposals are discussion-stage; some vendors expose GDeflate through `VK_NV_memory_decompression` and analogs). The RHI surfaces a unified asset-IO object so Melody apps do not write their streamer per platform (MEL-ENGINE-I: refusal to support this would be cowardice).
-
-**`Mel_Gpu_Io_Queue`** is a sibling queue type to `Mel_Gpu_Queue` (U7), requested through the same availability/acquire model with role `AssetIo`. Submission to the IO queue is independent of the graphics / compute timelines; U17 timeline semaphores synchronize between the IO queue and other queues identically to any other cross-queue handoff. `caps.asset_io = none | cpu_staged | gpu_decompress` reports the tier.
-
-**Operations recorded into `Mel_Gpu_Io_Command_List` only**: `cmd_io_load(src, src_offset, dst_buffer | dst_texture_region, decompress_codec)` reads bytes from a file / blob / mapped region into a GPU buffer or texture subregion, optionally GPU-decompressing along the way. `cmd_io_decompress(src_buffer, dst_buffer, codec)` decompresses in place without touching disk. `cmd_io_decode_block_compressed(src_buffer, dst_texture_view, format)` runs GPU-side block-compression decode (BCn / ASTC / ETC2). These commands are not valid on an ordinary `Mel_Gpu_Command_List`; synchronization between IO and graphics/compute flows through U17 timelines and the completion future returned by IO submission. Codec enum: `none`, `gdeflate` (D3D12 retail / Vulkan vendor), `lz4`, `apple_lzfse`, `apple_lzbitmap`, `zstd` (engine-side fallback). Caps enumerate the supported codec set per backend.
-
-**`Mel_Gpu_Io_Source`** wraps a file handle, memory-mapped region, or platform-specific source — `IDStorageFile` on D3D12, `MTLIOFileHandle` on Metal, raw fd / `HANDLE` on Vulkan-with-CPU-staging, a `fetch()` Response on Web. Sources are imported as `Borrowed` (U5); the engine never closes the underlying handle.
-
-**Lowering.** D3D12 maps to `IDStorageQueue` + `IDStorageFile` + GDeflate (RTX IO on supporting hardware); on hardware lacking GPU decompress the runtime falls to a CPU-staged path through the same `IDStorageQueue` so submission shape is unchanged. Metal maps to `MTLIOCommandQueue` + `MTLIOFileHandle` + `MTLIOCompressionMethod`. Vulkan with no extension lowers `cmd_io_load` to a CPU-staged read into an UPLOAD buffer plus a graphics-queue copy (`asset_io = cpu_staged`), and GPU decompress lowers to a compute shader running the codec. WebGPU exposes `asset_io = none` honestly — there is no efficient asset-IO primitive; apps stream through `fetch()` + `queueWriteBuffer` and pay the staging round-trip.
-
-**P2 escape.** Apps that need a custom streamer (compression-dictionary management, paged virtual-texture residency, network-streamed bitstreams) bypass the queue and use direct `buffer_write` / `cmd_copy_*` over their own thread pool. The U29 primitives are sufficient to reimplement the queue: source wrap, decompress codec dispatch, completion-future bridging.
+Specified in `docs/io-asset.md`. The asset-IO surface is a sibling top-level module (`io.*`, future siblings `io.network`, `io.archive`) that consumes the `AssetIo` queue role from §5.2 and exposes `Mel_Io_Asset_Queue`, `Mel_Io_Asset_Command_List`, and `Mel_Io_Asset_Source`. Operations: `cmd_io_load`, `cmd_io_decompress`, `cmd_io_decode_block_compressed`. Codecs: `none`, `gdeflate`, `lz4`, `apple_lzfse`, `apple_lzbitmap`, `zstd`. Cap `caps.asset_io ∈ { none | cpu_staged | gpu_decompress }` lives on the GPU module and is read by the asset-IO module. Lowerings: `IDStorageQueue` + `IDStorageFile` + GDeflate on D3D12; `MTLIOCommandQueue` + `MTLIOFileHandle` + `MTLIOCompressionMethod` on Metal; CPU-staged read + graphics-queue copy plus compute-shader codec on Vulkan-no-extension (vendor `gpu_decompress` through `VK_NV_memory_decompression` and analogs where granted); `fetch()` + `queueWriteBuffer` on WebGPU with `caps.asset_io = none` honestly (MEL-ENGINE-I: refusal to support this would be cowardice).
 
 ---
 
@@ -528,15 +518,9 @@ All sync primitives carry **importable backing** (U5) — constructible internal
 
 **State-resync hook (U5):** `cmd_assume_state(resource, subresource_range, state, queue_owner?, stage_access_override?)` lets a user who reached through the native interop hand state back coherently without collapsing the tracker back to whole-resource state.
 
-### 7.4 Swapchain, surface, present (U18)
+### 7.4 Swapchain and present (U18)
 
-**`Mel_Gpu_Surface` wraps a platform window** — `NSView*`, `ANativeWindow*`, `HWND`, canvas selector, EGL surface — decoupled from the swapchain so the surface outlives swapchain rebuilds.
-
-**Extent semantics are pinned in device pixels for the GPU surface and reported in OS-native units separately for the input / UI surface.** `surface.pixel_extent` is the swapchain's natural extent — the unit the GPU rasterizes into, the unit `swapchain_acquire` returns. `surface.point_extent` is the OS-coordinate-system size — `NSView.bounds` in points on macOS, the `CALayer` size before `contentsScale` on iOS, the DPI-adjusted window size on Windows, the `wl_surface` configure size pre-scale on Wayland, the CSS-pixel canvas size on Web. `surface.scale_factor` is the ratio (Retina = 2.0, fractional on Wayland HiDPI, 1.0 elsewhere). The DPI / scale-factor change event fires when *any* of these changes — moving a window between Retina and non-Retina displays, Wayland output scale change, Web `devicePixelRatio` change — and the app is responsible for deciding whether to resize the swapchain or re-flow its UI. The engine never silently re-scales the swapchain on a scale-factor change.
-
-**Surface lifecycle is explicit.** A surface has state independent of the swapchain: `Alive`, `Occluded`, `Minimized`, `Backgrounded`, `Lost`, and `Destroyed`. It emits events for resize, drawable-size change, DPI / scale-factor change, orientation change, display migration (a window moved to a different `Mel_Gpu_Output` from U6), HDR / EDR capability change, occlusion, background / foreground transition, platform-layer replacement, canvas reconfiguration, and surface loss. Android `ANativeWindow` destroy / recreate, iOS `CAMetalLayer` drawable-size changes, macOS window scale / display moves, Windows swapchain resize / occlusion, Wayland configure, and Web canvas resizing all lower to this same event stream.
-
-**Surface-lifecycle event handlers run synchronously on the platform's UI thread.** On Android specifically, `surfaceDestroyed` requires the engine to release the Vulkan swapchain *before the callback returns* — the UI thread will not unblock otherwise, and the next `surfaceCreated` arrives with the prior swapchain still bound to a dead `ANativeWindow`. The RHI honors this: the swapchain release path is callable synchronously from the handler, and in-flight submission completion futures detach (resolved with `surface_lost` status when the submission finishes draining on the GPU) so the handler does not block on GPU work. The reactor-driven completion pump is decoupled from surface event delivery for exactly this reason.
+**The surface is `Mel_Platform_Surface`** — see `docs/platform-surface.md`. The swapchain attaches to a surface and follows its lifecycle; the surface is not a GPU object. Extent semantics (`pixel_extent` / `point_extent` / `scale_factor`), surface state machine (`Alive` / `Occluded` / `Minimized` / `Backgrounded` / `Lost` / `Destroyed`), event taxonomy (resize, drawable-size, DPI / scale-factor, orientation, display migration, HDR / EDR capability, occlusion, background / foreground, platform-layer replacement, canvas reconfiguration, surface loss), and the Android UI-thread synchronous-release discipline live in that module. The RHI honors the synchronous-release contract: the swapchain release path is callable synchronously from a surface event handler, and in-flight submission completion futures detach (resolved with `surface_lost` once the submission finishes draining on the GPU) so the handler does not block on GPU work.
 
 **Swapchain lifecycle follows surface lifecycle.** `swapchain_acquire` and `swapchain_present` return U2 statuses for `suboptimal`, `out_of_date`, `occluded`, `surface_lost`, and `backgrounded`. The engine may provide `swapchain_reconfigure(surface, desc)` as the convenience path, but the app can also destroy/recreate explicitly. No resize, minimize, or background transition is hidden behind a silent recreate; every change that affects latency, size, color, or availability is visible to the app (MEL-ENGINE-III, VIII).
 
@@ -546,15 +530,15 @@ All sync primitives carry **importable backing** (U5) — constructible internal
 
 **HDR metadata setters are first-class** (`swapchain_set_hdr_metadata`). The descriptor carries mastering-display primaries, white-point, max / min mastering luminance, `MaxCLL` (Content Light Level), `MaxFALL` (Frame-Average Light Level), and SDR-content reference-white nits for SDR-in-HDR composition. Lowering: D3D12 `IDXGISwapChain4::SetHDRMetaData` with `DXGI_HDR_METADATA_HDR10` / `_HDR10PLUS`; Vulkan `VK_EXT_hdr_metadata` and `VK_EXT_hdr_metadata_plus`; macOS `CAMetalLayer.wantsExtendedDynamicRangeContent` + `CAEDRMetadata`; iOS HDR layer attributes; WebGPU `configure({ toneMapping, hdrMetadata })` where the browser exposes it. Without explicit metadata the engine ships the conservative defaults the platform expects; setting metadata is the user's deliberate act.
 
-**Wayland color management** (the Wayland color-management protocol stabilizing 2025-2026) is consumed on the Linux backend transparently — `Mel_Gpu_Surface` reports supported color spaces from the compositor's protocol surface where granted, and HDR metadata setters route through the protocol when the compositor admits it. Outside that protocol the Vulkan + DRM path remains the fallback.
+**Wayland color management** (the Wayland color-management protocol stabilizing 2025-2026) is consumed on the Linux backend transparently — `Mel_Platform_Surface` reports supported color spaces from the compositor's protocol surface where granted, and HDR metadata setters route through the protocol when the compositor admits it. Outside that protocol the Vulkan + DRM path remains the fallback.
 
 **Tearing / variable-refresh.** Cap `caps.presentation.allow_tearing` (D3D12 `DXGI_FEATURE_PRESENT_ALLOW_TEARING`); swapchain creation admits `flags.allow_tearing` so `Immediate` present mode can lower to `DXGI_PRESENT_ALLOW_TEARING` for true VRR on Windows. Vulkan VRR rides the underlying `Fifo` / `FifoRelaxed` present modes plus the display's variable-refresh protocol; the engine does not need a special tearing flag there. WebGPU has no tearing primitive.
 
-**Fullscreen mode is explicit.** `swapchain.fullscreen_mode ∈ { Borderless | Exclusive | ExclusiveAllowTearing }` (default `Borderless`). `Exclusive` lowers to `IDXGISwapChain::SetFullscreenState` flip-model exclusive on D3D12 and `VK_EXT_full_screen_exclusive` (`EXCLUSIVE_ALLOWED` / `EXCLUSIVE_DISALLOWED` / `EXCLUSIVE_APPLICATION_CONTROLLED`) on Vulkan; macOS exposes the equivalent through `NSWindow` fullscreen + `CAMetalLayer.displaySyncEnabled`. Different latency / colour-management profile from Borderless — Exclusive bypasses the compositor for direct scanout (lower latency, lower power, no compositor color management) but loses the compositor's HDR-tonemapping and screen-recording paths. `swapchain.acquire_fullscreen()` / `release_fullscreen()` are explicit; focus loss in Exclusive fires a `surface.fullscreen_evicted` event (D3D12 `DXGI_STATUS_OCCLUDED` plus minimization, Vulkan `VK_EXT_full_screen_exclusive_*` lost token) so the engine can re-acquire when focus returns rather than silently degrading. WebGPU has no exclusive-fullscreen primitive.
+**Fullscreen mode is explicit.** `swapchain.fullscreen_mode ∈ { Borderless | Exclusive | ExclusiveAllowTearing }` (default `Borderless`). `Exclusive` lowers to `IDXGISwapChain::SetFullscreenState` flip-model exclusive on D3D12 and `VK_EXT_full_screen_exclusive` (`EXCLUSIVE_ALLOWED` / `EXCLUSIVE_DISALLOWED` / `EXCLUSIVE_APPLICATION_CONTROLLED`) on Vulkan; macOS exposes the equivalent through `NSWindow` fullscreen + `CAMetalLayer.displaySyncEnabled`. Different latency / colour-management profile from Borderless — Exclusive bypasses the compositor for direct scanout (lower latency, lower power, no compositor color management) but loses the compositor's HDR-tonemapping and screen-recording paths. `swapchain.acquire_fullscreen()` / `release_fullscreen()` are explicit; focus loss in Exclusive fires the surface-level `fullscreen_evicted` event (`docs/platform-surface.md`); the app may re-acquire via `acquire_fullscreen()` when focus returns. No silent degradation. WebGPU has no exclusive-fullscreen primitive.
 
 **Cross-monitor presentation sync.** `caps.presentation.present_barrier = none | per_adapter | multi_adapter` (§3.4). For multi-display VR, video-wall, and multi-projector CAVE installations the swapchain admits a `present_barrier_group: u32` field; swapchains sharing a group present in lockstep across monitors. Lowering: Vulkan `VK_NV_present_barrier` (NV-only at spec time; the engine carries the cap tier and an additive path to KHR when ratification lands), D3D12 `IDXGISwapChain::SetMaximumFrameLatency` plus the NV / AMD swap-group SDKs through the §9 provider model, Metal absent at the public surface (Apple's pro-display sync is private), WebGPU absent.
 
-**Surface orientation and pre-rotation.** Mobile surfaces rotate; the swapchain's natural orientation is the display's native one, not the device's current rotation. `surface.orientation ∈ { Identity | Rotate90 | Rotate180 | Rotate270 | HorizontalFlip | VerticalFlip | HorizontalFlipRotate90 | HorizontalFlipRotate270 }` is reported by the surface and re-fired on every `orientation_changed` event; `swapchain.pre_rotation` is set at swapchain-create. When pre-rotation is honored, the GPU rasterizes directly into the rotated framebuffer and the compositor performs no post-process rotation — a major battery saver on Adreno (`VK_QCOM_render_pass_transform`) and Mali. The engine's render-pass setup (§7.2) consumes `swapchain.pre_rotation` so the projection matrix and viewport are rotated upstream of rasterization; without it the compositor rotates the framebuffer every frame on every mobile-orientation change. Lowering: Vulkan `VK_QCOM_render_pass_transform` on Adreno, `currentTransform` from `VkSurfaceCapabilitiesKHR` on every Vulkan platform, Metal `CAMetalLayer.transform` on iOS, D3D12 `DXGI_MODE_ROTATION_*` on Windows ARM, Android `ANativeWindow_setBuffersTransform` as the fallback when the Vulkan extension is absent. Caps `caps.presentation.pre_rotation = none | swapchain | render_pass_transform`.
+**Pre-rotation.** The surface reports orientation (`docs/platform-surface.md`); the swapchain consumes it. `swapchain.pre_rotation` is set at swapchain-create. When pre-rotation is honored, the GPU rasterizes directly into the rotated framebuffer and the compositor performs no post-process rotation — a major battery saver on Adreno (`VK_QCOM_render_pass_transform`) and Mali. The engine's render-pass setup (§7.2) consumes `swapchain.pre_rotation` so the projection matrix and viewport are rotated upstream of rasterization; without it the compositor rotates the framebuffer every frame on every mobile-orientation change. Lowering: Vulkan `VK_QCOM_render_pass_transform` on Adreno, `currentTransform` from `VkSurfaceCapabilitiesKHR` on every Vulkan platform, Metal `CAMetalLayer.transform` on iOS, D3D12 `DXGI_MODE_ROTATION_*` on Windows ARM, Android `ANativeWindow_setBuffersTransform` as the fallback when the Vulkan extension is absent. Caps `caps.presentation.pre_rotation = none | swapchain | render_pass_transform`.
 
 **Swapchain image compression.** `swapchain.compression_control` mirrors §6.2's per-resource `compression_control` so the swapchain's color attachment honors AFBC / DCC / UBWC on hardware that admits it. Lowering: Vulkan `VK_EXT_image_compression_control_swapchain`, Metal `CAMetalLayer.wantsExtendedDynamicRangeContent` interaction with lossy compression on Apple Silicon, D3D12 implicit through `DXGI_FORMAT` choice plus enhanced-barrier hints, WebGPU absent.
 
@@ -584,140 +568,27 @@ All sync primitives carry **importable backing** (U5) — constructible internal
 
 **Present timing first-class.** The swapchain exposes per-presented-frame timestamps and a `next_vsync_estimate()` query only when `caps.presentation.present_timing_feedback` grants a timing tier. Vulkan splits the pieces: `VK_KHR_present_wait2` + `VK_KHR_present_id2` (both Roadmap 2026 mandatory; supersede the deprecated `VK_KHR_present_wait` / `VK_KHR_present_id` — NVIDIA shipped them in driver 573.38 beta June 2025) provide per-surface frame waits, while `VK_EXT_present_timing` supplies presentation-engine timing feedback and scheduled-present hints where available; `VK_GOOGLE_display_timing` remains the older fallback on platforms that ship it. `VK_KHR_present_mode_fifo_latest_ready` improves FIFO pacing but is not a timestamp source. Metal: `CAMetalDrawable.presentedTime` + `MTLCommandBuffer.GPUStartTime`. D3D12: `IDXGISwapChain1::GetFrameStatistics` plus the DXGI frame-latency waitable object above. WebGPU has limited timing information. U19 consumes waits and timing for vsync-aligned, on-demand, and frame-rate-capped pacing, but timestamp fields are absent rather than guessed when the timing cap is missing (MEL-ENGINE-VI, VIII).
 
-### 7.5 Frame pacing (U19)
+### 7.5 Frame pacing (U19) — moved
 
-**Per-swapchain pacing source** replaces the current free-running reactor-timer render source. Wired to native vsync where available:
+The pacing surface — `Mel_Frame_Pacing_Source` per swapchain, the four modes (`Continuous` / `OnDemand` / `Capped` / `Adaptive` — each a distinct semantic primitive so the engine can apply mode-specific platform optimizations), the per-tick `Frame_Info` budget context, multi-swapchain coordination with background-window auto-drop to `OnDemand`, VRR transparency, and the custom-source P2 escape (OpenXR-driven pacing via `xrWaitFrame`, video-encoder pull-clock, network heartbeat) — lives in `docs/frame-pacing.md`. Native vsync wiring (`Choreographer`, `CADisplayLink` / `CAMetalDisplayLink`, `VK_KHR_present_wait2` / `present_id2` / `swapchain_maintenance1` FIFO_LATEST_READY / `VK_EXT_present_timing` / `VK_GOOGLE_display_timing`, DXGI frame-latency waitable, `requestAnimationFrame`) is consumed by the pacing module; the present-timing primitives themselves remain in §7.4. The GPU RHI consumes the pacing tick to drive `present()`; it does not own the clock. Mobile / battery rationale stays in §4.
 
-- Android **`Choreographer`**.
-- iOS / macOS **`CADisplayLink`** (or **`CAMetalDisplayLink`** on Apple Silicon).
-- Vulkan platforms **`VK_KHR_present_wait2`** + **`VK_KHR_present_id2`** for waits, **`VK_KHR_swapchain_maintenance1`** `FIFO_LATEST_READY` for FIFO pacing, with `VK_EXT_present_timing` / `VK_GOOGLE_display_timing` only where timing feedback is granted.
-- Windows D3D12 **DXGI frame-latency waitable object** plus `IDXGISwapChain1::GetFrameStatistics`.
-- Web **`requestAnimationFrame`**.
+The latency-marker abstraction — the ten marker points (`FrameStart`, `InputSample`, `SimStart`, `SimEnd`, `RenderSubmitStart`, `RenderSubmitEnd`, `PresentSubmit`, `PresentDisplayed`, `GeneratedPresentSubmit`, `GeneratedPresentDisplayed`), the `latency_provider_request` / `_set_mode` / `_mark` / `_sleep` / `_get_report` API, the pre-input sleep contract, and provider lowerings (Reflex, Anti-Lag, XeLL, platform fallbacks) — lives in `docs/frame-latency.md`. The GPU recording command `cmd_latency_mark(point)` stays in §7.1's recording surface and lowers through the active provider's vtable; `caps.presentation.latency_marker = none | reflex | anti_lag | xess_fg | platform_native` reports availability.
 
-Fallback to a high-precision reactor timer where no native vsync exists.
+Thermal pressure, power source, and low-power-mode signals — `thermal_pressure_changed(tier)`, `power_source_changed(source)`, `low_power_mode_changed(on/off)` — are published by `platform.sensors.thermal` and `platform.sensors.power` (see `docs/platform-sensors.md`). `Frame_Info` carries the current tier, source, and mode at each pacing tick by reading platform-sensors state; the OS lowerings (iOS / macOS `NSProcessInfo.thermalState` + `IOPSCopyPowerSourcesInfo` + `isLowPowerModeEnabled`, Android thermal API + `BatteryManager` + `PowerManager.isPowerSaveMode`, Windows `GetSystemPowerStatus` + `RegisterPowerSettingNotification` + Battery Saver, Linux `UPower`, Web `navigator.getBattery()`) live in the sensors module. The pacing layer is a consumer, not an originator (MEL-ENGINE-IX); the app holds the policy and decides the response (MEL-ENGINE-V).
 
-**Four explicit modes**, each a distinct semantic primitive so the engine can apply mode-specific platform optimizations:
+### 7.6 Media, video, camera, and image processing (U27) — moved
 
-- **`Continuous`** — render every vsync. Game default.
-- **`OnDemand`** — render only after `invalidate()`. UI default. The engine **suspends the vsync callback entirely** and re-arms on invalidate — real CPU/battery win on static scenes (MEL-ENGINE-VI), which a single-mode-with-knobs would miss.
-- **`Capped(target_fps)`** — render at most `target_fps`, skipping vsyncs to hold the cap (e.g., 60 fps on a 120 Hz panel). The mobile battery lever.
-- **`Adaptive(target_frame_ms)`** — target a frame-time budget; the engine exposes "budget left" each frame and the app decides how to scale quality.
+The recording surface stays here: `cmd_video_decode`, `cmd_video_encode`, `cmd_video_process` are GPU commands recorded into U15 command lists and submitted through the `VideoDecode` / `VideoEncode` / `VideoProcess` queue roles in §5.2. The `VIDEO_BITSTREAM` / `VIDEO_PARAMETER` / `VIDEO_DECODE_OUTPUT` / `VIDEO_ENCODE_INPUT` / `VIDEO_PROCESS_INPUT` / `VIDEO_PROCESS_OUTPUT` buffer and texture usages stay in §6.1 / §6.2. The render-graph pass kinds `VideoDecode`, `VideoEncode`, `VideoProcess` stay in `docs/render-graph.md`.
 
-**Frame budget exposed each frame.** `Frame_Info` (pacing-tick context, not a retirement index — §3.3 retirement is future-gated and never exposed publicly) passed to the render callback carries previous GPU time (from U24 timestamp queries straddling submission), CPU time, predicted next-vsync time when granted by U18 present timing, headroom, mode-specific state, **the current frame's subpixel jitter offset and the prior frame's jitter offset** (so reprojection for TAA / upscaling stays reproducible without engine-side bookkeeping), **the current thermal-pressure tier** (`nominal | fair | serious | critical`, from `caps.power.thermal_pressure`), **the current power source and low-power-mode flag** (`power_source ∈ { ac | battery | unknown }`, `low_power_mode ∈ { off | on }`, both updated from the U6 instance-level events), and **the current latency-marker context** (set by `cmd_latency_mark`, below).
-
-**Latency-marker primitive.** `cmd_latency_mark(point)` and `mel_gpu_latency_sleep(target)` integrate vendor latency reduction surfaces uniformly. Points: `SimStart`, `SimEnd`, `RenderSubmitStart`, `RenderSubmitEnd`, `PresentStart`, `PresentEnd`, `InputSample`. Lowering: NVIDIA Reflex (`NvAPI_D3D_SetLatencyMarker` on D3D12, `VK_NV_low_latency2` on Vulkan), AMD Anti-Lag 2 (`AMD_AGS_Lib` / `VK_AMD_anti_lag`), Intel XeSS Frame Generation latency markers, Metal native low-latency hints, no-op on WebGPU. `mel_gpu_latency_sleep` blocks the reactor until the vendor-recommended pre-input deadline. Cap `caps.presentation.latency_marker = none | reflex | anti_lag | xess_fg | platform_native` reports the available surface; one app code path serves them all.
-
-**Thermal-pressure event.** Mobile and laptop devices throttle under heat; the engine raises a `thermal_pressure_changed(tier)` event upward to a user-registered callback when iOS `NSProcessInfo.thermalState`, Android thermal API, or Apple Silicon Mac thermal pressure transitions. The streaming / quality / pacing system holds the semantic knowledge of how to respond (drop to `Capped(30)`, lower internal render resolution, suspend non-critical compute); the engine reports the tier and does not impose a policy (MEL-ENGINE-V: respect the user's product, do not impose your own opinion on his content model).
-
-**Power-source and low-power-mode events.** Independent of thermal pressure, the OS reports power-supply state and user-initiated low-power modes. The `Mel_Gpu_Instance` raises `power_source_changed(source)` when AC ↔ battery transitions occur (Windows `GetSystemPowerStatus` / `RegisterPowerSettingNotification`, macOS / iOS `IOPSCopyPowerSourcesInfo`, Linux `UPower` / `org.freedesktop.UPower`, Android `BatteryManager`, Web `navigator.getBattery()`), and `low_power_mode_changed(on/off)` when the OS-level battery-saver / Low Power Mode toggles (Windows Battery Saver `SYSTEM_POWER_STATUS.SystemStatusFlag`, macOS / iOS `NSProcessInfo.isLowPowerModeEnabled`, Android `PowerManager.isPowerSaveMode`). These are independent signals from thermal because a laptop on AC may be in user-initiated Low Power Mode (the user wants quiet, not cool), and a phone at 90% battery may still be in Low Power Mode (the user is conserving for later). The app picks a pacing / quality / streaming response per its content model.
-
-**Multi-swapchain pacing.** Each swapchain has its own pacing source; one reactor pumps all. A window in the background can auto-drop to `OnDemand` (battery on multi-window UIs).
-
-**VRR / adaptive sync** is transparent at this layer — the underlying `Fifo` present mode handles it; pacing sees variable intervals.
-
-**P2 escape**: the user supplies a custom pacing source built on the same underlying hooks the engine's modes use. The canonical example is **OpenXR-driven pacing**: an XR swapchain (U18) is paced by `xrWaitFrame`'s predicted-display-time, not vsync — the app installs a custom `Mel_Gpu_Render_Source` that fires on the OpenXR runtime's frame-loop callback and consumes the predicted display time as `Frame_Info.predicted_next_present_ns`. Other canonical cases: video-encoder output cadence (encoder pull-clock drives render), networked sync (multi-machine setups paced by a network heartbeat).
-
-### 7.6 Media, video, camera, and image processing (U27)
-
-Melody's GPU layer is an application RHI, not only a game renderer. Camera preview, video calls, video editors, streaming encoders, screen capture, remote desktop, scientific visualization, and ML preprocessing all need the same properties as rendering: explicit memory, explicit sync, color correctness, zero-copy import/export, and predictable fallbacks.
-
-**Objects.** `Mel_Gpu_Video_Session` describes codec, profile, level, chroma format, bit depth, dimensions, rate-control class, decode/encode/process mode, and required parameter sets. `Mel_Gpu_Video_Frame` is a typed wrapper around one or more U10 textures/views plus color metadata. Bitstreams and parameter buffers are U9 buffers with `VIDEO_BITSTREAM` / `VIDEO_PARAMETER` usage. Sessions and frames are ordinary handles, nameable, importable where the backend allows it, and visible to leak detection.
-
-**Decode/encode/process commands.** `cmd_video_decode`, `cmd_video_encode`, and `cmd_video_process` are recorded into command lists and submitted through U7 queues. Video processing includes scale, crop, rotate, deinterlace where supported, color-space conversion, tone-map, and format conversion. Backends without hardware video commands may lower process operations to compute shaders; decode/encode hard-gate if no faithful hardware or platform path exists.
-
-**Interop is the primary path, not an afterthought.** Camera frames, OS decoder output, browser video frames, `CVPixelBuffer`, `AHardwareBuffer`, DXGI shared handles, OpenXR swapchain images, and platform capture surfaces import as `Borrowed` textures/frames with external sync. The user can sample them directly, process them, encode them, or export them again without a mandatory RGB staging copy.
-
-**Protected content is an honest tier.** Some media paths expose protected sessions/surfaces that cannot be mapped, captured, exported freely, or sampled by arbitrary shaders. Caps report protected decode / process / present support separately. The RHI never strips protection to make a feature seem available; protected resources carry restrictions in their descriptors, validation enforces them, and capture / debug tools are told to stand down where required. Beyond video, a `protected` flag may be set on render targets, pipelines (`VK_EXT_pipeline_protected_access` plus `VK_KHR_protected_memory`-derived submission, D3D12 protected-resource sessions), and queues; HDCP-bound render targets and DRM-bound framebuffers ride this flag so a protected pass cannot accidentally bind an unprotected resource (the pipeline-create fails). The granularity is per-resource and per-pipeline, not just per-session.
-
-**Color metadata travels with the frame.** Every imported or created video frame carries color primaries, transfer function, matrix, range, chroma siting, mastering metadata where present, and orientation. Rendering, compute, and video-process commands consume that metadata explicitly; the engine never guesses Rec.709 vs Rec.2020 or full vs limited range.
-
-**Lowering.** Vulkan uses `VK_KHR_video_queue` plus the codec set — `VK_KHR_video_decode_h264`, `VK_KHR_video_decode_h265`, `VK_KHR_video_decode_av1` (KHR), `VK_KHR_video_decode_vp9` (KHR, 1.4.317, June 2025), `VK_KHR_video_encode_h264`, `VK_KHR_video_encode_h265`, `VK_KHR_video_encode_av1` (KHR, November 2024 alongside Vulkan 1.3.302) — plus `VK_KHR_video_maintenance1` / `VK_KHR_video_maintenance2` (the latter supports inline session parameters such as `VkVideoDecodeAV1InlineSessionParametersInfoKHR`), `VK_KHR_video_encode_quantization_map`, and sampler-YCbCr conversion where granted. D3D12 uses Video Decode/Encode/Process command lists plus **AV1 encode (Win11 24H2 / WDDM 3.2)** alongside H.264, HEVC, and HEVC 4:2:2/4:4:4, with shared DXGI resources where supported. Metal uses CoreVideo / VideoToolbox / AVFoundation interop plus Metal textures and Metal compute / ML / video-capable encoders where appropriate. WebGPU exposes `importExternalTexture` + WebCodecs `VideoFrame` (Chrome 116+, Display-P3 HDR Chrome 121) — the **primary** WebGPU video path, not a degraded fallback — for sampling and shader/compute processing; it has no core hardware decode/encode command model and reports `caps.media.video_decode = import_only` / `caps.media.video_encode = none` accordingly. The `import_only` tier is the honest constraint, not a stigma — the WebCodecs bridge is a first-class primary path on Web.
-
-**P2 escape.** Apps may bypass the engine's session helpers and import platform decoder/encoder outputs directly through U5. The primitives exposed here are sufficient to reimplement the helper: frame import/export, plane views, color metadata, sync import/export, video queues, bitstream buffers, and process commands.
+The *model* — `Mel_Media_Video_Session`, `Mel_Media_Video_Frame`, color metadata (primaries / transfer / matrix / range / chroma siting / mastering / orientation), codec enumeration, protected-content per-resource / per-pipeline / per-queue / per-render-target discipline, camera enumeration, and platform-source interop (`CVPixelBuffer`, `AHardwareBuffer`, DXGI shared, OpenXR images, browser WebCodecs `VideoFrame`) — moves to `docs/media-video.md`. The previously-named `Mel_Gpu_Video_Session` / `Mel_Gpu_Video_Frame` are renamed `Mel_Media_Video_Session` / `Mel_Media_Video_Frame`. Caps move accordingly: `caps.media.video_decode`, `caps.media.video_encode`, `caps.media.video_process`, `caps.media.protected_media` — the GPU adapter exposes them; `media.video` reads them. The protected-pipeline flag (`VK_EXT_pipeline_protected_access`, D3D12 protected-resource sessions) ties through to §6.5 pipeline creation; see `docs/media-video.md` for the cross-module contract.
 
 ---
 
-## 8. Render graph (Layer 1, U20)
+## 8. Render graph (Layer 1, U20) — moved
 
-**Spec full, implementation phased.** Layer 0's API does not change when the graph lands — the graph generates inputs to Layer 0 (`pass_desc` for U16, barrier sequences for U17, aliasing patterns for U8, queue/timeline assignment for U7). It is purely additive; users continue to use Layer 0 directly if they want (P2 escape).
+The full render-graph design — pass types and resource categories (§8.1), the seven compilation phases (§8.2 — DAG construction, pass culling, lifetime analysis, transient aliasing with `cmd_aliasing_barrier` emission, split-barrier synthesis with Granite-style reordering, sub-pass merging, queue assignment with automatic `cmd_queue_ownership_release` / `_acquire`), execution and caching with conditional passes' false-edge contract (§8.3), the Builder API and `recordFn` discipline (§8.4), work-graph composition inside a graph pass, the XR access records previously catalogued in §10.7 (`view_mask`, `view_local_resources`, `shared_view_resources`, `late_latched_uniforms`, `composition_layer_output`, `runtime_ownership`), and the §8.5 P2 escape (use Layer 0 directly: manual `cmd_begin_rendering`, manual `cmd_barrier`, manual pools, manual `queue_submit`) — now lives in `docs/render-graph.md`.
 
-### 8.1 Pass types and resources
-
-Pass types — **`Graphics`** (with U16 sub-pass topology fully expressible), **`Compute`**, **`Copy`**, **`RayTracing`**, **`AccelerationBuild`**, **`VideoDecode`**, **`VideoEncode`**, **`VideoProcess`**, and **`WorkGraph`**. Each pass declares **resource accesses**, not just whole-resource read/write sets, and a **record callback** invoked at execution with the command list and resolved physical resources. The extra pass types are not special render-graph magic; they let the compiler choose the correct U7 queue, U17 states, query scopes, and aliasing rules without hiding the underlying Layer 0 primitives.
-
-Three resource categories:
-
-- **Transient** — graph-local; engine aliases memory between non-overlapping lifetimes via U8 placed allocations.
-- **Imported** — handles from outside the graph (U9/U10 persistent resources, U18 swapchain image).
-- **Exported** — named outputs available to subsequent code or another graph.
-
-Resources are declared with full descriptors (extent / format / usage); the engine decides physical backing during compilation. Each pass access names the resource, subresource range (buffer offset/size; texture mip/layer/plane/aspect; AS region where applicable), access kind (`Read`, `Write`, `ReadWrite`, `DiscardWrite`, `Resolve`, `Present`, `ExternalAcquire`, `ExternalRelease`), required U17 state, participating shader/command stages, queue role, attachment load/store intent where relevant, aliasing eligibility, and optional initial/final state for imported/exported resources. Whole-resource reads/writes are convenience constructors over this exact access record.
-
-### 8.2 Compilation phases
-
-All automatic from declared dependencies:
-
-1. **Dependency DAG construction** from declared access records.
-2. **Pass culling** — passes whose outputs are transitively unused are removed.
-3. **Resource lifetime analysis** — when each transient is first written, last read.
-4. **Transient memory aliasing** — non-overlapping resources pack into shared physical allocations (U8). Each transition between two aliased resources on the same backing emits a `cmd_aliasing_barrier(prev, next)` (U17) automatically; the explicit Layer-0 primitive remains the P2 peer.
-5. **Automatic barrier synthesis** — generates U17 state transitions between passes; the user writes zero barriers. The synthesizer emits **split barriers** (signal-event-after-producer / wait-event-before-consumer; lowering to `VkEvents` on Vulkan, fenced barrier batches on D3D12 enhanced barriers, encoder boundaries on Metal) wherever the lowering supports it, so independent work between producer and consumer can fill the gap instead of stalling on a global pipeline drain. A preceding **pass-reordering step** (Granite-style baker) maximizes the distance between producer and consumer wherever reordering is safe, so split-barrier overlap actually pays off. On backends that cannot split a barrier (WebGPU implicit barriers; older D3D12 legacy resource barriers), the synthesizer collapses to a single full barrier and the optimization simply does not apply (P1 emulate).
-6. **Sub-pass merging** — contiguous compatible passes collapse into one U16 render pass with tile-local reads (mobile bandwidth win, MEL-ENGINE-VI).
-7. **Queue assignment + async-compute / video / work-graph scheduling** — passes that can overlap dispatch to compute, media, or native work-graph queues where caps allow; U17 timeline semaphores inserted automatically. Cross-queue resource handoffs emit `cmd_queue_ownership_release(resource, dst_queue, range)` on the producer and `cmd_queue_ownership_acquire(resource, src_queue, range)` on the consumer (U17) automatically — the Vulkan `SHARING_MODE_EXCLUSIVE` discipline is the graph's responsibility, not the user's.
-
-### 8.3 Execution and caching
-
-The compiled plan is an ordered list of `(queue, pass, barriers, sub-pass-merge group)`. The engine walks it, invoking each pass's record callback with the resolved physical resources. The user records draws/dispatches; no manual barriers, no sub-pass declarations, no aliasing bookkeeping.
-
-**Caching.** Graph hashed by topology + descriptors; identical hashes reuse the compiled plan. Per-frame rebuild is the default (cheap); persistent compiled-once graphs are supported for unchanging pipelines.
-
-**Conditional passes** carry a runtime predicate and an explicit false-edge resource contract. For every resource version first written or transitioned by the conditional pass, the pass descriptor declares one of: `PreservePreviousVersion` (consumers read the prior version and state), `DiscardAndDefineState(state)` (consumers may only load/clear/discard from that declared state), `UseFallbackWriter(pass_id)` (a separate pass produces the false-branch version), or `SkipDependents` (downstream consumers in the conditional subgraph are skipped as well). Graph compilation treats true and false outcomes as distinct resource versions and emits barriers for both. A conditional first-writer without a false-edge declaration is a compile error (MEL-ENGINE-VIII, IX).
-
-**External imports/exports** declare initial/final state (U5 state-resync hook).
-
-**Debug introspection.** The compiled plan is inspectable — pass list, resource lifetimes, aliasing decisions, barriers, sub-pass merge groups, queue assignment timelines — for profilers and visualizers.
-
-### 8.4 Builder API
-
-**Function-pointer two-phase, builder-style.** A per-pass descriptor struct:
-
-```idris
-record GraphResourceRange where
-  bufferOffset : UInt64
-  bufferSize   : UInt64
-  mipBase      : UInt32
-  mipCount     : UInt32
-  layerBase    : UInt32
-  layerCount   : UInt32
-  planeMask    : UInt32
-
-record GraphAccess where
-  resource   : GraphResource
-  range      : GraphResourceRange
-  kind       : GraphAccessKind
-  state      : ResourceState
-  stages     : List PipelineStage
-  queue      : QueueRole
-  loadStore  : Maybe AttachmentAccess
-  aliasClass : Maybe String
-
-record GraphPassDesc where
-  name       : String
-  kind       : GraphPassKind
-  accesses   : List GraphAccess
-  recordFn   : CommandList -> ResolvedResources -> IO ()
-  userData   : Ptr ()
-```
-
-Passes are added via `mel_gpu_graph_add_pass(g, desc)`. Resources declared symbolically (`Mel_Gpu_Graph_Resource` is a graph-local handle, resolved to a physical resource after compilation). C-idiomatic; no closures required; easy to serialize, inspect, and diff.
-
-**`recordFn` is forbidden from creating pipelines, accel structs, or other compile-time resources.** Pipelines must exist at graph-compile time; reaching for `pipeline_*_create` inside `recordFn` either blocks the record thread on async compile (defeating the cache reuse the graph's hash is built on) or returns a `MissingPipeline` status that recording cannot recover from. The pattern: warm pipelines before the graph is added, capture their handles in `userData`, retrieve them in `recordFn`. Debug-asserts on creation calls issued inside a record callback (MEL-ENGINE-VIII).
-
-**Work-graph dispatch composes inside a render-graph pass.** A `WorkGraph` pass type takes a `Mel_Gpu_Work_Graph` handle and the entry-node record buffer; `recordFn` issues `cmd_dispatch_graph(graph, entry, records, count)` and nothing else. The render graph's resource-access records still drive U17 state transitions for the work-graph's input and output resources; the engine treats the work-graph dispatch as one opaque pass for scheduling purposes — its internal node DAG is the GPU's concern, not the render graph's. This composition is the natural carrier for GPU-driven scenes where the CPU sketches the rendergraph topology (passes, attachments, dependencies) and the GPU produces the actual draw lists inside a work-graph pass.
-
-### 8.5 P2 escape
-
-Skip the graph entirely. Use Layer 0 directly — manual U16 sub-pass topology, manual U17 barriers, manual U8 pools, manual U7 submission. The graph is one path; Layer 0 manual is the peer.
+Layer 0 surfaces that the graph consumes — `Mel_Gpu_Queue` and timeline semaphores (U7), placed allocations (U8), sub-pass topology (U16), barriers and aliasing-barriers (U17), work graphs (U28) — are unchanged. The render graph is one path; Layer 0 manual remains the peer. Implementation milestone M5 still tracks the graph; see §12 for the phasing summary.
 
 ---
 
@@ -744,18 +615,14 @@ The profile is for choosing variants, not for changing semantics. Public APIs sh
 
 ### 9.2 Provider loading model (U31)
 
-Vendor SDKs are loaded through a single provider registry:
-
-- `mel_gpu_provider_enumerate(device) -> provider[]`
-- `mel_gpu_provider_request(device, provider_kind, request_desc) -> { provider_handle, status }`
-- `mel_gpu_provider_release(provider_handle)`
+GPU vendor SDKs are loaded through the generic provider registry; see `docs/provider.md` for the mechanism (enumerate / request / release, ABI versioning, callback bridging through the U3 completion pump, cache-key contribution, platform lowering, static-framework cases). The GPU-specific kinds catalog follows.
 
 Provider kinds:
 
 - `TemporalReconstruction`
 - `FrameGeneration`
-- `RayRegeneration` — denoise + reconstruct path-traced GI radiance and ray hits as a separable provider from upscaling, since FSR 4 Redstone's Ray Regeneration 1.1 and DLSS Ray Reconstruction occupy this slot independently of super-resolution.
-- `RadianceCache` — global-illumination radiance cache (FSR 4 Redstone Radiance Caching 0.9, vendor SDKs as they emerge). Not a temporal-reconstruction provider; consumes scene primary-hit / GI samples and produces a sparse cached-radiance volume the renderer samples back in subsequent frames. Distinct from frame-generation because the output is GI lookup data, not a presented frame.
+- `RayRegeneration` — separable from upscaling; see `docs/render-reconstruction.md` §`render.reconstruction.ray_regen`.
+- `RadianceCache` — GI radiance cache provider; output is sampled, not presented. See `docs/render-reconstruction.md` §`render.reconstruction.radiance_cache`.
 - `LatencyControl`
 - `RayTracingOptimization`
 - `GpuProfiling`
@@ -764,118 +631,26 @@ Provider kinds:
 - `MobilePower`
 - `XrRuntimeBridge`
 
-Loading rules:
+GPU-specific tightenings over the registry's generic contract (defined in `docs/provider.md`): provider failure cannot invalidate the base device — it returns a U2 error and the engine falls back; provider-owned resources use normal U1 handles where possible, with native handles only through U5 interop; provider callbacks enter the U3 completion pump, not ad hoc threads; licensing / redistribution constraints are build-system facts (a build that does not ship a provider reports it absent).
 
-- Providers are runtime-loaded unless a platform requires static framework linkage.
-- Provider ABI version, SDK version, driver version, GPU architecture, and granted caps are part of all pipeline and effect cache keys.
-- Provider failure cannot invalidate the base device. It returns a U2 error and the engine falls back.
-- Provider-owned resources use normal U1 handles where possible. Native handles are exposed only through U5 interop.
-- Provider callbacks enter the U3 completion pump, not ad hoc threads.
-- Licensing and redistribution constraints are build-system facts, not RHI facts. A build that does not ship a provider reports it absent.
+### 9.3 Temporal reconstruction and frame generation (U32) — moved
 
-### 9.3 Temporal reconstruction and frame generation (U32)
+The reconstruction surface — `Mel_Reconstruction_Context`, `Mel_Reconstruction_Frame_Packet`, the provider enum (`EngineTaaU`, `EngineSpatialUpscale`, `NvidiaDlss{3|4|4_5|5}`, `NvidiaNis`, `AmdFsr{3_x|4_x_redstone}`, `IntelXeSS{2_x|3}`, `AppleMetalFX`, `QualcommSnapdragonGsr{1|2}`, `RuntimeXrReprojection`), the six caps (`super_resolution`, `ray_reconstruction`, `frame_generation`, `hud_separation`, `xr_safe`, `hdr`), per-frame `frame_desc`, provider lowerings, and frame-generation rules (no hidden presents; one game callback per real simulation frame; XR off by default) — moves to `docs/render-reconstruction.md`. The previously-named `Mel_Gpu_Reconstruction_Context` / `Mel_Gpu_Reconstruction_Frame_Packet` are renamed without the `Gpu` infix.
 
-`Mel_Gpu_Reconstruction_Context` is a provider-backed object for temporal upscaling, denoising, ray reconstruction, and frame generation.
+Two separable peers under the same parent live in the same doc: `render.reconstruction.ray_regen` (FSR 4 Ray Regeneration 1.1, DLSS Ray Reconstruction — distinct from upscaling because it consumes path-traced GI samples and produces denoised radiance, not pixels) and `render.reconstruction.radiance_cache` (FSR 4 Redstone Radiance Caching 0.9 and successor SDKs — distinct from frame generation because the output is GI lookup data, not a presented frame).
 
-Provider enum:
+The provider-loading mechanism — `provider_enumerate` / `_request` / `_release`, ABI versioning, callback bridging — lives in `docs/provider.md`. §9.2 retains the GPU-flavored kinds catalog.
 
-- `EngineTaaU`
-- `EngineSpatialUpscale`
-- `NvidiaDlss { version: 3 | 4 | 4_5 | 5 }` — DLSS 4.5 (March 31 2026, NVIDIA driver 595.79 WHQL) ships Dynamic MFG and MFG-6× (6× requires RTX 50); DLSS 5 pre-announced at GTC 2026, Fall 2026 launch, the request resolves to a `MissingProvider` status until the SDK lands. Version is part of the request descriptor, never inferred.
-- `NvidiaNis`
-- `AmdFsr { version: 3_x | 4_x_redstone }` — FSR 3.x is the Vulkan-capable cross-vendor path; FSR 4.x ("Redstone" suite, FidelityFX SDK 2.2 March 2026) is the RDNA 4 + SM 6.4 + DX12-only path that bundles Upscaling 4.1, Ray Regeneration 1.1, Frame Generation 4.0, and Radiance Caching 0.9 (technical preview). On Vulkan the request resolves to FSR 3.x or the engine fallback; FSR 4 Redstone fails the cap check on every non-D3D12 backend.
-- `IntelXeSS { version: 2_x | 3 }` — XeSS 3 SDK (~March 2026) supersedes 2.x; adds XeSS-FG (up to 3 AI frames) and XeLL low-latency. Cross-vendor on SM 6.4 hardware, closed-source binaries.
-- `AppleMetalFX`
-- `QualcommSnapdragonGsr { version: 1 | 2 }`
-- `RuntimeXrReprojection`
+### 9.4 Latency control providers (extends U19) — moved
 
-Capabilities:
+The vendor SDK inventory that feeds `frame.latency`'s `LatencyControl` kind:
 
-- `super_resolution = none | spatial | temporal | ml_temporal`
-- `ray_reconstruction = none | denoise | provider_ml`
-- `frame_generation = none | single_interpolated | multi_frame`
-- `hud_separation = none | app_composited_after | provider_composited`
-- `xr_safe = false | runtime_only | provider_certified`
-- `hdr = none | sdr_only | hdr10 | sc_rgb | platform_hdr`
+- NVIDIA: Reflex through Streamline / NVAPI on D3D12; Vulkan `VK_NV_low_latency2`.
+- AMD: Anti-Lag through AGS / FidelityFX SDK; Vulkan `VK_AMD_anti_lag`.
+- Intel: Xe Low Latency (XeLL).
+- Platform fallbacks: DXGI frame-latency waitable object, Metal display timing, OpenXR frame pacing, Web `requestAnimationFrame`.
 
-Creation:
-
-`reconstruction_context_create(device, desc) -> future<context>`
-
-`desc` contains provider preference order, internal render size, output size, color space, HDR metadata, motion-vector convention, depth convention, jitter convention, exposure convention, reactive-mask convention, and whether the output enters a normal swapchain or an XR runtime.
-
-Per-frame dispatch:
-
-`reconstruction_dispatch(context, frame_desc) -> future<Mel_Gpu_Reconstruction_Frame_Packet>`
-
-`Mel_Gpu_Reconstruction_Frame_Packet` carries `real_output`, `generated_outputs[]`, `present_records[]`, `latency_records[]`, and provider status. For pure super-resolution / denoise providers `generated_outputs` is empty and `real_output` is the reconstructed frame. For frame generation, each generated output has its own present ID, pacing record, latency-marker record, optional provider-composited HUD layer, and dependency on the real simulation frame that produced it. This packet shape is required by `frame_generation = multi_frame`; a single texture result cannot encode multiple generated frames without hidden presents.
-
-`frame_desc` must carry:
-
-- color input.
-- depth input.
-- motion vectors, with declared scale and whether they are low-resolution or output-resolution.
-- exposure or luminance texture.
-- jitter current/prior.
-- camera matrices current/prior.
-- near/far planes.
-- FOV per view.
-- reactive / transparency / disocclusion masks where available.
-- HUD/UI texture if provider can composite it safely, otherwise UI is composited after reconstruction.
-- frame ID, present ID, and U19 pacing metadata.
-
-Provider lowerings:
-
-- NVIDIA: Streamline/DLSS for super resolution, ray reconstruction, frame generation, and Reflex coordination; NGX/NVAPI direct path remains a P2 provider.
-- AMD: FidelityFX SDK for FSR super resolution and frame generation, with Anti-Lag coordination.
-- Intel: XeSS super resolution, XeSS frame generation, and XeLL pacing.
-- Apple: MetalFX spatial scaler, temporal scaler, frame interpolator, and temporal denoised scaler where available.
-- Qualcomm: Snapdragon Game Super Resolution / GSR2 as a mobile spatial or temporal provider where available.
-- Engine fallback: TAAU, CAS/RCAS-like sharpening, and a simple spatial upscaler.
-
-Frame-generation rules:
-
-- The engine never generates hidden presents. Every real and generated frame has a present ID, pacing record, and latency-marker record.
-- UI/HUD and pointer layers are either provider-composited through an explicit provider input or composited after generated frames.
-- Generated frames cannot consume game simulation state that does not exist. The game callback runs once per real simulation frame.
-- XR frame generation is off by default. It is enabled only through an XR runtime-approved path or a provider whose caps report `xr_safe = provider_certified`; otherwise XR uses runtime reprojection/timewarp only.
-
-### 9.4 Latency control providers (extends U19)
-
-U19's latency markers become provider-backed:
-
-- NVIDIA: Reflex through Streamline/NVAPI and Vulkan `VK_NV_low_latency2`.
-- AMD: Anti-Lag through AGS/FidelityFX and Vulkan `VK_AMD_anti_lag`.
-- Intel: Xe Low Latency.
-- Platform: DXGI frame-latency waitable object, Metal display timing, OpenXR frame pacing, Web `requestAnimationFrame`.
-
-Public API:
-
-- `mel_gpu_latency_provider_request(device, swapchain_or_xr_session, preference[])`
-- `mel_gpu_latency_set_mode(provider, mode)`
-- `mel_gpu_latency_mark(provider, frame_id, point)`
-- `mel_gpu_latency_sleep(provider, frame_id, before_input_sample_deadline)`
-- `mel_gpu_latency_get_report(provider, frame_id) -> report`
-
-Marker points:
-
-- `FrameStart`
-- `InputSample`
-- `SimStart`
-- `SimEnd`
-- `RenderSubmitStart`
-- `RenderSubmitEnd`
-- `PresentSubmit`
-- `PresentDisplayed`
-- `GeneratedPresentSubmit`
-- `GeneratedPresentDisplayed`
-
-Rules:
-
-- The sleep point is before input sampling, not after simulation has already started.
-- Frame generation must register both real and generated presents.
-- Device groups and multi-adapter must be opt-in per provider; if a provider cannot support them, it reports absent.
-- Latency providers can suggest pacing. They cannot silently change swapchain image count, present mode, simulation cadence, or XR runtime timing.
+The public API (`latency_provider_request` / `_set_mode` / `_mark` / `_sleep` / `_get_report`), the ten marker points (`FrameStart`, `InputSample`, `SimStart`, `SimEnd`, `RenderSubmitStart`, `RenderSubmitEnd`, `PresentSubmit`, `PresentDisplayed`, `GeneratedPresentSubmit`, `GeneratedPresentDisplayed`), the pre-input sleep contract, the frame-generation marker discipline, and the multi-adapter opt-in rules live in `docs/frame-latency.md`. The GPU recording command `cmd_latency_mark(point)` stays in §7.1's recording surface and lowers through the active provider's vtable; `caps.presentation.latency_marker = none | reflex | anti_lag | xess_fg | platform_native` reports availability.
 
 ### 9.5 Ray and path tracing optimization providers (extends U26)
 
@@ -1038,195 +813,17 @@ Selection rules:
 
 ---
 
-## 10. XR target family (U34)
+## 10. XR target family (U34) — moved
 
-XR is a first-class target family, not a swapchain mode. The RHI does not present XR images to an OS window. It renders into runtime-provided image sets and submits composition layers to an XR compositor.
+The XR target family — `DesktopOpenXR`, `MetaQuestStandalone`, `AppleVisionPro`; the `Mel_Xr_Instance` / `_System` / `_Session` / `_Space` / `_View_Set` / `_Image_Set` / `_Frame` / `_Composition_Layer` object model; the runtime-paced frame loop; per-target caps and extension catalogues (OpenXR `XR_KHR_*`, Quest `XR_FB_*` / `XR_META_*` / `XR_EXT_*` / `XR_ANDROID_*`, visionOS Compositor Services); composition layers; and the XR comfort-and-safety contract — now lives in `docs/xr.md`.
 
-### 10.1 Targets and non-goals
+The §10.7 XR render-graph access records (`view_mask`, `view_local_resources`, `shared_view_resources`, `late_latched_uniforms`, `composition_layer_output`, `runtime_ownership`) migrate to `docs/render-graph.md`, where the graph hosts them; the `xr` module produces them.
 
-Targets:
+GPU RHI obligations that the XR module relies on, unchanged here:
 
-- `DesktopOpenXR`: PC VR through OpenXR runtimes such as SteamVR, Meta Quest Link, Windows Mixed Reality / OpenXR-compatible runtimes, Varjo, Pimax, Vive, Monado, and similar conformant runtimes.
-- `MetaQuestStandalone`: Horizon OS / Android on Quest, OpenXR runtime, Vulkan Melody backend.
-- `AppleVisionPro`: visionOS, Compositor Services, Metal Melody backend.
-
-Non-goals:
-
-- OpenVR is not the primary API. It can be a P2 compatibility provider later.
-- XR frame generation outside a runtime-approved path is off by default.
-- The engine does not fake head tracking, hand tracking, passthrough, or foveation when the runtime does not expose it.
-
-### 10.2 XR object model
-
-New objects:
-
-- `Mel_Xr_Instance`: owns OpenXR instance or platform XR bridge.
-- `Mel_Xr_System`: selected headset/runtime/device profile.
-- `Mel_Xr_Session`: running interaction session.
-- `Mel_Xr_Space`: reference spaces and app-defined spaces.
-- `Mel_Xr_View_Set`: per-frame view poses, projection matrices, recommended image size, visibility mask, foveation profile, and blend mode.
-- `Mel_Xr_Image_Set`: borrowed runtime swapchain images wrapped as U10 textures/views.
-- `Mel_Xr_Frame`: frame state from the runtime, including predicted display time and frame ID.
-- `Mel_Xr_Composition_Layer`: projection, quad, cylinder, equirect, cube, passthrough, depth, and platform-specific layers.
-
-Object relationships:
-
-- U6 device selection and XR system selection are coordinated. On desktop OpenXR, the runtime may dictate the graphics adapter. On Quest and Vision Pro, the device is effectively fixed.
-- U18 borrowed-image-set swapchains are the bridge between XR images and the RHI.
-- U19 pacing source is the XR runtime frame loop, not the desktop display link.
-- U20 render graph receives one pass DAG per XR frame, with per-view resource ranges.
-
-### 10.3 XR frame loop
-
-Portable frame loop:
-
-1. Runtime wait begins the frame and returns predicted display time.
-2. Runtime locates views for the requested reference space.
-3. RHI wraps/acquires runtime swapchain images as borrowed U10 texture views.
-4. Render graph records multiview or per-eye passes.
-5. Queue submit returns the normal U3 future.
-6. Runtime composition layers are submitted with color, depth, and optional motion/foveation metadata.
-7. Completion futures gate image reuse; runtime ownership rules gate image release.
-
-Rules:
-
-- `Frame_Info.predicted_next_present_ns` is the XR predicted display time.
-- Every per-eye view has its own jitter, projection, culling frustum, TAA history, and foveation center.
-- Multiview rendering is preferred when the backend/runtime supports it. Per-eye rendering remains the fallback.
-- Depth submission is first-class through OpenXR depth layers or platform equivalents.
-- The app supplies stable world scale, near/far planes, and tracking-origin transforms so reprojection remains correct.
-
-### 10.4 Desktop VR through OpenXR
-
-Desktop VR uses OpenXR as the primary API.
-
-Required features:
-
-- OpenXR instance/session creation.
-- Graphics binding for D3D12 and/or Vulkan, depending on runtime support.
-- Stereo projection layers.
-- Runtime-owned swapchain images.
-- predicted display time from the OpenXR frame loop.
-- action sets for controllers, hands, and haptics.
-
-Important extensions to model:
-
-- `XR_KHR_D3D12_enable`
-- `XR_KHR_vulkan_enable2`
-- `XR_KHR_vulkan_swapchain_format_list`
-- `XR_KHR_composition_layer_depth`
-- `XR_EXT_hand_tracking`
-- `XR_EXT_eye_gaze_interaction`
-- foveated / quad-view extensions where the runtime exposes them.
-
-Desktop provider policy:
-
-- D3D12 is the preferred Melody backend on Windows when the chosen runtime's D3D12 binding is strong.
-- Vulkan is the preferred cross-platform backend and the Linux/OpenXR path.
-- The runtime chooses final scanout timing. U19 observes and feeds the runtime, not the other way around.
-- Runtime reprojection/timewarp is the default comfort path. Vendor frame generation is enabled only if the runtime/provider explicitly reports XR-safe support.
-- Desktop mirror-window rendering is a separate ordinary swapchain and never drives XR pacing.
-
-### 10.5 Meta Quest standalone
-
-Quest standalone target:
-
-- Platform: Horizon OS / Android.
-- XR API: OpenXR.
-- Melody GPU backend: Vulkan only for the RHI target. GLES is not a peer backend for this spec.
-- Presentation: OpenXR projection layers, optional passthrough and overlay layers.
-- Pacing: OpenXR frame loop with Quest refresh targets exposed to U19.
-
-Quest-specific caps:
-
-- `quest_refresh_rates`: runtime-reported 72/80/90/120 Hz set.
-- `quest_foveation = none | fixed | dynamic | eye_tracked`.
-- `quest_space_warp = none | app_space_warp`.
-- `quest_passthrough = none | compositor_passthrough | camera2_rgb`.
-- `quest_scene = none | anchors | scene_mesh | semantic_scene`.
-- `quest_hand_tracking = none | hands | simultaneous_hands_and_controllers`.
-- `quest_thermal = advisory | enforced_budget`.
-
-Important extension families:
-
-- `XR_FB_foveation`, `XR_FB_foveation_configuration`, `XR_FB_foveation_vulkan`, `XR_FB_swapchain_update_state`.
-- `XR_META_foveation_eye_tracked` where hardware/runtime grants eye-tracked foveation.
-- `XR_FB_display_refresh_rate`.
-- `XR_EXT_frame_synthesis` (the cross-vendor successor that deprecates `XR_FB_space_warp`; the engine carries both lowerings, prefers `frame_synthesis` where granted, falls back to `FB_space_warp` on runtimes that still expose only the legacy path).
-- `XR_FB_passthrough` and companion geometry/color extensions where granted.
-- `XR_EXT_hand_tracking` plus Meta multimodal extensions where granted.
-- `XR_EXT_view_configuration_views_change` for runtime-driven view-configuration changes (resolution / view-count) within a session.
-- `XR_EXT_interaction_profile_battery_state_display` for controller-battery surfacing through the action system.
-- `XR_ANDROID_spatial_anchor_space` for Quest spatial anchors via the Android-bridged path.
-
-Quest rendering policy:
-
-- Keep passes tile-friendly and bandwidth-light.
-- Prefer multiview.
-- Prefer memoryless/transient attachments for depth and MSAA.
-- Coordinate dynamic foveation, render scale, and reconstruction provider selection through one quality governor.
-- Keep camera/passthrough access permission-gated and privacy-labeled. Passthrough camera frames are device-user data; importing them into U10 textures must carry a protected/privacy flag.
-- Thermal pressure can force a quality-mode downgrade. This is a U19 event plus app policy, not a hidden engine decision.
-
-### 10.6 Apple Vision Pro
-
-Vision Pro target:
-
-- Platform: visionOS.
-- XR API: Compositor Services for fully immersive Metal rendering.
-- Melody GPU backend: Metal.
-- Presentation: Compositor Services `LayerRenderer` drawables wrapped as borrowed U10 texture views.
-- Pacing: layer-renderer timing, not a window display link.
-
-Vision Pro caps:
-
-- `visionos_compositor = compositor_services`.
-- `visionos_layered_drawables = stereo | capture_extended`.
-- `visionos_foveation = runtime_managed | app_profiled` as exposed by Compositor Services.
-- `visionos_passthrough = system_composited`.
-- `visionos_input = hands | gaze_indirect | controller_optional | arkit_anchors`, depending on permissions and APIs used.
-- `visionos_metalfx = none | spatial | temporal | frame_interpolator | temporal_denoised`.
-
-Rules:
-
-- Vision Pro is not routed through OpenXR in this spec.
-- A fully immersive Metal app draws the scene content for both eyes; the system compositor owns final display timing and passthrough environment composition.
-- `LayerRenderer` drawables are borrowed image sets. The engine never assumes it can retain them beyond the compositor's lifetime rules.
-- Rendering must honor compositor-provided view transforms, projection, texture layout, pixel format, and timing.
-- RealityKit/SwiftUI layers can coexist with the RHI path, but the RHI path is Compositor Services plus Metal.
-- Eye/gaze and camera-derived data are privacy-gated. The RHI surfaces capability and permission status; it does not promise raw sensor access.
-- MetalFX can be a reconstruction provider, but XR frame interpolation is enabled only if the compositor/provider reports it as valid for the immersive layer.
-
-### 10.7 XR render graph requirements
-
-U20 needs XR access records:
-
-- `view_mask`: which views a pass reads/writes.
-- `view_local_resources`: per-eye histories and foveation maps.
-- `shared_view_resources`: resources shared across eyes.
-- `late_latched_uniforms`: pose-dependent constants updated as late as the backend admits.
-- `composition_layer_output`: projection/quad/cylinder/passthrough/depth layer records.
-- `runtime_ownership`: acquire/wait/release state for runtime images.
-
-Graph rules:
-
-- Per-eye TAA history never aliases the other eye's history.
-- Depth for reprojection is not optional when the runtime can consume it and the app renders 3D geometry.
-- Motion vectors must be per-view and in the convention declared to the reconstruction/runtime provider.
-- Foveation maps are per-view resources and are part of pipeline cache keys when they change shader lowering.
-- XR render passes can render a mirror view, but mirror output is a dependent copy, not the primary output.
-
-### 10.8 XR comfort and safety contract
-
-The RHI enforces these as validation rules in debug and status warnings/errors in release:
-
-- The frame loop must be runtime-paced.
-- The app must not block the XR frame loop on unrelated file IO, shader compile, or asset streaming.
-- The app must declare world scale.
-- The app must declare tracking origin and recenter behavior.
-- Runtime image ownership must be returned even when rendering fails; failed frames submit a safe fallback layer if the runtime allows it.
-- Quality governors must prefer resolution/foveation/LOD reductions over missing frame deadlines.
-- Any camera/passthrough/imported-environment data carries privacy/protected flags through U5/U10/U21 capture.
+- Borrowed-image-set swapchains (§7.4) bridge runtime-owned XR images.
+- Submission-completion futures (§3.3) gate XR image reuse.
+- Tiler profile (§9.7) feeds Quest tile-aware compilation through the render graph.
 
 ---
 
@@ -1305,7 +902,7 @@ The existing `apps/hello-gpu` triangle and cube run on the new RHI by M1's end. 
 - U15 multithreaded command pools (TLS); single-use recording; full recording surface — including `cmd_draw_indirect_count` / `_indexed_indirect_count` / `cmd_dispatch_indirect_count`, `cmd_push_descriptors`, `cmd_bind_index_buffer` with size, `cmd_set_shading_rate`, `cmd_set_sample_locations`, `cmd_set_patch_control_points`, `cmd_begin_conditional_rendering` / `_end`, `cmd_aliasing_barrier`, `cmd_queue_ownership_release` / `_acquire`, `cmd_latency_mark`, `cmd_execute_indirect(layout, ...)` — and parallel render-pass recording.
 - U16 declarative sub-pass topology + per-attachment load/store/resolve + memoryless attachments + attachment feedback loops + **VRS Tier 1 (per-draw) and Tier 2 (per-primitive + per-image)** + **foveation `static` tier** + multiview view-mask + motion-vector / reactive-mask attachment compatibility + **per-aspect MSAA resolve modes** (color: SampleZero / Average; depth: SampleZero / Min / Max / Average; stencil: SampleZero) lowering to `VK_KHR_depth_stencil_resolve` / `VK_KHR_dynamic_rendering` / `MTLMultisampleDepthResolveFilter` / D3D12 `ResolveSubresourceRegion` modes; **rasterization-order attachment access** (`VK_EXT_rasterization_order_attachment_access` / Metal raster-order-groups) cap-gated and `pass_desc.raster_order_access` admitted; **raster-ordered storage** is the separate D3D12 ROV lane. Vulkan lowers to 1.4 `dynamic_rendering_local_read` + `VK_EXT_dynamic_rendering_unused_attachments` + `VK_EXT_attachment_feedback_loop_layout` / `dynamic_state` + `VK_KHR_fragment_shading_rate` + `VK_EXT_fragment_density_map`; D3D12 uses enhanced-barrier separate passes + VRS Tier 2 and reports attachment raster order absent unless a future attachment API appears.
 - U17 timeline + binary semaphores; D3D12-style state barriers (lowered to Vulkan synchronization2 / D3D12 enhanced barriers natively); `VK_KHR_unified_image_layouts` fast path where granted; `cmd_aliasing_barrier`, `cmd_queue_ownership_release` / `_acquire` (with **`acquire_hint ∈ Modified | Unmodified`** lowering to `VK_EXT_external_memory_acquire_unmodified` where granted, no-op fallback elsewhere); subresource-range argument on `cmd_barrier`; **`SparseBindingRead/Write` states in the enum** even though the sparse commands gate until M6+; fine-grained P2 escape; state-resync hook.
-- U18 surface lifecycle states/events + **Android UI-thread synchronous release discipline**; **DPI / extent pinned (pixel_extent / point_extent / scale_factor)**; `Mel_Gpu_Output` enumeration on both backends; swapchain with HDR set + **HDR metadata setters** (`IDXGISwapChain4::SetHDRMetaData`, `VK_EXT_hdr_metadata`, macOS EDR); per-image render-finished with `presentFenceInfo` GC; present waits (`VK_KHR_present_wait2` / `present_id2`, `VK_KHR_swapchain_maintenance1`, **DXGI frame-latency waitable**) split from present timing feedback (`VK_EXT_present_timing` / `VK_GOOGLE_display_timing` where available); **tearing flag** (`DXGI_PRESENT_ALLOW_TEARING`); **`fullscreen_mode ∈ Borderless | Exclusive | ExclusiveAllowTearing`** (D3D12 `SetFullscreenState` flip-model exclusive + `VK_EXT_full_screen_exclusive`) with `acquire_fullscreen` / `release_fullscreen` lifecycle and `fullscreen_evicted` event; **`surface.orientation` + `swapchain.pre_rotation`** lowering to `VK_QCOM_render_pass_transform` on Adreno and `currentTransform`-aware viewport rewrite on every Vulkan mobile platform; **`swapchain.compression_control`** lowering to `VK_EXT_image_compression_control_swapchain`; multi-swapchain; Wayland color-management protocol where granted on the Linux backend.
+- U18 swapchain attaches to `Mel_Platform_Surface` (docs/platform-surface.md); display enumeration consumed from `display` (`Mel_Display` via `adapter_displays(a)`) on both backends; swapchain with HDR set + **HDR metadata setters** (`IDXGISwapChain4::SetHDRMetaData`, `VK_EXT_hdr_metadata`, macOS EDR); per-image render-finished with `presentFenceInfo` GC; present waits (`VK_KHR_present_wait2` / `present_id2`, `VK_KHR_swapchain_maintenance1`, **DXGI frame-latency waitable**) split from present timing feedback (`VK_EXT_present_timing` / `VK_GOOGLE_display_timing` where available); **tearing flag** (`DXGI_PRESENT_ALLOW_TEARING`); **`fullscreen_mode ∈ Borderless | Exclusive | ExclusiveAllowTearing`** (D3D12 `SetFullscreenState` flip-model exclusive + `VK_EXT_full_screen_exclusive`) with `acquire_fullscreen` / `release_fullscreen` lifecycle and `fullscreen_evicted` event; **`surface.orientation` + `swapchain.pre_rotation`** lowering to `VK_QCOM_render_pass_transform` on Adreno and `currentTransform`-aware viewport rewrite on every Vulkan mobile platform; **`swapchain.compression_control`** lowering to `VK_EXT_image_compression_control_swapchain`; multi-swapchain; Wayland color-management protocol where granted on the Linux backend.
 - U19 four-mode pacing source; native vsync wiring; **latency-marker primitive** (Reflex on D3D12+Vulkan-NV / Anti-Lag on AMD / XeSS-FG / platform-native); **thermal-pressure event** (iOS / Android / Apple Silicon Mac); **`power_source_changed` and `low_power_mode_changed` events** (independent of thermal); OpenXR-driven pacing as the P2 canonical example; `Frame_Info` carries current and prior-frame jitter offsets plus current power-source and low-power-mode.
 - U24 timestamp + occlusion queries; **`Mel_Gpu_Pipeline_Stat` bitset enumeration**; calibrated timestamps; frame-budget integration; **hardware performance-counter query pool** (`Mel_Gpu_Perf_Counter_Pool`) with `VK_KHR_performance_query` + D3D12 / Metal counter-set lowering.
 
@@ -1318,14 +915,14 @@ The existing `apps/hello-gpu` triangle and cube run on the new RHI by M1's end. 
 - U15 indirect commands (`VK_EXT_device_generated_commands` + `ExecuteIndirect` already at M2; M3 admits the reusable-command-list tier where supported).
 - U16 **foveation `gaze_driven` tier** (eye-tracker-driven density-map updates), Metal tile shaders on Apple Silicon (M4 backend).
 - U27 media / video / camera frame import, YCbCr sampling, video-process commands, full Vulkan video codec set (`VK_KHR_video_decode_h264/h265/av1/vp9`, `VK_KHR_video_encode_h264/h265/av1`, `VK_KHR_video_maintenance1/2`, `VK_KHR_video_encode_quantization_map`); D3D12 video set including AV1 encode (24H2 / WDDM 3.2).
-- **U29 asset IO and GPU decompression** — `Mel_Gpu_Io_Queue` lowering to D3D12 DirectStorage + GDeflate, Metal `MTLIOCommandQueue` + `MTLIOCompressionMethod`; Vulkan with `cpu_staged` fallback (vendor `gpu_decompress` where granted); WebGPU absent.
+- **U29 asset IO and GPU decompression** — `Mel_Io_Asset_Queue` (see `docs/io-asset.md`) lowering to D3D12 DirectStorage + GDeflate, Metal `MTLIOCommandQueue` + `MTLIOCompressionMethod`; Vulkan with `cpu_staged` fallback (vendor `gpu_decompress` where granted); WebGPU absent.
 - U28 GPU-driven scheduling / work-graph API surface, native where the backend exposes it — `VK_AMDX_shader_enqueue` AMD-only on Vulkan, D3D12 Work Graphs 1.0 across vendors, mesh nodes preview-tier — and honestly gated elsewhere.
 - U17 import of external sync primitives wired end-to-end.
 - U21 frame capture integration + GPU crash diagnostics (DRED, Aftermath, `VK_EXT_device_fault`, Metal command-buffer error state).
 - OpenXR compositor-layer submission surface from U18 wired end-to-end with the visionOS `cp_layer_renderer` integration.
 - **U30 vendor and architecture profile** (`Mel_Gpu_Vendor_Profile` adjacent to U4 caps; vendor / architecture_family / driver / render_architecture / subgroup / memory / rt / matrix / presentation / tooling records).
 - **U31 provider loading model** — `mel_gpu_provider_enumerate` / `_request` / `_release` registry, all eleven provider kinds enumerated (`TemporalReconstruction`, `FrameGeneration`, `RayRegeneration`, `RadianceCache`, `LatencyControl`, `RayTracingOptimization`, `GpuProfiling`, `CrashDiagnostics`, `ShaderAnalysis`, `MobilePower`, `XrRuntimeBridge`); provider ABI / SDK / driver / arch / granted-caps included in pipeline and effect cache keys.
-- **U32 reconstruction context** — `Mel_Gpu_Reconstruction_Context` with `reconstruction_context_create` / `reconstruction_dispatch` returning a `Mel_Gpu_Reconstruction_Frame_Packet`; **NVIDIA DLSS provider with explicit `version` in the request** (3 / 4 / 4.5 / 5 — DLSS 4.5 ships Dynamic MFG + MFG-6× on RTX 50, March 2026; DLSS 5 returns `MissingProvider` until Fall 2026 launch); Streamline / NVAPI dispatch; **AMD FSR provider with explicit `version`** — FSR 3.x on Vulkan + D3D12, FSR 4 Redstone (DX12-only, RDNA 4 + SM 6.4) for Upscaling 4.1 + Ray Regeneration 1.1 + Frame Generation 4.0; **Intel XeSS 3 SDK** (XeSS-FG up to 3 AI frames, XeLL low-latency, cross-vendor SM 6.4); engine TAAU / spatial upscaler fallback; frame-generation present-ID and pacing-record discipline enforced per generated output; **`RayRegeneration` and `RadianceCache` provider kinds** in the registry (§9.2) as first-class peers of TemporalReconstruction / FrameGeneration so FSR 4 Redstone's separable Ray Regeneration and Radiance Caching surfaces have a home.
+- **U32 reconstruction context** — `Mel_Reconstruction_Context` (see `docs/render-reconstruction.md`) with `reconstruction_context_create` / `reconstruction_dispatch` returning a `Mel_Reconstruction_Frame_Packet`; **NVIDIA DLSS provider with explicit `version` in the request** (3 / 4 / 4.5 / 5 — DLSS 4.5 ships Dynamic MFG + MFG-6× on RTX 50, March 2026; DLSS 5 returns `MissingProvider` until Fall 2026 launch); Streamline / NVAPI dispatch; **AMD FSR provider with explicit `version`** — FSR 3.x on Vulkan + D3D12, FSR 4 Redstone (DX12-only, RDNA 4 + SM 6.4) for Upscaling 4.1 + Ray Regeneration 1.1 + Frame Generation 4.0; **Intel XeSS 3 SDK** (XeSS-FG up to 3 AI frames, XeLL low-latency, cross-vendor SM 6.4); engine TAAU / spatial upscaler fallback; frame-generation present-ID and pacing-record discipline enforced per generated output; **`RayRegeneration` and `RadianceCache` provider kinds** in the registry (§9.2) as first-class peers of TemporalReconstruction / FrameGeneration so FSR 4 Redstone's separable Ray Regeneration and Radiance Caching surfaces have a home.
 - **U19 latency providers (§9.4)** — `mel_gpu_latency_provider_request` / `_set_mode` / `_mark` / `_sleep` / `_get_report` wraps the M2 latency-marker primitive; NVIDIA Reflex (Streamline/NVAPI, `VK_NV_low_latency2`), AMD Anti-Lag (AGS/FidelityFX, `VK_AMD_anti_lag`), Intel Xe Low Latency, and platform fallbacks (DXGI frame-latency waitable, Metal display timing, OpenXR frame pacing, `requestAnimationFrame`) selected through one preference list.
 - **U26 RT optimization providers (§9.5)** — `Mel_Gpu_Rt_Optimization_Profile`; SER, opacity micromap, displaced micromesh, ray denoiser, many-light sampling, ray reconstruction, RT shader analysis caps; NVIDIA / AMD / Intel / Apple provider lowerings; `rt_provider_create`, `rt_build_optimizer_*`, `rt_shader_reorder_hint`, `rt_denoise_dispatch` APIs.
 - **U15/U28 GPU-driven optimization providers (§9.6)** — `device_generated_commands`, `work_graphs`, `meshlet_generation`, `shader_table_compaction`, `indirect_count_fast_path` caps wired to D3D12 / Vulkan / Metal / WebGPU lowerings; provider-generated command memory is normal U9 buffer with declared write ranges.
@@ -1377,9 +974,12 @@ modules/gpu/
       result.h            -- helpers
       future.h            -- Mel_Gpu_*_Future, target_reactor, reactor-post backpressure policy
       format.h            -- Mel_Gpu_Format enum (shared by texture/swapchain/video); component mapping
-      device.h            -- Mel_Gpu_Instance / Adapter / Device; adapter_removed, power_source_changed,
-                             low_power_mode_changed events; adapter_type / luid / uuid / OpenXR LUID matcher
-      output.h            -- Mel_Gpu_Output; per-adapter display enumeration, refresh range, HDR caps
+      device.h            -- Mel_Gpu_Instance / Adapter / Device; adapter_removed event;
+                             adapter_type / luid / uuid / OpenXR LUID matcher;
+                             power_source_changed / low_power_mode_changed are re-emitted views
+                             of platform.sensors events (see docs/platform-sensors.md)
+      adapter_displays.h  -- adapter_displays(a) → Mel_Display[] cross-reference into
+                             display (display descriptor fields live in that module)
       queue.h             -- queue role (incl. SparseBinding, AssetIo), request/release, submit,
                              global priority, internally_synchronized flag, dedicated flag,
                              queue_info(q) family-capability reporter; Mel_Gpu_Queue
@@ -1414,60 +1014,29 @@ modules/gpu/
       sync.h              -- Mel_Gpu_Sync; timeline/binary semaphores, state model (incl.
                              SparseBindingRead/Write), aliasing-barrier, queue-ownership-transfer
                              with acquire_hint (Modified | Unmodified)
-      surface.h           -- Mel_Gpu_Surface; lifecycle events, UI-thread synchronous-release discipline,
-                             pixel_extent / point_extent / scale_factor pinned, surface.orientation +
-                             orientation_changed event, fullscreen_evicted event
-      swapchain.h         -- Mel_Gpu_Swapchain; HDR set + metadata setters, present timing, tearing,
-                             external/borrowed image sets, shared-presentable-image, fullscreen_mode
-                             (Borderless | Exclusive | ExclusiveAllowTearing), pre_rotation,
-                             present_barrier_group, compression_control,
-                             OpenXR + visionOS layer descriptors
-      pacing.h            -- Mel_Gpu_Render_Source modes; latency markers, thermal-pressure event,
-                             power_source / low_power_mode events; Frame_Info pacing context
-      media.h             -- video sessions, frames, color metadata, process/decode/encode, protected flag
+      swapchain.h         -- Mel_Gpu_Swapchain (attached to Mel_Platform_Surface — see
+                             docs/platform-surface.md); HDR set + metadata setters, present
+                             timing, tearing, external/borrowed image sets, shared-presentable-image,
+                             fullscreen_mode (Borderless | Exclusive | ExclusiveAllowTearing),
+                             pre_rotation (consumes surface.orientation), present_barrier_group,
+                             compression_control, OpenXR + visionOS borrowed image-set entries
       work_graph.h        -- Mel_Gpu_Work_Graph; GPU-side scheduling declarations
       vendor.h            -- Mel_Gpu_Vendor_Profile (vendor / architecture_family / driver /
                              render_architecture / subgroup / memory / rt / matrix / presentation /
                              tooling); Mel_Gpu_Tiler_Profile (tiler / tile_memory /
                              memoryless_attachments / local_read / foveation / thermal)
-      provider.h          -- provider registry: enumerate / request / release; provider kinds
-                             (TemporalReconstruction, FrameGeneration, RayRegeneration,
-                             RadianceCache, LatencyControl, RayTracingOptimization,
+      provider_kinds.h    -- GPU provider-kind catalog (TemporalReconstruction, FrameGeneration,
+                             RayRegeneration, RadianceCache, LatencyControl, RayTracingOptimization,
                              GpuProfiling, CrashDiagnostics, ShaderAnalysis, MobilePower,
-                             XrRuntimeBridge);
-                             Mel_Gpu_Tooling_Provider (capture / counters / crash_dump /
-                             shader_disassembly / markers)
-      reconstruction.h    -- Mel_Gpu_Reconstruction_Context; provider enum with explicit version
-                             (EngineTaaU / EngineSpatialUpscale / NvidiaDlss{3|4|4_5|5} /
-                             NvidiaNis / AmdFsr{3_x|4_x_redstone} / IntelXeSS{2_x|3} /
-                             AppleMetalFX / QualcommSnapdragonGsr{1|2} / RuntimeXrReprojection);
-                             reconstruction_context_create / reconstruction_dispatch; frame_desc
-                             and Mel_Gpu_Reconstruction_Frame_Packet
-                             (color/depth/motion/exposure/jitter/camera/masks/HUD)
-      radiance_cache.h    -- Mel_Gpu_Radiance_Cache_Context (FSR 4 Redstone Radiance Caching 0.9
-                             and successor SDKs); separable GI provider, distinct from upscaling /
-                             frame-gen / ray-reconstruction
-      ray_regen.h         -- Mel_Gpu_Ray_Regeneration_Context (FSR 4 Ray Regeneration 1.1, DLSS
-                             Ray Reconstruction); separable from super-resolution
-      latency.h           -- mel_gpu_latency_provider_request / _set_mode / _mark / _sleep /
-                             _get_report; marker points (FrameStart, InputSample, SimStart,
-                             SimEnd, RenderSubmitStart, RenderSubmitEnd, PresentSubmit,
-                             PresentDisplayed, GeneratedPresentSubmit, GeneratedPresentDisplayed)
+                             XrRuntimeBridge); Mel_Gpu_Tooling_Provider (capture / counters /
+                             crash_dump / shader_disassembly / markers). The registry mechanism
+                             lives in modules/provider/ (see docs/provider.md).
       rt_optimization.h   -- Mel_Gpu_Rt_Optimization_Profile (SER / opacity_micromap /
                              displaced_micromesh / ray_denoiser / many_light_sampling /
                              ray_reconstruction / rt_shader_analysis); rt_provider_create,
                              rt_build_optimizer_create / _encode, rt_shader_reorder_hint,
                              rt_denoise_dispatch
-      io.h                -- Mel_Gpu_Io_Queue; asset IO + GPU decompression (U29)
       query.h             -- Mel_Gpu_Query_Pool, Mel_Gpu_Perf_Counter_Pool
-      xr.h                -- Mel_Xr_Instance / _System / _Session / _Space / _View_Set /
-                             _Image_Set / _Frame / _Composition_Layer; OpenXR + visionOS
-                             Compositor Services bridges; Quest and Vision Pro caps surfaces;
-                             XR render-graph access records (view_mask, view_local_resources,
-                             shared_view_resources, late_latched_uniforms,
-                             composition_layer_output, runtime_ownership); XR comfort/safety
-                             validation contract
-      graph.h             -- (M5) render graph (incl. WorkGraph pass type)
       debug.h             -- capture, crash diagnostics, capture-replay discipline; device.debug
                              flag set (gpu_assisted ∈ off | descriptor_indexing | full,
                              sync_validation, best_practices, debug_printf, thread_safety_tracker)
@@ -1503,6 +1072,16 @@ The `src/` tree carries the implementation directly — there is no `common/` fo
 The `include/` tree splits the public API into one header per type with `gpu.h` at the top level as the backend-clean umbrella. There is no `types.h` accretion file — every type lives next to its operations. Per-backend native integration is opt-in: an application that wants raw Vulkan access includes a header from `gpu/vulkan/`, and only that translation unit pays the `vulkan.h` cost; `gpu.h` never drags it in.
 
 Dependencies (additions): `core`, `allocator`, `collection.slotmap`, `collection.ring`, `async.coroutine`, `async.signal`, `async.job` (M3 onward for compile pool), `reactor`, `log`, `debug` (when asserts are functional), `string`, `thread`. Tools: `tools/build` gains a Slang compile step (M2).
+
+Sibling modules over the GPU RHI (each its own design doc, each a peer of `modules/gpu/`):
+
+- `modules/provider/` — generic provider registry (see `docs/provider.md`)
+- `modules/platform/` extensions — `platform.sensors.thermal` / `.power` (`docs/platform-sensors.md`), `platform.surface` (`docs/platform-surface.md`), `display` (`docs/platform-display.md`)
+- `modules/frame/` — `frame.pacing` (`docs/frame-pacing.md`), `frame.latency` (`docs/frame-latency.md`)
+- `modules/render/` — `render.graph` (`docs/render-graph.md`), `render.reconstruction` (`docs/render-reconstruction.md`) with submodules `.ray_regen` and `.radiance_cache`
+- `modules/media/` — `media.video` (`docs/media-video.md`)
+- `modules/io/` — `io.asset` (`docs/io-asset.md`)
+- `modules/xr/` — `xr` (`docs/xr.md`) with `xr.openxr` and `xr.visionos` submodules
 
 ---
 
