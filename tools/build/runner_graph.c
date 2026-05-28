@@ -61,7 +61,7 @@ static bool build_graph_ninja(Mel_Build_Target **order, size_t order_count,
         }
     }
 
-    ninja_begin();
+    ninja_begin(p);
     const char *root_artifact = NULL;
     for (size_t i = 0; i < order_count; i++) {
         Mel_Build_Target *t = order[i];

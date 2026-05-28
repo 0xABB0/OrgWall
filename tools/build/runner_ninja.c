@@ -30,7 +30,7 @@ static const char *flags_to_value(const Cmd *flags, size_t start) {
 static File_Paths g_android_sos;
 static bool emit_android_edges(Mel_Build_Context *ctx);
 
-static void ninja_begin(void) {
+static void ninja_begin(Mel_Platform p) {
     g_ninja.count = 0;
     g_ninja_objs.count = 0;
     g_android_sos.count = 0;
@@ -40,11 +40,23 @@ static void ninja_begin(void) {
         "  depfile = $out.d\n"
         "  deps = gcc\n"
         "  description = CC $out\n"
-        "\n"
-        "rule ar\n"
-        "  command = rm -f $out && $ar rcs $out $in\n"
-        "  description = AR $out\n"
-        "\n"
+        "\n");
+    // ninja runs commands through /bin/sh on POSIX but via CreateProcess (no
+    // shell) on Windows, so the shell '&&' chain works only off-Windows. On
+    // win32 route through cmd /c; del needs a backslash path ($out_win).
+    if (p == MEL_PLATFORM_WIN32)
+        sb_append_cstr(&g_ninja,
+            "rule ar\n"
+            "  command = cmd /c (if exist $out_win del /q $out_win) & $ar rcs $out $in\n"
+            "  description = AR $out\n"
+            "\n");
+    else
+        sb_append_cstr(&g_ninja,
+            "rule ar\n"
+            "  command = rm -f $out && $ar rcs $out $in\n"
+            "  description = AR $out\n"
+            "\n");
+    sb_append_cstr(&g_ninja,
         "rule link\n"
         "  command = $ld $in $ldflags -o $out\n"
         "  description = LINK $out\n"
@@ -101,13 +113,24 @@ static void emit_cc_edge(Mel_Build_Context *ctx, const char *cc, const char *src
     emit_cc_edge_raw(cc, cflags, src, obj);
 }
 
-static void emit_ar_edge(const char *lib, const char *ar, const File_Paths *objs) {
+static const char *to_backslash(const char *s) {
+    String_Builder sb = {0};
+    for (const char *p = s; *p; p++) sb_append_buf(&sb, (*p == '/') ? "\\" : p, 1);
+    sb_append_null(&sb);
+    return temp_strdup(sb.items);
+}
+
+static void emit_ar_edge(const char *lib, const char *ar, const File_Paths *objs, Mel_Platform p) {
     sb_append_cstr(&g_ninja, "build ");
     ninja_path(&g_ninja, lib);
     sb_append_cstr(&g_ninja, ": ar");
     for (size_t i = 0; i < objs->count; i++) { sb_append_cstr(&g_ninja, " "); ninja_path(&g_ninja, objs->items[i]); }
     sb_append_cstr(&g_ninja, "\n  ar = ");
     ninja_value(&g_ninja, ar);
+    if (p == MEL_PLATFORM_WIN32) {
+        sb_append_cstr(&g_ninja, "\n  out_win = ");
+        ninja_value(&g_ninja, to_backslash(lib));
+    }
     sb_append_cstr(&g_ninja, "\n");
 }
 
@@ -202,7 +225,7 @@ static bool emit_target_edges(Mel_Build_Context *ctx) {
     }
 
     if (t->kind == MEL_TARGET_LIBRARY) {
-        emit_ar_edge(ctx->artifact, ar_for(ctx), &objs);
+        emit_ar_edge(ctx->artifact, ar_for(ctx), &objs, ctx->platform);
     } else if (t->kind == MEL_TARGET_APPLICATION) {
         if (ctx->platform == MEL_PLATFORM_WEB)        emit_weblink_edge(ctx, &objs);
         else if (ctx->platform == MEL_PLATFORM_WIN32) emit_win32_link_edge(ctx, &objs);

@@ -230,7 +230,7 @@ static bool emit_android_edges(Mel_Build_Context *ctx) {
         File_Paths lib_objs = {0};
         emit_android_compile(&cross, ctx, melody, tp, tp_count, abi->abi, objdir, &lib_srcs, &lib_objs);
         const char *melody_a = temp_sprintf("%s/libmelody.a", meldir);
-        emit_ar_edge(melody_a, cross.ar, &lib_objs);
+        emit_ar_edge(melody_a, cross.ar, &lib_objs, MEL_PLATFORM_ANDROID);
 
         File_Paths link_objs = {0};
         emit_android_compile(&cross, ctx, melody, tp, tp_count, abi->abi, objdir, &bridges, &link_objs);
