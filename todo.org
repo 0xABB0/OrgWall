@@ -5,6 +5,7 @@
 - Verify GPU app compiles and runs under ios (simulator. i don't have an ios device. need to verify all three rendering backends: Metal, Vulkan, Webgpu)
 - Is it finally time to get out the meta quest vr?
 - android's apk should not be multi-abi. the size on that thing explodes with all the bundled libs TWICE
+- there should be a way to build a console app (not only a gui app)
 
 * GPU RHI design tensions (from docs/gpu-rhi.md review)
   Open architectural questions surfaced by the spec audit. Each is a real

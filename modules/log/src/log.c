@@ -551,7 +551,9 @@ Mel_Log_Sink_Handle mel_log_sink_add(Mel_Log_Sink* sink)
     {
         u32 new_cap = sink_capacity == 0 ? 4 : sink_capacity * 2;
         const Mel_Alloc* heap = mel_alloc_heap();
-        Mel__Log_Sink_Slot* new_slots = mel_realloc(heap, sinks, sizeof(Mel__Log_Sink_Slot) * new_cap);
+        Mel__Log_Sink_Slot* new_slots = sinks
+            ? mel_realloc(heap, sinks, sizeof(Mel__Log_Sink_Slot) * new_cap)
+            : mel_alloc(heap, sizeof(Mel__Log_Sink_Slot) * new_cap);
         assert(new_slots);
         sinks = new_slots;
         sink_capacity = new_cap;
@@ -631,7 +633,9 @@ void mel_log_level_register(u32 value, str8 name)
     {
         u32 new_cap = level_capacity == 0 ? 8 : level_capacity * 2;
         const Mel_Alloc* heap = mel_alloc_heap();
-        Mel__Log_Level_Entry* new_levels = mel_realloc(heap, levels, sizeof(Mel__Log_Level_Entry) * new_cap);
+        Mel__Log_Level_Entry* new_levels = levels
+            ? mel_realloc(heap, levels, sizeof(Mel__Log_Level_Entry) * new_cap)
+            : mel_alloc(heap, sizeof(Mel__Log_Level_Entry) * new_cap);
         assert(new_levels);
         levels = new_levels;
         level_capacity = new_cap;
