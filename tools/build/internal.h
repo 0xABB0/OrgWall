@@ -100,6 +100,8 @@ struct Mel_Build_Target {
     File_Paths cfg_keys;        // scaffolding template substitution keys
     File_Paths cfg_vals;        // parallel to cfg_keys
 
+    File_Paths enum_str_headers;// header include-spellings to generate enum-to-string for
+
     Props pub;
     Props priv;
 

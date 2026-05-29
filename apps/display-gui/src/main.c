@@ -15,6 +15,7 @@
 #define TICK_NS      ((i64)250000000)
 #define EVLOG_CAP    16
 #define EVLOG_LINE   112
+#define LBL(x)       ((const char*)(x).data)
 
 typedef struct {
     Mel_Reactor*        reactor;
@@ -28,68 +29,6 @@ typedef struct {
 
 static Inspector g;
 
-static const char* connector_str(Mel_Display_Connector c) {
-    switch (c) {
-        case MEL_DISPLAY_CONNECTOR_INTERNAL:    return "Internal";
-        case MEL_DISPLAY_CONNECTOR_HDMI:        return "HDMI";
-        case MEL_DISPLAY_CONNECTOR_DISPLAYPORT: return "DisplayPort";
-        case MEL_DISPLAY_CONNECTOR_USB_C:       return "USB-C";
-        case MEL_DISPLAY_CONNECTOR_VGA:         return "VGA";
-        case MEL_DISPLAY_CONNECTOR_VIRTUAL:     return "Virtual";
-        default:                                return "Unknown";
-    }
-}
-static const char* state_str(Mel_Display_State s) {
-    switch (s) {
-        case MEL_DISPLAY_STATE_ACTIVE:       return "Active";
-        case MEL_DISPLAY_STATE_MIRRORED:     return "Mirrored";
-        case MEL_DISPLAY_STATE_DISCONNECTED: return "Disconnected";
-        case MEL_DISPLAY_STATE_POWERED_OFF:  return "PoweredOff";
-        case MEL_DISPLAY_STATE_DIMMED:       return "Dimmed";
-        case MEL_DISPLAY_STATE_IDLE:         return "Idle";
-        default:                             return "?";
-    }
-}
-static const char* mastering_str(Mel_Display_Mastering m) {
-    switch (m) {
-        case MEL_DISPLAY_MASTERING_STATIC:  return "Static";
-        case MEL_DISPLAY_MASTERING_DYNAMIC: return "Dynamic";
-        default:                            return "None";
-    }
-}
-static const char* tonemap_str(Mel_Display_Tonemap t) {
-    switch (t) {
-        case MEL_DISPLAY_TONEMAP_DISPLAY:     return "Display";
-        case MEL_DISPLAY_TONEMAP_COMPOSITOR:  return "Compositor";
-        case MEL_DISPLAY_TONEMAP_APPLICATION: return "Application";
-        default:                              return "?";
-    }
-}
-static const char* native_str(Mel_Display_Native_Kind k) {
-    switch (k) {
-        case MEL_DISPLAY_NATIVE_NSSCREEN:        return "NSScreen*";
-        case MEL_DISPLAY_NATIVE_UISCREEN:        return "UIScreen*";
-        case MEL_DISPLAY_NATIVE_DXGI_OUTPUT6:    return "IDXGIOutput6*";
-        case MEL_DISPLAY_NATIVE_VK_DISPLAY_KHR:  return "VkDisplayKHR";
-        case MEL_DISPLAY_NATIVE_ANDROID_DISPLAY: return "Display(JNI)";
-        case MEL_DISPLAY_NATIVE_WL_OUTPUT:       return "wl_output*";
-        case MEL_DISPLAY_NATIVE_X11_OUTPUT:      return "RROutput";
-        case MEL_DISPLAY_NATIVE_LOST:            return "Lost";
-        default:                                 return "None";
-    }
-}
-static const char* cs_str(Mel_Color_Space cs) {
-    switch (cs) {
-        case MEL_COLOR_SPACE_SRGB:         return "sRGB";
-        case MEL_COLOR_SPACE_DISPLAY_P3:   return "Display-P3";
-        case MEL_COLOR_SPACE_REC_709:      return "Rec.709";
-        case MEL_COLOR_SPACE_REC_2020:     return "Rec.2020";
-        case MEL_COLOR_SPACE_SCRGB_LINEAR: return "scRGB-lin";
-        case MEL_COLOR_SPACE_HDR10_PQ:     return "HDR10-PQ";
-        case MEL_COLOR_SPACE_HLG:          return "HLG";
-        default:                           return "?";
-    }
-}
 static void fields_str(u32 f, char* out, size_t cap) {
     out[0] = 0;
     struct { u32 bit; const char* n; } map[] = {
@@ -202,14 +141,14 @@ static void canvas_paint(Mel_Gui_Handle h, Mel_Painter* p, i32 w, i32 height, vo
         line(&pen, head, "[%u] \"%s\"   handle{idx=%u,gen=%u}", i,
              d->name[0] ? d->name : "(unnamed)", handles[i].h.index, handles[i].h.generation);
         line(&pen, key,  "    connector=%s  state=%s  native=%ux%u px  scale=%.3f  pos=(%d,%d)%s",
-             connector_str(d->connector), state_str(d->state),
+             LBL(Mel_Display_Connector_to_string(d->connector)), LBL(Mel_Display_State_to_string(d->state)),
              d->native_resolution.width_px, d->native_resolution.height_px,
              (double)d->scale_factor, d->position_virtual_x, d->position_virtual_y,
              d->has_position ? "" : " (no pos)");
         line(&pen, key,  "    physical=%s%.0fx%.0f mm  icc=%zu B  native_handle=%s id=%llu",
              d->has_physical_size ? "" : "? ",
              (double)d->physical_width_mm, (double)d->physical_height_mm,
-             d->icc_profile.size, native_str(d->native_handle.kind),
+             d->icc_profile.size, LBL(Mel_Display_Native_Kind_to_string(d->native_handle.kind)),
              (unsigned long long)d->native_handle.id);
 
         line(&pen, hot,  "    EDR now=%.3f  potential=%.3f  reference=%.3f  has_edr=%d  hdr.active=%d",
@@ -218,13 +157,13 @@ static void canvas_paint(Mel_Gui_Handle h, Mel_Painter* p, i32 w, i32 height, vo
         line(&pen, key,  "    luminance: %s peak=%.0f avg=%.0f min=%.3f nits   master=%s  tonemap=%s",
              hd->has_luminance ? "" : "(unpublished) ",
              (double)hd->peak_luminance_nits, (double)hd->avg_luminance_nits,
-             (double)hd->min_luminance_nits, mastering_str(hd->mastering_primaries_support),
-             tonemap_str(hd->tone_mapping_owner));
+             (double)hd->min_luminance_nits, LBL(Mel_Display_Mastering_to_string(hd->mastering_primaries_support)),
+             LBL(Mel_Display_Tonemap_to_string(hd->tone_mapping_owner)));
 
         char cs[160]; cs[0] = 0;
         for (u32 c = 0; c < hd->supported_color_space_count; c++) {
             if (cs[0]) strncat(cs, ", ", sizeof cs - strlen(cs) - 1);
-            strncat(cs, cs_str(hd->supported_color_spaces[c]), sizeof cs - strlen(cs) - 1);
+            strncat(cs, LBL(Mel_Color_Space_to_string(hd->supported_color_spaces[c])), sizeof cs - strlen(cs) - 1);
         }
         line(&pen, key, "    color spaces: %s", cs);
 

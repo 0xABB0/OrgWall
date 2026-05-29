@@ -173,6 +173,13 @@ void mel_build_add_dependency(Mel_Build_Target *t, const char *dep_name) {
     da_append(&t->deps, temp_strdup(dep_name));
 }
 
+void mel_build_generate_enum_str_(Mel_Build_Target *t, ...) {
+    va_list ap; va_start(ap, t);
+    const char *v;
+    while ((v = va_arg(ap, const char *)) != NULL) da_append(&t->enum_str_headers, temp_strdup(v));
+    va_end(ap);
+}
+
 void mel_build_set_config(Mel_Build_Target *t, const char *key, const char *value) {
     target_config_set(t, key, value);
 }

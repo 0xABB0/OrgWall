@@ -14,6 +14,7 @@
 #include "runner_resolve.c"
 #include "runner_compile.c"
 #include "runner_stages.c"
+#include "runner_codegen.c"
 #include "runner_ninja.c"
 #include "runner_android.c"
 #include "runner_graph.c"

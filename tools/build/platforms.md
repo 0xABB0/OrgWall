@@ -128,6 +128,55 @@ Note: both toolchains share `build/web/<config>/libmelody.a`, so switching
 runtimes recompiles melody. The object cache is keyed on the compiler identity,
 so the result is correct, just not co-resident.
 
+## Codegen — enum-to-string
+
+A target may have the engine synthesize `str8 <EnumType>_to_string(<EnumType>)`
+from annotated enums, sparing the hand-written `switch`. The declaration is a real
+prototype in the enum's own header (so the LSP sees it with no generated header to
+include); codegen emits only the `.c` that implements it. Opt in from `build.c`:
+
+    mel_build_generate_enum_str(t, "display/display.h");   // one or more include-spellings
+
+Annotate the enum and declare its to-string in the header (`#include <reflect/enum.h>`):
+
+    typedef enum {
+        MEL_DISPLAY_CONNECTOR_UNKNOWN     MEL_SKIP = 0,        // no case emitted
+        MEL_DISPLAY_CONNECTOR_INTERNAL    MEL_STR("Internal"), // explicit label
+        MEL_DISPLAY_CONNECTOR_HDMI,                            // default label: "HDMI"
+        MEL_DISPLAY_CONNECTOR_USB_C       MEL_STR("USB-C"),
+    } Mel_Display_Connector;
+    MEL_ENUM_TO_STRING_DEFAULT(Mel_Display_Connector, "Unknown");
+
+- `MEL_ENUM_TO_STRING(EnumType)` / `MEL_ENUM_TO_STRING_DEFAULT(EnumType, default)`
+  declare `str8 EnumType_to_string(EnumType)` and mark it for codegen. The
+  default is the `switch`'s `default:` return (`"?"` for the plain form). On a
+  non-clang compiler the macro still declares the prototype; the annotation
+  vanishes.
+- `MEL_STR(label)` overrides one constant's string; with no override the label is
+  the constant spelling minus the enum's common prefix (verbatim, so `HDMI`, not
+  `Hdmi`). `MEL_SKIP` omits the constant (sentinels, `*_COUNT`). Both sit on the
+  enumerator, before any `= initializer`.
+
+The annotations are `__attribute__((annotate(...)))` with zero runtime cost. Source
+of truth is the enum itself, so a new constant cannot drift from its string table.
+
+Mechanics: `tools/codegen/enum_str_gen.c` is a libclang tool that parses the named
+headers, finds the annotated function declarations, recovers each enum from the
+parameter type, and emits `enum_to_string.generated.c` under
+`build/<variant>/<config>/<target>/generated/`, added to the target's sources.
+Returned `str8`s are plain literal-backed struct literals — no `S8`/string-module
+dependency. Regeneration is mtime-gated on the headers and the tool. The
+implementation is compiled into the opting target, so exactly one target per link
+closure may own a given enum's strings — opt in from the consumer, not the library
+whose header declares the enum, unless that library wants to export them.
+
+The tool links libclang via the C API (`clang-c/Index.h`), which Xcode ships only
+as the `libclang.dylib` binary — not the header. The header lives in a full LLVM
+install; the build looks under `/opt/homebrew/opt/llvm` (Homebrew, mirroring the
+macOS Vulkan prefix above) or `$MEL_LIBCLANG_PREFIX`. On macOS it parses against
+the host SDK (`xcrun --show-sdk-path`) plus libclang's own builtin-include dir.
+This is a host build-tool dependency; install with `brew install llvm`.
+
 ## GPU rendering
 
 The `gpu` module is a backend-agnostic abstraction (device, swapchain, buffer,

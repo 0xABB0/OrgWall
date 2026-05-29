@@ -217,6 +217,8 @@ static bool emit_target_edges(Mel_Build_Context *ctx) {
         for (size_t i = 0; i < ctx->bridge_sources.count; i++)
             da_append(&ctx->sources, ctx->bridge_sources.items[i]);
 
+    if (!run_enum_str_codegen(ctx)) return false;
+
     File_Paths objs = {0};
     for (size_t i = 0; i < ctx->sources.count; i++) {
         const char *obj = object_for(t, ctx->platform, ctx->config, ctx->sources.items[i]);

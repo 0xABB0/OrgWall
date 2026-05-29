@@ -101,6 +101,9 @@ MEL_API void mel_build_exclude_module_on_runtime(Mel_Build_Target *t, const char
 // dependency propagate to this target transitively.
 MEL_API void mel_build_add_dependency(Mel_Build_Target *t, const char *dep_name);
 
+MEL_API void mel_build_generate_enum_str_(Mel_Build_Target *t, ...);
+#define mel_build_generate_enum_str(t, ...) mel_build_generate_enum_str_(t, __VA_ARGS__, NULL)
+
 // PUBLIC properties propagate to dependents; PRIVATE stay local. Each accepts
 // one or more value tokens, recorded as distinct flags — pass split arguments
 // for flags that the compiler/linker expects as separate argv entries, e.g.

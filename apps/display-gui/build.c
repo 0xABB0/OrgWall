@@ -5,6 +5,7 @@ bool project(Mel_Build_Target *t) {
     mel_build_set_kind(t, MEL_TARGET_APPLICATION);
     mel_build_add_source_root(t, "apps/display-gui/src");
     mel_build_add_dependency(t, "melody");
+    mel_build_generate_enum_str(t, "display/display.h");
 
     mel_build_set_config(t, "ROOTPROJECT_NAME", "DisplayGui");
     mel_build_set_config(t, "APP_LABEL", "Display GUI");
