@@ -114,7 +114,7 @@ browser-only and will redirect you here for a wasi target):
 ### What builds where on web
 
 - `gmp`, `mpfr` and `sqlite3` cross-compile to both wasm runtimes, so the
-  arbitrary-precision math, `music.theory`/`midi`, and the sqlite log sink
+  arbitrary-precision math, `musictheory`/`midi`, and the sqlite log sink
   build on web.
 - `mongoose` and `sdl3` are native-only; the `server` module (which needs a
   listening socket) is excluded on web.

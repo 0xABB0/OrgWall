@@ -131,7 +131,7 @@ These are application-shaped, not substrate. They sit on every tier below.
 
 **Have:**
 - `server/` — really `net/http` server (Tier 4); move it.
-- `music.theory/` — domain module for Gabbo's music-related work.
+- `musictheory/` — domain module for Gabbo's music-related work.
 
 **Planned (per Gabbo's project needs):**
 - `gui/` — windowing + widgets. Reactor-integrated (the GUI event loop *is* a reactor; integrate it, don't fight it). macOS/Windows force main-thread UI — the reactor must accept thread pinning.

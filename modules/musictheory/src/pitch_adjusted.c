@@ -1,4 +1,4 @@
-#include <music.theory/pitch_adjusted.h>
+#include <musictheory/pitch_adjusted.h>
 #include <time.frequency/frequency.h>
 #include <stdlib.h>
 

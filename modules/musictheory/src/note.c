@@ -1,4 +1,4 @@
-#include <music.theory/note.h>
+#include <musictheory/note.h>
 #include <stdlib.h>
 #include <string.h>
 

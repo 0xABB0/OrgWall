@@ -1,4 +1,4 @@
-#include <music.theory/note_interval_seq.h>
+#include <musictheory/note_interval_seq.h>
 #include <stdlib.h>
 
 void mel_note_interval_seq_free(Mel_NoteIntervalSeq* nis)

@@ -1,4 +1,4 @@
-#include <music.theory/note_scale.h>
+#include <musictheory/note_scale.h>
 #include <stdlib.h>
 
 void mel_note_scale_free(Mel_NoteScale* ns)

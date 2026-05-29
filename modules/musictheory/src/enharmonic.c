@@ -1,8 +1,8 @@
-#include <music.theory/enharmonic.h>
-#include <music.theory/notation.h>
-#include <music.theory/note.h>
-#include <music.theory/tuning.h>
-#include <music.theory/pitch.h>
+#include <musictheory/enharmonic.h>
+#include <musictheory/notation.h>
+#include <musictheory/note.h>
+#include <musictheory/tuning.h>
+#include <musictheory/pitch.h>
 #include <stdlib.h>
 
 typedef struct

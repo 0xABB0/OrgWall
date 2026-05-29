@@ -1,5 +1,5 @@
-#include <music.theory/chord.h>
-#include <music.theory/interval_seq.h>
+#include <musictheory/chord.h>
+#include <musictheory/interval_seq.h>
 #include <stdlib.h>
 
 void mel_chord_free(Mel_Chord* c)
