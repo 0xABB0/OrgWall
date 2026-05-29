@@ -36,9 +36,9 @@ Delivered to the render / sim callback at every pacing tick. `Frame_Info` is the
 - **`headroom_ns`** — remaining budget against the active mode's target. In `Adaptive`, defined as `target_frame_ms − max(prior_cpu_ns, prior_gpu_ns)`. In `Continuous` and `Capped`, defined as `tick_interval − max(prior_cpu_ns, prior_gpu_ns)` where `tick_interval` is the observed inter-tick delta (variable under VRR). Undefined in `OnDemand`. May be negative when the prior frame overran its budget; the app is told the truth, not clamped to zero.
 - **`mode_state`** — mode-specific fields: `Capped` reports `vsyncs_skipped` and `achieved_fps` (which may differ from `target_fps` when the cap does not divide the refresh evenly); `OnDemand` reports `invalidate_coalesce_count` since the last tick; `Adaptive` reports `target_frame_ms` (echoed for callback convenience); `Continuous` reports the empty unit.
 - **`jitter_offset_current`**, **`jitter_offset_prior`** — subpixel jitter offsets for the current and prior frame. `render.reconstruction` consumes both so TAA / upscaling reprojection stays reproducible without engine-side per-pass bookkeeping. Pacing owns the jitter sequence because it owns the pacing tick, and the sequence is per-source so two swapchains with independent reconstruction do not collide on a shared global sequence. The sequence is deterministic given a seed, which the app may pin per source for reproducibility (capture replay, test goldens).
-- **`thermal_tier`** — `nominal | fair | serious | critical`. Sourced from `platform.sensors.thermal`; not redefined here. Updated at the pacing tick from the most recent `thermal_pressure_changed` event. Constant across ticks until the platform raises a transition.
-- **`power_source`** — `ac | battery | unknown`. Sourced from `platform.sensors.power`. `unknown` is a real value on hosts where the platform refuses to disclose (some Linux desktops without UPower, some Web embeddings).
-- **`low_power_mode`** — `off | on`. Sourced from `platform.sensors.power`. Independent of `thermal_tier`: a laptop on AC may be in low-power mode (the user wants quiet, not cool); a phone at 90 % battery may be in low-power mode (the user is conserving for later). The app must read both, not pick one as a proxy for the other.
+- **`thermal_tier`** — `nominal | fair | serious | critical`. Sourced from `sensor.thermal`; not redefined here. Updated at the pacing tick from the most recent `thermal_pressure_changed` event. Constant across ticks until the platform raises a transition.
+- **`power_source`** — `ac | battery | unknown`. Sourced from `sensor.power`. `unknown` is a real value on hosts where the platform refuses to disclose (some Linux desktops without UPower, some Web embeddings).
+- **`low_power_mode`** — `off | on`. Sourced from `sensor.power`. Independent of `thermal_tier`: a laptop on AC may be in low-power mode (the user wants quiet, not cool); a phone at 90 % battery may be in low-power mode (the user is conserving for later). The app must read both, not pick one as a proxy for the other.
 - **`latency_context`** — the current latency-marker context from `frame.latency`. Pacing carries the handle; the marker taxonomy (`SimStart`, `SimEnd`, `RenderSubmitStart`, `RenderSubmitEnd`, `PresentStart`, `PresentEnd`, `InputSample`) and the `mel_*_latency_sleep` API live in `frame.latency`. The GPU-side `cmd_latency_mark(point)` recording command stays in the GPU RHI's recording surface; pacing only carries the context handle through `Frame_Info`.
 
 ## Native vsync wiring
@@ -112,8 +112,8 @@ The pacing source does not pre-empt itself: if the render callback overruns the 
 
 Upstream — pacing consumes:
 
-- `platform.sensors.thermal` — `thermal_pressure_changed(tier)` events drive `Frame_Info.thermal_tier`.
-- `platform.sensors.power` — `power_source_changed` and `low_power_mode_changed` events drive `Frame_Info.power_source` and `Frame_Info.low_power_mode`.
+- `sensor.thermal` — `thermal_pressure_changed(tier)` events drive `Frame_Info.thermal_tier`.
+- `sensor.power` — `power_source_changed` and `low_power_mode_changed` events drive `Frame_Info.power_source` and `Frame_Info.low_power_mode`.
 - `platform.surface` / `display` — window-occluded / activation events trigger background-window auto-drop; display refresh-rate descriptors inform the `Capped` cap arithmetic.
 - `frame.latency` — the latency-marker context populated by `cmd_latency_mark` (recording-side; GPU RHI) and the `mel_*_latency_sleep` API ride here; pacing carries the context handle through `Frame_Info`.
 - The GPU RHI's swapchain surface (`gpu.swapchain`) — present-wait / present-id / frame-statistics results feed `predicted_next_present_ns` and the prior-frame GPU timestamps feed `prior_gpu_ns`.
@@ -125,7 +125,7 @@ Downstream — pacing is consumed by:
 - `render.graph` — the render graph compiles against the current `Frame_Info.headroom_ns` for any quality-scaling pass that opts into pacing feedback.
 - `xr` — the XR target installs a custom pacing source against the contract defined here.
 - `media.video` — encoder pull-clock pacing rides the same custom-source contract.
-- `io.asset` — streaming heuristics may consult `thermal_tier` / `low_power_mode` to back off background residency work; pacing is the carrier, `platform.sensors` is the source.
+- `io.asset` — streaming heuristics may consult `thermal_tier` / `low_power_mode` to back off background residency work; pacing is the carrier, `sensor` is the source.
 - `media.video` (decode side, distinct from the encoder pull-clock case above) — decoder-driven playback consults pacing to align display-frame fetches with the swapchain's pacing tick.
 
 The bidirectional appearance of `media.video` in both lists is honest, not a contradiction: the encoder pull-clock is a custom pacing **source** (writes `Frame_Info`); a video player is a pacing **consumer** (reads it). The module's role flips with the use case, which is the whole point of designing pacing as a thin contract rather than a render-coupled mechanism.

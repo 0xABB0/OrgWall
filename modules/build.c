@@ -58,6 +58,7 @@ bool project(Mel_Build_Target *t) {
     mel_build_add_link_flag_on(t, MEL_PUBLIC, MEL_PLATFORM_MACOS, "-framework", "CoreFoundation");
     mel_build_add_link_flag_on(t, MEL_PUBLIC, MEL_PLATFORM_MACOS, "-framework", "Metal");
     mel_build_add_link_flag_on(t, MEL_PUBLIC, MEL_PLATFORM_MACOS, "-framework", "QuartzCore");
+    mel_build_add_link_flag_on(t, MEL_PUBLIC, MEL_PLATFORM_MACOS, "-framework", "IOKit");
 
     // Vulkan loader, linked only when the vulkan gpu backend is selected. The NDK
     // supplies libvulkan on Android, Homebrew on macOS (MoltenVK is the driver),

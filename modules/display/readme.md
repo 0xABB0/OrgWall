@@ -77,8 +77,13 @@ are compile-verified against their SDKs (see `todo.md` for per-platform gaps).
 
 - `modules/display/test/display_test.c` — platform-agnostic contract tests
   (dead / null / equal). Run: `./nob test macos -- --filter display`.
-- `apps/display-probe` — in-process enumeration dump. The fork-per-test harness
-  cannot exercise Cocoa (AppKit aborts in the fork child), so real macOS
-  enumeration is verified here: `./nob run display-probe macos`.
+- `apps/display-gui` — live display inspector (the fork-per-test harness cannot
+  exercise Cocoa — AppKit aborts in the fork child — so real macOS enumeration is
+  verified here). A 250 ms reactor tick re-enumerates and re-paints a canvas with
+  every decoded descriptor field for every display, plus an event log fed by
+  `mel_display_poll_events` (watch `config_changed`/`added`/`removed` as you change
+  resolution or hot-plug). A "Toggle EDR headroom" button puts an EDR-requesting
+  `CAMetalLayer` on screen so `hdr.edr_max_now` rises above 1.0 on demand. Run:
+  `./nob run display-gui macos`.
 
 Remaining work is tracked in `todo.md`.

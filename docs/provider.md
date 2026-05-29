@@ -1,6 +1,6 @@
 # Melody Provider Module — Architecture Spec
 
-Generic runtime-loaded plugin registry. Vendor SDKs, platform daemons, and any other out-of-tree code that the engine must call into are reached through a single, uniform shape: enumerate, request, release, with ABI versioning, callback bridging into a consumer-supplied completion pump, and bounded participation in consumer cache keys. The module is foundation — it has no sibling-module dependencies and stands beneath every consumer that needs to load third-party code (`gpu`, `platform.sensors`, future consumers as they emerge).
+Generic runtime-loaded plugin registry. Vendor SDKs, platform daemons, and any other out-of-tree code that the engine must call into are reached through a single, uniform shape: enumerate, request, release, with ABI versioning, callback bridging into a consumer-supplied completion pump, and bounded participation in consumer cache keys. The module is foundation — it has no sibling-module dependencies and stands beneath every consumer that needs to load third-party code (`gpu`, `sensor`, future consumers as they emerge).
 
 This document is bound by the Ten Commandments of the Engine; tags are cited where a decision turns on one.
 
@@ -16,7 +16,7 @@ This document is bound by the Ten Commandments of the Engine; tags are cited whe
 
 **MEL-ENGINE-VIII** governs failure. Every fallible operation returns a per-action status with the encoding of §3.2 of gpu-rhi.md (`{ value, status }`, low-two-bit severity, per-action diagnostic enum). Provider load failure logs the underlying cause — `dlerror`, `GetLastError` formatted, vendor SDK init code, ABI mismatch — at the failure site through `mel_log_error("provider", ...)`. The enum stays compact; no detail is lost.
 
-**MEL-ENGINE-X** governs scope. The module is the wingman. It does not appear in any user-visible API beyond the consumer that wraps it (`gpu_provider_request` and `tooling_provider_request` in `gpu/`, future `sensors_provider_request` in `platform.sensors/`). A game never types `Mel_Provider_Registry` to be correct.
+**MEL-ENGINE-X** governs scope. The module is the wingman. It does not appear in any user-visible API beyond the consumer that wraps it (`gpu_provider_request` and `tooling_provider_request` in `gpu/`, future `sensors_provider_request` in `sensor/`). A game never types `Mel_Provider_Registry` to be correct.
 
 ---
 
@@ -30,7 +30,7 @@ A `Mel_Provider` is opaque to consumers; the kind-specific surface (the function
 
 ### 2.2 `Mel_Provider_Registry`
 
-One registry per consumer context. `gpu/` owns one registry per `Mel_Gpu_Device`; `platform.sensors/` will own one per sensor host. Registries do not share state; a provider request against one does not implicitly satisfy a request against another, even when the underlying native module is the same DLL on disk — the registry tracks `request_count` per-(registry, module) so two consumers can each request the same SDK and only the second `release` unmaps it.
+One registry per consumer context. `gpu/` owns one registry per `Mel_Gpu_Device`; `sensor/` will own one per sensor host. Registries do not share state; a provider request against one does not implicitly satisfy a request against another, even when the underlying native module is the same DLL on disk — the registry tracks `request_count` per-(registry, module) so two consumers can each request the same SDK and only the second `release` unmaps it.
 
 The registry holds:
 
@@ -40,7 +40,7 @@ The registry holds:
 
 ### 2.3 `Mel_Provider_Kind`
 
-An opaque `u32` ID, defined by the consumer's catalog. The provider module never sees the semantics. `gpu/` defines `TemporalReconstruction`, `FrameGeneration`, `RayRegeneration`, `RadianceCache`, `LatencyControl`, `RayTracingOptimization`, `GpuProfiling`, `CrashDiagnostics`, `ShaderAnalysis`, `MobilePower`, `XrRuntimeBridge` and the `Tooling_*` kinds; `platform.sensors/` will define its own; future consumers theirs. The catalog stays in the consumer's documentation, never here. (MEL-ENGINE-IX: parts compose. The kind catalog is a parameter, not a hard-coded enum baked into the registry.)
+An opaque `u32` ID, defined by the consumer's catalog. The provider module never sees the semantics. `gpu/` defines `TemporalReconstruction`, `FrameGeneration`, `RayRegeneration`, `RadianceCache`, `LatencyControl`, `RayTracingOptimization`, `GpuProfiling`, `CrashDiagnostics`, `ShaderAnalysis`, `MobilePower`, `XrRuntimeBridge` and the `Tooling_*` kinds; `sensor/` will define its own; future consumers theirs. The catalog stays in the consumer's documentation, never here. (MEL-ENGINE-IX: parts compose. The kind catalog is a parameter, not a hard-coded enum baked into the registry.)
 
 ### 2.4 `Mel_Provider_Abi_Version`
 
@@ -158,7 +158,7 @@ None. The provider module is foundation. It depends on the engine's slotmap (for
 Consumers that depend on `provider`:
 
 - `gpu` (the present client) — every kind in gpu-rhi.md §9.2 through §9.8 registers through this module; the GPU-specific catalog of kinds lives in `gpu/`, not here.
-- `platform.sensors` (pinned, future) — vendor sensor SDKs (Tobii eye tracking, Ultraleap hand tracking, vendor IMU fusion libraries) will register through this module.
+- `sensor` (pinned, future) — vendor sensor SDKs (Tobii eye tracking, Ultraleap hand tracking, vendor IMU fusion libraries) will register through this module.
 - `frame-latency` (pinned, future) — reaches NV Reflex / AMD Anti-Lag / Intel XeLL through the gpu-owned latency provider kinds, but the `frame-latency/` doc cross-references this module for the registry primitive.
 - `render-reconstruction`, `media-video`, `xr` (pinned, future) — each will likely register kinds for the vendor reconstruction / codec / runtime-bridge SDKs in their domains.
 

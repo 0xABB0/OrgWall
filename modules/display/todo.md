@@ -54,10 +54,16 @@ run on each platform.
   - [ ] `caps.display.privacy_tier = web_limited` once a caps surface exists.
 
 ## macOS lowering — fill gaps
-- [ ] `scale_factor`, EDR-now, and EDR-reference read as 1.0 / 1.0 / 0.0 in a
-      process without a window-server session (verified, environmental). Confirm
-      true values inside a windowed app; document the GUI-session requirement on
-      the API, or source scale independently of session state.
+- [x] ~~scale_factor reads 1.0 because of a missing window-server session~~ —
+      **disproven** via `apps/display-gui`. `scale_factor` = `backingScaleFactor`
+      = the current mode's backing scale: 1.0 for a true 1× mode (2560×1600 where
+      pixels == points, confirmed by `CGDisplayModeGetPixelWidth`/`GetWidth`), 2.0
+      for a HiDPI mode. Correct as-is. EDR `now` is live headroom (1.0 in SDR,
+      rises with EDR content / lower brightness — the inspector forces it).
+- [ ] Open design choice: keep `scale_factor` as the *current mode's* backing
+      scale (matches spec wording, tracks the user's resolution), or report the
+      panel's *intrinsic* scale (always 2.0 on a Retina panel regardless of mode).
+      Currently the former.
 - [ ] Connector kind beyond `Internal`/`Unknown` — walk IORegistry
       (`IODisplayConnect`) to distinguish HDMI / DisplayPort / USB-C.
 - [ ] VRR range — `vrr_range` is currently always absent on macOS; expose

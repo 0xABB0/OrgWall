@@ -1,6 +1,6 @@
 # Melody Platform — Display Enumeration (`display`)
 
-Per-system enumeration of physical displays, their pixel geometry, refresh and VRR envelope, HDR / wide-color capabilities, color profile, and occlusion / power state. Sibling of `platform.surface` (the window-attached presentation target) and `platform.sensors` (input devices and ambient signals); upstream of the GPU swapchain (`gpu` §7.4), which optionally targets a specific `Mel_Display` when the platform admits direct-output composition.
+Per-system enumeration of physical displays, their pixel geometry, refresh and VRR envelope, HDR / wide-color capabilities, color profile, and occlusion / power state. Sibling of `platform.surface` (the window-attached presentation target) and `sensor` (input devices and ambient signals); upstream of the GPU swapchain (`gpu` §7.4), which optionally targets a specific `Mel_Display` when the platform admits direct-output composition.
 
 This module supersedes `Mel_Gpu_Output` as previously defined in `gpu-rhi.md` §5.1. Displays are a property of the *system*, not of the GPU adapter; the adapter merely reports which subset of system displays it can drive. The handle moves; the cross-reference from `Mel_Gpu_Adapter` remains.
 
@@ -122,7 +122,7 @@ Architecture: a portable registry/diff core (`src/display.c`) owns the slotmap, 
 
 Per-platform lowering status:
 
-- **macOS** (`src/macos/`) — implemented and verified on hardware (`apps/display-probe`). `NSScreen` + Core Graphics, exact-millihertz refresh, P3 gamut, EDR ratios, ICC bytes, `NSScreen*` native handle. Scale and EDR read conservatively in a process without a window-server session.
+- **macOS** (`src/macos/`) — implemented and verified on hardware (`apps/display-gui`). `NSScreen` + Core Graphics, exact-millihertz refresh, P3 gamut, EDR ratios, ICC bytes, `NSScreen*` native handle. `scale_factor` is `backingScaleFactor`, i.e. the backing scale of the *current mode* — 1.0 for a 1× mode (e.g. a 2560×1600 framebuffer where pixels == points), 2.0 for a HiDPI "Retina" mode — so it tracks the user's resolution choice. `edr_max_now` is live headroom and rises above 1.0 only while EDR content is on screen or at lower SDR brightness (the inspector's EDR-force button demonstrates this).
 - **iOS** (`src/ios/`) — implemented via `UIScreen`. Single main screen; external screens are a follow-up via `UIScene` notifications.
 - **Linux** (`src/linux/`) — implemented via XRandR 1.5+. Wayland (`wl_output` + color-management) and Vulkan-KMS (`VK_KHR_display`) remain follow-ups.
 - **Android** (`src/android/`) — implemented via `DisplayManager` + `Display` through JNI (`mel_platform_android_env`).

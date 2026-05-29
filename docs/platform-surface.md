@@ -10,7 +10,7 @@ This document is bound by the Ten Commandments of the Engine. Where a decision t
 
 - Parent module: `platform` — already houses the per-OS event-loop, input, and clipboard surfaces under `modules/platform/`.
 - This module: `platform.surface` — the window wrapper and its lifecycle.
-- Siblings under `platform`: `display` (the `Mel_Display` that a surface lives on, formerly `Mel_Gpu_Output`), `platform.sensors` (accelerometer, gyroscope, ambient light, compass).
+- Siblings under `platform`: `display` (the `Mel_Display` that a surface lives on, formerly `Mel_Gpu_Output`), `sensor` (accelerometer, gyroscope, ambient light, compass).
 - Downstream: `gpu` consumes `Mel_Platform_Surface` when constructing `Mel_Gpu_Swapchain`. XR sessions do **not** bind to `platform.surface` — OpenXR / visionOS Compositor Services own the compositor layer set directly and pipe through GPU's borrowed-image swapchains (§7.4 of `docs/gpu-rhi.md`). Flag at integration sites: a surface is not a precondition for an XR pipeline.
 
 ## 2. Inherited principles
@@ -104,7 +104,7 @@ The same discipline holds on every platform that delivers destruction synchronou
 - **Upstream: none.** `platform.surface` depends only on `platform` core and `lib/core` slotmap. It does not depend on `gpu`.
 - **Downstream: `gpu`.** `Mel_Gpu_Swapchain` takes a `Mel_Platform_Surface` at creation; the swapchain's lifecycle follows the surface's per §7.4 of `docs/gpu-rhi.md`. Multi-swapchain per device implies multiple surfaces per device, which the platform module already supports.
 - **Sibling: `display`.** `display_migration` event carries `Mel_Display` handles; the display module owns enumeration, HDR caps, refresh-rate envelope, and color-gamut metadata for each output. `Mel_Display` is the renaming of `Mel_Gpu_Output` from the prior spec, extracted to its own module.
-- **Sibling: `platform.sensors`.** Orthogonal — sensors do not depend on a surface and a surface does not depend on sensors. Some game UIs cross-reference both (orientation-locked content + accelerometer-driven parallax).
+- **Sibling: `sensor`.** Orthogonal — sensors do not depend on a surface and a surface does not depend on sensors. Some game UIs cross-reference both (orientation-locked content + accelerometer-driven parallax).
 - **Frame pacing (`docs/frame-pacing.md`).** The pacing source is per-swapchain, not per-surface. Surface events feed the pacing source indirectly through the swapchain rebuild path (a `Backgrounded` surface lets the pacing source drop to `OnDemand`).
 - **XR (`docs/xr.md`).** XR sessions do not bind to `Mel_Platform_Surface`. OpenXR's `XrSession` and visionOS's `cp_layer_renderer` own the compositor layer set directly and provide image sets to the GPU through borrowed-image swapchains. A Melody XR app may still own a `Mel_Platform_Surface` for a 2D companion window (mirror view, debug HUD), but the head-mounted display is not a surface in this module's sense.
 
