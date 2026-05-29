@@ -1,4 +1,4 @@
-#include <music.midi/midi_convert.h>
+#include <midi/midi_convert.h>
 
 #include <music.theory/pitch.h>
 #include <music.theory/tuning.h>

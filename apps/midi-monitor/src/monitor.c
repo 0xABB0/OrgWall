@@ -6,8 +6,8 @@
 #include <gui/gui.h>
 #include <reactor/reactor.h>
 
-#include <music.midi/midi.h>
-#include <music.midi/midi_port.h>
+#include <midi/midi.h>
+#include <midi/midi_port.h>
 
 #include "monitor.h"
 

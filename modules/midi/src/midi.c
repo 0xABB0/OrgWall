@@ -1,4 +1,4 @@
-#include <music.midi/midi.h>
+#include <midi/midi.h>
 
 #include <string.h>
 

@@ -1,6 +1,6 @@
 #pragma once
 
-#include <music.midi/midi_port.h>
+#include <midi/midi_port.h>
 
 #include <stdint.h>
 #include <stdbool.h>
