@@ -52,7 +52,7 @@ The shared color-space enumeration `Mel_Color_Space ∈ { sRGB, Display_P3, Rec_
 
 ## Event stream
 
-`Mel_Display_Event` flows through the platform reactor source:
+The event surface lives in its own header, `<display/events.h>`, separate from the enumeration/query surface in `<display/display.h>` — a consumer that only reads display geometry never pulls in the event types. `Mel_Display_Event` flows through the platform reactor source:
 
 - `display_added` — hot-plug. New handle attached to the system list.
 - `display_removed` — unplug. Handle generation rolls. Surfaces currently anchored to the removed display fire `display_migration` (see `platform.surface`).
@@ -123,7 +123,7 @@ Each accessor resolves against the live registry at call time, so a removed disp
 
 ## Implementation status
 
-The portable surface lives in `<display/display.h>`: `Mel_Display`, `Mel_Display_Descriptor`, the `Mel_Color_Space` enum, the HDR struct, the event types, and the API (`mel_display_init` / `_shutdown` / `_refresh` / `_count` / `_list` / `_describe` / `_alive` / `_equal` / `_poll_events`). Native platform access is split into the per-target headers under `<display/<target>/>` (P2, above).
+The portable enumeration/query surface lives in `<display/display.h>`: `Mel_Display`, `Mel_Display_Descriptor`, the `Mel_Color_Space` enum, the HDR struct, and the API (`mel_display_init` / `_shutdown` / `_refresh` / `_count` / `_list` / `_describe` / `_alive` / `_equal`). The event stream — `Mel_Display_Event`, `Mel_Display_Event_Kind`, the `MEL_DISPLAY_FIELD_*` changed-field bitset, and `mel_display_poll_events` — lives in `<display/events.h>`. Native platform access is split into the per-target headers under `<display/<target>/>` (P2, above).
 
 The module is a **producer**: every GPU/surface coupling above (`adapter_displays`, `target_display`, `display_migration`, the `adapter_removed → display_removed` sequencing) is a downstream consumer that imports this handle once those modules exist. None is a build dependency; `display` compiles and runs standalone.
 

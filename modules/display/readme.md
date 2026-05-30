@@ -13,7 +13,7 @@ it. The module builds and runs standalone today.
 
 ## Public surface
 
-`<display/display.h>`
+`<display/display.h>` (enumeration + query) · `<display/events.h>` (event stream)
 
 - `Mel_Display` — typed value handle over `Mel_SlotMap_Handle`. Trivially
   copyable, threadable. Compared by `mel_display_equal`. Identity persists across
@@ -28,8 +28,11 @@ it. The module builds and runs standalone today.
 - `Mel_Color_Space`, `Mel_Color_Icc_Profile` — the spec parks the color-space
   enumeration here; it is consumed identically by GPU swapchain configuration and
   media pipelines once those exist. One enum, one meaning.
-- Event types — `Mel_Display_Event` with a kind (`added` / `removed` /
-  `configuration_changed` / `power_state_changed`) and a changed-field bitset.
+- Event types live in a separate header, `<display/events.h>` — `Mel_Display_Event`
+  with a kind (`added` / `removed` / `configuration_changed` / `power_state_changed`),
+  the `MEL_DISPLAY_FIELD_*` changed-field bitset, and `mel_display_poll_events`.
+  The enumeration/query surface (`display.h`) carries no event types; a consumer
+  that only reads geometry need not include `events.h`.
 - Per-target native access (the P2 escape) lives in `<display/<target>/<target>.h>`,
   not in the portable header: typed accessors that return what the platform
   honestly exposes (`mel_display_macos_screen` → `NSScreen*` and
@@ -56,11 +59,15 @@ it. The module builds and runs standalone today.
 
 `src/display.c` is a portable registry/diff core: it owns a slotmap of displays,
 keys entries by a backend-supplied stable id, and on `refresh()` diffs against the
-live set — preserving handles for survivors, rolling generations for the departed,
-and emitting events with a per-field changed-mask (collapsing to
-`power_state_changed` when only `state` moved). The per-platform reading lives
-behind one seam, `mel_display__enumerate` (`src/display_backend.h`); a new
-platform implements only that.
+live set — preserving handles for survivors, rolling generations for the departed.
+The event concern is split into `src/events.c`: it computes the per-field
+changed-mask (`mel_display_events__changed_fields`, collapsing to
+`power_state_changed` when only `state` moved) and owns the event ring drained by
+`mel_display_poll_events`. `display.c` emits into it through the private
+`src/events_internal.h` seam (`__emit` / `__changed_fields` / `__reset`), so the
+diff and the queue stay decoupled. The per-platform reading lives behind one seam,
+`mel_display__enumerate` (`src/display_backend.h`); a new platform implements only
+that.
 
 Each platform implements that one seam in its own axis dir, selected by the
 build's platform/runtime chain — `src/macos/` (`NSScreen` + Core Graphics),

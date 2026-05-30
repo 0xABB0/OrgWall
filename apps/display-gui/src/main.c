@@ -6,6 +6,7 @@
 #include <app/app.h>
 #include <gui/gui.h>
 #include <display/display.h>
+#include <display/events.h>
 
 #if MEL_PLATFORM_OSX
 #include "edr.h"

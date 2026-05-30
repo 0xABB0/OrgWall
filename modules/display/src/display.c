@@ -8,9 +8,9 @@
 #include <string.h>
 
 #include "display_backend.h"
+#include "events_internal.h"
 
 #define MEL_DISPLAY_REGISTRY_CAP 32
-#define MEL_DISPLAY_EVENTS_CAP   128
 
 typedef struct {
     u64                             stable_id;
@@ -29,10 +29,6 @@ typedef struct {
 
     Registry_Entry entries[MEL_DISPLAY_REGISTRY_CAP];
     u32            entry_count;
-
-    Mel_Display_Event events[MEL_DISPLAY_EVENTS_CAP];
-    u32                        event_head;
-    u32                        event_count;
 } Registry;
 
 static Registry g_reg;
@@ -42,54 +38,6 @@ static void icc_free(const Mel_Alloc* a, Mel_Color_Icc_Profile* icc)
     if (icc->data) mel_dealloc(a, (void*)icc->data);
     icc->data = NULL;
     icc->size = 0;
-}
-
-static bool icc_equal(const Mel_Color_Icc_Profile* x, const Mel_Color_Icc_Profile* y)
-{
-    if (x->size != y->size) return false;
-    if (x->size == 0)       return true;
-    return memcmp(x->data, y->data, x->size) == 0;
-}
-
-static u32 desc_changed_fields(const Mel_Display_Descriptor* a,
-                               const Mel_Display_Descriptor* b)
-{
-    u32 f = 0;
-    if (memcmp(&a->native_resolution, &b->native_resolution, sizeof a->native_resolution) != 0)
-        f |= MEL_DISPLAY_FIELD_RESOLUTION;
-    if (a->refresh_mode_count != b->refresh_mode_count ||
-        memcmp(a->refresh_modes, b->refresh_modes,
-               a->refresh_mode_count * sizeof a->refresh_modes[0]) != 0)
-        f |= MEL_DISPLAY_FIELD_REFRESH;
-    if (a->has_vrr != b->has_vrr || a->vrr_min_mhz != b->vrr_min_mhz || a->vrr_max_mhz != b->vrr_max_mhz)
-        f |= MEL_DISPLAY_FIELD_VRR;
-    if (memcmp(&a->hdr, &b->hdr, sizeof a->hdr) != 0)
-        f |= MEL_DISPLAY_FIELD_HDR;
-    if (!icc_equal(&a->icc_profile, &b->icc_profile))
-        f |= MEL_DISPLAY_FIELD_ICC;
-    if (a->scale_factor != b->scale_factor)
-        f |= MEL_DISPLAY_FIELD_SCALE;
-    if (a->has_position != b->has_position ||
-        a->position_virtual_x != b->position_virtual_x ||
-        a->position_virtual_y != b->position_virtual_y)
-        f |= MEL_DISPLAY_FIELD_POSITION;
-    if (a->state != b->state)
-        f |= MEL_DISPLAY_FIELD_STATE;
-    return f;
-}
-
-static void event_push(Mel_Display_Event ev)
-{
-    if (g_reg.event_count == MEL_DISPLAY_EVENTS_CAP) {
-        mel_log_warn("display",
-                     "event queue full (%u); dropping oldest, kind=%d",
-                     MEL_DISPLAY_EVENTS_CAP, (int)ev.kind);
-        g_reg.event_head = (g_reg.event_head + 1) % MEL_DISPLAY_EVENTS_CAP;
-        g_reg.event_count--;
-    }
-    u32 tail = (g_reg.event_head + g_reg.event_count) % MEL_DISPLAY_EVENTS_CAP;
-    g_reg.events[tail] = ev;
-    g_reg.event_count++;
 }
 
 static Registry_Entry* entry_by_stable_id(u64 id)
@@ -105,8 +53,7 @@ void mel_display_init(const Mel_Alloc* alloc)
     g_reg.alloc = alloc ? alloc : mel_alloc_heap();
     mel_slotmap_init(&g_reg.slots, g_reg.alloc, .item_size = sizeof(Display_Slot), .initial_capacity = 8);
     g_reg.entry_count = 0;
-    g_reg.event_head  = 0;
-    g_reg.event_count = 0;
+    mel_display_events__reset();
     g_reg.initialized = true;
     mel_display_refresh();
 }
@@ -120,6 +67,7 @@ void mel_display_shutdown(void)
     }
     mel_slotmap_free(&g_reg.slots);
     memset(&g_reg, 0, sizeof g_reg);
+    mel_display_events__reset();
 }
 
 u32 mel_display_refresh(void)
@@ -138,7 +86,7 @@ u32 mel_display_refresh(void)
             Display_Slot* s = mel_slotmap_get(&g_reg.slots, e->handle);
             if (!s) { icc_free(g_reg.alloc, &raw[i].desc.icc_profile); continue; }
 
-            u32 fields = desc_changed_fields(&s->desc, &raw[i].desc);
+            u32 fields = mel_display_events__changed_fields(&s->desc, &raw[i].desc);
             if (fields == 0) {
                 icc_free(g_reg.alloc, &raw[i].desc.icc_profile);
                 continue;
@@ -160,7 +108,7 @@ u32 mel_display_refresh(void)
                 (fields == MEL_DISPLAY_FIELD_STATE)
                     ? MEL_DISPLAY_EVENT_POWER_STATE_CHANGED
                     : MEL_DISPLAY_EVENT_CONFIGURATION_CHANGED;
-            event_push((Mel_Display_Event){
+            mel_display_events__emit((Mel_Display_Event){
                 .kind = kind, .display = { e->handle }, .changed_fields = fields });
             continue;
         }
@@ -177,7 +125,7 @@ u32 mel_display_refresh(void)
         u32 idx = g_reg.entry_count++;
         g_reg.entries[idx] = (Registry_Entry){ .stable_id = raw[i].stable_id, .handle = h };
         seen[idx] = true;
-        event_push((Mel_Display_Event){
+        mel_display_events__emit((Mel_Display_Event){
             .kind = MEL_DISPLAY_EVENT_ADDED, .display = { h } });
     }
 
@@ -187,7 +135,7 @@ u32 mel_display_refresh(void)
         Display_Slot* s = mel_slotmap_get(&g_reg.slots, h);
         if (s) icc_free(g_reg.alloc, &s->desc.icc_profile);
         mel_slotmap_remove(&g_reg.slots, h);
-        event_push((Mel_Display_Event){
+        mel_display_events__emit((Mel_Display_Event){
             .kind = MEL_DISPLAY_EVENT_REMOVED, .display = { h } });
 
         u32 last = g_reg.entry_count - 1;
@@ -251,15 +199,4 @@ const Mel_Display_Descriptor* mel_display__descriptor(Mel_Display d)
     if (!mel_display_alive(d)) return NULL;
     Display_Slot* s = mel_slotmap_get(&g_reg.slots, d.h);
     return &s->desc;
-}
-
-u32 mel_display_poll_events(Mel_Display_Event* out, u32 cap)
-{
-    if (!g_reg.initialized) return 0;
-    u32 n = g_reg.event_count < cap ? g_reg.event_count : cap;
-    for (u32 i = 0; i < n; i++)
-        out[i] = g_reg.events[(g_reg.event_head + i) % MEL_DISPLAY_EVENTS_CAP];
-    g_reg.event_head  = (g_reg.event_head + n) % MEL_DISPLAY_EVENTS_CAP;
-    g_reg.event_count -= n;
-    return n;
 }
