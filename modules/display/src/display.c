@@ -210,7 +210,7 @@ u32 mel_display_list(Mel_Display* out, u32 cap)
     if (!g_reg.initialized) return 0;
     u32 n = g_reg.entry_count < cap ? g_reg.entry_count : cap;
     for (u32 i = 0; i < n; i++) out[i] = (Mel_Display){ g_reg.entries[i].handle };
-    return g_reg.entry_count;
+    return n;
 }
 
 Mel_Display_Describe_Result mel_display_describe(Mel_Display d)
@@ -238,12 +238,19 @@ bool mel_display_equal(Mel_Display a, Mel_Display b)
     return a.h.index == b.h.index && a.h.generation == b.h.generation;
 }
 
-Mel_Display_Native_Handle mel_display_native_handle(Mel_Display d)
+bool mel_display__stable_id(Mel_Display d, u64* out_id)
 {
-    if (!mel_display_alive(d))
-        return (Mel_Display_Native_Handle){ .kind = MEL_DISPLAY_NATIVE_LOST };
+    if (!mel_display_alive(d)) return false;
     Display_Slot* s = mel_slotmap_get(&g_reg.slots, d.h);
-    return s->desc.native_handle;
+    *out_id = s->stable_id;
+    return true;
+}
+
+const Mel_Display_Descriptor* mel_display__descriptor(Mel_Display d)
+{
+    if (!mel_display_alive(d)) return NULL;
+    Display_Slot* s = mel_slotmap_get(&g_reg.slots, d.h);
+    return &s->desc;
 }
 
 u32 mel_display_poll_events(Mel_Display_Event* out, u32 cap)

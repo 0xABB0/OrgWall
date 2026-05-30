@@ -11,14 +11,14 @@ This document is bound by the Ten Commandments of the Engine. Where a decision t
 - Parent module: `platform` — already houses the per-OS event-loop, input, and clipboard surfaces under `modules/platform/`.
 - This module: `platform.surface` — the window wrapper and its lifecycle.
 - Siblings under `platform`: `display` (the `Mel_Display` that a surface lives on, formerly `Mel_Gpu_Output`), `sensor` (accelerometer, gyroscope, ambient light, compass).
-- Downstream: `gpu` consumes `Mel_Platform_Surface` when constructing `Mel_Gpu_Swapchain`. XR sessions do **not** bind to `platform.surface` — OpenXR / visionOS Compositor Services own the compositor layer set directly and pipe through GPU's borrowed-image swapchains (§7.4 of `docs/gpu-rhi.md`). Flag at integration sites: a surface is not a precondition for an XR pipeline.
+- Downstream: `gpu` consumes `Mel_Platform_Surface` when constructing `Mel_Gpu_Swapchain`. XR sessions do **not** bind to `platform.surface` — OpenXR / visionOS Compositor Services own the compositor layer set directly and pipe through GPU's borrowed-image swapchains (§7.4 of `design/gpu-rhi.md`). Flag at integration sites: a surface is not a precondition for an XR pipeline.
 
 ## 2. Inherited principles
 
-The surface inherits the cross-cutting policies established in `docs/gpu-rhi.md`:
+The surface inherits the cross-cutting policies established in `design/gpu-rhi.md`:
 
 - **P2 — full-control escape hatches.** Every engine-managed surface convenience exposes the underlying native handle so the app can reach the OS directly when its product demands it. The simple path is the powerful path further along (MEL-ENGINE-II).
-- **MEL-ENGINE-III — no stolen cycles.** Events are subscription-based, not polled. A surface that is `Backgrounded` or `Occluded` consumes nothing it was not asked to. The pacing source (`docs/frame-pacing.md`) and the surface event stream are decoupled by design.
+- **MEL-ENGINE-III — no stolen cycles.** Events are subscription-based, not polled. A surface that is `Backgrounded` or `Occluded` consumes nothing it was not asked to. The pacing source (`design/frame-pacing.md`) and the surface event stream are decoupled by design.
 - **MEL-ENGINE-V — respect the user's product.** The platform never silently re-scales the swapchain on a DPI / scale-factor change. Re-flow versus resize is the app's editorial decision; the engine reports the change and waits.
 - **MEL-ENGINE-VIII — fail with honor.** Every state change visible to the app; no silent recreate. Surface loss, display migration, layer replacement, and canvas reconfiguration each fire a distinct event with a distinct semantic — never a single ambiguous "something changed" callback.
 
@@ -51,7 +51,7 @@ Every event below is a distinct case in `Mel_Platform_Surface_Event`. The mask o
 - `platform_layer_replaced { new_native_handle }` — the underlying compositor layer was swapped under the surface object. macOS `CAMetalLayer` reattachment on window mode change, Android `Surface` recreation through `SurfaceHolder.Callback`, iOS layer rehosting on view-controller transitions. The downstream swapchain must rebuild.
 - `canvas_reconfigured { context_id }` — Web-specific. The `<canvas>` element's `GPUCanvasContext.configure({...})` was called externally (the app's UI framework changed format, alpha mode, or color space). The browser invalidated the current configuration.
 - `surface_lost { reason: Mel_Platform_Surface_Loss_Reason }` — the native backing is no longer valid. Reasons: `android_surface_destroyed`, `wayland_compositor_reset`, `web_context_lost`, `gpu_device_removed`, `display_disconnected`, `permissions_revoked`. The swapchain bound to this surface must be released *synchronously* on certain platforms (§8).
-- `fullscreen_evicted { previous_mode }` — see §8 below. Surface-level event because the eviction is a window-manager decision, not a swapchain decision. The swapchain's `fullscreen_mode` enum and its acquire / release entry points remain in §7.4 of `docs/gpu-rhi.md`; this event is the eviction notification that flows back through the surface.
+- `fullscreen_evicted { previous_mode }` — see §8 below. Surface-level event because the eviction is a window-manager decision, not a swapchain decision. The swapchain's `fullscreen_mode` enum and its acquire / release entry points remain in §7.4 of `design/gpu-rhi.md`; this event is the eviction notification that flows back through the surface.
 
 Subscription is the only interface. The engine does not expose a `surface_poll_event()` because that would invert the cost — every frame paying for a queue check whether or not the app cares (MEL-ENGINE-III).
 
@@ -69,11 +69,11 @@ The `scale_factor_changed` event fires when *any* of the three changes — a win
 
 Mobile surfaces rotate. `Mel_Platform_Surface_Orientation ∈ { Identity | Rotate90 | Rotate180 | Rotate270 | HorizontalFlip | VerticalFlip | HorizontalFlipRotate90 | HorizontalFlipRotate270 }` is the surface's reported orientation relative to its display's native one. The current value is queryable via `surface_orientation(surface) → orientation` and re-fired on every `orientation_changed` event. The enum is exhaustive of the eight `currentTransform` cases Vulkan reports plus the `DXGI_MODE_ROTATION_*` and `CAMetalLayer.transform` equivalents.
 
-The orientation is a *property of the window*, observed from the window. The downstream swapchain's `pre_rotation` field (§7.4 of `docs/gpu-rhi.md`) and the projection-matrix consumption stay in GPU because they govern *what the renderer does about* the rotation. The split: this module reports the rotation; GPU consumes it.
+The orientation is a *property of the window*, observed from the window. The downstream swapchain's `pre_rotation` field (§7.4 of `design/gpu-rhi.md`) and the projection-matrix consumption stay in GPU because they govern *what the renderer does about* the rotation. The split: this module reports the rotation; GPU consumes it.
 
 ## 8. `fullscreen_evicted` event
 
-When a swapchain in `Exclusive` or `ExclusiveAllowTearing` fullscreen loses focus (D3D12 `DXGI_STATUS_OCCLUDED` plus minimization; Vulkan `VK_EXT_full_screen_exclusive_*` lost token; macOS exclusive-app fullscreen interrupted by Mission Control or Cmd-Tab), the *window* is what the OS evicted — the swapchain's exclusive mode is contingent on the window owning the display. The event therefore lives at the surface layer. Payload: `previous_mode ∈ { Exclusive | ExclusiveAllowTearing }`. The app may re-acquire fullscreen when focus returns by calling the swapchain's `acquire_fullscreen()` from §7.4 of `docs/gpu-rhi.md`; the engine does not silently degrade. The swapchain's `fullscreen_mode` enum and its `acquire_fullscreen()` / `release_fullscreen()` entry points remain in GPU; only the eviction notification is extracted here.
+When a swapchain in `Exclusive` or `ExclusiveAllowTearing` fullscreen loses focus (D3D12 `DXGI_STATUS_OCCLUDED` plus minimization; Vulkan `VK_EXT_full_screen_exclusive_*` lost token; macOS exclusive-app fullscreen interrupted by Mission Control or Cmd-Tab), the *window* is what the OS evicted — the swapchain's exclusive mode is contingent on the window owning the display. The event therefore lives at the surface layer. Payload: `previous_mode ∈ { Exclusive | ExclusiveAllowTearing }`. The app may re-acquire fullscreen when focus returns by calling the swapchain's `acquire_fullscreen()` from §7.4 of `design/gpu-rhi.md`; the engine does not silently degrade. The swapchain's `fullscreen_mode` enum and its `acquire_fullscreen()` / `release_fullscreen()` entry points remain in GPU; only the eviction notification is extracted here.
 
 ## 9. Android UI-thread synchronous release
 
@@ -83,7 +83,7 @@ The discipline is pinned at this layer because the contract is the platform's, n
 
 - The handler for `surface_lost { reason: android_surface_destroyed }` runs on the JNI-attached UI thread.
 - The downstream GPU `swapchain_release` path is callable synchronously from inside the handler.
-- In-flight submission completion futures (§3.3 of `docs/gpu-rhi.md`) **detach** from the surface lifetime: each future resolves with `surface_lost` status when the submission finishes draining on the GPU's reactor pump, *after* the handler has returned. The handler does not block on GPU work.
+- In-flight submission completion futures (§3.3 of `design/gpu-rhi.md`) **detach** from the surface lifetime: each future resolves with `surface_lost` status when the submission finishes draining on the GPU's reactor pump, *after* the handler has returned. The handler does not block on GPU work.
 - The reactor's completion pump and the surface event delivery thread are decoupled for exactly this reason.
 
 The same discipline holds on every platform that delivers destruction synchronously (Wayland compositor disconnect, iOS view-controller invalidation), and the engine documents the synchronous-handler contract uniformly so app code does not branch on platform inside the handler body.
@@ -102,11 +102,11 @@ The same discipline holds on every platform that delivers destruction synchronou
 ## 11. Sibling-module dependencies
 
 - **Upstream: none.** `platform.surface` depends only on `platform` core and `lib/core` slotmap. It does not depend on `gpu`.
-- **Downstream: `gpu`.** `Mel_Gpu_Swapchain` takes a `Mel_Platform_Surface` at creation; the swapchain's lifecycle follows the surface's per §7.4 of `docs/gpu-rhi.md`. Multi-swapchain per device implies multiple surfaces per device, which the platform module already supports.
+- **Downstream: `gpu`.** `Mel_Gpu_Swapchain` takes a `Mel_Platform_Surface` at creation; the swapchain's lifecycle follows the surface's per §7.4 of `design/gpu-rhi.md`. Multi-swapchain per device implies multiple surfaces per device, which the platform module already supports.
 - **Sibling: `display`.** `display_migration` event carries `Mel_Display` handles; the display module owns enumeration, HDR caps, refresh-rate envelope, and color-gamut metadata for each output. `Mel_Display` is the renaming of `Mel_Gpu_Output` from the prior spec, extracted to its own module.
 - **Sibling: `sensor`.** Orthogonal — sensors do not depend on a surface and a surface does not depend on sensors. Some game UIs cross-reference both (orientation-locked content + accelerometer-driven parallax).
-- **Frame pacing (`docs/frame-pacing.md`).** The pacing source is per-swapchain, not per-surface. Surface events feed the pacing source indirectly through the swapchain rebuild path (a `Backgrounded` surface lets the pacing source drop to `OnDemand`).
-- **XR (`docs/xr.md`).** XR sessions do not bind to `Mel_Platform_Surface`. OpenXR's `XrSession` and visionOS's `cp_layer_renderer` own the compositor layer set directly and provide image sets to the GPU through borrowed-image swapchains. A Melody XR app may still own a `Mel_Platform_Surface` for a 2D companion window (mirror view, debug HUD), but the head-mounted display is not a surface in this module's sense.
+- **Frame pacing (`design/frame-pacing.md`).** The pacing source is per-swapchain, not per-surface. Surface events feed the pacing source indirectly through the swapchain rebuild path (a `Backgrounded` surface lets the pacing source drop to `OnDemand`).
+- **XR (`design/xr.md`).** XR sessions do not bind to `Mel_Platform_Surface`. OpenXR's `XrSession` and visionOS's `cp_layer_renderer` own the compositor layer set directly and provide image sets to the GPU through borrowed-image swapchains. A Melody XR app may still own a `Mel_Platform_Surface` for a 2D companion window (mirror view, debug HUD), but the head-mounted display is not a surface in this module's sense.
 
 ## 12. P2 escape — native handle access
 

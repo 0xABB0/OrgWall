@@ -30,8 +30,15 @@ it. The module builds and runs standalone today.
   media pipelines once those exist. One enum, one meaning.
 - Event types — `Mel_Display_Event` with a kind (`added` / `removed` /
   `configuration_changed` / `power_state_changed`) and a changed-field bitset.
-- `mel_display_native_handle` — the P2 escape: the tagged-union platform object
-  (`NSScreen*` today). Invalidates to a `Lost`-tagged variant on removal.
+- Per-target native access (the P2 escape) lives in `<display/<target>/<target>.h>`,
+  not in the portable header: typed accessors that return what the platform
+  honestly exposes (`mel_display_macos_screen` → `NSScreen*` and
+  `mel_display_macos_display_id` → `CGDirectDisplayID`, `mel_display_ios_screen`,
+  `mel_display_win32_device_name`, `mel_display_x11_output`,
+  `mel_display_android_display_id`). No `void*` tagged union; a target that cannot
+  surface a native object declares nothing (MEL-CODE-001, MEL-ENGINE-IV). Each
+  resolves against the live registry, returning the platform's null sentinel for a
+  removed display.
 
 ### Lifecycle
 
@@ -70,8 +77,9 @@ are compile-verified against their SDKs (see `todo.md` for per-platform gaps).
   triplet is reported as Apple's component-value ratios, not nits (see the field
   naming in `display.h` and the open item in `todo.md`).
 - Use-after-removal is loud-not-fatal: `mel_display_describe` logs and returns
-  `INVALID_HANDLE`; `mel_display_native_handle` returns the `Lost` variant. (Today
-  `mel_assert` is a no-op stub, so "loud" means log + status, not crash.)
+  `INVALID_HANDLE`; the per-target native accessors return the platform's null
+  sentinel (`nil`, `kCGNullDirectDisplay`, `""`, `0`, `-1`). (Today `mel_assert` is
+  a no-op stub, so "loud" means log + status, not crash.)
 
 ## Verification
 

@@ -7,7 +7,7 @@
 - android's apk should not be multi-abi. the size on that thing explodes with all the bundled libs TWICE
 - there should be a way to build a console app (not only a gui app)
 
-* GPU RHI design tensions (from docs/gpu-rhi.md review)
+* GPU RHI design tensions (from design/gpu-rhi.md review)
   Open architectural questions surfaced by the spec audit. Each is a real
   cost / coherence problem to resolve before the implementation locks it in.
 

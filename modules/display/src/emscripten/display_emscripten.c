@@ -51,8 +51,7 @@ u32 mel_display__enumerate(const Mel_Alloc* alloc, Mel_Display_Raw* out, u32 cap
     hdr->mastering_primaries_support = MEL_DISPLAY_MASTERING_NONE;
     hdr->tone_mapping_owner          = MEL_DISPLAY_TONEMAP_COMPOSITOR;
 
-    d->state           = MEL_DISPLAY_STATE_ACTIVE;
-    d->native_handle   = (Mel_Display_Native_Handle){ .kind = MEL_DISPLAY_NATIVE_NONE };
+    d->state = MEL_DISPLAY_STATE_ACTIVE;
 
     return 1;
 }

@@ -9,7 +9,7 @@ This module supersedes `Mel_Gpu_Output` as previously defined in `gpu-rhi.md` §
 ## Inherited principles
 
 - **P1 — Emulate-to-equivalent.** Backends that cannot honestly report a field omit it rather than synthesizing one. WebGPU's synthetic single-display entry (below) is the canonical case: the browser admits a containing-screen abstraction with privacy-limited fields, and `display` reports exactly that, never more.
-- **P2 — Full-control escape hatch.** Every `Mel_Display` exposes its native handle (`IDXGIOutput6*`, `VkDisplayKHR`, `NSScreen*`, `UIScreen*`, JNI `Display` global ref, `wl_output*`) for apps that need integrations the engine has not foreseen.
+- **P2 — Full-control escape hatch.** Native access lives in per-target headers (`<display/macos/macos.h>`, `<display/ios/ios.h>`, `<display/win32/win32.h>`, `<display/linux/linux.h>`, `<display/android/android.h>`), each declaring *typed* accessors that return exactly what the platform honestly exposes — `NSScreen*` / `CGDirectDisplayID`, `UIScreen*`, the Win32 device path, `RROutput`, the Android `displayId`. A target that cannot surface a native object simply does not declare one. There is no `void*` lowest-common-denominator handle and no platform-tagged union in the portable surface (MEL-CODE-001: tagged unions are a closed set; MEL-ENGINE-IV: never constrain capability to what every target shares).
 - **MEL-ENGINE-IV.** The engine pins conventions (luminance in nits, resolution in physical pixels, refresh in millihertz) but never constrains which displays an app may target.
 - **MEL-ENGINE-VI.** Battery-bearing platforms (laptops, phones, tablets) report power state alongside geometry so apps can dim, halt, or down-rez when the display is dark or backgrounded.
 - **MEL-ENGINE-VIII.** Every handle carries a slotmap generation; invalidation on hot-unplug or adapter removal is a loud `alive()` failure on next use, not a dangling-pointer crash.
@@ -33,7 +33,8 @@ This module supersedes `Mel_Gpu_Output` as previously defined in `gpu-rhi.md` §
 - `state` — `Active | Mirrored | Disconnected | PoweredOff | Dimmed | Idle` (the OS's published power / occlusion state).
 - `position_virtual` — `{ x, y }` in the OS's virtual desktop coordinate space; the anchor used to locate the display in multi-monitor layouts. Absent on Web.
 - `scale_factor` — OS scale (Retina 2.0, Wayland fractional, Windows DPI ratio, Android density bucket). Reported here for layout purposes; the per-surface scale lives on `platform.surface` (`surface.scale_factor`) and is what the swapchain consumes.
-- `native_handle` — opaque pointer to the platform's display object (the P2 escape).
+
+The native platform object is **not** a descriptor field; it is reached through the per-target headers (P2, below).
 
 The shared color-space enumeration `Mel_Color_Space ∈ { sRGB, Display_P3, Rec_709, Rec_2020, scRGB_linear, HDR10_PQ, HLG }` lives here and is consumed identically by GPU swapchain configuration (§7.4 `swapchain.color_space`) and by media pipelines (`media.video`). No engine-internal aliasing; one enum, one meaning.
 
@@ -100,7 +101,7 @@ Browsers expose the containing screen of the rendering canvas only, and even tha
 - `state = Active` (browsers do not publish display power state to script).
 - `position_virtual = None`.
 - `scale_factor = devicePixelRatio`.
-- `native_handle = null`.
+- no native accessor — the Web target declares no per-target header, because the browser exposes no display object to script.
 
 This is emulation under P1: the API shape is preserved, the fields the browser withholds are honestly `None` or empty, and `caps.display.privacy_tier = web_limited` lets power users branch when the difference matters. The engine never synthesizes a plausible-looking luminance figure to fill the gap (MEL-ENGINE-VIII).
 
@@ -108,13 +109,21 @@ This is emulation under P1: the API shape is preserved, the fields the browser w
 
 ## Native-handle escape (P2)
 
-`display_native_handle(d) → Mel_Display_Native_Handle` returns the tagged-union platform object. Apps reaching past the engine — to drive `IDXGIOutput6::TakeOwnership`, to read EDID bytes directly, to consume vendor-private Apple display-link APIs through `CVDisplayLink`, to subscribe to `DisplayManager.DisplayListener` JNI callbacks the engine does not relay — take the handle and call native code. The engine does not police that path; it does invalidate the tagged union on `display_removed` so a stale native pointer is at least detectable as a `Lost`-tagged variant before the app dereferences it.
+Native access is per-target and typed; there is no portable `void*` accessor. An app that wants to reach past the engine includes the header for the platform it is building against and calls the typed function:
+
+- macOS `<display/macos/macos.h>` — `CGDirectDisplayID mel_display_macos_display_id(Mel_Display)` (pure C; the input to `CGDisplay*`, `CVDisplayLink`, IOKit) and, under `__OBJC__`, `NSScreen* mel_display_macos_screen(Mel_Display)`.
+- iOS `<display/ios/ios.h>` — `UIScreen* mel_display_ios_screen(Mel_Display)` under `__OBJC__`.
+- Windows `<display/win32/win32.h>` — `const char* mel_display_win32_device_name(Mel_Display)` (the `\\.\DISPLAYn` path; re-acquire the live `IDXGIOutput6` by matching it during enumeration).
+- Linux `<display/linux/linux.h>` — `RROutput mel_display_x11_output(Mel_Display)`.
+- Android `<display/android/android.h>` — `int mel_display_android_display_id(Mel_Display)`.
+
+Each accessor resolves against the live registry at call time, so a removed display yields the platform's null sentinel (`kCGNullDirectDisplay`, `nil`, `""`, `0`, `-1`) rather than a dangling pointer (MEL-ENGINE-VIII). Apps use these to drive `IDXGIOutput6::TakeOwnership`, read EDID bytes, consume `CVDisplayLink`, or subscribe to `DisplayManager.DisplayListener` callbacks the engine does not relay; the engine does not police that path. The ObjC accessors must be called on the main thread (they walk `NSScreen.screens` / `UIScreen.screens`); the pure-C accessors are registry reads and are thread-safe with respect to `mel_display_refresh`.
 
 ---
 
 ## Implementation status
 
-The public surface lives in `<display/display.h>`: `Mel_Display`, `Mel_Display_Descriptor`, the `Mel_Color_Space` enum, the HDR struct, the event types, and the API (`mel_display_init` / `_shutdown` / `_refresh` / `_count` / `_list` / `_describe` / `_alive` / `_equal` / `_native_handle` / `_poll_events`).
+The portable surface lives in `<display/display.h>`: `Mel_Display`, `Mel_Display_Descriptor`, the `Mel_Color_Space` enum, the HDR struct, the event types, and the API (`mel_display_init` / `_shutdown` / `_refresh` / `_count` / `_list` / `_describe` / `_alive` / `_equal` / `_poll_events`). Native platform access is split into the per-target headers under `<display/<target>/>` (P2, above).
 
 The module is a **producer**: every GPU/surface coupling above (`adapter_displays`, `target_display`, `display_migration`, the `adapter_removed → display_removed` sequencing) is a downstream consumer that imports this handle once those modules exist. None is a build dependency; `display` compiles and runs standalone.
 

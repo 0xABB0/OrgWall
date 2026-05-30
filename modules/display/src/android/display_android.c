@@ -9,6 +9,8 @@
 
 #include <platform/android/jni.h>
 
+#include <display/android/android.h>
+
 #include "../display_backend.h"
 
 enum {
@@ -191,15 +193,15 @@ u32 mel_display__enumerate(const Mel_Alloc* alloc, Mel_Display_Raw* out, u32 cap
         hdr->tone_mapping_owner = MEL_DISPLAY_TONEMAP_DISPLAY;
         hdr->active             = is_hdr;
 
-        d->native_handle = (Mel_Display_Native_Handle){
-            .kind = MEL_DISPLAY_NATIVE_ANDROID_DISPLAY,
-            .ptr  = NULL,
-            .id   = (u64)(u32)id,
-        };
-
         (*env)->DeleteLocalRef(env, info);
     }
 
     (*env)->DeleteLocalRef(env, arr);
     return n;
+}
+
+int mel_display_android_display_id(Mel_Display d)
+{
+    u64 id;
+    return mel_display__stable_id(d, &id) ? (int)(u32)id : -1;
 }

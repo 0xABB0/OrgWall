@@ -27,8 +27,10 @@ run on each platform.
       desktop position, color space, absolute luminance triple, mastering support;
       modes via `GetDisplayModeList`; stable id = FNV of `DeviceName`.
   - [ ] DPI / scale_factor (needs `GetDpiForMonitor`, `-lshcore`); currently 1.0.
-  - [ ] ICC via Windows Color System; connector kind; retained `IDXGIOutput6*` as
-        the P2 handle (today `ptr = NULL`, `id` only); hot-plug.
+  - [ ] ICC via Windows Color System; connector kind; hot-plug. P2 native access
+        today is `mel_display_win32_device_name` (the `\\.\DISPLAYn` path); a live
+        `IDXGIOutput6*` accessor (re-acquire by matching the device path during
+        enumeration, AddRef'd, caller releases) is the follow-up.
 - [x] **Linux/X11** (`src/linux/`) — XRandR 1.5+; physical size + name from output
       info; position/current-res from CRTC; modes from `XRRModeInfo`; connector
       inferred from output-name prefix; stable id = `RROutput`.
@@ -41,8 +43,9 @@ run on each platform.
       `MelodyDisplay` Java helper (mirrors the midi bridge; `Context` from
       `ActivityThread.currentApplication`). Modes, density→scale, `getState`,
       `HdrCapabilities` luminance, wide-gamut → P3.
-  - [ ] `getColorSpaces` for a fuller color-space set; retained `Display` global ref
-        as the P2 handle (today `id` only); runtime verification on device.
+  - [ ] `getColorSpaces` for a fuller color-space set; runtime verification on
+        device. P2 native access today is `mel_display_android_display_id`; a
+        `Display` JNI global-ref accessor is the follow-up.
 - [x] **iOS / iPadOS** (`src/ios/`) — `UIScreen`: `nativeBounds`, `availableModes` +
       `maximumFramesPerSecond`, EDR headroom (iOS 16+), P3 via `traitCollection`.
   - [ ] Migrate off deprecated `UIScreen.screens`/`mainScreen` to the

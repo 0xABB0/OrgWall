@@ -64,25 +64,6 @@ typedef enum {
 } Mel_Display_Tonemap;
 MEL_ENUM_TO_STRING(Mel_Display_Tonemap);
 
-typedef enum {
-    MEL_DISPLAY_NATIVE_NONE            MEL_SKIP = 0,
-    MEL_DISPLAY_NATIVE_NSSCREEN        MEL_STR("NSScreen*"),
-    MEL_DISPLAY_NATIVE_UISCREEN        MEL_STR("UIScreen*"),
-    MEL_DISPLAY_NATIVE_DXGI_OUTPUT6    MEL_STR("IDXGIOutput6*"),
-    MEL_DISPLAY_NATIVE_VK_DISPLAY_KHR  MEL_STR("VkDisplayKHR"),
-    MEL_DISPLAY_NATIVE_ANDROID_DISPLAY MEL_STR("Display(JNI)"),
-    MEL_DISPLAY_NATIVE_WL_OUTPUT       MEL_STR("wl_output*"),
-    MEL_DISPLAY_NATIVE_X11_OUTPUT      MEL_STR("RROutput"),
-    MEL_DISPLAY_NATIVE_LOST            MEL_STR("Lost"),
-} Mel_Display_Native_Kind;
-MEL_ENUM_TO_STRING_DEFAULT(Mel_Display_Native_Kind, "None");
-
-typedef struct {
-    Mel_Display_Native_Kind kind;
-    void* ptr;
-    u64   id;
-} Mel_Display_Native_Handle;
-
 typedef struct { u32 width_px, height_px; } Mel_Display_Extent;
 
 typedef struct {
@@ -130,8 +111,6 @@ typedef struct {
     i32  position_virtual_x, position_virtual_y;
 
     f32 scale_factor;
-
-    Mel_Display_Native_Handle native_handle;
 } Mel_Display_Descriptor;
 
 typedef struct {
@@ -184,7 +163,6 @@ u32  mel_display_list(Mel_Display* out, u32 cap);
 Mel_Display_Describe_Result mel_display_describe(Mel_Display d);
 bool                                 mel_display_alive(Mel_Display d);
 bool                                 mel_display_equal(Mel_Display a, Mel_Display b);
-Mel_Display_Native_Handle   mel_display_native_handle(Mel_Display d);
 
 u32 mel_display_poll_events(Mel_Display_Event* out, u32 cap);
 

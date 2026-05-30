@@ -9,6 +9,7 @@
 
 #if MEL_PLATFORM_OSX
 #include "edr.h"
+#include <display/macos/macos.h>
 #define EDR_FORCE_LEVEL 6.0f
 #endif
 
@@ -145,11 +146,17 @@ static void canvas_paint(Mel_Gui_Handle h, Mel_Painter* p, i32 w, i32 height, vo
              d->native_resolution.width_px, d->native_resolution.height_px,
              (double)d->scale_factor, d->position_virtual_x, d->position_virtual_y,
              d->has_position ? "" : " (no pos)");
-        line(&pen, key,  "    physical=%s%.0fx%.0f mm  icc=%zu B  native_handle=%s id=%llu",
+#if MEL_PLATFORM_OSX
+        line(&pen, key,  "    physical=%s%.0fx%.0f mm  icc=%zu B  cg_display_id=%u",
              d->has_physical_size ? "" : "? ",
              (double)d->physical_width_mm, (double)d->physical_height_mm,
-             d->icc_profile.size, LBL(Mel_Display_Native_Kind_to_string(d->native_handle.kind)),
-             (unsigned long long)d->native_handle.id);
+             d->icc_profile.size, (unsigned)mel_display_macos_display_id(handles[i]));
+#else
+        line(&pen, key,  "    physical=%s%.0fx%.0f mm  icc=%zu B",
+             d->has_physical_size ? "" : "? ",
+             (double)d->physical_width_mm, (double)d->physical_height_mm,
+             d->icc_profile.size);
+#endif
 
         line(&pen, hot,  "    EDR now=%.3f  potential=%.3f  reference=%.3f  has_edr=%d  hdr.active=%d",
              (double)hd->edr_max_now, (double)hd->edr_max_potential, (double)hd->edr_reference,

@@ -3,6 +3,8 @@
 
 #include <string.h>
 
+#include <display/linux/linux.h>
+
 #include "../display_backend.h"
 
 static Mel_Display_Connector connector_from_name(const char* name)
@@ -104,16 +106,16 @@ u32 mel_display__enumerate(const Mel_Alloc* alloc, Mel_Display_Raw* out, u32 cap
         hdr->mastering_primaries_support = MEL_DISPLAY_MASTERING_NONE;
         hdr->tone_mapping_owner          = MEL_DISPLAY_TONEMAP_APPLICATION;
 
-        d->native_handle = (Mel_Display_Native_Handle){
-            .kind = MEL_DISPLAY_NATIVE_X11_OUTPUT,
-            .ptr  = NULL,
-            .id   = (u64)res->outputs[o],
-        };
-
         XRRFreeOutputInfo(oi);
     }
 
     XRRFreeScreenResources(res);
     XCloseDisplay(dpy);
     return n;
+}
+
+RROutput mel_display_x11_output(Mel_Display d)
+{
+    u64 id;
+    return mel_display__stable_id(d, &id) ? (RROutput)id : 0;
 }

@@ -3,6 +3,8 @@
 
 #include <allocator/allocator.h>
 
+#include <display/macos/macos.h>
+
 #include "../display_backend.h"
 
 enum { MEL_MACOS_INTERLACED_FLAG = 0x00000200u };
@@ -144,13 +146,24 @@ u32 mel_display__enumerate(const Mel_Alloc* alloc, Mel_Display_Raw* out, u32 cap
         d->position_virtual_y = (i32)frame.origin.y;
 
         d->scale_factor = (f32)screen.backingScaleFactor;
-
-        d->native_handle = (Mel_Display_Native_Handle){
-            .kind = MEL_DISPLAY_NATIVE_NSSCREEN,
-            .ptr  = (__bridge void*)screen,
-            .id   = (u64)id,
-        };
     }
 
     return n;
+}
+
+CGDirectDisplayID mel_display_macos_display_id(Mel_Display d)
+{
+    u64 id;
+    return mel_display__stable_id(d, &id) ? (CGDirectDisplayID)id : kCGNullDirectDisplay;
+}
+
+NSScreen* mel_display_macos_screen(Mel_Display d)
+{
+    u64 id;
+    if (!mel_display__stable_id(d, &id)) return nil;
+    for (NSScreen* screen in NSScreen.screens) {
+        NSNumber* num = screen.deviceDescription[@"NSScreenNumber"];
+        if (num && (u64)num.unsignedIntValue == id) return screen;
+    }
+    return nil;
 }

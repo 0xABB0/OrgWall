@@ -77,13 +77,13 @@ The descriptor the app populates for `reconstruction_dispatch`. Every field is e
 - depth input.
 - motion vectors, with declared scale and declared whether they are low-resolution or output-resolution.
 - exposure or luminance texture.
-- jitter offsets — current and prior, consumed from `Frame_Info.jitter_offset_current` and `Frame_Info.jitter_offset_prior`. Pacing owns the jitter sequence; reconstruction consumes it. See docs/frame-pacing.md.
+- jitter offsets — current and prior, consumed from `Frame_Info.jitter_offset_current` and `Frame_Info.jitter_offset_prior`. Pacing owns the jitter sequence; reconstruction consumes it. See design/frame-pacing.md.
 - camera matrices — current and prior.
 - near and far planes.
 - FOV per view (one entry under flat rendering, two under stereo XR).
 - reactive / transparency / disocclusion masks where the app's pipeline produces them.
 - HUD / UI texture if the resolved provider's `hud_separation = provider_composited`; otherwise UI is composited after reconstruction.
-- frame ID, present ID, and the pacing metadata from `Frame_Info` (`predicted_next_present_ns` where granted, `mode_state`, thermal / power signals). See docs/frame-pacing.md.
+- frame ID, present ID, and the pacing metadata from `Frame_Info` (`predicted_next_present_ns` where granted, `mode_state`, thermal / power signals). See design/frame-pacing.md.
 
 ## Provider lowerings
 
@@ -96,7 +96,7 @@ The descriptor the app populates for `reconstruction_dispatch`. Every field is e
 
 ## Provider resolution
 
-The create descriptor's preference order is walked in order. For each entry, the engine: loads the provider through the provider registry (see docs/provider.md) if not already loaded; queries the provider's cap surface against the descriptor's required caps; queries the backend's support against the provider's hard requirements (`AmdFsr { version: 4_x_redstone }` demands D3D12 + RDNA 4 + SM 6.4; `NvidiaDlss { version: 5 }` demands the not-yet-shipped DLSS 5 SDK; etc.); and, on first satisfaction, binds the provider and returns the context. A descriptor whose preference order exhausts without a satisfaction returns a typed failure (the engine does not silently substitute an unrequested provider). The resolved provider's identity, granted caps, and version identifiers are recoverable through the context for the app's logging, telemetry, and UI ("Reconstruction: DLSS 4.5, ML temporal, single-interpolated frame-gen").
+The create descriptor's preference order is walked in order. For each entry, the engine: loads the provider through the provider registry (see design/provider.md) if not already loaded; queries the provider's cap surface against the descriptor's required caps; queries the backend's support against the provider's hard requirements (`AmdFsr { version: 4_x_redstone }` demands D3D12 + RDNA 4 + SM 6.4; `NvidiaDlss { version: 5 }` demands the not-yet-shipped DLSS 5 SDK; etc.); and, on first satisfaction, binds the provider and returns the context. A descriptor whose preference order exhausts without a satisfaction returns a typed failure (the engine does not silently substitute an unrequested provider). The resolved provider's identity, granted caps, and version identifiers are recoverable through the context for the app's logging, telemetry, and UI ("Reconstruction: DLSS 4.5, ML temporal, single-interpolated frame-gen").
 
 Failure modes are typed (∴ MEL-ENGINE-VIII):
 
@@ -118,7 +118,7 @@ Pinned per MEL-ENGINE-VIII; load-bearing.
 - The engine never generates hidden presents. Every real and generated frame has a present ID, a pacing record, and a latency-marker record, surfaced in the frame packet.
 - UI / HUD and pointer layers are either provider-composited through the explicit `hud_separation = provider_composited` provider input, or composited after the generated frames. Never injected silently into a generated frame's color buffer (∴ MEL-ENGINE-VIII).
 - Generated frames cannot consume game simulation state that does not exist. The game simulation callback runs once per real simulation frame; the generated frames interpolate or extrapolate from the real frame's state, never invent new state. The render-graph passes that feed reconstruction run once per real frame; only the provider's internal extrapolation kernel runs per generated frame.
-- XR frame generation is off by default. Enabled only through an XR-runtime-approved path or through a provider whose granted caps report `xr_safe = provider_certified`. Otherwise XR uses `RuntimeXrReprojection` and the runtime's reprojection / timewarp path. See docs/xr.md.
+- XR frame generation is off by default. Enabled only through an XR-runtime-approved path or through a provider whose granted caps report `xr_safe = provider_certified`. Otherwise XR uses `RuntimeXrReprojection` and the runtime's reprojection / timewarp path. See design/xr.md.
 
 ## `render.reconstruction.ray_regen`
 
@@ -159,14 +159,14 @@ The per-frame descriptor for `radiance_cache` carries scene primary-hit samples,
 
 ## Sibling-module dependencies
 
-- **docs/provider.md** — upstream. Providers are loaded through the provider registry; the request / release / cap-query API lives there. Reconstruction is one provider-kind consumer among several (latency, RT optimization, GPU profiling, crash diagnostics, etc.).
-- **docs/frame-pacing.md** — upstream. `Frame_Info` supplies `jitter_offset_current` / `jitter_offset_prior` (which reconstruction consumes for reprojection), `predicted_next_present_ns` (where the platform grants it), `mode_state`, `thermal_tier`, `power_source`, and `latency_context`. Pacing owns the jitter sequence; reconstruction does not maintain its own per-pass jitter bookkeeping.
-- **docs/frame-latency.md** — peer. Frame-generation contexts register `GeneratedPresentSubmit` latency markers; the marker taxonomy lives in `frame.latency`, the reconstruction frame packet carries the records.
-- **docs/render-graph.md** — peer. Reconstruction passes compose inside graph passes; the render-graph's barrier discipline applies to reconstruction's inputs and outputs. A reconstruction pass is a graph node whose resource declarations the graph schedules against the rest of the frame.
-- **docs/platform-display.md, docs/platform-surface.md, modules/sensor/spec.md** — upstream. The `hdr` cap surface negotiates against the platform's color-space grant; thermal and power signals reach reconstruction through `Frame_Info`.
-- **docs/media-video.md** — peer. Video-decode output may enter reconstruction as color input (e.g. an in-engine cutscene upscaled to display resolution).
-- **docs/io-asset.md** — upstream. Provider DLLs / `.so` / `.framework` binaries are asset artifacts the build system stages; provider load resolves through the asset path.
-- **docs/xr.md** — consumer. `RuntimeXrReprojection` is the XR-safe default path; XR frame generation requires a `provider_certified` provider.
+- **design/provider.md** — upstream. Providers are loaded through the provider registry; the request / release / cap-query API lives there. Reconstruction is one provider-kind consumer among several (latency, RT optimization, GPU profiling, crash diagnostics, etc.).
+- **design/frame-pacing.md** — upstream. `Frame_Info` supplies `jitter_offset_current` / `jitter_offset_prior` (which reconstruction consumes for reprojection), `predicted_next_present_ns` (where the platform grants it), `mode_state`, `thermal_tier`, `power_source`, and `latency_context`. Pacing owns the jitter sequence; reconstruction does not maintain its own per-pass jitter bookkeeping.
+- **design/frame-latency.md** — peer. Frame-generation contexts register `GeneratedPresentSubmit` latency markers; the marker taxonomy lives in `frame.latency`, the reconstruction frame packet carries the records.
+- **design/render-graph.md** — peer. Reconstruction passes compose inside graph passes; the render-graph's barrier discipline applies to reconstruction's inputs and outputs. A reconstruction pass is a graph node whose resource declarations the graph schedules against the rest of the frame.
+- **modules/display/spec.md, design/platform-surface.md, modules/sensor/spec.md** — upstream. The `hdr` cap surface negotiates against the platform's color-space grant; thermal and power signals reach reconstruction through `Frame_Info`.
+- **design/media-video.md** — peer. Video-decode output may enter reconstruction as color input (e.g. an in-engine cutscene upscaled to display resolution).
+- **design/io-asset.md** — upstream. Provider DLLs / `.so` / `.framework` binaries are asset artifacts the build system stages; provider load resolves through the asset path.
+- **design/xr.md** — consumer. `RuntimeXrReprojection` is the XR-safe default path; XR frame generation requires a `provider_certified` provider.
 
 ## P2 escape — raw vendor SDK access
 

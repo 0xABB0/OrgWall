@@ -2,6 +2,8 @@
 
 #include <allocator/allocator.h>
 
+#include <display/ios/ios.h>
+
 #include "../display_backend.h"
 
 static void fill_hdr(UIScreen* screen, Mel_Display_Descriptor* d)
@@ -40,7 +42,7 @@ u32 mel_display__enumerate(const Mel_Alloc* alloc, Mel_Display_Raw* out, u32 cap
 
         Mel_Display_Raw* r = &out[n];
         memset(r, 0, sizeof *r);
-        r->stable_id = (u64)n;
+        r->stable_id = (u64)(uintptr_t)screen;
 
         Mel_Display_Descriptor* d = &r->desc;
 
@@ -75,14 +77,17 @@ u32 mel_display__enumerate(const Mel_Alloc* alloc, Mel_Display_Raw* out, u32 cap
 
         d->state        = MEL_DISPLAY_STATE_ACTIVE;
         d->scale_factor = (f32)screen.nativeScale;
-
-        d->native_handle = (Mel_Display_Native_Handle){
-            .kind = MEL_DISPLAY_NATIVE_UISCREEN,
-            .ptr  = (__bridge void*)screen,
-            .id   = (u64)n,
-        };
         n++;
     }
 
     return n;
+}
+
+UIScreen* mel_display_ios_screen(Mel_Display d)
+{
+    u64 id;
+    if (!mel_display__stable_id(d, &id)) return nil;
+    for (UIScreen* screen in UIScreen.screens)
+        if ((u64)(uintptr_t)screen == id) return screen;
+    return nil;
 }

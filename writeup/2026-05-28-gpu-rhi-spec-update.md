@@ -1,6 +1,6 @@
 # 2026-05-28 — GPU RHI spec update (post-review)
 
-Follow-up to `2026-05-28-gpu-rhi-review.md`. This session applied the recommendations from that review to `docs/gpu-rhi.md`. The spec grew from 818 to 868 lines.
+Follow-up to `2026-05-28-gpu-rhi-review.md`. This session applied the recommendations from that review to `design/gpu-rhi.md`. The spec grew from 818 to 868 lines.
 
 ## Work done
 
@@ -74,7 +74,7 @@ The spec is now committed to two carriers that don't yet have full cross-vendor 
 
 ### Repo hygiene
 
-The `docs/gpu-rhi.md` file is now 868 lines. It is still the *spec* per its closing notes — not a primer — and the per-unit resolution trail lives in the task list that backed the original drafting. Two suggestions:
+The `design/gpu-rhi.md` file is now 868 lines. It is still the *spec* per its closing notes — not a primer — and the per-unit resolution trail lives in the task list that backed the original drafting. Two suggestions:
 
 1. Split the milestone section (§10) out into `docs/gpu-rhi-milestones.md` once M1 lands. The spec and the schedule churn at different cadences, and combining them puts pressure on every spec re-read to also be a schedule re-read.
 

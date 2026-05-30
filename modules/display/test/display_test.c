@@ -7,9 +7,6 @@ MEL_TEST(display, dead_handle_is_loud_not_fatal) {
 
     Mel_Display_Describe_Result r = mel_display_describe(bogus);
     MEL_EXPECT_EQ(r.status, MEL_DISPLAY_STATUS_INVALID_HANDLE);
-
-    Mel_Display_Native_Handle nh = mel_display_native_handle(bogus);
-    MEL_EXPECT_EQ(nh.kind, MEL_DISPLAY_NATIVE_LOST);
 }
 
 MEL_TEST(display, null_handle_is_dead) {

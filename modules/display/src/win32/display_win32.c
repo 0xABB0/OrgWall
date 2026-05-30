@@ -5,6 +5,8 @@
 
 #include <string.h>
 
+#include <display/win32/win32.h>
+
 #include "../display_backend.h"
 
 static u64 fnv1a_wide(const WCHAR* s)
@@ -120,11 +122,6 @@ u32 mel_display__enumerate(const Mel_Alloc* alloc, Mel_Display_Raw* out, u32 cap
                     r->stable_id = fnv1a_wide(desc.DeviceName);
                     fill_from_desc(&desc, &r->desc);
                     fill_modes(output, &r->desc);
-                    r->desc.native_handle = (Mel_Display_Native_Handle){
-                        .kind = MEL_DISPLAY_NATIVE_DXGI_OUTPUT6,
-                        .ptr  = NULL,
-                        .id   = r->stable_id,
-                    };
                 }
                 IDXGIOutput6_Release(out6);
             }
@@ -135,4 +132,10 @@ u32 mel_display__enumerate(const Mel_Alloc* alloc, Mel_Display_Raw* out, u32 cap
 
     IDXGIFactory1_Release(factory);
     return n;
+}
+
+const char* mel_display_win32_device_name(Mel_Display d)
+{
+    const Mel_Display_Descriptor* desc = mel_display__descriptor(d);
+    return desc ? desc->name : "";
 }

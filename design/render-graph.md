@@ -2,7 +2,7 @@
 
 The render graph consumes GPU primitives (Layer 0 — the RHI) and emits a compiled execution plan. The user declares **what** each pass reads and writes; the graph decides barrier topology, transient memory aliasing, sub-pass merging, queue assignment, and cross-queue ownership handoff. The module sits **above** the GPU, not inside it — the GPU module ships first and is fully usable without the graph; the graph is a purely additive Layer 1 that generates inputs to Layer 0. The module name is `render.graph`, not `frame.graph`, because its scope is rendering passes — graphics, compute, copy, ray-tracing, acceleration-structure build, video decode/encode/process, and work-graph dispatch. It is not a general scheduling abstraction; the engine reactor and `frame.pacing` are the general schedulers, and the render graph composes downstream of them.
 
-This module was U20 / Layer 1 of `docs/gpu-rhi.md` (§8 in its entirety, plus §10.7 for the XR extension). It now lives here. The GPU spec keeps the cross-references in §1, §9.7, §10.7, and the M5 milestone description; nothing about the Layer 0 surface depends on this document.
+This module was U20 / Layer 1 of `design/gpu-rhi.md` (§8 in its entirety, plus §10.7 for the XR extension). It now lives here. The GPU spec keeps the cross-references in §1, §9.7, §10.7, and the M5 milestone description; nothing about the Layer 0 surface depends on this document.
 
 ## Inherited principles
 
@@ -34,7 +34,7 @@ The pass kind tells the compiler which Layer 0 queue family, which state-transit
 - **`Copy`** — host-to-device, device-to-device, and device-to-host transfers; the natural carrier for DMA queue dispatch. Includes blits, resolves outside a graphics pass, buffer-image transfers, and the indirect-copy lowering where granted.
 - **`RayTracing`** — bound to a ray-tracing pipeline; access record names the TLAS and any per-instance buffers as standard graph resources. Shader-binding-table buffers are imports, not transients (their content lifetime predates the graph).
 - **`AccelerationBuild`** — BLAS / TLAS build, update, or compaction; the compiler schedules these on the build-eligible queue and sequences dependent ray-tracing passes after them. Scratch buffers are first-class transients the compiler aliases aggressively.
-- **`VideoDecode`**, **`VideoEncode`**, **`VideoProcess`** — bound to the corresponding video queues; bitstream and reference-frame buffers participate as standard graph resources. See `docs/media-video.md` for the codec surface; the graph schedules and emits the inter-queue ownership transfers between video and graphics work.
+- **`VideoDecode`**, **`VideoEncode`**, **`VideoProcess`** — bound to the corresponding video queues; bitstream and reference-frame buffers participate as standard graph resources. See `design/media-video.md` for the codec surface; the graph schedules and emits the inter-queue ownership transfers between video and graphics work.
 - **`WorkGraph`** — one opaque dispatch of a `Mel_Gpu_Work_Graph` handle. See §Work-graph composition below for the load-bearing details.
 
 The pass kind is also the discriminant the compiler uses to validate access records — a `VideoDecode` pass declaring a graphics attachment access is rejected at descriptor-add time, not at compile time, with the offending field cited. This is the load-bearing application of MEL-ENGINE-VIII for the access record vocabulary: the failure mode is loud and local.
@@ -144,7 +144,7 @@ The `WorkGraph` pass also composes with the conditional-pass machinery — a run
 
 ## XR access records (§10.7)
 
-The XR module (`docs/xr.md`) does not introduce its own graph. It **adds access records** on top of the standard ones. The graph hosts them and the compiler honors them. The XR-extending access records are:
+The XR module (`design/xr.md`) does not introduce its own graph. It **adds access records** on top of the standard ones. The graph hosts them and the compiler honors them. The XR-extending access records are:
 
 - **`view_mask : u32`** — bitmask of XR views the pass renders into. Drives multiview-aware sub-pass merging and view-mask propagation through dependency edges.
 - **`view_local_resources : List<Mel_Render_Graph_Resource>`** — resources that are per-view (per-eye TAA history, per-view foveation maps, per-view depth pyramids). The compiler refuses to alias per-view resources across views; per-eye TAA history never aliases the other eye's history.
@@ -236,15 +236,15 @@ Graph **execution** — the walk of the compiled plan — invokes `recordFn` on 
 
 Upstream — the graph consumes:
 
-- The GPU module (Layer 0 — `docs/gpu-rhi.md`) — every primitive the compiler emits is a Layer 0 call. The graph adds no new Layer 0 surface.
+- The GPU module (Layer 0 — `design/gpu-rhi.md`) — every primitive the compiler emits is a Layer 0 call. The graph adds no new Layer 0 surface.
 - `Mel_Gpu_Tiler_Profile` (GPU §9.7) — drives tiler-aware compilation rewrites.
-- `frame.pacing` (`docs/frame-pacing.md`) — `Frame_Info.headroom_ns` is available to passes that opt into pacing feedback (quality-scaling passes that want a per-frame budget signal).
-- `frame.latency` (`docs/frame-latency.md`) — latency markers carried through the pacing context are recorded inside graph passes via the GPU's `cmd_latency_mark`; the graph does not invent its own marker surface.
+- `frame.pacing` (`design/frame-pacing.md`) — `Frame_Info.headroom_ns` is available to passes that opt into pacing feedback (quality-scaling passes that want a per-frame budget signal).
+- `frame.latency` (`design/frame-latency.md`) — latency markers carried through the pacing context are recorded inside graph passes via the GPU's `cmd_latency_mark`; the graph does not invent its own marker surface.
 
 Downstream — the graph is consumed by:
 
-- `xr` (`docs/xr.md`) — adds the XR access records described above; the XR module owns image-set negotiation and predicted-display-time, the graph owns scheduling and barriers for XR-tagged passes.
-- `render.reconstruction` (`docs/render-reconstruction.md`) — TAA and upscaling passes register as graph passes; jitter offsets ride in from `frame.pacing` through `Frame_Info`. The reconstruction module's history buffers are exported resources, so the graph's cross-frame chain carries them.
-- `media.video` (`docs/media-video.md`) — video decode/encode/process pass kinds are graph pass kinds; the codec surface lives in `media.video`, the scheduling lives here. Video decode feeding an `importExternalTexture`-style graphics consumer rides the same `Imported` / `Exported` discipline as any other cross-module resource handoff.
-- `io.asset` (`docs/io-asset.md`) — streaming-driven residency decisions consult the graph's per-frame access summary to prioritize residency for resources the next frame's graph will declare.
-- `provider` (`docs/provider.md`), `platform.surface` (`docs/platform-surface.md`), `display` (`docs/platform-display.md`), `sensor` (`modules/sensor/spec.md`) — orthogonal; the graph does not depend on them directly but cohabits the same engine reactor. Display HDR metadata and surface format do flow through the swapchain image's import descriptor, but that is a Layer 0 concern; the graph just inherits.
+- `xr` (`design/xr.md`) — adds the XR access records described above; the XR module owns image-set negotiation and predicted-display-time, the graph owns scheduling and barriers for XR-tagged passes.
+- `render.reconstruction` (`design/render-reconstruction.md`) — TAA and upscaling passes register as graph passes; jitter offsets ride in from `frame.pacing` through `Frame_Info`. The reconstruction module's history buffers are exported resources, so the graph's cross-frame chain carries them.
+- `media.video` (`design/media-video.md`) — video decode/encode/process pass kinds are graph pass kinds; the codec surface lives in `media.video`, the scheduling lives here. Video decode feeding an `importExternalTexture`-style graphics consumer rides the same `Imported` / `Exported` discipline as any other cross-module resource handoff.
+- `io.asset` (`design/io-asset.md`) — streaming-driven residency decisions consult the graph's per-frame access summary to prioritize residency for resources the next frame's graph will declare.
+- `provider` (`design/provider.md`), `platform.surface` (`design/platform-surface.md`), `display` (`modules/display/spec.md`), `sensor` (`modules/sensor/spec.md`) — orthogonal; the graph does not depend on them directly but cohabits the same engine reactor. Display HDR metadata and surface format do flow through the swapchain image's import descriptor, but that is a Layer 0 concern; the graph just inherits.

@@ -6,10 +6,7 @@ bool project(Mel_Build_Target *t) {
 
     mel_build_add_modules(t, "modules");
 
-    // gmp, mpfr and sqlite3 now cross-compile for both wasm runtimes, so the
-    // arbitrary-precision math, music theory/midi and sqlite log sink build on
-    // web. Only the server stays out: mongoose needs a listening socket, which
-    // a browser/wasi sandbox can't provide.
+    // mongoose needs a listening socket, which a browser/wasi sandbox can't provide.
     mel_build_exclude_module_on(t, MEL_PLATFORM_WEB, "server");
 
     // wasi is a DOM-less compute runtime; the emscripten DOM GUI backend can't
@@ -22,8 +19,7 @@ bool project(Mel_Build_Target *t) {
     mel_build_exclude_module_on_runtime(t, "wasi", "gpu");
     mel_build_add_cflag_on_runtime(t, MEL_PUBLIC, "emscripten", "--use-port=emdawnwebgpu");
     mel_build_add_link_flag_on_runtime(t, MEL_PUBLIC, "emscripten", "--use-port=emdawnwebgpu");
-    mel_build_add_link_flag_on_runtime(t, MEL_PUBLIC, "emscripten",
-                                       "--pre-js", "modules/gpu/src/webgpu/device_preinit.js");
+    mel_build_add_link_flag_on_runtime(t, MEL_PUBLIC, "emscripten", "--pre-js", "modules/gpu/src/webgpu/device_preinit.js");
 
     mel_build_add_dependency(t, "mongoose");
     mel_build_add_dependency(t, "sqlite3");
@@ -38,8 +34,7 @@ bool project(Mel_Build_Target *t) {
     // install name; point it at the third-party prefix relative to the binary
     // (build/macos/<config>/<target>/<bin> -> build/third-party/macos/webgpu/lib).
     mel_build_add_dependency(t, "webgpu");
-    mel_build_add_link_flag_on(t, MEL_PUBLIC, MEL_PLATFORM_MACOS,
-                               "-Wl,-rpath,@loader_path/../../../third-party/macos/webgpu/lib");
+    mel_build_add_link_flag_on(t, MEL_PUBLIC, MEL_PLATFORM_MACOS, "-Wl,-rpath,@loader_path/../../../third-party/macos/webgpu/lib");
 
     // The webgpu backend's native presentation surfaces are platform-specific
     // and share the mel_gpu__webgpu_surface_create entry point. Each source
