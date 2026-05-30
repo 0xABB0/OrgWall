@@ -6,6 +6,8 @@ bool project(Mel_Build_Target *t) {
 
     mel_build_add_modules(t, "modules");
 
+    for (Mel_Platform p = 0; p < MEL_PLATFORM_COUNT; p++) mel_build_exclude_module_on(t, p, "continuation");
+
     // mongoose needs a listening socket, which a browser/wasi sandbox can't provide.
     mel_build_exclude_module_on(t, MEL_PLATFORM_WEB, "server");
 
