@@ -1,5 +1,5 @@
 #include "harness.h"
-#include "sum_to.gen.h"
+#include "sum_to.cont.h"
 
 #include <string.h>
 

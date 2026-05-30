@@ -1,3 +1,5 @@
+#pragma once
+
 #include <continuation/cont.h>
 #include <core/types.h>
 

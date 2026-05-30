@@ -25,14 +25,23 @@ sharper, document every deviation").
 
 ## ABI
 
-4. **[DEVIATION] A generated header is emitted (`<name>.gen.h`).** The spec says "No generated
-   header" and yet also wants (a) `sizeof`-usable, `{0}`-initializable frames at call sites and
-   (b) frame fields derived from liveness (known only to codegen). Those three are mutually
-   unsatisfiable: a stack-allocatable frame needs its complete, liveness-derived layout in scope at
-   the call site, and only codegen can produce that. Correctness and respect for the user
-   (MEL-ENGINE-V: real `sizeof`, real `{0}`) outrank the no-header aesthetic. The frame struct,
-   layout-hash macro, and resume prototype go in `<name>.gen.h`; the resume *definition* goes in
-   `<name>.gen.c`. This is the single largest deviation.
+4. **The frame struct + prototype are injected into the user's own header; there is no separate
+   generated header to include.** A stack-allocatable frame needs its complete, liveness-derived
+   layout in scope at the call site, and only codegen can produce that — so *some* generated
+   declaration must reach the caller. The first cut emitted a standalone `<name>.gen.h`; Gabbo
+   rejected it (rightly) as bad ergonomics — it forces callers to `#include` a file that does not
+   exist before codegen. The resolution matches the spec's literal words ("emitted into the user's
+   own header"): codegen edits the header where the continuation is written, replacing a managed
+   `/* >>> mel_cont generated frames >>> */ … /* <<< */` region (idempotent) with the frame struct,
+   layout-hash macro, and resume prototype, placed just before the first `mel_cont(`. Callers
+   `#include` the header they already own; the frame type appears right above the continuation.
+   Only the resume *definition* lands in a sibling `<name>.gen.c` (compiled/linked, never included).
+   In editor/normal compiles the body lowers to a discarded `static inline`, so the header is
+   includable anywhere at zero cost and clangd still analyses a real body. The one irreducible gap
+   vs C++ coroutines: a brand-new continuation has no frame type until its first codegen run (the
+   file exists, so includes resolve — only the type is briefly unknown, exactly like a yet-to-
+   compile C++ TU). Injecting frames into the header also resolves the `await` bootstrap for free
+   (siblings sharing a header see each other's frames).
 
 5. **[DEVIATION] `Mel_Cont_Suspended` (a `bool`), not a `Mel_Cont_Status` enum.** MEL-CODE-001
    forbids enums; pending/done is a genuine binary outcome, so a `bool` is the precise type, not a
@@ -91,11 +100,12 @@ sharper, document every deviation").
 ## await / composition
 
 14. **[DEVIATION] `await` surface kept as `mel_cont_await(child_frame)`; the bootstrap is solved by
-    an iterative two-phase parse.** The parent body names `Mel_Cont_Frame_child`, which does not
-    exist at parse time. Rather than change the surface, the tool parses, synthesizes all frame
-    structs, force-includes them (`-include <out.h>`), and re-parses until the generated header
-    reaches a fixpoint (converges in depth+1 iterations; capped at 8). Rejections are suppressed
-    during these quiet iterations and enforced on a final clean pass.
+    iterative in-place injection.** The parent body names `Mel_Cont_Frame_child`, which does not
+    exist at parse time. The tool parses, injects all frame structs into the header (decision 4),
+    re-reads and re-parses the now-augmented header, and repeats until the injected region reaches a
+    fixpoint (converges in depth+1 iterations; capped at 8). Because the frames land in the same
+    header, a parent and the children it awaits see each other with no extra include. Rejections are
+    suppressed during these quiet iterations and enforced on a final clean pass.
 
 15. **`await` semantics: drive-to-completion with conditional yield forwarding.** On each child
     suspension the parent re-suspends. If parent and child share a canonical yield type, the child's
@@ -107,12 +117,15 @@ sharper, document every deviation").
 
 ## Build & packaging
 
-16. **[DEVIATION] The marked `*.cont.c` is a codegen *input*, never a compiled TU; portability lives
-    in the generated C, not a non-clang macro fallback.** The spec's non-clang fallback ("degrade to
-    a forward declaration") is unnecessary and self-contradictory at a definition site with a body.
-    The portable surface is the committed/generated `.gen.c` + `.gen.h` (plain C, compiles anywhere).
-    The `cont.h` macros have two modes only: `MEL_CONT_CODEGEN` (clang-detectable sentinels +
-    annotate attribute) and editor mode (portable plain C, for a pleasant authoring/LSP experience).
+16. **[DEVIATION] The marked `*.cont.h` is both the codegen input and the includable interface; no
+    non-clang macro fallback.** The spec's non-clang fallback ("degrade to a forward declaration")
+    is unnecessary and self-contradictory at a definition site with a body. Instead the header is
+    the one artifact: codegen reads it (codegen mode) and injects frames into it; callers include it
+    (editor/normal mode), where `mel_cont(...) { … }` lowers to a discarded `static inline`
+    (`__attribute__((unused))`) so it compiles and is clangd-analysable at zero runtime cost. The
+    portable runtime surface is the injected header + the generated `.gen.c` (plain C, compiles
+    anywhere). `cont.h` has exactly two modes: `MEL_CONT_CODEGEN` (clang-detectable sentinels +
+    annotate attribute) and editor mode.
 
 17. **Excluded from the framework on every platform.** There is no unconditional module-exclude in
     the build API, so `modules/build.c` loops `MEL_PLATFORM_*` calling `mel_build_exclude_module_on`.
@@ -127,9 +140,10 @@ sharper, document every deviation").
     *future* build and codegen-registration modules must satisfy — this module exists in part to
     inform their design.
 
-19. **Goldens are raw, unformatted generated output.** Deterministic from the tool with no external
-    `clang-format` dependency or version skew. The spliced indentation is cosmetically rough but the
-    code is correct and the goldens are stable.
+19. **Goldens are raw, unformatted output: the injected `.cont.h` plus the `.gen.c`.** Deterministic
+    from the tool with no external `clang-format` dependency or version skew. The tool always runs on
+    a pristine scratch copy of each fixture, so injection starts from a clean region every time and
+    the result never accumulates. The spliced indentation is cosmetically rough but correct.
 
 20. **`.cache/` is the build scratch dir (not `build/`).** The driver binary is `build`, which would
     collide with a `build/` output directory.

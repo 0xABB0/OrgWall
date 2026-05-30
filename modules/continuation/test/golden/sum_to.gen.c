@@ -1,5 +1,4 @@
-#include "sum_to.gen.h"
-#include <core/types.h>
+#include "sum_to.cont.h"
 
 Mel_Cont_Suspended sum_to__resume(Mel_Cont_Frame_sum_to* __f, long long* __f_out)
 {

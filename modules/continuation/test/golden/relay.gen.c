@@ -1,5 +1,4 @@
-#include "relay.gen.h"
-#include <core/types.h>
+#include "relay.cont.h"
 
 Mel_Cont_Suspended child_seq__resume(Mel_Cont_Frame_child_seq* __f, int* __f_out)
 {

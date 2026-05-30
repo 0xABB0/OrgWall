@@ -1,5 +1,4 @@
-#include "classify.gen.h"
-#include <core/types.h>
+#include "classify.cont.h"
 
 Mel_Cont_Suspended classify__resume(Mel_Cont_Frame_classify* __f, int* __f_out)
 {

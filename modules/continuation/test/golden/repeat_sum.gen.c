@@ -1,5 +1,4 @@
-#include "repeat_sum.gen.h"
-#include <core/types.h>
+#include "repeat_sum.cont.h"
 
 Mel_Cont_Suspended repeat_sum__resume(Mel_Cont_Frame_repeat_sum* __f, int* __f_out)
 {

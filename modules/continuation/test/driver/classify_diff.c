@@ -1,5 +1,5 @@
 #include "harness.h"
-#include "classify.gen.h"
+#include "classify.cont.h"
 
 static void oracle(i32 n, Trace* t, i32* ret)
 {

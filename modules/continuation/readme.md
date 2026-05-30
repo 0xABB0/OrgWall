@@ -69,18 +69,26 @@ Mel_Cont_Suspended name__resume(Mel_Cont_Frame_name* __f, Y* __f_out);   // __f_
   build error. Pointers to memory *outside* the frame are permitted and are the caller's
   serialization concern.
 
-The frame struct lives in a **generated header** (`<name>.gen.h`), so `sizeof` and `{0}` init work
-at the call site and the layout is LSP-visible. (This is the one deliberate deviation from the
-spec's "no generated header" — see decisions.md, decision 4.)
+The frame struct and prototype are **injected into the header where you wrote the continuation**,
+inside a managed `/* >>> mel_cont generated frames >>> */` region, so `sizeof` and `{0}` init work
+at the call site and the layout is LSP-visible. There is no separate generated header to include —
+callers `#include` the header they already own. See decisions.md, decision 4.
 
 ## User surface
 
-Write an ordinary-looking C function in a `*.cont.c` file and mark it. The four macros are in
-`<continuation/cont.h>`.
+Write an ordinary-looking C function in a header (`*.cont.h`) and mark it. The four macros are in
+`<continuation/cont.h>`. Codegen injects the frame struct + prototype into this same header; anyone
+who wants to drive the continuation just includes it.
 
 ```c
+// sum_to.cont.h
+#pragma once
 #include <continuation/cont.h>
 #include <core/types.h>
+
+/* >>> mel_cont generated frames >>> */
+/*   (codegen injects Mel_Cont_Frame_sum_to + sum_to__resume here) */
+/* <<< mel_cont generated frames <<< */
 
 mel_cont(sum_to, (i64 n), i64)
 {
@@ -93,6 +101,12 @@ mel_cont(sum_to, (i64 n), i64)
     mel_cont_return(acc);
 }
 ```
+
+You write only the `mel_cont(...) { … }` body and (after the first build) keep the committed file as
+is — codegen owns the marked region. In editor/normal compiles the body lowers to a discarded
+`static inline`, so including the header anywhere costs nothing; under codegen it is the analysed
+source. The resume *definition* is emitted to a sibling `*.gen.c` that the build compiles and links
+(callers never include it). See `example/` for a complete, runnable app (`./build example`).
 
 - `mel_cont(name, params, ret)` — marks the function. `params` carries its own parentheses;
   `ret` is required (use `void`).
@@ -130,7 +144,7 @@ beginning `__mel_cont`.
 libclang's C API is read-only: an AST with token-accurate source ranges, no rewriter, no faithful C
 pretty-printer. So the transform never re-prints user C. It:
 
-1. parses the marked `*.cont.c` (with `-DMEL_CONT_CODEGEN`), under which the macros expand to
+1. parses the marked header (with `-DMEL_CONT_CODEGEN`), under which the macros expand to
    clang-detectable, error-free sentinel calls and an `annotate("mel:continuation")` attribute;
 2. walks the structured AST, recording every local/parameter, every reference (by **spelling**
    location, so macro-argument identifiers resolve to their real source bytes), every suspension
@@ -209,12 +223,15 @@ cc -o build build.c        # bootstrap the driver (rebuilds itself on edit)
 The codegen tool's contract:
 
 ```
-continuation_gen <out.h> <out.c> <marked.cont.c> [clang-args...]
+continuation_gen <header.cont.h> <out.gen.c> [clang-args...]
 ```
 
-It parses the marked file, iterates a two-phase frame-synthesis parse until the generated header
-stabilizes (this resolves the `await` bootstrap — the parent referencing a sibling's frame type),
-then emits the header and the implementation `.c`.
+It reads the marked header, **injects the frame structs + prototypes into that header in place**
+(idempotently, inside the managed region), iterating until the region stabilizes — which resolves
+the `await` bootstrap, since a parent that names a sibling's frame type now sees it in the same
+header. It then emits the resume definitions to `<out.gen.c>` (which `#include`s the header).
+`build.c` runs the tool on scratch copies of the fixtures so the committed fixtures stay pristine;
+the `example` target runs it in place so you can see the injected header as a real artifact.
 
 ### The test suite (tested like a compiler)
 
@@ -223,9 +240,9 @@ then emits the header and the implementation `.c`.
   miscompute behaviorally. Fixtures cover `for` + induction lifting (`sum_to`), pure-yield `while`
   (`countdown`), `if`/`else` (`classify`), `do`/`while` (`repeat_sum`), and `await` with forwarding
   (`relay`).
-- **Golden frame layout** (`test/golden/`): the raw generated `.gen.h`/`.gen.c` per fixture, diffed
-  on every run so layout drift is never silent. Goldens are intentionally unformatted —
-  deterministic and formatter-independent.
+- **Golden frame layout** (`test/golden/`): the injected `.cont.h` (frame region in context) and the
+  `.gen.c` per fixture, diffed on every run so layout drift is never silent. Goldens are
+  intentionally unformatted — deterministic and formatter-independent.
 - **Snapshot round-trip** (`test/driver/snapshot.c`): `memcpy` a mid-flight frame, resume the copy,
   assert identical continuation — proving self-containment.
 - **Rejection fixtures** (`test/reject/`): each rejected construct asserts a hard build error at the
@@ -238,9 +255,11 @@ include/continuation/abi.h   ABI: state sentinels, Mel_Cont_Suspended, Mel_Cont_
 include/continuation/cont.h  the mel_cont* macro surface (codegen + editor modes)
 codegen/continuation_gen.c   the libclang source-to-source transform (the compiler)
 build.c                      self-contained nob driver: build tool, codegen, golden, run tests
-test/fixtures/*.cont.c       marked continuations
+example/ticker.cont.h        a runnable continuation (the injected region is committed)
+example/app.c                drives it — the canonical "how you use this"
+test/fixtures/*.cont.h       marked continuations (pristine; codegen runs on scratch copies)
 test/driver/*.c              differential oracles + drivers + snapshot, and harness.h
-test/golden/*.gen.{h,c}      committed golden generated output
+test/golden/*.cont.h,*.gen.c committed golden output (injected header + resume impl)
 test/reject/*.cont.c         fixtures that must be rejected with file:line
 spec.md                      the originating design (source of truth for intent)
 decisions.md                 every decision taken, and every deviation from spec.md

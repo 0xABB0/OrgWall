@@ -16,7 +16,13 @@ int __mel_cont_return(int, ...);
 
 #else
 
-#define mel_cont(name, params, ret, ...) ret name params
+#if defined(__GNUC__) || defined(__clang__)
+#define MEL_CONT__UNUSED __attribute__((unused))
+#else
+#define MEL_CONT__UNUSED
+#endif
+
+#define mel_cont(name, params, ret, ...) MEL_CONT__UNUSED static inline ret name##__mel_src params
 
 #define mel_cont_yield(...)  ((void)(0 __VA_OPT__(, (__VA_ARGS__))))
 #define mel_cont_await(...)  ((void)(0 __VA_OPT__(, (__VA_ARGS__))))

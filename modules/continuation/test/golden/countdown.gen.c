@@ -1,5 +1,4 @@
-#include "countdown.gen.h"
-#include <core/types.h>
+#include "countdown.cont.h"
 
 Mel_Cont_Suspended countdown__resume(Mel_Cont_Frame_countdown* __f)
 {

@@ -1,5 +1,5 @@
 #include "harness.h"
-#include "relay.gen.h"
+#include "relay.cont.h"
 
 static void oracle(i32 base, Trace* t, i32* ret)
 {

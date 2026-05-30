@@ -50,9 +50,14 @@ frame structs, force-include them, re-parse to a fixpoint, then transform.
 
 ## Kludges and debt (the bar is zero; full confession)
 
-- **A generated header is emitted**, contradicting the spec's "no generated header." The three
-  desiderata (no header / stack-allocatable frames with real `sizeof` / liveness-derived fields) are
-  mutually unsatisfiable; correctness won. This is the single largest deviation. (decisions.md #4)
+- **Frame delivery: resolved to in-header injection.** The first cut emitted a standalone
+  `<name>.gen.h` to include — bad ergonomics (you'd include a file that doesn't exist before
+  codegen). Reworked per feedback: codegen now injects the frame struct + prototype into a managed
+  region of the header where the continuation is written, so callers `#include` their own header and
+  the frame type appears beside the continuation (C++-coroutine-grade). Only the resume *definition*
+  is a separate compiled `.gen.c`. The body lowers to a discarded `static inline` in normal compiles.
+  One irreducible gap vs C++: a brand-new continuation has no frame type until its first codegen run.
+  (decisions.md #4, #14, #16)
 - **Liveness is conservative and kill-free** — correct (never under-lifts) but may over-lift a dead
   local, so frames are not provably minimal. The spec's verification mode (asserting every
   non-lifted read is dominated by an assignment with no intervening suspend) is not built. (todo)

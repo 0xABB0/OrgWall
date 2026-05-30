@@ -1,5 +1,5 @@
 #include "harness.h"
-#include "countdown.gen.h"
+#include "countdown.cont.h"
 
 int main(void)
 {

@@ -1,5 +1,5 @@
 #include "harness.h"
-#include "repeat_sum.gen.h"
+#include "repeat_sum.cont.h"
 
 static void oracle(i32 n, Trace* t, i32* ret)
 {

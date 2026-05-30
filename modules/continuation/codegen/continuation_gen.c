@@ -776,169 +776,122 @@ static enum CXChildVisitResult visit_tu(CXCursor c, CXCursor parent, CXClientDat
     return CXChildVisit_Continue;
 }
 
-static void scrape_includes(Sb* out)
+#define MARK_BEG "/* >>> mel_cont generated frames — managed region, do not edit >>> */"
+#define MARK_END "/* <<< mel_cont generated frames <<< */"
+
+static Sb inject_region(const char* src, const char* region)
 {
-    const char* p = g_src;
-    while (p && *p)
+    Sb          out = {0};
+    const char* beg = strstr(src, MARK_BEG);
+    if (beg)
     {
-        const char* nl = strchr(p, '\n');
-        size_t      ln = nl ? (size_t)(nl - p) : strlen(p);
-        const char* q  = p;
-        while (q < p + ln && (*q == ' ' || *q == '\t')) q++;
-        if (q < p + ln && *q == '#')
+        const char* end = strstr(beg, MARK_END);
+        if (end)
         {
-            const char* r = q + 1;
-            while (r < p + ln && (*r == ' ' || *r == '\t')) r++;
-            if (strncmp(r, "include", 7) == 0)
-            {
-                char line[512];
-                size_t m = ln < sizeof line - 1 ? ln : sizeof line - 1;
-                memcpy(line, p, m);
-                line[m] = 0;
-                if (!strstr(line, "continuation/cont.h"))
-                {
-                    sb_putn(out, p, ln);
-                    sb_puts(out, "\n");
-                }
-            }
+            const char* after = end + strlen(MARK_END);
+            if (*after == '\n') after++;
+            sb_putn(&out, src, (size_t)(beg - src));
+            sb_putf(&out, "%s\n%s%s\n", MARK_BEG, region, MARK_END);
+            sb_puts(&out, after);
+            return out;
         }
-        if (!nl) break;
-        p = nl + 1;
     }
+    const char* mc = strstr(src, "mel_cont(");
+    if (!mc)
+    {
+        sb_puts(&out, src);
+        return out;
+    }
+    sb_putn(&out, src, (size_t)(mc - src));
+    sb_putf(&out, "%s\n%s%s\n\n", MARK_BEG, region, MARK_END);
+    sb_puts(&out, mc);
+    return out;
 }
 
-int main(int argc, char** argv)
+static int run_pass(CXIndex idx, const char* path, const char** args, int n, int quiet)
 {
-    if (argc < 4)
-    {
-        fprintf(stderr, "usage: continuation_gen <out.h> <out.c> <marked.c> [clang-args...]\n");
-        return 2;
-    }
-    const char* out_h = argv[1];
-    const char* out_c = argv[2];
-    g_path            = argv[3];
-
-    g_src = read_file(g_path, &g_src_len);
-    if (!g_src)
-    {
-        fprintf(stderr, "continuation_gen: cannot read %s\n", g_path);
-        return 1;
-    }
-
-    int          base_n    = argc - 4;
-    const char** base_args = (const char**)(argv + 4);
-
-    Sb includes = {0};
-    scrape_includes(&includes);
-
-    CXIndex idx = clang_createIndex(0, 0);
-
-    const char** args = malloc((size_t)(base_n + 2) * sizeof *args);
-
-    char* prev_header = NULL;
-    int   converged   = 0;
-    for (int iter = 0; iter < 8 && !converged; iter++)
-    {
-        int n = 0;
-        for (int i = 0; i < base_n; i++) args[n++] = base_args[i];
-        if (iter > 0)
-        {
-            args[n++] = "-include";
-            args[n++] = out_h;
-        }
-
-        g_hdr.len = g_impl.len = 0;
-        g_nsig    = 0;
-        g_nfound  = 0;
-        g_fatal   = 0;
-        g_quiet   = 1;
-
-        CXTranslationUnit tu = clang_parseTranslationUnit(idx, g_path, args, n, NULL, 0, CXTranslationUnit_DetailedPreprocessingRecord);
-        if (!tu) { fprintf(stderr, "continuation_gen: failed to parse %s\n", g_path); return 1; }
-        clang_visitChildren(clang_getTranslationUnitCursor(tu), visit_sig, NULL);
-        clang_visitChildren(clang_getTranslationUnitCursor(tu), visit_tu, NULL);
-        clang_disposeTranslationUnit(tu);
-
-        Sb h = {0};
-        sb_puts(&h, "#pragma once\n\n#include <continuation/abi.h>\n");
-        sb_puts(&h, includes.data ? includes.data : "");
-        sb_puts(&h, "\n");
-        sb_puts(&h, g_hdr.data ? g_hdr.data : "");
-
-        if (prev_header && strcmp(prev_header, h.data) == 0)
-        {
-            converged = 1;
-            free(h.data);
-            break;
-        }
-        FILE* fh = fopen(out_h, "w");
-        if (!fh) { fprintf(stderr, "continuation_gen: cannot open %s\n", out_h); return 1; }
-        fwrite(h.data, 1, h.len, fh);
-        fclose(fh);
-        free(prev_header);
-        prev_header = h.data;
-    }
-
-    int n = 0;
-    for (int i = 0; i < base_n; i++) args[n++] = base_args[i];
-    args[n++] = "-include";
-    args[n++] = out_h;
+    free(g_src);
+    g_src = read_file(path, &g_src_len);
+    if (!g_src) { fprintf(stderr, "continuation_gen: cannot read %s\n", path); return -1; }
 
     g_hdr.len = g_impl.len = 0;
     g_nsig    = 0;
     g_nfound  = 0;
     g_fatal   = 0;
-    g_quiet   = 0;
+    g_quiet   = quiet;
 
-    CXTranslationUnit tu = clang_parseTranslationUnit(idx, g_path, args, n, NULL, 0, CXTranslationUnit_DetailedPreprocessingRecord);
-    if (!tu) { fprintf(stderr, "continuation_gen: failed to parse %s\n", g_path); return 1; }
+    CXTranslationUnit tu = clang_parseTranslationUnit(idx, path, args, n, NULL, 0, CXTranslationUnit_DetailedPreprocessingRecord);
+    if (!tu) { fprintf(stderr, "continuation_gen: failed to parse %s\n", path); return -1; }
 
     int parse_fatal = 0;
-    for (unsigned i = 0, dn = clang_getNumDiagnostics(tu); i < dn; i++)
-    {
-        CXDiagnostic dg = clang_getDiagnostic(tu, i);
-        if (clang_getDiagnosticSeverity(dg) >= CXDiagnostic_Error)
+    if (!quiet)
+        for (unsigned i = 0, dn = clang_getNumDiagnostics(tu); i < dn; i++)
         {
-            CXString s = clang_formatDiagnostic(dg, clang_defaultDiagnosticDisplayOptions());
-            fprintf(stderr, "continuation_gen: %s\n", clang_getCString(s));
-            clang_disposeString(s);
-            parse_fatal = 1;
+            CXDiagnostic dg = clang_getDiagnostic(tu, i);
+            if (clang_getDiagnosticSeverity(dg) >= CXDiagnostic_Error)
+            {
+                CXString s = clang_formatDiagnostic(dg, clang_defaultDiagnosticDisplayOptions());
+                fprintf(stderr, "continuation_gen: %s\n", clang_getCString(s));
+                clang_disposeString(s);
+                parse_fatal = 1;
+            }
+            clang_disposeDiagnostic(dg);
         }
-        clang_disposeDiagnostic(dg);
-    }
-    if (parse_fatal) return 1;
 
     clang_visitChildren(clang_getTranslationUnitCursor(tu), visit_sig, NULL);
     clang_visitChildren(clang_getTranslationUnitCursor(tu), visit_tu, NULL);
-    if (g_fatal) return 1;
-    if (g_nfound == 0) { fprintf(stderr, "continuation_gen: no mel_cont definitions in %s\n", g_path); }
+    clang_disposeTranslationUnit(tu);
+    return parse_fatal;
+}
 
-    Sb header = {0};
-    sb_puts(&header, "#pragma once\n\n#include <continuation/abi.h>\n");
-    sb_puts(&header, includes.data ? includes.data : "");
-    sb_puts(&header, "\n");
-    sb_puts(&header, g_hdr.data ? g_hdr.data : "");
-
-    Sb impl = {0};
+int main(int argc, char** argv)
+{
+    if (argc < 3)
     {
-        const char* slash = strrchr(out_h, '/');
-        sb_putf(&impl, "#include \"%s\"\n", slash ? slash + 1 : out_h);
+        fprintf(stderr, "usage: continuation_gen <header.h> <out.gen.c> [clang-args...]\n");
+        return 2;
     }
-    sb_puts(&impl, includes.data ? includes.data : "");
-    sb_puts(&impl, "\n");
-    sb_puts(&impl, g_impl.data ? g_impl.data : "");
+    const char*  header_path = argv[1];
+    const char*  out_c       = argv[2];
+    int          n           = argc - 3;
+    const char** args        = (const char**)(argv + 3);
+    g_path                   = (char*)header_path;
 
-    FILE* fh = fopen(out_h, "w");
-    if (!fh) { fprintf(stderr, "continuation_gen: cannot open %s\n", out_h); return 1; }
-    fwrite(header.data, 1, header.len, fh);
-    fclose(fh);
+    CXIndex idx = clang_createIndex(0, 0);
+
+    char* prev = NULL;
+    for (int iter = 0; iter < 8; iter++)
+    {
+        if (run_pass(idx, header_path, args, n, 1) < 0) return 1;
+        Sb h = inject_region(g_src, g_hdr.data ? g_hdr.data : "");
+        if (prev && strcmp(prev, h.data) == 0)
+        {
+            free(h.data);
+            break;
+        }
+        FILE* fh = fopen(header_path, "w");
+        if (!fh) { fprintf(stderr, "continuation_gen: cannot open %s\n", header_path); return 1; }
+        fwrite(h.data, 1, h.len, fh);
+        fclose(fh);
+        free(prev);
+        prev = h.data;
+    }
+
+    int pf = run_pass(idx, header_path, args, n, 0);
+    if (pf < 0 || pf) return 1;
+    if (g_fatal) return 1;
+    if (g_nfound == 0) fprintf(stderr, "continuation_gen: no mel_cont definitions in %s\n", header_path);
+
+    const char* slash = strrchr(header_path, '/');
+    Sb          impl  = {0};
+    sb_putf(&impl, "#include \"%s\"\n\n", slash ? slash + 1 : header_path);
+    sb_puts(&impl, g_impl.data ? g_impl.data : "");
 
     FILE* fc = fopen(out_c, "w");
     if (!fc) { fprintf(stderr, "continuation_gen: cannot open %s\n", out_c); return 1; }
     fwrite(impl.data, 1, impl.len, fc);
     fclose(fc);
 
-    clang_disposeTranslationUnit(tu);
     clang_disposeIndex(idx);
     return 0;
 }
