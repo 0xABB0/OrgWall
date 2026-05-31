@@ -11,7 +11,7 @@
 - Augment the thermal module: we should have a Mel_Thermal_Sensor struct, available through a mel_thermal_sensor_enumerate function. each thermal sensor has a callback called get(Mel_Thermal_Sensor* self, void* user) -> Mel_Thermal_Reading {Mel_Degrees, Mel_Fidelty} (new temperature module, mirroring time.frequency, exposing function to handle temperature stuff, converting between the three main units of measurements)
 - Augment the power module: when possible, give informations on the power profile and the battery level.
 
-- third party libraries have my own build.c put inside the repo. i don't like this; i'd prefer to have the third party folder with my build.c top-level, and the corresponding libraries under another folder. (this way, we can also have our own build folder inside that folder)
+- DONE third party libraries have my own build.c put inside the repo. i don't like this; i'd prefer to have the third party folder with my build.c top-level, and the corresponding libraries under another folder. (this way, we can also have our own build folder inside that folder) [build.c top-level; upstream under per-project subfolder: gmp/gmp, mpfr/mpfr, sdl3/SDL, sqlite3/sqlite, mongoose/mongoose. liburing/msdf left as-is. webgpu already this shape.]
 
 * GPU RHI design tensions (from design/gpu-rhi.md review)
   Open architectural questions surfaced by the spec audit. Each is a real

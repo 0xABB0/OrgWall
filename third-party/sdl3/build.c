@@ -3,7 +3,7 @@
 void build(Mel_Build *b) {
     Mel_Target *t = mel_add_third_party(b, "sdl3");
     mel_unavailable(t, WHEN(.platforms = MEL_ON(WASM)));
-    mel_cmake(t, ".", "-DSDL_SHARED=OFF", "-DSDL_STATIC=ON", "-DSDL_TEST_LIBRARY=OFF", "-DSDL_TESTS=OFF",
+    mel_cmake(t, "SDL", "-DSDL_SHARED=OFF", "-DSDL_STATIC=ON", "-DSDL_TEST_LIBRARY=OFF", "-DSDL_TESTS=OFF",
               "-DSDL_EXAMPLES=OFF", "-DSDL_INSTALL_TESTS=OFF", "-DSDL_DISABLE_INSTALL_DOCS=ON",
               "-DSDL_AUDIO=OFF", "-DSDL_VIDEO=OFF", "-DSDL_GPU=OFF", "-DSDL_RENDER=OFF", "-DSDL_CAMERA=OFF",
               "-DSDL_JOYSTICK=OFF", "-DSDL_HAPTIC=OFF", "-DSDL_HIDAPI=OFF", "-DSDL_POWER=OFF",
