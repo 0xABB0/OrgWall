@@ -1,17 +1,15 @@
 #include "build.h"
 
-bool project(Mel_Build_Target *t) {
-    mel_build_set_name(t, "display-gui");
-    mel_build_set_kind(t, MEL_TARGET_APPLICATION);
-    mel_build_add_source_root(t, "apps/display-gui/src");
-    mel_build_add_dependency(t, "melody");
-    mel_build_generate_enum_str(t, "display/display.h");
+void build(Mel_Build *b) {
+    Mel_Target *app = mel_add_executable(b, "display-gui");
+    mel_sources(app, ALWAYS, "src/*.c");
+    mel_sources(app, WHEN(.platforms = MEL_ON(MACOS)), "src/macos/*.m");
+    mel_link(app, MEL_PRIVATE, WHEN(.platforms = MEL_ON(MACOS)), "-framework", "Metal");
+    mel_depends(app, "app");
+    mel_depends(app, "gui");
+    mel_depends(app, "display");
+    mel_depends(app, "core");
 
-    mel_build_set_config(t, "ROOTPROJECT_NAME", "DisplayGui");
-    mel_build_set_config(t, "APP_LABEL", "Display GUI");
-    mel_build_set_config(t, "NAMESPACE", "orgwall.displaygui");
-    mel_build_set_config(t, "APPLICATION_ID", "orgwall.displaygui");
-    mel_build_set_config(t, "BUNDLE_ID", "orgwall.displaygui");
-    mel_build_set_config(t, "VERSION_NAME", "1.0.0");
-    return true;
+    mel_manifest(app, "APP_LABEL", "Display GUI");
+    mel_manifest(app, "BUNDLE_ID", "orgwall.displaygui");
 }

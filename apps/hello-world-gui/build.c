@@ -1,16 +1,12 @@
 #include "build.h"
 
-bool project(Mel_Build_Target *t) {
-    mel_build_set_name(t, "hello-world-gui");
-    mel_build_set_kind(t, MEL_TARGET_APPLICATION);
-    mel_build_add_source_root(t, "apps/hello-world-gui/src");
-    mel_build_add_dependency(t, "melody");
+void build(Mel_Build *b) {
+    Mel_Target *app = mel_add_executable(b, "hello-world-gui");
+    mel_sources(app, ALWAYS, "src/*.c");
+    mel_depends(app, "app");
+    mel_depends(app, "gui");
+    mel_depends(app, "core");
 
-    mel_build_set_config(t, "ROOTPROJECT_NAME", "HelloWorldGui");
-    mel_build_set_config(t, "APP_LABEL", "Hello World GUI");
-    mel_build_set_config(t, "NAMESPACE", "orgwall.helloworld");
-    mel_build_set_config(t, "APPLICATION_ID", "orgwall.helloworld");
-    mel_build_set_config(t, "BUNDLE_ID", "orgwall.helloworld");
-    mel_build_set_config(t, "VERSION_NAME", "1.0.0");
-    return true;
+    mel_manifest(app, "APP_LABEL", "Hello World GUI");
+    mel_manifest(app, "BUNDLE_ID", "orgwall.helloworld");
 }
