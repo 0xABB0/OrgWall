@@ -3,8 +3,6 @@ CompileFlags:
     - "-Wno-unused-includes"
     - "-D_CLANGD=1"
     - "-std=c23"
-    - "-Imelody"
-    - "-Igame"
 
 Diagnostics:
   Suppress: 
