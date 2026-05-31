@@ -52,6 +52,17 @@ const Mel_Screen_Def* mel_gui__screen_find(str8 name);
 void           mel_gui__screens_reset(void);
 void           mel_gui__navs_reset(void);
 
+/* A frame's native surface was torn down by the OS (close box, iOS VC pop).
+ * Each backend calls this from its frame-close path, while the handle is still
+ * valid, so the Navigator drops the entry instead of stranding a dead top.
+ * Does NOT destroy the frame — the OS already did. */
+void           mel_gui__frame_closed(Mel_Gui_Handle frame);
+
+/* OS back where the toolkit does not itself remove the surface (Android hardware
+ * back, web history back): pop+reveal+destroy the foreground Navigator's top.
+ * Returns true if it popped, false at the root (so the OS can exit the app). */
+bool           mel_gui__nav_os_back(void);
+
 /* Screen-to-screen transitions. Each backend owns the platform mechanics:
  * desktop swaps window visibility, Android drives the fragment back stack.
  *  - nav_replace: make `next` the active screen in place of `prev`.

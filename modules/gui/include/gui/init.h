@@ -11,3 +11,8 @@ typedef enum {
 void mel_gui_init    (Mel_Reactor* reactor);
 void mel_gui_shutdown(void);
 bool mel_gui_backend_supports(Mel_Gui_Capability cap);
+
+/* True where the backend hosts multiple coequal top-level Roots (desktop windows,
+ * XR panels). False on single-surface backends (phone, web document), where
+ * mel_app_present degrades to a push on the one Root. Fixed per backend. */
+bool mel_gui_supports_multi_root(void);

@@ -288,6 +288,8 @@ void mel_gui__nav_back(Mel_Gui_Handle prev, Mel_Gui_Handle cur)
     if (env) (*env)->CallStaticBooleanMethod(env, g_a.mel_cls, g_a.mel_back);
 }
 
+bool mel_gui_supports_multi_root(void) { return false; }
+
 void mel_gui_set_enabled(Mel_Gui_Handle h, bool enabled)
 {
     jobject view = node_view(h);

@@ -194,6 +194,12 @@ void mel_gui_shutdown(void)
 {
     if (!g_inited) return;
 
+    /* Drop navigation bookkeeping first (it only holds handles, destroys no
+     * frames), so the backend teardown below — which fires each frame's OS-close
+     * path and thus mel_gui__frame_closed — finds an empty g_navs and no-ops
+     * instead of reviving a predecessor mid-shutdown. */
+    mel_gui__navs_reset();
+
     u32           count = mel_slotmap_count(&g_nodes);
     Mel_Gui_Node* data  = (Mel_Gui_Node*)mel_slotmap_data(&g_nodes);
 
@@ -209,7 +215,6 @@ void mel_gui_shutdown(void)
     }
 
     mel_slotmap_free(&g_nodes);
-    mel_gui__navs_reset();
     mel_gui__screens_reset();
 
     g_focused     = MEL_GUI_HANDLE_NONE;

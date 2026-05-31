@@ -66,6 +66,16 @@ static void ios_ensure_nav(void)
     }
 }
 
+// Fires when this controller leaves the nav stack — swipe-back, the system back
+// button, or a programmatic pop. The OS has already removed the surface, so the
+// Navigator only needs to drop the entry (frame_closed never destroys). For a
+// programmatic mel_app_back the entry is already gone, so this no-ops.
+- (void)didMoveToParentViewController:(UIViewController*)parent
+{
+    [super didMoveToParentViewController:parent];
+    if (parent == nil) mel_gui__frame_closed(self.frame_handle);
+}
+
 @end
 
 void mel_gui__ios_show_frame(Mel_Gui_Node* n)
@@ -125,6 +135,8 @@ void mel_gui__nav_back(Mel_Gui_Handle prev, Mel_Gui_Handle cur)
     else
         [g_nav popViewControllerAnimated:YES];
 }
+
+bool mel_gui_supports_multi_root(void) { return false; }
 
 Mel_Frame_Insets mel_frame_insets(Mel_Gui_Handle h)
 {

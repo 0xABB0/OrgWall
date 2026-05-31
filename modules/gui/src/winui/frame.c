@@ -114,6 +114,7 @@ static LRESULT CALLBACK frame_wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         }
         case WM_DESTROY: {
             if (!mel_gui_handle_is_none(h)) {
+                mel_gui__frame_closed(h);
                 u32           count = 0;
                 Mel_Gui_Node* data  = mel_gui__nodes(&count);
                 for (u32 i = 0; i < count; i++) {

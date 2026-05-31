@@ -10,6 +10,8 @@
     Mel_Gui_Handle frame_h = self.frame_handle;
     if (mel_gui_handle_is_none(frame_h)) return;
 
+    mel_gui__frame_closed(frame_h);
+
     u32           count = 0;
     Mel_Gui_Node* data  = mel_gui__nodes(&count);
     for (u32 i = 0; i < count; i++) {

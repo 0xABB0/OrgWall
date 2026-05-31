@@ -257,6 +257,8 @@ void mel_gui__nav_back(Mel_Gui_Handle prev, Mel_Gui_Handle cur)
     if (!mel_gui_handle_is_none(cur)) mel_gui_set_visible(cur, false);
 }
 
+bool mel_gui_supports_multi_root(void) { return true; }
+
 HWND mel_gui_win32_hwnd(Mel_Gui_Handle h)
 {
     Mel_Gui_Node* n = mel_gui__node(h);

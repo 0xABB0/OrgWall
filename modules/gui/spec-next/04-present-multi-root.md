@@ -63,11 +63,49 @@ the API never forbids `present`. The pre-existing
 older surface; whether to retire it in favour of predicates is a follow-up for
 Gabbo, out of scope here.
 
-## Done when
+## As built
 
-- Desktop `present` opens a second coequal window; each window's `push`/`back`
-  drives its own stack independently.
-- Phone `present` degrades to a push; the opt-in flag yields a real second
-  scene/task.
-- Web `present` pushes a route by default; `window.open` reachable as opt-in.
-- `mel_gui_supports_multi_root()` reports honestly per backend.
+- **Predicate** `mel_gui_supports_multi_root()` declared in `<gui/init.h>`,
+  implemented per-backend next to each `nav_back`: cocoa/winui `true`, uikit /
+  android / dom `false`. No enum.
+- **Degrade** lives in portable `nav.c` `mel_app_present`, gated on the predicate:
+  when `false` and a Root already exists, it pushes onto `g_navs[0]` (the single
+  Root, which degrades never move past) via `nav_replace` — the backend's own
+  native push (uikit `ios_show_frame`, android `presentFrame`, dom `set_visible`
+  + a history entry). The first `present` always creates the root. Desktop
+  (`true`) keeps the new-window path untouched.
+- **OS-back reconciliation:**
+  - cocoa/winui: window close box → `frame_closed` (spec 03).
+  - uikit: `MelViewController didMoveToParentViewController:nil` → `frame_closed`
+    (fires on swipe, system back, and programmatic pop; `set_visible` reveal
+    no-ops because the popped VC's predecessor is already the nav top).
+  - android: hardware/predictive back → `MelGui.nativeOsBack()` →
+    `mel_gui__nav_os_back()` → `nav_back` drives the Java `back()` pop + node
+    destroy. Returns false at root so the system finishes the activity.
+  - dom: `popstate` (browser back/forward) → `mel_web__ev_popstate` →
+    `mel_gui__nav_os_back()`. Forward navigation calls `history.pushState`.
+
+## Build/verify status (this host: macOS)
+
+- cocoa: builds + runs, no regression (degrade is inert when multi-root is true).
+- android: full APK builds — JNI `nativeOsBack` + `MelGui`/`MelodyActivity` Java
+  + `mel_gui_supports_multi_root` all compile and link into the `.so`.
+- ios: my edits compile (frame.o/backend.o build); the **link** fails on
+  `_objc_opt_isKindOfClass` / `_objc_setProperty_atomic` — a pre-existing
+  objc-runtime link-flag gap on this host, independent of this change.
+- web: the current build system does not recognise the `web` platform, so the dom
+  edits are **unverified even at compile** here. Recheck once `web` is wired.
+
+## Known gaps (deferred, documented honestly per MEL-ENGINE-VIII)
+
+- **iOS swipe leaks the node.** `frame_closed` reconciles the stack but does not
+  destroy the popped VC's `Mel_Gui_Node` (it must not, or it would double-destroy
+  on cocoa/winui). On iOS nothing else tears that node down after a swipe pop, so
+  it leaks — consistent with the destroy-walk limitations already in `todo.org`.
+  Fix when iOS is testable (destroy the node from the iOS pop path specifically).
+- **Web URL leads the stack by one.** `mel_app_back` advances the app without
+  calling `history.back`, so the route can be one entry ahead of the stack.
+  Browser back still pops correctly; full bidirectional URL sync is a refinement.
+- **Multi-root opt-in escape hatches** (iPad `UIWindowScene` / Android own-task
+  via `MEL_FRAME_OWN_ACTIVITY`; web real `window.open`) are not built — only the
+  default degrade. They need a `Mel_Frame_Opt` flag plumbed; tracked for later.

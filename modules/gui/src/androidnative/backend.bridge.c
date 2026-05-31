@@ -18,6 +18,13 @@ Java_orgwall_melody_platform_MelGui_nativeRegister(JNIEnv* env, jclass cls, jflo
     mel_gui__android_register(env, cls);
 }
 
+JNIEXPORT jboolean JNICALL
+Java_orgwall_melody_platform_MelGui_nativeOsBack(JNIEnv* env, jclass cls)
+{
+    (void)env; (void)cls;
+    return mel_gui__nav_os_back() ? JNI_TRUE : JNI_FALSE;
+}
+
 JNIEXPORT void JNICALL
 Java_orgwall_melody_platform_MelGui_nativeFocus(JNIEnv* env, jclass cls, jlong h, jboolean in, jlong fnIn, jlong fnOut)
 {

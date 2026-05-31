@@ -277,12 +277,27 @@ EMSCRIPTEN_KEEPALIVE void mel_web__ev_select(int id, int index) {
     if (c && c->on_select) c->on_select(c->handle, index, mel_gui_user(c->handle));
 }
 
+// A Screen is a route: each forward navigation pushes a history entry, the
+// browser back/forward buttons fire popstate, which pops the foreground
+// Navigator. mel_app_back drives the app forward without calling history.back,
+// so the URL can lead the stack by one entry — a known sync gap to refine.
+EM_JS(void, mel_web__history_push, (void), { history.pushState({}, ''); });
+
+EM_JS(void, mel_web__history_init, (void), {
+    window.addEventListener('popstate', () => _mel_web__ev_popstate());
+});
+
+EMSCRIPTEN_KEEPALIVE void mel_web__ev_popstate(void) {
+    mel_gui__nav_os_back();
+}
+
 // =============================================================================
 // Backend hooks + generic widget ops
 // =============================================================================
 
 bool mel_gui__backend_init(void) {
     mel_web__js_init();
+    mel_web__history_init();
     return true;
 }
 
@@ -361,7 +376,10 @@ void mel_gui_invalidate(Mel_Gui_Handle h) {
 void mel_gui__nav_replace(Mel_Gui_Handle next, Mel_Gui_Handle prev) {
     mel_gui_set_visible(next, true);
     mel_gui_set_focus(next);
-    if (!mel_gui_handle_is_none(prev)) mel_gui_set_visible(prev, false);
+    if (!mel_gui_handle_is_none(prev)) {
+        mel_gui_set_visible(prev, false);
+        mel_web__history_push();   /* a forward navigation is a new route */
+    }
 }
 
 void mel_gui__nav_back(Mel_Gui_Handle prev, Mel_Gui_Handle cur) {
@@ -369,3 +387,5 @@ void mel_gui__nav_back(Mel_Gui_Handle prev, Mel_Gui_Handle cur) {
     mel_gui_set_focus(prev);
     if (!mel_gui_handle_is_none(cur)) mel_gui_set_visible(cur, false);
 }
+
+bool mel_gui_supports_multi_root(void) { return false; }

@@ -199,15 +199,21 @@ web ignore sizing.
 
 ## Implementation order (no-prerequisite first)
 
-1. Dynamic registry + assert-on-overflow, replacing the fixed array. Pure
-   mechanical; unblocks everything, changes no semantics yet.
-2. `Mel_Navigator` instance stack + `push`/`replace`/`back`/`pop_to`, single
-   implicit Navigator, `arg` threaded through the builder. Desktop-emulated
-   hide/show within one Navigator.
-3. `mel_gui__frame_closed` hook wired from each backend close path → stack
-   reconciliation. Kills the bricked-screen bug; unifies OS-driven back.
-4. `present` as new-Root, with the per-backend degrade (desktop native, mobile
-   push-default + opt-in scene, web route-default + opt-in popup).
-5. `MULTI_ROOT` capability query; lifecycle hooks; move `autosize` into the
-   desktop backend.
+Status: 1–4 landed (cocoa tested; android APK builds; ios compiles but host link
+gap; web platform not wired on this host). 5–6 remain.
+
+1. ✓ Dynamic registry + assert-on-overflow, replacing the fixed array.
+2. ✓ `Mel_Navigator` stack + `present`/`push`/`replace`/`back`/`pop_to[_root]`,
+   `arg` threaded through the builder. **Per-Root Navigators pulled forward here**
+   (the demo needed them); `present` creates a new Root, not a `push` alias.
+3. ✓ `mel_gui__frame_closed` hook + cocoa/winui close paths + navs-first shutdown
+   ordering + re-entrant-`present` hardening of `push`/`replace`. Mobile/web
+   OS-back reconciliation deferred into step 4 (entangled with their degrade).
+4. ✓ `present` per-backend **degrade** (mobile push-default, web route-default) +
+   `mel_gui_supports_multi_root()` predicate (per-backend, no enum) + OS-back
+   wiring (iOS `didMoveToParentViewController`, android `nativeOsBack`, dom
+   `popstate`). Opt-in escape hatches (iPad scene / own-activity / `window.open`)
+   deferred. iOS node-leak-on-swipe + web URL-sync gaps documented in `04`.
+5. Lifecycle hooks (`on_enter`/`on_leave`/`on_destroy`); move `autosize` into the
+   desktop backend; nail the process-death restore contract. Host-verifiable.
 6. Fold the result back into `readme.org`; retire this file.

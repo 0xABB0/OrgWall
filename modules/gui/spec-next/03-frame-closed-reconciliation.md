@@ -27,36 +27,59 @@ programmatic `back` converge on one function. The difference: `frame_closed` mus
 the stack-pop logic out from the frame-destroy logic so `back` calls both and
 `frame_closed` calls only the pop.
 
-## Per-backend call sites
+## What 03 actually fixes (given 02)
 
-Each backend's existing close path calls `mel_gui__frame_closed(frame_h)` before
-it runs `mel_gui__destroy_tree` / `frames_dec`, so the nav layer reconciles while
-the handle is still valid:
+Because 02's `present` always instantiates a fresh frame + Navigator (no `created`
+latch), the original *permanent brick* is already gone. What remains for 03:
 
-- cocoa `frame.m windowWillClose` (and `dialog.m` if dialogs join the stack).
-- winui `frame.c WM_CLOSE`.
-- uikit: the nav-controller `popViewControllerAnimated` driven by the swipe-back
-  gesture / system back — bridge the `didShow`/`willShow` delegate to
-  `frame_closed` for the popped controller.
-- android: the activity/fragment back (`mel_back`) path → `frame_closed` for the
-  popped frame.
-- dom: the `popstate` event (browser back/forward) → `frame_closed` for the
-  entry leaving the top.
+1. **OS-closing a pushed window strands its predecessor.** `push` hid the previous
+   window; if the user closes the pushed window with the OS close box instead of a
+   `back` button, without reconciliation the predecessor stays hidden forever and
+   the Navigator's top is a dead handle. `frame_closed` pops the dead top and
+   reveals the predecessor.
+2. **Stale entries/Navigators accumulate** in `g_navs` after any OS close until
+   shutdown. `frame_closed` drops them promptly.
 
-The invariant: every way a Root can vanish — user close box, swipe, hardware
-back, browser back — routes through `mel_gui__frame_closed`, so the C stack never
-holds a dead top.
+## No-op-for-verbs design
 
-## Reentrancy
+The programmatic verbs (`back`, `replace`, `pop_to`, `pop_to_root`) remove their
+entry from the stack *before* calling `mel_gui_destroy`. So when the resulting
+backend teardown fires `frame_closed`, the entry is already gone and it no-ops.
+`frame_closed` does real work only for OS-initiated closes. No separate
+pop-vs-destroy factoring was needed — the remove-before-destroy ordering already
+in the verbs is what makes this safe.
 
-`frame_closed` can fire mid-teardown (e.g. app shutdown destroys every frame).
-Removing an entry must tolerate the Navigator being torn down and must not
-re-enter the backend destroy. Guard against double-removal (entry already gone).
+## Per-backend call sites — as built
+
+- **cocoa** `frame.m windowWillClose` → `mel_gui__frame_closed(frame_h)` as the
+  first action (handle still valid, still in the Navigator). Implemented, tested
+  on the host: builds clean, launches without assert.
+- **winui** `frame.c WM_DESTROY` → same, before `destroy_tree`/`frames_dec`.
+  Wired; build-verified only when a Windows host is available.
+
+### Deferred to spec 04 (with the backend's own rework)
+
+uikit, android, and dom are still built on the old single-surface / single
+`UINavigationController` model and have no OS-close path that maps onto per-Root
+Navigators yet. Their *programmatic* teardown (`backend_destroy`) runs after the
+verbs already popped, so it needs no hook. The genuinely missing piece is the
+**OS-back gesture** (iOS swipe, Android hardware back, browser back/forward),
+which is entangled with the per-Root `present` *degrade* those backends gain in
+spec 04 (iOS `popToViewController` delegate, android `mel_back`, dom `popstate`).
+Wiring `frame_closed` there is folded into 04 so it lands together with the model
+it reconciles against. Until then those backends keep their current behaviour.
+
+## Shutdown ordering
+
+`mel_gui__navs_reset` was moved to the *top* of `mel_gui_shutdown`, before the
+node-destroy loop. The loop fires every frame's OS-close path (hence
+`frame_closed`); with `g_navs` already emptied, those calls no-op instead of
+reviving a predecessor window mid-shutdown. `navs_reset` destroys no frames (it
+only frees handle bookkeeping), so doing it first is safe.
 
 ## Done when
 
-- Present a screen, close its window via the OS close box, present it again — it
-  reappears (no brick).
-- iOS swipe-back and Android hardware back leave the C stack consistent with the
-  OS stack (verified by a subsequent programmatic `back` behaving correctly).
-- App shutdown tearing down all frames does not double-free or re-enter.
+- OS-closing a pushed window reveals its predecessor (cocoa). ✓ wired + builds.
+- App shutdown tears down all frames without double-free or predecessor revival.
+  ✓ via the navs-first ordering.
+- iOS swipe-back / Android hardware back / browser back consistency → **spec 04**.

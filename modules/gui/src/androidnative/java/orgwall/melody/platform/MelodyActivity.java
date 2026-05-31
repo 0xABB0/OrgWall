@@ -36,7 +36,7 @@ public final class MelodyActivity extends Activity implements MelGui.BackHost {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return;
         OnBackInvokedDispatcher d = getOnBackInvokedDispatcher();
         if (canGoBack && backCallback == null) {
-            backCallback = () -> MelGui.back();
+            backCallback = () -> MelGui.nativeOsBack();
             d.registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_DEFAULT, backCallback);
         } else if (!canGoBack && backCallback != null) {
             d.unregisterOnBackInvokedCallback(backCallback);
@@ -47,7 +47,7 @@ public final class MelodyActivity extends Activity implements MelGui.BackHost {
     @Override
     @SuppressWarnings("deprecation")
     public void onBackPressed() {
-        if (!MelGui.back()) super.onBackPressed();
+        if (!MelGui.nativeOsBack()) super.onBackPressed();
     }
 
     @Override

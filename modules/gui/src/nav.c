@@ -33,6 +33,36 @@ static Mel_Navigator* nav_of(Mel_Gui_Handle from)
     return NULL;
 }
 
+/* A frame's native surface was torn down (OS close box, or any backend teardown).
+ * Drop its entry; if it was the visible top, reveal the predecessor; if it was a
+ * Navigator's last entry, drop the Navigator. Never destroys the frame — the
+ * caller already did. The programmatic verbs remove their entry *before* calling
+ * mel_gui_destroy, so this is a no-op for verb-initiated closes and does real work
+ * only for OS-initiated ones. */
+void mel_gui__frame_closed(Mel_Gui_Handle frame)
+{
+    if (mel_gui_handle_is_none(frame)) return;
+    for (usize i = 0; i < g_navs.count; i++) {
+        Mel_Navigator* nav = &g_navs.items[i];
+        for (usize j = 0; j < nav->entries.count; j++) {
+            if (!mel_gui_handle_eq(nav->entries.items[j].frame, frame)) continue;
+
+            bool was_top = (j == nav->entries.count - 1);
+            mel_array_remove_ordered(&nav->entries, j);
+
+            if (nav->entries.count == 0) {
+                mel_array_free(&nav->entries);
+                mel_array_remove_ordered(&g_navs, i);
+            } else if (was_top) {
+                Mel_Gui_Handle top = mel_array_last(&nav->entries).frame;
+                mel_gui_set_visible(top, true);
+                mel_gui_set_focus(top);
+            }
+            return;
+        }
+    }
+}
+
 static void autosize_frame(Mel_Gui_Handle frame)
 {
     Mel_Gui_Node* fw = mel_gui__node(frame);
@@ -92,6 +122,20 @@ static Mel_Gui_Handle instantiate(str8 name, void* arg)
 
 void mel_app_present(str8 name, void* arg)
 {
+    /* Single-surface backends (phone, web) have no coequal Roots: every present
+     * after the first degrades to a push on the one Root, an honest forward
+     * navigation (MEL-ENGINE-VII). That Root is always g_navs[0] — degrades never
+     * append a Navigator, so the single Root never moves. The first present still
+     * creates the root below, on every backend. */
+    if (g_navs.count > 0 && !mel_gui_supports_multi_root()) {
+        Mel_Gui_Handle prev  = mel_array_last(&g_navs.items[0].entries).frame;
+        Mel_Gui_Handle frame = instantiate(name, arg);
+        if (mel_gui_handle_is_none(frame)) return;
+        mel_array_push(&g_navs.items[0].entries, ((Mel_Nav_Entry){ name, frame, arg }));
+        mel_gui__nav_replace(frame, prev);
+        return;
+    }
+
     Mel_Gui_Handle frame = instantiate(name, arg);
     if (mel_gui_handle_is_none(frame)) return;
 
@@ -105,6 +149,25 @@ void mel_app_present(str8 name, void* arg)
     mel_gui__nav_replace(frame, MEL_GUI_HANDLE_NONE);
 }
 
+/* OS-initiated back where the platform does NOT itself tear down the surface
+ * (Android hardware back, web back button): behave like mel_app_back on the
+ * foreground Navigator — pop, reveal predecessor, destroy the popped frame. At
+ * the root it is a no-op (the OS exits the app / leaves the page). Backends whose
+ * OS already removed the surface (iOS pops the VC) use mel_gui__frame_closed
+ * instead, which does not destroy. */
+bool mel_gui__nav_os_back(void)
+{
+    if (g_navs.count == 0) return false;
+    Mel_Navigator* nav = &g_navs.items[g_navs.count - 1];
+    if (nav->entries.count <= 1) return false;
+
+    Mel_Nav_Entry  top  = mel_array_pop(&nav->entries);
+    Mel_Gui_Handle prev = mel_array_last(&nav->entries).frame;
+    mel_gui__nav_back(prev, top.frame);
+    mel_gui_destroy(top.frame);
+    return true;
+}
+
 void mel_app_push(Mel_Gui_Handle from, str8 name, void* arg)
 {
     Mel_Navigator* nav = nav_of(from);
@@ -114,6 +177,9 @@ void mel_app_push(Mel_Gui_Handle from, str8 name, void* arg)
     Mel_Gui_Handle prev  = mel_array_last(&nav->entries).frame;
     Mel_Gui_Handle frame = instantiate(name, arg);
     if (mel_gui_handle_is_none(frame)) return;
+
+    nav = nav_of(from); /* the build callback may have grown g_navs (re-entrant present) */
+    if (!nav) return;
 
     mel_array_push(&nav->entries, ((Mel_Nav_Entry){ name, frame, arg }));
     mel_gui__nav_replace(frame, prev);
@@ -128,6 +194,9 @@ void mel_app_replace(Mel_Gui_Handle from, str8 name, void* arg)
     Mel_Nav_Entry  old   = mel_array_last(&nav->entries);
     Mel_Gui_Handle frame = instantiate(name, arg);
     if (mel_gui_handle_is_none(frame)) return;
+
+    nav = nav_of(from); /* the build callback may have grown g_navs (re-entrant present) */
+    if (!nav || nav->entries.count == 0) return;
 
     mel_array_last(&nav->entries) = (Mel_Nav_Entry){ name, frame, arg };
     mel_gui__nav_replace(frame, old.frame);
