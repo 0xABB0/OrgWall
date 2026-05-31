@@ -30,6 +30,19 @@ business sharing a roof with `min`/`clamp`/`lerp`.
   excepted), `linear` identity, `out(t) == 1 − in(1−t)` reflection, monotone
   families bounded in [0,1], `in_out` meeting at the midpoint, `step` holding 0.
 
+### Addendum — `smooth` / `smoother` (Gabbo-approved)
+
+Added the two graphics-heritage sigmoids that the Penner set omits, bringing the
+table to **34**: `mel_ease_in_out_smooth` (Hermite `t²(3−2t)`, delegating to
+`mel_smoothstepf(0,1,t)` per Gabbo's call, so the polynomial is stated once) and
+`mel_ease_in_out_smoother` (Perlin `6t⁵−15t⁴+10t³`, no scalar equivalent, inline
+over `mel_saturatef`). Both are inherently `in_out` — a single sigmoid each, no
+in/out halves. Tests extended: midpoint 0.5, monotone bound, and an explicit
+`smoothstep_family_clamps`. Verified numerically against hand-computed values
+(`smooth(0.25)=0.15625`, both midpoints 0.5, both endpoints pinned, clamps hold)
+— all pass. The addition needs only `<math/scalar.h>`, so the offered `curve`
+extraction was **not required**; it remains the standing future split.
+
 ### Verification
 
 - `./nob build easing` and `./nob build math` both succeed; `easing` emits no
@@ -44,11 +57,17 @@ synthesis is restored.
 
 ## Kludges (MEL-ENGINE-VIII — confess all)
 
-- **`MEL_EASING_COUNT 32` is a hand-maintained count** beside `MEL_EASING_LIST`.
-  Carried over verbatim from `math`; a stale count would silently desync from the
-  X-macro. The test now guards it (`registry_count_matches_list`), but the right
-  fix is to derive the count from the list rather than restate it. Pre-existing
-  debt, relocated, not introduced — flagged in `spec.md` as out-of-scope follow-up.
+- **`MEL_EASING_COUNT` is a hand-maintained count** beside `MEL_EASING_LIST` (now
+  34 — bumped by hand when `smooth`/`smoother` landed, exactly the desync risk).
+  The test guards it (`registry_count_matches_list`), but the right fix is to
+  derive the count from the list rather than restate it. Pre-existing debt,
+  relocated, not introduced — flagged in `spec.md` as out-of-scope follow-up.
+- **The `smooth` family clamps; the Penner curves do not.** `in_out_smooth` and
+  `in_out_smoother` saturate their input to `[0,1]` (GLSL `smoothstep` heritage),
+  whereas every other curve extrapolates past the endpoints. A divergence in
+  out-of-domain behavior within one table — intentional, but a sharp edge. It sits
+  inside the already-stated "caller normalizes time" envelope and is documented in
+  `spec.md`; the `smoothstep_family_clamps` test pins it.
 - **`easing` depends on the whole `math` module** to obtain one header,
   `<math/scalar.h>`. It is an include-only edge: `scalar` is header-only over
   compiler builtins, and static-archive linking is lazy, so a consumer pulls no

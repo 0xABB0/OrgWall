@@ -48,8 +48,8 @@ MEL_TEST(easing, out_is_reflected_in)
 MEL_TEST(easing, monotone_families_stay_bounded)
 {
     Mel_Easing_Func monotone[] = {
-        mel_ease_in_quad,     mel_ease_out_quad, mel_ease_in_out_quad, mel_ease_in_cubic,    mel_ease_out_cubic, mel_ease_in_out_cubic, mel_ease_in_sine,     mel_ease_out_sine,
-        mel_ease_in_out_sine, mel_ease_in_circ,  mel_ease_out_circ,    mel_ease_in_out_circ, mel_ease_in_expo,   mel_ease_out_expo,     mel_ease_in_out_expo,
+        mel_ease_in_quad, mel_ease_out_quad, mel_ease_in_out_quad, mel_ease_in_cubic, mel_ease_out_cubic, mel_ease_in_out_cubic, mel_ease_in_sine,       mel_ease_out_sine,        mel_ease_in_out_sine,
+        mel_ease_in_circ, mel_ease_out_circ, mel_ease_in_out_circ, mel_ease_in_expo,  mel_ease_out_expo,  mel_ease_in_out_expo,  mel_ease_in_out_smooth, mel_ease_in_out_smoother,
     };
     for (size_t k = 0; k < sizeof(monotone) / sizeof(monotone[0]); ++k)
         for (int i = 0; i <= 100; ++i)
@@ -65,6 +65,16 @@ MEL_TEST(easing, in_out_meets_at_midpoint)
     MEL_EXPECT_FLOAT_EQ(mel_ease_in_out_quad(0.5f), 0.5f, EPS);
     MEL_EXPECT_FLOAT_EQ(mel_ease_in_out_cubic(0.5f), 0.5f, EPS);
     MEL_EXPECT_FLOAT_EQ(mel_ease_in_out_sine(0.5f), 0.5f, EPS);
+    MEL_EXPECT_FLOAT_EQ(mel_ease_in_out_smooth(0.5f), 0.5f, EPS);
+    MEL_EXPECT_FLOAT_EQ(mel_ease_in_out_smoother(0.5f), 0.5f, EPS);
+}
+
+MEL_TEST(easing, smoothstep_family_clamps)
+{
+    MEL_EXPECT_FLOAT_EQ(mel_ease_in_out_smooth(-0.5f), 0.0f, EPS);
+    MEL_EXPECT_FLOAT_EQ(mel_ease_in_out_smooth(1.5f), 1.0f, EPS);
+    MEL_EXPECT_FLOAT_EQ(mel_ease_in_out_smoother(-0.5f), 0.0f, EPS);
+    MEL_EXPECT_FLOAT_EQ(mel_ease_in_out_smoother(1.5f), 1.0f, EPS);
 }
 
 MEL_TEST(easing, step_holds_zero)

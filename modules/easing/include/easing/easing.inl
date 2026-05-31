@@ -125,6 +125,13 @@ static inline f32 mel_ease_out_bounce(f32 t)
 static inline f32 mel_ease_in_bounce(f32 t) { return 1.0f - mel_ease_out_bounce(1.0f - t); }
 static inline f32 mel_ease_in_out_bounce(f32 t) { return t < 0.5f ? (1.0f - mel_ease_out_bounce(1.0f - 2.0f * t)) * 0.5f : (1.0f + mel_ease_out_bounce(2.0f * t - 1.0f)) * 0.5f; }
 
+static inline f32 mel_ease_in_out_smooth(f32 t) { return mel_smoothstepf(0.0f, 1.0f, t); }
+static inline f32 mel_ease_in_out_smoother(f32 t)
+{
+    f32 c = mel_saturatef(t);
+    return c * c * c * (c * (c * 6.0f - 15.0f) + 10.0f);
+}
+
 static inline f32 mel_ease_step(f32 t)
 {
     (void)t;

@@ -32,15 +32,19 @@ compiler builtins, so nothing links).
 ## Curves
 
 `linear`; `in`/`out`/`in_out` for `quad`, `cubic`, `quart`, `quint`, `sine`,
-`circ`, `expo`, `elastic`, `back`, `bounce`; and a degenerate `step` (holds 0
+`circ`, `expo`, `elastic`, `back`, `bounce`; the two graphics-heritage sigmoids
+`in_out_smooth` (Hermite `t²(3−2t)`, delegating to `mel_smoothstepf`) and
+`in_out_smoother` (Perlin `6t⁵−15t⁴+10t³`); and a degenerate `step` (holds 0
 across the interval). The polynomial families are bare multiplies; `bounce`
 composes from `out_bounce`; `back` and `elastic` carry their canonical
-overshoot/period constants inline.
+overshoot/period constants inline. The two `smooth` curves clamp their input to
+`[0,1]` (the GLSL `smoothstep` heritage) — unlike the Penner curves, which
+extrapolate.
 
 ## Registry
 
 `<easing/easing.h>` also exposes a name→function table for data-driven
 selection: `Mel_Easing_Func` (the `f32 (*)(f32)` shape), `Mel_Easing_Entry`
-(`{ name, func }`), and the `MEL_EASING_LIST(X)` X-macro that enumerates all 32
+(`{ name, func }`), and the `MEL_EASING_LIST(X)` X-macro that enumerates all 34
 curves so a caller can build a lookup, a dropdown, or a serializer without
 restating the set. `MEL_EASING_COUNT` is its cardinality.

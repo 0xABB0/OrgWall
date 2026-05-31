@@ -11,6 +11,13 @@
   value is unspecified by intent (it is a hold, not a ramp). The `expo` and
   `elastic` families special-case the exact endpoints `0` and `1` so the
   `pow`/`sin` machinery does not perturb them.
+- Out-of-domain behavior is uniform across the Penner curves (they extrapolate,
+  unclamped) but **diverges for the two `smooth` sigmoids**: `in_out_smooth`
+  routes through `mel_smoothstepf(0, 1, t)` and `in_out_smoother` through
+  `mel_saturatef`, so both clamp to `[0,1]` outside the unit interval — the GLSL
+  `smoothstep` contract. This is intentional and lies within the already-stated
+  "caller normalizes time" envelope; a caller relying on extrapolation past the
+  endpoints must not pick a `smooth` curve.
 - `in_out_*` are piecewise about `t == 0.5`; the two halves meet at `0.5`.
 - The `back` and `elastic` families return values outside `[0,1]` in the
   interior — overshoot and recoil are the point. Callers that interpolate a
@@ -20,8 +27,11 @@
 
 `back` uses `c1 = 1.70158` (≈ 10% overshoot) and its `in_out` derivative
 `c2 = c1 * 1.525`. `elastic` uses period `TAU/3` (in/out) and `TAU/4.5`
-(in_out). `bounce` uses `n1 = 7.5625`, `d1 = 2.75`. These are the canonical
-easings.net / Penner figures and are pinned by the bodies, not configurable.
+(in_out). `bounce` uses `n1 = 7.5625`, `d1 = 2.75`. `smoother` is Perlin's
+`6t⁵−15t⁴+10t³` (the quintic with zero first *and* second derivative at both
+endpoints); `smooth` is the Hermite cubic via `mel_smoothstepf`. These are the
+canonical easings.net / Penner / GLSL figures and are pinned by the bodies, not
+configurable.
 
 ## Dependency
 
@@ -35,7 +45,7 @@ no link edge to satisfy.
 ## Registry (MEL-ENGINE-IX)
 
 `MEL_EASING_LIST(X)` is the single source of truth for the curve set; expand it
-to build any name-indexed structure. `MEL_EASING_COUNT` (32) is the count.
+to build any name-indexed structure. `MEL_EASING_COUNT` (34) is the count.
 Adding a curve is a header edit: declare + define `mel_ease_<name>`, add one
 `X("<name>", mel_ease_<name>)` row, bump the count. No `build.c`, no caller
 change — header-only, so there is no source glob to touch.
