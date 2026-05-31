@@ -50,6 +50,15 @@ void mel_cmake_(Mel_Target *t, const char *dir, ...) {
     va_end(ap);
 }
 
+void mel_configure_(Mel_Target *t, const char *dir, ...) {
+    t->autotools_dir = dir;
+    va_list ap;
+    va_start(ap, dir);
+    for (const char *a = va_arg(ap, const char *); a; a = va_arg(ap, const char *))
+        mel_da_push(&t->autotools_args, a);
+    va_end(ap);
+}
+
 static void push_globs(Mel_GlobVec *vec, Mel_When when, va_list ap) {
     for (const char *g = va_arg(ap, const char *); g; g = va_arg(ap, const char *))
         mel_da_push(vec, ((Mel_Glob){when, g}));

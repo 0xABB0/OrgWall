@@ -36,6 +36,7 @@ int mel_build_main(int argc, char **argv) {
     const char  *verb     = argv[1];
     const char  *target   = NULL;
     const char  *config   = "debug";
+    const char  *arch     = NULL;
     Mel_Platform platform = host_platform();
 
     for (int i = 2; i < argc; i++) {
@@ -44,6 +45,8 @@ int mel_build_main(int argc, char **argv) {
             config = "release";
         } else if (strcmp(a, "--debug") == 0) {
             config = "debug";
+        } else if (strncmp(a, "--arch=", 7) == 0) {
+            arch = a + 7;
         } else if (strncmp(a, "--", 2) == 0) {
             continue;
         } else if (!target) {
@@ -66,5 +69,6 @@ int mel_build_main(int argc, char **argv) {
     Mel_Graph g = {0};
     mel_discover(&g);
     Mel_Variant v = mel_variant_native(platform, config);
+    if (arch) v.arch = arch;
     return mel_emit_and_build(&g, target, &v) ? 0 : 1;
 }

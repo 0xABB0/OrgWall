@@ -29,6 +29,7 @@ typedef struct {
     const char *backend;
     const char *gpu;
     const char *runtime;
+    const char *arch;
 } Mel_When;
 
 #define MEL_ON(p) (1u << (MEL_PLATFORM_##p))
@@ -55,16 +56,18 @@ MEL_API void mel_defines_(Mel_Target *t, Mel_Visibility vis, Mel_When when, ...)
 MEL_API void mel_includes_(Mel_Target *t, Mel_Visibility vis, Mel_When when, ...);
 MEL_API void mel_link_(Mel_Target *t, Mel_Visibility vis, Mel_When when, ...);
 MEL_API void mel_cmake_(Mel_Target *t, const char *dir, ...);
+MEL_API void mel_configure_(Mel_Target *t, const char *dir, ...);
 MEL_API void mel_codegen_(Mel_Target *t, const char *tool, const char *output, ...);
-#define mel_codegen(t, tool, output, ...) mel_codegen_(t, tool, output, __VA_ARGS__, NULL)
+#define mel_codegen(t, tool, output, ...) mel_codegen_(t, tool, output __VA_OPT__(,) __VA_ARGS__, NULL)
 
-#define mel_sources(t, when, ...)        mel_sources_(t, when, __VA_ARGS__, NULL)
-#define mel_exclude_source(t, when, ...) mel_exclude_source_(t, when, __VA_ARGS__, NULL)
-#define mel_cflags(t, vis, when, ...)    mel_cflags_(t, vis, when, __VA_ARGS__, NULL)
-#define mel_defines(t, vis, when, ...)   mel_defines_(t, vis, when, __VA_ARGS__, NULL)
-#define mel_includes(t, vis, when, ...)  mel_includes_(t, vis, when, __VA_ARGS__, NULL)
-#define mel_link(t, vis, when, ...)      mel_link_(t, vis, when, __VA_ARGS__, NULL)
-#define mel_cmake(t, dir, ...)           mel_cmake_(t, dir, __VA_ARGS__, NULL)
+#define mel_sources(t, when, ...)        mel_sources_(t, when __VA_OPT__(,) __VA_ARGS__, NULL)
+#define mel_exclude_source(t, when, ...) mel_exclude_source_(t, when __VA_OPT__(,) __VA_ARGS__, NULL)
+#define mel_cflags(t, vis, when, ...)    mel_cflags_(t, vis, when __VA_OPT__(,) __VA_ARGS__, NULL)
+#define mel_defines(t, vis, when, ...)   mel_defines_(t, vis, when __VA_OPT__(,) __VA_ARGS__, NULL)
+#define mel_includes(t, vis, when, ...)  mel_includes_(t, vis, when __VA_OPT__(,) __VA_ARGS__, NULL)
+#define mel_link(t, vis, when, ...)      mel_link_(t, vis, when __VA_OPT__(,) __VA_ARGS__, NULL)
+#define mel_cmake(t, dir, ...)           mel_cmake_(t, dir __VA_OPT__(,) __VA_ARGS__, NULL)
+#define mel_configure(t, dir, ...)       mel_configure_(t, dir __VA_OPT__(,) __VA_ARGS__, NULL)
 
 MEL_API int mel_build_main(int argc, char **argv);
 

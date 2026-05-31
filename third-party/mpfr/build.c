@@ -2,7 +2,7 @@
 
 void build(Mel_Build *b) {
     Mel_Target *t = mel_add_third_party(b, "mpfr");
-    mel_includes(t, MEL_PUBLIC, WHEN(.platforms = MEL_ON(MACOS)), "/opt/homebrew/include");
-    mel_link(t, MEL_PUBLIC, WHEN(.platforms = MEL_ON(MACOS)), "-L/opt/homebrew/lib", "-lmpfr");
+    mel_configure(t, ".");
+    mel_link(t, MEL_PUBLIC, ALWAYS, "-lmpfr");
     mel_depends(t, "gmp");
 }

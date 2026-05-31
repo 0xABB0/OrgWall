@@ -59,6 +59,13 @@ static bool produced_has(Mel_StrVec *produced, const char *name) {
     return false;
 }
 
+static bool closure_has(Mel_Graph *g, Mel_IdxVec *order, const char *name) {
+    if (!order) return false;
+    for (size_t i = 0; i < order->len; i++)
+        if (strcmp(g->nodes.items[order->items[i]].t->name, name) == 0) return true;
+    return false;
+}
+
 static const char *host_clang_flags(void) {
     static char buf[2048];
     static int  done = 0;
@@ -199,6 +206,16 @@ static char *emit_one(FILE *f, Mel_Graph *g, size_t idx, const Mel_Variant *v, M
         bool apple_ld = host || v->platform == MEL_PLATFORM_MACOS || v->platform == MEL_PLATFORM_IOS;
         if (apple_ld) mel_da_push(&ldflags, mel_str_dup("-dead_strip"));
 
+        const char *ext = host ? "" : g_tc.exe_ext;
+        bool        web_gui = !host && v->platform == MEL_PLATFORM_WASM && closure_has(g, order, "gui");
+        if (web_gui) {
+            ext = ".html";
+            mel_da_push(&ldflags, mel_str_dup("--shell-file"));
+            mel_da_push(&ldflags, mel_str_dup("modules/build/web/shell.html"));
+        }
+        bool android_so = !host && v->platform == MEL_PLATFORM_ANDROID && t->kind == MEL_KIND_EXECUTABLE;
+        if (android_so) mel_da_push(&ldflags, mel_str_dup("-shared"));
+
         Mel_StrVec libs = {0};
         if (order) {
             for (size_t i = 0; i < order->len; i++) {
@@ -212,7 +229,8 @@ static char *emit_one(FILE *f, Mel_Graph *g, size_t idx, const Mel_Variant *v, M
             }
         }
 
-        char *bin = mel_str_fmt("%s/%s%s", outdir, t->name, host ? "" : g_tc.exe_ext);
+        char *bin = android_so ? mel_str_fmt("%s/libmelody.so", outdir)
+                               : mel_str_fmt("%s/%s%s", outdir, t->name, ext);
         fprintf(f, "build %s: %s", bin, host ? "hostlink" : "link");
         join_into(f, &objs);
         join_into(f, &libs);
@@ -303,6 +321,7 @@ bool mel_emit_and_build(Mel_Graph *g, const char *root, const Mel_Variant *v) {
     if (rc != 0) return false;
 
     Mel_Target *rootT = g->nodes.items[ri].t;
-    if (rootT->kind == MEL_KIND_EXECUTABLE && root_out) mel_package(rootT, v, root_outdir, root_out);
+    if (rootT->kind == MEL_KIND_EXECUTABLE && root_out)
+        mel_package(g, &order, rootT, v, root_outdir, root_out);
     return true;
 }

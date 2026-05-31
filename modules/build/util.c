@@ -132,6 +132,26 @@ int mel_run_quiet(char *const argv[]) {
     return WIFEXITED(st) ? WEXITSTATUS(st) : -1;
 }
 
+int mel_run_cwd(const char *dir, Mel_StrVec *cmd) {
+    for (size_t i = 0; i < cmd->len; i++) fprintf(stderr, "%s%s", i ? " " : "", cmd->items[i]);
+    fprintf(stderr, "   (cwd %s)\n", dir);
+    mel_da_push(cmd, NULL);
+    pid_t pid = fork();
+    if (pid < 0) {
+        cmd->len--;
+        return -1;
+    }
+    if (pid == 0) {
+        if (chdir(dir) != 0) _exit(126);
+        execvp(cmd->items[0], (char *const *)cmd->items);
+        _exit(127);
+    }
+    cmd->len--;
+    int st;
+    if (waitpid(pid, &st, 0) < 0) return -1;
+    return WIFEXITED(st) ? WEXITSTATUS(st) : -1;
+}
+
 int mel_run_vec(Mel_StrVec *cmd) {
     for (size_t i = 0; i < cmd->len; i++) fprintf(stderr, "%s%s", i ? " " : "", cmd->items[i]);
     fputc('\n', stderr);

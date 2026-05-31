@@ -37,6 +37,7 @@ typedef struct {
     const char  *backend;
     const char  *gpu;
     const char  *runtime;
+    const char  *arch;
     bool         host;
 } Mel_Variant;
 
@@ -89,6 +90,8 @@ struct Mel_Target {
 
     const char *cmake_dir;
     Mel_StrVec  cmake_args;
+    const char *autotools_dir;
+    Mel_StrVec  autotools_args;
 };
 
 typedef MEL_VEC(Mel_Target *) Mel_TargetVec;

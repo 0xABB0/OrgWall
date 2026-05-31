@@ -163,9 +163,87 @@ char *mel_win32_resource(Mel_Target *t, const char *outdir) {
     return res;
 }
 
-bool mel_package(Mel_Target *t, const Mel_Variant *v, const char *outdir, const char *exe) {
+static char *cwd_abs(const char *rel) {
+    char *cwd = malloc(1 << 14);
+    if (!getcwd(cwd, 1 << 14)) {
+        free(cwd);
+        return mel_str_dup(rel);
+    }
+    char *p = rel[0] == '/' ? mel_str_dup(rel) : mel_str_fmt("%s/%s", cwd, rel);
+    free(cwd);
+    return p;
+}
+
+static bool package_android(Mel_Graph *g, Mel_IdxVec *order, Mel_Target *t, const char *outdir,
+                            const char *so) {
+    char *proj = mel_str_fmt("%s/android", outdir);
+    mel_mkdirs(proj);
+
+    Mel_StrVec cp = {0};
+    mel_da_push(&cp, "cp");
+    mel_da_push(&cp, "-R");
+    mel_da_push(&cp, "modules/build/android/.");
+    mel_da_push(&cp, proj);
+    mel_run_vec(&cp);
+    free(cp.items);
+
+    const char *sdk = getenv("ANDROID_HOME");
+    if (!sdk) sdk = getenv("ANDROID_SDK_ROOT");
+    char *sdkpath = sdk ? mel_str_dup(sdk) : mel_str_fmt("%s/Library/Android/sdk", getenv("HOME"));
+    char *lp      = mel_str_fmt("%s/local.properties", proj);
+    mel_write_file(lp, mel_str_fmt("sdk.dir=%s\n", sdkpath));
+
+    char *jni = mel_str_fmt("%s/app/src/main/jniLibs/arm64-v8a", proj);
+    mel_mkdirs(jni);
+    char *sodst = mel_path_join(jni, "libmelody.so");
+    mel_copy_file(so, sodst);
+
+    Mel_StrVec javadirs = {0};
+    for (size_t i = 0; order && i < order->len; i++) {
+        Mel_Target *d   = g->nodes.items[order->items[i]].t;
+        char       *jav = mel_str_fmt("%s/src/androidnative/java", d->dir);
+        if (mel_path_is_dir(jav))
+            mel_da_push(&javadirs, cwd_abs(jav));
+        else
+            free(jav);
+    }
+    char *javacsv = NULL;
+    for (size_t i = 0; i < javadirs.len; i++)
+        javacsv = javacsv ? mel_str_fmt("%s,%s", javacsv, javadirs.items[i]) : mel_str_dup(javadirs.items[i]);
+
+    const char *appid = manifest_get(t, "BUNDLE_ID", t->name);
+    const char *label = manifest_get(t, "APP_LABEL", t->name);
+    const char *ver   = manifest_get(t, "VERSION", "1.0.0");
+    char       *props = mel_str_fmt(
+        "\nmelody.namespace=orgwall.melody\nmelody.applicationId=%s\nmelody.appLabel=%s\n"
+        "melody.compileSdk=34\nmelody.minSdk=24\nmelody.targetSdk=34\nmelody.versionCode=1\n"
+        "melody.versionName=%s\nmelody.rootProjectName=%s\nmelody.javaSrcDirs=%s\n",
+        appid, label, ver, t->name, javacsv ? javacsv : "");
+    char *gp     = mel_str_fmt("%s/gradle.properties", proj);
+    char *cur    = mel_read_file(gp);
+    char *merged = mel_str_fmt("%s%s", cur ? cur : "", props);
+    mel_write_file(gp, merged);
+
+    Mel_StrVec gr = {0};
+    mel_da_push(&gr, "gradle");
+    mel_da_push(&gr, "-p");
+    mel_da_push(&gr, proj);
+    mel_da_push(&gr, "assembleDebug");
+    int rc = mel_run_vec(&gr);
+    free(gr.items);
+    if (rc != 0) {
+        fprintf(stderr, "build: android gradle assembleDebug failed for '%s'\n", t->name);
+        return false;
+    }
+    fprintf(stderr, "build: packaged %s/app/build/outputs/apk/debug/app-debug.apk\n", proj);
+    return true;
+}
+
+bool mel_package(Mel_Graph *g, Mel_IdxVec *order, Mel_Target *t, const Mel_Variant *v,
+                 const char *outdir, const char *exe) {
     if (t->kind != MEL_KIND_EXECUTABLE) return true;
     if (v->platform == MEL_PLATFORM_MACOS) return package_apple(t, outdir, exe, "macos", false);
     if (v->platform == MEL_PLATFORM_IOS) return package_apple(t, outdir, exe, "ios", true);
+    if (v->platform == MEL_PLATFORM_ANDROID) return package_android(g, order, t, outdir, exe);
     return true;
 }

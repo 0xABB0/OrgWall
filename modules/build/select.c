@@ -9,6 +9,7 @@ bool mel_when_match(Mel_When w, const Mel_Variant *v) {
     if (w.backend && (!v->backend || strcmp(w.backend, v->backend) != 0)) return false;
     if (w.gpu && (!v->gpu || strcmp(w.gpu, v->gpu) != 0)) return false;
     if (w.runtime && (!v->runtime || strcmp(w.runtime, v->runtime) != 0)) return false;
+    if (w.arch && (!v->arch || strcmp(w.arch, v->arch) != 0)) return false;
     return true;
 }
 

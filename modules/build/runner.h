@@ -16,12 +16,12 @@ void mel_glob(const char *base, const char *pattern, Mel_StrVec *out);
 int   mel_run(char *const argv[]);
 int   mel_run_quiet(char *const argv[]);
 int   mel_run_vec(Mel_StrVec *cmd);
+int   mel_run_cwd(const char *dir, Mel_StrVec *cmd);
 void  mel_mkdirs(const char *path);
 char *mel_read_file(const char *path);
 bool  mel_write_file(const char *path, const char *data);
 bool  mel_copy_file(const char *src, const char *dst);
 
-bool  mel_package(Mel_Target *t, const Mel_Variant *v, const char *outdir, const char *exe);
 char *mel_win32_resource(Mel_Target *t, const char *outdir);
 
 typedef struct {
@@ -44,6 +44,8 @@ void              mel_discover(Mel_Graph *g);
 Mel_Target *mel_graph_find(Mel_Graph *g, const char *name);
 int               mel_graph_index(Mel_Graph *g, const char *name);
 bool              mel_topo_closure(Mel_Graph *g, const char *root, Mel_IdxVec *order);
+bool              mel_package(Mel_Graph *g, Mel_IdxVec *order, Mel_Target *t, const Mel_Variant *v,
+                              const char *outdir, const char *exe);
 
 Mel_Variant mel_variant_native(Mel_Platform platform, const char *config);
 const char *mel_platform_name(Mel_Platform p);
@@ -52,9 +54,12 @@ bool        mel_target_available(Mel_Target *t, const Mel_Variant *v);
 typedef struct {
     char       *cc;
     char       *ar;
+    char       *autotools_cc;
     char       *base_cflags;
     char       *base_ldflags;
     const char *exe_ext;
+    const char *triple;
+    bool        cross;
 } Mel_Toolchain;
 
 Mel_Toolchain mel_toolchain(const Mel_Variant *v);

@@ -15,15 +15,17 @@ const char *mel_platform_name(Mel_Platform p) {
 }
 
 Mel_Variant mel_variant_native(Mel_Platform platform, const char *config) {
-    Mel_Variant v = {.platform = platform, .config = config ? config : "debug"};
+    Mel_Variant v = {.platform = platform, .config = config ? config : "debug", .arch = "x86_64"};
     switch (platform) {
         case MEL_PLATFORM_MACOS:
             v.backend = "cocoa";
             v.gpu     = "metal";
+            v.arch    = "arm64";
             break;
         case MEL_PLATFORM_IOS:
             v.backend = "uikit";
             v.gpu     = "metal";
+            v.arch    = "arm64";
             break;
         case MEL_PLATFORM_LINUX:
             v.gpu = "vulkan";
@@ -31,6 +33,7 @@ Mel_Variant mel_variant_native(Mel_Platform platform, const char *config) {
         case MEL_PLATFORM_ANDROID:
             v.backend = "androidnative";
             v.gpu     = "vulkan";
+            v.arch    = "arm64";
             break;
         case MEL_PLATFORM_WIN32:
             v.backend = "winui";
@@ -40,6 +43,7 @@ Mel_Variant mel_variant_native(Mel_Platform platform, const char *config) {
             v.backend = "dom";
             v.gpu     = "webgpu";
             v.runtime = "emscripten";
+            v.arch    = "wasm32";
             break;
         default: break;
     }
