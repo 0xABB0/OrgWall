@@ -75,9 +75,15 @@ validate before allocating.
 
 ### 2D symbologies  *(sequenced)*
 
-- `qr` (model 2, v1–40): segmentation, encoding, RS interleave, function
-  patterns, 8-mask penalty selection. Opt `{ i32 version; mel_qr_ecc ecc; i32
-  mask; }`, `0`/`-1` = auto. Micro-QR sequenced.
+- `qr` (model 2): ECC level as an open recovery descriptor (`mel_qr_ecc_l/m/q/h`,
+  never an enum). **Codeword stage built** (v1–10): mode detection
+  (numeric/alphanumeric/byte), bitstream, terminator + EC/11 padding, per-block
+  Reed–Solomon, data/EC interleave — `mel_qr_codewords` returns the interleaved
+  stream + resolved version. Verified byte-exact against the ISO/IEC 18004
+  `01234567` 1-M example (data *and* EC codewords) plus the codeword-root
+  invariant. **Sequenced:** geometry — function-pattern placement, zigzag data
+  walk, 8-mask penalty selection, format/version info → `mel_barcode_matrix` via
+  `mel_qr_encode`; then versions 11–40, Kanji/ECI, Micro-QR.
 - `datamatrix` (ECC 200): ASCII/C40/Text/Base256, RS, diagonal placement, square
   + rectangular.
 - `aztec`: bullseye, mode message, compact + full.

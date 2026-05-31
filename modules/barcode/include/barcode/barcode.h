@@ -7,4 +7,5 @@
 #include <barcode/galois.h>
 #include <barcode/itf.h>
 #include <barcode/matrix.h>
+#include <barcode/qr.h>
 #include <barcode/rs.h>

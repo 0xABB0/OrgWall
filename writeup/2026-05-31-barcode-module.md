@@ -138,3 +138,54 @@ it.
 `./nob test` still blocked upstream by `continuation` codegen; the substrate was
 verified via standalone harness + syntax-check against the real `test.h`. No new
 kludges. Next: QR atop this substrate.
+
+---
+
+## Addendum — QR codeword pipeline (stages 1–4)
+
+QR is the largest single piece, so it is split at a clean seam: **this turn the
+codeword pipeline**, next turn the geometry. The pipeline is the part that
+consumes `bitwriter`+`galois`+`rs` and is fully verifiable against the ISO
+worked example; the geometry (placement/masking/format info → matrix) has no
+such offline anchor and lands separately.
+
+- **`qr` ECC level** — `mel_qr_ecc_{l,m,q,h}()`, an open recovery descriptor
+  (rank as data), never an enum (MEL-CODE-001); modes (numeric/alnum/byte) are
+  internal, auto-detected, never a public enum (MEL-ENGINE-II).
+- **`mel_qr_codewords`** (v1–10): mode detection → bitstream (mode indicator,
+  version-dependent count, mode-specific data bits) → terminator + EC/11 pad →
+  per-block Reed–Solomon (`GF(2⁸)`, α=2) → data/EC interleave with the block
+  structure. Returns the interleaved codeword stream + resolved version. Output
+  stops before module placement (the next-turn seam).
+
+### Verification — byte-exact against ISO/IEC 18004
+
+- The `01234567` 1-M worked example reproduces the spec's 16 data codewords
+  `{10,20,0C,56,61,80,EC,11,…}` **and** its 10 EC codewords
+  `{A5,24,D4,C1,ED,36,C7,87,2C,55}` byte-for-byte.
+- Codeword-root invariant (field-agnostic): the single-block 1-M stream and each
+  de-interleaved block of a multi-block symbol (v3-Q, two blocks) vanish at every
+  generator root.
+- The 40-row EC characteristics table is cross-checked automatically:
+  `g1·g1cw + g2·g2cw + nblocks·ecw == total_codewords` for every (version, level),
+  against the canonical totals `{26,44,70,…,346}` — catches any table
+  transcription error.
+- Version auto-selection (`HELLO WORLD` alnum → v1) and capacity refusal (2048
+  bytes at H → false, no symbol) verified.
+
+### Debt / scope confessed
+
+1. **Codeword stage only.** `mel_qr_codewords` does not place modules; there is no
+   scannable QR image yet. Geometry (finder/timing/alignment, zigzag walk, 8-mask
+   penalty, format/version BCH → `mel_barcode_matrix`) is the next turn. Honest
+   seam, not a hidden gap.
+2. **Versions 1–10.** Bounded so the EC table stays auditable (and the cross-check
+   tractable). 11–40 are pure table extension; the pipeline code is
+   version-general. Sequenced, not refused (MEL-ENGINE-I).
+3. **Single-mode segmentation.** One mode chosen for the whole payload
+   (all-digits → numeric, all-alnum → alphanumeric, else byte). Spec-compliant but
+   not byte-optimal across mixed runs; optimal multi-segment is sequenced. Kanji
+   and ECI unsupported.
+4. **`const char*` payload.** Byte mode reads up to NUL, so embedded-NUL binary
+   payloads aren't expressible; a length-taking entry is sequenced.
+5. `./nob test` blocker unchanged; verified via harness + syntax-check.
