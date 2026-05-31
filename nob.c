@@ -10,6 +10,7 @@
 #include "modules/build/discovery.c"
 #include "modules/build/graph.c"
 #include "modules/build/resolve.c"
+#include "modules/build/toolchain.c"
 #include "modules/build/package.c"
 #include "modules/build/emit.c"
 #include "modules/build/driver.c"
@@ -19,6 +20,7 @@ int main(int argc, char **argv) {
                                "modules/build/runner.h", "modules/build/api.c", "modules/build/util.c",
                                "modules/build/select.c", "modules/build/discovery.c",
                                "modules/build/graph.c", "modules/build/resolve.c",
-                               "modules/build/package.c", "modules/build/emit.c", "modules/build/driver.c");
+                               "modules/build/toolchain.c", "modules/build/package.c",
+                               "modules/build/emit.c", "modules/build/driver.c");
     return mel_build_main(argc, argv);
 }
