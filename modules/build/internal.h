@@ -75,6 +75,7 @@ struct Mel_Target {
     const char *name;
     const char *dir;
     Mel_Kind    kind;
+    bool        is_test;
 
     Mel_StrVec     deps;
     Mel_StrVec     host_deps;

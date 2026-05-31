@@ -43,6 +43,7 @@ MEL_API Mel_Target *mel_add_library(Mel_Build *b, const char *name);
 MEL_API Mel_Target *mel_add_executable(Mel_Build *b, const char *name);
 MEL_API Mel_Target *mel_add_third_party(Mel_Build *b, const char *name);
 MEL_API Mel_Target *mel_add_host_tool(Mel_Build *b, const char *name);
+MEL_API Mel_Target *mel_add_test(Mel_Build *b, const char *name);
 
 MEL_API void mel_depends(Mel_Target *t, const char *name);
 MEL_API void mel_depends_host(Mel_Target *t, const char *name);

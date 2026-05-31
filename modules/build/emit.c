@@ -110,7 +110,7 @@ static char *find_header(const char *spelling, Mel_StrVec *cflags) {
 }
 
 static void emit_codegens(FILE *f, Mel_Graph *g, Mel_Target *t, const char *outdir, Mel_StrVec *cflags,
-                          const Mel_Variant *v, Mel_StrVec *objs) {
+                          const Mel_Variant *v, Mel_StrVec *objs, Mel_StrVec *genout) {
     char *cflags_joined = join_str(cflags);
     for (size_t c = 0; c < t->codegens.len; c++) {
         Mel_Codegen cg   = t->codegens.items[c];
@@ -122,6 +122,7 @@ static void emit_codegens(FILE *f, Mel_Graph *g, Mel_Target *t, const char *outd
         Mel_Target *tool = g->nodes.items[ti].t;
         char       *texe = mel_str_fmt("%s/build/host/%s", tool->dir, tool->name);
         char       *genc = mel_str_fmt("%s/gen/%s", outdir, cg.output);
+        if (genout) mel_da_push(genout, mel_str_dup(genc));
 
         Mel_StrVec expanded = {0};
         for (size_t a = 0; a < cg.args.len; a++) {
@@ -185,14 +186,19 @@ static char *emit_one(FILE *f, Mel_Graph *g, size_t idx, const Mel_Variant *v, M
     join_into(f, &cflags);
     fputc('\n', f);
 
-    Mel_StrVec objs = {0};
+    Mel_StrVec objs = {0}, genout = {0};
+    emit_codegens(f, g, t, outdir, &cflags, v, &objs, &genout);
+
     for (size_t i = 0; i < srcs.len; i++) {
         char *obj = obj_path(outdir, t->dir, srcs.items[i]);
-        fprintf(f, "build %s: %s %s\n  cflags = $%s_cflags\n", obj, cc_rule, srcs.items[i], t->name);
+        fprintf(f, "build %s: %s %s", obj, cc_rule, srcs.items[i]);
+        if (genout.len) {
+            fputs(" ||", f);
+            for (size_t k = 0; k < genout.len; k++) fprintf(f, " %s", genout.items[k]);
+        }
+        fprintf(f, "\n  cflags = $%s_cflags\n", t->name);
         mel_da_push(&objs, obj);
     }
-
-    emit_codegens(f, g, t, outdir, &cflags, v, &objs);
 
     if (!host && t->kind == MEL_KIND_EXECUTABLE && v->platform == MEL_PLATFORM_WIN32) {
         char *res = mel_win32_resource(t, outdir);
@@ -250,7 +256,8 @@ static char *emit_one(FILE *f, Mel_Graph *g, size_t idx, const Mel_Variant *v, M
     return out;
 }
 
-bool mel_emit_and_build(Mel_Graph *g, const char *root, const Mel_Variant *v) {
+bool mel_emit_and_build(Mel_Graph *g, const char *root, const Mel_Variant *v, bool run_ninja,
+                        bool do_package, char **out_bin) {
     Mel_IdxVec order = {0};
     if (!mel_topo_closure(g, root, &order)) {
         free(order.items);
@@ -311,6 +318,13 @@ bool mel_emit_and_build(Mel_Graph *g, const char *root, const Mel_Variant *v) {
     if (root_out) fprintf(f, "default %s\n", root_out);
     fclose(f);
 
+    if (out_bin) *out_bin = root_out ? mel_str_dup(root_out) : NULL;
+
+    if (!run_ninja) {
+        fprintf(stderr, "build: configured %s\n", ninja_path);
+        return true;
+    }
+
     fprintf(stderr, "build: emitted %s\n", ninja_path);
     Mel_StrVec cmd = {0};
     mel_da_push(&cmd, "ninja");
@@ -320,8 +334,10 @@ bool mel_emit_and_build(Mel_Graph *g, const char *root, const Mel_Variant *v) {
     free(cmd.items);
     if (rc != 0) return false;
 
-    Mel_Target *rootT = g->nodes.items[ri].t;
-    if (rootT->kind == MEL_KIND_EXECUTABLE && root_out)
-        mel_package(g, &order, rootT, v, root_outdir, root_out);
+    if (do_package) {
+        Mel_Target *rootT = g->nodes.items[ri].t;
+        if (rootT->kind == MEL_KIND_EXECUTABLE && root_out)
+            mel_package(g, &order, rootT, v, root_outdir, root_out);
+    }
     return true;
 }
