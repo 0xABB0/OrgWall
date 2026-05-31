@@ -1,6 +1,6 @@
 #include "gui_internal.h"
 
-#define MEL_GUI_MAX_SCREENS 32
+#include <collection.array/array.h>
 
 typedef struct Mel_Gui_Screen {
     str8                   name;
@@ -11,25 +11,30 @@ typedef struct Mel_Gui_Screen {
     struct Mel_Gui_Screen* back;   /* screen this one replaced, or NULL */
 } Mel_Gui_Screen;
 
-static Mel_Gui_Screen g_screens[MEL_GUI_MAX_SCREENS];
-static u32            g_screen_count;
+static Mel_Array(Mel_Gui_Screen) g_screens;
+
+static Mel_Gui_Screen* find_screen(str8 name);
 
 void mel_gui__screens_reset(void)
 {
-    for (u32 i = 0; i < g_screen_count; i++) g_screens[i] = (Mel_Gui_Screen){0};
-    g_screen_count = 0;
+    mel_array_free(&g_screens);
 }
 
 void mel_app_register_screen(str8 name, Mel_Screen_Build build, void* user)
 {
-    if (g_screen_count >= MEL_GUI_MAX_SCREENS || !build) return;
-    Mel_Gui_Screen* s = &g_screens[g_screen_count++];
-    s->name    = name;
-    s->build   = build;
-    s->user    = user;
-    s->frame   = MEL_GUI_HANDLE_NONE;
-    s->created = false;
-    s->back    = NULL;
+    assert(build && "screen builder must not be null");
+    assert(!find_screen(name) && "screen name already registered");
+
+    if (g_screens.allocator == NULL) mel_array_init(&g_screens, mel_gui__alloc());
+
+    mel_array_push(&g_screens, ((Mel_Gui_Screen){
+        .name    = name,
+        .build   = build,
+        .user    = user,
+        .frame   = MEL_GUI_HANDLE_NONE,
+        .created = false,
+        .back    = NULL,
+    }));
 }
 
 static Mel_Gui_Handle toplevel_of(Mel_Gui_Handle h)
@@ -47,17 +52,17 @@ static Mel_Gui_Handle toplevel_of(Mel_Gui_Handle h)
 static Mel_Gui_Screen* screen_at_frame(Mel_Gui_Handle frame)
 {
     if (mel_gui_handle_is_none(frame)) return NULL;
-    for (u32 i = 0; i < g_screen_count; i++) {
-        if (g_screens[i].created && mel_gui_handle_eq(g_screens[i].frame, frame))
-            return &g_screens[i];
+    for (usize i = 0; i < g_screens.count; i++) {
+        if (g_screens.items[i].created && mel_gui_handle_eq(g_screens.items[i].frame, frame))
+            return &g_screens.items[i];
     }
     return NULL;
 }
 
 static Mel_Gui_Screen* find_screen(str8 name)
 {
-    for (u32 i = 0; i < g_screen_count; i++) {
-        if (str8_equals(g_screens[i].name, name)) return &g_screens[i];
+    for (usize i = 0; i < g_screens.count; i++) {
+        if (str8_equals(g_screens.items[i].name, name)) return &g_screens.items[i];
     }
     return NULL;
 }
@@ -118,6 +123,7 @@ static void ensure_created(Mel_Gui_Screen* s)
 void mel_app_present(str8 name)
 {
     Mel_Gui_Screen* s = find_screen(name);
+    assert(s && "present: screen name not registered");
     if (!s) return;
 
     ensure_created(s);
@@ -128,6 +134,7 @@ void mel_app_present(str8 name)
 void mel_app_replace(Mel_Gui_Handle from, str8 name)
 {
     Mel_Gui_Screen* s   = find_screen(name);
+    assert(s && "replace: screen name not registered");
     Mel_Gui_Screen* cur = screen_at_frame(toplevel_of(from));
     if (!s || s == cur) return;
 
