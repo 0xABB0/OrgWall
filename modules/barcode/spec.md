@@ -59,13 +59,19 @@ validate before allocating.
 - `code128`: `mel_code128_encode`. Full 107-pattern table, start A/B/C, mod-103
   checksum, auto code-C over digit runs. GS1/FNC1 sequenced.
 
-### 2D substrate  *(sequenced)*
+### 2D substrate  *(built)*
 
 - `bitwriter`: MSB-first bit serializer over an allocator-backed buffer —
-  `put(v, bits)`, `pad_to_byte`, `bytes`.
-- `galois`: field-parameterized Reed–Solomon. Field carried as data (`GF(2⁸)`
-  for QR/DataMatrix/Aztec with per-symbology primitive; `GF(929)` for PDF417).
-  `mel_rs_generate(field, msg, n_data, n_ecc, out)`. One algebra, four consumers.
+  `put(v, bits)`, `pad_to_byte`, `bytes`, `bit_length`.
+- `galois`: a field is open data carrying its arithmetic as function pointers
+  (the `Mel_Alloc` pattern, never an enum/tag — MEL-CODE-001). Two builders:
+  `mel_gf_binary_init` (`GF(2ᵐ)`, log/exp tables, per-symbology primitive) and
+  `mel_gf_prime_init` (`GF(p)`, e.g. 929). `add`/`sub`/`mul`/`pow`/`inv`.
+- `rs`: `mel_rs_generate(field, alpha, first_root, data, n_data, n_ecc, out)` —
+  one coder over the field pointers, sign-correct `(x − root)` generator so the
+  emitted ECC is the negated remainder (identity in `GF(2ᵐ)`, `p − r` in `GF(p)`).
+  One algebra, four consumers. Verified against the QR reference codewords and the
+  field-agnostic invariant that a codeword vanishes at every generator root.
 
 ### 2D symbologies  *(sequenced)*
 
@@ -90,6 +96,8 @@ untouched (MEL-ENGINE-VIII). Pure compute, no syscalls. Caller frees the matrix.
 
 ## Status
 
-`matrix` and the linear family build and are vector-verified. Everything under
-*sequenced* is designed-for, not yet built — `MEL-ENGINE-I`, deferral is never
-refusal.
+`matrix`, the linear family, and the 2D substrate (`bitwriter`, `galois`, `rs`)
+are built and verified. Next: QR (segmentation → encode → RS interleave →
+placement → masking) atop the substrate, then DataMatrix/Aztec/PDF417, then
+decode. Everything still under *sequenced* is designed-for, not yet built —
+`MEL-ENGINE-I`, deferral is never refusal.

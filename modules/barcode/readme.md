@@ -52,5 +52,8 @@ hidden threads, portable to every target.
 
 ## Status
 
-Foundation (matrix + linear family) building, verified against published test
-vectors. 2D substrate, 2D symbologies, and decode are sequenced per `spec.md`.
+Foundation built: `matrix` plus the full linear family — EAN-13/EAN-8/UPC-A,
+Code 39, ITF, Code 128 (Sets B/C with auto-switch). Verified against independent
+check-digit and weight-formula vectors, single-symbol module-string anchors, and
+a table-independent structural decode. 2D substrate (`bitwriter`, Reed–Solomon),
+2D symbologies, and decode are sequenced per `spec.md`.
