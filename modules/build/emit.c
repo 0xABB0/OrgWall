@@ -233,6 +233,10 @@ bool mel_emit_and_build(Mel_Graph *g, const char *root, const Mel_Variant *v) {
         free(order.items);
         return false;
     }
+    if (!mel_prepare_thirdparty(g, &order, v)) {
+        free(order.items);
+        return false;
+    }
 
     int ri = mel_graph_index(g, root);
     if (ri < 0) return false;

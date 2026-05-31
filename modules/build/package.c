@@ -57,21 +57,37 @@ static char *find_by_ext(const char *dir, const char *ext) {
     return hit;
 }
 
-static bool package_macos(Mel_Target *t, const char *outdir, const char *exe) {
-    char *appdir   = mel_str_fmt("%s/%s.app", outdir, t->name);
-    char *contents = mel_str_fmt("%s/Contents", appdir);
-    char *macosdir = mel_str_fmt("%s/MacOS", contents);
-    char *resdir   = mel_str_fmt("%s/Resources", contents);
-    mel_mkdirs(macosdir);
+static void build_vars(Mel_Target *t, const char *icon, Mel_KVVec *vars) {
+    for (size_t i = 0; i < t->manifest.len; i++) mel_da_push(vars, t->manifest.items[i]);
+    mel_da_push(vars, ((Mel_KV){"EXECUTABLE", t->name}));
+    mel_da_push(vars, ((Mel_KV){"ICON", icon ? icon : ""}));
+    bool has_version = false, has_label = false, has_bundle = false;
+    for (size_t i = 0; i < t->manifest.len; i++) {
+        if (strcmp(t->manifest.items[i].key, "VERSION") == 0) has_version = true;
+        if (strcmp(t->manifest.items[i].key, "APP_LABEL") == 0) has_label = true;
+        if (strcmp(t->manifest.items[i].key, "BUNDLE_ID") == 0) has_bundle = true;
+    }
+    if (!has_version) mel_da_push(vars, ((Mel_KV){"VERSION", "1.0.0"}));
+    if (!has_label) mel_da_push(vars, ((Mel_KV){"APP_LABEL", t->name}));
+    if (!has_bundle) mel_da_push(vars, ((Mel_KV){"BUNDLE_ID", t->name}));
+}
+
+static bool package_apple(Mel_Target *t, const char *outdir, const char *exe, const char *plat,
+                          bool flat) {
+    char *appdir = mel_str_fmt("%s/%s.app", outdir, t->name);
+    char *macdir = flat ? mel_str_dup(appdir) : mel_str_fmt("%s/Contents/MacOS", appdir);
+    char *resdir = flat ? mel_str_dup(appdir) : mel_str_fmt("%s/Contents/Resources", appdir);
+    char *plistdir = flat ? mel_str_dup(appdir) : mel_str_fmt("%s/Contents", appdir);
+    mel_mkdirs(macdir);
     mel_mkdirs(resdir);
 
-    char *dstexe = mel_path_join(macosdir, t->name);
+    char *dstexe = mel_path_join(macdir, t->name);
     if (!mel_copy_file(exe, dstexe)) {
         fprintf(stderr, "build: package: cannot copy %s\n", exe);
         return false;
     }
 
-    char *platdir = mel_str_fmt("%s/macos", t->dir);
+    char *platdir = mel_str_fmt("%s/%s", t->dir, plat);
     char *icon    = find_by_ext(platdir, ".icns");
     if (icon) {
         char *src = mel_path_join(platdir, icon);
@@ -82,29 +98,18 @@ static bool package_macos(Mel_Target *t, const char *outdir, const char *exe) {
     }
 
     Mel_KVVec vars = {0};
-    for (size_t i = 0; i < t->manifest.len; i++) mel_da_push(&vars, t->manifest.items[i]);
-    mel_da_push(&vars, ((Mel_KV){"EXECUTABLE", t->name}));
-    mel_da_push(&vars, ((Mel_KV){"ICON", icon ? icon : ""}));
-    bool has_version = false, has_label = false, has_bundle = false;
-    for (size_t i = 0; i < t->manifest.len; i++) {
-        if (strcmp(t->manifest.items[i].key, "VERSION") == 0) has_version = true;
-        if (strcmp(t->manifest.items[i].key, "APP_LABEL") == 0) has_label = true;
-        if (strcmp(t->manifest.items[i].key, "BUNDLE_ID") == 0) has_bundle = true;
-    }
-    if (!has_version) mel_da_push(&vars, ((Mel_KV){"VERSION", "1.0.0"}));
-    if (!has_label) mel_da_push(&vars, ((Mel_KV){"APP_LABEL", t->name}));
-    if (!has_bundle) mel_da_push(&vars, ((Mel_KV){"BUNDLE_ID", t->name}));
+    build_vars(t, icon, &vars);
 
-    char *tpl_path = find_override(t->dir, "macos", "Info.plist.in");
+    char *tpl_path = find_override(t->dir, plat, "Info.plist.in");
     bool  owned    = tpl_path != NULL;
-    if (!tpl_path) tpl_path = "modules/build/macos/Info.plist.in";
+    if (!tpl_path) tpl_path = mel_str_fmt("modules/build/%s/Info.plist.in", plat);
     char *tpl = mel_read_file(tpl_path);
     if (!tpl) {
         fprintf(stderr, "build: package: missing template %s\n", tpl_path);
         return false;
     }
     char *plist     = substitute(tpl, &vars);
-    char *plist_dst = mel_path_join(contents, "Info.plist");
+    char *plist_dst = mel_path_join(plistdir, "Info.plist");
     mel_write_file(plist_dst, plist);
 
     fprintf(stderr, "build: packaged %s%s\n", appdir, owned ? " (app override)" : "");
@@ -113,6 +118,7 @@ static bool package_macos(Mel_Target *t, const char *outdir, const char *exe) {
 
 bool mel_package(Mel_Target *t, const Mel_Variant *v, const char *outdir, const char *exe) {
     if (t->kind != MEL_KIND_EXECUTABLE) return true;
-    if (v->platform == MEL_PLATFORM_MACOS) return package_macos(t, outdir, exe);
+    if (v->platform == MEL_PLATFORM_MACOS) return package_apple(t, outdir, exe, "macos", false);
+    if (v->platform == MEL_PLATFORM_IOS) return package_apple(t, outdir, exe, "ios", true);
     return true;
 }

@@ -63,6 +63,7 @@ bool mel_gather_compile(Mel_Graph *g, size_t idx, const Mel_Variant *v, Mel_StrV
 void mel_gather_link(Mel_Graph *g, size_t idx, const Mel_Variant *v, Mel_StrVec *ldflags);
 
 char *mel_target_outdir(const char *target_dir, const Mel_Variant *v);
+bool  mel_prepare_thirdparty(Mel_Graph *g, Mel_IdxVec *order, const Mel_Variant *v);
 bool  mel_emit_and_build(Mel_Graph *g, const char *root, const Mel_Variant *v);
 
 #endif
