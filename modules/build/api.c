@@ -56,6 +56,14 @@ void mel_cmake_(Mel_Target *t, const char *dir, ...) {
     va_end(ap);
 }
 
+void mel_cmake_when(Mel_Target *t, Mel_When when) { t->cmake_when = when; }
+
+void mel_prebuilt(Mel_Target *t, Mel_When when, const char *url, const char *lib) {
+    t->prebuilt_when = when;
+    t->prebuilt_url  = url;
+    t->prebuilt_lib  = lib;
+}
+
 void mel_configure_(Mel_Target *t, const char *dir, ...) {
     t->autotools_dir = dir;
     va_list ap;

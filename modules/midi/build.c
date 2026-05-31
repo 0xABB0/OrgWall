@@ -10,6 +10,7 @@ void build(Mel_Build *b) {
     mel_sources(lib, WHEN(.platforms = MEL_ON(ANDROID)), "src/android/*.c");
     mel_link(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(MACOS)), "-framework", "CoreMIDI", "-framework",
              "CoreFoundation");
+    mel_link(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(WIN32)), "-lwinmm");
     mel_depends(lib, "core");
     mel_depends(lib, "musictheory");
     mel_depends(lib, "platform");

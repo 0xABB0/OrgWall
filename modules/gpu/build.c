@@ -30,4 +30,5 @@ void build(Mel_Build *b) {
     mel_depends(lib, "core");
     mel_depends(lib, "reactor");
     mel_depends(lib, "time");
+    mel_depends(lib, "webgpu");
 }

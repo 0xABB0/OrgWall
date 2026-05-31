@@ -74,7 +74,7 @@ Mel_Toolchain mel_toolchain(const Mel_Variant *v) {
             free(tc.ar);
             tc.cc           = mel_str_fmt("zig cc -target %s-windows-gnu", la);
             tc.ar           = mel_str_dup("zig ar");
-            tc.autotools_cc = mel_str_fmt("%s-w64-mingw32-gcc", la);
+            tc.autotools_cc = mel_str_fmt("%s-w64-mingw32-gcc -std=gnu17", la);
             tc.exe_ext      = ".exe";
             tc.triple       = mel_str_fmt("%s-w64-mingw32", la);
             tc.cross        = true;

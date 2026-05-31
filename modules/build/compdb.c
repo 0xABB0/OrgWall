@@ -142,12 +142,17 @@ static void emit_target(FILE *f, bool *first, const char *dir, Mel_Graph *g, siz
     if (!mel_gather_compile(g, idx, v, &srcs, &gathered)) return;
 
     for (size_t i = 0; i < srcs.len; i++) {
+        const char *src  = srcs.items[i];
+        size_t      sl   = strlen(src);
+        bool        objc = (sl >= 2 && strcmp(src + sl - 2, ".m") == 0) ||
+                    (sl >= 3 && strcmp(src + sl - 3, ".mm") == 0);
         Mel_StrVec cmd = {0};
         for (size_t k = 0; k < prefix->len; k++) mel_da_push(&cmd, prefix->items[k]);
         for (size_t k = 0; k < gathered.len; k++) mel_da_push(&cmd, gathered.items[k]);
+        if (objc) mel_da_push(&cmd, "-fobjc-arc");
         mel_da_push(&cmd, "-c");
-        mel_da_push(&cmd, srcs.items[i]);
-        entry(f, first, dir, &cmd, srcs.items[i]);
+        mel_da_push(&cmd, src);
+        entry(f, first, dir, &cmd, src);
         free(cmd.items);
     }
 }

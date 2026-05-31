@@ -144,7 +144,7 @@ module adds `-I/opt/homebrew/include -L/opt/homebrew/lib -lvulkan`).
 
 ## Third-party
 
-Three integration modes, all keyed off the `build.c`:
+Four integration modes, all keyed off the `build.c`:
 
 - **Amalgamation** — declare the vendored `.c` with `mel_sources`; it compiles like any library
   (e.g. `sqlite3`, `mongoose`).
@@ -153,9 +153,17 @@ Three integration modes, all keyed off the `build.c`:
 - **Autotools** — `mel_configure(t, dir, "--enable-x", …)`; `nob` runs `./configure --prefix=…
   --disable-shared` (adding `--host=<triple> CC=…` when cross, and dependency prefixes via
   `CPPFLAGS`/`LDFLAGS`), then `make`/`make install` (e.g. `gmp`, `mpfr`).
+- **Prebuilt** — `mel_prebuilt(t, when, url, lib)`; `nob` `curl`s the archive and unzips it into the
+  prefix (e.g. `webgpu` downloads the macОS Dawn release).
 
-CMake/autotools builds are stamp-gated (`.thirdparty-built`), so a clean rebuild needs `rm -rf` of
-the target's `build/` dir. On success the prefix's `include`/`-Llib` are injected as public flags,
+Each method can be gated to a `Mel_When`: `mel_prebuilt`/its `when`, and `mel_cmake_when(t, when)`
+for the cmake step (default `ALWAYS`). A matched prebuilt takes precedence and skips cmake — so a
+target can fetch a prebuilt on one platform and build from source on another (webgpu: prebuilt on
+macos, cmake-from-source on android, inert when `gpu ≠ webgpu`).
+
+CMake/autotools builds are stamp-gated (`.thirdparty-built`); prebuilt is gated on the expected lib
+already being present — a clean rebuild needs `rm -rf` of the target's `build/` dir. On success the
+prefix's `include`/`-Llib` (and, off-win32, an absolute `-Wl,-rpath`) are injected as public flags,
 so dependents resolve the headers and libraries automatically.
 
 ## Codegen
@@ -206,13 +214,10 @@ non-host files resolve too. It is an explicit step, not auto-run; re-run it afte
 - **UI backend and runtime are not CLI-selectable** (gpu is, via `--gpu`). They take the
   per-platform default; the `platform:backend:runtime` positional suffix is parsed-and-ignored.
   Vary them by editing `resolve.c` for now.
-- **Native desktop WebGPU (Dawn) is not wired.** `--gpu webgpu` on macos/android selects the right
-  sources, but the `webgpu` third-party still uses the pre-rewrite `project()` API and is dropped by
-  discovery, so the Dawn library never links. Browser WebGPU (wasm, via the emscripten
-  `emdawnwebgpu` port) works.
-- **Objective-C is compiled without `-fobjc-arc`.** `.m` files that use ARC bridge casts (e.g.
-  `src/vulkan/surface.m`) warn and under-retain; the old build passed `-fobjc-arc`. A toolchain-wide
-  fix (add it for `.m` in `emit.c`) is pending.
+- **Native desktop WebGPU (Dawn): macOS proven, Android wired but unverified here.** `--gpu webgpu`
+  on macos fetches the Dawn prebuilt and links end-to-end; android builds Dawn from the vendored
+  `third-party/webgpu/dawn` source via cmake (mirrors the old path, not re-run this session). Browser
+  WebGPU (wasm, emscripten `emdawnwebgpu` port) works.
 - **`nob test` runs the discovered `mel_add_test` targets**; there is no synthesized aggregate, and
   most `modules/*/test/*.c` belong to no target (only `continuation` wires tests).
 - **`compile`/`link` both mean "build, no package"** — no true object-only stop, and there is no

@@ -91,8 +91,12 @@ struct Mel_Target {
 
     const char *cmake_dir;
     Mel_StrVec  cmake_args;
+    Mel_When    cmake_when;
     const char *autotools_dir;
     Mel_StrVec  autotools_args;
+    const char *prebuilt_url;
+    const char *prebuilt_lib;
+    Mel_When    prebuilt_when;
 };
 
 typedef MEL_VEC(Mel_Target *) Mel_TargetVec;
