@@ -14,6 +14,7 @@
 #include "modules/build/thirdparty.c"
 #include "modules/build/package.c"
 #include "modules/build/emit.c"
+#include "modules/build/compdb.c"
 #include "modules/build/driver.c"
 
 int main(int argc, char **argv) {
@@ -22,6 +23,7 @@ int main(int argc, char **argv) {
                                "modules/build/select.c", "modules/build/discovery.c",
                                "modules/build/graph.c", "modules/build/resolve.c",
                                "modules/build/toolchain.c", "modules/build/thirdparty.c",
-                               "modules/build/package.c", "modules/build/emit.c", "modules/build/driver.c");
+                               "modules/build/package.c", "modules/build/emit.c",
+                               "modules/build/compdb.c", "modules/build/driver.c");
     return mel_build_main(argc, argv);
 }

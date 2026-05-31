@@ -117,7 +117,7 @@ static int run_tests(Mel_Graph *g, const char *only, const Mel_Variant *v, char 
 int mel_build_main(int argc, char **argv) {
     if (argc < 2) {
         fprintf(stderr,
-                "usage: nob <build|run|debug|test|configure|compile|link|package> "
+                "usage: nob <build|run|debug|test|configure|compile|link|package|compdb> "
                 "<target> [platform[:backend[:runtime]]] [--debug|--release] [--arch=A] [-- args]\n");
         return 2;
     }
@@ -154,6 +154,30 @@ int mel_build_main(int argc, char **argv) {
 
     Mel_Graph g = {0};
     mel_discover(&g);
+
+    if (strcmp(verb, "compdb") == 0) {
+        struct {
+            Mel_Variant *items;
+            size_t       len, cap;
+        } vars = {0};
+        for (int i = 2; i < argc; i++) {
+            if (strncmp(argv[i], "--", 2) == 0) continue;
+            Mel_Platform p;
+            if (parse_platform(argv[i], &p)) mel_da_push(&vars, mel_variant_native(p, config));
+        }
+        if (vars.len == 0) {
+            mel_da_push(&vars, mel_variant_native(host_platform(), config));
+            for (Mel_Platform p = 0; p < MEL_PLATFORM_COUNT; p++)
+                if (p != host_platform()) mel_da_push(&vars, mel_variant_native(p, config));
+        }
+        bool ok = mel_emit_compdb(&g, vars.items, vars.len, "compile_commands.json");
+        if (ok)
+            fprintf(stderr, "build: wrote compile_commands.json (%zu platform%s)\n", vars.len,
+                    vars.len == 1 ? "" : "s");
+        free(vars.items);
+        return ok ? 0 : 1;
+    }
+
     Mel_Variant v = mel_variant_native(platform, config);
     if (arch) v.arch = arch;
 
