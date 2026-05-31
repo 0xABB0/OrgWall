@@ -114,7 +114,9 @@ static bool build_autotools(Mel_Graph *g, Mel_Target *t, const Mel_Variant *v) {
     mel_da_push(&c, "--enable-static");
     if (tc.cross) {
         mel_da_push(&c, mel_str_fmt("--host=%s", tc.triple));
-        mel_da_push(&c, mel_str_fmt("CC=%s", tc.autotools_cc));
+        mel_da_push(&c, t->autotools_cstd
+                            ? mel_str_fmt("CC=%s -std=%s", tc.autotools_cc, t->autotools_cstd)
+                            : mel_str_fmt("CC=%s", tc.autotools_cc));
     }
     if (cpp.len) {
         Mel_StrVec j = {0};

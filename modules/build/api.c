@@ -1,5 +1,7 @@
 #include "internal.h"
 
+#include <stdio.h>
+
 void mel__grow(void **items, size_t *cap, size_t elem) {
     size_t next  = *cap ? *cap * 2 : 8;
     void  *grown = realloc(*items, next * elem);
@@ -36,6 +38,17 @@ void mel_unavailable(Mel_Target *t, Mel_When when) { mel_da_push(&t->unavailable
 void mel_manifest(Mel_Target *t, const char *key, const char *value) {
     mel_da_push(&t->manifest, ((Mel_KV){key, value}));
 }
+
+void mel_subsystem(Mel_Target *t, const char *subsystem) {
+    if (strcmp(subsystem, "console") != 0 && strcmp(subsystem, "gui") != 0) {
+        fprintf(stderr, "build: mel_subsystem('%s', \"%s\"): expected \"console\" or \"gui\"\n", t->name,
+                subsystem);
+        abort();
+    }
+    t->subsystem = subsystem;
+}
+
+void mel_configure_cstd(Mel_Target *t, const char *std) { t->autotools_cstd = std; }
 
 void mel_codegen_(Mel_Target *t, const char *tool, const char *output, ...) {
     Mel_Codegen cg = {.tool = tool, .output = output};

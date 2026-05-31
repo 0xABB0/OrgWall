@@ -78,7 +78,7 @@
    release-mode behavior is "drop with a warning + a U2-channel diagnostic
    + telemetry counter," not crash. Legitimate slow-reactor cases (Web
    under tab-throttling, laptop on battery, OS scheduling) must not crash
-   production. Decide release behavior, document it in §3.3, and add the
+   production. Decide release behavior, document it in §3.3, and add the 
    telemetry counter to the planned counter set (U24-adjacent).
 
 ** Status-discriminant explosion

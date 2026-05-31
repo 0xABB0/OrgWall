@@ -49,6 +49,7 @@ MEL_API void mel_depends(Mel_Target *t, const char *name);
 MEL_API void mel_depends_host(Mel_Target *t, const char *name);
 MEL_API void mel_unavailable(Mel_Target *t, Mel_When when);
 MEL_API void mel_manifest(Mel_Target *t, const char *key, const char *value);
+MEL_API void mel_subsystem(Mel_Target *t, const char *subsystem);
 
 MEL_API void mel_sources_(Mel_Target *t, Mel_When when, ...);
 MEL_API void mel_exclude_source_(Mel_Target *t, Mel_When when, ...);
@@ -60,6 +61,7 @@ MEL_API void mel_cmake_(Mel_Target *t, const char *dir, ...);
 MEL_API void mel_cmake_when(Mel_Target *t, Mel_When when);
 MEL_API void mel_prebuilt(Mel_Target *t, Mel_When when, const char *url, const char *lib);
 MEL_API void mel_configure_(Mel_Target *t, const char *dir, ...);
+MEL_API void mel_configure_cstd(Mel_Target *t, const char *std);
 MEL_API void mel_codegen_(Mel_Target *t, const char *tool, const char *output, ...);
 #define mel_codegen(t, tool, output, ...) mel_codegen_(t, tool, output __VA_OPT__(,) __VA_ARGS__, NULL)
 

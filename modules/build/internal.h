@@ -76,6 +76,7 @@ struct Mel_Target {
     const char *dir;
     Mel_Kind    kind;
     bool        is_test;
+    const char *subsystem;
 
     Mel_StrVec     deps;
     Mel_StrVec     host_deps;
@@ -94,6 +95,7 @@ struct Mel_Target {
     Mel_When    cmake_when;
     const char *autotools_dir;
     Mel_StrVec  autotools_args;
+    const char *autotools_cstd;
     const char *prebuilt_url;
     const char *prebuilt_lib;
     Mel_When    prebuilt_when;

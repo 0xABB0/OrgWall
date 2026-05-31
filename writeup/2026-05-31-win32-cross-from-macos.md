@@ -1,5 +1,10 @@
 # 2026-05-31 — win32 cross-build from a macOS host
 
+> **Addendum (same session):** the two debts confessed below — the blunt `-std=gnu17`
+> pin and the console-only PE — were subsequently *fixed* as framework capabilities.
+> See "## Follow-up: subsystem control & per-library C standard" at the foot of this file.
+> The original account is kept verbatim for the record.
+
 ## Work done
 
 `./nob build <gui-app> win32` failed before reaching any Melody code. Two distinct
@@ -95,3 +100,87 @@ actually appeared were added — no speculative uxtheme/ole32/dwmapi.
   `<triple>-gcc` present, does a trivial conftest link?") emitted as a clear, early error
   would turn opaque autotools `config.log` archaeology into an immediate, honorable failure
   (MEL-ENGINE-VIII).
+
+---
+
+## Follow-up: subsystem control & per-library C standard
+
+Both debts from the original account are now retired as first-class framework
+features, not patches. New build-API surface in `modules/build/build.h`:
+
+- `mel_subsystem(t, "console" | "gui")` — per-target PE subsystem; default console.
+- `mel_configure_cstd(t, "<std>")` — per-third-party C standard for the autotools CC.
+
+### Per-library C standard (replaces the blunt pin)
+
+`tc.autotools_cc` is back to the bare cross compiler (`<arch>-w64-mingw32-gcc`); the
+toolchain no longer carries a language pin. The C era a third-party autotools library
+needs is now declared *by that library*: `gmp/build.c` and `mpfr/build.c` each call
+`mel_configure_cstd(t, "gnu17")`. `thirdparty.c` folds it onto the cross `CC`
+(`CC=<cc> -std=gnu17`) — deliberately onto **CC, not CFLAGS**, because GMP's configure
+chooses its own CFLAGS for the ABI conftests and ignores the user's, so a CFLAGS-borne
+`-std` would never reach the failing "long long reliability test." The flag rides CC,
+which every conftest invokes.
+
+Why this is no longer blunt (MEL-ENGINE-IV — constrain conventions, not capabilities):
+the standard is now a per-target property with no global default, so a future win32
+autotools library written in C23 simply omits the call (or passes `c23`) and is no longer
+denied. The win32 toolchain stays clean; only libraries that declare a need get the flag.
+
+Verified: `rm -rf third-party/{gmp,mpfr}/build/win32-debug` then a from-clean win32 build
+reproduced `libgmp.a`/`libmpfr.a`; `config.log` records
+`CC='x86_64-w64-mingw32-gcc -std=gnu17'`, zero "could not find a working compiler", and the
+"long long reliability test 1" failure marker is gone.
+
+### Subsystem (fixes the console PE)
+
+`mel_subsystem` stores a string on the target; `mel_subsystem` itself validates the value
+and `abort()`s on anything but `console`/`gui` (MEL-ENGINE-VIII — no silent
+mis-selection). `emit.c`, for a win32 executable whose subsystem is `gui`, appends a single
+flag — `-Wl,--subsystem,windows` — to the link. No explicit entry-point override is
+emitted: lld-link infers the entry from which `main`-family symbol is defined, so with the
+user's `int main` present it selects `mainCRTStartup` while still honoring the forced
+windowed subsystem. This is also why no `WinMain` shim is needed and why `-mwindows` (which
+would drag GUI link libs) is avoided. Console is the default (no flags) — correct for the
+framework's CLI and daemon targets.
+
+The property is **orthogonal to the gui module dependency**: a gui-dependent target may
+stay `console` (a GUI app that wants a console — `midi-monitor` is left exactly this way as
+the worked example), and any target may opt into `gui`. The four windowed sample apps
+(`hello-world-gui`, `barcode-gui`, `display-gui`, `hello-gpu`) now declare
+`mel_subsystem(app, "gui")`.
+
+I probed four link incantations with `zig cc -target x86_64-windows-gnu` before choosing:
+default → console PE; `--subsystem,windows` alone → GUI PE, links a plain `int main`
+cleanly (**chosen**); `--subsystem,windows -Wl,-emainCRTStartup` → **rejected** by zig's
+lld-link (`unsupported linker arg: -emainCRTStartup`), so the explicit entry override is
+both unavailable and unnecessary; `-mwindows` → silently ignored, stays console. The
+winning option needs no entry flag because lld-link's symbol-based entry inference already
+picks `mainCRTStartup` for us.
+
+Verified: `hello-world-gui` win32 → `PE32+ executable (GUI)`; `midi-monitor` win32 →
+`PE32+ executable (console)`; both link exit 0. macOS regression: `hello-world-gui` macos
+links and packages its `.app` (exit 0) — the subsystem block is win32-gated and host-inert.
+
+### Kludges / debt (MEL-ENGINE-VIII)
+
+- **`cstd` is applied only on the cross CC path.** A *host* autotools build (e.g. gmp on
+  macOS) ignores `autotools_cstd` because we never set `CC` for non-cross configures (we
+  let configure detect it). Harmless today — every host compiler we use (clang) already
+  defaults to gnu17 — but if a future host compiler defaults to C23, a host autotools build
+  could regress and the per-library declaration would not save it. Documented, not hidden;
+  the fix when needed is to also emit `CC=<host cc> -std=<cstd>` for non-cross.
+- **GUI `.exe`s were not executed.** Subsystem correctness is asserted from the PE header
+  (`file` reports GUI vs console) and a clean link; no binary was run (no wine, can't exec
+  PE on aarch64-darwin). Whether a GUI-subsystem `main` runs without a console at runtime,
+  and whether lld-link's entry inference does pick `mainCRTStartup` at runtime rather than
+  just at link, is unverified by me — the natural check on a Windows host.
+- **`clang-format` is not installed on this host**, so I matched the surrounding style by
+  hand and could not mechanically confirm zero drift on the touched build files. A format
+  pass once the tool is available would close this.
+
+### platforms.md recommendation (not applied — recap is recommendation-only)
+
+`mel_subsystem` and `mel_configure_cstd` should be added to the authoring surface in
+`modules/build/platforms.md` (the "Authoring a build.c" and "Third-party" sections), and
+the "Known gaps" bullet about the win32 console PE / gmp pin retired.
