@@ -5,9 +5,15 @@ unsupported construct that could miscompile is a hard `file:line` rejection, not
 
 ## Transform
 
-- **Multi-declarator lifted decls untested.** `i64 a = 1, b = 2;` where both are lifted relies on
-  the comma-expression fallout of per-declarator edits and has no fixture. Either add a fixture and
-  confirm, or add a grouped-DeclStmt rejection. Until then, declare lifted locals one per statement.
+- **Multi-declarator lifted decls work but lack a fixture.** `i32 a = 1, b = 2;` correctly becomes
+  `__f->a = 1, __f->b = 2;` (comma expression) with both lifted — verified by hand, not yet a
+  committed test. Mixed lifted/non-lifted in one declarator, and pointer declarators (`int *a, b`),
+  are still unverified. Lock it in with a fixture and probe the mixed/pointer cases.
+- **`break`/`continue` across a suspension work but lack a fixture.** They bind to the user's loop
+  and are spliced verbatim; verified by hand. Add a fixture so it can't regress.
+- **`-Wunused-parameter` on the dead `static inline`.** A continuation with an unused parameter warns
+  in every includer (editor mode). Harmless, but noisy under `-Wall -Wextra`; suppress by tagging the
+  editor-mode signature or its params.
 - **Precise liveness (minimality).** Liveness is conservative and kill-free, so frames may carry a
   dead local that happens to be referenced after a suspension on an unrelated path. Correct, but not
   minimal. A real backward dataflow with def/kill over a basic-block CFG would tighten frames; the
