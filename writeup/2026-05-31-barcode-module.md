@@ -189,3 +189,48 @@ such offline anchor and lands separately.
 4. **`const char*` payload.** Byte mode reads up to NUL, so embedded-NUL binary
    payloads aren't expressible; a length-taking entry is sequenced.
 5. `./nob test` blocker unchanged; verified via harness + syntax-check.
+
+---
+
+## Addendum — QR geometry (stages 5–6): the full symbol
+
+`mel_qr_encode` completes QR: payload → scannable `mel_barcode_matrix`. Built on
+the codeword stage and the deterministic ISO placement algorithm.
+
+- **Function patterns:** three finder patterns + separators, the two timing
+  lines, alignment patterns (per-version positions, finder-corner overlaps
+  skipped), the always-dark module, and reserved format/version regions — all
+  recorded in a parallel `is_function` grid so data and masking skip them.
+- **Data placement:** the standard right-to-left, up/down-snaking zigzag over
+  non-function modules, MSB-first, skipping the vertical timing column; remainder
+  bits fall out as light.
+- **Masking:** all 8 mask patterns evaluated by the 4-rule penalty; lowest wins
+  (or a caller-pinned mask). Format info — `(ecc,mask)` through BCH(15,5),
+  generator `0x537`, XOR `0x5412` — and version info (v≥7) — BCH(18,6), generator
+  `0x1F25` — written in their two copies each.
+
+### Verification — BCH constants + a self-decode round-trip
+
+- Format BCH reproduces the published constants exactly: `(L,mask0) =
+  111011111000100`, `(M,mask0) = 101010000010010`; version BCH for v7 =
+  `000111110010010100`.
+- **Round-trip (the centrepiece):** the place→mask→write-format matrix is read
+  back — format recovered to get the mask, the mask un-applied, the zigzag
+  reversed — and recovers the **exact** codeword stream `mel_qr_codewords`
+  produced. Asserted for v1 (numeric), a multi-block v3 (`Q`), and a forced v7
+  (exercises alignment patterns *and* version info). This proves placement +
+  masking + format read/write are mutually consistent and reversible.
+- Mask selection confirmed to differentiate (per-mask dark counts 308–340 on a
+  URL payload; auto-picks mask 2, not a degenerate constant).
+- Structural: finder corners, timing alternation, dark module, size `4v+17`,
+  quiet zone 4.
+
+### Residual confessed
+
+The one thing offline verification cannot do is confirm a real **scanner** reads
+the symbol — there is no bit-exact reference matrix in CI. Mitigation is strong:
+the round-trip proves internal reversibility, the BCH constants are externally
+anchored, the codeword stage is ISO-exact, and placement follows the
+deterministic spec algorithm. The honest residual is "not scanned by a device in
+CI." Still v1–10 only (11–40 are table rows); single-mode segmentation; Kanji/ECI
+and Micro-QR sequenced; `./nob test` blocker unchanged. No new kludges.
