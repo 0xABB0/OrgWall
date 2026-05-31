@@ -1,7 +1,6 @@
 #include "cocoa.h"
 
 #import <objc/runtime.h>
-#include <display/macos/macos.h>
 
 @implementation MelWindowContentView
 
@@ -70,28 +69,6 @@
 
 @end
 
-static Mel_Display mel_window__display_for_screen(NSScreen* screen)
-{
-    if (!screen) return MEL_DISPLAY_NULL;
-    u32 count = mel_display_count();
-    if (count == 0) return MEL_DISPLAY_NULL;
-
-    NSNumber*         num  = screen.deviceDescription[@"NSScreenNumber"];
-    CGDirectDisplayID want = (CGDirectDisplayID)num.unsignedIntValue;
-
-    const Mel_Alloc* a    = mel_window__alloc();
-    Mel_Display*     list = (Mel_Display*)mel_alloc(a, sizeof(Mel_Display) * count);
-    if (!list) return MEL_DISPLAY_NULL;
-
-    u32         got   = mel_display_list(list, count);
-    Mel_Display found = MEL_DISPLAY_NULL;
-    for (u32 i = 0; i < got; i++) {
-        if (mel_display_macos_display_id(list[i]) == want) { found = list[i]; break; }
-    }
-    mel_dealloc(a, list);
-    return found;
-}
-
 static void mel_window__sync(NSWindow* window, Mel_Window w)
 {
     Mel_Window_Node* n = mel_window__node(w);
@@ -139,13 +116,10 @@ static void mel_window__sync(NSWindow* window, Mel_Window w)
 
 - (void)onScreen:(NSNotification*)note
 {
-    NSWindow*        window = (NSWindow*)note.object;
-    Mel_Window_Node* n      = mel_window__node(self.window_handle);
+    (void)note;
+    Mel_Window_Node* n = mel_window__node(self.window_handle);
     if (!n) return;
-    Mel_Display from = n->current_display;
-    Mel_Display to   = mel_window__display_for_screen(window.screen);
-    n->current_display = to;
-    if (n->display.on_display_migrated) n->display.on_display_migrated(self.window_handle, from, to, n->user);
+    if (n->display.on_display_migrated) n->display.on_display_migrated(self.window_handle, n->user);
     if (n->display.on_hdr_changed)      n->display.on_hdr_changed(self.window_handle, n->user);
 }
 
@@ -317,11 +291,10 @@ void mel_window__backend_create(Mel_Window_Node* n, const Mel_Window_Opt* o)
         if (o->max_w > 0 || o->max_h > 0) [window setContentMaxSize:NSMakeSize(o->max_w, o->max_h)];
         [window center];
 
-        n->native          = (void*)CFBridgingRetain(window);
-        n->scale           = (f32)window.backingScaleFactor;
-        n->point_w         = n->w;
-        n->point_h         = n->h;
-        n->current_display = mel_window__display_for_screen(window.screen);
+        n->native  = (void*)CFBridgingRetain(window);
+        n->scale   = (f32)window.backingScaleFactor;
+        n->point_w = n->w;
+        n->point_h = n->h;
 
         if (!o->start_hidden) {
             [window makeKeyAndOrderFront:nil];

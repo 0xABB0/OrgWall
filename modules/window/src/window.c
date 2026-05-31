@@ -100,7 +100,6 @@ Mel_Window mel_window_create_opt(Mel_Window_Opt o)
     n->point_w   = n->w;
     n->point_h   = n->h;
     n->scale     = 1.0f;
-    n->current_display = MEL_DISPLAY_NULL;
     n->lifecycle = o.lifecycle;
     n->display   = o.display;
     n->app       = o.app;

@@ -1,13 +1,53 @@
 #include "macos.h"
 
+#include <window/window.h>
+
 #import <objc/runtime.h>
 
 @implementation MelGuiWindowDelegate
 
-- (void)windowWillClose:(NSNotification*)note
+- (id)windowWillReturnFieldEditor:(NSWindow*)window toObject:(id)client
 {
-    (void)note;
-    Mel_Gui_Handle frame_h = self.frame_handle;
+    return mel_gui__macos_field_editor(window, client);
+}
+
+@end
+
+static MelGuiWindowDelegate* mel_gui__frame_delegate(Mel_Window mw)
+{
+    NSWindow* window = (__bridge NSWindow*)mel_window_native(mw);
+    if (!window) return nil;
+    return (MelGuiWindowDelegate*)objc_getAssociatedObject(window, "mel_gui_frame_delegate");
+}
+
+static void mel_gui__frame_on_resize(Mel_Window mw, i32 pixel_w, i32 pixel_h, void* user)
+{
+    (void)pixel_w; (void)pixel_h; (void)user;
+    MelGuiWindowDelegate* d = mel_gui__frame_delegate(mw);
+    if (!d) return;
+    Mel_Gui_Handle h = d.frame_handle;
+
+    i32 pw = 0, ph = 0;
+    mel_window_point_extent(mw, &pw, &ph);
+    mel_gui__resized(h, pw, ph);
+    if (d.lifecycle.on_resize) d.lifecycle.on_resize(h, pw, ph, mel_gui_user(h));
+}
+
+static void mel_gui__frame_on_focus(Mel_Window mw, void* user)
+{
+    (void)user;
+    NSWindow* window = (__bridge NSWindow*)mel_window_native(mw);
+    if (!window) return;
+    NSResponder* fr = window.firstResponder;
+    if (fr == nil || fr == (NSResponder*)window || fr == (NSResponder*)window.contentView) {
+        [window selectNextKeyView:nil];
+    }
+}
+
+static void mel_gui__frame_on_closed(Mel_Window mw, void* user)
+{
+    (void)mw;
+    Mel_Gui_Handle frame_h = mel_gui_handle_unpack((u64)(uintptr_t)user);
     if (mel_gui_handle_is_none(frame_h)) return;
 
     mel_gui__frame_closed(frame_h);
@@ -19,60 +59,16 @@
         if (!mel_gui_handle_eq(cw->parent, frame_h)) continue;
         if (!cw->native) continue;
         id obj = (__bridge id)cw->native;
-        if ([obj isKindOfClass:[NSView class]]) {
-            [(NSView*)obj removeFromSuperview];
-        }
+        if ([obj isKindOfClass:[NSView class]]) [(NSView*)obj removeFromSuperview];
         CFBridgingRelease(cw->native);
         cw->native = NULL;
     }
 
     Mel_Gui_Node* fw = mel_gui__node(frame_h);
-    void* window_native = NULL;
-    if (fw && fw->native) {
-        window_native = fw->native;
-        fw->native    = NULL;
-    }
+    if (fw) fw->native = NULL;
 
     mel_gui__destroy_tree(frame_h);
-
-    if (window_native) {
-        dispatch_async(dispatch_get_main_queue(), ^{
-            CFBridgingRelease(window_native);
-        });
-    }
-
-    if (mel_gui__frames_dec() == 0) {
-        Mel_Reactor* r = mel_gui__reactor();
-        if (r) mel_reactor_quit(r);
-    }
 }
-
-- (void)windowDidResize:(NSNotification*)note
-{
-    NSWindow* window = (NSWindow*)note.object;
-    NSSize    sz     = window.contentView.bounds.size;
-    mel_gui__resized(self.frame_handle, (i32)sz.width, (i32)sz.height);
-    if (self.lifecycle.on_resize) {
-        self.lifecycle.on_resize(self.frame_handle, (i32)sz.width, (i32)sz.height,
-                                 mel_gui_user(self.frame_handle));
-    }
-}
-
-- (void)windowDidBecomeKey:(NSNotification*)note
-{
-    NSWindow* window = (NSWindow*)note.object;
-    NSResponder* fr  = window.firstResponder;
-    if (fr == nil || fr == (NSResponder*)window || fr == (NSResponder*)window.contentView) {
-        [window selectNextKeyView:nil];
-    }
-}
-
-- (id)windowWillReturnFieldEditor:(NSWindow*)window toObject:(id)client
-{
-    return mel_gui__macos_field_editor(window, client);
-}
-
-@end
 
 Mel_Gui_Handle mel_frame_create_opt(Mel_Frame_Opt o)
 {
@@ -85,38 +81,34 @@ Mel_Gui_Handle mel_frame_create_opt(Mel_Frame_Opt o)
         i32 cw = n->width  > 0 ? n->width  : 480;
         i32 ch = n->height > 0 ? n->height : 360;
 
-        NSUInteger style = NSWindowStyleMaskTitled
-                         | NSWindowStyleMaskClosable
-                         | NSWindowStyleMaskMiniaturizable
-                         | NSWindowStyleMaskResizable;
-
-        NSRect    content = NSMakeRect(0, 0, cw, ch);
-        NSWindow* window  = [[NSWindow alloc] initWithContentRect:content
-                                                        styleMask:style
-                                                          backing:NSBackingStoreBuffered
-                                                            defer:NO];
-
-        MelGuiContentView* root = [[MelGuiContentView alloc] initWithFrame:content];
+        MelGuiContentView* root = [[MelGuiContentView alloc] initWithFrame:NSMakeRect(0, 0, cw, ch)];
         root.frame_handle = h;
         root.inset_mode   = o.inset_mode;
         root.insets_cb    = o.insets;
-        [window setContentView:root];
+
+        Mel_Window mw = mel_window_create(
+            .title          = o.title,
+            .w              = cw,
+            .h              = ch,
+            .start_hidden   = true,
+            .content_native = (__bridge void*)root,
+            .user           = (void*)(uintptr_t)mel_gui_handle_pack(h),
+            .lifecycle      = { .on_resize   = mel_gui__frame_on_resize,
+                                .on_closed   = mel_gui__frame_on_closed,
+                                .on_focus_in = mel_gui__frame_on_focus });
+
+        NSWindow* window = (__bridge NSWindow*)mel_window_native(mw);
 
         MelGuiWindowDelegate* delegate = [[MelGuiWindowDelegate alloc] init];
         delegate.frame_handle = h;
         delegate.lifecycle    = o.lifecycle;
         [window setDelegate:delegate];
-        objc_setAssociatedObject(window, "mel_gui_delegate", delegate,
+        objc_setAssociatedObject(window, "mel_gui_frame_delegate", delegate,
                                  OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 
-        [window setReleasedWhenClosed:NO];
-        [window setTitle:mel_gui__macos_nsstring(o.title)];
-        [window center];
-
-        n->native = (void*)CFBridgingRetain(window);
+        n->native = (__bridge void*)window;
         n->x = 0;
         n->y = 0;
-        mel_gui__frames_inc();
     }
     return h;
 }

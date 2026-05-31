@@ -19,4 +19,5 @@ void build(Mel_Build *b) {
     mel_depends(lib, "platform");
     mel_depends(lib, "reactor");
     mel_depends(lib, "string");
+    mel_depends(lib, "window");
 }

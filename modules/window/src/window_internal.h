@@ -15,7 +15,6 @@ typedef struct {
     i32         x, y, w, h;
     i32         point_w, point_h;
     f32         scale;
-    Mel_Display current_display;
     bool        borrowed;
 
     Mel_Window_Lifecycle_Cb lifecycle;

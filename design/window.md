@@ -36,7 +36,7 @@ Three, never conflated:
 `on_scale_changed` fires when any shifts; the window never silently re-scales the content region — the app decides resize-versus-reflow (MEL-ENGINE-V). An owned offscreen target carries `pixel_extent` only (`paint.md` §6).
 
 ## 5. Display residency
-`on_display_migrated` carries `from`/`to` `Mel_Display` on a monitor-boundary crossing (Win32 `WM_DISPLAYCHANGE`, macOS `didChangeScreen`, Android display-id change). HDR/refresh/color-space live in `display`; `on_hdr_changed` only notifies that the envelope shifted, and the app re-queries `display`.
+`on_display_migrated` is a thin notification that the window crossed a monitor boundary (macOS `didChangeScreen`, Win32 `WM_DISPLAYCHANGE`, Android display-id change); the app re-queries `display` for the new output's `Mel_Display` and caps. `window` does **not** depend on `display` — it neither links it nor hands back a `Mel_Display`, which keeps the module buildable where `display` has no backend (e.g. wasm) and avoids coupling for a handle the app can fetch itself. `on_hdr_changed` follows the same thin-notification pattern.
 
 ## 6. Content region — the surface vending point
 ```

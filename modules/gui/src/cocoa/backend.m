@@ -1,5 +1,6 @@
 #include "macos.h"
 #include <gui/appkit/frame.h>
+#include <window/window.h>
 
 #include <string.h>
 
@@ -158,28 +159,9 @@ Mel_Key mel_gui__macos_key_for_event(NSEvent* e)
     return MEL_KEY_NONE;
 }
 
-static void install_default_menu(void)
-{
-    NSMenu*     bar      = [[NSMenu alloc] init];
-    NSMenuItem* app_item = [[NSMenuItem alloc] init];
-    [bar addItem:app_item];
-    [NSApp setMainMenu:bar];
-
-    NSMenu* app_menu = [[NSMenu alloc] init];
-    [app_menu addItemWithTitle:@"Quit"
-                        action:@selector(terminate:)
-                 keyEquivalent:@"q"];
-    [app_item setSubmenu:app_menu];
-}
-
 bool mel_gui__backend_init(void)
 {
-    @autoreleasepool {
-        [NSApplication sharedApplication];
-        [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
-        install_default_menu();
-        [NSApp finishLaunching];
-    }
+    mel_window_init(mel_gui__reactor());
     return true;
 }
 

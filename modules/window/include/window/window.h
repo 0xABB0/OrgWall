@@ -3,7 +3,6 @@
 #include <core/types.h>
 #include <string/str8.h>
 #include <reactor/reactor.h>
-#include <display/display.h>
 
 typedef struct {
     u32 index;
@@ -33,7 +32,7 @@ typedef struct {
 
 typedef struct {
     void (*on_scale_changed)      (Mel_Window w, f32 scale, void* user);
-    void (*on_display_migrated)   (Mel_Window w, Mel_Display from, Mel_Display to, void* user);
+    void (*on_display_migrated)   (Mel_Window w, void* user);
     void (*on_hdr_changed)        (Mel_Window w, void* user);
     void (*on_orientation_changed)(Mel_Window w, void* user);
 } Mel_Window_Display_Cb;
