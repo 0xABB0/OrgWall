@@ -368,19 +368,19 @@ static void mel__qr_write_format(u8* g, i32 size, i32 rank, i32 mask) {
     u32 bits = ((data << 10) | rem) ^ 0x5412u;
 
     for (i32 i = 0; i <= 5; ++i) {
-        g[8 * size + i] = mel__qr_bit(bits, i);
+        g[i * size + 8] = mel__qr_bit(bits, i);
     }
-    g[8 * size + 7] = mel__qr_bit(bits, 6);
+    g[7 * size + 8] = mel__qr_bit(bits, 6);
     g[8 * size + 8] = mel__qr_bit(bits, 7);
-    g[7 * size + 8] = mel__qr_bit(bits, 8);
+    g[8 * size + 7] = mel__qr_bit(bits, 8);
     for (i32 i = 9; i < 15; ++i) {
-        g[(14 - i) * size + 8] = mel__qr_bit(bits, i);
+        g[8 * size + (14 - i)] = mel__qr_bit(bits, i);
     }
-    for (i32 i = 0; i < 7; ++i) {
-        g[(size - 1 - i) * size + 8] = mel__qr_bit(bits, i);
+    for (i32 i = 0; i < 8; ++i) {
+        g[8 * size + (size - 1 - i)] = mel__qr_bit(bits, i);
     }
-    for (i32 i = 7; i < 15; ++i) {
-        g[8 * size + (size - 15 + i)] = mel__qr_bit(bits, i);
+    for (i32 i = 8; i < 15; ++i) {
+        g[(size - 15 + i) * size + 8] = mel__qr_bit(bits, i);
     }
 }
 

@@ -199,13 +199,13 @@ static void mel__qr_roundtrip(const char* data, mel_qr_opt opt,
 
     u32 fb = 0;
     for (i32 i = 0; i <= 5; ++i) {
-        fb |= (u32)mel_barcode_matrix_get(&m, i, 8) << i;
+        fb |= (u32)mel_barcode_matrix_get(&m, 8, i) << i;
     }
-    fb |= (u32)mel_barcode_matrix_get(&m, 7, 8) << 6;
+    fb |= (u32)mel_barcode_matrix_get(&m, 8, 7) << 6;
     fb |= (u32)mel_barcode_matrix_get(&m, 8, 8) << 7;
-    fb |= (u32)mel_barcode_matrix_get(&m, 8, 7) << 8;
+    fb |= (u32)mel_barcode_matrix_get(&m, 7, 8) << 8;
     for (i32 i = 9; i < 15; ++i) {
-        fb |= (u32)mel_barcode_matrix_get(&m, 8, 14 - i) << i;
+        fb |= (u32)mel_barcode_matrix_get(&m, 14 - i, 8) << i;
     }
     u32 fdata = (fb ^ 0x5412u) >> 10;
     i32 mask = (i32)(fdata & 7);

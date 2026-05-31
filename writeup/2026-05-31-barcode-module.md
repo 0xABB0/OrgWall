@@ -234,3 +234,27 @@ anchored, the codeword stage is ISO-exact, and placement follows the
 deterministic spec algorithm. The honest residual is "not scanned by a device in
 CI." Still v1–10 only (11–40 are table rows); single-mode segmentation; Kanji/ECI
 and Micro-QR sequenced; `./nob test` blocker unchanged. No new kludges.
+
+### Correction — format info was transposed (the residual bit)
+
+The residual above bit back: Gabbo scanned a generated QR and it failed
+completely. Cause: **`mel__qr_write_format` placed all 15 format-info modules
+with rows and columns swapped.** The reference algorithm addresses modules as
+`set(x, y) → grid[y][x]` (x = column); I read its `set(8, i, …)` as *(row 8,
+col i)* when it means *(col 8, row i)*, so the whole format L-strip — and the
+copy2 8/7 split — was mirrored. Data placement, finders, timing, and version
+info were transcribed correctly and were fine.
+
+A real scanner reads the format information *first* to recover mask + ECC level;
+at the wrong coordinates it gets an invalid format and aborts before touching the
+data — hence "not working at all." Fixed to match the reference exactly.
+
+The damning part: **my round-trip test passed anyway.** It read the format back
+with the *same* swapped coordinates it wrote, so the transpose was invisible to
+it — precisely the shared-coordinate blind spot flagged when the test was
+written. "Round-trips" proved internal reversibility, never spec-conformance.
+Lesson banked: a self-decode round-trip cannot validate absolute placement; only
+an external reference or a *redundancy* check can. The fix adds the latter — the
+two independent format copies (copy1 down column 8, copy2 split across the other
+two finders) are now verified to **agree** when read at spec positions, which a
+mere transpose would break. Re-scan pending Gabbo's retest.
