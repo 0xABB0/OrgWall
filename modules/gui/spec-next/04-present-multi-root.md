@@ -1,22 +1,18 @@
-# 04 — present as new Root, with per-backend degrade
+# 04 — present per-backend degrade + capability query
 
-Parent: `../spec-next.md`. Depends on 02 and 03. Turns the temporary `present =
-push` alias into the real multi-Root verb.
+Parent: `../spec-next.md`. Depends on 02 and 03.
+
+Note: the per-Root data model (a dynamic set of `Mel_Navigator`, `nav_of`
+resolution, `present` creating a new Root) **already landed in spec 02** — it had
+to, or the demo regressed. What remains here is the per-platform *shape* of
+`present` and the capability query. On desktop (cocoa/win32) `present` is already
+correct (a new window); this step makes the mobile and web backends honest.
 
 ## Goal
 
-`mel_app_present(name, arg)` opens a **new Root** — a new top-level host surface
-owning its own Navigator rooted at `name`. Generalise the single global Navigator
-of spec 02 to a dynamic set of Navigators, one per Root.
-
-## Data model change
-
-A dynamic array of `Mel_Navigator` (off `mel_gui__alloc()`), each with
-`own_root = true` for a Root opened by `present`. The `from` handle on the in-stack
-verbs (`push`/`replace`/`back`) now resolves to its Navigator via
-`toplevel_of(from)` → the Navigator whose root frame is that toplevel. The
-"foreground" Navigator (for the omitted-`from` convenience case) is the most
-recently focused Root.
+Give `mel_app_present` its correct shape on every backend: native coexisting
+surface where the platform has one, an honest forward-navigation where it does not,
+plus a capability predicate so apps can branch.
 
 ## Invariant semantics
 
@@ -48,18 +44,24 @@ an honest alternative, never a stub (MEL-ENGINE-VII).
 
 ## Capability query
 
+Per Gabbo: a named predicate, **declared once, implemented per-backend** — no cap
+enum (MEL-CODE-001). Each backend returns its own compile-time constant; there is
+no backend whose multi-Root availability varies at runtime.
+
 ```c
-bool mel_gui_backend_supports(Mel_Gui_Cap cap);   /* MULTI_ROOT */
+bool mel_gui_supports_multi_root(void);   /* <gui/init.h> or <gui/screen.h> */
 ```
 
-`MULTI_ROOT` is true on desktop/xr, false on phone web/mobile unless the opt-in
-flag is set. An app may branch its UX on it (e.g. a master-detail split instead of
-a push) but the API never forbids `present`.
+- desktop (cocoa/win32/gtk/qt), xr (drawn): returns `true`.
+- mobile (uikit/android), web (dom): returns `false` (the `present`→push / →route
+  degrade is what runs); a future own-scene/own-activity opt-in is a separate
+  query, not a flip of this one.
 
-Note: `Mel_Gui_Cap` is the one place a closed set is unavoidable; per MEL-CODE-001
-get Gabbo's sign-off before adding the cap enum, or model caps as named
-`bool mel_gui_supports_multi_root(void)` predicates to avoid the enum entirely.
-Prefer the predicate form unless a cap *set* is genuinely needed.
+An app may branch its UX on it (e.g. a master-detail split instead of a push) but
+the API never forbids `present`. The pre-existing
+`mel_gui_backend_supports(Mel_Gui_Capability)` enum in `gui.c` is a separate,
+older surface; whether to retire it in favour of predicates is a follow-up for
+Gabbo, out of scope here.
 
 ## Done when
 
