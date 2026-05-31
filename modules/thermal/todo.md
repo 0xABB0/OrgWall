@@ -33,13 +33,33 @@ Execution checklist and resume point. `spec.md` is authoritative for design.
 - **Web.** No synchronous surface exists; Compute Pressure (`PressureObserver`) is
   async and arrives with the deferred event work.
 
-## Augmentation (from `todo.org`)
+## Augmentation (from `todo.org`) — DONE
 
-- `Mel_Thermal_Sensor` struct enumerated through `mel_thermal_sensor_enumerate`,
-  each with a `get(Mel_Thermal_Sensor *self, void *user) → Mel_Thermal_Reading`
-  callback returning `{ Mel_Degrees, Mel_Fidelity }`.
-- A temperature units module mirroring `time.frequency`, converting between the
-  three temperature scales.
+- `Mel_Thermal_Sensor` + `mel_thermal_sensor_enumerate` + `get` callback returning
+  `Mel_Thermal_Reading { Mel_Degrees value; Mel_Thermal_Temp_Fidelity fidelity }`.
+  Allocator-passed, single contiguous allocation, `mel_thermal_sensor_list_free`,
+  `mel_thermal_sensor_read` convenience. Additive — the `mel_thermal_temperature`
+  aggregate is untouched. macОС (SMC keys) **run-verified** on M3 Pro; Linux/Android
+  (`/sys` zones) structure-verified; iOS/Win/Web empty. Spec §9.
+- Standalone top-level `temperature` units module (`Mel_Degrees`, kelvin-canonical
+  `Mel_Real`, exact C/F/K), mirroring `time.frequency`. `temperature-example`
+  run-verified. Decisions (backing/placement/enums/granularity) and the design are
+  in `design/thermal-sensor-augmentation.md`.
+
+### Blocker introduced — wasm build (decide; Rule #1)
+
+The `Mel_Real` backing makes `thermal` depend on `mpfr`/`gmp`. Auto-built clean for
+macos/ios/android/win32/linux. **wasm fails**: `./nob build thermal wasm` aborts in
+the third-party `gmp` autotools install — `ranlib libgmp.a → LLVM ERROR: malformed
+uleb128, extends past end` (llvm-ranlib / emscripten static-archive bug). The dep
+build stops there; no thermal wasm object compiles. Pre-existing toolchain bug,
+but this augmentation is what now drags `thermal` onto that path. No existing
+consumer regresses (nothing depends on `thermal` yet). Options:
+- fix gmp's wasm `ranlib`/archive step (`RANLIB=emranlib` / `llvm-ar` in its wasm
+  configure) — a `third-party/gmp` fix, separate from this feature;
+- `mel_unavailable(thermal, WHEN(.platforms = MEL_ON(WASM)))` while mpfr-backed;
+- revisit the `Mel_Degrees` backing for portability (the f32/f64 option declined
+  at design time).
 
 ## Deferred: change notification
 
@@ -62,5 +82,12 @@ per-platform notification surfaces are catalogued in `spec.md` §7.
 ## Known debt carried in from `sensor`
 
 - Public enums (MEL-CODE-001) and the fixed `MEL_SMC_MAX_SENSORS` array
-  (MEL-CODE-002) were preserved verbatim by the extraction. Revisit under
-  Gabbo's direction when augmenting.
+  (MEL-CODE-002) were preserved verbatim by the extraction. At Gabbo's direction
+  the augmentation **reused** `Mel_Thermal_Temp_Fidelity` / `Mel_Thermal_Temp_Domain`
+  as-is (`Mel_Thermal_Reading` carries the fidelity enum); de-enuming the module
+  remains a separate, later pass.
+- `Mel_Thermal_Sensor.handle` is a `u64` carrying an opaque backend datum — on
+  macOS the address of a static `Mel_Smc_Sensor` cast through `uintptr_t`. Valid
+  because the SMC groups are process-lifetime static, but it is a pointer smuggled
+  through an integer; revisit if a backend ever needs a non-pointer handle wider
+  than the SMC entry.

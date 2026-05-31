@@ -4,6 +4,7 @@ void build(Mel_Build* b)
 {
     Mel_Target* lib = mel_add_library(b, "power");
     mel_includes(lib, MEL_PUBLIC, ALWAYS, "include");
+    mel_sources(lib, ALWAYS, "src/power.c");
     mel_sources(lib, WHEN(.platforms = MEL_ON(MACOS)), "src/macos/*.m", "src/apple/*.m");
     mel_sources(lib, WHEN(.platforms = MEL_ON(IOS)), "src/ios/*.m", "src/apple/*.m");
     mel_sources(lib, WHEN(.platforms = MEL_ON(LINUX)), "src/linux/*.c");

@@ -187,11 +187,62 @@ achieves on this build, for a one-shot startup branch.
 
 ---
 
-## 9. Augmentation direction (not yet implemented)
+## 9. Sensor enumeration
 
-Recorded so the work is resumable; see `todo.md`. A `Mel_Thermal_Sensor` struct
-enumerated through `mel_thermal_sensor_enumerate`, each carrying a
-`get(Mel_Thermal_Sensor *self, void *user) → Mel_Thermal_Reading` callback, with a
-companion units module (mirroring `time.frequency`) converting between the three
-temperature scales. This is augmentation, not part of the extraction that created
-this module.
+Per-domain `mel_thermal_temperature` is an aggregate. **Enumeration** exposes the
+individual physical sensors behind it (each `/sys` thermal zone, each classified
+SMC die key), each pulled on demand through a callback. It is **additive** — the
+aggregate accessor of §5 is unchanged.
+
+    typedef struct { Mel_Degrees value; Mel_Thermal_Temp_Fidelity fidelity; } Mel_Thermal_Reading;
+
+    typedef struct Mel_Thermal_Sensor Mel_Thermal_Sensor;
+    typedef Mel_Thermal_Reading (*Mel_Thermal_Sensor_Get)(Mel_Thermal_Sensor *self, void *user);
+
+    struct Mel_Thermal_Sensor {
+        const char             *name;    // SMC fourcc, or /sys zone type
+        Mel_Thermal_Temp_Domain domain;  // cpu | gpu | ambient | primary
+        Mel_Thermal_Sensor_Get  get;     // pull a fresh reading
+        u64                     handle;  // opaque backend datum
+    };
+
+    typedef struct { Mel_Thermal_Sensor *items; usize count; } Mel_Thermal_Sensor_List;
+
+    Mel_Thermal_Sensor_List mel_thermal_sensor_enumerate(const Mel_Alloc *alloc);
+    void                    mel_thermal_sensor_list_free(Mel_Thermal_Sensor_List *, const Mel_Alloc *);
+    Mel_Thermal_Reading     mel_thermal_sensor_read(Mel_Thermal_Sensor *self, void *user);  // convenience
+
+`Mel_Degrees` is the value type of the standalone `temperature` units module
+(mirroring `time.frequency`), kelvin-canonical, exact between Celsius / Fahrenheit
+/ Kelvin. A `none` reading carries `0 K` — the absolute-zero sentinel
+(`mel_degrees_is_absolute_zero`), never a plausible-looking lie (MEL-ENGINE-VIII).
+
+**Memory (MEL-CODE-002/003).** The list is one contiguous allocation from the
+caller's allocator — `items[]` followed by the name bytes — so `*_list_free` is a
+single `mel_dealloc` (platform-agnostic, `src/sensor.c`, `ALWAYS`). **Pull, not
+push** (MEL-ENGINE-III): `get` re-reads its source each call; `self->handle` is the
+backend's datum (macOS: address of the process-lifetime static SMC entry;
+Linux/Android: the `thermal_zone<N>` index), `user` is the caller's pass-through.
+
+`primary` is a virtual aggregate, not enumerated as a physical sensor.
+
+### 9.1 Lowerings
+
+- **macOS** — one sensor per classified `flt ` SMC die key (from the memoized
+  `mel_smc_init` groups). `get` reads that single key; cpu/gpu `measured`, ambient
+  `derived`. Observed on M3 Pro: ~50 Tp* (cpu), ~18 Tg* (gpu), Ta*/TA* ambient.
+- **Linux / Android** — one sensor per `/sys/class/thermal/thermal_zone*`, by
+  scanning until the first absent `type`; classified by zone type; each a real
+  kernel sensor → `measured`. Shared `mel_sysfs_sensor_enumerate`.
+- **iOS / Windows / Web** — empty list `{NULL, 0}` (no SMC in the iOS sandbox; WMI
+  opt-in absent; no synchronous browser surface).
+
+### 9.2 Cost carried in (MEL-ENGINE-VIII)
+
+The `Mel_Real` backing of `Mel_Degrees` makes `thermal` depend on `mpfr`/`gmp`.
+This builds clean on macos/ios/android/win32/linux, but **breaks the wasm build**:
+the third-party `gmp` wasm autotools install aborts at `ranlib` (`malformed
+uleb128`, an llvm/emscripten archive bug). Resolution pending — see `todo.md`.
+
+The push-style change notification of §6 remains deferred and is orthogonal to
+enumeration.

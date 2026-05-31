@@ -13,3 +13,5 @@ Mel_Thermal_Caps mel_thermal_caps(void)
         .temperature = mel_sysfs_temperature(MEL_THERMAL_TEMP_DOMAIN_PRIMARY).fidelity,
     };
 }
+
+Mel_Thermal_Sensor_List mel_thermal_sensor_enumerate(const Mel_Alloc* alloc) { return mel_sysfs_sensor_enumerate(alloc); }

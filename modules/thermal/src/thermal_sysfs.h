@@ -2,6 +2,8 @@
 
 #include <thermal/thermal.h>
 
+#include <allocator/allocator.h>
+
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -154,4 +156,72 @@ static inline bool mel_sysfs_thermal_present(void)
     snprintf(tp, sizeof tp, "/sys/class/thermal/thermal_zone0/trip_point_0_temp");
     char buf[32];
     return mel_sysfs_read_str(tp, buf, sizeof buf);
+}
+
+static inline Mel_Thermal_Temp_Domain mel_sysfs_zone_domain(const char* type)
+{
+    if (strstr(type, "gpu"))
+        return MEL_THERMAL_TEMP_DOMAIN_GPU;
+    if (mel_sysfs_zone_is_cpu(type))
+        return MEL_THERMAL_TEMP_DOMAIN_CPU;
+    return MEL_THERMAL_TEMP_DOMAIN_PRIMARY;
+}
+
+static inline Mel_Thermal_Reading mel_sysfs_sensor_get(Mel_Thermal_Sensor* self, void* user)
+{
+    (void)user;
+    char pp[64];
+    snprintf(pp, sizeof pp, "/sys/class/thermal/thermal_zone%llu/temp", (unsigned long long)self->handle);
+    f32 c;
+    if (mel_sysfs_read_milli_c(pp, &c) && c > 0.0f && c < 150.0f)
+        return (Mel_Thermal_Reading){ .value = mel_degrees_celsius((double)c), .fidelity = MEL_THERMAL_TEMP_MEASURED };
+    return (Mel_Thermal_Reading){ .value = mel_degrees_kelvin(0.0), .fidelity = MEL_THERMAL_TEMP_NONE };
+}
+
+static inline Mel_Thermal_Sensor_List mel_sysfs_sensor_enumerate(const Mel_Alloc* alloc)
+{
+    Mel_Thermal_Sensor_List list = { 0 };
+
+    usize count = 0, names_bytes = 0;
+    for (int i = 0;; i++)
+    {
+        char tp[64], type[64];
+        snprintf(tp, sizeof tp, "/sys/class/thermal/thermal_zone%d/type", i);
+        if (!mel_sysfs_read_str(tp, type, sizeof type))
+            break;
+        count++;
+        names_bytes += strlen(type) + 1;
+    }
+    if (count == 0)
+        return list;
+
+    usize               block = count * sizeof(Mel_Thermal_Sensor) + names_bytes;
+    Mel_Thermal_Sensor* items = (Mel_Thermal_Sensor*)mel_alloc(alloc, block);
+    if (!items)
+        return list;
+    char* names = (char*)(items + count);
+
+    usize n = 0, off = 0;
+    for (int i = 0; n < count; i++)
+    {
+        char tp[64], type[64];
+        snprintf(tp, sizeof tp, "/sys/class/thermal/thermal_zone%d/type", i);
+        if (!mel_sysfs_read_str(tp, type, sizeof type))
+            break;
+
+        usize len = strlen(type) + 1;
+        char* nm = names + off;
+        memcpy(nm, type, len);
+        off += len;
+
+        items[n].name = nm;
+        items[n].domain = mel_sysfs_zone_domain(type);
+        items[n].get = mel_sysfs_sensor_get;
+        items[n].handle = (u64)(unsigned)i;
+        n++;
+    }
+
+    list.items = items;
+    list.count = n;
+    return list;
 }

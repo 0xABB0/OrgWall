@@ -3,6 +3,9 @@
 #include <core/types.h>
 #include <core/compiler.h>
 
+#include <allocator/allocator.fwd.h>
+#include <temperature/temperature.h>
+
 typedef enum
 {
     MEL_THERMAL_UNKNOWN = 0,
@@ -44,3 +47,33 @@ typedef struct
 } Mel_Thermal_Caps;
 
 MEL_NODISCARD Mel_Thermal_Caps mel_thermal_caps(void);
+
+typedef struct
+{
+    Mel_Degrees               value;
+    Mel_Thermal_Temp_Fidelity fidelity;
+} Mel_Thermal_Reading;
+
+typedef struct Mel_Thermal_Sensor Mel_Thermal_Sensor;
+
+typedef Mel_Thermal_Reading (*Mel_Thermal_Sensor_Get)(Mel_Thermal_Sensor* self, void* user);
+
+struct Mel_Thermal_Sensor
+{
+    const char*             name;
+    Mel_Thermal_Temp_Domain domain;
+    Mel_Thermal_Sensor_Get  get;
+    u64                     handle;
+};
+
+typedef struct
+{
+    Mel_Thermal_Sensor* items;
+    usize               count;
+} Mel_Thermal_Sensor_List;
+
+MEL_NODISCARD Mel_Thermal_Sensor_List mel_thermal_sensor_enumerate(const Mel_Alloc* alloc);
+
+void mel_thermal_sensor_list_free(Mel_Thermal_Sensor_List* list, const Mel_Alloc* alloc);
+
+MEL_NODISCARD static inline Mel_Thermal_Reading mel_thermal_sensor_read(Mel_Thermal_Sensor* self, void* user) { return self->get(self, user); }

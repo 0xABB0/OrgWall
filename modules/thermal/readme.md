@@ -21,6 +21,24 @@ Mel_Thermal_Temperature mel_thermal_temperature(Mel_Thermal_Temp_Domain); /* { c
 Mel_Thermal_Caps        mel_thermal_caps(void);                          /* { present, temperature-fidelity } */
 ```
 
+Plus **per-sensor enumeration** (additive; the aggregate above is unchanged) —
+one `Mel_Thermal_Sensor` per physical sensor, each pulled on demand, carrying a
+`Mel_Degrees` from the `temperature` units module:
+
+```c
+const Mel_Alloc* a = mel_alloc_heap();
+Mel_Thermal_Sensor_List list = mel_thermal_sensor_enumerate(a);
+for (usize i = 0; i < list.count; i++) {
+    Mel_Thermal_Reading r = mel_thermal_sensor_read(&list.items[i], NULL);  /* { Mel_Degrees value; fidelity } */
+    double c = mel_degrees_to_celsius(r.value);
+}
+mel_thermal_sensor_list_free(&list, a);
+```
+
+See `spec.md` §9. Observed on M3 Pro: ~50 CPU + ~18 GPU `measured` SMC keys plus
+ambient. `modules/thermal/example/thermal_sensors.c` is a runnable dump
+(`./nob run thermal-sensors`).
+
 The tier's zero value is `unknown` — the honest absence where the OS publishes
 nothing. The engine never fabricates `nominal`.
 

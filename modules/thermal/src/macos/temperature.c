@@ -1,5 +1,7 @@
 #include <thermal/thermal.h>
 
+#include <allocator/allocator.h>
+
 #include <IOKit/IOKitLib.h>
 #include <pthread.h>
 #include <string.h>
@@ -207,4 +209,65 @@ Mel_Thermal_Temperature mel_thermal_temperature(Mel_Thermal_Temp_Domain domain)
     }
     }
     return (Mel_Thermal_Temperature){ .celsius = 0.0f, .fidelity = MEL_THERMAL_TEMP_NONE };
+}
+
+static Mel_Thermal_Reading mel_smc_sensor_get(Mel_Thermal_Sensor* self, void* user)
+{
+    (void)user;
+    const Mel_Smc_Sensor* s = (const Mel_Smc_Sensor*)(uintptr_t)self->handle;
+    f32                   c;
+    if (s && mel_smc_read(s, &c) && c > 0.0f && c < 150.0f)
+    {
+        Mel_Thermal_Temp_Fidelity fidelity = (self->domain == MEL_THERMAL_TEMP_DOMAIN_AMBIENT) ? MEL_THERMAL_TEMP_DERIVED : MEL_THERMAL_TEMP_MEASURED;
+        return (Mel_Thermal_Reading){ .value = mel_degrees_celsius((double)c), .fidelity = fidelity };
+    }
+    return (Mel_Thermal_Reading){ .value = mel_degrees_kelvin(0.0), .fidelity = MEL_THERMAL_TEMP_NONE };
+}
+
+Mel_Thermal_Sensor_List mel_thermal_sensor_enumerate(const Mel_Alloc* alloc)
+{
+    pthread_once(&g_once, mel_smc_init);
+    Mel_Thermal_Sensor_List list = { 0 };
+    if (!g_open)
+        return list;
+
+    uint32_t total = g_cpu.count + g_gpu.count + g_ambient.count;
+    if (total == 0)
+        return list;
+
+    usize               names_bytes = (usize)total * 5u;
+    usize               block = (usize)total * sizeof(Mel_Thermal_Sensor) + names_bytes;
+    Mel_Thermal_Sensor* items = (Mel_Thermal_Sensor*)mel_alloc(alloc, block);
+    if (!items)
+        return list;
+    char* names = (char*)(items + total);
+
+    const Mel_Smc_Group*    groups[3] = { &g_cpu, &g_gpu, &g_ambient };
+    Mel_Thermal_Temp_Domain domains[3] = { MEL_THERMAL_TEMP_DOMAIN_CPU, MEL_THERMAL_TEMP_DOMAIN_GPU, MEL_THERMAL_TEMP_DOMAIN_AMBIENT };
+
+    uint32_t n = 0;
+    for (int gi = 0; gi < 3; gi++)
+    {
+        const Mel_Smc_Group* g = groups[gi];
+        for (uint32_t i = 0; i < g->count; i++)
+        {
+            char*    nm = names + (usize)n * 5u;
+            uint32_t key = g->items[i].key;
+            nm[0] = (char)(key >> 24);
+            nm[1] = (char)(key >> 16);
+            nm[2] = (char)(key >> 8);
+            nm[3] = (char)key;
+            nm[4] = '\0';
+
+            items[n].name = nm;
+            items[n].domain = domains[gi];
+            items[n].get = mel_smc_sensor_get;
+            items[n].handle = (u64)(uintptr_t)&g->items[i];
+            n++;
+        }
+    }
+
+    list.items = items;
+    list.count = n;
+    return list;
 }
