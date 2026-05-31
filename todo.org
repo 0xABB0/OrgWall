@@ -5,13 +5,6 @@
 - Verify GPU app compiles and runs under ios (simulator. i don't have an ios device. need to verify all three rendering backends: Metal, Vulkan, Webgpu)
 - Is it finally time to get out the meta quest vr?
 - android's apk should not be multi-abi. the size on that thing explodes with all the bundled libs TWICE
-- there should be a way to build a console app (not only a gui app)
-
-- DONE Extract thermal and power from sensor module into a power module and thermal module (sensor dissolved; modules/thermal + modules/power, symbols renamed Mel_Thermal_*/Mel_Power_*)
-- Augment the thermal module: we should have a Mel_Thermal_Sensor struct, available through a mel_thermal_sensor_enumerate function. each thermal sensor has a callback called get(Mel_Thermal_Sensor* self, void* user) -> Mel_Thermal_Reading {Mel_Degrees, Mel_Fidelty} (new temperature module, mirroring time.frequency, exposing function to handle temperature stuff, converting between the three main units of measurements)
-- Augment the power module: when possible, give informations on the power profile and the battery level.
-
-- DONE third party libraries have my own build.c put inside the repo. i don't like this; i'd prefer to have the third party folder with my build.c top-level, and the corresponding libraries under another folder. (this way, we can also have our own build folder inside that folder) [build.c top-level; upstream under per-project subfolder: gmp/gmp, mpfr/mpfr, sdl3/SDL, sqlite3/sqlite, mongoose/mongoose. liburing/msdf left as-is. webgpu already this shape.]
 
 * GPU RHI design tensions (from design/gpu-rhi.md review)
   Open architectural questions surfaced by the spec audit. Each is a real
