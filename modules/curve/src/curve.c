@@ -1,4 +1,4 @@
-#include <math/curve.h>
+#include <curve/curve.h>
 
 void mel_bezier_init(Mel_Bezier* bez, f32 cx1, f32 cy1, f32 cx2, f32 cy2)
 {
@@ -29,8 +29,12 @@ void mel_bezier_init(Mel_Bezier* bez, f32 cx1, f32 cy1, f32 cx2, f32 cy2)
 
     for (i32 i = 0; i < n; i++)
     {
-        x += dx; dx += ddx; ddx += dddx;
-        y += dy; dy += ddy; ddy += dddy;
+        x += dx;
+        dx += ddx;
+        ddx += dddx;
+        y += dy;
+        dy += ddy;
+        ddy += dddy;
         bez->samples[i * 2] = x;
         bez->samples[i * 2 + 1] = y;
     }
