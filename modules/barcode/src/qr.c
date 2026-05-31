@@ -224,3 +224,326 @@ bool mel_qr_codewords(const char* data, mel_qr_ecc ecc, i32 version_hint,
     *out_version = v;
     return true;
 }
+
+static const i32 MEL__QR_ALIGN[MEL__QR_MAXV][4] = {
+    {0, 0, 0, 0},  {2, 6, 18, 0}, {2, 6, 22, 0},  {2, 6, 26, 0}, {2, 6, 30, 0},
+    {2, 6, 34, 0}, {3, 6, 22, 38}, {3, 6, 24, 42}, {3, 6, 26, 46}, {3, 6, 28, 50},
+};
+
+static u8 mel__qr_bit(u32 v, i32 i) { return (u8)((v >> i) & 1u); }
+
+static i32 mel__qr_absmax(i32 a, i32 b) {
+    i32 aa = a < 0 ? -a : a;
+    i32 bb = b < 0 ? -b : b;
+    return aa > bb ? aa : bb;
+}
+
+static void mel__qr_set(u8* g, u8* fn, i32 size, i32 r, i32 c, bool dark) {
+    g[r * size + c] = dark ? 1 : 0;
+    fn[r * size + c] = 1;
+}
+
+static bool mel__qr_mask(i32 m, i32 r, i32 c) {
+    switch (m) {
+        case 0: return (r + c) % 2 == 0;
+        case 1: return r % 2 == 0;
+        case 2: return c % 3 == 0;
+        case 3: return (r + c) % 3 == 0;
+        case 4: return (r / 2 + c / 3) % 2 == 0;
+        case 5: return (r * c) % 2 + (r * c) % 3 == 0;
+        case 6: return ((r * c) % 2 + (r * c) % 3) % 2 == 0;
+        default: return ((r + c) % 2 + (r * c) % 3) % 2 == 0;
+    }
+}
+
+static void mel__qr_draw_finder(u8* g, u8* fn, i32 size, i32 cr, i32 cc) {
+    for (i32 dr = -4; dr <= 4; ++dr) {
+        for (i32 dc = -4; dc <= 4; ++dc) {
+            i32 r = cr + dr, c = cc + dc;
+            if (r < 0 || r >= size || c < 0 || c >= size) {
+                continue;
+            }
+            i32 dist = mel__qr_absmax(dr, dc);
+            mel__qr_set(g, fn, size, r, c, dist != 2 && dist != 4);
+        }
+    }
+}
+
+static void mel__qr_draw_function(u8* g, u8* fn, i32 size, i32 version) {
+    for (i32 i = 0; i < size; ++i) {
+        mel__qr_set(g, fn, size, 6, i, (i % 2) == 0);
+        mel__qr_set(g, fn, size, i, 6, (i % 2) == 0);
+    }
+    mel__qr_draw_finder(g, fn, size, 3, 3);
+    mel__qr_draw_finder(g, fn, size, 3, size - 4);
+    mel__qr_draw_finder(g, fn, size, size - 4, 3);
+
+    const i32* al = MEL__QR_ALIGN[version - 1];
+    i32 cnt = al[0];
+    for (i32 a = 1; a <= cnt; ++a) {
+        for (i32 b = 1; b <= cnt; ++b) {
+            bool corner = (a == 1 && b == 1) || (a == 1 && b == cnt) ||
+                          (a == cnt && b == 1);
+            if (corner) {
+                continue;
+            }
+            i32 pr = al[a], pc = al[b];
+            for (i32 dr = -2; dr <= 2; ++dr) {
+                for (i32 dc = -2; dc <= 2; ++dc) {
+                    mel__qr_set(g, fn, size, pr + dr, pc + dc,
+                                mel__qr_absmax(dr, dc) != 1);
+                }
+            }
+        }
+    }
+
+    for (i32 c = 0; c < 9; ++c) {
+        if (c != 6) {
+            mel__qr_set(g, fn, size, 8, c, false);
+        }
+    }
+    for (i32 r = 0; r < 9; ++r) {
+        if (r != 6) {
+            mel__qr_set(g, fn, size, r, 8, false);
+        }
+    }
+    for (i32 c = size - 8; c < size; ++c) {
+        mel__qr_set(g, fn, size, 8, c, false);
+    }
+    for (i32 r = size - 8; r < size; ++r) {
+        mel__qr_set(g, fn, size, r, 8, false);
+    }
+    mel__qr_set(g, fn, size, size - 8, 8, true);
+
+    if (version >= 7) {
+        for (i32 i = 0; i < 6; ++i) {
+            for (i32 j = 0; j < 3; ++j) {
+                mel__qr_set(g, fn, size, i, size - 11 + j, false);
+                mel__qr_set(g, fn, size, size - 11 + j, i, false);
+            }
+        }
+    }
+}
+
+static void mel__qr_place_data(u8* g, const u8* fn, i32 size, const u8* cw,
+                               usize count) {
+    usize bit = 0;
+    usize total = count * 8;
+    for (i32 right = size - 1; right >= 1; right -= 2) {
+        if (right == 6) {
+            right = 5;
+        }
+        for (i32 vert = 0; vert < size; ++vert) {
+            for (i32 j = 0; j < 2; ++j) {
+                i32 col = right - j;
+                bool up = ((right + 1) & 2) == 0;
+                i32 row = up ? (size - 1 - vert) : vert;
+                if (!fn[row * size + col] && bit < total) {
+                    g[row * size + col] =
+                        mel__qr_bit(cw[bit >> 3], 7 - (i32)(bit & 7));
+                    bit += 1;
+                }
+            }
+        }
+    }
+}
+
+static void mel__qr_apply_mask(u8* g, const u8* fn, i32 size, i32 mask) {
+    for (i32 r = 0; r < size; ++r) {
+        for (i32 c = 0; c < size; ++c) {
+            if (!fn[r * size + c] && mel__qr_mask(mask, r, c)) {
+                g[r * size + c] ^= 1;
+            }
+        }
+    }
+}
+
+static void mel__qr_write_format(u8* g, i32 size, i32 rank, i32 mask) {
+    static const i32 ind[4] = {1, 0, 3, 2};
+    u32 data = (u32)((ind[rank] << 3) | mask);
+    u32 rem = data;
+    for (i32 i = 0; i < 10; ++i) {
+        rem = (rem << 1) ^ (((rem >> 9) & 1u) * 0x537u);
+    }
+    u32 bits = ((data << 10) | rem) ^ 0x5412u;
+
+    for (i32 i = 0; i <= 5; ++i) {
+        g[8 * size + i] = mel__qr_bit(bits, i);
+    }
+    g[8 * size + 7] = mel__qr_bit(bits, 6);
+    g[8 * size + 8] = mel__qr_bit(bits, 7);
+    g[7 * size + 8] = mel__qr_bit(bits, 8);
+    for (i32 i = 9; i < 15; ++i) {
+        g[(14 - i) * size + 8] = mel__qr_bit(bits, i);
+    }
+    for (i32 i = 0; i < 7; ++i) {
+        g[(size - 1 - i) * size + 8] = mel__qr_bit(bits, i);
+    }
+    for (i32 i = 7; i < 15; ++i) {
+        g[8 * size + (size - 15 + i)] = mel__qr_bit(bits, i);
+    }
+}
+
+static void mel__qr_write_version(u8* g, i32 size, i32 version) {
+    if (version < 7) {
+        return;
+    }
+    u32 rem = (u32)version;
+    for (i32 i = 0; i < 12; ++i) {
+        rem = (rem << 1) ^ (((rem >> 11) & 1u) * 0x1F25u);
+    }
+    u32 bits = ((u32)version << 12) | rem;
+    for (i32 i = 0; i < 18; ++i) {
+        u8 b = mel__qr_bit(bits, i);
+        i32 a = size - 11 + i % 3;
+        i32 d = i / 3;
+        g[d * size + a] = b;
+        g[a * size + d] = b;
+    }
+}
+
+static i32 mel__qr_penalty(const u8* g, i32 size) {
+    i32 pen = 0;
+    for (i32 r = 0; r < size; ++r) {
+        i32 run = 1;
+        for (i32 c = 1; c < size; ++c) {
+            if (g[r * size + c] == g[r * size + c - 1]) {
+                run += 1;
+            } else {
+                if (run >= 5) {
+                    pen += 3 + (run - 5);
+                }
+                run = 1;
+            }
+        }
+        if (run >= 5) {
+            pen += 3 + (run - 5);
+        }
+    }
+    for (i32 c = 0; c < size; ++c) {
+        i32 run = 1;
+        for (i32 r = 1; r < size; ++r) {
+            if (g[r * size + c] == g[(r - 1) * size + c]) {
+                run += 1;
+            } else {
+                if (run >= 5) {
+                    pen += 3 + (run - 5);
+                }
+                run = 1;
+            }
+        }
+        if (run >= 5) {
+            pen += 3 + (run - 5);
+        }
+    }
+    for (i32 r = 0; r < size - 1; ++r) {
+        for (i32 c = 0; c < size - 1; ++c) {
+            u8 v = g[r * size + c];
+            if (v == g[r * size + c + 1] && v == g[(r + 1) * size + c] &&
+                v == g[(r + 1) * size + c + 1]) {
+                pen += 3;
+            }
+        }
+    }
+    static const u8 P[11] = {1, 0, 1, 1, 1, 0, 1, 0, 0, 0, 0};
+    for (i32 r = 0; r < size; ++r) {
+        for (i32 c = 0; c <= size - 11; ++c) {
+            bool fwd = true, bwd = true;
+            for (i32 k = 0; k < 11; ++k) {
+                if (g[r * size + c + k] != P[k]) {
+                    fwd = false;
+                }
+                if (g[r * size + c + k] != P[10 - k]) {
+                    bwd = false;
+                }
+            }
+            if (fwd || bwd) {
+                pen += 40;
+            }
+        }
+    }
+    for (i32 c = 0; c < size; ++c) {
+        for (i32 r = 0; r <= size - 11; ++r) {
+            bool fwd = true, bwd = true;
+            for (i32 k = 0; k < 11; ++k) {
+                if (g[(r + k) * size + c] != P[k]) {
+                    fwd = false;
+                }
+                if (g[(r + k) * size + c] != P[10 - k]) {
+                    bwd = false;
+                }
+            }
+            if (fwd || bwd) {
+                pen += 40;
+            }
+        }
+    }
+    i32 dark = 0;
+    for (i32 i = 0; i < size * size; ++i) {
+        dark += g[i];
+    }
+    i32 total = size * size;
+    i32 ratio = dark * 100 / total;
+    i32 dev = ratio > 50 ? ratio - 50 : 50 - ratio;
+    pen += (dev / 5) * 10;
+    return pen;
+}
+
+bool mel_qr_encode(mel_barcode_matrix* out, const char* data, mel_qr_opt opt,
+                   const Mel_Alloc* a) {
+    u8* cw = NULL;
+    usize count = 0;
+    i32 version = 0;
+    if (!mel_qr_codewords(data, opt.ecc, opt.version, a, &cw, &count,
+                          &version)) {
+        return false;
+    }
+
+    i32 size = 4 * version + 17;
+    usize area = (usize)size * (usize)size;
+    u8* base = mel_calloc(a, area);
+    u8* fn = mel_calloc(a, area);
+    u8* scratch = mel_alloc(a, area);
+    u8* best = mel_alloc(a, area);
+    if (base == NULL || fn == NULL || scratch == NULL || best == NULL) {
+        mel_dealloc(a, base);
+        mel_dealloc(a, fn);
+        mel_dealloc(a, scratch);
+        mel_dealloc(a, best);
+        mel_dealloc(a, cw);
+        return false;
+    }
+
+    mel__qr_draw_function(base, fn, size, version);
+    mel__qr_place_data(base, fn, size, cw, count);
+    mel_dealloc(a, cw);
+
+    i32 rank = opt.ecc.rank;
+    bool fixed = opt.mask >= 0 && opt.mask < 8;
+    i32 mstart = fixed ? opt.mask : 0;
+    i32 mend = fixed ? opt.mask : 7;
+    i32 best_pen = -1;
+    for (i32 m = mstart; m <= mend; ++m) {
+        memcpy(scratch, base, area);
+        mel__qr_apply_mask(scratch, fn, size, m);
+        mel__qr_write_format(scratch, size, rank, m);
+        mel__qr_write_version(scratch, size, version);
+        i32 pen = mel__qr_penalty(scratch, size);
+        if (best_pen < 0 || pen < best_pen) {
+            best_pen = pen;
+            memcpy(best, scratch, area);
+        }
+    }
+
+    bool ok = mel_barcode_matrix_init(out, size, size, a);
+    if (ok) {
+        out->quiet_zone = 4;
+        memcpy(out->modules, best, area);
+    }
+
+    mel_dealloc(a, base);
+    mel_dealloc(a, fn);
+    mel_dealloc(a, scratch);
+    mel_dealloc(a, best);
+    return ok;
+}

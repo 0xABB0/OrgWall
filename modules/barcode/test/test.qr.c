@@ -118,3 +118,149 @@ MEL_TEST(barcode_qr, multiblock_interleave_roots) {
     mel_gf_free(&f);
     mel_dealloc(mel_alloc_heap(), cw);
 }
+
+static const i32 MEL__QR_ALIGN_T[10][4] = {
+    {0, 0, 0, 0}, {2, 6, 18, 0}, {2, 6, 22, 0}, {2, 6, 26, 0}, {2, 6, 30, 0},
+    {2, 6, 34, 0}, {3, 6, 22, 38}, {3, 6, 24, 42}, {3, 6, 26, 46}, {3, 6, 28, 50},
+};
+
+static bool mel__qr_maskc(i32 m, i32 r, i32 c) {
+    switch (m) {
+        case 0: return (r + c) % 2 == 0;
+        case 1: return r % 2 == 0;
+        case 2: return c % 3 == 0;
+        case 3: return (r + c) % 3 == 0;
+        case 4: return (r / 2 + c / 3) % 2 == 0;
+        case 5: return (r * c) % 2 + (r * c) % 3 == 0;
+        case 6: return ((r * c) % 2 + (r * c) % 3) % 2 == 0;
+        default: return ((r + c) % 2 + (r * c) % 3) % 2 == 0;
+    }
+}
+
+static bool mel__qr_isfunc(i32 size, i32 ver, i32 r, i32 c) {
+    if ((r < 8 && c < 8) || (r < 8 && c >= size - 8) || (r >= size - 8 && c < 8)) {
+        return true;
+    }
+    if (r == 6 || c == 6) {
+        return true;
+    }
+    if (r == 8 && (c <= 8 || c >= size - 8)) {
+        return true;
+    }
+    if (c == 8 && (r <= 8 || r >= size - 8)) {
+        return true;
+    }
+    if (ver >= 7) {
+        if (r < 6 && c >= size - 11 && c <= size - 9) {
+            return true;
+        }
+        if (c < 6 && r >= size - 11 && r <= size - 9) {
+            return true;
+        }
+    }
+    const i32* al = MEL__QR_ALIGN_T[ver - 1];
+    for (i32 a = 1; a <= al[0]; ++a) {
+        for (i32 b = 1; b <= al[0]; ++b) {
+            bool corner = (a == 1 && b == 1) || (a == 1 && b == al[0]) ||
+                          (a == al[0] && b == 1);
+            if (corner) {
+                continue;
+            }
+            i32 dr = r - al[a], dc = c - al[b];
+            if (dr >= -2 && dr <= 2 && dc >= -2 && dc <= 2) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+static void mel__qr_roundtrip(const char* data, mel_qr_opt opt,
+                              i32 expect_version) {
+    const Mel_Alloc* a = mel_alloc_heap();
+    u8* cw = NULL;
+    usize count = 0;
+    i32 ver = 0;
+    MEL_REQUIRE(mel_qr_codewords(data, opt.ecc, opt.version, a, &cw, &count, &ver));
+    MEL_REQUIRE_EQ(ver, expect_version);
+
+    mel_barcode_matrix m;
+    MEL_REQUIRE(mel_qr_encode(&m, data, opt, a));
+    i32 size = m.width;
+    MEL_REQUIRE_EQ(size, 4 * ver + 17);
+    MEL_REQUIRE_EQ(m.quiet_zone, 4);
+
+    MEL_REQUIRE(mel_barcode_matrix_get(&m, 0, 0));
+    MEL_REQUIRE(!mel_barcode_matrix_get(&m, 1, 1));
+    MEL_REQUIRE(mel_barcode_matrix_get(&m, 8, size - 8));
+    for (i32 i = 8; i < size - 8; ++i) {
+        MEL_REQUIRE_EQ(mel_barcode_matrix_get(&m, i, 6), (i % 2) == 0);
+    }
+
+    u32 fb = 0;
+    for (i32 i = 0; i <= 5; ++i) {
+        fb |= (u32)mel_barcode_matrix_get(&m, i, 8) << i;
+    }
+    fb |= (u32)mel_barcode_matrix_get(&m, 7, 8) << 6;
+    fb |= (u32)mel_barcode_matrix_get(&m, 8, 8) << 7;
+    fb |= (u32)mel_barcode_matrix_get(&m, 8, 7) << 8;
+    for (i32 i = 9; i < 15; ++i) {
+        fb |= (u32)mel_barcode_matrix_get(&m, 8, 14 - i) << i;
+    }
+    u32 fdata = (fb ^ 0x5412u) >> 10;
+    i32 mask = (i32)(fdata & 7);
+    static const i32 ind[4] = {1, 0, 3, 2};
+    MEL_REQUIRE_EQ((i32)(fdata >> 3), ind[opt.ecc.rank]);
+
+    u8* got = mel_calloc(a, count);
+    usize bit = 0;
+    for (i32 right = size - 1; right >= 1; right -= 2) {
+        if (right == 6) {
+            right = 5;
+        }
+        for (i32 vert = 0; vert < size; ++vert) {
+            for (i32 j = 0; j < 2; ++j) {
+                i32 col = right - j;
+                bool up = ((right + 1) & 2) == 0;
+                i32 row = up ? size - 1 - vert : vert;
+                if (!mel__qr_isfunc(size, ver, row, col) && bit < count * 8) {
+                    bool d = mel_barcode_matrix_get(&m, col, row);
+                    if (mel__qr_maskc(mask, row, col)) {
+                        d = !d;
+                    }
+                    got[bit >> 3] |= (u8)(d << (7 - (bit & 7)));
+                    bit += 1;
+                }
+            }
+        }
+    }
+    for (usize i = 0; i < count; ++i) {
+        MEL_REQUIRE_EQ((i32)got[i], (i32)cw[i]);
+    }
+    mel_dealloc(a, got);
+    mel_barcode_matrix_free(&m);
+    mel_dealloc(a, cw);
+}
+
+MEL_TEST(barcode_qr, encode_roundtrip_v1) {
+    mel__qr_roundtrip("01234567",
+                      (mel_qr_opt){.ecc = mel_qr_ecc_m(), .version = 0, .mask = -1},
+                      1);
+}
+
+MEL_TEST(barcode_qr, encode_roundtrip_multiblock) {
+    char payload[33];
+    for (i32 i = 0; i < 32; ++i) {
+        payload[i] = 'a';
+    }
+    payload[32] = '\0';
+    mel__qr_roundtrip(payload,
+                      (mel_qr_opt){.ecc = mel_qr_ecc_q(), .version = 0, .mask = -1},
+                      3);
+}
+
+MEL_TEST(barcode_qr, encode_roundtrip_v7_with_version_info) {
+    mel__qr_roundtrip("ABCDEFGHIJ",
+                      (mel_qr_opt){.ecc = mel_qr_ecc_m(), .version = 7, .mask = -1},
+                      7);
+}
