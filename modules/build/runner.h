@@ -48,6 +48,16 @@ Mel_Variant mel_variant_native(Mel_Platform platform, const char *config);
 const char *mel_platform_name(Mel_Platform p);
 bool        mel_target_available(Mel_Target *t, const Mel_Variant *v);
 
+typedef struct {
+    char       *cc;
+    char       *ar;
+    char       *base_cflags;
+    char       *base_ldflags;
+    const char *exe_ext;
+} Mel_Toolchain;
+
+Mel_Toolchain mel_toolchain(const Mel_Variant *v);
+
 bool mel_gather_compile(Mel_Graph *g, size_t idx, const Mel_Variant *v, Mel_StrVec *srcs,
                         Mel_StrVec *cflags);
 void mel_gather_link(Mel_Graph *g, size_t idx, const Mel_Variant *v, Mel_StrVec *ldflags);

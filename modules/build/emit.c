@@ -3,6 +3,8 @@
 #include <dirent.h>
 #include <stdio.h>
 
+static Mel_Toolchain g_tc;
+
 char *mel_target_outdir(const char *target_dir, const Mel_Variant *v) {
     return mel_str_fmt("%s/build/%s-%s", target_dir, mel_platform_name(v->platform), v->config);
 }
@@ -115,20 +117,30 @@ static void emit_codegens(FILE *f, Mel_Graph *g, Mel_Target *t, const char *outd
         char       *genc = mel_str_fmt("%s/gen/%s", outdir, cg.output);
 
         Mel_StrVec expanded = {0};
-        Mel_StrVec headers  = {0};
         for (size_t a = 0; a < cg.args.len; a++) {
             const char *arg = cg.args.items[a];
-            if (strcmp(arg, "$out") == 0) {
+            if (strcmp(arg, "$out") == 0)
                 mel_da_push(&expanded, mel_str_dup(genc));
-            } else if (strcmp(arg, "$cflags") == 0) {
+            else if (strcmp(arg, "$cflags") == 0)
                 mel_da_push(&expanded, mel_str_dup(cflags_joined));
-            } else if (strcmp(arg, "$hostclang") == 0) {
+            else if (strcmp(arg, "$hostclang") == 0)
                 mel_da_push(&expanded, mel_str_dup(host_clang_flags()));
-            } else {
+            else if (strstr(arg, "$dir")) {
+                const char *p = strstr(arg, "$dir");
+                mel_da_push(&expanded, mel_str_fmt("%.*s%s%s", (int)(p - arg), arg, t->dir, p + 4));
+            } else
                 mel_da_push(&expanded, mel_str_dup(arg));
-                size_t l = strlen(arg);
-                if (l > 2 && strcmp(arg + l - 2, ".h") == 0) {
-                    char *real = find_header(arg, cflags);
+        }
+
+        Mel_StrVec headers = {0};
+        for (size_t a = 0; a < expanded.len; a++) {
+            const char *e = expanded.items[a];
+            size_t      l = strlen(e);
+            if (l > 2 && strcmp(e + l - 2, ".h") == 0) {
+                if (mel_path_is_file(e))
+                    mel_da_push(&headers, mel_str_dup(e));
+                else {
+                    char *real = find_header(e, cflags);
                     if (real) mel_da_push(&headers, real);
                 }
             }
@@ -159,14 +171,17 @@ static char *emit_one(FILE *f, Mel_Graph *g, size_t idx, const Mel_Variant *v, M
     config_base(v->config, &cflags);
     if (!mel_gather_compile(g, idx, v, &srcs, &cflags)) return NULL;
 
-    fprintf(f, "%s_cflags =", t->name);
+    bool        host    = t->kind == MEL_KIND_HOST_TOOL;
+    const char *cc_rule = host ? "hostcc" : "cc";
+
+    fprintf(f, "%s_cflags =%s", t->name, host ? "" : " $base_cflags");
     join_into(f, &cflags);
     fputc('\n', f);
 
     Mel_StrVec objs = {0};
     for (size_t i = 0; i < srcs.len; i++) {
         char *obj = obj_path(outdir, t->dir, srcs.items[i]);
-        fprintf(f, "build %s: cc %s\n  cflags = $%s_cflags\n", obj, srcs.items[i], t->name);
+        fprintf(f, "build %s: %s %s\n  cflags = $%s_cflags\n", obj, cc_rule, srcs.items[i], t->name);
         mel_da_push(&objs, obj);
     }
 
@@ -176,7 +191,8 @@ static char *emit_one(FILE *f, Mel_Graph *g, size_t idx, const Mel_Variant *v, M
     if (t->kind == MEL_KIND_EXECUTABLE || t->kind == MEL_KIND_HOST_TOOL) {
         Mel_StrVec ldflags = {0};
         mel_gather_link(g, idx, v, &ldflags);
-        mel_da_push(&ldflags, mel_str_dup("-dead_strip"));
+        bool apple_ld = host || v->platform == MEL_PLATFORM_MACOS || v->platform == MEL_PLATFORM_IOS;
+        if (apple_ld) mel_da_push(&ldflags, mel_str_dup("-dead_strip"));
 
         Mel_StrVec libs = {0};
         if (order) {
@@ -191,11 +207,11 @@ static char *emit_one(FILE *f, Mel_Graph *g, size_t idx, const Mel_Variant *v, M
             }
         }
 
-        char *bin = mel_str_fmt("%s/%s", outdir, t->name);
-        fprintf(f, "build %s: link", bin);
+        char *bin = mel_str_fmt("%s/%s%s", outdir, t->name, host ? "" : g_tc.exe_ext);
+        fprintf(f, "build %s: %s", bin, host ? "hostlink" : "link");
         join_into(f, &objs);
         join_into(f, &libs);
-        fprintf(f, "\n  ldflags =");
+        fprintf(f, "\n  ldflags =%s", host ? "" : " $base_ldflags");
         join_into(f, &ldflags);
         fputc('\n', f);
         out = mel_str_dup(bin);
@@ -229,15 +245,20 @@ bool mel_emit_and_build(Mel_Graph *g, const char *root, const Mel_Variant *v) {
         return false;
     }
 
-    fputs("rule cc\n", f);
-    fputs("  command = clang $cflags -MMD -MF $out.d -c $in -o $out\n", f);
+    g_tc = mel_toolchain(v);
+    fprintf(f, "cc = %s\n", g_tc.cc);
+    fprintf(f, "ar = %s\n", g_tc.ar);
+    fprintf(f, "base_cflags = %s\n", g_tc.base_cflags);
+    fprintf(f, "base_ldflags = %s\n\n", g_tc.base_ldflags);
+
+    fputs("rule cc\n  command = $cc $cflags -MMD -MF $out.d -c $in -o $out\n", f);
     fputs("  depfile = $out.d\n  deps = gcc\n  description = CC $out\n\n", f);
-    fputs("rule ar\n", f);
-    fputs("  command = rm -f $out && ar rcs $out $in\n  description = AR $out\n\n", f);
-    fputs("rule link\n", f);
-    fputs("  command = clang $in $ldflags -o $out\n  description = LINK $out\n\n", f);
-    fputs("rule codegen\n", f);
-    fputs("  command = $cmd\n  description = GEN $out\n\n", f);
+    fputs("rule hostcc\n  command = clang $cflags -MMD -MF $out.d -c $in -o $out\n", f);
+    fputs("  depfile = $out.d\n  deps = gcc\n  description = CC(host) $out\n\n", f);
+    fputs("rule ar\n  command = rm -f $out && $ar rcs $out $in\n  description = AR $out\n\n", f);
+    fputs("rule link\n  command = $cc $in $ldflags -o $out\n  description = LINK $out\n\n", f);
+    fputs("rule hostlink\n  command = clang $in $ldflags -o $out\n  description = LINK(host) $out\n\n", f);
+    fputs("rule codegen\n  command = $cmd\n  description = GEN $out\n\n", f);
 
     Mel_StrVec produced  = {0};
     Mel_IdxVec hosttools = {0};
