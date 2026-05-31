@@ -1,6 +1,6 @@
 # temperature
 
-A temperature **units** value-type, mirroring `time.frequency`. `Mel_Degrees`
+A temperature **units** value-type, mirroring `frequency`. `Mel_Degrees`
 wraps a `Mel_Real` (256-bit MPFR) held canonically in **kelvin**, and converts
 exactly between the three principal scales — Celsius, Fahrenheit, Kelvin.
 
@@ -43,9 +43,9 @@ K → °C : K − 27315/100          K → °F : K · 9/5 − 45967/100
 ```
 
 This exactness is the reason the `Mel_Real` backing earns its weight; a plain
-`f64` would suffice numerically but would not mirror `time.frequency`.
+`f64` would suffice numerically but would not mirror `frequency`.
 
-The music-domain operations of `time.frequency` (`transpose_*`, `octave_*`,
+The music-domain operations of `frequency` (`transpose_*`, `octave_*`,
 `harmonic`, `mod`, `floordiv`, `beat`) are intentionally absent — they carry no
 temperature meaning.
 

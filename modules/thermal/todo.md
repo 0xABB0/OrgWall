@@ -42,7 +42,7 @@ Execution checklist and resume point. `spec.md` is authoritative for design.
   aggregate is untouched. macОС (SMC keys) **run-verified** on M3 Pro; Linux/Android
   (`/sys` zones) structure-verified; iOS/Win/Web empty. Spec §9.
 - Standalone top-level `temperature` units module (`Mel_Degrees`, kelvin-canonical
-  `Mel_Real`, exact C/F/K), mirroring `time.frequency`. `temperature-example`
+  `Mel_Real`, exact C/F/K), mirroring `frequency`. `temperature-example`
   run-verified. Decisions (backing/placement/enums/granularity) and the design are
   in `design/thermal-sensor-augmentation.md`.
 

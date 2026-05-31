@@ -213,7 +213,7 @@ aggregate accessor of §5 is unchanged.
     Mel_Thermal_Reading     mel_thermal_sensor_read(Mel_Thermal_Sensor *self, void *user);  // convenience
 
 `Mel_Degrees` is the value type of the standalone `temperature` units module
-(mirroring `time.frequency`), kelvin-canonical, exact between Celsius / Fahrenheit
+(mirroring `frequency`), kelvin-canonical, exact between Celsius / Fahrenheit
 / Kelvin. A `none` reading carries `0 K` — the absolute-zero sentinel
 (`mel_degrees_is_absolute_zero`), never a plausible-looking lie (MEL-ENGINE-VIII).
 

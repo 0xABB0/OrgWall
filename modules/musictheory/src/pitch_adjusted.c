@@ -1,5 +1,5 @@
 #include <musictheory/pitch_adjusted.h>
-#include <time.frequency/frequency.h>
+#include <frequency/frequency.h>
 #include <stdlib.h>
 
 Mel_PitchAdjusted mel_pitch_adjusted_make(Mel_Pitch base, Mel_Cent adjustment)

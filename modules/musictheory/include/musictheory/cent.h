@@ -6,7 +6,7 @@
 
 #include <core/compiler.h>
 #include <math/real.h>
-#include <time.frequency/frequency.h>
+#include <frequency/frequency.h>
 
 typedef struct Mel_Cent Mel_Cent;
 

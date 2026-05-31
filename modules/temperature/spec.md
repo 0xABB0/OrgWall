@@ -1,6 +1,6 @@
 # Melody Temperature — `temperature`
 
-A temperature units value-type, the thermal-domain analogue of `time.frequency`.
+A temperature units value-type, the thermal-domain analogue of `frequency`.
 It exists so that `thermal` (and any other consumer) can carry a temperature as a
 unit-correct quantity rather than a bare `float` whose scale the reader must
 guess.
@@ -13,8 +13,8 @@ on one.
 ## 1. Identity
 
 Standalone top-level module at `modules/temperature/`, a peer of `math` — **not** a
-sub-namespace of `thermal`. Rationale: a unit is not owned by one consumer. Even
-though `time.frequency` lives inside `time`, temperature is reachable to any
+sub-namespace of `thermal`. Rationale: a unit is not owned by one consumer. Like
+`frequency` — itself a standalone peer, not nested in any one consumer — temperature is reachable to any
 module (media encoders, power thermal-budget logic, UI read-outs) without forcing
 a dependency on `thermal`'s platform telemetry. The cost is one explicit
 `thermal → temperature` edge.
@@ -55,7 +55,7 @@ nothing extra at the call site: the conversion accessors return `double`.
 
 ## 4. Operations
 
-Mirrors the *general-purpose* subset of `time.frequency`:
+Mirrors the *general-purpose* subset of `frequency`:
 
 - construct: `mel_degrees_{celsius,fahrenheit,kelvin}` (`double` / `mpfr_srcptr`)
 - read: `mel_degrees_to_{celsius,fahrenheit,kelvin}` → `double`; `mel_degrees_view`
@@ -65,7 +65,7 @@ Mirrors the *general-purpose* subset of `time.frequency`:
 - reduce: `abs`, `min`, `max`, `midpoint`
 - compare: `cmp`, `eq`, `near(tolerance)`, `is_absolute_zero`
 
-The music-only operations of `time.frequency` (`transpose_*`, `octave_*`,
+The music-only operations of `frequency` (`transpose_*`, `octave_*`,
 `harmonic`, `mod`, `floordiv`, `beat`) are **omitted** — they have no temperature
 semantics (MEL-ENGINE-IX — compose meaningful parts, do not bolt on a special
 case). `add`/`neg` on an absolute scale are unphysical but retained as mechanism
