@@ -46,20 +46,18 @@ Execution checklist and resume point. `spec.md` is authoritative for design.
   run-verified. Decisions (backing/placement/enums/granularity) and the design are
   in `design/thermal-sensor-augmentation.md`.
 
-### Blocker introduced — wasm build (decide; Rule #1)
+### Cross-compile status — all six first-class targets clean
 
-The `Mel_Real` backing makes `thermal` depend on `mpfr`/`gmp`. Auto-built clean for
-macos/ios/android/win32/linux. **wasm fails**: `./nob build thermal wasm` aborts in
-the third-party `gmp` autotools install — `ranlib libgmp.a → LLVM ERROR: malformed
-uleb128, extends past end` (llvm-ranlib / emscripten static-archive bug). The dep
-build stops there; no thermal wasm object compiles. Pre-existing toolchain bug,
-but this augmentation is what now drags `thermal` onto that path. No existing
-consumer regresses (nothing depends on `thermal` yet). Options:
-- fix gmp's wasm `ranlib`/archive step (`RANLIB=emranlib` / `llvm-ar` in its wasm
-  configure) — a `third-party/gmp` fix, separate from this feature;
-- `mel_unavailable(thermal, WHEN(.platforms = MEL_ON(WASM)))` while mpfr-backed;
-- revisit the `Mel_Degrees` backing for portability (the f32/f64 option declined
-  at design time).
+The `Mel_Real` backing makes `thermal` depend on `mpfr`/`gmp`. `./nob build thermal
+<plat>` exits 0 with `libthermal.a` for macos, ios, android, win32, linux, **and
+wasm**. macОС run-verified on M3 Pro; `temperature-example.wasm` and
+`thermal-sensors.wasm` run under node (exact conversions; 0 sensors on web).
+
+Bringing wasm up required a **framework fix** in `modules/build/thirdparty.c`: the
+autotools cross-configure now passes `AR=emar RANLIB=emranlib` for the wasm
+platform. Without it, libtool's `make install` invoked the **host** `ranlib` on
+emscripten objects → `LLVM ERROR: malformed uleb128`. The fix is general (applies
+to gmp, mpfr, and any future autotools third-party on wasm).
 
 ## Deferred: change notification
 

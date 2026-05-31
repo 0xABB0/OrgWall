@@ -240,9 +240,12 @@ Linux/Android: the `thermal_zone<N>` index), `user` is the caller's pass-through
 ### 9.2 Cost carried in (MEL-ENGINE-VIII)
 
 The `Mel_Real` backing of `Mel_Degrees` makes `thermal` depend on `mpfr`/`gmp`.
-This builds clean on macos/ios/android/win32/linux, but **breaks the wasm build**:
-the third-party `gmp` wasm autotools install aborts at `ranlib` (`malformed
-uleb128`, an llvm/emscripten archive bug). Resolution pending — see `todo.md`.
+**All six first-class targets build clean** (macos/ios/android/win32/linux/wasm).
+Bringing wasm up required a framework fix: the autotools cross-configure now passes
+`AR=emar RANLIB=emranlib` for wasm (`modules/build/thirdparty.c`) — the host
+`ranlib` cannot index emscripten objects (`malformed uleb128`). macОС runs the
+feature on real SMC hardware; `temperature-example.wasm` / `thermal-sensors.wasm`
+run under node.
 
 The push-style change notification of §6 remains deferred and is orthogonal to
 enumeration.

@@ -123,31 +123,33 @@ static inline Mel_Thermal_Reading mel_thermal_sensor_read(Mel_Thermal_Sensor* se
 The aggregate `mel_thermal_temperature(domain)` stays; enumeration is additive.
 `primary` is a virtual aggregate, not enumerated as a physical sensor.
 
-## 5. Fallout — mpfr/gmp on every thermal platform (measured)
+## 5. Fallout — mpfr/gmp on every thermal platform (measured, resolved)
 
 `thermal` previously cross-compiled clean on **all six** platforms with no
 arbitrary-precision dependency. The `Mel_Real` choice makes `thermal` depend on
-`temperature → math → mpfr → gmp`. Measured outcome after implementation:
+`temperature → math → mpfr → gmp`. Final measured outcome — **all six first-class
+targets build clean** (`./nob build thermal <plat>` → exit 0, `libthermal.a`
+present):
 
-- **macOS** (host) — builds and **runs**; full feature verified (§ below).
+- **macOS** (host) — builds and **runs**; full feature verified on M3 Pro.
 - **iOS, Android, Windows, Linux** — the build system auto-configured and built
-  `mpfr`/`gmp` for each (fresh `third-party/{mpfr,gmp}/build/<plat>-debug/`);
-  `libthermal.a` archives clean. No regression.
-- **wasm** — **broken**: `./nob build thermal wasm` exits non-zero. The failure is
-  in the third-party `gmp` autotools *install* step —
-  `ranlib libgmp.a → LLVM ERROR: malformed uleb128, extends past end` (an
-  llvm-ranlib / emscripten static-archive bug). The dependency build aborts there,
-  before `mpfr` or any thermal wasm object compiles. The bug is **in the gmp wasm
-  toolchain, not in this code** — but the `Mel_Real` backing is what now drags
-  `thermal` onto that broken path. Before this change a wasm build of `thermal`
-  had no reason to resolve gmp.
+  `mpfr`/`gmp` per platform; `libthermal.a` archives clean.
+- **wasm** — builds, **links, and runs** under node:
+  `temperature-example.wasm` reproduces the exact conversions; `thermal-sensors.wasm`
+  honestly enumerates 0 sensors.
 
-Blast radius is **contained**: no module currently includes `<thermal/thermal.h>`
-or depends on `thermal` (the spec §8 consumers are aspirational), so nothing else
-regresses from the new mpfr propagation.
+### 5.1 The wasm toolchain fix (required)
 
-Surfaced, not swallowed (MEL-ENGINE-VIII). Resolution is Gabbo's call (Rule #1):
-(a) fix gmp's wasm `ranlib`/archive step (e.g. `RANLIB=emranlib` / `llvm-ar`
-flags in the gmp wasm configure), (b) mark `thermal` `mel_unavailable` on wasm
-while mpfr-backed, or (c) revisit the `Mel_Real` backing for portability. Tracked
-in `modules/thermal/todo.md`.
+On the first wasm attempt the third-party `gmp` autotools *install* aborted at
+`ranlib libgmp.a → LLVM ERROR: malformed uleb128` — emscripten objects are
+wasm/bitcode and the **host** `ranlib` chokes on them. Root cause: the build's
+autotools cross-configure passed `CC=emcc` but never `AR`/`RANLIB`, so libtool
+fell back to the host index tool. Fix (in the framework, `modules/build/thirdparty.c`):
+for the wasm platform, hand autotools `AR=emar RANLIB=emranlib`. This applies to
+both `gmp` and `mpfr`; configure then reports `checking for wasm32-ranlib...
+emranlib` and the archives index correctly. The fix is general — any future
+autotools third-party gains a working wasm static-archive path.
+
+Blast radius of the new mpfr propagation is **contained**: no module currently
+includes `<thermal/thermal.h>` or depends on `thermal` (the spec §8 consumers are
+aspirational), so nothing else changed.

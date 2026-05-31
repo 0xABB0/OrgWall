@@ -117,6 +117,13 @@ static bool build_autotools(Mel_Graph *g, Mel_Target *t, const Mel_Variant *v) {
         mel_da_push(&c, t->autotools_cstd
                             ? mel_str_fmt("CC=%s -std=%s", tc.autotools_cc, t->autotools_cstd)
                             : mel_str_fmt("CC=%s", tc.autotools_cc));
+        // Emscripten objects are wasm/bitcode; the host ar/ranlib choke on them
+        // ("malformed uleb128"). Hand autotools/libtool the emscripten archiver
+        // and index tool so `make install` indexes the static archive correctly.
+        if (v->platform == MEL_PLATFORM_WASM) {
+            mel_da_push(&c, "AR=emar");
+            mel_da_push(&c, "RANLIB=emranlib");
+        }
     }
     if (cpp.len) {
         Mel_StrVec j = {0};
