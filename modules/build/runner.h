@@ -21,7 +21,8 @@ char *mel_read_file(const char *path);
 bool  mel_write_file(const char *path, const char *data);
 bool  mel_copy_file(const char *src, const char *dst);
 
-bool mel_package(Mel_Target *t, const Mel_Variant *v, const char *outdir, const char *exe);
+bool  mel_package(Mel_Target *t, const Mel_Variant *v, const char *outdir, const char *exe);
+char *mel_win32_resource(Mel_Target *t, const char *outdir);
 
 typedef struct {
     Mel_Target *t;

@@ -187,6 +187,11 @@ static char *emit_one(FILE *f, Mel_Graph *g, size_t idx, const Mel_Variant *v, M
 
     emit_codegens(f, g, t, outdir, &cflags, v, &objs);
 
+    if (!host && t->kind == MEL_KIND_EXECUTABLE && v->platform == MEL_PLATFORM_WIN32) {
+        char *res = mel_win32_resource(t, outdir);
+        if (res) mel_da_push(&objs, res);
+    }
+
     char *out = NULL;
     if (t->kind == MEL_KIND_EXECUTABLE || t->kind == MEL_KIND_HOST_TOOL) {
         Mel_StrVec ldflags = {0};

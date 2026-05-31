@@ -116,6 +116,53 @@ static bool package_apple(Mel_Target *t, const char *outdir, const char *exe, co
     return true;
 }
 
+static const char *manifest_get(Mel_Target *t, const char *key, const char *dflt) {
+    for (size_t i = 0; i < t->manifest.len; i++)
+        if (strcmp(t->manifest.items[i].key, key) == 0) return t->manifest.items[i].value;
+    return dflt;
+}
+
+char *mel_win32_resource(Mel_Target *t, const char *outdir) {
+    char *tpl_path    = find_override(t->dir, "win32", "app.rc");
+    if (!tpl_path) tpl_path = mel_str_dup("modules/build/win32/app.rc");
+    char *win32dir = mel_str_fmt("%s/win32", t->dir);
+    char *icon     = find_by_ext(win32dir, ".ico");
+
+    Mel_KVVec vars = {0};
+    mel_da_push(&vars, ((Mel_KV){"APP_LABEL", manifest_get(t, "APP_LABEL", t->name)}));
+    mel_da_push(&vars, ((Mel_KV){"VERSION", manifest_get(t, "VERSION", "1.0.0")}));
+    mel_da_push(&vars, ((Mel_KV){"MANIFEST", "1 24 \"app.manifest\""}));
+    mel_da_push(&vars, ((Mel_KV){"ICON", icon ? mel_str_fmt("100 ICON \"%s\"", icon) : ""}));
+
+    char *tpl = mel_read_file(tpl_path);
+    if (!tpl) {
+        fprintf(stderr, "build: win32 resource: missing template %s\n", tpl_path);
+        return NULL;
+    }
+    char *rc_text = substitute(tpl, &vars);
+    mel_mkdirs(outdir);
+    char *rc_file = mel_str_fmt("%s/app.rc", outdir);
+    mel_write_file(rc_file, rc_text);
+
+    char      *res = mel_str_fmt("%s/app.res.o", outdir);
+    Mel_StrVec c   = {0};
+    mel_da_push(&c, "x86_64-w64-mingw32-windres");
+    mel_da_push(&c, rc_file);
+    mel_da_push(&c, "-I");
+    mel_da_push(&c, win32dir);
+    mel_da_push(&c, "-I");
+    mel_da_push(&c, "modules/build/win32");
+    mel_da_push(&c, "-o");
+    mel_da_push(&c, res);
+    int rcode = mel_run_vec(&c);
+    free(c.items);
+    if (rcode != 0) {
+        fprintf(stderr, "build: win32 resource compile failed for '%s'\n", t->name);
+        return NULL;
+    }
+    return res;
+}
+
 bool mel_package(Mel_Target *t, const Mel_Variant *v, const char *outdir, const char *exe) {
     if (t->kind != MEL_KIND_EXECUTABLE) return true;
     if (v->platform == MEL_PLATFORM_MACOS) return package_apple(t, outdir, exe, "macos", false);

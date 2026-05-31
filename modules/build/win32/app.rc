@@ -1,16 +1,5 @@
-1 24 "app.manifest"
-
-#ifndef MEL_APP_NAME
-#define MEL_APP_NAME "Melody App"
-#endif
-#ifndef MEL_APP_VERSION
-#define MEL_APP_VERSION "0.1.0"
-#endif
-
-#ifdef MEL_APP_ICON
-100 ICON MEL_APP_ICON
-#endif
-
+{{MANIFEST}}
+{{ICON}}
 1 VERSIONINFO
 FILEVERSION 1,0,0,0
 PRODUCTVERSION 1,0,0,0
@@ -21,10 +10,10 @@ BEGIN
     BEGIN
         BLOCK "040904b0"
         BEGIN
-            VALUE "FileDescription", MEL_APP_NAME
-            VALUE "ProductName", MEL_APP_NAME
-            VALUE "FileVersion", MEL_APP_VERSION
-            VALUE "ProductVersion", MEL_APP_VERSION
+            VALUE "FileDescription", "{{APP_LABEL}}"
+            VALUE "ProductName", "{{APP_LABEL}}"
+            VALUE "FileVersion", "{{VERSION}}"
+            VALUE "ProductVersion", "{{VERSION}}"
         END
     END
     BLOCK "VarFileInfo"
