@@ -226,5 +226,5 @@ void mel_app_setup(Mel_Reactor* reactor) {
     mel_gui_init(reactor);
     mel_display_init(NULL);
     mel_app_register_screen(S8("inspector"), build_inspector, NULL);
-    mel_app_present(S8("inspector"));
+    mel_app_present(S8("inspector"), NULL);
 }

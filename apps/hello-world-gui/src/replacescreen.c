@@ -4,10 +4,11 @@
 #include "tapcounter.h"
 
 
-static void replace_back_clicked(Mel_Gui_Handle h, void* user)
+static void reopen_main_clicked(Mel_Gui_Handle h, void* user)
 {
+    (void)h;
     (void)user;
-    mel_app_back(h);
+    mel_app_present(S8("main"), NULL);
 }
 
 void build_replace(Mel_Gui_Handle frame, void* user)
@@ -26,7 +27,7 @@ void build_replace(Mel_Gui_Handle frame, void* user)
 
     tapcounter_create(frame, S8("Poke replaced-local handler"));
 
-    mel_button_create(frame, .text = S8("Back"),
-        .pointer.on_click = replace_back_clicked,
+    mel_button_create(frame, .text = S8("Re-open Main Window"),
+        .pointer.on_click = reopen_main_clicked,
         .layoutable = { .preferred_h = 40 });
 }

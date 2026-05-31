@@ -15,5 +15,5 @@ void mel_app_setup(Mel_Reactor* reactor)
     mel_app_register_screen(S8("details"),  build_details, NULL);
     mel_app_register_screen(S8("replaced"), build_replace, NULL);
     mel_app_register_screen(S8("structural"), build_struct, NULL);
-    mel_app_present(S8("main"));
+    mel_app_present(S8("main"), NULL);
 }

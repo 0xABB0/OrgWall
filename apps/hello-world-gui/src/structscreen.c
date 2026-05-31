@@ -57,9 +57,8 @@ static void open_dialog_clicked(Mel_Gui_Handle h, void* user)
 
 static void back_clicked(Mel_Gui_Handle h, void* user)
 {
-    (void)h;
     (void)user;
-    mel_app_present(S8("main"));
+    mel_app_back(h);
 }
 
 void build_struct(Mel_Gui_Handle frame, void* user)

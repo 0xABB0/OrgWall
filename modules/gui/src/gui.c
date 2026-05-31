@@ -209,6 +209,7 @@ void mel_gui_shutdown(void)
     }
 
     mel_slotmap_free(&g_nodes);
+    mel_gui__navs_reset();
     mel_gui__screens_reset();
 
     g_focused     = MEL_GUI_HANDLE_NONE;

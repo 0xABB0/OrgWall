@@ -39,7 +39,18 @@ Mel_Gui_Handle mel_gui__toplevel(Mel_Gui_Handle h);
 
 void           mel_gui__destroy_tree(Mel_Gui_Handle root);
 
+/* Screen registry (identity): name -> builder + register-time default user.
+ * Holds no live navigation state; instances live on a Navigator (nav.c). */
+typedef struct {
+    str8             name;
+    Mel_Screen_Build build;
+    void*            default_user;
+} Mel_Screen_Def;
+
+const Mel_Screen_Def* mel_gui__screen_find(str8 name);
+
 void           mel_gui__screens_reset(void);
+void           mel_gui__navs_reset(void);
 
 /* Screen-to-screen transitions. Each backend owns the platform mechanics:
  * desktop swaps window visibility, Android drives the fragment back stack.

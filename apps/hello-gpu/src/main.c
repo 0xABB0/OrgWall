@@ -61,5 +61,5 @@ void mel_app_setup(Mel_Reactor* reactor)
     mel_gui_init(reactor);
     gpu_host_init(reactor);
     mel_app_register_screen(S8("host"), build_host, NULL);
-    mel_app_present(S8("host"));
+    mel_app_present(S8("host"), NULL);
 }

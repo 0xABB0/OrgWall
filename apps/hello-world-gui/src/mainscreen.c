@@ -78,20 +78,19 @@ static void open_details_clicked(Mel_Gui_Handle h, void* user)
 {
     (void)h;
     (void)user;
-    mel_app_present(S8("details"));
+    mel_app_present(S8("details"), NULL);
 }
 
 static void replace_screen_clicked(Mel_Gui_Handle h, void* user)
 {
     (void)user;
-    mel_app_replace(h, S8("replaced"));
+    mel_app_replace(h, S8("replaced"), NULL);
 }
 
 static void open_struct_clicked(Mel_Gui_Handle h, void* user)
 {
-    (void)h;
     (void)user;
-    mel_app_present(S8("structural"));
+    mel_app_push(h, S8("structural"), NULL);
 }
 
 static void main_checkbox_toggled(Mel_Gui_Handle h, bool checked, void* user)
