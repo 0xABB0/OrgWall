@@ -290,6 +290,9 @@ void mel_gui__nav_back(Mel_Gui_Handle prev, Mel_Gui_Handle cur)
 
 bool mel_gui_supports_multi_root(void) { return false; }
 
+/* A Root fills the activity container (MATCH_PARENT); the OS owns its size. */
+void mel_gui__present_root(Mel_Gui_Handle frame) { (void)frame; }
+
 void mel_gui_set_enabled(Mel_Gui_Handle h, bool enabled)
 {
     jobject view = node_view(h);

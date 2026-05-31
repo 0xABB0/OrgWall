@@ -389,3 +389,6 @@ void mel_gui__nav_back(Mel_Gui_Handle prev, Mel_Gui_Handle cur) {
 }
 
 bool mel_gui_supports_multi_root(void) { return false; }
+
+/* A Root is the document body; the page owns its size. */
+void mel_gui__present_root(Mel_Gui_Handle frame) { (void)frame; }

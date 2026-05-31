@@ -6,7 +6,23 @@
 
 typedef void (*Mel_Screen_Build)(Mel_Gui_Handle frame, void* arg);
 
-void mel_app_register_screen(str8 name, Mel_Screen_Build build, void* user);
+/* Screen registration follows the _opt pattern. `build` and `user` are positional
+ * by convention (first two fields), so mel_app_register_screen(name, build, user)
+ * still works; lifecycle hooks are designated fields. on_enter fires whenever an
+ * instance becomes the visible top (first show and every re-reveal), on_leave when
+ * it stops being top, on_destroy just before its frame is torn down. The arg
+ * matches what the builder received for that instance. */
+typedef struct {
+    Mel_Screen_Build build;
+    void*            user;
+    void (*on_enter)  (Mel_Gui_Handle frame, void* arg);
+    void (*on_leave)  (Mel_Gui_Handle frame, void* arg);
+    void (*on_destroy)(Mel_Gui_Handle frame, void* arg);
+} Mel_Screen_Opt;
+
+void mel_app_register_screen_opt(str8 name, Mel_Screen_Opt opt);
+#define mel_app_register_screen(name, ...) \
+    mel_app_register_screen_opt((name), (Mel_Screen_Opt){ __VA_ARGS__ })
 
 /* Open a new Root (top-level surface) with its own Navigator rooted at `name`.
  * Desktop: a new window. The multi-Root verb; its mobile/web shape lands later. */

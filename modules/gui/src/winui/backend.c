@@ -259,6 +259,26 @@ void mel_gui__nav_back(Mel_Gui_Handle prev, Mel_Gui_Handle cur)
 
 bool mel_gui_supports_multi_root(void) { return true; }
 
+void mel_gui__present_root(Mel_Gui_Handle frame)
+{
+    Mel_Gui_Node* fw = mel_gui__node(frame);
+    if (!fw) return;
+
+    i32 cw, ch;
+    mel_gui__content_size(frame, &cw, &ch);
+    if (!fw->layout) { cw += 24; ch += 24; }
+    if (cw < 320) cw = 320;
+    if (ch < 240) ch = 240;
+
+    mel_gui_set_bounds(frame, fw->x, fw->y, cw, ch);
+
+    if (fw->layout) {
+        Mel_Gui_Node* r = mel_gui__node(frame);
+        if (r) { r->width = cw; r->height = ch; }
+        mel_gui__layout_arrange(frame);
+    }
+}
+
 HWND mel_gui_win32_hwnd(Mel_Gui_Handle h)
 {
     Mel_Gui_Node* n = mel_gui__node(h);

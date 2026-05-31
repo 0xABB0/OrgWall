@@ -33,17 +33,17 @@ Mandates that override convenience everywhere in this module:
 void mel_app_setup(Mel_Reactor* reactor)          /* app entry, called by the bridge */
 {
     mel_gui_init(reactor);
-    mel_app_register_screen(S8("main"),    build_main);
-    mel_app_register_screen(S8("details"), build_details);
-    mel_app_present(S8("main"));
+    mel_app_register_screen(S8("main"),    build_main);     /* build is field 1 */
+    mel_app_register_screen(S8("details"), .build = build_details, .on_enter = on_details_shown);
+    mel_app_present(S8("main"), NULL);                       /* open the first Root */
 }
 
-static void build_main(Mel_Gui_Handle frame, void* user)
+static void build_main(Mel_Gui_Handle frame, void* arg)
 {
     mel_label_create (frame, .text = S8("Hello"), .x = 24, .y = 20, .w = 200, .h = 32);
     mel_button_create(frame, .text = S8("OK"),    .x = 24, .y = 60, .w = 120, .h = 36,
                       .pointer.on_click = on_ok_clicked,
-                      .user             = user);
+                      .user             = arg);
 }
 #+end_src
 
@@ -203,10 +203,11 @@ earlier design routed every widget through =mel_<widget>_create → generic
 =mel_gui__create= → =mel_gui__backend_<widget>_create=; that forced the backend
 to conform to a fat generic record and earned nothing, so it was removed.
 
-The portable core (=src/gui.c=, =screen.c=, =layout.c=, =column.c=, =widget.c=)
-owns only what is genuinely backend-independent: the generational-handle slotmap
-registry (=mel_gui__node_new= / =mel_gui__node=), screen navigation, the layout
-engine, and the handle accessors (=mel_gui_id=, =mel_gui_user=,
+The portable core (=src/gui.c=, =screen.c=, =nav.c=, =layout.c=, =column.c=,
+=widget.c=) owns only what is genuinely backend-independent: the
+generational-handle slotmap registry (=mel_gui__node_new= / =mel_gui__node=), the
+Screen registry and Navigator stacks, the layout engine, and the handle accessors
+(=mel_gui_id=, =mel_gui_user=,
 =mel_gui_native_handle=). Layout reaches the backend through exactly one public
 op, =mel_gui_set_bounds=.
 
@@ -447,29 +448,69 @@ come from =src/= plus =src/<platform-chain>/= (win32 chain: =win32=, =win=).
   adds the selected backend dir via the platform chain. This satisfies "one
   backend, compile-time, no vtable".
 
-* Frames and the Screen model
+* Frames, Screens, Navigators and Roots
 
-An app is a set of named *Screens*. A Screen is a builder callback that
-populates one Frame's content:
+An app registers named *Screens*; a Screen is an /identity/ — a builder plus
+optional lifecycle hooks — never a live object. Navigation creates *instances* of
+a Screen on a *Navigator*, a stack of instances. A *Root* is a top-level host
+surface (the adaptive =Frame=: desktop window, XR panel, mobile scene, web
+document) and owns one Navigator. The split of identity from instance is the
+core of the model: a Screen may have several live instances, the same name may
+recur on a stack, and the builder re-runs on every entry.
 
 #+begin_src c
-typedef void (*Mel_Screen_Build)(Mel_Gui_Handle frame, void* user);
+typedef void (*Mel_Screen_Build)(Mel_Gui_Handle frame, void* arg);
 
-void mel_app_register_screen(str8 name, Mel_Screen_Build build);
-void mel_app_present         (str8 name);
+typedef struct {
+    Mel_Screen_Build build;                                  /* field 1: positional */
+    void*            user;                                   /* field 2: positional default arg */
+    void (*on_enter)  (Mel_Gui_Handle frame, void* arg);     /* became the visible top */
+    void (*on_leave)  (Mel_Gui_Handle frame, void* arg);     /* stopped being top */
+    void (*on_destroy)(Mel_Gui_Handle frame, void* arg);     /* frame about to be torn down */
+} Mel_Screen_Opt;
+
+void mel_app_register_screen_opt(str8 name, Mel_Screen_Opt opt);
+#define mel_app_register_screen(name, ...) /* build/user stay positional */
+
+void mel_app_present    (str8 name, void* arg);               /* open a new Root + Navigator */
+void mel_app_push       (Mel_Gui_Handle from, str8 name, void* arg); /* in-stack; predecessor hidden */
+void mel_app_replace    (Mel_Gui_Handle from, str8 name, void* arg); /* in-stack; predecessor destroyed */
+void mel_app_back       (Mel_Gui_Handle from);               /* pop top, reveal predecessor */
+void mel_app_pop_to     (Mel_Gui_Handle from, str8 name);
+void mel_app_pop_to_root(Mel_Gui_Handle from);
 #+end_src
 
-Cross-platform shape (adaptive concept, not LCD):
+=from= is any handle inside the target Root; it resolves to that Root's
+Navigator. Every navigation carries a per-call =arg= (the builder and the hooks
+receive =arg ? arg : register-time user=).
 
-- desktop: presenting a Screen creates/raises its Frame as an OS window;
-  multiple Frames may be visible at once.
-- mobile: a Screen maps to a real Activity (Android) or scene/UIViewController
-  (iOS); =mel_app_present= pushes onto the OS navigation/back stack.
-- web: a Screen maps to a route.
+*Invariant semantics.* =push=/=replace=/=back= act /within one Navigator/ —
+predecessor hidden, =back= reveals it — and mean the same on every target.
+=present= is the only verb that yields coexisting surfaces, and the only one that
+degrades:
 
-=apps/hello-world-gui= has two Screens, =main= and =details= — on win32 these
-are two Frames. Full Screen lifecycle (back stack, save/restore, the mobile
-Activity mapping) beyond the two-Frame desktop flow is tracked in =todo.org=.
+- desktop, XR: =present= creates a new coequal Root (window / floating panel).
+- mobile, web: there are no coequal Roots, so =present= after the first degrades
+  to a =push= on the single Root — a native stack push (iOS/Android) or a route
+  push (web =history.pushState=). =mel_gui_supports_multi_root()= reports which a
+  backend does; the verb is never forbidden (MEL-ENGINE-IV/VII).
+
+*OS-driven dismissal* (window close box, iOS swipe, Android hardware/predictive
+back, browser back) routes through the nav layer so the C stack never strands a
+dead top: desktop via =mel_gui__frame_closed= from the close path, iOS via
+=didMoveToParentViewController:nil=, Android via =MelGui.nativeOsBack=, web via a
+=popstate= listener.
+
+*Restore.* In-process, =arg= is a live pointer carried faithfully. Across process
+death only the =name= chain restores; =arg= defaults to =NULL= (builders fall
+back to their registered =user=). An opt-in per-screen encode/decode and the
+=savedInstanceState=/scene plumbing are =todo.org=.
+
+The portable core owns the registry (=screen.c=) and the Navigator stack
+(=nav.c=); window sizing is a backend concern (=mel_gui__present_root=), so no
+geometry constants live in the portable layer. =apps/hello-world-gui= exercises
+the whole surface: =present= (Details as a new window), =push=/=back= (Structural),
+=replace= (Replaced supplants Main), and =on_enter= (Main's entry counter).
 
 * Insets and the safe area
 
@@ -562,7 +603,8 @@ modules/gui/
     gui_internal.h        Mel_Gui_Node + registry/layout/screen internals
     gui.c                 slotmap registry, node lifecycle, frame count, focus
     widget.c              portable handle accessors (id/user/native_handle)
-    screen.c              Screen registry + navigation
+    screen.c              Screen registry (identity: name -> builder + hooks)
+    nav.c                 Navigator stacks + present/push/replace/back/pop_to
     layout.c column.c     layout engine (reaches backends via mel_gui_set_bounds)
     win32/  macos/  android/
       backend.c|.m        shared helpers + the mel_gui_* ops, defined directly

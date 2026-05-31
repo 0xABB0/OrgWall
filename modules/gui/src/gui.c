@@ -169,6 +169,34 @@ void mel_gui__resized(Mel_Gui_Handle h, i32 w, i32 height)
     if (n->layout) mel_gui__layout_arrange(h);
 }
 
+/* Natural content extent of a frame: the layout's measured size, or the bounding
+ * box of absolutely-placed children. Pure measurement — no window policy, no
+ * constants. Backends that size a Root to its content (desktop) consume this. */
+void mel_gui__content_size(Mel_Gui_Handle frame, i32* out_w, i32* out_h)
+{
+    i32           cw = 0, ch = 0;
+    Mel_Gui_Node* fw = mel_gui__node(frame);
+    if (!fw) { if (out_w) *out_w = 0; if (out_h) *out_h = 0; return; }
+
+    if (fw->layout) {
+        mel_gui__layout_measure(frame, 0, 0, &cw, &ch);
+    } else {
+        u32           count = 0;
+        Mel_Gui_Node* data  = mel_gui__nodes(&count);
+        for (u32 i = 0; i < count; i++) {
+            Mel_Gui_Node* n = &data[i];
+            if (!mel_gui_handle_eq(n->parent, frame)) continue;
+            i32 rx = n->x + n->width;
+            i32 ry = n->y + n->height;
+            if (rx > cw) cw = rx;
+            if (ry > ch) ch = ry;
+        }
+    }
+
+    if (out_w) *out_w = cw;
+    if (out_h) *out_h = ch;
+}
+
 void mel_gui__set_focused(Mel_Gui_Handle h)
 {
     g_focused = h;

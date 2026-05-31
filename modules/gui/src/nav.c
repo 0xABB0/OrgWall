@@ -33,6 +33,25 @@ static Mel_Navigator* nav_of(Mel_Gui_Handle from)
     return NULL;
 }
 
+/* Screen lifecycle. on_enter fires when an instance becomes the visible top
+ * (first show or re-reveal); on_leave when it stops being top; on_destroy just
+ * before its frame is torn down. The arg matches what the builder received. */
+static void fire_enter(Mel_Nav_Entry e)
+{
+    const Mel_Screen_Def* d = mel_gui__screen_find(e.name);
+    if (d && d->on_enter) d->on_enter(e.frame, e.arg ? e.arg : d->default_user);
+}
+static void fire_leave(Mel_Nav_Entry e)
+{
+    const Mel_Screen_Def* d = mel_gui__screen_find(e.name);
+    if (d && d->on_leave) d->on_leave(e.frame, e.arg ? e.arg : d->default_user);
+}
+static void fire_destroy(Mel_Nav_Entry e)
+{
+    const Mel_Screen_Def* d = mel_gui__screen_find(e.name);
+    if (d && d->on_destroy) d->on_destroy(e.frame, e.arg ? e.arg : d->default_user);
+}
+
 /* A frame's native surface was torn down (OS close box, or any backend teardown).
  * Drop its entry; if it was the visible top, reveal the predecessor; if it was a
  * Navigator's last entry, drop the Navigator. Never destroys the frame — the
@@ -47,63 +66,24 @@ void mel_gui__frame_closed(Mel_Gui_Handle frame)
         for (usize j = 0; j < nav->entries.count; j++) {
             if (!mel_gui_handle_eq(nav->entries.items[j].frame, frame)) continue;
 
-            bool was_top = (j == nav->entries.count - 1);
+            bool          was_top = (j == nav->entries.count - 1);
+            Mel_Nav_Entry closed  = nav->entries.items[j];
             mel_array_remove_ordered(&nav->entries, j);
+
+            if (was_top) fire_leave(closed);
+            fire_destroy(closed);
 
             if (nav->entries.count == 0) {
                 mel_array_free(&nav->entries);
                 mel_array_remove_ordered(&g_navs, i);
             } else if (was_top) {
-                Mel_Gui_Handle top = mel_array_last(&nav->entries).frame;
-                mel_gui_set_visible(top, true);
-                mel_gui_set_focus(top);
+                Mel_Nav_Entry top = mel_array_last(&nav->entries);
+                mel_gui_set_visible(top.frame, true);
+                mel_gui_set_focus(top.frame);
+                fire_enter(top);
             }
             return;
         }
-    }
-}
-
-static void autosize_frame(Mel_Gui_Handle frame)
-{
-    Mel_Gui_Node* fw = mel_gui__node(frame);
-    if (!fw) return;
-
-    i32 cw, ch;
-
-    if (fw->layout) {
-        mel_gui__layout_measure(frame, 0, 0, &cw, &ch);
-    } else {
-        u32 count = 0;
-        Mel_Gui_Node* data = mel_gui__nodes(&count);
-
-        i32 max_x = 0;
-        i32 max_y = 0;
-        for (u32 i = 0; i < count; i++) {
-            Mel_Gui_Node* n = &data[i];
-            if (!mel_gui_handle_eq(n->parent, frame)) continue;
-            i32 rx = n->x + n->width;
-            i32 ry = n->y + n->height;
-            if (rx > max_x) max_x = rx;
-            if (ry > max_y) max_y = ry;
-        }
-
-        i32 margin = 24;
-        cw = max_x + margin;
-        ch = max_y + margin;
-    }
-
-    if (cw < 320) cw = 320;
-    if (ch < 240) ch = 240;
-
-    mel_gui_set_bounds(frame, fw->x, fw->y, cw, ch);
-
-    if (fw->layout) {
-        Mel_Gui_Node* refreshed = mel_gui__node(frame);
-        if (refreshed) {
-            refreshed->width  = cw;
-            refreshed->height = ch;
-        }
-        mel_gui__layout_arrange(frame);
     }
 }
 
@@ -116,7 +96,7 @@ static Mel_Gui_Handle instantiate(str8 name, void* arg)
     Mel_Gui_Handle frame = mel_frame_create(.title = name);
     void*          user  = arg ? arg : def->default_user;
     if (def->build) def->build(frame, user);
-    autosize_frame(frame);
+    mel_gui__present_root(frame);
     return frame;
 }
 
@@ -128,11 +108,14 @@ void mel_app_present(str8 name, void* arg)
      * append a Navigator, so the single Root never moves. The first present still
      * creates the root below, on every backend. */
     if (g_navs.count > 0 && !mel_gui_supports_multi_root()) {
-        Mel_Gui_Handle prev  = mel_array_last(&g_navs.items[0].entries).frame;
+        Mel_Nav_Entry  left  = mel_array_last(&g_navs.items[0].entries);
         Mel_Gui_Handle frame = instantiate(name, arg);
         if (mel_gui_handle_is_none(frame)) return;
-        mel_array_push(&g_navs.items[0].entries, ((Mel_Nav_Entry){ name, frame, arg }));
-        mel_gui__nav_replace(frame, prev);
+        Mel_Nav_Entry entered = { name, frame, arg };
+        mel_array_push(&g_navs.items[0].entries, entered);
+        mel_gui__nav_replace(frame, left.frame);
+        fire_leave(left);
+        fire_enter(entered);
         return;
     }
 
@@ -141,12 +124,14 @@ void mel_app_present(str8 name, void* arg)
 
     if (g_navs.allocator == NULL) mel_array_init(&g_navs, mel_gui__alloc());
 
+    Mel_Nav_Entry entered = { name, frame, arg };
     Mel_Navigator nav = {0};
     mel_array_init(&nav.entries, mel_gui__alloc());
-    mel_array_push(&nav.entries, ((Mel_Nav_Entry){ name, frame, arg }));
+    mel_array_push(&nav.entries, entered);
     mel_array_push(&g_navs, nav);
 
     mel_gui__nav_replace(frame, MEL_GUI_HANDLE_NONE);
+    fire_enter(entered);
 }
 
 /* OS-initiated back where the platform does NOT itself tear down the surface
@@ -161,10 +146,13 @@ bool mel_gui__nav_os_back(void)
     Mel_Navigator* nav = &g_navs.items[g_navs.count - 1];
     if (nav->entries.count <= 1) return false;
 
-    Mel_Nav_Entry  top  = mel_array_pop(&nav->entries);
-    Mel_Gui_Handle prev = mel_array_last(&nav->entries).frame;
-    mel_gui__nav_back(prev, top.frame);
+    Mel_Nav_Entry top  = mel_array_pop(&nav->entries);
+    Mel_Nav_Entry prev = mel_array_last(&nav->entries);
+    mel_gui__nav_back(prev.frame, top.frame);
+    fire_leave(top);
+    fire_destroy(top);
     mel_gui_destroy(top.frame);
+    fire_enter(prev);
     return true;
 }
 
@@ -174,15 +162,18 @@ void mel_app_push(Mel_Gui_Handle from, str8 name, void* arg)
     assert(nav && "push: from does not belong to a navigator");
     if (!nav) return;
 
-    Mel_Gui_Handle prev  = mel_array_last(&nav->entries).frame;
+    Mel_Nav_Entry  left  = mel_array_last(&nav->entries);
     Mel_Gui_Handle frame = instantiate(name, arg);
     if (mel_gui_handle_is_none(frame)) return;
 
     nav = nav_of(from); /* the build callback may have grown g_navs (re-entrant present) */
     if (!nav) return;
 
-    mel_array_push(&nav->entries, ((Mel_Nav_Entry){ name, frame, arg }));
-    mel_gui__nav_replace(frame, prev);
+    Mel_Nav_Entry entered = { name, frame, arg };
+    mel_array_push(&nav->entries, entered);
+    mel_gui__nav_replace(frame, left.frame);
+    fire_leave(left);
+    fire_enter(entered);
 }
 
 void mel_app_replace(Mel_Gui_Handle from, str8 name, void* arg)
@@ -198,9 +189,13 @@ void mel_app_replace(Mel_Gui_Handle from, str8 name, void* arg)
     nav = nav_of(from); /* the build callback may have grown g_navs (re-entrant present) */
     if (!nav || nav->entries.count == 0) return;
 
-    mel_array_last(&nav->entries) = (Mel_Nav_Entry){ name, frame, arg };
+    Mel_Nav_Entry entered = { name, frame, arg };
+    mel_array_last(&nav->entries) = entered;
     mel_gui__nav_replace(frame, old.frame);
+    fire_leave(old);
+    fire_destroy(old);
     mel_gui_destroy(old.frame);
+    fire_enter(entered);
 }
 
 void mel_app_back(Mel_Gui_Handle from)
@@ -209,10 +204,13 @@ void mel_app_back(Mel_Gui_Handle from)
     assert(nav && "back: from does not belong to a navigator");
     if (!nav || nav->entries.count <= 1) return;
 
-    Mel_Nav_Entry  top  = mel_array_pop(&nav->entries);
-    Mel_Gui_Handle prev = mel_array_last(&nav->entries).frame;
-    mel_gui__nav_back(prev, top.frame);
+    Mel_Nav_Entry top  = mel_array_pop(&nav->entries);
+    Mel_Nav_Entry prev = mel_array_last(&nav->entries);
+    mel_gui__nav_back(prev.frame, top.frame);
+    fire_leave(top);
+    fire_destroy(top);
     mel_gui_destroy(top.frame);
+    fire_enter(prev);
 }
 
 void mel_app_pop_to(Mel_Gui_Handle from, str8 name)
@@ -220,15 +218,19 @@ void mel_app_pop_to(Mel_Gui_Handle from, str8 name)
     Mel_Navigator* nav = nav_of(from);
     if (!nav) return;
 
+    bool visible_left = false;
     while (nav->entries.count > 1 &&
            !str8_equals(mel_array_last(&nav->entries).name, name)) {
         Mel_Nav_Entry top = mel_array_pop(&nav->entries);
+        if (!visible_left) { fire_leave(top); visible_left = true; }
+        fire_destroy(top);
         mel_gui_destroy(top.frame);
     }
 
-    Mel_Gui_Handle top = mel_array_last(&nav->entries).frame;
-    mel_gui_set_visible(top, true);
-    mel_gui_set_focus(top);
+    Mel_Nav_Entry top = mel_array_last(&nav->entries);
+    mel_gui_set_visible(top.frame, true);
+    mel_gui_set_focus(top.frame);
+    if (visible_left) fire_enter(top);
 }
 
 void mel_app_pop_to_root(Mel_Gui_Handle from)
@@ -236,12 +238,16 @@ void mel_app_pop_to_root(Mel_Gui_Handle from)
     Mel_Navigator* nav = nav_of(from);
     if (!nav) return;
 
+    bool visible_left = false;
     while (nav->entries.count > 1) {
         Mel_Nav_Entry top = mel_array_pop(&nav->entries);
+        if (!visible_left) { fire_leave(top); visible_left = true; }
+        fire_destroy(top);
         mel_gui_destroy(top.frame);
     }
 
-    Mel_Gui_Handle top = mel_array_last(&nav->entries).frame;
-    mel_gui_set_visible(top, true);
-    mel_gui_set_focus(top);
+    Mel_Nav_Entry top = mel_array_last(&nav->entries);
+    mel_gui_set_visible(top.frame, true);
+    mel_gui_set_focus(top.frame);
+    if (visible_left) fire_enter(top);
 }

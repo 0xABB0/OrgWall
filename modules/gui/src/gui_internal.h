@@ -45,6 +45,9 @@ typedef struct {
     str8             name;
     Mel_Screen_Build build;
     void*            default_user;
+    void (*on_enter)  (Mel_Gui_Handle, void*);
+    void (*on_leave)  (Mel_Gui_Handle, void*);
+    void (*on_destroy)(Mel_Gui_Handle, void*);
 } Mel_Screen_Def;
 
 const Mel_Screen_Def* mel_gui__screen_find(str8 name);
@@ -62,6 +65,13 @@ void           mel_gui__frame_closed(Mel_Gui_Handle frame);
  * back, web history back): pop+reveal+destroy the foreground Navigator's top.
  * Returns true if it popped, false at the root (so the OS can exit the app). */
 bool           mel_gui__nav_os_back(void);
+
+/* Natural content extent of a frame (constant-free measurement). */
+void           mel_gui__content_size(Mel_Gui_Handle frame, i32* out_w, i32* out_h);
+
+/* Make a freshly-built frame a Root. Desktop sizes the window to its content;
+ * mobile/web no-op (the scene/route owns the size). Called once per instance. */
+void           mel_gui__present_root(Mel_Gui_Handle frame);
 
 /* Screen-to-screen transitions. Each backend owns the platform mechanics:
  * desktop swaps window visibility, Android drives the fragment back stack.

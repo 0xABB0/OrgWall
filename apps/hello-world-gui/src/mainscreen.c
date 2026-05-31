@@ -23,6 +23,7 @@ typedef struct {
     bool pointer_down;
     i32  canvas_w, canvas_h;
     i32  last_key;
+    i32  enter_count;
 } Main_State;
 
 static Main_State    g_main;
@@ -31,11 +32,12 @@ static void update_main_status(void)
 {
     char text[320];
     snprintf(text, sizeof text,
-        "C saw: checked=%s, slider=%d, edit=\"%s\", focus=%s",
+        "C saw: checked=%s, slider=%d, edit=\"%s\", focus=%s, entered=%d",
         g_main.checked ? "yes" : "no",
         g_main.slider,
         g_main.edit_text,
-        g_main.focused ? "yes" : "no");
+        g_main.focused ? "yes" : "no",
+        g_main.enter_count);
     mel_gui_set_text(g_main.status, str8_from_cstr(text));
 }
 
@@ -186,6 +188,14 @@ static void canvas_key_down(Mel_Gui_Handle h, Mel_Key key, void* user)
     update_main_key_label();
 }
 
+
+void main_on_enter(Mel_Gui_Handle frame, void* arg)
+{
+    (void)frame;
+    (void)arg;
+    g_main.enter_count++;
+    update_main_status();
+}
 
 void build_main(Mel_Gui_Handle frame, void* user)
 {

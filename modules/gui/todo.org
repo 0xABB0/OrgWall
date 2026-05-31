@@ -181,6 +181,30 @@ Do not block the android backend; tracked for later.
    event, NULL slots skipped, runtime setters change dispatch, lazy allocation
    survives stress.
 
-** TODO Full Screen lifecycle
-   Back stack, save/restore, the mobile Activity / iOS scene mapping beyond
-   the desktop two-Frame flow.
+** WIP  Screen / Navigation model
+   Shipped (see =readme.org= "Frames, Screens, Navigators and Roots"): identity
+   registry (=screen.c=) split from instance stacks (=nav.c=); Navigator per Root;
+   =present= (new Root) + =push=/=replace=/=back=/=pop_to[_root]=; per-nav =arg=;
+   =on_enter=/=on_leave=/=on_destroy= hooks; =mel_gui_supports_multi_root=;
+   =present= degrade (mobile push / web route); OS-back reconciliation
+   (=frame_closed=, iOS =didMoveToParentViewController=, android =nativeOsBack=,
+   web =popstate=); =present_root= window-sizing moved out of the portable layer.
+   Cocoa runtime-verified; android APK builds; ios/wasm build-blocked on this host.
+   Open items:
+   - *iOS swipe leaks the node.* =frame_closed= reconciles the stack but must not
+     destroy the frame (cocoa/winui destroy it themselves), so an iOS swipe pop
+     leaves the popped VC's =Mel_Gui_Node= alive. Destroy it from the iOS pop path
+     specifically once iOS is testable.
+   - *Web URL leads the stack by one.* =mel_app_back= advances without
+     =history.back=, so the route can be one entry ahead. Browser back still pops
+     correctly; full bidirectional sync is a refinement.
+   - *Multi-root opt-in escape hatches.* iPad =UIWindowScene= / Android own-task
+     (=MEL_FRAME_OWN_ACTIVITY=) / web real =window.open=. Default degrade ships;
+     these need a =Mel_Frame_Opt= flag plumbed.
+   - *Process-death restore.* Contract decided (args not preserved by default;
+     names rebuild with =arg = NULL=). Optional per-screen =arg_encode/arg_decode=
+     and the =savedInstanceState=/scene-restoration plumbing are unbuilt.
+   - *Retire the cap enum.* =mel_gui_backend_supports(Mel_Gui_Capability)= (enum,
+     =gui.c=) predates the predicate form; fold =MULTI_WINDOW=/=NATIVE_MENUS= into
+     per-backend predicates like =mel_gui_supports_multi_root= and drop the enum
+     (MEL-CODE-001).
