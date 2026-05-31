@@ -27,6 +27,18 @@ static bool parse_platform(const char *tok, Mel_Platform *out) {
     return false;
 }
 
+static bool gpu_valid(Mel_Platform p, const char *g) {
+    switch (p) {
+        case MEL_PLATFORM_MACOS: return !strcmp(g, "metal") || !strcmp(g, "vulkan") || !strcmp(g, "webgpu");
+        case MEL_PLATFORM_IOS: return !strcmp(g, "metal");
+        case MEL_PLATFORM_LINUX: return !strcmp(g, "vulkan");
+        case MEL_PLATFORM_ANDROID: return !strcmp(g, "vulkan") || !strcmp(g, "webgpu");
+        case MEL_PLATFORM_WIN32: return !strcmp(g, "vulkan");
+        case MEL_PLATFORM_WASM: return !strcmp(g, "webgpu");
+        default: return false;
+    }
+}
+
 static const char *mf_get(Mel_Target *t, const char *key, const char *dflt) {
     for (size_t i = 0; i < t->manifest.len; i++)
         if (strcmp(t->manifest.items[i].key, key) == 0) return t->manifest.items[i].value;
@@ -126,6 +138,7 @@ int mel_build_main(int argc, char **argv) {
     const char  *target   = NULL;
     const char  *config   = "debug";
     const char  *arch     = NULL;
+    const char  *gpu      = NULL;
     Mel_Platform platform = host_platform();
     char       **xtra     = NULL;
     int          nxtra    = 0;
@@ -142,6 +155,10 @@ int mel_build_main(int argc, char **argv) {
             config = "debug";
         } else if (strncmp(a, "--arch=", 7) == 0) {
             arch = a + 7;
+        } else if (strncmp(a, "--gpu=", 6) == 0) {
+            gpu = a + 6;
+        } else if (strcmp(a, "--gpu") == 0) {
+            if (i + 1 < argc) gpu = argv[++i];
         } else if (strncmp(a, "--", 2) == 0) {
             continue;
         } else if (!target) {
@@ -180,6 +197,13 @@ int mel_build_main(int argc, char **argv) {
 
     Mel_Variant v = mel_variant_native(platform, config);
     if (arch) v.arch = arch;
+    if (gpu) {
+        if (!gpu_valid(platform, gpu)) {
+            fprintf(stderr, "nob: gpu backend '%s' is not valid for %s\n", gpu, mel_platform_name(platform));
+            return 2;
+        }
+        v.gpu = gpu;
+    }
 
     if (strcmp(verb, "test") == 0) return run_tests(&g, target, &v, xtra, nxtra);
 

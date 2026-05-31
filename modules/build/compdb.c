@@ -56,6 +56,70 @@ static void config_cflags(const char *config, Mel_StrVec *out) {
     }
 }
 
+static char *read_all(FILE *p) {
+    size_t cap = 1 << 16, len = 0;
+    char  *buf = malloc(cap);
+    for (size_t n; (n = fread(buf + len, 1, cap - len, p)) > 0;) {
+        len += n;
+        if (len == cap) buf = realloc(buf, cap *= 2);
+    }
+    buf[len] = 0;
+    return buf;
+}
+
+static void probe_system_includes(const char *cc, const char *base_cflags, Mel_StrVec *out) {
+    char *cmd = mel_str_fmt("%s %s -E -v -x c /dev/null 2>&1", cc, base_cflags);
+    FILE *p   = popen(cmd, "r");
+    free(cmd);
+    if (!p) return;
+    char *text = read_all(p);
+    pclose(p);
+
+    const char *start = strstr(text, "#include <...> search starts here:");
+    const char *end   = start ? strstr(start, "End of search list.") : NULL;
+    if (start && end) {
+        const char *line = strchr(start, '\n');
+        if (line) line++;
+        while (line && line < end) {
+            const char *nl  = strchr(line, '\n');
+            const char *lim = (nl && nl < end) ? nl : end;
+            const char *s   = line;
+            size_t      len = (size_t)(lim - s);
+            while (len && (*s == ' ' || *s == '\t')) s++, len--;
+            while (len && (s[len - 1] == ' ' || s[len - 1] == '\r')) len--;
+            if (len) {
+                char *d        = mel_str_fmt("%.*s", (int)len, s);
+                char *freestd  = mel_path_join(d, "__stddef_max_align_t.h");
+                bool  resource = mel_path_is_file(freestd);
+                free(freestd);
+                if (!resource && !strstr(d, "(framework directory)") && mel_path_is_dir(d)) {
+                    mel_da_push(out, "-isystem");
+                    mel_da_push(out, d);
+                } else
+                    free(d);
+            }
+            if (!nl) break;
+            line = nl + 1;
+        }
+    }
+    free(text);
+}
+
+static void build_prefix(const Mel_Variant *v, bool host_tool, Mel_StrVec *prefix) {
+    mel_da_push(prefix, "clang");
+    if (!host_tool) {
+        Mel_Toolchain tc = mel_toolchain(v);
+        if (tc.cross && !strstr(tc.base_cflags, "-target")) {
+            mel_da_push(prefix, "-target");
+            mel_da_push(prefix, tc.triple);
+        }
+        if (tc.base_cflags[0]) mel_da_push(prefix, tc.base_cflags);
+        if (tc.cross && !strstr(tc.base_cflags, "-isysroot"))
+            probe_system_includes(tc.cc, tc.base_cflags, prefix);
+    }
+    config_cflags(v->config, prefix);
+}
+
 static bool closure_available(Mel_Graph *g, const char *name, const Mel_Variant *v) {
     Mel_IdxVec order = {0};
     if (!mel_topo_closure(g, name, &order)) {
@@ -70,29 +134,16 @@ static bool closure_available(Mel_Graph *g, const char *name, const Mel_Variant 
 }
 
 static void emit_target(FILE *f, bool *first, const char *dir, Mel_Graph *g, size_t idx,
-                        const Mel_Variant *v, bool host_tool) {
+                        const Mel_Variant *v, const Mel_StrVec *prefix) {
     Mel_Target *t = g->nodes.items[idx].t;
     if (!closure_available(g, t->name, v)) return;
 
     Mel_StrVec srcs = {0}, gathered = {0};
     if (!mel_gather_compile(g, idx, v, &srcs, &gathered)) return;
-    if (srcs.len == 0) return;
-
-    Mel_StrVec head = {0};
-    mel_da_push(&head, "clang");
-    if (!host_tool) {
-        Mel_Toolchain tc = mel_toolchain(v);
-        if (tc.cross && !strstr(tc.base_cflags, "-target")) {
-            mel_da_push(&head, "-target");
-            mel_da_push(&head, tc.triple);
-        }
-        if (tc.base_cflags[0]) mel_da_push(&head, tc.base_cflags);
-    }
-    config_cflags(v->config, &head);
 
     for (size_t i = 0; i < srcs.len; i++) {
         Mel_StrVec cmd = {0};
-        for (size_t k = 0; k < head.len; k++) mel_da_push(&cmd, head.items[k]);
+        for (size_t k = 0; k < prefix->len; k++) mel_da_push(&cmd, prefix->items[k]);
         for (size_t k = 0; k < gathered.len; k++) mel_da_push(&cmd, gathered.items[k]);
         mel_da_push(&cmd, "-c");
         mel_da_push(&cmd, srcs.items[i]);
@@ -156,15 +207,25 @@ bool mel_emit_compdb(Mel_Graph *g, const Mel_Variant *variants, size_t nvar, con
     scan_build_c(f, &first, dir, "third-party");
     scan_build_system(f, &first, dir);
 
+    Mel_StrVec host_prefix = {0};
+    if (nvar) build_prefix(&variants[0], true, &host_prefix);
+
     for (size_t vi = 0; vi < nvar; vi++) {
         const Mel_Variant *v = &variants[vi];
+        fprintf(stderr, "build: compdb resolving %s\n", mel_platform_name(v->platform));
+        Mel_StrVec prefix = {0};
+        build_prefix(v, false, &prefix);
         for (size_t i = 0; i < g->nodes.len; i++) {
-            Mel_Target *t        = g->nodes.items[i].t;
-            bool        is_host  = t->kind == MEL_KIND_HOST_TOOL;
+            bool is_host = g->nodes.items[i].t->kind == MEL_KIND_HOST_TOOL;
             if (is_host && vi != 0) continue;
-            emit_target(f, &first, dir, g, i, is_host ? &variants[0] : v, is_host);
+            if (is_host)
+                emit_target(f, &first, dir, g, i, &variants[0], &host_prefix);
+            else
+                emit_target(f, &first, dir, g, i, v, &prefix);
         }
+        free(prefix.items);
     }
+    free(host_prefix.items);
 
     fputs("\n]\n", f);
     fclose(f);
