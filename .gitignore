@@ -58,6 +58,8 @@ nob.exe.old
 /nob.dSYM/Contents
 build/
 !tools/build/
+!modules/build/
+!modules/build/**
 
 assets
 bought_assets
