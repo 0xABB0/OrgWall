@@ -38,15 +38,13 @@ Within a target, sources and flags are gated **explicitly** by a `Mel_When` sele
 Fuller documentation lives in `modules/build/platforms.md`.
 
 Inside a module folder we have:
-- public/ # public facing includes
-- private/ # private includes
-- src/ # source code of the module
-- meta/ # metaprogramming hooks
 - readme.md # concise information about the module (why it exists, what dependencies)
 - spec.md # optional, to use when iterating over that module: specification to follow
 - todo.md # optional, list of things to fix/add
 - build.c # build configuration
 - [optional files as needed]
+
+There is no hard-constraint on how a module is laid out physically. use the structure that fits the most with what the module wants to do, since the build system is powerful and customizeable.
 
 ## Tools
 
