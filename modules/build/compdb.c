@@ -272,12 +272,22 @@ bool mel_emit_compdb(Mel_Graph* g, const Mel_Variant* variants, size_t nvar, con
     if (nvar)
         build_prefix(&variants[0], true, &host_prefix);
 
+    size_t* snap_inc = malloc(g->nodes.len * sizeof *snap_inc);
+    size_t* snap_lnk = malloc(g->nodes.len * sizeof *snap_lnk);
     for (size_t vi = 0; vi < nvar; vi++)
     {
         const Mel_Variant* v = &variants[vi];
         fprintf(stderr, "build: compdb resolving %s\n", mel_platform_name(v->platform));
         Mel_StrVec prefix = { 0 };
         build_prefix(v, false, &prefix);
+
+        for (size_t i = 0; i < g->nodes.len; i++)
+        {
+            snap_inc[i] = g->nodes.items[i].t->includes.len;
+            snap_lnk[i] = g->nodes.items[i].t->links.len;
+        }
+        mel_inject_thirdparty(g, v);
+
         for (size_t i = 0; i < g->nodes.len; i++)
         {
             bool is_host = g->nodes.items[i].t->kind == MEL_KIND_HOST_TOOL;
@@ -288,8 +298,21 @@ bool mel_emit_compdb(Mel_Graph* g, const Mel_Variant* variants, size_t nvar, con
             else
                 emit_target(f, &first, dir, g, i, v, &prefix);
         }
+
+        for (size_t i = 0; i < g->nodes.len; i++)
+        {
+            Mel_Target* t = g->nodes.items[i].t;
+            for (size_t k = snap_inc[i]; k < t->includes.len; k++)
+                free((void*)t->includes.items[k].value);
+            t->includes.len = snap_inc[i];
+            for (size_t k = snap_lnk[i]; k < t->links.len; k++)
+                free((void*)t->links.items[k].value);
+            t->links.len = snap_lnk[i];
+        }
         free(prefix.items);
     }
+    free(snap_inc);
+    free(snap_lnk);
     free(host_prefix.items);
 
     fputs("\n]\n", f);

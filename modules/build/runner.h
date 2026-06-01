@@ -75,6 +75,7 @@ void mel_gather_link(Mel_Graph* g, size_t idx, const Mel_Variant* v, Mel_StrVec*
 
 char* mel_target_outdir(const char* target_dir, const Mel_Variant* v);
 bool  mel_prepare_thirdparty(Mel_Graph* g, Mel_IdxVec* order, const Mel_Variant* v);
+void  mel_inject_thirdparty(Mel_Graph* g, const Mel_Variant* v);
 bool  mel_emit_and_build(Mel_Graph* g, const char* root, const Mel_Variant* v, bool run_ninja, bool do_package, char** out_bin);
 bool  mel_emit_compdb(Mel_Graph* g, const Mel_Variant* variants, size_t nvar, const char* out_path);
 

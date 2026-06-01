@@ -298,6 +298,21 @@ static bool build_prebuilt(Mel_Target* t, const Mel_Variant* v)
     return true;
 }
 
+void mel_inject_thirdparty(Mel_Graph* g, const Mel_Variant* v)
+{
+    for (size_t i = 0; i < g->nodes.len; i++)
+    {
+        Mel_Target* t = g->nodes.items[i].t;
+        if (t->kind != MEL_KIND_THIRD_PARTY || !mel_target_available(t, v))
+            continue;
+        char* outdir = mel_target_outdir(t->dir, v);
+        char* absprefix = abspath(mel_path_join(outdir, "prefix"));
+        inject_prefix(t, absprefix, v);
+        free(absprefix);
+        free(outdir);
+    }
+}
+
 bool mel_prepare_thirdparty(Mel_Graph* g, Mel_IdxVec* order, const Mel_Variant* v)
 {
     for (size_t i = 0; i < order->len; i++)
