@@ -178,7 +178,7 @@ static bool mel_gpu__images_build(Mel_Gpu_Swapchain* sc, i32 width, i32 height)
     sc->image_count = count;
     sc->images = mel_alloc_array(a, VkImage, count);
     sc->views = mel_alloc_array(a, VkImageView, count);
-    sc->framebuffers = mel_alloc_array(a, VkFramebuffer, count);
+    sc->framebuffers = sc->dev->dynamic_rendering ? NULL : mel_alloc_array(a, VkFramebuffer, count);
     sc->render_finished = mel_alloc_array(a, VkSemaphore, count);
     vkGetSwapchainImagesKHR(dev->vk, sc->vk, &count, sc->images);
 
@@ -193,16 +193,19 @@ static bool mel_gpu__images_build(Mel_Gpu_Swapchain* sc, i32 width, i32 height)
         };
         vkCreateImageView(dev->vk, &vci, NULL, &sc->views[i]);
 
-        VkFramebufferCreateInfo fci = {
-            .sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
-            .renderPass = sc->render_pass,
-            .attachmentCount = 1,
-            .pAttachments = &sc->views[i],
-            .width = extent.width,
-            .height = extent.height,
-            .layers = 1,
-        };
-        vkCreateFramebuffer(dev->vk, &fci, NULL, &sc->framebuffers[i]);
+        if (!dev->dynamic_rendering)
+        {
+            VkFramebufferCreateInfo fci = {
+                .sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
+                .renderPass = sc->render_pass,
+                .attachmentCount = 1,
+                .pAttachments = &sc->views[i],
+                .width = extent.width,
+                .height = extent.height,
+                .layers = 1,
+            };
+            vkCreateFramebuffer(dev->vk, &fci, NULL, &sc->framebuffers[i]);
+        }
 
         VkSemaphoreCreateInfo sci = { .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
         vkCreateSemaphore(dev->vk, &sci, NULL, &sc->render_finished[i]);
@@ -225,11 +228,13 @@ Mel_Gpu_Swapchain* mel_gpu_swapchain_create_opt(Mel_Gpu_Device* dev, Mel_Gpu_Swa
     sc->recorder.sc = sc;
 
     mel_gpu__choose_format(sc, opt.format);
-    sc->render_pass = mel_gpu__make_render_pass(dev, sc->format);
+    if (!dev->dynamic_rendering)
+        sc->render_pass = mel_gpu__make_render_pass(dev, sc->format);
 
     if (!mel_gpu__images_build(sc, opt.width, opt.height))
     {
-        vkDestroyRenderPass(dev->vk, sc->render_pass, NULL);
+        if (sc->render_pass)
+            vkDestroyRenderPass(dev->vk, sc->render_pass, NULL);
         mel_dealloc(mel_alloc_heap(), sc);
         return NULL;
     }
@@ -241,12 +246,14 @@ Mel_Gpu_Swapchain* mel_gpu_swapchain_create_opt(Mel_Gpu_Device* dev, Mel_Gpu_Swa
     sc->cmd_buffers = mel_alloc_array(a, VkCommandBuffer, sc->frames_in_flight);
     sc->image_available = mel_alloc_array(a, VkSemaphore, sc->frames_in_flight);
     sc->in_flight = mel_alloc_array(a, VkFence, sc->frames_in_flight);
+    sc->frame_serial = mel_alloc_array(a, u64, sc->frames_in_flight);
 
     VkCommandBufferAllocateInfo cai = { .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO, .commandPool = sc->cmd_pool, .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY, .commandBufferCount = sc->frames_in_flight };
     vkAllocateCommandBuffers(dev->vk, &cai, sc->cmd_buffers);
 
     for (u32 i = 0; i < sc->frames_in_flight; i++)
     {
+        sc->frame_serial[i] = 0;
         VkSemaphoreCreateInfo sci = { .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
         vkCreateSemaphore(dev->vk, &sci, NULL, &sc->image_available[i]);
         VkFenceCreateInfo fci = { .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO, .flags = VK_FENCE_CREATE_SIGNALED_BIT };
@@ -286,6 +293,7 @@ void mel_gpu_swapchain_destroy(Mel_Gpu_Swapchain* sc)
     mel_dealloc(a, sc->cmd_buffers);
     mel_dealloc(a, sc->image_available);
     mel_dealloc(a, sc->in_flight);
+    mel_dealloc(a, sc->frame_serial);
     if (sc->cmd_pool)
         vkDestroyCommandPool(dev->vk, sc->cmd_pool, NULL);
 

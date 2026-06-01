@@ -104,10 +104,30 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_create_opt(Mel_Gpu_Device* dev, 
     VkPipelineLayout layout = VK_NULL_HANDLE;
     vkCreatePipelineLayout(dev->vk, &plci, NULL, &layout);
 
-    VkRenderPass rp = mel_gpu__make_render_pass(dev, mel_gpu__vk_format(opt.color_format));
+    bool has_depth = opt.depth_format != MEL_GPU_FORMAT_UNDEFINED;
+    VkPipelineDepthStencilStateCreateInfo dss = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
+        .depthTestEnable = has_depth,
+        .depthWriteEnable = has_depth,
+        .depthCompareOp = VK_COMPARE_OP_LESS,
+    };
+
+    // U16: dynamic-rendering pipelines carry their attachment formats directly; render-pass is the floor.
+    VkFormat                         color_vk = mel_gpu__vk_format(opt.color_format);
+    VkPipelineRenderingCreateInfoKHR pri = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO_KHR,
+        .colorAttachmentCount = 1,
+        .pColorAttachmentFormats = &color_vk,
+        .depthAttachmentFormat = has_depth ? mel_gpu__vk_format(opt.depth_format) : VK_FORMAT_UNDEFINED,
+    };
+
+    VkRenderPass rp = VK_NULL_HANDLE;
+    if (!dev->dynamic_rendering)
+        rp = mel_gpu__make_render_pass(dev, color_vk);
 
     VkGraphicsPipelineCreateInfo gci = {
         .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
+        .pNext = dev->dynamic_rendering ? (void*)&pri : NULL,
         .stageCount = 2,
         .pStages = stages,
         .pVertexInputState = &vin,
@@ -115,6 +135,7 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_create_opt(Mel_Gpu_Device* dev, 
         .pViewportState = &vp,
         .pRasterizationState = &rs,
         .pMultisampleState = &ms,
+        .pDepthStencilState = has_depth ? &dss : NULL,
         .pColorBlendState = &cb,
         .pDynamicState = &ds,
         .layout = layout,
@@ -124,7 +145,8 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_create_opt(Mel_Gpu_Device* dev, 
 
     VkPipeline pipeline = VK_NULL_HANDLE;
     VkResult   r = vkCreateGraphicsPipelines(dev->vk, VK_NULL_HANDLE, 1, &gci, NULL, &pipeline);
-    vkDestroyRenderPass(dev->vk, rp, NULL);
+    if (rp)
+        vkDestroyRenderPass(dev->vk, rp, NULL);
     if (attrs)
         mel_dealloc(dev->alloc, attrs);
 
@@ -153,10 +175,8 @@ void mel_gpu_pipeline_destroy(Mel_Gpu_Device* dev, Mel_Gpu_Pipeline pipe)
     VkPipeline       p = o->pipeline;
     VkPipelineLayout l = o->layout;
     mel_gpu__table_remove(dev, &dev->pipelines, pipe.slot);
-    if (p)
-        vkDestroyPipeline(dev->vk, p, NULL);
-    if (l)
-        vkDestroyPipelineLayout(dev->vk, l, NULL);
+    // U3 future-gated retirement: an in-flight command buffer may still reference this pipeline.
+    mel_gpu__defer_free(dev, (Mel_Gpu_Deferred_Free){ .pipeline = p, .pipeline_layout = l });
 }
 
 bool mel_gpu_pipeline_alive(Mel_Gpu_Device* dev, Mel_Gpu_Pipeline pipe) { return mel_gpu__table_get(dev, &dev->pipelines, pipe.slot) != NULL; }

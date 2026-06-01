@@ -12,10 +12,13 @@
 #include <gpu/queue.h>
 #include <gpu/memory.h>
 #include <gpu/buffer.h>
+#include <gpu/texture.h>
+#include <gpu/state.h>
 #include <gpu/shader.h>
 #include <gpu/pipeline.h>
 #include <gpu/sync.h>
 #include <gpu/surface.h>
 #include <gpu/swapchain.h>
 #include <gpu/command.h>
+#include <gpu/rendering.h>
 #include <gpu/render_source.h>

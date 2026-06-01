@@ -7,6 +7,7 @@
 #include <collection.slotmap/slotmap.h>
 #include <reactor/reactor.h>
 #include <thread/mutex.h>
+#include <thread/thread.h>
 #include <debug/assert.h>
 
 #include <gpu/handle.h>
@@ -18,12 +19,15 @@
 #include <gpu/queue.h>
 #include <gpu/memory.h>
 #include <gpu/buffer.h>
+#include <gpu/texture.h>
+#include <gpu/state.h>
 #include <gpu/shader.h>
 #include <gpu/pipeline.h>
 #include <gpu/sync.h>
 #include <gpu/surface.h>
 #include <gpu/swapchain.h>
 #include <gpu/command.h>
+#include <gpu/rendering.h>
 
 struct Mel_Gpu_Instance
 {
@@ -72,6 +76,36 @@ typedef struct
 typedef struct
 {
     Mel_Gpu_Resource_Header header;
+    VkImage                 image;
+    Mel_Gpu_Allocation      alloc;
+    VkFormat                format;
+    VkImageAspectFlags      aspect;
+    VkImageType             image_type;
+    u32                     width;
+    u32                     height;
+    u32                     depth;
+    u32                     mip_levels;
+    u32                     array_layers;
+    u32                     sample_count;
+    VkImageUsageFlags       usage;
+} Mel_Gpu_Texture_Obj;
+
+typedef struct
+{
+    Mel_Gpu_Resource_Header header;
+    VkImageView             view;
+    Mel_SlotMap_Handle      texture;
+    VkFormat                format;
+    VkImageAspectFlags      aspect;
+    u32                     base_mip;
+    u32                     mip_count;
+    u32                     base_layer;
+    u32                     layer_count;
+} Mel_Gpu_Texture_View_Obj;
+
+typedef struct
+{
+    Mel_Gpu_Resource_Header header;
     VkShaderModule          vs;
     VkShaderModule          fs;
     char*                   vs_entry;
@@ -97,8 +131,43 @@ typedef struct
 {
     VkFence         fence;
     Mel_Gpu_Future* future;
+    u64             serial;
     bool            active;
 } Mel_Gpu_Pending_Submit;
+
+typedef struct
+{
+    Mel_Thread_Id thread;
+    u32           family;
+    VkCommandPool pool;
+} Mel_Gpu_Thread_Pool;
+
+// U3 retirement: a destroyed resource's Vulkan objects are freed only once every submission that could
+// reference it has completed (gpu-rhi.md §3.3). No enum tag (MEL-CODE-001) — every non-null handle is freed.
+typedef struct
+{
+    u64                marker;
+    VkImage            image;
+    VkImageView        view;
+    VkBuffer           buffer;
+    VkPipeline         pipeline;
+    VkPipelineLayout   pipeline_layout;
+    VkShaderModule     shader_vs;
+    VkShaderModule     shader_fs;
+    Mel_Gpu_Allocation alloc;
+    bool               has_alloc;
+} Mel_Gpu_Deferred_Free;
+
+// U17: per-command-list, per-subresource state tracking (gpu-rhi.md §7.3). cmd_barrier validates the
+// declared source state against the tracked state and asserts loudly on mismatch in debug.
+typedef struct
+{
+    u32                    tex_index;
+    u32                    tex_generation;
+    u32                    mip;
+    u32                    layer;
+    Mel_Gpu_Resource_State state;
+} Mel_Gpu_Cmd_State_Entry;
 
 struct Mel_Gpu_Device
 {
@@ -130,6 +199,8 @@ struct Mel_Gpu_Device
 
     Mel_Mutex              obj_lock;
     Mel_Gpu_Resource_Table buffers;
+    Mel_Gpu_Resource_Table textures;
+    Mel_Gpu_Resource_Table texture_views;
     Mel_Gpu_Resource_Table shaders;
     Mel_Gpu_Resource_Table pipelines;
     Mel_Gpu_Resource_Table syncs;
@@ -138,6 +209,22 @@ struct Mel_Gpu_Device
     u32                     pending_count;
     u32                     pending_cap;
     bool                    submit_poller_registered;
+
+    // U3 future-gated retirement watermark, fed by every submission path (queue_submit + swapchain frames).
+    u64                    submit_serial;
+    u64                    submit_completed;
+    Mel_Gpu_Deferred_Free* deferred;
+    u32                    deferred_count;
+    u32                    deferred_cap;
+
+    Mel_Mutex            pool_lock;
+    Mel_Gpu_Thread_Pool* thread_pools;
+    u32                  thread_pool_count;
+    u32                  thread_pool_cap;
+
+    bool                       dynamic_rendering;
+    PFN_vkCmdBeginRenderingKHR  cmd_begin_rendering;
+    PFN_vkCmdEndRenderingKHR    cmd_end_rendering;
 };
 
 struct Mel_Gpu_Surface
@@ -156,6 +243,13 @@ struct Mel_Gpu_Command_List
     VkCommandBuffer    cb;
     Mel_Gpu_Swapchain* sc;
     VkPipelineLayout   cur_layout;
+    VkCommandPool      owner_pool;
+    bool               standalone;
+    bool               recording;
+
+    Mel_Gpu_Cmd_State_Entry* states;
+    u32                      state_count;
+    u32                      state_cap;
 };
 
 struct Mel_Gpu_Queue
@@ -190,6 +284,7 @@ struct Mel_Gpu_Swapchain
     VkSemaphore*     image_available;
     VkSemaphore*     render_finished;
     VkFence*         in_flight;
+    u64*             frame_serial;
     u32              frame_index;
     u32              current_image;
     bool             frame_ok;
@@ -211,8 +306,23 @@ void         mel_gpu__vk_metal_layer_release(void* layer);
 
 VkFormat       mel_gpu__vk_format(Mel_Gpu_Format fmt);
 Mel_Gpu_Format mel_gpu__vk_format_to_mel(VkFormat fmt);
+VkImageAspectFlags mel_gpu__aspect_flags(Mel_Gpu_Texture_Aspect aspect, VkFormat fmt);
 
 u32 mel_gpu__vk_find_memory_type(Mel_Gpu_Device* dev, u32 type_bits, VkMemoryPropertyFlags props);
+
+VkCommandPool mel_gpu__thread_pool(Mel_Gpu_Device* dev, u32 family);
+
+// U3 future-gated retirement. submit_serial_next reserves the id of a submission about to be made;
+// submit_complete advances the watermark and frees every deferred resource gated at or below it.
+u64  mel_gpu__submit_serial_next(Mel_Gpu_Device* dev);
+void mel_gpu__submit_complete(Mel_Gpu_Device* dev, u64 serial);
+void mel_gpu__defer_free(Mel_Gpu_Device* dev, Mel_Gpu_Deferred_Free entry);
+
+// U17: maps a Mel_Gpu_Resource_State to the Vulkan (stage, access, layout) triple for legacy barriers.
+void mel_gpu__state_to_barrier(Mel_Gpu_Resource_State state, bool is_depth, VkPipelineStageFlags* stage, VkAccessFlags* access, VkImageLayout* layout);
+
+bool mel_gpu__texture_get(Mel_Gpu_Device* dev, Mel_Gpu_Texture tex, Mel_Gpu_Texture_Obj** out);
+bool mel_gpu__texture_view_get(Mel_Gpu_Device* dev, Mel_Gpu_Texture_View view, Mel_Gpu_Texture_View_Obj** out);
 
 Mel_SlotMap_Handle mel_gpu__table_insert(Mel_Gpu_Device* dev, Mel_Gpu_Resource_Table* t, const void* obj);
 void*              mel_gpu__table_get(Mel_Gpu_Device* dev, Mel_Gpu_Resource_Table* t, Mel_SlotMap_Handle h);

@@ -77,6 +77,10 @@ Mel_Gpu_Device_Create_Result mel_gpu_device_create_opt(Mel_Gpu_Instance* inst, M
     bool has_budget = mel_gpu__device_ext_available(adapter->phys, VK_EXT_MEMORY_BUDGET_EXTENSION_NAME);
     if (has_budget)
         exts[ext_count++] = VK_EXT_MEMORY_BUDGET_EXTENSION_NAME;
+    // U16: dynamic rendering is the engine's primary §7.2 lowering when granted; render passes are the floor.
+    bool has_dr = mel_gpu__device_ext_available(adapter->phys, VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME);
+    if (has_dr)
+        exts[ext_count++] = VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME;
 
     float                   prio = 1.0f;
     VkDeviceQueueCreateInfo qci = {
@@ -92,9 +96,15 @@ Mel_Gpu_Device_Create_Result mel_gpu_device_create_opt(Mel_Gpu_Instance* inst, M
     if (opt.features.buffer_device_address)
         feat12.bufferDeviceAddress = VK_TRUE;
 
+    VkPhysicalDeviceDynamicRenderingFeaturesKHR feat_dr = {
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES_KHR,
+        .pNext = &feat12,
+        .dynamicRendering = VK_TRUE,
+    };
+
     VkPhysicalDeviceFeatures2 feat2 = {
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
-        .pNext = &feat12,
+        .pNext = has_dr ? (void*)&feat_dr : (void*)&feat12,
     };
 
     VkDeviceCreateInfo dci = {
@@ -132,6 +142,14 @@ Mel_Gpu_Device_Create_Result mel_gpu_device_create_opt(Mel_Gpu_Instance* inst, M
     vkGetDeviceQueue(vk, gfx, 0, &dev->graphics_queue);
     vkGetPhysicalDeviceMemoryProperties(adapter->phys, &dev->mem_props);
 
+    if (has_dr)
+    {
+        dev->cmd_begin_rendering = (PFN_vkCmdBeginRenderingKHR)vkGetDeviceProcAddr(vk, "vkCmdBeginRenderingKHR");
+        dev->cmd_end_rendering = (PFN_vkCmdEndRenderingKHR)vkGetDeviceProcAddr(vk, "vkCmdEndRenderingKHR");
+        dev->dynamic_rendering = dev->cmd_begin_rendering && dev->cmd_end_rendering;
+    }
+    mel_log_info("gpu", "render lowering: %s", dev->dynamic_rendering ? "dynamic rendering" : "render passes (floor)");
+
     dev->caps.power.power_source = (Mel_Gpu_Power_Source)mel_power_source_current();
     Mel_Thermal_Pressure tp = mel_thermal_current();
     dev->caps.power.thermal_pressure = tp > MEL_THERMAL_UNKNOWN ? (Mel_Gpu_Thermal_Tier)(tp - 1) : MEL_GPU_THERMAL_NOMINAL;
@@ -139,12 +157,15 @@ Mel_Gpu_Device_Create_Result mel_gpu_device_create_opt(Mel_Gpu_Instance* inst, M
 
     mel_mutex_init(&dev->obj_lock, MEL_MUTEX_PLAIN);
     mel_mutex_init(&dev->submit_lock, MEL_MUTEX_PLAIN);
+    mel_mutex_init(&dev->pool_lock, MEL_MUTEX_PLAIN);
     mel_gpu__allocator_init(dev);
     mel_slotmap_init(&dev->buffers.map, alloc, .item_size = sizeof(Mel_Gpu_Buffer_Obj), .initial_capacity = 16);
+    mel_slotmap_init(&dev->textures.map, alloc, .item_size = sizeof(Mel_Gpu_Texture_Obj), .initial_capacity = 16);
+    mel_slotmap_init(&dev->texture_views.map, alloc, .item_size = sizeof(Mel_Gpu_Texture_View_Obj), .initial_capacity = 16);
     mel_slotmap_init(&dev->shaders.map, alloc, .item_size = sizeof(Mel_Gpu_Shader_Obj), .initial_capacity = 16);
     mel_slotmap_init(&dev->pipelines.map, alloc, .item_size = sizeof(Mel_Gpu_Pipeline_Obj), .initial_capacity = 16);
     mel_slotmap_init(&dev->syncs.map, alloc, .item_size = sizeof(Mel_Gpu_Sync_Obj), .initial_capacity = 16);
-    dev->buffers.init = dev->shaders.init = dev->pipelines.init = dev->syncs.init = true;
+    dev->buffers.init = dev->textures.init = dev->texture_views.init = dev->shaders.init = dev->pipelines.init = dev->syncs.init = true;
 
     if (opt.debug.thread_safety_tracker)
         dev->tracker = mel_gpu_thread_tracker_create();
@@ -182,18 +203,34 @@ void mel_gpu_device_destroy(Mel_Gpu_Device* dev)
     if (dev->vk && !dev->lost)
         vkDeviceWaitIdle(dev->vk);
 
+    // GPU is idle: every submission has retired, so flush all deferred frees before tearing down memory.
+    mel_gpu__submit_complete(dev, dev->submit_serial);
+    if (dev->deferred)
+        mel_dealloc(dev->alloc, dev->deferred);
+
     mel_gpu__table_report_leaks(&dev->buffers, "buffer");
+    mel_gpu__table_report_leaks(&dev->textures, "texture");
+    mel_gpu__table_report_leaks(&dev->texture_views, "texture-view");
     mel_gpu__table_report_leaks(&dev->shaders, "shader");
     mel_gpu__table_report_leaks(&dev->pipelines, "pipeline");
     mel_gpu__table_report_leaks(&dev->syncs, "sync");
 
+    for (u32 i = 0; i < dev->thread_pool_count; i++)
+        if (dev->thread_pools[i].pool)
+            vkDestroyCommandPool(dev->vk, dev->thread_pools[i].pool, NULL);
+    if (dev->thread_pools)
+        mel_dealloc(dev->alloc, dev->thread_pools);
+
     mel_slotmap_free(&dev->buffers.map);
+    mel_slotmap_free(&dev->textures.map);
+    mel_slotmap_free(&dev->texture_views.map);
     mel_slotmap_free(&dev->shaders.map);
     mel_slotmap_free(&dev->pipelines.map);
     mel_slotmap_free(&dev->syncs.map);
     mel_gpu__allocator_shutdown(dev);
     mel_mutex_destroy(&dev->obj_lock);
     mel_mutex_destroy(&dev->submit_lock);
+    mel_mutex_destroy(&dev->pool_lock);
 
     if (dev->pump)
         mel_gpu_pump_destroy(dev->pump);
@@ -236,6 +273,105 @@ bool mel_gpu__table_remove(Mel_Gpu_Device* dev, Mel_Gpu_Resource_Table* t, Mel_S
     bool ok = mel_slotmap_remove(&t->map, h);
     mel_mutex_unlock(&dev->obj_lock);
     return ok;
+}
+
+static void mel_gpu__free_deferred_entry(Mel_Gpu_Device* dev, Mel_Gpu_Deferred_Free* e)
+{
+    if (e->image)
+        vkDestroyImage(dev->vk, e->image, NULL);
+    if (e->view)
+        vkDestroyImageView(dev->vk, e->view, NULL);
+    if (e->buffer)
+        vkDestroyBuffer(dev->vk, e->buffer, NULL);
+    if (e->pipeline)
+        vkDestroyPipeline(dev->vk, e->pipeline, NULL);
+    if (e->pipeline_layout)
+        vkDestroyPipelineLayout(dev->vk, e->pipeline_layout, NULL);
+    if (e->shader_vs)
+        vkDestroyShaderModule(dev->vk, e->shader_vs, NULL);
+    if (e->shader_fs)
+        vkDestroyShaderModule(dev->vk, e->shader_fs, NULL);
+    if (e->has_alloc)
+        mel_gpu__mem_free(dev, &e->alloc);
+}
+
+u64 mel_gpu__submit_serial_next(Mel_Gpu_Device* dev)
+{
+    mel_mutex_lock(&dev->submit_lock);
+    u64 s = ++dev->submit_serial;
+    mel_mutex_unlock(&dev->submit_lock);
+    return s;
+}
+
+void mel_gpu__submit_complete(Mel_Gpu_Device* dev, u64 serial)
+{
+    mel_mutex_lock(&dev->submit_lock);
+    if (serial > dev->submit_completed)
+        dev->submit_completed = serial;
+    u64 wm = dev->submit_completed;
+    u32 keep = 0;
+    for (u32 i = 0; i < dev->deferred_count; i++)
+    {
+        if (dev->deferred[i].marker <= wm)
+            mel_gpu__free_deferred_entry(dev, &dev->deferred[i]);
+        else
+            dev->deferred[keep++] = dev->deferred[i];
+    }
+    dev->deferred_count = keep;
+    mel_mutex_unlock(&dev->submit_lock);
+}
+
+void mel_gpu__defer_free(Mel_Gpu_Device* dev, Mel_Gpu_Deferred_Free entry)
+{
+    mel_mutex_lock(&dev->submit_lock);
+    entry.marker = dev->submit_serial;
+    if (entry.marker <= dev->submit_completed)
+    {
+        mel_mutex_unlock(&dev->submit_lock);
+        mel_gpu__free_deferred_entry(dev, &entry);
+        return;
+    }
+    if (dev->deferred_count == dev->deferred_cap)
+    {
+        u32 cap = dev->deferred_cap ? dev->deferred_cap * 2 : 16;
+        dev->deferred = dev->deferred ? mel_realloc(dev->alloc, dev->deferred, sizeof(Mel_Gpu_Deferred_Free) * cap) : mel_alloc(dev->alloc, sizeof(Mel_Gpu_Deferred_Free) * cap);
+        dev->deferred_cap = cap;
+    }
+    dev->deferred[dev->deferred_count++] = entry;
+    mel_mutex_unlock(&dev->submit_lock);
+}
+
+// U15: one command pool per (calling thread, queue family). Recording is lock-free per thread; the registry
+// lookup is the only contended point and is rare (once per thread/family). Pools are destroyed at device teardown.
+VkCommandPool mel_gpu__thread_pool(Mel_Gpu_Device* dev, u32 family)
+{
+    Mel_Thread_Id self = mel_thread_current_id();
+    mel_mutex_lock(&dev->pool_lock);
+    for (u32 i = 0; i < dev->thread_pool_count; i++)
+        if (dev->thread_pools[i].family == family && mel_thread_id_equal(dev->thread_pools[i].thread, self))
+        {
+            VkCommandPool p = dev->thread_pools[i].pool;
+            mel_mutex_unlock(&dev->pool_lock);
+            return p;
+        }
+
+    VkCommandPoolCreateInfo pci = {
+        .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+        .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
+        .queueFamilyIndex = family,
+    };
+    VkCommandPool pool = VK_NULL_HANDLE;
+    vkCreateCommandPool(dev->vk, &pci, NULL, &pool);
+
+    if (dev->thread_pool_count == dev->thread_pool_cap)
+    {
+        u32 cap = dev->thread_pool_cap ? dev->thread_pool_cap * 2 : 8;
+        dev->thread_pools = dev->thread_pools ? mel_realloc(dev->alloc, dev->thread_pools, sizeof(Mel_Gpu_Thread_Pool) * cap) : mel_alloc(dev->alloc, sizeof(Mel_Gpu_Thread_Pool) * cap);
+        dev->thread_pool_cap = cap;
+    }
+    dev->thread_pools[dev->thread_pool_count++] = (Mel_Gpu_Thread_Pool){ .thread = self, .family = family, .pool = pool };
+    mel_mutex_unlock(&dev->pool_lock);
+    return pool;
 }
 
 static Mel_Gpu_Adapter* mel_gpu__pick_adapter(Mel_Gpu_Instance* inst, Mel_Gpu_Power_Preference pref)

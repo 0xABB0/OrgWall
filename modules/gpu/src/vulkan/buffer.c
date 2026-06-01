@@ -156,9 +156,8 @@ void mel_gpu_buffer_destroy(Mel_Gpu_Device* dev, Mel_Gpu_Buffer buf)
     mel_gpu__table_remove(dev, &dev->buffers, buf.slot);
     if (borrowed)
         return;
-    if (vk)
-        vkDestroyBuffer(dev->vk, vk, NULL);
-    mel_gpu__mem_free(dev, &alloc);
+    // U3 future-gated retirement: free only once in-flight submissions referencing this buffer complete.
+    mel_gpu__defer_free(dev, (Mel_Gpu_Deferred_Free){ .buffer = vk, .alloc = alloc, .has_alloc = true });
 }
 
 u32 mel_gpu_buffer_make_resident(Mel_Gpu_Device* dev, Mel_Gpu_Buffer buf)

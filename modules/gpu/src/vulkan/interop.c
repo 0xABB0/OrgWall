@@ -36,3 +36,27 @@ Mel_Gpu_Sync mel_gpu_sync_import(Mel_Gpu_Device* dev, VkSemaphore native, bool t
 }
 
 void mel_gpu_cmd_assume_state(Mel_Gpu_Command_List* cmd) { (void)cmd; }
+
+void mel_gpu_vk_cmd_image_barrier(Mel_Gpu_Command_List* cmd, Mel_Gpu_Texture tex, VkImageSubresourceRange range,
+                                  VkPipelineStageFlags src_stage, VkAccessFlags src_access, VkImageLayout old_layout,
+                                  VkPipelineStageFlags dst_stage, VkAccessFlags dst_access, VkImageLayout new_layout)
+{
+    Mel_Gpu_Texture_Obj* o = NULL;
+    if (!cmd || !mel_gpu__texture_get(cmd->dev, tex, &o))
+    {
+        mel_assert(!"vk_cmd_image_barrier: invalid texture handle");
+        return;
+    }
+    VkImageMemoryBarrier b = {
+        .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+        .srcAccessMask = src_access,
+        .dstAccessMask = dst_access,
+        .oldLayout = old_layout,
+        .newLayout = new_layout,
+        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .image = o->image,
+        .subresourceRange = range,
+    };
+    vkCmdPipelineBarrier(cmd->cb, src_stage, dst_stage, 0, 0, NULL, 0, NULL, 1, &b);
+}

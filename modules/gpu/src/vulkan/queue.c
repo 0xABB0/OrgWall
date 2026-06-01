@@ -100,9 +100,11 @@ static bool mel_gpu__submit_poller(void* user)
         if (s == VK_SUCCESS)
         {
             Mel_Gpu_Future* f = p->future;
+            u64             serial = p->serial;
             vkDestroyFence(dev->vk, p->fence, NULL);
             dev->pending[i] = dev->pending[--dev->pending_count];
             mel_mutex_unlock(&dev->submit_lock);
+            mel_gpu__submit_complete(dev, serial);
             mel_gpu_future_resolve(f, NULL, MEL_GPU_STATUS(0, MEL_GPU_SEVERITY_OK));
             mel_mutex_lock(&dev->submit_lock);
         }
@@ -115,7 +117,7 @@ static bool mel_gpu__submit_poller(void* user)
     return true;
 }
 
-static void mel_gpu__pending_push(Mel_Gpu_Device* dev, VkFence fence, Mel_Gpu_Future* future)
+static void mel_gpu__pending_push(Mel_Gpu_Device* dev, VkFence fence, Mel_Gpu_Future* future, u64 serial)
 {
     mel_mutex_lock(&dev->submit_lock);
     if (dev->pending_count == dev->pending_cap)
@@ -124,7 +126,7 @@ static void mel_gpu__pending_push(Mel_Gpu_Device* dev, VkFence fence, Mel_Gpu_Fu
         dev->pending = dev->pending ? mel_realloc(dev->alloc, dev->pending, sizeof(Mel_Gpu_Pending_Submit) * cap) : mel_alloc(dev->alloc, sizeof(Mel_Gpu_Pending_Submit) * cap);
         dev->pending_cap = cap;
     }
-    dev->pending[dev->pending_count++] = (Mel_Gpu_Pending_Submit){ .fence = fence, .future = future, .active = true };
+    dev->pending[dev->pending_count++] = (Mel_Gpu_Pending_Submit){ .fence = fence, .future = future, .serial = serial, .active = true };
     bool need_poller = !dev->submit_poller_registered;
     dev->submit_poller_registered = true;
     mel_mutex_unlock(&dev->submit_lock);
@@ -136,6 +138,7 @@ static void mel_gpu__pending_push(Mel_Gpu_Device* dev, VkFence fence, Mel_Gpu_Fu
 Mel_Gpu_Future* mel_gpu_queue_submit(Mel_Gpu_Queue* q, Mel_Gpu_Submit submit)
 {
     Mel_Gpu_Device* dev = q->dev;
+    u64             serial = mel_gpu__submit_serial_next(dev);
 
     VkCommandBuffer  stackbuf[8];
     VkCommandBuffer* cbs = submit.command_list_count <= 8 ? stackbuf : mel_alloc_array(dev->alloc, VkCommandBuffer, submit.command_list_count);
@@ -165,18 +168,21 @@ Mel_Gpu_Future* mel_gpu_queue_submit(Mel_Gpu_Queue* q, Mel_Gpu_Submit submit)
     {
         mel_gpu__device_is_lost(dev, r, "queue_submit");
         vkDestroyFence(dev->vk, fence, NULL);
+        // Submission never runs: nothing references this batch's resources, so retire its serial now.
+        mel_gpu__submit_complete(dev, serial);
         mel_gpu_future_resolve(f, NULL, MEL_GPU_STATUS(1, MEL_GPU_SEVERITY_ERROR));
         return f;
     }
 
     if (dev->pump)
     {
-        mel_gpu__pending_push(dev, fence, f);
+        mel_gpu__pending_push(dev, fence, f, serial);
     }
     else
     {
         vkWaitForFences(dev->vk, 1, &fence, VK_TRUE, UINT64_MAX);
         vkDestroyFence(dev->vk, fence, NULL);
+        mel_gpu__submit_complete(dev, serial);
         mel_gpu_future_resolve(f, NULL, MEL_GPU_STATUS(0, MEL_GPU_SEVERITY_OK));
     }
     return f;

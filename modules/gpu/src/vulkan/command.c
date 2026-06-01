@@ -10,6 +10,10 @@ void mel_gpu_frame_begin(Mel_Gpu_Swapchain* sc)
 
     vkWaitForFences(dev->vk, 1, &sc->in_flight[frame], VK_TRUE, UINT64_MAX);
 
+    // This frame slot's prior submission has now completed: advance the retirement watermark past it.
+    if (sc->frame_serial[frame])
+        mel_gpu__submit_complete(dev, sc->frame_serial[frame]);
+
     u32      image = 0;
     VkResult r = vkAcquireNextImageKHR(dev->vk, sc->vk, UINT64_MAX, sc->image_available[frame], VK_NULL_HANDLE, &image);
     if (r == VK_ERROR_OUT_OF_DATE_KHR)
@@ -59,11 +63,13 @@ void mel_gpu_frame_end(Mel_Gpu_Swapchain* sc)
         .signalSemaphoreCount = 1,
         .pSignalSemaphores = &sc->render_finished[sc->current_image],
     };
+    u64 serial = mel_gpu__submit_serial_next(dev);
     mel_mutex_lock(&dev->submit_lock);
     VkResult sr = vkQueueSubmit(dev->graphics_queue, 1, &si, sc->in_flight[frame]);
     mel_mutex_unlock(&dev->submit_lock);
     if (sr != VK_SUCCESS && mel_gpu__device_is_lost(dev, sr, "vkQueueSubmit"))
         return;
+    sc->frame_serial[frame] = serial;
 
     VkPresentInfoKHR pi = {
         .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
@@ -86,17 +92,55 @@ void mel_gpu_frame_end(Mel_Gpu_Swapchain* sc)
 
 void mel_gpu_cmd_begin_pass(Mel_Gpu_Command_List* cmd, Mel_Gpu_Color clear)
 {
-    Mel_Gpu_Swapchain*    sc = cmd->sc;
-    VkClearValue          cv = { .color = { .float32 = { clear.r, clear.g, clear.b, clear.a } } };
-    VkRenderPassBeginInfo bi = {
-        .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
-        .renderPass = sc->render_pass,
-        .framebuffer = sc->framebuffers[sc->current_image],
-        .renderArea = { .offset = { 0, 0 }, .extent = sc->extent },
-        .clearValueCount = 1,
-        .pClearValues = &cv,
-    };
-    vkCmdBeginRenderPass(cmd->cb, &bi, VK_SUBPASS_CONTENTS_INLINE);
+    Mel_Gpu_Swapchain* sc = cmd->sc;
+    Mel_Gpu_Device*    dev = cmd->dev;
+
+    if (dev->dynamic_rendering)
+    {
+        // U16: bring the freshly-acquired swapchain image to COLOR_ATTACHMENT and render dynamically.
+        VkImageMemoryBarrier to_color = {
+            .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+            .srcAccessMask = 0,
+            .dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+            .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+            .newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .image = sc->images[sc->current_image],
+            .subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 },
+        };
+        vkCmdPipelineBarrier(cmd->cb, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, 0, 0, NULL, 0, NULL, 1, &to_color);
+
+        VkRenderingAttachmentInfoKHR color = {
+            .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO_KHR,
+            .imageView = sc->views[sc->current_image],
+            .imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+            .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+            .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+            .clearValue = { .color = { .float32 = { clear.r, clear.g, clear.b, clear.a } } },
+        };
+        VkRenderingInfoKHR ri = {
+            .sType = VK_STRUCTURE_TYPE_RENDERING_INFO_KHR,
+            .renderArea = { { 0, 0 }, sc->extent },
+            .layerCount = 1,
+            .colorAttachmentCount = 1,
+            .pColorAttachments = &color,
+        };
+        dev->cmd_begin_rendering(cmd->cb, &ri);
+    }
+    else
+    {
+        VkClearValue          cv = { .color = { .float32 = { clear.r, clear.g, clear.b, clear.a } } };
+        VkRenderPassBeginInfo bi = {
+            .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+            .renderPass = sc->render_pass,
+            .framebuffer = sc->framebuffers[sc->current_image],
+            .renderArea = { .offset = { 0, 0 }, .extent = sc->extent },
+            .clearValueCount = 1,
+            .pClearValues = &cv,
+        };
+        vkCmdBeginRenderPass(cmd->cb, &bi, VK_SUBPASS_CONTENTS_INLINE);
+    }
 
     VkViewport vp = {
         .x = 0.0f,
@@ -111,7 +155,31 @@ void mel_gpu_cmd_begin_pass(Mel_Gpu_Command_List* cmd, Mel_Gpu_Color clear)
     vkCmdSetScissor(cmd->cb, 0, 1, &scissor);
 }
 
-void mel_gpu_cmd_end_pass(Mel_Gpu_Command_List* cmd) { vkCmdEndRenderPass(cmd->cb); }
+void mel_gpu_cmd_end_pass(Mel_Gpu_Command_List* cmd)
+{
+    Mel_Gpu_Device* dev = cmd->dev;
+    if (dev->dynamic_rendering)
+    {
+        Mel_Gpu_Swapchain* sc = cmd->sc;
+        dev->cmd_end_rendering(cmd->cb);
+        VkImageMemoryBarrier to_present = {
+            .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+            .srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+            .dstAccessMask = 0,
+            .oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+            .newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .image = sc->images[sc->current_image],
+            .subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 },
+        };
+        vkCmdPipelineBarrier(cmd->cb, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0, NULL, 0, NULL, 1, &to_present);
+    }
+    else
+    {
+        vkCmdEndRenderPass(cmd->cb);
+    }
+}
 
 void mel_gpu_cmd_bind_pipeline(Mel_Gpu_Command_List* cmd, Mel_Gpu_Pipeline pipe)
 {
