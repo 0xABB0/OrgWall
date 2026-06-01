@@ -15,6 +15,14 @@ bool mel_gui__android_panel_register_jni(JNIEnv* env)
     return s_create != NULL;
 }
 
+Mel_Gui_Handle mel_gui__screen_new(Mel_Gui_Handle window)
+{
+    Mel_Gui_Handle h = mel_panel_create(window, .x = 0, .y = 0, .w = 0, .h = 0);
+    Mel_Gui_Node* n = mel_gui__node(h);
+    if (n) n->is_screen = true;
+    return h;
+}
+
 Mel_Gui_Handle mel_panel_create_opt(Mel_Gui_Handle parent, Mel_Panel_Opt o)
 {
     Mel_Gui_Handle h = mel_gui__node_new(parent, o.x, o.y, o.w, o.h, o.id, o.user, o.hidden,

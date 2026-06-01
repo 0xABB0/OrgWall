@@ -3,6 +3,7 @@
 void mel_reactor__macos_drain_events(void)
 {
     if (!NSApp) return;
+
     @autoreleasepool {
         for (;;) {
             NSEvent* event = [NSApp nextEventMatchingMask:NSEventMaskAny

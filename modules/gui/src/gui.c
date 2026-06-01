@@ -135,29 +135,27 @@ void mel_gui_destroy(Mel_Gui_Handle h)
 void mel_gui__destroy_tree(Mel_Gui_Handle root)
 {
     u32 count = mel_slotmap_count(&g_nodes);
-    if (count == 0) return;
-
-    Mel_Gui_Handle* hits = (Mel_Gui_Handle*)mel_alloc(mel_gui__alloc(),
-                                                      sizeof(Mel_Gui_Handle) * count);
-    if (!hits) return;
-
-    Mel_Gui_Node* data = (Mel_Gui_Node*)mel_slotmap_data(&g_nodes);
-    u32 n = 0;
-    for (u32 i = 0; i < count; i++) {
-        Mel_Gui_Node* node = &data[i];
-        if (mel_gui_handle_eq(node->self, root) || mel_gui_handle_eq(node->parent, root)) {
-            hits[n++] = node->self;
+    if (count > 0) {
+        Mel_Gui_Handle* kids = (Mel_Gui_Handle*)mel_alloc(mel_gui__alloc(),
+                                                          sizeof(Mel_Gui_Handle) * count);
+        if (kids) {
+            Mel_Gui_Node* data = (Mel_Gui_Node*)mel_slotmap_data(&g_nodes);
+            u32 k = 0;
+            for (u32 i = 0; i < count; i++) {
+                if (!mel_gui_handle_eq(data[i].self, root) &&
+                    mel_gui_handle_eq(data[i].parent, root)) {
+                    kids[k++] = data[i].self;
+                }
+            }
+            for (u32 i = 0; i < k; i++) mel_gui__destroy_tree(kids[i]);
+            mel_dealloc(mel_gui__alloc(), kids);
         }
     }
 
-    for (u32 i = 0; i < n; i++) {
-        Mel_Gui_Node* node = mel_gui__node(hits[i]);
-        if (!node) continue;
-        mel_gui__backend_destroy(node);
-        mel_gui__node_release(hits[i]);
-    }
-
-    mel_dealloc(mel_gui__alloc(), hits);
+    Mel_Gui_Node* node = mel_gui__node(root);
+    if (!node) return;
+    mel_gui__backend_destroy(node);
+    mel_gui__node_release(root);
 }
 
 void mel_gui__resized(Mel_Gui_Handle h, i32 w, i32 height)
@@ -167,6 +165,7 @@ void mel_gui__resized(Mel_Gui_Handle h, i32 w, i32 height)
     n->width  = w;
     n->height = height;
     if (n->layout) mel_gui__layout_arrange(h);
+    if (mel_gui__is_toplevel(n)) mel_gui__nav_window_resized(h, w, height);
 }
 
 /* Natural content extent of a frame: the layout's measured size, or the bounding

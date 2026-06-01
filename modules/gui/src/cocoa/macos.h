@@ -21,6 +21,9 @@ struct Mel_Painter { CGContextRef cg; f32 w, h; };
 @property (assign) Mel_Gui_Keyboard_Cb keyboard;
 @end
 
+@interface MelGuiScreenView : NSView
+@end
+
 @interface MelGuiWindowDelegate : NSObject <NSWindowDelegate>
 @property (assign) Mel_Gui_Handle       frame_handle;
 @property (assign) Mel_Gui_Lifecycle_Cb lifecycle;

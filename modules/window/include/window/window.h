@@ -79,6 +79,9 @@ void mel_window_init    (Mel_Reactor* reactor);
 void mel_window_shutdown (void);
 bool mel_window_alive   (Mel_Window w);
 
+void mel_window_keepalive_inc(void);
+void mel_window_keepalive_dec(void);
+
 Mel_Window mel_window_create_opt(Mel_Window_Opt opt);
 #define mel_window_create(...) mel_window_create_opt((Mel_Window_Opt){__VA_ARGS__})
 

@@ -1,5 +1,7 @@
 #include "macos.h"
 
+#include <window/window.h>
+
 #import <objc/runtime.h>
 
 @implementation MelGuiDialogDelegate
@@ -62,10 +64,7 @@
         });
     }
 
-    if (mel_gui__frames_dec() == 0) {
-        Mel_Reactor* r = mel_gui__reactor();
-        if (r) mel_reactor_quit(r);
-    }
+    mel_window_keepalive_dec();
 }
 
 - (void)windowDidResize:(NSNotification*)note
@@ -151,7 +150,7 @@ Mel_Gui_Handle mel_dialog_create_opt(Mel_Dialog_Opt o)
             [window center];
         }
 
-        mel_gui__frames_inc();
+        mel_window_keepalive_inc();
         [window makeKeyAndOrderFront:nil];
     }
     return h;

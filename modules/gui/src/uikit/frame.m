@@ -138,10 +138,6 @@ void mel_gui__nav_back(Mel_Gui_Handle prev, Mel_Gui_Handle cur)
 
 bool mel_gui_supports_multi_root(void) { return false; }
 
-/* A Root is a full-screen scene pinned by the nav controller; the OS owns its
- * size, so there is nothing to size to content. */
-void mel_gui__present_root(Mel_Gui_Handle frame) { (void)frame; }
-
 Mel_Frame_Insets mel_frame_insets(Mel_Gui_Handle h)
 {
     Mel_Frame_Insets out = {0};

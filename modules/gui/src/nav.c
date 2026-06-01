@@ -4,11 +4,12 @@
 
 typedef struct {
     str8           name;
-    Mel_Gui_Handle frame;
+    Mel_Gui_Handle screen;
     void*          arg;
 } Mel_Nav_Entry;
 
 typedef struct {
+    Mel_Gui_Handle           window;
     Mel_Array(Mel_Nav_Entry) entries;
 } Mel_Navigator;
 
@@ -20,140 +21,137 @@ void mel_gui__navs_reset(void)
     mel_array_free(&g_navs);
 }
 
-static Mel_Navigator* nav_of(Mel_Gui_Handle from)
+static Mel_Navigator* nav_by_window(Mel_Gui_Handle window)
 {
-    Mel_Gui_Handle top = mel_gui__toplevel(from);
-    if (mel_gui_handle_is_none(top)) return NULL;
     for (usize i = 0; i < g_navs.count; i++) {
-        Mel_Navigator* nav = &g_navs.items[i];
-        for (usize j = 0; j < nav->entries.count; j++) {
-            if (mel_gui_handle_eq(nav->entries.items[j].frame, top)) return nav;
-        }
+        if (mel_gui_handle_eq(g_navs.items[i].window, window)) return &g_navs.items[i];
     }
     return NULL;
 }
 
-/* Screen lifecycle. on_enter fires when an instance becomes the visible top
- * (first show or re-reveal); on_leave when it stops being top; on_destroy just
- * before its frame is torn down. The arg matches what the builder received. */
+static Mel_Navigator* nav_of(Mel_Gui_Handle from)
+{
+    Mel_Gui_Handle top = mel_gui__toplevel(from);
+    if (mel_gui_handle_is_none(top)) return NULL;
+    return nav_by_window(top);
+}
+
 static void fire_enter(Mel_Nav_Entry e)
 {
     const Mel_Screen_Def* d = mel_gui__screen_find(e.name);
-    if (d && d->on_enter) d->on_enter(e.frame, e.arg ? e.arg : d->default_user);
+    if (d && d->on_enter) d->on_enter(e.screen, e.arg ? e.arg : d->default_user);
 }
 static void fire_leave(Mel_Nav_Entry e)
 {
     const Mel_Screen_Def* d = mel_gui__screen_find(e.name);
-    if (d && d->on_leave) d->on_leave(e.frame, e.arg ? e.arg : d->default_user);
+    if (d && d->on_leave) d->on_leave(e.screen, e.arg ? e.arg : d->default_user);
 }
 static void fire_destroy(Mel_Nav_Entry e)
 {
     const Mel_Screen_Def* d = mel_gui__screen_find(e.name);
-    if (d && d->on_destroy) d->on_destroy(e.frame, e.arg ? e.arg : d->default_user);
+    if (d && d->on_destroy) d->on_destroy(e.screen, e.arg ? e.arg : d->default_user);
 }
 
-/* A frame's native surface was torn down (OS close box, or any backend teardown).
- * Drop its entry; if it was the visible top, reveal the predecessor; if it was a
- * Navigator's last entry, drop the Navigator. Never destroys the frame — the
- * caller already did. The programmatic verbs remove their entry *before* calling
- * mel_gui_destroy, so this is a no-op for verb-initiated closes and does real work
- * only for OS-initiated ones. */
-void mel_gui__frame_closed(Mel_Gui_Handle frame)
-{
-    if (mel_gui_handle_is_none(frame)) return;
-    for (usize i = 0; i < g_navs.count; i++) {
-        Mel_Navigator* nav = &g_navs.items[i];
-        for (usize j = 0; j < nav->entries.count; j++) {
-            if (!mel_gui_handle_eq(nav->entries.items[j].frame, frame)) continue;
-
-            bool          was_top = (j == nav->entries.count - 1);
-            Mel_Nav_Entry closed  = nav->entries.items[j];
-            mel_array_remove_ordered(&nav->entries, j);
-
-            if (was_top) fire_leave(closed);
-            fire_destroy(closed);
-
-            if (nav->entries.count == 0) {
-                mel_array_free(&nav->entries);
-                mel_array_remove_ordered(&g_navs, i);
-            } else if (was_top) {
-                Mel_Nav_Entry top = mel_array_last(&nav->entries);
-                mel_gui_set_visible(top.frame, true);
-                mel_gui_set_focus(top.frame);
-                fire_enter(top);
-            }
-            return;
-        }
-    }
-}
-
-static Mel_Gui_Handle instantiate(str8 name, void* arg)
+static Mel_Gui_Handle build_screen(Mel_Gui_Handle window, str8 name, void* arg)
 {
     const Mel_Screen_Def* def = mel_gui__screen_find(name);
     assert(def && "navigate: screen name not registered");
     if (!def) return MEL_GUI_HANDLE_NONE;
 
-    Mel_Gui_Handle frame = mel_frame_create(.title = name);
-    void*          user  = arg ? arg : def->default_user;
-    if (def->build) def->build(frame, user);
-    mel_gui__present_root(frame);
-    return frame;
+    Mel_Gui_Handle screen = mel_gui__screen_new(window);
+
+    void* user = arg ? arg : def->default_user;
+    if (def->build) def->build(screen, user);
+    return screen;
+}
+
+static void fit_screen(Mel_Gui_Handle window, Mel_Gui_Handle screen)
+{
+    Mel_Gui_Node* wn = mel_gui__node(window);
+    if (!wn || wn->width <= 0 || wn->height <= 0) return;
+    mel_gui_set_bounds(screen, 0, 0, wn->width, wn->height);
+    mel_gui_relayout(screen);
+}
+
+static void reveal_title(Mel_Gui_Handle window, Mel_Gui_Handle screen)
+{
+    Mel_Gui_Node* sn = mel_gui__node(screen);
+    if (sn && sn->screen_title.len > 0) mel_gui_set_text(window, sn->screen_title);
+}
+
+static void size_window_to_screen(Mel_Gui_Handle window, Mel_Gui_Handle screen)
+{
+    i32 cw = 0, ch = 0;
+    mel_gui__content_size(screen, &cw, &ch);
+    if (cw < 320) cw = 320;
+    if (ch < 240) ch = 240;
+
+    Mel_Gui_Node* wn = mel_gui__node(window);
+    i32 x = wn ? wn->x : 0;
+    i32 y = wn ? wn->y : 0;
+    mel_gui_set_bounds(window, x, y, cw, ch);
+    mel_gui_set_bounds(screen, 0, 0, cw, ch);
+    mel_gui_relayout(screen);
+}
+
+static void destroy_screen(Mel_Gui_Handle screen)
+{
+    mel_gui__destroy_tree(screen);
+}
+
+void mel_gui__frame_closed(Mel_Gui_Handle window)
+{
+    Mel_Navigator* nav = nav_by_window(window);
+    if (!nav) return;
+    usize idx = (usize)(nav - g_navs.items);
+
+    if (nav->entries.count > 0) fire_leave(mel_array_last(&nav->entries));
+    for (usize j = nav->entries.count; j-- > 0;) fire_destroy(nav->entries.items[j]);
+
+    mel_array_free(&nav->entries);
+    mel_array_remove_ordered(&g_navs, idx);
 }
 
 void mel_app_present(str8 name, void* arg)
 {
-    /* Single-surface backends (phone, web) have no coequal Roots: every present
-     * after the first degrades to a push on the one Root, an honest forward
-     * navigation (MEL-ENGINE-VII). That Root is always g_navs[0] — degrades never
-     * append a Navigator, so the single Root never moves. The first present still
-     * creates the root below, on every backend. */
+    /* Single-surface backends (phone, web) have no coequal Roots: present after
+     * the first degrades to a push on the one Root — under Model B literally a
+     * content swap (MEL-ENGINE-VII). That Root is always g_navs[0]. */
     if (g_navs.count > 0 && !mel_gui_supports_multi_root()) {
-        Mel_Nav_Entry  left  = mel_array_last(&g_navs.items[0].entries);
-        Mel_Gui_Handle frame = instantiate(name, arg);
-        if (mel_gui_handle_is_none(frame)) return;
-        Mel_Nav_Entry entered = { name, frame, arg };
+        Mel_Gui_Handle window = g_navs.items[0].window;
+        Mel_Nav_Entry  left   = mel_array_last(&g_navs.items[0].entries);
+        Mel_Gui_Handle screen = build_screen(window, name, arg);
+        if (mel_gui_handle_is_none(screen)) return;
+
+        fit_screen(window, screen);
+        Mel_Nav_Entry entered = { name, screen, arg };
         mel_array_push(&g_navs.items[0].entries, entered);
-        mel_gui__nav_replace(frame, left.frame);
+        mel_gui__nav_replace(screen, left.screen);
+        reveal_title(window, screen);
         fire_leave(left);
         fire_enter(entered);
         return;
     }
 
-    Mel_Gui_Handle frame = instantiate(name, arg);
-    if (mel_gui_handle_is_none(frame)) return;
+    Mel_Gui_Handle window = mel_frame_create(.title = name);
+    Mel_Gui_Handle screen = build_screen(window, name, arg);
+    if (mel_gui_handle_is_none(screen)) return;
+
+    size_window_to_screen(window, screen);
 
     if (g_navs.allocator == NULL) mel_array_init(&g_navs, mel_gui__alloc());
 
-    Mel_Nav_Entry entered = { name, frame, arg };
     Mel_Navigator nav = {0};
+    nav.window = window;
     mel_array_init(&nav.entries, mel_gui__alloc());
+    Mel_Nav_Entry entered = { name, screen, arg };
     mel_array_push(&nav.entries, entered);
     mel_array_push(&g_navs, nav);
 
-    mel_gui__nav_replace(frame, MEL_GUI_HANDLE_NONE);
+    reveal_title(window, screen);
+    mel_gui_set_visible(window, true);
+    mel_gui_set_focus(window);
     fire_enter(entered);
-}
-
-/* OS-initiated back where the platform does NOT itself tear down the surface
- * (Android hardware back, web back button): behave like mel_app_back on the
- * foreground Navigator — pop, reveal predecessor, destroy the popped frame. At
- * the root it is a no-op (the OS exits the app / leaves the page). Backends whose
- * OS already removed the surface (iOS pops the VC) use mel_gui__frame_closed
- * instead, which does not destroy. */
-bool mel_gui__nav_os_back(void)
-{
-    if (g_navs.count == 0) return false;
-    Mel_Navigator* nav = &g_navs.items[g_navs.count - 1];
-    if (nav->entries.count <= 1) return false;
-
-    Mel_Nav_Entry top  = mel_array_pop(&nav->entries);
-    Mel_Nav_Entry prev = mel_array_last(&nav->entries);
-    mel_gui__nav_back(prev.frame, top.frame);
-    fire_leave(top);
-    fire_destroy(top);
-    mel_gui_destroy(top.frame);
-    fire_enter(prev);
-    return true;
 }
 
 void mel_app_push(Mel_Gui_Handle from, str8 name, void* arg)
@@ -162,16 +160,19 @@ void mel_app_push(Mel_Gui_Handle from, str8 name, void* arg)
     assert(nav && "push: from does not belong to a navigator");
     if (!nav) return;
 
-    Mel_Nav_Entry  left  = mel_array_last(&nav->entries);
-    Mel_Gui_Handle frame = instantiate(name, arg);
-    if (mel_gui_handle_is_none(frame)) return;
+    Mel_Gui_Handle window = nav->window;
+    Mel_Nav_Entry  left   = mel_array_last(&nav->entries);
+    Mel_Gui_Handle screen = build_screen(window, name, arg);
+    if (mel_gui_handle_is_none(screen)) return;
 
     nav = nav_of(from); /* the build callback may have grown g_navs (re-entrant present) */
     if (!nav) return;
 
-    Mel_Nav_Entry entered = { name, frame, arg };
+    fit_screen(window, screen);
+    Mel_Nav_Entry entered = { name, screen, arg };
     mel_array_push(&nav->entries, entered);
-    mel_gui__nav_replace(frame, left.frame);
+    mel_gui__nav_replace(screen, left.screen);
+    reveal_title(window, screen);
     fire_leave(left);
     fire_enter(entered);
 }
@@ -182,19 +183,22 @@ void mel_app_replace(Mel_Gui_Handle from, str8 name, void* arg)
     assert(nav && "replace: from does not belong to a navigator");
     if (!nav || nav->entries.count == 0) return;
 
-    Mel_Nav_Entry  old   = mel_array_last(&nav->entries);
-    Mel_Gui_Handle frame = instantiate(name, arg);
-    if (mel_gui_handle_is_none(frame)) return;
+    Mel_Gui_Handle window = nav->window;
+    Mel_Nav_Entry  old    = mel_array_last(&nav->entries);
+    Mel_Gui_Handle screen = build_screen(window, name, arg);
+    if (mel_gui_handle_is_none(screen)) return;
 
     nav = nav_of(from); /* the build callback may have grown g_navs (re-entrant present) */
     if (!nav || nav->entries.count == 0) return;
 
-    Mel_Nav_Entry entered = { name, frame, arg };
+    fit_screen(window, screen);
+    Mel_Nav_Entry entered = { name, screen, arg };
     mel_array_last(&nav->entries) = entered;
-    mel_gui__nav_replace(frame, old.frame);
+    mel_gui__nav_replace(screen, old.screen);
+    reveal_title(window, screen);
     fire_leave(old);
     fire_destroy(old);
-    mel_gui_destroy(old.frame);
+    destroy_screen(old.screen);
     fire_enter(entered);
 }
 
@@ -204,12 +208,15 @@ void mel_app_back(Mel_Gui_Handle from)
     assert(nav && "back: from does not belong to a navigator");
     if (!nav || nav->entries.count <= 1) return;
 
-    Mel_Nav_Entry top  = mel_array_pop(&nav->entries);
-    Mel_Nav_Entry prev = mel_array_last(&nav->entries);
-    mel_gui__nav_back(prev.frame, top.frame);
+    Mel_Gui_Handle window = nav->window;
+    Mel_Nav_Entry  top    = mel_array_pop(&nav->entries);
+    Mel_Nav_Entry  prev   = mel_array_last(&nav->entries);
+    fit_screen(window, prev.screen);
+    mel_gui__nav_back(prev.screen, top.screen);
+    reveal_title(window, prev.screen);
     fire_leave(top);
     fire_destroy(top);
-    mel_gui_destroy(top.frame);
+    destroy_screen(top.screen);
     fire_enter(prev);
 }
 
@@ -218,18 +225,21 @@ void mel_app_pop_to(Mel_Gui_Handle from, str8 name)
     Mel_Navigator* nav = nav_of(from);
     if (!nav) return;
 
-    bool visible_left = false;
+    Mel_Gui_Handle window       = nav->window;
+    bool           visible_left = false;
     while (nav->entries.count > 1 &&
            !str8_equals(mel_array_last(&nav->entries).name, name)) {
         Mel_Nav_Entry top = mel_array_pop(&nav->entries);
         if (!visible_left) { fire_leave(top); visible_left = true; }
         fire_destroy(top);
-        mel_gui_destroy(top.frame);
+        destroy_screen(top.screen);
     }
 
     Mel_Nav_Entry top = mel_array_last(&nav->entries);
-    mel_gui_set_visible(top.frame, true);
-    mel_gui_set_focus(top.frame);
+    fit_screen(window, top.screen);
+    mel_gui_set_visible(top.screen, true);
+    mel_gui_set_focus(top.screen);
+    reveal_title(window, top.screen);
     if (visible_left) fire_enter(top);
 }
 
@@ -238,16 +248,47 @@ void mel_app_pop_to_root(Mel_Gui_Handle from)
     Mel_Navigator* nav = nav_of(from);
     if (!nav) return;
 
-    bool visible_left = false;
+    Mel_Gui_Handle window       = nav->window;
+    bool           visible_left = false;
     while (nav->entries.count > 1) {
         Mel_Nav_Entry top = mel_array_pop(&nav->entries);
         if (!visible_left) { fire_leave(top); visible_left = true; }
         fire_destroy(top);
-        mel_gui_destroy(top.frame);
+        destroy_screen(top.screen);
     }
 
     Mel_Nav_Entry top = mel_array_last(&nav->entries);
-    mel_gui_set_visible(top.frame, true);
-    mel_gui_set_focus(top.frame);
+    fit_screen(window, top.screen);
+    mel_gui_set_visible(top.screen, true);
+    mel_gui_set_focus(top.screen);
+    reveal_title(window, top.screen);
     if (visible_left) fire_enter(top);
+}
+
+bool mel_gui__nav_os_back(void)
+{
+    if (g_navs.count == 0) return false;
+    Mel_Navigator* nav = &g_navs.items[g_navs.count - 1];
+    if (nav->entries.count <= 1) return false;
+
+    Mel_Gui_Handle window = nav->window;
+    Mel_Nav_Entry  top    = mel_array_pop(&nav->entries);
+    Mel_Nav_Entry  prev   = mel_array_last(&nav->entries);
+    fit_screen(window, prev.screen);
+    mel_gui__nav_back(prev.screen, top.screen);
+    reveal_title(window, prev.screen);
+    fire_leave(top);
+    fire_destroy(top);
+    destroy_screen(top.screen);
+    fire_enter(prev);
+    return true;
+}
+
+void mel_gui__nav_window_resized(Mel_Gui_Handle window, i32 w, i32 h)
+{
+    Mel_Navigator* nav = nav_by_window(window);
+    if (!nav || nav->entries.count == 0) return;
+    Mel_Gui_Handle screen = mel_array_last(&nav->entries).screen;
+    mel_gui_set_bounds(screen, 0, 0, w, h);
+    mel_gui_relayout(screen);
 }

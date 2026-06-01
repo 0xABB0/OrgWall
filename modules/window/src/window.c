@@ -82,6 +82,20 @@ i32 mel_window__count_dec(void)
     return g_count;
 }
 
+void mel_window_keepalive_inc(void)
+{
+    mel_window__count_inc();
+}
+
+void mel_window_keepalive_dec(void)
+{
+    if (g_shutting) return;
+    if (mel_window__count_dec() == 0) {
+        Mel_Reactor* r = mel_window__reactor();
+        if (r) mel_reactor_quit(r);
+    }
+}
+
 Mel_Window mel_window_create_opt(Mel_Window_Opt o)
 {
     Mel_Window_Node    init = {0};

@@ -18,6 +18,8 @@ typedef struct Mel_Gui_Node {
     u32            id;
     i32            x, y, width, height;
     bool           hidden;
+    bool           is_screen;
+    str8           screen_title;
     Mel_Layoutable layoutable;
     Mel_Layout*    layout;
 } Mel_Gui_Node;
@@ -39,6 +41,11 @@ Mel_Gui_Handle mel_gui__toplevel(Mel_Gui_Handle h);
 
 void           mel_gui__destroy_tree(Mel_Gui_Handle root);
 
+/* Create a screen-root container (a child of the Root window) into which a
+ * screen builds its widgets. A minimal pass-through view, not an input-handling
+ * panel. Backend-provided. */
+Mel_Gui_Handle mel_gui__screen_new(Mel_Gui_Handle window);
+
 /* Screen registry (identity): name -> builder + register-time default user.
  * Holds no live navigation state; instances live on a Navigator (nav.c). */
 typedef struct {
@@ -55,31 +62,31 @@ const Mel_Screen_Def* mel_gui__screen_find(str8 name);
 void           mel_gui__screens_reset(void);
 void           mel_gui__navs_reset(void);
 
-/* A frame's native surface was torn down by the OS (close box, iOS VC pop).
- * Each backend calls this from its frame-close path, while the handle is still
- * valid, so the Navigator drops the entry instead of stranding a dead top.
- * Does NOT destroy the frame — the OS already did. */
-void           mel_gui__frame_closed(Mel_Gui_Handle frame);
+/* A Root window was torn down by the OS (close box). Tears down the whole
+ * Navigator that owns it: fires leave on the visible top, destroy on every
+ * entry, drops the Navigator. Does NOT release gui nodes — the caller's
+ * destroy_tree does that while handles are still valid. */
+void           mel_gui__frame_closed(Mel_Gui_Handle window);
 
 /* OS back where the toolkit does not itself remove the surface (Android hardware
  * back, web history back): pop+reveal+destroy the foreground Navigator's top.
  * Returns true if it popped, false at the root (so the OS can exit the app). */
 bool           mel_gui__nav_os_back(void);
 
-/* Natural content extent of a frame (constant-free measurement). */
+/* Natural content extent of a screen (constant-free measurement). */
 void           mel_gui__content_size(Mel_Gui_Handle frame, i32* out_w, i32* out_h);
 
-/* Make a freshly-built frame a Root. Desktop sizes the window to its content;
- * mobile/web no-op (the scene/route owns the size). Called once per instance. */
-void           mel_gui__present_root(Mel_Gui_Handle frame);
-
-/* Screen-to-screen transitions. Each backend owns the platform mechanics:
- * desktop swaps window visibility, Android drives the fragment back stack.
+/* Screen-to-screen transitions within the one Root window: show/hide the screen
+ * content subtree.
  *  - nav_replace: make `next` the active screen in place of `prev`.
  *  - nav_back:    return from `cur` to the earlier `prev`.
  * Handles may be MEL_GUI_HANDLE_NONE when there is no counterpart. */
 void           mel_gui__nav_replace(Mel_Gui_Handle next, Mel_Gui_Handle prev);
 void           mel_gui__nav_back   (Mel_Gui_Handle prev, Mel_Gui_Handle cur);
+
+/* The Root window resized: refit and relayout its active screen subtree. No-op
+ * when the window is not navigator-managed (a directly-created frame). */
+void           mel_gui__nav_window_resized(Mel_Gui_Handle window, i32 w, i32 h);
 
 void           mel_gui__set_focused(Mel_Gui_Handle h);
 

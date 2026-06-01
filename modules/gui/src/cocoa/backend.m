@@ -107,6 +107,24 @@ void mel_gui__macos_install_child(Mel_Gui_Node* n, NSView* view)
     n->native = (void*)CFBridgingRetain(view);
 }
 
+@implementation MelGuiScreenView
+- (BOOL)isFlipped { return YES; }
+@end
+
+Mel_Gui_Handle mel_gui__screen_new(Mel_Gui_Handle window)
+{
+    Mel_Gui_Handle h = mel_gui__node_new(window, 0, 0, 0, 0, 0, NULL, false, NULL, NULL);
+    Mel_Gui_Node* n = mel_gui__node(h);
+    if (!n) return h;
+    n->is_screen = true;
+
+    @autoreleasepool {
+        MelGuiScreenView* view = [[MelGuiScreenView alloc] initWithFrame:NSMakeRect(0, 0, 0, 0)];
+        mel_gui__macos_install_child(n, view);
+    }
+    return h;
+}
+
 void mel_gui__macos_focus_in(Mel_Gui_Handle h, Mel_Gui_Focus_Cb fc)
 {
     mel_gui__set_focused(h);
@@ -186,7 +204,21 @@ void mel_gui__backend_destroy(Mel_Gui_Node* n)
 void mel_gui_set_text(Mel_Gui_Handle h, str8 text)
 {
     Mel_Gui_Node* n = mel_gui__node(h);
-    if (!n || !n->native) return;
+    if (!n) return;
+
+    if (n->is_screen) {
+        n->screen_title = text;
+        Mel_Gui_Node* top = mel_gui__node(mel_gui__toplevel(h));
+        if (top && top->native) {
+            id wobj = (__bridge id)top->native;
+            if ([wobj isKindOfClass:[NSWindow class]]) {
+                [(NSWindow*)wobj setTitle:mel_gui__macos_nsstring(text)];
+            }
+        }
+        return;
+    }
+
+    if (!n->native) return;
     NSString* s   = mel_gui__macos_nsstring(text);
     id        obj = (__bridge id)n->native;
 
@@ -323,26 +355,6 @@ void mel_gui__nav_back(Mel_Gui_Handle prev, Mel_Gui_Handle cur)
 }
 
 bool mel_gui_supports_multi_root(void) { return true; }
-
-void mel_gui__present_root(Mel_Gui_Handle frame)
-{
-    Mel_Gui_Node* fw = mel_gui__node(frame);
-    if (!fw) return;
-
-    i32 cw, ch;
-    mel_gui__content_size(frame, &cw, &ch);
-    if (!fw->layout) { cw += 24; ch += 24; }   /* margin for absolutely-placed children */
-    if (cw < 320) cw = 320;
-    if (ch < 240) ch = 240;
-
-    mel_gui_set_bounds(frame, fw->x, fw->y, cw, ch);
-
-    if (fw->layout) {
-        Mel_Gui_Node* r = mel_gui__node(frame);
-        if (r) { r->width = cw; r->height = ch; }
-        mel_gui__layout_arrange(frame);
-    }
-}
 
 void mel_gui_invalidate(Mel_Gui_Handle h)
 {

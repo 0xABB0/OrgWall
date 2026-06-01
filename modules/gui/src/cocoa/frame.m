@@ -52,18 +52,6 @@ static void mel_gui__frame_on_closed(Mel_Window mw, void* user)
 
     mel_gui__frame_closed(frame_h);
 
-    u32           count = 0;
-    Mel_Gui_Node* data  = mel_gui__nodes(&count);
-    for (u32 i = 0; i < count; i++) {
-        Mel_Gui_Node* cw = &data[i];
-        if (!mel_gui_handle_eq(cw->parent, frame_h)) continue;
-        if (!cw->native) continue;
-        id obj = (__bridge id)cw->native;
-        if ([obj isKindOfClass:[NSView class]]) [(NSView*)obj removeFromSuperview];
-        CFBridgingRelease(cw->native);
-        cw->native = NULL;
-    }
-
     Mel_Gui_Node* fw = mel_gui__node(frame_h);
     if (fw) fw->native = NULL;
 
