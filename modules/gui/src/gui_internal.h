@@ -73,6 +73,12 @@ void           mel_gui__frame_closed(Mel_Gui_Handle window);
  * Returns true if it popped, false at the root (so the OS can exit the app). */
 bool           mel_gui__nav_os_back(void);
 
+/* A backend that owns its navigation stack (iOS) reports a user-driven pop
+ * (swipe-back, system back button) of `screen` here: drop the entry and reveal
+ * the one beneath WITHOUT popping the backend again. No-ops if `screen` is no
+ * longer the top (a programmatic back already dropped it). */
+void           mel_gui__screen_popped(Mel_Gui_Handle screen);
+
 /* Natural content extent of a screen (constant-free measurement). */
 void           mel_gui__content_size(Mel_Gui_Handle frame, i32* out_w, i32* out_h);
 

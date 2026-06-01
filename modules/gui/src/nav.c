@@ -150,6 +150,7 @@ void mel_app_present(str8 name, void* arg)
 
     reveal_title(window, screen);
     mel_gui_set_visible(window, true);
+    mel_gui__nav_replace(screen, MEL_GUI_HANDLE_NONE);
     mel_gui_set_focus(window);
     fire_enter(entered);
 }
@@ -282,6 +283,31 @@ bool mel_gui__nav_os_back(void)
     destroy_screen(top.screen);
     fire_enter(prev);
     return true;
+}
+
+/* A backend that owns its own navigation stack (iOS UINavigationController)
+ * reports user-driven pops — swipe-back, the system back button — here. The OS
+ * has already removed the surface, so unlike mel_gui__nav_os_back we must NOT
+ * pop the backend again; we only drop the entry and reveal the one beneath. A
+ * programmatic back has already removed the entry, so this then no-ops. */
+void mel_gui__screen_popped(Mel_Gui_Handle screen)
+{
+    for (usize i = 0; i < g_navs.count; i++) {
+        Mel_Navigator* nav = &g_navs.items[i];
+        if (nav->entries.count <= 1) continue;
+        if (!mel_gui_handle_eq(mel_array_last(&nav->entries).screen, screen)) continue;
+
+        Mel_Gui_Handle window = nav->window;
+        Mel_Nav_Entry  top    = mel_array_pop(&nav->entries);
+        Mel_Nav_Entry  prev   = mel_array_last(&nav->entries);
+        fit_screen(window, prev.screen);
+        reveal_title(window, prev.screen);
+        fire_leave(top);
+        fire_destroy(top);
+        destroy_screen(top.screen);
+        fire_enter(prev);
+        return;
+    }
 }
 
 void mel_gui__nav_window_resized(Mel_Gui_Handle window, i32 w, i32 h)

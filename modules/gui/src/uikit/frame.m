@@ -73,7 +73,10 @@ static void ios_ensure_nav(void)
 - (void)didMoveToParentViewController:(UIViewController*)parent
 {
     [super didMoveToParentViewController:parent];
-    if (parent == nil) mel_gui__frame_closed(self.frame_handle);
+    if (parent != nil) return;
+    Mel_Gui_Node* n = mel_gui__node(self.frame_handle);
+    if (n && n->is_screen) mel_gui__screen_popped(self.frame_handle);
+    else                   mel_gui__frame_closed(self.frame_handle);
 }
 
 @end
@@ -119,6 +122,26 @@ Mel_Gui_Handle mel_frame_create_opt(Mel_Frame_Opt o)
     return h;
 }
 
+Mel_Gui_Handle mel_gui__screen_new(Mel_Gui_Handle window)
+{
+    Mel_Gui_Handle h = mel_gui__node_new(window, 0, 0, 0, 0, 0, NULL, false, NULL, NULL);
+    Mel_Gui_Node* n = mel_gui__node(h);
+    if (!n) return h;
+    n->is_screen = true;
+
+    ios_ensure_nav();
+    MelViewController* vc = [[MelViewController alloc] init];
+    vc.frame_handle = h;
+    vc.inset_mode   = MEL_FRAME_PAD;
+    (void)vc.view;
+
+    n->native  = (void*)CFBridgingRetain(vc);
+    n->content = (void*)CFBridgingRetain(vc.content);
+    n->x = 0;
+    n->y = 0;
+    return h;
+}
+
 void mel_gui__nav_replace(Mel_Gui_Handle next, Mel_Gui_Handle prev)
 {
     (void)prev;
@@ -140,11 +163,10 @@ bool mel_gui_supports_multi_root(void) { return false; }
 
 Mel_Frame_Insets mel_frame_insets(Mel_Gui_Handle h)
 {
+    (void)h;
     Mel_Frame_Insets out = {0};
-    Mel_Gui_Node* n = mel_gui__node(mel_gui__toplevel(h));
-    if (!n || !n->native) return out;
-    UIViewController* vc = (__bridge UIViewController*)n->native;
-    UIEdgeInsets s = vc.view.safeAreaInsets;
+    if (!g_nav || !g_nav.topViewController) return out;
+    UIEdgeInsets s = g_nav.topViewController.view.safeAreaInsets;
     Mel_Insets safe = { (i32)s.left, (i32)s.top, (i32)s.right, (i32)s.bottom };
     out.safe_area   = safe;
     out.system_bars = safe;

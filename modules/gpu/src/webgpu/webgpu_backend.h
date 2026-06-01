@@ -7,43 +7,56 @@
 
 #include <gpu/gpu.h>
 
-struct Mel_Gpu_Device {
+struct Mel_Gpu_Device
+{
     WGPUInstance instance;
     WGPUAdapter  adapter; // retained on native for surface-format negotiation; NULL on emscripten
     WGPUDevice   device;
     WGPUQueue    queue;
 };
 
-struct Mel_Gpu_Buffer {
+struct Mel_Gpu_Buffer
+{
     Mel_Gpu_Device* device;
     WGPUBuffer      buf;
     usize           size;
     bool            host_visible;
 };
 
-struct Mel_Gpu_Shader {
+struct Mel_Gpu_Shader
+{
     WGPUShaderModule module;
     char*            vertex_entry;
     char*            fragment_entry;
 };
 
-struct Mel_Gpu_Pipeline {
+struct Mel_Gpu_Pipeline
+{
     WGPURenderPipeline pipe;
 };
 
-struct Mel_Gpu_Command_List {
-    Mel_Gpu_Swapchain*     swapchain;
-    WGPUCommandEncoder     encoder;
-    WGPURenderPassEncoder  pass;
+struct Mel_Gpu_Command_List
+{
+    Mel_Gpu_Swapchain*    swapchain;
+    WGPUCommandEncoder    encoder;
+    WGPURenderPassEncoder pass;
 };
 
-struct Mel_Gpu_Swapchain {
+struct Mel_Gpu_Surface
+{
+    WGPUInstance instance;
+    WGPUSurface  surface;
+    char         selector[96];
+    void*        native;
+};
+
+struct Mel_Gpu_Swapchain
+{
     Mel_Gpu_Device*   device;
-    WGPUSurface       surface;
+    Mel_Gpu_Surface*  surface;
     WGPUTextureFormat format;
     Mel_Gpu_Format    mel_format;
     i32               width, height;
-    char              selector[96];
 
     WGPUTexture          cur_texture; // current frame, NULL between frames
     WGPUTextureView      cur_view;    // current frame, NULL between frames
@@ -58,39 +71,57 @@ static inline WGPUStringView mel_gpu__sv(const char* s)
 
 static inline WGPUTextureFormat mel_gpu__wgpu_color_format(Mel_Gpu_Format f)
 {
-    switch (f) {
-        case MEL_GPU_FORMAT_RGBA8_UNORM: return WGPUTextureFormat_RGBA8Unorm;
-        case MEL_GPU_FORMAT_BGRA8_UNORM: return WGPUTextureFormat_BGRA8Unorm;
-        default:                         return WGPUTextureFormat_BGRA8Unorm;
+    switch (f)
+    {
+    case MEL_GPU_FORMAT_RGBA8_UNORM:
+        return WGPUTextureFormat_RGBA8Unorm;
+    case MEL_GPU_FORMAT_BGRA8_UNORM:
+        return WGPUTextureFormat_BGRA8Unorm;
+    default:
+        return WGPUTextureFormat_BGRA8Unorm;
     }
 }
 
 static inline Mel_Gpu_Format mel_gpu__mel_color_format(WGPUTextureFormat f)
 {
-    switch (f) {
-        case WGPUTextureFormat_RGBA8Unorm: return MEL_GPU_FORMAT_RGBA8_UNORM;
-        case WGPUTextureFormat_BGRA8Unorm: return MEL_GPU_FORMAT_BGRA8_UNORM;
-        default:                           return MEL_GPU_FORMAT_UNDEFINED;
+    switch (f)
+    {
+    case WGPUTextureFormat_RGBA8Unorm:
+        return MEL_GPU_FORMAT_RGBA8_UNORM;
+    case WGPUTextureFormat_BGRA8Unorm:
+        return MEL_GPU_FORMAT_BGRA8_UNORM;
+    default:
+        return MEL_GPU_FORMAT_UNDEFINED;
     }
 }
 
 static inline WGPUVertexFormat mel_gpu__wgpu_vertex_format(Mel_Gpu_Format f)
 {
-    switch (f) {
-        case MEL_GPU_FORMAT_RG32_FLOAT:   return WGPUVertexFormat_Float32x2;
-        case MEL_GPU_FORMAT_RGB32_FLOAT:  return WGPUVertexFormat_Float32x3;
-        case MEL_GPU_FORMAT_RGBA32_FLOAT: return WGPUVertexFormat_Float32x4;
-        default:                          return WGPUVertexFormat_Float32x3;
+    switch (f)
+    {
+    case MEL_GPU_FORMAT_RG32_FLOAT:
+        return WGPUVertexFormat_Float32x2;
+    case MEL_GPU_FORMAT_RGB32_FLOAT:
+        return WGPUVertexFormat_Float32x3;
+    case MEL_GPU_FORMAT_RGBA32_FLOAT:
+        return WGPUVertexFormat_Float32x4;
+    default:
+        return WGPUVertexFormat_Float32x3;
     }
 }
 
 static inline WGPUPrimitiveTopology mel_gpu__wgpu_topology(Mel_Gpu_Topology t)
 {
-    switch (t) {
-        case MEL_GPU_TOPOLOGY_TRIANGLE_STRIP: return WGPUPrimitiveTopology_TriangleStrip;
-        case MEL_GPU_TOPOLOGY_LINE_LIST:      return WGPUPrimitiveTopology_LineList;
-        case MEL_GPU_TOPOLOGY_POINT_LIST:     return WGPUPrimitiveTopology_PointList;
-        default:                              return WGPUPrimitiveTopology_TriangleList;
+    switch (t)
+    {
+    case MEL_GPU_TOPOLOGY_TRIANGLE_STRIP:
+        return WGPUPrimitiveTopology_TriangleStrip;
+    case MEL_GPU_TOPOLOGY_LINE_LIST:
+        return WGPUPrimitiveTopology_LineList;
+    case MEL_GPU_TOPOLOGY_POINT_LIST:
+        return WGPUPrimitiveTopology_PointList;
+    default:
+        return WGPUPrimitiveTopology_TriangleList;
     }
 }
 

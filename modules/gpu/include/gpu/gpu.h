@@ -2,6 +2,7 @@
 
 #include <gpu/types.h>
 #include <gpu/device.h>
+#include <gpu/surface.h>
 #include <gpu/swapchain.h>
 #include <gpu/buffer.h>
 #include <gpu/shader.h>

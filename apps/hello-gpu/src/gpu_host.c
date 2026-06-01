@@ -6,38 +6,59 @@
 
 #include "gpu_host.h"
 
-typedef struct {
+typedef struct
+{
     const Graphical_App*   app;
     Mel_Gui_Handle         frame;
     Mel_Gui_Handle         view;
+    Mel_Gpu_Surface*       surface;
     Mel_Gpu_Swapchain*     swapchain;
     Mel_Gpu_Render_Source* source;
     void*                  state;
     i32                    width, height;
 } Gpu_Window;
 
-static Mel_Reactor*   g_reactor;
+static Mel_Reactor*    g_reactor;
 static Mel_Gpu_Device* g_device;
 
 void gpu_host_init(Mel_Reactor* reactor)
 {
     g_reactor = reactor;
-    g_device  = mel_gpu_device_create(.debug = true);
+    g_device = mel_gpu_device_create(.debug = true);
 }
 
 static void window_render(Mel_Gpu_Swapchain* sc, f64 dt, void* user)
 {
     Gpu_Window* w = user;
     mel_gpu_frame_begin(sc);
-    if (w->app->render) w->app->render(w->state, mel_gpu_frame_commands(sc), dt);
+    if (w->app->render)
+        w->app->render(w->state, mel_gpu_frame_commands(sc), dt);
     mel_gpu_frame_end(sc);
 }
 
 static void teardown(Gpu_Window* w)
 {
-    if (w->source) { mel_gpu_render_source_destroy(w->source); w->source = NULL; }
-    if (w->state)  { if (w->app->teardown) w->app->teardown(w->state); w->state = NULL; }
-    if (w->swapchain) { mel_gpu_swapchain_destroy(w->swapchain); w->swapchain = NULL; }
+    if (w->source)
+    {
+        mel_gpu_render_source_destroy(w->source);
+        w->source = NULL;
+    }
+    if (w->state)
+    {
+        if (w->app->teardown)
+            w->app->teardown(w->state);
+        w->state = NULL;
+    }
+    if (w->swapchain)
+    {
+        mel_gpu_swapchain_destroy(w->swapchain);
+        w->swapchain = NULL;
+    }
+    if (w->surface)
+    {
+        mel_gpu_surface_destroy(w->surface);
+        w->surface = NULL;
+    }
 }
 
 // The surface seam is unified across platforms: the swapchain is created on the
@@ -50,48 +71,59 @@ static void window_resized(Mel_Gui_Handle h, i32 cw, i32 ch, void* user)
     (void)h;
     Gpu_Window* w = user;
 
-    if (cw <= 0 || ch <= 0) { teardown(w); return; }
-
-    w->width  = cw;
-    w->height = ch;
-
-    if (w->swapchain) {
-        mel_gpu_swapchain_resize(w->swapchain, cw, ch);
-        if (w->app->resize) w->app->resize(w->state, cw, ch);
+    if (cw <= 0 || ch <= 0)
+    {
+        teardown(w);
         return;
     }
 
-    void* surface = mel_gpu_view_surface(w->view);
-    if (!surface) return; // surface not ready yet (Android, before surfaceCreated)
+    w->width = cw;
+    w->height = ch;
 
-    w->swapchain = mel_gpu_swapchain_create(g_device,
-        .native_window = surface, .width = cw, .height = ch, .vsync = true);
-    if (!w->swapchain) return;
+    if (w->swapchain)
+    {
+        mel_gpu_swapchain_resize(w->swapchain, cw, ch);
+        if (w->app->resize)
+            w->app->resize(w->state, cw, ch);
+        return;
+    }
 
-    w->state  = w->app->init ? w->app->init(g_device, w->swapchain) : NULL;
-    if (w->app->resize) w->app->resize(w->state, cw, ch);
+    void* native = mel_gpu_view_surface(w->view);
+    if (!native)
+        return; // surface not ready yet (Android, before surfaceCreated)
+
+    w->surface = mel_gpu_surface_create(g_device, native);
+    if (!w->surface)
+        return;
+
+    w->swapchain = mel_gpu_swapchain_create(g_device, .surface = w->surface, .width = cw, .height = ch, .vsync = true);
+    if (!w->swapchain)
+    {
+        mel_gpu_surface_destroy(w->surface);
+        w->surface = NULL;
+        return;
+    }
+
+    w->state = w->app->init ? w->app->init(g_device, w->swapchain) : NULL;
+    if (w->app->resize)
+        w->app->resize(w->state, cw, ch);
     w->source = mel_gpu_render_source_new(g_reactor, w->swapchain, 60, window_render, w);
 }
 
 void gpu_host_open(const Graphical_App* app)
 {
-    if (!g_device) return;
+    if (!g_device)
+        return;
 
     Gpu_Window* w = calloc(1, sizeof *w);
     w->app = app;
 
     w->frame = mel_frame_create(.title = str8_from_cstr(app->title), .w = 640, .h = 480);
-    mel_gui_set_layout(w->frame, mel_column_layout(
-        .spacing = 8, .margin = 12, .cross_align = MEL_ALIGN_STRETCH));
+    mel_gui_set_layout(w->frame, mel_column_layout(.spacing = 8, .margin = 12, .cross_align = MEL_ALIGN_STRETCH));
 
-    mel_label_create(w->frame,
-        .text = S8("Native GUI label, sharing this window with a GPU surface below."),
-        .layoutable = { .preferred_h = 24 });
+    mel_label_create(w->frame, .text = S8("Native GUI label, sharing this window with a GPU surface below."), .layoutable = { .preferred_h = 24 });
 
-    w->view = mel_gpu_view_create(w->frame,
-        .on_.on_resize = window_resized,
-        .user          = w,
-        .layoutable    = { .preferred_h = 400, .weight = 1 });
+    w->view = mel_gpu_view_create(w->frame, .on_.on_resize = window_resized, .user = w, .layoutable = { .preferred_h = 400, .weight = 1 });
 
     // Frames opened directly (not via the screen system) are not auto-sized; give
     // it a size/position and arrange children. On macOS/web this fires

@@ -118,10 +118,11 @@ void mel_gui_set_visible(Mel_Gui_Handle h, bool visible)
     n->hidden = !visible;
     if (!n->native) return;
     id obj = (__bridge id)n->native;
-    // A frame is a navigation-stack view controller: showing it pushes (or
-    // pops back to) it; hiding is the stack's job, not ours.
+    // A screen is a navigation-stack view controller: showing it pushes (or
+    // pops back to) it; hiding is the stack's job, not ours. The frame itself
+    // is only the navigator's container — its screens carry the content.
     if ([obj isKindOfClass:[UIViewController class]]) {
-        if (visible) mel_gui__ios_show_frame(n);
+        if (visible && n->is_screen) mel_gui__ios_show_frame(n);
     } else if ([obj isKindOfClass:[UIView class]]) {
         [(UIView*)obj setHidden:!visible];
     }
