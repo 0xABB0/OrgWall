@@ -1,111 +1,55 @@
 #include <allocator/leak.h>
+#include <allocator/tracking.h>
+#include <allocator/heap.h>
 #include <allocator/allocator.h>
-#include <stdlib.h>
 
-extern Mel_Mem_Fail_Cb mel__get_fail_cb(void);
+#include <stdatomic.h>
 
-typedef struct Mel_Leak_Header Mel_Leak_Header;
-
-struct Mel_Leak_Header
+typedef struct
 {
-    Mel_Leak_Header* prev;
-    Mel_Leak_Header* next;
-    const char*      file;
-    const char*      func;
-    u32              line;
-    usize            size;
-};
+    atomic_uint         init_state;
+    Mel_Track_Allocator tracker;
+    Mel_Alloc           iface;
+} Mel_Leak_State;
 
-#define MEL_LEAK_FREED_MAGIC (~(usize)0)
+static Mel_Leak_State s_leak = { .init_state = 0 };
 
-static Mel_Leak_Header s_leak_sentinel = { .prev = &s_leak_sentinel, .next = &s_leak_sentinel, .file = NULL, .func = NULL, .line = 0, .size = 0 };
-
-static void* leak_detect_cb(void* ptr, usize size, u32 align, const char* file, const char* func, u32 line, void* user_data)
+static void mel__leak_init_once(void)
 {
-    MEL_UNUSED(align);
-    MEL_UNUSED(user_data);
-
-    Mel_Mem_Fail_Cb fail_cb = mel__get_fail_cb();
-
-    if (ptr == NULL && size > 0)
+    u32 expected = 0;
+    if (atomic_compare_exchange_strong_explicit(&s_leak.init_state, &expected, 1, memory_order_acq_rel, memory_order_acquire))
     {
-        Mel_Leak_Header* header = (Mel_Leak_Header*)malloc(sizeof(Mel_Leak_Header) + size);
-        if (!header)
-        {
-            if (fail_cb)
-                fail_cb(file, func, line, size);
-            return NULL;
-        }
-        header->file = file;
-        header->func = func;
-        header->line = line;
-        header->size = size;
-
-        header->next = s_leak_sentinel.next;
-        header->prev = &s_leak_sentinel;
-        s_leak_sentinel.next->prev = header;
-        s_leak_sentinel.next = header;
-
-        return (void*)(header + 1);
+        mel_track_init(&s_leak.tracker, (Mel_Track_Allocator_Opt){ .backing = mel_alloc_heap() });
+        s_leak.iface = mel_track_allocator(&s_leak.tracker);
+        atomic_store_explicit(&s_leak.init_state, 2, memory_order_release);
+        return;
     }
-
-    if (ptr != NULL && size > 0)
+    while (atomic_load_explicit(&s_leak.init_state, memory_order_acquire) != 2)
     {
-        Mel_Leak_Header* header = ((Mel_Leak_Header*)ptr) - 1;
-        assert(header->size != MEL_LEAK_FREED_MAGIC);
-
-        header->prev->next = header->next;
-        header->next->prev = header->prev;
-
-        Mel_Leak_Header* new_header = (Mel_Leak_Header*)realloc(header, sizeof(Mel_Leak_Header) + size);
-        if (!new_header)
-        {
-            header->next = s_leak_sentinel.next;
-            header->prev = &s_leak_sentinel;
-            s_leak_sentinel.next->prev = header;
-            s_leak_sentinel.next = header;
-            if (fail_cb)
-                fail_cb(file, func, line, size);
-            return NULL;
-        }
-        new_header->file = file;
-        new_header->func = func;
-        new_header->line = line;
-        new_header->size = size;
-
-        new_header->next = s_leak_sentinel.next;
-        new_header->prev = &s_leak_sentinel;
-        s_leak_sentinel.next->prev = new_header;
-        s_leak_sentinel.next = new_header;
-
-        return (void*)(new_header + 1);
     }
-
-    if (ptr != NULL && size == 0)
-    {
-        Mel_Leak_Header* header = ((Mel_Leak_Header*)ptr) - 1;
-        assert(header->size != MEL_LEAK_FREED_MAGIC);
-
-        header->prev->next = header->next;
-        header->next->prev = header->prev;
-        header->size = MEL_LEAK_FREED_MAGIC;
-        free(header);
-        return NULL;
-    }
-
-    return NULL;
 }
 
-static const Mel_Alloc s_leak_detect_alloc = { .alloc_cb = leak_detect_cb, .user_data = NULL };
+const Mel_Alloc* mel_alloc_leak_detect(void)
+{
+    mel__leak_init_once();
+    return &s_leak.iface;
+}
 
-const Mel_Alloc* mel_alloc_leak_detect(void) { return &s_leak_detect_alloc; }
+typedef struct
+{
+    Mel_Leak_Report_Cb cb;
+    void*              user_data;
+} Mel__Leak_Adapter;
+
+static void mel__leak_record_cb(const Mel_Track_Record* rec, void* user_data)
+{
+    Mel__Leak_Adapter* a = (Mel__Leak_Adapter*)user_data;
+    a->cb(rec->file, rec->func, rec->line, rec->size, a->user_data);
+}
 
 void mel_leak_dump(Mel_Leak_Report_Cb cb, void* user_data)
 {
-    Mel_Leak_Header* h = s_leak_sentinel.next;
-    while (h != &s_leak_sentinel)
-    {
-        cb(h->file, h->func, h->line, h->size, user_data);
-        h = h->next;
-    }
+    mel__leak_init_once();
+    Mel__Leak_Adapter adapter = { .cb = cb, .user_data = user_data };
+    mel_track_dump_live(&s_leak.tracker, mel__leak_record_cb, &adapter);
 }
