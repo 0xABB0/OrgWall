@@ -108,8 +108,24 @@ static void on_alarm(int sig)
     _exit(TEST_TIMEOUT);
 }
 
+static Result run_in_process(Mel_Test* t)
+{
+    switch (run_body(t))
+    {
+    case TEST_PASS:
+        return R_PASS;
+    case TEST_SKIP:
+        return R_SKIP;
+    default:
+        return R_FAIL;
+    }
+}
+
 static Result run_isolated(Mel_Test* t)
 {
+    if (getenv("MEL_TEST_NOFORK"))
+        return run_in_process(t);
+
     fflush(NULL);
     pid_t pid = fork();
     if (pid < 0)

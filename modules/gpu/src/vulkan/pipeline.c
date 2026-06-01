@@ -1,131 +1,110 @@
-#include "vulkan_backend.h"
+#include "vk_backend.h"
 
-#define MEL_GPU_VK_MAX_ATTRS 16
+#include <gpu/pipeline.h>
+#include <log/log.h>
 
-// A render pass compatible with the swapchain's (same single color format,
-// 1 sample). Used only to create the pipeline; a pipeline works with any
-// render-pass compatible with the one it was built against, so this is created
-// and destroyed locally. swapchain.c builds an identical pass for rendering.
-VkRenderPass mel_gpu__vk_make_render_pass(VkDevice device, VkFormat format)
+#include <stdlib.h>
+
+static VkPrimitiveTopology mel_gpu__topology(Mel_Gpu_Topology t)
 {
-    VkAttachmentDescription color = {
-        .format = format,
-        .samples = VK_SAMPLE_COUNT_1_BIT,
-        .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
-        .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
-        .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
-        .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
-        .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-        .finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
-    };
-    VkAttachmentReference ref = { .attachment = 0, .layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
-    VkSubpassDescription  sub = {
-        .pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS,
-        .colorAttachmentCount = 1,
-        .pColorAttachments = &ref,
-    };
-    VkSubpassDependency dep = {
-        .srcSubpass = VK_SUBPASS_EXTERNAL,
-        .dstSubpass = 0,
-        .srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-        .dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-        .dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-    };
-    VkRenderPassCreateInfo rpci = {
-        .sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
-        .attachmentCount = 1,
-        .pAttachments = &color,
-        .subpassCount = 1,
-        .pSubpasses = &sub,
-        .dependencyCount = 1,
-        .pDependencies = &dep,
-    };
-    VkRenderPass rp;
-    if (vkCreateRenderPass(device, &rpci, NULL, &rp) != VK_SUCCESS)
-        return VK_NULL_HANDLE;
-    return rp;
+    switch (t)
+    {
+    case MEL_GPU_TOPOLOGY_TRIANGLE_LIST:
+        return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+    case MEL_GPU_TOPOLOGY_TRIANGLE_STRIP:
+        return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP;
+    case MEL_GPU_TOPOLOGY_LINE_LIST:
+        return VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
+    case MEL_GPU_TOPOLOGY_POINT_LIST:
+        return VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
+    }
+    return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
 }
 
-Mel_Gpu_Pipeline* mel_gpu_pipeline_create_opt(Mel_Gpu_Device* dev, Mel_Gpu_Pipeline_Opt opt)
+static VkCullModeFlags mel_gpu__cull(Mel_Gpu_Cull c)
 {
-    if (!dev || !opt.shader)
-        return NULL;
+    switch (c)
+    {
+    case MEL_GPU_CULL_NONE:
+        return VK_CULL_MODE_NONE;
+    case MEL_GPU_CULL_FRONT:
+        return VK_CULL_MODE_FRONT_BIT;
+    case MEL_GPU_CULL_BACK:
+        return VK_CULL_MODE_BACK_BIT;
+    }
+    return VK_CULL_MODE_NONE;
+}
+
+Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_create_opt(Mel_Gpu_Device* dev, Mel_Gpu_Pipeline_Opt opt)
+{
+    Mel_Gpu_Pipeline_Create_Result res = { .value = { mel_gpu_handle_null() }, .status = MEL_GPU_PIPELINE_CREATE_OK };
+
+    VkShaderModule vs, fs;
+    const char *   vs_entry, *fs_entry;
+    if (!dev || !mel_gpu__shader_modules(dev, opt.shader, &vs, &fs, &vs_entry, &fs_entry))
+    {
+        res.status = MEL_GPU_PIPELINE_CREATE_NO_SHADER;
+        return res;
+    }
 
     VkPipelineShaderStageCreateInfo stages[2] = {
-        { .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, .stage = VK_SHADER_STAGE_VERTEX_BIT, .module = opt.shader->vs, .pName = opt.shader->vertex_entry },
-        { .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, .stage = VK_SHADER_STAGE_FRAGMENT_BIT, .module = opt.shader->fs, .pName = opt.shader->fragment_entry },
+        { .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, .stage = VK_SHADER_STAGE_VERTEX_BIT, .module = vs, .pName = vs_entry },
+        { .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, .stage = VK_SHADER_STAGE_FRAGMENT_BIT, .module = fs, .pName = fs_entry },
     };
 
-    u32 attr_count = opt.vertex_layout_count;
-    if (attr_count > MEL_GPU_VK_MAX_ATTRS)
-        attr_count = MEL_GPU_VK_MAX_ATTRS;
-    VkVertexInputAttributeDescription attrs[MEL_GPU_VK_MAX_ATTRS] = { 0 };
-    for (u32 i = 0; i < attr_count; i++)
+    VkVertexInputBindingDescription binding = { .binding = 0, .stride = opt.vertex_stride, .inputRate = VK_VERTEX_INPUT_RATE_VERTEX };
+
+    VkVertexInputAttributeDescription* attrs = NULL;
+    if (opt.vertex_layout_count)
     {
-        attrs[i].location = opt.vertex_layout[i].location;
-        attrs[i].binding = 0;
-        attrs[i].format = mel_gpu__vk_vertex_format(opt.vertex_layout[i].format);
-        attrs[i].offset = opt.vertex_layout[i].offset;
+        attrs = mel_alloc_array(dev->alloc, VkVertexInputAttributeDescription, opt.vertex_layout_count);
+        for (u32 i = 0; i < opt.vertex_layout_count; i++)
+            attrs[i] = (VkVertexInputAttributeDescription){
+                .location = opt.vertex_layout[i].location,
+                .binding = 0,
+                .format = mel_gpu__vk_format(opt.vertex_layout[i].format),
+                .offset = opt.vertex_layout[i].offset,
+            };
     }
-    VkVertexInputBindingDescription binding = {
-        .binding = 0,
-        .stride = opt.vertex_stride,
-        .inputRate = VK_VERTEX_INPUT_RATE_VERTEX,
-    };
+
     VkPipelineVertexInputStateCreateInfo vin = {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
-        .vertexBindingDescriptionCount = opt.vertex_stride > 0 ? 1 : 0,
-        .pVertexBindingDescriptions = opt.vertex_stride > 0 ? &binding : NULL,
-        .vertexAttributeDescriptionCount = attr_count,
+        .vertexBindingDescriptionCount = opt.vertex_stride ? 1u : 0u,
+        .pVertexBindingDescriptions = opt.vertex_stride ? &binding : NULL,
+        .vertexAttributeDescriptionCount = opt.vertex_layout_count,
         .pVertexAttributeDescriptions = attrs,
     };
 
-    VkPipelineInputAssemblyStateCreateInfo ia = {
-        .sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
-        .topology = mel_gpu__vk_topology(opt.topology),
-    };
-    VkPipelineViewportStateCreateInfo vp = {
-        .sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
-        .viewportCount = 1,
-        .scissorCount = 1,
-    };
+    VkPipelineInputAssemblyStateCreateInfo ia = { .sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO, .topology = mel_gpu__topology(opt.topology) };
+
+    VkPipelineViewportStateCreateInfo vp = { .sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO, .viewportCount = 1, .scissorCount = 1 };
+
     VkPipelineRasterizationStateCreateInfo rs = {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
         .polygonMode = VK_POLYGON_MODE_FILL,
-        .cullMode = mel_gpu__vk_cull(opt.cull),
+        .cullMode = mel_gpu__cull(opt.cull),
         .frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE,
         .lineWidth = 1.0f,
     };
-    VkPipelineMultisampleStateCreateInfo ms = {
-        .sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
-        .rasterizationSamples = VK_SAMPLE_COUNT_1_BIT,
-    };
-    VkPipelineColorBlendAttachmentState blend_att = {
-        .colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT,
-    };
-    VkPipelineColorBlendStateCreateInfo cb = {
-        .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
-        .attachmentCount = 1,
-        .pAttachments = &blend_att,
-    };
-    VkDynamicState                   dyn_states[2] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
-    VkPipelineDynamicStateCreateInfo dyn = {
-        .sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
-        .dynamicStateCount = 2,
-        .pDynamicStates = dyn_states,
-    };
 
-    VkPipelineLayoutCreateInfo lci = { .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO };
-    VkPipelineLayout           layout;
-    if (vkCreatePipelineLayout(dev->device, &lci, NULL, &layout) != VK_SUCCESS)
-        return NULL;
+    VkPipelineMultisampleStateCreateInfo ms = { .sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO, .rasterizationSamples = VK_SAMPLE_COUNT_1_BIT };
 
-    VkRenderPass rp = mel_gpu__vk_make_render_pass(dev->device, mel_gpu__vk_color_format(opt.color_format));
-    if (!rp)
-    {
-        vkDestroyPipelineLayout(dev->device, layout, NULL);
-        return NULL;
-    }
+    VkPipelineColorBlendAttachmentState cba = { .colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT };
+    VkPipelineColorBlendStateCreateInfo cb = { .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO, .attachmentCount = 1, .pAttachments = &cba };
+
+    VkDynamicState                   dyn[] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
+    VkPipelineDynamicStateCreateInfo ds = { .sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO, .dynamicStateCount = 2, .pDynamicStates = dyn };
+
+    VkPushConstantRange        pcr = { .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, .offset = 0, .size = opt.push_constant_size };
+    VkPipelineLayoutCreateInfo plci = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+        .pushConstantRangeCount = opt.push_constant_size ? 1u : 0u,
+        .pPushConstantRanges = opt.push_constant_size ? &pcr : NULL,
+    };
+    VkPipelineLayout layout = VK_NULL_HANDLE;
+    vkCreatePipelineLayout(dev->vk, &plci, NULL, &layout);
+
+    VkRenderPass rp = mel_gpu__make_render_pass(dev, mel_gpu__vk_format(opt.color_format));
 
     VkGraphicsPipelineCreateInfo gci = {
         .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
@@ -137,39 +116,57 @@ Mel_Gpu_Pipeline* mel_gpu_pipeline_create_opt(Mel_Gpu_Device* dev, Mel_Gpu_Pipel
         .pRasterizationState = &rs,
         .pMultisampleState = &ms,
         .pColorBlendState = &cb,
-        .pDynamicState = &dyn,
+        .pDynamicState = &ds,
         .layout = layout,
         .renderPass = rp,
         .subpass = 0,
     };
-    VkPipeline pipeline;
-    VkResult   r = vkCreateGraphicsPipelines(dev->device, VK_NULL_HANDLE, 1, &gci, NULL, &pipeline);
-    vkDestroyRenderPass(dev->device, rp, NULL);
+
+    VkPipeline pipeline = VK_NULL_HANDLE;
+    VkResult   r = vkCreateGraphicsPipelines(dev->vk, VK_NULL_HANDLE, 1, &gci, NULL, &pipeline);
+    vkDestroyRenderPass(dev->vk, rp, NULL);
+    if (attrs)
+        mel_dealloc(dev->alloc, attrs);
+
     if (r != VK_SUCCESS)
     {
-        vkDestroyPipelineLayout(dev->device, layout, NULL);
-        return NULL;
+        mel_log_error("gpu", "vkCreateGraphicsPipelines failed: %s", mel_gpu__vk_result_str(r));
+        vkDestroyPipelineLayout(dev->vk, layout, NULL);
+        res.status = MEL_GPU_PIPELINE_CREATE_VK_FAILED;
+        return res;
     }
 
-    Mel_Gpu_Pipeline* p = calloc(1, sizeof *p);
-    if (!p)
-    {
-        vkDestroyPipeline(dev->device, pipeline, NULL);
-        vkDestroyPipelineLayout(dev->device, layout, NULL);
-        return NULL;
-    }
-    p->device = dev;
-    p->pipeline = pipeline;
-    p->layout = layout;
-    return p;
+    Mel_Gpu_Pipeline_Obj obj = { 0 };
+    obj.header.ownership = MEL_GPU_OWNERSHIP_OWNED;
+    obj.header.name = opt.name;
+    obj.pipeline = pipeline;
+    obj.layout = layout;
+    res.value.slot = mel_gpu__table_insert(dev, &dev->pipelines, &obj);
+    return res;
 }
 
-void mel_gpu_pipeline_destroy(Mel_Gpu_Pipeline* pipe)
+void mel_gpu_pipeline_destroy(Mel_Gpu_Device* dev, Mel_Gpu_Pipeline pipe)
 {
-    if (!pipe)
+    Mel_Gpu_Pipeline_Obj* o = mel_gpu__table_get(dev, &dev->pipelines, pipe.slot);
+    if (!o)
         return;
-    vkDeviceWaitIdle(pipe->device->device);
-    vkDestroyPipeline(pipe->device->device, pipe->pipeline, NULL);
-    vkDestroyPipelineLayout(pipe->device->device, pipe->layout, NULL);
-    free(pipe);
+    VkPipeline       p = o->pipeline;
+    VkPipelineLayout l = o->layout;
+    mel_gpu__table_remove(dev, &dev->pipelines, pipe.slot);
+    if (p)
+        vkDestroyPipeline(dev->vk, p, NULL);
+    if (l)
+        vkDestroyPipelineLayout(dev->vk, l, NULL);
+}
+
+bool mel_gpu_pipeline_alive(Mel_Gpu_Device* dev, Mel_Gpu_Pipeline pipe) { return mel_gpu__table_get(dev, &dev->pipelines, pipe.slot) != NULL; }
+
+bool mel_gpu__pipeline_get(Mel_Gpu_Device* dev, Mel_Gpu_Pipeline pipe, VkPipeline* out_pipe, VkPipelineLayout* out_layout)
+{
+    Mel_Gpu_Pipeline_Obj* o = mel_gpu__table_get(dev, &dev->pipelines, pipe.slot);
+    if (!o)
+        return false;
+    *out_pipe = o->pipeline;
+    *out_layout = o->layout;
+    return true;
 }

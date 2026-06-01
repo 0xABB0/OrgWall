@@ -1,23 +1,39 @@
 #pragma once
 
-#include <gpu/types.h>
+#include <core/types.h>
+#include <gpu/handle.h>
+#include <gpu/status.h>
 
-// Shader source is supplied per backend until a single cross-compiled source
-// (Slang) is integrated. A given build compiles one backend, so only that
-// backend's field is consulted.
+typedef struct Mel_Gpu_Device Mel_Gpu_Device;
+
+MEL_GPU_HANDLE(Mel_Gpu_Shader);
+
+typedef enum
+{
+    MEL_GPU_SHADER_CREATE_OK = MEL_GPU_STATUS(0, MEL_GPU_SEVERITY_OK),
+    MEL_GPU_SHADER_CREATE_VK_FAILED = MEL_GPU_STATUS(1, MEL_GPU_SEVERITY_ERROR),
+    MEL_GPU_SHADER_CREATE_NO_CODE = MEL_GPU_STATUS(2, MEL_GPU_SEVERITY_ERROR),
+} Mel_Gpu_Shader_Create_Status;
+
 typedef struct
 {
-    const char* metal_source;        // MSL,  used by the metal backend
-    const char* wgsl_source;         // WGSL, used by the webgpu backend
-    const void* spirv_vertex;        // SPIR-V vertex module,   used by the vulkan backend
-    usize       spirv_vertex_size;   // bytes
-    const void* spirv_fragment;      // SPIR-V fragment module, used by the vulkan backend
-    usize       spirv_fragment_size; // bytes
-    const char* vertex_entry;        // vertex function/entry name
-    const char* fragment_entry;      // fragment function/entry name
-} Mel_Gpu_Shader_Opt;
+    const void* spirv_vertex;
+    usize       spirv_vertex_size;
+    const void* spirv_fragment;
+    usize       spirv_fragment_size;
+    const char* vertex_entry;
+    const char* fragment_entry;
+    const char* name;
+} Mel_Gpu_Shader_Bytecode_Opt;
 
-Mel_Gpu_Shader* mel_gpu_shader_create_opt(Mel_Gpu_Device* dev, Mel_Gpu_Shader_Opt opt);
-#define mel_gpu_shader_create(dev, ...) mel_gpu_shader_create_opt((dev), (Mel_Gpu_Shader_Opt){ __VA_ARGS__ })
+typedef struct
+{
+    Mel_Gpu_Shader               value;
+    Mel_Gpu_Shader_Create_Status status;
+} Mel_Gpu_Shader_Create_Result;
 
-void mel_gpu_shader_destroy(Mel_Gpu_Shader* sh);
+Mel_Gpu_Shader_Create_Result mel_gpu_shader_create_from_bytecode_opt(Mel_Gpu_Device* dev, Mel_Gpu_Shader_Bytecode_Opt opt);
+#define mel_gpu_shader_create_from_bytecode(dev, ...) mel_gpu_shader_create_from_bytecode_opt((dev), (Mel_Gpu_Shader_Bytecode_Opt){ __VA_ARGS__ })
+
+void mel_gpu_shader_destroy(Mel_Gpu_Device* dev, Mel_Gpu_Shader sh);
+bool mel_gpu_shader_alive(Mel_Gpu_Device* dev, Mel_Gpu_Shader sh);

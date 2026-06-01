@@ -12,29 +12,16 @@ typedef struct
 
 typedef struct
 {
-    Mel_Gpu_Shader*   shader;
-    Mel_Gpu_Pipeline* pipeline;
-    Mel_Gpu_Buffer*   vbo;
+    Mel_Gpu_Device*  dev;
+    Mel_Gpu_Shader   shader;
+    Mel_Gpu_Pipeline pipeline;
+    Mel_Gpu_Buffer   vbo;
 } Triangle;
-
-static const char* TRIANGLE_MSL = "#include <metal_stdlib>\n"
-                                  "using namespace metal;\n"
-                                  "struct VsIn  { float3 pos [[attribute(0)]]; float4 color [[attribute(1)]]; };\n"
-                                  "struct VsOut { float4 pos [[position]]; float4 color; };\n"
-                                  "vertex VsOut vs_main(VsIn in [[stage_in]]) {\n"
-                                  "    VsOut o; o.pos = float4(in.pos, 1.0); o.color = in.color; return o;\n"
-                                  "}\n"
-                                  "fragment float4 fs_main(VsOut in [[stage_in]]) { return in.color; }\n";
-
-static const char* TRIANGLE_WGSL = "struct VsOut { @builtin(position) pos: vec4<f32>, @location(0) color: vec4<f32> };\n"
-                                   "@vertex fn vs_main(@location(0) pos: vec3<f32>, @location(1) color: vec4<f32>) -> VsOut {\n"
-                                   "    var o: VsOut; o.pos = vec4<f32>(pos, 1.0); o.color = color; return o;\n"
-                                   "}\n"
-                                   "@fragment fn fs_main(in: VsOut) -> @location(0) vec4<f32> { return in.color; }\n";
 
 static void* triangle_init(Mel_Gpu_Device* dev, Mel_Gpu_Swapchain* sc)
 {
     Triangle* t = calloc(1, sizeof *t);
+    t->dev = dev;
 
     const Vertex verts[] = {
         { { 0.0f, 0.6f, 0.0f }, { 1.0f, 0.0f, 0.0f, 1.0f } },
@@ -42,17 +29,16 @@ static void* triangle_init(Mel_Gpu_Device* dev, Mel_Gpu_Swapchain* sc)
         { { -0.6f, -0.6f, 0.0f }, { 0.0f, 0.0f, 1.0f, 1.0f } },
     };
 
-    t->vbo = mel_gpu_buffer_create(dev, .size = sizeof verts, .usage = MEL_GPU_BUFFER_VERTEX, .memory = MEL_GPU_MEMORY_UPLOAD, .data = verts);
+    t->vbo = mel_gpu_buffer_create(dev, .size = sizeof verts, .usage = MEL_GPU_BUFFER_VERTEX, .memory = MEL_GPU_MEMORY_UPLOAD, .data = verts, .name = "triangle-vbo").value;
 
-    t->shader = mel_gpu_shader_create(dev,
-                                      .metal_source = TRIANGLE_MSL,
-                                      .wgsl_source = TRIANGLE_WGSL,
-                                      .spirv_vertex = TRIANGLE_VERT_SPV,
-                                      .spirv_vertex_size = sizeof TRIANGLE_VERT_SPV,
-                                      .spirv_fragment = TRIANGLE_FRAG_SPV,
-                                      .spirv_fragment_size = sizeof TRIANGLE_FRAG_SPV,
-                                      .vertex_entry = "vs_main",
-                                      .fragment_entry = "fs_main");
+    t->shader = mel_gpu_shader_create_from_bytecode(dev,
+                                                    .spirv_vertex = TRIANGLE_VERT_SPV,
+                                                    .spirv_vertex_size = sizeof TRIANGLE_VERT_SPV,
+                                                    .spirv_fragment = TRIANGLE_FRAG_SPV,
+                                                    .spirv_fragment_size = sizeof TRIANGLE_FRAG_SPV,
+                                                    .vertex_entry = "vs_main",
+                                                    .fragment_entry = "fs_main")
+                    .value;
 
     const Mel_Gpu_Vertex_Element layout[] = {
         { .location = 0, .format = MEL_GPU_FORMAT_RGB32_FLOAT, .offset = offsetof(Vertex, pos) },
@@ -66,7 +52,8 @@ static void* triangle_init(Mel_Gpu_Device* dev, Mel_Gpu_Swapchain* sc)
                                           .color_format = mel_gpu_swapchain_format(sc),
                                           .vertex_layout = layout,
                                           .vertex_layout_count = 2,
-                                          .vertex_stride = sizeof(Vertex));
+                                          .vertex_stride = sizeof(Vertex))
+                      .value;
 
     return t;
 }
@@ -87,9 +74,9 @@ static void triangle_teardown(void* state)
     Triangle* t = state;
     if (!t)
         return;
-    mel_gpu_pipeline_destroy(t->pipeline);
-    mel_gpu_shader_destroy(t->shader);
-    mel_gpu_buffer_destroy(t->vbo);
+    mel_gpu_pipeline_destroy(t->dev, t->pipeline);
+    mel_gpu_shader_destroy(t->dev, t->shader);
+    mel_gpu_buffer_destroy(t->dev, t->vbo);
     free(t);
 }
 

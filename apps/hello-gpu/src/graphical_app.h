@@ -1,6 +1,6 @@
 #pragma once
 
-#include <gpu/gpu.h>
+#include <gpu.h>
 
 // A graphical application hosted inside a GPU window. The host owns the window,
 // the device, the swapchain and the per-frame begin/end; an app only sets up its

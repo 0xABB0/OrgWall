@@ -16,14 +16,15 @@ typedef struct
 
 typedef struct
 {
-    Mel_Gpu_Shader*   shader;
-    Mel_Gpu_Pipeline* pipeline;
-    Mel_Gpu_Buffer*   vbo[LORENZ_FRAMES];
-    i32               frame;
-    f64               angle;
-    f32               aspect;
-    V3                pts[LORENZ_POINTS];
-    Pt_Vertex         scratch[LORENZ_VERTS];
+    Mel_Gpu_Device*  dev;
+    Mel_Gpu_Shader   shader;
+    Mel_Gpu_Pipeline pipeline;
+    Mel_Gpu_Buffer   vbo[LORENZ_FRAMES];
+    i32              frame;
+    f64              angle;
+    f32              aspect;
+    V3               pts[LORENZ_POINTS];
+    Pt_Vertex        scratch[LORENZ_VERTS];
 } Lorenz;
 
 static V3 hue(f32 h)
@@ -41,11 +42,12 @@ static V3 hue(f32 h)
 static void* lorenz_init(Mel_Gpu_Device* dev, Mel_Gpu_Swapchain* sc)
 {
     Lorenz* lz = calloc(1, sizeof *lz);
+    lz->dev = dev;
     lz->aspect = 1.0f;
     lz->shader = passthrough_shader(dev);
     lz->pipeline = passthrough_pipeline(dev, lz->shader, MEL_GPU_TOPOLOGY_LINE_LIST, mel_gpu_swapchain_format(sc));
     for (i32 i = 0; i < LORENZ_FRAMES; ++i)
-        lz->vbo[i] = mel_gpu_buffer_create(dev, .size = LORENZ_VERTS * sizeof(Pt_Vertex), .usage = MEL_GPU_BUFFER_VERTEX, .memory = MEL_GPU_MEMORY_UPLOAD);
+        lz->vbo[i] = mel_gpu_buffer_create(dev, .size = LORENZ_VERTS * sizeof(Pt_Vertex), .usage = MEL_GPU_BUFFER_VERTEX, .memory = MEL_GPU_MEMORY_UPLOAD, .name = "lorenz-vbo").value;
 
     const f32 sigma = 10.0f, rho = 28.0f, beta = 8.0f / 3.0f, h = 0.005f;
     f32       x = 0.1f, y = 0.0f, z = 0.0f;
@@ -99,8 +101,8 @@ static void lorenz_render(void* state, Mel_Gpu_Command_List* cmd, f64 dt)
     }
 
     lz->frame = (lz->frame + 1) % LORENZ_FRAMES;
-    Mel_Gpu_Buffer* vbo = lz->vbo[lz->frame];
-    mel_gpu_buffer_write(vbo, lz->scratch, LORENZ_VERTS * sizeof(Pt_Vertex));
+    Mel_Gpu_Buffer vbo = lz->vbo[lz->frame];
+    mel_gpu_buffer_write(lz->dev, vbo, lz->scratch, LORENZ_VERTS * sizeof(Pt_Vertex));
 
     mel_gpu_cmd_begin_pass(cmd, mel_gpu_rgba(0.02f, 0.02f, 0.05f, 1.0f));
     mel_gpu_cmd_bind_pipeline(cmd, lz->pipeline);
@@ -114,10 +116,10 @@ static void lorenz_teardown(void* state)
     Lorenz* lz = state;
     if (!lz)
         return;
-    mel_gpu_pipeline_destroy(lz->pipeline);
-    mel_gpu_shader_destroy(lz->shader);
+    mel_gpu_pipeline_destroy(lz->dev, lz->pipeline);
+    mel_gpu_shader_destroy(lz->dev, lz->shader);
     for (i32 i = 0; i < LORENZ_FRAMES; ++i)
-        mel_gpu_buffer_destroy(lz->vbo[i]);
+        mel_gpu_buffer_destroy(lz->dev, lz->vbo[i]);
     free(lz);
 }
 

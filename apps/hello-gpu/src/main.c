@@ -1,3 +1,6 @@
+#include <stdlib.h>
+#include <string.h>
+
 #include <core/platform.h>
 #include <app/app.h>
 #include <gui/gui.h>
@@ -50,4 +53,15 @@ void mel_app_setup(Mel_Reactor* reactor)
     gpu_host_init(reactor);
     mel_app_register_screen(S8("host"), build_host, NULL);
     mel_app_present(S8("host"), NULL);
+
+    const char* autostart = getenv("HELLO_GPU_AUTO");
+    if (autostart)
+    {
+        if (strcmp(autostart, "cube") == 0)
+            gpu_host_open(&CUBE_APP);
+        else if (strcmp(autostart, "lorenz") == 0)
+            gpu_host_open(&LORENZ_APP);
+        else
+            gpu_host_open(&TRIANGLE_APP);
+    }
 }

@@ -1,12 +1,18 @@
 #pragma once
 
-#include <gpu/types.h>
+#include <core/types.h>
+#include <gpu/format.h>
+#include <gpu/surface.h>
+
+typedef struct Mel_Gpu_Device    Mel_Gpu_Device;
+typedef struct Mel_Gpu_Swapchain Mel_Gpu_Swapchain;
 
 typedef struct
 {
-    Mel_Gpu_Surface* surface; // bind-handle (design/platform-surface.md)
-    i32              width, height;
-    Mel_Gpu_Format   format; // UNDEFINED selects the backend default
+    Mel_Gpu_Surface* surface;
+    i32              width;
+    i32              height;
+    Mel_Gpu_Format   format;
     bool             vsync;
 } Mel_Gpu_Swapchain_Opt;
 

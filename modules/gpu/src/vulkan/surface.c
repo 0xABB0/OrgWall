@@ -1,31 +1,29 @@
-#include "vulkan_backend.h"
+#include "vk_backend.h"
+
+#include <allocator/heap.h>
+#include <log/log.h>
 
 Mel_Gpu_Surface* mel_gpu_surface_create(Mel_Gpu_Device* dev, void* native)
 {
     if (!dev || !native)
         return NULL;
 
-    Mel_Gpu_Surface* s = calloc(1, sizeof *s);
-    if (!s)
-        return NULL;
+    Mel_Gpu_Surface* s = mel_alloc_type(mel_alloc_heap(), Mel_Gpu_Surface);
+    *s = (Mel_Gpu_Surface){ 0 };
     s->instance = dev->instance;
     s->native = native;
 
 #if defined(__APPLE__)
-    s->metal_layer = mel_gpu__vk_make_metal_layer(native);
-    if (!s->metal_layer || mel_gpu__vk_create_metal_surface(dev->instance, s->metal_layer, &s->surface) != VK_SUCCESS)
+    s->vk = mel_gpu__vk_create_metal_surface(dev->instance->vk, native, &s->metal_layer);
+    if (s->vk == VK_NULL_HANDLE)
     {
-        mel_gpu_surface_destroy(s);
-        return NULL;
-    }
-#elif defined(__ANDROID__)
-    if (mel_gpu__vk_create_android_surface(dev->instance, native, &s->surface) != VK_SUCCESS)
-    {
-        mel_gpu_surface_destroy(s);
+        mel_log_error("gpu", "failed to create Metal surface");
+        mel_dealloc(mel_alloc_heap(), s);
         return NULL;
     }
 #else
-    free(s);
+    mel_log_error("gpu", "surface creation not implemented for this platform");
+    mel_dealloc(mel_alloc_heap(), s);
     return NULL;
 #endif
     return s;
@@ -35,47 +33,22 @@ void mel_gpu_surface_destroy(Mel_Gpu_Surface* s)
 {
     if (!s)
         return;
-    if (s->surface)
-        vkDestroySurfaceKHR(s->instance, s->surface, NULL);
+    if (s->vk)
+        vkDestroySurfaceKHR(s->instance->vk, s->vk, NULL);
 #if defined(__APPLE__)
     if (s->metal_layer)
-        mel_gpu__vk_release_metal_layer(s->metal_layer);
+        mel_gpu__vk_metal_layer_release(s->metal_layer);
 #endif
-    free(s);
+    mel_dealloc(mel_alloc_heap(), s);
 }
 
 void mel_gpu_surface_reconfigure(Mel_Gpu_Surface* s, i32 width, i32 height)
 {
     if (!s)
         return;
+    s->width = width;
+    s->height = height;
 #if defined(__APPLE__)
-    mel_gpu__vk_layer_set_size(s->metal_layer, width, height);
-#else
-    (void)width;
-    (void)height;
+    mel_gpu__vk_metal_layer_set_size(s->metal_layer, width, height);
 #endif
-}
-
-void mel_gpu_surface_rebuild(Mel_Gpu_Surface* s, void* new_native)
-{
-    if (!s)
-        return;
-    if (s->surface)
-    {
-        vkDestroySurfaceKHR(s->instance, s->surface, NULL);
-        s->surface = VK_NULL_HANDLE;
-    }
-#if defined(__APPLE__)
-    if (s->metal_layer)
-    {
-        mel_gpu__vk_release_metal_layer(s->metal_layer);
-        s->metal_layer = NULL;
-    }
-    s->metal_layer = mel_gpu__vk_make_metal_layer(new_native);
-    if (s->metal_layer)
-        mel_gpu__vk_create_metal_surface(s->instance, s->metal_layer, &s->surface);
-#elif defined(__ANDROID__)
-    mel_gpu__vk_create_android_surface(s->instance, new_native, &s->surface);
-#endif
-    s->native = new_native;
 }

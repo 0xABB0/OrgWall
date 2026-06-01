@@ -1,118 +1,160 @@
-#include "vulkan_backend.h"
+#include "vk_backend.h"
+
+#include <log/log.h>
 
 void mel_gpu_frame_begin(Mel_Gpu_Swapchain* sc)
 {
-    if (!sc)
-        return;
-    VkDevice d = sc->device->device;
+    Mel_Gpu_Device* dev = sc->dev;
+    u32             frame = sc->frame_index;
+    sc->frame_ok = false;
 
-    vkWaitForFences(d, 1, &sc->in_flight, VK_TRUE, UINT64_MAX);
+    vkWaitForFences(dev->vk, 1, &sc->in_flight[frame], VK_TRUE, UINT64_MAX);
 
-    VkResult acq = vkAcquireNextImageKHR(d, sc->swapchain, UINT64_MAX, sc->image_available, VK_NULL_HANDLE, &sc->current_image);
-    if (acq == VK_ERROR_OUT_OF_DATE_KHR)
+    u32      image = 0;
+    VkResult r = vkAcquireNextImageKHR(dev->vk, sc->vk, UINT64_MAX, sc->image_available[frame], VK_NULL_HANDLE, &image);
+    if (r == VK_ERROR_OUT_OF_DATE_KHR)
     {
-        mel_gpu_swapchain_resize(sc, sc->req_width, sc->req_height);
-        sc->frame_ok = false;
+        mel_gpu_swapchain_resize(sc, (i32)sc->extent.width, (i32)sc->extent.height);
+        return;
+    }
+    if (r != VK_SUCCESS && r != VK_SUBOPTIMAL_KHR)
+    {
+        mel_gpu__device_is_lost(dev, r, "vkAcquireNextImageKHR");
         return;
     }
 
-    vkResetFences(d, 1, &sc->in_flight);
-    vkResetCommandBuffer(sc->cmd_buffer, 0);
+    vkResetFences(dev->vk, 1, &sc->in_flight[frame]);
 
+    VkCommandBuffer cb = sc->cmd_buffers[frame];
+    vkResetCommandBuffer(cb, 0);
     VkCommandBufferBeginInfo bi = { .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
-    vkBeginCommandBuffer(sc->cmd_buffer, &bi);
-    sc->cmd.cb = sc->cmd_buffer;
+    vkBeginCommandBuffer(cb, &bi);
+
+    sc->current_image = image;
+    sc->recorder.cb = cb;
+    sc->recorder.cur_layout = VK_NULL_HANDLE;
     sc->frame_ok = true;
 }
 
-Mel_Gpu_Command_List* mel_gpu_frame_commands(Mel_Gpu_Swapchain* sc) { return sc ? &sc->cmd : NULL; }
+Mel_Gpu_Command_List* mel_gpu_frame_commands(Mel_Gpu_Swapchain* sc) { return &sc->recorder; }
 
 void mel_gpu_frame_end(Mel_Gpu_Swapchain* sc)
 {
-    if (!sc || !sc->frame_ok)
+    if (!sc->frame_ok)
         return;
-    vkEndCommandBuffer(sc->cmd_buffer);
+    Mel_Gpu_Device* dev = sc->dev;
+    u32             frame = sc->frame_index;
+    VkCommandBuffer cb = sc->cmd_buffers[frame];
+
+    vkEndCommandBuffer(cb);
 
     VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
     VkSubmitInfo         si = {
         .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
         .waitSemaphoreCount = 1,
-        .pWaitSemaphores = &sc->image_available,
+        .pWaitSemaphores = &sc->image_available[frame],
         .pWaitDstStageMask = &wait_stage,
         .commandBufferCount = 1,
-        .pCommandBuffers = &sc->cmd_buffer,
+        .pCommandBuffers = &cb,
         .signalSemaphoreCount = 1,
-        .pSignalSemaphores = &sc->render_finished,
+        .pSignalSemaphores = &sc->render_finished[sc->current_image],
     };
-    vkQueueSubmit(sc->device->queue, 1, &si, sc->in_flight);
+    mel_mutex_lock(&dev->submit_lock);
+    VkResult sr = vkQueueSubmit(dev->graphics_queue, 1, &si, sc->in_flight[frame]);
+    mel_mutex_unlock(&dev->submit_lock);
+    if (sr != VK_SUCCESS && mel_gpu__device_is_lost(dev, sr, "vkQueueSubmit"))
+        return;
 
     VkPresentInfoKHR pi = {
         .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
         .waitSemaphoreCount = 1,
-        .pWaitSemaphores = &sc->render_finished,
+        .pWaitSemaphores = &sc->render_finished[sc->current_image],
         .swapchainCount = 1,
-        .pSwapchains = &sc->swapchain,
+        .pSwapchains = &sc->vk,
         .pImageIndices = &sc->current_image,
     };
-    VkResult pr = vkQueuePresentKHR(sc->device->queue, &pi);
+    mel_mutex_lock(&dev->submit_lock);
+    VkResult pr = vkQueuePresentKHR(dev->graphics_queue, &pi);
+    mel_mutex_unlock(&dev->submit_lock);
     if (pr == VK_ERROR_OUT_OF_DATE_KHR || pr == VK_SUBOPTIMAL_KHR)
-    {
-        mel_gpu_swapchain_resize(sc, sc->req_width, sc->req_height);
-    }
-    sc->frame_ok = false;
+        mel_gpu_swapchain_resize(sc, (i32)sc->extent.width, (i32)sc->extent.height);
+    else if (pr != VK_SUCCESS)
+        mel_gpu__device_is_lost(dev, pr, "vkQueuePresentKHR");
+
+    sc->frame_index = (sc->frame_index + 1) % sc->frames_in_flight;
 }
 
 void mel_gpu_cmd_begin_pass(Mel_Gpu_Command_List* cmd, Mel_Gpu_Color clear)
 {
-    if (!cmd || !cmd->swapchain->frame_ok)
-        return;
-    Mel_Gpu_Swapchain* sc = cmd->swapchain;
-
-    VkClearValue          clear_value = { .color = { .float32 = { clear.r, clear.g, clear.b, clear.a } } };
-    VkRenderPassBeginInfo rp = {
+    Mel_Gpu_Swapchain*    sc = cmd->sc;
+    VkClearValue          cv = { .color = { .float32 = { clear.r, clear.g, clear.b, clear.a } } };
+    VkRenderPassBeginInfo bi = {
         .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
         .renderPass = sc->render_pass,
         .framebuffer = sc->framebuffers[sc->current_image],
-        .renderArea = { { 0, 0 }, sc->extent },
+        .renderArea = { .offset = { 0, 0 }, .extent = sc->extent },
         .clearValueCount = 1,
-        .pClearValues = &clear_value,
+        .pClearValues = &cv,
     };
-    vkCmdBeginRenderPass(cmd->cb, &rp, VK_SUBPASS_CONTENTS_INLINE);
+    vkCmdBeginRenderPass(cmd->cb, &bi, VK_SUBPASS_CONTENTS_INLINE);
 
-    // Negative-height viewport flips Vulkan's +Y-down clip space to match the
-    // +Y-up convention the Metal and WebGPU backends use, so geometry is oriented
-    // identically across all three.
-    VkViewport vp = { 0.0f, (float)sc->extent.height, (float)sc->extent.width, -(float)sc->extent.height, 0.0f, 1.0f };
-    VkRect2D   scissor = { { 0, 0 }, sc->extent };
+    VkViewport vp = {
+        .x = 0.0f,
+        .y = (f32)sc->extent.height,
+        .width = (f32)sc->extent.width,
+        .height = -(f32)sc->extent.height,
+        .minDepth = 0.0f,
+        .maxDepth = 1.0f,
+    };
+    VkRect2D scissor = { .offset = { 0, 0 }, .extent = sc->extent };
     vkCmdSetViewport(cmd->cb, 0, 1, &vp);
     vkCmdSetScissor(cmd->cb, 0, 1, &scissor);
 }
 
-void mel_gpu_cmd_end_pass(Mel_Gpu_Command_List* cmd)
+void mel_gpu_cmd_end_pass(Mel_Gpu_Command_List* cmd) { vkCmdEndRenderPass(cmd->cb); }
+
+void mel_gpu_cmd_bind_pipeline(Mel_Gpu_Command_List* cmd, Mel_Gpu_Pipeline pipe)
 {
-    if (!cmd || !cmd->swapchain->frame_ok)
+    VkPipeline       p;
+    VkPipelineLayout l;
+    if (!mel_gpu__pipeline_get(cmd->dev, pipe, &p, &l))
+    {
+        mel_assert(!"bind_pipeline: invalid pipeline handle");
         return;
-    vkCmdEndRenderPass(cmd->cb);
+    }
+    vkCmdBindPipeline(cmd->cb, VK_PIPELINE_BIND_POINT_GRAPHICS, p);
+    cmd->cur_layout = l;
 }
 
-void mel_gpu_cmd_bind_pipeline(Mel_Gpu_Command_List* cmd, Mel_Gpu_Pipeline* pipe)
+void mel_gpu_cmd_bind_vertex_buffer(Mel_Gpu_Command_List* cmd, u32 slot, Mel_Gpu_Buffer buf)
 {
-    if (!cmd || !cmd->swapchain->frame_ok || !pipe)
+    VkBuffer vb;
+    if (!mel_gpu__buffer_get(cmd->dev, buf, &vb))
+    {
+        mel_assert(!"bind_vertex_buffer: invalid buffer handle");
         return;
-    vkCmdBindPipeline(cmd->cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipe->pipeline);
-}
-
-void mel_gpu_cmd_bind_vertex_buffer(Mel_Gpu_Command_List* cmd, u32 slot, Mel_Gpu_Buffer* buf)
-{
-    if (!cmd || !cmd->swapchain->frame_ok || !buf)
-        return;
+    }
     VkDeviceSize offset = 0;
-    vkCmdBindVertexBuffers(cmd->cb, slot, 1, &buf->buf, &offset);
+    vkCmdBindVertexBuffers(cmd->cb, slot, 1, &vb, &offset);
 }
 
-void mel_gpu_cmd_draw(Mel_Gpu_Command_List* cmd, u32 vertex_count, u32 instance_count)
+void mel_gpu_cmd_bind_index_buffer(Mel_Gpu_Command_List* cmd, Mel_Gpu_Buffer buf)
 {
-    if (!cmd || !cmd->swapchain->frame_ok)
+    VkBuffer ib;
+    if (!mel_gpu__buffer_get(cmd->dev, buf, &ib))
+    {
+        mel_assert(!"bind_index_buffer: invalid buffer handle");
         return;
-    vkCmdDraw(cmd->cb, vertex_count, instance_count, 0, 0);
+    }
+    vkCmdBindIndexBuffer(cmd->cb, ib, 0, VK_INDEX_TYPE_UINT16);
 }
+
+void mel_gpu_cmd_push_constants(Mel_Gpu_Command_List* cmd, u32 offset, u32 bytes, const void* data)
+{
+    mel_assert(cmd->cur_layout != VK_NULL_HANDLE);
+    vkCmdPushConstants(cmd->cb, cmd->cur_layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, offset, bytes, data);
+}
+
+void mel_gpu_cmd_draw(Mel_Gpu_Command_List* cmd, u32 vertex_count, u32 instance_count) { vkCmdDraw(cmd->cb, vertex_count, instance_count, 0, 0); }
+
+void mel_gpu_cmd_draw_indexed(Mel_Gpu_Command_List* cmd, u32 index_count, u32 instance_count) { vkCmdDrawIndexed(cmd->cb, index_count, instance_count, 0, 0, 0); }

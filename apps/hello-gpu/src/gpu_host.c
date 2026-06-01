@@ -18,13 +18,25 @@ typedef struct
     i32                    width, height;
 } Gpu_Window;
 
-static Mel_Reactor*    g_reactor;
-static Mel_Gpu_Device* g_device;
+static Mel_Reactor*      g_reactor;
+static Mel_Gpu_Instance* g_instance;
+static Mel_Gpu_Device*   g_device;
 
 void gpu_host_init(Mel_Reactor* reactor)
 {
     g_reactor = reactor;
-    g_device = mel_gpu_device_create(.debug = true);
+
+    g_instance = mel_gpu_instance_create(.app_name = "hello-gpu", .debug = { .enabled = true });
+    if (!g_instance)
+        return;
+
+    Mel_Gpu_Adapter* adapters[8];
+    u32              n = mel_gpu_adapters(g_instance, adapters, 8);
+    if (n == 0)
+        return;
+
+    Mel_Gpu_Device_Create_Result dr = mel_gpu_device_create(g_instance, adapters[0], .reactor = reactor, .features = { .timeline_semaphores = true });
+    g_device = dr.value;
 }
 
 static void window_render(Mel_Gpu_Swapchain* sc, f64 dt, void* user)

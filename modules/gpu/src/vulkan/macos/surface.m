@@ -1,5 +1,3 @@
-#ifdef __APPLE__
-
 #import <AppKit/AppKit.h>
 #import <QuartzCore/CAMetalLayer.h>
 
@@ -8,9 +6,11 @@
 
 #include <core/types.h>
 
-void* mel_gpu__vk_make_metal_layer(void* nsview)
+VkSurfaceKHR mel_gpu__vk_create_metal_surface(VkInstance instance, void* native_view, void** out_layer)
 {
-    NSView* view = (__bridge NSView*)nsview;
+    *out_layer = NULL;
+
+    NSView* view = (__bridge NSView*)native_view;
 
     CGFloat scale = 1.0;
     if (view.window)
@@ -25,16 +25,20 @@ void* mel_gpu__vk_make_metal_layer(void* nsview)
     view.layer = layer;
     view.wantsLayer = YES;
 
-    return (__bridge_retained void*)layer;
+    VkMetalSurfaceCreateInfoEXT ci = {
+        .sType = VK_STRUCTURE_TYPE_METAL_SURFACE_CREATE_INFO_EXT,
+        .pLayer = layer,
+    };
+
+    VkSurfaceKHR surface = VK_NULL_HANDLE;
+    if (vkCreateMetalSurfaceEXT(instance, &ci, NULL, &surface) != VK_SUCCESS)
+        return VK_NULL_HANDLE;
+
+    *out_layer = (__bridge_retained void*)layer;
+    return surface;
 }
 
-void mel_gpu__vk_release_metal_layer(void* layer)
-{
-    if (layer)
-        CFBridgingRelease(layer);
-}
-
-void mel_gpu__vk_layer_set_size(void* layer_ptr, i32 width, i32 height)
+void mel_gpu__vk_metal_layer_set_size(void* layer_ptr, i32 width, i32 height)
 {
     if (!layer_ptr)
         return;
@@ -43,13 +47,8 @@ void mel_gpu__vk_layer_set_size(void* layer_ptr, i32 width, i32 height)
     layer.drawableSize = CGSizeMake(width * scale, height * scale);
 }
 
-VkResult mel_gpu__vk_create_metal_surface(VkInstance instance, void* layer, VkSurfaceKHR* out_surface)
+void mel_gpu__vk_metal_layer_release(void* layer)
 {
-    VkMetalSurfaceCreateInfoEXT ci = {
-        .sType = VK_STRUCTURE_TYPE_METAL_SURFACE_CREATE_INFO_EXT,
-        .pLayer = (__bridge CAMetalLayer*)layer,
-    };
-    return vkCreateMetalSurfaceEXT(instance, &ci, NULL, out_surface);
+    if (layer)
+        CFBridgingRelease(layer);
 }
-
-#endif

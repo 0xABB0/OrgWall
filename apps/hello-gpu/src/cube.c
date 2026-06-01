@@ -15,12 +15,13 @@ typedef struct
 
 typedef struct
 {
-    Mel_Gpu_Shader*   shader;
-    Mel_Gpu_Pipeline* pipeline;
-    Mel_Gpu_Buffer*   vbo[CUBE_FRAMES];
-    i32               frame;
-    f64               angle;
-    f32               aspect;
+    Mel_Gpu_Device*  dev;
+    Mel_Gpu_Shader   shader;
+    Mel_Gpu_Pipeline pipeline;
+    Mel_Gpu_Buffer   vbo[CUBE_FRAMES];
+    i32              frame;
+    f64              angle;
+    f32              aspect;
 } Cube;
 
 static const V3 CORNERS[8] = {
@@ -57,11 +58,12 @@ static V3 normalize(V3 v)
 static void* cube_init(Mel_Gpu_Device* dev, Mel_Gpu_Swapchain* sc)
 {
     Cube* c = calloc(1, sizeof *c);
+    c->dev = dev;
     c->aspect = 1.0f;
     c->shader = passthrough_shader(dev);
     c->pipeline = passthrough_pipeline(dev, c->shader, MEL_GPU_TOPOLOGY_TRIANGLE_LIST, mel_gpu_swapchain_format(sc));
     for (i32 i = 0; i < CUBE_FRAMES; ++i)
-        c->vbo[i] = mel_gpu_buffer_create(dev, .size = CUBE_VERTS * sizeof(Pt_Vertex), .usage = MEL_GPU_BUFFER_VERTEX, .memory = MEL_GPU_MEMORY_UPLOAD);
+        c->vbo[i] = mel_gpu_buffer_create(dev, .size = CUBE_VERTS * sizeof(Pt_Vertex), .usage = MEL_GPU_BUFFER_VERTEX, .memory = MEL_GPU_MEMORY_UPLOAD, .name = "cube-vbo").value;
     return c;
 }
 
@@ -129,8 +131,8 @@ static void cube_render(void* state, Mel_Gpu_Command_List* cmd, f64 dt)
     }
 
     c->frame = (c->frame + 1) % CUBE_FRAMES;
-    Mel_Gpu_Buffer* vbo = c->vbo[c->frame];
-    mel_gpu_buffer_write(vbo, out, count * sizeof(Pt_Vertex));
+    Mel_Gpu_Buffer vbo = c->vbo[c->frame];
+    mel_gpu_buffer_write(c->dev, vbo, out, count * sizeof(Pt_Vertex));
 
     mel_gpu_cmd_begin_pass(cmd, mel_gpu_rgba(0.05f, 0.06f, 0.09f, 1.0f));
     mel_gpu_cmd_bind_pipeline(cmd, c->pipeline);
@@ -144,10 +146,10 @@ static void cube_teardown(void* state)
     Cube* c = state;
     if (!c)
         return;
-    mel_gpu_pipeline_destroy(c->pipeline);
-    mel_gpu_shader_destroy(c->shader);
+    mel_gpu_pipeline_destroy(c->dev, c->pipeline);
+    mel_gpu_shader_destroy(c->dev, c->shader);
     for (i32 i = 0; i < CUBE_FRAMES; ++i)
-        mel_gpu_buffer_destroy(c->vbo[i]);
+        mel_gpu_buffer_destroy(c->dev, c->vbo[i]);
     free(c);
 }
 

@@ -1,8 +1,9 @@
 #include <gpu/render_source.h>
+
 #include <reactor/reactor.h>
 #include <time/nano.h>
-
-#include <stdlib.h>
+#include <allocator/allocator.h>
+#include <allocator/heap.h>
 
 struct Mel_Gpu_Render_Source
 {
@@ -13,7 +14,7 @@ struct Mel_Gpu_Render_Source
     u64                 last_ns;
 };
 
-static bool render_tick(void* user)
+static bool mel_gpu__render_tick(void* user)
 {
     Mel_Gpu_Render_Source* s = user;
     u64                    now = mel_nanos_since_unspecified_epoch();
@@ -29,18 +30,17 @@ Mel_Gpu_Render_Source* mel_gpu_render_source_new(Mel_Reactor* reactor, Mel_Gpu_S
     if (!reactor || !sc || hz == 0)
         return NULL;
 
-    Mel_Gpu_Render_Source* s = calloc(1, sizeof *s);
-    if (!s)
-        return NULL;
+    Mel_Gpu_Render_Source* s = mel_alloc_type(mel_alloc_heap(), Mel_Gpu_Render_Source);
+    *s = (Mel_Gpu_Render_Source){ 0 };
     s->sc = sc;
     s->fn = fn;
     s->user = user;
 
     i64 interval = (i64)MEL_NANOS_PER_SEC / (i64)hz;
-    s->timer = mel_reactor_timer_new(interval, render_tick, s);
+    s->timer = mel_reactor_timer_new(interval, mel_gpu__render_tick, s);
     if (!s->timer)
     {
-        free(s);
+        mel_dealloc(mel_alloc_heap(), s);
         return NULL;
     }
     mel_reactor_source_attach(reactor, s->timer);
@@ -53,5 +53,5 @@ void mel_gpu_render_source_destroy(Mel_Gpu_Render_Source* s)
         return;
     if (s->timer)
         mel_reactor_source_destroy(s->timer);
-    free(s);
+    mel_dealloc(mel_alloc_heap(), s);
 }
