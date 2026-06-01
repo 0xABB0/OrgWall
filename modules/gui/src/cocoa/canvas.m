@@ -1,5 +1,7 @@
 #include "macos.h"
 
+#include <paint/paint.h>
+
 @implementation MelGuiCanvasView
 {
     bool _pointer_down;
@@ -70,9 +72,12 @@
     NSRect b = self.bounds;
     if (self.on_.on_paint)
     {
-        CGContextRef       ctx = [[NSGraphicsContext currentContext] CGContext];
-        struct Mel_Painter p = { .cg = ctx, .w = (f32)b.size.width, .h = (f32)b.size.height };
+        CGContextRef ctx = [[NSGraphicsContext currentContext] CGContext];
+        Mel_Drawable d = mel_drawable_borrow(ctx, (i32)b.size.width, (i32)b.size.height);
+        Mel_Painter  p = mel_painter_begin(d);
         self.on_.on_paint(self.handle, &p, (i32)b.size.width, (i32)b.size.height, mel_gui_user(self.handle));
+        mel_painter_end(&p);
+        mel_drawable_release(d);
     }
     else
     {

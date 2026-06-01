@@ -5,7 +5,7 @@
 #include <gui/handle.h>
 #include <gui/callbacks.h>
 #include <gui/layout.h>
-#include <gui/painter.h>
+#include <paint/painter.h>
 
 typedef struct
 {

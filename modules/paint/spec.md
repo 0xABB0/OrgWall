@@ -22,7 +22,9 @@ across window and pixmap. Deps: `core`, `allocator`, `collection`, `math`, `stri
     Mel_Pixmap_Pixels mel_pixmap_pixels(Mel_Pixmap);
     void              mel_pixmap_destroy(Mel_Pixmap);
     bool              mel_drawable_alive(Mel_Drawable);
-    Mel_Painter*      mel_painter_begin(Mel_Drawable);
+    Mel_Drawable      mel_drawable_borrow(void* native, i32 w, i32 h);
+    void              mel_drawable_release(Mel_Drawable);
+    Mel_Painter       mel_painter_begin(Mel_Drawable);
     void              mel_painter_end(Mel_Painter*);
     /* clear, fill_rect, fill_ellipse, stroke_rect, draw_line, fill_round_rect, draw_text */
 
@@ -36,12 +38,20 @@ across window and pixmap. Deps: `core`, `allocator`, `collection`, `math`, `stri
 - Pixel buffer takes the caller's `Mel_Alloc` (MEL-CODE-003); the registry table takes the
   heap allocator, set in a `MEL_CONSTRUCTOR` (predates any caller allocator).
 - `draw_text`: `pos` is top-left; baseline placed at `pos.y + ascent`, context y-flip
-  cancelled locally so glyphs draw upright.
+  cancelled locally so glyphs draw upright. The local cancel restores upright glyphs in any
+  y-down context — owned pixmap or borrowed window alike.
+- Borrowed drawable: `mel_drawable_borrow(native, w, h)` wraps an external native 2D context
+  (`owns = false`); `mel_drawable_release` drops the handle and bumps the slotmap generation
+  but never touches the borrower's context or buffer. Valid only inside the paint callback
+  that vended it; a retained handle then fails `mel_drawable_alive`. The vendor owns the
+  context's CTM/orientation — paint applies no flip on a borrowed drawable (the cocoa canvas
+  view is `isFlipped`, so its context is already y-down to match the op set).
 
 ## Backends
 
 - `quartz` (`src/quartz/*.c`, `MEL_ON(MACOS)|MEL_ON(IOS)`) — CoreGraphics + CoreText, pure C
-  (no AppKit/UIKit, no ObjC runtime). Owned-pixmap path implemented.
+  (no AppKit/UIKit, no ObjC runtime). Owned-pixmap **and** borrowed-window paths implemented;
+  `gui`'s cocoa canvas vends a borrowed drawable through its `on_paint`.
 - winui / dom / androidnative / soft — see `todo.md`.
 
 Verification: `./nob test paint-pixmap macos` runs `test/pixmap_test.c` through the `MEL_TEST`

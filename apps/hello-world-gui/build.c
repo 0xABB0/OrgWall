@@ -8,6 +8,8 @@ void build(Mel_Build* b)
     mel_depends(app, "app");
     mel_depends(app, "gui");
     mel_depends(app, "core");
+    mel_depends(app, "color");
+    mel_depends(app, "paint");
 
     mel_manifest(app, "APP_LABEL", "Hello World GUI");
     mel_manifest(app, "BUNDLE_ID", "orgwall.helloworld");

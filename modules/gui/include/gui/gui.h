@@ -9,8 +9,8 @@
 #include <gui/screen.h>
 #include <gui/layout.h>
 #include <gui/layouts/column.h>
-#include <gui/color.h>
-#include <gui/painter.h>
+#include <color/rgba8.h>
+#include <paint/painter.h>
 #include <gui/controls/frame.h>
 #include <gui/controls/dialog.h>
 #include <gui/controls/panel.h>

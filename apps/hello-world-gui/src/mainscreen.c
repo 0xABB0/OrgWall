@@ -137,14 +137,14 @@ static void canvas_paint(Mel_Gui_Handle h, Mel_Painter* p, i32 w, i32 height, vo
     g_main.canvas_w = w;
     g_main.canvas_h = height;
 
-    mel_painter_clear(p, mel_rgb(38, 51, 65));
-    mel_painter_stroke_rect(p, mel_rect(1, 1, (f32)w - 2, (f32)height - 2), mel_rgb(90, 110, 130), 1.5f);
-    mel_painter_draw_line(p, mel_vec2(0, 28), mel_vec2((f32)w, 28), mel_rgb(90, 110, 130), 1.0f);
-    mel_painter_draw_text(p, S8("canvas: drag to paint"), mel_vec2(10, 7), mel_rgb(150, 170, 190), 13.0f);
+    mel_painter_clear(p, mel_color8_rgb(38, 51, 65));
+    mel_painter_stroke_rect(p, mel_rect(1, 1, (f32)w - 2, (f32)height - 2), mel_color8_rgb(90, 110, 130), 1.5f);
+    mel_painter_draw_line(p, mel_vec2(0, 28), mel_vec2((f32)w, 28), mel_color8_rgb(90, 110, 130), 1.0f);
+    mel_painter_draw_text(p, S8("canvas: drag to paint"), mel_vec2(10, 7), mel_color8_rgb(150, 170, 190), 13.0f);
 
     if (g_main.pointer_down)
     {
-        mel_painter_fill_ellipse(p, mel_rect((f32)g_main.pointer_x - 18, (f32)g_main.pointer_y - 18, 36, 36), mel_rgb(255, 190, 96));
+        mel_painter_fill_ellipse(p, mel_rect((f32)g_main.pointer_x - 18, (f32)g_main.pointer_y - 18, 36, 36), mel_color8_rgb(255, 190, 96));
     }
 }
 

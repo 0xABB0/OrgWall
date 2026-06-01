@@ -5,12 +5,6 @@
 #ifdef __OBJC__
 #import <Cocoa/Cocoa.h>
 
-struct Mel_Painter
-{
-    CGContextRef cg;
-    f32          w, h;
-};
-
 @interface                          MelGuiContentView: NSView
 @property(assign) Mel_Gui_Handle    frame_handle;
 @property(assign) Mel_Inset_Mode    inset_mode;

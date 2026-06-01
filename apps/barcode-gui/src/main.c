@@ -82,11 +82,11 @@ static void on_paint(Mel_Gui_Handle h, Mel_Painter* p, i32 w, i32 ht, void* user
 {
     (void)h;
     (void)user;
-    mel_painter_clear(p, mel_rgb(255, 255, 255));
+    mel_painter_clear(p, mel_color8_rgb(255, 255, 255));
 
     if (!g_app.has_matrix)
     {
-        mel_painter_draw_text(p, S8("Type text, then pick an encoding above."), mel_vec2(16, 16), mel_rgb(140, 140, 140), 14.0f);
+        mel_painter_draw_text(p, S8("Type text, then pick an encoding above."), mel_vec2(16, 16), mel_color8_rgb(140, 140, 140), 14.0f);
         return;
     }
 
@@ -110,7 +110,7 @@ static void on_paint(Mel_Gui_Handle h, Mel_Painter* p, i32 w, i32 ht, void* user
     f32 origin_x = ((f32)w - cell * total_w) / 2.0f;
     f32 origin_y = ((f32)ht - cell * total_h) / 2.0f;
 
-    Mel_Color dark = mel_rgb(0, 0, 0);
+    mel_color8 dark = mel_color8_rgb(0, 0, 0);
     for (i32 r = 0; r < m->height; ++r)
     {
         for (i32 c = 0; c < m->width; ++c)

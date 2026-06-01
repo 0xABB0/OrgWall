@@ -26,6 +26,7 @@ void build(Mel_Build* b)
 
     Mel_Target* t = mel_add_test(b, "paint-pixmap");
     mel_sources(t, ALWAYS, "test/pixmap_test.c");
+    mel_sources(t, WHEN(.platforms = MEL_ON(MACOS) | MEL_ON(IOS)), "test/borrow_test.c");
     /* mel_add_test does not auto-link the harness runtime/main; pull the runner
      * in explicitly. Drop this line if the build ever links it for is_test. */
     mel_sources(t, ALWAYS, "../../tools/test/src/runner.c");

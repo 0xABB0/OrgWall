@@ -16,16 +16,26 @@ painter except where a correctness gotcha is flagged — verify on the target pl
 
 ## Borrowed-window drawable + gui migration
 
-- Add the borrowed-window drawable ctor (`owns=false`): wraps an external native context,
-  `destroy` releases the handle but **not** the borrower's context/buffer. It is valid only
-  inside the paint callback that vended it; on return the vendor bumps its slotmap generation
-  so a retained drawable/painter fails `alive()` loudly.
-- `gui` canvas `on_paint` vends a `Mel_Drawable` (borrowed); delete `gui/painter.h`,
-  `gui/color.h`, the per-backend painters (`gui/src/{cocoa,winui,androidnative}/painter.*`)
-  and the inline painter code in `gui/src/{uikit,dom}/canvas.*`; retire `gui`'s private
-  `Mel_Color` for `mel_color8`. This is what makes the extraction real — and is macOS-verifiable.
-- With the gui drawRect frame available, the painter can embed there; the `thread_local`
-  single-active-painter rule can relax.
+- **Done:** the borrowed-window drawable ctor (`mel_drawable_borrow`, `owns=false`) wraps an
+  external native context; `mel_drawable_release` drops the handle and bumps the slotmap
+  generation but never touches the borrower's context/buffer, so a retained drawable fails
+  `alive()`. Lives in `registry.c` (backend-agnostic; stores the opaque `void* native`).
+  Unit-tested host-side by `test/borrow_test.c` wrapping a self-owned `CGBitmapContext`.
+- **Done (cocoa only):** `gui`'s cocoa canvas `drawRect` vends a borrowed `Mel_Drawable`
+  through `on_paint`; `gui` now `mel_depends` on `paint`+`color`; deleted `gui/painter.h`,
+  `gui/color.h`, `gui/src/cocoa/painter.m`, and the private `struct Mel_Painter`; the three
+  gui apps draw `mel_painter_*` with `mel_color8`. Verified live (`./nob run hello-world-gui
+  macos` — canvas renders upright, correct colors/coords).
+- **Debt — the other four backends now break on their platforms.** A unified public
+  `on_paint(Mel_Painter*)` cannot be paint's type for cocoa and `gui`'s type elsewhere, so the
+  switch is repo-wide: `gui/src/{winui,androidnative}/painter.*` and the inline painters in
+  `gui/src/{uikit,dom}/canvas.*` still `#include <gui/painter.h>` (deleted) and reference the
+  old `Mel_Color`. They will not compile under `.backend = winui|dom|androidnative|uikit` until
+  `paint` grows those backends and each canvas is rewired to vend a borrowed drawable. macOS
+  builds green because those sources are gated out. dom (wasm) and android are host-testable
+  once their paint backends land; win32 is not testable from this host.
+- The single-active-painter rule already relaxed: `begin` asserts per-drawable `!painting`,
+  not a global, and `Mel_Painter` is a stack value — any number live at once.
 
 ## Cleanups
 

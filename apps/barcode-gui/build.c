@@ -10,6 +10,8 @@ void build(Mel_Build* b)
     mel_depends(app, "gui");
     mel_depends(app, "core");
     mel_depends(app, "allocator");
+    mel_depends(app, "color");
+    mel_depends(app, "paint");
     mel_manifest(app, "APP_LABEL", "Barcode GUI");
     mel_manifest(app, "BUNDLE_ID", "orgwall.barcodegui");
 }

@@ -28,6 +28,21 @@ void mel_paint__remove(Mel_SlotMap_Handle h) { mel_slotmap_remove(&mel_paint__dr
 
 bool mel_drawable_alive(Mel_Drawable d) { return mel_slotmap_alive(&mel_paint__drawables, d); }
 
+Mel_Drawable mel_drawable_borrow(void* native, i32 w, i32 h)
+{
+    mel_assert(native && w > 0 && h > 0);
+    Paint_Drawable rec = { .native = native, .w = w, .h = h, .owns = false, .alloc = NULL, .pixels = NULL, .stride = 0, .painting = false };
+    return mel_paint__insert(&rec);
+}
+
+void mel_drawable_release(Mel_Drawable d)
+{
+    Paint_Drawable* rec = mel_paint__get(d);
+    mel_assert(!rec->owns);
+    mel_assert(!rec->painting);
+    mel_paint__remove(d);
+}
+
 Mel_Drawable mel_pixmap_drawable(Mel_Pixmap pm) { return pm; }
 
 Mel_Pixmap_Pixels mel_pixmap_pixels(Mel_Pixmap pm)

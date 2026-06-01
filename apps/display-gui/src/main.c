@@ -127,7 +127,7 @@ typedef struct
     Mel_Painter* p;
     f32          x, y;
 } Pen;
-static void line(Pen* pen, Mel_Color col, const char* fmt, ...)
+static void line(Pen* pen, mel_color8 col, const char* fmt, ...)
 {
     char    buf[256];
     va_list ap;
@@ -142,11 +142,11 @@ static void canvas_paint(Mel_Gui_Handle h, Mel_Painter* p, i32 w, i32 height, vo
 {
     (void)h;
     (void)user;
-    Mel_Color bg = mel_rgb(24, 28, 34);
-    Mel_Color head = mel_rgb(120, 200, 255);
-    Mel_Color key = mel_rgb(170, 185, 205);
-    Mel_Color hot = mel_rgb(255, 200, 110);
-    Mel_Color evc = mel_rgb(150, 230, 160);
+    mel_color8 bg = mel_color8_rgb(24, 28, 34);
+    mel_color8 head = mel_color8_rgb(120, 200, 255);
+    mel_color8 key = mel_color8_rgb(170, 185, 205);
+    mel_color8 hot = mel_color8_rgb(255, 200, 110);
+    mel_color8 evc = mel_color8_rgb(150, 230, 160);
 
     mel_painter_clear(p, bg);
 
@@ -229,7 +229,7 @@ static void canvas_paint(Mel_Gui_Handle h, Mel_Painter* p, i32 w, i32 height, vo
             snprintf(tok, sizeof tok, "%ux%u@%u.%03u%s", md->width_px, md->height_px, md->refresh_mhz / 1000, md->refresh_mhz % 1000, md->interlaced ? "i" : "");
             if (per && (strlen(row) + strlen(tok) + 2 > 78 || per == 4))
             {
-                line(&pen, mel_rgb(120, 135, 155), "      %s", row);
+                line(&pen, mel_color8_rgb(120, 135, 155), "      %s", row);
                 row[0] = 0;
                 per = 0;
             }
@@ -239,7 +239,7 @@ static void canvas_paint(Mel_Gui_Handle h, Mel_Painter* p, i32 w, i32 height, vo
             per++;
         }
         if (row[0])
-            line(&pen, mel_rgb(120, 135, 155), "      %s", row);
+            line(&pen, mel_color8_rgb(120, 135, 155), "      %s", row);
         pen.y += 6;
     }
 
@@ -247,7 +247,7 @@ static void canvas_paint(Mel_Gui_Handle h, Mel_Painter* p, i32 w, i32 height, vo
     if (ey < pen.y)
         ey = pen.y;
     Pen ev = { .p = p, .x = 12, .y = ey };
-    mel_painter_draw_line(p, mel_vec2(0, ey - 4), mel_vec2((f32)w, ey - 4), mel_rgb(60, 70, 82), 1.0f);
+    mel_painter_draw_line(p, mel_vec2(0, ey - 4), mel_vec2((f32)w, ey - 4), mel_color8_rgb(60, 70, 82), 1.0f);
     line(&ev, evc, "event log (most recent %u):", g.evlog_count);
     for (u32 i = 0; i < g.evlog_count; i++)
         line(&ev, evc, "  %s", g.evlog[i]);
