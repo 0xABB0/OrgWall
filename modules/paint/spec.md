@@ -10,7 +10,8 @@ across window and pixmap. Deps: `core`, `allocator`, `collection`, `math`, `stri
 - `Mel_Drawable`, `Mel_Pixmap` — `Mel_SlotMap_Handle` aliases into one module-global
   drawable slotmap. `bool owns` discriminates owned-pixmap vs borrowed-window (MEL-CODE-001:
   a bool, not a kind enum). Not nominal C types; misuse caught at runtime by `owns`.
-- `Mel_Painter` — opaque cursor, one active per thread (`thread_local`, no heap alloc).
+- `Mel_Painter` — a caller-held value (stack, no global, no heap); any number may be live at
+  once. `begin` returns it; ops and `end` take `&p`. `native` is the backend context, opaque.
 - `Mel_Pixmap_Pixels` — `{ mel_color8* pixels; i32 stride; i32 w, h; }`; stride is
   bytes/row, never assume `w*4`.
 

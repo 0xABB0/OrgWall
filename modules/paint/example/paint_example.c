@@ -40,15 +40,15 @@ int main(void)
     Mel_Pixmap   pm = mel_pixmap_create(a, 128, 96);
     Mel_Drawable d = mel_pixmap_drawable(pm);
 
-    Mel_Painter* p = mel_painter_begin(d);
-    mel_painter_clear(p, mel_color8_rgba(32, 32, 40, 255));
-    mel_painter_fill_rect(p, mel_rect(8, 24, 48, 48), mel_color8_rgba(220, 40, 40, 255));
-    mel_painter_fill_ellipse(p, mel_rect(64, 24, 48, 48), mel_color8_rgba(40, 200, 90, 255));
-    mel_painter_stroke_rect(p, mel_rect(8, 24, 104, 48), mel_color8_rgba(80, 140, 255, 255), 2);
-    mel_painter_draw_line(p, (Mel_Vec2){ .x = 8, .y = 88 }, (Mel_Vec2){ .x = 120, .y = 88 }, mel_color8_rgba(255, 210, 60, 255), 3);
-    mel_painter_fill_round_rect(p, mel_rect(40, 40, 48, 28), 8, mel_color8_rgba(255, 255, 255, 90));
-    mel_painter_draw_text(p, S8("Melody paint"), (Mel_Vec2){ .x = 10, .y = 4 }, mel_color8_rgba(240, 240, 240, 255), 14);
-    mel_painter_end(p);
+    Mel_Painter p = mel_painter_begin(d);
+    mel_painter_clear(&p, mel_color8_rgba(32, 32, 40, 255));
+    mel_painter_fill_rect(&p, mel_rect(8, 24, 48, 48), mel_color8_rgba(220, 40, 40, 255));
+    mel_painter_fill_ellipse(&p, mel_rect(64, 24, 48, 48), mel_color8_rgba(40, 200, 90, 255));
+    mel_painter_stroke_rect(&p, mel_rect(8, 24, 104, 48), mel_color8_rgba(80, 140, 255, 255), 2);
+    mel_painter_draw_line(&p, (Mel_Vec2){ .x = 8, .y = 88 }, (Mel_Vec2){ .x = 120, .y = 88 }, mel_color8_rgba(255, 210, 60, 255), 3);
+    mel_painter_fill_round_rect(&p, mel_rect(40, 40, 48, 28), 8, mel_color8_rgba(255, 255, 255, 90));
+    mel_painter_draw_text(&p, S8("Melody paint"), (Mel_Vec2){ .x = 10, .y = 4 }, mel_color8_rgba(240, 240, 240, 255), 14);
+    mel_painter_end(&p);
 
     Mel_Pixmap_Pixels px = mel_pixmap_pixels(pm);
     i32               sw = px.stride / 4;

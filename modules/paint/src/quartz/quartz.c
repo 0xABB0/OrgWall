@@ -11,18 +11,7 @@
 #include <CoreGraphics/CoreGraphics.h>
 #include <CoreText/CoreText.h>
 
-struct Mel_Painter
-{
-    CGContextRef cg;
-    i32          w, h;
-    Mel_Drawable owner;
-    bool         active;
-};
-
-/* One active painter per thread — the begin/end bracket is strictly nested, so
- * no heap allocation is needed (paint.md: native backends allocate nothing).
- * cg/w/h are copied in, so the painter is immune to drawable-slotmap growth. */
-static thread_local struct Mel_Painter g_painter;
+static inline CGContextRef pcg(Mel_Painter* p) { return (CGContextRef)p->native; }
 
 static inline CGRect cg_rect(Mel_Rect r) { return CGRectMake(r.x, r.y, r.w, r.h); }
 
@@ -63,76 +52,71 @@ void mel_pixmap_destroy(Mel_Pixmap pm)
     mel_paint__remove(pm);
 }
 
-Mel_Painter* mel_painter_begin(Mel_Drawable dh)
+Mel_Painter mel_painter_begin(Mel_Drawable dh)
 {
     Paint_Drawable* d = mel_paint__get(dh);
     mel_assert(!d->painting);
-    mel_assert(!g_painter.active);
     d->painting = true;
-
-    g_painter.cg = (CGContextRef)d->native;
-    g_painter.w = d->w;
-    g_painter.h = d->h;
-    g_painter.owner = dh;
-    g_painter.active = true;
-    CGContextSaveGState(g_painter.cg);
-    return &g_painter;
+    CGContextSaveGState((CGContextRef)d->native);
+    return (Mel_Painter){ .native = d->native, .owner = dh, .w = d->w, .h = d->h };
 }
 
 void mel_painter_end(Mel_Painter* p)
 {
-    CGContextRestoreGState(p->cg);
+    CGContextRestoreGState(pcg(p));
     mel_paint__get(p->owner)->painting = false;
-    p->active = false;
+    p->native = NULL;
 }
 
 void mel_painter_clear(Mel_Painter* p, mel_color8 k)
 {
-    set_fill(p->cg, k);
-    CGContextFillRect(p->cg, CGRectMake(0, 0, p->w, p->h));
+    set_fill(pcg(p), k);
+    CGContextFillRect(pcg(p), CGRectMake(0, 0, p->w, p->h));
 }
 
 void mel_painter_fill_rect(Mel_Painter* p, Mel_Rect r, mel_color8 k)
 {
-    set_fill(p->cg, k);
-    CGContextFillRect(p->cg, cg_rect(r));
+    set_fill(pcg(p), k);
+    CGContextFillRect(pcg(p), cg_rect(r));
 }
 
 void mel_painter_fill_ellipse(Mel_Painter* p, Mel_Rect r, mel_color8 k)
 {
-    set_fill(p->cg, k);
-    CGContextFillEllipseInRect(p->cg, cg_rect(r));
+    set_fill(pcg(p), k);
+    CGContextFillEllipseInRect(pcg(p), cg_rect(r));
 }
 
 void mel_painter_stroke_rect(Mel_Painter* p, Mel_Rect r, mel_color8 k, f32 width)
 {
-    set_stroke(p->cg, k);
-    CGContextSetLineWidth(p->cg, width);
-    CGContextStrokeRect(p->cg, cg_rect(r));
+    set_stroke(pcg(p), k);
+    CGContextSetLineWidth(pcg(p), width);
+    CGContextStrokeRect(pcg(p), cg_rect(r));
 }
 
 void mel_painter_draw_line(Mel_Painter* p, Mel_Vec2 a, Mel_Vec2 b, mel_color8 k, f32 width)
 {
-    set_stroke(p->cg, k);
-    CGContextSetLineWidth(p->cg, width);
-    CGContextSetLineCap(p->cg, kCGLineCapRound);
-    CGContextMoveToPoint(p->cg, a.x, a.y);
-    CGContextAddLineToPoint(p->cg, b.x, b.y);
-    CGContextStrokePath(p->cg);
+    CGContextRef cg = pcg(p);
+    set_stroke(cg, k);
+    CGContextSetLineWidth(cg, width);
+    CGContextSetLineCap(cg, kCGLineCapRound);
+    CGContextMoveToPoint(cg, a.x, a.y);
+    CGContextAddLineToPoint(cg, b.x, b.y);
+    CGContextStrokePath(cg);
 }
 
 void mel_painter_fill_round_rect(Mel_Painter* p, Mel_Rect r, f32 radius, mel_color8 k)
 {
-    set_fill(p->cg, k);
+    CGContextRef cg = pcg(p);
+    set_fill(cg, k);
     CGPathRef path = CGPathCreateWithRoundedRect(cg_rect(r), radius, radius, NULL);
-    CGContextAddPath(p->cg, path);
-    CGContextFillPath(p->cg);
+    CGContextAddPath(cg, path);
+    CGContextFillPath(cg);
     CGPathRelease(path);
 }
 
 void mel_painter_draw_text(Mel_Painter* p, str8 text, Mel_Vec2 pos, mel_color8 k, f32 size)
 {
-    CGContextRef cg = p->cg;
+    CGContextRef cg = pcg(p);
 
     CFStringRef s = CFStringCreateWithBytes(NULL, text.data, (CFIndex)text.len, kCFStringEncodingUTF8, false);
     if (!s)
