@@ -5,12 +5,7 @@ static void progress_create_backing(Mel_NCtrl* ctrl)
 {
     Mel_NProgress* progress = (Mel_NProgress*)ctrl;
 
-    NSRect frame = NSMakeRect(
-        (CGFloat)ctrl->pos.x,
-        (CGFloat)ctrl->pos.y,
-        (CGFloat)ctrl->size.x,
-        (CGFloat)ctrl->size.y
-    );
+    NSRect frame = NSMakeRect((CGFloat)ctrl->pos.x, (CGFloat)ctrl->pos.y, (CGFloat)ctrl->size.x, (CGFloat)ctrl->size.y);
 
     NSProgressIndicator* nsProgress = [[NSProgressIndicator alloc] initWithFrame:frame];
     [nsProgress setStyle:NSProgressIndicatorStyleBar];
@@ -79,20 +74,17 @@ static void progress_remove_child_backing(Mel_NCtrl* parent, Mel_NCtrl* child)
 }
 
 static const Mel_NCtrl_VTable s_progress_vtable = {
-    .create_backing       = progress_create_backing,
-    .destroy_backing      = progress_destroy_backing,
-    .set_frame            = progress_set_frame,
-    .set_visible          = progress_set_visible,
-    .set_enabled          = progress_set_enabled,
-    .preferred_size       = progress_preferred_size,
-    .add_child_backing    = progress_add_child_backing,
+    .create_backing = progress_create_backing,
+    .destroy_backing = progress_destroy_backing,
+    .set_frame = progress_set_frame,
+    .set_visible = progress_set_visible,
+    .set_enabled = progress_set_enabled,
+    .preferred_size = progress_preferred_size,
+    .add_child_backing = progress_add_child_backing,
     .remove_child_backing = progress_remove_child_backing,
 };
 
-const Mel_NCtrl_VTable* mel__nprogress_vtable(void)
-{
-    return &s_progress_vtable;
-}
+const Mel_NCtrl_VTable* mel__nprogress_vtable(void) { return &s_progress_vtable; }
 
 void mel__nprogress_set_value_platform(Mel_NProgress* progress, f64 value)
 {

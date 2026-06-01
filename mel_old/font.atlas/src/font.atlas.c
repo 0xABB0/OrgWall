@@ -20,18 +20,19 @@
 #include <stb_truetype.h>
 #include <string.h>
 
-typedef struct {
-    Mel_SlotMap slotmap;
-    Mel_HashMap dedup;
-    Mel_Gpu_Device* dev;
-    const Mel_Alloc* alloc;
+typedef struct
+{
+    Mel_SlotMap       slotmap;
+    Mel_HashMap       dedup;
+    Mel_Gpu_Device*   dev;
+    const Mel_Alloc*  alloc;
     Mel_Texture_Pool* texture_pool;
 } Mel__Font_Atlas_Pool;
 
 static Mel__Font_Atlas_Pool s_pool;
-static bool s_initialized;
-static Mel_Gpu_Shader s_text_atlas_shader;
-static Mel_Gpu_Device* s_text_atlas_dev;
+static bool                 s_initialized;
+static Mel_Gpu_Shader       s_text_atlas_shader;
+static Mel_Gpu_Device*      s_text_atlas_dev;
 static Mel_Material_Base_Id s_text_atlas_mat_id = MEL_MATERIAL_BASE_ID_INVALID;
 
 Mel_Event_Channel mel_font_pool_ready;
@@ -42,20 +43,17 @@ static u64 mel__font_atlas_hash_key(const void* key)
     return mel_xxh64(&val, sizeof(val), 0);
 }
 
-static bool mel__font_atlas_eq_key(const void* a, const void* b)
-{
-    return (u64)(usize)a == (u64)(usize)b;
-}
+static bool mel__font_atlas_eq_key(const void* a, const void* b) { return (u64)(usize)a == (u64)(usize)b; }
 
 static void mel__font_atlas_ensure_init(void)
 {
-    if (s_initialized) return;
+    if (s_initialized)
+        return;
     s_initialized = true;
 
     const Mel_Alloc* alloc = mel_alloc_heap();
     s_pool.alloc = alloc;
-    mel_slotmap_init(&s_pool.slotmap, alloc,
-        .item_size = sizeof(Mel_Font_Atlas_Entry), .initial_capacity = 8);
+    mel_slotmap_init(&s_pool.slotmap, alloc, .item_size = sizeof(Mel_Font_Atlas_Entry), .initial_capacity = 8);
     mel_hashmap_init(&s_pool.dedup, mel__font_atlas_hash_key, mel__font_atlas_eq_key, alloc);
 }
 
@@ -68,10 +66,11 @@ void mel__font_atlas_set_device(Mel_Gpu_Device* dev, Mel_Texture_Pool* texture_p
 
 void mel__font_atlas_shutdown(void)
 {
-    if (!s_initialized) return;
+    if (!s_initialized)
+        return;
 
     Mel_Font_Atlas_Entry* entries = mel_slotmap_data(&s_pool.slotmap);
-    u32 count = mel_slotmap_count(&s_pool.slotmap);
+    u32                   count = mel_slotmap_count(&s_pool.slotmap);
 
     for (u32 i = 0; i < count; i++)
     {
@@ -82,7 +81,7 @@ void mel__font_atlas_shutdown(void)
 
     mel_slotmap_free(&s_pool.slotmap);
     mel_hashmap_free(&s_pool.dedup);
-    s_pool = (Mel__Font_Atlas_Pool){0};
+    s_pool = (Mel__Font_Atlas_Pool){ 0 };
     s_initialized = false;
 }
 
@@ -139,10 +138,7 @@ static void mel__font_pool_register(void)
 }
 
 MEL_DESTRUCTOR
-static void mel__font_pool_unregister(void)
-{
-    mel_event_channel_destroy(&mel_font_pool_ready);
-}
+static void mel__font_pool_unregister(void) { mel_event_channel_destroy(&mel_font_pool_ready); }
 
 #define MEL_FONT_ATLAS_FIRST_CHAR 32
 #define MEL_FONT_ATLAS_CHAR_COUNT 96
@@ -182,10 +178,9 @@ Mel_Font_Atlas_Handle mel_font_atlas_load_opt(Mel_Font_Atlas_Load_Opt opt)
     u32 atlas_w = opt.atlas_width > 0 ? opt.atlas_width : 512;
     u32 atlas_h = opt.atlas_height > 0 ? opt.atlas_height : 512;
 
-    u8* atlas_bitmap = mel_alloc(s_pool.alloc, (usize)(atlas_w * atlas_h));
+    u8*             atlas_bitmap = mel_alloc(s_pool.alloc, (usize)(atlas_w * atlas_h));
     stbtt_bakedchar cdata[MEL_FONT_ATLAS_CHAR_COUNT];
-    stbtt_BakeFontBitmap(font->data, 0, font_size, atlas_bitmap, (int)atlas_w, (int)atlas_h,
-                         MEL_FONT_ATLAS_FIRST_CHAR, MEL_FONT_ATLAS_CHAR_COUNT, cdata);
+    stbtt_BakeFontBitmap(font->data, 0, font_size, atlas_bitmap, (int)atlas_w, (int)atlas_h, MEL_FONT_ATLAS_FIRST_CHAR, MEL_FONT_ATLAS_CHAR_COUNT, cdata);
 
     u8* rgba = mel_alloc(s_pool.alloc, (usize)(atlas_w * atlas_h * 4));
     for (u32 i = 0; i < atlas_w * atlas_h; i++)
@@ -197,13 +192,12 @@ Mel_Font_Atlas_Handle mel_font_atlas_load_opt(Mel_Font_Atlas_Load_Opt opt)
     }
     mel_dealloc(s_pool.alloc, atlas_bitmap);
 
-    Mel_Font_Atlas_Entry entry = {0};
+    Mel_Font_Atlas_Entry entry = { 0 };
     entry.atlas_width = atlas_w;
     entry.atlas_height = atlas_h;
     entry.font_desc = opt.desc;
 
-    mel_gpu_texture_init(&entry.atlas_texture, s_pool.dev,
-        .pixels = rgba, .width = atlas_w, .height = atlas_h);
+    mel_gpu_texture_init(&entry.atlas_texture, s_pool.dev, .pixels = rgba, .width = atlas_w, .height = atlas_h);
     mel_dealloc(s_pool.alloc, rgba);
 
     f32 scale = stbtt_ScaleForPixelHeight(&font->info, font_size);
@@ -221,7 +215,7 @@ Mel_Font_Atlas_Handle mel_font_atlas_load_opt(Mel_Font_Atlas_Load_Opt opt)
     for (i32 i = 0; i < MEL_FONT_ATLAS_CHAR_COUNT; i++)
     {
         stbtt_bakedchar* bc = &cdata[i];
-        Mel_Font_Glyph* g = &entry.desc.glyphs[i];
+        Mel_Font_Glyph*  g = &entry.desc.glyphs[i];
         g->x0 = bc->xoff;
         g->y0 = bc->yoff;
         g->x1 = bc->xoff + (f32)(bc->x1 - bc->x0);
@@ -273,7 +267,8 @@ Mel_Vec2 mel_font_atlas_measure_text(Mel_Font_Atlas_Handle handle, str8 text)
     Mel_Font_Atlas_Entry* entry = mel_font_atlas_get(handle);
     assert(entry != nullptr);
 
-    if (str8_is_empty(text)) return mel_vec2(0, 0);
+    if (str8_is_empty(text))
+        return mel_vec2(0, 0);
 
     f32 max_width = 0;
     f32 width = 0;
@@ -285,21 +280,22 @@ Mel_Vec2 mel_font_atlas_measure_text(Mel_Font_Atlas_Handle handle, str8 text)
 
         if (c == '\n')
         {
-            if (width > max_width) max_width = width;
+            if (width > max_width)
+                max_width = width;
             width = 0;
             height += entry->desc.line_height;
             continue;
         }
 
-        if (c < (int)entry->desc.first_codepoint ||
-            c >= (int)(entry->desc.first_codepoint + entry->desc.glyph_count))
+        if (c < (int)entry->desc.first_codepoint || c >= (int)(entry->desc.first_codepoint + entry->desc.glyph_count))
             continue;
 
         int idx = c - (int)entry->desc.first_codepoint;
         width += entry->desc.glyphs[idx].xadvance;
     }
 
-    if (width > max_width) max_width = width;
+    if (width > max_width)
+        max_width = width;
 
     return mel_vec2(max_width, height);
 }

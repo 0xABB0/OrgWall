@@ -7,7 +7,7 @@ void mel_sim_init_opt(Mel_Sim_Ctx* ctx, Mel_Sim_Opt opt)
 {
     assert(opt.event_buffer != NULL);
     assert(opt.event_buffer_size > 0);
-    *ctx = (Mel_Sim_Ctx){0};
+    *ctx = (Mel_Sim_Ctx){ 0 };
     ctx->rng = mel_rng(opt.seed);
     ctx->user = opt.user;
     ctx->time_scale = opt.time_scale != 0 ? opt.time_scale : 1.0f;
@@ -33,7 +33,7 @@ void mel_sim_shutdown(Mel_Sim_Ctx* ctx)
     if (ctx->variable_updates)
         mel_dealloc(ctx->alloc, ctx->variable_updates);
 
-    *ctx = (Mel_Sim_Ctx){0};
+    *ctx = (Mel_Sim_Ctx){ 0 };
 }
 
 void mel_sim_push(Mel_Sim_Ctx* ctx, i32 type, const void* data, size len)
@@ -118,7 +118,7 @@ Mel_Sim_Fixed* mel_sim_add_fixed_opt(Mel_Sim_Ctx* sim, Mel_Sim_Add_Fixed_Opt opt
         grow_fixed(sim);
 
     Mel_Sim_Fixed* fixed = mel_alloc_type(sim->alloc, Mel_Sim_Fixed);
-    *fixed = (Mel_Sim_Fixed){0};
+    *fixed = (Mel_Sim_Fixed){ 0 };
     fixed->fixed_dt = opt.fixed_dt;
     fixed->alloc = sim->alloc;
     fixed->next_id = 1;
@@ -187,8 +187,7 @@ void mel_sim_fixed_remove_update(Mel_Sim_Fixed* fixed, Mel_Update_Handle handle)
     {
         if (fixed->updates[i].id == handle.id)
         {
-            memmove(&fixed->updates[i], &fixed->updates[i + 1],
-                sizeof(Mel_Sim_Update) * (fixed->update_count - i - 1));
+            memmove(&fixed->updates[i], &fixed->updates[i + 1], sizeof(Mel_Sim_Update) * (fixed->update_count - i - 1));
             fixed->update_count--;
             return;
         }
@@ -230,8 +229,7 @@ void mel_sim_remove_variable(Mel_Sim_Ctx* sim, Mel_Update_Handle handle)
     {
         if (sim->variable_updates[i].id == handle.id)
         {
-            memmove(&sim->variable_updates[i], &sim->variable_updates[i + 1],
-                sizeof(Mel_Sim_Update) * (sim->variable_count - i - 1));
+            memmove(&sim->variable_updates[i], &sim->variable_updates[i + 1], sizeof(Mel_Sim_Update) * (sim->variable_count - i - 1));
             sim->variable_count--;
             return;
         }

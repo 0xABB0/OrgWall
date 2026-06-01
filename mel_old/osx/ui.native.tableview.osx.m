@@ -6,8 +6,8 @@
 static const void* kTableViewDelegateKey = &kTableViewDelegateKey;
 static const void* kTableViewInnerKey = &kTableViewInnerKey;
 
-@interface MelTableViewDelegate : NSObject <NSTableViewDataSource, NSTableViewDelegate>
-@property (nonatomic, assign) Mel_NTableView* table;
+@interface                                   MelTableViewDelegate: NSObject <NSTableViewDataSource, NSTableViewDelegate>
+@property(nonatomic, assign) Mel_NTableView* table;
 @end
 
 @implementation MelTableViewDelegate
@@ -27,7 +27,7 @@ static const void* kTableViewInnerKey = &kTableViewInnerKey;
         return @"";
 
     NSString* identifier = [tableColumn identifier];
-    i32 col_index = (i32)[identifier integerValue];
+    i32       col_index = (i32)[identifier integerValue];
 
     if (col_index < 0 || col_index >= self.table->column_count)
         return @"";
@@ -60,22 +60,19 @@ static void tableview_create_backing(Mel_NCtrl* ctrl)
 {
     Mel_NTableView* table = (Mel_NTableView*)ctrl;
 
-    NSRect frame = NSMakeRect(
-        (CGFloat)ctrl->pos.x,
-        (CGFloat)ctrl->pos.y,
-        (CGFloat)ctrl->size.x,
-        (CGFloat)ctrl->size.y
-    );
+    NSRect frame = NSMakeRect((CGFloat)ctrl->pos.x, (CGFloat)ctrl->pos.y, (CGFloat)ctrl->size.x, (CGFloat)ctrl->size.y);
 
     NSTableView* tableView = [[NSTableView alloc] initWithFrame:frame];
     [tableView setAllowsMultipleSelection:NO];
     [tableView setUsesAlternatingRowBackgroundColors:YES];
 
-    for (i32 i = 0; i < table->column_count; i++) {
-        NSString* identifier = [NSString stringWithFormat:@"%d", (int)i];
+    for (i32 i = 0; i < table->column_count; i++)
+    {
+        NSString*      identifier = [NSString stringWithFormat:@"%d", (int)i];
         NSTableColumn* col = [[NSTableColumn alloc] initWithIdentifier:identifier];
 
-        if (!str8_is_empty(table->columns[i].title)) {
+        if (!str8_is_empty(table->columns[i].title))
+        {
             char buf[1024];
             str8_to_buf(table->columns[i].title, buf, sizeof(buf));
             [[col headerCell] setStringValue:[NSString stringWithUTF8String:buf]];
@@ -111,7 +108,7 @@ static void tableview_destroy_backing(Mel_NCtrl* ctrl)
         return;
 
     NSScrollView* scrollView = (__bridge_transfer NSScrollView*)ctrl->backing;
-    NSTableView* tableView = objc_getAssociatedObject(scrollView, kTableViewInnerKey);
+    NSTableView*  tableView = objc_getAssociatedObject(scrollView, kTableViewInnerKey);
     [tableView setDataSource:nil];
     [tableView setDelegate:nil];
     objc_setAssociatedObject(scrollView, kTableViewDelegateKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
@@ -145,7 +142,7 @@ static void tableview_set_enabled(Mel_NCtrl* ctrl, bool enabled)
         return;
 
     NSScrollView* scrollView = (__bridge NSScrollView*)ctrl->backing;
-    NSTableView* tableView = objc_getAssociatedObject(scrollView, kTableViewInnerKey);
+    NSTableView*  tableView = objc_getAssociatedObject(scrollView, kTableViewInnerKey);
     [tableView setEnabled:enabled];
 }
 
@@ -168,20 +165,17 @@ static void tableview_remove_child_backing(Mel_NCtrl* parent, Mel_NCtrl* child)
 }
 
 static const Mel_NCtrl_VTable s_tableview_vtable = {
-    .create_backing       = tableview_create_backing,
-    .destroy_backing      = tableview_destroy_backing,
-    .set_frame            = tableview_set_frame,
-    .set_visible          = tableview_set_visible,
-    .set_enabled          = tableview_set_enabled,
-    .preferred_size       = tableview_preferred_size,
-    .add_child_backing    = tableview_add_child_backing,
+    .create_backing = tableview_create_backing,
+    .destroy_backing = tableview_destroy_backing,
+    .set_frame = tableview_set_frame,
+    .set_visible = tableview_set_visible,
+    .set_enabled = tableview_set_enabled,
+    .preferred_size = tableview_preferred_size,
+    .add_child_backing = tableview_add_child_backing,
     .remove_child_backing = tableview_remove_child_backing,
 };
 
-const Mel_NCtrl_VTable* mel__ntableview_vtable(void)
-{
-    return &s_tableview_vtable;
-}
+const Mel_NCtrl_VTable* mel__ntableview_vtable(void) { return &s_tableview_vtable; }
 
 void mel__ntableview_reload_platform(Mel_NTableView* table)
 {
@@ -190,7 +184,7 @@ void mel__ntableview_reload_platform(Mel_NTableView* table)
         return;
 
     NSScrollView* scrollView = (__bridge NSScrollView*)table->base.backing;
-    NSTableView* tableView = objc_getAssociatedObject(scrollView, kTableViewInnerKey);
+    NSTableView*  tableView = objc_getAssociatedObject(scrollView, kTableViewInnerKey);
     [tableView reloadData];
 }
 
@@ -201,11 +195,14 @@ void mel__ntableview_set_selected_platform(Mel_NTableView* table, i32 row)
         return;
 
     NSScrollView* scrollView = (__bridge NSScrollView*)table->base.backing;
-    NSTableView* tableView = objc_getAssociatedObject(scrollView, kTableViewInnerKey);
+    NSTableView*  tableView = objc_getAssociatedObject(scrollView, kTableViewInnerKey);
 
-    if (row < 0) {
+    if (row < 0)
+    {
         [tableView deselectAll:nil];
-    } else {
+    }
+    else
+    {
         NSIndexSet* indexSet = [NSIndexSet indexSetWithIndex:(NSUInteger)row];
         [tableView selectRowIndexes:indexSet byExtendingSelection:NO];
     }

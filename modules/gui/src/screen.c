@@ -24,12 +24,13 @@ void mel_app_register_screen_opt(str8 name, Mel_Screen_Opt opt)
     if (g_screens.allocator == NULL)
         mel_array_init(&g_screens, mel_gui__alloc());
 
-    mel_array_push(&g_screens, ((Mel_Screen_Def){
-                                   .name = name,
-                                   .build = opt.build,
-                                   .default_user = opt.user,
-                                   .on_enter = opt.on_enter,
-                                   .on_leave = opt.on_leave,
-                                   .on_destroy = opt.on_destroy,
-                               }));
+    mel_array_push(&g_screens,
+                   ((Mel_Screen_Def){
+                       .name = name,
+                       .build = opt.build,
+                       .default_user = opt.user,
+                       .on_enter = opt.on_enter,
+                       .on_leave = opt.on_leave,
+                       .on_destroy = opt.on_destroy,
+                   }));
 }

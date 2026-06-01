@@ -5,8 +5,8 @@
 
 static const void* kComboTargetKey = &kComboTargetKey;
 
-@interface MelComboTarget : NSObject
-@property (nonatomic, assign) Mel_NCombo* combo;
+@interface                               MelComboTarget: NSObject
+@property(nonatomic, assign) Mel_NCombo* combo;
 @end
 
 @implementation MelComboTarget
@@ -27,12 +27,7 @@ static const void* kComboTargetKey = &kComboTargetKey;
 
 static void combo_create_backing(Mel_NCtrl* ctrl)
 {
-    NSRect frame = NSMakeRect(
-        (CGFloat)ctrl->pos.x,
-        (CGFloat)ctrl->pos.y,
-        (CGFloat)ctrl->size.x,
-        (CGFloat)ctrl->size.y
-    );
+    NSRect frame = NSMakeRect((CGFloat)ctrl->pos.x, (CGFloat)ctrl->pos.y, (CGFloat)ctrl->size.x, (CGFloat)ctrl->size.y);
 
     NSPopUpButton* popup = [[NSPopUpButton alloc] initWithFrame:frame pullsDown:NO];
 
@@ -91,7 +86,7 @@ static Mel_Vec2 combo_preferred_size(Mel_NCtrl* ctrl)
         return ctrl->size;
 
     NSPopUpButton* popup = (__bridge NSPopUpButton*)ctrl->backing;
-    NSSize sz = [popup fittingSize];
+    NSSize         sz = [popup fittingSize];
     return mel_vec2((f32)sz.width, (f32)sz.height);
 }
 
@@ -108,20 +103,17 @@ static void combo_remove_child_backing(Mel_NCtrl* parent, Mel_NCtrl* child)
 }
 
 static const Mel_NCtrl_VTable s_combo_vtable = {
-    .create_backing       = combo_create_backing,
-    .destroy_backing      = combo_destroy_backing,
-    .set_frame            = combo_set_frame,
-    .set_visible          = combo_set_visible,
-    .set_enabled          = combo_set_enabled,
-    .preferred_size       = combo_preferred_size,
-    .add_child_backing    = combo_add_child_backing,
+    .create_backing = combo_create_backing,
+    .destroy_backing = combo_destroy_backing,
+    .set_frame = combo_set_frame,
+    .set_visible = combo_set_visible,
+    .set_enabled = combo_set_enabled,
+    .preferred_size = combo_preferred_size,
+    .add_child_backing = combo_add_child_backing,
     .remove_child_backing = combo_remove_child_backing,
 };
 
-const Mel_NCtrl_VTable* mel__ncombo_vtable(void)
-{
-    return &s_combo_vtable;
-}
+const Mel_NCtrl_VTable* mel__ncombo_vtable(void) { return &s_combo_vtable; }
 
 void mel__ncombo_set_items_platform(Mel_NCombo* combo, const char** items, i32 count)
 {
@@ -134,7 +126,8 @@ void mel__ncombo_set_items_platform(Mel_NCombo* combo, const char** items, i32 c
     [popup removeAllItems];
 
     NSMutableArray* titles = [[NSMutableArray alloc] initWithCapacity:(NSUInteger)count];
-    for (i32 i = 0; i < count; i++) {
+    for (i32 i = 0; i < count; i++)
+    {
         char buf[1024];
         str8_to_buf(combo->items[i], buf, sizeof(buf));
         [titles addObject:[NSString stringWithUTF8String:buf]];

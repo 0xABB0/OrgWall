@@ -119,8 +119,7 @@ Mel_Gui_Handle mel_tab_create_opt(Mel_Gui_Handle tabview, Mel_Tab_Opt o)
     RECT rc;
     tab_display_rect(tabctl, &rc);
     bool hidden = index != 0;
-    HWND page = mel_gui__win32_make_container(tabctl, rc.left, rc.top, rc.right - rc.left, rc.bottom - rc.top, h, (Mel_Gui_Pointer_Cb){ 0 }, (Mel_Gui_Focus_Cb){ 0 }, (Mel_Gui_Keyboard_Cb){ 0 },
-                                              hidden, false);
+    HWND page = mel_gui__win32_make_container(tabctl, rc.left, rc.top, rc.right - rc.left, rc.bottom - rc.top, h, (Mel_Gui_Pointer_Cb){ 0 }, (Mel_Gui_Focus_Cb){ 0 }, (Mel_Gui_Keyboard_Cb){ 0 }, hidden, false);
 
     n->native = page;
     n->content = page;

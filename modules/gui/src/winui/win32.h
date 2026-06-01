@@ -126,5 +126,4 @@ DWORD mel_gui__win32_child_style(Mel_Gui_Node* n, bool disabled);
 bool  mel_gui__win32_subclass_common(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp);
 
 void mel_gui__win32_ensure_container_class(void);
-HWND mel_gui__win32_make_container(HWND parent, i32 x, i32 y, i32 w, i32 h, Mel_Gui_Handle handle, Mel_Gui_Pointer_Cb pointer, Mel_Gui_Focus_Cb focus, Mel_Gui_Keyboard_Cb keyboard, bool hidden,
-                                   bool disabled);
+HWND mel_gui__win32_make_container(HWND parent, i32 x, i32 y, i32 w, i32 h, Mel_Gui_Handle handle, Mel_Gui_Pointer_Cb pointer, Mel_Gui_Focus_Cb focus, Mel_Gui_Keyboard_Cb keyboard, bool hidden, bool disabled);

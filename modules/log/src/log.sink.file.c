@@ -29,13 +29,37 @@ static void mel__log_sink_file_write(Mel_Log_Sink* self, const Mel_Log_Entry* en
 
     if (entry->context.len > 0)
     {
-        fprintf(file_sink->handle, "[%" PRIu64 ".%03" PRIu64 "] [%.*s] [%.*s] (%.*s) %.*s    (%.*s:%" PRIu32 ")\n", secs, ms, (int)level_name.len, level_name.data, (int)entry->domain.len,
-                entry->domain.data, (int)entry->context.len, entry->context.data, (int)entry->message.len, entry->message.data, (int)entry->file.len, entry->file.data, entry->line);
+        fprintf(file_sink->handle,
+                "[%" PRIu64 ".%03" PRIu64 "] [%.*s] [%.*s] (%.*s) %.*s    (%.*s:%" PRIu32 ")\n",
+                secs,
+                ms,
+                (int)level_name.len,
+                level_name.data,
+                (int)entry->domain.len,
+                entry->domain.data,
+                (int)entry->context.len,
+                entry->context.data,
+                (int)entry->message.len,
+                entry->message.data,
+                (int)entry->file.len,
+                entry->file.data,
+                entry->line);
     }
     else
     {
-        fprintf(file_sink->handle, "[%" PRIu64 ".%03" PRIu64 "] [%.*s] [%.*s] %.*s    (%.*s:%" PRIu32 ")\n", secs, ms, (int)level_name.len, level_name.data, (int)entry->domain.len, entry->domain.data,
-                (int)entry->message.len, entry->message.data, (int)entry->file.len, entry->file.data, entry->line);
+        fprintf(file_sink->handle,
+                "[%" PRIu64 ".%03" PRIu64 "] [%.*s] [%.*s] %.*s    (%.*s:%" PRIu32 ")\n",
+                secs,
+                ms,
+                (int)level_name.len,
+                level_name.data,
+                (int)entry->domain.len,
+                entry->domain.data,
+                (int)entry->message.len,
+                entry->message.data,
+                (int)entry->file.len,
+                entry->file.data,
+                entry->line);
     }
 }
 

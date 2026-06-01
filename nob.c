@@ -18,8 +18,23 @@
 
 int main(int argc, char** argv)
 {
-    NOB_GO_REBUILD_URSELF_PLUS(argc, argv, "nob.c", "modules/build/build.h", "modules/build/internal.h", "modules/build/runner.h", "modules/build/api.c", "modules/build/util.c",
-                               "modules/build/select.c", "modules/build/discovery.c", "modules/build/graph.c", "modules/build/resolve.c", "modules/build/toolchain.c", "modules/build/thirdparty.c",
-                               "modules/build/package.c", "modules/build/emit.c", "modules/build/compdb.c", "modules/build/driver.c");
+    NOB_GO_REBUILD_URSELF_PLUS(argc,
+                               argv,
+                               "nob.c",
+                               "modules/build/build.h",
+                               "modules/build/internal.h",
+                               "modules/build/runner.h",
+                               "modules/build/api.c",
+                               "modules/build/util.c",
+                               "modules/build/select.c",
+                               "modules/build/discovery.c",
+                               "modules/build/graph.c",
+                               "modules/build/resolve.c",
+                               "modules/build/toolchain.c",
+                               "modules/build/thirdparty.c",
+                               "modules/build/package.c",
+                               "modules/build/emit.c",
+                               "modules/build/compdb.c",
+                               "modules/build/driver.c");
     return mel_build_main(argc, argv);
 }

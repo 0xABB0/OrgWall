@@ -39,8 +39,7 @@ str8 mel_stacktrace_format(Mel_Stacktrace* stacktrace, Mel_Alloc* alloc)
     {
         Mel_Stackframe* f = &stacktrace->frames[i];
 #if MEL_STACKTRACE_HAS_FUNCTION_NAMES && MEL_STACKTRACE_HAS_SOURCE_INFO
-        lines[i] =
-            str8_fmt_alloc(alloc, "  at %.*s (%.*s:%zu:%zu) [%p]\n", (int)f->function_name.len, f->function_name.data, (int)f->filename.len, f->filename.data, f->file_line, f->column, f->address);
+        lines[i] = str8_fmt_alloc(alloc, "  at %.*s (%.*s:%zu:%zu) [%p]\n", (int)f->function_name.len, f->function_name.data, (int)f->filename.len, f->filename.data, f->file_line, f->column, f->address);
 #elif MEL_STACKTRACE_HAS_FUNCTION_NAMES
         lines[i] = str8_fmt_alloc(alloc, "  at %.*s [%p]\n", (int)f->function_name.len, f->function_name.data, f->address);
 #elif MEL_STACKTRACE_HAS_SOURCE_INFO

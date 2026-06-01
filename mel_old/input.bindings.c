@@ -9,7 +9,7 @@ void mel_input_bindings_init_opt(Mel_Input_Bindings* b, Mel_Input_Bindings_Opt o
 {
     assert(b != nullptr);
 
-    *b = (Mel_Input_Bindings){0};
+    *b = (Mel_Input_Bindings){ 0 };
     b->alloc = opt.alloc ? opt.alloc : mel_alloc_heap();
 
     if (opt.bindings && opt.binding_count > 0)
@@ -28,7 +28,7 @@ void mel_input_bindings_shutdown(Mel_Input_Bindings* b)
     if (b->entries)
         mel_dealloc(b->alloc, b->entries);
 
-    *b = (Mel_Input_Bindings){0};
+    *b = (Mel_Input_Bindings){ 0 };
 }
 
 void mel_input_bindings_add(Mel_Input_Bindings* b, SDL_Scancode key, Mel_Input_Action action)
@@ -46,7 +46,7 @@ void mel_input_bindings_add(Mel_Input_Bindings* b, SDL_Scancode key, Mel_Input_A
 
     if (b->count >= b->capacity)
     {
-        u32 new_cap = b->capacity == 0 ? 8 : b->capacity * 2;
+        u32                new_cap = b->capacity == 0 ? 8 : b->capacity * 2;
         Mel_Input_Binding* new_entries = mel_alloc(b->alloc, sizeof(Mel_Input_Binding) * new_cap);
 
         if (b->entries)
@@ -106,8 +106,8 @@ SDL_Scancode mel_input_bindings_get_key(Mel_Input_Bindings* b, Mel_Input_Action 
 
 Mel_Input_Map_Output mel_input_mapper_keyboard(SDL_Event* event, void* user)
 {
-    Mel_Input_Map_Output out = {0};
-    Mel_Input_Bindings* b = (Mel_Input_Bindings*)user;
+    Mel_Input_Map_Output out = { 0 };
+    Mel_Input_Bindings*  b = (Mel_Input_Bindings*)user;
 
     if (event->type != SDL_EVENT_KEY_DOWN && event->type != SDL_EVENT_KEY_UP)
         return out;
@@ -116,7 +116,7 @@ Mel_Input_Map_Output mel_input_mapper_keyboard(SDL_Event* event, void* user)
         return out;
 
     SDL_Scancode scancode = event->key.scancode;
-    f32 value = (event->type == SDL_EVENT_KEY_DOWN) ? 1.0f : 0.0f;
+    f32          value = (event->type == SDL_EVENT_KEY_DOWN) ? 1.0f : 0.0f;
 
     for (u32 i = 0; i < b->count && out.count < MEL_INPUT_MAP_MAX; i++)
     {

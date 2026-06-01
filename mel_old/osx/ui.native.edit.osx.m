@@ -5,8 +5,8 @@
 
 static const void* kEditDelegateKey = &kEditDelegateKey;
 
-@interface MelEditDelegate : NSObject <NSTextFieldDelegate>
-@property (nonatomic, assign) Mel_NEdit* edit;
+@interface                              MelEditDelegate: NSObject <NSTextFieldDelegate>
+@property(nonatomic, assign) Mel_NEdit* edit;
 @end
 
 @implementation MelEditDelegate
@@ -14,9 +14,10 @@ static const void* kEditDelegateKey = &kEditDelegateKey;
 - (void)controlTextDidChange:(NSNotification*)notification
 {
     (void)notification;
-    if (_edit && _edit->on_change) {
+    if (_edit && _edit->on_change)
+    {
         NSTextField* tf = (__bridge NSTextField*)_edit->base.backing;
-        str8 text = str8_from_cstr([[tf stringValue] UTF8String]);
+        str8         text = str8_from_cstr([[tf stringValue] UTF8String]);
         _edit->on_change(text, _edit->user_data);
     }
 }
@@ -25,10 +26,12 @@ static const void* kEditDelegateKey = &kEditDelegateKey;
 {
     (void)control;
     (void)textView;
-    if (commandSelector == @selector(insertNewline:)) {
-        if (_edit && _edit->on_confirm) {
+    if (commandSelector == @selector(insertNewline:))
+    {
+        if (_edit && _edit->on_confirm)
+        {
             NSTextField* tf = (__bridge NSTextField*)_edit->base.backing;
-            str8 text = str8_from_cstr([[tf stringValue] UTF8String]);
+            str8         text = str8_from_cstr([[tf stringValue] UTF8String]);
             _edit->on_confirm(text, _edit->user_data);
         }
         return YES;
@@ -67,7 +70,8 @@ static void nedit_create_backing(Mel_NCtrl* ctrl)
 
 static void nedit_destroy_backing(Mel_NCtrl* ctrl)
 {
-    if (!ctrl->backing) return;
+    if (!ctrl->backing)
+        return;
     NSTextField* tf = (__bridge_transfer NSTextField*)ctrl->backing;
     [tf setDelegate:nil];
     objc_setAssociatedObject(tf, kEditDelegateKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
@@ -112,20 +116,17 @@ static void nedit_remove_child_backing(Mel_NCtrl* parent, Mel_NCtrl* child)
 }
 
 static const Mel_NCtrl_VTable s_nedit_vtable = {
-    .create_backing       = nedit_create_backing,
-    .destroy_backing      = nedit_destroy_backing,
-    .set_frame            = nedit_set_frame,
-    .set_visible          = nedit_set_visible,
-    .set_enabled          = nedit_set_enabled,
-    .preferred_size       = nedit_preferred_size,
-    .add_child_backing    = nedit_add_child_backing,
+    .create_backing = nedit_create_backing,
+    .destroy_backing = nedit_destroy_backing,
+    .set_frame = nedit_set_frame,
+    .set_visible = nedit_set_visible,
+    .set_enabled = nedit_set_enabled,
+    .preferred_size = nedit_preferred_size,
+    .add_child_backing = nedit_add_child_backing,
     .remove_child_backing = nedit_remove_child_backing,
 };
 
-const Mel_NCtrl_VTable* mel__nedit_vtable(void)
-{
-    return &s_nedit_vtable;
-}
+const Mel_NCtrl_VTable* mel__nedit_vtable(void) { return &s_nedit_vtable; }
 
 void mel__nedit_set_text_platform(Mel_NEdit* edit, const char* text)
 {

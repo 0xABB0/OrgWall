@@ -9,7 +9,7 @@
 
 static void mel__sprite_grow_frames(Mel_Sprite_Anim_Def* def)
 {
-    u32 new_cap = def->frame_capacity == 0 ? 8 : def->frame_capacity * 2;
+    u32   new_cap = def->frame_capacity == 0 ? 8 : def->frame_capacity * 2;
     usize new_size = sizeof(Mel_Sprite_Anim_Frame) * new_cap;
     if (def->frames == NULL)
         def->frames = mel_alloc(def->alloc, new_size);
@@ -20,7 +20,7 @@ static void mel__sprite_grow_frames(Mel_Sprite_Anim_Def* def)
 
 static void mel__sprite_grow_events(Mel_Sprite_Anim_Def* def)
 {
-    u32 new_cap = def->event_capacity == 0 ? 4 : def->event_capacity * 2;
+    u32   new_cap = def->event_capacity == 0 ? 4 : def->event_capacity * 2;
     usize new_size = sizeof(Mel_Sprite_Anim_Event) * new_cap;
     if (def->events == NULL)
         def->events = mel_alloc(def->alloc, new_size);
@@ -34,7 +34,7 @@ void mel_sprite_anim_def_init(Mel_Sprite_Anim_Def* def, u64 name_hash, u64 prope
     assert(def != NULL);
     assert(alloc != NULL);
 
-    *def = (Mel_Sprite_Anim_Def){0};
+    *def = (Mel_Sprite_Anim_Def){ 0 };
     def->name_hash = name_hash;
     def->property_hash = property_hash;
     def->alloc = alloc;
@@ -49,7 +49,7 @@ void mel_sprite_anim_def_destroy(Mel_Sprite_Anim_Def* def)
     if (def->events)
         mel_dealloc(def->alloc, def->events);
 
-    *def = (Mel_Sprite_Anim_Def){0};
+    *def = (Mel_Sprite_Anim_Def){ 0 };
 }
 
 void mel_sprite_anim_def_push_frame(Mel_Sprite_Anim_Def* def, u32 frame_index, f32 duration)
@@ -66,8 +66,7 @@ void mel_sprite_anim_def_push_frame(Mel_Sprite_Anim_Def* def, u32 frame_index, f
     };
 }
 
-void mel_sprite_anim_def_insert_frame(Mel_Sprite_Anim_Def* def, u32 position,
-                                       u32 frame_index, f32 duration)
+void mel_sprite_anim_def_insert_frame(Mel_Sprite_Anim_Def* def, u32 position, u32 frame_index, f32 duration)
 {
     assert(def != NULL);
     assert(position <= def->frame_count);
@@ -78,8 +77,7 @@ void mel_sprite_anim_def_insert_frame(Mel_Sprite_Anim_Def* def, u32 position,
 
     if (position < def->frame_count)
     {
-        memmove(&def->frames[position + 1], &def->frames[position],
-                sizeof(Mel_Sprite_Anim_Frame) * (def->frame_count - position));
+        memmove(&def->frames[position + 1], &def->frames[position], sizeof(Mel_Sprite_Anim_Frame) * (def->frame_count - position));
     }
 
     def->frames[position] = (Mel_Sprite_Anim_Frame){
@@ -96,14 +94,12 @@ void mel_sprite_anim_def_remove_frame(Mel_Sprite_Anim_Def* def, u32 position)
 
     if (position < def->frame_count - 1)
     {
-        memmove(&def->frames[position], &def->frames[position + 1],
-                sizeof(Mel_Sprite_Anim_Frame) * (def->frame_count - position - 1));
+        memmove(&def->frames[position], &def->frames[position + 1], sizeof(Mel_Sprite_Anim_Frame) * (def->frame_count - position - 1));
     }
     def->frame_count--;
 }
 
-void mel_sprite_anim_def_set_frame(Mel_Sprite_Anim_Def* def, u32 position,
-                                    u32 frame_index, f32 duration)
+void mel_sprite_anim_def_set_frame(Mel_Sprite_Anim_Def* def, u32 position, u32 frame_index, f32 duration)
 {
     assert(def != NULL);
     assert(position < def->frame_count);
@@ -113,8 +109,7 @@ void mel_sprite_anim_def_set_frame(Mel_Sprite_Anim_Def* def, u32 position,
     def->frames[position].duration = duration;
 }
 
-void mel_sprite_anim_def_add_event(Mel_Sprite_Anim_Def* def, u32 after_frame,
-                                    u64 event_hash, u64 event_property)
+void mel_sprite_anim_def_add_event(Mel_Sprite_Anim_Def* def, u32 after_frame, u64 event_hash, u64 event_property)
 {
     assert(def != NULL);
     assert(after_frame < def->frame_count);
@@ -136,14 +131,12 @@ void mel_sprite_anim_def_remove_event(Mel_Sprite_Anim_Def* def, u32 index)
 
     if (index < def->event_count - 1)
     {
-        memmove(&def->events[index], &def->events[index + 1],
-                sizeof(Mel_Sprite_Anim_Event) * (def->event_count - index - 1));
+        memmove(&def->events[index], &def->events[index + 1], sizeof(Mel_Sprite_Anim_Event) * (def->event_count - index - 1));
     }
     def->event_count--;
 }
 
-Mel_Anim_Clip mel_sprite_anim_def_compile(const Mel_Sprite_Anim_Def* def,
-                                           const Mel_Alloc* alloc)
+Mel_Anim_Clip mel_sprite_anim_def_compile(const Mel_Sprite_Anim_Def* def, const Mel_Alloc* alloc)
 {
     assert(def != NULL);
     assert(alloc != NULL);
@@ -159,7 +152,7 @@ Mel_Anim_Clip mel_sprite_anim_def_compile(const Mel_Sprite_Anim_Def* def,
     u64 prop_id = def->property_hash;
 
     Mel_Track_Group* grp = mel_alloc_type(alloc, Mel_Track_Group);
-    *grp = (Mel_Track_Group){0};
+    *grp = (Mel_Track_Group){ 0 };
     grp->type_hash = MEL_ANIM_TYPE_F32;
     grp->track_count = 1;
     grp->property_ids = mel_alloc_type(alloc, u64);
@@ -185,18 +178,18 @@ Mel_Anim_Clip mel_sprite_anim_def_compile(const Mel_Sprite_Anim_Def* def,
 
     grp->flat_easing_params = NULL;
 
-    u32 event_group_count = 0;
+    u32              event_group_count = 0;
     Mel_Event_Group* event_groups = NULL;
 
     if (def->event_count > 0)
     {
-        u32 unique_props = 0;
+        u32  unique_props = 0;
         u64* unique_prop_ids = mel_alloc(alloc, sizeof(u64) * def->event_count);
         u32* prop_event_counts = mel_alloc(alloc, sizeof(u32) * def->event_count);
 
         for (u32 e = 0; e < def->event_count; e++)
         {
-            u64 ep = def->events[e].event_property;
+            u64  ep = def->events[e].event_property;
             bool found = false;
             for (u32 u = 0; u < unique_props; u++)
             {
@@ -217,7 +210,7 @@ Mel_Anim_Clip mel_sprite_anim_def_compile(const Mel_Sprite_Anim_Def* def,
 
         event_group_count = 1;
         event_groups = mel_alloc_type(alloc, Mel_Event_Group);
-        *event_groups = (Mel_Event_Group){0};
+        *event_groups = (Mel_Event_Group){ 0 };
 
         event_groups->track_count = unique_props;
         event_groups->property_ids = mel_alloc(alloc, sizeof(u64) * unique_props);
@@ -238,7 +231,8 @@ Mel_Anim_Clip mel_sprite_anim_def_compile(const Mel_Sprite_Anim_Def* def,
             u32 written = 0;
             for (u32 e = 0; e < def->event_count; e++)
             {
-                if (def->events[e].event_property != unique_prop_ids[t]) continue;
+                if (def->events[e].event_property != unique_prop_ids[t])
+                    continue;
 
                 f32 event_time = 0.0f;
                 for (u32 f = 0; f <= def->events[e].after_frame && f < def->frame_count; f++)

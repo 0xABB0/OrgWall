@@ -60,8 +60,15 @@ Mel_Gui_Handle mel_gpu_view_create_opt(Mel_Gui_Handle parent, Mel_Gpu_View_Opt o
     if (!env)
         return h;
 
-    jobject view = (*env)->CallStaticObjectMethod(env, s_cls, s_create, mel_gui__android_pack(h), (jlong)(intptr_t)o.on_.on_resize, (jlong)(intptr_t)o.pointer.on_pointer_down,
-                                                  (jlong)(intptr_t)o.pointer.on_pointer_move, (jlong)(intptr_t)o.pointer.on_pointer_up, (jlong)(intptr_t)o.keyboard.on_key_down,
+    jobject view = (*env)->CallStaticObjectMethod(env,
+                                                  s_cls,
+                                                  s_create,
+                                                  mel_gui__android_pack(h),
+                                                  (jlong)(intptr_t)o.on_.on_resize,
+                                                  (jlong)(intptr_t)o.pointer.on_pointer_down,
+                                                  (jlong)(intptr_t)o.pointer.on_pointer_move,
+                                                  (jlong)(intptr_t)o.pointer.on_pointer_up,
+                                                  (jlong)(intptr_t)o.keyboard.on_key_down,
                                                   (jlong)(intptr_t)o.keyboard.on_key_up);
     if ((*env)->ExceptionCheck(env))
     {

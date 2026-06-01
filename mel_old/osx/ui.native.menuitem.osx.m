@@ -6,8 +6,8 @@
 
 static const void* kMenuItemTargetKey = &kMenuItemTargetKey;
 
-@interface MelMenuItemTarget : NSObject
-@property (nonatomic, assign) Mel_NMenuItem* item;
+@interface                                  MelMenuItemTarget: NSObject
+@property(nonatomic, assign) Mel_NMenuItem* item;
 @end
 
 @implementation MelMenuItemTarget
@@ -36,10 +36,7 @@ static void nmenuitem_create_backing(Mel_NCtrl* ctrl)
     NSString* title = [NSString stringWithUTF8String:title_buf];
     NSString* key = [NSString stringWithUTF8String:key_buf];
 
-    NSMenuItem* ns = [[NSMenuItem alloc]
-        initWithTitle:title
-        action:@selector(menuAction:)
-        keyEquivalent:key];
+    NSMenuItem* ns = [[NSMenuItem alloc] initWithTitle:title action:@selector(menuAction:) keyEquivalent:key];
 
     [ns setTarget:target];
     [ns setEnabled:YES];
@@ -51,7 +48,8 @@ static void nmenuitem_create_backing(Mel_NCtrl* ctrl)
 
 static void nmenuitem_destroy_backing(Mel_NCtrl* ctrl)
 {
-    if (!ctrl->backing) return;
+    if (!ctrl->backing)
+        return;
 
     NSMenuItem* ns = (__bridge NSMenuItem*)ctrl->backing;
     [ns setTarget:nil];
@@ -73,7 +71,8 @@ static void nmenuitem_set_frame(Mel_NCtrl* ctrl, f32 x, f32 y, f32 w, f32 h)
 
 static void nmenuitem_set_visible(Mel_NCtrl* ctrl, bool visible)
 {
-    if (!ctrl->backing) return;
+    if (!ctrl->backing)
+        return;
 
     NSMenuItem* ns = (__bridge NSMenuItem*)ctrl->backing;
     [ns setHidden:!visible];
@@ -81,7 +80,8 @@ static void nmenuitem_set_visible(Mel_NCtrl* ctrl, bool visible)
 
 static void nmenuitem_set_enabled(Mel_NCtrl* ctrl, bool enabled)
 {
-    if (!ctrl->backing) return;
+    if (!ctrl->backing)
+        return;
 
     NSMenuItem* ns = (__bridge NSMenuItem*)ctrl->backing;
     [ns setEnabled:enabled];
@@ -106,20 +106,17 @@ static void nmenuitem_remove_child_backing(Mel_NCtrl* parent, Mel_NCtrl* child)
 }
 
 static const Mel_NCtrl_VTable s_nmenuitem_vtable = {
-    .create_backing       = nmenuitem_create_backing,
-    .destroy_backing      = nmenuitem_destroy_backing,
-    .set_frame            = nmenuitem_set_frame,
-    .set_visible          = nmenuitem_set_visible,
-    .set_enabled          = nmenuitem_set_enabled,
-    .preferred_size       = nmenuitem_preferred_size,
-    .add_child_backing    = nmenuitem_add_child_backing,
+    .create_backing = nmenuitem_create_backing,
+    .destroy_backing = nmenuitem_destroy_backing,
+    .set_frame = nmenuitem_set_frame,
+    .set_visible = nmenuitem_set_visible,
+    .set_enabled = nmenuitem_set_enabled,
+    .preferred_size = nmenuitem_preferred_size,
+    .add_child_backing = nmenuitem_add_child_backing,
     .remove_child_backing = nmenuitem_remove_child_backing,
 };
 
-const Mel_NCtrl_VTable* mel__nmenuitem_vtable(void)
-{
-    return &s_nmenuitem_vtable;
-}
+const Mel_NCtrl_VTable* mel__nmenuitem_vtable(void) { return &s_nmenuitem_vtable; }
 
 void mel__nmenuitem_set_title_platform(Mel_NMenuItem* item, const char* title)
 {
@@ -130,12 +127,16 @@ void mel__nmenuitem_set_title_platform(Mel_NMenuItem* item, const char* title)
 void mel__nmenuitem_set_submenu_platform(Mel_NMenuItem* item, Mel_NMenu* submenu)
 {
     NSMenuItem* ns = (__bridge NSMenuItem*)item->base.backing;
-    if (!ns) return;
+    if (!ns)
+        return;
 
-    if (submenu && submenu->base.backing) {
+    if (submenu && submenu->base.backing)
+    {
         NSMenu* ns_submenu = (__bridge NSMenu*)submenu->base.backing;
         [ns setSubmenu:ns_submenu];
-    } else {
+    }
+    else
+    {
         [ns setSubmenu:nil];
     }
 }

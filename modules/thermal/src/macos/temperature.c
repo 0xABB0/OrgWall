@@ -59,10 +59,7 @@ static bool           g_open;
 static Mel_Smc_Group  g_cpu, g_gpu, g_ambient;
 static pthread_once_t g_once = PTHREAD_ONCE_INIT;
 
-static uint32_t mel_smc_fourcc(const char* s)
-{
-    return ((uint32_t)(unsigned char)s[0] << 24) | ((uint32_t)(unsigned char)s[1] << 16) | ((uint32_t)(unsigned char)s[2] << 8) | (uint32_t)(unsigned char)s[3];
-}
+static uint32_t mel_smc_fourcc(const char* s) { return ((uint32_t)(unsigned char)s[0] << 24) | ((uint32_t)(unsigned char)s[1] << 16) | ((uint32_t)(unsigned char)s[2] << 8) | (uint32_t)(unsigned char)s[3]; }
 
 static kern_return_t mel_smc_call(Mel_Smc_Call* in, Mel_Smc_Call* out)
 {
@@ -137,8 +134,7 @@ static void mel_smc_init(void)
     in.data8 = MEL_SMC_READ_BYTES;
     if (mel_smc_call(&in, &out) != kIOReturnSuccess)
         return;
-    uint32_t total =
-        ((uint32_t)(unsigned char)out.bytes[0] << 24) | ((uint32_t)(unsigned char)out.bytes[1] << 16) | ((uint32_t)(unsigned char)out.bytes[2] << 8) | (uint32_t)(unsigned char)out.bytes[3];
+    uint32_t total = ((uint32_t)(unsigned char)out.bytes[0] << 24) | ((uint32_t)(unsigned char)out.bytes[1] << 16) | ((uint32_t)(unsigned char)out.bytes[2] << 8) | (uint32_t)(unsigned char)out.bytes[3];
 
     uint32_t flt = mel_smc_fourcc("flt ");
     for (uint32_t i = 0; i < total; i++)

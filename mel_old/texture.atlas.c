@@ -15,10 +15,7 @@ static u64 mel__atlas_pool_hash_key(const void* key)
     return mel_xxh64(&val, sizeof(val), 0);
 }
 
-static bool mel__atlas_pool_eq_key(const void* a, const void* b)
-{
-    return (u64)(usize)a == (u64)(usize)b;
-}
+static bool mel__atlas_pool_eq_key(const void* a, const void* b) { return (u64)(usize)a == (u64)(usize)b; }
 
 void mel_atlas_pool_init(Mel_Atlas_Pool* pool, const Mel_Alloc* alloc, Mel_Texture_Pool* tex_pool)
 {
@@ -26,7 +23,7 @@ void mel_atlas_pool_init(Mel_Atlas_Pool* pool, const Mel_Alloc* alloc, Mel_Textu
     assert(alloc != nullptr);
     assert(tex_pool != nullptr);
 
-    *pool = (Mel_Atlas_Pool){0};
+    *pool = (Mel_Atlas_Pool){ 0 };
     pool->alloc = alloc;
     pool->texture_pool = tex_pool;
 
@@ -39,7 +36,7 @@ void mel_atlas_pool_shutdown(Mel_Atlas_Pool* pool)
     assert(pool != nullptr);
 
     Mel_Atlas_Entry* entries = mel_slotmap_data(&pool->slotmap);
-    u32 count = mel_slotmap_count(&pool->slotmap);
+    u32              count = mel_slotmap_count(&pool->slotmap);
 
     for (u32 i = 0; i < count; i++)
     {
@@ -52,7 +49,7 @@ void mel_atlas_pool_shutdown(Mel_Atlas_Pool* pool)
     mel_slotmap_free(&pool->slotmap);
     mel_hashmap_free(&pool->path_to_handle);
 
-    *pool = (Mel_Atlas_Pool){0};
+    *pool = (Mel_Atlas_Pool){ 0 };
 }
 
 Mel_Atlas_Handle mel_atlas_pool_load(Mel_Atlas_Pool* pool, str8 path)
@@ -86,7 +83,7 @@ Mel_Atlas_Handle mel_atlas_pool_load(Mel_Atlas_Pool* pool, str8 path)
         return MEL_ATLAS_HANDLE_NULL;
     }
 
-    Mel_Atlas_Entry entry = {0};
+    Mel_Atlas_Entry entry = { 0 };
     entry.alloc = pool->alloc;
 
     cJSON* tex_path = cJSON_GetObjectItem(root, "texture");
@@ -107,7 +104,7 @@ Mel_Atlas_Handle mel_atlas_pool_load(Mel_Atlas_Pool* pool, str8 path)
 
         for (u32 i = 0; i < entry.region_count; i++)
         {
-            cJSON* reg = cJSON_GetArrayItem(regions_json, (int)i);
+            cJSON*            reg = cJSON_GetArrayItem(regions_json, (int)i);
             Mel_Atlas_Region* r = &entry.regions[i];
 
             r->x = (u32)cJSON_GetObjectItem(reg, "x")->valuedouble;
@@ -148,7 +145,7 @@ bool mel_atlas_pool_unload(Mel_Atlas_Pool* pool, Mel_Atlas_Handle handle)
     assert(pool != nullptr);
 
     Mel_SlotMap_Handle sm_handle = handle.handle;
-    Mel_Atlas_Entry* entry = mel_slotmap_get(&pool->slotmap, sm_handle);
+    Mel_Atlas_Entry*   entry = mel_slotmap_get(&pool->slotmap, sm_handle);
 
     if (!entry)
         return false;
@@ -177,16 +174,15 @@ i32 mel_atlas_find_region(Mel_Atlas_Entry* entry, u64 name_hash)
     return -1;
 }
 
-void mel_atlas_get_region_uv(Mel_Atlas_Entry* entry, u32 region_idx,
-                             f32* u0, f32* v0, f32* u1, f32* v1)
+void mel_atlas_get_region_uv(Mel_Atlas_Entry* entry, u32 region_idx, f32* u0, f32* v0, f32* u1, f32* v1)
 {
     assert(entry != nullptr);
     assert(region_idx < entry->region_count);
     assert(entry->texture_width > 0 && entry->texture_height > 0);
 
     Mel_Atlas_Region* r = &entry->regions[region_idx];
-    f32 inv_w = 1.0f / (f32)entry->texture_width;
-    f32 inv_h = 1.0f / (f32)entry->texture_height;
+    f32               inv_w = 1.0f / (f32)entry->texture_width;
+    f32               inv_h = 1.0f / (f32)entry->texture_height;
 
     *u0 = (f32)r->x * inv_w;
     *v0 = (f32)r->y * inv_h;

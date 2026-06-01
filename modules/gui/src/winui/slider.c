@@ -37,8 +37,7 @@ Mel_Gui_Handle mel_slider_create_opt(Mel_Gui_Handle parent, Mel_Slider_Opt o)
 
     i32 max_value = (o.max_value > o.min_value) ? o.max_value : o.min_value + 100;
 
-    HWND hwnd =
-        CreateWindowExW(0, TRACKBAR_CLASSW, NULL, mel_gui__win32_child_style(n, o.disabled) | WS_TABSTOP | TBS_HORZ | TBS_AUTOTICKS, n->x, n->y, n->width, n->height, par, NULL, current_hinst, NULL);
+    HWND hwnd = CreateWindowExW(0, TRACKBAR_CLASSW, NULL, mel_gui__win32_child_style(n, o.disabled) | WS_TABSTOP | TBS_HORZ | TBS_AUTOTICKS, n->x, n->y, n->width, n->height, par, NULL, current_hinst, NULL);
     n->native = hwnd;
     if (!hwnd)
         return h;

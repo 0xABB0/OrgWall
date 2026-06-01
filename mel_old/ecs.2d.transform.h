@@ -9,7 +9,7 @@ typedef struct
 {
     Mel_Vec2 pos;
     Mel_Vec2 vel;
-    f32 depth;
+    f32      depth;
 } Mel_CTransform;
 
 extern ECS_COMPONENT_DECLARE(Mel_CTransform);

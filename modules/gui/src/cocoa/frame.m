@@ -84,7 +84,12 @@ Mel_Gui_Handle mel_frame_create_opt(Mel_Frame_Opt o)
         root.inset_mode = o.inset_mode;
         root.insets_cb = o.insets;
 
-        Mel_Window mw = mel_window_create(.title = o.title, .w = cw, .h = ch, .start_hidden = true, .content_native = (__bridge void*)root, .user = (void*)(uintptr_t)mel_gui_handle_pack(h),
+        Mel_Window mw = mel_window_create(.title = o.title,
+                                          .w = cw,
+                                          .h = ch,
+                                          .start_hidden = true,
+                                          .content_native = (__bridge void*)root,
+                                          .user = (void*)(uintptr_t)mel_gui_handle_pack(h),
                                           .lifecycle = { .on_resize = mel_gui__frame_on_resize, .on_closed = mel_gui__frame_on_closed, .on_focus_in = mel_gui__frame_on_focus });
 
         NSWindow* window = (__bridge NSWindow*)mel_window_native(mw);

@@ -26,16 +26,21 @@ static i32 mel__os_open(Mel_Vfs_Backend* self, str8 path, u32 flags)
     char cpath[1024];
     mel__os_to_cstr(path, cpath, sizeof(cpath));
 
-    int oflags = 0;
-    bool read  = (flags & MEL_VFS_OPEN_READ) != 0;
+    int  oflags = 0;
+    bool read = (flags & MEL_VFS_OPEN_READ) != 0;
     bool write = (flags & MEL_VFS_OPEN_WRITE) != 0;
 
-    if (read && write)       oflags = O_RDWR;
-    else if (write)          oflags = O_WRONLY;
-    else                     oflags = O_RDONLY;
+    if (read && write)
+        oflags = O_RDWR;
+    else if (write)
+        oflags = O_WRONLY;
+    else
+        oflags = O_RDONLY;
 
-    if (flags & MEL_VFS_OPEN_CREATE)   oflags |= O_CREAT;
-    if (flags & MEL_VFS_OPEN_TRUNCATE) oflags |= O_TRUNC;
+    if (flags & MEL_VFS_OPEN_CREATE)
+        oflags |= O_CREAT;
+    if (flags & MEL_VFS_OPEN_TRUNCATE)
+        oflags |= O_TRUNC;
 
     int fd = open(cpath, oflags, 0644);
     return (i32)fd;
@@ -65,7 +70,8 @@ static i64 mel__os_file_length(Mel_Vfs_Backend* self, i32 handle)
 {
     (void)self;
     struct stat st;
-    if (fstat(handle, &st) != 0) return -1;
+    if (fstat(handle, &st) != 0)
+        return -1;
     return (i64)st.st_size;
 }
 
@@ -76,12 +82,15 @@ static bool mel__os_stat(Mel_Vfs_Backend* self, str8 path, Mel_Vfs_Stat* out)
     mel__os_to_cstr(path, cpath, sizeof(cpath));
 
     struct stat st;
-    if (stat(cpath, &st) != 0) return false;
+    if (stat(cpath, &st) != 0)
+        return false;
 
     out->size = (u64)st.st_size;
     out->flags = 0;
-    if (S_ISREG(st.st_mode)) out->flags |= MEL_VFS_STAT_IS_FILE;
-    if (S_ISDIR(st.st_mode)) out->flags |= MEL_VFS_STAT_IS_DIR;
+    if (S_ISREG(st.st_mode))
+        out->flags |= MEL_VFS_STAT_IS_FILE;
+    if (S_ISDIR(st.st_mode))
+        out->flags |= MEL_VFS_STAT_IS_DIR;
     return true;
 }
 
@@ -92,29 +101,32 @@ static bool mel__os_enumerate(Mel_Vfs_Backend* self, str8 path, Mel_Vfs_Enumerat
     mel__os_to_cstr(path, cpath, sizeof(cpath));
 
     DIR* dir = opendir(cpath);
-    if (!dir) return false;
+    if (!dir)
+        return false;
 
     struct dirent* entry;
     while ((entry = readdir(dir)) != NULL)
     {
-        if (entry->d_name[0] == '.' && (entry->d_name[1] == 0 ||
-            (entry->d_name[1] == '.' && entry->d_name[2] == 0)))
+        if (entry->d_name[0] == '.' && (entry->d_name[1] == 0 || (entry->d_name[1] == '.' && entry->d_name[2] == 0)))
             continue;
 
         char full_path[1024];
         snprintf(full_path, sizeof(full_path), "%s/%s", cpath, entry->d_name);
 
-        Mel_Vfs_Stat st = {0};
-        struct stat file_stat;
+        Mel_Vfs_Stat st = { 0 };
+        struct stat  file_stat;
         if (stat(full_path, &file_stat) == 0)
         {
             st.size = (u64)file_stat.st_size;
-            if (S_ISREG(file_stat.st_mode)) st.flags |= MEL_VFS_STAT_IS_FILE;
-            if (S_ISDIR(file_stat.st_mode)) st.flags |= MEL_VFS_STAT_IS_DIR;
+            if (S_ISREG(file_stat.st_mode))
+                st.flags |= MEL_VFS_STAT_IS_FILE;
+            if (S_ISDIR(file_stat.st_mode))
+                st.flags |= MEL_VFS_STAT_IS_DIR;
         }
 
         str8 name = str8_from_cstr(entry->d_name);
-        if (!cb(name, &st, user)) break;
+        if (!cb(name, &st, user))
+            break;
     }
 
     closedir(dir);
@@ -149,11 +161,14 @@ static void* mel__os_map(Mel_Vfs_Backend* self, i32 handle, i64 offset, i64 size
 {
     (void)self;
     int mprot = PROT_NONE;
-    if (prot & MEL_VFS_MAP_READ)  mprot |= PROT_READ;
-    if (prot & MEL_VFS_MAP_WRITE) mprot |= PROT_WRITE;
+    if (prot & MEL_VFS_MAP_READ)
+        mprot |= PROT_READ;
+    if (prot & MEL_VFS_MAP_WRITE)
+        mprot |= PROT_WRITE;
 
     void* ptr = mmap(NULL, (size_t)size, mprot, MAP_PRIVATE, handle, (off_t)offset);
-    if (ptr == MAP_FAILED) return NULL;
+    if (ptr == MAP_FAILED)
+        return NULL;
     return ptr;
 }
 
@@ -179,7 +194,4 @@ static Mel_Vfs_Backend s_os_backend = {
     .unmap = mel__os_unmap,
 };
 
-Mel_Vfs_Backend* mel_vfs_backend_os(void)
-{
-    return &s_os_backend;
-}
+Mel_Vfs_Backend* mel_vfs_backend_os(void) { return &s_os_backend; }

@@ -2,8 +2,8 @@
 #include "../ui.native.window.h"
 #include "../string.str8.h"
 
-@interface MelWindowDelegate : NSObject <NSWindowDelegate>
-@property (nonatomic, assign) Mel_NWindow* mel_window;
+@interface                                MelWindowDelegate: NSObject <NSWindowDelegate>
+@property(nonatomic, assign) Mel_NWindow* mel_window;
 @end
 
 @implementation MelWindowDelegate
@@ -22,11 +22,12 @@
         return;
 
     NSWindow* nswindow = (__bridge NSWindow*)self.mel_window->base.backing;
-    NSSize content_size = [[nswindow contentView] frame].size;
+    NSSize    content_size = [[nswindow contentView] frame].size;
     self.mel_window->base.size = mel_vec2((f32)content_size.width, (f32)content_size.height);
 
     Mel_NCtrl* child = self.mel_window->base.first_child;
-    while (child) {
+    while (child)
+    {
         mel_nctrl_set_size(child, self.mel_window->base.size);
         child = child->next_sibling;
     }
@@ -39,7 +40,7 @@
 
 @end
 
-@interface MelFlippedContentView : NSView
+@interface MelFlippedContentView: NSView
 @end
 
 @implementation MelFlippedContentView
@@ -70,13 +71,9 @@ static void window_create_backing(Mel_NCtrl* ctrl)
     Mel_NWindow* window = (Mel_NWindow*)ctrl;
 
     NSUInteger style_mask = mel__nwindow_style_to_nsmask(window->style_flags);
-    NSRect content_rect = NSMakeRect(0, 0, (CGFloat)ctrl->size.x, (CGFloat)ctrl->size.y);
+    NSRect     content_rect = NSMakeRect(0, 0, (CGFloat)ctrl->size.x, (CGFloat)ctrl->size.y);
 
-    NSWindow* nswindow = [[NSWindow alloc]
-        initWithContentRect:content_rect
-        styleMask:style_mask
-        backing:NSBackingStoreBuffered
-        defer:NO];
+    NSWindow* nswindow = [[NSWindow alloc] initWithContentRect:content_rect styleMask:style_mask backing:NSBackingStoreBuffered defer:NO];
 
     char title_buf[256];
     str8_to_buf(window->title, title_buf, sizeof(title_buf));
@@ -112,8 +109,8 @@ static void window_set_frame(Mel_NCtrl* ctrl, f32 x, f32 y, f32 w, f32 h)
         return;
 
     NSWindow* nswindow = (__bridge NSWindow*)ctrl->backing;
-    NSRect content_rect = NSMakeRect(0, 0, (CGFloat)w, (CGFloat)h);
-    NSRect frame_rect = [nswindow frameRectForContentRect:content_rect];
+    NSRect    content_rect = NSMakeRect(0, 0, (CGFloat)w, (CGFloat)h);
+    NSRect    frame_rect = [nswindow frameRectForContentRect:content_rect];
     frame_rect.origin = nswindow.frame.origin;
     [nswindow setFrame:frame_rect display:YES animate:NO];
 }
@@ -136,10 +133,7 @@ static void window_set_enabled(Mel_NCtrl* ctrl, bool enabled)
     (void)enabled;
 }
 
-static Mel_Vec2 window_preferred_size(Mel_NCtrl* ctrl)
-{
-    return ctrl->size;
-}
+static Mel_Vec2 window_preferred_size(Mel_NCtrl* ctrl) { return ctrl->size; }
 
 static void window_add_child_backing(Mel_NCtrl* parent, Mel_NCtrl* child)
 {
@@ -147,7 +141,7 @@ static void window_add_child_backing(Mel_NCtrl* parent, Mel_NCtrl* child)
         return;
 
     NSWindow* nswindow = (__bridge NSWindow*)parent->backing;
-    NSView* child_view = (__bridge NSView*)child->backing;
+    NSView*   child_view = (__bridge NSView*)child->backing;
     [[nswindow contentView] addSubview:child_view];
 }
 
@@ -162,20 +156,17 @@ static void window_remove_child_backing(Mel_NCtrl* parent, Mel_NCtrl* child)
 }
 
 static const Mel_NCtrl_VTable s_window_vtable = {
-    .create_backing       = window_create_backing,
-    .destroy_backing      = window_destroy_backing,
-    .set_frame            = window_set_frame,
-    .set_visible          = window_set_visible,
-    .set_enabled          = window_set_enabled,
-    .preferred_size       = window_preferred_size,
-    .add_child_backing    = window_add_child_backing,
+    .create_backing = window_create_backing,
+    .destroy_backing = window_destroy_backing,
+    .set_frame = window_set_frame,
+    .set_visible = window_set_visible,
+    .set_enabled = window_set_enabled,
+    .preferred_size = window_preferred_size,
+    .add_child_backing = window_add_child_backing,
     .remove_child_backing = window_remove_child_backing,
 };
 
-const Mel_NCtrl_VTable* mel__nwindow_vtable(void)
-{
-    return &s_window_vtable;
-}
+const Mel_NCtrl_VTable* mel__nwindow_vtable(void) { return &s_window_vtable; }
 
 void mel__nwindow_set_title_platform(Mel_NWindow* window, const char* title)
 {

@@ -6,12 +6,13 @@
 MEL_TEST(alloc_basic, guard_alloc_free_roundtrip)
 {
     Mel_Guard_Allocator guard;
-    mel_guard_init(&guard, (Mel_Guard_Allocator_Opt){
-                               .backing = mel_alloc_heap(),
-                               .pre_guard_size = 16,
-                               .post_guard_size = 16,
-                               .flags = MEL_GUARD_FLAG_CANARY_HEAD | MEL_GUARD_FLAG_CANARY_TAIL | MEL_GUARD_FLAG_POISON_ALLOC | MEL_GUARD_FLAG_POISON_FREE,
-                           });
+    mel_guard_init(&guard,
+                   (Mel_Guard_Allocator_Opt){
+                       .backing = mel_alloc_heap(),
+                       .pre_guard_size = 16,
+                       .post_guard_size = 16,
+                       .flags = MEL_GUARD_FLAG_CANARY_HEAD | MEL_GUARD_FLAG_CANARY_TAIL | MEL_GUARD_FLAG_POISON_ALLOC | MEL_GUARD_FLAG_POISON_FREE,
+                   });
 
     Mel_Alloc alloc = mel_guard_allocator(&guard);
     u8*       p = mel_alloc(&alloc, 64);
@@ -30,12 +31,13 @@ MEL_TEST(alloc_basic, guard_alloc_free_roundtrip)
 MEL_TEST(alloc_basic, guard_realloc_preserves_prefix)
 {
     Mel_Guard_Allocator guard;
-    mel_guard_init(&guard, (Mel_Guard_Allocator_Opt){
-                               .backing = mel_alloc_heap(),
-                               .pre_guard_size = 16,
-                               .post_guard_size = 16,
-                               .flags = MEL_GUARD_FLAG_CANARY_HEAD | MEL_GUARD_FLAG_CANARY_TAIL,
-                           });
+    mel_guard_init(&guard,
+                   (Mel_Guard_Allocator_Opt){
+                       .backing = mel_alloc_heap(),
+                       .pre_guard_size = 16,
+                       .post_guard_size = 16,
+                       .flags = MEL_GUARD_FLAG_CANARY_HEAD | MEL_GUARD_FLAG_CANARY_TAIL,
+                   });
 
     Mel_Alloc alloc = mel_guard_allocator(&guard);
     u8*       p = mel_alloc(&alloc, 8);

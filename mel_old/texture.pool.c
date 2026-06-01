@@ -16,19 +16,13 @@
 
 #include <SDL3/SDL.h>
 
-static Mel_Texture_Pool s_texture_pool;
+static Mel_Texture_Pool  s_texture_pool;
 static Mel_Texture_Table s_texture_table;
-static Mel_HashMap s_table_dedup;
+static Mel_HashMap       s_table_dedup;
 
-Mel_Texture_Pool* mel_texture_pool(void)
-{
-    return &s_texture_pool;
-}
+Mel_Texture_Pool* mel_texture_pool(void) { return &s_texture_pool; }
 
-Mel_Texture_Table* mel_texture_pool_get_table(void)
-{
-    return &s_texture_table;
-}
+Mel_Texture_Table* mel_texture_pool_get_table(void) { return &s_texture_table; }
 
 u32 mel_texture_pool_add_to_table(Mel_Gpu_Texture* tex)
 {
@@ -51,8 +45,8 @@ static void mel__texture_pool_on_gpu_ready(void* ctx, const void* event)
 {
     (void)ctx;
     const Mel_Gpu_Ready_Event* e = event;
-    Mel_Gpu_Device* dev = e->dev;
-    const Mel_Alloc* alloc = mel_alloc_heap();
+    Mel_Gpu_Device*            dev = e->dev;
+    const Mel_Alloc*           alloc = mel_alloc_heap();
 
     mel_texture_pool_init(&s_texture_pool, alloc, dev);
 
@@ -60,8 +54,7 @@ static void mel__texture_pool_on_gpu_ready(void* ctx, const void* event)
     mel_hashmap_init(&s_table_dedup, mel_hashmap_hash_ptr, mel_hashmap_eq_u64, alloc);
 
     s_texture_pool.table = &s_texture_table;
-    s_texture_pool.white_table_idx = mel_texture_table_add(&s_texture_table,
-        s_texture_pool.fallback.image._view, s_texture_pool.fallback._sampler);
+    s_texture_pool.white_table_idx = mel_texture_table_add(&s_texture_table, s_texture_pool.fallback.image._view, s_texture_pool.fallback._sampler);
 
     mel_event_channel_fire(&mel_texture_pool_ready, NULL);
     mel_log_info("texture.pool", "initialized with bindless table (cap=%u)", 1024);
@@ -84,18 +77,13 @@ static void mel__texture_pool_wire(void)
     mel_event_channel_on(&mel_shutdown_begin, mel__texture_pool_on_shutdown, NULL);
 }
 
-__attribute__((constructor))
-static void mel__texture_pool_register(void)
+__attribute__((constructor)) static void mel__texture_pool_register(void)
 {
     mel_event_channel_init(&mel_texture_pool_ready, mel_alloc_heap());
     mel__boot_register_wire(mel__texture_pool_wire);
 }
 
-__attribute__((destructor))
-static void mel__texture_pool_unregister(void)
-{
-    mel_event_channel_destroy(&mel_texture_pool_ready);
-}
+__attribute__((destructor)) static void mel__texture_pool_unregister(void) { mel_event_channel_destroy(&mel_texture_pool_ready); }
 
 static u64 mel__texture_pool_hash_key(const void* key)
 {
@@ -103,10 +91,7 @@ static u64 mel__texture_pool_hash_key(const void* key)
     return mel_xxh64(&val, sizeof(val), 0);
 }
 
-static bool mel__texture_pool_eq_key(const void* a, const void* b)
-{
-    return (u64)(usize)a == (u64)(usize)b;
-}
+static bool mel__texture_pool_eq_key(const void* a, const void* b) { return (u64)(usize)a == (u64)(usize)b; }
 
 void mel_texture_pool_init_opt(Mel_Texture_Pool* pool, const Mel_Alloc* alloc, Mel_Gpu_Device* dev, Mel_Texture_Pool_Opt opt)
 {
@@ -114,7 +99,7 @@ void mel_texture_pool_init_opt(Mel_Texture_Pool* pool, const Mel_Alloc* alloc, M
     assert(alloc != nullptr);
     assert(dev != nullptr);
 
-    *pool = (Mel_Texture_Pool){0};
+    *pool = (Mel_Texture_Pool){ 0 };
     pool->alloc = alloc;
     pool->dev = dev;
     pool->pipeline = opt.pipeline;
@@ -136,7 +121,7 @@ void mel_texture_pool_shutdown(Mel_Texture_Pool* pool)
     assert(pool != nullptr);
 
     Mel_Texture_Entry* entries = mel_slotmap_data(&pool->slotmap);
-    u32 count = mel_slotmap_count(&pool->slotmap);
+    u32                count = mel_slotmap_count(&pool->slotmap);
 
     for (u32 i = 0; i < count; i++)
     {
@@ -150,7 +135,7 @@ void mel_texture_pool_shutdown(Mel_Texture_Pool* pool)
     mel_slotmap_free(&pool->slotmap);
     mel_hashmap_free(&pool->path_to_handle);
 
-    *pool = (Mel_Texture_Pool){0};
+    *pool = (Mel_Texture_Pool){ 0 };
 }
 
 Mel_Texture_Handle mel_texture_pool_load_opt(Mel_Texture_Pool* pool, str8 path, Mel_Texture_Pool_Load_Opt opt)
@@ -158,14 +143,15 @@ Mel_Texture_Handle mel_texture_pool_load_opt(Mel_Texture_Pool* pool, str8 path, 
     assert(pool != nullptr);
     assert(!str8_is_empty(path));
 
-    struct {
+    struct
+    {
         u64 path_hash;
         u32 format;
-        u8 nearest_filter;
-        u8 generate_mips;
-        u8 address_mode_u;
-        u8 address_mode_v;
-        u8 address_mode_w;
+        u8  nearest_filter;
+        u8  generate_mips;
+        u8  address_mode_u;
+        u8  address_mode_v;
+        u8  address_mode_w;
     } key_desc = {
         .path_hash = str8_hash(path),
         .format = opt.format ? opt.format : MEL_GPU_FORMAT_R8G8B8A8_SRGB,
@@ -185,24 +171,26 @@ Mel_Texture_Handle mel_texture_pool_load_opt(Mel_Texture_Pool* pool, str8 path, 
     }
 
     Mel_Texture_Entry entry = {
-        .gpu_texture = {0},
+        .gpu_texture = { 0 },
         .path_hash = hash,
         .state = MEL_TEXTURE_STATE_UNLOADED,
     };
 
-    if (mel_texture_load(&entry.gpu_texture, pool->dev, pool->alloc, path,
-            .format = key_desc.format,
-            .nearest_filter = key_desc.nearest_filter != 0,
-            .generate_mips = key_desc.generate_mips != 0,
-            .address_mode_u = key_desc.address_mode_u,
-            .address_mode_v = key_desc.address_mode_v,
-            .address_mode_w = key_desc.address_mode_w))
+    if (mel_texture_load(&entry.gpu_texture,
+                         pool->dev,
+                         pool->alloc,
+                         path,
+                         .format = key_desc.format,
+                         .nearest_filter = key_desc.nearest_filter != 0,
+                         .generate_mips = key_desc.generate_mips != 0,
+                         .address_mode_u = key_desc.address_mode_u,
+                         .address_mode_v = key_desc.address_mode_v,
+                         .address_mode_w = key_desc.address_mode_w))
     {
         if (pool->pipeline)
         {
             entry.gpu_texture._descriptor = mel_gpu_pipeline_alloc_descriptor(pool->pipeline, pool->dev);
-            mel_gpu_pipeline_write_texture(pool->pipeline, pool->dev, entry.gpu_texture._descriptor,
-                                           entry.gpu_texture.image._view, entry.gpu_texture._sampler);
+            mel_gpu_pipeline_write_texture(pool->pipeline, pool->dev, entry.gpu_texture._descriptor, entry.gpu_texture.image._view, entry.gpu_texture._sampler);
         }
         entry.state = MEL_TEXTURE_STATE_LOADED;
     }
@@ -299,8 +287,7 @@ Mel_Texture_Handle mel_texture_pool_register(Mel_Texture_Pool* pool, Mel_Gpu_Tex
     if (pool->pipeline)
     {
         entry.gpu_texture._descriptor = mel_gpu_pipeline_alloc_descriptor(pool->pipeline, pool->dev);
-        mel_gpu_pipeline_write_texture(pool->pipeline, pool->dev, entry.gpu_texture._descriptor,
-                                       entry.gpu_texture.image._view, entry.gpu_texture._sampler);
+        mel_gpu_pipeline_write_texture(pool->pipeline, pool->dev, entry.gpu_texture._descriptor, entry.gpu_texture.image._view, entry.gpu_texture._sampler);
     }
 
     Mel_SlotMap_Handle sm_handle = mel_slotmap_insert(&pool->slotmap, &entry);

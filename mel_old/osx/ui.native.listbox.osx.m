@@ -6,8 +6,8 @@
 static const void* kListboxDelegateKey = &kListboxDelegateKey;
 static const void* kListboxTableViewKey = &kListboxTableViewKey;
 
-@interface MelListboxDelegate : NSObject <NSTableViewDataSource, NSTableViewDelegate>
-@property (nonatomic, assign) Mel_NListbox* listbox;
+@interface                                 MelListboxDelegate: NSObject <NSTableViewDataSource, NSTableViewDelegate>
+@property(nonatomic, assign) Mel_NListbox* listbox;
 @end
 
 @implementation MelListboxDelegate
@@ -48,7 +48,7 @@ static const void* kListboxTableViewKey = &kListboxTableViewKey;
 
 @end
 
-@interface MelListboxScrollView : NSView
+@interface MelListboxScrollView: NSView
 @end
 
 @implementation MelListboxScrollView
@@ -62,12 +62,7 @@ static const void* kListboxTableViewKey = &kListboxTableViewKey;
 
 static void listbox_create_backing(Mel_NCtrl* ctrl)
 {
-    NSRect frame = NSMakeRect(
-        (CGFloat)ctrl->pos.x,
-        (CGFloat)ctrl->pos.y,
-        (CGFloat)ctrl->size.x,
-        (CGFloat)ctrl->size.y
-    );
+    NSRect frame = NSMakeRect((CGFloat)ctrl->pos.x, (CGFloat)ctrl->pos.y, (CGFloat)ctrl->size.x, (CGFloat)ctrl->size.y);
 
     NSTableColumn* column = [[NSTableColumn alloc] initWithIdentifier:@"MelListboxColumn"];
     [column setWidth:frame.size.width];
@@ -103,7 +98,7 @@ static void listbox_destroy_backing(Mel_NCtrl* ctrl)
         return;
 
     NSScrollView* scrollView = (__bridge_transfer NSScrollView*)ctrl->backing;
-    NSTableView* tableView = objc_getAssociatedObject(scrollView, kListboxTableViewKey);
+    NSTableView*  tableView = objc_getAssociatedObject(scrollView, kListboxTableViewKey);
     [tableView setDataSource:nil];
     [tableView setDelegate:nil];
     objc_setAssociatedObject(scrollView, kListboxDelegateKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
@@ -137,7 +132,7 @@ static void listbox_set_enabled(Mel_NCtrl* ctrl, bool enabled)
         return;
 
     NSScrollView* scrollView = (__bridge NSScrollView*)ctrl->backing;
-    NSTableView* tableView = objc_getAssociatedObject(scrollView, kListboxTableViewKey);
+    NSTableView*  tableView = objc_getAssociatedObject(scrollView, kListboxTableViewKey);
     [tableView setEnabled:enabled];
 }
 
@@ -147,8 +142,8 @@ static void listbox_sync_frame(Mel_NCtrl* ctrl)
         return;
 
     NSScrollView* scrollView = (__bridge NSScrollView*)ctrl->backing;
-    NSRect frame = [scrollView frame];
-    ctrl->pos  = mel_vec2((f32)frame.origin.x, (f32)frame.origin.y);
+    NSRect        frame = [scrollView frame];
+    ctrl->pos = mel_vec2((f32)frame.origin.x, (f32)frame.origin.y);
     ctrl->size = mel_vec2((f32)frame.size.width, (f32)frame.size.height);
 }
 
@@ -171,21 +166,18 @@ static void listbox_remove_child_backing(Mel_NCtrl* parent, Mel_NCtrl* child)
 }
 
 static const Mel_NCtrl_VTable s_listbox_vtable = {
-    .create_backing       = listbox_create_backing,
-    .destroy_backing      = listbox_destroy_backing,
-    .set_frame            = listbox_set_frame,
-    .sync_frame           = listbox_sync_frame,
-    .set_visible          = listbox_set_visible,
-    .set_enabled          = listbox_set_enabled,
-    .preferred_size       = listbox_preferred_size,
-    .add_child_backing    = listbox_add_child_backing,
+    .create_backing = listbox_create_backing,
+    .destroy_backing = listbox_destroy_backing,
+    .set_frame = listbox_set_frame,
+    .sync_frame = listbox_sync_frame,
+    .set_visible = listbox_set_visible,
+    .set_enabled = listbox_set_enabled,
+    .preferred_size = listbox_preferred_size,
+    .add_child_backing = listbox_add_child_backing,
     .remove_child_backing = listbox_remove_child_backing,
 };
 
-const Mel_NCtrl_VTable* mel__nlistbox_vtable(void)
-{
-    return &s_listbox_vtable;
-}
+const Mel_NCtrl_VTable* mel__nlistbox_vtable(void) { return &s_listbox_vtable; }
 
 void mel__nlistbox_set_items_platform(Mel_NListbox* listbox, const char** items, i32 count)
 {
@@ -196,7 +188,7 @@ void mel__nlistbox_set_items_platform(Mel_NListbox* listbox, const char** items,
         return;
 
     NSScrollView* scrollView = (__bridge NSScrollView*)listbox->base.backing;
-    NSTableView* tableView = objc_getAssociatedObject(scrollView, kListboxTableViewKey);
+    NSTableView*  tableView = objc_getAssociatedObject(scrollView, kListboxTableViewKey);
     [tableView reloadData];
 }
 
@@ -207,11 +199,14 @@ void mel__nlistbox_set_selected_platform(Mel_NListbox* listbox, i32 index)
         return;
 
     NSScrollView* scrollView = (__bridge NSScrollView*)listbox->base.backing;
-    NSTableView* tableView = objc_getAssociatedObject(scrollView, kListboxTableViewKey);
+    NSTableView*  tableView = objc_getAssociatedObject(scrollView, kListboxTableViewKey);
 
-    if (index < 0) {
+    if (index < 0)
+    {
         [tableView deselectAll:nil];
-    } else {
+    }
+    else
+    {
         NSIndexSet* indexSet = [NSIndexSet indexSetWithIndex:(NSUInteger)index];
         [tableView selectRowIndexes:indexSet byExtendingSelection:NO];
     }

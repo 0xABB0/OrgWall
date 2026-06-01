@@ -253,7 +253,11 @@ static bool package_android(Mel_Graph* g, Mel_IdxVec* order, Mel_Target* t, cons
     char*       props = mel_str_fmt("\nmelody.namespace=orgwall.melody\nmelody.applicationId=%s\nmelody.appLabel=%s\n"
                                     "melody.compileSdk=34\nmelody.minSdk=24\nmelody.targetSdk=34\nmelody.versionCode=1\n"
                                     "melody.versionName=%s\nmelody.rootProjectName=%s\nmelody.javaSrcDirs=%s\n",
-                                    appid, label, ver, t->name, javacsv ? javacsv : "");
+                                    appid,
+                                    label,
+                                    ver,
+                                    t->name,
+                                    javacsv ? javacsv : "");
     char*       gp = mel_str_fmt("%s/gradle.properties", proj);
     char*       cur = mel_read_file(gp);
     char*       merged = mel_str_fmt("%s%s", cur ? cur : "", props);

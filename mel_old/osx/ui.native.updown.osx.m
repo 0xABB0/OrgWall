@@ -2,8 +2,8 @@
 #import <objc/runtime.h>
 #include "../ui.native.updown.h"
 
-@interface MelUpDownTarget : NSObject
-@property (nonatomic, assign) Mel_NUpDown* mel_updown;
+@interface                                MelUpDownTarget: NSObject
+@property(nonatomic, assign) Mel_NUpDown* mel_updown;
 @end
 
 @implementation MelUpDownTarget
@@ -28,12 +28,7 @@ static void updown_create_backing(Mel_NCtrl* ctrl)
 {
     Mel_NUpDown* updown = (Mel_NUpDown*)ctrl;
 
-    NSRect frame = NSMakeRect(
-        (CGFloat)ctrl->pos.x,
-        (CGFloat)ctrl->pos.y,
-        (CGFloat)ctrl->size.x,
-        (CGFloat)ctrl->size.y
-    );
+    NSRect frame = NSMakeRect((CGFloat)ctrl->pos.x, (CGFloat)ctrl->pos.y, (CGFloat)ctrl->size.x, (CGFloat)ctrl->size.y);
 
     NSStepper* nsStepper = [[NSStepper alloc] initWithFrame:frame];
     [nsStepper setMinValue:updown->min];
@@ -107,20 +102,17 @@ static void updown_remove_child_backing(Mel_NCtrl* parent, Mel_NCtrl* child)
 }
 
 static const Mel_NCtrl_VTable s_updown_vtable = {
-    .create_backing       = updown_create_backing,
-    .destroy_backing      = updown_destroy_backing,
-    .set_frame            = updown_set_frame,
-    .set_visible          = updown_set_visible,
-    .set_enabled          = updown_set_enabled,
-    .preferred_size       = updown_preferred_size,
-    .add_child_backing    = updown_add_child_backing,
+    .create_backing = updown_create_backing,
+    .destroy_backing = updown_destroy_backing,
+    .set_frame = updown_set_frame,
+    .set_visible = updown_set_visible,
+    .set_enabled = updown_set_enabled,
+    .preferred_size = updown_preferred_size,
+    .add_child_backing = updown_add_child_backing,
     .remove_child_backing = updown_remove_child_backing,
 };
 
-const Mel_NCtrl_VTable* mel__nupdown_vtable(void)
-{
-    return &s_updown_vtable;
-}
+const Mel_NCtrl_VTable* mel__nupdown_vtable(void) { return &s_updown_vtable; }
 
 void mel__nupdown_set_value_platform(Mel_NUpDown* updown, f64 value)
 {

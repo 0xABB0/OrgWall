@@ -183,8 +183,7 @@ Mel_Gui_Handle mel_textfield_create_opt(Mel_Gui_Handle parent, Mel_TextField_Opt
 // Containers (barebone: plain views that host children)
 // ---------------------------------------------------------------------------
 
-static Mel_Gui_Handle make_container(Mel_Gui_Handle parent, i32 x, i32 y, i32 w, i32 hh, u32 id, void* user, bool hidden, const Mel_Layoutable* lo, Mel_Layout* layout, Mel_Gui_Pointer_Cb pointer,
-                                     Mel_Gui_Focus_Cb focus)
+static Mel_Gui_Handle make_container(Mel_Gui_Handle parent, i32 x, i32 y, i32 w, i32 hh, u32 id, void* user, bool hidden, const Mel_Layoutable* lo, Mel_Layout* layout, Mel_Gui_Pointer_Cb pointer, Mel_Gui_Focus_Cb focus)
 {
     Mel_Gui_Handle h = mel_gui__node_new(parent, x, y, w, hh, id, user, hidden, lo, layout);
     Mel_Gui_Node*  n = mel_gui__node(h);
@@ -200,10 +199,7 @@ static Mel_Gui_Handle make_container(Mel_Gui_Handle parent, i32 x, i32 y, i32 w,
 
 Mel_Gui_Handle mel_panel_create_opt(Mel_Gui_Handle parent, Mel_Panel_Opt o) { return make_container(parent, o.x, o.y, o.w, o.h, o.id, o.user, o.hidden, &o.layoutable, o.layout, o.pointer, o.focus); }
 
-Mel_Gui_Handle mel_groupbox_create_opt(Mel_Gui_Handle parent, Mel_GroupBox_Opt o)
-{
-    return make_container(parent, o.x, o.y, o.w, o.h, o.id, o.user, o.hidden, &o.layoutable, o.layout, (Mel_Gui_Pointer_Cb){ 0 }, o.focus);
-}
+Mel_Gui_Handle mel_groupbox_create_opt(Mel_Gui_Handle parent, Mel_GroupBox_Opt o) { return make_container(parent, o.x, o.y, o.w, o.h, o.id, o.user, o.hidden, &o.layoutable, o.layout, (Mel_Gui_Pointer_Cb){ 0 }, o.focus); }
 
 Mel_Gui_Handle mel_scrollview_create_opt(Mel_Gui_Handle parent, Mel_ScrollView_Opt o)
 {
@@ -218,20 +214,11 @@ Mel_Gui_Handle mel_scrollview_create_opt(Mel_Gui_Handle parent, Mel_ScrollView_O
     return h;
 }
 
-Mel_Gui_Handle mel_splitter_create_opt(Mel_Gui_Handle parent, Mel_Splitter_Opt o)
-{
-    return make_container(parent, o.x, o.y, o.w, o.h, o.id, o.user, o.hidden, &o.layoutable, NULL, (Mel_Gui_Pointer_Cb){ 0 }, o.focus);
-}
+Mel_Gui_Handle mel_splitter_create_opt(Mel_Gui_Handle parent, Mel_Splitter_Opt o) { return make_container(parent, o.x, o.y, o.w, o.h, o.id, o.user, o.hidden, &o.layoutable, NULL, (Mel_Gui_Pointer_Cb){ 0 }, o.focus); }
 
-Mel_Gui_Handle mel_splitpane_create_opt(Mel_Gui_Handle splitter, Mel_SplitPane_Opt o)
-{
-    return make_container(splitter, 0, 0, 0, 0, o.id, o.user, false, &o.layoutable, o.layout, (Mel_Gui_Pointer_Cb){ 0 }, (Mel_Gui_Focus_Cb){ 0 });
-}
+Mel_Gui_Handle mel_splitpane_create_opt(Mel_Gui_Handle splitter, Mel_SplitPane_Opt o) { return make_container(splitter, 0, 0, 0, 0, o.id, o.user, false, &o.layoutable, o.layout, (Mel_Gui_Pointer_Cb){ 0 }, (Mel_Gui_Focus_Cb){ 0 }); }
 
-Mel_Gui_Handle mel_tabview_create_opt(Mel_Gui_Handle parent, Mel_TabView_Opt o)
-{
-    return make_container(parent, o.x, o.y, o.w, o.h, o.id, o.user, o.hidden, &o.layoutable, NULL, (Mel_Gui_Pointer_Cb){ 0 }, o.focus);
-}
+Mel_Gui_Handle mel_tabview_create_opt(Mel_Gui_Handle parent, Mel_TabView_Opt o) { return make_container(parent, o.x, o.y, o.w, o.h, o.id, o.user, o.hidden, &o.layoutable, NULL, (Mel_Gui_Pointer_Cb){ 0 }, o.focus); }
 
 Mel_Gui_Handle mel_tab_create_opt(Mel_Gui_Handle tabview, Mel_Tab_Opt o)
 {

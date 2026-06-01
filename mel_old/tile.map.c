@@ -15,10 +15,7 @@ static u64 mel__tilemap_pool_hash_key(const void* key)
     return mel_xxh64(&val, sizeof(val), 0);
 }
 
-static bool mel__tilemap_pool_eq_key(const void* a, const void* b)
-{
-    return (u64)(usize)a == (u64)(usize)b;
-}
+static bool mel__tilemap_pool_eq_key(const void* a, const void* b) { return (u64)(usize)a == (u64)(usize)b; }
 
 static void mel__tilemap_free_entry(Mel_Tilemap_Entry* e)
 {
@@ -44,7 +41,7 @@ void mel_tilemap_pool_init(Mel_Tilemap_Pool* pool, const Mel_Alloc* alloc, Mel_T
     assert(alloc != nullptr);
     assert(ts_pool != nullptr);
 
-    *pool = (Mel_Tilemap_Pool){0};
+    *pool = (Mel_Tilemap_Pool){ 0 };
     pool->alloc = alloc;
     pool->tileset_pool = ts_pool;
 
@@ -57,14 +54,14 @@ void mel_tilemap_pool_shutdown(Mel_Tilemap_Pool* pool)
     assert(pool != nullptr);
 
     Mel_Tilemap_Entry* entries = mel_slotmap_data(&pool->slotmap);
-    u32 count = mel_slotmap_count(&pool->slotmap);
+    u32                count = mel_slotmap_count(&pool->slotmap);
 
     for (u32 i = 0; i < count; i++)
         mel__tilemap_free_entry(&entries[i]);
 
     mel_slotmap_free(&pool->slotmap);
     mel_hashmap_free(&pool->path_to_handle);
-    *pool = (Mel_Tilemap_Pool){0};
+    *pool = (Mel_Tilemap_Pool){ 0 };
 }
 
 Mel_Tilemap_Handle mel_tilemap_pool_load(Mel_Tilemap_Pool* pool, str8 path)
@@ -98,7 +95,7 @@ Mel_Tilemap_Handle mel_tilemap_pool_load(Mel_Tilemap_Pool* pool, str8 path)
         return MEL_TILEMAP_HANDLE_NULL;
     }
 
-    Mel_Tilemap_Entry entry = {0};
+    Mel_Tilemap_Entry entry = { 0 };
     entry.alloc = pool->alloc;
 
     cJSON* name_json = cJSON_GetObjectItem(root, "name");
@@ -121,9 +118,9 @@ Mel_Tilemap_Handle mel_tilemap_pool_load(Mel_Tilemap_Pool* pool, str8 path)
 
         for (u32 i = 0; i < entry.layer_count; i++)
         {
-            cJSON* layer_json = cJSON_GetArrayItem(layers_json, (int)i);
+            cJSON*             layer_json = cJSON_GetArrayItem(layers_json, (int)i);
             Mel_Tilemap_Layer* l = &entry.layers[i];
-            *l = (Mel_Tilemap_Layer){0};
+            *l = (Mel_Tilemap_Layer){ 0 };
 
             cJSON* lname = cJSON_GetObjectItem(layer_json, "name");
             if (lname && cJSON_IsString(lname))
@@ -148,7 +145,7 @@ Mel_Tilemap_Handle mel_tilemap_pool_load(Mel_Tilemap_Pool* pool, str8 path)
             l->height = entry.height;
 
             cJSON* data_json = cJSON_GetObjectItem(layer_json, "data");
-            u32 tile_count = entry.width * entry.height;
+            u32    tile_count = entry.width * entry.height;
             l->data = (i32*)mel_alloc(pool->alloc, tile_count * sizeof(i32));
 
             if (data_json && cJSON_IsArray(data_json))
@@ -184,7 +181,7 @@ Mel_Tilemap_Handle mel_tilemap_pool_create(Mel_Tilemap_Pool* pool, str8 name, u3
     assert(grid_width > 0);
     assert(grid_height > 0);
 
-    Mel_Tilemap_Entry entry = {0};
+    Mel_Tilemap_Entry entry = { 0 };
     entry.alloc = pool->alloc;
     entry.name = str8_dup(name, pool->alloc);
     entry.width = width;
@@ -269,7 +266,7 @@ bool mel_tilemap_pool_save(Mel_Tilemap_Pool* pool, Mel_Tilemap_Handle handle, st
         for (u32 i = 0; i < entry->layer_count; i++)
         {
             Mel_Tilemap_Layer* layer = &entry->layers[i];
-            cJSON* layer_obj = cJSON_CreateObject();
+            cJSON*             layer_obj = cJSON_CreateObject();
 
             if (!str8_is_empty(layer->name))
             {
@@ -289,7 +286,7 @@ bool mel_tilemap_pool_save(Mel_Tilemap_Pool* pool, Mel_Tilemap_Handle handle, st
                 cJSON_AddNumberToObject(layer_obj, "offset_y", layer->offset_y);
 
             cJSON* data = cJSON_AddArrayToObject(layer_obj, "data");
-            u32 tile_count = layer->width * layer->height;
+            u32    tile_count = layer->width * layer->height;
             for (u32 j = 0; j < tile_count; j++)
                 cJSON_AddItemToArray(data, cJSON_CreateNumber(layer->data[j]));
 
@@ -306,7 +303,7 @@ bool mel_tilemap_pool_save(Mel_Tilemap_Pool* pool, Mel_Tilemap_Handle handle, st
         return false;
     }
 
-    i64 json_len = (i64)strlen(json_text);
+    i64  json_len = (i64)strlen(json_text);
     bool ok = mel_vfs_write_file(path, json_text, json_len);
     free(json_text);
 
@@ -340,20 +337,21 @@ Mel_Tilemap_Layer* mel_tilemap_entry_add_layer(Mel_Tilemap_Entry* entry, str8 na
 {
     assert(entry != nullptr);
 
-    u32 new_count = entry->layer_count + 1;
+    u32                new_count = entry->layer_count + 1;
     Mel_Tilemap_Layer* new_layers;
     if (entry->layers)
         new_layers = (Mel_Tilemap_Layer*)mel_realloc(entry->alloc, entry->layers, new_count * sizeof(Mel_Tilemap_Layer));
     else
         new_layers = (Mel_Tilemap_Layer*)mel_alloc(entry->alloc, new_count * sizeof(Mel_Tilemap_Layer));
 
-    if (!new_layers) return nullptr;
+    if (!new_layers)
+        return nullptr;
 
     entry->layers = new_layers;
     Mel_Tilemap_Layer* layer = &entry->layers[entry->layer_count];
     entry->layer_count = new_count;
 
-    *layer = (Mel_Tilemap_Layer){0};
+    *layer = (Mel_Tilemap_Layer){ 0 };
     layer->name = str8_dup(name, entry->alloc);
     layer->width = entry->width;
     layer->height = entry->height;
@@ -373,7 +371,8 @@ bool mel_tilemap_entry_remove_layer(Mel_Tilemap_Entry* entry, u32 layer_idx)
 {
     assert(entry != nullptr);
 
-    if (layer_idx >= entry->layer_count) return false;
+    if (layer_idx >= entry->layer_count)
+        return false;
 
     Mel_Tilemap_Layer* layer = &entry->layers[layer_idx];
     if (layer->name.data)
@@ -419,15 +418,18 @@ bool mel_tilemap_entry_resize(Mel_Tilemap_Entry* entry, u32 new_width, u32 new_h
 {
     assert(entry != nullptr);
 
-    if (new_width == 0 || new_height == 0) return false;
-    if (new_width == entry->width && new_height == entry->height) return true;
+    if (new_width == 0 || new_height == 0)
+        return false;
+    if (new_width == entry->width && new_height == entry->height)
+        return true;
 
     for (u32 l = 0; l < entry->layer_count; l++)
     {
         Mel_Tilemap_Layer* layer = &entry->layers[l];
 
         i32* new_data = (i32*)mel_alloc(entry->alloc, new_width * new_height * sizeof(i32));
-        if (!new_data) return false;
+        if (!new_data)
+            return false;
 
         for (u32 i = 0; i < new_width * new_height; i++)
             new_data[i] = -1;

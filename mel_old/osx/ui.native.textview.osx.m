@@ -5,8 +5,8 @@
 static const void* kTextViewDelegateKey = &kTextViewDelegateKey;
 static const void* kTextViewKey = &kTextViewKey;
 
-@interface MelTextViewDelegate : NSObject <NSTextViewDelegate>
-@property (nonatomic, assign) Mel_NTextView* tv;
+@interface                                  MelTextViewDelegate: NSObject <NSTextViewDelegate>
+@property(nonatomic, assign) Mel_NTextView* tv;
 @end
 
 @implementation MelTextViewDelegate
@@ -56,10 +56,11 @@ static void ntextview_create_backing(Mel_NCtrl* ctrl)
 
 static void ntextview_destroy_backing(Mel_NCtrl* ctrl)
 {
-    if (!ctrl->backing) return;
+    if (!ctrl->backing)
+        return;
 
     NSScrollView* scroll = (__bridge NSScrollView*)ctrl->backing;
-    NSTextView* text_view = (NSTextView*)objc_getAssociatedObject(scroll, kTextViewKey);
+    NSTextView*   text_view = (NSTextView*)objc_getAssociatedObject(scroll, kTextViewKey);
     [text_view setDelegate:nil];
 
     objc_setAssociatedObject(scroll, kTextViewDelegateKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
@@ -85,7 +86,7 @@ static void ntextview_set_visible(Mel_NCtrl* ctrl, bool visible)
 static void ntextview_set_enabled(Mel_NCtrl* ctrl, bool enabled)
 {
     Mel_NTextView* tv = (Mel_NTextView*)ctrl;
-    NSTextView* text_view = mel__ntextview_get_nstextview(tv);
+    NSTextView*    text_view = mel__ntextview_get_nstextview(tv);
     [text_view setEditable:enabled && tv->editable];
     [text_view setSelectable:enabled];
 }
@@ -109,20 +110,17 @@ static void ntextview_remove_child_backing(Mel_NCtrl* parent, Mel_NCtrl* child)
 }
 
 static const Mel_NCtrl_VTable s_ntextview_vtable = {
-    .create_backing       = ntextview_create_backing,
-    .destroy_backing      = ntextview_destroy_backing,
-    .set_frame            = ntextview_set_frame,
-    .set_visible          = ntextview_set_visible,
-    .set_enabled          = ntextview_set_enabled,
-    .preferred_size       = ntextview_preferred_size,
-    .add_child_backing    = ntextview_add_child_backing,
+    .create_backing = ntextview_create_backing,
+    .destroy_backing = ntextview_destroy_backing,
+    .set_frame = ntextview_set_frame,
+    .set_visible = ntextview_set_visible,
+    .set_enabled = ntextview_set_enabled,
+    .preferred_size = ntextview_preferred_size,
+    .add_child_backing = ntextview_add_child_backing,
     .remove_child_backing = ntextview_remove_child_backing,
 };
 
-const Mel_NCtrl_VTable* mel__ntextview_vtable(void)
-{
-    return &s_ntextview_vtable;
-}
+const Mel_NCtrl_VTable* mel__ntextview_vtable(void) { return &s_ntextview_vtable; }
 
 void mel__ntextview_set_text_platform(Mel_NTextView* tv, const char* text)
 {

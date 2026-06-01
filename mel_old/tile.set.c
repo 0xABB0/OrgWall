@@ -14,14 +14,12 @@ static u64 mel__tileset_pool_hash_key(const void* key)
     return mel_xxh64(&val, sizeof(val), 0);
 }
 
-static bool mel__tileset_pool_eq_key(const void* a, const void* b)
-{
-    return (u64)(usize)a == (u64)(usize)b;
-}
+static bool mel__tileset_pool_eq_key(const void* a, const void* b) { return (u64)(usize)a == (u64)(usize)b; }
 
 static void mel__tileset_entry_free_sources(Mel_Tileset_Entry* entry)
 {
-    if (!entry->sources) return;
+    if (!entry->sources)
+        return;
 
     for (u32 i = 0; i < entry->source_count; i++)
     {
@@ -50,7 +48,7 @@ void mel_tileset_pool_init(Mel_Tileset_Pool* pool, const Mel_Alloc* alloc, Mel_T
     assert(alloc != nullptr);
     assert(tex_pool != nullptr);
 
-    *pool = (Mel_Tileset_Pool){0};
+    *pool = (Mel_Tileset_Pool){ 0 };
     pool->alloc = alloc;
     pool->texture_pool = tex_pool;
 
@@ -63,14 +61,14 @@ void mel_tileset_pool_shutdown(Mel_Tileset_Pool* pool)
     assert(pool != nullptr);
 
     Mel_Tileset_Entry* entries = mel_slotmap_data(&pool->slotmap);
-    u32 count = mel_slotmap_count(&pool->slotmap);
+    u32                count = mel_slotmap_count(&pool->slotmap);
 
     for (u32 i = 0; i < count; i++)
         mel__tileset_entry_free(&entries[i]);
 
     mel_slotmap_free(&pool->slotmap);
     mel_hashmap_free(&pool->path_to_handle);
-    *pool = (Mel_Tileset_Pool){0};
+    *pool = (Mel_Tileset_Pool){ 0 };
 }
 
 Mel_Tileset_Handle mel_tileset_pool_load(Mel_Tileset_Pool* pool, str8 path)
@@ -104,7 +102,7 @@ Mel_Tileset_Handle mel_tileset_pool_load(Mel_Tileset_Pool* pool, str8 path)
         return MEL_TILESET_HANDLE_NULL;
     }
 
-    Mel_Tileset_Entry entry = {0};
+    Mel_Tileset_Entry entry = { 0 };
     entry.alloc = pool->alloc;
 
     cJSON* name_json = cJSON_GetObjectItem(root, "name");
@@ -121,9 +119,9 @@ Mel_Tileset_Handle mel_tileset_pool_load(Mel_Tileset_Pool* pool, str8 path)
 
         for (u32 i = 0; i < entry.source_count; i++)
         {
-            cJSON* src = cJSON_GetArrayItem(sources_json, (int)i);
+            cJSON*           src = cJSON_GetArrayItem(sources_json, (int)i);
             Mel_Tile_Source* s = &entry.sources[i];
-            *s = (Mel_Tile_Source){0};
+            *s = (Mel_Tile_Source){ 0 };
 
             cJSON* tex_path = cJSON_GetObjectItem(src, "texture");
             if (tex_path && cJSON_IsString(tex_path))
@@ -162,7 +160,7 @@ Mel_Tileset_Handle mel_tileset_pool_load(Mel_Tileset_Pool* pool, str8 path)
 
         for (u32 i = 0; i < entry.tile_count; i++)
         {
-            cJSON* tile = cJSON_GetArrayItem(tiles_json, (int)i);
+            cJSON*        tile = cJSON_GetArrayItem(tiles_json, (int)i);
             Mel_Tile_Def* t = &entry.tiles[i];
 
             t->id = (u32)cJSON_GetObjectItem(tile, "id")->valuedouble;
@@ -189,7 +187,7 @@ Mel_Tileset_Handle mel_tileset_pool_create(Mel_Tileset_Pool* pool, str8 name)
     assert(pool != nullptr);
     assert(!str8_is_empty(name));
 
-    Mel_Tileset_Entry entry = {0};
+    Mel_Tileset_Entry entry = { 0 };
     entry.alloc = pool->alloc;
     entry.name = str8_dup(name, pool->alloc);
 
@@ -246,7 +244,7 @@ bool mel_tileset_pool_save(Mel_Tileset_Pool* pool, Mel_Tileset_Handle handle, st
         for (u32 i = 0; i < entry->source_count; i++)
         {
             Mel_Tile_Source* source = &entry->sources[i];
-            cJSON* src = cJSON_CreateObject();
+            cJSON*           src = cJSON_CreateObject();
 
             if (!str8_is_empty(source->path))
             {
@@ -276,7 +274,7 @@ bool mel_tileset_pool_save(Mel_Tileset_Pool* pool, Mel_Tileset_Handle handle, st
         for (u32 i = 0; i < entry->tile_count; i++)
         {
             Mel_Tile_Def* t = &entry->tiles[i];
-            cJSON* tile = cJSON_CreateObject();
+            cJSON*        tile = cJSON_CreateObject();
 
             cJSON_AddNumberToObject(tile, "id", t->id);
             cJSON_AddNumberToObject(tile, "source_idx", t->source_idx);
@@ -301,7 +299,7 @@ bool mel_tileset_pool_save(Mel_Tileset_Pool* pool, Mel_Tileset_Handle handle, st
         return false;
     }
 
-    i64 json_len = (i64)strlen(json_text);
+    i64  json_len = (i64)strlen(json_text);
     bool ok = mel_vfs_write_file(path, json_text, json_len);
     free(json_text);
 
@@ -329,17 +327,17 @@ Mel_Tile_Source* mel_tileset_entry_add_source(Mel_Tileset_Entry* entry, str8 tex
     assert(entry != nullptr);
     assert(!str8_is_empty(texture_path));
 
-    u32 new_count = entry->source_count + 1;
-    Mel_Tile_Source* new_sources = (Mel_Tile_Source*)mel_realloc(
-        entry->alloc, entry->sources, new_count * sizeof(Mel_Tile_Source));
+    u32              new_count = entry->source_count + 1;
+    Mel_Tile_Source* new_sources = (Mel_Tile_Source*)mel_realloc(entry->alloc, entry->sources, new_count * sizeof(Mel_Tile_Source));
 
-    if (!new_sources) return nullptr;
+    if (!new_sources)
+        return nullptr;
 
     entry->sources = new_sources;
     Mel_Tile_Source* source = &entry->sources[entry->source_count];
     entry->source_count = new_count;
 
-    *source = (Mel_Tile_Source){0};
+    *source = (Mel_Tile_Source){ 0 };
     source->path = str8_dup(texture_path, entry->alloc);
     source->is_sheet = is_sheet;
     source->tile_width = 16;
@@ -354,7 +352,8 @@ bool mel_tileset_entry_remove_source(Mel_Tileset_Entry* entry, u32 source_idx)
 {
     assert(entry != nullptr);
 
-    if (source_idx >= entry->source_count) return false;
+    if (source_idx >= entry->source_count)
+        return false;
 
     if (entry->sources[source_idx].path.data)
         mel_dealloc(entry->alloc, entry->sources[source_idx].path.data);
@@ -403,7 +402,8 @@ void mel_tileset_entry_regenerate_tiles(Mel_Tileset_Entry* entry, Mel_Texture_Po
             total_tiles += 1;
     }
 
-    if (total_tiles == 0) return;
+    if (total_tiles == 0)
+        return;
 
     entry->tiles = mel_alloc_array(entry->alloc, Mel_Tile_Def, total_tiles);
     entry->tile_count = total_tiles;

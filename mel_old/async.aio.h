@@ -4,7 +4,8 @@
 #include "async.aio.cfg.h"
 #include "async.signal.fwd.h"
 
-typedef struct Mel_Aio_Op {
+typedef struct Mel_Aio_Op
+{
     i32          fd;
     void*        buf;
     i64          size;

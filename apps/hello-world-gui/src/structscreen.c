@@ -38,8 +38,7 @@ static void open_dialog_clicked(Mel_Gui_Handle h, void* user)
 {
     (void)h;
     (void)user;
-    g_dialog =
-        mel_dialog_create(.title = S8("Confirm"), .w = 320, .h = 160, .on_.on_result = dialog_result, .layout = mel_column_layout(.spacing = 10, .margin = 16, .cross_align = MEL_ALIGN_STRETCH));
+    g_dialog = mel_dialog_create(.title = S8("Confirm"), .w = 320, .h = 160, .on_.on_result = dialog_result, .layout = mel_column_layout(.spacing = 10, .margin = 16, .cross_align = MEL_ALIGN_STRETCH));
 
     mel_label_create(g_dialog, .text = S8("A modeless dialog. Pick an outcome."), .layoutable = { .preferred_h = 40, .weight = 1 });
     mel_button_create(g_dialog, .text = S8("OK"), .pointer.on_click = dialog_ok, .layoutable = { .preferred_h = 34 });

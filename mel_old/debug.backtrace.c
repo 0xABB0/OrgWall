@@ -10,10 +10,7 @@
 #include <execinfo.h>
 #include <string.h>
 
-static void sig_write(const char* s)
-{
-    write(STDERR_FILENO, s, strlen(s));
-}
+static void sig_write(const char* s) { write(STDERR_FILENO, s, strlen(s)); }
 
 static void sig_write_hex(uintptr_t val)
 {
@@ -44,7 +41,7 @@ static void sig_write_hex(uintptr_t val)
 static void sig_write_u32(u32 val)
 {
     char buf[16];
-    i32 pos = 15;
+    i32  pos = 15;
     buf[pos] = '\0';
 
     if (val == 0)
@@ -63,10 +60,7 @@ static void sig_write_u32(u32 val)
     write(STDERR_FILENO, &buf[pos], 15 - pos);
 }
 
-static void sig_write_u16(u16 val)
-{
-    sig_write_u32((u32)val);
-}
+static void sig_write_u16(u16 val) { sig_write_u32((u32)val); }
 
 static void signal_handler(int sig)
 {
@@ -74,12 +68,24 @@ static void signal_handler(int sig)
 
     switch (sig)
     {
-        case SIGSEGV: sig_write("SIGSEGV (Segmentation fault)"); break;
-        case SIGABRT: sig_write("SIGABRT (Abort)"); break;
-        case SIGFPE:  sig_write("SIGFPE (Floating point exception)"); break;
-        case SIGILL:  sig_write("SIGILL (Illegal instruction)"); break;
-        case SIGBUS:  sig_write("SIGBUS (Bus error)"); break;
-        default:      sig_write("UNKNOWN"); break;
+    case SIGSEGV:
+        sig_write("SIGSEGV (Segmentation fault)");
+        break;
+    case SIGABRT:
+        sig_write("SIGABRT (Abort)");
+        break;
+    case SIGFPE:
+        sig_write("SIGFPE (Floating point exception)");
+        break;
+    case SIGILL:
+        sig_write("SIGILL (Illegal instruction)");
+        break;
+    case SIGBUS:
+        sig_write("SIGBUS (Bus error)");
+        break;
+    default:
+        sig_write("UNKNOWN");
+        break;
     }
 
     sig_write(" ===\n");
@@ -164,7 +170,7 @@ static void signal_handler(int sig)
     }
 
     void* frames[MEL_BACKTRACE_MAX_FRAMES];
-    int frame_count = backtrace(frames, MEL_BACKTRACE_MAX_FRAMES);
+    int   frame_count = backtrace(frames, MEL_BACKTRACE_MAX_FRAMES);
 
     if (frame_count > 0)
         backtrace_symbols_fd(frames, frame_count, STDERR_FILENO);
@@ -178,7 +184,7 @@ static void signal_handler(int sig)
 
 void mel_backtrace_init(void)
 {
-    struct sigaction sa = {0};
+    struct sigaction sa = { 0 };
     sa.sa_handler = signal_handler;
     sa.sa_flags = SA_RESETHAND;
     sigemptyset(&sa.sa_mask);
@@ -190,21 +196,18 @@ void mel_backtrace_init(void)
     sigaction(SIGBUS, &sa, nullptr);
 }
 
-__attribute__((constructor))
-static void mel__backtrace_register(void)
-{
-    mel_backtrace_init();
-}
+__attribute__((constructor)) static void mel__backtrace_register(void) { mel_backtrace_init(); }
 
 void mel_backtrace_capture(Mel_Backtrace* bt, i32 skip)
 {
     assert(bt != nullptr);
 
     void* raw_frames[MEL_BACKTRACE_MAX_FRAMES + 16];
-    int total = backtrace(raw_frames, MEL_BACKTRACE_MAX_FRAMES + skip + 1);
+    int   total = backtrace(raw_frames, MEL_BACKTRACE_MAX_FRAMES + skip + 1);
 
     i32 start = skip + 1;
-    if (start > total) start = total;
+    if (start > total)
+        start = total;
 
     bt->frame_count = total - start;
     if (bt->frame_count > MEL_BACKTRACE_MAX_FRAMES)
@@ -248,7 +251,11 @@ void mel_backtrace_print_current(void)
 #else
 
 void mel_backtrace_init(void) {}
-void mel_backtrace_capture(Mel_Backtrace* bt, i32 skip) { (void)skip; bt->frame_count = 0; }
+void mel_backtrace_capture(Mel_Backtrace* bt, i32 skip)
+{
+    (void)skip;
+    bt->frame_count = 0;
+}
 void mel_backtrace_print(Mel_Backtrace* bt) { (void)bt; }
 void mel_backtrace_print_current(void) {}
 

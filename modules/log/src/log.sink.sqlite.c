@@ -174,21 +174,22 @@ static bool mel__sqlite_sink_init_schema(sqlite3* db)
     if (!mel__sqlite_sink_exec(db, "PRAGMA synchronous=NORMAL"))
         return false;
 
-    if (!mel__sqlite_sink_exec(db, "CREATE TABLE IF NOT EXISTS entries ("
-                                   "id              INTEGER PRIMARY KEY,"
-                                   "timestamp_ns    INTEGER NOT NULL,"
-                                   "level           INTEGER NOT NULL,"
-                                   "level_name      TEXT NOT NULL,"
-                                   "domain          TEXT NOT NULL,"
-                                   "message         TEXT NOT NULL,"
-                                   "file            TEXT,"
-                                   "line            INTEGER,"
-                                   "thread_id       INTEGER,"
-                                   "global_frame    INTEGER,"
-                                   "sim_frame       INTEGER,"
-                                   "fixed_tick      INTEGER,"
-                                   "context         TEXT"
-                                   ")"))
+    if (!mel__sqlite_sink_exec(db,
+                               "CREATE TABLE IF NOT EXISTS entries ("
+                               "id              INTEGER PRIMARY KEY,"
+                               "timestamp_ns    INTEGER NOT NULL,"
+                               "level           INTEGER NOT NULL,"
+                               "level_name      TEXT NOT NULL,"
+                               "domain          TEXT NOT NULL,"
+                               "message         TEXT NOT NULL,"
+                               "file            TEXT,"
+                               "line            INTEGER,"
+                               "thread_id       INTEGER,"
+                               "global_frame    INTEGER,"
+                               "sim_frame       INTEGER,"
+                               "fixed_tick      INTEGER,"
+                               "context         TEXT"
+                               ")"))
         return false;
 
     if (!mel__sqlite_sink_exec(db, "CREATE INDEX IF NOT EXISTS idx_entries_level ON entries(level)"))
@@ -200,10 +201,11 @@ static bool mel__sqlite_sink_init_schema(sqlite3* db)
     if (!mel__sqlite_sink_exec(db, "CREATE INDEX IF NOT EXISTS idx_entries_global_frame ON entries(global_frame)"))
         return false;
 
-    if (!mel__sqlite_sink_exec(db, "CREATE TABLE IF NOT EXISTS metadata ("
-                                   "key   TEXT PRIMARY KEY,"
-                                   "value TEXT NOT NULL"
-                                   ")"))
+    if (!mel__sqlite_sink_exec(db,
+                               "CREATE TABLE IF NOT EXISTS metadata ("
+                               "key   TEXT PRIMARY KEY,"
+                               "value TEXT NOT NULL"
+                               ")"))
         return false;
 
     return true;
@@ -288,7 +290,9 @@ Mel_Log_Sink* mel_log_sink_sqlite_create_opt(Mel_Log_Sink_Sqlite_Opt opt)
                             "timestamp_ns, level, level_name, domain, message, "
                             "file, line, thread_id, global_frame, sim_frame, fixed_tick, context"
                             ") VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
-                            -1, &insert_stmt, NULL);
+                            -1,
+                            &insert_stmt,
+                            NULL);
     if (rc != SQLITE_OK)
     {
         fprintf(stderr, "[mel_log_sink_sqlite] failed to prepare insert: %s\n", sqlite3_errmsg(db));

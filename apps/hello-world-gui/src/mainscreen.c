@@ -31,8 +31,7 @@ static Main_State g_main;
 static void update_main_status(void)
 {
     char text[320];
-    snprintf(text, sizeof text, "C saw: checked=%s, slider=%d, edit=\"%s\", focus=%s, entered=%d", g_main.checked ? "yes" : "no", g_main.slider, g_main.edit_text, g_main.focused ? "yes" : "no",
-             g_main.enter_count);
+    snprintf(text, sizeof text, "C saw: checked=%s, slider=%d, edit=\"%s\", focus=%s, entered=%d", g_main.checked ? "yes" : "no", g_main.slider, g_main.edit_text, g_main.focused ? "yes" : "no", g_main.enter_count);
     mel_gui_set_text(g_main.status, str8_from_cstr(text));
 }
 
@@ -207,33 +206,60 @@ void build_main(Mel_Gui_Handle frame, void* user)
     mel_label_create(frame, .text = S8("Main Screen"), .layoutable = { .preferred_w = 380, .preferred_h = 30 });
     mel_label_create(frame, .text = S8("This screen is selected and built from C."), .layoutable = { .preferred_h = 24 });
 
-    mel_button_create(frame, .text = S8("Open C-defined Details Screen"), .pointer.on_click = open_details_clicked, .focus.on_focus_in = main_focus_in, .focus.on_focus_out = main_focus_out,
-                      .user = &g_main, .layoutable = { .preferred_h = 40 });
-
-    mel_button_create(frame, .text = S8("Replace With Replaced Screen"), .pointer.on_click = replace_screen_clicked, .focus.on_focus_in = main_focus_in, .focus.on_focus_out = main_focus_out,
-                      .user = &g_main, .layoutable = { .preferred_h = 40 });
-
-    mel_button_create(frame, .text = S8("Open Structural Widgets"), .pointer.on_click = open_struct_clicked, .focus.on_focus_in = main_focus_in, .focus.on_focus_out = main_focus_out, .user = &g_main,
+    mel_button_create(frame,
+                      .text = S8("Open C-defined Details Screen"),
+                      .pointer.on_click = open_details_clicked,
+                      .focus.on_focus_in = main_focus_in,
+                      .focus.on_focus_out = main_focus_out,
+                      .user = &g_main,
                       .layoutable = { .preferred_h = 40 });
 
-    g_main.edit = mel_textfield_create(frame, .text = S8("native ui"), .on_.on_text_changed = main_edit_changed, .focus.on_focus_in = main_focus_in, .focus.on_focus_out = main_focus_out,
-                                       .keyboard.on_key_down = main_edit_key_down, .user = &g_main, .layoutable = { .preferred_h = 40 });
+    mel_button_create(frame,
+                      .text = S8("Replace With Replaced Screen"),
+                      .pointer.on_click = replace_screen_clicked,
+                      .focus.on_focus_in = main_focus_in,
+                      .focus.on_focus_out = main_focus_out,
+                      .user = &g_main,
+                      .layoutable = { .preferred_h = 40 });
+
+    mel_button_create(frame, .text = S8("Open Structural Widgets"), .pointer.on_click = open_struct_clicked, .focus.on_focus_in = main_focus_in, .focus.on_focus_out = main_focus_out, .user = &g_main, .layoutable = { .preferred_h = 40 });
+
+    g_main.edit = mel_textfield_create(frame,
+                                       .text = S8("native ui"),
+                                       .on_.on_text_changed = main_edit_changed,
+                                       .focus.on_focus_in = main_focus_in,
+                                       .focus.on_focus_out = main_focus_out,
+                                       .keyboard.on_key_down = main_edit_key_down,
+                                       .user = &g_main,
+                                       .layoutable = { .preferred_h = 40 });
 
     tapcounter_create(frame, S8("Tap this button"));
 
-    mel_checkbox_create(frame, .text = S8("Toggle this checkbox"), .on_.on_toggled = main_checkbox_toggled, .focus.on_focus_in = main_focus_in, .focus.on_focus_out = main_focus_out, .user = &g_main,
-                        .layoutable = { .preferred_h = 26 });
+    mel_checkbox_create(frame, .text = S8("Toggle this checkbox"), .on_.on_toggled = main_checkbox_toggled, .focus.on_focus_in = main_focus_in, .focus.on_focus_out = main_focus_out, .user = &g_main, .layoutable = { .preferred_h = 26 });
 
     mel_label_create(frame, .text = S8("Slider value"), .layoutable = { .preferred_h = 24, .cross_align = MEL_ALIGN_START, .preferred_w = 120 });
-    mel_slider_create(frame, .min_value = 0, .max_value = 100, .value = 65, .on_.on_value_changed = main_slider_changed, .focus.on_focus_in = main_focus_in, .focus.on_focus_out = main_focus_out,
-                      .user = &g_main, .layoutable = { .preferred_h = 32 });
+    mel_slider_create(frame,
+                      .min_value = 0,
+                      .max_value = 100,
+                      .value = 65,
+                      .on_.on_value_changed = main_slider_changed,
+                      .focus.on_focus_in = main_focus_in,
+                      .focus.on_focus_out = main_focus_out,
+                      .user = &g_main,
+                      .layoutable = { .preferred_h = 32 });
     g_main.slider_label = mel_label_create(frame, .text = S8("65"), .layoutable = { .preferred_h = 24, .cross_align = MEL_ALIGN_START, .preferred_w = 60 });
 
     g_main.status = mel_label_create(frame, .text = S8(""), .layoutable = { .preferred_h = 56 });
     g_main.key_label = mel_label_create(frame, .text = S8("last key: (none)"), .layoutable = { .preferred_h = 24 });
 
-    g_main.canvas = mel_canvas_create(frame, .on_.on_paint = canvas_paint, .pointer.on_pointer_down = canvas_pointer_down, .pointer.on_pointer_move = canvas_pointer_move,
-                                      .pointer.on_pointer_up = canvas_pointer_up, .keyboard.on_key_down = canvas_key_down, .user = &g_main, .layoutable = { .preferred_h = 140, .weight = 1 });
+    g_main.canvas = mel_canvas_create(frame,
+                                      .on_.on_paint = canvas_paint,
+                                      .pointer.on_pointer_down = canvas_pointer_down,
+                                      .pointer.on_pointer_move = canvas_pointer_move,
+                                      .pointer.on_pointer_up = canvas_pointer_up,
+                                      .keyboard.on_key_down = canvas_key_down,
+                                      .user = &g_main,
+                                      .layoutable = { .preferred_h = 140, .weight = 1 });
 
     update_main_status();
     update_main_key_label();

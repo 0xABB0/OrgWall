@@ -32,7 +32,7 @@ void mel_game_editor_init(Mel_GameEditor* ge, Mel_EdRegistry* registry, Mel_Text
 {
     assert(ge != nullptr);
 
-    *ge = (Mel_GameEditor){0};
+    *ge = (Mel_GameEditor){ 0 };
     ge->registry = registry;
     ge->texture_pool = tex_pool;
     ge->tileset_pool = ts_pool;
@@ -52,7 +52,8 @@ void mel_game_editor_draw(Mel_GameEditor* ge, f32 dt)
 {
     assert(ge != nullptr);
 
-    if (!ge->visible) return;
+    if (!ge->visible)
+        return;
 
     draw_main_menu_bar(ge);
 
@@ -119,13 +120,13 @@ static void draw_main_menu_bar(Mel_GameEditor* ge)
 
 static void draw_asset_browser_window(Mel_GameEditor* ge)
 {
-    igSetNextWindowSize((ImVec2){400, 500}, ImGuiCond_FirstUseEver);
+    igSetNextWindowSize((ImVec2){ 400, 500 }, ImGuiCond_FirstUseEver);
 
     if (igBegin("Asset Browser", &ge->show_asset_browser, 0))
     {
         if (!ge->texture_pool)
         {
-            igTextColored((ImVec4){1.0f, 0.5f, 0.5f, 1.0f}, "No pools connected");
+            igTextColored((ImVec4){ 1.0f, 0.5f, 0.5f, 1.0f }, "No pools connected");
         }
         else
         {
@@ -182,9 +183,9 @@ static void draw_texture_picker_popup(Mel_GameEditor* ge)
             Mel_Texture_Handle h = mel_texture_pool_load(ge->texture_pool, str8_from_cstr(ge->pending_file_path));
             if (mel_slotmap_handle_valid(h.handle))
             {
-                str8 full_path = str8_from_cstr(ge->pending_file_path);
+                str8        full_path = str8_from_cstr(ge->pending_file_path);
                 const char* slash = strrchr(ge->pending_file_path, '/');
-                str8 filename = slash ? str8_from_cstr(slash + 1) : full_path;
+                str8        filename = slash ? str8_from_cstr(slash + 1) : full_path;
 
                 if (ge->texture_picker_callback)
                 {
@@ -202,11 +203,11 @@ static void draw_texture_picker_popup(Mel_GameEditor* ge)
         ge->pending_file_path[0] = '\0';
     }
 
-    igSetNextWindowSize((ImVec2){450, 350}, ImGuiCond_FirstUseEver);
+    igSetNextWindowSize((ImVec2){ 450, 350 }, ImGuiCond_FirstUseEver);
 
     if (igBegin("Select Texture", &ge->show_texture_picker, 0))
     {
-        if (igButton("Browse Files...", (ImVec2){-1, 30}))
+        if (igButton("Browse Files...", (ImVec2){ -1, 30 }))
         {
             SDL_DialogFileFilter filters[] = {
                 { "Image Files", "png;jpg;jpeg;bmp;tga" },
@@ -218,18 +219,17 @@ static void draw_texture_picker_popup(Mel_GameEditor* ge)
 
         igSeparator();
 
-        igInputText("Filter##texturepicker", ge->texture_picker_filter,
-            sizeof(ge->texture_picker_filter), 0, nullptr, nullptr);
+        igInputText("Filter##texturepicker", ge->texture_picker_filter, sizeof(ge->texture_picker_filter), 0, nullptr, nullptr);
 
         igText("Loaded Textures:");
 
         if (!ge->texture_pool)
         {
-            igTextColored((ImVec4){1.0f, 0.5f, 0.5f, 1.0f}, "No texture pool");
+            igTextColored((ImVec4){ 1.0f, 0.5f, 0.5f, 1.0f }, "No texture pool");
         }
         else
         {
-            if (igBeginChild_Str("TextureList", (ImVec2){0, -60}, ImGuiChildFlags_Borders, 0))
+            if (igBeginChild_Str("TextureList", (ImVec2){ 0, -60 }, ImGuiChildFlags_Borders, 0))
             {
                 u32 tex_count = mel_texture_pool_count(ge->texture_pool);
                 if (tex_count == 0)
@@ -249,7 +249,7 @@ static void draw_texture_picker_popup(Mel_GameEditor* ge)
             static char manual_path[256] = "";
             igInputText("##manualpath", manual_path, sizeof(manual_path), 0, nullptr, nullptr);
             igSameLine(0, 10);
-            if (igButton("Load", (ImVec2){60, 0}))
+            if (igButton("Load", (ImVec2){ 60, 0 }))
             {
                 if (strlen(manual_path) > 0)
                 {

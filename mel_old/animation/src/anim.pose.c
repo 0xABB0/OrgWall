@@ -9,9 +9,7 @@
 
 #include <string.h>
 
-void mel_pose_allocate(Mel_Local_Pose* out_pose,
-                       const Mel_Anim_Clip* template_clip,
-                       const Mel_Alloc* scratch)
+void mel_pose_allocate(Mel_Local_Pose* out_pose, const Mel_Anim_Clip* template_clip, const Mel_Alloc* scratch)
 {
     assert(out_pose != NULL);
     assert(template_clip != NULL);
@@ -24,7 +22,7 @@ void mel_pose_allocate(Mel_Local_Pose* out_pose,
     for (u32 g = 0; g < gc; g++)
     {
         const Mel_Track_Group* src = &template_clip->groups[g];
-        Mel_Track_Type_Def* type_def = mel_anim_registry_get(src->type_hash);
+        Mel_Track_Type_Def*    type_def = mel_anim_registry_get(src->type_hash);
 
         Mel_Pose_Group* dst = &out_pose->groups[g];
         dst->type_hash = src->type_hash;
@@ -46,10 +44,11 @@ void mel__pose_extract(const Mel_Local_Pose* pose, u64 type_hash, u64 property_i
     for (u32 g = 0; g < pose->group_count; g++)
     {
         const Mel_Pose_Group* grp = &pose->groups[g];
-        if (grp->type_hash != type_hash) continue;
+        if (grp->type_hash != type_hash)
+            continue;
 
         Mel_Track_Type_Def* type_def = mel_anim_registry_get(grp->type_hash);
-        u32 stride = type_def->stride;
+        u32                 stride = type_def->stride;
 
         for (u32 i = 0; i < grp->count; i++)
         {
@@ -74,10 +73,7 @@ static i32 mel__pose_find_property(const Mel_Pose_Group* grp, u64 property_id)
     return -1;
 }
 
-static void mel__compute_global_transforms(const Mel_Local_Pose* pose,
-                                            const Mel_Skeleton* skeleton,
-                                            Mel_Vec3* out_positions,
-                                            Mel_Quat* out_rotations)
+static void mel__compute_global_transforms(const Mel_Local_Pose* pose, const Mel_Skeleton* skeleton, Mel_Vec3* out_positions, Mel_Quat* out_rotations)
 {
     u64 type_vec3 = MEL_ANIM_TYPE_VEC3;
     u64 type_quat = MEL_ANIM_TYPE_QUAT;
@@ -123,16 +119,12 @@ static void mel__compute_global_transforms(const Mel_Local_Pose* pose,
         {
             u32 p = (u32)skeleton->parent_indices[b];
             out_rotations[b] = mel_quat_mul(out_rotations[p], local_rot);
-            out_positions[b] = mel_vec3_add(out_positions[p],
-                                mel_quat_rotate_vec3(out_rotations[p], local_pos));
+            out_positions[b] = mel_vec3_add(out_positions[p], mel_quat_rotate_vec3(out_rotations[p], local_pos));
         }
     }
 }
 
-void mel_pose_mesh_to_local(Mel_Local_Pose* additive_pose,
-                            const Mel_Local_Pose* reference_pose,
-                            const Mel_Skeleton* skeleton,
-                            const Mel_Alloc* scratch)
+void mel_pose_mesh_to_local(Mel_Local_Pose* additive_pose, const Mel_Local_Pose* reference_pose, const Mel_Skeleton* skeleton, const Mel_Alloc* scratch)
 {
     assert(additive_pose != NULL);
     assert(reference_pose != NULL);
@@ -176,7 +168,7 @@ void mel_pose_mesh_to_local(Mel_Local_Pose* additive_pose,
 
     for (u32 b = 0; b < bc; b++)
     {
-        u64 bone_hash = skeleton->bone_hashes[b];
+        u64      bone_hash = skeleton->bone_hashes[b];
         Mel_Quat parent_ref_rot = MEL_QUAT_IDENTITY;
         if (skeleton->parent_indices[b] >= 0)
             parent_ref_rot = ref_global_rot[(u32)skeleton->parent_indices[b]];
@@ -227,9 +219,7 @@ void mel_pose_mesh_to_local(Mel_Local_Pose* additive_pose,
     }
 }
 
-void mel_pose_calc_global_matrices(const Mel_Local_Pose* pose,
-                                   const Mel_Skeleton* skeleton,
-                                   f32* out_4x4_matrices)
+void mel_pose_calc_global_matrices(const Mel_Local_Pose* pose, const Mel_Skeleton* skeleton, f32* out_4x4_matrices)
 {
     assert(pose != NULL);
     assert(skeleton != NULL);
@@ -246,8 +236,10 @@ void mel_pose_calc_global_matrices(const Mel_Local_Pose* pose,
     {
         if (pose->groups[g].type_hash == type_vec3)
         {
-            if (!pos_group) pos_group = &pose->groups[g];
-            else scl_group = &pose->groups[g];
+            if (!pos_group)
+                pos_group = &pose->groups[g];
+            else
+                scl_group = &pose->groups[g];
         }
         else if (pose->groups[g].type_hash == type_quat)
         {
@@ -296,10 +288,7 @@ void mel_pose_calc_global_matrices(const Mel_Local_Pose* pose,
             }
         }
 
-        Mel_Mat4 local = mel_mat4_mul(
-            mel_mat4_mul(mel_mat4_translate(pos), mel_quat_to_mat4(rot)),
-            mel_mat4_scale(scl)
-        );
+        Mel_Mat4 local = mel_mat4_mul(mel_mat4_mul(mel_mat4_translate(pos), mel_quat_to_mat4(rot)), mel_mat4_scale(scl));
 
         Mel_Mat4* out = (Mel_Mat4*)(out_4x4_matrices + b * 16);
 

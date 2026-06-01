@@ -45,8 +45,7 @@ Mel_Gui_Handle mel_textfield_create_opt(Mel_Gui_Handle parent, Mel_TextField_Opt
     wchar_t wbuf[1024];
     mel_gui__win32_widen(o.text, wbuf, 1024);
 
-    HWND hwnd = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", wbuf, mel_gui__win32_child_style(n, o.disabled) | WS_TABSTOP | ES_AUTOHSCROLL | ES_LEFT, n->x, n->y, n->width, n->height, par, NULL,
-                                current_hinst, NULL);
+    HWND hwnd = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", wbuf, mel_gui__win32_child_style(n, o.disabled) | WS_TABSTOP | ES_AUTOHSCROLL | ES_LEFT, n->x, n->y, n->width, n->height, par, NULL, current_hinst, NULL);
     n->native = hwnd;
     if (!hwnd)
         return h;

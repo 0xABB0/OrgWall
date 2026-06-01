@@ -15,7 +15,8 @@
 #include <inttypes.h>
 #include <time.h>
 
-typedef struct {
+typedef struct
+{
     str8 stack[MEL_LOG_MAX_CONTEXT_DEPTH];
     u32  depth;
     u64  global_frame;
@@ -26,55 +27,52 @@ typedef struct {
 
 static _Thread_local Mel__Log_TLS tls;
 
-typedef struct {
-    u32 value;
+typedef struct
+{
+    u32  value;
     str8 name;
 } Mel__Log_Level_Entry;
 
-typedef struct {
+typedef struct
+{
     Mel_Log_Sink* sink;
-    u32 id;
-    u32 gen;
+    u32           id;
+    u32           gen;
 } Mel__Log_Sink_Slot;
 
-typedef struct {
+typedef struct
+{
     _Alignas(64) _Atomic(u64) write_cursor;
     _Alignas(64) _Atomic(u64) read_cursor;
     _Atomic(u64) dropped;
-    u8* buf;
-    u64 capacity;
+    u8*          buf;
+    u64          capacity;
 } Mel__Log_Ring;
 
 static Mel__Log_Ring ring;
 
 static Mel__Log_Sink_Slot* sinks;
-static u32 sink_count;
-static u32 sink_capacity;
-static u32 sink_next_id;
-static SDL_RWLock* sink_lock;
+static u32                 sink_count;
+static u32                 sink_capacity;
+static u32                 sink_next_id;
+static SDL_RWLock*         sink_lock;
 
 static Mel__Log_Level_Entry* levels;
-static u32 level_count;
-static u32 level_capacity;
-static SDL_Mutex* level_lock;
+static u32                   level_count;
+static u32                   level_capacity;
+static SDL_Mutex*            level_lock;
 
-static SDL_Thread* writer_thread;
-static _Atomic(bool) writer_running;
-static _Atomic(bool) writer_shutdown;
-static _Atomic(bool) flush_requested;
-static SDL_Mutex* flush_mutex;
+static SDL_Thread*    writer_thread;
+static _Atomic(bool)  writer_running;
+static _Atomic(bool)  writer_shutdown;
+static _Atomic(bool)  flush_requested;
+static SDL_Mutex*     flush_mutex;
 static SDL_Condition* flush_cond;
-static _Atomic(bool) flush_done;
+static _Atomic(bool)  flush_done;
 
-static u64 mel__log_timestamp(void)
-{
-    return SDL_GetTicksNS();
-}
+static u64 mel__log_timestamp(void) { return SDL_GetTicksNS(); }
 
-static u32 mel__log_thread_id(void)
-{
-    return (u32)SDL_GetCurrentThreadID();
-}
+static u32 mel__log_thread_id(void) { return (u32)SDL_GetCurrentThreadID(); }
 
 static void mel__ring_init(Mel__Log_Ring* r, u64 capacity)
 {
@@ -93,21 +91,7 @@ static void mel__ring_free(Mel__Log_Ring* r)
     r->capacity = 0;
 }
 
-#define MEL__LOG_ENTRY_HEADER_SIZE ( \
-    sizeof(u32) + \
-    sizeof(u32) + \
-    sizeof(u64) + \
-    sizeof(u32) + \
-    sizeof(u32) + \
-    sizeof(u64) + \
-    sizeof(u64) + \
-    sizeof(u32) + \
-    sizeof(u32) + \
-    sizeof(u16) + \
-    sizeof(u16) + \
-    sizeof(u16) + \
-    sizeof(u16)   \
-)
+#define MEL__LOG_ENTRY_HEADER_SIZE (sizeof(u32) + sizeof(u32) + sizeof(u64) + sizeof(u32) + sizeof(u32) + sizeof(u64) + sizeof(u64) + sizeof(u32) + sizeof(u32) + sizeof(u16) + sizeof(u16) + sizeof(u16) + sizeof(u16))
 
 static bool mel__ring_reserve(Mel__Log_Ring* r, u32 total_size, u64* out_pos)
 {
@@ -129,9 +113,7 @@ static bool mel__ring_reserve(Mel__Log_Ring* r, u32 total_size, u64* out_pos)
 #endif
         }
 
-        if (atomic_compare_exchange_weak_explicit(&r->write_cursor, &pos, pos + total_size,
-                                                   memory_order_acq_rel,
-                                                   memory_order_relaxed))
+        if (atomic_compare_exchange_weak_explicit(&r->write_cursor, &pos, pos + total_size, memory_order_acq_rel, memory_order_relaxed))
         {
             *out_pos = pos;
             return true;
@@ -227,7 +209,7 @@ static void mel__ring_clear_committed(Mel__Log_Ring* r, u64 pos)
 static str8 mel__serialize_context(char* buf, u32 buf_size)
 {
     if (tls.depth == 0)
-        return (str8){0};
+        return (str8){ 0 };
 
     u32 written = 0;
     for (u32 i = 0; i < tls.depth; i++)
@@ -241,12 +223,10 @@ static str8 mel__serialize_context(char* buf, u32 buf_size)
         written += copy;
     }
 
-    return (str8){(u8*)buf, written};
+    return (str8){ (u8*)buf, written };
 }
 
-static void mel__push_entry(u32 level, str8 domain, const char* file, u32 line,
-                            str8 message, str8 context, u64 timestamp,
-                            u32 thread_id, u64 global_frame, u64 sim_frame, u32 fixed_tick)
+static void mel__push_entry(u32 level, str8 domain, const char* file, u32 line, str8 message, str8 context, u64 timestamp, u32 thread_id, u64 global_frame, u64 sim_frame, u32 fixed_tick)
 {
     u16 domain_len = (u16)domain.len;
     u16 file_len = file ? (u16)strlen(file) : 0;
@@ -262,24 +242,53 @@ static void mel__push_entry(u32 level, str8 domain, const char* file, u32 line,
     u64 wp = pos;
 
     u32 committed = 0;
-    mel__ring_write(&ring, wp, &total_size, sizeof(u32));    wp += sizeof(u32);
-    mel__ring_write(&ring, wp, &committed, sizeof(u32));     wp += sizeof(u32);
-    mel__ring_write(&ring, wp, &timestamp, sizeof(u64));     wp += sizeof(u64);
-    mel__ring_write(&ring, wp, &level, sizeof(u32));         wp += sizeof(u32);
-    mel__ring_write(&ring, wp, &thread_id, sizeof(u32));     wp += sizeof(u32);
-    mel__ring_write(&ring, wp, &global_frame, sizeof(u64));  wp += sizeof(u64);
-    mel__ring_write(&ring, wp, &sim_frame, sizeof(u64));     wp += sizeof(u64);
-    mel__ring_write(&ring, wp, &fixed_tick, sizeof(u32));    wp += sizeof(u32);
-    mel__ring_write(&ring, wp, &line, sizeof(u32));          wp += sizeof(u32);
-    mel__ring_write(&ring, wp, &domain_len, sizeof(u16));    wp += sizeof(u16);
-    mel__ring_write(&ring, wp, &file_len, sizeof(u16));      wp += sizeof(u16);
-    mel__ring_write(&ring, wp, &message_len, sizeof(u16));   wp += sizeof(u16);
-    mel__ring_write(&ring, wp, &context_len, sizeof(u16));   wp += sizeof(u16);
+    mel__ring_write(&ring, wp, &total_size, sizeof(u32));
+    wp += sizeof(u32);
+    mel__ring_write(&ring, wp, &committed, sizeof(u32));
+    wp += sizeof(u32);
+    mel__ring_write(&ring, wp, &timestamp, sizeof(u64));
+    wp += sizeof(u64);
+    mel__ring_write(&ring, wp, &level, sizeof(u32));
+    wp += sizeof(u32);
+    mel__ring_write(&ring, wp, &thread_id, sizeof(u32));
+    wp += sizeof(u32);
+    mel__ring_write(&ring, wp, &global_frame, sizeof(u64));
+    wp += sizeof(u64);
+    mel__ring_write(&ring, wp, &sim_frame, sizeof(u64));
+    wp += sizeof(u64);
+    mel__ring_write(&ring, wp, &fixed_tick, sizeof(u32));
+    wp += sizeof(u32);
+    mel__ring_write(&ring, wp, &line, sizeof(u32));
+    wp += sizeof(u32);
+    mel__ring_write(&ring, wp, &domain_len, sizeof(u16));
+    wp += sizeof(u16);
+    mel__ring_write(&ring, wp, &file_len, sizeof(u16));
+    wp += sizeof(u16);
+    mel__ring_write(&ring, wp, &message_len, sizeof(u16));
+    wp += sizeof(u16);
+    mel__ring_write(&ring, wp, &context_len, sizeof(u16));
+    wp += sizeof(u16);
 
-    if (domain_len)  { mel__ring_write(&ring, wp, domain.data, domain_len);       wp += domain_len; }
-    if (file_len)    { mel__ring_write(&ring, wp, file, file_len);                wp += file_len; }
-    if (message_len) { mel__ring_write(&ring, wp, message.data, message_len);     wp += message_len; }
-    if (context_len) { mel__ring_write(&ring, wp, context.data, context_len);     wp += context_len; }
+    if (domain_len)
+    {
+        mel__ring_write(&ring, wp, domain.data, domain_len);
+        wp += domain_len;
+    }
+    if (file_len)
+    {
+        mel__ring_write(&ring, wp, file, file_len);
+        wp += file_len;
+    }
+    if (message_len)
+    {
+        mel__ring_write(&ring, wp, message.data, message_len);
+        wp += message_len;
+    }
+    if (context_len)
+    {
+        mel__ring_write(&ring, wp, context.data, context_len);
+        wp += context_len;
+    }
 
     mel__ring_commit(&ring, pos);
 }
@@ -298,38 +307,50 @@ static bool mel__drain_one(void)
     u8 header[MEL__LOG_ENTRY_HEADER_SIZE];
     mel__ring_read(&ring, pos, header, (u32)MEL__LOG_ENTRY_HEADER_SIZE);
 
-    u32 total_size;   memcpy(&total_size, header + 0, sizeof(u32));
-    u64 timestamp;    memcpy(&timestamp, header + 8, sizeof(u64));
-    u32 level;        memcpy(&level, header + 16, sizeof(u32));
-    u32 thread_id;    memcpy(&thread_id, header + 20, sizeof(u32));
-    u64 global_frame; memcpy(&global_frame, header + 24, sizeof(u64));
-    u64 sim_frame;    memcpy(&sim_frame, header + 32, sizeof(u64));
-    u32 fixed_tick;   memcpy(&fixed_tick, header + 40, sizeof(u32));
-    u32 line;         memcpy(&line, header + 44, sizeof(u32));
-    u16 domain_len;   memcpy(&domain_len, header + 48, sizeof(u16));
-    u16 file_len;     memcpy(&file_len, header + 50, sizeof(u16));
-    u16 message_len;  memcpy(&message_len, header + 52, sizeof(u16));
-    u16 context_len;  memcpy(&context_len, header + 54, sizeof(u16));
+    u32 total_size;
+    memcpy(&total_size, header + 0, sizeof(u32));
+    u64 timestamp;
+    memcpy(&timestamp, header + 8, sizeof(u64));
+    u32 level;
+    memcpy(&level, header + 16, sizeof(u32));
+    u32 thread_id;
+    memcpy(&thread_id, header + 20, sizeof(u32));
+    u64 global_frame;
+    memcpy(&global_frame, header + 24, sizeof(u64));
+    u64 sim_frame;
+    memcpy(&sim_frame, header + 32, sizeof(u64));
+    u32 fixed_tick;
+    memcpy(&fixed_tick, header + 40, sizeof(u32));
+    u32 line;
+    memcpy(&line, header + 44, sizeof(u32));
+    u16 domain_len;
+    memcpy(&domain_len, header + 48, sizeof(u16));
+    u16 file_len;
+    memcpy(&file_len, header + 50, sizeof(u16));
+    u16 message_len;
+    memcpy(&message_len, header + 52, sizeof(u16));
+    u16 context_len;
+    memcpy(&context_len, header + 54, sizeof(u16));
 
     u32 payload_size = domain_len + file_len + message_len + context_len;
-    u8 scratch[MEL_LOG_MAX_MESSAGE_SIZE * 2];
+    u8  scratch[MEL_LOG_MAX_MESSAGE_SIZE * 2];
     assert(payload_size <= sizeof(scratch));
 
     mel__ring_read(&ring, pos + MEL__LOG_ENTRY_HEADER_SIZE, scratch, payload_size);
 
-    u8* p = scratch;
+    u8*           p = scratch;
     Mel_Log_Entry entry = {
-        .timestamp_ns  = timestamp,
-        .level         = level,
-        .domain        = { p, domain_len },
-        .message       = { p + domain_len + file_len, message_len },
-        .file          = { p + domain_len, file_len },
-        .line          = line,
-        .thread_id     = thread_id,
-        .global_frame  = global_frame,
-        .sim_frame     = sim_frame,
-        .fixed_tick    = fixed_tick,
-        .context       = { p + domain_len + file_len + message_len, context_len },
+        .timestamp_ns = timestamp,
+        .level = level,
+        .domain = { p, domain_len },
+        .message = { p + domain_len + file_len, message_len },
+        .file = { p + domain_len, file_len },
+        .line = line,
+        .thread_id = thread_id,
+        .global_frame = global_frame,
+        .sim_frame = sim_frame,
+        .fixed_tick = fixed_tick,
+        .context = { p + domain_len + file_len + message_len, context_len },
     };
 
     mel__ring_clear_committed(&ring, pos);
@@ -349,15 +370,19 @@ static bool mel__drain_one(void)
 
 static void mel__drain_all(void)
 {
-    while (mel__drain_one()) {}
+    while (mel__drain_one())
+    {
+    }
 
     u64 dropped = atomic_exchange_explicit(&ring.dropped, 0, memory_order_relaxed);
     if (dropped > 0)
     {
         char tmp[128];
-        int n = snprintf(tmp, sizeof(tmp), "log: %" PRIu64 " entries dropped (ring buffer full)", dropped);
-        if (n < 0) n = 0;
-        if ((usize)n >= sizeof(tmp)) n = (int)sizeof(tmp) - 1;
+        int  n = snprintf(tmp, sizeof(tmp), "log: %" PRIu64 " entries dropped (ring buffer full)", dropped);
+        if (n < 0)
+            n = 0;
+        if ((usize)n >= sizeof(tmp))
+            n = (int)sizeof(tmp) - 1;
 
         Mel_Log_Entry drop_entry = {
             .timestamp_ns = mel__log_timestamp(),
@@ -424,9 +449,7 @@ static int SDLCALL mel__writer_thread_fn(void* arg)
 static void mel__ensure_writer_thread(void)
 {
     bool expected = false;
-    if (atomic_compare_exchange_strong_explicit(&writer_running, &expected, true,
-                                                memory_order_acq_rel,
-                                                memory_order_relaxed))
+    if (atomic_compare_exchange_strong_explicit(&writer_running, &expected, true, memory_order_acq_rel, memory_order_relaxed))
     {
         atomic_store_explicit(&writer_shutdown, false, memory_order_relaxed);
         writer_thread = SDL_CreateThread(mel__writer_thread_fn, "mel_log_writer", NULL);
@@ -438,7 +461,8 @@ void mel__log(u32 level, str8 domain, const char* file, u32 line, const char* fm
 {
     assert(!tls.in_log && "mel__log called recursively");
 #ifdef NDEBUG
-    if (tls.in_log) return;
+    if (tls.in_log)
+        return;
 #endif
     tls.in_log = true;
 
@@ -449,7 +473,8 @@ void mel__log(u32 level, str8 domain, const char* file, u32 line, const char* fm
     int n = vsnprintf(scratch, sizeof(scratch), fmt, args);
     va_end(args);
 
-    if (n < 0) n = 0;
+    if (n < 0)
+        n = 0;
     if ((usize)n >= sizeof(scratch))
     {
         n = (int)sizeof(scratch) - 1;
@@ -461,16 +486,7 @@ void mel__log(u32 level, str8 domain, const char* file, u32 line, const char* fm
     char ctx_buf[1024];
     str8 context = mel__serialize_context(ctx_buf, sizeof(ctx_buf));
 
-    mel__push_entry(
-        level, domain, file, line,
-        (str8){ (u8*)scratch, n },
-        context,
-        mel__log_timestamp(),
-        mel__log_thread_id(),
-        tls.global_frame,
-        tls.sim_frame,
-        tls.fixed_tick
-    );
+    mel__push_entry(level, domain, file, line, (str8){ (u8*)scratch, n }, context, mel__log_timestamp(), mel__log_thread_id(), tls.global_frame, tls.sim_frame, tls.fixed_tick);
 
     tls.in_log = false;
 }
@@ -493,20 +509,11 @@ void mel__log_context_cleanup(str8* tag)
     mel_log_context_pop();
 }
 
-void mel_log_set_global_frame(u64 frame)
-{
-    tls.global_frame = frame;
-}
+void mel_log_set_global_frame(u64 frame) { tls.global_frame = frame; }
 
-void mel_log_set_sim_frame(u64 frame)
-{
-    tls.sim_frame = frame;
-}
+void mel_log_set_sim_frame(u64 frame) { tls.sim_frame = frame; }
 
-void mel_log_set_fixed_tick(u32 tick)
-{
-    tls.fixed_tick = tick;
-}
+void mel_log_set_fixed_tick(u32 tick) { tls.fixed_tick = tick; }
 
 Mel_Log_Thread_State mel_log_thread_state_save(void)
 {
@@ -540,7 +547,7 @@ Mel_Log_Sink_Handle mel_log_sink_add(Mel_Log_Sink* sink)
 
     if (sink_count >= sink_capacity)
     {
-        u32 new_cap = sink_capacity == 0 ? 4 : sink_capacity * 2;
+        u32                 new_cap = sink_capacity == 0 ? 4 : sink_capacity * 2;
         Mel__Log_Sink_Slot* new_slots = realloc(sinks, sizeof(Mel__Log_Sink_Slot) * new_cap);
         assert(new_slots);
         sinks = new_slots;
@@ -619,7 +626,7 @@ void mel_log_level_register(u32 value, str8 name)
 
     if (level_count >= level_capacity)
     {
-        u32 new_cap = level_capacity == 0 ? 8 : level_capacity * 2;
+        u32                   new_cap = level_capacity == 0 ? 8 : level_capacity * 2;
         Mel__Log_Level_Entry* new_levels = realloc(levels, sizeof(Mel__Log_Level_Entry) * new_cap);
         assert(new_levels);
         levels = new_levels;
@@ -648,9 +655,13 @@ str8 mel_log_level_name(u32 value)
 
 void mel__log_signal(u32 level, const char* static_message)
 {
-    u16 msg_len = 0;
+    u16         msg_len = 0;
     const char* p = static_message;
-    while (p && *p) { msg_len++; p++; }
+    while (p && *p)
+    {
+        msg_len++;
+        p++;
+    }
 
     u32 total_size = (u32)MEL__LOG_ENTRY_HEADER_SIZE + msg_len;
     total_size = (total_size + 3u) & ~3u;
@@ -670,19 +681,32 @@ void mel__log_signal(u32 level, const char* static_message)
     u16 domain_len = 0;
     u16 file_len = 0;
 
-    mel__ring_write(&ring, wp, &total_size, sizeof(u32));    wp += sizeof(u32);
-    mel__ring_write(&ring, wp, &committed, sizeof(u32));     wp += sizeof(u32);
-    mel__ring_write(&ring, wp, &timestamp, sizeof(u64));     wp += sizeof(u64);
-    mel__ring_write(&ring, wp, &level, sizeof(u32));         wp += sizeof(u32);
-    mel__ring_write(&ring, wp, &thread_id, sizeof(u32));     wp += sizeof(u32);
-    mel__ring_write(&ring, wp, &zero64, sizeof(u64));        wp += sizeof(u64);
-    mel__ring_write(&ring, wp, &zero64, sizeof(u64));        wp += sizeof(u64);
-    mel__ring_write(&ring, wp, &zero32, sizeof(u32));        wp += sizeof(u32);
-    mel__ring_write(&ring, wp, &zero32, sizeof(u32));        wp += sizeof(u32);
-    mel__ring_write(&ring, wp, &domain_len, sizeof(u16));    wp += sizeof(u16);
-    mel__ring_write(&ring, wp, &file_len, sizeof(u16));      wp += sizeof(u16);
-    mel__ring_write(&ring, wp, &msg_len, sizeof(u16));       wp += sizeof(u16);
-    mel__ring_write(&ring, wp, &context_len, sizeof(u16));   wp += sizeof(u16);
+    mel__ring_write(&ring, wp, &total_size, sizeof(u32));
+    wp += sizeof(u32);
+    mel__ring_write(&ring, wp, &committed, sizeof(u32));
+    wp += sizeof(u32);
+    mel__ring_write(&ring, wp, &timestamp, sizeof(u64));
+    wp += sizeof(u64);
+    mel__ring_write(&ring, wp, &level, sizeof(u32));
+    wp += sizeof(u32);
+    mel__ring_write(&ring, wp, &thread_id, sizeof(u32));
+    wp += sizeof(u32);
+    mel__ring_write(&ring, wp, &zero64, sizeof(u64));
+    wp += sizeof(u64);
+    mel__ring_write(&ring, wp, &zero64, sizeof(u64));
+    wp += sizeof(u64);
+    mel__ring_write(&ring, wp, &zero32, sizeof(u32));
+    wp += sizeof(u32);
+    mel__ring_write(&ring, wp, &zero32, sizeof(u32));
+    wp += sizeof(u32);
+    mel__ring_write(&ring, wp, &domain_len, sizeof(u16));
+    wp += sizeof(u16);
+    mel__ring_write(&ring, wp, &file_len, sizeof(u16));
+    wp += sizeof(u16);
+    mel__ring_write(&ring, wp, &msg_len, sizeof(u16));
+    wp += sizeof(u16);
+    mel__ring_write(&ring, wp, &context_len, sizeof(u16));
+    wp += sizeof(u16);
 
     if (msg_len)
         mel__ring_write(&ring, wp, static_message, msg_len);
@@ -690,8 +714,7 @@ void mel__log_signal(u32 level, const char* static_message)
     mel__ring_commit(&ring, pos);
 }
 
-__attribute__((constructor(101)))
-static void mel__log_init(void)
+__attribute__((constructor(101))) static void mel__log_init(void)
 {
     mel__ring_init(&ring, MEL_LOG_RING_SIZE);
 
@@ -709,16 +732,15 @@ static void mel__log_init(void)
 
     mel_log_level_register(MEL_LOG_FATAL, S8("FATAL"));
     mel_log_level_register(MEL_LOG_ERROR, S8("ERROR"));
-    mel_log_level_register(MEL_LOG_WARN,  S8("WARN"));
-    mel_log_level_register(MEL_LOG_INFO,  S8("INFO"));
+    mel_log_level_register(MEL_LOG_WARN, S8("WARN"));
+    mel_log_level_register(MEL_LOG_INFO, S8("INFO"));
     mel_log_level_register(MEL_LOG_DEBUG, S8("DEBUG"));
     mel_log_level_register(MEL_LOG_TRACE, S8("TRACE"));
 
     mel_log_sink_add(mel_log_sink_console_create(.color = true));
 }
 
-__attribute__((destructor(101)))
-static void mel__log_shutdown(void)
+__attribute__((destructor(101))) static void mel__log_shutdown(void)
 {
     if (atomic_load_explicit(&writer_running, memory_order_acquire))
     {

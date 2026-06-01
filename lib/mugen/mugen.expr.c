@@ -209,9 +209,7 @@ typedef struct
     u8          id;
 } Func_Entry;
 
-static const Func_Entry s_funcs[] = {
-    { "ceil", MUGEN_FUNC_CEIL }, { "floor", MUGEN_FUNC_FLOOR }, { "abs", MUGEN_FUNC_ABS }, { "ifelse", MUGEN_FUNC_IFELSE }, { "cond", MUGEN_FUNC_COND }, { NULL, 0 }
-};
+static const Func_Entry s_funcs[] = { { "ceil", MUGEN_FUNC_CEIL }, { "floor", MUGEN_FUNC_FLOOR }, { "abs", MUGEN_FUNC_ABS }, { "ifelse", MUGEN_FUNC_IFELSE }, { "cond", MUGEN_FUNC_COND }, { NULL, 0 } };
 
 typedef struct
 {

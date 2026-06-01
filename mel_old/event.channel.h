@@ -4,15 +4,17 @@
 #include "allocator.fwd.h"
 #include "collection.rcu.h"
 
-typedef struct {
+typedef struct
+{
     Mel_Event_Fn fn;
-    void* ctx;
-    u32 id;
+    void*        ctx;
+    u32          id;
 } Mel_Event_Channel_Entry;
 
-struct Mel_Event_Channel {
+struct Mel_Event_Channel
+{
     Mel_Rcu rcu;
-    u32 next_id;
+    u32     next_id;
 };
 
 void          mel_event_channel_init(Mel_Event_Channel* ch, const Mel_Alloc* alloc);

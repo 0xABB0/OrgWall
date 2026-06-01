@@ -2,8 +2,9 @@
 #include "allocator.h"
 #include <string.h>
 
-typedef struct {
-    u32 count;
+typedef struct
+{
+    u32                     count;
     Mel_Event_Channel_Entry entries[];
 } Mel__Subs_Block;
 
@@ -37,8 +38,8 @@ Mel_Event_Sub mel_event_channel_on(Mel_Event_Channel* ch, Mel_Event_Fn fn, void*
     mel_rcu_writer_lock(&ch->rcu);
 
     Mel__Subs_Block* old = mel_rcu_writer_load(&ch->rcu);
-    u32 old_count = old ? old->count : 0;
-    u32 new_count = old_count + 1;
+    u32              old_count = old ? old->count : 0;
+    u32              new_count = old_count + 1;
 
     Mel__Subs_Block* block = mel__subs_block_create(ch->rcu.alloc, new_count);
     if (old_count > 0)
@@ -63,24 +64,26 @@ void mel_event_channel_off(Mel_Event_Channel* ch, Mel_Event_Sub sub)
     assert(old != NULL);
 
     i32 found = -1;
-    for (u32 i = 0; i < old->count; i++) {
-        if (old->entries[i].id == sub.id) {
+    for (u32 i = 0; i < old->count; i++)
+    {
+        if (old->entries[i].id == sub.id)
+        {
             found = (i32)i;
             break;
         }
     }
     assert(found >= 0);
 
-    u32 new_count = old->count - 1;
+    u32              new_count = old->count - 1;
     Mel__Subs_Block* block = NULL;
 
-    if (new_count > 0) {
+    if (new_count > 0)
+    {
         block = mel__subs_block_create(ch->rcu.alloc, new_count);
         if (found > 0)
             memcpy(block->entries, old->entries, (u32)found * sizeof(Mel_Event_Channel_Entry));
         if ((u32)found < old->count - 1)
-            memcpy(&block->entries[found], &old->entries[found + 1],
-                   (old->count - (u32)found - 1) * sizeof(Mel_Event_Channel_Entry));
+            memcpy(&block->entries[found], &old->entries[found + 1], (old->count - (u32)found - 1) * sizeof(Mel_Event_Channel_Entry));
     }
 
     mel_rcu_writer_store(&ch->rcu, block);
@@ -91,10 +94,11 @@ void mel_event_channel_fire(Mel_Event_Channel* ch, const void* event)
 {
     assert(ch != NULL);
 
-    Mel_Rcu_Token token;
+    Mel_Rcu_Token    token;
     Mel__Subs_Block* snap = mel_rcu_read(&ch->rcu, &token);
 
-    if (snap) {
+    if (snap)
+    {
         for (u32 i = 0; i < snap->count; i++)
             snap->entries[i].fn(snap->entries[i].ctx, event);
     }
@@ -106,9 +110,9 @@ u32 mel_event_channel_count(Mel_Event_Channel* ch)
 {
     assert(ch != NULL);
 
-    Mel_Rcu_Token token;
+    Mel_Rcu_Token    token;
     Mel__Subs_Block* snap = mel_rcu_read(&ch->rcu, &token);
-    u32 count = snap ? snap->count : 0;
+    u32              count = snap ? snap->count : 0;
     mel_rcu_read_end(&ch->rcu, token);
 
     return count;

@@ -6,7 +6,7 @@ void mel_input_stack_init_opt(Mel_Input_Stack* stack, Mel_Input_Stack_Opt opt)
 {
     assert(stack != nullptr);
 
-    *stack = (Mel_Input_Stack){0};
+    *stack = (Mel_Input_Stack){ 0 };
     stack->alloc = opt.alloc ? opt.alloc : mel_alloc_heap();
 }
 
@@ -20,7 +20,7 @@ void mel_input_stack_shutdown(Mel_Input_Stack* stack)
     if (stack->layers)
         mel_dealloc(stack->alloc, stack->layers);
 
-    *stack = (Mel_Input_Stack){0};
+    *stack = (Mel_Input_Stack){ 0 };
 }
 
 Mel_Input_Layer* mel_input_stack_push_opt(Mel_Input_Stack* stack, Mel_Input_Layer_Desc desc)
@@ -31,7 +31,7 @@ Mel_Input_Layer* mel_input_stack_push_opt(Mel_Input_Stack* stack, Mel_Input_Laye
 
     if (stack->count >= stack->capacity)
     {
-        u32 new_cap = stack->capacity == 0 ? 4 : stack->capacity * 2;
+        u32               new_cap = stack->capacity == 0 ? 4 : stack->capacity * 2;
         Mel_Input_Layer** new_layers = mel_alloc(stack->alloc, sizeof(Mel_Input_Layer*) * new_cap);
 
         if (stack->layers)

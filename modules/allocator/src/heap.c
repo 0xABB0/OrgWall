@@ -146,8 +146,8 @@ static Mel_Guard_Allocator_Opt mel__heap_guard_opt(void)
         .page_protect_min_size = 16ull * 1024ull,
         .protected_overhead_budget = 256ull * 1024ull * 1024ull,
         .sample_every = 64,
-        .flags = MEL_GUARD_FLAG_CANARY_HEAD | MEL_GUARD_FLAG_CANARY_TAIL | MEL_GUARD_FLAG_POISON_ALLOC | MEL_GUARD_FLAG_POISON_FREE | MEL_GUARD_FLAG_QUARANTINE | MEL_GUARD_FLAG_PAGE_PROTECT |
-                 MEL_GUARD_FLAG_CHECK_ALLOC | MEL_GUARD_FLAG_CHECK_FREE,
+        .flags = MEL_GUARD_FLAG_CANARY_HEAD | MEL_GUARD_FLAG_CANARY_TAIL | MEL_GUARD_FLAG_POISON_ALLOC | MEL_GUARD_FLAG_POISON_FREE | MEL_GUARD_FLAG_QUARANTINE | MEL_GUARD_FLAG_PAGE_PROTECT | MEL_GUARD_FLAG_CHECK_ALLOC |
+                 MEL_GUARD_FLAG_CHECK_FREE,
     };
 #else
     return (Mel_Guard_Allocator_Opt){
@@ -158,8 +158,8 @@ static Mel_Guard_Allocator_Opt mel__heap_guard_opt(void)
         .page_protect_min_size = 1,
         .protected_overhead_budget = 1024ull * 1024ull * 1024ull,
         .sample_every = 1,
-        .flags = MEL_GUARD_FLAG_CANARY_HEAD | MEL_GUARD_FLAG_CANARY_TAIL | MEL_GUARD_FLAG_POISON_ALLOC | MEL_GUARD_FLAG_POISON_FREE | MEL_GUARD_FLAG_QUARANTINE | MEL_GUARD_FLAG_PAGE_PROTECT |
-                 MEL_GUARD_FLAG_CHECK_ALLOC | MEL_GUARD_FLAG_CHECK_FREE,
+        .flags = MEL_GUARD_FLAG_CANARY_HEAD | MEL_GUARD_FLAG_CANARY_TAIL | MEL_GUARD_FLAG_POISON_ALLOC | MEL_GUARD_FLAG_POISON_FREE | MEL_GUARD_FLAG_QUARANTINE | MEL_GUARD_FLAG_PAGE_PROTECT | MEL_GUARD_FLAG_CHECK_ALLOC |
+                 MEL_GUARD_FLAG_CHECK_FREE,
     };
 #endif
 }

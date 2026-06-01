@@ -5,7 +5,7 @@
 void mel_ecs_init(Mel_ECS* ecs)
 {
     assert(ecs != nullptr);
-    *ecs = (Mel_ECS){0};
+    *ecs = (Mel_ECS){ 0 };
     ecs->world = ecs_init();
     mel_component_text_register(ecs->world);
 }

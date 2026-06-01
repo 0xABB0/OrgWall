@@ -13,11 +13,11 @@ typedef void (*Mel_TexturePickerCallback)(str8 path, void* userdata);
 
 typedef struct
 {
-    Mel_EdRegistry*    registry;
-    Mel_Texture_Pool*  texture_pool;
-    Mel_Tileset_Pool*  tileset_pool;
-    Mel_Tilemap_Pool*  tilemap_pool;
-    SDL_Window*        window;
+    Mel_EdRegistry*   registry;
+    Mel_Texture_Pool* texture_pool;
+    Mel_Tileset_Pool* tileset_pool;
+    Mel_Tilemap_Pool* tilemap_pool;
+    SDL_Window*       window;
 
     char pending_file_path[512];
     char texture_picker_filter[128];
@@ -28,7 +28,7 @@ typedef struct
     bool file_dialog_pending;
 
     Mel_TexturePickerCallback texture_picker_callback;
-    void* texture_picker_userdata;
+    void*                     texture_picker_userdata;
 } Mel_GameEditor;
 
 void mel_game_editor_init(Mel_GameEditor* ge, Mel_EdRegistry* registry, Mel_Texture_Pool* tex_pool, Mel_Tileset_Pool* ts_pool, Mel_Tilemap_Pool* tm_pool, SDL_Window* window);

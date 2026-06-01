@@ -7,20 +7,18 @@
 #include <SDL3/SDL.h>
 
 static Mel_SlotMap s_swapchains;
-static bool s_initialized;
+static bool        s_initialized;
 
-__attribute__((constructor(501)))
-static void mel__swapchain_registry_init(void)
+__attribute__((constructor(501))) static void mel__swapchain_registry_init(void)
 {
-    mel_slotmap_init(&s_swapchains, mel_alloc_heap(),
-        .item_size = sizeof(Mel_Swapchain_Entry), .initial_capacity = 4);
+    mel_slotmap_init(&s_swapchains, mel_alloc_heap(), .item_size = sizeof(Mel_Swapchain_Entry), .initial_capacity = 4);
     s_initialized = true;
 }
 
-__attribute__((destructor(501)))
-static void mel__swapchain_registry_shutdown(void)
+__attribute__((destructor(501))) static void mel__swapchain_registry_shutdown(void)
 {
-    if (!s_initialized) return;
+    if (!s_initialized)
+        return;
     mel_slotmap_free(&s_swapchains);
     s_initialized = false;
 }
@@ -59,38 +57,34 @@ Mel_Swapchain_Entry* mel_swapchain_registry_get(Mel_Swapchain_Handle handle)
 
 Mel_Swapchain_Handle mel_swapchain_registry_find_by_window(Mel_Window_Handle window)
 {
-    if (!s_initialized) return MEL_SWAPCHAIN_HANDLE_NULL;
+    if (!s_initialized)
+        return MEL_SWAPCHAIN_HANDLE_NULL;
 
     Mel_Swapchain_Entry* entries = mel_slotmap_data(&s_swapchains);
-    u32 count = mel_slotmap_count(&s_swapchains);
+    u32                  count = mel_slotmap_count(&s_swapchains);
 
     for (u32 i = 0; i < count; i++)
     {
-        if (entries[i].window.handle.index == window.handle.index &&
-            entries[i].window.handle.generation == window.handle.generation)
+        if (entries[i].window.handle.index == window.handle.index && entries[i].window.handle.generation == window.handle.generation)
         {
-            u32 slot_idx = s_swapchains.packed_to_slot[i];
+            u32               slot_idx = s_swapchains.packed_to_slot[i];
             Mel_SlotMap_Slot* slot = &s_swapchains.slots[slot_idx];
-            return (Mel_Swapchain_Handle){
-                .handle = mel_slotmap_handle_make(slot_idx, slot->generation)
-            };
+            return (Mel_Swapchain_Handle){ .handle = mel_slotmap_handle_make(slot_idx, slot->generation) };
         }
     }
 
     return MEL_SWAPCHAIN_HANDLE_NULL;
 }
 
-u32 mel_swapchain_registry_count(void)
-{
-    return s_initialized ? mel_slotmap_count(&s_swapchains) : 0;
-}
+u32 mel_swapchain_registry_count(void) { return s_initialized ? mel_slotmap_count(&s_swapchains) : 0; }
 
 void mel_swapchain_registry_destroy_all(Mel_Gpu_Device* dev)
 {
-    if (!s_initialized) return;
+    if (!s_initialized)
+        return;
 
     Mel_Swapchain_Entry* entries = mel_slotmap_data(&s_swapchains);
-    u32 count = mel_slotmap_count(&s_swapchains);
+    u32                  count = mel_slotmap_count(&s_swapchains);
 
     for (u32 i = 0; i < count; i++)
     {
@@ -100,6 +94,5 @@ void mel_swapchain_registry_destroy_all(Mel_Gpu_Device* dev)
     }
 
     mel_slotmap_free(&s_swapchains);
-    mel_slotmap_init(&s_swapchains, mel_alloc_heap(),
-        .item_size = sizeof(Mel_Swapchain_Entry), .initial_capacity = 4);
+    mel_slotmap_init(&s_swapchains, mel_alloc_heap(), .item_size = sizeof(Mel_Swapchain_Entry), .initial_capacity = 4);
 }

@@ -44,16 +44,29 @@ static void* triangle_init(Mel_Gpu_Device* dev, Mel_Gpu_Swapchain* sc)
 
     t->vbo = mel_gpu_buffer_create(dev, .size = sizeof verts, .usage = MEL_GPU_BUFFER_VERTEX, .memory = MEL_GPU_MEMORY_UPLOAD, .data = verts);
 
-    t->shader = mel_gpu_shader_create(dev, .metal_source = TRIANGLE_MSL, .wgsl_source = TRIANGLE_WGSL, .spirv_vertex = TRIANGLE_VERT_SPV, .spirv_vertex_size = sizeof TRIANGLE_VERT_SPV,
-                                      .spirv_fragment = TRIANGLE_FRAG_SPV, .spirv_fragment_size = sizeof TRIANGLE_FRAG_SPV, .vertex_entry = "vs_main", .fragment_entry = "fs_main");
+    t->shader = mel_gpu_shader_create(dev,
+                                      .metal_source = TRIANGLE_MSL,
+                                      .wgsl_source = TRIANGLE_WGSL,
+                                      .spirv_vertex = TRIANGLE_VERT_SPV,
+                                      .spirv_vertex_size = sizeof TRIANGLE_VERT_SPV,
+                                      .spirv_fragment = TRIANGLE_FRAG_SPV,
+                                      .spirv_fragment_size = sizeof TRIANGLE_FRAG_SPV,
+                                      .vertex_entry = "vs_main",
+                                      .fragment_entry = "fs_main");
 
     const Mel_Gpu_Vertex_Element layout[] = {
         { .location = 0, .format = MEL_GPU_FORMAT_RGB32_FLOAT, .offset = offsetof(Vertex, pos) },
         { .location = 1, .format = MEL_GPU_FORMAT_RGBA32_FLOAT, .offset = offsetof(Vertex, color) },
     };
 
-    t->pipeline = mel_gpu_pipeline_create(dev, .shader = t->shader, .topology = MEL_GPU_TOPOLOGY_TRIANGLE_LIST, .cull = MEL_GPU_CULL_NONE, .color_format = mel_gpu_swapchain_format(sc),
-                                          .vertex_layout = layout, .vertex_layout_count = 2, .vertex_stride = sizeof(Vertex));
+    t->pipeline = mel_gpu_pipeline_create(dev,
+                                          .shader = t->shader,
+                                          .topology = MEL_GPU_TOPOLOGY_TRIANGLE_LIST,
+                                          .cull = MEL_GPU_CULL_NONE,
+                                          .color_format = mel_gpu_swapchain_format(sc),
+                                          .vertex_layout = layout,
+                                          .vertex_layout_count = 2,
+                                          .vertex_stride = sizeof(Vertex));
 
     return t;
 }

@@ -79,8 +79,7 @@ static bool resolve(JNIEnv* env)
     g.f_modes_h = (*env)->GetFieldID(env, g.info_cls, "modeHeightPx", "[I");
     g.f_modes_r = (*env)->GetFieldID(env, g.info_cls, "modeRefreshMhz", "[I");
 
-    if (!g.enumerate || !g.f_id || !g.f_name || !g.f_w || !g.f_h || !g.f_dpi || !g.f_state || !g.f_wide || !g.f_hdr || !g.f_maxlum || !g.f_minlum || !g.f_avglum || !g.f_modes_w || !g.f_modes_h ||
-        !g.f_modes_r)
+    if (!g.enumerate || !g.f_id || !g.f_name || !g.f_w || !g.f_h || !g.f_dpi || !g.f_state || !g.f_wide || !g.f_hdr || !g.f_maxlum || !g.f_minlum || !g.f_avglum || !g.f_modes_w || !g.f_modes_h || !g.f_modes_r)
     {
         (*env)->ExceptionClear(env);
         g.failed = true;

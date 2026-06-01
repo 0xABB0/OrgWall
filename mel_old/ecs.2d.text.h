@@ -11,14 +11,15 @@
 
 #include <flecs.h>
 
-typedef struct Mel_CText {
-    str8 text;
-    Mel_Font_Descriptor* desc;
-    u32 texture_idx;
-    Mel_Material_Base_Id material_id;
+typedef struct Mel_CText
+{
+    str8                     text;
+    Mel_Font_Descriptor*     desc;
+    u32                      texture_idx;
+    Mel_Material_Base_Id     material_id;
     Mel_Material_Instance_Id material_instance;
-    Mel_Vec4 color;
-    f32 scale;
+    Mel_Vec4                 color;
+    f32                      scale;
 } Mel_CText;
 
 extern ECS_COMPONENT_DECLARE(Mel_CText);

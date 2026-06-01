@@ -5,31 +5,19 @@ __attribute__((weak)) void app_init(void) { assert(false); }
 __attribute__((weak)) void app_shutdown(void) {}
 __attribute__((weak)) void app_event(SDL_Event* event) { (void)event; }
 
-static int s_argc;
+static int    s_argc;
 static char** s_argv;
-static bool s_shutdown_called;
-static bool s_init_completed;
-static bool s_should_quit;
+static bool   s_shutdown_called;
+static bool   s_init_completed;
+static bool   s_should_quit;
 
-int mel_app_argc(void)
-{
-    return s_argc;
-}
+int mel_app_argc(void) { return s_argc; }
 
-char** mel_app_argv(void)
-{
-    return s_argv;
-}
+char** mel_app_argv(void) { return s_argv; }
 
-void mel_quit(void)
-{
-    s_should_quit = true;
-}
+void mel_quit(void) { s_should_quit = true; }
 
-bool mel_should_quit(void)
-{
-    return s_should_quit;
-}
+bool mel_should_quit(void) { return s_should_quit; }
 
 SDL_AppResult mel__app_sdl_init(int argc, char** argv)
 {
@@ -52,7 +40,8 @@ SDL_AppResult mel__app_sdl_init(int argc, char** argv)
 
 SDL_AppResult mel__app_sdl_event(SDL_Event* event)
 {
-    if (event->type == SDL_EVENT_QUIT) {
+    if (event->type == SDL_EVENT_QUIT)
+    {
         s_should_quit = true;
         return SDL_APP_SUCCESS;
     }

@@ -55,8 +55,13 @@ static bool app_init(Mel_Reactor* reactor, void* user)
 {
     (void)user;
     mel_window_init(reactor);
-    mel_window_create(.title = S8("hello window"), .w = 640, .h = 480, .lifecycle = { .on_resize = on_resize, .on_closed = on_closed }, .display = { .on_scale_changed = on_scale_changed },
-                      .app = { .on_occluded = on_occluded, .on_foreground = on_foreground }, .input = { .on_pointer_move = on_pointer_move, .on_key_down = on_key_down });
+    mel_window_create(.title = S8("hello window"),
+                      .w = 640,
+                      .h = 480,
+                      .lifecycle = { .on_resize = on_resize, .on_closed = on_closed },
+                      .display = { .on_scale_changed = on_scale_changed },
+                      .app = { .on_occluded = on_occluded, .on_foreground = on_foreground },
+                      .input = { .on_pointer_move = on_pointer_move, .on_key_down = on_key_down });
     return true;
 }
 

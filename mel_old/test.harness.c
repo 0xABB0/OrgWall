@@ -3,11 +3,11 @@
 #include "log.sink.test.h"
 #include <stdlib.h>
 
-Mel_Test_Context s_test_ctx = {0};
+Mel_Test_Context s_test_ctx = { 0 };
 
 static Mel_Test_Entry* s_test_list = NULL;
-static u32 s_test_count = 0;
-static Mel_Log_Sink* s_test_log_sink = NULL;
+static u32             s_test_count = 0;
+static Mel_Log_Sink*   s_test_log_sink = NULL;
 
 void mel__test_register(Mel_Test_Entry* entry)
 {
@@ -17,7 +17,7 @@ void mel__test_register(Mel_Test_Entry* entry)
 }
 
 Mel_Test_Entry* mel_test_list(void) { return s_test_list; }
-u32 mel_test_count(void) { return s_test_count; }
+u32             mel_test_count(void) { return s_test_count; }
 
 Mel_Log_Sink* mel_test_log_sink(void) { return s_test_log_sink; }
 
@@ -56,19 +56,24 @@ void mel_test_run_all(void)
 
 static bool tag_matches(const char* tags, const char* filter)
 {
-    if (!tags) return false;
+    if (!tags)
+        return false;
 
     const char* p = tags;
     while (*p)
     {
-        while (*p == ' ' || *p == ',') p++;
-        if (!*p) break;
+        while (*p == ' ' || *p == ',')
+            p++;
+        if (!*p)
+            break;
 
         const char* start = p;
-        while (*p && *p != ',') p++;
+        while (*p && *p != ',')
+            p++;
 
         usize len = (usize)(p - start);
-        while (len > 0 && start[len - 1] == ' ') len--;
+        while (len > 0 && start[len - 1] == ' ')
+            len--;
 
         if (strlen(filter) == len && strncmp(start, filter, len) == 0)
             return true;
@@ -83,12 +88,12 @@ int mel_test_main(int argc, char** argv)
     mel_log_sink_add(s_test_log_sink);
 #endif
 
-    bool list_only = false;
+    bool        list_only = false;
     const char* filter = NULL;
     const char* tag = NULL;
-    i32 run_id = -1;
-    bool include_visual = false;
-    bool verbose = false;
+    i32         run_id = -1;
+    bool        include_visual = false;
+    bool        verbose = false;
 
     for (int i = 1; i < argc; i++)
     {
@@ -169,8 +174,10 @@ int mel_test_main(int argc, char** argv)
     }
 
     printf("\nResults: %u/%u passed", passed, total);
-    if (failed > 0) printf(" (%u FAILED)", failed);
-    if (skipped > 0) printf(" (%u skipped)", skipped);
+    if (failed > 0)
+        printf(" (%u FAILED)", failed);
+    if (skipped > 0)
+        printf(" (%u skipped)", skipped);
     printf("\n");
 
     return failed > 0 ? 1 : 0;

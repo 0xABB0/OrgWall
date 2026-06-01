@@ -4,7 +4,7 @@ void mel__app_platform_init(void)
 {
     [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
 
-    NSMenu* menubar = [[NSMenu alloc] init];
+    NSMenu*     menubar = [[NSMenu alloc] init];
     NSMenuItem* app_menu_item = [[NSMenuItem alloc] init];
     [menubar addItem:app_menu_item];
     [NSApp setMainMenu:menubar];
@@ -13,9 +13,12 @@ void mel__app_platform_init(void)
     [app_menu addItemWithTitle:@"Quit" action:@selector(terminate:) keyEquivalent:@"q"];
     [app_menu_item setSubmenu:app_menu];
 
-    if (@available(macOS 14.0, *)) {
+    if (@available(macOS 14.0, *))
+    {
         [NSApp activate];
-    } else {
+    }
+    else
+    {
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
         [NSApp activateIgnoringOtherApps:YES];

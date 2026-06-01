@@ -8,30 +8,33 @@
 #include "collection.slotmap.h"
 #include "collection.hashmap.h"
 
-typedef struct {
+typedef struct
+{
     str8 name;
     i32* data;
-    u32 width, height;
+    u32  width, height;
     bool visible;
-    f32 parallax_x, parallax_y;
-    i32 offset_x, offset_y;
+    f32  parallax_x, parallax_y;
+    i32  offset_x, offset_y;
 } Mel_Tilemap_Layer;
 
-struct Mel_Tilemap_Entry {
-    str8 name;
+struct Mel_Tilemap_Entry
+{
+    str8               name;
     Mel_Tileset_Handle tileset;
     Mel_Tilemap_Layer* layers;
-    u32 layer_count;
-    u32 width, height;
-    u32 grid_width, grid_height;
-    const Mel_Alloc* alloc;
+    u32                layer_count;
+    u32                width, height;
+    u32                grid_width, grid_height;
+    const Mel_Alloc*   alloc;
 };
 
-struct Mel_Tilemap_Pool {
-    Mel_SlotMap slotmap;
-    Mel_HashMap path_to_handle;
+struct Mel_Tilemap_Pool
+{
+    Mel_SlotMap       slotmap;
+    Mel_HashMap       path_to_handle;
     Mel_Tileset_Pool* tileset_pool;
-    const Mel_Alloc* alloc;
+    const Mel_Alloc*  alloc;
 };
 
 void               mel_tilemap_pool_init(Mel_Tilemap_Pool* pool, const Mel_Alloc* alloc, Mel_Tileset_Pool* ts_pool);

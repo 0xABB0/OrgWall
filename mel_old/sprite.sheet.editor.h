@@ -7,7 +7,7 @@
 
 typedef struct
 {
-    const Mel_Alloc* alloc;
+    const Mel_Alloc*  alloc;
     Mel_Texture_Pool* texture_pool;
     Mel_Sprite_Sheet* spritesheet;
 } Mel_EdSpritesheet;

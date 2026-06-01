@@ -6,7 +6,8 @@ typedef void (*Mel_Log_Sink_Write_Fn)(Mel_Log_Sink* self, const Mel_Log_Entry* e
 typedef void (*Mel_Log_Sink_Flush_Fn)(Mel_Log_Sink* self);
 typedef void (*Mel_Log_Sink_Destroy_Fn)(Mel_Log_Sink* self);
 
-struct Mel_Log_Sink {
+struct Mel_Log_Sink
+{
     Mel_Log_Sink_Write_Fn   write;
     Mel_Log_Sink_Flush_Fn   flush;
     Mel_Log_Sink_Destroy_Fn destroy;

@@ -170,19 +170,39 @@ static void canvas_paint(Mel_Gui_Handle h, Mel_Painter* p, i32 w, i32 height, vo
         const Mel_Display_Hdr*        hd = &d->hdr;
 
         line(&pen, head, "[%u] \"%s\"   handle{idx=%u,gen=%u}", i, d->name[0] ? d->name : "(unnamed)", handles[i].h.index, handles[i].h.generation);
-        line(&pen, key, "    connector=%s  state=%s  native=%ux%u px  scale=%.3f  pos=(%d,%d)%s", LBL(Mel_Display_Connector_to_string(d->connector)), LBL(Mel_Display_State_to_string(d->state)),
-             d->native_resolution.width_px, d->native_resolution.height_px, (double)d->scale_factor, d->position_virtual_x, d->position_virtual_y, d->has_position ? "" : " (no pos)");
+        line(&pen,
+             key,
+             "    connector=%s  state=%s  native=%ux%u px  scale=%.3f  pos=(%d,%d)%s",
+             LBL(Mel_Display_Connector_to_string(d->connector)),
+             LBL(Mel_Display_State_to_string(d->state)),
+             d->native_resolution.width_px,
+             d->native_resolution.height_px,
+             (double)d->scale_factor,
+             d->position_virtual_x,
+             d->position_virtual_y,
+             d->has_position ? "" : " (no pos)");
 #if MEL_PLATFORM_OSX
-        line(&pen, key, "    physical=%s%.0fx%.0f mm  icc=%zu B  cg_display_id=%u", d->has_physical_size ? "" : "? ", (double)d->physical_width_mm, (double)d->physical_height_mm, d->icc_profile.size,
+        line(&pen,
+             key,
+             "    physical=%s%.0fx%.0f mm  icc=%zu B  cg_display_id=%u",
+             d->has_physical_size ? "" : "? ",
+             (double)d->physical_width_mm,
+             (double)d->physical_height_mm,
+             d->icc_profile.size,
              (unsigned)mel_display_macos_display_id(handles[i]));
 #else
         line(&pen, key, "    physical=%s%.0fx%.0f mm  icc=%zu B", d->has_physical_size ? "" : "? ", (double)d->physical_width_mm, (double)d->physical_height_mm, d->icc_profile.size);
 #endif
 
-        line(&pen, hot, "    EDR now=%.3f  potential=%.3f  reference=%.3f  has_edr=%d  hdr.active=%d", (double)hd->edr_max_now, (double)hd->edr_max_potential, (double)hd->edr_reference, hd->has_edr,
-             hd->active);
-        line(&pen, key, "    luminance: %s peak=%.0f avg=%.0f min=%.3f nits   master=%s  tonemap=%s", hd->has_luminance ? "" : "(unpublished) ", (double)hd->peak_luminance_nits,
-             (double)hd->avg_luminance_nits, (double)hd->min_luminance_nits, LBL(Mel_Display_Mastering_to_string(hd->mastering_primaries_support)),
+        line(&pen, hot, "    EDR now=%.3f  potential=%.3f  reference=%.3f  has_edr=%d  hdr.active=%d", (double)hd->edr_max_now, (double)hd->edr_max_potential, (double)hd->edr_reference, hd->has_edr, hd->active);
+        line(&pen,
+             key,
+             "    luminance: %s peak=%.0f avg=%.0f min=%.3f nits   master=%s  tonemap=%s",
+             hd->has_luminance ? "" : "(unpublished) ",
+             (double)hd->peak_luminance_nits,
+             (double)hd->avg_luminance_nits,
+             (double)hd->min_luminance_nits,
+             LBL(Mel_Display_Mastering_to_string(hd->mastering_primaries_support)),
              LBL(Mel_Display_Tonemap_to_string(hd->tone_mapping_owner)));
 
         char cs[160];

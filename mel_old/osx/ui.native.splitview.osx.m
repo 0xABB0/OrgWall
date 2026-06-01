@@ -4,8 +4,8 @@
 
 static const void* kSplitViewDelegateKey = &kSplitViewDelegateKey;
 
-@interface MelSplitViewDelegate : NSObject <NSSplitViewDelegate>
-@property (nonatomic, assign) Mel_NSplitView* sv;
+@interface                                   MelSplitViewDelegate: NSObject <NSSplitViewDelegate>
+@property(nonatomic, assign) Mel_NSplitView* sv;
 @end
 
 @implementation MelSplitViewDelegate
@@ -15,12 +15,7 @@ static void nsplitview_create_backing(Mel_NCtrl* ctrl)
 {
     Mel_NSplitView* sv = (Mel_NSplitView*)ctrl;
 
-    NSRect frame = NSMakeRect(
-        (CGFloat)ctrl->pos.x,
-        (CGFloat)ctrl->pos.y,
-        (CGFloat)ctrl->size.x,
-        (CGFloat)ctrl->size.y
-    );
+    NSRect frame = NSMakeRect((CGFloat)ctrl->pos.x, (CGFloat)ctrl->pos.y, (CGFloat)ctrl->size.x, (CGFloat)ctrl->size.y);
 
     NSSplitView* split = [[NSSplitView alloc] initWithFrame:frame];
     [split setVertical:(sv->orientation == 0)];
@@ -37,7 +32,8 @@ static void nsplitview_create_backing(Mel_NCtrl* ctrl)
 
 static void nsplitview_destroy_backing(Mel_NCtrl* ctrl)
 {
-    if (!ctrl->backing) return;
+    if (!ctrl->backing)
+        return;
 
     NSSplitView* split = (__bridge NSSplitView*)ctrl->backing;
     [split setDelegate:nil];
@@ -76,15 +72,16 @@ static void nsplitview_sync_frame(Mel_NCtrl* ctrl)
     [split adjustSubviews];
 
     NSRect frame = [split frame];
-    ctrl->pos  = mel_vec2((f32)frame.origin.x, (f32)frame.origin.y);
+    ctrl->pos = mel_vec2((f32)frame.origin.x, (f32)frame.origin.y);
     ctrl->size = mel_vec2((f32)frame.size.width, (f32)frame.size.height);
 
-    NSArray* subviews = [split subviews];
+    NSArray*   subviews = [split subviews];
     NSUInteger idx = 0;
     Mel_NCtrl* child = ctrl->first_child;
-    while (child && idx < [subviews count]) {
+    while (child && idx < [subviews count])
+    {
         NSRect child_frame = [[subviews objectAtIndex:idx] frame];
-        child->pos  = mel_vec2((f32)child_frame.origin.x, (f32)child_frame.origin.y);
+        child->pos = mel_vec2((f32)child_frame.origin.x, (f32)child_frame.origin.y);
         child->size = mel_vec2((f32)child_frame.size.width, (f32)child_frame.size.height);
         child = child->next_sibling;
         idx++;
@@ -103,11 +100,12 @@ static void nsplitview_add_child_backing(Mel_NCtrl* parent, Mel_NCtrl* child)
         return;
 
     NSSplitView* split = (__bridge NSSplitView*)parent->backing;
-    NSView* child_view = (__bridge NSView*)child->backing;
+    NSView*      child_view = (__bridge NSView*)child->backing;
     [split addSubview:child_view];
 
     Mel_NSplitView* sv = (Mel_NSplitView*)parent;
-    if ([[split subviews] count] == 2 && sv->divider_position > 0.0f) {
+    if ([[split subviews] count] == 2 && sv->divider_position > 0.0f)
+    {
         CGFloat total;
         if ([split isVertical])
             total = [split frame].size.width;
@@ -128,21 +126,18 @@ static void nsplitview_remove_child_backing(Mel_NCtrl* parent, Mel_NCtrl* child)
 }
 
 static const Mel_NCtrl_VTable s_nsplitview_vtable = {
-    .create_backing       = nsplitview_create_backing,
-    .destroy_backing      = nsplitview_destroy_backing,
-    .set_frame            = nsplitview_set_frame,
-    .sync_frame           = nsplitview_sync_frame,
-    .set_visible          = nsplitview_set_visible,
-    .set_enabled          = nsplitview_set_enabled,
-    .preferred_size       = nsplitview_preferred_size,
-    .add_child_backing    = nsplitview_add_child_backing,
+    .create_backing = nsplitview_create_backing,
+    .destroy_backing = nsplitview_destroy_backing,
+    .set_frame = nsplitview_set_frame,
+    .sync_frame = nsplitview_sync_frame,
+    .set_visible = nsplitview_set_visible,
+    .set_enabled = nsplitview_set_enabled,
+    .preferred_size = nsplitview_preferred_size,
+    .add_child_backing = nsplitview_add_child_backing,
     .remove_child_backing = nsplitview_remove_child_backing,
 };
 
-const Mel_NCtrl_VTable* mel__nsplitview_vtable(void)
-{
-    return &s_nsplitview_vtable;
-}
+const Mel_NCtrl_VTable* mel__nsplitview_vtable(void) { return &s_nsplitview_vtable; }
 
 void mel__nsplitview_set_divider_platform(Mel_NSplitView* sv, f32 position)
 {

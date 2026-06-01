@@ -10,8 +10,8 @@
 
 #include <assert.h>
 
-static Mel_Gpu_Shader s_shader;
-static Mel_Gpu_Device* s_dev;
+static Mel_Gpu_Shader       s_shader;
+static Mel_Gpu_Device*      s_dev;
 static Mel_Material_Base_Id s_material_id = MEL_MATERIAL_BASE_ID_INVALID;
 
 Mel_Material_Base_Id mel_sprite_material_id(void)
@@ -55,8 +55,4 @@ static void mel__sprite_material_wire(void)
     });
 }
 
-__attribute__((constructor))
-static void mel__sprite_material_register(void)
-{
-    mel__boot_register_wire(mel__sprite_material_wire);
-}
+__attribute__((constructor)) static void mel__sprite_material_register(void) { mel__boot_register_wire(mel__sprite_material_wire); }

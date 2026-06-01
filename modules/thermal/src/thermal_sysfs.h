@@ -36,10 +36,7 @@ static inline bool mel_sysfs_read_milli_c(const char* path, f32* out_c)
     return true;
 }
 
-static inline bool mel_sysfs_zone_is_cpu(const char* type)
-{
-    return strstr(type, "cpu") || strstr(type, "pkg") || strstr(type, "x86") || strstr(type, "soc") || strstr(type, "coretemp") || strstr(type, "acpitz");
-}
+static inline bool mel_sysfs_zone_is_cpu(const char* type) { return strstr(type, "cpu") || strstr(type, "pkg") || strstr(type, "x86") || strstr(type, "soc") || strstr(type, "coretemp") || strstr(type, "acpitz"); }
 
 static inline Mel_Thermal_Temperature mel_sysfs_temperature(Mel_Thermal_Temp_Domain domain)
 {

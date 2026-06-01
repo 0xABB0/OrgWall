@@ -37,25 +37,17 @@
 
 Mel_Event_Channel mel_shutdown_begin;
 
-static Mel_Sim_Ctx* s_sim_head;
+static Mel_Sim_Ctx*    s_sim_head;
 static Mel_Frame_Stats s_frame_stats;
-static f32 s_fps_accum;
-static u32 s_fps_frames;
-static u64 s_last_time;
-static u64 s_frame_count;
-static bool s_initialized;
+static f32             s_fps_accum;
+static u32             s_fps_frames;
+static u64             s_last_time;
+static u64             s_frame_count;
+static bool            s_initialized;
 
-__attribute__((constructor))
-static void mel__engine_register(void)
-{
-    mel_event_channel_init(&mel_shutdown_begin, mel_alloc_heap());
-}
+__attribute__((constructor)) static void mel__engine_register(void) { mel_event_channel_init(&mel_shutdown_begin, mel_alloc_heap()); }
 
-__attribute__((destructor))
-static void mel__engine_unregister(void)
-{
-    mel_event_channel_destroy(&mel_shutdown_begin);
-}
+__attribute__((destructor)) static void mel__engine_unregister(void) { mel_event_channel_destroy(&mel_shutdown_begin); }
 
 extern void app_init(void);
 extern void app_shutdown(void);
@@ -67,12 +59,9 @@ static void mel__boot_job(void* data)
     (void)data;
 
     Mel_Gpu_Device* dev = mel_gpu_dev();
-    str8 app_name = S8(MEL_APP_NAME);
+    str8            app_name = S8(MEL_APP_NAME);
 
-    if (!mel_gpu_device_init(dev,
-        .allocator = mel_alloc_heap(),
-        .enable_validation = false,
-        .app_name = app_name))
+    if (!mel_gpu_device_init(dev, .allocator = mel_alloc_heap(), .enable_validation = false, .app_name = app_name))
     {
         mel_log_fatal("engine", "Failed to initialize GPU device");
         goto done;
@@ -123,7 +112,8 @@ void mel_boot(void)
 
 void mel_shutdown(void)
 {
-    if (!s_initialized) return;
+    if (!s_initialized)
+        return;
 
     Mel_Gpu_Device* dev = mel_gpu_dev();
     mel_gpu_device_wait_idle(dev);
@@ -172,13 +162,14 @@ void mel_unregister_sim(Mel_Sim_Ctx* sim)
     assert(false);
 }
 
-typedef struct {
-    Mel_Render_View** views;
-    u32 view_count;
+typedef struct
+{
+    Mel_Render_View**  views;
+    u32                view_count;
     Mel_Render_Scene** synced_scenes;
-    u32* synced_count;
-    u32 synced_cap;
-    Mel_Gpu_Device* dev;
+    u32*               synced_count;
+    u32                synced_cap;
+    Mel_Gpu_Device*    dev;
 } Frame_Render_Batch;
 
 static void frame_render_batch_cb(Mel_Gpu_Cmd* cmd, void* user)
@@ -190,7 +181,7 @@ static void frame_render_batch_cb(Mel_Gpu_Cmd* cmd, void* user)
         Mel_Render_View* view = batch->views[i];
 
         Mel_Render_Scene* scene = view->scene;
-        bool already_synced = false;
+        bool              already_synced = false;
         for (u32 j = 0; j < *batch->synced_count; j++)
         {
             if (batch->synced_scenes[j] == scene)
@@ -210,9 +201,9 @@ static void frame_render_batch_cb(Mel_Gpu_Cmd* cmd, void* user)
         Mel_Render_Target* target = mel_render_target_get(view->target);
 
         Mel_Render_Draw_Ctx ctx = {
-            .cmd           = cmd,
-            .target        = target,
-            .target_width  = mel_render_target_width(target),
+            .cmd = cmd,
+            .target = target,
+            .target_width = mel_render_target_width(target),
             .target_height = mel_render_target_height(target),
             .target_format = mel_render_target_format(target),
         };
@@ -227,11 +218,7 @@ static void frame_render_batch_cb(Mel_Gpu_Cmd* cmd, void* user)
         if (mel_render_view_has_design_resolution(view))
         {
             Mel_Render_Target* design = mel_render_target_get(view->design_target);
-            mel__blit_to_target(cmd, batch->dev,
-                design, target,
-                mel_render_target_width(target),
-                mel_render_target_height(target),
-                view->scale_mode);
+            mel__blit_to_target(cmd, batch->dev, design, target, mel_render_target_width(target), mel_render_target_height(target), view->scale_mode);
         }
     }
 }
@@ -247,10 +234,10 @@ static void mel__engine_render_frame(void)
         return;
 
     Mel_Render_Scene* synced_scenes[total_views];
-    u32 synced_count = 0;
+    u32               synced_count = 0;
 
     Mel_Swapchain* visited_swapchains[total_views];
-    u32 visited_count = 0;
+    u32            visited_count = 0;
 
     for (u32 vi = 0; vi < total_views; vi++)
     {
@@ -267,7 +254,7 @@ static void mel__engine_render_frame(void)
             continue;
 
         Mel_Swapchain* sc = &entry->swapchain;
-        bool already_visited = false;
+        bool           already_visited = false;
         for (u32 j = 0; j < visited_count; j++)
         {
             if (visited_swapchains[j] == sc)
@@ -295,9 +282,11 @@ static void mel__engine_render_frame(void)
         for (u32 vi = 0; vi < total_views; vi++)
         {
             Mel_Render_View* view = mel__view_registry_at(vi);
-            if (!view->active || !mel_render_target_alive(view->target)) continue;
+            if (!view->active || !mel_render_target_alive(view->target))
+                continue;
             Mel_Render_Target* target = mel_render_target_get(view->target);
-            if (target->type != MEL_TARGET_WINDOW) continue;
+            if (target->type != MEL_TARGET_WINDOW)
+                continue;
             Mel_Swapchain_Entry* entry = mel_swapchain_registry_get(target->swapchain);
             if (entry && &entry->swapchain == sc && entry->resize_requested)
             {
@@ -338,7 +327,7 @@ static void mel__engine_render_frame(void)
         for (u32 a = 1; a < sc_view_count; a++)
         {
             Mel_Render_View* key = sc_views[a];
-            i32 b = (i32)a - 1;
+            i32              b = (i32)a - 1;
             while (b >= 0 && sc_views[b]->priority > key->priority)
             {
                 sc_views[b + 1] = sc_views[b];
@@ -348,18 +337,15 @@ static void mel__engine_render_frame(void)
         }
 
         Frame_Render_Batch batch = {
-            .views          = sc_views,
-            .view_count     = sc_view_count,
-            .synced_scenes  = synced_scenes,
-            .synced_count   = &synced_count,
-            .synced_cap     = total_views,
-            .dev            = dev,
+            .views = sc_views,
+            .view_count = sc_view_count,
+            .synced_scenes = synced_scenes,
+            .synced_count = &synced_count,
+            .synced_cap = total_views,
+            .dev = dev,
         };
 
-        mel_gpu_submit_frame(dev,
-            .callback  = frame_render_batch_cb,
-            .user      = &batch,
-            .swapchain = sc);
+        mel_gpu_submit_frame(dev, .callback = frame_render_batch_cb, .user = &batch, .swapchain = sc);
 
         mel_swapchain_present(sc, dev);
     }
@@ -369,7 +355,8 @@ void mel_frame(void)
 {
     mel__main_dispatch_drain();
 
-    if (!s_initialized) return;
+    if (!s_initialized)
+        return;
 
     TracyCZoneN(ctx_iterate, "engine_frame", true);
 
@@ -437,12 +424,14 @@ static void mel__handle_window_close(Mel_Window_Handle wh)
         for (u32 i = view_count; i > 0; i--)
         {
             Mel_Render_View* view = mel__view_registry_at(i - 1);
-            if (!mel_render_target_alive(view->target)) continue;
+            if (!mel_render_target_alive(view->target))
+                continue;
 
             Mel_Render_Target* target = mel_render_target_get(view->target);
-            if (target->type != MEL_TARGET_WINDOW) continue;
-            if (target->swapchain.handle.index != sc.handle.index ||
-                target->swapchain.handle.generation != sc.handle.generation) continue;
+            if (target->type != MEL_TARGET_WINDOW)
+                continue;
+            if (target->swapchain.handle.index != sc.handle.index || target->swapchain.handle.generation != sc.handle.generation)
+                continue;
 
             Mel_Render_View_Handle vh = mel__view_registry_handle_at(i - 1);
             mel_render_view_destroy(vh);
@@ -482,7 +471,4 @@ void mel_process_event(SDL_Event* event)
     }
 }
 
-Mel_Frame_Stats mel_frame_stats(void)
-{
-    return s_frame_stats;
-}
+Mel_Frame_Stats mel_frame_stats(void) { return s_frame_stats; }

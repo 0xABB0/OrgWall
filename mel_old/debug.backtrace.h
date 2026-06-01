@@ -4,9 +4,10 @@
 
 #define MEL_BACKTRACE_MAX_FRAMES 64
 
-typedef struct {
+typedef struct
+{
     void* frames[MEL_BACKTRACE_MAX_FRAMES];
-    i32 frame_count;
+    i32   frame_count;
 } Mel_Backtrace;
 
 void mel_backtrace_init(void);

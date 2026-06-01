@@ -4,8 +4,10 @@
 
 static f32 mel__progress_clamp01(f32 value)
 {
-    if (value < 0.0f) return 0.0f;
-    if (value > 1.0f) return 1.0f;
+    if (value < 0.0f)
+        return 0.0f;
+    if (value > 1.0f)
+        return 1.0f;
     return value;
 }
 
@@ -68,20 +70,23 @@ void mel_progress_add_child(Mel_Progress* progress, const Mel_Progress* child, f
     assert(child != NULL);
     assert(weight > 0.0f);
 
-    mel_array_push(&progress->sources, ((Mel_Progress_Source){
-        .kind = MEL_PROGRESS_SOURCE_CHILD,
-        .weight = weight,
-        .child = child,
-    }));
+    mel_array_push(&progress->sources,
+                   ((Mel_Progress_Source){
+                       .kind = MEL_PROGRESS_SOURCE_CHILD,
+                       .weight = weight,
+                       .child = child,
+                   }));
 }
 
 static Mel_Progress_Status mel__progress_source_state(const Mel_Progress_Source* source)
 {
-    switch (source->kind) {
+    switch (source->kind)
+    {
     case MEL_PROGRESS_SOURCE_CUSTOM:
         return source->custom.fn(source->custom.user);
 
-    case MEL_PROGRESS_SOURCE_COUNTER: {
+    case MEL_PROGRESS_SOURCE_COUNTER:
+    {
         i32 state = atomic_load_explicit(&source->counter.counter->signal.state, memory_order_acquire);
         u16 remaining = mel__signal_counter(state);
         i64 completed = source->counter.total - (i64)remaining;
@@ -104,20 +109,22 @@ Mel_Progress_Status mel_progress_state(const Mel_Progress* progress)
 {
     assert(progress != NULL);
 
-    if (progress->sources.count == 0) {
+    if (progress->sources.count == 0)
+    {
         return (Mel_Progress_Status){
             .value = 1.0f,
             .failed = false,
         };
     }
 
-    f32 total_weight = 0.0f;
-    f32 weighted_value = 0.0f;
+    f32  total_weight = 0.0f;
+    f32  weighted_value = 0.0f;
     bool failed = false;
 
-    for (usize i = 0; i < progress->sources.count; i++) {
+    for (usize i = 0; i < progress->sources.count; i++)
+    {
         const Mel_Progress_Source* source = &progress->sources.items[i];
-        Mel_Progress_Status state = mel__progress_source_state(source);
+        Mel_Progress_Status        state = mel__progress_source_state(source);
         total_weight += source->weight;
         weighted_value += mel__progress_clamp01(state.value) * source->weight;
         failed = failed || state.failed;
@@ -130,10 +137,7 @@ Mel_Progress_Status mel_progress_state(const Mel_Progress* progress)
     };
 }
 
-f32 mel_progress_value(const Mel_Progress* progress)
-{
-    return mel_progress_state(progress).value;
-}
+f32 mel_progress_value(const Mel_Progress* progress) { return mel_progress_state(progress).value; }
 
 bool mel_progress_is_ready(const Mel_Progress* progress, f32 threshold)
 {
@@ -145,7 +149,4 @@ bool mel_progress_is_ready(const Mel_Progress* progress, f32 threshold)
     return !state.failed && state.value >= threshold;
 }
 
-bool mel_progress_is_failed(const Mel_Progress* progress)
-{
-    return mel_progress_state(progress).failed;
-}
+bool mel_progress_is_failed(const Mel_Progress* progress) { return mel_progress_state(progress).failed; }

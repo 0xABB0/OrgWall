@@ -5,7 +5,7 @@
 
 static void mel__sheet_grow(Mel_Sprite_Sheet* sheet)
 {
-    u32 new_cap = sheet->frame_capacity == 0 ? 8 : sheet->frame_capacity * 2;
+    u32   new_cap = sheet->frame_capacity == 0 ? 8 : sheet->frame_capacity * 2;
     usize new_size = sizeof(Mel_Rect) * new_cap;
     if (sheet->frames == NULL)
         sheet->frames = mel_alloc(sheet->alloc, new_size);
@@ -19,7 +19,7 @@ void mel_sprite_sheet_init(Mel_Sprite_Sheet* sheet, const Mel_Alloc* alloc)
     assert(sheet != NULL);
     assert(alloc != NULL);
 
-    *sheet = (Mel_Sprite_Sheet){0};
+    *sheet = (Mel_Sprite_Sheet){ 0 };
     sheet->alloc = alloc;
 }
 
@@ -30,7 +30,7 @@ void mel_sprite_sheet_destroy(Mel_Sprite_Sheet* sheet)
     if (sheet->frames)
         mel_dealloc(sheet->alloc, sheet->frames);
 
-    *sheet = (Mel_Sprite_Sheet){0};
+    *sheet = (Mel_Sprite_Sheet){ 0 };
 }
 
 void mel_sprite_sheet_push_frame(Mel_Sprite_Sheet* sheet, Mel_Rect uv)
@@ -58,8 +58,7 @@ void mel_sprite_sheet_from_grid_opt(Mel_Sprite_Sheet* sheet, Mel_Sprite_Sheet_Gr
     {
         for (u32 col = 0; col < opt.cols && i < total; col++, i++)
         {
-            mel_sprite_sheet_push_frame(sheet,
-                mel_rect((f32)col * fw, (f32)row * fh, fw, fh));
+            mel_sprite_sheet_push_frame(sheet, mel_rect((f32)col * fw, (f32)row * fh, fw, fh));
         }
     }
 }

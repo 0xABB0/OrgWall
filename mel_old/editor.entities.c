@@ -11,7 +11,7 @@
 #include "ecs.2d.sprite.h"
 
 #ifndef IM_COL32
-#define IM_COL32(R,G,B,A) (((ImU32)(A)<<24) | ((ImU32)(B)<<16) | ((ImU32)(G)<<8) | ((ImU32)(R)))
+#define IM_COL32(R, G, B, A) (((ImU32)(A) << 24) | ((ImU32)(B) << 16) | ((ImU32)(G) << 8) | ((ImU32)(R)))
 #endif
 
 void mel_ed_entities_init(Mel_EdEntities* ed, const Mel_Alloc* alloc)
@@ -19,7 +19,7 @@ void mel_ed_entities_init(Mel_EdEntities* ed, const Mel_Alloc* alloc)
     assert(ed != nullptr);
     assert(alloc != nullptr);
 
-    *ed = (Mel_EdEntities){0};
+    *ed = (Mel_EdEntities){ 0 };
     ed->selected_entity = 0;
     ed->show_builtin = false;
     ed->show_disabled = true;
@@ -66,22 +66,29 @@ void mel_ed_entities_set_world(Mel_EdEntities* ed, ecs_world_t* world)
 
 static bool is_builtin_entity(ecs_world_t* world, ecs_entity_t e)
 {
-    if (e < 256) return true;
+    if (e < 256)
+        return true;
 
     const char* name = ecs_get_name(world, e);
-    if (!name) return false;
+    if (!name)
+        return false;
 
-    if (name[0] == 'E' && name[1] == 'c' && name[2] == 's') return true;
-    if (name[0] == 'f' && name[1] == 'l' && name[2] == 'e') return true;
-    if (strncmp(name, "flecs", 5) == 0) return true;
+    if (name[0] == 'E' && name[1] == 'c' && name[2] == 's')
+        return true;
+    if (name[0] == 'f' && name[1] == 'l' && name[2] == 'e')
+        return true;
+    if (strncmp(name, "flecs", 5) == 0)
+        return true;
 
     return false;
 }
 
 static void draw_entity_tree_node(Mel_EdEntities* ed, ecs_entity_t entity)
 {
-    if (!ed->world) return;
-    if (!ecs_is_valid(ed->world, entity)) return;
+    if (!ed->world)
+        return;
+    if (!ecs_is_valid(ed->world, entity))
+        return;
 
     if (!ed->show_builtin && is_builtin_entity(ed->world, entity))
     {
@@ -94,7 +101,7 @@ static void draw_entity_tree_node(Mel_EdEntities* ed, ecs_entity_t entity)
     }
 
     const char* name = ecs_get_name(ed->world, entity);
-    char label[256];
+    char        label[256];
     if (name)
     {
         snprintf(label, sizeof(label), "%s (%" PRIu64 ")###e%" PRIu64, name, (u64)entity, (u64)entity);
@@ -105,7 +112,7 @@ static void draw_entity_tree_node(Mel_EdEntities* ed, ecs_entity_t entity)
     }
 
     ecs_iter_t child_it = ecs_each_id(ed->world, ecs_pair(EcsChildOf, entity));
-    bool has_children = ecs_each_next(&child_it);
+    bool       has_children = ecs_each_next(&child_it);
     if (has_children)
     {
         ecs_iter_fini(&child_it);
@@ -164,7 +171,8 @@ static void draw_entity_tree_node(Mel_EdEntities* ed, ecs_entity_t entity)
 
 static void draw_entity_tree(Mel_EdEntities* ed)
 {
-    if (!ed->world) return;
+    if (!ed->world)
+        return;
 
     igText("Entity Tree");
     igSameLine(0, 10);
@@ -172,10 +180,10 @@ static void draw_entity_tree(Mel_EdEntities* ed)
     igSameLine(0, 10);
     igCheckbox("Disabled##tree", &ed->show_disabled);
 
-    if (igBeginChild_Str("EntityTree", (ImVec2){0, 200}, ImGuiChildFlags_Borders, 0))
+    if (igBeginChild_Str("EntityTree", (ImVec2){ 0, 200 }, ImGuiChildFlags_Borders, 0))
     {
         ecs_entity_t root_entities[1024];
-        i32 root_count = 0;
+        i32          root_count = 0;
 
         ecs_iter_t it = ecs_each_id(ed->world, ecs_id(Mel_CTransform));
         while (ecs_each_next(&it))
@@ -207,7 +215,8 @@ static void draw_entity_tree(Mel_EdEntities* ed)
 
 static void draw_entity_inspector(Mel_EdEntities* ed)
 {
-    if (!ed->world) return;
+    if (!ed->world)
+        return;
 
     igText("Entity Inspector");
 
@@ -242,7 +251,7 @@ static void draw_entity_inspector(Mel_EdEntities* ed)
     igSeparator();
     igText("Components:");
 
-    if (igBeginChild_Str("Components", (ImVec2){0, 0}, ImGuiChildFlags_Borders, 0))
+    if (igBeginChild_Str("Components", (ImVec2){ 0, 0 }, ImGuiChildFlags_Borders, 0))
     {
         for (usize i = 0; i < ed->inspectors.count; i++)
         {
@@ -257,7 +266,7 @@ static void draw_entity_inspector(Mel_EdEntities* ed)
             for (i32 i = 0; i < type->count; i++)
             {
                 ecs_id_t id = type->array[i];
-                char* id_str = ecs_id_str(ed->world, id);
+                char*    id_str = ecs_id_str(ed->world, id);
                 if (id_str)
                 {
                     igBulletText("%s", id_str);
@@ -271,12 +280,12 @@ static void draw_entity_inspector(Mel_EdEntities* ed)
 
 static void draw_query_panel(Mel_EdEntities* ed)
 {
-    if (!ed->world) return;
+    if (!ed->world)
+        return;
 
     igText("Query");
 
-    if (igInputText("##query", ed->query_buffer, sizeof(ed->query_buffer),
-        ImGuiInputTextFlags_EnterReturnsTrue, nullptr, nullptr))
+    if (igInputText("##query", ed->query_buffer, sizeof(ed->query_buffer), ImGuiInputTextFlags_EnterReturnsTrue, nullptr, nullptr))
     {
         if (ed->active_query)
         {
@@ -286,9 +295,7 @@ static void draw_query_panel(Mel_EdEntities* ed)
 
         if (strlen(ed->query_buffer) > 0)
         {
-            ed->active_query = ecs_query(ed->world, {
-                .expr = ed->query_buffer
-            });
+            ed->active_query = ecs_query(ed->world, { .expr = ed->query_buffer });
 
             if (!ed->active_query)
             {
@@ -297,7 +304,7 @@ static void draw_query_panel(Mel_EdEntities* ed)
         }
     }
     igSameLine(0, 5);
-    if (igButton("Run", (ImVec2){50, 0}))
+    if (igButton("Run", (ImVec2){ 50, 0 }))
     {
         if (ed->active_query)
         {
@@ -307,13 +314,11 @@ static void draw_query_panel(Mel_EdEntities* ed)
 
         if (strlen(ed->query_buffer) > 0)
         {
-            ed->active_query = ecs_query(ed->world, {
-                .expr = ed->query_buffer
-            });
+            ed->active_query = ecs_query(ed->world, { .expr = ed->query_buffer });
         }
     }
     igSameLine(0, 5);
-    if (igButton("Clear", (ImVec2){50, 0}))
+    if (igButton("Clear", (ImVec2){ 50, 0 }))
     {
         if (ed->active_query)
         {
@@ -326,21 +331,21 @@ static void draw_query_panel(Mel_EdEntities* ed)
     {
         igText("Failed to create query.");
         igText("Check your query syntax.");
-        if (igButton("OK", (ImVec2){120, 0}))
+        if (igButton("OK", (ImVec2){ 120, 0 }))
         {
             igCloseCurrentPopup();
         }
         igEndPopup();
     }
 
-    if (igBeginChild_Str("QueryResults", (ImVec2){0, 150}, ImGuiChildFlags_Borders, 0))
+    if (igBeginChild_Str("QueryResults", (ImVec2){ 0, 150 }, ImGuiChildFlags_Borders, 0))
     {
         if (ed->active_query)
         {
-            i32 match_count = 0;
+            i32        match_count = 0;
             ecs_iter_t it = ecs_query_iter(ed->world, ed->active_query);
 
-            if (igBeginTable("QueryTable", 3, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable, (ImVec2){0, 0}, 0))
+            if (igBeginTable("QueryTable", 3, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable, (ImVec2){ 0, 0 }, 0))
             {
                 igTableSetupColumn("Entity", 0, 0, 0);
                 igTableSetupColumn("Name", 0, 0, 0);
@@ -359,8 +364,7 @@ static void draw_query_panel(Mel_EdEntities* ed)
                         igTableSetColumnIndex(0);
                         char id_label[64];
                         snprintf(id_label, sizeof(id_label), "%" PRIu64, (u64)entity);
-                        if (igSelectable_Bool(id_label, ed->selected_entity == entity,
-                            ImGuiSelectableFlags_SpanAllColumns, (ImVec2){0, 0}))
+                        if (igSelectable_Bool(id_label, ed->selected_entity == entity, ImGuiSelectableFlags_SpanAllColumns, (ImVec2){ 0, 0 }))
                         {
                             ed->selected_entity = entity;
                         }
@@ -392,7 +396,8 @@ static void draw_query_panel(Mel_EdEntities* ed)
 
 static void draw_world_stats(Mel_EdEntities* ed)
 {
-    if (!ed->world) return;
+    if (!ed->world)
+        return;
 
     igText("World Statistics");
 
@@ -425,7 +430,7 @@ static void draw_world_stats(Mel_EdEntities* ed)
         }
     }
 
-    if (igBeginChild_Str("WorldStats", (ImVec2){0, 100}, ImGuiChildFlags_Borders, 0))
+    if (igBeginChild_Str("WorldStats", (ImVec2){ 0, 100 }, ImGuiChildFlags_Borders, 0))
     {
         igColumns(2, "StatsColumns", false);
 
@@ -463,13 +468,14 @@ static void draw_world_stats(Mel_EdEntities* ed)
 
 static void draw_entity_creation(Mel_EdEntities* ed)
 {
-    if (!ed->world) return;
+    if (!ed->world)
+        return;
 
     igText("Create Entity");
 
     igInputText("Name##newentity", ed->entity_name_buffer, sizeof(ed->entity_name_buffer), 0, nullptr, nullptr);
 
-    if (igButton("Create Empty", (ImVec2){100, 0}))
+    if (igButton("Create Empty", (ImVec2){ 100, 0 }))
     {
         ecs_entity_t entity = ecs_new(ed->world);
         if (strlen(ed->entity_name_buffer) > 0)
@@ -482,38 +488,29 @@ static void draw_entity_creation(Mel_EdEntities* ed)
 
     igSameLine(0, 10);
 
-    if (igButton("+ Transform", (ImVec2){100, 0}))
+    if (igButton("+ Transform", (ImVec2){ 100, 0 }))
     {
         ecs_entity_t entity = ecs_new(ed->world);
         if (strlen(ed->entity_name_buffer) > 0)
         {
             ecs_set_name(ed->world, entity, ed->entity_name_buffer);
         }
-        ecs_set(ed->world, entity, Mel_CTransform, {
-            .pos = mel_vec2(0, 0),
-            .vel = mel_vec2(0, 0)
-        });
+        ecs_set(ed->world, entity, Mel_CTransform, { .pos = mel_vec2(0, 0), .vel = mel_vec2(0, 0) });
         ed->selected_entity = entity;
         ed->entity_name_buffer[0] = '\0';
     }
 
     igSameLine(0, 10);
 
-    if (igButton("+ Sprite", (ImVec2){100, 0}))
+    if (igButton("+ Sprite", (ImVec2){ 100, 0 }))
     {
         ecs_entity_t entity = ecs_new(ed->world);
         if (strlen(ed->entity_name_buffer) > 0)
         {
             ecs_set_name(ed->world, entity, ed->entity_name_buffer);
         }
-        ecs_set(ed->world, entity, Mel_CTransform, {
-            .pos = mel_vec2(100, 100),
-            .vel = mel_vec2(0, 0)
-        });
-        ecs_set(ed->world, entity, Mel_Sprite, {
-            .size = mel_vec2(32, 32),
-            .color = mel_vec4(1, 1, 1, 1)
-        });
+        ecs_set(ed->world, entity, Mel_CTransform, { .pos = mel_vec2(100, 100), .vel = mel_vec2(0, 0) });
+        ecs_set(ed->world, entity, Mel_Sprite, { .size = mel_vec2(32, 32), .color = mel_vec4(1, 1, 1, 1) });
         ed->selected_entity = entity;
         ed->entity_name_buffer[0] = '\0';
     }
@@ -526,7 +523,7 @@ void mel_ed_entities_draw(Mel_EdEntities* ed, f32 dt)
 
     if (!ed->world)
     {
-        igTextColored((ImVec4){1.0f, 0.5f, 0.5f, 1.0f}, "No ECS world attached");
+        igTextColored((ImVec4){ 1.0f, 0.5f, 0.5f, 1.0f }, "No ECS world attached");
         igText("Call mel_ed_entities_set_world() to connect.");
         return;
     }

@@ -45,26 +45,78 @@ static void mel__log_sink_console_write(Mel_Log_Sink* self, const Mel_Log_Entry*
 
         if (entry->context.len > 0)
         {
-            fprintf(stderr, "%s[%" PRIu64 ".%03" PRIu64 "] [%.*s] [%.*s] (%.*s) %.*s    (%.*s:%" PRIu32 ")%s\n", color, secs, ms, (int)level_name.len, level_name.data, (int)entry->domain.len,
-                    entry->domain.data, (int)entry->context.len, entry->context.data, (int)entry->message.len, entry->message.data, (int)entry->file.len, entry->file.data, entry->line, reset);
+            fprintf(stderr,
+                    "%s[%" PRIu64 ".%03" PRIu64 "] [%.*s] [%.*s] (%.*s) %.*s    (%.*s:%" PRIu32 ")%s\n",
+                    color,
+                    secs,
+                    ms,
+                    (int)level_name.len,
+                    level_name.data,
+                    (int)entry->domain.len,
+                    entry->domain.data,
+                    (int)entry->context.len,
+                    entry->context.data,
+                    (int)entry->message.len,
+                    entry->message.data,
+                    (int)entry->file.len,
+                    entry->file.data,
+                    entry->line,
+                    reset);
         }
         else
         {
-            fprintf(stderr, "%s[%" PRIu64 ".%03" PRIu64 "] [%.*s] [%.*s] %.*s    (%.*s:%" PRIu32 ")%s\n", color, secs, ms, (int)level_name.len, level_name.data, (int)entry->domain.len,
-                    entry->domain.data, (int)entry->message.len, entry->message.data, (int)entry->file.len, entry->file.data, entry->line, reset);
+            fprintf(stderr,
+                    "%s[%" PRIu64 ".%03" PRIu64 "] [%.*s] [%.*s] %.*s    (%.*s:%" PRIu32 ")%s\n",
+                    color,
+                    secs,
+                    ms,
+                    (int)level_name.len,
+                    level_name.data,
+                    (int)entry->domain.len,
+                    entry->domain.data,
+                    (int)entry->message.len,
+                    entry->message.data,
+                    (int)entry->file.len,
+                    entry->file.data,
+                    entry->line,
+                    reset);
         }
     }
     else
     {
         if (entry->context.len > 0)
         {
-            fprintf(stderr, "[%" PRIu64 ".%03" PRIu64 "] [%.*s] [%.*s] (%.*s) %.*s    (%.*s:%" PRIu32 ")\n", secs, ms, (int)level_name.len, level_name.data, (int)entry->domain.len, entry->domain.data,
-                    (int)entry->context.len, entry->context.data, (int)entry->message.len, entry->message.data, (int)entry->file.len, entry->file.data, entry->line);
+            fprintf(stderr,
+                    "[%" PRIu64 ".%03" PRIu64 "] [%.*s] [%.*s] (%.*s) %.*s    (%.*s:%" PRIu32 ")\n",
+                    secs,
+                    ms,
+                    (int)level_name.len,
+                    level_name.data,
+                    (int)entry->domain.len,
+                    entry->domain.data,
+                    (int)entry->context.len,
+                    entry->context.data,
+                    (int)entry->message.len,
+                    entry->message.data,
+                    (int)entry->file.len,
+                    entry->file.data,
+                    entry->line);
         }
         else
         {
-            fprintf(stderr, "[%" PRIu64 ".%03" PRIu64 "] [%.*s] [%.*s] %.*s    (%.*s:%" PRIu32 ")\n", secs, ms, (int)level_name.len, level_name.data, (int)entry->domain.len, entry->domain.data,
-                    (int)entry->message.len, entry->message.data, (int)entry->file.len, entry->file.data, entry->line);
+            fprintf(stderr,
+                    "[%" PRIu64 ".%03" PRIu64 "] [%.*s] [%.*s] %.*s    (%.*s:%" PRIu32 ")\n",
+                    secs,
+                    ms,
+                    (int)level_name.len,
+                    level_name.data,
+                    (int)entry->domain.len,
+                    entry->domain.data,
+                    (int)entry->message.len,
+                    entry->message.data,
+                    (int)entry->file.len,
+                    entry->file.data,
+                    entry->line);
         }
     }
 }

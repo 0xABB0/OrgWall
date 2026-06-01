@@ -179,11 +179,13 @@ char* mel_scala_export(const Mel_Tuning* t, const char* description)
         return NULL;
 
     char header[512];
-    int  header_len = snprintf(header, sizeof(header),
+    int  header_len = snprintf(header,
+                               sizeof(header),
                                "! %s\n"
                                "%u\n"
                                "!\n",
-                               description ? description : "melody scale", count);
+                               description ? description : "melody scale",
+                               count);
 
     size_t est_size = header_len + count * 32 + 1;
     char*  out = malloc(est_size);

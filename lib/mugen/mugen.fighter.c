@@ -680,11 +680,21 @@ void fighter_tick(Fighter* f, f32 dt, f32 stage_left, f32 stage_right)
     }
 
     if (st->stateno != prev_stateno)
-        printf("STATE: %d -> %d (type=%d phys=%d ctrl=%d vel=%.2f,%.2f pos=%.2f,%.2f anim=%d animtime=%d movetype=%d)\n", prev_stateno, st->stateno, st->statetype, st->physics, st->ctrl, st->vel_x,
-               st->vel_y, st->pos_x, st->pos_y, st->anim, st->animtime, st->movetype);
+        printf("STATE: %d -> %d (type=%d phys=%d ctrl=%d vel=%.2f,%.2f pos=%.2f,%.2f anim=%d animtime=%d movetype=%d)\n",
+               prev_stateno,
+               st->stateno,
+               st->statetype,
+               st->physics,
+               st->ctrl,
+               st->vel_x,
+               st->vel_y,
+               st->pos_x,
+               st->pos_y,
+               st->anim,
+               st->animtime,
+               st->movetype);
     if (st->stateno >= 5100 && st->stateno <= 5121)
-        printf("  RECOVERY[%d]: t=%d vel=%.2f,%.2f pos=%.2f,%.2f movetype=%d bounce_yaccel=%.3f\n", st->stateno, st->time, st->vel_x, st->vel_y, st->pos_x, st->pos_y, st->movetype,
-               st->down_bounce_yaccel);
+        printf("  RECOVERY[%d]: t=%d vel=%.2f,%.2f pos=%.2f,%.2f movetype=%d bounce_yaccel=%.3f\n", st->stateno, st->time, st->vel_x, st->vel_y, st->pos_x, st->pos_y, st->movetype, st->down_bounce_yaccel);
 
     if (st->hitpause_time <= 0 && st->cornerpush_vel != 0.0f)
     {

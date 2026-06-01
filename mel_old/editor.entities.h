@@ -11,13 +11,13 @@ typedef struct
 {
     ecs_world_t* world;
     ecs_entity_t selected_entity;
-    char query_buffer[512];
-    char entity_name_buffer[128];
+    char         query_buffer[512];
+    char         entity_name_buffer[128];
     ecs_query_t* active_query;
-    bool show_builtin;
-    bool show_disabled;
-    f32 refresh_timer;
-    f32 refresh_interval;
+    bool         show_builtin;
+    bool         show_disabled;
+    f32          refresh_timer;
+    f32          refresh_interval;
 
     i32 entity_count;
     i32 table_count;

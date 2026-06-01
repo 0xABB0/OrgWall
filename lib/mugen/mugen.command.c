@@ -228,8 +228,7 @@ static void auto_greater_expand(Command* cmd, const Mel_Alloc* alloc)
     {
         mel_array_push(&expanded, cmd->steps[i]);
 
-        if (i + 1 < cmd->step_count && is_single_dir(&cmd->steps[i]) && is_single_dir(&cmd->steps[i + 1]) && !cmd->steps[i].keys[0].tilde && !cmd->steps[i + 1].keys[0].tilde &&
-            cmd->steps[i].keys[0].key == cmd->steps[i + 1].keys[0].key)
+        if (i + 1 < cmd->step_count && is_single_dir(&cmd->steps[i]) && is_single_dir(&cmd->steps[i + 1]) && !cmd->steps[i].keys[0].tilde && !cmd->steps[i + 1].keys[0].tilde && cmd->steps[i].keys[0].key == cmd->steps[i + 1].keys[0].key)
         {
             Command_Key release_key = cmd->steps[i].keys[0];
             release_key.tilde = true;

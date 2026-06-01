@@ -36,8 +36,7 @@ Mel_Gui_Handle mel_frame_create_opt(Mel_Frame_Opt o)
         return h;
 
     jstring s = mel_gui__android_jstring(env, o.title);
-    jobject view =
-        (*env)->CallStaticObjectMethod(env, s_cls, s_create, mel_gui__android_pack(h), s, (jlong)(intptr_t)o.lifecycle.on_resize, (jint)o.inset_mode, (jlong)(intptr_t)o.insets.on_insets_changed);
+    jobject view = (*env)->CallStaticObjectMethod(env, s_cls, s_create, mel_gui__android_pack(h), s, (jlong)(intptr_t)o.lifecycle.on_resize, (jint)o.inset_mode, (jlong)(intptr_t)o.insets.on_insets_changed);
     (*env)->DeleteLocalRef(env, s);
     if ((*env)->ExceptionCheck(env))
     {

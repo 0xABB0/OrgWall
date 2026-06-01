@@ -222,8 +222,9 @@ int mel_build_main(int argc, char** argv)
 {
     if (argc < 2)
     {
-        fprintf(stderr, "usage: nob <build|run|debug|test|configure|compile|link|package|compdb> "
-                        "<target> [platform[:backend[:runtime]]] [--debug|--release] [--arch=A] [-- args]\n");
+        fprintf(stderr,
+                "usage: nob <build|run|debug|test|configure|compile|link|package|compdb> "
+                "<target> [platform[:backend[:runtime]]] [--debug|--release] [--arch=A] [-- args]\n");
         return 2;
     }
 

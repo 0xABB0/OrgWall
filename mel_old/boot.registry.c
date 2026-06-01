@@ -5,7 +5,7 @@
 #define MEL_BOOT_WIRE_CAP 32
 
 static Mel_Boot_Wire_Fn s_wires[MEL_BOOT_WIRE_CAP];
-static u32 s_wire_count;
+static u32              s_wire_count;
 
 void mel__boot_register_wire(Mel_Boot_Wire_Fn fn)
 {
@@ -20,7 +20,4 @@ void mel__boot_run_wires(void)
         s_wires[i]();
 }
 
-u32 mel__boot_wire_count(void)
-{
-    return s_wire_count;
-}
+u32 mel__boot_wire_count(void) { return s_wire_count; }

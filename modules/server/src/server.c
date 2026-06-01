@@ -874,8 +874,7 @@ static void mel__server_rpc_dispatch(Mel_Server* s, Mel__Server_Conn* cn, str8 f
     {
         if (has_id)
         {
-            mg_ws_printf(cn->mg, WEBSOCKET_OP_TEXT, "{\"jsonrpc\":\"2.0\",\"id\":%.*s,\"error\":{\"code\":%d,\"message\":\"invalid request\"}}", (int)id_tok.len, (const char*)id_tok.data,
-                         MEL_SERVER_RPC_ERR_INVALID_REQUEST);
+            mg_ws_printf(cn->mg, WEBSOCKET_OP_TEXT, "{\"jsonrpc\":\"2.0\",\"id\":%.*s,\"error\":{\"code\":%d,\"message\":\"invalid request\"}}", (int)id_tok.len, (const char*)id_tok.data, MEL_SERVER_RPC_ERR_INVALID_REQUEST);
         }
         return;
     }
@@ -904,8 +903,7 @@ static void mel__server_rpc_dispatch(Mel_Server* s, Mel__Server_Conn* cn, str8 f
     {
         if (has_id)
         {
-            mg_ws_printf(cn->mg, WEBSOCKET_OP_TEXT, "{\"jsonrpc\":\"2.0\",\"id\":%.*s,\"error\":{\"code\":%d,\"message\":\"method not found\"}}", (int)id_tok.len, (const char*)id_tok.data,
-                         MEL_SERVER_RPC_ERR_METHOD_NOT_FOUND);
+            mg_ws_printf(cn->mg, WEBSOCKET_OP_TEXT, "{\"jsonrpc\":\"2.0\",\"id\":%.*s,\"error\":{\"code\":%d,\"message\":\"method not found\"}}", (int)id_tok.len, (const char*)id_tok.data, MEL_SERVER_RPC_ERR_METHOD_NOT_FOUND);
         }
         return;
     }
@@ -921,8 +919,7 @@ static void mel__server_rpc_dispatch(Mel_Server* s, Mel__Server_Conn* cn, str8 f
 
     if (has_id && !r.responded)
     {
-        mg_ws_printf(cn->mg, WEBSOCKET_OP_TEXT, "{\"jsonrpc\":\"2.0\",\"id\":%.*s,\"error\":{\"code\":%d,\"message\":\"no response\"}}", (int)id_tok.len, (const char*)id_tok.data,
-                     MEL_SERVER_RPC_ERR_INTERNAL);
+        mg_ws_printf(cn->mg, WEBSOCKET_OP_TEXT, "{\"jsonrpc\":\"2.0\",\"id\":%.*s,\"error\":{\"code\":%d,\"message\":\"no response\"}}", (int)id_tok.len, (const char*)id_tok.data, MEL_SERVER_RPC_ERR_INTERNAL);
     }
 }
 
@@ -947,8 +944,7 @@ void mel_server_rpc_err(Mel_Server_RPC_Req* r, i32 code, const char* msg)
 {
     if (r == NULL || !r->has_id || r->responded)
         return;
-    mg_ws_printf(r->conn->mg, WEBSOCKET_OP_TEXT, "{\"jsonrpc\":\"2.0\",\"id\":%.*s,\"error\":{\"code\":%d,\"message\":\"%s\"}}", (int)r->id_json.len, (const char*)r->id_json.data, code,
-                 msg ? msg : "");
+    mg_ws_printf(r->conn->mg, WEBSOCKET_OP_TEXT, "{\"jsonrpc\":\"2.0\",\"id\":%.*s,\"error\":{\"code\":%d,\"message\":\"%s\"}}", (int)r->id_json.len, (const char*)r->id_json.data, code, msg ? msg : "");
     r->responded = true;
 }
 

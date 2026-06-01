@@ -5,8 +5,8 @@
 
 static const void* kButtonTargetKey = &kButtonTargetKey;
 
-@interface MelButtonTarget : NSObject
-@property (nonatomic, assign) Mel_NButton* button;
+@interface                                MelButtonTarget: NSObject
+@property(nonatomic, assign) Mel_NButton* button;
 @end
 
 @implementation MelButtonTarget
@@ -41,7 +41,8 @@ static void nbutton_create_backing(Mel_NCtrl* ctrl)
 
 static void nbutton_destroy_backing(Mel_NCtrl* ctrl)
 {
-    if (!ctrl->backing) return;
+    if (!ctrl->backing)
+        return;
     NSButton* ns = (__bridge_transfer NSButton*)ctrl->backing;
     objc_setAssociatedObject(ns, kButtonTargetKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     (void)ns;
@@ -69,7 +70,7 @@ static void nbutton_set_enabled(Mel_NCtrl* ctrl, bool enabled)
 static Mel_Vec2 nbutton_preferred_size(Mel_NCtrl* ctrl)
 {
     NSButton* ns = (__bridge NSButton*)ctrl->backing;
-    NSSize sz = [ns fittingSize];
+    NSSize    sz = [ns fittingSize];
     return mel_vec2((f32)sz.width, (f32)sz.height);
 }
 
@@ -86,20 +87,17 @@ static void nbutton_remove_child_backing(Mel_NCtrl* parent, Mel_NCtrl* child)
 }
 
 static const Mel_NCtrl_VTable s_nbutton_vtable = {
-    .create_backing       = nbutton_create_backing,
-    .destroy_backing      = nbutton_destroy_backing,
-    .set_frame            = nbutton_set_frame,
-    .set_visible          = nbutton_set_visible,
-    .set_enabled          = nbutton_set_enabled,
-    .preferred_size       = nbutton_preferred_size,
-    .add_child_backing    = nbutton_add_child_backing,
+    .create_backing = nbutton_create_backing,
+    .destroy_backing = nbutton_destroy_backing,
+    .set_frame = nbutton_set_frame,
+    .set_visible = nbutton_set_visible,
+    .set_enabled = nbutton_set_enabled,
+    .preferred_size = nbutton_preferred_size,
+    .add_child_backing = nbutton_add_child_backing,
     .remove_child_backing = nbutton_remove_child_backing,
 };
 
-const Mel_NCtrl_VTable* mel__nbutton_vtable(void)
-{
-    return &s_nbutton_vtable;
-}
+const Mel_NCtrl_VTable* mel__nbutton_vtable(void) { return &s_nbutton_vtable; }
 
 void mel__nbutton_set_text_platform(Mel_NButton* button, const char* text)
 {

@@ -1,7 +1,7 @@
 #import <Cocoa/Cocoa.h>
 #include "../ui.native.panel.h"
 
-@interface MelPanelView : NSView
+@interface MelPanelView: NSView
 @end
 
 @implementation MelPanelView
@@ -15,12 +15,7 @@
 
 static void panel_create_backing(Mel_NCtrl* ctrl)
 {
-    NSRect frame = NSMakeRect(
-        (CGFloat)ctrl->pos.x,
-        (CGFloat)ctrl->pos.y,
-        (CGFloat)ctrl->size.x,
-        (CGFloat)ctrl->size.y
-    );
+    NSRect frame = NSMakeRect((CGFloat)ctrl->pos.x, (CGFloat)ctrl->pos.y, (CGFloat)ctrl->size.x, (CGFloat)ctrl->size.y);
 
     MelPanelView* view = [[MelPanelView alloc] initWithFrame:frame];
     [view setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
@@ -67,15 +62,12 @@ static void panel_sync_frame(Mel_NCtrl* ctrl)
         return;
 
     NSView* view = (__bridge NSView*)ctrl->backing;
-    NSRect frame = [view frame];
-    ctrl->pos  = mel_vec2((f32)frame.origin.x, (f32)frame.origin.y);
+    NSRect  frame = [view frame];
+    ctrl->pos = mel_vec2((f32)frame.origin.x, (f32)frame.origin.y);
     ctrl->size = mel_vec2((f32)frame.size.width, (f32)frame.size.height);
 }
 
-static Mel_Vec2 panel_preferred_size(Mel_NCtrl* ctrl)
-{
-    return ctrl->size;
-}
+static Mel_Vec2 panel_preferred_size(Mel_NCtrl* ctrl) { return ctrl->size; }
 
 static void panel_add_child_backing(Mel_NCtrl* parent, Mel_NCtrl* child)
 {
@@ -83,7 +75,7 @@ static void panel_add_child_backing(Mel_NCtrl* parent, Mel_NCtrl* child)
         return;
 
     NSView* parent_view = (__bridge NSView*)parent->backing;
-    NSView* child_view  = (__bridge NSView*)child->backing;
+    NSView* child_view = (__bridge NSView*)child->backing;
     [parent_view addSubview:child_view];
 }
 
@@ -98,18 +90,15 @@ static void panel_remove_child_backing(Mel_NCtrl* parent, Mel_NCtrl* child)
 }
 
 static const Mel_NCtrl_VTable s_panel_vtable = {
-    .create_backing       = panel_create_backing,
-    .destroy_backing      = panel_destroy_backing,
-    .set_frame            = panel_set_frame,
-    .sync_frame           = panel_sync_frame,
-    .set_visible          = panel_set_visible,
-    .set_enabled          = panel_set_enabled,
-    .preferred_size       = panel_preferred_size,
-    .add_child_backing    = panel_add_child_backing,
+    .create_backing = panel_create_backing,
+    .destroy_backing = panel_destroy_backing,
+    .set_frame = panel_set_frame,
+    .sync_frame = panel_sync_frame,
+    .set_visible = panel_set_visible,
+    .set_enabled = panel_set_enabled,
+    .preferred_size = panel_preferred_size,
+    .add_child_backing = panel_add_child_backing,
     .remove_child_backing = panel_remove_child_backing,
 };
 
-const Mel_NCtrl_VTable* mel__npanel_vtable(void)
-{
-    return &s_panel_vtable;
-}
+const Mel_NCtrl_VTable* mel__npanel_vtable(void) { return &s_panel_vtable; }

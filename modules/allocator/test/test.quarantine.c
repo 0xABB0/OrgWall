@@ -6,13 +6,14 @@
 MEL_TEST(alloc_quarantine, guard_quarantine_tracks_freed_blocks)
 {
     Mel_Guard_Allocator guard;
-    mel_guard_init(&guard, (Mel_Guard_Allocator_Opt){
-                               .backing = mel_alloc_heap(),
-                               .pre_guard_size = 8,
-                               .post_guard_size = 8,
-                               .quarantine_bytes = 1024,
-                               .flags = MEL_GUARD_FLAG_CANARY_HEAD | MEL_GUARD_FLAG_CANARY_TAIL | MEL_GUARD_FLAG_POISON_FREE | MEL_GUARD_FLAG_QUARANTINE,
-                           });
+    mel_guard_init(&guard,
+                   (Mel_Guard_Allocator_Opt){
+                       .backing = mel_alloc_heap(),
+                       .pre_guard_size = 8,
+                       .post_guard_size = 8,
+                       .quarantine_bytes = 1024,
+                       .flags = MEL_GUARD_FLAG_CANARY_HEAD | MEL_GUARD_FLAG_CANARY_TAIL | MEL_GUARD_FLAG_POISON_FREE | MEL_GUARD_FLAG_QUARANTINE,
+                   });
 
     Mel_Alloc alloc = mel_guard_allocator(&guard);
     void*     p = mel_alloc(&alloc, 64);

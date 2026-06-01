@@ -80,8 +80,16 @@ static void mel__guard_fail(Mel_Guard_Header* h, const char* why, const char* fi
             "  check site: %s:%u (%s)\n"
             "  size: %zu\n"
             "  mode: %s%s\n",
-            why, h && h->file ? h->file : "<unknown>", h ? h->line : 0, h && h->func ? h->func : "<unknown>", file ? file : "<unknown>", line, func ? func : "<unknown>", h ? h->requested_size : 0,
-            (h && (h->mode & MEL__GUARD_MODE_PROTECTED)) ? "protected" : "normal", (h && (h->mode & MEL__GUARD_MODE_FREED)) ? ", freed" : "");
+            why,
+            h && h->file ? h->file : "<unknown>",
+            h ? h->line : 0,
+            h && h->func ? h->func : "<unknown>",
+            file ? file : "<unknown>",
+            line,
+            func ? func : "<unknown>",
+            h ? h->requested_size : 0,
+            (h && (h->mode & MEL__GUARD_MODE_PROTECTED)) ? "protected" : "normal",
+            (h && (h->mode & MEL__GUARD_MODE_FREED)) ? ", freed" : "");
     assert(!"guard allocator corruption");
 }
 

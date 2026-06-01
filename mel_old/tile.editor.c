@@ -13,7 +13,7 @@
 #include <SDL3/SDL.h>
 
 #ifndef IM_COL32
-#define IM_COL32(R,G,B,A) (((ImU32)(A)<<24) | ((ImU32)(B)<<16) | ((ImU32)(G)<<8) | ((ImU32)(R)))
+#define IM_COL32(R, G, B, A) (((ImU32)(A) << 24) | ((ImU32)(B) << 16) | ((ImU32)(G) << 8) | ((ImU32)(R)))
 #endif
 
 static void draw_tile_palette(Mel_EdTiles* ed);
@@ -29,7 +29,7 @@ void mel_ed_tiles_init(Mel_EdTiles* ed, const Mel_Alloc* alloc)
 {
     assert(ed != nullptr);
 
-    *ed = (Mel_EdTiles){0};
+    *ed = (Mel_EdTiles){ 0 };
     ed->alloc = alloc;
     ed->selected_layer = 0;
     ed->tool = MEL_ED_TILES_TOOL_BRUSH;
@@ -70,7 +70,7 @@ void mel_ed_tiles_shutdown(Mel_EdTiles* ed)
         }
     }
 
-    *ed = (Mel_EdTiles){0};
+    *ed = (Mel_EdTiles){ 0 };
 }
 
 void mel_ed_tiles_set_pools(Mel_EdTiles* ed, Mel_Tileset_Pool* ts_pool, Mel_Tilemap_Pool* tm_pool, Mel_Texture_Pool* tex_pool)
@@ -145,11 +145,11 @@ void mel_ed_tiles_draw(Mel_EdTiles* ed)
 
     if (ed->dirty)
     {
-        igTextColored((ImVec4){1.0f, 1.0f, 0.0f, 1.0f}, "* Unsaved changes");
+        igTextColored((ImVec4){ 1.0f, 1.0f, 0.0f, 1.0f }, "* Unsaved changes");
         igSameLine(0, 10);
     }
 
-    if (igButton("Save All", (ImVec2){100, 0}))
+    if (igButton("Save All", (ImVec2){ 100, 0 }))
     {
         if (ed->tilemap && ed->tilemap_pool && strlen(ed->tilemap_path) > 0)
         {
@@ -174,15 +174,16 @@ static void draw_toolbar(Mel_EdTiles* ed)
 
     for (i32 i = 0; i < 4; i++)
     {
-        if (i > 0) igSameLine(0, 5);
+        if (i > 0)
+            igSameLine(0, 5);
 
         bool selected = (ed->tool == i);
         if (selected)
         {
-            igPushStyleColor_Vec4(ImGuiCol_Button, (ImVec4){0.4f, 0.6f, 0.8f, 1.0f});
+            igPushStyleColor_Vec4(ImGuiCol_Button, (ImVec4){ 0.4f, 0.6f, 0.8f, 1.0f });
         }
 
-        if (igButton(tool_labels[i], (ImVec2){70, 0}))
+        if (igButton(tool_labels[i], (ImVec2){ 70, 0 }))
         {
             ed->tool = i;
         }
@@ -200,17 +201,17 @@ static void draw_toolbar(Mel_EdTiles* ed)
 
     igSameLine(0, 20);
 
-    if (igButton("F:FlipH", (ImVec2){60, 0}))
+    if (igButton("F:FlipH", (ImVec2){ 60, 0 }))
     {
         mel_ed_tiles_brush_flip_h(ed);
     }
     igSameLine(0, 5);
-    if (igButton("V:FlipV", (ImVec2){60, 0}))
+    if (igButton("V:FlipV", (ImVec2){ 60, 0 }))
     {
         mel_ed_tiles_brush_flip_v(ed);
     }
     igSameLine(0, 5);
-    if (igButton("R:Rot", (ImVec2){50, 0}))
+    if (igButton("R:Rot", (ImVec2){ 50, 0 }))
     {
         mel_ed_tiles_brush_rotate_cw(ed);
     }
@@ -218,13 +219,20 @@ static void draw_toolbar(Mel_EdTiles* ed)
     ImGuiIO* io = igGetIO_Nil();
     if (!io->WantTextInput)
     {
-        if (igIsKeyPressed_Bool(ImGuiKey_B, false)) ed->tool = MEL_ED_TILES_TOOL_BRUSH;
-        if (igIsKeyPressed_Bool(ImGuiKey_Q, false)) ed->tool = MEL_ED_TILES_TOOL_SELECT;
-        if (igIsKeyPressed_Bool(ImGuiKey_E, false)) ed->tool = MEL_ED_TILES_TOOL_ERASE;
-        if (igIsKeyPressed_Bool(ImGuiKey_G, false)) ed->tool = MEL_ED_TILES_TOOL_FILL;
-        if (igIsKeyPressed_Bool(ImGuiKey_F, false)) mel_ed_tiles_brush_flip_h(ed);
-        if (igIsKeyPressed_Bool(ImGuiKey_V, false)) mel_ed_tiles_brush_flip_v(ed);
-        if (igIsKeyPressed_Bool(ImGuiKey_R, false)) mel_ed_tiles_brush_rotate_cw(ed);
+        if (igIsKeyPressed_Bool(ImGuiKey_B, false))
+            ed->tool = MEL_ED_TILES_TOOL_BRUSH;
+        if (igIsKeyPressed_Bool(ImGuiKey_Q, false))
+            ed->tool = MEL_ED_TILES_TOOL_SELECT;
+        if (igIsKeyPressed_Bool(ImGuiKey_E, false))
+            ed->tool = MEL_ED_TILES_TOOL_ERASE;
+        if (igIsKeyPressed_Bool(ImGuiKey_G, false))
+            ed->tool = MEL_ED_TILES_TOOL_FILL;
+        if (igIsKeyPressed_Bool(ImGuiKey_F, false))
+            mel_ed_tiles_brush_flip_h(ed);
+        if (igIsKeyPressed_Bool(ImGuiKey_V, false))
+            mel_ed_tiles_brush_flip_v(ed);
+        if (igIsKeyPressed_Bool(ImGuiKey_R, false))
+            mel_ed_tiles_brush_rotate_cw(ed);
     }
 }
 
@@ -242,12 +250,12 @@ static void draw_tileset_panel(Mel_EdTiles* ed)
         igText("%u sources, %u tiles", ed->tileset->source_count, ed->tileset->tile_count);
     }
 
-    if (igButton("New##tileset", (ImVec2){60, 0}))
+    if (igButton("New##tileset", (ImVec2){ 60, 0 }))
     {
         igOpenPopup_Str("NewTileset", 0);
     }
     igSameLine(0, 5);
-    if (igButton("Import##tileset", (ImVec2){60, 0}))
+    if (igButton("Import##tileset", (ImVec2){ 60, 0 }))
     {
         ed->show_import_dialog = true;
     }
@@ -257,7 +265,7 @@ static void draw_tileset_panel(Mel_EdTiles* ed)
         igText("Create New Tileset");
         igInputText("Name##newtileset", ed->new_tile_visual_name, sizeof(ed->new_tile_visual_name), 0, nullptr, nullptr);
 
-        if (igButton("Create##newtileset", (ImVec2){100, 0}))
+        if (igButton("Create##newtileset", (ImVec2){ 100, 0 }))
         {
             if (ed->tileset_pool && strlen(ed->new_tile_visual_name) > 0)
             {
@@ -289,9 +297,9 @@ static void draw_tile_palette(Mel_EdTiles* ed)
         return;
     }
 
-    if (igBeginChild_Str("TilePalette", (ImVec2){0, 200}, ImGuiChildFlags_Borders, ImGuiWindowFlags_HorizontalScrollbar))
+    if (igBeginChild_Str("TilePalette", (ImVec2){ 0, 200 }, ImGuiChildFlags_Borders, ImGuiWindowFlags_HorizontalScrollbar))
     {
-        ImVec2_c cursor_pos = igGetCursorScreenPos();
+        ImVec2_c    cursor_pos = igGetCursorScreenPos();
         ImDrawList* draw_list = igGetWindowDrawList();
 
         f32 tile_display_size = 32.0f;
@@ -302,14 +310,11 @@ static void draw_tile_palette(Mel_EdTiles* ed)
             u32 tx = i % cols;
             u32 ty = i / cols;
 
-            ImVec2 p0 = {cursor_pos.x + tx * tile_display_size, cursor_pos.y + ty * tile_display_size};
-            ImVec2 p1 = {p0.x + tile_display_size, p0.y + tile_display_size};
+            ImVec2 p0 = { cursor_pos.x + tx * tile_display_size, cursor_pos.y + ty * tile_display_size };
+            ImVec2 p1 = { p0.x + tile_display_size, p0.y + tile_display_size };
 
             Mel_Tile_Def* entry = &ed->tileset->tiles[i];
-            bool selected = (ed->brush.current.tiles &&
-                             ed->brush.current.width == 1 &&
-                             ed->brush.current.height == 1 &&
-                             ed->brush.current.tiles[0] == (i32)entry->id);
+            bool          selected = (ed->brush.current.tiles && ed->brush.current.width == 1 && ed->brush.current.height == 1 && ed->brush.current.tiles[0] == (i32)entry->id);
 
             if (entry->source_idx < ed->tileset->source_count)
             {
@@ -325,9 +330,8 @@ static void draw_tile_palette(Mel_EdTiles* ed)
                     f32 u1 = (f32)(entry->source_x + entry->width) / tex_w;
                     f32 v1 = (f32)(entry->source_y + entry->height) / tex_h;
 
-                    ImTextureRef_c tex_ref = {._TexData = nullptr, ._TexID = (ImTextureID)tex->_descriptor};
-                    ImDrawList_AddImage(draw_list, tex_ref,
-                        p0, p1, (ImVec2){u0, v0}, (ImVec2){u1, v1}, IM_COL32(255, 255, 255, 255));
+                    ImTextureRef_c tex_ref = { ._TexData = nullptr, ._TexID = (ImTextureID)tex->_descriptor };
+                    ImDrawList_AddImage(draw_list, tex_ref, p0, p1, (ImVec2){ u0, v0 }, (ImVec2){ u1, v1 }, IM_COL32(255, 255, 255, 255));
                 }
                 else
                 {
@@ -349,8 +353,8 @@ static void draw_tile_palette(Mel_EdTiles* ed)
         if (igIsWindowHovered(0) && io->MouseClicked[0])
         {
             ImVec2_c mouse_pos = igGetMousePos();
-            f32 rel_x = mouse_pos.x - cursor_pos.x;
-            f32 rel_y = mouse_pos.y - cursor_pos.y;
+            f32      rel_x = mouse_pos.x - cursor_pos.x;
+            f32      rel_y = mouse_pos.y - cursor_pos.y;
 
             if (rel_x >= 0 && rel_y >= 0)
             {
@@ -366,7 +370,7 @@ static void draw_tile_palette(Mel_EdTiles* ed)
         }
 
         u32 rows = (ed->tileset->tile_count + cols - 1) / cols;
-        igDummy((ImVec2){(f32)cols * tile_display_size, (f32)rows * tile_display_size});
+        igDummy((ImVec2){ (f32)cols * tile_display_size, (f32)rows * tile_display_size });
     }
     igEndChild();
 }
@@ -380,28 +384,27 @@ static void draw_brush_preview(Mel_EdTiles* ed, Mel_TileBrush* brush, f32 max_si
     }
 
     f32 tile_size = max_size / (brush->width > brush->height ? brush->width : brush->height);
-    if (tile_size > 24.0f) tile_size = 24.0f;
+    if (tile_size > 24.0f)
+        tile_size = 24.0f;
 
-    ImVec2_c cursor_pos = igGetCursorScreenPos();
+    ImVec2_c    cursor_pos = igGetCursorScreenPos();
     ImDrawList* draw_list = igGetWindowDrawList();
 
     f32 preview_w = brush->width * tile_size;
     f32 preview_h = brush->height * tile_size;
 
-    ImDrawList_AddRectFilled(draw_list,
-        (ImVec2){cursor_pos.x, cursor_pos.y},
-        (ImVec2){cursor_pos.x + preview_w, cursor_pos.y + preview_h},
-        IM_COL32(40, 40, 50, 255), 0, 0);
+    ImDrawList_AddRectFilled(draw_list, (ImVec2){ cursor_pos.x, cursor_pos.y }, (ImVec2){ cursor_pos.x + preview_w, cursor_pos.y + preview_h }, IM_COL32(40, 40, 50, 255), 0, 0);
 
     for (u32 by = 0; by < brush->height; by++)
     {
         for (u32 bx = 0; bx < brush->width; bx++)
         {
             i32 tile_id = brush->tiles[by * brush->width + bx];
-            if (tile_id < 0) continue;
+            if (tile_id < 0)
+                continue;
 
-            ImVec2 p0 = {cursor_pos.x + bx * tile_size, cursor_pos.y + by * tile_size};
-            ImVec2 p1 = {p0.x + tile_size, p0.y + tile_size};
+            ImVec2 p0 = { cursor_pos.x + bx * tile_size, cursor_pos.y + by * tile_size };
+            ImVec2 p1 = { p0.x + tile_size, p0.y + tile_size };
 
             Mel_Tile_Def* entry = mel_tileset_entry_get_tile(ed->tileset, (u32)tile_id);
             if (entry && entry->source_idx < ed->tileset->source_count)
@@ -417,14 +420,14 @@ static void draw_brush_preview(Mel_EdTiles* ed, Mel_TileBrush* brush, f32 max_si
                     f32 u1 = (f32)(entry->source_x + entry->width) / tex_w;
                     f32 v1 = (f32)(entry->source_y + entry->height) / tex_h;
 
-                    ImTextureRef_c tex_ref = {._TexData = nullptr, ._TexID = (ImTextureID)tex->_descriptor};
-                    ImDrawList_AddImage(draw_list, tex_ref, p0, p1, (ImVec2){u0, v0}, (ImVec2){u1, v1}, IM_COL32(255, 255, 255, 255));
+                    ImTextureRef_c tex_ref = { ._TexData = nullptr, ._TexID = (ImTextureID)tex->_descriptor };
+                    ImDrawList_AddImage(draw_list, tex_ref, p0, p1, (ImVec2){ u0, v0 }, (ImVec2){ u1, v1 }, IM_COL32(255, 255, 255, 255));
                 }
             }
         }
     }
 
-    igDummy((ImVec2){preview_w, preview_h});
+    igDummy((ImVec2){ preview_w, preview_h });
 }
 
 static void draw_brush_panel(Mel_EdTiles* ed)
@@ -439,10 +442,7 @@ static void draw_brush_panel(Mel_EdTiles* ed)
 
         if (ed->brush.flip_h || ed->brush.flip_v || ed->brush.rotation > 0)
         {
-            igText("%s%s%s",
-                ed->brush.flip_h ? "[H] " : "",
-                ed->brush.flip_v ? "[V] " : "",
-                ed->brush.rotation > 0 ? "[R]" : "");
+            igText("%s%s%s", ed->brush.flip_h ? "[H] " : "", ed->brush.flip_v ? "[V] " : "", ed->brush.rotation > 0 ? "[R]" : "");
         }
     }
     else
@@ -459,12 +459,13 @@ static void draw_brush_panel(Mel_EdTiles* ed)
 
         for (u32 i = 0; i < ed->brush.history_count && i < 6; i++)
         {
-            if (i > 0 && i % 3 != 0) igSameLine(0, 5);
+            if (i > 0 && i % 3 != 0)
+                igSameLine(0, 5);
 
             igPushID_Int((int)i);
 
             ImVec2_c btn_pos = igGetCursorScreenPos();
-            if (igInvisibleButton("##histbtn", (ImVec2){history_tile_size, history_tile_size}, 0))
+            if (igInvisibleButton("##histbtn", (ImVec2){ history_tile_size, history_tile_size }, 0))
             {
                 if (ed->brush.current.tiles)
                 {
@@ -489,23 +490,22 @@ static void draw_brush_panel(Mel_EdTiles* ed)
             if (hist->tiles && hist->width > 0 && hist->height > 0 && ed->tileset)
             {
                 f32 tile_size = history_tile_size / (hist->width > hist->height ? hist->width : hist->height);
-                if (tile_size > 24.0f) tile_size = 24.0f;
+                if (tile_size > 24.0f)
+                    tile_size = 24.0f;
 
                 ImDrawList* draw_list = igGetWindowDrawList();
-                ImDrawList_AddRectFilled(draw_list,
-                    (ImVec2){btn_pos.x, btn_pos.y},
-                    (ImVec2){btn_pos.x + hist->width * tile_size, btn_pos.y + hist->height * tile_size},
-                    IM_COL32(40, 40, 50, 255), 0, 0);
+                ImDrawList_AddRectFilled(draw_list, (ImVec2){ btn_pos.x, btn_pos.y }, (ImVec2){ btn_pos.x + hist->width * tile_size, btn_pos.y + hist->height * tile_size }, IM_COL32(40, 40, 50, 255), 0, 0);
 
                 for (u32 by = 0; by < hist->height; by++)
                 {
                     for (u32 bx = 0; bx < hist->width; bx++)
                     {
                         i32 tile_id = hist->tiles[by * hist->width + bx];
-                        if (tile_id < 0) continue;
+                        if (tile_id < 0)
+                            continue;
 
-                        ImVec2 p0 = {btn_pos.x + bx * tile_size, btn_pos.y + by * tile_size};
-                        ImVec2 p1 = {p0.x + tile_size, p0.y + tile_size};
+                        ImVec2 p0 = { btn_pos.x + bx * tile_size, btn_pos.y + by * tile_size };
+                        ImVec2 p1 = { p0.x + tile_size, p0.y + tile_size };
 
                         Mel_Tile_Def* entry = mel_tileset_entry_get_tile(ed->tileset, (u32)tile_id);
                         if (entry && entry->source_idx < ed->tileset->source_count)
@@ -521,8 +521,8 @@ static void draw_brush_panel(Mel_EdTiles* ed)
                                 f32 u1 = (f32)(entry->source_x + entry->width) / tex_w;
                                 f32 v1 = (f32)(entry->source_y + entry->height) / tex_h;
 
-                                ImTextureRef_c tex_ref = {._TexData = nullptr, ._TexID = (ImTextureID)tex->_descriptor};
-                                ImDrawList_AddImage(draw_list, tex_ref, p0, p1, (ImVec2){u0, v0}, (ImVec2){u1, v1}, IM_COL32(255, 255, 255, 255));
+                                ImTextureRef_c tex_ref = { ._TexData = nullptr, ._TexID = (ImTextureID)tex->_descriptor };
+                                ImDrawList_AddImage(draw_list, tex_ref, p0, p1, (ImVec2){ u0, v0 }, (ImVec2){ u1, v1 }, IM_COL32(255, 255, 255, 255));
                             }
                         }
                     }
@@ -545,11 +545,10 @@ static void draw_tilemap_panel(Mel_EdTiles* ed)
 
     if (ed->tilemap)
     {
-        igText("%ux%u tiles, Grid: %ux%u", ed->tilemap->width, ed->tilemap->height,
-            ed->tilemap->grid_width, ed->tilemap->grid_height);
+        igText("%ux%u tiles, Grid: %ux%u", ed->tilemap->width, ed->tilemap->height, ed->tilemap->grid_width, ed->tilemap->grid_height);
     }
 
-    if (igButton("New##tilemap", (ImVec2){60, 0}))
+    if (igButton("New##tilemap", (ImVec2){ 60, 0 }))
     {
         igOpenPopup_Str("NewTilemap", 0);
     }
@@ -567,19 +566,20 @@ static void draw_tilemap_panel(Mel_EdTiles* ed)
         igInputInt("Grid W##newtilemap", &ed->new_tilemap_grid_w, 1, 8, 0);
         igInputInt("Grid H##newtilemap", &ed->new_tilemap_grid_h, 1, 8, 0);
 
-        if (ed->new_tilemap_width < 1) ed->new_tilemap_width = 1;
-        if (ed->new_tilemap_height < 1) ed->new_tilemap_height = 1;
-        if (ed->new_tilemap_grid_w < 1) ed->new_tilemap_grid_w = 1;
-        if (ed->new_tilemap_grid_h < 1) ed->new_tilemap_grid_h = 1;
+        if (ed->new_tilemap_width < 1)
+            ed->new_tilemap_width = 1;
+        if (ed->new_tilemap_height < 1)
+            ed->new_tilemap_height = 1;
+        if (ed->new_tilemap_grid_w < 1)
+            ed->new_tilemap_grid_w = 1;
+        if (ed->new_tilemap_grid_h < 1)
+            ed->new_tilemap_grid_h = 1;
 
-        if (igButton("Create##newtilemap", (ImVec2){100, 0}))
+        if (igButton("Create##newtilemap", (ImVec2){ 100, 0 }))
         {
             if (ed->tilemap_pool && strlen(ed->new_tilemap_name) > 0)
             {
-                Mel_Tilemap_Handle handle = mel_tilemap_pool_create(ed->tilemap_pool,
-                    str8_from_cstr(ed->new_tilemap_name),
-                    (u32)ed->new_tilemap_width, (u32)ed->new_tilemap_height,
-                    (u32)ed->new_tilemap_grid_w, (u32)ed->new_tilemap_grid_h);
+                Mel_Tilemap_Handle handle = mel_tilemap_pool_create(ed->tilemap_pool, str8_from_cstr(ed->new_tilemap_name), (u32)ed->new_tilemap_width, (u32)ed->new_tilemap_height, (u32)ed->new_tilemap_grid_w, (u32)ed->new_tilemap_grid_h);
 
                 if (mel_slotmap_handle_valid(handle.handle))
                 {
@@ -610,9 +610,9 @@ static void draw_map_canvas(Mel_EdTiles* ed)
         return;
     }
 
-    if (igBeginChild_Str("MapCanvas", (ImVec2){0, 0}, ImGuiChildFlags_Borders, ImGuiWindowFlags_HorizontalScrollbar))
+    if (igBeginChild_Str("MapCanvas", (ImVec2){ 0, 0 }, ImGuiChildFlags_Borders, ImGuiWindowFlags_HorizontalScrollbar))
     {
-        ImVec2_c cursor_pos = igGetCursorScreenPos();
+        ImVec2_c    cursor_pos = igGetCursorScreenPos();
         ImDrawList* draw_list = igGetWindowDrawList();
 
         f32 tile_size = (f32)ed->tilemap->grid_width * ed->zoom;
@@ -620,27 +620,28 @@ static void draw_map_canvas(Mel_EdTiles* ed)
         u32 map_h = ed->tilemap->height;
 
         ImDrawList_AddRectFilled(draw_list,
-            (ImVec2){cursor_pos.x - ed->scroll_x, cursor_pos.y - ed->scroll_y},
-            (ImVec2){cursor_pos.x - ed->scroll_x + map_w * tile_size, cursor_pos.y - ed->scroll_y + map_h * tile_size},
-            IM_COL32(30, 30, 40, 255), 0, 0);
+                                 (ImVec2){ cursor_pos.x - ed->scroll_x, cursor_pos.y - ed->scroll_y },
+                                 (ImVec2){ cursor_pos.x - ed->scroll_x + map_w * tile_size, cursor_pos.y - ed->scroll_y + map_h * tile_size },
+                                 IM_COL32(30, 30, 40, 255),
+                                 0,
+                                 0);
 
         for (u32 l = 0; l < ed->tilemap->layer_count; l++)
         {
             Mel_Tilemap_Layer* layer = &ed->tilemap->layers[l];
-            if (!layer->visible) continue;
+            if (!layer->visible)
+                continue;
 
             for (u32 y = 0; y < map_h; y++)
             {
                 for (u32 x = 0; x < map_w; x++)
                 {
                     i32 tile_id = layer->data[y * map_w + x];
-                    if (tile_id < 0) continue;
+                    if (tile_id < 0)
+                        continue;
 
-                    ImVec2 p0 = {
-                        cursor_pos.x + (f32)x * tile_size - ed->scroll_x + layer->offset_x * ed->zoom,
-                        cursor_pos.y + (f32)y * tile_size - ed->scroll_y + layer->offset_y * ed->zoom
-                    };
-                    ImVec2 p1 = {p0.x + tile_size, p0.y + tile_size};
+                    ImVec2 p0 = { cursor_pos.x + (f32)x * tile_size - ed->scroll_x + layer->offset_x * ed->zoom, cursor_pos.y + (f32)y * tile_size - ed->scroll_y + layer->offset_y * ed->zoom };
+                    ImVec2 p1 = { p0.x + tile_size, p0.y + tile_size };
 
                     if (ed->tileset)
                     {
@@ -659,9 +660,8 @@ static void draw_map_canvas(Mel_EdTiles* ed)
                                 f32 u1 = (f32)(entry->source_x + entry->width) / tex_w;
                                 f32 v1 = (f32)(entry->source_y + entry->height) / tex_h;
 
-                                ImTextureRef_c tex_ref = {._TexData = nullptr, ._TexID = (ImTextureID)tex->_descriptor};
-                                ImDrawList_AddImage(draw_list, tex_ref,
-                                    p0, p1, (ImVec2){u0, v0}, (ImVec2){u1, v1}, IM_COL32(255, 255, 255, 255));
+                                ImTextureRef_c tex_ref = { ._TexData = nullptr, ._TexID = (ImTextureID)tex->_descriptor };
+                                ImDrawList_AddImage(draw_list, tex_ref, p0, p1, (ImVec2){ u0, v0 }, (ImVec2){ u1, v1 }, IM_COL32(255, 255, 255, 255));
                             }
                         }
                     }
@@ -677,14 +677,14 @@ static void draw_map_canvas(Mel_EdTiles* ed)
         {
             for (u32 y = 0; y <= map_h; y++)
             {
-                ImVec2 start = {cursor_pos.x - ed->scroll_x, cursor_pos.y + (f32)y * tile_size - ed->scroll_y};
-                ImVec2 end = {cursor_pos.x - ed->scroll_x + map_w * tile_size, start.y};
+                ImVec2 start = { cursor_pos.x - ed->scroll_x, cursor_pos.y + (f32)y * tile_size - ed->scroll_y };
+                ImVec2 end = { cursor_pos.x - ed->scroll_x + map_w * tile_size, start.y };
                 ImDrawList_AddLine(draw_list, start, end, IM_COL32(80, 80, 80, 128), 1.0f);
             }
             for (u32 x = 0; x <= map_w; x++)
             {
-                ImVec2 start = {cursor_pos.x + (f32)x * tile_size - ed->scroll_x, cursor_pos.y - ed->scroll_y};
-                ImVec2 end = {start.x, cursor_pos.y - ed->scroll_y + map_h * tile_size};
+                ImVec2 start = { cursor_pos.x + (f32)x * tile_size - ed->scroll_x, cursor_pos.y - ed->scroll_y };
+                ImVec2 end = { start.x, cursor_pos.y - ed->scroll_y + map_h * tile_size };
                 ImDrawList_AddLine(draw_list, start, end, IM_COL32(80, 80, 80, 128), 1.0f);
             }
         }
@@ -696,8 +696,8 @@ static void draw_map_canvas(Mel_EdTiles* ed)
             i32 ex = ed->selection.start_x > ed->selection.end_x ? ed->selection.start_x : ed->selection.end_x;
             i32 ey = ed->selection.start_y > ed->selection.end_y ? ed->selection.start_y : ed->selection.end_y;
 
-            ImVec2 sel_p0 = {cursor_pos.x + sx * tile_size - ed->scroll_x, cursor_pos.y + sy * tile_size - ed->scroll_y};
-            ImVec2 sel_p1 = {cursor_pos.x + (ex + 1) * tile_size - ed->scroll_x, cursor_pos.y + (ey + 1) * tile_size - ed->scroll_y};
+            ImVec2 sel_p0 = { cursor_pos.x + sx * tile_size - ed->scroll_x, cursor_pos.y + sy * tile_size - ed->scroll_y };
+            ImVec2 sel_p1 = { cursor_pos.x + (ex + 1) * tile_size - ed->scroll_x, cursor_pos.y + (ey + 1) * tile_size - ed->scroll_y };
 
             ImDrawList_AddRectFilled(draw_list, sel_p0, sel_p1, IM_COL32(100, 150, 255, 50), 0, 0);
             ImDrawList_AddRect(draw_list, sel_p0, sel_p1, IM_COL32(100, 150, 255, 255), 0, 0, 2.0f);
@@ -707,16 +707,16 @@ static void draw_map_canvas(Mel_EdTiles* ed)
         if (igIsWindowHovered(0))
         {
             ImVec2_c mouse_pos = igGetMousePos();
-            f32 rel_x = mouse_pos.x - cursor_pos.x + ed->scroll_x;
-            f32 rel_y = mouse_pos.y - cursor_pos.y + ed->scroll_y;
+            f32      rel_x = mouse_pos.x - cursor_pos.x + ed->scroll_x;
+            f32      rel_y = mouse_pos.y - cursor_pos.y + ed->scroll_y;
 
             i32 tx = (i32)(rel_x / tile_size);
             i32 ty = (i32)(rel_y / tile_size);
 
             if (tx >= 0 && ty >= 0 && (u32)tx < map_w && (u32)ty < map_h)
             {
-                ImVec2 hover_p0 = {cursor_pos.x + tx * tile_size - ed->scroll_x, cursor_pos.y + ty * tile_size - ed->scroll_y};
-                ImVec2 hover_p1 = {hover_p0.x + tile_size, hover_p0.y + tile_size};
+                ImVec2 hover_p0 = { cursor_pos.x + tx * tile_size - ed->scroll_x, cursor_pos.y + ty * tile_size - ed->scroll_y };
+                ImVec2 hover_p1 = { hover_p0.x + tile_size, hover_p0.y + tile_size };
                 ImDrawList_AddRect(draw_list, hover_p0, hover_p1, IM_COL32(255, 255, 100, 200), 0, 0, 2.0f);
 
                 if (ed->tool == MEL_ED_TILES_TOOL_BRUSH)
@@ -777,8 +777,10 @@ static void draw_map_canvas(Mel_EdTiles* ed)
             }
 
             ed->zoom += io->MouseWheel * 0.1f;
-            if (ed->zoom < 0.25f) ed->zoom = 0.25f;
-            if (ed->zoom > 4.0f) ed->zoom = 4.0f;
+            if (ed->zoom < 0.25f)
+                ed->zoom = 0.25f;
+            if (ed->zoom > 4.0f)
+                ed->zoom = 4.0f;
 
             if (ed->selection.active && !io->MouseDown[0])
             {
@@ -814,7 +816,7 @@ static void draw_map_canvas(Mel_EdTiles* ed)
             }
         }
 
-        igDummy((ImVec2){map_w * tile_size, map_h * tile_size});
+        igDummy((ImVec2){ map_w * tile_size, map_h * tile_size });
     }
     igEndChild();
 }
@@ -829,12 +831,12 @@ static void draw_layer_panel(Mel_EdTiles* ed)
         return;
     }
 
-    if (igButton("+##addlayer", (ImVec2){25, 0}))
+    if (igButton("+##addlayer", (ImVec2){ 25, 0 }))
     {
         igOpenPopup_Str("AddLayer", 0);
     }
     igSameLine(0, 5);
-    if (igButton("-##dellayer", (ImVec2){25, 0}))
+    if (igButton("-##dellayer", (ImVec2){ 25, 0 }))
     {
         if (ed->selected_layer >= 0 && (u32)ed->selected_layer < ed->tilemap->layer_count)
         {
@@ -847,7 +849,7 @@ static void draw_layer_panel(Mel_EdTiles* ed)
         }
     }
     igSameLine(0, 5);
-    if (igButton("^##layerup", (ImVec2){25, 0}))
+    if (igButton("^##layerup", (ImVec2){ 25, 0 }))
     {
         if (ed->selected_layer > 0)
         {
@@ -857,7 +859,7 @@ static void draw_layer_panel(Mel_EdTiles* ed)
         }
     }
     igSameLine(0, 5);
-    if (igButton("v##layerdown", (ImVec2){25, 0}))
+    if (igButton("v##layerdown", (ImVec2){ 25, 0 }))
     {
         if (ed->selected_layer >= 0 && (u32)ed->selected_layer < ed->tilemap->layer_count - 1)
         {
@@ -870,7 +872,7 @@ static void draw_layer_panel(Mel_EdTiles* ed)
     if (igBeginPopup("AddLayer", 0))
     {
         igInputText("Name##newlayer", ed->new_layer_name, sizeof(ed->new_layer_name), 0, nullptr, nullptr);
-        if (igButton("Add##newlayer", (ImVec2){80, 0}))
+        if (igButton("Add##newlayer", (ImVec2){ 80, 0 }))
         {
             mel_tilemap_entry_add_layer(ed->tilemap, str8_from_cstr(ed->new_layer_name));
             ed->dirty = true;
@@ -879,7 +881,7 @@ static void draw_layer_panel(Mel_EdTiles* ed)
         igEndPopup();
     }
 
-    if (igBeginChild_Str("LayerList", (ImVec2){0, 200}, ImGuiChildFlags_Borders, 0))
+    if (igBeginChild_Str("LayerList", (ImVec2){ 0, 200 }, ImGuiChildFlags_Borders, 0))
     {
         for (u32 i = 0; i < ed->tilemap->layer_count; i++)
         {
@@ -896,12 +898,12 @@ static void draw_layer_panel(Mel_EdTiles* ed)
             if (ed->renaming_layer == (i32)i)
             {
                 igSetKeyboardFocusHere(0);
-                if (igInputText("##rename", ed->rename_layer_buffer, sizeof(ed->rename_layer_buffer),
-                    ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll, nullptr, nullptr))
+                if (igInputText("##rename", ed->rename_layer_buffer, sizeof(ed->rename_layer_buffer), ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll, nullptr, nullptr))
                 {
                     if (strlen(ed->rename_layer_buffer) > 0)
                     {
-                        if (layer->name.data) mel_dealloc(ed->tilemap->alloc, layer->name.data);
+                        if (layer->name.data)
+                            mel_dealloc(ed->tilemap->alloc, layer->name.data);
                         layer->name = str8_dup(str8_from_cstr(ed->rename_layer_buffer), ed->tilemap->alloc);
                         ed->dirty = true;
                     }
@@ -922,7 +924,7 @@ static void draw_layer_panel(Mel_EdTiles* ed)
                     strncpy(name_buf, "(unnamed)", sizeof(name_buf));
                 snprintf(label, sizeof(label), "%s###layer", name_buf);
 
-                if (igSelectable_Bool(label, ed->selected_layer == (i32)i, ImGuiSelectableFlags_AllowDoubleClick, (ImVec2){0, 0}))
+                if (igSelectable_Bool(label, ed->selected_layer == (i32)i, ImGuiSelectableFlags_AllowDoubleClick, (ImVec2){ 0, 0 }))
                 {
                     ed->selected_layer = (i32)i;
 
@@ -950,19 +952,23 @@ static void draw_layer_panel(Mel_EdTiles* ed)
         igText("Layer Properties");
 
         igInputFloat("Parallax X", &layer->parallax_x, 0.1f, 0.5f, "%.2f", 0);
-        if (igIsItemDeactivatedAfterEdit()) ed->dirty = true;
+        if (igIsItemDeactivatedAfterEdit())
+            ed->dirty = true;
         igInputFloat("Parallax Y", &layer->parallax_y, 0.1f, 0.5f, "%.2f", 0);
-        if (igIsItemDeactivatedAfterEdit()) ed->dirty = true;
+        if (igIsItemDeactivatedAfterEdit())
+            ed->dirty = true;
         igInputInt("Offset X", &layer->offset_x, 1, 10, 0);
-        if (igIsItemDeactivatedAfterEdit()) ed->dirty = true;
+        if (igIsItemDeactivatedAfterEdit())
+            ed->dirty = true;
         igInputInt("Offset Y", &layer->offset_y, 1, 10, 0);
-        if (igIsItemDeactivatedAfterEdit()) ed->dirty = true;
+        if (igIsItemDeactivatedAfterEdit())
+            ed->dirty = true;
     }
 }
 
 static void draw_import_dialog(Mel_EdTiles* ed)
 {
-    igSetNextWindowSize((ImVec2){600, 500}, ImGuiCond_FirstUseEver);
+    igSetNextWindowSize((ImVec2){ 600, 500 }, ImGuiCond_FirstUseEver);
 
     if (igBegin("Import Tile Sheet", &ed->show_import_dialog, 0))
     {
@@ -972,7 +978,7 @@ static void draw_import_dialog(Mel_EdTiles* ed)
         igText("Source Texture:");
         igInputText("##importtexpath", ed->import_texture_path, sizeof(ed->import_texture_path), 0, nullptr, nullptr);
 
-        if (igButton("Load Preview", (ImVec2){100, 0}))
+        if (igButton("Load Preview", (ImVec2){ 100, 0 }))
         {
             if (ed->texture_pool && strlen(ed->import_texture_path) > 0)
             {
@@ -990,16 +996,22 @@ static void draw_import_dialog(Mel_EdTiles* ed)
         igInputInt("Padding", &ed->import_padding, 1, 4, 0);
         igInputInt("Margin", &ed->import_margin, 1, 4, 0);
 
-        if (ed->import_tile_width < 1) ed->import_tile_width = 1;
-        if (ed->import_tile_height < 1) ed->import_tile_height = 1;
-        if (ed->import_columns < 0) ed->import_columns = 0;
-        if (ed->import_rows < 0) ed->import_rows = 0;
-        if (ed->import_padding < 0) ed->import_padding = 0;
-        if (ed->import_margin < 0) ed->import_margin = 0;
+        if (ed->import_tile_width < 1)
+            ed->import_tile_width = 1;
+        if (ed->import_tile_height < 1)
+            ed->import_tile_height = 1;
+        if (ed->import_columns < 0)
+            ed->import_columns = 0;
+        if (ed->import_rows < 0)
+            ed->import_rows = 0;
+        if (ed->import_padding < 0)
+            ed->import_padding = 0;
+        if (ed->import_margin < 0)
+            ed->import_margin = 0;
 
         igSeparator();
 
-        if (igButton("Import", (ImVec2){100, 30}))
+        if (igButton("Import", (ImVec2){ 100, 30 }))
         {
             if (ed->texture_pool && strlen(ed->import_texture_path) > 0)
             {
@@ -1018,9 +1030,7 @@ static void draw_import_dialog(Mel_EdTiles* ed)
                     source->padding = (u32)ed->import_padding;
                     source->margin = (u32)ed->import_margin;
 
-                    source->texture = mel_slotmap_handle_valid(ed->import_preview_texture.handle)
-                        ? ed->import_preview_texture
-                        : mel_texture_pool_load(ed->texture_pool, str8_from_cstr(ed->import_texture_path));
+                    source->texture = mel_slotmap_handle_valid(ed->import_preview_texture.handle) ? ed->import_preview_texture : mel_texture_pool_load(ed->texture_pool, str8_from_cstr(ed->import_texture_path));
 
                     Mel_Gpu_Texture* tex = mel_texture_pool_get(ed->texture_pool, source->texture);
                     if (tex)
@@ -1054,7 +1064,7 @@ static void draw_import_dialog(Mel_EdTiles* ed)
             }
         }
         igSameLine(0, 10);
-        if (igButton("Cancel", (ImVec2){100, 30}))
+        if (igButton("Cancel", (ImVec2){ 100, 30 }))
         {
             ed->import_preview_texture = MEL_TEXTURE_HANDLE_NULL;
             ed->show_import_dialog = false;
@@ -1078,13 +1088,13 @@ static void draw_import_dialog(Mel_EdTiles* ed)
             f32 display_w = tex_w * scale;
             f32 display_h = tex_h * scale;
 
-            ImVec2_c cursor_pos = igGetCursorScreenPos();
+            ImVec2_c    cursor_pos = igGetCursorScreenPos();
             ImDrawList* draw_list = igGetWindowDrawList();
 
-            ImTextureRef_c tex_ref = {._TexData = nullptr, ._TexID = (ImTextureID)preview->_descriptor};
-            ImVec2 p0 = {cursor_pos.x, cursor_pos.y};
-            ImVec2 p1 = {cursor_pos.x + display_w, cursor_pos.y + display_h};
-            ImDrawList_AddImage(draw_list, tex_ref, p0, p1, (ImVec2){0, 0}, (ImVec2){1, 1}, IM_COL32(255, 255, 255, 255));
+            ImTextureRef_c tex_ref = { ._TexData = nullptr, ._TexID = (ImTextureID)preview->_descriptor };
+            ImVec2         p0 = { cursor_pos.x, cursor_pos.y };
+            ImVec2         p1 = { cursor_pos.x + display_w, cursor_pos.y + display_h };
+            ImDrawList_AddImage(draw_list, tex_ref, p0, p1, (ImVec2){ 0, 0 }, (ImVec2){ 1, 1 }, IM_COL32(255, 255, 255, 255));
 
             i32 tile_w = ed->import_tile_width;
             i32 tile_h = ed->import_tile_height;
@@ -1103,13 +1113,13 @@ static void draw_import_dialog(Mel_EdTiles* ed)
                     f32 gw = (f32)tile_w * scale;
                     f32 gh = (f32)tile_h * scale;
 
-                    ImVec2 gp0 = {cursor_pos.x + gx, cursor_pos.y + gy};
-                    ImVec2 gp1 = {gp0.x + gw, gp0.y + gh};
+                    ImVec2 gp0 = { cursor_pos.x + gx, cursor_pos.y + gy };
+                    ImVec2 gp1 = { gp0.x + gw, gp0.y + gh };
                     ImDrawList_AddRect(draw_list, gp0, gp1, IM_COL32(255, 200, 50, 200), 0, 0, 1.0f);
                 }
             }
 
-            igDummy((ImVec2){display_w, display_h});
+            igDummy((ImVec2){ display_w, display_h });
             igText("Detected: %dx%d tiles", cols, rows);
         }
         else
@@ -1145,8 +1155,10 @@ void mel_ed_tiles_brush_from_selection(Mel_EdTiles* ed)
 {
     assert(ed != nullptr);
 
-    if (!ed->selection.active || !ed->tilemap) return;
-    if (ed->selected_layer < 0 || (u32)ed->selected_layer >= ed->tilemap->layer_count) return;
+    if (!ed->selection.active || !ed->tilemap)
+        return;
+    if (ed->selected_layer < 0 || (u32)ed->selected_layer >= ed->tilemap->layer_count)
+        return;
 
     i32 sx = ed->selection.start_x < ed->selection.end_x ? ed->selection.start_x : ed->selection.end_x;
     i32 sy = ed->selection.start_y < ed->selection.end_y ? ed->selection.start_y : ed->selection.end_y;
@@ -1221,7 +1233,8 @@ void mel_ed_tiles_brush_flip_h(Mel_EdTiles* ed)
 {
     assert(ed != nullptr);
 
-    if (!ed->brush.current.tiles) return;
+    if (!ed->brush.current.tiles)
+        return;
 
     ed->brush.flip_h = !ed->brush.flip_h;
 
@@ -1243,7 +1256,8 @@ void mel_ed_tiles_brush_flip_v(Mel_EdTiles* ed)
 {
     assert(ed != nullptr);
 
-    if (!ed->brush.current.tiles) return;
+    if (!ed->brush.current.tiles)
+        return;
 
     ed->brush.flip_v = !ed->brush.flip_v;
 
@@ -1265,7 +1279,8 @@ void mel_ed_tiles_brush_rotate_cw(Mel_EdTiles* ed)
 {
     assert(ed != nullptr);
 
-    if (!ed->brush.current.tiles) return;
+    if (!ed->brush.current.tiles)
+        return;
 
     ed->brush.rotation = (ed->brush.rotation + 1) % 4;
 
@@ -1296,8 +1311,10 @@ void mel_ed_tiles_paint(Mel_EdTiles* ed, i32 x, i32 y)
 {
     assert(ed != nullptr);
 
-    if (!ed->tilemap || !ed->brush.current.tiles) return;
-    if (ed->selected_layer < 0 || (u32)ed->selected_layer >= ed->tilemap->layer_count) return;
+    if (!ed->tilemap || !ed->brush.current.tiles)
+        return;
+    if (ed->selected_layer < 0 || (u32)ed->selected_layer >= ed->tilemap->layer_count)
+        return;
 
     u32 bw = ed->brush.current.width;
     u32 bh = ed->brush.current.height;
@@ -1326,8 +1343,10 @@ void mel_ed_tiles_erase(Mel_EdTiles* ed, i32 x, i32 y)
 {
     assert(ed != nullptr);
 
-    if (!ed->tilemap) return;
-    if (ed->selected_layer < 0 || (u32)ed->selected_layer >= ed->tilemap->layer_count) return;
+    if (!ed->tilemap)
+        return;
+    if (ed->selected_layer < 0 || (u32)ed->selected_layer >= ed->tilemap->layer_count)
+        return;
 
     if (x >= 0 && y >= 0 && (u32)x < ed->tilemap->width && (u32)y < ed->tilemap->height)
     {
@@ -1340,19 +1359,22 @@ void mel_ed_tiles_fill(Mel_EdTiles* ed, i32 x, i32 y)
 {
     assert(ed != nullptr);
 
-    if (!ed->tilemap || !ed->brush.current.tiles) return;
-    if (ed->selected_layer < 0 || (u32)ed->selected_layer >= ed->tilemap->layer_count) return;
-    if (x < 0 || y < 0 || (u32)x >= ed->tilemap->width || (u32)y >= ed->tilemap->height) return;
+    if (!ed->tilemap || !ed->brush.current.tiles)
+        return;
+    if (ed->selected_layer < 0 || (u32)ed->selected_layer >= ed->tilemap->layer_count)
+        return;
+    if (x < 0 || y < 0 || (u32)x >= ed->tilemap->width || (u32)y >= ed->tilemap->height)
+        return;
 
     i32 target_tile = mel_tilemap_entry_get_tile(ed->tilemap, (u32)ed->selected_layer, (u32)x, (u32)y);
 
     u32 bw = ed->brush.current.width;
     u32 bh = ed->brush.current.height;
 
-    u32 map_size = ed->tilemap->width * ed->tilemap->height;
+    u32   map_size = ed->tilemap->width * ed->tilemap->height;
     bool* visited = mel_calloc(ed->alloc, map_size * sizeof(bool));
-    i32* stack = mel_alloc(ed->alloc, map_size * 2 * sizeof(i32));
-    u32 stack_size = 0;
+    i32*  stack = mel_alloc(ed->alloc, map_size * 2 * sizeof(i32));
+    u32   stack_size = 0;
 
     stack[stack_size++] = x;
     stack[stack_size++] = y;

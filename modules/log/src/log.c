@@ -99,8 +99,7 @@ static void mel__ring_free(Mel__Log_Ring* r)
     r->capacity = 0;
 }
 
-#define MEL__LOG_ENTRY_HEADER_SIZE \
-    (sizeof(u32) + sizeof(u32) + sizeof(u64) + sizeof(u32) + sizeof(u32) + sizeof(u64) + sizeof(u64) + sizeof(u32) + sizeof(u32) + sizeof(u16) + sizeof(u16) + sizeof(u16) + sizeof(u16))
+#define MEL__LOG_ENTRY_HEADER_SIZE (sizeof(u32) + sizeof(u32) + sizeof(u64) + sizeof(u32) + sizeof(u32) + sizeof(u64) + sizeof(u64) + sizeof(u32) + sizeof(u32) + sizeof(u16) + sizeof(u16) + sizeof(u16) + sizeof(u16))
 
 static bool mel__ring_reserve(Mel__Log_Ring* r, u32 total_size, u64* out_pos)
 {
