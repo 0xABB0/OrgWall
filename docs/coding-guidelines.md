@@ -29,3 +29,13 @@ Our code should follow the following pillars:
 ### MEL-CODE-006: Make heavy use of profiling and logging
 Always push for useful logging but try not to make too much noise.
 Profiling is extremely important, both speed and memory.
+
+# Spec Guidelines
+
+### MEL-SPEC-001: Specifications are not a novel
+Specification should be straight to the point.
+Avoid verbose prose as much as possible.
+Focus instead on delivering meaning.
+
+### MEL-SPEC-002: Spec folder should be tidy
+Specifications in design/ should be removed as soon as there is place for them in the relative module
