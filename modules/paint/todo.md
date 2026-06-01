@@ -17,7 +17,9 @@ painter except where a correctness gotcha is flagged — verify on the target pl
 ## Borrowed-window drawable + gui migration
 
 - Add the borrowed-window drawable ctor (`owns=false`): wraps an external native context,
-  `destroy` releases the handle but **not** the borrower's context/buffer.
+  `destroy` releases the handle but **not** the borrower's context/buffer. It is valid only
+  inside the paint callback that vended it; on return the vendor bumps its slotmap generation
+  so a retained drawable/painter fails `alive()` loudly.
 - `gui` canvas `on_paint` vends a `Mel_Drawable` (borrowed); delete `gui/painter.h`,
   `gui/color.h`, the per-backend painters (`gui/src/{cocoa,winui,androidnative}/painter.*`)
   and the inline painter code in `gui/src/{uikit,dom}/canvas.*`; retire `gui`'s private
@@ -32,6 +34,12 @@ painter except where a correctness gotcha is flagged — verify on the target pl
   nominal one-field-struct wrappers once the borrowed path exists to confuse them.
 - Logging/profiling (MEL-CODE-006): none yet; add on create/destroy + alloc-fail once the
   module grows a `log` dep.
+
+## Future
+
+- **Drawn backend** — record ops into a `gpu` draw-list instead of a native 2D API: the
+  GPU-accelerated 2D path that rejoins the swapchain. Deferred until the GPU RHI lands.
+  Composes with the existing op set (same painter surface, a different lowering).
 
 ## Notes
 
