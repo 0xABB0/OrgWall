@@ -279,7 +279,7 @@ static bool package_android(Mel_Graph* g, Mel_IdxVec* order, Mel_Target* t, cons
     for (size_t i = 0; order && i < order->len; i++)
     {
         Mel_Target* d = g->nodes.items[order->items[i]].t;
-        if (!d->android_manifest && !d->android_java)
+        if (d->kind != MEL_KIND_LIBRARY || (!d->android_manifest && !d->android_java))
             continue;
         gen_android_library(proj, d);
         char* path = mel_str_fmt(":%s", d->name);
@@ -297,9 +297,13 @@ static bool package_android(Mel_Graph* g, Mel_IdxVec* order, Mel_Target* t, cons
                                     ver,
                                     t->name,
                                     libcsv ? libcsv : "");
-    char*       gp = mel_str_fmt("%s/gradle.properties", proj);
-    char*       cur = mel_read_file(gp);
-    char*       merged = mel_str_fmt("%s%s", cur ? cur : "", props);
+    if (t->android_manifest)
+        props = mel_str_fmt("%smelody.appManifest=%s\n", props, cwd_abs(mel_str_fmt("%s/%s", t->dir, t->android_manifest)));
+    if (t->android_java)
+        props = mel_str_fmt("%smelody.appJava=%s\n", props, cwd_abs(mel_str_fmt("%s/%s", t->dir, t->android_java)));
+    char* gp = mel_str_fmt("%s/gradle.properties", proj);
+    char* cur = mel_read_file(gp);
+    char* merged = mel_str_fmt("%s%s", cur ? cur : "", props);
     mel_write_file(gp, merged);
 
     Mel_StrVec gr = { 0 };

@@ -32,6 +32,10 @@ android {
     sourceSets {
         getByName("main") {
             jniLibs.srcDirs("src/main/jniLibs")
+            propOrNull("melody.appJava")?.let { java.srcDir(File(it)) }
+        }
+        getByName("melody") {
+            propOrNull("melody.appManifest")?.let { manifest.srcFile(File(it)) }
         }
     }
 }
