@@ -15,6 +15,7 @@ void build(Mel_Build* b)
     mel_link(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(MACOS)), "-framework", "Cocoa", "-framework", "QuartzCore", "-framework", "CoreGraphics");
     mel_link(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(IOS)), "-framework", "UIKit", "-framework", "QuartzCore", "-framework", "CoreGraphics");
     mel_link(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(WIN32)), "-lcomctl32", "-lgdi32");
+    mel_link(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(ANDROID)), "-landroid");
     mel_depends(lib, "core");
     mel_depends(lib, "allocator");
     mel_depends(lib, "collection");
