@@ -1,9 +1,8 @@
 #pragma once
 
 #include <core/types.h>
+#include <core/compiler.h>
 #include <thread/storage.h>
-
-#include <stdalign.h>
 
 typedef enum
 {
@@ -13,7 +12,7 @@ typedef enum
 
 typedef struct Mel_Event
 {
-    alignas(MEL_EVENT_STORAGE_ALIGN) byte _storage[MEL_EVENT_STORAGE_SIZE];
+    MEL_ALIGNAS(MEL_EVENT_STORAGE_ALIGN) byte _storage[MEL_EVENT_STORAGE_SIZE];
 } Mel_Event;
 
 bool mel_event_init(Mel_Event* e, Mel_Event_Kind kind);

@@ -1,13 +1,12 @@
 #pragma once
 
 #include <core/types.h>
+#include <core/compiler.h>
 #include <thread/storage.h>
-
-#include <stdalign.h>
 
 typedef struct Mel_RWLock
 {
-    alignas(MEL_RWLOCK_STORAGE_ALIGN) byte _storage[MEL_RWLOCK_STORAGE_SIZE];
+    MEL_ALIGNAS(MEL_RWLOCK_STORAGE_ALIGN) byte _storage[MEL_RWLOCK_STORAGE_SIZE];
 } Mel_RWLock;
 
 bool mel_rwlock_init(Mel_RWLock* l);

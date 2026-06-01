@@ -1,9 +1,8 @@
 #pragma once
 
 #include <core/types.h>
+#include <core/compiler.h>
 #include <thread/storage.h>
-
-#include <stdalign.h>
 
 typedef enum
 {
@@ -13,7 +12,7 @@ typedef enum
 
 typedef struct Mel_Mutex
 {
-    alignas(MEL_MUTEX_STORAGE_ALIGN) byte _storage[MEL_MUTEX_STORAGE_SIZE];
+    MEL_ALIGNAS(MEL_MUTEX_STORAGE_ALIGN) byte _storage[MEL_MUTEX_STORAGE_SIZE];
 } Mel_Mutex;
 
 bool mel_mutex_init(Mel_Mutex* m, Mel_Mutex_Kind kind);

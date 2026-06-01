@@ -1,13 +1,12 @@
 #pragma once
 
 #include <core/types.h>
+#include <core/compiler.h>
 #include <thread/storage.h>
-
-#include <stdalign.h>
 
 typedef struct Mel_Sem
 {
-    alignas(MEL_SEM_STORAGE_ALIGN) byte _storage[MEL_SEM_STORAGE_SIZE];
+    MEL_ALIGNAS(MEL_SEM_STORAGE_ALIGN) byte _storage[MEL_SEM_STORAGE_SIZE];
 } Mel_Sem;
 
 bool mel_sem_init(Mel_Sem* s, u32 initial);

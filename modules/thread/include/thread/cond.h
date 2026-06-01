@@ -1,14 +1,13 @@
 #pragma once
 
 #include <core/types.h>
+#include <core/compiler.h>
 #include <thread/storage.h>
 #include <thread/mutex.h>
 
-#include <stdalign.h>
-
 typedef struct Mel_Cond
 {
-    alignas(MEL_COND_STORAGE_ALIGN) byte _storage[MEL_COND_STORAGE_SIZE];
+    MEL_ALIGNAS(MEL_COND_STORAGE_ALIGN) byte _storage[MEL_COND_STORAGE_SIZE];
 } Mel_Cond;
 
 bool mel_cond_init(Mel_Cond* c);

@@ -1,9 +1,9 @@
 #pragma once
 
 #include <core/types.h>
+#include <core/compiler.h>
 #include <thread/storage.h>
 
-#include <stdalign.h>
 #include <stdatomic.h>
 
 typedef u64 Mel_Thread_Id;
@@ -18,7 +18,7 @@ typedef struct Mel_Thread_Spawn_Opt
 
 typedef struct Mel_Thread
 {
-    alignas(MEL_THREAD_HANDLE_ALIGN) byte _handle[MEL_THREAD_HANDLE_SIZE];
+    MEL_ALIGNAS(MEL_THREAD_HANDLE_ALIGN) byte _handle[MEL_THREAD_HANDLE_SIZE];
     Mel_Thread_Id id;
     Mel_Thread_Fn fn;
     void*         user;

@@ -4,6 +4,7 @@
 
 static_assert(sizeof(pthread_mutex_t) <= MEL_MUTEX_STORAGE_SIZE, "MEL_MUTEX_STORAGE_SIZE too small");
 static_assert(_Alignof(pthread_mutex_t) <= MEL_MUTEX_STORAGE_ALIGN, "MEL_MUTEX_STORAGE_ALIGN too small");
+static_assert(_Alignof(Mel_Mutex) == MEL_MUTEX_STORAGE_ALIGN, "Mel_Mutex under-aligned: alignas dropped by toolchain");
 
 #define MEL__MUTEX(m) ((pthread_mutex_t*)(m)->_storage)
 

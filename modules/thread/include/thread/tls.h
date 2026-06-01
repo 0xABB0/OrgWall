@@ -1,15 +1,14 @@
 #pragma once
 
 #include <core/types.h>
+#include <core/compiler.h>
 #include <thread/storage.h>
-
-#include <stdalign.h>
 
 typedef void (*Mel_Tls_Dtor)(void* value);
 
 typedef struct Mel_Tls
 {
-    alignas(MEL_TLS_STORAGE_ALIGN) byte _storage[MEL_TLS_STORAGE_SIZE];
+    MEL_ALIGNAS(MEL_TLS_STORAGE_ALIGN) byte _storage[MEL_TLS_STORAGE_SIZE];
 } Mel_Tls;
 
 bool  mel_tls_init(Mel_Tls* k, Mel_Tls_Dtor dtor);
