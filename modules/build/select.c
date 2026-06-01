@@ -1,7 +1,9 @@
 #include "runner.h"
 
+#ifndef _WIN32
 #include <dirent.h>
 #include <fnmatch.h>
+#endif
 
 bool mel_when_match(Mel_When w, const Mel_Variant *v) {
     if (w.platforms && !(w.platforms & (1u << v->platform))) return false;

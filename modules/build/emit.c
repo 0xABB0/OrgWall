@@ -1,6 +1,8 @@
 #include "runner.h"
 
+#ifndef _WIN32
 #include <dirent.h>
+#endif
 #include <stdio.h>
 
 static Mel_Toolchain g_tc;
@@ -228,7 +230,15 @@ static char *emit_one(FILE *f, Mel_Graph *g, size_t idx, const Mel_Variant *v, M
 
         bool win32_gui = !host && v->platform == MEL_PLATFORM_WIN32 && t->kind == MEL_KIND_EXECUTABLE &&
                          t->subsystem && strcmp(t->subsystem, "gui") == 0;
-        if (win32_gui) mel_da_push(&ldflags, mel_str_dup("-Wl,--subsystem,windows"));
+        if (win32_gui) mel_da_push(&ldflags, mel_str_dup("-Wl,/subsystem:windows"));
+
+        if (!host && v->platform == MEL_PLATFORM_WIN32) {
+            static const char *win32_libs[] = {"user32",  "gdi32",   "shell32", "ole32",
+                                               "comdlg32", "comctl32", "uxtheme", "dwmapi",
+                                               "winmm",    "advapi32", "shlwapi", "kernel32"};
+            for (size_t li = 0; li < sizeof(win32_libs) / sizeof(*win32_libs); li++)
+                mel_da_push(&ldflags, mel_str_fmt("-l%s", win32_libs[li]));
+        }
 
         Mel_StrVec libs = {0};
         if (order) {
@@ -281,7 +291,7 @@ bool mel_emit_and_build(Mel_Graph *g, const char *root, const Mel_Variant *v, bo
     char *root_outdir = outdir_for(g->nodes.items[ri].t, v);
     mel_mkdirs(root_outdir);
     char *ninja_path = mel_str_fmt("%s/build.ninja", root_outdir);
-    FILE *f          = fopen(ninja_path, "w");
+    FILE *f          = fopen(ninja_path, "wb");
     if (!f) {
         fprintf(stderr, "build: cannot write %s\n", ninja_path);
         return false;
@@ -297,7 +307,11 @@ bool mel_emit_and_build(Mel_Graph *g, const char *root, const Mel_Variant *v, bo
     fputs("  depfile = $out.d\n  deps = gcc\n  description = CC $out\n\n", f);
     fputs("rule hostcc\n  command = clang $cflags -MMD -MF $out.d -c $in -o $out\n", f);
     fputs("  depfile = $out.d\n  deps = gcc\n  description = CC(host) $out\n\n", f);
+#ifdef _WIN32
+    fputs("rule ar\n  command = $ar rcs $out $in\n  description = AR $out\n\n", f);
+#else
     fputs("rule ar\n  command = rm -f $out && $ar rcs $out $in\n  description = AR $out\n\n", f);
+#endif
     fputs("rule link\n  command = $cc $in $ldflags -o $out\n  description = LINK $out\n\n", f);
     fputs("rule hostlink\n  command = clang $in $ldflags -o $out\n  description = LINK(host) $out\n\n", f);
     fputs("rule codegen\n  command = $cmd\n  description = GEN $out\n\n", f);

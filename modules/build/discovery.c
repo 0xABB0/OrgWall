@@ -1,8 +1,10 @@
 #include "runner.h"
 
+#include <stdio.h>
+#ifndef _WIN32
 #include <dirent.h>
 #include <dlfcn.h>
-#include <stdio.h>
+#endif
 
 typedef void (*Mel_Build_Fn)(Mel_Build *);
 
@@ -15,15 +17,24 @@ bool mel_discover_dir(Mel_Graph *g, const char *dir) {
 
     const char *base = strrchr(dir, '/');
     base             = base ? base + 1 : dir;
-    char *so         = mel_str_fmt("build/_loadc/%s.so", base);
+#ifdef _WIN32
+    char *so = mel_str_fmt("build/_loadc/%s.dll", base);
+#else
+    char *so = mel_str_fmt("build/_loadc/%s.so", base);
+#endif
     mel_mkdirs("build/_loadc");
 
     Mel_StrVec cmd = {0};
     mel_da_push(&cmd, "clang");
     mel_da_push(&cmd, "-std=c23");
     mel_da_push(&cmd, "-shared");
+#ifndef _WIN32
     mel_da_push(&cmd, "-fPIC");
+#endif
     mel_da_push(&cmd, "-Imodules/build");
+#ifdef _WIN32
+    mel_da_push(&cmd, "-Wl,/export:build");
+#endif
     mel_da_push(&cmd, "-o");
     mel_da_push(&cmd, so);
     mel_da_push(&cmd, build_c);

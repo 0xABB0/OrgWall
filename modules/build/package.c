@@ -1,6 +1,8 @@
 #include "runner.h"
 
+#ifndef _WIN32
 #include <dirent.h>
+#endif
 #include <stdio.h>
 
 typedef MEL_VEC(char) Mel_CharVec;
@@ -144,16 +146,14 @@ char *mel_win32_resource(Mel_Target *t, const char *outdir) {
     char *rc_file = mel_str_fmt("%s/app.rc", outdir);
     mel_write_file(rc_file, rc_text);
 
-    char      *res = mel_str_fmt("%s/app.res.o", outdir);
+    char      *res = mel_str_fmt("%s/app.res", outdir);
     Mel_StrVec c   = {0};
-    mel_da_push(&c, "x86_64-w64-mingw32-windres");
-    mel_da_push(&c, rc_file);
-    mel_da_push(&c, "-I");
-    mel_da_push(&c, win32dir);
-    mel_da_push(&c, "-I");
-    mel_da_push(&c, "modules/build/win32");
-    mel_da_push(&c, "-o");
+    mel_da_push(&c, "llvm-rc");
+    mel_da_push(&c, mel_str_fmt("/I%s", win32dir));
+    mel_da_push(&c, "/Imodules/build/win32");
+    mel_da_push(&c, "/fo");
     mel_da_push(&c, res);
+    mel_da_push(&c, rc_file);
     int rcode = mel_run_vec(&c);
     free(c.items);
     if (rcode != 0) {

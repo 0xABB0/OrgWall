@@ -3,6 +3,10 @@
 
 #include "internal.h"
 
+#ifdef _WIN32
+#include "win32/compat.h"
+#endif
+
 char *mel_str_dup(const char *s);
 char *mel_str_fmt(const char *fmt, ...);
 bool  mel_path_is_dir(const char *p);

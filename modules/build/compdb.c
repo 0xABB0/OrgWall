@@ -1,8 +1,10 @@
 #include "runner.h"
 
-#include <dirent.h>
 #include <stdio.h>
+#ifndef _WIN32
+#include <dirent.h>
 #include <unistd.h>
+#endif
 
 static char *compdb_cwd(void) {
     char buf[4096];

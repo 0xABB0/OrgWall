@@ -72,12 +72,12 @@ Mel_Toolchain mel_toolchain(const Mel_Variant *v) {
         case MEL_PLATFORM_WIN32:
             free(tc.cc);
             free(tc.ar);
-            tc.cc           = mel_str_fmt("zig cc -target %s-windows-gnu", la);
-            tc.ar           = mel_str_dup("zig ar");
-            tc.autotools_cc = mel_str_fmt("%s-w64-mingw32-gcc", la);
+            tc.cc           = mel_str_dup("clang");
+            tc.ar           = mel_str_dup("llvm-ar");
+            tc.autotools_cc = mel_str_dup("clang");
             tc.exe_ext      = ".exe";
-            tc.triple       = mel_str_fmt("%s-w64-mingw32", la);
-            tc.cross        = true;
+            tc.triple       = mel_str_fmt("%s-windows-msvc", la);
+            tc.cross        = false;
             break;
         case MEL_PLATFORM_ANDROID: {
             char *ndk = android_ndk();

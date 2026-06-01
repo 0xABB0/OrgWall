@@ -1,7 +1,32 @@
 #include "runner.h"
 
 #include <stdio.h>
+#ifndef _WIN32
 #include <unistd.h>
+#endif
+
+#ifdef _WIN32
+static void ensure_llvm_on_path(void) {
+    static bool done = false;
+    if (done) return;
+    done = true;
+    FILE *p = popen("where clang", "r");
+    if (!p) return;
+    char buf[1024];
+    if (fgets(buf, sizeof buf, p)) {
+        size_t n = strlen(buf);
+        while (n && (buf[n - 1] == '\n' || buf[n - 1] == '\r' || buf[n - 1] == ' ')) buf[--n] = 0;
+        char *slash = strrchr(buf, '\\');
+        if (!slash) slash = strrchr(buf, '/');
+        if (slash) {
+            *slash          = 0;
+            const char *old = getenv("PATH");
+            _putenv(mel_str_fmt("PATH=%s;%s", buf, old ? old : ""));
+        }
+    }
+    pclose(p);
+}
+#endif
 
 static char *abspath(const char *rel) {
     char *cwd = malloc(1 << 14);
@@ -11,8 +36,36 @@ static char *abspath(const char *rel) {
     }
     char *p = rel[0] == '/' ? mel_str_dup(rel) : mel_str_fmt("%s/%s", cwd, rel);
     free(cwd);
+#ifdef _WIN32
+    for (char *s = p; *s; s++)
+        if (*s == '\\') *s = '/';
+#endif
     return p;
 }
+
+#ifdef _WIN32
+static void mirror_archives_to_lib(const char *absprefix) {
+    char *libdir = mel_str_fmt("%s/lib", absprefix);
+    DIR  *d      = opendir(libdir);
+    if (d) {
+        for (struct dirent *e; (e = readdir(d));) {
+            const char *n   = e->d_name;
+            size_t      len = strlen(n);
+            if (len > 5 && strncmp(n, "lib", 3) == 0 && strcmp(n + len - 2, ".a") == 0) {
+                char *stem = mel_str_fmt("%.*s", (int)(len - 5), n + 3);
+                char *src  = mel_str_fmt("%s/%s", libdir, n);
+                char *dst  = mel_str_fmt("%s/%s.lib", libdir, stem);
+                if (!mel_path_is_file(dst)) mel_copy_file(src, dst);
+                free(stem);
+                free(src);
+                free(dst);
+            }
+        }
+        closedir(d);
+    }
+    free(libdir);
+}
+#endif
 
 static void inject_prefix(Mel_Target *t, const char *absprefix, const Mel_Variant *v) {
     mel_da_push(&t->includes,
@@ -21,6 +74,9 @@ static void inject_prefix(Mel_Target *t, const char *absprefix, const Mel_Varian
     if (v->platform != MEL_PLATFORM_WIN32)
         mel_da_push(&t->links,
                     ((Mel_Flag){(Mel_When){0}, MEL_PUBLIC, mel_str_fmt("-Wl,-rpath,%s/lib", absprefix)}));
+#ifdef _WIN32
+    mirror_archives_to_lib(absprefix);
+#endif
 }
 
 static char *dep_prefix_abs(Mel_Graph *g, const char *name, const Mel_Variant *v) {
@@ -96,6 +152,9 @@ static bool build_autotools(Mel_Graph *g, Mel_Target *t, const Mel_Variant *v) {
                                ? mel_path_join(t->dir, t->autotools_dir)
                                : t->dir);
     mel_mkdirs(bld);
+#ifdef _WIN32
+    ensure_llvm_on_path();
+#endif
     Mel_Toolchain tc = mel_toolchain(v);
 
     Mel_StrVec cpp = {0}, ld = {0};
@@ -107,43 +166,45 @@ static bool build_autotools(Mel_Graph *g, Mel_Target *t, const Mel_Variant *v) {
         }
     }
 
-    Mel_StrVec c = {0};
-    mel_da_push(&c, mel_str_fmt("%s/configure", abssrc));
-    mel_da_push(&c, mel_str_fmt("--prefix=%s", absprefix));
-    mel_da_push(&c, "--disable-shared");
-    mel_da_push(&c, "--enable-static");
-    if (tc.cross) {
-        mel_da_push(&c, mel_str_fmt("--host=%s", tc.triple));
-        mel_da_push(&c, t->autotools_cstd
-                            ? mel_str_fmt("CC=%s -std=%s", tc.autotools_cc, t->autotools_cstd)
-                            : mel_str_fmt("CC=%s", tc.autotools_cc));
-        // Emscripten objects are wasm/bitcode; the host ar/ranlib choke on them
-        // ("malformed uleb128"). Hand autotools/libtool the emscripten archiver
-        // and index tool so `make install` indexes the static archive correctly.
-        if (v->platform == MEL_PLATFORM_WASM) {
-            mel_da_push(&c, "AR=emar");
-            mel_da_push(&c, "RANLIB=emranlib");
-        }
+    const char *cc_cfg  = tc.autotools_cc;
+    const char *srcpath = abssrc;
+#ifdef _WIN32
+    srcpath = (t->autotools_dir && strcmp(t->autotools_dir, ".") != 0)
+                  ? mel_str_fmt("../../../%s", t->autotools_dir)
+                  : "../../..";
+#endif
+
+    char *cfg = mel_str_fmt("'%s/configure' --prefix='%s' --disable-shared --enable-static", srcpath,
+                            absprefix);
+    if (tc.cross) cfg = mel_str_fmt("%s --host=%s", cfg, tc.triple);
+    if (tc.cross || v->platform == MEL_PLATFORM_WIN32) {
+        cfg = t->autotools_cstd ? mel_str_fmt("%s CC='%s -std=%s'", cfg, cc_cfg, t->autotools_cstd)
+                                : mel_str_fmt("%s CC='%s'", cfg, cc_cfg);
     }
+    // Emscripten objects are wasm/bitcode; the host ar/ranlib choke on them
+    // ("malformed uleb128"). Hand autotools/libtool the emscripten archiver
+    // and index tool so `make install` indexes the static archive correctly.
+    if (v->platform == MEL_PLATFORM_WASM) cfg = mel_str_fmt("%s AR=emar RANLIB=emranlib", cfg);
+#ifdef _WIN32
+    cfg = mel_str_fmt("%s AR=llvm-ar RANLIB=llvm-ranlib NM=llvm-nm LD=ld.lld", cfg);
+#endif
     if (cpp.len) {
-        Mel_StrVec j = {0};
-        for (size_t i = 0; i < cpp.len; i++) mel_da_push(&j, cpp.items[i]);
-        char *s = NULL;
-        for (size_t i = 0; i < j.len; i++) {
-            char *n = s ? mel_str_fmt("%s %s", s, j.items[i]) : mel_str_dup(j.items[i]);
-            s       = n;
-        }
-        mel_da_push(&c, mel_str_fmt("CPPFLAGS=%s", s));
+        char *s = mel_str_dup(cpp.items[0]);
+        for (size_t i = 1; i < cpp.len; i++) s = mel_str_fmt("%s %s", s, cpp.items[i]);
+        cfg = mel_str_fmt("%s CPPFLAGS='%s'", cfg, s);
     }
     if (ld.len) {
-        char *s = NULL;
-        for (size_t i = 0; i < ld.len; i++) {
-            char *n = s ? mel_str_fmt("%s %s", s, ld.items[i]) : mel_str_dup(ld.items[i]);
-            s       = n;
-        }
-        mel_da_push(&c, mel_str_fmt("LDFLAGS=%s", s));
+        char *s = mel_str_dup(ld.items[0]);
+        for (size_t i = 1; i < ld.len; i++) s = mel_str_fmt("%s %s", s, ld.items[i]);
+        cfg = mel_str_fmt("%s LDFLAGS='%s'", cfg, s);
     }
-    for (size_t i = 0; i < t->autotools_args.len; i++) mel_da_push(&c, t->autotools_args.items[i]);
+    for (size_t i = 0; i < t->autotools_args.len; i++) cfg = mel_str_fmt("%s %s", cfg, t->autotools_args.items[i]);
+
+    char *script = mel_path_join(bld, "_mel_configure.sh");
+    mel_write_file(script, mel_str_fmt("%s\n", cfg));
+    Mel_StrVec c = {0};
+    mel_da_push(&c, "sh");
+    mel_da_push(&c, "_mel_configure.sh");
     bool ok = mel_run_cwd(bld, &c) == 0;
     if (ok) {
         c.len = 0;

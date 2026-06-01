@@ -61,7 +61,8 @@ static void add_props(Mel_Target *t, const Mel_Variant *v, bool private_too, Mel
         Mel_Flag f = t->includes.items[i];
         if (!private_too && f.vis != MEL_PUBLIC) continue;
         if (!mel_when_match(f.when, v)) continue;
-        char *path = f.value[0] == '/' ? mel_str_dup(f.value) : mel_path_join(t->dir, f.value);
+        bool  abs  = f.value[0] == '/' || (f.value[0] && f.value[1] == ':');
+        char *path = abs ? mel_str_dup(f.value) : mel_path_join(t->dir, f.value);
         mel_da_push(out, mel_str_fmt("-I%s", path));
         free(path);
     }

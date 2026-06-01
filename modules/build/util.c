@@ -1,10 +1,12 @@
 #include "runner.h"
 
-#include <fcntl.h>
 #include <stdio.h>
 #include <sys/stat.h>
+#ifndef _WIN32
+#include <fcntl.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#endif
 
 char *mel_str_dup(const char *s) {
     size_t n = strlen(s) + 1;
@@ -64,6 +66,10 @@ void mel_mkdirs(const char *path) {
 }
 
 int mel_run(char *const argv[]) {
+#ifdef _WIN32
+    intptr_t rc = _spawnvp(_P_WAIT, argv[0], (const char *const *)argv);
+    return rc < 0 ? -1 : (int)rc;
+#else
     pid_t pid = fork();
     if (pid < 0) return -1;
     if (pid == 0) {
@@ -73,6 +79,7 @@ int mel_run(char *const argv[]) {
     int st;
     if (waitpid(pid, &st, 0) < 0) return -1;
     return WIFEXITED(st) ? WEXITSTATUS(st) : -1;
+#endif
 }
 
 char *mel_read_file(const char *path) {
@@ -116,6 +123,24 @@ bool mel_copy_file(const char *src, const char *dst) {
 }
 
 int mel_run_quiet(char *const argv[]) {
+#ifdef _WIN32
+    int saved_out = _dup(1);
+    int saved_err = _dup(2);
+    int dn        = _open("NUL", _O_WRONLY);
+    if (dn >= 0) {
+        _dup2(dn, 1);
+        _dup2(dn, 2);
+    }
+    intptr_t rc = _spawnvp(_P_WAIT, argv[0], (const char *const *)argv);
+    if (dn >= 0) {
+        _dup2(saved_out, 1);
+        _dup2(saved_err, 2);
+        _close(dn);
+    }
+    _close(saved_out);
+    _close(saved_err);
+    return rc < 0 ? -1 : (int)rc;
+#else
     pid_t pid = fork();
     if (pid < 0) return -1;
     if (pid == 0) {
@@ -130,12 +155,26 @@ int mel_run_quiet(char *const argv[]) {
     int st;
     if (waitpid(pid, &st, 0) < 0) return -1;
     return WIFEXITED(st) ? WEXITSTATUS(st) : -1;
+#endif
 }
 
 int mel_run_cwd(const char *dir, Mel_StrVec *cmd) {
     for (size_t i = 0; i < cmd->len; i++) fprintf(stderr, "%s%s", i ? " " : "", cmd->items[i]);
     fprintf(stderr, "   (cwd %s)\n", dir);
     mel_da_push(cmd, NULL);
+#ifdef _WIN32
+    char saved[4096];
+    int  rc;
+    if (!_getcwd(saved, sizeof saved) || _chdir(dir) != 0) {
+        rc = -1;
+    } else {
+        intptr_t r = _spawnvp(_P_WAIT, cmd->items[0], (const char *const *)cmd->items);
+        _chdir(saved);
+        rc = r < 0 ? -1 : (int)r;
+    }
+    cmd->len--;
+    return rc;
+#else
     pid_t pid = fork();
     if (pid < 0) {
         cmd->len--;
@@ -150,6 +189,7 @@ int mel_run_cwd(const char *dir, Mel_StrVec *cmd) {
     int st;
     if (waitpid(pid, &st, 0) < 0) return -1;
     return WIFEXITED(st) ? WEXITSTATUS(st) : -1;
+#endif
 }
 
 int mel_run_vec(Mel_StrVec *cmd) {
