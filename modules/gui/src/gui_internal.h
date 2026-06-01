@@ -20,6 +20,8 @@ typedef struct Mel_Gui_Node
     i32            x, y, width, height;
     bool           hidden;
     bool           is_screen;
+    bool           is_scroll_host;
+    i32            content_floor_w, content_floor_h;
     str8           screen_title;
     Mel_Layoutable layoutable;
     Mel_Layout*    layout;
@@ -103,6 +105,16 @@ void mel_gui__layout_free(Mel_Layout* layout);
 void mel_gui__layout_measure(Mel_Gui_Handle h, i32 avail_w, i32 avail_h, i32* out_w, i32* out_h);
 void mel_gui__layout_arrange(Mel_Gui_Handle h);
 void mel_gui__push_bounds(Mel_Gui_Handle h);
+
+/* A scroll host sizes its scrollable surface from its content, not a constant:
+ * measure the subtree (layout-measured or the bounding box of absolute children),
+ * clamp up to the viewport and the optional author floor, hand the extent to the
+ * backend, then arrange any layout against that extent rather than the viewport. */
+void mel_gui__scroll_fit(Mel_Gui_Handle h);
+
+/* Resize a scroll host's scrollable surface (documentView / contentSize / inner
+ * container) to (w, h) in layout units. Backend-provided; only scroll hosts call it. */
+void mel_gui__backend_set_content_size(Mel_Gui_Node* n, i32 w, i32 h);
 
 /* Native size change: update geometry + re-arrange. The user on_resize handler
  * is fired by the backend from the callbacks it stores on the native object. */

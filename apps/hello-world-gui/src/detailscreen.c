@@ -26,11 +26,11 @@ void build_details(Mel_Gui_Handle frame, void* user)
     mel_label_create(box, .text = S8("Children parent to the content host."), .layoutable = { .preferred_h = 22 });
     mel_button_create(box, .text = S8("A button inside the box"), .layoutable = { .preferred_h = 34 });
 
-    Mel_Gui_Handle scroll = mel_scrollview_create(frame, .content_h = 360, .layoutable = { .preferred_h = 120, .weight = 1 });
-    for (i32 i = 0; i < 10; i++)
+    Mel_Gui_Handle scroll = mel_scrollview_create(frame, .layout = mel_column_layout(.spacing = 6, .margin = 8, .cross_align = MEL_ALIGN_STRETCH), .layoutable = { .preferred_h = 120, .weight = 1 });
+    for (i32 i = 0; i < 800; i++)
     {
         char buf[32];
         snprintf(buf, sizeof buf, "Scrollable row %d", i + 1);
-        mel_label_create(scroll, .text = str8_from_cstr(buf), .x = 8, .y = 8 + i * 34, .w = 320, .h = 28);
+        mel_label_create(scroll, .text = str8_from_cstr(buf), .layoutable = { .preferred_h = 28 });
     }
 }

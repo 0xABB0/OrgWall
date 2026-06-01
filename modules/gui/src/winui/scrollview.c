@@ -164,6 +164,10 @@ Mel_Gui_Handle mel_scrollview_create_opt(Mel_Gui_Handle parent, Mel_ScrollView_O
     if (!n)
         return h;
 
+    n->is_scroll_host = true;
+    n->content_floor_w = o.content_w > 0 ? o.content_w : 0;
+    n->content_floor_h = o.content_h > 0 ? o.content_h : 0;
+
     HWND par = mel_gui__win32_parent_hwnd(n);
     if (!par)
         return h;
@@ -194,4 +198,19 @@ Mel_Gui_Handle mel_scrollview_create_opt(Mel_Gui_Handle parent, Mel_ScrollView_O
 
     scroll_apply(outer, s);
     return h;
+}
+
+void mel_gui__backend_set_content_size(Mel_Gui_Node* n, i32 w, i32 h)
+{
+    if (!n || !n->native)
+        return;
+    HWND              outer = (HWND)n->native;
+    Mel_Win32_Scroll* s = (Mel_Win32_Scroll*)mel_gui__win32_ctl(outer);
+    if (!s)
+        return;
+    s->content_w = w;
+    s->content_h = h;
+    if (s->inner)
+        SetWindowPos(s->inner, NULL, 0, 0, w, h, SWP_NOMOVE | SWP_NOZORDER);
+    scroll_apply(outer, s);
 }

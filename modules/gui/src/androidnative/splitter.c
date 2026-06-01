@@ -119,7 +119,7 @@ JNIEXPORT void JNICALL Java_orgwall_melody_platform_MelSplitter_nativeLayout(JNI
         c->y = 0;
         c->width = pw;
         c->height = ph;
-        if (c->layout)
+        if (c->layout || c->is_scroll_host)
             mel_gui__layout_arrange(c->self);
     }
 }

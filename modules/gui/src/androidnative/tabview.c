@@ -10,15 +10,15 @@ static jmethodID s_addTab;
 static jmethodID s_select;
 static jmethodID s_selected;
 
-static void tab_arrange(Mel_Layout* layout, Mel_Gui_Handle container)
+static void tab_arrange(Mel_Layout* layout, Mel_Gui_Handle container, i32 avail_w, i32 avail_h)
 {
     (void)layout;
     Mel_Gui_Node* node = mel_gui__node(container);
     if (!node)
         return;
 
-    i32 pw = node->width;
-    i32 ph = node->height - TABSTRIP_DP;
+    i32 pw = avail_w;
+    i32 ph = avail_h - TABSTRIP_DP;
     if (ph < 0)
         ph = 0;
 
@@ -33,7 +33,7 @@ static void tab_arrange(Mel_Layout* layout, Mel_Gui_Handle container)
         c->y = 0;
         c->width = pw;
         c->height = ph;
-        if (c->layout)
+        if (c->layout || c->is_scroll_host)
             mel_gui__layout_arrange(c->self);
     }
 }

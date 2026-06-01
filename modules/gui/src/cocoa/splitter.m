@@ -1,8 +1,10 @@
 #include "macos.h"
 
-static void split_arrange(Mel_Layout* layout, Mel_Gui_Handle container)
+static void split_arrange(Mel_Layout* layout, Mel_Gui_Handle container, i32 avail_w, i32 avail_h)
 {
     (void)layout;
+    (void)avail_w;
+    (void)avail_h;
     Mel_Gui_Node* node = mel_gui__node(container);
     if (!node || !node->native)
         return;
@@ -22,7 +24,7 @@ static void split_arrange(Mel_Layout* layout, Mel_Gui_Handle container)
         c->y = 0;
         c->width = (i32)fr.size.width;
         c->height = (i32)fr.size.height;
-        if (c->layout)
+        if (c->layout || c->is_scroll_host)
             mel_gui__layout_arrange(c->self);
     }
 }

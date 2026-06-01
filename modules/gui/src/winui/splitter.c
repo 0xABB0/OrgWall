@@ -192,9 +192,11 @@ static void ensure_splitter_class(void)
     g_splitter_class = true;
 }
 
-static void split_arrange(Mel_Layout* layout, Mel_Gui_Handle container)
+static void split_arrange(Mel_Layout* layout, Mel_Gui_Handle container, i32 avail_w, i32 avail_h)
 {
     (void)layout;
+    (void)avail_w;
+    (void)avail_h;
     Mel_Gui_Node* node = mel_gui__node(container);
     if (!node || !node->native)
         return;

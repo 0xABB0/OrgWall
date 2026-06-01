@@ -82,6 +82,10 @@ Mel_Gui_Handle mel_scrollview_create_opt(Mel_Gui_Handle parent, Mel_ScrollView_O
     if (!n)
         return h;
 
+    n->is_scroll_host = true;
+    n->content_floor_w = o.content_w > 0 ? o.content_w : 0;
+    n->content_floor_h = o.content_h > 0 ? o.content_h : 0;
+
     int outer = mel_web__el_create("div");
     mel_web__el_class(outer, "mel-scroll");
     mel_web__el_append(mel_web__parent_id(n), outer);
@@ -103,4 +107,11 @@ Mel_Gui_Handle mel_scrollview_create_opt(Mel_Gui_Handle parent, Mel_ScrollView_O
     if (n->hidden)
         mel_web__el_visible(outer, 0);
     return h;
+}
+
+void mel_gui__backend_set_content_size(Mel_Gui_Node* n, i32 w, i32 h)
+{
+    if (!n || !n->content)
+        return;
+    mel_web__el_bounds((int)(intptr_t)n->content, 0, 0, w, h);
 }

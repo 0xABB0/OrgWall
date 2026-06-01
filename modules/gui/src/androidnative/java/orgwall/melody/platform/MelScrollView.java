@@ -24,4 +24,16 @@ public final class MelScrollView {
     public static View content(View sv) {
         return ((ViewGroup) sv).getChildAt(0);
     }
+
+    public static void setContentSize(View content, int wpx, int hpx) {
+        ViewGroup.LayoutParams lp = content.getLayoutParams();
+        if (lp == null) {
+            lp = new FrameLayout.LayoutParams(wpx, hpx);
+        } else {
+            lp.width = wpx;
+            lp.height = hpx;
+        }
+        content.setLayoutParams(lp);
+        content.requestLayout();
+    }
 }

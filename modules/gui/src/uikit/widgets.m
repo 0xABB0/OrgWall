@@ -207,11 +207,23 @@ Mel_Gui_Handle mel_scrollview_create_opt(Mel_Gui_Handle parent, Mel_ScrollView_O
     Mel_Gui_Node*  n = mel_gui__node(h);
     if (!n)
         return h;
+    n->is_scroll_host = true;
+    n->content_floor_w = o.content_w > 0 ? o.content_w : 0;
+    n->content_floor_h = o.content_h > 0 ? o.content_h : 0;
     i32           cw = o.content_w, ch = o.content_h;
     UIScrollView* sv = [[UIScrollView alloc] initWithFrame:CGRectMake(0, 0, n->width, n->height)];
     sv.contentSize = CGSizeMake(cw > 0 ? cw : n->width, ch > 0 ? ch : n->height);
     mel_gui__ios_install_child(n, sv);
     return h;
+}
+
+void mel_gui__backend_set_content_size(Mel_Gui_Node* n, i32 w, i32 h)
+{
+    if (!n || !n->native)
+        return;
+    id obj = (__bridge id)n->native;
+    if ([obj isKindOfClass:[UIScrollView class]])
+        [(UIScrollView*)obj setContentSize:CGSizeMake(w, h)];
 }
 
 Mel_Gui_Handle mel_splitter_create_opt(Mel_Gui_Handle parent, Mel_Splitter_Opt o) { return make_container(parent, o.x, o.y, o.w, o.h, o.id, o.user, o.hidden, &o.layoutable, NULL, (Mel_Gui_Pointer_Cb){ 0 }, o.focus); }

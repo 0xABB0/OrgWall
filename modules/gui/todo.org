@@ -14,11 +14,6 @@ removed; the shipped design lives in =readme.org=.
   teardown if/when an app needs it. Unused by hello-world-gui today.
 
 ** Containers (Panel / GroupBox / ScrollView)
-- ScrollView nested layout: a layout set on a ScrollView arranges children
-  against the *viewport* height, not =content_h=, so layout-driven content does
-  not fill the scrollable extent (the demo uses absolute child coords). A layout
-  needs to measure/arrange against the content size when the parent is a
-  scroll host.
 - GroupBox/ScrollView focus is the only capability wired on the content node;
   pointer/keyboard on the container surface ship on Panel (appkit) only.
 

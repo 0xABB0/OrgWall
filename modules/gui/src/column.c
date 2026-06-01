@@ -69,7 +69,7 @@ static void column_measure(Mel_Layout* layout, Mel_Gui_Handle container, i32 ava
         *out_h = primary;
 }
 
-static void column_arrange(Mel_Layout* layout, Mel_Gui_Handle container)
+static void column_arrange(Mel_Layout* layout, Mel_Gui_Handle container, i32 avail_w, i32 avail_h)
 {
     Mel_Column_Layout* col = (Mel_Column_Layout*)layout;
     Mel_Gui_Node*      parent = mel_gui__node(container);
@@ -99,8 +99,8 @@ static void column_arrange(Mel_Layout* layout, Mel_Gui_Handle container)
     if (visible_count > 1)
         fixed_primary += col->spacing * (visible_count - 1);
 
-    i32 container_h = parent->height - col->margin * 2;
-    i32 container_w = parent->width - col->margin * 2;
+    i32 container_h = avail_h - col->margin * 2;
+    i32 container_w = avail_w - col->margin * 2;
     i32 leftover = container_h - fixed_primary;
     if (leftover < 0)
         leftover = 0;
@@ -156,7 +156,7 @@ static void column_arrange(Mel_Layout* layout, Mel_Gui_Handle container)
         c->width = child_w;
         c->height = child_h;
         mel_gui__push_bounds(c->self);
-        if (c->layout)
+        if (c->layout || c->is_scroll_host)
             mel_gui__layout_arrange(c->self);
 
         cursor += mt + child_h + mb + col->spacing;

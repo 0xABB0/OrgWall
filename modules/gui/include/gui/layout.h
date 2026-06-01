@@ -32,7 +32,7 @@ typedef struct Mel_Layout Mel_Layout;
 typedef struct
 {
     void (*measure)(Mel_Layout*, Mel_Gui_Handle container, i32 avail_w, i32 avail_h, i32* out_w, i32* out_h);
-    void (*arrange)(Mel_Layout*, Mel_Gui_Handle container);
+    void (*arrange)(Mel_Layout*, Mel_Gui_Handle container, i32 avail_w, i32 avail_h);
 } Mel_Layout_Vtable;
 
 struct Mel_Layout

@@ -48,9 +48,41 @@ void mel_gui__layout_arrange(Mel_Gui_Handle h)
     if (!n)
         return;
 
+    if (n->is_scroll_host)
+    {
+        mel_gui__scroll_fit(h);
+        return;
+    }
+
     if (n->layout && n->layout->vtable && n->layout->vtable->arrange)
     {
-        n->layout->vtable->arrange(n->layout, h);
+        n->layout->vtable->arrange(n->layout, h, n->width, n->height);
+    }
+}
+
+void mel_gui__scroll_fit(Mel_Gui_Handle h)
+{
+    Mel_Gui_Node* n = mel_gui__node(h);
+    if (!n)
+        return;
+
+    i32 cw = 0, ch = 0;
+    mel_gui__content_size(h, &cw, &ch);
+
+    if (cw < n->width)
+        cw = n->width;
+    if (ch < n->height)
+        ch = n->height;
+    if (n->content_floor_w > cw)
+        cw = n->content_floor_w;
+    if (n->content_floor_h > ch)
+        ch = n->content_floor_h;
+
+    mel_gui__backend_set_content_size(n, cw, ch);
+
+    if (n->layout && n->layout->vtable && n->layout->vtable->arrange)
+    {
+        n->layout->vtable->arrange(n->layout, h, n->width, ch);
     }
 }
 
