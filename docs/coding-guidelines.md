@@ -18,7 +18,7 @@ Anytime that a function needs to use memory, it should take an allocator either 
 When you need to give some code an allocator, NEVER use mel_malloc(). it completely defeats the purpose of having allocators.
 
 ### MEL-CODE-004: Follow formatting conventions
-This repo has a .clang-format; use that and format often
+This repo has a .clang-format; follow formatting
 
 ### MEL-CODE-005: Pillars of code
 Our code should follow the following pillars:
