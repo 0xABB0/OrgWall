@@ -14,6 +14,15 @@ static char* compdb_cwd(void)
     return mel_str_dup(buf);
 }
 
+static void free_strvec(Mel_StrVec* v)
+{
+    for (size_t i = 0; i < v->len; i++)
+        free((void*)v->items[i]);
+    free(v->items);
+    v->items = NULL;
+    v->len = v->cap = 0;
+}
+
 static char* join_cmd(Mel_StrVec* v)
 {
     size_t n = 1;
@@ -245,7 +254,11 @@ static void emit_target(FILE* f, bool* first, const char* dir, Mel_Graph* g, siz
 
     Mel_StrVec srcs = { 0 }, gathered = { 0 };
     if (!mel_gather_compile(g, idx, v, &srcs, &gathered))
+    {
+        free_strvec(&srcs);
+        free_strvec(&gathered);
         return;
+    }
 
     for (size_t i = 0; i < srcs.len; i++)
     {
@@ -305,6 +318,8 @@ static void emit_target(FILE* f, bool* first, const char* dir, Mel_Graph* g, siz
         free((void*)srcdirs.items[k]);
     free(srcdirs.items);
     free(base.items);
+    free_strvec(&srcs);
+    free_strvec(&gathered);
 }
 
 static void emit_build_c(FILE* f, bool* first, const char* dir, const char* file)
@@ -419,9 +434,7 @@ bool mel_emit_compdb(Mel_Graph* g, const Mel_Variant* variants, size_t nvar, con
         }
         free(prefix.items);
     }
-    for (size_t i = 0; i < seen.len; i++)
-        free((void*)seen.items[i]);
-    free(seen.items);
+    free_strvec(&seen);
     free(snap_inc);
     free(snap_lnk);
     free(host_prefix.items);

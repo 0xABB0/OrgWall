@@ -129,10 +129,15 @@ bool mel_gather_compile(Mel_Graph* g, size_t idx, const Mel_Variant* v, Mel_StrV
                 if (strcmp(srcs->items[k], drop.items[j]) == 0)
                     hit = true;
             if (hit)
+            {
+                free((void*)srcs->items[k]);
                 srcs->items[k] = srcs->items[--srcs->len];
+            }
             else
                 k++;
         }
+        for (size_t k = 0; k < drop.len; k++)
+            free((void*)drop.items[k]);
         free(drop.items);
     }
 
