@@ -23,9 +23,10 @@ Mel_Variant mel_variant_native(Mel_Platform platform, const char *config) {
             v.arch    = "arm64";
             break;
         case MEL_PLATFORM_IOS:
-            v.backend = "uikit";
-            v.gpu     = "metal";
-            v.arch    = "arm64";
+            v.backend   = "uikit";
+            v.gpu       = "metal";
+            v.arch      = "arm64";
+            v.simulator = true;
             break;
         case MEL_PLATFORM_LINUX:
             v.gpu = "vulkan";

@@ -51,11 +51,15 @@ Mel_Toolchain mel_toolchain(const Mel_Variant *v) {
             tc.triple       = mel_str_fmt("%s-apple-darwin", v->arch);
             break;
         case MEL_PLATFORM_IOS: {
-            char *sdk       = capture("xcrun --sdk iphoneos --show-sdk-path 2>/dev/null");
-            tc.base_cflags  = mel_str_fmt("-target %s-apple-ios13.0 -isysroot %s", v->arch, sdk);
+            const char *sdk_name = v->simulator ? "iphonesimulator" : "iphoneos";
+            const char *suffix   = v->simulator ? "-simulator" : "";
+            char       *cmd      = mel_str_fmt("xcrun --sdk %s --show-sdk-path 2>/dev/null", sdk_name);
+            char       *sdk      = capture(cmd);
+            tc.base_cflags  = mel_str_fmt("-target %s-apple-ios13.0%s -isysroot %s", v->arch, suffix, sdk);
             tc.base_ldflags = mel_str_dup(tc.base_cflags);
             tc.triple       = mel_str_fmt("%s-apple-darwin", v->arch);
             tc.cross        = true;
+            free(cmd);
             free(sdk);
             break;
         }

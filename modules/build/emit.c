@@ -8,7 +8,8 @@
 static Mel_Toolchain g_tc;
 
 char *mel_target_outdir(const char *target_dir, const Mel_Variant *v) {
-    return mel_str_fmt("%s/build/%s-%s", target_dir, mel_platform_name(v->platform), v->config);
+    return mel_str_fmt("%s/build/%s%s-%s", target_dir, mel_platform_name(v->platform),
+                       v->simulator ? "-sim" : "", v->config);
 }
 
 static char *outdir_for(Mel_Target *t, const Mel_Variant *v) {

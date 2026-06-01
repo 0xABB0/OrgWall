@@ -39,6 +39,7 @@ typedef struct {
     const char  *runtime;
     const char  *arch;
     bool         host;
+    bool         simulator;
 } Mel_Variant;
 
 typedef struct {

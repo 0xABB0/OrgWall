@@ -2,6 +2,17 @@
 
 #include <stdio.h>
 
+static char *sim_capture(const char *cmd) {
+    FILE *p = popen(cmd, "r");
+    if (!p) return mel_str_dup("");
+    char  *buf = malloc(1 << 12);
+    size_t k   = fread(buf, 1, (1 << 12) - 1, p);
+    pclose(p);
+    while (k && (buf[k - 1] == '\n' || buf[k - 1] == ' ')) k--;
+    buf[k] = 0;
+    return buf;
+}
+
 static Mel_Platform host_platform(void) {
 #if defined(__APPLE__)
     return MEL_PLATFORM_MACOS;
@@ -54,6 +65,44 @@ static int spawn(const char *prog, char **args, int nargs) {
     return rc;
 }
 
+static int launch_ios_sim(Mel_Target *t, const char *out) {
+    char *udid = sim_capture("xcrun simctl list devices booted | grep -Eo "
+                         "'[0-9A-Fa-f-]{36}' | head -1");
+    if (!*udid) {
+        free(udid);
+        udid = sim_capture("xcrun simctl list devices available | grep -E 'iPhone ' | "
+                       "grep -Eo '[0-9A-Fa-f-]{36}' | head -1");
+        if (!*udid) {
+            fprintf(stderr, "nob: no iOS simulator available\n");
+            free(udid);
+            return 1;
+        }
+    }
+    char *app    = mel_str_fmt("%s/%s.app", out, t->name);
+    char *bundle = (char *)mf_get(t, "BUNDLE_ID", t->name);
+
+    char *open_args[] = {"-a", "Simulator"};
+    spawn("open", open_args, 2);
+    char *boot_args[] = {"simctl", "bootstatus", udid, "-b"};
+    if (spawn("xcrun", boot_args, 4) != 0) {
+        free(udid);
+        free(app);
+        return 1;
+    }
+    char *inst_args[] = {"simctl", "install", udid, app};
+    if (spawn("xcrun", inst_args, 4) != 0) {
+        free(udid);
+        free(app);
+        return 1;
+    }
+    fprintf(stderr, "nob: launching %s on simulator %s\n", bundle, udid);
+    char *run_args[] = {"simctl", "launch", "--console-pty", "--terminate-running-process", udid, bundle};
+    int   rc        = spawn("xcrun", run_args, 6);
+    free(udid);
+    free(app);
+    return rc;
+}
+
 static int launch(Mel_Graph *g, const char *target, const Mel_Variant *v, const char *bin,
                   char **xtra, int nxtra) {
     if (v->platform == host_platform()) {
@@ -66,6 +115,8 @@ static int launch(Mel_Graph *g, const char *target, const Mel_Variant *v, const 
     }
     Mel_Target *t   = mel_graph_find(g, target);
     char       *out = t ? mel_target_outdir(t->dir, v) : NULL;
+    if (v->platform == MEL_PLATFORM_IOS && v->simulator && t && out)
+        return launch_ios_sim(t, out);
     if (v->platform == MEL_PLATFORM_ANDROID && out) {
         char *apk = mel_str_fmt("%s/android/app/build/outputs/apk/melody/debug/app-melody-debug.apk", out);
         char *act = mel_str_fmt("%s/orgwall.melody.platform.MelodyActivity",
@@ -140,6 +191,7 @@ int mel_build_main(int argc, char **argv) {
     const char  *arch     = NULL;
     const char  *gpu      = NULL;
     Mel_Platform platform = host_platform();
+    bool         device   = false;
     char       **xtra     = NULL;
     int          nxtra    = 0;
 
@@ -159,6 +211,8 @@ int mel_build_main(int argc, char **argv) {
             gpu = a + 6;
         } else if (strcmp(a, "--gpu") == 0) {
             if (i + 1 < argc) gpu = argv[++i];
+        } else if (strcmp(a, "--device") == 0) {
+            device = true;
         } else if (strncmp(a, "--", 2) == 0) {
             continue;
         } else if (!target) {
@@ -196,6 +250,7 @@ int mel_build_main(int argc, char **argv) {
     }
 
     Mel_Variant v = mel_variant_native(platform, config);
+    if (device) v.simulator = false;
     if (arch) v.arch = arch;
     if (gpu) {
         if (!gpu_valid(platform, gpu)) {
