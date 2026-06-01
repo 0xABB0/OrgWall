@@ -20,4 +20,17 @@ uint64_t mel_nanos_since_unspecified_epoch(void)
     return MEL_NANOS_PER_SEC * Secs + Nanos;
 }
 
+mel_nanosec mel_wall_now_ns(void)
+{
+    FILETIME ft;
+    GetSystemTimePreciseAsFileTime(&ft);
+
+    ULARGE_INTEGER u;
+    u.LowPart = ft.dwLowDateTime;
+    u.HighPart = ft.dwHighDateTime;
+
+    uint64_t unix100 = u.QuadPart - 116444736000000000ULL;
+    return unix100 * 100;
+}
+
 #endif
