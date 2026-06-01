@@ -43,6 +43,6 @@ across window and pixmap. Deps: `core`, `allocator`, `collection`, `math`, `stri
   (no AppKit/UIKit, no ObjC runtime). Owned-pixmap path implemented.
 - winui / dom / androidnative / soft — see `todo.md`.
 
-Verification: `./nob run paint-example macos` (self-checks + PPM dump to `/tmp`). No unit test
-yet — as of this writing the `MEL_TEST` harness (`modules/test`) has no runtime/main, so
-`test/pixmap_test.c` cannot run; wire it once the harness works.
+Verification: `./nob test paint-pixmap macos` runs `test/pixmap_test.c` through the `MEL_TEST`
+harness (runtime: `tools/test/src/runner.c`, linked explicitly by `build.c` — see its note).
+`./nob run paint-example macos` additionally dumps `/tmp/paint-example.ppm` to eyeball.

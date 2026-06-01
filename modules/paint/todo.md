@@ -33,9 +33,11 @@ painter except where a correctness gotcha is flagged — verify on the target pl
 - Logging/profiling (MEL-CODE-006): none yet; add on create/destroy + alloc-fail once the
   module grows a `log` dep.
 
-## Blocked on repo (not paint's to fix; recheck — both may be resolved by now)
+## Notes
 
-- `MEL_TEST` harness had no runtime/main → `test/pixmap_test.c` cannot run until it does.
-  Once it works, wire the test in `build.c` and drop the example-as-test crutch.
-- `mel_assert` expanded to nothing → paint's liveness/`owns`/`painting` asserts are inert;
-  `alive()` still works via slotmap generation. If `mel_assert` now has a body, they fire.
+- The `MEL_TEST` harness works (runtime/main in `tools/test/src/runner.c`); `build.c` links
+  it explicitly because `mel_add_test` does not auto-link it. If the build framework gains
+  auto-linking for `is_test` targets, drop the explicit `runner.c` source from `build.c`.
+- `mel_assert` is still a no-op (both branches of `debug/assert.h` empty), so paint's
+  liveness/`owns`/`painting` asserts are inert; `alive()` works via slotmap generation. They
+  fire once `mel_assert` gets a body.

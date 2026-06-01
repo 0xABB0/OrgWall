@@ -30,6 +30,5 @@ canvas migration. See `todo.md` (actionable) and `design/paint.md` §7 (rational
 ## Build & verify
 
     ./nob build paint macos
-    ./nob run   paint-example macos   # self-checks; writes /tmp/paint-example.ppm to eyeball
-
-No unit test yet: the `MEL_TEST` harness is unwired (see `todo.md`), so the example is the check.
+    ./nob test  paint-pixmap macos   # unit test via the MEL_TEST harness
+    ./nob run   paint-example macos   # also dumps /tmp/paint-example.ppm to eyeball

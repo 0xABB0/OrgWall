@@ -60,3 +60,13 @@ Decisions taken with Gabbo via the brainstorm: first slice = pixmap+readback+qua
 - `design/paint.md` (broad design) still holds unbuilt slices; once they land it should fold
   into `modules/paint/spec.md`/`todo.md` and leave `design/` per MEL-SPEC-002. Left untouched
   for now — it's the authored design of record for the deferred work.
+
+## Correction (post-session)
+
+The claim above — "the repo's `MEL_TEST` harness is unimplemented, no runtime/main anywhere" —
+was **wrong**, from an incomplete search: I grepped `modules/test`/`modules/build` and never
+looked in `tools/`. The runtime + `main` live in `tools/test/src/runner.c` and existed before
+this session (commit `121f773`). The harness works: `./nob test paint-pixmap macos` builds,
+links the runner, runs `test/pixmap_test.c` in child-process isolation, and passes. The only
+real gap is that `mel_add_test` does not auto-link the runner, so `build.c` adds it as a source
+explicitly. The `mel_assert` no-op observation stands (re-verified).

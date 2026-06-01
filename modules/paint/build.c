@@ -15,9 +15,6 @@ void build(Mel_Build* b)
     mel_depends(lib, "color");
     mel_depends(lib, "debug");
 
-    /* The MEL_TEST harness (modules/test) has no runtime or main implemented yet,
-     * so the verification is a runnable example that self-checks and dumps a PPM.
-     * test/pixmap_test.c is kept for when that harness lands. */
     Mel_Target* ex = mel_add_executable(b, "paint-example");
     mel_sources(ex, ALWAYS, "example/paint_example.c");
     mel_depends(ex, "paint");
@@ -26,4 +23,17 @@ void build(Mel_Build* b)
     mel_depends(ex, "color");
     mel_depends(ex, "math");
     mel_depends(ex, "string");
+
+    Mel_Target* t = mel_add_test(b, "paint-pixmap");
+    mel_sources(t, ALWAYS, "test/pixmap_test.c");
+    /* mel_add_test does not auto-link the harness runtime/main; pull the runner
+     * in explicitly. Drop this line if the build ever links it for is_test. */
+    mel_sources(t, ALWAYS, "../../tools/test/src/runner.c");
+    mel_depends(t, "test");
+    mel_depends(t, "paint");
+    mel_depends(t, "core");
+    mel_depends(t, "allocator");
+    mel_depends(t, "color");
+    mel_depends(t, "math");
+    mel_depends(t, "string");
 }
