@@ -42,6 +42,10 @@ void mel_unavailable(Mel_Target* t, Mel_When when) { mel_da_push(&t->unavailable
 
 void mel_manifest(Mel_Target* t, const char* key, const char* value) { mel_da_push(&t->manifest, ((Mel_KV){ key, value })); }
 
+void mel_android_manifest(Mel_Target* t, const char* path) { t->android_manifest = path; }
+void mel_android_java(Mel_Target* t, const char* dir) { t->android_java = dir; }
+void mel_android_namespace(Mel_Target* t, const char* ns) { t->android_namespace = ns; }
+
 void mel_subsystem(Mel_Target* t, const char* subsystem)
 {
     if (strcmp(subsystem, "console") != 0 && strcmp(subsystem, "gui") != 0)

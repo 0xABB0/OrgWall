@@ -99,6 +99,10 @@ struct Mel_Target
     Mel_KVVec      manifest;
     Mel_CodegenVec codegens;
 
+    const char* android_manifest;
+    const char* android_java;
+    const char* android_namespace;
+
     const char* cmake_dir;
     Mel_StrVec  cmake_args;
     Mel_When    cmake_when;

@@ -5,8 +5,6 @@ plugins {
 val mel = providers
 fun prop(name: String): String = mel.gradleProperty(name).get()
 fun propOrNull(name: String): String? = mel.gradleProperty(name).orNull
-fun csv(name: String): List<File> =
-    (propOrNull(name) ?: "").split(",").filter { it.isNotEmpty() }.map { File(it) }
 
 android {
     namespace = prop("melody.namespace")
@@ -33,13 +31,13 @@ android {
 
     sourceSets {
         getByName("main") {
-            java.srcDirs(*csv("melody.javaSrcDirs").toTypedArray())
             jniLibs.srcDirs("src/main/jniLibs")
         }
-        getByName("melody") {
-            propOrNull("melody.manifestOverlay")?.let { manifest.srcFile(File(it)) }
-            propOrNull("melody.appJavaDir")?.let { java.srcDir(File(it)) }
-            propOrNull("melody.resOverlayDir")?.let { res.srcDir(File(it)) }
-        }
+    }
+}
+
+dependencies {
+    (propOrNull("melody.libraryProjects") ?: "").split(",").filter { it.isNotEmpty() }.forEach {
+        implementation(project(it))
     }
 }

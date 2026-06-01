@@ -10,6 +10,7 @@ void build(Mel_Build* b)
     mel_sources(lib, WHEN(.platforms = MEL_ON(WIN32)), "src/win32/*.c");
     mel_sources(lib, WHEN(.platforms = MEL_ON(ANDROID)), "src/android/*.c");
     mel_sources(lib, WHEN(.platforms = MEL_ON(IOS)), "src/ios/*.m");
+    mel_android_java(lib, "src/android/java");
 
     mel_link(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(MACOS)), "-framework", "CoreGraphics", "-framework", "IOKit");
 

@@ -208,6 +208,48 @@ static char* cwd_abs(const char* rel)
     return p;
 }
 
+static void gen_android_library(const char* proj, Mel_Target* d)
+{
+    char* ns = d->android_namespace ? mel_str_dup(d->android_namespace) : mel_str_fmt("orgwall.melody.%s", d->name);
+
+    Mel_CharVec g = { 0 };
+    put_str(&g, "plugins { id(\"com.android.library\") }\n\n");
+    put_str(&g, "fun prop(n: String) = providers.gradleProperty(n).get()\n\n");
+    put_str(&g, "android {\n");
+    put_str(&g, "    namespace = \"");
+    put_str(&g, ns);
+    put_str(&g, "\"\n");
+    put_str(&g, "    compileSdk = prop(\"melody.compileSdk\").toInt()\n");
+    put_str(&g, "    defaultConfig { minSdk = prop(\"melody.minSdk\").toInt() }\n");
+    put_str(&g, "    compileOptions {\n");
+    put_str(&g, "        sourceCompatibility = JavaVersion.VERSION_17\n");
+    put_str(&g, "        targetCompatibility = JavaVersion.VERSION_17\n");
+    put_str(&g, "    }\n");
+    put_str(&g, "    sourceSets {\n");
+    put_str(&g, "        getByName(\"main\") {\n");
+    if (d->android_manifest)
+    {
+        put_str(&g, "            manifest.srcFile(\"");
+        put_str(&g, cwd_abs(mel_str_fmt("%s/%s", d->dir, d->android_manifest)));
+        put_str(&g, "\")\n");
+    }
+    if (d->android_java)
+    {
+        put_str(&g, "            java.srcDir(\"");
+        put_str(&g, cwd_abs(mel_str_fmt("%s/%s", d->dir, d->android_java)));
+        put_str(&g, "\")\n");
+    }
+    put_str(&g, "        }\n");
+    put_str(&g, "    }\n");
+    put_str(&g, "}\n");
+    mel_da_push(&g, 0);
+
+    char* dir = mel_str_fmt("%s/%s", proj, d->name);
+    mel_mkdirs(dir);
+    mel_write_file(mel_str_fmt("%s/build.gradle.kts", dir), g.items);
+    free(g.items);
+}
+
 static bool package_android(Mel_Graph* g, Mel_IdxVec* order, Mel_Target* t, const char* outdir, const char* so)
 {
     char* proj = mel_str_fmt("%s/android", outdir);
@@ -233,31 +275,28 @@ static bool package_android(Mel_Graph* g, Mel_IdxVec* order, Mel_Target* t, cons
     char* sodst = mel_path_join(jni, "libmelody.so");
     mel_copy_file(so, sodst);
 
-    Mel_StrVec javadirs = { 0 };
+    char* libcsv = NULL;
     for (size_t i = 0; order && i < order->len; i++)
     {
         Mel_Target* d = g->nodes.items[order->items[i]].t;
-        char*       jav = mel_str_fmt("%s/src/androidnative/java", d->dir);
-        if (mel_path_is_dir(jav))
-            mel_da_push(&javadirs, cwd_abs(jav));
-        else
-            free(jav);
+        if (!d->android_manifest && !d->android_java)
+            continue;
+        gen_android_library(proj, d);
+        char* path = mel_str_fmt(":%s", d->name);
+        libcsv = libcsv ? mel_str_fmt("%s,%s", libcsv, path) : mel_str_dup(path);
     }
-    char* javacsv = NULL;
-    for (size_t i = 0; i < javadirs.len; i++)
-        javacsv = javacsv ? mel_str_fmt("%s,%s", javacsv, javadirs.items[i]) : mel_str_dup(javadirs.items[i]);
 
     const char* appid = manifest_get(t, "BUNDLE_ID", t->name);
     const char* label = manifest_get(t, "APP_LABEL", t->name);
     const char* ver = manifest_get(t, "VERSION", "1.0.0");
     char*       props = mel_str_fmt("\nmelody.namespace=orgwall.melody\nmelody.applicationId=%s\nmelody.appLabel=%s\n"
                                     "melody.compileSdk=34\nmelody.minSdk=24\nmelody.targetSdk=34\nmelody.versionCode=1\n"
-                                    "melody.versionName=%s\nmelody.rootProjectName=%s\nmelody.javaSrcDirs=%s\n",
+                                    "melody.versionName=%s\nmelody.rootProjectName=%s\nmelody.libraryProjects=%s\n",
                                     appid,
                                     label,
                                     ver,
                                     t->name,
-                                    javacsv ? javacsv : "");
+                                    libcsv ? libcsv : "");
     char*       gp = mel_str_fmt("%s/gradle.properties", proj);
     char*       cur = mel_read_file(gp);
     char*       merged = mel_str_fmt("%s%s", cur ? cur : "", props);
@@ -275,7 +314,7 @@ static bool package_android(Mel_Graph* g, Mel_IdxVec* order, Mel_Target* t, cons
         fprintf(stderr, "build: android gradle assembleDebug failed for '%s'\n", t->name);
         return false;
     }
-    fprintf(stderr, "build: packaged %s/app/build/outputs/apk/debug/app-debug.apk\n", proj);
+    fprintf(stderr, "build: packaged %s/app/build/outputs/apk/melody/debug/app-melody-debug.apk\n", proj);
     return true;
 }
 

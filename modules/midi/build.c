@@ -9,6 +9,8 @@ void build(Mel_Build* b)
     mel_sources(lib, WHEN(.platforms = MEL_ON(LINUX)), "src/linux/*.c");
     mel_sources(lib, WHEN(.platforms = MEL_ON(WIN32)), "src/win32/*.c");
     mel_sources(lib, WHEN(.platforms = MEL_ON(ANDROID)), "src/android/*.c");
+    mel_android_manifest(lib, "src/android/AndroidManifest.xml");
+    mel_android_java(lib, "src/android/java");
     mel_link(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(MACOS)), "-framework", "CoreMIDI", "-framework", "CoreFoundation");
     mel_link(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(WIN32)), "-lwinmm");
     mel_depends(lib, "core");

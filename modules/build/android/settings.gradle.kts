@@ -6,6 +6,7 @@ pluginManagement {
     }
     plugins {
         id("com.android.application") version "8.13.2"
+        id("com.android.library") version "8.13.2"
     }
 }
 
@@ -19,3 +20,5 @@ dependencyResolutionManagement {
 
 rootProject.name = providers.gradleProperty("melody.rootProjectName").orNull ?: "melody-app"
 include(":app")
+(providers.gradleProperty("melody.libraryProjects").orNull ?: "")
+    .split(",").filter { it.isNotEmpty() }.forEach { include(it) }
