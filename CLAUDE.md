@@ -79,3 +79,7 @@ At each session's close, write a recap to `writeup/`, one file per session, name
 - CLAUDE.md suggestions — proposed changes to this file, recorded as recommendations only. Never edit CLAUDE.md as part of the recap.
 - Suggestions — feature direction, and repo hygiene (code included).
 
+## Behaviour
+- This repo is heavily WIP. it's small enough that pervasive changes are doable since consumers are few.
+- This repo keeps being worked on, by multiple agents at a time, so if something changes that you did not do, it's fine.
+- Use worktrees when working on a large task, but if the task is small, avoid doing something heavy like worktrees and accept that sometimes the build breaks because multiple agents are working.

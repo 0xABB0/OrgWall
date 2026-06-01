@@ -25,3 +25,7 @@ Our code should follow the following pillars:
 - Code must be idiomatic
 - Code must be fast
 - Code must be extendable
+
+### MEL-CODE-006: Make heavy use of profiling and logging
+Always push for useful logging but try not to make too much noise.
+Profiling is extremely important, both speed and memory.
