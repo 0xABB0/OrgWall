@@ -31,6 +31,10 @@ Our code should follow the following pillars:
 Always push for useful logging but try not to make too much noise.
 Profiling is extremely important, both speed and memory.
 
+### MEL-CODE-007: Silent defaults should be avoided
+Unless explicitly instructed, avoid at all costs having defaults.
+Silent defaults make debugging much, much harder.
+
 # Spec Guidelines
 
 ### MEL-SPEC-001: Specifications are not a novel
