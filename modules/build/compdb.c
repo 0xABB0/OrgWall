@@ -171,7 +171,73 @@ static bool closure_available(Mel_Graph* g, const char* name, const Mel_Variant*
     return ok;
 }
 
-static void emit_target(FILE* f, bool* first, const char* dir, Mel_Graph* g, size_t idx, const Mel_Variant* v, const Mel_StrVec* prefix)
+static bool is_header_name(const char* name)
+{
+    const char* dot = strrchr(name, '.');
+    if (!dot)
+        return false;
+    return strcmp(dot, ".h") == 0 || strcmp(dot, ".hpp") == 0 || strcmp(dot, ".hh") == 0 || strcmp(dot, ".hxx") == 0 || strcmp(dot, ".inl") == 0 ||
+           strcmp(dot, ".ipp") == 0;
+}
+
+static bool seen_once(Mel_StrVec* seen, const char* path)
+{
+    for (size_t i = 0; i < seen->len; i++)
+        if (strcmp(seen->items[i], path) == 0)
+            return false;
+    mel_da_push(seen, mel_str_dup(path));
+    return true;
+}
+
+static char* dir_of(const char* path)
+{
+    const char* slash = strrchr(path, '/');
+#ifdef _WIN32
+    const char* bslash = strrchr(path, '\\');
+    if (bslash > slash)
+        slash = bslash;
+#endif
+    if (!slash)
+        return mel_str_dup(".");
+    return mel_str_fmt("%.*s", (int)(slash - path), path);
+}
+
+static void emit_header(FILE* f, bool* first, const char* dir, const Mel_StrVec* base, const char* file, Mel_StrVec* seen)
+{
+    if (!seen_once(seen, file))
+        return;
+    Mel_StrVec cmd = { 0 };
+    for (size_t k = 0; k < base->len; k++)
+        mel_da_push(&cmd, base->items[k]);
+    mel_da_push(&cmd, "-c");
+    mel_da_push(&cmd, file);
+    entry(f, first, dir, &cmd, file);
+    free(cmd.items);
+}
+
+static void scan_headers(FILE* f, bool* first, const char* dir, const char* root, const Mel_StrVec* base, Mel_StrVec* seen, bool recurse)
+{
+    DIR* d = opendir(root);
+    if (!d)
+        return;
+    for (struct dirent* e; (e = readdir(d));)
+    {
+        if (e->d_name[0] == '.')
+            continue;
+        char* sub = mel_path_join(root, e->d_name);
+        if (mel_path_is_dir(sub))
+        {
+            if (recurse)
+                scan_headers(f, first, dir, sub, base, seen, recurse);
+        }
+        else if (is_header_name(e->d_name))
+            emit_header(f, first, dir, base, sub, seen);
+        free(sub);
+    }
+    closedir(d);
+}
+
+static void emit_target(FILE* f, bool* first, const char* dir, Mel_Graph* g, size_t idx, const Mel_Variant* v, const Mel_StrVec* prefix, Mel_StrVec* seen)
 {
     Mel_Target* t = g->nodes.items[idx].t;
     if (!closure_available(g, t->name, v))
@@ -198,6 +264,47 @@ static void emit_target(FILE* f, bool* first, const char* dir, Mel_Graph* g, siz
         entry(f, first, dir, &cmd, src);
         free(cmd.items);
     }
+
+    Mel_StrVec base = { 0 };
+    for (size_t k = 0; k < prefix->len; k++)
+        mel_da_push(&base, prefix->items[k]);
+    for (size_t k = 0; k < gathered.len; k++)
+        mel_da_push(&base, gathered.items[k]);
+
+    for (size_t i = 0; i < t->includes.len; i++)
+    {
+        Mel_Flag inc = t->includes.items[i];
+        if (!mel_when_match(inc.when, v))
+            continue;
+        bool abs = inc.value[0] == '/' || (inc.value[0] && inc.value[1] == ':');
+        if (abs)
+            continue;
+        char* incdir = mel_path_join(t->dir, inc.value);
+        if (mel_path_is_dir(incdir))
+            scan_headers(f, first, dir, incdir, &base, seen, true);
+        free(incdir);
+    }
+
+    Mel_StrVec srcdirs = { 0 };
+    for (size_t i = 0; i < srcs.len; i++)
+    {
+        char* sd = dir_of(srcs.items[i]);
+        bool  fresh = mel_path_is_dir(sd);
+        for (size_t k = 0; k < srcdirs.len && fresh; k++)
+            if (strcmp(srcdirs.items[k], sd) == 0)
+                fresh = false;
+        if (fresh)
+        {
+            mel_da_push(&srcdirs, sd);
+            scan_headers(f, first, dir, sd, &base, seen, false);
+        }
+        else
+            free(sd);
+    }
+    for (size_t k = 0; k < srcdirs.len; k++)
+        free((void*)srcdirs.items[k]);
+    free(srcdirs.items);
+    free(base.items);
 }
 
 static void emit_build_c(FILE* f, bool* first, const char* dir, const char* file)
@@ -272,8 +379,9 @@ bool mel_emit_compdb(Mel_Graph* g, const Mel_Variant* variants, size_t nvar, con
     if (nvar)
         build_prefix(&variants[0], true, &host_prefix);
 
-    size_t* snap_inc = malloc(g->nodes.len * sizeof *snap_inc);
-    size_t* snap_lnk = malloc(g->nodes.len * sizeof *snap_lnk);
+    Mel_StrVec seen = { 0 };
+    size_t*    snap_inc = malloc(g->nodes.len * sizeof *snap_inc);
+    size_t*    snap_lnk = malloc(g->nodes.len * sizeof *snap_lnk);
     for (size_t vi = 0; vi < nvar; vi++)
     {
         const Mel_Variant* v = &variants[vi];
@@ -294,9 +402,9 @@ bool mel_emit_compdb(Mel_Graph* g, const Mel_Variant* variants, size_t nvar, con
             if (is_host && vi != 0)
                 continue;
             if (is_host)
-                emit_target(f, &first, dir, g, i, &variants[0], &host_prefix);
+                emit_target(f, &first, dir, g, i, &variants[0], &host_prefix, &seen);
             else
-                emit_target(f, &first, dir, g, i, v, &prefix);
+                emit_target(f, &first, dir, g, i, v, &prefix, &seen);
         }
 
         for (size_t i = 0; i < g->nodes.len; i++)
@@ -311,6 +419,9 @@ bool mel_emit_compdb(Mel_Graph* g, const Mel_Variant* variants, size_t nvar, con
         }
         free(prefix.items);
     }
+    for (size_t i = 0; i < seen.len; i++)
+        free((void*)seen.items[i]);
+    free(seen.items);
     free(snap_inc);
     free(snap_lnk);
     free(host_prefix.items);
