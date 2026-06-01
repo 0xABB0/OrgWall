@@ -271,7 +271,11 @@ static char* emit_one(FILE* f, Mel_Graph* g, size_t idx, const Mel_Variant* v, M
         }
         bool android_so = !host && v->platform == MEL_PLATFORM_ANDROID && t->kind == MEL_KIND_EXECUTABLE;
         if (android_so)
+        {
             mel_da_push(&ldflags, mel_str_dup("-shared"));
+            mel_da_push(&ldflags, mel_str_dup("-lm"));
+            mel_da_push(&ldflags, mel_str_dup("-landroid"));
+        }
 
         bool win32_gui = !host && v->platform == MEL_PLATFORM_WIN32 && t->kind == MEL_KIND_EXECUTABLE && t->subsystem && strcmp(t->subsystem, "gui") == 0;
         if (win32_gui)

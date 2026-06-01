@@ -4,15 +4,8 @@
 
 #include <jni.h>
 
-#include <gui/painter.h>
-
-struct Mel_Painter
-{
-    JNIEnv* env;
-    jobject canvas;
-    jobject paint;
-    i32     w, h;
-};
+#include <paint/painter.h>
+#include <paint/native_android.h>
 
 /* Cross-widget JNI handles. The View/TextView/ViewGroup ids are framework
  * methods we drive w->native (the cached View jobject) with directly — there is
@@ -93,4 +86,3 @@ bool mel_gui__android_textfield_register_jni(JNIEnv* env);
 bool mel_gui__android_slider_register_jni(JNIEnv* env);
 bool mel_gui__android_canvas_register_jni(JNIEnv* env);
 bool mel_gui__android_gpu_view_register_jni(JNIEnv* env);
-bool mel_gui__android_painter_register_jni(JNIEnv* env);

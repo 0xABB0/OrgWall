@@ -1,13 +1,16 @@
-#include "win32.h"
+#include "../paint_internal.h"
 
-#include <gui/painter.h>
+#include <debug/assert.h>
 
-static inline COLORREF cref(Mel_Color k) { return RGB(k.r, k.g, k.b); }
+#include <paint/painter.h>
+
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+
+static inline HDC      pdc(Mel_Painter* p) { return (HDC)p->native; }
+static inline COLORREF cref(mel_color8 k) { return RGB(k.r, k.g, k.b); }
 static inline int      ipx(f32 v) { return (int)(v + 0.5f); }
 
-/* One-entry font cache keyed by pixel height: a paint pass that draws many
- * same-size strings reuses one HFONT instead of churning a GDI object each
- * call. */
 static HFONT g_font;
 static int   g_font_px;
 
@@ -22,23 +25,47 @@ static HFONT painter_font(int px)
     return g_font;
 }
 
-void mel_painter_clear(Mel_Painter* p, Mel_Color k)
+static int widen(str8 s, wchar_t* buf, int cap)
+{
+    if (!s.data || s.len == 0)
+        return 0;
+    int n = MultiByteToWideChar(CP_UTF8, 0, (const char*)s.data, (int)s.len, buf, cap);
+    return n < 0 ? 0 : n;
+}
+
+Mel_Painter mel_painter_begin(Mel_Drawable dh)
+{
+    Paint_Drawable* d = mel_paint__get(dh);
+    mel_assert(!d->painting);
+    d->painting = true;
+    SaveDC((HDC)d->native);
+    return (Mel_Painter){ .native = d->native, .owner = dh, .w = d->w, .h = d->h };
+}
+
+void mel_painter_end(Mel_Painter* p)
+{
+    RestoreDC(pdc(p), -1);
+    mel_paint__get(p->owner)->painting = false;
+    p->native = NULL;
+}
+
+void mel_painter_clear(Mel_Painter* p, mel_color8 k)
 {
     RECT rc = { 0, 0, p->w, p->h };
-    SetDCBrushColor(p->dc, cref(k));
-    FillRect(p->dc, &rc, (HBRUSH)GetStockObject(DC_BRUSH));
+    SetDCBrushColor(pdc(p), cref(k));
+    FillRect(pdc(p), &rc, (HBRUSH)GetStockObject(DC_BRUSH));
 }
 
-void mel_painter_fill_rect(Mel_Painter* p, Mel_Rect r, Mel_Color k)
+void mel_painter_fill_rect(Mel_Painter* p, Mel_Rect r, mel_color8 k)
 {
     RECT rc = { ipx(r.x), ipx(r.y), ipx(r.x + r.w), ipx(r.y + r.h) };
-    SetDCBrushColor(p->dc, cref(k));
-    FillRect(p->dc, &rc, (HBRUSH)GetStockObject(DC_BRUSH));
+    SetDCBrushColor(pdc(p), cref(k));
+    FillRect(pdc(p), &rc, (HBRUSH)GetStockObject(DC_BRUSH));
 }
 
-void mel_painter_fill_ellipse(Mel_Painter* p, Mel_Rect r, Mel_Color k)
+void mel_painter_fill_ellipse(Mel_Painter* p, Mel_Rect r, mel_color8 k)
 {
-    HDC dc = p->dc;
+    HDC dc = pdc(p);
     SetDCBrushColor(dc, cref(k));
     HGDIOBJ ob = SelectObject(dc, GetStockObject(DC_BRUSH));
     HGDIOBJ op = SelectObject(dc, GetStockObject(NULL_PEN));
@@ -47,9 +74,7 @@ void mel_painter_fill_ellipse(Mel_Painter* p, Mel_Rect r, Mel_Color k)
     SelectObject(dc, op);
 }
 
-/* DC_PEN (a stock pen recoloured via SetDCPenColor) covers the common 1px
- * stroke with no allocation; only a wider pen needs CreatePen. */
-static HPEN begin_pen(HDC dc, Mel_Color k, f32 width, HGDIOBJ* old)
+static HPEN begin_pen(HDC dc, mel_color8 k, f32 width, HGDIOBJ* old)
 {
     int w = ipx(width);
     if (w < 1)
@@ -72,9 +97,9 @@ static void end_pen(HDC dc, HPEN pen, HGDIOBJ old)
         DeleteObject(pen);
 }
 
-void mel_painter_stroke_rect(Mel_Painter* p, Mel_Rect r, Mel_Color k, f32 width)
+void mel_painter_stroke_rect(Mel_Painter* p, Mel_Rect r, mel_color8 k, f32 width)
 {
-    HDC     dc = p->dc;
+    HDC     dc = pdc(p);
     HGDIOBJ op;
     HPEN    pen = begin_pen(dc, k, width, &op);
     HGDIOBJ ob = SelectObject(dc, GetStockObject(NULL_BRUSH));
@@ -83,9 +108,9 @@ void mel_painter_stroke_rect(Mel_Painter* p, Mel_Rect r, Mel_Color k, f32 width)
     end_pen(dc, pen, op);
 }
 
-void mel_painter_draw_line(Mel_Painter* p, Mel_Vec2 a, Mel_Vec2 b, Mel_Color k, f32 width)
+void mel_painter_draw_line(Mel_Painter* p, Mel_Vec2 a, Mel_Vec2 b, mel_color8 k, f32 width)
 {
-    HDC     dc = p->dc;
+    HDC     dc = pdc(p);
     HGDIOBJ op;
     HPEN    pen = begin_pen(dc, k, width, &op);
     MoveToEx(dc, ipx(a.x), ipx(a.y), NULL);
@@ -93,9 +118,9 @@ void mel_painter_draw_line(Mel_Painter* p, Mel_Vec2 a, Mel_Vec2 b, Mel_Color k, 
     end_pen(dc, pen, op);
 }
 
-void mel_painter_fill_round_rect(Mel_Painter* p, Mel_Rect r, f32 radius, Mel_Color k)
+void mel_painter_fill_round_rect(Mel_Painter* p, Mel_Rect r, f32 radius, mel_color8 k)
 {
-    HDC dc = p->dc;
+    HDC dc = pdc(p);
     SetDCBrushColor(dc, cref(k));
     HGDIOBJ ob = SelectObject(dc, GetStockObject(DC_BRUSH));
     HGDIOBJ op = SelectObject(dc, GetStockObject(NULL_PEN));
@@ -105,11 +130,11 @@ void mel_painter_fill_round_rect(Mel_Painter* p, Mel_Rect r, f32 radius, Mel_Col
     SelectObject(dc, op);
 }
 
-void mel_painter_draw_text(Mel_Painter* p, str8 text, Mel_Vec2 pos, Mel_Color k, f32 size)
+void mel_painter_draw_text(Mel_Painter* p, str8 text, Mel_Vec2 pos, mel_color8 k, f32 size)
 {
-    HDC     dc = p->dc;
+    HDC     dc = pdc(p);
     wchar_t wbuf[512];
-    int     n = mel_gui__win32_widen(text, wbuf, (int)(sizeof wbuf / sizeof wbuf[0]));
+    int     n = widen(text, wbuf, (int)(sizeof wbuf / sizeof wbuf[0]));
 
     HGDIOBJ  of = SelectObject(dc, painter_font(ipx(size)));
     int      obk = SetBkMode(dc, TRANSPARENT);

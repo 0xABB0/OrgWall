@@ -19,8 +19,6 @@ typedef struct
     bool             painting;
 } Paint_Drawable;
 
-extern Mel_SlotMap mel_paint__drawables;
-
 Paint_Drawable*    mel_paint__get(Mel_SlotMap_Handle h);
 Mel_SlotMap_Handle mel_paint__insert(const Paint_Drawable* rec);
 void               mel_paint__remove(Mel_SlotMap_Handle h);

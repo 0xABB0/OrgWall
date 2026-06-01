@@ -1,5 +1,7 @@
 #include "win32.h"
 
+#include <paint/paint.h>
+
 static const wchar_t* CANVAS_CLASS = L"MelGuiCanvas";
 static bool           g_canvas_class;
 
@@ -19,8 +21,12 @@ static LRESULT CALLBACK canvas_wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp
         GetClientRect(hwnd, &rc);
         if (c && c->on_.on_paint)
         {
-            struct Mel_Painter p = { .dc = dc, .w = rc.right - rc.left, .h = rc.bottom - rc.top };
-            c->on_.on_paint(h, &p, rc.right - rc.left, rc.bottom - rc.top, u);
+            i32          w = rc.right - rc.left, ht = rc.bottom - rc.top;
+            Mel_Drawable d = mel_drawable_borrow(dc, w, ht);
+            Mel_Painter  p = mel_painter_begin(d);
+            c->on_.on_paint(h, &p, w, ht, u);
+            mel_painter_end(&p);
+            mel_drawable_release(d);
         }
         else
         {

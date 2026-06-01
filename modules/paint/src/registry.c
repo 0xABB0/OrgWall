@@ -12,7 +12,7 @@
  * table's bookkeeping uses the heap allocator — a constructor predates any
  * caller-supplied allocator; each pixmap's pixel buffer takes the caller's
  * allocator instead (MEL-CODE-003). */
-Mel_SlotMap mel_paint__drawables;
+static Mel_SlotMap mel_paint__drawables;
 
 MEL_CONSTRUCTOR static void mel_paint__registry_init(void) { mel_slotmap_init(&mel_paint__drawables, mel_alloc_heap(), .item_size = sizeof(Paint_Drawable), .initial_capacity = 16); }
 

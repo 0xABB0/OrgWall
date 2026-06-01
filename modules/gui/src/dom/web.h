@@ -16,12 +16,6 @@
  * fire the stored capability callbacks. The painter wraps a <canvas> id and each
  * op draws straight onto its 2D context. */
 
-struct Mel_Painter
-{
-    int canvas;
-    i32 w, h;
-};
-
 typedef enum
 {
     MEL_WEB_TEXT = 0, // text via textContent (label, button, groupbox legend)
@@ -64,8 +58,6 @@ static inline const char* mel_web__cstr(str8 s, char* buf, int cap)
     return buf;
 }
 
-static inline u32 mel_web__rgba(Mel_Color c) { return ((u32)c.r << 24) | ((u32)c.g << 16) | ((u32)c.b << 8) | (u32)c.a; }
-
 /* --- DOM element ops (EM_JS, backend.c) --- */
 int  mel_web__el_create(const char* tag);
 void mel_web__el_append(int parent, int child); // parent 0 -> #mel-root
@@ -99,14 +91,6 @@ void mel_web__checkbox_set(int id, int checked);
 int  mel_web__checkbox_get(int id);
 void mel_web__checkbox_label(int id, const char* s);
 
-/* canvas painter (canvas.c) */
+/* canvas (canvas.c) */
 void mel_web__canvas_size(int id, i32 w, i32 h);
-void mel_web__paint_clear(int id, u32 rgba);
-void mel_web__paint_fill_rect(int id, f32 x, f32 y, f32 w, f32 h, u32 rgba);
-void mel_web__paint_fill_ellipse(int id, f32 x, f32 y, f32 w, f32 h, u32 rgba);
-void mel_web__paint_stroke_rect(int id, f32 x, f32 y, f32 w, f32 h, u32 rgba, f32 width);
-void mel_web__paint_line(int id, f32 ax, f32 ay, f32 bx, f32 by, u32 rgba, f32 width);
-void mel_web__paint_round_rect(int id, f32 x, f32 y, f32 w, f32 h, f32 radius, u32 rgba);
-void mel_web__paint_text(int id, const char* s, f32 x, f32 y, u32 rgba, f32 size);
-
 void mel_web__canvas_repaint(Mel_Gui_Node* n);

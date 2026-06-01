@@ -131,17 +131,19 @@ Do not block the android backend; tracked for later.
    Shipped: =Mel_Painter= immediate-mode surface handed to Canvas =on_paint=.
    Ops: =clear=, =fill_rect=, =fill_ellipse=, =stroke_rect=, =draw_line=,
    =fill_round_rect=, =draw_text=. Geometry reuses =math.geo=/=math.vector=.
-   *Extracted to the =paint= module.* =Mel_Painter=, the seven ops, and the color
-   type now come from =<paint/painter.h>= + =<color/rgba8.h>= (=mel_color8=); =gui=
-   =mel_depends= on =paint=+=color=. The cocoa canvas =drawRect= vends a borrowed
-   =Mel_Drawable= (=mel_drawable_borrow=/=release=) and runs paint's quartz ops.
-   Retired: =gui/painter.h=, =gui/color.h=, =src/cocoa/painter.m=, the private
-   =struct Mel_Painter=.
-   *Broken until migrated:* =src/{winui,androidnative}/painter.*= and the inline
-   painters in =src/{uikit,dom}/canvas.*= still include the deleted =gui/painter.h=
-   and use the old =Mel_Color=. They will not build under their backends until
-   =paint= grows winui/dom/androidnative backends and each canvas is rewired to
-   vend a borrowed drawable. macOS is unaffected (those sources are gated out).
+   *Extracted to the =paint= module, all backends migrated.* =Mel_Painter=, the
+   seven ops, and the color type now come from =<paint/painter.h>= +
+   =<color/rgba8.h>= (=mel_color8=); =gui= =mel_depends= on =paint=+=color=. Every
+   canvas vends a borrowed =Mel_Drawable= (=mel_drawable_borrow=/=release=) from its
+   paint entry: cocoa/uikit =drawRect= (=CGContextRef=), winui =WM_PAINT= (=HDC=),
+   dom =canvas_repaint= (element id), android =nativePaint=
+   (=Mel_Paint_Android_Native=). Retired: =gui/painter.h=, =gui/color.h=, the
+   per-backend =painter.{m,c}= (cocoa/uikit/winui/androidnative), the inline dom
+   painter, every private =struct Mel_Painter=, =mel_gui__android_painter_register_jni=.
+   Verified: cocoa live; ios/wasm/android build; win32 backend compiles (nob win32
+   toolchain pre-broken). Android boot still blocked by the pre-existing JNI
+   whole-archive gap (gui's =Java_*= entry points GC'd from =libmelody.so=) — see
+   =modules/paint/todo.md=.
    Open items / deferred surface:
    - Arbitrary paths (move/line/curve/close, fill + stroke), polygons.
    - Images / bitmaps (=draw_image=), with source + dest rect and scaling.

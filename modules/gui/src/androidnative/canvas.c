@@ -1,5 +1,7 @@
 #include "android.h"
 
+#include <paint/paint.h>
+
 #include <stdint.h>
 
 static jclass    s_cls;
@@ -63,9 +65,13 @@ JNIEXPORT void JNICALL Java_orgwall_melody_platform_MelCanvasView_nativePaint(JN
     (void)cls;
     if (!fn)
         return;
-    Mel_Gui_Handle     handle = mel_gui__android_unpack(h);
-    struct Mel_Painter p = { .env = env, .canvas = canvas, .paint = paint, .w = (i32)w, .h = (i32)height };
+    Mel_Gui_Handle           handle = mel_gui__android_unpack(h);
+    Mel_Paint_Android_Native native = { .env = env, .canvas = canvas, .paint = paint };
+    Mel_Drawable             d = mel_drawable_borrow(&native, (i32)w, (i32)height);
+    Mel_Painter              p = mel_painter_begin(d);
     ((Mel_Cb_Paint)(intptr_t)fn)(handle, &p, (i32)w, (i32)height, mel_gui_user(handle));
+    mel_painter_end(&p);
+    mel_drawable_release(d);
 }
 
 JNIEXPORT void JNICALL Java_orgwall_melody_platform_MelCanvasView_nativePointer(JNIEnv* env, jclass cls, jlong h, jlong fn, jint x, jint y)

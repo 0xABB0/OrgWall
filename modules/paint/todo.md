@@ -3,16 +3,41 @@
 Deferred slices, in order. Each is a mechanical lift from `gui`'s existing per-backend
 painter except where a correctness gotcha is flagged — verify on the target platform.
 
-## Backends (port the 7 ops + a pixmap ctor with readback)
+## Backends
 
-- **winui** — GDI. Window `HDC` from `BeginPaint`; pixmap from `CreateCompatibleDC` +
-  top-down `CreateDIBSection`. **Gotcha:** DIB is **BGRA** — swizzle to RGBA on readback so
-  `mel_pixmap_pixels` returns `mel_color8` order. `static g_font` is single-thread.
-- **dom** — Canvas2D. Window `<canvas>`; pixmap `OffscreenCanvas`; readback `getImageData`.
-- **androidnative** — `Canvas`+`Paint`. Pixmap `Bitmap`+`new Canvas`; readback
-  `copyPixelsToBuffer`. `JNIEnv` is thread-bound.
-- **soft** — hand-written rasterizer + bundled bitmap font (text is the long pole).
-  Deferred; first customer the Linux CLI. Portable C, verifiable on the host.
+The borrowed-window path (begin/end + the 7 ops) ships on every backend `gui` targets; every
+gui canvas is migrated. The owned `Mel_Pixmap` path stays quartz-only (gui doesn't use it).
+
+- **gdi** (`src/gdi/*.c`, win32) — **done** (borrowed). `HDC` native; `g_font` single-thread;
+  UTF-8→UTF-16 via `MultiByteToWideChar`. Compile-verified with `zig cc -target
+  x86_64-windows-gnu`; `./nob build … win32` can't link it — pre-existing nob toolchain gap
+  (plain `clang` + `x86_64-windows-msvc`, no Windows SDK, triple not applied to cflags).
+- **dom** (`src/dom/*.c`, wasm) — **done** (borrowed). Canvas2D via `EM_JS`; `native` is the
+  canvas element id, resolved through `gui`'s `MelWeb.els`. Builds + links (`.wasm/.js/.html`).
+  **Runtime coupling:** paint's web ops read `gui`'s JS element registry — the borrowed model
+  leaks here because a JS canvas context can't cross the C ABI except by index into a shared JS
+  table that `gui` owns. Proper fix: a shared `dom` micro-module owning the registry, depended on
+  by both. Not browser-run-verified yet.
+- **android** (`src/android/*.c`) — **done** (borrowed). JNI `Canvas`/`Paint`; `native` is
+  `Mel_Paint_Android_Native`; method IDs cache lazily off the passed env (no `platform` dep).
+  Compiles; `.so` links + **loads** on device (after the `-lm`/`-landroid` link fixes, below).
+  **Not boot-verified:** the app still crashes at `MelGui.nativeRegister` — `gui`'s JNI entry
+  points live in `libgui.a` and the linker GCs archive members nothing references, so they are
+  absent from `libmelody.so`. Pre-existing (affects all gui android JNI, not paint; the app never
+  booted on android before). Fix is `-Wl,--whole-archive` for the gui static lib in the android
+  `.so` link — a build-framework change with broad blast radius (pulls every object, likely
+  surfacing gpu/EGL deps); left as its own task.
+- **soft** — still deferred (no gui consumer; for the Linux CLI). Rasterizer + bitmap font.
+
+### Owned-pixmap path on non-quartz backends
+Deferred. gdi (`CreateDIBSection`, BGRA→RGBA readback swizzle), dom (`OffscreenCanvas` +
+`getImageData`), android (`Bitmap` + `copyPixelsToBuffer`). Implement when a non-macOS host wants
+offscreen `Mel_Pixmap`; until then `mel_pixmap_create`/`destroy`/the pixmap test are quartz-only.
+
+### Android `.so` system-lib link (fixed this slice, in `modules/build/emit.c`)
+The android `.so` link linked no NDK system libs; `-lm` (color's `powf`) and `-landroid`
+(reactor's `ALooper_*`, window's `ANativeWindow_*`) were added. Both were always needed — the app
+never loaded on android before.
 
 ## Borrowed-window drawable + gui migration
 

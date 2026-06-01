@@ -5,12 +5,6 @@
 #ifdef __OBJC__
 #import <UIKit/UIKit.h>
 
-struct Mel_Painter
-{
-    CGContextRef cg;
-    f32          w, h;
-};
-
 @interface                           MelView: UIView
 @property(assign) Mel_Gui_Handle     handle;
 @property(assign) Mel_Gui_Pointer_Cb pointer;
