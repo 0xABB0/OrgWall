@@ -19,8 +19,9 @@ painter except where a correctness gotcha is flagged — verify on the target pl
 - Add the borrowed-window drawable ctor (`owns=false`): wraps an external native context,
   `destroy` releases the handle but **not** the borrower's context/buffer.
 - `gui` canvas `on_paint` vends a `Mel_Drawable` (borrowed); delete `gui/painter.h`,
-  `gui/color.h`, and each `gui/src/<backend>/painter.*`; retire `gui`'s private `Mel_Color`
-  for `mel_color8`. This is what makes the extraction real — and is macOS-verifiable.
+  `gui/color.h`, the per-backend painters (`gui/src/{cocoa,winui,androidnative}/painter.*`)
+  and the inline painter code in `gui/src/{uikit,dom}/canvas.*`; retire `gui`'s private
+  `Mel_Color` for `mel_color8`. This is what makes the extraction real — and is macOS-verifiable.
 - With the gui drawRect frame available, the painter can embed there; the `thread_local`
   single-active-painter rule can relax.
 
@@ -32,8 +33,9 @@ painter except where a correctness gotcha is flagged — verify on the target pl
 - Logging/profiling (MEL-CODE-006): none yet; add on create/destroy + alloc-fail once the
   module grows a `log` dep.
 
-## Blocked on repo (not paint's to fix)
+## Blocked on repo (not paint's to fix; recheck — both may be resolved by now)
 
-- `MEL_TEST` harness has no runtime/main → `test/pixmap_test.c` cannot run.
-- `mel_assert` expands to nothing → paint's liveness/`owns`/`painting` asserts are inert;
-  `alive()` still works via slotmap generation.
+- `MEL_TEST` harness had no runtime/main → `test/pixmap_test.c` cannot run until it does.
+  Once it works, wire the test in `build.c` and drop the example-as-test crutch.
+- `mel_assert` expanded to nothing → paint's liveness/`owns`/`painting` asserts are inert;
+  `alive()` still works via slotmap generation. If `mel_assert` now has a body, they fire.

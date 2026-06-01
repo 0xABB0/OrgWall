@@ -5,7 +5,7 @@ Immediate-mode 2D drawing, extracted from `gui`. Two primitives: the **painter**
 paint-context or an owned `Mel_Pixmap`). The backend is compile-time selected; each op
 lowers to the platform's native 2D API. No `gpu`, `platform`, or `gui` dependency.
 
-Design: `design/paint.md` (full), `design/paint-quartz-pixmap.md` (slice 1).
+Design: `spec.md` (this module's contract); `design/paint.md` (full design, deferred slices).
 
 ## State
 
@@ -21,13 +21,15 @@ pure C, no AppKit/UIKit, no ObjC runtime; serves macOS now, iOS later):
 ## Deferred
 
 winui / androidnative / dom / soft backends; the borrowed-window drawable and the `gui`
-canvas migration; an alloc-free embedded painter. See `design/paint.md` §7.
+canvas migration. See `todo.md` (actionable) and `design/paint.md` §7 (rationale).
 
 ## Dependencies
 
 `core`, `allocator`, `collection` (slotmap), `math`, `string`, `color`, `debug`.
 
-## Build
+## Build & verify
 
     ./nob build paint macos
-    ./nob test  paint-pixmap macos
+    ./nob run   paint-example macos   # self-checks; writes /tmp/paint-example.ppm to eyeball
+
+No unit test yet: the `MEL_TEST` harness is unwired (see `todo.md`), so the example is the check.
