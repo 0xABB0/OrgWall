@@ -14,23 +14,21 @@
 static volatile u64 g_sink;
 static double       g_tick_ns;
 
-static u64 mono_ns(void)
-{
-    return (u64)((double)mach_absolute_time() * g_tick_ns);
-}
+static u64 mono_ns(void) { return (u64)((double)mach_absolute_time() * g_tick_ns); }
 
 static void native_wake_perform(void* info) { (void)info; }
 
 static void bench_native(u64 iters)
 {
     CFRunLoopRef           loop = CFRunLoopGetCurrent();
-    CFRunLoopSourceContext ctx  = {0};
+    CFRunLoopSourceContext ctx = { 0 };
     ctx.perform = native_wake_perform;
     CFRunLoopSourceRef wake = CFRunLoopSourceCreate(kCFAllocatorDefault, 0, &ctx);
     CFRunLoopAddSource(loop, wake, kCFRunLoopCommonModes);
 
     u64 count = 0;
-    while (count < iters) {
+    while (count < iters)
+    {
         CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.0, true);
         count++;
     }
@@ -47,7 +45,8 @@ static u64 g_reactor_limit;
 
 static bool reactor_frame(void* user)
 {
-    if (++g_reactor_count >= g_reactor_limit) mel_reactor_quit((Mel_Reactor*)user);
+    if (++g_reactor_count >= g_reactor_limit)
+        mel_reactor_quit((Mel_Reactor*)user);
     return true;
 }
 
@@ -62,13 +61,16 @@ static bool bench_setup(Mel_Reactor* r, void* user)
 static void stats(const double* v, int n, double* out_min, double* out_mean, double* out_max)
 {
     double lo = v[0], hi = v[0], sum = 0.0;
-    for (int i = 0; i < n; i++) {
-        if (v[i] < lo) lo = v[i];
-        if (v[i] > hi) hi = v[i];
+    for (int i = 0; i < n; i++)
+    {
+        if (v[i] < lo)
+            lo = v[i];
+        if (v[i] > hi)
+            hi = v[i];
         sum += v[i];
     }
-    *out_min  = lo;
-    *out_max  = hi;
+    *out_min = lo;
+    *out_max = hi;
     *out_mean = sum / (double)n;
 }
 
@@ -76,10 +78,7 @@ static void pin_and_boost(void)
 {
     pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);
     thread_affinity_policy_data_t aff = { 1 };
-    thread_policy_set(pthread_mach_thread_np(pthread_self()),
-                      THREAD_AFFINITY_POLICY,
-                      (thread_policy_t)&aff,
-                      THREAD_AFFINITY_POLICY_COUNT);
+    thread_policy_set(pthread_mach_thread_np(pthread_self()), THREAD_AFFINITY_POLICY, (thread_policy_t)&aff, THREAD_AFFINITY_POLICY_COUNT);
 }
 
 int main(void)
@@ -99,7 +98,8 @@ int main(void)
     double native_ns[BENCH_REPS];
     double reactor_ns[BENCH_REPS];
 
-    for (int rep = 0; rep < BENCH_REPS; rep++) {
+    for (int rep = 0; rep < BENCH_REPS; rep++)
+    {
         u64 t0, t1;
 
         t0 = mono_ns();
@@ -115,10 +115,10 @@ int main(void)
     }
 
     double nmin, nmean, nmax, rmin, rmean, rmax;
-    stats(native_ns,  BENCH_REPS, &nmin, &nmean, &nmax);
+    stats(native_ns, BENCH_REPS, &nmin, &nmean, &nmax);
     stats(reactor_ns, BENCH_REPS, &rmin, &rmean, &rmax);
 
-    double overhead     = rmin - nmin;
+    double overhead = rmin - nmin;
     double overhead_pct = overhead / nmin * 100.0;
 
     printf("Reactor abstraction vs native CFRunLoop\n");
@@ -139,8 +139,8 @@ int main(void)
 
     printf("  overhead as a share of one frame:\n");
     printf("       60 Hz (16.667 ms) : %.5f %%\n", overhead / 16.667e6 * 100.0);
-    printf("      240 Hz ( 4.167 ms) : %.5f %%\n", overhead / 4.167e6  * 100.0);
-    printf("     1000 Hz ( 1.000 ms) : %.5f %%\n", overhead / 1.000e6  * 100.0);
+    printf("      240 Hz ( 4.167 ms) : %.5f %%\n", overhead / 4.167e6 * 100.0);
+    printf("     1000 Hz ( 1.000 ms) : %.5f %%\n", overhead / 1.000e6 * 100.0);
 
     g_sink += g_reactor_count;
     return 0;

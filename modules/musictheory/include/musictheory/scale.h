@@ -11,13 +11,13 @@ typedef struct Mel_Scale Mel_Scale;
 
 struct Mel_Scale
 {
-  const Mel_Tuning* tuning;
-  Mel_Pitch* pitches;
-  int32_t count;
-  int32_t capacity;
+    const Mel_Tuning* tuning;
+    Mel_Pitch*        pitches;
+    int32_t           count;
+    int32_t           capacity;
 };
 
-void mel_scale_free(Mel_Scale* s);
+void               mel_scale_free(Mel_Scale* s);
 static inline void mel_scale_cleanup(Mel_Scale* s) { mel_scale_free(s); }
 #define Mel_Scale_AUTO MEL_CLEANUP(mel_scale_cleanup) Mel_Scale
 
@@ -74,4 +74,4 @@ Mel_Scale mel_scale_pcs_complement(const Mel_Scale* s);
 uint8_t mel_scale_is_set_equivalent(const Mel_Scale* a, const Mel_Scale* b);
 
 typedef struct Mel_IntervalSeq Mel_IntervalSeq;
-Mel_IntervalSeq mel_scale_to_interval_seq(const Mel_Scale* s);
+Mel_IntervalSeq                mel_scale_to_interval_seq(const Mel_Scale* s);

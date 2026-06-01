@@ -5,7 +5,8 @@
 #include <X11/extensions/Xrandr.h>
 
 #ifdef __cplusplus
-extern "C" {
+extern "C"
+{
 #endif
 
 RROutput mel_display_x11_output(Mel_Display d);

@@ -8,11 +8,9 @@
 
 // ── Platform hooks (implemented in src/<platform>/midi_port_<platform>.c) ──
 
-extern int32_t mel_midi_port_platform_enumerate(
-    Mel_Midi_Port_Info* out_infos, int32_t max_count);
+extern int32_t mel_midi_port_platform_enumerate(Mel_Midi_Port_Info* out_infos, int32_t max_count);
 
-extern Mel_Midi_Port* mel_midi_port_platform_open_input(
-    int32_t id, Mel_Midi_Port* port);
+extern Mel_Midi_Port* mel_midi_port_platform_open_input(int32_t id, Mel_Midi_Port* port);
 
 extern void mel_midi_port_platform_close(Mel_Midi_Port* port);
 
@@ -27,7 +25,8 @@ void mel_midi_port_push_chunk(Mel_Midi_Port* port, const Mel_Midi_Chunk* chunk);
 static bool mel__ring_push(Mel_Midi_Port* port, const Mel_Midi_Chunk* chunk)
 {
     int32_t next = (port->ring_write + 1) % port->ring_capacity;
-    if (next == port->ring_read) return false; // full
+    if (next == port->ring_read)
+        return false; // full
     port->ring[port->ring_write] = *chunk;
     port->ring_write = next;
     return true;
@@ -35,7 +34,8 @@ static bool mel__ring_push(Mel_Midi_Port* port, const Mel_Midi_Chunk* chunk)
 
 static bool mel__ring_pop(Mel_Midi_Port* port, Mel_Midi_Chunk* out_chunk)
 {
-    if (port->ring_read == port->ring_write) return false; // empty
+    if (port->ring_read == port->ring_write)
+        return false; // empty
     *out_chunk = port->ring[port->ring_read];
     port->ring_read = (port->ring_read + 1) % port->ring_capacity;
     return true;
@@ -43,17 +43,15 @@ static bool mel__ring_pop(Mel_Midi_Port* port, Mel_Midi_Chunk* out_chunk)
 
 // ── Public API ─────────────────────────────────────────────────────────────
 
-int32_t mel_midi_port_enumerate_inputs(Mel_Midi_Port_Info* out_infos, int32_t max_count)
-{
-    return mel_midi_port_platform_enumerate(out_infos, max_count);
-}
+int32_t mel_midi_port_enumerate_inputs(Mel_Midi_Port_Info* out_infos, int32_t max_count) { return mel_midi_port_platform_enumerate(out_infos, max_count); }
 
 Mel_Midi_Port* mel_midi_port_open_input(int32_t id)
 {
     Mel_Midi_Port* port = calloc(1, sizeof(*port));
-    if (!port) return NULL;
+    if (!port)
+        return NULL;
 
-    port->id   = id;
+    port->id = id;
     port->ring_capacity = MEL_MIDI_RING_SIZE;
     port->ring = calloc((size_t)port->ring_capacity, sizeof(Mel_Midi_Chunk));
     if (!port->ring)
@@ -75,7 +73,8 @@ Mel_Midi_Port* mel_midi_port_open_input(int32_t id)
 
 void mel_midi_port_close(Mel_Midi_Port* port)
 {
-    if (!port) return;
+    if (!port)
+        return;
     mel_midi_port_platform_close(port);
     free(port->ring);
     free(port->name);
@@ -84,7 +83,8 @@ void mel_midi_port_close(Mel_Midi_Port* port)
 
 bool mel_midi_port_poll(Mel_Midi_Port* port, Mel_Midi_Chunk* out_chunk)
 {
-    if (!port || !port->is_open || !out_chunk) return false;
+    if (!port || !port->is_open || !out_chunk)
+        return false;
     return mel__ring_pop(port, out_chunk);
 }
 
@@ -98,18 +98,13 @@ bool mel_midi_port_read_blocking(Mel_Midi_Port* port, Mel_Midi_Chunk* out_chunk)
     return false;
 }
 
-int32_t mel_midi_port_id(const Mel_Midi_Port* port)
-{
-    return port ? port->id : -1;
-}
+int32_t mel_midi_port_id(const Mel_Midi_Port* port) { return port ? port->id : -1; }
 
-const char* mel_midi_port_name(const Mel_Midi_Port* port)
-{
-    return port ? port->name : NULL;
-}
+const char* mel_midi_port_name(const Mel_Midi_Port* port) { return port ? port->name : NULL; }
 
 void mel_midi_port_push_chunk(Mel_Midi_Port* port, const Mel_Midi_Chunk* chunk)
 {
-    if (!port || !chunk) return;
+    if (!port || !chunk)
+        return;
     mel__ring_push(port, chunk);
 }

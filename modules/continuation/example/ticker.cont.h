@@ -23,8 +23,8 @@ Mel_Cont_Suspended ticker__resume(Mel_Cont_Frame_ticker* __f, int* __f_out);
 
 mel_cont(ticker, (i32 frames, i32 amplitude), i32)
 {
-  int x = 0;
-  mel_cont_yield(x);
+    int x = 0;
+    mel_cont_yield(x);
     for (i32 t = x; t < frames; t++)
     {
         i32 value = (amplitude * t) / frames;

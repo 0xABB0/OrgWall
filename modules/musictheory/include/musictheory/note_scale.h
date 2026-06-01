@@ -10,11 +10,11 @@ typedef struct Mel_NoteScale Mel_NoteScale;
 
 struct Mel_NoteScale
 {
-  const Mel_Notation* notation;
-  Mel_Scale pitch_scale;
+    const Mel_Notation* notation;
+    Mel_Scale           pitch_scale;
 };
 
-void mel_note_scale_free(Mel_NoteScale* ns);
+void               mel_note_scale_free(Mel_NoteScale* ns);
 static inline void mel_note_scale_cleanup(Mel_NoteScale* ns) { mel_note_scale_free(ns); }
 #define Mel_NoteScale_AUTO MEL_CLEANUP(mel_note_scale_cleanup) Mel_NoteScale
 

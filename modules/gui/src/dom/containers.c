@@ -1,7 +1,9 @@
 #include "web.h"
 
 EM_JS(void, mel_web__groupbox_legend, (int id, const char* s), {
-    const el = MelWeb.els[id]; if (!el) return;
+    const el = MelWeb.els[id];
+    if (!el)
+        return;
     const lg = document.createElement('legend');
     lg.textContent = UTF8ToString(s);
     el.appendChild(lg);
@@ -10,17 +12,18 @@ EM_JS(void, mel_web__groupbox_legend, (int id, const char* s), {
 Mel_Gui_Handle mel_gui__screen_new(Mel_Gui_Handle window)
 {
     Mel_Gui_Handle h = mel_panel_create(window, .x = 0, .y = 0, .w = 0, .h = 0);
-    Mel_Gui_Node* n = mel_gui__node(h);
-    if (n) n->is_screen = true;
+    Mel_Gui_Node*  n = mel_gui__node(h);
+    if (n)
+        n->is_screen = true;
     return h;
 }
 
 Mel_Gui_Handle mel_panel_create_opt(Mel_Gui_Handle parent, Mel_Panel_Opt o)
 {
-    Mel_Gui_Handle h = mel_gui__node_new(parent, o.x, o.y, o.w, o.h, o.id, o.user, o.hidden,
-                                         &o.layoutable, o.layout);
-    Mel_Gui_Node* n = mel_gui__node(h);
-    if (!n) return h;
+    Mel_Gui_Handle h = mel_gui__node_new(parent, o.x, o.y, o.w, o.h, o.id, o.user, o.hidden, &o.layoutable, o.layout);
+    Mel_Gui_Node*  n = mel_gui__node(h);
+    if (!n)
+        return h;
 
     int id = mel_web__el_create("div");
     mel_web__el_class(id, "mel-panel");
@@ -28,25 +31,27 @@ Mel_Gui_Handle mel_panel_create_opt(Mel_Gui_Handle parent, Mel_Panel_Opt o)
     n->native = (void*)(intptr_t)id; // children parent directly into the panel
 
     Mel_Web_Ctl* c = mel_web__ctl_new(id, h);
-    if (c) {
-        c->pointer  = o.pointer;
-        c->focus    = o.focus;
+    if (c)
+    {
+        c->pointer = o.pointer;
+        c->focus = o.focus;
         c->keyboard = o.keyboard;
     }
-    if (o.pointer.on_pointer_down || o.pointer.on_pointer_move || o.pointer.on_pointer_up
-        || o.pointer.on_click)
+    if (o.pointer.on_pointer_down || o.pointer.on_pointer_move || o.pointer.on_pointer_up || o.pointer.on_click)
         mel_web__on_pointer(id);
-    if (o.disabled) mel_web__el_enabled(id, 0);
-    if (n->hidden)  mel_web__el_visible(id, 0);
+    if (o.disabled)
+        mel_web__el_enabled(id, 0);
+    if (n->hidden)
+        mel_web__el_visible(id, 0);
     return h;
 }
 
 Mel_Gui_Handle mel_groupbox_create_opt(Mel_Gui_Handle parent, Mel_GroupBox_Opt o)
 {
-    Mel_Gui_Handle h = mel_gui__node_new(parent, o.x, o.y, o.w, o.h, o.id, o.user, o.hidden,
-                                         &o.layoutable, o.layout);
-    Mel_Gui_Node* n = mel_gui__node(h);
-    if (!n) return h;
+    Mel_Gui_Handle h = mel_gui__node_new(parent, o.x, o.y, o.w, o.h, o.id, o.user, o.hidden, &o.layoutable, o.layout);
+    Mel_Gui_Node*  n = mel_gui__node(h);
+    if (!n)
+        return h;
 
     int box = mel_web__el_create("fieldset");
     mel_web__el_class(box, "mel-groupbox");
@@ -59,21 +64,23 @@ Mel_Gui_Handle mel_groupbox_create_opt(Mel_Gui_Handle parent, Mel_GroupBox_Opt o
     mel_web__el_class(body, "mel-groupbox-body");
     mel_web__el_append(box, body);
 
-    n->native  = (void*)(intptr_t)box;
+    n->native = (void*)(intptr_t)box;
     n->content = (void*)(intptr_t)body; // children parent into the body box
 
     Mel_Web_Ctl* c = mel_web__ctl_new(box, h);
-    if (c) c->focus = o.focus;
-    if (n->hidden) mel_web__el_visible(box, 0);
+    if (c)
+        c->focus = o.focus;
+    if (n->hidden)
+        mel_web__el_visible(box, 0);
     return h;
 }
 
 Mel_Gui_Handle mel_scrollview_create_opt(Mel_Gui_Handle parent, Mel_ScrollView_Opt o)
 {
-    Mel_Gui_Handle h = mel_gui__node_new(parent, o.x, o.y, o.w, o.h, o.id, o.user, o.hidden,
-                                         &o.layoutable, o.layout);
-    Mel_Gui_Node* n = mel_gui__node(h);
-    if (!n) return h;
+    Mel_Gui_Handle h = mel_gui__node_new(parent, o.x, o.y, o.w, o.h, o.id, o.user, o.hidden, &o.layoutable, o.layout);
+    Mel_Gui_Node*  n = mel_gui__node(h);
+    if (!n)
+        return h;
 
     int outer = mel_web__el_create("div");
     mel_web__el_class(outer, "mel-scroll");
@@ -85,12 +92,15 @@ Mel_Gui_Handle mel_scrollview_create_opt(Mel_Gui_Handle parent, Mel_ScrollView_O
     i32 ch = o.content_h > 0 ? o.content_h : 0;
     mel_web__el_bounds(inner, 0, 0, cw, ch);
 
-    n->native  = (void*)(intptr_t)outer;
+    n->native = (void*)(intptr_t)outer;
     n->content = (void*)(intptr_t)inner; // scrollable content host
 
     Mel_Web_Ctl* c = mel_web__ctl_new(outer, h);
-    if (c) c->focus = o.focus;
-    if (o.disabled) mel_web__el_enabled(outer, 0);
-    if (n->hidden)  mel_web__el_visible(outer, 0);
+    if (c)
+        c->focus = o.focus;
+    if (o.disabled)
+        mel_web__el_enabled(outer, 0);
+    if (n->hidden)
+        mel_web__el_visible(outer, 0);
     return h;
 }

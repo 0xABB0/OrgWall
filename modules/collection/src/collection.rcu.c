@@ -3,22 +3,27 @@
 #include <thread/mutex.h>
 #include <stdatomic.h>
 
-struct Mel__Rcu_Garbage {
-    void* ptr;
-    u32 bucket;
+struct Mel__Rcu_Garbage
+{
+    void*             ptr;
+    u32               bucket;
     Mel__Rcu_Garbage* next;
 };
 
 static void mel__rcu_collect(Mel_Rcu* rcu)
 {
     Mel__Rcu_Garbage** pp = &rcu->garbage;
-    while (*pp) {
+    while (*pp)
+    {
         Mel__Rcu_Garbage* node = *pp;
-        if (atomic_load_explicit(&rcu->readers[node->bucket], memory_order_acquire) == 0) {
+        if (atomic_load_explicit(&rcu->readers[node->bucket], memory_order_acquire) == 0)
+        {
             *pp = node->next;
             mel_dealloc(rcu->alloc, node->ptr);
             mel_dealloc(rcu->alloc, node);
-        } else {
+        }
+        else
+        {
             pp = &node->next;
         }
     }
@@ -108,7 +113,8 @@ void mel_rcu_writer_store(Mel_Rcu* rcu, void* new_ptr)
     void* old = atomic_load_explicit(&rcu->ptr, memory_order_relaxed);
     atomic_store_explicit(&rcu->ptr, new_ptr, memory_order_release);
 
-    if (old) {
+    if (old)
+    {
         u32 prev = atomic_fetch_add_explicit(&rcu->epoch, 1, memory_order_acq_rel);
         u32 bucket = prev & 1;
 

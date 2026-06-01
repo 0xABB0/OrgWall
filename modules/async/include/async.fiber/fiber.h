@@ -6,12 +6,14 @@
 typedef void* Mel_Fiber;
 #define MEL_FIBER_INVALID NULL
 
-typedef struct Mel_Fiber_Transfer {
+typedef struct Mel_Fiber_Transfer
+{
     Mel_Fiber from;
     void*     user;
 } Mel_Fiber_Transfer;
 
-typedef struct Mel_Fiber_Stack {
+typedef struct Mel_Fiber_Stack
+{
     void* sptr;
     u32   ssize;
 } Mel_Fiber_Stack;

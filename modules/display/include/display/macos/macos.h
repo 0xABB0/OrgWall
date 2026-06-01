@@ -4,7 +4,8 @@
 #include <CoreGraphics/CGDirectDisplay.h>
 
 #ifdef __cplusplus
-extern "C" {
+extern "C"
+{
 #endif
 
 CGDirectDisplayID mel_display_macos_display_id(Mel_Display d);

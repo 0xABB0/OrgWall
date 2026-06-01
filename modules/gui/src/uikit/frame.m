@@ -1,14 +1,15 @@
 #include "uikit.h"
 
-static UIWindow*              g_window;
+static UIWindow*               g_window;
 static UINavigationController* g_nav;
 
 UINavigationController* mel_gui__ios_nav(void) { return g_nav; }
 
 static void ios_ensure_nav(void)
 {
-    if (g_nav) return;
-    g_nav    = [[UINavigationController alloc] init];
+    if (g_nav)
+        return;
+    g_nav = [[UINavigationController alloc] init];
     g_window = [[UIWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
     g_window.rootViewController = g_nav;
     [g_window makeKeyAndVisible];
@@ -29,19 +30,26 @@ static void ios_ensure_nav(void)
     // PAD (the default) confines content to the safe area; EDGE_TO_EDGE fills
     // the whole view and leaves the insets to the app.
     id top, lead, trail, bot;
-    if (self.inset_mode == MEL_FRAME_EDGE_TO_EDGE) {
-        top = self.view.topAnchor;      lead = self.view.leadingAnchor;
-        trail = self.view.trailingAnchor; bot = self.view.bottomAnchor;
-    } else {
+    if (self.inset_mode == MEL_FRAME_EDGE_TO_EDGE)
+    {
+        top = self.view.topAnchor;
+        lead = self.view.leadingAnchor;
+        trail = self.view.trailingAnchor;
+        bot = self.view.bottomAnchor;
+    }
+    else
+    {
         UILayoutGuide* g = self.view.safeAreaLayoutGuide;
-        top = g.topAnchor;   lead = g.leadingAnchor;
-        trail = g.trailingAnchor; bot = g.bottomAnchor;
+        top = g.topAnchor;
+        lead = g.leadingAnchor;
+        trail = g.trailingAnchor;
+        bot = g.bottomAnchor;
     }
     [NSLayoutConstraint activateConstraints:@[
-        [c.topAnchor      constraintEqualToAnchor:top],
-        [c.leadingAnchor  constraintEqualToAnchor:lead],
+        [c.topAnchor constraintEqualToAnchor:top],
+        [c.leadingAnchor constraintEqualToAnchor:lead],
         [c.trailingAnchor constraintEqualToAnchor:trail],
-        [c.bottomAnchor   constraintEqualToAnchor:bot],
+        [c.bottomAnchor constraintEqualToAnchor:bot],
     ]];
 }
 
@@ -49,18 +57,21 @@ static void ios_ensure_nav(void)
 {
     [super viewDidLayoutSubviews];
     CGSize sz = self.content.bounds.size;
-    i32 w = (i32)sz.width, h = (i32)sz.height;
-    if (w == self.last_w && h == self.last_h) return;
-    self.last_w = w; self.last_h = h;
+    i32    w = (i32)sz.width, h = (i32)sz.height;
+    if (w == self.last_w && h == self.last_h)
+        return;
+    self.last_w = w;
+    self.last_h = h;
 
     // Drive the gui layout with the real content size, then report insets so
     // EDGE_TO_EDGE apps can react.
     mel_gui__resized(self.frame_handle, w, h);
     mel_gui__layout_arrange(self.frame_handle);
 
-    if (self.insets_cb.on_insets_changed) {
-        UIEdgeInsets s = self.view.safeAreaInsets;
-        Mel_Insets safe = { (i32)s.left, (i32)s.top, (i32)s.right, (i32)s.bottom };
+    if (self.insets_cb.on_insets_changed)
+    {
+        UIEdgeInsets     s = self.view.safeAreaInsets;
+        Mel_Insets       safe = { (i32)s.left, (i32)s.top, (i32)s.right, (i32)s.bottom };
         Mel_Frame_Insets in = { .safe_area = safe, .system_bars = safe };
         self.insets_cb.on_insets_changed(self.frame_handle, &in, mel_gui_user(self.frame_handle));
     }
@@ -73,47 +84,58 @@ static void ios_ensure_nav(void)
 - (void)didMoveToParentViewController:(UIViewController*)parent
 {
     [super didMoveToParentViewController:parent];
-    if (parent != nil) return;
+    if (parent != nil)
+        return;
     Mel_Gui_Node* n = mel_gui__node(self.frame_handle);
-    if (n && n->is_screen) mel_gui__screen_popped(self.frame_handle);
-    else                   mel_gui__frame_closed(self.frame_handle);
+    if (n && n->is_screen)
+        mel_gui__screen_popped(self.frame_handle);
+    else
+        mel_gui__frame_closed(self.frame_handle);
 }
 
 @end
 
 void mel_gui__ios_show_frame(Mel_Gui_Node* n)
 {
-    if (!n || !n->native) return;
+    if (!n || !n->native)
+        return;
     ios_ensure_nav();
     UIViewController* vc = (__bridge UIViewController*)n->native;
-    if (g_nav.viewControllers.count == 0) {
-        [g_nav setViewControllers:@[vc] animated:NO];
-    } else if (g_nav.topViewController == vc) {
+    if (g_nav.viewControllers.count == 0)
+    {
+        [g_nav setViewControllers:@[ vc ] animated:NO];
+    }
+    else if (g_nav.topViewController == vc)
+    {
         // already shown
-    } else if ([g_nav.viewControllers containsObject:vc]) {
+    }
+    else if ([g_nav.viewControllers containsObject:vc])
+    {
         [g_nav popToViewController:vc animated:YES];
-    } else {
+    }
+    else
+    {
         [g_nav pushViewController:vc animated:YES];
     }
 }
 
 Mel_Gui_Handle mel_frame_create_opt(Mel_Frame_Opt o)
 {
-    Mel_Gui_Handle h = mel_gui__node_new(MEL_GUI_HANDLE_NONE, o.x, o.y, o.w, o.h, 0, o.user,
-                                         o.initial_state == MEL_FRAME_HIDDEN, NULL, o.layout);
-    Mel_Gui_Node* n = mel_gui__node(h);
-    if (!n) return h;
+    Mel_Gui_Handle h = mel_gui__node_new(MEL_GUI_HANDLE_NONE, o.x, o.y, o.w, o.h, 0, o.user, o.initial_state == MEL_FRAME_HIDDEN, NULL, o.layout);
+    Mel_Gui_Node*  n = mel_gui__node(h);
+    if (!n)
+        return h;
     NSString* title = mel_gui__ios_nsstring(o.title);
 
     ios_ensure_nav();
     MelViewController* vc = [[MelViewController alloc] init];
     vc.frame_handle = h;
-    vc.inset_mode   = o.inset_mode;
-    vc.insets_cb    = o.insets;
-    vc.title        = title;
-    (void)vc.view;  // force loadView so the content view exists for children
+    vc.inset_mode = o.inset_mode;
+    vc.insets_cb = o.insets;
+    vc.title = title;
+    (void)vc.view; // force loadView so the content view exists for children
 
-    n->native  = (void*)CFBridgingRetain(vc);
+    n->native = (void*)CFBridgingRetain(vc);
     n->content = (void*)CFBridgingRetain(vc.content);
     mel_gui__frames_inc();
 
@@ -125,17 +147,18 @@ Mel_Gui_Handle mel_frame_create_opt(Mel_Frame_Opt o)
 Mel_Gui_Handle mel_gui__screen_new(Mel_Gui_Handle window)
 {
     Mel_Gui_Handle h = mel_gui__node_new(window, 0, 0, 0, 0, 0, NULL, false, NULL, NULL);
-    Mel_Gui_Node* n = mel_gui__node(h);
-    if (!n) return h;
+    Mel_Gui_Node*  n = mel_gui__node(h);
+    if (!n)
+        return h;
     n->is_screen = true;
 
     ios_ensure_nav();
     MelViewController* vc = [[MelViewController alloc] init];
     vc.frame_handle = h;
-    vc.inset_mode   = MEL_FRAME_PAD;
+    vc.inset_mode = MEL_FRAME_PAD;
     (void)vc.view;
 
-    n->native  = (void*)CFBridgingRetain(vc);
+    n->native = (void*)CFBridgingRetain(vc);
     n->content = (void*)CFBridgingRetain(vc.content);
     n->x = 0;
     n->y = 0;
@@ -151,7 +174,8 @@ void mel_gui__nav_replace(Mel_Gui_Handle next, Mel_Gui_Handle prev)
 void mel_gui__nav_back(Mel_Gui_Handle prev, Mel_Gui_Handle cur)
 {
     (void)cur;
-    if (!g_nav) return;
+    if (!g_nav)
+        return;
     Mel_Gui_Node* p = mel_gui__node(prev);
     if (p && p->native && [g_nav.viewControllers containsObject:(__bridge UIViewController*)p->native])
         [g_nav popToViewController:(__bridge UIViewController*)p->native animated:YES];
@@ -164,11 +188,12 @@ bool mel_gui_supports_multi_root(void) { return false; }
 Mel_Frame_Insets mel_frame_insets(Mel_Gui_Handle h)
 {
     (void)h;
-    Mel_Frame_Insets out = {0};
-    if (!g_nav || !g_nav.topViewController) return out;
+    Mel_Frame_Insets out = { 0 };
+    if (!g_nav || !g_nav.topViewController)
+        return out;
     UIEdgeInsets s = g_nav.topViewController.view.safeAreaInsets;
-    Mel_Insets safe = { (i32)s.left, (i32)s.top, (i32)s.right, (i32)s.bottom };
-    out.safe_area   = safe;
+    Mel_Insets   safe = { (i32)s.left, (i32)s.top, (i32)s.right, (i32)s.bottom };
+    out.safe_area = safe;
     out.system_bars = safe;
     return out;
 }

@@ -7,12 +7,13 @@
 #include <gui/callbacks.h>
 #include <gui/layout.h>
 
-typedef struct {
-    str8  text;
-    i32   x, y, w, h;
-    u32   id;
-    bool  hidden;
-    void* user;
+typedef struct
+{
+    str8                 text;
+    i32                  x, y, w, h;
+    u32                  id;
+    bool                 hidden;
+    void*                user;
     Mel_Gui_Lifecycle_Cb lifecycle;
     Mel_Layoutable       layoutable;
 } Mel_Label_Opt;

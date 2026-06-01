@@ -18,15 +18,16 @@ int main(void)
     {
         g_case = "sum_to";
 
-        Trace expected = {0};
-        i64   eret     = 0;
+        Trace expected = { 0 };
+        i64   eret = 0;
         oracle(n, &expected, &eret);
 
-        Mel_Cont_Frame_sum_to f = {0};
-        f.n                     = n;
-        Trace got               = {0};
+        Mel_Cont_Frame_sum_to f = { 0 };
+        f.n = n;
+        Trace got = { 0 };
         i64   y;
-        while (sum_to__resume(&f, &y)) trace_push(&got, y);
+        while (sum_to__resume(&f, &y))
+            trace_push(&got, y);
 
         check_traces("seq", &expected, &got);
         check_eq_i64("ret", eret, f.__ret);

@@ -3,22 +3,25 @@
 #include "slab.cfg.h"
 #include <collection.pool/pool.h>
 
-typedef struct Mel_Slab_Class {
+typedef struct Mel_Slab_Class
+{
     Mel_Pool pool;
-    usize block_size;
+    usize    block_size;
 } Mel_Slab_Class;
 
-typedef struct Mel_Slab_Alloc {
+typedef struct Mel_Slab_Alloc
+{
     Mel_Slab_Class* classes;
-    i32 class_count;
+    i32             class_count;
 #if MEL_COLLECTION_SLAB_DEBUG
     _Atomic(usize) alloc_count;
     _Atomic(usize) free_count;
-    const char* name;
+    const char*    name;
 #endif
 } Mel_Slab_Alloc;
 
-typedef struct {
+typedef struct
+{
     void* buffer;
     usize buffer_size;
     usize block_size;

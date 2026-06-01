@@ -4,10 +4,10 @@
 
 #if MEL_ASSERT_ENABLED
 
-# define mel_assert(...)
+#define mel_assert(...)
 
 #else
 
-# define mel_assert(...)
+#define mel_assert(...)
 
 #endif

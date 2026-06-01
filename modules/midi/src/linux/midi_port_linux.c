@@ -3,7 +3,7 @@
 #include <core/platform.h>
 
 #if !MEL_PLATFORM_LINUX
-    #error "This file should only be compiled on Linux"
+#error "This file should only be compiled on Linux"
 #endif
 
 #include <alsa/asoundlib.h>
@@ -23,13 +23,13 @@ extern void mel_midi_port_push_chunk(Mel_Midi_Port* port, const Mel_Midi_Chunk* 
 typedef struct Mel_Midi_Port_Linux Mel_Midi_Port_Linux;
 struct Mel_Midi_Port_Linux
 {
-    snd_seq_t*       seq;
-    int              port_id;
-    int              src_client;
-    int              src_port;
-    Mel_Thread       thread;
-    volatile bool    running;
-    volatile bool    closed;
+    snd_seq_t*    seq;
+    int           port_id;
+    int           src_client;
+    int           src_port;
+    Mel_Thread    thread;
+    volatile bool running;
+    volatile bool closed;
 };
 
 // ── Reader thread ──────────────────────────────────────────────────────────
@@ -37,103 +37,104 @@ struct Mel_Midi_Port_Linux
 static int mel__midi_reader_thread(void* arg)
 {
     Mel_Midi_Port* port = (Mel_Midi_Port*)arg;
-    if (!port) return 0;
+    if (!port)
+        return 0;
 
     Mel_Midi_Port_Linux* pl = (Mel_Midi_Port_Linux*)port->platform_handle;
-    if (!pl) return 0;
+    if (!pl)
+        return 0;
 
     struct timespec ts;
-    ts.tv_sec  = 0;
+    ts.tv_sec = 0;
     ts.tv_nsec = 1000000; // 1ms poll interval
 
     while (pl->running)
     {
         snd_seq_event_t* ev = NULL;
-        int res = snd_seq_event_input(pl->seq, &ev);
+        int              res = snd_seq_event_input(pl->seq, &ev);
 
         if (res > 0 && ev)
         {
-            Mel_Midi_Chunk chunk = {0};
+            Mel_Midi_Chunk chunk = { 0 };
 
             struct timespec now;
             clock_gettime(CLOCK_MONOTONIC, &now);
-            chunk.timestamp_us = (uint64_t)now.tv_sec * 1000000ULL
-                               + (uint64_t)now.tv_nsec / 1000ULL;
+            chunk.timestamp_us = (uint64_t)now.tv_sec * 1000000ULL + (uint64_t)now.tv_nsec / 1000ULL;
 
             switch (ev->type)
             {
-                case SND_SEQ_EVENT_NOTEON:
-                    chunk.data[0] = MEL_MIDI_STATUS_NOTE_ON | (ev->data.note.channel & 0x0F);
-                    chunk.data[1] = ev->data.note.note & 0x7F;
-                    chunk.data[2] = ev->data.note.velocity & 0x7F;
-                    chunk.length  = 3;
-                    break;
+            case SND_SEQ_EVENT_NOTEON:
+                chunk.data[0] = MEL_MIDI_STATUS_NOTE_ON | (ev->data.note.channel & 0x0F);
+                chunk.data[1] = ev->data.note.note & 0x7F;
+                chunk.data[2] = ev->data.note.velocity & 0x7F;
+                chunk.length = 3;
+                break;
 
-                case SND_SEQ_EVENT_NOTEOFF:
-                    chunk.data[0] = MEL_MIDI_STATUS_NOTE_OFF | (ev->data.note.channel & 0x0F);
-                    chunk.data[1] = ev->data.note.note & 0x7F;
-                    chunk.data[2] = ev->data.note.velocity & 0x7F;
-                    chunk.length  = 3;
-                    break;
+            case SND_SEQ_EVENT_NOTEOFF:
+                chunk.data[0] = MEL_MIDI_STATUS_NOTE_OFF | (ev->data.note.channel & 0x0F);
+                chunk.data[1] = ev->data.note.note & 0x7F;
+                chunk.data[2] = ev->data.note.velocity & 0x7F;
+                chunk.length = 3;
+                break;
 
-                case SND_SEQ_EVENT_KEYPRESS:
-                    chunk.data[0] = MEL_MIDI_STATUS_KEY_PRESSURE | (ev->data.note.channel & 0x0F);
-                    chunk.data[1] = ev->data.note.note & 0x7F;
-                    chunk.data[2] = ev->data.note.velocity & 0x7F;
-                    chunk.length  = 3;
-                    break;
+            case SND_SEQ_EVENT_KEYPRESS:
+                chunk.data[0] = MEL_MIDI_STATUS_KEY_PRESSURE | (ev->data.note.channel & 0x0F);
+                chunk.data[1] = ev->data.note.note & 0x7F;
+                chunk.data[2] = ev->data.note.velocity & 0x7F;
+                chunk.length = 3;
+                break;
 
-                case SND_SEQ_EVENT_CONTROLLER:
-                    chunk.data[0] = MEL_MIDI_STATUS_CONTROL_CHANGE | (ev->data.control.channel & 0x0F);
-                    chunk.data[1] = ev->data.control.param & 0x7F;
-                    chunk.data[2] = ev->data.control.value & 0x7F;
-                    chunk.length  = 3;
-                    break;
+            case SND_SEQ_EVENT_CONTROLLER:
+                chunk.data[0] = MEL_MIDI_STATUS_CONTROL_CHANGE | (ev->data.control.channel & 0x0F);
+                chunk.data[1] = ev->data.control.param & 0x7F;
+                chunk.data[2] = ev->data.control.value & 0x7F;
+                chunk.length = 3;
+                break;
 
-                case SND_SEQ_EVENT_PGMCHANGE:
-                    chunk.data[0] = MEL_MIDI_STATUS_PROGRAM_CHANGE | (ev->data.control.channel & 0x0F);
-                    chunk.data[1] = ev->data.control.value & 0x7F;
-                    chunk.length  = 2;
-                    break;
+            case SND_SEQ_EVENT_PGMCHANGE:
+                chunk.data[0] = MEL_MIDI_STATUS_PROGRAM_CHANGE | (ev->data.control.channel & 0x0F);
+                chunk.data[1] = ev->data.control.value & 0x7F;
+                chunk.length = 2;
+                break;
 
-                case SND_SEQ_EVENT_CHANPRESS:
-                    chunk.data[0] = MEL_MIDI_STATUS_CHANNEL_PRESSURE | (ev->data.control.channel & 0x0F);
-                    chunk.data[1] = ev->data.control.value & 0x7F;
-                    chunk.length  = 2;
-                    break;
+            case SND_SEQ_EVENT_CHANPRESS:
+                chunk.data[0] = MEL_MIDI_STATUS_CHANNEL_PRESSURE | (ev->data.control.channel & 0x0F);
+                chunk.data[1] = ev->data.control.value & 0x7F;
+                chunk.length = 2;
+                break;
 
-                case SND_SEQ_EVENT_PITCHBEND:
-                {
-                    chunk.data[0] = MEL_MIDI_STATUS_PITCH_BEND | (ev->data.control.channel & 0x0F);
-                    int32_t bend = ev->data.control.value;
-                    chunk.data[1] = (uint8_t)(bend & 0x7F);
-                    chunk.data[2] = (uint8_t)((bend >> 7) & 0x7F);
-                    chunk.length  = 3;
-                    break;
-                }
+            case SND_SEQ_EVENT_PITCHBEND:
+            {
+                chunk.data[0] = MEL_MIDI_STATUS_PITCH_BEND | (ev->data.control.channel & 0x0F);
+                int32_t bend = ev->data.control.value;
+                chunk.data[1] = (uint8_t)(bend & 0x7F);
+                chunk.data[2] = (uint8_t)((bend >> 7) & 0x7F);
+                chunk.length = 3;
+                break;
+            }
 
-                case SND_SEQ_EVENT_START:
-                    chunk.data[0] = 0xFA;
-                    chunk.length  = 1;
-                    break;
+            case SND_SEQ_EVENT_START:
+                chunk.data[0] = 0xFA;
+                chunk.length = 1;
+                break;
 
-                case SND_SEQ_EVENT_CONTINUE:
-                    chunk.data[0] = 0xFB;
-                    chunk.length  = 1;
-                    break;
+            case SND_SEQ_EVENT_CONTINUE:
+                chunk.data[0] = 0xFB;
+                chunk.length = 1;
+                break;
 
-                case SND_SEQ_EVENT_STOP:
-                    chunk.data[0] = 0xFC;
-                    chunk.length  = 1;
-                    break;
+            case SND_SEQ_EVENT_STOP:
+                chunk.data[0] = 0xFC;
+                chunk.length = 1;
+                break;
 
-                case SND_SEQ_EVENT_CLOCK:
-                    chunk.data[0] = 0xF8;
-                    chunk.length  = 1;
-                    break;
+            case SND_SEQ_EVENT_CLOCK:
+                chunk.data[0] = 0xF8;
+                chunk.length = 1;
+                break;
 
-                default:
-                    continue;
+            default:
+                continue;
             }
 
             mel_midi_port_push_chunk(port, &chunk);
@@ -175,8 +176,8 @@ int32_t mel_midi_port_platform_enumerate(Mel_Midi_Port_Info* out_infos, int32_t 
 
             if (out_infos)
             {
-                out_infos[n].id       = n;
-                out_infos[n].name     = snd_seq_port_info_get_name(pinfo);
+                out_infos[n].id = n;
+                out_infos[n].name = snd_seq_port_info_get_name(pinfo);
                 out_infos[n].is_input = true;
             }
             n++;
@@ -192,7 +193,8 @@ int32_t mel_midi_port_platform_enumerate(Mel_Midi_Port_Info* out_infos, int32_t 
 Mel_Midi_Port* mel_midi_port_platform_open_input(int32_t id, Mel_Midi_Port* port)
 {
     Mel_Midi_Port_Linux* pl = calloc(1, sizeof(*pl));
-    if (!pl) return NULL;
+    if (!pl)
+        return NULL;
 
     if (snd_seq_open(&pl->seq, "default", SND_SEQ_OPEN_INPUT, 0) < 0)
     {
@@ -202,10 +204,7 @@ Mel_Midi_Port* mel_midi_port_platform_open_input(int32_t id, Mel_Midi_Port* port
 
     snd_seq_set_client_name(pl->seq, "Melody MIDI");
 
-    pl->port_id = snd_seq_create_simple_port(
-        pl->seq, "Melody Input",
-        SND_SEQ_PORT_CAP_WRITE | SND_SEQ_PORT_CAP_SUBS_WRITE,
-        SND_SEQ_PORT_TYPE_MIDI_GENERIC);
+    pl->port_id = snd_seq_create_simple_port(pl->seq, "Melody Input", SND_SEQ_PORT_CAP_WRITE | SND_SEQ_PORT_CAP_SUBS_WRITE, SND_SEQ_PORT_TYPE_MIDI_GENERIC);
 
     if (pl->port_id < 0)
     {
@@ -221,7 +220,7 @@ Mel_Midi_Port* mel_midi_port_platform_open_input(int32_t id, Mel_Midi_Port* port
         snd_seq_client_info_set_client(cinfo, -1);
 
         int32_t target = 0;
-        bool found = false;
+        bool    found = false;
 
         while (snd_seq_query_next_client(pl->seq, cinfo) >= 0)
         {
@@ -241,14 +240,15 @@ Mel_Midi_Port* mel_midi_port_platform_open_input(int32_t id, Mel_Midi_Port* port
                 if (target == id)
                 {
                     pl->src_client = client;
-                    pl->src_port   = snd_seq_port_info_get_port(pinfo);
-                    port->name     = strdup(snd_seq_port_info_get_name(pinfo));
+                    pl->src_port = snd_seq_port_info_get_port(pinfo);
+                    port->name = strdup(snd_seq_port_info_get_name(pinfo));
                     found = true;
                     break;
                 }
                 target++;
             }
-            if (found) break;
+            if (found)
+                break;
         }
 
         if (!found)
@@ -286,12 +286,14 @@ Mel_Midi_Port* mel_midi_port_platform_open_input(int32_t id, Mel_Midi_Port* port
 
 void mel_midi_port_platform_close(Mel_Midi_Port* port)
 {
-    if (!port) return;
+    if (!port)
+        return;
 
     Mel_Midi_Port_Linux* pl = (Mel_Midi_Port_Linux*)port->platform_handle;
-    if (!pl) return;
+    if (!pl)
+        return;
 
-    pl->closed  = true;
+    pl->closed = true;
     pl->running = false;
 
     mel_thread_join(&pl->thread, NULL);

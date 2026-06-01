@@ -13,7 +13,8 @@ static volatile u64 g_sink;
 static void drain_queue(void)
 {
     MSG msg;
-    while (PeekMessageW(&msg, NULL, 0, 0, PM_REMOVE)) {
+    while (PeekMessageW(&msg, NULL, 0, 0, PM_REMOVE))
+    {
         TranslateMessage(&msg);
         DispatchMessageW(&msg);
     }
@@ -22,15 +23,22 @@ static void drain_queue(void)
 static void bench_native(u64 iters)
 {
     MSG  msg;
-    u64  count   = 0;
+    u64  count = 0;
     bool running = true;
-    while (running) {
-        while (PeekMessageW(&msg, NULL, 0, 0, PM_REMOVE)) {
-            if (msg.message == WM_QUIT) { running = false; break; }
+    while (running)
+    {
+        while (PeekMessageW(&msg, NULL, 0, 0, PM_REMOVE))
+        {
+            if (msg.message == WM_QUIT)
+            {
+                running = false;
+                break;
+            }
             TranslateMessage(&msg);
             DispatchMessageW(&msg);
         }
-        if (++count >= iters) running = false;
+        if (++count >= iters)
+            running = false;
     }
     g_sink += count;
 }
@@ -40,7 +48,8 @@ static u64 g_reactor_limit;
 
 static bool reactor_frame(void* user)
 {
-    if (++g_reactor_count >= g_reactor_limit) mel_reactor_quit((Mel_Reactor*)user);
+    if (++g_reactor_count >= g_reactor_limit)
+        mel_reactor_quit((Mel_Reactor*)user);
     return true;
 }
 
@@ -55,13 +64,16 @@ static bool bench_setup(Mel_Reactor* r, void* user)
 static void stats(const double* v, int n, double* out_min, double* out_mean, double* out_max)
 {
     double lo = v[0], hi = v[0], sum = 0.0;
-    for (int i = 0; i < n; i++) {
-        if (v[i] < lo) lo = v[i];
-        if (v[i] > hi) hi = v[i];
+    for (int i = 0; i < n; i++)
+    {
+        if (v[i] < lo)
+            lo = v[i];
+        if (v[i] > hi)
+            hi = v[i];
         sum += v[i];
     }
-    *out_min  = lo;
-    *out_max  = hi;
+    *out_min = lo;
+    *out_max = hi;
     *out_mean = sum / (double)n;
 }
 
@@ -83,7 +95,8 @@ int main(void)
     double native_ns[BENCH_REPS];
     double reactor_ns[BENCH_REPS];
 
-    for (int rep = 0; rep < BENCH_REPS; rep++) {
+    for (int rep = 0; rep < BENCH_REPS; rep++)
+    {
         LARGE_INTEGER t0, t1;
 
         drain_queue();
@@ -101,7 +114,7 @@ int main(void)
     }
 
     double nmin, nmean, nmax, rmin, rmean, rmax;
-    stats(native_ns,  BENCH_REPS, &nmin, &nmean, &nmax);
+    stats(native_ns, BENCH_REPS, &nmin, &nmean, &nmax);
     stats(reactor_ns, BENCH_REPS, &rmin, &rmean, &rmax);
 
     double overhead = rmin - nmin;
@@ -123,8 +136,8 @@ int main(void)
 
     printf("  overhead as a share of one frame:\n");
     printf("       60 Hz (16.667 ms) : %.5f %%\n", overhead / 16.667e6 * 100.0);
-    printf("      240 Hz ( 4.167 ms) : %.5f %%\n", overhead / 4.167e6  * 100.0);
-    printf("     1000 Hz ( 1.000 ms) : %.5f %%\n", overhead / 1.000e6  * 100.0);
+    printf("      240 Hz ( 4.167 ms) : %.5f %%\n", overhead / 4.167e6 * 100.0);
+    printf("     1000 Hz ( 1.000 ms) : %.5f %%\n", overhead / 1.000e6 * 100.0);
 
     g_sink += g_reactor_count;
     return 0;

@@ -6,21 +6,28 @@
 #endif
 
 #ifdef _WIN32
-static void ensure_llvm_on_path(void) {
+static void ensure_llvm_on_path(void)
+{
     static bool done = false;
-    if (done) return;
+    if (done)
+        return;
     done = true;
-    FILE *p = popen("where clang", "r");
-    if (!p) return;
+    FILE* p = popen("where clang", "r");
+    if (!p)
+        return;
     char buf[1024];
-    if (fgets(buf, sizeof buf, p)) {
+    if (fgets(buf, sizeof buf, p))
+    {
         size_t n = strlen(buf);
-        while (n && (buf[n - 1] == '\n' || buf[n - 1] == '\r' || buf[n - 1] == ' ')) buf[--n] = 0;
-        char *slash = strrchr(buf, '\\');
-        if (!slash) slash = strrchr(buf, '/');
-        if (slash) {
-            *slash          = 0;
-            const char *old = getenv("PATH");
+        while (n && (buf[n - 1] == '\n' || buf[n - 1] == '\r' || buf[n - 1] == ' '))
+            buf[--n] = 0;
+        char* slash = strrchr(buf, '\\');
+        if (!slash)
+            slash = strrchr(buf, '/');
+        if (slash)
+        {
+            *slash = 0;
+            const char* old = getenv("PATH");
             _putenv(mel_str_fmt("PATH=%s;%s", buf, old ? old : ""));
         }
     }
@@ -28,34 +35,42 @@ static void ensure_llvm_on_path(void) {
 }
 #endif
 
-static char *abspath(const char *rel) {
-    char *cwd = malloc(1 << 14);
-    if (!getcwd(cwd, 1 << 14)) {
+static char* abspath(const char* rel)
+{
+    char* cwd = malloc(1 << 14);
+    if (!getcwd(cwd, 1 << 14))
+    {
         free(cwd);
         return mel_str_dup(rel);
     }
-    char *p = rel[0] == '/' ? mel_str_dup(rel) : mel_str_fmt("%s/%s", cwd, rel);
+    char* p = rel[0] == '/' ? mel_str_dup(rel) : mel_str_fmt("%s/%s", cwd, rel);
     free(cwd);
 #ifdef _WIN32
-    for (char *s = p; *s; s++)
-        if (*s == '\\') *s = '/';
+    for (char* s = p; *s; s++)
+        if (*s == '\\')
+            *s = '/';
 #endif
     return p;
 }
 
 #ifdef _WIN32
-static void mirror_archives_to_lib(const char *absprefix) {
-    char *libdir = mel_str_fmt("%s/lib", absprefix);
-    DIR  *d      = opendir(libdir);
-    if (d) {
-        for (struct dirent *e; (e = readdir(d));) {
-            const char *n   = e->d_name;
+static void mirror_archives_to_lib(const char* absprefix)
+{
+    char* libdir = mel_str_fmt("%s/lib", absprefix);
+    DIR*  d = opendir(libdir);
+    if (d)
+    {
+        for (struct dirent* e; (e = readdir(d));)
+        {
+            const char* n = e->d_name;
             size_t      len = strlen(n);
-            if (len > 5 && strncmp(n, "lib", 3) == 0 && strcmp(n + len - 2, ".a") == 0) {
-                char *stem = mel_str_fmt("%.*s", (int)(len - 5), n + 3);
-                char *src  = mel_str_fmt("%s/%s", libdir, n);
-                char *dst  = mel_str_fmt("%s/%s.lib", libdir, stem);
-                if (!mel_path_is_file(dst)) mel_copy_file(src, dst);
+            if (len > 5 && strncmp(n, "lib", 3) == 0 && strcmp(n + len - 2, ".a") == 0)
+            {
+                char* stem = mel_str_fmt("%.*s", (int)(len - 5), n + 3);
+                char* src = mel_str_fmt("%s/%s", libdir, n);
+                char* dst = mel_str_fmt("%s/%s.lib", libdir, stem);
+                if (!mel_path_is_file(dst))
+                    mel_copy_file(src, dst);
                 free(stem);
                 free(src);
                 free(dst);
@@ -67,41 +82,44 @@ static void mirror_archives_to_lib(const char *absprefix) {
 }
 #endif
 
-static void inject_prefix(Mel_Target *t, const char *absprefix, const Mel_Variant *v) {
-    mel_da_push(&t->includes,
-                ((Mel_Flag){(Mel_When){0}, MEL_PUBLIC, mel_str_fmt("%s/include", absprefix)}));
-    mel_da_push(&t->links, ((Mel_Flag){(Mel_When){0}, MEL_PUBLIC, mel_str_fmt("-L%s/lib", absprefix)}));
+static void inject_prefix(Mel_Target* t, const char* absprefix, const Mel_Variant* v)
+{
+    mel_da_push(&t->includes, ((Mel_Flag){ (Mel_When){ 0 }, MEL_PUBLIC, mel_str_fmt("%s/include", absprefix) }));
+    mel_da_push(&t->links, ((Mel_Flag){ (Mel_When){ 0 }, MEL_PUBLIC, mel_str_fmt("-L%s/lib", absprefix) }));
     if (v->platform != MEL_PLATFORM_WIN32)
-        mel_da_push(&t->links,
-                    ((Mel_Flag){(Mel_When){0}, MEL_PUBLIC, mel_str_fmt("-Wl,-rpath,%s/lib", absprefix)}));
+        mel_da_push(&t->links, ((Mel_Flag){ (Mel_When){ 0 }, MEL_PUBLIC, mel_str_fmt("-Wl,-rpath,%s/lib", absprefix) }));
 #ifdef _WIN32
     mirror_archives_to_lib(absprefix);
 #endif
 }
 
-static char *dep_prefix_abs(Mel_Graph *g, const char *name, const Mel_Variant *v) {
+static char* dep_prefix_abs(Mel_Graph* g, const char* name, const Mel_Variant* v)
+{
     int i = mel_graph_index(g, name);
-    if (i < 0) return NULL;
-    char *outdir = mel_target_outdir(g->nodes.items[i].t->dir, v);
-    char *p      = abspath(mel_path_join(outdir, "prefix"));
+    if (i < 0)
+        return NULL;
+    char* outdir = mel_target_outdir(g->nodes.items[i].t->dir, v);
+    char* p = abspath(mel_path_join(outdir, "prefix"));
     free(outdir);
     return p;
 }
 
-static bool build_cmake(Mel_Target *t, const Mel_Variant *v) {
-    char *outdir    = mel_target_outdir(t->dir, v);
-    char *absprefix = abspath(mel_path_join(outdir, "prefix"));
-    char *stamp     = mel_path_join(outdir, ".thirdparty-built");
-    if (mel_path_is_file(stamp)) {
+static bool build_cmake(Mel_Target* t, const Mel_Variant* v)
+{
+    char* outdir = mel_target_outdir(t->dir, v);
+    char* absprefix = abspath(mel_path_join(outdir, "prefix"));
+    char* stamp = mel_path_join(outdir, ".thirdparty-built");
+    if (mel_path_is_file(stamp))
+    {
         inject_prefix(t, absprefix, v);
         return true;
     }
 
-    char *bld = mel_path_join(outdir, "cmake");
-    char *src = t->cmake_dir ? mel_path_join(t->dir, t->cmake_dir) : mel_str_dup(t->dir);
+    char* bld = mel_path_join(outdir, "cmake");
+    char* src = t->cmake_dir ? mel_path_join(t->dir, t->cmake_dir) : mel_str_dup(t->dir);
     mel_mkdirs(bld);
 
-    Mel_StrVec c = {0};
+    Mel_StrVec c = { 0 };
     mel_da_push(&c, "cmake");
     mel_da_push(&c, "-G");
     mel_da_push(&c, "Ninja");
@@ -110,18 +128,20 @@ static bool build_cmake(Mel_Target *t, const Mel_Variant *v) {
     mel_da_push(&c, "-B");
     mel_da_push(&c, bld);
     mel_da_push(&c, mel_str_fmt("-DCMAKE_INSTALL_PREFIX=%s", absprefix));
-    mel_da_push(&c, v->config && strcmp(v->config, "release") == 0 ? "-DCMAKE_BUILD_TYPE=Release"
-                                                                   : "-DCMAKE_BUILD_TYPE=Debug");
-    for (size_t i = 0; i < t->cmake_args.len; i++) mel_da_push(&c, t->cmake_args.items[i]);
+    mel_da_push(&c, v->config && strcmp(v->config, "release") == 0 ? "-DCMAKE_BUILD_TYPE=Release" : "-DCMAKE_BUILD_TYPE=Debug");
+    for (size_t i = 0; i < t->cmake_args.len; i++)
+        mel_da_push(&c, t->cmake_args.items[i]);
     bool ok = mel_run_vec(&c) == 0;
-    if (ok) {
+    if (ok)
+    {
         c.len = 0;
         mel_da_push(&c, "cmake");
         mel_da_push(&c, "--build");
         mel_da_push(&c, bld);
         ok = mel_run_vec(&c) == 0;
     }
-    if (ok) {
+    if (ok)
+    {
         c.len = 0;
         mel_da_push(&c, "cmake");
         mel_da_push(&c, "--install");
@@ -129,7 +149,8 @@ static bool build_cmake(Mel_Target *t, const Mel_Variant *v) {
         ok = mel_run_vec(&c) == 0;
     }
     free(c.items);
-    if (!ok) {
+    if (!ok)
+    {
         fprintf(stderr, "build: cmake failed for '%s'\n", t->name);
         return false;
     }
@@ -138,88 +159,97 @@ static bool build_cmake(Mel_Target *t, const Mel_Variant *v) {
     return true;
 }
 
-static bool build_autotools(Mel_Graph *g, Mel_Target *t, const Mel_Variant *v) {
-    char *outdir    = mel_target_outdir(t->dir, v);
-    char *absprefix = abspath(mel_path_join(outdir, "prefix"));
-    char *stamp     = mel_path_join(outdir, ".thirdparty-built");
-    if (mel_path_is_file(stamp)) {
+static bool build_autotools(Mel_Graph* g, Mel_Target* t, const Mel_Variant* v)
+{
+    char* outdir = mel_target_outdir(t->dir, v);
+    char* absprefix = abspath(mel_path_join(outdir, "prefix"));
+    char* stamp = mel_path_join(outdir, ".thirdparty-built");
+    if (mel_path_is_file(stamp))
+    {
         inject_prefix(t, absprefix, v);
         return true;
     }
 
-    char *bld    = mel_path_join(outdir, "autotools");
-    char *abssrc = abspath(t->autotools_dir && strcmp(t->autotools_dir, ".") != 0
-                               ? mel_path_join(t->dir, t->autotools_dir)
-                               : t->dir);
+    char* bld = mel_path_join(outdir, "autotools");
+    char* abssrc = abspath(t->autotools_dir && strcmp(t->autotools_dir, ".") != 0 ? mel_path_join(t->dir, t->autotools_dir) : t->dir);
     mel_mkdirs(bld);
 #ifdef _WIN32
     ensure_llvm_on_path();
 #endif
     Mel_Toolchain tc = mel_toolchain(v);
 
-    Mel_StrVec cpp = {0}, ld = {0};
-    for (size_t i = 0; i < t->deps.len; i++) {
-        char *dp = dep_prefix_abs(g, t->deps.items[i], v);
-        if (dp) {
+    Mel_StrVec cpp = { 0 }, ld = { 0 };
+    for (size_t i = 0; i < t->deps.len; i++)
+    {
+        char* dp = dep_prefix_abs(g, t->deps.items[i], v);
+        if (dp)
+        {
             mel_da_push(&cpp, mel_str_fmt("-I%s/include", dp));
             mel_da_push(&ld, mel_str_fmt("-L%s/lib", dp));
         }
     }
 
-    const char *cc_cfg  = tc.autotools_cc;
-    const char *srcpath = abssrc;
+    const char* cc_cfg = tc.autotools_cc;
+    const char* srcpath = abssrc;
 #ifdef _WIN32
-    srcpath = (t->autotools_dir && strcmp(t->autotools_dir, ".") != 0)
-                  ? mel_str_fmt("../../../%s", t->autotools_dir)
-                  : "../../..";
+    srcpath = (t->autotools_dir && strcmp(t->autotools_dir, ".") != 0) ? mel_str_fmt("../../../%s", t->autotools_dir) : "../../..";
 #endif
 
-    char *cfg = mel_str_fmt("'%s/configure' --prefix='%s' --disable-shared --enable-static", srcpath,
-                            absprefix);
-    if (tc.cross) cfg = mel_str_fmt("%s --host=%s", cfg, tc.triple);
-    if (tc.cross || v->platform == MEL_PLATFORM_WIN32) {
-        cfg = t->autotools_cstd ? mel_str_fmt("%s CC='%s -std=%s'", cfg, cc_cfg, t->autotools_cstd)
-                                : mel_str_fmt("%s CC='%s'", cfg, cc_cfg);
+    char* cfg = mel_str_fmt("'%s/configure' --prefix='%s' --disable-shared --enable-static", srcpath, absprefix);
+    if (tc.cross)
+        cfg = mel_str_fmt("%s --host=%s", cfg, tc.triple);
+    if (tc.cross || v->platform == MEL_PLATFORM_WIN32)
+    {
+        cfg = t->autotools_cstd ? mel_str_fmt("%s CC='%s -std=%s'", cfg, cc_cfg, t->autotools_cstd) : mel_str_fmt("%s CC='%s'", cfg, cc_cfg);
     }
     // Emscripten objects are wasm/bitcode; the host ar/ranlib choke on them
     // ("malformed uleb128"). Hand autotools/libtool the emscripten archiver
     // and index tool so `make install` indexes the static archive correctly.
-    if (v->platform == MEL_PLATFORM_WASM) cfg = mel_str_fmt("%s AR=emar RANLIB=emranlib", cfg);
+    if (v->platform == MEL_PLATFORM_WASM)
+        cfg = mel_str_fmt("%s AR=emar RANLIB=emranlib", cfg);
 #ifdef _WIN32
     cfg = mel_str_fmt("%s AR=llvm-ar RANLIB=llvm-ranlib NM=llvm-nm LD=ld.lld", cfg);
 #endif
-    if (cpp.len) {
-        char *s = mel_str_dup(cpp.items[0]);
-        for (size_t i = 1; i < cpp.len; i++) s = mel_str_fmt("%s %s", s, cpp.items[i]);
+    if (cpp.len)
+    {
+        char* s = mel_str_dup(cpp.items[0]);
+        for (size_t i = 1; i < cpp.len; i++)
+            s = mel_str_fmt("%s %s", s, cpp.items[i]);
         cfg = mel_str_fmt("%s CPPFLAGS='%s'", cfg, s);
     }
-    if (ld.len) {
-        char *s = mel_str_dup(ld.items[0]);
-        for (size_t i = 1; i < ld.len; i++) s = mel_str_fmt("%s %s", s, ld.items[i]);
+    if (ld.len)
+    {
+        char* s = mel_str_dup(ld.items[0]);
+        for (size_t i = 1; i < ld.len; i++)
+            s = mel_str_fmt("%s %s", s, ld.items[i]);
         cfg = mel_str_fmt("%s LDFLAGS='%s'", cfg, s);
     }
-    for (size_t i = 0; i < t->autotools_args.len; i++) cfg = mel_str_fmt("%s %s", cfg, t->autotools_args.items[i]);
+    for (size_t i = 0; i < t->autotools_args.len; i++)
+        cfg = mel_str_fmt("%s %s", cfg, t->autotools_args.items[i]);
 
-    char *script = mel_path_join(bld, "_mel_configure.sh");
+    char* script = mel_path_join(bld, "_mel_configure.sh");
     mel_write_file(script, mel_str_fmt("%s\n", cfg));
-    Mel_StrVec c = {0};
+    Mel_StrVec c = { 0 };
     mel_da_push(&c, "sh");
     mel_da_push(&c, "_mel_configure.sh");
     bool ok = mel_run_cwd(bld, &c) == 0;
-    if (ok) {
+    if (ok)
+    {
         c.len = 0;
         mel_da_push(&c, "make");
         mel_da_push(&c, "-j8");
         ok = mel_run_cwd(bld, &c) == 0;
     }
-    if (ok) {
+    if (ok)
+    {
         c.len = 0;
         mel_da_push(&c, "make");
         mel_da_push(&c, "install");
         ok = mel_run_cwd(bld, &c) == 0;
     }
     free(c.items);
-    if (!ok) {
+    if (!ok)
+    {
         fprintf(stderr, "build: autotools failed for '%s'\n", t->name);
         return false;
     }
@@ -228,25 +258,28 @@ static bool build_autotools(Mel_Graph *g, Mel_Target *t, const Mel_Variant *v) {
     return true;
 }
 
-static bool build_prebuilt(Mel_Target *t, const Mel_Variant *v) {
-    char *outdir    = mel_target_outdir(t->dir, v);
-    char *absprefix = abspath(mel_path_join(outdir, "prefix"));
-    char *lib       = t->prebuilt_lib ? mel_str_fmt("%s/lib/%s", absprefix, t->prebuilt_lib) : NULL;
-    if (lib && mel_path_is_file(lib)) {
+static bool build_prebuilt(Mel_Target* t, const Mel_Variant* v)
+{
+    char* outdir = mel_target_outdir(t->dir, v);
+    char* absprefix = abspath(mel_path_join(outdir, "prefix"));
+    char* lib = t->prebuilt_lib ? mel_str_fmt("%s/lib/%s", absprefix, t->prebuilt_lib) : NULL;
+    if (lib && mel_path_is_file(lib))
+    {
         inject_prefix(t, absprefix, v);
         return true;
     }
     mel_mkdirs(absprefix);
-    char *zip = mel_path_join(absprefix, "_prebuilt.zip");
+    char* zip = mel_path_join(absprefix, "_prebuilt.zip");
 
-    Mel_StrVec c = {0};
+    Mel_StrVec c = { 0 };
     mel_da_push(&c, "curl");
     mel_da_push(&c, "-fSL");
     mel_da_push(&c, "-o");
     mel_da_push(&c, zip);
     mel_da_push(&c, t->prebuilt_url);
     bool ok = mel_run_vec(&c) == 0;
-    if (ok) {
+    if (ok)
+    {
         c.len = 0;
         mel_da_push(&c, "unzip");
         mel_da_push(&c, "-oq");
@@ -256,7 +289,8 @@ static bool build_prebuilt(Mel_Target *t, const Mel_Variant *v) {
         ok = mel_run_vec(&c) == 0;
     }
     free(c.items);
-    if (!ok || (lib && !mel_path_is_file(lib))) {
+    if (!ok || (lib && !mel_path_is_file(lib)))
+    {
         fprintf(stderr, "build: prebuilt fetch failed for '%s'\n", t->name);
         return false;
     }
@@ -264,16 +298,23 @@ static bool build_prebuilt(Mel_Target *t, const Mel_Variant *v) {
     return true;
 }
 
-bool mel_prepare_thirdparty(Mel_Graph *g, Mel_IdxVec *order, const Mel_Variant *v) {
-    for (size_t i = 0; i < order->len; i++) {
-        Mel_Target *t = g->nodes.items[order->items[i]].t;
-        if (t->kind != MEL_KIND_THIRD_PARTY || !mel_target_available(t, v)) continue;
-        if (t->prebuilt_url && mel_when_match(t->prebuilt_when, v)) {
-            if (!build_prebuilt(t, v)) return false;
+bool mel_prepare_thirdparty(Mel_Graph* g, Mel_IdxVec* order, const Mel_Variant* v)
+{
+    for (size_t i = 0; i < order->len; i++)
+    {
+        Mel_Target* t = g->nodes.items[order->items[i]].t;
+        if (t->kind != MEL_KIND_THIRD_PARTY || !mel_target_available(t, v))
+            continue;
+        if (t->prebuilt_url && mel_when_match(t->prebuilt_when, v))
+        {
+            if (!build_prebuilt(t, v))
+                return false;
             continue;
         }
-        if (t->cmake_dir && mel_when_match(t->cmake_when, v) && !build_cmake(t, v)) return false;
-        if (t->autotools_dir && !build_autotools(g, t, v)) return false;
+        if (t->cmake_dir && mel_when_match(t->cmake_when, v) && !build_cmake(t, v))
+            return false;
+        if (t->autotools_dir && !build_autotools(g, t, v))
+            return false;
     }
     return true;
 }

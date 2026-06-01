@@ -2,7 +2,8 @@
 
 #include <color/xyz.h>
 
-typedef struct mel_lms {
+typedef struct mel_lms
+{
     float l, m, s;
 } mel_lms;
 

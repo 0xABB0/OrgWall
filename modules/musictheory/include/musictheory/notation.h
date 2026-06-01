@@ -5,20 +5,20 @@
 #include "tuning.h"
 #include "enharmonic.h"
 
-typedef struct Mel_Note Mel_Note;
-typedef struct Mel_NoteInterval Mel_NoteInterval;
-typedef struct Mel_NoteScale Mel_NoteScale;
+typedef struct Mel_Note            Mel_Note;
+typedef struct Mel_NoteInterval    Mel_NoteInterval;
+typedef struct Mel_NoteScale       Mel_NoteScale;
 typedef struct Mel_NoteIntervalSeq Mel_NoteIntervalSeq;
 
 typedef struct Mel_Notation Mel_Notation;
 
 struct Mel_Notation
 {
-  const Mel_Tuning* tuning;
-  Mel_EnharmonicStrategy enharmonic;
+    const Mel_Tuning*      tuning;
+    Mel_EnharmonicStrategy enharmonic;
 };
 
-void mel_notation_free(Mel_Notation* n);
+void               mel_notation_free(Mel_Notation* n);
 static inline void mel_notation_cleanup(Mel_Notation* n) { mel_notation_free(n); }
 #define Mel_Notation_AUTO MEL_CLEANUP(mel_notation_cleanup) Mel_Notation
 

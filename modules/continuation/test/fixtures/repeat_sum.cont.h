@@ -22,7 +22,7 @@ Mel_Cont_Suspended repeat_sum__resume(Mel_Cont_Frame_repeat_sum* __f, int* __f_o
 mel_cont(repeat_sum, (i32 n), i32)
 {
     i32 total = 0;
-    i32 k     = 0;
+    i32 k = 0;
     do
     {
         total += k;

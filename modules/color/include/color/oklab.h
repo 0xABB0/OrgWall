@@ -2,7 +2,8 @@
 
 #include <color/rgba.h>
 
-typedef struct mel_oklab {
+typedef struct mel_oklab
+{
     float l, a, b;
 } mel_oklab;
 

@@ -7,10 +7,8 @@ void build(Mel_Build* b)
     mel_sources(lib, ALWAYS, "src/*.c");
     mel_sources(lib, WHEN(.backend = "cocoa"), "src/cocoa/*.m");
     mel_sources(lib, WHEN(.platforms = MEL_ON(WIN32)), "src/win32/*.c");
-    mel_sources(lib, WHEN(.platforms = MEL_ON(IOS) | MEL_ON(ANDROID) | MEL_ON(LINUX) | MEL_ON(WASM)),
-                "src/stub/*.c");
-    mel_link(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(MACOS)), "-framework", "Cocoa",
-             "-framework", "QuartzCore");
+    mel_sources(lib, WHEN(.platforms = MEL_ON(IOS) | MEL_ON(ANDROID) | MEL_ON(LINUX) | MEL_ON(WASM)), "src/stub/*.c");
+    mel_link(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(MACOS)), "-framework", "Cocoa", "-framework", "QuartzCore");
     mel_link(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(WIN32)), "-luser32", "-lgdi32");
     mel_depends(lib, "core");
     mel_depends(lib, "allocator");

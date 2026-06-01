@@ -10,14 +10,20 @@ typedef f32 f32x4 MEL_VECTOR_TYPE(4);
 typedef union
 {
     f32x4 v;
-    struct { f32 x, y, z, w; };
-    struct { f32 r, g, b, a; };
+    struct
+    {
+        f32 x, y, z, w;
+    };
+    struct
+    {
+        f32 r, g, b, a;
+    };
     f32 e[4];
 } Mel_Vec4;
 
-#define MEL_VEC4_ZERO ((Mel_Vec4){ .v = (f32x4){0, 0, 0, 0} })
-#define MEL_VEC4_ONE  ((Mel_Vec4){ .v = (f32x4){1, 1, 1, 1} })
-#define MEL_VEC4(x, y, z, w) ((Mel_Vec4){ .v = (f32x4){(x), (y), (z), (w)} })
+#define MEL_VEC4_ZERO        ((Mel_Vec4){ .v = (f32x4){ 0, 0, 0, 0 } })
+#define MEL_VEC4_ONE         ((Mel_Vec4){ .v = (f32x4){ 1, 1, 1, 1 } })
+#define MEL_VEC4(x, y, z, w) ((Mel_Vec4){ .v = (f32x4){ (x), (y), (z), (w) } })
 
 MEL_NODISCARD static inline Mel_Vec4 mel_vec4(f32 x, f32 y, f32 z, f32 w);
 MEL_NODISCARD static inline Mel_Vec4 mel_vec4_add(Mel_Vec4 a, Mel_Vec4 b);
@@ -26,9 +32,9 @@ MEL_NODISCARD static inline Mel_Vec4 mel_vec4_mul(Mel_Vec4 a, Mel_Vec4 b);
 MEL_NODISCARD static inline Mel_Vec4 mel_vec4_div(Mel_Vec4 a, Mel_Vec4 b);
 MEL_NODISCARD static inline Mel_Vec4 mel_vec4_scale(Mel_Vec4 v, f32 s);
 MEL_NODISCARD static inline Mel_Vec4 mel_vec4_negate(Mel_Vec4 v);
-MEL_NODISCARD static inline f32 mel_vec4_dot(Mel_Vec4 a, Mel_Vec4 b);
-MEL_NODISCARD static inline f32 mel_vec4_len_sq(Mel_Vec4 v);
-MEL_NODISCARD static inline f32 mel_vec4_len(Mel_Vec4 v);
+MEL_NODISCARD static inline f32      mel_vec4_dot(Mel_Vec4 a, Mel_Vec4 b);
+MEL_NODISCARD static inline f32      mel_vec4_len_sq(Mel_Vec4 v);
+MEL_NODISCARD static inline f32      mel_vec4_len(Mel_Vec4 v);
 MEL_NODISCARD static inline Mel_Vec4 mel_vec4_normalize(Mel_Vec4 v);
 MEL_NODISCARD static inline Mel_Vec4 mel_vec4_lerp(Mel_Vec4 a, Mel_Vec4 b, f32 t);
 MEL_NODISCARD static inline Mel_Vec4 mel_vec4_min(Mel_Vec4 a, Mel_Vec4 b);

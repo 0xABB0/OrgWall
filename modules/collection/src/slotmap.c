@@ -49,7 +49,7 @@ void mel_slotmap_init_opt(Mel_SlotMap* sm, const Mel_Alloc* alloc, Mel_SlotMap_O
     assert(alloc != nullptr);
     assert(opt.item_size > 0);
 
-    *sm = (Mel_SlotMap){0};
+    *sm = (Mel_SlotMap){ 0 };
     sm->alloc = alloc;
     sm->item_size = opt.item_size;
     sm->free_head = MEL_SLOTMAP_SENTINEL;
@@ -87,7 +87,7 @@ void mel_slotmap_free(Mel_SlotMap* sm)
     if (sm->data)
         mel_dealloc(sm->alloc, sm->data);
 
-    *sm = (Mel_SlotMap){0};
+    *sm = (Mel_SlotMap){ 0 };
 }
 
 Mel_SlotMap_Handle mel_slotmap_insert(Mel_SlotMap* sm, const void* item)
@@ -106,7 +106,7 @@ Mel_SlotMap_Handle mel_slotmap_insert(Mel_SlotMap* sm, const void* item)
         mel__slotmap_grow_packed(sm, sm->packed_capacity * 2);
     }
 
-    u32 slot_idx = sm->free_head;
+    u32               slot_idx = sm->free_head;
     Mel_SlotMap_Slot* slot = &sm->slots[slot_idx];
     sm->free_head = slot->next_free;
 
@@ -164,9 +164,7 @@ bool mel_slotmap_remove(Mel_SlotMap* sm, Mel_SlotMap_Handle handle)
 
     if (packed_idx != last_packed)
     {
-        memcpy(sm->data + packed_idx * sm->item_size,
-               sm->data + last_packed * sm->item_size,
-               sm->item_size);
+        memcpy(sm->data + packed_idx * sm->item_size, sm->data + last_packed * sm->item_size, sm->item_size);
 
         u32 moved_slot_idx = sm->packed_to_slot[last_packed];
         sm->packed_to_slot[packed_idx] = moved_slot_idx;

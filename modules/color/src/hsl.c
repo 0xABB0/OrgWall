@@ -2,7 +2,8 @@
 
 #include <math.h>
 
-mel_hsl mel_color_to_hsl(mel_color c) {
+mel_hsl mel_color_to_hsl(mel_color c)
+{
     float r = mel_color_linear_to_srgb(c.r);
     float g = mel_color_linear_to_srgb(c.g);
     float b = mel_color_linear_to_srgb(c.b);
@@ -13,7 +14,8 @@ mel_hsl mel_color_to_hsl(mel_color c) {
     float h = 0.0f;
     float s = 0.0f;
 
-    if (delta > 0.0f) {
+    if (delta > 0.0f)
+    {
         s = delta / (1.0f - fabsf(2.0f * l - 1.0f));
         if (max == r)
             h = fmodf((g - b) / delta, 6.0f);
@@ -25,10 +27,11 @@ mel_hsl mel_color_to_hsl(mel_color c) {
         if (h < 0.0f)
             h += 360.0f;
     }
-    return (mel_hsl){h, s, l};
+    return (mel_hsl){ h, s, l };
 }
 
-mel_color mel_color_from_hsl(mel_hsl hsl, float a) {
+mel_color mel_color_from_hsl(mel_hsl hsl, float a)
+{
     float c = (1.0f - fabsf(2.0f * hsl.l - 1.0f)) * hsl.s;
     float hp = fmodf(hsl.h, 360.0f) / 60.0f;
     if (hp < 0.0f)
@@ -37,22 +40,33 @@ mel_color mel_color_from_hsl(mel_hsl hsl, float a) {
     float m = hsl.l - c * 0.5f;
 
     float r = 0.0f, g = 0.0f, b = 0.0f;
-    if (hp < 1.0f) {
+    if (hp < 1.0f)
+    {
         r = c;
         g = x;
-    } else if (hp < 2.0f) {
+    }
+    else if (hp < 2.0f)
+    {
         r = x;
         g = c;
-    } else if (hp < 3.0f) {
+    }
+    else if (hp < 3.0f)
+    {
         g = c;
         b = x;
-    } else if (hp < 4.0f) {
+    }
+    else if (hp < 4.0f)
+    {
         g = x;
         b = c;
-    } else if (hp < 5.0f) {
+    }
+    else if (hp < 5.0f)
+    {
         r = x;
         b = c;
-    } else {
+    }
+    else
+    {
         r = c;
         b = x;
     }

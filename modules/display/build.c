@@ -12,7 +12,7 @@ void build(Mel_Build* b)
     mel_sources(lib, WHEN(.platforms = MEL_ON(IOS)), "src/ios/*.m");
 
     mel_link(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(MACOS)), "-framework", "CoreGraphics", "-framework", "IOKit");
-  
+
     mel_depends(lib, "core");
     mel_depends(lib, "allocator");
     mel_depends(lib, "collection");

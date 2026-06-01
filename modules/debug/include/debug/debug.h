@@ -5,7 +5,8 @@
 #include <debug/stacktrace.h>
 #include <string/str8.h>
 
-typedef enum {
+typedef enum
+{
     ASSERT_DIALOG_RESULT_ABORT,
     ASSERT_DIALOG_RESULT_RETRY,
     ASSERT_DIALOG_RESULT_IGNORE

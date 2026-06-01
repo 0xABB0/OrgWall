@@ -8,6 +8,5 @@
 
 HWND mel_gui_win32_hwnd(Mel_Gui_Handle h);
 
-bool mel_gui_win32_install_subclass(Mel_Gui_Handle h, SUBCLASSPROC proc,
-                                    UINT_PTR id, DWORD_PTR ref);
-bool mel_gui_win32_remove_subclass (Mel_Gui_Handle h, SUBCLASSPROC proc, UINT_PTR id);
+bool mel_gui_win32_install_subclass(Mel_Gui_Handle h, SUBCLASSPROC proc, UINT_PTR id, DWORD_PTR ref);
+bool mel_gui_win32_remove_subclass(Mel_Gui_Handle h, SUBCLASSPROC proc, UINT_PTR id);

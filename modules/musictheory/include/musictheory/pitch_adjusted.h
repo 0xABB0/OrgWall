@@ -7,8 +7,8 @@ typedef struct Mel_PitchAdjusted Mel_PitchAdjusted;
 
 struct Mel_PitchAdjusted
 {
-  Mel_Pitch base;
-  Mel_Cent adjustment;
+    Mel_Pitch base;
+    Mel_Cent  adjustment;
 };
 
 Mel_PitchAdjusted mel_pitch_adjusted_make(Mel_Pitch base, Mel_Cent adjustment);

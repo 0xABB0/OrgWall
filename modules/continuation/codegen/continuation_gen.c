@@ -16,7 +16,8 @@ static void sb_putn(Sb* b, const char* s, size_t n)
 {
     if (b->len + n + 1 > b->cap)
     {
-        while (b->len + n + 1 > b->cap) b->cap = b->cap ? b->cap * 2 : 256;
+        while (b->len + n + 1 > b->cap)
+            b->cap = b->cap ? b->cap * 2 : 256;
         b->data = realloc(b->data, b->cap);
     }
     memcpy(b->data + b->len, s, n);
@@ -33,7 +34,8 @@ static void sb_putf(Sb* b, const char* fmt, ...)
     va_start(ap, fmt);
     int n = vsnprintf(tmp, sizeof tmp, fmt, ap);
     va_end(ap);
-    if (n > 0) sb_putn(b, tmp, (size_t)n);
+    if (n > 0)
+        sb_putn(b, tmp, (size_t)n);
 }
 
 static char* dup_cstr(const char* s)
@@ -60,7 +62,8 @@ static int    g_quiet;
 static char* read_file(const char* path, size_t* out_len)
 {
     FILE* f = fopen(path, "rb");
-    if (!f) return NULL;
+    if (!f)
+        return NULL;
     fseek(f, 0, SEEK_END);
     long n = ftell(f);
     fseek(f, 0, SEEK_SET);
@@ -72,7 +75,7 @@ static char* read_file(const char* path, size_t* out_len)
         return NULL;
     }
     fclose(f);
-    p[n]     = 0;
+    p[n] = 0;
     *out_len = (size_t)n;
     return p;
 }
@@ -109,7 +112,7 @@ static void line_col(unsigned off, unsigned* line, unsigned* col)
             c++;
     }
     *line = l;
-    *col  = c;
+    *col = c;
 }
 
 static void reject_at(unsigned off, const char* fmt, ...)
@@ -182,10 +185,10 @@ typedef struct
     unsigned body_lbrace;
     unsigned body_rbrace;
 
-    Var*   vars;
-    size_t nvar;
-    Ref*   refs;
-    size_t nref;
+    Var*     vars;
+    size_t   nvar;
+    Ref*     refs;
+    size_t   nref;
     Suspend* susp;
     size_t   nsusp;
     Loop*    loops;
@@ -209,7 +212,8 @@ static size_t g_nsig;
 static const char* sig_yield(const char* name)
 {
     for (size_t i = 0; i < g_nsig; i++)
-        if (strcmp(g_sigs[i].name, name) == 0) return g_sigs[i].yield_type;
+        if (strcmp(g_sigs[i].name, name) == 0)
+            return g_sigs[i].yield_type;
     return NULL;
 }
 
@@ -224,16 +228,18 @@ static void* push(void* arr, size_t* n, size_t elem)
 static int find_var(CXCursor decl)
 {
     for (size_t i = 0; i < g_f.nvar; i++)
-        if (clang_equalCursors(g_f.vars[i].decl, decl)) return (int)i;
+        if (clang_equalCursors(g_f.vars[i].decl, decl))
+            return (int)i;
     return -1;
 }
 
 static int is_marker(CXCursor call, const char* which)
 {
     CXCursor ref = clang_getCursorReferenced(call);
-    if (clang_Cursor_isNull(ref)) return 0;
+    if (clang_Cursor_isNull(ref))
+        return 0;
     char* sp = dup_cx(clang_getCursorSpelling(ref));
-    int   r  = strcmp(sp, which) == 0;
+    int   r = strcmp(sp, which) == 0;
     free(sp);
     return r;
 }
@@ -248,12 +254,14 @@ static int type_is_array(CXType t)
 static void scan_call(Suspend* s)
 {
     unsigned i = s->call_start;
-    while (i < g_src_len && g_src[i] != '(') i++;
+    while (i < g_src_len && g_src[i] != '(')
+        i++;
     s->open_paren = i;
-    int depth     = 0;
+    int depth = 0;
     for (; i < g_src_len; i++)
     {
-        if (g_src[i] == '(') depth++;
+        if (g_src[i] == '(')
+            depth++;
         else if (g_src[i] == ')')
         {
             depth--;
@@ -265,11 +273,13 @@ static void scan_call(Suspend* s)
         }
     }
     unsigned j = s->close_paren + 1;
-    while (j < g_src_len && g_src[j] != ';') j++;
+    while (j < g_src_len && g_src[j] != ';')
+        j++;
     s->stmt_end = j < g_src_len ? j + 1 : j;
 
     unsigned a = s->open_paren + 1, b = s->close_paren;
-    while (a < b && (g_src[a] == ' ' || g_src[a] == '\t' || g_src[a] == '\n' || g_src[a] == '\r')) a++;
+    while (a < b && (g_src[a] == ' ' || g_src[a] == '\t' || g_src[a] == '\n' || g_src[a] == '\r'))
+        a++;
     s->has_value = a < b;
 }
 
@@ -281,16 +291,16 @@ static enum CXChildVisitResult visit_body(CXCursor c, CXCursor parent, CXClientD
 
     if (k == CXCursor_VarDecl)
     {
-        CXType t  = clang_getCursorType(c);
-        g_f.vars  = push(g_f.vars, &g_f.nvar, sizeof(Var));
-        Var* v    = &g_f.vars[g_f.nvar - 1];
-        v->name   = dup_cx(clang_getCursorSpelling(c));
-        v->type   = dup_cx(clang_getTypeSpelling(t));
-        v->decl   = c;
-        v->decl_off  = cursor_start(c);
-        v->name_off  = off_of(clang_getCursorLocation(c));
-        v->is_vla    = type_is_vla(t);
-        v->is_array  = type_is_array(t);
+        CXType t = clang_getCursorType(c);
+        g_f.vars = push(g_f.vars, &g_f.nvar, sizeof(Var));
+        Var* v = &g_f.vars[g_f.nvar - 1];
+        v->name = dup_cx(clang_getCursorSpelling(c));
+        v->type = dup_cx(clang_getTypeSpelling(t));
+        v->decl = c;
+        v->decl_off = cursor_start(c);
+        v->name_off = off_of(clang_getCursorLocation(c));
+        v->is_vla = type_is_vla(t);
+        v->is_array = type_is_array(t);
         CXCursor ini = clang_Cursor_getVarDeclInitializer(c);
         if (!clang_Cursor_isNull(ini))
         {
@@ -301,50 +311,53 @@ static enum CXChildVisitResult visit_body(CXCursor c, CXCursor parent, CXClientD
     else if (k == CXCursor_DeclRefExpr)
     {
         CXCursor ref = clang_getCursorReferenced(c);
-        int      vi  = find_var(ref);
+        int      vi = find_var(ref);
         if (vi >= 0)
         {
             g_f.vars[vi].referenced = 1;
-            unsigned start          = cursor_spelling_start(c);
-            g_f.refs                = push(g_f.refs, &g_f.nref, sizeof(Ref));
-            Ref* r                  = &g_f.refs[g_f.nref - 1];
-            r->var                  = vi;
-            r->start                = start;
-            r->end                  = start + (unsigned)strlen(g_f.vars[vi].name);
+            unsigned start = cursor_spelling_start(c);
+            g_f.refs = push(g_f.refs, &g_f.nref, sizeof(Ref));
+            Ref* r = &g_f.refs[g_f.nref - 1];
+            r->var = vi;
+            r->start = start;
+            r->end = start + (unsigned)strlen(g_f.vars[vi].name);
 
             if (clang_getCursorKind(parent) == CXCursor_UnaryOperator)
             {
-                CXTranslationUnit tu  = clang_Cursor_getTranslationUnit(parent);
+                CXTranslationUnit tu = clang_Cursor_getTranslationUnit(parent);
                 CXToken*          tks = NULL;
-                unsigned          nt  = 0;
+                unsigned          nt = 0;
                 clang_tokenize(tu, clang_getCursorExtent(parent), &tks, &nt);
                 if (nt > 0)
                 {
                     char* op = dup_cx(clang_getTokenSpelling(tu, tks[0]));
-                    if (strcmp(op, "&") == 0) g_f.vars[vi].addr_taken = 1;
+                    if (strcmp(op, "&") == 0)
+                        g_f.vars[vi].addr_taken = 1;
                     free(op);
                 }
-                if (tks) clang_disposeTokens(tu, tks, nt);
+                if (tks)
+                    clang_disposeTokens(tu, tks, nt);
             }
         }
     }
     else if (k == CXCursor_CallExpr && (is_marker(c, "__mel_cont_yield") || is_marker(c, "__mel_cont_await") || is_marker(c, "__mel_cont_return")))
     {
-        g_f.susp   = push(g_f.susp, &g_f.nsusp, sizeof(Suspend));
+        g_f.susp = push(g_f.susp, &g_f.nsusp, sizeof(Suspend));
         Suspend* s = &g_f.susp[g_f.nsusp - 1];
         s->call_start = cursor_start(c);
-        s->is_return  = is_marker(c, "__mel_cont_return");
-        s->is_await   = is_marker(c, "__mel_cont_await");
+        s->is_return = is_marker(c, "__mel_cont_return");
+        s->is_await = is_marker(c, "__mel_cont_await");
         scan_call(s);
         if (s->has_value && clang_Cursor_getNumArguments(c) >= 2)
         {
             CXCursor arg = clang_Cursor_getArgument(c, 1);
-            CXType   at  = clang_getCursorType(arg);
+            CXType   at = clang_getCursorType(arg);
             if (s->is_await)
             {
                 char* ts = dup_cx(clang_getTypeSpelling(clang_getCanonicalType(at)));
-                char* p  = strstr(ts, "Mel_Cont_Frame_");
-                if (p) s->child_name = dup_cstr(p + strlen("Mel_Cont_Frame_"));
+                char* p = strstr(ts, "Mel_Cont_Frame_");
+                if (p)
+                    s->child_name = dup_cstr(p + strlen("Mel_Cont_Frame_"));
                 free(ts);
             }
             else
@@ -354,10 +367,10 @@ static enum CXChildVisitResult visit_body(CXCursor c, CXCursor parent, CXClientD
     else if (k == CXCursor_WhileStmt || k == CXCursor_ForStmt || k == CXCursor_DoStmt)
     {
         CXSourceRange ext = clang_getCursorExtent(c);
-        g_f.loops         = push(g_f.loops, &g_f.nloop, sizeof(Loop));
-        Loop* lp          = &g_f.loops[g_f.nloop - 1];
-        lp->start         = off_of(clang_getRangeStart(ext));
-        lp->end           = off_of(clang_getRangeEnd(ext));
+        g_f.loops = push(g_f.loops, &g_f.nloop, sizeof(Loop));
+        Loop* lp = &g_f.loops[g_f.nloop - 1];
+        lp->start = off_of(clang_getRangeStart(ext));
+        lp->end = off_of(clang_getRangeEnd(ext));
     }
     else if (k == CXCursor_SwitchStmt)
         g_f.switch_count++;
@@ -379,7 +392,8 @@ static void compute_lifts(void)
             v->lifted = v->referenced;
             continue;
         }
-        if (!v->referenced) continue;
+        if (!v->referenced)
+            continue;
 
         for (size_t si = 0; si < g_f.nsusp && !v->lifted; si++)
         {
@@ -396,8 +410,10 @@ static void compute_lifts(void)
             for (size_t li = 0; li < g_f.nloop && !v->lifted; li++)
             {
                 Loop* lp = &g_f.loops[li];
-                if (!loop_encloses(lp, s->call_start)) continue;
-                if (v->decl_off > lp->end) continue;
+                if (!loop_encloses(lp, s->call_start))
+                    continue;
+                if (v->decl_off > lp->end)
+                    continue;
                 for (size_t ri = 0; ri < g_f.nref; ri++)
                     if (g_f.refs[ri].var == (int)vi && loop_encloses(lp, g_f.refs[ri].start))
                     {
@@ -411,7 +427,8 @@ static void compute_lifts(void)
     for (size_t si = 0; si < g_f.nsusp; si++)
     {
         Suspend* s = &g_f.susp[si];
-        if (!s->is_await) continue;
+        if (!s->is_await)
+            continue;
         for (size_t ri = 0; ri < g_f.nref; ri++)
             if (g_f.refs[ri].start >= s->open_paren && g_f.refs[ri].end <= s->close_paren)
                 g_f.vars[g_f.refs[ri].var].lifted = 1;
@@ -429,11 +446,11 @@ static size_t g_nedit;
 
 static void edit(unsigned start, unsigned end, char* text)
 {
-    g_edits        = push(g_edits, &g_nedit, sizeof(Edit));
-    Edit* e        = &g_edits[g_nedit - 1];
-    e->start       = start;
-    e->end         = end;
-    e->text        = text;
+    g_edits = push(g_edits, &g_nedit, sizeof(Edit));
+    Edit* e = &g_edits[g_nedit - 1];
+    e->start = start;
+    e->end = end;
+    e->text = text;
 }
 
 static char* heap_printf(const char* fmt, ...)
@@ -469,23 +486,26 @@ static void emit_func(Sb* hdr, Sb* impl)
     Func* f = &g_f;
 
     int state = 0;
-    for (size_t i = 0; i < f->nsusp; i++) f->susp[i].state = ++state;
+    for (size_t i = 0; i < f->nsusp; i++)
+        f->susp[i].state = ++state;
 
-    Sb fields = {0};
+    Sb fields = { 0 };
     sb_puts(&fields, "i32 state;");
-    Sb frame = {0};
+    Sb frame = { 0 };
     sb_putf(&frame, "typedef struct Mel_Cont_Frame_%s\n{\n    i32 state;\n", f->name);
     for (size_t i = 0; i < f->nvar; i++)
     {
         Var* v = &f->vars[i];
-        if (!v->is_param || !v->lifted) continue;
+        if (!v->is_param || !v->lifted)
+            continue;
         sb_putf(&frame, "    %s %s;\n", v->type, v->name);
         sb_putf(&fields, "%s %s;", v->type, v->name);
     }
     for (size_t i = 0; i < f->nvar; i++)
     {
         Var* v = &f->vars[i];
-        if (v->is_param || !v->lifted) continue;
+        if (v->is_param || !v->lifted)
+            continue;
         sb_putf(&frame, "    %s %s;\n", v->type, v->name);
         sb_putf(&fields, "%s %s;", v->type, v->name);
     }
@@ -493,7 +513,8 @@ static void emit_func(Sb* hdr, Sb* impl)
     for (size_t i = 0; i < f->nsusp; i++)
     {
         Suspend* s = &f->susp[i];
-        if (!s->is_await || !s->child_name) continue;
+        if (!s->is_await || !s->child_name)
+            continue;
         const char* cy = sig_yield(s->child_name);
         if (cy && !(yt0 && strcmp(yt0, cy) == 0))
         {
@@ -524,8 +545,10 @@ static void emit_func(Sb* hdr, Sb* impl)
     free(frame.data);
 
     char* sig;
-    if (yt) sig = heap_printf("Mel_Cont_Suspended %s__resume(Mel_Cont_Frame_%s* __f, %s* __f_out)\n{\n    switch (__f->state)\n    {\n    case MEL_CONT_STATE_START:;\n", f->name, f->name, yt);
-    else    sig = heap_printf("Mel_Cont_Suspended %s__resume(Mel_Cont_Frame_%s* __f)\n{\n    switch (__f->state)\n    {\n    case MEL_CONT_STATE_START:;\n", f->name, f->name);
+    if (yt)
+        sig = heap_printf("Mel_Cont_Suspended %s__resume(Mel_Cont_Frame_%s* __f, %s* __f_out)\n{\n    switch (__f->state)\n    {\n    case MEL_CONT_STATE_START:;\n", f->name, f->name, yt);
+    else
+        sig = heap_printf("Mel_Cont_Suspended %s__resume(Mel_Cont_Frame_%s* __f)\n{\n    switch (__f->state)\n    {\n    case MEL_CONT_STATE_START:;\n", f->name, f->name);
     edit(f->header_start, f->body_lbrace + 1, sig);
 
     edit(f->body_rbrace, f->body_rbrace + 1, dup_cstr("\n    default:;\n    }\n    __f->state = MEL_CONT_STATE_DONE;\n    return false;\n}\n"));
@@ -534,7 +557,8 @@ static void emit_func(Sb* hdr, Sb* impl)
     {
         Ref* r = &f->refs[i];
         Var* v = &f->vars[r->var];
-        if (!v->lifted) continue;
+        if (!v->lifted)
+            continue;
         if (strncmp(g_src + r->start, v->name, strlen(v->name)) != 0)
         {
             reject_at(r->start, "reference to lifted local '%s' is not spliceable (came through a macro)", v->name);
@@ -546,12 +570,15 @@ static void emit_func(Sb* hdr, Sb* impl)
     for (size_t i = 0; i < f->nvar; i++)
     {
         Var* v = &f->vars[i];
-        if (v->is_param || !v->lifted) continue;
-        if (v->is_vla || (v->is_array && v->has_init)) continue;
+        if (v->is_param || !v->lifted)
+            continue;
+        if (v->is_vla || (v->is_array && v->has_init))
+            continue;
         if (v->has_init)
         {
             unsigned p = v->init_off;
-            while (p < g_src_len && (g_src[p] == ' ' || g_src[p] == '\t' || g_src[p] == '\n' || g_src[p] == '\r')) p++;
+            while (p < g_src_len && (g_src[p] == ' ' || g_src[p] == '\t' || g_src[p] == '\n' || g_src[p] == '\r'))
+                p++;
             if (p < g_src_len && g_src[p] == '{')
                 edit(v->decl_off, v->init_off, heap_printf("__f->%s = (%s)", v->name, v->type));
             else
@@ -571,11 +598,14 @@ static void emit_func(Sb* hdr, Sb* impl)
                 reject_at(s->call_start, "mel_cont_await argument is not a continuation frame");
                 continue;
             }
-            const char* cy  = sig_yield(s->child_name);
+            const char* cy = sig_yield(s->child_name);
             char*       fwd;
-            if (!cy) fwd = dup_cstr("");
-            else if (yt && strcmp(yt, cy) == 0) fwd = dup_cstr(", __f_out");
-            else fwd = heap_printf(", &__f->__await_out_%d", s->state);
+            if (!cy)
+                fwd = dup_cstr("");
+            else if (yt && strcmp(yt, cy) == 0)
+                fwd = dup_cstr(", __f_out");
+            else
+                fwd = heap_printf(", &__f->__await_out_%d", s->state);
             edit(s->call_start, s->open_paren + 1, heap_printf("{ for (;;) { if (!%s__resume(&(", s->child_name));
             edit(s->close_paren, s->stmt_end, heap_printf(")%s)) break; __f->state = %d; return true; case %d:; } }", fwd, s->state, s->state));
             free(fwd);
@@ -634,7 +664,8 @@ static void validate(void)
     for (size_t i = 0; i < g_f.nvar; i++)
     {
         Var* v = &g_f.vars[i];
-        if (!v->lifted) continue;
+        if (!v->lifted)
+            continue;
         if (v->addr_taken)
             reject_at(v->decl_off, "address taken of lifted local '%s' would make the frame non-relocatable", v->name);
         if (v->is_vla)
@@ -647,8 +678,10 @@ static void validate(void)
     for (size_t i = 0; i < g_f.nsusp; i++)
     {
         Suspend* s = &g_f.susp[i];
-        if (s->is_await || s->is_return || !s->yield_type) continue;
-        if (!yt) yt = s->yield_type;
+        if (s->is_await || s->is_return || !s->yield_type)
+            continue;
+        if (!yt)
+            yt = s->yield_type;
         else if (strcmp(yt, s->yield_type) != 0)
             reject_at(s->call_start, "inconsistent yield type: '%s' vs '%s'", yt, s->yield_type);
     }
@@ -656,9 +689,14 @@ static void validate(void)
         for (size_t i = 0; i < g_f.nsusp; i++)
         {
             Suspend* s = &g_f.susp[i];
-            if (!s->is_await || !s->child_name) continue;
+            if (!s->is_await || !s->child_name)
+                continue;
             const char* cy = sig_yield(s->child_name);
-            if (cy) { yt = dup_cstr(cy); break; }
+            if (cy)
+            {
+                yt = dup_cstr(cy);
+                break;
+            }
         }
     g_f.yield_type = yt;
 }
@@ -677,20 +715,20 @@ static enum CXChildVisitResult find_compound(CXCursor c, CXCursor parent, CXClie
 static void process_function(CXCursor fn, Sb* hdr, Sb* impl)
 {
     memset(&g_f, 0, sizeof g_f);
-    g_f.name     = dup_cx(clang_getCursorSpelling(fn));
+    g_f.name = dup_cx(clang_getCursorSpelling(fn));
     g_f.ret_type = dup_cx(clang_getTypeSpelling(clang_getCursorResultType(fn)));
-    g_f.has_ret  = strcmp(g_f.ret_type, "void") != 0;
+    g_f.has_ret = strcmp(g_f.ret_type, "void") != 0;
     g_f.header_start = off_of(clang_getRangeStart(clang_getCursorExtent(fn)));
 
     int n = clang_Cursor_getNumArguments(fn);
     for (int i = 0; i < n; i++)
     {
-        CXCursor a  = clang_Cursor_getArgument(fn, i);
-        g_f.vars    = push(g_f.vars, &g_f.nvar, sizeof(Var));
-        Var* v      = &g_f.vars[g_f.nvar - 1];
-        v->name     = dup_cx(clang_getCursorSpelling(a));
-        v->type     = dup_cx(clang_getTypeSpelling(clang_getCursorType(a)));
-        v->decl     = a;
+        CXCursor a = clang_Cursor_getArgument(fn, i);
+        g_f.vars = push(g_f.vars, &g_f.nvar, sizeof(Var));
+        Var* v = &g_f.vars[g_f.nvar - 1];
+        v->name = dup_cx(clang_getCursorSpelling(a));
+        v->type = dup_cx(clang_getTypeSpelling(clang_getCursorType(a)));
+        v->decl = a;
         v->is_param = 1;
     }
 
@@ -702,15 +740,18 @@ static void process_function(CXCursor fn, Sb* hdr, Sb* impl)
         return;
     }
     CXSourceRange be = clang_getCursorExtent(body);
-    g_f.body_lbrace  = off_of(clang_getRangeStart(be));
-    g_f.body_rbrace  = off_of(clang_getRangeEnd(be));
-    if (g_f.body_rbrace >= g_src_len) g_f.body_rbrace = g_src_len - 1;
-    while (g_f.body_rbrace > g_f.body_lbrace && g_src[g_f.body_rbrace] != '}') g_f.body_rbrace--;
+    g_f.body_lbrace = off_of(clang_getRangeStart(be));
+    g_f.body_rbrace = off_of(clang_getRangeEnd(be));
+    if (g_f.body_rbrace >= g_src_len)
+        g_f.body_rbrace = g_src_len - 1;
+    while (g_f.body_rbrace > g_f.body_lbrace && g_src[g_f.body_rbrace] != '}')
+        g_f.body_rbrace--;
 
     clang_visitChildren(body, visit_body, NULL);
     compute_lifts();
     validate();
-    if (g_fatal) return;
+    if (g_fatal)
+        return;
     emit_func(hdr, impl);
 }
 
@@ -721,7 +762,8 @@ static enum CXChildVisitResult visit_yield_type(CXCursor c, CXCursor parent, CXC
 {
     (void)parent;
     char** out = d;
-    if (*out) return CXChildVisit_Break;
+    if (*out)
+        return CXChildVisit_Break;
     if (clang_getCursorKind(c) == CXCursor_CallExpr && is_marker(c, "__mel_cont_yield") && clang_Cursor_getNumArguments(c) >= 2)
         *out = dup_cx(clang_getTypeSpelling(clang_getCanonicalType(clang_getCursorType(clang_Cursor_getArgument(c, 1)))));
     return CXChildVisit_Recurse;
@@ -740,7 +782,8 @@ static enum CXChildVisitResult visit_annot(CXCursor a, CXCursor parent, CXClient
     if (clang_getCursorKind(a) == CXCursor_AnnotateAttr)
     {
         char* s = dup_cx(clang_getCursorSpelling(a));
-        if (strcmp(s, "mel:continuation") == 0) *(int*)d = 1;
+        if (strcmp(s, "mel:continuation") == 0)
+            *(int*)d = 1;
         free(s);
     }
     return CXChildVisit_Continue;
@@ -748,8 +791,10 @@ static enum CXChildVisitResult visit_annot(CXCursor a, CXCursor parent, CXClient
 
 static int is_marked_definition(CXCursor c)
 {
-    if (clang_getCursorKind(c) != CXCursor_FunctionDecl) return 0;
-    if (!clang_isCursorDefinition(c)) return 0;
+    if (clang_getCursorKind(c) != CXCursor_FunctionDecl)
+        return 0;
+    if (!clang_isCursorDefinition(c))
+        return 0;
     int marked = 0;
     clang_visitChildren(c, visit_annot, &marked);
     return marked;
@@ -759,9 +804,10 @@ static enum CXChildVisitResult visit_sig(CXCursor c, CXCursor parent, CXClientDa
 {
     (void)parent;
     (void)d;
-    if (!is_marked_definition(c)) return CXChildVisit_Continue;
-    g_sigs           = push(g_sigs, &g_nsig, sizeof(Sig));
-    g_sigs[g_nsig - 1].name       = dup_cx(clang_getCursorSpelling(c));
+    if (!is_marked_definition(c))
+        return CXChildVisit_Continue;
+    g_sigs = push(g_sigs, &g_nsig, sizeof(Sig));
+    g_sigs[g_nsig - 1].name = dup_cx(clang_getCursorSpelling(c));
     g_sigs[g_nsig - 1].yield_type = infer_yield_type(c);
     return CXChildVisit_Continue;
 }
@@ -770,7 +816,8 @@ static enum CXChildVisitResult visit_tu(CXCursor c, CXCursor parent, CXClientDat
 {
     (void)parent;
     (void)d;
-    if (!is_marked_definition(c)) return CXChildVisit_Continue;
+    if (!is_marked_definition(c))
+        return CXChildVisit_Continue;
     g_nfound++;
     process_function(c, &g_hdr, &g_impl);
     return CXChildVisit_Continue;
@@ -781,7 +828,7 @@ static enum CXChildVisitResult visit_tu(CXCursor c, CXCursor parent, CXClientDat
 
 static Sb inject_region(const char* src, const char* region)
 {
-    Sb          out = {0};
+    Sb          out = { 0 };
     const char* beg = strstr(src, MARK_BEG);
     if (beg)
     {
@@ -789,7 +836,8 @@ static Sb inject_region(const char* src, const char* region)
         if (end)
         {
             const char* after = end + strlen(MARK_END);
-            if (*after == '\n') after++;
+            if (*after == '\n')
+                after++;
             sb_putn(&out, src, (size_t)(beg - src));
             sb_putf(&out, "%s\n%s%s\n", MARK_BEG, region, MARK_END);
             sb_puts(&out, after);
@@ -812,16 +860,24 @@ static int run_pass(CXIndex idx, const char* path, const char** args, int n, int
 {
     free(g_src);
     g_src = read_file(path, &g_src_len);
-    if (!g_src) { fprintf(stderr, "continuation_gen: cannot read %s\n", path); return -1; }
+    if (!g_src)
+    {
+        fprintf(stderr, "continuation_gen: cannot read %s\n", path);
+        return -1;
+    }
 
     g_hdr.len = g_impl.len = 0;
-    g_nsig    = 0;
-    g_nfound  = 0;
-    g_fatal   = 0;
-    g_quiet   = quiet;
+    g_nsig = 0;
+    g_nfound = 0;
+    g_fatal = 0;
+    g_quiet = quiet;
 
     CXTranslationUnit tu = clang_parseTranslationUnit(idx, path, args, n, NULL, 0, CXTranslationUnit_DetailedPreprocessingRecord);
-    if (!tu) { fprintf(stderr, "continuation_gen: failed to parse %s\n", path); return -1; }
+    if (!tu)
+    {
+        fprintf(stderr, "continuation_gen: failed to parse %s\n", path);
+        return -1;
+    }
 
     int parse_fatal = 0;
     if (!quiet)
@@ -852,17 +908,18 @@ int main(int argc, char** argv)
         return 2;
     }
     const char*  header_path = argv[1];
-    const char*  out_c       = argv[2];
-    int          n           = argc - 3;
-    const char** args        = (const char**)(argv + 3);
-    g_path                   = (char*)header_path;
+    const char*  out_c = argv[2];
+    int          n = argc - 3;
+    const char** args = (const char**)(argv + 3);
+    g_path = (char*)header_path;
 
     CXIndex idx = clang_createIndex(0, 0);
 
     char* prev = NULL;
     for (int iter = 0; iter < 8; iter++)
     {
-        if (run_pass(idx, header_path, args, n, 1) < 0) return 1;
+        if (run_pass(idx, header_path, args, n, 1) < 0)
+            return 1;
         Sb h = inject_region(g_src, g_hdr.data ? g_hdr.data : "");
         if (prev && strcmp(prev, h.data) == 0)
         {
@@ -870,7 +927,11 @@ int main(int argc, char** argv)
             break;
         }
         FILE* fh = fopen(header_path, "w");
-        if (!fh) { fprintf(stderr, "continuation_gen: cannot open %s\n", header_path); return 1; }
+        if (!fh)
+        {
+            fprintf(stderr, "continuation_gen: cannot open %s\n", header_path);
+            return 1;
+        }
         fwrite(h.data, 1, h.len, fh);
         fclose(fh);
         free(prev);
@@ -878,17 +939,24 @@ int main(int argc, char** argv)
     }
 
     int pf = run_pass(idx, header_path, args, n, 0);
-    if (pf < 0 || pf) return 1;
-    if (g_fatal) return 1;
-    if (g_nfound == 0) fprintf(stderr, "continuation_gen: no mel_cont definitions in %s\n", header_path);
+    if (pf < 0 || pf)
+        return 1;
+    if (g_fatal)
+        return 1;
+    if (g_nfound == 0)
+        fprintf(stderr, "continuation_gen: no mel_cont definitions in %s\n", header_path);
 
     const char* slash = strrchr(header_path, '/');
-    Sb          impl  = {0};
+    Sb          impl = { 0 };
     sb_putf(&impl, "#include \"%s\"\n\n", slash ? slash + 1 : header_path);
     sb_puts(&impl, g_impl.data ? g_impl.data : "");
 
     FILE* fc = fopen(out_c, "w");
-    if (!fc) { fprintf(stderr, "continuation_gen: cannot open %s\n", out_c); return 1; }
+    if (!fc)
+    {
+        fprintf(stderr, "continuation_gen: cannot open %s\n", out_c);
+        return 1;
+    }
     fwrite(impl.data, 1, impl.len, fc);
     fclose(fc);
 

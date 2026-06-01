@@ -8,11 +8,12 @@
 #include "aabb.h"
 #include "plane.h"
 
-typedef struct {
-    f32 t;
+typedef struct
+{
+    f32      t;
     Mel_Vec3 point;
     Mel_Vec3 normal;
-    bool hit;
+    bool     hit;
 } Mel_Raycast_Hit;
 
 MEL_NODISCARD static inline Mel_Raycast_Hit mel_ray_vs_aabb(Mel_Ray ray, Mel_AABB aabb);

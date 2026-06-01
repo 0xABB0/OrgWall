@@ -7,13 +7,14 @@
 
 typedef struct Mel_Coro_Context Mel_Coro_Context;
 
-typedef struct {
+typedef struct
+{
     i32 num_initial;
     u32 stack_size;
 } Mel_Coro_Create_Opt;
 
 Mel_Coro_Context* mel_coro_create_opt(const Mel_Alloc* alloc, Mel_Coro_Create_Opt);
-#define mel_coro_create(alloc, ...) mel_coro_create_opt((alloc), (Mel_Coro_Create_Opt){__VA_ARGS__})
+#define mel_coro_create(alloc, ...) mel_coro_create_opt((alloc), (Mel_Coro_Create_Opt){ __VA_ARGS__ })
 
 void mel_coro_destroy(Mel_Coro_Context* ctx);
 void mel_coro_update(Mel_Coro_Context* ctx, f32 dt);

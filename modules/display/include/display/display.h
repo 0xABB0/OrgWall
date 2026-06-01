@@ -6,13 +6,15 @@
 #include <collection.slotmap/slotmap.fwd.h>
 
 #ifdef __cplusplus
-extern "C" {
+extern "C"
+{
 #endif
 
-#define MEL_DISPLAY_NAME_CAP    128
-#define MEL_DISPLAY_MAX_MODES   64
+#define MEL_DISPLAY_NAME_CAP  128
+#define MEL_DISPLAY_MAX_MODES 64
 
-typedef enum {
+typedef enum
+{
     MEL_COLOR_SPACE_SRGB         MEL_STR("sRGB") = 0,
     MEL_COLOR_SPACE_DISPLAY_P3   MEL_STR("Display-P3"),
     MEL_COLOR_SPACE_REC_709      MEL_STR("Rec.709"),
@@ -20,27 +22,30 @@ typedef enum {
     MEL_COLOR_SPACE_SCRGB_LINEAR MEL_STR("scRGB-lin"),
     MEL_COLOR_SPACE_HDR10_PQ     MEL_STR("HDR10-PQ"),
     MEL_COLOR_SPACE_HLG,
-    MEL_COLOR_SPACE_COUNT        MEL_SKIP,
+    MEL_COLOR_SPACE_COUNT MEL_SKIP,
 } Mel_Color_Space;
 MEL_ENUM_TO_STRING(Mel_Color_Space);
 
-typedef struct {
+typedef struct
+{
     const u8* data;
     usize     size;
 } Mel_Color_Icc_Profile;
 
-typedef enum {
-    MEL_DISPLAY_CONNECTOR_UNKNOWN     MEL_SKIP = 0,
-    MEL_DISPLAY_CONNECTOR_INTERNAL    MEL_STR("Internal"),
+typedef enum
+{
+    MEL_DISPLAY_CONNECTOR_UNKNOWN  MEL_SKIP = 0,
+    MEL_DISPLAY_CONNECTOR_INTERNAL MEL_STR("Internal"),
     MEL_DISPLAY_CONNECTOR_HDMI,
     MEL_DISPLAY_CONNECTOR_DISPLAYPORT MEL_STR("DisplayPort"),
     MEL_DISPLAY_CONNECTOR_USB_C       MEL_STR("USB-C"),
     MEL_DISPLAY_CONNECTOR_VGA,
-    MEL_DISPLAY_CONNECTOR_VIRTUAL     MEL_STR("Virtual"),
+    MEL_DISPLAY_CONNECTOR_VIRTUAL MEL_STR("Virtual"),
 } Mel_Display_Connector;
 MEL_ENUM_TO_STRING_DEFAULT(Mel_Display_Connector, "Unknown");
 
-typedef enum {
+typedef enum
+{
     MEL_DISPLAY_STATE_ACTIVE       MEL_STR("Active") = 0,
     MEL_DISPLAY_STATE_MIRRORED     MEL_STR("Mirrored"),
     MEL_DISPLAY_STATE_DISCONNECTED MEL_STR("Disconnected"),
@@ -50,29 +55,36 @@ typedef enum {
 } Mel_Display_State;
 MEL_ENUM_TO_STRING(Mel_Display_State);
 
-typedef enum {
+typedef enum
+{
     MEL_DISPLAY_MASTERING_NONE    MEL_SKIP = 0,
     MEL_DISPLAY_MASTERING_STATIC  MEL_STR("Static"),
     MEL_DISPLAY_MASTERING_DYNAMIC MEL_STR("Dynamic"),
 } Mel_Display_Mastering;
 MEL_ENUM_TO_STRING_DEFAULT(Mel_Display_Mastering, "None");
 
-typedef enum {
+typedef enum
+{
     MEL_DISPLAY_TONEMAP_DISPLAY     MEL_STR("Display") = 0,
     MEL_DISPLAY_TONEMAP_COMPOSITOR  MEL_STR("Compositor"),
     MEL_DISPLAY_TONEMAP_APPLICATION MEL_STR("Application"),
 } Mel_Display_Tonemap;
 MEL_ENUM_TO_STRING(Mel_Display_Tonemap);
 
-typedef struct { u32 width_px, height_px; } Mel_Display_Extent;
+typedef struct
+{
+    u32 width_px, height_px;
+} Mel_Display_Extent;
 
-typedef struct {
+typedef struct
+{
     u32  width_px, height_px;
     u32  refresh_mhz;
     bool interlaced;
 } Mel_Display_Mode;
 
-typedef struct {
+typedef struct
+{
     bool has_luminance;
     f32  peak_luminance_nits, avg_luminance_nits, min_luminance_nits;
 
@@ -84,11 +96,12 @@ typedef struct {
 
     Mel_Display_Mastering mastering_primaries_support;
     Mel_Display_Tonemap   tone_mapping_owner;
-    bool                           active;
+    bool                  active;
 } Mel_Display_Hdr;
 
-typedef struct {
-    char                           name[MEL_DISPLAY_NAME_CAP];
+typedef struct
+{
+    char                  name[MEL_DISPLAY_NAME_CAP];
     Mel_Display_Connector connector;
     Mel_Display_Extent    native_resolution;
 
@@ -96,7 +109,7 @@ typedef struct {
     f32  physical_width_mm, physical_height_mm;
 
     Mel_Display_Mode refresh_modes[MEL_DISPLAY_MAX_MODES];
-    u32                       refresh_mode_count;
+    u32              refresh_mode_count;
 
     bool has_vrr;
     u32  vrr_min_mhz, vrr_max_mhz;
@@ -113,18 +126,21 @@ typedef struct {
     f32 scale_factor;
 } Mel_Display_Descriptor;
 
-typedef struct {
+typedef struct
+{
     Mel_SlotMap_Handle h;
 } Mel_Display;
 
-#define MEL_DISPLAY_NULL ((Mel_Display){0})
+#define MEL_DISPLAY_NULL ((Mel_Display){ 0 })
 
-typedef enum {
+typedef enum
+{
     MEL_DISPLAY_STATUS_OK = 0,
     MEL_DISPLAY_STATUS_INVALID_HANDLE,
 } Mel_Display_Status;
 
-typedef struct {
+typedef struct
+{
     Mel_Display_Descriptor value;
     Mel_Display_Status     status;
 } Mel_Display_Describe_Result;
@@ -132,13 +148,13 @@ typedef struct {
 void mel_display_init(const Mel_Alloc* alloc);
 void mel_display_shutdown(void);
 
-u32  mel_display_refresh(void);
-u32  mel_display_count(void);
-u32  mel_display_list(Mel_Display* out, u32 cap);
+u32 mel_display_refresh(void);
+u32 mel_display_count(void);
+u32 mel_display_list(Mel_Display* out, u32 cap);
 
 Mel_Display_Describe_Result mel_display_describe(Mel_Display d);
-bool                                 mel_display_alive(Mel_Display d);
-bool                                 mel_display_equal(Mel_Display a, Mel_Display b);
+bool                        mel_display_alive(Mel_Display d);
+bool                        mel_display_equal(Mel_Display a, Mel_Display b);
 
 #ifdef __cplusplus
 }

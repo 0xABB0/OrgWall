@@ -7,14 +7,11 @@ MEL_TEST(alloc_aligned, guard_aligned_alloc_roundtrip)
 {
     Mel_Guard_Allocator guard;
     mel_guard_init(&guard, (Mel_Guard_Allocator_Opt){
-        .backing = mel_alloc_heap(),
-        .pre_guard_size = 16,
-        .post_guard_size = 16,
-        .flags = MEL_GUARD_FLAG_CANARY_HEAD |
-                 MEL_GUARD_FLAG_CANARY_TAIL |
-                 MEL_GUARD_FLAG_POISON_ALLOC |
-                 MEL_GUARD_FLAG_POISON_FREE,
-    });
+                               .backing = mel_alloc_heap(),
+                               .pre_guard_size = 16,
+                               .post_guard_size = 16,
+                               .flags = MEL_GUARD_FLAG_CANARY_HEAD | MEL_GUARD_FLAG_CANARY_TAIL | MEL_GUARD_FLAG_POISON_ALLOC | MEL_GUARD_FLAG_POISON_FREE,
+                           });
 
     Mel_Alloc alloc = mel_guard_allocator(&guard);
 
@@ -40,18 +37,16 @@ MEL_TEST(alloc_aligned, guard_protected_quarantine_tracks_state)
 {
     Mel_Guard_Allocator guard;
     mel_guard_init(&guard, (Mel_Guard_Allocator_Opt){
-        .backing = mel_alloc_heap(),
-        .pre_guard_size = 16,
-        .quarantine_bytes = 1024,
-        .page_protect_min_size = 1,
-        .protected_overhead_budget = 1 << 20,
-        .flags = MEL_GUARD_FLAG_CANARY_HEAD |
-                 MEL_GUARD_FLAG_PAGE_PROTECT |
-                 MEL_GUARD_FLAG_QUARANTINE,
-    });
+                               .backing = mel_alloc_heap(),
+                               .pre_guard_size = 16,
+                               .quarantine_bytes = 1024,
+                               .page_protect_min_size = 1,
+                               .protected_overhead_budget = 1 << 20,
+                               .flags = MEL_GUARD_FLAG_CANARY_HEAD | MEL_GUARD_FLAG_PAGE_PROTECT | MEL_GUARD_FLAG_QUARANTINE,
+                           });
 
     Mel_Alloc alloc = mel_guard_allocator(&guard);
-    void* p = mel_alloc(&alloc, 128);
+    void*     p = mel_alloc(&alloc, 128);
     MEL_REQUIRE_NOT_NULL(p);
 
     Mel_Guard_Allocator_Stats before = mel_guard_stats(&guard);

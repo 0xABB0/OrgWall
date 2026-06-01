@@ -10,7 +10,7 @@ struct Mel_Stackframe
 {
     void* address;
 #if MEL_STACKTRACE_HAS_FUNCTION_NAMES
-    str8  function_name;
+    str8 function_name;
 #endif
 
 #if MEL_STACKTRACE_HAS_SOURCE_INFO
@@ -21,12 +21,12 @@ struct Mel_Stackframe
 #endif
 };
 
-
 typedef struct Mel_Stacktrace Mel_Stacktrace;
 
-struct Mel_Stacktrace {
+struct Mel_Stacktrace
+{
     Mel_Stackframe* frames;
-    usize frame_count;
+    usize           frame_count;
 
     Mel_Alloc* alloc;
 };

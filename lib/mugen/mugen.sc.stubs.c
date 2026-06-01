@@ -1,9 +1,12 @@
 #include "mugen.cns.parse.h"
 
-static void noop_exec(Mugen_State_Controller* sc, Mugen_Char_State* state) { (void)sc; (void)state; }
+static void noop_exec(Mugen_State_Controller* sc, Mugen_Char_State* state)
+{
+    (void)sc;
+    (void)state;
+}
 
-__attribute__((constructor))
-static void register_stubs(void)
+__attribute__((constructor)) static void register_stubs(void)
 {
     mugen_sc_register(MUGEN_SC_NULL, "forcefeedback", NULL, noop_exec);
     mugen_sc_register(MUGEN_SC_NULL, "makedust", NULL, noop_exec);

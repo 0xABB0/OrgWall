@@ -16,15 +16,16 @@ int main(void)
     {
         g_case = "relay";
 
-        Trace expected = {0};
-        i32   eret     = 0;
+        Trace expected = { 0 };
+        i32   eret = 0;
         oracle(base, &expected, &eret);
 
-        Mel_Cont_Frame_relay f = {0};
-        f.base                 = base;
-        Trace got              = {0};
+        Mel_Cont_Frame_relay f = { 0 };
+        f.base = base;
+        Trace got = { 0 };
         i32   y;
-        while (relay__resume(&f, &y)) trace_push(&got, y);
+        while (relay__resume(&f, &y))
+            trace_push(&got, y);
 
         check_traces("seq", &expected, &got);
         check_eq_i64("ret", eret, f.__ret);

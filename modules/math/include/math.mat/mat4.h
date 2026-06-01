@@ -10,23 +10,13 @@
 typedef union
 {
     f32x4 rows[4];
-    f32 e[16];
-    f32 m[4][4];
+    f32   e[16];
+    f32   m[4][4];
 } Mel_Mat4;
 
-#define MEL_MAT4_IDENTITY ((Mel_Mat4){ .rows = { \
-    (f32x4){1, 0, 0, 0}, \
-    (f32x4){0, 1, 0, 0}, \
-    (f32x4){0, 0, 1, 0}, \
-    (f32x4){0, 0, 0, 1}  \
-}})
+#define MEL_MAT4_IDENTITY ((Mel_Mat4){ .rows = { (f32x4){ 1, 0, 0, 0 }, (f32x4){ 0, 1, 0, 0 }, (f32x4){ 0, 0, 1, 0 }, (f32x4){ 0, 0, 0, 1 } } })
 
-#define MEL_MAT4_ZERO ((Mel_Mat4){ .rows = { \
-    (f32x4){0, 0, 0, 0}, \
-    (f32x4){0, 0, 0, 0}, \
-    (f32x4){0, 0, 0, 0}, \
-    (f32x4){0, 0, 0, 0}  \
-}})
+#define MEL_MAT4_ZERO     ((Mel_Mat4){ .rows = { (f32x4){ 0, 0, 0, 0 }, (f32x4){ 0, 0, 0, 0 }, (f32x4){ 0, 0, 0, 0 }, (f32x4){ 0, 0, 0, 0 } } })
 
 MEL_NODISCARD static inline Mel_Mat4 mel_mat4_mul(Mel_Mat4 a, Mel_Mat4 b);
 MEL_NODISCARD static inline Mel_Vec4 mel_mat4_mul_vec4(Mel_Mat4 m, Mel_Vec4 v);

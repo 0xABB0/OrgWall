@@ -5,15 +5,13 @@
 
 #define BITS_PER_WORD 64
 
-static usize bits_to_words(usize bit_count)
-{
-    return (bit_count + BITS_PER_WORD - 1) / BITS_PER_WORD;
-}
+static usize bits_to_words(usize bit_count) { return (bit_count + BITS_PER_WORD - 1) / BITS_PER_WORD; }
 
 static u64 tail_mask(usize bit_count)
 {
     usize tail = bit_count % BITS_PER_WORD;
-    if (tail == 0) return ~(u64)0;
+    if (tail == 0)
+        return ~(u64)0;
     return ((u64)1 << tail) - 1;
 }
 
@@ -69,7 +67,8 @@ void mel_bitset_clear(Mel_BitSet* bs)
 
 void mel_bitset_set_all(Mel_BitSet* bs)
 {
-    if (bs->word_count == 0) return;
+    if (bs->word_count == 0)
+        return;
     memset(bs->words, 0xFF, bs->word_count * sizeof(u64));
     bs->words[bs->word_count - 1] &= tail_mask(bs->bit_count);
 }
@@ -92,7 +91,7 @@ void mel_bitset_resize(Mel_BitSet* bs, usize new_bit_count)
     {
         if (bs->words)
         {
-            u64* new_words = (u64*)mel_calloc(bs->allocator, new_word_count * sizeof(u64));
+            u64*  new_words = (u64*)mel_calloc(bs->allocator, new_word_count * sizeof(u64));
             usize copy_count = new_word_count < bs->word_count ? new_word_count : bs->word_count;
             memcpy(new_words, bs->words, copy_count * sizeof(u64));
             mel_dealloc(bs->allocator, bs->words);
@@ -119,10 +118,7 @@ usize mel_bitset_count_set(const Mel_BitSet* bs)
     return count;
 }
 
-usize mel_bitset_count_clear(const Mel_BitSet* bs)
-{
-    return bs->bit_count - mel_bitset_count_set(bs);
-}
+usize mel_bitset_count_clear(const Mel_BitSet* bs) { return bs->bit_count - mel_bitset_count_set(bs); }
 
 bool mel_bitset_any(const Mel_BitSet* bs)
 {
@@ -134,14 +130,12 @@ bool mel_bitset_any(const Mel_BitSet* bs)
     return false;
 }
 
-bool mel_bitset_none(const Mel_BitSet* bs)
-{
-    return !mel_bitset_any(bs);
-}
+bool mel_bitset_none(const Mel_BitSet* bs) { return !mel_bitset_any(bs); }
 
 bool mel_bitset_all(const Mel_BitSet* bs)
 {
-    if (bs->bit_count == 0) return true;
+    if (bs->bit_count == 0)
+        return true;
 
     for (usize i = 0; i + 1 < bs->word_count; i++)
     {

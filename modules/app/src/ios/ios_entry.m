@@ -10,14 +10,14 @@ static bool app_init(Mel_Reactor* reactor, void* user)
     return true;
 }
 
-@interface MelAppDelegate : UIResponder <UIApplicationDelegate>
+@interface MelAppDelegate: UIResponder <UIApplicationDelegate>
 @end
 
 @implementation MelAppDelegate
-- (BOOL)application:(UIApplication*)application
-        didFinishLaunchingWithOptions:(NSDictionary*)options
+- (BOOL)application:(UIApplication*)application didFinishLaunchingWithOptions:(NSDictionary*)options
 {
-    (void)application; (void)options;
+    (void)application;
+    (void)options;
     // Attach the reactor to the main run loop UIApplicationMain is already
     // running: it installs a tick and returns, so the reactor and all UIKit
     // work share the main thread. No extra thread, no cross-thread marshalling.
@@ -28,7 +28,8 @@ static bool app_init(Mel_Reactor* reactor, void* user)
 
 int mel_ios_app_main(int argc, char** argv)
 {
-    @autoreleasepool {
+    @autoreleasepool
+    {
         return UIApplicationMain(argc, argv, nil, NSStringFromClass([MelAppDelegate class]));
     }
 }

@@ -4,16 +4,18 @@
 #include <allocator/allocator.fwd.h>
 #include <stdatomic.h>
 
-typedef struct {
+typedef struct
+{
     _Atomic(u64) sequence;
-    void* data;
+    void*        data;
 } Mel__Mpmc_Cell;
 
-typedef struct Mel_Mpmc {
+typedef struct Mel_Mpmc
+{
     _Alignas(64) _Atomic(u64) head;
     _Alignas(64) _Atomic(u64) tail;
-    Mel__Mpmc_Cell* cells;
-    u64 mask;
+    Mel__Mpmc_Cell*  cells;
+    u64              mask;
     const Mel_Alloc* alloc;
 } Mel_Mpmc;
 

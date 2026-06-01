@@ -11,10 +11,10 @@ typedef struct Mel_Chord Mel_Chord;
 
 struct Mel_Chord
 {
-  Mel_Scale pitches;
+    Mel_Scale pitches;
 };
 
-void mel_chord_free(Mel_Chord* c);
+void               mel_chord_free(Mel_Chord* c);
 static inline void mel_chord_cleanup(Mel_Chord* c) { mel_chord_free(c); }
 #define Mel_Chord_AUTO MEL_CLEANUP(mel_chord_cleanup) Mel_Chord
 
@@ -32,5 +32,5 @@ Mel_IntervalSeq mel_chord_pattern_minor_seventh(const Mel_Tuning* tuning);
 Mel_IntervalSeq mel_chord_pattern_dominant_seventh(const Mel_Tuning* tuning);
 Mel_IntervalSeq mel_chord_pattern_diminished_seventh(const Mel_Tuning* tuning);
 
-int32_t mel_chord_size(const Mel_Chord* c);
+int32_t   mel_chord_size(const Mel_Chord* c);
 Mel_Pitch mel_chord_root(const Mel_Chord* c);

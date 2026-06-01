@@ -35,25 +35,29 @@ void* mel_ring_push(Mel_Ring_Alloc* ring, usize size)
             sentinel->size = 0;
         }
 
-        if (total + ring->used + wasted > ring->size) return NULL;
+        if (total + ring->used + wasted > ring->size)
+            return NULL;
 
         ring->used += wasted;
         ring->write_offset = 0;
     }
 
-    if (ring->used + total > ring->size) return NULL;
+    if (ring->used + total > ring->size)
+        return NULL;
 
     Mel_Ring_Header* header = (Mel_Ring_Header*)(ring->base + ring->write_offset);
     header->size = size;
 
     void* ptr = ring->base + ring->write_offset + sizeof(Mel_Ring_Header);
     ring->write_offset += total;
-    if (ring->write_offset >= ring->size) ring->write_offset = 0;
+    if (ring->write_offset >= ring->size)
+        ring->write_offset = 0;
     ring->used += total;
 
 #if MEL_ALLOCATOR_RING_DEBUG
     ring->push_count++;
-    if (ring->used > ring->peak_used) ring->peak_used = ring->used;
+    if (ring->used > ring->peak_used)
+        ring->peak_used = ring->used;
 #endif
 
     return ptr;
@@ -76,7 +80,8 @@ void mel_ring_pop(Mel_Ring_Alloc* ring)
 
     usize total = sizeof(Mel_Ring_Header) + header->size;
     ring->read_offset += total;
-    if (ring->read_offset >= ring->size) ring->read_offset = 0;
+    if (ring->read_offset >= ring->size)
+        ring->read_offset = 0;
     ring->used -= total;
 
 #if MEL_ALLOCATOR_RING_DEBUG
@@ -87,9 +92,10 @@ void mel_ring_pop(Mel_Ring_Alloc* ring)
 void* mel_ring_peek(Mel_Ring_Alloc* ring)
 {
     assert(ring != NULL);
-    if (ring->used == 0) return NULL;
+    if (ring->used == 0)
+        return NULL;
 
-    usize offset = ring->read_offset;
+    usize            offset = ring->read_offset;
     Mel_Ring_Header* header = (Mel_Ring_Header*)(ring->base + offset);
 
     if (header->size == 0)

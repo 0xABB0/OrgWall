@@ -16,15 +16,21 @@
  * fire the stored capability callbacks. The painter wraps a <canvas> id and each
  * op draws straight onto its 2D context. */
 
-struct Mel_Painter { int canvas; i32 w, h; };
+struct Mel_Painter
+{
+    int canvas;
+    i32 w, h;
+};
 
-typedef enum {
+typedef enum
+{
     MEL_WEB_TEXT = 0, // text via textContent (label, button, groupbox legend)
     MEL_WEB_INPUT,    // text via .value (textfield)
     MEL_WEB_FRAME,    // text via document.title
 } Mel_Web_Kind;
 
-typedef struct {
+typedef struct
+{
     bool                used;
     Mel_Gui_Handle      handle;
     Mel_Web_Kind        kind;
@@ -37,8 +43,8 @@ typedef struct {
     Mel_Canvas_On       canvas;
     Mel_Gpu_View_On     gpu_view;
     // on_select doubles for tabview selection and dialog result (same shape).
-    void              (*on_select)(Mel_Gui_Handle h, i32 index, void* user);
-    int                 aux0, aux1, aux2; // widget scratch (tabview bar/count/selected)
+    void (*on_select)(Mel_Gui_Handle h, i32 index, void* user);
+    int aux0, aux1, aux2; // widget scratch (tabview bar/count/selected)
 } Mel_Web_Ctl;
 
 /* --- registry / lookup (backend.c) --- */
@@ -47,17 +53,18 @@ int          mel_web__parent_id(Mel_Gui_Node* n);
 Mel_Web_Ctl* mel_web__ctl(int id);
 Mel_Web_Ctl* mel_web__ctl_new(int id, Mel_Gui_Handle h);
 
-static inline const char* mel_web__cstr(str8 s, char* buf, int cap) {
+static inline const char* mel_web__cstr(str8 s, char* buf, int cap)
+{
     int n = (s.data && s.len > 0) ? (int)s.len : 0;
-    if (n > cap - 1) n = cap - 1;
-    if (n > 0) memcpy(buf, s.data, (size_t)n);
+    if (n > cap - 1)
+        n = cap - 1;
+    if (n > 0)
+        memcpy(buf, s.data, (size_t)n);
     buf[n] = 0;
     return buf;
 }
 
-static inline u32 mel_web__rgba(Mel_Color c) {
-    return ((u32)c.r << 24) | ((u32)c.g << 16) | ((u32)c.b << 8) | (u32)c.a;
-}
+static inline u32 mel_web__rgba(Mel_Color c) { return ((u32)c.r << 24) | ((u32)c.g << 16) | ((u32)c.b << 8) | (u32)c.a; }
 
 /* --- DOM element ops (EM_JS, backend.c) --- */
 int  mel_web__el_create(const char* tag);

@@ -3,7 +3,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-typedef struct mel_color {
+typedef struct mel_color
+{
     float r, g, b, a;
 } mel_color;
 

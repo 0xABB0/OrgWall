@@ -10,11 +10,11 @@ typedef struct Mel_NoteIntervalSeq Mel_NoteIntervalSeq;
 
 struct Mel_NoteIntervalSeq
 {
-  const Mel_Notation* notation;
-  Mel_IntervalSeq interval_seq;
+    const Mel_Notation* notation;
+    Mel_IntervalSeq     interval_seq;
 };
 
-void mel_note_interval_seq_free(Mel_NoteIntervalSeq* nis);
+void               mel_note_interval_seq_free(Mel_NoteIntervalSeq* nis);
 static inline void mel_note_interval_seq_cleanup(Mel_NoteIntervalSeq* nis) { mel_note_interval_seq_free(nis); }
 #define Mel_NoteIntervalSeq_AUTO MEL_CLEANUP(mel_note_interval_seq_cleanup) Mel_NoteIntervalSeq
 

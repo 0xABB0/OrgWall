@@ -24,15 +24,16 @@ int main(void)
     {
         g_case = "classify";
 
-        Trace expected = {0};
-        i32   eret     = 0;
+        Trace expected = { 0 };
+        i32   eret = 0;
         oracle(n, &expected, &eret);
 
-        Mel_Cont_Frame_classify f = {0};
-        f.n                       = n;
-        Trace got                 = {0};
+        Mel_Cont_Frame_classify f = { 0 };
+        f.n = n;
+        Trace got = { 0 };
         i32   y;
-        while (classify__resume(&f, &y)) trace_push(&got, y);
+        while (classify__resume(&f, &y))
+            trace_push(&got, y);
 
         check_traces("seq", &expected, &got);
         check_eq_i64("ret", eret, f.__ret);

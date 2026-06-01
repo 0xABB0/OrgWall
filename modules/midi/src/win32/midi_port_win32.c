@@ -3,11 +3,11 @@
 #include <core/platform.h>
 
 #if !MEL_PLATFORM_WINDOWS
-    #error "This file should only be compiled on Windows"
+#error "This file should only be compiled on Windows"
 #endif
 
 #ifndef WIN32_LEAN_AND_MEAN
-    #define WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h>
 #include <mmsystem.h>
@@ -24,60 +24,59 @@ extern void mel_midi_port_push_chunk(Mel_Midi_Port* port, const Mel_Midi_Chunk* 
 typedef struct Mel_Midi_Port_Win32 Mel_Midi_Port_Win32;
 struct Mel_Midi_Port_Win32
 {
-    HMIDIIN         handle;
+    HMIDIIN          handle;
     CRITICAL_SECTION lock;
-    HANDLE          signal;     // event for blocking reads
-    volatile bool   closed;
-    UINT            device_id;
+    HANDLE           signal; // event for blocking reads
+    volatile bool    closed;
+    UINT             device_id;
 };
 
 // ── Callback ───────────────────────────────────────────────────────────────
 
-static void CALLBACK mel__midi_in_callback(HMIDIIN hMidiIn, UINT wMsg,
-                                            DWORD_PTR dwInstance,
-                                            DWORD_PTR dwParam1,
-                                            DWORD_PTR dwParam2)
+static void CALLBACK mel__midi_in_callback(HMIDIIN hMidiIn, UINT wMsg, DWORD_PTR dwInstance, DWORD_PTR dwParam1, DWORD_PTR dwParam2)
 {
     (void)hMidiIn;
     (void)dwParam2;
 
     Mel_Midi_Port* port = (Mel_Midi_Port*)dwInstance;
-    if (!port) return;
+    if (!port)
+        return;
 
     Mel_Midi_Port_Win32* pw = (Mel_Midi_Port_Win32*)port->platform_handle;
-    if (!pw || pw->closed) return;
+    if (!pw || pw->closed)
+        return;
 
-    Mel_Midi_Chunk chunk = {0};
+    Mel_Midi_Chunk chunk = { 0 };
 
     switch (wMsg)
     {
-        case MIM_DATA:
+    case MIM_DATA:
+    {
+        chunk.data[0] = (uint8_t)(dwParam1 & 0xFF);
+        chunk.data[1] = (uint8_t)((dwParam1 >> 8) & 0xFF);
+        chunk.data[2] = (uint8_t)((dwParam1 >> 16) & 0xFF);
+        chunk.length = 3;
+
+        // System real-time messages (status >= 0xF8) are single-byte;
+        // standard channel messages are 3 bytes.
+        if (chunk.data[0] >= 0xF8)
         {
-            chunk.data[0] = (uint8_t)(dwParam1 & 0xFF);
-            chunk.data[1] = (uint8_t)((dwParam1 >> 8) & 0xFF);
-            chunk.data[2] = (uint8_t)((dwParam1 >> 16) & 0xFF);
-            chunk.length  = 3;
-
-            // System real-time messages (status >= 0xF8) are single-byte;
-            // standard channel messages are 3 bytes.
-            if (chunk.data[0] >= 0xF8)
-            {
-                chunk.length = 1;
-            }
-            break;
+            chunk.length = 1;
         }
+        break;
+    }
 
-        case MIM_LONGDATA:
-        case MIM_LONGERROR:
-            // Sysex — not handled yet, skip
-            return;
+    case MIM_LONGDATA:
+    case MIM_LONGERROR:
+        // Sysex — not handled yet, skip
+        return;
 
-        case MIM_OPEN:
-        case MIM_CLOSE:
-        case MIM_ERROR:
-        case MIM_MOREDATA:
-        default:
-            return;
+    case MIM_OPEN:
+    case MIM_CLOSE:
+    case MIM_ERROR:
+    case MIM_MOREDATA:
+    default:
+        return;
     }
 
     // Timestamp
@@ -96,7 +95,7 @@ static void CALLBACK mel__midi_in_callback(HMIDIIN hMidiIn, UINT wMsg,
 
 int32_t mel_midi_port_platform_enumerate(Mel_Midi_Port_Info* out_infos, int32_t max_count)
 {
-    UINT count = midiInGetNumDevs();
+    UINT    count = midiInGetNumDevs();
     int32_t n = 0;
 
     for (UINT i = 0; i < count && n < max_count; i++)
@@ -107,8 +106,8 @@ int32_t mel_midi_port_platform_enumerate(Mel_Midi_Port_Info* out_infos, int32_t 
 
         if (out_infos)
         {
-            out_infos[n].id       = (int32_t)i;
-            out_infos[n].name     = caps.szPname;
+            out_infos[n].id = (int32_t)i;
+            out_infos[n].name = caps.szPname;
             out_infos[n].is_input = true;
         }
         n++;
@@ -122,17 +121,15 @@ int32_t mel_midi_port_platform_enumerate(Mel_Midi_Port_Info* out_infos, int32_t 
 Mel_Midi_Port* mel_midi_port_platform_open_input(int32_t id, Mel_Midi_Port* port)
 {
     Mel_Midi_Port_Win32* pw = calloc(1, sizeof(*pw));
-    if (!pw) return NULL;
+    if (!pw)
+        return NULL;
 
     pw->device_id = (UINT)id;
 
     InitializeCriticalSection(&pw->lock);
     pw->signal = CreateEventA(NULL, FALSE, FALSE, NULL);
 
-    MMRESULT res = midiInOpen(&pw->handle, pw->device_id,
-                               (DWORD_PTR)mel__midi_in_callback,
-                               (DWORD_PTR)port,
-                               CALLBACK_FUNCTION);
+    MMRESULT res = midiInOpen(&pw->handle, pw->device_id, (DWORD_PTR)mel__midi_in_callback, (DWORD_PTR)port, CALLBACK_FUNCTION);
     if (res != MMSYSERR_NOERROR)
     {
         CloseHandle(pw->signal);
@@ -158,10 +155,12 @@ Mel_Midi_Port* mel_midi_port_platform_open_input(int32_t id, Mel_Midi_Port* port
 
 void mel_midi_port_platform_close(Mel_Midi_Port* port)
 {
-    if (!port) return;
+    if (!port)
+        return;
 
     Mel_Midi_Port_Win32* pw = (Mel_Midi_Port_Win32*)port->platform_handle;
-    if (!pw) return;
+    if (!pw)
+        return;
 
     pw->closed = true;
 

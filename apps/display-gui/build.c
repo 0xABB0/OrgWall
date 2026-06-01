@@ -1,7 +1,8 @@
 #include "build.h"
 
-void build(Mel_Build *b) {
-    Mel_Target *app = mel_add_executable(b, "display-gui");
+void build(Mel_Build* b)
+{
+    Mel_Target* app = mel_add_executable(b, "display-gui");
     mel_subsystem(app, "gui");
     mel_sources(app, ALWAYS, "src/*.c");
     mel_sources(app, WHEN(.platforms = MEL_ON(MACOS)), "src/macos/*.m");

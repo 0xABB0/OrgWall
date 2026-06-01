@@ -4,15 +4,9 @@
 
 static inline CGRect cg_rect(Mel_Rect r) { return CGRectMake(r.x, r.y, r.w, r.h); }
 
-static inline void set_fill(CGContextRef c, Mel_Color k)
-{
-    CGContextSetRGBFillColor(c, k.r / 255.0, k.g / 255.0, k.b / 255.0, k.a / 255.0);
-}
+static inline void set_fill(CGContextRef c, Mel_Color k) { CGContextSetRGBFillColor(c, k.r / 255.0, k.g / 255.0, k.b / 255.0, k.a / 255.0); }
 
-static inline void set_stroke(CGContextRef c, Mel_Color k)
-{
-    CGContextSetRGBStrokeColor(c, k.r / 255.0, k.g / 255.0, k.b / 255.0, k.a / 255.0);
-}
+static inline void set_stroke(CGContextRef c, Mel_Color k) { CGContextSetRGBStrokeColor(c, k.r / 255.0, k.g / 255.0, k.b / 255.0, k.a / 255.0); }
 
 void mel_painter_clear(Mel_Painter* p, Mel_Color k)
 {
@@ -61,13 +55,12 @@ void mel_painter_fill_round_rect(Mel_Painter* p, Mel_Rect r, f32 radius, Mel_Col
 void mel_painter_draw_text(Mel_Painter* p, str8 text, Mel_Vec2 pos, Mel_Color k, f32 size)
 {
     (void)p;
-    @autoreleasepool {
-        NSString* s    = mel_gui__ios_nsstring(text);
+    @autoreleasepool
+    {
+        NSString* s = mel_gui__ios_nsstring(text);
         UIFont*   font = [UIFont systemFontOfSize:size];
-        UIColor*  col  = [UIColor colorWithRed:k.r / 255.0 green:k.g / 255.0
-                                          blue:k.b / 255.0 alpha:k.a / 255.0];
-        [s drawAtPoint:CGPointMake(pos.x, pos.y)
-        withAttributes:@{ NSFontAttributeName: font, NSForegroundColorAttributeName: col }];
+        UIColor*  col = [UIColor colorWithRed:k.r / 255.0 green:k.g / 255.0 blue:k.b / 255.0 alpha:k.a / 255.0];
+        [s drawAtPoint:CGPointMake(pos.x, pos.y) withAttributes:@{ NSFontAttributeName : font, NSForegroundColorAttributeName : col }];
     }
 }
 
@@ -77,11 +70,11 @@ void mel_painter_draw_text(Mel_Painter* p, str8 text, Mel_Vec2 pos, Mel_Color k,
 {
     (void)rect;
     CGRect b = self.bounds;
-    if (self.on_.on_paint) {
-        CGContextRef ctx = UIGraphicsGetCurrentContext();
+    if (self.on_.on_paint)
+    {
+        CGContextRef       ctx = UIGraphicsGetCurrentContext();
         struct Mel_Painter p = { .cg = ctx, .w = (f32)b.size.width, .h = (f32)b.size.height };
-        self.on_.on_paint(self.handle, &p, (i32)b.size.width, (i32)b.size.height,
-                          mel_gui_user(self.handle));
+        self.on_.on_paint(self.handle, &p, (i32)b.size.width, (i32)b.size.height, mel_gui_user(self.handle));
     }
 }
 
@@ -118,18 +111,18 @@ void mel_painter_draw_text(Mel_Painter* p, str8 text, Mel_Vec2 pos, Mel_Color k,
 
 Mel_Gui_Handle mel_canvas_create_opt(Mel_Gui_Handle parent, Mel_Canvas_Opt o)
 {
-    Mel_Gui_Handle h = mel_gui__node_new(parent, o.x, o.y, o.w, o.h, o.id, o.user, o.hidden,
-                                         &o.layoutable, NULL);
-    Mel_Gui_Node* n = mel_gui__node(h);
-    if (!n) return h;
+    Mel_Gui_Handle h = mel_gui__node_new(parent, o.x, o.y, o.w, o.h, o.id, o.user, o.hidden, &o.layoutable, NULL);
+    Mel_Gui_Node*  n = mel_gui__node(h);
+    if (!n)
+        return h;
 
     MelCanvas* view = [[MelCanvas alloc] initWithFrame:CGRectMake(0, 0, n->width, n->height)];
-    view.handle  = h;
+    view.handle = h;
     view.pointer = o.pointer;
-    view.focus   = o.focus;
-    view.on_     = o.on_;
+    view.focus = o.focus;
+    view.on_ = o.on_;
     view.backgroundColor = [UIColor clearColor];
-    view.contentMode     = UIViewContentModeRedraw;
+    view.contentMode = UIViewContentModeRedraw;
     mel_gui__ios_install_child(n, view);
     return h;
 }

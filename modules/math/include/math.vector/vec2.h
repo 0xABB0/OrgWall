@@ -10,19 +10,28 @@ typedef f32 f32x2 MEL_VECTOR_TYPE(2);
 typedef union
 {
     f32x2 v;
-    struct { f32 x, y; };
-    struct { f32 u, v_; };
-    struct { f32 w, h; };
+    struct
+    {
+        f32 x, y;
+    };
+    struct
+    {
+        f32 u, v_;
+    };
+    struct
+    {
+        f32 w, h;
+    };
     f32 e[2];
 } Mel_Vec2;
 
-#define MEL_VEC2_ZERO  ((Mel_Vec2){ .v = (f32x2){0, 0} })
-#define MEL_VEC2_ONE   ((Mel_Vec2){ .v = (f32x2){1, 1} })
-#define MEL_VEC2_UP    ((Mel_Vec2){ .v = (f32x2){0, 1} })
-#define MEL_VEC2_DOWN  ((Mel_Vec2){ .v = (f32x2){0, -1} })
-#define MEL_VEC2_LEFT  ((Mel_Vec2){ .v = (f32x2){-1, 0} })
-#define MEL_VEC2_RIGHT ((Mel_Vec2){ .v = (f32x2){1, 0} })
-#define MEL_VEC2(x, y) ((Mel_Vec2){ .v = (f32x2){(x), (y)} })
+#define MEL_VEC2_ZERO  ((Mel_Vec2){ .v = (f32x2){ 0, 0 } })
+#define MEL_VEC2_ONE   ((Mel_Vec2){ .v = (f32x2){ 1, 1 } })
+#define MEL_VEC2_UP    ((Mel_Vec2){ .v = (f32x2){ 0, 1 } })
+#define MEL_VEC2_DOWN  ((Mel_Vec2){ .v = (f32x2){ 0, -1 } })
+#define MEL_VEC2_LEFT  ((Mel_Vec2){ .v = (f32x2){ -1, 0 } })
+#define MEL_VEC2_RIGHT ((Mel_Vec2){ .v = (f32x2){ 1, 0 } })
+#define MEL_VEC2(x, y) ((Mel_Vec2){ .v = (f32x2){ (x), (y) } })
 
 MEL_NODISCARD static inline Mel_Vec2 mel_vec2(f32 x, f32 y);
 MEL_NODISCARD static inline Mel_Vec2 mel_vec2_add(Mel_Vec2 a, Mel_Vec2 b);
@@ -31,13 +40,13 @@ MEL_NODISCARD static inline Mel_Vec2 mel_vec2_mul(Mel_Vec2 a, Mel_Vec2 b);
 MEL_NODISCARD static inline Mel_Vec2 mel_vec2_div(Mel_Vec2 a, Mel_Vec2 b);
 MEL_NODISCARD static inline Mel_Vec2 mel_vec2_scale(Mel_Vec2 v, f32 s);
 MEL_NODISCARD static inline Mel_Vec2 mel_vec2_negate(Mel_Vec2 v);
-MEL_NODISCARD static inline f32 mel_vec2_dot(Mel_Vec2 a, Mel_Vec2 b);
-MEL_NODISCARD static inline f32 mel_vec2_len_sq(Mel_Vec2 v);
-MEL_NODISCARD static inline f32 mel_vec2_len(Mel_Vec2 v);
+MEL_NODISCARD static inline f32      mel_vec2_dot(Mel_Vec2 a, Mel_Vec2 b);
+MEL_NODISCARD static inline f32      mel_vec2_len_sq(Mel_Vec2 v);
+MEL_NODISCARD static inline f32      mel_vec2_len(Mel_Vec2 v);
 MEL_NODISCARD static inline Mel_Vec2 mel_vec2_normalize(Mel_Vec2 v);
 MEL_NODISCARD static inline Mel_Vec2 mel_vec2_lerp(Mel_Vec2 a, Mel_Vec2 b, f32 t);
-MEL_NODISCARD static inline f32 mel_vec2_dist_sq(Mel_Vec2 a, Mel_Vec2 b);
-MEL_NODISCARD static inline f32 mel_vec2_dist(Mel_Vec2 a, Mel_Vec2 b);
+MEL_NODISCARD static inline f32      mel_vec2_dist_sq(Mel_Vec2 a, Mel_Vec2 b);
+MEL_NODISCARD static inline f32      mel_vec2_dist(Mel_Vec2 a, Mel_Vec2 b);
 MEL_NODISCARD static inline Mel_Vec2 mel_vec2_min(Mel_Vec2 a, Mel_Vec2 b);
 MEL_NODISCARD static inline Mel_Vec2 mel_vec2_max(Mel_Vec2 a, Mel_Vec2 b);
 MEL_NODISCARD static inline Mel_Vec2 mel_vec2_abs(Mel_Vec2 v);

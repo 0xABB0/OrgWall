@@ -11,7 +11,8 @@ static void dialog_result(Mel_Gui_Handle h, i32 result, void* user)
 {
     (void)h;
     (void)user;
-    if (mel_gui_handle_is_none(g_struct_status)) return;
+    if (mel_gui_handle_is_none(g_struct_status))
+        return;
     char buf[64];
     snprintf(buf, sizeof buf, "dialog closed with result %d", result);
     mel_gui_set_text(g_struct_status, str8_from_cstr(buf));
@@ -37,20 +38,12 @@ static void open_dialog_clicked(Mel_Gui_Handle h, void* user)
 {
     (void)h;
     (void)user;
-    g_dialog = mel_dialog_create(
-        .title = S8("Confirm"),
-        .w = 320, .h = 160,
-        .on_.on_result = dialog_result,
-        .layout = mel_column_layout(.spacing = 10, .margin = 16, .cross_align = MEL_ALIGN_STRETCH));
+    g_dialog =
+        mel_dialog_create(.title = S8("Confirm"), .w = 320, .h = 160, .on_.on_result = dialog_result, .layout = mel_column_layout(.spacing = 10, .margin = 16, .cross_align = MEL_ALIGN_STRETCH));
 
-    mel_label_create(g_dialog, .text = S8("A modeless dialog. Pick an outcome."),
-        .layoutable = { .preferred_h = 40, .weight = 1 });
-    mel_button_create(g_dialog, .text = S8("OK"),
-        .pointer.on_click = dialog_ok,
-        .layoutable = { .preferred_h = 34 });
-    mel_button_create(g_dialog, .text = S8("Cancel"),
-        .pointer.on_click = dialog_cancel,
-        .layoutable = { .preferred_h = 34 });
+    mel_label_create(g_dialog, .text = S8("A modeless dialog. Pick an outcome."), .layoutable = { .preferred_h = 40, .weight = 1 });
+    mel_button_create(g_dialog, .text = S8("OK"), .pointer.on_click = dialog_ok, .layoutable = { .preferred_h = 34 });
+    mel_button_create(g_dialog, .text = S8("Cancel"), .pointer.on_click = dialog_cancel, .layoutable = { .preferred_h = 34 });
 
     mel_gui_relayout(g_dialog);
 }

@@ -4,7 +4,8 @@
 
 typedef struct Mugen_Stage Mugen_Stage;
 
-typedef struct {
+typedef struct
+{
     f32 x, y;
     f32 bound_left, bound_right;
     f32 bound_high, bound_low;

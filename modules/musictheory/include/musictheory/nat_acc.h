@@ -10,25 +10,25 @@ typedef struct Mel_NatAccNotation Mel_NatAccNotation;
 
 struct Mel_NatAccNotation
 {
-  Mel_Notation base;
+    Mel_Notation base;
 
-  struct
-  {
-    char** symbols;
-    int32_t* pitch_indices;
-    int32_t count;
-  } naturals;
+    struct
+    {
+        char**   symbols;
+        int32_t* pitch_indices;
+        int32_t  count;
+    } naturals;
 
-  Mel_SymbolCode acc_code;
+    Mel_SymbolCode acc_code;
 
-  struct
-  {
-    Mel_SymbolCode* codes;
-    int32_t count;
-  } interval_codes;
+    struct
+    {
+        Mel_SymbolCode* codes;
+        int32_t         count;
+    } interval_codes;
 };
 
-void mel_nat_acc_notation_free(Mel_NatAccNotation* nn);
+void               mel_nat_acc_notation_free(Mel_NatAccNotation* nn);
 static inline void mel_nat_acc_notation_cleanup(Mel_NatAccNotation* nn) { mel_nat_acc_notation_free(nn); }
 #define Mel_NatAccNotation_AUTO MEL_CLEANUP(mel_nat_acc_notation_cleanup) Mel_NatAccNotation
 

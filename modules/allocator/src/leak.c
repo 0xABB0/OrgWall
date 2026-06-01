@@ -10,26 +10,17 @@ struct Mel_Leak_Header
 {
     Mel_Leak_Header* prev;
     Mel_Leak_Header* next;
-    const char* file;
-    const char* func;
-    u32 line;
-    usize size;
+    const char*      file;
+    const char*      func;
+    u32              line;
+    usize            size;
 };
 
 #define MEL_LEAK_FREED_MAGIC (~(usize)0)
 
-static Mel_Leak_Header s_leak_sentinel = {
-    .prev = &s_leak_sentinel,
-    .next = &s_leak_sentinel,
-    .file = NULL,
-    .func = NULL,
-    .line = 0,
-    .size = 0
-};
+static Mel_Leak_Header s_leak_sentinel = { .prev = &s_leak_sentinel, .next = &s_leak_sentinel, .file = NULL, .func = NULL, .line = 0, .size = 0 };
 
-static void* leak_detect_cb(void* ptr, usize size, u32 align,
-                            const char* file, const char* func, u32 line,
-                            void* user_data)
+static void* leak_detect_cb(void* ptr, usize size, u32 align, const char* file, const char* func, u32 line, void* user_data)
 {
     MEL_UNUSED(align);
     MEL_UNUSED(user_data);
@@ -41,7 +32,8 @@ static void* leak_detect_cb(void* ptr, usize size, u32 align,
         Mel_Leak_Header* header = (Mel_Leak_Header*)malloc(sizeof(Mel_Leak_Header) + size);
         if (!header)
         {
-            if (fail_cb) fail_cb(file, func, line, size);
+            if (fail_cb)
+                fail_cb(file, func, line, size);
             return NULL;
         }
         header->file = file;
@@ -72,7 +64,8 @@ static void* leak_detect_cb(void* ptr, usize size, u32 align,
             header->prev = &s_leak_sentinel;
             s_leak_sentinel.next->prev = header;
             s_leak_sentinel.next = header;
-            if (fail_cb) fail_cb(file, func, line, size);
+            if (fail_cb)
+                fail_cb(file, func, line, size);
             return NULL;
         }
         new_header->file = file;
@@ -103,15 +96,9 @@ static void* leak_detect_cb(void* ptr, usize size, u32 align,
     return NULL;
 }
 
-static const Mel_Alloc s_leak_detect_alloc = {
-    .alloc_cb = leak_detect_cb,
-    .user_data = NULL
-};
+static const Mel_Alloc s_leak_detect_alloc = { .alloc_cb = leak_detect_cb, .user_data = NULL };
 
-const Mel_Alloc* mel_alloc_leak_detect(void)
-{
-    return &s_leak_detect_alloc;
-}
+const Mel_Alloc* mel_alloc_leak_detect(void) { return &s_leak_detect_alloc; }
 
 void mel_leak_dump(Mel_Leak_Report_Cb cb, void* user_data)
 {

@@ -31,7 +31,8 @@ Mel_BTreeNode* mel__btree_create_node(Mel_BTree* bt, bool leaf)
 
 void mel__btree_free_node(Mel_BTree* bt, Mel_BTreeNode* node)
 {
-    if (!node) return;
+    if (!node)
+        return;
     mel_dealloc(bt->allocator, node->keys);
     mel_dealloc(bt->allocator, node->values);
     mel_dealloc(bt->allocator, node->children);
@@ -40,7 +41,8 @@ void mel__btree_free_node(Mel_BTree* bt, Mel_BTreeNode* node)
 
 void mel__btree_free_recursive(Mel_BTree* bt, Mel_BTreeNode* node)
 {
-    if (!node) return;
+    if (!node)
+        return;
     if (!node->leaf)
     {
         for (u32 i = 0; i <= node->key_count; i++)
@@ -58,14 +60,11 @@ void mel_btree_free(Mel_BTree* bt)
     bt->count = 0;
 }
 
-void mel_btree_clear(Mel_BTree* bt)
-{
-    mel_btree_free(bt);
-}
+void mel_btree_clear(Mel_BTree* bt) { mel_btree_free(bt); }
 
 void mel__btree_split_child(Mel_BTree* bt, Mel_BTreeNode* parent, u32 i)
 {
-    u32 t = bt->degree;
+    u32            t = bt->degree;
     Mel_BTreeNode* full = parent->children[i];
     Mel_BTreeNode* right = mel__btree_create_node(bt, full->leaf);
 
@@ -141,7 +140,8 @@ void mel__btree_insert_nonfull(Mel_BTree* bt, Mel_BTreeNode* node, void* key, vo
 
 static bool mel__btree_find_in_node(Mel_BTree* bt, Mel_BTreeNode* node, void* key, void** out_value)
 {
-    if (!node) return false;
+    if (!node)
+        return false;
 
     u32 i = 0;
     while (i < node->key_count && bt->cmp(key, node->keys[i]) > 0)
@@ -151,11 +151,13 @@ static bool mel__btree_find_in_node(Mel_BTree* bt, Mel_BTreeNode* node, void* ke
 
     if (i < node->key_count && bt->cmp(key, node->keys[i]) == 0)
     {
-        if (out_value) *out_value = node->values[i];
+        if (out_value)
+            *out_value = node->values[i];
         return true;
     }
 
-    if (node->leaf) return false;
+    if (node->leaf)
+        return false;
 
     return mel__btree_find_in_node(bt, node->children[i], key, out_value);
 }
@@ -204,44 +206,39 @@ void* mel_btree_find(Mel_BTree* bt, void* key)
     return NULL;
 }
 
-bool mel_btree_contains(Mel_BTree* bt, void* key)
-{
-    return mel__btree_find_in_node(bt, bt->root, key, NULL);
-}
+bool mel_btree_contains(Mel_BTree* bt, void* key) { return mel__btree_find_in_node(bt, bt->root, key, NULL); }
 
 void* mel_btree_min(Mel_BTree* bt)
 {
-    if (!bt->root) return NULL;
+    if (!bt->root)
+        return NULL;
     Mel_BTreeNode* node = bt->root;
     while (!node->leaf)
     {
         node = node->children[0];
     }
-    if (node->key_count == 0) return NULL;
+    if (node->key_count == 0)
+        return NULL;
     return node->keys[0];
 }
 
 void* mel_btree_max(Mel_BTree* bt)
 {
-    if (!bt->root) return NULL;
+    if (!bt->root)
+        return NULL;
     Mel_BTreeNode* node = bt->root;
     while (!node->leaf)
     {
         node = node->children[node->key_count];
     }
-    if (node->key_count == 0) return NULL;
+    if (node->key_count == 0)
+        return NULL;
     return node->keys[node->key_count - 1];
 }
 
-usize mel_btree_count(Mel_BTree* bt)
-{
-    return bt->count;
-}
+usize mel_btree_count(Mel_BTree* bt) { return bt->count; }
 
-bool mel_btree_empty(Mel_BTree* bt)
-{
-    return bt->count == 0;
-}
+bool mel_btree_empty(Mel_BTree* bt) { return bt->count == 0; }
 
 static void mel__btree_borrow_from_prev(Mel_BTreeNode* parent, u32 idx)
 {
@@ -309,7 +306,7 @@ static void mel__btree_borrow_from_next(Mel_BTreeNode* parent, u32 idx)
 
 static void mel__btree_merge(Mel_BTree* bt, Mel_BTreeNode* parent, u32 idx)
 {
-    u32 t = bt->degree;
+    u32            t = bt->degree;
     Mel_BTreeNode* left = parent->children[idx];
     Mel_BTreeNode* right = parent->children[idx + 1];
 
@@ -425,7 +422,7 @@ static void mel__btree_remove_from_leaf(Mel_BTreeNode* node, u32 idx)
 
 static bool mel__btree_remove_from_internal(Mel_BTree* bt, Mel_BTreeNode* node, u32 idx)
 {
-    u32 t = bt->degree;
+    u32   t = bt->degree;
     void* key = node->keys[idx];
 
     if (node->children[idx]->key_count >= t)
@@ -492,7 +489,8 @@ bool mel__btree_remove_from_node(Mel_BTree* bt, Mel_BTreeNode* node, void* key)
 
 bool mel_btree_remove(Mel_BTree* bt, void* key)
 {
-    if (!bt->root) return false;
+    if (!bt->root)
+        return false;
 
     bool removed = mel__btree_remove_from_node(bt, bt->root, key);
 

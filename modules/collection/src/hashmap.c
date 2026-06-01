@@ -27,7 +27,8 @@ void mel_hashmap_free(Mel_HashMap* hm)
 
 static usize mel__hashmap_next_pow2(usize v)
 {
-    if (v == 0) return MEL_HASHMAP_INIT_CAP;
+    if (v == 0)
+        return MEL_HASHMAP_INIT_CAP;
     v--;
     v |= v >> 1;
     v |= v >> 2;
@@ -39,11 +40,9 @@ static usize mel__hashmap_next_pow2(usize v)
     return v;
 }
 
-static void mel__hashmap_insert_entry(Mel_HashMapEntry* entries, usize capacity,
-                                       Mel_HashMap_Hash hash_fn, Mel_HashMap_Eq eq_fn,
-                                       void* key, void* value)
+static void mel__hashmap_insert_entry(Mel_HashMapEntry* entries, usize capacity, Mel_HashMap_Hash hash_fn, Mel_HashMap_Eq eq_fn, void* key, void* value)
 {
-    u64 h = hash_fn(key);
+    u64   h = hash_fn(key);
     usize idx = h & (capacity - 1);
 
     for (;;)
@@ -67,7 +66,8 @@ static void mel__hashmap_insert_entry(Mel_HashMapEntry* entries, usize capacity,
 static void mel__hashmap_grow(Mel_HashMap* hm, usize new_cap)
 {
     new_cap = mel__hashmap_next_pow2(new_cap);
-    if (new_cap < MEL_HASHMAP_INIT_CAP) new_cap = MEL_HASHMAP_INIT_CAP;
+    if (new_cap < MEL_HASHMAP_INIT_CAP)
+        new_cap = MEL_HASHMAP_INIT_CAP;
 
     Mel_HashMapEntry* new_entries = mel_calloc(hm->allocator, sizeof(Mel_HashMapEntry) * new_cap);
 
@@ -77,8 +77,7 @@ static void mel__hashmap_grow(Mel_HashMap* hm, usize new_cap)
         {
             if (hm->entries[i].state == MEL_HASHMAP_OCCUPIED)
             {
-                mel__hashmap_insert_entry(new_entries, new_cap, hm->hash, hm->eq,
-                                           hm->entries[i].key, hm->entries[i].value);
+                mel__hashmap_insert_entry(new_entries, new_cap, hm->hash, hm->eq, hm->entries[i].key, hm->entries[i].value);
             }
         }
         mel_dealloc(hm->allocator, hm->entries);
@@ -96,7 +95,7 @@ bool mel_hashmap_put(Mel_HashMap* hm, void* key, void* value)
         mel__hashmap_grow(hm, new_cap);
     }
 
-    u64 h = hm->hash(key);
+    u64   h = hm->hash(key);
     usize idx = h & (hm->capacity - 1);
 
     for (;;)
@@ -120,9 +119,10 @@ bool mel_hashmap_put(Mel_HashMap* hm, void* key, void* value)
 
 void* mel_hashmap_get(Mel_HashMap* hm, void* key)
 {
-    if (hm->entries == nullptr) return nullptr;
+    if (hm->entries == nullptr)
+        return nullptr;
 
-    u64 h = hm->hash(key);
+    u64   h = hm->hash(key);
     usize idx = h & (hm->capacity - 1);
 
     for (;;)
@@ -141,9 +141,10 @@ void* mel_hashmap_get(Mel_HashMap* hm, void* key)
 
 bool mel_hashmap_contains(Mel_HashMap* hm, void* key)
 {
-    if (hm->entries == nullptr) return false;
+    if (hm->entries == nullptr)
+        return false;
 
-    u64 h = hm->hash(key);
+    u64   h = hm->hash(key);
     usize idx = h & (hm->capacity - 1);
 
     for (;;)
@@ -162,9 +163,10 @@ bool mel_hashmap_contains(Mel_HashMap* hm, void* key)
 
 bool mel_hashmap_remove(Mel_HashMap* hm, void* key)
 {
-    if (hm->entries == nullptr) return false;
+    if (hm->entries == nullptr)
+        return false;
 
-    u64 h = hm->hash(key);
+    u64   h = hm->hash(key);
     usize idx = h & (hm->capacity - 1);
 
     for (;;)
@@ -214,15 +216,9 @@ bool mel_hashmap_remove(Mel_HashMap* hm, void* key)
     return true;
 }
 
-usize mel_hashmap_count(Mel_HashMap* hm)
-{
-    return hm->count;
-}
+usize mel_hashmap_count(Mel_HashMap* hm) { return hm->count; }
 
-bool mel_hashmap_empty(Mel_HashMap* hm)
-{
-    return hm->count == 0;
-}
+bool mel_hashmap_empty(Mel_HashMap* hm) { return hm->count == 0; }
 
 void mel_hashmap_clear(Mel_HashMap* hm)
 {
@@ -260,12 +256,6 @@ u64 mel_hashmap_hash_ptr(const void* key)
     return mel_xxh64(&val, sizeof(val), 0);
 }
 
-bool mel_hashmap_eq_u64(const void* a, const void* b)
-{
-    return (u64)(usize)a == (u64)(usize)b;
-}
+bool mel_hashmap_eq_u64(const void* a, const void* b) { return (u64)(usize)a == (u64)(usize)b; }
 
-bool mel_hashmap_eq_str(const void* a, const void* b)
-{
-    return strcmp((const char*)a, (const char*)b) == 0;
-}
+bool mel_hashmap_eq_str(const void* a, const void* b) { return strcmp((const char*)a, (const char*)b) == 0; }

@@ -9,9 +9,13 @@
 #define LORENZ_VERTS    (LORENZ_SEGMENTS * 2)
 #define LORENZ_FRAMES   3
 
-typedef struct { f32 x, y, z; } V3;
+typedef struct
+{
+    f32 x, y, z;
+} V3;
 
-typedef struct {
+typedef struct
+{
     Mel_Gpu_Shader*   shader;
     Mel_Gpu_Pipeline* pipeline;
     Mel_Gpu_Buffer*   vbo[LORENZ_FRAMES];
@@ -39,20 +43,20 @@ static void* lorenz_init(Mel_Gpu_Device* dev, Mel_Gpu_Swapchain* sc)
     Lorenz* lz = calloc(1, sizeof *lz);
     lz->aspect = 1.0f;
     lz->shader = passthrough_shader(dev);
-    lz->pipeline = passthrough_pipeline(dev, lz->shader,
-        MEL_GPU_TOPOLOGY_LINE_LIST, mel_gpu_swapchain_format(sc));
+    lz->pipeline = passthrough_pipeline(dev, lz->shader, MEL_GPU_TOPOLOGY_LINE_LIST, mel_gpu_swapchain_format(sc));
     for (i32 i = 0; i < LORENZ_FRAMES; ++i)
-        lz->vbo[i] = mel_gpu_buffer_create(dev,
-            .size = LORENZ_VERTS * sizeof(Pt_Vertex),
-            .usage = MEL_GPU_BUFFER_VERTEX, .memory = MEL_GPU_MEMORY_UPLOAD);
+        lz->vbo[i] = mel_gpu_buffer_create(dev, .size = LORENZ_VERTS * sizeof(Pt_Vertex), .usage = MEL_GPU_BUFFER_VERTEX, .memory = MEL_GPU_MEMORY_UPLOAD);
 
     const f32 sigma = 10.0f, rho = 28.0f, beta = 8.0f / 3.0f, h = 0.005f;
-    f32 x = 0.1f, y = 0.0f, z = 0.0f;
-    for (i32 i = 0; i < LORENZ_POINTS; ++i) {
+    f32       x = 0.1f, y = 0.0f, z = 0.0f;
+    for (i32 i = 0; i < LORENZ_POINTS; ++i)
+    {
         f32 dx = sigma * (y - x);
         f32 dy = x * (rho - z) - y;
         f32 dz = x * y - beta * z;
-        x += dx * h; y += dy * h; z += dz * h;
+        x += dx * h;
+        y += dy * h;
+        z += dz * h;
         lz->pts[i] = (V3){ x / 24.0f, y / 28.0f, (z - 25.0f) / 24.0f };
     }
     return lz;
@@ -70,22 +74,24 @@ static void lorenz_render(void* state, Mel_Gpu_Command_List* cmd, f64 dt)
     lz->angle += dt;
 
     const f32 dist = 3.0f;
-    const f32 f    = 1.0f / tanf(0.5f * 1.0472f);
-    f32 ay = (f32)(lz->angle * 0.3);
-    f32 cy = cosf(ay), sy = sinf(ay);
+    const f32 f = 1.0f / tanf(0.5f * 1.0472f);
+    f32       ay = (f32)(lz->angle * 0.3);
+    f32       cy = cosf(ay), sy = sinf(ay);
 
     Pt_Vertex prev = { 0 };
-    for (i32 i = 0; i < LORENZ_POINTS; ++i) {
-        V3 p = lz->pts[i];
-        f32 xr =  p.x * cy + p.z * sy;
+    for (i32 i = 0; i < LORENZ_POINTS; ++i)
+    {
+        V3  p = lz->pts[i];
+        f32 xr = p.x * cy + p.z * sy;
         f32 zr = -p.x * sy + p.z * cy - dist;
         f32 ndc_x = (xr * f / lz->aspect) / (-zr);
         f32 ndc_y = (p.y * f) / (-zr);
 
-        V3 col = hue((f32)i / (f32)LORENZ_POINTS + (f32)(lz->angle * 0.05));
+        V3        col = hue((f32)i / (f32)LORENZ_POINTS + (f32)(lz->angle * 0.05));
         Pt_Vertex v = { { ndc_x, ndc_y, 0.5f }, { col.x, col.y, col.z, 1.0f } };
 
-        if (i > 0) {
+        if (i > 0)
+        {
             lz->scratch[(i - 1) * 2 + 0] = prev;
             lz->scratch[(i - 1) * 2 + 1] = v;
         }
@@ -106,17 +112,19 @@ static void lorenz_render(void* state, Mel_Gpu_Command_List* cmd, f64 dt)
 static void lorenz_teardown(void* state)
 {
     Lorenz* lz = state;
-    if (!lz) return;
+    if (!lz)
+        return;
     mel_gpu_pipeline_destroy(lz->pipeline);
     mel_gpu_shader_destroy(lz->shader);
-    for (i32 i = 0; i < LORENZ_FRAMES; ++i) mel_gpu_buffer_destroy(lz->vbo[i]);
+    for (i32 i = 0; i < LORENZ_FRAMES; ++i)
+        mel_gpu_buffer_destroy(lz->vbo[i]);
     free(lz);
 }
 
 const Graphical_App LORENZ_APP = {
-    .title    = "lorenz-attractor",
-    .init     = lorenz_init,
-    .resize   = lorenz_resize,
-    .render   = lorenz_render,
+    .title = "lorenz-attractor",
+    .init = lorenz_init,
+    .resize = lorenz_resize,
+    .render = lorenz_render,
     .teardown = lorenz_teardown,
 };

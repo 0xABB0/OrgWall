@@ -39,14 +39,12 @@ bool mel_mpmc_push(Mel_Mpmc* q, void* data)
     for (;;)
     {
         Mel__Mpmc_Cell* cell = &q->cells[pos & q->mask];
-        u64 seq = atomic_load_explicit(&cell->sequence, memory_order_acquire);
-        i64 diff = (i64)seq - (i64)pos;
+        u64             seq = atomic_load_explicit(&cell->sequence, memory_order_acquire);
+        i64             diff = (i64)seq - (i64)pos;
 
         if (diff == 0)
         {
-            if (atomic_compare_exchange_weak_explicit(&q->tail, &pos, pos + 1,
-                                                      memory_order_relaxed,
-                                                      memory_order_relaxed))
+            if (atomic_compare_exchange_weak_explicit(&q->tail, &pos, pos + 1, memory_order_relaxed, memory_order_relaxed))
             {
                 cell->data = data;
                 atomic_store_explicit(&cell->sequence, pos + 1, memory_order_release);
@@ -71,14 +69,12 @@ bool mel_mpmc_pop(Mel_Mpmc* q, void** out)
     for (;;)
     {
         Mel__Mpmc_Cell* cell = &q->cells[pos & q->mask];
-        u64 seq = atomic_load_explicit(&cell->sequence, memory_order_acquire);
-        i64 diff = (i64)seq - (i64)(pos + 1);
+        u64             seq = atomic_load_explicit(&cell->sequence, memory_order_acquire);
+        i64             diff = (i64)seq - (i64)(pos + 1);
 
         if (diff == 0)
         {
-            if (atomic_compare_exchange_weak_explicit(&q->head, &pos, pos + 1,
-                                                      memory_order_relaxed,
-                                                      memory_order_relaxed))
+            if (atomic_compare_exchange_weak_explicit(&q->head, &pos, pos + 1, memory_order_relaxed, memory_order_relaxed))
             {
                 *out = cell->data;
                 atomic_store_explicit(&cell->sequence, pos + q->mask + 1, memory_order_release);

@@ -5,12 +5,7 @@
 #include "str8.h"
 #include <stdio.h>
 
-static bool boxes_overlap(Fighter_Box a, Fighter_Box b)
-{
-    return a.w > 0 && a.h > 0 && b.w > 0 && b.h > 0 &&
-           a.x < b.x + b.w && a.x + a.w > b.x &&
-           a.y < b.y + b.h && a.y + a.h > b.y;
-}
+static bool boxes_overlap(Fighter_Box a, Fighter_Box b) { return a.w > 0 && a.h > 0 && b.w > 0 && b.h > 0 && a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y; }
 
 static void populate_ghv(Mugen_GetHitVar* ghv, Mugen_HitDef_Result* hd, Mugen_Char_State* victim)
 {
@@ -66,24 +61,31 @@ static i32 compute_hit_state(Mugen_Char_State* victim, Mugen_HitDef_Result* hd)
 
 static bool can_guard(Mugen_Char_State* ast, Mugen_Char_State* vst, Mugen_HitDef_Result* hd)
 {
-    if (ast->assert_flags & MUGEN_ASSERT_UNGUARDABLE) return false;
-    if (!vst->commands) return false;
-    if (!command_list_active(vst->commands, S8("holdback"))) return false;
-    if (hd->guardflag == 0) return false;
+    if (ast->assert_flags & MUGEN_ASSERT_UNGUARDABLE)
+        return false;
+    if (!vst->commands)
+        return false;
+    if (!command_list_active(vst->commands, S8("holdback")))
+        return false;
+    if (hd->guardflag == 0)
+        return false;
 
     if (vst->statetype == MUGEN_PHYSICS_S)
     {
-        if (vst->assert_flags & MUGEN_ASSERT_NOSTANDGUARD) return false;
+        if (vst->assert_flags & MUGEN_ASSERT_NOSTANDGUARD)
+            return false;
         return (hd->guardflag & MUGEN_HF_H) != 0;
     }
     if (vst->statetype == MUGEN_PHYSICS_C)
     {
-        if (vst->assert_flags & MUGEN_ASSERT_NOCROUCHGUARD) return false;
+        if (vst->assert_flags & MUGEN_ASSERT_NOCROUCHGUARD)
+            return false;
         return (hd->guardflag & MUGEN_HF_L) != 0;
     }
     if (vst->statetype == MUGEN_PHYSICS_A)
     {
-        if (vst->assert_flags & MUGEN_ASSERT_NOAIRGUARD) return false;
+        if (vst->assert_flags & MUGEN_ASSERT_NOAIRGUARD)
+            return false;
         return (hd->guardflag & MUGEN_HF_A) != 0;
     }
     return false;
@@ -91,15 +93,17 @@ static bool can_guard(Mugen_Char_State* ast, Mugen_Char_State* vst, Mugen_HitDef
 
 static i32 compute_guard_state(Mugen_Char_State* victim)
 {
-    if (victim->statetype == MUGEN_PHYSICS_A) return 154;
-    if (victim->statetype == MUGEN_PHYSICS_C) return 152;
+    if (victim->statetype == MUGEN_PHYSICS_A)
+        return 154;
+    if (victim->statetype == MUGEN_PHYSICS_C)
+        return 152;
     return 150;
 }
 
 static void apply_guard(Fighter* attacker, Fighter* victim)
 {
-    Mugen_Char_State* ast = &attacker->cns_state;
-    Mugen_Char_State* vst = &victim->cns_state;
+    Mugen_Char_State*    ast = &attacker->cns_state;
+    Mugen_Char_State*    vst = &victim->cns_state;
     Mugen_HitDef_Result* hd = &ast->hitdef;
 
     vst->ghv.guarded = true;
@@ -114,7 +118,8 @@ static void apply_guard(Fighter* attacker, Fighter* victim)
 
     f32 gdmg = hd->damage_guard * (vst->defence_mul > 0 ? vst->defence_mul : 1.0f);
     vst->life -= gdmg;
-    if (vst->life < 1) vst->life = 1;
+    if (vst->life < 1)
+        vst->life = 1;
 
     ast->hitpause_time = hd->guard_pausetime_p1;
     vst->hitpause_time = hd->guard_pausetime_p2;
@@ -136,28 +141,26 @@ static void apply_guard(Fighter* attacker, Fighter* victim)
 
     if (!(ast->assert_flags & MUGEN_ASSERT_NOCORNERPUSH))
     {
-        bool victim_in_corner = (vst->pos_x <= vst->stage_left + vst->ground_back + 1.0f) ||
-                                (vst->pos_x >= vst->stage_right - vst->ground_front - 1.0f);
+        bool victim_in_corner = (vst->pos_x <= vst->stage_left + vst->ground_back + 1.0f) || (vst->pos_x >= vst->stage_right - vst->ground_front - 1.0f);
         if (victim_in_corner)
             ast->cornerpush_vel = hd->guard_cornerpush_veloff;
     }
 
-    printf("GUARD: attacker state=%d -> victim state=%d (damage=%.0f life=%.0f pause=%d/%d)\n",
-        ast->stateno, guard_state, hd->damage_guard, vst->life,
-        hd->pausetime_p1, hd->pausetime_p2);
+    printf("GUARD: attacker state=%d -> victim state=%d (damage=%.0f life=%.0f pause=%d/%d)\n", ast->stateno, guard_state, hd->damage_guard, vst->life, hd->pausetime_p1, hd->pausetime_p2);
 }
 
 static void apply_hit(Fighter* attacker, Fighter* victim)
 {
-    Mugen_Char_State* ast = &attacker->cns_state;
-    Mugen_Char_State* vst = &victim->cns_state;
+    Mugen_Char_State*    ast = &attacker->cns_state;
+    Mugen_Char_State*    vst = &victim->cns_state;
     Mugen_HitDef_Result* hd = &ast->hitdef;
 
     populate_ghv(&vst->ghv, hd, vst);
 
     f32 dmg = hd->damage_hit * (vst->defence_mul > 0 ? vst->defence_mul : 1.0f);
     vst->life -= dmg;
-    if (vst->life < 0) vst->life = 0;
+    if (vst->life < 0)
+        vst->life = 0;
 
     ast->hitpause_time = hd->pausetime_p1;
     vst->hitpause_time = hd->pausetime_p2;
@@ -198,7 +201,8 @@ static void apply_hit(Fighter* attacker, Fighter* victim)
     if (hd->p1facing != 0)
     {
         bool face_right = (victim->x > attacker->x);
-        if (hd->p1facing < 0) face_right = !face_right;
+        if (hd->p1facing < 0)
+            face_right = !face_right;
         ast->facing = face_right ? 1.0f : -1.0f;
         attacker->facing_right = face_right;
         command_list_set_facing(&attacker->commands, face_right);
@@ -207,7 +211,8 @@ static void apply_hit(Fighter* attacker, Fighter* victim)
     if (hd->p2facing != 0)
     {
         bool face_right = (attacker->x > victim->x);
-        if (hd->p2facing < 0) face_right = !face_right;
+        if (hd->p2facing < 0)
+            face_right = !face_right;
         vst->facing = face_right ? 1.0f : -1.0f;
         victim->facing_right = face_right;
         command_list_set_facing(&victim->commands, face_right);
@@ -218,19 +223,15 @@ static void apply_hit(Fighter* attacker, Fighter* victim)
 
     if (!(ast->assert_flags & MUGEN_ASSERT_NOCORNERPUSH))
     {
-        bool victim_in_corner = (vst->pos_x <= vst->stage_left + vst->ground_back + 1.0f) ||
-                                (vst->pos_x >= vst->stage_right - vst->ground_front - 1.0f);
+        bool victim_in_corner = (vst->pos_x <= vst->stage_left + vst->ground_back + 1.0f) || (vst->pos_x >= vst->stage_right - vst->ground_front - 1.0f);
         if (victim_in_corner)
         {
-            f32 push = (vst->statetype == MUGEN_PHYSICS_A)
-                ? hd->air_cornerpush_veloff
-                : hd->ground_cornerpush_veloff;
+            f32 push = (vst->statetype == MUGEN_PHYSICS_A) ? hd->air_cornerpush_veloff : hd->ground_cornerpush_veloff;
             ast->cornerpush_vel = push;
         }
     }
 
-    printf("HIT: attacker state=%d -> victim state=%d (damage=%.0f life=%.0f)\n",
-        ast->stateno, hit_state, hd->damage_hit, vst->life);
+    printf("HIT: attacker state=%d -> victim state=%d (damage=%.0f life=%.0f)\n", ast->stateno, hit_state, hd->damage_hit, vst->life);
 }
 
 static bool would_hit(Fighter* attacker, Fighter* victim)
@@ -238,31 +239,40 @@ static bool would_hit(Fighter* attacker, Fighter* victim)
     Mugen_Char_State* ast = &attacker->cns_state;
     Mugen_Char_State* vst = &victim->cns_state;
 
-    if (!ast->hitdef_pending && !ast->hitdef_active) return false;
-    if (!fighter_has_active_hitbox(attacker)) return false;
-    if (vst->hitpause_time > 0) return false;
+    if (!ast->hitdef_pending && !ast->hitdef_active)
+        return false;
+    if (!fighter_has_active_hitbox(attacker))
+        return false;
+    if (vst->hitpause_time > 0)
+        return false;
 
     if (vst->nothitby_time > 0 && (vst->nothitby_attr & ast->hitdef.attr))
         return false;
 
     {
-        u32 hf = ast->hitdef.hitflag;
+        u32  hf = ast->hitdef.hitflag;
         bool is_hit = (vst->movetype == MUGEN_MOVETYPE_H);
         if (hf & MUGEN_HF_MNS)
         {
-            if (is_hit) return false;
+            if (is_hit)
+                return false;
         }
         else if (hf & MUGEN_HF_PLS)
         {
-            if (!is_hit) return false;
+            if (!is_hit)
+                return false;
         }
 
         if (!(hf & MUGEN_HF_MNS))
         {
-            if (vst->statetype == MUGEN_PHYSICS_S && !(hf & MUGEN_HF_H)) return false;
-            if (vst->statetype == MUGEN_PHYSICS_C && !(hf & MUGEN_HF_L)) return false;
-            if (vst->statetype == MUGEN_PHYSICS_A && !(hf & MUGEN_HF_A)) return false;
-            if (vst->statetype == MUGEN_PHYSICS_L && !(hf & MUGEN_HF_D)) return false;
+            if (vst->statetype == MUGEN_PHYSICS_S && !(hf & MUGEN_HF_H))
+                return false;
+            if (vst->statetype == MUGEN_PHYSICS_C && !(hf & MUGEN_HF_L))
+                return false;
+            if (vst->statetype == MUGEN_PHYSICS_A && !(hf & MUGEN_HF_A))
+                return false;
+            if (vst->statetype == MUGEN_PHYSICS_L && !(hf & MUGEN_HF_D))
+                return false;
         }
     }
 
@@ -275,7 +285,8 @@ static bool would_hit(Fighter* attacker, Fighter* victim)
     Fighter_Box atk_box = fighter_hitbox(attacker);
     Fighter_Box def_box = fighter_hurtbox(victim);
 
-    if (!boxes_overlap(atk_box, def_box)) return false;
+    if (!boxes_overlap(atk_box, def_box))
+        return false;
 
     return true;
 }
@@ -320,9 +331,12 @@ static void check_helper_vs_fighter(Fighter_Helper* h, Fighter* victim)
     Mugen_Char_State* ast = &h->cns_state;
     Mugen_Char_State* vst = &victim->cns_state;
 
-    if (!ast->hitdef_pending && !ast->hitdef_active) return;
-    if (!helper_has_active_hitbox(h)) return;
-    if (vst->hitpause_time > 0) return;
+    if (!ast->hitdef_pending && !ast->hitdef_active)
+        return;
+    if (!helper_has_active_hitbox(h))
+        return;
+    if (vst->hitpause_time > 0)
+        return;
 
     if (vst->nothitby_time > 0 && (vst->nothitby_attr & ast->hitdef.attr))
         return;
@@ -336,7 +350,8 @@ static void check_helper_vs_fighter(Fighter_Helper* h, Fighter* victim)
     Fighter_Box atk_box = helper_hitbox(h);
     Fighter_Box def_box = fighter_hurtbox(victim);
 
-    if (!boxes_overlap(atk_box, def_box)) return;
+    if (!boxes_overlap(atk_box, def_box))
+        return;
 
     if (ast->hitdef_pending)
     {
@@ -350,7 +365,8 @@ static void check_helper_vs_fighter(Fighter_Helper* h, Fighter* victim)
 
     f32 dmg = hd->damage_hit * (vst->defence_mul > 0 ? vst->defence_mul : 1.0f);
     vst->life -= dmg;
-    if (vst->life < 0) vst->life = 0;
+    if (vst->life < 0)
+        vst->life = 0;
 
     ast->hitpause_time = hd->pausetime_p1;
     vst->hitpause_time = hd->pausetime_p2;
@@ -373,17 +389,20 @@ static void check_helper_vs_fighter(Fighter_Helper* h, Fighter* victim)
     ast->hitdef_pending = false;
     ast->hitdef_active = false;
 
-    printf("HELPER HIT: helper_id=%d -> victim state=%d (damage=%.0f life=%.0f)\n",
-        h->helper_id, hit_state, hd->damage_hit, vst->life);
+    printf("HELPER HIT: helper_id=%d -> victim state=%d (damage=%.0f life=%.0f)\n", h->helper_id, hit_state, hd->damage_hit, vst->life);
 }
 
 static void auto_face(Fighter* f, Fighter* opponent)
 {
     Mugen_Char_State* st = &f->cns_state;
-    if (!st->ctrl) return;
-    if (st->movetype != MUGEN_MOVETYPE_I) return;
-    if (st->statetype == MUGEN_PHYSICS_A) return;
-    if (st->assert_flags & MUGEN_ASSERT_NOAUTOTURN) return;
+    if (!st->ctrl)
+        return;
+    if (st->movetype != MUGEN_MOVETYPE_I)
+        return;
+    if (st->statetype == MUGEN_PHYSICS_A)
+        return;
+    if (st->assert_flags & MUGEN_ASSERT_NOAUTOTURN)
+        return;
 
     bool should_face_right = (opponent->x > f->x);
     bool currently_right = (st->facing > 0);
@@ -419,9 +438,9 @@ void combat_resolve(Fighter* f1, Fighter* f2)
 
     if (s1->statetype != MUGEN_PHYSICS_A && s2->statetype != MUGEN_PHYSICS_A)
     {
-        f32 f1_left  = f1->x - f1->ground_back;
+        f32 f1_left = f1->x - f1->ground_back;
         f32 f1_right = f1->x + f1->ground_front;
-        f32 f2_left  = f2->x - f2->ground_back;
+        f32 f2_left = f2->x - f2->ground_back;
         f32 f2_right = f2->x + f2->ground_front;
 
         if (f1_right > f2_left && f1_left < f2_right)
@@ -475,8 +494,10 @@ void combat_resolve(Fighter* f1, Fighter* f2)
     }
     else
     {
-        if (f1_hits_f2) connect_hit(f1, f2);
-        if (f2_hits_f1) connect_hit(f2, f1);
+        if (f1_hits_f2)
+            connect_hit(f1, f2);
+        if (f2_hits_f1)
+            connect_hit(f2, f1);
     }
 
     for (u32 i = 0; i < f1->helper_count; i++)

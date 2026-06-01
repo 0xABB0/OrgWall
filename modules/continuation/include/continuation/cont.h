@@ -10,9 +10,9 @@ int __mel_cont_return(int, ...);
 
 #define mel_cont(name, params, ret, ...) __attribute__((annotate("mel:continuation"))) ret name params
 
-#define mel_cont_yield(...)  __mel_cont_yield(0 __VA_OPT__(, ) __VA_ARGS__)
-#define mel_cont_await(...)  __mel_cont_await(0 __VA_OPT__(, ) __VA_ARGS__)
-#define mel_cont_return(...) __mel_cont_return(0 __VA_OPT__(, ) __VA_ARGS__)
+#define mel_cont_yield(...)              __mel_cont_yield(0 __VA_OPT__(, ) __VA_ARGS__)
+#define mel_cont_await(...)              __mel_cont_await(0 __VA_OPT__(, ) __VA_ARGS__)
+#define mel_cont_return(...)             __mel_cont_return(0 __VA_OPT__(, ) __VA_ARGS__)
 
 #else
 
@@ -24,8 +24,8 @@ int __mel_cont_return(int, ...);
 
 #define mel_cont(name, params, ret, ...) MEL_CONT__UNUSED static inline ret name##__mel_src params
 
-#define mel_cont_yield(...)  ((void)(0 __VA_OPT__(, (__VA_ARGS__))))
-#define mel_cont_await(...)  ((void)(0 __VA_OPT__(, (__VA_ARGS__))))
-#define mel_cont_return(...) return __VA_OPT__ ((__VA_ARGS__))
+#define mel_cont_yield(...)              ((void)(0 __VA_OPT__(, (__VA_ARGS__))))
+#define mel_cont_await(...)              ((void)(0 __VA_OPT__(, (__VA_ARGS__))))
+#define mel_cont_return(...)             return __VA_OPT__((__VA_ARGS__))
 
 #endif

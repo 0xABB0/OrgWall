@@ -5,7 +5,8 @@
 // Shader source is supplied per backend until a single cross-compiled source
 // (Slang) is integrated. A given build compiles one backend, so only that
 // backend's field is consulted.
-typedef struct {
+typedef struct
+{
     const char* metal_source;        // MSL,  used by the metal backend
     const char* wgsl_source;         // WGSL, used by the webgpu backend
     const void* spirv_vertex;        // SPIR-V vertex module,   used by the vulkan backend
@@ -17,7 +18,6 @@ typedef struct {
 } Mel_Gpu_Shader_Opt;
 
 Mel_Gpu_Shader* mel_gpu_shader_create_opt(Mel_Gpu_Device* dev, Mel_Gpu_Shader_Opt opt);
-#define mel_gpu_shader_create(dev, ...) \
-    mel_gpu_shader_create_opt((dev), (Mel_Gpu_Shader_Opt){__VA_ARGS__})
+#define mel_gpu_shader_create(dev, ...) mel_gpu_shader_create_opt((dev), (Mel_Gpu_Shader_Opt){ __VA_ARGS__ })
 
 void mel_gpu_shader_destroy(Mel_Gpu_Shader* sh);

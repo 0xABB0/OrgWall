@@ -17,7 +17,7 @@ static inline void trace_push(Trace* t, i64 v)
 {
     if (t->count == t->cap)
     {
-        t->cap   = t->cap ? t->cap * 2 : 16;
+        t->cap = t->cap ? t->cap * 2 : 16;
         t->items = realloc(t->items, (size_t)t->cap * sizeof *t->items);
     }
     t->items[t->count++] = v;
@@ -28,11 +28,11 @@ static inline void trace_free(Trace* t)
     free(t->items);
     t->items = NULL;
     t->count = 0;
-    t->cap   = 0;
+    t->cap = 0;
 }
 
-static int          g_fail;
-static const char*  g_case;
+static int         g_fail;
+static const char* g_case;
 
 static inline void check_traces(const char* label, const Trace* expected, const Trace* got)
 {

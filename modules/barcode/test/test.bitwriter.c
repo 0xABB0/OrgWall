@@ -2,7 +2,8 @@
 #include <allocator/heap.h>
 #include <test/test.h>
 
-MEL_TEST(barcode_bitwriter, msb_first_packing) {
+MEL_TEST(barcode_bitwriter, msb_first_packing)
+{
     mel_bitwriter w;
     mel_bitwriter_init(&w, mel_alloc_heap());
 
@@ -17,7 +18,8 @@ MEL_TEST(barcode_bitwriter, msb_first_packing) {
     mel_bitwriter_free(&w);
 }
 
-MEL_TEST(barcode_bitwriter, byte_aligned_stream) {
+MEL_TEST(barcode_bitwriter, byte_aligned_stream)
+{
     mel_bitwriter w;
     mel_bitwriter_init(&w, mel_alloc_heap());
 
@@ -31,7 +33,8 @@ MEL_TEST(barcode_bitwriter, byte_aligned_stream) {
     mel_bitwriter_free(&w);
 }
 
-MEL_TEST(barcode_bitwriter, spanning_byte_boundary) {
+MEL_TEST(barcode_bitwriter, spanning_byte_boundary)
+{
     mel_bitwriter w;
     mel_bitwriter_init(&w, mel_alloc_heap());
 

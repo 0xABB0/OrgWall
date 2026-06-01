@@ -4,7 +4,8 @@
 
 void mugen_afterimage_record(Mugen_Char_State* state)
 {
-    if (state->afterimage.time == 0) return;
+    if (state->afterimage.time == 0)
+        return;
 
     if (state->afterimage.record_counter > 0)
     {
@@ -14,7 +15,8 @@ void mugen_afterimage_record(Mugen_Char_State* state)
     state->afterimage.record_counter = state->afterimage.timegap - 1;
 
     u32 max_frames = (u32)state->afterimage.length;
-    if (max_frames == 0) max_frames = 20;
+    if (max_frames == 0)
+        max_frames = 20;
 
     if (state->afterimage.frame_cap < max_frames)
     {
@@ -56,23 +58,28 @@ void mugen_afterimage_free(Mugen_Char_State* state)
 
 u32 mugen_afterimage_visible_count(Mugen_Char_State* state)
 {
-    if (state->afterimage.frame_count == 0) return 0;
+    if (state->afterimage.frame_count == 0)
+        return 0;
     i32 gap = state->afterimage.framegap;
-    if (gap < 1) gap = 1;
+    if (gap < 1)
+        gap = 1;
     u32 visible = 0;
     for (u32 i = 0; i < state->afterimage.frame_count; i++)
     {
-        if ((i % (u32)gap) == 0) visible++;
+        if ((i % (u32)gap) == 0)
+            visible++;
     }
     return visible;
 }
 
 Mugen_AfterImage_Snap* mugen_afterimage_get(Mugen_Char_State* state, u32 index)
 {
-    if (state->afterimage.frame_count == 0) return NULL;
+    if (state->afterimage.frame_count == 0)
+        return NULL;
 
     i32 gap = state->afterimage.framegap;
-    if (gap < 1) gap = 1;
+    if (gap < 1)
+        gap = 1;
 
     u32 max_frames = state->afterimage.frame_count;
     u32 target = 0;

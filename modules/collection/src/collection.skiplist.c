@@ -14,8 +14,7 @@ static u64 mel__skiplist_xorshift64(u64* state)
 static u32 mel__skiplist_random_level(Mel_SkipList* sl)
 {
     u32 lvl = 1;
-    while (lvl < MEL_SKIPLIST_MAX_LEVEL && lvl <= sl->level &&
-           (mel__skiplist_xorshift64(&sl->rng_state) & 1))
+    while (lvl < MEL_SKIPLIST_MAX_LEVEL && lvl <= sl->level && (mel__skiplist_xorshift64(&sl->rng_state) & 1))
     {
         lvl++;
     }
@@ -24,7 +23,7 @@ static u32 mel__skiplist_random_level(Mel_SkipList* sl)
 
 static Mel_SkipNode* mel__skiplist_create_node(const Mel_Alloc* alloc, u32 level, void* key, void* value)
 {
-    usize size = sizeof(Mel_SkipNode) + sizeof(Mel_SkipNode*) * level;
+    usize         size = sizeof(Mel_SkipNode) + sizeof(Mel_SkipNode*) * level;
     Mel_SkipNode* node = (Mel_SkipNode*)mel_calloc(alloc, size);
     node->key = key;
     node->value = value;
@@ -67,7 +66,7 @@ bool mel_skiplist_insert(Mel_SkipList* sl, void* key, void* value)
 {
     assert(sl != NULL);
 
-    Mel_SkipNode* update[MEL_SKIPLIST_MAX_LEVEL] = {0};
+    Mel_SkipNode* update[MEL_SKIPLIST_MAX_LEVEL] = { 0 };
     Mel_SkipNode* curr = sl->header;
 
     for (i32 i = (i32)sl->level - 1; i >= 0; i--)
@@ -132,7 +131,7 @@ bool mel_skiplist_remove(Mel_SkipList* sl, void* key)
 {
     assert(sl != NULL);
 
-    Mel_SkipNode* update[MEL_SKIPLIST_MAX_LEVEL] = {0};
+    Mel_SkipNode* update[MEL_SKIPLIST_MAX_LEVEL] = { 0 };
     Mel_SkipNode* curr = sl->header;
 
     for (i32 i = (i32)sl->level - 1; i >= 0; i--)
@@ -229,10 +228,7 @@ void mel_skiplist_clear(Mel_SkipList* sl)
     sl->level = 1;
 }
 
-bool mel_skiplist_contains(Mel_SkipList* sl, void* key)
-{
-    return mel_skiplist_find(sl, key) != NULL;
-}
+bool mel_skiplist_contains(Mel_SkipList* sl, void* key) { return mel_skiplist_find(sl, key) != NULL; }
 
 void mel_skiplist_seed(Mel_SkipList* sl, u64 seed)
 {

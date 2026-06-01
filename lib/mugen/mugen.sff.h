@@ -4,7 +4,8 @@
 #include "allocator.fwd.h"
 #include "str8.fwd.h"
 
-typedef struct {
+typedef struct
+{
     u16 group;
     u16 number;
     u32 frame_index;
@@ -14,13 +15,14 @@ typedef struct {
     u16 height;
 } Mugen_Sff_Entry;
 
-typedef struct {
+typedef struct
+{
     Mel_Sprite_Sheet sheet;
     Mugen_Sff_Entry* entries;
-    u32 entry_count;
-    u8* atlas_pixels;
-    u32 atlas_width;
-    u32 atlas_height;
+    u32              entry_count;
+    u8*              atlas_pixels;
+    u32              atlas_width;
+    u32              atlas_height;
 } Mugen_Sff;
 
 bool mugen_sff_load(Mugen_Sff* sff, str8 path, const Mel_Alloc* alloc);

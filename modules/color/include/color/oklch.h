@@ -3,7 +3,8 @@
 #include <color/oklab.h>
 #include <color/rgba.h>
 
-typedef struct mel_oklch {
+typedef struct mel_oklch
+{
     float l, c, h;
 } mel_oklch;
 

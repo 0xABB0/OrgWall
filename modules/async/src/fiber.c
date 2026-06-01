@@ -25,7 +25,7 @@ bool mel_fiber_stack_init(Mel_Fiber_Stack* fstack, u32 size)
         return false;
     }
 
-    fstack->sptr  = (u8*)base + aligned;
+    fstack->sptr = (u8*)base + aligned;
     fstack->ssize = (u32)aligned;
     return true;
 }
@@ -37,7 +37,7 @@ void mel_fiber_stack_init_ptr(Mel_Fiber_Stack* fstack, void* ptr, u32 size)
     assert(size % page_sz == 0);
     MEL_UNUSED(page_sz);
 
-    fstack->sptr  = ptr;
+    fstack->sptr = ptr;
     fstack->ssize = size;
 }
 
@@ -48,17 +48,8 @@ void mel_fiber_stack_release(Mel_Fiber_Stack* fstack)
     mel_vmem_release(base, fstack->ssize);
 }
 
-Mel_Fiber mel_fiber_create(Mel_Fiber_Stack stack, Mel_Fiber_Cb cb)
-{
-    return make_fcontext(stack.sptr, stack.ssize, cb);
-}
+Mel_Fiber mel_fiber_create(Mel_Fiber_Stack stack, Mel_Fiber_Cb cb) { return make_fcontext(stack.sptr, stack.ssize, cb); }
 
-Mel_Fiber_Transfer mel_fiber_switch(Mel_Fiber to, void* user)
-{
-    return jump_fcontext(to, user);
-}
+Mel_Fiber_Transfer mel_fiber_switch(Mel_Fiber to, void* user) { return jump_fcontext(to, user); }
 
-Mel_Fiber_Transfer mel_fiber_ontop(Mel_Fiber to, void* user, Mel_Fiber_Ontop_Fn ontop_fn)
-{
-    return ontop_fcontext(to, user, ontop_fn);
-}
+Mel_Fiber_Transfer mel_fiber_ontop(Mel_Fiber to, void* user, Mel_Fiber_Ontop_Fn ontop_fn) { return ontop_fcontext(to, user, ontop_fn); }

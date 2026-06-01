@@ -13,8 +13,8 @@ struct Mel_Midi_Port
 
     void* platform_handle;
 
-    Mel_Midi_Chunk* ring;
-    int32_t ring_capacity;
+    Mel_Midi_Chunk*  ring;
+    int32_t          ring_capacity;
     volatile int32_t ring_read;
     volatile int32_t ring_write;
 

@@ -12,7 +12,8 @@
 #include <inttypes.h>
 #include <assert.h>
 
-typedef struct {
+typedef struct
+{
     Mel_Log_Sink base;
     FILE*        handle;
 } Mel_Log_Sink_File;
@@ -24,27 +25,17 @@ static void mel__log_sink_file_write(Mel_Log_Sink* self, const Mel_Log_Entry* en
     str8 level_name = mel_log_level_name(entry->level);
 
     u64 secs = entry->timestamp_ns / 1000000000ULL;
-    u64 ms   = (entry->timestamp_ns / 1000000ULL) % 1000ULL;
+    u64 ms = (entry->timestamp_ns / 1000000ULL) % 1000ULL;
 
-    if (entry->context.len > 0) {
-        fprintf(file_sink->handle,
-            "[%"PRIu64".%03"PRIu64"] [%.*s] [%.*s] (%.*s) %.*s    (%.*s:%"PRIu32")\n",
-            secs, ms,
-            (int)level_name.len, level_name.data,
-            (int)entry->domain.len, entry->domain.data,
-            (int)entry->context.len, entry->context.data,
-            (int)entry->message.len, entry->message.data,
-            (int)entry->file.len, entry->file.data,
-            entry->line);
-    } else {
-        fprintf(file_sink->handle,
-            "[%"PRIu64".%03"PRIu64"] [%.*s] [%.*s] %.*s    (%.*s:%"PRIu32")\n",
-            secs, ms,
-            (int)level_name.len, level_name.data,
-            (int)entry->domain.len, entry->domain.data,
-            (int)entry->message.len, entry->message.data,
-            (int)entry->file.len, entry->file.data,
-            entry->line);
+    if (entry->context.len > 0)
+    {
+        fprintf(file_sink->handle, "[%" PRIu64 ".%03" PRIu64 "] [%.*s] [%.*s] (%.*s) %.*s    (%.*s:%" PRIu32 ")\n", secs, ms, (int)level_name.len, level_name.data, (int)entry->domain.len,
+                entry->domain.data, (int)entry->context.len, entry->context.data, (int)entry->message.len, entry->message.data, (int)entry->file.len, entry->file.data, entry->line);
+    }
+    else
+    {
+        fprintf(file_sink->handle, "[%" PRIu64 ".%03" PRIu64 "] [%.*s] [%.*s] %.*s    (%.*s:%" PRIu32 ")\n", secs, ms, (int)level_name.len, level_name.data, (int)entry->domain.len, entry->domain.data,
+                (int)entry->message.len, entry->message.data, (int)entry->file.len, entry->file.data, entry->line);
     }
 }
 
@@ -70,7 +61,7 @@ Mel_Log_Sink* mel_log_sink_file_create_opt(Mel_Log_Sink_File_Opt opt)
     path_buf[opt.file_path.len] = '\0';
 
 #ifdef _WIN32
-    FILE* handle = NULL;
+    FILE*   handle = NULL;
     errno_t err = fopen_s(&handle, path_buf, "a");
     (void)err;
 #else
@@ -80,9 +71,9 @@ Mel_Log_Sink* mel_log_sink_file_create_opt(Mel_Log_Sink_File_Opt opt)
 
     Mel_Log_Sink_File* file_sink = mel_alloc_type(mel_alloc_heap(), Mel_Log_Sink_File);
     file_sink->base = (Mel_Log_Sink){
-        .write           = mel__log_sink_file_write,
-        .flush           = mel__log_sink_file_flush,
-        .destroy         = mel__log_sink_file_destroy,
+        .write = mel__log_sink_file_write,
+        .flush = mel__log_sink_file_flush,
+        .destroy = mel__log_sink_file_destroy,
         .level_threshold = MEL_LOG_TRACE,
     };
     file_sink->handle = handle;

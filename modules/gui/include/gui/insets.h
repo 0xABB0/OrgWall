@@ -9,9 +9,13 @@
  * emulates where it can, and reports honest zeros where the platform has no
  * such region (win32: the client area already excludes chrome). Apple platforms
  * give a single merged safe area; Android splits it into typed categories. */
-typedef struct { i32 left, top, right, bottom; } Mel_Insets;
+typedef struct
+{
+    i32 left, top, right, bottom;
+} Mel_Insets;
 
-typedef struct {
+typedef struct
+{
     Mel_Insets safe_area;       /* merged "avoid" region; PAD mode applies this */
     Mel_Insets system_bars;     /* status + navigation + caption bars           */
     Mel_Insets display_cutout;  /* notch / camera housing / Dynamic Island      */
@@ -22,12 +26,14 @@ typedef struct {
 /* PAD: the frame insets its content to the safe area automatically (the normal
  * app default). EDGE_TO_EDGE: the frame fills the whole surface and the app owns
  * the insets (games, full-bleed canvas, apps that react to them themselves). */
-typedef enum {
+typedef enum
+{
     MEL_FRAME_PAD = 0,
     MEL_FRAME_EDGE_TO_EDGE,
 } Mel_Inset_Mode;
 
-typedef struct {
+typedef struct
+{
     void (*on_insets_changed)(Mel_Gui_Handle h, const Mel_Frame_Insets* insets, void* user);
 } Mel_Gui_Insets_Cb;
 

@@ -19,15 +19,9 @@ void mel_sem_destroy(Mel_Sem* s)
     MEL__SEM(s) = NULL;
 }
 
-void mel_sem_wait(Mel_Sem* s)
-{
-    WaitForSingleObject(MEL__SEM(s), INFINITE);
-}
+void mel_sem_wait(Mel_Sem* s) { WaitForSingleObject(MEL__SEM(s), INFINITE); }
 
-bool mel_sem_trywait(Mel_Sem* s)
-{
-    return WaitForSingleObject(MEL__SEM(s), 0) == WAIT_OBJECT_0;
-}
+bool mel_sem_trywait(Mel_Sem* s) { return WaitForSingleObject(MEL__SEM(s), 0) == WAIT_OBJECT_0; }
 
 bool mel_sem_wait_for(Mel_Sem* s, i64 timeout_ns)
 {
@@ -35,7 +29,4 @@ bool mel_sem_wait_for(Mel_Sem* s, i64 timeout_ns)
     return WaitForSingleObject(MEL__SEM(s), ms) == WAIT_OBJECT_0;
 }
 
-void mel_sem_post(Mel_Sem* s)
-{
-    ReleaseSemaphore(MEL__SEM(s), 1, NULL);
-}
+void mel_sem_post(Mel_Sem* s) { ReleaseSemaphore(MEL__SEM(s), 1, NULL); }

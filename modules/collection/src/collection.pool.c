@@ -8,8 +8,8 @@ void mel_pool_init_opt(Mel_Pool* pool, void* buffer, usize buffer_size, Mel_Pool
     assert(buffer_size > 0);
     assert(opt.block_size >= sizeof(void*));
 
-    pool->base        = (u8*)buffer;
-    pool->block_size  = opt.block_size;
+    pool->base = (u8*)buffer;
+    pool->block_size = opt.block_size;
     pool->block_count = buffer_size / opt.block_size;
     atomic_store_explicit(&pool->used_count, 0, memory_order_relaxed);
 
@@ -36,15 +36,11 @@ void mel_pool_reset(Mel_Pool* pool)
         *(u32*)block = next;
     }
 
-    u64 initial = pool->block_count > 0
-        ? mel__pool_tag_pack(0, 0)
-        : mel__pool_tag_pack(MEL_POOL_NULL_INDEX, 0);
+    u64 initial = pool->block_count > 0 ? mel__pool_tag_pack(0, 0) : mel__pool_tag_pack(MEL_POOL_NULL_INDEX, 0);
     atomic_store_explicit(&pool->free_stack, initial, memory_order_release);
 }
 
-static void* mel__pool_alloc_cb(void* ptr, usize size, u32 align,
-                                const char* file, const char* func, u32 line,
-                                void* user_data)
+static void* mel__pool_alloc_cb(void* ptr, usize size, u32 align, const char* file, const char* func, u32 line, void* user_data)
 {
     MEL_UNUSED(align);
     MEL_UNUSED(file);
@@ -71,7 +67,7 @@ static void* mel__pool_alloc_cb(void* ptr, usize size, u32 align,
 Mel_Alloc mel_pool_to_alloc(Mel_Pool* pool)
 {
     return (Mel_Alloc){
-        .alloc_cb  = mel__pool_alloc_cb,
+        .alloc_cb = mel__pool_alloc_cb,
         .user_data = pool,
     };
 }

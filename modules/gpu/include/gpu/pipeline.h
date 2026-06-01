@@ -2,7 +2,8 @@
 
 #include <gpu/types.h>
 
-typedef struct {
+typedef struct
+{
     Mel_Gpu_Shader*               shader;
     Mel_Gpu_Topology              topology;
     Mel_Gpu_Cull                  cull;
@@ -13,6 +14,6 @@ typedef struct {
 } Mel_Gpu_Pipeline_Opt;
 
 Mel_Gpu_Pipeline* mel_gpu_pipeline_create_opt(Mel_Gpu_Device* dev, Mel_Gpu_Pipeline_Opt opt);
-#define mel_gpu_pipeline_create(dev, ...) mel_gpu_pipeline_create_opt((dev), (Mel_Gpu_Pipeline_Opt){__VA_ARGS__})
+#define mel_gpu_pipeline_create(dev, ...) mel_gpu_pipeline_create_opt((dev), (Mel_Gpu_Pipeline_Opt){ __VA_ARGS__ })
 
 void mel_gpu_pipeline_destroy(Mel_Gpu_Pipeline* pipe);

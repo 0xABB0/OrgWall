@@ -6,7 +6,8 @@
 WGPUSurface mel_gpu__webgpu_surface_create(WGPUInstance instance, void* native_window)
 {
     NSView* view = (__bridge NSView*)native_window;
-    if (!view) return NULL;
+    if (!view)
+        return NULL;
 
     CAMetalLayer* layer = [CAMetalLayer layer];
     view.wantsLayer = YES;

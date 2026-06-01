@@ -7,6 +7,7 @@ mel_cont(bad_goto, (i32 n), void)
 again:
     mel_cont_yield();
     i++;
-    if (i < n) goto again;
+    if (i < n)
+        goto again;
     mel_cont_return();
 }

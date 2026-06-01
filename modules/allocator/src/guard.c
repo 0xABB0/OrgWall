@@ -13,58 +13,57 @@ extern Mel_Mem_Fail_Cb mel__get_fail_cb(void);
 
 typedef struct Mel_Guard_Header Mel_Guard_Header;
 
-typedef struct {
-    u64 magic;
+typedef struct
+{
+    u64   magic;
     usize header_offset;
 } Mel_Guard_Prefix;
 
-struct Mel_Guard_Header {
+struct Mel_Guard_Header
+{
     Mel_Guard_Header* prev;
     Mel_Guard_Header* next;
-    usize requested_size;
-    usize storage_size;
-    usize region_size;
-    usize usable_size;
-    usize user_offset;
-    u32 requested_align;
-    u32 mode;
-    const char* file;
-    const char* func;
-    u32 line;
-    u32 _pad;
-    u64 magic;
+    usize             requested_size;
+    usize             storage_size;
+    usize             region_size;
+    usize             usable_size;
+    usize             user_offset;
+    u32               requested_align;
+    u32               mode;
+    const char*       file;
+    const char*       func;
+    u32               line;
+    u32               _pad;
+    u64               magic;
 };
 
-#define MEL__GUARD_HEADER_MAGIC     0x4D454C4755415244ull
-#define MEL__GUARD_PREFIX_MAGIC     0x4D454C5052454649ull
-#define MEL__GUARD_MODE_PROTECTED   (1u << 0)
-#define MEL__GUARD_MODE_FREED       (1u << 1)
+#define MEL__GUARD_HEADER_MAGIC   0x4D454C4755415244ull
+#define MEL__GUARD_PREFIX_MAGIC   0x4D454C5052454649ull
+#define MEL__GUARD_MODE_PROTECTED (1u << 0)
+#define MEL__GUARD_MODE_FREED     (1u << 1)
 
-#define MEL__GUARD_CANARY_BYTE 0xFD
-#define MEL__GUARD_ALLOC_BYTE  0xCD
-#define MEL__GUARD_FREE_BYTE   0xDD
+#define MEL__GUARD_CANARY_BYTE    0xFD
+#define MEL__GUARD_ALLOC_BYTE     0xCD
+#define MEL__GUARD_FREE_BYTE      0xDD
 
-static uintptr_t mel__guard_align_up_uintptr(uintptr_t value, usize align)
-{
-    return (value + align - 1u) & ~((uintptr_t)align - 1u);
-}
+static uintptr_t mel__guard_align_up_uintptr(uintptr_t value, usize align) { return (value + align - 1u) & ~((uintptr_t)align - 1u); }
 
-static uintptr_t mel__guard_align_down_uintptr(uintptr_t value, usize align)
-{
-    return value & ~((uintptr_t)align - 1u);
-}
+static uintptr_t mel__guard_align_down_uintptr(uintptr_t value, usize align) { return value & ~((uintptr_t)align - 1u); }
 
 static usize mel__guard_default_align(u32 align)
 {
-    usize out = align ? (usize)align : (usize)_Alignof(max_align_t);
-    if (out < sizeof(void*)) out = sizeof(void*);
+    usize out = align ? (usize)align : (usize) _Alignof(max_align_t);
+    if (out < sizeof(void*))
+        out = sizeof(void*);
     return out;
 }
 
 static void mel__guard_lock(Mel_Guard_Allocator* g)
 {
     atomic_uint* lock = (atomic_uint*)&g->lock;
-    while (atomic_exchange_explicit(lock, 1u, memory_order_acquire) != 0u) {}
+    while (atomic_exchange_explicit(lock, 1u, memory_order_acquire) != 0u)
+    {
+    }
 }
 
 static void mel__guard_unlock(Mel_Guard_Allocator* g)
@@ -73,30 +72,20 @@ static void mel__guard_unlock(Mel_Guard_Allocator* g)
     atomic_store_explicit(lock, 0u, memory_order_release);
 }
 
-static void mel__guard_fail(Mel_Guard_Header* h, const char* why,
-                            const char* file, const char* func, u32 line)
+static void mel__guard_fail(Mel_Guard_Header* h, const char* why, const char* file, const char* func, u32 line)
 {
     fprintf(stderr,
-        "guard allocator corruption: %s\n"
-        "  alloc site: %s:%u (%s)\n"
-        "  check site: %s:%u (%s)\n"
-        "  size: %zu\n"
-        "  mode: %s%s\n",
-        why,
-        h && h->file ? h->file : "<unknown>",
-        h ? h->line : 0,
-        h && h->func ? h->func : "<unknown>",
-        file ? file : "<unknown>",
-        line,
-        func ? func : "<unknown>",
-        h ? h->requested_size : 0,
-        (h && (h->mode & MEL__GUARD_MODE_PROTECTED)) ? "protected" : "normal",
-        (h && (h->mode & MEL__GUARD_MODE_FREED)) ? ", freed" : "");
+            "guard allocator corruption: %s\n"
+            "  alloc site: %s:%u (%s)\n"
+            "  check site: %s:%u (%s)\n"
+            "  size: %zu\n"
+            "  mode: %s%s\n",
+            why, h && h->file ? h->file : "<unknown>", h ? h->line : 0, h && h->func ? h->func : "<unknown>", file ? file : "<unknown>", line, func ? func : "<unknown>", h ? h->requested_size : 0,
+            (h && (h->mode & MEL__GUARD_MODE_PROTECTED)) ? "protected" : "normal", (h && (h->mode & MEL__GUARD_MODE_FREED)) ? ", freed" : "");
     assert(!"guard allocator corruption");
 }
 
-static Mel_Guard_Header* mel__guard_header_from_user(void* user_ptr,
-                                                     const char* file, const char* func, u32 line)
+static Mel_Guard_Header* mel__guard_header_from_user(void* user_ptr, const char* file, const char* func, u32 line)
 {
     Mel_Guard_Prefix* prefix = (Mel_Guard_Prefix*)((u8*)user_ptr - sizeof(Mel_Guard_Prefix));
     if (prefix->magic != MEL__GUARD_PREFIX_MAGIC)
@@ -117,14 +106,9 @@ static Mel_Guard_Header* mel__guard_header_from_user(void* user_ptr,
     return h;
 }
 
-static void* mel__guard_user_ptr(Mel_Guard_Header* h)
-{
-    return (u8*)h + h->user_offset;
-}
+static void* mel__guard_user_ptr(Mel_Guard_Header* h) { return (u8*)h + h->user_offset; }
 
-static void mel__guard_check_bytes(Mel_Guard_Header* h, const u8* ptr, usize size, u8 value,
-                                   const char* why,
-                                   const char* file, const char* func, u32 line)
+static void mel__guard_check_bytes(Mel_Guard_Header* h, const u8* ptr, usize size, u8 value, const char* why, const char* file, const char* func, u32 line)
 {
     for (usize i = 0; i < size; ++i)
     {
@@ -135,9 +119,7 @@ static void mel__guard_check_bytes(Mel_Guard_Header* h, const u8* ptr, usize siz
     }
 }
 
-static void mel__guard_validate_user_locked(Mel_Guard_Allocator* g, Mel_Guard_Header* h,
-                                            void* user_ptr,
-                                            const char* file, const char* func, u32 line)
+static void mel__guard_validate_user_locked(Mel_Guard_Allocator* g, Mel_Guard_Header* h, void* user_ptr, const char* file, const char* func, u32 line)
 {
     if (h->magic != MEL__GUARD_HEADER_MAGIC)
     {
@@ -158,17 +140,13 @@ static void mel__guard_validate_user_locked(Mel_Guard_Allocator* g, Mel_Guard_He
     {
         u8* head_begin = (u8*)h + sizeof(*h);
         u8* head_end = (u8*)prefix;
-        mel__guard_check_bytes(h, head_begin, (usize)(head_end - head_begin),
-                               MEL__GUARD_CANARY_BYTE, "head guard corrupted",
-                               file, func, line);
+        mel__guard_check_bytes(h, head_begin, (usize)(head_end - head_begin), MEL__GUARD_CANARY_BYTE, "head guard corrupted", file, func, line);
     }
 
     if ((g->flags & MEL_GUARD_FLAG_CANARY_TAIL) && !(h->mode & MEL__GUARD_MODE_PROTECTED))
     {
         u8* tail = (u8*)user_ptr + h->requested_size;
-        mel__guard_check_bytes(h, tail, g->post_guard_size,
-                               MEL__GUARD_CANARY_BYTE, "tail guard corrupted",
-                               file, func, line);
+        mel__guard_check_bytes(h, tail, g->post_guard_size, MEL__GUARD_CANARY_BYTE, "tail guard corrupted", file, func, line);
     }
 }
 
@@ -200,8 +178,7 @@ static Mel_Guard_Header* mel__guard_list_pop_head(Mel_Guard_Allocator* g)
     return h;
 }
 
-static void mel__guard_check_quarantine_locked(Mel_Guard_Allocator* g,
-                                               const char* file, const char* func, u32 line)
+static void mel__guard_check_quarantine_locked(Mel_Guard_Allocator* g, const char* file, const char* func, u32 line)
 {
     for (Mel_Guard_Header* h = g->quarantine_head; h != NULL; h = h->next)
     {
@@ -226,8 +203,7 @@ static void mel__guard_release_header(Mel_Guard_Allocator* g, Mel_Guard_Header* 
     }
 }
 
-static void mel__guard_evict_quarantine_locked(Mel_Guard_Allocator* g,
-                                               const char* file, const char* func, u32 line)
+static void mel__guard_evict_quarantine_locked(Mel_Guard_Allocator* g, const char* file, const char* func, u32 line)
 {
     while (g->quarantined_bytes > g->quarantine_bytes)
     {
@@ -244,18 +220,17 @@ static void mel__guard_evict_quarantine_locked(Mel_Guard_Allocator* g,
     }
 }
 
-static void* mel__guard_alloc_normal_locked(Mel_Guard_Allocator* g, usize size, u32 align,
-                                            const char* file, const char* func, u32 line)
+static void* mel__guard_alloc_normal_locked(Mel_Guard_Allocator* g, usize size, u32 align, const char* file, const char* func, u32 line)
 {
     usize req_align = mel__guard_default_align(align);
     usize total = sizeof(Mel_Guard_Header) + g->pre_guard_size + sizeof(Mel_Guard_Prefix) + req_align + size + g->post_guard_size;
-    u8* raw = (u8*)g->backing->alloc_cb(NULL, total, 0, file, func, line, g->backing->user_data);
+    u8*   raw = (u8*)g->backing->alloc_cb(NULL, total, 0, file, func, line, g->backing->user_data);
     if (!raw)
         return NULL;
 
     Mel_Guard_Header* h = (Mel_Guard_Header*)raw;
-    uintptr_t user_addr = mel__guard_align_up_uintptr((uintptr_t)(raw + sizeof(*h) + g->pre_guard_size + sizeof(Mel_Guard_Prefix)), req_align);
-    u8* user = (u8*)user_addr;
+    uintptr_t         user_addr = mel__guard_align_up_uintptr((uintptr_t)(raw + sizeof(*h) + g->pre_guard_size + sizeof(Mel_Guard_Prefix)), req_align);
+    u8*               user = (u8*)user_addr;
     Mel_Guard_Prefix* prefix = (Mel_Guard_Prefix*)(user - sizeof(*prefix));
 
     h->prev = NULL;
@@ -287,8 +262,7 @@ static void* mel__guard_alloc_normal_locked(Mel_Guard_Allocator* g, usize size, 
     return user;
 }
 
-static void* mel__guard_alloc_protected_locked(Mel_Guard_Allocator* g, usize size, u32 align,
-                                               const char* file, const char* func, u32 line)
+static void* mel__guard_alloc_protected_locked(Mel_Guard_Allocator* g, usize size, u32 align, const char* file, const char* func, u32 line)
 {
     usize req_align = mel__guard_default_align(align);
     usize usable_min = sizeof(Mel_Guard_Header) + g->pre_guard_size + sizeof(Mel_Guard_Prefix) + req_align + size;
@@ -308,10 +282,10 @@ static void* mel__guard_alloc_protected_locked(Mel_Guard_Allocator* g, usize siz
     }
 
     Mel_Guard_Header* h = (Mel_Guard_Header*)base;
-    uintptr_t usable_end = (uintptr_t)(base + usable_size);
-    uintptr_t user_addr = mel__guard_align_down_uintptr(usable_end - size, req_align);
+    uintptr_t         usable_end = (uintptr_t)(base + usable_size);
+    uintptr_t         user_addr = mel__guard_align_down_uintptr(usable_end - size, req_align);
     Mel_Guard_Prefix* prefix = (Mel_Guard_Prefix*)(user_addr - sizeof(*prefix));
-    u8* user = (u8*)user_addr;
+    u8*               user = (u8*)user_addr;
 
     if ((u8*)prefix < base + sizeof(*h) + g->pre_guard_size)
     {
@@ -360,8 +334,7 @@ static bool mel__guard_should_protect_locked(Mel_Guard_Allocator* g, usize size)
     return false;
 }
 
-static void* mel__guard_alloc_locked(Mel_Guard_Allocator* g, usize size, u32 align,
-                                     const char* file, const char* func, u32 line)
+static void* mel__guard_alloc_locked(Mel_Guard_Allocator* g, usize size, u32 align, const char* file, const char* func, u32 line)
 {
     g->alloc_index += 1;
     if (g->flags & MEL_GUARD_FLAG_CHECK_ALLOC)
@@ -372,8 +345,7 @@ static void* mel__guard_alloc_locked(Mel_Guard_Allocator* g, usize size, u32 ali
     return mel__guard_alloc_normal_locked(g, size, align, file, func, line);
 }
 
-static void mel__guard_free_locked(Mel_Guard_Allocator* g, void* ptr,
-                                   const char* file, const char* func, u32 line)
+static void mel__guard_free_locked(Mel_Guard_Allocator* g, void* ptr, const char* file, const char* func, u32 line)
 {
     Mel_Guard_Header* h = mel__guard_header_from_user(ptr, file, func, line);
     mel__guard_validate_user_locked(g, h, ptr, file, func, line);
@@ -398,9 +370,7 @@ static void mel__guard_free_locked(Mel_Guard_Allocator* g, void* ptr,
     }
 }
 
-static void* guard_alloc_cb(void* ptr, usize size, u32 align,
-                            const char* file, const char* func, u32 line,
-                            void* user_data)
+static void* guard_alloc_cb(void* ptr, usize size, u32 align, const char* file, const char* func, u32 line, void* user_data)
 {
     Mel_Guard_Allocator* g = (Mel_Guard_Allocator*)user_data;
     assert(g != NULL);

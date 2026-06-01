@@ -13,7 +13,8 @@ u32 mel_gui_id(Mel_Gui_Handle h)
 void mel_gui_set_user(Mel_Gui_Handle h, void* user)
 {
     Mel_Gui_Node* n = mel_gui__node(h);
-    if (n) n->user = user;
+    if (n)
+        n->user = user;
 }
 
 void* mel_gui_user(Mel_Gui_Handle h)

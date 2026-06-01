@@ -1,10 +1,7 @@
 #include <collection.tree.rbtree/rbtree.h>
 #include <allocator/allocator.h>
 
-static Mel_RBNode* mel__rbtree_nil(Mel_RBTree* tree)
-{
-    return &tree->nil_node;
-}
+static Mel_RBNode* mel__rbtree_nil(Mel_RBTree* tree) { return &tree->nil_node; }
 
 static Mel_RBNode* mel__rbtree_alloc_node(Mel_RBTree* tree, void* key, void* value)
 {
@@ -246,7 +243,8 @@ static void mel__rbtree_delete_fixup(Mel_RBTree* tree, Mel_RBNode* x)
 static void mel__rbtree_free_subtree(Mel_RBTree* tree, Mel_RBNode* node)
 {
     Mel_RBNode* nil = mel__rbtree_nil(tree);
-    if (node == nil) return;
+    if (node == nil)
+        return;
     mel__rbtree_free_subtree(tree, node->left);
     mel__rbtree_free_subtree(tree, node->right);
     mel_dealloc(tree->allocator, node);
@@ -346,11 +344,12 @@ bool mel_rbtree_remove(Mel_RBTree* tree, void* key)
 {
     Mel_RBNode* nil = mel__rbtree_nil(tree);
     Mel_RBNode* z = mel_rbtree_find(tree, key);
-    if (z == nil) return false;
+    if (z == nil)
+        return false;
 
     Mel_RBNode* y = z;
     Mel_RBNode* x;
-    u8 y_orig_color = y->color;
+    u8          y_orig_color = y->color;
 
     if (z->left == nil)
     {
@@ -399,21 +398,24 @@ bool mel_rbtree_remove(Mel_RBTree* tree, void* key)
 Mel_RBNode* mel_rbtree_min(Mel_RBTree* tree)
 {
     Mel_RBNode* nil = mel__rbtree_nil(tree);
-    if (tree->root == nil) return nil;
+    if (tree->root == nil)
+        return nil;
     return mel__rbtree_subtree_min(tree, tree->root);
 }
 
 Mel_RBNode* mel_rbtree_max(Mel_RBTree* tree)
 {
     Mel_RBNode* nil = mel__rbtree_nil(tree);
-    if (tree->root == nil) return nil;
+    if (tree->root == nil)
+        return nil;
     return mel__rbtree_subtree_max(tree, tree->root);
 }
 
 Mel_RBNode* mel_rbtree_next(Mel_RBTree* tree, Mel_RBNode* node)
 {
     Mel_RBNode* nil = mel__rbtree_nil(tree);
-    if (node == nil) return nil;
+    if (node == nil)
+        return nil;
 
     if (node->right != nil)
     {
@@ -432,7 +434,8 @@ Mel_RBNode* mel_rbtree_next(Mel_RBTree* tree, Mel_RBNode* node)
 Mel_RBNode* mel_rbtree_prev(Mel_RBTree* tree, Mel_RBNode* node)
 {
     Mel_RBNode* nil = mel__rbtree_nil(tree);
-    if (node == nil) return nil;
+    if (node == nil)
+        return nil;
 
     if (node->left != nil)
     {
@@ -448,15 +451,9 @@ Mel_RBNode* mel_rbtree_prev(Mel_RBTree* tree, Mel_RBNode* node)
     return y;
 }
 
-usize mel_rbtree_count(Mel_RBTree* tree)
-{
-    return tree->count;
-}
+usize mel_rbtree_count(Mel_RBTree* tree) { return tree->count; }
 
-bool mel_rbtree_empty(Mel_RBTree* tree)
-{
-    return tree->count == 0;
-}
+bool mel_rbtree_empty(Mel_RBTree* tree) { return tree->count == 0; }
 
 void mel_rbtree_clear(Mel_RBTree* tree)
 {
@@ -465,7 +462,4 @@ void mel_rbtree_clear(Mel_RBTree* tree)
     tree->count = 0;
 }
 
-bool mel_rbtree_contains(Mel_RBTree* tree, void* key)
-{
-    return mel_rbtree_find(tree, key) != &tree->nil_node;
-}
+bool mel_rbtree_contains(Mel_RBTree* tree, void* key) { return mel_rbtree_find(tree, key) != &tree->nil_node; }

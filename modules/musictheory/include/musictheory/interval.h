@@ -7,17 +7,17 @@
 #include "tuning.h"
 
 typedef struct Mel_Interval Mel_Interval;
-typedef struct Mel_Pitch Mel_Pitch;
+typedef struct Mel_Pitch    Mel_Pitch;
 
 struct Mel_Interval
 {
-  const Mel_Tuning* tuning;
-  mpfr_t ratio;
-  int64_t pitch_diff;
-  int64_t ref_pitch_index;
+    const Mel_Tuning* tuning;
+    mpfr_t            ratio;
+    int64_t           pitch_diff;
+    int64_t           ref_pitch_index;
 };
 
-void mel_interval_free(Mel_Interval* i);
+void               mel_interval_free(Mel_Interval* i);
 static inline void mel_interval_cleanup(Mel_Interval* i) { mel_interval_free(i); }
 #define Mel_Interval_AUTO MEL_CLEANUP(mel_interval_cleanup) Mel_Interval
 

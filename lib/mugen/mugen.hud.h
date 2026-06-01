@@ -6,7 +6,8 @@
 #include "font.atlas.fwd.h"
 #include "texture.pool.fwd.h"
 
-typedef struct {
+typedef struct
+{
     f32 p1_life_ratio, p2_life_ratio;
     f32 p1_power_ratio, p2_power_ratio;
     i32 p1_life, p2_life;
@@ -16,14 +17,15 @@ typedef struct {
     i32 p1_wins, p2_wins;
 } Mugen_Hud_State;
 
-typedef struct {
-    Mugen_Fightdef* fightdef;
-    Mugen_Sff* fight_sff;
-    Mel_Texture_Handle fight_tex;
+typedef struct
+{
+    Mugen_Fightdef*       fightdef;
+    Mugen_Sff*            fight_sff;
+    Mel_Texture_Handle    fight_tex;
     Mel_Font_Atlas_Handle font;
-    f32 p1_mid_ratio, p2_mid_ratio;
-    f32 p1_power_mid, p2_power_mid;
-    f32 scale_x, scale_y;
+    f32                   p1_mid_ratio, p2_mid_ratio;
+    f32                   p1_power_mid, p2_power_mid;
+    f32                   scale_x, scale_y;
 } Mugen_Hud;
 
 void mugen_hud_draw(Mugen_Hud* hud, Mugen_Hud_State* state);

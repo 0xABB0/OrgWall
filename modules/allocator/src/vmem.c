@@ -2,14 +2,14 @@
 #include <core/platform.h>
 
 #if MEL_PLATFORM_WINDOWS
-    #define WIN32_LEAN_AND_MEAN
-    #include <windows.h>
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
 #elif MEL_PLATFORM_POSIX
-    #include <sys/mman.h>
-    #include <unistd.h>
-    #if defined(MAP_ANON) && !defined(MAP_ANONYMOUS)
-        #define MAP_ANONYMOUS MAP_ANON
-    #endif
+#include <sys/mman.h>
+#include <unistd.h>
+#if defined(MAP_ANON) && !defined(MAP_ANONYMOUS)
+#define MAP_ANONYMOUS MAP_ANON
+#endif
 #endif
 
 usize mel_vmem_page_size(void)
@@ -74,22 +74,30 @@ bool mel_vmem_protect(void* ptr, usize size, i32 protection)
     DWORD prot = PAGE_NOACCESS;
     if (protection & MEL_VMEM_PROT_EXEC)
     {
-        if (protection & MEL_VMEM_PROT_WRITE)      prot = PAGE_EXECUTE_READWRITE;
-        else if (protection & MEL_VMEM_PROT_READ)   prot = PAGE_EXECUTE_READ;
-        else                                         prot = PAGE_EXECUTE;
+        if (protection & MEL_VMEM_PROT_WRITE)
+            prot = PAGE_EXECUTE_READWRITE;
+        else if (protection & MEL_VMEM_PROT_READ)
+            prot = PAGE_EXECUTE_READ;
+        else
+            prot = PAGE_EXECUTE;
     }
     else
     {
-        if (protection & MEL_VMEM_PROT_WRITE)        prot = PAGE_READWRITE;
-        else if (protection & MEL_VMEM_PROT_READ)   prot = PAGE_READONLY;
+        if (protection & MEL_VMEM_PROT_WRITE)
+            prot = PAGE_READWRITE;
+        else if (protection & MEL_VMEM_PROT_READ)
+            prot = PAGE_READONLY;
     }
     DWORD old;
     return VirtualProtect(ptr, size, prot, &old) != 0;
 #elif MEL_PLATFORM_POSIX
     int prot = PROT_NONE;
-    if (protection & MEL_VMEM_PROT_READ)  prot |= PROT_READ;
-    if (protection & MEL_VMEM_PROT_WRITE) prot |= PROT_WRITE;
-    if (protection & MEL_VMEM_PROT_EXEC)  prot |= PROT_EXEC;
+    if (protection & MEL_VMEM_PROT_READ)
+        prot |= PROT_READ;
+    if (protection & MEL_VMEM_PROT_WRITE)
+        prot |= PROT_WRITE;
+    if (protection & MEL_VMEM_PROT_EXEC)
+        prot |= PROT_EXEC;
     return mprotect(ptr, size, prot) == 0;
 #else
     return false;

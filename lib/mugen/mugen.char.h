@@ -8,27 +8,29 @@
 #include "allocator.fwd.h"
 #include "str8.fwd.h"
 
-typedef struct {
+typedef struct
+{
     Mugen_Sff sff;
     Mugen_Air air;
     Mugen_Cmd cmd;
     Mugen_Cns cns;
     Mugen_Cns common_cns;
     Mugen_Cns cmd_cns;
-    u8** file_data;
-    u32 file_data_count;
-    u32 file_data_capacity;
-    bool loaded;
-    bool cns_loaded;
+    u8**      file_data;
+    u32       file_data_count;
+    u32       file_data_capacity;
+    bool      loaded;
+    bool      cns_loaded;
 } Mugen_Char;
 
-typedef struct {
-    str8 def_path;
-    str8 stcommon_path;
+typedef struct
+{
+    str8             def_path;
+    str8             stcommon_path;
     const Mel_Alloc* alloc;
 } Mugen_Char_Load_Opt;
 
 bool mugen_char_load_opt(Mugen_Char* mc, Mugen_Char_Load_Opt opt);
-#define mugen_char_load(mc, ...) mugen_char_load_opt((mc), (Mugen_Char_Load_Opt){__VA_ARGS__})
+#define mugen_char_load(mc, ...) mugen_char_load_opt((mc), (Mugen_Char_Load_Opt){ __VA_ARGS__ })
 
 void mugen_char_shutdown(Mugen_Char* mc, const Mel_Alloc* alloc);

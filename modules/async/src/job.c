@@ -16,7 +16,8 @@
 
 #define MEL__JOB_ANY_WORKER 0xFF
 
-typedef enum {
+typedef enum
+{
     MEL__FIBER_STATE_FREE = 0,
     MEL__FIBER_STATE_IDLE,
     MEL__FIBER_STATE_JOB,
@@ -29,88 +30,105 @@ static const char* mel__fiber_state_name(Mel__Fiber_State state)
 {
     switch (state)
     {
-    case MEL__FIBER_STATE_FREE:      return "free";
-    case MEL__FIBER_STATE_IDLE:      return "idle";
-    case MEL__FIBER_STATE_JOB:       return "job";
-    case MEL__FIBER_STATE_RUNNABLE:  return "runnable";
-    case MEL__FIBER_STATE_PARKED:    return "parked";
-    case MEL__FIBER_STATE_SWITCHING: return "switching";
+    case MEL__FIBER_STATE_FREE:
+        return "free";
+    case MEL__FIBER_STATE_IDLE:
+        return "idle";
+    case MEL__FIBER_STATE_JOB:
+        return "job";
+    case MEL__FIBER_STATE_RUNNABLE:
+        return "runnable";
+    case MEL__FIBER_STATE_PARKED:
+        return "parked";
+    case MEL__FIBER_STATE_SWITCHING:
+        return "switching";
     }
 
     return "unknown";
 }
 
-typedef struct {
-    Mel_Job_Fn task;
-    void* data;
+typedef struct
+{
+    Mel_Job_Fn   task;
+    void*        data;
     Mel_Counter* dec_on_finish;
-    u8 worker_index;
-    const char* debug_name;
-    const char* debug_file;
-    u32 debug_line;
+    u8           worker_index;
+    const char*  debug_name;
+    const char*  debug_file;
+    u32          debug_line;
 } Mel__Job;
 
-typedef struct Mel__Fiber_Decl {
-    Mel_Fiber fiber;
-    Mel__Job current_job;
+typedef struct Mel__Fiber_Decl
+{
+    Mel_Fiber        fiber;
+    Mel__Job         current_job;
     Mel__Fiber_State debug_state;
-    const char* last_job_name;
-    const char* last_job_file;
-    void* last_job_task;
-    u32 last_job_line;
+    const char*      last_job_name;
+    const char*      last_job_file;
+    void*            last_job_task;
+    u32              last_job_line;
 } Mel__Fiber_Decl;
 
-enum { MEL__WORK_NONE, MEL__WORK_JOB, MEL__WORK_FIBER };
+enum
+{
+    MEL__WORK_NONE,
+    MEL__WORK_JOB,
+    MEL__WORK_FIBER
+};
 
-typedef struct {
+typedef struct
+{
     u8 type;
-    union {
-        Mel__Job job;
+    union
+    {
+        Mel__Job         job;
         Mel__Fiber_Decl* fiber;
     };
 } Mel__Work;
 
-typedef struct {
-    Mel_Wsq wsq;
-    Mel_Mpmc pinned;
+typedef struct
+{
+    Mel_Wsq          wsq;
+    Mel_Mpmc         pinned;
     Mel__Fiber_Decl* current_fiber;
 
-    Mel_Fiber saved_context;
+    Mel_Fiber        saved_context;
     Mel__Fiber_Decl* fiber_to_free;
-    Mel_Signal* signal_to_park_on;
+    Mel_Signal*      signal_to_park_on;
     Mel__Fiber_Decl* fiber_to_push;
-    i32 push_target_worker;
+    i32              push_target_worker;
     Mel__Fiber_Decl* debug_resume_fiber;
-    const char* debug_resume_reason;
+    const char*      debug_resume_reason;
 
     Mel_Fiber primary_fiber;
 
-    Mel_Thread thread;
-    Mel_Cond   sleep_cond;
-    u8 worker_index;
-    u8 last_steal_idx;
+    Mel_Thread    thread;
+    Mel_Cond      sleep_cond;
+    u8            worker_index;
+    u8            last_steal_idx;
     _Atomic(bool) finished;
     _Atomic(bool) is_sleeping;
 } Mel__Worker;
 
-static struct {
+static struct
+{
     Mel__Worker* workers;
-    u8 num_workers;
+    u8           num_workers;
 
     Mel_Mpmc global_queue;
 
     Mel__Fiber_Decl* fiber_pool;
     Mel_Fiber_Stack* fiber_stacks;
-    Mel_Mpmc free_fibers;
-    u32 fiber_pool_size;
+    Mel_Mpmc         free_fibers;
+    u32              fiber_pool_size;
 
     Mel__Work* work_pool;
-    Mel_Mpmc free_work;
-    u32 work_pool_size;
+    Mel_Mpmc   free_work;
+    u32        work_pool_size;
 
     Mel__Park_Node* park_pool;
 
-    Mel_Mutex sleep_mutex;
+    Mel_Mutex    sleep_mutex;
     _Atomic(i32) num_sleeping;
 
     Mel_Tls worker_tls;
@@ -118,10 +136,7 @@ static struct {
 
 static void mel__manage(Mel_Fiber_Transfer transfer);
 
-static Mel__Worker* mel__get_worker(void)
-{
-    return (Mel__Worker*)mel_tls_get(&s_sys.worker_tls);
-}
+static Mel__Worker* mel__get_worker(void) { return (Mel__Worker*)mel_tls_get(&s_sys.worker_tls); }
 
 static u16 mel__fiber_index(Mel__Fiber_Decl* f)
 {
@@ -138,7 +153,7 @@ static void mel__fiber_assert_not_free(Mel__Fiber_Decl* fiber)
 static Mel__Fiber_Decl* mel__pop_free_fiber(void)
 {
     void* f = NULL;
-    bool ok = mel_mpmc_pop(&s_sys.free_fibers, &f);
+    bool  ok = mel_mpmc_pop(&s_sys.free_fibers, &f);
     assert(ok && "free fiber pool exhausted");
     (void)ok;
     Mel__Fiber_Decl* fiber = (Mel__Fiber_Decl*)f;
@@ -162,7 +177,7 @@ static void mel__push_free_fiber(Mel__Fiber_Decl* f)
     u16 fiber_index = mel__fiber_index(f);
     f->fiber = mel_fiber_create(s_sys.fiber_stacks[fiber_index], mel__manage);
     assert(f->fiber != MEL_FIBER_INVALID);
-    f->current_job = (Mel__Job){0};
+    f->current_job = (Mel__Job){ 0 };
     f->last_job_name = NULL;
     f->last_job_file = NULL;
     f->last_job_task = NULL;
@@ -174,16 +189,13 @@ static void mel__push_free_fiber(Mel__Fiber_Decl* f)
 static Mel__Work* mel__work_alloc(void)
 {
     void* w = NULL;
-    bool ok = mel_mpmc_pop(&s_sys.free_work, &w);
+    bool  ok = mel_mpmc_pop(&s_sys.free_work, &w);
     assert(ok && "work item pool exhausted");
     (void)ok;
     return (Mel__Work*)w;
 }
 
-static void mel__work_free(Mel__Work* w)
-{
-    mel_mpmc_push(&s_sys.free_work, w);
-}
+static void mel__work_free(Mel__Work* w) { mel_mpmc_push(&s_sys.free_work, w); }
 
 static void mel__wake_worker(u8 idx)
 {
@@ -222,7 +234,7 @@ static void mel__schedule_fiber(u16 park_index)
     fiber->debug_state = MEL__FIBER_STATE_RUNNABLE;
 
     Mel__Worker* worker = mel__get_worker();
-    Mel__Work* w = mel__work_alloc();
+    Mel__Work*   w = mel__work_alloc();
     *w = (Mel__Work){ .type = MEL__WORK_FIBER, .fiber = fiber };
 
     if (worker)
@@ -231,16 +243,13 @@ static void mel__schedule_fiber(u16 park_index)
         mel_mpmc_push(&s_sys.global_queue, w);
 }
 
-static void mel__signal_wake_workers_cb(i32 count)
-{
-    mel__wake_workers(count);
-}
+static void mel__signal_wake_workers_cb(i32 count) { mel__wake_workers(count); }
 
 static void mel__push_work_job(Mel__Job job, u8 worker_index)
 {
     if (worker_index != MEL__JOB_ANY_WORKER)
     {
-        u8 idx = worker_index % s_sys.num_workers;
+        u8         idx = worker_index % s_sys.num_workers;
         Mel__Work* w = mel__work_alloc();
         *w = (Mel__Work){ .type = MEL__WORK_JOB, .job = job };
         bool ok = mel_mpmc_push(&s_sys.workers[idx].pinned, w);
@@ -250,7 +259,7 @@ static void mel__push_work_job(Mel__Job job, u8 worker_index)
     }
 
     Mel__Worker* worker = mel__get_worker();
-    Mel__Work* w = mel__work_alloc();
+    Mel__Work*   w = mel__work_alloc();
     *w = (Mel__Work){ .type = MEL__WORK_JOB, .job = job };
     if (worker)
         mel_wsq_push(&worker->wsq, w);
@@ -360,7 +369,7 @@ static void mel__after_switch(void)
 
     if (worker->signal_to_park_on)
     {
-        Mel_Signal* signal = worker->signal_to_park_on;
+        Mel_Signal*      signal = worker->signal_to_park_on;
         Mel__Fiber_Decl* parked = worker->fiber_to_push;
         mel__fiber_assert_not_free(parked);
         worker->signal_to_park_on = NULL;
@@ -387,9 +396,7 @@ static void mel__after_switch(void)
 
             s_sys.park_pool[park_idx].next = mel__signal_head(old);
             i32 desired = mel__signal_pack(counter, park_idx);
-            if (atomic_compare_exchange_weak_explicit(&signal->state, &old, desired,
-                                                       memory_order_release,
-                                                       memory_order_relaxed))
+            if (atomic_compare_exchange_weak_explicit(&signal->state, &old, desired, memory_order_release, memory_order_relaxed))
             {
                 parked->debug_state = MEL__FIBER_STATE_PARKED;
                 return;
@@ -448,7 +455,7 @@ static inline void mel__execute_job(Mel__Job job)
 
 static void mel__switch_fibers(void)
 {
-    Mel__Worker* worker = mel__get_worker();
+    Mel__Worker*     worker = mel__get_worker();
     Mel__Fiber_Decl* this_fiber = worker->current_fiber;
     mel__fiber_assert_not_free(this_fiber);
 
@@ -483,7 +490,7 @@ static void mel__manage(Mel_Fiber_Transfer transfer)
 
     while (!atomic_load_explicit(&worker->finished, memory_order_relaxed))
     {
-        Mel__Work work = {0};
+        Mel__Work work = { 0 };
         if (!mel__pop_work(worker, &work))
             break;
 
@@ -537,7 +544,8 @@ static int mel__worker_thread_fn(void* data)
 
 void mel_job_init(void)
 {
-    if (s_sys.num_workers > 0) return;
+    if (s_sys.num_workers > 0)
+        return;
     memset(&s_sys, 0, sizeof(s_sys));
 
     const Mel_Alloc* alloc = mel_alloc_heap();
@@ -577,10 +585,10 @@ void mel_job_init(void)
     memset(s_sys.park_pool, 0, sizeof(Mel__Park_Node) * s_sys.fiber_pool_size);
 
     mel__signal_init_runtime((Mel__Signal_Runtime){
-        .park_pool       = s_sys.park_pool,
-        .park_pool_size  = s_sys.fiber_pool_size,
-        .schedule_fiber  = mel__schedule_fiber,
-        .wake_workers    = mel__signal_wake_workers_cb,
+        .park_pool = s_sys.park_pool,
+        .park_pool_size = s_sys.fiber_pool_size,
+        .schedule_fiber = mel__schedule_fiber,
+        .wake_workers = mel__signal_wake_workers_cb,
     });
 
     mel_mpmc_init(&s_sys.global_queue, MEL_JOB_GLOBAL_CAPACITY, alloc);
@@ -612,7 +620,8 @@ void mel_job_init(void)
 
 void mel_job_shutdown(void)
 {
-    if (s_sys.num_workers == 0) return;
+    if (s_sys.num_workers == 0)
+        return;
     for (u8 i = 0; i < s_sys.num_workers; i++)
         atomic_store_explicit(&s_sys.workers[i].finished, true, memory_order_seq_cst);
 
@@ -653,17 +662,9 @@ void mel_job_shutdown(void)
     memset(&s_sys, 0, sizeof(s_sys));
 }
 
-void mel_job_run_opt(void* data, Mel_Job_Fn fn, Mel_Counter* on_finish, Mel_Job_Run_Opt opt)
-{
-    mel_job_run_opt_debug(data, fn, nullptr, nullptr, 0, on_finish, opt);
-}
+void mel_job_run_opt(void* data, Mel_Job_Fn fn, Mel_Counter* on_finish, Mel_Job_Run_Opt opt) { mel_job_run_opt_debug(data, fn, nullptr, nullptr, 0, on_finish, opt); }
 
-void mel_job_run_opt_debug(void* data, Mel_Job_Fn fn,
-                           const char* debug_name,
-                           const char* debug_file,
-                           u32 debug_line,
-                           Mel_Counter* on_finish,
-                           Mel_Job_Run_Opt opt)
+void mel_job_run_opt_debug(void* data, Mel_Job_Fn fn, const char* debug_name, const char* debug_file, u32 debug_line, Mel_Counter* on_finish, Mel_Job_Run_Opt opt)
 {
     assert(fn);
 
@@ -683,17 +684,9 @@ void mel_job_run_opt_debug(void* data, Mel_Job_Fn fn,
     mel__push_work_job(job, opt.worker);
 }
 
-void mel_job_run_n_impl(void* data, Mel_Job_Fn fn, Mel_Counter* on_finish, u32 n)
-{
-    mel_job_run_n_debug(data, fn, nullptr, nullptr, 0, on_finish, n);
-}
+void mel_job_run_n_impl(void* data, Mel_Job_Fn fn, Mel_Counter* on_finish, u32 n) { mel_job_run_n_debug(data, fn, nullptr, nullptr, 0, on_finish, n); }
 
-void mel_job_run_n_debug(void* data, Mel_Job_Fn fn,
-                         const char* debug_name,
-                         const char* debug_file,
-                         u32 debug_line,
-                         Mel_Counter* on_finish,
-                         u32 n)
+void mel_job_run_n_debug(void* data, Mel_Job_Fn fn, const char* debug_name, const char* debug_file, u32 debug_line, Mel_Counter* on_finish, u32 n)
 {
     assert(fn);
     assert(n > 0);
@@ -714,7 +707,7 @@ void mel_job_run_n_debug(void* data, Mel_Job_Fn fn,
         };
 
         Mel__Worker* w = mel__get_worker();
-        Mel__Work* work = mel__work_alloc();
+        Mel__Work*   work = mel__work_alloc();
         *work = (Mel__Work){ .type = MEL__WORK_JOB, .job = job };
         if (w)
             mel_wsq_push(&w->wsq, work);
@@ -729,7 +722,7 @@ bool mel_job_debug_current(Mel_Job_Debug_Info* out)
 {
     assert(out != nullptr);
 
-    *out = (Mel_Job_Debug_Info){0};
+    *out = (Mel_Job_Debug_Info){ 0 };
 
     Mel__Worker* worker = mel__get_worker();
     if (worker == nullptr)
@@ -784,15 +777,9 @@ void mel_job_move_to_worker(u8 worker_index)
     mel__switch_fibers();
 }
 
-void mel_job_yield(void)
-{
-    mel_job_move_to_worker(MEL__JOB_ANY_WORKER);
-}
+void mel_job_yield(void) { mel_job_move_to_worker(MEL__JOB_ANY_WORKER); }
 
-u8 mel_job_worker_count(void)
-{
-    return s_sys.num_workers;
-}
+u8 mel_job_worker_count(void) { return s_sys.num_workers; }
 
 u8 mel_job_current_worker(void)
 {
@@ -801,10 +788,7 @@ u8 mel_job_current_worker(void)
     return w->worker_index;
 }
 
-bool mel_job_is_worker_fiber(void)
-{
-    return mel__get_worker() != NULL;
-}
+bool mel_job_is_worker_fiber(void) { return mel__get_worker() != NULL; }
 
 void mel_signal_wait(Mel_Signal* s)
 {
@@ -839,9 +823,7 @@ void mel_signal_wait_and_set(Mel_Signal* s)
         {
             u16 head = mel__signal_head(old);
             i32 desired = mel__signal_pack(1, head);
-            if (atomic_compare_exchange_weak_explicit(&s->state, &old, desired,
-                                                       memory_order_acq_rel,
-                                                       memory_order_relaxed))
+            if (atomic_compare_exchange_weak_explicit(&s->state, &old, desired, memory_order_acq_rel, memory_order_relaxed))
             {
                 s->generation = mel__signal_next_generation();
                 return;

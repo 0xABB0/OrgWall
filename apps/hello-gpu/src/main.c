@@ -33,27 +33,15 @@ static void build_host(Mel_Gui_Handle frame, void* user)
 {
     (void)user;
     mel_gui_set_text(frame, S8("Hello GPU"));
-    mel_gui_set_layout(frame, mel_column_layout(
-        .spacing = 10, .margin = 20, .cross_align = MEL_ALIGN_STRETCH));
+    mel_gui_set_layout(frame, mel_column_layout(.spacing = 10, .margin = 20, .cross_align = MEL_ALIGN_STRETCH));
 
-    mel_label_create(frame,
-        .text = S8("Native GUI window. Each button opens a new window hosting a graphical app."),
-        .layoutable = { .preferred_h = 48 });
+    mel_label_create(frame, .text = S8("Native GUI window. Each button opens a new window hosting a graphical app."), .layoutable = { .preferred_h = 48 });
 
-    mel_button_create(frame,
-        .text = S8("Open hello-triangle"),
-        .pointer.on_click = open_triangle_clicked,
-        .layoutable = { .preferred_h = 44 });
+    mel_button_create(frame, .text = S8("Open hello-triangle"), .pointer.on_click = open_triangle_clicked, .layoutable = { .preferred_h = 44 });
 
-    mel_button_create(frame,
-        .text = S8("Open spinning-cube"),
-        .pointer.on_click = open_cube_clicked,
-        .layoutable = { .preferred_h = 44 });
+    mel_button_create(frame, .text = S8("Open spinning-cube"), .pointer.on_click = open_cube_clicked, .layoutable = { .preferred_h = 44 });
 
-    mel_button_create(frame,
-        .text = S8("Open lorenz-attractor"),
-        .pointer.on_click = open_lorenz_clicked,
-        .layoutable = { .preferred_h = 44 });
+    mel_button_create(frame, .text = S8("Open lorenz-attractor"), .pointer.on_click = open_lorenz_clicked, .layoutable = { .preferred_h = 44 });
 }
 
 void mel_app_setup(Mel_Reactor* reactor)

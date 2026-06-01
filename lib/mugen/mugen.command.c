@@ -10,8 +10,10 @@ static bool key_matches(Command_Key key, Input_Buffer* buf)
     i32 t = input_buffer_state(buf, key);
 
     bool ok;
-    if (key.slash) ok = (t > 0);
-    else           ok = (t == 1);
+    if (key.slash)
+        ok = (t > 0);
+    else
+        ok = (t == 1);
 
     if (ok && key.chargetime > 1)
         ok = input_buffer_state_charge(buf, key) >= key.chargetime;
@@ -24,34 +26,40 @@ static bool step_matches(Command_Step* step, Input_Buffer* buf)
     if (step->or_logic)
     {
         for (u32 i = 0; i < step->key_count; i++)
-            if (key_matches(step->keys[i], buf)) return true;
+            if (key_matches(step->keys[i], buf))
+                return true;
         return false;
     }
 
     for (u32 i = 0; i < step->key_count; i++)
-        if (!key_matches(step->keys[i], buf)) return false;
+        if (!key_matches(step->keys[i], buf))
+            return false;
     return step->key_count > 0;
 }
 
 static bool step_is_dir_only(Command_Step* s)
 {
-    if (s->key_count == 0) return false;
+    if (s->key_count == 0)
+        return false;
     for (u32 i = 0; i < s->key_count; i++)
-        if (cmd_key_is_button(s->keys[i])) return false;
+        if (cmd_key_is_button(s->keys[i]))
+            return false;
     return true;
 }
 
 static bool step_has_btn_press(Command_Step* s)
 {
     for (u32 i = 0; i < s->key_count; i++)
-        if (cmd_key_is_btn_press(s->keys[i])) return true;
+        if (cmd_key_is_btn_press(s->keys[i]))
+            return true;
     return false;
 }
 
 static bool step_has_slash(Command_Step* s)
 {
     for (u32 i = 0; i < s->key_count; i++)
-        if (s->keys[i].slash) return true;
+        if (s->keys[i].slash)
+            return true;
     return false;
 }
 
@@ -59,21 +67,24 @@ static bool step_shares_key(Command_Step* a, Command_Step* b)
 {
     for (u32 i = 0; i < a->key_count; i++)
         for (u32 j = 0; j < b->key_count; j++)
-            if (a->keys[i].key == b->keys[j].key) return true;
+            if (a->keys[i].key == b->keys[j].key)
+                return true;
     return false;
 }
 
 static bool step_has_dir_release(Command_Step* s)
 {
     for (u32 i = 0; i < s->key_count; i++)
-        if (cmd_key_is_dir_release(s->keys[i])) return true;
+        if (cmd_key_is_dir_release(s->keys[i]))
+            return true;
     return false;
 }
 
 static bool step_has_non_dir_release(Command_Step* s)
 {
     for (u32 i = 0; i < s->key_count; i++)
-        if (!cmd_key_is_dir_release(s->keys[i])) return true;
+        if (!cmd_key_is_dir_release(s->keys[i]))
+            return true;
     return false;
 }
 
@@ -100,26 +111,28 @@ static bool step_uses_lr_group(Command_Step* s)
 static bool step_contains_key(Command_Step* s, Cmd_Key_Id key, bool tilde)
 {
     for (u32 i = 0; i < s->key_count; i++)
-        if (s->keys[i].key == key && s->keys[i].tilde == tilde) return true;
+        if (s->keys[i].key == key && s->keys[i].tilde == tilde)
+            return true;
     return false;
 }
 
 static bool step_contains_key_any_tilde(Command_Step* s, Cmd_Key_Id key)
 {
     for (u32 i = 0; i < s->key_count; i++)
-        if (s->keys[i].key == key) return true;
+        if (s->keys[i].key == key)
+            return true;
     return false;
 }
 
 static bool greater_check_fail(Command* cmd, u32 step_idx, Input_Buffer* buf)
 {
     Command_Step* step = &cmd->steps[step_idx];
-    bool use_lr = step_uses_lr_group(step);
+    bool          use_lr = step_uses_lr_group(step);
 
-    Cmd_Key_Id dirs_bf[] = { CK_U, CK_D, CK_B, CK_F, CK_UB, CK_UF, CK_DB, CK_DF };
-    Cmd_Key_Id dirs_lr[] = { CK_U, CK_D, CK_L, CK_R, CK_UL, CK_UR, CK_DL, CK_DR };
+    Cmd_Key_Id  dirs_bf[] = { CK_U, CK_D, CK_B, CK_F, CK_UB, CK_UF, CK_DB, CK_DF };
+    Cmd_Key_Id  dirs_lr[] = { CK_U, CK_D, CK_L, CK_R, CK_UL, CK_UR, CK_DL, CK_DR };
     Cmd_Key_Id* dirs = use_lr ? dirs_lr : dirs_bf;
-    u32 dir_count = 8;
+    u32         dir_count = 8;
 
     for (u32 i = 0; i < dir_count; i++)
     {
@@ -155,7 +168,8 @@ static bool greater_check_fail(Command* cmd, u32 step_idx, Input_Buffer* buf)
 static void command_clear(Command* cmd, bool bufreset)
 {
     cmd->cur_time = 0;
-    if (bufreset) cmd->cur_buf_time = 0;
+    if (bufreset)
+        cmd->cur_buf_time = 0;
     for (u32 i = 0; i < cmd->step_count; i++)
     {
         cmd->completed[i] = false;
@@ -199,7 +213,8 @@ static void build_loop_order(Command* cmd, const Mel_Alloc* alloc)
 
 static bool is_single_dir(Command_Step* s)
 {
-    if (s->key_count != 1) return false;
+    if (s->key_count != 1)
+        return false;
     return cmd_key_is_dir_press(s->keys[0]) || cmd_key_is_dir_release(s->keys[0]);
 }
 
@@ -213,12 +228,8 @@ static void auto_greater_expand(Command* cmd, const Mel_Alloc* alloc)
     {
         mel_array_push(&expanded, cmd->steps[i]);
 
-        if (i + 1 < cmd->step_count
-            && is_single_dir(&cmd->steps[i])
-            && is_single_dir(&cmd->steps[i + 1])
-            && !cmd->steps[i].keys[0].tilde
-            && !cmd->steps[i + 1].keys[0].tilde
-            && cmd->steps[i].keys[0].key == cmd->steps[i + 1].keys[0].key)
+        if (i + 1 < cmd->step_count && is_single_dir(&cmd->steps[i]) && is_single_dir(&cmd->steps[i + 1]) && !cmd->steps[i].keys[0].tilde && !cmd->steps[i + 1].keys[0].tilde &&
+            cmd->steps[i].keys[0].key == cmd->steps[i + 1].keys[0].key)
         {
             Command_Key release_key = cmd->steps[i].keys[0];
             release_key.tilde = true;
@@ -252,7 +263,8 @@ static void auto_greater_expand(Command* cmd, const Mel_Alloc* alloc)
 
 static void skip_whitespace(const u8** p, const u8* end)
 {
-    while (*p < end && (**p == ' ' || **p == '\t')) (*p)++;
+    while (*p < end && (**p == ' ' || **p == '\t'))
+        (*p)++;
 }
 
 static i32 parse_number(const u8** p, const u8* end)
@@ -268,41 +280,134 @@ static i32 parse_number(const u8** p, const u8* end)
 
 static bool parse_key_name(const u8** p, const u8* end, Cmd_Key_Id* out)
 {
-    if (*p >= end) return false;
+    if (*p >= end)
+        return false;
 
     if (*p + 1 < end)
     {
         u8 c0 = **p, c1 = *(*p + 1);
-        if (c0 == 'U' && c1 == 'B') { *out = CK_UB; *p += 2; return true; }
-        if (c0 == 'U' && c1 == 'F') { *out = CK_UF; *p += 2; return true; }
-        if (c0 == 'D' && c1 == 'B') { *out = CK_DB; *p += 2; return true; }
-        if (c0 == 'D' && c1 == 'F') { *out = CK_DF; *p += 2; return true; }
-        if (c0 == 'U' && c1 == 'L') { *out = CK_UL; *p += 2; return true; }
-        if (c0 == 'U' && c1 == 'R') { *out = CK_UR; *p += 2; return true; }
-        if (c0 == 'D' && c1 == 'L') { *out = CK_DL; *p += 2; return true; }
-        if (c0 == 'D' && c1 == 'R') { *out = CK_DR; *p += 2; return true; }
+        if (c0 == 'U' && c1 == 'B')
+        {
+            *out = CK_UB;
+            *p += 2;
+            return true;
+        }
+        if (c0 == 'U' && c1 == 'F')
+        {
+            *out = CK_UF;
+            *p += 2;
+            return true;
+        }
+        if (c0 == 'D' && c1 == 'B')
+        {
+            *out = CK_DB;
+            *p += 2;
+            return true;
+        }
+        if (c0 == 'D' && c1 == 'F')
+        {
+            *out = CK_DF;
+            *p += 2;
+            return true;
+        }
+        if (c0 == 'U' && c1 == 'L')
+        {
+            *out = CK_UL;
+            *p += 2;
+            return true;
+        }
+        if (c0 == 'U' && c1 == 'R')
+        {
+            *out = CK_UR;
+            *p += 2;
+            return true;
+        }
+        if (c0 == 'D' && c1 == 'L')
+        {
+            *out = CK_DL;
+            *p += 2;
+            return true;
+        }
+        if (c0 == 'D' && c1 == 'R')
+        {
+            *out = CK_DR;
+            *p += 2;
+            return true;
+        }
     }
 
     switch (**p)
     {
-        case 'U': *out = CK_U; (*p)++; return true;
-        case 'D': *out = CK_D; (*p)++; return true;
-        case 'B': *out = CK_B; (*p)++; return true;
-        case 'F': *out = CK_F; (*p)++; return true;
-        case 'L': *out = CK_L; (*p)++; return true;
-        case 'R': *out = CK_R; (*p)++; return true;
-        case 'N': *out = CK_N; (*p)++; return true;
-        case 'a': *out = CK_a; (*p)++; return true;
-        case 'b': *out = CK_b; (*p)++; return true;
-        case 'c': *out = CK_c; (*p)++; return true;
-        case 'x': *out = CK_x; (*p)++; return true;
-        case 'y': *out = CK_y; (*p)++; return true;
-        case 'z': *out = CK_z; (*p)++; return true;
-        case 's': *out = CK_s; (*p)++; return true;
-        case 'd': *out = CK_d; (*p)++; return true;
-        case 'w': *out = CK_w; (*p)++; return true;
-        case 'm': *out = CK_m; (*p)++; return true;
-        default:  return false;
+    case 'U':
+        *out = CK_U;
+        (*p)++;
+        return true;
+    case 'D':
+        *out = CK_D;
+        (*p)++;
+        return true;
+    case 'B':
+        *out = CK_B;
+        (*p)++;
+        return true;
+    case 'F':
+        *out = CK_F;
+        (*p)++;
+        return true;
+    case 'L':
+        *out = CK_L;
+        (*p)++;
+        return true;
+    case 'R':
+        *out = CK_R;
+        (*p)++;
+        return true;
+    case 'N':
+        *out = CK_N;
+        (*p)++;
+        return true;
+    case 'a':
+        *out = CK_a;
+        (*p)++;
+        return true;
+    case 'b':
+        *out = CK_b;
+        (*p)++;
+        return true;
+    case 'c':
+        *out = CK_c;
+        (*p)++;
+        return true;
+    case 'x':
+        *out = CK_x;
+        (*p)++;
+        return true;
+    case 'y':
+        *out = CK_y;
+        (*p)++;
+        return true;
+    case 'z':
+        *out = CK_z;
+        (*p)++;
+        return true;
+    case 's':
+        *out = CK_s;
+        (*p)++;
+        return true;
+    case 'd':
+        *out = CK_d;
+        (*p)++;
+        return true;
+    case 'w':
+        *out = CK_w;
+        (*p)++;
+        return true;
+    case 'm':
+        *out = CK_m;
+        (*p)++;
+        return true;
+    default:
+        return false;
     }
 }
 
@@ -320,7 +425,8 @@ static bool command_parse(str8 cmd_string, Command* cmd, const Mel_Alloc* alloc)
     while (p < end)
     {
         skip_whitespace(&p, end);
-        if (p >= end) break;
+        if (p >= end)
+            break;
 
         bool step_greater = false;
         if (*p == '>')
@@ -340,12 +446,13 @@ static bool command_parse(str8 cmd_string, Command* cmd, const Mel_Alloc* alloc)
         while (p < end)
         {
             skip_whitespace(&p, end);
-            if (p >= end) break;
+            if (p >= end)
+                break;
 
             bool tilde = false;
             bool slash = false;
             bool dollar = false;
-            i32 chargetime = 0;
+            i32  chargetime = 0;
 
             if (*p == '~')
             {
@@ -385,14 +492,22 @@ static bool command_parse(str8 cmd_string, Command* cmd, const Mel_Alloc* alloc)
 
             if (p < end && *p == '+')
             {
-                if (first_key) { or_logic = false; seen_combinator = true; }
+                if (first_key)
+                {
+                    or_logic = false;
+                    seen_combinator = true;
+                }
                 p++;
                 first_key = false;
                 continue;
             }
             if (p < end && *p == '|')
             {
-                if (first_key) { or_logic = true; seen_combinator = true; }
+                if (first_key)
+                {
+                    or_logic = true;
+                    seen_combinator = true;
+                }
                 p++;
                 first_key = false;
                 continue;
@@ -464,7 +579,7 @@ void command_list_add_opt(Command_List* cl, str8 name, str8 cmd_string, Command_
 {
     if (cl->command_count >= cl->command_capacity)
     {
-        u32 new_cap = cl->command_capacity == 0 ? 8 : cl->command_capacity * 2;
+        u32      new_cap = cl->command_capacity == 0 ? 8 : cl->command_capacity * 2;
         Command* new_cmds = mel_alloc(cl->alloc, sizeof(Command) * new_cap);
         if (cl->commands)
         {
@@ -505,15 +620,24 @@ void command_list_add_opt(Command_List* cl, str8 name, str8 cmd_string, Command_
 
 static void command_tick(Command* cmd, Input_Buffer* buf, bool hpbuf, bool pausebuf, i32 extratime)
 {
-    if (!cmd->buffer_hitpause) { hpbuf = false; extratime = 0; }
-    if (!cmd->buffer_pauseend) { pausebuf = false; extratime = 0; }
+    if (!cmd->buffer_hitpause)
+    {
+        hpbuf = false;
+        extratime = 0;
+    }
+    if (!cmd->buffer_pauseend)
+    {
+        pausebuf = false;
+        extratime = 0;
+    }
 
     cmd->complete_frame = false;
 
     if (cmd->cur_buf_time > 0 && !hpbuf && !pausebuf)
         cmd->cur_buf_time--;
 
-    if (cmd->step_count == 0) return;
+    if (cmd->step_count == 0)
+        return;
 
     bool any_done = false;
     for (u32 i = 0; i < cmd->step_count; i++)
@@ -583,10 +707,7 @@ static void command_tick(Command* cmd, Input_Buffer* buf, bool hpbuf, bool pause
         cmd->cur_buf_time = max2(cmd->cur_buf_time, cmd->max_buf_time + extratime);
 }
 
-void command_list_step(Command_List* cl, bool U, bool D, bool L, bool R,
-                       bool a, bool b, bool c, bool x, bool y, bool z,
-                       bool s, bool d, bool w, bool m,
-                       bool hpbuf, bool pausebuf, i32 extratime)
+void command_list_step(Command_List* cl, bool U, bool D, bool L, bool R, bool a, bool b, bool c, bool x, bool y, bool z, bool s, bool d, bool w, bool m, bool hpbuf, bool pausebuf, i32 extratime)
 {
     input_buffer_update(&cl->buffer, U, D, L, R, a, b, c, x, y, z, s, d, w, m);
 
@@ -595,8 +716,10 @@ void command_list_step(Command_List* cl, bool U, bool D, bool L, bool R,
 
     for (u32 i = 0; i < cl->command_count; i++)
     {
-        if (!cl->commands[i].complete_frame) continue;
-        if (!cl->commands[i].buffer_shared) continue;
+        if (!cl->commands[i].complete_frame)
+            continue;
+        if (!cl->commands[i].buffer_shared)
+            continue;
         command_list_clear_name(cl, cl->commands[i].name);
     }
 }
@@ -604,23 +727,34 @@ void command_list_step(Command_List* cl, bool U, bool D, bool L, bool R,
 static bool str8_eq_cstr_i(str8 a, const char* b)
 {
     size blen = 0;
-    while (b[blen]) blen++;
-    if (a.len != blen) return false;
+    while (b[blen])
+        blen++;
+    if (a.len != blen)
+        return false;
     for (size i = 0; i < blen; i++)
     {
-        u8 ac = a.data[i]; if (ac >= 'A' && ac <= 'Z') ac += 32;
-        u8 bc = (u8)b[i]; if (bc >= 'A' && bc <= 'Z') bc += 32;
-        if (ac != bc) return false;
+        u8 ac = a.data[i];
+        if (ac >= 'A' && ac <= 'Z')
+            ac += 32;
+        u8 bc = (u8)b[i];
+        if (bc >= 'A' && bc <= 'Z')
+            bc += 32;
+        if (ac != bc)
+            return false;
     }
     return true;
 }
 
 bool command_list_active(Command_List* cl, str8 name)
 {
-    if (str8_eq_cstr_i(name, "holdfwd"))   return cl->buffer.Fb > 0;
-    if (str8_eq_cstr_i(name, "holdback"))  return cl->buffer.Bb > 0;
-    if (str8_eq_cstr_i(name, "holdup"))    return cl->buffer.Ub > 0;
-    if (str8_eq_cstr_i(name, "holddown"))  return cl->buffer.Db > 0;
+    if (str8_eq_cstr_i(name, "holdfwd"))
+        return cl->buffer.Fb > 0;
+    if (str8_eq_cstr_i(name, "holdback"))
+        return cl->buffer.Bb > 0;
+    if (str8_eq_cstr_i(name, "holdup"))
+        return cl->buffer.Ub > 0;
+    if (str8_eq_cstr_i(name, "holddown"))
+        return cl->buffer.Db > 0;
 
     for (u32 i = 0; i < cl->command_count; i++)
         if (str8_equals(cl->commands[i].name, name) && cl->commands[i].cur_buf_time > 0)
@@ -639,14 +773,14 @@ void command_list_clear_name(Command_List* cl, str8 name)
 {
     for (u32 i = 0; i < cl->command_count; i++)
     {
-        if (!str8_equals(cl->commands[i].name, name)) continue;
-        if (!cl->commands[i].buffer_shared) continue;
-        if (cl->commands[i].complete_frame) continue;
+        if (!str8_equals(cl->commands[i].name, name))
+            continue;
+        if (!cl->commands[i].buffer_shared)
+            continue;
+        if (cl->commands[i].complete_frame)
+            continue;
         command_clear(&cl->commands[i], false);
     }
 }
 
-void command_list_set_facing(Command_List* cl, bool facing_right)
-{
-    cl->buffer.facing_right = facing_right;
-}
+void command_list_set_facing(Command_List* cl, bool facing_right) { cl->buffer.facing_right = facing_right; }

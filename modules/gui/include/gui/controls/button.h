@@ -7,13 +7,14 @@
 #include <gui/callbacks.h>
 #include <gui/layout.h>
 
-typedef struct {
-    str8  text;
-    i32   x, y, w, h;
-    u32   id;
-    bool  disabled;
-    bool  hidden;
-    void* user;
+typedef struct
+{
+    str8                 text;
+    i32                  x, y, w, h;
+    u32                  id;
+    bool                 disabled;
+    bool                 hidden;
+    void*                user;
     Mel_Gui_Lifecycle_Cb lifecycle;
     Mel_Gui_Focus_Cb     focus;
     Mel_Gui_Pointer_Cb   pointer;
@@ -22,5 +23,4 @@ typedef struct {
 } Mel_Button_Opt;
 
 Mel_Gui_Handle mel_button_create_opt(Mel_Gui_Handle parent, Mel_Button_Opt opt);
-#define mel_button_create(parent, ...) \
-    mel_button_create_opt((parent), (Mel_Button_Opt){__VA_ARGS__})
+#define mel_button_create(parent, ...) mel_button_create_opt((parent), (Mel_Button_Opt){ __VA_ARGS__ })

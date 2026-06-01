@@ -5,7 +5,8 @@ static usize mel__stack_align_forward(usize ptr, usize align)
 {
     assert((align & (align - 1)) == 0);
     usize mod = ptr & (align - 1);
-    if (mod != 0) ptr += align - mod;
+    if (mod != 0)
+        ptr += align - mod;
     return ptr;
 }
 
@@ -48,7 +49,8 @@ void* mel_stack_push(Mel_Stack_Alloc* stack, usize size, usize align)
 
 #if MEL_ALLOCATOR_STACK_DEBUG
     stack->push_count++;
-    if (stack->offset > stack->peak_used) stack->peak_used = stack->offset;
+    if (stack->offset > stack->peak_used)
+        stack->peak_used = stack->offset;
 #endif
 
     return stack->base + data_start;

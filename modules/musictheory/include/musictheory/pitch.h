@@ -9,9 +9,9 @@ typedef struct Mel_Pitch Mel_Pitch;
 
 struct Mel_Pitch
 {
-  const Mel_Tuning* tuning;
-  Mel_Hz frequency;
-  int64_t pitch_index;
+    const Mel_Tuning* tuning;
+    Mel_Hz            frequency;
+    int64_t           pitch_index;
 };
 
 Mel_Pitch mel_pitch_make(const Mel_Tuning* tuning, int64_t pitch_index);
@@ -38,8 +38,10 @@ uint8_t mel_pitch_cmp(Mel_Pitch a, Mel_Pitch b);
 
 static inline int mel_pitch_cmp_int(Mel_Pitch a, Mel_Pitch b)
 {
-  uint8_t c = mel_pitch_cmp(a, b);
-  if (c == 0) return -1;
-  if (c == 1) return 0;
-  return 1;
+    uint8_t c = mel_pitch_cmp(a, b);
+    if (c == 0)
+        return -1;
+    if (c == 1)
+        return 0;
+    return 1;
 }

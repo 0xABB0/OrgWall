@@ -7,11 +7,10 @@
 static const double mel__lab_e = 216.0 / 24389.0;
 static const double mel__lab_k = 24389.0 / 27.0;
 
-static double mel__lab_f(double t) {
-    return t > mel__lab_e ? cbrt(t) : (mel__lab_k * t + 16.0) / 116.0;
-}
+static double mel__lab_f(double t) { return t > mel__lab_e ? cbrt(t) : (mel__lab_k * t + 16.0) / 116.0; }
 
-mel_lab mel_xyz_to_lab(mel_xyz c, mel_xyz white) {
+mel_lab mel_xyz_to_lab(mel_xyz c, mel_xyz white)
+{
     double fx = mel__lab_f((double)c.x / white.x);
     double fy = mel__lab_f((double)c.y / white.y);
     double fz = mel__lab_f((double)c.z / white.z);
@@ -22,7 +21,8 @@ mel_lab mel_xyz_to_lab(mel_xyz c, mel_xyz white) {
     };
 }
 
-mel_xyz mel_lab_to_xyz(mel_lab c, mel_xyz white) {
+mel_xyz mel_lab_to_xyz(mel_lab c, mel_xyz white)
+{
     double fy = ((double)c.l + 16.0) / 116.0;
     double fx = fy + (double)c.a / 500.0;
     double fz = fy - (double)c.b / 200.0;
@@ -38,31 +38,25 @@ mel_xyz mel_lab_to_xyz(mel_lab c, mel_xyz white) {
     };
 }
 
-mel_lch mel_lab_to_lch(mel_lab c) {
+mel_lch mel_lab_to_lch(mel_lab c)
+{
     float chroma = hypotf(c.a, c.b);
     float hue = atan2f(c.b, c.a) * (180.0f / 3.14159265358979323846f);
     if (hue < 0.0f)
         hue += 360.0f;
-    return (mel_lch){c.l, chroma, hue};
+    return (mel_lch){ c.l, chroma, hue };
 }
 
-mel_lab mel_lch_to_lab(mel_lch c) {
+mel_lab mel_lch_to_lab(mel_lch c)
+{
     float rad = c.h * (3.14159265358979323846f / 180.0f);
-    return (mel_lab){c.l, c.c * cosf(rad), c.c * sinf(rad)};
+    return (mel_lab){ c.l, c.c * cosf(rad), c.c * sinf(rad) };
 }
 
-mel_lab mel_color_to_lab(mel_color c) {
-    return mel_xyz_to_lab(mel_color_to_xyz(c), mel_white_point_xyz(mel_white_d65()));
-}
+mel_lab mel_color_to_lab(mel_color c) { return mel_xyz_to_lab(mel_color_to_xyz(c), mel_white_point_xyz(mel_white_d65())); }
 
-mel_color mel_color_from_lab(mel_lab c, float a) {
-    return mel_color_from_xyz(mel_lab_to_xyz(c, mel_white_point_xyz(mel_white_d65())), a);
-}
+mel_color mel_color_from_lab(mel_lab c, float a) { return mel_color_from_xyz(mel_lab_to_xyz(c, mel_white_point_xyz(mel_white_d65())), a); }
 
-mel_lch mel_color_to_lch(mel_color c) {
-    return mel_lab_to_lch(mel_color_to_lab(c));
-}
+mel_lch mel_color_to_lch(mel_color c) { return mel_lab_to_lch(mel_color_to_lab(c)); }
 
-mel_color mel_color_from_lch(mel_lch c, float a) {
-    return mel_color_from_lab(mel_lch_to_lab(c), a);
-}
+mel_color mel_color_from_lch(mel_lch c, float a) { return mel_color_from_lab(mel_lch_to_lab(c), a); }

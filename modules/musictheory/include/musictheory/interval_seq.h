@@ -13,13 +13,13 @@ typedef struct Mel_IntervalSeq Mel_IntervalSeq;
 
 struct Mel_IntervalSeq
 {
-  const Mel_Tuning* tuning;
-  Mel_Interval* intervals;
-  int32_t count;
-  int32_t capacity;
+    const Mel_Tuning* tuning;
+    Mel_Interval*     intervals;
+    int32_t           count;
+    int32_t           capacity;
 };
 
-void mel_interval_seq_free(Mel_IntervalSeq* s);
+void               mel_interval_seq_free(Mel_IntervalSeq* s);
 static inline void mel_interval_seq_cleanup(Mel_IntervalSeq* s) { mel_interval_seq_free(s); }
 #define Mel_IntervalSeq_AUTO MEL_CLEANUP(mel_interval_seq_cleanup) Mel_IntervalSeq
 

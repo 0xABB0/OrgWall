@@ -10,6 +10,7 @@ static bool app_init(Mel_Reactor* reactor, void* user)
 
 int main(int argc, char** argv)
 {
-    (void)argc; (void)argv;
+    (void)argc;
+    (void)argv;
     return mel_reactor_spawn(MEL_REACTOR_THREADED, app_init, NULL);
 }

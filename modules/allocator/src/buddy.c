@@ -5,7 +5,11 @@
 static i32 mel__buddy_log2(usize n)
 {
     i32 r = 0;
-    while (n > 1) { n >>= 1; r++; }
+    while (n > 1)
+    {
+        n >>= 1;
+        r++;
+    }
     return r;
 }
 
@@ -63,7 +67,8 @@ static void* mel__buddy_alloc_recursive(Mel_Buddy_Alloc* buddy, usize node, i32 
 {
     if (level == (i32)required_level)
     {
-        if (buddy->tree[node - 1] != MEL_BUDDY_FREE) return NULL;
+        if (buddy->tree[node - 1] != MEL_BUDDY_FREE)
+            return NULL;
         buddy->tree[node - 1] = MEL_BUDDY_USED;
 
         usize block_size = buddy->size >> level;
@@ -72,7 +77,8 @@ static void* mel__buddy_alloc_recursive(Mel_Buddy_Alloc* buddy, usize node, i32 
         return buddy->base + index_in_level * block_size;
     }
 
-    if (buddy->tree[node - 1] == MEL_BUDDY_USED) return NULL;
+    if (buddy->tree[node - 1] == MEL_BUDDY_USED)
+        return NULL;
 
     void* ptr = mel__buddy_alloc_recursive(buddy, node * 2, level + 1, required_level);
     if (ptr)
@@ -98,7 +104,8 @@ void* mel_buddy_alloc(Mel_Buddy_Alloc* buddy, usize size)
 
     usize actual = size < buddy->min_block ? buddy->min_block : mel__buddy_next_pow2(size);
 
-    if (actual > buddy->size) return NULL;
+    if (actual > buddy->size)
+        return NULL;
 
     i32 target_level = mel__buddy_log2(buddy->size / actual);
 
@@ -122,7 +129,7 @@ static void mel__buddy_free_recursive(Mel_Buddy_Alloc* buddy, usize node, i32 le
     usize block_size = buddy->size >> level;
     usize nodes_at_level = 1u << level;
     usize index_in_level = node - nodes_at_level;
-    u8* block_start = buddy->base + index_in_level * block_size;
+    u8*   block_start = buddy->base + index_in_level * block_size;
 
     if (level == target_level)
     {

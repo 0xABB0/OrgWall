@@ -17,10 +17,10 @@
  * recording into a draw-list its renderer plays back. */
 typedef struct Mel_Painter Mel_Painter;
 
-void mel_painter_clear       (Mel_Painter*, Mel_Color);
-void mel_painter_fill_rect   (Mel_Painter*, Mel_Rect, Mel_Color);
+void mel_painter_clear(Mel_Painter*, Mel_Color);
+void mel_painter_fill_rect(Mel_Painter*, Mel_Rect, Mel_Color);
 void mel_painter_fill_ellipse(Mel_Painter*, Mel_Rect, Mel_Color);
-void mel_painter_stroke_rect (Mel_Painter*, Mel_Rect, Mel_Color, f32 width);
-void mel_painter_draw_line   (Mel_Painter*, Mel_Vec2 a, Mel_Vec2 b, Mel_Color, f32 width);
+void mel_painter_stroke_rect(Mel_Painter*, Mel_Rect, Mel_Color, f32 width);
+void mel_painter_draw_line(Mel_Painter*, Mel_Vec2 a, Mel_Vec2 b, Mel_Color, f32 width);
 void mel_painter_fill_round_rect(Mel_Painter*, Mel_Rect, f32 radius, Mel_Color);
-void mel_painter_draw_text   (Mel_Painter*, str8 text, Mel_Vec2 pos, Mel_Color, f32 size);
+void mel_painter_draw_text(Mel_Painter*, str8 text, Mel_Vec2 pos, Mel_Color, f32 size);

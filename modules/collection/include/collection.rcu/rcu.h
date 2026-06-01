@@ -6,17 +6,18 @@
 
 typedef struct Mel__Rcu_Garbage Mel__Rcu_Garbage;
 
-struct Mel_Rcu {
-    _Atomic(void*) ptr;
-    _Atomic(u32) epoch;
-    _Atomic(i32) readers[2];
-    Mel_Mutex writer_lock;
+struct Mel_Rcu
+{
+    _Atomic(void*)    ptr;
+    _Atomic(u32)      epoch;
+    _Atomic(i32)      readers[2];
+    Mel_Mutex         writer_lock;
     Mel__Rcu_Garbage* garbage;
-    const Mel_Alloc* alloc;
+    const Mel_Alloc*  alloc;
 };
 
-void  mel_rcu_init(Mel_Rcu* rcu, const Mel_Alloc* alloc);
-void  mel_rcu_destroy(Mel_Rcu* rcu);
+void mel_rcu_init(Mel_Rcu* rcu, const Mel_Alloc* alloc);
+void mel_rcu_destroy(Mel_Rcu* rcu);
 
 void* mel_rcu_read(Mel_Rcu* rcu, Mel_Rcu_Token* token);
 void  mel_rcu_read_end(Mel_Rcu* rcu, Mel_Rcu_Token token);

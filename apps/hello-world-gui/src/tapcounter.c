@@ -6,7 +6,8 @@
 
 #include "tapcounter.h"
 
-typedef struct {
+typedef struct
+{
     Mel_Gui_Handle count_label;
     i32            count;
 } Tap_Counter;
@@ -25,14 +26,11 @@ static void tapcounter_clicked(Mel_Gui_Handle h, void* user)
 void tapcounter_create(Mel_Gui_Handle parent, str8 button_text)
 {
     Tap_Counter* tc = mel_alloc_type(mel_alloc_heap(), Tap_Counter);
-    if (!tc) return;
+    if (!tc)
+        return;
     tc->count = 0;
 
-    mel_button_create(parent, .text = button_text,
-        .pointer.on_click = tapcounter_clicked,
-        .user = tc,
-        .layoutable = { .preferred_h = 40 });
+    mel_button_create(parent, .text = button_text, .pointer.on_click = tapcounter_clicked, .user = tc, .layoutable = { .preferred_h = 40 });
 
-    tc->count_label = mel_label_create(parent, .text = S8("Taps: 0"),
-        .layoutable = { .preferred_h = 24 });
+    tc->count_label = mel_label_create(parent, .text = S8("Taps: 0"), .layoutable = { .preferred_h = 24 });
 }

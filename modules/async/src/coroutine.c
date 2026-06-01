@@ -8,32 +8,37 @@
 #define MEL_CORO_RET_YIELD 2
 #define MEL_CORO_RET_WAIT  3
 
-typedef union { f32 tm; i32 n; } Mel__Coro_Counter;
+typedef union
+{
+    f32 tm;
+    i32 n;
+} Mel__Coro_Counter;
 
-typedef struct Mel__Coro_State {
-    Mel_Fiber            fiber;
-    Mel_Fiber_Stack      stack_mem;
-    Mel_Fiber_Cb         callback;
-    void*                user;
-    i32                  ret_state;
-    Mel__Coro_Counter    arg;
-    Mel__Coro_Counter    counter;
+typedef struct Mel__Coro_State
+{
+    Mel_Fiber               fiber;
+    Mel_Fiber_Stack         stack_mem;
+    Mel_Fiber_Cb            callback;
+    void*                   user;
+    i32                     ret_state;
+    Mel__Coro_Counter       arg;
+    Mel__Coro_Counter       counter;
     struct Mel__Coro_State* next;
     struct Mel__Coro_State* prev;
-    bool                 init;
+    bool                    init;
 } Mel__Coro_State;
 
-struct Mel_Coro_Context {
-    const Mel_Alloc*    alloc;
-    Mel__Coro_State*    run_list;
-    Mel__Coro_State*    run_list_last;
-    Mel__Coro_State*    free_list;
-    Mel__Coro_State*    cur_coro;
-    u32                 stack_sz;
+struct Mel_Coro_Context
+{
+    const Mel_Alloc* alloc;
+    Mel__Coro_State* run_list;
+    Mel__Coro_State* run_list_last;
+    Mel__Coro_State* free_list;
+    Mel__Coro_State* cur_coro;
+    u32              stack_sz;
 };
 
-static inline void mel__coro_add_list(Mel__Coro_State** pfirst, Mel__Coro_State** plast,
-                                      Mel__Coro_State* node)
+static inline void mel__coro_add_list(Mel__Coro_State** pfirst, Mel__Coro_State** plast, Mel__Coro_State* node)
 {
     if (*plast)
     {
@@ -45,8 +50,7 @@ static inline void mel__coro_add_list(Mel__Coro_State** pfirst, Mel__Coro_State*
         *pfirst = node;
 }
 
-static inline void mel__coro_remove_list(Mel__Coro_State** pfirst, Mel__Coro_State** plast,
-                                         Mel__Coro_State* node)
+static inline void mel__coro_remove_list(Mel__Coro_State** pfirst, Mel__Coro_State** plast, Mel__Coro_State* node)
 {
     if (node->prev)
         node->prev->next = node->next;
@@ -71,7 +75,7 @@ Mel_Coro_Context* mel_coro_create_opt(const Mel_Alloc* alloc, Mel_Coro_Create_Op
         return NULL;
 
     memset(ctx, 0, sizeof(Mel_Coro_Context));
-    ctx->alloc    = alloc;
+    ctx->alloc = alloc;
     ctx->stack_sz = opt.stack_size;
 
     for (i32 i = 0; i < opt.num_initial; i++)
@@ -156,9 +160,9 @@ void mel__coro_invoke(Mel_Coro_Context* ctx, Mel_Fiber_Cb cb, void* user)
     fs->counter.n = 0;
     fs->arg.n = 0;
 
-    fs->fiber    = mel_fiber_create(fs->stack_mem, cb);
+    fs->fiber = mel_fiber_create(fs->stack_mem, cb);
     fs->callback = cb;
-    fs->user     = user;
+    fs->user = user;
 
     mel__coro_add_list(&ctx->run_list, &ctx->run_list_last, fs);
 
@@ -231,17 +235,8 @@ static inline void mel__coro_return(Mel_Coro_Context* ctx, Mel_Fiber* pfrom, i32
     *pfrom = mel_fiber_switch(*pfrom, NULL).from;
 }
 
-void mel__coro_end(Mel_Coro_Context* ctx, Mel_Fiber* pfrom)
-{
-    mel__coro_return(ctx, pfrom, MEL_CORO_RET_END, 0);
-}
+void mel__coro_end(Mel_Coro_Context* ctx, Mel_Fiber* pfrom) { mel__coro_return(ctx, pfrom, MEL_CORO_RET_END, 0); }
 
-void mel__coro_wait(Mel_Coro_Context* ctx, Mel_Fiber* pfrom, i32 msecs)
-{
-    mel__coro_return(ctx, pfrom, MEL_CORO_RET_WAIT, msecs);
-}
+void mel__coro_wait(Mel_Coro_Context* ctx, Mel_Fiber* pfrom, i32 msecs) { mel__coro_return(ctx, pfrom, MEL_CORO_RET_WAIT, msecs); }
 
-void mel__coro_yield(Mel_Coro_Context* ctx, Mel_Fiber* pfrom, i32 nupdates)
-{
-    mel__coro_return(ctx, pfrom, MEL_CORO_RET_YIELD, nupdates);
-}
+void mel__coro_yield(Mel_Coro_Context* ctx, Mel_Fiber* pfrom, i32 nupdates) { mel__coro_return(ctx, pfrom, MEL_CORO_RET_YIELD, nupdates); }

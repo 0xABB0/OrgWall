@@ -1,14 +1,15 @@
 #include "mugen.cns.parse.h"
 
-typedef struct {
-    u32 attr;
-    u32 hitflag;
-    u32 guardflag;
-    u8 ground_type;
-    u8 air_type;
-    u8 animtype;
-    u8 air_animtype;
-    u8 fall_animtype;
+typedef struct
+{
+    u32         attr;
+    u32         hitflag;
+    u32         guardflag;
+    u8          ground_type;
+    u8          air_type;
+    u8          animtype;
+    u8          air_animtype;
+    u8          fall_animtype;
     Mugen_Expr* damage_hit;
     Mugen_Expr* damage_guard;
     Mugen_Expr* pausetime_p1;
@@ -62,169 +63,237 @@ typedef struct {
     Mugen_Expr* p2facing;
 } HitDef_Params;
 
-typedef struct {
+typedef struct
+{
     Mugen_Expr* x;
     Mugen_Expr* y;
 } HitVelSet_Params;
 
-typedef struct {
+typedef struct
+{
     Mugen_Expr* fall_xvel;
     Mugen_Expr* fall_yvel;
     Mugen_Expr* fall_recover;
     Mugen_Expr* fall_recovertime;
     Mugen_Expr* fall_damage;
     Mugen_Expr* fall_envshake_time;
-    i8 xvel_set;
-    i8 yvel_set;
+    i8          xvel_set;
+    i8          yvel_set;
 } HitFallSet_Params;
 
 static void hitdef_parse(Mugen_State_Controller* sc, str8 key, str8 val, const Mel_Alloc* alloc)
 {
-    if (!sc->params) sc->params = mcns_alloc_params(alloc, sizeof(HitDef_Params));
+    if (!sc->params)
+        sc->params = mcns_alloc_params(alloc, sizeof(HitDef_Params));
     HitDef_Params* p = sc->params;
 
-    if (str8_ieq_cstr(key, "attr")) p->attr = mcns_parse_attr(val);
-    else if (str8_ieq_cstr(key, "hitflag")) p->hitflag = mcns_parse_hitflag(val);
-    else if (str8_ieq_cstr(key, "guardflag")) p->guardflag = mcns_parse_hitflag(val);
-    else if (str8_ieq_cstr(key, "animtype")) p->animtype = mcns_parse_animtype(val);
-    else if (str8_ieq_cstr(key, "air.animtype")) p->air_animtype = mcns_parse_animtype(val);
-    else if (str8_ieq_cstr(key, "fall.animtype")) p->fall_animtype = mcns_parse_animtype(val);
-    else if (str8_ieq_cstr(key, "ground.type")) p->ground_type = mcns_parse_groundtype(val);
-    else if (str8_ieq_cstr(key, "air.type")) p->air_type = mcns_parse_groundtype(val);
+    if (str8_ieq_cstr(key, "attr"))
+        p->attr = mcns_parse_attr(val);
+    else if (str8_ieq_cstr(key, "hitflag"))
+        p->hitflag = mcns_parse_hitflag(val);
+    else if (str8_ieq_cstr(key, "guardflag"))
+        p->guardflag = mcns_parse_hitflag(val);
+    else if (str8_ieq_cstr(key, "animtype"))
+        p->animtype = mcns_parse_animtype(val);
+    else if (str8_ieq_cstr(key, "air.animtype"))
+        p->air_animtype = mcns_parse_animtype(val);
+    else if (str8_ieq_cstr(key, "fall.animtype"))
+        p->fall_animtype = mcns_parse_animtype(val);
+    else if (str8_ieq_cstr(key, "ground.type"))
+        p->ground_type = mcns_parse_groundtype(val);
+    else if (str8_ieq_cstr(key, "air.type"))
+        p->air_type = mcns_parse_groundtype(val);
     else if (str8_ieq_cstr(key, "damage"))
     {
         str8 rest;
         str8 hit = mcns_split_comma_first(val, &rest);
         p->damage_hit = mugen_expr_parse(hit, alloc);
-        if (rest.len > 0) p->damage_guard = mugen_expr_parse(rest, alloc);
+        if (rest.len > 0)
+            p->damage_guard = mugen_expr_parse(rest, alloc);
     }
     else if (str8_ieq_cstr(key, "pausetime"))
     {
         str8 rest;
         str8 p1 = mcns_split_comma_first(val, &rest);
         p->pausetime_p1 = mugen_expr_parse(p1, alloc);
-        if (rest.len > 0) p->pausetime_p2 = mugen_expr_parse(rest, alloc);
+        if (rest.len > 0)
+            p->pausetime_p2 = mugen_expr_parse(rest, alloc);
     }
     else if (str8_ieq_cstr(key, "guard.pausetime"))
     {
         str8 rest;
         str8 gp1 = mcns_split_comma_first(val, &rest);
         p->guard_pausetime_p1 = mugen_expr_parse(gp1, alloc);
-        if (rest.len > 0) p->guard_pausetime_p2 = mugen_expr_parse(rest, alloc);
+        if (rest.len > 0)
+            p->guard_pausetime_p2 = mugen_expr_parse(rest, alloc);
     }
-    else if (str8_ieq_cstr(key, "sparkno")) p->sparkno = mugen_expr_parse(val, alloc);
-    else if (str8_ieq_cstr(key, "guard.sparkno")) p->guard_sparkno = mugen_expr_parse(val, alloc);
+    else if (str8_ieq_cstr(key, "sparkno"))
+        p->sparkno = mugen_expr_parse(val, alloc);
+    else if (str8_ieq_cstr(key, "guard.sparkno"))
+        p->guard_sparkno = mugen_expr_parse(val, alloc);
     else if (str8_ieq_cstr(key, "sparkxy"))
     {
         str8 rest;
         str8 sx = mcns_split_comma_first(val, &rest);
         p->spark_x = mugen_expr_parse(sx, alloc);
-        if (rest.len > 0) p->spark_y = mugen_expr_parse(rest, alloc);
+        if (rest.len > 0)
+            p->spark_y = mugen_expr_parse(rest, alloc);
     }
     else if (str8_ieq_cstr(key, "hitsound"))
     {
         str8 rest;
         str8 grp = mcns_split_comma_first(val, &rest);
         p->hitsound_group = mugen_expr_parse(grp, alloc);
-        if (rest.len > 0) p->hitsound_index = mugen_expr_parse(rest, alloc);
+        if (rest.len > 0)
+            p->hitsound_index = mugen_expr_parse(rest, alloc);
     }
     else if (str8_ieq_cstr(key, "guardsound"))
     {
         str8 rest;
         str8 grp = mcns_split_comma_first(val, &rest);
         p->guardsound_group = mugen_expr_parse(grp, alloc);
-        if (rest.len > 0) p->guardsound_index = mugen_expr_parse(rest, alloc);
+        if (rest.len > 0)
+            p->guardsound_index = mugen_expr_parse(rest, alloc);
     }
-    else if (str8_ieq_cstr(key, "ground.slidetime")) p->ground_slidetime = mugen_expr_parse(val, alloc);
-    else if (str8_ieq_cstr(key, "ground.hittime")) p->ground_hittime = mugen_expr_parse(val, alloc);
+    else if (str8_ieq_cstr(key, "ground.slidetime"))
+        p->ground_slidetime = mugen_expr_parse(val, alloc);
+    else if (str8_ieq_cstr(key, "ground.hittime"))
+        p->ground_hittime = mugen_expr_parse(val, alloc);
     else if (str8_ieq_cstr(key, "ground.velocity"))
     {
         str8 rest;
         str8 vx = mcns_split_comma_first(val, &rest);
         p->ground_vel_x = mugen_expr_parse(vx, alloc);
-        if (rest.len > 0) p->ground_vel_y = mugen_expr_parse(rest, alloc);
+        if (rest.len > 0)
+            p->ground_vel_y = mugen_expr_parse(rest, alloc);
     }
-    else if (str8_ieq_cstr(key, "guard.slidetime")) p->guard_slidetime = mugen_expr_parse(val, alloc);
-    else if (str8_ieq_cstr(key, "guard.hittime")) p->guard_hittime = mugen_expr_parse(val, alloc);
-    else if (str8_ieq_cstr(key, "guard.ctrltime")) p->guard_ctrltime = mugen_expr_parse(val, alloc);
-    else if (str8_ieq_cstr(key, "guard.velocity")) p->guard_velocity = mugen_expr_parse(val, alloc);
+    else if (str8_ieq_cstr(key, "guard.slidetime"))
+        p->guard_slidetime = mugen_expr_parse(val, alloc);
+    else if (str8_ieq_cstr(key, "guard.hittime"))
+        p->guard_hittime = mugen_expr_parse(val, alloc);
+    else if (str8_ieq_cstr(key, "guard.ctrltime"))
+        p->guard_ctrltime = mugen_expr_parse(val, alloc);
+    else if (str8_ieq_cstr(key, "guard.velocity"))
+        p->guard_velocity = mugen_expr_parse(val, alloc);
     else if (str8_ieq_cstr(key, "air.velocity"))
     {
         str8 rest;
         str8 vx = mcns_split_comma_first(val, &rest);
         p->air_vel_x = mugen_expr_parse(vx, alloc);
-        if (rest.len > 0) p->air_vel_y = mugen_expr_parse(rest, alloc);
+        if (rest.len > 0)
+            p->air_vel_y = mugen_expr_parse(rest, alloc);
     }
     else if (str8_ieq_cstr(key, "airguard.velocity"))
     {
         str8 rest;
         str8 vx = mcns_split_comma_first(val, &rest);
         p->airguard_vel_x = mugen_expr_parse(vx, alloc);
-        if (rest.len > 0) p->airguard_vel_y = mugen_expr_parse(rest, alloc);
+        if (rest.len > 0)
+            p->airguard_vel_y = mugen_expr_parse(rest, alloc);
     }
-    else if (str8_ieq_cstr(key, "air.hittime")) p->air_hittime = mugen_expr_parse(val, alloc);
-    else if (str8_ieq_cstr(key, "air.fall")) p->air_fall = mugen_expr_parse(val, alloc);
-    else if (str8_ieq_cstr(key, "fall")) p->fall = mugen_expr_parse(val, alloc);
-    else if (str8_ieq_cstr(key, "fall.recover")) p->fall_recover = mugen_expr_parse(val, alloc);
-    else if (str8_ieq_cstr(key, "fall.recovertime")) p->fall_recovertime = mugen_expr_parse(val, alloc);
-    else if (str8_ieq_cstr(key, "fall.damage")) p->fall_damage = mugen_expr_parse(val, alloc);
-    else if (str8_ieq_cstr(key, "fall.xvelocity")) p->fall_vel_x = mugen_expr_parse(val, alloc);
-    else if (str8_ieq_cstr(key, "fall.yvelocity")) p->fall_vel_y = mugen_expr_parse(val, alloc);
-    else if (str8_ieq_cstr(key, "priority")) p->priority = mugen_expr_parse(val, alloc);
+    else if (str8_ieq_cstr(key, "air.hittime"))
+        p->air_hittime = mugen_expr_parse(val, alloc);
+    else if (str8_ieq_cstr(key, "air.fall"))
+        p->air_fall = mugen_expr_parse(val, alloc);
+    else if (str8_ieq_cstr(key, "fall"))
+        p->fall = mugen_expr_parse(val, alloc);
+    else if (str8_ieq_cstr(key, "fall.recover"))
+        p->fall_recover = mugen_expr_parse(val, alloc);
+    else if (str8_ieq_cstr(key, "fall.recovertime"))
+        p->fall_recovertime = mugen_expr_parse(val, alloc);
+    else if (str8_ieq_cstr(key, "fall.damage"))
+        p->fall_damage = mugen_expr_parse(val, alloc);
+    else if (str8_ieq_cstr(key, "fall.xvelocity"))
+        p->fall_vel_x = mugen_expr_parse(val, alloc);
+    else if (str8_ieq_cstr(key, "fall.yvelocity"))
+        p->fall_vel_y = mugen_expr_parse(val, alloc);
+    else if (str8_ieq_cstr(key, "priority"))
+        p->priority = mugen_expr_parse(val, alloc);
     else if (str8_ieq_cstr(key, "getpower"))
     {
         str8 rest;
         str8 hit = mcns_split_comma_first(val, &rest);
         p->getpower_hit = mugen_expr_parse(hit, alloc);
-        if (rest.len > 0) p->getpower_guard = mugen_expr_parse(rest, alloc);
+        if (rest.len > 0)
+            p->getpower_guard = mugen_expr_parse(rest, alloc);
     }
     else if (str8_ieq_cstr(key, "givepower"))
     {
         str8 rest;
         str8 hit = mcns_split_comma_first(val, &rest);
         p->givepower_hit = mugen_expr_parse(hit, alloc);
-        if (rest.len > 0) p->givepower_guard = mugen_expr_parse(rest, alloc);
+        if (rest.len > 0)
+            p->givepower_guard = mugen_expr_parse(rest, alloc);
     }
-    else if (str8_ieq_cstr(key, "p1stateno")) p->p1stateno = mugen_expr_parse(val, alloc);
-    else if (str8_ieq_cstr(key, "p2stateno")) p->p2stateno = mugen_expr_parse(val, alloc);
-    else if (str8_ieq_cstr(key, "p1facing")) p->p1facing = mugen_expr_parse(val, alloc);
-    else if (str8_ieq_cstr(key, "p2facing")) p->p2facing = mugen_expr_parse(val, alloc);
-    else if (str8_ieq_cstr(key, "p2getp1state")) p->p2getp1state = mugen_expr_parse(val, alloc);
-    else if (str8_ieq_cstr(key, "numhits")) p->numhits = mugen_expr_parse(val, alloc);
-    else if (str8_ieq_cstr(key, "hitonce")) p->hitonce = mugen_expr_parse(val, alloc);
-    else if (str8_ieq_cstr(key, "forcestand")) p->forcestand = mugen_expr_parse(val, alloc);
-    else if (str8_ieq_cstr(key, "ground.cornerpush.veloff")) p->ground_cornerpush = mugen_expr_parse(val, alloc);
-    else if (str8_ieq_cstr(key, "air.cornerpush.veloff")) p->air_cornerpush = mugen_expr_parse(val, alloc);
-    else if (str8_ieq_cstr(key, "guard.cornerpush.veloff")) p->guard_cornerpush = mugen_expr_parse(val, alloc);
-    else if (str8_ieq_cstr(key, "yaccel")) p->yaccel = mugen_expr_parse(val, alloc);
+    else if (str8_ieq_cstr(key, "p1stateno"))
+        p->p1stateno = mugen_expr_parse(val, alloc);
+    else if (str8_ieq_cstr(key, "p2stateno"))
+        p->p2stateno = mugen_expr_parse(val, alloc);
+    else if (str8_ieq_cstr(key, "p1facing"))
+        p->p1facing = mugen_expr_parse(val, alloc);
+    else if (str8_ieq_cstr(key, "p2facing"))
+        p->p2facing = mugen_expr_parse(val, alloc);
+    else if (str8_ieq_cstr(key, "p2getp1state"))
+        p->p2getp1state = mugen_expr_parse(val, alloc);
+    else if (str8_ieq_cstr(key, "numhits"))
+        p->numhits = mugen_expr_parse(val, alloc);
+    else if (str8_ieq_cstr(key, "hitonce"))
+        p->hitonce = mugen_expr_parse(val, alloc);
+    else if (str8_ieq_cstr(key, "forcestand"))
+        p->forcestand = mugen_expr_parse(val, alloc);
+    else if (str8_ieq_cstr(key, "ground.cornerpush.veloff"))
+        p->ground_cornerpush = mugen_expr_parse(val, alloc);
+    else if (str8_ieq_cstr(key, "air.cornerpush.veloff"))
+        p->air_cornerpush = mugen_expr_parse(val, alloc);
+    else if (str8_ieq_cstr(key, "guard.cornerpush.veloff"))
+        p->guard_cornerpush = mugen_expr_parse(val, alloc);
+    else if (str8_ieq_cstr(key, "yaccel"))
+        p->yaccel = mugen_expr_parse(val, alloc);
 }
 
 static void hitvelset_parse(Mugen_State_Controller* sc, str8 key, str8 val, const Mel_Alloc* alloc)
 {
-    if (!sc->params) sc->params = mcns_alloc_params(alloc, sizeof(HitVelSet_Params));
+    if (!sc->params)
+        sc->params = mcns_alloc_params(alloc, sizeof(HitVelSet_Params));
     HitVelSet_Params* p = sc->params;
-    if (str8_ieq_cstr(key, "x")) p->x = mugen_expr_parse(val, alloc);
-    else if (str8_ieq_cstr(key, "y")) p->y = mugen_expr_parse(val, alloc);
+    if (str8_ieq_cstr(key, "x"))
+        p->x = mugen_expr_parse(val, alloc);
+    else if (str8_ieq_cstr(key, "y"))
+        p->y = mugen_expr_parse(val, alloc);
 }
 
 static void hitfallset_parse(Mugen_State_Controller* sc, str8 key, str8 val, const Mel_Alloc* alloc)
 {
-    if (!sc->params) sc->params = mcns_alloc_params(alloc, sizeof(HitFallSet_Params));
+    if (!sc->params)
+        sc->params = mcns_alloc_params(alloc, sizeof(HitFallSet_Params));
     HitFallSet_Params* p = sc->params;
-    if (str8_ieq_cstr(key, "fall.xvel") || str8_ieq_cstr(key, "xvel")) { p->fall_xvel = mugen_expr_parse(val, alloc); p->xvel_set = 1; }
-    else if (str8_ieq_cstr(key, "fall.yvel") || str8_ieq_cstr(key, "yvel")) { p->fall_yvel = mugen_expr_parse(val, alloc); p->yvel_set = 1; }
-    else if (str8_ieq_cstr(key, "fall.recover")) p->fall_recover = mugen_expr_parse(val, alloc);
-    else if (str8_ieq_cstr(key, "fall.recovertime")) p->fall_recovertime = mugen_expr_parse(val, alloc);
-    else if (str8_ieq_cstr(key, "fall.damage")) p->fall_damage = mugen_expr_parse(val, alloc);
-    else if (str8_ieq_cstr(key, "fall.envshake.time")) p->fall_envshake_time = mugen_expr_parse(val, alloc);
+    if (str8_ieq_cstr(key, "fall.xvel") || str8_ieq_cstr(key, "xvel"))
+    {
+        p->fall_xvel = mugen_expr_parse(val, alloc);
+        p->xvel_set = 1;
+    }
+    else if (str8_ieq_cstr(key, "fall.yvel") || str8_ieq_cstr(key, "yvel"))
+    {
+        p->fall_yvel = mugen_expr_parse(val, alloc);
+        p->yvel_set = 1;
+    }
+    else if (str8_ieq_cstr(key, "fall.recover"))
+        p->fall_recover = mugen_expr_parse(val, alloc);
+    else if (str8_ieq_cstr(key, "fall.recovertime"))
+        p->fall_recovertime = mugen_expr_parse(val, alloc);
+    else if (str8_ieq_cstr(key, "fall.damage"))
+        p->fall_damage = mugen_expr_parse(val, alloc);
+    else if (str8_ieq_cstr(key, "fall.envshake.time"))
+        p->fall_envshake_time = mugen_expr_parse(val, alloc);
 }
 
 static void hitdef_exec(Mugen_State_Controller* sc, Mugen_Char_State* state)
 {
     HitDef_Params* p = sc->params;
-    if (!p) return;
+    if (!p)
+        return;
     Mugen_HitDef_Result* r = &state->hitdef;
-    *r = (Mugen_HitDef_Result){0};
+    *r = (Mugen_HitDef_Result){ 0 };
     r->active = true;
     r->attr = p->attr;
     r->hitflag = p->hitflag ? p->hitflag : (MUGEN_HF_M | MUGEN_HF_A | MUGEN_HF_F);
@@ -286,7 +355,8 @@ static void hitdef_exec(Mugen_State_Controller* sc, Mugen_Char_State* state)
 static void hitvelset_exec(Mugen_State_Controller* sc, Mugen_Char_State* state)
 {
     HitVelSet_Params* p = sc->params;
-    if (!p) return;
+    if (!p)
+        return;
     if (p->x && mugen_expr_eval(p->x, state) != 0.0f)
         state->vel_x = state->ghv.xvel;
     if (p->y && mugen_expr_eval(p->y, state) != 0.0f)
@@ -304,22 +374,28 @@ static void hitfalldamage_exec(Mugen_State_Controller* sc, Mugen_Char_State* sta
 {
     (void)sc;
     state->life -= (f32)state->ghv.fall_damage;
-    if (state->life < 0) state->life = 0;
+    if (state->life < 0)
+        state->life = 0;
 }
 
 static void hitfallset_exec(Mugen_State_Controller* sc, Mugen_Char_State* state)
 {
     HitFallSet_Params* p = sc->params;
-    if (!p) return;
-    if (p->xvel_set) state->ghv.fall_xvel = mugen_expr_eval(p->fall_xvel, state);
-    if (p->yvel_set) state->ghv.fall_yvel = mugen_expr_eval(p->fall_yvel, state);
-    if (p->fall_recover) state->ghv.fall_recover = mugen_expr_eval(p->fall_recover, state) != 0.0f;
-    if (p->fall_recovertime) state->ghv.fall_recovertime = (i32)mugen_expr_eval(p->fall_recovertime, state);
-    if (p->fall_damage) state->ghv.fall_damage = (i32)mugen_expr_eval(p->fall_damage, state);
+    if (!p)
+        return;
+    if (p->xvel_set)
+        state->ghv.fall_xvel = mugen_expr_eval(p->fall_xvel, state);
+    if (p->yvel_set)
+        state->ghv.fall_yvel = mugen_expr_eval(p->fall_yvel, state);
+    if (p->fall_recover)
+        state->ghv.fall_recover = mugen_expr_eval(p->fall_recover, state) != 0.0f;
+    if (p->fall_recovertime)
+        state->ghv.fall_recovertime = (i32)mugen_expr_eval(p->fall_recovertime, state);
+    if (p->fall_damage)
+        state->ghv.fall_damage = (i32)mugen_expr_eval(p->fall_damage, state);
 }
 
-__attribute__((constructor))
-static void register_hit(void)
+__attribute__((constructor)) static void register_hit(void)
 {
     mugen_sc_register(MUGEN_SC_HITDEF, "hitdef", hitdef_parse, hitdef_exec);
     mugen_sc_register(MUGEN_SC_HITVELSET, "hitvelset", hitvelset_parse, hitvelset_exec);
