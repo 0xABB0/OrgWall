@@ -30,7 +30,7 @@ EM_JS(void, mel_web__tab_add_button, (int tv, int bar, int index, const char* ti
         return;
     const btn = document.createElement('button');
     btn.textContent = UTF8ToString(title);
-    btn.addEventListener('click', () = > { _mel_web__ev_select(tv, index); });
+    btn.addEventListener('click', () => { _mel_web__ev_select(tv, index); });
     b.appendChild(btn);
 });
 EM_JS(void, mel_web__tab_show, (int pages, int index), {
@@ -38,7 +38,7 @@ EM_JS(void, mel_web__tab_show, (int pages, int index), {
     if (!p)
         return;
     for (let i = 0; i < p.children.length; i++)
-        p.children[i].style.display = (i == = index) ? 'block' : 'none';
+        p.children[i].style.display = (i === index) ? 'block' : 'none';
 });
 EM_JS(void, mel_web__flex_item, (int id, int basis, int vertical), {
     const el = MelWeb.els[id];

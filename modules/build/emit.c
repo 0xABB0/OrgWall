@@ -288,7 +288,7 @@ static char* emit_one(FILE* f, Mel_Graph* g, size_t idx, const Mel_Variant* v, M
                 mel_da_push(&ldflags, mel_str_fmt("-l%s", win32_libs[li]));
         }
 
-        Mel_StrVec libs = { 0 };
+        Mel_StrVec libs = { 0 }, lib_deps = { 0 };
         if (order)
         {
             for (size_t i = 0; i < order->len; i++)
@@ -298,7 +298,22 @@ static char* emit_one(FILE* f, Mel_Graph* g, size_t idx, const Mel_Variant* v, M
                 if (di != idx && d->kind == MEL_KIND_LIBRARY && produced_has(produced, d->name))
                 {
                     char* od = mel_target_outdir(d->dir, v);
-                    mel_da_push(&libs, mel_str_fmt("%s/lib%s.a", od, d->name));
+                    char* lib = mel_str_fmt("%s/lib%s.a", od, d->name);
+                    bool  whole = false;
+                    for (size_t k = 0; k < d->whole_archive.len && !whole; k++)
+                        whole = mel_when_match(d->whole_archive.items[k], v);
+                    if (whole && apple_ld)
+                        mel_da_push(&libs, mel_str_fmt("-Wl,-force_load,%s", lib));
+                    else if (whole)
+                    {
+                        mel_da_push(&libs, mel_str_dup("-Wl,--whole-archive"));
+                        mel_da_push(&libs, mel_str_dup(lib));
+                        mel_da_push(&libs, mel_str_dup("-Wl,--no-whole-archive"));
+                    }
+                    else
+                        mel_da_push(&libs, mel_str_dup(lib));
+                    mel_da_push(&lib_deps, mel_str_dup(lib));
+                    free(lib);
                     free(od);
                 }
             }
@@ -307,6 +322,12 @@ static char* emit_one(FILE* f, Mel_Graph* g, size_t idx, const Mel_Variant* v, M
         char* bin = android_so ? mel_str_fmt("%s/libmelody.so", outdir) : mel_str_fmt("%s/%s%s", outdir, t->name, ext);
         fprintf(f, "build %s: %s", bin, host ? "hostlink" : "link");
         join_into(f, &objs);
+        if (lib_deps.len)
+        {
+            fputs(" |", f);
+            join_into(f, &lib_deps);
+        }
+        fprintf(f, "\n  libs =");
         join_into(f, &libs);
         fprintf(f, "\n  ldflags =%s", host ? "" : " $base_ldflags");
         join_into(f, &ldflags);
@@ -368,8 +389,8 @@ bool mel_emit_and_build(Mel_Graph* g, const char* root, const Mel_Variant* v, bo
 #else
     fputs("rule ar\n  command = rm -f $out && $ar rcs $out $in\n  description = AR $out\n\n", f);
 #endif
-    fputs("rule link\n  command = $cc $in $ldflags -o $out\n  description = LINK $out\n\n", f);
-    fputs("rule hostlink\n  command = clang $in $ldflags -o $out\n  description = LINK(host) $out\n\n", f);
+    fputs("rule link\n  command = $cc $in $libs $ldflags -o $out\n  description = LINK $out\n\n", f);
+    fputs("rule hostlink\n  command = clang $in $libs $ldflags -o $out\n  description = LINK(host) $out\n\n", f);
     fputs("rule codegen\n  command = $cmd\n  description = GEN $out\n\n", f);
 
     Mel_StrVec produced = { 0 };

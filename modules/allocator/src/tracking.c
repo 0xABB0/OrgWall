@@ -9,7 +9,14 @@
 #include <stdlib.h>
 #include <string.h>
 
-#if defined(__APPLE__) || defined(__linux__)
+#if defined(__ANDROID__)
+#if __ANDROID_API__ >= 33
+#include <execinfo.h>
+#define MEL__TRACK_HAS_BACKTRACE 1
+#else
+#define MEL__TRACK_HAS_BACKTRACE 0
+#endif
+#elif defined(__APPLE__) || defined(__linux__)
 #include <execinfo.h>
 #define MEL__TRACK_HAS_BACKTRACE 1
 #elif defined(_WIN32)

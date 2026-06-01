@@ -90,6 +90,7 @@ struct Mel_Target
     Mel_StrVec     deps;
     Mel_StrVec     host_deps;
     Mel_WhenVec    unavailable;
+    Mel_WhenVec    whole_archive;
     Mel_GlobVec    sources;
     Mel_GlobVec    excludes;
     Mel_FlagVec    cflags;

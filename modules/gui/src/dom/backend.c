@@ -10,7 +10,7 @@
 EM_JS(void, mel_web__js_init, (void), {
     globalThis.MelWeb = {
         els : [null],
-        css : (v) = > 'rgba(' + ((v >>> 24) & 255) + ',' + ((v >>> 16) & 255) + ',' + ((v >>> 8) & 255) + ',' + (((v) & 255) / 255) + ')',
+        css : (v) => 'rgba(' + ((v >>> 24) & 255) + ',' + ((v >>> 16) & 255) + ',' + ((v >>> 8) & 255) + ',' + (((v) & 255) / 255) + ')',
     };
     const style = document.createElement('style');
     style.textContent = '.mel-frame{background:#2b2b2b;color:#e0e0e0;overflow:hidden;font-size:14px}' + '.mel-label{display:flex;align-items:center;white-space:pre-wrap;color:#e0e0e0;font-size:14px}' +
@@ -35,7 +35,7 @@ EM_JS(int, mel_web__el_create, (const char* tag), {
 
 EM_JS(void, mel_web__el_append, (int parent, int child), {
     const c = MelWeb.els[child];
-    const p = parent == = 0 ? (document.getElementById('mel-root') || document.body) : MelWeb.els[parent];
+    const p = parent === 0 ? (document.getElementById('mel-root') || document.body) : MelWeb.els[parent];
     if (p && c)
         p.appendChild(c);
 });
@@ -127,30 +127,30 @@ EM_JS(void, mel_web__el_destroy, (int id), {
 EM_JS(void, mel_web__on_click, (int id), {
     const el = MelWeb.els[id];
     if (el)
-        el.addEventListener('click', () = > _mel_web__ev_click(id));
+        el.addEventListener('click', () => _mel_web__ev_click(id));
 });
 EM_JS(void, mel_web__on_input, (int id), {
     const el = MelWeb.els[id];
     if (el)
-        el.addEventListener('input', () = > _mel_web__ev_input(id));
+        el.addEventListener('input', () => _mel_web__ev_input(id));
 });
 EM_JS(void, mel_web__on_check, (int id), {
     const el = MelWeb.els[id];
     const i = el && el.querySelector('input');
     if (i)
-        i.addEventListener('change', () = > _mel_web__ev_check(id));
+        i.addEventListener('change', () => _mel_web__ev_check(id));
 });
 EM_JS(void, mel_web__on_slider, (int id), {
     const el = MelWeb.els[id];
     if (el)
-        el.addEventListener('input', () = > _mel_web__ev_slider(id));
+        el.addEventListener('input', () => _mel_web__ev_slider(id));
 });
 EM_JS(void, mel_web__on_focus, (int id), {
     const el = MelWeb.els[id];
     if (!el)
         return;
-    el.addEventListener('focus', () = > _mel_web__ev_focus(id, 1));
-    el.addEventListener('blur', () = > _mel_web__ev_focus(id, 0));
+    el.addEventListener('focus', () => _mel_web__ev_focus(id, 1));
+    el.addEventListener('blur', () => _mel_web__ev_focus(id, 0));
 });
 EM_JS(void, mel_web__on_pointer, (int id), {
     const el = MelWeb.els[id];
@@ -163,7 +163,7 @@ EM_JS(void, mel_web__on_pointer, (int id), {
     };
     el.addEventListener(
         'pointerdown',
-        (e) = > {
+        (e) => {
             const p = xy(e);
             if (el.setPointerCapture)
                 el.setPointerCapture(e.pointerId);
@@ -171,13 +171,13 @@ EM_JS(void, mel_web__on_pointer, (int id), {
         });
     el.addEventListener(
         'pointermove',
-        (e) = > {
+        (e) => {
             const p = xy(e);
             _mel_web__ev_pointer(id, 1, p[0], p[1]);
         });
     el.addEventListener(
         'pointerup',
-        (e) = > {
+        (e) => {
             const p = xy(e);
             _mel_web__ev_pointer(id, 2, p[0], p[1]);
         });
@@ -186,8 +186,8 @@ EM_JS(void, mel_web__on_key, (int id), {
     const el = MelWeb.els[id];
     if (!el)
         return;
-    el.addEventListener('keydown', (e) = > _mel_web__ev_key(id, 1, e.keyCode | 0, 0));
-    el.addEventListener('keyup', (e) = > _mel_web__ev_key(id, 0, e.keyCode | 0, 0));
+    el.addEventListener('keydown', (e) => _mel_web__ev_key(id, 1, e.keyCode | 0, 0));
+    el.addEventListener('keyup', (e) => _mel_web__ev_key(id, 0, e.keyCode | 0, 0));
 });
 
 // =============================================================================
@@ -389,7 +389,7 @@ EMSCRIPTEN_KEEPALIVE void mel_web__ev_select(int id, int index)
 // so the URL can lead the stack by one entry — a known sync gap to refine.
 EM_JS(void, mel_web__history_push, (void), { history.pushState({}, ''); });
 
-EM_JS(void, mel_web__history_init, (void), { window.addEventListener('popstate', () = > _mel_web__ev_popstate()); });
+EM_JS(void, mel_web__history_init, (void), { window.addEventListener('popstate', () => _mel_web__ev_popstate()); });
 
 EMSCRIPTEN_KEEPALIVE void mel_web__ev_popstate(void) { mel_gui__nav_os_back(); }
 
@@ -422,11 +422,17 @@ void mel_gui_set_text(Mel_Gui_Handle h, str8 text)
     Mel_Gui_Node* n = mel_gui__node(h);
     if (!n)
         return;
+    char buf[2048];
+    mel_web__cstr(text, buf, sizeof buf);
+    if (n->is_screen)
+    {
+        n->screen_title = text;
+        mel_web__el_title(buf);
+        return;
+    }
     int id = mel_web__id_of(n);
     if (!id)
         return;
-    char buf[2048];
-    mel_web__cstr(text, buf, sizeof buf);
     Mel_Web_Ctl* c = mel_web__ctl(id);
     Mel_Web_Kind k = c ? c->kind : MEL_WEB_TEXT;
     if (k == MEL_WEB_FRAME)

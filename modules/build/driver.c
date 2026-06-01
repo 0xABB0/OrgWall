@@ -87,6 +87,74 @@ static int spawn(const char* prog, char** args, int nargs)
     return rc;
 }
 
+static char* android_emulator_bin(void)
+{
+    const char* sdk = getenv("ANDROID_HOME");
+    if (!sdk)
+        sdk = getenv("ANDROID_SDK_ROOT");
+    char* root = sdk ? mel_str_dup(sdk) : mel_str_fmt("%s/Library/Android/sdk", getenv("HOME"));
+    char* bin = mel_str_fmt("%s/emulator/emulator", root);
+    free(root);
+    if (mel_path_is_file(bin))
+        return bin;
+    free(bin);
+    return mel_str_dup("emulator");
+}
+
+static char* android_emulator_serial(void)
+{
+    return sim_capture("adb devices | awk '/^emulator-/ && $2 == \"device\" { print $1; exit }'");
+}
+
+static char* android_boot_emu(const char* avd)
+{
+    char* serial = android_emulator_serial();
+    if (*serial)
+    {
+        fprintf(stderr, "nob: emulator %s already running\n", serial);
+        return serial;
+    }
+    free(serial);
+
+    char* emu = android_emulator_bin();
+    char* name;
+    if (avd)
+        name = mel_str_dup((char*)avd);
+    else
+    {
+        char* lc = mel_str_fmt("%s -list-avds | head -1", emu);
+        name = sim_capture(lc);
+        free(lc);
+    }
+    if (!*name)
+    {
+        fprintf(stderr, "nob: no Android AVD found; create one with avdmanager\n");
+        free(emu);
+        free(name);
+        return NULL;
+    }
+
+    fprintf(stderr, "nob: booting emulator %s\n", name);
+    char* cmd = mel_str_fmt("%s -avd %s >/dev/null 2>&1 & adb wait-for-device shell "
+                            "'while [ \"$(getprop sys.boot_completed)\" != 1 ]; do sleep 1; done'",
+                            emu,
+                            name);
+    system(cmd);
+    free(cmd);
+    free(emu);
+    free(name);
+
+    serial = android_emulator_serial();
+    if (!*serial)
+    {
+        fprintf(stderr, "nob: emulator failed to come online\n");
+        free(serial);
+        return NULL;
+    }
+    fprintf(stderr, "nob: emulator %s ready\n", serial);
+    return serial;
+}
+
 static int launch_ios_sim(Mel_Target* t, const char* out)
 {
     char* udid = sim_capture("xcrun simctl list devices booted | grep -Eo "
@@ -148,8 +216,23 @@ static int launch(Mel_Graph* g, const char* target, const Mel_Variant* v, const 
         return launch_ios_sim(t, out);
     if (v->platform == MEL_PLATFORM_ANDROID && out)
     {
+        char* serial = NULL;
+        if (v->simulator)
+        {
+            serial = android_boot_emu(mf_get(t, "AVD", NULL));
+            if (!serial)
+                return 1;
+        }
         char* apk = mel_str_fmt("%s/android/app/build/outputs/apk/melody/debug/app-melody-debug.apk", out);
         char* act = mel_str_fmt("%s/orgwall.melody.platform.MelodyActivity", mf_get(t, "BUNDLE_ID", t->name));
+        if (serial && *serial)
+        {
+            char* iargs[] = { "-s", serial, "install", "-r", apk };
+            if (spawn("adb", iargs, 5) != 0)
+                return 1;
+            char* sargs[] = { "-s", serial, "shell", "am", "start", "-n", act };
+            return spawn("adb", sargs, 7);
+        }
         char* iargs[] = { "install", "-r", apk };
         if (spawn("adb", iargs, 3) != 0)
             return 1;

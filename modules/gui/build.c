@@ -10,6 +10,7 @@ void build(Mel_Build* b)
     mel_sources(lib, WHEN(.backend = "dom"), "src/dom/*.c");
     mel_sources(lib, WHEN(.backend = "winui"), "src/winui/*.c");
     mel_sources(lib, WHEN(.backend = "androidnative"), "src/androidnative/*.c");
+    mel_whole_archive(lib, WHEN(.platforms = MEL_ON(ANDROID)));
     mel_android_namespace(lib, "orgwall.melody.platform");
     mel_android_java(lib, "src/androidnative/java");
     mel_link(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(MACOS)), "-framework", "Cocoa", "-framework", "QuartzCore", "-framework", "CoreGraphics");

@@ -54,6 +54,7 @@ MEL_API Mel_Target* mel_add_test(Mel_Build* b, const char* name);
 MEL_API void mel_depends(Mel_Target* t, const char* name);
 MEL_API void mel_depends_host(Mel_Target* t, const char* name);
 MEL_API void mel_unavailable(Mel_Target* t, Mel_When when);
+MEL_API void mel_whole_archive(Mel_Target* t, Mel_When when);
 MEL_API void mel_manifest(Mel_Target* t, const char* key, const char* value);
 MEL_API void mel_subsystem(Mel_Target* t, const char* subsystem);
 MEL_API void mel_android_manifest(Mel_Target* t, const char* path);

@@ -196,10 +196,28 @@ void mel_gui__backend_destroy(Mel_Gui_Node* n)
 void mel_gui_set_text(Mel_Gui_Handle h, str8 text)
 {
     Mel_Gui_Node* n = mel_gui__node(h);
-    if (!n || !n->native)
+    if (!n)
         return;
     JNIEnv* env = mel_gui__android_env();
     if (!env)
+        return;
+
+    if (n->is_screen)
+    {
+        n->screen_title = text;
+        Mel_Gui_Node* top = mel_gui__node(mel_gui__toplevel(h));
+        if (top && top->native)
+        {
+            jstring s = mel_gui__android_jstring(env, text);
+            (*env)->CallVoidMethod(env, (jobject)top->native, g_a.view_setTag, s);
+            if (!top->hidden)
+                (*env)->CallStaticVoidMethod(env, g_a.mel_cls, g_a.mel_setActivityTitle, s);
+            (*env)->DeleteLocalRef(env, s);
+        }
+        return;
+    }
+
+    if (!n->native)
         return;
 
     jobject view = (jobject)n->native;
@@ -230,6 +248,9 @@ size mel_gui_get_text(Mel_Gui_Handle h, char* buf, size cap)
     JNIEnv* env = mel_gui__android_env();
     if (!env)
         return 0;
+
+    if (n->is_screen)
+        return str8_to_buf(n->screen_title, buf, cap);
 
     jobject view = (jobject)n->native;
     jobject cs = mel_gui__is_toplevel(n) ? (*env)->CallObjectMethod(env, view, g_a.view_getTag) : (*env)->CallObjectMethod(env, view, g_a.tv_getText);

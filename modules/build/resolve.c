@@ -46,6 +46,7 @@ Mel_Variant mel_variant_native(Mel_Platform platform, const char* config)
         v.backend = "androidnative";
         v.gpu = "vulkan";
         v.arch = "arm64";
+        v.simulator = true;
         break;
     case MEL_PLATFORM_WIN32:
         v.backend = "winui";
