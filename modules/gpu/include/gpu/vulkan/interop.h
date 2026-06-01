@@ -1,0 +1,21 @@
+#pragma once
+
+#include <vulkan/vulkan.h>
+
+#include <gpu/device.h>
+#include <gpu/queue.h>
+#include <gpu/buffer.h>
+#include <gpu/command.h>
+#include <gpu/sync.h>
+
+VkInstance       mel_gpu_vk_instance(Mel_Gpu_Instance* inst);
+VkPhysicalDevice mel_gpu_vk_physical_device(Mel_Gpu_Device* dev);
+VkDevice         mel_gpu_vk_device(Mel_Gpu_Device* dev);
+VkQueue          mel_gpu_vk_queue(Mel_Gpu_Queue* q);
+VkCommandBuffer  mel_gpu_vk_command_buffer(Mel_Gpu_Command_List* cmd);
+VkBuffer         mel_gpu_vk_buffer(Mel_Gpu_Device* dev, Mel_Gpu_Buffer buf);
+VkSemaphore      mel_gpu_vk_semaphore(Mel_Gpu_Device* dev, Mel_Gpu_Sync sync);
+
+Mel_Gpu_Sync mel_gpu_sync_import(Mel_Gpu_Device* dev, VkSemaphore native, bool timeline);
+
+void mel_gpu_cmd_assume_state(Mel_Gpu_Command_List* cmd);

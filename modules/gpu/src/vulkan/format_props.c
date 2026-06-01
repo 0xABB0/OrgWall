@@ -43,6 +43,12 @@ Mel_Gpu_Format_Properties mel_gpu_format_properties(Mel_Gpu_Device* dev, Mel_Gpu
     out.tiling_features = mel_gpu__map_format_features(primary);
     out.linear_tiling_features = mel_gpu__map_format_features(fp.linearTilingFeatures);
     out.buffer_features = (fp.bufferFeatures & VK_FORMAT_FEATURE_VERTEX_BUFFER_BIT) ? MEL_GPU_FMT_VERTEX_BUFFER : 0;
-    out.sample_counts = 0;
+
+    VkImageTiling           vktiling = tiling == MEL_GPU_TILING_LINEAR ? VK_IMAGE_TILING_LINEAR : VK_IMAGE_TILING_OPTIMAL;
+    VkImageUsageFlags       usage = (mel_gpu_format_is_depth(format) ? VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT : VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT) | VK_IMAGE_USAGE_SAMPLED_BIT;
+    VkImageFormatProperties ifp;
+    if (vkGetPhysicalDeviceImageFormatProperties(dev->phys, mel_gpu__vk_format(format), VK_IMAGE_TYPE_2D, vktiling, usage, 0, &ifp) == VK_SUCCESS)
+        out.sample_counts = (u32)ifp.sampleCounts;
+
     return out;
 }

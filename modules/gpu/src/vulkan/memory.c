@@ -4,6 +4,8 @@
 #include <allocator/buddy.h>
 #include <log/log.h>
 
+#include <stdatomic.h>
+
 #define MEL_GPU_BLOCK_SIZE          (64ull * 1024 * 1024)
 #define MEL_GPU_DEDICATED_THRESHOLD (32ull * 1024 * 1024)
 #define MEL_GPU_MIN_BLOCK           256ull
@@ -23,7 +25,16 @@ struct Mel_Gpu_Allocator
     Mel_Gpu_Device*    dev;
     Mel_Mutex          lock;
     Mel_Gpu_Mem_Block* blocks;
+    _Atomic(u64)       used;
 };
+
+static void mel_gpu__usage_add(Mel_Gpu_Device* dev, u64 bytes)
+{
+    u64 used = atomic_fetch_add(&dev->allocator->used, bytes) + bytes;
+    u64 budget = dev->caps.memory.device_local_bytes;
+    if (budget && used > budget && dev->budget_pressure_cb)
+        dev->budget_pressure_cb(dev, (Mel_Gpu_Memory_Budget){ .budget_bytes = budget, .usage_bytes = used }, dev->budget_pressure_user);
+}
 
 void mel_gpu__allocator_init(Mel_Gpu_Device* dev)
 {
@@ -134,6 +145,7 @@ bool mel_gpu__mem_alloc(Mel_Gpu_Device* dev, VkMemoryRequirements req, VkMemoryP
         out->size = req.size;
         out->mapped = mapped;
         out->block = NULL;
+        mel_gpu__usage_add(dev, req.size);
         return true;
     }
 
@@ -154,6 +166,7 @@ bool mel_gpu__mem_alloc(Mel_Gpu_Device* dev, VkMemoryRequirements req, VkMemoryP
         out->mapped = b->mapped ? (u8*)b->mapped + offset : NULL;
         out->block = b;
         mel_mutex_unlock(&a->lock);
+        mel_gpu__usage_add(dev, req.size);
         return true;
     }
 
@@ -177,6 +190,7 @@ bool mel_gpu__mem_alloc(Mel_Gpu_Device* dev, VkMemoryRequirements req, VkMemoryP
     out->mapped = b->mapped ? (u8*)b->mapped + offset : NULL;
     out->block = b;
     mel_mutex_unlock(&a->lock);
+    mel_gpu__usage_add(dev, req.size);
     return true;
 }
 
@@ -185,15 +199,42 @@ Mel_Gpu_Memory_Budget mel_gpu_memory_budget(Mel_Gpu_Device* dev)
     Mel_Gpu_Memory_Budget b = { 0 };
     if (!dev)
         return b;
+
+    if (dev->has_memory_budget)
+    {
+        VkPhysicalDeviceMemoryBudgetPropertiesEXT bp = { .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_BUDGET_PROPERTIES_EXT };
+        VkPhysicalDeviceMemoryProperties2         mp = { .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_PROPERTIES_2, .pNext = &bp };
+        vkGetPhysicalDeviceMemoryProperties2(dev->phys, &mp);
+        for (u32 i = 0; i < mp.memoryProperties.memoryHeapCount; i++)
+        {
+            if (mp.memoryProperties.memoryHeaps[i].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT)
+            {
+                b.budget_bytes += bp.heapBudget[i];
+                b.usage_bytes += bp.heapUsage[i];
+            }
+        }
+        return b;
+    }
+
     b.budget_bytes = dev->caps.memory.device_local_bytes;
-    b.usage_bytes = 0;
+    b.usage_bytes = atomic_load(&dev->allocator->used);
     return b;
+}
+
+void mel_gpu_set_budget_pressure_callback(Mel_Gpu_Device* dev, Mel_Gpu_Budget_Pressure_Fn cb, void* user)
+{
+    if (!dev)
+        return;
+    dev->budget_pressure_cb = cb;
+    dev->budget_pressure_user = user;
 }
 
 void mel_gpu__mem_free(Mel_Gpu_Device* dev, Mel_Gpu_Allocation* a)
 {
     if (!a || a->mem == VK_NULL_HANDLE)
         return;
+
+    atomic_fetch_sub(&dev->allocator->used, a->size);
 
     if (a->block == NULL)
     {

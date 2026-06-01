@@ -150,12 +150,50 @@ void mel_gpu_buffer_destroy(Mel_Gpu_Device* dev, Mel_Gpu_Buffer buf)
     Mel_Gpu_Buffer_Obj* o = mel_gpu__table_get(dev, &dev->buffers, buf.slot);
     if (!o)
         return;
+    bool               borrowed = o->header.ownership == MEL_GPU_OWNERSHIP_BORROWED;
     Mel_Gpu_Allocation alloc = o->alloc;
     VkBuffer           vk = o->buf;
     mel_gpu__table_remove(dev, &dev->buffers, buf.slot);
+    if (borrowed)
+        return;
     if (vk)
         vkDestroyBuffer(dev->vk, vk, NULL);
     mel_gpu__mem_free(dev, &alloc);
+}
+
+u32 mel_gpu_buffer_make_resident(Mel_Gpu_Device* dev, Mel_Gpu_Buffer buf)
+{
+    (void)buf;
+    if (dev->caps.memory.residency_control < MEL_GPU_RESIDENCY_EXPLICIT)
+    {
+        mel_log_warn("gpu", "make_resident: explicit residency unavailable on this device; no-op");
+        return MEL_GPU_STATUS(1, MEL_GPU_SEVERITY_WARNED);
+    }
+    return MEL_GPU_STATUS(0, MEL_GPU_SEVERITY_OK);
+}
+
+u32 mel_gpu_buffer_evict(Mel_Gpu_Device* dev, Mel_Gpu_Buffer buf)
+{
+    (void)buf;
+    if (dev->caps.memory.residency_control < MEL_GPU_RESIDENCY_EXPLICIT)
+    {
+        mel_log_warn("gpu", "evict: explicit residency unavailable on this device; no-op");
+        return MEL_GPU_STATUS(1, MEL_GPU_SEVERITY_WARNED);
+    }
+    return MEL_GPU_STATUS(0, MEL_GPU_SEVERITY_OK);
+}
+
+Mel_Gpu_Buffer mel_gpu_buffer_import(Mel_Gpu_Device* dev, void* native_buffer, usize size, const char* name)
+{
+    Mel_Gpu_Buffer_Obj obj = { 0 };
+    obj.header.ownership = MEL_GPU_OWNERSHIP_BORROWED;
+    obj.header.name = name;
+    obj.buf = (VkBuffer)native_buffer;
+    obj.size = size;
+    obj.host_visible = false;
+    obj.alloc = (Mel_Gpu_Allocation){ 0 };
+    Mel_Gpu_Buffer h = { mel_gpu__table_insert(dev, &dev->buffers, &obj) };
+    return h;
 }
 
 bool mel_gpu_buffer_alive(Mel_Gpu_Device* dev, Mel_Gpu_Buffer buf) { return mel_gpu__table_get(dev, &dev->buffers, buf.slot) != NULL; }

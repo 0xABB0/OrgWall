@@ -6,7 +6,7 @@
 
 #include "gpu_host.h"
 
-typedef struct
+typedef struct Gpu_Window
 {
     const Graphical_App*   app;
     Mel_Gui_Handle         frame;
@@ -16,11 +16,31 @@ typedef struct
     Mel_Gpu_Render_Source* source;
     void*                  state;
     i32                    width, height;
+    struct Gpu_Window*     next;
 } Gpu_Window;
 
 static Mel_Reactor*      g_reactor;
 static Mel_Gpu_Instance* g_instance;
 static Mel_Gpu_Device*   g_device;
+static Gpu_Window*       g_windows;
+
+static void teardown(Gpu_Window* w);
+
+static void gpu_host_shutdown(void)
+{
+    for (Gpu_Window* w = g_windows; w; w = w->next)
+        teardown(w);
+    if (g_device)
+    {
+        mel_gpu_device_destroy(g_device);
+        g_device = NULL;
+    }
+    if (g_instance)
+    {
+        mel_gpu_instance_destroy(g_instance);
+        g_instance = NULL;
+    }
+}
 
 void gpu_host_init(Mel_Reactor* reactor)
 {
@@ -37,6 +57,8 @@ void gpu_host_init(Mel_Reactor* reactor)
 
     Mel_Gpu_Device_Create_Result dr = mel_gpu_device_create(g_instance, adapters[0], .reactor = reactor, .features = { .timeline_semaphores = true });
     g_device = dr.value;
+
+    atexit(gpu_host_shutdown);
 }
 
 static void window_render(Mel_Gpu_Swapchain* sc, f64 dt, void* user)
@@ -129,6 +151,8 @@ void gpu_host_open(const Graphical_App* app)
 
     Gpu_Window* w = calloc(1, sizeof *w);
     w->app = app;
+    w->next = g_windows;
+    g_windows = w;
 
     w->frame = mel_frame_create(.title = str8_from_cstr(app->title), .w = 640, .h = 480);
     mel_gui_set_layout(w->frame, mel_column_layout(.spacing = 8, .margin = 12, .cross_align = MEL_ALIGN_STRETCH));

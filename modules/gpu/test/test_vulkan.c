@@ -6,7 +6,9 @@
 #include <gpu/caps.h>
 #include <gpu/buffer.h>
 #include <gpu/queue.h>
+#include <gpu/memory.h>
 #include <gpu/format_props.h>
+#include <gpu/vulkan/interop.h>
 
 static Mel_Gpu_Device* test_make_device(Mel_Gpu_Instance** out_inst)
 {
@@ -129,6 +131,69 @@ MEL_TEST(vk_format, color_attachment_supported)
     Mel_Gpu_Format_Properties fp = mel_gpu_format_properties(dev, MEL_GPU_FORMAT_BGRA8_UNORM, MEL_GPU_TILING_OPTIMAL);
     MEL_EXPECT(fp.tiling_features & MEL_GPU_FMT_COLOR_ATTACHMENT);
     MEL_EXPECT(fp.tiling_features & MEL_GPU_FMT_SAMPLED);
+    MEL_EXPECT(fp.sample_counts != 0);
+
+    mel_gpu_device_destroy(dev);
+    mel_gpu_instance_destroy(inst);
+}
+
+MEL_TEST(vk_residency, budget_and_caps)
+{
+    Mel_Gpu_Instance* inst = NULL;
+    Mel_Gpu_Device*   dev = test_make_device(&inst);
+    MEL_REQUIRE_NOT_NULL(dev);
+
+    const Mel_Gpu_Caps* caps = mel_gpu_device_caps(dev);
+    MEL_EXPECT(caps->memory.residency_control == MEL_GPU_RESIDENCY_NONE || caps->memory.residency_control == MEL_GPU_RESIDENCY_BUDGET_ONLY);
+
+    Mel_Gpu_Memory_Budget b = mel_gpu_memory_budget(dev);
+    MEL_EXPECT(b.budget_bytes > 0);
+
+    Mel_Gpu_Buffer_Create_Result buf = mel_gpu_buffer_create(dev, .size = 4096, .usage = MEL_GPU_BUFFER_VERTEX, .memory = MEL_GPU_MEMORY_DEVICE, .name = "resident");
+    MEL_REQUIRE(!mel_gpu_failed(buf.status));
+    MEL_EXPECT(mel_gpu_warned(mel_gpu_buffer_make_resident(dev, buf.value)));
+    MEL_EXPECT(mel_gpu_warned(mel_gpu_buffer_evict(dev, buf.value)));
+    mel_gpu_buffer_destroy(dev, buf.value);
+
+    mel_gpu_device_destroy(dev);
+    mel_gpu_instance_destroy(inst);
+}
+
+MEL_TEST(vk_interop, buffer_import_borrowed)
+{
+    Mel_Gpu_Instance* inst = NULL;
+    Mel_Gpu_Device*   dev = test_make_device(&inst);
+    MEL_REQUIRE_NOT_NULL(dev);
+
+    MEL_REQUIRE(mel_gpu_vk_device(dev) != VK_NULL_HANDLE);
+    MEL_REQUIRE(mel_gpu_vk_physical_device(dev) != VK_NULL_HANDLE);
+
+    VkBufferCreateInfo bci = { .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO, .size = 256, .usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, .sharingMode = VK_SHARING_MODE_EXCLUSIVE };
+    VkBuffer           native = VK_NULL_HANDLE;
+    MEL_REQUIRE(vkCreateBuffer(mel_gpu_vk_device(dev), &bci, NULL, &native) == VK_SUCCESS);
+
+    Mel_Gpu_Buffer imported = mel_gpu_buffer_import(dev, native, 256, "borrowed");
+    MEL_REQUIRE(mel_gpu_buffer_alive(dev, imported));
+    MEL_EXPECT(mel_gpu_vk_buffer(dev, imported) == native);
+
+    mel_gpu_buffer_destroy(dev, imported);
+    MEL_EXPECT(!mel_gpu_buffer_alive(dev, imported));
+
+    vkDestroyBuffer(mel_gpu_vk_device(dev), native, NULL);
+
+    mel_gpu_device_destroy(dev);
+    mel_gpu_instance_destroy(inst);
+}
+
+MEL_TEST(vk_power, caps_populated)
+{
+    Mel_Gpu_Instance* inst = NULL;
+    Mel_Gpu_Device*   dev = test_make_device(&inst);
+    MEL_REQUIRE_NOT_NULL(dev);
+
+    const Mel_Gpu_Caps* caps = mel_gpu_device_caps(dev);
+    MEL_EXPECT(caps->power.power_source <= MEL_GPU_POWER_SOURCE_BATTERY);
+    MEL_EXPECT(caps->power.thermal_pressure <= MEL_GPU_THERMAL_CRITICAL);
 
     mel_gpu_device_destroy(dev);
     mel_gpu_instance_destroy(inst);

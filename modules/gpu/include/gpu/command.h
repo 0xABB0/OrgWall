@@ -16,8 +16,14 @@ void                  mel_gpu_frame_end(Mel_Gpu_Swapchain* sc);
 void mel_gpu_cmd_begin_pass(Mel_Gpu_Command_List* cmd, Mel_Gpu_Color clear);
 void mel_gpu_cmd_end_pass(Mel_Gpu_Command_List* cmd);
 void mel_gpu_cmd_bind_pipeline(Mel_Gpu_Command_List* cmd, Mel_Gpu_Pipeline pipe);
+typedef enum
+{
+    MEL_GPU_INDEX_UINT16 = 0,
+    MEL_GPU_INDEX_UINT32 = 1,
+} Mel_Gpu_Index_Type;
+
 void mel_gpu_cmd_bind_vertex_buffer(Mel_Gpu_Command_List* cmd, u32 slot, Mel_Gpu_Buffer buf);
-void mel_gpu_cmd_bind_index_buffer(Mel_Gpu_Command_List* cmd, Mel_Gpu_Buffer buf);
+void mel_gpu_cmd_bind_index_buffer(Mel_Gpu_Command_List* cmd, Mel_Gpu_Buffer buf, Mel_Gpu_Index_Type type);
 void mel_gpu_cmd_push_constants(Mel_Gpu_Command_List* cmd, u32 offset, u32 size, const void* data);
 void mel_gpu_cmd_draw(Mel_Gpu_Command_List* cmd, u32 vertex_count, u32 instance_count);
 void mel_gpu_cmd_draw_indexed(Mel_Gpu_Command_List* cmd, u32 index_count, u32 instance_count);

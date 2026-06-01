@@ -16,6 +16,7 @@
 #include <gpu/threading.h>
 #include <gpu/format.h>
 #include <gpu/queue.h>
+#include <gpu/memory.h>
 #include <gpu/buffer.h>
 #include <gpu/shader.h>
 #include <gpu/pipeline.h>
@@ -115,6 +116,10 @@ struct Mel_Gpu_Device
     void*                    device_lost_user;
     bool                     lost;
     bool                     owns_instance;
+    bool                     has_memory_budget;
+
+    void (*budget_pressure_cb)(struct Mel_Gpu_Device*, Mel_Gpu_Memory_Budget, void*);
+    void* budget_pressure_user;
 
     u32     graphics_family;
     VkQueue graphics_queue;

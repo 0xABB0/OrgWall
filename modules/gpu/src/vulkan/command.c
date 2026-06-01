@@ -138,7 +138,7 @@ void mel_gpu_cmd_bind_vertex_buffer(Mel_Gpu_Command_List* cmd, u32 slot, Mel_Gpu
     vkCmdBindVertexBuffers(cmd->cb, slot, 1, &vb, &offset);
 }
 
-void mel_gpu_cmd_bind_index_buffer(Mel_Gpu_Command_List* cmd, Mel_Gpu_Buffer buf)
+void mel_gpu_cmd_bind_index_buffer(Mel_Gpu_Command_List* cmd, Mel_Gpu_Buffer buf, Mel_Gpu_Index_Type type)
 {
     VkBuffer ib;
     if (!mel_gpu__buffer_get(cmd->dev, buf, &ib))
@@ -146,7 +146,7 @@ void mel_gpu_cmd_bind_index_buffer(Mel_Gpu_Command_List* cmd, Mel_Gpu_Buffer buf
         mel_assert(!"bind_index_buffer: invalid buffer handle");
         return;
     }
-    vkCmdBindIndexBuffer(cmd->cb, ib, 0, VK_INDEX_TYPE_UINT16);
+    vkCmdBindIndexBuffer(cmd->cb, ib, 0, type == MEL_GPU_INDEX_UINT32 ? VK_INDEX_TYPE_UINT32 : VK_INDEX_TYPE_UINT16);
 }
 
 void mel_gpu_cmd_push_constants(Mel_Gpu_Command_List* cmd, u32 offset, u32 bytes, const void* data)

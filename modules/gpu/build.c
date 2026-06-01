@@ -10,7 +10,7 @@ void build(Mel_Build* b)
     mel_defines(lib, MEL_PRIVATE, WHEN(.gpu = "vulkan"), "MEL_GPU_VULKAN=1");
     mel_sources(lib, WHEN(.gpu = "vulkan", .platforms = MEL_ON(MACOS)), "src/vulkan/macos/*.m");
     mel_link(lib, MEL_PUBLIC, WHEN(.gpu = "vulkan"), "-lvulkan");
-    mel_cflags(lib, MEL_PRIVATE, WHEN(.gpu = "vulkan", .platforms = MEL_ON(MACOS)), "-I/opt/homebrew/include");
+    mel_cflags(lib, MEL_PUBLIC, WHEN(.gpu = "vulkan", .platforms = MEL_ON(MACOS)), "-I/opt/homebrew/include");
     mel_link(lib, MEL_PUBLIC, WHEN(.gpu = "vulkan", .platforms = MEL_ON(MACOS)), "-L/opt/homebrew/lib");
     mel_link(lib, MEL_PUBLIC, WHEN(.gpu = "vulkan", .platforms = MEL_ON(MACOS)), "-framework", "QuartzCore", "-framework", "Foundation");
 
@@ -24,6 +24,8 @@ void build(Mel_Build* b)
     mel_depends(lib, "string");
     mel_depends(lib, "thread");
     mel_depends(lib, "time");
+    mel_depends(lib, "thermal");
+    mel_depends(lib, "power");
 
     Mel_Target* found = mel_add_test(b, "gpu-foundation");
     mel_sources(found, ALWAYS, "test/test_foundation.c");

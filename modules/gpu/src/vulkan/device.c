@@ -2,6 +2,8 @@
 
 #include <allocator/heap.h>
 #include <log/log.h>
+#include <thermal/thermal.h>
+#include <power/power.h>
 
 #include <string.h>
 
@@ -72,6 +74,9 @@ Mel_Gpu_Device_Create_Result mel_gpu_device_create_opt(Mel_Gpu_Instance* inst, M
         exts[ext_count++] = VK_KHR_SWAPCHAIN_EXTENSION_NAME;
     if (mel_gpu__device_ext_available(adapter->phys, "VK_KHR_portability_subset"))
         exts[ext_count++] = "VK_KHR_portability_subset";
+    bool has_budget = mel_gpu__device_ext_available(adapter->phys, VK_EXT_MEMORY_BUDGET_EXTENSION_NAME);
+    if (has_budget)
+        exts[ext_count++] = VK_EXT_MEMORY_BUDGET_EXTENSION_NAME;
 
     float                   prio = 1.0f;
     VkDeviceQueueCreateInfo qci = {
@@ -123,8 +128,14 @@ Mel_Gpu_Device_Create_Result mel_gpu_device_create_opt(Mel_Gpu_Instance* inst, M
     dev->on_device_lost = opt.on_device_lost;
     dev->device_lost_user = opt.device_lost_user;
     dev->graphics_family = gfx;
+    dev->has_memory_budget = has_budget;
     vkGetDeviceQueue(vk, gfx, 0, &dev->graphics_queue);
     vkGetPhysicalDeviceMemoryProperties(adapter->phys, &dev->mem_props);
+
+    dev->caps.power.power_source = (Mel_Gpu_Power_Source)mel_power_source_current();
+    Mel_Thermal_Pressure tp = mel_thermal_current();
+    dev->caps.power.thermal_pressure = tp > MEL_THERMAL_UNKNOWN ? (Mel_Gpu_Thermal_Tier)(tp - 1) : MEL_GPU_THERMAL_NOMINAL;
+    dev->caps.power.low_power_mode = mel_power_low_power_current() == MEL_POWER_LOW_POWER_ON;
 
     mel_mutex_init(&dev->obj_lock, MEL_MUTEX_PLAIN);
     mel_mutex_init(&dev->submit_lock, MEL_MUTEX_PLAIN);

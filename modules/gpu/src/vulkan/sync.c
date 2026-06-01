@@ -43,9 +43,10 @@ void mel_gpu_sync_destroy(Mel_Gpu_Device* dev, Mel_Gpu_Sync sync)
     Mel_Gpu_Sync_Obj* o = mel_gpu__table_get(dev, &dev->syncs, sync.slot);
     if (!o)
         return;
+    bool        borrowed = o->header.ownership == MEL_GPU_OWNERSHIP_BORROWED;
     VkSemaphore sem = o->semaphore;
     mel_gpu__table_remove(dev, &dev->syncs, sync.slot);
-    if (sem)
+    if (!borrowed && sem)
         vkDestroySemaphore(dev->vk, sem, NULL);
 }
 

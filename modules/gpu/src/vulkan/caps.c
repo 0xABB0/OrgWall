@@ -1,7 +1,29 @@
 #include "vk_backend.h"
 
+#include <allocator/heap.h>
+
 #include <stdio.h>
 #include <string.h>
+
+static bool mel_gpu__phys_ext(VkPhysicalDevice phys, const char* name)
+{
+    u32 count = 0;
+    vkEnumerateDeviceExtensionProperties(phys, NULL, &count, NULL);
+    if (!count)
+        return false;
+    const Mel_Alloc*       a = mel_alloc_heap();
+    VkExtensionProperties* exts = mel_alloc_array(a, VkExtensionProperties, count);
+    vkEnumerateDeviceExtensionProperties(phys, NULL, &count, exts);
+    bool found = false;
+    for (u32 i = 0; i < count; i++)
+        if (strcmp(exts[i].extensionName, name) == 0)
+        {
+            found = true;
+            break;
+        }
+    mel_dealloc(a, exts);
+    return found;
+}
 
 static Mel_Gpu_Adapter_Type mel_gpu__adapter_type(VkPhysicalDeviceType t)
 {
@@ -80,7 +102,7 @@ void mel_gpu__caps_probe(VkPhysicalDevice phys, Mel_Gpu_Caps* out)
         out->memory.host_visible_device_local = MEL_GPU_HOST_VISIBLE_DEVICE_LOCAL_NONE;
 
     out->memory.persistent_map = true;
-    out->memory.residency_control = MEL_GPU_RESIDENCY_BUDGET_ONLY;
+    out->memory.residency_control = mel_gpu__phys_ext(phys, VK_EXT_MEMORY_BUDGET_EXTENSION_NAME) ? MEL_GPU_RESIDENCY_BUDGET_ONLY : MEL_GPU_RESIDENCY_NONE;
     out->memory.bindless = MEL_GPU_TIER_NONE;
 
     out->features.ray_tracing = MEL_GPU_RT_NONE;
