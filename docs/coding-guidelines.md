@@ -6,6 +6,7 @@ Whenever you are reaching for an enum, the abstraction is wrong.,
 If you find yourself dodging this rule by using constants disguised as enums, it's even worse.
 Use enums or enums-adjacent structures only under gabbo's approval.
 Tagged unions follow the same idea.
+The correct use of enums is when the answer to the following questions is yes: "Are we implementing a protocol? Is this code never going to be touched again unless the protocol changes (and then we'd have to change the code anyway)?"
 
 ### MEL-CODE-002: Never use fixed-size arrays
 Every time you find yourself writing an array of size [MEL_MAX_*], you are wrong.
@@ -39,3 +40,10 @@ Focus instead on delivering meaning.
 
 ### MEL-SPEC-002: Spec folder should be tidy
 Specifications in design/ should be removed as soon as there is place for them in the relative module
+
+### MEL-SPEC-003: Temporal information
+Strictly avoid temporal information in the specification.
+
+### MEL-SPEC-004: Keep a sane context
+Future readers will not have the conversation context; never assume knowledge of information not present in the repo (eg: chat history, deleted specifications)
+
