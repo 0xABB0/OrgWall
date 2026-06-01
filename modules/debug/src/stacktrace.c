@@ -16,10 +16,12 @@ bool mel_stacktrace_capture(Mel_Stacktrace* stacktrace, usize skip, size keep, M
 
 void mel_stacktrace_free(Mel_Stacktrace* stacktrace)
 {
+#if MEL_STACKTRACE_HAS_FUNCTION_NAMES
     for (usize i = 0; i < stacktrace->frame_count; i++)
     {
         mel_dealloc(stacktrace->alloc, stacktrace->frames[i].function_name.data);
     }
+#endif
     mel_dealloc(stacktrace->alloc, stacktrace->frames);
     stacktrace->frames = NULL;
     stacktrace->frame_count = 0;
