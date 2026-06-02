@@ -40,6 +40,13 @@ void build(Mel_Build* b)
         mel_link(lib, MEL_PUBLIC, WHEN(.gpu = "vulkan", .platforms = MEL_ON(WIN32)), mel_gpu__flag("-L", vksdk, "/Lib"));
     }
 
+    // D3D12: native win32 (clang/MSVC ABI) against the in-box Windows SDK (d3d12.h / dxgi1_6.h, which vcvars
+    // already puts on INCLUDE/LIB — no SDK-path injection). dxguid.lib supplies the IID_* GUID symbols.
+    // gpu-rhi.md §12 M2 co-primary; design/gpu-d3d12.md for phasing. The Agility SDK ceiling rides later.
+    mel_sources(lib, WHEN(.gpu = "d3d12", .platforms = MEL_ON(WIN32)), "src/d3d12/*.c");
+    mel_defines(lib, MEL_PRIVATE, WHEN(.gpu = "d3d12"), "MEL_GPU_D3D12=1");
+    mel_link(lib, MEL_PUBLIC, WHEN(.gpu = "d3d12", .platforms = MEL_ON(WIN32)), "-ld3d12", "-ldxgi", "-ldxguid");
+
     mel_depends(lib, "core");
     mel_depends(lib, "allocator");
     mel_depends(lib, "collection");
@@ -75,4 +82,17 @@ void build(Mel_Build* b)
     mel_depends(vktest, "allocator");
     mel_depends(vktest, "collection");
     mel_depends(vktest, "reactor");
+
+    // D3D12 backend tests (win32, --gpu=d3d12). The test body is #if MEL_GPU_D3D12-guarded, so the target
+    // links to an empty 0-test runner on any non-d3d12 build and is meaningful only on win-pilot.
+    Mel_Target* d3dtest = mel_add_test(b, "gpu-d3d12");
+    mel_sources(d3dtest, ALWAYS, "test/test_d3d12.c");
+    mel_sources(d3dtest, ALWAYS, "../../tools/test/src/runner.c");
+    mel_defines(d3dtest, MEL_PRIVATE, WHEN(.gpu = "d3d12"), "MEL_GPU_D3D12=1");
+    mel_depends(d3dtest, "test");
+    mel_depends(d3dtest, "gpu");
+    mel_depends(d3dtest, "core");
+    mel_depends(d3dtest, "allocator");
+    mel_depends(d3dtest, "collection");
+    mel_depends(d3dtest, "reactor");
 }

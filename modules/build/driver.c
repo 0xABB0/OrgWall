@@ -60,7 +60,7 @@ static bool gpu_valid(Mel_Platform p, const char* g)
     case MEL_PLATFORM_ANDROID:
         return !strcmp(g, "vulkan") || !strcmp(g, "webgpu");
     case MEL_PLATFORM_WIN32:
-        return !strcmp(g, "vulkan");
+        return !strcmp(g, "vulkan") || !strcmp(g, "d3d12");
     case MEL_PLATFORM_WASM:
         return !strcmp(g, "webgpu");
     default:
