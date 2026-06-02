@@ -30,6 +30,10 @@ void mel_gpu_cmd_buffer_barrier(Mel_Gpu_Command_List* cmd, Mel_Gpu_Buffer buf, M
 // U10: copy a texture subresource into a buffer (readback). The texture must be in COPY_SOURCE state.
 void mel_gpu_cmd_copy_texture_to_buffer(Mel_Gpu_Command_List* cmd, Mel_Gpu_Texture tex, Mel_Gpu_Subresource_Range subresource, Mel_Gpu_Buffer dst);
 
+// U15: copy `size` bytes between buffers — the buffer-readback primitive. A device-local UAV/storage buffer
+// cannot be host-mapped, so its computed result reaches the CPU through a copy into a READBACK buffer.
+void mel_gpu_cmd_copy_buffer(Mel_Gpu_Command_List* cmd, Mel_Gpu_Buffer src, Mel_Gpu_Buffer dst, usize bytes);
+
 void mel_gpu_cmd_begin_pass(Mel_Gpu_Command_List* cmd, Mel_Gpu_Color clear);
 void mel_gpu_cmd_end_pass(Mel_Gpu_Command_List* cmd);
 void mel_gpu_cmd_bind_pipeline(Mel_Gpu_Command_List* cmd, Mel_Gpu_Pipeline pipe);

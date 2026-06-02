@@ -1,5 +1,6 @@
 #include "d3d_backend.h"
 
+#include <gpu/binding.h>
 #include <log/log.h>
 
 // ---- U15: standalone command lists (one DIRECT allocator + list each; per-thread TLS pooling is a later
@@ -199,6 +200,20 @@ void mel_gpu_cmd_copy_texture_to_buffer(Mel_Gpu_Command_List* cmd, Mel_Gpu_Textu
     ID3D12GraphicsCommandList_CopyTextureRegion(cmd->list, &dst_loc, 0, 0, 0, &src_loc, NULL);
 }
 
+void mel_gpu_cmd_copy_buffer(Mel_Gpu_Command_List* cmd, Mel_Gpu_Buffer src, Mel_Gpu_Buffer dst, usize bytes)
+{
+    ID3D12Resource* s = NULL;
+    ID3D12Resource* d = NULL;
+    if (!cmd || !mel_gpu__buffer_resource(cmd->dev, src, &s) || !mel_gpu__buffer_resource(cmd->dev, dst, &d))
+    {
+        mel_assert(!"cmd_copy_buffer: invalid buffer handle");
+        return;
+    }
+    // Buffers ride common-state promotion (COPY_SOURCE / COPY_DEST auto-promote from COMMON), so no transition
+    // barriers; a preceding UAV barrier (cmd_buffer_barrier) flushes a compute-write hazard before the copy.
+    ID3D12GraphicsCommandList_CopyBufferRegion(cmd->list, d, 0, s, 0, (UINT64)bytes);
+}
+
 // ---- U16: dynamic rendering (OMSetRenderTargets + clears; no render-pass-object compile step) ----
 
 static D3D12_CPU_DESCRIPTOR_HANDLE mel_gpu__alloc_rtv(Mel_Gpu_Device* dev)
@@ -287,4 +302,86 @@ void mel_gpu_cmd_end_rendering(Mel_Gpu_Command_List* cmd)
     // D3D12 has no explicit end-of-rendering; the next OMSetRenderTargets or barrier supersedes this pass.
     mel_assert(cmd);
     (void)cmd;
+}
+
+// ---- U13: pipeline binding + draw/dispatch recording. cmd_bind_pipeline records the PSO + root signature +
+// (for graphics) the IA topology, and — for a bindless pipeline — binds the two shader-visible heaps once so
+// the shader can index ResourceDescriptorHeap / SamplerDescriptorHeap (the simple path: bind, push, draw). ----
+
+void mel_gpu_cmd_bind_pipeline(Mel_Gpu_Command_List* cmd, Mel_Gpu_Pipeline pipe)
+{
+    Mel_Gpu_Pipeline_Obj* o = mel_gpu__table_get(cmd->dev, &cmd->dev->pipelines, pipe.slot);
+    if (!o)
+    {
+        mel_assert(!"cmd_bind_pipeline: invalid pipeline handle");
+        return;
+    }
+    cmd->cur_compute = o->is_compute;
+    cmd->cur_bindless = o->bindless;
+    cmd->cur_push_size = o->push_constant_size;
+    cmd->cur_vertex_stride = o->vertex_stride;
+
+    if (o->bindless)
+        mel_gpu_cmd_bind_bindless(cmd); // SetDescriptorHeaps before the root signature / draws
+    if (o->is_compute)
+        ID3D12GraphicsCommandList_SetComputeRootSignature(cmd->list, o->root_sig);
+    else
+    {
+        ID3D12GraphicsCommandList_SetGraphicsRootSignature(cmd->list, o->root_sig);
+        ID3D12GraphicsCommandList_IASetPrimitiveTopology(cmd->list, o->topology);
+    }
+    ID3D12GraphicsCommandList_SetPipelineState(cmd->list, o->pso);
+}
+
+void mel_gpu_cmd_push_constants(Mel_Gpu_Command_List* cmd, u32 offset, u32 bytes, const void* data)
+{
+    mel_assert(cmd && cmd->cur_push_size > 0);
+    UINT num = (bytes + 3) / 4;
+    UINT dst = offset / 4;
+    if (cmd->cur_compute)
+        ID3D12GraphicsCommandList_SetComputeRoot32BitConstants(cmd->list, 0, num, data, dst);
+    else
+        ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstants(cmd->list, 0, num, data, dst);
+}
+
+void mel_gpu_cmd_bind_vertex_buffer(Mel_Gpu_Command_List* cmd, u32 slot, Mel_Gpu_Buffer buf)
+{
+    Mel_Gpu_Buffer_Obj* o = NULL;
+    if (!cmd || !mel_gpu__buffer_get(cmd->dev, buf, &o))
+    {
+        mel_assert(!"cmd_bind_vertex_buffer: invalid buffer handle");
+        return;
+    }
+    D3D12_VERTEX_BUFFER_VIEW vbv = { .BufferLocation = o->gpu_va, .SizeInBytes = (UINT)o->size, .StrideInBytes = cmd->cur_vertex_stride };
+    ID3D12GraphicsCommandList_IASetVertexBuffers(cmd->list, slot, 1, &vbv);
+}
+
+void mel_gpu_cmd_bind_index_buffer(Mel_Gpu_Command_List* cmd, Mel_Gpu_Buffer buf, Mel_Gpu_Index_Type type)
+{
+    Mel_Gpu_Buffer_Obj* o = NULL;
+    if (!cmd || !mel_gpu__buffer_get(cmd->dev, buf, &o))
+    {
+        mel_assert(!"cmd_bind_index_buffer: invalid buffer handle");
+        return;
+    }
+    D3D12_INDEX_BUFFER_VIEW ibv = { .BufferLocation = o->gpu_va, .SizeInBytes = (UINT)o->size, .Format = type == MEL_GPU_INDEX_UINT32 ? DXGI_FORMAT_R32_UINT : DXGI_FORMAT_R16_UINT };
+    ID3D12GraphicsCommandList_IASetIndexBuffer(cmd->list, &ibv);
+}
+
+void mel_gpu_cmd_draw(Mel_Gpu_Command_List* cmd, u32 vertex_count, u32 instance_count)
+{
+    mel_assert(cmd);
+    ID3D12GraphicsCommandList_DrawInstanced(cmd->list, vertex_count, instance_count ? instance_count : 1, 0, 0);
+}
+
+void mel_gpu_cmd_draw_indexed(Mel_Gpu_Command_List* cmd, u32 index_count, u32 instance_count)
+{
+    mel_assert(cmd);
+    ID3D12GraphicsCommandList_DrawIndexedInstanced(cmd->list, index_count, instance_count ? instance_count : 1, 0, 0, 0);
+}
+
+void mel_gpu_cmd_dispatch(Mel_Gpu_Command_List* cmd, u32 groups_x, u32 groups_y, u32 groups_z)
+{
+    mel_assert(cmd);
+    ID3D12GraphicsCommandList_Dispatch(cmd->list, groups_x, groups_y, groups_z);
 }

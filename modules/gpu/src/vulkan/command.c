@@ -236,3 +236,15 @@ void mel_gpu_cmd_draw(Mel_Gpu_Command_List* cmd, u32 vertex_count, u32 instance_
 void mel_gpu_cmd_draw_indexed(Mel_Gpu_Command_List* cmd, u32 index_count, u32 instance_count) { vkCmdDrawIndexed(cmd->cb, index_count, instance_count, 0, 0, 0); }
 
 void mel_gpu_cmd_dispatch(Mel_Gpu_Command_List* cmd, u32 groups_x, u32 groups_y, u32 groups_z) { vkCmdDispatch(cmd->cb, groups_x, groups_y, groups_z); }
+
+void mel_gpu_cmd_copy_buffer(Mel_Gpu_Command_List* cmd, Mel_Gpu_Buffer src, Mel_Gpu_Buffer dst, usize bytes)
+{
+    VkBuffer s, d;
+    if (!mel_gpu__buffer_get(cmd->dev, src, &s) || !mel_gpu__buffer_get(cmd->dev, dst, &d))
+    {
+        mel_assert(!"cmd_copy_buffer: invalid buffer handle");
+        return;
+    }
+    VkBufferCopy region = { .srcOffset = 0, .dstOffset = 0, .size = (VkDeviceSize)bytes };
+    vkCmdCopyBuffer(cmd->cb, s, d, 1, &region);
+}
