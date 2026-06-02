@@ -148,12 +148,31 @@ Mel_Gpu_Buffer_Create_Result mel_gpu_buffer_create_opt(Mel_Gpu_Device* dev, Mel_
     res.value.slot = mel_gpu__table_insert(dev, &dev->buffers, &obj);
 
     // U14: auto-register the buffer into the device bindless heap at its handle index (direct contract §3.1)
-    // for every shader-addressable class its usage admits (gpu-rhi.md §6.7).
+    // for every shader-addressable class its usage admits (gpu-rhi.md §6.7). CRITICAL-1: pre-flight every
+    // class before writing; an over-cap slot fails the create loudly (BindlessSlotExhausted) and rolls back
+    // rather than reporting a buffer with an unbound heap slot (MEL-ENGINE-VIII).
     if (dev->bindless.enabled)
     {
-        if (opt.usage & MEL_GPU_BUFFER_STORAGE)
+        bool stor = (opt.usage & MEL_GPU_BUFFER_STORAGE) != 0;
+        bool unif = (opt.usage & MEL_GPU_BUFFER_UNIFORM) != 0;
+        bool fits = true;
+        if (stor)
+            fits = mel_gpu__bindless_slot_fits(dev, MEL_GPU_BINDLESS_BINDING_STORAGE_BUFFER, res.value.slot.index) && fits;
+        if (unif)
+            fits = mel_gpu__bindless_slot_fits(dev, MEL_GPU_BINDLESS_BINDING_UNIFORM_BUFFER, res.value.slot.index) && fits;
+        if (!fits)
+        {
+            mel_log_error("gpu", "buffer_create '%s': bindless slot %u exceeds a heap class cap (BindlessSlotExhausted)", opt.name ? opt.name : "(unnamed)", res.value.slot.index);
+            mel_gpu__table_remove(dev, &dev->buffers, res.value.slot);
+            mel_gpu__mem_free(dev, &obj.alloc);
+            vkDestroyBuffer(dev->vk, buf, NULL);
+            res.value = (Mel_Gpu_Buffer){ mel_gpu_handle_null() };
+            res.status = MEL_GPU_BUFFER_CREATE_BINDLESS_SLOT_EXHAUSTED;
+            return res;
+        }
+        if (stor)
             mel_gpu__bindless_register_storage_buffer(dev, res.value.slot.index, buf, opt.size);
-        if (opt.usage & MEL_GPU_BUFFER_UNIFORM)
+        if (unif)
             mel_gpu__bindless_register_uniform_buffer(dev, res.value.slot.index, buf, opt.size);
     }
     return res;

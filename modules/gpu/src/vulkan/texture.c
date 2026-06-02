@@ -260,11 +260,30 @@ Mel_Gpu_Texture_View_Create_Result mel_gpu_texture_view_create_opt(Mel_Gpu_Devic
 
     // U14: the view owns the bindless slot (gpu-rhi.md §6.2). Auto-register it into the device heap at the
     // handle index for every shader-readable class the parent texture's usage admits (direct contract §3.1).
+    // CRITICAL-1: pre-flight EVERY class the view registers into before writing any descriptor, so an over-cap
+    // slot fails the create loudly (BindlessSlotExhausted) and rolls back — no partial heap write, no unbound
+    // slot reported as OK (MEL-ENGINE-VIII).
     if (dev->bindless.enabled)
     {
-        if (tex->usage & VK_IMAGE_USAGE_SAMPLED_BIT)
+        bool sampled = (tex->usage & VK_IMAGE_USAGE_SAMPLED_BIT) != 0;
+        bool storage = (tex->usage & VK_IMAGE_USAGE_STORAGE_BIT) != 0;
+        bool fits = true;
+        if (sampled)
+            fits = mel_gpu__bindless_slot_fits(dev, MEL_GPU_BINDLESS_BINDING_SAMPLED_IMAGE, res.value.slot.index) && fits;
+        if (storage)
+            fits = mel_gpu__bindless_slot_fits(dev, MEL_GPU_BINDLESS_BINDING_STORAGE_IMAGE, res.value.slot.index) && fits;
+        if (!fits)
+        {
+            mel_log_error("gpu", "texture_view_create '%s': bindless slot %u exceeds a heap class cap (BindlessSlotExhausted)", opt.name ? opt.name : "(unnamed)", res.value.slot.index);
+            mel_gpu__table_remove(dev, &dev->texture_views, res.value.slot);
+            vkDestroyImageView(dev->vk, view, NULL);
+            res.value = (Mel_Gpu_Texture_View){ mel_gpu_handle_null() };
+            res.status = MEL_GPU_TEXTURE_VIEW_CREATE_BINDLESS_SLOT_EXHAUSTED;
+            return res;
+        }
+        if (sampled)
             mel_gpu__bindless_register_sampled_image(dev, res.value.slot.index, view);
-        if (tex->usage & VK_IMAGE_USAGE_STORAGE_BIT)
+        if (storage)
             mel_gpu__bindless_register_storage_image(dev, res.value.slot.index, view);
     }
     return res;

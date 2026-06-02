@@ -32,6 +32,9 @@ typedef enum
     MEL_GPU_BUFFER_CREATE_OOM = MEL_GPU_STATUS(1, MEL_GPU_SEVERITY_ERROR),
     MEL_GPU_BUFFER_CREATE_VK_FAILED = MEL_GPU_STATUS(2, MEL_GPU_SEVERITY_ERROR),
     MEL_GPU_BUFFER_CREATE_BAD_PARAMS = MEL_GPU_STATUS(3, MEL_GPU_SEVERITY_ERROR),
+    // gpu-rhi.md §6.7: the buffer's bindless slot (= its slotmap index, §3.1) exceeds the storage/uniform heap
+    // class capacity. Surfaced loudly rather than registering an unbound slot (CRITICAL-1 / MEL-ENGINE-VIII).
+    MEL_GPU_BUFFER_CREATE_BINDLESS_SLOT_EXHAUSTED = MEL_GPU_STATUS(4, MEL_GPU_SEVERITY_ERROR),
 } Mel_Gpu_Buffer_Create_Status;
 
 typedef struct

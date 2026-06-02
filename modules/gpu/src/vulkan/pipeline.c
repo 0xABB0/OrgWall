@@ -205,28 +205,6 @@ static VkRenderPass mel_gpu__make_pipeline_compat_render_pass(Mel_Gpu_Device* de
     return rp;
 }
 
-// U14: the heap's per-class slot capacity, looked up by the set-0 binding index — which is the engine-
-// canonical heap class index. A shader declaring a sized descriptor array longer than this at set 0 cannot
-// be satisfied by the heap: that is MissingBindlessSlot, distinct from MissingFeature (gpu-rhi.md §6.7).
-static u32 mel_gpu__heap_cap_for_binding(Mel_Gpu_Device* dev, u32 binding)
-{
-    switch (binding)
-    {
-    case MEL_GPU_BINDLESS_BINDING_SAMPLED_IMAGE:
-        return dev->bindless.cap_sampled_image;
-    case MEL_GPU_BINDLESS_BINDING_SAMPLER:
-        return dev->bindless.cap_sampler;
-    case MEL_GPU_BINDLESS_BINDING_STORAGE_BUFFER:
-        return dev->bindless.cap_storage_buffer;
-    case MEL_GPU_BINDLESS_BINDING_UNIFORM_BUFFER:
-        return dev->bindless.cap_uniform_buffer;
-    case MEL_GPU_BINDLESS_BINDING_STORAGE_IMAGE:
-        return dev->bindless.cap_storage_image;
-    default:
-        return 0;
-    }
-}
-
 // Shared binding-model gate (gpu-rhi.md §6.7 / MEL-ENGINE-IX): graphics and compute lower the same two
 // failure modes before any allocation. MissingFeature when the shader/opt wants the heap and the device has
 // none; MissingBindlessSlot when a bindless shader demands more set-0 descriptors of a class than the heap
@@ -244,7 +222,7 @@ static Mel_Gpu_Pipeline_Create_Status mel_gpu__binding_gate(Mel_Gpu_Device* dev,
         {
             if (refl->set0[s].runtime_array) // an unbounded array is satisfied by the partially-bound heap
                 continue;
-            u32 cap = mel_gpu__heap_cap_for_binding(dev, refl->set0[s].binding);
+            u32 cap = mel_gpu__heap_cap_for_class(dev, refl->set0[s].binding);
             if (refl->set0[s].array_len > cap)
             {
                 mel_log_error("gpu", "%s '%s': shader demands %u descriptors at set 0 binding %u but the heap holds %u (MissingBindlessSlot)", what, dbg_name, refl->set0[s].array_len, refl->set0[s].binding, cap);

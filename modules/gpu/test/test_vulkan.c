@@ -18,6 +18,8 @@
 #include <gpu/memory.h>
 #include <gpu/format_props.h>
 #include <gpu/vulkan/interop.h>
+#include <allocator/allocator.h>
+#include <allocator/heap.h>
 
 #include "bindless_spv.h"
 
@@ -596,6 +598,52 @@ MEL_TEST(vk_bindless, missing_feature_without_heap)
     MEL_EXPECT_EQ((u32)pipe.status, (u32)MEL_GPU_PIPELINE_CREATE_MISSING_FEATURE);
 
     mel_gpu_shader_destroy(dev, sh.value);
+    mel_gpu_device_destroy(dev);
+    mel_gpu_instance_destroy(inst);
+}
+
+// CRITICAL-1 (gpu-rhi.md §6.7 / MEL-ENGINE-VIII): the bindless slot == handle.index contract collides with the
+// fixed per-class heap cap. Creating more distinct live samplers than the sampler class cap once pushed an index
+// past the cap, which asserted in debug and silently dropped the descriptor in release (silent corruption). The
+// fix surfaces it as a loud BindlessSlotExhausted status. This test creates samplers (distinct lod_min defeats
+// dedup) until the slotmap index crosses the cap and asserts the over-cap create FAILS with that status — not a
+// crash, not a silently-OK create. Every successful sampler is destroyed; the over-cap one allocated nothing.
+MEL_TEST(vk_bindless, sampler_over_cap_fails_loudly)
+{
+    Mel_Gpu_Instance* inst = NULL;
+    Mel_Gpu_Device*   dev = test_make_device_bindless(&inst);
+    MEL_REQUIRE_NOT_NULL(dev);
+    MEL_REQUIRE(mel_gpu_bindless_available(dev));
+
+    const Mel_Gpu_Caps* caps = mel_gpu_device_caps(dev);
+    u32                 cap = caps->memory.bindless.max_sampler_slots;
+    MEL_REQUIRE(cap > 0);
+
+    const Mel_Alloc*   alloc = mel_alloc_heap();
+    Mel_Gpu_Sampler*   live = mel_alloc_array(alloc, Mel_Gpu_Sampler, cap);
+    u32                live_count = 0;
+    bool               hit_exhausted = false;
+    // Create up to cap+1 distinct samplers; the first `cap` (slots 0..cap-1) succeed, the (cap+1)-th (slot==cap)
+    // is refused. lod_min varies per sampler so dedup does not collapse them into one interned handle.
+    for (u32 i = 0; i <= cap; i++)
+    {
+        Mel_Gpu_Sampler_Create_Result s = mel_gpu_sampler_create(dev, .min_filter = MEL_GPU_FILTER_NEAREST, .mag_filter = MEL_GPU_FILTER_NEAREST,
+                                                                  .wrap_u = MEL_GPU_WRAP_REPEAT, .lod_min = (f32)i * 0.01f, .lod_max = 64.0f, .name = "ovc");
+        if ((u32)s.status == (u32)MEL_GPU_SAMPLER_CREATE_BINDLESS_SLOT_EXHAUSTED)
+        {
+            hit_exhausted = true; // the over-cap create failed loudly, as required
+            break;
+        }
+        MEL_REQUIRE(!mel_gpu_failed(s.status));
+        MEL_REQUIRE(live_count < cap);
+        live[live_count++] = s.value;
+    }
+    MEL_EXPECT(hit_exhausted);
+    MEL_EXPECT_EQ(live_count, cap); // exactly `cap` slots are addressable, the (cap+1)-th was refused
+
+    for (u32 i = 0; i < live_count; i++)
+        mel_gpu_sampler_destroy(dev, live[i]);
+    mel_dealloc(alloc, live);
     mel_gpu_device_destroy(dev);
     mel_gpu_instance_destroy(inst);
 }

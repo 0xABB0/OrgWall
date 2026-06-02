@@ -60,6 +60,10 @@ typedef enum
     MEL_GPU_SAMPLER_CREATE_OK = MEL_GPU_STATUS(0, MEL_GPU_SEVERITY_OK),
     MEL_GPU_SAMPLER_CREATE_VK_FAILED = MEL_GPU_STATUS(1, MEL_GPU_SEVERITY_ERROR),
     MEL_GPU_SAMPLER_CREATE_BAD_PARAMS = MEL_GPU_STATUS(2, MEL_GPU_SEVERITY_ERROR),
+    // gpu-rhi.md §6.7: the sampler's bindless slot (= its slotmap index, §3.1) exceeds the sampler heap class
+    // capacity (the realistic trip wire — the sampler cap is the smallest). Surfaced loudly rather than
+    // registering an unbound slot (CRITICAL-1 / MEL-ENGINE-VIII).
+    MEL_GPU_SAMPLER_CREATE_BINDLESS_SLOT_EXHAUSTED = MEL_GPU_STATUS(3, MEL_GPU_SEVERITY_ERROR),
 } Mel_Gpu_Sampler_Create_Status;
 
 typedef struct

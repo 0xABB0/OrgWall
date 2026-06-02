@@ -107,6 +107,11 @@ typedef enum
     MEL_GPU_TEXTURE_VIEW_CREATE_OK = MEL_GPU_STATUS(0, MEL_GPU_SEVERITY_OK),
     MEL_GPU_TEXTURE_VIEW_CREATE_VK_FAILED = MEL_GPU_STATUS(1, MEL_GPU_SEVERITY_ERROR),
     MEL_GPU_TEXTURE_VIEW_CREATE_BAD_TEXTURE = MEL_GPU_STATUS(2, MEL_GPU_SEVERITY_ERROR),
+    // gpu-rhi.md §6.7: the view's bindless slot (= its slotmap index, §3.1) exceeds the heap class capacity.
+    // Surfaced loudly so the caller branches (e.g. evict, or request a larger heap) rather than sampling an
+    // unbound slot (CRITICAL-1 / MEL-ENGINE-VIII). Only on a bindless device whose live shader-readable view
+    // count crosses a class cap.
+    MEL_GPU_TEXTURE_VIEW_CREATE_BINDLESS_SLOT_EXHAUSTED = MEL_GPU_STATUS(3, MEL_GPU_SEVERITY_ERROR),
 } Mel_Gpu_Texture_View_Create_Status;
 
 typedef struct

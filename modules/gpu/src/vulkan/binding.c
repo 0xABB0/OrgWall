@@ -9,6 +9,26 @@
 
 static u32 mel_gpu__min_u32(u32 a, u32 b) { return a < b ? a : b; }
 
+// The heap's per-class slot capacity, looked up by the engine-canonical binding index (= heap class index).
+u32 mel_gpu__heap_cap_for_class(Mel_Gpu_Device* dev, u32 binding_class)
+{
+    switch (binding_class)
+    {
+    case MEL_GPU_BINDLESS_BINDING_SAMPLED_IMAGE:
+        return dev->bindless.cap_sampled_image;
+    case MEL_GPU_BINDLESS_BINDING_SAMPLER:
+        return dev->bindless.cap_sampler;
+    case MEL_GPU_BINDLESS_BINDING_STORAGE_BUFFER:
+        return dev->bindless.cap_storage_buffer;
+    case MEL_GPU_BINDLESS_BINDING_UNIFORM_BUFFER:
+        return dev->bindless.cap_uniform_buffer;
+    case MEL_GPU_BINDLESS_BINDING_STORAGE_IMAGE:
+        return dev->bindless.cap_storage_image;
+    default:
+        return 0;
+    }
+}
+
 void mel_gpu__bindless_init(Mel_Gpu_Device* dev, bool want)
 {
     Mel_Gpu_Bindless* b = &dev->bindless;
@@ -120,25 +140,36 @@ void mel_gpu__bindless_shutdown(Mel_Gpu_Device* dev)
 
 // Heap writes follow update-after-bind semantics. Writing a slot an in-flight submission samples is
 // undefined (gpu-rhi.md §6.7); the engine never writes a live slot — register happens at create, the slot
-// is reused only after the destroy's completion future resolves (§3.3). Past the cap the slot is dropped
-// loudly rather than silently aliasing another resource (MEL-ENGINE-VIII).
+// is reused only after the destroy's completion future resolves (§3.3). Past the cap the registration is
+// REFUSED and the function returns false so the create path fails loudly with a BindlessSlotExhausted status
+// rather than asserting as control flow or silently dropping the descriptor (CRITICAL-1 / MEL-ENGINE-VIII).
+// The slot==handle.index contract (§3.1) means the slotmap can hand out an index past a class's fixed cap;
+// surfacing a status is the minimum honest fix — growing the per-class heap on demand is the follow-up.
 static bool mel_gpu__bindless_check(Mel_Gpu_Device* dev, u32 slot, u32 cap, const char* klass)
 {
     if (!dev->bindless.enabled)
         return false;
     if (slot >= cap)
     {
-        mel_log_error("gpu", "bindless: %s slot %u exceeds heap capacity %u (BindlessSlotExhausted)", klass, slot, cap);
-        mel_assert(!"bindless slot exceeds heap capacity");
+        mel_log_error("gpu", "bindless: %s slot %u exceeds heap capacity %u (BindlessSlotExhausted); registration refused", klass, slot, cap);
         return false;
     }
     return true;
 }
 
-void mel_gpu__bindless_register_sampled_image(Mel_Gpu_Device* dev, u32 slot, VkImageView view)
+// Pre-flight predicate the create paths consult before committing the slot, so an over-cap resource fails
+// create (status) instead of registering past the cap. `binding_class` is the MEL_GPU_BINDLESS_BINDING_* index.
+bool mel_gpu__bindless_slot_fits(Mel_Gpu_Device* dev, u32 binding_class, u32 slot)
+{
+    if (!dev->bindless.enabled)
+        return true; // no heap, no registration, no cap to exceed
+    return slot < mel_gpu__heap_cap_for_class(dev, binding_class);
+}
+
+bool mel_gpu__bindless_register_sampled_image(Mel_Gpu_Device* dev, u32 slot, VkImageView view)
 {
     if (!mel_gpu__bindless_check(dev, slot, dev->bindless.cap_sampled_image, "sampled-image"))
-        return;
+        return false;
     VkDescriptorImageInfo ii = { .imageView = view, .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
     VkWriteDescriptorSet w = {
         .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
@@ -152,12 +183,13 @@ void mel_gpu__bindless_register_sampled_image(Mel_Gpu_Device* dev, u32 slot, VkI
     mel_mutex_lock(&dev->bindless.lock);
     vkUpdateDescriptorSets(dev->vk, 1, &w, 0, NULL);
     mel_mutex_unlock(&dev->bindless.lock);
+    return true;
 }
 
-void mel_gpu__bindless_register_storage_image(Mel_Gpu_Device* dev, u32 slot, VkImageView view)
+bool mel_gpu__bindless_register_storage_image(Mel_Gpu_Device* dev, u32 slot, VkImageView view)
 {
     if (!mel_gpu__bindless_check(dev, slot, dev->bindless.cap_storage_image, "storage-image"))
-        return;
+        return false;
     VkDescriptorImageInfo ii = { .imageView = view, .imageLayout = VK_IMAGE_LAYOUT_GENERAL };
     VkWriteDescriptorSet w = {
         .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
@@ -171,12 +203,13 @@ void mel_gpu__bindless_register_storage_image(Mel_Gpu_Device* dev, u32 slot, VkI
     mel_mutex_lock(&dev->bindless.lock);
     vkUpdateDescriptorSets(dev->vk, 1, &w, 0, NULL);
     mel_mutex_unlock(&dev->bindless.lock);
+    return true;
 }
 
-void mel_gpu__bindless_register_storage_buffer(Mel_Gpu_Device* dev, u32 slot, VkBuffer buf, VkDeviceSize range)
+bool mel_gpu__bindless_register_storage_buffer(Mel_Gpu_Device* dev, u32 slot, VkBuffer buf, VkDeviceSize range)
 {
     if (!mel_gpu__bindless_check(dev, slot, dev->bindless.cap_storage_buffer, "storage-buffer"))
-        return;
+        return false;
     VkDescriptorBufferInfo bi = { .buffer = buf, .offset = 0, .range = range };
     VkWriteDescriptorSet w = {
         .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
@@ -190,12 +223,13 @@ void mel_gpu__bindless_register_storage_buffer(Mel_Gpu_Device* dev, u32 slot, Vk
     mel_mutex_lock(&dev->bindless.lock);
     vkUpdateDescriptorSets(dev->vk, 1, &w, 0, NULL);
     mel_mutex_unlock(&dev->bindless.lock);
+    return true;
 }
 
-void mel_gpu__bindless_register_uniform_buffer(Mel_Gpu_Device* dev, u32 slot, VkBuffer buf, VkDeviceSize range)
+bool mel_gpu__bindless_register_uniform_buffer(Mel_Gpu_Device* dev, u32 slot, VkBuffer buf, VkDeviceSize range)
 {
     if (!mel_gpu__bindless_check(dev, slot, dev->bindless.cap_uniform_buffer, "uniform-buffer"))
-        return;
+        return false;
     VkDescriptorBufferInfo bi = { .buffer = buf, .offset = 0, .range = range };
     VkWriteDescriptorSet w = {
         .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
@@ -209,12 +243,13 @@ void mel_gpu__bindless_register_uniform_buffer(Mel_Gpu_Device* dev, u32 slot, Vk
     mel_mutex_lock(&dev->bindless.lock);
     vkUpdateDescriptorSets(dev->vk, 1, &w, 0, NULL);
     mel_mutex_unlock(&dev->bindless.lock);
+    return true;
 }
 
-void mel_gpu__bindless_register_sampler(Mel_Gpu_Device* dev, u32 slot, VkSampler sampler)
+bool mel_gpu__bindless_register_sampler(Mel_Gpu_Device* dev, u32 slot, VkSampler sampler)
 {
     if (!mel_gpu__bindless_check(dev, slot, dev->bindless.cap_sampler, "sampler"))
-        return;
+        return false;
     VkDescriptorImageInfo ii = { .sampler = sampler };
     VkWriteDescriptorSet w = {
         .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
@@ -228,6 +263,7 @@ void mel_gpu__bindless_register_sampler(Mel_Gpu_Device* dev, u32 slot, VkSampler
     mel_mutex_lock(&dev->bindless.lock);
     vkUpdateDescriptorSets(dev->vk, 1, &w, 0, NULL);
     mel_mutex_unlock(&dev->bindless.lock);
+    return true;
 }
 
 // ---- public surface ----

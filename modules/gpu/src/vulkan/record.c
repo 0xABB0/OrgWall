@@ -448,8 +448,11 @@ void mel_gpu_cmd_begin_rendering_opt(Mel_Gpu_Command_List* cmd, Mel_Gpu_Renderin
         return;
     }
 
-    VkRenderingAttachmentInfoKHR color[8];
-    u32                          n = opt.color_count <= 8 ? opt.color_count : 8;
+    // CRITICAL-2: the color array is sized to opt.color_count from the device allocator (MEL-CODE-002), not a
+    // fixed [8] stack array that silently truncates the rest (MEL-CODE-007 / MEL-ENGINE-VIII) — matching the
+    // pipeline path's dynamic pColorAttachmentFormats. No hardware cap is encoded as a silent floor.
+    u32                           n = opt.color_count;
+    VkRenderingAttachmentInfoKHR* color = n ? mel_alloc_array(dev->alloc, VkRenderingAttachmentInfoKHR, n) : NULL;
     for (u32 i = 0; i < n; i++)
     {
         Mel_Gpu_Texture_View_Obj* v = NULL;
@@ -491,6 +494,8 @@ void mel_gpu_cmd_begin_rendering_opt(Mel_Gpu_Command_List* cmd, Mel_Gpu_Renderin
         .pDepthAttachment = has_depth ? &depth : NULL,
     };
     dev->cmd_begin_rendering(cmd->cb, &ri);
+    if (color)
+        mel_dealloc(dev->alloc, color); // vkCmdBeginRendering copies the attachment array at record time
 
     VkViewport vp = { 0.0f, (f32)opt.height, (f32)opt.width, -(f32)opt.height, 0.0f, 1.0f };
     VkRect2D   scissor = { { 0, 0 }, { opt.width, opt.height } };

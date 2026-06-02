@@ -538,11 +538,17 @@ bool         mel_gpu__sampler_retain(Mel_Gpu_Device* dev, Mel_Gpu_Sampler sample
 // granted and requested; registration writes one descriptor at the resource's handle index.
 void mel_gpu__bindless_init(Mel_Gpu_Device* dev, bool want);
 void mel_gpu__bindless_shutdown(Mel_Gpu_Device* dev);
-void mel_gpu__bindless_register_sampled_image(Mel_Gpu_Device* dev, u32 slot, VkImageView view);
-void mel_gpu__bindless_register_storage_image(Mel_Gpu_Device* dev, u32 slot, VkImageView view);
-void mel_gpu__bindless_register_storage_buffer(Mel_Gpu_Device* dev, u32 slot, VkBuffer buf, VkDeviceSize range);
-void mel_gpu__bindless_register_uniform_buffer(Mel_Gpu_Device* dev, u32 slot, VkBuffer buf, VkDeviceSize range);
-void mel_gpu__bindless_register_sampler(Mel_Gpu_Device* dev, u32 slot, VkSampler sampler);
+// Each register returns false when `slot` exceeds the class's heap cap (CRITICAL-1 / MEL-ENGINE-VIII): the
+// descriptor is NOT written, so the create path must fail loudly rather than report a resource with an
+// unbound heap slot. mel_gpu__bindless_slot_fits is the pre-flight predicate; mel_gpu__heap_cap_for_class
+// the per-class cap (binding index = heap class).
+u32  mel_gpu__heap_cap_for_class(Mel_Gpu_Device* dev, u32 binding_class);
+bool mel_gpu__bindless_slot_fits(Mel_Gpu_Device* dev, u32 binding_class, u32 slot);
+bool mel_gpu__bindless_register_sampled_image(Mel_Gpu_Device* dev, u32 slot, VkImageView view);
+bool mel_gpu__bindless_register_storage_image(Mel_Gpu_Device* dev, u32 slot, VkImageView view);
+bool mel_gpu__bindless_register_storage_buffer(Mel_Gpu_Device* dev, u32 slot, VkBuffer buf, VkDeviceSize range);
+bool mel_gpu__bindless_register_uniform_buffer(Mel_Gpu_Device* dev, u32 slot, VkBuffer buf, VkDeviceSize range);
+bool mel_gpu__bindless_register_sampler(Mel_Gpu_Device* dev, u32 slot, VkSampler sampler);
 
 // U14 classic descriptor-set path (gpu-rhi.md §6.7). Allocate one set of `layout` from the device classic-
 // pool chain (growing the chain on exhaustion), reporting which pool served it. The shutdown destroys the
