@@ -37,6 +37,12 @@ void mel_gpu_frame_begin(Mel_Gpu_Swapchain* sc)
     sc->current_image = image;
     sc->recorder.cb = cb;
     sc->recorder.cur_layout = VK_NULL_HANDLE;
+    // U17 (gpu-rhi.md §7.3): the embedded frame recorder is a fresh recording each frame, just like a
+    // standalone command_list_begin — reset its per-subresource state tracker so first-touch accepts the
+    // declared source state. Without this the tracker persisted across frames, so re-declaring
+    // Common→RenderTarget every frame falsely tripped the state-mismatch assert (it had recorded the prior
+    // frame's Present as the last state). The command buffer itself was already reset above.
+    sc->recorder.state_count = 0;
     sc->frame_ok = true;
 }
 
