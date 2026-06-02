@@ -81,6 +81,10 @@ Mel_Gpu_Device_Create_Result mel_gpu_device_create_opt(Mel_Gpu_Instance* inst, M
     bool has_dr = mel_gpu__device_ext_available(adapter->phys, VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME);
     if (has_dr)
         exts[ext_count++] = VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME;
+    // U17 (gpu-rhi.md §7.3): synchronization2 re-lowers barriers onto pipeline_stage_2/access_2; the legacy
+    // vkCmdPipelineBarrier path is the floor. Probe-and-gate the extension AND the feature bit (request-and-grant,
+    // U4) — the feature is queried below alongside the base features and only enabled when granted.
+    bool has_sync2_ext = mel_gpu__device_ext_available(adapter->phys, VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME);
 
     float                   prio = 1.0f;
     VkDeviceQueueCreateInfo qci = {
@@ -123,9 +127,32 @@ Mel_Gpu_Device_Create_Result mel_gpu_device_create_opt(Mel_Gpu_Instance* inst, M
     VkPhysicalDeviceFeatures avail = { 0 };
     vkGetPhysicalDeviceFeatures(adapter->phys, &avail);
 
+    // U17: query the synchronization2 feature bit (the extension being present does not guarantee the feature).
+    bool has_sync2 = false;
+    if (has_sync2_ext)
+    {
+        VkPhysicalDeviceSynchronization2FeaturesKHR probe = { .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES_KHR };
+        VkPhysicalDeviceFeatures2                   q = { .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, .pNext = &probe };
+        vkGetPhysicalDeviceFeatures2(adapter->phys, &q);
+        has_sync2 = probe.synchronization2 != 0;
+    }
+    if (has_sync2)
+        exts[ext_count++] = VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME;
+
+    // Chain head: feat_dr -> feat12 (when dynamic rendering granted), else feat12. synchronization2, when
+    // granted, is prepended so its feature bit is enabled at vkCreateDevice.
+    void*                                       chain_head = has_dr ? (void*)&feat_dr : (void*)&feat12;
+    VkPhysicalDeviceSynchronization2FeaturesKHR feat_sync2 = {
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES_KHR,
+        .pNext = chain_head,
+        .synchronization2 = VK_TRUE,
+    };
+    if (has_sync2)
+        chain_head = &feat_sync2;
+
     VkPhysicalDeviceFeatures2 feat2 = {
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
-        .pNext = has_dr ? (void*)&feat_dr : (void*)&feat12,
+        .pNext = chain_head,
     };
     // U11: anisotropic filtering is a near-universal base feature; enable it when present so samplers can
     // honor max_anisotropy. The limit is read below and stored for sampler clamping.
@@ -205,6 +232,15 @@ Mel_Gpu_Device_Create_Result mel_gpu_device_create_opt(Mel_Gpu_Instance* inst, M
         dev->dynamic_rendering = dev->cmd_begin_rendering && dev->cmd_end_rendering;
     }
     mel_log_info("gpu", "render lowering: %s", dev->dynamic_rendering ? "dynamic rendering" : "render passes (floor)");
+
+    // U17 (gpu-rhi.md §7.3): load the synchronization2 barrier entry point when the feature was granted; the
+    // legacy vkCmdPipelineBarrier path stays as the floor when the proc-addr is absent.
+    if (has_sync2)
+    {
+        dev->cmd_pipeline_barrier2 = (PFN_vkCmdPipelineBarrier2KHR)vkGetDeviceProcAddr(vk, "vkCmdPipelineBarrier2KHR");
+        dev->sync2 = dev->cmd_pipeline_barrier2 != NULL;
+    }
+    mel_log_info("gpu", "barrier lowering: %s", dev->sync2 ? "synchronization2" : "legacy pipeline barriers (floor)");
 
     dev->caps.power.power_source = (Mel_Gpu_Power_Source)mel_power_source_current();
     Mel_Thermal_Pressure tp = mel_thermal_current();

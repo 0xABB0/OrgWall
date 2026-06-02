@@ -237,6 +237,19 @@ void mel_gpu_cmd_draw_indexed(Mel_Gpu_Command_List* cmd, u32 index_count, u32 in
 
 void mel_gpu_cmd_dispatch(Mel_Gpu_Command_List* cmd, u32 groups_x, u32 groups_y, u32 groups_z) { vkCmdDispatch(cmd->cb, groups_x, groups_y, groups_z); }
 
+void mel_gpu_cmd_dispatch_indirect(Mel_Gpu_Command_List* cmd, Mel_Gpu_Buffer args, usize offset)
+{
+    VkBuffer vk;
+    if (!mel_gpu__buffer_get(cmd->dev, args, &vk))
+    {
+        mel_assert(!"cmd_dispatch_indirect: invalid args buffer handle");
+        return;
+    }
+    // The args buffer must be in INDIRECT_ARGUMENT (cmd_buffer_barrier) before this call; the read is a
+    // VK_ACCESS_INDIRECT_COMMAND_READ at the DRAW_INDIRECT stage (gpu-rhi.md §7.1 / §7.3).
+    vkCmdDispatchIndirect(cmd->cb, vk, (VkDeviceSize)offset);
+}
+
 void mel_gpu_cmd_copy_buffer(Mel_Gpu_Command_List* cmd, Mel_Gpu_Buffer src, Mel_Gpu_Buffer dst, usize bytes)
 {
     VkBuffer s, d;

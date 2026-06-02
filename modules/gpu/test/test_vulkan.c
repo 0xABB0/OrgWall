@@ -18,6 +18,8 @@
 #include <gpu/memory.h>
 #include <gpu/format_props.h>
 #include <gpu/vulkan/interop.h>
+#include <allocator/allocator.h>
+#include <allocator/heap.h>
 
 #include "bindless_spv.h"
 
@@ -600,6 +602,52 @@ MEL_TEST(vk_bindless, missing_feature_without_heap)
     mel_gpu_instance_destroy(inst);
 }
 
+// CRITICAL-1 (gpu-rhi.md §6.7 / MEL-ENGINE-VIII): the bindless slot == handle.index contract collides with the
+// fixed per-class heap cap. Creating more distinct live samplers than the sampler class cap once pushed an index
+// past the cap, which asserted in debug and silently dropped the descriptor in release (silent corruption). The
+// fix surfaces it as a loud BindlessSlotExhausted status. This test creates samplers (distinct lod_min defeats
+// dedup) until the slotmap index crosses the cap and asserts the over-cap create FAILS with that status — not a
+// crash, not a silently-OK create. Every successful sampler is destroyed; the over-cap one allocated nothing.
+MEL_TEST(vk_bindless, sampler_over_cap_fails_loudly)
+{
+    Mel_Gpu_Instance* inst = NULL;
+    Mel_Gpu_Device*   dev = test_make_device_bindless(&inst);
+    MEL_REQUIRE_NOT_NULL(dev);
+    MEL_REQUIRE(mel_gpu_bindless_available(dev));
+
+    const Mel_Gpu_Caps* caps = mel_gpu_device_caps(dev);
+    u32                 cap = caps->memory.bindless.max_sampler_slots;
+    MEL_REQUIRE(cap > 0);
+
+    const Mel_Alloc*   alloc = mel_alloc_heap();
+    Mel_Gpu_Sampler*   live = mel_alloc_array(alloc, Mel_Gpu_Sampler, cap);
+    u32                live_count = 0;
+    bool               hit_exhausted = false;
+    // Create up to cap+1 distinct samplers; the first `cap` (slots 0..cap-1) succeed, the (cap+1)-th (slot==cap)
+    // is refused. lod_min varies per sampler so dedup does not collapse them into one interned handle.
+    for (u32 i = 0; i <= cap; i++)
+    {
+        Mel_Gpu_Sampler_Create_Result s = mel_gpu_sampler_create(dev, .min_filter = MEL_GPU_FILTER_NEAREST, .mag_filter = MEL_GPU_FILTER_NEAREST,
+                                                                  .wrap_u = MEL_GPU_WRAP_REPEAT, .lod_min = (f32)i * 0.01f, .lod_max = 64.0f, .name = "ovc");
+        if ((u32)s.status == (u32)MEL_GPU_SAMPLER_CREATE_BINDLESS_SLOT_EXHAUSTED)
+        {
+            hit_exhausted = true; // the over-cap create failed loudly, as required
+            break;
+        }
+        MEL_REQUIRE(!mel_gpu_failed(s.status));
+        MEL_REQUIRE(live_count < cap);
+        live[live_count++] = s.value;
+    }
+    MEL_EXPECT(hit_exhausted);
+    MEL_EXPECT_EQ(live_count, cap); // exactly `cap` slots are addressable, the (cap+1)-th was refused
+
+    for (u32 i = 0; i < live_count; i++)
+        mel_gpu_sampler_destroy(dev, live[i]);
+    mel_dealloc(alloc, live);
+    mel_gpu_device_destroy(dev);
+    mel_gpu_instance_destroy(inst);
+}
+
 // Records a bindless sample of (tex_slot, smp_slot) into rt and copies it to rb. Submits synchronously.
 static void test_bindless_render(Mel_Gpu_Device* dev, Mel_Gpu_Queue* q, Mel_Gpu_Pipeline pipe, u32 W, u32 H,
                                  Mel_Gpu_Texture rt, Mel_Gpu_Texture_View rt_view, u32 tex_slot, u32 smp_slot, Mel_Gpu_Buffer rb)
@@ -1118,6 +1166,157 @@ MEL_TEST(vk_compute, storage_buffer_bindless)
     mel_gpu_instance_destroy(inst);
 }
 
+// U13/U14 (gpu-rhi.md §6.7): storage-image bindless, end-to-end. A compute shader writes a gradient into one
+// heap-resident storage image addressed purely by its bindless slot index in a push-constant root record, then
+// the image is barriered UAV->CopySource and copied to a READBACK buffer; the gradient is pixel-verified. Closes
+// the storage-image heap class the binding-finish writeup flagged unproven (storage-buffer was the only proof).
+MEL_TEST(vk_compute, storage_image_bindless)
+{
+    Mel_Gpu_Instance* inst = NULL;
+    Mel_Gpu_Device*   dev = test_make_device_bindless(&inst);
+    MEL_REQUIRE_NOT_NULL(dev);
+    MEL_REQUIRE(mel_gpu_bindless_available(dev));
+
+    const u32 W = 8, H = 8;
+    // STORAGE so the view auto-registers in the storage-image heap class (binding 4); COPY_SRC for the readback.
+    Mel_Gpu_Texture_Create_Result img = mel_gpu_texture_create(dev, .kind = MEL_GPU_TEXTURE_2D, .extent = { W, H, 1 }, .format = MEL_GPU_FORMAT_RGBA8_UNORM,
+                                                               .usage = MEL_GPU_TEXTURE_STORAGE | MEL_GPU_TEXTURE_COPY_SRC, .name = "img");
+    MEL_REQUIRE(!mel_gpu_failed(img.status));
+    Mel_Gpu_Texture_View_Create_Result view = mel_gpu_texture_default_view(dev, img.value);
+    MEL_REQUIRE(!mel_gpu_failed(view.status));
+    Mel_Gpu_Buffer_Create_Result rb = mel_gpu_buffer_create(dev, .size = (usize)W * H * 4, .usage = MEL_GPU_BUFFER_TRANSFER_DST, .memory = MEL_GPU_MEMORY_READBACK, .name = "rb");
+    MEL_REQUIRE(!mel_gpu_failed(rb.status));
+
+    Mel_Gpu_Shader_Create_Result sh = mel_gpu_shader_create_compute_from_bytecode(dev, .spirv = IMGWRITE_COMP_SPV, .spirv_size = sizeof IMGWRITE_COMP_SPV, .entry = "main", .name = "imgwrite");
+    MEL_REQUIRE(!mel_gpu_failed(sh.status));
+
+    // Reflection derives both: the set-0 storage-image runtime array marks it bindless; the 12-byte root record
+    // sizes the push constant. No explicit .bindless / .push_constant_size needed.
+    Mel_Gpu_Pipeline_Create_Result pipe = mel_gpu_pipeline_compute_create(dev, .shader = sh.value, .name = "imgwrite");
+    MEL_REQUIRE(!mel_gpu_failed(pipe.status));
+    MEL_REQUIRE(mel_gpu_pipeline_alive(dev, pipe.value));
+
+    struct { u32 img_slot, width, height; } root = { mel_gpu_texture_view_bindless_slot(dev, view.value), W, H };
+
+    Mel_Gpu_Queue*        q = mel_gpu_queue_request(dev, MEL_GPU_QUEUE_GRAPHICS);
+    Mel_Gpu_Command_List* cmd = mel_gpu_command_list_create(q);
+    mel_gpu_command_list_begin(cmd);
+    Mel_Gpu_Subresource_Range range = { MEL_GPU_ASPECT_COLOR, 0, 1, 0, 1 };
+    // COMMON->UnorderedAccess (GENERAL layout) so the compute imageStore is legal, then UAV->CopySource.
+    mel_gpu_cmd_texture_barrier(cmd, img.value, range, MEL_GPU_STATE_COMMON, MEL_GPU_STATE_UNORDERED_ACCESS);
+    mel_gpu_cmd_bind_pipeline(cmd, pipe.value);
+    mel_gpu_cmd_push_constants(cmd, 0, sizeof root, &root);
+    mel_gpu_cmd_dispatch(cmd, (W + 7) / 8, (H + 7) / 8, 1);
+    mel_gpu_cmd_texture_barrier(cmd, img.value, range, MEL_GPU_STATE_UNORDERED_ACCESS, MEL_GPU_STATE_COPY_SOURCE);
+    mel_gpu_cmd_copy_texture_to_buffer(cmd, img.value, range, rb.value);
+    mel_gpu_command_list_end(cmd);
+    Mel_Gpu_Future* f = mel_gpu_queue_submit(q, (Mel_Gpu_Submit){ .command_lists = &cmd, .command_list_count = 1 });
+    MEL_EXPECT(mel_gpu_ok(mel_gpu_future_status(f)));
+    mel_gpu_future_destroy(f);
+
+    const u8* px = mel_gpu_buffer_mapped(dev, rb.value);
+    MEL_REQUIRE_NOT_NULL(px);
+    // Gradient: pixel (x,y) = (x/W, y/H, 0.5, 1). Verify three sample points (RGBA8 row-major, 4 bytes/px).
+    const u8* p00 = px;                                   // (0,0) -> (0, 0, 0.5, 1)
+    const u8* p42 = px + (2u * W + 4u) * 4u;              // (4,2) -> (0.5, 0.25, 0.5, 1)
+    const u8* p77 = px + (7u * W + 7u) * 4u;              // (7,7) -> (0.875, 0.875, 0.5, 1)
+    MEL_EXPECT_EQ(p00[0], 0u);
+    MEL_EXPECT_EQ(p00[1], 0u);
+    MEL_EXPECT(p00[2] >= 126 && p00[2] <= 130); // 0.5
+    MEL_EXPECT_EQ(p00[3], 255u);
+    MEL_EXPECT(p42[0] >= 126 && p42[0] <= 130); // 0.5
+    MEL_EXPECT(p42[1] >= 62 && p42[1] <= 66);   // 0.25
+    MEL_EXPECT(p42[2] >= 126 && p42[2] <= 130); // 0.5
+    MEL_EXPECT(p77[0] >= 221 && p77[0] <= 225); // 0.875
+    MEL_EXPECT(p77[1] >= 221 && p77[1] <= 225); // 0.875
+
+    mel_gpu_command_list_destroy(cmd);
+    mel_gpu_queue_release(q);
+    mel_gpu_pipeline_destroy(dev, pipe.value);
+    mel_gpu_shader_destroy(dev, sh.value);
+    mel_gpu_buffer_destroy(dev, rb.value);
+    mel_gpu_texture_view_destroy(dev, view.value);
+    mel_gpu_texture_destroy(dev, img.value);
+    mel_gpu_device_destroy(dev);
+    mel_gpu_instance_destroy(inst);
+}
+
+// U13/U15 (gpu-rhi.md §7.1): GPU-driven cmd_dispatch_indirect. A first compute pass (fillargs) writes the
+// {group_x, 1, 1} dispatch triple into a STORAGE+INDIRECT args buffer addressed by bindless slot — no CPU
+// round-trip. A cmd_buffer_barrier transitions the args buffer UnorderedAccess->IndirectArgument; the add
+// kernel is then dispatched *from those args*. out[i] == in[i]+1 is read back, proving the indirect grid ran.
+MEL_TEST(vk_compute, dispatch_indirect)
+{
+    Mel_Gpu_Instance* inst = NULL;
+    Mel_Gpu_Device*   dev = test_make_device_bindless(&inst);
+    MEL_REQUIRE_NOT_NULL(dev);
+    MEL_REQUIRE(mel_gpu_bindless_available(dev));
+
+    const u32 N = 128;
+    u32       in_data[N];
+    for (u32 i = 0; i < N; i++)
+        in_data[i] = i;
+
+    Mel_Gpu_Buffer_Create_Result in_buf = mel_gpu_buffer_create(dev, .size = sizeof in_data, .usage = MEL_GPU_BUFFER_STORAGE, .memory = MEL_GPU_MEMORY_UPLOAD, .data = in_data, .name = "in");
+    MEL_REQUIRE(!mel_gpu_failed(in_buf.status));
+    Mel_Gpu_Buffer_Create_Result out_buf = mel_gpu_buffer_create(dev, .size = sizeof in_data, .usage = MEL_GPU_BUFFER_STORAGE, .memory = MEL_GPU_MEMORY_READBACK, .name = "out");
+    MEL_REQUIRE(!mel_gpu_failed(out_buf.status));
+    // The args buffer is both a storage buffer (the fill kernel writes it via bindless) and an indirect buffer
+    // (cmd_dispatch_indirect reads it). Device-local: the args never touch the CPU.
+    Mel_Gpu_Buffer_Create_Result args_buf = mel_gpu_buffer_create(dev, .size = 3 * sizeof(u32), .usage = MEL_GPU_BUFFER_STORAGE | MEL_GPU_BUFFER_INDIRECT, .memory = MEL_GPU_MEMORY_DEVICE, .name = "args");
+    MEL_REQUIRE(!mel_gpu_failed(args_buf.status));
+
+    Mel_Gpu_Shader_Create_Result fill_sh = mel_gpu_shader_create_compute_from_bytecode(dev, .spirv = FILLARGS_COMP_SPV, .spirv_size = sizeof FILLARGS_COMP_SPV, .entry = "main", .name = "fillargs");
+    MEL_REQUIRE(!mel_gpu_failed(fill_sh.status));
+    Mel_Gpu_Shader_Create_Result add_sh = mel_gpu_shader_create_compute_from_bytecode(dev, .spirv = ADD_COMP_SPV, .spirv_size = sizeof ADD_COMP_SPV, .entry = "main", .name = "add");
+    MEL_REQUIRE(!mel_gpu_failed(add_sh.status));
+
+    Mel_Gpu_Pipeline_Create_Result fill_pipe = mel_gpu_pipeline_compute_create(dev, .shader = fill_sh.value, .name = "fillargs");
+    MEL_REQUIRE(!mel_gpu_failed(fill_pipe.status));
+    Mel_Gpu_Pipeline_Create_Result add_pipe = mel_gpu_pipeline_compute_create(dev, .shader = add_sh.value, .name = "add");
+    MEL_REQUIRE(!mel_gpu_failed(add_pipe.status));
+
+    struct { u32 args_buf, groups_x; } fill_root = { mel_gpu_buffer_bindless_slot(dev, args_buf.value), (N + 63) / 64 };
+    struct { u32 in_slot, out_slot, n; } add_root = { mel_gpu_buffer_bindless_slot(dev, in_buf.value), mel_gpu_buffer_bindless_slot(dev, out_buf.value), N };
+
+    Mel_Gpu_Queue*        q = mel_gpu_queue_request(dev, MEL_GPU_QUEUE_GRAPHICS);
+    Mel_Gpu_Command_List* cmd = mel_gpu_command_list_create(q);
+    mel_gpu_command_list_begin(cmd);
+    // Pass 1: write the dispatch args. UAV->IndirectArgument barrier makes the write visible to the indirect read.
+    mel_gpu_cmd_bind_pipeline(cmd, fill_pipe.value);
+    mel_gpu_cmd_push_constants(cmd, 0, sizeof fill_root, &fill_root);
+    mel_gpu_cmd_dispatch(cmd, 1, 1, 1);
+    mel_gpu_cmd_buffer_barrier(cmd, args_buf.value, MEL_GPU_STATE_UNORDERED_ACCESS, MEL_GPU_STATE_INDIRECT_ARGUMENT);
+    // Pass 2: the add kernel, dispatched from the GPU-produced args.
+    mel_gpu_cmd_bind_pipeline(cmd, add_pipe.value);
+    mel_gpu_cmd_push_constants(cmd, 0, sizeof add_root, &add_root);
+    mel_gpu_cmd_dispatch_indirect(cmd, args_buf.value, 0);
+    mel_gpu_command_list_end(cmd);
+    Mel_Gpu_Future* f = mel_gpu_queue_submit(q, (Mel_Gpu_Submit){ .command_lists = &cmd, .command_list_count = 1 });
+    MEL_EXPECT(mel_gpu_ok(mel_gpu_future_status(f)));
+    mel_gpu_future_destroy(f);
+
+    const u32* out = mel_gpu_buffer_mapped(dev, out_buf.value);
+    MEL_REQUIRE_NOT_NULL(out);
+    bool ok = true;
+    for (u32 i = 0; i < N; i++)
+        if (out[i] != i + 1)
+            ok = false;
+    MEL_EXPECT(ok);
+
+    mel_gpu_command_list_destroy(cmd);
+    mel_gpu_queue_release(q);
+    mel_gpu_pipeline_destroy(dev, add_pipe.value);
+    mel_gpu_pipeline_destroy(dev, fill_pipe.value);
+    mel_gpu_shader_destroy(dev, add_sh.value);
+    mel_gpu_shader_destroy(dev, fill_sh.value);
+    mel_gpu_buffer_destroy(dev, args_buf.value);
+    mel_gpu_buffer_destroy(dev, out_buf.value);
+    mel_gpu_buffer_destroy(dev, in_buf.value);
+    mel_gpu_device_destroy(dev);
+    mel_gpu_instance_destroy(inst);
+}
+
 // U13 render state (gpu-rhi.md §6.5): per-attachment alpha blend. Clear the target to (0.2,0.4,0.6,1), then draw
 // a fullscreen src (1,0,0,0.5) through a MEL_GPU_BLEND_ALPHA pipeline. src-over gives 0.5*src + 0.5*dst, pixel-verified.
 MEL_TEST(vk_pipeline, alpha_blend)
@@ -1378,6 +1577,84 @@ MEL_TEST(vk_pipeline, msaa_renders_clean)
     mel_gpu_shader_destroy(dev, sh.value);
     mel_gpu_texture_view_destroy(dev, rt_view.value);
     mel_gpu_texture_destroy(dev, rt.value);
+    mel_gpu_device_destroy(dev);
+    mel_gpu_instance_destroy(inst);
+}
+
+// U16 on-tile MSAA resolve (gpu-rhi.md §7.2): a 4-sample pipeline renders a fullscreen white triangle into a
+// 4-sample color attachment that RESOLVES (VK_RESOLVE_MODE_AVERAGE) into a single-sample target in the same
+// dynamic-rendering pass — the multisample surface is never stored (U22). The resolve target is then copied to
+// a READBACK buffer and the resolved pixel verified white. Extends vk_pipeline.msaa_renders_clean (which proved
+// sample-count plumbing only) to the full resolve-and-readback path, enabling the appsmith MSAA screen.
+MEL_TEST(vk_render, msaa_resolve_readback)
+{
+    Mel_Gpu_Instance* inst = NULL;
+    Mel_Gpu_Device*   dev = test_make_device(&inst);
+    MEL_REQUIRE_NOT_NULL(dev);
+
+    const u32 W = 8, H = 8;
+    // 4-sample color attachment (rendered into, never stored) + single-sample resolve target (stored, read back).
+    Mel_Gpu_Texture_Create_Result msaa = mel_gpu_texture_create(dev, .kind = MEL_GPU_TEXTURE_2D, .extent = { W, H, 1 }, .format = MEL_GPU_FORMAT_RGBA8_UNORM,
+                                                                .sample_count = 4, .usage = MEL_GPU_TEXTURE_ATTACHMENT, .name = "msaa");
+    MEL_REQUIRE(!mel_gpu_failed(msaa.status));
+    Mel_Gpu_Texture_View_Create_Result msaa_view = mel_gpu_texture_default_view(dev, msaa.value);
+    MEL_REQUIRE(!mel_gpu_failed(msaa_view.status));
+    Mel_Gpu_Texture_Create_Result resolve = mel_gpu_texture_create(dev, .kind = MEL_GPU_TEXTURE_2D, .extent = { W, H, 1 }, .format = MEL_GPU_FORMAT_RGBA8_UNORM,
+                                                                   .usage = MEL_GPU_TEXTURE_ATTACHMENT | MEL_GPU_TEXTURE_COPY_SRC, .name = "resolve");
+    MEL_REQUIRE(!mel_gpu_failed(resolve.status));
+    Mel_Gpu_Texture_View_Create_Result resolve_view = mel_gpu_texture_default_view(dev, resolve.value);
+    MEL_REQUIRE(!mel_gpu_failed(resolve_view.status));
+    Mel_Gpu_Buffer_Create_Result rb = mel_gpu_buffer_create(dev, .size = (usize)W * H * 4, .usage = MEL_GPU_BUFFER_TRANSFER_DST, .memory = MEL_GPU_MEMORY_READBACK, .name = "rb");
+
+    Mel_Gpu_Shader_Create_Result sh = mel_gpu_shader_create_from_bytecode(dev,
+                                                                          .spirv_vertex = BINDLESS_VERT_SPV, .spirv_vertex_size = sizeof BINDLESS_VERT_SPV,
+                                                                          .spirv_fragment = SOLID_PC_FRAG_SPV, .spirv_fragment_size = sizeof SOLID_PC_FRAG_SPV,
+                                                                          .vertex_entry = "main", .fragment_entry = "main", .name = "msaa");
+    MEL_REQUIRE(!mel_gpu_failed(sh.status));
+    Mel_Gpu_Pipeline_Create_Result pipe = mel_gpu_pipeline_create(dev, .shader = sh.value, .color_format = MEL_GPU_FORMAT_RGBA8_UNORM,
+                                                                  .samples = 4, .push_constant_size = 16, .name = "msaa");
+    MEL_REQUIRE(!mel_gpu_failed(pipe.status));
+
+    f32 white[4] = { 1, 1, 1, 1 };
+    Mel_Gpu_Queue*        q = mel_gpu_queue_request(dev, MEL_GPU_QUEUE_GRAPHICS);
+    Mel_Gpu_Command_List* cmd = mel_gpu_command_list_create(q);
+    mel_gpu_command_list_begin(cmd);
+    Mel_Gpu_Subresource_Range range = { MEL_GPU_ASPECT_COLOR, 0, 1, 0, 1 };
+    mel_gpu_cmd_texture_barrier(cmd, msaa.value, range, MEL_GPU_STATE_COMMON, MEL_GPU_STATE_RENDER_TARGET);
+    mel_gpu_cmd_texture_barrier(cmd, resolve.value, range, MEL_GPU_STATE_COMMON, MEL_GPU_STATE_RENDER_TARGET);
+    // The multisample attachment is rendered with DONT_CARE store (never kept); resolve_view receives the average.
+    Mel_Gpu_Color_Attachment color = { .view = msaa_view.value, .load = MEL_GPU_LOAD_CLEAR, .store = MEL_GPU_STORE_DONT_CARE,
+                                       .clear = mel_gpu_rgba(0, 0, 0, 1), .resolve_view = resolve_view.value };
+    mel_gpu_cmd_begin_rendering(cmd, .colors = &color, .color_count = 1, .width = W, .height = H);
+    mel_gpu_cmd_bind_pipeline(cmd, pipe.value);
+    mel_gpu_cmd_push_constants(cmd, 0, sizeof white, white);
+    mel_gpu_cmd_draw(cmd, 3, 1);
+    mel_gpu_cmd_end_rendering(cmd);
+    mel_gpu_cmd_texture_barrier(cmd, resolve.value, range, MEL_GPU_STATE_RENDER_TARGET, MEL_GPU_STATE_COPY_SOURCE);
+    mel_gpu_cmd_copy_texture_to_buffer(cmd, resolve.value, range, rb.value);
+    mel_gpu_command_list_end(cmd);
+    Mel_Gpu_Future* f = mel_gpu_queue_submit(q, (Mel_Gpu_Submit){ .command_lists = &cmd, .command_list_count = 1 });
+    MEL_EXPECT(mel_gpu_ok(mel_gpu_future_status(f)));
+    mel_gpu_future_destroy(f);
+
+    const u8* px = mel_gpu_buffer_mapped(dev, rb.value);
+    MEL_REQUIRE_NOT_NULL(px);
+    // A fullscreen white triangle fully covers each pixel; the 4-sample average is white at the center pixel.
+    const u8* c = px + (4u * W + 4u) * 4u;
+    MEL_EXPECT_EQ(c[0], 255u);
+    MEL_EXPECT_EQ(c[1], 255u);
+    MEL_EXPECT_EQ(c[2], 255u);
+    MEL_EXPECT_EQ(c[3], 255u);
+
+    mel_gpu_command_list_destroy(cmd);
+    mel_gpu_queue_release(q);
+    mel_gpu_pipeline_destroy(dev, pipe.value);
+    mel_gpu_shader_destroy(dev, sh.value);
+    mel_gpu_buffer_destroy(dev, rb.value);
+    mel_gpu_texture_view_destroy(dev, resolve_view.value);
+    mel_gpu_texture_destroy(dev, resolve.value);
+    mel_gpu_texture_view_destroy(dev, msaa_view.value);
+    mel_gpu_texture_destroy(dev, msaa.value);
     mel_gpu_device_destroy(dev);
     mel_gpu_instance_destroy(inst);
 }

@@ -260,11 +260,30 @@ Mel_Gpu_Texture_View_Create_Result mel_gpu_texture_view_create_opt(Mel_Gpu_Devic
 
     // U14: the view owns the bindless slot (gpu-rhi.md §6.2). Auto-register it into the device heap at the
     // handle index for every shader-readable class the parent texture's usage admits (direct contract §3.1).
+    // CRITICAL-1: pre-flight EVERY class the view registers into before writing any descriptor, so an over-cap
+    // slot fails the create loudly (BindlessSlotExhausted) and rolls back — no partial heap write, no unbound
+    // slot reported as OK (MEL-ENGINE-VIII).
     if (dev->bindless.enabled)
     {
-        if (tex->usage & VK_IMAGE_USAGE_SAMPLED_BIT)
+        bool sampled = (tex->usage & VK_IMAGE_USAGE_SAMPLED_BIT) != 0;
+        bool storage = (tex->usage & VK_IMAGE_USAGE_STORAGE_BIT) != 0;
+        bool fits = true;
+        if (sampled)
+            fits = mel_gpu__bindless_slot_fits(dev, MEL_GPU_BINDLESS_BINDING_SAMPLED_IMAGE, res.value.slot.index) && fits;
+        if (storage)
+            fits = mel_gpu__bindless_slot_fits(dev, MEL_GPU_BINDLESS_BINDING_STORAGE_IMAGE, res.value.slot.index) && fits;
+        if (!fits)
+        {
+            mel_log_error("gpu", "texture_view_create '%s': bindless slot %u exceeds a heap class cap (BindlessSlotExhausted)", opt.name ? opt.name : "(unnamed)", res.value.slot.index);
+            mel_gpu__table_remove(dev, &dev->texture_views, res.value.slot);
+            vkDestroyImageView(dev->vk, view, NULL);
+            res.value = (Mel_Gpu_Texture_View){ mel_gpu_handle_null() };
+            res.status = MEL_GPU_TEXTURE_VIEW_CREATE_BINDLESS_SLOT_EXHAUSTED;
+            return res;
+        }
+        if (sampled)
             mel_gpu__bindless_register_sampled_image(dev, res.value.slot.index, view);
-        if (tex->usage & VK_IMAGE_USAGE_STORAGE_BIT)
+        if (storage)
             mel_gpu__bindless_register_storage_image(dev, res.value.slot.index, view);
     }
     return res;
@@ -379,6 +398,11 @@ void mel_gpu_texture_write(Mel_Gpu_Device* dev, Mel_Gpu_Texture tex, Mel_Gpu_Tex
 
     vkEndCommandBuffer(cb);
 
+    // MAJOR-4: reserve a serial so the upload participates in the retirement watermark (§3.3) instead of being
+    // invisible to the engine's retirement clock (a latent UAF once uploads go async); the staging buffer + its
+    // memory are routed through the deferred-free queue rather than freed raw. The synchronous WaitIdle drains
+    // the submission, so advancing the watermark to this serial retires the staging free immediately and exactly.
+    u64          serial = mel_gpu__submit_serial_next(dev);
     VkSubmitInfo si = { .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO, .commandBufferCount = 1, .pCommandBuffers = &cb };
     mel_mutex_lock(&dev->submit_lock);
     vkQueueSubmit(dev->graphics_queue, 1, &si, VK_NULL_HANDLE);
@@ -386,6 +410,6 @@ void mel_gpu_texture_write(Mel_Gpu_Device* dev, Mel_Gpu_Texture tex, Mel_Gpu_Tex
     mel_mutex_unlock(&dev->submit_lock);
 
     vkFreeCommandBuffers(dev->vk, pool, 1, &cb);
-    vkDestroyBuffer(dev->vk, staging, NULL);
-    mel_gpu__mem_free(dev, &sa);
+    mel_gpu__defer_free(dev, (Mel_Gpu_Deferred_Free){ .buffer = staging, .alloc = sa, .has_alloc = true });
+    mel_gpu__submit_complete(dev, serial);
 }

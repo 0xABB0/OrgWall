@@ -51,3 +51,10 @@ void mel_gpu_cmd_draw_indexed(Mel_Gpu_Command_List* cmd, u32 index_count, u32 in
 
 // U13 compute: dispatch a grid of workgroups against the bound compute pipeline.
 void mel_gpu_cmd_dispatch(Mel_Gpu_Command_List* cmd, u32 groups_x, u32 groups_y, u32 groups_z);
+
+// U13/U15 (gpu-rhi.md §7.1): dispatch from a GPU-resident argument buffer holding a
+// {group_x, group_y, group_z} triple of u32 at `offset`. The buffer must be in
+// MEL_GPU_STATE_INDIRECT_ARGUMENT (cmd_buffer_barrier) before the dispatch — the args may be
+// produced by a prior compute pass with no CPU round-trip. The count buffer / _indirect_count
+// variants and the draw-indirect family are later slices.
+void mel_gpu_cmd_dispatch_indirect(Mel_Gpu_Command_List* cmd, Mel_Gpu_Buffer args, usize offset);

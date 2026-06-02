@@ -397,6 +397,11 @@ struct Mel_Gpu_Device
     bool                       dynamic_rendering;
     PFN_vkCmdBeginRenderingKHR  cmd_begin_rendering;
     PFN_vkCmdEndRenderingKHR    cmd_end_rendering;
+
+    // U17 (gpu-rhi.md §7.3): VK_KHR_synchronization2 re-lowers barriers onto vkCmdPipelineBarrier2 with the
+    // pipeline_stage_2 / access_2 enums; the legacy vkCmdPipelineBarrier path is the §7.3 floor when ungranted.
+    bool                        sync2;
+    PFN_vkCmdPipelineBarrier2KHR cmd_pipeline_barrier2;
 };
 
 struct Mel_Gpu_Surface
@@ -497,6 +502,8 @@ void mel_gpu__defer_free(Mel_Gpu_Device* dev, Mel_Gpu_Deferred_Free entry);
 
 // U17: maps a Mel_Gpu_Resource_State to the Vulkan (stage, access, layout) triple for legacy barriers.
 void mel_gpu__state_to_barrier(Mel_Gpu_Resource_State state, bool is_depth, VkPipelineStageFlags* stage, VkAccessFlags* access, VkImageLayout* layout);
+// U17 (gpu-rhi.md §7.3): the synchronization2 peer — pipeline_stage_2 / access_2 / layout for vkCmdPipelineBarrier2.
+void mel_gpu__state_to_barrier2(Mel_Gpu_Resource_State state, bool is_depth, VkPipelineStageFlags2* stage, VkAccessFlags2* access, VkImageLayout* layout);
 
 bool mel_gpu__texture_get(Mel_Gpu_Device* dev, Mel_Gpu_Texture tex, Mel_Gpu_Texture_Obj** out);
 bool mel_gpu__texture_view_get(Mel_Gpu_Device* dev, Mel_Gpu_Texture_View view, Mel_Gpu_Texture_View_Obj** out);
@@ -531,11 +538,17 @@ bool         mel_gpu__sampler_retain(Mel_Gpu_Device* dev, Mel_Gpu_Sampler sample
 // granted and requested; registration writes one descriptor at the resource's handle index.
 void mel_gpu__bindless_init(Mel_Gpu_Device* dev, bool want);
 void mel_gpu__bindless_shutdown(Mel_Gpu_Device* dev);
-void mel_gpu__bindless_register_sampled_image(Mel_Gpu_Device* dev, u32 slot, VkImageView view);
-void mel_gpu__bindless_register_storage_image(Mel_Gpu_Device* dev, u32 slot, VkImageView view);
-void mel_gpu__bindless_register_storage_buffer(Mel_Gpu_Device* dev, u32 slot, VkBuffer buf, VkDeviceSize range);
-void mel_gpu__bindless_register_uniform_buffer(Mel_Gpu_Device* dev, u32 slot, VkBuffer buf, VkDeviceSize range);
-void mel_gpu__bindless_register_sampler(Mel_Gpu_Device* dev, u32 slot, VkSampler sampler);
+// Each register returns false when `slot` exceeds the class's heap cap (CRITICAL-1 / MEL-ENGINE-VIII): the
+// descriptor is NOT written, so the create path must fail loudly rather than report a resource with an
+// unbound heap slot. mel_gpu__bindless_slot_fits is the pre-flight predicate; mel_gpu__heap_cap_for_class
+// the per-class cap (binding index = heap class).
+u32  mel_gpu__heap_cap_for_class(Mel_Gpu_Device* dev, u32 binding_class);
+bool mel_gpu__bindless_slot_fits(Mel_Gpu_Device* dev, u32 binding_class, u32 slot);
+bool mel_gpu__bindless_register_sampled_image(Mel_Gpu_Device* dev, u32 slot, VkImageView view);
+bool mel_gpu__bindless_register_storage_image(Mel_Gpu_Device* dev, u32 slot, VkImageView view);
+bool mel_gpu__bindless_register_storage_buffer(Mel_Gpu_Device* dev, u32 slot, VkBuffer buf, VkDeviceSize range);
+bool mel_gpu__bindless_register_uniform_buffer(Mel_Gpu_Device* dev, u32 slot, VkBuffer buf, VkDeviceSize range);
+bool mel_gpu__bindless_register_sampler(Mel_Gpu_Device* dev, u32 slot, VkSampler sampler);
 
 // U14 classic descriptor-set path (gpu-rhi.md §6.7). Allocate one set of `layout` from the device classic-
 // pool chain (growing the chain on exhaustion), reporting which pool served it. The shutdown destroys the

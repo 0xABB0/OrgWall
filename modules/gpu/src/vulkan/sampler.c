@@ -141,6 +141,20 @@ Mel_Gpu_Sampler_Create_Result mel_gpu_sampler_create_opt(Mel_Gpu_Device* dev, Me
     obj.refcount = 1;
     Mel_SlotMap_Handle h = mel_gpu__table_insert(dev, &dev->samplers, &obj);
 
+    // CRITICAL-1: the sampler's heap slot is its handle index (§3.1), and the sampler class cap is the smallest
+    // (the realistic over-cap trip wire). Pre-flight before committing the intern entry; an over-cap slot fails
+    // the create loudly (BindlessSlotExhausted) and rolls back rather than registering an unbound slot
+    // (MEL-ENGINE-VIII). Checked under the sampler lock alongside the insert it would roll back.
+    if (!mel_gpu__bindless_slot_fits(dev, MEL_GPU_BINDLESS_BINDING_SAMPLER, h.index))
+    {
+        mel_gpu__table_remove(dev, &dev->samplers, h);
+        mel_mutex_unlock(&dev->sampler_lock);
+        mel_log_error("gpu", "sampler_create '%s': bindless slot %u exceeds the sampler heap class cap (BindlessSlotExhausted)", opt.name ? opt.name : "(unnamed)", h.index);
+        vkDestroySampler(dev->vk, vk, NULL);
+        res.status = MEL_GPU_SAMPLER_CREATE_BINDLESS_SLOT_EXHAUSTED;
+        return res;
+    }
+
     if (dev->sampler_intern_count == dev->sampler_intern_cap)
     {
         u32 cap = dev->sampler_intern_cap ? dev->sampler_intern_cap * 2 : 16;

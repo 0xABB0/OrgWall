@@ -22,6 +22,8 @@ static VkBufferUsageFlags mel_gpu__buffer_usage(Mel_Gpu_Buffer_Usage u)
         f |= VK_BUFFER_USAGE_TRANSFER_DST_BIT;
     if (u & MEL_GPU_BUFFER_DEVICE_ADDRESS)
         f |= VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
+    if (u & MEL_GPU_BUFFER_INDIRECT)
+        f |= VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
     return f;
 }
 
@@ -62,6 +64,13 @@ static bool mel_gpu__staging_upload(Mel_Gpu_Device* dev, VkBuffer dst, const voi
     vkCmdCopyBuffer(cb, staging, dst, 1, &copy);
     vkEndCommandBuffer(cb);
 
+    // MAJOR-4: reserve a serial so this upload participates in the retirement watermark (§3.3) instead of
+    // being invisible to the engine's single retirement clock — otherwise a deferred-free entry's marker could
+    // be satisfied by an unrelated later submit while this upload is still the most-recent user (a latent UAF
+    // the moment uploads go async). After the synchronous WaitIdle the submission has drained, so advancing the
+    // watermark to this serial is exact; the staging buffer + its memory are routed through the deferred-free
+    // queue (gated at this serial) rather than freed raw, so the pattern stays correct when uploads go async.
+    u64          serial = mel_gpu__submit_serial_next(dev);
     VkSubmitInfo si = { .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO, .commandBufferCount = 1, .pCommandBuffers = &cb };
     mel_mutex_lock(&dev->submit_lock);
     vkQueueSubmit(dev->graphics_queue, 1, &si, VK_NULL_HANDLE);
@@ -69,8 +78,8 @@ static bool mel_gpu__staging_upload(Mel_Gpu_Device* dev, VkBuffer dst, const voi
     mel_mutex_unlock(&dev->submit_lock);
 
     vkDestroyCommandPool(dev->vk, pool, NULL);
-    vkDestroyBuffer(dev->vk, staging, NULL);
-    mel_gpu__mem_free(dev, &sa);
+    mel_gpu__defer_free(dev, (Mel_Gpu_Deferred_Free){ .buffer = staging, .alloc = sa, .has_alloc = true });
+    mel_gpu__submit_complete(dev, serial); // drained by WaitIdle: advance the watermark, retiring the staging free
     return true;
 }
 
@@ -146,12 +155,31 @@ Mel_Gpu_Buffer_Create_Result mel_gpu_buffer_create_opt(Mel_Gpu_Device* dev, Mel_
     res.value.slot = mel_gpu__table_insert(dev, &dev->buffers, &obj);
 
     // U14: auto-register the buffer into the device bindless heap at its handle index (direct contract §3.1)
-    // for every shader-addressable class its usage admits (gpu-rhi.md §6.7).
+    // for every shader-addressable class its usage admits (gpu-rhi.md §6.7). CRITICAL-1: pre-flight every
+    // class before writing; an over-cap slot fails the create loudly (BindlessSlotExhausted) and rolls back
+    // rather than reporting a buffer with an unbound heap slot (MEL-ENGINE-VIII).
     if (dev->bindless.enabled)
     {
-        if (opt.usage & MEL_GPU_BUFFER_STORAGE)
+        bool stor = (opt.usage & MEL_GPU_BUFFER_STORAGE) != 0;
+        bool unif = (opt.usage & MEL_GPU_BUFFER_UNIFORM) != 0;
+        bool fits = true;
+        if (stor)
+            fits = mel_gpu__bindless_slot_fits(dev, MEL_GPU_BINDLESS_BINDING_STORAGE_BUFFER, res.value.slot.index) && fits;
+        if (unif)
+            fits = mel_gpu__bindless_slot_fits(dev, MEL_GPU_BINDLESS_BINDING_UNIFORM_BUFFER, res.value.slot.index) && fits;
+        if (!fits)
+        {
+            mel_log_error("gpu", "buffer_create '%s': bindless slot %u exceeds a heap class cap (BindlessSlotExhausted)", opt.name ? opt.name : "(unnamed)", res.value.slot.index);
+            mel_gpu__table_remove(dev, &dev->buffers, res.value.slot);
+            mel_gpu__mem_free(dev, &obj.alloc);
+            vkDestroyBuffer(dev->vk, buf, NULL);
+            res.value = (Mel_Gpu_Buffer){ mel_gpu_handle_null() };
+            res.status = MEL_GPU_BUFFER_CREATE_BINDLESS_SLOT_EXHAUSTED;
+            return res;
+        }
+        if (stor)
             mel_gpu__bindless_register_storage_buffer(dev, res.value.slot.index, buf, opt.size);
-        if (opt.usage & MEL_GPU_BUFFER_UNIFORM)
+        if (unif)
             mel_gpu__bindless_register_uniform_buffer(dev, res.value.slot.index, buf, opt.size);
     }
     return res;
