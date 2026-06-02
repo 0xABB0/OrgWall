@@ -5,10 +5,19 @@
 #include <gpu/status.h>
 #include <gpu/format.h>
 #include <gpu/shader.h>
+#include <gpu/sampler.h>
 
 typedef struct Mel_Gpu_Device Mel_Gpu_Device;
 
 MEL_GPU_HANDLE(Mel_Gpu_Pipeline);
+
+// U11 immutable/static sampler baked into the pipeline layout (gpu-rhi.md §6.3 / §6.7). The referenced
+// sampler must stay alive for the pipeline's lifetime.
+typedef struct
+{
+    Mel_Gpu_Sampler sampler;
+    u32             binding;
+} Mel_Gpu_Static_Sampler;
 
 typedef enum
 {
@@ -37,6 +46,10 @@ typedef enum
     MEL_GPU_PIPELINE_CREATE_OK = MEL_GPU_STATUS(0, MEL_GPU_SEVERITY_OK),
     MEL_GPU_PIPELINE_CREATE_VK_FAILED = MEL_GPU_STATUS(1, MEL_GPU_SEVERITY_ERROR),
     MEL_GPU_PIPELINE_CREATE_NO_SHADER = MEL_GPU_STATUS(2, MEL_GPU_SEVERITY_ERROR),
+    // gpu-rhi.md §6.7: a pipeline whose layout demands a bindless heap the device cannot provide vs. a
+    // requested heap slot beyond the heap's capacity — distinct remedies, never conflated (MEL-ENGINE-VIII).
+    MEL_GPU_PIPELINE_CREATE_MISSING_FEATURE = MEL_GPU_STATUS(3, MEL_GPU_SEVERITY_ERROR),
+    MEL_GPU_PIPELINE_CREATE_MISSING_BINDLESS_SLOT = MEL_GPU_STATUS(4, MEL_GPU_SEVERITY_ERROR),
 } Mel_Gpu_Pipeline_Create_Status;
 
 typedef struct
@@ -50,6 +63,11 @@ typedef struct
     u32                           vertex_layout_count;
     u32                           vertex_stride;
     u32                           push_constant_size;
+    // U14: when true, set 0 of the layout is the device bindless heap, so the shader can index its texture /
+    // sampler / buffer arrays. The per-draw root record rides the push-constant range above.
+    bool                          bindless;
+    const Mel_Gpu_Static_Sampler* static_samplers;
+    u32                           static_sampler_count;
     const char*                   name;
 } Mel_Gpu_Pipeline_Opt;
 

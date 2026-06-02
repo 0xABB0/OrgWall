@@ -136,11 +136,53 @@ typedef struct
     char                 name[256];
 } Mel_Gpu_Caps_Adapter;
 
+// Which binding model the device's active configuration presents (gpu-rhi.md §6.7). The ceiling is the
+// pointer-based root record; the floor is per-class descriptor tables. The API surface is identical; only
+// the lowering differs.
+typedef enum
+{
+    MEL_GPU_BINDING_MODEL_DESCRIPTOR_TABLES = 0,
+    MEL_GPU_BINDING_MODEL_ROOT_RECORD,
+} Mel_Gpu_Binding_Model;
+
+// What a root record's buffer fields carry: descriptor indices (floor), real device addresses (BDA
+// ceiling), or both (textures/samplers as indices, buffers as pointers).
+typedef enum
+{
+    MEL_GPU_ROOT_RECORD_PAYLOAD_DESCRIPTOR_INDICES = 0,
+    MEL_GPU_ROOT_RECORD_PAYLOAD_POINTERS,
+    MEL_GPU_ROOT_RECORD_PAYLOAD_MIXED,
+} Mel_Gpu_Root_Record_Payload;
+
+// How root records may be produced.
+typedef enum
+{
+    MEL_GPU_ROOT_RECORD_UPDATE_STAGING_COPY = 0,
+    MEL_GPU_ROOT_RECORD_UPDATE_UPLOAD_RING,
+    MEL_GPU_ROOT_RECORD_UPDATE_PERSISTENT_MAP,
+    MEL_GPU_ROOT_RECORD_UPDATE_GPU_GENERATED,
+} Mel_Gpu_Root_Record_Update;
+
+// Bindless sub-domain (gpu-rhi.md §3.4 / §6.7 — limits and binding model live under memory/bindless). `tier`
+// is the graduated capability; the per-class slot counts are the realized heap capacities.
+typedef struct
+{
+    Mel_Gpu_Bindless_Tier       tier;
+    Mel_Gpu_Binding_Model       binding_model;
+    Mel_Gpu_Root_Record_Payload root_record_payload;
+    Mel_Gpu_Root_Record_Update  root_record_update;
+    u32                         max_texture_view_slots;
+    u32                         max_sampler_slots;
+    u32                         max_storage_buffer_slots;
+    u32                         max_uniform_buffer_slots;
+    u32                         max_storage_image_slots;
+} Mel_Gpu_Caps_Bindless;
+
 typedef struct
 {
     Mel_Gpu_Host_Visible_Device_Local host_visible_device_local;
     Mel_Gpu_Residency_Tier            residency_control;
-    Mel_Gpu_Bindless_Tier             bindless;
+    Mel_Gpu_Caps_Bindless             bindless;
     bool                              persistent_map;
     bool                              sparse_buffer;
     bool                              sparse_texture;

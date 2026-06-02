@@ -199,6 +199,64 @@ bool mel_slotmap_alive(Mel_SlotMap* sm, Mel_SlotMap_Handle handle)
     return slot->alive && slot->generation == gen;
 }
 
+bool mel_slotmap_remove_deferred(Mel_SlotMap* sm, Mel_SlotMap_Handle handle)
+{
+    assert(sm != nullptr);
+
+    if (!mel_slotmap_handle_valid(handle))
+        return false;
+
+    u32 idx = handle.index;
+    u32 gen = handle.generation;
+
+    if (idx >= sm->slot_capacity)
+        return false;
+
+    Mel_SlotMap_Slot* slot = &sm->slots[idx];
+    if (!slot->alive || slot->generation != gen)
+        return false;
+
+    u32 packed_idx = slot->packed_idx;
+    u32 last_packed = sm->packed_count - 1;
+
+    if (packed_idx != last_packed)
+    {
+        memcpy(sm->data + packed_idx * sm->item_size, sm->data + last_packed * sm->item_size, sm->item_size);
+
+        u32 moved_slot_idx = sm->packed_to_slot[last_packed];
+        sm->packed_to_slot[packed_idx] = moved_slot_idx;
+        sm->slots[moved_slot_idx].packed_idx = packed_idx;
+    }
+
+    sm->packed_count--;
+    sm->slot_count--;
+
+    // Dead and use-after-free-detectable, but withheld from the free list: the index is not reusable until
+    // mel_slotmap_reclaim runs (the caller gates that on its retirement condition).
+    slot->alive = false;
+    slot->generation++;
+    slot->held = true;
+
+    return true;
+}
+
+bool mel_slotmap_reclaim(Mel_SlotMap* sm, u32 index)
+{
+    assert(sm != nullptr);
+
+    if (index >= sm->slot_capacity)
+        return false;
+
+    Mel_SlotMap_Slot* slot = &sm->slots[index];
+    if (slot->alive || !slot->held) // only a slot held by remove_deferred may be reclaimed
+        return false;
+
+    slot->held = false;
+    slot->next_free = sm->free_head;
+    sm->free_head = index;
+    return true;
+}
+
 u32 mel_slotmap_count(Mel_SlotMap* sm)
 {
     assert(sm != nullptr);

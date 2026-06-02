@@ -60,6 +60,14 @@ Mel_Gpu_Shader_Create_Result mel_gpu_shader_create_from_bytecode_opt(Mel_Gpu_Dev
     obj.vs_entry = mel_gpu__strdup(dev->alloc, opt.vertex_entry);
     obj.fs_entry = mel_gpu__strdup(dev->alloc, opt.fragment_entry);
 
+    // U12 reflection-lite: derive the layout-relevant facts (push-constant size, bindless-set usage) as the
+    // union over both stages. U13 consumes this to build the pipeline layout (gpu-rhi.md §6.4).
+    Mel_Gpu_Spirv_Reflection rv, rf;
+    mel_gpu__spirv_reflect((const u32*)opt.spirv_vertex, opt.spirv_vertex_size, dev->alloc, &rv);
+    mel_gpu__spirv_reflect((const u32*)opt.spirv_fragment, opt.spirv_fragment_size, dev->alloc, &rf);
+    obj.reflection.push_constant_size = rv.push_constant_size > rf.push_constant_size ? rv.push_constant_size : rf.push_constant_size;
+    obj.reflection.uses_bindless_set = rv.uses_bindless_set || rf.uses_bindless_set;
+
     res.value.slot = mel_gpu__table_insert(dev, &dev->shaders, &obj);
     return res;
 }
@@ -93,5 +101,14 @@ bool mel_gpu__shader_modules(Mel_Gpu_Device* dev, Mel_Gpu_Shader sh, VkShaderMod
     *fs = o->fs;
     *vs_entry = o->vs_entry;
     *fs_entry = o->fs_entry;
+    return true;
+}
+
+bool mel_gpu__shader_reflection(Mel_Gpu_Device* dev, Mel_Gpu_Shader sh, Mel_Gpu_Spirv_Reflection* out)
+{
+    Mel_Gpu_Shader_Obj* o = mel_gpu__table_get(dev, &dev->shaders, sh.slot);
+    if (!o)
+        return false;
+    *out = o->reflection;
     return true;
 }

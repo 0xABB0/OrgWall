@@ -96,16 +96,45 @@ Mel_Gpu_Device_Create_Result mel_gpu_device_create_opt(Mel_Gpu_Instance* inst, M
     if (opt.features.buffer_device_address)
         feat12.bufferDeviceAddress = VK_TRUE;
 
+    // U14: enable the descriptor-indexing bindless floor when requested and granted (gpu-rhi.md §6.7).
+    // Only the bits the per-class heap actually consumes are turned on (MEL-ENGINE-III: request-and-grant).
+    bool want_bindless = opt.features.descriptor_indexing && adapter->caps.memory.bindless.tier != MEL_GPU_TIER_NONE;
+    if (want_bindless)
+    {
+        feat12.runtimeDescriptorArray = VK_TRUE;
+        feat12.descriptorBindingPartiallyBound = VK_TRUE;
+        feat12.descriptorBindingUpdateUnusedWhilePending = VK_TRUE;
+        feat12.shaderSampledImageArrayNonUniformIndexing = VK_TRUE;
+        feat12.shaderStorageBufferArrayNonUniformIndexing = VK_TRUE;
+        feat12.shaderStorageImageArrayNonUniformIndexing = VK_TRUE;
+        feat12.shaderUniformBufferArrayNonUniformIndexing = VK_TRUE;
+        feat12.descriptorBindingSampledImageUpdateAfterBind = VK_TRUE;
+        feat12.descriptorBindingStorageImageUpdateAfterBind = VK_TRUE;
+        feat12.descriptorBindingStorageBufferUpdateAfterBind = VK_TRUE;
+        feat12.descriptorBindingUniformBufferUpdateAfterBind = VK_TRUE;
+    }
+
     VkPhysicalDeviceDynamicRenderingFeaturesKHR feat_dr = {
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES_KHR,
         .pNext = &feat12,
         .dynamicRendering = VK_TRUE,
     };
 
+    VkPhysicalDeviceFeatures avail = { 0 };
+    vkGetPhysicalDeviceFeatures(adapter->phys, &avail);
+
     VkPhysicalDeviceFeatures2 feat2 = {
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
         .pNext = has_dr ? (void*)&feat_dr : (void*)&feat12,
     };
+    // U11: anisotropic filtering is a near-universal base feature; enable it when present so samplers can
+    // honor max_anisotropy. The limit is read below and stored for sampler clamping.
+    if (avail.samplerAnisotropy)
+        feat2.features.samplerAnisotropy = VK_TRUE;
+    // U14 ceiling: buffer-reference shaders construct pointers from 64-bit addresses, which declare the
+    // SPIR-V Int64 capability — enable shaderInt64 alongside BDA so those shaders are valid.
+    if (opt.features.buffer_device_address && avail.shaderInt64)
+        feat2.features.shaderInt64 = VK_TRUE;
 
     VkDeviceCreateInfo dci = {
         .sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
@@ -139,8 +168,13 @@ Mel_Gpu_Device_Create_Result mel_gpu_device_create_opt(Mel_Gpu_Instance* inst, M
     dev->device_lost_user = opt.device_lost_user;
     dev->graphics_family = gfx;
     dev->has_memory_budget = has_budget;
+    dev->bda_enabled = opt.features.buffer_device_address; // U14 pointer-bearing root-record ceiling
     vkGetDeviceQueue(vk, gfx, 0, &dev->graphics_queue);
     vkGetPhysicalDeviceMemoryProperties(adapter->phys, &dev->mem_props);
+
+    VkPhysicalDeviceProperties devprops;
+    vkGetPhysicalDeviceProperties(adapter->phys, &devprops);
+    dev->max_sampler_anisotropy = avail.samplerAnisotropy ? devprops.limits.maxSamplerAnisotropy : 1.0f;
 
     if (has_dr)
     {
@@ -158,14 +192,28 @@ Mel_Gpu_Device_Create_Result mel_gpu_device_create_opt(Mel_Gpu_Instance* inst, M
     mel_mutex_init(&dev->obj_lock, MEL_MUTEX_PLAIN);
     mel_mutex_init(&dev->submit_lock, MEL_MUTEX_PLAIN);
     mel_mutex_init(&dev->pool_lock, MEL_MUTEX_PLAIN);
+    mel_mutex_init(&dev->sampler_lock, MEL_MUTEX_PLAIN);
     mel_gpu__allocator_init(dev);
     mel_slotmap_init(&dev->buffers.map, alloc, .item_size = sizeof(Mel_Gpu_Buffer_Obj), .initial_capacity = 16);
     mel_slotmap_init(&dev->textures.map, alloc, .item_size = sizeof(Mel_Gpu_Texture_Obj), .initial_capacity = 16);
     mel_slotmap_init(&dev->texture_views.map, alloc, .item_size = sizeof(Mel_Gpu_Texture_View_Obj), .initial_capacity = 16);
+    mel_slotmap_init(&dev->samplers.map, alloc, .item_size = sizeof(Mel_Gpu_Sampler_Obj), .initial_capacity = 16);
     mel_slotmap_init(&dev->shaders.map, alloc, .item_size = sizeof(Mel_Gpu_Shader_Obj), .initial_capacity = 16);
     mel_slotmap_init(&dev->pipelines.map, alloc, .item_size = sizeof(Mel_Gpu_Pipeline_Obj), .initial_capacity = 16);
     mel_slotmap_init(&dev->syncs.map, alloc, .item_size = sizeof(Mel_Gpu_Sync_Obj), .initial_capacity = 16);
-    dev->buffers.init = dev->textures.init = dev->texture_views.init = dev->shaders.init = dev->pipelines.init = dev->syncs.init = true;
+    dev->buffers.init = dev->textures.init = dev->texture_views.init = dev->samplers.init = dev->shaders.init = dev->pipelines.init = dev->syncs.init = true;
+
+    // U14: the bindless heap lives for the device's lifetime; it is created only when the descriptor-indexing
+    // floor is both requested and granted (gpu-rhi.md §6.7). caps are refined to the realized heap capacity.
+    mel_gpu__bindless_init(dev, opt.features.descriptor_indexing);
+
+    // Report the active binding model (§6.7). The pointer-bearing root record is the ceiling: with the heap
+    // for texture/sampler indices AND BDA for real buffer addresses, buffer fields are pointers and the rest
+    // are indices — a mixed payload. Without BDA it is the index floor; without the heap, descriptor tables.
+    Mel_Gpu_Caps_Bindless* bl = &dev->caps.memory.bindless;
+    bl->binding_model = dev->bindless.enabled ? MEL_GPU_BINDING_MODEL_ROOT_RECORD : MEL_GPU_BINDING_MODEL_DESCRIPTOR_TABLES;
+    bl->root_record_payload = (dev->bindless.enabled && dev->bda_enabled) ? MEL_GPU_ROOT_RECORD_PAYLOAD_MIXED : MEL_GPU_ROOT_RECORD_PAYLOAD_DESCRIPTOR_INDICES;
+    bl->root_record_update = dev->caps.memory.persistent_map ? MEL_GPU_ROOT_RECORD_UPDATE_PERSISTENT_MAP : MEL_GPU_ROOT_RECORD_UPDATE_STAGING_COPY;
 
     if (opt.debug.thread_safety_tracker)
         dev->tracker = mel_gpu_thread_tracker_create();
@@ -211,9 +259,12 @@ void mel_gpu_device_destroy(Mel_Gpu_Device* dev)
     mel_gpu__table_report_leaks(&dev->buffers, "buffer");
     mel_gpu__table_report_leaks(&dev->textures, "texture");
     mel_gpu__table_report_leaks(&dev->texture_views, "texture-view");
+    mel_gpu__table_report_leaks(&dev->samplers, "sampler");
     mel_gpu__table_report_leaks(&dev->shaders, "shader");
     mel_gpu__table_report_leaks(&dev->pipelines, "pipeline");
     mel_gpu__table_report_leaks(&dev->syncs, "sync");
+
+    mel_gpu__bindless_shutdown(dev);
 
     for (u32 i = 0; i < dev->thread_pool_count; i++)
         if (dev->thread_pools[i].pool)
@@ -224,13 +275,17 @@ void mel_gpu_device_destroy(Mel_Gpu_Device* dev)
     mel_slotmap_free(&dev->buffers.map);
     mel_slotmap_free(&dev->textures.map);
     mel_slotmap_free(&dev->texture_views.map);
+    mel_slotmap_free(&dev->samplers.map);
     mel_slotmap_free(&dev->shaders.map);
     mel_slotmap_free(&dev->pipelines.map);
     mel_slotmap_free(&dev->syncs.map);
+    if (dev->sampler_interns)
+        mel_dealloc(dev->alloc, dev->sampler_interns);
     mel_gpu__allocator_shutdown(dev);
     mel_mutex_destroy(&dev->obj_lock);
     mel_mutex_destroy(&dev->submit_lock);
     mel_mutex_destroy(&dev->pool_lock);
+    mel_mutex_destroy(&dev->sampler_lock);
 
     if (dev->pump)
         mel_gpu_pump_destroy(dev->pump);
@@ -275,6 +330,21 @@ bool mel_gpu__table_remove(Mel_Gpu_Device* dev, Mel_Gpu_Resource_Table* t, Mel_S
     return ok;
 }
 
+bool mel_gpu__table_remove_deferred(Mel_Gpu_Device* dev, Mel_Gpu_Resource_Table* t, Mel_SlotMap_Handle h)
+{
+    mel_mutex_lock(&dev->obj_lock);
+    bool ok = mel_slotmap_remove_deferred(&t->map, h);
+    mel_mutex_unlock(&dev->obj_lock);
+    return ok;
+}
+
+void mel_gpu__table_reclaim(Mel_Gpu_Device* dev, Mel_Gpu_Resource_Table* t, u32 index)
+{
+    mel_mutex_lock(&dev->obj_lock);
+    mel_slotmap_reclaim(&t->map, index);
+    mel_mutex_unlock(&dev->obj_lock);
+}
+
 static void mel_gpu__free_deferred_entry(Mel_Gpu_Device* dev, Mel_Gpu_Deferred_Free* e)
 {
     if (e->image)
@@ -287,12 +357,20 @@ static void mel_gpu__free_deferred_entry(Mel_Gpu_Device* dev, Mel_Gpu_Deferred_F
         vkDestroyPipeline(dev->vk, e->pipeline, NULL);
     if (e->pipeline_layout)
         vkDestroyPipelineLayout(dev->vk, e->pipeline_layout, NULL);
+    if (e->descriptor_set_layout)
+        vkDestroyDescriptorSetLayout(dev->vk, e->descriptor_set_layout, NULL);
+    if (e->sampler)
+        vkDestroySampler(dev->vk, e->sampler, NULL);
     if (e->shader_vs)
         vkDestroyShaderModule(dev->vk, e->shader_vs, NULL);
     if (e->shader_fs)
         vkDestroyShaderModule(dev->vk, e->shader_fs, NULL);
     if (e->has_alloc)
         mel_gpu__mem_free(dev, &e->alloc);
+    // U14: the slot index becomes reusable only now, once every submission that could read its heap entry
+    // has retired (gpu-rhi.md §3.3). The heap descriptor is overwritten by the next resource at this index.
+    if (e->has_reclaim)
+        mel_gpu__table_reclaim(dev, e->reclaim_table, e->reclaim_index);
 }
 
 u64 mel_gpu__submit_serial_next(Mel_Gpu_Device* dev)

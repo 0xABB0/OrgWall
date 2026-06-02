@@ -257,6 +257,16 @@ Mel_Gpu_Texture_View_Create_Result mel_gpu_texture_view_create_opt(Mel_Gpu_Devic
     obj.layer_count = layer_count;
 
     res.value.slot = mel_gpu__table_insert(dev, &dev->texture_views, &obj);
+
+    // U14: the view owns the bindless slot (gpu-rhi.md §6.2). Auto-register it into the device heap at the
+    // handle index for every shader-readable class the parent texture's usage admits (direct contract §3.1).
+    if (dev->bindless.enabled)
+    {
+        if (tex->usage & VK_IMAGE_USAGE_SAMPLED_BIT)
+            mel_gpu__bindless_register_sampled_image(dev, res.value.slot.index, view);
+        if (tex->usage & VK_IMAGE_USAGE_STORAGE_BIT)
+            mel_gpu__bindless_register_storage_image(dev, res.value.slot.index, view);
+    }
     return res;
 }
 
@@ -283,9 +293,15 @@ void mel_gpu_texture_view_destroy(Mel_Gpu_Device* dev, Mel_Gpu_Texture_View view
         return;
     VkImageView vk = o->view;
     bool        borrowed = o->header.ownership == MEL_GPU_OWNERSHIP_BORROWED;
-    mel_gpu__table_remove(dev, &dev->texture_views, view.slot);
-    if (vk && !borrowed)
-        mel_gpu__defer_free(dev, (Mel_Gpu_Deferred_Free){ .view = vk });
+    if (borrowed)
+    {
+        mel_gpu__table_remove(dev, &dev->texture_views, view.slot);
+        return;
+    }
+    // U14: the view owns its bindless slot, so the slot index is reclaimed on the same retirement edge as
+    // the VkImageView — never reused while an in-flight draw still samples it (gpu-rhi.md §3.3 / §6.7).
+    mel_gpu__table_remove_deferred(dev, &dev->texture_views, view.slot);
+    mel_gpu__defer_free(dev, (Mel_Gpu_Deferred_Free){ .view = vk, .reclaim_table = &dev->texture_views, .reclaim_index = view.slot.index, .has_reclaim = true });
 }
 
 bool mel_gpu_texture_view_alive(Mel_Gpu_Device* dev, Mel_Gpu_Texture_View view) { return mel_gpu__table_get(dev, &dev->texture_views, view.slot) != NULL; }

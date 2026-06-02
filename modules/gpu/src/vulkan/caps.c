@@ -63,7 +63,8 @@ void mel_gpu__caps_probe(VkPhysicalDevice phys, Mel_Gpu_Caps* out)
         memcpy(&out->adapter.luid, props11.deviceLUID, sizeof(u64) < VK_LUID_SIZE ? sizeof(u64) : VK_LUID_SIZE);
     snprintf(out->adapter.name, sizeof(out->adapter.name), "%s", p->deviceName);
 
-    VkPhysicalDeviceVulkan12Features feat12 = { .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
+    VkPhysicalDeviceDescriptorIndexingFeatures di = { .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES };
+    VkPhysicalDeviceVulkan12Features feat12 = { .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES, .pNext = &di };
     VkPhysicalDeviceFeatures2        feat2 = { .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, .pNext = &feat12 };
     vkGetPhysicalDeviceFeatures2(phys, &feat2);
 
@@ -103,7 +104,24 @@ void mel_gpu__caps_probe(VkPhysicalDevice phys, Mel_Gpu_Caps* out)
 
     out->memory.persistent_map = true;
     out->memory.residency_control = mel_gpu__phys_ext(phys, VK_EXT_MEMORY_BUDGET_EXTENSION_NAME) ? MEL_GPU_RESIDENCY_BUDGET_ONLY : MEL_GPU_RESIDENCY_NONE;
-    out->memory.bindless = MEL_GPU_TIER_NONE;
+
+    // U14 bindless tier (gpu-rhi.md §6.7). The descriptor-indexing floor — runtime arrays +
+    // update-after-bind + partially-bound across the resource classes the heap holds — is the earlier
+    // Vulkan ceiling and is reported as `full`: one persistent integer-indexed array per class. The
+    // descriptor_buffer / descriptor_heap path is a later additive lowering of the same surface.
+    bool di_full = di.runtimeDescriptorArray && di.descriptorBindingPartiallyBound && di.shaderSampledImageArrayNonUniformIndexing && di.descriptorBindingSampledImageUpdateAfterBind && di.descriptorBindingStorageBufferUpdateAfterBind && di.descriptorBindingUniformBufferUpdateAfterBind && di.descriptorBindingStorageImageUpdateAfterBind;
+    out->memory.bindless.tier = di_full ? MEL_GPU_TIER_FULL : MEL_GPU_TIER_NONE;
+    if (di_full)
+    {
+        VkPhysicalDeviceDescriptorIndexingProperties dip = { .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_PROPERTIES };
+        VkPhysicalDeviceProperties2 dprops = { .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, .pNext = &dip };
+        vkGetPhysicalDeviceProperties2(phys, &dprops);
+        out->memory.bindless.max_texture_view_slots = dip.maxPerStageDescriptorUpdateAfterBindSampledImages;
+        out->memory.bindless.max_sampler_slots = dip.maxPerStageDescriptorUpdateAfterBindSamplers;
+        out->memory.bindless.max_storage_buffer_slots = dip.maxPerStageDescriptorUpdateAfterBindStorageBuffers;
+        out->memory.bindless.max_uniform_buffer_slots = dip.maxPerStageDescriptorUpdateAfterBindUniformBuffers;
+        out->memory.bindless.max_storage_image_slots = dip.maxPerStageDescriptorUpdateAfterBindStorageImages;
+    }
 
     out->features.ray_tracing = MEL_GPU_RT_NONE;
     out->features.video_decode = MEL_GPU_VIDEO_NONE;

@@ -20,6 +20,8 @@
 #include <gpu/memory.h>
 #include <gpu/buffer.h>
 #include <gpu/texture.h>
+#include <gpu/sampler.h>
+#include <gpu/binding.h>
 #include <gpu/state.h>
 #include <gpu/shader.h>
 #include <gpu/pipeline.h>
@@ -103,13 +105,41 @@ typedef struct
     u32                     layer_count;
 } Mel_Gpu_Texture_View_Obj;
 
+// U11: the canonical (resolved) sampler descriptor — the dedup key. No internal padding holes (8 bytes of
+// u8 then three f32), so it hashes and compares by raw bytes.
+typedef struct
+{
+    u8  min_filter, mag_filter, mip_filter, wrap_u, wrap_v, wrap_w, compare, border;
+    f32 max_anisotropy, lod_min, lod_max;
+} Mel_Gpu_Sampler_Key;
+
+// An interned sampler. `refcount` is the number of logical claims sharing this descriptor (dedup,
+// gpu-rhi.md §6.3); `hash`/`key` key the per-device intern table. The bindless slot is the handle index.
 typedef struct
 {
     Mel_Gpu_Resource_Header header;
-    VkShaderModule          vs;
-    VkShaderModule          fs;
-    char*                   vs_entry;
-    char*                   fs_entry;
+    VkSampler               sampler;
+    Mel_Gpu_Sampler_Key     key;
+    u64                     hash;
+    u32                     refcount;
+} Mel_Gpu_Sampler_Obj;
+
+// U12 reflection-lite (gpu-rhi.md §6.4): what the engine derives from a SPIR-V blob so U13 can build the
+// pipeline layout without hand-declared sizes. The shader is the source of truth for its bindings.
+typedef struct
+{
+    u32  push_constant_size; // bytes spanned by the PushConstant block; 0 if none
+    bool uses_bindless_set;  // references descriptor set 0 (the engine bindless heap)
+} Mel_Gpu_Spirv_Reflection;
+
+typedef struct
+{
+    Mel_Gpu_Resource_Header  header;
+    VkShaderModule           vs;
+    VkShaderModule           fs;
+    char*                    vs_entry;
+    char*                    fs_entry;
+    Mel_Gpu_Spirv_Reflection reflection; // union of the vs+fs reflections
 } Mel_Gpu_Shader_Obj;
 
 typedef struct
@@ -117,6 +147,8 @@ typedef struct
     Mel_Gpu_Resource_Header header;
     VkPipeline              pipeline;
     VkPipelineLayout        layout;
+    VkDescriptorSetLayout   static_sampler_layout; // U11 immutable samplers, owned; VK_NULL_HANDLE if none
+    bool                    bindless;              // U14: set 0 is the device bindless heap
 } Mel_Gpu_Pipeline_Obj;
 
 typedef struct
@@ -146,16 +178,23 @@ typedef struct
 // reference it has completed (gpu-rhi.md §3.3). No enum tag (MEL-CODE-001) — every non-null handle is freed.
 typedef struct
 {
-    u64                marker;
-    VkImage            image;
-    VkImageView        view;
-    VkBuffer           buffer;
-    VkPipeline         pipeline;
-    VkPipelineLayout   pipeline_layout;
-    VkShaderModule     shader_vs;
-    VkShaderModule     shader_fs;
-    Mel_Gpu_Allocation alloc;
-    bool               has_alloc;
+    u64                   marker;
+    VkImage               image;
+    VkImageView           view;
+    VkBuffer              buffer;
+    VkPipeline            pipeline;
+    VkPipelineLayout      pipeline_layout;
+    VkDescriptorSetLayout descriptor_set_layout;
+    VkSampler             sampler;
+    VkShaderModule        shader_vs;
+    VkShaderModule        shader_fs;
+    Mel_Gpu_Allocation    alloc;
+    bool                  has_alloc;
+    // U14: future-gated slot reclamation (gpu-rhi.md §3.3). The slotmap index is withheld until this entry
+    // retires, so a heap-registered resource's slot is never reused while an in-flight submission reads it.
+    Mel_Gpu_Resource_Table* reclaim_table;
+    u32                     reclaim_index;
+    bool                    has_reclaim;
 } Mel_Gpu_Deferred_Free;
 
 // U17: per-command-list, per-subresource state tracking (gpu-rhi.md §7.3). cmd_barrier validates the
@@ -168,6 +207,41 @@ typedef struct
     u32                    layer;
     Mel_Gpu_Resource_State state;
 } Mel_Gpu_Cmd_State_Entry;
+
+// U14: the device-global bindless heap (gpu-rhi.md §6.7). One descriptor set, one large partially-bound
+// update-after-bind array per resource class. The per-class binding index is fixed and engine-canonical;
+// every bindless pipeline reflects this same set 0 layout. A resource's slot is its slotmap handle index
+// (the §3.1 direct contract), written into the array at creation time.
+enum
+{
+    MEL_GPU_BINDLESS_BINDING_SAMPLED_IMAGE = 0,
+    MEL_GPU_BINDLESS_BINDING_SAMPLER = 1,
+    MEL_GPU_BINDLESS_BINDING_STORAGE_BUFFER = 2,
+    MEL_GPU_BINDLESS_BINDING_UNIFORM_BUFFER = 3,
+    MEL_GPU_BINDLESS_BINDING_STORAGE_IMAGE = 4,
+    MEL_GPU_BINDLESS_BINDING_COUNT = 5,
+};
+
+typedef struct
+{
+    bool                  enabled;
+    VkDescriptorPool      pool;
+    VkDescriptorSetLayout set_layout;
+    VkDescriptorSet       set;
+    u32                   cap_sampled_image;
+    u32                   cap_sampler;
+    u32                   cap_storage_buffer;
+    u32                   cap_uniform_buffer;
+    u32                   cap_storage_image;
+    Mel_Mutex             lock; // descriptor-heap writes are SerializedPerObject per heap region (§3.7)
+} Mel_Gpu_Bindless;
+
+// U11: per-device sampler intern table — maps a descriptor hash to the shared handle (gpu-rhi.md §6.3).
+typedef struct
+{
+    u64                hash;
+    Mel_SlotMap_Handle handle;
+} Mel_Gpu_Sampler_Intern;
 
 struct Mel_Gpu_Device
 {
@@ -196,14 +270,24 @@ struct Mel_Gpu_Device
 
     VkPhysicalDeviceMemoryProperties mem_props;
     Mel_Gpu_Allocator*               allocator;
+    f32                              max_sampler_anisotropy; // 1.0 when samplerAnisotropy not enabled (U11)
+    bool                             bda_enabled;            // U14 ceiling: buffer_device_address granted
 
     Mel_Mutex              obj_lock;
     Mel_Gpu_Resource_Table buffers;
     Mel_Gpu_Resource_Table textures;
     Mel_Gpu_Resource_Table texture_views;
+    Mel_Gpu_Resource_Table samplers;
     Mel_Gpu_Resource_Table shaders;
     Mel_Gpu_Resource_Table pipelines;
     Mel_Gpu_Resource_Table syncs;
+
+    // U14 bindless heap + U11 sampler dedup. Guarded by bindless.lock / sampler_lock respectively.
+    Mel_Gpu_Bindless        bindless;
+    Mel_Mutex               sampler_lock;
+    Mel_Gpu_Sampler_Intern* sampler_interns;
+    u32                     sampler_intern_count;
+    u32                     sampler_intern_cap;
 
     Mel_Gpu_Pending_Submit* pending;
     u32                     pending_count;
@@ -327,11 +411,32 @@ bool mel_gpu__texture_view_get(Mel_Gpu_Device* dev, Mel_Gpu_Texture_View view, M
 Mel_SlotMap_Handle mel_gpu__table_insert(Mel_Gpu_Device* dev, Mel_Gpu_Resource_Table* t, const void* obj);
 void*              mel_gpu__table_get(Mel_Gpu_Device* dev, Mel_Gpu_Resource_Table* t, Mel_SlotMap_Handle h);
 bool               mel_gpu__table_remove(Mel_Gpu_Device* dev, Mel_Gpu_Resource_Table* t, Mel_SlotMap_Handle h);
+// U14: roll the handle generation now (use-after-free stays loud) but hold the slot index; reclaim it via a
+// deferred-free entry once the destroyed resource's last submission retires (gpu-rhi.md §3.3).
+bool               mel_gpu__table_remove_deferred(Mel_Gpu_Device* dev, Mel_Gpu_Resource_Table* t, Mel_SlotMap_Handle h);
+void               mel_gpu__table_reclaim(Mel_Gpu_Device* dev, Mel_Gpu_Resource_Table* t, u32 index);
 
 VkRenderPass mel_gpu__make_render_pass(Mel_Gpu_Device* dev, VkFormat color);
 bool         mel_gpu__shader_modules(Mel_Gpu_Device* dev, Mel_Gpu_Shader sh, VkShaderModule* vs, VkShaderModule* fs, const char** vs_entry, const char** fs_entry);
+bool         mel_gpu__shader_reflection(Mel_Gpu_Device* dev, Mel_Gpu_Shader sh, Mel_Gpu_Spirv_Reflection* out);
+
+// U12 reflection-lite: parse a SPIR-V blob for the push-constant block size and descriptor-set-0 usage
+// (gpu-rhi.md §6.4). Backend-agnostic over SPIR-V; lives here because SPIR-V is the Vulkan blob form.
+void mel_gpu__spirv_reflect(const u32* code, usize size_bytes, const Mel_Alloc* alloc, Mel_Gpu_Spirv_Reflection* out);
 bool         mel_gpu__pipeline_get(Mel_Gpu_Device* dev, Mel_Gpu_Pipeline pipe, VkPipeline* out_pipe, VkPipelineLayout* out_layout);
+Mel_Gpu_Pipeline_Obj* mel_gpu__pipeline_obj(Mel_Gpu_Device* dev, Mel_Gpu_Pipeline pipe);
 bool         mel_gpu__buffer_get(Mel_Gpu_Device* dev, Mel_Gpu_Buffer buf, VkBuffer* out);
+bool         mel_gpu__sampler_get(Mel_Gpu_Device* dev, Mel_Gpu_Sampler sampler, VkSampler* out);
+
+// U14 bindless heap (gpu-rhi.md §6.7). Created at device-create when the descriptor-indexing floor is
+// granted and requested; registration writes one descriptor at the resource's handle index.
+void mel_gpu__bindless_init(Mel_Gpu_Device* dev, bool want);
+void mel_gpu__bindless_shutdown(Mel_Gpu_Device* dev);
+void mel_gpu__bindless_register_sampled_image(Mel_Gpu_Device* dev, u32 slot, VkImageView view);
+void mel_gpu__bindless_register_storage_image(Mel_Gpu_Device* dev, u32 slot, VkImageView view);
+void mel_gpu__bindless_register_storage_buffer(Mel_Gpu_Device* dev, u32 slot, VkBuffer buf, VkDeviceSize range);
+void mel_gpu__bindless_register_uniform_buffer(Mel_Gpu_Device* dev, u32 slot, VkBuffer buf, VkDeviceSize range);
+void mel_gpu__bindless_register_sampler(Mel_Gpu_Device* dev, u32 slot, VkSampler sampler);
 
 void mel_gpu__allocator_init(Mel_Gpu_Device* dev);
 void mel_gpu__allocator_shutdown(Mel_Gpu_Device* dev);

@@ -17,6 +17,9 @@ typedef enum
     MEL_GPU_BUFFER_STORAGE = 1u << 3,
     MEL_GPU_BUFFER_TRANSFER_SRC = 1u << 4,
     MEL_GPU_BUFFER_TRANSFER_DST = 1u << 5,
+    // U14 ceiling (gpu-rhi.md §6.1/§6.7): expose a stable GPU address via mel_gpu_buffer_device_address for
+    // the pointer-bearing root record. Requires the device created with buffer_device_address.
+    MEL_GPU_BUFFER_DEVICE_ADDRESS = 1u << 6,
 } Mel_Gpu_Buffer_Usage;
 
 typedef enum

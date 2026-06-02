@@ -183,15 +183,18 @@ void mel_gpu_cmd_end_pass(Mel_Gpu_Command_List* cmd)
 
 void mel_gpu_cmd_bind_pipeline(Mel_Gpu_Command_List* cmd, Mel_Gpu_Pipeline pipe)
 {
-    VkPipeline       p;
-    VkPipelineLayout l;
-    if (!mel_gpu__pipeline_get(cmd->dev, pipe, &p, &l))
+    Mel_Gpu_Pipeline_Obj* o = mel_gpu__pipeline_obj(cmd->dev, pipe);
+    if (!o)
     {
         mel_assert(!"bind_pipeline: invalid pipeline handle");
         return;
     }
-    vkCmdBindPipeline(cmd->cb, VK_PIPELINE_BIND_POINT_GRAPHICS, p);
-    cmd->cur_layout = l;
+    vkCmdBindPipeline(cmd->cb, VK_PIPELINE_BIND_POINT_GRAPHICS, o->pipeline);
+    cmd->cur_layout = o->layout;
+    // U14: a bindless pipeline reads the device heap at set 0; bind it so the simple path (bind a pipeline,
+    // push the root record, draw) just works (MEL-ENGINE-II). The explicit cmd_bind_bindless is the P2 peer.
+    if (o->bindless && cmd->dev->bindless.enabled)
+        vkCmdBindDescriptorSets(cmd->cb, VK_PIPELINE_BIND_POINT_GRAPHICS, o->layout, 0, 1, &cmd->dev->bindless.set, 0, NULL);
 }
 
 void mel_gpu_cmd_bind_vertex_buffer(Mel_Gpu_Command_List* cmd, u32 slot, Mel_Gpu_Buffer buf)

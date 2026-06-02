@@ -78,8 +78,12 @@ static u32 mel_gpu__log2(usize v)
 
 static Mel_Gpu_Mem_Block* mel_gpu__block_create(Mel_Gpu_Device* dev, u32 type_index, bool host_visible)
 {
+    // U14: with BDA granted, every block is device-address-capable so suballocated buffers can expose a
+    // stable GPU address for the pointer-bearing root record (gpu-rhi.md §6.7). Benign on image memory.
+    VkMemoryAllocateFlagsInfo flags = { .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO, .flags = VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT };
     VkMemoryAllocateInfo ai = {
         .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+        .pNext = dev->bda_enabled ? &flags : NULL,
         .allocationSize = MEL_GPU_BLOCK_SIZE,
         .memoryTypeIndex = type_index,
     };
@@ -125,8 +129,10 @@ bool mel_gpu__mem_alloc(Mel_Gpu_Device* dev, VkMemoryRequirements req, VkMemoryP
 
     if (dedicated)
     {
-        VkMemoryAllocateInfo ai = {
+        VkMemoryAllocateFlagsInfo flags = { .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO, .flags = VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT };
+        VkMemoryAllocateInfo      ai = {
             .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+            .pNext = dev->bda_enabled ? &flags : NULL,
             .allocationSize = req.size,
             .memoryTypeIndex = type,
         };

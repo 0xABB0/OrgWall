@@ -20,6 +20,8 @@ static VkBufferUsageFlags mel_gpu__buffer_usage(Mel_Gpu_Buffer_Usage u)
         f |= VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
     if (u & MEL_GPU_BUFFER_TRANSFER_DST)
         f |= VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    if (u & MEL_GPU_BUFFER_DEVICE_ADDRESS)
+        f |= VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
     return f;
 }
 
@@ -142,6 +144,16 @@ Mel_Gpu_Buffer_Create_Result mel_gpu_buffer_create_opt(Mel_Gpu_Device* dev, Mel_
     }
 
     res.value.slot = mel_gpu__table_insert(dev, &dev->buffers, &obj);
+
+    // U14: auto-register the buffer into the device bindless heap at its handle index (direct contract §3.1)
+    // for every shader-addressable class its usage admits (gpu-rhi.md §6.7).
+    if (dev->bindless.enabled)
+    {
+        if (opt.usage & MEL_GPU_BUFFER_STORAGE)
+            mel_gpu__bindless_register_storage_buffer(dev, res.value.slot.index, buf, opt.size);
+        if (opt.usage & MEL_GPU_BUFFER_UNIFORM)
+            mel_gpu__bindless_register_uniform_buffer(dev, res.value.slot.index, buf, opt.size);
+    }
     return res;
 }
 
@@ -153,11 +165,16 @@ void mel_gpu_buffer_destroy(Mel_Gpu_Device* dev, Mel_Gpu_Buffer buf)
     bool               borrowed = o->header.ownership == MEL_GPU_OWNERSHIP_BORROWED;
     Mel_Gpu_Allocation alloc = o->alloc;
     VkBuffer           vk = o->buf;
-    mel_gpu__table_remove(dev, &dev->buffers, buf.slot);
     if (borrowed)
+    {
+        // Imported (Borrowed): no underlying free, not heap-registered — the slot reuses immediately.
+        mel_gpu__table_remove(dev, &dev->buffers, buf.slot);
         return;
-    // U3 future-gated retirement: free only once in-flight submissions referencing this buffer complete.
-    mel_gpu__defer_free(dev, (Mel_Gpu_Deferred_Free){ .buffer = vk, .alloc = alloc, .has_alloc = true });
+    }
+    // U3/U14 future-gated retirement: the generation rolls now (use-after-free stays loud), but both the
+    // Vulkan object and the bindless slot index are reclaimed only once in-flight submissions retire.
+    mel_gpu__table_remove_deferred(dev, &dev->buffers, buf.slot);
+    mel_gpu__defer_free(dev, (Mel_Gpu_Deferred_Free){ .buffer = vk, .alloc = alloc, .has_alloc = true, .reclaim_table = &dev->buffers, .reclaim_index = buf.slot.index, .has_reclaim = true });
 }
 
 u32 mel_gpu_buffer_make_resident(Mel_Gpu_Device* dev, Mel_Gpu_Buffer buf)
@@ -222,4 +239,21 @@ bool mel_gpu__buffer_get(Mel_Gpu_Device* dev, Mel_Gpu_Buffer buf, VkBuffer* out)
         return false;
     *out = o->buf;
     return true;
+}
+
+u64 mel_gpu_buffer_device_address(Mel_Gpu_Device* dev, Mel_Gpu_Buffer buf)
+{
+    if (!dev || !dev->bda_enabled)
+    {
+        mel_log_error("gpu", "buffer_device_address: device was not created with buffer_device_address");
+        return 0;
+    }
+    Mel_Gpu_Buffer_Obj* o = mel_gpu__table_get(dev, &dev->buffers, buf.slot);
+    if (!o)
+    {
+        mel_assert(!"buffer_device_address: invalid buffer handle");
+        return 0;
+    }
+    VkBufferDeviceAddressInfo info = { .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO, .buffer = o->buf };
+    return (u64)vkGetBufferDeviceAddress(dev->vk, &info);
 }

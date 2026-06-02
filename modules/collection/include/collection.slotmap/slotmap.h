@@ -12,6 +12,7 @@ typedef struct
     u32  packed_idx;
     u32  next_free;
     bool alive;
+    bool held; // removed-deferred: dead but withheld from the free list until reclaimed
 } Mel_SlotMap_Slot;
 
 struct Mel_SlotMap
@@ -44,3 +45,10 @@ bool               mel_slotmap_remove(Mel_SlotMap* sm, Mel_SlotMap_Handle handle
 bool               mel_slotmap_alive(Mel_SlotMap* sm, Mel_SlotMap_Handle handle);
 u32                mel_slotmap_count(Mel_SlotMap* sm);
 void*              mel_slotmap_data(Mel_SlotMap* sm);
+
+// Two-phase removal for future-gated reclamation (gpu-rhi.md §3.3 retirement). remove_deferred marks the
+// slot dead and rolls its generation immediately (use-after-free stays a loud failure) and swap-removes the
+// dense payload, but withholds the index from the free list; reclaim returns that index for reuse once the
+// caller's retirement condition is met. The handle resolves to NULL between the two calls.
+bool mel_slotmap_remove_deferred(Mel_SlotMap* sm, Mel_SlotMap_Handle handle);
+bool mel_slotmap_reclaim(Mel_SlotMap* sm, u32 index);

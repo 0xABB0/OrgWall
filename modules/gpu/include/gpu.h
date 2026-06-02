@@ -13,6 +13,8 @@
 #include <gpu/memory.h>
 #include <gpu/buffer.h>
 #include <gpu/texture.h>
+#include <gpu/sampler.h>
+#include <gpu/binding.h>
 #include <gpu/state.h>
 #include <gpu/shader.h>
 #include <gpu/pipeline.h>
