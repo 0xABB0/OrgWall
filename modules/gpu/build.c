@@ -111,6 +111,23 @@ void build(Mel_Build* b)
     mel_depends(vistest, "collection");
     mel_depends(vistest, "reactor");
 
+    // Profiling / benchmark harness (--gpu=vulkan). Same scaffold as gpu-vulkan, but each mel_add_test "test"
+    // is a CPU-timed benchmark: it measures resource-create throughput, upload bandwidth, submit latency,
+    // allocator churn and bindless-heap registration cost, prints a stable human-readable line, and asserts a
+    // loose lower bound so it doubles as a perf-regression guard. The body is #if MEL_GPU_VULKAN-guarded.
+    Mel_Target* bench = mel_add_test(b, "gpu-bench");
+    mel_sources(bench, ALWAYS, "test/test_bench.c");
+    mel_sources(bench, ALWAYS, "../../tools/test/src/runner.c");
+    mel_defines(bench, MEL_PRIVATE, WHEN(.gpu = "vulkan"), "MEL_GPU_VULKAN=1");
+    mel_link(bench, MEL_PUBLIC, WHEN(.platforms = MEL_ON(MACOS)), "-framework", "AppKit");
+    mel_depends(bench, "test");
+    mel_depends(bench, "gpu");
+    mel_depends(bench, "core");
+    mel_depends(bench, "allocator");
+    mel_depends(bench, "collection");
+    mel_depends(bench, "reactor");
+    mel_depends(bench, "time");
+
     // D3D12 backend tests (win32, --gpu=d3d12). The test body is #if MEL_GPU_D3D12-guarded, so the target
     // links to an empty 0-test runner on any non-d3d12 build and is meaningful only on win-pilot.
     Mel_Target* d3dtest = mel_add_test(b, "gpu-d3d12");
