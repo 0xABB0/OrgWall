@@ -262,6 +262,14 @@ typedef struct
     Mel_Gpu_Tile_Local_Tier tile_local;
 } Mel_Gpu_Caps_Raster;
 
+// Sampler domain (gpu-rhi.md §6.3). max_anisotropy bounds Mel_Gpu_Sampler_Opt.max_anisotropy; the engine
+// clamps a request to this so a sampler create never trips a device limit.
+typedef struct
+{
+    bool anisotropy;     // anisotropic filtering available and enabled
+    f32  max_anisotropy; // 1.0 when anisotropy is unavailable
+} Mel_Gpu_Caps_Sampler;
+
 typedef struct
 {
     Mel_Gpu_Caps_Adapter      adapter;
@@ -274,6 +282,7 @@ typedef struct
     Mel_Gpu_Caps_Power        power;
     Mel_Gpu_Caps_Debug        debug;
     Mel_Gpu_Caps_Raster       raster;
+    Mel_Gpu_Caps_Sampler      sampler;
 } Mel_Gpu_Caps;
 
 typedef struct

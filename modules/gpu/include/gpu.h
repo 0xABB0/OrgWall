@@ -15,6 +15,7 @@
 #include <gpu/texture.h>
 #include <gpu/sampler.h>
 #include <gpu/binding.h>
+#include <gpu/bind_group.h>
 #include <gpu/state.h>
 #include <gpu/shader.h>
 #include <gpu/pipeline.h>

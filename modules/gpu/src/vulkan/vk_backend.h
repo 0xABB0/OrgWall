@@ -22,6 +22,7 @@
 #include <gpu/texture.h>
 #include <gpu/sampler.h>
 #include <gpu/binding.h>
+#include <gpu/bind_group.h>
 #include <gpu/state.h>
 #include <gpu/shader.h>
 #include <gpu/pipeline.h>
@@ -124,12 +125,52 @@ typedef struct
     u32                     refcount;
 } Mel_Gpu_Sampler_Obj;
 
-// U12 reflection-lite (gpu-rhi.md §6.4): what the engine derives from a SPIR-V blob so U13 can build the
+// U12 reflection (gpu-rhi.md §6.4): what the engine derives from a SPIR-V blob so U13 can build the
 // pipeline layout without hand-declared sizes. The shader is the source of truth for its bindings.
+
+// A descriptor the shader declares at set 0 (the engine-canonical bindless-heap set). The binding index
+// IS the heap class index (sampled image=0, sampler=1, storage buffer=2, uniform buffer=3, storage
+// image=4), so the heap cap for a binding is looked up by binding number. `runtime_array` is the
+// update-after-bind heap signature; a sized `array_len` exceeding the heap's class cap is MissingBindlessSlot.
+typedef struct
+{
+    u32  binding;
+    u32  array_len;     // declared length of a sized array; 1 for a single descriptor
+    bool runtime_array; // OpTypeRuntimeArray (unbounded) — the bindless-heap signature
+} Mel_Gpu_Reflect_Set0_Binding;
+
+// A reflected vertex-input attribute (vertex stage only); offsets are tight-packed in ascending-location
+// order into a single interleaved binding (gpu-rhi.md §6.5 reflection default, manual override).
+typedef struct
+{
+    u32            location;
+    Mel_Gpu_Format format;
+    u32            offset;
+} Mel_Gpu_Reflect_Vertex_Attr;
+
+// A reflected specialization constant (gpu-rhi.md §6.4). `id` is the SpecId; `bytes` its scalar size.
+typedef struct
+{
+    u32 id;
+    u32 bytes;
+} Mel_Gpu_Reflect_Spec_Constant;
+
 typedef struct
 {
     u32  push_constant_size; // bytes spanned by the PushConstant block; 0 if none
-    bool uses_bindless_set;  // references descriptor set 0 (the engine bindless heap)
+    bool uses_bindless_set;  // set 0 declares >=1 runtime descriptor array (the heap signature)
+
+    Mel_Gpu_Reflect_Set0_Binding* set0; // set-0 descriptors (union over stages, deduped by binding)
+    u32                           set0_count;
+
+    Mel_Gpu_Reflect_Vertex_Attr* vertex_attrs; // vertex stage only, sorted by location
+    u32                          vertex_attr_count;
+    u32                          vertex_stride;
+
+    Mel_Gpu_Reflect_Spec_Constant* spec_constants; // union over stages, deduped by id
+    u32                            spec_constant_count;
+
+    const Mel_Alloc* alloc; // owns the three arrays above; released by mel_gpu__reflection_free
 } Mel_Gpu_Spirv_Reflection;
 
 typedef struct
@@ -137,9 +178,11 @@ typedef struct
     Mel_Gpu_Resource_Header  header;
     VkShaderModule           vs;
     VkShaderModule           fs;
+    VkShaderModule           cs; // U13 compute single-stage; VK_NULL_HANDLE for a graphics shader
     char*                    vs_entry;
     char*                    fs_entry;
-    Mel_Gpu_Spirv_Reflection reflection; // union of the vs+fs reflections
+    char*                    cs_entry;
+    Mel_Gpu_Spirv_Reflection reflection; // union of the vs+fs reflections, or the cs reflection
 } Mel_Gpu_Shader_Obj;
 
 typedef struct
@@ -149,7 +192,32 @@ typedef struct
     VkPipelineLayout        layout;
     VkDescriptorSetLayout   static_sampler_layout; // U11 immutable samplers, owned; VK_NULL_HANDLE if none
     bool                    bindless;              // U14: set 0 is the device bindless heap
+    VkPipelineBindPoint     bind_point;            // U13: GRAPHICS or COMPUTE — drives heap/descriptor binds
+    VkShaderStageFlags      pc_stages;             // push-constant stages for cmd_push_constants
+    // U11/U13: a refcount claim per static sampler, held for the pipeline's lifetime and released at destroy
+    // (gpu-rhi.md §6.3). Owned copy of the handles; NULL when the pipeline has no static samplers.
+    Mel_Gpu_Sampler*        static_samplers;
+    u32                     static_sampler_count;
 } Mel_Gpu_Pipeline_Obj;
+
+// U14 classic descriptor-set path (gpu-rhi.md §6.7). A bind-group layout owns one VkDescriptorSetLayout plus
+// a copy of its entries (so writes can pick the VkDescriptorType and validate the binding). A bind group
+// owns one VkDescriptorSet allocated from the device classic-pool chain.
+typedef struct
+{
+    Mel_Gpu_Resource_Header           header;
+    VkDescriptorSetLayout             layout;
+    Mel_Gpu_Bind_Group_Layout_Entry*  entries;
+    u32                               entry_count;
+} Mel_Gpu_Bind_Group_Layout_Obj;
+
+typedef struct
+{
+    Mel_Gpu_Resource_Header header;
+    VkDescriptorSet         set;
+    VkDescriptorPool        pool;        // the pool this set was allocated from, for vkFreeDescriptorSets
+    Mel_SlotMap_Handle      layout;      // the source bind-group layout (for write-time kind lookup)
+} Mel_Gpu_Bind_Group_Obj;
 
 typedef struct
 {
@@ -188,6 +256,9 @@ typedef struct
     VkSampler             sampler;
     VkShaderModule        shader_vs;
     VkShaderModule        shader_fs;
+    // U14 classic bind group: free the descriptor set back to its pool once in-flight submissions retire.
+    VkDescriptorSet       descriptor_set;
+    VkDescriptorPool      descriptor_set_pool;
     Mel_Gpu_Allocation    alloc;
     bool                  has_alloc;
     // U14: future-gated slot reclamation (gpu-rhi.md §3.3). The slotmap index is withheld until this entry
@@ -281,6 +352,14 @@ struct Mel_Gpu_Device
     Mel_Gpu_Resource_Table shaders;
     Mel_Gpu_Resource_Table pipelines;
     Mel_Gpu_Resource_Table syncs;
+    Mel_Gpu_Resource_Table bind_group_layouts; // U14 classic path
+    Mel_Gpu_Resource_Table bind_groups;        // U14 classic path
+
+    // U14 classic descriptor-set path: a grown-on-demand chain of pools to allocate bind-group sets from.
+    Mel_Mutex         classic_pool_lock;
+    VkDescriptorPool* classic_pools;
+    u32               classic_pool_count;
+    u32               classic_pool_cap;
 
     // U14 bindless heap + U11 sampler dedup. Guarded by bindless.lock / sampler_lock respectively.
     Mel_Gpu_Bindless        bindless;
@@ -327,6 +406,8 @@ struct Mel_Gpu_Command_List
     VkCommandBuffer    cb;
     Mel_Gpu_Swapchain* sc;
     VkPipelineLayout   cur_layout;
+    VkPipelineBindPoint cur_bind_point; // U13: set at cmd_bind_pipeline; drives heap/descriptor-set binds
+    VkShaderStageFlags  cur_pc_stages;  // push-constant stages of the bound pipeline
     VkCommandPool      owner_pool;
     bool               standalone;
     bool               recording;
@@ -418,15 +499,21 @@ void               mel_gpu__table_reclaim(Mel_Gpu_Device* dev, Mel_Gpu_Resource_
 
 VkRenderPass mel_gpu__make_render_pass(Mel_Gpu_Device* dev, VkFormat color);
 bool         mel_gpu__shader_modules(Mel_Gpu_Device* dev, Mel_Gpu_Shader sh, VkShaderModule* vs, VkShaderModule* fs, const char** vs_entry, const char** fs_entry);
+bool         mel_gpu__shader_compute_module(Mel_Gpu_Device* dev, Mel_Gpu_Shader sh, VkShaderModule* cs, const char** cs_entry);
 bool         mel_gpu__shader_reflection(Mel_Gpu_Device* dev, Mel_Gpu_Shader sh, Mel_Gpu_Spirv_Reflection* out);
 
-// U12 reflection-lite: parse a SPIR-V blob for the push-constant block size and descriptor-set-0 usage
-// (gpu-rhi.md §6.4). Backend-agnostic over SPIR-V; lives here because SPIR-V is the Vulkan blob form.
-void mel_gpu__spirv_reflect(const u32* code, usize size_bytes, const Mel_Alloc* alloc, Mel_Gpu_Spirv_Reflection* out);
+// U12 reflection: parse a SPIR-V blob for push-constant size, set-0 descriptor bounds, vertex input, and
+// specialization constants (gpu-rhi.md §6.4). Backend-agnostic over SPIR-V; lives here because SPIR-V is
+// the Vulkan blob form. Accumulates into `accum` so the vs+fs union is one struct; pass `vertex_stage` true
+// only for the vertex blob (input variables of other stages are interpolants, not vertex attributes). The
+// caller zeroes `accum` and sets `accum->alloc` before the first call; mel_gpu__reflection_free releases it.
+void mel_gpu__spirv_reflect(const u32* code, usize size_bytes, bool vertex_stage, const Mel_Alloc* alloc, Mel_Gpu_Spirv_Reflection* accum);
+void mel_gpu__reflection_free(Mel_Gpu_Spirv_Reflection* r);
 bool         mel_gpu__pipeline_get(Mel_Gpu_Device* dev, Mel_Gpu_Pipeline pipe, VkPipeline* out_pipe, VkPipelineLayout* out_layout);
 Mel_Gpu_Pipeline_Obj* mel_gpu__pipeline_obj(Mel_Gpu_Device* dev, Mel_Gpu_Pipeline pipe);
 bool         mel_gpu__buffer_get(Mel_Gpu_Device* dev, Mel_Gpu_Buffer buf, VkBuffer* out);
 bool         mel_gpu__sampler_get(Mel_Gpu_Device* dev, Mel_Gpu_Sampler sampler, VkSampler* out);
+bool         mel_gpu__sampler_retain(Mel_Gpu_Device* dev, Mel_Gpu_Sampler sampler);
 
 // U14 bindless heap (gpu-rhi.md §6.7). Created at device-create when the descriptor-indexing floor is
 // granted and requested; registration writes one descriptor at the resource's handle index.
@@ -437,6 +524,14 @@ void mel_gpu__bindless_register_storage_image(Mel_Gpu_Device* dev, u32 slot, VkI
 void mel_gpu__bindless_register_storage_buffer(Mel_Gpu_Device* dev, u32 slot, VkBuffer buf, VkDeviceSize range);
 void mel_gpu__bindless_register_uniform_buffer(Mel_Gpu_Device* dev, u32 slot, VkBuffer buf, VkDeviceSize range);
 void mel_gpu__bindless_register_sampler(Mel_Gpu_Device* dev, u32 slot, VkSampler sampler);
+
+// U14 classic descriptor-set path (gpu-rhi.md §6.7). Allocate one set of `layout` from the device classic-
+// pool chain (growing the chain on exhaustion), reporting which pool served it. The shutdown destroys the
+// whole chain at device teardown. mel_gpu__bind_group_layout_vk resolves a layout handle's VkDescriptorSetLayout.
+VkDescriptorSet mel_gpu__classic_descriptor_alloc(Mel_Gpu_Device* dev, VkDescriptorSetLayout layout, VkDescriptorPool* out_pool);
+void            mel_gpu__classic_pools_shutdown(Mel_Gpu_Device* dev);
+bool            mel_gpu__bind_group_layout_vk(Mel_Gpu_Device* dev, Mel_Gpu_Bind_Group_Layout layout, VkDescriptorSetLayout* out);
+bool            mel_gpu__bind_group_set(Mel_Gpu_Device* dev, Mel_Gpu_Bind_Group group, VkDescriptorSet* out);
 
 void mel_gpu__allocator_init(Mel_Gpu_Device* dev);
 void mel_gpu__allocator_shutdown(Mel_Gpu_Device* dev);

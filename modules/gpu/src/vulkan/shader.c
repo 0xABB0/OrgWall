@@ -60,13 +60,44 @@ Mel_Gpu_Shader_Create_Result mel_gpu_shader_create_from_bytecode_opt(Mel_Gpu_Dev
     obj.vs_entry = mel_gpu__strdup(dev->alloc, opt.vertex_entry);
     obj.fs_entry = mel_gpu__strdup(dev->alloc, opt.fragment_entry);
 
-    // U12 reflection-lite: derive the layout-relevant facts (push-constant size, bindless-set usage) as the
-    // union over both stages. U13 consumes this to build the pipeline layout (gpu-rhi.md §6.4).
-    Mel_Gpu_Spirv_Reflection rv, rf;
-    mel_gpu__spirv_reflect((const u32*)opt.spirv_vertex, opt.spirv_vertex_size, dev->alloc, &rv);
-    mel_gpu__spirv_reflect((const u32*)opt.spirv_fragment, opt.spirv_fragment_size, dev->alloc, &rf);
-    obj.reflection.push_constant_size = rv.push_constant_size > rf.push_constant_size ? rv.push_constant_size : rf.push_constant_size;
-    obj.reflection.uses_bindless_set = rv.uses_bindless_set || rf.uses_bindless_set;
+    // U12 reflection: derive the layout-relevant facts (push-constant size, set-0 descriptor bounds, vertex
+    // input, spec constants) as the union over both stages. Vertex inputs come only from the vertex blob —
+    // a fragment's Input variables are interpolants, not vertex attributes. U13 consumes this to build the
+    // pipeline layout (gpu-rhi.md §6.4).
+    obj.reflection = (Mel_Gpu_Spirv_Reflection){ 0 };
+    mel_gpu__spirv_reflect((const u32*)opt.spirv_vertex, opt.spirv_vertex_size, true, dev->alloc, &obj.reflection);
+    mel_gpu__spirv_reflect((const u32*)opt.spirv_fragment, opt.spirv_fragment_size, false, dev->alloc, &obj.reflection);
+
+    res.value.slot = mel_gpu__table_insert(dev, &dev->shaders, &obj);
+    return res;
+}
+
+Mel_Gpu_Shader_Create_Result mel_gpu_shader_create_compute_from_bytecode_opt(Mel_Gpu_Device* dev, Mel_Gpu_Shader_Compute_Opt opt)
+{
+    Mel_Gpu_Shader_Create_Result res = { .value = { mel_gpu_handle_null() }, .status = MEL_GPU_SHADER_CREATE_OK };
+    if (!dev || !opt.spirv)
+    {
+        res.status = MEL_GPU_SHADER_CREATE_NO_CODE;
+        return res;
+    }
+
+    VkShaderModule cs = mel_gpu__make_module(dev, opt.spirv, opt.spirv_size);
+    if (cs == VK_NULL_HANDLE)
+    {
+        res.status = MEL_GPU_SHADER_CREATE_VK_FAILED;
+        return res;
+    }
+
+    Mel_Gpu_Shader_Obj obj = { 0 };
+    obj.header.ownership = MEL_GPU_OWNERSHIP_OWNED;
+    obj.header.name = opt.name;
+    obj.cs = cs;
+    obj.cs_entry = mel_gpu__strdup(dev->alloc, opt.entry);
+
+    // U12 reflection: a compute stage has no vertex input (vertex_stage false); push-constant size and set-0
+    // descriptor bounds are derived exactly as for graphics (gpu-rhi.md §6.4).
+    obj.reflection = (Mel_Gpu_Spirv_Reflection){ 0 };
+    mel_gpu__spirv_reflect((const u32*)opt.spirv, opt.spirv_size, false, dev->alloc, &obj.reflection);
 
     res.value.slot = mel_gpu__table_insert(dev, &dev->shaders, &obj);
     return res;
@@ -77,17 +108,23 @@ void mel_gpu_shader_destroy(Mel_Gpu_Device* dev, Mel_Gpu_Shader sh)
     Mel_Gpu_Shader_Obj* o = mel_gpu__table_get(dev, &dev->shaders, sh.slot);
     if (!o)
         return;
-    VkShaderModule vs = o->vs, fs = o->fs;
-    char *         ve = o->vs_entry, *fe = o->fs_entry;
+    VkShaderModule           vs = o->vs, fs = o->fs, cs = o->cs;
+    char *                   ve = o->vs_entry, *fe = o->fs_entry, *ce = o->cs_entry;
+    Mel_Gpu_Spirv_Reflection refl = o->reflection; // capture before swap-remove invalidates the slot
     mel_gpu__table_remove(dev, &dev->shaders, sh.slot);
     if (vs)
         vkDestroyShaderModule(dev->vk, vs, NULL);
     if (fs)
         vkDestroyShaderModule(dev->vk, fs, NULL);
+    if (cs)
+        vkDestroyShaderModule(dev->vk, cs, NULL);
     if (ve)
         mel_dealloc(dev->alloc, ve);
     if (fe)
         mel_dealloc(dev->alloc, fe);
+    if (ce)
+        mel_dealloc(dev->alloc, ce);
+    mel_gpu__reflection_free(&refl);
 }
 
 bool mel_gpu_shader_alive(Mel_Gpu_Device* dev, Mel_Gpu_Shader sh) { return mel_gpu__table_get(dev, &dev->shaders, sh.slot) != NULL; }
@@ -101,6 +138,16 @@ bool mel_gpu__shader_modules(Mel_Gpu_Device* dev, Mel_Gpu_Shader sh, VkShaderMod
     *fs = o->fs;
     *vs_entry = o->vs_entry;
     *fs_entry = o->fs_entry;
+    return true;
+}
+
+bool mel_gpu__shader_compute_module(Mel_Gpu_Device* dev, Mel_Gpu_Shader sh, VkShaderModule* cs, const char** cs_entry)
+{
+    Mel_Gpu_Shader_Obj* o = mel_gpu__table_get(dev, &dev->shaders, sh.slot);
+    if (!o || o->cs == VK_NULL_HANDLE)
+        return false;
+    *cs = o->cs;
+    *cs_entry = o->cs_entry;
     return true;
 }
 

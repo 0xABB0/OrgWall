@@ -229,6 +229,20 @@ u32 mel_gpu_sampler_bindless_slot(Mel_Gpu_Device* dev, Mel_Gpu_Sampler sampler)
     return sampler.slot.index;
 }
 
+// U11/U13: a pipeline with a static (immutable) sampler must keep that sampler alive for its lifetime
+// (gpu-rhi.md §6.3 — the lifetime was previously the caller's unenforced contract). pipeline_create takes
+// one claim per static sampler; pipeline_destroy releases it, so a user destroying their own handle does not
+// free the VkSampler out from under a live pipeline.
+bool mel_gpu__sampler_retain(Mel_Gpu_Device* dev, Mel_Gpu_Sampler sampler)
+{
+    mel_mutex_lock(&dev->sampler_lock);
+    Mel_Gpu_Sampler_Obj* o = mel_gpu__table_get(dev, &dev->samplers, sampler.slot);
+    if (o)
+        o->refcount++;
+    mel_mutex_unlock(&dev->sampler_lock);
+    return o != NULL;
+}
+
 bool mel_gpu__sampler_get(Mel_Gpu_Device* dev, Mel_Gpu_Sampler sampler, VkSampler* out)
 {
     mel_mutex_lock(&dev->sampler_lock);

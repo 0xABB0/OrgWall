@@ -6,6 +6,7 @@
 #include <gpu/format.h>
 #include <gpu/shader.h>
 #include <gpu/sampler.h>
+#include <gpu/bind_group.h>
 
 typedef struct Mel_Gpu_Device Mel_Gpu_Device;
 
@@ -41,6 +42,15 @@ typedef struct
     u32            offset;
 } Mel_Gpu_Vertex_Element;
 
+// U12 specialization constant override (gpu-rhi.md §6.4). `id` is the Slang/SPIR-V constant_id; `value` the
+// 4-byte scalar (uint / int / float / bool-as-VkBool32) baked at pipeline create. Constants the shader does
+// not declare are ignored with a warning; reflection records the declared set so the warning is precise.
+typedef struct
+{
+    u32 id;
+    u32 value;
+} Mel_Gpu_Spec_Constant;
+
 typedef enum
 {
     MEL_GPU_PIPELINE_CREATE_OK = MEL_GPU_STATUS(0, MEL_GPU_SEVERITY_OK),
@@ -66,8 +76,16 @@ typedef struct
     // U14: when true, set 0 of the layout is the device bindless heap, so the shader can index its texture /
     // sampler / buffer arrays. The per-draw root record rides the push-constant range above.
     bool                          bindless;
+    // U14 classic path (gpu-rhi.md §6.7): app-owned descriptor-set layouts at set indices 0..N-1 for a
+    // non-bindless pipeline. Mutually exclusive with `bindless` (set 0 cannot be both heap and app-owned).
+    const Mel_Gpu_Bind_Group_Layout* set_layouts;
+    u32                              set_layout_count;
     const Mel_Gpu_Static_Sampler* static_samplers;
     u32                           static_sampler_count;
+    // U12: specialization-constant overrides baked at create (gpu-rhi.md §6.4). Reflection records the
+    // shader's declared constants; supplying a value for one not declared warns rather than silently no-ops.
+    const Mel_Gpu_Spec_Constant*  spec_constants;
+    u32                           spec_constant_count;
     const char*                   name;
 } Mel_Gpu_Pipeline_Opt;
 
@@ -79,6 +97,25 @@ typedef struct
 
 Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_create_opt(Mel_Gpu_Device* dev, Mel_Gpu_Pipeline_Opt opt);
 #define mel_gpu_pipeline_create(dev, ...) mel_gpu_pipeline_create_opt((dev), (Mel_Gpu_Pipeline_Opt){ __VA_ARGS__ })
+
+// U13 compute pipeline (gpu-rhi.md §6.5) — per-type create, a distinct state space (no vertex/raster/blend).
+// Reflection drives the layout exactly as for graphics: bindless set 0, push-constant size, spec constants;
+// the binding-model gates (MissingFeature / MissingBindlessSlot) apply identically. The first consumer of
+// storage-buffer bindless and the seam for GPU-generated root records.
+typedef struct
+{
+    Mel_Gpu_Shader                   shader; // a compute shader (mel_gpu_shader_create_compute_from_bytecode)
+    u32                              push_constant_size;
+    bool                             bindless;
+    const Mel_Gpu_Bind_Group_Layout* set_layouts;
+    u32                              set_layout_count;
+    const Mel_Gpu_Spec_Constant*     spec_constants;
+    u32                              spec_constant_count;
+    const char*                      name;
+} Mel_Gpu_Pipeline_Compute_Opt;
+
+Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_compute_create_opt(Mel_Gpu_Device* dev, Mel_Gpu_Pipeline_Compute_Opt opt);
+#define mel_gpu_pipeline_compute_create(dev, ...) mel_gpu_pipeline_compute_create_opt((dev), (Mel_Gpu_Pipeline_Compute_Opt){ __VA_ARGS__ })
 
 void mel_gpu_pipeline_destroy(Mel_Gpu_Device* dev, Mel_Gpu_Pipeline pipe);
 bool mel_gpu_pipeline_alive(Mel_Gpu_Device* dev, Mel_Gpu_Pipeline pipe);

@@ -263,5 +263,5 @@ void mel_gpu_cmd_bind_bindless(Mel_Gpu_Command_List* cmd)
         return;
     }
     mel_assert(cmd->cur_layout != VK_NULL_HANDLE && "cmd_bind_bindless: bind a pipeline first");
-    vkCmdBindDescriptorSets(cmd->cb, VK_PIPELINE_BIND_POINT_GRAPHICS, cmd->cur_layout, 0, 1, &dev->bindless.set, 0, NULL);
+    vkCmdBindDescriptorSets(cmd->cb, cmd->cur_bind_point, cmd->cur_layout, 0, 1, &dev->bindless.set, 0, NULL);
 }

@@ -175,6 +175,8 @@ Mel_Gpu_Device_Create_Result mel_gpu_device_create_opt(Mel_Gpu_Instance* inst, M
     VkPhysicalDeviceProperties devprops;
     vkGetPhysicalDeviceProperties(adapter->phys, &devprops);
     dev->max_sampler_anisotropy = avail.samplerAnisotropy ? devprops.limits.maxSamplerAnisotropy : 1.0f;
+    dev->caps.sampler.anisotropy = avail.samplerAnisotropy != 0;
+    dev->caps.sampler.max_anisotropy = dev->max_sampler_anisotropy;
 
     if (has_dr)
     {
@@ -193,6 +195,7 @@ Mel_Gpu_Device_Create_Result mel_gpu_device_create_opt(Mel_Gpu_Instance* inst, M
     mel_mutex_init(&dev->submit_lock, MEL_MUTEX_PLAIN);
     mel_mutex_init(&dev->pool_lock, MEL_MUTEX_PLAIN);
     mel_mutex_init(&dev->sampler_lock, MEL_MUTEX_PLAIN);
+    mel_mutex_init(&dev->classic_pool_lock, MEL_MUTEX_PLAIN);
     mel_gpu__allocator_init(dev);
     mel_slotmap_init(&dev->buffers.map, alloc, .item_size = sizeof(Mel_Gpu_Buffer_Obj), .initial_capacity = 16);
     mel_slotmap_init(&dev->textures.map, alloc, .item_size = sizeof(Mel_Gpu_Texture_Obj), .initial_capacity = 16);
@@ -201,7 +204,10 @@ Mel_Gpu_Device_Create_Result mel_gpu_device_create_opt(Mel_Gpu_Instance* inst, M
     mel_slotmap_init(&dev->shaders.map, alloc, .item_size = sizeof(Mel_Gpu_Shader_Obj), .initial_capacity = 16);
     mel_slotmap_init(&dev->pipelines.map, alloc, .item_size = sizeof(Mel_Gpu_Pipeline_Obj), .initial_capacity = 16);
     mel_slotmap_init(&dev->syncs.map, alloc, .item_size = sizeof(Mel_Gpu_Sync_Obj), .initial_capacity = 16);
+    mel_slotmap_init(&dev->bind_group_layouts.map, alloc, .item_size = sizeof(Mel_Gpu_Bind_Group_Layout_Obj), .initial_capacity = 8);
+    mel_slotmap_init(&dev->bind_groups.map, alloc, .item_size = sizeof(Mel_Gpu_Bind_Group_Obj), .initial_capacity = 16);
     dev->buffers.init = dev->textures.init = dev->texture_views.init = dev->samplers.init = dev->shaders.init = dev->pipelines.init = dev->syncs.init = true;
+    dev->bind_group_layouts.init = dev->bind_groups.init = true;
 
     // U14: the bindless heap lives for the device's lifetime; it is created only when the descriptor-indexing
     // floor is both requested and granted (gpu-rhi.md §6.7). caps are refined to the realized heap capacity.
@@ -263,8 +269,11 @@ void mel_gpu_device_destroy(Mel_Gpu_Device* dev)
     mel_gpu__table_report_leaks(&dev->shaders, "shader");
     mel_gpu__table_report_leaks(&dev->pipelines, "pipeline");
     mel_gpu__table_report_leaks(&dev->syncs, "sync");
+    mel_gpu__table_report_leaks(&dev->bind_groups, "bind-group");
+    mel_gpu__table_report_leaks(&dev->bind_group_layouts, "bind-group-layout");
 
     mel_gpu__bindless_shutdown(dev);
+    mel_gpu__classic_pools_shutdown(dev);
 
     for (u32 i = 0; i < dev->thread_pool_count; i++)
         if (dev->thread_pools[i].pool)
@@ -279,6 +288,8 @@ void mel_gpu_device_destroy(Mel_Gpu_Device* dev)
     mel_slotmap_free(&dev->shaders.map);
     mel_slotmap_free(&dev->pipelines.map);
     mel_slotmap_free(&dev->syncs.map);
+    mel_slotmap_free(&dev->bind_group_layouts.map);
+    mel_slotmap_free(&dev->bind_groups.map);
     if (dev->sampler_interns)
         mel_dealloc(dev->alloc, dev->sampler_interns);
     mel_gpu__allocator_shutdown(dev);
@@ -286,6 +297,7 @@ void mel_gpu_device_destroy(Mel_Gpu_Device* dev)
     mel_mutex_destroy(&dev->submit_lock);
     mel_mutex_destroy(&dev->pool_lock);
     mel_mutex_destroy(&dev->sampler_lock);
+    mel_mutex_destroy(&dev->classic_pool_lock);
 
     if (dev->pump)
         mel_gpu_pump_destroy(dev->pump);
@@ -365,6 +377,8 @@ static void mel_gpu__free_deferred_entry(Mel_Gpu_Device* dev, Mel_Gpu_Deferred_F
         vkDestroyShaderModule(dev->vk, e->shader_vs, NULL);
     if (e->shader_fs)
         vkDestroyShaderModule(dev->vk, e->shader_fs, NULL);
+    if (e->descriptor_set)
+        vkFreeDescriptorSets(dev->vk, e->descriptor_set_pool, 1, &e->descriptor_set);
     if (e->has_alloc)
         mel_gpu__mem_free(dev, &e->alloc);
     // U14: the slot index becomes reusable only now, once every submission that could read its heap entry

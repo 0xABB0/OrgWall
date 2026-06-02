@@ -189,12 +189,15 @@ void mel_gpu_cmd_bind_pipeline(Mel_Gpu_Command_List* cmd, Mel_Gpu_Pipeline pipe)
         mel_assert(!"bind_pipeline: invalid pipeline handle");
         return;
     }
-    vkCmdBindPipeline(cmd->cb, VK_PIPELINE_BIND_POINT_GRAPHICS, o->pipeline);
+    vkCmdBindPipeline(cmd->cb, o->bind_point, o->pipeline);
     cmd->cur_layout = o->layout;
+    cmd->cur_bind_point = o->bind_point; // U13: graphics or compute
+    cmd->cur_pc_stages = o->pc_stages;
     // U14: a bindless pipeline reads the device heap at set 0; bind it so the simple path (bind a pipeline,
-    // push the root record, draw) just works (MEL-ENGINE-II). The explicit cmd_bind_bindless is the P2 peer.
+    // push the root record, draw/dispatch) just works (MEL-ENGINE-II). The explicit cmd_bind_bindless is the
+    // P2 peer. The bind point follows the pipeline kind, so compute and graphics share one path.
     if (o->bindless && cmd->dev->bindless.enabled)
-        vkCmdBindDescriptorSets(cmd->cb, VK_PIPELINE_BIND_POINT_GRAPHICS, o->layout, 0, 1, &cmd->dev->bindless.set, 0, NULL);
+        vkCmdBindDescriptorSets(cmd->cb, o->bind_point, o->layout, 0, 1, &cmd->dev->bindless.set, 0, NULL);
 }
 
 void mel_gpu_cmd_bind_vertex_buffer(Mel_Gpu_Command_List* cmd, u32 slot, Mel_Gpu_Buffer buf)
@@ -223,9 +226,13 @@ void mel_gpu_cmd_bind_index_buffer(Mel_Gpu_Command_List* cmd, Mel_Gpu_Buffer buf
 void mel_gpu_cmd_push_constants(Mel_Gpu_Command_List* cmd, u32 offset, u32 bytes, const void* data)
 {
     mel_assert(cmd->cur_layout != VK_NULL_HANDLE);
-    vkCmdPushConstants(cmd->cb, cmd->cur_layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, offset, bytes, data);
+    // U13: the push-constant stage mask follows the bound pipeline (VERTEX|FRAGMENT for graphics, COMPUTE for
+    // compute), so the same call serves both bind points.
+    vkCmdPushConstants(cmd->cb, cmd->cur_layout, cmd->cur_pc_stages, offset, bytes, data);
 }
 
 void mel_gpu_cmd_draw(Mel_Gpu_Command_List* cmd, u32 vertex_count, u32 instance_count) { vkCmdDraw(cmd->cb, vertex_count, instance_count, 0, 0); }
 
 void mel_gpu_cmd_draw_indexed(Mel_Gpu_Command_List* cmd, u32 index_count, u32 instance_count) { vkCmdDrawIndexed(cmd->cb, index_count, instance_count, 0, 0, 0); }
+
+void mel_gpu_cmd_dispatch(Mel_Gpu_Command_List* cmd, u32 groups_x, u32 groups_y, u32 groups_z) { vkCmdDispatch(cmd->cb, groups_x, groups_y, groups_z); }
