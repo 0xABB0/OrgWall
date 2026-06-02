@@ -3,17 +3,20 @@
 #include <gpu/binding.h>
 #include <log/log.h>
 
-// U14 bindless (gpu-rhi.md §6.7) — the D3D12 ceiling: SM 6.6 dynamic resources. The shader indexes
-// ResourceDescriptorHeap[i] / SamplerDescriptorHeap[i] directly; the engine binds two shader-visible heaps
-// once per command list (cmd_bind_bindless) and writes each resource's descriptor at its reserved slot at
-// creation time. The per-draw root record carries descriptor indices (the §6.7 D3D12 payload), never raw
+// U14 bindless (gpu-rhi.md §6.7) — the D3D12 **floor**: Tier-3 unbounded descriptor tables. The SM 6.6
+// dynamic-resource ceiling (ResourceDescriptorHeap / SamplerDescriptorHeap + HEAP_DIRECTLY_INDEXED root
+// flags) needs the Agility SDK or a Win11 runtime; the in-box Windows 10 runtime rejects those flags
+// ("Unsupported bit-flag set") and SM 6.6 bytecode, so the floor is the classical model (§6.7 "D3D12 floor:
+// classical descriptor heaps with root-signature tables"). The shader declares per-class unbounded arrays
+// (Texture2D g[] : register(t0,space0); RWByteAddressBuffer b[] : register(u0,space0); ...) and the root
+// signature binds one CBV/SRV/UAV descriptor table (SRV+UAV+CBV ranges, each offset to its class base) plus
+// a sampler table. The per-draw root record carries descriptor indices (the §6.7 D3D12 payload), never raw
 // GPU addresses — the concrete contrast with the Vulkan-BDA mixed payload.
 //
-// One flat CBV/SRV/UAV heap holds four classes (SRV textures, UAV storage buffers, CBV uniform buffers,
-// UAV storage images) at fixed base offsets; samplers live in a second heap with their own index space.
-// Because D3D12's ResourceDescriptorHeap is one flat array (unlike Vulkan's per-class descriptor arrays
-// where slot == handle.index in every class), the heap slot is base[class] + handle.index and is always
-// resolved through mel_gpu_*_bindless_slot (§3.1 sanctions the query precisely so call sites stay correct).
+// One CBV/SRV/UAV heap holds four classes (SRV textures, UAV storage buffers, CBV uniform buffers, UAV
+// storage images) at fixed base offsets; samplers live in a second heap. The descriptor is written at
+// base[class] + handle.index, but the table range's OffsetInDescriptorsFromTableStart equals base[class], so
+// the **shader index is handle.index** (0-based within its class) — slot == handle.index holds (§3.1).
 
 enum
 {
@@ -166,28 +169,21 @@ void mel_gpu__bindless_register_sampler(Mel_Gpu_Device* dev, u32 index, const D3
 
 bool mel_gpu_bindless_available(Mel_Gpu_Device* dev) { return dev && dev->bindless_enabled; }
 
+// The shader index is the 0-based per-class handle index: the descriptor lives at heap slot
+// base[class] + index, but the table range's OffsetInDescriptorsFromTableStart already adds base[class], so
+// the shader array g_class[index] resolves to that heap slot. slot == handle.index (§3.1).
 u32 mel_gpu_texture_view_bindless_slot(Mel_Gpu_Device* dev, Mel_Gpu_Texture_View view)
 {
     mel_assert(dev->bindless_enabled);
     mel_assert(mel_gpu_texture_view_alive(dev, view));
-    return dev->base_sampled_image + view.slot.index;
+    return view.slot.index;
 }
 
 u32 mel_gpu_buffer_bindless_slot(Mel_Gpu_Device* dev, Mel_Gpu_Buffer buf)
 {
     mel_assert(dev->bindless_enabled);
-    Mel_Gpu_Buffer_Obj* o = NULL;
-    if (!mel_gpu__buffer_get(dev, buf, &o))
-    {
-        mel_assert(!"buffer_bindless_slot: invalid buffer handle");
-        return 0;
-    }
-    if (o->usage & MEL_GPU_BUFFER_STORAGE)
-        return dev->base_storage_buffer + buf.slot.index;
-    if (o->usage & MEL_GPU_BUFFER_UNIFORM)
-        return dev->base_uniform_buffer + buf.slot.index;
-    mel_assert(!"buffer_bindless_slot: buffer has neither STORAGE nor UNIFORM usage");
-    return 0;
+    mel_assert(mel_gpu_buffer_alive(dev, buf));
+    return buf.slot.index;
 }
 
 u64 mel_gpu_buffer_device_address(Mel_Gpu_Device* dev, Mel_Gpu_Buffer buf)

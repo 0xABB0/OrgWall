@@ -161,19 +161,41 @@ static D3D12_STATIC_BORDER_COLOR mel_gpu__static_border(const float c[4])
     return D3D12_STATIC_BORDER_COLOR_OPAQUE_WHITE;
 }
 
-// Build the engine root signature: per-draw root 32-bit constants (the §6.7 root record) at b0 + static
-// samplers + the directly-indexed heap flags when bindless. Returns false on a serialize/create failure.
+// Build the engine root signature: per-draw root 32-bit constants (the §6.7 root record) at b0, then — for a
+// bindless pipeline — two descriptor tables (CBV/SRV/UAV heap with SRV+UAV+CBV ranges offset to each class
+// base, and the sampler heap) so the shader's per-class unbounded arrays resolve at the right heap slots.
+// DESCRIPTORS_VOLATILE permits partially-populated heaps (the bindless pattern; the Vulkan partially-bound
+// analog). Returns false on a serialize/create failure.
 static bool mel_gpu__build_root_sig(Mel_Gpu_Device* dev, bool bindless, bool is_compute, u32 pc_size, const Mel_Gpu_Static_Sampler* static_samplers, u32 static_sampler_count, ID3D12RootSignature** out)
 {
-    D3D12_ROOT_PARAMETER1 params[1];
+    D3D12_ROOT_PARAMETER1 params[3];
     u32                   nparams = 0;
     if (pc_size > 0)
     {
-        params[0] = (D3D12_ROOT_PARAMETER1){ .ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS, .ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL };
-        params[0].Constants.ShaderRegister = 0;
-        params[0].Constants.RegisterSpace = 0;
-        params[0].Constants.Num32BitValues = (pc_size + 3) / 4;
-        nparams = 1;
+        params[nparams] = (D3D12_ROOT_PARAMETER1){ .ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS, .ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL };
+        params[nparams].Constants.ShaderRegister = 0;
+        params[nparams].Constants.RegisterSpace = 0;
+        params[nparams].Constants.Num32BitValues = (pc_size + 3) / 4;
+        nparams++;
+    }
+
+    const D3D12_DESCRIPTOR_RANGE_FLAGS vol = D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE;
+    D3D12_DESCRIPTOR_RANGE1            resource_ranges[3] = {
+        { .RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV, .NumDescriptors = dev->cap_sampled_image, .BaseShaderRegister = 0, .RegisterSpace = 0, .Flags = vol, .OffsetInDescriptorsFromTableStart = dev->base_sampled_image },
+        { .RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV, .NumDescriptors = dev->cap_storage_buffer, .BaseShaderRegister = 0, .RegisterSpace = 0, .Flags = vol, .OffsetInDescriptorsFromTableStart = dev->base_storage_buffer },
+        { .RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_CBV, .NumDescriptors = dev->cap_uniform_buffer, .BaseShaderRegister = 1, .RegisterSpace = 0, .Flags = vol, .OffsetInDescriptorsFromTableStart = dev->base_uniform_buffer }, // b0 is root constants, so the CBV heap rides b1
+    };
+    D3D12_DESCRIPTOR_RANGE1 sampler_range = { .RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER, .NumDescriptors = dev->smp_cap, .BaseShaderRegister = 0, .RegisterSpace = 0, .Flags = vol, .OffsetInDescriptorsFromTableStart = 0 };
+    if (bindless)
+    {
+        params[nparams] = (D3D12_ROOT_PARAMETER1){ .ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE, .ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL };
+        params[nparams].DescriptorTable.NumDescriptorRanges = 3;
+        params[nparams].DescriptorTable.pDescriptorRanges = resource_ranges;
+        nparams++;
+        params[nparams] = (D3D12_ROOT_PARAMETER1){ .ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE, .ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL };
+        params[nparams].DescriptorTable.NumDescriptorRanges = 1;
+        params[nparams].DescriptorTable.pDescriptorRanges = &sampler_range;
+        nparams++;
     }
 
     D3D12_STATIC_SAMPLER_DESC* statics = NULL;
@@ -203,9 +225,9 @@ static bool mel_gpu__build_root_sig(Mel_Gpu_Device* dev, bool bindless, bool is_
         }
     }
 
+    // Floor model: classical descriptor tables, no HEAP_DIRECTLY_INDEXED (that is the SM 6.6 ceiling the
+    // in-box Win10 runtime rejects). Only the IA-input-layout flag for graphics.
     D3D12_ROOT_SIGNATURE_FLAGS flags = is_compute ? D3D12_ROOT_SIGNATURE_FLAG_NONE : D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
-    if (bindless)
-        flags |= D3D12_ROOT_SIGNATURE_FLAG_CBV_SRV_UAV_HEAP_DIRECTLY_INDEXED | D3D12_ROOT_SIGNATURE_FLAG_SAMPLER_HEAP_DIRECTLY_INDEXED;
 
     D3D12_VERSIONED_ROOT_SIGNATURE_DESC vdesc = { .Version = D3D_ROOT_SIGNATURE_VERSION_1_1 };
     vdesc.Desc_1_1.NumParameters = nparams;
@@ -402,6 +424,11 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_create_opt(Mel_Gpu_Device* dev, 
     obj.topology = mel_gpu__topo_ia(opt.topology);
     obj.push_constant_size = pc_size;
     obj.vertex_stride = vertex_stride;
+    if (bindless)
+    {
+        obj.srv_table_param = pc_size > 0 ? 1 : 0;
+        obj.smp_table_param = obj.srv_table_param + 1;
+    }
     if (opt.static_sampler_count > 0)
     {
         obj.static_samplers = mel_alloc(dev->alloc, sizeof(Mel_Gpu_Sampler) * opt.static_sampler_count);
@@ -476,6 +503,11 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_compute_create_opt(Mel_Gpu_Devic
     obj.bindless = bindless;
     obj.is_compute = true;
     obj.push_constant_size = pc_size;
+    if (bindless)
+    {
+        obj.srv_table_param = pc_size > 0 ? 1 : 0;
+        obj.smp_table_param = obj.srv_table_param + 1;
+    }
 
     res.value.slot = mel_gpu__table_insert(dev, &dev->pipelines, &obj);
     return res;

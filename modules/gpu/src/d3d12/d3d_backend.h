@@ -168,6 +168,10 @@ typedef struct
     D3D12_PRIMITIVE_TOPOLOGY topology;
     u32                      push_constant_size;
     u32                      vertex_stride;
+    // Root-parameter indices of the bindless descriptor tables (CBV/SRV/UAV heap + sampler heap), bound at
+    // cmd_bind_pipeline. Constants (when present) are root param 0; the tables follow.
+    u32                      srv_table_param;
+    u32                      smp_table_param;
     Mel_Gpu_Sampler*         static_samplers;
     u32                      static_sampler_count;
 } Mel_Gpu_Pipeline_Obj;

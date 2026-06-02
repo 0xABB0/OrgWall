@@ -22,7 +22,7 @@
 
 // Phase 3 shaders are authored as HLSL and compiled to DXIL at test time by spawning the in-box dxc.exe (on
 // PATH under dev.cmd). This keeps the tests dependency-free at link time (no dxcompiler.dll / dxcapi.h on the
-// in-box INCLUDE path) and exercises real signed SM 6.6 DXIL (dxil.dll co-located). The blob is malloc'd; the
+// in-box INCLUDE path) and exercises real signed SM 6.0 DXIL (dxil.dll co-located). The blob is malloc'd; the
 // caller frees it after shader create (which copies it).
 static bool dxc_compile(const char* hlsl, const char* profile, void** out_blob, usize* out_size)
 {
@@ -378,7 +378,7 @@ MEL_TEST(d3d12_render, buffer_barrier_submits_clean)
     mel_gpu_instance_destroy(inst);
 }
 
-// ---- Phase 3: pipelines + bindless + reflection (SM 6.6 dynamic resources) ----
+// ---- Phase 3: pipelines + bindless + reflection (Tier-3 unbounded descriptor tables, SM 6.0) ----
 
 // A fullscreen triangle from SV_VertexID (no vertex input); passes a UV through.
 static const char* VS_HLSL =
@@ -397,26 +397,26 @@ static const char* SOLID_PS_HLSL =
     "float4 main(PSIn i) : SV_Target { return float4(i.uv, 0.0, 1.0); }\n";
 
 // Bindless PS: sample a heap-resident texture through a heap-resident sampler, both addressed by index in the
-// per-draw root record (the §6.7 D3D12 descriptor-indices payload).
+// per-draw root record (the §6.7 D3D12 descriptor-indices payload). The Tier-3 floor uses per-class unbounded
+// arrays bound through descriptor tables (not ResourceDescriptorHeap, which the in-box Win10 runtime lacks).
 static const char* SAMPLE_PS_HLSL =
+    "Texture2D<float4> g_textures[] : register(t0, space0);\n"
+    "SamplerState g_samplers[] : register(s0, space0);\n"
     "cbuffer Root : register(b0) { uint g_tex; uint g_smp; }\n"
     "struct PSIn { float4 pos : SV_Position; float2 uv : TEXCOORD0; };\n"
     "float4 main(PSIn i) : SV_Target {\n"
-    "  Texture2D<float4> t = ResourceDescriptorHeap[g_tex];\n"
-    "  SamplerState s = SamplerDescriptorHeap[g_smp];\n"
-    "  return t.Sample(s, i.uv);\n"
+    "  return g_textures[g_tex].Sample(g_samplers[g_smp], i.uv);\n"
     "}\n";
 
-// Bindless compute: out[i] = in[i] + 1, both buffers addressed by heap slot in the root record.
+// Bindless compute: out[i] = in[i] + 1, both storage buffers addressed by heap slot in the root record.
 static const char* ADD_CS_HLSL =
+    "RWByteAddressBuffer g_buffers[] : register(u0, space0);\n"
     "cbuffer Root : register(b0) { uint g_in; uint g_out; uint g_n; }\n"
     "[numthreads(64,1,1)]\n"
     "void main(uint3 id : SV_DispatchThreadID) {\n"
     "  if (id.x >= g_n) return;\n"
-    "  RWByteAddressBuffer ib = ResourceDescriptorHeap[g_in];\n"
-    "  RWByteAddressBuffer ob = ResourceDescriptorHeap[g_out];\n"
-    "  uint v = ib.Load(id.x * 4);\n"
-    "  ob.Store(id.x * 4, v + 1);\n"
+    "  uint v = g_buffers[g_in].Load(id.x * 4);\n"
+    "  g_buffers[g_out].Store(id.x * 4, v + 1);\n"
     "}\n";
 
 // U14 caps: the device reports the D3D12 binding model — a root record carrying descriptor indices. This is
@@ -449,8 +449,8 @@ MEL_TEST(d3d12_pipeline, graphics_create)
 
     void *vs = NULL, *ps = NULL;
     usize vss = 0, pss = 0;
-    MEL_REQUIRE(dxc_compile(VS_HLSL, "vs_6_6", &vs, &vss));
-    MEL_REQUIRE(dxc_compile(SOLID_PS_HLSL, "ps_6_6", &ps, &pss));
+    MEL_REQUIRE(dxc_compile(VS_HLSL, "vs_6_0", &vs, &vss));
+    MEL_REQUIRE(dxc_compile(SOLID_PS_HLSL, "ps_6_0", &ps, &pss));
     Mel_Gpu_Shader_Create_Result sh = mel_gpu_shader_create_from_bytecode(dev, .spirv_vertex = vs, .spirv_vertex_size = vss, .spirv_fragment = ps, .spirv_fragment_size = pss, .name = "solid");
     free(vs);
     free(ps);
@@ -506,8 +506,8 @@ MEL_TEST(d3d12_bindless, sample_texture_readback)
 
     void *vs = NULL, *ps = NULL;
     usize vss = 0, pss = 0;
-    MEL_REQUIRE(dxc_compile(VS_HLSL, "vs_6_6", &vs, &vss));
-    MEL_REQUIRE(dxc_compile(SAMPLE_PS_HLSL, "ps_6_6", &ps, &pss));
+    MEL_REQUIRE(dxc_compile(VS_HLSL, "vs_6_0", &vs, &vss));
+    MEL_REQUIRE(dxc_compile(SAMPLE_PS_HLSL, "ps_6_0", &ps, &pss));
     Mel_Gpu_Shader_Create_Result sh = mel_gpu_shader_create_from_bytecode(dev, .spirv_vertex = vs, .spirv_vertex_size = vss, .spirv_fragment = ps, .spirv_fragment_size = pss, .name = "sample");
     free(vs);
     free(ps);
@@ -582,7 +582,7 @@ MEL_TEST(d3d12_compute, storage_buffer_bindless)
 
     void* cs = NULL;
     usize css = 0;
-    MEL_REQUIRE(dxc_compile(ADD_CS_HLSL, "cs_6_6", &cs, &css));
+    MEL_REQUIRE(dxc_compile(ADD_CS_HLSL, "cs_6_0", &cs, &css));
     Mel_Gpu_Shader_Create_Result sh = mel_gpu_shader_create_compute_from_bytecode(dev, .spirv = cs, .spirv_size = css, .name = "add");
     free(cs);
     MEL_REQUIRE(!mel_gpu_failed(sh.status));

@@ -321,14 +321,35 @@ void mel_gpu_cmd_bind_pipeline(Mel_Gpu_Command_List* cmd, Mel_Gpu_Pipeline pipe)
     cmd->cur_push_size = o->push_constant_size;
     cmd->cur_vertex_stride = o->vertex_stride;
 
+    Mel_Gpu_Device* dev = cmd->dev;
     if (o->bindless)
-        mel_gpu_cmd_bind_bindless(cmd); // SetDescriptorHeaps before the root signature / draws
+        mel_gpu_cmd_bind_bindless(cmd); // SetDescriptorHeaps before the root signature / table binds
+
     if (o->is_compute)
         ID3D12GraphicsCommandList_SetComputeRootSignature(cmd->list, o->root_sig);
     else
     {
         ID3D12GraphicsCommandList_SetGraphicsRootSignature(cmd->list, o->root_sig);
         ID3D12GraphicsCommandList_IASetPrimitiveTopology(cmd->list, o->topology);
+    }
+
+    // Bind the two bindless descriptor tables at the heap starts; the per-class range offsets in the root
+    // signature map the shader's per-class index onto the right heap slot (binding.c).
+    if (o->bindless && dev->bindless_enabled)
+    {
+        D3D12_GPU_DESCRIPTOR_HANDLE srv, smp;
+        ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(dev->srv_heap, &srv);
+        ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(dev->smp_heap, &smp);
+        if (o->is_compute)
+        {
+            ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(cmd->list, o->srv_table_param, srv);
+            ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(cmd->list, o->smp_table_param, smp);
+        }
+        else
+        {
+            ID3D12GraphicsCommandList_SetGraphicsRootDescriptorTable(cmd->list, o->srv_table_param, srv);
+            ID3D12GraphicsCommandList_SetGraphicsRootDescriptorTable(cmd->list, o->smp_table_param, smp);
+        }
     }
     ID3D12GraphicsCommandList_SetPipelineState(cmd->list, o->pso);
 }
