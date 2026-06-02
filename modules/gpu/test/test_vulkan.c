@@ -14,6 +14,7 @@
 #include <gpu/queue.h>
 #include <gpu/command.h>
 #include <gpu/rendering.h>
+#include <gpu/swapchain.h>
 #include <gpu/state.h>
 #include <gpu/memory.h>
 #include <gpu/format_props.h>
@@ -1657,6 +1658,187 @@ MEL_TEST(vk_render, msaa_resolve_readback)
     mel_gpu_texture_destroy(dev, msaa.value);
     mel_gpu_device_destroy(dev);
     mel_gpu_instance_destroy(inst);
+}
+
+// queue_submit's command-buffer array is now sized from dev->alloc rather than a fixed [8] stack array
+// (MEL-CODE-002): a batch of more than 8 command lists must submit cleanly, not silently truncate at 8. Each
+// of N=16 standalone command lists clears its own offscreen target a distinct shade and copies it back; one
+// queue_submit batches all 16. Every readback must carry its list's shade — proof all 16 ran (none dropped).
+MEL_TEST(vk_queue, submit_many_command_lists)
+{
+    Mel_Gpu_Instance* inst = NULL;
+    Mel_Gpu_Device*   dev = test_make_device(&inst);
+    MEL_REQUIRE_NOT_NULL(dev);
+
+    const u32 N = 16, W = 8, H = 8;
+    Mel_Gpu_Queue* q = mel_gpu_queue_request(dev, MEL_GPU_QUEUE_GRAPHICS);
+    MEL_REQUIRE_NOT_NULL(q);
+
+    const Mel_Alloc*      alloc = mel_alloc_heap();
+    Mel_Gpu_Texture*      tex = mel_alloc_array(alloc, Mel_Gpu_Texture, N);
+    Mel_Gpu_Texture_View* view = mel_alloc_array(alloc, Mel_Gpu_Texture_View, N);
+    Mel_Gpu_Buffer*       rb = mel_alloc_array(alloc, Mel_Gpu_Buffer, N);
+    Mel_Gpu_Command_List** cls = mel_alloc_array(alloc, Mel_Gpu_Command_List*, N);
+
+    Mel_Gpu_Subresource_Range range = { MEL_GPU_ASPECT_COLOR, 0, 1, 0, 1 };
+    for (u32 i = 0; i < N; i++)
+    {
+        Mel_Gpu_Texture_Create_Result t = mel_gpu_texture_create(dev, .kind = MEL_GPU_TEXTURE_2D, .extent = { W, H, 1 }, .format = MEL_GPU_FORMAT_RGBA8_UNORM,
+                                                                 .usage = MEL_GPU_TEXTURE_ATTACHMENT | MEL_GPU_TEXTURE_COPY_SRC, .name = "rt-many");
+        MEL_REQUIRE(!mel_gpu_failed(t.status));
+        tex[i] = t.value;
+        view[i] = mel_gpu_texture_default_view(dev, t.value).value;
+        rb[i] = mel_gpu_buffer_create(dev, .size = (usize)W * H * 4, .usage = MEL_GPU_BUFFER_TRANSFER_DST, .memory = MEL_GPU_MEMORY_READBACK, .name = "rb-many").value;
+
+        Mel_Gpu_Command_List* cmd = mel_gpu_command_list_create(q);
+        mel_gpu_command_list_begin(cmd);
+        mel_gpu_cmd_texture_barrier(cmd, tex[i], range, MEL_GPU_STATE_COMMON, MEL_GPU_STATE_RENDER_TARGET);
+        f32 shade = (f32)i / (f32)(N - 1);
+        Mel_Gpu_Color_Attachment color = { .view = view[i], .load = MEL_GPU_LOAD_CLEAR, .store = MEL_GPU_STORE_STORE, .clear = mel_gpu_rgba(shade, shade, shade, 1.0f) };
+        mel_gpu_cmd_begin_rendering(cmd, .colors = &color, .color_count = 1, .width = W, .height = H);
+        mel_gpu_cmd_end_rendering(cmd);
+        mel_gpu_cmd_texture_barrier(cmd, tex[i], range, MEL_GPU_STATE_RENDER_TARGET, MEL_GPU_STATE_COPY_SOURCE);
+        mel_gpu_cmd_copy_texture_to_buffer(cmd, tex[i], range, rb[i]);
+        mel_gpu_command_list_end(cmd);
+        cls[i] = cmd;
+    }
+
+    Mel_Gpu_Future* f = mel_gpu_queue_submit(q, (Mel_Gpu_Submit){ .command_lists = cls, .command_list_count = N });
+    MEL_REQUIRE_NOT_NULL(f);
+    MEL_EXPECT(mel_gpu_ok(mel_gpu_future_status(f)));
+    mel_gpu_future_destroy(f);
+
+    for (u32 i = 0; i < N; i++)
+    {
+        const u8* px = mel_gpu_buffer_mapped(dev, rb[i]);
+        MEL_REQUIRE_NOT_NULL(px);
+        u8 want = (u8)(((f32)i / (f32)(N - 1)) * 255.0f + 0.5f);
+        MEL_EXPECT(px[0] >= (want > 2 ? want - 2 : 0) && px[0] <= (want < 253 ? want + 2 : 255));
+    }
+
+    for (u32 i = 0; i < N; i++)
+    {
+        mel_gpu_command_list_destroy(cls[i]);
+        mel_gpu_buffer_destroy(dev, rb[i]);
+        mel_gpu_texture_view_destroy(dev, view[i]);
+        mel_gpu_texture_destroy(dev, tex[i]);
+    }
+    mel_dealloc(alloc, cls);
+    mel_dealloc(alloc, rb);
+    mel_dealloc(alloc, view);
+    mel_dealloc(alloc, tex);
+    mel_gpu_queue_release(q);
+    mel_gpu_device_destroy(dev);
+    mel_gpu_instance_destroy(inst);
+}
+
+// U17 (gpu-rhi.md §7.3): the per-command-list state tracker is reset at the start of each recording. This is
+// the same semantics frame_begin now applies to the swapchain's embedded frame recorder (so re-declaring
+// Common→RenderTarget every frame is valid again). Headlessly we prove it on a standalone command list reused
+// across two recordings: the SECOND recording ends a subresource in COPY_SOURCE; were the tracker not reset,
+// the third declaration of Common→RenderTarget would mismatch the stale tracked state and trip the U17 assert.
+// Both recordings declare the same first-touch Common→RenderTarget and submit clean.
+MEL_TEST(vk_render, command_list_state_reset_on_rerecord)
+{
+    Mel_Gpu_Instance* inst = NULL;
+    Mel_Gpu_Device*   dev = test_make_device(&inst);
+    MEL_REQUIRE_NOT_NULL(dev);
+
+    const u32 W = 16, H = 16;
+    Mel_Gpu_Texture_Create_Result t = mel_gpu_texture_create(dev, .kind = MEL_GPU_TEXTURE_2D, .extent = { W, H, 1 }, .format = MEL_GPU_FORMAT_RGBA8_UNORM,
+                                                             .usage = MEL_GPU_TEXTURE_ATTACHMENT | MEL_GPU_TEXTURE_COPY_SRC, .name = "rt-reset");
+    MEL_REQUIRE(!mel_gpu_failed(t.status));
+    Mel_Gpu_Texture_View_Create_Result v = mel_gpu_texture_default_view(dev, t.value);
+    Mel_Gpu_Buffer_Create_Result rb = mel_gpu_buffer_create(dev, .size = (usize)W * H * 4, .usage = MEL_GPU_BUFFER_TRANSFER_DST, .memory = MEL_GPU_MEMORY_READBACK, .name = "rb-reset");
+    Mel_Gpu_Queue* q = mel_gpu_queue_request(dev, MEL_GPU_QUEUE_GRAPHICS);
+    Mel_Gpu_Subresource_Range range = { MEL_GPU_ASPECT_COLOR, 0, 1, 0, 1 };
+
+    Mel_Gpu_Command_List* cmd = mel_gpu_command_list_create(q);
+    MEL_REQUIRE_NOT_NULL(cmd);
+    for (u32 frame = 0; frame < 2; frame++)
+    {
+        mel_gpu_command_list_begin(cmd);
+        // First-touch Common→RenderTarget each recording: only valid because the tracker is reset per recording.
+        mel_gpu_cmd_texture_barrier(cmd, t.value, range, MEL_GPU_STATE_COMMON, MEL_GPU_STATE_RENDER_TARGET);
+        Mel_Gpu_Color_Attachment color = { .view = v.value, .load = MEL_GPU_LOAD_CLEAR, .store = MEL_GPU_STORE_STORE, .clear = mel_gpu_rgba(0.5f, 0.5f, 0.5f, 1.0f) };
+        mel_gpu_cmd_begin_rendering(cmd, .colors = &color, .color_count = 1, .width = W, .height = H);
+        mel_gpu_cmd_end_rendering(cmd);
+        mel_gpu_cmd_texture_barrier(cmd, t.value, range, MEL_GPU_STATE_RENDER_TARGET, MEL_GPU_STATE_COPY_SOURCE);
+        mel_gpu_cmd_copy_texture_to_buffer(cmd, t.value, range, rb.value);
+        mel_gpu_command_list_end(cmd);
+        Mel_Gpu_Future* f = mel_gpu_queue_submit(q, (Mel_Gpu_Submit){ .command_lists = &cmd, .command_list_count = 1 });
+        MEL_EXPECT(mel_gpu_ok(mel_gpu_future_status(f)));
+        mel_gpu_future_destroy(f);
+    }
+    const u8* px = mel_gpu_buffer_mapped(dev, rb.value);
+    MEL_REQUIRE_NOT_NULL(px);
+    MEL_EXPECT(px[0] >= 125 && px[0] <= 131);
+
+    mel_gpu_command_list_destroy(cmd);
+    mel_gpu_queue_release(q);
+    mel_gpu_buffer_destroy(dev, rb.value);
+    mel_gpu_texture_view_destroy(dev, v.value);
+    mel_gpu_texture_destroy(dev, t.value);
+    mel_gpu_device_destroy(dev);
+    mel_gpu_instance_destroy(inst);
+}
+
+// MAJOR-4: the staging upload waits on its own fence, not a full-queue vkQueueWaitIdle. Repeated uploads must
+// stay correct (each round-trips its own bytes) and leak nothing — the per-upload fence is created, waited,
+// and destroyed each time, and the staging buffer routes through the deferred-free watermark. Many sequential
+// device-local uploads exercise the fence path under churn.
+MEL_TEST(vk_alloc, repeated_uploads_round_trip)
+{
+    Mel_Gpu_Instance* inst = NULL;
+    Mel_Gpu_Device*   dev = test_make_device(&inst);
+    MEL_REQUIRE_NOT_NULL(dev);
+
+    const u32 ROUNDS = 24;
+    const usize N = 256;
+    u8* src = mel_alloc_array(mel_alloc_heap(), u8, N);
+    for (u32 r = 0; r < ROUNDS; r++)
+    {
+        for (usize i = 0; i < N; i++)
+            src[i] = (u8)((i + r * 7u) & 0xFFu);
+        // Device-local buffer with initial data forces the staging upload (per-upload fence path).
+        Mel_Gpu_Buffer_Create_Result dst = mel_gpu_buffer_create(dev, .size = N, .usage = MEL_GPU_BUFFER_STORAGE | MEL_GPU_BUFFER_TRANSFER_SRC | MEL_GPU_BUFFER_TRANSFER_DST,
+                                                                  .memory = MEL_GPU_MEMORY_DEVICE, .data = src, .name = "upload-churn");
+        MEL_REQUIRE(!mel_gpu_failed(dst.status));
+        // Copy it back through a readback buffer to verify the upload landed exactly.
+        Mel_Gpu_Buffer_Create_Result back = mel_gpu_buffer_create(dev, .size = N, .usage = MEL_GPU_BUFFER_TRANSFER_DST, .memory = MEL_GPU_MEMORY_READBACK, .name = "upload-back");
+        Mel_Gpu_Queue*        q = mel_gpu_queue_request(dev, MEL_GPU_QUEUE_GRAPHICS);
+        Mel_Gpu_Command_List* cmd = mel_gpu_command_list_create(q);
+        mel_gpu_command_list_begin(cmd);
+        mel_gpu_cmd_copy_buffer(cmd, dst.value, back.value, N);
+        mel_gpu_command_list_end(cmd);
+        Mel_Gpu_Future* f = mel_gpu_queue_submit(q, (Mel_Gpu_Submit){ .command_lists = &cmd, .command_list_count = 1 });
+        MEL_EXPECT(mel_gpu_ok(mel_gpu_future_status(f)));
+        mel_gpu_future_destroy(f);
+        const u8* got = mel_gpu_buffer_mapped(dev, back.value);
+        MEL_REQUIRE_NOT_NULL(got);
+        bool match = true;
+        for (usize i = 0; i < N; i++)
+            if (got[i] != src[i])
+                match = false;
+        MEL_EXPECT(match);
+        mel_gpu_command_list_destroy(cmd);
+        mel_gpu_queue_release(q);
+        mel_gpu_buffer_destroy(dev, back.value);
+        mel_gpu_buffer_destroy(dev, dst.value);
+    }
+    mel_dealloc(mel_alloc_heap(), src);
+    mel_gpu_device_destroy(dev);
+    mel_gpu_instance_destroy(inst);
+}
+
+// mel_gpu_swapchain_extent accessor contract (gpu-rhi.md §7.4): a NULL swapchain returns {0,0} rather than
+// dereferencing. A real swapchain needs a native surface, unavailable headlessly, so this pins the defined
+// no-surface contract the offscreen-stretch workaround needed (round-1 appsmith fixed offscreen at 1024x768).
+MEL_TEST(vk_swapchain, extent_accessor_null_contract)
+{
+    Mel_Gpu_Swapchain_Extent e = mel_gpu_swapchain_extent(NULL);
+    MEL_EXPECT_EQ(e.width, 0u);
+    MEL_EXPECT_EQ(e.height, 0u);
 }
 
 #else
