@@ -36,6 +36,21 @@ static void mel_gpu__usage_add(Mel_Gpu_Device* dev, u64 bytes)
         dev->budget_pressure_cb(dev, (Mel_Gpu_Memory_Budget){ .budget_bytes = budget, .usage_bytes = used }, dev->budget_pressure_user);
 }
 
+// MAJOR-3: the buddy suballocator reserves next_pow2(size) (clamped to MEL_GPU_MIN_BLOCK) from the 64 MiB
+// block, but live-bytes accounting recorded the unrounded request — under-reporting VRAM by the rounding
+// slack (up to ~2x for a just-over-power-of-two request), skewing memory_budget and delaying budget_pressure
+// (MEL-ENGINE-III/VI). Record the rounded block size so add/sub account the bytes actually consumed. Mirrors
+// mel_buddy_alloc's rounding; the dedicated path (own vkAllocateMemory of req.size) needs no rounding.
+static u64 mel_gpu__buddy_block_bytes(u64 size)
+{
+    if (size <= MEL_GPU_MIN_BLOCK)
+        return MEL_GPU_MIN_BLOCK;
+    u64 p = MEL_GPU_MIN_BLOCK;
+    while (p < size)
+        p <<= 1;
+    return p;
+}
+
 void mel_gpu__allocator_init(Mel_Gpu_Device* dev)
 {
     Mel_Gpu_Allocator* a = mel_alloc_type(dev->alloc, Mel_Gpu_Allocator);
@@ -166,13 +181,14 @@ bool mel_gpu__mem_alloc(Mel_Gpu_Device* dev, VkMemoryRequirements req, VkMemoryP
         if (!ptr)
             continue;
         VkDeviceSize offset = (VkDeviceSize)((u8*)ptr - b->buddy.base);
+        u64          consumed = mel_gpu__buddy_block_bytes(req.size); // MAJOR-3: account the rounded block
         out->mem = b->mem;
         out->offset = offset;
-        out->size = req.size;
+        out->size = consumed;
         out->mapped = b->mapped ? (u8*)b->mapped + offset : NULL;
         out->block = b;
         mel_mutex_unlock(&a->lock);
-        mel_gpu__usage_add(dev, req.size);
+        mel_gpu__usage_add(dev, consumed);
         return true;
     }
 
@@ -190,13 +206,14 @@ bool mel_gpu__mem_alloc(Mel_Gpu_Device* dev, VkMemoryRequirements req, VkMemoryP
         return false;
     }
     VkDeviceSize offset = (VkDeviceSize)((u8*)ptr - b->buddy.base);
+    u64          consumed = mel_gpu__buddy_block_bytes(req.size); // MAJOR-3: account the rounded block
     out->mem = b->mem;
     out->offset = offset;
-    out->size = req.size;
+    out->size = consumed;
     out->mapped = b->mapped ? (u8*)b->mapped + offset : NULL;
     out->block = b;
     mel_mutex_unlock(&a->lock);
-    mel_gpu__usage_add(dev, req.size);
+    mel_gpu__usage_add(dev, consumed);
     return true;
 }
 
