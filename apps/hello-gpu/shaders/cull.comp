@@ -1,0 +1,46 @@
+#version 460
+#extension GL_EXT_nonuniform_qualifier : require
+
+// Pass A of the dispatch-indirect screen. Each invocation evaluates one agent's
+// animated position, tests it against a moving circular cull region, and — for the
+// survivors — atomically appends its index to a survivor list while bumping a
+// device-scope counter. The host zeroes the counter before this pass; the survivor
+// total emerges purely on the GPU and is never read back to the CPU (§7.1).
+layout(local_size_x = 64) in;
+
+struct Agent
+{
+    vec4 pos_phase; // xy = base position (NDC), z = orbit radius, w = phase
+};
+
+layout(set = 0, binding = 2, std430) readonly buffer Agents { Agent a[]; } agents_buf[];
+layout(set = 0, binding = 2, std430) buffer Survivors { uint count; uint pad0; uint pad1; uint pad2; uint idx[]; } surv_buf[];
+
+layout(push_constant, std430) uniform Root
+{
+    uint  agents;    // slot of the agent pool
+    uint  survivors; // slot of the survivor list (count + indices)
+    uint  total;     // agent count
+    uint  pad;
+    float time;
+    float cull_r;    // cull radius
+    float cull_x;    // cull centre x
+    float cull_y;    // cull centre y
+} root;
+
+void main()
+{
+    uint i = gl_GlobalInvocationID.x;
+    if (i >= root.total)
+        return;
+
+    Agent ag = agents_buf[nonuniformEXT(root.agents)].a[i];
+    float ang = ag.pos_phase.w + root.time * 0.6;
+    vec2  p = ag.pos_phase.xy + ag.pos_phase.z * vec2(cos(ang), sin(ang));
+
+    if (distance(p, vec2(root.cull_x, root.cull_y)) <= root.cull_r)
+    {
+        uint slot = atomicAdd(surv_buf[nonuniformEXT(root.survivors)].count, 1u);
+        surv_buf[nonuniformEXT(root.survivors)].idx[slot] = i;
+    }
+}

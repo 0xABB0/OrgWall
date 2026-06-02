@@ -1,0 +1,29 @@
+#version 460
+#extension GL_EXT_nonuniform_qualifier : require
+
+// Pass B of the dispatch-indirect screen: a single invocation reads the survivor
+// count Pass A produced and writes the {group_x, 1, 1} workgroup triple Pass C is
+// dispatched with through cmd_dispatch_indirect. This is the entire point of the
+// screen — the dispatch size of the next pass is computed on the GPU from data the
+// GPU just produced, with no CPU round-trip (§7.1).
+layout(local_size_x = 1) in;
+
+layout(set = 0, binding = 2, std430) readonly buffer Survivors { uint count; } surv_buf[];
+layout(set = 0, binding = 2, std430) buffer Indirect { uint gx; uint gy; uint gz; } args_buf[];
+
+layout(push_constant, std430) uniform Root
+{
+    uint survivors; // slot of the survivor list (reads .count)
+    uint args;      // slot of the indirect-args buffer (writes {gx,1,1})
+    uint local;     // Pass C local size, to ceil-divide the count by
+    uint pad;
+} root;
+
+void main()
+{
+    uint n = surv_buf[nonuniformEXT(root.survivors)].count;
+    uint gx = (n + root.local - 1u) / root.local;
+    args_buf[nonuniformEXT(root.args)].gx = gx;
+    args_buf[nonuniformEXT(root.args)].gy = 1u;
+    args_buf[nonuniformEXT(root.args)].gz = 1u;
+}
