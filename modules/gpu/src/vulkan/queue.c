@@ -153,8 +153,10 @@ Mel_Gpu_Future* mel_gpu_queue_submit(Mel_Gpu_Queue* q, Mel_Gpu_Submit submit)
 
     u64 serial = mel_gpu__submit_serial_next(dev);
 
-    VkCommandBuffer  stackbuf[8];
-    VkCommandBuffer* cbs = (submit.command_list_count && submit.command_list_count <= 8) ? stackbuf : (submit.command_list_count ? mel_alloc_array(dev->alloc, VkCommandBuffer, submit.command_list_count) : NULL);
+    // The command-buffer array is sized to command_list_count from the device allocator (MEL-CODE-002), not a
+    // fixed [8] stack array — matching the dynamic attachment-array fix in cmd_begin_rendering. No hardware cap
+    // is encoded as a silent stride; a batch of any size is one allocation, freed after the submit records it.
+    VkCommandBuffer* cbs = submit.command_list_count ? mel_alloc_array(dev->alloc, VkCommandBuffer, submit.command_list_count) : NULL;
     for (u32 i = 0; i < submit.command_list_count; i++)
     {
         if (!submit.command_lists[i])
@@ -181,7 +183,7 @@ Mel_Gpu_Future* mel_gpu_queue_submit(Mel_Gpu_Queue* q, Mel_Gpu_Submit submit)
     VkResult r = vkQueueSubmit(q->vk, 1, &si, fence);
     mel_mutex_unlock(&dev->submit_lock);
 
-    if (cbs && cbs != stackbuf)
+    if (cbs)
         mel_dealloc(dev->alloc, cbs);
 
     Mel_Gpu_Future* f = mel_gpu_future_create(dev->pump, dev->reactor);
