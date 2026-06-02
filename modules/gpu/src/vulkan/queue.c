@@ -137,13 +137,35 @@ static void mel_gpu__pending_push(Mel_Gpu_Device* dev, VkFence fence, Mel_Gpu_Fu
 
 Mel_Gpu_Future* mel_gpu_queue_submit(Mel_Gpu_Queue* q, Mel_Gpu_Submit submit)
 {
+    mel_assert(q && "queue_submit: null queue");
     Mel_Gpu_Device* dev = q->dev;
-    u64             serial = mel_gpu__submit_serial_next(dev);
+
+    // MAJOR-5: a positive command_list_count with a null array (or a null entry) is a contract violation, not
+    // a silent null-deref. Fail loudly in debug (MEL-ENGINE-VIII); in release, treat as an empty (no-op) submit
+    // — still consuming a serial that the future resolves — rather than dereferencing garbage. count==0 with a
+    // null array is the legitimate empty submit (a fence-only sync point).
+    if (submit.command_list_count && !submit.command_lists)
+    {
+        mel_log_error("gpu", "queue_submit: command_list_count=%u but command_lists is NULL", submit.command_list_count);
+        mel_assert(!"queue_submit: command_lists is NULL with a positive count");
+        submit.command_list_count = 0;
+    }
+
+    u64 serial = mel_gpu__submit_serial_next(dev);
 
     VkCommandBuffer  stackbuf[8];
-    VkCommandBuffer* cbs = submit.command_list_count <= 8 ? stackbuf : mel_alloc_array(dev->alloc, VkCommandBuffer, submit.command_list_count);
+    VkCommandBuffer* cbs = (submit.command_list_count && submit.command_list_count <= 8) ? stackbuf : (submit.command_list_count ? mel_alloc_array(dev->alloc, VkCommandBuffer, submit.command_list_count) : NULL);
     for (u32 i = 0; i < submit.command_list_count; i++)
+    {
+        if (!submit.command_lists[i])
+        {
+            mel_log_error("gpu", "queue_submit: command_lists[%u] is NULL", i);
+            mel_assert(!"queue_submit: null command list in batch");
+            cbs[i] = VK_NULL_HANDLE;
+            continue;
+        }
         cbs[i] = submit.command_lists[i]->cb;
+    }
 
     VkFenceCreateInfo fci = { .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
     VkFence           fence = VK_NULL_HANDLE;
@@ -159,7 +181,7 @@ Mel_Gpu_Future* mel_gpu_queue_submit(Mel_Gpu_Queue* q, Mel_Gpu_Submit submit)
     VkResult r = vkQueueSubmit(q->vk, 1, &si, fence);
     mel_mutex_unlock(&dev->submit_lock);
 
-    if (cbs != stackbuf)
+    if (cbs && cbs != stackbuf)
         mel_dealloc(dev->alloc, cbs);
 
     Mel_Gpu_Future* f = mel_gpu_future_create(dev->pump, dev->reactor);

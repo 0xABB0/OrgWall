@@ -64,6 +64,13 @@ static bool mel_gpu__staging_upload(Mel_Gpu_Device* dev, VkBuffer dst, const voi
     vkCmdCopyBuffer(cb, staging, dst, 1, &copy);
     vkEndCommandBuffer(cb);
 
+    // MAJOR-4: reserve a serial so this upload participates in the retirement watermark (§3.3) instead of
+    // being invisible to the engine's single retirement clock — otherwise a deferred-free entry's marker could
+    // be satisfied by an unrelated later submit while this upload is still the most-recent user (a latent UAF
+    // the moment uploads go async). After the synchronous WaitIdle the submission has drained, so advancing the
+    // watermark to this serial is exact; the staging buffer + its memory are routed through the deferred-free
+    // queue (gated at this serial) rather than freed raw, so the pattern stays correct when uploads go async.
+    u64          serial = mel_gpu__submit_serial_next(dev);
     VkSubmitInfo si = { .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO, .commandBufferCount = 1, .pCommandBuffers = &cb };
     mel_mutex_lock(&dev->submit_lock);
     vkQueueSubmit(dev->graphics_queue, 1, &si, VK_NULL_HANDLE);
@@ -71,8 +78,8 @@ static bool mel_gpu__staging_upload(Mel_Gpu_Device* dev, VkBuffer dst, const voi
     mel_mutex_unlock(&dev->submit_lock);
 
     vkDestroyCommandPool(dev->vk, pool, NULL);
-    vkDestroyBuffer(dev->vk, staging, NULL);
-    mel_gpu__mem_free(dev, &sa);
+    mel_gpu__defer_free(dev, (Mel_Gpu_Deferred_Free){ .buffer = staging, .alloc = sa, .has_alloc = true });
+    mel_gpu__submit_complete(dev, serial); // drained by WaitIdle: advance the watermark, retiring the staging free
     return true;
 }
 
