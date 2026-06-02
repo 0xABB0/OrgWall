@@ -19,8 +19,13 @@
 #include <gpu/memory.h>
 #include <gpu/format_props.h>
 #include <gpu/vulkan/interop.h>
+#include <gpu/threading.h>
 #include <allocator/allocator.h>
 #include <allocator/heap.h>
+#include <thread/thread.h>
+#include <thread/barrier.h>
+
+#include <stdatomic.h>
 
 #include "bindless_spv.h"
 
@@ -1839,6 +1844,67 @@ MEL_TEST(vk_swapchain, extent_accessor_null_contract)
     Mel_Gpu_Swapchain_Extent e = mel_gpu_swapchain_extent(NULL);
     MEL_EXPECT_EQ(e.width, 0u);
     MEL_EXPECT_EQ(e.height, 0u);
+}
+
+// BUG-2 (§3.7 / U21): the thread-safety tracker now REPORTS a cross-thread SerializedPerObject misuse instead
+// of asserting-as-control. Before the fix the illegal case (one object entered by thread A then by thread B
+// without an intervening exit) fired mel_assert and aborted the whole process — which under MEL_TEST_NOFORK
+// takes down the entire runner, so the round-2 audit could NOT ship a live negative probe (writeup §"Kludges").
+// This probe ships it: two threads barrier-synchronize so BOTH hold the SAME object as SerializedPerObject at
+// once — the exact violation the wired public call paths must now survive. The contract verified is that the
+// process LIVES (the report fires, no abort) and both workers complete. A loud [ERROR] on the cross-thread use
+// is expected and correct (MEL-ENGINE-VIII fail-loudly without crashing the runner); same-thread re-entry stays
+// legal (recursive depth), which the gpu-foundation tracker_same_thread_reentry probe already covers.
+typedef struct
+{
+    Mel_Gpu_Thread_Tracker* tracker;
+    Mel_Barrier*            both_in;
+    const void*             shared;
+    _Atomic(u32)*           done;
+} Vk_Tracker_Misuse_Ctx;
+
+static int vk_tracker_misuse_worker(void* user)
+{
+    Vk_Tracker_Misuse_Ctx* c = user;
+    // Enter the SHARED object as SerializedPerObject, then rendezvous so both threads are simultaneously inside
+    // it (the illegal cross-thread overlap). The second enter reports; neither thread aborts.
+    mel_gpu_thread_tracker_enter(c->tracker, c->shared, MEL_GPU_CONCURRENCY_SERIALIZED_PER_OBJECT);
+    mel_barrier_wait(c->both_in);
+    mel_gpu_thread_tracker_exit(c->tracker, c->shared);
+    atomic_fetch_add(c->done, 1);
+    return 0;
+}
+
+MEL_TEST(vk_tracker, cross_thread_misuse_reports_without_aborting)
+{
+    Mel_Gpu_Thread_Tracker* tracker = mel_gpu_thread_tracker_create();
+    MEL_REQUIRE_NOT_NULL(tracker);
+
+    int          shared_object = 0; // ONE object both threads claim as SerializedPerObject — the misuse
+    _Atomic(u32) done;
+    atomic_store(&done, 0);
+
+    Mel_Barrier both_in;
+    MEL_REQUIRE(mel_barrier_init(&both_in, 2));
+
+    Vk_Tracker_Misuse_Ctx ctx = { .tracker = tracker, .both_in = &both_in, .shared = &shared_object, .done = &done };
+    Mel_Thread            t0, t1;
+    MEL_REQUIRE(mel_thread_spawn(&t0, vk_tracker_misuse_worker, &ctx, .name = "trk-misuse-0"));
+    MEL_REQUIRE(mel_thread_spawn(&t1, vk_tracker_misuse_worker, &ctx, .name = "trk-misuse-1"));
+    mel_thread_join(&t0, NULL);
+    mel_thread_join(&t1, NULL);
+
+    // The process survived the cross-thread violation (BUG-2: report, do not abort) and both workers finished.
+    MEL_EXPECT_EQ(atomic_load(&done), 2u);
+
+    // The tracker is not left corrupt: a fresh SerializedPerObject enter/exit on a new object from the main
+    // thread still works cleanly (the reported violation did not wedge the ledger).
+    int after = 0;
+    mel_gpu_thread_tracker_enter(tracker, &after, MEL_GPU_CONCURRENCY_SERIALIZED_PER_OBJECT);
+    mel_gpu_thread_tracker_exit(tracker, &after);
+
+    mel_barrier_destroy(&both_in);
+    mel_gpu_thread_tracker_destroy(tracker);
 }
 
 #else

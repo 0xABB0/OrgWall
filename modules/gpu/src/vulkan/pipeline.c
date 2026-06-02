@@ -738,14 +738,20 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_compute_create_opt(Mel_Gpu_Devic
 
 void mel_gpu_pipeline_destroy(Mel_Gpu_Device* dev, Mel_Gpu_Pipeline pipe)
 {
-    Mel_Gpu_Pipeline_Obj* o = mel_gpu__table_get(dev, &dev->pipelines, pipe.slot);
-    if (!o)
+    // §3.7: pipeline_destroy is SerializedPerObject on the destroyed handle.
+    const void* trk = mel_gpu__track_key(&dev->pipelines, pipe.slot.index);
+    mel_gpu__track_enter(dev, trk, MEL_GPU_CONCURRENCY_SERIALIZED_PER_OBJECT);
+    Mel_Gpu_Pipeline_Obj o; // BUG-1: copy the record out under obj_lock; static_samplers pointer is owned by the
+    if (!mel_gpu__table_get_copy(dev, &dev->pipelines, pipe.slot, &o)) // snapshot (destroy is SerializedPerObject)
+    {
+        mel_gpu__track_exit(dev, trk);
         return;
-    VkPipeline            p = o->pipeline;
-    VkPipelineLayout      l = o->layout;
-    VkDescriptorSetLayout sl = o->static_sampler_layout;
-    Mel_Gpu_Sampler*      ss = o->static_samplers;
-    u32                   ssc = o->static_sampler_count;
+    }
+    VkPipeline            p = o.pipeline;
+    VkPipelineLayout      l = o.layout;
+    VkDescriptorSetLayout sl = o.static_sampler_layout;
+    Mel_Gpu_Sampler*      ss = o.static_samplers;
+    u32                   ssc = o.static_sampler_count;
     mel_gpu__table_remove(dev, &dev->pipelines, pipe.slot);
     // U3 future-gated retirement: an in-flight command buffer may still reference this pipeline.
     mel_gpu__defer_free(dev, (Mel_Gpu_Deferred_Free){ .pipeline = p, .pipeline_layout = l, .descriptor_set_layout = sl });
@@ -755,18 +761,20 @@ void mel_gpu_pipeline_destroy(Mel_Gpu_Device* dev, Mel_Gpu_Pipeline pipe)
         mel_gpu_sampler_destroy(dev, ss[i]);
     if (ss)
         mel_dealloc(dev->alloc, ss);
+    mel_gpu__track_exit(dev, trk);
 }
 
-bool mel_gpu_pipeline_alive(Mel_Gpu_Device* dev, Mel_Gpu_Pipeline pipe) { return mel_gpu__table_get(dev, &dev->pipelines, pipe.slot) != NULL; }
+bool mel_gpu_pipeline_alive(Mel_Gpu_Device* dev, Mel_Gpu_Pipeline pipe) { return mel_gpu__table_alive(dev, &dev->pipelines, pipe.slot); }
 
 bool mel_gpu__pipeline_get(Mel_Gpu_Device* dev, Mel_Gpu_Pipeline pipe, VkPipeline* out_pipe, VkPipelineLayout* out_layout)
 {
-    Mel_Gpu_Pipeline_Obj* o = mel_gpu__table_get(dev, &dev->pipelines, pipe.slot);
-    if (!o)
+    Mel_Gpu_Pipeline_Obj o; // BUG-1: snapshot under obj_lock
+    if (!mel_gpu__table_get_copy(dev, &dev->pipelines, pipe.slot, &o))
         return false;
-    *out_pipe = o->pipeline;
-    *out_layout = o->layout;
+    *out_pipe = o.pipeline;
+    *out_layout = o.layout;
     return true;
 }
 
-Mel_Gpu_Pipeline_Obj* mel_gpu__pipeline_obj(Mel_Gpu_Device* dev, Mel_Gpu_Pipeline pipe) { return mel_gpu__table_get(dev, &dev->pipelines, pipe.slot); }
+// BUG-1: copy the pipeline record out by value under obj_lock (no interior pointer escapes the lock).
+bool mel_gpu__pipeline_obj(Mel_Gpu_Device* dev, Mel_Gpu_Pipeline pipe, Mel_Gpu_Pipeline_Obj* out) { return mel_gpu__table_get_copy(dev, &dev->pipelines, pipe.slot, out); }

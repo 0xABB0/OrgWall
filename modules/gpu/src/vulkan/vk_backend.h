@@ -505,12 +505,28 @@ void mel_gpu__state_to_barrier(Mel_Gpu_Resource_State state, bool is_depth, VkPi
 // U17 (gpu-rhi.md §7.3): the synchronization2 peer — pipeline_stage_2 / access_2 / layout for vkCmdPipelineBarrier2.
 void mel_gpu__state_to_barrier2(Mel_Gpu_Resource_State state, bool is_depth, VkPipelineStageFlags2* stage, VkAccessFlags2* access, VkImageLayout* layout);
 
-bool mel_gpu__texture_get(Mel_Gpu_Device* dev, Mel_Gpu_Texture tex, Mel_Gpu_Texture_Obj** out);
-bool mel_gpu__texture_view_get(Mel_Gpu_Device* dev, Mel_Gpu_Texture_View view, Mel_Gpu_Texture_View_Obj** out);
+// BUG-1: these fill the caller's *out record by value under obj_lock (no interior pointer escapes the lock).
+bool mel_gpu__texture_get(Mel_Gpu_Device* dev, Mel_Gpu_Texture tex, Mel_Gpu_Texture_Obj* out);
+bool mel_gpu__texture_view_get(Mel_Gpu_Device* dev, Mel_Gpu_Texture_View view, Mel_Gpu_Texture_View_Obj* out);
 
 Mel_SlotMap_Handle mel_gpu__table_insert(Mel_Gpu_Device* dev, Mel_Gpu_Resource_Table* t, const void* obj);
 void*              mel_gpu__table_get(Mel_Gpu_Device* dev, Mel_Gpu_Resource_Table* t, Mel_SlotMap_Handle h);
+// BUG-1: copy the resource record out by value while obj_lock is held (no interior pointer escapes the lock);
+// mel_gpu__table_alive returns only the liveness boolean. These supersede mel_gpu__table_get at every site
+// that dereferenced its result after the lock released (gpu-rhi.md §3.7 Concurrent create/destroy).
+bool               mel_gpu__table_get_copy(Mel_Gpu_Device* dev, Mel_Gpu_Resource_Table* t, Mel_SlotMap_Handle h, void* out);
+bool               mel_gpu__table_alive(Mel_Gpu_Device* dev, Mel_Gpu_Resource_Table* t, Mel_SlotMap_Handle h);
+// U11 sampler dedup refcount: the one in-place record mutation; read-modify-write under obj_lock (never on a
+// copy). delta is +1/-1; *out_after is the post count. Returns false on a stale handle.
+bool               mel_gpu__sampler_refcount_add(Mel_Gpu_Device* dev, Mel_SlotMap_Handle h, i32 delta, u32* out_after);
 bool               mel_gpu__table_remove(Mel_Gpu_Device* dev, Mel_Gpu_Resource_Table* t, Mel_SlotMap_Handle h);
+
+// BUG-2 / U21 / §3.7: device-level thread-safety-tracker hooks for the public call path. No-op unless the
+// device was created with debug.thread_safety_tracker. mel_gpu__track_key synthesizes a stable per-resource
+// object token from (table, slot index) for the SerializedPerObject resource families (handles aren't pointers).
+void        mel_gpu__track_enter(Mel_Gpu_Device* dev, const void* object, Mel_Gpu_Concurrency cls);
+void        mel_gpu__track_exit(Mel_Gpu_Device* dev, const void* object);
+const void* mel_gpu__track_key(const Mel_Gpu_Resource_Table* t, u32 index);
 // U14: roll the handle generation now (use-after-free stays loud) but hold the slot index; reclaim it via a
 // deferred-free entry once the destroyed resource's last submission retires (gpu-rhi.md §3.3).
 bool               mel_gpu__table_remove_deferred(Mel_Gpu_Device* dev, Mel_Gpu_Resource_Table* t, Mel_SlotMap_Handle h);
@@ -529,7 +545,8 @@ bool         mel_gpu__shader_reflection(Mel_Gpu_Device* dev, Mel_Gpu_Shader sh, 
 void mel_gpu__spirv_reflect(const u32* code, usize size_bytes, bool vertex_stage, const Mel_Alloc* alloc, Mel_Gpu_Spirv_Reflection* accum);
 void mel_gpu__reflection_free(Mel_Gpu_Spirv_Reflection* r);
 bool         mel_gpu__pipeline_get(Mel_Gpu_Device* dev, Mel_Gpu_Pipeline pipe, VkPipeline* out_pipe, VkPipelineLayout* out_layout);
-Mel_Gpu_Pipeline_Obj* mel_gpu__pipeline_obj(Mel_Gpu_Device* dev, Mel_Gpu_Pipeline pipe);
+// BUG-1: copy the pipeline record out by value under obj_lock (no interior pointer escapes the lock).
+bool         mel_gpu__pipeline_obj(Mel_Gpu_Device* dev, Mel_Gpu_Pipeline pipe, Mel_Gpu_Pipeline_Obj* out);
 bool         mel_gpu__buffer_get(Mel_Gpu_Device* dev, Mel_Gpu_Buffer buf, VkBuffer* out);
 bool         mel_gpu__sampler_get(Mel_Gpu_Device* dev, Mel_Gpu_Sampler sampler, VkSampler* out);
 bool         mel_gpu__sampler_retain(Mel_Gpu_Device* dev, Mel_Gpu_Sampler sampler);

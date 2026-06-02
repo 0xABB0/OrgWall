@@ -5,6 +5,7 @@
 #include <thread/thread.h>
 #include <thread/mutex.h>
 #include <debug/assert.h>
+#include <log/log.h>
 
 typedef struct
 {
@@ -64,7 +65,20 @@ void mel_gpu_thread_tracker_enter(Mel_Gpu_Thread_Tracker* t, const void* object,
 
     if (e)
     {
-        mel_assert(mel_thread_id_equal(e->owner, self));
+        // §3.7 / U21: a SerializedPerObject object entered by a second thread without an intervening retirement
+        // is a thread-safety contract violation — the single most useful porting-from-single-thread diagnostic.
+        // BUG-2: it is REPORTED loudly (not asserted-as-control) so it can fire from wired public call paths
+        // without taking the whole process (and the MEL_TEST_NOFORK runner) down — the foreign call is named,
+        // the existing owner's depth is left untouched (we do not corrupt the ledger on the violating thread).
+        // Same-thread re-entry is legal (recursive depth); only a foreign owner is the violation.
+        if (!mel_thread_id_equal(e->owner, self))
+        {
+            mel_log_error("gpu", "thread-safety violation (§3.7): object %p is SerializedPerObject and owned by another thread; "
+                                 "a second thread entered it without an intervening retirement (concurrent use of the same object)",
+                          object);
+            mel_mutex_unlock(&t->lock);
+            return;
+        }
         e->depth++;
         mel_mutex_unlock(&t->lock);
         return;

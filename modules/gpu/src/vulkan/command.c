@@ -189,21 +189,21 @@ void mel_gpu_cmd_end_pass(Mel_Gpu_Command_List* cmd)
 
 void mel_gpu_cmd_bind_pipeline(Mel_Gpu_Command_List* cmd, Mel_Gpu_Pipeline pipe)
 {
-    Mel_Gpu_Pipeline_Obj* o = mel_gpu__pipeline_obj(cmd->dev, pipe);
-    if (!o)
+    Mel_Gpu_Pipeline_Obj o; // BUG-1: snapshot the pipeline record under obj_lock before any field read
+    if (!mel_gpu__pipeline_obj(cmd->dev, pipe, &o))
     {
         mel_assert(!"bind_pipeline: invalid pipeline handle");
         return;
     }
-    vkCmdBindPipeline(cmd->cb, o->bind_point, o->pipeline);
-    cmd->cur_layout = o->layout;
-    cmd->cur_bind_point = o->bind_point; // U13: graphics or compute
-    cmd->cur_pc_stages = o->pc_stages;
+    vkCmdBindPipeline(cmd->cb, o.bind_point, o.pipeline);
+    cmd->cur_layout = o.layout;
+    cmd->cur_bind_point = o.bind_point; // U13: graphics or compute
+    cmd->cur_pc_stages = o.pc_stages;
     // U14: a bindless pipeline reads the device heap at set 0; bind it so the simple path (bind a pipeline,
     // push the root record, draw/dispatch) just works (MEL-ENGINE-II). The explicit cmd_bind_bindless is the
     // P2 peer. The bind point follows the pipeline kind, so compute and graphics share one path.
-    if (o->bindless && cmd->dev->bindless.enabled)
-        vkCmdBindDescriptorSets(cmd->cb, o->bind_point, o->layout, 0, 1, &cmd->dev->bindless.set, 0, NULL);
+    if (o.bindless && cmd->dev->bindless.enabled)
+        vkCmdBindDescriptorSets(cmd->cb, o.bind_point, o.layout, 0, 1, &cmd->dev->bindless.set, 0, NULL);
 }
 
 void mel_gpu_cmd_bind_vertex_buffer(Mel_Gpu_Command_List* cmd, u32 slot, Mel_Gpu_Buffer buf)

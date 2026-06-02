@@ -95,10 +95,12 @@ Mel_Gpu_Sampler_Create_Result mel_gpu_sampler_create_opt(Mel_Gpu_Device* dev, Me
     {
         if (dev->sampler_interns[i].hash != hash)
             continue;
-        Mel_Gpu_Sampler_Obj* o = mel_gpu__table_get(dev, &dev->samplers, dev->sampler_interns[i].handle);
-        if (o && memcmp(&o->key, &key, sizeof key) == 0)
+        // BUG-1: snapshot the interned record under obj_lock to compare the key, then take the claim with an
+        // obj_lock-guarded read-modify-write (refcount is the one mutated field — never write back a copy).
+        Mel_Gpu_Sampler_Obj snap;
+        if (mel_gpu__table_get_copy(dev, &dev->samplers, dev->sampler_interns[i].handle, &snap) && memcmp(&snap.key, &key, sizeof key) == 0)
         {
-            o->refcount++;
+            mel_gpu__sampler_refcount_add(dev, dev->sampler_interns[i].handle, +1, NULL);
             res.value.slot = dev->sampler_interns[i].handle;
             mel_mutex_unlock(&dev->sampler_lock);
             return res;
@@ -174,22 +176,32 @@ Mel_Gpu_Sampler_Create_Result mel_gpu_sampler_create_opt(Mel_Gpu_Device* dev, Me
 
 void mel_gpu_sampler_destroy(Mel_Gpu_Device* dev, Mel_Gpu_Sampler sampler)
 {
+    // §3.7: sampler_destroy is SerializedPerObject on the destroyed handle (the dedup claim release).
+    const void* trk = mel_gpu__track_key(&dev->samplers, sampler.slot.index);
+    mel_gpu__track_enter(dev, trk, MEL_GPU_CONCURRENCY_SERIALIZED_PER_OBJECT);
+
     mel_mutex_lock(&dev->sampler_lock);
-    Mel_Gpu_Sampler_Obj* o = mel_gpu__table_get(dev, &dev->samplers, sampler.slot);
-    if (!o)
+    // BUG-1: snapshot the record for vk/hash, then release one claim with the obj_lock-guarded mutator. The
+    // sampler_lock serializes the dedup table so the snapshot's vk/hash cannot drift before the unlink below.
+    Mel_Gpu_Sampler_Obj snap;
+    if (!mel_gpu__table_get_copy(dev, &dev->samplers, sampler.slot, &snap))
     {
         mel_mutex_unlock(&dev->sampler_lock);
+        mel_gpu__track_exit(dev, trk);
         return;
     }
-    if (--o->refcount > 0)
+    u32 after = 0;
+    mel_gpu__sampler_refcount_add(dev, sampler.slot, -1, &after);
+    if (after > 0)
     {
         // Other logical claims remain; the slot and descriptor stay live.
         mel_mutex_unlock(&dev->sampler_lock);
+        mel_gpu__track_exit(dev, trk);
         return;
     }
 
-    VkSampler vk = o->sampler;
-    u64       hash = o->hash;
+    VkSampler vk = snap.sampler;
+    u64       hash = snap.hash;
     for (u32 i = 0; i < dev->sampler_intern_count; i++)
         if (dev->sampler_interns[i].hash == hash && mel_gpu_handle_eq(dev->sampler_interns[i].handle, sampler.slot))
         {
@@ -202,12 +214,13 @@ void mel_gpu_sampler_destroy(Mel_Gpu_Device* dev, Mel_Gpu_Sampler sampler)
     // U3/U14: the descriptor may still be sampled by an in-flight submission — free the VkSampler and
     // reclaim the heap slot index only after it retires (gpu-rhi.md §3.3).
     mel_gpu__defer_free(dev, (Mel_Gpu_Deferred_Free){ .sampler = vk, .reclaim_table = &dev->samplers, .reclaim_index = sampler.slot.index, .has_reclaim = true });
+    mel_gpu__track_exit(dev, trk);
 }
 
 bool mel_gpu_sampler_alive(Mel_Gpu_Device* dev, Mel_Gpu_Sampler sampler)
 {
     mel_mutex_lock(&dev->sampler_lock);
-    bool alive = mel_gpu__table_get(dev, &dev->samplers, sampler.slot) != NULL;
+    bool alive = mel_gpu__table_alive(dev, &dev->samplers, sampler.slot); // BUG-1: no interior pointer escapes
     mel_mutex_unlock(&dev->sampler_lock);
     return alive;
 }
@@ -226,19 +239,18 @@ u32 mel_gpu_sampler_bindless_slot(Mel_Gpu_Device* dev, Mel_Gpu_Sampler sampler)
 bool mel_gpu__sampler_retain(Mel_Gpu_Device* dev, Mel_Gpu_Sampler sampler)
 {
     mel_mutex_lock(&dev->sampler_lock);
-    Mel_Gpu_Sampler_Obj* o = mel_gpu__table_get(dev, &dev->samplers, sampler.slot);
-    if (o)
-        o->refcount++;
+    bool ok = mel_gpu__sampler_refcount_add(dev, sampler.slot, +1, NULL); // BUG-1: obj_lock-guarded RMW
     mel_mutex_unlock(&dev->sampler_lock);
-    return o != NULL;
+    return ok;
 }
 
 bool mel_gpu__sampler_get(Mel_Gpu_Device* dev, Mel_Gpu_Sampler sampler, VkSampler* out)
 {
     mel_mutex_lock(&dev->sampler_lock);
-    Mel_Gpu_Sampler_Obj* o = mel_gpu__table_get(dev, &dev->samplers, sampler.slot);
-    if (o)
-        *out = o->sampler;
+    Mel_Gpu_Sampler_Obj snap; // BUG-1: snapshot under obj_lock; read the VkSampler from the value copy
+    bool                ok = mel_gpu__table_get_copy(dev, &dev->samplers, sampler.slot, &snap);
+    if (ok)
+        *out = snap.sampler;
     mel_mutex_unlock(&dev->sampler_lock);
-    return o != NULL;
+    return ok;
 }
