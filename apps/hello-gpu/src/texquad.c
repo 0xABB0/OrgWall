@@ -11,16 +11,13 @@
 typedef struct
 {
     Mel_Gpu_Device*      dev;
-    bool                 ready; // bindless heap present and resources built
+    bool                 ready;
     Mel_Gpu_Texture      tex;
     Mel_Gpu_Texture_View view;
     u32                  tex_slot;
     Bindless_Present     present;
 } Texquad;
 
-// Escape-time Mandelbrot, coloured by a smooth iteration count. Filled once on
-// the CPU and uploaded — the texture is the whole point, the heap is how the
-// shader reaches it.
 static void fill_mandelbrot(u8* px, u32 w, u32 h)
 {
     for (u32 y = 0; y < h; ++y)
@@ -109,7 +106,6 @@ static void texquad_render(void* state, Mel_Gpu_Command_List* cmd, f64 dt)
     Texquad* t = state;
     if (!t->ready)
     {
-        // Graceful notice: a deep-amber clear stands in for "bindless absent".
         mel_gpu_cmd_begin_pass(cmd, mel_gpu_rgba(0.20f, 0.10f, 0.02f, 1.0f));
         mel_gpu_cmd_end_pass(cmd);
         return;

@@ -84,7 +84,6 @@ VkImageAspectFlags mel_gpu__aspect_flags(Mel_Gpu_Texture_Aspect aspect, VkFormat
     default:
         break;
     }
-    // Primary aspect of the format.
     if (has_depth && has_stencil)
         return VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
     if (has_depth)
@@ -172,10 +171,9 @@ Mel_Gpu_Texture_Create_Result mel_gpu_texture_create_opt(Mel_Gpu_Device* dev, Me
 
 void mel_gpu_texture_destroy(Mel_Gpu_Device* dev, Mel_Gpu_Texture tex)
 {
-    // §3.7: texture_destroy is SerializedPerObject on the destroyed handle.
     const void* trk = mel_gpu__track_key(&dev->textures, tex.slot.index);
     mel_gpu__track_enter(dev, trk, MEL_GPU_CONCURRENCY_SERIALIZED_PER_OBJECT);
-    Mel_Gpu_Texture_Obj o; // BUG-1: copy the record out under obj_lock; never deref the packed slot post-unlock
+    Mel_Gpu_Texture_Obj o;
     if (!mel_gpu__table_get_copy(dev, &dev->textures, tex.slot, &o))
     {
         mel_gpu__track_exit(dev, trk);
@@ -192,8 +190,6 @@ void mel_gpu_texture_destroy(Mel_Gpu_Device* dev, Mel_Gpu_Texture tex)
 
 bool mel_gpu_texture_alive(Mel_Gpu_Device* dev, Mel_Gpu_Texture tex) { return mel_gpu__table_alive(dev, &dev->textures, tex.slot); }
 
-// BUG-1: fill the caller's *out record by value under obj_lock. Texture/view records are immutable post-insert,
-// so the local copy is a faithful, race-free snapshot; the caller keeps a pointer to its own stack storage.
 bool mel_gpu__texture_get(Mel_Gpu_Device* dev, Mel_Gpu_Texture tex, Mel_Gpu_Texture_Obj* out)
 {
     return mel_gpu__table_get_copy(dev, &dev->textures, tex.slot, out);
@@ -260,11 +256,6 @@ Mel_Gpu_Texture_View_Create_Result mel_gpu_texture_view_create_opt(Mel_Gpu_Devic
 
     res.value.slot = mel_gpu__table_insert(dev, &dev->texture_views, &obj);
 
-    // U14: the view owns the bindless slot (gpu-rhi.md §6.2). Auto-register it into the device heap at the
-    // handle index for every shader-readable class the parent texture's usage admits (direct contract §3.1).
-    // CRITICAL-1: pre-flight EVERY class the view registers into before writing any descriptor, so an over-cap
-    // slot fails the create loudly (BindlessSlotExhausted) and rolls back — no partial heap write, no unbound
-    // slot reported as OK (MEL-ENGINE-VIII).
     if (dev->bindless.enabled)
     {
         bool sampled = (tex->usage & VK_IMAGE_USAGE_SAMPLED_BIT) != 0;
@@ -309,10 +300,9 @@ Mel_Gpu_Texture_View_Create_Result mel_gpu_texture_default_view(Mel_Gpu_Device* 
 
 void mel_gpu_texture_view_destroy(Mel_Gpu_Device* dev, Mel_Gpu_Texture_View view)
 {
-    // §3.7: texture_view_destroy is SerializedPerObject on the destroyed handle.
     const void* trk = mel_gpu__track_key(&dev->texture_views, view.slot.index);
     mel_gpu__track_enter(dev, trk, MEL_GPU_CONCURRENCY_SERIALIZED_PER_OBJECT);
-    Mel_Gpu_Texture_View_Obj o; // BUG-1: snapshot under obj_lock before any deref
+    Mel_Gpu_Texture_View_Obj o;
     if (!mel_gpu__table_get_copy(dev, &dev->texture_views, view.slot, &o))
     {
         mel_gpu__track_exit(dev, trk);
@@ -326,8 +316,6 @@ void mel_gpu_texture_view_destroy(Mel_Gpu_Device* dev, Mel_Gpu_Texture_View view
     }
     else
     {
-        // U14: the view owns its bindless slot, so the slot index is reclaimed on the same retirement edge as
-        // the VkImageView — never reused while an in-flight draw still samples it (gpu-rhi.md §3.3 / §6.7).
         mel_gpu__table_remove_deferred(dev, &dev->texture_views, view.slot);
         mel_gpu__defer_free(dev, (Mel_Gpu_Deferred_Free){ .view = vk, .reclaim_table = &dev->texture_views, .reclaim_index = view.slot.index, .has_reclaim = true });
     }
@@ -338,7 +326,7 @@ bool mel_gpu_texture_view_alive(Mel_Gpu_Device* dev, Mel_Gpu_Texture_View view) 
 
 void mel_gpu_texture_write(Mel_Gpu_Device* dev, Mel_Gpu_Texture tex, Mel_Gpu_Texture_Region region, const void* data, usize bytes)
 {
-    Mel_Gpu_Texture_Obj  o_obj; // BUG-1: snapshot under obj_lock; the immutable texture record is read by value
+    Mel_Gpu_Texture_Obj  o_obj;
     Mel_Gpu_Texture_Obj* o = &o_obj;
     if (!dev || !mel_gpu__texture_get(dev, tex, o))
     {
@@ -346,11 +334,9 @@ void mel_gpu_texture_write(Mel_Gpu_Device* dev, Mel_Gpu_Texture tex, Mel_Gpu_Tex
         return;
     }
 
-    // §3.7: texture_write is SerializedPerObject on this resource (concurrent on distinct resources).
     const void* trk = mel_gpu__track_key(&dev->textures, tex.slot.index);
     mel_gpu__track_enter(dev, trk, MEL_GPU_CONCURRENCY_SERIALIZED_PER_OBJECT);
 
-    // Staging buffer (host-image-copy fast path is cap-gated and not in this slice — gpu-rhi.md §6.2).
     VkBufferCreateInfo bci = {
         .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
         .size = bytes,
@@ -418,12 +404,6 @@ void mel_gpu_texture_write(Mel_Gpu_Device* dev, Mel_Gpu_Texture tex, Mel_Gpu_Tex
 
     vkEndCommandBuffer(cb);
 
-    // MAJOR-4: reserve a serial so the upload participates in the retirement watermark (§3.3) instead of being
-    // invisible to the engine's retirement clock (a latent UAF once uploads go async); the staging buffer + its
-    // memory are routed through the deferred-free queue rather than freed raw. The synchronous contract is met
-    // by waiting on this upload's OWN fence, not a full-queue vkQueueWaitIdle — a queue-wide idle serializes
-    // every unrelated submission on the single graphics queue (MEL-ENGINE-III/VI). The fence signal is the exact
-    // drain edge, so advancing the watermark to this serial retires the staging free immediately and exactly.
     u64               serial = mel_gpu__submit_serial_next(dev);
     VkFenceCreateInfo fci = { .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
     VkFence           fence = VK_NULL_HANDLE;

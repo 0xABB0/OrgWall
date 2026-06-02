@@ -18,8 +18,6 @@ Mel_Gpu_Device_Create_Result mel_gpu_device_create_opt(Mel_Gpu_Instance* inst, M
 
     const Mel_Alloc* alloc = opt.alloc ? opt.alloc : mel_alloc_heap();
 
-    // Feature Level 12_0 is the support floor (gpu-rhi.md §2). The debug layer was already armed at
-    // instance-create; the request-and-grant feature set (U4) is consumed per-unit in later phases.
     ID3D12Device* d3d = NULL;
     HRESULT       hr = D3D12CreateDevice((IUnknown*)adapter->dxgi, D3D_FEATURE_LEVEL_12_0, &IID_ID3D12Device, (void**)&d3d);
     if (FAILED(hr) || !d3d)
@@ -29,8 +27,6 @@ Mel_Gpu_Device_Create_Result mel_gpu_device_create_opt(Mel_Gpu_Instance* inst, M
         return res;
     }
 
-    // U7: the DIRECT queue is the graphics/compute/copy-capable queue. Additional roles map to it on the
-    // single-queue floor (gpu-rhi.md §7.1); async-compute / dedicated-transfer queues land later.
     D3D12_COMMAND_QUEUE_DESC qd = { .Type = D3D12_COMMAND_LIST_TYPE_DIRECT, .Flags = D3D12_COMMAND_QUEUE_FLAG_NONE };
     ID3D12CommandQueue*      queue = NULL;
     hr = ID3D12Device_CreateCommandQueue(d3d, &qd, &IID_ID3D12CommandQueue, (void**)&queue);
@@ -42,7 +38,6 @@ Mel_Gpu_Device_Create_Result mel_gpu_device_create_opt(Mel_Gpu_Instance* inst, M
         return res;
     }
 
-    // U7/U3: the device timeline fence + its wait event (gpu-rhi.md §3.3).
     ID3D12Fence* fence = NULL;
     hr = ID3D12Device_CreateFence(d3d, 0, D3D12_FENCE_FLAG_NONE, &IID_ID3D12Fence, (void**)&fence);
     HANDLE event = hr == S_OK ? CreateEventW(NULL, FALSE, FALSE, NULL) : NULL;
@@ -93,10 +88,6 @@ Mel_Gpu_Device_Create_Result mel_gpu_device_create_opt(Mel_Gpu_Instance* inst, M
     dev->buffers.init = dev->textures.init = dev->texture_views.init = true;
     dev->samplers.init = dev->shaders.init = dev->pipelines.init = true;
 
-    // U14 bindless (gpu-rhi.md §6.7): when descriptor_indexing is requested and ResourceBindingTier 3 is
-    // present, create the shader-visible heaps and report the D3D12 binding model — root record carrying
-    // descriptor indices (never raw pointers; buffers are descriptors even at the ceiling), filled through
-    // the persistently-mapped/upload path. This is the contrast the co-primary mandate exposes vs Vulkan-BDA.
     if (opt.features.descriptor_indexing && dev->caps.memory.bindless.tier == MEL_GPU_TIER_FULL)
     {
         mel_gpu__bindless_init(dev);
@@ -108,7 +99,6 @@ Mel_Gpu_Device_Create_Result mel_gpu_device_create_opt(Mel_Gpu_Instance* inst, M
         }
     }
 
-    // U16: CPU-only RTV/DSV heaps, allocated round-robin per begin_rendering.
     D3D12_DESCRIPTOR_HEAP_DESC rtvd = { .Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV, .NumDescriptors = 256, .Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE };
     ID3D12Device_CreateDescriptorHeap(d3d, &rtvd, &IID_ID3D12DescriptorHeap, (void**)&dev->rtv_heap);
     dev->rtv_size = ID3D12Device_GetDescriptorHandleIncrementSize(d3d, D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
@@ -124,10 +114,6 @@ Mel_Gpu_Device_Create_Result mel_gpu_device_create_opt(Mel_Gpu_Instance* inst, M
     if (opt.reactor)
         dev->pump = mel_gpu_pump_create(opt.reactor);
 
-    // U21: when the debug layer is active, break on debug-layer ERROR / CORRUPTION so a validation failure
-    // aborts the process loudly at the offending call rather than corrupting silently (MEL-ENGINE-VIII). The
-    // break setting lives on the device's debug state; the info-queue interface ref is transient. This is how
-    // the "zero debug-layer errors" bar is enforced rather than assumed.
     if (inst->debug_layer)
     {
         ID3D12InfoQueue* iq = NULL;
@@ -166,7 +152,6 @@ void mel_gpu_device_destroy(Mel_Gpu_Device* dev)
     if (!dev)
         return;
 
-    // Drain the GPU: signal a fresh serial and wait for it, so every submission has retired before teardown.
     if (dev->direct_queue && dev->timeline && !dev->lost)
     {
         u64 s = mel_gpu__submit_serial_next(dev);
@@ -239,8 +224,6 @@ const Mel_Gpu_Caps* mel_gpu_device_caps(Mel_Gpu_Device* dev) { return dev ? &dev
 
 Mel_Reactor* mel_gpu_device_reactor(Mel_Gpu_Device* dev) { return dev ? dev->reactor : NULL; }
 
-// ---- U1 slotmap table helpers ----
-
 Mel_SlotMap_Handle mel_gpu__table_insert(Mel_Gpu_Device* dev, Mel_Gpu_Resource_Table* t, const void* obj)
 {
     mel_mutex_lock(&dev->obj_lock);
@@ -279,8 +262,6 @@ void mel_gpu__table_reclaim(Mel_Gpu_Device* dev, Mel_Gpu_Resource_Table* t, u32 
     mel_slotmap_reclaim(&t->map, index);
     mel_mutex_unlock(&dev->obj_lock);
 }
-
-// ---- U3 future-gated retirement ----
 
 static void mel_gpu__free_deferred_entry(Mel_Gpu_Device* dev, Mel_Gpu_Deferred_Free* e)
 {
@@ -347,8 +328,6 @@ void mel_gpu__defer_free(Mel_Gpu_Device* dev, Mel_Gpu_Deferred_Free entry)
     dev->deferred[dev->deferred_count++] = entry;
     mel_mutex_unlock(&dev->submit_lock);
 }
-
-// ---- device_create_default ----
 
 static Mel_Gpu_Adapter* mel_gpu__pick_adapter(Mel_Gpu_Instance* inst, Mel_Gpu_Power_Preference pref)
 {

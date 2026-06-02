@@ -1,9 +1,5 @@
 #pragma once
 
-// Animated plasma compute kernel writing a heap-resident colour buffer, plus the
-// grid-cell vertex stage that reads it back per-instance. Compute + barrier + draw
-// share one frame command list.
-// Regenerate: glslc -fshader-stage={comp,vert} -mfmt=c shaders/{plasma.comp,cells.vert}
 #include <stdint.h>
 
 static const uint32_t PLASMA_COMP_SPV[] =

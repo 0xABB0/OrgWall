@@ -35,7 +35,6 @@ static VkCullModeFlags mel_gpu__cull(Mel_Gpu_Cull c)
     return VK_CULL_MODE_NONE;
 }
 
-// U13 render-state lowerings (gpu-rhi.md §6.5). Protocol maps onto the Vulkan enums (MEL-CODE-001 carve-out).
 static VkBlendFactor mel_gpu__vk_blend_factor(Mel_Gpu_Blend_Factor f)
 {
     switch (f)
@@ -129,7 +128,6 @@ static VkStencilOpState mel_gpu__stencil_face(Mel_Gpu_Stencil_Face f)
     };
 }
 
-// MSAA sample-count bit for a requested count, or 0 if not a supported power of two in [1, 64] (gpu-rhi.md §6.5).
 static VkSampleCountFlagBits mel_gpu__sample_bits(u32 n)
 {
     switch (n)
@@ -153,10 +151,6 @@ static VkSampleCountFlagBits mel_gpu__sample_bits(u32 n)
     return 0;
 }
 
-// The render-pass floor (gpu-rhi.md §7.2) needs a pipeline-compatible render pass when dynamic rendering is
-// absent. Only attachment formats, sample count, and count matter for pipeline compatibility, so load/store/
-// layout are placeholders. Used solely on the !dynamic_rendering path; the swapchain's present render pass is
-// separate (swapchain.c). Returns VK_NULL_HANDLE on allocation/Vulkan failure (the caller reports VK_FAILED).
 static VkRenderPass mel_gpu__make_pipeline_compat_render_pass(Mel_Gpu_Device* dev, const VkFormat* colors, u32 color_count, VkSampleCountFlagBits samples, VkFormat depth)
 {
     bool                     has_depth = depth != VK_FORMAT_UNDEFINED;
@@ -205,11 +199,6 @@ static VkRenderPass mel_gpu__make_pipeline_compat_render_pass(Mel_Gpu_Device* de
     return rp;
 }
 
-// Shared binding-model gate (gpu-rhi.md §6.7 / MEL-ENGINE-IX): graphics and compute lower the same two
-// failure modes before any allocation. MissingFeature when the shader/opt wants the heap and the device has
-// none; MissingBindlessSlot when a bindless shader demands more set-0 descriptors of a class than the heap
-// holds. The two have different remedies — grow the heap vs. request more capabilities — so they are never
-// conflated (MEL-ENGINE-VIII). Returns OK when the layout may proceed, else the failing status.
 static Mel_Gpu_Pipeline_Create_Status mel_gpu__binding_gate(Mel_Gpu_Device* dev, bool bindless, const Mel_Gpu_Spirv_Reflection* refl, const char* what, const char* dbg_name)
 {
     if (bindless && !dev->bindless.enabled)
@@ -220,7 +209,7 @@ static Mel_Gpu_Pipeline_Create_Status mel_gpu__binding_gate(Mel_Gpu_Device* dev,
     if (bindless)
         for (u32 s = 0; s < refl->set0_count; s++)
         {
-            if (refl->set0[s].runtime_array) // an unbounded array is satisfied by the partially-bound heap
+            if (refl->set0[s].runtime_array)
                 continue;
             u32 cap = mel_gpu__heap_cap_for_class(dev, refl->set0[s].binding);
             if (refl->set0[s].array_len > cap)
@@ -232,11 +221,6 @@ static Mel_Gpu_Pipeline_Create_Status mel_gpu__binding_gate(Mel_Gpu_Device* dev,
     return MEL_GPU_PIPELINE_CREATE_OK;
 }
 
-// Shared specialization-info build (gpu-rhi.md §6.4 / MEL-ENGINE-IX). Bakes one VkSpecializationInfo from the
-// opt overrides, allocating the entry/data arrays through `dev->alloc` (the caller frees them after the
-// vkCreate*Pipelines call copies them). A supplied id the shader does not declare warns (MEL-CODE-007); an
-// over-4-byte declared constant warns that only the low word is baked (`warn_truncation`, graphics only —
-// matches the prior per-path behaviour). Returns false on nothing-to-do (count 0); `*out_info` then unset.
 static bool mel_gpu__build_spec_info(Mel_Gpu_Device* dev, const Mel_Gpu_Spec_Constant* spec_constants, u32 spec_constant_count, const Mel_Gpu_Spirv_Reflection* refl, bool warn_truncation, const char* what, const char* dbg_name,
                                      VkSpecializationMapEntry** out_entries, u32** out_data, VkSpecializationInfo* out_info)
 {
@@ -266,13 +250,6 @@ static bool mel_gpu__build_spec_info(Mel_Gpu_Device* dev, const Mel_Gpu_Spec_Con
     return true;
 }
 
-// Shared pipeline-layout composition (gpu-rhi.md §6.7 / MEL-ENGINE-IX): compose the descriptor-set layouts and
-// create the VkPipelineLayout, the load-bearing duplication the binding-finish writeup flagged. Bindless: set 0
-// = the device heap. Classic peer: app-owned set layouts at sets 0..N-1 (mutually exclusive with the heap, since
-// set 0 cannot be both). A static-sampler set, when present (`static_sampler_layout` non-null, graphics only),
-// follows whichever path occupied the lower indices. The push-constant range spans `pc_size` bytes at `pc_stages`.
-// Returns false (with `*out_layout` VK_NULL_HANDLE) when a classic set layout handle is not live — the loud
-// path the caller maps to VK_FAILED.
 static bool mel_gpu__build_pipeline_layout(Mel_Gpu_Device* dev, bool bindless, const Mel_Gpu_Bind_Group_Layout* set_layouts, u32 set_layout_count, VkDescriptorSetLayout static_sampler_layout, u32 pc_size, VkShaderStageFlags pc_stages, const char* what, const char* dbg_name, VkPipelineLayout* out_layout)
 {
     *out_layout = VK_NULL_HANDLE;
@@ -310,7 +287,7 @@ static bool mel_gpu__build_pipeline_layout(Mel_Gpu_Device* dev, bool bindless, c
             .pushConstantRangeCount = pc_size ? 1u : 0u,
             .pPushConstantRanges = pc_size ? &pcr : NULL,
         };
-        vkCreatePipelineLayout(dev->vk, &plci, NULL, out_layout); // the pipeline layout retains what it needs
+        vkCreatePipelineLayout(dev->vk, &plci, NULL, out_layout);
     }
     if (set_layouts_vk)
         mel_dealloc(dev->alloc, set_layouts_vk);
@@ -329,16 +306,12 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_create_opt(Mel_Gpu_Device* dev, 
         return res;
     }
 
-    // U12/U14: the shader is the source of truth for its layout. Reflection supplies the push-constant size,
-    // bindless-set usage, vertex input, and spec constants; the explicit opt fields override / augment them
-    // (the P2 manual path, §6.4). `refl` aliases the shader's owned arrays — read-only, never freed here.
     Mel_Gpu_Spirv_Reflection refl = { 0 };
     mel_gpu__shader_reflection(dev, opt.shader, &refl);
     bool        bindless = opt.bindless || refl.uses_bindless_set;
     u32         pc_size = opt.push_constant_size ? opt.push_constant_size : refl.push_constant_size;
     const char* dbg_name = opt.name ? opt.name : "(unnamed)";
 
-    // Binding-model gates fire before any allocation (gpu-rhi.md §6.7 / MEL-ENGINE-VIII), shared with compute.
     res.status = mel_gpu__binding_gate(dev, bindless, &refl, "pipeline_create", dbg_name);
     if (mel_gpu_failed(res.status))
         return res;
@@ -348,8 +321,6 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_create_opt(Mel_Gpu_Device* dev, 
         { .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, .stage = VK_SHADER_STAGE_FRAGMENT_BIT, .module = fs, .pName = fs_entry },
     };
 
-    // U12: specialization constants baked at create (gpu-rhi.md §6.4), shared with compute. One shared
-    // VkSpecializationInfo serves both stages (entries unused by a stage are ignored).
     VkSpecializationMapEntry* spec_entries = NULL;
     u32*                      spec_data = NULL;
     VkSpecializationInfo      spec_info = { 0 };
@@ -359,9 +330,6 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_create_opt(Mel_Gpu_Device* dev, 
         stages[1].pSpecializationInfo = &spec_info;
     }
 
-    // Vertex input: reflection-derived by default (single interleaved binding, tight-packed), the explicit
-    // opt layout as the P2 override (gpu-rhi.md §6.5). A fullscreen-triangle vertex shader reflects no
-    // attributes, so it falls through to no vertex input exactly as before.
     bool                          from_reflection = opt.vertex_layout_count == 0 && opt.vertex_stride == 0 && refl.vertex_attr_count > 0;
     u32                           layout_count = from_reflection ? refl.vertex_attr_count : opt.vertex_layout_count;
     u32                           stride = from_reflection ? refl.vertex_stride : opt.vertex_stride;
@@ -392,8 +360,6 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_create_opt(Mel_Gpu_Device* dev, 
 
     VkPipelineViewportStateCreateInfo vp = { .sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO, .viewportCount = 1, .scissorCount = 1 };
 
-    // U13 rasterization (gpu-rhi.md §6.5): fill mode (cap-gated), front face, depth bias. A non-solid fill or a
-    // depth-bias clamp the device cannot honor degrades with a warning (MEL-CODE-007), never silently.
     VkPolygonMode polygon = VK_POLYGON_MODE_FILL;
     if (opt.fill != MEL_GPU_FILL_SOLID)
     {
@@ -416,8 +382,6 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_create_opt(Mel_Gpu_Device* dev, 
         .depthBiasSlopeFactor = opt.depth_bias_slope,
     };
 
-    // U13 MSAA (gpu-rhi.md §6.5): validate the requested sample count against the framebuffer sample-count limit
-    // (and the depth limit when a depth attachment is present). An unsupported count falls back to 1 with a warning.
     bool                  has_depth = opt.depth_format != MEL_GPU_FORMAT_UNDEFINED;
     u32                   req_samples = opt.samples ? opt.samples : 1;
     VkSampleCountFlagBits samples = mel_gpu__sample_bits(req_samples);
@@ -447,8 +411,6 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_create_opt(Mel_Gpu_Device* dev, 
     VkDynamicState                   dyn[] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
     VkPipelineDynamicStateCreateInfo ds = { .sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO, .dynamicStateCount = 2, .pDynamicStates = dyn };
 
-    // U11: bake immutable samplers into a dedicated descriptor set layout (gpu-rhi.md §6.3). The set sits
-    // after the bindless set when both are present.
     VkDescriptorSetLayout static_sampler_layout = VK_NULL_HANDLE;
     if (opt.static_sampler_count)
     {
@@ -492,8 +454,6 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_create_opt(Mel_Gpu_Device* dev, 
         }
     }
 
-    // Compose the pipeline layout's descriptor sets (shared with compute; the static-sampler set follows the
-    // bindless/classic sets on the graphics path). A bad classic-layout handle is the loud VK_FAILED path.
     VkPipelineLayout layout = VK_NULL_HANDLE;
     if (!mel_gpu__build_pipeline_layout(dev, bindless, opt.set_layouts, opt.set_layout_count, static_sampler_layout, pc_size, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, "pipeline_create", dbg_name, &layout))
     {
@@ -509,8 +469,6 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_create_opt(Mel_Gpu_Device* dev, 
         return res;
     }
 
-    // U13 color targets (gpu-rhi.md §6.5 MRT + per-attachment blend): the explicit array, else the single-opaque
-    // shortcut from `color_format`. A depth-only pipeline (neither set) carries zero color attachments.
     Mel_Gpu_Color_Target        single = { .format = opt.color_format, .blend = MEL_GPU_BLEND_OPAQUE };
     const Mel_Gpu_Color_Target* targets = opt.color_target_count ? opt.color_targets : (opt.color_format != MEL_GPU_FORMAT_UNDEFINED ? &single : NULL);
     u32                         target_count = opt.color_target_count ? opt.color_target_count : (opt.color_format != MEL_GPU_FORMAT_UNDEFINED ? 1u : 0u);
@@ -521,7 +479,6 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_create_opt(Mel_Gpu_Device* dev, 
     {
         const Mel_Gpu_Blend* b = &targets[i].blend;
         color_formats[i] = mel_gpu__vk_format(targets[i].format);
-        // MEL_GPU_COLOR_WRITE_* bits coincide with VK_COLOR_COMPONENT_*_BIT (R=1,G=2,B=4,A=8) by construction.
         blend_atts[i] = (VkPipelineColorBlendAttachmentState){
             .blendEnable = b->enable ? VK_TRUE : VK_FALSE,
             .srcColorBlendFactor = mel_gpu__vk_blend_factor(b->src_color),
@@ -541,9 +498,6 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_create_opt(Mel_Gpu_Device* dev, 
     for (u32 i = 0; i < 4; i++)
         cb.blendConstants[i] = opt.blend_constants[i];
 
-    // U13 depth/stencil (gpu-rhi.md §6.5): explicit control via opt.depth_stencil, else the default derived from
-    // depth_format (test + write + LESS). The state is consumed only with a depth attachment (pDepthStencilState
-    // below is gated on has_depth).
     bool                                  stencil_format = opt.depth_format == MEL_GPU_FORMAT_D24_UNORM_S8_UINT;
     VkPipelineDepthStencilStateCreateInfo dss = { .sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO };
     if (opt.depth_stencil)
@@ -582,7 +536,6 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_create_opt(Mel_Gpu_Device* dev, 
         dss.depthCompareOp = VK_COMPARE_OP_LESS;
     }
 
-    // U16: dynamic-rendering pipelines carry their attachment formats directly; render-pass is the floor.
     VkPipelineRenderingCreateInfoKHR pri = {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO_KHR,
         .colorAttachmentCount = target_count,
@@ -619,7 +572,7 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_create_opt(Mel_Gpu_Device* dev, 
         vkDestroyRenderPass(dev->vk, rp, NULL);
     if (attrs)
         mel_dealloc(dev->alloc, attrs);
-    if (spec_entries) // copied into the pipeline by vkCreateGraphicsPipelines; ours to release now
+    if (spec_entries)
         mel_dealloc(dev->alloc, spec_entries);
     if (spec_data)
         mel_dealloc(dev->alloc, spec_data);
@@ -647,7 +600,6 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_create_opt(Mel_Gpu_Device* dev, 
     obj.bindless = bindless;
     obj.bind_point = VK_PIPELINE_BIND_POINT_GRAPHICS;
     obj.pc_stages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
-    // U11/U13: take one lifetime claim per static sampler so it cannot be freed under a live pipeline.
     if (opt.static_sampler_count)
     {
         obj.static_samplers = mel_alloc_array(dev->alloc, Mel_Gpu_Sampler, opt.static_sampler_count);
@@ -680,8 +632,6 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_compute_create_opt(Mel_Gpu_Devic
     u32         pc_size = opt.push_constant_size ? opt.push_constant_size : refl.push_constant_size;
     const char* dbg_name = opt.name ? opt.name : "(unnamed)";
 
-    // Binding-model gates, spec-info, and layout composition are shared with graphics (gpu-rhi.md §6.7 /
-    // MEL-ENGINE-IX); compute carries no static-sampler set and no vertex/raster/blend state.
     res.status = mel_gpu__binding_gate(dev, bindless, &refl, "pipeline_compute_create", dbg_name);
     if (mel_gpu_failed(res.status))
         return res;
@@ -738,11 +688,10 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_compute_create_opt(Mel_Gpu_Devic
 
 void mel_gpu_pipeline_destroy(Mel_Gpu_Device* dev, Mel_Gpu_Pipeline pipe)
 {
-    // §3.7: pipeline_destroy is SerializedPerObject on the destroyed handle.
     const void* trk = mel_gpu__track_key(&dev->pipelines, pipe.slot.index);
     mel_gpu__track_enter(dev, trk, MEL_GPU_CONCURRENCY_SERIALIZED_PER_OBJECT);
-    Mel_Gpu_Pipeline_Obj o; // BUG-1: copy the record out under obj_lock; static_samplers pointer is owned by the
-    if (!mel_gpu__table_get_copy(dev, &dev->pipelines, pipe.slot, &o)) // snapshot (destroy is SerializedPerObject)
+    Mel_Gpu_Pipeline_Obj o;
+    if (!mel_gpu__table_get_copy(dev, &dev->pipelines, pipe.slot, &o))
     {
         mel_gpu__track_exit(dev, trk);
         return;
@@ -753,10 +702,7 @@ void mel_gpu_pipeline_destroy(Mel_Gpu_Device* dev, Mel_Gpu_Pipeline pipe)
     Mel_Gpu_Sampler*      ss = o.static_samplers;
     u32                   ssc = o.static_sampler_count;
     mel_gpu__table_remove(dev, &dev->pipelines, pipe.slot);
-    // U3 future-gated retirement: an in-flight command buffer may still reference this pipeline.
     mel_gpu__defer_free(dev, (Mel_Gpu_Deferred_Free){ .pipeline = p, .pipeline_layout = l, .descriptor_set_layout = sl });
-    // U11/U13: release the static-sampler lifetime claims after deferring the pipeline, so a sampler whose
-    // last claim was this pipeline retires no earlier than the layout that baked it (gpu-rhi.md §6.3 / §3.3).
     for (u32 i = 0; i < ssc; i++)
         mel_gpu_sampler_destroy(dev, ss[i]);
     if (ss)
@@ -768,7 +714,7 @@ bool mel_gpu_pipeline_alive(Mel_Gpu_Device* dev, Mel_Gpu_Pipeline pipe) { return
 
 bool mel_gpu__pipeline_get(Mel_Gpu_Device* dev, Mel_Gpu_Pipeline pipe, VkPipeline* out_pipe, VkPipelineLayout* out_layout)
 {
-    Mel_Gpu_Pipeline_Obj o; // BUG-1: snapshot under obj_lock
+    Mel_Gpu_Pipeline_Obj o;
     if (!mel_gpu__table_get_copy(dev, &dev->pipelines, pipe.slot, &o))
         return false;
     *out_pipe = o.pipeline;
@@ -776,5 +722,4 @@ bool mel_gpu__pipeline_get(Mel_Gpu_Device* dev, Mel_Gpu_Pipeline pipe, VkPipelin
     return true;
 }
 
-// BUG-1: copy the pipeline record out by value under obj_lock (no interior pointer escapes the lock).
 bool mel_gpu__pipeline_obj(Mel_Gpu_Device* dev, Mel_Gpu_Pipeline pipe, Mel_Gpu_Pipeline_Obj* out) { return mel_gpu__table_get_copy(dev, &dev->pipelines, pipe.slot, out); }

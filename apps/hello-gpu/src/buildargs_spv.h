@@ -1,7 +1,5 @@
 #pragma once
 
-// Dispatch-indirect Pass B: one thread turns the survivor count into the {gx,1,1} indirect-dispatch args.
-// Regenerate: glslc -fshader-stage=comp -mfmt=c shaders/buildargs.comp
 #include <stdint.h>
 
 static const uint32_t BUILDARGS_COMP_SPV[] =

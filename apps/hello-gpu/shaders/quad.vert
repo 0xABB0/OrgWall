@@ -1,12 +1,9 @@
 #version 460
 
-// Parametric quad from gl_VertexIndex (six verts), placed and coloured entirely
-// from the push-constant root record. Drives the alpha-layers and the
-// fill/blend gallery: one draw per quad, no vertex buffer.
 layout(push_constant, std430) uniform Root
 {
-    vec4 rect;  // xy = centre (NDC), zw = half-extent (NDC)
-    vec4 color; // rgb + alpha
+    vec4 rect;
+    vec4 color;
 } root;
 
 layout(location = 0) out vec4 v_color;

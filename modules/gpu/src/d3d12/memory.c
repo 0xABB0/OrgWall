@@ -1,8 +1,5 @@
 #include "d3d_backend.h"
 
-// U8 residency (gpu-rhi.md §3.4). D3D12 exposes a real budget + current usage via QueryVideoMemoryInfo, so
-// residency_control is reported budget_only; explicit make_resident/evict (MakeResident / Evict) is a later
-// additive tier. The local memory segment is the device-local budget.
 Mel_Gpu_Memory_Budget mel_gpu_memory_budget(Mel_Gpu_Device* dev)
 {
     Mel_Gpu_Memory_Budget b = { 0 };

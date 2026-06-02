@@ -1,10 +1,5 @@
 #pragma once
 
-// SPIR-V for the U14 bindless end-to-end test: a fullscreen triangle samples a heap-resident texture
-// (binding 0) with a heap-resident sampler (binding 1), indexed by a push-constant root record.
-// SOLID is a plain (no-descriptor-array) fragment used to probe the MissingFeature path without
-// declaring RuntimeDescriptorArray on a device that lacks the bindless heap.
-// Regenerate: glslc -fshader-stage={vert,frag} -mfmt=c bindless.{vert,frag} / solid.frag (sources in writeup).
 #include <stdint.h>
 
 static const uint32_t BINDLESS_VERT_SPV[] = {0x07230203,0x00010000,0x000d000b,0x0000002e,

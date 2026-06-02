@@ -36,11 +36,6 @@ static void mel_gpu__usage_add(Mel_Gpu_Device* dev, u64 bytes)
         dev->budget_pressure_cb(dev, (Mel_Gpu_Memory_Budget){ .budget_bytes = budget, .usage_bytes = used }, dev->budget_pressure_user);
 }
 
-// MAJOR-3: the buddy suballocator reserves next_pow2(size) (clamped to MEL_GPU_MIN_BLOCK) from the 64 MiB
-// block, but live-bytes accounting recorded the unrounded request — under-reporting VRAM by the rounding
-// slack (up to ~2x for a just-over-power-of-two request), skewing memory_budget and delaying budget_pressure
-// (MEL-ENGINE-III/VI). Record the rounded block size so add/sub account the bytes actually consumed. Mirrors
-// mel_buddy_alloc's rounding; the dedicated path (own vkAllocateMemory of req.size) needs no rounding.
 static u64 mel_gpu__buddy_block_bytes(u64 size)
 {
     if (size <= MEL_GPU_MIN_BLOCK)
@@ -93,8 +88,6 @@ static u32 mel_gpu__log2(usize v)
 
 static Mel_Gpu_Mem_Block* mel_gpu__block_create(Mel_Gpu_Device* dev, u32 type_index, bool host_visible)
 {
-    // U14: with BDA granted, every block is device-address-capable so suballocated buffers can expose a
-    // stable GPU address for the pointer-bearing root record (gpu-rhi.md §6.7). Benign on image memory.
     VkMemoryAllocateFlagsInfo flags = { .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO, .flags = VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT };
     VkMemoryAllocateInfo ai = {
         .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
@@ -181,7 +174,7 @@ bool mel_gpu__mem_alloc(Mel_Gpu_Device* dev, VkMemoryRequirements req, VkMemoryP
         if (!ptr)
             continue;
         VkDeviceSize offset = (VkDeviceSize)((u8*)ptr - b->buddy.base);
-        u64          consumed = mel_gpu__buddy_block_bytes(req.size); // MAJOR-3: account the rounded block
+        u64          consumed = mel_gpu__buddy_block_bytes(req.size);
         out->mem = b->mem;
         out->offset = offset;
         out->size = consumed;
@@ -206,7 +199,7 @@ bool mel_gpu__mem_alloc(Mel_Gpu_Device* dev, VkMemoryRequirements req, VkMemoryP
         return false;
     }
     VkDeviceSize offset = (VkDeviceSize)((u8*)ptr - b->buddy.base);
-    u64          consumed = mel_gpu__buddy_block_bytes(req.size); // MAJOR-3: account the rounded block
+    u64          consumed = mel_gpu__buddy_block_bytes(req.size);
     out->mem = b->mem;
     out->offset = offset;
     out->size = consumed;

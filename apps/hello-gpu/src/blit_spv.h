@@ -1,9 +1,5 @@
 #pragma once
 
-// Bindless fullscreen blit: a heap-resident texture sampled with a heap sampler,
-// indexed by the push-constant root record. Shared by texquad / post / depth /
-// compute screens to present an offscreen or compute result to the swapchain.
-// Regenerate: glslc -fshader-stage={vert,frag} -mfmt=c shaders/{fullscreen.vert,blit.frag}
 #include <stdint.h>
 
 static const uint32_t BLIT_VERT_SPV[] =

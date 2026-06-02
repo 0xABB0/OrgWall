@@ -1,8 +1,5 @@
 #pragma once
 
-// Static gradient backdrop fragment for the alpha-layers screen. Pairs with
-// BLIT_VERT_SPV (the attributeless fullscreen triangle).
-// Regenerate: glslc -fshader-stage=frag -mfmt=c shaders/gradient.frag
 #include <stdint.h>
 
 static const uint32_t GRADIENT_FRAG_SPV[] =

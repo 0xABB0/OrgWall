@@ -1,7 +1,5 @@
 #version 460
 
-// Static diagonal gradient backdrop for the alpha-layers screen, computed from
-// the fullscreen UV — no resources, no push constant.
 layout(location = 0) in  vec2 v_uv;
 layout(location = 0) out vec4 o_color;
 

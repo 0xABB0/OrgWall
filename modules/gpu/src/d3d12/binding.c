@@ -3,28 +3,13 @@
 #include <gpu/binding.h>
 #include <log/log.h>
 
-// U14 bindless (gpu-rhi.md §6.7) — the D3D12 **floor**: Tier-3 unbounded descriptor tables. The SM 6.6
-// dynamic-resource ceiling (ResourceDescriptorHeap / SamplerDescriptorHeap + HEAP_DIRECTLY_INDEXED root
-// flags) needs the Agility SDK or a Win11 runtime; the in-box Windows 10 runtime rejects those flags
-// ("Unsupported bit-flag set") and SM 6.6 bytecode, so the floor is the classical model (§6.7 "D3D12 floor:
-// classical descriptor heaps with root-signature tables"). The shader declares per-class unbounded arrays
-// (Texture2D g[] : register(t0,space0); RWByteAddressBuffer b[] : register(u0,space0); ...) and the root
-// signature binds one CBV/SRV/UAV descriptor table (SRV+UAV+CBV ranges, each offset to its class base) plus
-// a sampler table. The per-draw root record carries descriptor indices (the §6.7 D3D12 payload), never raw
-// GPU addresses — the concrete contrast with the Vulkan-BDA mixed payload.
-//
-// One CBV/SRV/UAV heap holds four classes (SRV textures, UAV storage buffers, CBV uniform buffers, UAV
-// storage images) at fixed base offsets; samplers live in a second heap. The descriptor is written at
-// base[class] + handle.index, but the table range's OffsetInDescriptorsFromTableStart equals base[class], so
-// the **shader index is handle.index** (0-based within its class) — slot == handle.index holds (§3.1).
-
 enum
 {
     MEL_D3D12_CAP_SAMPLED_IMAGE = 16384,
     MEL_D3D12_CAP_STORAGE_BUFFER = 16384,
     MEL_D3D12_CAP_UNIFORM_BUFFER = 16384,
     MEL_D3D12_CAP_STORAGE_IMAGE = 16384,
-    MEL_D3D12_CAP_SAMPLER = 2048, // the shader-visible sampler-heap hard limit
+    MEL_D3D12_CAP_SAMPLER = 2048,
 };
 
 void mel_gpu__bindless_init(Mel_Gpu_Device* dev)
@@ -58,7 +43,6 @@ void mel_gpu__bindless_init(Mel_Gpu_Device* dev)
     dev->smp_inc = ID3D12Device_GetDescriptorHandleIncrementSize(dev->d3d, D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER);
     dev->bindless_enabled = true;
 
-    // Refine the caps probe's tier-3 placeholder counts to the realized heap capacities (§6.7).
     dev->caps.memory.bindless.max_texture_view_slots = dev->cap_sampled_image;
     dev->caps.memory.bindless.max_storage_buffer_slots = dev->cap_storage_buffer;
     dev->caps.memory.bindless.max_uniform_buffer_slots = dev->cap_uniform_buffer;
@@ -142,7 +126,6 @@ void mel_gpu__bindless_register_buffer(Mel_Gpu_Device* dev, u32 index, const Mel
         return;
     if (usage & MEL_GPU_BUFFER_STORAGE)
     {
-        // Raw byte-address UAV (RWByteAddressBuffer in the shader). RAW requires R32_TYPELESS.
         D3D12_UNORDERED_ACCESS_VIEW_DESC uav = { .Format = DXGI_FORMAT_R32_TYPELESS, .ViewDimension = D3D12_UAV_DIMENSION_BUFFER };
         uav.Buffer.FirstElement = 0;
         uav.Buffer.NumElements = (UINT)(b->size / 4);
@@ -165,13 +148,8 @@ void mel_gpu__bindless_register_sampler(Mel_Gpu_Device* dev, u32 index, const D3
     ID3D12Device_CreateSampler(dev->d3d, d, mel_gpu__smp_cpu(dev, index));
 }
 
-// ---- public surface ----
-
 bool mel_gpu_bindless_available(Mel_Gpu_Device* dev) { return dev && dev->bindless_enabled; }
 
-// The shader index is the 0-based per-class handle index: the descriptor lives at heap slot
-// base[class] + index, but the table range's OffsetInDescriptorsFromTableStart already adds base[class], so
-// the shader array g_class[index] resolves to that heap slot. slot == handle.index (§3.1).
 u32 mel_gpu_texture_view_bindless_slot(Mel_Gpu_Device* dev, Mel_Gpu_Texture_View view)
 {
     mel_assert(dev->bindless_enabled);
@@ -191,9 +169,6 @@ u64 mel_gpu_buffer_device_address(Mel_Gpu_Device* dev, Mel_Gpu_Buffer buf)
     Mel_Gpu_Buffer_Obj* o = NULL;
     if (!mel_gpu__buffer_get(dev, buf, &o))
         return 0;
-    // D3D12 buffers always have a GPU VA, but the root-record payload is descriptor_indices, not pointers
-    // (§6.7) — the shader cannot dereference this as a buffer-reference the way Vulkan-BDA does. The VA is
-    // real (root CBV / VBV / IBV consume it); gate on the explicit DEVICE_ADDRESS usage for API symmetry.
     if (!(o->usage & MEL_GPU_BUFFER_DEVICE_ADDRESS))
     {
         mel_log_warn("gpu", "buffer_device_address: buffer lacks MEL_GPU_BUFFER_DEVICE_ADDRESS usage");

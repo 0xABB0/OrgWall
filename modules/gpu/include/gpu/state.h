@@ -2,10 +2,6 @@
 
 #include <core/types.h>
 
-// D3D12-style resource-state model (gpu-rhi.md §7.3 / U17). The full set is carried so that later
-// units (sparse, video, ML, accel-struct) do not change every transition site (MEL-ENGINE-VII). The
-// Vulkan backend implements the load-bearing subset; an unimplemented state maps conservatively to
-// GENERAL with an all-stages/all-access barrier and is flagged at the call site in debug.
 typedef enum
 {
     MEL_GPU_STATE_COMMON = 0,

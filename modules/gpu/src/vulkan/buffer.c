@@ -64,13 +64,6 @@ static bool mel_gpu__staging_upload(Mel_Gpu_Device* dev, VkBuffer dst, const voi
     vkCmdCopyBuffer(cb, staging, dst, 1, &copy);
     vkEndCommandBuffer(cb);
 
-    // MAJOR-4: reserve a serial so this upload participates in the retirement watermark (§3.3) — otherwise a
-    // deferred-free entry's marker could be satisfied by an unrelated later submit while this upload is still
-    // the most-recent user (a latent UAF the moment uploads go async). The synchronous contract is honored by
-    // waiting on this upload's OWN fence, not a full-queue vkQueueWaitIdle: a queue-wide idle serializes every
-    // unrelated submission on the single graphics queue (MEL-ENGINE-III/VI — stealing cycles the caller did not
-    // ask for). The staging buffer + its memory route through the deferred-free queue (gated at this serial)
-    // rather than freed raw, so the pattern stays correct when uploads go async.
     u64               serial = mel_gpu__submit_serial_next(dev);
     VkFenceCreateInfo fci = { .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
     VkFence           fence = VK_NULL_HANDLE;
@@ -84,7 +77,7 @@ static bool mel_gpu__staging_upload(Mel_Gpu_Device* dev, VkBuffer dst, const voi
     vkDestroyFence(dev->vk, fence, NULL);
     vkDestroyCommandPool(dev->vk, pool, NULL);
     mel_gpu__defer_free(dev, (Mel_Gpu_Deferred_Free){ .buffer = staging, .alloc = sa, .has_alloc = true });
-    mel_gpu__submit_complete(dev, serial); // this upload's fence is signalled: advance the watermark, retiring the staging free
+    mel_gpu__submit_complete(dev, serial);
     return true;
 }
 
@@ -159,10 +152,6 @@ Mel_Gpu_Buffer_Create_Result mel_gpu_buffer_create_opt(Mel_Gpu_Device* dev, Mel_
 
     res.value.slot = mel_gpu__table_insert(dev, &dev->buffers, &obj);
 
-    // U14: auto-register the buffer into the device bindless heap at its handle index (direct contract §3.1)
-    // for every shader-addressable class its usage admits (gpu-rhi.md §6.7). CRITICAL-1: pre-flight every
-    // class before writing; an over-cap slot fails the create loudly (BindlessSlotExhausted) and rolls back
-    // rather than reporting a buffer with an unbound heap slot (MEL-ENGINE-VIII).
     if (dev->bindless.enabled)
     {
         bool stor = (opt.usage & MEL_GPU_BUFFER_STORAGE) != 0;
@@ -192,11 +181,10 @@ Mel_Gpu_Buffer_Create_Result mel_gpu_buffer_create_opt(Mel_Gpu_Device* dev, Mel_
 
 void mel_gpu_buffer_destroy(Mel_Gpu_Device* dev, Mel_Gpu_Buffer buf)
 {
-    // §3.7: buffer_destroy is SerializedPerObject on the destroyed handle (no double-destroy from two threads).
     const void* trk = mel_gpu__track_key(&dev->buffers, buf.slot.index);
     mel_gpu__track_enter(dev, trk, MEL_GPU_CONCURRENCY_SERIALIZED_PER_OBJECT);
-    Mel_Gpu_Buffer_Obj o; // BUG-1: copy the record out under obj_lock; a concurrent insert/remove must not
-    if (!mel_gpu__table_get_copy(dev, &dev->buffers, buf.slot, &o)) // relocate the packed slot under this read
+    Mel_Gpu_Buffer_Obj o;
+    if (!mel_gpu__table_get_copy(dev, &dev->buffers, buf.slot, &o))
     {
         mel_gpu__track_exit(dev, trk);
         return;
@@ -206,13 +194,10 @@ void mel_gpu_buffer_destroy(Mel_Gpu_Device* dev, Mel_Gpu_Buffer buf)
     VkBuffer           vk = o.buf;
     if (borrowed)
     {
-        // Imported (Borrowed): no underlying free, not heap-registered — the slot reuses immediately.
         mel_gpu__table_remove(dev, &dev->buffers, buf.slot);
     }
     else
     {
-        // U3/U14 future-gated retirement: the generation rolls now (use-after-free stays loud), but both the
-        // Vulkan object and the bindless slot index are reclaimed only once in-flight submissions retire.
         mel_gpu__table_remove_deferred(dev, &dev->buffers, buf.slot);
         mel_gpu__defer_free(dev, (Mel_Gpu_Deferred_Free){ .buffer = vk, .alloc = alloc, .has_alloc = true, .reclaim_table = &dev->buffers, .reclaim_index = buf.slot.index, .has_reclaim = true });
     }
@@ -258,18 +243,15 @@ bool mel_gpu_buffer_alive(Mel_Gpu_Device* dev, Mel_Gpu_Buffer buf) { return mel_
 
 void mel_gpu_buffer_write(Mel_Gpu_Device* dev, Mel_Gpu_Buffer buf, const void* data, usize bytes)
 {
-    // §3.7: buffer_write is SerializedPerObject on this resource (two threads cannot write one mapped pointer).
     const void* trk = mel_gpu__track_key(&dev->buffers, buf.slot.index);
     mel_gpu__track_enter(dev, trk, MEL_GPU_CONCURRENCY_SERIALIZED_PER_OBJECT);
-    Mel_Gpu_Buffer_Obj o; // BUG-1: snapshot the record under obj_lock before reading mapped/buf
+    Mel_Gpu_Buffer_Obj o;
     if (!mel_gpu__table_get_copy(dev, &dev->buffers, buf.slot, &o))
     {
         mel_gpu__track_exit(dev, trk);
         mel_assert(!"buffer_write: invalid buffer handle");
         return;
     }
-    // BUG-1: the mapped pointer (a stable persistent mapping for the buffer's lifetime) is captured by value,
-    // so the host memcpy never races a relocation of the packed slot.
     if (o.host_visible && o.alloc.mapped)
         memcpy(o.alloc.mapped, data, bytes);
     else
@@ -279,7 +261,7 @@ void mel_gpu_buffer_write(Mel_Gpu_Device* dev, Mel_Gpu_Buffer buf, const void* d
 
 void* mel_gpu_buffer_mapped(Mel_Gpu_Device* dev, Mel_Gpu_Buffer buf)
 {
-    Mel_Gpu_Buffer_Obj o; // BUG-1: snapshot under obj_lock; alloc.mapped is a persistent mapping, safe by value
+    Mel_Gpu_Buffer_Obj o;
     if (!mel_gpu__table_get_copy(dev, &dev->buffers, buf.slot, &o))
         return NULL;
     return o.alloc.mapped;
@@ -287,7 +269,7 @@ void* mel_gpu_buffer_mapped(Mel_Gpu_Device* dev, Mel_Gpu_Buffer buf)
 
 bool mel_gpu__buffer_get(Mel_Gpu_Device* dev, Mel_Gpu_Buffer buf, VkBuffer* out)
 {
-    Mel_Gpu_Buffer_Obj o; // BUG-1: snapshot under obj_lock
+    Mel_Gpu_Buffer_Obj o;
     if (!mel_gpu__table_get_copy(dev, &dev->buffers, buf.slot, &o))
         return false;
     *out = o.buf;
@@ -301,7 +283,7 @@ u64 mel_gpu_buffer_device_address(Mel_Gpu_Device* dev, Mel_Gpu_Buffer buf)
         mel_log_error("gpu", "buffer_device_address: device was not created with buffer_device_address");
         return 0;
     }
-    Mel_Gpu_Buffer_Obj o; // BUG-1: snapshot under obj_lock
+    Mel_Gpu_Buffer_Obj o;
     if (!mel_gpu__table_get_copy(dev, &dev->buffers, buf.slot, &o))
     {
         mel_assert(!"buffer_device_address: invalid buffer handle");

@@ -1,9 +1,5 @@
 #pragma once
 
-// MSAA side-by-side compositor fragment stage: left half samples the
-// multisample-resolved target, right half the single-sample reference, both
-// bindless. Paired with fullscreen.vert (BLIT_VERT_SPV).
-// Regenerate: glslc -fshader-stage=frag -mfmt=c shaders/msaa_compose.frag
 #include <stdint.h>
 
 static const uint32_t MSAA_COMPOSE_FRAG_SPV[] =

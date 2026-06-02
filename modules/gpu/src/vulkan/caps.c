@@ -105,10 +105,6 @@ void mel_gpu__caps_probe(VkPhysicalDevice phys, Mel_Gpu_Caps* out)
     out->memory.persistent_map = true;
     out->memory.residency_control = mel_gpu__phys_ext(phys, VK_EXT_MEMORY_BUDGET_EXTENSION_NAME) ? MEL_GPU_RESIDENCY_BUDGET_ONLY : MEL_GPU_RESIDENCY_NONE;
 
-    // U14 bindless tier (gpu-rhi.md §6.7). The descriptor-indexing floor — runtime arrays +
-    // update-after-bind + partially-bound across the resource classes the heap holds — is the earlier
-    // Vulkan ceiling and is reported as `full`: one persistent integer-indexed array per class. The
-    // descriptor_buffer / descriptor_heap path is a later additive lowering of the same surface.
     bool di_full = di.runtimeDescriptorArray && di.descriptorBindingPartiallyBound && di.shaderSampledImageArrayNonUniformIndexing && di.descriptorBindingSampledImageUpdateAfterBind && di.descriptorBindingStorageBufferUpdateAfterBind && di.descriptorBindingUniformBufferUpdateAfterBind && di.descriptorBindingStorageImageUpdateAfterBind;
     out->memory.bindless.tier = di_full ? MEL_GPU_TIER_FULL : MEL_GPU_TIER_NONE;
     if (di_full)

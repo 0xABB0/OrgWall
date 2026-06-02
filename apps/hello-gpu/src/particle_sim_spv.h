@@ -1,7 +1,5 @@
 #pragma once
 
-// GPU particle integrator: each invocation advances one particle under an attractor + drag, respawning escapees.
-// Regenerate: glslc -fshader-stage=comp -mfmt=c shaders/particle_sim.comp
 #include <stdint.h>
 
 static const uint32_t PARTICLE_SIM_COMP_SPV[] =

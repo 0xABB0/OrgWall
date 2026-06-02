@@ -10,7 +10,7 @@ typedef struct Gpu_Window
 {
     const Graphical_App*   app;
     Mel_Gui_Handle         frame;
-    Mel_Gui_Handle         status; // native label above the view; the HUD seam writes it
+    Mel_Gui_Handle         status;
     Mel_Gui_Handle         view;
     Mel_Gpu_Surface*       surface;
     Mel_Gpu_Swapchain*     swapchain;
@@ -25,9 +25,6 @@ static Mel_Gpu_Instance* g_instance;
 static Mel_Gpu_Device*   g_device;
 static Gpu_Window*       g_windows;
 
-// The window whose render callback is in flight. The render source fires on the
-// reactor (= UI) thread, so a screen reaching gpu_host_set_status from inside
-// `render` routes straight to that window's label with no cross-thread hop.
 static Gpu_Window* g_rendering;
 
 void gpu_host_set_status(str8 text)
@@ -67,10 +64,6 @@ void gpu_host_init(Mel_Reactor* reactor)
     if (n == 0)
         return;
 
-    // descriptor_indexing turns on the device-global bindless heap (gpu-rhi.md §6.7) the
-    // textured-quad, compute, depth, post-process and instancing screens sample through;
-    // buffer_device_address is the §6.7 ceiling those screens do not yet need but is cheap
-    // to request and keeps the door open. Screens guard on mel_gpu_bindless_available().
     Mel_Gpu_Device_Create_Result dr = mel_gpu_device_create(g_instance, adapters[0], .reactor = reactor, .features = { .timeline_semaphores = true, .descriptor_indexing = true, .buffer_device_address = true });
     g_device = dr.value;
 
@@ -113,11 +106,6 @@ static void teardown(Gpu_Window* w)
     }
 }
 
-// The surface seam is unified across platforms: the swapchain is created on the
-// first resize that has a ready surface, resized on later ones, and torn down on
-// a zero size (Android's surfaceDestroyed). On macOS/web the surface is ready by
-// layout time so this fires once with a valid size; on Android it follows the
-// SurfaceView lifecycle.
 static void window_resized(Mel_Gui_Handle h, i32 cw, i32 ch, void* user)
 {
     (void)h;
@@ -142,7 +130,7 @@ static void window_resized(Mel_Gui_Handle h, i32 cw, i32 ch, void* user)
 
     void* native = mel_gpu_view_surface(w->view);
     if (!native)
-        return; // surface not ready yet (Android, before surfaceCreated)
+        return;
 
     w->surface = mel_gpu_surface_create(g_device, native);
     if (!w->surface)
@@ -175,16 +163,10 @@ void gpu_host_open(const Graphical_App* app)
     w->frame = mel_frame_create(.title = str8_from_cstr(app->title), .w = 640, .h = 480);
     mel_gui_set_layout(w->frame, mel_column_layout(.spacing = 8, .margin = 12, .cross_align = MEL_ALIGN_STRETCH));
 
-    // Capture the label handle: a screen drives it live through gpu_host_set_status
-    // (caps + FPS HUD). Until a screen writes it, it shows the seam description.
     w->status = mel_label_create(w->frame, .text = S8("Native GUI label, sharing this window with a GPU surface below."), .layoutable = { .preferred_h = 24 });
 
     w->view = mel_gpu_view_create(w->frame, .on_.on_resize = window_resized, .user = w, .layoutable = { .preferred_h = 400, .weight = 1 });
 
-    // Frames opened directly (not via the screen system) are not auto-sized; give
-    // it a size/position and arrange children. On macOS/web this fires
-    // window_resized synchronously with a ready surface, creating the swapchain;
-    // on Android the swapchain waits for the SurfaceView's surface callback.
     mel_gui_set_bounds(w->frame, 60, 60, 640, 480);
     mel_gui_relayout(w->frame);
     mel_gui_set_visible(w->frame, true);

@@ -33,8 +33,6 @@ static D3D12_RESOURCE_DESC mel_gpu__buffer_desc(u64 size, bool storage)
     };
 }
 
-// DEVICE-with-data: stage into an UPLOAD committed resource, then immediate copy on a transient DIRECT list
-// (mirrors the Vulkan staging path). Buffers ride common-state promotion, so the copy needs no barriers.
 static bool mel_gpu__upload_via_copy(Mel_Gpu_Device* dev, ID3D12Resource* dst, const void* data, u64 size)
 {
     D3D12_HEAP_PROPERTIES hp = { .Type = D3D12_HEAP_TYPE_UPLOAD, .CreationNodeMask = 1, .VisibleNodeMask = 1 };
@@ -140,8 +138,6 @@ Mel_Gpu_Buffer_Create_Result mel_gpu_buffer_create_opt(Mel_Gpu_Device* dev, Mel_
 
     res.value.slot = mel_gpu__table_insert(dev, &dev->buffers, &obj);
 
-    // U14: register the buffer's heap descriptor at its reserved slot (STORAGE -> UAV, UNIFORM -> CBV) so it
-    // is reachable by descriptor index for the lifetime of the handle (gpu-rhi.md §6.7).
     if (dev->bindless_enabled && (opt.usage & (MEL_GPU_BUFFER_STORAGE | MEL_GPU_BUFFER_UNIFORM)))
         mel_gpu__bindless_register_buffer(dev, res.value.slot.index, &obj, opt.usage);
 
@@ -157,12 +153,9 @@ void mel_gpu_buffer_destroy(Mel_Gpu_Device* dev, Mel_Gpu_Buffer buf)
     ID3D12Resource* r = o->resource;
     if (borrowed)
     {
-        // Imported (Borrowed): no underlying release; the slot reuses immediately (gpu-rhi.md §3.1).
         mel_gpu__table_remove(dev, &dev->buffers, buf.slot);
         return;
     }
-    // U3 future-gated retirement: the generation rolls now (use-after-free stays loud), the COM object and
-    // the slot index are reclaimed only once in-flight submissions retire (gpu-rhi.md §3.3).
     mel_gpu__table_remove_deferred(dev, &dev->buffers, buf.slot);
     mel_gpu__defer_free(dev, (Mel_Gpu_Deferred_Free){ .resource = r, .reclaim_table = &dev->buffers, .reclaim_index = buf.slot.index, .has_reclaim = true });
 }

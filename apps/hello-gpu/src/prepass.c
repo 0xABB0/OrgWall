@@ -24,10 +24,10 @@ typedef struct
 {
     Mel_Gpu_Device*  dev;
     bool             ready;
-    Mel_Gpu_Shader   shader;       // scene3d.vert + scene3d.frag (lit pass)
-    Mel_Gpu_Shader   depth_shader; // scene3d.vert + depth_only.frag (no colour out)
-    Mel_Gpu_Pipeline depth_pl;     // prepass: depth-only, LESS, write on
-    Mel_Gpu_Pipeline lit_pl;       // lit pass: EQUAL, write off, into colour
+    Mel_Gpu_Shader   shader;
+    Mel_Gpu_Shader   depth_shader;
+    Mel_Gpu_Pipeline depth_pl;
+    Mel_Gpu_Pipeline lit_pl;
 
     i32                  w, h;
     Mel_Gpu_Texture      color;
@@ -104,8 +104,6 @@ static void* prepass_init(Mel_Gpu_Device* dev, Mel_Gpu_Swapchain* sc)
                                                     .name = "prepass-scene")
                     .value;
 
-    // The prepass writes no colour (colour-attachment-less pass), so it uses a
-    // fragment stage with no output — otherwise the unused-output diagnostic fires.
     p->depth_shader = mel_gpu_shader_create_from_bytecode(dev,
                                                           .spirv_vertex = SCENE3D_VERT_SPV,
                                                           .spirv_vertex_size = sizeof SCENE3D_VERT_SPV,
@@ -121,7 +119,6 @@ static void* prepass_init(Mel_Gpu_Device* dev, Mel_Gpu_Swapchain* sc)
         { .location = 1, .format = MEL_GPU_FORMAT_RGBA32_FLOAT, .offset = offsetof(Pt_Vertex, color) },
     };
 
-    // Prepass pipeline: no colour target, depth LESS + write. Establishes nearest-Z.
     Mel_Gpu_Depth_Stencil depth_ds = { .depth_test = true, .depth_write = true, .depth_compare = MEL_GPU_COMPARE_LESS };
     p->depth_pl = mel_gpu_pipeline_create(dev,
                                           .shader = p->depth_shader,
@@ -136,8 +133,6 @@ static void* prepass_init(Mel_Gpu_Device* dev, Mel_Gpu_Swapchain* sc)
                                           .name = "prepass-depth")
                       .value;
 
-    // Lit pipeline: colour target, depth EQUAL + write off. Only the fragments that
-    // own the prepass-established nearest-Z survive, so each pixel shades exactly once.
     Mel_Gpu_Depth_Stencil lit_ds = { .depth_test = true, .depth_write = false, .depth_compare = MEL_GPU_COMPARE_EQUAL };
     p->lit_pl = mel_gpu_pipeline_create(dev,
                                         .shader = p->shader,
@@ -186,8 +181,6 @@ static void prepass_resize(void* state, i32 w, i32 h)
     p->targets_fresh = true;
 }
 
-// Heavily overlapping scene: CUBE_COUNT cubes marching toward the camera along z so
-// they overdraw the same pixels several times — the case the prepass culls.
 static u32 build_scene(Prepass* p, Pt_Vertex* out)
 {
     const f32 aspect = (f32)p->w / (f32)p->h;
@@ -198,7 +191,7 @@ static u32 build_scene(Prepass* p, Pt_Vertex* out)
     for (i32 c = 0; c < CUBE_COUNT; ++c)
     {
         f32 t = (f32)c / (f32)CUBE_COUNT;
-        f32 depth = -3.0f - t * 14.0f; // stacked along z
+        f32 depth = -3.0f - t * 14.0f;
         f32 swirl = (f32)p->angle * 0.4f + t * 3.0f;
         V3  centre = { 0.6f * cosf(swirl) * t, 0.6f * sinf(swirl * 1.1f) * t, depth };
         f32 ax = (f32)(p->angle * 0.6) + t * 4.0f;
@@ -217,7 +210,6 @@ static u32 build_scene(Prepass* p, Pt_Vertex* out)
             const i32* q = FACES[face];
             const i32  idx[2][3] = { { q[0], q[1], q[2] }, { q[0], q[2], q[3] } };
             V3         base = FACE_COLOR[face];
-            // Shade darker with depth so the survivor layering reads as recession.
             f32        shade = 0.45f + 0.55f * (1.0f - t);
             for (i32 tri = 0; tri < 2; ++tri)
                 for (i32 k = 0; k < 3; ++k)
@@ -261,15 +253,11 @@ static void prepass_render(void* state, Mel_Gpu_Command_List* cmd, f64 dt)
     bool                      fresh = p->targets_fresh;
     p->targets_fresh = false;
 
-    // Colour: COMMON (fresh) or SHADER_RESOURCE (last present) -> RENDER_TARGET.
     Mel_Gpu_Resource_State color_src = fresh ? MEL_GPU_STATE_COMMON : MEL_GPU_STATE_SHADER_RESOURCE;
     mel_gpu_cmd_texture_barrier(cmd, p->color, crange, color_src, MEL_GPU_STATE_RENDER_TARGET);
-    // Depth lives in DEPTH_WRITE across the whole frame (both passes attach it); the
-    // EQUAL pass reads it as an attachment, not a texture, so it never leaves DEPTH_WRITE.
     Mel_Gpu_Resource_State depth_src = fresh ? MEL_GPU_STATE_COMMON : MEL_GPU_STATE_DEPTH_WRITE;
     mel_gpu_cmd_texture_barrier(cmd, p->depth, drange, depth_src, MEL_GPU_STATE_DEPTH_WRITE);
 
-    // Pass 1: depth prepass. No colour attachment; clear + write depth.
     Mel_Gpu_Depth_Attachment pre_depth = { .view = p->depth_view, .load = MEL_GPU_LOAD_CLEAR, .store = MEL_GPU_STORE_STORE, .clear_depth = 1.0f };
     mel_gpu_cmd_begin_rendering(cmd, .depth = &pre_depth, .width = (u32)p->w, .height = (u32)p->h);
     mel_gpu_cmd_bind_pipeline(cmd, p->depth_pl);
@@ -277,7 +265,6 @@ static void prepass_render(void* state, Mel_Gpu_Command_List* cmd, f64 dt)
     mel_gpu_cmd_draw(cmd, count, 1);
     mel_gpu_cmd_end_rendering(cmd);
 
-    // Pass 2: lit pass. Reuse the prepass depth with EQUAL + write off, into colour.
     Mel_Gpu_Color_Attachment lit_color = { .view = p->color_view, .load = MEL_GPU_LOAD_CLEAR, .store = MEL_GPU_STORE_STORE, .clear = mel_gpu_rgba(0.03f, 0.04f, 0.06f, 1.0f) };
     Mel_Gpu_Depth_Attachment lit_depth = { .view = p->depth_view, .load = MEL_GPU_LOAD_LOAD, .store = MEL_GPU_STORE_DONT_CARE, .clear_depth = 1.0f };
     mel_gpu_cmd_begin_rendering(cmd, .colors = &lit_color, .color_count = 1, .depth = &lit_depth, .width = (u32)p->w, .height = (u32)p->h);
@@ -286,7 +273,6 @@ static void prepass_render(void* state, Mel_Gpu_Command_List* cmd, f64 dt)
     mel_gpu_cmd_draw(cmd, count, 1);
     mel_gpu_cmd_end_rendering(cmd);
 
-    // Present the lit colour.
     mel_gpu_cmd_texture_barrier(cmd, p->color, crange, MEL_GPU_STATE_RENDER_TARGET, MEL_GPU_STATE_SHADER_RESOURCE);
     bindless_present_blit(&p->present, cmd, p->color_slot, mel_gpu_rgba(0, 0, 0, 1));
 }

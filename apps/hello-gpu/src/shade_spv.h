@@ -1,7 +1,5 @@
 #pragma once
 
-// Dispatch-indirect Pass C (indirect): one invocation per survivor splats into the storage image.
-// Regenerate: glslc -fshader-stage=comp -mfmt=c shaders/shade.comp
 #include <stdint.h>
 
 static const uint32_t SHADE_COMP_SPV[] =

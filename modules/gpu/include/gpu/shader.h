@@ -35,7 +35,6 @@ typedef struct
 Mel_Gpu_Shader_Create_Result mel_gpu_shader_create_from_bytecode_opt(Mel_Gpu_Device* dev, Mel_Gpu_Shader_Bytecode_Opt opt);
 #define mel_gpu_shader_create_from_bytecode(dev, ...) mel_gpu_shader_create_from_bytecode_opt((dev), (Mel_Gpu_Shader_Bytecode_Opt){ __VA_ARGS__ })
 
-// U13 compute: a single-stage compute shader from raw SPIR-V (the P2 bytecode peer, gpu-rhi.md §6.4).
 typedef struct
 {
     const void* spirv;

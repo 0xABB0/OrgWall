@@ -33,14 +33,12 @@ void hud_init(Hud* hud, Mel_Gpu_Device* dev)
 
 void hud_frame(Hud* hud, f64 dt, const char* suffix)
 {
-    // Seed on the first non-zero dt, then exponentially smooth so the readout is
-    // legible instead of jittering frame to frame.
     if (dt > 0.0)
         hud->ewma_dt = (hud->ewma_dt == 0.0) ? dt : hud->ewma_dt * 0.9 + dt * 0.1;
 
     hud->accum += dt;
     hud->frames++;
-    if (hud->accum < 0.2) // refresh the label ~5×/second, not every frame
+    if (hud->accum < 0.2)
         return;
     hud->accum = 0.0;
     hud->frames = 0;

@@ -1,24 +1,19 @@
 #version 460
 #extension GL_EXT_nonuniform_qualifier : require
 
-// GPU particle integrator. Each invocation owns one particle (so the in-place
-// read-modify-write touches only its own slot — no cross-invocation hazard) and
-// advances it under gravity toward a moving attractor with light drag, respawning
-// it from a seed when it leaves the field. The instanced draw consumes the same
-// buffer; this is the integrate half of integrate-then-draw.
 layout(local_size_x = 64) in;
 
 struct Particle
 {
-    vec4 pos_life; // xy = position (NDC), z = life [0,1], w = seed angle
-    vec4 vel;      // xy = velocity, zw = unused
+    vec4 pos_life;
+    vec4 vel;
 };
 
 layout(set = 0, binding = 2, std430) buffer Particles { Particle p[]; } buf[];
 
 layout(push_constant, std430) uniform Root
 {
-    uint  particles; // slot of the particle buffer
+    uint  particles;
     uint  total;
     float dt;
     float time;
@@ -37,13 +32,12 @@ void main()
 
     vec2  to = attract - pt.pos_life.xy;
     float d2 = max(dot(to, to), 0.01);
-    vec2  accel = to / d2 * 0.10; // inverse-distance pull toward the attractor
+    vec2  accel = to / d2 * 0.10;
 
     pt.vel.xy = pt.vel.xy * 0.992 + accel * root.dt;
     pt.pos_life.xy += pt.vel.xy * root.dt;
-    pt.pos_life.z -= root.dt * 0.25; // decay life
+    pt.pos_life.z -= root.dt * 0.25;
 
-    // Respawn when life runs out or the particle escapes the field.
     if (pt.pos_life.z <= 0.0 || abs(pt.pos_life.x) > 1.3 || abs(pt.pos_life.y) > 1.3)
     {
         float a = pt.pos_life.w + root.time * 1.7 + float(i) * 0.013;

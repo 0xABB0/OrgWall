@@ -60,10 +60,6 @@ Mel_Gpu_Shader_Create_Result mel_gpu_shader_create_from_bytecode_opt(Mel_Gpu_Dev
     obj.vs_entry = mel_gpu__strdup(dev->alloc, opt.vertex_entry);
     obj.fs_entry = mel_gpu__strdup(dev->alloc, opt.fragment_entry);
 
-    // U12 reflection: derive the layout-relevant facts (push-constant size, set-0 descriptor bounds, vertex
-    // input, spec constants) as the union over both stages. Vertex inputs come only from the vertex blob —
-    // a fragment's Input variables are interpolants, not vertex attributes. U13 consumes this to build the
-    // pipeline layout (gpu-rhi.md §6.4).
     obj.reflection = (Mel_Gpu_Spirv_Reflection){ 0 };
     mel_gpu__spirv_reflect((const u32*)opt.spirv_vertex, opt.spirv_vertex_size, true, dev->alloc, &obj.reflection);
     mel_gpu__spirv_reflect((const u32*)opt.spirv_fragment, opt.spirv_fragment_size, false, dev->alloc, &obj.reflection);
@@ -94,8 +90,6 @@ Mel_Gpu_Shader_Create_Result mel_gpu_shader_create_compute_from_bytecode_opt(Mel
     obj.cs = cs;
     obj.cs_entry = mel_gpu__strdup(dev->alloc, opt.entry);
 
-    // U12 reflection: a compute stage has no vertex input (vertex_stage false); push-constant size and set-0
-    // descriptor bounds are derived exactly as for graphics (gpu-rhi.md §6.4).
     obj.reflection = (Mel_Gpu_Spirv_Reflection){ 0 };
     mel_gpu__spirv_reflect((const u32*)opt.spirv, opt.spirv_size, false, dev->alloc, &obj.reflection);
 
@@ -105,10 +99,9 @@ Mel_Gpu_Shader_Create_Result mel_gpu_shader_create_compute_from_bytecode_opt(Mel
 
 void mel_gpu_shader_destroy(Mel_Gpu_Device* dev, Mel_Gpu_Shader sh)
 {
-    // §3.7: shader_destroy is SerializedPerObject on the destroyed handle.
     const void* trk = mel_gpu__track_key(&dev->shaders, sh.slot.index);
     mel_gpu__track_enter(dev, trk, MEL_GPU_CONCURRENCY_SERIALIZED_PER_OBJECT);
-    Mel_Gpu_Shader_Obj o; // BUG-1: copy the record out under obj_lock before any field read
+    Mel_Gpu_Shader_Obj o;
     if (!mel_gpu__table_get_copy(dev, &dev->shaders, sh.slot, &o))
     {
         mel_gpu__track_exit(dev, trk);
@@ -116,7 +109,7 @@ void mel_gpu_shader_destroy(Mel_Gpu_Device* dev, Mel_Gpu_Shader sh)
     }
     VkShaderModule           vs = o.vs, fs = o.fs, cs = o.cs;
     char *                   ve = o.vs_entry, *fe = o.fs_entry, *ce = o.cs_entry;
-    Mel_Gpu_Spirv_Reflection refl = o.reflection; // the snapshot owns these pointers; destroy is SerializedPerObject
+    Mel_Gpu_Spirv_Reflection refl = o.reflection;
     mel_gpu__table_remove(dev, &dev->shaders, sh.slot);
     if (vs)
         vkDestroyShaderModule(dev->vk, vs, NULL);
@@ -138,7 +131,7 @@ bool mel_gpu_shader_alive(Mel_Gpu_Device* dev, Mel_Gpu_Shader sh) { return mel_g
 
 bool mel_gpu__shader_modules(Mel_Gpu_Device* dev, Mel_Gpu_Shader sh, VkShaderModule* vs, VkShaderModule* fs, const char** vs_entry, const char** fs_entry)
 {
-    Mel_Gpu_Shader_Obj o; // BUG-1: snapshot under obj_lock
+    Mel_Gpu_Shader_Obj o;
     if (!mel_gpu__table_get_copy(dev, &dev->shaders, sh.slot, &o))
         return false;
     *vs = o.vs;
@@ -150,7 +143,7 @@ bool mel_gpu__shader_modules(Mel_Gpu_Device* dev, Mel_Gpu_Shader sh, VkShaderMod
 
 bool mel_gpu__shader_compute_module(Mel_Gpu_Device* dev, Mel_Gpu_Shader sh, VkShaderModule* cs, const char** cs_entry)
 {
-    Mel_Gpu_Shader_Obj o; // BUG-1: snapshot under obj_lock
+    Mel_Gpu_Shader_Obj o;
     if (!mel_gpu__table_get_copy(dev, &dev->shaders, sh.slot, &o) || o.cs == VK_NULL_HANDLE)
         return false;
     *cs = o.cs;
@@ -160,7 +153,7 @@ bool mel_gpu__shader_compute_module(Mel_Gpu_Device* dev, Mel_Gpu_Shader sh, VkSh
 
 bool mel_gpu__shader_reflection(Mel_Gpu_Device* dev, Mel_Gpu_Shader sh, Mel_Gpu_Spirv_Reflection* out)
 {
-    Mel_Gpu_Shader_Obj o; // BUG-1: snapshot under obj_lock
+    Mel_Gpu_Shader_Obj o;
     if (!mel_gpu__table_get_copy(dev, &dev->shaders, sh.slot, &o))
         return false;
     *out = o.reflection;

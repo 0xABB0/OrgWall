@@ -5,15 +5,6 @@
 
 #include <string.h>
 
-// U11 samplers (gpu-rhi.md §6.3). A D3D12 sampler is a heap descriptor, not a COM object. Auto-dedup by
-// canonical key (the public contract): identical descriptors share one handle + one sampler-heap slot,
-// refcounted; the slot retires at refcount 0 (future-gated). slot == handle.index in the sampler heap
-// (its own index space — samplers never collide with CBV/SRV/UAV resources, §6.7).
-//
-// The intern table and the sampler slotmap are both guarded by dev->obj_lock; this file touches the slotmap
-// directly (mel_slotmap_*) rather than via the mel_gpu__table_* wrappers, which lock obj_lock themselves —
-// nesting a PLAIN mutex would deadlock.
-
 static u64 mel_gpu__fnv1a(const void* p, usize n)
 {
     u64       h = 1469598103934665603ULL;
@@ -67,8 +58,6 @@ static D3D12_COMPARISON_FUNC mel_gpu__compare(Mel_Gpu_Compare_Op c)
     }
 }
 
-// D3D12_FILTER is a packed enum: bit4 = min-linear, bit2 = mag-linear, bit0 = mip-linear; 0x55 = anisotropic;
-// +0x80 selects the comparison-reduction variant. (D3D12_FILTER_MIN_MAG_MIP_LINEAR == 0x15, etc.)
 static D3D12_FILTER mel_gpu__filter(Mel_Gpu_Filter mn, Mel_Gpu_Filter mg, Mel_Gpu_Mipmap_Mode mip, bool aniso, bool compare)
 {
     UINT f;
@@ -154,7 +143,7 @@ Mel_Gpu_Sampler_Create_Result mel_gpu_sampler_create_opt(Mel_Gpu_Device* dev, Me
             o->refcount++;
             res.value.slot = dev->sampler_interns[i].handle;
             mel_mutex_unlock(&dev->obj_lock);
-            return res; // dedup hit: the descriptor is already in the heap at this slot
+            return res;
         }
     }
 
@@ -195,7 +184,7 @@ void mel_gpu_sampler_destroy(Mel_Gpu_Device* dev, Mel_Gpu_Sampler sampler)
     if (--o->refcount > 0)
     {
         mel_mutex_unlock(&dev->obj_lock);
-        return; // a logical claim remains (dedup share / static-sampler retain)
+        return;
     }
     for (u32 i = 0; i < dev->sampler_intern_count; i++)
         if (mel_gpu_handle_eq(dev->sampler_interns[i].handle, sampler.slot))
@@ -203,8 +192,6 @@ void mel_gpu_sampler_destroy(Mel_Gpu_Device* dev, Mel_Gpu_Sampler sampler)
             dev->sampler_interns[i] = dev->sampler_interns[--dev->sampler_intern_count];
             break;
         }
-    // Roll the generation now (use-after-free stays loud); reclaim the slot once submissions retire (§3.3),
-    // so the sampler-heap descriptor is never overwritten while an in-flight draw still samples it.
     mel_slotmap_remove_deferred(&dev->samplers.map, sampler.slot);
     mel_mutex_unlock(&dev->obj_lock);
     mel_gpu__defer_free(dev, (Mel_Gpu_Deferred_Free){ .reclaim_table = &dev->samplers, .reclaim_index = sampler.slot.index, .has_reclaim = true });
@@ -216,7 +203,7 @@ u32 mel_gpu_sampler_bindless_slot(Mel_Gpu_Device* dev, Mel_Gpu_Sampler sampler)
 {
     mel_assert(dev->bindless_enabled);
     mel_assert(mel_gpu_sampler_alive(dev, sampler));
-    return sampler.slot.index; // the sampler heap is its own index space (§3.1)
+    return sampler.slot.index;
 }
 
 void mel_gpu__sampler_retain(Mel_Gpu_Device* dev, Mel_Gpu_Sampler s)

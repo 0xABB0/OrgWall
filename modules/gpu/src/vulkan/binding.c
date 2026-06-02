@@ -2,14 +2,8 @@
 
 #include <log/log.h>
 
-// U14 device-global bindless heap (gpu-rhi.md §6.7). One descriptor set; one large partially-bound
-// update-after-bind array per resource class. This is the descriptor-indexing floor — the earlier Vulkan
-// ceiling — reported as caps.memory.bindless.tier = full. The descriptor_buffer / descriptor_heap path is
-// a later additive lowering of the same public surface.
-
 static u32 mel_gpu__min_u32(u32 a, u32 b) { return a < b ? a : b; }
 
-// The heap's per-class slot capacity, looked up by the engine-canonical binding index (= heap class index).
 u32 mel_gpu__heap_cap_for_class(Mel_Gpu_Device* dev, u32 binding_class)
 {
     switch (binding_class)
@@ -37,8 +31,6 @@ void mel_gpu__bindless_init(Mel_Gpu_Device* dev, bool want)
     if (!want || dev->caps.memory.bindless.tier == MEL_GPU_TIER_NONE)
         return;
 
-    // Heap caps: a sane default clamped to the device's per-stage update-after-bind limits. The slot count
-    // bounds the addressable handle index; the engine never silently compacts past it (gpu-rhi.md §6.2).
     const u32 DEFAULT_IMAGE = 16384, DEFAULT_SAMPLER = 2048, DEFAULT_BUFFER = 16384;
     b->cap_sampled_image = mel_gpu__min_u32(DEFAULT_IMAGE, dev->caps.memory.bindless.max_texture_view_slots);
     b->cap_sampler = mel_gpu__min_u32(DEFAULT_SAMPLER, dev->caps.memory.bindless.max_sampler_slots);
@@ -114,7 +106,6 @@ void mel_gpu__bindless_init(Mel_Gpu_Device* dev, bool want)
     mel_mutex_init(&b->lock, MEL_MUTEX_PLAIN);
     b->enabled = true;
 
-    // caps now report the realized heap capacity, not the device's theoretical maximum.
     dev->caps.memory.bindless.max_texture_view_slots = b->cap_sampled_image;
     dev->caps.memory.bindless.max_sampler_slots = b->cap_sampler;
     dev->caps.memory.bindless.max_storage_buffer_slots = b->cap_storage_buffer;
@@ -129,7 +120,6 @@ void mel_gpu__bindless_shutdown(Mel_Gpu_Device* dev)
     Mel_Gpu_Bindless* b = &dev->bindless;
     if (!b->enabled)
         return;
-    // The pool frees the set; the layout is destroyed explicitly. Both are device-lifetime, no deferral.
     if (b->pool)
         vkDestroyDescriptorPool(dev->vk, b->pool, NULL);
     if (b->set_layout)
@@ -138,13 +128,6 @@ void mel_gpu__bindless_shutdown(Mel_Gpu_Device* dev)
     b->enabled = false;
 }
 
-// Heap writes follow update-after-bind semantics. Writing a slot an in-flight submission samples is
-// undefined (gpu-rhi.md §6.7); the engine never writes a live slot — register happens at create, the slot
-// is reused only after the destroy's completion future resolves (§3.3). Past the cap the registration is
-// REFUSED and the function returns false so the create path fails loudly with a BindlessSlotExhausted status
-// rather than asserting as control flow or silently dropping the descriptor (CRITICAL-1 / MEL-ENGINE-VIII).
-// The slot==handle.index contract (§3.1) means the slotmap can hand out an index past a class's fixed cap;
-// surfacing a status is the minimum honest fix — growing the per-class heap on demand is the follow-up.
 static bool mel_gpu__bindless_check(Mel_Gpu_Device* dev, u32 slot, u32 cap, const char* klass)
 {
     if (!dev->bindless.enabled)
@@ -157,12 +140,10 @@ static bool mel_gpu__bindless_check(Mel_Gpu_Device* dev, u32 slot, u32 cap, cons
     return true;
 }
 
-// Pre-flight predicate the create paths consult before committing the slot, so an over-cap resource fails
-// create (status) instead of registering past the cap. `binding_class` is the MEL_GPU_BINDLESS_BINDING_* index.
 bool mel_gpu__bindless_slot_fits(Mel_Gpu_Device* dev, u32 binding_class, u32 slot)
 {
     if (!dev->bindless.enabled)
-        return true; // no heap, no registration, no cap to exceed
+        return true;
     return slot < mel_gpu__heap_cap_for_class(dev, binding_class);
 }
 
@@ -266,13 +247,11 @@ bool mel_gpu__bindless_register_sampler(Mel_Gpu_Device* dev, u32 slot, VkSampler
     return true;
 }
 
-// ---- public surface ----
-
 bool mel_gpu_bindless_available(Mel_Gpu_Device* dev) { return dev && dev->bindless.enabled; }
 
 u32 mel_gpu_texture_view_bindless_slot(Mel_Gpu_Device* dev, Mel_Gpu_Texture_View view)
 {
-    Mel_Gpu_Texture_View_Obj o; // BUG-1: snapshot under obj_lock; only the validity boolean is needed here
+    Mel_Gpu_Texture_View_Obj o;
     if (!dev || !mel_gpu__texture_view_get(dev, view, &o))
     {
         mel_assert(!"texture_view_bindless_slot: invalid view handle");

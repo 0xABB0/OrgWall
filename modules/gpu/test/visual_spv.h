@@ -1,11 +1,5 @@
 #pragma once
 
-// SPIR-V for the gpu-visual golden tests. Self-contained (no shared symbols with bindless_spv.h):
-// a fullscreen-triangle vertex shader emitting a [0,1]x[0,1] UV, a bindless sampled-texture fragment
-// (set 0 binding 0 texture + binding 1 sampler, root record {tex, smp}), and a uniform-buffer bindless
-// fragment (set 0 binding 3 UBO heap class, root record {ubo}). Binding indices follow the engine heap
-// convention (gpu-rhi.md §6.7): 0 sampled image, 1 sampler, 3 uniform buffer.
-// Regenerate: glslc -fshader-stage={vert,frag} -mfmt=c <src> (sources in writeup/2026-06-02-gpu-rhi-visual-tests.md).
 #include <stdint.h>
 
 // fullscreen.vert: gl_VertexIndex-driven covering triangle; v_uv spans [0,1] across the target.

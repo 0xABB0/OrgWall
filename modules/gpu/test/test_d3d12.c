@@ -25,18 +25,9 @@
 #include <stdlib.h>
 #include <string.h>
 
-// Test-only swapchain hooks (swapchain.c), not on the public surface — declared here to keep
-// gpu/swapchain.h backend-clean.
-//   - readback_back: a presented back buffer is not CPU-mappable, so the rendered clear is verified by copying
-//     the back buffer into a READBACK buffer.
-//   - create_headless: an SSH service session is a non-interactive window station with no DWM, where
-//     CreateSwapChainForHwnd fails (DXGI_ERROR_INVALID_CALL); the composition swapchain drives the identical
-//     back-buffer/present/resize machinery without a desktop, so the present path is provable headless.
 bool               mel_gpu__swapchain_readback_back(Mel_Gpu_Swapchain* sc, Mel_Gpu_Buffer dst);
 Mel_Gpu_Swapchain* mel_gpu__swapchain_create_headless(Mel_Gpu_Device* dev, Mel_Gpu_Swapchain_Opt opt);
 
-// True when this process owns an interactive window station (has a desktop / DWM), where the production
-// CreateSwapChainForHwnd path is exercisable; false under an SSH service session.
 static bool test_interactive_session(void)
 {
     char    name[256] = { 0 };
@@ -47,10 +38,6 @@ static bool test_interactive_session(void)
     return strncmp(name, "WinSta0", 7) == 0;
 }
 
-// Phase 3 shaders are authored as HLSL and compiled to DXIL at test time by spawning the in-box dxc.exe (on
-// PATH under dev.cmd). This keeps the tests dependency-free at link time (no dxcompiler.dll / dxcapi.h on the
-// in-box INCLUDE path) and exercises real signed SM 6.0 DXIL (dxil.dll co-located). The blob is malloc'd; the
-// caller frees it after shader create (which copies it).
 static bool dxc_compile(const char* hlsl, const char* profile, void** out_blob, usize* out_size)
 {
     const char* tmp = getenv("TEMP");
@@ -93,12 +80,6 @@ static bool dxc_compile(const char* hlsl, const char* profile, void** out_blob, 
     *out_size = (usize)n;
     return true;
 }
-
-// D3D12 backend (gpu-rhi.md §12 M2 co-primary; design/gpu-d3d12.md). Phase 0 — device foundation: the
-// toolchain (clang/MSVC ABI over the in-box d3d12.h in C), DXGI adapter enumeration, caps, and headless
-// device create/destroy on the win-pilot RTX 2060. Phase 1 — queues, committed-resource buffers, the
-// device timeline fence driving submit→future + deferred-free, and the QueryVideoMemoryInfo budget.
-// Pixel/recording phases follow.
 
 static Mel_Gpu_Device* test_make_device(Mel_Gpu_Instance** out_inst)
 {
@@ -156,8 +137,6 @@ MEL_TEST(d3d12_device, create_and_destroy_headless)
     MEL_REQUIRE_NOT_NULL(caps);
     MEL_EXPECT(caps->adapter.name[0] != 0);
     MEL_EXPECT(caps->sampler.max_anisotropy >= 1.0f);
-    // The RTX 2060 is a discrete, timestamp-capable, Tier-3 bindless device — confirm the device-level
-    // refinement ran (these would all be zero/none if CheckFeatureSupport had not been consulted).
     MEL_EXPECT(caps->queries.timestamp == MEL_GPU_TIMESTAMP_NATIVE);
     MEL_EXPECT(caps->queries.timestamp_period_ns > 0.0);
 
@@ -173,7 +152,6 @@ MEL_TEST(d3d12_alloc, buffer_upload_and_device)
 
     const f32 verts[] = { 0, 1, 2, 3, 4, 5, 6, 7 };
 
-    // UPLOAD: host-visible, persistently mapped — the write lands at the mapped pointer.
     Mel_Gpu_Buffer_Create_Result up = mel_gpu_buffer_create(dev, .size = sizeof verts, .usage = MEL_GPU_BUFFER_VERTEX, .memory = MEL_GPU_MEMORY_UPLOAD, .data = verts, .name = "upload-vbo");
     MEL_REQUIRE(!mel_gpu_failed(up.status));
     MEL_REQUIRE(mel_gpu_buffer_alive(dev, up.value));
@@ -181,7 +159,6 @@ MEL_TEST(d3d12_alloc, buffer_upload_and_device)
     MEL_REQUIRE_NOT_NULL(mapped);
     MEL_EXPECT_FLOAT_EQ(((f32*)mapped)[3], 3.0f, 0.0001f);
 
-    // DEVICE: device-local, populated through the transient staging copy + timeline-fence wait.
     Mel_Gpu_Buffer_Create_Result dv = mel_gpu_buffer_create(dev, .size = sizeof verts, .usage = MEL_GPU_BUFFER_VERTEX, .memory = MEL_GPU_MEMORY_DEVICE, .data = verts, .name = "device-vbo");
     MEL_REQUIRE(!mel_gpu_failed(dv.status));
     MEL_REQUIRE(mel_gpu_buffer_alive(dev, dv.value));
@@ -210,7 +187,6 @@ MEL_TEST(d3d12_queue, request_info_submit)
     MEL_EXPECT(info.supports_graphics);
     MEL_EXPECT(info.timestamp_valid_bits > 0);
 
-    // No reactor on this device ⇒ the synchronous submit path: signal the timeline fence and wait it out.
     Mel_Gpu_Future* f = mel_gpu_queue_submit(q, (Mel_Gpu_Submit){ .command_list_count = 0 });
     MEL_REQUIRE_NOT_NULL(f);
     MEL_EXPECT(mel_gpu_future_resolved(f));
@@ -268,8 +244,6 @@ MEL_TEST(d3d12_texture, create_view_and_alive)
     mel_gpu_instance_destroy(inst);
 }
 
-// U10 + U15 + U16 + U17 end-to-end: clear an offscreen render target, copy it to a readback buffer, and
-// verify the cleared pixel on the CPU — first pixels on D3D12.
 MEL_TEST(d3d12_render, offscreen_clear_readback)
 {
     Mel_Gpu_Instance* inst = NULL;
@@ -314,10 +288,10 @@ MEL_TEST(d3d12_render, offscreen_clear_readback)
 
     const u8* px = mel_gpu_buffer_mapped(dev, rb.value);
     MEL_REQUIRE_NOT_NULL(px);
-    MEL_EXPECT(px[0] >= 62 && px[0] <= 66);   // r = 0.25
-    MEL_EXPECT(px[1] >= 126 && px[1] <= 130); // g = 0.5
-    MEL_EXPECT(px[2] >= 189 && px[2] <= 193); // b = 0.75
-    MEL_EXPECT_EQ(px[3], 255u);               // a = 1.0
+    MEL_EXPECT(px[0] >= 62 && px[0] <= 66);
+    MEL_EXPECT(px[1] >= 126 && px[1] <= 130);
+    MEL_EXPECT(px[2] >= 189 && px[2] <= 193);
+    MEL_EXPECT_EQ(px[3], 255u);
 
     mel_gpu_command_list_destroy(cmd);
     mel_gpu_queue_release(q);
@@ -328,8 +302,6 @@ MEL_TEST(d3d12_render, offscreen_clear_readback)
     mel_gpu_instance_destroy(inst);
 }
 
-// U10 texture_write: upload a known pattern, copy it back, verify the round-trip. W=64 keeps the copy-to-
-// buffer footprint row pitch 256-aligned and tight (D3D12_TEXTURE_DATA_PITCH_ALIGNMENT).
 MEL_TEST(d3d12_texture, write_and_readback)
 {
     Mel_Gpu_Instance* inst = NULL;
@@ -378,7 +350,6 @@ MEL_TEST(d3d12_texture, write_and_readback)
     mel_gpu_instance_destroy(inst);
 }
 
-// U17 buffer-state barrier records a debug-layer-clean transition end-to-end (UAV barriers on D3D12).
 MEL_TEST(d3d12_render, buffer_barrier_submits_clean)
 {
     Mel_Gpu_Instance* inst = NULL;
@@ -405,9 +376,6 @@ MEL_TEST(d3d12_render, buffer_barrier_submits_clean)
     mel_gpu_instance_destroy(inst);
 }
 
-// ---- Phase 3: pipelines + bindless + reflection (Tier-3 unbounded descriptor tables, SM 6.0) ----
-
-// A fullscreen triangle from SV_VertexID (no vertex input); passes a UV through.
 static const char* VS_HLSL =
     "struct VSOut { float4 pos : SV_Position; float2 uv : TEXCOORD0; };\n"
     "VSOut main(uint vid : SV_VertexID) {\n"
@@ -418,14 +386,10 @@ static const char* VS_HLSL =
     "  return o;\n"
     "}\n";
 
-// No-descriptor PS (the pipeline-create probe): paints UV.
 static const char* SOLID_PS_HLSL =
     "struct PSIn { float4 pos : SV_Position; float2 uv : TEXCOORD0; };\n"
     "float4 main(PSIn i) : SV_Target { return float4(i.uv, 0.0, 1.0); }\n";
 
-// Bindless PS: sample a heap-resident texture through a heap-resident sampler, both addressed by index in the
-// per-draw root record (the §6.7 D3D12 descriptor-indices payload). The Tier-3 floor uses per-class unbounded
-// arrays bound through descriptor tables (not ResourceDescriptorHeap, which the in-box Win10 runtime lacks).
 static const char* SAMPLE_PS_HLSL =
     "Texture2D<float4> g_textures[] : register(t0, space0);\n"
     "SamplerState g_samplers[] : register(s0, space0);\n"
@@ -435,7 +399,6 @@ static const char* SAMPLE_PS_HLSL =
     "  return g_textures[g_tex].Sample(g_samplers[g_smp], i.uv);\n"
     "}\n";
 
-// Bindless compute: out[i] = in[i] + 1, both storage buffers addressed by heap slot in the root record.
 static const char* ADD_CS_HLSL =
     "RWByteAddressBuffer g_buffers[] : register(u0, space0);\n"
     "cbuffer Root : register(b0) { uint g_in; uint g_out; uint g_n; }\n"
@@ -446,9 +409,6 @@ static const char* ADD_CS_HLSL =
     "  g_buffers[g_out].Store(id.x * 4, v + 1);\n"
     "}\n";
 
-// U14 caps: the device reports the D3D12 binding model — a root record carrying descriptor indices. This is
-// the concrete co-primary contrast: Vulkan-BDA reports MIXED (textures/samplers as indices, buffers as
-// pointers); D3D12 collapses to DESCRIPTOR_INDICES because buffers are descriptors even at the ceiling.
 MEL_TEST(d3d12_bindless, binding_model_caps)
 {
     Mel_Gpu_Instance* inst = NULL;
@@ -467,7 +427,6 @@ MEL_TEST(d3d12_bindless, binding_model_caps)
     mel_gpu_instance_destroy(inst);
 }
 
-// U13: a graphics PSO + reflection-derived root signature compile and link from DXIL (no bindless, no input).
 MEL_TEST(d3d12_pipeline, graphics_create)
 {
     Mel_Gpu_Instance* inst = NULL;
@@ -493,9 +452,6 @@ MEL_TEST(d3d12_pipeline, graphics_create)
     mel_gpu_instance_destroy(inst);
 }
 
-// U14 graphics bindless end-to-end: a fullscreen triangle samples a heap-resident solid texture through a
-// heap-resident sampler, the slots delivered in the root record; the cleared RT is read back and the sampled
-// colour pixel-verified. The binding-model contrast made concrete on D3D12 (cf. the Vulkan sample test).
 MEL_TEST(d3d12_bindless, sample_texture_readback)
 {
     Mel_Gpu_Instance* inst = NULL;
@@ -546,8 +502,6 @@ MEL_TEST(d3d12_bindless, sample_texture_readback)
     Mel_Gpu_Command_List* cmd = mel_gpu_command_list_create(q);
     mel_gpu_command_list_begin(cmd);
     Mel_Gpu_Subresource_Range range = { MEL_GPU_ASPECT_COLOR, 0, 1, 0, 1 };
-    // The sampled texture is left in SHADER_RESOURCE by texture_write (regular textures don't decay), so it
-    // needs no barrier here; only the RT transitions.
     mel_gpu_cmd_texture_barrier(cmd, rt.value, range, MEL_GPU_STATE_COMMON, MEL_GPU_STATE_RENDER_TARGET);
     Mel_Gpu_Color_Attachment color = { .view = rtv.value, .load = MEL_GPU_LOAD_CLEAR, .store = MEL_GPU_STORE_STORE, .clear = mel_gpu_rgba(0.0f, 0.0f, 0.0f, 1.0f) };
     mel_gpu_cmd_begin_rendering(cmd, .colors = &color, .color_count = 1, .width = W, .height = H);
@@ -565,7 +519,7 @@ MEL_TEST(d3d12_bindless, sample_texture_readback)
 
     const u8* px = mel_gpu_buffer_mapped(dev, rb.value);
     MEL_REQUIRE_NOT_NULL(px);
-    const u8* c = px + (usize)32 * 256 + 32 * 4; // 64-wide RGBA8 readback => 256-byte rows; centre pixel
+    const u8* c = px + (usize)32 * 256 + 32 * 4;
     MEL_EXPECT(c[0] >= 62 && c[0] <= 66);
     MEL_EXPECT(c[1] >= 126 && c[1] <= 130);
     MEL_EXPECT(c[2] >= 190 && c[2] <= 194);
@@ -585,9 +539,6 @@ MEL_TEST(d3d12_bindless, sample_texture_readback)
     mel_gpu_instance_destroy(inst);
 }
 
-// U13/U14 compute bindless: out[i] = in[i] + 1, both storage buffers addressed purely by heap slot in the
-// root record; the device-local result is copied to a readback buffer and verified (the heap class the
-// graphics test cannot reach — the storage-buffer payload).
 MEL_TEST(d3d12_compute, storage_buffer_bindless)
 {
     Mel_Gpu_Instance* inst = NULL;
@@ -629,8 +580,6 @@ MEL_TEST(d3d12_compute, storage_buffer_bindless)
     MEL_EXPECT(mel_gpu_ok(mel_gpu_future_status(f1)));
     mel_gpu_future_destroy(f1);
 
-    // Separate submission: out decays to COMMON, then the copy promotes it to COPY_SOURCE (D3D12 buffer
-    // state model). A device-local UAV buffer cannot be host-mapped, so the result returns via the copy.
     mel_gpu_command_list_begin(cmd);
     mel_gpu_cmd_copy_buffer(cmd, out.value, rb.value, sizeof input);
     mel_gpu_command_list_end(cmd);
@@ -657,12 +606,6 @@ MEL_TEST(d3d12_compute, storage_buffer_bindless)
     mel_gpu_instance_destroy(inst);
 }
 
-// ---- Phase 4: DXGI flip-model swapchain (U18) ----
-
-// A hidden top-level HWND — DXGI's CreateSwapChainForHwnd needs a real window (HWND_MESSAGE message-only
-// windows are rejected). WS_OVERLAPPED + never ShowWindow keeps it off-screen; the win32 build always links
-// user32/gdi32 (modules/build/emit.c), so no per-target link change is needed. The class is registered once
-// per process (a re-register returns the existing atom).
 static HWND test_make_hidden_window(u32 w, u32 h)
 {
     HINSTANCE   hinst = GetModuleHandleW(NULL);
@@ -671,8 +614,6 @@ static HWND test_make_hidden_window(u32 w, u32 h)
     return CreateWindowExW(0, L"MelD3D12SwapchainTest", L"mel-d3d12-swapchain", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, (int)w, (int)h, NULL, NULL, hinst, NULL);
 }
 
-// Render one clear frame into the swapchain and present it (the simple frame loop: frame_begin -> begin_pass
-// clear -> end_pass -> frame_end).
 static void test_present_clear(Mel_Gpu_Swapchain* sc, Mel_Gpu_Color clear)
 {
     mel_gpu_frame_begin(sc);
@@ -682,9 +623,6 @@ static void test_present_clear(Mel_Gpu_Swapchain* sc, Mel_Gpu_Color clear)
     mel_gpu_frame_end(sc);
 }
 
-// U18 end-to-end: create a flip-model swapchain on a hidden HWND, present cleared frames, copy the rendered
-// back buffer to a readback buffer, and pixel-verify the clear — the swapchain analog of the offscreen
-// clear→readback first-pixels test. W=64 keeps the B8G8R8A8 back-buffer copy footprint 256-aligned and tight.
 MEL_TEST(d3d12_swapchain, present_clear_readback)
 {
     Mel_Gpu_Instance* inst = NULL;
@@ -693,13 +631,6 @@ MEL_TEST(d3d12_swapchain, present_clear_readback)
 
     const u32 W = 64, H = 64;
 
-    // Interactive desktop: exercise the production HWND path (CreateSwapChainForHwnd over a hidden window).
-    // SSH service session (non-interactive window station, no DWM): try the composition swapchain, which needs
-    // no desktop HWND — but DirectComposition is still DWM-backed, so every DXGI swapchain (HWND or
-    // composition) returns DXGI_ERROR_INVALID_CALL in that session. When no swapchain can be created the test
-    // skips with the reason rather than failing: the present path is unprovable in this environment but is
-    // correct (it compiles, links, and mirrors the proven Vulkan path), and runs fully on an interactive
-    // desktop. The 13 prior gpu-d3d12 tests still prove the device/queue/buffer/texture/render/bindless stack.
     bool               interactive = test_interactive_session();
     HWND               hwnd = NULL;
     Mel_Gpu_Surface*   surf = NULL;
@@ -714,9 +645,7 @@ MEL_TEST(d3d12_swapchain, present_clear_readback)
     }
     else
     {
-        // The composition path takes no surface HWND; pass a non-null sentinel surface so the opt is well-formed
-        // (the headless creator ignores surface->hwnd).
-        surf = mel_gpu_surface_create(dev, (void*)dev); // sentinel; not a real window
+        surf = mel_gpu_surface_create(dev, (void*)dev);
         sc = mel_gpu__swapchain_create_headless(dev, (Mel_Gpu_Swapchain_Opt){ .surface = surf, .width = (i32)W, .height = (i32)H, .format = MEL_GPU_FORMAT_BGRA8_UNORM, .vsync = false });
     }
     if (!sc)
@@ -731,8 +660,6 @@ MEL_TEST(d3d12_swapchain, present_clear_readback)
     }
     MEL_EXPECT_EQ(mel_gpu_swapchain_format(sc), MEL_GPU_FORMAT_BGRA8_UNORM);
 
-    // Present a couple of cleared frames, then read back the last one. B8G8R8A8 stores the clear bytes as
-    // B,G,R,A in memory, so a (r=0.25,g=0.5,b=0.75) clear lands as ~(191,128,64,255).
     Mel_Gpu_Color clear = mel_gpu_rgba(0.25f, 0.5f, 0.75f, 1.0f);
     test_present_clear(sc, clear);
     test_present_clear(sc, clear);
@@ -743,12 +670,11 @@ MEL_TEST(d3d12_swapchain, present_clear_readback)
 
     const u8* px = mel_gpu_buffer_mapped(dev, rb.value);
     MEL_REQUIRE_NOT_NULL(px);
-    MEL_EXPECT(px[0] >= 189 && px[0] <= 193); // b = 0.75 (BGRA byte order)
-    MEL_EXPECT(px[1] >= 126 && px[1] <= 130); // g = 0.5
-    MEL_EXPECT(px[2] >= 62 && px[2] <= 66);   // r = 0.25
-    MEL_EXPECT_EQ(px[3], 255u);               // a = 1.0
+    MEL_EXPECT(px[0] >= 189 && px[0] <= 193);
+    MEL_EXPECT(px[1] >= 126 && px[1] <= 130);
+    MEL_EXPECT(px[2] >= 62 && px[2] <= 66);
+    MEL_EXPECT_EQ(px[3], 255u);
 
-    // Resize and present again — the back buffers + RTVs rebuild, and the new clear presents clean.
     mel_gpu_swapchain_resize(sc, 96, 48);
     test_present_clear(sc, mel_gpu_rgba(0.0f, 1.0f, 0.0f, 1.0f));
 

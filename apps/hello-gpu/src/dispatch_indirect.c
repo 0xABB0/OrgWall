@@ -16,7 +16,6 @@
 #define LOCAL       64
 #define RING        3
 
-// std430 agent: vec4 pos_phase (base.xy, orbit radius, phase).
 typedef struct
 {
     f32 pos_phase[4];
@@ -56,13 +55,12 @@ typedef struct
     Mel_Gpu_Buffer agents;
     u32            agents_slot;
 
-    Mel_Gpu_Buffer surv[RING]; // count(16B header) + AGENT_COUNT indices
+    Mel_Gpu_Buffer surv[RING];
     u32            surv_slot[RING];
-    Mel_Gpu_Buffer args[RING]; // {gx,gy,gz}
+    Mel_Gpu_Buffer args[RING];
     u32            args_slot[RING];
     i32            ring;
 
-    // Output storage image, sized to the window.
     i32                  w, h;
     Mel_Gpu_Texture      img;
     Mel_Gpu_Texture_View img_view;
@@ -102,7 +100,6 @@ static void* di_init(Mel_Gpu_Device* dev, Mel_Gpu_Swapchain* sc)
     d->clear_pl = make_compute(d, CLEAR_COMP_SPV, sizeof CLEAR_COMP_SPV, sizeof(Clear_Root), "di-clear", &d->clear_sh);
     d->shade_pl = make_compute(d, SHADE_COMP_SPV, sizeof SHADE_COMP_SPV, sizeof(Shade_Root), "di-shade", &d->shade_sh);
 
-    // Static agent pool: a phyllotaxis disc of orbiting agents, uploaded once.
     Agent* pool = malloc(AGENT_COUNT * sizeof(Agent));
     for (i32 i = 0; i < AGENT_COUNT; ++i)
     {
@@ -118,10 +115,7 @@ static void* di_init(Mel_Gpu_Device* dev, Mel_Gpu_Swapchain* sc)
     d->agents = ab.value;
     d->agents_slot = mel_gpu_buffer_bindless_slot(dev, d->agents);
 
-    // Ring of survivor/args buffers in host-visible memory: the host zeroes the
-    // survivor count through the mapping each frame with no staging stall, and the
-    // round-robin keeps a write off any still-in-flight slot (vsync retires it).
-    usize surv_bytes = 16 + (usize)AGENT_COUNT * sizeof(u32); // 16B aligned header (count + pad), then indices
+    usize surv_bytes = 16 + (usize)AGENT_COUNT * sizeof(u32);
     for (i32 i = 0; i < RING; ++i)
     {
         Mel_Gpu_Buffer_Create_Result sb = mel_gpu_buffer_create(dev, .size = surv_bytes, .usage = MEL_GPU_BUFFER_STORAGE, .memory = MEL_GPU_MEMORY_UPLOAD, .name = "di-survivors");
@@ -192,62 +186,50 @@ static void di_render(void* state, Mel_Gpu_Command_List* cmd, f64 dt)
     Mel_Gpu_Buffer surv = d->surv[d->ring];
     Mel_Gpu_Buffer args = d->args[d->ring];
 
-    // Zero the survivor count for this ring slot directly through the mapping.
     u32* surv_map = mel_gpu_buffer_mapped(d->dev, surv);
     if (surv_map)
         surv_map[0] = 0;
 
-    // The cull region sweeps a circle around the disc so the live set pulses.
     f32 cr = 0.55f + 0.25f * (f32)sin(d->t * 0.6);
     f32 cx = 0.35f * (f32)cos(d->t * 0.5);
     f32 cy = 0.35f * (f32)sin(d->t * 0.7);
 
-    Mel_Gpu_Resource_State surv_src = MEL_GPU_STATE_COMMON; // UPLOAD buffers: declare COMMON each frame (no cross-frame tracker edge worth threading)
+    Mel_Gpu_Resource_State surv_src = MEL_GPU_STATE_COMMON;
     Mel_Gpu_Resource_State args_src = MEL_GPU_STATE_COMMON;
 
-    // Pass A: cull. Buffer must be UNORDERED_ACCESS for the atomic append.
     mel_gpu_cmd_buffer_barrier(cmd, surv, surv_src, MEL_GPU_STATE_UNORDERED_ACCESS);
     Cull_Root croot = { .agents = d->agents_slot, .survivors = d->surv_slot[d->ring], .total = AGENT_COUNT, .time = (f32)d->t, .cull_r = cr, .cull_x = cx, .cull_y = cy };
     mel_gpu_cmd_bind_pipeline(cmd, d->cull_pl);
     mel_gpu_cmd_push_constants(cmd, 0, sizeof croot, &croot);
     mel_gpu_cmd_dispatch(cmd, (AGENT_COUNT + LOCAL - 1) / LOCAL, 1, 1);
 
-    // cull writes (UAV) -> buildargs reads count (SHADER_RESOURCE), and writes args (UAV).
     mel_gpu_cmd_buffer_barrier(cmd, surv, MEL_GPU_STATE_UNORDERED_ACCESS, MEL_GPU_STATE_SHADER_RESOURCE);
     mel_gpu_cmd_buffer_barrier(cmd, args, args_src, MEL_GPU_STATE_UNORDERED_ACCESS);
 
-    // Pass B: one thread writes the indirect dispatch args from the GPU-side count.
     Args_Root aroot = { .survivors = d->surv_slot[d->ring], .args = d->args_slot[d->ring], .local = LOCAL };
     mel_gpu_cmd_bind_pipeline(cmd, d->args_pl);
     mel_gpu_cmd_push_constants(cmd, 0, sizeof aroot, &aroot);
     mel_gpu_cmd_dispatch(cmd, 1, 1, 1);
 
-    // args write (UAV) -> indirect read (INDIRECT_ARGUMENT).
     mel_gpu_cmd_buffer_barrier(cmd, args, MEL_GPU_STATE_UNORDERED_ACCESS, MEL_GPU_STATE_INDIRECT_ARGUMENT);
 
-    // Canvas: COMMON (fresh) or SHADER_RESOURCE (last frame's present) -> UNORDERED_ACCESS for the compute writes.
     Mel_Gpu_Subresource_Range range = { MEL_GPU_ASPECT_COLOR, 0, 1, 0, 1 };
     Mel_Gpu_Resource_State    img_src = d->img_fresh ? MEL_GPU_STATE_COMMON : MEL_GPU_STATE_SHADER_RESOURCE;
     d->img_fresh = false;
     mel_gpu_cmd_texture_barrier(cmd, d->img, range, img_src, MEL_GPU_STATE_UNORDERED_ACCESS);
 
-    // Background fill into the storage image.
     Clear_Root clroot = { .image = d->img_slot, .w = (u32)d->w, .h = (u32)d->h, .time = (f32)d->t };
     mel_gpu_cmd_bind_pipeline(cmd, d->clear_pl);
     mel_gpu_cmd_push_constants(cmd, 0, sizeof clroot, &clroot);
     mel_gpu_cmd_dispatch(cmd, ((u32)d->w + 7) / 8, ((u32)d->h + 7) / 8, 1);
 
-    // clear write -> shade write on the same image: a UAV self-barrier orders them.
     mel_gpu_cmd_texture_barrier(cmd, d->img, range, MEL_GPU_STATE_UNORDERED_ACCESS, MEL_GPU_STATE_UNORDERED_ACCESS);
 
-    // Pass C: the GPU-sized shade dispatch — one workgroup per 64 survivors, the
-    // count read from the args buffer the GPU itself wrote.
     Shade_Root sroot = { .agents = d->agents_slot, .survivors = d->surv_slot[d->ring], .image = d->img_slot, .total = AGENT_COUNT, .w = (u32)d->w, .h = (u32)d->h, .time = (f32)d->t };
     mel_gpu_cmd_bind_pipeline(cmd, d->shade_pl);
     mel_gpu_cmd_push_constants(cmd, 0, sizeof sroot, &sroot);
     mel_gpu_cmd_dispatch_indirect(cmd, args, 0);
 
-    // Present: storage write -> sample.
     mel_gpu_cmd_texture_barrier(cmd, d->img, range, MEL_GPU_STATE_UNORDERED_ACCESS, MEL_GPU_STATE_SHADER_RESOURCE);
     bindless_present_blit(&d->present, cmd, d->img_slot, mel_gpu_rgba(0, 0, 0, 1));
 

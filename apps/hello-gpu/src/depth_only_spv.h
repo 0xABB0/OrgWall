@@ -1,8 +1,5 @@
 #pragma once
 
-// Depth-prepass fragment stage: no colour output, so a colour-attachment-less prepass
-// draws cleanly. Pair with scene3d.vert (SCENE3D_VERT_SPV).
-// Regenerate: glslc -fshader-stage=frag -mfmt=c shaders/depth_only.frag
 #include <stdint.h>
 
 static const uint32_t DEPTH_ONLY_FRAG_SPV[] =

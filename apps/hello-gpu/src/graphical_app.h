@@ -2,9 +2,6 @@
 
 #include <gpu.h>
 
-// A graphical application hosted inside a GPU window. The host owns the window,
-// the device, the swapchain and the per-frame begin/end; an app only sets up its
-// own resources and records one render pass per frame.
 typedef struct
 {
     const char* title;

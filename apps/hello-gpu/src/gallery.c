@@ -4,7 +4,7 @@
 #include "gallery.h"
 #include "quad_spv.h"
 #include "gradient_spv.h"
-#include "blit_spv.h" // BLIT_VERT_SPV: shared fullscreen vertex stage
+#include "blit_spv.h"
 
 typedef struct
 {
@@ -12,7 +12,6 @@ typedef struct
     f32 color[4];
 } Quad_Root;
 
-// Six gallery cells, each a label-free demonstration of one fill/blend pairing.
 #define CELL_COUNT 6
 
 typedef struct
@@ -78,11 +77,9 @@ static void* gallery_init(Mel_Gpu_Device* dev, Mel_Gpu_Swapchain* sc)
         .write_mask = MEL_GPU_COLOR_WRITE_ALL,
     };
 
-    // Top row: solid fill — opaque, alpha, additive.
     g->cells[0] = make_cell(dev, g->quad_shader, fmt, MEL_GPU_FILL_SOLID, MEL_GPU_BLEND_OPAQUE);
     g->cells[1] = make_cell(dev, g->quad_shader, fmt, MEL_GPU_FILL_SOLID, MEL_GPU_BLEND_ALPHA);
     g->cells[2] = make_cell(dev, g->quad_shader, fmt, MEL_GPU_FILL_SOLID, additive);
-    // Bottom row: wireframe fill (degrades to solid if unsupported) — same blends.
     g->cells[3] = make_cell(dev, g->quad_shader, fmt, MEL_GPU_FILL_WIREFRAME, MEL_GPU_BLEND_OPAQUE);
     g->cells[4] = make_cell(dev, g->quad_shader, fmt, MEL_GPU_FILL_WIREFRAME, MEL_GPU_BLEND_ALPHA);
     g->cells[5] = make_cell(dev, g->quad_shader, fmt, MEL_GPU_FILL_WIREFRAME, additive);
@@ -98,8 +95,6 @@ static void gallery_render(void* state, Mel_Gpu_Command_List* cmd, f64 dt)
     mel_gpu_cmd_bind_pipeline(cmd, g->bg_pipeline);
     mel_gpu_cmd_draw(cmd, 3, 1);
 
-    // 3 columns x 2 rows. Each cell draws two overlapping quads so blend mode is
-    // legible (the second over the first), with a gentle pulse.
     const f32 col_x[3] = { -0.62f, 0.0f, 0.62f };
     const f32 row_y[2] = { 0.42f, -0.42f };
     f32       pulse = 0.5f + 0.5f * sinf((f32)g->t * 1.5f);

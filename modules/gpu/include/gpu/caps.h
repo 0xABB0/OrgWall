@@ -136,17 +136,12 @@ typedef struct
     char                 name[256];
 } Mel_Gpu_Caps_Adapter;
 
-// Which binding model the device's active configuration presents (gpu-rhi.md §6.7). The ceiling is the
-// pointer-based root record; the floor is per-class descriptor tables. The API surface is identical; only
-// the lowering differs.
 typedef enum
 {
     MEL_GPU_BINDING_MODEL_DESCRIPTOR_TABLES = 0,
     MEL_GPU_BINDING_MODEL_ROOT_RECORD,
 } Mel_Gpu_Binding_Model;
 
-// What a root record's buffer fields carry: descriptor indices (floor), real device addresses (BDA
-// ceiling), or both (textures/samplers as indices, buffers as pointers).
 typedef enum
 {
     MEL_GPU_ROOT_RECORD_PAYLOAD_DESCRIPTOR_INDICES = 0,
@@ -154,7 +149,6 @@ typedef enum
     MEL_GPU_ROOT_RECORD_PAYLOAD_MIXED,
 } Mel_Gpu_Root_Record_Payload;
 
-// How root records may be produced.
 typedef enum
 {
     MEL_GPU_ROOT_RECORD_UPDATE_STAGING_COPY = 0,
@@ -163,8 +157,6 @@ typedef enum
     MEL_GPU_ROOT_RECORD_UPDATE_GPU_GENERATED,
 } Mel_Gpu_Root_Record_Update;
 
-// Bindless sub-domain (gpu-rhi.md §3.4 / §6.7 — limits and binding model live under memory/bindless). `tier`
-// is the graduated capability; the per-class slot counts are the realized heap capacities.
 typedef struct
 {
     Mel_Gpu_Bindless_Tier       tier;
@@ -262,12 +254,10 @@ typedef struct
     Mel_Gpu_Tile_Local_Tier tile_local;
 } Mel_Gpu_Caps_Raster;
 
-// Sampler domain (gpu-rhi.md §6.3). max_anisotropy bounds Mel_Gpu_Sampler_Opt.max_anisotropy; the engine
-// clamps a request to this so a sampler create never trips a device limit.
 typedef struct
 {
-    bool anisotropy;     // anisotropic filtering available and enabled
-    f32  max_anisotropy; // 1.0 when anisotropy is unavailable
+    bool anisotropy;
+    f32  max_anisotropy;
 } Mel_Gpu_Caps_Sampler;
 
 typedef struct

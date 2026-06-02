@@ -1,8 +1,5 @@
 #pragma once
 
-// Parametric quad placed+coloured from the push-constant root record. Drives the
-// alpha-layers and fill/blend gallery screens. Non-bindless.
-// Regenerate: glslc -fshader-stage={vert,frag} -mfmt=c shaders/quad.{vert,frag}
 #include <stdint.h>
 
 static const uint32_t QUAD_VERT_SPV[] =

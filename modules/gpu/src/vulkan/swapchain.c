@@ -308,8 +308,6 @@ void mel_gpu_swapchain_destroy(Mel_Gpu_Swapchain* sc)
 
 Mel_Gpu_Format mel_gpu_swapchain_format(const Mel_Gpu_Swapchain* sc) { return sc ? mel_gpu__vk_format_to_mel(sc->format) : MEL_GPU_FORMAT_UNDEFINED; }
 
-// The surface-clamped extent the driver granted (sc->extent, set in mel_gpu__images_build). Stays current
-// across resize, which rebuilds the images and rewrites sc->extent.
 Mel_Gpu_Swapchain_Extent mel_gpu_swapchain_extent(const Mel_Gpu_Swapchain* sc)
 {
     if (!sc)

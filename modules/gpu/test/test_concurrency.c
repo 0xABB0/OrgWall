@@ -2,18 +2,6 @@
 
 #if MEL_GPU_VULKAN
 
-// Multi-threaded adversarial suite over the Vulkan RHI threading contract (gpu-rhi.md §3.7 / U36). Round-1's
-// stress audit confessed the single biggest coverage gap: no multi-threaded U36 probe (headless synchronous
-// single-queue made it infeasible) and an unverified claim that the slotmap is per-device-mutex-serialized,
-// NOT the lock-free MPMC §3.7/U1 assume. This suite closes that gap with N REAL threads (the `thread` module).
-//
-// Harness contract (load-bearing): the test runner arms a single setjmp per test on the MAIN thread; MEL_REQUIRE
-// / MEL_FAIL / MEL_SKIP longjmp there. A longjmp across a thread boundary is undefined and would crash the
-// runner. Therefore worker threads NEVER touch a MEL_* assertion macro and NEVER call mel_test_abort; they
-// record outcomes into _Atomic fields, and the main thread evaluates every MEL_EXPECT/REQUIRE after join. This
-// is the only safe shape under MEL_TEST_NOFORK=1 (MoltenVK cannot survive fork(), so all threads share one
-// process — a worker deadlock or crash takes the whole runner down, so every wait is bounded).
-
 #include <gpu/device.h>
 #include <gpu/caps.h>
 #include <gpu/buffer.h>
@@ -39,8 +27,6 @@
 #include <stdatomic.h>
 #include <string.h>
 #include <stdio.h>
-
-// ---- shared device factories (mirror test_vulkan.c / test_stress.c) ----
 
 static Mel_Gpu_Device* conc_make_device(Mel_Gpu_Instance** out_inst)
 {
@@ -87,8 +73,6 @@ static Mel_Gpu_Device* conc_make_device_bindless(Mel_Gpu_Instance** out_inst)
     return dr.value;
 }
 
-// Worker thread count: bound by hardware concurrency, clamped to a small ceiling so the suite finishes promptly
-// under MoltenVK's heavy internal serialization (every WaitIdle-bearing path drains the whole queue).
 static u32 conc_threads(void)
 {
     u32 hw = mel_thread_hardware_concurrency();
@@ -99,26 +83,17 @@ static u32 conc_threads(void)
     return hw;
 }
 
-// =====================================================================================================
-// 1. Concurrent resource creation (§3.7: buffer/texture/sampler/pipeline create are `Concurrent`).
-//    M threads each create a private run of distinct resources in a tight loop. We collect every produced
-//    slot.index into a shared, mutex-guarded ledger; afterward the main thread proves NO two simultaneously
-//    live handles share a slot index (a torn handle or a double-allocated slot would collide), every create
-//    succeeded, and the device destroys leak-clean. This stresses the per-device-obj_lock-serialized slotmap
-//    that the spec wants lock-free; correctness is asserted, serialization is MEASURED in probe (3).
-// =====================================================================================================
 typedef struct
 {
     Mel_Gpu_Device* dev;
     Mel_Barrier*    start;
     u32             per_thread;
 
-    // Private result run, sized per_thread; filled by the worker, drained by main after join.
     Mel_Gpu_Buffer*  buffers;
     Mel_Gpu_Texture* textures;
     Mel_Gpu_Sampler* samplers;
-    u32              made;     // count of fully-created (buffer,texture,sampler) triples
-    _Atomic(u32)     failures; // any create that returned a failed status or a non-alive handle
+    u32              made;
+    _Atomic(u32)     failures;
     u32              thread_ix;
 } Conc_Create_Ctx;
 
@@ -127,11 +102,10 @@ static int conc_create_worker(void* user)
     Conc_Create_Ctx* c = user;
     char             name[16];
     mel_thread_set_name("conc-create");
-    mel_barrier_wait(c->start); // all threads cross the line together => real contention on obj_lock
+    mel_barrier_wait(c->start);
 
     for (u32 i = 0; i < c->per_thread; i++)
     {
-        // Distinct sizes/params per (thread, i) so nothing dedups or aliases.
         usize sz = 64 + (usize)(c->thread_ix * 131 + i * 17) % 8192;
         snprintf(name, sizeof name, "b%u-%u", c->thread_ix, i);
         Mel_Gpu_Buffer_Create_Result b = mel_gpu_buffer_create(c->dev, .size = sz, .usage = MEL_GPU_BUFFER_STORAGE | MEL_GPU_BUFFER_TRANSFER_DST,
@@ -170,12 +144,8 @@ static int conc_create_worker(void* user)
     return 0;
 }
 
-// Returns true if any two of the `n` indices collide (a double-allocated slot among simultaneously-live handles).
 static bool conc_indices_collide(u32* indices, u32 n)
 {
-    // Simple O(n log n)-ish via insertion-checked scan is overkill; n is a few thousand, O(n^2) is fine and
-    // avoids pulling a sort dependency into a test. Mark-and-sweep on a bitset would be tighter but the index
-    // space is grown-on-demand and unbounded, so we cannot size a fixed bitset (MEL-CODE-002).
     for (u32 i = 0; i < n; i++)
         for (u32 j = i + 1; j < n; j++)
             if (indices[i] == indices[j])
@@ -209,7 +179,6 @@ MEL_TEST(conc_create, distinct_handles_no_slot_collision)
     for (u32 i = 0; i < T; i++)
         mel_thread_join(&threads[i], NULL);
 
-    // --- main-thread assertions (workers never touch MEL_*) ---
     u32 total = 0, fails = 0;
     for (u32 i = 0; i < T; i++)
     {
@@ -217,10 +186,8 @@ MEL_TEST(conc_create, distinct_handles_no_slot_collision)
         fails += atomic_load(&ctx[i].failures);
     }
     MEL_EXPECT_EQ(fails, 0u);
-    MEL_EXPECT_EQ(total, T * PER); // every concurrent create succeeded
+    MEL_EXPECT_EQ(total, T * PER);
 
-    // Per-type slot-index collision check across ALL still-live handles from every thread. Two live handles
-    // of the same type sharing an index is the signature of a torn/double-allocated slot under contention.
     u32* bidx = mel_alloc_array(mel_alloc_heap(), u32, total);
     u32* tidx = mel_alloc_array(mel_alloc_heap(), u32, total);
     u32* sidx = mel_alloc_array(mel_alloc_heap(), u32, total);
@@ -237,7 +204,6 @@ MEL_TEST(conc_create, distinct_handles_no_slot_collision)
     MEL_EXPECT(!conc_indices_collide(tidx, total));
     MEL_EXPECT(!conc_indices_collide(sidx, total));
 
-    // Tear down every resource and free the ledgers.
     for (u32 i = 0; i < T; i++)
     {
         for (u32 j = 0; j < ctx[i].made; j++)
@@ -257,14 +223,10 @@ MEL_TEST(conc_create, distinct_handles_no_slot_collision)
     mel_dealloc(mel_alloc_heap(), threads);
     mel_barrier_destroy(&start);
 
-    mel_gpu_device_destroy(dev); // leak report fires here; the run is grepped for "leak"
+    mel_gpu_device_destroy(dev);
     mel_gpu_instance_destroy(inst);
 }
 
-// Bindless variant: concurrent texture-view + sampler creation on a bindless device. The direct family pins
-// bindless_slot == handle.index (§3.1). We prove that invariant holds for EVERY view/sampler created under
-// contention (a racing heap registration that wrote the wrong slot would break it) and that the per-type
-// slot indices remain collision-free across threads.
 typedef struct
 {
     Mel_Gpu_Device* dev;
@@ -277,7 +239,7 @@ typedef struct
     Mel_Gpu_Sampler*      samplers;
     u32                   made;
     _Atomic(u32)          failures;
-    _Atomic(u32)          slot_breaks; // bindless_slot != handle.index
+    _Atomic(u32)          slot_breaks;
 } Conc_Bindless_Ctx;
 
 static int conc_bindless_worker(void* user)
@@ -310,7 +272,6 @@ static int conc_bindless_worker(void* user)
             continue;
         }
 
-        // §3.1 slot==index, evaluated on the worker (the read is a const slotmap_get under obj_lock; safe).
         if (mel_gpu_texture_view_bindless_slot(c->dev, v.value) != v.value.slot.index)
             atomic_fetch_add(&c->slot_breaks, 1);
         if (mel_gpu_sampler_bindless_slot(c->dev, s.value) != s.value.slot.index)
@@ -332,7 +293,7 @@ MEL_TEST(conc_create, bindless_slot_equals_index_under_contention)
     MEL_REQUIRE(mel_gpu_bindless_available(dev));
 
     const u32 T = conc_threads();
-    const u32 PER = 64; // stay far under any class cap (DEFECT-1 over-cap path is off-limits this round)
+    const u32 PER = 64;
 
     Mel_Barrier start;
     MEL_REQUIRE(mel_barrier_init(&start, T));
@@ -359,7 +320,7 @@ MEL_TEST(conc_create, bindless_slot_equals_index_under_contention)
         breaks += atomic_load(&ctx[i].slot_breaks);
     }
     MEL_EXPECT_EQ(fails, 0u);
-    MEL_EXPECT_EQ(breaks, 0u); // bindless_slot == handle.index held for every view & sampler under contention
+    MEL_EXPECT_EQ(breaks, 0u);
     MEL_EXPECT_EQ(total, T * PER);
 
     u32* vidx = mel_alloc_array(mel_alloc_heap(), u32, total);
@@ -396,14 +357,6 @@ MEL_TEST(conc_create, bindless_slot_equals_index_under_contention)
     mel_gpu_instance_destroy(inst);
 }
 
-// =====================================================================================================
-// 2. SerializedPerObject command-list recording from per-thread TLS pools (§3.7 + U15). The canonical pattern
-//    is one CL per recording thread; the per-thread per-queue command pool (mel_gpu__thread_pool keyed on
-//    thread id) makes concurrent recording trivially race-free in Vulkan terms. Each thread creates its own CL,
-//    records barriers on its own buffer, ends, and submits. queue_submit is SerializedPerObject on the queue;
-//    the device's submit_lock serializes the actual vkQueueSubmit, so concurrent submit is correct (just
-//    serialized). We assert every per-thread record+submit resolved OK and nothing leaked.
-// =====================================================================================================
 typedef struct
 {
     Mel_Gpu_Device* dev;
@@ -421,7 +374,6 @@ static int conc_record_worker(void* user)
     mel_barrier_wait(c->start);
     for (u32 r = 0; r < c->rounds; r++)
     {
-        // Per-thread private buffer (distinct resource — Concurrent create) consumed by this thread's CL.
         Mel_Gpu_Buffer_Create_Result b =
             mel_gpu_buffer_create(c->dev, .size = 256, .usage = MEL_GPU_BUFFER_STORAGE | MEL_GPU_BUFFER_TRANSFER_DST, .memory = MEL_GPU_MEMORY_DEVICE, .name = "rec");
         if (mel_gpu_failed(b.status))
@@ -430,7 +382,6 @@ static int conc_record_worker(void* user)
             continue;
         }
 
-        // One CL per recording thread: command_list_create routes to this thread's own VkCommandPool.
         Mel_Gpu_Command_List* cmd = mel_gpu_command_list_create(c->queue);
         if (!cmd)
         {
@@ -461,9 +412,6 @@ MEL_TEST(conc_record, per_thread_cl_record_and_submit)
     Mel_Gpu_Device*   dev = conc_make_device(&inst);
     MEL_REQUIRE_NOT_NULL(dev);
 
-    // One shared queue: queue_submit is SerializedPerObject on the queue, and the engine's submit_lock provides
-    // that serialization internally (the contract permits the caller to lean on it for a non-internally-sync
-    // queue only because the engine happens to lock; §5.2 internally_synchronized is the Concurrent escape).
     Mel_Gpu_Queue* q = mel_gpu_queue_request(dev, MEL_GPU_QUEUE_GRAPHICS);
     MEL_REQUIRE_NOT_NULL(q);
 
@@ -491,7 +439,7 @@ MEL_TEST(conc_record, per_thread_cl_record_and_submit)
         ok += atomic_load(&ctx[i].submits_ok);
     }
     MEL_EXPECT_EQ(fails, 0u);
-    MEL_EXPECT_EQ(ok, T * ROUNDS); // every per-thread record+submit resolved OK
+    MEL_EXPECT_EQ(ok, T * ROUNDS);
 
     mel_dealloc(mel_alloc_heap(), ctx);
     mel_dealloc(mel_alloc_heap(), threads);
@@ -501,13 +449,6 @@ MEL_TEST(conc_record, per_thread_cl_record_and_submit)
     mel_gpu_instance_destroy(inst);
 }
 
-// =====================================================================================================
-// 3. Concurrent buffer_write across DISTINCT resources (§3.7: buffer_write is Concurrent across distinct
-//    resources, SerializedPerObject on the same — we never write the same resource from two threads; that is
-//    UB by contract and is deliberately NOT triggered). Each thread owns its host-visible buffers, writes a
-//    per-thread sentinel via buffer_write, then reads it back through the mapped pointer. A torn write or an
-//    aliased allocation across threads would corrupt a neighbor's sentinel.
-// =====================================================================================================
 typedef struct
 {
     Mel_Gpu_Device* dev;
@@ -532,7 +473,6 @@ static int conc_write_worker(void* user)
     {
         usize sz = 32 + (usize)(c->thread_ix * 257 + i * 53) % 4000;
         u8    tag = (u8)(c->thread_ix * 37 + i + 1);
-        // UPLOAD => host-visible mapped; buffer_write is a plain memcpy to the mapped pointer (Concurrent path).
         Mel_Gpu_Buffer_Create_Result b = mel_gpu_buffer_create(c->dev, .size = sz, .usage = MEL_GPU_BUFFER_TRANSFER_SRC, .memory = MEL_GPU_MEMORY_UPLOAD, .name = "cw");
         if (mel_gpu_failed(b.status))
         {
@@ -550,7 +490,6 @@ static int conc_write_worker(void* user)
         made++;
     }
 
-    // Read back every sentinel through the mapped pointer; a cross-thread aliasing/tear shows as a mismatch.
     for (u32 i = 0; i < made; i++)
     {
         const u8* p = mel_gpu_buffer_mapped(c->dev, bufs[i]);
@@ -604,7 +543,7 @@ MEL_TEST(conc_write, distinct_resource_sentinels)
         mism += atomic_load(&ctx[i].mismatches);
     }
     MEL_EXPECT_EQ(fails, 0u);
-    MEL_EXPECT_EQ(mism, 0u); // no cross-thread sentinel corruption => distinct-resource writes are isolated
+    MEL_EXPECT_EQ(mism, 0u);
 
     mel_dealloc(mel_alloc_heap(), ctx);
     mel_dealloc(mel_alloc_heap(), threads);
@@ -613,15 +552,6 @@ MEL_TEST(conc_write, distinct_resource_sentinels)
     mel_gpu_instance_destroy(inst);
 }
 
-// =====================================================================================================
-// 4. Slotmap serialization MEASUREMENT (the round-1 claim under test). §3.7/U1 specify the slotmap-per-type as
-//    a "lock-free MPMC allocator", so Concurrent create should SCALE with threads. Round-1 confessed the real
-//    implementation serializes every slotmap op (insert/get/remove/reclaim) behind ONE per-device obj_lock
-//    (verified at modules/gpu/src/vulkan/device.c:377-414). If that is true, T threads doing the same total
-//    create work as 1 thread finish in ~the same wall time (no parallel speedup) — the obj_lock is the choke.
-//    We MEASURE the ratio and log it; we do NOT fail on it (it is a known spec deviation for the fixer, not a
-//    correctness bug). The probe asserts only correctness (no failures), and prints the measured serialization.
-// =====================================================================================================
 typedef struct
 {
     Mel_Gpu_Device* dev;
@@ -651,8 +581,6 @@ static int conc_bench_worker(void* user)
     return 0;
 }
 
-// Run `total` creates spread across `T` threads; return wall-nanoseconds from the barrier release to the last
-// join. The barrier guarantees all workers start contending together so the measured span is the contended one.
 static u64 conc_bench_run(Mel_Gpu_Device* dev, u32 T, u32 total)
 {
     u32         per = total / T;
@@ -666,8 +594,6 @@ static u64 conc_bench_run(Mel_Gpu_Device* dev, u32 T, u32 total)
         atomic_store(&ctx[i].failures, 0);
         mel_thread_spawn(&threads[i], conc_bench_worker, &ctx[i], .name = "conc-bench");
     }
-    // The barrier is crossed inside the workers; start the clock now and accept the tiny spawn skew (both the
-    // 1-thread and T-thread runs pay the same per-thread spawn cost, so the ratio is unaffected at this scale).
     u64 t0 = mel_nanos_since_unspecified_epoch();
     for (u32 i = 0; i < T; i++)
         mel_thread_join(&threads[i], NULL);
@@ -679,7 +605,7 @@ static u64 conc_bench_run(Mel_Gpu_Device* dev, u32 T, u32 total)
     mel_dealloc(mel_alloc_heap(), ctx);
     mel_dealloc(mel_alloc_heap(), threads);
     mel_barrier_destroy(&start);
-    return fails ? 0 : (t1 - t0); // 0 signals a correctness failure to the caller
+    return fails ? 0 : (t1 - t0);
 }
 
 MEL_TEST(conc_slotmap, serialization_is_measured)
@@ -691,16 +617,11 @@ MEL_TEST(conc_slotmap, serialization_is_measured)
     const u32 TOTAL = 2048;
     const u32 T = conc_threads();
 
-    // Single-threaded baseline vs T-threaded run, same TOTAL create+destroy work.
     u64 one = conc_bench_run(dev, 1, TOTAL);
     u64 many = conc_bench_run(dev, T, TOTAL);
-    MEL_REQUIRE(one != 0);  // 0 == a create failed during the baseline
-    MEL_REQUIRE(many != 0); // 0 == a create failed during the contended run
+    MEL_REQUIRE(one != 0);
+    MEL_REQUIRE(many != 0);
 
-    // A lock-free MPMC slotmap (what §3.7/U1 promise) would let the T-thread run approach one/T. A single
-    // obj_lock serializing every insert/get/remove makes many >= one (no speedup; lock + contention overhead).
-    // We log the ratio so the measurement is on the record; we do NOT assert a bound (timing is noisy and the
-    // serialization is a documented spec deviation for the fixer, not a correctness failure of THIS suite).
     double speedup = (double)one / (double)(many ? many : 1);
     mel_log_info("gpu-concurrency", "slotmap serialization: 1-thread %llu us, %u-thread %llu us, speedup %.2fx (lock-free MPMC would approach %ux; ~1x => obj_lock serializes)",
                  (unsigned long long)(one / 1000), T, (unsigned long long)(many / 1000), speedup, T);
@@ -709,28 +630,11 @@ MEL_TEST(conc_slotmap, serialization_is_measured)
     mel_gpu_instance_destroy(inst);
 }
 
-// =====================================================================================================
-// 5. U36/U21 thread-safety tracker (device.debug.thread_safety_tracker / gpu/threading.h). The tracker is the
-//    "single most useful debug aid for porting a single-threaded prototype to a multi-threaded renderer"
-//    (§3.7). We exercise the tracker OBJECT directly (as gpu-foundation does for same-thread reentry) under
-//    REAL threads:
-//      (a) Concurrent class is NEVER tracked (enter/exit are no-ops) — many threads hammering the same object
-//          under the Concurrent class must not register an owner, so a later SerializedPerObject enter on a
-//          fresh object from any thread succeeds.
-//      (b) SerializedPerObject on DISTINCT objects from DISTINCT threads is legal and must not assert — each
-//          thread owns its own object; the tracker records one owner per object with no cross-talk.
-//    The ILLEGAL case — a SerializedPerObject object entered by thread A then entered by thread B without an
-//    intervening exit — would fire the tracker's mel_assert(owner==self) and ABORT the process (asserts live
-//    in debug). A crashing probe takes down every sibling test under MEL_TEST_NOFORK, so we do NOT trigger it
-//    live; its reality is asserted by construction (the assert is in mel_gpu_thread_tracker_enter) and recorded
-//    in the writeup. See also BUG below: the device allocates a tracker but NEVER calls enter/exit on any
-//    public path, so the tracker can presently fire only when driven directly like this.
-// =====================================================================================================
 typedef struct
 {
     Mel_Gpu_Thread_Tracker* tracker;
     Mel_Barrier*            start;
-    int                     object; // each worker's PRIVATE object instance
+    int                     object;
     _Atomic(u32)*           done;
 } Conc_Tracker_Ctx;
 
@@ -738,11 +642,10 @@ static int conc_tracker_distinct_worker(void* user)
 {
     Conc_Tracker_Ctx* c = user;
     mel_barrier_wait(c->start);
-    // SerializedPerObject on this thread's OWN object: enter/reenter/exit is legal and must not assert.
     for (u32 r = 0; r < 200; r++)
     {
         mel_gpu_thread_tracker_enter(c->tracker, &c->object, MEL_GPU_CONCURRENCY_SERIALIZED_PER_OBJECT);
-        mel_gpu_thread_tracker_enter(c->tracker, &c->object, MEL_GPU_CONCURRENCY_SERIALIZED_PER_OBJECT); // recursive depth
+        mel_gpu_thread_tracker_enter(c->tracker, &c->object, MEL_GPU_CONCURRENCY_SERIALIZED_PER_OBJECT);
         mel_gpu_thread_tracker_exit(c->tracker, &c->object);
         mel_gpu_thread_tracker_exit(c->tracker, &c->object);
     }
@@ -754,7 +657,6 @@ static int conc_tracker_concurrent_worker(void* user)
 {
     Conc_Tracker_Ctx* c = user;
     mel_barrier_wait(c->start);
-    // Concurrent class on a SHARED object: enter/exit are no-ops (never register an owner), so no assert ever.
     for (u32 r = 0; r < 200; r++)
     {
         mel_gpu_thread_tracker_enter(c->tracker, &c->object, MEL_GPU_CONCURRENCY_CONCURRENT);
@@ -776,7 +678,6 @@ MEL_TEST(conc_tracker, distinct_objects_and_concurrent_class)
     Mel_Barrier start;
     MEL_REQUIRE(mel_barrier_init(&start, T));
 
-    // (b) SerializedPerObject on distinct per-thread objects: legal, no cross-thread assert.
     Mel_Thread*       threads = mel_alloc_array(mel_alloc_heap(), Mel_Thread, T);
     Conc_Tracker_Ctx* ctx = mel_alloc_array(mel_alloc_heap(), Conc_Tracker_Ctx, T);
     for (u32 i = 0; i < T; i++)
@@ -786,13 +687,8 @@ MEL_TEST(conc_tracker, distinct_objects_and_concurrent_class)
     }
     for (u32 i = 0; i < T; i++)
         mel_thread_join(&threads[i], NULL);
-    MEL_EXPECT_EQ(atomic_load(&done), T); // every thread completed without the tracker asserting
+    MEL_EXPECT_EQ(atomic_load(&done), T);
 
-    // (a) Concurrent class across all threads: the class is a no-op — enter/exit never register an owner, so
-    // nothing is tracked and nothing can assert. Object identity is irrelevant under the Concurrent class (the
-    // enter early-returns before touching the ledger), so each worker drives its own ctx object; what we
-    // validate is the class GATE, not the address. A shared SerializedPerObject object here WOULD assert (the
-    // illegal cross-thread case we deliberately do not ship live).
     atomic_store(&done, 0);
     mel_barrier_destroy(&start);
     MEL_REQUIRE(mel_barrier_init(&start, T));
@@ -805,8 +701,6 @@ MEL_TEST(conc_tracker, distinct_objects_and_concurrent_class)
         mel_thread_join(&threads[i], NULL);
     MEL_EXPECT_EQ(atomic_load(&done), T);
 
-    // After all Concurrent traffic, the tracker holds no registered owners; a fresh SerializedPerObject enter
-    // from the MAIN thread on a brand-new object succeeds and exits cleanly (the no-op class left no residue).
     int fresh = 0;
     mel_gpu_thread_tracker_enter(tracker, &fresh, MEL_GPU_CONCURRENCY_SERIALIZED_PER_OBJECT);
     mel_gpu_thread_tracker_exit(tracker, &fresh);
@@ -817,14 +711,6 @@ MEL_TEST(conc_tracker, distinct_objects_and_concurrent_class)
     mel_gpu_thread_tracker_destroy(tracker);
 }
 
-// The tracker is wired into device lifecycle (created when device.debug.thread_safety_tracker = true) but —
-// CONFIRMED BY SOURCE READ — NO public call path invokes mel_gpu_thread_tracker_enter/exit (the only callers
-// anywhere are these tests and gpu-foundation). So §3.7's promise that "every public call records the calling
-// thread and the object class; double-entry on a SerializedPerObject object from a different thread asserts
-// loudly" is presently UNREALIZED: the tracker is dead infrastructure that can never fire on real RHI misuse.
-// We assert the device ACCEPTS the flag and runs (so the create path does not regress) and document the wiring
-// gap as a BUG for the fixer (writeup). We cannot assert the tracker fires on cross-thread RHI misuse, because
-// it does not — and faking that pass is forbidden (MEL-ENGINE-VIII).
 MEL_TEST(conc_tracker, device_accepts_flag_but_tracker_is_unwired)
 {
     Mel_Gpu_Instance* inst = mel_gpu_instance_create(.app_name = "gpu-concurrency", .debug = { .enabled = true });
@@ -833,14 +719,10 @@ MEL_TEST(conc_tracker, device_accepts_flag_but_tracker_is_unwired)
     u32              n = mel_gpu_adapters(inst, adapters, 8);
     MEL_REQUIRE(n > 0);
 
-    // Request the tracker explicitly; the device must create (the flag flows into dev->tracker = create()).
     Mel_Gpu_Device_Create_Result dr =
         mel_gpu_device_create(inst, adapters[0], .features = { .timeline_semaphores = true }, .debug = { .enabled = true, .thread_safety_tracker = true });
     MEL_REQUIRE_NOT_NULL(dr.value);
 
-    // Exercise a couple of public calls from TWO threads that, IF the tracker were wired, would be the kind of
-    // SerializedPerObject misuse it must catch. They run clean today precisely BECAUSE the tracker is unwired —
-    // there is no enter/exit on buffer_create/destroy to fire. This documents the gap without faking a catch.
     Mel_Gpu_Buffer_Create_Result b = mel_gpu_buffer_create(dr.value, .size = 256, .usage = MEL_GPU_BUFFER_STORAGE, .memory = MEL_GPU_MEMORY_DEVICE, .name = "unwired");
     MEL_EXPECT(!mel_gpu_failed(b.status));
     MEL_EXPECT(mel_gpu_buffer_alive(dr.value, b.value));

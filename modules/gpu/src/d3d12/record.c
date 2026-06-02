@@ -3,9 +3,6 @@
 #include <gpu/binding.h>
 #include <log/log.h>
 
-// ---- U15: standalone command lists (one DIRECT allocator + list each; per-thread TLS pooling is a later
-// optimization). Created closed; begin resets, end closes. ----
-
 Mel_Gpu_Command_List* mel_gpu_command_list_create(Mel_Gpu_Queue* q)
 {
     if (!q)
@@ -21,7 +18,7 @@ Mel_Gpu_Command_List* mel_gpu_command_list_create(Mel_Gpu_Queue* q)
         mel_log_error("gpu", "command_list_create: allocator/list creation failed");
         return NULL;
     }
-    ID3D12GraphicsCommandList_Close(list); // created open; close so begin can Reset cleanly
+    ID3D12GraphicsCommandList_Close(list);
 
     Mel_Gpu_Command_List* cmd = mel_alloc_type(dev->alloc, Mel_Gpu_Command_List);
     *cmd = (Mel_Gpu_Command_List){ .dev = dev, .allocator = allocr, .list = list };
@@ -33,7 +30,7 @@ void mel_gpu_command_list_begin(Mel_Gpu_Command_List* cmd)
     mel_assert(cmd);
     ID3D12CommandAllocator_Reset(cmd->allocator);
     ID3D12GraphicsCommandList_Reset(cmd->list, cmd->allocator, NULL);
-    cmd->state_count = 0; // U17 state tracking is per-recording (gpu-rhi.md §7.3)
+    cmd->state_count = 0;
     cmd->recording = true;
 }
 
@@ -57,8 +54,6 @@ void mel_gpu_command_list_destroy(Mel_Gpu_Command_List* cmd)
     mel_dealloc(cmd->dev->alloc, cmd);
 }
 
-// U17 state tracking: validate the declared source against the list's last-recorded state for the
-// subresource, then record the destination. First touch accepts the declared source (§7.3).
 static void mel_gpu__track_state(Mel_Gpu_Command_List* cmd, Mel_Gpu_Texture tex, u32 mip, u32 layer, Mel_Gpu_Resource_State src, Mel_Gpu_Resource_State dst)
 {
     for (u32 i = 0; i < cmd->state_count; i++)
@@ -90,7 +85,7 @@ D3D12_RESOURCE_STATES mel_gpu__state_to_d3d12(Mel_Gpu_Resource_State state)
     {
     case MEL_GPU_STATE_COMMON:
     case MEL_GPU_STATE_PRESENT:
-        return D3D12_RESOURCE_STATE_COMMON; // PRESENT == COMMON == 0
+        return D3D12_RESOURCE_STATE_COMMON;
     case MEL_GPU_STATE_VERTEX_BUFFER:
     case MEL_GPU_STATE_CONSTANT_BUFFER:
         return D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER;
@@ -127,7 +122,6 @@ D3D12_RESOURCE_STATES mel_gpu__state_to_d3d12(Mel_Gpu_Resource_State state)
     case MEL_GPU_STATE_ACCEL_STRUCT_BUILD_WRITE:
         return D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE;
     default:
-        // States whose D3D12 lowering is a later M2/M3 slice (gpu-rhi.md §7.3).
         mel_log_warn("gpu", "cmd_barrier: state %d not yet lowered; using COMMON", (int)state);
         return D3D12_RESOURCE_STATE_COMMON;
     }
@@ -152,7 +146,7 @@ void mel_gpu_cmd_texture_barrier(Mel_Gpu_Command_List* cmd, Mel_Gpu_Texture tex,
         {
             mel_gpu__track_state(cmd, tex, range.base_mip + m, range.base_layer + l, src, dst);
             if (before == after)
-                continue; // D3D12 rejects a transition with StateBefore == StateAfter
+                continue;
             D3D12_RESOURCE_BARRIER b = {
                 .Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION,
                 .Transition = { .pResource = o->resource, .Subresource = (range.base_mip + m) + (range.base_layer + l) * o->mip_levels, .StateBefore = before, .StateAfter = after },
@@ -169,8 +163,6 @@ void mel_gpu_cmd_buffer_barrier(Mel_Gpu_Command_List* cmd, Mel_Gpu_Buffer buf, M
         mel_assert(!"cmd_buffer_barrier: invalid buffer handle");
         return;
     }
-    // D3D12 buffers ride common-state promotion/decay, so a transition barrier would mismatch StateBefore.
-    // The only buffer barrier needed here is a UAV barrier flushing a UAV hazard (gpu-rhi.md §7.3 lowering).
     if (src == MEL_GPU_STATE_UNORDERED_ACCESS || dst == MEL_GPU_STATE_UNORDERED_ACCESS)
     {
         D3D12_RESOURCE_BARRIER b = { .Type = D3D12_RESOURCE_BARRIER_TYPE_UAV, .UAV = { .pResource = res } };
@@ -209,12 +201,8 @@ void mel_gpu_cmd_copy_buffer(Mel_Gpu_Command_List* cmd, Mel_Gpu_Buffer src, Mel_
         mel_assert(!"cmd_copy_buffer: invalid buffer handle");
         return;
     }
-    // Buffers ride common-state promotion (COPY_SOURCE / COPY_DEST auto-promote from COMMON), so no transition
-    // barriers; a preceding UAV barrier (cmd_buffer_barrier) flushes a compute-write hazard before the copy.
     ID3D12GraphicsCommandList_CopyBufferRegion(cmd->list, d, 0, s, 0, (UINT64)bytes);
 }
-
-// ---- U16: dynamic rendering (OMSetRenderTargets + clears; no render-pass-object compile step) ----
 
 static D3D12_CPU_DESCRIPTOR_HANDLE mel_gpu__alloc_rtv(Mel_Gpu_Device* dev)
 {
@@ -299,14 +287,9 @@ void mel_gpu_cmd_begin_rendering_opt(Mel_Gpu_Command_List* cmd, Mel_Gpu_Renderin
 
 void mel_gpu_cmd_end_rendering(Mel_Gpu_Command_List* cmd)
 {
-    // D3D12 has no explicit end-of-rendering; the next OMSetRenderTargets or barrier supersedes this pass.
     mel_assert(cmd);
     (void)cmd;
 }
-
-// ---- U13: pipeline binding + draw/dispatch recording. cmd_bind_pipeline records the PSO + root signature +
-// (for graphics) the IA topology, and — for a bindless pipeline — binds the two shader-visible heaps once so
-// the shader can index ResourceDescriptorHeap / SamplerDescriptorHeap (the simple path: bind, push, draw). ----
 
 void mel_gpu_cmd_bind_pipeline(Mel_Gpu_Command_List* cmd, Mel_Gpu_Pipeline pipe)
 {
@@ -323,7 +306,7 @@ void mel_gpu_cmd_bind_pipeline(Mel_Gpu_Command_List* cmd, Mel_Gpu_Pipeline pipe)
 
     Mel_Gpu_Device* dev = cmd->dev;
     if (o->bindless)
-        mel_gpu_cmd_bind_bindless(cmd); // SetDescriptorHeaps before the root signature / table binds
+        mel_gpu_cmd_bind_bindless(cmd);
 
     if (o->is_compute)
         ID3D12GraphicsCommandList_SetComputeRootSignature(cmd->list, o->root_sig);
@@ -333,8 +316,6 @@ void mel_gpu_cmd_bind_pipeline(Mel_Gpu_Command_List* cmd, Mel_Gpu_Pipeline pipe)
         ID3D12GraphicsCommandList_IASetPrimitiveTopology(cmd->list, o->topology);
     }
 
-    // Bind the two bindless descriptor tables at the heap starts; the per-class range offsets in the root
-    // signature map the shader's per-class index onto the right heap slot (binding.c).
     if (o->bindless && dev->bindless_enabled)
     {
         D3D12_GPU_DESCRIPTOR_HANDLE srv, smp;

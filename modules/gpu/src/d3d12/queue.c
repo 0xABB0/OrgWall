@@ -33,8 +33,6 @@ Mel_Gpu_Queue* mel_gpu_queue_request_opt(Mel_Gpu_Device* dev, Mel_Gpu_Queue_Role
         return NULL;
     }
 
-    // Single-queue floor: every reachable role lowers to the DIRECT queue (gpu-rhi.md §7.1). Dedicated async-
-    // compute / copy queues are an additive lowering once their U7 path lands.
     if (role != MEL_GPU_QUEUE_GRAPHICS)
         mel_log_warn("gpu", "queue_request: role %d lowered to the DIRECT queue (single-queue backend)", (int)role);
 
@@ -70,12 +68,11 @@ Mel_Gpu_Queue_Info mel_gpu_queue_info(Mel_Gpu_Queue* q)
     Mel_Gpu_Queue_Info info = { 0 };
     if (!q)
         return info;
-    // The D3D12 DIRECT queue is graphics + compute + copy capable; timestamps are full 64-bit (U24).
     info.family_index = 0;
     info.supports_graphics = true;
     info.supports_compute = true;
     info.supports_transfer = true;
-    info.supports_sparse_binding = false; // tiled resources land at M6+
+    info.supports_sparse_binding = false;
     info.timestamp_valid_bits = 64;
     return info;
 }
@@ -148,7 +145,6 @@ Mel_Gpu_Future* mel_gpu_queue_submit(Mel_Gpu_Queue* q, Mel_Gpu_Submit submit)
     if (FAILED(hr))
     {
         mel_log_error("gpu", "queue_submit: Signal failed: 0x%08lx", (unsigned long)hr);
-        // The submission never runs: nothing references this batch's resources, so retire its serial now.
         mel_gpu__submit_complete(dev, serial);
         mel_gpu_future_resolve(f, NULL, MEL_GPU_STATUS(1, MEL_GPU_SEVERITY_ERROR));
         return f;

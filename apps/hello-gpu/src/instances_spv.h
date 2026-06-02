@@ -1,8 +1,5 @@
 #pragma once
 
-// gl_InstanceIndex instancing with a bindless per-instance store: one draw,
-// many quads, transforms+colours pulled from a heap-resident storage buffer.
-// Regenerate: glslc -fshader-stage={vert,frag} -mfmt=c shaders/instances.{vert,frag}
 #include <stdint.h>
 
 static const uint32_t INSTANCES_VERT_SPV[] =

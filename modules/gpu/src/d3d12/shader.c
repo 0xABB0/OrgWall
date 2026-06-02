@@ -5,12 +5,6 @@
 
 #include <string.h>
 
-// U12 raw-bytecode passthrough (gpu-rhi.md §6.4). The public Mel_Gpu_Shader_Bytecode_Opt fields are
-// SPIR-V-named; on D3D12 they carry DXIL (the public surface is backend-clean — flagged). D3D12_SHADER_BYTECODE
-// carries no entry name (the entry is baked at dxc compile time via -E), so vertex_entry / fragment_entry are
-// ignored on D3D12. The blobs are copied so the caller may free them; reflection extracts the vertex input
-// signature only (the reflection-default vertex layout, §6.5).
-
 bool mel_gpu__shader_get(Mel_Gpu_Device* dev, Mel_Gpu_Shader sh, Mel_Gpu_Shader_Obj** out)
 {
     Mel_Gpu_Shader_Obj* o = mel_gpu__table_get(dev, &dev->shaders, sh.slot);

@@ -5,9 +5,6 @@
 #include <vulkan/vulkan.h>
 #include <vulkan/vulkan_win32.h>
 
-// U18 (gpu-rhi.md §7.4): the Win32 surface lowering. `hwnd` is the window module's native handle
-// (modules/window/src/win32 stores the HWND as the node's `native`). Mirrors macos/surface.m — the only
-// translation unit that pulls the platform Vulkan surface header, so windows.h stays out of the backend core.
 VkSurfaceKHR mel_gpu__vk_create_win32_surface(VkInstance instance, void* hwnd)
 {
     VkWin32SurfaceCreateInfoKHR ci = {

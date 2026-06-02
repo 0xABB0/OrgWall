@@ -107,8 +107,6 @@ Mel_Gpu_Texture_Create_Result mel_gpu_texture_create_opt(Mel_Gpu_Device* dev, Me
     D3D12_HEAP_PROPERTIES hp = { .Type = D3D12_HEAP_TYPE_DEFAULT, .CreationNodeMask = 1, .VisibleNodeMask = 1 };
 
     ID3D12Resource* resource = NULL;
-    // Optimized clear value omitted: it is unknown at create time (the clear color arrives at begin_rendering),
-    // so the debug layer emits a benign perf note rather than an error (gpu-rhi.md §6.2 / MEL-ENGINE-VIII flag).
     HRESULT hr = ID3D12Device_CreateCommittedResource(dev->d3d, &hp, D3D12_HEAP_FLAG_NONE, &rd, D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, (void**)&resource);
     if (FAILED(hr) || !resource)
     {
@@ -176,10 +174,6 @@ Mel_Gpu_Texture_View_Create_Result mel_gpu_texture_view_create_opt(Mel_Gpu_Devic
 
     res.value.slot = mel_gpu__table_insert(dev, &dev->texture_views, &obj);
 
-    // U14: a sampled view registers an SRV at its reserved heap slot (gpu-rhi.md §6.7). Attachment-only /
-    // storage views are not SRV-registered here (storage-image UAV bindless is a later class); their slot is
-    // never sampled. The parent's SAMPLED usage is the gate — registering an SRV for a non-sampled resource
-    // would be a meaningless heap entry.
     if (dev->bindless_enabled && (tex->usage & MEL_GPU_TEXTURE_SAMPLED))
         mel_gpu__bindless_register_texture_view(dev, res.value.slot.index, &obj);
 
@@ -204,9 +198,6 @@ Mel_Gpu_Texture_View_Create_Result mel_gpu_texture_default_view(Mel_Gpu_Device* 
 
 void mel_gpu_texture_view_destroy(Mel_Gpu_Device* dev, Mel_Gpu_Texture_View view)
 {
-    // A D3D12 view is descriptor-heap intent, not a COM object. With bindless on, the SRV slot is future-gated
-    // (§3.3): the generation rolls now (use-after-free stays loud) and the slot is reclaimed only once
-    // in-flight submissions retire, so a reused slot's SRV is overwritten by the new view, never read stale.
     if (dev->bindless_enabled)
     {
         mel_gpu__table_remove_deferred(dev, &dev->texture_views, view.slot);
@@ -239,7 +230,6 @@ void mel_gpu_texture_write(Mel_Gpu_Device* dev, Mel_Gpu_Texture tex, Mel_Gpu_Tex
     UINT64                             row_size = 0, total = 0;
     ID3D12Device_GetCopyableFootprints(dev->d3d, &td, sub, 1, 0, &fp, &num_rows, &row_size, &total);
 
-    // Staging UPLOAD buffer holding the 256-row-aligned footprint (D3D12_TEXTURE_DATA_PITCH_ALIGNMENT).
     D3D12_HEAP_PROPERTIES hp = { .Type = D3D12_HEAP_TYPE_UPLOAD, .CreationNodeMask = 1, .VisibleNodeMask = 1 };
     D3D12_RESOURCE_DESC   bd = {
         .Dimension = D3D12_RESOURCE_DIMENSION_BUFFER,
@@ -261,7 +251,6 @@ void mel_gpu_texture_write(Mel_Gpu_Device* dev, Mel_Gpu_Texture tex, Mel_Gpu_Tex
         ID3D12Resource_Release(staging);
         return;
     }
-    // Tight source rows → aligned footprint rows (RowPitch >= row_size).
     const u8* src = data;
     for (UINT r = 0; r < num_rows; r++)
         memcpy(map + fp.Offset + (u64)r * fp.Footprint.RowPitch, src + (u64)r * row_size, (size_t)row_size);

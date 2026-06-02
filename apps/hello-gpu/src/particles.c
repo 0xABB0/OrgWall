@@ -7,14 +7,14 @@
 #include "hud.h"
 #include "particle_sim_spv.h"
 #include "particle_draw_spv.h"
-#include "instances_spv.h" // INSTANCES_FRAG_SPV: plain v_color passthrough
+#include "instances_spv.h"
 
 #define PARTICLE_COUNT 40000
 #define LOCAL          64
 
 typedef struct
 {
-    f32 pos_life[4]; // xy pos, z life, w seed
+    f32 pos_life[4];
     f32 vel[4];
 } Particle;
 
@@ -74,7 +74,6 @@ static void* particles_init(Mel_Gpu_Device* dev, Mel_Gpu_Swapchain* sc)
                                                      .fragment_entry = "main",
                                                      .name = "particle-draw")
                      .value;
-    // Additive blend so dense regions of the swarm bloom (the glow reads as energy).
     Mel_Gpu_Color_Target target = {
         .format = mel_gpu_swapchain_format(sc),
         .blend = { .enable = true,
@@ -96,7 +95,6 @@ static void* particles_init(Mel_Gpu_Device* dev, Mel_Gpu_Swapchain* sc)
                                          .name = "particle-draw")
                      .value;
 
-    // Seed the pool in a thin ring; the integrator takes over from frame 1.
     Particle* seed = malloc(PARTICLE_COUNT * sizeof(Particle));
     for (i32 i = 0; i < PARTICLE_COUNT; ++i)
     {
@@ -135,13 +133,10 @@ static void particles_render(void* state, Mel_Gpu_Command_List* cmd, f64 dt)
         return;
     }
 
-    // First frame the buffer is COMMON; thereafter the prior frame left it in
-    // SHADER_RESOURCE (the vertex read) — the read-after-write edge to clear.
     Mel_Gpu_Resource_State buf_src = p->first_frame ? MEL_GPU_STATE_COMMON : MEL_GPU_STATE_SHADER_RESOURCE;
     p->first_frame = false;
     mel_gpu_cmd_buffer_barrier(cmd, p->particles, buf_src, MEL_GPU_STATE_UNORDERED_ACCESS);
 
-    // Integrate. The attractor traces a Lissajous path so the swarm chases it.
     f32      ax = 0.6f * (f32)sin(p->t * 0.7);
     f32      ay = 0.6f * (f32)sin(p->t * 0.9 + 1.3);
     Sim_Root sroot = { .particles = p->particles_slot, .total = PARTICLE_COUNT, .dt = (f32)(dt > 0.05 ? 0.05 : dt), .time = (f32)p->t, .attract_x = ax, .attract_y = ay };
@@ -149,7 +144,6 @@ static void particles_render(void* state, Mel_Gpu_Command_List* cmd, f64 dt)
     mel_gpu_cmd_push_constants(cmd, 0, sizeof sroot, &sroot);
     mel_gpu_cmd_dispatch(cmd, (PARTICLE_COUNT + LOCAL - 1) / LOCAL, 1, 1);
 
-    // Compute write -> vertex read.
     mel_gpu_cmd_buffer_barrier(cmd, p->particles, MEL_GPU_STATE_UNORDERED_ACCESS, MEL_GPU_STATE_SHADER_RESOURCE);
 
     Draw_Root droot = { .particles = p->particles_slot, .aspect = p->aspect };
