@@ -55,7 +55,11 @@ void gpu_host_init(Mel_Reactor* reactor)
     if (n == 0)
         return;
 
-    Mel_Gpu_Device_Create_Result dr = mel_gpu_device_create(g_instance, adapters[0], .reactor = reactor, .features = { .timeline_semaphores = true });
+    // descriptor_indexing turns on the device-global bindless heap (gpu-rhi.md §6.7) the
+    // textured-quad, compute, depth, post-process and instancing screens sample through;
+    // buffer_device_address is the §6.7 ceiling those screens do not yet need but is cheap
+    // to request and keeps the door open. Screens guard on mel_gpu_bindless_available().
+    Mel_Gpu_Device_Create_Result dr = mel_gpu_device_create(g_instance, adapters[0], .reactor = reactor, .features = { .timeline_semaphores = true, .descriptor_indexing = true, .buffer_device_address = true });
     g_device = dr.value;
 
     atexit(gpu_host_shutdown);
