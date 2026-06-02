@@ -63,6 +63,11 @@ Mel_Gpu_Instance* mel_gpu_instance_create_opt(Mel_Gpu_Instance_Opt opt)
     }
     if (mel_gpu__instance_ext_available(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME))
         exts[ext_count++] = VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME;
+#elif defined(_WIN32)
+    // U18 §7.4: the windowing surface extension (the swapchain device extension is requested in device.c).
+    // Only enabled when present so a headless instance on a machine without it still comes up.
+    if (mel_gpu__instance_ext_available("VK_KHR_win32_surface"))
+        exts[ext_count++] = "VK_KHR_win32_surface";
 #endif
 
     bool want_debug = opt.debug.enabled;

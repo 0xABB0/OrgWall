@@ -1,5 +1,18 @@
 #include "build.h"
 
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+// A persistent flag string (mel_* stores the pointer, not a copy). Configure runs once, so the leak is moot.
+static char* mel_gpu__flag(const char* prefix, const char* mid, const char* suffix)
+{
+    size_t n = strlen(prefix) + strlen(mid) + strlen(suffix) + 1;
+    char*  s = malloc(n);
+    snprintf(s, n, "%s%s%s", prefix, mid, suffix);
+    return s;
+}
+
 void build(Mel_Build* b)
 {
     Mel_Target* lib = mel_add_library(b, "gpu");
@@ -8,11 +21,24 @@ void build(Mel_Build* b)
 
     mel_sources(lib, WHEN(.gpu = "vulkan"), "src/vulkan/*.c");
     mel_defines(lib, MEL_PRIVATE, WHEN(.gpu = "vulkan"), "MEL_GPU_VULKAN=1");
+
+    // macOS: MoltenVK via the Homebrew loader (libvulkan) + Metal surface (Objective-C).
     mel_sources(lib, WHEN(.gpu = "vulkan", .platforms = MEL_ON(MACOS)), "src/vulkan/macos/*.m");
-    mel_link(lib, MEL_PUBLIC, WHEN(.gpu = "vulkan"), "-lvulkan");
+    mel_link(lib, MEL_PUBLIC, WHEN(.gpu = "vulkan", .platforms = MEL_ON(MACOS)), "-lvulkan");
     mel_cflags(lib, MEL_PUBLIC, WHEN(.gpu = "vulkan", .platforms = MEL_ON(MACOS)), "-I/opt/homebrew/include");
     mel_link(lib, MEL_PUBLIC, WHEN(.gpu = "vulkan", .platforms = MEL_ON(MACOS)), "-L/opt/homebrew/lib");
     mel_link(lib, MEL_PUBLIC, WHEN(.gpu = "vulkan", .platforms = MEL_ON(MACOS)), "-framework", "QuartzCore", "-framework", "Foundation");
+
+    // win32: native build (clang/MSVC ABI) against the Vulkan SDK loader (vulkan-1) + Win32 surface (gpu-rhi.md §7.4).
+    // The SDK include/lib live under %VULKAN_SDK%; vcvars does not add them, so inject them at configure time.
+    mel_sources(lib, WHEN(.gpu = "vulkan", .platforms = MEL_ON(WIN32)), "src/vulkan/windows/*.c");
+    mel_link(lib, MEL_PUBLIC, WHEN(.gpu = "vulkan", .platforms = MEL_ON(WIN32)), "-lvulkan-1");
+    const char* vksdk = getenv("VULKAN_SDK");
+    if (vksdk)
+    {
+        mel_cflags(lib, MEL_PUBLIC, WHEN(.gpu = "vulkan", .platforms = MEL_ON(WIN32)), mel_gpu__flag("-I", vksdk, "/Include"));
+        mel_link(lib, MEL_PUBLIC, WHEN(.gpu = "vulkan", .platforms = MEL_ON(WIN32)), mel_gpu__flag("-L", vksdk, "/Lib"));
+    }
 
     mel_depends(lib, "core");
     mel_depends(lib, "allocator");

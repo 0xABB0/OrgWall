@@ -477,6 +477,7 @@ bool        mel_gpu__device_is_lost(Mel_Gpu_Device* dev, VkResult r, const char*
 VkSurfaceKHR mel_gpu__vk_create_metal_surface(VkInstance instance, void* native_view, void** out_layer);
 void         mel_gpu__vk_metal_layer_set_size(void* layer, i32 width, i32 height);
 void         mel_gpu__vk_metal_layer_release(void* layer);
+VkSurfaceKHR mel_gpu__vk_create_win32_surface(VkInstance instance, void* hwnd); // U18 §7.4 (src/vulkan/windows)
 
 VkFormat       mel_gpu__vk_format(Mel_Gpu_Format fmt);
 Mel_Gpu_Format mel_gpu__vk_format_to_mel(VkFormat fmt);

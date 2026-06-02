@@ -21,6 +21,14 @@ Mel_Gpu_Surface* mel_gpu_surface_create(Mel_Gpu_Device* dev, void* native)
         mel_dealloc(mel_alloc_heap(), s);
         return NULL;
     }
+#elif defined(_WIN32)
+    s->vk = mel_gpu__vk_create_win32_surface(dev->instance->vk, native);
+    if (s->vk == VK_NULL_HANDLE)
+    {
+        mel_log_error("gpu", "failed to create Win32 surface");
+        mel_dealloc(mel_alloc_heap(), s);
+        return NULL;
+    }
 #else
     mel_log_error("gpu", "surface creation not implemented for this platform");
     mel_dealloc(mel_alloc_heap(), s);
