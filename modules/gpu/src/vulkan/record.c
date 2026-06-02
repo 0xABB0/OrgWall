@@ -408,6 +408,39 @@ void mel_gpu_cmd_copy_texture_to_buffer(Mel_Gpu_Command_List* cmd, Mel_Gpu_Textu
     vkCmdCopyImageToBuffer(cmd->cb, o->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, vkdst, 1, &copy);
 }
 
+static Mel_Gpu_Resource_State mel_gpu__tracked_state(Mel_Gpu_Command_List* cmd, Mel_Gpu_Texture tex, u32 mip, u32 layer)
+{
+    for (u32 i = 0; i < cmd->state_count; i++)
+    {
+        Mel_Gpu_Cmd_State_Entry* e = &cmd->states[i];
+        if (e->tex_index == tex.slot.index && e->tex_generation == tex.slot.generation && e->mip == mip && e->layer == layer)
+            return e->state;
+    }
+    return MEL_GPU_STATE_COMMON;
+}
+
+static void mel_gpu__attachment_transition(Mel_Gpu_Command_List* cmd, Mel_Gpu_Texture_View view, Mel_Gpu_Resource_State target)
+{
+    Mel_Gpu_Texture_View_Obj v;
+    if (!mel_gpu__texture_view_get(cmd->dev, view, &v))
+        return;
+    Mel_Gpu_Texture tex = { .slot = v.texture };
+
+    Mel_Gpu_Texture_Aspect aspect = (v.aspect & VK_IMAGE_ASPECT_DEPTH_BIT) ? MEL_GPU_ASPECT_DEPTH : MEL_GPU_ASPECT_COLOR;
+
+    for (u32 m = 0; m < v.mip_count; m++)
+        for (u32 l = 0; l < v.layer_count; l++)
+        {
+            u32                    mip = v.base_mip + m;
+            u32                    layer = v.base_layer + l;
+            Mel_Gpu_Resource_State src = mel_gpu__tracked_state(cmd, tex, mip, layer);
+            if (src == target)
+                continue;
+            Mel_Gpu_Subresource_Range range = { .aspect = aspect, .base_mip = mip, .mip_count = 1, .base_layer = layer, .layer_count = 1 };
+            mel_gpu_cmd_texture_barrier(cmd, tex, range, src, target);
+        }
+}
+
 static VkAttachmentLoadOp mel_gpu__load_op(Mel_Gpu_Load_Op op)
 {
     switch (op)
@@ -437,7 +470,16 @@ void mel_gpu_cmd_begin_rendering_opt(Mel_Gpu_Command_List* cmd, Mel_Gpu_Renderin
         return;
     }
 
-    u32                           n = opt.color_count;
+    u32 n = opt.color_count;
+    for (u32 i = 0; i < n; i++)
+    {
+        mel_gpu__attachment_transition(cmd, opt.colors[i].view, MEL_GPU_STATE_RENDER_TARGET);
+        if (opt.colors[i].resolve_view.slot.generation != 0)
+            mel_gpu__attachment_transition(cmd, opt.colors[i].resolve_view, MEL_GPU_STATE_RENDER_TARGET);
+    }
+    if (opt.depth)
+        mel_gpu__attachment_transition(cmd, opt.depth->view, MEL_GPU_STATE_DEPTH_WRITE);
+
     VkRenderingAttachmentInfoKHR* color = n ? mel_alloc_array(dev->alloc, VkRenderingAttachmentInfoKHR, n) : NULL;
     for (u32 i = 0; i < n; i++)
     {
