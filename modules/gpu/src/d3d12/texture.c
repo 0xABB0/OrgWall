@@ -176,6 +176,8 @@ Mel_Gpu_Texture_View_Create_Result mel_gpu_texture_view_create_opt(Mel_Gpu_Devic
 
     if (dev->bindless_enabled && (tex->usage & MEL_GPU_TEXTURE_SAMPLED))
         mel_gpu__bindless_register_texture_view(dev, res.value.slot.index, &obj);
+    if (dev->bindless_enabled && (tex->usage & MEL_GPU_TEXTURE_STORAGE))
+        mel_gpu__bindless_register_storage_image(dev, res.value.slot.index, &obj);
 
     return res;
 }

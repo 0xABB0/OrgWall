@@ -141,6 +141,41 @@ void mel_gpu__bindless_register_buffer(Mel_Gpu_Device* dev, u32 index, const Mel
     }
 }
 
+static D3D12_UAV_DIMENSION mel_gpu__uav_dim(Mel_Gpu_View_Dimension d)
+{
+    switch (d)
+    {
+    case MEL_GPU_VIEW_1D:
+        return D3D12_UAV_DIMENSION_TEXTURE1D;
+    case MEL_GPU_VIEW_1D_ARRAY:
+        return D3D12_UAV_DIMENSION_TEXTURE1DARRAY;
+    case MEL_GPU_VIEW_2D_ARRAY:
+    case MEL_GPU_VIEW_CUBE:
+    case MEL_GPU_VIEW_CUBE_ARRAY:
+        return D3D12_UAV_DIMENSION_TEXTURE2DARRAY;
+    case MEL_GPU_VIEW_3D:
+        return D3D12_UAV_DIMENSION_TEXTURE3D;
+    case MEL_GPU_VIEW_2D:
+    default:
+        return D3D12_UAV_DIMENSION_TEXTURE2D;
+    }
+}
+
+void mel_gpu__bindless_register_storage_image(Mel_Gpu_Device* dev, u32 index, const Mel_Gpu_Texture_View_Obj* v)
+{
+    if (!dev->bindless_enabled)
+        return;
+    Mel_Gpu_Texture      tex = { v->texture };
+    Mel_Gpu_Texture_Obj* t = NULL;
+    if (!mel_gpu__texture_get(dev, tex, &t))
+        return;
+
+    D3D12_UNORDERED_ACCESS_VIEW_DESC uav = { .Format = v->format, .ViewDimension = mel_gpu__uav_dim(v->dimension) };
+    uav.Texture2D.MipSlice = v->base_mip;
+    uav.Texture2D.PlaneSlice = 0;
+    ID3D12Device_CreateUnorderedAccessView(dev->d3d, t->resource, NULL, &uav, mel_gpu__srv_cpu(dev, dev->base_storage_image + index));
+}
+
 void mel_gpu__bindless_register_sampler(Mel_Gpu_Device* dev, u32 index, const D3D12_SAMPLER_DESC* d)
 {
     if (!dev->bindless_enabled)

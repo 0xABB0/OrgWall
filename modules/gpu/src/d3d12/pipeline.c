@@ -148,10 +148,38 @@ static D3D12_STATIC_BORDER_COLOR mel_gpu__static_border(const float c[4])
     return D3D12_STATIC_BORDER_COLOR_OPAQUE_WHITE;
 }
 
-static bool mel_gpu__build_root_sig(Mel_Gpu_Device* dev, bool bindless, bool is_compute, u32 pc_size, const Mel_Gpu_Static_Sampler* static_samplers, u32 static_sampler_count, ID3D12RootSignature** out)
+static u32 mel_gpu__set_binding_count(const Mel_Gpu_Bind_Group_Layout_Obj* lo, bool want_sampler)
 {
-    D3D12_ROOT_PARAMETER1 params[3];
-    u32                   nparams = 0;
+    u32 n = 0;
+    for (u32 i = 0; i < lo->entry_count; i++)
+        if (mel_gpu__descriptor_is_sampler(lo->entries[i].kind) == want_sampler)
+            n++;
+    return n;
+}
+
+static bool mel_gpu__build_root_sig(Mel_Gpu_Device* dev, bool bindless, bool is_compute, u32 pc_size, const Mel_Gpu_Bind_Group_Layout* set_layouts, u32 set_layout_count, Mel_Gpu_Set_Param** out_set_params, u32* out_set_param_count, const Mel_Gpu_Static_Sampler* static_samplers, u32 static_sampler_count, ID3D12RootSignature** out)
+{
+    if (out_set_params)
+        *out_set_params = NULL;
+    if (out_set_param_count)
+        *out_set_param_count = 0;
+
+    u32 classic_sets = bindless ? 0u : set_layout_count;
+    u32 max_params = 1 + (bindless ? 2u : 0u) + classic_sets * 2u;
+    u32 max_ranges = (bindless ? 5u : 0u) + (classic_sets ? 1u : 0u);
+    for (u32 s = 0; s < classic_sets; s++)
+    {
+        Mel_Gpu_Bind_Group_Layout_Obj* lo = NULL;
+        if (mel_gpu__bind_group_layout_get(dev, set_layouts[s], &lo))
+            max_ranges += lo->entry_count;
+    }
+
+    D3D12_ROOT_PARAMETER1*  params = mel_alloc(dev->alloc, sizeof(D3D12_ROOT_PARAMETER1) * (max_params ? max_params : 1));
+    D3D12_DESCRIPTOR_RANGE1* ranges = mel_alloc(dev->alloc, sizeof(D3D12_DESCRIPTOR_RANGE1) * (max_ranges ? max_ranges : 1));
+    Mel_Gpu_Set_Param*      set_params = classic_sets ? mel_alloc(dev->alloc, sizeof(Mel_Gpu_Set_Param) * classic_sets) : NULL;
+    u32                     nparams = 0;
+    u32                     nranges = 0;
+
     if (pc_size > 0)
     {
         params[nparams] = (D3D12_ROOT_PARAMETER1){ .ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS, .ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL };
@@ -162,22 +190,79 @@ static bool mel_gpu__build_root_sig(Mel_Gpu_Device* dev, bool bindless, bool is_
     }
 
     const D3D12_DESCRIPTOR_RANGE_FLAGS vol = D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE;
-    D3D12_DESCRIPTOR_RANGE1            resource_ranges[3] = {
-        { .RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV, .NumDescriptors = dev->cap_sampled_image, .BaseShaderRegister = 0, .RegisterSpace = 0, .Flags = vol, .OffsetInDescriptorsFromTableStart = dev->base_sampled_image },
-        { .RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV, .NumDescriptors = dev->cap_storage_buffer, .BaseShaderRegister = 0, .RegisterSpace = 0, .Flags = vol, .OffsetInDescriptorsFromTableStart = dev->base_storage_buffer },
-        { .RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_CBV, .NumDescriptors = dev->cap_uniform_buffer, .BaseShaderRegister = 1, .RegisterSpace = 0, .Flags = vol, .OffsetInDescriptorsFromTableStart = dev->base_uniform_buffer },
-    };
-    D3D12_DESCRIPTOR_RANGE1 sampler_range = { .RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER, .NumDescriptors = dev->smp_cap, .BaseShaderRegister = 0, .RegisterSpace = 0, .Flags = vol, .OffsetInDescriptorsFromTableStart = 0 };
     if (bindless)
     {
+        u32 base = nranges;
+        ranges[nranges++] = (D3D12_DESCRIPTOR_RANGE1){ .RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV, .NumDescriptors = dev->cap_sampled_image, .BaseShaderRegister = 0, .RegisterSpace = 0, .Flags = vol, .OffsetInDescriptorsFromTableStart = dev->base_sampled_image };
+        ranges[nranges++] = (D3D12_DESCRIPTOR_RANGE1){ .RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV, .NumDescriptors = dev->cap_storage_buffer, .BaseShaderRegister = 0, .RegisterSpace = 0, .Flags = vol, .OffsetInDescriptorsFromTableStart = dev->base_storage_buffer };
+        ranges[nranges++] = (D3D12_DESCRIPTOR_RANGE1){ .RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_CBV, .NumDescriptors = dev->cap_uniform_buffer, .BaseShaderRegister = 1, .RegisterSpace = 0, .Flags = vol, .OffsetInDescriptorsFromTableStart = dev->base_uniform_buffer };
+        ranges[nranges++] = (D3D12_DESCRIPTOR_RANGE1){ .RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV, .NumDescriptors = dev->cap_storage_image, .BaseShaderRegister = 0, .RegisterSpace = 1, .Flags = vol, .OffsetInDescriptorsFromTableStart = dev->base_storage_image };
         params[nparams] = (D3D12_ROOT_PARAMETER1){ .ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE, .ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL };
-        params[nparams].DescriptorTable.NumDescriptorRanges = 3;
-        params[nparams].DescriptorTable.pDescriptorRanges = resource_ranges;
+        params[nparams].DescriptorTable.NumDescriptorRanges = 4;
+        params[nparams].DescriptorTable.pDescriptorRanges = &ranges[base];
         nparams++;
+        u32 smp_base = nranges;
+        ranges[nranges++] = (D3D12_DESCRIPTOR_RANGE1){ .RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER, .NumDescriptors = dev->smp_cap, .BaseShaderRegister = 0, .RegisterSpace = 0, .Flags = vol, .OffsetInDescriptorsFromTableStart = 0 };
         params[nparams] = (D3D12_ROOT_PARAMETER1){ .ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE, .ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL };
         params[nparams].DescriptorTable.NumDescriptorRanges = 1;
-        params[nparams].DescriptorTable.pDescriptorRanges = &sampler_range;
+        params[nparams].DescriptorTable.pDescriptorRanges = &ranges[smp_base];
         nparams++;
+    }
+
+    for (u32 s = 0; s < classic_sets; s++)
+    {
+        set_params[s] = (Mel_Gpu_Set_Param){ 0 };
+        Mel_Gpu_Bind_Group_Layout_Obj* lo = NULL;
+        if (!mel_gpu__bind_group_layout_get(dev, set_layouts[s], &lo))
+        {
+            mel_log_error("gpu", "pipeline_create: set_layouts[%u] is not a live bind-group layout", s);
+            mel_dealloc(dev->alloc, params);
+            mel_dealloc(dev->alloc, ranges);
+            if (set_params)
+                mel_dealloc(dev->alloc, set_params);
+            return false;
+        }
+
+        u32 res_in_set = mel_gpu__set_binding_count(lo, false);
+        u32 smp_in_set = mel_gpu__set_binding_count(lo, true);
+        if (res_in_set)
+        {
+            u32 base = nranges;
+            u32 off = 0;
+            for (u32 i = 0; i < lo->entry_count; i++)
+            {
+                if (mel_gpu__descriptor_is_sampler(lo->entries[i].kind))
+                    continue;
+                u32 cnt = lo->entries[i].count ? lo->entries[i].count : 1u;
+                ranges[nranges++] = (D3D12_DESCRIPTOR_RANGE1){ .RangeType = mel_gpu__range_type(lo->entries[i].kind), .NumDescriptors = cnt, .BaseShaderRegister = lo->entries[i].binding, .RegisterSpace = s, .Flags = vol, .OffsetInDescriptorsFromTableStart = off };
+                off += cnt;
+            }
+            params[nparams] = (D3D12_ROOT_PARAMETER1){ .ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE, .ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL };
+            params[nparams].DescriptorTable.NumDescriptorRanges = nranges - base;
+            params[nparams].DescriptorTable.pDescriptorRanges = &ranges[base];
+            set_params[s].has_resource = true;
+            set_params[s].resource_param = nparams;
+            nparams++;
+        }
+        if (smp_in_set)
+        {
+            u32 base = nranges;
+            u32 off = 0;
+            for (u32 i = 0; i < lo->entry_count; i++)
+            {
+                if (!mel_gpu__descriptor_is_sampler(lo->entries[i].kind))
+                    continue;
+                u32 cnt = lo->entries[i].count ? lo->entries[i].count : 1u;
+                ranges[nranges++] = (D3D12_DESCRIPTOR_RANGE1){ .RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER, .NumDescriptors = cnt, .BaseShaderRegister = lo->entries[i].binding, .RegisterSpace = s, .Flags = vol, .OffsetInDescriptorsFromTableStart = off };
+                off += cnt;
+            }
+            params[nparams] = (D3D12_ROOT_PARAMETER1){ .ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE, .ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL };
+            params[nparams].DescriptorTable.NumDescriptorRanges = nranges - base;
+            params[nparams].DescriptorTable.pDescriptorRanges = &ranges[base];
+            set_params[s].has_sampler = true;
+            set_params[s].sampler_param = nparams;
+            nparams++;
+        }
     }
 
     D3D12_STATIC_SAMPLER_DESC* statics = NULL;
@@ -226,6 +311,10 @@ static bool mel_gpu__build_root_sig(Mel_Gpu_Device* dev, bool bindless, bool is_
             ID3D10Blob_Release(err);
         if (statics)
             mel_dealloc(dev->alloc, statics);
+        mel_dealloc(dev->alloc, params);
+        mel_dealloc(dev->alloc, ranges);
+        if (set_params)
+            mel_dealloc(dev->alloc, set_params);
         return false;
     }
     hr = ID3D12Device_CreateRootSignature(dev->d3d, 0, ID3D10Blob_GetBufferPointer(blob), ID3D10Blob_GetBufferSize(blob), &IID_ID3D12RootSignature, (void**)out);
@@ -234,11 +323,21 @@ static bool mel_gpu__build_root_sig(Mel_Gpu_Device* dev, bool bindless, bool is_
         ID3D10Blob_Release(err);
     if (statics)
         mel_dealloc(dev->alloc, statics);
+    mel_dealloc(dev->alloc, params);
+    mel_dealloc(dev->alloc, ranges);
     if (FAILED(hr))
     {
         mel_log_error("gpu", "CreateRootSignature failed: 0x%08lx", (unsigned long)hr);
+        if (set_params)
+            mel_dealloc(dev->alloc, set_params);
         return false;
     }
+    if (out_set_params)
+        *out_set_params = set_params;
+    else if (set_params)
+        mel_dealloc(dev->alloc, set_params);
+    if (out_set_param_count)
+        *out_set_param_count = classic_sets;
     return true;
 }
 
@@ -263,10 +362,10 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_create_opt(Mel_Gpu_Device* dev, 
         mel_log_error("gpu", "pipeline_create: bindless pipeline but the device has no bindless heap (request descriptor_indexing at device-create)");
         return res;
     }
-    if (opt.set_layout_count > 0)
+    if (!bindless && opt.set_layout_count > 0 && !dev->classic_res_heap)
     {
         res.status = MEL_GPU_PIPELINE_CREATE_MISSING_FEATURE;
-        mel_log_error("gpu", "pipeline_create: classic descriptor-set layouts are not yet implemented on D3D12 (bindless is the path this slice supports)");
+        mel_log_error("gpu", "pipeline_create: set_layouts require the classic descriptor heap, which failed to initialize");
         return res;
     }
 
@@ -274,7 +373,9 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_create_opt(Mel_Gpu_Device* dev, 
         mel_log_warn("gpu", "pipeline_create: specialization constants have no DXIL analog; %u ignored (recompile with -D defines on D3D12)", opt.spec_constant_count);
 
     ID3D12RootSignature* root_sig = NULL;
-    if (!mel_gpu__build_root_sig(dev, bindless, false, pc_size, opt.static_samplers, opt.static_sampler_count, &root_sig))
+    Mel_Gpu_Set_Param*   set_params = NULL;
+    u32                  set_param_count = 0;
+    if (!mel_gpu__build_root_sig(dev, bindless, false, pc_size, opt.set_layouts, opt.set_layout_count, &set_params, &set_param_count, opt.static_samplers, opt.static_sampler_count, &root_sig))
     {
         res.status = MEL_GPU_PIPELINE_CREATE_VK_FAILED;
         return res;
@@ -386,6 +487,8 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_create_opt(Mel_Gpu_Device* dev, 
     {
         mel_log_error("gpu", "CreateGraphicsPipelineState failed: 0x%08lx", (unsigned long)hr);
         ID3D12RootSignature_Release(root_sig);
+        if (set_params)
+            mel_dealloc(dev->alloc, set_params);
         res.status = MEL_GPU_PIPELINE_CREATE_VK_FAILED;
         return res;
     }
@@ -400,6 +503,8 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_create_opt(Mel_Gpu_Device* dev, 
     obj.topology = mel_gpu__topo_ia(opt.topology);
     obj.push_constant_size = pc_size;
     obj.vertex_stride = vertex_stride;
+    obj.set_params = set_params;
+    obj.set_param_count = set_param_count;
     if (bindless)
     {
         obj.srv_table_param = pc_size > 0 ? 1 : 0;
@@ -441,17 +546,19 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_compute_create_opt(Mel_Gpu_Devic
         mel_log_error("gpu", "pipeline_compute_create: bindless pipeline but the device has no bindless heap");
         return res;
     }
-    if (opt.set_layout_count > 0)
+    if (!bindless && opt.set_layout_count > 0 && !dev->classic_res_heap)
     {
         res.status = MEL_GPU_PIPELINE_CREATE_MISSING_FEATURE;
-        mel_log_error("gpu", "pipeline_compute_create: classic descriptor-set layouts are not yet implemented on D3D12");
+        mel_log_error("gpu", "pipeline_compute_create: set_layouts require the classic descriptor heap, which failed to initialize");
         return res;
     }
     if (opt.spec_constant_count > 0)
         mel_log_warn("gpu", "pipeline_compute_create: specialization constants have no DXIL analog; %u ignored", opt.spec_constant_count);
 
     ID3D12RootSignature* root_sig = NULL;
-    if (!mel_gpu__build_root_sig(dev, bindless, true, pc_size, NULL, 0, &root_sig))
+    Mel_Gpu_Set_Param*   set_params = NULL;
+    u32                  set_param_count = 0;
+    if (!mel_gpu__build_root_sig(dev, bindless, true, pc_size, opt.set_layouts, opt.set_layout_count, &set_params, &set_param_count, NULL, 0, &root_sig))
     {
         res.status = MEL_GPU_PIPELINE_CREATE_VK_FAILED;
         return res;
@@ -467,6 +574,8 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_compute_create_opt(Mel_Gpu_Devic
     {
         mel_log_error("gpu", "CreateComputePipelineState failed: 0x%08lx", (unsigned long)hr);
         ID3D12RootSignature_Release(root_sig);
+        if (set_params)
+            mel_dealloc(dev->alloc, set_params);
         res.status = MEL_GPU_PIPELINE_CREATE_VK_FAILED;
         return res;
     }
@@ -479,6 +588,8 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_compute_create_opt(Mel_Gpu_Devic
     obj.bindless = bindless;
     obj.is_compute = true;
     obj.push_constant_size = pc_size;
+    obj.set_params = set_params;
+    obj.set_param_count = set_param_count;
     if (bindless)
     {
         obj.srv_table_param = pc_size > 0 ? 1 : 0;
@@ -498,9 +609,12 @@ void mel_gpu_pipeline_destroy(Mel_Gpu_Device* dev, Mel_Gpu_Pipeline pipe)
     ID3D12RootSignature*  rs = o->root_sig;
     Mel_Gpu_Sampler*      statics = o->static_samplers;
     u32                   static_count = o->static_sampler_count;
+    Mel_Gpu_Set_Param*    set_params = o->set_params;
 
     mel_gpu__table_remove(dev, &dev->pipelines, pipe.slot);
     mel_gpu__defer_free(dev, (Mel_Gpu_Deferred_Free){ .pso = pso, .root_sig = rs });
+    if (set_params)
+        mel_dealloc(dev->alloc, set_params);
     if (statics)
     {
         for (u32 i = 0; i < static_count; i++)
