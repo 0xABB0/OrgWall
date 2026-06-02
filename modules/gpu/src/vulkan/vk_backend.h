@@ -344,6 +344,15 @@ struct Mel_Gpu_Device
     f32                              max_sampler_anisotropy; // 1.0 when samplerAnisotropy not enabled (U11)
     bool                             bda_enabled;            // U14 ceiling: buffer_device_address granted
 
+    // U13 render state (gpu-rhi.md §6.5): optional rasterizer/blend features enabled at device-create when the
+    // physical device supports them; the pipeline path degrades a request for an unenabled one with a warning.
+    bool               feat_fill_non_solid;      // wireframe / point polygon modes
+    bool               feat_depth_bounds;        // depth-bounds test
+    bool               feat_depth_bias_clamp;    // non-zero depth-bias clamp
+    bool               feat_sample_rate_shading; // sample shading + min-sample-shading
+    VkSampleCountFlags fb_color_samples;         // framebufferColorSampleCounts limit (MSAA validation)
+    VkSampleCountFlags fb_depth_samples;         // framebufferDepthSampleCounts limit
+
     Mel_Mutex              obj_lock;
     Mel_Gpu_Resource_Table buffers;
     Mel_Gpu_Resource_Table textures;
@@ -472,6 +481,8 @@ void         mel_gpu__vk_metal_layer_release(void* layer);
 VkFormat       mel_gpu__vk_format(Mel_Gpu_Format fmt);
 Mel_Gpu_Format mel_gpu__vk_format_to_mel(VkFormat fmt);
 VkImageAspectFlags mel_gpu__aspect_flags(Mel_Gpu_Texture_Aspect aspect, VkFormat fmt);
+// Shared comparison-op lowering (sampler compare + U13 depth/stencil compare). NONE maps to NEVER.
+VkCompareOp mel_gpu__vk_compare_op(Mel_Gpu_Compare_Op c);
 
 u32 mel_gpu__vk_find_memory_type(Mel_Gpu_Device* dev, u32 type_bits, VkMemoryPropertyFlags props);
 

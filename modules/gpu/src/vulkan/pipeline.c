@@ -35,6 +35,176 @@ static VkCullModeFlags mel_gpu__cull(Mel_Gpu_Cull c)
     return VK_CULL_MODE_NONE;
 }
 
+// U13 render-state lowerings (gpu-rhi.md §6.5). Protocol maps onto the Vulkan enums (MEL-CODE-001 carve-out).
+static VkBlendFactor mel_gpu__vk_blend_factor(Mel_Gpu_Blend_Factor f)
+{
+    switch (f)
+    {
+    case MEL_GPU_BLEND_ZERO:
+        return VK_BLEND_FACTOR_ZERO;
+    case MEL_GPU_BLEND_ONE:
+        return VK_BLEND_FACTOR_ONE;
+    case MEL_GPU_BLEND_SRC_COLOR:
+        return VK_BLEND_FACTOR_SRC_COLOR;
+    case MEL_GPU_BLEND_ONE_MINUS_SRC_COLOR:
+        return VK_BLEND_FACTOR_ONE_MINUS_SRC_COLOR;
+    case MEL_GPU_BLEND_DST_COLOR:
+        return VK_BLEND_FACTOR_DST_COLOR;
+    case MEL_GPU_BLEND_ONE_MINUS_DST_COLOR:
+        return VK_BLEND_FACTOR_ONE_MINUS_DST_COLOR;
+    case MEL_GPU_BLEND_SRC_ALPHA:
+        return VK_BLEND_FACTOR_SRC_ALPHA;
+    case MEL_GPU_BLEND_ONE_MINUS_SRC_ALPHA:
+        return VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+    case MEL_GPU_BLEND_DST_ALPHA:
+        return VK_BLEND_FACTOR_DST_ALPHA;
+    case MEL_GPU_BLEND_ONE_MINUS_DST_ALPHA:
+        return VK_BLEND_FACTOR_ONE_MINUS_DST_ALPHA;
+    case MEL_GPU_BLEND_CONSTANT_COLOR:
+        return VK_BLEND_FACTOR_CONSTANT_COLOR;
+    case MEL_GPU_BLEND_ONE_MINUS_CONSTANT_COLOR:
+        return VK_BLEND_FACTOR_ONE_MINUS_CONSTANT_COLOR;
+    case MEL_GPU_BLEND_CONSTANT_ALPHA:
+        return VK_BLEND_FACTOR_CONSTANT_ALPHA;
+    case MEL_GPU_BLEND_ONE_MINUS_CONSTANT_ALPHA:
+        return VK_BLEND_FACTOR_ONE_MINUS_CONSTANT_ALPHA;
+    case MEL_GPU_BLEND_SRC_ALPHA_SATURATE:
+        return VK_BLEND_FACTOR_SRC_ALPHA_SATURATE;
+    }
+    return VK_BLEND_FACTOR_ZERO;
+}
+
+static VkBlendOp mel_gpu__vk_blend_op(Mel_Gpu_Blend_Op o)
+{
+    switch (o)
+    {
+    case MEL_GPU_BLEND_OP_ADD:
+        return VK_BLEND_OP_ADD;
+    case MEL_GPU_BLEND_OP_SUBTRACT:
+        return VK_BLEND_OP_SUBTRACT;
+    case MEL_GPU_BLEND_OP_REVERSE_SUBTRACT:
+        return VK_BLEND_OP_REVERSE_SUBTRACT;
+    case MEL_GPU_BLEND_OP_MIN:
+        return VK_BLEND_OP_MIN;
+    case MEL_GPU_BLEND_OP_MAX:
+        return VK_BLEND_OP_MAX;
+    }
+    return VK_BLEND_OP_ADD;
+}
+
+static VkStencilOp mel_gpu__vk_stencil_op(Mel_Gpu_Stencil_Op o)
+{
+    switch (o)
+    {
+    case MEL_GPU_STENCIL_KEEP:
+        return VK_STENCIL_OP_KEEP;
+    case MEL_GPU_STENCIL_ZERO:
+        return VK_STENCIL_OP_ZERO;
+    case MEL_GPU_STENCIL_REPLACE:
+        return VK_STENCIL_OP_REPLACE;
+    case MEL_GPU_STENCIL_INCREMENT_CLAMP:
+        return VK_STENCIL_OP_INCREMENT_AND_CLAMP;
+    case MEL_GPU_STENCIL_DECREMENT_CLAMP:
+        return VK_STENCIL_OP_DECREMENT_AND_CLAMP;
+    case MEL_GPU_STENCIL_INVERT:
+        return VK_STENCIL_OP_INVERT;
+    case MEL_GPU_STENCIL_INCREMENT_WRAP:
+        return VK_STENCIL_OP_INCREMENT_AND_WRAP;
+    case MEL_GPU_STENCIL_DECREMENT_WRAP:
+        return VK_STENCIL_OP_DECREMENT_AND_WRAP;
+    }
+    return VK_STENCIL_OP_KEEP;
+}
+
+static VkStencilOpState mel_gpu__stencil_face(Mel_Gpu_Stencil_Face f)
+{
+    return (VkStencilOpState){
+        .failOp = mel_gpu__vk_stencil_op(f.fail),
+        .passOp = mel_gpu__vk_stencil_op(f.pass),
+        .depthFailOp = mel_gpu__vk_stencil_op(f.depth_fail),
+        .compareOp = mel_gpu__vk_compare_op(f.compare),
+        .compareMask = f.compare_mask,
+        .writeMask = f.write_mask,
+        .reference = f.reference,
+    };
+}
+
+// MSAA sample-count bit for a requested count, or 0 if not a supported power of two in [1, 64] (gpu-rhi.md §6.5).
+static VkSampleCountFlagBits mel_gpu__sample_bits(u32 n)
+{
+    switch (n)
+    {
+    case 0:
+    case 1:
+        return VK_SAMPLE_COUNT_1_BIT;
+    case 2:
+        return VK_SAMPLE_COUNT_2_BIT;
+    case 4:
+        return VK_SAMPLE_COUNT_4_BIT;
+    case 8:
+        return VK_SAMPLE_COUNT_8_BIT;
+    case 16:
+        return VK_SAMPLE_COUNT_16_BIT;
+    case 32:
+        return VK_SAMPLE_COUNT_32_BIT;
+    case 64:
+        return VK_SAMPLE_COUNT_64_BIT;
+    }
+    return 0;
+}
+
+// The render-pass floor (gpu-rhi.md §7.2) needs a pipeline-compatible render pass when dynamic rendering is
+// absent. Only attachment formats, sample count, and count matter for pipeline compatibility, so load/store/
+// layout are placeholders. Used solely on the !dynamic_rendering path; the swapchain's present render pass is
+// separate (swapchain.c). Returns VK_NULL_HANDLE on allocation/Vulkan failure (the caller reports VK_FAILED).
+static VkRenderPass mel_gpu__make_pipeline_compat_render_pass(Mel_Gpu_Device* dev, const VkFormat* colors, u32 color_count, VkSampleCountFlagBits samples, VkFormat depth)
+{
+    bool                     has_depth = depth != VK_FORMAT_UNDEFINED;
+    u32                      att_count = color_count + (has_depth ? 1u : 0u);
+    VkAttachmentDescription* atts = att_count ? mel_alloc_array(dev->alloc, VkAttachmentDescription, att_count) : NULL;
+    VkAttachmentReference*   color_refs = color_count ? mel_alloc_array(dev->alloc, VkAttachmentReference, color_count) : NULL;
+    for (u32 i = 0; i < color_count; i++)
+    {
+        atts[i] = (VkAttachmentDescription){
+            .format = colors[i],
+            .samples = samples,
+            .loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+            .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+            .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+            .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+            .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+            .finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        };
+        color_refs[i] = (VkAttachmentReference){ .attachment = i, .layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
+    }
+    VkAttachmentReference depth_ref = { .attachment = color_count, .layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL };
+    if (has_depth)
+        atts[color_count] = (VkAttachmentDescription){
+            .format = depth,
+            .samples = samples,
+            .loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+            .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+            .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+            .stencilStoreOp = VK_ATTACHMENT_STORE_OP_STORE,
+            .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+            .finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+        };
+    VkSubpassDescription sub = {
+        .pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS,
+        .colorAttachmentCount = color_count,
+        .pColorAttachments = color_refs,
+        .pDepthStencilAttachment = has_depth ? &depth_ref : NULL,
+    };
+    VkRenderPassCreateInfo ci = { .sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO, .attachmentCount = att_count, .pAttachments = atts, .subpassCount = 1, .pSubpasses = &sub };
+    VkRenderPass           rp = VK_NULL_HANDLE;
+    vkCreateRenderPass(dev->vk, &ci, NULL, &rp);
+    if (atts)
+        mel_dealloc(dev->alloc, atts);
+    if (color_refs)
+        mel_dealloc(dev->alloc, color_refs);
+    return rp;
+}
+
 // U14: the heap's per-class slot capacity, looked up by the set-0 binding index — which is the engine-
 // canonical heap class index. A shader declaring a sized descriptor array longer than this at set 0 cannot
 // be satisfied by the heap: that is MissingBindlessSlot, distinct from MissingFeature (gpu-rhi.md §6.7).
@@ -171,18 +341,57 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_create_opt(Mel_Gpu_Device* dev, 
 
     VkPipelineViewportStateCreateInfo vp = { .sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO, .viewportCount = 1, .scissorCount = 1 };
 
+    // U13 rasterization (gpu-rhi.md §6.5): fill mode (cap-gated), front face, depth bias. A non-solid fill or a
+    // depth-bias clamp the device cannot honor degrades with a warning (MEL-CODE-007), never silently.
+    VkPolygonMode polygon = VK_POLYGON_MODE_FILL;
+    if (opt.fill != MEL_GPU_FILL_SOLID)
+    {
+        if (dev->feat_fill_non_solid)
+            polygon = opt.fill == MEL_GPU_FILL_WIREFRAME ? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_POINT;
+        else
+            mel_log_warn("gpu", "pipeline_create '%s': non-solid fill requested but fill-mode-non-solid is not enabled; using solid", dbg_name);
+    }
+    if (opt.depth_bias && opt.depth_bias_clamp != 0.0f && !dev->feat_depth_bias_clamp)
+        mel_log_warn("gpu", "pipeline_create '%s': depth-bias clamp requested but depth-bias-clamp is not enabled; clamp ignored", dbg_name);
     VkPipelineRasterizationStateCreateInfo rs = {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
-        .polygonMode = VK_POLYGON_MODE_FILL,
+        .polygonMode = polygon,
         .cullMode = mel_gpu__cull(opt.cull),
-        .frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE,
+        .frontFace = opt.front_face == MEL_GPU_FRONT_FACE_CW ? VK_FRONT_FACE_CLOCKWISE : VK_FRONT_FACE_COUNTER_CLOCKWISE,
         .lineWidth = 1.0f,
+        .depthBiasEnable = opt.depth_bias ? VK_TRUE : VK_FALSE,
+        .depthBiasConstantFactor = opt.depth_bias_constant,
+        .depthBiasClamp = dev->feat_depth_bias_clamp ? opt.depth_bias_clamp : 0.0f,
+        .depthBiasSlopeFactor = opt.depth_bias_slope,
     };
 
-    VkPipelineMultisampleStateCreateInfo ms = { .sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO, .rasterizationSamples = VK_SAMPLE_COUNT_1_BIT };
-
-    VkPipelineColorBlendAttachmentState cba = { .colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT };
-    VkPipelineColorBlendStateCreateInfo cb = { .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO, .attachmentCount = 1, .pAttachments = &cba };
+    // U13 MSAA (gpu-rhi.md §6.5): validate the requested sample count against the framebuffer sample-count limit
+    // (and the depth limit when a depth attachment is present). An unsupported count falls back to 1 with a warning.
+    bool                  has_depth = opt.depth_format != MEL_GPU_FORMAT_UNDEFINED;
+    u32                   req_samples = opt.samples ? opt.samples : 1;
+    VkSampleCountFlagBits samples = mel_gpu__sample_bits(req_samples);
+    if (req_samples > 1)
+    {
+        VkSampleCountFlags supported = dev->fb_color_samples;
+        if (has_depth)
+            supported &= dev->fb_depth_samples;
+        if (samples == 0 || !(supported & samples))
+        {
+            mel_log_warn("gpu", "pipeline_create '%s': %u-sample MSAA is unsupported here; using 1", dbg_name, req_samples);
+            samples = VK_SAMPLE_COUNT_1_BIT;
+        }
+    }
+    if (samples == 0)
+        samples = VK_SAMPLE_COUNT_1_BIT;
+    if (opt.sample_shading && !dev->feat_sample_rate_shading)
+        mel_log_warn("gpu", "pipeline_create '%s': sample shading requested but sample-rate-shading is not enabled; ignored", dbg_name);
+    VkPipelineMultisampleStateCreateInfo ms = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
+        .rasterizationSamples = samples,
+        .sampleShadingEnable = (opt.sample_shading && dev->feat_sample_rate_shading) ? VK_TRUE : VK_FALSE,
+        .minSampleShading = opt.min_sample_shading,
+        .alphaToCoverageEnable = opt.alpha_to_coverage ? VK_TRUE : VK_FALSE,
+    };
 
     VkDynamicState                   dyn[] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
     VkPipelineDynamicStateCreateInfo ds = { .sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO, .dynamicStateCount = 2, .pDynamicStates = dyn };
@@ -288,26 +497,91 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_create_opt(Mel_Gpu_Device* dev, 
     if (set_layouts_vk)
         mel_dealloc(dev->alloc, set_layouts_vk); // the pipeline layout retains what it needs
 
-    bool has_depth = opt.depth_format != MEL_GPU_FORMAT_UNDEFINED;
-    VkPipelineDepthStencilStateCreateInfo dss = {
-        .sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
-        .depthTestEnable = has_depth,
-        .depthWriteEnable = has_depth,
-        .depthCompareOp = VK_COMPARE_OP_LESS,
+    // U13 color targets (gpu-rhi.md §6.5 MRT + per-attachment blend): the explicit array, else the single-opaque
+    // shortcut from `color_format`. A depth-only pipeline (neither set) carries zero color attachments.
+    Mel_Gpu_Color_Target        single = { .format = opt.color_format, .blend = MEL_GPU_BLEND_OPAQUE };
+    const Mel_Gpu_Color_Target* targets = opt.color_target_count ? opt.color_targets : (opt.color_format != MEL_GPU_FORMAT_UNDEFINED ? &single : NULL);
+    u32                         target_count = opt.color_target_count ? opt.color_target_count : (opt.color_format != MEL_GPU_FORMAT_UNDEFINED ? 1u : 0u);
+
+    VkFormat*                            color_formats = target_count ? mel_alloc_array(dev->alloc, VkFormat, target_count) : NULL;
+    VkPipelineColorBlendAttachmentState* blend_atts = target_count ? mel_alloc_array(dev->alloc, VkPipelineColorBlendAttachmentState, target_count) : NULL;
+    for (u32 i = 0; i < target_count; i++)
+    {
+        const Mel_Gpu_Blend* b = &targets[i].blend;
+        color_formats[i] = mel_gpu__vk_format(targets[i].format);
+        // MEL_GPU_COLOR_WRITE_* bits coincide with VK_COLOR_COMPONENT_*_BIT (R=1,G=2,B=4,A=8) by construction.
+        blend_atts[i] = (VkPipelineColorBlendAttachmentState){
+            .blendEnable = b->enable ? VK_TRUE : VK_FALSE,
+            .srcColorBlendFactor = mel_gpu__vk_blend_factor(b->src_color),
+            .dstColorBlendFactor = mel_gpu__vk_blend_factor(b->dst_color),
+            .colorBlendOp = mel_gpu__vk_blend_op(b->color_op),
+            .srcAlphaBlendFactor = mel_gpu__vk_blend_factor(b->src_alpha),
+            .dstAlphaBlendFactor = mel_gpu__vk_blend_factor(b->dst_alpha),
+            .alphaBlendOp = mel_gpu__vk_blend_op(b->alpha_op),
+            .colorWriteMask = (VkColorComponentFlags)b->write_mask,
+        };
+    }
+    VkPipelineColorBlendStateCreateInfo cb = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
+        .attachmentCount = target_count,
+        .pAttachments = blend_atts,
     };
+    for (u32 i = 0; i < 4; i++)
+        cb.blendConstants[i] = opt.blend_constants[i];
+
+    // U13 depth/stencil (gpu-rhi.md §6.5): explicit control via opt.depth_stencil, else the default derived from
+    // depth_format (test + write + LESS). The state is consumed only with a depth attachment (pDepthStencilState
+    // below is gated on has_depth).
+    bool                                  stencil_format = opt.depth_format == MEL_GPU_FORMAT_D24_UNORM_S8_UINT;
+    VkPipelineDepthStencilStateCreateInfo dss = { .sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO };
+    if (opt.depth_stencil)
+    {
+        const Mel_Gpu_Depth_Stencil* d = opt.depth_stencil;
+        if (!has_depth)
+            mel_log_warn("gpu", "pipeline_create '%s': depth_stencil supplied with no depth_format; ignored", dbg_name);
+        VkCompareOp depth_op;
+        if (d->depth_test && d->depth_compare == MEL_GPU_COMPARE_NONE)
+        {
+            mel_log_warn("gpu", "pipeline_create '%s': depth_test set with compare NONE; using LESS", dbg_name);
+            depth_op = VK_COMPARE_OP_LESS;
+        }
+        else
+            depth_op = mel_gpu__vk_compare_op(d->depth_compare);
+        bool bounds = d->depth_bounds_test;
+        if (bounds && !dev->feat_depth_bounds)
+        {
+            mel_log_warn("gpu", "pipeline_create '%s': depth-bounds test requested but depth-bounds is not enabled; ignored", dbg_name);
+            bounds = false;
+        }
+        dss.depthTestEnable = d->depth_test ? VK_TRUE : VK_FALSE;
+        dss.depthWriteEnable = d->depth_write ? VK_TRUE : VK_FALSE;
+        dss.depthCompareOp = depth_op;
+        dss.depthBoundsTestEnable = bounds ? VK_TRUE : VK_FALSE;
+        dss.minDepthBounds = d->depth_bounds_min;
+        dss.maxDepthBounds = d->depth_bounds_max;
+        dss.stencilTestEnable = d->stencil_test ? VK_TRUE : VK_FALSE;
+        dss.front = mel_gpu__stencil_face(d->front);
+        dss.back = mel_gpu__stencil_face(d->back);
+    }
+    else
+    {
+        dss.depthTestEnable = has_depth ? VK_TRUE : VK_FALSE;
+        dss.depthWriteEnable = has_depth ? VK_TRUE : VK_FALSE;
+        dss.depthCompareOp = VK_COMPARE_OP_LESS;
+    }
 
     // U16: dynamic-rendering pipelines carry their attachment formats directly; render-pass is the floor.
-    VkFormat                         color_vk = mel_gpu__vk_format(opt.color_format);
     VkPipelineRenderingCreateInfoKHR pri = {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO_KHR,
-        .colorAttachmentCount = 1,
-        .pColorAttachmentFormats = &color_vk,
+        .colorAttachmentCount = target_count,
+        .pColorAttachmentFormats = color_formats,
         .depthAttachmentFormat = has_depth ? mel_gpu__vk_format(opt.depth_format) : VK_FORMAT_UNDEFINED,
+        .stencilAttachmentFormat = stencil_format ? mel_gpu__vk_format(opt.depth_format) : VK_FORMAT_UNDEFINED,
     };
 
     VkRenderPass rp = VK_NULL_HANDLE;
     if (!dev->dynamic_rendering)
-        rp = mel_gpu__make_render_pass(dev, color_vk);
+        rp = mel_gpu__make_pipeline_compat_render_pass(dev, color_formats, target_count, samples, has_depth ? mel_gpu__vk_format(opt.depth_format) : VK_FORMAT_UNDEFINED);
 
     VkGraphicsPipelineCreateInfo gci = {
         .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
@@ -337,6 +611,10 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_create_opt(Mel_Gpu_Device* dev, 
         mel_dealloc(dev->alloc, spec_entries);
     if (spec_data)
         mel_dealloc(dev->alloc, spec_data);
+    if (color_formats)
+        mel_dealloc(dev->alloc, color_formats);
+    if (blend_atts)
+        mel_dealloc(dev->alloc, blend_atts);
 
     if (r != VK_SUCCESS)
     {

@@ -135,6 +135,17 @@ Mel_Gpu_Device_Create_Result mel_gpu_device_create_opt(Mel_Gpu_Instance* inst, M
     // SPIR-V Int64 capability — enable shaderInt64 alongside BDA so those shaders are valid.
     if (opt.features.buffer_device_address && avail.shaderInt64)
         feat2.features.shaderInt64 = VK_TRUE;
+    // U13 render state (gpu-rhi.md §6.5): enable the optional rasterizer/blend features the physical device
+    // supports, so a pipeline can use them when asked; the pipeline path degrades a request for one the device
+    // lacks with a warning rather than a silent miscompile (MEL-CODE-007). These are cheap core features.
+    if (avail.fillModeNonSolid)
+        feat2.features.fillModeNonSolid = VK_TRUE;
+    if (avail.depthBounds)
+        feat2.features.depthBounds = VK_TRUE;
+    if (avail.depthBiasClamp)
+        feat2.features.depthBiasClamp = VK_TRUE;
+    if (avail.sampleRateShading)
+        feat2.features.sampleRateShading = VK_TRUE;
 
     VkDeviceCreateInfo dci = {
         .sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
@@ -177,6 +188,15 @@ Mel_Gpu_Device_Create_Result mel_gpu_device_create_opt(Mel_Gpu_Instance* inst, M
     dev->max_sampler_anisotropy = avail.samplerAnisotropy ? devprops.limits.maxSamplerAnisotropy : 1.0f;
     dev->caps.sampler.anisotropy = avail.samplerAnisotropy != 0;
     dev->caps.sampler.max_anisotropy = dev->max_sampler_anisotropy;
+
+    // U13 render state: record which optional features were enabled, and the framebuffer sample-count limits the
+    // pipeline path validates an MSAA request against (gpu-rhi.md §6.5).
+    dev->feat_fill_non_solid = avail.fillModeNonSolid != 0;
+    dev->feat_depth_bounds = avail.depthBounds != 0;
+    dev->feat_depth_bias_clamp = avail.depthBiasClamp != 0;
+    dev->feat_sample_rate_shading = avail.sampleRateShading != 0;
+    dev->fb_color_samples = devprops.limits.framebufferColorSampleCounts;
+    dev->fb_depth_samples = devprops.limits.framebufferDepthSampleCounts;
 
     if (has_dr)
     {

@@ -27,30 +27,6 @@ static VkSamplerAddressMode mel_gpu__wrap(Mel_Gpu_Wrap w)
     }
 }
 
-static VkCompareOp mel_gpu__compare(Mel_Gpu_Compare_Op c)
-{
-    switch (c)
-    {
-    case MEL_GPU_COMPARE_NEVER:
-        return VK_COMPARE_OP_NEVER;
-    case MEL_GPU_COMPARE_LESS:
-        return VK_COMPARE_OP_LESS;
-    case MEL_GPU_COMPARE_EQUAL:
-        return VK_COMPARE_OP_EQUAL;
-    case MEL_GPU_COMPARE_LESS_EQUAL:
-        return VK_COMPARE_OP_LESS_OR_EQUAL;
-    case MEL_GPU_COMPARE_GREATER:
-        return VK_COMPARE_OP_GREATER;
-    case MEL_GPU_COMPARE_NOT_EQUAL:
-        return VK_COMPARE_OP_NOT_EQUAL;
-    case MEL_GPU_COMPARE_GREATER_EQUAL:
-        return VK_COMPARE_OP_GREATER_OR_EQUAL;
-    case MEL_GPU_COMPARE_ALWAYS:
-    default:
-        return VK_COMPARE_OP_ALWAYS;
-    }
-}
-
 static VkBorderColor mel_gpu__border(Mel_Gpu_Border_Color b)
 {
     switch (b)
@@ -140,7 +116,7 @@ Mel_Gpu_Sampler_Create_Result mel_gpu_sampler_create_opt(Mel_Gpu_Device* dev, Me
         .anisotropyEnable = key.max_anisotropy > 1.0f ? VK_TRUE : VK_FALSE,
         .maxAnisotropy = key.max_anisotropy,
         .compareEnable = opt.compare != MEL_GPU_COMPARE_NONE ? VK_TRUE : VK_FALSE,
-        .compareOp = mel_gpu__compare(opt.compare),
+        .compareOp = mel_gpu__vk_compare_op(opt.compare),
         .borderColor = mel_gpu__border(opt.border),
         .minLod = opt.lod_min,
         .maxLod = opt.lod_max > 0.0f ? opt.lod_max : VK_LOD_CLAMP_NONE,
