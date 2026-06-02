@@ -227,6 +227,118 @@ static u32 mel_gpu__heap_cap_for_binding(Mel_Gpu_Device* dev, u32 binding)
     }
 }
 
+// Shared binding-model gate (gpu-rhi.md §6.7 / MEL-ENGINE-IX): graphics and compute lower the same two
+// failure modes before any allocation. MissingFeature when the shader/opt wants the heap and the device has
+// none; MissingBindlessSlot when a bindless shader demands more set-0 descriptors of a class than the heap
+// holds. The two have different remedies — grow the heap vs. request more capabilities — so they are never
+// conflated (MEL-ENGINE-VIII). Returns OK when the layout may proceed, else the failing status.
+static Mel_Gpu_Pipeline_Create_Status mel_gpu__binding_gate(Mel_Gpu_Device* dev, bool bindless, const Mel_Gpu_Spirv_Reflection* refl, const char* what, const char* dbg_name)
+{
+    if (bindless && !dev->bindless.enabled)
+    {
+        mel_log_error("gpu", "%s '%s': bindless requested but the device has no bindless heap (MissingFeature)", what, dbg_name);
+        return MEL_GPU_PIPELINE_CREATE_MISSING_FEATURE;
+    }
+    if (bindless)
+        for (u32 s = 0; s < refl->set0_count; s++)
+        {
+            if (refl->set0[s].runtime_array) // an unbounded array is satisfied by the partially-bound heap
+                continue;
+            u32 cap = mel_gpu__heap_cap_for_binding(dev, refl->set0[s].binding);
+            if (refl->set0[s].array_len > cap)
+            {
+                mel_log_error("gpu", "%s '%s': shader demands %u descriptors at set 0 binding %u but the heap holds %u (MissingBindlessSlot)", what, dbg_name, refl->set0[s].array_len, refl->set0[s].binding, cap);
+                return MEL_GPU_PIPELINE_CREATE_MISSING_BINDLESS_SLOT;
+            }
+        }
+    return MEL_GPU_PIPELINE_CREATE_OK;
+}
+
+// Shared specialization-info build (gpu-rhi.md §6.4 / MEL-ENGINE-IX). Bakes one VkSpecializationInfo from the
+// opt overrides, allocating the entry/data arrays through `dev->alloc` (the caller frees them after the
+// vkCreate*Pipelines call copies them). A supplied id the shader does not declare warns (MEL-CODE-007); an
+// over-4-byte declared constant warns that only the low word is baked (`warn_truncation`, graphics only —
+// matches the prior per-path behaviour). Returns false on nothing-to-do (count 0); `*out_info` then unset.
+static bool mel_gpu__build_spec_info(Mel_Gpu_Device* dev, const Mel_Gpu_Spec_Constant* spec_constants, u32 spec_constant_count, const Mel_Gpu_Spirv_Reflection* refl, bool warn_truncation, const char* what, const char* dbg_name,
+                                     VkSpecializationMapEntry** out_entries, u32** out_data, VkSpecializationInfo* out_info)
+{
+    if (!spec_constant_count)
+        return false;
+    VkSpecializationMapEntry* entries = mel_alloc_array(dev->alloc, VkSpecializationMapEntry, spec_constant_count);
+    u32*                      data = mel_alloc_array(dev->alloc, u32, spec_constant_count);
+    for (u32 i = 0; i < spec_constant_count; i++)
+    {
+        bool declared = false;
+        for (u32 j = 0; j < refl->spec_constant_count; j++)
+            if (refl->spec_constants[j].id == spec_constants[i].id)
+            {
+                declared = true;
+                if (warn_truncation && refl->spec_constants[j].bytes > 4)
+                    mel_log_warn("gpu", "%s '%s': spec constant id %u is %u bytes; only the low 4 are baked", what, dbg_name, spec_constants[i].id, refl->spec_constants[j].bytes);
+                break;
+            }
+        if (!declared)
+            mel_log_warn("gpu", "%s '%s': spec constant id %u is not declared by the shader; ignored", what, dbg_name, spec_constants[i].id);
+        data[i] = spec_constants[i].value;
+        entries[i] = (VkSpecializationMapEntry){ .constantID = spec_constants[i].id, .offset = i * sizeof(u32), .size = sizeof(u32) };
+    }
+    *out_entries = entries;
+    *out_data = data;
+    *out_info = (VkSpecializationInfo){ .mapEntryCount = spec_constant_count, .pMapEntries = entries, .dataSize = (usize)spec_constant_count * sizeof(u32), .pData = data };
+    return true;
+}
+
+// Shared pipeline-layout composition (gpu-rhi.md §6.7 / MEL-ENGINE-IX): compose the descriptor-set layouts and
+// create the VkPipelineLayout, the load-bearing duplication the binding-finish writeup flagged. Bindless: set 0
+// = the device heap. Classic peer: app-owned set layouts at sets 0..N-1 (mutually exclusive with the heap, since
+// set 0 cannot be both). A static-sampler set, when present (`static_sampler_layout` non-null, graphics only),
+// follows whichever path occupied the lower indices. The push-constant range spans `pc_size` bytes at `pc_stages`.
+// Returns false (with `*out_layout` VK_NULL_HANDLE) when a classic set layout handle is not live — the loud
+// path the caller maps to VK_FAILED.
+static bool mel_gpu__build_pipeline_layout(Mel_Gpu_Device* dev, bool bindless, const Mel_Gpu_Bind_Group_Layout* set_layouts, u32 set_layout_count, VkDescriptorSetLayout static_sampler_layout, u32 pc_size, VkShaderStageFlags pc_stages, const char* what, const char* dbg_name, VkPipelineLayout* out_layout)
+{
+    *out_layout = VK_NULL_HANDLE;
+    if (bindless && set_layout_count)
+        mel_log_warn("gpu", "%s '%s': set_layouts ignored on a bindless pipeline (set 0 is the heap)", what, dbg_name);
+    u32                    classic_count = bindless ? 0u : set_layout_count;
+    u32                    total_sets = (bindless ? 1u : classic_count) + (static_sampler_layout ? 1u : 0u);
+    VkDescriptorSetLayout* set_layouts_vk = total_sets ? mel_alloc_array(dev->alloc, VkDescriptorSetLayout, total_sets) : NULL;
+    u32                    set_count = 0;
+    bool                   sets_ok = true;
+    if (bindless)
+        set_layouts_vk[set_count++] = dev->bindless.set_layout;
+    else
+        for (u32 i = 0; i < classic_count; i++)
+        {
+            VkDescriptorSetLayout vkl = VK_NULL_HANDLE;
+            if (!mel_gpu__bind_group_layout_vk(dev, set_layouts[i], &vkl))
+            {
+                mel_log_error("gpu", "%s '%s': set_layouts[%u] is not a live bind-group layout", what, dbg_name, i);
+                sets_ok = false;
+                break;
+            }
+            set_layouts_vk[set_count++] = vkl;
+        }
+    if (sets_ok && static_sampler_layout)
+        set_layouts_vk[set_count++] = static_sampler_layout;
+
+    if (sets_ok)
+    {
+        VkPushConstantRange        pcr = { .stageFlags = pc_stages, .offset = 0, .size = pc_size };
+        VkPipelineLayoutCreateInfo plci = {
+            .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+            .setLayoutCount = set_count,
+            .pSetLayouts = set_count ? set_layouts_vk : NULL,
+            .pushConstantRangeCount = pc_size ? 1u : 0u,
+            .pPushConstantRanges = pc_size ? &pcr : NULL,
+        };
+        vkCreatePipelineLayout(dev->vk, &plci, NULL, out_layout); // the pipeline layout retains what it needs
+    }
+    if (set_layouts_vk)
+        mel_dealloc(dev->alloc, set_layouts_vk);
+    return sets_ok;
+}
+
 Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_create_opt(Mel_Gpu_Device* dev, Mel_Gpu_Pipeline_Opt opt)
 {
     Mel_Gpu_Pipeline_Create_Result res = { .value = { mel_gpu_handle_null() }, .status = MEL_GPU_PIPELINE_CREATE_OK };
@@ -248,62 +360,23 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_create_opt(Mel_Gpu_Device* dev, 
     u32         pc_size = opt.push_constant_size ? opt.push_constant_size : refl.push_constant_size;
     const char* dbg_name = opt.name ? opt.name : "(unnamed)";
 
-    // Binding-model gates fire before any allocation (gpu-rhi.md §6.7 / MEL-ENGINE-VIII): MissingFeature when
-    // the shader/opt wants the heap and the device has none; MissingBindlessSlot when a bindless shader
-    // demands more set-0 descriptors of a class than the heap holds. The two have different remedies — grow
-    // the heap vs. request more capabilities — so they are never conflated.
-    if (bindless && !dev->bindless.enabled)
-    {
-        mel_log_error("gpu", "pipeline_create '%s': bindless requested but the device has no bindless heap (MissingFeature)", dbg_name);
-        res.status = MEL_GPU_PIPELINE_CREATE_MISSING_FEATURE;
+    // Binding-model gates fire before any allocation (gpu-rhi.md §6.7 / MEL-ENGINE-VIII), shared with compute.
+    res.status = mel_gpu__binding_gate(dev, bindless, &refl, "pipeline_create", dbg_name);
+    if (mel_gpu_failed(res.status))
         return res;
-    }
-    if (bindless)
-        for (u32 s = 0; s < refl.set0_count; s++)
-        {
-            if (refl.set0[s].runtime_array) // an unbounded array is satisfied by the partially-bound heap
-                continue;
-            u32 cap = mel_gpu__heap_cap_for_binding(dev, refl.set0[s].binding);
-            if (refl.set0[s].array_len > cap)
-            {
-                mel_log_error("gpu", "pipeline_create '%s': shader demands %u descriptors at set 0 binding %u but the heap holds %u (MissingBindlessSlot)", dbg_name, refl.set0[s].array_len, refl.set0[s].binding, cap);
-                res.status = MEL_GPU_PIPELINE_CREATE_MISSING_BINDLESS_SLOT;
-                return res;
-            }
-        }
 
     VkPipelineShaderStageCreateInfo stages[2] = {
         { .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, .stage = VK_SHADER_STAGE_VERTEX_BIT, .module = vs, .pName = vs_entry },
         { .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, .stage = VK_SHADER_STAGE_FRAGMENT_BIT, .module = fs, .pName = fs_entry },
     };
 
-    // U12: specialization constants baked at create. Reflection records the declared set so a supplied value
-    // for an undeclared id warns (MEL-CODE-007) rather than silently no-opping; unknown entries Vulkan
-    // ignores. One shared VkSpecializationInfo serves both stages (entries unused by a stage are ignored).
+    // U12: specialization constants baked at create (gpu-rhi.md §6.4), shared with compute. One shared
+    // VkSpecializationInfo serves both stages (entries unused by a stage are ignored).
     VkSpecializationMapEntry* spec_entries = NULL;
     u32*                      spec_data = NULL;
     VkSpecializationInfo      spec_info = { 0 };
-    if (opt.spec_constant_count)
+    if (mel_gpu__build_spec_info(dev, opt.spec_constants, opt.spec_constant_count, &refl, true, "pipeline_create", dbg_name, &spec_entries, &spec_data, &spec_info))
     {
-        spec_entries = mel_alloc_array(dev->alloc, VkSpecializationMapEntry, opt.spec_constant_count);
-        spec_data = mel_alloc_array(dev->alloc, u32, opt.spec_constant_count);
-        for (u32 i = 0; i < opt.spec_constant_count; i++)
-        {
-            bool declared = false;
-            for (u32 j = 0; j < refl.spec_constant_count; j++)
-                if (refl.spec_constants[j].id == opt.spec_constants[i].id)
-                {
-                    declared = true;
-                    if (refl.spec_constants[j].bytes > 4)
-                        mel_log_warn("gpu", "pipeline_create '%s': spec constant id %u is %u bytes; only the low 4 are baked", dbg_name, opt.spec_constants[i].id, refl.spec_constants[j].bytes);
-                    break;
-                }
-            if (!declared)
-                mel_log_warn("gpu", "pipeline_create '%s': spec constant id %u is not declared by the shader; ignored", dbg_name, opt.spec_constants[i].id);
-            spec_data[i] = opt.spec_constants[i].value;
-            spec_entries[i] = (VkSpecializationMapEntry){ .constantID = opt.spec_constants[i].id, .offset = i * sizeof(u32), .size = sizeof(u32) };
-        }
-        spec_info = (VkSpecializationInfo){ .mapEntryCount = opt.spec_constant_count, .pMapEntries = spec_entries, .dataSize = (usize)opt.spec_constant_count * sizeof(u32), .pData = spec_data };
         stages[0].pSpecializationInfo = &spec_info;
         stages[1].pSpecializationInfo = &spec_info;
     }
@@ -441,37 +514,11 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_create_opt(Mel_Gpu_Device* dev, 
         }
     }
 
-    // Compose the pipeline layout's descriptor sets. Bindless: set 0 = heap. Classic (§6.7 P2 peer): the
-    // app-owned set layouts at sets 0..N-1 — mutually exclusive with the heap, since set 0 cannot be both.
-    // A static-sampler set, when present, follows whichever path occupied the lower indices.
-    if (bindless && opt.set_layout_count)
-        mel_log_warn("gpu", "pipeline_create '%s': set_layouts ignored on a bindless pipeline (set 0 is the heap)", dbg_name);
-    u32                    classic_count = bindless ? 0u : opt.set_layout_count;
-    u32                    total_sets = (bindless ? 1u : classic_count) + (static_sampler_layout ? 1u : 0u);
-    VkDescriptorSetLayout* set_layouts_vk = total_sets ? mel_alloc_array(dev->alloc, VkDescriptorSetLayout, total_sets) : NULL;
-    u32                    set_count = 0;
-    bool                   sets_ok = true;
-    if (bindless)
-        set_layouts_vk[set_count++] = dev->bindless.set_layout;
-    else
-        for (u32 i = 0; i < classic_count; i++)
-        {
-            VkDescriptorSetLayout vkl = VK_NULL_HANDLE;
-            if (!mel_gpu__bind_group_layout_vk(dev, opt.set_layouts[i], &vkl))
-            {
-                mel_log_error("gpu", "pipeline_create '%s': set_layouts[%u] is not a live bind-group layout", dbg_name, i);
-                sets_ok = false;
-                break;
-            }
-            set_layouts_vk[set_count++] = vkl;
-        }
-    if (sets_ok && static_sampler_layout)
-        set_layouts_vk[set_count++] = static_sampler_layout;
-
-    if (!sets_ok)
+    // Compose the pipeline layout's descriptor sets (shared with compute; the static-sampler set follows the
+    // bindless/classic sets on the graphics path). A bad classic-layout handle is the loud VK_FAILED path.
+    VkPipelineLayout layout = VK_NULL_HANDLE;
+    if (!mel_gpu__build_pipeline_layout(dev, bindless, opt.set_layouts, opt.set_layout_count, static_sampler_layout, pc_size, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, "pipeline_create", dbg_name, &layout))
     {
-        if (set_layouts_vk)
-            mel_dealloc(dev->alloc, set_layouts_vk);
         if (static_sampler_layout)
             vkDestroyDescriptorSetLayout(dev->vk, static_sampler_layout, NULL);
         if (attrs)
@@ -483,19 +530,6 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_create_opt(Mel_Gpu_Device* dev, 
         res.status = MEL_GPU_PIPELINE_CREATE_VK_FAILED;
         return res;
     }
-
-    VkPushConstantRange        pcr = { .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, .offset = 0, .size = pc_size };
-    VkPipelineLayoutCreateInfo plci = {
-        .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-        .setLayoutCount = set_count,
-        .pSetLayouts = set_count ? set_layouts_vk : NULL,
-        .pushConstantRangeCount = pc_size ? 1u : 0u,
-        .pPushConstantRanges = pc_size ? &pcr : NULL,
-    };
-    VkPipelineLayout layout = VK_NULL_HANDLE;
-    vkCreatePipelineLayout(dev->vk, &plci, NULL, &layout);
-    if (set_layouts_vk)
-        mel_dealloc(dev->alloc, set_layouts_vk); // the pipeline layout retains what it needs
 
     // U13 color targets (gpu-rhi.md §6.5 MRT + per-attachment blend): the explicit array, else the single-opaque
     // shortcut from `color_format`. A depth-only pipeline (neither set) carries zero color attachments.
@@ -668,97 +702,31 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_compute_create_opt(Mel_Gpu_Devic
     u32         pc_size = opt.push_constant_size ? opt.push_constant_size : refl.push_constant_size;
     const char* dbg_name = opt.name ? opt.name : "(unnamed)";
 
-    // Same binding-model gates as graphics (gpu-rhi.md §6.7): MissingFeature without a heap, MissingBindlessSlot
-    // for an over-cap set-0 demand. Fire before any allocation.
-    if (bindless && !dev->bindless.enabled)
-    {
-        mel_log_error("gpu", "pipeline_compute_create '%s': bindless requested but the device has no bindless heap (MissingFeature)", dbg_name);
-        res.status = MEL_GPU_PIPELINE_CREATE_MISSING_FEATURE;
+    // Binding-model gates, spec-info, and layout composition are shared with graphics (gpu-rhi.md §6.7 /
+    // MEL-ENGINE-IX); compute carries no static-sampler set and no vertex/raster/blend state.
+    res.status = mel_gpu__binding_gate(dev, bindless, &refl, "pipeline_compute_create", dbg_name);
+    if (mel_gpu_failed(res.status))
         return res;
-    }
-    if (bindless)
-        for (u32 s = 0; s < refl.set0_count; s++)
-        {
-            if (refl.set0[s].runtime_array)
-                continue;
-            u32 cap = mel_gpu__heap_cap_for_binding(dev, refl.set0[s].binding);
-            if (refl.set0[s].array_len > cap)
-            {
-                mel_log_error("gpu", "pipeline_compute_create '%s': shader demands %u descriptors at set 0 binding %u but the heap holds %u (MissingBindlessSlot)", dbg_name, refl.set0[s].array_len, refl.set0[s].binding, cap);
-                res.status = MEL_GPU_PIPELINE_CREATE_MISSING_BINDLESS_SLOT;
-                return res;
-            }
-        }
 
     VkSpecializationMapEntry* spec_entries = NULL;
     u32*                      spec_data = NULL;
     VkSpecializationInfo      spec_info = { 0 };
-    if (opt.spec_constant_count)
-    {
-        spec_entries = mel_alloc_array(dev->alloc, VkSpecializationMapEntry, opt.spec_constant_count);
-        spec_data = mel_alloc_array(dev->alloc, u32, opt.spec_constant_count);
-        for (u32 i = 0; i < opt.spec_constant_count; i++)
-        {
-            bool declared = false;
-            for (u32 j = 0; j < refl.spec_constant_count; j++)
-                if (refl.spec_constants[j].id == opt.spec_constants[i].id)
-                {
-                    declared = true;
-                    break;
-                }
-            if (!declared)
-                mel_log_warn("gpu", "pipeline_compute_create '%s': spec constant id %u is not declared by the shader; ignored", dbg_name, opt.spec_constants[i].id);
-            spec_data[i] = opt.spec_constants[i].value;
-            spec_entries[i] = (VkSpecializationMapEntry){ .constantID = opt.spec_constants[i].id, .offset = i * sizeof(u32), .size = sizeof(u32) };
-        }
-        spec_info = (VkSpecializationInfo){ .mapEntryCount = opt.spec_constant_count, .pMapEntries = spec_entries, .dataSize = (usize)opt.spec_constant_count * sizeof(u32), .pData = spec_data };
-    }
-
-    u32                    classic_count = bindless ? 0u : opt.set_layout_count;
-    u32                    total_sets = bindless ? 1u : classic_count;
-    VkDescriptorSetLayout* set_layouts_vk = total_sets ? mel_alloc_array(dev->alloc, VkDescriptorSetLayout, total_sets) : NULL;
-    u32                    set_count = 0;
-    bool                   sets_ok = true;
-    if (bindless)
-        set_layouts_vk[set_count++] = dev->bindless.set_layout;
-    else
-        for (u32 i = 0; i < classic_count; i++)
-        {
-            VkDescriptorSetLayout vkl = VK_NULL_HANDLE;
-            if (!mel_gpu__bind_group_layout_vk(dev, opt.set_layouts[i], &vkl))
-            {
-                mel_log_error("gpu", "pipeline_compute_create '%s': set_layouts[%u] is not a live bind-group layout", dbg_name, i);
-                sets_ok = false;
-                break;
-            }
-            set_layouts_vk[set_count++] = vkl;
-        }
+    bool                      has_spec = mel_gpu__build_spec_info(dev, opt.spec_constants, opt.spec_constant_count, &refl, false, "pipeline_compute_create", dbg_name, &spec_entries, &spec_data, &spec_info);
 
     VkPipelineLayout layout = VK_NULL_HANDLE;
     VkPipeline       pipeline = VK_NULL_HANDLE;
     VkResult         r = VK_ERROR_UNKNOWN;
+    bool             sets_ok = mel_gpu__build_pipeline_layout(dev, bindless, opt.set_layouts, opt.set_layout_count, VK_NULL_HANDLE, pc_size, VK_SHADER_STAGE_COMPUTE_BIT, "pipeline_compute_create", dbg_name, &layout);
     if (sets_ok)
     {
-        VkPushConstantRange        pcr = { .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, .offset = 0, .size = pc_size };
-        VkPipelineLayoutCreateInfo plci = {
-            .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-            .setLayoutCount = set_count,
-            .pSetLayouts = set_count ? set_layouts_vk : NULL,
-            .pushConstantRangeCount = pc_size ? 1u : 0u,
-            .pPushConstantRanges = pc_size ? &pcr : NULL,
-        };
-        vkCreatePipelineLayout(dev->vk, &plci, NULL, &layout);
-
         VkComputePipelineCreateInfo cci = {
             .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
-            .stage = { .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, .stage = VK_SHADER_STAGE_COMPUTE_BIT, .module = cs, .pName = cs_entry, .pSpecializationInfo = opt.spec_constant_count ? &spec_info : NULL },
+            .stage = { .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, .stage = VK_SHADER_STAGE_COMPUTE_BIT, .module = cs, .pName = cs_entry, .pSpecializationInfo = has_spec ? &spec_info : NULL },
             .layout = layout,
         };
         r = vkCreateComputePipelines(dev->vk, VK_NULL_HANDLE, 1, &cci, NULL, &pipeline);
     }
 
-    if (set_layouts_vk)
-        mel_dealloc(dev->alloc, set_layouts_vk);
     if (spec_entries)
         mel_dealloc(dev->alloc, spec_entries);
     if (spec_data)
