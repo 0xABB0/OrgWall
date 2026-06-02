@@ -17,6 +17,10 @@
 #include "postprocess.h"
 #include "instances.h"
 #include "gallery.h"
+#include "msaa.h"
+#include "dispatch_indirect.h"
+#include "particles.h"
+#include "prepass.h"
 
 #define OPEN_BUTTON(fn, app)                     \
     static void fn(Mel_Gui_Handle h, void* user) \
@@ -36,6 +40,10 @@ OPEN_BUTTON(open_layers_clicked, LAYERS_APP)
 OPEN_BUTTON(open_post_clicked, POSTPROCESS_APP)
 OPEN_BUTTON(open_instances_clicked, INSTANCES_APP)
 OPEN_BUTTON(open_gallery_clicked, GALLERY_APP)
+OPEN_BUTTON(open_msaa_clicked, MSAA_APP)
+OPEN_BUTTON(open_dispatch_indirect_clicked, DISPATCH_INDIRECT_APP)
+OPEN_BUTTON(open_particles_clicked, PARTICLES_APP)
+OPEN_BUTTON(open_prepass_clicked, PREPASS_APP)
 
 static void build_host(Mel_Gui_Handle frame, void* user)
 {
@@ -55,6 +63,10 @@ static void build_host(Mel_Gui_Handle frame, void* user)
     mel_button_create(frame, .text = S8("post-process (render-to-texture)"), .pointer.on_click = open_post_clicked, .layoutable = { .preferred_h = 36 });
     mel_button_create(frame, .text = S8("instancing (one draw)"), .pointer.on_click = open_instances_clicked, .layoutable = { .preferred_h = 36 });
     mel_button_create(frame, .text = S8("fill / blend gallery"), .pointer.on_click = open_gallery_clicked, .layoutable = { .preferred_h = 36 });
+    mel_button_create(frame, .text = S8("MSAA resolve (split-screen)"), .pointer.on_click = open_msaa_clicked, .layoutable = { .preferred_h = 36 });
+    mel_button_create(frame, .text = S8("dispatch-indirect (GPU-driven)"), .pointer.on_click = open_dispatch_indirect_clicked, .layoutable = { .preferred_h = 36 });
+    mel_button_create(frame, .text = S8("GPU particles (compute → instanced)"), .pointer.on_click = open_particles_clicked, .layoutable = { .preferred_h = 36 });
+    mel_button_create(frame, .text = S8("depth prepass (mini render-graph)"), .pointer.on_click = open_prepass_clicked, .layoutable = { .preferred_h = 36 });
 }
 
 void mel_app_setup(Mel_Reactor* reactor)
@@ -85,6 +97,14 @@ void mel_app_setup(Mel_Reactor* reactor)
             gpu_host_open(&INSTANCES_APP);
         else if (strcmp(autostart, "gallery") == 0)
             gpu_host_open(&GALLERY_APP);
+        else if (strcmp(autostart, "msaa") == 0)
+            gpu_host_open(&MSAA_APP);
+        else if (strcmp(autostart, "dispatch-indirect") == 0 || strcmp(autostart, "indirect") == 0)
+            gpu_host_open(&DISPATCH_INDIRECT_APP);
+        else if (strcmp(autostart, "particles") == 0)
+            gpu_host_open(&PARTICLES_APP);
+        else if (strcmp(autostart, "prepass") == 0)
+            gpu_host_open(&PREPASS_APP);
         else
             gpu_host_open(&TRIANGLE_APP);
     }
