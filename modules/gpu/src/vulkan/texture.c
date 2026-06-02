@@ -172,43 +172,45 @@ Mel_Gpu_Texture_Create_Result mel_gpu_texture_create_opt(Mel_Gpu_Device* dev, Me
 
 void mel_gpu_texture_destroy(Mel_Gpu_Device* dev, Mel_Gpu_Texture tex)
 {
-    Mel_Gpu_Texture_Obj* o = mel_gpu__table_get(dev, &dev->textures, tex.slot);
-    if (!o)
+    // §3.7: texture_destroy is SerializedPerObject on the destroyed handle.
+    const void* trk = mel_gpu__track_key(&dev->textures, tex.slot.index);
+    mel_gpu__track_enter(dev, trk, MEL_GPU_CONCURRENCY_SERIALIZED_PER_OBJECT);
+    Mel_Gpu_Texture_Obj o; // BUG-1: copy the record out under obj_lock; never deref the packed slot post-unlock
+    if (!mel_gpu__table_get_copy(dev, &dev->textures, tex.slot, &o))
+    {
+        mel_gpu__track_exit(dev, trk);
         return;
-    Mel_Gpu_Allocation alloc = o->alloc;
-    VkImage            image = o->image;
-    bool               borrowed = o->header.ownership == MEL_GPU_OWNERSHIP_BORROWED;
+    }
+    Mel_Gpu_Allocation alloc = o.alloc;
+    VkImage            image = o.image;
+    bool               borrowed = o.header.ownership == MEL_GPU_OWNERSHIP_BORROWED;
     mel_gpu__table_remove(dev, &dev->textures, tex.slot);
     if (!borrowed)
         mel_gpu__defer_free(dev, (Mel_Gpu_Deferred_Free){ .image = image, .alloc = alloc, .has_alloc = true });
+    mel_gpu__track_exit(dev, trk);
 }
 
-bool mel_gpu_texture_alive(Mel_Gpu_Device* dev, Mel_Gpu_Texture tex) { return mel_gpu__table_get(dev, &dev->textures, tex.slot) != NULL; }
+bool mel_gpu_texture_alive(Mel_Gpu_Device* dev, Mel_Gpu_Texture tex) { return mel_gpu__table_alive(dev, &dev->textures, tex.slot); }
 
-bool mel_gpu__texture_get(Mel_Gpu_Device* dev, Mel_Gpu_Texture tex, Mel_Gpu_Texture_Obj** out)
+// BUG-1: fill the caller's *out record by value under obj_lock. Texture/view records are immutable post-insert,
+// so the local copy is a faithful, race-free snapshot; the caller keeps a pointer to its own stack storage.
+bool mel_gpu__texture_get(Mel_Gpu_Device* dev, Mel_Gpu_Texture tex, Mel_Gpu_Texture_Obj* out)
 {
-    Mel_Gpu_Texture_Obj* o = mel_gpu__table_get(dev, &dev->textures, tex.slot);
-    if (!o)
-        return false;
-    *out = o;
-    return true;
+    return mel_gpu__table_get_copy(dev, &dev->textures, tex.slot, out);
 }
 
-bool mel_gpu__texture_view_get(Mel_Gpu_Device* dev, Mel_Gpu_Texture_View view, Mel_Gpu_Texture_View_Obj** out)
+bool mel_gpu__texture_view_get(Mel_Gpu_Device* dev, Mel_Gpu_Texture_View view, Mel_Gpu_Texture_View_Obj* out)
 {
-    Mel_Gpu_Texture_View_Obj* o = mel_gpu__table_get(dev, &dev->texture_views, view.slot);
-    if (!o)
-        return false;
-    *out = o;
-    return true;
+    return mel_gpu__table_get_copy(dev, &dev->texture_views, view.slot, out);
 }
 
 Mel_Gpu_Texture_View_Create_Result mel_gpu_texture_view_create_opt(Mel_Gpu_Device* dev, Mel_Gpu_Texture_View_Opt opt)
 {
     Mel_Gpu_Texture_View_Create_Result res = { .value = { mel_gpu_handle_null() }, .status = MEL_GPU_TEXTURE_VIEW_CREATE_OK };
 
-    Mel_Gpu_Texture_Obj* tex = NULL;
-    if (!dev || !mel_gpu__texture_get(dev, opt.texture, &tex))
+    Mel_Gpu_Texture_Obj  tex_obj;
+    Mel_Gpu_Texture_Obj* tex = &tex_obj;
+    if (!dev || !mel_gpu__texture_get(dev, opt.texture, tex))
     {
         res.status = MEL_GPU_TEXTURE_VIEW_CREATE_BAD_TEXTURE;
         mel_log_error("gpu", "texture_view_create: invalid texture handle");
@@ -291,48 +293,62 @@ Mel_Gpu_Texture_View_Create_Result mel_gpu_texture_view_create_opt(Mel_Gpu_Devic
 
 Mel_Gpu_Texture_View_Create_Result mel_gpu_texture_default_view(Mel_Gpu_Device* dev, Mel_Gpu_Texture tex)
 {
-    Mel_Gpu_Texture_Obj* o = NULL;
+    Mel_Gpu_Texture_Obj    o;
     Mel_Gpu_View_Dimension dim = MEL_GPU_VIEW_2D;
     if (dev && mel_gpu__texture_get(dev, tex, &o))
     {
-        if (o->image_type == VK_IMAGE_TYPE_1D)
-            dim = o->array_layers > 1 ? MEL_GPU_VIEW_1D_ARRAY : MEL_GPU_VIEW_1D;
-        else if (o->image_type == VK_IMAGE_TYPE_3D)
+        if (o.image_type == VK_IMAGE_TYPE_1D)
+            dim = o.array_layers > 1 ? MEL_GPU_VIEW_1D_ARRAY : MEL_GPU_VIEW_1D;
+        else if (o.image_type == VK_IMAGE_TYPE_3D)
             dim = MEL_GPU_VIEW_3D;
         else
-            dim = o->array_layers > 1 ? MEL_GPU_VIEW_2D_ARRAY : MEL_GPU_VIEW_2D;
+            dim = o.array_layers > 1 ? MEL_GPU_VIEW_2D_ARRAY : MEL_GPU_VIEW_2D;
     }
     return mel_gpu_texture_view_create_opt(dev, (Mel_Gpu_Texture_View_Opt){ .texture = tex, .dimension = dim });
 }
 
 void mel_gpu_texture_view_destroy(Mel_Gpu_Device* dev, Mel_Gpu_Texture_View view)
 {
-    Mel_Gpu_Texture_View_Obj* o = mel_gpu__table_get(dev, &dev->texture_views, view.slot);
-    if (!o)
+    // §3.7: texture_view_destroy is SerializedPerObject on the destroyed handle.
+    const void* trk = mel_gpu__track_key(&dev->texture_views, view.slot.index);
+    mel_gpu__track_enter(dev, trk, MEL_GPU_CONCURRENCY_SERIALIZED_PER_OBJECT);
+    Mel_Gpu_Texture_View_Obj o; // BUG-1: snapshot under obj_lock before any deref
+    if (!mel_gpu__table_get_copy(dev, &dev->texture_views, view.slot, &o))
+    {
+        mel_gpu__track_exit(dev, trk);
         return;
-    VkImageView vk = o->view;
-    bool        borrowed = o->header.ownership == MEL_GPU_OWNERSHIP_BORROWED;
+    }
+    VkImageView vk = o.view;
+    bool        borrowed = o.header.ownership == MEL_GPU_OWNERSHIP_BORROWED;
     if (borrowed)
     {
         mel_gpu__table_remove(dev, &dev->texture_views, view.slot);
-        return;
     }
-    // U14: the view owns its bindless slot, so the slot index is reclaimed on the same retirement edge as
-    // the VkImageView — never reused while an in-flight draw still samples it (gpu-rhi.md §3.3 / §6.7).
-    mel_gpu__table_remove_deferred(dev, &dev->texture_views, view.slot);
-    mel_gpu__defer_free(dev, (Mel_Gpu_Deferred_Free){ .view = vk, .reclaim_table = &dev->texture_views, .reclaim_index = view.slot.index, .has_reclaim = true });
+    else
+    {
+        // U14: the view owns its bindless slot, so the slot index is reclaimed on the same retirement edge as
+        // the VkImageView — never reused while an in-flight draw still samples it (gpu-rhi.md §3.3 / §6.7).
+        mel_gpu__table_remove_deferred(dev, &dev->texture_views, view.slot);
+        mel_gpu__defer_free(dev, (Mel_Gpu_Deferred_Free){ .view = vk, .reclaim_table = &dev->texture_views, .reclaim_index = view.slot.index, .has_reclaim = true });
+    }
+    mel_gpu__track_exit(dev, trk);
 }
 
-bool mel_gpu_texture_view_alive(Mel_Gpu_Device* dev, Mel_Gpu_Texture_View view) { return mel_gpu__table_get(dev, &dev->texture_views, view.slot) != NULL; }
+bool mel_gpu_texture_view_alive(Mel_Gpu_Device* dev, Mel_Gpu_Texture_View view) { return mel_gpu__table_alive(dev, &dev->texture_views, view.slot); }
 
 void mel_gpu_texture_write(Mel_Gpu_Device* dev, Mel_Gpu_Texture tex, Mel_Gpu_Texture_Region region, const void* data, usize bytes)
 {
-    Mel_Gpu_Texture_Obj* o = NULL;
-    if (!dev || !mel_gpu__texture_get(dev, tex, &o))
+    Mel_Gpu_Texture_Obj  o_obj; // BUG-1: snapshot under obj_lock; the immutable texture record is read by value
+    Mel_Gpu_Texture_Obj* o = &o_obj;
+    if (!dev || !mel_gpu__texture_get(dev, tex, o))
     {
         mel_assert(!"texture_write: invalid texture handle");
         return;
     }
+
+    // §3.7: texture_write is SerializedPerObject on this resource (concurrent on distinct resources).
+    const void* trk = mel_gpu__track_key(&dev->textures, tex.slot.index);
+    mel_gpu__track_enter(dev, trk, MEL_GPU_CONCURRENCY_SERIALIZED_PER_OBJECT);
 
     // Staging buffer (host-image-copy fast path is cap-gated and not in this slice — gpu-rhi.md §6.2).
     VkBufferCreateInfo bci = {
@@ -343,13 +359,17 @@ void mel_gpu_texture_write(Mel_Gpu_Device* dev, Mel_Gpu_Texture tex, Mel_Gpu_Tex
     };
     VkBuffer staging = VK_NULL_HANDLE;
     if (vkCreateBuffer(dev->vk, &bci, NULL, &staging) != VK_SUCCESS)
+    {
+        mel_gpu__track_exit(dev, trk);
         return;
+    }
     VkMemoryRequirements req;
     vkGetBufferMemoryRequirements(dev->vk, staging, &req);
     Mel_Gpu_Allocation sa;
     if (!mel_gpu__mem_alloc(dev, req, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, false, &sa))
     {
         vkDestroyBuffer(dev->vk, staging, NULL);
+        mel_gpu__track_exit(dev, trk);
         return;
     }
     vkBindBufferMemory(dev->vk, staging, sa.mem, sa.offset);
@@ -418,4 +438,5 @@ void mel_gpu_texture_write(Mel_Gpu_Device* dev, Mel_Gpu_Texture tex, Mel_Gpu_Tex
     vkFreeCommandBuffers(dev->vk, pool, 1, &cb);
     mel_gpu__defer_free(dev, (Mel_Gpu_Deferred_Free){ .buffer = staging, .alloc = sa, .has_alloc = true });
     mel_gpu__submit_complete(dev, serial);
+    mel_gpu__track_exit(dev, trk);
 }

@@ -105,12 +105,18 @@ Mel_Gpu_Shader_Create_Result mel_gpu_shader_create_compute_from_bytecode_opt(Mel
 
 void mel_gpu_shader_destroy(Mel_Gpu_Device* dev, Mel_Gpu_Shader sh)
 {
-    Mel_Gpu_Shader_Obj* o = mel_gpu__table_get(dev, &dev->shaders, sh.slot);
-    if (!o)
+    // §3.7: shader_destroy is SerializedPerObject on the destroyed handle.
+    const void* trk = mel_gpu__track_key(&dev->shaders, sh.slot.index);
+    mel_gpu__track_enter(dev, trk, MEL_GPU_CONCURRENCY_SERIALIZED_PER_OBJECT);
+    Mel_Gpu_Shader_Obj o; // BUG-1: copy the record out under obj_lock before any field read
+    if (!mel_gpu__table_get_copy(dev, &dev->shaders, sh.slot, &o))
+    {
+        mel_gpu__track_exit(dev, trk);
         return;
-    VkShaderModule           vs = o->vs, fs = o->fs, cs = o->cs;
-    char *                   ve = o->vs_entry, *fe = o->fs_entry, *ce = o->cs_entry;
-    Mel_Gpu_Spirv_Reflection refl = o->reflection; // capture before swap-remove invalidates the slot
+    }
+    VkShaderModule           vs = o.vs, fs = o.fs, cs = o.cs;
+    char *                   ve = o.vs_entry, *fe = o.fs_entry, *ce = o.cs_entry;
+    Mel_Gpu_Spirv_Reflection refl = o.reflection; // the snapshot owns these pointers; destroy is SerializedPerObject
     mel_gpu__table_remove(dev, &dev->shaders, sh.slot);
     if (vs)
         vkDestroyShaderModule(dev->vk, vs, NULL);
@@ -125,37 +131,38 @@ void mel_gpu_shader_destroy(Mel_Gpu_Device* dev, Mel_Gpu_Shader sh)
     if (ce)
         mel_dealloc(dev->alloc, ce);
     mel_gpu__reflection_free(&refl);
+    mel_gpu__track_exit(dev, trk);
 }
 
-bool mel_gpu_shader_alive(Mel_Gpu_Device* dev, Mel_Gpu_Shader sh) { return mel_gpu__table_get(dev, &dev->shaders, sh.slot) != NULL; }
+bool mel_gpu_shader_alive(Mel_Gpu_Device* dev, Mel_Gpu_Shader sh) { return mel_gpu__table_alive(dev, &dev->shaders, sh.slot); }
 
 bool mel_gpu__shader_modules(Mel_Gpu_Device* dev, Mel_Gpu_Shader sh, VkShaderModule* vs, VkShaderModule* fs, const char** vs_entry, const char** fs_entry)
 {
-    Mel_Gpu_Shader_Obj* o = mel_gpu__table_get(dev, &dev->shaders, sh.slot);
-    if (!o)
+    Mel_Gpu_Shader_Obj o; // BUG-1: snapshot under obj_lock
+    if (!mel_gpu__table_get_copy(dev, &dev->shaders, sh.slot, &o))
         return false;
-    *vs = o->vs;
-    *fs = o->fs;
-    *vs_entry = o->vs_entry;
-    *fs_entry = o->fs_entry;
+    *vs = o.vs;
+    *fs = o.fs;
+    *vs_entry = o.vs_entry;
+    *fs_entry = o.fs_entry;
     return true;
 }
 
 bool mel_gpu__shader_compute_module(Mel_Gpu_Device* dev, Mel_Gpu_Shader sh, VkShaderModule* cs, const char** cs_entry)
 {
-    Mel_Gpu_Shader_Obj* o = mel_gpu__table_get(dev, &dev->shaders, sh.slot);
-    if (!o || o->cs == VK_NULL_HANDLE)
+    Mel_Gpu_Shader_Obj o; // BUG-1: snapshot under obj_lock
+    if (!mel_gpu__table_get_copy(dev, &dev->shaders, sh.slot, &o) || o.cs == VK_NULL_HANDLE)
         return false;
-    *cs = o->cs;
-    *cs_entry = o->cs_entry;
+    *cs = o.cs;
+    *cs_entry = o.cs_entry;
     return true;
 }
 
 bool mel_gpu__shader_reflection(Mel_Gpu_Device* dev, Mel_Gpu_Shader sh, Mel_Gpu_Spirv_Reflection* out)
 {
-    Mel_Gpu_Shader_Obj* o = mel_gpu__table_get(dev, &dev->shaders, sh.slot);
-    if (!o)
+    Mel_Gpu_Shader_Obj o; // BUG-1: snapshot under obj_lock
+    if (!mel_gpu__table_get_copy(dev, &dev->shaders, sh.slot, &o))
         return false;
-    *out = o->reflection;
+    *out = o.reflection;
     return true;
 }

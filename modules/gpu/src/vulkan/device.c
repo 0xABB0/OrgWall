@@ -374,6 +374,31 @@ const Mel_Gpu_Caps* mel_gpu_device_caps(Mel_Gpu_Device* dev) { return dev ? &dev
 
 Mel_Reactor* mel_gpu_device_reactor(Mel_Gpu_Device* dev) { return dev ? dev->reactor : NULL; }
 
+// BUG-2 / U21 / §3.7: wire the thread-safety tracker into the public call path. enter/exit are no-ops unless
+// the device was created with debug.thread_safety_tracker (dev->tracker != NULL), free in release. The class
+// is each call's documented §3.7 class — Concurrent calls register no owner; SerializedPerObject calls register
+// the calling thread on the object and report (BUG-2 changed the assert to a loud report) when a second thread
+// enters the same object without an intervening exit. mel_gpu__track_key derives a stable per-resource object
+// token from the (table, slot index) pair — handles are not pointers, so the tracker needs a synthesized key;
+// the FNV-style mix is collision-free enough for a debug aid across the small set of live (table, index) pairs.
+void mel_gpu__track_enter(Mel_Gpu_Device* dev, const void* object, Mel_Gpu_Concurrency cls)
+{
+    if (dev->tracker)
+        mel_gpu_thread_tracker_enter(dev->tracker, object, cls);
+}
+
+void mel_gpu__track_exit(Mel_Gpu_Device* dev, const void* object)
+{
+    if (dev->tracker)
+        mel_gpu_thread_tracker_exit(dev->tracker, object);
+}
+
+const void* mel_gpu__track_key(const Mel_Gpu_Resource_Table* t, u32 index)
+{
+    uintptr_t k = (uintptr_t)t ^ (((uintptr_t)index + 1u) * (uintptr_t)0x9E3779B97F4A7C15ull);
+    return (const void*)k;
+}
+
 Mel_SlotMap_Handle mel_gpu__table_insert(Mel_Gpu_Device* dev, Mel_Gpu_Resource_Table* t, const void* obj)
 {
     mel_mutex_lock(&dev->obj_lock);
@@ -388,6 +413,56 @@ void* mel_gpu__table_get(Mel_Gpu_Device* dev, Mel_Gpu_Resource_Table* t, Mel_Slo
     void* p = mel_slotmap_get(&t->map, h);
     mel_mutex_unlock(&dev->obj_lock);
     return p;
+}
+
+// BUG-1 (host-memory corruption): mel_slotmap_get returns an interior pointer into the packed dense array
+// (data + packed_idx * item_size). A concurrent table_insert (realloc-grow) or table_remove (swap-remove
+// memcpy) relocates that element under a reader that dereferences it after obj_lock is released, tearing the
+// record. §3.7 declares resource create/destroy Concurrent across distinct handles, so the *read* of the
+// record must be guarded too, not only the slotmap bookkeeping. The cure: copy the whole record out by value
+// WHILE holding obj_lock — no interior pointer escapes the lock; callers operate on the local copy. Returns
+// false (out untouched) when the handle is stale, so the use-after-free stays loud at the call site
+// (MEL-ENGINE-VIII). Records are immutable post-insert except the sampler refcount, which has its own
+// obj_lock-guarded mutator below — never copy-then-write-back, which would lose a concurrent claim.
+bool mel_gpu__table_get_copy(Mel_Gpu_Device* dev, Mel_Gpu_Resource_Table* t, Mel_SlotMap_Handle h, void* out)
+{
+    mel_mutex_lock(&dev->obj_lock);
+    void* p = mel_slotmap_get(&t->map, h);
+    if (p)
+        memcpy(out, p, t->map.item_size);
+    mel_mutex_unlock(&dev->obj_lock);
+    return p != NULL;
+}
+
+// Liveness probe for the *_alive entry points: returns the boolean without letting any interior pointer escape
+// the lock. Whether a slot is alive is read from the sparse slot array under obj_lock (not from the packed
+// payload), so it cannot be torn by a concurrent relocation — the honest minimal accessor for *_alive.
+bool mel_gpu__table_alive(Mel_Gpu_Device* dev, Mel_Gpu_Resource_Table* t, Mel_SlotMap_Handle h)
+{
+    mel_mutex_lock(&dev->obj_lock);
+    bool alive = mel_slotmap_get(&t->map, h) != NULL;
+    mel_mutex_unlock(&dev->obj_lock);
+    return alive;
+}
+
+// U11 sampler refcount is the one field mutated in place after insert (the dedup claim count, §6.3). The read-
+// modify-write must happen UNDER obj_lock against the live packed slot, never on a copy: a copy-back would
+// drop a concurrent claim/release and reintroduce the very torn-record class BUG-1 closes. `delta` is +1
+// (retain) or -1 (release); *out_after receives the post-mutation count so the caller can act on the
+// last-release edge. Returns false (no mutation) on a stale handle. The sampler_lock the caller holds
+// serializes the dedup table; obj_lock serializes the slotmap payload — distinct concerns, both required.
+bool mel_gpu__sampler_refcount_add(Mel_Gpu_Device* dev, Mel_SlotMap_Handle h, i32 delta, u32* out_after)
+{
+    mel_mutex_lock(&dev->obj_lock);
+    Mel_Gpu_Sampler_Obj* o = mel_slotmap_get(&dev->samplers.map, h);
+    if (o)
+    {
+        o->refcount = (u32)((i32)o->refcount + delta);
+        if (out_after)
+            *out_after = o->refcount;
+    }
+    mel_mutex_unlock(&dev->obj_lock);
+    return o != NULL;
 }
 
 bool mel_gpu__table_remove(Mel_Gpu_Device* dev, Mel_Gpu_Resource_Table* t, Mel_SlotMap_Handle h)

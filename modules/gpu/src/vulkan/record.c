@@ -32,6 +32,10 @@ Mel_Gpu_Command_List* mel_gpu_command_list_create(Mel_Gpu_Queue* q)
 void mel_gpu_command_list_begin(Mel_Gpu_Command_List* cmd)
 {
     mel_assert(cmd && cmd->standalone);
+    // §3.7 / BUG-2: every cmd_* is SerializedPerObject on the command list itself; the canonical pattern is one
+    // CL per recording thread (U15). Bracket the recording window by registering the owning thread on the CL
+    // pointer at begin and releasing at end — a second thread that begins/records the same CL is reported.
+    mel_gpu__track_enter(cmd->dev, cmd, MEL_GPU_CONCURRENCY_SERIALIZED_PER_OBJECT);
     vkResetCommandBuffer(cmd->cb, 0);
     VkCommandBufferBeginInfo bi = { .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO, .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT };
     vkBeginCommandBuffer(cmd->cb, &bi);
@@ -45,6 +49,7 @@ void mel_gpu_command_list_end(Mel_Gpu_Command_List* cmd)
     mel_assert(cmd && cmd->recording);
     vkEndCommandBuffer(cmd->cb);
     cmd->recording = false;
+    mel_gpu__track_exit(cmd->dev, cmd); // §3.7: release the per-CL recording ownership registered at begin
 }
 
 void mel_gpu_command_list_destroy(Mel_Gpu_Command_List* cmd)
@@ -267,8 +272,9 @@ void mel_gpu__state_to_barrier2(Mel_Gpu_Resource_State state, bool is_depth, VkP
 
 void mel_gpu_cmd_texture_barrier(Mel_Gpu_Command_List* cmd, Mel_Gpu_Texture tex, Mel_Gpu_Subresource_Range range, Mel_Gpu_Resource_State src, Mel_Gpu_Resource_State dst)
 {
-    Mel_Gpu_Texture_Obj* o = NULL;
-    if (!cmd || !mel_gpu__texture_get(cmd->dev, tex, &o))
+    Mel_Gpu_Texture_Obj  o_obj; // BUG-1: snapshot the immutable texture record under obj_lock
+    Mel_Gpu_Texture_Obj* o = &o_obj;
+    if (!cmd || !mel_gpu__texture_get(cmd->dev, tex, o))
     {
         mel_assert(!"cmd_texture_barrier: invalid texture handle");
         return;
@@ -394,9 +400,10 @@ void mel_gpu_cmd_buffer_barrier(Mel_Gpu_Command_List* cmd, Mel_Gpu_Buffer buf, M
 
 void mel_gpu_cmd_copy_texture_to_buffer(Mel_Gpu_Command_List* cmd, Mel_Gpu_Texture tex, Mel_Gpu_Subresource_Range subresource, Mel_Gpu_Buffer dst)
 {
-    Mel_Gpu_Texture_Obj* o = NULL;
+    Mel_Gpu_Texture_Obj  o_obj; // BUG-1: snapshot the immutable texture record under obj_lock
+    Mel_Gpu_Texture_Obj* o = &o_obj;
     VkBuffer             vkdst = VK_NULL_HANDLE;
-    if (!cmd || !mel_gpu__texture_get(cmd->dev, tex, &o) || !mel_gpu__buffer_get(cmd->dev, dst, &vkdst))
+    if (!cmd || !mel_gpu__texture_get(cmd->dev, tex, o) || !mel_gpu__buffer_get(cmd->dev, dst, &vkdst))
     {
         mel_assert(!"cmd_copy_texture_to_buffer: invalid handle");
         return;
@@ -455,10 +462,10 @@ void mel_gpu_cmd_begin_rendering_opt(Mel_Gpu_Command_List* cmd, Mel_Gpu_Renderin
     VkRenderingAttachmentInfoKHR* color = n ? mel_alloc_array(dev->alloc, VkRenderingAttachmentInfoKHR, n) : NULL;
     for (u32 i = 0; i < n; i++)
     {
-        Mel_Gpu_Texture_View_Obj* v = NULL;
+        Mel_Gpu_Texture_View_Obj v; // BUG-1: snapshot under obj_lock
         VkImageView               iv = VK_NULL_HANDLE;
         if (mel_gpu__texture_view_get(dev, opt.colors[i].view, &v))
-            iv = v->view;
+            iv = v.view;
         color[i] = (VkRenderingAttachmentInfoKHR){
             .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO_KHR,
             .imageView = iv,
@@ -471,11 +478,11 @@ void mel_gpu_cmd_begin_rendering_opt(Mel_Gpu_Command_List* cmd, Mel_Gpu_Renderin
         // single-sample with VK_RESOLVE_MODE_AVERAGE (the screen-space color default). generation != 0 = set.
         if (opt.colors[i].resolve_view.slot.generation != 0)
         {
-            Mel_Gpu_Texture_View_Obj* rv = NULL;
+            Mel_Gpu_Texture_View_Obj rv; // BUG-1: snapshot under obj_lock
             if (mel_gpu__texture_view_get(dev, opt.colors[i].resolve_view, &rv))
             {
                 color[i].resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT;
-                color[i].resolveImageView = rv->view;
+                color[i].resolveImageView = rv.view;
                 color[i].resolveImageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
             }
             else
@@ -487,11 +494,11 @@ void mel_gpu_cmd_begin_rendering_opt(Mel_Gpu_Command_List* cmd, Mel_Gpu_Renderin
     bool                         has_depth = false;
     if (opt.depth)
     {
-        Mel_Gpu_Texture_View_Obj* v = NULL;
+        Mel_Gpu_Texture_View_Obj v; // BUG-1: snapshot under obj_lock
         if (mel_gpu__texture_view_get(dev, opt.depth->view, &v))
         {
             has_depth = true;
-            depth.imageView = v->view;
+            depth.imageView = v.view;
             depth.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
             depth.loadOp = mel_gpu__load_op(opt.depth->load);
             depth.storeOp = mel_gpu__store_op(opt.depth->store);

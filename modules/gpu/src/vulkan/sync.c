@@ -40,14 +40,21 @@ Mel_Gpu_Sync_Create_Result mel_gpu_sync_create(Mel_Gpu_Device* dev, Mel_Gpu_Sync
 
 void mel_gpu_sync_destroy(Mel_Gpu_Device* dev, Mel_Gpu_Sync sync)
 {
-    Mel_Gpu_Sync_Obj* o = mel_gpu__table_get(dev, &dev->syncs, sync.slot);
-    if (!o)
+    // §3.7: sync_destroy is SerializedPerObject on the destroyed handle.
+    const void* trk = mel_gpu__track_key(&dev->syncs, sync.slot.index);
+    mel_gpu__track_enter(dev, trk, MEL_GPU_CONCURRENCY_SERIALIZED_PER_OBJECT);
+    Mel_Gpu_Sync_Obj o; // BUG-1: copy the record out under obj_lock before any field read
+    if (!mel_gpu__table_get_copy(dev, &dev->syncs, sync.slot, &o))
+    {
+        mel_gpu__track_exit(dev, trk);
         return;
-    bool        borrowed = o->header.ownership == MEL_GPU_OWNERSHIP_BORROWED;
-    VkSemaphore sem = o->semaphore;
+    }
+    bool        borrowed = o.header.ownership == MEL_GPU_OWNERSHIP_BORROWED;
+    VkSemaphore sem = o.semaphore;
     mel_gpu__table_remove(dev, &dev->syncs, sync.slot);
     if (!borrowed && sem)
         vkDestroySemaphore(dev->vk, sem, NULL);
+    mel_gpu__track_exit(dev, trk);
 }
 
-bool mel_gpu_sync_alive(Mel_Gpu_Device* dev, Mel_Gpu_Sync sync) { return mel_gpu__table_get(dev, &dev->syncs, sync.slot) != NULL; }
+bool mel_gpu_sync_alive(Mel_Gpu_Device* dev, Mel_Gpu_Sync sync) { return mel_gpu__table_alive(dev, &dev->syncs, sync.slot); }

@@ -272,7 +272,7 @@ bool mel_gpu_bindless_available(Mel_Gpu_Device* dev) { return dev && dev->bindle
 
 u32 mel_gpu_texture_view_bindless_slot(Mel_Gpu_Device* dev, Mel_Gpu_Texture_View view)
 {
-    Mel_Gpu_Texture_View_Obj* o = NULL;
+    Mel_Gpu_Texture_View_Obj o; // BUG-1: snapshot under obj_lock; only the validity boolean is needed here
     if (!dev || !mel_gpu__texture_view_get(dev, view, &o))
     {
         mel_assert(!"texture_view_bindless_slot: invalid view handle");

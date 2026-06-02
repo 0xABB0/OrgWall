@@ -15,14 +15,14 @@ VkCommandBuffer mel_gpu_vk_command_buffer(Mel_Gpu_Command_List* cmd) { return cm
 
 VkBuffer mel_gpu_vk_buffer(Mel_Gpu_Device* dev, Mel_Gpu_Buffer buf)
 {
-    Mel_Gpu_Buffer_Obj* o = mel_gpu__table_get(dev, &dev->buffers, buf.slot);
-    return o ? o->buf : VK_NULL_HANDLE;
+    Mel_Gpu_Buffer_Obj o; // BUG-1: snapshot under obj_lock
+    return mel_gpu__table_get_copy(dev, &dev->buffers, buf.slot, &o) ? o.buf : VK_NULL_HANDLE;
 }
 
 VkSemaphore mel_gpu_vk_semaphore(Mel_Gpu_Device* dev, Mel_Gpu_Sync sync)
 {
-    Mel_Gpu_Sync_Obj* o = mel_gpu__table_get(dev, &dev->syncs, sync.slot);
-    return o ? o->semaphore : VK_NULL_HANDLE;
+    Mel_Gpu_Sync_Obj o; // BUG-1: snapshot under obj_lock
+    return mel_gpu__table_get_copy(dev, &dev->syncs, sync.slot, &o) ? o.semaphore : VK_NULL_HANDLE;
 }
 
 Mel_Gpu_Sync mel_gpu_sync_import(Mel_Gpu_Device* dev, VkSemaphore native, bool timeline)
@@ -41,7 +41,7 @@ void mel_gpu_vk_cmd_image_barrier(Mel_Gpu_Command_List* cmd, Mel_Gpu_Texture tex
                                   VkPipelineStageFlags src_stage, VkAccessFlags src_access, VkImageLayout old_layout,
                                   VkPipelineStageFlags dst_stage, VkAccessFlags dst_access, VkImageLayout new_layout)
 {
-    Mel_Gpu_Texture_Obj* o = NULL;
+    Mel_Gpu_Texture_Obj o; // BUG-1: snapshot the immutable texture record under obj_lock
     if (!cmd || !mel_gpu__texture_get(cmd->dev, tex, &o))
     {
         mel_assert(!"vk_cmd_image_barrier: invalid texture handle");
@@ -55,7 +55,7 @@ void mel_gpu_vk_cmd_image_barrier(Mel_Gpu_Command_List* cmd, Mel_Gpu_Texture tex
         .newLayout = new_layout,
         .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
         .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-        .image = o->image,
+        .image = o.image,
         .subresourceRange = range,
     };
     vkCmdPipelineBarrier(cmd->cb, src_stage, dst_stage, 0, 0, NULL, 0, NULL, 1, &b);
