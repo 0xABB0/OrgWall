@@ -201,6 +201,7 @@ Mel_Gpu_Device_Create_Result mel_gpu_device_create_opt(Mel_Gpu_Instance* inst, M
     dev->caps.sampler.max_anisotropy = dev->max_sampler_anisotropy;
 
     dev->feat_fill_non_solid = avail.fillModeNonSolid != 0;
+    dev->caps.raster.fill_mode_non_solid = dev->feat_fill_non_solid;
     dev->feat_depth_bounds = avail.depthBounds != 0;
     dev->feat_depth_bias_clamp = avail.depthBiasClamp != 0;
     dev->feat_sample_rate_shading = avail.sampleRateShading != 0;
@@ -240,10 +241,11 @@ Mel_Gpu_Device_Create_Result mel_gpu_device_create_opt(Mel_Gpu_Instance* inst, M
     mel_slotmap_init(&dev->shaders.map, alloc, .item_size = sizeof(Mel_Gpu_Shader_Obj), .initial_capacity = 16);
     mel_slotmap_init(&dev->pipelines.map, alloc, .item_size = sizeof(Mel_Gpu_Pipeline_Obj), .initial_capacity = 16);
     mel_slotmap_init(&dev->syncs.map, alloc, .item_size = sizeof(Mel_Gpu_Sync_Obj), .initial_capacity = 16);
+    mel_slotmap_init(&dev->query_pools.map, alloc, .item_size = sizeof(Mel_Gpu_Query_Pool_Obj), .initial_capacity = 8);
     mel_slotmap_init(&dev->bind_group_layouts.map, alloc, .item_size = sizeof(Mel_Gpu_Bind_Group_Layout_Obj), .initial_capacity = 8);
     mel_slotmap_init(&dev->bind_groups.map, alloc, .item_size = sizeof(Mel_Gpu_Bind_Group_Obj), .initial_capacity = 16);
     dev->buffers.init = dev->textures.init = dev->texture_views.init = dev->samplers.init = dev->shaders.init = dev->pipelines.init = dev->syncs.init = true;
-    dev->bind_group_layouts.init = dev->bind_groups.init = true;
+    dev->query_pools.init = dev->bind_group_layouts.init = dev->bind_groups.init = true;
 
     mel_gpu__bindless_init(dev, opt.features.descriptor_indexing);
 
@@ -299,6 +301,7 @@ void mel_gpu_device_destroy(Mel_Gpu_Device* dev)
     mel_gpu__table_report_leaks(&dev->shaders, "shader");
     mel_gpu__table_report_leaks(&dev->pipelines, "pipeline");
     mel_gpu__table_report_leaks(&dev->syncs, "sync");
+    mel_gpu__table_report_leaks(&dev->query_pools, "query-pool");
     mel_gpu__table_report_leaks(&dev->bind_groups, "bind-group");
     mel_gpu__table_report_leaks(&dev->bind_group_layouts, "bind-group-layout");
 
@@ -318,6 +321,7 @@ void mel_gpu_device_destroy(Mel_Gpu_Device* dev)
     mel_slotmap_free(&dev->shaders.map);
     mel_slotmap_free(&dev->pipelines.map);
     mel_slotmap_free(&dev->syncs.map);
+    mel_slotmap_free(&dev->query_pools.map);
     mel_slotmap_free(&dev->bind_group_layouts.map);
     mel_slotmap_free(&dev->bind_groups.map);
     if (dev->sampler_interns)

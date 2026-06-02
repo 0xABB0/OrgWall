@@ -252,6 +252,7 @@ typedef struct
 typedef struct
 {
     Mel_Gpu_Tile_Local_Tier tile_local;
+    bool                    fill_mode_non_solid;
 } Mel_Gpu_Caps_Raster;
 
 typedef struct

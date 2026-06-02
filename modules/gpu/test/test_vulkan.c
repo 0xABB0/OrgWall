@@ -14,6 +14,7 @@
 #include <gpu/queue.h>
 #include <gpu/command.h>
 #include <gpu/rendering.h>
+#include <gpu/query.h>
 #include <gpu/swapchain.h>
 #include <gpu/state.h>
 #include <gpu/memory.h>
@@ -1762,6 +1763,125 @@ MEL_TEST(vk_tracker, cross_thread_misuse_reports_without_aborting)
 
     mel_barrier_destroy(&both_in);
     mel_gpu_thread_tracker_destroy(tracker);
+}
+
+MEL_TEST(vk_raster, fill_mode_non_solid_cap_reflects_reality)
+{
+    Mel_Gpu_Instance* inst = NULL;
+    Mel_Gpu_Device*   dev = test_make_device(&inst);
+    MEL_REQUIRE_NOT_NULL(dev);
+
+    const Mel_Gpu_Caps* caps = mel_gpu_device_caps(dev);
+    MEL_REQUIRE_NOT_NULL(caps);
+    MEL_EXPECT(caps->raster.fill_mode_non_solid == true);
+
+    mel_gpu_device_destroy(dev);
+    mel_gpu_instance_destroy(inst);
+}
+
+MEL_TEST(vk_render, begin_rendering_auto_transition_no_manual_barrier)
+{
+    Mel_Gpu_Instance* inst = NULL;
+    Mel_Gpu_Device*   dev = test_make_device(&inst);
+    MEL_REQUIRE_NOT_NULL(dev);
+
+    const u32 W = 32, H = 32;
+    Mel_Gpu_Texture_Create_Result t = mel_gpu_texture_create(dev, .kind = MEL_GPU_TEXTURE_2D, .extent = { W, H, 1 }, .format = MEL_GPU_FORMAT_RGBA8_UNORM,
+                                                             .usage = MEL_GPU_TEXTURE_ATTACHMENT | MEL_GPU_TEXTURE_COPY_SRC, .name = "rt-auto");
+    MEL_REQUIRE(!mel_gpu_failed(t.status));
+    Mel_Gpu_Texture_View_Create_Result v = mel_gpu_texture_default_view(dev, t.value);
+    MEL_REQUIRE(!mel_gpu_failed(v.status));
+    Mel_Gpu_Buffer_Create_Result rb = mel_gpu_buffer_create(dev, .size = (usize)W * H * 4, .usage = MEL_GPU_BUFFER_TRANSFER_DST, .memory = MEL_GPU_MEMORY_READBACK, .name = "rb-auto");
+    MEL_REQUIRE(!mel_gpu_failed(rb.status));
+
+    Mel_Gpu_Queue*        q = mel_gpu_queue_request(dev, MEL_GPU_QUEUE_GRAPHICS);
+    Mel_Gpu_Command_List* cmd = mel_gpu_command_list_create(q);
+    mel_gpu_command_list_begin(cmd);
+
+    Mel_Gpu_Color_Attachment color = { .view = v.value, .load = MEL_GPU_LOAD_CLEAR, .store = MEL_GPU_STORE_STORE, .clear = mel_gpu_rgba(0.1f, 0.2f, 0.3f, 1.0f) };
+    mel_gpu_cmd_begin_rendering(cmd, .colors = &color, .color_count = 1, .width = W, .height = H);
+    mel_gpu_cmd_end_rendering(cmd);
+
+    Mel_Gpu_Subresource_Range range = { MEL_GPU_ASPECT_COLOR, 0, 1, 0, 1 };
+    mel_gpu_cmd_texture_barrier(cmd, t.value, range, MEL_GPU_STATE_RENDER_TARGET, MEL_GPU_STATE_COPY_SOURCE);
+    mel_gpu_cmd_copy_texture_to_buffer(cmd, t.value, range, rb.value);
+    mel_gpu_command_list_end(cmd);
+
+    Mel_Gpu_Future* f = mel_gpu_queue_submit(q, (Mel_Gpu_Submit){ .command_lists = &cmd, .command_list_count = 1 });
+    MEL_REQUIRE_NOT_NULL(f);
+    MEL_EXPECT(mel_gpu_ok(mel_gpu_future_status(f)));
+    mel_gpu_future_destroy(f);
+
+    const u8* px = mel_gpu_buffer_mapped(dev, rb.value);
+    MEL_REQUIRE_NOT_NULL(px);
+    MEL_EXPECT(px[0] >= 24 && px[0] <= 28);
+    MEL_EXPECT(px[1] >= 49 && px[1] <= 53);
+    MEL_EXPECT(px[2] >= 75 && px[2] <= 79);
+    MEL_EXPECT_EQ(px[3], 255u);
+
+    mel_gpu_command_list_destroy(cmd);
+    mel_gpu_queue_release(q);
+    mel_gpu_buffer_destroy(dev, rb.value);
+    mel_gpu_texture_view_destroy(dev, v.value);
+    mel_gpu_texture_destroy(dev, t.value);
+    mel_gpu_device_destroy(dev);
+    mel_gpu_instance_destroy(inst);
+}
+
+MEL_TEST(vk_query, timestamp_delta_plausible)
+{
+    Mel_Gpu_Instance* inst = NULL;
+    Mel_Gpu_Device*   dev = test_make_device(&inst);
+    MEL_REQUIRE_NOT_NULL(dev);
+
+    const Mel_Gpu_Caps* caps = mel_gpu_device_caps(dev);
+    MEL_REQUIRE_NOT_NULL(caps);
+    if (caps->queries.timestamp == MEL_GPU_TIMESTAMP_NONE || !caps->queries.timestamp_compute_and_graphics || caps->queries.timestamp_period_ns <= 0.0)
+    {
+        mel_gpu_device_destroy(dev);
+        mel_gpu_instance_destroy(inst);
+        MEL_SKIP("device does not grant timestamp queries (timestamp tier/compute-and-graphics/period absent)");
+    }
+
+    Mel_Gpu_Query_Pool_Create_Result qp = mel_gpu_query_pool_create(dev, .type = MEL_GPU_QUERY_TIMESTAMP, .count = 2, .name = "ts");
+    MEL_REQUIRE(!mel_gpu_failed(qp.status));
+    MEL_REQUIRE(mel_gpu_query_pool_alive(dev, qp.value));
+
+    const usize BYTES = 4u * 1024u * 1024u;
+    Mel_Gpu_Buffer_Create_Result src = mel_gpu_buffer_create(dev, .size = BYTES, .usage = MEL_GPU_BUFFER_TRANSFER_SRC, .memory = MEL_GPU_MEMORY_DEVICE, .name = "ts-src");
+    MEL_REQUIRE(!mel_gpu_failed(src.status));
+    Mel_Gpu_Buffer_Create_Result dst = mel_gpu_buffer_create(dev, .size = BYTES, .usage = MEL_GPU_BUFFER_TRANSFER_DST, .memory = MEL_GPU_MEMORY_DEVICE, .name = "ts-dst");
+    MEL_REQUIRE(!mel_gpu_failed(dst.status));
+
+    Mel_Gpu_Queue*        q = mel_gpu_queue_request(dev, MEL_GPU_QUEUE_GRAPHICS);
+    Mel_Gpu_Command_List* cmd = mel_gpu_command_list_create(q);
+    mel_gpu_command_list_begin(cmd);
+    mel_gpu_cmd_reset_query_pool(cmd, qp.value, 0, 2);
+    mel_gpu_cmd_write_timestamp(cmd, qp.value, 0);
+    mel_gpu_cmd_copy_buffer(cmd, src.value, dst.value, BYTES);
+    mel_gpu_cmd_buffer_barrier(cmd, dst.value, MEL_GPU_STATE_COPY_DEST, MEL_GPU_STATE_COMMON);
+    mel_gpu_cmd_write_timestamp(cmd, qp.value, 1);
+    mel_gpu_command_list_end(cmd);
+
+    Mel_Gpu_Future* f = mel_gpu_queue_submit(q, (Mel_Gpu_Submit){ .command_lists = &cmd, .command_list_count = 1 });
+    MEL_REQUIRE_NOT_NULL(f);
+    MEL_EXPECT(mel_gpu_ok(mel_gpu_future_status(f)));
+    mel_gpu_future_destroy(f);
+
+    u64 ns[2] = { 0, 0 };
+    MEL_REQUIRE(mel_gpu_query_pool_resolve(dev, qp.value, 0, 2, ns));
+    MEL_EXPECT(ns[1] > ns[0]);
+    u64 delta = ns[1] - ns[0];
+    MEL_EXPECT(delta > 0);
+    MEL_EXPECT(delta < 1000000000ull);
+
+    mel_gpu_command_list_destroy(cmd);
+    mel_gpu_queue_release(q);
+    mel_gpu_buffer_destroy(dev, dst.value);
+    mel_gpu_buffer_destroy(dev, src.value);
+    mel_gpu_query_pool_destroy(dev, qp.value);
+    mel_gpu_device_destroy(dev);
+    mel_gpu_instance_destroy(inst);
 }
 
 #else

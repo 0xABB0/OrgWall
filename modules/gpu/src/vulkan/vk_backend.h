@@ -31,6 +31,7 @@
 #include <gpu/swapchain.h>
 #include <gpu/command.h>
 #include <gpu/rendering.h>
+#include <gpu/query.h>
 
 struct Mel_Gpu_Instance
 {
@@ -210,6 +211,15 @@ typedef struct
 
 typedef struct
 {
+    Mel_Gpu_Resource_Header header;
+    VkQueryPool             pool;
+    Mel_Gpu_Query_Type      type;
+    u32                     count;
+    f64                     period_ns;
+} Mel_Gpu_Query_Pool_Obj;
+
+typedef struct
+{
     VkFence         fence;
     Mel_Gpu_Future* future;
     u64             serial;
@@ -328,6 +338,7 @@ struct Mel_Gpu_Device
     Mel_Gpu_Resource_Table shaders;
     Mel_Gpu_Resource_Table pipelines;
     Mel_Gpu_Resource_Table syncs;
+    Mel_Gpu_Resource_Table query_pools;
     Mel_Gpu_Resource_Table bind_group_layouts;
     Mel_Gpu_Resource_Table bind_groups;
 

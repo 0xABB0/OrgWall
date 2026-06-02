@@ -134,6 +134,7 @@ void mel_gpu__caps_probe(VkPhysicalDevice phys, Mel_Gpu_Caps* out)
 
     out->queries.timestamp = p->limits.timestampPeriod > 0.0f ? MEL_GPU_TIMESTAMP_NATIVE : MEL_GPU_TIMESTAMP_NONE;
     out->queries.timestamp_period_ns = (f64)p->limits.timestampPeriod;
+    out->queries.timestamp_compute_and_graphics = p->limits.timestampComputeAndGraphics != 0;
     out->queries.timestamp_calibrated = MEL_GPU_TIMESTAMP_CALIBRATED_NONE;
     out->queries.occlusion_precise = feat2.features.occlusionQueryPrecise;
     out->queries.pipeline_statistics = feat2.features.pipelineStatisticsQuery;
@@ -145,4 +146,5 @@ void mel_gpu__caps_probe(VkPhysicalDevice phys, Mel_Gpu_Caps* out)
     out->debug.capture_replay = MEL_GPU_CAPTURE_REPLAY_NONE;
 
     out->raster.tile_local = integrated ? MEL_GPU_TILE_LOCAL_EMULATED : MEL_GPU_TILE_LOCAL_NONE;
+    out->raster.fill_mode_non_solid = feat2.features.fillModeNonSolid != 0;
 }
