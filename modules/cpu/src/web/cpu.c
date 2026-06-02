@@ -2,10 +2,8 @@
 
 #include <emscripten/threading.h>
 
-Mel_Cpu_Info mel_cpu_info(const Mel_Alloc* alloc)
+Mel_Cpu_Info mel_cpu_info(void)
 {
-    MEL_UNUSED(alloc);
-
     Mel_Cpu_Info info = { 0 };
     int          cores = emscripten_num_logical_cores();
     if (cores > 0)

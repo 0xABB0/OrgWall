@@ -10,11 +10,9 @@ void build(Mel_Build* b)
     mel_sources(lib, WHEN(.platforms = MEL_ON(WASM)), "src/web/*.c");
     mel_link(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(WIN32)), "-ladvapi32");
     mel_depends(lib, "core");
-    mel_depends(lib, "allocator");
 
     Mel_Target* t = mel_add_test(b, "cpu-test");
     mel_sources(t, ALWAYS, "test/cpu_test.c");
     mel_depends(t, "cpu");
     mel_depends(t, "core");
-    mel_depends(t, "allocator");
 }

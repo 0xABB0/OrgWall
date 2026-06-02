@@ -1,12 +1,10 @@
 #include <cpu/cpu.h>
 
-#include <allocator/heap.h>
-
 #include <stdio.h>
 
 int main(void)
 {
-    Mel_Cpu_Info c = mel_cpu_info(mel_alloc_heap());
+    Mel_Cpu_Info c = mel_cpu_info();
 
     printf("packages    : %u\n", c.package_count);
     printf("cores       : %u\n", c.core_count);

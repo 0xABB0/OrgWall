@@ -3,8 +3,6 @@
 #include <core/types.h>
 #include <core/compiler.h>
 
-#include <allocator/allocator.fwd.h>
-
 typedef struct
 {
     u32 package_count;
@@ -18,4 +16,4 @@ typedef struct
     u32 cache_line_size;
 } Mel_Cpu_Info;
 
-MEL_NODISCARD Mel_Cpu_Info mel_cpu_info(const Mel_Alloc* alloc);
+MEL_NODISCARD Mel_Cpu_Info mel_cpu_info(void);

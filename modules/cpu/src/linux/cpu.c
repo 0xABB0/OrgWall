@@ -155,10 +155,8 @@ static u64 mel_cpu__proc_mhz(void)
     return hz;
 }
 
-Mel_Cpu_Info mel_cpu_info(const Mel_Alloc* alloc)
+Mel_Cpu_Info mel_cpu_info(void)
 {
-    MEL_UNUSED(alloc);
-
     Mel_Cpu_Info info = { 0 };
 
     long logical = sysconf(_SC_NPROCESSORS_CONF);

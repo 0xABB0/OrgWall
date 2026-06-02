@@ -11,10 +11,8 @@ static u64 mel_cpu__sysctl(const char* name)
     return v;
 }
 
-Mel_Cpu_Info mel_cpu_info(const Mel_Alloc* alloc)
+Mel_Cpu_Info mel_cpu_info(void)
 {
-    MEL_UNUSED(alloc);
-
     Mel_Cpu_Info info = { 0 };
     info.package_count = (u32)mel_cpu__sysctl("hw.packages");
     info.core_count = (u32)mel_cpu__sysctl("hw.physicalcpu");

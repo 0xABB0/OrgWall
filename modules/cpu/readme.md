@@ -24,7 +24,7 @@ typedef struct
     u32 cache_line_size;  /* bytes                                 */
 } Mel_Cpu_Info;
 
-Mel_Cpu_Info mel_cpu_info(const Mel_Alloc* alloc);
+Mel_Cpu_Info mel_cpu_info(void);
 ```
 
 Each field's zero value is the honest absence: a field reads `0` when the build's
@@ -32,15 +32,14 @@ platform publishes no source for it. The engine never fabricates a count, a size
 or a clock. Cache sizes are the size of a *single* cache instance (the per-core L1
 data cache, one L2, one L3), matching Flax's semantics — not an aggregate.
 
-## Allocator
+## No heap
 
-`alloc` is transient scratch for the one backend whose OS surface demands a
-variable-length buffer: Windows' `GetLogicalProcessorInformationEx`. It is
-acquired and released within the call; nothing in the returned struct points into
-it. The macOS/iOS, Linux/Android and web backends ignore `alloc`. It is a required
-argument on every platform so the signature is uniform and the one real cost stays
-explicit and traceable (MEL-ENGINE-III); pass `mel_alloc_heap()` if you have no
-preference. `alloc` must be non-NULL.
+`mel_cpu_info` allocates nothing on the heap on any platform; the whole result is
+returned by value and every backend's scratch lives on the stack. The one OS surface
+that demands a variable-length buffer — Windows' `GetLogicalProcessorInformationEx` —
+is served by `_alloca` of the size the API itself reports, released when the call
+returns. macOS/iOS, Linux/Android and web need no buffer at all. The struct never
+points into any of this scratch.
 
 ## Lowering
 
@@ -71,10 +70,11 @@ modules/cpu/
   `0` while `logical_count` still resolves. Android reuses this lowering verbatim —
   no JNI.
 - **win32** — `RelationProcessorPackage`/`RelationProcessorCore`/`RelationCache`
-  records from `GetLogicalProcessorInformationEx(RelationAll, …)`; `page_size` from
-  `GetSystemInfo`; `logical_count` from `GetActiveProcessorCount(ALL_PROCESSOR_GROUPS)`
-  (correct past 64 logical processors); `clock_speed` from the registry `~MHz`
-  (MHz→Hz). Links `-ladvapi32` for `RegGetValueA`.
+  records from `GetLogicalProcessorInformationEx(RelationAll, …)`, walked in a
+  `_alloca`'d stack buffer sized to the length the first probe call reports — no heap;
+  `page_size` from `GetSystemInfo`; `logical_count` from
+  `GetActiveProcessorCount(ALL_PROCESSOR_GROUPS)` (correct past 64 logical processors);
+  `clock_speed` from the registry `~MHz` (MHz→Hz). Links `-ladvapi32` for `RegGetValueA`.
 - **web** — only `navigator.hardwareConcurrency` is synchronously available, so
   `logical_count` is filled and everything else stays `0`, except `page_size`, set
   to the WASM linear-memory page granularity (65536 B). No host CPU geometry is

@@ -1,19 +1,16 @@
 #include <cpu/cpu.h>
 
-#include <allocator/allocator.h>
-
+#include <malloc.h>
 #include <windows.h>
 
-static void mel_cpu__topology(Mel_Cpu_Info* info, const Mel_Alloc* alloc)
+static void mel_cpu__topology(Mel_Cpu_Info* info)
 {
     DWORD len = 0;
     GetLogicalProcessorInformationEx(RelationAll, NULL, &len);
     if (len == 0)
         return;
 
-    BYTE* buf = (BYTE*)mel_alloc(alloc, len);
-    if (!buf)
-        return;
+    BYTE* buf = (BYTE*)_alloca(len);
 
     if (GetLogicalProcessorInformationEx(RelationAll, (SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX*)buf, &len))
     {
@@ -50,11 +47,9 @@ static void mel_cpu__topology(Mel_Cpu_Info* info, const Mel_Alloc* alloc)
             p += rec->Size;
         }
     }
-
-    mel_dealloc(alloc, buf);
 }
 
-Mel_Cpu_Info mel_cpu_info(const Mel_Alloc* alloc)
+Mel_Cpu_Info mel_cpu_info(void)
 {
     Mel_Cpu_Info info = { 0 };
 
@@ -65,7 +60,7 @@ Mel_Cpu_Info mel_cpu_info(const Mel_Alloc* alloc)
     DWORD logical = GetActiveProcessorCount(ALL_PROCESSOR_GROUPS);
     info.logical_count = logical ? (u32)logical : (u32)si.dwNumberOfProcessors;
 
-    mel_cpu__topology(&info, alloc);
+    mel_cpu__topology(&info);
 
     DWORD mhz = 0;
     DWORD sz = sizeof mhz;
