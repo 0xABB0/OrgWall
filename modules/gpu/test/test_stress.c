@@ -24,12 +24,16 @@
 #include <thread/barrier.h>
 #include <thread/mutex.h>
 
+#include <time/nano.h>
+
 #include <log/log.h>
 
 #include "bindless_spv.h"
 
 #include <string.h>
 #include <stdatomic.h>
+
+static u32 stress_threads(void);
 
 static Mel_Gpu_Device* stress_make_device(Mel_Gpu_Instance** out_inst)
 {
@@ -269,6 +273,103 @@ MEL_TEST(stress_bindless, sampler_dedup_refcount)
     mel_gpu_sampler_destroy(dev, claims[0]);
     MEL_EXPECT(!mel_gpu_sampler_alive(dev, claims[0]));
 
+    mel_gpu_device_destroy(dev);
+    mel_gpu_instance_destroy(inst);
+}
+
+typedef struct
+{
+    Mel_Gpu_Device* dev;
+    Mel_Barrier*    made_all;
+    Mel_Barrier*    start;
+    u32             per_thread;
+    u32             thread_ix;
+    Mel_Gpu_Sampler canonical;
+    _Atomic(u32)    failures;
+    _Atomic(u32)    handle_breaks;
+    _Atomic(u32)    dead_while_claimed;
+} Stress_Dedup_Ctx;
+
+static int stress_dedup_worker(void* user)
+{
+    Stress_Dedup_Ctx* c = user;
+    Mel_Gpu_Sampler*  mine = mel_alloc_array(mel_alloc_heap(), Mel_Gpu_Sampler, c->per_thread);
+    u32               made = 0;
+    mel_barrier_wait(c->start);
+
+    for (u32 i = 0; i < c->per_thread; i++)
+    {
+        Mel_Gpu_Sampler_Create_Result s = mel_gpu_sampler_create(c->dev, .min_filter = MEL_GPU_FILTER_LINEAR, .mag_filter = MEL_GPU_FILTER_LINEAR,
+                                                                 .wrap_u = MEL_GPU_WRAP_CLAMP_EDGE, .wrap_v = MEL_GPU_WRAP_CLAMP_EDGE, .name = "tdup");
+        if (mel_gpu_failed(s.status))
+        {
+            atomic_fetch_add(&c->failures, 1);
+            continue;
+        }
+        if (!mel_gpu_handle_eq(s.value.slot, c->canonical.slot))
+            atomic_fetch_add(&c->handle_breaks, 1);
+        mine[made++] = s.value;
+    }
+
+    mel_barrier_wait(c->made_all);
+
+    if (!mel_gpu_sampler_alive(c->dev, c->canonical))
+        atomic_fetch_add(&c->dead_while_claimed, 1);
+
+    for (u32 i = 0; i < made; i++)
+        mel_gpu_sampler_destroy(c->dev, mine[i]);
+    mel_dealloc(mel_alloc_heap(), mine);
+    return 0;
+}
+
+MEL_TEST(stress_bindless, threaded_sampler_dedup_refcount)
+{
+    Mel_Gpu_Instance* inst = NULL;
+    Mel_Gpu_Device*   dev = stress_make_device_bindless(&inst);
+    MEL_REQUIRE_NOT_NULL(dev);
+
+    Mel_Gpu_Sampler_Create_Result anchor = mel_gpu_sampler_create(dev, .min_filter = MEL_GPU_FILTER_LINEAR, .mag_filter = MEL_GPU_FILTER_LINEAR,
+                                                                  .wrap_u = MEL_GPU_WRAP_CLAMP_EDGE, .wrap_v = MEL_GPU_WRAP_CLAMP_EDGE, .name = "tdup");
+    MEL_REQUIRE(!mel_gpu_failed(anchor.status));
+
+    const u32 T = stress_threads();
+    const u32 PER = 256;
+
+    Mel_Barrier start, made_all;
+    MEL_REQUIRE(mel_barrier_init(&start, T));
+    MEL_REQUIRE(mel_barrier_init(&made_all, T));
+    Mel_Thread*       threads = mel_alloc_array(mel_alloc_heap(), Mel_Thread, T);
+    Stress_Dedup_Ctx* ctx = mel_alloc_array(mel_alloc_heap(), Stress_Dedup_Ctx, T);
+    for (u32 i = 0; i < T; i++)
+    {
+        ctx[i] = (Stress_Dedup_Ctx){ .dev = dev, .made_all = &made_all, .start = &start, .per_thread = PER, .thread_ix = i, .canonical = anchor.value };
+        atomic_store(&ctx[i].failures, 0);
+        atomic_store(&ctx[i].handle_breaks, 0);
+        atomic_store(&ctx[i].dead_while_claimed, 0);
+        MEL_REQUIRE(mel_thread_spawn(&threads[i], stress_dedup_worker, &ctx[i], .name = "dedup"));
+    }
+    for (u32 i = 0; i < T; i++)
+        mel_thread_join(&threads[i], NULL);
+
+    u32 fails = 0, breaks = 0, dead = 0;
+    for (u32 i = 0; i < T; i++)
+    {
+        fails += atomic_load(&ctx[i].failures);
+        breaks += atomic_load(&ctx[i].handle_breaks);
+        dead += atomic_load(&ctx[i].dead_while_claimed);
+    }
+    MEL_EXPECT_EQ(fails, 0u);
+    MEL_EXPECT_EQ(breaks, 0u);
+    MEL_EXPECT_EQ(dead, 0u);
+
+    MEL_EXPECT(mel_gpu_sampler_alive(dev, anchor.value));
+    mel_gpu_sampler_destroy(dev, anchor.value);
+    MEL_EXPECT(!mel_gpu_sampler_alive(dev, anchor.value));
+
+    mel_dealloc(mel_alloc_heap(), ctx);
+    mel_dealloc(mel_alloc_heap(), threads);
+    mel_barrier_destroy(&start);
+    mel_barrier_destroy(&made_all);
     mel_gpu_device_destroy(dev);
     mel_gpu_instance_destroy(inst);
 }
@@ -961,6 +1062,432 @@ MEL_TEST(stress_command, threaded_deferred_free_under_submit)
     mel_dealloc(mel_alloc_heap(), threads);
     mel_barrier_destroy(&start);
     mel_gpu_queue_release(q);
+    mel_gpu_device_destroy(dev);
+    mel_gpu_instance_destroy(inst);
+}
+
+typedef struct
+{
+    Mel_Gpu_Device*        dev;
+    Mel_Barrier*           start;
+    Stress_Overlap_Ledger* ledger;
+    u32                    steps;
+    u32                    slots;
+    u32                    thread_ix;
+    _Atomic(u32)           failures;
+    _Atomic(u32)           corruptions;
+    _Atomic(u32)           type_breaks;
+} Stress_Mixed_Ctx;
+
+static int stress_mixed_storm_worker(void* user)
+{
+    Stress_Mixed_Ctx* c = user;
+    struct Slot
+    {
+        Mel_Gpu_Buffer  buf;
+        Mel_Gpu_Texture tex;
+        Mel_Gpu_Sampler samp;
+        const u8*       mapped;
+        usize           size;
+        u8              tag;
+        bool            live;
+    };
+    struct Slot* slots = mel_alloc_array(mel_alloc_heap(), struct Slot, c->slots);
+    memset(slots, 0, sizeof(struct Slot) * c->slots);
+
+    u32 rng = 0x85EBCA6Bu ^ (c->thread_ix * 0x27D4EB2Fu);
+    mel_barrier_wait(c->start);
+
+    for (u32 step = 0; step < c->steps; step++)
+    {
+        rng = rng * 1664525u + 1013904223u;
+        u32 idx = rng % c->slots;
+        if (slots[idx].live)
+        {
+            if (!mel_gpu_buffer_alive(c->dev, slots[idx].buf) || !mel_gpu_texture_alive(c->dev, slots[idx].tex) || !mel_gpu_sampler_alive(c->dev, slots[idx].samp))
+                atomic_fetch_add(&c->type_breaks, 1);
+            const u8* p = mel_gpu_buffer_mapped(c->dev, slots[idx].buf);
+            if (!p)
+                atomic_fetch_add(&c->failures, 1);
+            else
+                for (usize j = 0; j < slots[idx].size; j++)
+                    if (p[j] != slots[idx].tag)
+                    {
+                        atomic_fetch_add(&c->corruptions, 1);
+                        break;
+                    }
+            stress_ledger_remove(c->ledger, slots[idx].mapped);
+            mel_gpu_sampler_destroy(c->dev, slots[idx].samp);
+            mel_gpu_texture_destroy(c->dev, slots[idx].tex);
+            mel_gpu_buffer_destroy(c->dev, slots[idx].buf);
+            slots[idx].live = false;
+        }
+        else
+        {
+            usize sz = 17 + ((rng >> 7) % 8191);
+            Mel_Gpu_Buffer_Create_Result b = mel_gpu_buffer_create(c->dev, .size = sz, .usage = MEL_GPU_BUFFER_TRANSFER_SRC, .memory = MEL_GPU_MEMORY_UPLOAD, .name = "mstorm-b");
+            if (mel_gpu_failed(b.status))
+            {
+                atomic_fetch_add(&c->failures, 1);
+                continue;
+            }
+            u8* p = mel_gpu_buffer_mapped(c->dev, b.value);
+            if (!p)
+            {
+                atomic_fetch_add(&c->failures, 1);
+                mel_gpu_buffer_destroy(c->dev, b.value);
+                continue;
+            }
+            Mel_Gpu_Texture_Create_Result t = mel_gpu_texture_create(c->dev, .kind = MEL_GPU_TEXTURE_2D, .extent = { 4 + (rng % 24), 4, 1 },
+                                                                     .format = MEL_GPU_FORMAT_RGBA8_UNORM, .usage = MEL_GPU_TEXTURE_SAMPLED | MEL_GPU_TEXTURE_COPY_DST, .name = "mstorm-t");
+            if (mel_gpu_failed(t.status))
+            {
+                atomic_fetch_add(&c->failures, 1);
+                mel_gpu_buffer_destroy(c->dev, b.value);
+                continue;
+            }
+            Mel_Gpu_Sampler_Create_Result s = mel_gpu_sampler_create(c->dev, .min_filter = MEL_GPU_FILTER_NEAREST, .mag_filter = MEL_GPU_FILTER_NEAREST,
+                                                                     .wrap_u = (Mel_Gpu_Wrap)(rng % 4), .lod_max = (f32)((rng >> 3) % 64 + 1), .name = "mstorm-s");
+            if (mel_gpu_failed(s.status))
+            {
+                atomic_fetch_add(&c->failures, 1);
+                mel_gpu_texture_destroy(c->dev, t.value);
+                mel_gpu_buffer_destroy(c->dev, b.value);
+                continue;
+            }
+            stress_ledger_add(c->ledger, p, sz, c->thread_ix);
+            u8 tag = (u8)((c->thread_ix << 4) ^ (rng >> 17) ^ 0x5A);
+            memset(p, tag, sz);
+            slots[idx] = (struct Slot){ .buf = b.value, .tex = t.value, .samp = s.value, .mapped = p, .size = sz, .tag = tag, .live = true };
+        }
+    }
+    for (u32 i = 0; i < c->slots; i++)
+        if (slots[i].live)
+        {
+            const u8* p = mel_gpu_buffer_mapped(c->dev, slots[i].buf);
+            if (!p)
+                atomic_fetch_add(&c->failures, 1);
+            else
+                for (usize j = 0; j < slots[i].size; j++)
+                    if (p[j] != slots[i].tag)
+                    {
+                        atomic_fetch_add(&c->corruptions, 1);
+                        break;
+                    }
+            stress_ledger_remove(c->ledger, slots[i].mapped);
+            mel_gpu_sampler_destroy(c->dev, slots[i].samp);
+            mel_gpu_texture_destroy(c->dev, slots[i].tex);
+            mel_gpu_buffer_destroy(c->dev, slots[i].buf);
+        }
+    mel_dealloc(mel_alloc_heap(), slots);
+    return 0;
+}
+
+MEL_TEST(stress_alloc, mixed_type_churn_storm)
+{
+    Mel_Gpu_Instance* inst = NULL;
+    Mel_Gpu_Device*   dev = stress_make_device(&inst);
+    MEL_REQUIRE_NOT_NULL(dev);
+
+    const u32 T = stress_threads();
+    const u32 STEPS = 16000;
+    const u32 SLOTS = 64;
+
+    Stress_Overlap_Ledger ledger = { 0 };
+    MEL_REQUIRE(mel_mutex_init(&ledger.lock, MEL_MUTEX_PLAIN));
+    atomic_store(&ledger.overlaps, 0);
+
+    Mel_Barrier start;
+    MEL_REQUIRE(mel_barrier_init(&start, T));
+    Mel_Thread*       threads = mel_alloc_array(mel_alloc_heap(), Mel_Thread, T);
+    Stress_Mixed_Ctx* ctx = mel_alloc_array(mel_alloc_heap(), Stress_Mixed_Ctx, T);
+    for (u32 i = 0; i < T; i++)
+    {
+        ctx[i] = (Stress_Mixed_Ctx){ .dev = dev, .start = &start, .ledger = &ledger, .steps = STEPS, .slots = SLOTS, .thread_ix = i };
+        atomic_store(&ctx[i].failures, 0);
+        atomic_store(&ctx[i].corruptions, 0);
+        atomic_store(&ctx[i].type_breaks, 0);
+        MEL_REQUIRE(mel_thread_spawn(&threads[i], stress_mixed_storm_worker, &ctx[i], .name = "mixed-storm"));
+    }
+    for (u32 i = 0; i < T; i++)
+        mel_thread_join(&threads[i], NULL);
+
+    u32 fails = 0, corrupt = 0, type_breaks = 0;
+    for (u32 i = 0; i < T; i++)
+    {
+        fails += atomic_load(&ctx[i].failures);
+        corrupt += atomic_load(&ctx[i].corruptions);
+        type_breaks += atomic_load(&ctx[i].type_breaks);
+    }
+    u32 overlaps = atomic_load(&ledger.overlaps);
+    if (overlaps || corrupt || type_breaks)
+        mel_log_error("gpu-stress",
+                      "copy-under-lock regression: %u overlaps, %u corruptions, %u liveness breaks across buffer/texture/sampler churn. "
+                      "A reopened BUG-1 (interior-pointer escape on any converted table_get_copy site) would surface here.",
+                      overlaps, corrupt, type_breaks);
+
+    MEL_EXPECT_EQ(fails, 0u);
+    MEL_EXPECT_EQ(overlaps, 0u);
+    MEL_EXPECT_EQ(corrupt, 0u);
+    MEL_EXPECT_EQ(type_breaks, 0u);
+
+    if (ledger.ranges)
+        mel_dealloc(mel_alloc_heap(), ledger.ranges);
+    mel_mutex_destroy(&ledger.lock);
+    mel_dealloc(mel_alloc_heap(), ctx);
+    mel_dealloc(mel_alloc_heap(), threads);
+    mel_barrier_destroy(&start);
+    mel_gpu_device_destroy(dev);
+    mel_gpu_instance_destroy(inst);
+}
+
+typedef struct
+{
+    Mel_Gpu_Device*        dev;
+    Mel_Gpu_Queue*         queue;
+    Mel_Barrier*           start;
+    Stress_Overlap_Ledger* ledger;
+    u32                    rounds;
+    u32                    thread_ix;
+    bool                   submitter;
+    _Atomic(u32)           failures;
+    _Atomic(u32)           corruptions;
+} Stress_Mixed_Submit_Ctx;
+
+static int stress_submit_vs_destroy_worker(void* user)
+{
+    Stress_Mixed_Submit_Ctx* c = user;
+    u32                      rng = 0xC2B2AE35u ^ (c->thread_ix * 0x9E3779B1u);
+    mel_barrier_wait(c->start);
+    for (u32 r = 0; r < c->rounds; r++)
+    {
+        rng = rng * 1664525u + 1013904223u;
+        if (c->submitter)
+        {
+            u32                          pattern = (c->thread_ix << 24) | (r & 0xFFFFFF);
+            u32                          src_data[16];
+            for (u32 i = 0; i < 16; i++)
+                src_data[i] = pattern + i;
+            Mel_Gpu_Buffer_Create_Result src = mel_gpu_buffer_create(c->dev, .size = sizeof src_data, .usage = MEL_GPU_BUFFER_STORAGE | MEL_GPU_BUFFER_TRANSFER_SRC | MEL_GPU_BUFFER_TRANSFER_DST,
+                                                                     .memory = MEL_GPU_MEMORY_DEVICE, .data = src_data, .name = "svs-src");
+            Mel_Gpu_Buffer_Create_Result rb = mel_gpu_buffer_create(c->dev, .size = sizeof src_data, .usage = MEL_GPU_BUFFER_TRANSFER_DST, .memory = MEL_GPU_MEMORY_READBACK, .name = "svs-rb");
+            if (mel_gpu_failed(src.status) || mel_gpu_failed(rb.status))
+            {
+                atomic_fetch_add(&c->failures, 1);
+                if (!mel_gpu_failed(src.status))
+                    mel_gpu_buffer_destroy(c->dev, src.value);
+                if (!mel_gpu_failed(rb.status))
+                    mel_gpu_buffer_destroy(c->dev, rb.value);
+                continue;
+            }
+            Mel_Gpu_Command_List* cmd = mel_gpu_command_list_create(c->queue);
+            mel_gpu_command_list_begin(cmd);
+            mel_gpu_cmd_buffer_barrier(cmd, src.value, MEL_GPU_STATE_COPY_DEST, MEL_GPU_STATE_COPY_SOURCE);
+            mel_gpu_cmd_copy_buffer(cmd, src.value, rb.value, sizeof src_data);
+            mel_gpu_command_list_end(cmd);
+            Mel_Gpu_Future* f = mel_gpu_queue_submit(c->queue, (Mel_Gpu_Submit){ .command_lists = &cmd, .command_list_count = 1 });
+            bool            ok = f && mel_gpu_ok(mel_gpu_future_status(f));
+            mel_gpu_buffer_destroy(c->dev, src.value);
+            if (ok)
+            {
+                const u32* got = mel_gpu_buffer_mapped(c->dev, rb.value);
+                if (!got)
+                    atomic_fetch_add(&c->corruptions, 1);
+                else
+                    for (u32 i = 0; i < 16; i++)
+                        if (got[i] != src_data[i])
+                        {
+                            atomic_fetch_add(&c->corruptions, 1);
+                            break;
+                        }
+            }
+            else
+                atomic_fetch_add(&c->failures, 1);
+            mel_gpu_future_destroy(f);
+            mel_gpu_command_list_destroy(cmd);
+            mel_gpu_buffer_destroy(c->dev, rb.value);
+        }
+        else
+        {
+            usize sz = 17 + ((rng >> 7) % 8191);
+            Mel_Gpu_Buffer_Create_Result u = mel_gpu_buffer_create(c->dev, .size = sz, .usage = MEL_GPU_BUFFER_TRANSFER_SRC, .memory = MEL_GPU_MEMORY_UPLOAD, .name = "svs-churn");
+            if (mel_gpu_failed(u.status))
+            {
+                atomic_fetch_add(&c->failures, 1);
+                continue;
+            }
+            u8* p = mel_gpu_buffer_mapped(c->dev, u.value);
+            if (!p)
+            {
+                atomic_fetch_add(&c->failures, 1);
+                mel_gpu_buffer_destroy(c->dev, u.value);
+                continue;
+            }
+            u8 tag = (u8)((c->thread_ix << 4) ^ (rng >> 19) ^ 0x3C);
+            memset(p, tag, sz);
+            stress_ledger_add(c->ledger, p, sz, c->thread_ix);
+            for (usize j = 0; j < sz; j++)
+                if (p[j] != tag)
+                {
+                    atomic_fetch_add(&c->corruptions, 1);
+                    break;
+                }
+            stress_ledger_remove(c->ledger, p);
+            mel_gpu_buffer_destroy(c->dev, u.value);
+        }
+    }
+    return 0;
+}
+
+MEL_TEST(stress_command, submit_and_destroy_storm_interleaved)
+{
+    Mel_Gpu_Instance* inst = NULL;
+    Mel_Gpu_Device*   dev = stress_make_device(&inst);
+    MEL_REQUIRE_NOT_NULL(dev);
+
+    Mel_Gpu_Queue* q = mel_gpu_queue_request(dev, MEL_GPU_QUEUE_GRAPHICS);
+    MEL_REQUIRE_NOT_NULL(q);
+
+    const u32 T = stress_threads();
+    const u32 SUBMIT_ROUNDS = 64;
+    const u32 CHURN_ROUNDS = 6000;
+
+    Stress_Overlap_Ledger ledger = { 0 };
+    MEL_REQUIRE(mel_mutex_init(&ledger.lock, MEL_MUTEX_PLAIN));
+    atomic_store(&ledger.overlaps, 0);
+
+    Mel_Barrier start;
+    MEL_REQUIRE(mel_barrier_init(&start, T));
+    Mel_Thread*              threads = mel_alloc_array(mel_alloc_heap(), Mel_Thread, T);
+    Stress_Mixed_Submit_Ctx* ctx = mel_alloc_array(mel_alloc_heap(), Stress_Mixed_Submit_Ctx, T);
+    for (u32 i = 0; i < T; i++)
+    {
+        bool submitter = (i % 2) == 0;
+        ctx[i] = (Stress_Mixed_Submit_Ctx){ .dev = dev, .queue = q, .start = &start, .ledger = &ledger, .rounds = submitter ? SUBMIT_ROUNDS : CHURN_ROUNDS, .thread_ix = i, .submitter = submitter };
+        atomic_store(&ctx[i].failures, 0);
+        atomic_store(&ctx[i].corruptions, 0);
+        MEL_REQUIRE(mel_thread_spawn(&threads[i], stress_submit_vs_destroy_worker, &ctx[i], .name = "submit-vs-destroy"));
+    }
+    for (u32 i = 0; i < T; i++)
+        mel_thread_join(&threads[i], NULL);
+
+    u32 fails = 0, corrupt = 0;
+    for (u32 i = 0; i < T; i++)
+    {
+        fails += atomic_load(&ctx[i].failures);
+        corrupt += atomic_load(&ctx[i].corruptions);
+    }
+    u32 overlaps = atomic_load(&ledger.overlaps);
+    if (overlaps || corrupt)
+        mel_log_error("gpu-stress", "submit-vs-destroy storm: %u overlaps, %u corruptions; deferred-free record read racing a concurrent destroy storm", overlaps, corrupt);
+
+    MEL_EXPECT_EQ(fails, 0u);
+    MEL_EXPECT_EQ(overlaps, 0u);
+    MEL_EXPECT_EQ(corrupt, 0u);
+
+    if (ledger.ranges)
+        mel_dealloc(mel_alloc_heap(), ledger.ranges);
+    mel_mutex_destroy(&ledger.lock);
+    mel_dealloc(mel_alloc_heap(), ctx);
+    mel_dealloc(mel_alloc_heap(), threads);
+    mel_barrier_destroy(&start);
+    mel_gpu_queue_release(q);
+    mel_gpu_device_destroy(dev);
+    mel_gpu_instance_destroy(inst);
+}
+
+typedef struct
+{
+    Mel_Gpu_Device* dev;
+    Mel_Barrier*    start;
+    u32             count;
+    u32             thread_ix;
+    _Atomic(u32)    failures;
+} Stress_Perf_Ctx;
+
+static int stress_perf_worker(void* user)
+{
+    Stress_Perf_Ctx* c = user;
+    Mel_Gpu_Buffer*  bufs = mel_alloc_array(mel_alloc_heap(), Mel_Gpu_Buffer, c->count);
+    u32              made = 0;
+    mel_barrier_wait(c->start);
+    for (u32 i = 0; i < c->count; i++)
+    {
+        Mel_Gpu_Buffer_Create_Result b = mel_gpu_buffer_create(c->dev, .size = 256, .usage = MEL_GPU_BUFFER_STORAGE, .memory = MEL_GPU_MEMORY_DEVICE, .name = "perf");
+        if (mel_gpu_failed(b.status))
+            atomic_fetch_add(&c->failures, 1);
+        else
+        {
+            if (!mel_gpu_buffer_alive(c->dev, b.value))
+                atomic_fetch_add(&c->failures, 1);
+            bufs[made++] = b.value;
+        }
+    }
+    for (u32 i = 0; i < made; i++)
+        mel_gpu_buffer_destroy(c->dev, bufs[i]);
+    mel_dealloc(mel_alloc_heap(), bufs);
+    return 0;
+}
+
+static u64 stress_perf_run(Mel_Gpu_Device* dev, u32 T, u32 total)
+{
+    u32         per = total / T;
+    Mel_Barrier start;
+    mel_barrier_init(&start, T);
+    Mel_Thread*      threads = mel_alloc_array(mel_alloc_heap(), Mel_Thread, T);
+    Stress_Perf_Ctx* ctx = mel_alloc_array(mel_alloc_heap(), Stress_Perf_Ctx, T);
+    for (u32 i = 0; i < T; i++)
+    {
+        ctx[i] = (Stress_Perf_Ctx){ .dev = dev, .start = &start, .count = per, .thread_ix = i };
+        atomic_store(&ctx[i].failures, 0);
+        mel_thread_spawn(&threads[i], stress_perf_worker, &ctx[i], .name = "perf");
+    }
+    u64 t0 = mel_nanos_since_unspecified_epoch();
+    for (u32 i = 0; i < T; i++)
+        mel_thread_join(&threads[i], NULL);
+    u64 t1 = mel_nanos_since_unspecified_epoch();
+    u32 fails = 0;
+    for (u32 i = 0; i < T; i++)
+        fails += atomic_load(&ctx[i].failures);
+    mel_dealloc(mel_alloc_heap(), ctx);
+    mel_dealloc(mel_alloc_heap(), threads);
+    mel_barrier_destroy(&start);
+    return fails ? 0 : (t1 - t0);
+}
+
+MEL_TEST(stress_perf, copy_under_lock_no_new_cliff)
+{
+    Mel_Gpu_Instance* inst = NULL;
+    Mel_Gpu_Device*   dev = stress_make_device(&inst);
+    MEL_REQUIRE_NOT_NULL(dev);
+
+    const u32 TOTAL = 4096;
+    const u32 T = stress_threads();
+
+    u64 warm = stress_perf_run(dev, 1, 512);
+    MEL_REQUIRE(warm != 0);
+
+    u64 best_one = 0, best_many = 0;
+    for (u32 rep = 0; rep < 3; rep++)
+    {
+        u64 one = stress_perf_run(dev, 1, TOTAL);
+        u64 many = stress_perf_run(dev, T, TOTAL);
+        MEL_REQUIRE(one != 0);
+        MEL_REQUIRE(many != 0);
+        if (best_one == 0 || one < best_one)
+            best_one = one;
+        if (best_many == 0 || many < best_many)
+            best_many = many;
+    }
+
+    double speedup = (double)best_one / (double)best_many;
+    mel_log_info("gpu-stress",
+                 "copy-under-lock perf sanity: 1-thread %llu us, %u-thread %llu us, speedup %.2fx "
+                 "(round-2 obj_lock baseline ~0.81x; this only guards against a NEW cliff from copy-under-lock)",
+                 (unsigned long long)(best_one / 1000), T, (unsigned long long)(best_many / 1000), speedup);
+
+    MEL_EXPECT(speedup >= 0.35);
+
     mel_gpu_device_destroy(dev);
     mel_gpu_instance_destroy(inst);
 }
