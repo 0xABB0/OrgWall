@@ -1118,6 +1118,81 @@ MEL_TEST(vk_compute, storage_buffer_bindless)
     mel_gpu_instance_destroy(inst);
 }
 
+// U13/U14 (gpu-rhi.md §6.7): storage-image bindless, end-to-end. A compute shader writes a gradient into one
+// heap-resident storage image addressed purely by its bindless slot index in a push-constant root record, then
+// the image is barriered UAV->CopySource and copied to a READBACK buffer; the gradient is pixel-verified. Closes
+// the storage-image heap class the binding-finish writeup flagged unproven (storage-buffer was the only proof).
+MEL_TEST(vk_compute, storage_image_bindless)
+{
+    Mel_Gpu_Instance* inst = NULL;
+    Mel_Gpu_Device*   dev = test_make_device_bindless(&inst);
+    MEL_REQUIRE_NOT_NULL(dev);
+    MEL_REQUIRE(mel_gpu_bindless_available(dev));
+
+    const u32 W = 8, H = 8;
+    // STORAGE so the view auto-registers in the storage-image heap class (binding 4); COPY_SRC for the readback.
+    Mel_Gpu_Texture_Create_Result img = mel_gpu_texture_create(dev, .kind = MEL_GPU_TEXTURE_2D, .extent = { W, H, 1 }, .format = MEL_GPU_FORMAT_RGBA8_UNORM,
+                                                               .usage = MEL_GPU_TEXTURE_STORAGE | MEL_GPU_TEXTURE_COPY_SRC, .name = "img");
+    MEL_REQUIRE(!mel_gpu_failed(img.status));
+    Mel_Gpu_Texture_View_Create_Result view = mel_gpu_texture_default_view(dev, img.value);
+    MEL_REQUIRE(!mel_gpu_failed(view.status));
+    Mel_Gpu_Buffer_Create_Result rb = mel_gpu_buffer_create(dev, .size = (usize)W * H * 4, .usage = MEL_GPU_BUFFER_TRANSFER_DST, .memory = MEL_GPU_MEMORY_READBACK, .name = "rb");
+    MEL_REQUIRE(!mel_gpu_failed(rb.status));
+
+    Mel_Gpu_Shader_Create_Result sh = mel_gpu_shader_create_compute_from_bytecode(dev, .spirv = IMGWRITE_COMP_SPV, .spirv_size = sizeof IMGWRITE_COMP_SPV, .entry = "main", .name = "imgwrite");
+    MEL_REQUIRE(!mel_gpu_failed(sh.status));
+
+    // Reflection derives both: the set-0 storage-image runtime array marks it bindless; the 12-byte root record
+    // sizes the push constant. No explicit .bindless / .push_constant_size needed.
+    Mel_Gpu_Pipeline_Create_Result pipe = mel_gpu_pipeline_compute_create(dev, .shader = sh.value, .name = "imgwrite");
+    MEL_REQUIRE(!mel_gpu_failed(pipe.status));
+    MEL_REQUIRE(mel_gpu_pipeline_alive(dev, pipe.value));
+
+    struct { u32 img_slot, width, height; } root = { mel_gpu_texture_view_bindless_slot(dev, view.value), W, H };
+
+    Mel_Gpu_Queue*        q = mel_gpu_queue_request(dev, MEL_GPU_QUEUE_GRAPHICS);
+    Mel_Gpu_Command_List* cmd = mel_gpu_command_list_create(q);
+    mel_gpu_command_list_begin(cmd);
+    Mel_Gpu_Subresource_Range range = { MEL_GPU_ASPECT_COLOR, 0, 1, 0, 1 };
+    // COMMON->UnorderedAccess (GENERAL layout) so the compute imageStore is legal, then UAV->CopySource.
+    mel_gpu_cmd_texture_barrier(cmd, img.value, range, MEL_GPU_STATE_COMMON, MEL_GPU_STATE_UNORDERED_ACCESS);
+    mel_gpu_cmd_bind_pipeline(cmd, pipe.value);
+    mel_gpu_cmd_push_constants(cmd, 0, sizeof root, &root);
+    mel_gpu_cmd_dispatch(cmd, (W + 7) / 8, (H + 7) / 8, 1);
+    mel_gpu_cmd_texture_barrier(cmd, img.value, range, MEL_GPU_STATE_UNORDERED_ACCESS, MEL_GPU_STATE_COPY_SOURCE);
+    mel_gpu_cmd_copy_texture_to_buffer(cmd, img.value, range, rb.value);
+    mel_gpu_command_list_end(cmd);
+    Mel_Gpu_Future* f = mel_gpu_queue_submit(q, (Mel_Gpu_Submit){ .command_lists = &cmd, .command_list_count = 1 });
+    MEL_EXPECT(mel_gpu_ok(mel_gpu_future_status(f)));
+    mel_gpu_future_destroy(f);
+
+    const u8* px = mel_gpu_buffer_mapped(dev, rb.value);
+    MEL_REQUIRE_NOT_NULL(px);
+    // Gradient: pixel (x,y) = (x/W, y/H, 0.5, 1). Verify three sample points (RGBA8 row-major, 4 bytes/px).
+    const u8* p00 = px;                                   // (0,0) -> (0, 0, 0.5, 1)
+    const u8* p42 = px + (2u * W + 4u) * 4u;              // (4,2) -> (0.5, 0.25, 0.5, 1)
+    const u8* p77 = px + (7u * W + 7u) * 4u;              // (7,7) -> (0.875, 0.875, 0.5, 1)
+    MEL_EXPECT_EQ(p00[0], 0u);
+    MEL_EXPECT_EQ(p00[1], 0u);
+    MEL_EXPECT(p00[2] >= 126 && p00[2] <= 130); // 0.5
+    MEL_EXPECT_EQ(p00[3], 255u);
+    MEL_EXPECT(p42[0] >= 126 && p42[0] <= 130); // 0.5
+    MEL_EXPECT(p42[1] >= 62 && p42[1] <= 66);   // 0.25
+    MEL_EXPECT(p42[2] >= 126 && p42[2] <= 130); // 0.5
+    MEL_EXPECT(p77[0] >= 221 && p77[0] <= 225); // 0.875
+    MEL_EXPECT(p77[1] >= 221 && p77[1] <= 225); // 0.875
+
+    mel_gpu_command_list_destroy(cmd);
+    mel_gpu_queue_release(q);
+    mel_gpu_pipeline_destroy(dev, pipe.value);
+    mel_gpu_shader_destroy(dev, sh.value);
+    mel_gpu_buffer_destroy(dev, rb.value);
+    mel_gpu_texture_view_destroy(dev, view.value);
+    mel_gpu_texture_destroy(dev, img.value);
+    mel_gpu_device_destroy(dev);
+    mel_gpu_instance_destroy(inst);
+}
+
 // U13 render state (gpu-rhi.md §6.5): per-attachment alpha blend. Clear the target to (0.2,0.4,0.6,1), then draw
 // a fullscreen src (1,0,0,0.5) through a MEL_GPU_BLEND_ALPHA pipeline. src-over gives 0.5*src + 0.5*dst, pixel-verified.
 MEL_TEST(vk_pipeline, alpha_blend)
