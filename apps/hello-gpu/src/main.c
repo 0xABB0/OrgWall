@@ -21,6 +21,9 @@
 #include "dispatch_indirect.h"
 #include "particles.h"
 #include "prepass.h"
+#include "raymarch.h"
+#include "mandelbrot.h"
+#include "boids.h"
 
 #define OPEN_BUTTON(fn, app)                     \
     static void fn(Mel_Gui_Handle h, void* user) \
@@ -44,6 +47,9 @@ OPEN_BUTTON(open_msaa_clicked, MSAA_APP)
 OPEN_BUTTON(open_dispatch_indirect_clicked, DISPATCH_INDIRECT_APP)
 OPEN_BUTTON(open_particles_clicked, PARTICLES_APP)
 OPEN_BUTTON(open_prepass_clicked, PREPASS_APP)
+OPEN_BUTTON(open_raymarch_clicked, RAYMARCH_APP)
+OPEN_BUTTON(open_mandelbrot_clicked, MANDELBROT_APP)
+OPEN_BUTTON(open_boids_clicked, BOIDS_APP)
 
 static void build_host(Mel_Gui_Handle frame, void* user)
 {
@@ -67,6 +73,9 @@ static void build_host(Mel_Gui_Handle frame, void* user)
     mel_button_create(frame, .text = S8("dispatch-indirect (GPU-driven)"), .pointer.on_click = open_dispatch_indirect_clicked, .layoutable = { .preferred_h = 36 });
     mel_button_create(frame, .text = S8("GPU particles (compute → instanced)"), .pointer.on_click = open_particles_clicked, .layoutable = { .preferred_h = 36 });
     mel_button_create(frame, .text = S8("depth prepass (mini render-graph)"), .pointer.on_click = open_prepass_clicked, .layoutable = { .preferred_h = 36 });
+    mel_button_create(frame, .text = S8("raymarched SDF (fullscreen frag)"), .pointer.on_click = open_raymarch_clicked, .layoutable = { .preferred_h = 36 });
+    mel_button_create(frame, .text = S8("mandelbrot explorer (compute zoom)"), .pointer.on_click = open_mandelbrot_clicked, .layoutable = { .preferred_h = 36 });
+    mel_button_create(frame, .text = S8("GPU boids (compute flock → instanced)"), .pointer.on_click = open_boids_clicked, .layoutable = { .preferred_h = 36 });
 }
 
 void mel_app_setup(Mel_Reactor* reactor)
@@ -105,6 +114,12 @@ void mel_app_setup(Mel_Reactor* reactor)
             gpu_host_open(&PARTICLES_APP);
         else if (strcmp(autostart, "prepass") == 0)
             gpu_host_open(&PREPASS_APP);
+        else if (strcmp(autostart, "raymarch") == 0 || strcmp(autostart, "sdf") == 0)
+            gpu_host_open(&RAYMARCH_APP);
+        else if (strcmp(autostart, "mandelbrot") == 0 || strcmp(autostart, "mandel") == 0)
+            gpu_host_open(&MANDELBROT_APP);
+        else if (strcmp(autostart, "boids") == 0)
+            gpu_host_open(&BOIDS_APP);
         else
             gpu_host_open(&TRIANGLE_APP);
     }
