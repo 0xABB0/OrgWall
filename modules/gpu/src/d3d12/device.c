@@ -83,8 +83,21 @@ Mel_Gpu_Device_Create_Result mel_gpu_device_create_opt(Mel_Gpu_Instance* inst, M
 
     mel_mutex_init(&dev->obj_lock, MEL_MUTEX_PLAIN);
     mel_mutex_init(&dev->submit_lock, MEL_MUTEX_PLAIN);
+    mel_mutex_init(&dev->desc_lock, MEL_MUTEX_PLAIN);
     mel_slotmap_init(&dev->buffers.map, alloc, .item_size = sizeof(Mel_Gpu_Buffer_Obj), .initial_capacity = 16);
-    dev->buffers.init = true;
+    mel_slotmap_init(&dev->textures.map, alloc, .item_size = sizeof(Mel_Gpu_Texture_Obj), .initial_capacity = 16);
+    mel_slotmap_init(&dev->texture_views.map, alloc, .item_size = sizeof(Mel_Gpu_Texture_View_Obj), .initial_capacity = 16);
+    dev->buffers.init = dev->textures.init = dev->texture_views.init = true;
+
+    // U16: CPU-only RTV/DSV heaps, allocated round-robin per begin_rendering.
+    D3D12_DESCRIPTOR_HEAP_DESC rtvd = { .Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV, .NumDescriptors = 256, .Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE };
+    ID3D12Device_CreateDescriptorHeap(d3d, &rtvd, &IID_ID3D12DescriptorHeap, (void**)&dev->rtv_heap);
+    dev->rtv_size = ID3D12Device_GetDescriptorHandleIncrementSize(d3d, D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+    dev->rtv_cap = 256;
+    D3D12_DESCRIPTOR_HEAP_DESC dsvd = { .Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV, .NumDescriptors = 64, .Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE };
+    ID3D12Device_CreateDescriptorHeap(d3d, &dsvd, &IID_ID3D12DescriptorHeap, (void**)&dev->dsv_heap);
+    dev->dsv_size = ID3D12Device_GetDescriptorHandleIncrementSize(d3d, D3D12_DESCRIPTOR_HEAP_TYPE_DSV);
+    dev->dsv_cap = 64;
 
     if (opt.debug.thread_safety_tracker)
         dev->tracker = mel_gpu_thread_tracker_create();
@@ -137,11 +150,23 @@ void mel_gpu_device_destroy(Mel_Gpu_Device* dev)
         mel_dealloc(dev->alloc, dev->pending);
 
     mel_gpu__table_report_leaks(&dev->buffers, "buffer");
+    mel_gpu__table_report_leaks(&dev->textures, "texture");
+    mel_gpu__table_report_leaks(&dev->texture_views, "texture-view");
     if (dev->buffers.init)
         mel_slotmap_free(&dev->buffers.map);
+    if (dev->textures.init)
+        mel_slotmap_free(&dev->textures.map);
+    if (dev->texture_views.init)
+        mel_slotmap_free(&dev->texture_views.map);
+
+    if (dev->rtv_heap)
+        ID3D12DescriptorHeap_Release(dev->rtv_heap);
+    if (dev->dsv_heap)
+        ID3D12DescriptorHeap_Release(dev->dsv_heap);
 
     mel_mutex_destroy(&dev->obj_lock);
     mel_mutex_destroy(&dev->submit_lock);
+    mel_mutex_destroy(&dev->desc_lock);
 
     if (dev->pump)
         mel_gpu_pump_destroy(dev->pump);

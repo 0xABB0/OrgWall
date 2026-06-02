@@ -129,13 +129,19 @@ Mel_Gpu_Future* mel_gpu_queue_submit(Mel_Gpu_Queue* q, Mel_Gpu_Submit submit)
     Mel_Gpu_Device* dev = q->dev;
     u64             serial = mel_gpu__submit_serial_next(dev);
 
-    // Phase 1: command-list execution (ExecuteCommandLists over the recorded ID3D12GraphicsCommandList) lands
-    // with U15 in Phase 2; an empty batch is a bare fence signal that still drives the future + watermark.
-    mel_assert(submit.command_list_count == 0);
+    ID3D12CommandList*  stackbuf[8];
+    ID3D12CommandList** cls = submit.command_list_count <= 8 ? stackbuf : mel_alloc_array(dev->alloc, ID3D12CommandList*, submit.command_list_count);
+    for (u32 i = 0; i < submit.command_list_count; i++)
+        cls[i] = (ID3D12CommandList*)submit.command_lists[i]->list;
 
     mel_mutex_lock(&dev->submit_lock);
+    if (submit.command_list_count)
+        ID3D12CommandQueue_ExecuteCommandLists(q->d3d, submit.command_list_count, cls);
     HRESULT hr = ID3D12CommandQueue_Signal(q->d3d, dev->timeline, serial);
     mel_mutex_unlock(&dev->submit_lock);
+
+    if (cls != stackbuf)
+        mel_dealloc(dev->alloc, cls);
 
     Mel_Gpu_Future* f = mel_gpu_future_create(dev->pump, dev->reactor);
 

@@ -28,6 +28,11 @@
 #include <gpu/queue.h>
 #include <gpu/memory.h>
 #include <gpu/buffer.h>
+#include <gpu/format.h>
+#include <gpu/texture.h>
+#include <gpu/state.h>
+#include <gpu/command.h>
+#include <gpu/rendering.h>
 
 struct Mel_Gpu_Instance
 {
@@ -36,13 +41,13 @@ struct Mel_Gpu_Instance
     const Mel_Alloc*     alloc;
     Mel_Gpu_Adapter*     adapters;
     u32                  adapter_count;
-    bool                 debug_layer; // ID3D12Debug::EnableDebugLayer succeeded (validation analog)
+    bool                 debug_layer;
 };
 
 struct Mel_Gpu_Adapter
 {
     Mel_Gpu_Instance* instance;
-    IDXGIAdapter1*    dxgi; // owned ref (released at instance_destroy)
+    IDXGIAdapter1*    dxgi;
     Mel_Gpu_Caps      caps;
 };
 
@@ -52,20 +57,60 @@ typedef struct
     bool        init;
 } Mel_Gpu_Resource_Table;
 
-// U9 buffer: a committed resource owns its own implicit heap (the dedicated-allocation floor; U8 placed-
-// resource suballocation lands later). UPLOAD/READBACK heaps keep a persistent map.
 typedef struct
 {
     Mel_Gpu_Resource_Header   header;
     ID3D12Resource*           resource;
-    void*                     mapped;  // persistent map for host-visible (UPLOAD/READBACK) buffers
+    void*                     mapped;
     u64                       size;
     bool                      host_visible;
-    D3D12_GPU_VIRTUAL_ADDRESS gpu_va; // for index/vertex views and the U14 pointer payload
+    D3D12_GPU_VIRTUAL_ADDRESS gpu_va;
 } Mel_Gpu_Buffer_Obj;
 
-// U3 future-gated retirement (gpu-rhi.md §3.3): a destroyed resource's COM objects are released only once
-// every submission that could reference it has retired. No enum tag (MEL-CODE-001) — every non-null is freed.
+// U10 texture: a committed resource (dedicated-allocation floor). D3D12 views are descriptor-heap
+// materializations, not objects, so the view records only intent (parent + format + dimension + range) and
+// the RTV/SRV is created on demand into a heap at bind time (the co-primary contrast with VkImageView).
+typedef struct
+{
+    Mel_Gpu_Resource_Header header;
+    ID3D12Resource*         resource;
+    DXGI_FORMAT             format;
+    Mel_Gpu_Texture_Kind    kind;
+    u32                     width;
+    u32                     height;
+    u32                     depth;
+    u32                     mip_levels;
+    u32                     array_layers;
+    u32                     sample_count;
+    Mel_Gpu_Texture_Usage   usage;
+    bool                    is_depth;
+} Mel_Gpu_Texture_Obj;
+
+typedef struct
+{
+    Mel_Gpu_Resource_Header header;
+    Mel_SlotMap_Handle      texture; // parent
+    DXGI_FORMAT             format;
+    Mel_Gpu_View_Dimension  dimension;
+    u32                     base_mip;
+    u32                     mip_count;
+    u32                     base_layer;
+    u32                     layer_count;
+} Mel_Gpu_Texture_View_Obj;
+
+// U17 per-command-list, per-subresource state tracking (gpu-rhi.md §7.3): cmd_barrier validates the declared
+// source state against what the list last recorded and asserts loudly on mismatch in debug.
+typedef struct
+{
+    u32                    tex_index;
+    u32                    tex_generation;
+    u32                    mip;
+    u32                    layer;
+    Mel_Gpu_Resource_State state;
+} Mel_Gpu_Cmd_State_Entry;
+
+// U3 future-gated retirement (gpu-rhi.md §3.3): COM objects released only once submissions referencing them
+// retire. No enum tag (MEL-CODE-001) — every non-null is freed.
 typedef struct
 {
     u64                     marker;
@@ -77,7 +122,6 @@ typedef struct
     bool                    has_reclaim;
 } Mel_Gpu_Deferred_Free;
 
-// U7: a reactor-driven submit awaiting the device timeline fence to reach its serial.
 typedef struct
 {
     Mel_Gpu_Future* future;
@@ -89,7 +133,7 @@ struct Mel_Gpu_Device
     Mel_Gpu_Instance*        instance;
     Mel_Gpu_Adapter*         adapter;
     ID3D12Device*            d3d;
-    ID3D12CommandQueue*      direct_queue; // D3D12 DIRECT queue == graphics/compute/copy (U7)
+    ID3D12CommandQueue*      direct_queue;
     Mel_Gpu_Caps             caps;
     const Mel_Alloc*         alloc;
     Mel_Reactor*             reactor;
@@ -101,54 +145,83 @@ struct Mel_Gpu_Device
     bool                     lost;
     bool                     owns_instance;
 
-    // U7/U3: one device timeline fence drives both submit→future completion and the §3.3 deferred-free
-    // watermark. The signal value IS the submission serial (single DIRECT queue ⇒ in-order completion).
     ID3D12Fence* timeline;
     HANDLE       fence_event;
 
     Mel_Mutex              submit_lock;
-    u64                    submit_serial;    // last reserved serial == last signaled fence value
-    u64                    submit_completed; // watermark: highest retired serial
+    u64                    submit_serial;
+    u64                    submit_completed;
     Mel_Gpu_Deferred_Free* deferred;
     u32                    deferred_count;
     u32                    deferred_cap;
 
-    Mel_Gpu_Pending_Submit* pending; // reactor submits awaiting fence completion
+    Mel_Gpu_Pending_Submit* pending;
     u32                     pending_count;
     u32                     pending_cap;
     bool                    submit_poller_registered;
 
-    // U1 slotmap-per-type resource tables (grown per phase).
     Mel_Mutex              obj_lock;
     Mel_Gpu_Resource_Table buffers;
+    Mel_Gpu_Resource_Table textures;
+    Mel_Gpu_Resource_Table texture_views;
 
-    // U8 residency: budget via IDXGIAdapter3::QueryVideoMemoryInfo; the callback fires on over-budget create.
+    // U16: CPU-only RTV/DSV descriptor heaps, allocated round-robin per begin_rendering (the descriptor is
+    // consumed at OMSetRenderTargets record time, so the slot is immediately reusable).
+    Mel_Mutex             desc_lock;
+    ID3D12DescriptorHeap* rtv_heap;
+    u32                   rtv_size;
+    u32                   rtv_cap;
+    u32                   rtv_next;
+    ID3D12DescriptorHeap* dsv_heap;
+    u32                   dsv_size;
+    u32                   dsv_cap;
+    u32                   dsv_next;
+
     void (*budget_pressure_cb)(struct Mel_Gpu_Device*, Mel_Gpu_Memory_Budget, void*);
     void* budget_pressure_user;
 };
 
 struct Mel_Gpu_Queue
 {
-    Mel_Gpu_Device*    dev;
+    Mel_Gpu_Device*     dev;
     ID3D12CommandQueue* d3d;
-    Mel_Gpu_Queue_Role role;
-    bool               internally_synchronized;
-    bool               locked_fallback;
+    Mel_Gpu_Queue_Role  role;
+    bool                internally_synchronized;
+    bool                locked_fallback;
 };
 
-// caps.c — adapter-domain caps from the DXGI descriptor (instance-create), refined once a device exists.
+struct Mel_Gpu_Command_List
+{
+    Mel_Gpu_Device*            dev;
+    ID3D12CommandAllocator*    allocator;
+    ID3D12GraphicsCommandList* list;
+    bool                       recording;
+
+    Mel_Gpu_Cmd_State_Entry* states;
+    u32                      state_count;
+    u32                      state_cap;
+};
+
+// caps.c
 void mel_gpu__caps_from_adapter(IDXGIAdapter1* adapter, Mel_Gpu_Caps* out);
 void mel_gpu__caps_refine_device(ID3D12Device* dev, ID3D12CommandQueue* queue, Mel_Gpu_Caps* out);
 
-// device.c — U1 slotmap table helpers (mutex-guarded; the slotmap is the per-type allocator).
+// device.c — U1 table helpers + U3 watermark.
 Mel_SlotMap_Handle mel_gpu__table_insert(Mel_Gpu_Device* dev, Mel_Gpu_Resource_Table* t, const void* obj);
 void*              mel_gpu__table_get(Mel_Gpu_Device* dev, Mel_Gpu_Resource_Table* t, Mel_SlotMap_Handle h);
 bool               mel_gpu__table_remove(Mel_Gpu_Device* dev, Mel_Gpu_Resource_Table* t, Mel_SlotMap_Handle h);
 bool               mel_gpu__table_remove_deferred(Mel_Gpu_Device* dev, Mel_Gpu_Resource_Table* t, Mel_SlotMap_Handle h);
 void               mel_gpu__table_reclaim(Mel_Gpu_Device* dev, Mel_Gpu_Resource_Table* t, u32 index);
+u64                mel_gpu__submit_serial_next(Mel_Gpu_Device* dev);
+void               mel_gpu__submit_complete(Mel_Gpu_Device* dev, u64 serial);
+void               mel_gpu__defer_free(Mel_Gpu_Device* dev, Mel_Gpu_Deferred_Free entry);
+void               mel_gpu__wait_serial(Mel_Gpu_Device* dev, u64 serial);
 
-// device.c — U3 future-gated retirement watermark.
-u64  mel_gpu__submit_serial_next(Mel_Gpu_Device* dev);
-void mel_gpu__submit_complete(Mel_Gpu_Device* dev, u64 serial);
-void mel_gpu__defer_free(Mel_Gpu_Device* dev, Mel_Gpu_Deferred_Free entry);
-void mel_gpu__wait_serial(Mel_Gpu_Device* dev, u64 serial); // block until the timeline fence reaches serial
+// texture.c
+DXGI_FORMAT mel_gpu__dxgi_format(Mel_Gpu_Format fmt);
+bool        mel_gpu__texture_get(Mel_Gpu_Device* dev, Mel_Gpu_Texture tex, Mel_Gpu_Texture_Obj** out);
+bool        mel_gpu__texture_view_get(Mel_Gpu_Device* dev, Mel_Gpu_Texture_View view, Mel_Gpu_Texture_View_Obj** out);
+bool        mel_gpu__buffer_resource(Mel_Gpu_Device* dev, Mel_Gpu_Buffer buf, ID3D12Resource** out);
+
+// record.c — U17 state lowering (the load-bearing subset; unimplemented states fall to COMMON with a warn).
+D3D12_RESOURCE_STATES mel_gpu__state_to_d3d12(Mel_Gpu_Resource_State state);

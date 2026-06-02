@@ -202,6 +202,15 @@ u32 mel_gpu_buffer_evict(Mel_Gpu_Device* dev, Mel_Gpu_Buffer buf)
     return MEL_GPU_STATUS(0, MEL_GPU_SEVERITY_OK);
 }
 
+bool mel_gpu__buffer_resource(Mel_Gpu_Device* dev, Mel_Gpu_Buffer buf, ID3D12Resource** out)
+{
+    Mel_Gpu_Buffer_Obj* o = mel_gpu__table_get(dev, &dev->buffers, buf.slot);
+    if (!o)
+        return false;
+    *out = o->resource;
+    return true;
+}
+
 Mel_Gpu_Buffer mel_gpu_buffer_import(Mel_Gpu_Device* dev, void* native_buffer, usize size, const char* name)
 {
     Mel_Gpu_Buffer_Obj obj = { 0 };

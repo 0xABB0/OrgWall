@@ -7,6 +7,10 @@
 #include <gpu/queue.h>
 #include <gpu/buffer.h>
 #include <gpu/memory.h>
+#include <gpu/texture.h>
+#include <gpu/command.h>
+#include <gpu/rendering.h>
+#include <gpu/state.h>
 
 // D3D12 backend (gpu-rhi.md §12 M2 co-primary; design/gpu-d3d12.md). Phase 0 — device foundation: the
 // toolchain (clang/MSVC ABI over the in-box d3d12.h in C), DXGI adapter enumeration, caps, and headless
@@ -154,6 +158,167 @@ MEL_TEST(d3d12_residency, budget_and_caps)
     MEL_EXPECT(mel_gpu_warned(mel_gpu_buffer_evict(dev, buf.value)));
     mel_gpu_buffer_destroy(dev, buf.value);
 
+    mel_gpu_device_destroy(dev);
+    mel_gpu_instance_destroy(inst);
+}
+
+MEL_TEST(d3d12_texture, create_view_and_alive)
+{
+    Mel_Gpu_Instance* inst = NULL;
+    Mel_Gpu_Device*   dev = test_make_device(&inst);
+    MEL_REQUIRE_NOT_NULL(dev);
+
+    Mel_Gpu_Texture_Create_Result t = mel_gpu_texture_create(dev, .kind = MEL_GPU_TEXTURE_2D, .extent = { 64, 64, 1 }, .format = MEL_GPU_FORMAT_RGBA8_UNORM,
+                                                             .usage = MEL_GPU_TEXTURE_SAMPLED | MEL_GPU_TEXTURE_ATTACHMENT, .name = "tex");
+    MEL_REQUIRE(!mel_gpu_failed(t.status));
+    MEL_REQUIRE(mel_gpu_texture_alive(dev, t.value));
+
+    Mel_Gpu_Texture_View_Create_Result v = mel_gpu_texture_default_view(dev, t.value);
+    MEL_REQUIRE(!mel_gpu_failed(v.status));
+    MEL_REQUIRE(mel_gpu_texture_view_alive(dev, v.value));
+
+    mel_gpu_texture_view_destroy(dev, v.value);
+    mel_gpu_texture_destroy(dev, t.value);
+    MEL_EXPECT(!mel_gpu_texture_view_alive(dev, v.value));
+    MEL_EXPECT(!mel_gpu_texture_alive(dev, t.value));
+
+    mel_gpu_device_destroy(dev);
+    mel_gpu_instance_destroy(inst);
+}
+
+// U10 + U15 + U16 + U17 end-to-end: clear an offscreen render target, copy it to a readback buffer, and
+// verify the cleared pixel on the CPU — first pixels on D3D12.
+MEL_TEST(d3d12_render, offscreen_clear_readback)
+{
+    Mel_Gpu_Instance* inst = NULL;
+    Mel_Gpu_Device*   dev = test_make_device(&inst);
+    MEL_REQUIRE_NOT_NULL(dev);
+
+    const u32 W = 64, H = 64;
+
+    Mel_Gpu_Texture_Create_Result t = mel_gpu_texture_create(dev, .kind = MEL_GPU_TEXTURE_2D, .extent = { W, H, 1 }, .format = MEL_GPU_FORMAT_RGBA8_UNORM,
+                                                             .usage = MEL_GPU_TEXTURE_ATTACHMENT | MEL_GPU_TEXTURE_COPY_SRC, .name = "rt");
+    MEL_REQUIRE(!mel_gpu_failed(t.status));
+    Mel_Gpu_Texture_View_Create_Result v = mel_gpu_texture_default_view(dev, t.value);
+    MEL_REQUIRE(!mel_gpu_failed(v.status));
+
+    Mel_Gpu_Buffer_Create_Result rb = mel_gpu_buffer_create(dev, .size = (usize)W * H * 4, .usage = MEL_GPU_BUFFER_TRANSFER_DST, .memory = MEL_GPU_MEMORY_READBACK, .name = "readback");
+    MEL_REQUIRE(!mel_gpu_failed(rb.status));
+
+    Mel_Gpu_Queue* q = mel_gpu_queue_request(dev, MEL_GPU_QUEUE_GRAPHICS);
+    MEL_REQUIRE_NOT_NULL(q);
+
+    Mel_Gpu_Command_List* cmd = mel_gpu_command_list_create(q);
+    MEL_REQUIRE_NOT_NULL(cmd);
+    mel_gpu_command_list_begin(cmd);
+
+    Mel_Gpu_Subresource_Range range = { .aspect = MEL_GPU_ASPECT_COLOR, .base_mip = 0, .mip_count = 1, .base_layer = 0, .layer_count = 1 };
+    mel_gpu_cmd_texture_barrier(cmd, t.value, range, MEL_GPU_STATE_COMMON, MEL_GPU_STATE_RENDER_TARGET);
+
+    Mel_Gpu_Color_Attachment color = { .view = v.value, .load = MEL_GPU_LOAD_CLEAR, .store = MEL_GPU_STORE_STORE, .clear = mel_gpu_rgba(0.25f, 0.5f, 0.75f, 1.0f) };
+    mel_gpu_cmd_begin_rendering(cmd, .colors = &color, .color_count = 1, .width = W, .height = H);
+    mel_gpu_cmd_end_rendering(cmd);
+
+    mel_gpu_cmd_texture_barrier(cmd, t.value, range, MEL_GPU_STATE_RENDER_TARGET, MEL_GPU_STATE_COPY_SOURCE);
+    mel_gpu_cmd_copy_texture_to_buffer(cmd, t.value, range, rb.value);
+
+    mel_gpu_command_list_end(cmd);
+
+    Mel_Gpu_Future* f = mel_gpu_queue_submit(q, (Mel_Gpu_Submit){ .command_lists = &cmd, .command_list_count = 1 });
+    MEL_REQUIRE_NOT_NULL(f);
+    MEL_EXPECT(mel_gpu_future_resolved(f));
+    MEL_EXPECT(mel_gpu_ok(mel_gpu_future_status(f)));
+    mel_gpu_future_destroy(f);
+
+    const u8* px = mel_gpu_buffer_mapped(dev, rb.value);
+    MEL_REQUIRE_NOT_NULL(px);
+    MEL_EXPECT(px[0] >= 62 && px[0] <= 66);   // r = 0.25
+    MEL_EXPECT(px[1] >= 126 && px[1] <= 130); // g = 0.5
+    MEL_EXPECT(px[2] >= 189 && px[2] <= 193); // b = 0.75
+    MEL_EXPECT_EQ(px[3], 255u);               // a = 1.0
+
+    mel_gpu_command_list_destroy(cmd);
+    mel_gpu_queue_release(q);
+    mel_gpu_buffer_destroy(dev, rb.value);
+    mel_gpu_texture_view_destroy(dev, v.value);
+    mel_gpu_texture_destroy(dev, t.value);
+    mel_gpu_device_destroy(dev);
+    mel_gpu_instance_destroy(inst);
+}
+
+// U10 texture_write: upload a known pattern, copy it back, verify the round-trip. W=64 keeps the copy-to-
+// buffer footprint row pitch 256-aligned and tight (D3D12_TEXTURE_DATA_PITCH_ALIGNMENT).
+MEL_TEST(d3d12_texture, write_and_readback)
+{
+    Mel_Gpu_Instance* inst = NULL;
+    Mel_Gpu_Device*   dev = test_make_device(&inst);
+    MEL_REQUIRE_NOT_NULL(dev);
+
+    const u32 W = 64, H = 4;
+    u8        src[W * H * 4];
+    for (u32 i = 0; i < W * H * 4; i++)
+        src[i] = (u8)(i * 3 + 1);
+
+    Mel_Gpu_Texture_Create_Result t = mel_gpu_texture_create(dev, .kind = MEL_GPU_TEXTURE_2D, .extent = { W, H, 1 }, .format = MEL_GPU_FORMAT_RGBA8_UNORM,
+                                                             .usage = MEL_GPU_TEXTURE_SAMPLED | MEL_GPU_TEXTURE_COPY_SRC | MEL_GPU_TEXTURE_COPY_DST, .name = "wtex");
+    MEL_REQUIRE(!mel_gpu_failed(t.status));
+
+    Mel_Gpu_Texture_Region region = { .subresource = { MEL_GPU_ASPECT_COLOR, 0, 1, 0, 1 }, .offset = { 0, 0, 0 }, .extent = { W, H, 1 } };
+    mel_gpu_texture_write(dev, t.value, region, src, sizeof src);
+
+    Mel_Gpu_Buffer_Create_Result rb = mel_gpu_buffer_create(dev, .size = sizeof src, .usage = MEL_GPU_BUFFER_TRANSFER_DST, .memory = MEL_GPU_MEMORY_READBACK, .name = "wreadback");
+    MEL_REQUIRE(!mel_gpu_failed(rb.status));
+
+    Mel_Gpu_Queue*        q = mel_gpu_queue_request(dev, MEL_GPU_QUEUE_GRAPHICS);
+    Mel_Gpu_Command_List* cmd = mel_gpu_command_list_create(q);
+    mel_gpu_command_list_begin(cmd);
+    Mel_Gpu_Subresource_Range range = { MEL_GPU_ASPECT_COLOR, 0, 1, 0, 1 };
+    mel_gpu_cmd_texture_barrier(cmd, t.value, range, MEL_GPU_STATE_SHADER_RESOURCE, MEL_GPU_STATE_COPY_SOURCE);
+    mel_gpu_cmd_copy_texture_to_buffer(cmd, t.value, range, rb.value);
+    mel_gpu_command_list_end(cmd);
+    Mel_Gpu_Future* f = mel_gpu_queue_submit(q, (Mel_Gpu_Submit){ .command_lists = &cmd, .command_list_count = 1 });
+    MEL_EXPECT(mel_gpu_ok(mel_gpu_future_status(f)));
+    mel_gpu_future_destroy(f);
+
+    const u8* got = mel_gpu_buffer_mapped(dev, rb.value);
+    MEL_REQUIRE_NOT_NULL(got);
+    bool match = true;
+    for (u32 i = 0; i < W * H * 4; i++)
+        if (got[i] != src[i])
+            match = false;
+    MEL_EXPECT(match);
+
+    mel_gpu_command_list_destroy(cmd);
+    mel_gpu_queue_release(q);
+    mel_gpu_buffer_destroy(dev, rb.value);
+    mel_gpu_texture_destroy(dev, t.value);
+    mel_gpu_device_destroy(dev);
+    mel_gpu_instance_destroy(inst);
+}
+
+// U17 buffer-state barrier records a debug-layer-clean transition end-to-end (UAV barriers on D3D12).
+MEL_TEST(d3d12_render, buffer_barrier_submits_clean)
+{
+    Mel_Gpu_Instance* inst = NULL;
+    Mel_Gpu_Device*   dev = test_make_device(&inst);
+    MEL_REQUIRE_NOT_NULL(dev);
+
+    Mel_Gpu_Buffer_Create_Result b = mel_gpu_buffer_create(dev, .size = 1024, .usage = MEL_GPU_BUFFER_STORAGE | MEL_GPU_BUFFER_TRANSFER_DST, .memory = MEL_GPU_MEMORY_DEVICE, .name = "ssbo");
+    MEL_REQUIRE(!mel_gpu_failed(b.status));
+
+    Mel_Gpu_Queue*        q = mel_gpu_queue_request(dev, MEL_GPU_QUEUE_GRAPHICS);
+    Mel_Gpu_Command_List* cmd = mel_gpu_command_list_create(q);
+    mel_gpu_command_list_begin(cmd);
+    mel_gpu_cmd_buffer_barrier(cmd, b.value, MEL_GPU_STATE_COPY_DEST, MEL_GPU_STATE_UNORDERED_ACCESS);
+    mel_gpu_cmd_buffer_barrier(cmd, b.value, MEL_GPU_STATE_UNORDERED_ACCESS, MEL_GPU_STATE_VERTEX_BUFFER);
+    mel_gpu_command_list_end(cmd);
+    Mel_Gpu_Future* f = mel_gpu_queue_submit(q, (Mel_Gpu_Submit){ .command_lists = &cmd, .command_list_count = 1 });
+    MEL_EXPECT(mel_gpu_ok(mel_gpu_future_status(f)));
+    mel_gpu_future_destroy(f);
+
+    mel_gpu_command_list_destroy(cmd);
+    mel_gpu_queue_release(q);
+    mel_gpu_buffer_destroy(dev, b.value);
     mel_gpu_device_destroy(dev);
     mel_gpu_instance_destroy(inst);
 }
