@@ -176,6 +176,95 @@ void mel_gpu__state_to_barrier(Mel_Gpu_Resource_State state, bool is_depth, VkPi
     }
 }
 
+// U17 synchronization2 peer (gpu-rhi.md §7.3). Same state→layout mapping as the legacy lowering, but the
+// stage/access masks use the 64-bit pipeline_stage_2 / access_2 enums. Where granted these are the engine's
+// primary lowering; the legacy path is the floor. The layouts are identical, so cross-path behaviour matches.
+void mel_gpu__state_to_barrier2(Mel_Gpu_Resource_State state, bool is_depth, VkPipelineStageFlags2* stage, VkAccessFlags2* access, VkImageLayout* layout)
+{
+    (void)is_depth;
+    switch (state)
+    {
+    case MEL_GPU_STATE_COMMON:
+        *stage = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+        *access = 0;
+        *layout = VK_IMAGE_LAYOUT_GENERAL;
+        return;
+    case MEL_GPU_STATE_VERTEX_BUFFER:
+        *stage = VK_PIPELINE_STAGE_2_VERTEX_ATTRIBUTE_INPUT_BIT;
+        *access = VK_ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT;
+        *layout = VK_IMAGE_LAYOUT_GENERAL;
+        return;
+    case MEL_GPU_STATE_INDEX_BUFFER:
+        *stage = VK_PIPELINE_STAGE_2_INDEX_INPUT_BIT;
+        *access = VK_ACCESS_2_INDEX_READ_BIT;
+        *layout = VK_IMAGE_LAYOUT_GENERAL;
+        return;
+    case MEL_GPU_STATE_CONSTANT_BUFFER:
+        *stage = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        *access = VK_ACCESS_2_UNIFORM_READ_BIT;
+        *layout = VK_IMAGE_LAYOUT_GENERAL;
+        return;
+    case MEL_GPU_STATE_INDIRECT_ARGUMENT:
+        *stage = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT;
+        *access = VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT;
+        *layout = VK_IMAGE_LAYOUT_GENERAL;
+        return;
+    case MEL_GPU_STATE_SHADER_RESOURCE:
+        *stage = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        *access = VK_ACCESS_2_SHADER_READ_BIT;
+        *layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        return;
+    case MEL_GPU_STATE_UNORDERED_ACCESS:
+        *stage = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        *access = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT;
+        *layout = VK_IMAGE_LAYOUT_GENERAL;
+        return;
+    case MEL_GPU_STATE_RENDER_TARGET:
+        *stage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+        *access = VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+        *layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        return;
+    case MEL_GPU_STATE_DEPTH_WRITE:
+        *stage = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
+        *access = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+        *layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+        return;
+    case MEL_GPU_STATE_DEPTH_READ:
+        *stage = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+        *access = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
+        *layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+        return;
+    case MEL_GPU_STATE_COPY_SOURCE:
+    case MEL_GPU_STATE_RESOLVE_SOURCE:
+        *stage = VK_PIPELINE_STAGE_2_COPY_BIT | VK_PIPELINE_STAGE_2_RESOLVE_BIT;
+        *access = VK_ACCESS_2_TRANSFER_READ_BIT;
+        *layout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+        return;
+    case MEL_GPU_STATE_COPY_DEST:
+    case MEL_GPU_STATE_RESOLVE_DEST:
+        *stage = VK_PIPELINE_STAGE_2_COPY_BIT | VK_PIPELINE_STAGE_2_RESOLVE_BIT;
+        *access = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+        *layout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        return;
+    case MEL_GPU_STATE_PRESENT:
+        *stage = VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT;
+        *access = 0;
+        *layout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+        return;
+    case MEL_GPU_STATE_SHADING_RATE_SOURCE:
+        *stage = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+        *access = VK_ACCESS_2_MEMORY_READ_BIT;
+        *layout = VK_IMAGE_LAYOUT_GENERAL;
+        return;
+    default:
+        mel_log_warn("gpu", "cmd_barrier: state %d not yet lowered (sync2); using GENERAL/all-access", (int)state);
+        *stage = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+        *access = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT;
+        *layout = VK_IMAGE_LAYOUT_GENERAL;
+        return;
+    }
+}
+
 void mel_gpu_cmd_texture_barrier(Mel_Gpu_Command_List* cmd, Mel_Gpu_Texture tex, Mel_Gpu_Subresource_Range range, Mel_Gpu_Resource_State src, Mel_Gpu_Resource_State dst)
 {
     Mel_Gpu_Texture_Obj* o = NULL;
@@ -185,24 +274,59 @@ void mel_gpu_cmd_texture_barrier(Mel_Gpu_Command_List* cmd, Mel_Gpu_Texture tex,
         return;
     }
 
-    bool                 is_depth = (o->aspect & VK_IMAGE_ASPECT_DEPTH_BIT) != 0;
-    VkPipelineStageFlags src_stage, dst_stage;
-    VkAccessFlags        src_access, dst_access;
-    VkImageLayout        old_layout, new_layout;
-    mel_gpu__state_to_barrier(src, is_depth, &src_stage, &src_access, &old_layout);
-    mel_gpu__state_to_barrier(dst, is_depth, &dst_stage, &dst_access, &new_layout);
+    bool is_depth = (o->aspect & VK_IMAGE_ASPECT_DEPTH_BIT) != 0;
 
-    // COMMON as a source means "no guarantees / discard": Vulkan requires UNDEFINED here, not GENERAL.
-    if (src == MEL_GPU_STATE_COMMON)
-        old_layout = VK_IMAGE_LAYOUT_UNDEFINED;
-
+    // State tracking is path-independent (gpu-rhi.md §7.3): validate the declared source and record the
+    // destination per subresource, then lower onto sync2 where granted, legacy otherwise.
     u32 mip_n = range.mip_count ? range.mip_count : (o->mip_levels - range.base_mip);
     u32 layer_n = range.layer_count ? range.layer_count : (o->array_layers - range.base_layer);
     for (u32 m = 0; m < mip_n; m++)
         for (u32 l = 0; l < layer_n; l++)
             mel_gpu__track_state(cmd, tex, range.base_mip + m, range.base_layer + l, src, dst);
 
-    VkImageAspectFlags aspect = mel_gpu__aspect_flags(range.aspect, o->format);
+    VkImageAspectFlags        aspect = mel_gpu__aspect_flags(range.aspect, o->format);
+    VkImageSubresourceRange   sub = {
+        .aspectMask = aspect,
+        .baseMipLevel = range.base_mip,
+        .levelCount = range.mip_count ? range.mip_count : VK_REMAINING_MIP_LEVELS,
+        .baseArrayLayer = range.base_layer,
+        .layerCount = range.layer_count ? range.layer_count : VK_REMAINING_ARRAY_LAYERS,
+    };
+
+    if (cmd->dev->sync2)
+    {
+        VkPipelineStageFlags2 src_stage, dst_stage;
+        VkAccessFlags2        src_access, dst_access;
+        VkImageLayout         old_layout, new_layout;
+        mel_gpu__state_to_barrier2(src, is_depth, &src_stage, &src_access, &old_layout);
+        mel_gpu__state_to_barrier2(dst, is_depth, &dst_stage, &dst_access, &new_layout);
+        if (src == MEL_GPU_STATE_COMMON)
+            old_layout = VK_IMAGE_LAYOUT_UNDEFINED; // COMMON-as-source: discard (UNDEFINED), not GENERAL
+        VkImageMemoryBarrier2 b = {
+            .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+            .srcStageMask = src_stage,
+            .srcAccessMask = src_access,
+            .dstStageMask = dst_stage,
+            .dstAccessMask = dst_access,
+            .oldLayout = old_layout,
+            .newLayout = new_layout,
+            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .image = o->image,
+            .subresourceRange = sub,
+        };
+        VkDependencyInfo di = { .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO, .imageMemoryBarrierCount = 1, .pImageMemoryBarriers = &b };
+        cmd->dev->cmd_pipeline_barrier2(cmd->cb, &di);
+        return;
+    }
+
+    VkPipelineStageFlags src_stage, dst_stage;
+    VkAccessFlags        src_access, dst_access;
+    VkImageLayout        old_layout, new_layout;
+    mel_gpu__state_to_barrier(src, is_depth, &src_stage, &src_access, &old_layout);
+    mel_gpu__state_to_barrier(dst, is_depth, &dst_stage, &dst_access, &new_layout);
+    if (src == MEL_GPU_STATE_COMMON)
+        old_layout = VK_IMAGE_LAYOUT_UNDEFINED;
     VkImageMemoryBarrier b = {
         .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
         .srcAccessMask = src_access,
@@ -212,13 +336,7 @@ void mel_gpu_cmd_texture_barrier(Mel_Gpu_Command_List* cmd, Mel_Gpu_Texture tex,
         .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
         .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
         .image = o->image,
-        .subresourceRange = {
-            .aspectMask = aspect,
-            .baseMipLevel = range.base_mip,
-            .levelCount = range.mip_count ? range.mip_count : VK_REMAINING_MIP_LEVELS,
-            .baseArrayLayer = range.base_layer,
-            .layerCount = range.layer_count ? range.layer_count : VK_REMAINING_ARRAY_LAYERS,
-        },
+        .subresourceRange = sub,
     };
     vkCmdPipelineBarrier(cmd->cb, src_stage, dst_stage, 0, 0, NULL, 0, NULL, 1, &b);
 }
@@ -231,12 +349,36 @@ void mel_gpu_cmd_buffer_barrier(Mel_Gpu_Command_List* cmd, Mel_Gpu_Buffer buf, M
         mel_assert(!"cmd_buffer_barrier: invalid buffer handle");
         return;
     }
+
+    if (cmd->dev->sync2)
+    {
+        VkPipelineStageFlags2 src_stage, dst_stage;
+        VkAccessFlags2        src_access, dst_access;
+        VkImageLayout         ignore;
+        mel_gpu__state_to_barrier2(src, false, &src_stage, &src_access, &ignore);
+        mel_gpu__state_to_barrier2(dst, false, &dst_stage, &dst_access, &ignore);
+        VkBufferMemoryBarrier2 b = {
+            .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
+            .srcStageMask = src_stage,
+            .srcAccessMask = src_access,
+            .dstStageMask = dst_stage,
+            .dstAccessMask = dst_access,
+            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .buffer = vk,
+            .offset = 0,
+            .size = VK_WHOLE_SIZE,
+        };
+        VkDependencyInfo di = { .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO, .bufferMemoryBarrierCount = 1, .pBufferMemoryBarriers = &b };
+        cmd->dev->cmd_pipeline_barrier2(cmd->cb, &di);
+        return;
+    }
+
     VkPipelineStageFlags src_stage, dst_stage;
     VkAccessFlags        src_access, dst_access;
     VkImageLayout        ignore;
     mel_gpu__state_to_barrier(src, false, &src_stage, &src_access, &ignore);
     mel_gpu__state_to_barrier(dst, false, &dst_stage, &dst_access, &ignore);
-
     VkBufferMemoryBarrier b = {
         .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
         .srcAccessMask = src_access,
