@@ -96,7 +96,7 @@ conflating them is the diagnostic dilution MEL-ENGINE-VIII forbids.
 ## Build / test / run
 
 Targets (`build.c`): the library `gpu`, plus tests `gpu-foundation`, `gpu-vulkan`, `gpu-stress`,
-`gpu-visual` (all `--gpu=vulkan`, bodies `#if MEL_GPU_VULKAN`-guarded) and `gpu-d3d12`
+`gpu-concurrency`, `gpu-visual`, `gpu-bench` (all `--gpu=vulkan`, bodies `#if MEL_GPU_VULKAN`-guarded) and `gpu-d3d12`
 (`--gpu=d3d12` on win32, `#if MEL_GPU_D3D12`-guarded; an empty 0-test runner otherwise).
 
 macOS Vulkan tests need the Homebrew validation/loader dylib on the path and the no-fork mode
@@ -105,6 +105,8 @@ macOS Vulkan tests need the Homebrew validation/loader dylib on the path and the
     DYLD_LIBRARY_PATH=/opt/homebrew/lib MEL_TEST_NOFORK=1 ./nob test gpu-vulkan macos --gpu=vulkan
     DYLD_LIBRARY_PATH=/opt/homebrew/lib MEL_TEST_NOFORK=1 ./nob test gpu-stress  macos --gpu=vulkan
     DYLD_LIBRARY_PATH=/opt/homebrew/lib MEL_TEST_NOFORK=1 ./nob test gpu-visual  macos --gpu=vulkan
+    DYLD_LIBRARY_PATH=/opt/homebrew/lib MEL_TEST_NOFORK=1 ./nob test gpu-concurrency macos --gpu=vulkan
+    DYLD_LIBRARY_PATH=/opt/homebrew/lib MEL_TEST_NOFORK=1 ./nob test gpu-bench   macos --gpu=vulkan
 
 D3D12 runs on `win-pilot` (CLAUDE.md "Windows builds (remote)"):
 
