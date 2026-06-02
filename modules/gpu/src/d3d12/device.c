@@ -124,6 +124,21 @@ Mel_Gpu_Device_Create_Result mel_gpu_device_create_opt(Mel_Gpu_Instance* inst, M
     if (opt.reactor)
         dev->pump = mel_gpu_pump_create(opt.reactor);
 
+    // U21: when the debug layer is active, break on debug-layer ERROR / CORRUPTION so a validation failure
+    // aborts the process loudly at the offending call rather than corrupting silently (MEL-ENGINE-VIII). The
+    // break setting lives on the device's debug state; the info-queue interface ref is transient. This is how
+    // the "zero debug-layer errors" bar is enforced rather than assumed.
+    if (inst->debug_layer)
+    {
+        ID3D12InfoQueue* iq = NULL;
+        if (SUCCEEDED(ID3D12Device_QueryInterface(d3d, &IID_ID3D12InfoQueue, (void**)&iq)) && iq)
+        {
+            ID3D12InfoQueue_SetBreakOnSeverity(iq, D3D12_MESSAGE_SEVERITY_CORRUPTION, TRUE);
+            ID3D12InfoQueue_SetBreakOnSeverity(iq, D3D12_MESSAGE_SEVERITY_ERROR, TRUE);
+            ID3D12InfoQueue_Release(iq);
+        }
+    }
+
     res.value = dev;
     mel_log_info("gpu", "device created on '%s'", dev->caps.adapter.name);
     return res;
