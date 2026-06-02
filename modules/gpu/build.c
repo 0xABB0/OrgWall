@@ -97,6 +97,19 @@ void build(Mel_Build* b)
     mel_depends(stress, "allocator");
     mel_depends(stress, "collection");
     mel_depends(stress, "reactor");
+    // Visual/golden tests (--gpu=vulkan). Same scaffold as gpu-vulkan: each technique renders offscreen, reads
+    // back, pixel-asserts, AND dumps a viewable PPM. The body is #if MEL_GPU_VULKAN-guarded (skips otherwise).
+    Mel_Target* vistest = mel_add_test(b, "gpu-visual");
+    mel_sources(vistest, ALWAYS, "test/test_visual.c");
+    mel_sources(vistest, ALWAYS, "../../tools/test/src/runner.c");
+    mel_defines(vistest, MEL_PRIVATE, WHEN(.gpu = "vulkan"), "MEL_GPU_VULKAN=1");
+    mel_link(vistest, MEL_PUBLIC, WHEN(.platforms = MEL_ON(MACOS)), "-framework", "AppKit");
+    mel_depends(vistest, "test");
+    mel_depends(vistest, "gpu");
+    mel_depends(vistest, "core");
+    mel_depends(vistest, "allocator");
+    mel_depends(vistest, "collection");
+    mel_depends(vistest, "reactor");
 
     // D3D12 backend tests (win32, --gpu=d3d12). The test body is #if MEL_GPU_D3D12-guarded, so the target
     // links to an empty 0-test runner on any non-d3d12 build and is meaningful only on win-pilot.
