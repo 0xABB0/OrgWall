@@ -97,6 +97,22 @@ void build(Mel_Build* b)
     mel_depends(stress, "allocator");
     mel_depends(stress, "collection");
     mel_depends(stress, "reactor");
+    // Multi-threaded concurrency suite over the Vulkan backend (gpu-rhi.md §3.7 / U36 threading contract):
+    // N real threads (thread module) exercising Concurrent resource creation, SerializedPerObject per-thread
+    // command-list recording, Concurrent distinct-resource buffer_write, the slotmap serialization measurement,
+    // and the U21 thread-safety tracker. Same deps and the AppKit link as gpu-vulkan; #if MEL_GPU_VULKAN-guarded.
+    Mel_Target* conc = mel_add_test(b, "gpu-concurrency");
+    mel_sources(conc, ALWAYS, "test/test_concurrency.c");
+    mel_sources(conc, ALWAYS, "../../tools/test/src/runner.c");
+    mel_defines(conc, MEL_PRIVATE, WHEN(.gpu = "vulkan"), "MEL_GPU_VULKAN=1");
+    mel_link(conc, MEL_PUBLIC, WHEN(.platforms = MEL_ON(MACOS)), "-framework", "AppKit");
+    mel_depends(conc, "test");
+    mel_depends(conc, "gpu");
+    mel_depends(conc, "core");
+    mel_depends(conc, "allocator");
+    mel_depends(conc, "collection");
+    mel_depends(conc, "reactor");
+
     // Visual/golden tests (--gpu=vulkan). Same scaffold as gpu-vulkan: each technique renders offscreen, reads
     // back, pixel-asserts, AND dumps a viewable PPM. The body is #if MEL_GPU_VULKAN-guarded (skips otherwise).
     Mel_Target* vistest = mel_add_test(b, "gpu-visual");
