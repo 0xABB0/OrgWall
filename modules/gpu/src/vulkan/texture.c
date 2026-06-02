@@ -400,15 +400,21 @@ void mel_gpu_texture_write(Mel_Gpu_Device* dev, Mel_Gpu_Texture tex, Mel_Gpu_Tex
 
     // MAJOR-4: reserve a serial so the upload participates in the retirement watermark (§3.3) instead of being
     // invisible to the engine's retirement clock (a latent UAF once uploads go async); the staging buffer + its
-    // memory are routed through the deferred-free queue rather than freed raw. The synchronous WaitIdle drains
-    // the submission, so advancing the watermark to this serial retires the staging free immediately and exactly.
-    u64          serial = mel_gpu__submit_serial_next(dev);
+    // memory are routed through the deferred-free queue rather than freed raw. The synchronous contract is met
+    // by waiting on this upload's OWN fence, not a full-queue vkQueueWaitIdle — a queue-wide idle serializes
+    // every unrelated submission on the single graphics queue (MEL-ENGINE-III/VI). The fence signal is the exact
+    // drain edge, so advancing the watermark to this serial retires the staging free immediately and exactly.
+    u64               serial = mel_gpu__submit_serial_next(dev);
+    VkFenceCreateInfo fci = { .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
+    VkFence           fence = VK_NULL_HANDLE;
+    vkCreateFence(dev->vk, &fci, NULL, &fence);
     VkSubmitInfo si = { .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO, .commandBufferCount = 1, .pCommandBuffers = &cb };
     mel_mutex_lock(&dev->submit_lock);
-    vkQueueSubmit(dev->graphics_queue, 1, &si, VK_NULL_HANDLE);
-    vkQueueWaitIdle(dev->graphics_queue);
+    vkQueueSubmit(dev->graphics_queue, 1, &si, fence);
     mel_mutex_unlock(&dev->submit_lock);
+    vkWaitForFences(dev->vk, 1, &fence, VK_TRUE, UINT64_MAX);
 
+    vkDestroyFence(dev->vk, fence, NULL);
     vkFreeCommandBuffers(dev->vk, pool, 1, &cb);
     mel_gpu__defer_free(dev, (Mel_Gpu_Deferred_Free){ .buffer = staging, .alloc = sa, .has_alloc = true });
     mel_gpu__submit_complete(dev, serial);
