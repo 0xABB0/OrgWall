@@ -17,12 +17,7 @@ typedef enum
     MEL_GPU_BUFFER_STORAGE = 1u << 3,
     MEL_GPU_BUFFER_TRANSFER_SRC = 1u << 4,
     MEL_GPU_BUFFER_TRANSFER_DST = 1u << 5,
-    // U14 ceiling (gpu-rhi.md §6.1/§6.7): expose a stable GPU address via mel_gpu_buffer_device_address for
-    // the pointer-bearing root record. Requires the device created with buffer_device_address.
     MEL_GPU_BUFFER_DEVICE_ADDRESS = 1u << 6,
-    // U15 (gpu-rhi.md §7.1): GPU-resident argument buffer for cmd_dispatch_indirect / the draw-indirect family.
-    // Holds {group_x, group_y, group_z} (dispatch) or the per-command structure; transition to
-    // MEL_GPU_STATE_INDIRECT_ARGUMENT before the indirect call.
     MEL_GPU_BUFFER_INDIRECT = 1u << 7,
 } Mel_Gpu_Buffer_Usage;
 
@@ -32,8 +27,6 @@ typedef enum
     MEL_GPU_BUFFER_CREATE_OOM = MEL_GPU_STATUS(1, MEL_GPU_SEVERITY_ERROR),
     MEL_GPU_BUFFER_CREATE_VK_FAILED = MEL_GPU_STATUS(2, MEL_GPU_SEVERITY_ERROR),
     MEL_GPU_BUFFER_CREATE_BAD_PARAMS = MEL_GPU_STATUS(3, MEL_GPU_SEVERITY_ERROR),
-    // gpu-rhi.md §6.7: the buffer's bindless slot (= its slotmap index, §3.1) exceeds the storage/uniform heap
-    // class capacity. Surfaced loudly rather than registering an unbound slot (CRITICAL-1 / MEL-ENGINE-VIII).
     MEL_GPU_BUFFER_CREATE_BINDLESS_SLOT_EXHAUSTED = MEL_GPU_STATUS(4, MEL_GPU_SEVERITY_ERROR),
 } Mel_Gpu_Buffer_Create_Status;
 

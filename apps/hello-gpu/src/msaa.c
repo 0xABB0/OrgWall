@@ -6,16 +6,14 @@
 #include "msaa.h"
 #include "hud.h"
 #include "star_spv.h"
-#include "instances_spv.h" // INSTANCES_FRAG_SPV: plain v_color passthrough
-#include "blit_spv.h"      // BLIT_VERT_SPV: shared fullscreen vertex stage
+#include "instances_spv.h"
+#include "blit_spv.h"
 #include "msaa_compose_spv.h"
 
 #define STAR_SPOKES 11
-#define STAR_VERTS  (STAR_SPOKES * 3) // one triangle (centre, tip, valley) per spoke
+#define STAR_VERTS  (STAR_SPOKES * 3)
 #define VBO_FRAMES  3
 
-// A zeroed engine handle (calloc'd state or after destroy) reads as slot {0,0};
-// the host never hands out that slot, so it is the unambiguous "absent" sentinel.
 static inline bool handle_zero(Mel_SlotMap_Handle h) { return h.index == 0 && h.generation == 0; }
 
 typedef struct
@@ -42,11 +40,11 @@ typedef struct
 {
     Mel_Gpu_Device* dev;
     bool            ready;
-    u32             samples; // resolved MSAA sample count, or 1 if unsupported
+    u32             samples;
 
     Mel_Gpu_Shader   star_shader;
-    Mel_Gpu_Pipeline ms_pipeline;  // .samples = N, renders the resolved half
-    Mel_Gpu_Pipeline ref_pipeline; // .samples = 1, renders the reference half
+    Mel_Gpu_Pipeline ms_pipeline;
+    Mel_Gpu_Pipeline ref_pipeline;
     Mel_Gpu_Buffer   vbo[VBO_FRAMES];
     i32              vframe;
 
@@ -54,17 +52,16 @@ typedef struct
     Mel_Gpu_Pipeline compose_pipeline;
     Mel_Gpu_Sampler  sampler;
 
-    // Per-half targets, sized to the window (re)allocated from resize.
-    i32                  tw, th; // half-width, full-height of one panel
-    Mel_Gpu_Texture      ms;     // multisample attachment (left)
+    i32                  tw, th;
+    Mel_Gpu_Texture      ms;
     Mel_Gpu_Texture_View ms_view;
-    Mel_Gpu_Texture      aa; // resolve target (left), sampled
+    Mel_Gpu_Texture      aa;
     Mel_Gpu_Texture_View aa_view;
     u32                  aa_slot;
-    Mel_Gpu_Texture      ref; // single-sample target (right), sampled
+    Mel_Gpu_Texture      ref;
     Mel_Gpu_Texture_View ref_view;
     u32                  ref_slot;
-    bool                 targets_fresh; // textures just (re)created: still COMMON
+    bool                 targets_fresh;
 
     Hud hud;
     f64 angle;
@@ -73,7 +70,6 @@ typedef struct
 static u32 pick_samples(Mel_Gpu_Device* dev)
 {
     Mel_Gpu_Format_Properties fp = mel_gpu_format_properties(dev, MEL_GPU_FORMAT_RGBA8_UNORM, MEL_GPU_TILING_OPTIMAL);
-    // sample_counts is the raw VkSampleCountFlags bitmask; the bit value equals the count.
     if (fp.sample_counts & 4u)
         return 4;
     if (fp.sample_counts & 2u)
@@ -130,8 +126,6 @@ static void* msaa_init(Mel_Gpu_Device* dev, Mel_Gpu_Swapchain* sc)
         { .location = 0, .format = MEL_GPU_FORMAT_RG32_FLOAT, .offset = offsetof(Star_Vertex, pos) },
         { .location = 1, .format = MEL_GPU_FORMAT_RGBA32_FLOAT, .offset = offsetof(Star_Vertex, color) },
     };
-    // The resolved half rasterizes at N samples; the reference half at 1. Both write
-    // RGBA8_UNORM (the panel format) and share the star vertex stage.
     m->ms_pipeline = mel_gpu_pipeline_create(dev,
                                              .shader = m->star_shader,
                                              .topology = MEL_GPU_TOPOLOGY_TRIANGLE_LIST,
@@ -189,7 +183,7 @@ static void msaa_resize(void* state, i32 w, i32 h)
     if (th < 1)
         th = 1;
     if (tw == m->tw && th == m->th && !handle_zero(m->aa.slot))
-        return; // unchanged
+        return;
 
     destroy_targets(m);
     m->tw = tw;
@@ -212,9 +206,6 @@ static void msaa_resize(void* state, i32 w, i32 h)
     m->targets_fresh = true;
 }
 
-// Builds the spiky star: STAR_SPOKES triangles fanning out, each from the centre to
-// a long sharp tip and back to a short valley, so the silhouette is all thin
-// diagonals — the worst case for aliasing, the best case to show resolve.
 static u32 build_star(Star_Vertex* out)
 {
     const f32 tip = 0.85f, valley = 0.32f;
@@ -262,16 +253,11 @@ static void msaa_render(void* state, Mel_Gpu_Command_List* cmd, f64 dt)
     Mel_Gpu_Resource_State    src = fresh ? MEL_GPU_STATE_COMMON : MEL_GPU_STATE_SHADER_RESOURCE;
     m->targets_fresh = false;
 
-    // Left panel: rasterize the star at N samples and resolve into aa on store.
     mel_gpu_cmd_texture_barrier(cmd, m->aa, range, src, MEL_GPU_STATE_RENDER_TARGET);
     if (m->samples >= 2)
     {
-        // The multisample attachment itself also needs COLOR_ATTACHMENT layout at begin: the engine sets the
-        // layout in the rendering info but issues no transition, so the app barriers it. It is never sampled —
-        // it stays in RENDER_TARGET after the pass, so its prior state is RENDER_TARGET once warm.
         Mel_Gpu_Resource_State ms_src = fresh ? MEL_GPU_STATE_COMMON : MEL_GPU_STATE_RENDER_TARGET;
         mel_gpu_cmd_texture_barrier(cmd, m->ms, range, ms_src, MEL_GPU_STATE_RENDER_TARGET);
-        // The multisample surface need never be stored (U22): store DONT_CARE, resolve into aa_view.
         Mel_Gpu_Color_Attachment color = { .view = m->ms_view, .load = MEL_GPU_LOAD_CLEAR, .store = MEL_GPU_STORE_DONT_CARE, .clear = mel_gpu_rgba(0.05f, 0.06f, 0.09f, 1.0f), .resolve_view = m->aa_view };
         mel_gpu_cmd_begin_rendering(cmd, .colors = &color, .color_count = 1, .width = (u32)m->tw, .height = (u32)m->th);
         mel_gpu_cmd_bind_pipeline(cmd, m->ms_pipeline);
@@ -292,7 +278,6 @@ static void msaa_render(void* state, Mel_Gpu_Command_List* cmd, f64 dt)
     }
     mel_gpu_cmd_texture_barrier(cmd, m->aa, range, MEL_GPU_STATE_RENDER_TARGET, MEL_GPU_STATE_SHADER_RESOURCE);
 
-    // Right panel: the same star at 1 sample, the aliased reference.
     mel_gpu_cmd_texture_barrier(cmd, m->ref, range, src, MEL_GPU_STATE_RENDER_TARGET);
     Mel_Gpu_Color_Attachment refc = { .view = m->ref_view, .load = MEL_GPU_LOAD_CLEAR, .store = MEL_GPU_STORE_STORE, .clear = mel_gpu_rgba(0.05f, 0.06f, 0.09f, 1.0f) };
     mel_gpu_cmd_begin_rendering(cmd, .colors = &refc, .color_count = 1, .width = (u32)m->tw, .height = (u32)m->th);
@@ -303,7 +288,6 @@ static void msaa_render(void* state, Mel_Gpu_Command_List* cmd, f64 dt)
     mel_gpu_cmd_end_rendering(cmd);
     mel_gpu_cmd_texture_barrier(cmd, m->ref, range, MEL_GPU_STATE_RENDER_TARGET, MEL_GPU_STATE_SHADER_RESOURCE);
 
-    // Compose both panels into the swapchain.
     Compose_Root croot = { .resolved = m->aa_slot, .reference = m->ref_slot, .smp = mel_gpu_sampler_bindless_slot(m->dev, m->sampler) };
     mel_gpu_cmd_begin_pass(cmd, mel_gpu_rgba(0, 0, 0, 1));
     mel_gpu_cmd_bind_pipeline(cmd, m->compose_pipeline);

@@ -77,13 +77,9 @@ Mel_Gpu_Device_Create_Result mel_gpu_device_create_opt(Mel_Gpu_Instance* inst, M
     bool has_budget = mel_gpu__device_ext_available(adapter->phys, VK_EXT_MEMORY_BUDGET_EXTENSION_NAME);
     if (has_budget)
         exts[ext_count++] = VK_EXT_MEMORY_BUDGET_EXTENSION_NAME;
-    // U16: dynamic rendering is the engine's primary §7.2 lowering when granted; render passes are the floor.
     bool has_dr = mel_gpu__device_ext_available(adapter->phys, VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME);
     if (has_dr)
         exts[ext_count++] = VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME;
-    // U17 (gpu-rhi.md §7.3): synchronization2 re-lowers barriers onto pipeline_stage_2/access_2; the legacy
-    // vkCmdPipelineBarrier path is the floor. Probe-and-gate the extension AND the feature bit (request-and-grant,
-    // U4) — the feature is queried below alongside the base features and only enabled when granted.
     bool has_sync2_ext = mel_gpu__device_ext_available(adapter->phys, VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME);
 
     float                   prio = 1.0f;
@@ -100,8 +96,6 @@ Mel_Gpu_Device_Create_Result mel_gpu_device_create_opt(Mel_Gpu_Instance* inst, M
     if (opt.features.buffer_device_address)
         feat12.bufferDeviceAddress = VK_TRUE;
 
-    // U14: enable the descriptor-indexing bindless floor when requested and granted (gpu-rhi.md §6.7).
-    // Only the bits the per-class heap actually consumes are turned on (MEL-ENGINE-III: request-and-grant).
     bool want_bindless = opt.features.descriptor_indexing && adapter->caps.memory.bindless.tier != MEL_GPU_TIER_NONE;
     if (want_bindless)
     {
@@ -127,7 +121,6 @@ Mel_Gpu_Device_Create_Result mel_gpu_device_create_opt(Mel_Gpu_Instance* inst, M
     VkPhysicalDeviceFeatures avail = { 0 };
     vkGetPhysicalDeviceFeatures(adapter->phys, &avail);
 
-    // U17: query the synchronization2 feature bit (the extension being present does not guarantee the feature).
     bool has_sync2 = false;
     if (has_sync2_ext)
     {
@@ -139,8 +132,6 @@ Mel_Gpu_Device_Create_Result mel_gpu_device_create_opt(Mel_Gpu_Instance* inst, M
     if (has_sync2)
         exts[ext_count++] = VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME;
 
-    // Chain head: feat_dr -> feat12 (when dynamic rendering granted), else feat12. synchronization2, when
-    // granted, is prepended so its feature bit is enabled at vkCreateDevice.
     void*                                       chain_head = has_dr ? (void*)&feat_dr : (void*)&feat12;
     VkPhysicalDeviceSynchronization2FeaturesKHR feat_sync2 = {
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES_KHR,
@@ -154,17 +145,10 @@ Mel_Gpu_Device_Create_Result mel_gpu_device_create_opt(Mel_Gpu_Instance* inst, M
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
         .pNext = chain_head,
     };
-    // U11: anisotropic filtering is a near-universal base feature; enable it when present so samplers can
-    // honor max_anisotropy. The limit is read below and stored for sampler clamping.
     if (avail.samplerAnisotropy)
         feat2.features.samplerAnisotropy = VK_TRUE;
-    // U14 ceiling: buffer-reference shaders construct pointers from 64-bit addresses, which declare the
-    // SPIR-V Int64 capability — enable shaderInt64 alongside BDA so those shaders are valid.
     if (opt.features.buffer_device_address && avail.shaderInt64)
         feat2.features.shaderInt64 = VK_TRUE;
-    // U13 render state (gpu-rhi.md §6.5): enable the optional rasterizer/blend features the physical device
-    // supports, so a pipeline can use them when asked; the pipeline path degrades a request for one the device
-    // lacks with a warning rather than a silent miscompile (MEL-CODE-007). These are cheap core features.
     if (avail.fillModeNonSolid)
         feat2.features.fillModeNonSolid = VK_TRUE;
     if (avail.depthBounds)
@@ -206,7 +190,7 @@ Mel_Gpu_Device_Create_Result mel_gpu_device_create_opt(Mel_Gpu_Instance* inst, M
     dev->device_lost_user = opt.device_lost_user;
     dev->graphics_family = gfx;
     dev->has_memory_budget = has_budget;
-    dev->bda_enabled = opt.features.buffer_device_address; // U14 pointer-bearing root-record ceiling
+    dev->bda_enabled = opt.features.buffer_device_address;
     vkGetDeviceQueue(vk, gfx, 0, &dev->graphics_queue);
     vkGetPhysicalDeviceMemoryProperties(adapter->phys, &dev->mem_props);
 
@@ -216,8 +200,6 @@ Mel_Gpu_Device_Create_Result mel_gpu_device_create_opt(Mel_Gpu_Instance* inst, M
     dev->caps.sampler.anisotropy = avail.samplerAnisotropy != 0;
     dev->caps.sampler.max_anisotropy = dev->max_sampler_anisotropy;
 
-    // U13 render state: record which optional features were enabled, and the framebuffer sample-count limits the
-    // pipeline path validates an MSAA request against (gpu-rhi.md §6.5).
     dev->feat_fill_non_solid = avail.fillModeNonSolid != 0;
     dev->feat_depth_bounds = avail.depthBounds != 0;
     dev->feat_depth_bias_clamp = avail.depthBiasClamp != 0;
@@ -233,8 +215,6 @@ Mel_Gpu_Device_Create_Result mel_gpu_device_create_opt(Mel_Gpu_Instance* inst, M
     }
     mel_log_info("gpu", "render lowering: %s", dev->dynamic_rendering ? "dynamic rendering" : "render passes (floor)");
 
-    // U17 (gpu-rhi.md §7.3): load the synchronization2 barrier entry point when the feature was granted; the
-    // legacy vkCmdPipelineBarrier path stays as the floor when the proc-addr is absent.
     if (has_sync2)
     {
         dev->cmd_pipeline_barrier2 = (PFN_vkCmdPipelineBarrier2KHR)vkGetDeviceProcAddr(vk, "vkCmdPipelineBarrier2KHR");
@@ -265,13 +245,8 @@ Mel_Gpu_Device_Create_Result mel_gpu_device_create_opt(Mel_Gpu_Instance* inst, M
     dev->buffers.init = dev->textures.init = dev->texture_views.init = dev->samplers.init = dev->shaders.init = dev->pipelines.init = dev->syncs.init = true;
     dev->bind_group_layouts.init = dev->bind_groups.init = true;
 
-    // U14: the bindless heap lives for the device's lifetime; it is created only when the descriptor-indexing
-    // floor is both requested and granted (gpu-rhi.md §6.7). caps are refined to the realized heap capacity.
     mel_gpu__bindless_init(dev, opt.features.descriptor_indexing);
 
-    // Report the active binding model (§6.7). The pointer-bearing root record is the ceiling: with the heap
-    // for texture/sampler indices AND BDA for real buffer addresses, buffer fields are pointers and the rest
-    // are indices — a mixed payload. Without BDA it is the index floor; without the heap, descriptor tables.
     Mel_Gpu_Caps_Bindless* bl = &dev->caps.memory.bindless;
     bl->binding_model = dev->bindless.enabled ? MEL_GPU_BINDING_MODEL_ROOT_RECORD : MEL_GPU_BINDING_MODEL_DESCRIPTOR_TABLES;
     bl->root_record_payload = (dev->bindless.enabled && dev->bda_enabled) ? MEL_GPU_ROOT_RECORD_PAYLOAD_MIXED : MEL_GPU_ROOT_RECORD_PAYLOAD_DESCRIPTOR_INDICES;
@@ -313,7 +288,6 @@ void mel_gpu_device_destroy(Mel_Gpu_Device* dev)
     if (dev->vk && !dev->lost)
         vkDeviceWaitIdle(dev->vk);
 
-    // GPU is idle: every submission has retired, so flush all deferred frees before tearing down memory.
     mel_gpu__submit_complete(dev, dev->submit_serial);
     if (dev->deferred)
         mel_dealloc(dev->alloc, dev->deferred);
@@ -374,13 +348,6 @@ const Mel_Gpu_Caps* mel_gpu_device_caps(Mel_Gpu_Device* dev) { return dev ? &dev
 
 Mel_Reactor* mel_gpu_device_reactor(Mel_Gpu_Device* dev) { return dev ? dev->reactor : NULL; }
 
-// BUG-2 / U21 / §3.7: wire the thread-safety tracker into the public call path. enter/exit are no-ops unless
-// the device was created with debug.thread_safety_tracker (dev->tracker != NULL), free in release. The class
-// is each call's documented §3.7 class — Concurrent calls register no owner; SerializedPerObject calls register
-// the calling thread on the object and report (BUG-2 changed the assert to a loud report) when a second thread
-// enters the same object without an intervening exit. mel_gpu__track_key derives a stable per-resource object
-// token from the (table, slot index) pair — handles are not pointers, so the tracker needs a synthesized key;
-// the FNV-style mix is collision-free enough for a debug aid across the small set of live (table, index) pairs.
 void mel_gpu__track_enter(Mel_Gpu_Device* dev, const void* object, Mel_Gpu_Concurrency cls)
 {
     if (dev->tracker)
@@ -415,15 +382,6 @@ void* mel_gpu__table_get(Mel_Gpu_Device* dev, Mel_Gpu_Resource_Table* t, Mel_Slo
     return p;
 }
 
-// BUG-1 (host-memory corruption): mel_slotmap_get returns an interior pointer into the packed dense array
-// (data + packed_idx * item_size). A concurrent table_insert (realloc-grow) or table_remove (swap-remove
-// memcpy) relocates that element under a reader that dereferences it after obj_lock is released, tearing the
-// record. §3.7 declares resource create/destroy Concurrent across distinct handles, so the *read* of the
-// record must be guarded too, not only the slotmap bookkeeping. The cure: copy the whole record out by value
-// WHILE holding obj_lock — no interior pointer escapes the lock; callers operate on the local copy. Returns
-// false (out untouched) when the handle is stale, so the use-after-free stays loud at the call site
-// (MEL-ENGINE-VIII). Records are immutable post-insert except the sampler refcount, which has its own
-// obj_lock-guarded mutator below — never copy-then-write-back, which would lose a concurrent claim.
 bool mel_gpu__table_get_copy(Mel_Gpu_Device* dev, Mel_Gpu_Resource_Table* t, Mel_SlotMap_Handle h, void* out)
 {
     mel_mutex_lock(&dev->obj_lock);
@@ -434,9 +392,6 @@ bool mel_gpu__table_get_copy(Mel_Gpu_Device* dev, Mel_Gpu_Resource_Table* t, Mel
     return p != NULL;
 }
 
-// Liveness probe for the *_alive entry points: returns the boolean without letting any interior pointer escape
-// the lock. Whether a slot is alive is read from the sparse slot array under obj_lock (not from the packed
-// payload), so it cannot be torn by a concurrent relocation — the honest minimal accessor for *_alive.
 bool mel_gpu__table_alive(Mel_Gpu_Device* dev, Mel_Gpu_Resource_Table* t, Mel_SlotMap_Handle h)
 {
     mel_mutex_lock(&dev->obj_lock);
@@ -445,12 +400,6 @@ bool mel_gpu__table_alive(Mel_Gpu_Device* dev, Mel_Gpu_Resource_Table* t, Mel_Sl
     return alive;
 }
 
-// U11 sampler refcount is the one field mutated in place after insert (the dedup claim count, §6.3). The read-
-// modify-write must happen UNDER obj_lock against the live packed slot, never on a copy: a copy-back would
-// drop a concurrent claim/release and reintroduce the very torn-record class BUG-1 closes. `delta` is +1
-// (retain) or -1 (release); *out_after receives the post-mutation count so the caller can act on the
-// last-release edge. Returns false (no mutation) on a stale handle. The sampler_lock the caller holds
-// serializes the dedup table; obj_lock serializes the slotmap payload — distinct concerns, both required.
 bool mel_gpu__sampler_refcount_add(Mel_Gpu_Device* dev, Mel_SlotMap_Handle h, i32 delta, u32* out_after)
 {
     mel_mutex_lock(&dev->obj_lock);
@@ -512,8 +461,6 @@ static void mel_gpu__free_deferred_entry(Mel_Gpu_Device* dev, Mel_Gpu_Deferred_F
         vkFreeDescriptorSets(dev->vk, e->descriptor_set_pool, 1, &e->descriptor_set);
     if (e->has_alloc)
         mel_gpu__mem_free(dev, &e->alloc);
-    // U14: the slot index becomes reusable only now, once every submission that could read its heap entry
-    // has retired (gpu-rhi.md §3.3). The heap descriptor is overwritten by the next resource at this index.
     if (e->has_reclaim)
         mel_gpu__table_reclaim(dev, e->reclaim_table, e->reclaim_index);
 }
@@ -564,8 +511,6 @@ void mel_gpu__defer_free(Mel_Gpu_Device* dev, Mel_Gpu_Deferred_Free entry)
     mel_mutex_unlock(&dev->submit_lock);
 }
 
-// U15: one command pool per (calling thread, queue family). Recording is lock-free per thread; the registry
-// lookup is the only contended point and is rare (once per thread/family). Pools are destroyed at device teardown.
 VkCommandPool mel_gpu__thread_pool(Mel_Gpu_Device* dev, u32 family)
 {
     Mel_Thread_Id self = mel_thread_current_id();

@@ -1,10 +1,6 @@
 #version 460
 #extension GL_EXT_nonuniform_qualifier : require
 
-// Bindless blit: sample one heap-resident texture with one heap-resident
-// sampler, both addressed by index from the push-constant root record. The
-// set-0 runtime arrays are the heap signature reflection keys on to mark the
-// pipeline bindless (gpu-rhi.md §6.7).
 layout(set = 0, binding = 0) uniform texture2D u_textures[];
 layout(set = 0, binding = 1) uniform sampler   u_samplers[];
 

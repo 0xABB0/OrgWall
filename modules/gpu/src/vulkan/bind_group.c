@@ -2,11 +2,6 @@
 
 #include <log/log.h>
 
-// U14 classic descriptor-set path (gpu-rhi.md §6.7) — the P2 peer of the device bindless heap. The user
-// declares bind-group layouts, allocates bind groups from a grown-on-demand pool chain, writes resources,
-// and binds them at set indices. With reflection now distinguishing a runtime-array set 0 (the heap) from a
-// sized/app-owned set 0, this path coexists with the heap instead of being foreclosed by it.
-
 static VkDescriptorType mel_gpu__descriptor_type(Mel_Gpu_Descriptor_Kind kind)
 {
     switch (kind)
@@ -27,12 +22,8 @@ static VkDescriptorType mel_gpu__descriptor_type(Mel_Gpu_Descriptor_Kind kind)
     return VK_DESCRIPTOR_TYPE_SAMPLER;
 }
 
-// ---- classic descriptor pool chain ----
-
 static VkDescriptorPool mel_gpu__classic_pool_new(Mel_Gpu_Device* dev)
 {
-    // Generous per-type budget; the chain grows another pool when one is exhausted, so this is a stride, not
-    // a hard cap (MEL-CODE-002 — no fixed ceiling on the resource count).
     const u32            PER_TYPE = 256, MAX_SETS = 256;
     VkDescriptorPoolSize sizes[] = {
         { VK_DESCRIPTOR_TYPE_SAMPLER, PER_TYPE },
@@ -44,7 +35,7 @@ static VkDescriptorPool mel_gpu__classic_pool_new(Mel_Gpu_Device* dev)
     };
     VkDescriptorPoolCreateInfo pci = {
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
-        .flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT, // bind_group_destroy frees its set
+        .flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT,
         .maxSets = MAX_SETS,
         .poolSizeCount = (u32)(sizeof sizes / sizeof sizes[0]),
         .pPoolSizes = sizes,
@@ -83,7 +74,7 @@ VkDescriptorSet mel_gpu__classic_descriptor_alloc(Mel_Gpu_Device* dev, VkDescrip
         }
         set = VK_NULL_HANDLE;
         if (r == VK_ERROR_OUT_OF_POOL_MEMORY || r == VK_ERROR_FRAGMENTED_POOL)
-            mel_gpu__classic_pool_new(dev); // retry against a fresh pool
+            mel_gpu__classic_pool_new(dev);
         else
         {
             mel_log_error("gpu", "bind_group: vkAllocateDescriptorSets failed: %s", mel_gpu__vk_result_str(r));
@@ -104,8 +95,6 @@ void mel_gpu__classic_pools_shutdown(Mel_Gpu_Device* dev)
     dev->classic_pools = NULL;
     dev->classic_pool_count = dev->classic_pool_cap = 0;
 }
-
-// ---- bind-group layout ----
 
 Mel_Gpu_Bind_Group_Layout mel_gpu_bind_group_layout_create(Mel_Gpu_Device* dev, const Mel_Gpu_Bind_Group_Layout_Entry* entries, u32 count)
 {
@@ -152,10 +141,9 @@ Mel_Gpu_Bind_Group_Layout mel_gpu_bind_group_layout_create(Mel_Gpu_Device* dev, 
 
 void mel_gpu_bind_group_layout_destroy(Mel_Gpu_Device* dev, Mel_Gpu_Bind_Group_Layout layout)
 {
-    // §3.7: bind_group_layout_destroy is SerializedPerObject on the destroyed handle.
     const void* trk = mel_gpu__track_key(&dev->bind_group_layouts, layout.slot.index);
     mel_gpu__track_enter(dev, trk, MEL_GPU_CONCURRENCY_SERIALIZED_PER_OBJECT);
-    Mel_Gpu_Bind_Group_Layout_Obj o; // BUG-1: snapshot under obj_lock; entries pointer owned by the snapshot
+    Mel_Gpu_Bind_Group_Layout_Obj o;
     if (!mel_gpu__table_get_copy(dev, &dev->bind_group_layouts, layout.slot, &o))
     {
         mel_gpu__track_exit(dev, trk);
@@ -164,8 +152,6 @@ void mel_gpu_bind_group_layout_destroy(Mel_Gpu_Device* dev, Mel_Gpu_Bind_Group_L
     VkDescriptorSetLayout            vk = o.layout;
     Mel_Gpu_Bind_Group_Layout_Entry* entries = o.entries;
     mel_gpu__table_remove(dev, &dev->bind_group_layouts, layout.slot);
-    // A VkDescriptorSetLayout is no longer referenced once the pipelines and sets built from it exist
-    // (Vulkan retains the needed info), so the free is immediate — not CB-referenced (gpu-rhi.md §6.7).
     if (vk)
         vkDestroyDescriptorSetLayout(dev->vk, vk, NULL);
     if (entries)
@@ -177,19 +163,17 @@ bool mel_gpu_bind_group_layout_alive(Mel_Gpu_Device* dev, Mel_Gpu_Bind_Group_Lay
 
 bool mel_gpu__bind_group_layout_vk(Mel_Gpu_Device* dev, Mel_Gpu_Bind_Group_Layout layout, VkDescriptorSetLayout* out)
 {
-    Mel_Gpu_Bind_Group_Layout_Obj o; // BUG-1: snapshot under obj_lock
+    Mel_Gpu_Bind_Group_Layout_Obj o;
     if (!mel_gpu__table_get_copy(dev, &dev->bind_group_layouts, layout.slot, &o))
         return false;
     *out = o.layout;
     return true;
 }
 
-// ---- bind group ----
-
 Mel_Gpu_Bind_Group mel_gpu_bind_group_create(Mel_Gpu_Device* dev, Mel_Gpu_Bind_Group_Layout layout)
 {
     Mel_Gpu_Bind_Group h = { mel_gpu_handle_null() };
-    Mel_Gpu_Bind_Group_Layout_Obj lo; // BUG-1: snapshot the layout record under obj_lock
+    Mel_Gpu_Bind_Group_Layout_Obj lo;
     if (!dev || !mel_gpu__table_get_copy(dev, &dev->bind_group_layouts, layout.slot, &lo))
     {
         mel_assert(!"bind_group_create: invalid layout handle");
@@ -211,10 +195,9 @@ Mel_Gpu_Bind_Group mel_gpu_bind_group_create(Mel_Gpu_Device* dev, Mel_Gpu_Bind_G
 
 void mel_gpu_bind_group_destroy(Mel_Gpu_Device* dev, Mel_Gpu_Bind_Group group)
 {
-    // §3.7: bind_group_destroy is SerializedPerObject on the destroyed handle.
     const void* trk = mel_gpu__track_key(&dev->bind_groups, group.slot.index);
     mel_gpu__track_enter(dev, trk, MEL_GPU_CONCURRENCY_SERIALIZED_PER_OBJECT);
-    Mel_Gpu_Bind_Group_Obj o; // BUG-1: snapshot under obj_lock
+    Mel_Gpu_Bind_Group_Obj o;
     if (!mel_gpu__table_get_copy(dev, &dev->bind_groups, group.slot, &o))
     {
         mel_gpu__track_exit(dev, trk);
@@ -223,7 +206,6 @@ void mel_gpu_bind_group_destroy(Mel_Gpu_Device* dev, Mel_Gpu_Bind_Group group)
     VkDescriptorSet  set = o.set;
     VkDescriptorPool pool = o.pool;
     mel_gpu__table_remove(dev, &dev->bind_groups, group.slot);
-    // U3/U14: a bound bind group may be read by an in-flight submission; gate the set free on retirement.
     mel_gpu__defer_free(dev, (Mel_Gpu_Deferred_Free){ .descriptor_set = set, .descriptor_set_pool = pool });
     mel_gpu__track_exit(dev, trk);
 }
@@ -232,18 +214,16 @@ bool mel_gpu_bind_group_alive(Mel_Gpu_Device* dev, Mel_Gpu_Bind_Group group) { r
 
 bool mel_gpu__bind_group_set(Mel_Gpu_Device* dev, Mel_Gpu_Bind_Group group, VkDescriptorSet* out)
 {
-    Mel_Gpu_Bind_Group_Obj o; // BUG-1: snapshot under obj_lock
+    Mel_Gpu_Bind_Group_Obj o;
     if (!mel_gpu__table_get_copy(dev, &dev->bind_groups, group.slot, &o))
         return false;
     *out = o.set;
     return true;
 }
 
-// Resolve a binding's declared kind from the source layout — writes pick the VkDescriptorType from it and
-// reject a binding the layout never declared (MEL-ENGINE-VIII, loud on misuse).
 static bool mel_gpu__bg_kind(Mel_Gpu_Device* dev, const Mel_Gpu_Bind_Group_Obj* g, u32 binding, Mel_Gpu_Descriptor_Kind* out_kind, VkDescriptorSet* out_set)
 {
-    Mel_Gpu_Bind_Group_Layout_Obj lo; // BUG-1: snapshot the layout record under obj_lock; entries owned by it
+    Mel_Gpu_Bind_Group_Layout_Obj lo;
     if (!mel_gpu__table_get_copy(dev, &dev->bind_group_layouts, g->layout, &lo))
     {
         mel_assert(!"bind_group write: source layout was destroyed before the group");
@@ -278,7 +258,7 @@ static void mel_gpu__bg_write_image(Mel_Gpu_Device* dev, VkDescriptorSet set, u3
 
 void mel_gpu_bind_group_write_texture(Mel_Gpu_Device* dev, Mel_Gpu_Bind_Group group, u32 binding, u32 array_element, Mel_Gpu_Texture_View view)
 {
-    Mel_Gpu_Bind_Group_Obj   g; // BUG-1: snapshot the bind-group + view records under obj_lock
+    Mel_Gpu_Bind_Group_Obj   g;
     Mel_Gpu_Texture_View_Obj vo;
     Mel_Gpu_Descriptor_Kind  kind;
     VkDescriptorSet          set;
@@ -290,7 +270,7 @@ void mel_gpu_bind_group_write_texture(Mel_Gpu_Device* dev, Mel_Gpu_Bind_Group gr
 
 void mel_gpu_bind_group_write_sampler(Mel_Gpu_Device* dev, Mel_Gpu_Bind_Group group, u32 binding, u32 array_element, Mel_Gpu_Sampler sampler)
 {
-    Mel_Gpu_Bind_Group_Obj  g; // BUG-1: snapshot the bind-group record under obj_lock
+    Mel_Gpu_Bind_Group_Obj  g;
     VkSampler               vk = VK_NULL_HANDLE;
     Mel_Gpu_Descriptor_Kind kind;
     VkDescriptorSet         set;
@@ -301,7 +281,7 @@ void mel_gpu_bind_group_write_sampler(Mel_Gpu_Device* dev, Mel_Gpu_Bind_Group gr
 
 void mel_gpu_bind_group_write_combined(Mel_Gpu_Device* dev, Mel_Gpu_Bind_Group group, u32 binding, u32 array_element, Mel_Gpu_Texture_View view, Mel_Gpu_Sampler sampler)
 {
-    Mel_Gpu_Bind_Group_Obj   g; // BUG-1: snapshot the bind-group + view records under obj_lock
+    Mel_Gpu_Bind_Group_Obj   g;
     Mel_Gpu_Texture_View_Obj vo;
     VkSampler                vk = VK_NULL_HANDLE;
     Mel_Gpu_Descriptor_Kind  kind;
@@ -313,7 +293,7 @@ void mel_gpu_bind_group_write_combined(Mel_Gpu_Device* dev, Mel_Gpu_Bind_Group g
 
 void mel_gpu_bind_group_write_buffer(Mel_Gpu_Device* dev, Mel_Gpu_Bind_Group group, u32 binding, u32 array_element, Mel_Gpu_Buffer buffer)
 {
-    Mel_Gpu_Bind_Group_Obj  g; // BUG-1: snapshot the bind-group record under obj_lock
+    Mel_Gpu_Bind_Group_Obj  g;
     VkBuffer                vk = VK_NULL_HANDLE;
     Mel_Gpu_Descriptor_Kind kind;
     VkDescriptorSet         set;

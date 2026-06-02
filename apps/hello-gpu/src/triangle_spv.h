@@ -1,8 +1,5 @@
 #pragma once
 
-// SPIR-V for the hello-triangle Vulkan backend, compiled from HLSL so the
-// vs_main/fs_main entry points match the Metal (MSL) and WebGPU (WGSL) sources.
-// Regenerate: glslc -x hlsl -fshader-stage={vert,frag} -fentry-point={vs,fs}_main -mfmt=c tri.hlsl
 #include <stdint.h>
 
 static const uint32_t TRIANGLE_VERT_SPV[] = { 0x07230203, 0x00010000, 0x000d000b, 0x00000042, 0x00000000, 0x00020011, 0x00000001, 0x0006000b, 0x00000001, 0x4c534c47, 0x6474732e, 0x3035342e, 0x00000000, 0x0003000e, 0x00000000, 0x00000001,

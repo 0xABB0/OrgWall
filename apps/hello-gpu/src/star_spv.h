@@ -1,10 +1,5 @@
 #pragma once
 
-// MSAA showcase star vertex stage: a coloured 2D vertex stream rotated and
-// aspect-corrected from a {angle, aspect} push-constant root record. Paired with
-// instances.frag (plain v_color passthrough) for both the multisample-resolved
-// and the single-sample reference half.
-// Regenerate: glslc -fshader-stage=vert -mfmt=c shaders/star.vert
 #include <stdint.h>
 
 static const uint32_t STAR_VERT_SPV[] =

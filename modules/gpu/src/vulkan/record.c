@@ -2,8 +2,6 @@
 
 #include <log/log.h>
 
-// ---- U15: standalone command lists ----
-
 Mel_Gpu_Command_List* mel_gpu_command_list_create(Mel_Gpu_Queue* q)
 {
     if (!q)
@@ -32,15 +30,12 @@ Mel_Gpu_Command_List* mel_gpu_command_list_create(Mel_Gpu_Queue* q)
 void mel_gpu_command_list_begin(Mel_Gpu_Command_List* cmd)
 {
     mel_assert(cmd && cmd->standalone);
-    // §3.7 / BUG-2: every cmd_* is SerializedPerObject on the command list itself; the canonical pattern is one
-    // CL per recording thread (U15). Bracket the recording window by registering the owning thread on the CL
-    // pointer at begin and releasing at end — a second thread that begins/records the same CL is reported.
     mel_gpu__track_enter(cmd->dev, cmd, MEL_GPU_CONCURRENCY_SERIALIZED_PER_OBJECT);
     vkResetCommandBuffer(cmd->cb, 0);
     VkCommandBufferBeginInfo bi = { .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO, .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT };
     vkBeginCommandBuffer(cmd->cb, &bi);
     cmd->cur_layout = VK_NULL_HANDLE;
-    cmd->state_count = 0; // U17 state tracking is per-recording (gpu-rhi.md §7.3)
+    cmd->state_count = 0;
     cmd->recording = true;
 }
 
@@ -49,7 +44,7 @@ void mel_gpu_command_list_end(Mel_Gpu_Command_List* cmd)
     mel_assert(cmd && cmd->recording);
     vkEndCommandBuffer(cmd->cb);
     cmd->recording = false;
-    mel_gpu__track_exit(cmd->dev, cmd); // §3.7: release the per-CL recording ownership registered at begin
+    mel_gpu__track_exit(cmd->dev, cmd);
 }
 
 void mel_gpu_command_list_destroy(Mel_Gpu_Command_List* cmd)
@@ -64,9 +59,6 @@ void mel_gpu_command_list_destroy(Mel_Gpu_Command_List* cmd)
     mel_dealloc(cmd->dev->alloc, cmd);
 }
 
-// U17 state tracking: validate the declared source state against what this command list last recorded for
-// each subresource, then record the destination. First touch accepts the declared source (the resource's
-// external/initial state). A mismatch is a missing or wrong barrier — the most common porting bug (§7.3).
 static void mel_gpu__track_state(Mel_Gpu_Command_List* cmd, Mel_Gpu_Texture tex, u32 mip, u32 layer, Mel_Gpu_Resource_State src, Mel_Gpu_Resource_State dst)
 {
     for (u32 i = 0; i < cmd->state_count; i++)
@@ -91,8 +83,6 @@ static void mel_gpu__track_state(Mel_Gpu_Command_List* cmd, Mel_Gpu_Texture tex,
     }
     cmd->states[cmd->state_count++] = (Mel_Gpu_Cmd_State_Entry){ .tex_index = tex.slot.index, .tex_generation = tex.slot.generation, .mip = mip, .layer = layer, .state = dst };
 }
-
-// ---- U17: state -> (stage, access, layout) ----
 
 void mel_gpu__state_to_barrier(Mel_Gpu_Resource_State state, bool is_depth, VkPipelineStageFlags* stage, VkAccessFlags* access, VkImageLayout* layout)
 {
@@ -172,7 +162,6 @@ void mel_gpu__state_to_barrier(Mel_Gpu_Resource_State state, bool is_depth, VkPi
         *layout = VK_IMAGE_LAYOUT_GENERAL;
         return;
     default:
-        // Conservative fallback for states whose Vulkan lowering is a later M2/M3 slice (gpu-rhi.md §7.3).
         mel_log_warn("gpu", "cmd_barrier: state %d not yet lowered; using GENERAL/all-access", (int)state);
         *stage = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
         *access = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT;
@@ -181,9 +170,6 @@ void mel_gpu__state_to_barrier(Mel_Gpu_Resource_State state, bool is_depth, VkPi
     }
 }
 
-// U17 synchronization2 peer (gpu-rhi.md §7.3). Same state→layout mapping as the legacy lowering, but the
-// stage/access masks use the 64-bit pipeline_stage_2 / access_2 enums. Where granted these are the engine's
-// primary lowering; the legacy path is the floor. The layouts are identical, so cross-path behaviour matches.
 void mel_gpu__state_to_barrier2(Mel_Gpu_Resource_State state, bool is_depth, VkPipelineStageFlags2* stage, VkAccessFlags2* access, VkImageLayout* layout)
 {
     (void)is_depth;
@@ -272,7 +258,7 @@ void mel_gpu__state_to_barrier2(Mel_Gpu_Resource_State state, bool is_depth, VkP
 
 void mel_gpu_cmd_texture_barrier(Mel_Gpu_Command_List* cmd, Mel_Gpu_Texture tex, Mel_Gpu_Subresource_Range range, Mel_Gpu_Resource_State src, Mel_Gpu_Resource_State dst)
 {
-    Mel_Gpu_Texture_Obj  o_obj; // BUG-1: snapshot the immutable texture record under obj_lock
+    Mel_Gpu_Texture_Obj  o_obj;
     Mel_Gpu_Texture_Obj* o = &o_obj;
     if (!cmd || !mel_gpu__texture_get(cmd->dev, tex, o))
     {
@@ -282,8 +268,6 @@ void mel_gpu_cmd_texture_barrier(Mel_Gpu_Command_List* cmd, Mel_Gpu_Texture tex,
 
     bool is_depth = (o->aspect & VK_IMAGE_ASPECT_DEPTH_BIT) != 0;
 
-    // State tracking is path-independent (gpu-rhi.md §7.3): validate the declared source and record the
-    // destination per subresource, then lower onto sync2 where granted, legacy otherwise.
     u32 mip_n = range.mip_count ? range.mip_count : (o->mip_levels - range.base_mip);
     u32 layer_n = range.layer_count ? range.layer_count : (o->array_layers - range.base_layer);
     for (u32 m = 0; m < mip_n; m++)
@@ -307,7 +291,7 @@ void mel_gpu_cmd_texture_barrier(Mel_Gpu_Command_List* cmd, Mel_Gpu_Texture tex,
         mel_gpu__state_to_barrier2(src, is_depth, &src_stage, &src_access, &old_layout);
         mel_gpu__state_to_barrier2(dst, is_depth, &dst_stage, &dst_access, &new_layout);
         if (src == MEL_GPU_STATE_COMMON)
-            old_layout = VK_IMAGE_LAYOUT_UNDEFINED; // COMMON-as-source: discard (UNDEFINED), not GENERAL
+            old_layout = VK_IMAGE_LAYOUT_UNDEFINED;
         VkImageMemoryBarrier2 b = {
             .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
             .srcStageMask = src_stage,
@@ -400,7 +384,7 @@ void mel_gpu_cmd_buffer_barrier(Mel_Gpu_Command_List* cmd, Mel_Gpu_Buffer buf, M
 
 void mel_gpu_cmd_copy_texture_to_buffer(Mel_Gpu_Command_List* cmd, Mel_Gpu_Texture tex, Mel_Gpu_Subresource_Range subresource, Mel_Gpu_Buffer dst)
 {
-    Mel_Gpu_Texture_Obj  o_obj; // BUG-1: snapshot the immutable texture record under obj_lock
+    Mel_Gpu_Texture_Obj  o_obj;
     Mel_Gpu_Texture_Obj* o = &o_obj;
     VkBuffer             vkdst = VK_NULL_HANDLE;
     if (!cmd || !mel_gpu__texture_get(cmd->dev, tex, o) || !mel_gpu__buffer_get(cmd->dev, dst, &vkdst))
@@ -423,8 +407,6 @@ void mel_gpu_cmd_copy_texture_to_buffer(Mel_Gpu_Command_List* cmd, Mel_Gpu_Textu
     };
     vkCmdCopyImageToBuffer(cmd->cb, o->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, vkdst, 1, &copy);
 }
-
-// ---- U16: dynamic rendering ----
 
 static VkAttachmentLoadOp mel_gpu__load_op(Mel_Gpu_Load_Op op)
 {
@@ -455,14 +437,11 @@ void mel_gpu_cmd_begin_rendering_opt(Mel_Gpu_Command_List* cmd, Mel_Gpu_Renderin
         return;
     }
 
-    // CRITICAL-2: the color array is sized to opt.color_count from the device allocator (MEL-CODE-002), not a
-    // fixed [8] stack array that silently truncates the rest (MEL-CODE-007 / MEL-ENGINE-VIII) — matching the
-    // pipeline path's dynamic pColorAttachmentFormats. No hardware cap is encoded as a silent floor.
     u32                           n = opt.color_count;
     VkRenderingAttachmentInfoKHR* color = n ? mel_alloc_array(dev->alloc, VkRenderingAttachmentInfoKHR, n) : NULL;
     for (u32 i = 0; i < n; i++)
     {
-        Mel_Gpu_Texture_View_Obj v; // BUG-1: snapshot under obj_lock
+        Mel_Gpu_Texture_View_Obj v;
         VkImageView               iv = VK_NULL_HANDLE;
         if (mel_gpu__texture_view_get(dev, opt.colors[i].view, &v))
             iv = v.view;
@@ -474,11 +453,9 @@ void mel_gpu_cmd_begin_rendering_opt(Mel_Gpu_Command_List* cmd, Mel_Gpu_Renderin
             .storeOp = mel_gpu__store_op(opt.colors[i].store),
             .clearValue = { .color = { .float32 = { opt.colors[i].clear.r, opt.colors[i].clear.g, opt.colors[i].clear.b, opt.colors[i].clear.a } } },
         };
-        // U16 on-tile MSAA resolve (gpu-rhi.md §7.2): a set resolve_view resolves the multisample attachment to
-        // single-sample with VK_RESOLVE_MODE_AVERAGE (the screen-space color default). generation != 0 = set.
         if (opt.colors[i].resolve_view.slot.generation != 0)
         {
-            Mel_Gpu_Texture_View_Obj rv; // BUG-1: snapshot under obj_lock
+            Mel_Gpu_Texture_View_Obj rv;
             if (mel_gpu__texture_view_get(dev, opt.colors[i].resolve_view, &rv))
             {
                 color[i].resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT;
@@ -494,7 +471,7 @@ void mel_gpu_cmd_begin_rendering_opt(Mel_Gpu_Command_List* cmd, Mel_Gpu_Renderin
     bool                         has_depth = false;
     if (opt.depth)
     {
-        Mel_Gpu_Texture_View_Obj v; // BUG-1: snapshot under obj_lock
+        Mel_Gpu_Texture_View_Obj v;
         if (mel_gpu__texture_view_get(dev, opt.depth->view, &v))
         {
             has_depth = true;
@@ -516,7 +493,7 @@ void mel_gpu_cmd_begin_rendering_opt(Mel_Gpu_Command_List* cmd, Mel_Gpu_Renderin
     };
     dev->cmd_begin_rendering(cmd->cb, &ri);
     if (color)
-        mel_dealloc(dev->alloc, color); // vkCmdBeginRendering copies the attachment array at record time
+        mel_dealloc(dev->alloc, color);
 
     VkViewport vp = { 0.0f, (f32)opt.height, (f32)opt.width, -(f32)opt.height, 0.0f, 1.0f };
     VkRect2D   scissor = { { 0, 0 }, { opt.width, opt.height } };

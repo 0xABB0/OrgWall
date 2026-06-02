@@ -1,9 +1,6 @@
 #version 460
 #extension GL_EXT_nonuniform_qualifier : require
 
-// Instanced particle draw: one quad per particle (gl_InstanceIndex), its centre and
-// life pulled from the storage buffer the compute integrator just advanced. Colour
-// runs cool→hot with speed; the quad shrinks as life decays so the swarm twinkles.
 struct Particle
 {
     vec4 pos_life;

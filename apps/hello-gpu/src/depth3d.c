@@ -8,9 +8,6 @@
 #include "passthrough.h"
 #include "scene3d_spv.h"
 
-// Fixed offscreen resolution. The scene is rendered here with a real depth
-// attachment, then stretched onto the swapchain by the fullscreen blit, so the
-// screen never has to know the swapchain extent (the host does not expose it).
 #define OFF_W       1024
 #define OFF_H       768
 
@@ -38,7 +35,7 @@ typedef struct
     u32                  color_slot;
     Mel_Gpu_Buffer       vbo[VBO_FRAMES];
     i32                  frame;
-    bool                 first_frame; // the frame command list's state tracker persists across frames
+    bool                 first_frame;
     f64                  angle;
     Bindless_Present     present;
 } Depth3d;
@@ -95,8 +92,6 @@ static void* depth3d_init(Mel_Gpu_Device* dev, Mel_Gpu_Swapchain* sc)
         { .location = 0, .format = MEL_GPU_FORMAT_RGB32_FLOAT, .offset = offsetof(Pt_Vertex, pos) },
         { .location = 1, .format = MEL_GPU_FORMAT_RGBA32_FLOAT, .offset = offsetof(Pt_Vertex, color) },
     };
-    // A real depth attachment: with depth_format set and no explicit depth_stencil,
-    // the pipeline derives test + write + LESS (gpu-rhi.md §6.5). CCW front faces; cull back.
     d->pipeline = mel_gpu_pipeline_create(dev,
                                           .shader = d->shader,
                                           .topology = MEL_GPU_TOPOLOGY_TRIANGLE_LIST,
@@ -139,8 +134,6 @@ static void* depth3d_init(Mel_Gpu_Device* dev, Mel_Gpu_Swapchain* sc)
     return d;
 }
 
-// Builds the whole scene (CUBE_COUNT cubes orbiting the origin) into clip space,
-// emitting Pt_Vertex with z in [0,1] so the depth attachment occludes correctly.
 static u32 build_scene(Depth3d* d, Pt_Vertex* out)
 {
     const f32 aspect = (f32)OFF_W / (f32)OFF_H;
@@ -189,7 +182,6 @@ static u32 build_scene(Depth3d* d, Pt_Vertex* out)
                         z = znear;
                     f32 ndc_x = (vp[k].x * f / aspect) / z;
                     f32 ndc_y = (vp[k].y * f) / z;
-                    // Vulkan depth maps to [0,1]; standard perspective depth.
                     f32 ndc_z = (zfar / (zfar - znear)) * (1.0f - znear / z);
                     out[count++] = (Pt_Vertex){ { ndc_x, ndc_y, ndc_z }, { base.x * shade, base.y * shade, base.z * shade, 1.0f } };
                 }
@@ -221,13 +213,8 @@ static void depth3d_render(void* state, Mel_Gpu_Command_List* cmd, f64 dt)
     Mel_Gpu_Subresource_Range crange = { MEL_GPU_ASPECT_COLOR, 0, 1, 0, 1 };
     Mel_Gpu_Subresource_Range drange = { MEL_GPU_ASPECT_DEPTH, 0, 1, 0, 1 };
 
-    // The frame command list's state tracker persists across frames (it is the
-    // shared swapchain recorder). First frame: both targets are COMMON. After that
-    // colour ends each frame in SHADER_RESOURCE and depth stays in DEPTH_WRITE, so
-    // only the colour target needs a per-frame transition.
     Mel_Gpu_Resource_State color_src = d->first_frame ? MEL_GPU_STATE_COMMON : MEL_GPU_STATE_SHADER_RESOURCE;
 
-    // Offscreen depth pass, recorded before the swapchain pass on the one frame list.
     mel_gpu_cmd_texture_barrier(cmd, d->color, crange, color_src, MEL_GPU_STATE_RENDER_TARGET);
     if (d->first_frame)
         mel_gpu_cmd_texture_barrier(cmd, d->depth, drange, MEL_GPU_STATE_COMMON, MEL_GPU_STATE_DEPTH_WRITE);

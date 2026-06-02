@@ -67,8 +67,6 @@ VkFormat mel_gpu__vk_format(Mel_Gpu_Format fmt)
     return VK_FORMAT_UNDEFINED;
 }
 
-// Shared by the U11 sampler compare and the U13 depth/stencil compare (gpu-rhi.md §6.3 / §6.5). NONE — only
-// meaningful for a non-shadow sampler — maps to NEVER; the depth path rejects NONE-while-testing before calling.
 VkCompareOp mel_gpu__vk_compare_op(Mel_Gpu_Compare_Op c)
 {
     switch (c)

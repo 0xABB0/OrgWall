@@ -1,17 +1,13 @@
 #version 460
 #extension GL_EXT_nonuniform_qualifier : require
 
-// Background fill for the dispatch-indirect screen: one invocation per texel writes
-// an animated vignette gradient into the storage image, the canvas the indirectly
-// dispatched survivor splats land on. Storage-image bindless: the heap's binding-4
-// image array, indexed from the root record.
 layout(local_size_x = 8, local_size_y = 8) in;
 
 layout(set = 0, binding = 4, rgba8) uniform writeonly image2D u_images[];
 
 layout(push_constant, std430) uniform Root
 {
-    uint  image; // storage-image slot
+    uint  image;
     uint  w;
     uint  h;
     float time;

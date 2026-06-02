@@ -19,8 +19,6 @@ bool bindless_present_init(Bindless_Present* bp, Mel_Gpu_Device* dev, Mel_Gpu_Fo
         return false;
     bp->shader = sh.value;
 
-    // Reflection marks this bindless (set-0 runtime arrays); the 8-byte root record
-    // (tex slot, sampler slot) sizes the push constant.
     Mel_Gpu_Pipeline_Create_Result pipe = mel_gpu_pipeline_create(dev, .shader = bp->shader, .topology = MEL_GPU_TOPOLOGY_TRIANGLE_LIST, .cull = MEL_GPU_CULL_NONE, .color_format = color_format, .name = "blit");
     if (mel_gpu_failed(pipe.status))
         return false;

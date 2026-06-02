@@ -1,16 +1,11 @@
 #version 460
 #extension GL_EXT_nonuniform_qualifier : require
 
-// Pass C of the dispatch-indirect screen, reached through cmd_dispatch_indirect with
-// the workgroup count Pass B wrote. One invocation per *survivor* (so the dispatch
-// is exactly sized to the live set): it re-derives the survivor's animated position
-// and splats a soft additive disc into the storage image. The cull region's edge is
-// drawn faintly so the culling is legible.
 layout(local_size_x = 64) in;
 
 struct Agent
 {
-    vec4 pos_phase; // xy = base position (NDC), z = orbit radius, w = phase
+    vec4 pos_phase;
 };
 
 layout(set = 0, binding = 2, std430) readonly buffer Agents { Agent a[]; } agents_buf[];
@@ -22,7 +17,7 @@ layout(push_constant, std430) uniform Root
     uint  agents;
     uint  survivors;
     uint  image;
-    uint  total;     // agent count, for the hue
+    uint  total;
     uint  w;
     uint  h;
     float time;
@@ -40,7 +35,6 @@ void main()
     float ang = ag.pos_phase.w + root.time * 0.6;
     vec2  p = ag.pos_phase.xy + ag.pos_phase.z * vec2(cos(ang), sin(ang));
 
-    // NDC [-1,1] to pixel.
     vec2 centre = (p * 0.5 + 0.5) * vec2(root.w, root.h);
     float hue = float(i) / float(root.total);
     vec3  col = 0.5 + 0.5 * cos(6.2831 * (hue + vec3(0.0, 0.33, 0.67)));

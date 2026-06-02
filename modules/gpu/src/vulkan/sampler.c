@@ -5,9 +5,6 @@
 
 #include <string.h>
 
-// U11 samplers (gpu-rhi.md §6.3). Auto-deduplicating: one VkSampler per unique descriptor across the
-// device, reference-counted. The descriptor is a closed protocol mapping onto the backend sampler object.
-
 static VkFilter mel_gpu__filter(Mel_Gpu_Filter f) { return f == MEL_GPU_FILTER_LINEAR ? VK_FILTER_LINEAR : VK_FILTER_NEAREST; }
 static VkSamplerMipmapMode mel_gpu__mip(Mel_Gpu_Mipmap_Mode m) { return m == MEL_GPU_MIPMAP_LINEAR ? VK_SAMPLER_MIPMAP_MODE_LINEAR : VK_SAMPLER_MIPMAP_MODE_NEAREST; }
 
@@ -41,7 +38,6 @@ static VkBorderColor mel_gpu__border(Mel_Gpu_Border_Color b)
     }
 }
 
-// Resolve the request into the canonical key (clamps anisotropy to the device limit), then hash the key.
 static Mel_Gpu_Sampler_Key mel_gpu__sampler_key(Mel_Gpu_Device* dev, Mel_Gpu_Sampler_Opt opt)
 {
     f32 aniso = opt.max_anisotropy;
@@ -67,7 +63,7 @@ static Mel_Gpu_Sampler_Key mel_gpu__sampler_key(Mel_Gpu_Device* dev, Mel_Gpu_Sam
 static u64 mel_gpu__hash_key(const Mel_Gpu_Sampler_Key* k)
 {
     const u8* p = (const u8*)k;
-    u64       h = 1469598103934665603ull; // FNV-1a 64
+    u64       h = 1469598103934665603ull;
     for (usize i = 0; i < sizeof *k; i++)
     {
         h ^= p[i];
@@ -90,13 +86,10 @@ Mel_Gpu_Sampler_Create_Result mel_gpu_sampler_create_opt(Mel_Gpu_Device* dev, Me
 
     mel_mutex_lock(&dev->sampler_lock);
 
-    // Dedup: an identical descriptor returns the shared handle and takes one more logical claim.
     for (u32 i = 0; i < dev->sampler_intern_count; i++)
     {
         if (dev->sampler_interns[i].hash != hash)
             continue;
-        // BUG-1: snapshot the interned record under obj_lock to compare the key, then take the claim with an
-        // obj_lock-guarded read-modify-write (refcount is the one mutated field — never write back a copy).
         Mel_Gpu_Sampler_Obj snap;
         if (mel_gpu__table_get_copy(dev, &dev->samplers, dev->sampler_interns[i].handle, &snap) && memcmp(&snap.key, &key, sizeof key) == 0)
         {
@@ -143,10 +136,6 @@ Mel_Gpu_Sampler_Create_Result mel_gpu_sampler_create_opt(Mel_Gpu_Device* dev, Me
     obj.refcount = 1;
     Mel_SlotMap_Handle h = mel_gpu__table_insert(dev, &dev->samplers, &obj);
 
-    // CRITICAL-1: the sampler's heap slot is its handle index (§3.1), and the sampler class cap is the smallest
-    // (the realistic over-cap trip wire). Pre-flight before committing the intern entry; an over-cap slot fails
-    // the create loudly (BindlessSlotExhausted) and rolls back rather than registering an unbound slot
-    // (MEL-ENGINE-VIII). Checked under the sampler lock alongside the insert it would roll back.
     if (!mel_gpu__bindless_slot_fits(dev, MEL_GPU_BINDLESS_BINDING_SAMPLER, h.index))
     {
         mel_gpu__table_remove(dev, &dev->samplers, h);
@@ -167,7 +156,6 @@ Mel_Gpu_Sampler_Create_Result mel_gpu_sampler_create_opt(Mel_Gpu_Device* dev, Me
 
     mel_mutex_unlock(&dev->sampler_lock);
 
-    // U14: the sampler's persistent heap slot is its handle index (direct contract, §3.1).
     mel_gpu__bindless_register_sampler(dev, h.index, vk);
 
     res.value.slot = h;
@@ -176,13 +164,10 @@ Mel_Gpu_Sampler_Create_Result mel_gpu_sampler_create_opt(Mel_Gpu_Device* dev, Me
 
 void mel_gpu_sampler_destroy(Mel_Gpu_Device* dev, Mel_Gpu_Sampler sampler)
 {
-    // §3.7: sampler_destroy is SerializedPerObject on the destroyed handle (the dedup claim release).
     const void* trk = mel_gpu__track_key(&dev->samplers, sampler.slot.index);
     mel_gpu__track_enter(dev, trk, MEL_GPU_CONCURRENCY_SERIALIZED_PER_OBJECT);
 
     mel_mutex_lock(&dev->sampler_lock);
-    // BUG-1: snapshot the record for vk/hash, then release one claim with the obj_lock-guarded mutator. The
-    // sampler_lock serializes the dedup table so the snapshot's vk/hash cannot drift before the unlink below.
     Mel_Gpu_Sampler_Obj snap;
     if (!mel_gpu__table_get_copy(dev, &dev->samplers, sampler.slot, &snap))
     {
@@ -194,7 +179,6 @@ void mel_gpu_sampler_destroy(Mel_Gpu_Device* dev, Mel_Gpu_Sampler sampler)
     mel_gpu__sampler_refcount_add(dev, sampler.slot, -1, &after);
     if (after > 0)
     {
-        // Other logical claims remain; the slot and descriptor stay live.
         mel_mutex_unlock(&dev->sampler_lock);
         mel_gpu__track_exit(dev, trk);
         return;
@@ -211,8 +195,6 @@ void mel_gpu_sampler_destroy(Mel_Gpu_Device* dev, Mel_Gpu_Sampler sampler)
     mel_gpu__table_remove_deferred(dev, &dev->samplers, sampler.slot);
     mel_mutex_unlock(&dev->sampler_lock);
 
-    // U3/U14: the descriptor may still be sampled by an in-flight submission — free the VkSampler and
-    // reclaim the heap slot index only after it retires (gpu-rhi.md §3.3).
     mel_gpu__defer_free(dev, (Mel_Gpu_Deferred_Free){ .sampler = vk, .reclaim_table = &dev->samplers, .reclaim_index = sampler.slot.index, .has_reclaim = true });
     mel_gpu__track_exit(dev, trk);
 }
@@ -220,7 +202,7 @@ void mel_gpu_sampler_destroy(Mel_Gpu_Device* dev, Mel_Gpu_Sampler sampler)
 bool mel_gpu_sampler_alive(Mel_Gpu_Device* dev, Mel_Gpu_Sampler sampler)
 {
     mel_mutex_lock(&dev->sampler_lock);
-    bool alive = mel_gpu__table_alive(dev, &dev->samplers, sampler.slot); // BUG-1: no interior pointer escapes
+    bool alive = mel_gpu__table_alive(dev, &dev->samplers, sampler.slot);
     mel_mutex_unlock(&dev->sampler_lock);
     return alive;
 }
@@ -232,14 +214,10 @@ u32 mel_gpu_sampler_bindless_slot(Mel_Gpu_Device* dev, Mel_Gpu_Sampler sampler)
     return sampler.slot.index;
 }
 
-// U11/U13: a pipeline with a static (immutable) sampler must keep that sampler alive for its lifetime
-// (gpu-rhi.md §6.3 — the lifetime was previously the caller's unenforced contract). pipeline_create takes
-// one claim per static sampler; pipeline_destroy releases it, so a user destroying their own handle does not
-// free the VkSampler out from under a live pipeline.
 bool mel_gpu__sampler_retain(Mel_Gpu_Device* dev, Mel_Gpu_Sampler sampler)
 {
     mel_mutex_lock(&dev->sampler_lock);
-    bool ok = mel_gpu__sampler_refcount_add(dev, sampler.slot, +1, NULL); // BUG-1: obj_lock-guarded RMW
+    bool ok = mel_gpu__sampler_refcount_add(dev, sampler.slot, +1, NULL);
     mel_mutex_unlock(&dev->sampler_lock);
     return ok;
 }
@@ -247,7 +225,7 @@ bool mel_gpu__sampler_retain(Mel_Gpu_Device* dev, Mel_Gpu_Sampler sampler)
 bool mel_gpu__sampler_get(Mel_Gpu_Device* dev, Mel_Gpu_Sampler sampler, VkSampler* out)
 {
     mel_mutex_lock(&dev->sampler_lock);
-    Mel_Gpu_Sampler_Obj snap; // BUG-1: snapshot under obj_lock; read the VkSampler from the value copy
+    Mel_Gpu_Sampler_Obj snap;
     bool                ok = mel_gpu__table_get_copy(dev, &dev->samplers, sampler.slot, &snap);
     if (ok)
         *out = snap.sampler;

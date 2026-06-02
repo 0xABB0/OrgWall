@@ -3,10 +3,6 @@
 #include <allocator/heap.h>
 #include <log/log.h>
 
-// The D3D12 debug layer is the validation analog (U21). EnableDebugLayer is process-global and must run
-// before D3D12CreateDevice, so it is armed here at instance-create when debug is requested. The layer ships
-// as the "Graphics Tools" optional Windows feature and is often absent on a clean box; absence is a warned
-// fallback, never a failure (mirrors the Vulkan validation-not-installed path).
 static bool mel_gpu__enable_debug_layer(void)
 {
     ID3D12Debug* dbg = NULL;
@@ -26,8 +22,6 @@ Mel_Gpu_Instance* mel_gpu_instance_create_opt(Mel_Gpu_Instance_Opt opt)
     if (want_debug && !debug_layer)
         mel_log_warn("gpu", "D3D12 debug layer requested but unavailable (install the Graphics Tools feature)");
 
-    // A debug DXGI factory needs dxgidebug to be present; if it is not, retry without the flag rather than
-    // fail the instance (the validation-retry shape from the Vulkan backend).
     UINT           flags = debug_layer ? DXGI_CREATE_FACTORY_DEBUG : 0u;
     IDXGIFactory6* factory = NULL;
     HRESULT        hr = CreateDXGIFactory2(flags, &IID_IDXGIFactory6, (void**)&factory);
@@ -49,7 +43,6 @@ Mel_Gpu_Instance* mel_gpu_instance_create_opt(Mel_Gpu_Instance_Opt opt)
     inst->alloc = alloc;
     inst->debug_layer = debug_layer;
 
-    // Enumerate by GPU preference so the high-performance (discrete) adapter is index 0.
     IDXGIAdapter1* found[16];
     u32            n = 0;
     for (UINT i = 0; n < 16; i++)

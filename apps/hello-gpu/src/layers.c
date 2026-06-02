@@ -4,23 +4,23 @@
 #include "layers.h"
 #include "quad_spv.h"
 #include "gradient_spv.h"
-#include "blit_spv.h" // BLIT_VERT_SPV: the shared attributeless fullscreen vertex stage
+#include "blit_spv.h"
 
 #define LAYER_COUNT 5
 
 typedef struct
 {
-    f32 rect[4];  // centre.xy, half-extent.xy (NDC)
-    f32 color[4]; // rgb + alpha
+    f32 rect[4];
+    f32 color[4];
 } Quad_Root;
 
 typedef struct
 {
     Mel_Gpu_Device*  dev;
-    Mel_Gpu_Shader   bg_shader;     // fullscreen vert + gradient frag
-    Mel_Gpu_Pipeline bg_pipeline;   // opaque gradient backdrop
-    Mel_Gpu_Shader   quad_shader;   // quad vert + solid frag
-    Mel_Gpu_Pipeline quad_pipeline; // alpha-blended translucent quads
+    Mel_Gpu_Shader   bg_shader;
+    Mel_Gpu_Pipeline bg_pipeline;
+    Mel_Gpu_Shader   quad_shader;
+    Mel_Gpu_Pipeline quad_pipeline;
     f64              t;
 } Layers;
 
@@ -70,12 +70,9 @@ static void layers_render(void* state, Mel_Gpu_Command_List* cmd, f64 dt)
 
     mel_gpu_cmd_begin_pass(cmd, mel_gpu_rgba(0, 0, 0, 1));
 
-    // Opaque gradient backdrop.
     mel_gpu_cmd_bind_pipeline(cmd, l->bg_pipeline);
     mel_gpu_cmd_draw(cmd, 3, 1);
 
-    // Five drifting translucent quads, each a different hue. src-over over the
-    // backdrop and over one another (MEL_GPU_BLEND_ALPHA).
     mel_gpu_cmd_bind_pipeline(cmd, l->quad_pipeline);
     static const f32 hue[LAYER_COUNT][3] = {
         { 0.95f, 0.26f, 0.21f }, { 0.18f, 0.80f, 0.44f }, { 0.20f, 0.60f, 0.86f }, { 0.95f, 0.77f, 0.06f }, { 0.61f, 0.35f, 0.71f },

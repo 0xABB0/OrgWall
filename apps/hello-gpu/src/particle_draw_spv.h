@@ -1,7 +1,5 @@
 #pragma once
 
-// Instanced particle draw: a quad per particle, centre/life/colour from the integrated storage buffer. Pair with instances.frag.
-// Regenerate: glslc -fshader-stage=vert -mfmt=c shaders/particle_draw.vert
 #include <stdint.h>
 
 static const uint32_t PARTICLE_DRAW_VERT_SPV[] =

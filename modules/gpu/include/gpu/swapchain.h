@@ -16,9 +16,6 @@ typedef struct
     bool             vsync;
 } Mel_Gpu_Swapchain_Opt;
 
-// The swapchain's current backing-image extent in pixels — the surface-clamped extent the driver actually
-// granted (which may differ from the requested width/height). A renderer sizes its offscreen targets and
-// viewport from this rather than guessing, and re-queries after a resize.
 typedef struct
 {
     u32 width;

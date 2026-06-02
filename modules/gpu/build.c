@@ -4,7 +4,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-// A persistent flag string (mel_* stores the pointer, not a copy). Configure runs once, so the leak is moot.
 static char* mel_gpu__flag(const char* prefix, const char* mid, const char* suffix)
 {
     size_t n = strlen(prefix) + strlen(mid) + strlen(suffix) + 1;
@@ -22,15 +21,12 @@ void build(Mel_Build* b)
     mel_sources(lib, WHEN(.gpu = "vulkan"), "src/vulkan/*.c");
     mel_defines(lib, MEL_PRIVATE, WHEN(.gpu = "vulkan"), "MEL_GPU_VULKAN=1");
 
-    // macOS: MoltenVK via the Homebrew loader (libvulkan) + Metal surface (Objective-C).
     mel_sources(lib, WHEN(.gpu = "vulkan", .platforms = MEL_ON(MACOS)), "src/vulkan/macos/*.m");
     mel_link(lib, MEL_PUBLIC, WHEN(.gpu = "vulkan", .platforms = MEL_ON(MACOS)), "-lvulkan");
     mel_cflags(lib, MEL_PUBLIC, WHEN(.gpu = "vulkan", .platforms = MEL_ON(MACOS)), "-I/opt/homebrew/include");
     mel_link(lib, MEL_PUBLIC, WHEN(.gpu = "vulkan", .platforms = MEL_ON(MACOS)), "-L/opt/homebrew/lib");
     mel_link(lib, MEL_PUBLIC, WHEN(.gpu = "vulkan", .platforms = MEL_ON(MACOS)), "-framework", "QuartzCore", "-framework", "Foundation");
 
-    // win32: native build (clang/MSVC ABI) against the Vulkan SDK loader (vulkan-1) + Win32 surface (gpu-rhi.md §7.4).
-    // The SDK include/lib live under %VULKAN_SDK%; vcvars does not add them, so inject them at configure time.
     mel_sources(lib, WHEN(.gpu = "vulkan", .platforms = MEL_ON(WIN32)), "src/vulkan/windows/*.c");
     mel_link(lib, MEL_PUBLIC, WHEN(.gpu = "vulkan", .platforms = MEL_ON(WIN32)), "-lvulkan-1");
     const char* vksdk = getenv("VULKAN_SDK");
@@ -40,9 +36,6 @@ void build(Mel_Build* b)
         mel_link(lib, MEL_PUBLIC, WHEN(.gpu = "vulkan", .platforms = MEL_ON(WIN32)), mel_gpu__flag("-L", vksdk, "/Lib"));
     }
 
-    // D3D12: native win32 (clang/MSVC ABI) against the in-box Windows SDK (d3d12.h / dxgi1_6.h, which vcvars
-    // already puts on INCLUDE/LIB — no SDK-path injection). dxguid.lib supplies the IID_* GUID symbols.
-    // gpu-rhi.md §12 M2 co-primary; design/gpu-d3d12.md for phasing. The Agility SDK ceiling rides later.
     mel_sources(lib, WHEN(.gpu = "d3d12", .platforms = MEL_ON(WIN32)), "src/d3d12/*.c");
     mel_defines(lib, MEL_PRIVATE, WHEN(.gpu = "d3d12"), "MEL_GPU_D3D12=1");
     mel_link(lib, MEL_PUBLIC, WHEN(.gpu = "d3d12", .platforms = MEL_ON(WIN32)), "-ld3d12", "-ldxgi", "-ldxguid");
@@ -83,9 +76,6 @@ void build(Mel_Build* b)
     mel_depends(vktest, "collection");
     mel_depends(vktest, "reactor");
 
-    // Adversarial stress / churn suite over the Vulkan backend (resource churn, bindless heap, the buddy
-    // suballocator, write/readback fuzz, deferred-free under rapid destroy, future backpressure). Same deps
-    // and the AppKit link as gpu-vulkan; the body is #if MEL_GPU_VULKAN-guarded.
     Mel_Target* stress = mel_add_test(b, "gpu-stress");
     mel_sources(stress, ALWAYS, "test/test_stress.c");
     mel_sources(stress, ALWAYS, "../../tools/test/src/runner.c");
@@ -97,10 +87,6 @@ void build(Mel_Build* b)
     mel_depends(stress, "allocator");
     mel_depends(stress, "collection");
     mel_depends(stress, "reactor");
-    // Multi-threaded concurrency suite over the Vulkan backend (gpu-rhi.md §3.7 / U36 threading contract):
-    // N real threads (thread module) exercising Concurrent resource creation, SerializedPerObject per-thread
-    // command-list recording, Concurrent distinct-resource buffer_write, the slotmap serialization measurement,
-    // and the U21 thread-safety tracker. Same deps and the AppKit link as gpu-vulkan; #if MEL_GPU_VULKAN-guarded.
     Mel_Target* conc = mel_add_test(b, "gpu-concurrency");
     mel_sources(conc, ALWAYS, "test/test_concurrency.c");
     mel_sources(conc, ALWAYS, "../../tools/test/src/runner.c");
@@ -113,8 +99,6 @@ void build(Mel_Build* b)
     mel_depends(conc, "collection");
     mel_depends(conc, "reactor");
 
-    // Visual/golden tests (--gpu=vulkan). Same scaffold as gpu-vulkan: each technique renders offscreen, reads
-    // back, pixel-asserts, AND dumps a viewable PPM. The body is #if MEL_GPU_VULKAN-guarded (skips otherwise).
     Mel_Target* vistest = mel_add_test(b, "gpu-visual");
     mel_sources(vistest, ALWAYS, "test/test_visual.c");
     mel_sources(vistest, ALWAYS, "../../tools/test/src/runner.c");
@@ -127,10 +111,6 @@ void build(Mel_Build* b)
     mel_depends(vistest, "collection");
     mel_depends(vistest, "reactor");
 
-    // Profiling / benchmark harness (--gpu=vulkan). Same scaffold as gpu-vulkan, but each mel_add_test "test"
-    // is a CPU-timed benchmark: it measures resource-create throughput, upload bandwidth, submit latency,
-    // allocator churn and bindless-heap registration cost, prints a stable human-readable line, and asserts a
-    // loose lower bound so it doubles as a perf-regression guard. The body is #if MEL_GPU_VULKAN-guarded.
     Mel_Target* bench = mel_add_test(b, "gpu-bench");
     mel_sources(bench, ALWAYS, "test/test_bench.c");
     mel_sources(bench, ALWAYS, "../../tools/test/src/runner.c");
@@ -144,8 +124,6 @@ void build(Mel_Build* b)
     mel_depends(bench, "reactor");
     mel_depends(bench, "time");
 
-    // D3D12 backend tests (win32, --gpu=d3d12). The test body is #if MEL_GPU_D3D12-guarded, so the target
-    // links to an empty 0-test runner on any non-d3d12 build and is meaningful only on win-pilot.
     Mel_Target* d3dtest = mel_add_test(b, "gpu-d3d12");
     mel_sources(d3dtest, ALWAYS, "test/test_d3d12.c");
     mel_sources(d3dtest, ALWAYS, "../../tools/test/src/runner.c");

@@ -1,8 +1,5 @@
 #pragma once
 
-// Bindless post-process fragment: chromatic aberration + vignette + tone curve,
-// sampling the offscreen scene through the heap. Pairs with BLIT_VERT_SPV.
-// Regenerate: glslc -fshader-stage=frag -mfmt=c shaders/post.frag
 #include <stdint.h>
 
 static const uint32_t POST_FRAG_SPV[] =

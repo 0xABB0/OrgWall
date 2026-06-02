@@ -3,19 +3,6 @@
 #include <gpu/pipeline.h>
 #include <log/log.h>
 
-// U13 pipelines (gpu-rhi.md §6.5) — reflection-derived root signature + PSO on D3D12. The bindless ceiling
-// is SM 6.6 dynamic resources: the root signature is just the per-draw root 32-bit constants plus the two
-// HEAP_DIRECTLY_INDEXED flags (CBV/SRV/UAV + sampler); the shader reaches every resource through
-// ResourceDescriptorHeap[i] / SamplerDescriptorHeap[i], so there are no descriptor-table root parameters and
-// the root-record payload is descriptor indices (§6.7 D3D12 contrast with Vulkan-BDA's mixed payload).
-//
-// Reflection on D3D12 is the DXIL container reader (reflect.c): it supplies the vertex-input layout
-// (semantic + format + offset, the §6.5 reflection-default). push_constant_size and the bindless flag are
-// explicit on the pipeline opt — deriving them needs the full DXC reflection blob (dxcapi.h, off the in-box
-// INCLUDE path), so they ride the §6.5 manual-layout P2 peer here (flagged). MissingBindlessSlot is
-// unreachable on D3D12: a dynamic-resource heap has no sized array a shader can over-index at create time
-// (symmetric to the Vulkan note that runtime arrays never trip it).
-
 static D3D12_BLEND mel_gpu__blend(Mel_Gpu_Blend_Factor f)
 {
     switch (f)
@@ -161,11 +148,6 @@ static D3D12_STATIC_BORDER_COLOR mel_gpu__static_border(const float c[4])
     return D3D12_STATIC_BORDER_COLOR_OPAQUE_WHITE;
 }
 
-// Build the engine root signature: per-draw root 32-bit constants (the §6.7 root record) at b0, then — for a
-// bindless pipeline — two descriptor tables (CBV/SRV/UAV heap with SRV+UAV+CBV ranges offset to each class
-// base, and the sampler heap) so the shader's per-class unbounded arrays resolve at the right heap slots.
-// DESCRIPTORS_VOLATILE permits partially-populated heaps (the bindless pattern; the Vulkan partially-bound
-// analog). Returns false on a serialize/create failure.
 static bool mel_gpu__build_root_sig(Mel_Gpu_Device* dev, bool bindless, bool is_compute, u32 pc_size, const Mel_Gpu_Static_Sampler* static_samplers, u32 static_sampler_count, ID3D12RootSignature** out)
 {
     D3D12_ROOT_PARAMETER1 params[3];
@@ -183,7 +165,7 @@ static bool mel_gpu__build_root_sig(Mel_Gpu_Device* dev, bool bindless, bool is_
     D3D12_DESCRIPTOR_RANGE1            resource_ranges[3] = {
         { .RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV, .NumDescriptors = dev->cap_sampled_image, .BaseShaderRegister = 0, .RegisterSpace = 0, .Flags = vol, .OffsetInDescriptorsFromTableStart = dev->base_sampled_image },
         { .RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV, .NumDescriptors = dev->cap_storage_buffer, .BaseShaderRegister = 0, .RegisterSpace = 0, .Flags = vol, .OffsetInDescriptorsFromTableStart = dev->base_storage_buffer },
-        { .RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_CBV, .NumDescriptors = dev->cap_uniform_buffer, .BaseShaderRegister = 1, .RegisterSpace = 0, .Flags = vol, .OffsetInDescriptorsFromTableStart = dev->base_uniform_buffer }, // b0 is root constants, so the CBV heap rides b1
+        { .RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_CBV, .NumDescriptors = dev->cap_uniform_buffer, .BaseShaderRegister = 1, .RegisterSpace = 0, .Flags = vol, .OffsetInDescriptorsFromTableStart = dev->base_uniform_buffer },
     };
     D3D12_DESCRIPTOR_RANGE1 sampler_range = { .RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER, .NumDescriptors = dev->smp_cap, .BaseShaderRegister = 0, .RegisterSpace = 0, .Flags = vol, .OffsetInDescriptorsFromTableStart = 0 };
     if (bindless)
@@ -225,8 +207,6 @@ static bool mel_gpu__build_root_sig(Mel_Gpu_Device* dev, bool bindless, bool is_
         }
     }
 
-    // Floor model: classical descriptor tables, no HEAP_DIRECTLY_INDEXED (that is the SM 6.6 ceiling the
-    // in-box Win10 runtime rejects). Only the IA-input-layout flag for graphics.
     D3D12_ROOT_SIGNATURE_FLAGS flags = is_compute ? D3D12_ROOT_SIGNATURE_FLAG_NONE : D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
 
     D3D12_VERSIONED_ROOT_SIGNATURE_DESC vdesc = { .Version = D3D_ROOT_SIGNATURE_VERSION_1_1 };
@@ -274,7 +254,7 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_create_opt(Mel_Gpu_Device* dev, 
         return res;
     }
 
-    bool bindless = opt.bindless; // explicit on D3D12 (no reflected dynamic-resource detection) — flagged
+    bool bindless = opt.bindless;
     u32  pc_size = opt.push_constant_size;
 
     if (bindless && !dev->bindless_enabled)
@@ -300,7 +280,6 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_create_opt(Mel_Gpu_Device* dev, 
         return res;
     }
 
-    // Vertex input: explicit layout (TEXCOORD<location> semantic convention) or the reflection default.
     u32                       input_count = 0;
     u32                       vertex_stride = 0;
     D3D12_INPUT_ELEMENT_DESC* elems = NULL;
@@ -327,7 +306,6 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_create_opt(Mel_Gpu_Device* dev, 
     pso.PS = (D3D12_SHADER_BYTECODE){ .pShaderBytecode = sh->fs, .BytecodeLength = sh->fs_size };
     pso.SampleMask = 0xFFFFFFFFu;
 
-    // Blend (MRT or single opaque target).
     pso.BlendState.AlphaToCoverageEnable = opt.alpha_to_coverage;
     pso.BlendState.IndependentBlendEnable = opt.color_target_count > 1;
     u32 rt_count = 0;
@@ -360,7 +338,6 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_create_opt(Mel_Gpu_Device* dev, 
     }
     pso.NumRenderTargets = rt_count;
 
-    // Rasterizer.
     pso.RasterizerState = (D3D12_RASTERIZER_DESC){
         .FillMode = opt.fill == MEL_GPU_FILL_WIREFRAME ? D3D12_FILL_MODE_WIREFRAME : D3D12_FILL_MODE_SOLID,
         .CullMode = opt.cull == MEL_GPU_CULL_FRONT ? D3D12_CULL_MODE_FRONT : (opt.cull == MEL_GPU_CULL_BACK ? D3D12_CULL_MODE_BACK : D3D12_CULL_MODE_NONE),
@@ -375,7 +352,6 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_create_opt(Mel_Gpu_Device* dev, 
     if (opt.fill == MEL_GPU_FILL_POINT)
         mel_log_warn("gpu", "pipeline_create: point fill has no D3D12 mode; using solid");
 
-    // Depth/stencil (explicit or the depth_format-derived default).
     bool has_depth = opt.depth_format != MEL_GPU_FORMAT_UNDEFINED;
     if (opt.depth_stencil)
     {
@@ -524,8 +500,6 @@ void mel_gpu_pipeline_destroy(Mel_Gpu_Device* dev, Mel_Gpu_Pipeline pipe)
     u32                   static_count = o->static_sampler_count;
 
     mel_gpu__table_remove(dev, &dev->pipelines, pipe.slot);
-    // Defer the COM objects past in-flight submissions (§3.3), then release the static-sampler claims so a
-    // sampler whose last claim was this pipeline retires no earlier than the pipeline (public §6.3 contract).
     mel_gpu__defer_free(dev, (Mel_Gpu_Deferred_Free){ .pso = pso, .root_sig = rs });
     if (statics)
     {

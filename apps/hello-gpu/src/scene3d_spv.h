@@ -1,8 +1,5 @@
 #pragma once
 
-// Depth-tested scene geometry: clip-space-ready vertices (Pt_Vertex layout),
-// solid shaded colour. Rendered with a real D32 depth attachment.
-// Regenerate: glslc -fshader-stage={vert,frag} -mfmt=c shaders/scene3d.{vert,frag}
 #include <stdint.h>
 
 static const uint32_t SCENE3D_VERT_SPV[] =

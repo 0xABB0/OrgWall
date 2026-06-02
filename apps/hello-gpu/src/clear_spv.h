@@ -1,7 +1,5 @@
 #pragma once
 
-// Dispatch-indirect background: per-texel vignette into the bindless storage image (binding 4).
-// Regenerate: glslc -fshader-stage=comp -mfmt=c shaders/clear.comp
 #include <stdint.h>
 
 static const uint32_t CLEAR_COMP_SPV[] =

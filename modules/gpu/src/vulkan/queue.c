@@ -140,17 +140,9 @@ Mel_Gpu_Future* mel_gpu_queue_submit(Mel_Gpu_Queue* q, Mel_Gpu_Submit submit)
     mel_assert(q && "queue_submit: null queue");
     Mel_Gpu_Device* dev = q->dev;
 
-    // §3.7 / BUG-2: queue_submit is SerializedPerObject on the queue UNLESS the queue was acquired
-    // internally_synchronized (§5.2), in which case it is Concurrent. The class is reported (not asserted) on a
-    // genuine cross-thread misuse of a serialized queue. Released before the (possibly blocking) fence wait
-    // below so the bracket spans only the producer-side ownership window, not the GPU completion wait.
     Mel_Gpu_Concurrency submit_class = q->internally_synchronized ? MEL_GPU_CONCURRENCY_CONCURRENT : MEL_GPU_CONCURRENCY_SERIALIZED_PER_OBJECT;
     mel_gpu__track_enter(dev, q, submit_class);
 
-    // MAJOR-5: a positive command_list_count with a null array (or a null entry) is a contract violation, not
-    // a silent null-deref. Fail loudly in debug (MEL-ENGINE-VIII); in release, treat as an empty (no-op) submit
-    // — still consuming a serial that the future resolves — rather than dereferencing garbage. count==0 with a
-    // null array is the legitimate empty submit (a fence-only sync point).
     if (submit.command_list_count && !submit.command_lists)
     {
         mel_log_error("gpu", "queue_submit: command_list_count=%u but command_lists is NULL", submit.command_list_count);
@@ -160,9 +152,6 @@ Mel_Gpu_Future* mel_gpu_queue_submit(Mel_Gpu_Queue* q, Mel_Gpu_Submit submit)
 
     u64 serial = mel_gpu__submit_serial_next(dev);
 
-    // The command-buffer array is sized to command_list_count from the device allocator (MEL-CODE-002), not a
-    // fixed [8] stack array — matching the dynamic attachment-array fix in cmd_begin_rendering. No hardware cap
-    // is encoded as a silent stride; a batch of any size is one allocation, freed after the submit records it.
     VkCommandBuffer* cbs = submit.command_list_count ? mel_alloc_array(dev->alloc, VkCommandBuffer, submit.command_list_count) : NULL;
     for (u32 i = 0; i < submit.command_list_count; i++)
     {
@@ -189,7 +178,7 @@ Mel_Gpu_Future* mel_gpu_queue_submit(Mel_Gpu_Queue* q, Mel_Gpu_Submit submit)
     mel_mutex_lock(&dev->submit_lock);
     VkResult r = vkQueueSubmit(q->vk, 1, &si, fence);
     mel_mutex_unlock(&dev->submit_lock);
-    mel_gpu__track_exit(dev, q); // producer-side submit window ends; the GPU-completion wait below is not owned
+    mel_gpu__track_exit(dev, q);
 
     if (cbs)
         mel_dealloc(dev->alloc, cbs);
@@ -200,7 +189,6 @@ Mel_Gpu_Future* mel_gpu_queue_submit(Mel_Gpu_Queue* q, Mel_Gpu_Submit submit)
     {
         mel_gpu__device_is_lost(dev, r, "queue_submit");
         vkDestroyFence(dev->vk, fence, NULL);
-        // Submission never runs: nothing references this batch's resources, so retire its serial now.
         mel_gpu__submit_complete(dev, serial);
         mel_gpu_future_resolve(f, NULL, MEL_GPU_STATUS(1, MEL_GPU_SEVERITY_ERROR));
         return f;

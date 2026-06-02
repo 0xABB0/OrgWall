@@ -7,7 +7,7 @@
 #include "quad_spv.h"
 #include "gradient_spv.h"
 #include "post_spv.h"
-#include "blit_spv.h" // BLIT_VERT_SPV: shared fullscreen vertex stage
+#include "blit_spv.h"
 
 #define OFF_W       1024
 #define OFF_H       768
@@ -32,7 +32,6 @@ typedef struct
 {
     Mel_Gpu_Device*      dev;
     bool                 ready;
-    // Offscreen scene.
     Mel_Gpu_Texture      scene;
     Mel_Gpu_Texture_View scene_view;
     u32                  scene_slot;
@@ -40,11 +39,10 @@ typedef struct
     Mel_Gpu_Pipeline     bg_pipeline;
     Mel_Gpu_Shader       quad_shader;
     Mel_Gpu_Pipeline     quad_pipeline;
-    // Post pass.
     Mel_Gpu_Shader       post_shader;
     Mel_Gpu_Pipeline     post_pipeline;
     Mel_Gpu_Sampler      sampler;
-    bool                 first_frame; // the frame command list's state tracker persists across frames
+    bool                 first_frame;
     f64                  t;
 } Post;
 
@@ -72,7 +70,6 @@ static void* post_init(Mel_Gpu_Device* dev, Mel_Gpu_Swapchain* sc)
     p->scene_view = mel_gpu_texture_default_view(dev, p->scene).value;
     p->scene_slot = mel_gpu_texture_view_bindless_slot(dev, p->scene_view);
 
-    // Offscreen scene pipelines render into RGBA8_UNORM (the scene texture format).
     p->bg_shader = mel_gpu_shader_create_from_bytecode(dev,
                                                        .spirv_vertex = BLIT_VERT_SPV,
                                                        .spirv_vertex_size = sizeof BLIT_VERT_SPV,
@@ -104,7 +101,6 @@ static void* post_init(Mel_Gpu_Device* dev, Mel_Gpu_Swapchain* sc)
                                                .name = "scene-quad")
                            .value;
 
-    // Post pipeline renders into the swapchain format.
     p->post_shader = mel_gpu_shader_create_from_bytecode(dev,
                                                          .spirv_vertex = BLIT_VERT_SPV,
                                                          .spirv_vertex_size = sizeof BLIT_VERT_SPV,
@@ -140,12 +136,9 @@ static void post_render(void* state, Mel_Gpu_Command_List* cmd, f64 dt)
 
     Mel_Gpu_Subresource_Range range = { MEL_GPU_ASPECT_COLOR, 0, 1, 0, 1 };
 
-    // The frame command list's state tracker persists across frames: the scene
-    // texture is COMMON on the first frame, SHADER_RESOURCE thereafter.
     Mel_Gpu_Resource_State scene_src = p->first_frame ? MEL_GPU_STATE_COMMON : MEL_GPU_STATE_SHADER_RESOURCE;
     p->first_frame = false;
 
-    // Pass 1: render the scene into the offscreen texture.
     mel_gpu_cmd_texture_barrier(cmd, p->scene, range, scene_src, MEL_GPU_STATE_RENDER_TARGET);
     Mel_Gpu_Color_Attachment color = { .view = p->scene_view, .load = MEL_GPU_LOAD_CLEAR, .store = MEL_GPU_STORE_STORE, .clear = mel_gpu_rgba(0, 0, 0, 1) };
     mel_gpu_cmd_begin_rendering(cmd, .colors = &color, .color_count = 1, .width = OFF_W, .height = OFF_H);
@@ -170,7 +163,6 @@ static void post_render(void* state, Mel_Gpu_Command_List* cmd, f64 dt)
     }
     mel_gpu_cmd_end_rendering(cmd);
 
-    // Pass 2: fullscreen post-process into the swapchain, sampling the scene.
     mel_gpu_cmd_texture_barrier(cmd, p->scene, range, MEL_GPU_STATE_RENDER_TARGET, MEL_GPU_STATE_SHADER_RESOURCE);
 
     Post_Root root = {

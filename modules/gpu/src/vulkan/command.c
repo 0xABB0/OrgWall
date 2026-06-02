@@ -10,7 +10,6 @@ void mel_gpu_frame_begin(Mel_Gpu_Swapchain* sc)
 
     vkWaitForFences(dev->vk, 1, &sc->in_flight[frame], VK_TRUE, UINT64_MAX);
 
-    // This frame slot's prior submission has now completed: advance the retirement watermark past it.
     if (sc->frame_serial[frame])
         mel_gpu__submit_complete(dev, sc->frame_serial[frame]);
 
@@ -37,11 +36,6 @@ void mel_gpu_frame_begin(Mel_Gpu_Swapchain* sc)
     sc->current_image = image;
     sc->recorder.cb = cb;
     sc->recorder.cur_layout = VK_NULL_HANDLE;
-    // U17 (gpu-rhi.md §7.3): the embedded frame recorder is a fresh recording each frame, just like a
-    // standalone command_list_begin — reset its per-subresource state tracker so first-touch accepts the
-    // declared source state. Without this the tracker persisted across frames, so re-declaring
-    // Common→RenderTarget every frame falsely tripped the state-mismatch assert (it had recorded the prior
-    // frame's Present as the last state). The command buffer itself was already reset above.
     sc->recorder.state_count = 0;
     sc->frame_ok = true;
 }
@@ -103,7 +97,6 @@ void mel_gpu_cmd_begin_pass(Mel_Gpu_Command_List* cmd, Mel_Gpu_Color clear)
 
     if (dev->dynamic_rendering)
     {
-        // U16: bring the freshly-acquired swapchain image to COLOR_ATTACHMENT and render dynamically.
         VkImageMemoryBarrier to_color = {
             .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
             .srcAccessMask = 0,
@@ -189,7 +182,7 @@ void mel_gpu_cmd_end_pass(Mel_Gpu_Command_List* cmd)
 
 void mel_gpu_cmd_bind_pipeline(Mel_Gpu_Command_List* cmd, Mel_Gpu_Pipeline pipe)
 {
-    Mel_Gpu_Pipeline_Obj o; // BUG-1: snapshot the pipeline record under obj_lock before any field read
+    Mel_Gpu_Pipeline_Obj o;
     if (!mel_gpu__pipeline_obj(cmd->dev, pipe, &o))
     {
         mel_assert(!"bind_pipeline: invalid pipeline handle");
@@ -197,11 +190,8 @@ void mel_gpu_cmd_bind_pipeline(Mel_Gpu_Command_List* cmd, Mel_Gpu_Pipeline pipe)
     }
     vkCmdBindPipeline(cmd->cb, o.bind_point, o.pipeline);
     cmd->cur_layout = o.layout;
-    cmd->cur_bind_point = o.bind_point; // U13: graphics or compute
+    cmd->cur_bind_point = o.bind_point;
     cmd->cur_pc_stages = o.pc_stages;
-    // U14: a bindless pipeline reads the device heap at set 0; bind it so the simple path (bind a pipeline,
-    // push the root record, draw/dispatch) just works (MEL-ENGINE-II). The explicit cmd_bind_bindless is the
-    // P2 peer. The bind point follows the pipeline kind, so compute and graphics share one path.
     if (o.bindless && cmd->dev->bindless.enabled)
         vkCmdBindDescriptorSets(cmd->cb, o.bind_point, o.layout, 0, 1, &cmd->dev->bindless.set, 0, NULL);
 }
@@ -232,8 +222,6 @@ void mel_gpu_cmd_bind_index_buffer(Mel_Gpu_Command_List* cmd, Mel_Gpu_Buffer buf
 void mel_gpu_cmd_push_constants(Mel_Gpu_Command_List* cmd, u32 offset, u32 bytes, const void* data)
 {
     mel_assert(cmd->cur_layout != VK_NULL_HANDLE);
-    // U13: the push-constant stage mask follows the bound pipeline (VERTEX|FRAGMENT for graphics, COMPUTE for
-    // compute), so the same call serves both bind points.
     vkCmdPushConstants(cmd->cb, cmd->cur_layout, cmd->cur_pc_stages, offset, bytes, data);
 }
 
@@ -251,8 +239,6 @@ void mel_gpu_cmd_dispatch_indirect(Mel_Gpu_Command_List* cmd, Mel_Gpu_Buffer arg
         mel_assert(!"cmd_dispatch_indirect: invalid args buffer handle");
         return;
     }
-    // The args buffer must be in INDIRECT_ARGUMENT (cmd_buffer_barrier) before this call; the read is a
-    // VK_ACCESS_INDIRECT_COMMAND_READ at the DRAW_INDIRECT stage (gpu-rhi.md §7.1 / §7.3).
     vkCmdDispatchIndirect(cmd->cb, vk, (VkDeviceSize)offset);
 }
 

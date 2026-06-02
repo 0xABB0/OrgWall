@@ -1,9 +1,6 @@
 #version 460
 #extension GL_EXT_nonuniform_qualifier : require
 
-// Reads the compute-produced plasma colours out of a heap-resident storage
-// buffer, one colour per instance, and lays out a grid of quad cells. The cell
-// index is gl_InstanceIndex; the quad corners come from gl_VertexIndex.
 layout(set = 0, binding = 2, std430) readonly buffer Cells
 {
     vec4 color[];

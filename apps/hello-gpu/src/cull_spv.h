@@ -1,7 +1,5 @@
 #pragma once
 
-// Dispatch-indirect Pass A (cull): append survivors + atomic count, GPU-only total.
-// Regenerate: glslc -fshader-stage=comp -mfmt=c shaders/cull.comp
 #include <stdint.h>
 
 static const uint32_t CULL_COMP_SPV[] =

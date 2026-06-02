@@ -11,7 +11,7 @@
 
 typedef struct
 {
-    f32 pos_scale[4]; // centre.xy (NDC), half-size, unused
+    f32 pos_scale[4];
     f32 color[4];
 } Instance;
 
@@ -55,8 +55,6 @@ static void* instances_init(Mel_Gpu_Device* dev, Mel_Gpu_Swapchain* sc)
                                                      .fragment_entry = "main",
                                                      .name = "instances")
                      .value;
-    // Reflection marks this bindless (set-0 storage-buffer runtime array used in the
-    // vertex stage); the 8-byte root record sizes the push constant.
     in->pipeline = mel_gpu_pipeline_create(dev, .shader = in->shader, .topology = MEL_GPU_TOPOLOGY_TRIANGLE_LIST, .cull = MEL_GPU_CULL_NONE, .color_format = mel_gpu_swapchain_format(sc), .name = "instances").value;
 
     for (i32 i = 0; i < VBO_FRAMES; ++i)
@@ -90,13 +88,11 @@ static void instances_render(void* state, Mel_Gpu_Command_List* cmd, f64 dt)
         return;
     }
 
-    // Animate the swarm on the CPU, round-robin across upload buffers so a write
-    // never races an in-flight draw.
     Instance* items = malloc(INSTANCE_COUNT * sizeof(Instance));
     for (i32 i = 0; i < INSTANCE_COUNT; ++i)
     {
         f32 fi = (f32)i;
-        f32 a = fi * 2.3999632f + (f32)in->t * 0.4f; // golden-angle spiral
+        f32 a = fi * 2.3999632f + (f32)in->t * 0.4f;
         f32 r = 0.05f + 0.9f * sqrtf(fi / (f32)INSTANCE_COUNT);
         f32 x = r * cosf(a);
         f32 y = r * sinf(a);

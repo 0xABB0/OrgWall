@@ -6,19 +6,6 @@
 
 #include <log/log.h>
 
-// U18 DXGI flip-model swapchain (gpu-rhi.md §7.4; design/gpu-d3d12.md Phase 4). The Vulkan reference shape is
-// src/vulkan/swapchain.c + src/vulkan/command.c (the frame loop). Here the swapchain *is* the present surface
-// (DXGI has no separate VkSurfaceKHR object): CreateSwapChainForHwnd over the window's HWND with
-// DXGI_SWAP_EFFECT_FLIP_DISCARD — the only modern, low-latency, tearing-capable model the in-box runtime
-// offers (the legacy BitBlt models are MEL-ENGINE-VII "broken shadow" we refuse). Back buffers carry an RTV
-// each in a dedicated CPU RTV heap; the per-frame command allocator/list pairs are fenced on the device
-// timeline serial (frames_in_flight deep). Present is sync-interval 1 (vsync) or 0 (+ALLOW_TEARING when the
-// surface supports it). No depth: the swapchain owns only its color targets; a depth target is the app's
-// (cf. the Vulkan swapchain, which is also color-only).
-
-// ---- device-lost (gpu-rhi.md §3.4). DXGI present/submit can surface a removed/hung/reset device; report it
-// once, fire the user callback, and latch `lost` so teardown skips the drain. Mirrors the Vulkan
-// mel_gpu__device_is_lost. ----
 bool mel_gpu__device_is_lost(Mel_Gpu_Device* dev, HRESULT hr, const char* where)
 {
     if (hr != DXGI_ERROR_DEVICE_REMOVED && hr != DXGI_ERROR_DEVICE_RESET && hr != DXGI_ERROR_DEVICE_HUNG)
@@ -42,11 +29,6 @@ static bool mel_gpu__tearing_supported(Mel_Gpu_Instance* inst)
     return allow == TRUE;
 }
 
-// §6.5 format selection: the requested format if it is a presentable flip-model color format, else the
-// flip-model default B8G8R8A8_UNORM. FLIP_DISCARD forbids _SRGB back-buffer formats and typeless/depth, so an
-// unrequestable or unsupported format is rejected to the UNORM default rather than silently honored
-// (MEL-ENGINE-VIII). Only the two 8-bit UNORM color formats the backend's DXGI map produces are presentable;
-// a wide-gamut HDR back-buffer (R10G10B10A2 / RGBA16F) rides the HDR-output tier once those mel formats exist.
 static DXGI_FORMAT mel_gpu__present_format(Mel_Gpu_Format requested, Mel_Gpu_Format* out_mel)
 {
     DXGI_FORMAT want = requested == MEL_GPU_FORMAT_UNDEFINED ? DXGI_FORMAT_UNKNOWN : mel_gpu__dxgi_format(requested);
@@ -59,8 +41,6 @@ static DXGI_FORMAT mel_gpu__present_format(Mel_Gpu_Format requested, Mel_Gpu_For
     return DXGI_FORMAT_B8G8R8A8_UNORM;
 }
 
-// Acquire the back-buffer resources + their RTVs after create/resize. The swapchain owns a ref on each back
-// buffer (GetBuffer AddRefs); released in mel_gpu__buffers_teardown.
 static bool mel_gpu__buffers_acquire(Mel_Gpu_Swapchain* sc)
 {
     Mel_Gpu_Device* dev = sc->dev;
@@ -98,10 +78,6 @@ static D3D12_CPU_DESCRIPTOR_HANDLE mel_gpu__back_rtv(Mel_Gpu_Swapchain* sc, u32 
     return rtv;
 }
 
-// Common setup once a DXGI flip-model swapchain object exists (from the HWND production path or the
-// composition headless-test path): adopt the IDXGISwapChain3, build the RTV heap + back-buffer RTVs, and
-// allocate the per-frame command pairs. Consumes `sc1` (releases it). Returns the swapchain or NULL (after
-// teardown). `sc` is already populated with width/height/format/vsync/allow_tearing/recorder.
 static Mel_Gpu_Swapchain* mel_gpu__swapchain_finish(Mel_Gpu_Swapchain* sc, IDXGISwapChain1* sc1)
 {
     Mel_Gpu_Device* dev = sc->dev;
@@ -127,8 +103,6 @@ static Mel_Gpu_Swapchain* mel_gpu__swapchain_finish(Mel_Gpu_Swapchain* sc, IDXGI
         return NULL;
     }
 
-    // Per-frame command allocator/list pairs (frames_in_flight deep). Each is created closed; frame_begin
-    // resets it. The single-use contract is the same as the U15 standalone path; the fence serial gates reuse.
     sc->allocators = mel_alloc_array(dev->alloc, ID3D12CommandAllocator*, sc->frames_in_flight);
     sc->lists = mel_alloc_array(dev->alloc, ID3D12GraphicsCommandList*, sc->frames_in_flight);
     sc->frame_serial = mel_alloc_array(dev->alloc, u64, sc->frames_in_flight);
@@ -163,7 +137,7 @@ static void mel_gpu__swapchain_common_init(Mel_Gpu_Swapchain* sc, Mel_Gpu_Device
     sc->vsync = opt.vsync;
     sc->width = opt.width > 0 ? (u32)opt.width : 1;
     sc->height = opt.height > 0 ? (u32)opt.height : 1;
-    sc->buffer_count = 2; // FLIP_DISCARD requires >= 2; double-buffered floor (triple is an additive tier)
+    sc->buffer_count = 2;
     sc->frames_in_flight = 2;
     sc->format = mel_gpu__present_format(opt.format, &sc->mel_format);
     sc->allow_tearing = !opt.vsync && mel_gpu__tearing_supported(dev->instance);
@@ -198,11 +172,6 @@ Mel_Gpu_Swapchain* mel_gpu_swapchain_create_opt(Mel_Gpu_Device* dev, Mel_Gpu_Swa
     Mel_Gpu_Swapchain* sc = mel_alloc_type(dev->alloc, Mel_Gpu_Swapchain);
     mel_gpu__swapchain_common_init(sc, dev, opt);
 
-    // The swapchain presents from the DIRECT command queue (flip-model swapchains create against the queue,
-    // not the device). Fullscreen-transitions are disabled — Alt+Enter handling is the app's (the window
-    // module owns the window); MakeWindowAssociation(NO_ALT_ENTER) keeps DXGI out of the message loop.
-    // Tearing is best-effort: some windows/sessions report the feature but reject the ALLOW_TEARING swapchain
-    // flag with DXGI_ERROR_INVALID_CALL, so a tearing-flag failure retries vsync-capable (MEL-ENGINE-VII).
     DXGI_SWAP_CHAIN_DESC1 scd = mel_gpu__swapchain_desc(sc);
     IDXGISwapChain1*      sc1 = NULL;
     HRESULT               hr = IDXGIFactory6_CreateSwapChainForHwnd(dev->instance->factory, (IUnknown*)dev->direct_queue, (HWND)opt.surface->hwnd, &scd, NULL, NULL, &sc1);
@@ -223,11 +192,6 @@ Mel_Gpu_Swapchain* mel_gpu_swapchain_create_opt(Mel_Gpu_Device* dev, Mel_Gpu_Swa
     return mel_gpu__swapchain_finish(sc, sc1);
 }
 
-// Test-only headless swapchain (gpu-d3d12 swapchain test): a non-interactive (SSH service) window station has
-// no DWM, so CreateSwapChainForHwnd fails with DXGI_ERROR_INVALID_CALL — an environment limit, not a backend
-// bug. CreateSwapChainForComposition needs no HWND/desktop, so it drives the identical back-buffer / present /
-// resize machinery headlessly. Not on the public surface (production presents to a window); declared extern in
-// the test. The composition swapchain forbids ALLOW_TEARING, so tearing is forced off here.
 Mel_Gpu_Swapchain* mel_gpu__swapchain_create_headless(Mel_Gpu_Device* dev, Mel_Gpu_Swapchain_Opt opt)
 {
     if (!dev)
@@ -236,10 +200,6 @@ Mel_Gpu_Swapchain* mel_gpu__swapchain_create_headless(Mel_Gpu_Device* dev, Mel_G
     mel_gpu__swapchain_common_init(sc, dev, opt);
     sc->allow_tearing = false;
 
-    // Composition swapchains require an explicit alpha mode (PREMULTIPLIED), forbid ALLOW_TEARING, and use the
-    // flip-model present effect. NB: DirectComposition is still backed by the DWM, so this too returns
-    // DXGI_ERROR_INVALID_CALL in a non-interactive (SSH service) window station — no DXGI swapchain of any kind
-    // exists there. The caller treats a NULL return as "skip" in that environment.
     DXGI_SWAP_CHAIN_DESC1 scd = mel_gpu__swapchain_desc(sc);
     scd.AlphaMode = DXGI_ALPHA_MODE_PREMULTIPLIED;
     scd.Flags = 0;
@@ -260,8 +220,6 @@ void mel_gpu_swapchain_resize(Mel_Gpu_Swapchain* sc, i32 width, i32 height)
         return;
     Mel_Gpu_Device* dev = sc->dev;
 
-    // Every in-flight frame must retire before the back buffers are released (DXGI requires it; outstanding
-    // references make ResizeBuffers fail). Drain on the device timeline.
     if (!dev->lost)
     {
         u64 s = mel_gpu__submit_serial_next(dev);
@@ -330,8 +288,6 @@ void mel_gpu_swapchain_destroy(Mel_Gpu_Swapchain* sc)
 
 Mel_Gpu_Format mel_gpu_swapchain_format(const Mel_Gpu_Swapchain* sc) { return sc ? sc->mel_format : MEL_GPU_FORMAT_UNDEFINED; }
 
-// ---- U18 frame loop (gpu-rhi.md §7.4) — the present-path analog of src/vulkan/command.c. ----
-
 void mel_gpu_frame_begin(Mel_Gpu_Swapchain* sc)
 {
     Mel_Gpu_Device* dev = sc->dev;
@@ -340,9 +296,6 @@ void mel_gpu_frame_begin(Mel_Gpu_Swapchain* sc)
     if (dev->lost)
         return;
 
-    // Wait the device timeline past this frame slot's prior submission so its allocator is safe to reset, then
-    // advance the retirement watermark past it (the slot's resources have now retired). DXGI flip-model has no
-    // explicit acquire — GetCurrentBackBufferIndex names the writable buffer for this frame.
     if (sc->frame_serial[frame])
     {
         mel_gpu__wait_serial(dev, sc->frame_serial[frame]);
@@ -396,10 +349,6 @@ void mel_gpu_frame_end(Mel_Gpu_Swapchain* sc)
     sc->frame_index = (sc->frame_index + 1) % sc->frames_in_flight;
 }
 
-// U16 simple-path pass over the acquired back buffer (cf. the Vulkan mel_gpu_cmd_begin_pass). Bring the back
-// buffer COMMON -> RENDER_TARGET, bind its RTV, clear, and set a full-surface viewport/scissor. The matching
-// end_pass returns it to PRESENT. The general begin_rendering path (record.c) renders into app textures; this
-// pair is the swapchain-target convenience the frame loop uses.
 void mel_gpu_cmd_begin_pass(Mel_Gpu_Command_List* cmd, Mel_Gpu_Color clear)
 {
     Mel_Gpu_Swapchain* sc = cmd->sc;
@@ -436,20 +385,12 @@ void mel_gpu_cmd_end_pass(Mel_Gpu_Command_List* cmd)
     ID3D12GraphicsCommandList_ResourceBarrier(cmd->list, 1, &to_present);
 }
 
-// Test-only (gpu-d3d12 swapchain test): copy the last-presented back buffer into `dst` (a READBACK buffer) so
-// the rendered clear is CPU-verifiable — a presented HWND front buffer is not directly mappable. Not part of
-// the public surface (it would expose the swapchain's internal back buffers); declared extern in the test.
-// Runs after frame_end (the back buffer sits in PRESENT == COMMON, so COPY_SOURCE auto-promotes), on a
-// transient DIRECT list, fence-waited synchronously.
 bool mel_gpu__swapchain_readback_back(Mel_Gpu_Swapchain* sc, Mel_Gpu_Buffer dst)
 {
     Mel_Gpu_Device* dev = sc->dev;
     ID3D12Resource* dst_res = NULL;
     if (!sc->swap || !mel_gpu__buffer_resource(dev, dst, &dst_res))
         return false;
-    // `back_index` is re-queried only at frame_begin, so right after frame_end it still names the buffer the
-    // just-finished frame rendered into; its content persists until the next frame reuses it (FLIP_DISCARD
-    // discards the present, not the resource memory). Copy that buffer.
     ID3D12Resource* back = sc->buffers[sc->back_index];
 
     ID3D12CommandAllocator*    allocr = NULL;
