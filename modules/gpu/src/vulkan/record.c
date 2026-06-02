@@ -467,6 +467,20 @@ void mel_gpu_cmd_begin_rendering_opt(Mel_Gpu_Command_List* cmd, Mel_Gpu_Renderin
             .storeOp = mel_gpu__store_op(opt.colors[i].store),
             .clearValue = { .color = { .float32 = { opt.colors[i].clear.r, opt.colors[i].clear.g, opt.colors[i].clear.b, opt.colors[i].clear.a } } },
         };
+        // U16 on-tile MSAA resolve (gpu-rhi.md §7.2): a set resolve_view resolves the multisample attachment to
+        // single-sample with VK_RESOLVE_MODE_AVERAGE (the screen-space color default). generation != 0 = set.
+        if (opt.colors[i].resolve_view.slot.generation != 0)
+        {
+            Mel_Gpu_Texture_View_Obj* rv = NULL;
+            if (mel_gpu__texture_view_get(dev, opt.colors[i].resolve_view, &rv))
+            {
+                color[i].resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT;
+                color[i].resolveImageView = rv->view;
+                color[i].resolveImageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+            }
+            else
+                mel_log_warn("gpu", "cmd_begin_rendering: color attachment %u resolve_view is not a live view; resolve skipped", i);
+        }
     }
 
     VkRenderingAttachmentInfoKHR depth = { .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO_KHR };

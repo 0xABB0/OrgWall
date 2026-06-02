@@ -25,6 +25,11 @@ typedef struct
     Mel_Gpu_Load_Op      load;
     Mel_Gpu_Store_Op     store;
     Mel_Gpu_Color        clear;
+    // U16 on-tile MSAA resolve (gpu-rhi.md §7.2): when set and `view` is a multisample attachment, the pass
+    // resolves into this single-sample target with VK_RESOLVE_MODE_AVERAGE (the §7.2 screen-space color
+    // default) — the multisample surface need never be stored (U22). Zero/null = no resolve. The full
+    // mode_per_aspect / depth-stencil resolve surface is a later slice; this is the color-average lowering.
+    Mel_Gpu_Texture_View resolve_view;
 } Mel_Gpu_Color_Attachment;
 
 typedef struct

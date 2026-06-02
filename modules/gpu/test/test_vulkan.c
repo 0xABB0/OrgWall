@@ -1581,6 +1581,84 @@ MEL_TEST(vk_pipeline, msaa_renders_clean)
     mel_gpu_instance_destroy(inst);
 }
 
+// U16 on-tile MSAA resolve (gpu-rhi.md §7.2): a 4-sample pipeline renders a fullscreen white triangle into a
+// 4-sample color attachment that RESOLVES (VK_RESOLVE_MODE_AVERAGE) into a single-sample target in the same
+// dynamic-rendering pass — the multisample surface is never stored (U22). The resolve target is then copied to
+// a READBACK buffer and the resolved pixel verified white. Extends vk_pipeline.msaa_renders_clean (which proved
+// sample-count plumbing only) to the full resolve-and-readback path, enabling the appsmith MSAA screen.
+MEL_TEST(vk_render, msaa_resolve_readback)
+{
+    Mel_Gpu_Instance* inst = NULL;
+    Mel_Gpu_Device*   dev = test_make_device(&inst);
+    MEL_REQUIRE_NOT_NULL(dev);
+
+    const u32 W = 8, H = 8;
+    // 4-sample color attachment (rendered into, never stored) + single-sample resolve target (stored, read back).
+    Mel_Gpu_Texture_Create_Result msaa = mel_gpu_texture_create(dev, .kind = MEL_GPU_TEXTURE_2D, .extent = { W, H, 1 }, .format = MEL_GPU_FORMAT_RGBA8_UNORM,
+                                                                .sample_count = 4, .usage = MEL_GPU_TEXTURE_ATTACHMENT, .name = "msaa");
+    MEL_REQUIRE(!mel_gpu_failed(msaa.status));
+    Mel_Gpu_Texture_View_Create_Result msaa_view = mel_gpu_texture_default_view(dev, msaa.value);
+    MEL_REQUIRE(!mel_gpu_failed(msaa_view.status));
+    Mel_Gpu_Texture_Create_Result resolve = mel_gpu_texture_create(dev, .kind = MEL_GPU_TEXTURE_2D, .extent = { W, H, 1 }, .format = MEL_GPU_FORMAT_RGBA8_UNORM,
+                                                                   .usage = MEL_GPU_TEXTURE_ATTACHMENT | MEL_GPU_TEXTURE_COPY_SRC, .name = "resolve");
+    MEL_REQUIRE(!mel_gpu_failed(resolve.status));
+    Mel_Gpu_Texture_View_Create_Result resolve_view = mel_gpu_texture_default_view(dev, resolve.value);
+    MEL_REQUIRE(!mel_gpu_failed(resolve_view.status));
+    Mel_Gpu_Buffer_Create_Result rb = mel_gpu_buffer_create(dev, .size = (usize)W * H * 4, .usage = MEL_GPU_BUFFER_TRANSFER_DST, .memory = MEL_GPU_MEMORY_READBACK, .name = "rb");
+
+    Mel_Gpu_Shader_Create_Result sh = mel_gpu_shader_create_from_bytecode(dev,
+                                                                          .spirv_vertex = BINDLESS_VERT_SPV, .spirv_vertex_size = sizeof BINDLESS_VERT_SPV,
+                                                                          .spirv_fragment = SOLID_PC_FRAG_SPV, .spirv_fragment_size = sizeof SOLID_PC_FRAG_SPV,
+                                                                          .vertex_entry = "main", .fragment_entry = "main", .name = "msaa");
+    MEL_REQUIRE(!mel_gpu_failed(sh.status));
+    Mel_Gpu_Pipeline_Create_Result pipe = mel_gpu_pipeline_create(dev, .shader = sh.value, .color_format = MEL_GPU_FORMAT_RGBA8_UNORM,
+                                                                  .samples = 4, .push_constant_size = 16, .name = "msaa");
+    MEL_REQUIRE(!mel_gpu_failed(pipe.status));
+
+    f32 white[4] = { 1, 1, 1, 1 };
+    Mel_Gpu_Queue*        q = mel_gpu_queue_request(dev, MEL_GPU_QUEUE_GRAPHICS);
+    Mel_Gpu_Command_List* cmd = mel_gpu_command_list_create(q);
+    mel_gpu_command_list_begin(cmd);
+    Mel_Gpu_Subresource_Range range = { MEL_GPU_ASPECT_COLOR, 0, 1, 0, 1 };
+    mel_gpu_cmd_texture_barrier(cmd, msaa.value, range, MEL_GPU_STATE_COMMON, MEL_GPU_STATE_RENDER_TARGET);
+    mel_gpu_cmd_texture_barrier(cmd, resolve.value, range, MEL_GPU_STATE_COMMON, MEL_GPU_STATE_RENDER_TARGET);
+    // The multisample attachment is rendered with DONT_CARE store (never kept); resolve_view receives the average.
+    Mel_Gpu_Color_Attachment color = { .view = msaa_view.value, .load = MEL_GPU_LOAD_CLEAR, .store = MEL_GPU_STORE_DONT_CARE,
+                                       .clear = mel_gpu_rgba(0, 0, 0, 1), .resolve_view = resolve_view.value };
+    mel_gpu_cmd_begin_rendering(cmd, .colors = &color, .color_count = 1, .width = W, .height = H);
+    mel_gpu_cmd_bind_pipeline(cmd, pipe.value);
+    mel_gpu_cmd_push_constants(cmd, 0, sizeof white, white);
+    mel_gpu_cmd_draw(cmd, 3, 1);
+    mel_gpu_cmd_end_rendering(cmd);
+    mel_gpu_cmd_texture_barrier(cmd, resolve.value, range, MEL_GPU_STATE_RENDER_TARGET, MEL_GPU_STATE_COPY_SOURCE);
+    mel_gpu_cmd_copy_texture_to_buffer(cmd, resolve.value, range, rb.value);
+    mel_gpu_command_list_end(cmd);
+    Mel_Gpu_Future* f = mel_gpu_queue_submit(q, (Mel_Gpu_Submit){ .command_lists = &cmd, .command_list_count = 1 });
+    MEL_EXPECT(mel_gpu_ok(mel_gpu_future_status(f)));
+    mel_gpu_future_destroy(f);
+
+    const u8* px = mel_gpu_buffer_mapped(dev, rb.value);
+    MEL_REQUIRE_NOT_NULL(px);
+    // A fullscreen white triangle fully covers each pixel; the 4-sample average is white at the center pixel.
+    const u8* c = px + (4u * W + 4u) * 4u;
+    MEL_EXPECT_EQ(c[0], 255u);
+    MEL_EXPECT_EQ(c[1], 255u);
+    MEL_EXPECT_EQ(c[2], 255u);
+    MEL_EXPECT_EQ(c[3], 255u);
+
+    mel_gpu_command_list_destroy(cmd);
+    mel_gpu_queue_release(q);
+    mel_gpu_pipeline_destroy(dev, pipe.value);
+    mel_gpu_shader_destroy(dev, sh.value);
+    mel_gpu_buffer_destroy(dev, rb.value);
+    mel_gpu_texture_view_destroy(dev, resolve_view.value);
+    mel_gpu_texture_destroy(dev, resolve.value);
+    mel_gpu_texture_view_destroy(dev, msaa_view.value);
+    mel_gpu_texture_destroy(dev, msaa.value);
+    mel_gpu_device_destroy(dev);
+    mel_gpu_instance_destroy(inst);
+}
+
 #else
 
 MEL_TEST(vk_device, skipped_without_vulkan) { MEL_SKIP("vulkan backend not selected (build with --gpu=vulkan)"); }
