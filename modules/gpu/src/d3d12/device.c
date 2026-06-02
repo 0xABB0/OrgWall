@@ -87,7 +87,26 @@ Mel_Gpu_Device_Create_Result mel_gpu_device_create_opt(Mel_Gpu_Instance* inst, M
     mel_slotmap_init(&dev->buffers.map, alloc, .item_size = sizeof(Mel_Gpu_Buffer_Obj), .initial_capacity = 16);
     mel_slotmap_init(&dev->textures.map, alloc, .item_size = sizeof(Mel_Gpu_Texture_Obj), .initial_capacity = 16);
     mel_slotmap_init(&dev->texture_views.map, alloc, .item_size = sizeof(Mel_Gpu_Texture_View_Obj), .initial_capacity = 16);
+    mel_slotmap_init(&dev->samplers.map, alloc, .item_size = sizeof(Mel_Gpu_Sampler_Obj), .initial_capacity = 16);
+    mel_slotmap_init(&dev->shaders.map, alloc, .item_size = sizeof(Mel_Gpu_Shader_Obj), .initial_capacity = 16);
+    mel_slotmap_init(&dev->pipelines.map, alloc, .item_size = sizeof(Mel_Gpu_Pipeline_Obj), .initial_capacity = 16);
     dev->buffers.init = dev->textures.init = dev->texture_views.init = true;
+    dev->samplers.init = dev->shaders.init = dev->pipelines.init = true;
+
+    // U14 bindless (gpu-rhi.md §6.7): when descriptor_indexing is requested and ResourceBindingTier 3 is
+    // present, create the shader-visible heaps and report the D3D12 binding model — root record carrying
+    // descriptor indices (never raw pointers; buffers are descriptors even at the ceiling), filled through
+    // the persistently-mapped/upload path. This is the contrast the co-primary mandate exposes vs Vulkan-BDA.
+    if (opt.features.descriptor_indexing && dev->caps.memory.bindless.tier == MEL_GPU_TIER_FULL)
+    {
+        mel_gpu__bindless_init(dev);
+        if (dev->bindless_enabled)
+        {
+            dev->caps.memory.bindless.binding_model = MEL_GPU_BINDING_MODEL_ROOT_RECORD;
+            dev->caps.memory.bindless.root_record_payload = MEL_GPU_ROOT_RECORD_PAYLOAD_DESCRIPTOR_INDICES;
+            dev->caps.memory.bindless.root_record_update = MEL_GPU_ROOT_RECORD_UPDATE_PERSISTENT_MAP;
+        }
+    }
 
     // U16: CPU-only RTV/DSV heaps, allocated round-robin per begin_rendering.
     D3D12_DESCRIPTOR_HEAP_DESC rtvd = { .Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV, .NumDescriptors = 256, .Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE };
@@ -104,6 +123,21 @@ Mel_Gpu_Device_Create_Result mel_gpu_device_create_opt(Mel_Gpu_Instance* inst, M
 
     if (opt.reactor)
         dev->pump = mel_gpu_pump_create(opt.reactor);
+
+    // U21: when the debug layer is active, break on debug-layer ERROR / CORRUPTION so a validation failure
+    // aborts the process loudly at the offending call rather than corrupting silently (MEL-ENGINE-VIII). The
+    // break setting lives on the device's debug state; the info-queue interface ref is transient. This is how
+    // the "zero debug-layer errors" bar is enforced rather than assumed.
+    if (inst->debug_layer)
+    {
+        ID3D12InfoQueue* iq = NULL;
+        if (SUCCEEDED(ID3D12Device_QueryInterface(d3d, &IID_ID3D12InfoQueue, (void**)&iq)) && iq)
+        {
+            ID3D12InfoQueue_SetBreakOnSeverity(iq, D3D12_MESSAGE_SEVERITY_CORRUPTION, TRUE);
+            ID3D12InfoQueue_SetBreakOnSeverity(iq, D3D12_MESSAGE_SEVERITY_ERROR, TRUE);
+            ID3D12InfoQueue_Release(iq);
+        }
+    }
 
     res.value = dev;
     mel_log_info("gpu", "device created on '%s'", dev->caps.adapter.name);
@@ -152,13 +186,25 @@ void mel_gpu_device_destroy(Mel_Gpu_Device* dev)
     mel_gpu__table_report_leaks(&dev->buffers, "buffer");
     mel_gpu__table_report_leaks(&dev->textures, "texture");
     mel_gpu__table_report_leaks(&dev->texture_views, "texture-view");
+    mel_gpu__table_report_leaks(&dev->samplers, "sampler");
+    mel_gpu__table_report_leaks(&dev->shaders, "shader");
+    mel_gpu__table_report_leaks(&dev->pipelines, "pipeline");
     if (dev->buffers.init)
         mel_slotmap_free(&dev->buffers.map);
     if (dev->textures.init)
         mel_slotmap_free(&dev->textures.map);
     if (dev->texture_views.init)
         mel_slotmap_free(&dev->texture_views.map);
+    if (dev->samplers.init)
+        mel_slotmap_free(&dev->samplers.map);
+    if (dev->shaders.init)
+        mel_slotmap_free(&dev->shaders.map);
+    if (dev->pipelines.init)
+        mel_slotmap_free(&dev->pipelines.map);
+    if (dev->sampler_interns)
+        mel_dealloc(dev->alloc, dev->sampler_interns);
 
+    mel_gpu__bindless_destroy(dev);
     if (dev->rtv_heap)
         ID3D12DescriptorHeap_Release(dev->rtv_heap);
     if (dev->dsv_heap)

@@ -175,6 +175,14 @@ Mel_Gpu_Texture_View_Create_Result mel_gpu_texture_view_create_opt(Mel_Gpu_Devic
     obj.layer_count = opt.range.layer_count ? opt.range.layer_count : (tex->array_layers - opt.range.base_layer);
 
     res.value.slot = mel_gpu__table_insert(dev, &dev->texture_views, &obj);
+
+    // U14: a sampled view registers an SRV at its reserved heap slot (gpu-rhi.md §6.7). Attachment-only /
+    // storage views are not SRV-registered here (storage-image UAV bindless is a later class); their slot is
+    // never sampled. The parent's SAMPLED usage is the gate — registering an SRV for a non-sampled resource
+    // would be a meaningless heap entry.
+    if (dev->bindless_enabled && (tex->usage & MEL_GPU_TEXTURE_SAMPLED))
+        mel_gpu__bindless_register_texture_view(dev, res.value.slot.index, &obj);
+
     return res;
 }
 
@@ -196,9 +204,18 @@ Mel_Gpu_Texture_View_Create_Result mel_gpu_texture_default_view(Mel_Gpu_Device* 
 
 void mel_gpu_texture_view_destroy(Mel_Gpu_Device* dev, Mel_Gpu_Texture_View view)
 {
-    // A D3D12 view is descriptor-heap intent, not a COM object — destroy is a plain slot remove. The U14
-    // bindless-slot future-gated reclaim attaches here when the heap lands (Phase 3).
-    mel_gpu__table_remove(dev, &dev->texture_views, view.slot);
+    // A D3D12 view is descriptor-heap intent, not a COM object. With bindless on, the SRV slot is future-gated
+    // (§3.3): the generation rolls now (use-after-free stays loud) and the slot is reclaimed only once
+    // in-flight submissions retire, so a reused slot's SRV is overwritten by the new view, never read stale.
+    if (dev->bindless_enabled)
+    {
+        mel_gpu__table_remove_deferred(dev, &dev->texture_views, view.slot);
+        mel_gpu__defer_free(dev, (Mel_Gpu_Deferred_Free){ .reclaim_table = &dev->texture_views, .reclaim_index = view.slot.index, .has_reclaim = true });
+    }
+    else
+    {
+        mel_gpu__table_remove(dev, &dev->texture_views, view.slot);
+    }
 }
 
 bool mel_gpu_texture_view_alive(Mel_Gpu_Device* dev, Mel_Gpu_Texture_View view) { return mel_gpu__table_get(dev, &dev->texture_views, view.slot) != NULL; }

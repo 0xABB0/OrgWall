@@ -112,6 +112,7 @@ Mel_Gpu_Buffer_Create_Result mel_gpu_buffer_create_opt(Mel_Gpu_Device* dev, Mel_
     obj.resource = resource;
     obj.size = opt.size;
     obj.host_visible = !device_local;
+    obj.usage = opt.usage;
     obj.gpu_va = ID3D12Resource_GetGPUVirtualAddress(resource);
 
     if (obj.host_visible)
@@ -138,6 +139,12 @@ Mel_Gpu_Buffer_Create_Result mel_gpu_buffer_create_opt(Mel_Gpu_Device* dev, Mel_
     }
 
     res.value.slot = mel_gpu__table_insert(dev, &dev->buffers, &obj);
+
+    // U14: register the buffer's heap descriptor at its reserved slot (STORAGE -> UAV, UNIFORM -> CBV) so it
+    // is reachable by descriptor index for the lifetime of the handle (gpu-rhi.md §6.7).
+    if (dev->bindless_enabled && (opt.usage & (MEL_GPU_BUFFER_STORAGE | MEL_GPU_BUFFER_UNIFORM)))
+        mel_gpu__bindless_register_buffer(dev, res.value.slot.index, &obj, opt.usage);
+
     return res;
 }
 
@@ -208,6 +215,15 @@ bool mel_gpu__buffer_resource(Mel_Gpu_Device* dev, Mel_Gpu_Buffer buf, ID3D12Res
     if (!o)
         return false;
     *out = o->resource;
+    return true;
+}
+
+bool mel_gpu__buffer_get(Mel_Gpu_Device* dev, Mel_Gpu_Buffer buf, Mel_Gpu_Buffer_Obj** out)
+{
+    Mel_Gpu_Buffer_Obj* o = mel_gpu__table_get(dev, &dev->buffers, buf.slot);
+    if (!o)
+        return false;
+    *out = o;
     return true;
 }
 
