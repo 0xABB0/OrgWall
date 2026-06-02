@@ -9,6 +9,7 @@ void build(Mel_Build* b)
     mel_depends(app, "gpu");
     mel_depends(app, "gui");
     mel_depends(app, "core");
+    mel_depends(app, "log");
     mel_manifest(app, "APP_LABEL", "Hello GPU");
     mel_manifest(app, "BUNDLE_ID", "orgwall.hellogpu");
 }
