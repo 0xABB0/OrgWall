@@ -20,6 +20,10 @@ typedef enum
     // U14 ceiling (gpu-rhi.md §6.1/§6.7): expose a stable GPU address via mel_gpu_buffer_device_address for
     // the pointer-bearing root record. Requires the device created with buffer_device_address.
     MEL_GPU_BUFFER_DEVICE_ADDRESS = 1u << 6,
+    // U15 (gpu-rhi.md §7.1): GPU-resident argument buffer for cmd_dispatch_indirect / the draw-indirect family.
+    // Holds {group_x, group_y, group_z} (dispatch) or the per-command structure; transition to
+    // MEL_GPU_STATE_INDIRECT_ARGUMENT before the indirect call.
+    MEL_GPU_BUFFER_INDIRECT = 1u << 7,
 } Mel_Gpu_Buffer_Usage;
 
 typedef enum

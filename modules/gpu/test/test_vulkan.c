@@ -1193,6 +1193,82 @@ MEL_TEST(vk_compute, storage_image_bindless)
     mel_gpu_instance_destroy(inst);
 }
 
+// U13/U15 (gpu-rhi.md §7.1): GPU-driven cmd_dispatch_indirect. A first compute pass (fillargs) writes the
+// {group_x, 1, 1} dispatch triple into a STORAGE+INDIRECT args buffer addressed by bindless slot — no CPU
+// round-trip. A cmd_buffer_barrier transitions the args buffer UnorderedAccess->IndirectArgument; the add
+// kernel is then dispatched *from those args*. out[i] == in[i]+1 is read back, proving the indirect grid ran.
+MEL_TEST(vk_compute, dispatch_indirect)
+{
+    Mel_Gpu_Instance* inst = NULL;
+    Mel_Gpu_Device*   dev = test_make_device_bindless(&inst);
+    MEL_REQUIRE_NOT_NULL(dev);
+    MEL_REQUIRE(mel_gpu_bindless_available(dev));
+
+    const u32 N = 128;
+    u32       in_data[N];
+    for (u32 i = 0; i < N; i++)
+        in_data[i] = i;
+
+    Mel_Gpu_Buffer_Create_Result in_buf = mel_gpu_buffer_create(dev, .size = sizeof in_data, .usage = MEL_GPU_BUFFER_STORAGE, .memory = MEL_GPU_MEMORY_UPLOAD, .data = in_data, .name = "in");
+    MEL_REQUIRE(!mel_gpu_failed(in_buf.status));
+    Mel_Gpu_Buffer_Create_Result out_buf = mel_gpu_buffer_create(dev, .size = sizeof in_data, .usage = MEL_GPU_BUFFER_STORAGE, .memory = MEL_GPU_MEMORY_READBACK, .name = "out");
+    MEL_REQUIRE(!mel_gpu_failed(out_buf.status));
+    // The args buffer is both a storage buffer (the fill kernel writes it via bindless) and an indirect buffer
+    // (cmd_dispatch_indirect reads it). Device-local: the args never touch the CPU.
+    Mel_Gpu_Buffer_Create_Result args_buf = mel_gpu_buffer_create(dev, .size = 3 * sizeof(u32), .usage = MEL_GPU_BUFFER_STORAGE | MEL_GPU_BUFFER_INDIRECT, .memory = MEL_GPU_MEMORY_DEVICE, .name = "args");
+    MEL_REQUIRE(!mel_gpu_failed(args_buf.status));
+
+    Mel_Gpu_Shader_Create_Result fill_sh = mel_gpu_shader_create_compute_from_bytecode(dev, .spirv = FILLARGS_COMP_SPV, .spirv_size = sizeof FILLARGS_COMP_SPV, .entry = "main", .name = "fillargs");
+    MEL_REQUIRE(!mel_gpu_failed(fill_sh.status));
+    Mel_Gpu_Shader_Create_Result add_sh = mel_gpu_shader_create_compute_from_bytecode(dev, .spirv = ADD_COMP_SPV, .spirv_size = sizeof ADD_COMP_SPV, .entry = "main", .name = "add");
+    MEL_REQUIRE(!mel_gpu_failed(add_sh.status));
+
+    Mel_Gpu_Pipeline_Create_Result fill_pipe = mel_gpu_pipeline_compute_create(dev, .shader = fill_sh.value, .name = "fillargs");
+    MEL_REQUIRE(!mel_gpu_failed(fill_pipe.status));
+    Mel_Gpu_Pipeline_Create_Result add_pipe = mel_gpu_pipeline_compute_create(dev, .shader = add_sh.value, .name = "add");
+    MEL_REQUIRE(!mel_gpu_failed(add_pipe.status));
+
+    struct { u32 args_buf, groups_x; } fill_root = { mel_gpu_buffer_bindless_slot(dev, args_buf.value), (N + 63) / 64 };
+    struct { u32 in_slot, out_slot, n; } add_root = { mel_gpu_buffer_bindless_slot(dev, in_buf.value), mel_gpu_buffer_bindless_slot(dev, out_buf.value), N };
+
+    Mel_Gpu_Queue*        q = mel_gpu_queue_request(dev, MEL_GPU_QUEUE_GRAPHICS);
+    Mel_Gpu_Command_List* cmd = mel_gpu_command_list_create(q);
+    mel_gpu_command_list_begin(cmd);
+    // Pass 1: write the dispatch args. UAV->IndirectArgument barrier makes the write visible to the indirect read.
+    mel_gpu_cmd_bind_pipeline(cmd, fill_pipe.value);
+    mel_gpu_cmd_push_constants(cmd, 0, sizeof fill_root, &fill_root);
+    mel_gpu_cmd_dispatch(cmd, 1, 1, 1);
+    mel_gpu_cmd_buffer_barrier(cmd, args_buf.value, MEL_GPU_STATE_UNORDERED_ACCESS, MEL_GPU_STATE_INDIRECT_ARGUMENT);
+    // Pass 2: the add kernel, dispatched from the GPU-produced args.
+    mel_gpu_cmd_bind_pipeline(cmd, add_pipe.value);
+    mel_gpu_cmd_push_constants(cmd, 0, sizeof add_root, &add_root);
+    mel_gpu_cmd_dispatch_indirect(cmd, args_buf.value, 0);
+    mel_gpu_command_list_end(cmd);
+    Mel_Gpu_Future* f = mel_gpu_queue_submit(q, (Mel_Gpu_Submit){ .command_lists = &cmd, .command_list_count = 1 });
+    MEL_EXPECT(mel_gpu_ok(mel_gpu_future_status(f)));
+    mel_gpu_future_destroy(f);
+
+    const u32* out = mel_gpu_buffer_mapped(dev, out_buf.value);
+    MEL_REQUIRE_NOT_NULL(out);
+    bool ok = true;
+    for (u32 i = 0; i < N; i++)
+        if (out[i] != i + 1)
+            ok = false;
+    MEL_EXPECT(ok);
+
+    mel_gpu_command_list_destroy(cmd);
+    mel_gpu_queue_release(q);
+    mel_gpu_pipeline_destroy(dev, add_pipe.value);
+    mel_gpu_pipeline_destroy(dev, fill_pipe.value);
+    mel_gpu_shader_destroy(dev, add_sh.value);
+    mel_gpu_shader_destroy(dev, fill_sh.value);
+    mel_gpu_buffer_destroy(dev, args_buf.value);
+    mel_gpu_buffer_destroy(dev, out_buf.value);
+    mel_gpu_buffer_destroy(dev, in_buf.value);
+    mel_gpu_device_destroy(dev);
+    mel_gpu_instance_destroy(inst);
+}
+
 // U13 render state (gpu-rhi.md §6.5): per-attachment alpha blend. Clear the target to (0.2,0.4,0.6,1), then draw
 // a fullscreen src (1,0,0,0.5) through a MEL_GPU_BLEND_ALPHA pipeline. src-over gives 0.5*src + 0.5*dst, pixel-verified.
 MEL_TEST(vk_pipeline, alpha_blend)

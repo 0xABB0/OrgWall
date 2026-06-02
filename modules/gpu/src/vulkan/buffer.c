@@ -22,6 +22,8 @@ static VkBufferUsageFlags mel_gpu__buffer_usage(Mel_Gpu_Buffer_Usage u)
         f |= VK_BUFFER_USAGE_TRANSFER_DST_BIT;
     if (u & MEL_GPU_BUFFER_DEVICE_ADDRESS)
         f |= VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
+    if (u & MEL_GPU_BUFFER_INDIRECT)
+        f |= VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
     return f;
 }
 
