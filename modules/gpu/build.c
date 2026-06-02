@@ -83,6 +83,21 @@ void build(Mel_Build* b)
     mel_depends(vktest, "collection");
     mel_depends(vktest, "reactor");
 
+    // Adversarial stress / churn suite over the Vulkan backend (resource churn, bindless heap, the buddy
+    // suballocator, write/readback fuzz, deferred-free under rapid destroy, future backpressure). Same deps
+    // and the AppKit link as gpu-vulkan; the body is #if MEL_GPU_VULKAN-guarded.
+    Mel_Target* stress = mel_add_test(b, "gpu-stress");
+    mel_sources(stress, ALWAYS, "test/test_stress.c");
+    mel_sources(stress, ALWAYS, "../../tools/test/src/runner.c");
+    mel_defines(stress, MEL_PRIVATE, WHEN(.gpu = "vulkan"), "MEL_GPU_VULKAN=1");
+    mel_link(stress, MEL_PUBLIC, WHEN(.platforms = MEL_ON(MACOS)), "-framework", "AppKit");
+    mel_depends(stress, "test");
+    mel_depends(stress, "gpu");
+    mel_depends(stress, "core");
+    mel_depends(stress, "allocator");
+    mel_depends(stress, "collection");
+    mel_depends(stress, "reactor");
+
     // D3D12 backend tests (win32, --gpu=d3d12). The test body is #if MEL_GPU_D3D12-guarded, so the target
     // links to an empty 0-test runner on any non-d3d12 build and is meaningful only on win-pilot.
     Mel_Target* d3dtest = mel_add_test(b, "gpu-d3d12");
