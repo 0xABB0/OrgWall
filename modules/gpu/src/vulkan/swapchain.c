@@ -210,6 +210,7 @@ static bool mel_gpu__images_build(Mel_Gpu_Swapchain* sc, i32 width, i32 height)
         VkSemaphoreCreateInfo sci = { .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
         vkCreateSemaphore(dev->vk, &sci, NULL, &sc->render_finished[i]);
     }
+    mel_log_info("gpu", "swapchain ready: %u images %ux%u", count, extent.width, extent.height);
     return true;
 }
 
