@@ -81,3 +81,17 @@ At each session's close, write a recap to `writeup/`, one file per session, name
 - This repo is heavily WIP. it's small enough that pervasive changes are doable since consumers are few.
 - This repo keeps being worked on, by multiple agents at a time, so if something changes that you did not do, it's fine.
 - Use worktrees when working on a large task, but if the task is small, avoid doing something heavy like worktrees and accept that sometimes the build breaks because multiple agents are working.
+
+## Windows builds (remote)
+
+`win32` builds run on a networked Windows box over SSH.
+
+- **Host.** SSH alias `win-pilot` (`~/.ssh/config`: `gabbo-windows-desktop`, `100.120.188.120`, user `gabbo`, key `id_ed25519_winpilot`). 
+- **Checkout.** `D:\repo\OrgWall` (repo root; no nested `melody/`), shares `origin`.
+- **Build.** Bare SSH `cmd` lacks the MSVC/clang env; prefix with
+  `C:\Users\Gabbo\dev.cmd` (loads vcvars64 + LLVM, execs the rest):
+
+      ssh win-pilot "cd /d D:\repo\OrgWall && git pull --ff-only && C:\Users\Gabbo\dev.cmd nob build <target>"
+
+- **Toolchain.** win32 CC is clang/MSVC; `nob` self-rebuilds via bare `clang` (dev.cmd provides it)
+- **Workflow.** Commit+push here, `git pull`+build there; `origin` is source of truth.
