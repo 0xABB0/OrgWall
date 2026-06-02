@@ -26,9 +26,16 @@
 #include <allocator/allocator.h>
 #include <allocator/heap.h>
 
+#include <thread/thread.h>
+#include <thread/barrier.h>
+#include <thread/mutex.h>
+
+#include <log/log.h>
+
 #include "bindless_spv.h"
 
 #include <string.h>
+#include <stdatomic.h>
 
 // ---- shared device factories (mirror test_vulkan.c) ----
 
@@ -725,6 +732,371 @@ MEL_TEST(stress_future, pump_backpressure_coalesce)
     for (u32 i = 0; i < N; i++)
         mel_gpu_future_destroy(futs[i]);
     mel_gpu_pump_destroy(pump);
+}
+
+static u32 stress_threads(void)
+{
+    u32 hw = mel_thread_hardware_concurrency();
+    if (hw < 2)
+        hw = 2;
+    if (hw > 8)
+        hw = 8;
+    return hw;
+}
+
+// =====================================================================================================
+// 8. Threaded buddy-allocator overlap storm (round-1's no_overlap_sentinels was single-threaded). EXPECTED-
+//    FAILURE PROBE — this is the regression guard for a NEW confirmed concurrency bug (BUG-1 in the writeup);
+//    it goes RED until the fixer closes the race, and we do NOT fake a pass (MEL-ENGINE-VIII).
+//
+//    BUG-1 (CONFIRMED): §3.7 declares buffer_create / buffer_destroy `Concurrent` across distinct handles. The
+//    backend honors this by serializing each slotmap op behind the per-device obj_lock (device.c:377-414) and
+//    each buddy op behind the allocator lock (memory.c:174,269) — both correct in isolation. The defect is the
+//    interior pointer `mel_gpu__table_get` returns: it points into the slotmap's PACKED dense array
+//    (slotmap.c:142, `data + packed_idx*item_size`). Callers (buffer_destroy reads o->alloc/o->buf;
+//    buffer_write / buffer_mapped read o->alloc.mapped; 43 sites total) dereference that pointer AFTER obj_lock
+//    is released. A concurrent table_insert can realloc-grow the packed array (slotmap.c:104-118) and a
+//    concurrent table_remove swap-remove-memcpy's the last element over the freed slot (slotmap.c:165-174),
+//    relocating the element under the live reader. The reader then sees a TORN allocation record — a stale
+//    offset / mapped pointer — so buffer_destroy frees the wrong buddy range and a later create binds memory
+//    over a still-live allocation. The buddy itself is proven correct single-threaded (2M ops, many seeds, zero
+//    overlap) and a span-locked buddy never overlaps; the fault is exclusively the post-unlock interior-pointer
+//    race in the gpu glue. Fix direction: copy the resource record out by value WHILE holding obj_lock (return
+//    a value, not an interior pointer), or hold obj_lock across the whole create/destroy/write critical region.
+//
+//    Detection: each thread registers every live buffer's actual mapped [ptr, ptr+size) range in a shared,
+//    mutex-guarded ledger and checks for overlap with any other live range at insert time — a deterministic
+//    catch of the exact fault (two simultaneously-live buffers sharing device memory). A per-buffer sentinel
+//    readback is kept as a second signal. The race is intermittent, so the probe runs long enough that the
+//    overlap ledger catches it with high probability; an intermittent RED is the honest signal for a data race.
+// =====================================================================================================
+typedef struct
+{
+    const u8* p;
+    usize     size;
+    u32       owner;
+} Stress_Live_Range;
+
+typedef struct
+{
+    Mel_Mutex          lock;
+    Stress_Live_Range* ranges;
+    u32                count;
+    u32                cap;
+    _Atomic(u32)       overlaps;
+} Stress_Overlap_Ledger;
+
+static void stress_ledger_add(Stress_Overlap_Ledger* L, const u8* p, usize size, u32 owner)
+{
+    mel_mutex_lock(&L->lock);
+    for (u32 i = 0; i < L->count; i++)
+    {
+        const u8* a0 = L->ranges[i].p;
+        const u8* a1 = a0 + L->ranges[i].size;
+        const u8* b0 = p;
+        const u8* b1 = p + size;
+        if (a0 < b1 && b0 < a1) // half-open interval overlap
+            atomic_fetch_add(&L->overlaps, 1);
+    }
+    if (L->count == L->cap)
+    {
+        L->cap = L->cap ? L->cap * 2 : 256;
+        L->ranges = L->ranges ? mel_realloc(mel_alloc_heap(), L->ranges, sizeof(Stress_Live_Range) * L->cap) : mel_alloc(mel_alloc_heap(), sizeof(Stress_Live_Range) * L->cap);
+    }
+    L->ranges[L->count++] = (Stress_Live_Range){ p, size, owner };
+    mel_mutex_unlock(&L->lock);
+}
+
+static void stress_ledger_remove(Stress_Overlap_Ledger* L, const u8* p)
+{
+    mel_mutex_lock(&L->lock);
+    for (u32 i = 0; i < L->count; i++)
+        if (L->ranges[i].p == p)
+        {
+            L->ranges[i] = L->ranges[--L->count];
+            break;
+        }
+    mel_mutex_unlock(&L->lock);
+}
+
+typedef struct
+{
+    Mel_Gpu_Device*        dev;
+    Mel_Barrier*           start;
+    Stress_Overlap_Ledger* ledger;
+    u32                    steps;
+    u32                    slots;    // rolling working-set size per thread
+    u32                    thread_ix;
+    _Atomic(u32)           failures; // create/map failures
+    _Atomic(u32)           corruptions;
+} Stress_Alloc_Ctx;
+
+static int stress_alloc_storm_worker(void* user)
+{
+    Stress_Alloc_Ctx* c = user;
+    struct Slot
+    {
+        Mel_Gpu_Buffer buf;
+        const u8*      mapped;
+        usize          size;
+        u8             tag;
+        bool           live;
+    };
+    struct Slot* slots = mel_alloc_array(mel_alloc_heap(), struct Slot, c->slots);
+    memset(slots, 0, sizeof(struct Slot) * c->slots);
+
+    u32 rng = 0x9E3779B9u ^ (c->thread_ix * 2654435761u);
+    mel_barrier_wait(c->start); // all threads contend on the allocator together
+
+    for (u32 step = 0; step < c->steps; step++)
+    {
+        rng = rng * 1664525u + 1013904223u;
+        u32 idx = rng % c->slots;
+        if (slots[idx].live)
+        {
+            const u8* p = mel_gpu_buffer_mapped(c->dev, slots[idx].buf);
+            if (!p)
+                atomic_fetch_add(&c->failures, 1);
+            else
+            {
+                for (usize j = 0; j < slots[idx].size; j++)
+                    if (p[j] != slots[idx].tag)
+                    {
+                        atomic_fetch_add(&c->corruptions, 1);
+                        break;
+                    }
+            }
+            stress_ledger_remove(c->ledger, slots[idx].mapped);
+            mel_gpu_buffer_destroy(c->dev, slots[idx].buf);
+            slots[idx].live = false;
+        }
+        else
+        {
+            // Odd, prime-ish sizes straddling the 256-byte min-block and power-of-two rounding edges.
+            usize sz = 17 + ((rng >> 7) % 8191);
+            Mel_Gpu_Buffer_Create_Result r = mel_gpu_buffer_create(c->dev, .size = sz, .usage = MEL_GPU_BUFFER_TRANSFER_SRC, .memory = MEL_GPU_MEMORY_UPLOAD, .name = "tstorm");
+            if (mel_gpu_failed(r.status))
+            {
+                atomic_fetch_add(&c->failures, 1);
+                continue;
+            }
+            u8* p = mel_gpu_buffer_mapped(c->dev, r.value);
+            if (!p)
+            {
+                atomic_fetch_add(&c->failures, 1);
+                mel_gpu_buffer_destroy(c->dev, r.value);
+                continue;
+            }
+            // Deterministic overlap check on the actual mapped range, then the sentinel as a second signal.
+            stress_ledger_add(c->ledger, p, sz, c->thread_ix);
+            u8 tag = (u8)((c->thread_ix << 4) ^ (rng >> 16) ^ 0xA5);
+            memset(p, tag, sz);
+            slots[idx] = (struct Slot){ .buf = r.value, .mapped = p, .size = sz, .tag = tag, .live = true };
+        }
+    }
+    // Final sweep: every survivor's sentinel must still be intact, then free.
+    for (u32 i = 0; i < c->slots; i++)
+        if (slots[i].live)
+        {
+            const u8* p = mel_gpu_buffer_mapped(c->dev, slots[i].buf);
+            if (!p)
+                atomic_fetch_add(&c->failures, 1);
+            else
+                for (usize j = 0; j < slots[i].size; j++)
+                    if (p[j] != slots[i].tag)
+                    {
+                        atomic_fetch_add(&c->corruptions, 1);
+                        break;
+                    }
+            stress_ledger_remove(c->ledger, slots[i].mapped);
+            mel_gpu_buffer_destroy(c->dev, slots[i].buf);
+        }
+    mel_dealloc(mel_alloc_heap(), slots);
+    return 0;
+}
+
+MEL_TEST(stress_alloc, threaded_overlap_storm)
+{
+    Mel_Gpu_Instance* inst = NULL;
+    Mel_Gpu_Device*   dev = stress_make_device(&inst);
+    MEL_REQUIRE_NOT_NULL(dev);
+
+    const u32 T = stress_threads();
+    // The race is probabilistic; STEPS is sized high so the deterministic overlap ledger catches BUG-1 with
+    // overwhelming probability per run (a guard that occasionally goes green while the bug stands is worthless).
+    const u32 STEPS = 8000;
+    const u32 SLOTS = 96;
+
+    Stress_Overlap_Ledger ledger = { 0 };
+    MEL_REQUIRE(mel_mutex_init(&ledger.lock, MEL_MUTEX_PLAIN));
+    atomic_store(&ledger.overlaps, 0);
+
+    Mel_Barrier start;
+    MEL_REQUIRE(mel_barrier_init(&start, T));
+    Mel_Thread*       threads = mel_alloc_array(mel_alloc_heap(), Mel_Thread, T);
+    Stress_Alloc_Ctx* ctx = mel_alloc_array(mel_alloc_heap(), Stress_Alloc_Ctx, T);
+    for (u32 i = 0; i < T; i++)
+    {
+        ctx[i] = (Stress_Alloc_Ctx){ .dev = dev, .start = &start, .ledger = &ledger, .steps = STEPS, .slots = SLOTS, .thread_ix = i };
+        atomic_store(&ctx[i].failures, 0);
+        atomic_store(&ctx[i].corruptions, 0);
+        MEL_REQUIRE(mel_thread_spawn(&threads[i], stress_alloc_storm_worker, &ctx[i], .name = "alloc-storm"));
+    }
+    for (u32 i = 0; i < T; i++)
+        mel_thread_join(&threads[i], NULL);
+
+    u32 fails = 0, corrupt = 0;
+    for (u32 i = 0; i < T; i++)
+    {
+        fails += atomic_load(&ctx[i].failures);
+        corrupt += atomic_load(&ctx[i].corruptions);
+    }
+    u32 overlaps = atomic_load(&ledger.overlaps);
+    if (overlaps || corrupt)
+        mel_log_error("gpu-stress",
+                      "BUG-1 reproduced: %u overlapping live mapped-ranges, %u sentinel corruptions under concurrent "
+                      "buffer_create/destroy. Root cause: post-unlock interior-pointer race on the packed slotmap "
+                      "(table_get returns data+packed_idx*item_size; concurrent insert/remove relocates it). See writeup.",
+                      overlaps, corrupt);
+
+    MEL_EXPECT_EQ(fails, 0u);
+    // EXPECTED-FAILURE regression guard for BUG-1: both must be zero once the interior-pointer race is fixed.
+    MEL_EXPECT_EQ(overlaps, 0u); // no two simultaneously-live buffers shared device memory (deterministic catch)
+    MEL_EXPECT_EQ(corrupt, 0u);  // no per-buffer sentinel was clobbered by an aliased neighbor (second signal)
+
+    if (ledger.ranges)
+        mel_dealloc(mel_alloc_heap(), ledger.ranges);
+    mel_mutex_destroy(&ledger.lock);
+    mel_dealloc(mel_alloc_heap(), ctx);
+    mel_dealloc(mel_alloc_heap(), threads);
+    mel_barrier_destroy(&start);
+    mel_gpu_device_destroy(dev); // leak report fires here
+    mel_gpu_instance_destroy(inst);
+}
+
+// =====================================================================================================
+// 9. Deferred-free correctness under rapid destroy+submit from multiple threads. Each thread creates a buffer,
+//    submits a command list that consumes it (a barrier referencing the buffer), then destroys it immediately —
+//    the free is deferred-gated on the submission's retirement serial (gpu-rhi.md §3.3 future-gated retire). N
+//    threads do this concurrently on a SHARED queue (queue_submit is SerializedPerObject on the queue; the
+//    engine's submit_lock provides that). The deferred-free list and the watermark are device-wide state hit by
+//    every thread; a race there would surface as a leak at device destroy or a validation use-after-free. We
+//    also read back through a per-thread READBACK copy to prove the consumed buffer's contents were valid at
+//    submit time (the destroy did not free memory the GPU was still reading). Bounded by per-thread submit
+//    serialization (the suite is slow here — each submit blocks on its fence in the no-reactor path).
+// =====================================================================================================
+typedef struct
+{
+    Mel_Gpu_Device* dev;
+    Mel_Gpu_Queue*  queue;
+    Mel_Barrier*    start;
+    u32             rounds;
+    u32             thread_ix;
+    _Atomic(u32)    failures;
+    _Atomic(u32)    mismatches;
+} Stress_Defer_Ctx;
+
+static int stress_defer_worker(void* user)
+{
+    Stress_Defer_Ctx* c = user;
+    mel_barrier_wait(c->start);
+    for (u32 r = 0; r < c->rounds; r++)
+    {
+        u32 pattern = (c->thread_ix << 24) | (r & 0xFFFFFF);
+        u32 src_data[16];
+        for (u32 i = 0; i < 16; i++)
+            src_data[i] = pattern + i;
+
+        // Device-local source initialized from data (staging upload), consumed by a copy, then destroyed at once.
+        Mel_Gpu_Buffer_Create_Result src = mel_gpu_buffer_create(c->dev, .size = sizeof src_data, .usage = MEL_GPU_BUFFER_STORAGE | MEL_GPU_BUFFER_TRANSFER_SRC | MEL_GPU_BUFFER_TRANSFER_DST,
+                                                                 .memory = MEL_GPU_MEMORY_DEVICE, .data = src_data, .name = "defsrc");
+        Mel_Gpu_Buffer_Create_Result rb = mel_gpu_buffer_create(c->dev, .size = sizeof src_data, .usage = MEL_GPU_BUFFER_TRANSFER_DST, .memory = MEL_GPU_MEMORY_READBACK, .name = "defrb");
+        if (mel_gpu_failed(src.status) || mel_gpu_failed(rb.status))
+        {
+            atomic_fetch_add(&c->failures, 1);
+            if (!mel_gpu_failed(src.status))
+                mel_gpu_buffer_destroy(c->dev, src.value);
+            if (!mel_gpu_failed(rb.status))
+                mel_gpu_buffer_destroy(c->dev, rb.value);
+            continue;
+        }
+
+        Mel_Gpu_Command_List* cmd = mel_gpu_command_list_create(c->queue);
+        mel_gpu_command_list_begin(cmd);
+        mel_gpu_cmd_buffer_barrier(cmd, src.value, MEL_GPU_STATE_COPY_DEST, MEL_GPU_STATE_COPY_SOURCE);
+        mel_gpu_cmd_copy_buffer(cmd, src.value, rb.value, sizeof src_data);
+        mel_gpu_command_list_end(cmd);
+        Mel_Gpu_Future* f = mel_gpu_queue_submit(c->queue, (Mel_Gpu_Submit){ .command_lists = &cmd, .command_list_count = 1 });
+        bool ok = f && mel_gpu_ok(mel_gpu_future_status(f));
+
+        // Destroy the consumed source IMMEDIATELY after submit (before its retirement edge): the free is
+        // deferred-gated on this serial. The readback proves the GPU saw valid contents (not freed-out memory).
+        mel_gpu_buffer_destroy(c->dev, src.value);
+
+        if (ok)
+        {
+            const u32* got = mel_gpu_buffer_mapped(c->dev, rb.value);
+            if (!got)
+                atomic_fetch_add(&c->mismatches, 1);
+            else
+                for (u32 i = 0; i < 16; i++)
+                    if (got[i] != src_data[i])
+                    {
+                        atomic_fetch_add(&c->mismatches, 1);
+                        break;
+                    }
+        }
+        else
+            atomic_fetch_add(&c->failures, 1);
+
+        mel_gpu_future_destroy(f);
+        mel_gpu_command_list_destroy(cmd);
+        mel_gpu_buffer_destroy(c->dev, rb.value);
+    }
+    return 0;
+}
+
+MEL_TEST(stress_command, threaded_deferred_free_under_submit)
+{
+    Mel_Gpu_Instance* inst = NULL;
+    Mel_Gpu_Device*   dev = stress_make_device(&inst);
+    MEL_REQUIRE_NOT_NULL(dev);
+
+    Mel_Gpu_Queue* q = mel_gpu_queue_request(dev, MEL_GPU_QUEUE_GRAPHICS);
+    MEL_REQUIRE_NOT_NULL(q);
+
+    const u32 T = stress_threads();
+    const u32 ROUNDS = 24;
+
+    Mel_Barrier start;
+    MEL_REQUIRE(mel_barrier_init(&start, T));
+    Mel_Thread*       threads = mel_alloc_array(mel_alloc_heap(), Mel_Thread, T);
+    Stress_Defer_Ctx* ctx = mel_alloc_array(mel_alloc_heap(), Stress_Defer_Ctx, T);
+    for (u32 i = 0; i < T; i++)
+    {
+        ctx[i] = (Stress_Defer_Ctx){ .dev = dev, .queue = q, .start = &start, .rounds = ROUNDS, .thread_ix = i };
+        atomic_store(&ctx[i].failures, 0);
+        atomic_store(&ctx[i].mismatches, 0);
+        MEL_REQUIRE(mel_thread_spawn(&threads[i], stress_defer_worker, &ctx[i], .name = "defer"));
+    }
+    for (u32 i = 0; i < T; i++)
+        mel_thread_join(&threads[i], NULL);
+
+    u32 fails = 0, mism = 0;
+    for (u32 i = 0; i < T; i++)
+    {
+        fails += atomic_load(&ctx[i].failures);
+        mism += atomic_load(&ctx[i].mismatches);
+    }
+    MEL_EXPECT_EQ(fails, 0u);
+    MEL_EXPECT_EQ(mism, 0u); // every consumed buffer held valid contents at submit; deferred-free did not race
+
+    mel_dealloc(mel_alloc_heap(), ctx);
+    mel_dealloc(mel_alloc_heap(), threads);
+    mel_barrier_destroy(&start);
+    mel_gpu_queue_release(q);
+    mel_gpu_device_destroy(dev); // leak report fires here; deferred frees must have drained
+    mel_gpu_instance_destroy(inst);
 }
 
 #else
