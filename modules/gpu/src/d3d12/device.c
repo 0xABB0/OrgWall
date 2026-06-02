@@ -85,8 +85,13 @@ Mel_Gpu_Device_Create_Result mel_gpu_device_create_opt(Mel_Gpu_Instance* inst, M
     mel_slotmap_init(&dev->samplers.map, alloc, .item_size = sizeof(Mel_Gpu_Sampler_Obj), .initial_capacity = 16);
     mel_slotmap_init(&dev->shaders.map, alloc, .item_size = sizeof(Mel_Gpu_Shader_Obj), .initial_capacity = 16);
     mel_slotmap_init(&dev->pipelines.map, alloc, .item_size = sizeof(Mel_Gpu_Pipeline_Obj), .initial_capacity = 16);
+    mel_slotmap_init(&dev->bind_group_layouts.map, alloc, .item_size = sizeof(Mel_Gpu_Bind_Group_Layout_Obj), .initial_capacity = 8);
+    mel_slotmap_init(&dev->bind_groups.map, alloc, .item_size = sizeof(Mel_Gpu_Bind_Group_Obj), .initial_capacity = 8);
     dev->buffers.init = dev->textures.init = dev->texture_views.init = true;
     dev->samplers.init = dev->shaders.init = dev->pipelines.init = true;
+    dev->bind_group_layouts.init = dev->bind_groups.init = true;
+
+    mel_gpu__classic_init(dev);
 
     if (opt.features.descriptor_indexing && dev->caps.memory.bindless.tier == MEL_GPU_TIER_FULL)
     {
@@ -174,6 +179,8 @@ void mel_gpu_device_destroy(Mel_Gpu_Device* dev)
     mel_gpu__table_report_leaks(&dev->samplers, "sampler");
     mel_gpu__table_report_leaks(&dev->shaders, "shader");
     mel_gpu__table_report_leaks(&dev->pipelines, "pipeline");
+    mel_gpu__table_report_leaks(&dev->bind_group_layouts, "bind-group-layout");
+    mel_gpu__table_report_leaks(&dev->bind_groups, "bind-group");
     if (dev->buffers.init)
         mel_slotmap_free(&dev->buffers.map);
     if (dev->textures.init)
@@ -186,9 +193,14 @@ void mel_gpu_device_destroy(Mel_Gpu_Device* dev)
         mel_slotmap_free(&dev->shaders.map);
     if (dev->pipelines.init)
         mel_slotmap_free(&dev->pipelines.map);
+    if (dev->bind_group_layouts.init)
+        mel_slotmap_free(&dev->bind_group_layouts.map);
+    if (dev->bind_groups.init)
+        mel_slotmap_free(&dev->bind_groups.map);
     if (dev->sampler_interns)
         mel_dealloc(dev->alloc, dev->sampler_interns);
 
+    mel_gpu__classic_destroy(dev);
     mel_gpu__bindless_destroy(dev);
     if (dev->rtv_heap)
         ID3D12DescriptorHeap_Release(dev->rtv_heap);

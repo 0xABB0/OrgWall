@@ -32,6 +32,8 @@ void mel_gpu_command_list_begin(Mel_Gpu_Command_List* cmd)
     ID3D12GraphicsCommandList_Reset(cmd->list, cmd->allocator, NULL);
     cmd->state_count = 0;
     cmd->recording = true;
+    cmd->cur_pipeline = NULL;
+    cmd->classic_heaps_bound = false;
 }
 
 void mel_gpu_command_list_end(Mel_Gpu_Command_List* cmd)
@@ -303,6 +305,7 @@ void mel_gpu_cmd_bind_pipeline(Mel_Gpu_Command_List* cmd, Mel_Gpu_Pipeline pipe)
     cmd->cur_bindless = o->bindless;
     cmd->cur_push_size = o->push_constant_size;
     cmd->cur_vertex_stride = o->vertex_stride;
+    cmd->cur_pipeline = o;
 
     Mel_Gpu_Device* dev = cmd->dev;
     if (o->bindless)

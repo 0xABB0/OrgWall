@@ -141,3 +141,28 @@ void mel_gpu__dxil_reflect_inputs(const void* dxil, usize bytes, const Mel_Alloc
     *out_count = count;
     *out_stride = offset;
 }
+
+u32 mel_gpu__dxil_reflect_test(const void* dxil, usize bytes, const Mel_Alloc* alloc, char (*semantics)[32], u32* sem_indices, i32* formats, u32* offsets, u32 max, u32* out_stride)
+{
+    Mel_Gpu_Dxil_Input* inputs = NULL;
+    u32                 count = 0;
+    u32                 stride = 0;
+    mel_gpu__dxil_reflect_inputs(dxil, bytes, alloc, &inputs, &count, &stride);
+    u32 n = count < max ? count : max;
+    for (u32 i = 0; i < n; i++)
+    {
+        usize len = inputs[i].semantic ? strlen(inputs[i].semantic) : 0;
+        if (len > 30)
+            len = 30;
+        if (inputs[i].semantic)
+            memcpy(semantics[i], inputs[i].semantic, len);
+        semantics[i][len] = 0;
+        sem_indices[i] = inputs[i].semantic_index;
+        formats[i] = (i32)inputs[i].format;
+        offsets[i] = inputs[i].offset;
+    }
+    if (out_stride)
+        *out_stride = stride;
+    mel_gpu__dxil_inputs_free(alloc, inputs, count);
+    return count;
+}

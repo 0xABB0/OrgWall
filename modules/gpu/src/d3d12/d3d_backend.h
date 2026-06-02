@@ -32,6 +32,7 @@
 #include <gpu/rendering.h>
 #include <gpu/surface.h>
 #include <gpu/swapchain.h>
+#include <gpu/bind_group.h>
 
 struct Mel_Gpu_Instance
 {
@@ -118,6 +119,25 @@ typedef struct
 
 typedef struct
 {
+    Mel_Gpu_Resource_Header          header;
+    Mel_Gpu_Bind_Group_Layout_Entry* entries;
+    u32                              entry_count;
+    u32                              resource_descriptor_count;
+    u32                              sampler_descriptor_count;
+} Mel_Gpu_Bind_Group_Layout_Obj;
+
+typedef struct
+{
+    Mel_Gpu_Resource_Header header;
+    Mel_SlotMap_Handle      layout;
+    u32                     resource_base;
+    u32                     resource_count;
+    u32                     sampler_base;
+    u32                     sampler_count;
+} Mel_Gpu_Bind_Group_Obj;
+
+typedef struct
+{
     char*          semantic;
     u32            semantic_index;
     Mel_Gpu_Format format;
@@ -142,6 +162,14 @@ typedef struct
 
 typedef struct
 {
+    bool has_resource;
+    u32  resource_param;
+    bool has_sampler;
+    u32  sampler_param;
+} Mel_Gpu_Set_Param;
+
+typedef struct
+{
     Mel_Gpu_Resource_Header  header;
     ID3D12RootSignature*     root_sig;
     ID3D12PipelineState*     pso;
@@ -152,6 +180,8 @@ typedef struct
     u32                      vertex_stride;
     u32                      srv_table_param;
     u32                      smp_table_param;
+    Mel_Gpu_Set_Param*       set_params;
+    u32                      set_param_count;
     Mel_Gpu_Sampler*         static_samplers;
     u32                      static_sampler_count;
 } Mel_Gpu_Pipeline_Obj;
@@ -221,6 +251,18 @@ struct Mel_Gpu_Device
     Mel_Gpu_Resource_Table samplers;
     Mel_Gpu_Resource_Table shaders;
     Mel_Gpu_Resource_Table pipelines;
+    Mel_Gpu_Resource_Table bind_group_layouts;
+    Mel_Gpu_Resource_Table bind_groups;
+
+    Mel_Mutex             classic_lock;
+    ID3D12DescriptorHeap* classic_res_heap;
+    u32                   classic_res_inc;
+    u32                   classic_res_cap;
+    u32                   classic_res_next;
+    ID3D12DescriptorHeap* classic_smp_heap;
+    u32                   classic_smp_inc;
+    u32                   classic_smp_cap;
+    u32                   classic_smp_next;
 
     Mel_Gpu_Sampler_Intern* sampler_interns;
     u32                     sampler_intern_count;
@@ -278,10 +320,12 @@ struct Mel_Gpu_Command_List
     u32                      state_count;
     u32                      state_cap;
 
-    bool cur_compute;
-    bool cur_bindless;
-    u32  cur_push_size;
-    u32  cur_vertex_stride;
+    bool                  cur_compute;
+    bool                  cur_bindless;
+    u32                   cur_push_size;
+    u32                   cur_vertex_stride;
+    Mel_Gpu_Pipeline_Obj* cur_pipeline;
+    bool                  classic_heaps_bound;
 };
 
 struct Mel_Gpu_Surface
@@ -355,5 +399,16 @@ bool mel_gpu__device_is_lost(Mel_Gpu_Device* dev, HRESULT hr, const char* where)
 void mel_gpu__bindless_init(Mel_Gpu_Device* dev);
 void mel_gpu__bindless_destroy(Mel_Gpu_Device* dev);
 void mel_gpu__bindless_register_texture_view(Mel_Gpu_Device* dev, u32 index, const Mel_Gpu_Texture_View_Obj* v);
+void mel_gpu__bindless_register_storage_image(Mel_Gpu_Device* dev, u32 index, const Mel_Gpu_Texture_View_Obj* v);
 void mel_gpu__bindless_register_buffer(Mel_Gpu_Device* dev, u32 index, const Mel_Gpu_Buffer_Obj* b, Mel_Gpu_Buffer_Usage usage);
 void mel_gpu__bindless_register_sampler(Mel_Gpu_Device* dev, u32 index, const D3D12_SAMPLER_DESC* d);
+
+D3D12_DESCRIPTOR_RANGE_TYPE mel_gpu__range_type(Mel_Gpu_Descriptor_Kind kind);
+bool                        mel_gpu__descriptor_is_sampler(Mel_Gpu_Descriptor_Kind kind);
+void                        mel_gpu__classic_init(Mel_Gpu_Device* dev);
+void                        mel_gpu__classic_destroy(Mel_Gpu_Device* dev);
+D3D12_CPU_DESCRIPTOR_HANDLE mel_gpu__classic_res_cpu(Mel_Gpu_Device* dev, u32 slot);
+D3D12_GPU_DESCRIPTOR_HANDLE mel_gpu__classic_res_gpu(Mel_Gpu_Device* dev, u32 slot);
+D3D12_CPU_DESCRIPTOR_HANDLE mel_gpu__classic_smp_cpu(Mel_Gpu_Device* dev, u32 slot);
+D3D12_GPU_DESCRIPTOR_HANDLE mel_gpu__classic_smp_gpu(Mel_Gpu_Device* dev, u32 slot);
+bool                        mel_gpu__bind_group_layout_get(Mel_Gpu_Device* dev, Mel_Gpu_Bind_Group_Layout layout, Mel_Gpu_Bind_Group_Layout_Obj** out);
