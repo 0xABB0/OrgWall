@@ -33,6 +33,8 @@
 #include <gpu/state.h>
 #include <gpu/command.h>
 #include <gpu/rendering.h>
+#include <gpu/surface.h>
+#include <gpu/swapchain.h>
 
 struct Mel_Gpu_Instance
 {
@@ -305,6 +307,11 @@ struct Mel_Gpu_Command_List
     ID3D12GraphicsCommandList* list;
     bool                       recording;
 
+    // U18: when this list is a swapchain frame recorder, `sc` is its swapchain so cmd_begin_pass /
+    // cmd_end_pass reach the acquired back buffer + its RTV (the Vulkan recorder carries the same back
+    // pointer). NULL for a standalone (U15) command list.
+    Mel_Gpu_Swapchain* sc;
+
     Mel_Gpu_Cmd_State_Entry* states;
     u32                      state_count;
     u32                      state_cap;
@@ -315,6 +322,50 @@ struct Mel_Gpu_Command_List
     bool cur_bindless;
     u32  cur_push_size;
     u32  cur_vertex_stride;
+};
+
+// U18 DXGI flip-model swapchain (gpu-rhi.md §7.4; design/gpu-d3d12.md Phase 4). A swapchain is a handle (§3.1):
+// CreateSwapChainForHwnd with DXGI_SWAP_EFFECT_FLIP_DISCARD over the surface's HWND, `buffer_count` back
+// buffers each with an RTV in a dedicated CPU RTV heap, presented through Present. The render loop double-
+// buffers `frames_in_flight` per-frame command allocators+lists fenced on the device timeline serial; the
+// back-buffer index comes from GetCurrentBackBufferIndex (flip-model is not strictly round-robin under
+// FLIP_DISCARD, so it is queried each frame, never inferred). Vsync = Present sync-interval 1 vs 0 (tearing
+// when the surface allows it, DXGI_PRESENT_ALLOW_TEARING). The recorder is embedded; its allocator/list are
+// swapped to the frame's pair at frame_begin (mirroring the Vulkan recorder).
+struct Mel_Gpu_Surface
+{
+    Mel_Gpu_Instance* instance;
+    void*             hwnd;
+    i32               width;
+    i32               height;
+};
+
+struct Mel_Gpu_Swapchain
+{
+    Mel_Gpu_Device*  dev;
+    Mel_Gpu_Surface* surface;
+    IDXGISwapChain3* swap;
+    DXGI_FORMAT      format;
+    Mel_Gpu_Format   mel_format;
+    u32              width;
+    u32              height;
+    bool             vsync;
+    bool             allow_tearing;
+
+    u32                   buffer_count;
+    ID3D12Resource**      buffers;
+    ID3D12DescriptorHeap* rtv_heap;
+    u32                   rtv_inc;
+
+    u32                         frames_in_flight;
+    ID3D12CommandAllocator**    allocators;
+    ID3D12GraphicsCommandList** lists;
+    u64*                        frame_serial;
+    u32                         frame_index;
+    u32                         back_index;
+    bool                        frame_ok;
+
+    struct Mel_Gpu_Command_List recorder;
 };
 
 // caps.c
@@ -354,6 +405,9 @@ bool mel_gpu__sampler_desc(Mel_Gpu_Device* dev, Mel_Gpu_Sampler s, D3D12_SAMPLER
 // reflect.c — DXIL container reader: input signature (ISG1/ISGN) -> reflected vertex-input elements.
 void mel_gpu__dxil_reflect_inputs(const void* dxil, usize bytes, const Mel_Alloc* alloc, Mel_Gpu_Dxil_Input** out, u32* out_count, u32* out_stride);
 void mel_gpu__dxil_inputs_free(const Mel_Alloc* alloc, Mel_Gpu_Dxil_Input* inputs, u32 count);
+
+// swapchain.c — U18 device-lost helper (shared with the present path; logs + fires the callback once).
+bool mel_gpu__device_is_lost(Mel_Gpu_Device* dev, HRESULT hr, const char* where);
 
 // binding.c — U14 bindless heaps.
 void mel_gpu__bindless_init(Mel_Gpu_Device* dev);
