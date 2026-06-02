@@ -23,6 +23,8 @@
 #include <thread/mutex.h>
 #include <time/nano.h>
 #include <log/log.h>
+#include <log.sink/sink.h>
+#include <string/str8.h>
 
 #include <stdatomic.h>
 #include <string.h>
@@ -729,6 +731,219 @@ MEL_TEST(conc_tracker, device_accepts_flag_but_tracker_is_unwired)
     mel_gpu_buffer_destroy(dr.value, b.value);
 
     mel_gpu_device_destroy(dr.value);
+    mel_gpu_instance_destroy(inst);
+}
+
+typedef struct
+{
+    Mel_Log_Sink base;
+    _Atomic(u32) violations;
+    _Atomic(u32) total_errors;
+} Conc_Capture_Sink;
+
+static void conc_capture_write(Mel_Log_Sink* self, const Mel_Log_Entry* e)
+{
+    Conc_Capture_Sink* s = (Conc_Capture_Sink*)self;
+    if (e->level != MEL_LOG_ERROR)
+        return;
+    atomic_fetch_add(&s->total_errors, 1);
+    if (str8_contains(e->message, S8("thread-safety violation")))
+        atomic_fetch_add(&s->violations, 1);
+}
+
+static Mel_Gpu_Device* conc_make_device_tracked(Mel_Gpu_Instance** out_inst)
+{
+    Mel_Gpu_Instance* inst = mel_gpu_instance_create(.app_name = "gpu-concurrency", .debug = { .enabled = true });
+    if (!inst)
+        return NULL;
+    Mel_Gpu_Adapter* adapters[8];
+    u32              n = mel_gpu_adapters(inst, adapters, 8);
+    if (n == 0)
+    {
+        mel_gpu_instance_destroy(inst);
+        return NULL;
+    }
+    Mel_Gpu_Device_Create_Result dr =
+        mel_gpu_device_create(inst, adapters[0], .features = { .timeline_semaphores = true }, .debug = { .enabled = true, .thread_safety_tracker = true });
+    if (!dr.value)
+    {
+        mel_gpu_instance_destroy(inst);
+        return NULL;
+    }
+    *out_inst = inst;
+    return dr.value;
+}
+
+typedef struct
+{
+    Mel_Gpu_Device* dev;
+    Mel_Gpu_Buffer  buf;
+    Mel_Barrier*    gate;
+    u32             iters;
+    const u8*       src;
+    usize           bytes;
+    _Atomic(u32)    done;
+} Conc_Same_Write_Ctx;
+
+static int conc_same_write_worker(void* user)
+{
+    Conc_Same_Write_Ctx* c = user;
+    for (u32 i = 0; i < c->iters; i++)
+    {
+        mel_barrier_wait(c->gate);
+        mel_gpu_buffer_write(c->dev, c->buf, c->src, c->bytes);
+    }
+    atomic_fetch_add(&c->done, 1);
+    return 0;
+}
+
+MEL_TEST(conc_tracker, rhi_same_buffer_write_reports_without_aborting)
+{
+    Mel_Gpu_Instance* inst = NULL;
+    Mel_Gpu_Device*   dev = conc_make_device_tracked(&inst);
+    MEL_REQUIRE_NOT_NULL(dev);
+
+    Conc_Capture_Sink sink = { .base = { .write = conc_capture_write, .level_threshold = MEL_LOG_ERROR } };
+    atomic_store(&sink.violations, 0);
+    atomic_store(&sink.total_errors, 0);
+    Mel_Log_Sink_Handle sh = mel_log_sink_add(&sink.base);
+
+    const usize          BYTES = 4096;
+    u8*                  src = mel_alloc_array(mel_alloc_heap(), u8, BYTES);
+    memset(src, 0xAB, BYTES);
+    Mel_Gpu_Buffer_Create_Result b = mel_gpu_buffer_create(dev, .size = BYTES, .usage = MEL_GPU_BUFFER_STORAGE | MEL_GPU_BUFFER_TRANSFER_DST,
+                                                            .memory = MEL_GPU_MEMORY_DEVICE, .name = "same-write");
+    MEL_REQUIRE(!mel_gpu_failed(b.status));
+
+    const u32   ITERS = 24;
+    Mel_Barrier gate;
+    MEL_REQUIRE(mel_barrier_init(&gate, 2));
+    Conc_Same_Write_Ctx ctx = { .dev = dev, .buf = b.value, .gate = &gate, .iters = ITERS, .src = src, .bytes = BYTES };
+    atomic_store(&ctx.done, 0);
+
+    Mel_Thread t0, t1;
+    MEL_REQUIRE(mel_thread_spawn(&t0, conc_same_write_worker, &ctx, .name = "same-write-0"));
+    MEL_REQUIRE(mel_thread_spawn(&t1, conc_same_write_worker, &ctx, .name = "same-write-1"));
+    mel_thread_join(&t0, NULL);
+    mel_thread_join(&t1, NULL);
+
+    MEL_EXPECT_EQ(atomic_load(&ctx.done), 2u);
+    MEL_EXPECT(mel_gpu_buffer_alive(dev, b.value));
+
+    mel_log_sink_flush_all();
+    u32 viol = atomic_load(&sink.violations);
+    mel_log_info("gpu-concurrency", "rhi same-buffer write: tracker reported %u SerializedPerObject violations across %u barrier-gated overlap windows", viol, ITERS);
+    MEL_EXPECT(viol > 0);
+
+    mel_log_sink_remove(sh);
+
+    mel_gpu_buffer_destroy(dev, b.value);
+    MEL_EXPECT(!mel_gpu_buffer_alive(dev, b.value));
+    mel_dealloc(mel_alloc_heap(), src);
+    mel_barrier_destroy(&gate);
+    mel_gpu_device_destroy(dev);
+    mel_gpu_instance_destroy(inst);
+}
+
+typedef struct
+{
+    Mel_Gpu_Device* dev;
+    Mel_Barrier*    start;
+    u32             per_thread;
+    u32             thread_ix;
+    _Atomic(u32)    failures;
+} Conc_Own_Write_Ctx;
+
+static int conc_own_write_worker(void* user)
+{
+    Conc_Own_Write_Ctx* c = user;
+    u8*                 pattern = mel_alloc_array(mel_alloc_heap(), u8, 2048);
+    memset(pattern, (u8)(c->thread_ix + 1), 2048);
+    mel_barrier_wait(c->start);
+    for (u32 i = 0; i < c->per_thread; i++)
+    {
+        Mel_Gpu_Buffer_Create_Result b = mel_gpu_buffer_create(c->dev, .size = 2048, .usage = MEL_GPU_BUFFER_STORAGE | MEL_GPU_BUFFER_TRANSFER_DST,
+                                                               .memory = MEL_GPU_MEMORY_DEVICE, .name = "own");
+        if (mel_gpu_failed(b.status))
+        {
+            atomic_fetch_add(&c->failures, 1);
+            continue;
+        }
+        mel_gpu_buffer_write(c->dev, b.value, pattern, 2048);
+        mel_gpu_buffer_write(c->dev, b.value, pattern, 2048);
+        mel_gpu_buffer_destroy(c->dev, b.value);
+    }
+    mel_dealloc(mel_alloc_heap(), pattern);
+    return 0;
+}
+
+MEL_TEST(conc_tracker, rhi_distinct_buffer_write_no_false_positive)
+{
+    Mel_Gpu_Instance* inst = NULL;
+    Mel_Gpu_Device*   dev = conc_make_device_tracked(&inst);
+    MEL_REQUIRE_NOT_NULL(dev);
+
+    Conc_Capture_Sink sink = { .base = { .write = conc_capture_write, .level_threshold = MEL_LOG_ERROR } };
+    atomic_store(&sink.violations, 0);
+    atomic_store(&sink.total_errors, 0);
+    Mel_Log_Sink_Handle sh = mel_log_sink_add(&sink.base);
+
+    const u32 T = conc_threads();
+    const u32 PER = 16;
+
+    Mel_Barrier start;
+    MEL_REQUIRE(mel_barrier_init(&start, T));
+    Mel_Thread*         threads = mel_alloc_array(mel_alloc_heap(), Mel_Thread, T);
+    Conc_Own_Write_Ctx* ctx = mel_alloc_array(mel_alloc_heap(), Conc_Own_Write_Ctx, T);
+    for (u32 i = 0; i < T; i++)
+    {
+        ctx[i] = (Conc_Own_Write_Ctx){ .dev = dev, .start = &start, .per_thread = PER, .thread_ix = i };
+        atomic_store(&ctx[i].failures, 0);
+        MEL_REQUIRE(mel_thread_spawn(&threads[i], conc_own_write_worker, &ctx[i], .name = "own-write"));
+    }
+    for (u32 i = 0; i < T; i++)
+        mel_thread_join(&threads[i], NULL);
+
+    u32 fails = 0;
+    for (u32 i = 0; i < T; i++)
+        fails += atomic_load(&ctx[i].failures);
+    MEL_EXPECT_EQ(fails, 0u);
+
+    mel_log_sink_flush_all();
+    MEL_EXPECT_EQ(atomic_load(&sink.violations), 0u);
+    mel_log_sink_remove(sh);
+
+    mel_dealloc(mel_alloc_heap(), ctx);
+    mel_dealloc(mel_alloc_heap(), threads);
+    mel_barrier_destroy(&start);
+    mel_gpu_device_destroy(dev);
+    mel_gpu_instance_destroy(inst);
+}
+
+MEL_TEST(conc_tracker, rhi_destroy_then_recreate_slot_no_false_positive)
+{
+    Mel_Gpu_Instance* inst = NULL;
+    Mel_Gpu_Device*   dev = conc_make_device_tracked(&inst);
+    MEL_REQUIRE_NOT_NULL(dev);
+
+    Conc_Capture_Sink sink = { .base = { .write = conc_capture_write, .level_threshold = MEL_LOG_ERROR } };
+    atomic_store(&sink.violations, 0);
+    atomic_store(&sink.total_errors, 0);
+    Mel_Log_Sink_Handle sh = mel_log_sink_add(&sink.base);
+
+    const u32 ROUNDS = 256;
+    for (u32 r = 0; r < ROUNDS; r++)
+    {
+        Mel_Gpu_Buffer_Create_Result b = mel_gpu_buffer_create(dev, .size = 256, .usage = MEL_GPU_BUFFER_STORAGE, .memory = MEL_GPU_MEMORY_DEVICE, .name = "slotreuse");
+        MEL_REQUIRE(!mel_gpu_failed(b.status));
+        mel_gpu_buffer_destroy(dev, b.value);
+    }
+
+    mel_log_sink_flush_all();
+    MEL_EXPECT_EQ(atomic_load(&sink.violations), 0u);
+    mel_log_sink_remove(sh);
+
+    mel_gpu_device_destroy(dev);
     mel_gpu_instance_destroy(inst);
 }
 
