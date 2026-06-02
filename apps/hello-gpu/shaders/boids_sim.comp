@@ -1,0 +1,91 @@
+#version 460
+#extension GL_EXT_nonuniform_qualifier : require
+
+layout(local_size_x = 64) in;
+
+struct Boid
+{
+    vec4 pos_vel;
+};
+
+layout(set = 0, binding = 2, std430) readonly  buffer SrcBuf { Boid b[]; } src_buf[];
+layout(set = 0, binding = 2, std430) writeonly buffer DstBuf { Boid b[]; } dst_buf[];
+
+layout(push_constant, std430) uniform Root
+{
+    uint  src;
+    uint  dst;
+    uint  total;
+    uint  pad;
+    float dt;
+    float time;
+    float goal_x;
+    float goal_y;
+} root;
+
+void main()
+{
+    uint gid = gl_GlobalInvocationID.x;
+    if (gid >= root.total)
+        return;
+
+    Boid me = src_buf[nonuniformEXT(root.src)].b[gid];
+    vec2 pos = me.pos_vel.xy;
+    vec2 vel = me.pos_vel.zw;
+
+    vec2  sep = vec2(0.0);
+    vec2  ali = vec2(0.0);
+    vec2  coh = vec2(0.0);
+    float ali_n = 0.0;
+    float coh_n = 0.0;
+
+    const float r_sep = 0.045;
+    const float r_view = 0.13;
+
+    for (uint i = 0; i < root.total; ++i)
+    {
+        if (i == gid)
+            continue;
+        Boid ob = src_buf[nonuniformEXT(root.src)].b[i];
+        vec2 d = ob.pos_vel.xy - pos;
+        float dist2 = dot(d, d);
+        if (dist2 > r_view * r_view)
+            continue;
+        float dist = sqrt(max(dist2, 1e-6));
+        if (dist < r_sep)
+            sep -= d / dist * (r_sep - dist);
+        ali += ob.pos_vel.zw;
+        ali_n += 1.0;
+        coh += ob.pos_vel.xy;
+        coh_n += 1.0;
+    }
+
+    vec2 acc = vec2(0.0);
+    acc += sep * 2.6;
+    if (ali_n > 0.0)
+        acc += (ali / ali_n - vel) * 1.1;
+    if (coh_n > 0.0)
+        acc += (coh / coh_n - pos) * 0.9;
+
+    vec2 goal = vec2(root.goal_x, root.goal_y);
+    acc += (goal - pos) * 0.35;
+
+    vel += acc * root.dt;
+
+    float sp = length(vel);
+    const float max_sp = 0.55;
+    const float min_sp = 0.18;
+    if (sp > max_sp)
+        vel = vel / sp * max_sp;
+    else if (sp < min_sp && sp > 1e-4)
+        vel = vel / sp * min_sp;
+
+    pos += vel * root.dt;
+
+    if (pos.x < -1.0) { pos.x = -1.0; vel.x = abs(vel.x); }
+    if (pos.x >  1.0) { pos.x =  1.0; vel.x = -abs(vel.x); }
+    if (pos.y < -1.0) { pos.y = -1.0; vel.y = abs(vel.y); }
+    if (pos.y >  1.0) { pos.y =  1.0; vel.y = -abs(vel.y); }
+
+    dst_buf[nonuniformEXT(root.dst)].b[gid] = Boid(vec4(pos, vel));
+}
