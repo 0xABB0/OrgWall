@@ -59,7 +59,158 @@ void mel_gpu__classic_destroy(Mel_Gpu_Device* dev)
         ID3D12DescriptorHeap_Release(dev->classic_smp_heap);
     if (dev->classic_res_heap || dev->classic_smp_heap)
         mel_mutex_destroy(&dev->classic_lock);
+    if (dev->classic_res_free)
+        mel_dealloc(dev->alloc, dev->classic_res_free);
+    if (dev->classic_smp_free)
+        mel_dealloc(dev->alloc, dev->classic_smp_free);
+    dev->classic_res_free = dev->classic_smp_free = NULL;
     dev->classic_res_heap = dev->classic_smp_heap = NULL;
+}
+
+static bool mel_gpu__classic_alloc(u32 count, u32* free_count_ptr, Mel_Gpu_Classic_Block* free_list, u32* cursor, u32 cap, u32* out_base)
+{
+    if (count == 0)
+    {
+        *out_base = *cursor;
+        return true;
+    }
+    u32 fc = *free_count_ptr;
+    for (u32 i = 0; i < fc; i++)
+    {
+        if (free_list[i].count < count)
+            continue;
+        *out_base = free_list[i].base;
+        if (free_list[i].count == count)
+            free_list[i] = free_list[--fc];
+        else
+        {
+            free_list[i].base += count;
+            free_list[i].count -= count;
+        }
+        *free_count_ptr = fc;
+        return true;
+    }
+    if (*cursor + count > cap)
+        return false;
+    *out_base = *cursor;
+    *cursor += count;
+    return true;
+}
+
+static void mel_gpu__classic_free_block(Mel_Gpu_Device* dev, u32* free_count_ptr, u32* free_cap_ptr, Mel_Gpu_Classic_Block** free_list_ptr, u32* cursor, Mel_Gpu_Classic_Block block)
+{
+    if (block.count == 0)
+        return;
+
+    Mel_Gpu_Classic_Block* fl = *free_list_ptr;
+    u32                    fc = *free_count_ptr;
+    bool                   coalesced = true;
+    while (coalesced)
+    {
+        coalesced = false;
+        for (u32 i = 0; i < fc; i++)
+        {
+            if (fl[i].base + fl[i].count == block.base)
+            {
+                block.base = fl[i].base;
+                block.count += fl[i].count;
+                fl[i] = fl[--fc];
+                coalesced = true;
+                break;
+            }
+            if (block.base + block.count == fl[i].base)
+            {
+                block.count += fl[i].count;
+                fl[i] = fl[--fc];
+                coalesced = true;
+                break;
+            }
+        }
+    }
+
+    if (block.base + block.count == *cursor)
+    {
+        *cursor = block.base;
+        bool retracted = true;
+        while (retracted)
+        {
+            retracted = false;
+            for (u32 i = 0; i < fc; i++)
+            {
+                if (fl[i].base + fl[i].count == *cursor)
+                {
+                    *cursor = fl[i].base;
+                    fl[i] = fl[--fc];
+                    retracted = true;
+                    break;
+                }
+            }
+        }
+        *free_count_ptr = fc;
+        return;
+    }
+
+    if (fc == *free_cap_ptr)
+    {
+        u32 cap = *free_cap_ptr ? *free_cap_ptr * 2 : 16;
+        fl = fl ? mel_realloc(dev->alloc, fl, sizeof(Mel_Gpu_Classic_Block) * cap) : mel_alloc(dev->alloc, sizeof(Mel_Gpu_Classic_Block) * cap);
+        *free_list_ptr = fl;
+        *free_cap_ptr = cap;
+    }
+    fl[fc++] = block;
+    *free_count_ptr = fc;
+}
+
+bool mel_gpu__classic_res_alloc(Mel_Gpu_Device* dev, u32 count, u32* out_base)
+{
+    mel_mutex_lock(&dev->classic_lock);
+    bool ok = mel_gpu__classic_alloc(count, &dev->classic_res_free_count, dev->classic_res_free, &dev->classic_res_next, dev->classic_res_cap, out_base);
+    mel_mutex_unlock(&dev->classic_lock);
+    return ok;
+}
+
+bool mel_gpu__classic_smp_alloc(Mel_Gpu_Device* dev, u32 count, u32* out_base)
+{
+    mel_mutex_lock(&dev->classic_lock);
+    bool ok = mel_gpu__classic_alloc(count, &dev->classic_smp_free_count, dev->classic_smp_free, &dev->classic_smp_next, dev->classic_smp_cap, out_base);
+    mel_mutex_unlock(&dev->classic_lock);
+    return ok;
+}
+
+void mel_gpu__classic_res_free(Mel_Gpu_Device* dev, Mel_Gpu_Classic_Block block)
+{
+    mel_mutex_lock(&dev->classic_lock);
+    mel_gpu__classic_free_block(dev, &dev->classic_res_free_count, &dev->classic_res_free_cap, &dev->classic_res_free, &dev->classic_res_next, block);
+    mel_mutex_unlock(&dev->classic_lock);
+}
+
+void mel_gpu__classic_smp_free(Mel_Gpu_Device* dev, Mel_Gpu_Classic_Block block)
+{
+    mel_mutex_lock(&dev->classic_lock);
+    mel_gpu__classic_free_block(dev, &dev->classic_smp_free_count, &dev->classic_smp_free_cap, &dev->classic_smp_free, &dev->classic_smp_next, block);
+    mel_mutex_unlock(&dev->classic_lock);
+}
+
+u32 mel_gpu__classic_res_in_use(Mel_Gpu_Device* dev)
+{
+    mel_mutex_lock(&dev->classic_lock);
+    u32 free_total = 0;
+    for (u32 i = 0; i < dev->classic_res_free_count; i++)
+        free_total += dev->classic_res_free[i].count;
+    u32 in_use = dev->classic_res_next - free_total;
+    mel_mutex_unlock(&dev->classic_lock);
+    return in_use;
+}
+
+u32 mel_gpu__classic_smp_in_use(Mel_Gpu_Device* dev)
+{
+    mel_mutex_lock(&dev->classic_lock);
+    u32 free_total = 0;
+    for (u32 i = 0; i < dev->classic_smp_free_count; i++)
+        free_total += dev->classic_smp_free[i].count;
+    u32 in_use = dev->classic_smp_next - free_total;
+    mel_mutex_unlock(&dev->classic_lock);
+    return in_use;
 }
 
 D3D12_CPU_DESCRIPTOR_HANDLE mel_gpu__classic_res_cpu(Mel_Gpu_Device* dev, u32 slot)
@@ -158,18 +309,19 @@ Mel_Gpu_Bind_Group mel_gpu_bind_group_create(Mel_Gpu_Device* dev, Mel_Gpu_Bind_G
     u32 res_n = lo->resource_descriptor_count;
     u32 smp_n = lo->sampler_descriptor_count;
 
-    mel_mutex_lock(&dev->classic_lock);
-    if (dev->classic_res_next + res_n > dev->classic_res_cap || dev->classic_smp_next + smp_n > dev->classic_smp_cap)
+    u32 res_base = 0;
+    u32 smp_base = 0;
+    if (!mel_gpu__classic_res_alloc(dev, res_n, &res_base))
     {
-        mel_mutex_unlock(&dev->classic_lock);
-        mel_log_error("gpu", "bind_group_create: classic descriptor heap exhausted (res %u/%u, smp %u/%u)", dev->classic_res_next + res_n, dev->classic_res_cap, dev->classic_smp_next + smp_n, dev->classic_smp_cap);
+        mel_log_error("gpu", "bind_group_create: classic resource heap exhausted (need %u, in-use %u/%u)", res_n, mel_gpu__classic_res_in_use(dev), dev->classic_res_cap);
         return h;
     }
-    u32 res_base = dev->classic_res_next;
-    u32 smp_base = dev->classic_smp_next;
-    dev->classic_res_next += res_n;
-    dev->classic_smp_next += smp_n;
-    mel_mutex_unlock(&dev->classic_lock);
+    if (!mel_gpu__classic_smp_alloc(dev, smp_n, &smp_base))
+    {
+        mel_gpu__classic_res_free(dev, (Mel_Gpu_Classic_Block){ .base = res_base, .count = res_n });
+        mel_log_error("gpu", "bind_group_create: classic sampler heap exhausted (need %u, in-use %u/%u)", smp_n, mel_gpu__classic_smp_in_use(dev), dev->classic_smp_cap);
+        return h;
+    }
 
     Mel_Gpu_Bind_Group_Obj obj = { 0 };
     obj.header.ownership = MEL_GPU_OWNERSHIP_OWNED;
@@ -182,7 +334,16 @@ Mel_Gpu_Bind_Group mel_gpu_bind_group_create(Mel_Gpu_Device* dev, Mel_Gpu_Bind_G
     return h;
 }
 
-void mel_gpu_bind_group_destroy(Mel_Gpu_Device* dev, Mel_Gpu_Bind_Group group) { mel_gpu__table_remove(dev, &dev->bind_groups, group.slot); }
+void mel_gpu_bind_group_destroy(Mel_Gpu_Device* dev, Mel_Gpu_Bind_Group group)
+{
+    Mel_Gpu_Bind_Group_Obj* g = mel_gpu__table_get(dev, &dev->bind_groups, group.slot);
+    if (!g)
+        return;
+    Mel_Gpu_Classic_Block res = { .base = g->resource_base, .count = g->resource_count };
+    Mel_Gpu_Classic_Block smp = { .base = g->sampler_base, .count = g->sampler_count };
+    mel_gpu__table_remove(dev, &dev->bind_groups, group.slot);
+    mel_gpu__defer_free(dev, (Mel_Gpu_Deferred_Free){ .classic_res = res, .has_classic_res = res.count > 0, .classic_smp = smp, .has_classic_smp = smp.count > 0 });
+}
 
 bool mel_gpu_bind_group_alive(Mel_Gpu_Device* dev, Mel_Gpu_Bind_Group group) { return mel_gpu__table_get(dev, &dev->bind_groups, group.slot) != NULL; }
 

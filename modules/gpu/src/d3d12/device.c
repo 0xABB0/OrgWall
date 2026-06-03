@@ -285,6 +285,10 @@ static void mel_gpu__free_deferred_entry(Mel_Gpu_Device* dev, Mel_Gpu_Deferred_F
         ID3D12RootSignature_Release(e->root_sig);
     if (e->has_reclaim)
         mel_gpu__table_reclaim(dev, e->reclaim_table, e->reclaim_index);
+    if (e->has_classic_res)
+        mel_gpu__classic_res_free(dev, e->classic_res);
+    if (e->has_classic_smp)
+        mel_gpu__classic_smp_free(dev, e->classic_smp);
 }
 
 void mel_gpu__wait_serial(Mel_Gpu_Device* dev, u64 serial)
