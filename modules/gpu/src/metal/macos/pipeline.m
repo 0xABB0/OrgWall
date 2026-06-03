@@ -302,6 +302,137 @@ static MTLColorWriteMask mel_gpu__mtl_write_mask(Mel_Gpu_Color_Write_Mask m)
     return out;
 }
 
+static MTLCompareFunction mel_gpu__mtl_compare(Mel_Gpu_Compare_Op c)
+{
+    switch (c)
+    {
+    case MEL_GPU_COMPARE_NONE:
+    case MEL_GPU_COMPARE_NEVER:
+        return MTLCompareFunctionNever;
+    case MEL_GPU_COMPARE_LESS:
+        return MTLCompareFunctionLess;
+    case MEL_GPU_COMPARE_EQUAL:
+        return MTLCompareFunctionEqual;
+    case MEL_GPU_COMPARE_LESS_EQUAL:
+        return MTLCompareFunctionLessEqual;
+    case MEL_GPU_COMPARE_GREATER:
+        return MTLCompareFunctionGreater;
+    case MEL_GPU_COMPARE_NOT_EQUAL:
+        return MTLCompareFunctionNotEqual;
+    case MEL_GPU_COMPARE_GREATER_EQUAL:
+        return MTLCompareFunctionGreaterEqual;
+    case MEL_GPU_COMPARE_ALWAYS:
+        return MTLCompareFunctionAlways;
+    }
+    return MTLCompareFunctionNever;
+}
+
+static MTLStencilOperation mel_gpu__mtl_stencil_op(Mel_Gpu_Stencil_Op o)
+{
+    switch (o)
+    {
+    case MEL_GPU_STENCIL_KEEP:
+        return MTLStencilOperationKeep;
+    case MEL_GPU_STENCIL_ZERO:
+        return MTLStencilOperationZero;
+    case MEL_GPU_STENCIL_REPLACE:
+        return MTLStencilOperationReplace;
+    case MEL_GPU_STENCIL_INCREMENT_CLAMP:
+        return MTLStencilOperationIncrementClamp;
+    case MEL_GPU_STENCIL_DECREMENT_CLAMP:
+        return MTLStencilOperationDecrementClamp;
+    case MEL_GPU_STENCIL_INVERT:
+        return MTLStencilOperationInvert;
+    case MEL_GPU_STENCIL_INCREMENT_WRAP:
+        return MTLStencilOperationIncrementWrap;
+    case MEL_GPU_STENCIL_DECREMENT_WRAP:
+        return MTLStencilOperationDecrementWrap;
+    }
+    return MTLStencilOperationKeep;
+}
+
+static MTLStencilDescriptor* mel_gpu__mtl_stencil_face(Mel_Gpu_Stencil_Face f)
+{
+    MTLStencilDescriptor* d = [[MTLStencilDescriptor alloc] init];
+    d.stencilFailureOperation = mel_gpu__mtl_stencil_op(f.fail);
+    d.depthStencilPassOperation = mel_gpu__mtl_stencil_op(f.pass);
+    d.depthFailureOperation = mel_gpu__mtl_stencil_op(f.depth_fail);
+    d.stencilCompareFunction = mel_gpu__mtl_compare(f.compare);
+    d.readMask = f.compare_mask;
+    d.writeMask = f.write_mask;
+    return d;
+}
+
+static MTLCullMode mel_gpu__mtl_cull(Mel_Gpu_Cull c)
+{
+    switch (c)
+    {
+    case MEL_GPU_CULL_NONE:
+        return MTLCullModeNone;
+    case MEL_GPU_CULL_FRONT:
+        return MTLCullModeFront;
+    case MEL_GPU_CULL_BACK:
+        return MTLCullModeBack;
+    }
+    return MTLCullModeNone;
+}
+
+static MTLTriangleFillMode mel_gpu__mtl_fill(Mel_Gpu_Fill fill, const char* dbg_name)
+{
+    switch (fill)
+    {
+    case MEL_GPU_FILL_SOLID:
+        return MTLTriangleFillModeFill;
+    case MEL_GPU_FILL_WIREFRAME:
+        return MTLTriangleFillModeLines;
+    case MEL_GPU_FILL_POINT:
+        mel_log_warn("gpu", "pipeline_create '%s': point fill mode is unsupported on the Metal backend (no MTLTriangleFillMode point); using wireframe", dbg_name);
+        return MTLTriangleFillModeLines;
+    }
+    return MTLTriangleFillModeFill;
+}
+
+static id<MTLDepthStencilState> mel_gpu__mtl_depth_stencil_state(Mel_Gpu_Device* dev, Mel_Gpu_Pipeline_Opt opt, const char* dbg_name)
+{
+    bool has_depth = opt.depth_format != MEL_GPU_FORMAT_UNDEFINED;
+    if (!opt.depth_stencil)
+    {
+        if (!has_depth)
+            return nil;
+        MTLDepthStencilDescriptor* dsd = [[MTLDepthStencilDescriptor alloc] init];
+        dsd.depthCompareFunction = MTLCompareFunctionLess;
+        dsd.depthWriteEnabled = YES;
+        return [dev->mtl newDepthStencilStateWithDescriptor:dsd];
+    }
+
+    const Mel_Gpu_Depth_Stencil* d = opt.depth_stencil;
+    if (!has_depth)
+        mel_log_warn("gpu", "pipeline_create '%s': depth_stencil supplied with no depth_format; the bound render pass must still provide a depth attachment for it to take effect", dbg_name);
+    if (d->depth_bounds_test)
+        mel_log_warn("gpu", "pipeline_create '%s': depth-bounds test requested but the Metal backend has no depth-bounds equivalent; ignored", dbg_name);
+
+    MTLCompareFunction depth_cmp;
+    if (d->depth_test && d->depth_compare == MEL_GPU_COMPARE_NONE)
+    {
+        mel_log_warn("gpu", "pipeline_create '%s': depth_test set with compare NONE; using LESS", dbg_name);
+        depth_cmp = MTLCompareFunctionLess;
+    }
+    else if (d->depth_test)
+        depth_cmp = mel_gpu__mtl_compare(d->depth_compare);
+    else
+        depth_cmp = MTLCompareFunctionAlways;
+
+    MTLDepthStencilDescriptor* dsd = [[MTLDepthStencilDescriptor alloc] init];
+    dsd.depthCompareFunction = depth_cmp;
+    dsd.depthWriteEnabled = d->depth_write ? YES : NO;
+    if (d->stencil_test)
+    {
+        dsd.frontFaceStencil = mel_gpu__mtl_stencil_face(d->front);
+        dsd.backFaceStencil = mel_gpu__mtl_stencil_face(d->back);
+    }
+    return [dev->mtl newDepthStencilStateWithDescriptor:dsd];
+}
+
 Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_create_opt(Mel_Gpu_Device* dev, Mel_Gpu_Pipeline_Opt opt)
 {
     Mel_Gpu_Pipeline_Create_Result res = { .value = { mel_gpu_handle_null() }, .status = MEL_GPU_PIPELINE_CREATE_OK };
@@ -407,12 +538,27 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_create_opt(Mel_Gpu_Device* dev, 
         return res;
     }
 
+    id<MTLDepthStencilState> dss = mel_gpu__mtl_depth_stencil_state(dev, opt, dbg_name);
+    if ((opt.depth_stencil || opt.depth_format != MEL_GPU_FORMAT_UNDEFINED) && !dss)
+    {
+        mel_log_error("gpu", "pipeline_create '%s': newDepthStencilState returned nil", dbg_name);
+        res.status = MEL_GPU_PIPELINE_CREATE_VK_FAILED;
+        return res;
+    }
+
     Mel_Gpu_Pipeline_Obj obj = { 0 };
     obj.header.ownership = MEL_GPU_OWNERSHIP_OWNED;
     obj.header.name = opt.name;
     obj.state = (__bridge_retained void*)state;
+    obj.depth_stencil_state = dss ? (__bridge_retained void*)dss : NULL;
     obj.topology = opt.topology;
     obj.compute = false;
+    obj.cull_mode = mel_gpu__mtl_cull(opt.cull);
+    obj.front_face = opt.front_face == MEL_GPU_FRONT_FACE_CW ? MTLWindingClockwise : MTLWindingCounterClockwise;
+    obj.fill_mode = mel_gpu__mtl_fill(opt.fill, dbg_name);
+    obj.stencil_test = opt.depth_stencil ? opt.depth_stencil->stencil_test : false;
+    obj.stencil_ref_front = opt.depth_stencil ? opt.depth_stencil->front.reference : 0;
+    obj.stencil_ref_back = opt.depth_stencil ? opt.depth_stencil->back.reference : 0;
     res.value.slot = mel_gpu__table_insert(dev, &dev->pipelines, &obj);
     return res;
 }
@@ -467,6 +613,12 @@ void mel_gpu_pipeline_destroy(Mel_Gpu_Device* dev, Mel_Gpu_Pipeline pipe)
         id s = (__bridge_transfer id)o->state;
         o->state = NULL;
         (void)s;
+    }
+    if (o->depth_stencil_state)
+    {
+        id d = (__bridge_transfer id)o->depth_stencil_state;
+        o->depth_stencil_state = NULL;
+        (void)d;
     }
     mel_gpu__table_remove(dev, &dev->pipelines, pipe.slot);
 }
