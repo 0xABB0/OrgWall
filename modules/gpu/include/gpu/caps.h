@@ -193,14 +193,23 @@ typedef struct
 
 typedef struct
 {
-    bool fp16;
-    bool fp64;
-    bool int16;
-    bool int64;
-    bool int8;
-    bool wave_ops;
-    u32  subgroup_size_min;
-    u32  subgroup_size_max;
+    bool spirv;
+    bool msl;
+    bool dxil;
+    bool wgsl;
+} Mel_Gpu_Caps_Shader_Bytecode_Passthrough;
+
+typedef struct
+{
+    bool                                     fp16;
+    bool                                     fp64;
+    bool                                     int16;
+    bool                                     int64;
+    bool                                     int8;
+    bool                                     wave_ops;
+    u32                                      subgroup_size_min;
+    u32                                      subgroup_size_max;
+    Mel_Gpu_Caps_Shader_Bytecode_Passthrough bytecode_passthrough;
 } Mel_Gpu_Caps_Shader;
 
 typedef struct
