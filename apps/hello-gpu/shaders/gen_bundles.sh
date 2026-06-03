@@ -1,0 +1,194 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$HERE/../../.." && pwd)"
+SLANG_DIR="$REPO_ROOT/apps/hello-gpu/shaders/slang"
+OUT_DIR="$REPO_ROOT/apps/hello-gpu/src"
+
+SLANG_PREFIX="${MEL_SLANG_PREFIX:-}"
+if [ -z "$SLANG_PREFIX" ]; then
+    for cand in \
+        "$REPO_ROOT/third-party/slang/build/macos-debug/prefix" \
+        "$REPO_ROOT/third-party/slang/build/macos-release/prefix" \
+        "$REPO_ROOT/third-party/slang/build/linux-debug/prefix" \
+        "$REPO_ROOT/third-party/slang/build/linux-release/prefix"; do
+        if [ -x "$cand/bin/slangc" ]; then SLANG_PREFIX="$cand"; break; fi
+    done
+fi
+if [ -z "$SLANG_PREFIX" ] || [ ! -x "$SLANG_PREFIX/bin/slangc" ]; then
+    echo "gen_bundles: slangc not found. Build the 'slang' third-party first:" >&2
+    echo "    ./nob build slang-compile <platform>" >&2
+    echo "or set MEL_SLANG_PREFIX to a slang install prefix." >&2
+    exit 1
+fi
+
+SLANGC="$SLANG_PREFIX/bin/slangc"
+export DYLD_LIBRARY_PATH="$SLANG_PREFIX/lib${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}"
+export LD_LIBRARY_PATH="$SLANG_PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+
+LOCK="$REPO_ROOT/tools/build/vendor/slang/SLANG_VERSION.lock"
+SLANG_VERSION="$("$SLANGC" -v 2>&1 | head -1 | tr -d '[:space:]')"
+
+emit_u32_array()
+{
+    local name="$1" file="$2" out="$3"
+    {
+        printf 'static const uint32_t %s[] = {\n' "$name"
+        od -An -tu4 -v "$file" | awk '
+            { for (i = 1; i <= NF; i++) { printf "    %su,\n", $i } }'
+        printf '};\n'
+    } >>"$out"
+}
+
+emit_u8_array()
+{
+    local name="$1" file="$2" out="$3"
+    {
+        printf 'static const uint8_t %s[] = {\n' "$name"
+        od -An -tu1 -v "$file" | awk '
+            { for (i = 1; i <= NF; i++) { printf "    %su,", $i; n++; if (n % 16 == 0) printf "\n" } }
+            END { if (n % 16 != 0) printf "\n" }'
+        printf '};\n'
+    } >>"$out"
+}
+
+compile_one()
+{
+    local src="$1" entry="$2" target="$3" out="$4"
+    case "$target" in
+        spirv) "$SLANGC" "$src" -target spirv -profile spirv_1_5 -fvk-use-entrypoint-name -entry "$entry" -o "$out" ;;
+        metal) "$SLANGC" "$src" -target metal -entry "$entry" -o "$out" ;;
+        wgsl)  "$SLANGC" "$src" -target wgsl -entry "$entry" -o "$out" ;;
+    esac
+}
+
+try_compile()
+{
+    local src="$1" entry="$2" target="$3" out="$4"
+    if compile_one "$src" "$entry" "$target" "$out" >/dev/null 2>&1 && [ -s "$out" ]; then
+        return 0
+    fi
+    rm -f "$out"
+    return 1
+}
+
+gen_graphics()
+{
+    local stem="$1" upper="$2" vs="$3" fs="$4"
+    local src="$SLANG_DIR/$stem.slang"
+    local hdr="$OUT_DIR/${stem}_bundle.h"
+    local tmp; tmp="$(mktemp -d)"
+
+    echo "  $stem  (vs=$vs fs=$fs)"
+    compile_one "$src" "$vs" spirv "$tmp/vs.spv" >/dev/null
+    compile_one "$src" "$fs" spirv "$tmp/fs.spv" >/dev/null
+    "$SLANGC" "$src" -target spirv -profile spirv_1_5 -fvk-use-entrypoint-name \
+        -entry "$vs" -entry "$fs" -reflection-json "$tmp/refl.json" -o "$tmp/all.spv" >/dev/null
+
+    local has_msl=0
+    if try_compile "$src" "$vs" metal "$tmp/vs.metal" && try_compile "$src" "$fs" metal "$tmp/fs.metal"; then
+        has_msl=1
+    else
+        echo "    WARN: $stem MSL unsupported by slangc (bindless non-uniform indexing needs the melody.binding mixin); MSL arrays omitted" >&2
+    fi
+
+    local has_wgsl=0
+    if try_compile "$src" "$vs" wgsl "$tmp/vs.wgsl" && try_compile "$src" "$fs" wgsl "$tmp/fs.wgsl"; then
+        has_wgsl=1
+    else
+        echo "    WARN: $stem WGSL unsupported by slangc (bindless non-uniform indexing needs the melody.binding mixin); WGSL arrays omitted" >&2
+    fi
+
+    {
+        printf '#pragma once\n\n'
+        printf '#include <stdint.h>\n\n'
+        printf 'static const char %s_SLANG_VERSION[] = "%s";\n' "$upper" "$SLANG_VERSION"
+        printf 'static const char %s_VERT_ENTRY[] = "%s";\n' "$upper" "$vs"
+        printf 'static const char %s_FRAG_ENTRY[] = "%s";\n' "$upper" "$fs"
+        printf '#define %s_HAS_MSL %d\n' "$upper" "$has_msl"
+        printf '#define %s_HAS_WGSL %d\n\n' "$upper" "$has_wgsl"
+    } >"$hdr"
+
+    emit_u32_array "${upper}_VERT_SPV" "$tmp/vs.spv" "$hdr"; printf '\n' >>"$hdr"
+    emit_u32_array "${upper}_FRAG_SPV" "$tmp/fs.spv" "$hdr"
+    if [ "$has_msl" = 1 ]; then
+        printf '\n' >>"$hdr"
+        emit_u8_array "${upper}_VERT_MSL" "$tmp/vs.metal" "$hdr"; printf '\n' >>"$hdr"
+        emit_u8_array "${upper}_FRAG_MSL" "$tmp/fs.metal" "$hdr"
+    fi
+    if [ "$has_wgsl" = 1 ]; then
+        printf '\n' >>"$hdr"
+        emit_u8_array "${upper}_VERT_WGSL" "$tmp/vs.wgsl" "$hdr"; printf '\n' >>"$hdr"
+        emit_u8_array "${upper}_FRAG_WGSL" "$tmp/fs.wgsl" "$hdr"
+    fi
+
+    rm -rf "$tmp"
+}
+
+gen_compute()
+{
+    local stem="$1" upper="$2" cs="$3"
+    local src="$SLANG_DIR/$stem.slang"
+    local hdr="$OUT_DIR/${stem}_bundle.h"
+    local tmp; tmp="$(mktemp -d)"
+
+    echo "  $stem  (cs=$cs)"
+    compile_one "$src" "$cs" spirv "$tmp/cs.spv" >/dev/null
+    "$SLANGC" "$src" -target spirv -profile spirv_1_5 -fvk-use-entrypoint-name \
+        -entry "$cs" -reflection-json "$tmp/refl.json" -o "$tmp/all.spv" >/dev/null
+
+    local has_msl=0
+    if try_compile "$src" "$cs" metal "$tmp/cs.metal"; then
+        has_msl=1
+    else
+        echo "    WARN: $stem MSL unsupported by slangc (bindless non-uniform indexing needs the melody.binding mixin); MSL arrays omitted" >&2
+    fi
+
+    local has_wgsl=0
+    if try_compile "$src" "$cs" wgsl "$tmp/cs.wgsl"; then
+        has_wgsl=1
+    else
+        echo "    WARN: $stem WGSL unsupported by slangc (bindless non-uniform indexing needs the melody.binding mixin); WGSL arrays omitted" >&2
+    fi
+
+    {
+        printf '#pragma once\n\n'
+        printf '#include <stdint.h>\n\n'
+        printf 'static const char %s_SLANG_VERSION[] = "%s";\n' "$upper" "$SLANG_VERSION"
+        printf 'static const char %s_COMP_ENTRY[] = "%s";\n' "$upper" "$cs"
+        printf '#define %s_HAS_MSL %d\n' "$upper" "$has_msl"
+        printf '#define %s_HAS_WGSL %d\n\n' "$upper" "$has_wgsl"
+    } >"$hdr"
+
+    emit_u32_array "${upper}_COMP_SPV" "$tmp/cs.spv" "$hdr"
+    if [ "$has_msl" = 1 ]; then
+        printf '\n' >>"$hdr"
+        emit_u8_array "${upper}_COMP_MSL" "$tmp/cs.metal" "$hdr"
+    fi
+    if [ "$has_wgsl" = 1 ]; then
+        printf '\n' >>"$hdr"
+        emit_u8_array "${upper}_COMP_WGSL" "$tmp/cs.wgsl" "$hdr"
+    fi
+
+    rm -rf "$tmp"
+}
+
+echo "gen_bundles: slangc $SLANG_VERSION ($SLANGC)"
+
+mkdir -p "$(dirname "$LOCK")"
+{
+    printf 'SLANG_VERSION=%s\n' "$SLANG_VERSION"
+    printf 'SLANG_UPSTREAM=https://github.com/shader-slang/slang/releases/tag/v%s\n' "$SLANG_VERSION"
+    printf 'SLANG_PREBUILT_URL=https://github.com/shader-slang/slang/releases/download/v%s/slang-%s-<os>-<arch>.zip\n' "$SLANG_VERSION" "$SLANG_VERSION"
+    printf 'SLANG_PIN_SOURCE=third-party/slang/build.c (SLANG_VERSION macro)\n'
+    printf 'SLANGC=<prefix>/bin/slangc fetched per-host by `./nob build slang-compile <platform>`\n'
+} >"$LOCK"
+
+gen_graphics triangle TRIANGLE vs_main fs_main
+gen_graphics blit     BLIT     vs_main fs_main
+gen_graphics gradient GRADIENT vs_main fs_main
+gen_graphics quad     QUAD     vs_main fs_main
+gen_compute  clear    CLEAR    cs_main
+
+echo "gen_bundles: wrote $LOCK and *_bundle.h to $OUT_DIR"

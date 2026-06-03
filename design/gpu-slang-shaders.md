@@ -52,21 +52,30 @@ Metal backend from clear-present to actually rendering the demos.
 
 ## API delta
 
-- `Mel_Gpu_Shader_Bytecode_Opt` gains a `target` and renames `spirv_*` to neutral `vertex_blob` /
-  `fragment_blob` (+ sizes), keeping a SPIR-V-target default so existing call sites migrate
-  mechanically. Compute analog likewise.
-- New `caps.shader.bytecode_passthrough.{spirv,msl,dxil,wgsl}` bools (U4).
+- `Mel_Gpu_Shader_Bytecode_Opt` gains a `Mel_Gpu_Shader_Target target` and neutral `vertex_blob` /
+  `fragment_blob` (+ sizes). The legacy `spirv_*` fields are RETAINED as aliases (not renamed) and
+  used as the fallback when the neutral blob is unset, so every existing call site — including those
+  in other lanes (`modules/gpu/test`) — compiles unchanged. `target` defaults to `SPIRV` (value 0).
+  Compute analog likewise (`compute_blob` + `spirv` fallback). Vulkan loud-fails
+  `MEL_GPU_SHADER_CREATE_TARGET_UNSUPPORTED` for any non-SPIRV target.
+- New `caps.shader.bytecode_passthrough.{spirv,msl,dxil,wgsl}` bools (U4); Vulkan sets `spirv=true`.
+  `Mel_Gpu_Shader_Target` is a closed graphics-API protocol set — MEL-CODE-001 exception flagged
+  for Gabbo (mirrors the sanctioned `MEL_SLANG_TARGET_*` enum in `third-party/slang/include`).
 - Bundle loader `mel_gpu_shader_create_from_bundle(...)` is the Slang-convenience peer (later phase).
 
 ## Phasing (no-prerequisite root first)
 
 - **P0 — ARC ownership fix (done, verified).** Prerequisite: Metal resources must survive. Landed,
   `gpu-resources` suite proves it under metal+vulkan.
-- **P1 — Triangle proof on Metal (no-prereq root).** Vendor `slangc`; author `triangle.slang`;
-  compile to MSL + SPIR-V; extend `shader_create_from_bytecode` with target/blob; implement the
-  Metal MSL→library→render-pipeline→draw path. Outcome: the triangle renders under `--gpu=metal`,
-  identically under `--gpu=vulkan`. This proves the whole chain end-to-end on the simplest screen.
-- **P2 — Build integration.** Decide how `.slang` compiles in the repo (see Open decisions D2).
+- **P1 — Slang frontend on Vulkan (DONE, this lane).** Vendored `slangc`; authored
+  `apps/hello-gpu/shaders/slang/{triangle,blit,gradient,quad,clear}.slang`; generated committed
+  per-backend bundles (`*_bundle.h`) via `gen_bundles.sh`; extended `shader_create_from_bytecode`
+  (+ compute) with a `target` selector and neutral `vertex_blob`/`fragment_blob`/`compute_blob`
+  fields (SPIR-V default keeps every legacy call site compiling). `triangle.c` and
+  `bindless_present.c` consume the Slang SPIR-V; both render under `--gpu=vulkan` with the
+  validation layer silent. The Metal MSL→library→pipeline→draw path is the **Metal agent's lane**.
+- **P2 — Build integration.** Committed-artifact generator landed (see D2); codegen-pass remains
+  open for Gabbo.
 - **P3 — Reflection-driven layouts + bundle format.** Replace per-demo hand layout with Slang
   reflection; per-backend bundle container + Slang-version cache key.
 - **P4 — Migrate the remaining 36 shaders** GLSL→Slang; the 20 hello-gpu screens render on Metal.
@@ -75,21 +84,26 @@ Metal backend from clear-present to actually rendering the demos.
 
 ## Open decisions (for iteration — Gabbo)
 
-- **D1 Slang acquisition — DONE.** Pinned `slangc v2026.10.2` vendored at `tools/build/vendor/slang`
-  via `fetch.sh` (sha256-verified) + `SLANG_VERSION.lock`; trimmed runtime (LLVM + gfx dylibs
-  dropped — not needed for `-target spirv`/`-target metal`) is 43M in a gitignored `dist/`. Verified:
-  one `.slang` → 1220 B MSL + 1408 B SPIR-V. Runtime libslang (app-opt-in compile) remains a later
-  phase, not P1.
-- **D2 Build integration — DECIDED: real codegen pass.** Mechanism (learned from
-  `modules/build/{api,emit}.c`): `mel_codegen(t, tool, output, ...args)` resolves `tool` as a
-  repo-built **host-tool target** (`tool->dir/build/host/tool->name`); the tool's output is then
-  compiled as a C TU and linked into `t` (the pattern `modules/{reflect,continuation,display}`
-  use). `slangc` is an external binary, so the fit is a host tool **`mel-slangc`** (under
-  `tools/slang/` or a `modules/gpu.shadergen` host target) that invokes the vendored `slangc` on a
-  `.slang` input, emits SPIR-V/MSL + reflection, and writes a compiled `.c` exposing the blob
-  arrays + a generated `.h`. Consumers wire `mel_codegen(app, "mel-slangc", "triangle_bundle.c",
-  "$dir/shaders/triangle.slang", "--target", "<spirv|msl>")`. Open sub-point — **D1 Slang
-  acquisition** (below) is the remaining blocker: the host tool needs the vendored `slangc` present.
+- **D1 Slang acquisition — DONE (as built).** `slang v2026.10.2` is vendored through
+  `third-party/slang/build.c`: the upstream release zip is fetched per-host by the build's
+  `mel_prebuilt` mechanism into a gitignored `build/<plat>/prefix/` (yielding both the `slangc`
+  CLI and `libslang`), and a C wrapper `mel_slang_compile` (`third-party/slang/{include,src}`)
+  exposes the compiler over a C surface. `tools/build/vendor/slang/SLANG_VERSION.lock` records the
+  pin; `tools/build/vendor/slang/.gitignore` keeps `dist/` out of git. Populate the host prefix
+  with `./nob build slang-compile <platform>`.
+- **D2 Build integration — committed artifacts via script (codegen pass DEFERRED, halt-and-query).**
+  CLAUDE.md flags registering a custom codegen pass as undocumented ("halt and query before
+  depending on it"), so the codegen-pass design below is NOT implemented. Instead a committed
+  generator `apps/hello-gpu/shaders/gen_bundles.sh` drives the vendored `slangc` to emit per-backend
+  blobs + reflection and writes committed `apps/hello-gpu/src/*_bundle.h` (same shape as the legacy
+  `*_spv.h`: a `static const uint32_t NAME_VERT_SPV[]` plus best-effort `*_MSL`/`*_WGSL` byte arrays
+  and entry-name + Slang-version keys). The header is regenerated by hand and committed; no build-graph
+  entanglement. **Open for Gabbo:** whether the long-term shape is a registered `mel_codegen`
+  host-tool pass (mechanism sketch retained below) — do NOT adopt without explicit approval.
+  Retained sketch: `mel_codegen(t, tool, output, ...args)` resolving `tool` as a repo-built host-tool
+  target (`tool->dir/build/host/tool->name`), output compiled as a C TU and linked into `t`
+  (`modules/{reflect,continuation,display}` pattern); the fit would be a host tool `mel-slangc`
+  invoking the vendored `slangc` and emitting a compiled `.c` + `.h`.
 - **D3 Migration scope.** Incremental (triangle first, then roll out) — recommended — vs big-bang
   rewrite of all 37 at once.
 - **D4 Reflection source.** Consume Slang's emitted reflection (recommended; single source of truth,

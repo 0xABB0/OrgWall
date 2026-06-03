@@ -76,6 +76,7 @@ void mel_gpu__caps_probe(VkPhysicalDevice phys, Mel_Gpu_Caps* out)
     out->shader.wave_ops = (subgroup.supportedOperations & VK_SUBGROUP_FEATURE_BASIC_BIT) != 0;
     out->shader.subgroup_size_min = subgroup.subgroupSize;
     out->shader.subgroup_size_max = subgroup.subgroupSize;
+    out->shader.bytecode_passthrough.spirv = true;
 
     out->queues.timeline = feat12.timelineSemaphore ? MEL_GPU_TIMELINE_NATIVE : MEL_GPU_TIMELINE_EMULATED;
     out->queues.internally_synchronized_queues = MEL_GPU_INTERNAL_SYNC_NONE;

@@ -2,7 +2,7 @@
 #include <stdlib.h>
 
 #include "triangle.h"
-#include "triangle_spv.h"
+#include "triangle_bundle.h"
 
 typedef struct
 {
@@ -32,12 +32,13 @@ static void* triangle_init(Mel_Gpu_Device* dev, Mel_Gpu_Swapchain* sc)
     t->vbo = mel_gpu_buffer_create(dev, .size = sizeof verts, .usage = MEL_GPU_BUFFER_VERTEX, .memory = MEL_GPU_MEMORY_UPLOAD, .data = verts, .name = "triangle-vbo").value;
 
     t->shader = mel_gpu_shader_create_from_bytecode(dev,
-                                                    .spirv_vertex = TRIANGLE_VERT_SPV,
-                                                    .spirv_vertex_size = sizeof TRIANGLE_VERT_SPV,
-                                                    .spirv_fragment = TRIANGLE_FRAG_SPV,
-                                                    .spirv_fragment_size = sizeof TRIANGLE_FRAG_SPV,
-                                                    .vertex_entry = "vs_main",
-                                                    .fragment_entry = "fs_main")
+                                                    .target = MEL_GPU_SHADER_TARGET_SPIRV,
+                                                    .vertex_blob = TRIANGLE_VERT_SPV,
+                                                    .vertex_blob_size = sizeof TRIANGLE_VERT_SPV,
+                                                    .fragment_blob = TRIANGLE_FRAG_SPV,
+                                                    .fragment_blob_size = sizeof TRIANGLE_FRAG_SPV,
+                                                    .vertex_entry = TRIANGLE_VERT_ENTRY,
+                                                    .fragment_entry = TRIANGLE_FRAG_ENTRY)
                     .value;
 
     const Mel_Gpu_Vertex_Element layout[] = {

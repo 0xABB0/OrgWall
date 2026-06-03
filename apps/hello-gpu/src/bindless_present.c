@@ -1,19 +1,20 @@
 #include <stddef.h>
 
 #include "bindless_present.h"
-#include "blit_spv.h"
+#include "blit_bundle.h"
 
 bool bindless_present_init(Bindless_Present* bp, Mel_Gpu_Device* dev, Mel_Gpu_Format color_format)
 {
     bp->dev = dev;
 
     Mel_Gpu_Shader_Create_Result sh = mel_gpu_shader_create_from_bytecode(dev,
-                                                                          .spirv_vertex = BLIT_VERT_SPV,
-                                                                          .spirv_vertex_size = sizeof BLIT_VERT_SPV,
-                                                                          .spirv_fragment = BLIT_FRAG_SPV,
-                                                                          .spirv_fragment_size = sizeof BLIT_FRAG_SPV,
-                                                                          .vertex_entry = "main",
-                                                                          .fragment_entry = "main",
+                                                                          .target = MEL_GPU_SHADER_TARGET_SPIRV,
+                                                                          .vertex_blob = BLIT_VERT_SPV,
+                                                                          .vertex_blob_size = sizeof BLIT_VERT_SPV,
+                                                                          .fragment_blob = BLIT_FRAG_SPV,
+                                                                          .fragment_blob_size = sizeof BLIT_FRAG_SPV,
+                                                                          .vertex_entry = BLIT_VERT_ENTRY,
+                                                                          .fragment_entry = BLIT_FRAG_ENTRY,
                                                                           .name = "blit");
     if (mel_gpu_failed(sh.status))
         return false;
