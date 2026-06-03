@@ -197,6 +197,12 @@ typedef struct
 
 typedef struct
 {
+    u32 base;
+    u32 count;
+} Mel_Gpu_Classic_Block;
+
+typedef struct
+{
     u64                     marker;
     ID3D12Resource*         resource;
     ID3D12PipelineState*    pso;
@@ -204,6 +210,10 @@ typedef struct
     Mel_Gpu_Resource_Table* reclaim_table;
     u32                     reclaim_index;
     bool                    has_reclaim;
+    Mel_Gpu_Classic_Block   classic_res;
+    Mel_Gpu_Classic_Block   classic_smp;
+    bool                    has_classic_res;
+    bool                    has_classic_smp;
 } Mel_Gpu_Deferred_Free;
 
 typedef struct
@@ -254,15 +264,21 @@ struct Mel_Gpu_Device
     Mel_Gpu_Resource_Table bind_group_layouts;
     Mel_Gpu_Resource_Table bind_groups;
 
-    Mel_Mutex             classic_lock;
-    ID3D12DescriptorHeap* classic_res_heap;
-    u32                   classic_res_inc;
-    u32                   classic_res_cap;
-    u32                   classic_res_next;
-    ID3D12DescriptorHeap* classic_smp_heap;
-    u32                   classic_smp_inc;
-    u32                   classic_smp_cap;
-    u32                   classic_smp_next;
+    Mel_Mutex              classic_lock;
+    ID3D12DescriptorHeap*  classic_res_heap;
+    u32                    classic_res_inc;
+    u32                    classic_res_cap;
+    u32                    classic_res_next;
+    Mel_Gpu_Classic_Block* classic_res_free;
+    u32                    classic_res_free_count;
+    u32                    classic_res_free_cap;
+    ID3D12DescriptorHeap*  classic_smp_heap;
+    u32                    classic_smp_inc;
+    u32                    classic_smp_cap;
+    u32                    classic_smp_next;
+    Mel_Gpu_Classic_Block* classic_smp_free;
+    u32                    classic_smp_free_count;
+    u32                    classic_smp_free_cap;
 
     Mel_Gpu_Sampler_Intern* sampler_interns;
     u32                     sampler_intern_count;
@@ -407,6 +423,12 @@ D3D12_DESCRIPTOR_RANGE_TYPE mel_gpu__range_type(Mel_Gpu_Descriptor_Kind kind);
 bool                        mel_gpu__descriptor_is_sampler(Mel_Gpu_Descriptor_Kind kind);
 void                        mel_gpu__classic_init(Mel_Gpu_Device* dev);
 void                        mel_gpu__classic_destroy(Mel_Gpu_Device* dev);
+bool                        mel_gpu__classic_res_alloc(Mel_Gpu_Device* dev, u32 count, u32* out_base);
+bool                        mel_gpu__classic_smp_alloc(Mel_Gpu_Device* dev, u32 count, u32* out_base);
+void                        mel_gpu__classic_res_free(Mel_Gpu_Device* dev, Mel_Gpu_Classic_Block block);
+void                        mel_gpu__classic_smp_free(Mel_Gpu_Device* dev, Mel_Gpu_Classic_Block block);
+u32                         mel_gpu__classic_res_in_use(Mel_Gpu_Device* dev);
+u32                         mel_gpu__classic_smp_in_use(Mel_Gpu_Device* dev);
 D3D12_CPU_DESCRIPTOR_HANDLE mel_gpu__classic_res_cpu(Mel_Gpu_Device* dev, u32 slot);
 D3D12_GPU_DESCRIPTOR_HANDLE mel_gpu__classic_res_gpu(Mel_Gpu_Device* dev, u32 slot);
 D3D12_CPU_DESCRIPTOR_HANDLE mel_gpu__classic_smp_cpu(Mel_Gpu_Device* dev, u32 slot);
