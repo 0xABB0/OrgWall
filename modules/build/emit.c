@@ -233,6 +233,7 @@ static char* emit_one(FILE* f, Mel_Graph* g, size_t idx, const Mel_Variant* v, M
         const char* src = srcs.items[i];
         size_t      sl = strlen(src);
         bool        objc = (sl >= 2 && strcmp(src + sl - 2, ".m") == 0) || (sl >= 3 && strcmp(src + sl - 3, ".mm") == 0);
+        bool        cpp = (sl >= 4 && strcmp(src + sl - 4, ".cpp") == 0) || (sl >= 3 && strcmp(src + sl - 3, ".cc") == 0) || (sl >= 4 && strcmp(src + sl - 4, ".cxx") == 0);
         char*       obj = obj_path(outdir, t->dir, src);
         fprintf(f, "build %s: %s %s", obj, cc_rule, src);
         if (genout.len)
@@ -241,7 +242,7 @@ static char* emit_one(FILE* f, Mel_Graph* g, size_t idx, const Mel_Variant* v, M
             for (size_t k = 0; k < genout.len; k++)
                 fprintf(f, " %s", genout.items[k]);
         }
-        fprintf(f, "\n  cflags = $%s_cflags%s\n", t->name, objc ? " -fobjc-arc" : "");
+        fprintf(f, "\n  cflags = $%s_cflags%s%s\n", t->name, objc ? " -fobjc-arc" : "", cpp ? " -x c++ -std=c++17" : "");
         mel_da_push(&objs, obj);
     }
 

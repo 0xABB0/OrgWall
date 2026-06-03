@@ -265,6 +265,7 @@ static void emit_target(FILE* f, bool* first, const char* dir, Mel_Graph* g, siz
         const char* src = srcs.items[i];
         size_t      sl = strlen(src);
         bool        objc = (sl >= 2 && strcmp(src + sl - 2, ".m") == 0) || (sl >= 3 && strcmp(src + sl - 3, ".mm") == 0);
+        bool        cpp = (sl >= 4 && strcmp(src + sl - 4, ".cpp") == 0) || (sl >= 3 && strcmp(src + sl - 3, ".cc") == 0) || (sl >= 4 && strcmp(src + sl - 4, ".cxx") == 0);
         Mel_StrVec  cmd = { 0 };
         for (size_t k = 0; k < prefix->len; k++)
             mel_da_push(&cmd, prefix->items[k]);
@@ -272,6 +273,12 @@ static void emit_target(FILE* f, bool* first, const char* dir, Mel_Graph* g, siz
             mel_da_push(&cmd, gathered.items[k]);
         if (objc)
             mel_da_push(&cmd, "-fobjc-arc");
+        if (cpp)
+        {
+            mel_da_push(&cmd, "-x");
+            mel_da_push(&cmd, "c++");
+            mel_da_push(&cmd, "-std=c++17");
+        }
         mel_da_push(&cmd, "-c");
         mel_da_push(&cmd, src);
         entry(f, first, dir, &cmd, src);
