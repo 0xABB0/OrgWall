@@ -40,6 +40,10 @@ void build(Mel_Build* b)
     mel_defines(lib, MEL_PRIVATE, WHEN(.gpu = "d3d12"), "MEL_GPU_D3D12=1");
     mel_link(lib, MEL_PUBLIC, WHEN(.gpu = "d3d12", .platforms = MEL_ON(WIN32)), "-ld3d12", "-ldxgi", "-ldxguid");
 
+    mel_sources(lib, WHEN(.gpu = "metal", .platforms = MEL_ON(MACOS)), "src/metal/macos/*.m");
+    mel_defines(lib, MEL_PRIVATE, WHEN(.gpu = "metal"), "MEL_GPU_METAL=1");
+    mel_link(lib, MEL_PUBLIC, WHEN(.gpu = "metal", .platforms = MEL_ON(MACOS)), "-framework", "Metal", "-framework", "QuartzCore", "-framework", "Foundation", "-framework", "AppKit");
+
     mel_depends(lib, "core");
     mel_depends(lib, "allocator");
     mel_depends(lib, "collection");
