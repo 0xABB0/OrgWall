@@ -5,6 +5,8 @@
 #include <job/job.cfg.h>
 #include <signal/signal.fwd.h>
 
+typedef struct Mel_Executor Mel_Executor;
+
 typedef struct
 {
     u8 worker;
@@ -42,3 +44,5 @@ bool mel_job_debug_current(Mel_Job_Debug_Info* out);
 
 void mel_job_init(void);
 void mel_job_shutdown(void);
+
+Mel_Executor* mel_job_executor(void);

@@ -11,4 +11,17 @@ void build(Mel_Build* b)
     mel_depends(lib, "thread");
     mel_depends(lib, "fiber");
     mel_depends(lib, "signal");
+    mel_depends(lib, "executor");
+
+    Mel_Target* t = mel_add_test(b, "job-executor");
+    mel_sources(t, ALWAYS, "test/test_job.c");
+    mel_sources(t, ALWAYS, "../../tools/test/src/runner.c");
+    mel_depends(t, "test");
+    mel_depends(t, "job");
+    mel_depends(t, "executor");
+    mel_depends(t, "signal");
+    mel_depends(t, "core");
+    mel_depends(t, "allocator");
+    mel_depends(t, "collection");
+    mel_depends(t, "thread");
 }

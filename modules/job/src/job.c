@@ -1,10 +1,13 @@
 #include <job/job.h>
+#include <executor/executor.h>
 #include <signal/signal.h>
 #include <fiber/fiber.h>
 #include <allocator/allocator.h>
 #include <allocator/heap.h>
 #include <allocator/vmem.h>
 #include <collection.mpmc/mpmc.h>
+#include <collection.mpsc/mpsc.h>
+#include <collection.list/list.h>
 #include <collection.workstealingqueue/wsq.h>
 #include <thread/thread.h>
 #include <thread/mutex.h>
@@ -76,6 +79,8 @@ enum
     MEL__WORK_FIBER
 };
 
+#define MEL__WORK_TASK 3
+
 typedef struct
 {
     u8 type;
@@ -83,6 +88,7 @@ typedef struct
     {
         Mel__Job         job;
         Mel__Fiber_Decl* fiber;
+        Mel_Task*        task;
     };
 } Mel__Work;
 
@@ -130,6 +136,10 @@ static struct
 
     Mel_Mutex    sleep_mutex;
     _Atomic(i32) num_sleeping;
+
+    Mel_Mpsc     inject_queue;
+    _Atomic(i32) inject_pending;
+    _Atomic(i32) inject_draining;
 
     Mel_Tls worker_tls;
 } s_sys;
@@ -271,9 +281,38 @@ static void mel__push_work_job(Mel__Job job, u8 worker_index)
     mel__wake_workers(1);
 }
 
+static bool mel__try_drain_inject(Mel__Work* out)
+{
+    if (atomic_load_explicit(&s_sys.inject_pending, memory_order_acquire) == 0)
+        return false;
+
+    i32 expected = 0;
+    if (!atomic_compare_exchange_strong_explicit(&s_sys.inject_draining, &expected, 1, memory_order_acquire, memory_order_relaxed))
+        return false;
+
+    Mel_Mpsc_Node* node = mel_mpsc_pop(&s_sys.inject_queue);
+    if (node == NULL)
+    {
+        atomic_store_explicit(&s_sys.inject_draining, 0, memory_order_release);
+        return false;
+    }
+
+    atomic_fetch_sub_explicit(&s_sys.inject_pending, 1, memory_order_relaxed);
+    atomic_store_explicit(&s_sys.inject_draining, 0, memory_order_release);
+
+    Mel_Task* task = mel_container_of(node, Mel_Task, link);
+    atomic_store_explicit(&task->armed, 0, memory_order_release);
+
+    *out = (Mel__Work){ .type = MEL__WORK_TASK, .task = task };
+    return true;
+}
+
 static bool mel__try_pop_work(Mel__Worker* worker, Mel__Work* out)
 {
     void* r = NULL;
+
+    if (mel__try_drain_inject(out))
+        return true;
 
     if (mel_mpmc_pop(&worker->pinned, &r))
     {
@@ -524,6 +563,13 @@ static void mel__manage(Mel_Fiber_Transfer transfer)
             this_fiber->current_job.task = NULL;
             worker = mel__get_worker();
         }
+        else if (work.type == MEL__WORK_TASK)
+        {
+            worker->debug_resume_fiber = this_fiber;
+            worker->debug_resume_reason = "task_execute";
+            work.task->run(work.task);
+            worker = mel__get_worker();
+        }
     }
 
     mel_fiber_switch(worker->primary_fiber, NULL);
@@ -593,6 +639,8 @@ void mel_job_init(void)
 
     mel_mpmc_init(&s_sys.global_queue, MEL_JOB_GLOBAL_CAPACITY, alloc);
 
+    mel_mpsc_init(&s_sys.inject_queue);
+
     mel_mutex_init(&s_sys.sleep_mutex, MEL_MUTEX_PLAIN);
 
     s_sys.workers = mel_alloc(alloc, sizeof(Mel__Worker) * s_sys.num_workers);
@@ -660,6 +708,27 @@ void mel_job_shutdown(void)
     mel_dealloc(alloc, s_sys.workers);
 
     memset(&s_sys, 0, sizeof(s_sys));
+}
+
+static void mel__executor_submit(Mel_Executor* self, Mel_Task* task)
+{
+    (void)self;
+
+    i32 expected = 0;
+    if (!atomic_compare_exchange_strong_explicit(&task->armed, &expected, 1, memory_order_acq_rel, memory_order_acquire))
+        return;
+
+    mel_mpsc_push(&s_sys.inject_queue, &task->link);
+    atomic_fetch_add_explicit(&s_sys.inject_pending, 1, memory_order_release);
+    mel__wake_workers(1);
+}
+
+static Mel_Executor s_executor = { mel__executor_submit };
+
+Mel_Executor* mel_job_executor(void)
+{
+    assert(s_sys.num_workers > 0 && "mel_job_executor requires mel_job_init");
+    return &s_executor;
 }
 
 void mel_job_run_opt(void* data, Mel_Job_Fn fn, Mel_Counter* on_finish, Mel_Job_Run_Opt opt) { mel_job_run_opt_debug(data, fn, nullptr, nullptr, 0, on_finish, opt); }
