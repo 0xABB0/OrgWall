@@ -1,4 +1,4 @@
-#include <async.signal/signal.h>
+#include <signal/signal.h>
 
 static _Atomic(u32) s_generation = 1;
 

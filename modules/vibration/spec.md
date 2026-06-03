@@ -241,7 +241,7 @@ cannot.
 
 ### 6.4 Ergonomics
 
-Coroutine suspension via `async.coroutine`; a plain continuation callback; `mel_vib_play_sync`
+Coroutine suspension via `coroutine`; a plain continuation callback; `mel_vib_play_sync`
 that pumps the reactor until completion — off-reactor threads only, debug-asserts on the reactor's
 own thread (re-entrant pumping deadlocks).
 
@@ -363,7 +363,7 @@ owns.
 ## 11. Dependencies
 
 `core`, `allocator`, `collection.slotmap`, `reactor`, `platform` (Android JNI / win32 globals),
-`log`, `math` (envelope sampling, §7). No `gpu`, no `async.job`, no `provider` registry module: a
+`log`, `math` (envelope sampling, §7). No `gpu`, no `job`, no `provider` registry module: a
 vibration provider is in-tree code registering a vtable, not a dlopened SDK, so the heavier
 `provider.md` machinery would be unwarranted cost.
 

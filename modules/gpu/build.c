@@ -47,7 +47,6 @@ void build(Mel_Build* b)
     mel_depends(lib, "core");
     mel_depends(lib, "allocator");
     mel_depends(lib, "collection");
-    mel_depends(lib, "async");
     mel_depends(lib, "reactor");
     mel_depends(lib, "log");
     mel_depends(lib, "debug");

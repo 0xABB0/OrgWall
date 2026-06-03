@@ -1,6 +1,6 @@
-#include <async.job/job.h>
-#include <async.signal/signal.h>
-#include <async.fiber/fiber.h>
+#include <job/job.h>
+#include <signal/signal.h>
+#include <fiber/fiber.h>
 #include <allocator/allocator.h>
 #include <allocator/heap.h>
 #include <allocator/vmem.h>

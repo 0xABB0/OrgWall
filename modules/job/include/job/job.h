@@ -1,9 +1,9 @@
 #pragma once
 
 #include <core/types.h>
-#include <async.job/job.fwd.h>
-#include <async.job/job.cfg.h>
-#include <async.signal/signal.fwd.h>
+#include <job/job.fwd.h>
+#include <job/job.cfg.h>
+#include <signal/signal.fwd.h>
 
 typedef struct
 {

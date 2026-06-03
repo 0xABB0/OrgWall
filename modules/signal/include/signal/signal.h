@@ -1,8 +1,8 @@
 #pragma once
 
 #include <core/types.h>
-#include <async.signal/signal.cfg.h>
-#include <async.fiber/fiber.fwd.h>
+#include <signal/signal.cfg.h>
+#include <fiber/fiber.fwd.h>
 #include <stdatomic.h>
 
 typedef struct
