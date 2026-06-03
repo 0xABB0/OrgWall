@@ -226,14 +226,22 @@ if [ "$DXIL_ONLY" = 1 ]; then
     exit 0
 fi
 
-mkdir -p "$(dirname "$LOCK")"
-{
-    printf 'SLANG_VERSION=%s\n' "$SLANG_VERSION"
-    printf 'SLANG_UPSTREAM=https://github.com/shader-slang/slang/releases/tag/v%s\n' "$SLANG_VERSION"
-    printf 'SLANG_PREBUILT_URL=https://github.com/shader-slang/slang/releases/download/v%s/slang-%s-<os>-<arch>.zip\n' "$SLANG_VERSION" "$SLANG_VERSION"
-    printf 'SLANG_PIN_SOURCE=third-party/slang/build.c (SLANG_VERSION macro)\n'
-    printf 'SLANGC=<prefix>/bin/slangc fetched per-host by `./nob build slang-compile <platform>`\n'
-} >"$LOCK"
+if [ ! -f "$LOCK" ]; then
+    echo "gen_bundles: SLANG_VERSION.lock missing at $LOCK" >&2
+    echo "    the slangc version pin is the source of truth and must be committed; refusing to mint a lock implicitly." >&2
+    exit 1
+fi
+LOCKED_VERSION="$(sed -n 's/^SLANG_VERSION=//p' "$LOCK" | head -1 | tr -d '[:space:]')"
+if [ -z "$LOCKED_VERSION" ]; then
+    echo "gen_bundles: SLANG_VERSION.lock at $LOCK has no SLANG_VERSION= line; lock is malformed." >&2
+    exit 1
+fi
+if [ "$LOCKED_VERSION" != "$SLANG_VERSION" ]; then
+    echo "gen_bundles: slangc version mismatch — discovered '$SLANG_VERSION' but $LOCK pins '$LOCKED_VERSION'." >&2
+    echo "    The pin is enforced, not regenerated: align the slangc toolchain to the pinned version," >&2
+    echo "    or deliberately bump the pin (third-party/slang/build.c SLANG_VERSION macro + $LOCK) and re-mint." >&2
+    exit 1
+fi
 
 gen_graphics triangle TRIANGLE vs_main fs_main
 gen_graphics blit     BLIT     vs_main fs_main
@@ -241,4 +249,4 @@ gen_graphics gradient GRADIENT vs_main fs_main
 gen_graphics quad     QUAD     vs_main fs_main
 gen_compute  clear    CLEAR    cs_main
 
-echo "gen_bundles: wrote $LOCK and *_bundle.h to $OUT_DIR"
+echo "gen_bundles: slangc matches pin $LOCKED_VERSION; wrote *_bundle.h to $OUT_DIR"

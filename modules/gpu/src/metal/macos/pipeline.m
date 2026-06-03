@@ -53,6 +53,13 @@ Mel_Gpu_Shader_Create_Result mel_gpu_shader_create_from_bytecode_opt(Mel_Gpu_Dev
         return res;
     }
 
+    if (!dev || !dev->caps.shader.bytecode_passthrough.msl)
+    {
+        mel_log_error("gpu", "shader '%s': device reports caps.shader.bytecode_passthrough.msl=false; refusing MSL bytecode", dbg_name);
+        res.status = MEL_GPU_SHADER_CREATE_TARGET_UNSUPPORTED;
+        return res;
+    }
+
     const void* vblob = opt.vertex_blob;
     usize       vsize = opt.vertex_blob_size;
     const void* fblob = opt.fragment_blob;
@@ -103,6 +110,13 @@ Mel_Gpu_Shader_Create_Result mel_gpu_shader_create_compute_from_bytecode_opt(Mel
     if (opt.target != MEL_GPU_SHADER_TARGET_MSL)
     {
         mel_log_error("gpu", "compute shader '%s': metal accepts only MSL bytecode (target=%d requested)", dbg_name, (int)opt.target);
+        res.status = MEL_GPU_SHADER_CREATE_TARGET_UNSUPPORTED;
+        return res;
+    }
+
+    if (!dev || !dev->caps.shader.bytecode_passthrough.msl)
+    {
+        mel_log_error("gpu", "compute shader '%s': device reports caps.shader.bytecode_passthrough.msl=false; refusing MSL bytecode", dbg_name);
         res.status = MEL_GPU_SHADER_CREATE_TARGET_UNSUPPORTED;
         return res;
     }
