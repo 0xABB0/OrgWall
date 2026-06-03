@@ -32,7 +32,7 @@ void mel_gpu__caps_from_adapter(IDXGIAdapter1* adapter, Mel_Gpu_Caps* out)
 
     out->memory.device_local_bytes = d.DedicatedVideoMemory;
     out->memory.host_visible_bytes = d.SharedSystemMemory;
-    out->memory.persistent_map = true;
+    out->memory.persistent_map = false;
     out->memory.residency_control = MEL_GPU_RESIDENCY_BUDGET_ONLY;
 
     out->queues.timeline = MEL_GPU_TIMELINE_NATIVE;
@@ -41,8 +41,35 @@ void mel_gpu__caps_from_adapter(IDXGIAdapter1* adapter, Mel_Gpu_Caps* out)
     out->sampler.max_anisotropy = 16.0f;
 }
 
+static bool mel_gpu__upload_heap_persistently_mappable(ID3D12Device* dev)
+{
+    D3D12_HEAP_PROPERTIES hp = { .Type = D3D12_HEAP_TYPE_UPLOAD, .CreationNodeMask = 1, .VisibleNodeMask = 1 };
+    D3D12_RESOURCE_DESC   rd = {
+        .Dimension = D3D12_RESOURCE_DIMENSION_BUFFER,
+        .Width = 256,
+        .Height = 1,
+        .DepthOrArraySize = 1,
+        .MipLevels = 1,
+        .Format = DXGI_FORMAT_UNKNOWN,
+        .SampleDesc = { .Count = 1, .Quality = 0 },
+        .Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR,
+        .Flags = D3D12_RESOURCE_FLAG_NONE,
+    };
+    ID3D12Resource* probe = NULL;
+    if (FAILED(ID3D12Device_CreateCommittedResource(dev, &hp, D3D12_HEAP_FLAG_NONE, &rd, D3D12_RESOURCE_STATE_GENERIC_READ, NULL, &IID_ID3D12Resource, (void**)&probe)) || !probe)
+        return false;
+    void* mapped = NULL;
+    bool  ok = SUCCEEDED(ID3D12Resource_Map(probe, 0, NULL, &mapped)) && mapped != NULL;
+    if (ok)
+        ID3D12Resource_Unmap(probe, 0, NULL);
+    ID3D12Resource_Release(probe);
+    return ok;
+}
+
 void mel_gpu__caps_refine_device(ID3D12Device* dev, ID3D12CommandQueue* queue, Mel_Gpu_Caps* out)
 {
+    out->memory.persistent_map = mel_gpu__upload_heap_persistently_mappable(dev);
+
     D3D12_FEATURE_DATA_D3D12_OPTIONS o = { 0 };
     if (SUCCEEDED(ID3D12Device_CheckFeatureSupport(dev, D3D12_FEATURE_D3D12_OPTIONS, &o, sizeof o)))
         out->memory.bindless.tier = o.ResourceBindingTier >= D3D12_RESOURCE_BINDING_TIER_3 ? MEL_GPU_TIER_FULL : MEL_GPU_TIER_NONE;
