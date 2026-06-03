@@ -347,7 +347,11 @@ void mel_gpu_bind_group_destroy(Mel_Gpu_Device* dev, Mel_Gpu_Bind_Group group)
 
 bool mel_gpu_bind_group_alive(Mel_Gpu_Device* dev, Mel_Gpu_Bind_Group group) { return mel_gpu__table_get(dev, &dev->bind_groups, group.slot) != NULL; }
 
-static bool mel_gpu__bg_slot(Mel_Gpu_Device* dev, const Mel_Gpu_Bind_Group_Obj* g, u32 binding, u32 array_element, bool want_sampler, Mel_Gpu_Descriptor_Kind* out_kind, u32* out_slot)
+static bool mel_gpu__descriptor_is_buffer(Mel_Gpu_Descriptor_Kind kind) { return kind == MEL_GPU_DESCRIPTOR_UNIFORM_BUFFER || kind == MEL_GPU_DESCRIPTOR_STORAGE_BUFFER; }
+
+static bool mel_gpu__descriptor_is_texture(Mel_Gpu_Descriptor_Kind kind) { return kind == MEL_GPU_DESCRIPTOR_SAMPLED_IMAGE || kind == MEL_GPU_DESCRIPTOR_STORAGE_IMAGE || kind == MEL_GPU_DESCRIPTOR_COMBINED_IMAGE_SAMPLER; }
+
+static bool mel_gpu__bg_slot(Mel_Gpu_Device* dev, const Mel_Gpu_Bind_Group_Obj* g, u32 binding, u32 array_element, bool (*want_class)(Mel_Gpu_Descriptor_Kind), const char* class_name, Mel_Gpu_Descriptor_Kind* out_kind, u32* out_slot)
 {
     Mel_Gpu_Bind_Group_Layout_Obj* lo = mel_gpu__table_get(dev, &dev->bind_group_layouts, g->layout);
     if (!lo)
@@ -361,7 +365,7 @@ static bool mel_gpu__bg_slot(Mel_Gpu_Device* dev, const Mel_Gpu_Bind_Group_Obj* 
     {
         u32  n = lo->entries[i].count ? lo->entries[i].count : 1u;
         bool is_smp = mel_gpu__descriptor_is_sampler(lo->entries[i].kind);
-        if (lo->entries[i].binding == binding && is_smp == want_sampler)
+        if (lo->entries[i].binding == binding && want_class(lo->entries[i].kind))
         {
             if (array_element >= n)
             {
@@ -378,7 +382,7 @@ static bool mel_gpu__bg_slot(Mel_Gpu_Device* dev, const Mel_Gpu_Bind_Group_Obj* 
         else
             res_off += n;
     }
-    mel_log_error("gpu", "bind_group write: %s binding %u is not declared by the group's layout", want_sampler ? "sampler" : "resource", binding);
+    mel_log_error("gpu", "bind_group write: %s binding %u is not declared by the group's layout", class_name, binding);
     mel_assert(!"bind_group write: undeclared binding");
     return false;
 }
@@ -389,7 +393,7 @@ void mel_gpu_bind_group_write_texture(Mel_Gpu_Device* dev, Mel_Gpu_Bind_Group gr
     Mel_Gpu_Texture_View_Obj* vo = NULL;
     Mel_Gpu_Descriptor_Kind   kind;
     u32                       res_slot;
-    if (!(g = mel_gpu__table_get(dev, &dev->bind_groups, group.slot)) || !mel_gpu__texture_view_get(dev, view, &vo) || !mel_gpu__bg_slot(dev, g, binding, array_element, false, &kind, &res_slot))
+    if (!(g = mel_gpu__table_get(dev, &dev->bind_groups, group.slot)) || !mel_gpu__texture_view_get(dev, view, &vo) || !mel_gpu__bg_slot(dev, g, binding, array_element, mel_gpu__descriptor_is_texture, "texture", &kind, &res_slot))
         return;
     Mel_Gpu_Texture      tex = { vo->texture };
     Mel_Gpu_Texture_Obj* t = NULL;
@@ -417,7 +421,7 @@ void mel_gpu_bind_group_write_sampler(Mel_Gpu_Device* dev, Mel_Gpu_Bind_Group gr
     Mel_Gpu_Descriptor_Kind kind;
     u32                     smp_slot;
     D3D12_SAMPLER_DESC      sd = { 0 };
-    if (!(g = mel_gpu__table_get(dev, &dev->bind_groups, group.slot)) || !mel_gpu__sampler_desc(dev, sampler, &sd) || !mel_gpu__bg_slot(dev, g, binding, array_element, true, &kind, &smp_slot))
+    if (!(g = mel_gpu__table_get(dev, &dev->bind_groups, group.slot)) || !mel_gpu__sampler_desc(dev, sampler, &sd) || !mel_gpu__bg_slot(dev, g, binding, array_element, mel_gpu__descriptor_is_sampler, "sampler", &kind, &smp_slot))
         return;
     ID3D12Device_CreateSampler(dev->d3d, &sd, mel_gpu__classic_smp_cpu(dev, smp_slot));
 }
@@ -439,7 +443,7 @@ void mel_gpu_bind_group_write_buffer(Mel_Gpu_Device* dev, Mel_Gpu_Bind_Group gro
     Mel_Gpu_Buffer_Obj*     b = NULL;
     Mel_Gpu_Descriptor_Kind kind;
     u32                     res_slot;
-    if (!(g = mel_gpu__table_get(dev, &dev->bind_groups, group.slot)) || !mel_gpu__buffer_get(dev, buffer, &b) || !mel_gpu__bg_slot(dev, g, binding, array_element, false, &kind, &res_slot))
+    if (!(g = mel_gpu__table_get(dev, &dev->bind_groups, group.slot)) || !mel_gpu__buffer_get(dev, buffer, &b) || !mel_gpu__bg_slot(dev, g, binding, array_element, mel_gpu__descriptor_is_buffer, "buffer", &kind, &res_slot))
         return;
 
     if (kind == MEL_GPU_DESCRIPTOR_STORAGE_BUFFER)
