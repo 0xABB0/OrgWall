@@ -217,6 +217,8 @@ static bool mel__sqlite_sink_insert_metadata(sqlite3* db)
     struct tm tm_buf;
 #ifdef _WIN32
     gmtime_s(&tm_buf, &now);
+#elif defined(__EMSCRIPTEN__)
+    tm_buf = *gmtime(&now);
 #else
     gmtime_r(&now, &tm_buf);
 #endif
