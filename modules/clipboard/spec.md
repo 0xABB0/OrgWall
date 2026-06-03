@@ -3,16 +3,21 @@
 The single interface to the operating system's clipboard across every platform. One logical
 payload — a *transferable* — carries many representations at once (UTF-8 text, HTML, PNG, a
 file/URI list, plus any custom MIME type), so the receiving application picks the best. Every
-operation is reactor-driven with a completion (MEL-ENGINE-III: the module owns no thread; all
-timing rides the consumer's reactor). Not a serialization format, not a drag-and-drop framework,
-not a clipboard-history manager.
+operation returns a `Mel_Future` resolved on a target executor (MEL-ENGINE-III: the module owns no
+thread; deferral and delivery ride the async substrate, not bespoke machinery). Not a serialization
+format, not a drag-and-drop framework, not a clipboard-history manager.
 
 ## Model
 
-- **Async throughout** — `read`, `write`, `query`, `clear` each take a reactor and a completion.
-  The system clipboard is synchronous and instant on Apple/Win32/Android, a permission-gated
-  promise on the Web, a selection-ownership round-trip on Linux/X11. One contract spans all: the
-  result arrives on the consumer's reactor, never re-entrantly inside the request call (§6.3).
+- **Future-returning** — `read`, `write`, `query`, `clear`, `read_text`, `write_text` each return a
+  `Mel_Future*`. The system clipboard is synchronous and instant on Apple/Win32/Android, a
+  permission-gated promise on the Web, a selection-ownership round-trip on Linux/X11. One contract
+  spans all: the result resolves the future, which delivers its continuation on the caller's
+  executor (§6).
+- **Substrate-built** — completion, deferral, cancellation, and cross-executor delivery are the
+  `future` module's, not the clipboard's. There is no per-op timer, no slotmap-job completion
+  lifecycle, no hand-rolled deliver-on-reactor path; the job embeds a `Mel_Future` and resolving it
+  is the whole of completion (MEL-ENGINE-IX).
 - **Transferable** — the payload is a list of *items*, each item a list of *representations*
   `{ format, bytes }` (§3). The common case is one item with one text representation; the model
   does not special-case it.
@@ -23,7 +28,7 @@ not a clipboard-history manager.
   by which source compiles (the `power` precedent). There is no runtime indirection: the platform
   translation unit *defines* a fixed set of `mel_clip__plat_*` functions and the core *calls* them
   directly, the linker resolving the one implementation. The core owns the data model, the format
-  registry, the lowering, and the completion delivery; the platform layer only marshals to/from the
+  registry, the lowering, and the future resolution; the platform layer only marshals to/from the
   OS (§5).
 
 ## 1. Lifecycle
@@ -34,10 +39,11 @@ void mel_clip_shutdown(void);
 bool mel_clip_available(void);   // false where no host clipboard (Linux stub, headless web)
 ```
 
-One process-global instance. The init reactor is the default completion reactor; a per-call
-override (§6.1) resumes completion elsewhere. `mel_clip_init` registers the compiled-in backend via
-`mel_clip__backend_init` (§5.3). A NULL init reactor (and no per-call override) makes completion
-fire inline at resolve time — used by hermetic unit tests; production passes a reactor.
+One process-global instance. The default target executor is derived from the init reactor
+(`mel_reactor_executor`, an always-next-turn defer); a per-op override (§6.1) targets another
+executor. A NULL init reactor makes the default executor the inline executor — completion delivers
+through the inline trampoline (synchronous, non-re-entrant), used by hermetic unit tests; production
+passes a reactor.
 
 ## 2. Status
 
@@ -117,9 +123,11 @@ The host-none stub (Linux/fallback) defines `available == false` and resolves ev
 `Mel_Clip_Job` is opaque; the platform layer uses accessors: `mel_clip_job_request_count/request/wants`
 (read/query inputs), `mel_clip_job_item_count/rep_count/rep` (write payload),
 `mel_clip_job_emit` / `mel_clip_job_emit_format` (build results, bytes copied into the result
-allocator), `mel_clip_job_alloc`, `mel_clip_job_add_warning`, and `mel_clip_job_resolve`. A backend
-that completes asynchronously stashes `mel_clip_job_token(job)` and recovers the job later via
-`mel_clip__job_from_token` (generation-checked, NULL if the job was cancelled) — the Web path.
+allocator), `mel_clip_job_alloc`, `mel_clip_job_add_warning`, and `mel_clip_job_resolve`
+(resolves the embedded `Mel_Future`). A backend that completes asynchronously stashes
+`mel_clip_job_token(job)` and recovers the job later via `mel_clip__job_from_token`
+(generation-checked, NULL if the job was cancelled or shut down) — the Web path; `on_write`/`on_text`
+`EM_JS` resolve callbacks recover the job by token and resolve its future.
 
 ### 5.2 Lowering lives in the core
 
@@ -138,59 +146,78 @@ for a consumer that bypasses the model.
 ### 6.1 Surface
 
 ```c
-typedef void (*Mel_Clip_On_Read)(const Mel_Clip_Transferable* t, Mel_Clip_Status s, void* user);
-typedef void (*Mel_Clip_On_Text)(str8 text, Mel_Clip_Status s, void* user);
-typedef void (*Mel_Clip_On_Write)(Mel_Clip_Status s, void* user);
-typedef void (*Mel_Clip_On_Query)(const Mel_Clip_Format* fmts, u32 n, Mel_Clip_Status s, void* user);
+typedef struct { const Mel_Clip_Format* items; u32 count; } Mel_Clip_Formats;
+typedef struct { Mel_Executor* exec; const Mel_Alloc* alloc; } Mel_Clip_Opt;
 
-typedef struct { Mel_Reactor* reactor; const Mel_Alloc* alloc; void* user; } Mel_Clip_Opt;
-
-mel_clip_read(fmts, n, cb, .reactor=, .alloc=, .user=)   // n == 0 ⇒ every available format
-mel_clip_write(t, cb, ...)   mel_clip_query(cb, ...)   mel_clip_clear(cb, ...)
-mel_clip_read_text(cb, ...)  mel_clip_write_text(text, cb, ...)
+Mel_Future* mel_clip_read(fmts, n, .exec=, .alloc=)   // n == 0 ⇒ every available format
+Mel_Future* mel_clip_write(t, ...)   mel_clip_query(...)   mel_clip_clear(...)
+Mel_Future* mel_clip_read_text(...)  mel_clip_write_text(text, ...)
 ```
 
-Each macro forwards to a `_opt` function (the vibration varargs-options idiom). `o.alloc` (default:
-the init allocator) owns the result storage; `o.reactor` (default: the init reactor) is where the
-completion fires.
+Each macro forwards to a `_opt` function (the varargs-options idiom). `o.alloc` (default: the init
+allocator) owns the result storage; `o.exec` (default: the executor derived from the init reactor,
+or the inline executor when init took no reactor) is the future's target executor. The continuation
+a consumer registers with `mel_future_then(f, cont, exec)` runs on the executor it names; the
+clipboard's `o.exec` is only the module's default for the resolve path's deferral.
+
+The future's value is read by op-specific accessors, valid once resolved:
+
+```c
+Mel_Clip_Status              mel_clip_future_status(f);        // CANCELLED ⇒ ERROR | RESULT_CANCELLED
+const Mel_Clip_Transferable* mel_clip_future_transferable(f); // read
+str8                         mel_clip_future_text(f);          // read_text
+Mel_Clip_Formats             mel_clip_future_formats(f);       // query
+void                         mel_clip_future_free(f);          // releases the result + the job
+```
+
+`write`/`write_text`/`clear` carry no value; their outcome is `mel_clip_future_status`.
 
 ### 6.2 Result lifetime
 
-The `Mel_Clip_Transferable*` and the `str8` handed to a read/text callback are **valid only for the
-duration of the callback** — the core frees the result storage immediately after the callback
-returns. A consumer that keeps the data copies it. (This is the deliberate contract; `o.alloc` lets
-the consumer place the transient storage, e.g. a scratch arena.)
+The future **owns** its result; the accessors return a borrowed view into module storage. The view
+is **valid until the consumer calls `mel_clip_future_free(f)`** — which releases the result storage,
+the slotmap entry, and the job. The consumer frees from its continuation (the substrate analog of
+the old "free after the callback returns"): read the value, copy what it keeps, then free.
+`o.alloc` lets the consumer place the result storage (e.g. a scratch arena). Freeing is mandatory —
+the future is heap-backed; not freeing leaks the job.
 
-### 6.3 Delivery — non-re-entrant
+### 6.3 Delivery — non-re-entrant by construction
 
-Each operation allocates a heap *job*, copies any caller payload into module storage, and indexes
-the job in a generation-checked slotmap. When the backend resolves — inline on synchronous
-platforms, from a JS promise on Web — `mel_clip_job_resolve` arms a one-shot `0`-interval reactor
-timer on the job's reactor. The timer fires on the **next** reactor turn (the readiness scan
-precedes dispatch), delivers the consumer callback, then frees the job. Completion is therefore
-never re-entrant within the request call, even when the backend completes synchronously
-(MEL-ENGINE-VIII — predictable). A redundant resolve coalesces (`resolved` guard). With no reactor,
-delivery is inline.
+Each operation allocates a heap *job* embedding a `Mel_Future`, copies any caller payload into
+module storage, and indexes the job in a generation-checked slotmap (the token registry for async
+recovery and the shutdown sweep). When the backend resolves — inline on synchronous platforms, from
+a JS promise on Web — `mel_clip_job_resolve` builds the op's result view and calls
+`mel_future_resolve`. Delivery to the registered continuation is the future+executor's job: the
+reactor executor always defers to the next turn; the inline executor trampolines through a
+thread-local drain. Either way the continuation never runs re-entrantly mid-resolve
+(MEL-ENGINE-VIII — predictable). A redundant resolve coalesces (`resolved` guard, plus the future's
+one-shot CAS).
 
 ### 6.4 Cancellation
 
-`mel_clip_shutdown` destroys any pending delivery timer, marks unresolved jobs `Cancelled`, delivers
-each, and frees all module storage — no completion silently vanishes, no use-after-free of the
-consumer's allocator past shutdown.
+`mel_clip_shutdown` tears down watch, then for every in-flight job: cancels its future (a registered
+continuation is woken `RESULT_CANCELLED`, so no completion silently vanishes); a job with no
+registered continuation — nobody to free it — is freed by shutdown itself. Then it frees the format
+registry and the slotmap. A continuation whose target executor is never pumped after shutdown is the
+consumer's responsibility (the substrate's structured-scope contract), as with any future.
 
 ## 7. Change tracking
 
 ```c
-u64  mel_clip_sequence(void);                       // monotonic counter; 0 ⇒ unsupported
-void mel_clip_watch(cb, .reactor=, .user=);          // fire on every change
-void mel_clip_unwatch(void);
+u64        mel_clip_sequence(void);            // monotonic counter; 0 ⇒ unsupported
+Mel_Event* mel_clip_watch(.exec=, .alloc=);    // change channel; NULL ⇒ unsupported backend
+void       mel_clip_unwatch(void);
 ```
 
 `sequence` is the cheap synchronous poll where the OS exposes one (`NSPasteboard.changeCount`,
-`UIPasteboard.changeCount`, `GetClipboardSequenceNumber`). `watch` arms a low-frequency reactor
-timer (250 ms) that compares `sequence` and fires `cb` on a move — cost only while watching
-(MEL-ENGINE-III). Where `sequence()` is 0 (Android, Web), `watch` logs unsupported and does nothing
-(honest, MEL-ENGINE-VIII).
+`UIPasteboard.changeCount`, `GetClipboardSequenceNumber`). `watch` returns a `Mel_Event` channel
+carrying `u64` change sequences (loss policy `latest`); a low-frequency reactor timer (250 ms, a
+legit reactor source) compares `sequence` and fires the new sequence into the channel on a move —
+cost only while watching (MEL-ENGINE-III). Consumers `mel_event_subscribe_push(ev, exec, cb, user)`
+(delivered on their executor) or `mel_event_subscribe_pull(ev, user)` (drained with
+`mel_event_pull`). With no init reactor the channel exists but the timer is absent (nothing drives
+it). Where `sequence()` is 0 (Android, Web), `watch` logs unsupported and returns NULL (honest,
+MEL-ENGINE-VIII). `unwatch` destroys the timer and the channel.
 
 ## 8. Platform lowering
 
@@ -225,7 +252,7 @@ timer (250 ms) that compares `sequence` and fires `cb` on a move — cost only w
 ## 9. Coding-guideline compliance
 
 - **No enums** (MEL-CODE-001): formats are an open `u32` id space (§4); status is severity + bitset
-  (§2); the job kind is the set callback, not a tag.
+  (§2); the op's result kind is a per-job `build_view` behavior (a function pointer), not a tag.
 - **No fixed arrays** (MEL-CODE-002): reps, items, the format registry, the request/result lists are
   dynamic and allocator-fed. The per-backend MIME⇄native tables are `const` translation literals
   (protocol data), not capacity caps.
@@ -235,8 +262,9 @@ timer (250 ms) that compares `sequence` and fires `cb` on a move — cost only w
 
 ## 10. Dependencies
 
-`core`, `allocator`, `collection` (array + slotmap), `string`, `reactor`, `log`, `platform`
-(Android JNI / Win32). No `gpu`, no `window` yet (Linux deferred).
+`core`, `allocator`, `collection` (array + slotmap + list for `mel_container_of`), `string`,
+`executor`, `future`, `event`, `reactor`, `log`, `platform` (Android JNI / Win32). No `gpu`, no
+`window` yet (Linux deferred).
 
 ## 11. Failure modes
 
@@ -244,7 +272,9 @@ timer (250 ms) that compares `sequence` and fires `cb` on a move — cost only w
   logged.
 - Requested format absent ⇒ that rep omitted, `FormatUnavailable`; `Empty` if none present.
 - Write rep unrepresentable (Android raw image, Win32 HTML) ⇒ dropped, `RepresentationDropped`.
-- `shutdown` with jobs in flight ⇒ all resolve `Cancelled`; storage freed; no UAF.
-- Reactor never pumped ⇒ completion never fires; resolved `Cancelled` at shutdown.
+- `shutdown` with jobs in flight ⇒ each future cancelled (`RESULT_CANCELLED`); a continuation-less
+  job is freed by shutdown; no UAF.
+- Reactor never pumped ⇒ the continuation never fires; cancelled at shutdown, the wake submitted to
+  the dead executor is the consumer's to drain (substrate-scope contract).
 - Linux / headless ⇒ `available()` false, every op `NoClipboard`; branch on `mel_clip_available()`.
 - Win32 `OpenClipboard` contended ⇒ retry-bounded, then `Error`, logged.

@@ -11,7 +11,10 @@ extern "C"
 {
 #endif
 
-typedef struct Mel_Reactor Mel_Reactor;
+typedef struct Mel_Reactor  Mel_Reactor;
+typedef struct Mel_Executor Mel_Executor;
+typedef struct Mel_Future   Mel_Future;
+typedef struct Mel_Event    Mel_Event;
 
 typedef u32 Mel_Clip_Status;
 
@@ -60,17 +63,16 @@ typedef struct
     const Mel_Alloc* alloc;
 } Mel_Clip_Transferable;
 
-typedef void (*Mel_Clip_On_Read)(const Mel_Clip_Transferable* t, Mel_Clip_Status s, void* user);
-typedef void (*Mel_Clip_On_Text)(str8 text, Mel_Clip_Status s, void* user);
-typedef void (*Mel_Clip_On_Write)(Mel_Clip_Status s, void* user);
-typedef void (*Mel_Clip_On_Query)(const Mel_Clip_Format* fmts, u32 n, Mel_Clip_Status s, void* user);
-typedef void (*Mel_Clip_On_Change)(u64 sequence, void* user);
+typedef struct
+{
+    const Mel_Clip_Format* items;
+    u32                    count;
+} Mel_Clip_Formats;
 
 typedef struct
 {
-    Mel_Reactor*     reactor;
+    Mel_Executor*    exec;
     const Mel_Alloc* alloc;
-    void*            user;
 } Mel_Clip_Opt;
 
 void mel_clip_init(const Mel_Alloc* alloc, Mel_Reactor* reactor);
@@ -85,25 +87,31 @@ void           mel_clip_transferable_free(Mel_Clip_Transferable* t);
 Mel_Clip_Item* mel_clip_item_add(Mel_Clip_Transferable* t);
 void           mel_clip_rep_add(Mel_Clip_Item* it, Mel_Clip_Format f, str8 bytes, const Mel_Alloc* alloc);
 
-void mel_clip_read_opt(const Mel_Clip_Format* fmts, u32 n, Mel_Clip_On_Read cb, Mel_Clip_Opt opt);
-void mel_clip_write_opt(const Mel_Clip_Transferable* t, Mel_Clip_On_Write cb, Mel_Clip_Opt opt);
-void mel_clip_query_opt(Mel_Clip_On_Query cb, Mel_Clip_Opt opt);
-void mel_clip_clear_opt(Mel_Clip_On_Write cb, Mel_Clip_Opt opt);
+Mel_Future* mel_clip_read_opt(const Mel_Clip_Format* fmts, u32 n, Mel_Clip_Opt opt);
+Mel_Future* mel_clip_write_opt(const Mel_Clip_Transferable* t, Mel_Clip_Opt opt);
+Mel_Future* mel_clip_query_opt(Mel_Clip_Opt opt);
+Mel_Future* mel_clip_clear_opt(Mel_Clip_Opt opt);
 
-void mel_clip_read_text_opt(Mel_Clip_On_Text cb, Mel_Clip_Opt opt);
-void mel_clip_write_text_opt(str8 text, Mel_Clip_On_Write cb, Mel_Clip_Opt opt);
+Mel_Future* mel_clip_read_text_opt(Mel_Clip_Opt opt);
+Mel_Future* mel_clip_write_text_opt(str8 text, Mel_Clip_Opt opt);
 
-#define mel_clip_read(fmts, n, cb, ...)    mel_clip_read_opt((fmts), (n), (cb), (Mel_Clip_Opt){ __VA_ARGS__ })
-#define mel_clip_write(t, cb, ...)         mel_clip_write_opt((t), (cb), (Mel_Clip_Opt){ __VA_ARGS__ })
-#define mel_clip_query(cb, ...)            mel_clip_query_opt((cb), (Mel_Clip_Opt){ __VA_ARGS__ })
-#define mel_clip_clear(cb, ...)            mel_clip_clear_opt((cb), (Mel_Clip_Opt){ __VA_ARGS__ })
-#define mel_clip_read_text(cb, ...)        mel_clip_read_text_opt((cb), (Mel_Clip_Opt){ __VA_ARGS__ })
-#define mel_clip_write_text(text, cb, ...) mel_clip_write_text_opt((text), (cb), (Mel_Clip_Opt){ __VA_ARGS__ })
+#define mel_clip_read(fmts, n, ...)    mel_clip_read_opt((fmts), (n), (Mel_Clip_Opt){ __VA_ARGS__ })
+#define mel_clip_write(t, ...)         mel_clip_write_opt((t), (Mel_Clip_Opt){ __VA_ARGS__ })
+#define mel_clip_query(...)            mel_clip_query_opt((Mel_Clip_Opt){ __VA_ARGS__ })
+#define mel_clip_clear(...)            mel_clip_clear_opt((Mel_Clip_Opt){ __VA_ARGS__ })
+#define mel_clip_read_text(...)        mel_clip_read_text_opt((Mel_Clip_Opt){ __VA_ARGS__ })
+#define mel_clip_write_text(text, ...) mel_clip_write_text_opt((text), (Mel_Clip_Opt){ __VA_ARGS__ })
 
-u64  mel_clip_sequence(void);
-void mel_clip_watch_opt(Mel_Clip_On_Change cb, Mel_Clip_Opt opt);
-void mel_clip_unwatch(void);
-#define mel_clip_watch(cb, ...) mel_clip_watch_opt((cb), (Mel_Clip_Opt){ __VA_ARGS__ })
+Mel_Clip_Status              mel_clip_future_status(const Mel_Future* f);
+const Mel_Clip_Transferable* mel_clip_future_transferable(const Mel_Future* f);
+str8                         mel_clip_future_text(const Mel_Future* f);
+Mel_Clip_Formats             mel_clip_future_formats(const Mel_Future* f);
+void                         mel_clip_future_free(Mel_Future* f);
+
+u64        mel_clip_sequence(void);
+Mel_Event* mel_clip_watch_opt(Mel_Clip_Opt opt);
+void       mel_clip_unwatch(void);
+#define mel_clip_watch(...) mel_clip_watch_opt((Mel_Clip_Opt){ __VA_ARGS__ })
 
 void* mel_clip_native(void);
 

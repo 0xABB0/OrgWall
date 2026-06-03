@@ -4,16 +4,25 @@ The interface to the operating system's clipboard across every platform. One log
 *transferable* — carries many representations at once (UTF-8 text, HTML, PNG, a file/URI list, plus
 any custom MIME type), so the receiving application picks the best.
 
-Every operation is reactor-driven with a completion: `read`, `write`, `query`, `clear` each take a
-reactor and a callback, and the result arrives on that reactor, never re-entrantly inside the
-request call. The clipboard is synchronous and instant on Apple/Win32/Android, a permission-gated
-promise on the Web, and a selection round-trip on Linux — one contract spans them.
+Every operation returns a `Mel_Future`: `read`, `write`, `query`, `clear`, `read_text`,
+`write_text` each return `Mel_Future*`, resolved on the caller's executor (default: derived from the
+init reactor; the inline executor when init took no reactor). The clipboard is synchronous and
+instant on Apple/Win32/Android, a permission-gated promise on the Web, and a selection round-trip on
+Linux — one contract spans them. Completion, deferral, and cancellation are the `future` module's:
+the clipboard owns no per-op timer and no bespoke deliver path.
 
 ```c
 mel_clip_init(alloc, reactor);
-mel_clip_write_text(S8("hello"), on_done);
-mel_clip_read_text(on_text);                 // on_text(str8, status, user) — valid only in-callback
+mel_clip_future_free(mel_clip_write_text(S8("hello")));
+
+Mel_Future* f = mel_clip_read_text();
+mel_future_then(f, &my_task, my_exec);       // my_task reads mel_clip_future_text(f), then frees it
 ```
+
+The future's value is read by op-specific accessors — `mel_clip_future_text`,
+`mel_clip_future_transferable`, `mel_clip_future_formats`, `mel_clip_future_status` — borrowed and
+**valid until `mel_clip_future_free(f)`**, which releases the result and the job. `watch` returns a
+`Mel_Event` channel of `u64` change sequences; subscribe push (delivered on your executor) or pull.
 
 A format is a `u32` id over an open space with well-known constants (`MEL_CLIP_FMT_TEXT`, `HTML`,
 `PNG`, `URI_LIST`, `RTF`); consumers register custom MIME types via `mel_clip_format_register`. Each
@@ -29,4 +38,4 @@ Backends (one compiles per platform):
 - Linux — stub (X11/Wayland selection serving needs the `window` event-loop integration).
 
 Spec: `spec.md`. Todo: `todo.md`. Dependencies: `core`, `allocator`, `collection`, `string`,
-`reactor`, `log`, `platform`.
+`executor`, `future`, `event`, `reactor`, `log`, `platform`.

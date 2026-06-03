@@ -2,16 +2,49 @@
 #include <clipboard/backend.h>
 #include <test/test.h>
 
+#include <future/future.h>
+#include <event/event.h>
+#include <executor/executor.h>
+#include <allocator/allocator.h>
 #include <allocator/heap.h>
+#include <collection.list/list.h>
 #include <string/str8.h>
 #include <string.h>
 
-// This translation unit IS the platform backend for the test: it links its own
-// mel_clip__plat_* against the core, an in-memory fake with no system side effects.
 static char  fake_text[256];
 static usize fake_len;
 static u64   fake_seq;
 static bool  fake_avail = true;
+static bool  fake_defer_read;
+static u64   fake_pending_token;
+
+typedef struct
+{
+    i64 live;
+    i64 net_bytes;
+} Counting_Alloc;
+
+static void* counting_cb(void* ptr, usize size, u32 align, const char* file, const char* func, u32 line, void* user)
+{
+    Counting_Alloc*  cnt = (Counting_Alloc*)user;
+    const Mel_Alloc* heap = mel_alloc_heap();
+    if (ptr == NULL)
+    {
+        cnt->live++;
+        cnt->net_bytes += (i64)size;
+        return align ? mel_aligned_alloc(heap, size, align) : mel_alloc(heap, size);
+    }
+    if (size == 0)
+    {
+        cnt->live--;
+        if (align)
+            mel_aligned_dealloc(heap, ptr, align);
+        else
+            mel_dealloc(heap, ptr);
+        return NULL;
+    }
+    return mel_realloc(heap, ptr, size);
+}
 
 bool  mel_clip__plat_available(void) { return fake_avail; }
 u64   mel_clip__plat_sequence(void) { return fake_seq; }
@@ -37,6 +70,11 @@ void mel_clip__plat_write(Mel_Clip_Job* j)
 
 void mel_clip__plat_read(Mel_Clip_Job* j)
 {
+    if (fake_defer_read)
+    {
+        fake_pending_token = mel_clip_job_token(j);
+        return;
+    }
     if (fake_len)
         mel_clip_job_emit(j, MEL_CLIP_FMT_TEXT, fake_text, fake_len);
     mel_clip_job_resolve(j, fake_len ? MEL_CLIP_OK : (MEL_CLIP_RESULT_EMPTY));
@@ -61,6 +99,8 @@ static void install_fake(void)
     fake_avail = true;
     fake_len = 0;
     fake_seq = 0;
+    fake_defer_read = false;
+    fake_pending_token = 0;
     mel_clip_init(mel_alloc_heap(), NULL);
 }
 
@@ -84,43 +124,73 @@ MEL_TEST(clipboard, register_dedups_and_is_stable)
     mel_clip_shutdown();
 }
 
-static str8            read_result;
-static Mel_Clip_Status read_status;
-static char            read_buf[256];
-static bool            write_done;
-static Mel_Clip_Status write_status;
-
-static void on_text(str8 text, Mel_Clip_Status s, void* user)
-{
-    (void)user;
-    read_status = s;
-    usize n = (usize)text.len < sizeof read_buf ? (usize)text.len : sizeof read_buf - 1;
-    if (n && text.data)
-        memcpy(read_buf, text.data, n);
-    read_result = (str8){ (u8*)read_buf, (size)n };
-}
-
-static void on_write(Mel_Clip_Status s, void* user)
-{
-    (void)user;
-    write_done = true;
-    write_status = s;
-}
-
 MEL_TEST(clipboard, write_then_read_text_roundtrips)
 {
     install_fake();
-    write_done = false;
-    write_status = MEL_CLIP_ERROR;
-    mel_clip_write_text(S8("hello melody"), on_write);
-    MEL_EXPECT(write_done);
-    MEL_EXPECT_EQ(write_status & MEL_CLIP_SEVERITY_MASK, (Mel_Clip_Status)MEL_CLIP_OK);
 
-    read_result = STR8_EMPTY;
-    read_status = MEL_CLIP_ERROR;
-    mel_clip_read_text(on_text);
-    MEL_EXPECT_EQ(read_status & MEL_CLIP_SEVERITY_MASK, (Mel_Clip_Status)MEL_CLIP_OK);
-    MEL_EXPECT_EQ_STR8(read_result, S8("hello melody"));
+    Mel_Future* w = mel_clip_write_text(S8("hello melody"));
+    MEL_REQUIRE(w != NULL);
+    MEL_EXPECT(mel_future_resolved(w));
+    MEL_EXPECT_EQ(mel_clip_future_status(w) & MEL_CLIP_SEVERITY_MASK, (Mel_Clip_Status)MEL_CLIP_OK);
+    mel_clip_future_free(w);
+
+    Mel_Future* r = mel_clip_read_text();
+    MEL_REQUIRE(r != NULL);
+    MEL_EXPECT(mel_future_resolved(r));
+    MEL_EXPECT_EQ(mel_clip_future_status(r) & MEL_CLIP_SEVERITY_MASK, (Mel_Clip_Status)MEL_CLIP_OK);
+    MEL_EXPECT_EQ_STR8(mel_clip_future_text(r), S8("hello melody"));
+    mel_clip_future_free(r);
+
+    mel_clip_shutdown();
+}
+
+MEL_TEST(clipboard, read_returns_transferable_with_text_rep)
+{
+    install_fake();
+    mel_clip_future_free(mel_clip_write_text(S8("payload")));
+
+    Mel_Future* r = mel_clip_read(NULL, 0);
+    MEL_REQUIRE(r != NULL);
+    MEL_EXPECT(mel_future_resolved(r));
+    const Mel_Clip_Transferable* t = mel_clip_future_transferable(r);
+    MEL_REQUIRE(t != NULL);
+    MEL_EXPECT_EQ(t->items.count, (usize)1);
+    MEL_EXPECT_EQ(t->items.items[0].reps.count, (usize)1);
+    MEL_EXPECT_EQ(t->items.items[0].reps.items[0].format, (Mel_Clip_Format)MEL_CLIP_FMT_TEXT);
+    MEL_EXPECT_EQ_STR8(t->items.items[0].reps.items[0].bytes, S8("payload"));
+    mel_clip_future_free(r);
+    mel_clip_shutdown();
+}
+
+MEL_TEST(clipboard, query_reports_text_format)
+{
+    install_fake();
+    mel_clip_future_free(mel_clip_write_text(S8("z")));
+
+    Mel_Future* q = mel_clip_query();
+    MEL_REQUIRE(q != NULL);
+    MEL_EXPECT(mel_future_resolved(q));
+    Mel_Clip_Formats fmts = mel_clip_future_formats(q);
+    MEL_EXPECT_EQ(fmts.count, (u32)1);
+    MEL_EXPECT_EQ(fmts.items[0], (Mel_Clip_Format)MEL_CLIP_FMT_TEXT);
+    mel_clip_future_free(q);
+    mel_clip_shutdown();
+}
+
+MEL_TEST(clipboard, clear_empties_clipboard)
+{
+    install_fake();
+    mel_clip_future_free(mel_clip_write_text(S8("gone")));
+
+    Mel_Future* c = mel_clip_clear();
+    MEL_REQUIRE(c != NULL);
+    MEL_EXPECT(mel_future_resolved(c));
+    MEL_EXPECT_EQ(mel_clip_future_status(c) & MEL_CLIP_SEVERITY_MASK, (Mel_Clip_Status)MEL_CLIP_OK);
+    mel_clip_future_free(c);
+
+    Mel_Future* r = mel_clip_read_text();
+    MEL_EXPECT((mel_clip_future_status(r) & MEL_CLIP_RESULT_EMPTY) != 0);
+    mel_clip_future_free(r);
     mel_clip_shutdown();
 }
 
@@ -128,7 +198,7 @@ MEL_TEST(clipboard, sequence_advances_on_write)
 {
     install_fake();
     u64 before = mel_clip_sequence();
-    mel_clip_write_text(S8("x"), NULL);
+    mel_clip_future_free(mel_clip_write_text(S8("x")));
     MEL_EXPECT_GT(mel_clip_sequence(), before);
     mel_clip_shutdown();
 }
@@ -136,9 +206,10 @@ MEL_TEST(clipboard, sequence_advances_on_write)
 MEL_TEST(clipboard, empty_clipboard_reports_empty)
 {
     install_fake();
-    read_status = MEL_CLIP_OK;
-    mel_clip_read_text(on_text);
-    MEL_EXPECT((read_status & MEL_CLIP_RESULT_EMPTY) != 0);
+    Mel_Future* r = mel_clip_read_text();
+    MEL_REQUIRE(r != NULL);
+    MEL_EXPECT((mel_clip_future_status(r) & MEL_CLIP_RESULT_EMPTY) != 0);
+    mel_clip_future_free(r);
     mel_clip_shutdown();
 }
 
@@ -147,14 +218,54 @@ MEL_TEST(clipboard, no_backend_reports_no_clipboard)
     fake_avail = false;
     mel_clip_init(mel_alloc_heap(), NULL);
     MEL_EXPECT(!mel_clip_available());
-    write_done = false;
-    write_status = MEL_CLIP_OK;
-    mel_clip_write_text(S8("nope"), on_write);
-    MEL_EXPECT(write_done);
-    MEL_EXPECT(mel_clip_failed(write_status));
-    MEL_EXPECT((write_status & MEL_CLIP_RESULT_NO_CLIPBOARD) != 0);
+
+    Mel_Future* w = mel_clip_write_text(S8("nope"));
+    MEL_REQUIRE(w != NULL);
+    MEL_EXPECT(mel_future_resolved(w));
+    MEL_EXPECT(mel_clip_failed(mel_clip_future_status(w)));
+    MEL_EXPECT((mel_clip_future_status(w) & MEL_CLIP_RESULT_NO_CLIPBOARD) != 0);
+    mel_clip_future_free(w);
+
     mel_clip_shutdown();
     fake_avail = true;
+}
+
+typedef struct
+{
+    Mel_Task    task;
+    Mel_Future* fut;
+    int         ran;
+    char        text[64];
+    usize       len;
+} Read_Cont;
+
+static void read_cont_run(Mel_Task* self)
+{
+    Read_Cont* c = mel_container_of(self, Read_Cont, task);
+    c->ran++;
+    str8 t = mel_clip_future_text(c->fut);
+    c->len = (usize)t.len < sizeof c->text ? (usize)t.len : sizeof c->text - 1;
+    if (c->len && t.data)
+        memcpy(c->text, t.data, c->len);
+    mel_clip_future_free(c->fut);
+}
+
+MEL_TEST(clipboard, then_delivers_on_inline_executor)
+{
+    install_fake();
+    mel_clip_future_free(mel_clip_write_text(S8("via then")));
+
+    Mel_Future* r = mel_clip_read_text();
+    MEL_REQUIRE(r != NULL);
+
+    Read_Cont c = { 0 };
+    c.fut = r;
+    mel_task_init(&c.task, read_cont_run);
+    mel_future_then(r, &c.task, mel_executor_inline());
+
+    MEL_EXPECT_EQ(c.ran, 1);
+    MEL_EXPECT_EQ_STR8(((str8){ (u8*)c.text, (size)c.len }), S8("via then"));
+    mel_clip_shutdown();
 }
 
 MEL_TEST(clipboard, transferable_build_and_free)
@@ -169,4 +280,298 @@ MEL_TEST(clipboard, transferable_build_and_free)
     MEL_EXPECT_EQ(t.items.items[0].reps.count, (usize)2);
     mel_clip_transferable_free(&t);
     mel_clip_shutdown();
+}
+
+MEL_TEST(clipboard, write_custom_transferable_roundtrips)
+{
+    install_fake();
+    Mel_Clip_Transferable t;
+    mel_clip_transferable_init(&t, mel_alloc_heap());
+    Mel_Clip_Item* it = mel_clip_item_add(&t);
+    mel_clip_rep_add(it, MEL_CLIP_FMT_TEXT, S8("structured"), t.alloc);
+
+    Mel_Future* w = mel_clip_write(&t);
+    MEL_REQUIRE(w != NULL);
+    MEL_EXPECT_EQ(mel_clip_future_status(w) & MEL_CLIP_SEVERITY_MASK, (Mel_Clip_Status)MEL_CLIP_OK);
+    mel_clip_future_free(w);
+    mel_clip_transferable_free(&t);
+
+    Mel_Future* r = mel_clip_read_text();
+    MEL_EXPECT_EQ_STR8(mel_clip_future_text(r), S8("structured"));
+    mel_clip_future_free(r);
+    mel_clip_shutdown();
+}
+
+MEL_TEST(clipboard, watch_channel_carries_sequence)
+{
+    install_fake();
+    fake_seq = 10;
+
+    Mel_Event* ev = mel_clip_watch();
+    MEL_REQUIRE(ev != NULL);
+    Mel_Event_Sub sub = mel_event_subscribe_pull(ev, NULL);
+
+    u64 change = 11;
+    mel_event_fire(ev, &change);
+
+    u64 got = 0;
+    MEL_EXPECT(mel_event_pull(ev, sub, &got));
+    MEL_EXPECT_EQ(got, (u64)11);
+    MEL_EXPECT(!mel_event_pull(ev, sub, &got));
+
+    mel_event_unsubscribe(ev, sub);
+    mel_clip_unwatch();
+    mel_clip_shutdown();
+}
+
+MEL_TEST(clipboard, watch_unsupported_when_no_sequence)
+{
+    install_fake();
+    fake_seq = 0;
+    MEL_EXPECT(mel_clip_watch() == NULL);
+    mel_clip_shutdown();
+}
+
+typedef struct
+{
+    Mel_Task        task;
+    Mel_Future*     fut;
+    int             ran;
+    Mel_Clip_Status status;
+} Cancel_Cont;
+
+static void cancel_cont_run(Mel_Task* self)
+{
+    Cancel_Cont* c = mel_container_of(self, Cancel_Cont, task);
+    c->ran++;
+    c->status = mel_clip_future_status(c->fut);
+    mel_clip_future_free(c->fut);
+}
+
+MEL_TEST(clipboard, shutdown_cancels_pending_with_continuation)
+{
+    install_fake();
+    fake_defer_read = true;
+
+    Mel_Future* r = mel_clip_read_text();
+    MEL_REQUIRE(r != NULL);
+    MEL_EXPECT(!mel_future_resolved(r));
+
+    Cancel_Cont c = { 0 };
+    c.fut = r;
+    mel_task_init(&c.task, cancel_cont_run);
+    mel_future_then(r, &c.task, mel_executor_inline());
+    MEL_EXPECT_EQ(c.ran, 0);
+
+    mel_clip_shutdown();
+
+    MEL_EXPECT_EQ(c.ran, 1);
+    MEL_EXPECT(mel_clip_failed(c.status));
+    MEL_EXPECT((c.status & MEL_CLIP_RESULT_CANCELLED) != 0);
+}
+
+MEL_TEST(clipboard, shutdown_frees_pending_without_continuation)
+{
+    install_fake();
+    fake_defer_read = true;
+
+    Mel_Future* r = mel_clip_read_text();
+    MEL_REQUIRE(r != NULL);
+    MEL_EXPECT(!mel_future_resolved(r));
+
+    mel_clip_shutdown();
+}
+
+MEL_TEST(clipboard, token_recovers_job_and_resolves)
+{
+    install_fake();
+    memcpy(fake_text, "deferred", 8);
+    fake_len = 8;
+    fake_defer_read = true;
+
+    Mel_Future* r = mel_clip_read_text();
+    MEL_REQUIRE(r != NULL);
+    MEL_EXPECT(!mel_future_resolved(r));
+    MEL_REQUIRE(fake_pending_token != 0);
+
+    Mel_Clip_Job* j = mel_clip__job_from_token(fake_pending_token);
+    MEL_REQUIRE(j != NULL);
+    mel_clip_job_emit(j, MEL_CLIP_FMT_TEXT, fake_text, fake_len);
+    mel_clip_job_resolve(j, MEL_CLIP_OK);
+
+    MEL_EXPECT(mel_future_resolved(r));
+    MEL_EXPECT_EQ_STR8(mel_clip_future_text(r), S8("deferred"));
+    mel_clip_future_free(r);
+    mel_clip_shutdown();
+}
+
+MEL_TEST(clipboard, denied_status_not_misread_as_cancelled)
+{
+    install_fake();
+    fake_defer_read = true;
+
+    Mel_Future* r = mel_clip_read_text();
+    MEL_REQUIRE(r != NULL);
+    Mel_Clip_Job* j = mel_clip__job_from_token(fake_pending_token);
+    MEL_REQUIRE(j != NULL);
+    mel_clip_job_resolve(j, MEL_CLIP_ERROR | MEL_CLIP_RESULT_DENIED);
+
+    Mel_Clip_Status s = mel_clip_future_status(r);
+    MEL_EXPECT((s & MEL_CLIP_RESULT_DENIED) != 0);
+    MEL_EXPECT((s & MEL_CLIP_RESULT_CANCELLED) == 0);
+    MEL_EXPECT(mel_clip_failed(s));
+    mel_clip_future_free(r);
+    mel_clip_shutdown();
+}
+
+MEL_TEST(clipboard, status_bits_round_trip_through_future)
+{
+    install_fake();
+    fake_defer_read = true;
+
+    Mel_Future* r = mel_clip_read_text();
+    MEL_REQUIRE(r != NULL);
+    Mel_Clip_Job* j = mel_clip__job_from_token(fake_pending_token);
+    MEL_REQUIRE(j != NULL);
+    mel_clip_job_resolve(j, MEL_CLIP_WARNED | MEL_CLIP_RESULT_NO_CLIPBOARD | MEL_CLIP_RESULT_EMPTY | MEL_CLIP_WARN_FORMAT_UNAVAILABLE);
+
+    Mel_Clip_Status s = mel_clip_future_status(r);
+    MEL_EXPECT_EQ(s & MEL_CLIP_SEVERITY_MASK, (Mel_Clip_Status)MEL_CLIP_WARNED);
+    MEL_EXPECT((s & MEL_CLIP_RESULT_NO_CLIPBOARD) != 0);
+    MEL_EXPECT((s & MEL_CLIP_RESULT_EMPTY) != 0);
+    MEL_EXPECT((s & MEL_CLIP_WARN_FORMAT_UNAVAILABLE) != 0);
+    MEL_EXPECT((s & MEL_CLIP_RESULT_CANCELLED) == 0);
+    MEL_EXPECT(mel_future_resolved(r));
+    MEL_EXPECT(!mel_future_status_cancelled(mel_future_status(r)));
+    mel_clip_future_free(r);
+    mel_clip_shutdown();
+}
+
+MEL_TEST(clipboard, future_severity_only_no_clip_bits_leak)
+{
+    install_fake();
+    fake_defer_read = true;
+
+    Mel_Future* r = mel_clip_read_text();
+    MEL_REQUIRE(r != NULL);
+    Mel_Clip_Job* j = mel_clip__job_from_token(fake_pending_token);
+    MEL_REQUIRE(j != NULL);
+    mel_clip_job_resolve(j, MEL_CLIP_ERROR | MEL_CLIP_RESULT_DENIED);
+
+    Mel_Future_Status fs = mel_future_status(r);
+    MEL_EXPECT_EQ(fs, (Mel_Future_Status)MEL_FUTURE_ERROR);
+    MEL_EXPECT_EQ(fs & ~MEL_FUTURE_SEVERITY_MASK, (Mel_Future_Status)0);
+    mel_clip_future_free(r);
+    mel_clip_shutdown();
+}
+
+MEL_TEST(clipboard, token_invalid_after_free)
+{
+    install_fake();
+    fake_defer_read = true;
+
+    Mel_Future* r = mel_clip_read_text();
+    MEL_REQUIRE(r != NULL);
+    u64 tok = fake_pending_token;
+    MEL_REQUIRE(tok != 0);
+
+    Mel_Clip_Job* j = mel_clip__job_from_token(tok);
+    MEL_REQUIRE(j != NULL);
+    mel_clip_job_resolve(j, MEL_CLIP_RESULT_EMPTY);
+    mel_clip_future_free(r);
+
+    MEL_EXPECT(mel_clip__job_from_token(tok) == NULL);
+    mel_clip_shutdown();
+}
+
+static i64 leak_run(void (*body)(const Mel_Alloc* a), Counting_Alloc* cnt)
+{
+    Mel_Alloc tracked = { counting_cb, cnt };
+    body(&tracked);
+    return cnt->live;
+}
+
+static void body_success(const Mel_Alloc* a)
+{
+    fake_avail = true;
+    fake_len = 0;
+    fake_seq = 0;
+    fake_defer_read = false;
+    mel_clip_init(a, NULL);
+    mel_clip_future_free(mel_clip_write_text(S8("count me")));
+    Mel_Future* r = mel_clip_read_text();
+    (void)mel_clip_future_text(r);
+    mel_clip_future_free(r);
+    Mel_Future* q = mel_clip_query();
+    (void)mel_clip_future_formats(q);
+    mel_clip_future_free(q);
+    mel_clip_shutdown();
+}
+
+static void body_cancel(const Mel_Alloc* a)
+{
+    fake_avail = true;
+    fake_len = 0;
+    fake_seq = 0;
+    fake_defer_read = true;
+    mel_clip_init(a, NULL);
+    Mel_Future* r = mel_clip_read_text();
+    Cancel_Cont c = { 0 };
+    c.fut = r;
+    mel_task_init(&c.task, cancel_cont_run);
+    mel_future_then(r, &c.task, mel_executor_inline());
+    mel_clip_shutdown();
+}
+
+static void body_watch(const Mel_Alloc* a)
+{
+    fake_avail = true;
+    fake_len = 0;
+    fake_seq = 7;
+    fake_defer_read = false;
+    mel_clip_init(a, NULL);
+    Mel_Event*    ev = mel_clip_watch();
+    Mel_Event_Sub sub = mel_event_subscribe_pull(ev, NULL);
+    u64           change = 8;
+    mel_event_fire(ev, &change);
+    u64 got = 0;
+    (void)mel_event_pull(ev, sub, &got);
+    mel_event_unsubscribe(ev, sub);
+    mel_clip_shutdown();
+}
+
+static void body_shutdown_pending(const Mel_Alloc* a)
+{
+    fake_avail = true;
+    fake_len = 0;
+    fake_seq = 0;
+    fake_defer_read = true;
+    mel_clip_init(a, NULL);
+    (void)mel_clip_read_text();
+    (void)mel_clip_read_text();
+    mel_clip_shutdown();
+}
+
+MEL_TEST(clipboard, no_leak_success_path)
+{
+    Counting_Alloc cnt = { 0, 0 };
+    MEL_EXPECT_EQ(leak_run(body_success, &cnt), (i64)0);
+}
+
+MEL_TEST(clipboard, no_leak_cancel_path)
+{
+    Counting_Alloc cnt = { 0, 0 };
+    MEL_EXPECT_EQ(leak_run(body_cancel, &cnt), (i64)0);
+}
+
+MEL_TEST(clipboard, no_leak_shutdown_pending_path)
+{
+    Counting_Alloc cnt = { 0, 0 };
+    MEL_EXPECT_EQ(leak_run(body_shutdown_pending, &cnt), (i64)0);
+}
+
+MEL_TEST(clipboard, no_leak_watch_path)
+{
+    Counting_Alloc cnt = { 0, 0 };
+    MEL_EXPECT_EQ(leak_run(body_watch, &cnt), (i64)0);
 }

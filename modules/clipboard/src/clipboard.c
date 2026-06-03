@@ -4,35 +4,41 @@
 #include <allocator/allocator.h>
 #include <allocator/heap.h>
 #include <collection.array/array.h>
+#include <collection.list/list.h>
 #include <collection.slotmap/slotmap.h>
+#include <future/future.h>
+#include <executor/executor.h>
+#include <event/event.h>
 #include <reactor/reactor.h>
 #include <log/log.h>
 
 #include <string.h>
 
-#define MEL_CLIP_WATCH_POLL_NS (250ll * 1000ll * 1000ll)
+#define MEL_CLIP_WATCH_POLL_NS  (250ll * 1000ll * 1000ll)
+#define MEL_CLIP_WATCH_RING_CAP 16u
+
+typedef struct Mel_Clip_Job Mel_Clip_Job;
+typedef void* (*Build_View)(Mel_Clip_Job* j);
 
 struct Mel_Clip_Job
 {
+    Mel_Future         future;
     Mel_SlotMap_Handle self;
-    Mel_Reactor*       reactor;
+    Mel_Executor*      exec;
     const Mel_Alloc*   alloc;
-    void*              user;
 
-    Mel_Clip_On_Read  on_read;
-    Mel_Clip_On_Text  on_text;
-    Mel_Clip_On_Write on_write;
-    Mel_Clip_On_Query on_query;
+    Build_View build_view;
 
     Mel_Array(Mel_Clip_Format) request;
     Mel_Clip_Transferable payload;
 
     Mel_Clip_Transferable result;
     Mel_Array(Mel_Clip_Format) result_formats;
+    Mel_Clip_Formats result_formats_view;
+    str8             result_text;
 
-    Mel_Clip_Status     status;
-    bool                resolved;
-    Mel_Reactor_Source* deliver_timer;
+    Mel_Clip_Status status;
+    bool            resolved;
 };
 
 typedef struct
@@ -46,13 +52,13 @@ typedef struct
     bool             initialized;
     const Mel_Alloc* alloc;
     Mel_Reactor*     reactor;
+    Mel_Executor*    exec;
 
     Mel_SlotMap jobs;
     Mel_Array(Format_Entry) formats;
 
     Mel_Reactor_Source* watch_timer;
-    Mel_Clip_On_Change  watch_cb;
-    void*               watch_user;
+    Mel_Event*          watch_event;
     Mel_Reactor*        watch_reactor;
     u64                 watch_last_seq;
 } Clip;
@@ -143,13 +149,14 @@ void mel_clip_init(const Mel_Alloc* alloc, Mel_Reactor* reactor)
         return;
     g.alloc = alloc ? alloc : mel_alloc_heap();
     g.reactor = reactor;
+    g.exec = reactor ? mel_reactor_executor(reactor) : mel_executor_inline();
     mel_slotmap_init(&g.jobs, g.alloc, .item_size = sizeof(Mel_Clip_Job*), .initial_capacity = 8);
     mel_array_init(&g.formats, g.alloc);
     seed_formats();
     g.initialized = true;
 }
 
-static void job_free(Mel_Clip_Job* j)
+static void job_storage_free(Mel_Clip_Job* j)
 {
     mel_array_free(&j->request);
     mel_clip_transferable_free(&j->payload);
@@ -159,38 +166,29 @@ static void job_free(Mel_Clip_Job* j)
     mel_dealloc(g.alloc, j);
 }
 
-static void deliver_inline(Mel_Clip_Job* j)
+static str8 first_text_rep(const Mel_Clip_Transferable* t)
 {
-    if (j->on_read)
-        j->on_read(&j->result, j->status, j->user);
-    else if (j->on_text)
-    {
-        str8 text = STR8_EMPTY;
-        if (j->result.items.count > 0)
-        {
-            Mel_Clip_Item* it = &j->result.items.items[0];
-            for (usize i = 0; i < it->reps.count; i++)
-                if (it->reps.items[i].format == MEL_CLIP_FMT_TEXT)
-                {
-                    text = it->reps.items[i].bytes;
-                    break;
-                }
-        }
-        j->on_text(text, j->status, j->user);
-    }
-    else if (j->on_query)
-        j->on_query(j->result_formats.items, (u32)j->result_formats.count, j->status, j->user);
-    else if (j->on_write)
-        j->on_write(j->status, j->user);
-    job_free(j);
+    if (t->items.count == 0)
+        return STR8_EMPTY;
+    const Mel_Clip_Item* it = &t->items.items[0];
+    for (usize i = 0; i < it->reps.count; i++)
+        if (it->reps.items[i].format == MEL_CLIP_FMT_TEXT)
+            return it->reps.items[i].bytes;
+    return STR8_EMPTY;
 }
 
-static bool deliver_timer_cb(void* user)
+static void* build_view_transferable(Mel_Clip_Job* j) { return &j->result; }
+
+static void* build_view_text(Mel_Clip_Job* j)
 {
-    Mel_Clip_Job* j = (Mel_Clip_Job*)user;
-    j->deliver_timer = NULL;
-    deliver_inline(j);
-    return false;
+    j->result_text = first_text_rep(&j->result);
+    return &j->result_text;
+}
+
+static void* build_view_formats(Mel_Clip_Job* j)
+{
+    j->result_formats_view = (Mel_Clip_Formats){ j->result_formats.items, (u32)j->result_formats.count };
+    return &j->result_formats_view;
 }
 
 void mel_clip_job_resolve(Mel_Clip_Job* j, Mel_Clip_Status s)
@@ -199,27 +197,21 @@ void mel_clip_job_resolve(Mel_Clip_Job* j, Mel_Clip_Status s)
         return;
     j->resolved = true;
     j->status |= s;
-    if (j->reactor)
-    {
-        j->deliver_timer = mel_reactor_timer_new(0, deliver_timer_cb, j);
-        if (j->deliver_timer)
-        {
-            mel_reactor_source_attach(j->reactor, j->deliver_timer);
-            return;
-        }
-    }
-    deliver_inline(j);
+
+    void* view = j->build_view ? j->build_view(j) : NULL;
+    mel_future_resolve(&j->future, view, (Mel_Future_Status)(j->status & MEL_CLIP_SEVERITY_MASK));
 }
 
-static Mel_Clip_Job* job_new(Mel_Clip_Opt opt)
+static Mel_Clip_Job* job_new(Mel_Clip_Opt opt, Build_View build_view)
 {
     Mel_Clip_Job* j = mel_alloc_type(g.alloc, Mel_Clip_Job);
     if (!j)
         return NULL;
     memset(j, 0, sizeof *j);
-    j->reactor = opt.reactor ? opt.reactor : g.reactor;
+    j->exec = opt.exec ? opt.exec : g.exec;
     j->alloc = opt.alloc ? opt.alloc : g.alloc;
-    j->user = opt.user;
+    j->build_view = build_view;
+    mel_future_init(&j->future, NULL, j->alloc);
     mel_array_init(&j->request, g.alloc);
     mel_clip_transferable_init(&j->payload, g.alloc);
     mel_clip_transferable_init(&j->result, j->alloc);
@@ -248,112 +240,145 @@ static void copy_payload(Mel_Clip_Job* j, const Mel_Clip_Transferable* t)
     }
 }
 
-void mel_clip_read_opt(const Mel_Clip_Format* fmts, u32 n, Mel_Clip_On_Read cb, Mel_Clip_Opt opt)
+Mel_Future* mel_clip_read_opt(const Mel_Clip_Format* fmts, u32 n, Mel_Clip_Opt opt)
 {
     if (!g.initialized)
-        return;
-    Mel_Clip_Job* j = job_new(opt);
+        return NULL;
+    Mel_Clip_Job* j = job_new(opt, build_view_transferable);
     if (!j)
-        return;
-    j->on_read = cb;
+        return NULL;
     copy_request(j, fmts, n);
     if (!backend_ready())
     {
         mel_log_error("clipboard", "read: no clipboard backend");
         mel_clip_job_resolve(j, MEL_CLIP_ERROR | MEL_CLIP_RESULT_NO_CLIPBOARD);
-        return;
+        return &j->future;
     }
     mel_clip__plat_read(j);
+    return &j->future;
 }
 
-void mel_clip_read_text_opt(Mel_Clip_On_Text cb, Mel_Clip_Opt opt)
+Mel_Future* mel_clip_read_text_opt(Mel_Clip_Opt opt)
 {
     if (!g.initialized)
-        return;
-    Mel_Clip_Job* j = job_new(opt);
+        return NULL;
+    Mel_Clip_Job* j = job_new(opt, build_view_text);
     if (!j)
-        return;
-    j->on_text = cb;
+        return NULL;
     mel_array_push(&j->request, (Mel_Clip_Format)MEL_CLIP_FMT_TEXT);
     if (!backend_ready())
     {
         mel_log_error("clipboard", "read_text: no clipboard backend");
         mel_clip_job_resolve(j, MEL_CLIP_ERROR | MEL_CLIP_RESULT_NO_CLIPBOARD);
-        return;
+        return &j->future;
     }
     mel_clip__plat_read(j);
+    return &j->future;
 }
 
-void mel_clip_write_opt(const Mel_Clip_Transferable* t, Mel_Clip_On_Write cb, Mel_Clip_Opt opt)
+Mel_Future* mel_clip_write_opt(const Mel_Clip_Transferable* t, Mel_Clip_Opt opt)
 {
     if (!g.initialized)
-        return;
-    Mel_Clip_Job* j = job_new(opt);
+        return NULL;
+    Mel_Clip_Job* j = job_new(opt, NULL);
     if (!j)
-        return;
-    j->on_write = cb;
+        return NULL;
     if (t)
         copy_payload(j, t);
     if (!backend_ready())
     {
         mel_log_error("clipboard", "write: no clipboard backend");
         mel_clip_job_resolve(j, MEL_CLIP_ERROR | MEL_CLIP_RESULT_NO_CLIPBOARD);
-        return;
+        return &j->future;
     }
     mel_clip__plat_write(j);
+    return &j->future;
 }
 
-void mel_clip_write_text_opt(str8 text, Mel_Clip_On_Write cb, Mel_Clip_Opt opt)
+Mel_Future* mel_clip_write_text_opt(str8 text, Mel_Clip_Opt opt)
 {
     if (!g.initialized)
-        return;
-    Mel_Clip_Job* j = job_new(opt);
+        return NULL;
+    Mel_Clip_Job* j = job_new(opt, NULL);
     if (!j)
-        return;
-    j->on_write = cb;
+        return NULL;
     Mel_Clip_Item* it = mel_clip_item_add(&j->payload);
     mel_clip_rep_add(it, MEL_CLIP_FMT_TEXT, text, j->payload.alloc);
     if (!backend_ready())
     {
         mel_log_error("clipboard", "write_text: no clipboard backend");
         mel_clip_job_resolve(j, MEL_CLIP_ERROR | MEL_CLIP_RESULT_NO_CLIPBOARD);
-        return;
+        return &j->future;
     }
     mel_clip__plat_write(j);
+    return &j->future;
 }
 
-void mel_clip_query_opt(Mel_Clip_On_Query cb, Mel_Clip_Opt opt)
+Mel_Future* mel_clip_query_opt(Mel_Clip_Opt opt)
 {
     if (!g.initialized)
-        return;
-    Mel_Clip_Job* j = job_new(opt);
+        return NULL;
+    Mel_Clip_Job* j = job_new(opt, build_view_formats);
     if (!j)
-        return;
-    j->on_query = cb;
+        return NULL;
     if (!backend_ready())
     {
         mel_log_error("clipboard", "query: no clipboard backend");
         mel_clip_job_resolve(j, MEL_CLIP_ERROR | MEL_CLIP_RESULT_NO_CLIPBOARD);
-        return;
+        return &j->future;
     }
     mel_clip__plat_query(j);
+    return &j->future;
 }
 
-void mel_clip_clear_opt(Mel_Clip_On_Write cb, Mel_Clip_Opt opt)
+Mel_Future* mel_clip_clear_opt(Mel_Clip_Opt opt)
 {
     if (!g.initialized)
-        return;
-    Mel_Clip_Job* j = job_new(opt);
+        return NULL;
+    Mel_Clip_Job* j = job_new(opt, NULL);
     if (!j)
-        return;
-    j->on_write = cb;
+        return NULL;
     if (!backend_ready())
     {
         mel_log_error("clipboard", "clear: no clipboard backend");
         mel_clip_job_resolve(j, MEL_CLIP_ERROR | MEL_CLIP_RESULT_NO_CLIPBOARD);
-        return;
+        return &j->future;
     }
     mel_clip__plat_clear(j);
+    return &j->future;
+}
+
+Mel_Clip_Status mel_clip_future_status(const Mel_Future* f)
+{
+    if (!f)
+        return MEL_CLIP_ERROR | MEL_CLIP_RESULT_CANCELLED;
+    Mel_Future_Status s = mel_future_status((Mel_Future*)f);
+    if (s & MEL_FUTURE_CANCELLED)
+        return MEL_CLIP_ERROR | MEL_CLIP_RESULT_CANCELLED;
+    const Mel_Clip_Job* j = mel_container_of(f, Mel_Clip_Job, future);
+    return j->status;
+}
+
+const Mel_Clip_Transferable* mel_clip_future_transferable(const Mel_Future* f) { return f ? (const Mel_Clip_Transferable*)mel_future_value((Mel_Future*)f) : NULL; }
+
+str8 mel_clip_future_text(const Mel_Future* f)
+{
+    str8* p = f ? (str8*)mel_future_value((Mel_Future*)f) : NULL;
+    return p ? *p : STR8_EMPTY;
+}
+
+Mel_Clip_Formats mel_clip_future_formats(const Mel_Future* f)
+{
+    Mel_Clip_Formats* p = f ? (Mel_Clip_Formats*)mel_future_value((Mel_Future*)f) : NULL;
+    return p ? *p : (Mel_Clip_Formats){ NULL, 0 };
+}
+
+void mel_clip_future_free(Mel_Future* f)
+{
+    if (!f || !g.initialized)
+        return;
+    Mel_Clip_Job* j = mel_container_of(f, Mel_Clip_Job, future);
+    job_storage_free(j);
 }
 
 bool mel_clip_available(void) { return backend_ready(); }
@@ -369,31 +394,32 @@ static bool watch_tick(void* user)
     if (s != g.watch_last_seq)
     {
         g.watch_last_seq = s;
-        if (g.watch_cb)
-            g.watch_cb(s, g.watch_user);
+        if (g.watch_event)
+            mel_event_fire(g.watch_event, &s);
     }
     return true;
 }
 
-void mel_clip_watch_opt(Mel_Clip_On_Change cb, Mel_Clip_Opt opt)
+Mel_Event* mel_clip_watch_opt(Mel_Clip_Opt opt)
 {
+    (void)opt;
     if (!g.initialized)
-        return;
+        return NULL;
     if (mel_clip__plat_sequence() == 0)
     {
         mel_log_warn("clipboard", "watch unsupported on this backend");
-        return;
+        return NULL;
     }
     mel_clip_unwatch();
-    g.watch_cb = cb;
-    g.watch_user = opt.user;
-    g.watch_reactor = opt.reactor ? opt.reactor : g.reactor;
+    g.watch_event = mel_event_create(g.alloc, sizeof(u64), MEL_CLIP_WATCH_RING_CAP, mel_event_policy_latest(NULL, NULL));
+    g.watch_reactor = g.reactor;
     g.watch_last_seq = mel_clip__plat_sequence();
     if (!g.watch_reactor)
-        return;
+        return g.watch_event;
     g.watch_timer = mel_reactor_timer_new(MEL_CLIP_WATCH_POLL_NS, watch_tick, NULL);
     if (g.watch_timer)
         mel_reactor_source_attach(g.watch_reactor, g.watch_timer);
+    return g.watch_event;
 }
 
 void mel_clip_unwatch(void)
@@ -403,8 +429,12 @@ void mel_clip_unwatch(void)
         mel_reactor_source_destroy(g.watch_timer);
         g.watch_timer = NULL;
     }
-    g.watch_cb = NULL;
-    g.watch_user = NULL;
+    if (g.watch_event)
+    {
+        mel_event_destroy(g.watch_event);
+        g.watch_event = NULL;
+    }
+    g.watch_reactor = NULL;
 }
 
 void mel_clip_shutdown(void)
@@ -422,14 +452,11 @@ void mel_clip_shutdown(void)
     for (usize i = 0; i < snap.count; i++)
     {
         Mel_Clip_Job* j = snap.items[i];
-        if (j->deliver_timer)
-        {
-            mel_reactor_source_destroy(j->deliver_timer);
-            j->deliver_timer = NULL;
-        }
+        bool          had_cont = atomic_load_explicit(&j->future.cont, memory_order_acquire) != NULL;
         if (!j->resolved)
-            j->status |= MEL_CLIP_ERROR | MEL_CLIP_RESULT_CANCELLED;
-        deliver_inline(j);
+            mel_future_cancel(&j->future);
+        if (!had_cont)
+            job_storage_free(j);
     }
     mel_array_free(&snap);
 
