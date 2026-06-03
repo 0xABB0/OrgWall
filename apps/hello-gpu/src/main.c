@@ -24,6 +24,9 @@
 #include "raymarch.h"
 #include "mandelbrot.h"
 #include "boids.h"
+#include "bloom.h"
+#include "reacdiff.h"
+#include "shadow.h"
 
 #define OPEN_BUTTON(fn, app)                     \
     static void fn(Mel_Gui_Handle h, void* user) \
@@ -50,6 +53,9 @@ OPEN_BUTTON(open_prepass_clicked, PREPASS_APP)
 OPEN_BUTTON(open_raymarch_clicked, RAYMARCH_APP)
 OPEN_BUTTON(open_mandelbrot_clicked, MANDELBROT_APP)
 OPEN_BUTTON(open_boids_clicked, BOIDS_APP)
+OPEN_BUTTON(open_bloom_clicked, BLOOM_APP)
+OPEN_BUTTON(open_reacdiff_clicked, REACDIFF_APP)
+OPEN_BUTTON(open_shadow_clicked, SHADOW_APP)
 
 static void build_host(Mel_Gui_Handle frame, void* user)
 {
@@ -76,6 +82,9 @@ static void build_host(Mel_Gui_Handle frame, void* user)
     mel_button_create(frame, .text = S8("raymarched SDF (fullscreen frag)"), .pointer.on_click = open_raymarch_clicked, .layoutable = { .preferred_h = 36 });
     mel_button_create(frame, .text = S8("mandelbrot explorer (compute zoom)"), .pointer.on_click = open_mandelbrot_clicked, .layoutable = { .preferred_h = 36 });
     mel_button_create(frame, .text = S8("GPU boids (compute flock → instanced)"), .pointer.on_click = open_boids_clicked, .layoutable = { .preferred_h = 36 });
+    mel_button_create(frame, .text = S8("HDR bloom (compute scene → blur chain → tonemap)"), .pointer.on_click = open_bloom_clicked, .layoutable = { .preferred_h = 36 });
+    mel_button_create(frame, .text = S8("reaction-diffusion (Gray-Scott compute ping-pong)"), .pointer.on_click = open_reacdiff_clicked, .layoutable = { .preferred_h = 36 });
+    mel_button_create(frame, .text = S8("shadow mapping (depth-from-light → lit scene)"), .pointer.on_click = open_shadow_clicked, .layoutable = { .preferred_h = 36 });
 }
 
 void mel_app_setup(Mel_Reactor* reactor)
@@ -120,6 +129,12 @@ void mel_app_setup(Mel_Reactor* reactor)
             gpu_host_open(&MANDELBROT_APP);
         else if (strcmp(autostart, "boids") == 0)
             gpu_host_open(&BOIDS_APP);
+        else if (strcmp(autostart, "bloom") == 0)
+            gpu_host_open(&BLOOM_APP);
+        else if (strcmp(autostart, "reacdiff") == 0 || strcmp(autostart, "rd") == 0)
+            gpu_host_open(&REACDIFF_APP);
+        else if (strcmp(autostart, "shadow") == 0)
+            gpu_host_open(&SHADOW_APP);
         else
             gpu_host_open(&TRIANGLE_APP);
     }
