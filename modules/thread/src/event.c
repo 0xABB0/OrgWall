@@ -9,29 +9,29 @@ enum
     MEL__EVENT_SIGNALED = 1
 };
 
-typedef struct Mel__Event_Body
+typedef struct Mel__Thread_Event_Body
 {
     _Atomic(u32) state;
     u32          manual_reset;
-} Mel__Event_Body;
+} Mel__Thread_Event_Body;
 
-static_assert(sizeof(Mel__Event_Body) <= MEL_EVENT_STORAGE_SIZE, "MEL_EVENT_STORAGE_SIZE too small");
+static_assert(sizeof(Mel__Thread_Event_Body) <= MEL_THREAD_EVENT_STORAGE_SIZE, "MEL_THREAD_EVENT_STORAGE_SIZE too small");
 
-#define MEL__EVENT(e) ((Mel__Event_Body*)(e)->_storage)
+#define MEL__EVENT(e) ((Mel__Thread_Event_Body*)(e)->_storage)
 
-bool mel_event_init(Mel_Event* e, Mel_Event_Kind kind)
+bool mel_thread_event_init(Mel_Thread_Event* e, Mel_Thread_Event_Kind kind)
 {
-    Mel__Event_Body* body = MEL__EVENT(e);
+    Mel__Thread_Event_Body* body = MEL__EVENT(e);
     atomic_store_explicit(&body->state, MEL__EVENT_UNSIGNALED, memory_order_relaxed);
-    body->manual_reset = (kind == MEL_EVENT_MANUAL_RESET);
+    body->manual_reset = (kind == MEL_THREAD_EVENT_MANUAL_RESET);
     return true;
 }
 
-void mel_event_destroy(Mel_Event* e) { (void)e; }
+void mel_thread_event_destroy(Mel_Thread_Event* e) { (void)e; }
 
-void mel_event_wait(Mel_Event* e)
+void mel_thread_event_wait(Mel_Thread_Event* e)
 {
-    Mel__Event_Body* body = MEL__EVENT(e);
+    Mel__Thread_Event_Body* body = MEL__EVENT(e);
     for (;;)
     {
         if (body->manual_reset)
@@ -49,9 +49,9 @@ void mel_event_wait(Mel_Event* e)
     }
 }
 
-bool mel_event_wait_for(Mel_Event* e, i64 timeout_ns)
+bool mel_thread_event_wait_for(Mel_Thread_Event* e, i64 timeout_ns)
 {
-    Mel__Event_Body* body = MEL__EVENT(e);
+    Mel__Thread_Event_Body* body = MEL__EVENT(e);
     if (body->manual_reset)
     {
         if (atomic_load_explicit(&body->state, memory_order_acquire) == MEL__EVENT_SIGNALED)
@@ -73,9 +73,9 @@ bool mel_event_wait_for(Mel_Event* e, i64 timeout_ns)
     return atomic_compare_exchange_strong_explicit(&body->state, &expected, MEL__EVENT_UNSIGNALED, memory_order_acquire, memory_order_relaxed);
 }
 
-void mel_event_signal(Mel_Event* e)
+void mel_thread_event_signal(Mel_Thread_Event* e)
 {
-    Mel__Event_Body* body = MEL__EVENT(e);
+    Mel__Thread_Event_Body* body = MEL__EVENT(e);
     atomic_store_explicit(&body->state, MEL__EVENT_SIGNALED, memory_order_release);
     if (body->manual_reset)
     {
@@ -87,8 +87,8 @@ void mel_event_signal(Mel_Event* e)
     }
 }
 
-void mel_event_reset(Mel_Event* e)
+void mel_thread_event_reset(Mel_Thread_Event* e)
 {
-    Mel__Event_Body* body = MEL__EVENT(e);
+    Mel__Thread_Event_Body* body = MEL__EVENT(e);
     atomic_store_explicit(&body->state, MEL__EVENT_UNSIGNALED, memory_order_release);
 }
