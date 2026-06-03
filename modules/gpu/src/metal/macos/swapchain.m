@@ -11,8 +11,7 @@ Mel_Gpu_Swapchain* mel_gpu_swapchain_create_opt(Mel_Gpu_Device* dev, Mel_Gpu_Swa
         return NULL;
     }
 
-    Mel_Gpu_Swapchain* sc = mel_alloc_type(mel_alloc_heap(), Mel_Gpu_Swapchain);
-    *sc = (Mel_Gpu_Swapchain){ 0 };
+    Mel_Gpu_Swapchain* sc = mel_calloc(mel_alloc_heap(), sizeof(Mel_Gpu_Swapchain));
     sc->dev = dev;
     sc->surface = opt.surface;
     sc->vsync = opt.vsync;
@@ -23,8 +22,13 @@ Mel_Gpu_Swapchain* mel_gpu_swapchain_create_opt(Mel_Gpu_Device* dev, Mel_Gpu_Swa
     sc->format = want != MTLPixelFormatInvalid ? want : MTLPixelFormatBGRA8Unorm;
     opt.surface->layer.pixelFormat = sc->format;
 
+#if TARGET_OS_OSX
     if (@available(macOS 10.13, *))
         opt.surface->layer.displaySyncEnabled = opt.vsync;
+#else
+    if (!opt.vsync)
+        mel_log_warn("gpu", "swapchain_create: vsync=off requested but iOS CAMetalLayer has no displaySyncEnabled; presentation stays vsynced");
+#endif
 
     CGSize ds = opt.surface->layer.drawableSize;
     sc->width = (u32)ds.width;
