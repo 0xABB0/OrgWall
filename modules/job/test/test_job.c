@@ -10,6 +10,8 @@
 #include <allocator/heap.h>
 
 #include <stdatomic.h>
+#include <sys/resource.h>
+#include <sys/time.h>
 
 #define JOB_SPIN_LIMIT      200000000
 #define JOB_MULTI_THREADS   8
@@ -433,6 +435,96 @@ MEL_TEST(job_exec, single_task_quiesce_loop_no_strand)
     mel_job_shutdown();
 }
 
+MEL_TEST(job_exec, idle_sleep_wake_no_lost_wakeup)
+{
+    mel_job_init();
+
+    Mel_Executor* exec = mel_job_executor();
+
+    Coalesce c = { 0 };
+    mel_task_init(&c.task, coalesce_run);
+
+    const i32 rounds = 4000;
+    for (i32 r = 0; r < rounds; r++)
+    {
+        mel_thread_sleep(300 * 1000);
+
+        atomic_store_explicit(&c.ran, 0, memory_order_relaxed);
+        atomic_store_explicit(&c.task.armed, 0, memory_order_release);
+        mel_executor_submit(exec, &c.task);
+
+        bool landed = false;
+        for (i64 spin = 0; spin < JOB_SPIN_LIMIT; spin++)
+        {
+            if (atomic_load_explicit(&c.ran, memory_order_acquire) == 1)
+            {
+                landed = true;
+                break;
+            }
+            mel_thread_yield();
+        }
+        if (!landed)
+        {
+            MEL_EXPECT_EQ(r, -1);
+            break;
+        }
+    }
+
+    mel_job_shutdown();
+}
+
+typedef struct
+{
+    Mel_Task     task;
+    _Atomic(i32) ran;
+} Inject_Probe;
+
+static void inject_probe_run(Mel_Task* self)
+{
+    Inject_Probe* p = mel_container_of(self, Inject_Probe, task);
+    atomic_store_explicit(&p->ran, 1, memory_order_release);
+}
+
+static void submit_inject_probe(void* data)
+{
+    Inject_Probe* p = (Inject_Probe*)data;
+    mel_executor_submit(mel_job_executor(), &p->task);
+}
+
+MEL_TEST(job_exec, job_run_idle_sleep_wake_no_lost_wakeup)
+{
+    mel_job_init();
+
+    const i32 rounds = 4000;
+    for (i32 r = 0; r < rounds; r++)
+    {
+        mel_thread_sleep(300 * 1000);
+
+        Inject_Probe p = { 0 };
+        mel_task_init(&p.task, inject_probe_run);
+
+        mel_job_run(&p, submit_inject_probe, nullptr);
+
+        bool landed = false;
+        for (i64 spin = 0; spin < JOB_SPIN_LIMIT; spin++)
+        {
+            if (atomic_load_explicit(&p.ran, memory_order_acquire) == 1)
+            {
+                landed = true;
+                break;
+            }
+            mel_thread_yield();
+        }
+        if (!landed)
+        {
+            MEL_EXPECT_EQ(r, -1);
+            break;
+        }
+    }
+
+    mel_job_shutdown();
+}
+
 typedef struct
 {
     Mel_Executor* exec;
@@ -505,8 +597,49 @@ MEL_TEST(job_exec, submit_storm_strict_quiescence)
     for (i32 i = 0; i < total; i++)
         MEL_EXPECT_EQ(atomic_load(&tasks[i].ran), reps);
 
+    mel_thread_sleep(50 * 1000 * 1000);
+
+    for (i32 i = 0; i < total; i++)
+        MEL_EXPECT_EQ(atomic_load(&tasks[i].ran), reps);
+
     mel_barrier_destroy(&start);
     mel_dealloc(alloc, tasks);
+
+    mel_job_shutdown();
+}
+
+static i64 cpu_micros(void)
+{
+    struct rusage ru;
+    getrusage(RUSAGE_SELF, &ru);
+    i64 u = (i64)ru.ru_utime.tv_sec * 1000000 + ru.ru_utime.tv_usec;
+    i64 s = (i64)ru.ru_stime.tv_sec * 1000000 + ru.ru_stime.tv_usec;
+    return u + s;
+}
+
+MEL_TEST(job_exec, idle_pool_truly_parks_no_spin)
+{
+    mel_job_init();
+
+    Mel_Executor* exec = mel_job_executor();
+
+    Probe warm = { 0 };
+    mel_task_init(&warm.task, probe_run);
+    mel_executor_submit(exec, &warm.task);
+    spin_until(&warm.ran, 1);
+
+    mel_thread_sleep(50 * 1000 * 1000);
+
+    const i64 idle_ns = 300 * 1000 * 1000;
+    i64       before = cpu_micros();
+    mel_thread_sleep(idle_ns);
+    i64 after = cpu_micros();
+
+    i64 cpu_used = after - before;
+    i64 wall_us = idle_ns / 1000;
+    i64 budget = wall_us / 4;
+
+    MEL_EXPECT(cpu_used < budget);
 
     mel_job_shutdown();
 }

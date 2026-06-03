@@ -63,14 +63,17 @@ typedef struct
 
 typedef struct Mel__Fiber_Decl
 {
-    Mel_Fiber        fiber;
-    Mel__Job         current_job;
-    Mel__Fiber_State debug_state;
-    const char*      last_job_name;
-    const char*      last_job_file;
-    void*            last_job_task;
-    u32              last_job_line;
+    Mel_Fiber                 fiber;
+    Mel__Job                  current_job;
+    _Atomic(Mel__Fiber_State) debug_state;
+    const char*               last_job_name;
+    const char*               last_job_file;
+    void*                     last_job_task;
+    u32                       last_job_line;
 } Mel__Fiber_Decl;
+
+static inline Mel__Fiber_State mel__debug_state_load(Mel__Fiber_Decl* f) { return atomic_load_explicit(&f->debug_state, memory_order_relaxed); }
+static inline void             mel__debug_state_store(Mel__Fiber_Decl* f, Mel__Fiber_State s) { atomic_store_explicit(&f->debug_state, s, memory_order_relaxed); }
 
 enum
 {
@@ -141,6 +144,8 @@ static struct
     _Atomic(i32) inject_pending;
     _Atomic(i32) inject_draining;
 
+    _Atomic(u32) work_epoch;
+
     Mel_Tls worker_tls;
 } s_sys;
 
@@ -157,7 +162,7 @@ static u16 mel__fiber_index(Mel__Fiber_Decl* f)
 static void mel__fiber_assert_not_free(Mel__Fiber_Decl* fiber)
 {
     assert(fiber != nullptr);
-    assert(fiber->debug_state != MEL__FIBER_STATE_FREE);
+    assert(mel__debug_state_load(fiber) != MEL__FIBER_STATE_FREE);
 }
 
 static Mel__Fiber_Decl* mel__pop_free_fiber(void)
@@ -167,8 +172,8 @@ static Mel__Fiber_Decl* mel__pop_free_fiber(void)
     assert(ok && "free fiber pool exhausted");
     (void)ok;
     Mel__Fiber_Decl* fiber = (Mel__Fiber_Decl*)f;
-    assert(fiber->debug_state == MEL__FIBER_STATE_FREE);
-    fiber->debug_state = MEL__FIBER_STATE_IDLE;
+    assert(mel__debug_state_load(fiber) == MEL__FIBER_STATE_FREE);
+    mel__debug_state_store(fiber, MEL__FIBER_STATE_IDLE);
     return fiber;
 }
 
@@ -176,7 +181,7 @@ static void mel__push_free_fiber(Mel__Fiber_Decl* f)
 {
     Mel__Worker* worker = mel__get_worker();
     assert(f != nullptr);
-    assert(f->debug_state != MEL__FIBER_STATE_FREE);
+    assert(mel__debug_state_load(f) != MEL__FIBER_STATE_FREE);
     if (worker != nullptr)
     {
         assert(worker->current_fiber != f);
@@ -192,7 +197,7 @@ static void mel__push_free_fiber(Mel__Fiber_Decl* f)
     f->last_job_file = NULL;
     f->last_job_task = NULL;
     f->last_job_line = 0;
-    f->debug_state = MEL__FIBER_STATE_FREE;
+    mel__debug_state_store(f, MEL__FIBER_STATE_FREE);
     mel_mpmc_push(&s_sys.free_fibers, f);
 }
 
@@ -210,7 +215,8 @@ static void mel__work_free(Mel__Work* w) { mel_mpmc_push(&s_sys.free_work, w); }
 static void mel__wake_worker(u8 idx)
 {
     assert(idx < s_sys.num_workers);
-    if (!atomic_load_explicit(&s_sys.workers[idx].is_sleeping, memory_order_acquire))
+    atomic_fetch_add_explicit(&s_sys.work_epoch, 1, memory_order_seq_cst);
+    if (!atomic_load_explicit(&s_sys.workers[idx].is_sleeping, memory_order_seq_cst))
         return;
 
     mel_mutex_lock(&s_sys.sleep_mutex);
@@ -220,7 +226,8 @@ static void mel__wake_worker(u8 idx)
 
 static void mel__wake_workers(i32 count)
 {
-    if (atomic_load_explicit(&s_sys.num_sleeping, memory_order_acquire) == 0)
+    atomic_fetch_add_explicit(&s_sys.work_epoch, 1, memory_order_seq_cst);
+    if (atomic_load_explicit(&s_sys.num_sleeping, memory_order_seq_cst) == 0)
         return;
 
     mel_mutex_lock(&s_sys.sleep_mutex);
@@ -241,7 +248,7 @@ static void mel__schedule_fiber(u16 park_index)
     assert(park_index < s_sys.fiber_pool_size);
     Mel__Fiber_Decl* fiber = &s_sys.fiber_pool[park_index];
     mel__fiber_assert_not_free(fiber);
-    fiber->debug_state = MEL__FIBER_STATE_RUNNABLE;
+    mel__debug_state_store(fiber, MEL__FIBER_STATE_RUNNABLE);
 
     Mel__Worker* worker = mel__get_worker();
     Mel__Work*   w = mel__work_alloc();
@@ -283,7 +290,7 @@ static void mel__push_work_job(Mel__Job job, u8 worker_index)
 
 static bool mel__try_drain_inject(Mel__Work* out)
 {
-    if (atomic_load_explicit(&s_sys.inject_pending, memory_order_acquire) == 0)
+    if (atomic_load_explicit(&s_sys.inject_pending, memory_order_seq_cst) == 0)
         return false;
 
     i32 expected = 0;
@@ -365,8 +372,10 @@ static bool mel__pop_work(Mel__Worker* worker, Mel__Work* out)
                 return true;
         }
 
-        atomic_fetch_add_explicit(&s_sys.num_sleeping, 1, memory_order_release);
-        atomic_store_explicit(&worker->is_sleeping, true, memory_order_release);
+        u32 epoch_before = atomic_load_explicit(&s_sys.work_epoch, memory_order_seq_cst);
+
+        atomic_fetch_add_explicit(&s_sys.num_sleeping, 1, memory_order_seq_cst);
+        atomic_store_explicit(&worker->is_sleeping, true, memory_order_seq_cst);
 
         mel_mutex_lock(&s_sys.sleep_mutex);
 
@@ -384,6 +393,14 @@ static bool mel__pop_work(Mel__Worker* worker, Mel__Work* out)
             atomic_store_explicit(&worker->is_sleeping, false, memory_order_release);
             mel_mutex_unlock(&s_sys.sleep_mutex);
             return true;
+        }
+
+        if (atomic_load_explicit(&s_sys.work_epoch, memory_order_seq_cst) != epoch_before)
+        {
+            atomic_fetch_sub_explicit(&s_sys.num_sleeping, 1, memory_order_release);
+            atomic_store_explicit(&worker->is_sleeping, false, memory_order_release);
+            mel_mutex_unlock(&s_sys.sleep_mutex);
+            continue;
         }
 
         mel_cond_wait(&worker->sleep_cond, &s_sys.sleep_mutex);
@@ -427,7 +444,7 @@ static void mel__after_switch(void)
             {
                 Mel__Work* w = mel__work_alloc();
                 *w = (Mel__Work){ .type = MEL__WORK_FIBER, .fiber = parked };
-                parked->debug_state = MEL__FIBER_STATE_RUNNABLE;
+                mel__debug_state_store(parked, MEL__FIBER_STATE_RUNNABLE);
                 mel_wsq_push(&worker->wsq, w);
                 mel__wake_workers(1);
                 return;
@@ -437,7 +454,7 @@ static void mel__after_switch(void)
             i32 desired = mel__signal_pack(counter, park_idx);
             if (atomic_compare_exchange_weak_explicit(&signal->state, &old, desired, memory_order_release, memory_order_relaxed))
             {
-                parked->debug_state = MEL__FIBER_STATE_PARKED;
+                mel__debug_state_store(parked, MEL__FIBER_STATE_PARKED);
                 return;
             }
         }
@@ -455,7 +472,7 @@ static void mel__after_switch(void)
 
         Mel__Work* w = mel__work_alloc();
         *w = (Mel__Work){ .type = MEL__WORK_FIBER, .fiber = fiber };
-        fiber->debug_state = MEL__FIBER_STATE_RUNNABLE;
+        mel__debug_state_store(fiber, MEL__FIBER_STATE_RUNNABLE);
 
         if (target >= 0 && target != MEL__JOB_ANY_WORKER)
         {
@@ -476,7 +493,7 @@ static inline void mel__execute_job(Mel__Job job)
     Mel__Worker* worker = mel__get_worker();
     if (worker && worker->current_fiber)
     {
-        worker->current_fiber->debug_state = MEL__FIBER_STATE_JOB;
+        mel__debug_state_store(worker->current_fiber, MEL__FIBER_STATE_JOB);
         worker->current_fiber->last_job_name = job.debug_name;
         worker->current_fiber->last_job_file = job.debug_file;
         worker->current_fiber->last_job_line = job.debug_line;
@@ -486,7 +503,7 @@ static inline void mel__execute_job(Mel__Job job)
     job.task(job.data);
 
     if (worker && worker->current_fiber)
-        worker->current_fiber->debug_state = MEL__FIBER_STATE_IDLE;
+        mel__debug_state_store(worker->current_fiber, MEL__FIBER_STATE_IDLE);
 
     if (job.dec_on_finish)
         mel_counter_decrement(job.dec_on_finish);
@@ -500,7 +517,7 @@ static void mel__switch_fibers(void)
 
     Mel__Fiber_Decl* new_fiber = mel__pop_free_fiber();
     mel__fiber_assert_not_free(new_fiber);
-    new_fiber->debug_state = MEL__FIBER_STATE_SWITCHING;
+    mel__debug_state_store(new_fiber, MEL__FIBER_STATE_SWITCHING);
     worker->current_fiber = new_fiber;
 
     Mel_Fiber_Transfer t = mel_fiber_switch(new_fiber->fiber, new_fiber);
@@ -525,7 +542,7 @@ static void mel__manage(Mel_Fiber_Transfer transfer)
 
     Mel__Fiber_Decl* this_fiber = (Mel__Fiber_Decl*)transfer.user;
     worker->current_fiber = this_fiber;
-    this_fiber->debug_state = MEL__FIBER_STATE_IDLE;
+    mel__debug_state_store(this_fiber, MEL__FIBER_STATE_IDLE);
 
     while (!atomic_load_explicit(&worker->finished, memory_order_relaxed))
     {
@@ -541,7 +558,7 @@ static void mel__manage(Mel_Fiber_Transfer transfer)
             worker->debug_resume_fiber = work.fiber;
             worker->debug_resume_reason = "fiber_resume";
             if (work.fiber)
-                work.fiber->debug_state = MEL__FIBER_STATE_SWITCHING;
+                mel__debug_state_store(work.fiber, MEL__FIBER_STATE_SWITCHING);
             worker->current_fiber = work.fiber;
             worker->fiber_to_free = this_fiber;
             Mel_Fiber_Transfer t = mel_fiber_switch(work.fiber->fiber, work.fiber);
@@ -616,7 +633,7 @@ void mel_job_init(void)
         assert(ok);
         (void)ok;
         s_sys.fiber_pool[i].fiber = mel_fiber_create(s_sys.fiber_stacks[i], mel__manage);
-        s_sys.fiber_pool[i].debug_state = MEL__FIBER_STATE_FREE;
+        mel__debug_state_store(&s_sys.fiber_pool[i], MEL__FIBER_STATE_FREE);
         mel_mpmc_push(&s_sys.free_fibers, &s_sys.fiber_pool[i]);
     }
 
@@ -719,7 +736,7 @@ static void mel__executor_submit(Mel_Executor* self, Mel_Task* task)
         return;
 
     mel_mpsc_push(&s_sys.inject_queue, &task->link);
-    atomic_fetch_add_explicit(&s_sys.inject_pending, 1, memory_order_release);
+    atomic_fetch_add_explicit(&s_sys.inject_pending, 1, memory_order_seq_cst);
     mel__wake_workers(1);
 }
 
@@ -815,7 +832,7 @@ bool mel_job_debug_current(Mel_Job_Debug_Info* out)
     if (worker->current_fiber != nullptr)
     {
         out->fiber_index = mel__fiber_index(worker->current_fiber);
-        out->fiber_state = mel__fiber_state_name(worker->current_fiber->debug_state);
+        out->fiber_state = mel__fiber_state_name(mel__debug_state_load(worker->current_fiber));
 
         if (!out->has_current_job)
         {
