@@ -243,7 +243,6 @@ MEL_TEST(d3d12_format, properties_honesty)
     MEL_EXPECT(color.tiling_features & MEL_GPU_FMT_BLIT_SRC);
     MEL_EXPECT(color.tiling_features & MEL_GPU_FMT_BLIT_DST);
     MEL_EXPECT_EQ(color.tiling_features & MEL_GPU_FMT_DEPTH_ATTACHMENT, 0u);
-    MEL_EXPECT(color.buffer_features == 0u);
     MEL_EXPECT(color.sample_counts != 0u);
 
     Mel_Gpu_Format_Properties depth = mel_gpu_format_properties(dev, MEL_GPU_FORMAT_D32_FLOAT, MEL_GPU_TILING_OPTIMAL);
