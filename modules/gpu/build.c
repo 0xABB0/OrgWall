@@ -180,7 +180,6 @@ void build(Mel_Build* b)
     Mel_Target* metaltest = mel_add_test(b, "gpu-metal");
     mel_sources(metaltest, ALWAYS, "test/test_metal.c");
     mel_sources(metaltest, ALWAYS, "../../tools/test/src/runner.c");
-    mel_sources(metaltest, WHEN(.platforms = MEL_ON(IOS)), "test/ios_stacktrace_shim.c");
     mel_includes(metaltest, MEL_PRIVATE, ALWAYS, "../../apps/hello-gpu/src");
     mel_defines(metaltest, MEL_PRIVATE, WHEN(.gpu = "metal"), "MEL_GPU_METAL=1");
     mel_link(metaltest, MEL_PUBLIC, WHEN(.platforms = MEL_ON(MACOS)), "-framework", "AppKit");
