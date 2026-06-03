@@ -18,6 +18,7 @@ typedef struct
 {
     Mel_Reactor_Source* source;
     Mel_Reactor_Poll    poll;
+    void*               native;
     bool                attached;
 } Mel_Port_Reactor_Slot;
 

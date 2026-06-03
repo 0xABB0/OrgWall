@@ -1,7 +1,6 @@
-#ifdef _CLANGD
-#pragma once
-#include "../port.c"
-#endif
+#include "../port_internal.h"
+
+#include <reactor/reactor.h>
 
 #include <errno.h>
 #include <fcntl.h>
@@ -9,15 +8,14 @@
 #include <signal.h>
 #include <unistd.h>
 
-static void port_apple_nonblock(i32 fd)
+static void port_posix_nonblock(i32 fd)
 {
     int flags = fcntl(fd, F_GETFL, 0);
     if (flags != -1)
         fcntl(fd, F_SETFL, flags | O_NONBLOCK);
-    fcntl(fd, F_SETNOSIGPIPE, 1);
 }
 
-static ssize_t port_apple_write_nosigpipe(Mel_Port_Op_Record* op, const void* base, usize want)
+static ssize_t port_posix_write_nosigpipe(Mel_Port_Op_Record* op, const void* base, usize want)
 {
     sigset_t block;
     sigemptyset(&block);
@@ -59,9 +57,9 @@ static ssize_t port_apple_write_nosigpipe(Mel_Port_Op_Record* op, const void* ba
     return n;
 }
 
-static Mel_Port_Op_Record* port_apple_op_of(Mel_Reactor_Source* s) { return (Mel_Port_Op_Record*)s->user; }
+static Mel_Port_Op_Record* port_posix_op_of(Mel_Reactor_Source* s) { return (Mel_Port_Op_Record*)s->user; }
 
-static bool port_apple_read_step(Mel_Port_Op_Record* op)
+static bool port_posix_read_step(Mel_Port_Op_Record* op)
 {
     for (;;)
     {
@@ -97,13 +95,13 @@ static bool port_apple_read_step(Mel_Port_Op_Record* op)
     }
 }
 
-static bool port_apple_write_step(Mel_Port_Op_Record* op)
+static bool port_posix_write_step(Mel_Port_Op_Record* op)
 {
     for (;;)
     {
         const u8* base = (const u8*)op->buffer + op->done;
         usize     want = op->len - op->done;
-        ssize_t   n = port_apple_write_nosigpipe(op, base, want);
+        ssize_t   n = port_posix_write_nosigpipe(op, base, want);
 
         if (n >= 0)
         {
@@ -124,7 +122,7 @@ static bool port_apple_write_step(Mel_Port_Op_Record* op)
             Mel_Port_Status st = MEL_PORT_ERROR;
             if (e == EBADF)
                 st |= MEL_PORT_BAD_FD;
-            if (e == EPIPE)
+            if (e == EPIPE || e == ECONNRESET)
                 st |= MEL_PORT_PEER_CLOSE;
             mel_port__op_settle(op, op->done, e, st);
             return false;
@@ -132,29 +130,29 @@ static bool port_apple_write_step(Mel_Port_Op_Record* op)
     }
 }
 
-static bool port_apple_check(Mel_Reactor_Source* s)
+static bool port_posix_check(Mel_Reactor_Source* s)
 {
-    Mel_Port_Op_Record* op = port_apple_op_of(s);
+    Mel_Port_Op_Record* op = port_posix_op_of(s);
     u32                 re = op->backend.poll.revents;
     u32                 want = op->backend.poll.events;
     return (re & (want | MEL_REACTOR_POLL_ERR | MEL_REACTOR_POLL_HUP)) != 0;
 }
 
-static bool port_apple_dispatch(Mel_Reactor_Source* s, Mel_Reactor_Source_Proc callback, void* user)
+static bool port_posix_dispatch(Mel_Reactor_Source* s, Mel_Reactor_Source_Proc callback, void* user)
 {
     (void)callback;
     (void)user;
-    Mel_Port_Op_Record* op = port_apple_op_of(s);
+    Mel_Port_Op_Record* op = port_posix_op_of(s);
     op->step(op);
     return true;
 }
 
-static void port_apple_finalize(Mel_Reactor_Source* s) { (void)s; }
+static void port_posix_finalize(Mel_Reactor_Source* s) { (void)s; }
 
-static const Mel_Reactor_Source_Callbacks PORT_APPLE_VT = {
-    .check = port_apple_check,
-    .dispatch = port_apple_dispatch,
-    .finalize = port_apple_finalize,
+static const Mel_Reactor_Source_Callbacks PORT_POSIX_VT = {
+    .check = port_posix_check,
+    .dispatch = port_posix_dispatch,
+    .finalize = port_posix_finalize,
 };
 
 bool mel_port__backend_available(void) { return true; }
@@ -169,16 +167,16 @@ void mel_port__backend_port_teardown(Mel_Port* port) { (void)port; }
 
 void mel_port__backend_submit(Mel_Port_Op_Record* op)
 {
-    op->step = (op->backend.poll.events & MEL_REACTOR_POLL_IN) ? port_apple_read_step : port_apple_write_step;
+    op->step = (op->backend.poll.events & MEL_REACTOR_POLL_IN) ? port_posix_read_step : port_posix_write_step;
 
     if (fcntl(op->fd, F_GETFL, 0) == -1)
     {
         mel_port__op_settle(op, 0, errno, MEL_PORT_ERROR | MEL_PORT_BAD_FD);
         return;
     }
-    port_apple_nonblock(op->fd);
+    port_posix_nonblock(op->fd);
 
-    Mel_Reactor_Source* s = mel_reactor_source_new(&PORT_APPLE_VT, sizeof(Mel_Reactor_Source));
+    Mel_Reactor_Source* s = mel_reactor_source_new(&PORT_POSIX_VT, sizeof(Mel_Reactor_Source));
     op->backend.source = s;
     mel_reactor_source_set_callback(s, NULL, op);
     mel_reactor_source_add_poll(s, &op->backend.poll);

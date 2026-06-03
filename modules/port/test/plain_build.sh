@@ -26,6 +26,7 @@ FLAGS=(-std=c23 -g -O1  -DMEL_LOG_DISABLED=1 -arch arm64 $INC)
 
 SRCS=(
   modules/port/src/port.c
+  modules/port/src/apple/port_backend.c
   modules/future/src/future.c
   modules/executor/src/executor.c
   modules/reactor/src/reactor.c

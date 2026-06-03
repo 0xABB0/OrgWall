@@ -35,13 +35,13 @@ enum. Errors always surface in `status` and `os_error`; nothing fails silently
 and the raw `errno` live in `Mel_Port_Result`.
 
 A `write` to a closed-peer fd would, by default, raise the fatal `SIGPIPE`
-*before* `EPIPE` can be returned. The apple backend suppresses it two ways: it
-sets `F_SETNOSIGPIPE` on the fd at submit (effective when the peer is still alive
-at submit time, which is the common flow), and — the bulletproof guard, also
-covering the peer-already-dead-at-submit case and pipes — it brackets the actual
-`write`/`pwrite` syscall by blocking `SIGPIPE` on the loop thread, then draining
-any `SIGPIPE` that became pending (`sigwait`) before restoring the mask. The op
-then resolves `ERROR | MEL_PORT_PEER_CLOSE`; the process survives.
+*before* `EPIPE` can be returned. The posix backends suppress it (apple
+additionally sets `F_SETNOSIGPIPE` at submit; the posix backend relies on the
+guard alone) by bracketing the actual `write`/`pwrite` syscall: block `SIGPIPE`
+on the loop thread, do the write, then drain any `SIGPIPE` that became pending
+(`sigwait`) before restoring the mask. The op resolves `ERROR | PEER_CLOSE`
+(`EPIPE`/`ECONNRESET`); the process survives. On win32 the failure surfaces as a
+mapped `GetLastError`, no signal involved.
 
 ## Ownership
 
@@ -85,43 +85,109 @@ is the one reactor entry that is genuinely any-thread; the port has none.)
 
 A proactor reaches completion two ways:
 
-1. **Reactor-source-integrated completion** (this backend, macOS). Readiness
-   platforms have no native completion queue, so the op registers its fd with
-   the reactor as a one-poll source. On the loop turn the fd reports ready, the
-   source's dispatch performs the non-blocking `read`/`write` to completion and
-   resolves the future — readiness wrapped up to completion, on the loop thread,
-   with **no worker hop**. An empty port holds no source and costs nothing; a
-   pending op blocks the loop until its fd is ready, never busy-spins
-   (MEL-ENGINE-III). This is the zero-thread-hop fast path the substrate names
-   for io_uring, kqueue, and GCD.
+1. **Readiness-wrapped-to-completion** (apple/posix). Readiness platforms have
+   no native completion queue, so the op registers its fd with the reactor as a
+   one-poll source. On the loop turn the fd reports ready, the source's dispatch
+   performs the non-blocking `read`/`write` to completion and resolves the future
+   — readiness wrapped up to completion, on the loop thread, with **no worker
+   hop**. An empty port holds no source and costs nothing; a pending op blocks
+   the loop until its fd is ready, never busy-spins (MEL-ENGINE-III).
 
-2. **Native completion / thread-drain fallback** (shaped, not built). Where the
-   OS owns a completion queue:
-   - **io_uring** (Linux): submit SQEs, drain CQEs. The CQ eventfd registers as
-     one reactor poll, so completions are observed on the loop turn — still mode
-     1's zero-hop shape, just native completion instead of readiness-to-I/O.
-   - **IOCP** (Windows): `GetQueuedCompletionStatus`. Open question
-     (design §Open questions) is how far GQCS-with-zero-timeout integrates on the
-     loop thread before a dedicated drain thread is forced; the fallback is an
-     own-thread drain that cross-submits the resolved future to the target
-     executor via the same `future`/executor waist this backend already uses.
+2. **Native completion** (win32). Windows owns the completion: the op issues an
+   overlapped `ReadFile`/`WriteFile`, and the loop harvests with
+   `GetOverlappedResult` when the I/O completes — still mode 1's zero-thread-hop
+   shape (the completion is observed on the loop turn, no drain thread), just
+   native completion instead of readiness-to-I/O.
 
 The internal seam (`port/backend.h`: `available`, `port_init`/`teardown`,
-`submit`/`retract`) is what a future backend implements. The completion machinery
+`submit`/`retract`) is what each backend implements. The completion machinery
 itself is never re-derived per backend: every backend resolves the same embedded
 `Mel_Future` via `mel_port__op_settle`, which delivers through the future →
-executor waist. A backend supplies only "make the bytes move and tell me the
-count"; the substrate owns resolve + deliver.
+executor waist, uses the same generation-checked op-record lifecycle, and honors
+the same loop-thread affinity. A backend supplies only "make the bytes move and
+tell me the count"; the substrate owns resolve + deliver.
 
 ## Platform selection
 
-`src/apple/port_backend.inl` is the macOS/iOS backend, compiled into `port.c`
-under `MEL_PLATFORM_APPLE`. Every other platform compiles
-`src/none/port_backend.inl`, whose `available()` is `false` and whose `submit`
-resolves the future `MEL_PORT_ERROR | MEL_PORT_UNAVAILABLE` — an honest, loud
-"no backend here yet", never a dead stub pretending to work. io_uring, IOCP, and
-the Linux/Windows backends are described above and land as new `.inl` files; the
-core and the seam do not change.
+`build.c` selects exactly one backend translation unit per platform with
+`WHEN(.platforms = MEL_ON(...))`, mirroring how other modules pick
+`src/<platform>/`:
+
+- **macOS / iOS** → `src/apple/port_backend.c` — reactor-source readiness
+  (kqueue via the reactor), `F_SETNOSIGPIPE` + the SIGPIPE-guarded write.
+- **Linux / Android** → `src/posix/port_backend.c` — reactor-source readiness
+  (Linux: the reactor's `poll()`; Android: the reactor's `ALooper`, both of
+  which already surface `POLLHUP`/`POLLERR`), SIGPIPE-guarded write. See
+  *Linux readiness* below for why epoll/io_uring resolve to this one TU.
+- **win32** → `src/win32/port_backend.c` — overlapped I/O + `GetOverlappedResult`
+  (see *Windows*).
+- **wasm** → `src/none/port_backend.c` — `available()==false` (see *wasm*).
+
+`src/none/port_backend.c` is an honest, loud "no proactor here": `available()`
+is `false` and `submit` resolves `MEL_PORT_ERROR | MEL_PORT_UNAVAILABLE`, never a
+dead stub pretending to work.
+
+## Linux readiness: why one posix TU, not a separate io_uring/epoll engine
+
+The Linux/Android backend does not open its own epoll/io_uring fd. It rides the
+**reactor**, which already owns the readiness wait (Linux: `poll()`; Android:
+`ALooper`). The port registers the op's fd as a one-poll reactor source and does
+the non-blocking syscall on readiness — identical in shape to the macOS kqueue
+path, and zero-cost when idle. This is deliberate:
+
+- **io_uring** was assessed: `liburing.h` is absent from the cross sysroot;
+  `linux/io_uring.h` and `__NR_io_uring_setup`/`_enter` are present, so a raw-
+  syscall ring is *buildable* but would mean hand-managing mmap'd SQ/CQ rings,
+  runtime kernel-version detection (≥5.1), and a parallel completion path that
+  cannot be runtime-verified in this environment — exactly the kind of unproven
+  complexity the commandments forbid shipping. The design names io_uring as the
+  zero-hop ideal; when it lands it slots in as a new TU behind the same
+  `backend.h` seam (its CQ eventfd registers as one reactor poll, preserving the
+  loop-turn completion shape) with no change to the core. Until then, epoll/poll
+  readiness-to-completion is the safe portable choice the design explicitly
+  sanctions — and on Linux the reactor surfaces `POLLHUP`/`POLLERR`, so the
+  pure-HUP starvation that afflicts the macOS THREADED path does not occur here.
+
+## Windows (win32): overlapped I/O, reactor-integrated
+
+The public surface is `i32 fd` (a CRT file descriptor); the backend converts it
+with `_get_osfhandle`. Each op carries an `OVERLAPPED` and a manual-reset event:
+it issues an overlapped `ReadFile`/`WriteFile`, and
+
+- if the call completes synchronously (`TRUE`), the op settles immediately;
+- if it returns `ERROR_IO_PENDING`, the op's event HANDLE is registered as the
+  reactor poll. The win32 reactor waits on HANDLEs (`MsgWaitForMultipleObjects`);
+  when the event signals, the loop turn dispatches and the op harvests the byte
+  count with `GetOverlappedResult` and resolves the future — on the loop thread,
+  no drain thread (MEL-ENGINE-III). `mel_port_cancel`/teardown call `CancelIoEx`.
+
+Errors map to the status bitset (`ERROR_HANDLE_EOF`/`ERROR_BROKEN_PIPE` → `EOF`;
+`ERROR_NETNAME_DELETED`/`ERROR_PIPE_NOT_CONNECTED` → `PEER_CLOSE`;
+`ERROR_INVALID_HANDLE` → `BAD_FD`; `ERROR_OPERATION_ABORTED` → `CANCELLED`).
+
+Constraints (Win32 facts, surfaced not faked): the fd's underlying HANDLE must be
+opened `FILE_FLAG_OVERLAPPED` for true async; overlapped HANDLEs have no OS file
+pointer, so stream-mode (`MEL_PORT_NO_OFFSET`) reads/writes on a *regular file*
+start at offset 0 — pass an explicit `.offset` for files (pipes/sockets ignore
+it, as on POSIX). Winsock `SOCKET`s are not CRT fds and are out of scope for the
+`i32 fd` surface; file/pipe handles are covered.
+
+**Verification:** the win32 backend is compile-clean against the mingw Win32
+headers locally, but the repo's win32 toolchain is clang/MSVC on the remote
+`win-pilot` box (no MSVC SDK here). It is therefore **remote-unverified**: it must
+be built (`./nob build port win32`) and run on win-pilot after a branch push. The
+code uses only standard Win32/CRT (`_get_osfhandle`, `CreateEventW`, overlapped
+`ReadFile`/`WriteFile`, `GetOverlappedResult`, `CancelIoEx`).
+
+## wasm: no proactor surface (available()==false)
+
+A browser/WASI sandbox has no generic file-descriptor async I/O: there is no
+`read`/`write` proactor over arbitrary fds to wrap. Faking a surface would be a
+silent lie (MEL-ENGINE-VIII). So wasm compiles `src/none/port_backend.c`:
+`mel_port_available()` returns `false` and any submit resolves
+`MEL_PORT_ERROR | MEL_PORT_UNAVAILABLE`. A real wasm async story (Asyncify-driven
+`fetch`, OPFS, or WASI poll_oneoff) is a *different* surface than fd read/write
+and would be its own backend behind the same seam if and when it is specified.
 
 ## Tests
 
@@ -142,6 +208,14 @@ created and torn down inside the loop, never after `mel_reactor_spawn` returns
 suite is ThreadSanitizer-clean (0 races). Off-loop access asserts (see Thread
 affinity); the suite does not exercise it, so this clean run does not certify
 cross-thread use — there is none.
+
+The tests use pipes/socketpairs (POSIX), so they compile and link on
+macOS / Linux / Android (`./nob build port-loop <p>`); they **run** on macOS here
+(the only host) and pass 17/17. Linux/Android are compile-and-link verified
+(same posix backend, same reactor source model that surfaces HUP/ERR), runtime to
+be exercised on a Linux host. win32 is not covered by `port-loop` (the test is
+POSIX-shaped); the win32 backend is built/run on win-pilot. wasm has no surface to
+test (`available()==false`).
 
 ## Known gap: pure-POLLHUP write starvation (reactor debt)
 

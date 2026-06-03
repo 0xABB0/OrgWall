@@ -1,7 +1,4 @@
-#ifdef _CLANGD
-#pragma once
-#include "../port.c"
-#endif
+#include "../port_internal.h"
 
 bool mel_port__backend_available(void) { return false; }
 

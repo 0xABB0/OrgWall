@@ -1,6 +1,5 @@
 #include "port_internal.h"
 
-#include <core/platform.h>
 #include <allocator/allocator.h>
 #include <allocator/heap.h>
 #include <collection.array/array.h>
@@ -236,9 +235,3 @@ void mel_port_future_release(Mel_Future* f)
     Mel_Port_Op_Record* op = mel_container_of(f, Mel_Port_Op_Record, future);
     mel_dealloc(op->alloc, op);
 }
-
-#if MEL_PLATFORM_APPLE
-#include "apple/port_backend.inl"
-#else
-#include "none/port_backend.inl"
-#endif
