@@ -113,9 +113,16 @@ typedef struct
 {
     Mel_Gpu_Resource_Header header;
     void*                   state;
+    void*                   depth_stencil_state;
     Mel_Gpu_Topology        topology;
     bool                    compute;
     MTLSize                 threadgroup;
+    MTLCullMode             cull_mode;
+    MTLWinding              front_face;
+    MTLTriangleFillMode     fill_mode;
+    bool                    stencil_test;
+    u32                     stencil_ref_front;
+    u32                     stencil_ref_back;
 } Mel_Gpu_Pipeline_Obj;
 
 struct Mel_Gpu_Device
