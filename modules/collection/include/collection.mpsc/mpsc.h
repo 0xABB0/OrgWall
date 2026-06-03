@@ -19,7 +19,6 @@ struct Mel_Mpsc
 #if MEL_COLLECTION_MPSC_DEBUG
     _Atomic(usize) push_count;
     _Atomic(usize) pop_count;
-    const char*    name;
 #endif
 };
 

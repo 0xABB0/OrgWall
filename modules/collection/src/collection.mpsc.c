@@ -11,6 +11,5 @@ void mel_mpsc_init(Mel_Mpsc* q)
 #if MEL_COLLECTION_MPSC_DEBUG
     atomic_store_explicit(&q->push_count, 0, memory_order_relaxed);
     atomic_store_explicit(&q->pop_count, 0, memory_order_relaxed);
-    q->name = NULL;
 #endif
 }

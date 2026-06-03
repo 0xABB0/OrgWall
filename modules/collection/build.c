@@ -17,4 +17,13 @@ void build(Mel_Build* b)
     mel_depends(slotmap_test, "collection");
     mel_depends(slotmap_test, "core");
     mel_depends(slotmap_test, "allocator");
+
+    Mel_Target* mpsc_test = mel_add_test(b, "collection-mpsc");
+    mel_sources(mpsc_test, ALWAYS, "test/test_mpsc.c");
+    mel_sources(mpsc_test, ALWAYS, "../../tools/test/src/runner.c");
+    mel_depends(mpsc_test, "test");
+    mel_depends(mpsc_test, "collection");
+    mel_depends(mpsc_test, "core");
+    mel_depends(mpsc_test, "allocator");
+    mel_depends(mpsc_test, "thread");
 }
