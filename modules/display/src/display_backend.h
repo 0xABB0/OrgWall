@@ -11,5 +11,9 @@ typedef struct
 
 u32 mel_display__enumerate(const Mel_Alloc* alloc, Mel_Display_Raw* out, u32 cap);
 
+typedef u32 (*Mel_Display_Enumerate_Fn)(const Mel_Alloc* alloc, Mel_Display_Raw* out, u32 cap);
+
+void mel_display__set_enumerate(Mel_Display_Enumerate_Fn fn);
+
 bool                          mel_display__stable_id(Mel_Display d, u64* out_id);
 const Mel_Display_Descriptor* mel_display__descriptor(Mel_Display d);

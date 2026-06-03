@@ -1,17 +1,6 @@
 #include "events_internal.h"
 
-#include <log/log.h>
-
 #include <string.h>
-
-#define MEL_DISPLAY_EVENTS_CAP 128
-
-static struct
-{
-    Mel_Display_Event events[MEL_DISPLAY_EVENTS_CAP];
-    u32               head;
-    u32               count;
-} g_events;
 
 static bool icc_equal(const Mel_Color_Icc_Profile* x, const Mel_Color_Icc_Profile* y)
 {
@@ -42,33 +31,4 @@ u32 mel_display_events__changed_fields(const Mel_Display_Descriptor* a, const Me
     if (a->state != b->state)
         f |= MEL_DISPLAY_FIELD_STATE;
     return f;
-}
-
-void mel_display_events__reset(void)
-{
-    g_events.head = 0;
-    g_events.count = 0;
-}
-
-void mel_display_events__emit(Mel_Display_Event ev)
-{
-    if (g_events.count == MEL_DISPLAY_EVENTS_CAP)
-    {
-        mel_log_warn("display", "event queue full (%u); dropping oldest, kind=%d", MEL_DISPLAY_EVENTS_CAP, (int)ev.kind);
-        g_events.head = (g_events.head + 1) % MEL_DISPLAY_EVENTS_CAP;
-        g_events.count--;
-    }
-    u32 tail = (g_events.head + g_events.count) % MEL_DISPLAY_EVENTS_CAP;
-    g_events.events[tail] = ev;
-    g_events.count++;
-}
-
-u32 mel_display_poll_events(Mel_Display_Event* out, u32 cap)
-{
-    u32 n = g_events.count < cap ? g_events.count : cap;
-    for (u32 i = 0; i < n; i++)
-        out[i] = g_events.events[(g_events.head + i) % MEL_DISPLAY_EVENTS_CAP];
-    g_events.head = (g_events.head + n) % MEL_DISPLAY_EVENTS_CAP;
-    g_events.count -= n;
-    return n;
 }

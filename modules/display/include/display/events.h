@@ -34,7 +34,21 @@ typedef struct
     u32                    changed_fields;
 } Mel_Display_Event;
 
+typedef struct Mel_Executor Mel_Executor;
+
+typedef struct
+{
+    Mel_SlotMap_Handle handle;
+} Mel_Display_Subscription;
+
+#define MEL_DISPLAY_SUBSCRIPTION_NULL ((Mel_Display_Subscription){ MEL_SLOTMAP_HANDLE_NULL })
+
+typedef void (*Mel_Display_Event_Callback)(const Mel_Display_Event* ev, void* user);
+
 u32 mel_display_poll_events(Mel_Display_Event* out, u32 cap);
+
+Mel_Display_Subscription mel_display_subscribe(Mel_Executor* exec, Mel_Display_Event_Callback cb, void* user);
+void                     mel_display_unsubscribe(Mel_Display_Subscription sub);
 
 #ifdef __cplusplus
 }

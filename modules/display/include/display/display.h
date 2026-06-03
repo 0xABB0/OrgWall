@@ -145,7 +145,10 @@ typedef struct
     Mel_Display_Status     status;
 } Mel_Display_Describe_Result;
 
+typedef struct Mel_Executor Mel_Executor;
+
 void mel_display_init(const Mel_Alloc* alloc);
+void mel_display_init_ex(const Mel_Alloc* alloc, Mel_Executor* exec);
 void mel_display_shutdown(void);
 
 u32 mel_display_refresh(void);

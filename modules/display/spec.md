@@ -52,7 +52,12 @@ The shared color-space enumeration `Mel_Color_Space ∈ { sRGB, Display_P3, Rec_
 
 ## Event stream
 
-The event surface lives in its own header, `<display/events.h>`, separate from the enumeration/query surface in `<display/display.h>` — a consumer that only reads display geometry never pulls in the event types. `Mel_Display_Event` flows through the platform reactor source:
+The event surface lives in its own header, `<display/events.h>`, separate from the enumeration/query surface in `<display/display.h>` — a consumer that only reads display geometry never pulls in the event types. `mel_display_refresh` diffs the live set and fires each `Mel_Display_Event` into a `Mel_Event` channel the registry owns (item-typed `sizeof(Mel_Display_Event)`, `latest` loss policy). Delivery is dual over that one channel:
+
+- **Pull.** `mel_display_poll_events(out, cap)` drains a registry-owned pull subscription into the caller's buffer, allocation-free per poll. This is the always-available face; `mel_display_init(alloc)` wires it.
+- **Push.** `mel_display_subscribe(exec, cb, user)` registers a callback delivered as a `Mel_Task` on the consumer's executor; `mel_display_unsubscribe(sub)` retires it. Push needs an executor: `mel_display_init_ex(alloc, exec)` supplies a registry default, or each subscriber passes its own. With no executor available, `subscribe` fails loud (logged, null subscription) — there is no silent default (MEL-CODE-007); pull still works.
+
+The channel lifetime is the registry's; `mel_display_shutdown` destroys it. The event module's refcounted destroy keeps in-flight deliveries safe. The kinds are:
 
 - `display_added` — hot-plug. New handle attached to the system list.
 - `display_removed` — unplug. Handle generation rolls. Surfaces currently anchored to the removed display fire `display_migration` (see `platform.surface`).
@@ -123,7 +128,7 @@ Each accessor resolves against the live registry at call time, so a removed disp
 
 ## Implementation status
 
-The portable enumeration/query surface lives in `<display/display.h>`: `Mel_Display`, `Mel_Display_Descriptor`, the `Mel_Color_Space` enum, the HDR struct, and the API (`mel_display_init` / `_shutdown` / `_refresh` / `_count` / `_list` / `_describe` / `_alive` / `_equal`). The event stream — `Mel_Display_Event`, `Mel_Display_Event_Kind`, the `MEL_DISPLAY_FIELD_*` changed-field bitset, and `mel_display_poll_events` — lives in `<display/events.h>`. Native platform access is split into the per-target headers under `<display/<target>/>` (P2, above).
+The portable enumeration/query surface lives in `<display/display.h>`: `Mel_Display`, `Mel_Display_Descriptor`, the `Mel_Color_Space` enum, the HDR struct, and the API (`mel_display_init` / `_init_ex` / `_shutdown` / `_refresh` / `_count` / `_list` / `_describe` / `_alive` / `_equal`). The event stream — `Mel_Display_Event`, `Mel_Display_Event_Kind`, the `MEL_DISPLAY_FIELD_*` changed-field bitset, and the dual delivery API (`mel_display_poll_events` pull; `mel_display_subscribe` / `_unsubscribe` push) — lives in `<display/events.h>`, backed by a registry-owned `Mel_Event` channel. Native platform access is split into the per-target headers under `<display/<target>/>` (P2, above).
 
 The module is a **producer**: every GPU/surface coupling above (`adapter_displays`, `target_display`, `display_migration`, the `adapter_removed → display_removed` sequencing) is a downstream consumer that imports this handle once those modules exist. None is a build dependency; `display` compiles and runs standalone.
 
@@ -138,4 +143,4 @@ Per-platform lowering status:
 - **Windows** (`src/win32/`) — implemented via `IDXGIOutput6` / `DXGI_OUTPUT_DESC1`.
 - **Web** (`src/emscripten/`, plus a `src/wasi/` no-display stub) — the synthetic privacy-limited entry below, read from `screen.*` / `matchMedia` / `devicePixelRatio`.
 
-Deferred (tracked in `todo.md`): reactor-source **push** delivery (today events are produced by the diff and drained with `mel_display_poll_events`; no reactor source or OS hot-plug notification is wired yet); the per-platform field gaps (connector kind beyond Internal/Unknown, VRR range, honest mastering-metadata detection); an injectable enumerate seam for unit-testing the diff; and all the GPU/surface coupling above.
+Delivery is dual: the diff fires into a registry-owned `Mel_Event` channel; pull (`mel_display_poll_events`) and push (`mel_display_subscribe`) both read it. An injectable `enumerate` seam (`mel_display__set_enumerate`) unit-tests the diff with a fake backend. Deferred (tracked in `todo.md`): an OS hot-plug notification source that drives `refresh()` autonomously (today `refresh()` is caller-pumped); the per-platform field gaps (connector kind beyond Internal/Unknown, VRR range, honest mastering-metadata detection); and all the GPU/surface coupling above.

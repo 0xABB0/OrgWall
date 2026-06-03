@@ -30,9 +30,10 @@ it. The module builds and runs standalone today.
   media pipelines once those exist. One enum, one meaning.
 - Event types live in a separate header, `<display/events.h>` — `Mel_Display_Event`
   with a kind (`added` / `removed` / `configuration_changed` / `power_state_changed`),
-  the `MEL_DISPLAY_FIELD_*` changed-field bitset, and `mel_display_poll_events`.
-  The enumeration/query surface (`display.h`) carries no event types; a consumer
-  that only reads geometry need not include `events.h`.
+  the `MEL_DISPLAY_FIELD_*` changed-field bitset, and the dual delivery surface
+  (`mel_display_poll_events` for pull, `mel_display_subscribe` / `_unsubscribe` for
+  push). The enumeration/query surface (`display.h`) carries no event types; a
+  consumer that only reads geometry need not include `events.h`.
 - Per-target native access (the P2 escape) lives in `<display/<target>/<target>.h>`,
   not in the portable header: typed accessors that return what the platform
   honestly exposes (`mel_display_macos_screen` → `NSScreen*` and
@@ -45,14 +46,17 @@ it. The module builds and runs standalone today.
 
 ### Lifecycle
 
-    mel_display_init(alloc);              // alloc NULL -> heap; idempotent; runs a refresh
+    mel_display_init(alloc);              // alloc NULL -> heap; idempotent; runs a refresh; pull-only
+    mel_display_init_ex(alloc, exec);    // alloc + executor for push delivery; exec NULL -> pull-only
     u32 n = mel_display_count();
     Mel_Display ds[16];
     u32 listed = mel_display_list(ds, 16);
     Mel_Display_Describe_Result r = mel_display_describe(ds[0]);
-    mel_display_refresh();                // re-enumerate + diff -> events
+    mel_display_refresh();                // re-enumerate + diff -> fire each event into the channel
     Mel_Display_Event ev[64];
-    u32 got = mel_display_poll_events(ev, 64);
+    u32 got = mel_display_poll_events(ev, 64);                  // pull face
+    Mel_Display_Subscription s = mel_display_subscribe(exec, cb, user); // push face
+    mel_display_unsubscribe(s);
     mel_display_shutdown();
 
 ## Architecture
@@ -60,14 +64,19 @@ it. The module builds and runs standalone today.
 `src/display.c` is a portable registry/diff core: it owns a slotmap of displays,
 keys entries by a backend-supplied stable id, and on `refresh()` diffs against the
 live set — preserving handles for survivors, rolling generations for the departed.
-The event concern is split into `src/events.c`: it computes the per-field
+Delivery rides a `Mel_Event` channel (`modules/event`) the registry owns,
+item-typed `sizeof(Mel_Display_Event)`, `latest` loss policy (drop-oldest, lag
+counted, overflow logged). The diff fires each `Mel_Display_Event` into the channel.
+Both delivery faces read that one channel: pull is one registry-owned pull
+subscription drained by `mel_display_poll_events` (allocation-free per poll); push
+is `mel_display_subscribe`, an `mel_event_subscribe_push` on the consumer's executor
+delivering a `Mel_Display_Event` by value per `cb(ev, user)`. The per-field
 changed-mask (`mel_display_events__changed_fields`, collapsing to
-`power_state_changed` when only `state` moved) and owns the event ring drained by
-`mel_display_poll_events`. `display.c` emits into it through the private
-`src/events_internal.h` seam (`__emit` / `__changed_fields` / `__reset`), so the
-diff and the queue stay decoupled. The per-platform reading lives behind one seam,
-`mel_display__enumerate` (`src/display_backend.h`); a new platform implements only
-that.
+`power_state_changed` when only `state` moved) stays in `src/events.c` behind the
+`src/events_internal.h` seam, so the diff and the field-mask stay decoupled. The
+per-platform reading lives behind one seam, `mel_display__enumerate`
+(`src/display_backend.h`); a new platform implements only that, and a test may
+override it via `mel_display__set_enumerate` to drive the diff with a fake backend.
 
 Each platform implements that one seam in its own axis dir, selected by the
 build's platform/runtime chain — `src/macos/` (`NSScreen` + Core Graphics),
@@ -91,7 +100,11 @@ are compile-verified against their SDKs (see `todo.md` for per-platform gaps).
 ## Verification
 
 - `modules/display/test/display_test.c` — platform-agnostic contract tests
-  (dead / null / equal). Run: `./nob test macos -- --filter display`.
+  (dead / null / equal) plus both delivery faces driven through a fake `enumerate`
+  backend (`mel_display__set_enumerate`): pull (`mel_display_poll_events` returns the
+  diffed add/remove/change events) and push (a subscriber on `mel_executor_inline()`
+  receives the same events on `refresh`). The fake seam is fork-safe (no Cocoa), so
+  the diff is unit-tested without hardware. Run: `./nob test display-core`.
 - `apps/display-gui` — live display inspector (the fork-per-test harness cannot
   exercise Cocoa — AppKit aborts in the fork child — so real macOS enumeration is
   verified here). A 250 ms reactor tick re-enumerates and re-paints a canvas with

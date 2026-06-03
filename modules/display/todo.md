@@ -4,16 +4,19 @@ Status: the portable registry/diff core, the full public type surface, and the
 macOS (`NSScreen` + Core Graphics) lowering are implemented and verified on real
 hardware. What remains, roughly in dependency order.
 
-## Event delivery (next increment)
-- [ ] Wire a `Mel_Reactor_Source` so events are pushed on the reactor pump rather
-      than pulled via `mel_display_refresh` + `mel_display_poll_events`. The diff
-      logic already produces the events; only the push path is missing.
-- [ ] macOS hot-plug / reconfigure: observe `NSApplication
+## Event delivery
+- [x] Dual delivery over a registry-owned `Mel_Event` channel: `mel_display_refresh`
+      fires each diffed event into the channel; pull (`mel_display_poll_events`) and
+      push (`mel_display_subscribe` / `_unsubscribe`, callback as a `Mel_Task` on the
+      consumer's executor) both read it. `mel_display_init_ex(alloc, exec)` supplies
+      the push executor; `mel_display_init` is pull-only.
+- [ ] An OS hot-plug / reconfigure source that drives `refresh()` autonomously
+      (today `refresh()` is caller-pumped). macOS: observe `NSApplication
       didChangeScreenParametersNotification` (and/or `CGDisplayRegister
-      ReconfigurationCallback`) and drive `refresh()` from it.
-- [ ] Per-display per-frame event coalescing on the pump, as the spec requires
-      (collapse a docking-event notification storm to one event per display with
-      the union of changed fields).
+      ReconfigurationCallback`).
+- [ ] Per-display per-frame event coalescing as the spec requires (collapse a
+      docking-event notification storm to one event per display with the union of
+      changed fields).
 
 ## Per-platform lowerings — implemented, with gaps
 
@@ -86,9 +89,11 @@ run on each platform.
       named owner). Today the registry is module-local statics.
 
 ## Testability / hardening
-- [ ] Make `mel_display__enumerate` injectable (function-pointer seam) so the
-      portable add/remove/change/identity-persistence diff can be unit-tested with
-      a fake backend, independent of real hardware and the fork harness.
+- [x] `mel_display__enumerate` is injectable (`mel_display__set_enumerate`,
+      `src/display_backend.h`): the portable add/remove/change diff is unit-tested
+      with a fake backend (`test/display_test.c`), independent of real hardware and
+      fork-safe (no Cocoa). Identity-persistence across config change is exercised
+      via the resize case.
 - [ ] Test harness: a no-fork / `posix_spawn` re-exec mode so Cocoa-touching
       enumeration can be unit-tested instead of only probed (see
       `tools/test/src/runner.c`).
