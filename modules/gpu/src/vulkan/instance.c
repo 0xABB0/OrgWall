@@ -66,6 +66,9 @@ Mel_Gpu_Instance* mel_gpu_instance_create_opt(Mel_Gpu_Instance_Opt opt)
 #elif defined(_WIN32)
     if (mel_gpu__instance_ext_available("VK_KHR_win32_surface"))
         exts[ext_count++] = "VK_KHR_win32_surface";
+#elif defined(__ANDROID__)
+    if (mel_gpu__instance_ext_available("VK_KHR_android_surface"))
+        exts[ext_count++] = "VK_KHR_android_surface";
 #endif
 
     bool want_debug = opt.debug.enabled;
