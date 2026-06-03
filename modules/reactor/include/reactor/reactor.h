@@ -9,6 +9,9 @@ typedef struct Mel_Reactor_Source_Callbacks Mel_Reactor_Source_Callbacks;
 typedef struct Mel_Reactor_Poll             Mel_Reactor_Poll;
 typedef struct Mel_Reactor_Spawn_Opt        Mel_Reactor_Spawn_Opt;
 
+typedef struct Mel_Task     Mel_Task;
+typedef struct Mel_Executor Mel_Executor;
+
 typedef enum
 {
     MEL_REACTOR_THREADED = 1,
@@ -104,6 +107,9 @@ void mel_reactor_quit(Mel_Reactor* reactor);
 void mel_reactor_post(Mel_Reactor* reactor, Mel_Reactor_Post_Proc callback, void* user);
 bool mel_reactor_is_running(const Mel_Reactor* reactor);
 bool mel_reactor_is_owner(const Mel_Reactor* reactor);
+
+void          mel_reactor_defer(Mel_Reactor* reactor, Mel_Task* task);
+Mel_Executor* mel_reactor_executor(Mel_Reactor* reactor);
 
 Mel_Reactor_Source* mel_reactor_source_new(const Mel_Reactor_Source_Callbacks* cb, usize struct_size);
 void                mel_reactor_source_init(Mel_Reactor_Source* source, const Mel_Reactor_Source_Callbacks* cb);

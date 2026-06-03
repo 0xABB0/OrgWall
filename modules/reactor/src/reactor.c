@@ -5,7 +5,9 @@
 #include <time/nano.h>
 #include <allocator/allocator.h>
 #include <allocator/heap.h>
+#include <collection.list/list.h>
 #include <collection.mpsc/mpsc.h>
+#include <executor/executor.h>
 #include <thread/thread.h>
 
 #include <stdatomic.h>
@@ -41,7 +43,9 @@ struct Mel_Reactor
     Mel_Reactor_Source* sources;
     Mel_Reactor_Poll*   poll_set[MEL_REACTOR_MAX_POLLS];
 
-    Mel_Mpsc posts;
+    Mel_Mpsc     posts;
+    Mel_Mpsc     defers;
+    Mel_Executor executor;
 
     int         iterating;
     bool        needs_reap;
@@ -73,6 +77,7 @@ struct Mel_Reactor
 };
 
 static bool                  reactor_iterate(Mel_Reactor* r, bool may_block);
+static void                  reactor_executor_submit(Mel_Executor* self, Mel_Task* task);
 [[maybe_unused]] static void reactor_attached_destroy(Mel_Reactor* r);
 
 #if MEL_PLATFORM_WINDOWS
@@ -186,6 +191,38 @@ static void reactor_drain_posts(Mel_Reactor* r)
     }
 }
 
+static bool reactor_defers_pending(Mel_Reactor* r) { return atomic_load_explicit(&r->defers.producer_tail, memory_order_acquire) != &r->defers.stub; }
+
+static void reactor_drain_defers(Mel_Reactor* r)
+{
+    if (!reactor_defers_pending(r))
+        return;
+
+    Mel_Mpsc_Node* head = NULL;
+    Mel_Mpsc_Node* tail = NULL;
+    for (;;)
+    {
+        Mel_Mpsc_Node* n = mel_mpsc_pop(&r->defers);
+        if (!n)
+            break;
+        atomic_store_explicit(&n->next, NULL, memory_order_relaxed);
+        if (tail)
+            atomic_store_explicit(&tail->next, n, memory_order_relaxed);
+        else
+            head = n;
+        tail = n;
+    }
+
+    while (head)
+    {
+        Mel_Mpsc_Node* n = head;
+        head = atomic_load_explicit(&n->next, memory_order_relaxed);
+        Mel_Task* task = mel_container_of(n, Mel_Task, link);
+        atomic_store_explicit(&task->armed, 0, memory_order_release);
+        task->run(task);
+    }
+}
+
 static void reactor_destroy_all_sources(Mel_Reactor* r)
 {
     while (r->sources)
@@ -199,6 +236,7 @@ static void reactor_destroy_all_sources(Mel_Reactor* r)
 [[maybe_unused]] static void reactor_attached_destroy(Mel_Reactor* r)
 {
     reactor_drain_posts(r);
+    reactor_drain_defers(r);
     reactor_destroy_all_sources(r);
     reactor_backend_shutdown(r);
     const Mel_Alloc* alloc = r->alloc;
@@ -257,7 +295,7 @@ static bool reactor_iterate(Mel_Reactor* r, bool may_block)
             r->poll_set[poll_count++] = s->polls[i];
         }
     }
-    if (any_ready || !may_block)
+    if (any_ready || !may_block || reactor_defers_pending(r))
         timeout = MEL_REACTOR_NOWAIT;
 
     bool keep = reactor_backend_wait(r, r->poll_set, poll_count, timeout);
@@ -265,6 +303,7 @@ static bool reactor_iterate(Mel_Reactor* r, bool may_block)
         atomic_store(&r->running, false);
 
     reactor_drain_posts(r);
+    reactor_drain_defers(r);
 
     for (i32 bucket = 0; bucket < MEL_REACTOR_PRIORITY_BUCKETS; bucket++)
     {
@@ -352,6 +391,25 @@ void mel_reactor_post(Mel_Reactor* r, Mel_Reactor_Post_Proc cb, void* user)
     reactor_backend_wake(r);
 }
 
+void mel_reactor_defer(Mel_Reactor* r, Mel_Task* task)
+{
+    if (!r || !task)
+        return;
+    i32 expected = 0;
+    if (!atomic_compare_exchange_strong_explicit(&task->armed, &expected, 1, memory_order_acq_rel, memory_order_acquire))
+        return;
+    mel_mpsc_push(&r->defers, &task->link);
+    reactor_backend_wake(r);
+}
+
+static void reactor_executor_submit(Mel_Executor* self, Mel_Task* task)
+{
+    Mel_Reactor* r = mel_container_of(self, Mel_Reactor, executor);
+    mel_reactor_defer(r, task);
+}
+
+Mel_Executor* mel_reactor_executor(Mel_Reactor* r) { return r ? &r->executor : NULL; }
+
 static int reactor_run_threaded(Mel_Reactor* r)
 {
     reactor_capture_owner(r);
@@ -384,6 +442,8 @@ int mel_reactor_spawn_opt(Mel_Reactor_Mode mode, Mel_Reactor_Init_Proc init, voi
     r->init_user = user;
 
     mel_mpsc_init(&r->posts);
+    mel_mpsc_init(&r->defers);
+    r->executor.submit = reactor_executor_submit;
 
     if (!reactor_backend_init(r))
     {
@@ -406,6 +466,7 @@ int mel_reactor_spawn_opt(Mel_Reactor_Mode mode, Mel_Reactor_Init_Proc init, voi
 #else
         int rc = reactor_run_threaded(r);
         reactor_drain_posts(r);
+        reactor_drain_defers(r);
         reactor_destroy_all_sources(r);
         reactor_backend_shutdown(r);
         mel_dealloc(alloc, r);
