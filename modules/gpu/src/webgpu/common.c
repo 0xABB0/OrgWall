@@ -166,6 +166,20 @@ bool mel_gpu__drain_until(WGPUInstance instance, const bool* done)
     return *done;
 }
 
+bool mel_gpu__drain_sync(Mel_Gpu_Device* dev, const bool* done, const char* what)
+{
+    if (mel_reactor_is_owner(dev->reactor))
+    {
+        mel_log_error("gpu", "%s: synchronous drain invoked on the device reactor thread; re-entrant pumping deadlocks (spec §3.3 *_sync is off-reactor only)", what);
+        mel_assert(!"webgpu *_sync drain re-entered the reactor thread");
+        return false;
+    }
+    bool resolved = mel_gpu__drain_until(dev->wgpu_instance, done);
+    if (!resolved)
+        mel_log_error("gpu", "%s: synchronous drain timed out without the completion callback firing (~10s); the work is incomplete", what);
+    return resolved;
+}
+
 bool mel_gpu__buffer_get(Mel_Gpu_Device* dev, Mel_Gpu_Buffer buf, Mel_Gpu_Buffer_Obj* out)
 {
     return mel_gpu__table_get_copy(dev, &dev->buffers, buf.slot, out);
