@@ -1,0 +1,6 @@
+# Pinned Slang toolchain for Melody. Do not edit by hand; bump via fetch.sh + this file together.
+SLANG_VERSION=v2026.10.2
+SLANG_TARBALL=slang-2026.10.2-macos-aarch64.tar.gz
+SLANG_URL=https://github.com/shader-slang/slang/releases/download/v2026.10.2/slang-2026.10.2-macos-aarch64.tar.gz
+SLANG_SHA256=a0e438467aa4a5936546bc3d1ebaa677de5174b52c7a2dd9d50bce230b15df58
+# dist/ holds the trimmed runtime (bin/slangc + lib/ minus libslang-llvm/libgfx + include/); it is gitignored and populated by fetch.sh.

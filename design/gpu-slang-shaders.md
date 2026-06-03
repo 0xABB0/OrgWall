@@ -75,14 +75,21 @@ Metal backend from clear-present to actually rendering the demos.
 
 ## Open decisions (for iteration — Gabbo)
 
-- **D1 Slang acquisition.** Vendor a pinned prebuilt `slangc` per host (macOS arm64 to start) under
-  `tools/build/vendor/slang` + `SLANG_VERSION.lock`, per §6.4. (Recommended.) Alternative: link
-  libslang for runtime compile (heavier, app-opt-in per §6.4 — a later phase, not P1).
-- **D2 Build integration (blocking — CLAUDE.md halts on codegen).** Either (a) register a real
-  build codegen pass that runs `slangc` during `nob build` (CLAUDE.md: pass registration is
-  undocumented — needs Gabbo), or (b) a standalone regen tool (`nob shaders` / a script) that
-  regenerates committed per-backend bundle headers, matching today's committed-`_spv.h` model. (b)
-  is lower-risk and unblocks P1 without touching the codegen machinery.
+- **D1 Slang acquisition — DONE.** Pinned `slangc v2026.10.2` vendored at `tools/build/vendor/slang`
+  via `fetch.sh` (sha256-verified) + `SLANG_VERSION.lock`; trimmed runtime (LLVM + gfx dylibs
+  dropped — not needed for `-target spirv`/`-target metal`) is 43M in a gitignored `dist/`. Verified:
+  one `.slang` → 1220 B MSL + 1408 B SPIR-V. Runtime libslang (app-opt-in compile) remains a later
+  phase, not P1.
+- **D2 Build integration — DECIDED: real codegen pass.** Mechanism (learned from
+  `modules/build/{api,emit}.c`): `mel_codegen(t, tool, output, ...args)` resolves `tool` as a
+  repo-built **host-tool target** (`tool->dir/build/host/tool->name`); the tool's output is then
+  compiled as a C TU and linked into `t` (the pattern `modules/{reflect,continuation,display}`
+  use). `slangc` is an external binary, so the fit is a host tool **`mel-slangc`** (under
+  `tools/slang/` or a `modules/gpu.shadergen` host target) that invokes the vendored `slangc` on a
+  `.slang` input, emits SPIR-V/MSL + reflection, and writes a compiled `.c` exposing the blob
+  arrays + a generated `.h`. Consumers wire `mel_codegen(app, "mel-slangc", "triangle_bundle.c",
+  "$dir/shaders/triangle.slang", "--target", "<spirv|msl>")`. Open sub-point — **D1 Slang
+  acquisition** (below) is the remaining blocker: the host tool needs the vendored `slangc` present.
 - **D3 Migration scope.** Incremental (triangle first, then roll out) — recommended — vs big-bang
   rewrite of all 37 at once.
 - **D4 Reflection source.** Consume Slang's emitted reflection (recommended; single source of truth,
