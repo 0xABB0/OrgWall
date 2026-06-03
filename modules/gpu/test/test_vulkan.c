@@ -15,6 +15,7 @@
 #include <gpu/command.h>
 #include <gpu/rendering.h>
 #include <gpu/query.h>
+#include <gpu/transfer.h>
 #include <gpu/swapchain.h>
 #include <gpu/state.h>
 #include <gpu/memory.h>
@@ -23,6 +24,7 @@
 #include <gpu/threading.h>
 #include <allocator/allocator.h>
 #include <allocator/heap.h>
+#include <log/log.h>
 #include <thread/thread.h>
 #include <thread/barrier.h>
 
@@ -1881,6 +1883,292 @@ MEL_TEST(vk_query, timestamp_delta_plausible)
     mel_gpu_buffer_destroy(dev, src.value);
     mel_gpu_query_pool_destroy(dev, qp.value);
     mel_gpu_device_destroy(dev);
+    mel_gpu_instance_destroy(inst);
+}
+
+MEL_TEST(vk_query, resolve_async_matches_sync)
+{
+    Mel_Gpu_Instance* inst = NULL;
+    Mel_Gpu_Device*   dev = test_make_device(&inst);
+    MEL_REQUIRE_NOT_NULL(dev);
+
+    const Mel_Gpu_Caps* caps = mel_gpu_device_caps(dev);
+    MEL_REQUIRE_NOT_NULL(caps);
+    if (caps->queries.timestamp == MEL_GPU_TIMESTAMP_NONE || !caps->queries.timestamp_compute_and_graphics || caps->queries.timestamp_period_ns <= 0.0)
+    {
+        mel_gpu_device_destroy(dev);
+        mel_gpu_instance_destroy(inst);
+        MEL_SKIP("device does not grant timestamp queries");
+    }
+
+    Mel_Gpu_Query_Pool_Create_Result qp = mel_gpu_query_pool_create(dev, .type = MEL_GPU_QUERY_TIMESTAMP, .count = 2, .name = "ts-async");
+    MEL_REQUIRE(!mel_gpu_failed(qp.status));
+
+    const usize BYTES = 4u * 1024u * 1024u;
+    Mel_Gpu_Buffer_Create_Result src = mel_gpu_buffer_create(dev, .size = BYTES, .usage = MEL_GPU_BUFFER_TRANSFER_SRC, .memory = MEL_GPU_MEMORY_DEVICE, .name = "ts-async-src");
+    MEL_REQUIRE(!mel_gpu_failed(src.status));
+    Mel_Gpu_Buffer_Create_Result dst = mel_gpu_buffer_create(dev, .size = BYTES, .usage = MEL_GPU_BUFFER_TRANSFER_DST, .memory = MEL_GPU_MEMORY_DEVICE, .name = "ts-async-dst");
+    MEL_REQUIRE(!mel_gpu_failed(dst.status));
+
+    Mel_Gpu_Queue*        q = mel_gpu_queue_request(dev, MEL_GPU_QUEUE_GRAPHICS);
+    Mel_Gpu_Command_List* cmd = mel_gpu_command_list_create(q);
+    mel_gpu_command_list_begin(cmd);
+    mel_gpu_cmd_reset_query_pool(cmd, qp.value, 0, 2);
+    mel_gpu_cmd_write_timestamp(cmd, qp.value, 0);
+    mel_gpu_cmd_copy_buffer(cmd, src.value, dst.value, BYTES);
+    mel_gpu_cmd_buffer_barrier(cmd, dst.value, MEL_GPU_STATE_COPY_DEST, MEL_GPU_STATE_COMMON);
+    mel_gpu_cmd_write_timestamp(cmd, qp.value, 1);
+    mel_gpu_command_list_end(cmd);
+
+    Mel_Gpu_Future* sf = mel_gpu_queue_submit(q, (Mel_Gpu_Submit){ .command_lists = &cmd, .command_list_count = 1 });
+    MEL_REQUIRE_NOT_NULL(sf);
+    MEL_EXPECT(mel_gpu_ok(mel_gpu_future_status(sf)));
+    mel_gpu_future_destroy(sf);
+
+    u64 sync_ns[2] = { 0, 0 };
+    MEL_REQUIRE(mel_gpu_query_pool_resolve(dev, qp.value, 0, 2, sync_ns));
+
+    Mel_Gpu_Future* rf = mel_gpu_query_pool_resolve_async(dev, q, qp.value, 0, 2);
+    MEL_REQUIRE_NOT_NULL(rf);
+    MEL_REQUIRE(mel_gpu_future_resolved(rf));
+    MEL_EXPECT(mel_gpu_ok(mel_gpu_future_status(rf)));
+
+    const Mel_Gpu_Query_Resolve* res = mel_gpu_future_value(rf);
+    MEL_REQUIRE_NOT_NULL(res);
+    MEL_EXPECT_EQ(res->count, 2u);
+    MEL_REQUIRE_NOT_NULL(res->ns);
+    MEL_EXPECT_EQ(res->ns[0], sync_ns[0]);
+    MEL_EXPECT_EQ(res->ns[1], sync_ns[1]);
+    MEL_EXPECT(res->ns[1] > res->ns[0]);
+
+    mel_gpu_query_resolve_future_destroy(dev, rf);
+
+    mel_gpu_command_list_destroy(cmd);
+    mel_gpu_queue_release(q);
+    mel_gpu_buffer_destroy(dev, dst.value);
+    mel_gpu_buffer_destroy(dev, src.value);
+    mel_gpu_query_pool_destroy(dev, qp.value);
+    mel_gpu_device_destroy(dev);
+    mel_gpu_instance_destroy(inst);
+}
+
+MEL_TEST(vk_query, resolve_async_bad_range_fails_loud)
+{
+    Mel_Gpu_Instance* inst = NULL;
+    Mel_Gpu_Device*   dev = test_make_device(&inst);
+    MEL_REQUIRE_NOT_NULL(dev);
+
+    const Mel_Gpu_Caps* caps = mel_gpu_device_caps(dev);
+    if (caps->queries.timestamp == MEL_GPU_TIMESTAMP_NONE || !caps->queries.timestamp_compute_and_graphics)
+    {
+        mel_gpu_device_destroy(dev);
+        mel_gpu_instance_destroy(inst);
+        MEL_SKIP("device does not grant timestamp queries");
+    }
+
+    Mel_Gpu_Query_Pool_Create_Result qp = mel_gpu_query_pool_create(dev, .type = MEL_GPU_QUERY_TIMESTAMP, .count = 2, .name = "ts-bad");
+    MEL_REQUIRE(!mel_gpu_failed(qp.status));
+    Mel_Gpu_Queue* q = mel_gpu_queue_request(dev, MEL_GPU_QUEUE_GRAPHICS);
+
+    Mel_Gpu_Future* rf = mel_gpu_query_pool_resolve_async(dev, q, qp.value, 1, 4);
+    MEL_REQUIRE_NOT_NULL(rf);
+    MEL_EXPECT(mel_gpu_future_resolved(rf));
+    MEL_EXPECT(mel_gpu_failed(mel_gpu_future_status(rf)));
+    MEL_EXPECT_NULL(mel_gpu_future_value(rf));
+    mel_gpu_query_resolve_future_destroy(dev, rf);
+
+    mel_gpu_queue_release(q);
+    mel_gpu_query_pool_destroy(dev, qp.value);
+    mel_gpu_device_destroy(dev);
+    mel_gpu_instance_destroy(inst);
+}
+
+MEL_TEST(vk_transfer, buffer_upload_async_roundtrip)
+{
+    Mel_Gpu_Instance* inst = NULL;
+    Mel_Gpu_Device*   dev = test_make_device(&inst);
+    MEL_REQUIRE_NOT_NULL(dev);
+
+    const u32 N = 256;
+    u32       payload[N];
+    for (u32 i = 0; i < N; i++)
+        payload[i] = 0xC0DE0000u | i;
+
+    Mel_Gpu_Buffer_Create_Result device_buf = mel_gpu_buffer_create(dev, .size = sizeof payload, .usage = MEL_GPU_BUFFER_STORAGE | MEL_GPU_BUFFER_TRANSFER_DST | MEL_GPU_BUFFER_TRANSFER_SRC, .memory = MEL_GPU_MEMORY_DEVICE, .name = "xfer-dst");
+    MEL_REQUIRE(!mel_gpu_failed(device_buf.status));
+    Mel_Gpu_Buffer_Create_Result rb = mel_gpu_buffer_create(dev, .size = sizeof payload, .usage = MEL_GPU_BUFFER_TRANSFER_DST, .memory = MEL_GPU_MEMORY_READBACK, .name = "xfer-rb");
+    MEL_REQUIRE(!mel_gpu_failed(rb.status));
+
+    Mel_Gpu_Queue* q = mel_gpu_queue_request(dev, MEL_GPU_QUEUE_TRANSFER);
+    MEL_REQUIRE_NOT_NULL(q);
+
+    Mel_Gpu_Future* uf = mel_gpu_buffer_upload_async(dev, q, device_buf.value, 0, payload, sizeof payload);
+    MEL_REQUIRE_NOT_NULL(uf);
+    MEL_EXPECT(mel_gpu_future_resolved(uf));
+    MEL_EXPECT(mel_gpu_ok(mel_gpu_future_status(uf)));
+    mel_gpu_future_destroy(uf);
+
+    Mel_Gpu_Command_List* cmd = mel_gpu_command_list_create(q);
+    mel_gpu_command_list_begin(cmd);
+    mel_gpu_cmd_buffer_barrier(cmd, device_buf.value, MEL_GPU_STATE_COMMON, MEL_GPU_STATE_COPY_SOURCE);
+    mel_gpu_cmd_copy_buffer(cmd, device_buf.value, rb.value, sizeof payload);
+    mel_gpu_command_list_end(cmd);
+    Mel_Gpu_Future* cf = mel_gpu_queue_submit(q, (Mel_Gpu_Submit){ .command_lists = &cmd, .command_list_count = 1 });
+    MEL_EXPECT(mel_gpu_ok(mel_gpu_future_status(cf)));
+    mel_gpu_future_destroy(cf);
+
+    const u32* got = mel_gpu_buffer_mapped(dev, rb.value);
+    MEL_REQUIRE_NOT_NULL(got);
+    for (u32 i = 0; i < N; i++)
+        MEL_EXPECT_EQ(got[i], payload[i]);
+
+    mel_gpu_command_list_destroy(cmd);
+    mel_gpu_queue_release(q);
+    mel_gpu_buffer_destroy(dev, rb.value);
+    mel_gpu_buffer_destroy(dev, device_buf.value);
+    mel_gpu_device_destroy(dev);
+    mel_gpu_instance_destroy(inst);
+}
+
+MEL_TEST(vk_transfer, buffer_upload_async_bad_params_fails_loud)
+{
+    Mel_Gpu_Instance* inst = NULL;
+    Mel_Gpu_Device*   dev = test_make_device(&inst);
+    MEL_REQUIRE_NOT_NULL(dev);
+
+    Mel_Gpu_Buffer_Create_Result device_buf = mel_gpu_buffer_create(dev, .size = 64, .usage = MEL_GPU_BUFFER_TRANSFER_DST, .memory = MEL_GPU_MEMORY_DEVICE, .name = "xfer-bad");
+    MEL_REQUIRE(!mel_gpu_failed(device_buf.status));
+    Mel_Gpu_Queue* q = mel_gpu_queue_request(dev, MEL_GPU_QUEUE_TRANSFER);
+
+    Mel_Gpu_Future* uf = mel_gpu_buffer_upload_async(dev, q, device_buf.value, 0, NULL, 64);
+    MEL_REQUIRE_NOT_NULL(uf);
+    MEL_EXPECT(mel_gpu_future_resolved(uf));
+    MEL_EXPECT(mel_gpu_failed(mel_gpu_future_status(uf)));
+    mel_gpu_future_destroy(uf);
+
+    mel_gpu_queue_release(q);
+    mel_gpu_buffer_destroy(dev, device_buf.value);
+    mel_gpu_device_destroy(dev);
+    mel_gpu_instance_destroy(inst);
+}
+
+MEL_TEST(vk_transfer, texture_upload_async_sampleable)
+{
+    Mel_Gpu_Instance* inst = NULL;
+    Mel_Gpu_Device*   dev = test_make_device(&inst);
+    MEL_REQUIRE_NOT_NULL(dev);
+
+    const u32 W = 4, H = 4;
+    u8        rgba[W * H * 4];
+    for (u32 i = 0; i < W * H; i++)
+    {
+        rgba[i * 4 + 0] = (u8)(i * 7);
+        rgba[i * 4 + 1] = (u8)(i * 3);
+        rgba[i * 4 + 2] = (u8)(i * 11);
+        rgba[i * 4 + 3] = 255;
+    }
+
+    Mel_Gpu_Texture_Create_Result t = mel_gpu_texture_create(dev, .kind = MEL_GPU_TEXTURE_2D, .extent = { W, H, 1 }, .format = MEL_GPU_FORMAT_RGBA8_UNORM, .usage = MEL_GPU_TEXTURE_SAMPLED | MEL_GPU_TEXTURE_COPY_DST | MEL_GPU_TEXTURE_COPY_SRC, .name = "xfer-tex");
+    MEL_REQUIRE(!mel_gpu_failed(t.status));
+
+    Mel_Gpu_Queue*  q = mel_gpu_queue_request(dev, MEL_GPU_QUEUE_TRANSFER);
+    Mel_Gpu_Texture_Region region = { .subresource = { MEL_GPU_ASPECT_COLOR, 0, 1, 0, 1 }, .offset = { 0, 0, 0 }, .extent = { W, H, 1 } };
+    Mel_Gpu_Future* uf = mel_gpu_texture_upload_async(dev, q, t.value, region, rgba, sizeof rgba);
+    MEL_REQUIRE_NOT_NULL(uf);
+    MEL_EXPECT(mel_gpu_future_resolved(uf));
+    MEL_EXPECT(mel_gpu_ok(mel_gpu_future_status(uf)));
+    mel_gpu_future_destroy(uf);
+
+    Mel_Gpu_Buffer_Create_Result rb = mel_gpu_buffer_create(dev, .size = sizeof rgba, .usage = MEL_GPU_BUFFER_TRANSFER_DST, .memory = MEL_GPU_MEMORY_READBACK, .name = "xfer-tex-rb");
+    MEL_REQUIRE(!mel_gpu_failed(rb.status));
+    Mel_Gpu_Command_List* cmd = mel_gpu_command_list_create(q);
+    mel_gpu_command_list_begin(cmd);
+    Mel_Gpu_Subresource_Range sr = { MEL_GPU_ASPECT_COLOR, 0, 1, 0, 1 };
+    mel_gpu_cmd_texture_barrier(cmd, t.value, sr, MEL_GPU_STATE_SHADER_RESOURCE, MEL_GPU_STATE_COPY_SOURCE);
+    mel_gpu_cmd_copy_texture_to_buffer(cmd, t.value, sr, rb.value);
+    mel_gpu_command_list_end(cmd);
+    Mel_Gpu_Future* cf = mel_gpu_queue_submit(q, (Mel_Gpu_Submit){ .command_lists = &cmd, .command_list_count = 1 });
+    MEL_EXPECT(mel_gpu_ok(mel_gpu_future_status(cf)));
+    mel_gpu_future_destroy(cf);
+
+    const u8* got = mel_gpu_buffer_mapped(dev, rb.value);
+    MEL_REQUIRE_NOT_NULL(got);
+    for (u32 i = 0; i < sizeof rgba; i++)
+        MEL_EXPECT_EQ(got[i], rgba[i]);
+
+    mel_gpu_command_list_destroy(cmd);
+    mel_gpu_queue_release(q);
+    mel_gpu_buffer_destroy(dev, rb.value);
+    mel_gpu_texture_destroy(dev, t.value);
+    mel_gpu_device_destroy(dev);
+    mel_gpu_instance_destroy(inst);
+}
+
+MEL_TEST(vk_queue, dedicated_request_gated_honestly)
+{
+    Mel_Gpu_Instance* inst = NULL;
+    Mel_Gpu_Device*   dev = test_make_device(&inst);
+    MEL_REQUIRE_NOT_NULL(dev);
+
+    const Mel_Gpu_Caps* caps = mel_gpu_device_caps(dev);
+    MEL_REQUIRE_NOT_NULL(caps);
+
+    Mel_Gpu_Queue* dq = mel_gpu_queue_request(dev, MEL_GPU_QUEUE_TRANSFER, .dedicated = true);
+    MEL_EXPECT_NULL(dq);
+
+    Mel_Gpu_Queue* dc = mel_gpu_queue_request(dev, MEL_GPU_QUEUE_ASYNC_COMPUTE, .dedicated = true);
+    MEL_EXPECT_NULL(dc);
+
+    Mel_Gpu_Queue* shared = mel_gpu_queue_request(dev, MEL_GPU_QUEUE_TRANSFER);
+    MEL_REQUIRE_NOT_NULL(shared);
+    Mel_Gpu_Queue_Info info = mel_gpu_queue_info(shared);
+    MEL_EXPECT(info.supports_transfer);
+    mel_gpu_queue_release(shared);
+
+    mel_gpu_device_destroy(dev);
+    mel_gpu_instance_destroy(inst);
+}
+
+MEL_TEST(vk_shader, fp64_request_and_grant)
+{
+    Mel_Gpu_Instance* inst = mel_gpu_instance_create(.app_name = "gpu-vulkan-test", .debug = { .enabled = true });
+    MEL_REQUIRE_NOT_NULL(inst);
+    Mel_Gpu_Adapter* adapters[8];
+    u32              n = mel_gpu_adapters(inst, adapters, 8);
+    MEL_REQUIRE(n > 0);
+
+    Mel_Gpu_Caps adapter_caps = mel_gpu_adapter_caps(adapters[0]);
+    bool         available = adapter_caps.shader.fp64;
+
+    Mel_Gpu_Device_Create_Result no_req = mel_gpu_device_create(inst, adapters[0], .features = { .timeline_semaphores = true });
+    MEL_REQUIRE_NOT_NULL(no_req.value);
+    MEL_EXPECT(mel_gpu_device_caps(no_req.value)->shader.fp64 == false);
+    mel_gpu_device_destroy(no_req.value);
+
+    Mel_Gpu_Device_Create_Result req = mel_gpu_device_create(inst, adapters[0], .features = { .timeline_semaphores = true, .shader_fp64 = true });
+    MEL_REQUIRE_NOT_NULL(req.value);
+    MEL_EXPECT(mel_gpu_device_caps(req.value)->shader.fp64 == available);
+    mel_gpu_device_destroy(req.value);
+
+    mel_gpu_instance_destroy(inst);
+}
+
+MEL_TEST(vk_caps, shader_and_memory_probes_written)
+{
+    Mel_Gpu_Instance* inst = mel_gpu_instance_create(.app_name = "gpu-vulkan-test", .debug = { .enabled = true });
+    MEL_REQUIRE_NOT_NULL(inst);
+    Mel_Gpu_Adapter* adapters[8];
+    u32              n = mel_gpu_adapters(inst, adapters, 8);
+    MEL_REQUIRE(n > 0);
+
+    Mel_Gpu_Caps caps = mel_gpu_adapter_caps(adapters[0]);
+    MEL_EXPECT(caps.memory.persistent_map == true);
+    MEL_EXPECT(caps.memory.host_visible_bytes > 0 || caps.memory.device_local_bytes > 0);
+
+    mel_log_info("gpu", "caps probe: fp16=%d int8=%d fp64=%d persistent_map=%d dedicated_transfer=%d dedicated_compute=%d async_compute=%d",
+                 (int)caps.shader.fp16, (int)caps.shader.int8, (int)caps.shader.fp64, (int)caps.memory.persistent_map,
+                 (int)caps.queues.dedicated_transfer, (int)caps.queues.dedicated_compute, (int)caps.queues.async_compute);
+
     mel_gpu_instance_destroy(inst);
 }
 

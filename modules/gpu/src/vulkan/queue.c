@@ -33,6 +33,12 @@ Mel_Gpu_Queue* mel_gpu_queue_request_opt(Mel_Gpu_Device* dev, Mel_Gpu_Queue_Role
         return NULL;
     }
 
+    if (opt.dedicated)
+    {
+        mel_log_error("gpu", "queue_request: dedicated family for role %d unavailable (M1 single-queue backend wires only the graphics family); refusing to promote upward", (int)role);
+        return NULL;
+    }
+
     if (role != MEL_GPU_QUEUE_GRAPHICS)
         mel_log_warn("gpu", "queue_request: role %d lowered to the graphics queue (M1 single-queue backend)", (int)role);
 

@@ -71,6 +71,8 @@ void mel_gpu__caps_probe(VkPhysicalDevice phys, Mel_Gpu_Caps* out)
     out->shader.int16 = feat2.features.shaderInt16;
     out->shader.int64 = feat2.features.shaderInt64;
     out->shader.fp64 = feat2.features.shaderFloat64;
+    out->shader.fp16 = feat12.shaderFloat16;
+    out->shader.int8 = feat12.shaderInt8;
     out->shader.wave_ops = (subgroup.supportedOperations & VK_SUBGROUP_FEATURE_BASIC_BIT) != 0;
     out->shader.subgroup_size_min = subgroup.subgroupSize;
     out->shader.subgroup_size_max = subgroup.subgroupSize;
@@ -78,13 +80,40 @@ void mel_gpu__caps_probe(VkPhysicalDevice phys, Mel_Gpu_Caps* out)
     out->queues.timeline = feat12.timelineSemaphore ? MEL_GPU_TIMELINE_NATIVE : MEL_GPU_TIMELINE_EMULATED;
     out->queues.internally_synchronized_queues = MEL_GPU_INTERNAL_SYNC_NONE;
 
+    u32 fam_count = 0;
+    vkGetPhysicalDeviceQueueFamilyProperties(phys, &fam_count, NULL);
+    if (fam_count)
+    {
+        const Mel_Alloc*         fa = mel_alloc_heap();
+        VkQueueFamilyProperties* fams = mel_alloc_array(fa, VkQueueFamilyProperties, fam_count);
+        vkGetPhysicalDeviceQueueFamilyProperties(phys, &fam_count, fams);
+        for (u32 i = 0; i < fam_count; i++)
+        {
+            VkQueueFlags f = fams[i].queueFlags;
+            bool         gfx = (f & VK_QUEUE_GRAPHICS_BIT) != 0;
+            bool         cmp = (f & VK_QUEUE_COMPUTE_BIT) != 0;
+            bool         xfr = (f & VK_QUEUE_TRANSFER_BIT) != 0;
+            if (cmp && !gfx)
+            {
+                out->queues.async_compute = true;
+                out->queues.dedicated_compute = true;
+            }
+            if (xfr && !gfx && !cmp)
+                out->queues.dedicated_transfer = true;
+        }
+        mel_dealloc(fa, fams);
+    }
+
     VkPhysicalDeviceMemoryProperties mem;
     vkGetPhysicalDeviceMemoryProperties(phys, &mem);
 
     bool host_visible_device_local = false;
+    bool host_visible_any = false;
     for (u32 i = 0; i < mem.memoryTypeCount; i++)
     {
         VkMemoryPropertyFlags f = mem.memoryTypes[i].propertyFlags;
+        if (f & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)
+            host_visible_any = true;
         if ((f & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) && (f & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT))
             host_visible_device_local = true;
     }
@@ -102,7 +131,7 @@ void mel_gpu__caps_probe(VkPhysicalDevice phys, Mel_Gpu_Caps* out)
     else
         out->memory.host_visible_device_local = MEL_GPU_HOST_VISIBLE_DEVICE_LOCAL_NONE;
 
-    out->memory.persistent_map = true;
+    out->memory.persistent_map = host_visible_any;
     out->memory.residency_control = mel_gpu__phys_ext(phys, VK_EXT_MEMORY_BUDGET_EXTENSION_NAME) ? MEL_GPU_RESIDENCY_BUDGET_ONLY : MEL_GPU_RESIDENCY_NONE;
 
     bool di_full = di.runtimeDescriptorArray && di.descriptorBindingPartiallyBound && di.shaderSampledImageArrayNonUniformIndexing && di.descriptorBindingSampledImageUpdateAfterBind && di.descriptorBindingStorageBufferUpdateAfterBind && di.descriptorBindingUniformBufferUpdateAfterBind && di.descriptorBindingStorageImageUpdateAfterBind;

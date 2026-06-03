@@ -158,6 +158,20 @@ Mel_Gpu_Device_Create_Result mel_gpu_device_create_opt(Mel_Gpu_Instance* inst, M
     if (avail.sampleRateShading)
         feat2.features.sampleRateShading = VK_TRUE;
 
+    bool grant_fp64 = false;
+    if (opt.features.shader_fp64)
+    {
+        if (avail.shaderFloat64)
+        {
+            feat2.features.shaderFloat64 = VK_TRUE;
+            grant_fp64 = true;
+        }
+        else
+        {
+            mel_log_warn("gpu", "device_create: shader_fp64 requested but shaderFloat64 unavailable on '%s'; not granted", adapter->caps.adapter.name);
+        }
+    }
+
     VkDeviceCreateInfo dci = {
         .sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
         .pNext = &feat2,
@@ -199,6 +213,8 @@ Mel_Gpu_Device_Create_Result mel_gpu_device_create_opt(Mel_Gpu_Instance* inst, M
     dev->max_sampler_anisotropy = avail.samplerAnisotropy ? devprops.limits.maxSamplerAnisotropy : 1.0f;
     dev->caps.sampler.anisotropy = avail.samplerAnisotropy != 0;
     dev->caps.sampler.max_anisotropy = dev->max_sampler_anisotropy;
+
+    dev->caps.shader.fp64 = grant_fp64;
 
     dev->feat_fill_non_solid = avail.fillModeNonSolid != 0;
     dev->caps.raster.fill_mode_non_solid = dev->feat_fill_non_solid;
@@ -457,6 +473,8 @@ static void mel_gpu__free_deferred_entry(Mel_Gpu_Device* dev, Mel_Gpu_Deferred_F
         vkDestroyDescriptorSetLayout(dev->vk, e->descriptor_set_layout, NULL);
     if (e->sampler)
         vkDestroySampler(dev->vk, e->sampler, NULL);
+    if (e->semaphore)
+        vkDestroySemaphore(dev->vk, e->semaphore, NULL);
     if (e->shader_vs)
         vkDestroyShaderModule(dev->vk, e->shader_vs, NULL);
     if (e->shader_fs)
