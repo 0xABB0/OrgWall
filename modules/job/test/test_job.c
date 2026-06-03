@@ -10,8 +10,6 @@
 #include <allocator/heap.h>
 
 #include <stdatomic.h>
-#include <sys/resource.h>
-#include <sys/time.h>
 
 #define JOB_SPIN_LIMIT      200000000
 #define JOB_MULTI_THREADS   8
@@ -608,6 +606,10 @@ MEL_TEST(job_exec, submit_storm_strict_quiescence)
     mel_job_shutdown();
 }
 
+#ifdef _WIN32
+static i64 cpu_micros(void) { return 0; }
+#else
+#include <sys/resource.h>
 static i64 cpu_micros(void)
 {
     struct rusage ru;
@@ -616,9 +618,13 @@ static i64 cpu_micros(void)
     i64 s = (i64)ru.ru_stime.tv_sec * 1000000 + ru.ru_stime.tv_usec;
     return u + s;
 }
+#endif
 
 MEL_TEST(job_exec, idle_pool_truly_parks_no_spin)
 {
+#ifdef _WIN32
+    MEL_SKIP("process CPU-time probe unavailable on win32");
+#else
     mel_job_init();
 
     Mel_Executor* exec = mel_job_executor();
@@ -642,6 +648,7 @@ MEL_TEST(job_exec, idle_pool_truly_parks_no_spin)
     MEL_EXPECT(cpu_used < budget);
 
     mel_job_shutdown();
+#endif
 }
 
 MEL_TEST(job_exec, lifecycle_reinit_after_shutdown)
