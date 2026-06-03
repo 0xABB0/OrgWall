@@ -32,6 +32,7 @@
 #include <gpu/command.h>
 #include <gpu/rendering.h>
 #include <gpu/query.h>
+#include <gpu/transfer.h>
 
 struct Mel_Gpu_Instance
 {
@@ -243,6 +244,7 @@ typedef struct
     VkPipelineLayout      pipeline_layout;
     VkDescriptorSetLayout descriptor_set_layout;
     VkSampler             sampler;
+    VkSemaphore           semaphore;
     VkShaderModule        shader_vs;
     VkShaderModule        shader_fs;
     VkDescriptorSet       descriptor_set;

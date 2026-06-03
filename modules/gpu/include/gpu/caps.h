@@ -287,4 +287,5 @@ typedef struct
     bool capture_replay;
     bool persistent_map;
     bool host_image_copy;
+    bool shader_fp64;
 } Mel_Gpu_Feature_Request;

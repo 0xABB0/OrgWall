@@ -52,7 +52,7 @@ void mel_gpu_sync_destroy(Mel_Gpu_Device* dev, Mel_Gpu_Sync sync)
     VkSemaphore sem = o.semaphore;
     mel_gpu__table_remove(dev, &dev->syncs, sync.slot);
     if (!borrowed && sem)
-        vkDestroySemaphore(dev->vk, sem, NULL);
+        mel_gpu__defer_free(dev, (Mel_Gpu_Deferred_Free){ .semaphore = sem });
     mel_gpu__track_exit(dev, trk);
 }
 

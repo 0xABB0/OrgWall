@@ -150,3 +150,114 @@ bool mel_gpu_query_pool_resolve(Mel_Gpu_Device* dev, Mel_Gpu_Query_Pool pool, u3
     mel_dealloc(dev->alloc, ticks);
     return true;
 }
+
+typedef struct
+{
+    Mel_Gpu_Device*       dev;
+    Mel_Gpu_Command_List* cmd;
+    Mel_Gpu_Buffer        readback;
+    Mel_Gpu_Future*       result_future;
+    u32                   count;
+    f64                   period_ns;
+} Mel_Gpu_Query_Resolve_Ctx;
+
+static void mel_gpu__query_resolve_complete(Mel_Gpu_Future* submit_future, void* user)
+{
+    Mel_Gpu_Query_Resolve_Ctx* c = user;
+    Mel_Gpu_Device*            dev = c->dev;
+
+    u32 submit_status = mel_gpu_future_status(submit_future);
+
+    if (mel_gpu_failed(submit_status))
+    {
+        mel_log_error("gpu", "query_pool_resolve_async: resolve-copy submission failed; future resolves ERROR");
+        mel_gpu_future_resolve(c->result_future, NULL, MEL_GPU_QUERY_RESOLVE_VK_FAILED);
+    }
+    else
+    {
+        const u64* ticks = mel_gpu_buffer_mapped(dev, c->readback);
+        usize      bytes = sizeof(Mel_Gpu_Query_Resolve) + (usize)c->count * sizeof(u64);
+        u8*        block = mel_alloc(dev->alloc, bytes);
+        Mel_Gpu_Query_Resolve* out = (Mel_Gpu_Query_Resolve*)block;
+        u64*                   ns = (u64*)(block + sizeof(Mel_Gpu_Query_Resolve));
+        for (u32 i = 0; i < c->count; i++)
+            ns[i] = ticks ? (u64)((f64)ticks[i] * c->period_ns) : 0;
+        out->ns = ns;
+        out->count = c->count;
+        mel_gpu_future_resolve(c->result_future, out, ticks ? MEL_GPU_QUERY_RESOLVE_OK : MEL_GPU_QUERY_RESOLVE_VK_FAILED);
+    }
+
+    mel_gpu_future_destroy(submit_future);
+    mel_gpu_command_list_destroy(c->cmd);
+    mel_gpu_buffer_destroy(dev, c->readback);
+    mel_dealloc(dev->alloc, c);
+}
+
+Mel_Gpu_Future* mel_gpu_query_pool_resolve_async(Mel_Gpu_Device* dev, Mel_Gpu_Queue* q, Mel_Gpu_Query_Pool pool, u32 first, u32 count)
+{
+    Mel_Gpu_Query_Pool_Obj o;
+    if (!dev || !q || count == 0 || !mel_gpu__query_pool_get(dev, pool, &o))
+    {
+        mel_log_error("gpu", "query_pool_resolve_async: invalid arguments (dev/queue/count/pool)");
+        Mel_Gpu_Future* f = mel_gpu_future_create(dev ? dev->pump : NULL, dev ? dev->reactor : NULL);
+        mel_gpu_future_resolve(f, NULL, MEL_GPU_QUERY_RESOLVE_BAD_PARAMS);
+        return f;
+    }
+    if (first + count > o.count)
+    {
+        mel_log_error("gpu", "query_pool_resolve_async: range [%u, %u) exceeds pool count %u", first, first + count, o.count);
+        Mel_Gpu_Future* f = mel_gpu_future_create(dev->pump, dev->reactor);
+        mel_gpu_future_resolve(f, NULL, MEL_GPU_QUERY_RESOLVE_BAD_PARAMS);
+        return f;
+    }
+
+    Mel_Gpu_Buffer_Create_Result rb = mel_gpu_buffer_create(dev, .size = (usize)count * sizeof(u64), .usage = MEL_GPU_BUFFER_TRANSFER_DST, .memory = MEL_GPU_MEMORY_READBACK, .name = "query-resolve-readback");
+    if (mel_gpu_failed(rb.status))
+    {
+        mel_log_error("gpu", "query_pool_resolve_async: readback buffer create failed");
+        Mel_Gpu_Future* f = mel_gpu_future_create(dev->pump, dev->reactor);
+        mel_gpu_future_resolve(f, NULL, MEL_GPU_QUERY_RESOLVE_VK_FAILED);
+        return f;
+    }
+    VkBuffer rb_vk = VK_NULL_HANDLE;
+    mel_gpu__buffer_get(dev, rb.value, &rb_vk);
+
+    Mel_Gpu_Command_List* cmd = mel_gpu_command_list_create(q);
+    if (!cmd)
+    {
+        mel_log_error("gpu", "query_pool_resolve_async: command list create failed");
+        mel_gpu_buffer_destroy(dev, rb.value);
+        Mel_Gpu_Future* f = mel_gpu_future_create(dev->pump, dev->reactor);
+        mel_gpu_future_resolve(f, NULL, MEL_GPU_QUERY_RESOLVE_VK_FAILED);
+        return f;
+    }
+
+    mel_gpu_command_list_begin(cmd);
+    vkCmdCopyQueryPoolResults(cmd->cb, o.pool, first, count, rb_vk, 0, sizeof(u64), VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT);
+    mel_gpu_cmd_buffer_barrier(cmd, rb.value, MEL_GPU_STATE_COPY_DEST, MEL_GPU_STATE_COMMON);
+    mel_gpu_command_list_end(cmd);
+
+    Mel_Gpu_Query_Resolve_Ctx* c = mel_alloc_type(dev->alloc, Mel_Gpu_Query_Resolve_Ctx);
+    *c = (Mel_Gpu_Query_Resolve_Ctx){ .dev = dev, .cmd = cmd, .readback = rb.value, .count = count, .period_ns = o.period_ns };
+    c->result_future = mel_gpu_future_create(dev->pump, dev->reactor);
+    Mel_Gpu_Future* result_future = c->result_future;
+
+    Mel_Gpu_Future* submit_future = mel_gpu_queue_submit(q, (Mel_Gpu_Submit){ .command_lists = &cmd, .command_list_count = 1 });
+
+    if (mel_gpu_future_resolved(submit_future))
+        mel_gpu__query_resolve_complete(submit_future, c);
+    else
+        mel_gpu_future_then(submit_future, mel_gpu__query_resolve_complete, c);
+
+    return result_future;
+}
+
+void mel_gpu_query_resolve_future_destroy(Mel_Gpu_Device* dev, Mel_Gpu_Future* f)
+{
+    if (!f)
+        return;
+    void* val = mel_gpu_future_value(f);
+    if (val)
+        mel_dealloc(dev->alloc, val);
+    mel_gpu_future_destroy(f);
+}
