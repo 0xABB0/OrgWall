@@ -39,4 +39,15 @@ void build(Mel_Build* b)
     mel_depends(rt, "collection");
     mel_depends(rt, "thread");
     mel_depends(rt, "time");
+
+    Mel_Target* ht = mel_add_test(b, "reactor-hup");
+    mel_sources(ht, ALWAYS, "test/test_reactor_hup.c");
+    mel_sources(ht, ALWAYS, "../../tools/test/src/runner.c");
+    mel_depends(ht, "test");
+    mel_depends(ht, "reactor");
+    mel_depends(ht, "core");
+    mel_depends(ht, "allocator");
+    mel_depends(ht, "collection");
+    mel_depends(ht, "thread");
+    mel_depends(ht, "time");
 }
