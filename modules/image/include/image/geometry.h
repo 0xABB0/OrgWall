@@ -90,5 +90,7 @@ static inline mel_image_gray mel_image_gray_roi(mel_image_gray v, i32 x, i32 y, 
 
 bool mel_image_blit(Mel_Image* dst, i32 dx, i32 dy, const Mel_Image* src, i32 sx, i32 sy, i32 w, i32 h);
 bool mel_image_resize(const Mel_Image* src, Mel_Image* dst, const mel_image_filter* filter);
+bool mel_image_resize_scratch(const Mel_Image* src, Mel_Image* dst, const mel_image_filter* filter, const Mel_Alloc* scratch);
 bool mel_image_resize_new(const Mel_Image* src, i32 w, i32 h, const mel_image_filter* filter, const Mel_Alloc* a, Mel_Image* out);
-bool mel_image_orient(const Mel_Image* src, const Mel_Alloc* a, Mel_Image_Orient o, Mel_Image* out);
+bool mel_image_orient(const Mel_Image* src, Mel_Image* dst, Mel_Image_Orient o);
+bool mel_image_orient_new(const Mel_Image* src, const Mel_Alloc* a, Mel_Image_Orient o, Mel_Image* out);

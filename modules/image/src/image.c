@@ -65,6 +65,15 @@ bool mel_image_wrap(Mel_Image* out, const mel_image_format* f, i32 w, i32 h, con
     if (count != f->plane_count)
         return false;
 
+    for (i32 k = 0; k < count; k++)
+    {
+        mel_image_plane_geom g = f->geom(f, w, h, k, 1);
+        mel_assert(planes[k].pixels && "mel_image_wrap: plane pixels NULL");
+        mel_assert(g.bpp > 0 && "mel_image_wrap: zero bpp");
+        mel_assert(planes[k].stride >= g.w * g.bpp && "mel_image_wrap: plane stride < w*bpp (transposed plane?)");
+        mel_assert(planes[k].h >= g.h && "mel_image_wrap: plane h < format-derived plane h");
+    }
+
     out->format = f;
     out->w = w;
     out->h = h;

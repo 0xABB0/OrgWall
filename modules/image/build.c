@@ -11,6 +11,7 @@ void build(Mel_Build* b)
     mel_depends(lib, "debug");
     mel_depends(lib, "log");
     mel_depends(lib, "collection");
+    mel_depends(lib, "thread");
     mel_depends(lib, "stb");
 
     Mel_Target* t = mel_add_test(b, "image-core");
@@ -24,6 +25,7 @@ void build(Mel_Build* b)
     mel_depends(t, "debug");
     mel_depends(t, "log");
     mel_depends(t, "collection");
+    mel_depends(t, "thread");
     mel_depends(t, "stb");
 
     Mel_Target* bridge = mel_add_library(b, "image-gpu");

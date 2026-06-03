@@ -5,6 +5,7 @@
 #include <allocator/allocator.h>
 #include <color/rgba.h>
 #include <log/log.h>
+#include <thread/once.h>
 
 #include <string.h>
 
@@ -131,20 +132,19 @@ float mel_image__tf_linear(float c) { return c; }
 
 typedef struct
 {
-    u8   srgb_to_lin[256];
-    u8   lin_to_srgb[256];
-    f32  srgb_to_lin_f[256];
-    f32  lin_to_srgb_f[256];
-    u8   vr_to_full[256];
-    bool ready;
+    u8  srgb_to_lin[256];
+    u8  lin_to_srgb[256];
+    f32 srgb_to_lin_f[256];
+    f32 lin_to_srgb_f[256];
+    u8  vr_to_full[256];
+    u8  identity[256];
 } mel_image__srgb_lut;
 
 static mel_image__srgb_lut g_srgb;
+static Mel_Once            g_srgb_once = MEL_ONCE_INIT;
 
-static void mel_image__srgb_lut_init(void)
+static void mel_image__srgb_lut_build(void)
 {
-    if (g_srgb.ready)
-        return;
     for (i32 i = 0; i < 256; i++)
     {
         f32 e = (f32)i * (1.0f / 255.0f);
@@ -161,9 +161,12 @@ static void mel_image__srgb_lut_init(void)
         f32 vf = ((f32)i - 16.0f) * (255.0f / 219.0f);
         i32 vi = (i32)(vf + 0.5f);
         g_srgb.vr_to_full[i] = (u8)(vi < 0 ? 0 : (vi > 255 ? 255 : vi));
+
+        g_srgb.identity[i] = (u8)i;
     }
-    g_srgb.ready = true;
 }
+
+static void mel_image__srgb_lut_init(void) { mel_once(&g_srgb_once, mel_image__srgb_lut_build); }
 
 static inline f32 mel_image__srgb_to_lin_f(f32 c)
 {
@@ -442,8 +445,8 @@ static void k_rgba8_bgra8(const Mel_Image* src, Mel_Image* dst)
     i32             w = src->w, h = src->h;
     for (i32 y = 0; y < h; y++)
     {
-        const u8* sr = s.pixels + (usize)y * s.stride;
-        u8*       dr = d.pixels + (usize)y * d.stride;
+        const u8* restrict sr = s.pixels + (usize)y * s.stride;
+        u8* restrict dr = d.pixels + (usize)y * d.stride;
         for (i32 x = 0; x < w; x++)
         {
             const u8* p = sr + (usize)x * 4;
@@ -463,8 +466,8 @@ static void k_gray8_rgba8(const Mel_Image* src, Mel_Image* dst)
     i32             w = src->w, h = src->h;
     for (i32 y = 0; y < h; y++)
     {
-        const u8* sr = s.pixels + (usize)y * s.stride;
-        u8*       dr = d.pixels + (usize)y * d.stride;
+        const u8* restrict sr = s.pixels + (usize)y * s.stride;
+        u8* restrict dr = d.pixels + (usize)y * d.stride;
         for (i32 x = 0; x < w; x++)
         {
             u8  v = sr[x];
@@ -484,8 +487,8 @@ static void k_rgba8_gray8(const Mel_Image* src, Mel_Image* dst)
     i32             w = src->w, h = src->h;
     for (i32 y = 0; y < h; y++)
     {
-        const u8* sr = s.pixels + (usize)y * s.stride;
-        u8*       dr = d.pixels + (usize)y * d.stride;
+        const u8* restrict sr = s.pixels + (usize)y * s.stride;
+        u8* restrict dr = d.pixels + (usize)y * d.stride;
         for (i32 x = 0; x < w; x++)
         {
             const u8* p = sr + (usize)x * 4;
@@ -502,8 +505,8 @@ static void k_straight_premul(const Mel_Image* src, Mel_Image* dst)
     i32             w = src->w, h = src->h;
     for (i32 y = 0; y < h; y++)
     {
-        const u8* sr = s.pixels + (usize)y * s.stride;
-        u8*       dr = d.pixels + (usize)y * d.stride;
+        const u8* restrict sr = s.pixels + (usize)y * s.stride;
+        u8* restrict dr = d.pixels + (usize)y * d.stride;
         for (i32 x = 0; x < w; x++)
         {
             const u8* p = sr + (usize)x * 4;
@@ -524,8 +527,8 @@ static void k_premul_straight(const Mel_Image* src, Mel_Image* dst)
     i32             w = src->w, h = src->h;
     for (i32 y = 0; y < h; y++)
     {
-        const u8* sr = s.pixels + (usize)y * s.stride;
-        u8*       dr = d.pixels + (usize)y * d.stride;
+        const u8* restrict sr = s.pixels + (usize)y * s.stride;
+        u8* restrict dr = d.pixels + (usize)y * d.stride;
         for (i32 x = 0; x < w; x++)
         {
             const u8* p = sr + (usize)x * 4;
@@ -552,8 +555,8 @@ static void k_srgb_lin8(const Mel_Image* src, Mel_Image* dst)
     i32             w = src->w, h = src->h;
     for (i32 y = 0; y < h; y++)
     {
-        const u8* sr = s.pixels + (usize)y * s.stride;
-        u8*       dr = d.pixels + (usize)y * d.stride;
+        const u8* restrict sr = s.pixels + (usize)y * s.stride;
+        u8* restrict dr = d.pixels + (usize)y * d.stride;
         for (i32 x = 0; x < w; x++)
         {
             const u8* p = sr + (usize)x * 4;
@@ -574,8 +577,8 @@ static void k_lin_srgb8(const Mel_Image* src, Mel_Image* dst)
     i32             w = src->w, h = src->h;
     for (i32 y = 0; y < h; y++)
     {
-        const u8* sr = s.pixels + (usize)y * s.stride;
-        u8*       dr = d.pixels + (usize)y * d.stride;
+        const u8* restrict sr = s.pixels + (usize)y * s.stride;
+        u8* restrict dr = d.pixels + (usize)y * d.stride;
         for (i32 x = 0; x < w; x++)
         {
             const u8* p = sr + (usize)x * 4;
@@ -600,11 +603,15 @@ static void k_yuv_rgba8(const Mel_Image* src, Mel_Image* dst)
     f32                     yscale = m.full_range ? 1.0f : (255.0f / 219.0f);
     f32                     cscale = m.full_range ? 1.0f : (255.0f / 224.0f);
     f32                     ybias = m.full_range ? 0.0f : 16.0f;
+    bool                    dst_linear = (dst->format->to_linear == mel_image__tf_linear);
+
+    mel_image__srgb_lut_init();
+    const u8* tab = dst_linear ? g_srgb.srgb_to_lin : g_srgb.identity;
 
     for (i32 y = 0; y < h; y++)
     {
-        const u8* yrow = yp.pixels + (usize)y * yp.stride;
-        u8*       dr = d.pixels + (usize)y * d.stride;
+        const u8* restrict yrow = yp.pixels + (usize)y * yp.stride;
+        u8* restrict dr = d.pixels + (usize)y * d.stride;
         i32       cy = ch.ssy ? y >> 1 : y;
         const u8* uvrow = ch.semi ? ch.uv + (usize)cy * ch.uv_stride : NULL;
         const u8* urow = ch.semi ? NULL : ch.up + (usize)cy * ch.u_stride;
@@ -634,10 +641,14 @@ static void k_yuv_rgba8(const Mel_Image* src, Mel_Image* dst)
             f32 b = yn + 2.0f * (1.0f - kb) * un;
             f32 g = (yn - kr * r - kb * b) / kg;
 
+            u8 ru = (u8)(r < 0.0f ? 0.0f : (r > 255.0f ? 255.0f : r + 0.5f));
+            u8 gu = (u8)(g < 0.0f ? 0.0f : (g > 255.0f ? 255.0f : g + 0.5f));
+            u8 bu = (u8)(b < 0.0f ? 0.0f : (b > 255.0f ? 255.0f : b + 0.5f));
+
             u8* q = dr + (usize)x * 4;
-            q[0] = (u8)(r < 0.0f ? 0.0f : (r > 255.0f ? 255.0f : r + 0.5f));
-            q[1] = (u8)(g < 0.0f ? 0.0f : (g > 255.0f ? 255.0f : g + 0.5f));
-            q[2] = (u8)(b < 0.0f ? 0.0f : (b > 255.0f ? 255.0f : b + 0.5f));
+            q[0] = tab[ru];
+            q[1] = tab[gu];
+            q[2] = tab[bu];
             q[3] = 255;
         }
     }
@@ -689,6 +700,12 @@ mel_image_kernel mel_image__find_kernel(const mel_image_format* s, const mel_ima
         { &mel_image_i420, &mel_image_rgba8, k_yuv_rgba8 },
         { &mel_image_i422, &mel_image_rgba8, k_yuv_rgba8 },
         { &mel_image_i444, &mel_image_rgba8, k_yuv_rgba8 },
+        { &mel_image_nv12, &mel_image_rgba8_srgb, k_yuv_rgba8 },
+        { &mel_image_nv12_full, &mel_image_rgba8_srgb, k_yuv_rgba8 },
+        { &mel_image_nv21, &mel_image_rgba8_srgb, k_yuv_rgba8 },
+        { &mel_image_i420, &mel_image_rgba8_srgb, k_yuv_rgba8 },
+        { &mel_image_i422, &mel_image_rgba8_srgb, k_yuv_rgba8 },
+        { &mel_image_i444, &mel_image_rgba8_srgb, k_yuv_rgba8 },
         { &mel_image_nv12, &mel_image_gray8, k_yuv_gray8 },
         { &mel_image_nv12_full, &mel_image_gray8, k_yuv_gray8 },
         { &mel_image_nv21, &mel_image_gray8, k_yuv_gray8 },
@@ -715,39 +732,16 @@ static void mel_image__copy_identical(const Mel_Image* src, Mel_Image* dst)
     }
 }
 
-bool mel_image_convert(const Mel_Image* src, Mel_Image* dst)
+static bool mel_image__convert_canonical(const Mel_Image* src, Mel_Image* dst, const Mel_Alloc* a)
 {
-    if (!src || !dst || !src->format || !dst->format)
-        return false;
-    if (src->w != dst->w || src->h != dst->h)
-    {
-        mel_log_error("image", "convert: size mismatch src %dx%d dst %dx%d", src->w, src->h, dst->w, dst->h);
-        return false;
-    }
-
-    if (src->format == dst->format)
-    {
-        mel_image__copy_identical(src, dst);
-        return true;
-    }
-
-    mel_image_kernel k = mel_image__find_kernel(src->format, dst->format);
-    if (k)
-    {
-        k(src, dst);
-        return true;
-    }
-
     if (!src->format->to_canonical || !dst->format->from_canonical)
     {
         mel_log_error("image", "convert: no path %s -> %s", src->format->name, dst->format->name);
         return false;
     }
-
-    const Mel_Alloc* a = dst->alloc ? dst->alloc : src->alloc;
     if (!a)
     {
-        mel_log_error("image", "convert: %s -> %s needs scratch but both images are non-owning (wrapped)", src->format->name, dst->format->name);
+        mel_log_error("image", "convert: %s -> %s needs scratch but no allocator available", src->format->name, dst->format->name);
         return false;
     }
 
@@ -768,6 +762,75 @@ bool mel_image_convert(const Mel_Image* src, Mel_Image* dst)
 
     mel_dealloc(a, row);
     return true;
+}
+
+static bool mel_image__convert_check(const Mel_Image* src, Mel_Image* dst)
+{
+    if (!src || !dst || !src->format || !dst->format)
+        return false;
+    if (src->w != dst->w || src->h != dst->h)
+    {
+        mel_log_error("image", "convert: size mismatch src %dx%d dst %dx%d", src->w, src->h, dst->w, dst->h);
+        return false;
+    }
+    return true;
+}
+
+bool mel_image_convert_scratch(const Mel_Image* src, Mel_Image* dst, const Mel_Alloc* scratch)
+{
+    if (!mel_image__convert_check(src, dst))
+        return false;
+
+    if (src->format == dst->format)
+    {
+        mel_image__copy_identical(src, dst);
+        return true;
+    }
+
+    mel_image_kernel k = mel_image__find_kernel(src->format, dst->format);
+    if (k)
+    {
+        k(src, dst);
+        return true;
+    }
+
+    const Mel_Alloc* a = scratch ? scratch : (dst->alloc ? dst->alloc : src->alloc);
+    return mel_image__convert_canonical(src, dst, a);
+}
+
+bool mel_image_convert_via_canonical(const Mel_Image* src, Mel_Image* dst, const Mel_Alloc* scratch)
+{
+    if (!mel_image__convert_check(src, dst))
+        return false;
+    const Mel_Alloc* a = scratch ? scratch : (dst->alloc ? dst->alloc : src->alloc);
+    return mel_image__convert_canonical(src, dst, a);
+}
+
+bool mel_image_convert(const Mel_Image* src, Mel_Image* dst)
+{
+    if (!mel_image__convert_check(src, dst))
+        return false;
+
+    if (src->format == dst->format)
+    {
+        mel_image__copy_identical(src, dst);
+        return true;
+    }
+
+    mel_image_kernel k = mel_image__find_kernel(src->format, dst->format);
+    if (k)
+    {
+        k(src, dst);
+        return true;
+    }
+
+    const Mel_Alloc* a = dst->alloc ? dst->alloc : src->alloc;
+    if (!a)
+    {
+        mel_log_error("image", "convert: %s -> %s needs scratch but both images are non-owning (wrapped); use mel_image_convert_scratch", src->format->name, dst->format->name);
+        return false;
+    }
+    return mel_image__convert_canonical(src, dst, a);
 }
 
 bool mel_image_convert_new(const Mel_Image* src, const mel_image_format* fmt, const Mel_Alloc* a, Mel_Image* out)
