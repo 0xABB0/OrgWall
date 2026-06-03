@@ -2,7 +2,6 @@
 
 #include <allocator/heap.h>
 #include <log/log.h>
-#include <thread/thread.h>
 
 typedef struct
 {
@@ -53,16 +52,7 @@ Mel_Gpu_Instance* mel_gpu_instance_create_opt(Mel_Gpu_Instance_Opt opt)
     };
     wgpuInstanceRequestAdapter(wgpu, &ropt, cbi);
 
-    u32 spins = 0;
-    while (!req.done && spins < 100000)
-    {
-        wgpuInstanceProcessEvents(wgpu);
-        if (!req.done)
-        {
-            mel_thread_sleep(100000);
-            spins++;
-        }
-    }
+    mel_gpu__drain_until(wgpu, &req.done);
 
     if (!req.ok)
     {

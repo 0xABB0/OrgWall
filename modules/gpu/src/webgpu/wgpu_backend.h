@@ -210,6 +210,8 @@ void mel_gpu__submit_complete(Mel_Gpu_Device* dev, u64 serial);
 
 void mel_gpu__instance_pump_tick(void* user);
 
+bool mel_gpu__drain_until(WGPUInstance instance, const bool* done);
+
 void              mel_gpu__caps_probe(WGPUAdapter adapter, Mel_Gpu_Caps* out);
 WGPUTextureFormat mel_gpu__wgpu_format(Mel_Gpu_Format fmt);
 Mel_Gpu_Format    mel_gpu__wgpu_format_to_mel(WGPUTextureFormat fmt);

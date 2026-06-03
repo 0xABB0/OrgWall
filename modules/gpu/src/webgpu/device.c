@@ -97,16 +97,7 @@ Mel_Gpu_Device_Create_Result mel_gpu_device_create_opt(Mel_Gpu_Instance* inst, M
     };
     wgpuAdapterRequestDevice(adapter->wgpu, &desc, cbi);
 
-    u32 spins = 0;
-    while (!req.done && spins < 100000)
-    {
-        wgpuInstanceProcessEvents(inst->wgpu);
-        if (!req.done)
-        {
-            mel_thread_sleep(100000);
-            spins++;
-        }
-    }
+    mel_gpu__drain_until(inst->wgpu, &req.done);
 
     if (!req.ok)
     {
