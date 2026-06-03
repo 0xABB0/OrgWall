@@ -1,19 +1,36 @@
 #include "build.h"
 
+#define SLANG_VERSION "2026.10.2"
+
+#if defined(__aarch64__) || defined(__arm64__)
+#  define SLANG_ARCH "aarch64"
+#else
+#  define SLANG_ARCH "x86_64"
+#endif
+
+#define SLANG_URL(os)                                                       \
+    "https://github.com/shader-slang/slang/releases/download/v" SLANG_VERSION \
+    "/slang-" SLANG_VERSION "-" os "-" SLANG_ARCH ".zip"
+
 void build(Mel_Build* b)
 {
+    // Vendored libslang, fetched per-host by the build's prebuilt mechanism (no committed binary).
+    Mel_Target* rt = mel_add_third_party(b, "slang-runtime");
+#if defined(__APPLE__)
+    mel_prebuilt(rt, WHEN(.platforms = MEL_ON(MACOS)), SLANG_URL("macos"), "libslang.dylib");
+#elif defined(_WIN32)
+    mel_prebuilt(rt, WHEN(.platforms = MEL_ON(WIN32)), SLANG_URL("windows"), "slang.lib");
+#elif defined(__linux__)
+    mel_prebuilt(rt, WHEN(.platforms = MEL_ON(LINUX)), SLANG_URL("linux"), "libslang.so");
+#endif
+    mel_link(rt, MEL_PUBLIC, ALWAYS, "-lslang");
+
+    // Our C wrapper over libslang's modern C++ API; the engine consumes only this C surface.
     Mel_Target* lib = mel_add_library(b, "slang");
     mel_includes(lib, MEL_PUBLIC, ALWAYS, "include");
-    mel_includes(lib, MEL_PRIVATE, ALWAYS, "dist/include");
     mel_sources(lib, ALWAYS, "src/*.cpp");
-    // Link the vendored libslang + the C++ runtime. macOS/iOS/Linux need an explicit libc++;
-    // Windows (clang-msvc) links the C++ runtime automatically.
-    mel_link(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(MACOS) | MEL_ON(IOS)),
-             "-Lthird-party/slang/dist/lib", "-lslang", "-lc++", "-Wl,-rpath,third-party/slang/dist/lib");
-    mel_link(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(LINUX)),
-             "-Lthird-party/slang/dist/lib", "-lslang", "-lc++", "-Wl,-rpath,$ORIGIN");
-    mel_link(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(WIN32)),
-             "-Lthird-party/slang/dist/lib", "-lslang");
+    mel_depends(lib, "slang-runtime");
+    mel_link(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(MACOS) | MEL_ON(LINUX)), "-lc++");
 
     Mel_Target* t = mel_add_test(b, "slang-compile");
     mel_sources(t, ALWAYS, "test/compile_test.c");
