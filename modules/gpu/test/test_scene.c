@@ -50,10 +50,14 @@
 static const Mel_Golden_Tolerance SCENE_TOL = { .max_channel_delta = 2, .max_fraction_exceeding = 0.0f };
 #elif MEL_GPU_D3D12
 /* D3D12 diffs against the macOS-Vulkan-oracle goldens from a real NVIDIA rasterizer
-   (RTX 2060S), a genuinely different edge-coverage and interpolation pipeline than the
-   Metal rasterizer that minted the oracle. The band below is set from the measured
-   per-scene delta captured on win-pilot (writeup/2026-06-04-gpu-dxil.md), not guessed. */
-static const Mel_Golden_Tolerance SCENE_TOL = { .max_channel_delta = 16, .max_fraction_exceeding = 0.05f };
+   (RTX 2060 SUPER, signed DXIL sm_6_0), a different interpolation/round pipeline than the
+   Metal rasterizer that minted the oracle. Measured on win-pilot (64x64, 4096 px;
+   writeup/2026-06-04-gpu-dxil.md): the divergence is a uniform +-1 LSB on a single
+   channel — triangle max delta 1 (3440 px off-by-1), gradient max delta 1 (363 px),
+   quad max delta 1 (3072 px). No structural difference; the scenes render correctly to
+   within 1/255. The band absorbs that LSB everywhere (delta<=2) and tolerates NO pixel
+   beyond it (frac 0.0) — the same strict shape as the Vulkan-oracle band, set from data. */
+static const Mel_Golden_Tolerance SCENE_TOL = { .max_channel_delta = 2, .max_fraction_exceeding = 0.0f };
 #else
 static const Mel_Golden_Tolerance SCENE_TOL = { .max_channel_delta = 4, .max_fraction_exceeding = 0.02f };
 #endif
