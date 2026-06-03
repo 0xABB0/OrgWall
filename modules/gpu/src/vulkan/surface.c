@@ -29,6 +29,14 @@ Mel_Gpu_Surface* mel_gpu_surface_create(Mel_Gpu_Device* dev, void* native)
         mel_dealloc(mel_alloc_heap(), s);
         return NULL;
     }
+#elif defined(__ANDROID__)
+    s->vk = mel_gpu__vk_create_android_surface(dev->instance->vk, native);
+    if (s->vk == VK_NULL_HANDLE)
+    {
+        mel_log_error("gpu", "failed to create Android surface");
+        mel_dealloc(mel_alloc_heap(), s);
+        return NULL;
+    }
 #else
     mel_log_error("gpu", "surface creation not implemented for this platform");
     mel_dealloc(mel_alloc_heap(), s);
