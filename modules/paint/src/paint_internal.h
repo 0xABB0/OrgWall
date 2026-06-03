@@ -4,19 +4,15 @@
 
 #include <allocator/allocator.fwd.h>
 #include <collection.slotmap/slotmap.h>
+#include <image/image.h>
 
-/* One record per drawable, backend-opaque. `native` is the platform 2D context
- * (CGContextRef on quartz). The owned-pixmap fields are populated only when
- * `owns` is true; a future borrowed-window drawable leaves them zero. */
 typedef struct
 {
-    void*            native;
-    i32              w, h;
-    bool             owns;
-    const Mel_Alloc* alloc;
-    u8*              pixels;
-    i32              stride;
-    bool             painting;
+    void*     native;
+    i32       w, h;
+    bool      owns;
+    Mel_Image img;
+    bool      painting;
 } Paint_Drawable;
 
 Paint_Drawable*    mel_paint__get(Mel_SlotMap_Handle h);
