@@ -49,7 +49,9 @@ Mel_Gpu_Device_Create_Result mel_gpu_device_create_opt(Mel_Gpu_Instance* inst, M
     mel_slotmap_init(&dev->textures.map, alloc, .item_size = sizeof(Mel_Gpu_Texture_Obj), .initial_capacity = 16);
     mel_slotmap_init(&dev->texture_views.map, alloc, .item_size = sizeof(Mel_Gpu_Texture_View_Obj), .initial_capacity = 16);
     mel_slotmap_init(&dev->samplers.map, alloc, .item_size = sizeof(Mel_Gpu_Sampler_Obj), .initial_capacity = 16);
-    dev->buffers.init = dev->textures.init = dev->texture_views.init = dev->samplers.init = true;
+    mel_slotmap_init(&dev->shaders.map, alloc, .item_size = sizeof(Mel_Gpu_Shader_Obj), .initial_capacity = 16);
+    mel_slotmap_init(&dev->pipelines.map, alloc, .item_size = sizeof(Mel_Gpu_Pipeline_Obj), .initial_capacity = 16);
+    dev->buffers.init = dev->textures.init = dev->texture_views.init = dev->samplers.init = dev->shaders.init = dev->pipelines.init = true;
 
     if (opt.features.descriptor_indexing)
         mel_log_warn("gpu", "device_create: bindless (descriptor_indexing) requested but not implemented on the Metal backend; caps.memory.bindless stays tier=none");
@@ -90,11 +92,15 @@ void mel_gpu_device_destroy(Mel_Gpu_Device* dev)
     mel_gpu__table_report_leaks(&dev->textures, "texture");
     mel_gpu__table_report_leaks(&dev->texture_views, "texture-view");
     mel_gpu__table_report_leaks(&dev->samplers, "sampler");
+    mel_gpu__table_report_leaks(&dev->shaders, "shader");
+    mel_gpu__table_report_leaks(&dev->pipelines, "pipeline");
 
     mel_slotmap_free(&dev->buffers.map);
     mel_slotmap_free(&dev->textures.map);
     mel_slotmap_free(&dev->texture_views.map);
     mel_slotmap_free(&dev->samplers.map);
+    mel_slotmap_free(&dev->shaders.map);
+    mel_slotmap_free(&dev->pipelines.map);
 
     if (dev->pending)
         mel_dealloc(dev->alloc, dev->pending);

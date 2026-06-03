@@ -53,6 +53,7 @@ void mel_gpu__caps_probe(id<MTLDevice> mtl, Mel_Gpu_Caps* out)
     s->wave_ops = true;
     s->subgroup_size_min = 32;
     s->subgroup_size_max = 32;
+    s->bytecode_passthrough.msl = true;
 
     out->sampler.anisotropy = true;
     out->sampler.max_anisotropy = 16.0f;

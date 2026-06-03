@@ -1,6 +1,9 @@
 #include <stddef.h>
 #include <stdlib.h>
 
+#include <gpu/caps.h>
+#include <gpu/device.h>
+
 #include "triangle.h"
 #include "triangle_bundle.h"
 
@@ -31,15 +34,29 @@ static void* triangle_init(Mel_Gpu_Device* dev, Mel_Gpu_Swapchain* sc)
 
     t->vbo = mel_gpu_buffer_create(dev, .size = sizeof verts, .usage = MEL_GPU_BUFFER_VERTEX, .memory = MEL_GPU_MEMORY_UPLOAD, .data = verts, .name = "triangle-vbo").value;
 
-    t->shader = mel_gpu_shader_create_from_bytecode(dev,
-                                                    .target = MEL_GPU_SHADER_TARGET_SPIRV,
-                                                    .vertex_blob = TRIANGLE_VERT_SPV,
-                                                    .vertex_blob_size = sizeof TRIANGLE_VERT_SPV,
-                                                    .fragment_blob = TRIANGLE_FRAG_SPV,
-                                                    .fragment_blob_size = sizeof TRIANGLE_FRAG_SPV,
-                                                    .vertex_entry = TRIANGLE_VERT_ENTRY,
-                                                    .fragment_entry = TRIANGLE_FRAG_ENTRY)
-                    .value;
+    const Mel_Gpu_Caps* caps = mel_gpu_device_caps(dev);
+    if (caps->shader.bytecode_passthrough.msl)
+        t->shader = mel_gpu_shader_create_from_bytecode(dev,
+                                                        .target = MEL_GPU_SHADER_TARGET_MSL,
+                                                        .vertex_blob = TRIANGLE_VERT_MSL,
+                                                        .vertex_blob_size = sizeof TRIANGLE_VERT_MSL,
+                                                        .fragment_blob = TRIANGLE_FRAG_MSL,
+                                                        .fragment_blob_size = sizeof TRIANGLE_FRAG_MSL,
+                                                        .vertex_entry = TRIANGLE_VERT_ENTRY,
+                                                        .fragment_entry = TRIANGLE_FRAG_ENTRY,
+                                                        .name = "triangle")
+                        .value;
+    else
+        t->shader = mel_gpu_shader_create_from_bytecode(dev,
+                                                        .target = MEL_GPU_SHADER_TARGET_SPIRV,
+                                                        .vertex_blob = TRIANGLE_VERT_SPV,
+                                                        .vertex_blob_size = sizeof TRIANGLE_VERT_SPV,
+                                                        .fragment_blob = TRIANGLE_FRAG_SPV,
+                                                        .fragment_blob_size = sizeof TRIANGLE_FRAG_SPV,
+                                                        .vertex_entry = TRIANGLE_VERT_ENTRY,
+                                                        .fragment_entry = TRIANGLE_FRAG_ENTRY,
+                                                        .name = "triangle")
+                        .value;
 
     const Mel_Gpu_Vertex_Element layout[] = {
         { .location = 0, .format = MEL_GPU_FORMAT_RGB32_FLOAT, .offset = offsetof(Vertex, pos) },
