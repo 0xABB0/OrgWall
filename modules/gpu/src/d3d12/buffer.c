@@ -90,8 +90,10 @@ Mel_Gpu_Buffer_Create_Result mel_gpu_buffer_create_opt(Mel_Gpu_Device* dev, Mel_
 
     bool                  device_local = opt.memory == MEL_GPU_MEMORY_DEVICE;
     bool                  storage = (opt.usage & MEL_GPU_BUFFER_STORAGE) != 0;
+    bool                  uniform = (opt.usage & MEL_GPU_BUFFER_UNIFORM) != 0;
+    u64                   alloc_size = uniform ? ((opt.size + 255) & ~(u64)255) : opt.size;
     D3D12_HEAP_PROPERTIES hp = { .Type = mel_gpu__heap_type(opt.memory), .CreationNodeMask = 1, .VisibleNodeMask = 1 };
-    D3D12_RESOURCE_DESC   rd = mel_gpu__buffer_desc(opt.size, storage);
+    D3D12_RESOURCE_DESC   rd = mel_gpu__buffer_desc(alloc_size, storage);
     D3D12_RESOURCE_STATES init = hp.Type == D3D12_HEAP_TYPE_UPLOAD ? D3D12_RESOURCE_STATE_GENERIC_READ : (hp.Type == D3D12_HEAP_TYPE_READBACK ? D3D12_RESOURCE_STATE_COPY_DEST : D3D12_RESOURCE_STATE_COMMON);
 
     ID3D12Resource* resource = NULL;
