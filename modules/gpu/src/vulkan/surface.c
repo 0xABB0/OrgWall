@@ -3,6 +3,10 @@
 #include <allocator/heap.h>
 #include <log/log.h>
 
+#if defined(__linux__)
+#include "linux/surface.h"
+#endif
+
 Mel_Gpu_Surface* mel_gpu_surface_create(Mel_Gpu_Device* dev, void* native)
 {
     if (!dev || !native)
@@ -34,6 +38,14 @@ Mel_Gpu_Surface* mel_gpu_surface_create(Mel_Gpu_Device* dev, void* native)
     if (s->vk == VK_NULL_HANDLE)
     {
         mel_log_error("gpu", "failed to create Android surface");
+        mel_dealloc(mel_alloc_heap(), s);
+        return NULL;
+    }
+#elif defined(__linux__)
+    s->vk = mel_gpu__vk_create_linux_surface(dev->instance->vk, native);
+    if (s->vk == VK_NULL_HANDLE)
+    {
+        mel_log_error("gpu", "failed to create Linux surface");
         mel_dealloc(mel_alloc_heap(), s);
         return NULL;
     }
