@@ -171,14 +171,80 @@ Mel_Gpu_Future* mel_gpu_queue_submit(Mel_Gpu_Queue* q, Mel_Gpu_Submit submit)
         cbs[i] = submit.command_lists[i]->cb;
     }
 
+    VkSemaphore*          wait_sems = submit.wait_count ? mel_alloc_array(dev->alloc, VkSemaphore, submit.wait_count) : NULL;
+    VkPipelineStageFlags* wait_stages = submit.wait_count ? mel_alloc_array(dev->alloc, VkPipelineStageFlags, submit.wait_count) : NULL;
+    u64*                  wait_vals = submit.wait_count ? mel_alloc_array(dev->alloc, u64, submit.wait_count) : NULL;
+    VkSemaphore*          signal_sems = submit.signal_count ? mel_alloc_array(dev->alloc, VkSemaphore, submit.signal_count) : NULL;
+    u64*                  signal_vals = submit.signal_count ? mel_alloc_array(dev->alloc, u64, submit.signal_count) : NULL;
+    bool                  any_timeline = false;
+    bool                  sync_ok = true;
+
+    for (u32 i = 0; i < submit.wait_count; i++)
+    {
+        Mel_Gpu_Sync_Obj o;
+        if (!mel_gpu__table_get_copy(dev, &dev->syncs, submit.wait[i].sync.slot, &o))
+        {
+            mel_log_error("gpu", "queue_submit: wait[%u] is an invalid sync handle", i);
+            mel_assert(!"queue_submit: invalid wait sync handle");
+            sync_ok = false;
+            break;
+        }
+        wait_sems[i] = o.semaphore;
+        wait_stages[i] = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+        wait_vals[i] = submit.wait[i].value;
+        any_timeline |= o.is_timeline;
+    }
+    for (u32 i = 0; sync_ok && i < submit.signal_count; i++)
+    {
+        Mel_Gpu_Sync_Obj o;
+        if (!mel_gpu__table_get_copy(dev, &dev->syncs, submit.signal[i].sync.slot, &o))
+        {
+            mel_log_error("gpu", "queue_submit: signal[%u] is an invalid sync handle", i);
+            mel_assert(!"queue_submit: invalid signal sync handle");
+            sync_ok = false;
+            break;
+        }
+        signal_sems[i] = o.semaphore;
+        signal_vals[i] = submit.signal[i].value;
+        any_timeline |= o.is_timeline;
+    }
+
+    if (!sync_ok)
+    {
+        mel_gpu__track_exit(dev, q);
+        mel_dealloc(dev->alloc, cbs);
+        mel_dealloc(dev->alloc, wait_sems);
+        mel_dealloc(dev->alloc, wait_stages);
+        mel_dealloc(dev->alloc, wait_vals);
+        mel_dealloc(dev->alloc, signal_sems);
+        mel_dealloc(dev->alloc, signal_vals);
+        mel_gpu__submit_complete(dev, serial);
+        Mel_Gpu_Future* fe = mel_gpu_future_create(dev->pump, dev->reactor);
+        mel_gpu_future_resolve(fe, NULL, MEL_GPU_STATUS(2, MEL_GPU_SEVERITY_ERROR));
+        return fe;
+    }
+
     VkFenceCreateInfo fci = { .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
     VkFence           fence = VK_NULL_HANDLE;
     vkCreateFence(dev->vk, &fci, NULL, &fence);
 
+    VkTimelineSemaphoreSubmitInfo tsi = {
+        .sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO,
+        .waitSemaphoreValueCount = submit.wait_count,
+        .pWaitSemaphoreValues = wait_vals,
+        .signalSemaphoreValueCount = submit.signal_count,
+        .pSignalSemaphoreValues = signal_vals,
+    };
     VkSubmitInfo si = {
         .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+        .pNext = any_timeline ? &tsi : NULL,
+        .waitSemaphoreCount = submit.wait_count,
+        .pWaitSemaphores = wait_sems,
+        .pWaitDstStageMask = wait_stages,
         .commandBufferCount = submit.command_list_count,
         .pCommandBuffers = submit.command_list_count ? cbs : NULL,
+        .signalSemaphoreCount = submit.signal_count,
+        .pSignalSemaphores = signal_sems,
     };
 
     mel_mutex_lock(&dev->submit_lock);
@@ -186,8 +252,12 @@ Mel_Gpu_Future* mel_gpu_queue_submit(Mel_Gpu_Queue* q, Mel_Gpu_Submit submit)
     mel_mutex_unlock(&dev->submit_lock);
     mel_gpu__track_exit(dev, q);
 
-    if (cbs)
-        mel_dealloc(dev->alloc, cbs);
+    mel_dealloc(dev->alloc, cbs);
+    mel_dealloc(dev->alloc, wait_sems);
+    mel_dealloc(dev->alloc, wait_stages);
+    mel_dealloc(dev->alloc, wait_vals);
+    mel_dealloc(dev->alloc, signal_sems);
+    mel_dealloc(dev->alloc, signal_vals);
 
     Mel_Gpu_Future* f = mel_gpu_future_create(dev->pump, dev->reactor);
 

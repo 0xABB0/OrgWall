@@ -47,6 +47,16 @@ static bool mel_gpu__device_ext_available(VkPhysicalDevice phys, const char* nam
     return found;
 }
 
+static void mel_gpu__ext_push(const Mel_Alloc* a, const char*** list, u32* count, u32* cap, const char* name)
+{
+    if (*count == *cap)
+    {
+        *cap = *cap ? *cap * 2 : 4;
+        *list = *list ? mel_realloc(a, *list, sizeof(const char*) * (*cap)) : mel_alloc(a, sizeof(const char*) * (*cap));
+    }
+    (*list)[(*count)++] = name;
+}
+
 Mel_Gpu_Device_Create_Result mel_gpu_device_create_opt(Mel_Gpu_Instance* inst, Mel_Gpu_Adapter* adapter, Mel_Gpu_Device_Opt opt)
 {
     Mel_Gpu_Device_Create_Result res = { .value = NULL, .status = MEL_GPU_DEVICE_CREATE_OK };
@@ -68,18 +78,19 @@ Mel_Gpu_Device_Create_Result mel_gpu_device_create_opt(Mel_Gpu_Instance* inst, M
 
     const Mel_Alloc* alloc = opt.alloc ? opt.alloc : mel_alloc_heap();
 
-    const char* exts[8];
-    u32         ext_count = 0;
+    const char** exts = NULL;
+    u32          ext_count = 0;
+    u32          ext_cap = 0;
     if (mel_gpu__device_ext_available(adapter->phys, VK_KHR_SWAPCHAIN_EXTENSION_NAME))
-        exts[ext_count++] = VK_KHR_SWAPCHAIN_EXTENSION_NAME;
+        mel_gpu__ext_push(alloc, &exts, &ext_count, &ext_cap, VK_KHR_SWAPCHAIN_EXTENSION_NAME);
     if (mel_gpu__device_ext_available(adapter->phys, "VK_KHR_portability_subset"))
-        exts[ext_count++] = "VK_KHR_portability_subset";
+        mel_gpu__ext_push(alloc, &exts, &ext_count, &ext_cap, "VK_KHR_portability_subset");
     bool has_budget = mel_gpu__device_ext_available(adapter->phys, VK_EXT_MEMORY_BUDGET_EXTENSION_NAME);
     if (has_budget)
-        exts[ext_count++] = VK_EXT_MEMORY_BUDGET_EXTENSION_NAME;
+        mel_gpu__ext_push(alloc, &exts, &ext_count, &ext_cap, VK_EXT_MEMORY_BUDGET_EXTENSION_NAME);
     bool has_dr = mel_gpu__device_ext_available(adapter->phys, VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME);
     if (has_dr)
-        exts[ext_count++] = VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME;
+        mel_gpu__ext_push(alloc, &exts, &ext_count, &ext_cap, VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME);
     bool has_sync2_ext = mel_gpu__device_ext_available(adapter->phys, VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME);
 
     float                   prio = 1.0f;
@@ -130,7 +141,7 @@ Mel_Gpu_Device_Create_Result mel_gpu_device_create_opt(Mel_Gpu_Instance* inst, M
         has_sync2 = probe.synchronization2 != 0;
     }
     if (has_sync2)
-        exts[ext_count++] = VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME;
+        mel_gpu__ext_push(alloc, &exts, &ext_count, &ext_cap, VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME);
 
     void*                                       chain_head = has_dr ? (void*)&feat_dr : (void*)&feat12;
     VkPhysicalDeviceSynchronization2FeaturesKHR feat_sync2 = {
@@ -183,6 +194,7 @@ Mel_Gpu_Device_Create_Result mel_gpu_device_create_opt(Mel_Gpu_Instance* inst, M
 
     VkDevice vk = VK_NULL_HANDLE;
     VkResult r = vkCreateDevice(adapter->phys, &dci, NULL, &vk);
+    mel_dealloc(alloc, exts);
     if (r != VK_SUCCESS)
     {
         res.status = r == VK_ERROR_OUT_OF_HOST_MEMORY || r == VK_ERROR_OUT_OF_DEVICE_MEMORY ? MEL_GPU_DEVICE_CREATE_OOM : MEL_GPU_DEVICE_CREATE_VK_FAILED;
@@ -566,18 +578,14 @@ VkCommandPool mel_gpu__thread_pool(Mel_Gpu_Device* dev, u32 family)
 
 static Mel_Gpu_Adapter* mel_gpu__pick_adapter(Mel_Gpu_Instance* inst, Mel_Gpu_Power_Preference pref)
 {
-    Mel_Gpu_Adapter* adapters[16];
-    u32              n = mel_gpu_adapters(inst, adapters, 16);
-    if (n == 0)
+    if (!inst || inst->adapter_count == 0)
         return NULL;
-    if (n > 16)
-        n = 16;
 
     Mel_Gpu_Adapter_Type want = pref == MEL_GPU_POWER_PREFERENCE_LOW ? MEL_GPU_ADAPTER_INTEGRATED : MEL_GPU_ADAPTER_DISCRETE;
-    for (u32 i = 0; i < n; i++)
-        if (adapters[i]->caps.adapter.adapter_type == want)
-            return adapters[i];
-    return adapters[0];
+    for (u32 i = 0; i < inst->adapter_count; i++)
+        if (inst->adapters[i].caps.adapter.adapter_type == want)
+            return &inst->adapters[i];
+    return &inst->adapters[0];
 }
 
 Mel_Gpu_Future* mel_gpu_device_create_default_opt(Mel_Gpu_Device_Default_Opt opt)

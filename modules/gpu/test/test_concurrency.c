@@ -11,6 +11,7 @@
 #include <gpu/pipeline.h>
 #include <gpu/shader.h>
 #include <gpu/queue.h>
+#include <gpu/sync.h>
 #include <gpu/command.h>
 #include <gpu/state.h>
 #include <gpu/threading.h>
@@ -713,7 +714,7 @@ MEL_TEST(conc_tracker, distinct_objects_and_concurrent_class)
     mel_gpu_thread_tracker_destroy(tracker);
 }
 
-MEL_TEST(conc_tracker, device_accepts_flag_but_tracker_is_unwired)
+MEL_TEST(conc_tracker, tracker_wired_single_thread_clean)
 {
     Mel_Gpu_Instance* inst = mel_gpu_instance_create(.app_name = "gpu-concurrency", .debug = { .enabled = true });
     MEL_REQUIRE_NOT_NULL(inst);
@@ -731,6 +732,96 @@ MEL_TEST(conc_tracker, device_accepts_flag_but_tracker_is_unwired)
     mel_gpu_buffer_destroy(dr.value, b.value);
 
     mel_gpu_device_destroy(dr.value);
+    mel_gpu_instance_destroy(inst);
+}
+
+MEL_TEST(conc_submit, signal_then_wait_binary)
+{
+    Mel_Gpu_Instance* inst = NULL;
+    Mel_Gpu_Device*   dev = conc_make_device(&inst);
+    MEL_REQUIRE_NOT_NULL(dev);
+
+    Mel_Gpu_Queue* q = mel_gpu_queue_request(dev, MEL_GPU_QUEUE_GRAPHICS);
+    MEL_REQUIRE_NOT_NULL(q);
+
+    Mel_Gpu_Sync_Create_Result s = mel_gpu_sync_create(dev, MEL_GPU_SYNC_BINARY, 0);
+    MEL_REQUIRE(!mel_gpu_failed(s.status));
+
+    Mel_Gpu_Submit_Sync sig = { .sync = s.value };
+    Mel_Gpu_Future*     f1 = mel_gpu_queue_submit(q, (Mel_Gpu_Submit){ .signal = &sig, .signal_count = 1 });
+    MEL_REQUIRE_NOT_NULL(f1);
+    MEL_EXPECT(mel_gpu_ok(mel_gpu_future_status(f1)));
+
+    Mel_Gpu_Submit_Sync wait = { .sync = s.value };
+    Mel_Gpu_Future*     f2 = mel_gpu_queue_submit(q, (Mel_Gpu_Submit){ .wait = &wait, .wait_count = 1 });
+    MEL_REQUIRE_NOT_NULL(f2);
+    MEL_EXPECT(mel_gpu_ok(mel_gpu_future_status(f2)));
+
+    mel_gpu_future_destroy(f1);
+    mel_gpu_future_destroy(f2);
+    mel_gpu_sync_destroy(dev, s.value);
+    mel_gpu_queue_release(q);
+    mel_gpu_device_destroy(dev);
+    mel_gpu_instance_destroy(inst);
+}
+
+MEL_TEST(conc_submit, timeline_signal_and_wait)
+{
+    Mel_Gpu_Instance* inst = NULL;
+    Mel_Gpu_Device*   dev = conc_make_device(&inst);
+    MEL_REQUIRE_NOT_NULL(dev);
+    MEL_REQUIRE(mel_gpu_device_caps(dev)->queues.timeline == MEL_GPU_TIMELINE_NATIVE);
+
+    Mel_Gpu_Queue* q = mel_gpu_queue_request(dev, MEL_GPU_QUEUE_GRAPHICS);
+    MEL_REQUIRE_NOT_NULL(q);
+
+    Mel_Gpu_Sync_Create_Result s = mel_gpu_sync_create(dev, MEL_GPU_SYNC_TIMELINE, 0);
+    MEL_REQUIRE(!mel_gpu_failed(s.status));
+
+    Mel_Gpu_Submit_Sync sig = { .sync = s.value, .value = 1 };
+    Mel_Gpu_Future*     f1 = mel_gpu_queue_submit(q, (Mel_Gpu_Submit){ .signal = &sig, .signal_count = 1 });
+    MEL_REQUIRE_NOT_NULL(f1);
+    MEL_EXPECT(mel_gpu_ok(mel_gpu_future_status(f1)));
+
+    Mel_Gpu_Submit_Sync wait = { .sync = s.value, .value = 1 };
+    Mel_Gpu_Future*     f2 = mel_gpu_queue_submit(q, (Mel_Gpu_Submit){ .wait = &wait, .wait_count = 1 });
+    MEL_REQUIRE_NOT_NULL(f2);
+    MEL_EXPECT(mel_gpu_ok(mel_gpu_future_status(f2)));
+
+    mel_gpu_future_destroy(f1);
+    mel_gpu_future_destroy(f2);
+    mel_gpu_sync_destroy(dev, s.value);
+    mel_gpu_queue_release(q);
+    mel_gpu_device_destroy(dev);
+    mel_gpu_instance_destroy(inst);
+}
+
+MEL_TEST(conc_submit, sync_destroy_after_use)
+{
+    Mel_Gpu_Instance* inst = NULL;
+    Mel_Gpu_Device*   dev = conc_make_device(&inst);
+    MEL_REQUIRE_NOT_NULL(dev);
+
+    Mel_Gpu_Queue* q = mel_gpu_queue_request(dev, MEL_GPU_QUEUE_GRAPHICS);
+    MEL_REQUIRE_NOT_NULL(q);
+
+    Mel_Gpu_Sync_Create_Result s = mel_gpu_sync_create(dev, MEL_GPU_SYNC_BINARY, 0);
+    MEL_REQUIRE(!mel_gpu_failed(s.status));
+
+    Mel_Gpu_Submit_Sync sig = { .sync = s.value };
+    Mel_Gpu_Future*     f1 = mel_gpu_queue_submit(q, (Mel_Gpu_Submit){ .signal = &sig, .signal_count = 1 });
+    Mel_Gpu_Submit_Sync wait = { .sync = s.value };
+    Mel_Gpu_Future*     f2 = mel_gpu_queue_submit(q, (Mel_Gpu_Submit){ .wait = &wait, .wait_count = 1 });
+    MEL_EXPECT(mel_gpu_ok(mel_gpu_future_status(f1)));
+    MEL_EXPECT(mel_gpu_ok(mel_gpu_future_status(f2)));
+
+    mel_gpu_sync_destroy(dev, s.value);
+    MEL_EXPECT(!mel_gpu_sync_alive(dev, s.value));
+
+    mel_gpu_future_destroy(f1);
+    mel_gpu_future_destroy(f2);
+    mel_gpu_queue_release(q);
+    mel_gpu_device_destroy(dev);
     mel_gpu_instance_destroy(inst);
 }
 

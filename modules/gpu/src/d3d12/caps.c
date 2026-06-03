@@ -36,6 +36,19 @@ void mel_gpu__caps_from_adapter(IDXGIAdapter1* adapter, Mel_Gpu_Caps* out)
     out->memory.residency_control = MEL_GPU_RESIDENCY_BUDGET_ONLY;
 
     out->queues.timeline = MEL_GPU_TIMELINE_NATIVE;
+    out->queues.async_compute = true;
+    out->queues.dedicated_compute = true;
+    out->queues.dedicated_transfer = true;
+
+    out->shader.int8 = false;
+
+    out->memory.sparse_buffer = false;
+    out->memory.sparse_texture = false;
+
+    out->presentation.vrr = false;
+    out->presentation.frame_latency_waitable = false;
+    out->presentation.shared_presentable_image = false;
+    out->presentation.pre_rotation = false;
 
     out->sampler.anisotropy = true;
     out->sampler.max_anisotropy = 16.0f;
@@ -72,7 +85,11 @@ void mel_gpu__caps_refine_device(ID3D12Device* dev, ID3D12CommandQueue* queue, M
 
     D3D12_FEATURE_DATA_D3D12_OPTIONS o = { 0 };
     if (SUCCEEDED(ID3D12Device_CheckFeatureSupport(dev, D3D12_FEATURE_D3D12_OPTIONS, &o, sizeof o)))
+    {
         out->memory.bindless.tier = o.ResourceBindingTier >= D3D12_RESOURCE_BINDING_TIER_3 ? MEL_GPU_TIER_FULL : MEL_GPU_TIER_NONE;
+        out->memory.sparse_buffer = o.TiledResourcesTier >= D3D12_TILED_RESOURCES_TIER_1;
+        out->memory.sparse_texture = o.TiledResourcesTier >= D3D12_TILED_RESOURCES_TIER_1;
+    }
     if (out->memory.bindless.tier == MEL_GPU_TIER_FULL)
     {
         out->memory.bindless.max_texture_view_slots = 1000000;

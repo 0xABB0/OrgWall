@@ -182,9 +182,15 @@ void mel_gpu_texture_destroy(Mel_Gpu_Device* dev, Mel_Gpu_Texture tex)
     Mel_Gpu_Allocation alloc = o.alloc;
     VkImage            image = o.image;
     bool               borrowed = o.header.ownership == MEL_GPU_OWNERSHIP_BORROWED;
-    mel_gpu__table_remove(dev, &dev->textures, tex.slot);
-    if (!borrowed)
-        mel_gpu__defer_free(dev, (Mel_Gpu_Deferred_Free){ .image = image, .alloc = alloc, .has_alloc = true });
+    if (borrowed)
+    {
+        mel_gpu__table_remove(dev, &dev->textures, tex.slot);
+    }
+    else
+    {
+        mel_gpu__table_remove_deferred(dev, &dev->textures, tex.slot);
+        mel_gpu__defer_free(dev, (Mel_Gpu_Deferred_Free){ .image = image, .alloc = alloc, .has_alloc = true, .reclaim_table = &dev->textures, .reclaim_index = tex.slot.index, .has_reclaim = true });
+    }
     mel_gpu__track_exit(dev, trk);
 }
 

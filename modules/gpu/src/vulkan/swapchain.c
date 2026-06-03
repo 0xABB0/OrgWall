@@ -78,6 +78,8 @@ static void mel_gpu__choose_format(Mel_Gpu_Swapchain* sc, Mel_Gpu_Format request
                 break;
             }
     }
+    if (want != VK_FORMAT_UNDEFINED && sc->format != want)
+        mel_log_warn("gpu", "swapchain: requested format %d unavailable on this surface; substituted %d", (int)want, (int)sc->format);
     mel_dealloc(mel_alloc_heap(), formats);
 }
 

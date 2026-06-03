@@ -50,9 +50,15 @@ void mel_gpu_sync_destroy(Mel_Gpu_Device* dev, Mel_Gpu_Sync sync)
     }
     bool        borrowed = o.header.ownership == MEL_GPU_OWNERSHIP_BORROWED;
     VkSemaphore sem = o.semaphore;
-    mel_gpu__table_remove(dev, &dev->syncs, sync.slot);
-    if (!borrowed && sem)
-        mel_gpu__defer_free(dev, (Mel_Gpu_Deferred_Free){ .semaphore = sem });
+    if (borrowed)
+    {
+        mel_gpu__table_remove(dev, &dev->syncs, sync.slot);
+    }
+    else
+    {
+        mel_gpu__table_remove_deferred(dev, &dev->syncs, sync.slot);
+        mel_gpu__defer_free(dev, (Mel_Gpu_Deferred_Free){ .semaphore = sem, .reclaim_table = &dev->syncs, .reclaim_index = sync.slot.index, .has_reclaim = true });
+    }
     mel_gpu__track_exit(dev, trk);
 }
 

@@ -126,6 +126,9 @@ Mel_Gpu_Future* mel_gpu_queue_submit(Mel_Gpu_Queue* q, Mel_Gpu_Submit submit)
     Mel_Gpu_Device* dev = q->dev;
     u64             serial = mel_gpu__submit_serial_next(dev);
 
+    if (submit.wait_count || submit.signal_count)
+        mel_log_error("gpu", "queue_submit: wait/signal sync arrays are not yet wired on the D3D12 backend (Vulkan-only this milestone); %u wait + %u signal ignored", submit.wait_count, submit.signal_count);
+
     ID3D12CommandList*  stackbuf[8];
     ID3D12CommandList** cls = submit.command_list_count <= 8 ? stackbuf : mel_alloc_array(dev->alloc, ID3D12CommandList*, submit.command_list_count);
     for (u32 i = 0; i < submit.command_list_count; i++)

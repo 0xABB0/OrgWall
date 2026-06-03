@@ -133,6 +133,8 @@ void mel_gpu__caps_probe(VkPhysicalDevice phys, Mel_Gpu_Caps* out)
 
     out->memory.persistent_map = host_visible_any;
     out->memory.residency_control = mel_gpu__phys_ext(phys, VK_EXT_MEMORY_BUDGET_EXTENSION_NAME) ? MEL_GPU_RESIDENCY_BUDGET_ONLY : MEL_GPU_RESIDENCY_NONE;
+    out->memory.sparse_buffer = feat2.features.sparseBinding && feat2.features.sparseResidencyBuffer;
+    out->memory.sparse_texture = feat2.features.sparseBinding && feat2.features.sparseResidencyImage2D;
 
     bool di_full = di.runtimeDescriptorArray && di.descriptorBindingPartiallyBound && di.shaderSampledImageArrayNonUniformIndexing && di.descriptorBindingSampledImageUpdateAfterBind && di.descriptorBindingStorageBufferUpdateAfterBind && di.descriptorBindingUniformBufferUpdateAfterBind && di.descriptorBindingStorageImageUpdateAfterBind;
     out->memory.bindless.tier = di_full ? MEL_GPU_TIER_FULL : MEL_GPU_TIER_NONE;
@@ -158,6 +160,10 @@ void mel_gpu__caps_probe(VkPhysicalDevice phys, Mel_Gpu_Caps* out)
     out->features.ml_tensor = false;
 
     out->presentation.allow_tearing = false;
+    out->presentation.vrr = false;
+    out->presentation.frame_latency_waitable = false;
+    out->presentation.shared_presentable_image = mel_gpu__phys_ext(phys, VK_KHR_SHARED_PRESENTABLE_IMAGE_EXTENSION_NAME);
+    out->presentation.pre_rotation = false;
     out->presentation.present_wait = MEL_GPU_PRESENT_WAIT_NONE;
     out->presentation.present_timing_feedback = MEL_GPU_PRESENT_TIMING_NONE;
 

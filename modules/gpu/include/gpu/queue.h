@@ -3,6 +3,7 @@
 #include <core/types.h>
 #include <gpu/status.h>
 #include <gpu/future.h>
+#include <gpu/sync.h>
 
 typedef struct Mel_Gpu_Device       Mel_Gpu_Device;
 typedef struct Mel_Gpu_Queue        Mel_Gpu_Queue;
@@ -55,8 +56,18 @@ Mel_Gpu_Queue_Info mel_gpu_queue_info(Mel_Gpu_Queue* q);
 
 typedef struct
 {
+    Mel_Gpu_Sync sync;
+    u64          value;
+} Mel_Gpu_Submit_Sync;
+
+typedef struct
+{
     Mel_Gpu_Command_List* const* command_lists;
     u32                          command_list_count;
+    const Mel_Gpu_Submit_Sync*   wait;
+    u32                          wait_count;
+    const Mel_Gpu_Submit_Sync*   signal;
+    u32                          signal_count;
 } Mel_Gpu_Submit;
 
 Mel_Gpu_Future* mel_gpu_queue_submit(Mel_Gpu_Queue* q, Mel_Gpu_Submit submit);

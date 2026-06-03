@@ -151,6 +151,9 @@ void mel_gpu_pump_tick(Mel_Gpu_Completion_Pump* pump)
         if (f->cont)
             f->cont(f, f->cont_user);
     }
+
+    if (pump->warned && (u32)atomic_load(&pump->ready_count) <= pump->high_water)
+        pump->warned = false;
 }
 
 Mel_Gpu_Future* mel_gpu_future_create(Mel_Gpu_Completion_Pump* pump, Mel_Reactor* target)
