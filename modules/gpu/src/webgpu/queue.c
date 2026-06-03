@@ -80,8 +80,14 @@ typedef struct
     bool ok;
 } Mel_Gpu_Work_Done;
 
+#ifdef __EMSCRIPTEN__
+static void mel_gpu__work_done_cb(WGPUQueueWorkDoneStatus status, WGPUStringView message, void* u1, void* u2)
+{
+    (void)message;
+#else
 static void mel_gpu__work_done_cb(WGPUQueueWorkDoneStatus status, void* u1, void* u2)
 {
+#endif
     (void)u2;
     Mel_Gpu_Work_Done* w = (Mel_Gpu_Work_Done*)u1;
     w->done = true;
@@ -138,16 +144,7 @@ Mel_Gpu_Future* mel_gpu_queue_submit(Mel_Gpu_Queue* q, Mel_Gpu_Submit submit)
     WGPUQueueWorkDoneCallbackInfo cbi = { .mode = WGPUCallbackMode_AllowProcessEvents, .callback = mel_gpu__work_done_cb, .userdata1 = &w };
     wgpuQueueOnSubmittedWorkDone(dev->queue, cbi);
 
-    u32 spins = 0;
-    while (!w.done && spins < 100000)
-    {
-        wgpuInstanceProcessEvents(dev->wgpu_instance);
-        if (!w.done)
-        {
-            mel_thread_sleep(100000);
-            spins++;
-        }
-    }
+    mel_gpu__drain_until(dev->wgpu_instance, &w.done);
 
     for (u32 i = 0; i < buffer_count; i++)
         wgpuCommandBufferRelease(buffers[i]);

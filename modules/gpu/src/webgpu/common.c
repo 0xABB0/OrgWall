@@ -4,6 +4,12 @@
 
 #include <string.h>
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#else
+#include <thread/thread.h>
+#endif
+
 WGPUStringView mel_gpu__sv(const char* s)
 {
     if (!s)
@@ -138,6 +144,26 @@ void mel_gpu__instance_pump_tick(void* user)
     Mel_Gpu_Device* dev = (Mel_Gpu_Device*)user;
     if (dev && dev->wgpu_instance)
         wgpuInstanceProcessEvents(dev->wgpu_instance);
+}
+
+bool mel_gpu__drain_until(WGPUInstance instance, const bool* done)
+{
+    if (!instance || !done)
+        return false;
+    u32 spins = 0;
+    while (!*done && spins < 100000)
+    {
+        wgpuInstanceProcessEvents(instance);
+        if (*done)
+            break;
+#ifdef __EMSCRIPTEN__
+        emscripten_sleep(1);
+#else
+        mel_thread_sleep(100000);
+#endif
+        spins++;
+    }
+    return *done;
 }
 
 bool mel_gpu__buffer_get(Mel_Gpu_Device* dev, Mel_Gpu_Buffer buf, Mel_Gpu_Buffer_Obj* out)

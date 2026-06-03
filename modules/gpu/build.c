@@ -59,9 +59,13 @@ void build(Mel_Build* b)
 
     mel_sources(lib, WHEN(.gpu = "webgpu"), "src/webgpu/*.c");
     mel_sources(lib, WHEN(.gpu = "webgpu", .platforms = MEL_ON(MACOS)), "src/webgpu/*.m");
+    mel_sources(lib, WHEN(.gpu = "webgpu", .platforms = MEL_ON(WASM)), "src/webgpu/wasm/*.c");
     mel_defines(lib, MEL_PRIVATE, WHEN(.gpu = "webgpu"), "MEL_GPU_WEBGPU=1");
     mel_depends(lib, "webgpu");
     mel_link(lib, MEL_PUBLIC, WHEN(.gpu = "webgpu", .platforms = MEL_ON(MACOS)), "-framework", "QuartzCore", "-framework", "Foundation", "-framework", "AppKit", "-framework", "Metal");
+
+    mel_cflags(lib, MEL_PUBLIC, WHEN(.gpu = "webgpu", .platforms = MEL_ON(WASM)), "--use-port=emdawnwebgpu");
+    mel_link(lib, MEL_PUBLIC, WHEN(.gpu = "webgpu", .platforms = MEL_ON(WASM)), "--use-port=emdawnwebgpu", "-sASYNCIFY", "-sALLOW_MEMORY_GROWTH=1");
 
     mel_depends(lib, "core");
     mel_depends(lib, "allocator");

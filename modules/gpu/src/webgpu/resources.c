@@ -144,16 +144,7 @@ void* mel_gpu_buffer_mapped(Mel_Gpu_Device* dev, Mel_Gpu_Buffer buf)
         WGPUBufferMapCallbackInfo cbi = { .mode = WGPUCallbackMode_AllowProcessEvents, .callback = mel_gpu__map_cb, .userdata1 = &req };
         wgpuBufferMapAsync(o->wgpu, WGPUMapMode_Read, 0, o->size, cbi);
 
-        u32 spins = 0;
-        while (!req.done && spins < 100000)
-        {
-            wgpuInstanceProcessEvents(dev->wgpu_instance);
-            if (!req.done)
-            {
-                mel_thread_sleep(100000);
-                spins++;
-            }
-        }
+        mel_gpu__drain_until(dev->wgpu_instance, &req.done);
         if (!req.ok)
             return NULL;
         o->mapped = true;

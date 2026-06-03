@@ -24,5 +24,5 @@ void build(Mel_Build *b) {
               "-DTINT_BUILD_CMD_TOOLS=OFF", "-DDAWN_ENABLE_DESKTOP_GL=OFF",
               "-DDAWN_ENABLE_OPENGLES=OFF", "-DPython3_EXECUTABLE=/usr/bin/python3");
 
-    mel_link(tp, MEL_PUBLIC, WHEN(.gpu = "webgpu"), "-lwebgpu_dawn");
+    mel_link(tp, MEL_PUBLIC, WHEN(.gpu = "webgpu", .platforms = MEL_ON(MACOS) | MEL_ON(ANDROID)), "-lwebgpu_dawn");
 }
