@@ -119,6 +119,7 @@ void build(Mel_Build* b)
 
     Mel_Target* vistest = mel_add_test(b, "gpu-visual");
     mel_sources(vistest, ALWAYS, "test/test_visual.c");
+    mel_sources(vistest, ALWAYS, "test/img_golden.c");
     mel_sources(vistest, ALWAYS, "../../tools/test/src/runner.c");
     mel_defines(vistest, MEL_PRIVATE, WHEN(.gpu = "vulkan"), "MEL_GPU_VULKAN=1");
     mel_link(vistest, MEL_PUBLIC, WHEN(.platforms = MEL_ON(MACOS)), "-framework", "AppKit");
