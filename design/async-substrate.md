@@ -71,6 +71,15 @@ typedef struct {
 - **event** — many-shot pub/sub; generation-checked subscriptions; per-channel loss policy
   (latest / lossy-lag / lossless), explicit. Subsumes clipboard-watch, display events, input.
   *GCD dispatch sources, tokio watch/broadcast.* deps: core, allocator, collection, executor.
+- **channel** — CSP point-to-point stream, M producers → N consumers. Unbuffered (rendezvous: a
+  direct sender→receiver handoff, zero copy when both present) or buffered (a bounded ring sized at
+  creation). `send`/`recv` park a fiber (job world) or return a future (callback world) — the same
+  dual as `signal`/`future`. `select` waits on multiple channel ops and proceeds with the first
+  ready. `close` drains then reports closed; send-after-close is an error (MEL-ENGINE-VIII). Waiter
+  queues are intrusive (parked senders/receivers are owner-embedded nodes, no alloc). *Hoare CSP,
+  libmill/libdill `chan`/`choose`, Go channels.* deps: core, allocator, collection, executor,
+  signal, future. The coordination trio splits by topology: **future** 1→1 one-shot, **event** 1→N
+  broadcast, **channel** M→N stream with backpressure + rendezvous + select.
 - **port** *(platform-shaped)* — proactor; submit OS async ops, completions resolve futures on a
   target executor. **Two modes:** reactor-source CQ polling where the OS allows (io_uring, kqueue,
   GCD) — zero thread-hop; own-thread drain + cross-submit fallback (classic IOCP). *libuv internals,
@@ -80,8 +89,9 @@ typedef struct {
   core, executor.
 
 DAG (acyclic): `collection → executor → {reactor, job, future, event, port, scope}`;
-`fiber → {signal, coroutine, job}`; `signal → job`. `port` delivers to an `Mel_Executor*` handle,
-so it composes with reactor *or* job without depending on either.
+`fiber → {signal, coroutine, job}`; `signal → job`; `{executor, signal, future} → channel`. `port`
+delivers to an `Mel_Executor*` handle, so it composes with reactor *or* job without depending on
+either.
 
 ## Invariants
 
@@ -114,6 +124,10 @@ so it composes with reactor *or* job without depending on either.
 - **Ordering** → per-producer FIFO + serial-executor linearization only; no global cross-thread
   order promised.
 - **Realtime guarantee without caps** → by construction + audio-thread assertion, not a runtime flag.
+- **Channel select fairness / close race** → `select` registers an intrusive waiter on every
+  candidate, commits the first to fire via a single CAS, and retracts the rest; a `close` racing a
+  parked `send`/`recv` is resolved by the same one-shot CAS (the waiter wakes either committed or
+  closed, never both); rendezvous hands the value sender→receiver directly with no buffer copy.
 
 ## Rewrites this forces (consumers, not the reactor)
 
