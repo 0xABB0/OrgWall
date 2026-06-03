@@ -180,7 +180,6 @@ void build(Mel_Build* b)
     Mel_Target* metaltest = mel_add_test(b, "gpu-metal");
     mel_sources(metaltest, ALWAYS, "test/test_metal.c");
     mel_sources(metaltest, ALWAYS, "../../tools/test/src/runner.c");
-    mel_sources(metaltest, WHEN(.platforms = MEL_ON(IOS)), "test/ios_stacktrace_shim.c");
     mel_includes(metaltest, MEL_PRIVATE, ALWAYS, "../../apps/hello-gpu/src");
     mel_defines(metaltest, MEL_PRIVATE, WHEN(.gpu = "metal"), "MEL_GPU_METAL=1");
     mel_link(metaltest, MEL_PUBLIC, WHEN(.platforms = MEL_ON(MACOS)), "-framework", "AppKit");
@@ -203,4 +202,22 @@ void build(Mel_Build* b)
     mel_depends(wgputest, "allocator");
     mel_depends(wgputest, "collection");
     mel_depends(wgputest, "reactor");
+
+    Mel_Target* scenetest = mel_add_test(b, "gpu-scene");
+    mel_sources(scenetest, ALWAYS, "test/test_scene.c");
+    mel_sources(scenetest, ALWAYS, "test/img_golden.c");
+    mel_sources(scenetest, ALWAYS, "../../tools/test/src/runner.c");
+    mel_includes(scenetest, MEL_PRIVATE, ALWAYS, "../../apps/hello-gpu/src");
+    mel_defines(scenetest, MEL_PRIVATE, WHEN(.gpu = "vulkan"), "MEL_GPU_VULKAN=1");
+    mel_defines(scenetest, MEL_PRIVATE, WHEN(.gpu = "metal"), "MEL_GPU_METAL=1");
+    mel_defines(scenetest, MEL_PRIVATE, WHEN(.gpu = "webgpu"), "MEL_GPU_WEBGPU=1");
+    mel_defines(scenetest, MEL_PRIVATE, WHEN(.gpu = "d3d12"), "MEL_GPU_D3D12=1");
+    mel_link(scenetest, MEL_PUBLIC, WHEN(.platforms = MEL_ON(MACOS)), "-framework", "AppKit");
+    mel_depends(scenetest, "test");
+    mel_depends(scenetest, "gpu");
+    mel_depends(scenetest, "core");
+    mel_depends(scenetest, "allocator");
+    mel_depends(scenetest, "collection");
+    mel_depends(scenetest, "reactor");
+    mel_depends(scenetest, "log");
 }

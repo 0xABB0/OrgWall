@@ -76,16 +76,50 @@ Mel_Gpu_Queue_Info mel_gpu_queue_info(Mel_Gpu_Queue* q)
 
 typedef struct
 {
-    bool done;
-    bool ok;
+    Mel_Gpu_Device*    dev;
+    Mel_Gpu_Future*    future;
+    u64                serial;
+    WGPUCommandBuffer* buffers;
+    u32                buffer_count;
+    bool               heap_buffers;
+    bool               done;
+    bool               ok;
 } Mel_Gpu_Work_Done;
 
+static void mel_gpu__submit_retire(Mel_Gpu_Work_Done* w, bool ok)
+{
+    for (u32 i = 0; i < w->buffer_count; i++)
+        wgpuCommandBufferRelease(w->buffers[i]);
+    if (w->heap_buffers)
+        mel_dealloc(w->dev->alloc, w->buffers);
+
+    mel_gpu__submit_complete(w->dev, w->serial);
+    mel_gpu_future_resolve(w->future, NULL, ok ? MEL_GPU_STATUS(0, MEL_GPU_SEVERITY_OK) : MEL_GPU_STATUS(1, MEL_GPU_SEVERITY_ERROR));
+}
+
 #ifdef __EMSCRIPTEN__
-static void mel_gpu__work_done_cb(WGPUQueueWorkDoneStatus status, WGPUStringView message, void* u1, void* u2)
+static void mel_gpu__work_done_async_cb(WGPUQueueWorkDoneStatus status, WGPUStringView message, void* u1, void* u2)
 {
     (void)message;
 #else
-static void mel_gpu__work_done_cb(WGPUQueueWorkDoneStatus status, void* u1, void* u2)
+static void mel_gpu__work_done_async_cb(WGPUQueueWorkDoneStatus status, void* u1, void* u2)
+{
+#endif
+    (void)u2;
+    Mel_Gpu_Work_Done* w = (Mel_Gpu_Work_Done*)u1;
+    bool               ok = status == WGPUQueueWorkDoneStatus_Success;
+    if (!ok)
+        mel_log_error("gpu", "queue_submit: GPU work for serial %llu reported failure (status %d)", (unsigned long long)w->serial, (int)status);
+    mel_gpu__submit_retire(w, ok);
+    mel_dealloc(w->dev->alloc, w);
+}
+
+#ifdef __EMSCRIPTEN__
+static void mel_gpu__work_done_sync_cb(WGPUQueueWorkDoneStatus status, WGPUStringView message, void* u1, void* u2)
+{
+    (void)message;
+#else
+static void mel_gpu__work_done_sync_cb(WGPUQueueWorkDoneStatus status, void* u1, void* u2)
 {
 #endif
     (void)u2;
@@ -117,7 +151,8 @@ Mel_Gpu_Future* mel_gpu_queue_submit(Mel_Gpu_Queue* q, Mel_Gpu_Submit submit)
     u32                buffer_count = 0;
     WGPUCommandBuffer  stack[8];
     WGPUCommandBuffer* buffers = stack;
-    if (submit.command_list_count > 8)
+    bool               heap_buffers = submit.command_list_count > 8;
+    if (heap_buffers)
         buffers = mel_alloc_array(dev->alloc, WGPUCommandBuffer, submit.command_list_count);
 
     for (u32 i = 0; i < submit.command_list_count; i++)
@@ -134,26 +169,40 @@ Mel_Gpu_Future* mel_gpu_queue_submit(Mel_Gpu_Queue* q, Mel_Gpu_Submit submit)
         buffers[buffer_count++] = cb;
     }
 
-    if (buffer_count)
-        wgpuQueueSubmit(dev->queue, buffer_count, buffers);
+    mel_gpu__track_exit(dev, q);
 
-    /* Drain to completion synchronously: the visual harness reads the future status
-       immediately after submit, and headless runs have no reactor pumping the instance.
-       This is the off-reactor *_sync pattern (spec §3.3). */
-    Mel_Gpu_Work_Done       w = { 0 };
-    WGPUQueueWorkDoneCallbackInfo cbi = { .mode = WGPUCallbackMode_AllowProcessEvents, .callback = mel_gpu__work_done_cb, .userdata1 = &w };
+    if (buffer_count == 0)
+    {
+        if (heap_buffers)
+            mel_dealloc(dev->alloc, buffers);
+        mel_gpu__submit_complete(dev, serial);
+        mel_gpu_future_resolve(f, NULL, MEL_GPU_STATUS(0, MEL_GPU_SEVERITY_OK));
+        return f;
+    }
+
+    wgpuQueueSubmit(dev->queue, buffer_count, buffers);
+
+    if (dev->pump)
+    {
+        Mel_Gpu_Work_Done* w = mel_alloc_type(dev->alloc, Mel_Gpu_Work_Done);
+        *w = (Mel_Gpu_Work_Done){ .dev = dev, .future = f, .serial = serial, .buffers = heap_buffers ? buffers : NULL, .buffer_count = buffer_count, .heap_buffers = heap_buffers };
+        if (!heap_buffers)
+        {
+            w->buffers = mel_alloc_array(dev->alloc, WGPUCommandBuffer, buffer_count);
+            for (u32 i = 0; i < buffer_count; i++)
+                w->buffers[i] = buffers[i];
+            w->heap_buffers = true;
+        }
+        WGPUQueueWorkDoneCallbackInfo cbi = { .mode = WGPUCallbackMode_AllowProcessEvents, .callback = mel_gpu__work_done_async_cb, .userdata1 = w };
+        wgpuQueueOnSubmittedWorkDone(dev->queue, cbi);
+        return f;
+    }
+
+    Mel_Gpu_Work_Done             w = { .dev = dev, .future = f, .serial = serial, .buffers = buffers, .buffer_count = buffer_count, .heap_buffers = heap_buffers };
+    WGPUQueueWorkDoneCallbackInfo cbi = { .mode = WGPUCallbackMode_AllowProcessEvents, .callback = mel_gpu__work_done_sync_cb, .userdata1 = &w };
     wgpuQueueOnSubmittedWorkDone(dev->queue, cbi);
 
-    mel_gpu__drain_until(dev->wgpu_instance, &w.done);
-
-    for (u32 i = 0; i < buffer_count; i++)
-        wgpuCommandBufferRelease(buffers[i]);
-    if (buffers != stack)
-        mel_dealloc(dev->alloc, buffers);
-
-    mel_gpu__submit_complete(dev, serial);
-    mel_gpu_future_resolve(f, NULL, w.ok || buffer_count == 0 ? MEL_GPU_STATUS(0, MEL_GPU_SEVERITY_OK) : MEL_GPU_STATUS(1, MEL_GPU_SEVERITY_ERROR));
-
-    mel_gpu__track_exit(dev, q);
+    mel_gpu__drain_sync(dev, &w.done, "queue_submit");
+    mel_gpu__submit_retire(&w, w.ok);
     return f;
 }

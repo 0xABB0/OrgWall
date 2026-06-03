@@ -109,8 +109,10 @@ Mel_Toolchain mel_toolchain(const Mel_Variant* v)
     case MEL_PLATFORM_WASM:
         free(tc.cc);
         free(tc.ar);
+        free(tc.base_cflags);
         tc.cc = mel_str_dup("emcc");
         tc.ar = mel_str_dup("emar");
+        tc.base_cflags = mel_str_dup("-D_GNU_SOURCE");
         tc.exe_ext = ".js";
         tc.triple = "wasm32";
         tc.cross = true;

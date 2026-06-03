@@ -60,6 +60,15 @@
 @property(assign) Mel_Canvas_On      on_;
 @end
 
+@interface                           MelGpuView: UIView
+@property(assign) Mel_Gui_Handle     handle;
+@property(assign) Mel_Gui_Pointer_Cb pointer;
+@property(assign) Mel_Gui_Focus_Cb   focus;
+@property(assign) Mel_Gpu_View_On    on_;
+@property(assign) i32                last_w;
+@property(assign) i32                last_h;
+@end
+
 NSString*               mel_gui__ios_nsstring(str8 s);
 UIView*                 mel_gui__ios_parent_view(Mel_Gui_Node* n);
 void                    mel_gui__ios_install_child(Mel_Gui_Node* n, UIView* view);

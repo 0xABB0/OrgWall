@@ -234,13 +234,29 @@ void mel_gpu_cmd_bind_pipeline(Mel_Gpu_Command_List* cmd, Mel_Gpu_Pipeline pipe)
         return;
     }
     [cmd->encoder setRenderPipelineState:(__bridge id<MTLRenderPipelineState>)o.state];
+    [cmd->encoder setCullMode:o.cull_mode];
+    [cmd->encoder setFrontFacingWinding:o.front_face];
+    [cmd->encoder setTriangleFillMode:o.fill_mode];
+    if (o.depth_stencil_state)
+        [cmd->encoder setDepthStencilState:(__bridge id<MTLDepthStencilState>)o.depth_stencil_state];
+    if (o.stencil_test)
+        [cmd->encoder setStencilFrontReferenceValue:o.stencil_ref_front backReferenceValue:o.stencil_ref_back];
     cmd->primitive = mel_gpu__topology_to_primitive(o.topology);
     cmd->has_pipeline = true;
 }
 
 void mel_gpu_cmd_bind_vertex_buffer(Mel_Gpu_Command_List* cmd, u32 slot, Mel_Gpu_Buffer buf)
 {
-    (void)slot;
+    if (slot != 0)
+    {
+        mel_log_error("gpu",
+                      "cmd_bind_vertex_buffer: slot %u rejected; the Metal backend binds a single vertex stream (slot 0) to bufferIndex %u and the vertex layout carries no per-element stream selector, so slot>0 would silently collapse "
+                      "onto the slot-0 stream and lose data",
+                      slot,
+                      MEL_GPU_METAL_VERTEX_BUFFER_INDEX);
+        mel_assert(slot == 0);
+        return;
+    }
     id<MTLBuffer> mb = nil;
     if (!mel_gpu__buffer_get(cmd->dev, buf, &mb))
     {

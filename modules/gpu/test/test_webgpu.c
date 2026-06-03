@@ -218,4 +218,59 @@ MEL_TEST(webgpu_visual, triangle_spirv_refused_loudly)
     mel_gpu_instance_destroy(inst);
 }
 
+static void test_clear_to_readback(Mel_Gpu_Device* dev, Mel_Gpu_Queue* q, Mel_Gpu_Texture rt, Mel_Gpu_Texture_View rt_view, Mel_Gpu_Buffer rb, u32 w, u32 h, Mel_Gpu_Color clear)
+{
+    Mel_Gpu_Command_List* cmd = mel_gpu_command_list_create(q);
+    mel_gpu_command_list_begin(cmd);
+    Mel_Gpu_Subresource_Range range = { MEL_GPU_ASPECT_COLOR, 0, 1, 0, 1 };
+    Mel_Gpu_Color_Attachment  color = { .view = rt_view, .load = MEL_GPU_LOAD_CLEAR, .store = MEL_GPU_STORE_STORE, .clear = clear };
+    mel_gpu_cmd_begin_rendering(cmd, .colors = &color, .color_count = 1, .width = w, .height = h);
+    mel_gpu_cmd_end_rendering(cmd);
+    mel_gpu_cmd_copy_texture_to_buffer(cmd, rt, range, rb);
+    mel_gpu_command_list_end(cmd);
+    Mel_Gpu_Future* f = mel_gpu_queue_submit(q, (Mel_Gpu_Submit){ .command_lists = &cmd, .command_list_count = 1 });
+    MEL_EXPECT(mel_gpu_ok(mel_gpu_future_status(f)));
+    mel_gpu_future_destroy(f);
+    mel_gpu_command_list_destroy(cmd);
+}
+
+/* The readback buffer is mapped, read, then reused as a copy target by a second submit
+   and read again. A sticky one-shot map would freeze the first snapshot and fail Dawn
+   validation on the second copy-into-still-mapped buffer. mel_gpu_buffer_mapped must
+   re-map per call so the second read reflects the second render (MEL-ENGINE-VIII/IX). */
+MEL_TEST(webgpu_resources, mapped_remaps_per_call)
+{
+    Mel_Gpu_Instance* inst = NULL;
+    Mel_Gpu_Device*   dev = test_make_device(&inst);
+    MEL_REQUIRE_NOT_NULL(dev);
+
+    const u32 W = 64, H = 64;
+    Mel_Gpu_Texture_Create_Result rt = mel_gpu_texture_create(dev, .kind = MEL_GPU_TEXTURE_2D, .extent = { W, H, 1 }, .format = MEL_GPU_FORMAT_RGBA8_UNORM,
+                                                              .usage = MEL_GPU_TEXTURE_ATTACHMENT | MEL_GPU_TEXTURE_COPY_SRC, .name = "remap-rt");
+    MEL_REQUIRE(!mel_gpu_failed(rt.status));
+    Mel_Gpu_Texture_View_Create_Result rt_view = mel_gpu_texture_default_view(dev, rt.value);
+    MEL_REQUIRE(!mel_gpu_failed(rt_view.status));
+    Mel_Gpu_Buffer_Create_Result rb = mel_gpu_buffer_create(dev, .size = (usize)W * H * 4, .usage = MEL_GPU_BUFFER_TRANSFER_DST, .memory = MEL_GPU_MEMORY_READBACK, .name = "remap-rb");
+    MEL_REQUIRE(!mel_gpu_failed(rb.status));
+
+    Mel_Gpu_Queue* q = mel_gpu_queue_request(dev, MEL_GPU_QUEUE_GRAPHICS);
+
+    test_clear_to_readback(dev, q, rt.value, rt_view.value, rb.value, W, H, mel_gpu_rgba(1.0f, 0.0f, 0.0f, 1.0f));
+    const u8* first = mel_gpu_buffer_mapped(dev, rb.value);
+    MEL_REQUIRE_NOT_NULL(first);
+    MEL_EXPECT(first[0] > 200 && first[1] < 40 && first[2] < 40);
+
+    test_clear_to_readback(dev, q, rt.value, rt_view.value, rb.value, W, H, mel_gpu_rgba(0.0f, 1.0f, 0.0f, 1.0f));
+    const u8* second = mel_gpu_buffer_mapped(dev, rb.value);
+    MEL_REQUIRE_NOT_NULL(second);
+    MEL_EXPECT(second[0] < 40 && second[1] > 200 && second[2] < 40);
+
+    mel_gpu_queue_release(q);
+    mel_gpu_buffer_destroy(dev, rb.value);
+    mel_gpu_texture_view_destroy(dev, rt_view.value);
+    mel_gpu_texture_destroy(dev, rt.value);
+    mel_gpu_device_destroy(dev);
+    mel_gpu_instance_destroy(inst);
+}
+
 #endif

@@ -390,7 +390,18 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_create_opt(Mel_Gpu_Device* dev, 
         vertex_stride = opt.vertex_stride;
         elems = mel_alloc(dev->alloc, sizeof(D3D12_INPUT_ELEMENT_DESC) * input_count);
         for (u32 i = 0; i < input_count; i++)
-            elems[i] = (D3D12_INPUT_ELEMENT_DESC){ .SemanticName = "TEXCOORD", .SemanticIndex = opt.vertex_layout[i].location, .Format = mel_gpu__dxgi_format(opt.vertex_layout[i].format), .InputSlot = 0, .AlignedByteOffset = opt.vertex_layout[i].offset, .InputSlotClass = D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, .InstanceDataStepRate = 0 };
+        {
+            const char* semantic = "TEXCOORD";
+            u32         semantic_index = opt.vertex_layout[i].location;
+            for (u32 r = 0; r < sh->input_count; r++)
+                if (sh->inputs[r].input_register == opt.vertex_layout[i].location)
+                {
+                    semantic = sh->inputs[r].semantic;
+                    semantic_index = sh->inputs[r].semantic_index;
+                    break;
+                }
+            elems[i] = (D3D12_INPUT_ELEMENT_DESC){ .SemanticName = semantic, .SemanticIndex = semantic_index, .Format = mel_gpu__dxgi_format(opt.vertex_layout[i].format), .InputSlot = 0, .AlignedByteOffset = opt.vertex_layout[i].offset, .InputSlotClass = D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, .InstanceDataStepRate = 0 };
+        }
     }
     else if (sh->input_count > 0)
     {
