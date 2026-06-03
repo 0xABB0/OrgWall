@@ -60,6 +60,7 @@ void mel_gpu_cmd_begin_rendering_opt(Mel_Gpu_Command_List* cmd, Mel_Gpu_Renderin
     }
 
     cmd->encoder = [cmd->cb renderCommandEncoderWithDescriptor:rp];
+    cmd->has_pipeline = false;
 
     MTLViewport vp = { 0.0, 0.0, (double)opt.width, (double)opt.height, 0.0, 1.0 };
     [cmd->encoder setViewport:vp];
