@@ -52,6 +52,12 @@ void build(Mel_Build* b)
     mel_defines(lib, MEL_PRIVATE, WHEN(.gpu = "metal"), "MEL_GPU_METAL=1");
     mel_link(lib, MEL_PUBLIC, WHEN(.gpu = "metal", .platforms = MEL_ON(MACOS)), "-framework", "Metal", "-framework", "QuartzCore", "-framework", "Foundation", "-framework", "AppKit");
 
+    mel_sources(lib, WHEN(.gpu = "webgpu"), "src/webgpu/*.c");
+    mel_sources(lib, WHEN(.gpu = "webgpu", .platforms = MEL_ON(MACOS)), "src/webgpu/*.m");
+    mel_defines(lib, MEL_PRIVATE, WHEN(.gpu = "webgpu"), "MEL_GPU_WEBGPU=1");
+    mel_depends(lib, "webgpu");
+    mel_link(lib, MEL_PUBLIC, WHEN(.gpu = "webgpu", .platforms = MEL_ON(MACOS)), "-framework", "QuartzCore", "-framework", "Foundation", "-framework", "AppKit", "-framework", "Metal");
+
     mel_depends(lib, "core");
     mel_depends(lib, "allocator");
     mel_depends(lib, "collection");
@@ -174,4 +180,17 @@ void build(Mel_Build* b)
     mel_depends(metaltest, "allocator");
     mel_depends(metaltest, "collection");
     mel_depends(metaltest, "reactor");
+
+    Mel_Target* wgputest = mel_add_test(b, "gpu-webgpu");
+    mel_sources(wgputest, ALWAYS, "test/test_webgpu.c");
+    mel_sources(wgputest, ALWAYS, "test/img_golden.c");
+    mel_sources(wgputest, ALWAYS, "../../tools/test/src/runner.c");
+    mel_defines(wgputest, MEL_PRIVATE, WHEN(.gpu = "webgpu"), "MEL_GPU_WEBGPU=1");
+    mel_link(wgputest, MEL_PUBLIC, WHEN(.platforms = MEL_ON(MACOS)), "-framework", "AppKit");
+    mel_depends(wgputest, "test");
+    mel_depends(wgputest, "gpu");
+    mel_depends(wgputest, "core");
+    mel_depends(wgputest, "allocator");
+    mel_depends(wgputest, "collection");
+    mel_depends(wgputest, "reactor");
 }
