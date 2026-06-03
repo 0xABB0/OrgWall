@@ -29,8 +29,7 @@ Mel_Gpu_Device_Create_Result mel_gpu_device_create_opt(Mel_Gpu_Instance* inst, M
 
     const Mel_Alloc* alloc = opt.alloc ? opt.alloc : mel_alloc_heap();
 
-    Mel_Gpu_Device* dev = mel_alloc_type(alloc, Mel_Gpu_Device);
-    *dev = (Mel_Gpu_Device){ 0 };
+    Mel_Gpu_Device* dev = mel_calloc(alloc, sizeof(Mel_Gpu_Device));
     dev->instance = inst;
     dev->adapter = adapter;
     dev->mtl = mtl;
@@ -202,7 +201,8 @@ Mel_Gpu_Memory_Budget mel_gpu_memory_budget(Mel_Gpu_Device* dev)
     Mel_Gpu_Memory_Budget b = { 0 };
     if (!dev)
         return b;
-    b.budget_bytes = (u64)dev->mtl.recommendedMaxWorkingSetSize;
+    if (@available(macOS 10.12, iOS 16.0, *))
+        b.budget_bytes = (u64)dev->mtl.recommendedMaxWorkingSetSize;
     b.usage_bytes = (u64)dev->mtl.currentAllocatedSize;
     return b;
 }

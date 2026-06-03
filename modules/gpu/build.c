@@ -52,6 +52,11 @@ void build(Mel_Build* b)
     mel_defines(lib, MEL_PRIVATE, WHEN(.gpu = "metal"), "MEL_GPU_METAL=1");
     mel_link(lib, MEL_PUBLIC, WHEN(.gpu = "metal", .platforms = MEL_ON(MACOS)), "-framework", "Metal", "-framework", "QuartzCore", "-framework", "Foundation", "-framework", "AppKit");
 
+    mel_sources(lib, WHEN(.gpu = "metal", .platforms = MEL_ON(IOS)), "src/metal/macos/*.m");
+    mel_exclude_source(lib, WHEN(.gpu = "metal", .platforms = MEL_ON(IOS)), "src/metal/macos/surface.m");
+    mel_sources(lib, WHEN(.gpu = "metal", .platforms = MEL_ON(IOS)), "src/metal/ios/*.m");
+    mel_link(lib, MEL_PUBLIC, WHEN(.gpu = "metal", .platforms = MEL_ON(IOS)), "-framework", "Metal", "-framework", "QuartzCore", "-framework", "Foundation", "-framework", "UIKit");
+
     mel_sources(lib, WHEN(.gpu = "webgpu"), "src/webgpu/*.c");
     mel_sources(lib, WHEN(.gpu = "webgpu", .platforms = MEL_ON(MACOS)), "src/webgpu/*.m");
     mel_defines(lib, MEL_PRIVATE, WHEN(.gpu = "webgpu"), "MEL_GPU_WEBGPU=1");
@@ -171,6 +176,7 @@ void build(Mel_Build* b)
     Mel_Target* metaltest = mel_add_test(b, "gpu-metal");
     mel_sources(metaltest, ALWAYS, "test/test_metal.c");
     mel_sources(metaltest, ALWAYS, "../../tools/test/src/runner.c");
+    mel_sources(metaltest, WHEN(.platforms = MEL_ON(IOS)), "test/ios_stacktrace_shim.c");
     mel_includes(metaltest, MEL_PRIVATE, ALWAYS, "../../apps/hello-gpu/src");
     mel_defines(metaltest, MEL_PRIVATE, WHEN(.gpu = "metal"), "MEL_GPU_METAL=1");
     mel_link(metaltest, MEL_PUBLIC, WHEN(.platforms = MEL_ON(MACOS)), "-framework", "AppKit");

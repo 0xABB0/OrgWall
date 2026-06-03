@@ -101,8 +101,9 @@ Mel_Gpu_Command_List* mel_gpu_command_list_create(Mel_Gpu_Queue* q)
     if (!q)
         return NULL;
     Mel_Gpu_Device*       dev = q->dev;
-    Mel_Gpu_Command_List* cmd = mel_alloc_type(dev->alloc, Mel_Gpu_Command_List);
-    *cmd = (Mel_Gpu_Command_List){ .dev = dev, .standalone = true };
+    Mel_Gpu_Command_List* cmd = mel_calloc(dev->alloc, sizeof(Mel_Gpu_Command_List));
+    cmd->dev = dev;
+    cmd->standalone = true;
     return cmd;
 }
 
