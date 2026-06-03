@@ -79,6 +79,7 @@ Mel_Gpu_Device_Create_Result mel_gpu_device_create_opt(Mel_Gpu_Instance* inst, M
     mel_mutex_init(&dev->obj_lock, MEL_MUTEX_PLAIN);
     mel_mutex_init(&dev->submit_lock, MEL_MUTEX_PLAIN);
     mel_mutex_init(&dev->desc_lock, MEL_MUTEX_PLAIN);
+    mel_mutex_init(&dev->dispatch_indirect_lock, MEL_MUTEX_PLAIN);
     mel_slotmap_init(&dev->buffers.map, alloc, .item_size = sizeof(Mel_Gpu_Buffer_Obj), .initial_capacity = 16);
     mel_slotmap_init(&dev->textures.map, alloc, .item_size = sizeof(Mel_Gpu_Texture_Obj), .initial_capacity = 16);
     mel_slotmap_init(&dev->texture_views.map, alloc, .item_size = sizeof(Mel_Gpu_Texture_View_Obj), .initial_capacity = 16);
@@ -206,10 +207,13 @@ void mel_gpu_device_destroy(Mel_Gpu_Device* dev)
         ID3D12DescriptorHeap_Release(dev->rtv_heap);
     if (dev->dsv_heap)
         ID3D12DescriptorHeap_Release(dev->dsv_heap);
+    if (dev->dispatch_indirect_sig)
+        ID3D12CommandSignature_Release(dev->dispatch_indirect_sig);
 
     mel_mutex_destroy(&dev->obj_lock);
     mel_mutex_destroy(&dev->submit_lock);
     mel_mutex_destroy(&dev->desc_lock);
+    mel_mutex_destroy(&dev->dispatch_indirect_lock);
 
     if (dev->pump)
         mel_gpu_pump_destroy(dev->pump);

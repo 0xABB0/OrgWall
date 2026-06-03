@@ -310,6 +310,9 @@ struct Mel_Gpu_Device
     u32                   dsv_cap;
     u32                   dsv_next;
 
+    ID3D12CommandSignature* dispatch_indirect_sig;
+    Mel_Mutex               dispatch_indirect_lock;
+
     void (*budget_pressure_cb)(struct Mel_Gpu_Device*, Mel_Gpu_Memory_Budget, void*);
     void* budget_pressure_user;
 };
