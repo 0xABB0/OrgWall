@@ -1,25 +1,27 @@
 #include <executor/executor.h>
 
 #include <allocator/allocator.h>
+#include <collection.list/list.h>
 #include <core/compiler.h>
 
 #include <assert.h>
 
-static MEL_THREAD_LOCAL Mel_Task* s_inline_head;
-static MEL_THREAD_LOCAL Mel_Task* s_inline_tail;
-static MEL_THREAD_LOCAL bool      s_inline_draining;
+static MEL_THREAD_LOCAL Mel_Mpsc_Node* s_inline_head;
+static MEL_THREAD_LOCAL Mel_Mpsc_Node* s_inline_tail;
+static MEL_THREAD_LOCAL bool           s_inline_draining;
 
 static void mel_executor__inline_drain(void)
 {
     s_inline_draining = true;
     while (s_inline_head != NULL)
     {
-        Mel_Task* task = s_inline_head;
-        s_inline_head = atomic_load_explicit(&task->next, memory_order_relaxed);
+        Mel_Mpsc_Node* node = s_inline_head;
+        Mel_Task*      task = mel_container_of(node, Mel_Task, link);
+        s_inline_head = atomic_load_explicit(&node->next, memory_order_relaxed);
         if (s_inline_head == NULL)
             s_inline_tail = NULL;
 
-        atomic_store_explicit(&task->next, NULL, memory_order_relaxed);
+        atomic_store_explicit(&node->next, NULL, memory_order_relaxed);
         atomic_store_explicit(&task->armed, 0, memory_order_release);
         task->run(task);
     }
@@ -34,12 +36,12 @@ static void mel_executor__inline_submit(Mel_Executor* self, Mel_Task* task)
     if (!atomic_compare_exchange_strong_explicit(&task->armed, &expected, 1, memory_order_acq_rel, memory_order_acquire))
         return;
 
-    atomic_store_explicit(&task->next, NULL, memory_order_relaxed);
+    atomic_store_explicit(&task->link.next, NULL, memory_order_relaxed);
     if (s_inline_tail != NULL)
-        atomic_store_explicit(&s_inline_tail->next, task, memory_order_relaxed);
+        atomic_store_explicit(&s_inline_tail->next, &task->link, memory_order_relaxed);
     else
-        s_inline_head = task;
-    s_inline_tail = task;
+        s_inline_head = &task->link;
+    s_inline_tail = &task->link;
 
     if (s_inline_draining)
         return;

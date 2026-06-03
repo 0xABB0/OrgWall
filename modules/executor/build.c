@@ -7,6 +7,7 @@ void build(Mel_Build* b)
     mel_sources(lib, ALWAYS, "src/*.c");
     mel_depends(lib, "core");
     mel_depends(lib, "allocator");
+    mel_depends(lib, "collection");
 
     Mel_Target* t = mel_add_test(b, "executor-core");
     mel_sources(t, ALWAYS, "test/test_executor.c");

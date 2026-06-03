@@ -2,6 +2,7 @@
 
 #include <core/types.h>
 #include <allocator/allocator.fwd.h>
+#include <collection.mpsc/mpsc.h>
 #include <stdatomic.h>
 
 #ifdef __cplusplus
@@ -15,8 +16,8 @@ typedef struct Mel_Executor Mel_Executor;
 struct Mel_Task
 {
     void (*run)(Mel_Task* self);
-    Mel_Task* _Atomic next;
-    _Atomic(i32) armed;
+    Mel_Mpsc_Node link;
+    _Atomic(i32)  armed;
 };
 
 struct Mel_Executor
@@ -33,7 +34,7 @@ typedef struct
 static inline void mel_task_init(Mel_Task* task, void (*run)(Mel_Task* self))
 {
     task->run = run;
-    atomic_store_explicit(&task->next, NULL, memory_order_relaxed);
+    atomic_store_explicit(&task->link.next, NULL, memory_order_relaxed);
     atomic_store_explicit(&task->armed, 0, memory_order_relaxed);
 }
 
