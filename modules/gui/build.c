@@ -10,6 +10,10 @@ void build(Mel_Build* b)
     mel_sources(lib, WHEN(.backend = "dom"), "src/dom/*.c");
     mel_sources(lib, WHEN(.backend = "winui"), "src/winui/*.c");
     mel_sources(lib, WHEN(.backend = "androidnative"), "src/androidnative/*.c");
+    // Linux desktop backend: XCB, dlopen'd at runtime (no link-time libxcb on the cross host).
+    mel_sources(lib, WHEN(.platforms = MEL_ON(LINUX)), "src/xcb/*.c");
+    mel_cflags(lib, MEL_PRIVATE, WHEN(.platforms = MEL_ON(LINUX)), "-Imodules/log/include");
+    mel_link(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(LINUX)), "-ldl");
     mel_whole_archive(lib, WHEN(.platforms = MEL_ON(ANDROID)));
     mel_android_namespace(lib, "orgwall.melody.platform");
     mel_android_java(lib, "src/androidnative/java");
