@@ -23,8 +23,14 @@
 #include <string.h>
 
 #include "visual_spv.h"
+#include "img_golden.h"
 
 #define VISUAL_DUMP_DIR "modules/gpu/build/macos-debug"
+
+#define VISUAL_BACKEND "vulkan"
+
+static const Mel_Golden_Tolerance VISUAL_TOL_EXACT = { .max_channel_delta = 2, .max_fraction_exceeding = 0.0f };
+static const Mel_Golden_Tolerance VISUAL_TOL_EDGE = { .max_channel_delta = 8, .max_fraction_exceeding = 0.05f };
 
 static Mel_Gpu_Device* test_make_device_bindless(Mel_Gpu_Instance** out_inst)
 {
@@ -142,6 +148,7 @@ MEL_TEST(visual_bindless, uniform_buffer_readback)
     const u8* px = mel_gpu_buffer_mapped(dev, tgt.rb);
     MEL_REQUIRE_NOT_NULL(px);
     test_dump_ppm("ubo_bindless", px, tgt.w, tgt.h);
+    MEL_GOLDEN(VISUAL_BACKEND, "ubo_bindless", px, tgt.w, tgt.h, VISUAL_TOL_EXACT);
 
     MEL_EXPECT(px[0] >= 75 && px[0] <= 78);
     MEL_EXPECT(px[1] >= 139 && px[1] <= 142);
@@ -227,6 +234,7 @@ MEL_TEST(visual_bindless, sampled_checker_readback)
     const u8* px = mel_gpu_buffer_mapped(dev, tgt.rb);
     MEL_REQUIRE_NOT_NULL(px);
     test_dump_ppm("sampled_checker", px, tgt.w, tgt.h);
+    MEL_GOLDEN(VISUAL_BACKEND, "sampled_checker", px, tgt.w, tgt.h, VISUAL_TOL_EXACT);
 
     const u8* tl = px + 0;
     const u8* mid = px + (usize)2 * 4;
@@ -302,6 +310,7 @@ MEL_TEST(visual_state, alpha_blend_readback)
     const u8* px = mel_gpu_buffer_mapped(dev, tgt.rb);
     MEL_REQUIRE_NOT_NULL(px);
     test_dump_ppm("alpha_blend", px, tgt.w, tgt.h);
+    MEL_GOLDEN(VISUAL_BACKEND, "alpha_blend", px, tgt.w, tgt.h, VISUAL_TOL_EXACT);
 
     MEL_EXPECT(px[0] >= 151 && px[0] <= 155);
     MEL_EXPECT(px[1] >= 49 && px[1] <= 53);
@@ -375,6 +384,8 @@ MEL_TEST(visual_state, two_targets_readback)
     MEL_REQUIRE_NOT_NULL(p1);
     test_dump_ppm("two_targets_0", p0, a.w, a.h);
     test_dump_ppm("two_targets_1", p1, b.w, b.h);
+    MEL_GOLDEN(VISUAL_BACKEND, "two_targets_0", p0, a.w, a.h, VISUAL_TOL_EXACT);
+    MEL_GOLDEN(VISUAL_BACKEND, "two_targets_1", p1, b.w, b.h, VISUAL_TOL_EXACT);
 
     MEL_EXPECT(p0[0] >= 62 && p0[0] <= 66);
     MEL_EXPECT(p0[1] >= 126 && p0[1] <= 130);
@@ -440,6 +451,7 @@ MEL_TEST(visual_bindless, storage_image_readback)
     const u8* px = mel_gpu_buffer_mapped(dev, rb.value);
     MEL_REQUIRE_NOT_NULL(px);
     test_dump_ppm("storage_image_checker", px, W, H);
+    MEL_GOLDEN(VISUAL_BACKEND, "storage_image_checker", px, W, H, VISUAL_TOL_EXACT);
 
     const u8* c00 = px;
     const u8* c20 = px + (usize)2 * 4;
@@ -511,6 +523,7 @@ MEL_TEST(visual_state, msaa_resolve_edge_readback)
     const u8* px = mel_gpu_buffer_mapped(dev, rb.value);
     MEL_REQUIRE_NOT_NULL(px);
     test_dump_ppm("msaa_resolve_edge", px, W, H);
+    MEL_GOLDEN(VISUAL_BACKEND, "msaa_resolve_edge", px, W, H, VISUAL_TOL_EDGE);
 
     bool found_intermediate = false, saw_white = false, saw_black = false;
     for (u32 y = 0; y < H; y++)
@@ -658,6 +671,7 @@ MEL_TEST(visual_state, depth_boundary_readback)
     const u8* px = mel_gpu_buffer_mapped(dev, rb.value);
     MEL_REQUIRE_NOT_NULL(px);
     test_dump_ppm("depth_boundary", px, W, H);
+    MEL_GOLDEN(VISUAL_BACKEND, "depth_boundary", px, W, H, VISUAL_TOL_EXACT);
 
     const u8* left = px + 0;
     const u8* right = px + (usize)(W - 1) * 4;
@@ -728,6 +742,8 @@ MEL_TEST(visual_state, mrt_single_pipeline_readback)
     MEL_REQUIRE_NOT_NULL(p1);
     test_dump_ppm("mrt_target_0", p0, t0.w, t0.h);
     test_dump_ppm("mrt_target_1", p1, t1.w, t1.h);
+    MEL_GOLDEN(VISUAL_BACKEND, "mrt_target_0", p0, t0.w, t0.h, VISUAL_TOL_EXACT);
+    MEL_GOLDEN(VISUAL_BACKEND, "mrt_target_1", p1, t1.w, t1.h, VISUAL_TOL_EXACT);
 
     MEL_EXPECT(p0[0] >= 49 && p0[0] <= 53);
     MEL_EXPECT(p0[1] >= 151 && p0[1] <= 155);
@@ -801,6 +817,8 @@ MEL_TEST(visual_state, wireframe_vs_solid_readback)
     MEL_REQUIRE_NOT_NULL(pw);
     test_dump_ppm("wireframe_solid", ps, solid.w, solid.h);
     test_dump_ppm("wireframe_wire", pw, wire.w, wire.h);
+    MEL_GOLDEN(VISUAL_BACKEND, "wireframe_solid", ps, solid.w, solid.h, VISUAL_TOL_EDGE);
+    MEL_GOLDEN(VISUAL_BACKEND, "wireframe_wire", pw, wire.w, wire.h, VISUAL_TOL_EDGE);
 
     u32 solid_set = 0, wire_set = 0;
     for (u32 i = 0; i < solid.w * solid.h; i++)
@@ -878,6 +896,7 @@ MEL_TEST(visual_state, sync2_barrier_smoke_readback)
     const u8* px = mel_gpu_buffer_mapped(dev, rb.value);
     MEL_REQUIRE_NOT_NULL(px);
     test_dump_ppm("sync2_barrier", px, 8, 8);
+    MEL_GOLDEN(VISUAL_BACKEND, "sync2_barrier", px, 8, 8, VISUAL_TOL_EXACT);
 
     MEL_EXPECT(px[0] >= 100 && px[0] <= 104);
     MEL_EXPECT(px[1] >= 176 && px[1] <= 180);
