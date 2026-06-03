@@ -59,7 +59,7 @@ typedef struct
 typedef struct
 {
     Mel_Gpu_Resource_Header header;
-    id<MTLBuffer>           buf;
+    void*                   buf;
     usize                   size;
     bool                    host_visible;
 } Mel_Gpu_Buffer_Obj;
@@ -67,7 +67,7 @@ typedef struct
 typedef struct
 {
     Mel_Gpu_Resource_Header header;
-    id<MTLTexture>          texture;
+    void*                   texture;
     MTLPixelFormat          format;
     Mel_Gpu_Texture_Aspect  aspect;
     u32                     width;
@@ -81,7 +81,7 @@ typedef struct
 typedef struct
 {
     Mel_Gpu_Resource_Header header;
-    id<MTLTexture>          view;
+    void*                   view;
     Mel_SlotMap_Handle      texture;
     MTLPixelFormat          format;
     Mel_Gpu_Texture_Aspect  aspect;
@@ -94,7 +94,7 @@ typedef struct
 typedef struct
 {
     Mel_Gpu_Resource_Header header;
-    id<MTLSamplerState>     sampler;
+    void*                   sampler;
 } Mel_Gpu_Sampler_Obj;
 
 struct Mel_Gpu_Device

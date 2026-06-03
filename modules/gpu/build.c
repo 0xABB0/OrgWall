@@ -68,6 +68,19 @@ void build(Mel_Build* b)
     mel_depends(found, "collection");
     mel_depends(found, "reactor");
 
+    Mel_Target* restest = mel_add_test(b, "gpu-resources");
+    mel_sources(restest, ALWAYS, "test/test_resources.c");
+    mel_sources(restest, ALWAYS, "../../tools/test/src/runner.c");
+    mel_defines(restest, MEL_PRIVATE, WHEN(.gpu = "vulkan"), "MEL_GPU_VULKAN=1");
+    mel_defines(restest, MEL_PRIVATE, WHEN(.gpu = "metal"), "MEL_GPU_METAL=1");
+    mel_link(restest, MEL_PUBLIC, WHEN(.platforms = MEL_ON(MACOS)), "-framework", "AppKit");
+    mel_depends(restest, "test");
+    mel_depends(restest, "gpu");
+    mel_depends(restest, "core");
+    mel_depends(restest, "allocator");
+    mel_depends(restest, "collection");
+    mel_depends(restest, "reactor");
+
     Mel_Target* vktest = mel_add_test(b, "gpu-vulkan");
     mel_sources(vktest, ALWAYS, "test/test_vulkan.c");
     mel_sources(vktest, ALWAYS, "../../tools/test/src/runner.c");

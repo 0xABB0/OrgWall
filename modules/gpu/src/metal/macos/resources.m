@@ -7,7 +7,7 @@ bool mel_gpu__buffer_get(Mel_Gpu_Device* dev, Mel_Gpu_Buffer buf, id<MTLBuffer>*
     Mel_Gpu_Buffer_Obj o;
     if (!mel_gpu__table_get_copy(dev, &dev->buffers, buf.slot, &o))
         return false;
-    *out = o.buf;
+    *out = (__bridge id<MTLBuffer>)o.buf;
     return true;
 }
 
@@ -51,7 +51,7 @@ Mel_Gpu_Buffer_Create_Result mel_gpu_buffer_create_opt(Mel_Gpu_Device* dev, Mel_
 
     Mel_Gpu_Buffer_Obj o = {
         .header = { .ownership = MEL_GPU_OWNERSHIP_OWNED, .capture_replay = opt.capture_replay, .name = opt.name },
-        .buf = mb,
+        .buf = (__bridge_retained void*)mb,
         .size = opt.size,
         .host_visible = host_visible,
     };
@@ -65,7 +65,12 @@ void mel_gpu_buffer_destroy(Mel_Gpu_Device* dev, Mel_Gpu_Buffer buf)
     Mel_Gpu_Buffer_Obj* o = mel_gpu__table_get(dev, &dev->buffers, buf.slot);
     if (!o)
         return;
-    o->buf = nil;
+    if (o->buf)
+    {
+        id mb = (__bridge_transfer id)o->buf;
+        o->buf = NULL;
+        (void)mb;
+    }
     mel_gpu__table_remove(dev, &dev->buffers, buf.slot);
 }
 
@@ -86,7 +91,7 @@ void mel_gpu_buffer_write(Mel_Gpu_Device* dev, Mel_Gpu_Buffer buf, const void* d
     }
     if (size > o.size)
         size = o.size;
-    memcpy(o.buf.contents, data, size);
+    memcpy(((__bridge id<MTLBuffer>)o.buf).contents, data, size);
 }
 
 void* mel_gpu_buffer_mapped(Mel_Gpu_Device* dev, Mel_Gpu_Buffer buf)
@@ -96,7 +101,7 @@ void* mel_gpu_buffer_mapped(Mel_Gpu_Device* dev, Mel_Gpu_Buffer buf)
         return NULL;
     if (!o.host_visible)
         return NULL;
-    return o.buf.contents;
+    return ((__bridge id<MTLBuffer>)o.buf).contents;
 }
 
 u32 mel_gpu_buffer_make_resident(Mel_Gpu_Device* dev, Mel_Gpu_Buffer buf)
@@ -175,7 +180,7 @@ Mel_Gpu_Texture_Create_Result mel_gpu_texture_create_opt(Mel_Gpu_Device* dev, Me
 
     Mel_Gpu_Texture_Obj o = {
         .header = { .ownership = MEL_GPU_OWNERSHIP_OWNED, .capture_replay = opt.capture_replay, .name = opt.name },
-        .texture = mt,
+        .texture = (__bridge_retained void*)mt,
         .format = fmt,
         .aspect = mel_gpu_format_is_depth(opt.format) ? MEL_GPU_ASPECT_DEPTH : MEL_GPU_ASPECT_COLOR,
         .width = opt.extent.width,
@@ -195,7 +200,12 @@ void mel_gpu_texture_destroy(Mel_Gpu_Device* dev, Mel_Gpu_Texture tex)
     Mel_Gpu_Texture_Obj* o = mel_gpu__table_get(dev, &dev->textures, tex.slot);
     if (!o)
         return;
-    o->texture = nil;
+    if (o->texture)
+    {
+        id mt = (__bridge_transfer id)o->texture;
+        o->texture = NULL;
+        (void)mt;
+    }
     mel_gpu__table_remove(dev, &dev->textures, tex.slot);
 }
 
@@ -232,14 +242,15 @@ Mel_Gpu_Texture_View_Create_Result mel_gpu_texture_view_create_opt(Mel_Gpu_Devic
     u32            base_layer = opt.range.base_layer;
     u32            layer_count = opt.range.layer_count ? opt.range.layer_count : tex.array_layers - base_layer;
 
-    id<MTLTexture> view = tex.texture;
+    id<MTLTexture> srctex = (__bridge id<MTLTexture>)tex.texture;
+    id<MTLTexture> view = srctex;
     bool           full = base_mip == 0 && mip_count == tex.mip_levels && base_layer == 0 && layer_count == tex.array_layers && fmt == tex.format;
     if (!full)
     {
-        view = [tex.texture newTextureViewWithPixelFormat:fmt
-                                              textureType:tex.texture.textureType
-                                                   levels:NSMakeRange(base_mip, mip_count)
-                                                   slices:NSMakeRange(base_layer, layer_count)];
+        view = [srctex newTextureViewWithPixelFormat:fmt
+                                         textureType:srctex.textureType
+                                              levels:NSMakeRange(base_mip, mip_count)
+                                              slices:NSMakeRange(base_layer, layer_count)];
         if (!view)
         {
             res.status = MEL_GPU_TEXTURE_VIEW_CREATE_VK_FAILED;
@@ -250,7 +261,7 @@ Mel_Gpu_Texture_View_Create_Result mel_gpu_texture_view_create_opt(Mel_Gpu_Devic
 
     Mel_Gpu_Texture_View_Obj o = {
         .header = { .ownership = MEL_GPU_OWNERSHIP_OWNED, .name = opt.name },
-        .view = view,
+        .view = (__bridge_retained void*)view,
         .texture = opt.texture.slot,
         .format = fmt,
         .aspect = tex.aspect,
@@ -274,7 +285,12 @@ void mel_gpu_texture_view_destroy(Mel_Gpu_Device* dev, Mel_Gpu_Texture_View view
     Mel_Gpu_Texture_View_Obj* o = mel_gpu__table_get(dev, &dev->texture_views, view.slot);
     if (!o)
         return;
-    o->view = nil;
+    if (o->view)
+    {
+        id v = (__bridge_transfer id)o->view;
+        o->view = NULL;
+        (void)v;
+    }
     mel_gpu__table_remove(dev, &dev->texture_views, view.slot);
 }
 
@@ -320,7 +336,7 @@ Mel_Gpu_Sampler_Create_Result mel_gpu_sampler_create_opt(Mel_Gpu_Device* dev, Me
 
     Mel_Gpu_Sampler_Obj o = {
         .header = { .ownership = MEL_GPU_OWNERSHIP_OWNED, .name = opt.name },
-        .sampler = ms,
+        .sampler = (__bridge_retained void*)ms,
     };
     Mel_SlotMap_Handle h = mel_gpu__table_insert(dev, &dev->samplers, &o);
     res.value = (Mel_Gpu_Sampler){ h };
@@ -332,7 +348,12 @@ void mel_gpu_sampler_destroy(Mel_Gpu_Device* dev, Mel_Gpu_Sampler sampler)
     Mel_Gpu_Sampler_Obj* o = mel_gpu__table_get(dev, &dev->samplers, sampler.slot);
     if (!o)
         return;
-    o->sampler = nil;
+    if (o->sampler)
+    {
+        id s = (__bridge_transfer id)o->sampler;
+        o->sampler = NULL;
+        (void)s;
+    }
     mel_gpu__table_remove(dev, &dev->samplers, sampler.slot);
 }
 
