@@ -31,8 +31,8 @@ void build(Mel_Build* b)
     mel_link(lib, MEL_PUBLIC, WHEN(.gpu = "vulkan", .platforms = MEL_ON(ANDROID)), "-lvulkan", "-landroid");
 
     mel_sources(lib, WHEN(.gpu = "vulkan", .platforms = MEL_ON(LINUX)), "src/vulkan/linux/*.c");
-    mel_depends(lib, "vulkan-headers");
-    mel_depends(lib, "vulkan-loader-stub");
+    mel_depends_when(lib, "vulkan-headers", WHEN(.gpu = "vulkan", .platforms = MEL_ON(LINUX)));
+    mel_depends_when(lib, "vulkan-loader-stub", WHEN(.gpu = "vulkan", .platforms = MEL_ON(LINUX)));
     mel_link(lib, MEL_PUBLIC, WHEN(.gpu = "vulkan", .platforms = MEL_ON(LINUX)), "-lvulkan");
 
     mel_sources(lib, WHEN(.gpu = "vulkan", .platforms = MEL_ON(WIN32)), "src/vulkan/windows/*.c");

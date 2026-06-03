@@ -353,7 +353,7 @@ static char* emit_one(FILE* f, Mel_Graph* g, size_t idx, const Mel_Variant* v, M
 bool mel_emit_and_build(Mel_Graph* g, const char* root, const Mel_Variant* v, bool run_ninja, bool do_package, char** out_bin)
 {
     Mel_IdxVec order = { 0 };
-    if (!mel_topo_closure(g, root, &order))
+    if (!mel_topo_closure(g, root, v, &order))
     {
         free(order.items);
         return false;
