@@ -68,6 +68,13 @@ with `WHEN(.platforms = MEL_ON(WIN32))` yourself. Conventional layout is `src/<p
 
 - `mel_depends(t, "core")` — link + inherit `MEL_PUBLIC` properties; `mel_depends_host` for a
   host-tool dependency.
+- `mel_depends_when(t, "log", WHEN(.platforms = MEL_ON(LINUX)))` — a dependency gated by a
+  `Mel_When`, mirroring `mel_sources`/`mel_link`. The edge is followed only on a matching variant:
+  on a non-matching variant the dependency leaves the topo closure entirely, so neither its
+  `MEL_PUBLIC` includes/links propagate nor its third-party *prepare* step (cmake/autotools/prebuilt)
+  runs. `mel_depends(t, name)` is `mel_depends_when(t, name, ALWAYS)`. Caveat: a third-party target
+  that does eager work in its own `build()` body (rather than via the prepare step) still runs at
+  discovery time on every variant — `WHEN`-gating the edge cannot stop discovery-time `build()`.
 - `mel_unavailable(t, WHEN(.platforms = MEL_ON(WASM)))` — declare the target unbuildable on a
   variant; a build that needs it there fails loudly with the reason.
 - `mel_manifest(t, "BUNDLE_ID", "orgwall.app")` — key/value consumed by packaging templates.
