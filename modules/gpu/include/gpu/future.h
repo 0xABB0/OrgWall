@@ -2,6 +2,7 @@
 
 #include <core/types.h>
 #include <reactor/reactor.h>
+#include <future/future.h>
 
 typedef struct Mel_Gpu_Completion_Pump Mel_Gpu_Completion_Pump;
 typedef struct Mel_Gpu_Future          Mel_Gpu_Future;
@@ -11,7 +12,6 @@ typedef bool (*Mel_Gpu_Poll_Fn)(void* user);
 
 typedef struct
 {
-    u32 high_water;
     i64 tick_interval_ns;
 } Mel_Gpu_Pump_Opt;
 
@@ -33,3 +33,5 @@ void*           mel_gpu_future_value(Mel_Gpu_Future* f);
 u32             mel_gpu_future_status(Mel_Gpu_Future* f);
 
 u32 mel_gpu_future_wait(Mel_Gpu_Future* f);
+
+Mel_Future* mel_gpu_future_shared(Mel_Gpu_Future* f);

@@ -48,6 +48,8 @@ void build(Mel_Build* b)
     mel_depends(lib, "allocator");
     mel_depends(lib, "collection");
     mel_depends(lib, "reactor");
+    mel_depends(lib, "executor");
+    mel_depends(lib, "future");
     mel_depends(lib, "log");
     mel_depends(lib, "debug");
     mel_depends(lib, "string");

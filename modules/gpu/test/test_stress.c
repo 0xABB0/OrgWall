@@ -721,9 +721,9 @@ static void stress_future_then_noop(Mel_Gpu_Future* f, void* user)
     *(u32*)user += 1;
 }
 
-MEL_TEST(stress_future, pump_backpressure_coalesce)
+MEL_TEST(stress_future, many_futures_resolve_once_each)
 {
-    Mel_Gpu_Completion_Pump* pump = mel_gpu_pump_create_opt(NULL, (Mel_Gpu_Pump_Opt){ .high_water = 8 });
+    Mel_Gpu_Completion_Pump* pump = mel_gpu_pump_create_opt(NULL, (Mel_Gpu_Pump_Opt){ 0 });
     MEL_REQUIRE_NOT_NULL(pump);
 
     const u32       N = 32;
@@ -741,6 +741,8 @@ MEL_TEST(stress_future, pump_backpressure_coalesce)
     }
     mel_gpu_pump_tick(pump);
     MEL_EXPECT_EQ(delivered, N);
+    for (u32 i = 0; i < N; i++)
+        MEL_EXPECT(mel_gpu_ok(mel_gpu_future_status(futs[i])));
 
     for (u32 i = 0; i < N; i++)
         mel_gpu_future_destroy(futs[i]);

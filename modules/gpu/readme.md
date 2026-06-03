@@ -27,8 +27,10 @@ the tree implements today:
 
 ## Dependencies
 
-`core`, `allocator`, `collection`, `async`, `reactor`, `log`, `debug`, `string`, `thread`, `time`,
-`thermal`, `power` (see `build.c`). Headers are consumed as `<gpu/...>`.
+`core`, `allocator`, `collection`, `reactor`, `executor`, `future`, `log`, `debug`, `string`,
+`thread`, `time`, `thermal`, `power` (see `build.c`). The completion future is a thin wrapper over
+the shared `future` substrate; the pump retains only the reactor timer and fence-poller list.
+Headers are consumed as `<gpu/...>`.
 
 ## Binding model
 

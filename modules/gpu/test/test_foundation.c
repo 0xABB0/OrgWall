@@ -3,8 +3,10 @@
 #include <gpu/handle.h>
 #include <gpu/status.h>
 #include <gpu/future.h>
+#include <gpu/device.h>
 #include <gpu/threading.h>
 
+#include <future/future.h>
 #include <collection.slotmap/slotmap.h>
 #include <allocator/heap.h>
 #include <thread/thread.h>
@@ -111,6 +113,7 @@ MEL_TEST(future, manual_resolve_and_deliver)
     mel_gpu_future_then(f, test_set_flag_cont, &delivered);
 
     MEL_EXPECT(!mel_gpu_future_resolved(f));
+    MEL_EXPECT_EQ(delivered, 0);
 
     int sentinel = 77;
     mel_gpu_future_resolve(f, &sentinel, MEL_GPU_STATUS(0, MEL_GPU_SEVERITY_OK));
@@ -118,9 +121,6 @@ MEL_TEST(future, manual_resolve_and_deliver)
     MEL_EXPECT(mel_gpu_future_resolved(f));
     MEL_EXPECT_EQ(mel_gpu_future_value(f), &sentinel);
     MEL_EXPECT(mel_gpu_ok(mel_gpu_future_status(f)));
-    MEL_EXPECT_EQ(delivered, 0);
-
-    mel_gpu_pump_tick(pump);
     MEL_EXPECT_EQ(delivered, 1);
 
     mel_gpu_future_destroy(f);
@@ -141,9 +141,6 @@ MEL_TEST(future, double_resolve_is_idempotent)
 
     MEL_EXPECT_EQ(mel_gpu_future_value(f), &first);
     MEL_EXPECT(mel_gpu_ok(mel_gpu_future_status(f)));
-
-    mel_gpu_pump_tick(pump);
-    mel_gpu_pump_tick(pump);
     MEL_EXPECT_EQ(delivered, 1);
 
     mel_gpu_future_destroy(f);
@@ -211,6 +208,136 @@ MEL_TEST(future, cross_thread_wait)
     mel_thread_join(&th, NULL);
     mel_gpu_future_destroy(f);
     mel_gpu_pump_destroy(pump);
+}
+
+typedef struct
+{
+    int   count;
+    void* value;
+    u32   status;
+} Cont_Record;
+
+static void test_record_cont(Mel_Gpu_Future* f, void* user)
+{
+    Cont_Record* r = user;
+    r->count += 1;
+    r->value = mel_gpu_future_value(f);
+    r->status = mel_gpu_future_status(f);
+}
+
+MEL_TEST(future, then_after_resolve_delivers_once)
+{
+    Mel_Gpu_Future* f = mel_gpu_future_create(NULL, NULL);
+    int             sentinel = 17;
+    mel_gpu_future_resolve(f, &sentinel, MEL_GPU_STATUS(4, MEL_GPU_SEVERITY_OK));
+
+    Cont_Record rec = { 0 };
+    mel_gpu_future_then(f, test_record_cont, &rec);
+
+    MEL_EXPECT_EQ(rec.count, 1);
+    MEL_EXPECT_EQ(rec.value, &sentinel);
+    MEL_EXPECT_EQ((u32)(rec.status >> 2), 4u);
+
+    mel_gpu_future_destroy(f);
+}
+
+MEL_TEST(future, bit2_status_code_roundtrips_without_cancel)
+{
+    MEL_EXPECT_NEQ((u32)(MEL_GPU_DEVICE_CREATE_DEGRADED & MEL_FUTURE_CANCELLED), 0u);
+
+    Mel_Gpu_Future* f = mel_gpu_future_create(NULL, NULL);
+    Cont_Record     rec = { 0 };
+    mel_gpu_future_then(f, test_record_cont, &rec);
+    mel_gpu_future_resolve(f, NULL, MEL_GPU_DEVICE_CREATE_DEGRADED);
+
+    MEL_EXPECT_EQ(rec.count, 1);
+    MEL_EXPECT_EQ(mel_gpu_future_status(f), (u32)MEL_GPU_DEVICE_CREATE_DEGRADED);
+    MEL_EXPECT(mel_gpu_warned(mel_gpu_future_status(f)));
+
+    Mel_Future_Status base = mel_future_status(mel_gpu_future_shared(f));
+    MEL_EXPECT_EQ((u32)(base & MEL_FUTURE_CANCELLED), 0u);
+    MEL_EXPECT_EQ((u32)(base & MEL_FUTURE_SEVERITY_MASK), (u32)MEL_FUTURE_WARNED);
+
+    mel_gpu_future_destroy(f);
+}
+
+MEL_TEST(future, error_status_preserves_value)
+{
+    Mel_Gpu_Future* f = mel_gpu_future_create(NULL, NULL);
+    int             payload = 5;
+    mel_gpu_future_resolve(f, &payload, MEL_GPU_DEVICE_CREATE_OOM);
+
+    MEL_EXPECT(mel_gpu_failed(mel_gpu_future_status(f)));
+    MEL_EXPECT_EQ(mel_gpu_future_value(f), &payload);
+    MEL_EXPECT_EQ(mel_gpu_future_status(f), (u32)MEL_GPU_DEVICE_CREATE_OOM);
+
+    mel_gpu_future_destroy(f);
+}
+
+MEL_TEST(future, shared_composes_with_when_all)
+{
+    Mel_Gpu_Future*  fa = mel_gpu_future_create(NULL, NULL);
+    Mel_Gpu_Future*  fb = mel_gpu_future_create(NULL, NULL);
+    Mel_Future*      inputs[2] = { mel_gpu_future_shared(fa), mel_gpu_future_shared(fb) };
+    Mel_Future_When* w = mel_future_when_all(inputs, 2, mel_alloc_heap());
+    Mel_Future*      result = mel_future_when_future(w);
+
+    MEL_EXPECT(!mel_future_resolved(result));
+    mel_gpu_future_resolve(fa, NULL, MEL_GPU_STATUS(0, MEL_GPU_SEVERITY_OK));
+    MEL_EXPECT(!mel_future_resolved(result));
+    mel_gpu_future_resolve(fb, NULL, MEL_GPU_DEVICE_CREATE_DEGRADED);
+    MEL_EXPECT(mel_future_resolved(result));
+    MEL_EXPECT_EQ((u32)(mel_future_status(result) & MEL_FUTURE_SEVERITY_MASK), (u32)MEL_FUTURE_WARNED);
+
+    mel_future_when_free(w);
+    mel_gpu_future_destroy(fa);
+    mel_gpu_future_destroy(fb);
+}
+
+typedef struct
+{
+    Mel_Gpu_Future* f;
+    _Atomic(i32)*   start;
+    u32             status;
+} Race_Resolve_Arg;
+
+static int test_race_resolve_thread(void* user)
+{
+    Race_Resolve_Arg* a = user;
+    while (atomic_load(a->start) == 0)
+        mel_thread_sleep(1000);
+    mel_gpu_future_resolve(a->f, NULL, a->status);
+    return 0;
+}
+
+MEL_TEST(future, concurrent_resolve_claims_status_once)
+{
+    for (int rep = 0; rep < 64; rep++)
+    {
+        Mel_Gpu_Future* f = mel_gpu_future_create(NULL, NULL);
+        Cont_Record     rec = { 0 };
+        mel_gpu_future_then(f, test_record_cont, &rec);
+
+        _Atomic(i32) start;
+        atomic_store(&start, 0);
+        Race_Resolve_Arg a0 = { f, &start, MEL_GPU_STATUS(100, MEL_GPU_SEVERITY_OK) };
+        Race_Resolve_Arg a1 = { f, &start, MEL_GPU_STATUS(200, MEL_GPU_SEVERITY_ERROR) };
+
+        Mel_Thread t0, t1;
+        MEL_REQUIRE(mel_thread_spawn(&t0, test_race_resolve_thread, &a0));
+        MEL_REQUIRE(mel_thread_spawn(&t1, test_race_resolve_thread, &a1));
+        atomic_store(&start, 1);
+        mel_thread_join(&t0, NULL);
+        mel_thread_join(&t1, NULL);
+
+        MEL_EXPECT_EQ(rec.count, 1);
+        MEL_EXPECT(mel_gpu_future_resolved(f));
+        u32 s = mel_gpu_future_status(f);
+        u32 code = s >> 2;
+        MEL_EXPECT(code == 100u || code == 200u);
+        MEL_EXPECT_EQ(rec.status, s);
+        mel_gpu_future_destroy(f);
+    }
 }
 
 MEL_TEST(threading, tracker_same_thread_reentry)

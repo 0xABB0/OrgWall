@@ -1,26 +1,27 @@
 #include <gpu/future.h>
 
+#include <gpu/status.h>
+
 #include <allocator/allocator.h>
 #include <allocator/heap.h>
+#include <collection.list/list.h>
+#include <executor/executor.h>
 #include <thread/thread.h>
 #include <thread/mutex.h>
-#include <log/log.h>
 #include <debug/assert.h>
 
 #include <stdatomic.h>
 
 struct Mel_Gpu_Future
 {
-    _Atomic(i32)             claimed;
-    _Atomic(i32)             resolved;
-    void*                    value;
-    u32                      status;
-    Mel_Reactor*             target;
-    Mel_Gpu_Continuation     cont;
-    void*                    cont_user;
-    Mel_Gpu_Completion_Pump* pump;
-    Mel_Gpu_Future*          ready_next;
-    bool                     delivered;
+    Mel_Future           base;
+    Mel_Task             cont_task;
+    Mel_Gpu_Continuation cont;
+    void*                cont_user;
+    Mel_Executor*        target_exec;
+    Mel_Reactor*         target_reactor;
+    _Atomic(i32)         status_claimed;
+    _Atomic(u32)         gpu_status;
 };
 
 typedef struct
@@ -34,15 +35,9 @@ struct Mel_Gpu_Completion_Pump
     Mel_Reactor*        reactor;
     Mel_Reactor_Source* timer;
     Mel_Mutex           lock;
-    Mel_Gpu_Future*     ready_head;
-    Mel_Gpu_Future*     ready_tail;
-    _Atomic(i32)        ready_count;
-    _Atomic(i32)        drain_posted;
     Mel_Gpu_Poller*     pollers;
     u32                 poller_count;
     u32                 poller_capacity;
-    u32                 high_water;
-    bool                warned;
 };
 
 static bool mel_gpu__pump_timer_cb(void* user)
@@ -57,7 +52,6 @@ Mel_Gpu_Completion_Pump* mel_gpu_pump_create_opt(Mel_Reactor* reactor, Mel_Gpu_P
     Mel_Gpu_Completion_Pump* pump = mel_alloc_type(a, Mel_Gpu_Completion_Pump);
     *pump = (Mel_Gpu_Completion_Pump){ 0 };
     pump->reactor = reactor;
-    pump->high_water = opt.high_water ? opt.high_water : 256;
     mel_mutex_init(&pump->lock, MEL_MUTEX_PLAIN);
 
     if (reactor)
@@ -117,8 +111,6 @@ void mel_gpu_pump_tick(Mel_Gpu_Completion_Pump* pump)
     if (!pump)
         return;
 
-    atomic_store(&pump->drain_posted, 0);
-
     mel_mutex_lock(&pump->lock);
     u32             n = pump->poller_count;
     Mel_Gpu_Poller* snapshot = NULL;
@@ -134,35 +126,27 @@ void mel_gpu_pump_tick(Mel_Gpu_Completion_Pump* pump)
         snapshot[i].fn(snapshot[i].user);
     if (snapshot)
         mel_dealloc(mel_alloc_heap(), snapshot);
+}
 
-    mel_mutex_lock(&pump->lock);
-    Mel_Gpu_Future* head = pump->ready_head;
-    pump->ready_head = NULL;
-    pump->ready_tail = NULL;
-    mel_mutex_unlock(&pump->lock);
+static Mel_Executor* mel_gpu__target_executor(Mel_Reactor* target) { return target ? mel_reactor_executor(target) : mel_executor_inline(); }
 
-    while (head)
-    {
-        Mel_Gpu_Future* f = head;
-        head = f->ready_next;
-        f->ready_next = NULL;
-        atomic_fetch_sub(&pump->ready_count, 1);
-        f->delivered = true;
-        if (f->cont)
-            f->cont(f, f->cont_user);
-    }
-
-    if (pump->warned && (u32)atomic_load(&pump->ready_count) <= pump->high_water)
-        pump->warned = false;
+static void mel_gpu__future_cont_run(Mel_Task* self)
+{
+    Mel_Gpu_Future* f = mel_container_of(self, Mel_Gpu_Future, cont_task);
+    if (f->cont)
+        f->cont(f, f->cont_user);
 }
 
 Mel_Gpu_Future* mel_gpu_future_create(Mel_Gpu_Completion_Pump* pump, Mel_Reactor* target)
 {
+    (void)pump;
     const Mel_Alloc* a = mel_alloc_heap();
     Mel_Gpu_Future*  f = mel_alloc_type(a, Mel_Gpu_Future);
     *f = (Mel_Gpu_Future){ 0 };
-    f->pump = pump;
-    f->target = target;
+    mel_future_init(&f->base, NULL, a);
+    f->target_reactor = target;
+    f->target_exec = mel_gpu__target_executor(target);
+    atomic_store_explicit(&f->gpu_status, MEL_GPU_STATUS(0, MEL_GPU_SEVERITY_OK), memory_order_relaxed);
     return f;
 }
 
@@ -175,66 +159,47 @@ void mel_gpu_future_destroy(Mel_Gpu_Future* f)
 
 void mel_gpu_future_then(Mel_Gpu_Future* f, Mel_Gpu_Continuation cont, void* user)
 {
+    mel_assert(f != NULL);
     f->cont = cont;
     f->cont_user = user;
-}
-
-static void mel_gpu__pump_enqueue(Mel_Gpu_Completion_Pump* pump, Mel_Gpu_Future* f)
-{
-    mel_mutex_lock(&pump->lock);
-    f->ready_next = NULL;
-    if (pump->ready_tail)
-        pump->ready_tail->ready_next = f;
-    else
-        pump->ready_head = f;
-    pump->ready_tail = f;
-    mel_mutex_unlock(&pump->lock);
-
-    i32 depth = atomic_fetch_add(&pump->ready_count, 1) + 1;
-    if ((u32)depth > pump->high_water && !pump->warned)
-    {
-        pump->warned = true;
-        mel_log_warn("gpu", "completion pump backpressure: %d in-flight completions exceed high-water %u", depth, pump->high_water);
-    }
-    mel_assert((u32)depth <= pump->high_water * 4u);
-
-    if (pump->reactor && !mel_reactor_is_owner(pump->reactor))
-    {
-        if (atomic_exchange(&pump->drain_posted, 1) == 0)
-            mel_reactor_post(pump->reactor, (Mel_Reactor_Post_Proc)mel_gpu_pump_tick, pump);
-    }
+    mel_task_init(&f->cont_task, mel_gpu__future_cont_run);
+    mel_future_then(&f->base, &f->cont_task, f->target_exec);
 }
 
 void mel_gpu_future_resolve(Mel_Gpu_Future* f, void* value, u32 status)
 {
-    if (atomic_exchange(&f->claimed, 1) != 0)
+    mel_assert(f != NULL);
+    if (atomic_exchange_explicit(&f->status_claimed, 1, memory_order_acq_rel) != 0)
         return;
-
-    f->value = value;
-    f->status = status;
-    atomic_store_explicit(&f->resolved, 1, memory_order_release);
-
-    if (!f->pump)
-    {
-        f->delivered = true;
-        if (f->cont)
-            f->cont(f, f->cont_user);
-        return;
-    }
-
-    mel_gpu__pump_enqueue(f->pump, f);
+    atomic_store_explicit(&f->gpu_status, status, memory_order_release);
+    mel_future_resolve(&f->base, value, (Mel_Future_Status)mel_gpu_severity(status));
 }
 
-bool mel_gpu_future_resolved(Mel_Gpu_Future* f) { return atomic_load_explicit(&f->resolved, memory_order_acquire) != 0; }
+bool mel_gpu_future_resolved(Mel_Gpu_Future* f)
+{
+    mel_assert(f != NULL);
+    return mel_future_resolved(&f->base);
+}
 
-void* mel_gpu_future_value(Mel_Gpu_Future* f) { return f->value; }
+void* mel_gpu_future_value(Mel_Gpu_Future* f)
+{
+    mel_assert(f != NULL);
+    return mel_future_resolved(&f->base) ? mel_future_value(&f->base) : NULL;
+}
 
-u32 mel_gpu_future_status(Mel_Gpu_Future* f) { return f->status; }
+u32 mel_gpu_future_status(Mel_Gpu_Future* f)
+{
+    mel_assert(f != NULL);
+    return atomic_load_explicit(&f->gpu_status, memory_order_acquire);
+}
 
 u32 mel_gpu_future_wait(Mel_Gpu_Future* f)
 {
-    mel_assert(!f->pump || !f->pump->reactor || !mel_reactor_is_owner(f->pump->reactor));
-    while (atomic_load(&f->resolved) == 0)
+    mel_assert(f != NULL);
+    mel_assert(!f->target_reactor || !mel_reactor_is_owner(f->target_reactor));
+    while (!mel_future_resolved(&f->base))
         mel_thread_sleep(100000);
-    return f->status;
+    return atomic_load_explicit(&f->gpu_status, memory_order_acquire);
 }
+
+Mel_Future* mel_gpu_future_shared(Mel_Gpu_Future* f) { return f ? &f->base : NULL; }
