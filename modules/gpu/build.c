@@ -211,6 +211,7 @@ void build(Mel_Build* b)
     mel_defines(scenetest, MEL_PRIVATE, WHEN(.gpu = "vulkan"), "MEL_GPU_VULKAN=1");
     mel_defines(scenetest, MEL_PRIVATE, WHEN(.gpu = "metal"), "MEL_GPU_METAL=1");
     mel_defines(scenetest, MEL_PRIVATE, WHEN(.gpu = "webgpu"), "MEL_GPU_WEBGPU=1");
+    mel_defines(scenetest, MEL_PRIVATE, WHEN(.gpu = "d3d12"), "MEL_GPU_D3D12=1");
     mel_link(scenetest, MEL_PUBLIC, WHEN(.platforms = MEL_ON(MACOS)), "-framework", "AppKit");
     mel_depends(scenetest, "test");
     mel_depends(scenetest, "gpu");
