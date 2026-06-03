@@ -60,7 +60,19 @@ Five new tests. Reclaim is observable via two new internal hooks `mel_gpu__class
   (`TEXCOORD3`) and `float2`/`float4`; asserts the base semantic "TEXCOORD" + index 3 are split correctly and
   offsets/stride pack tight (0/8, stride 24). Complements round-3's single 3-input reflect test.
 
-### 3. Present (best-effort, static review only)
+### 3. Bug-audit H2 — `caps.memory.persistent_map` silent capability lie (coordinator-flagged)
+
+`caps.c:35` hardcoded `persistent_map = true` at the **adapter** stage — no device, no heap query, a silent
+claim (MEL-CODE-007, MEL-ENGINE-VIII) that would lie on a device with no CPU-mappable UPLOAD heap. Fixed:
+adapter caps now report `false` (honestly unknown without a device); `caps_refine_device` (which has the
+`ID3D12Device*`) sets it from a **real probe** — create a 256-byte UPLOAD committed resource and `Map` it,
+`true` only if the map succeeds. The transient is `Unmap`-ed and released immediately (MEL-ENGINE-III: tiny,
+requested for a genuine verification, freed at once). On a real D3D12 device the UPLOAD heap is mandated, so
+the probe returns `true` (same value as before — but now verified, not asserted). No test asserts this cap,
+so nothing breaks. Chose the create+map probe over `GetCustomHeapProperties` to avoid the C-COBJMACRO
+struct-return ABI fragility across in-box SDK versions.
+
+### 4. Present (best-effort, static review only)
 
 Per the mandate present needs an interactive win-pilot session, which I do not have. I performed a static
 review of `swapchain.c` rather than make speculative changes I cannot verify:
