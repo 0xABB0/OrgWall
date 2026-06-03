@@ -2,8 +2,6 @@
 
 #include <log/log.h>
 
-#include <stdlib.h>
-
 static WGPUVertexFormat mel_gpu__vertex_format(Mel_Gpu_Format f)
 {
     switch (f)
@@ -155,12 +153,14 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_create_opt(Mel_Gpu_Device* dev, 
     WGPUVertexBufferLayout vbl = { 0 };
     if (opt.vertex_layout_count)
     {
-        attrs = calloc(opt.vertex_layout_count, sizeof *attrs);
+        attrs = mel_alloc_array(dev->alloc, WGPUVertexAttribute, opt.vertex_layout_count);
         for (u32 i = 0; i < opt.vertex_layout_count; i++)
         {
-            attrs[i].format = mel_gpu__vertex_format(opt.vertex_layout[i].format);
-            attrs[i].offset = opt.vertex_layout[i].offset;
-            attrs[i].shaderLocation = opt.vertex_layout[i].location;
+            attrs[i] = (WGPUVertexAttribute){
+                .format = mel_gpu__vertex_format(opt.vertex_layout[i].format),
+                .offset = opt.vertex_layout[i].offset,
+                .shaderLocation = opt.vertex_layout[i].location,
+            };
         }
         vbl.stepMode = WGPUVertexStepMode_Vertex;
         vbl.arrayStride = opt.vertex_stride;
@@ -229,7 +229,8 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_create_opt(Mel_Gpu_Device* dev, 
     };
 
     WGPURenderPipeline wp = wgpuDeviceCreateRenderPipeline(dev->wgpu, &desc);
-    free(attrs);
+    if (attrs)
+        mel_dealloc(dev->alloc, attrs);
     if (!wp)
     {
         res.status = MEL_GPU_PIPELINE_CREATE_VK_FAILED;

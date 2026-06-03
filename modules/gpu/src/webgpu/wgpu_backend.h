@@ -61,9 +61,9 @@ typedef struct
     Mel_Gpu_Resource_Header header;
     WGPUBuffer              wgpu;
     usize                   size;
+    void*                   shadow;
     bool                    host_visible;
     bool                    readback;
-    bool                    mapped;
 } Mel_Gpu_Buffer_Obj;
 
 typedef struct
@@ -211,6 +211,7 @@ void mel_gpu__submit_complete(Mel_Gpu_Device* dev, u64 serial);
 void mel_gpu__instance_pump_tick(void* user);
 
 bool mel_gpu__drain_until(WGPUInstance instance, const bool* done);
+bool mel_gpu__drain_sync(Mel_Gpu_Device* dev, const bool* done, const char* what);
 
 void              mel_gpu__caps_probe(WGPUAdapter adapter, Mel_Gpu_Caps* out);
 WGPUTextureFormat mel_gpu__wgpu_format(Mel_Gpu_Format fmt);
