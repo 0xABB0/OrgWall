@@ -2,8 +2,11 @@
 
 #include "raymarch.h"
 #include "hud.h"
-#include "blit_spv.h"
-#include "raymarch_spv.h"
+
+static const char RAYMARCH_SLANG[] = {
+#embed "shaders/slang/raymarch.slang"
+    , 0
+};
 
 typedef struct
 {
@@ -31,25 +34,17 @@ static void* raymarch_init(Mel_Gpu_Device* dev, Mel_Gpu_Swapchain* sc)
     r->aspect = 1.0f;
     hud_init(&r->hud, dev);
 
-    r->shader = mel_gpu_shader_create_from_bytecode(dev,
-                                                    .spirv_vertex = BLIT_VERT_SPV,
-                                                    .spirv_vertex_size = sizeof BLIT_VERT_SPV,
-                                                    .spirv_fragment = RAYMARCH_FRAG_SPV,
-                                                    .spirv_fragment_size = sizeof RAYMARCH_FRAG_SPV,
-                                                    .vertex_entry = "main",
-                                                    .fragment_entry = "main",
-                                                    .name = "raymarch")
-                    .value;
-
-    Mel_Gpu_Pipeline_Create_Result pl = mel_gpu_pipeline_create(dev,
-                                                                .shader = r->shader,
-                                                                .topology = MEL_GPU_TOPOLOGY_TRIANGLE_LIST,
-                                                                .cull = MEL_GPU_CULL_NONE,
-                                                                .color_format = mel_gpu_swapchain_format(sc),
-                                                                .push_constant_size = sizeof(Raymarch_Root),
-                                                                .name = "raymarch");
+    Mel_Gpu_Pipeline_From_Slang_Result pl = mel_gpu_pipeline_create_from_slang(dev,
+                                                                              .source = RAYMARCH_SLANG,
+                                                                              .vertex_entry = "vs_main",
+                                                                              .fragment_entry = "fs_main",
+                                                                              .topology = MEL_GPU_TOPOLOGY_TRIANGLE_LIST,
+                                                                              .cull = MEL_GPU_CULL_NONE,
+                                                                              .color_format = mel_gpu_swapchain_format(sc),
+                                                                              .name = "raymarch");
     if (mel_gpu_failed(pl.status))
         return r;
+    r->shader = pl.shader;
     r->pipeline = pl.value;
 
     r->ready = true;

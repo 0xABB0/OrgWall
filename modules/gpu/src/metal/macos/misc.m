@@ -2,48 +2,12 @@
 
 #include <log/log.h>
 
-bool mel_gpu_bindless_available(Mel_Gpu_Device* dev)
-{
-    (void)dev;
-    return false;
-}
-
-u32 mel_gpu_texture_view_bindless_slot(Mel_Gpu_Device* dev, Mel_Gpu_Texture_View view)
-{
-    (void)dev;
-    (void)view;
-    mel_log_error("gpu", "texture_view_bindless_slot: bindless is not implemented on the Metal backend (caps.memory.bindless tier=none)");
-    return 0;
-}
-
-u32 mel_gpu_buffer_bindless_slot(Mel_Gpu_Device* dev, Mel_Gpu_Buffer buf)
-{
-    (void)dev;
-    (void)buf;
-    mel_log_error("gpu", "buffer_bindless_slot: bindless is not implemented on the Metal backend (caps.memory.bindless tier=none)");
-    return 0;
-}
-
-u32 mel_gpu_sampler_bindless_slot(Mel_Gpu_Device* dev, Mel_Gpu_Sampler sampler)
-{
-    (void)dev;
-    (void)sampler;
-    mel_log_error("gpu", "sampler_bindless_slot: bindless is not implemented on the Metal backend (caps.memory.bindless tier=none)");
-    return 0;
-}
-
 u64 mel_gpu_buffer_device_address(Mel_Gpu_Device* dev, Mel_Gpu_Buffer buf)
 {
     (void)dev;
     (void)buf;
     mel_log_error("gpu", "buffer_device_address: GPU virtual addresses are not exposed on the Metal backend this round");
     return 0;
-}
-
-void mel_gpu_cmd_bind_bindless(Mel_Gpu_Command_List* cmd)
-{
-    (void)cmd;
-    mel_log_warn("gpu", "cmd_bind_bindless: bindless is not implemented on the Metal backend this round");
 }
 
 Mel_Gpu_Format_Properties mel_gpu_format_properties(Mel_Gpu_Device* dev, Mel_Gpu_Format format, Mel_Gpu_Tiling tiling)

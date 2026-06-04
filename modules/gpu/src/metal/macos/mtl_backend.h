@@ -37,9 +37,9 @@
 
 struct Mel_Gpu_Adapter
 {
-    Mel_Gpu_Instance*    instance;
-    id<MTLDevice>        mtl;
-    Mel_Gpu_Caps         caps;
+    Mel_Gpu_Instance* instance;
+    id<MTLDevice>     mtl;
+    Mel_Gpu_Caps      caps;
 };
 
 struct Mel_Gpu_Instance
@@ -62,6 +62,7 @@ typedef struct
     void*                   buf;
     usize                   size;
     bool                    host_visible;
+    u32                     usage;
 } Mel_Gpu_Buffer_Obj;
 
 typedef struct
@@ -76,6 +77,7 @@ typedef struct
     u32                     mip_levels;
     u32                     array_layers;
     u32                     sample_count;
+    u32                     usage;
 } Mel_Gpu_Texture_Obj;
 
 typedef struct
@@ -89,6 +91,7 @@ typedef struct
     u32                     mip_count;
     u32                     base_layer;
     u32                     layer_count;
+    u32                     usage;
 } Mel_Gpu_Texture_View_Obj;
 
 typedef struct
@@ -125,6 +128,29 @@ typedef struct
     u32                     stencil_ref_back;
 } Mel_Gpu_Pipeline_Obj;
 
+enum
+{
+    MEL_GPU_BINDLESS_BINDING_SAMPLED_IMAGE = 0,
+    MEL_GPU_BINDLESS_BINDING_SAMPLER = 1,
+    MEL_GPU_BINDLESS_BINDING_STORAGE_BUFFER = 2,
+    MEL_GPU_BINDLESS_BINDING_UNIFORM_BUFFER = 3,
+    MEL_GPU_BINDLESS_BINDING_STORAGE_IMAGE = 4,
+    MEL_GPU_BINDLESS_BINDING_COUNT = 5,
+};
+
+typedef struct
+{
+    bool      enabled;
+    void*     heaps[MEL_GPU_BINDLESS_BINDING_COUNT];
+    void*     residency;
+    u32       cap_sampled_image;
+    u32       cap_sampler;
+    u32       cap_storage_buffer;
+    u32       cap_uniform_buffer;
+    u32       cap_storage_image;
+    Mel_Mutex lock;
+} Mel_Gpu_Bindless;
+
 struct Mel_Gpu_Device
 {
     Mel_Gpu_Instance*        instance;
@@ -142,10 +168,10 @@ struct Mel_Gpu_Device
     bool                     lost;
     bool                     owns_instance;
 
-    Mel_Mutex              obj_lock;
-    Mel_Mutex             submit_lock;
-    u64                   submit_serial;
-    u64                   submit_completed;
+    Mel_Mutex obj_lock;
+    Mel_Mutex submit_lock;
+    u64       submit_serial;
+    u64       submit_completed;
 
     Mel_Gpu_Resource_Table buffers;
     Mel_Gpu_Resource_Table textures;
@@ -154,10 +180,12 @@ struct Mel_Gpu_Device
     Mel_Gpu_Resource_Table shaders;
     Mel_Gpu_Resource_Table pipelines;
 
-    bool                     submit_poller_registered;
-    struct Mel_Gpu_Pending*  pending;
-    u32                      pending_count;
-    u32                      pending_cap;
+    Mel_Gpu_Bindless bindless;
+
+    bool                    submit_poller_registered;
+    struct Mel_Gpu_Pending* pending;
+    u32                     pending_count;
+    u32                     pending_cap;
 };
 
 struct Mel_Gpu_Surface
@@ -171,18 +199,23 @@ struct Mel_Gpu_Surface
 
 struct Mel_Gpu_Command_List
 {
-    Mel_Gpu_Device*    dev;
-    Mel_Gpu_Swapchain* sc;
-    id<MTLCommandBuffer>        cb;
-    id<MTLRenderCommandEncoder> encoder;
-    bool               standalone;
-    bool               recording;
-    bool               warned_unsupported;
+    Mel_Gpu_Device*              dev;
+    Mel_Gpu_Swapchain*           sc;
+    id<MTLCommandBuffer>         cb;
+    id<MTLRenderCommandEncoder>  encoder;
+    id<MTLComputeCommandEncoder> compute_encoder;
+    bool                         standalone;
+    bool                         recording;
+    bool                         warned_unsupported;
 
-    MTLPrimitiveType   primitive;
-    bool               has_pipeline;
-    id<MTLBuffer>      index_buffer;
-    MTLIndexType       index_type;
+    MTLPrimitiveType primitive;
+    bool             has_pipeline;
+    id<MTLBuffer>    index_buffer;
+    MTLIndexType     index_type;
+
+    id<MTLComputePipelineState> compute_state;
+    MTLSize                     compute_threadgroup;
+    bool                        has_compute_pipeline;
 };
 
 struct Mel_Gpu_Queue
@@ -231,7 +264,23 @@ bool mel_gpu__texture_view_get(Mel_Gpu_Device* dev, Mel_Gpu_Texture_View view, M
 bool             mel_gpu__pipeline_get(Mel_Gpu_Device* dev, Mel_Gpu_Pipeline pipe, Mel_Gpu_Pipeline_Obj* out);
 MTLPrimitiveType mel_gpu__topology_to_primitive(Mel_Gpu_Topology t);
 
-#define MEL_GPU_METAL_VERTEX_BUFFER_INDEX 30u
-#define MEL_GPU_METAL_PUSH_CONSTANT_INDEX 0u
-#define MEL_GPU_METAL_VERTEX_BUFFER_BASE 30u
+void mel_gpu__cmd_end_active_encoder(Mel_Gpu_Command_List* cmd);
+
+void mel_gpu__bindless_init(Mel_Gpu_Device* dev, bool want);
+void mel_gpu__bindless_shutdown(Mel_Gpu_Device* dev);
+bool mel_gpu__bindless_slot_fits(Mel_Gpu_Device* dev, u32 binding_class, u32 slot);
+void mel_gpu__bindless_register_sampled_image(Mel_Gpu_Device* dev, u32 slot, id<MTLTexture> view);
+void mel_gpu__bindless_register_storage_image(Mel_Gpu_Device* dev, u32 slot, id<MTLTexture> view);
+void mel_gpu__bindless_register_storage_buffer(Mel_Gpu_Device* dev, u32 slot, id<MTLBuffer> buf);
+void mel_gpu__bindless_register_uniform_buffer(Mel_Gpu_Device* dev, u32 slot, id<MTLBuffer> buf);
+void mel_gpu__bindless_register_sampler(Mel_Gpu_Device* dev, u32 slot, id<MTLSamplerState> sampler);
+void mel_gpu__bindless_bind_render(Mel_Gpu_Device* dev, id<MTLRenderCommandEncoder> enc);
+void mel_gpu__bindless_bind_compute(Mel_Gpu_Device* dev, id<MTLComputeCommandEncoder> enc);
+
+#define MEL_GPU_METAL_VERTEX_BUFFER_INDEX        30u
+#define MEL_GPU_METAL_PUSH_CONSTANT_INDEX        0u
+#define MEL_GPU_METAL_VERTEX_BUFFER_BASE         30u
 #define MEL_GPU_METAL_VERTEX_SLOT_TO_INDEX(slot) (MEL_GPU_METAL_VERTEX_BUFFER_BASE - (slot))
+
+#define MEL_GPU_METAL_BINDLESS_HEAP_BASE         1u
+#define MEL_GPU_METAL_BINDLESS_HEAP_INDEX(klass) (MEL_GPU_METAL_BINDLESS_HEAP_BASE + (klass))

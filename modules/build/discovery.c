@@ -17,13 +17,16 @@ bool mel_discover_dir(Mel_Graph* g, const char* dir)
         return false;
     }
 
-    const char* base = strrchr(dir, '/');
-    base = base ? base + 1 : dir;
+    char* slug = mel_str_dup(dir);
+    for (char* s = slug; *s; s++)
+        if (*s == '/' || *s == '\\')
+            *s = '_';
 #ifdef _WIN32
-    char* so = mel_str_fmt("build/_loadc/%s.dll", base);
+    char* so = mel_str_fmt("build/_loadc/%s.dll", slug);
 #else
-    char* so = mel_str_fmt("build/_loadc/%s.so", base);
+    char* so = mel_str_fmt("build/_loadc/%s.so", slug);
 #endif
+    free(slug);
     mel_mkdirs("build/_loadc");
 
     Mel_StrVec cmd = { 0 };

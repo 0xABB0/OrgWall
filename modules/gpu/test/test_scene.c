@@ -13,6 +13,7 @@
 #include <gpu/rendering.h>
 #include <gpu/state.h>
 #include <gpu/future.h>
+#include <gpu/binding.h>
 
 #include <log/log.h>
 
@@ -26,6 +27,21 @@
 #include "triangle_bundle.h"
 #include "gradient_bundle.h"
 #include "quad_bundle.h"
+
+static const char TRIANGLE_SLANG[] = {
+#embed "shaders/slang/triangle.slang"
+    , 0
+};
+
+static const char MANDELBROT_SLANG[] = {
+#embed "shaders/slang/mandelbrot.slang"
+    , 0
+};
+
+static const char RAYMARCH_SLANG[] = {
+#embed "shaders/slang/raymarch.slang"
+    , 0
+};
 
 #if MEL_GPU_VULKAN
 #define SCENE_BACKEND "vulkan"
@@ -167,45 +183,14 @@ MEL_TEST(scene_shared, triangle)
     Mel_Gpu_Buffer_Create_Result vbo = mel_gpu_buffer_create(dev, .size = sizeof verts, .usage = MEL_GPU_BUFFER_VERTEX, .memory = MEL_GPU_MEMORY_UPLOAD, .data = verts, .name = "scene-tri-vbo");
     MEL_REQUIRE(!mel_gpu_failed(vbo.status));
 
-    const Mel_Bundle_Graphics bundle = {
-        .name = "scene-triangle",
-        .spirv_vertex = TRIANGLE_VERT_SPV,
-        .spirv_vertex_size = sizeof TRIANGLE_VERT_SPV,
-        .spirv_fragment = TRIANGLE_FRAG_SPV,
-        .spirv_fragment_size = sizeof TRIANGLE_FRAG_SPV,
-        .msl_vertex = TRIANGLE_VERT_MSL,
-        .msl_vertex_size = sizeof TRIANGLE_VERT_MSL,
-        .msl_fragment = TRIANGLE_FRAG_MSL,
-        .msl_fragment_size = sizeof TRIANGLE_FRAG_MSL,
-        .wgsl_vertex = TRIANGLE_VERT_WGSL,
-        .wgsl_vertex_size = sizeof TRIANGLE_VERT_WGSL,
-        .wgsl_fragment = TRIANGLE_FRAG_WGSL,
-        .wgsl_fragment_size = sizeof TRIANGLE_FRAG_WGSL,
-#if TRIANGLE_HAS_DXIL
-        .dxil_vertex = TRIANGLE_VERT_DXIL,
-        .dxil_vertex_size = sizeof TRIANGLE_VERT_DXIL,
-        .dxil_fragment = TRIANGLE_FRAG_DXIL,
-        .dxil_fragment_size = sizeof TRIANGLE_FRAG_DXIL,
-#endif
-        .vertex_entry = TRIANGLE_VERT_ENTRY,
-        .fragment_entry = TRIANGLE_FRAG_ENTRY,
-    };
-    Mel_Gpu_Shader_Create_Result sh = mel_bundle_select_graphics(dev, &bundle);
-    MEL_REQUIRE(!mel_gpu_failed(sh.status));
-
-    const Mel_Gpu_Vertex_Element layout[] = {
-        { .location = 0, .format = MEL_GPU_FORMAT_RGB32_FLOAT, .offset = offsetof(Scene_Vertex, pos) },
-        { .location = 1, .format = MEL_GPU_FORMAT_RGBA32_FLOAT, .offset = offsetof(Scene_Vertex, color) },
-    };
-    Mel_Gpu_Pipeline_Create_Result pipe = mel_gpu_pipeline_create(dev,
-                                                                  .shader = sh.value,
-                                                                  .topology = MEL_GPU_TOPOLOGY_TRIANGLE_LIST,
-                                                                  .cull = MEL_GPU_CULL_NONE,
-                                                                  .color_format = MEL_GPU_FORMAT_RGBA8_UNORM,
-                                                                  .vertex_layout = layout,
-                                                                  .vertex_layout_count = 2,
-                                                                  .vertex_stride = sizeof(Scene_Vertex),
-                                                                  .name = "scene-triangle");
+    Mel_Gpu_Pipeline_From_Slang_Result pipe = mel_gpu_pipeline_create_from_slang(dev,
+                                                                                 .source = TRIANGLE_SLANG,
+                                                                                 .vertex_entry = "vs_main",
+                                                                                 .fragment_entry = "fs_main",
+                                                                                 .topology = MEL_GPU_TOPOLOGY_TRIANGLE_LIST,
+                                                                                 .cull = MEL_GPU_CULL_NONE,
+                                                                                 .color_format = MEL_GPU_FORMAT_RGBA8_UNORM,
+                                                                                 .name = "scene-triangle");
     MEL_REQUIRE(!mel_gpu_failed(pipe.status));
 
     Scene_Target tgt = scene_target_create(dev, SCENE_W, SCENE_H);
@@ -215,7 +200,7 @@ MEL_TEST(scene_shared, triangle)
 
     scene_target_destroy(dev, &tgt);
     mel_gpu_pipeline_destroy(dev, pipe.value);
-    mel_gpu_shader_destroy(dev, sh.value);
+    mel_gpu_shader_destroy(dev, pipe.shader);
     mel_gpu_buffer_destroy(dev, vbo.value);
     mel_gpu_device_destroy(dev);
     mel_gpu_instance_destroy(inst);
@@ -442,6 +427,183 @@ MEL_TEST(scene_shared, quad)
     scene_target_destroy(dev, &tgt);
     mel_gpu_pipeline_destroy(dev, pipe.value);
     mel_gpu_shader_destroy(dev, sh.value);
+    mel_gpu_device_destroy(dev);
+    mel_gpu_instance_destroy(inst);
+#endif
+}
+
+typedef struct
+{
+    f32 time;
+    f32 aspect;
+    f32 pad0;
+    f32 pad1;
+} Raymarch_Root;
+
+static void scene_record_raymarch(Mel_Gpu_Command_List* cmd, void* ctx)
+{
+    Raymarch_Root* root = ctx;
+    mel_gpu_cmd_push_constants(cmd, 0, sizeof *root, root);
+    mel_gpu_cmd_draw(cmd, 3, 1);
+}
+
+MEL_TEST(scene_shared, raymarch)
+{
+    Mel_Gpu_Instance* inst = NULL;
+    Mel_Gpu_Device*   dev = scene_make_device(&inst);
+    MEL_REQUIRE_NOT_NULL(dev);
+
+#if MEL_GPU_WEBGPU
+    /* raymarch drives the pipeline through a push-constant (time/aspect). WebGPU core
+       has no push constants (MissingFeature): pipeline_create_from_slang refuses loudly,
+       so this scene cannot diff against the shared golden there. Degrade honestly — skip
+       with the reason rather than fabricate a pass (MEL-ENGINE-VII / -VIII). The WGSL
+       emit of raymarch.slang is still proven non-degenerate by the offline cross-emit. */
+    mel_gpu_device_destroy(dev);
+    mel_gpu_instance_destroy(inst);
+    MEL_SKIP("raymarch scene needs push constants; WebGPU core lacks them (MissingFeature)");
+#else
+    Mel_Gpu_Pipeline_From_Slang_Result pipe = mel_gpu_pipeline_create_from_slang(dev,
+                                                                                 .source = RAYMARCH_SLANG,
+                                                                                 .vertex_entry = "vs_main",
+                                                                                 .fragment_entry = "fs_main",
+                                                                                 .topology = MEL_GPU_TOPOLOGY_TRIANGLE_LIST,
+                                                                                 .cull = MEL_GPU_CULL_NONE,
+                                                                                 .color_format = MEL_GPU_FORMAT_RGBA8_UNORM,
+                                                                                 .name = "scene-raymarch");
+    MEL_REQUIRE(!mel_gpu_failed(pipe.status));
+
+    Raymarch_Root root = { .time = 0.0f, .aspect = 1.0f };
+    Scene_Target  tgt = scene_target_create(dev, SCENE_W, SCENE_H);
+    const u8*     px = scene_render_readback(dev, &tgt, pipe.value, scene_record_raymarch, &root);
+    MEL_REQUIRE_NOT_NULL(px);
+    MEL_GOLDEN(SCENE_BACKEND, "shared/raymarch", px, tgt.w, tgt.h, SCENE_TOL);
+
+    scene_target_destroy(dev, &tgt);
+    mel_gpu_pipeline_destroy(dev, pipe.value);
+    mel_gpu_shader_destroy(dev, pipe.shader);
+    mel_gpu_device_destroy(dev);
+    mel_gpu_instance_destroy(inst);
+#endif
+}
+
+typedef struct
+{
+    u32 image, w, h, max_iter;
+    f32 center_x, center_y, scale, time;
+} Mandel_Root;
+
+static Mel_Gpu_Device* scene_make_device_bindless(Mel_Gpu_Instance** out_inst)
+{
+    Mel_Gpu_Instance* inst = mel_gpu_instance_create(.app_name = "gpu-scene-test", .debug = { .enabled = true });
+    if (!inst)
+        return NULL;
+    Mel_Gpu_Adapter* adapters[8];
+    u32              n = mel_gpu_adapters(inst, adapters, 8);
+    if (n == 0)
+    {
+        mel_gpu_instance_destroy(inst);
+        return NULL;
+    }
+    Mel_Gpu_Device_Create_Result dr = mel_gpu_device_create(inst, adapters[0], .reactor = NULL, .features = { .descriptor_indexing = true });
+    if (!dr.value)
+    {
+        mel_gpu_instance_destroy(inst);
+        return NULL;
+    }
+    *out_inst = inst;
+    return dr.value;
+}
+
+MEL_TEST(scene_shared, mandelbrot)
+{
+    Mel_Gpu_Instance* inst = NULL;
+    Mel_Gpu_Device*   dev = scene_make_device_bindless(&inst);
+    MEL_REQUIRE_NOT_NULL(dev);
+
+    if (!mel_gpu_bindless_available(dev))
+    {
+        mel_gpu_device_destroy(dev);
+        mel_gpu_instance_destroy(inst);
+        MEL_SKIP("mandelbrot scene needs the device-global bindless heap (descriptor_indexing); device does not advertise it");
+    }
+
+#if MEL_GPU_METAL
+    /* The mandelbrot compute kernel writes an unbounded bindless storage-image heap
+       (RWTexture2D<float4> u_images[]). Slang's stock MSL emit lowers any unbounded
+       resource-heap array to a flexible-array-member kernel parameter
+       (texture2d<...> u_images[]), which Metal's runtime newLibraryWithSource rejects
+       ("flexible array members are a C99 feature"). The Metal RHI's bindless model
+       binds each heap class as a device buffer of MTLResourceIDs at a reserved buffer
+       index, indexed by slot — a different binding model than Slang auto-emits, and the
+       gpu module exposes no NON-bindless compute storage-texture binding to fall back
+       to. So the storage-image compute kernel cannot be runtime-compiled to MSL today.
+       Degrade honestly (MEL-ENGINE-VII / -VIII) — skip with the precise cause rather
+       than fabricate a pass. Vulkan proves the compute + runtime-Slang + reflected
+       threadgroup pipeline end-to-end; closing this needs a Slang->MSL bindless-heap
+       lowering (or an MSL post-process) in the slang wrapper / Metal RHI, a separate
+       lane. The same kernel emits valid SPIR-V (RuntimeDescriptorArray) and valid WGSL
+       (array<texture_storage_2d>), so the wall is specific to the Slang Metal target. */
+    mel_gpu_device_destroy(dev);
+    mel_gpu_instance_destroy(inst);
+    MEL_SKIP("mandelbrot storage-image compute: Slang's MSL emit of the unbounded bindless heap is a flexible-array kernel param Metal rejects; needs a Slang->MSL bindless lowering (slang wrapper / Metal RHI lane)");
+#else
+    Mel_Gpu_Texture_Create_Result img = mel_gpu_texture_create(dev, .kind = MEL_GPU_TEXTURE_2D, .extent = { SCENE_W, SCENE_H, 1 }, .format = MEL_GPU_FORMAT_RGBA8_UNORM,
+                                                               .usage = MEL_GPU_TEXTURE_STORAGE | MEL_GPU_TEXTURE_COPY_SRC, .name = "mandel-img");
+    MEL_REQUIRE(!mel_gpu_failed(img.status));
+    Mel_Gpu_Texture_View_Create_Result view = mel_gpu_texture_default_view(dev, img.value);
+    MEL_REQUIRE(!mel_gpu_failed(view.status));
+    Mel_Gpu_Buffer_Create_Result rb = mel_gpu_buffer_create(dev, .size = (usize)SCENE_W * SCENE_H * 4, .usage = MEL_GPU_BUFFER_TRANSFER_DST, .memory = MEL_GPU_MEMORY_READBACK, .name = "mandel-rb");
+    MEL_REQUIRE(!mel_gpu_failed(rb.status));
+
+    Mel_Gpu_Pipeline_From_Slang_Result pipe = mel_gpu_pipeline_compute_create_from_slang(dev,
+                                                                                        .source = MANDELBROT_SLANG,
+                                                                                        .compute_entry = "cs_main",
+                                                                                        .push_constant_size = sizeof(Mandel_Root),
+                                                                                        .bindless = true,
+                                                                                        .name = "scene-mandelbrot");
+    MEL_REQUIRE(!mel_gpu_failed(pipe.status));
+
+    Mandel_Root root = {
+        .image = mel_gpu_texture_view_bindless_slot(dev, view.value),
+        .w = SCENE_W,
+        .h = SCENE_H,
+        .max_iter = 256u,
+        .center_x = -0.74364388703f,
+        .center_y = 0.13182590421f,
+        .scale = 0.18f,
+        .time = 0.0f,
+    };
+
+    Mel_Gpu_Queue*        q = mel_gpu_queue_request(dev, MEL_GPU_QUEUE_GRAPHICS);
+    Mel_Gpu_Command_List* cmd = mel_gpu_command_list_create(q);
+    mel_gpu_command_list_begin(cmd);
+    Mel_Gpu_Subresource_Range range = { MEL_GPU_ASPECT_COLOR, 0, 1, 0, 1 };
+    mel_gpu_cmd_texture_barrier(cmd, img.value, range, MEL_GPU_STATE_COMMON, MEL_GPU_STATE_UNORDERED_ACCESS);
+    mel_gpu_cmd_bind_pipeline(cmd, pipe.value);
+    mel_gpu_cmd_bind_bindless(cmd);
+    mel_gpu_cmd_push_constants(cmd, 0, sizeof root, &root);
+    mel_gpu_cmd_dispatch(cmd, (SCENE_W + 7) / 8, (SCENE_H + 7) / 8, 1);
+    mel_gpu_cmd_texture_barrier(cmd, img.value, range, MEL_GPU_STATE_UNORDERED_ACCESS, MEL_GPU_STATE_COPY_SOURCE);
+    mel_gpu_cmd_copy_texture_to_buffer(cmd, img.value, range, rb.value);
+    mel_gpu_command_list_end(cmd);
+
+    Mel_Gpu_Future* f = mel_gpu_queue_submit(q, (Mel_Gpu_Submit){ .command_lists = &cmd, .command_list_count = 1 });
+    bool            ok = mel_gpu_ok(mel_gpu_future_wait(f));
+    mel_gpu_future_destroy(f);
+    MEL_REQUIRE(ok);
+
+    const u8* px = mel_gpu_buffer_mapped(dev, rb.value);
+    MEL_REQUIRE_NOT_NULL(px);
+    MEL_GOLDEN(SCENE_BACKEND, "shared/mandelbrot", px, SCENE_W, SCENE_H, SCENE_TOL);
+
+    mel_gpu_command_list_destroy(cmd);
+    mel_gpu_queue_release(q);
+    mel_gpu_pipeline_destroy(dev, pipe.value);
+    mel_gpu_shader_destroy(dev, pipe.shader);
+    mel_gpu_buffer_destroy(dev, rb.value);
+    mel_gpu_texture_view_destroy(dev, view.value);
+    mel_gpu_texture_destroy(dev, img.value);
     mel_gpu_device_destroy(dev);
     mel_gpu_instance_destroy(inst);
 #endif
