@@ -1,5 +1,8 @@
 #include <barcode/decode.h>
 
+#include <barcode/qr.h>
+#include <barcode/qr_detect.h>
+
 #include <allocator/allocator.h>
 
 #include <string.h>
@@ -697,6 +700,7 @@ bool mel_barcode_decoder_init(mel_barcode_decoder* dec, i32 max_width, const Mel
     dec->alloc = allocator;
     dec->widths_cap = cap;
     dec->values_cap = cap;
+    dec->gf_ready = false;
     return true;
 }
 
@@ -704,6 +708,11 @@ void mel_barcode_decoder_free(mel_barcode_decoder* dec)
 {
     if (dec == NULL || dec->alloc == NULL)
         return;
+    if (dec->gf_ready)
+    {
+        mel_gf_free(&dec->gf);
+        dec->gf_ready = false;
+    }
     mel_dealloc(dec->alloc, dec->widths);
     mel_dealloc(dec->alloc, dec->values);
     dec->widths = NULL;
@@ -711,6 +720,35 @@ void mel_barcode_decoder_free(mel_barcode_decoder* dec)
     dec->widths_cap = 0;
     dec->values_cap = 0;
     dec->alloc = NULL;
+}
+
+static bool mel__decode_qr(mel_barcode_decoder* dec, const mel_image_gray* gray, mel_barcode_decode_result* out)
+{
+    if (gray->w < 21 || gray->h < 21)
+        return false;
+
+    const Mel_Alloc* a = dec->alloc;
+    if (!dec->gf_ready)
+    {
+        if (!mel_gf_binary_init(&dec->gf, 256, 0x11D, a))
+            return false;
+        dec->gf_ready = true;
+    }
+
+    mel_qr_decoded d;
+    if (!mel_qr_decode_image_gf(gray, &d, &dec->gf, a))
+        return false;
+
+    out->found = true;
+    out->symbology = "QR";
+    out->text = d.text;
+    out->text_len = (i32)d.len;
+    d.text = NULL;
+    mel_qr_decoded_free(&d, a);
+    out->x_start = 0;
+    out->x_end = gray->w;
+    out->y = gray->h / 2;
+    return true;
 }
 
 bool mel_barcode_decoder_decode(mel_barcode_decoder* dec, const mel_image_gray* gray, mel_barcode_decode_result* out)
@@ -745,11 +783,16 @@ bool mel_barcode_decoder_decode(mel_barcode_decoder* dec, const mel_image_gray* 
     runs.capacity = dec->widths_cap;
     runs.values = dec->values;
     runs.values_cap = dec->values_cap;
-    return mel__decode_scans(&runs, dec->alloc, gray, out);
+    if (mel__decode_scans(&runs, dec->alloc, gray, out))
+        return true;
+
+    return mel__decode_qr(dec, gray, out);
 }
 
 bool mel_barcode_decode(const mel_image_gray* gray, mel_barcode_decode_result* out, const Mel_Alloc* allocator)
 {
+    if (out != NULL)
+        memset(out, 0, sizeof *out);
     if (gray == NULL || out == NULL || allocator == NULL || gray->pixels == NULL)
         return false;
     if (gray->w < 16 || gray->h < 1)

@@ -4,6 +4,8 @@
 #include <core/types.h>
 #include <image/image.h>
 
+#include <barcode/galois.h>
+
 typedef struct mel_barcode_decode_result
 {
     const char* symbology;
@@ -22,6 +24,8 @@ typedef struct mel_barcode_decoder
     i32*             values;
     i32              widths_cap;
     i32              values_cap;
+    mel_gf           gf;
+    bool             gf_ready;
 } mel_barcode_decoder;
 
 bool mel_barcode_decoder_init(mel_barcode_decoder* dec, i32 max_width, const Mel_Alloc* allocator);

@@ -291,3 +291,128 @@ MEL_TEST(barcode_qr, encode_roundtrip_multiblock)
 }
 
 MEL_TEST(barcode_qr, encode_roundtrip_v7_with_version_info) { mel__qr_roundtrip("ABCDEFGHIJ", (mel_qr_opt){ .ecc = mel_qr_ecc_m(), .version = 7, .mask = -1 }, 7); }
+
+static void mel__qr_decode_check(const char* data, mel_qr_opt opt, i32 expect_version)
+{
+    const Mel_Alloc* a = mel_alloc_heap();
+
+    mel_barcode_matrix m;
+    MEL_REQUIRE(mel_qr_encode(&m, data, opt, a));
+
+    mel_qr_decoded d;
+    MEL_REQUIRE(mel_qr_decode(&m, &d, a));
+    MEL_REQUIRE_EQ(d.version, expect_version);
+    MEL_REQUIRE_EQ((i32)d.ecc.rank, (i32)opt.ecc.rank);
+    MEL_REQUIRE_EQ((i32)d.len, (i32)strlen(data));
+    MEL_REQUIRE_STR_EQ(d.text, data);
+
+    mel_qr_decoded_free(&d, a);
+    mel_barcode_matrix_free(&m);
+}
+
+MEL_TEST(barcode_qr, decode_numeric_v1_all_ranks)
+{
+    mel__qr_decode_check("01234567", (mel_qr_opt){ .ecc = mel_qr_ecc_l(), .version = 1, .mask = -1 }, 1);
+    mel__qr_decode_check("01234567", (mel_qr_opt){ .ecc = mel_qr_ecc_m(), .version = 1, .mask = -1 }, 1);
+    mel__qr_decode_check("01234567", (mel_qr_opt){ .ecc = mel_qr_ecc_q(), .version = 1, .mask = -1 }, 1);
+    mel__qr_decode_check("01234567", (mel_qr_opt){ .ecc = mel_qr_ecc_h(), .version = 1, .mask = -1 }, 1);
+}
+
+MEL_TEST(barcode_qr, decode_numeric_remainders)
+{
+    mel__qr_decode_check("8", (mel_qr_opt){ .ecc = mel_qr_ecc_m(), .version = 1, .mask = -1 }, 1);
+    mel__qr_decode_check("42", (mel_qr_opt){ .ecc = mel_qr_ecc_m(), .version = 1, .mask = -1 }, 1);
+    mel__qr_decode_check("100", (mel_qr_opt){ .ecc = mel_qr_ecc_m(), .version = 1, .mask = -1 }, 1);
+    mel__qr_decode_check("12345678901234567890", (mel_qr_opt){ .ecc = mel_qr_ecc_l(), .version = 1, .mask = -1 }, 1);
+}
+
+MEL_TEST(barcode_qr, decode_alphanumeric)
+{
+    mel__qr_decode_check("HELLO WORLD", (mel_qr_opt){ .ecc = mel_qr_ecc_q(), .version = 1, .mask = -1 }, 1);
+    mel__qr_decode_check("ABC123 $%*+-./:", (mel_qr_opt){ .ecc = mel_qr_ecc_l(), .version = 1, .mask = -1 }, 1);
+    mel__qr_decode_check("X", (mel_qr_opt){ .ecc = mel_qr_ecc_m(), .version = 1, .mask = -1 }, 1);
+}
+
+MEL_TEST(barcode_qr, decode_byte_utf8)
+{
+    mel__qr_decode_check("Melody", (mel_qr_opt){ .ecc = mel_qr_ecc_m(), .version = 1, .mask = -1 }, 1);
+    mel__qr_decode_check("caf\xC3\xA9", (mel_qr_opt){ .ecc = mel_qr_ecc_l(), .version = 1, .mask = -1 }, 1);
+    mel__qr_decode_check("\xE2\x9C\x93 ok!", (mel_qr_opt){ .ecc = mel_qr_ecc_m(), .version = 1, .mask = -1 }, 1);
+}
+
+MEL_TEST(barcode_qr, decode_v3_multiblock)
+{
+    char payload[33];
+    for (i32 i = 0; i < 32; ++i)
+    {
+        payload[i] = 'a';
+    }
+    payload[32] = '\0';
+    mel__qr_decode_check(payload, (mel_qr_opt){ .ecc = mel_qr_ecc_q(), .version = 0, .mask = -1 }, 3);
+}
+
+MEL_TEST(barcode_qr, decode_v7_with_version_info)
+{
+    mel__qr_decode_check("ABCDEFGHIJ", (mel_qr_opt){ .ecc = mel_qr_ecc_m(), .version = 7, .mask = -1 }, 7);
+    char payload[121];
+    for (i32 i = 0; i < 120; ++i)
+    {
+        payload[i] = (char)('0' + (i % 10));
+    }
+    payload[120] = '\0';
+    mel__qr_decode_check(payload, (mel_qr_opt){ .ecc = mel_qr_ecc_h(), .version = 7, .mask = -1 }, 7);
+}
+
+MEL_TEST(barcode_qr, decode_all_masks)
+{
+    for (i32 mask = 0; mask < 8; ++mask)
+    {
+        mel__qr_decode_check("MASK TEST 0123", (mel_qr_opt){ .ecc = mel_qr_ecc_m(), .version = 0, .mask = mask }, 1);
+    }
+}
+
+MEL_TEST(barcode_qr, decode_corrects_module_errors)
+{
+    const Mel_Alloc* a = mel_alloc_heap();
+
+    mel_barcode_matrix m;
+    MEL_REQUIRE(mel_qr_encode(&m, "ERROR CORRECTION", (mel_qr_opt){ .ecc = mel_qr_ecc_h(), .version = 0, .mask = -1 }, a));
+    i32 size = m.width;
+
+    static const i32 flips[6][2] = { { 12, 12 }, { 13, 14 }, { 14, 12 }, { 12, 15 }, { 15, 13 }, { 13, 16 } };
+    for (i32 k = 0; k < 6; ++k)
+    {
+        i32  c = flips[k][0];
+        i32  rr = flips[k][1];
+        bool cur = mel_barcode_matrix_get(&m, c, rr);
+        mel_barcode_matrix_set(&m, c, rr, !cur);
+    }
+
+    mel_qr_decoded d;
+    MEL_REQUIRE(mel_qr_decode(&m, &d, a));
+    MEL_REQUIRE_STR_EQ(d.text, "ERROR CORRECTION");
+
+    mel_qr_decoded_free(&d, a);
+    mel_barcode_matrix_free(&m);
+}
+
+MEL_TEST(barcode_qr, decode_corrupt_format_with_bch_recovery)
+{
+    const Mel_Alloc* a = mel_alloc_heap();
+
+    mel_barcode_matrix m;
+    MEL_REQUIRE(mel_qr_encode(&m, "FORMAT BCH", (mel_qr_opt){ .ecc = mel_qr_ecc_m(), .version = 0, .mask = -1 }, a));
+    i32 size = m.width;
+    (void)size;
+
+    mel_barcode_matrix_set(&m, 8, 0, !mel_barcode_matrix_get(&m, 8, 0));
+    mel_barcode_matrix_set(&m, 8, 1, !mel_barcode_matrix_get(&m, 8, 1));
+    mel_barcode_matrix_set(&m, 8, 2, !mel_barcode_matrix_get(&m, 8, 2));
+
+    mel_qr_decoded d;
+    MEL_REQUIRE(mel_qr_decode(&m, &d, a));
+    MEL_REQUIRE_STR_EQ(d.text, "FORMAT BCH");
+
+    mel_qr_decoded_free(&d, a);
+    mel_barcode_matrix_free(&m);
+}

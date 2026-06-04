@@ -4,6 +4,7 @@
 #include <barcode/ean.h>
 #include <barcode/itf.h>
 #include <barcode/matrix.h>
+#include <barcode/qr.h>
 
 #include <allocator/heap.h>
 #include <image/image.h>
@@ -131,3 +132,57 @@ MEL_TEST(barcode_decode, blank_image_does_not_decode)
     MEL_REQUIRE(!r.found);
     mel_image_free(&img);
 }
+
+static bool mel__rasterize_2d(const mel_barcode_matrix* m, i32 scale, i32 quiet, Mel_Image* out, const Mel_Alloc* a)
+{
+    i32 dim = m->width;
+    i32 px = (dim + 2 * quiet) * scale;
+    if (!mel_image_init(out, &mel_image_gray8, px, px, a))
+        return false;
+
+    Mel_Image_Plane p = mel_image_plane(out, 0);
+    for (i32 y = 0; y < px; ++y)
+    {
+        u8* row = p.pixels + (usize)y * (usize)p.stride;
+        for (i32 x = 0; x < px; ++x)
+        {
+            i32  mx = x / scale - quiet;
+            i32  my = y / scale - quiet;
+            bool dark = (mx >= 0 && mx < dim && my >= 0 && my < dim) ? mel_barcode_matrix_get(m, mx, my) : false;
+            row[x] = dark ? 0 : 255;
+        }
+    }
+    return true;
+}
+
+static void mel__qr_roundtrip(const char* data, mel_qr_opt opt, i32 scale)
+{
+    const Mel_Alloc* a = mel_alloc_heap();
+
+    mel_barcode_matrix m;
+    MEL_REQUIRE(mel_qr_encode(&m, data, opt, a));
+
+    Mel_Image img;
+    MEL_REQUIRE(mel__rasterize_2d(&m, scale, 4, &img, a));
+
+    mel_image_gray gray = mel_image_gray_borrow(&img);
+    MEL_REQUIRE(gray.pixels != NULL);
+
+    mel_barcode_decode_result r;
+    MEL_REQUIRE(mel_barcode_decode(&gray, &r, a));
+    MEL_REQUIRE(r.found);
+    MEL_REQUIRE_NOT_NULL(r.text);
+    MEL_REQUIRE_STR_EQ(r.symbology, "QR");
+    MEL_REQUIRE_STR_EQ(r.text, data);
+    MEL_REQUIRE_EQ(r.text_len, (i32)strlen(data));
+
+    mel_barcode_decode_result_free(&r, a);
+    mel_image_free(&img);
+    mel_barcode_matrix_free(&m);
+}
+
+MEL_TEST(barcode_decode, qr_numeric_through_unified) { mel__qr_roundtrip("01234567", (mel_qr_opt){ .ecc = mel_qr_ecc_m(), .version = 1, .mask = -1 }, 8); }
+
+MEL_TEST(barcode_decode, qr_alnum_through_unified) { mel__qr_roundtrip("HELLO WORLD", (mel_qr_opt){ .ecc = mel_qr_ecc_q(), .version = 1, .mask = -1 }, 6); }
+
+MEL_TEST(barcode_decode, qr_byte_through_unified) { mel__qr_roundtrip("Melody scanner", (mel_qr_opt){ .ecc = mel_qr_ecc_m(), .version = 0, .mask = -1 }, 6); }
