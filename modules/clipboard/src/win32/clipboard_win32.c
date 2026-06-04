@@ -234,8 +234,19 @@ void mel_clip__plat_query(Mel_Clip_Job* job)
     mel_clip_job_resolve(job, MEL_CLIP_OK);
 }
 
-u64 mel_clip__plat_sequence(void) { return (u64)GetClipboardSequenceNumber(); }
+u64 mel_clip__plat_sequence(Mel_Clip_Channel ch) { return mel_clip__plat_channel_supported(ch) ? (u64)GetClipboardSequenceNumber() : 0; }
 
 bool mel_clip__plat_available(void) { return true; }
+
+void mel_clip__plat_shutdown(void) {}
+
+bool mel_clip__plat_channel_supported(Mel_Clip_Channel ch) { return mel_clip_channel_resolve(ch) == (Mel_Clip_Channel)MEL_CLIP_CHANNEL_CLIPBOARD; }
+
+void mel_clip__plat_has(Mel_Clip_Job* job)
+{
+    bool present = CountClipboardFormats() > 0;
+    mel_clip_job_set_present(job, present);
+    mel_clip_job_resolve(job, MEL_CLIP_OK);
+}
 
 void* mel_clip__plat_native(void) { return NULL; }

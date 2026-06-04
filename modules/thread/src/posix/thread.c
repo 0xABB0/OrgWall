@@ -101,7 +101,11 @@ void mel_thread_sleep(i64 ns)
     }
 }
 
+#if defined(__EMSCRIPTEN__)
+void mel_thread_set_name(const char* name) { (void)name; }
+#else
 void mel_thread_set_name(const char* name) { pthread_setname_np(pthread_self(), name); }
+#endif
 
 u32 mel_thread_hardware_concurrency(void)
 {

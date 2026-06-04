@@ -152,6 +152,34 @@ static const char* manifest_get(Mel_Target* t, const char* key, const char* dflt
     return dflt;
 }
 
+static char* sanitize_pkg_segment(const char* s)
+{
+    Mel_CharVec out = { 0 };
+    for (const char* p = s; *p; p++)
+    {
+        char c = *p;
+        if (c >= 'A' && c <= 'Z')
+            c = (char)(c - 'A' + 'a');
+        if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9'))
+            mel_da_push(&out, c);
+    }
+    if (out.len == 0)
+        mel_da_push(&out, 'a');
+    mel_da_push(&out, 0);
+    return out.items;
+}
+
+static char* android_application_id(Mel_Target* t)
+{
+    const char* bundle = manifest_get(t, "BUNDLE_ID", NULL);
+    if (bundle && strchr(bundle, '.'))
+        return mel_str_dup(bundle);
+    char* seg = sanitize_pkg_segment(t->name);
+    char* id = mel_str_fmt("org.melody.%s", seg);
+    free(seg);
+    return id;
+}
+
 char* mel_win32_resource(Mel_Target* t, const char* outdir)
 {
     char* tpl_path = find_override(t->dir, "win32", "app.rc");
@@ -286,11 +314,11 @@ static bool package_android(Mel_Graph* g, Mel_IdxVec* order, Mel_Target* t, cons
         libcsv = libcsv ? mel_str_fmt("%s,%s", libcsv, path) : mel_str_dup(path);
     }
 
-    const char* appid = manifest_get(t, "BUNDLE_ID", t->name);
+    char*       appid = android_application_id(t);
     const char* label = manifest_get(t, "APP_LABEL", t->name);
     const char* ver = manifest_get(t, "VERSION", "1.0.0");
     char*       props = mel_str_fmt("\nmelody.namespace=orgwall.melody\nmelody.applicationId=%s\nmelody.appLabel=%s\n"
-                                    "melody.compileSdk=34\nmelody.minSdk=24\nmelody.targetSdk=34\nmelody.versionCode=1\n"
+                                    "melody.compileSdk=34\nmelody.minSdk=26\nmelody.targetSdk=34\nmelody.versionCode=1\n"
                                     "melody.versionName=%s\nmelody.rootProjectName=%s\nmelody.libraryProjects=%s\n",
                                     appid,
                                     label,

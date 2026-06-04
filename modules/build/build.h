@@ -51,8 +51,10 @@ MEL_API Mel_Target* mel_add_third_party(Mel_Build* b, const char* name);
 MEL_API Mel_Target* mel_add_host_tool(Mel_Build* b, const char* name);
 MEL_API Mel_Target* mel_add_test(Mel_Build* b, const char* name);
 
-MEL_API void mel_depends(Mel_Target* t, const char* name);
+MEL_API void mel_depends_(Mel_Target* t, const char* name, Mel_When when);
 MEL_API void mel_depends_host(Mel_Target* t, const char* name);
+#define mel_depends(t, name)            mel_depends_(t, name, ALWAYS)
+#define mel_depends_when(t, name, when) mel_depends_(t, name, when)
 MEL_API void mel_unavailable(Mel_Target* t, Mel_When when);
 MEL_API void mel_whole_archive(Mel_Target* t, Mel_When when);
 MEL_API void mel_manifest(Mel_Target* t, const char* key, const char* value);

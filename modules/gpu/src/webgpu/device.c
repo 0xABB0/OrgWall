@@ -101,7 +101,7 @@ Mel_Gpu_Device_Create_Result mel_gpu_device_create_opt(Mel_Gpu_Instance* inst, M
 
     if (!req.ok)
     {
-        res.status = MEL_GPU_DEVICE_CREATE_VK_FAILED;
+        res.status = MEL_GPU_DEVICE_CREATE_BACKEND_FAILED;
         mel_log_error("gpu", "device_create: requestDevice did not resolve to a device");
         mel_dealloc(alloc, dev);
         return res;
@@ -148,7 +148,7 @@ Mel_Gpu_Device_Create_Result mel_gpu_device_create_opt(Mel_Gpu_Instance* inst, M
         dev->pump = mel_gpu_pump_create(opt.reactor);
         /* WebGPU completion source (spec §3.3 "Pump on tick"): one ProcessEvents
            tick-source per instance, serviced from the device's reactor. */
-        mel_gpu_pump_add_poller(dev->pump, (Mel_Gpu_Poll_Fn)mel_gpu__instance_pump_tick, dev);
+        mel_gpu_pump_add_poller(dev->pump, mel_gpu__instance_pump_tick, dev);
     }
 
     res.value = dev;
@@ -172,7 +172,7 @@ void mel_gpu_device_destroy(Mel_Gpu_Device* dev)
         return;
 
     if (dev->pump)
-        mel_gpu_pump_remove_poller(dev->pump, (Mel_Gpu_Poll_Fn)mel_gpu__instance_pump_tick, dev);
+        mel_gpu_pump_remove_poller(dev->pump, mel_gpu__instance_pump_tick, dev);
 
     mel_gpu__submit_complete(dev, dev->submit_serial);
 

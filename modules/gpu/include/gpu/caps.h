@@ -207,6 +207,7 @@ typedef struct
     bool                                     int64;
     bool                                     int8;
     bool                                     wave_ops;
+    bool                                     draw_parameters;
     u32                                      subgroup_size_min;
     u32                                      subgroup_size_max;
     Mel_Gpu_Caps_Shader_Bytecode_Passthrough bytecode_passthrough;

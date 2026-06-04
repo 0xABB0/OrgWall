@@ -167,7 +167,7 @@ static void build_prefix(const Mel_Variant* v, bool host_tool, Mel_StrVec* prefi
 static bool closure_available(Mel_Graph* g, const char* name, const Mel_Variant* v)
 {
     Mel_IdxVec order = { 0 };
-    if (!mel_topo_closure(g, name, &order))
+    if (!mel_topo_closure(g, name, v, &order))
     {
         free(order.items);
         return false;

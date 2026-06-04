@@ -26,7 +26,7 @@ Mel_Gpu_Sync_Create_Result mel_gpu_sync_create(Mel_Gpu_Device* dev, Mel_Gpu_Sync
     if (r != VK_SUCCESS)
     {
         mel_log_error("gpu", "vkCreateSemaphore failed: %s", mel_gpu__vk_result_str(r));
-        res.status = MEL_GPU_SYNC_CREATE_VK_FAILED;
+        res.status = MEL_GPU_SYNC_CREATE_BACKEND_FAILED;
         return res;
     }
 

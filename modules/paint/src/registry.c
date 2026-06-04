@@ -31,7 +31,7 @@ bool mel_drawable_alive(Mel_Drawable d) { return mel_slotmap_alive(&mel_paint__d
 Mel_Drawable mel_drawable_borrow(void* native, i32 w, i32 h)
 {
     mel_assert(native && w > 0 && h > 0);
-    Paint_Drawable rec = { .native = native, .w = w, .h = h, .owns = false, .alloc = NULL, .pixels = NULL, .stride = 0, .painting = false };
+    Paint_Drawable rec = { .native = native, .w = w, .h = h, .owns = false, .img = { 0 }, .painting = false };
     return mel_paint__insert(&rec);
 }
 
@@ -49,5 +49,17 @@ Mel_Pixmap_Pixels mel_pixmap_pixels(Mel_Pixmap pm)
 {
     Paint_Drawable* d = mel_paint__get(pm);
     mel_assert(d->owns);
-    return (Mel_Pixmap_Pixels){ .pixels = (mel_color8*)d->pixels, .stride = d->stride, .w = d->w, .h = d->h };
+    Mel_Image_Plane plane = mel_image_plane(&d->img, 0);
+    return (Mel_Pixmap_Pixels){ .pixels = (mel_color8*)plane.pixels, .stride = plane.stride, .w = d->w, .h = d->h };
+}
+
+bool mel_pixmap_image(Mel_Pixmap pm, Mel_Image* out)
+{
+    if (!out)
+        return false;
+    Paint_Drawable* d = mel_paint__get(pm);
+    mel_assert(d->owns);
+    *out = d->img;
+    out->alloc = NULL;
+    return true;
 }

@@ -242,9 +242,12 @@ static int launch(Mel_Graph* g, const char* target, const Mel_Variant* v, const 
     if (v->platform == MEL_PLATFORM_WASM && out)
     {
         char* dir = mel_str_fmt("%s", out);
-        char* sargs[] = { "modules/build/web/serve.py", dir };
-        fprintf(stderr, "nob: serving %s\n", dir);
-        return spawn("python3", sargs, 2);
+        char* url = mel_str_fmt("http://localhost:8000/%s.html", target);
+        char* oargs[] = { url };
+        spawn("open", oargs, 1);
+        char* sargs[] = { "modules/build/web/serve.py", dir, "8000", "1" };
+        fprintf(stderr, "nob: serving %s at %s\n", dir, url);
+        return spawn("python3", sargs, 4);
     }
     fprintf(stderr, "nob: cannot run a %s binary on this host\n", mel_platform_name(v->platform));
     return 1;

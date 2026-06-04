@@ -37,6 +37,11 @@ typedef u32 Mel_Clip_Status;
 static inline bool mel_clip_failed(Mel_Clip_Status s) { return (s & MEL_CLIP_SEVERITY_MASK) == MEL_CLIP_ERROR; }
 static inline bool mel_clip_warned(Mel_Clip_Status s) { return (s & MEL_CLIP_SEVERITY_MASK) == MEL_CLIP_WARNED; }
 
+typedef u32 Mel_Clip_Channel;
+
+#define MEL_CLIP_CHANNEL_CLIPBOARD (1u << 0)
+#define MEL_CLIP_CHANNEL_PRIMARY   (1u << 1)
+
 typedef u32 Mel_Clip_Format;
 
 #define MEL_CLIP_FMT_NONE     0u
@@ -73,7 +78,11 @@ typedef struct
 {
     Mel_Executor*    exec;
     const Mel_Alloc* alloc;
+    Mel_Clip_Channel channel;
 } Mel_Clip_Opt;
+
+Mel_Clip_Channel mel_clip_channel_resolve(Mel_Clip_Channel ch);
+bool             mel_clip_channel_supported(Mel_Clip_Channel ch);
 
 void mel_clip_init(const Mel_Alloc* alloc, Mel_Reactor* reactor);
 void mel_clip_shutdown(void);
@@ -91,6 +100,7 @@ Mel_Future* mel_clip_read_opt(const Mel_Clip_Format* fmts, u32 n, Mel_Clip_Opt o
 Mel_Future* mel_clip_write_opt(const Mel_Clip_Transferable* t, Mel_Clip_Opt opt);
 Mel_Future* mel_clip_query_opt(Mel_Clip_Opt opt);
 Mel_Future* mel_clip_clear_opt(Mel_Clip_Opt opt);
+Mel_Future* mel_clip_has_opt(Mel_Clip_Opt opt);
 
 Mel_Future* mel_clip_read_text_opt(Mel_Clip_Opt opt);
 Mel_Future* mel_clip_write_text_opt(str8 text, Mel_Clip_Opt opt);
@@ -99,6 +109,7 @@ Mel_Future* mel_clip_write_text_opt(str8 text, Mel_Clip_Opt opt);
 #define mel_clip_write(t, ...)         mel_clip_write_opt((t), (Mel_Clip_Opt){ __VA_ARGS__ })
 #define mel_clip_query(...)            mel_clip_query_opt((Mel_Clip_Opt){ __VA_ARGS__ })
 #define mel_clip_clear(...)            mel_clip_clear_opt((Mel_Clip_Opt){ __VA_ARGS__ })
+#define mel_clip_has(...)              mel_clip_has_opt((Mel_Clip_Opt){ __VA_ARGS__ })
 #define mel_clip_read_text(...)        mel_clip_read_text_opt((Mel_Clip_Opt){ __VA_ARGS__ })
 #define mel_clip_write_text(text, ...) mel_clip_write_text_opt((text), (Mel_Clip_Opt){ __VA_ARGS__ })
 
@@ -106,9 +117,11 @@ Mel_Clip_Status              mel_clip_future_status(const Mel_Future* f);
 const Mel_Clip_Transferable* mel_clip_future_transferable(const Mel_Future* f);
 str8                         mel_clip_future_text(const Mel_Future* f);
 Mel_Clip_Formats             mel_clip_future_formats(const Mel_Future* f);
+bool                         mel_clip_future_has(const Mel_Future* f);
 void                         mel_clip_future_free(Mel_Future* f);
 
 u64        mel_clip_sequence(void);
+u64        mel_clip_sequence_ch(Mel_Clip_Channel ch);
 Mel_Event* mel_clip_watch_opt(Mel_Clip_Opt opt);
 void       mel_clip_unwatch(void);
 #define mel_clip_watch(...) mel_clip_watch_opt((Mel_Clip_Opt){ __VA_ARGS__ })

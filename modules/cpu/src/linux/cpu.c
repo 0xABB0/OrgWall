@@ -186,3 +186,41 @@ Mel_Cpu_Info mel_cpu_info(void)
 
     return info;
 }
+
+#include "../cpu_internal.h"
+#include "../cpu_x86.h"
+
+#if MEL_CPU_ARM
+#include <sys/auxv.h>
+#ifndef HWCAP_NEON
+#define HWCAP_NEON (1u << 12)
+#endif
+#endif
+
+u64 mel_cpu__ram_total(void)
+{
+    long pages = sysconf(_SC_PHYS_PAGES);
+    long psz = sysconf(_SC_PAGESIZE);
+    if (pages > 0 && psz > 0)
+        return (u64)pages * (u64)psz;
+    return 0;
+}
+
+Mel_Cpu_Features mel_cpu__detect_features(void)
+{
+#if MEL_CPU_X86
+    return mel_cpu__detect_x86();
+#elif MEL_CPU_ARM
+    Mel_Cpu_Features f = 0;
+#if MEL_ARCH_64BIT
+    f |= MEL_CPU_FEATURE_NEON;
+#else
+    unsigned long hwcap = getauxval(AT_HWCAP);
+    if (hwcap & HWCAP_NEON)
+        f |= MEL_CPU_FEATURE_NEON;
+#endif
+    return f;
+#else
+    return 0;
+#endif
+}

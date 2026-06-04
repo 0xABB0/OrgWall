@@ -41,8 +41,29 @@ void mel_gpu__caps_probe(id<MTLDevice> mtl, Mel_Gpu_Caps* out)
         working_set = (u64)mtl.recommendedMaxWorkingSetSize;
     m->device_local_bytes = working_set;
     m->host_visible_bytes = mtl.hasUnifiedMemory ? working_set : 0;
-    m->bindless.tier = MEL_GPU_TIER_NONE;
-    m->bindless.binding_model = MEL_GPU_BINDING_MODEL_DESCRIPTOR_TABLES;
+
+    bool argbuf_tier2 = false;
+    if (@available(macOS 15.0, iOS 18.0, *))
+        argbuf_tier2 = mtl.argumentBuffersSupport >= MTLArgumentBuffersTier2;
+    if (argbuf_tier2)
+    {
+        m->bindless.tier = MEL_GPU_TIER_FULL;
+        m->bindless.binding_model = MEL_GPU_BINDING_MODEL_ROOT_RECORD;
+        m->bindless.root_record_payload = MEL_GPU_ROOT_RECORD_PAYLOAD_MIXED;
+        m->bindless.root_record_update = MEL_GPU_ROOT_RECORD_UPDATE_PERSISTENT_MAP;
+        u32 sampler_max = (u32)mtl.maxArgumentBufferSamplerCount;
+        u32 resource_max = 1u << 20;
+        m->bindless.max_texture_view_slots = resource_max;
+        m->bindless.max_sampler_slots = sampler_max ? sampler_max : 1024u;
+        m->bindless.max_storage_buffer_slots = resource_max;
+        m->bindless.max_uniform_buffer_slots = resource_max;
+        m->bindless.max_storage_image_slots = resource_max;
+    }
+    else
+    {
+        m->bindless.tier = MEL_GPU_TIER_NONE;
+        m->bindless.binding_model = MEL_GPU_BINDING_MODEL_DESCRIPTOR_TABLES;
+    }
 
     Mel_Gpu_Caps_Queues* q = &out->queues;
     q->timeline = MEL_GPU_TIMELINE_NATIVE;
@@ -58,6 +79,7 @@ void mel_gpu__caps_probe(id<MTLDevice> mtl, Mel_Gpu_Caps* out)
     s->int64 = false;
     s->fp64 = false;
     s->wave_ops = true;
+    s->draw_parameters = false;
     s->subgroup_size_min = 32;
     s->subgroup_size_max = 32;
     s->bytecode_passthrough.msl = true;

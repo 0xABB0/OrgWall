@@ -377,25 +377,83 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_create_opt(Mel_Gpu_Device* dev, 
     u32                  set_param_count = 0;
     if (!mel_gpu__build_root_sig(dev, bindless, false, pc_size, opt.set_layouts, opt.set_layout_count, &set_params, &set_param_count, opt.static_samplers, opt.static_sampler_count, &root_sig))
     {
-        res.status = MEL_GPU_PIPELINE_CREATE_VK_FAILED;
+        res.status = MEL_GPU_PIPELINE_CREATE_BACKEND_FAILED;
         return res;
     }
 
     u32                       input_count = 0;
     u32                       vertex_stride = 0;
+    u32*                      slot_strides = NULL;
+    u32                       slot_stride_count = 0;
     D3D12_INPUT_ELEMENT_DESC* elems = NULL;
     if (opt.vertex_layout_count > 0)
     {
         input_count = opt.vertex_layout_count;
         vertex_stride = opt.vertex_stride;
+
+        u32 max_slot = 0;
+        for (u32 i = 0; i < input_count; i++)
+            if (opt.vertex_layout[i].buffer_slot > max_slot)
+                max_slot = opt.vertex_layout[i].buffer_slot;
+        for (u32 b = 0; b < opt.vertex_buffer_count; b++)
+            if (opt.vertex_buffers[b].slot > max_slot)
+                max_slot = opt.vertex_buffers[b].slot;
+        slot_stride_count = max_slot + 1;
+        slot_strides = mel_alloc(dev->alloc, sizeof(u32) * slot_stride_count);
+        for (u32 s = 0; s < slot_stride_count; s++)
+            slot_strides[s] = 0;
+        if (opt.vertex_buffer_count)
+            for (u32 b = 0; b < opt.vertex_buffer_count; b++)
+                slot_strides[opt.vertex_buffers[b].slot] = opt.vertex_buffers[b].stride;
+        else
+            slot_strides[0] = opt.vertex_stride;
+
         elems = mel_alloc(dev->alloc, sizeof(D3D12_INPUT_ELEMENT_DESC) * input_count);
         for (u32 i = 0; i < input_count; i++)
-            elems[i] = (D3D12_INPUT_ELEMENT_DESC){ .SemanticName = "TEXCOORD", .SemanticIndex = opt.vertex_layout[i].location, .Format = mel_gpu__dxgi_format(opt.vertex_layout[i].format), .InputSlot = 0, .AlignedByteOffset = opt.vertex_layout[i].offset, .InputSlotClass = D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, .InstanceDataStepRate = 0 };
+        {
+            const char* semantic = "TEXCOORD";
+            u32         semantic_index = opt.vertex_layout[i].location;
+            for (u32 r = 0; r < sh->input_count; r++)
+                if (sh->inputs[r].input_register == opt.vertex_layout[i].location)
+                {
+                    semantic = sh->inputs[r].semantic;
+                    semantic_index = sh->inputs[r].semantic_index;
+                    break;
+                }
+            u32  slot = opt.vertex_layout[i].buffer_slot;
+            bool per_instance = false;
+            if (opt.vertex_buffer_count)
+            {
+                bool found = false;
+                for (u32 b = 0; b < opt.vertex_buffer_count; b++)
+                    if (opt.vertex_buffers[b].slot == slot)
+                    {
+                        per_instance = opt.vertex_buffers[b].per_instance;
+                        found = true;
+                        break;
+                    }
+                if (!found)
+                {
+                    mel_log_error("gpu", "pipeline_create '%s': vertex element %u references buffer_slot %u with no matching vertex_buffers entry", opt.name ? opt.name : "(unnamed)", i, slot);
+                    mel_dealloc(dev->alloc, elems);
+                    mel_dealloc(dev->alloc, slot_strides);
+                    if (set_params)
+                        mel_dealloc(dev->alloc, set_params);
+                    ID3D12RootSignature_Release(root_sig);
+                    res.status = MEL_GPU_PIPELINE_CREATE_BACKEND_FAILED;
+                    return res;
+                }
+            }
+            elems[i] = (D3D12_INPUT_ELEMENT_DESC){ .SemanticName = semantic, .SemanticIndex = semantic_index, .Format = mel_gpu__dxgi_format(opt.vertex_layout[i].format), .InputSlot = slot, .AlignedByteOffset = opt.vertex_layout[i].offset, .InputSlotClass = per_instance ? D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA : D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, .InstanceDataStepRate = per_instance ? 1u : 0u };
+        }
     }
     else if (sh->input_count > 0)
     {
         input_count = sh->input_count;
         vertex_stride = sh->vertex_stride;
+        slot_stride_count = 1;
+        slot_strides = mel_alloc(dev->alloc, sizeof(u32));
+        slot_strides[0] = sh->vertex_stride;
         elems = mel_alloc(dev->alloc, sizeof(D3D12_INPUT_ELEMENT_DESC) * input_count);
         for (u32 i = 0; i < input_count; i++)
             elems[i] = (D3D12_INPUT_ELEMENT_DESC){ .SemanticName = sh->inputs[i].semantic, .SemanticIndex = sh->inputs[i].semantic_index, .Format = mel_gpu__dxgi_format(sh->inputs[i].format), .InputSlot = 0, .AlignedByteOffset = sh->inputs[i].offset, .InputSlotClass = D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, .InstanceDataStepRate = 0 };
@@ -489,7 +547,9 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_create_opt(Mel_Gpu_Device* dev, 
         ID3D12RootSignature_Release(root_sig);
         if (set_params)
             mel_dealloc(dev->alloc, set_params);
-        res.status = MEL_GPU_PIPELINE_CREATE_VK_FAILED;
+        if (slot_strides)
+            mel_dealloc(dev->alloc, slot_strides);
+        res.status = MEL_GPU_PIPELINE_CREATE_BACKEND_FAILED;
         return res;
     }
 
@@ -503,6 +563,8 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_create_opt(Mel_Gpu_Device* dev, 
     obj.topology = mel_gpu__topo_ia(opt.topology);
     obj.push_constant_size = pc_size;
     obj.vertex_stride = vertex_stride;
+    obj.slot_strides = slot_strides;
+    obj.slot_stride_count = slot_stride_count;
     obj.set_params = set_params;
     obj.set_param_count = set_param_count;
     if (bindless)
@@ -560,7 +622,7 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_compute_create_opt(Mel_Gpu_Devic
     u32                  set_param_count = 0;
     if (!mel_gpu__build_root_sig(dev, bindless, true, pc_size, opt.set_layouts, opt.set_layout_count, &set_params, &set_param_count, NULL, 0, &root_sig))
     {
-        res.status = MEL_GPU_PIPELINE_CREATE_VK_FAILED;
+        res.status = MEL_GPU_PIPELINE_CREATE_BACKEND_FAILED;
         return res;
     }
 
@@ -576,7 +638,7 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_compute_create_opt(Mel_Gpu_Devic
         ID3D12RootSignature_Release(root_sig);
         if (set_params)
             mel_dealloc(dev->alloc, set_params);
-        res.status = MEL_GPU_PIPELINE_CREATE_VK_FAILED;
+        res.status = MEL_GPU_PIPELINE_CREATE_BACKEND_FAILED;
         return res;
     }
 
@@ -610,11 +672,14 @@ void mel_gpu_pipeline_destroy(Mel_Gpu_Device* dev, Mel_Gpu_Pipeline pipe)
     Mel_Gpu_Sampler*      statics = o->static_samplers;
     u32                   static_count = o->static_sampler_count;
     Mel_Gpu_Set_Param*    set_params = o->set_params;
+    u32*                  slot_strides = o->slot_strides;
 
     mel_gpu__table_remove(dev, &dev->pipelines, pipe.slot);
     mel_gpu__defer_free(dev, (Mel_Gpu_Deferred_Free){ .pso = pso, .root_sig = rs });
     if (set_params)
         mel_dealloc(dev->alloc, set_params);
+    if (slot_strides)
+        mel_dealloc(dev->alloc, slot_strides);
     if (statics)
     {
         for (u32 i = 0; i < static_count; i++)

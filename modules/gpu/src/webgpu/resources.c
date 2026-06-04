@@ -74,9 +74,9 @@ Mel_Gpu_Buffer_Create_Result mel_gpu_buffer_create_opt(Mel_Gpu_Device* dev, Mel_
         .header = { .ownership = MEL_GPU_OWNERSHIP_OWNED, .capture_replay = opt.capture_replay, .name = opt.name },
         .wgpu = wb,
         .size = opt.size,
+        .shadow = NULL,
         .host_visible = upload || readback,
         .readback = readback,
-        .mapped = false,
     };
     Mel_SlotMap_Handle h = mel_gpu__table_insert(dev, &dev->buffers, &o);
     res.value = (Mel_Gpu_Buffer){ h };
@@ -88,6 +88,11 @@ void mel_gpu_buffer_destroy(Mel_Gpu_Device* dev, Mel_Gpu_Buffer buf)
     Mel_Gpu_Buffer_Obj* o = mel_gpu__table_get(dev, &dev->buffers, buf.slot);
     if (!o)
         return;
+    if (o->shadow)
+    {
+        mel_dealloc(dev->alloc, o->shadow);
+        o->shadow = NULL;
+    }
     if (o->wgpu)
     {
         wgpuBufferRelease(o->wgpu);
@@ -138,18 +143,26 @@ void* mel_gpu_buffer_mapped(Mel_Gpu_Device* dev, Mel_Gpu_Buffer buf)
     if (!o || !o->readback)
         return NULL;
 
-    if (!o->mapped)
-    {
-        Mel_Gpu_Map_Request   req = { 0 };
-        WGPUBufferMapCallbackInfo cbi = { .mode = WGPUCallbackMode_AllowProcessEvents, .callback = mel_gpu__map_cb, .userdata1 = &req };
-        wgpuBufferMapAsync(o->wgpu, WGPUMapMode_Read, 0, o->size, cbi);
+    Mel_Gpu_Map_Request       req = { 0 };
+    WGPUBufferMapCallbackInfo cbi = { .mode = WGPUCallbackMode_AllowProcessEvents, .callback = mel_gpu__map_cb, .userdata1 = &req };
+    wgpuBufferMapAsync(o->wgpu, WGPUMapMode_Read, 0, o->size, cbi);
 
-        mel_gpu__drain_until(dev->wgpu_instance, &req.done);
-        if (!req.ok)
-            return NULL;
-        o->mapped = true;
+    if (!mel_gpu__drain_sync(dev, &req.done, "buffer_mapped") || !req.ok)
+        return NULL;
+
+    const void* src = wgpuBufferGetConstMappedRange(o->wgpu, 0, o->size);
+    if (!src)
+    {
+        mel_log_error("gpu", "buffer_mapped: GetConstMappedRange returned null for '%s' after a successful map", o->header.name ? o->header.name : "(unnamed)");
+        wgpuBufferUnmap(o->wgpu);
+        return NULL;
     }
-    return (void*)wgpuBufferGetConstMappedRange(o->wgpu, 0, o->size);
+
+    if (!o->shadow)
+        o->shadow = mel_alloc(dev->alloc, o->size);
+    memcpy(o->shadow, src, o->size);
+    wgpuBufferUnmap(o->wgpu);
+    return o->shadow;
 }
 
 u32 mel_gpu_buffer_make_resident(Mel_Gpu_Device* dev, Mel_Gpu_Buffer buf)
@@ -343,7 +356,7 @@ Mel_Gpu_Texture_View_Create_Result mel_gpu_texture_view_create_opt(Mel_Gpu_Devic
     WGPUTextureView view = wgpuTextureCreateView(tex.wgpu, &desc);
     if (!view)
     {
-        res.status = MEL_GPU_TEXTURE_VIEW_CREATE_VK_FAILED;
+        res.status = MEL_GPU_TEXTURE_VIEW_CREATE_BACKEND_FAILED;
         mel_log_error("gpu", "texture_view_create: wgpuTextureCreateView returned null");
         return res;
     }
@@ -419,7 +432,7 @@ Mel_Gpu_Sampler_Create_Result mel_gpu_sampler_create_opt(Mel_Gpu_Device* dev, Me
     WGPUSampler ws = wgpuDeviceCreateSampler(dev->wgpu, &sd);
     if (!ws)
     {
-        res.status = MEL_GPU_SAMPLER_CREATE_VK_FAILED;
+        res.status = MEL_GPU_SAMPLER_CREATE_BACKEND_FAILED;
         mel_log_error("gpu", "sampler_create: wgpuDeviceCreateSampler returned null");
         return res;
     }

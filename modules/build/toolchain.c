@@ -99,7 +99,7 @@ Mel_Toolchain mel_toolchain(const Mel_Variant* v)
         char* ndk = android_ndk();
         free(tc.cc);
         free(tc.ar);
-        tc.cc = mel_str_fmt("%s/toolchains/llvm/prebuilt/darwin-x86_64/bin/clang -target %s-linux-android24", ndk, la);
+        tc.cc = mel_str_fmt("%s/toolchains/llvm/prebuilt/darwin-x86_64/bin/clang -target %s-linux-android26", ndk, la);
         tc.ar = mel_str_fmt("%s/toolchains/llvm/prebuilt/darwin-x86_64/bin/llvm-ar", ndk);
         tc.triple = mel_str_fmt("%s-linux-android", la);
         tc.cross = true;
@@ -109,8 +109,10 @@ Mel_Toolchain mel_toolchain(const Mel_Variant* v)
     case MEL_PLATFORM_WASM:
         free(tc.cc);
         free(tc.ar);
+        free(tc.base_cflags);
         tc.cc = mel_str_dup("emcc");
         tc.ar = mel_str_dup("emar");
+        tc.base_cflags = mel_str_dup("-D_GNU_SOURCE");
         tc.exe_ext = ".js";
         tc.triple = "wasm32";
         tc.cross = true;

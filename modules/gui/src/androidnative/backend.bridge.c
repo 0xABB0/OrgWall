@@ -7,6 +7,8 @@
 #include <jni.h>
 #include <stdint.h>
 
+#include <platform/android/jni.h>
+
 #include "android.h"
 
 static Mel_Gui_Handle unpack(jlong p) { return mel_gui_handle_unpack((u64)p); }
@@ -22,6 +24,27 @@ JNIEXPORT jboolean JNICALL Java_orgwall_melody_platform_MelGui_nativeOsBack(JNIE
     (void)env;
     (void)cls;
     return mel_gui__nav_os_back() ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL Java_orgwall_melody_platform_MelGui_nativeRequestPermissionsResult(JNIEnv* env, jclass cls, jint requestCode, jintArray grantResults)
+{
+    (void)cls;
+    jsize n = grantResults ? (*env)->GetArrayLength(env, grantResults) : 0;
+    bool  granted = n > 0;
+    if (granted)
+    {
+        jint* results = (*env)->GetIntArrayElements(env, grantResults, NULL);
+        for (jsize i = 0; i < n; i++)
+        {
+            if (results[i] != 0)
+            {
+                granted = false;
+                break;
+            }
+        }
+        (*env)->ReleaseIntArrayElements(env, grantResults, results, JNI_ABORT);
+    }
+    mel_platform_android_permission_dispatch((i32)requestCode, granted);
 }
 
 JNIEXPORT void JNICALL Java_orgwall_melody_platform_MelGui_nativeFocus(JNIEnv* env, jclass cls, jlong h, jboolean in, jlong fnIn, jlong fnOut)

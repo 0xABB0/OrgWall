@@ -5,6 +5,8 @@
 #include <allocator/allocator.fwd.h>
 #include <color/rgba8.h>
 
+#include <image/image.h>
+
 #include <paint/handle.h>
 
 typedef struct
@@ -17,4 +19,5 @@ typedef struct
 Mel_Pixmap        mel_pixmap_create(const Mel_Alloc* alloc, i32 w, i32 h);
 Mel_Drawable      mel_pixmap_drawable(Mel_Pixmap pm);
 Mel_Pixmap_Pixels mel_pixmap_pixels(Mel_Pixmap pm);
+bool              mel_pixmap_image(Mel_Pixmap pm, Mel_Image* out);
 void              mel_pixmap_destroy(Mel_Pixmap pm);

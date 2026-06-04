@@ -13,7 +13,12 @@ bool mel_sem_init(Mel_Sem* s, u32 initial)
     return MEL__SEM(s) != NULL;
 }
 
-void mel_sem_destroy(Mel_Sem* s) { MEL__SEM(s) = NULL; }
+void mel_sem_destroy(Mel_Sem* s)
+{
+    if (MEL__SEM(s) != NULL)
+        dispatch_release(MEL__SEM(s));
+    MEL__SEM(s) = NULL;
+}
 
 void mel_sem_wait(Mel_Sem* s) { dispatch_semaphore_wait(MEL__SEM(s), DISPATCH_TIME_FOREVER); }
 

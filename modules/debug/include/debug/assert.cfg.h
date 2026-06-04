@@ -1,13 +1,28 @@
 #pragma once
 
-#include "debug.h"
+#include "debug.cfg.h"
+
+#define MEL_ASSERT_LEVEL_DISABLED 0
+#define MEL_ASSERT_LEVEL_RELEASE  1
+#define MEL_ASSERT_LEVEL_DEBUG    2
+#define MEL_ASSERT_LEVEL_PARANOID 3
+
+#ifndef MEL_ASSERT_LEVEL
+
+#if defined(MEL_PARANOID) && MEL_PARANOID
+#define MEL_ASSERT_LEVEL MEL_ASSERT_LEVEL_PARANOID
+#elif MEL_DEBUG
+#define MEL_ASSERT_LEVEL MEL_ASSERT_LEVEL_DEBUG
+#else
+#define MEL_ASSERT_LEVEL MEL_ASSERT_LEVEL_RELEASE
+#endif
+
+#endif
 
 #ifndef MEL_ASSERT_ENABLED
-
-#if MEL_DEBUG
+#if MEL_ASSERT_LEVEL >= MEL_ASSERT_LEVEL_DEBUG
 #define MEL_ASSERT_ENABLED 1
 #else
 #define MEL_ASSERT_ENABLED 0
 #endif
-
 #endif

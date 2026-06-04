@@ -1,11 +1,13 @@
 #include <stddef.h>
 #include <stdlib.h>
 
-#include <gpu/caps.h>
-#include <gpu/device.h>
-
 #include "triangle.h"
-#include "triangle_bundle.h"
+
+static const char TRIANGLE_SLANG[] = {
+#embed "shaders/slang/triangle.slang"
+    ,
+    0
+};
 
 typedef struct
 {
@@ -34,44 +36,16 @@ static void* triangle_init(Mel_Gpu_Device* dev, Mel_Gpu_Swapchain* sc)
 
     t->vbo = mel_gpu_buffer_create(dev, .size = sizeof verts, .usage = MEL_GPU_BUFFER_VERTEX, .memory = MEL_GPU_MEMORY_UPLOAD, .data = verts, .name = "triangle-vbo").value;
 
-    const Mel_Gpu_Caps* caps = mel_gpu_device_caps(dev);
-    if (caps->shader.bytecode_passthrough.msl)
-        t->shader = mel_gpu_shader_create_from_bytecode(dev,
-                                                        .target = MEL_GPU_SHADER_TARGET_MSL,
-                                                        .vertex_blob = TRIANGLE_VERT_MSL,
-                                                        .vertex_blob_size = sizeof TRIANGLE_VERT_MSL,
-                                                        .fragment_blob = TRIANGLE_FRAG_MSL,
-                                                        .fragment_blob_size = sizeof TRIANGLE_FRAG_MSL,
-                                                        .vertex_entry = TRIANGLE_VERT_ENTRY,
-                                                        .fragment_entry = TRIANGLE_FRAG_ENTRY,
-                                                        .name = "triangle")
-                        .value;
-    else
-        t->shader = mel_gpu_shader_create_from_bytecode(dev,
-                                                        .target = MEL_GPU_SHADER_TARGET_SPIRV,
-                                                        .vertex_blob = TRIANGLE_VERT_SPV,
-                                                        .vertex_blob_size = sizeof TRIANGLE_VERT_SPV,
-                                                        .fragment_blob = TRIANGLE_FRAG_SPV,
-                                                        .fragment_blob_size = sizeof TRIANGLE_FRAG_SPV,
-                                                        .vertex_entry = TRIANGLE_VERT_ENTRY,
-                                                        .fragment_entry = TRIANGLE_FRAG_ENTRY,
-                                                        .name = "triangle")
-                        .value;
-
-    const Mel_Gpu_Vertex_Element layout[] = {
-        { .location = 0, .format = MEL_GPU_FORMAT_RGB32_FLOAT, .offset = offsetof(Vertex, pos) },
-        { .location = 1, .format = MEL_GPU_FORMAT_RGBA32_FLOAT, .offset = offsetof(Vertex, color) },
-    };
-
-    t->pipeline = mel_gpu_pipeline_create(dev,
-                                          .shader = t->shader,
-                                          .topology = MEL_GPU_TOPOLOGY_TRIANGLE_LIST,
-                                          .cull = MEL_GPU_CULL_NONE,
-                                          .color_format = mel_gpu_swapchain_format(sc),
-                                          .vertex_layout = layout,
-                                          .vertex_layout_count = 2,
-                                          .vertex_stride = sizeof(Vertex))
-                      .value;
+    Mel_Gpu_Pipeline_From_Slang_Result pipe = mel_gpu_pipeline_create_from_slang(dev,
+                                                                                 .source = TRIANGLE_SLANG,
+                                                                                 .vertex_entry = "vs_main",
+                                                                                 .fragment_entry = "fs_main",
+                                                                                 .topology = MEL_GPU_TOPOLOGY_TRIANGLE_LIST,
+                                                                                 .cull = MEL_GPU_CULL_NONE,
+                                                                                 .color_format = mel_gpu_swapchain_format(sc),
+                                                                                 .name = "triangle");
+    t->shader = pipe.shader;
+    t->pipeline = pipe.value;
 
     return t;
 }

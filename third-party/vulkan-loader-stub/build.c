@@ -5,6 +5,7 @@
 #include <string.h>
 #include <sys/stat.h>
 
+#ifndef _WIN32
 static bool mel_vkstub__file_exists(const char* path)
 {
     struct stat st;
@@ -37,11 +38,13 @@ static bool mel_vkstub__generate(void)
         return false;
     return mel_vkstub__file_exists(sofile);
 }
+#endif
 
 void build(Mel_Build* b)
 {
     Mel_Target* tp = mel_add_third_party(b, "vulkan-loader-stub");
 
+#ifndef _WIN32
     if (!mel_vkstub__generate())
         return;
 
@@ -51,4 +54,7 @@ void build(Mel_Build* b)
     char* flag = malloc(strlen(dir) + 4);
     snprintf(flag, strlen(dir) + 4, "-L%s", dir);
     mel_link(tp, MEL_PUBLIC, WHEN(.gpu = "vulkan", .platforms = MEL_ON(LINUX)), flag);
+#else
+    (void)tp;
+#endif
 }

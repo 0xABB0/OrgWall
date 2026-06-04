@@ -88,3 +88,66 @@ modules/cpu/
 - **Linux / Android / Windows / Web** — implemented against the documented OS
   surfaces; not run here. Windows and Linux cross-compile through the configured
   toolchains.
+
+## Runtime capabilities
+
+Beyond the static topology, the module publishes a runtime capability snapshot —
+SIMD instruction-set presence, total physical RAM, and the SIMD alignment the
+detected ISA wants — plus an allocator-routed aligned allocation helper.
+
+```c
+#include <cpu/cpu.h>
+
+typedef u64 Mel_Cpu_Features;   /* flag bitset, not a closed enum */
+
+enum
+{
+    MEL_CPU_FEATURE_SSE, MEL_CPU_FEATURE_SSE2, MEL_CPU_FEATURE_SSE3,
+    MEL_CPU_FEATURE_SSSE3, MEL_CPU_FEATURE_SSE41, MEL_CPU_FEATURE_SSE42,
+    MEL_CPU_FEATURE_AVX, MEL_CPU_FEATURE_AVX2, MEL_CPU_FEATURE_AVX512F,
+    MEL_CPU_FEATURE_NEON,   /* bit positions; see header for the 1<<n values */
+};
+
+typedef struct
+{
+    Mel_Cpu_Features features;     /* detected, then masked                */
+    u64              ram_total;    /* bytes of physical RAM                */
+    u32              simd_align;   /* 16 / 32 / 64; 0 when no SIMD          */
+} Mel_Cpu_Caps;
+
+Mel_Cpu_Caps     mel_cpu_caps(void);
+bool             mel_cpu_has(Mel_Cpu_Features set, Mel_Cpu_Features want);
+u64              mel_cpu_ram_total(void);
+u32              mel_cpu_simd_align(void);
+
+void             mel_cpu_feature_mask_set(Mel_Cpu_Features allowed);
+Mel_Cpu_Features mel_cpu_feature_mask_get(void);
+
+void* mel_cpu_simd_alloc(const Mel_Alloc* alloc, usize size, u32 align);
+void  mel_cpu_simd_dealloc(const Mel_Alloc* alloc, void* ptr, u32 align);
+```
+
+- **honest absence** — an absent ISA reads `false`; `ram_total` reads `0` where the
+  runtime exposes no figure (web); `simd_align` reads `0` when no SIMD feature is
+  present. No count, size, or capability is fabricated.
+- **compat mask** — `mel_cpu_feature_mask_set` AND-clamps the *reported* feature set
+  (and hence `simd_align`), to exercise narrower-ISA code paths on capable hardware.
+  Its identity is allow-all (`~0`); detection underneath is never altered.
+- **alignment** — `simd_align` is the widest detected lane's requirement: `64` for
+  AVX-512F, `32` for AVX/AVX2, `16` for any SSE level or NEON.
+- **aligned alloc** — `mel_cpu_simd_alloc` routes through the supplied `Mel_Alloc`
+  (MEL-CODE-003); it never touches `malloc`. `align` must be a power of two.
+
+### Feature lowering
+
+- **x86 (any OS)** — `CPUID` leaves 1 and 7, with `XGETBV(XCR0)` gating AVX/AVX2 on
+  OS-saved YMM state and AVX-512F on ZMM/opmask state, so a feature the OS will not
+  preserve is honestly not reported.
+- **apple ARM** — `sysctlbyname hw.optional.{neon,AdvSIMD}`; `hw.memsize` for RAM.
+- **linux / android ARM** — AArch64 reports NEON unconditionally (Advanced SIMD is
+  base ISA); 32-bit ARM probes `getauxval(AT_HWCAP)`. RAM from
+  `sysconf(_SC_PHYS_PAGES) * _SC_PAGESIZE`.
+- **win32 ARM** — `IsProcessorFeaturePresent(PF_ARM_NEON_INSTRUCTIONS_AVAILABLE)`;
+  RAM from `GlobalMemoryStatusEx`.
+- **web** — no runtime ISA probe is exposed; WASM SIMD128 maps to none of the x86/ARM
+  ISA bits, so `features` and `ram_total` read `0`.

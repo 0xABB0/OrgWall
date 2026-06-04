@@ -2,6 +2,30 @@
 
 #include <log/log.h>
 
+void mel_gpu__cmd_end_active_encoder(Mel_Gpu_Command_List* cmd)
+{
+    if (cmd->encoder)
+    {
+        [cmd->encoder endEncoding];
+        cmd->encoder = nil;
+    }
+    if (cmd->compute_encoder)
+    {
+        [cmd->compute_encoder endEncoding];
+        cmd->compute_encoder = nil;
+        cmd->has_compute_pipeline = false;
+    }
+}
+
+static void mel_gpu__cmd_open_compute_encoder(Mel_Gpu_Command_List* cmd)
+{
+    if (cmd->compute_encoder)
+        return;
+    mel_gpu__cmd_end_active_encoder(cmd);
+    cmd->compute_encoder = [cmd->cb computeCommandEncoder];
+    cmd->has_compute_pipeline = false;
+}
+
 void mel_gpu_frame_begin(Mel_Gpu_Swapchain* sc)
 {
     Mel_Gpu_Device* dev = sc->dev;
@@ -27,7 +51,9 @@ void mel_gpu_frame_begin(Mel_Gpu_Swapchain* sc)
     sc->drawable = drawable;
     sc->recorder.cb = cb;
     sc->recorder.encoder = nil;
+    sc->recorder.compute_encoder = nil;
     sc->recorder.has_pipeline = false;
+    sc->recorder.has_compute_pipeline = false;
     sc->recorder.index_buffer = nil;
     sc->frame_ok = true;
 }
@@ -40,11 +66,7 @@ void mel_gpu_frame_end(Mel_Gpu_Swapchain* sc)
         return;
     Mel_Gpu_Device* dev = sc->dev;
 
-    if (sc->recorder.encoder)
-    {
-        [sc->recorder.encoder endEncoding];
-        sc->recorder.encoder = nil;
-    }
+    mel_gpu__cmd_end_active_encoder(&sc->recorder);
 
     u64 serial = mel_gpu__submit_serial_next(dev);
     sc->frame_serial = serial;
@@ -73,6 +95,8 @@ void mel_gpu_cmd_begin_pass(Mel_Gpu_Command_List* cmd, Mel_Gpu_Color clear)
         mel_log_error("gpu", "cmd_begin_pass: no active swapchain frame");
         return;
     }
+
+    mel_gpu__cmd_end_active_encoder(cmd);
 
     MTLRenderPassDescriptor* rp = [MTLRenderPassDescriptor renderPassDescriptor];
     rp.colorAttachments[0].texture = sc->drawable.texture;
@@ -113,20 +137,18 @@ void mel_gpu_command_list_begin(Mel_Gpu_Command_List* cmd)
     mel_gpu__track_enter(cmd->dev, cmd, MEL_GPU_CONCURRENCY_SERIALIZED_PER_OBJECT);
     cmd->cb = [cmd->dev->queue commandBuffer];
     cmd->encoder = nil;
+    cmd->compute_encoder = nil;
     cmd->warned_unsupported = false;
     cmd->recording = true;
     cmd->has_pipeline = false;
+    cmd->has_compute_pipeline = false;
     cmd->index_buffer = nil;
 }
 
 void mel_gpu_command_list_end(Mel_Gpu_Command_List* cmd)
 {
     mel_assert(cmd && cmd->recording);
-    if (cmd->encoder)
-    {
-        [cmd->encoder endEncoding];
-        cmd->encoder = nil;
-    }
+    mel_gpu__cmd_end_active_encoder(cmd);
     cmd->recording = false;
     mel_gpu__track_exit(cmd->dev, cmd);
 }
@@ -138,6 +160,7 @@ void mel_gpu_command_list_destroy(Mel_Gpu_Command_List* cmd)
     mel_assert(cmd->standalone);
     cmd->cb = nil;
     cmd->encoder = nil;
+    cmd->compute_encoder = nil;
     mel_dealloc(cmd->dev->alloc, cmd);
 }
 
@@ -147,7 +170,8 @@ void mel_gpu_cmd_texture_barrier(Mel_Gpu_Command_List* cmd, Mel_Gpu_Texture tex,
     (void)range;
     (void)src;
     (void)dst;
-    (void)cmd;
+    if (cmd && cmd->compute_encoder)
+        [cmd->compute_encoder memoryBarrierWithScope:MTLBarrierScopeTextures | MTLBarrierScopeBuffers];
 }
 
 void mel_gpu_cmd_buffer_barrier(Mel_Gpu_Command_List* cmd, Mel_Gpu_Buffer buf, Mel_Gpu_Resource_State src, Mel_Gpu_Resource_State dst)
@@ -155,7 +179,8 @@ void mel_gpu_cmd_buffer_barrier(Mel_Gpu_Command_List* cmd, Mel_Gpu_Buffer buf, M
     (void)buf;
     (void)src;
     (void)dst;
-    (void)cmd;
+    if (cmd && cmd->compute_encoder)
+        [cmd->compute_encoder memoryBarrierWithScope:MTLBarrierScopeBuffers];
 }
 
 void mel_gpu_cmd_copy_texture_to_buffer(Mel_Gpu_Command_List* cmd, Mel_Gpu_Texture tex, Mel_Gpu_Subresource_Range subresource, Mel_Gpu_Buffer dst)
@@ -174,11 +199,7 @@ void mel_gpu_cmd_copy_texture_to_buffer(Mel_Gpu_Command_List* cmd, Mel_Gpu_Textu
         return;
     }
 
-    if (cmd->encoder)
-    {
-        [cmd->encoder endEncoding];
-        cmd->encoder = nil;
-    }
+    mel_gpu__cmd_end_active_encoder(cmd);
 
     id<MTLTexture> src = (__bridge id<MTLTexture>)to.texture;
     u32            mip = subresource.base_mip;
@@ -205,11 +226,7 @@ void mel_gpu_cmd_copy_buffer(Mel_Gpu_Command_List* cmd, Mel_Gpu_Buffer src, Mel_
         mel_log_error("gpu", "cmd_copy_buffer: source or destination buffer is not a live handle");
         return;
     }
-    if (cmd->encoder)
-    {
-        [cmd->encoder endEncoding];
-        cmd->encoder = nil;
-    }
+    mel_gpu__cmd_end_active_encoder(cmd);
     id<MTLBlitCommandEncoder> blit = [cmd->cb blitCommandEncoder];
     [blit copyFromBuffer:sb sourceOffset:0 toBuffer:db destinationOffset:0 size:bytes];
     [blit endEncoding];
@@ -225,7 +242,16 @@ void mel_gpu_cmd_bind_pipeline(Mel_Gpu_Command_List* cmd, Mel_Gpu_Pipeline pipe)
     }
     if (o.compute)
     {
-        mel_log_error("gpu", "cmd_bind_pipeline: compute pipelines are not bindable on the Metal backend's render-encoder command list this round (MissingFeature)");
+        if (!o.state)
+        {
+            mel_log_error("gpu", "cmd_bind_pipeline: compute pipeline has no MTLComputePipelineState");
+            return;
+        }
+        mel_gpu__cmd_open_compute_encoder(cmd);
+        cmd->compute_state = (__bridge id<MTLComputePipelineState>)o.state;
+        cmd->compute_threadgroup = o.threadgroup;
+        [cmd->compute_encoder setComputePipelineState:cmd->compute_state];
+        cmd->has_compute_pipeline = true;
         return;
     }
     if (!cmd->encoder)
@@ -247,14 +273,35 @@ void mel_gpu_cmd_bind_pipeline(Mel_Gpu_Command_List* cmd, Mel_Gpu_Pipeline pipe)
 
 void mel_gpu_cmd_bind_vertex_buffer(Mel_Gpu_Command_List* cmd, u32 slot, Mel_Gpu_Buffer buf)
 {
-    if (slot != 0)
+    if (cmd->compute_encoder)
+    {
+        if (slot == MEL_GPU_METAL_PUSH_CONSTANT_INDEX)
+        {
+            mel_log_error("gpu",
+                          "cmd_bind_vertex_buffer: on the compute encoder slot %u is reserved for push-constants (setBytes:); bind storage buffers at slot>=1 so the MSL kernel reads them at [[buffer(slot)]]",
+                          MEL_GPU_METAL_PUSH_CONSTANT_INDEX);
+            mel_assert(slot != MEL_GPU_METAL_PUSH_CONSTANT_INDEX);
+            return;
+        }
+        id<MTLBuffer> cb = nil;
+        if (!mel_gpu__buffer_get(cmd->dev, buf, &cb))
+        {
+            mel_log_error("gpu", "cmd_bind_vertex_buffer: buffer is not a live handle");
+            return;
+        }
+        [cmd->compute_encoder setBuffer:cb offset:0 atIndex:slot];
+        return;
+    }
+    if (slot >= MEL_GPU_METAL_VERTEX_BUFFER_BASE)
     {
         mel_log_error("gpu",
-                      "cmd_bind_vertex_buffer: slot %u rejected; the Metal backend binds a single vertex stream (slot 0) to bufferIndex %u and the vertex layout carries no per-element stream selector, so slot>0 would silently collapse "
-                      "onto the slot-0 stream and lose data",
+                      "cmd_bind_vertex_buffer: slot %u out of range; the Metal backend maps vertex slots onto buffer indices descending from %u (slot s -> index %u-s) to clear the push-constant index %u, so the usable slot range is 0..%u",
                       slot,
-                      MEL_GPU_METAL_VERTEX_BUFFER_INDEX);
-        mel_assert(slot == 0);
+                      MEL_GPU_METAL_VERTEX_BUFFER_BASE,
+                      MEL_GPU_METAL_VERTEX_BUFFER_BASE,
+                      MEL_GPU_METAL_PUSH_CONSTANT_INDEX,
+                      MEL_GPU_METAL_VERTEX_BUFFER_BASE - 1u);
+        mel_assert(slot < MEL_GPU_METAL_VERTEX_BUFFER_BASE);
         return;
     }
     id<MTLBuffer> mb = nil;
@@ -268,7 +315,7 @@ void mel_gpu_cmd_bind_vertex_buffer(Mel_Gpu_Command_List* cmd, u32 slot, Mel_Gpu
         mel_log_error("gpu", "cmd_bind_vertex_buffer: no active render encoder");
         return;
     }
-    [cmd->encoder setVertexBuffer:mb offset:0 atIndex:MEL_GPU_METAL_VERTEX_BUFFER_INDEX];
+    [cmd->encoder setVertexBuffer:mb offset:0 atIndex:MEL_GPU_METAL_VERTEX_SLOT_TO_INDEX(slot)];
 }
 
 void mel_gpu_cmd_bind_index_buffer(Mel_Gpu_Command_List* cmd, Mel_Gpu_Buffer buf, Mel_Gpu_Index_Type type)
@@ -285,14 +332,19 @@ void mel_gpu_cmd_bind_index_buffer(Mel_Gpu_Command_List* cmd, Mel_Gpu_Buffer buf
 
 void mel_gpu_cmd_push_constants(Mel_Gpu_Command_List* cmd, u32 offset, u32 bytes, const void* data)
 {
-    if (!cmd->encoder)
-    {
-        mel_log_error("gpu", "cmd_push_constants: no active render encoder");
-        return;
-    }
     if (offset != 0)
     {
         mel_log_error("gpu", "cmd_push_constants: nonzero offset %u unsupported on the Metal backend (push constants ride a single buffer slot)", offset);
+        return;
+    }
+    if (cmd->compute_encoder)
+    {
+        [cmd->compute_encoder setBytes:data length:bytes atIndex:MEL_GPU_METAL_PUSH_CONSTANT_INDEX];
+        return;
+    }
+    if (!cmd->encoder)
+    {
+        mel_log_error("gpu", "cmd_push_constants: no active render or compute encoder");
         return;
     }
     [cmd->encoder setVertexBytes:data length:bytes atIndex:MEL_GPU_METAL_PUSH_CONSTANT_INDEX];
@@ -326,16 +378,27 @@ void mel_gpu_cmd_draw_indexed(Mel_Gpu_Command_List* cmd, u32 index_count, u32 in
 
 void mel_gpu_cmd_dispatch(Mel_Gpu_Command_List* cmd, u32 groups_x, u32 groups_y, u32 groups_z)
 {
-    (void)groups_x;
-    (void)groups_y;
-    (void)groups_z;
-    mel_log_error("gpu", "cmd_dispatch: compute dispatch is unsupported on the Metal backend's render-encoder command list this round (MissingFeature)");
+    if (!cmd->compute_encoder || !cmd->has_compute_pipeline)
+    {
+        mel_log_error("gpu", "cmd_dispatch: no active compute encoder with a bound compute pipeline (call cmd_bind_pipeline on a compute pipeline first)");
+        return;
+    }
+    MTLSize groups = MTLSizeMake(groups_x ? groups_x : 1, groups_y ? groups_y : 1, groups_z ? groups_z : 1);
+    [cmd->compute_encoder dispatchThreadgroups:groups threadsPerThreadgroup:cmd->compute_threadgroup];
 }
 
 void mel_gpu_cmd_dispatch_indirect(Mel_Gpu_Command_List* cmd, Mel_Gpu_Buffer args, usize offset)
 {
-    (void)cmd;
-    (void)args;
-    (void)offset;
-    mel_log_error("gpu", "cmd_dispatch_indirect: compute dispatch is unsupported on the Metal backend this round (MissingFeature)");
+    if (!cmd->compute_encoder || !cmd->has_compute_pipeline)
+    {
+        mel_log_error("gpu", "cmd_dispatch_indirect: no active compute encoder with a bound compute pipeline (call cmd_bind_pipeline on a compute pipeline first)");
+        return;
+    }
+    id<MTLBuffer> ab = nil;
+    if (!mel_gpu__buffer_get(cmd->dev, args, &ab))
+    {
+        mel_log_error("gpu", "cmd_dispatch_indirect: args buffer is not a live handle");
+        return;
+    }
+    [cmd->compute_encoder dispatchThreadgroupsWithIndirectBuffer:ab indirectBufferOffset:offset threadsPerThreadgroup:cmd->compute_threadgroup];
 }

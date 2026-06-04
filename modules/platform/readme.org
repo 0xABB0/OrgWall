@@ -1,1 +1,28 @@
-Container of platform specific stuff
+* platform
+
+Container of platform-specific stuff: the per-platform hooks and queries the
+rest of the framework leans on, behind one cross-platform surface.
+
+** Surface
+
+- platform name query (=mel_platform_name=).
+- sandbox detection (Flatpak/Snap/Apple/none) and app-id (=mel_platform_sandbox=).
+- device class (phone/tablet/tv/desktop) (=mel_platform_device_class=).
+- cross-platform screen-saver inhibit with generational inhibitor handles.
+- raw OS hooks: win32 message hook chain, X11 event hook chain + display
+  handle, Wayland display/surface handles. Availability is reported honestly
+  per platform; the registries themselves are platform-agnostic so the window
+  layer can wire them anywhere.
+- Android: JNI env/vm, activity, SDK version, async runtime-permission request
+  (over a =Mel_Future=), toast, internal/external/cache storage paths.
+- iOS: CADisplayLink animation callback + event-pump toggle.
+- Linux: thread scheduling policy/priority/nice.
+
+** Lifecycle
+
+=mel_platform_init(alloc)= captures the allocator the dynamic registries use;
+=mel_platform_shutdown()= releases inhibitors and frees the registries.
+
+** Dependencies
+
+core, allocator, collection, future.

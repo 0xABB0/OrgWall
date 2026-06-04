@@ -111,7 +111,7 @@ Mel_Gpu_Texture_Create_Result mel_gpu_texture_create_opt(Mel_Gpu_Device* dev, Me
     if (FAILED(hr) || !resource)
     {
         mel_log_error("gpu", "CreateCommittedResource(texture) failed: 0x%08lx", (unsigned long)hr);
-        res.status = hr == E_OUTOFMEMORY ? MEL_GPU_TEXTURE_CREATE_OOM : MEL_GPU_TEXTURE_CREATE_VK_FAILED;
+        res.status = hr == E_OUTOFMEMORY ? MEL_GPU_TEXTURE_CREATE_OOM : MEL_GPU_TEXTURE_CREATE_BACKEND_FAILED;
         return res;
     }
 

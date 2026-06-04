@@ -145,7 +145,15 @@ typedef struct
     u32            location;
     Mel_Gpu_Format format;
     u32            offset;
+    u32            buffer_slot;
 } Mel_Gpu_Vertex_Element;
+
+typedef struct
+{
+    u32  slot;
+    u32  stride;
+    bool per_instance;
+} Mel_Gpu_Vertex_Buffer_Layout;
 
 typedef struct
 {
@@ -156,7 +164,7 @@ typedef struct
 typedef enum
 {
     MEL_GPU_PIPELINE_CREATE_OK = MEL_GPU_STATUS(0, MEL_GPU_SEVERITY_OK),
-    MEL_GPU_PIPELINE_CREATE_VK_FAILED = MEL_GPU_STATUS(1, MEL_GPU_SEVERITY_ERROR),
+    MEL_GPU_PIPELINE_CREATE_BACKEND_FAILED = MEL_GPU_STATUS(1, MEL_GPU_SEVERITY_ERROR),
     MEL_GPU_PIPELINE_CREATE_NO_SHADER = MEL_GPU_STATUS(2, MEL_GPU_SEVERITY_ERROR),
     MEL_GPU_PIPELINE_CREATE_MISSING_FEATURE = MEL_GPU_STATUS(3, MEL_GPU_SEVERITY_ERROR),
     MEL_GPU_PIPELINE_CREATE_MISSING_BINDLESS_SLOT = MEL_GPU_STATUS(4, MEL_GPU_SEVERITY_ERROR),
@@ -184,6 +192,8 @@ typedef struct
     const Mel_Gpu_Vertex_Element* vertex_layout;
     u32                           vertex_layout_count;
     u32                           vertex_stride;
+    const Mel_Gpu_Vertex_Buffer_Layout* vertex_buffers;
+    u32                                 vertex_buffer_count;
     u32                           push_constant_size;
     bool                          bindless;
     const Mel_Gpu_Bind_Group_Layout* set_layouts;
@@ -213,11 +223,71 @@ typedef struct
     u32                              set_layout_count;
     const Mel_Gpu_Spec_Constant*     spec_constants;
     u32                              spec_constant_count;
+    u32                              threadgroup[3];
     const char*                      name;
 } Mel_Gpu_Pipeline_Compute_Opt;
 
 Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_compute_create_opt(Mel_Gpu_Device* dev, Mel_Gpu_Pipeline_Compute_Opt opt);
 #define mel_gpu_pipeline_compute_create(dev, ...) mel_gpu_pipeline_compute_create_opt((dev), (Mel_Gpu_Pipeline_Compute_Opt){ __VA_ARGS__ })
+
+typedef struct
+{
+    const char*                         source;
+    const char*                         vertex_entry;
+    const char*                         fragment_entry;
+    Mel_Gpu_Topology                    topology;
+    Mel_Gpu_Cull                        cull;
+    Mel_Gpu_Front_Face                  front_face;
+    Mel_Gpu_Fill                        fill;
+    Mel_Gpu_Format                      color_format;
+    const Mel_Gpu_Color_Target*         color_targets;
+    u32                                 color_target_count;
+    f32                                 blend_constants[4];
+    Mel_Gpu_Format                      depth_format;
+    const Mel_Gpu_Depth_Stencil*        depth_stencil;
+    bool                                depth_bias;
+    f32                                 depth_bias_constant, depth_bias_clamp, depth_bias_slope;
+    u32                                 samples;
+    bool                                alpha_to_coverage;
+    bool                                sample_shading;
+    f32                                 min_sample_shading;
+    const Mel_Gpu_Vertex_Buffer_Layout* vertex_buffers;
+    u32                                 vertex_buffer_count;
+    bool                                bindless;
+    const Mel_Gpu_Bind_Group_Layout*    set_layouts;
+    u32                                 set_layout_count;
+    const Mel_Gpu_Static_Sampler*       static_samplers;
+    u32                                 static_sampler_count;
+    const Mel_Gpu_Spec_Constant*        spec_constants;
+    u32                                 spec_constant_count;
+    const char*                         name;
+} Mel_Gpu_Pipeline_Slang_Opt;
+
+typedef struct
+{
+    Mel_Gpu_Pipeline               value;
+    Mel_Gpu_Shader                 shader;
+    Mel_Gpu_Pipeline_Create_Status status;
+} Mel_Gpu_Pipeline_From_Slang_Result;
+
+Mel_Gpu_Pipeline_From_Slang_Result mel_gpu_pipeline_create_from_slang_opt(Mel_Gpu_Device* dev, Mel_Gpu_Pipeline_Slang_Opt opt);
+#define mel_gpu_pipeline_create_from_slang(dev, ...) mel_gpu_pipeline_create_from_slang_opt((dev), (Mel_Gpu_Pipeline_Slang_Opt){ __VA_ARGS__ })
+
+typedef struct
+{
+    const char*                      source;
+    const char*                      compute_entry;
+    u32                              push_constant_size;
+    bool                             bindless;
+    const Mel_Gpu_Bind_Group_Layout* set_layouts;
+    u32                              set_layout_count;
+    const Mel_Gpu_Spec_Constant*     spec_constants;
+    u32                              spec_constant_count;
+    const char*                      name;
+} Mel_Gpu_Pipeline_Compute_Slang_Opt;
+
+Mel_Gpu_Pipeline_From_Slang_Result mel_gpu_pipeline_compute_create_from_slang_opt(Mel_Gpu_Device* dev, Mel_Gpu_Pipeline_Compute_Slang_Opt opt);
+#define mel_gpu_pipeline_compute_create_from_slang(dev, ...) mel_gpu_pipeline_compute_create_from_slang_opt((dev), (Mel_Gpu_Pipeline_Compute_Slang_Opt){ __VA_ARGS__ })
 
 void mel_gpu_pipeline_destroy(Mel_Gpu_Device* dev, Mel_Gpu_Pipeline pipe);
 bool mel_gpu_pipeline_alive(Mel_Gpu_Device* dev, Mel_Gpu_Pipeline pipe);

@@ -88,7 +88,9 @@ void mel_gpu_frame_end(Mel_Gpu_Swapchain* sc)
 
     mel_gpu__submit_complete(dev, serial);
 
+#ifndef __EMSCRIPTEN__
     wgpuSurfacePresent(sc->surface->wgpu);
+#endif
     wgpuInstanceProcessEvents(dev->wgpu_instance);
 
     wgpuTextureViewRelease(sc->frame_view);

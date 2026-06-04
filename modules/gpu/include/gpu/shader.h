@@ -4,6 +4,8 @@
 #include <gpu/handle.h>
 #include <gpu/status.h>
 
+#include <slang/compile.h>
+
 typedef struct Mel_Gpu_Device Mel_Gpu_Device;
 
 MEL_GPU_HANDLE(Mel_Gpu_Shader);
@@ -11,7 +13,7 @@ MEL_GPU_HANDLE(Mel_Gpu_Shader);
 typedef enum
 {
     MEL_GPU_SHADER_CREATE_OK = MEL_GPU_STATUS(0, MEL_GPU_SEVERITY_OK),
-    MEL_GPU_SHADER_CREATE_VK_FAILED = MEL_GPU_STATUS(1, MEL_GPU_SEVERITY_ERROR),
+    MEL_GPU_SHADER_CREATE_BACKEND_FAILED = MEL_GPU_STATUS(1, MEL_GPU_SEVERITY_ERROR),
     MEL_GPU_SHADER_CREATE_NO_CODE = MEL_GPU_STATUS(2, MEL_GPU_SEVERITY_ERROR),
     MEL_GPU_SHADER_CREATE_TARGET_UNSUPPORTED = MEL_GPU_STATUS(3, MEL_GPU_SEVERITY_ERROR),
 } Mel_Gpu_Shader_Create_Status;
@@ -68,6 +70,20 @@ typedef struct
 
 Mel_Gpu_Shader_Create_Result mel_gpu_shader_create_compute_from_bytecode_opt(Mel_Gpu_Device* dev, Mel_Gpu_Shader_Compute_Opt opt);
 #define mel_gpu_shader_create_compute_from_bytecode(dev, ...) mel_gpu_shader_create_compute_from_bytecode_opt((dev), (Mel_Gpu_Shader_Compute_Opt){ __VA_ARGS__ })
+
+typedef struct
+{
+    const char* source;
+    const char* vertex_entry;
+    const char* fragment_entry;
+    const char* compute_entry;
+    const char* name;
+} Mel_Gpu_Shader_Slang_Opt;
+
+Mel_Gpu_Shader_Create_Result mel_gpu_shader_create_from_slang_opt(Mel_Gpu_Device* dev, Mel_Gpu_Shader_Slang_Opt opt);
+#define mel_gpu_shader_create_from_slang(dev, ...) mel_gpu_shader_create_from_slang_opt((dev), (Mel_Gpu_Shader_Slang_Opt){ __VA_ARGS__ })
+
+bool mel_gpu_slang_target_for_device(Mel_Gpu_Device* dev, Mel_Slang_Target* out_target);
 
 void mel_gpu_shader_destroy(Mel_Gpu_Device* dev, Mel_Gpu_Shader sh);
 bool mel_gpu_shader_alive(Mel_Gpu_Device* dev, Mel_Gpu_Shader sh);
