@@ -4,6 +4,7 @@
 #include <string/str8.h>
 
 #include <color/rgba8.h>
+#include <image/image.h>
 #include <math.geo/rect.h>
 #include <math.vector/vec2.h>
 
@@ -31,3 +32,4 @@ void mel_painter_stroke_rect(Mel_Painter*, Mel_Rect, mel_color8, f32 width);
 void mel_painter_draw_line(Mel_Painter*, Mel_Vec2 a, Mel_Vec2 b, mel_color8, f32 width);
 void mel_painter_fill_round_rect(Mel_Painter*, Mel_Rect, f32 radius, mel_color8);
 void mel_painter_draw_text(Mel_Painter*, str8 text, Mel_Vec2 pos, mel_color8, f32 size);
+void mel_painter_draw_image(Mel_Painter*, const Mel_Image* img, Mel_Rect dst, const Mel_Alloc* scratch);

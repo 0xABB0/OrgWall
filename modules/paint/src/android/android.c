@@ -1,6 +1,7 @@
 #include "../paint_internal.h"
 
 #include <debug/assert.h>
+#include <log/log.h>
 
 #include <paint/native_android.h>
 #include <paint/painter.h>
@@ -183,6 +184,20 @@ void mel_painter_fill_round_rect(Mel_Painter* p, Mel_Rect r, f32 radius, mel_col
     fill_style(e, nat(p)->paint, k);
     jvalue v[7] = { { .f = r.x }, { .f = r.y }, { .f = r.x + r.w }, { .f = r.y + r.h }, { .f = radius }, { .f = radius }, { .l = nat(p)->paint } };
     (*e)->CallVoidMethodA(e, nat(p)->canvas, m_drawRoundRect, v);
+}
+
+void mel_painter_draw_image(Mel_Painter* p, const Mel_Image* img, Mel_Rect dst, const Mel_Alloc* scratch)
+{
+    (void)p;
+    (void)img;
+    (void)dst;
+    (void)scratch;
+    static bool warned;
+    if (!warned)
+    {
+        warned = true;
+        mel_log_warn("paint", "mel_painter_draw_image: android backend stub (not implemented)");
+    }
 }
 
 void mel_painter_draw_text(Mel_Painter* p, str8 text, Mel_Vec2 pos, mel_color8 k, f32 size)

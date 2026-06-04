@@ -11,6 +11,9 @@
 #include <CoreGraphics/CoreGraphics.h>
 #include <CoreText/CoreText.h>
 
+static CGColorSpaceRef cs_rgb(void);
+static CGColorSpaceRef cs_gray(void);
+
 static inline CGContextRef pcg(Mel_Painter* p) { return (CGContextRef)p->native; }
 
 static inline CGRect cg_rect(Mel_Rect r) { return CGRectMake(r.x, r.y, r.w, r.h); }
@@ -32,9 +35,7 @@ Mel_Pixmap mel_pixmap_create(const Mel_Alloc* alloc, i32 w, i32 h)
 
     Mel_Image_Plane plane = mel_image_plane(&img, 0);
 
-    CGColorSpaceRef cs = CGColorSpaceCreateDeviceRGB();
-    CGContextRef    cg = CGBitmapContextCreate(plane.pixels, (size_t)w, (size_t)h, 8, (size_t)plane.stride, cs, kCGImageAlphaPremultipliedLast | kCGBitmapByteOrder32Big);
-    CGColorSpaceRelease(cs);
+    CGContextRef cg = CGBitmapContextCreate(plane.pixels, (size_t)w, (size_t)h, 8, (size_t)plane.stride, cs_rgb(), kCGImageAlphaPremultipliedLast | kCGBitmapByteOrder32Big);
 
     CGContextTranslateCTM(cg, 0, h);
     CGContextScaleCTM(cg, 1, -1);
@@ -115,6 +116,115 @@ void mel_painter_fill_round_rect(Mel_Painter* p, Mel_Rect r, f32 radius, mel_col
     CGPathRelease(path);
 }
 
+static CGImageRef cg_image_from_plane(Mel_Image_Plane plane, CGColorSpaceRef cs, CGBitmapInfo info)
+{
+    CGDataProviderRef prov = CGDataProviderCreateWithData(NULL, plane.pixels, (size_t)plane.stride * (size_t)plane.h, NULL);
+    if (!prov)
+        return NULL;
+    i32        bpc = 8;
+    i32        bpp = plane.bpp * 8;
+    CGImageRef img = CGImageCreate((size_t)plane.w, (size_t)plane.h, (size_t)bpc, (size_t)bpp, (size_t)plane.stride, cs, info, prov, NULL, false, kCGRenderingIntentDefault);
+    CGDataProviderRelease(prov);
+    return img;
+}
+
+static CGColorSpaceRef cs_rgb(void)
+{
+    static CGColorSpaceRef cs;
+    if (!cs)
+        cs = CGColorSpaceCreateDeviceRGB();
+    return cs;
+}
+
+static CGColorSpaceRef cs_gray(void)
+{
+    static CGColorSpaceRef cs;
+    if (!cs)
+        cs = CGColorSpaceCreateDeviceGray();
+    return cs;
+}
+
+void mel_painter_draw_image(Mel_Painter* p, const Mel_Image* img, Mel_Rect dst, const Mel_Alloc* scratch_alloc)
+{
+    mel_assert(p && img && img->format);
+
+    const mel_image_format* fmt = img->format;
+
+    Mel_Image        scratch = { 0 };
+    const Mel_Image* src = img;
+
+    bool is_rgba8 = (fmt == &mel_image_rgba8);
+    bool is_rgba8_premul = (fmt == &mel_image_rgba8_premul);
+    bool is_gray8 = (fmt == &mel_image_gray8);
+    bool is_bgra8 = (fmt == &mel_image_bgra8);
+
+    if (!is_rgba8 && !is_rgba8_premul && !is_gray8 && !is_bgra8)
+    {
+        if (!scratch_alloc)
+        {
+            mel_log_fatal("paint", "mel_painter_draw_image: format '%s' needs conversion but no scratch allocator given", mel_image_format_name(fmt));
+            MEL_BREAKPOINT();
+            return;
+        }
+        if (!mel_image_init(&scratch, &mel_image_rgba8, img->w, img->h, scratch_alloc))
+        {
+            mel_log_fatal("paint", "mel_painter_draw_image: scratch rgba8 init failed (%dx%d)", img->w, img->h);
+            MEL_BREAKPOINT();
+            return;
+        }
+        if (!mel_image_convert_scratch(img, &scratch, scratch_alloc))
+        {
+            mel_log_fatal("paint", "mel_painter_draw_image: convert '%s' -> rgba8 failed", mel_image_format_name(fmt));
+            MEL_BREAKPOINT();
+            mel_image_free(&scratch);
+            return;
+        }
+        src = &scratch;
+        is_rgba8 = true;
+    }
+
+    Mel_Image_Plane plane = mel_image_plane(src, 0);
+
+    CGColorSpaceRef cs;
+    CGBitmapInfo    info;
+    if (is_gray8)
+    {
+        cs = cs_gray();
+        info = kCGImageAlphaNone;
+    }
+    else if (is_bgra8)
+    {
+        cs = cs_rgb();
+        info = (CGBitmapInfo)kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Little;
+    }
+    else
+    {
+        cs = cs_rgb();
+        info = (CGBitmapInfo)(is_rgba8_premul ? kCGImageAlphaPremultipliedLast : kCGImageAlphaLast) | kCGBitmapByteOrder32Big;
+    }
+
+    CGImageRef cgimg = cg_image_from_plane(plane, cs, info);
+
+    if (!cgimg)
+    {
+        mel_log_error("paint", "mel_painter_draw_image: CGImageCreate failed");
+        if (scratch.format)
+            mel_image_free(&scratch);
+        return;
+    }
+
+    CGContextRef cg = pcg(p);
+    CGContextSaveGState(cg);
+    CGContextTranslateCTM(cg, dst.x, dst.y + dst.h);
+    CGContextScaleCTM(cg, 1, -1);
+    CGContextDrawImage(cg, CGRectMake(0, 0, dst.w, dst.h), cgimg);
+    CGContextRestoreGState(cg);
+
+    CGImageRelease(cgimg);
+    if (scratch.format)
+        mel_image_free(&scratch);
+}
+
 void mel_painter_draw_text(Mel_Painter* p, str8 text, Mel_Vec2 pos, mel_color8 k, f32 size)
 {
     CGContextRef cg = pcg(p);
@@ -123,10 +233,9 @@ void mel_painter_draw_text(Mel_Painter* p, str8 text, Mel_Vec2 pos, mel_color8 k
     if (!s)
         return;
 
-    CTFontRef       font = CTFontCreateWithName(CFSTR("Helvetica"), size, NULL);
-    CGColorSpaceRef csp = CGColorSpaceCreateDeviceRGB();
-    const CGFloat   comps[4] = { k.r / 255.0, k.g / 255.0, k.b / 255.0, k.a / 255.0 };
-    CGColorRef      col = CGColorCreate(csp, comps);
+    CTFontRef     font = CTFontCreateWithName(CFSTR("Helvetica"), size, NULL);
+    const CGFloat comps[4] = { k.r / 255.0, k.g / 255.0, k.b / 255.0, k.a / 255.0 };
+    CGColorRef    col = CGColorCreate(cs_rgb(), comps);
 
     const void*           keys[] = { kCTFontAttributeName, kCTForegroundColorAttributeName };
     const void*           vals[] = { font, col };
@@ -149,7 +258,6 @@ void mel_painter_draw_text(Mel_Painter* p, str8 text, Mel_Vec2 pos, mel_color8 k
     CFRelease(as);
     CFRelease(attrs);
     CGColorRelease(col);
-    CGColorSpaceRelease(csp);
     CFRelease(font);
     CFRelease(s);
 }

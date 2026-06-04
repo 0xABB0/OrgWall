@@ -1,6 +1,7 @@
 #include "../paint_internal.h"
 
 #include <debug/assert.h>
+#include <log/log.h>
 
 #include <paint/painter.h>
 
@@ -128,6 +129,20 @@ void mel_painter_fill_round_rect(Mel_Painter* p, Mel_Rect r, f32 radius, mel_col
     RoundRect(dc, ipx(r.x), ipx(r.y), ipx(r.x + r.w), ipx(r.y + r.h), d, d);
     SelectObject(dc, ob);
     SelectObject(dc, op);
+}
+
+void mel_painter_draw_image(Mel_Painter* p, const Mel_Image* img, Mel_Rect dst, const Mel_Alloc* scratch)
+{
+    (void)p;
+    (void)img;
+    (void)dst;
+    (void)scratch;
+    static bool warned;
+    if (!warned)
+    {
+        warned = true;
+        mel_log_warn("paint", "mel_painter_draw_image: gdi backend stub (not implemented)");
+    }
 }
 
 void mel_painter_draw_text(Mel_Painter* p, str8 text, Mel_Vec2 pos, mel_color8 k, f32 size)

@@ -29,6 +29,14 @@ gui canvas is migrated. The owned `Mel_Pixmap` path stays quartz-only (gui doesn
   surfacing gpu/EGL deps); left as its own task.
 - **soft** — still deferred (no gui consumer; for the Linux CLI). Rasterizer + bitmap font.
 
+### `mel_painter_draw_image` on gdi + android
+Both are one-shot-warn no-op stubs. quartz blits rgba8/rgba8_premul/gray8/bgra8 natively and
+converts any other format (NV12/YUV) through the caller's scratch allocator; dom does the same
+sans the bgra8 fast path (ImageData is fixed RGBA). Implement gdi (`StretchDIBits` over a
+top-down BGRA `BITMAPINFO`) and android (`Bitmap.createBitmap` +
+`Canvas.drawBitmap(Bitmap, Rect, RectF, Paint)` via JNI) so a camera preview renders there.
+Orientation (`Mel_Image_Orient`) is not applied by the painter; callers `mel_image_orient` first.
+
 ### Owned-pixmap path on non-quartz backends
 Deferred. gdi (`CreateDIBSection`, BGRA→RGBA readback swizzle), dom (`OffscreenCanvas` +
 `getImageData`), android (`Bitmap` + `copyPixelsToBuffer`). Implement when a non-macOS host wants
