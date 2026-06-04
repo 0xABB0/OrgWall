@@ -4,45 +4,28 @@
 
 #include "reacdiff.h"
 #include "hud.h"
-#include "bindless_present.h"
-#include "reacdiff_init_spv.h"
-#include "reacdiff_step_spv.h"
-#include "reacdiff_draw_spv.h"
-#include "blit_spv.h"
+
+static const char REACDIFF_SLANG[] = {
+#embed "shaders/slang/reacdiff.slang"
+    , 0
+};
 
 #define STEPS_PER_FRAME 8
 
 typedef struct
 {
-    u32   image;
-    u32   w;
-    u32   h;
-    float pad;
-} Init_Root;
-
-typedef struct
-{
-    u32   src_tex;
-    u32   src_smp;
-    u32   dst_img;
-    u32   w;
-    u32   h;
-    float da;
-    float db;
-    float feed;
-    float kill;
-    float dt;
-    float pad0;
-    float pad1;
-} Step_Root;
-
-typedef struct
-{
-    u32   tex;
-    u32   smp;
-    float time;
-    float pad;
-} Draw_Root;
+    u32 tex;
+    u32 smp;
+    u32 img;
+    u32 w;
+    u32 h;
+    f32 da;
+    f32 db;
+    f32 feed;
+    f32 kill;
+    f32 dt;
+    f32 time;
+} Reacdiff_Root;
 
 typedef struct
 {
@@ -57,6 +40,7 @@ typedef struct
     Mel_Gpu_Shader   draw_sh;
     Mel_Gpu_Pipeline draw_pl;
     Mel_Gpu_Sampler  sampler;
+    u32              smp_slot;
 
     i32                  w, h;
     Mel_Gpu_Texture      img[2];
@@ -112,33 +96,36 @@ static void* reacdiff_init(Mel_Gpu_Device* dev, Mel_Gpu_Swapchain* sc)
         return r;
     }
 
-    r->init_sh = mel_gpu_shader_create_compute_from_bytecode(dev, .spirv = REACDIFF_INIT_COMP_SPV, .spirv_size = sizeof REACDIFF_INIT_COMP_SPV, .entry = "main", .name = "reacdiff-init").value;
-    r->step_sh = mel_gpu_shader_create_compute_from_bytecode(dev, .spirv = REACDIFF_STEP_COMP_SPV, .spirv_size = sizeof REACDIFF_STEP_COMP_SPV, .entry = "main", .name = "reacdiff-step").value;
+    Mel_Gpu_Pipeline_From_Slang_Result init = mel_gpu_pipeline_compute_create_from_slang(dev, .source = REACDIFF_SLANG, .compute_entry = "cs_init", .push_constant_size = sizeof(Reacdiff_Root), .bindless = true, .name = "reacdiff-init");
+    if (mel_gpu_failed(init.status))
+        return r;
+    r->init_sh = init.shader;
+    r->init_pl = init.value;
 
-    r->draw_sh = mel_gpu_shader_create_from_bytecode(dev,
-                                                     .spirv_vertex        = BLIT_VERT_SPV,
-                                                     .spirv_vertex_size   = sizeof BLIT_VERT_SPV,
-                                                     .spirv_fragment      = REACDIFF_DRAW_FRAG_SPV,
-                                                     .spirv_fragment_size = sizeof REACDIFF_DRAW_FRAG_SPV,
-                                                     .vertex_entry        = "main",
-                                                     .fragment_entry      = "main",
-                                                     .name                = "reacdiff-draw")
-                     .value;
+    Mel_Gpu_Pipeline_From_Slang_Result step = mel_gpu_pipeline_compute_create_from_slang(dev, .source = REACDIFF_SLANG, .compute_entry = "cs_step", .push_constant_size = sizeof(Reacdiff_Root), .bindless = true, .name = "reacdiff-step");
+    if (mel_gpu_failed(step.status))
+        return r;
+    r->step_sh = step.shader;
+    r->step_pl = step.value;
 
-    r->init_pl = mel_gpu_pipeline_compute_create(dev, .shader = r->init_sh, .push_constant_size = sizeof(Init_Root), .name = "reacdiff-init").value;
-    r->step_pl = mel_gpu_pipeline_compute_create(dev, .shader = r->step_sh, .push_constant_size = sizeof(Step_Root), .name = "reacdiff-step").value;
-    r->draw_pl = mel_gpu_pipeline_create(dev,
-                                         .shader             = r->draw_sh,
-                                         .topology           = MEL_GPU_TOPOLOGY_TRIANGLE_LIST,
-                                         .cull               = MEL_GPU_CULL_NONE,
-                                         .color_format       = mel_gpu_swapchain_format(sc),
-                                         .push_constant_size = sizeof(Draw_Root),
-                                         .name               = "reacdiff-draw")
-                    .value;
+    Mel_Gpu_Pipeline_From_Slang_Result draw = mel_gpu_pipeline_create_from_slang(dev,
+                                                                                 .source = REACDIFF_SLANG,
+                                                                                 .vertex_entry = "vs_draw",
+                                                                                 .fragment_entry = "fs_draw",
+                                                                                 .topology = MEL_GPU_TOPOLOGY_TRIANGLE_LIST,
+                                                                                 .cull = MEL_GPU_CULL_NONE,
+                                                                                 .color_format = mel_gpu_swapchain_format(sc),
+                                                                                 .bindless = true,
+                                                                                 .name = "reacdiff-draw");
+    if (mel_gpu_failed(draw.status))
+        return r;
+    r->draw_sh = draw.shader;
+    r->draw_pl = draw.value;
 
     Mel_Gpu_Sampler_Create_Result smp = mel_gpu_sampler_create(dev, .min_filter = MEL_GPU_FILTER_LINEAR, .mag_filter = MEL_GPU_FILTER_LINEAR, .wrap_u = MEL_GPU_WRAP_REPEAT, .wrap_v = MEL_GPU_WRAP_REPEAT, .name = "reacdiff-sampler");
     if (mel_gpu_failed(smp.status)) return r;
     r->sampler = smp.value;
+    r->smp_slot = mel_gpu_sampler_bindless_slot(dev, r->sampler);
 
     Mel_Gpu_Swapchain_Extent ext = mel_gpu_swapchain_extent(sc);
     make_imgs(r, (i32)ext.width, (i32)ext.height);
@@ -177,7 +164,6 @@ static void reacdiff_render(void* state, Mel_Gpu_Command_List* cmd, f64 dt)
     r->img_fresh = false;
     u32  gx = ((u32)r->w + 7) / 8;
     u32  gy = ((u32)r->h + 7) / 8;
-    u32  smp_slot = mel_gpu_sampler_bindless_slot(r->dev, r->sampler);
 
     if (!r->initialized)
     {
@@ -186,8 +172,9 @@ static void reacdiff_render(void* state, Mel_Gpu_Command_List* cmd, f64 dt)
         {
             Mel_Gpu_Resource_State is = fresh ? MEL_GPU_STATE_COMMON : MEL_GPU_STATE_UNORDERED_ACCESS;
             barrier_img(cmd, r->img[k], is, MEL_GPU_STATE_UNORDERED_ACCESS);
-            Init_Root ir = { .image = r->img_slot[k], .w = (u32)r->w, .h = (u32)r->h };
+            Reacdiff_Root ir = { .img = r->img_slot[k], .w = (u32)r->w, .h = (u32)r->h };
             mel_gpu_cmd_bind_pipeline(cmd, r->init_pl);
+            mel_gpu_cmd_bind_bindless(cmd);
             mel_gpu_cmd_push_constants(cmd, 0, sizeof ir, &ir);
             mel_gpu_cmd_dispatch(cmd, gx, gy, 1);
             barrier_img(cmd, r->img[k], MEL_GPU_STATE_UNORDERED_ACCESS, MEL_GPU_STATE_SHADER_RESOURCE);
@@ -206,16 +193,17 @@ static void reacdiff_render(void* state, Mel_Gpu_Command_List* cmd, f64 dt)
         barrier_img(cmd, r->img[src], src_state, MEL_GPU_STATE_SHADER_RESOURCE);
         barrier_img(cmd, r->img[dst], dst_state, MEL_GPU_STATE_UNORDERED_ACCESS);
 
-        Step_Root sr = {
-            .src_tex = r->img_slot[src],
-            .src_smp = smp_slot,
-            .dst_img = r->img_slot[dst],
+        Reacdiff_Root sr = {
+            .tex = r->img_slot[src],
+            .smp = r->smp_slot,
+            .img = r->img_slot[dst],
             .w = (u32)r->w, .h = (u32)r->h,
             .da = 1.0f, .db = 0.5f,
             .feed = 0.055f, .kill = 0.062f,
             .dt = 1.0f,
         };
         mel_gpu_cmd_bind_pipeline(cmd, r->step_pl);
+        mel_gpu_cmd_bind_bindless(cmd);
         mel_gpu_cmd_push_constants(cmd, 0, sizeof sr, &sr);
         mel_gpu_cmd_dispatch(cmd, gx, gy, 1);
 
@@ -223,9 +211,10 @@ static void reacdiff_render(void* state, Mel_Gpu_Command_List* cmd, f64 dt)
         r->cur = dst;
     }
 
-    Draw_Root dr = { .tex = r->img_slot[r->cur], .smp = smp_slot, .time = (f32)r->t };
+    Reacdiff_Root dr = { .tex = r->img_slot[r->cur], .smp = r->smp_slot, .time = (f32)r->t };
     mel_gpu_cmd_begin_pass(cmd, mel_gpu_rgba(0.0f, 0.0f, 0.0f, 1.0f));
     mel_gpu_cmd_bind_pipeline(cmd, r->draw_pl);
+    mel_gpu_cmd_bind_bindless(cmd);
     mel_gpu_cmd_push_constants(cmd, 0, sizeof dr, &dr);
     mel_gpu_cmd_draw(cmd, 3, 1);
     mel_gpu_cmd_end_pass(cmd);

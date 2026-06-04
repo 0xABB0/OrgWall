@@ -7,10 +7,11 @@
 #include "dispatch_indirect.h"
 #include "hud.h"
 #include "bindless_present.h"
-#include "cull_spv.h"
-#include "buildargs_spv.h"
-#include "clear_spv.h"
-#include "shade_spv.h"
+
+static const char DISPATCH_INDIRECT_SLANG[] = {
+#embed "shaders/slang/dispatch_indirect.slang"
+    , 0
+};
 
 #define AGENT_COUNT 4096
 #define LOCAL       64
@@ -23,26 +24,9 @@ typedef struct
 
 typedef struct
 {
-    u32 agents, survivors, total, pad;
+    u32 agents, survivors, args, image, total, w, h, local;
     f32 time, cull_r, cull_x, cull_y;
-} Cull_Root;
-
-typedef struct
-{
-    u32 survivors, args, local, pad;
-} Args_Root;
-
-typedef struct
-{
-    u32 image, w, h;
-    f32 time;
-} Clear_Root;
-
-typedef struct
-{
-    u32 agents, survivors, image, total, w, h;
-    f32 time, pad;
-} Shade_Root;
+} Di_Root;
 
 typedef struct
 {
@@ -74,13 +58,13 @@ typedef struct
 
 static inline bool handle_zero(Mel_SlotMap_Handle h) { return h.index == 0 && h.generation == 0; }
 
-static Mel_Gpu_Pipeline make_compute(Dispatch_Indirect* d, const u32* spv, usize bytes, u32 pc, const char* name, Mel_Gpu_Shader* out_sh)
+static Mel_Gpu_Pipeline make_compute(Dispatch_Indirect* d, const char* entry, const char* name, Mel_Gpu_Shader* out_sh)
 {
-    Mel_Gpu_Shader_Create_Result cs = mel_gpu_shader_create_compute_from_bytecode(d->dev, .spirv = spv, .spirv_size = bytes, .entry = "main", .name = name);
-    if (mel_gpu_failed(cs.status))
+    Mel_Gpu_Pipeline_From_Slang_Result cp = mel_gpu_pipeline_compute_create_from_slang(d->dev, .source = DISPATCH_INDIRECT_SLANG, .compute_entry = entry, .push_constant_size = sizeof(Di_Root), .bindless = true, .name = name);
+    if (mel_gpu_failed(cp.status))
         return (Mel_Gpu_Pipeline){ 0 };
-    *out_sh = cs.value;
-    return mel_gpu_pipeline_compute_create(d->dev, .shader = cs.value, .push_constant_size = pc, .name = name).value;
+    *out_sh = cp.shader;
+    return cp.value;
 }
 
 static void* di_init(Mel_Gpu_Device* dev, Mel_Gpu_Swapchain* sc)
@@ -95,10 +79,10 @@ static void* di_init(Mel_Gpu_Device* dev, Mel_Gpu_Swapchain* sc)
         return d;
     }
 
-    d->cull_pl = make_compute(d, CULL_COMP_SPV, sizeof CULL_COMP_SPV, sizeof(Cull_Root), "di-cull", &d->cull_sh);
-    d->args_pl = make_compute(d, BUILDARGS_COMP_SPV, sizeof BUILDARGS_COMP_SPV, sizeof(Args_Root), "di-args", &d->args_sh);
-    d->clear_pl = make_compute(d, CLEAR_COMP_SPV, sizeof CLEAR_COMP_SPV, sizeof(Clear_Root), "di-clear", &d->clear_sh);
-    d->shade_pl = make_compute(d, SHADE_COMP_SPV, sizeof SHADE_COMP_SPV, sizeof(Shade_Root), "di-shade", &d->shade_sh);
+    d->cull_pl = make_compute(d, "cs_cull", "di-cull", &d->cull_sh);
+    d->args_pl = make_compute(d, "cs_args", "di-args", &d->args_sh);
+    d->clear_pl = make_compute(d, "cs_clear", "di-clear", &d->clear_sh);
+    d->shade_pl = make_compute(d, "cs_shade", "di-shade", &d->shade_sh);
 
     Agent* pool = malloc(AGENT_COUNT * sizeof(Agent));
     for (i32 i = 0; i < AGENT_COUNT; ++i)
@@ -198,16 +182,18 @@ static void di_render(void* state, Mel_Gpu_Command_List* cmd, f64 dt)
     Mel_Gpu_Resource_State args_src = MEL_GPU_STATE_COMMON;
 
     mel_gpu_cmd_buffer_barrier(cmd, surv, surv_src, MEL_GPU_STATE_UNORDERED_ACCESS);
-    Cull_Root croot = { .agents = d->agents_slot, .survivors = d->surv_slot[d->ring], .total = AGENT_COUNT, .time = (f32)d->t, .cull_r = cr, .cull_x = cx, .cull_y = cy };
+    Di_Root croot = { .agents = d->agents_slot, .survivors = d->surv_slot[d->ring], .total = AGENT_COUNT, .time = (f32)d->t, .cull_r = cr, .cull_x = cx, .cull_y = cy };
     mel_gpu_cmd_bind_pipeline(cmd, d->cull_pl);
+    mel_gpu_cmd_bind_bindless(cmd);
     mel_gpu_cmd_push_constants(cmd, 0, sizeof croot, &croot);
     mel_gpu_cmd_dispatch(cmd, (AGENT_COUNT + LOCAL - 1) / LOCAL, 1, 1);
 
     mel_gpu_cmd_buffer_barrier(cmd, surv, MEL_GPU_STATE_UNORDERED_ACCESS, MEL_GPU_STATE_SHADER_RESOURCE);
     mel_gpu_cmd_buffer_barrier(cmd, args, args_src, MEL_GPU_STATE_UNORDERED_ACCESS);
 
-    Args_Root aroot = { .survivors = d->surv_slot[d->ring], .args = d->args_slot[d->ring], .local = LOCAL };
+    Di_Root aroot = { .survivors = d->surv_slot[d->ring], .args = d->args_slot[d->ring], .local = LOCAL };
     mel_gpu_cmd_bind_pipeline(cmd, d->args_pl);
+    mel_gpu_cmd_bind_bindless(cmd);
     mel_gpu_cmd_push_constants(cmd, 0, sizeof aroot, &aroot);
     mel_gpu_cmd_dispatch(cmd, 1, 1, 1);
 
@@ -218,15 +204,17 @@ static void di_render(void* state, Mel_Gpu_Command_List* cmd, f64 dt)
     d->img_fresh = false;
     mel_gpu_cmd_texture_barrier(cmd, d->img, range, img_src, MEL_GPU_STATE_UNORDERED_ACCESS);
 
-    Clear_Root clroot = { .image = d->img_slot, .w = (u32)d->w, .h = (u32)d->h, .time = (f32)d->t };
+    Di_Root clroot = { .image = d->img_slot, .w = (u32)d->w, .h = (u32)d->h, .time = (f32)d->t };
     mel_gpu_cmd_bind_pipeline(cmd, d->clear_pl);
+    mel_gpu_cmd_bind_bindless(cmd);
     mel_gpu_cmd_push_constants(cmd, 0, sizeof clroot, &clroot);
     mel_gpu_cmd_dispatch(cmd, ((u32)d->w + 7) / 8, ((u32)d->h + 7) / 8, 1);
 
     mel_gpu_cmd_texture_barrier(cmd, d->img, range, MEL_GPU_STATE_UNORDERED_ACCESS, MEL_GPU_STATE_UNORDERED_ACCESS);
 
-    Shade_Root sroot = { .agents = d->agents_slot, .survivors = d->surv_slot[d->ring], .image = d->img_slot, .total = AGENT_COUNT, .w = (u32)d->w, .h = (u32)d->h, .time = (f32)d->t };
+    Di_Root sroot = { .agents = d->agents_slot, .survivors = d->surv_slot[d->ring], .image = d->img_slot, .total = AGENT_COUNT, .w = (u32)d->w, .h = (u32)d->h, .time = (f32)d->t, .cull_r = cr, .cull_x = cx, .cull_y = cy };
     mel_gpu_cmd_bind_pipeline(cmd, d->shade_pl);
+    mel_gpu_cmd_bind_bindless(cmd);
     mel_gpu_cmd_push_constants(cmd, 0, sizeof sroot, &sroot);
     mel_gpu_cmd_dispatch_indirect(cmd, args, 0);
 

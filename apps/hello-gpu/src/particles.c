@@ -5,9 +5,11 @@
 
 #include "particles.h"
 #include "hud.h"
-#include "particle_sim_spv.h"
-#include "particle_draw_spv.h"
-#include "instances_spv.h"
+
+static const char PARTICLES_SLANG[] = {
+#embed "shaders/slang/particles.slang"
+    , 0
+};
 
 #define PARTICLE_COUNT 40000
 #define LOCAL          64
@@ -20,15 +22,9 @@ typedef struct
 
 typedef struct
 {
-    u32 particles, total;
-    f32 dt, time, attract_x, attract_y;
-} Sim_Root;
-
-typedef struct
-{
-    u32 particles;
-    f32 aspect, pad0, pad1;
-} Draw_Root;
+    u32 particles_rw, particles_ro, total;
+    f32 dt, time, attract_x, attract_y, aspect;
+} Particles_Root;
 
 typedef struct
 {
@@ -59,21 +55,12 @@ static void* particles_init(Mel_Gpu_Device* dev, Mel_Gpu_Swapchain* sc)
         return p;
     }
 
-    Mel_Gpu_Shader_Create_Result cs = mel_gpu_shader_create_compute_from_bytecode(dev, .spirv = PARTICLE_SIM_COMP_SPV, .spirv_size = sizeof PARTICLE_SIM_COMP_SPV, .entry = "main", .name = "particle-sim");
-    if (mel_gpu_failed(cs.status))
+    Mel_Gpu_Pipeline_From_Slang_Result sim = mel_gpu_pipeline_compute_create_from_slang(dev, .source = PARTICLES_SLANG, .compute_entry = "cs_sim", .push_constant_size = sizeof(Particles_Root), .bindless = true, .name = "particle-sim");
+    if (mel_gpu_failed(sim.status))
         return p;
-    p->sim_sh = cs.value;
-    p->sim_pl = mel_gpu_pipeline_compute_create(dev, .shader = p->sim_sh, .push_constant_size = sizeof(Sim_Root), .name = "particle-sim").value;
+    p->sim_sh = sim.shader;
+    p->sim_pl = sim.value;
 
-    p->draw_sh = mel_gpu_shader_create_from_bytecode(dev,
-                                                     .spirv_vertex = PARTICLE_DRAW_VERT_SPV,
-                                                     .spirv_vertex_size = sizeof PARTICLE_DRAW_VERT_SPV,
-                                                     .spirv_fragment = INSTANCES_FRAG_SPV,
-                                                     .spirv_fragment_size = sizeof INSTANCES_FRAG_SPV,
-                                                     .vertex_entry = "main",
-                                                     .fragment_entry = "main",
-                                                     .name = "particle-draw")
-                     .value;
     Mel_Gpu_Color_Target target = {
         .format = mel_gpu_swapchain_format(sc),
         .blend = { .enable = true,
@@ -85,15 +72,20 @@ static void* particles_init(Mel_Gpu_Device* dev, Mel_Gpu_Swapchain* sc)
                    .alpha_op = MEL_GPU_BLEND_OP_ADD,
                    .write_mask = MEL_GPU_COLOR_WRITE_ALL },
     };
-    p->draw_pl = mel_gpu_pipeline_create(dev,
-                                         .shader = p->draw_sh,
-                                         .topology = MEL_GPU_TOPOLOGY_TRIANGLE_LIST,
-                                         .cull = MEL_GPU_CULL_NONE,
-                                         .color_targets = &target,
-                                         .color_target_count = 1,
-                                         .push_constant_size = sizeof(Draw_Root),
-                                         .name = "particle-draw")
-                     .value;
+    Mel_Gpu_Pipeline_From_Slang_Result draw = mel_gpu_pipeline_create_from_slang(dev,
+                                                                                 .source = PARTICLES_SLANG,
+                                                                                 .vertex_entry = "vs_draw",
+                                                                                 .fragment_entry = "fs_draw",
+                                                                                 .topology = MEL_GPU_TOPOLOGY_TRIANGLE_LIST,
+                                                                                 .cull = MEL_GPU_CULL_NONE,
+                                                                                 .color_targets = &target,
+                                                                                 .color_target_count = 1,
+                                                                                 .bindless = true,
+                                                                                 .name = "particle-draw");
+    if (mel_gpu_failed(draw.status))
+        return p;
+    p->draw_sh = draw.shader;
+    p->draw_pl = draw.value;
 
     Particle* seed = malloc(PARTICLE_COUNT * sizeof(Particle));
     for (i32 i = 0; i < PARTICLE_COUNT; ++i)
@@ -137,18 +129,20 @@ static void particles_render(void* state, Mel_Gpu_Command_List* cmd, f64 dt)
     p->first_frame = false;
     mel_gpu_cmd_buffer_barrier(cmd, p->particles, buf_src, MEL_GPU_STATE_UNORDERED_ACCESS);
 
-    f32      ax = 0.6f * (f32)sin(p->t * 0.7);
-    f32      ay = 0.6f * (f32)sin(p->t * 0.9 + 1.3);
-    Sim_Root sroot = { .particles = p->particles_slot, .total = PARTICLE_COUNT, .dt = (f32)(dt > 0.05 ? 0.05 : dt), .time = (f32)p->t, .attract_x = ax, .attract_y = ay };
+    f32             ax = 0.6f * (f32)sin(p->t * 0.7);
+    f32             ay = 0.6f * (f32)sin(p->t * 0.9 + 1.3);
+    Particles_Root sroot = { .particles_rw = p->particles_slot, .particles_ro = p->particles_slot, .total = PARTICLE_COUNT, .dt = (f32)(dt > 0.05 ? 0.05 : dt), .time = (f32)p->t, .attract_x = ax, .attract_y = ay };
     mel_gpu_cmd_bind_pipeline(cmd, p->sim_pl);
+    mel_gpu_cmd_bind_bindless(cmd);
     mel_gpu_cmd_push_constants(cmd, 0, sizeof sroot, &sroot);
     mel_gpu_cmd_dispatch(cmd, (PARTICLE_COUNT + LOCAL - 1) / LOCAL, 1, 1);
 
     mel_gpu_cmd_buffer_barrier(cmd, p->particles, MEL_GPU_STATE_UNORDERED_ACCESS, MEL_GPU_STATE_SHADER_RESOURCE);
 
-    Draw_Root droot = { .particles = p->particles_slot, .aspect = p->aspect };
+    Particles_Root droot = { .particles_rw = p->particles_slot, .particles_ro = p->particles_slot, .aspect = p->aspect };
     mel_gpu_cmd_begin_pass(cmd, mel_gpu_rgba(0.02f, 0.02f, 0.04f, 1.0f));
     mel_gpu_cmd_bind_pipeline(cmd, p->draw_pl);
+    mel_gpu_cmd_bind_bindless(cmd);
     mel_gpu_cmd_push_constants(cmd, 0, sizeof droot, &droot);
     mel_gpu_cmd_draw(cmd, 6, PARTICLE_COUNT);
     mel_gpu_cmd_end_pass(cmd);
