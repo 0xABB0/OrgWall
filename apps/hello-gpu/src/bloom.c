@@ -4,53 +4,23 @@
 
 #include "bloom.h"
 #include "hud.h"
-#include "bindless_present.h"
-#include "bloom_scene_spv.h"
-#include "bloom_bright_spv.h"
-#include "bloom_blurx_spv.h"
-#include "bloom_blury_spv.h"
-#include "bloom_composite_spv.h"
-#include "blit_spv.h"
+
+static const char BLOOM_SLANG[] = {
+#embed "shaders/slang/bloom.slang"
+    , 0
+};
 
 typedef struct
 {
-    u32   image;
-    u32   w;
-    u32   h;
-    float time;
-} Scene_Root;
-
-typedef struct
-{
-    u32   src_tex;
-    u32   src_smp;
-    u32   dst_img;
-    u32   w;
-    u32   h;
-    float threshold;
-    float pad0;
-    float pad1;
-} Bright_Root;
-
-typedef struct
-{
-    u32   src_tex;
-    u32   src_smp;
-    u32   dst_img;
-    u32   w;
-    u32   h;
-    float pad0;
-    float pad1;
-    float pad2;
-} Blur_Root;
-
-typedef struct
-{
-    u32   scene_tex;
-    u32   bloom_tex;
+    u32   tex0;
+    u32   tex1;
     u32   smp;
-    float strength;
-} Composite_Root;
+    u32   img;
+    u32   w;
+    u32   h;
+    float param0;
+    float param1;
+} Bloom_Root;
 
 typedef struct
 {
@@ -142,33 +112,38 @@ static void* bloom_init(Mel_Gpu_Device* dev, Mel_Gpu_Swapchain* sc)
         return b;
     }
 
-    b->scene_sh  = mel_gpu_shader_create_compute_from_bytecode(dev, .spirv = BLOOM_SCENE_COMP_SPV,  .spirv_size = sizeof BLOOM_SCENE_COMP_SPV,  .entry = "main", .name = "bloom-scene").value;
-    b->bright_sh = mel_gpu_shader_create_compute_from_bytecode(dev, .spirv = BLOOM_BRIGHT_COMP_SPV, .spirv_size = sizeof BLOOM_BRIGHT_COMP_SPV, .entry = "main", .name = "bloom-bright").value;
-    b->blurx_sh  = mel_gpu_shader_create_compute_from_bytecode(dev, .spirv = BLOOM_BLURX_COMP_SPV,  .spirv_size = sizeof BLOOM_BLURX_COMP_SPV,  .entry = "main", .name = "bloom-blurx").value;
-    b->blury_sh  = mel_gpu_shader_create_compute_from_bytecode(dev, .spirv = BLOOM_BLURY_COMP_SPV,  .spirv_size = sizeof BLOOM_BLURY_COMP_SPV,  .entry = "main", .name = "bloom-blury").value;
+    Mel_Gpu_Pipeline_From_Slang_Result scene = mel_gpu_pipeline_compute_create_from_slang(dev, .source = BLOOM_SLANG, .compute_entry = "cs_scene", .push_constant_size = sizeof(Bloom_Root), .bindless = true, .name = "bloom-scene");
+    if (mel_gpu_failed(scene.status)) return b;
+    b->scene_sh = scene.shader;
+    b->scene_pl = scene.value;
 
-    b->composite_sh = mel_gpu_shader_create_from_bytecode(dev,
-                                                          .spirv_vertex        = BLIT_VERT_SPV,
-                                                          .spirv_vertex_size   = sizeof BLIT_VERT_SPV,
-                                                          .spirv_fragment      = BLOOM_COMPOSITE_FRAG_SPV,
-                                                          .spirv_fragment_size = sizeof BLOOM_COMPOSITE_FRAG_SPV,
-                                                          .vertex_entry = "main",
-                                                          .fragment_entry = "main",
-                                                          .name = "bloom-composite")
-                          .value;
+    Mel_Gpu_Pipeline_From_Slang_Result bright = mel_gpu_pipeline_compute_create_from_slang(dev, .source = BLOOM_SLANG, .compute_entry = "cs_bright", .push_constant_size = sizeof(Bloom_Root), .bindless = true, .name = "bloom-bright");
+    if (mel_gpu_failed(bright.status)) return b;
+    b->bright_sh = bright.shader;
+    b->bright_pl = bright.value;
 
-    b->scene_pl  = mel_gpu_pipeline_compute_create(dev, .shader = b->scene_sh,  .push_constant_size = sizeof(Scene_Root),  .name = "bloom-scene").value;
-    b->bright_pl = mel_gpu_pipeline_compute_create(dev, .shader = b->bright_sh, .push_constant_size = sizeof(Bright_Root), .name = "bloom-bright").value;
-    b->blurx_pl  = mel_gpu_pipeline_compute_create(dev, .shader = b->blurx_sh,  .push_constant_size = sizeof(Blur_Root),   .name = "bloom-blurx").value;
-    b->blury_pl  = mel_gpu_pipeline_compute_create(dev, .shader = b->blury_sh,  .push_constant_size = sizeof(Blur_Root),   .name = "bloom-blury").value;
-    b->composite_pl = mel_gpu_pipeline_create(dev,
-                                              .shader = b->composite_sh,
-                                              .topology = MEL_GPU_TOPOLOGY_TRIANGLE_LIST,
-                                              .cull = MEL_GPU_CULL_NONE,
-                                              .color_format = mel_gpu_swapchain_format(sc),
-                                              .push_constant_size = sizeof(Composite_Root),
-                                              .name = "bloom-composite")
-                          .value;
+    Mel_Gpu_Pipeline_From_Slang_Result blurx = mel_gpu_pipeline_compute_create_from_slang(dev, .source = BLOOM_SLANG, .compute_entry = "cs_blurx", .push_constant_size = sizeof(Bloom_Root), .bindless = true, .name = "bloom-blurx");
+    if (mel_gpu_failed(blurx.status)) return b;
+    b->blurx_sh = blurx.shader;
+    b->blurx_pl = blurx.value;
+
+    Mel_Gpu_Pipeline_From_Slang_Result blury = mel_gpu_pipeline_compute_create_from_slang(dev, .source = BLOOM_SLANG, .compute_entry = "cs_blury", .push_constant_size = sizeof(Bloom_Root), .bindless = true, .name = "bloom-blury");
+    if (mel_gpu_failed(blury.status)) return b;
+    b->blury_sh = blury.shader;
+    b->blury_pl = blury.value;
+
+    Mel_Gpu_Pipeline_From_Slang_Result composite = mel_gpu_pipeline_create_from_slang(dev,
+                                                                                      .source = BLOOM_SLANG,
+                                                                                      .vertex_entry = "vs_composite",
+                                                                                      .fragment_entry = "fs_composite",
+                                                                                      .topology = MEL_GPU_TOPOLOGY_TRIANGLE_LIST,
+                                                                                      .cull = MEL_GPU_CULL_NONE,
+                                                                                      .color_format = mel_gpu_swapchain_format(sc),
+                                                                                      .bindless = true,
+                                                                                      .name = "bloom-composite");
+    if (mel_gpu_failed(composite.status)) return b;
+    b->composite_sh = composite.shader;
+    b->composite_pl = composite.value;
 
     Mel_Gpu_Sampler_Create_Result smp = mel_gpu_sampler_create(dev, .min_filter = MEL_GPU_FILTER_LINEAR, .mag_filter = MEL_GPU_FILTER_LINEAR, .wrap_u = MEL_GPU_WRAP_CLAMP_EDGE, .wrap_v = MEL_GPU_WRAP_CLAMP_EDGE, .name = "bloom-sampler");
     if (mel_gpu_failed(smp.status)) return b;
@@ -216,36 +191,41 @@ static void bloom_render(void* state, Mel_Gpu_Command_List* cmd, f64 dt)
     u32 smp_slot = mel_gpu_sampler_bindless_slot(b->dev, b->sampler);
 
     barrier_img(cmd, b->img_scene,  init_src, MEL_GPU_STATE_UNORDERED_ACCESS);
-    Scene_Root sr = { .image = b->img_scene_slot, .w = (u32)b->w, .h = (u32)b->h, .time = (f32)b->t };
+    Bloom_Root sr = { .tex0 = b->img_scene_slot, .tex1 = b->img_scene_slot, .smp = smp_slot, .img = b->img_scene_slot, .w = (u32)b->w, .h = (u32)b->h, .param0 = (f32)b->t };
     mel_gpu_cmd_bind_pipeline(cmd, b->scene_pl);
+    mel_gpu_cmd_bind_bindless(cmd);
     mel_gpu_cmd_push_constants(cmd, 0, sizeof sr, &sr);
     mel_gpu_cmd_dispatch(cmd, gx, gy, 1);
     barrier_img(cmd, b->img_scene, MEL_GPU_STATE_UNORDERED_ACCESS, MEL_GPU_STATE_SHADER_RESOURCE);
 
     barrier_img(cmd, b->img_bright, init_src, MEL_GPU_STATE_UNORDERED_ACCESS);
-    Bright_Root br = { .src_tex = b->img_scene_slot, .src_smp = smp_slot, .dst_img = b->img_bright_slot, .w = (u32)b->w, .h = (u32)b->h, .threshold = 0.55f };
+    Bloom_Root br = { .tex0 = b->img_scene_slot, .tex1 = b->img_scene_slot, .smp = smp_slot, .img = b->img_bright_slot, .w = (u32)b->w, .h = (u32)b->h, .param0 = 0.55f };
     mel_gpu_cmd_bind_pipeline(cmd, b->bright_pl);
+    mel_gpu_cmd_bind_bindless(cmd);
     mel_gpu_cmd_push_constants(cmd, 0, sizeof br, &br);
     mel_gpu_cmd_dispatch(cmd, gx, gy, 1);
     barrier_img(cmd, b->img_bright, MEL_GPU_STATE_UNORDERED_ACCESS, MEL_GPU_STATE_SHADER_RESOURCE);
 
     barrier_img(cmd, b->img_blurx, init_src, MEL_GPU_STATE_UNORDERED_ACCESS);
-    Blur_Root bxr = { .src_tex = b->img_bright_slot, .src_smp = smp_slot, .dst_img = b->img_blurx_slot, .w = (u32)b->w, .h = (u32)b->h };
+    Bloom_Root bxr = { .tex0 = b->img_bright_slot, .tex1 = b->img_bright_slot, .smp = smp_slot, .img = b->img_blurx_slot, .w = (u32)b->w, .h = (u32)b->h };
     mel_gpu_cmd_bind_pipeline(cmd, b->blurx_pl);
+    mel_gpu_cmd_bind_bindless(cmd);
     mel_gpu_cmd_push_constants(cmd, 0, sizeof bxr, &bxr);
     mel_gpu_cmd_dispatch(cmd, gx, gy, 1);
     barrier_img(cmd, b->img_blurx, MEL_GPU_STATE_UNORDERED_ACCESS, MEL_GPU_STATE_SHADER_RESOURCE);
 
     barrier_img(cmd, b->img_bloom, init_src, MEL_GPU_STATE_UNORDERED_ACCESS);
-    Blur_Root byr = { .src_tex = b->img_blurx_slot, .src_smp = smp_slot, .dst_img = b->img_bloom_slot, .w = (u32)b->w, .h = (u32)b->h };
+    Bloom_Root byr = { .tex0 = b->img_blurx_slot, .tex1 = b->img_blurx_slot, .smp = smp_slot, .img = b->img_bloom_slot, .w = (u32)b->w, .h = (u32)b->h };
     mel_gpu_cmd_bind_pipeline(cmd, b->blury_pl);
+    mel_gpu_cmd_bind_bindless(cmd);
     mel_gpu_cmd_push_constants(cmd, 0, sizeof byr, &byr);
     mel_gpu_cmd_dispatch(cmd, gx, gy, 1);
     barrier_img(cmd, b->img_bloom, MEL_GPU_STATE_UNORDERED_ACCESS, MEL_GPU_STATE_SHADER_RESOURCE);
 
-    Composite_Root cr = { .scene_tex = b->img_scene_slot, .bloom_tex = b->img_bloom_slot, .smp = smp_slot, .strength = 1.8f };
+    Bloom_Root cr = { .tex0 = b->img_scene_slot, .tex1 = b->img_bloom_slot, .smp = smp_slot, .img = b->img_scene_slot, .w = (u32)b->w, .h = (u32)b->h, .param0 = 1.8f };
     mel_gpu_cmd_begin_pass(cmd, mel_gpu_rgba(0.0f, 0.0f, 0.0f, 1.0f));
     mel_gpu_cmd_bind_pipeline(cmd, b->composite_pl);
+    mel_gpu_cmd_bind_bindless(cmd);
     mel_gpu_cmd_push_constants(cmd, 0, sizeof cr, &cr);
     mel_gpu_cmd_draw(cmd, 3, 1);
     mel_gpu_cmd_end_pass(cmd);

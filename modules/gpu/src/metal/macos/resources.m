@@ -41,7 +41,21 @@ Mel_Gpu_Buffer_Create_Result mel_gpu_buffer_create_opt(Mel_Gpu_Device* dev, Mel_
         return res;
     }
     if (opt.data && !host_visible)
-        mel_log_warn("gpu", "buffer_create: initial data ignored for device-local buffer '%s' (no staging-copy path this round)", opt.name ? opt.name : "(unnamed)");
+    {
+        id<MTLBuffer> staging = [dev->mtl newBufferWithBytes:opt.data length:opt.size options:MTLResourceStorageModeShared];
+        if (!staging)
+        {
+            res.status = MEL_GPU_BUFFER_CREATE_OOM;
+            mel_log_error("gpu", "buffer_create: failed to allocate %zu-byte staging buffer for device-local buffer '%s'", opt.size, opt.name ? opt.name : "(unnamed)");
+            return res;
+        }
+        id<MTLCommandBuffer>      cb = [dev->queue commandBuffer];
+        id<MTLBlitCommandEncoder> blit = [cb blitCommandEncoder];
+        [blit copyFromBuffer:staging sourceOffset:0 toBuffer:mb destinationOffset:0 size:opt.size];
+        [blit endEncoding];
+        [cb commit];
+        [cb waitUntilCompleted];
+    }
 
     Mel_Gpu_Buffer_Obj o = {
         .header = { .ownership = MEL_GPU_OWNERSHIP_OWNED, .capture_replay = opt.capture_replay, .name = opt.name },
