@@ -730,7 +730,9 @@ static void mel__log_shutdown(void);
 MEL_CONSTRUCTOR_PRIO(101)
 static void mel__log_init(void)
 {
+#if MEL_CRT_MSVC
     atexit(mel__log_shutdown);
+#endif
     mel__ring_init(&ring, MEL_LOG_RING_SIZE);
 
     mel_rwlock_init(&sink_lock);
@@ -748,9 +750,11 @@ static void mel__log_init(void)
     mel_log_sink_add(mel_log_sink_console_create(.color = true));
 }
 
+#if !MEL_CRT_MSVC
+MEL_DESTRUCTOR_PRIO(101)
+#endif
 static void mel__log_shutdown(void)
 {
-    { FILE* df = fopen("D:\\repo\\OrgWall\\diag_shutdown.txt", "a"); if (df) { fprintf(df, "shutdown running=%d\n", (int)atomic_load_explicit(&writer_running, memory_order_acquire)); fclose(df); } }
     if (atomic_load_explicit(&writer_running, memory_order_acquire))
     {
         atomic_store_explicit(&writer_shutdown, true, memory_order_release);
