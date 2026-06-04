@@ -16,6 +16,7 @@ extern "C"
 #define MEL_VIB_FF_WARN_RAMP_APPROX         (1u << 16)
 #define MEL_VIB_FF_WARN_AXES_REDUCED        (1u << 17)
 #define MEL_VIB_FF_WARN_FREQUENCY_CLAMPED   (1u << 18)
+#define MEL_VIB_FF_WARN_AUTOCENTER_QUANTIZED (1u << 19)
 
 enum
 {
@@ -132,6 +133,7 @@ typedef struct
     u32  direction_axes;
     bool gain;
     bool autocenter;
+    bool autocenter_continuous;
     bool envelope;
     u32  max_effects;
     f32  min_frequency_hz;

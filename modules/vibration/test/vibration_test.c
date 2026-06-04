@@ -176,6 +176,7 @@ static void mock_reset_caps_full(void)
     g_mock.caps.direction_axes = 3;
     g_mock.caps.gain = true;
     g_mock.caps.autocenter = true;
+    g_mock.caps.autocenter_continuous = true;
     g_mock.caps.envelope = true;
     g_mock.caps.max_effects = 8;
     g_mock.caps.min_frequency_hz = 1.0f;
@@ -419,6 +420,31 @@ MEL_TEST(ffb, gain_quantized_when_device_lacks_gain)
     Mel_Vib_Status st = mel_vib_ff_set_gain(d, 0.5f);
     MEL_EXPECT(mel_vib_warned(st));
     MEL_EXPECT((st & MEL_VIB_FF_WARN_GAIN_QUANTIZED) != 0u);
+
+    mel_vib_provider_unregister(prov);
+    mel_vib_shutdown();
+}
+
+MEL_TEST(ffb, autocenter_quantized_when_device_lacks_continuous)
+{
+    Mel_Vib_Provider prov;
+    Mel_Vib_Device   d = setup_mock(&prov);
+    g_mock.caps.autocenter_continuous = false;
+
+    Mel_Vib_Status st = mel_vib_ff_set_autocenter_strength(d, 0.3f);
+    MEL_REQUIRE(!mel_vib_failed(st));
+    MEL_EXPECT(mel_vib_warned(st));
+    MEL_EXPECT((st & MEL_VIB_FF_WARN_AUTOCENTER_QUANTIZED) != 0u);
+    MEL_EXPECT(g_mock.last_autocenter);
+
+    Mel_Vib_Status on = mel_vib_ff_set_autocenter_strength(d, 1.0f);
+    MEL_EXPECT((on & MEL_VIB_FF_WARN_AUTOCENTER_QUANTIZED) == 0u);
+    Mel_Vib_Status off = mel_vib_ff_set_autocenter_strength(d, 0.0f);
+    MEL_EXPECT((off & MEL_VIB_FF_WARN_AUTOCENTER_QUANTIZED) == 0u);
+
+    g_mock.caps.autocenter_continuous = true;
+    Mel_Vib_Status cont = mel_vib_ff_set_autocenter_strength(d, 0.3f);
+    MEL_EXPECT((cont & MEL_VIB_FF_WARN_AUTOCENTER_QUANTIZED) == 0u);
 
     mel_vib_provider_unregister(prov);
     mel_vib_shutdown();

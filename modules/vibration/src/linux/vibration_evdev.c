@@ -217,6 +217,7 @@ static bool evdev_ff_query(void* user, u64 stable_id, Mel_Vib_FF_Caps* out)
     out->direction_axes = 2;
     out->gain = true;
     out->autocenter = true;
+    out->autocenter_continuous = true;
     out->envelope = true;
     out->max_effects = (u32)(n_effects > 0 ? n_effects : 1);
     out->min_frequency_hz = 0.0f;

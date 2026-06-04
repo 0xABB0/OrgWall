@@ -65,4 +65,7 @@
   does not bite; flagged for Gabbo's judgment.
 - **`ff_set_autocenter_strength` on DirectInput is on/off only.** `DIPROP_AUTOCENTER` takes
   `ON`/`OFF`; the strength float is clamped and used only as a boolean. evdev's `FF_AUTOCENTER`
-  honors the full 0..1 magnitude.
+  honors the full 0..1 magnitude. The hardware limit is now named, not hidden: backends declare
+  `Mel_Vib_FF_Caps.autocenter_continuous` (true on evdev, false on DirectInput), and the core
+  raises `MEL_VIB_FF_WARN_AUTOCENTER_QUANTIZED` whenever a fractional (0<strength<1) request hits
+  a non-continuous backend.

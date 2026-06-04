@@ -464,7 +464,10 @@ Mel_Vib_Status mel_vib_ff_set_autocenter_strength(Mel_Vib_Device d, f32 strength
     bool has = prov->desc.ff_query && prov->desc.ff_query(prov->desc.user, ds->stable_id, &caps) && caps.present;
     if (!has || !caps.autocenter || !prov->desc.ff_set_autocenter)
         return MEL_VIB_FF_WARN_AUTOCENTER_ABSENT | MEL_VIB_WARNED;
-    return prov->desc.ff_set_autocenter(prov->desc.user, ds->stable_id, strength > 0.0f, strength);
+    Mel_Vib_Status st = prov->desc.ff_set_autocenter(prov->desc.user, ds->stable_id, strength > 0.0f, strength);
+    if (!mel_vib_failed(st) && !caps.autocenter_continuous && strength > 0.0f && strength < 1.0f)
+        st |= MEL_VIB_FF_WARN_AUTOCENTER_QUANTIZED | MEL_VIB_WARNED;
+    return st;
 }
 
 void mel_vib_ff_stop_all(Mel_Vib_Device d)
