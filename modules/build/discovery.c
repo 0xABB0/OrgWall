@@ -29,29 +29,33 @@ bool mel_discover_dir(Mel_Graph* g, const char* dir)
     free(slug);
     mel_mkdirs("build/_loadc");
 
-    Mel_StrVec cmd = { 0 };
-    mel_da_push(&cmd, "clang");
-    mel_da_push(&cmd, "-std=c23");
-    mel_da_push(&cmd, "-shared");
-#ifndef _WIN32
-    mel_da_push(&cmd, "-fPIC");
-#endif
-    mel_da_push(&cmd, "-Imodules/build");
-#ifdef _WIN32
-    mel_da_push(&cmd, "-Wl,/export:build");
-#endif
-    mel_da_push(&cmd, "-o");
-    mel_da_push(&cmd, so);
-    mel_da_push(&cmd, build_c);
-    mel_da_push(&cmd, "modules/build/api.c");
-    mel_da_push(&cmd, NULL);
-    int rc = mel_run_quiet((char* const*)cmd.items);
-    free(cmd.items);
-    if (rc != 0)
+    const char* inputs[] = { build_c, "modules/build/api.c", "modules/build/internal.h", "modules/build/build.h" };
+    if (nob_needs_rebuild(so, inputs, sizeof(inputs) / sizeof(inputs[0])) != 0)
     {
-        free(build_c);
-        free(so);
-        return false;
+        Mel_StrVec cmd = { 0 };
+        mel_da_push(&cmd, "clang");
+        mel_da_push(&cmd, "-std=c23");
+        mel_da_push(&cmd, "-shared");
+#ifndef _WIN32
+        mel_da_push(&cmd, "-fPIC");
+#endif
+        mel_da_push(&cmd, "-Imodules/build");
+#ifdef _WIN32
+        mel_da_push(&cmd, "-Wl,/export:build");
+#endif
+        mel_da_push(&cmd, "-o");
+        mel_da_push(&cmd, so);
+        mel_da_push(&cmd, build_c);
+        mel_da_push(&cmd, "modules/build/api.c");
+        mel_da_push(&cmd, NULL);
+        int rc = mel_run_quiet((char* const*)cmd.items);
+        free(cmd.items);
+        if (rc != 0)
+        {
+            free(build_c);
+            free(so);
+            return false;
+        }
     }
 
     void* dll = dlopen(so, RTLD_NOW | RTLD_LOCAL);
