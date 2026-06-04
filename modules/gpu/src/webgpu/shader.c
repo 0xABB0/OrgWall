@@ -39,6 +39,13 @@ Mel_Gpu_Shader_Create_Result mel_gpu_shader_create_from_bytecode_opt(Mel_Gpu_Dev
         return res;
     }
 
+    if (!dev || !dev->caps.shader.bytecode_passthrough.wgsl)
+    {
+        mel_log_error("gpu", "shader_create_from_bytecode: device reports caps.shader.bytecode_passthrough.wgsl=false; refusing WGSL bytecode for '%s'", opt.name ? opt.name : "(unnamed)");
+        res.status = MEL_GPU_SHADER_CREATE_TARGET_UNSUPPORTED;
+        return res;
+    }
+
     bool have_vertex = opt.vertex_blob && opt.vertex_blob_size;
     bool have_fragment = opt.fragment_blob && opt.fragment_blob_size;
     if (!have_vertex || !have_fragment)
@@ -84,6 +91,13 @@ Mel_Gpu_Shader_Create_Result mel_gpu_shader_create_compute_from_bytecode_opt(Mel
                       "shader_create_compute_from_bytecode: target %d unsupported on the WebGPU backend — the vendored Dawn "
                       "Release prebuilt has no SPIR-V reader; author to WGSL. Shader '%s' refused.",
                       (int)opt.target, opt.name ? opt.name : "(unnamed)");
+        return res;
+    }
+
+    if (!dev || !dev->caps.shader.bytecode_passthrough.wgsl)
+    {
+        mel_log_error("gpu", "shader_create_compute_from_bytecode: device reports caps.shader.bytecode_passthrough.wgsl=false; refusing WGSL bytecode for '%s'", opt.name ? opt.name : "(unnamed)");
+        res.status = MEL_GPU_SHADER_CREATE_TARGET_UNSUPPORTED;
         return res;
     }
 

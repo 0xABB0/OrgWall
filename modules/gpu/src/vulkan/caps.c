@@ -63,7 +63,8 @@ void mel_gpu__caps_probe(VkPhysicalDevice phys, Mel_Gpu_Caps* out)
         memcpy(&out->adapter.luid, props11.deviceLUID, sizeof(u64) < VK_LUID_SIZE ? sizeof(u64) : VK_LUID_SIZE);
     snprintf(out->adapter.name, sizeof(out->adapter.name), "%s", p->deviceName);
 
-    VkPhysicalDeviceDescriptorIndexingFeatures di = { .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES };
+    VkPhysicalDeviceShaderDrawParametersFeatures sdp = { .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_DRAW_PARAMETERS_FEATURES };
+    VkPhysicalDeviceDescriptorIndexingFeatures di = { .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES, .pNext = &sdp };
     VkPhysicalDeviceVulkan12Features feat12 = { .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES, .pNext = &di };
     VkPhysicalDeviceFeatures2        feat2 = { .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, .pNext = &feat12 };
     vkGetPhysicalDeviceFeatures2(phys, &feat2);
@@ -74,6 +75,7 @@ void mel_gpu__caps_probe(VkPhysicalDevice phys, Mel_Gpu_Caps* out)
     out->shader.fp16 = feat12.shaderFloat16;
     out->shader.int8 = feat12.shaderInt8;
     out->shader.wave_ops = (subgroup.supportedOperations & VK_SUBGROUP_FEATURE_BASIC_BIT) != 0;
+    out->shader.draw_parameters = sdp.shaderDrawParameters != 0;
     out->shader.subgroup_size_min = subgroup.subgroupSize;
     out->shader.subgroup_size_max = subgroup.subgroupSize;
     out->shader.bytecode_passthrough.spirv = true;
