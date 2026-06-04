@@ -96,8 +96,21 @@ void mel_clip__plat_query(Mel_Clip_Job* job)
     mel_clip_job_resolve(job, MEL_CLIP_WARNED);
 }
 
+void mel_clip__plat_has(Mel_Clip_Job* job)
+{
+    mel_log_warn("clipboard", "web backend: synchronous presence check unsupported; use read");
+    mel_clip_job_set_present(job, false);
+    mel_clip_job_resolve(job, MEL_CLIP_WARNED | MEL_CLIP_WARN_FORMAT_UNAVAILABLE);
+}
+
 bool mel_clip__plat_available(void) { return mel_clip_js_available() != 0; }
 
-u64 mel_clip__plat_sequence(void) { return 0; }
+bool mel_clip__plat_channel_supported(Mel_Clip_Channel ch) { return mel_clip_channel_resolve(ch) == (Mel_Clip_Channel)MEL_CLIP_CHANNEL_CLIPBOARD; }
+
+u64 mel_clip__plat_sequence(Mel_Clip_Channel ch)
+{
+    (void)ch;
+    return 0;
+}
 
 void* mel_clip__plat_native(void) { return NULL; }

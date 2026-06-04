@@ -39,9 +39,11 @@ static Mel_Clip_Format format_for_uti(NSString* uti)
 
 bool mel_clip__plat_available(void) { return true; }
 
+bool mel_clip__plat_channel_supported(Mel_Clip_Channel ch) { return mel_clip_channel_resolve(ch) == (Mel_Clip_Channel)MEL_CLIP_CHANNEL_CLIPBOARD; }
+
 #if TARGET_OS_OSX
 
-u64 mel_clip__plat_sequence(void) { return (u64)[NSPasteboard generalPasteboard].changeCount; }
+u64 mel_clip__plat_sequence(Mel_Clip_Channel ch) { return mel_clip__plat_channel_supported(ch) ? (u64)[NSPasteboard generalPasteboard].changeCount : 0; }
 
 void mel_clip__plat_read(Mel_Clip_Job* job)
 {
@@ -139,11 +141,26 @@ void mel_clip__plat_query(Mel_Clip_Job* job)
     }
 }
 
+void mel_clip__plat_has(Mel_Clip_Job* job)
+{
+    @autoreleasepool
+    {
+        if (!mel_clip__plat_channel_supported(mel_clip_job_channel(job)))
+        {
+            mel_clip_job_set_present(job, false);
+            mel_clip_job_resolve(job, MEL_CLIP_OK);
+            return;
+        }
+        mel_clip_job_set_present(job, [NSPasteboard generalPasteboard].types.count > 0);
+        mel_clip_job_resolve(job, MEL_CLIP_OK);
+    }
+}
+
 void* mel_clip__plat_native(void) { return (__bridge void*)[NSPasteboard generalPasteboard]; }
 
 #else
 
-u64 mel_clip__plat_sequence(void) { return (u64)[UIPasteboard generalPasteboard].changeCount; }
+u64 mel_clip__plat_sequence(Mel_Clip_Channel ch) { return mel_clip__plat_channel_supported(ch) ? (u64)[UIPasteboard generalPasteboard].changeCount : 0; }
 
 void mel_clip__plat_read(Mel_Clip_Job* job)
 {
@@ -230,6 +247,21 @@ void mel_clip__plat_query(Mel_Clip_Job* job)
             if (f != MEL_CLIP_FMT_NONE)
                 mel_clip_job_emit_format(job, f);
         }
+        mel_clip_job_resolve(job, MEL_CLIP_OK);
+    }
+}
+
+void mel_clip__plat_has(Mel_Clip_Job* job)
+{
+    @autoreleasepool
+    {
+        if (!mel_clip__plat_channel_supported(mel_clip_job_channel(job)))
+        {
+            mel_clip_job_set_present(job, false);
+            mel_clip_job_resolve(job, MEL_CLIP_OK);
+            return;
+        }
+        mel_clip_job_set_present(job, [UIPasteboard generalPasteboard].pasteboardTypes.count > 0);
         mel_clip_job_resolve(job, MEL_CLIP_OK);
     }
 }

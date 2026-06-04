@@ -9,7 +9,8 @@ void build(Mel_Build* b)
     mel_sources(lib, WHEN(.platforms = MEL_ON(WIN32)), "src/win32/*.c");
     mel_sources(lib, WHEN(.platforms = MEL_ON(ANDROID)), "src/android/*.c");
     mel_sources(lib, WHEN(.platforms = MEL_ON(WASM)), "src/web/*.c");
-    mel_sources(lib, WHEN(.platforms = MEL_ON(LINUX)), "src/clipboard_host_none.c");
+    mel_sources(lib, WHEN(.platforms = MEL_ON(LINUX)), "src/linux/*.c");
+    mel_link(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(LINUX)), "-ldl");
     mel_link(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(MACOS)), "-framework", "AppKit", "-framework", "Foundation");
     mel_link(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(IOS)), "-framework", "UIKit", "-framework", "Foundation");
     mel_depends(lib, "core");

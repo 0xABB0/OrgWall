@@ -287,6 +287,50 @@ void mel_clip__plat_query(Mel_Clip_Job* job)
 
 bool mel_clip__plat_available(void) { return true; }
 
-u64 mel_clip__plat_sequence(void) { return 0; }
+bool mel_clip__plat_channel_supported(Mel_Clip_Channel ch) { return mel_clip_channel_resolve(ch) == (Mel_Clip_Channel)MEL_CLIP_CHANNEL_CLIPBOARD; }
+
+void mel_clip__plat_has(Mel_Clip_Job* job)
+{
+    if (!mel_clip__plat_channel_supported(mel_clip_job_channel(job)))
+    {
+        mel_clip_job_set_present(job, false);
+        mel_clip_job_resolve(job, MEL_CLIP_OK);
+        return;
+    }
+    JNIEnv* env = mel_platform_android_env();
+    if (!env || (*env)->PushLocalFrame(env, 16) != 0)
+    {
+        mel_clip_job_resolve(job, MEL_CLIP_ERROR | MEL_CLIP_RESULT_NO_CLIPBOARD);
+        return;
+    }
+    bool    present = false;
+    jobject ctx = android_context(env);
+    jobject cm = ctx ? android_clipboard(env, ctx) : NULL;
+    if (cm)
+    {
+        jclass    cm_cls = (*env)->GetObjectClass(env, cm);
+        jmethodID has = (*env)->GetMethodID(env, cm_cls, "hasPrimaryClip", "()Z");
+        if (has)
+        {
+            present = (*env)->CallBooleanMethod(env, cm, has) != 0;
+            if ((*env)->ExceptionCheck(env))
+            {
+                (*env)->ExceptionClear(env);
+                present = false;
+            }
+        }
+        else
+            (*env)->ExceptionClear(env);
+    }
+    (*env)->PopLocalFrame(env, NULL);
+    mel_clip_job_set_present(job, present);
+    mel_clip_job_resolve(job, MEL_CLIP_OK);
+}
+
+u64 mel_clip__plat_sequence(Mel_Clip_Channel ch)
+{
+    (void)ch;
+    return 0;
+}
 
 void* mel_clip__plat_native(void) { return NULL; }

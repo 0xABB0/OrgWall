@@ -24,6 +24,11 @@ The future's value is read by op-specific accessors — `mel_clip_future_text`,
 **valid until `mel_clip_future_free(f)`**, which releases the result and the job. `watch` returns a
 `Mel_Event` channel of `u64` change sequences; subscribe push (delivered on your executor) or pull.
 
+Two channels exist: `MEL_CLIP_CHANNEL_CLIPBOARD` (copy/paste) and `MEL_CLIP_CHANNEL_PRIMARY` (the
+X11/Wayland middle-click selection); pass `.channel=` to any op (default CLIPBOARD). `mel_clip_has`
+returns a `bool` future reporting presence without transferring. `mel_clip_channel_supported` and
+`mel_clip_sequence_ch` are channel-scoped.
+
 A format is a `u32` id over an open space with well-known constants (`MEL_CLIP_FMT_TEXT`, `HTML`,
 `PNG`, `URI_LIST`, `RTF`); consumers register custom MIME types via `mel_clip_format_register`. Each
 backend translates the canonical MIME to its native identifier (UTType, a registered Win32 format,
@@ -35,7 +40,7 @@ Backends (one compiles per platform):
 - Win32 — user32 clipboard (text transcoded UTF-8⇄UTF-16, png/custom raw; HTML pending the CF_HTML wrapper).
 - Android — `ClipboardManager` via JNI (text, html; no sequence counter).
 - Web — `navigator.clipboard` async (text; rich `ClipboardItem` and enumeration pending).
-- Linux — stub (X11/Wayland selection serving needs the `window` event-loop integration).
+- Linux — X11 selections (libxcb, `dlopen`'d) over the reactor: owns CLIPBOARD + PRIMARY, serves SelectionRequest; Wayland connection fallback (cross-client serve is a todo).
 
 Spec: `spec.md`. Todo: `todo.md`. Dependencies: `core`, `allocator`, `collection`, `string`,
 `executor`, `future`, `event`, `reactor`, `log`, `platform`.
