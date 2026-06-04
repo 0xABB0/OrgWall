@@ -2,7 +2,7 @@
 
 #include <core/types.h>
 #include <core/platform.h>
-#include <collection.slotmap/slotmap.h>
+#include <collection/slotmap.h>
 #include <allocator/allocator.h>
 #include <string/str8.h>
 #include <reactor/reactor.h>

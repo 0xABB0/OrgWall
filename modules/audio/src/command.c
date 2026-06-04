@@ -1,8 +1,8 @@
 #include "audio_internal.h"
 
 #include <core/types.h>
-#include <collection.array/array.h>
-#include <collection.slotmap/slotmap.fwd.h>
+#include <collection/array.h>
+#include <collection/slotmap.fwd.h>
 #include <log/log.h>
 
 void mel_audio__command_push(Mel_Audio* eng, const Mel_Audio__Command* cmd)

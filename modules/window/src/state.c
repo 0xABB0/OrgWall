@@ -1,7 +1,7 @@
 #include "window_internal.h"
 
 #include <executor/executor.h>
-#include <collection.list/list.h>
+#include <collection/list.h>
 #include <debug/assert.h>
 
 typedef struct

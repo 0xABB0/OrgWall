@@ -1,6 +1,6 @@
 #include <test/test.h>
 
-#include <collection.slotmap/slotmap.h>
+#include <collection/slotmap.h>
 #include <allocator/heap.h>
 
 // Two-phase removal for future-gated reclamation (gpu-rhi.md §3.3). remove_deferred must roll the

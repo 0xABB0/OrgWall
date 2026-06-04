@@ -2,7 +2,7 @@
 
 #include <core/types.h>
 
-#include <collection.slotmap/slotmap.fwd.h>
+#include <collection/slotmap.fwd.h>
 
 typedef Mel_SlotMap_Handle Mel_Drawable;
 typedef Mel_SlotMap_Handle Mel_Pixmap;

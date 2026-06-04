@@ -4,7 +4,7 @@
 
 #include <core/types.h>
 #include <allocator/allocator.h>
-#include <collection.slotmap/slotmap.fwd.h>
+#include <collection/slotmap.fwd.h>
 #include <log/log.h>
 
 void mel_audio__voices_init(Mel_Audio__Voice_Table* t, const Mel_Alloc* a, u32 initial_capacity)

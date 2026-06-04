@@ -1,7 +1,7 @@
 #pragma once
 
 #include <core/types.h>
-#include <collection.slotmap/slotmap.h>
+#include <collection/slotmap.h>
 #include <allocator/allocator.h>
 #include <reactor/reactor.h>
 

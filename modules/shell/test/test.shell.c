@@ -7,7 +7,7 @@
 #include <allocator/allocator.h>
 #include <allocator/heap.h>
 #include <string/str8.h>
-#include <collection.list/list.h>
+#include <collection/list.h>
 #include <string.h>
 
 static bool  fake_avail = true;

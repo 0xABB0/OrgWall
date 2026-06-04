@@ -3,7 +3,7 @@
 #include <core/types.h>
 #include <string/str8.fwd.h>
 #include <allocator/allocator.fwd.h>
-#include <collection.slotmap/slotmap.fwd.h>
+#include <collection/slotmap.fwd.h>
 #include <guid/guid.h>
 
 #ifdef __cplusplus

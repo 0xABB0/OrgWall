@@ -1,7 +1,7 @@
 #include <executor/executor.h>
 
 #include <allocator/allocator.h>
-#include <collection.list/list.h>
+#include <collection/list.h>
 #include <core/compiler.h>
 
 #include <assert.h>

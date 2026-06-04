@@ -9,7 +9,7 @@
 #include <io/stream.h>
 #include <test/test.h>
 
-#include <collection.list/list.h>
+#include <collection/list.h>
 
 #include <string.h>
 #include <unistd.h>

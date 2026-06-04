@@ -3,7 +3,7 @@
 
 #include <allocator/heap.h>
 #include <allocator/allocator.h>
-#include <collection.list/list.h>
+#include <collection/list.h>
 
 #include <stdatomic.h>
 #include <stdio.h>

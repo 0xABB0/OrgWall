@@ -6,8 +6,8 @@
 #include <allocator/heap.h>
 #include <executor/executor.h>
 #include <future/future.h>
-#include <collection.mpsc/mpsc.h>
-#include <collection.list/list.h>
+#include <collection/mpsc.h>
+#include <collection/list.h>
 
 #include <stdatomic.h>
 #include <string.h>

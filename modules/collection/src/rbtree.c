@@ -1,4 +1,4 @@
-#include <collection.tree.rbtree/rbtree.h>
+#include <collection/rbtree.h>
 #include <allocator/allocator.h>
 
 static Mel_RBNode* mel__rbtree_nil(Mel_RBTree* tree) { return &tree->nil_node; }

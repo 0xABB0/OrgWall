@@ -9,7 +9,7 @@
 #include <executor/executor.h>
 #include <reactor/reactor.h>
 #include <port/port.h>
-#include <collection.list/list.h>
+#include <collection/list.h>
 #include <log/log.h>
 
 #include <assert.h>

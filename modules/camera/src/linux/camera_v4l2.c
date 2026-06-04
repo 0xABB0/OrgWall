@@ -5,7 +5,7 @@
 #include <image/geometry.h>
 
 #include <allocator/allocator.h>
-#include <collection.array/array.h>
+#include <collection/array.h>
 #include <string/str8.h>
 #include <thread/thread.h>
 #include <debug/assert.h>

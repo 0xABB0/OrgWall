@@ -2,7 +2,7 @@
 
 #include <allocator/heap.h>
 
-#include <collection.array/array.h>
+#include <collection/array.h>
 
 #include <image/image.h>
 

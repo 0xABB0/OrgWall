@@ -1,7 +1,7 @@
 #pragma once
 
 #include <locale/locale.h>
-#include <collection.slotmap/slotmap.fwd.h>
+#include <collection/slotmap.fwd.h>
 
 #ifdef __cplusplus
 extern "C"

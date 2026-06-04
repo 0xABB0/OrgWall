@@ -1,8 +1,8 @@
 #include "audio_internal.h"
 
 #include <core/types.h>
-#include <collection.array/array.h>
-#include <collection.slotmap/slotmap.fwd.h>
+#include <collection/array.h>
+#include <collection/slotmap.fwd.h>
 #include <math/scalar.h>
 
 #include <string.h>

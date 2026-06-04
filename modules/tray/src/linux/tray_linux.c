@@ -1,7 +1,7 @@
 #include <tray/provider.h>
 #include <tray/linux/linux.h>
 #include <allocator/allocator.h>
-#include <collection.array/array.h>
+#include <collection/array.h>
 #include <log/log.h>
 
 #include "../tray_internal.h"

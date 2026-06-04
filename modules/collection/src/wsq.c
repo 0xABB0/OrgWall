@@ -1,4 +1,4 @@
-#include <collection.workstealingqueue/wsq.h>
+#include <collection/wsq.h>
 #include <allocator/allocator.h>
 
 static Mel_Wsq_Array* mel__wsq_array_create(const Mel_Alloc* alloc, i64 capacity)

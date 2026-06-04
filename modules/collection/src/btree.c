@@ -1,4 +1,4 @@
-#include <collection.tree.btree/btree.h>
+#include <collection/btree.h>
 #include <allocator/allocator.h>
 
 void mel_btree_init(Mel_BTree* bt, u32 degree, Mel_BTree_Cmp cmp, const Mel_Alloc* alloc)

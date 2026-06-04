@@ -1,4 +1,4 @@
-#include <collection.set.bitset/bitset.h>
+#include <collection/bitset.h>
 #include <allocator/allocator.h>
 
 #include <string.h>

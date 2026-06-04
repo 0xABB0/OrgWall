@@ -1,7 +1,7 @@
 #include <future/future.h>
 #include <executor/executor.h>
 #include <allocator/allocator.h>
-#include <collection.list/list.h>
+#include <collection/list.h>
 
 #include <pthread.h>
 #include <stdatomic.h>

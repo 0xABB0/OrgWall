@@ -10,9 +10,9 @@
 #include <reactor/reactor.h>
 #include <thread/thread.h>
 #include <thread/sem.h>
-#include <collection.mpsc/mpsc.h>
-#include <collection.array/array.h>
-#include <collection.list/list.h>
+#include <collection/mpsc.h>
+#include <collection/array.h>
+#include <collection/list.h>
 #include <string/str8.h>
 #include <fs/dir.h>
 #include <log/log.h>

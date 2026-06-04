@@ -3,8 +3,8 @@
 #include <locale/provider.h>
 
 #include <allocator/allocator.h>
-#include <collection.array/array.h>
-#include <collection.slotmap/slotmap.fwd.h>
+#include <collection/array.h>
+#include <collection/slotmap.fwd.h>
 #include <event/event.h>
 #include <log/log.h>
 #include <debug/assert.h>

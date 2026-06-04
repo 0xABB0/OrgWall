@@ -4,8 +4,8 @@
 
 #include <allocator/allocator.h>
 #include <allocator/heap.h>
-#include <collection.list/list.h>
-#include <collection.mpsc/mpsc.h>
+#include <collection/list.h>
+#include <collection/mpsc.h>
 #include <thread/thread.h>
 
 #include <string.h>

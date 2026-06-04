@@ -4,7 +4,7 @@
 #include <core/compiler.h>
 #include <string/str8.h>
 #include <allocator/allocator.fwd.h>
-#include <collection.array/array.h>
+#include <collection/array.h>
 
 #ifdef __cplusplus
 extern "C"

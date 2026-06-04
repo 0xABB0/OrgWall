@@ -7,7 +7,7 @@
 #include <reactor/reactor.h>
 #include <allocator/allocator.h>
 #include <allocator/heap.h>
-#include <collection.list/list.h>
+#include <collection/list.h>
 
 #include <string.h>
 

@@ -1,7 +1,7 @@
 #pragma once
 
 #include <core/types.h>
-#include <collection.slotmap/slotmap.fwd.h>
+#include <collection/slotmap.fwd.h>
 #include <audio/engine.h>
 #include <audio/source.h>
 

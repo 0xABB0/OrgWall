@@ -10,8 +10,8 @@
 
 #include <allocator/allocator.h>
 #include <allocator/heap.h>
-#include <collection.slotmap/slotmap.h>
-#include <collection.array/array.h>
+#include <collection/slotmap.h>
+#include <collection/array.h>
 #include <event/event.h>
 #include <log/log.h>
 

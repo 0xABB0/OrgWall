@@ -2,8 +2,8 @@
 
 #include <core/types.h>
 #include <allocator/allocator.h>
-#include <collection.array/array.h>
-#include <collection.slotmap/slotmap.fwd.h>
+#include <collection/array.h>
+#include <collection/slotmap.fwd.h>
 #include <thread/spinlock.h>
 #include <thread/thread.h>
 #include <thread/sem.h>

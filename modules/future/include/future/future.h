@@ -2,7 +2,7 @@
 
 #include <core/types.h>
 #include <allocator/allocator.fwd.h>
-#include <collection.array/array.h>
+#include <collection/array.h>
 #include <executor/executor.h>
 
 #include <stdatomic.h>

@@ -4,7 +4,7 @@
 
 #include <allocator/allocator.h>
 #include <allocator/heap.h>
-#include <collection.list/list.h>
+#include <collection/list.h>
 #include <executor/executor.h>
 #include <thread/thread.h>
 #include <thread/mutex.h>

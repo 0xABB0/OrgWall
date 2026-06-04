@@ -2,7 +2,7 @@
 
 #include "paint.h"
 
-#include <collection.array/array.h>
+#include <collection/array.h>
 #include <string.h>
 
 #define MEL__C128_CODE_C  99

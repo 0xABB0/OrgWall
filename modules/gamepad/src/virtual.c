@@ -2,7 +2,7 @@
 
 #include <allocator/allocator.h>
 #include <allocator/heap.h>
-#include <collection.array/array.h>
+#include <collection/array.h>
 #include <log/log.h>
 #include <string/str8.h>
 

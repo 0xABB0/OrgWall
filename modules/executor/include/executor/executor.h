@@ -2,7 +2,7 @@
 
 #include <core/types.h>
 #include <allocator/allocator.fwd.h>
-#include <collection.mpsc/mpsc.h>
+#include <collection/mpsc.h>
 #include <stdatomic.h>
 
 #ifdef __cplusplus

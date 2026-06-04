@@ -3,9 +3,9 @@
 
 #include <allocator/allocator.h>
 #include <allocator/heap.h>
-#include <collection.array/array.h>
-#include <collection.list/list.h>
-#include <collection.slotmap/slotmap.h>
+#include <collection/array.h>
+#include <collection/list.h>
+#include <collection/slotmap.h>
 #include <future/future.h>
 #include <executor/executor.h>
 #include <reactor/reactor.h>

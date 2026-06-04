@@ -5,7 +5,7 @@
 #include "str8.fwd.h"
 #include <allocator/allocator.fwd.h>
 #include <allocator/arena.fwd.h>
-#include <collection.array/array.h>
+#include <collection/array.h>
 #include <allocator/heap.h>
 
 #include <string.h>

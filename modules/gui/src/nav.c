@@ -1,6 +1,6 @@
 #include "gui_internal.h"
 
-#include <collection.array/array.h>
+#include <collection/array.h>
 
 typedef struct
 {

@@ -9,7 +9,7 @@
 #include "../platform_internal.h"
 
 #include <allocator/allocator.h>
-#include <collection.array/array.h>
+#include <collection/array.h>
 #include <executor/executor.h>
 
 #include <stdatomic.h>

@@ -6,7 +6,7 @@
 #include <allocator/allocator.h>
 #include <allocator/heap.h>
 #include <executor/executor.h>
-#include <collection.slotmap/slotmap.h>
+#include <collection/slotmap.h>
 
 #include <string.h>
 

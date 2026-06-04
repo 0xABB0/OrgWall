@@ -3,7 +3,7 @@
 #include <vibration/vibration.h>
 #include <vibration/provider.h>
 #include <allocator/allocator.fwd.h>
-#include <collection.slotmap/slotmap.h>
+#include <collection/slotmap.h>
 
 #ifdef __cplusplus
 extern "C"

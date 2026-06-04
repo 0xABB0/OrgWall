@@ -5,8 +5,8 @@
 #include <fs/paths.h>
 
 #include <allocator/allocator.fwd.h>
-#include <collection.slotmap/slotmap.h>
-#include <collection.mpsc/mpsc.h>
+#include <collection/slotmap.h>
+#include <collection/mpsc.h>
 #include <future/future.h>
 #include <thread/thread.h>
 #include <thread/sem.h>

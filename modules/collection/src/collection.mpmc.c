@@ -1,4 +1,4 @@
-#include <collection.mpmc/mpmc.h>
+#include <collection/mpmc.h>
 #include <allocator/allocator.h>
 
 void mel_mpmc_init(Mel_Mpmc* q, u64 capacity, const Mel_Alloc* alloc)

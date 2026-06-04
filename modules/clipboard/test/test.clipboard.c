@@ -7,7 +7,7 @@
 #include <executor/executor.h>
 #include <allocator/allocator.h>
 #include <allocator/heap.h>
-#include <collection.list/list.h>
+#include <collection/list.h>
 #include <string/str8.h>
 #include <string.h>
 

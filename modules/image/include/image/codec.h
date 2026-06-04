@@ -4,7 +4,7 @@
 
 #include <allocator/allocator.fwd.h>
 
-#include <collection.array/array.fwd.h>
+#include <collection/array.fwd.h>
 
 #include <image/image.h>
 

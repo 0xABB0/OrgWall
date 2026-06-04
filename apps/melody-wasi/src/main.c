@@ -3,7 +3,7 @@
 #include <core/types.h>
 #include <allocator/allocator.h>
 #include <allocator/heap.h>
-#include <collection.slotmap/slotmap.h>
+#include <collection/slotmap.h>
 #include <string/str8.h>
 
 // Drives a few melody core facilities (heap allocator, slotmap, str8) so the

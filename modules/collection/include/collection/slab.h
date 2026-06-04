@@ -1,7 +1,7 @@
 #pragma once
 #include <core/types.h>
 #include "slab.cfg.h"
-#include <collection.pool/pool.h>
+#include <collection/pool.h>
 
 typedef struct Mel_Slab_Class
 {

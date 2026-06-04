@@ -1,5 +1,5 @@
-#include <collection.set/set.h>
-#include <collection.map.hashmap/hashmap.h>
+#include <collection/set.h>
+#include <collection/hashmap.h>
 
 void mel_set_init(Mel_Set* s, Mel_HashMap_Hash hash_fn, Mel_HashMap_Eq eq_fn, const Mel_Alloc* alloc) { mel_hashmap_init(&s->map, hash_fn, eq_fn, alloc); }
 

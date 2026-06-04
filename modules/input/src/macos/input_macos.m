@@ -9,7 +9,7 @@
 
 #include <allocator/allocator.h>
 #include <allocator/heap.h>
-#include <collection.slotmap/slotmap.h>
+#include <collection/slotmap.h>
 #include <log/log.h>
 
 #define MEL_MACOS_KEYBOARD_ID 0x6D61636B6264ULL

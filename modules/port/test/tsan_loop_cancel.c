@@ -6,7 +6,7 @@
 
 #include <thread/thread.h>
 #include <time/nano.h>
-#include <collection.list/list.h>
+#include <collection/list.h>
 
 #include <stdatomic.h>
 #include <stdio.h>

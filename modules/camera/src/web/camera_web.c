@@ -11,7 +11,7 @@
 #endif
 
 #include <allocator/allocator.h>
-#include <collection.array/array.h>
+#include <collection/array.h>
 #include <debug/assert.h>
 #include <log/log.h>
 

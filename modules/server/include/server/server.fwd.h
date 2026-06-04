@@ -1,7 +1,7 @@
 #pragma once
 
 #include <core/types.h>
-#include <collection.slotmap/slotmap.fwd.h>
+#include <collection/slotmap.fwd.h>
 #include <string/str8.fwd.h>
 
 typedef struct Mel_Server         Mel_Server;

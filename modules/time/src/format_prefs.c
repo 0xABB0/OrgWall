@@ -2,7 +2,7 @@
 #include <time/format_provider.h>
 
 #include <allocator/allocator.h>
-#include <collection.array/array.h>
+#include <collection/array.h>
 #include <debug/assert.h>
 
 #include <stdio.h>

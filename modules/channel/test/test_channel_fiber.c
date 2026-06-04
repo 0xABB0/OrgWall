@@ -5,7 +5,7 @@
 
 #include <allocator/heap.h>
 #include <allocator/allocator.h>
-#include <collection.list/list.h>
+#include <collection/list.h>
 #include <thread/thread.h>
 
 #include <stdatomic.h>

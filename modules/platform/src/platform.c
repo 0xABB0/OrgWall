@@ -4,7 +4,7 @@
 
 #include <core/platform.h>
 #include <allocator/allocator.h>
-#include <collection.array/array.h>
+#include <collection/array.h>
 
 #include <assert.h>
 

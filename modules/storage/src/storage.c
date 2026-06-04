@@ -2,8 +2,8 @@
 
 #include <allocator/allocator.h>
 #include <allocator/heap.h>
-#include <collection.slotmap/slotmap.h>
-#include <collection.list/list.h>
+#include <collection/slotmap.h>
+#include <collection/list.h>
 #include <executor/executor.h>
 #include <future/future.h>
 #include <reactor/reactor.h>

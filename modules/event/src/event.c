@@ -2,8 +2,8 @@
 
 #include <executor/executor.h>
 #include <allocator/allocator.h>
-#include <collection.list/list.h>
-#include <collection.slotmap/slotmap.h>
+#include <collection/list.h>
+#include <collection/slotmap.h>
 #include <thread/spinlock.h>
 #include <log/log.h>
 

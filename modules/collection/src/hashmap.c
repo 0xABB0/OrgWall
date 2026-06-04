@@ -1,4 +1,4 @@
-#include <collection.map.hashmap/hashmap.h>
+#include <collection/hashmap.h>
 #include <allocator/allocator.h>
 #include <hash/xxh.h>
 

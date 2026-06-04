@@ -3,12 +3,12 @@
 Intrusive, lock-free, multi-producer / single-consumer queue (Vyukov). This is the never-fail
 unbounded wakeup queue the executor wakeup path needs (async-substrate.md, "Waist").
 
-Deps: core. Header: `<collection.mpsc/mpsc.h>`.
+Deps: core. Header: `<collection/mpsc.h>`.
 
 ## Intrusive contract
 
 The caller embeds `Mel_Mpsc_Node` in its own struct and recovers the owner by `mel_container_of`
-(`<collection.list/list.h>`). The node is one atomic next pointer and nothing else. `push`/`pop`
+(`<collection/list.h>`). The node is one atomic next pointer and nothing else. `push`/`pop`
 allocate nothing, take nothing, free nothing; the queue owns no memory. Node lifetime is the
 caller's: a node may not be re-pushed nor freed until the consumer has popped it.
 

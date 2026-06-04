@@ -4,7 +4,7 @@
 #include <allocator/heap.h>
 #include <future/future.h>
 #include <executor/executor.h>
-#include <collection.list/list.h>
+#include <collection/list.h>
 #include <log/log.h>
 
 #include <assert.h>

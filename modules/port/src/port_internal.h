@@ -5,7 +5,7 @@
 
 #include <core/types.h>
 #include <allocator/allocator.fwd.h>
-#include <collection.slotmap/slotmap.h>
+#include <collection/slotmap.h>
 #include <future/future.h>
 #include <reactor/reactor.h>
 

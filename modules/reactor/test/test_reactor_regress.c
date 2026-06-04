@@ -2,7 +2,7 @@
 #include <executor/executor.h>
 #include <test/test.h>
 
-#include <collection.list/list.h>
+#include <collection/list.h>
 #include <thread/thread.h>
 #include <time/nano.h>
 

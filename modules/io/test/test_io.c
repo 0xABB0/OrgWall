@@ -8,7 +8,7 @@
 #include <executor/executor.h>
 #include <test/test.h>
 
-#include <collection.list/list.h>
+#include <collection/list.h>
 
 #include <stdlib.h>
 #include <string.h>

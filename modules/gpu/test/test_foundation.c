@@ -7,7 +7,7 @@
 #include <gpu/threading.h>
 
 #include <future/future.h>
-#include <collection.slotmap/slotmap.h>
+#include <collection/slotmap.h>
 #include <allocator/heap.h>
 #include <thread/thread.h>
 

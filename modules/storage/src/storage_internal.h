@@ -4,7 +4,7 @@
 #include <storage/backend.h>
 
 #include <allocator/allocator.fwd.h>
-#include <collection.slotmap/slotmap.h>
+#include <collection/slotmap.h>
 #include <future/future.h>
 #include <string/str8.h>
 

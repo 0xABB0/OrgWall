@@ -3,7 +3,7 @@
 #include <signal/signal.h>
 #include <test/test.h>
 
-#include <collection.list/list.h>
+#include <collection/list.h>
 #include <thread/thread.h>
 #include <thread/barrier.h>
 #include <allocator/allocator.h>

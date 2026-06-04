@@ -1,7 +1,7 @@
 #pragma once
 
 #include <core/types.h>
-#include <collection.map.hashmap/hashmap.h>
+#include <collection/hashmap.h>
 
 typedef struct Mel_Set Mel_Set;
 struct Mel_Set

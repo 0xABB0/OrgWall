@@ -1,7 +1,7 @@
 #include "../fs_internal.h"
 
 #include <allocator/allocator.h>
-#include <collection.array/array.h>
+#include <collection/array.h>
 #include <string/str8.h>
 #include <string/path.h>
 #include <log/log.h>

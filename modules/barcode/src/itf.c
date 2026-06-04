@@ -2,7 +2,7 @@
 
 #include "paint.h"
 
-#include <collection.array/array.h>
+#include <collection/array.h>
 #include <string.h>
 
 static const char* const MEL__ITF_PAT[10] = {

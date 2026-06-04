@@ -1,4 +1,4 @@
-#include <collection.slotmap/slotmap.h>
+#include <collection/slotmap.h>
 #include <allocator/allocator.h>
 
 #include <string.h>

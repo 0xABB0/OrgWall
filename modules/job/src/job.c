@@ -5,10 +5,10 @@
 #include <allocator/allocator.h>
 #include <allocator/heap.h>
 #include <allocator/vmem.h>
-#include <collection.mpmc/mpmc.h>
-#include <collection.mpsc/mpsc.h>
-#include <collection.list/list.h>
-#include <collection.workstealingqueue/wsq.h>
+#include <collection/mpmc.h>
+#include <collection/mpsc.h>
+#include <collection/list.h>
+#include <collection/wsq.h>
 #include <thread/thread.h>
 #include <thread/mutex.h>
 #include <thread/cond.h>

@@ -3,7 +3,7 @@
 #include <core/types.h>
 #include <core/compiler.h>
 #include <allocator/allocator.fwd.h>
-#include <collection.list/list.h>
+#include <collection/list.h>
 #include <executor/executor.h>
 #include <future/future.h>
 

@@ -1,4 +1,4 @@
-#include <collection.mpsc/mpsc.h>
+#include <collection/mpsc.h>
 
 void mel_mpsc_init(Mel_Mpsc* q)
 {

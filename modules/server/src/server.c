@@ -2,10 +2,10 @@
 #include <allocator/allocator.h>
 #include <string/str8.h>
 #include <log/log.h>
-#include <collection.array/array.h>
-#include <collection.map.hashmap/hashmap.h>
-#include <collection.slotmap/slotmap.h>
-#include <collection.mpmc/mpmc.h>
+#include <collection/array.h>
+#include <collection/hashmap.h>
+#include <collection/slotmap.h>
+#include <collection/mpmc.h>
 
 #include <server/server.fwd.h>
 #include <server/server.cfg.h>

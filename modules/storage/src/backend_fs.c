@@ -13,7 +13,7 @@
 #include <reactor/reactor.h>
 #include <string/str8.h>
 #include <string/path.h>
-#include <collection.list/list.h>
+#include <collection/list.h>
 #include <log/log.h>
 
 #include <string.h>

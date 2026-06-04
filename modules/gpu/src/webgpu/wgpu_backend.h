@@ -4,7 +4,7 @@
 
 #include <core/types.h>
 #include <allocator/allocator.h>
-#include <collection.slotmap/slotmap.h>
+#include <collection/slotmap.h>
 #include <reactor/reactor.h>
 #include <thread/mutex.h>
 #include <thread/thread.h>

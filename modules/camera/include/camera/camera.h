@@ -4,8 +4,8 @@
 #include <core/compiler.h>
 #include <string/str8.h>
 #include <allocator/allocator.fwd.h>
-#include <collection.array/array.h>
-#include <collection.slotmap/slotmap.fwd.h>
+#include <collection/array.h>
+#include <collection/slotmap.fwd.h>
 
 #include <image/image.h>
 #include <image/geometry.h>

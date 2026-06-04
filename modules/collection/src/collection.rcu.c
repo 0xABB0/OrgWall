@@ -1,4 +1,4 @@
-#include <collection.rcu/rcu.h>
+#include <collection/rcu.h>
 #include <allocator/allocator.h>
 #include <thread/mutex.h>
 #include <stdatomic.h>

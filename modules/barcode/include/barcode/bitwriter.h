@@ -1,6 +1,6 @@
 #pragma once
 
-#include <collection.array/array.h>
+#include <collection/array.h>
 #include <core/types.h>
 
 typedef struct mel_bitwriter

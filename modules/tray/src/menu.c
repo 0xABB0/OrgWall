@@ -2,8 +2,8 @@
 #include <tray/provider.h>
 
 #include <allocator/allocator.h>
-#include <collection.slotmap/slotmap.h>
-#include <collection.array/array.h>
+#include <collection/slotmap.h>
+#include <collection/array.h>
 #include <log/log.h>
 
 #include "tray_internal.h"

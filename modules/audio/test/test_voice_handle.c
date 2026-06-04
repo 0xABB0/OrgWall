@@ -4,7 +4,7 @@
 
 #include <allocator/allocator.h>
 #include <allocator/heap.h>
-#include <collection.slotmap/slotmap.fwd.h>
+#include <collection/slotmap.fwd.h>
 #include <core/types.h>
 
 #define SR    48000u
