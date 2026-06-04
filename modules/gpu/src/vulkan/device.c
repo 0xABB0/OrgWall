@@ -123,9 +123,17 @@ Mel_Gpu_Device_Create_Result mel_gpu_device_create_opt(Mel_Gpu_Instance* inst, M
         feat12.descriptorBindingUniformBufferUpdateAfterBind = VK_TRUE;
     }
 
+    bool                                         grant_draw_params = adapter->caps.shader.draw_parameters;
+    VkPhysicalDeviceShaderDrawParametersFeatures feat_sdp = {
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_DRAW_PARAMETERS_FEATURES,
+        .pNext = &feat12,
+        .shaderDrawParameters = VK_TRUE,
+    };
+    void* feat12_chain = grant_draw_params ? (void*)&feat_sdp : (void*)&feat12;
+
     VkPhysicalDeviceDynamicRenderingFeaturesKHR feat_dr = {
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES_KHR,
-        .pNext = &feat12,
+        .pNext = feat12_chain,
         .dynamicRendering = VK_TRUE,
     };
 
@@ -143,7 +151,7 @@ Mel_Gpu_Device_Create_Result mel_gpu_device_create_opt(Mel_Gpu_Instance* inst, M
     if (has_sync2)
         mel_gpu__ext_push(alloc, &exts, &ext_count, &ext_cap, VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME);
 
-    void*                                       chain_head = has_dr ? (void*)&feat_dr : (void*)&feat12;
+    void*                                       chain_head = has_dr ? (void*)&feat_dr : feat12_chain;
     VkPhysicalDeviceSynchronization2FeaturesKHR feat_sync2 = {
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES_KHR,
         .pNext = chain_head,
@@ -227,6 +235,7 @@ Mel_Gpu_Device_Create_Result mel_gpu_device_create_opt(Mel_Gpu_Instance* inst, M
     dev->caps.sampler.max_anisotropy = dev->max_sampler_anisotropy;
 
     dev->caps.shader.fp64 = grant_fp64;
+    dev->caps.shader.draw_parameters = grant_draw_params;
 
     dev->feat_fill_non_solid = avail.fillModeNonSolid != 0;
     dev->caps.raster.fill_mode_non_solid = dev->feat_fill_non_solid;

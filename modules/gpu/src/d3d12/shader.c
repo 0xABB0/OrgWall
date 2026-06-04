@@ -34,6 +34,17 @@ Mel_Gpu_Shader_Create_Result mel_gpu_shader_create_from_bytecode_opt(Mel_Gpu_Dev
         return res;
     }
 
+    bool cap_ok = opt.target == MEL_GPU_SHADER_TARGET_DXIL ? (dev && dev->caps.shader.bytecode_passthrough.dxil) : (dev && dev->caps.shader.bytecode_passthrough.spirv);
+    if (!cap_ok)
+    {
+        res.status = MEL_GPU_SHADER_CREATE_TARGET_UNSUPPORTED;
+        mel_log_error("gpu", "shader_create_from_bytecode: device reports caps.shader.bytecode_passthrough false for target %d; refusing", (int)opt.target);
+        return res;
+    }
+
+    mel_assert(!(opt.vertex_blob && opt.spirv_vertex) && "shader_create_from_bytecode: both vertex_blob and spirv_vertex set; pass exactly one");
+    mel_assert(!(opt.fragment_blob && opt.spirv_fragment) && "shader_create_from_bytecode: both fragment_blob and spirv_fragment set; pass exactly one");
+
     const void* vertex = opt.vertex_blob ? opt.vertex_blob : opt.spirv_vertex;
     usize       vertex_size = opt.vertex_blob ? opt.vertex_blob_size : opt.spirv_vertex_size;
     const void* fragment = opt.fragment_blob ? opt.fragment_blob : opt.spirv_fragment;
@@ -71,6 +82,16 @@ Mel_Gpu_Shader_Create_Result mel_gpu_shader_create_compute_from_bytecode_opt(Mel
         mel_log_error("gpu", "shader_create_compute_from_bytecode: D3D12 consumes DXIL only, got target %d", (int)opt.target);
         return res;
     }
+
+    bool cap_ok = opt.target == MEL_GPU_SHADER_TARGET_DXIL ? (dev && dev->caps.shader.bytecode_passthrough.dxil) : (dev && dev->caps.shader.bytecode_passthrough.spirv);
+    if (!cap_ok)
+    {
+        res.status = MEL_GPU_SHADER_CREATE_TARGET_UNSUPPORTED;
+        mel_log_error("gpu", "shader_create_compute_from_bytecode: device reports caps.shader.bytecode_passthrough false for target %d; refusing", (int)opt.target);
+        return res;
+    }
+
+    mel_assert(!(opt.compute_blob && opt.spirv) && "shader_create_compute_from_bytecode: both compute_blob and spirv set; pass exactly one");
 
     const void* compute = opt.compute_blob ? opt.compute_blob : opt.spirv;
     usize       compute_size = opt.compute_blob ? opt.compute_blob_size : opt.spirv_size;

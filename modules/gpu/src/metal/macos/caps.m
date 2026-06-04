@@ -58,6 +58,7 @@ void mel_gpu__caps_probe(id<MTLDevice> mtl, Mel_Gpu_Caps* out)
     s->int64 = false;
     s->fp64 = false;
     s->wave_ops = true;
+    s->draw_parameters = false;
     s->subgroup_size_min = 32;
     s->subgroup_size_max = 32;
     s->bytecode_passthrough.msl = true;

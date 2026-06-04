@@ -90,11 +90,17 @@ assert two images inside one test case.
 ## Kludges / debt confessed
 
 - **PPM carries no alpha; comparison is RGB-only.** The golden stores 3 channels; the facility diffs
-  RGB and ignores the produced alpha. Every wired test forces opaque output (clear alpha 1, store 255),
-  so no alpha regression is currently *expressible* — but an alpha-blend correctness bug in the alpha
-  channel itself would slip past the golden. The per-pixel `MEL_EXPECT_EQ(px[3], 255u)` sanity checks
-  that remain in the tests are the only alpha guard. If alpha regression coverage is wanted, the format
-  must change (PAM/PNG) — flagged, not done.
+  RGB and ignores the produced alpha. An alpha-channel regression on an opaque scene is therefore
+  invisible to the golden diff itself.
+  *Correction (MEL-ENGINE-VIII): the original claim that "every wired test" carried a `MEL_EXPECT_EQ(px[3], 255u)`
+  alpha guard was overstated.* The single-pixel alpha guard was present on only **5 of the 13 images**
+  (`ubo_bindless`, `sampled_checker`, `alpha_blend`, `storage_image_checker`, `sync2_barrier`); the
+  remaining 8 (`two_targets_{0,1}`, `msaa_resolve_edge`, `depth_boundary`, `mrt_target_{0,1}`,
+  `wireframe_{solid,wire}`) had no alpha assertion at all, single-pixel or otherwise.
+  This was later closed with an **opt-in full-image alpha check**: `Mel_Golden_Tolerance.assert_opaque_alpha`
+  (default OFF, no silent default — MEL-CODE-007) makes the facility assert *every* produced alpha == 255
+  across the whole image. It is wired (`VISUAL_TOL_EXACT_OPAQUE`) on the five verified-opaque scenes.
+  A PAM/PNG carrier would additionally let the golden hold and diff alpha against a reference — flagged, not done.
 - **Reference paths are CWD-relative** (`modules/gpu/test/golden/...`), valid only because `nob test`
   launches the binary from the repo root. A direct `./gpu-visual` from another CWD would report the
   reference as missing (loudly, with the regenerate hint — not a silent pass). No env override for the
