@@ -59,6 +59,13 @@ bool mel_image_to_gray(const Mel_Image* src, const Mel_Alloc* a, Mel_Image* out)
         return true;
     }
 
+    mel_image_kernel k = mel_image__find_kernel(f, &mel_image_gray8);
+    if (k)
+    {
+        k(src, out);
+        return true;
+    }
+
     mel_log_error("image", "to_gray: no path for format %s", f->name);
     mel_image_free(out);
     return false;
