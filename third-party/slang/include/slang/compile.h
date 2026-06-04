@@ -68,6 +68,30 @@ typedef struct
     uint32_t                size;
 } Mel_Slang_Resource_Binding;
 
+/* MEL_FLAG(metal-bindless-reflection): additive Metal-only argument-buffer layout.
+   When a push-constant struct authored with a DescriptorHandle field is compiled to
+   the Metal target, Slang lowers the WHOLE struct to ONE mixed argument buffer at the
+   entry point's buffer(0): DescriptorHandle fields become inlined argument-buffer
+   resources, scalar fields become inline uniform members. The host must build that
+   argument buffer per dispatch. These fields describe, in source declaration order,
+   each member's role so the Metal RHI resolves resource slots and copies uniforms.
+
+   `host_offset` is the member's byte offset within the host-supplied push-constant
+   struct (the consumer ABI: a DescriptorHandle field occupies a 4-byte slot index,
+   matching the Vulkan/WGSL lane where the same field is a `uint`). `arg_index` is the
+   Metal argument-buffer member index used with MTLArgumentEncoder
+   (setTexture:/setBuffer:atIndex: for resources, constantDataAtIndex: for uniforms).
+   `is_uniform` selects between the two roles; `size` is the host byte span consumed.
+   This is populated only for MEL_SLANG_TARGET_MSL; other targets leave it empty. */
+typedef struct
+{
+    Mel_Slang_Resource_Kind kind;
+    int                     is_uniform;
+    uint32_t                host_offset;
+    uint32_t                arg_index;
+    uint32_t                size;
+} Mel_Slang_Metal_Arg_Field;
+
 typedef struct
 {
     char*           entry;
@@ -79,6 +103,10 @@ typedef struct
 
     Mel_Slang_Resource_Binding* bindings;
     uint32_t                    binding_count;
+
+    Mel_Slang_Metal_Arg_Field* metal_arg_fields;
+    uint32_t                   metal_arg_field_count;
+    int                        metal_arg_buffer;
 
     uint32_t push_constant_size;
 

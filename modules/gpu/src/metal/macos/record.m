@@ -2,6 +2,8 @@
 
 #include <log/log.h>
 
+#include <string.h>
+
 void mel_gpu__cmd_end_active_encoder(Mel_Gpu_Command_List* cmd)
 {
     if (cmd->encoder)
@@ -143,6 +145,8 @@ void mel_gpu_command_list_begin(Mel_Gpu_Command_List* cmd)
     cmd->has_pipeline = false;
     cmd->has_compute_pipeline = false;
     cmd->index_buffer = nil;
+    cmd->pc_stashed = false;
+    cmd->pc_stash_len = 0;
 }
 
 void mel_gpu_command_list_end(Mel_Gpu_Command_List* cmd)
@@ -161,6 +165,8 @@ void mel_gpu_command_list_destroy(Mel_Gpu_Command_List* cmd)
     cmd->cb = nil;
     cmd->encoder = nil;
     cmd->compute_encoder = nil;
+    if (cmd->pc_stash)
+        mel_dealloc(cmd->dev->alloc, cmd->pc_stash);
     mel_dealloc(cmd->dev->alloc, cmd);
 }
 
@@ -250,6 +256,9 @@ void mel_gpu_cmd_bind_pipeline(Mel_Gpu_Command_List* cmd, Mel_Gpu_Pipeline pipe)
         mel_gpu__cmd_open_compute_encoder(cmd);
         cmd->compute_state = (__bridge id<MTLComputePipelineState>)o.state;
         cmd->compute_threadgroup = o.threadgroup;
+        cmd->compute_pipeline_handle = pipe;
+        cmd->pc_stashed = false;
+        cmd->pc_stash_len = 0;
         [cmd->compute_encoder setComputePipelineState:cmd->compute_state];
         cmd->has_compute_pipeline = true;
         return;
@@ -268,6 +277,9 @@ void mel_gpu_cmd_bind_pipeline(Mel_Gpu_Command_List* cmd, Mel_Gpu_Pipeline pipe)
     if (o.stencil_test)
         [cmd->encoder setStencilFrontReferenceValue:o.stencil_ref_front backReferenceValue:o.stencil_ref_back];
     cmd->primitive = mel_gpu__topology_to_primitive(o.topology);
+    cmd->gfx_pipeline_handle = pipe;
+    cmd->pc_stashed = false;
+    cmd->pc_stash_len = 0;
     cmd->has_pipeline = true;
 }
 
@@ -330,6 +342,38 @@ void mel_gpu_cmd_bind_index_buffer(Mel_Gpu_Command_List* cmd, Mel_Gpu_Buffer buf
     cmd->index_type = type == MEL_GPU_INDEX_UINT32 ? MTLIndexTypeUInt32 : MTLIndexTypeUInt16;
 }
 
+static bool mel_gpu__compute_argbuffer_plan(Mel_Gpu_Command_List* cmd, Mel_Gpu_Pipeline_Obj* out)
+{
+    if (!cmd->has_compute_pipeline)
+        return false;
+    if (!mel_gpu__pipeline_get(cmd->dev, cmd->compute_pipeline_handle, out))
+        return false;
+    return out->arg_field_count != 0 && out->arg_encoder != NULL;
+}
+
+static bool mel_gpu__graphics_argbuffer_plan(Mel_Gpu_Command_List* cmd, Mel_Gpu_Pipeline_Obj* out)
+{
+    if (!cmd->has_pipeline)
+        return false;
+    if (!mel_gpu__pipeline_get(cmd->dev, cmd->gfx_pipeline_handle, out))
+        return false;
+    return out->arg_field_count != 0 && (out->vs_arg_encoder != NULL || out->fs_arg_encoder != NULL);
+}
+
+static void mel_gpu__pc_stash(Mel_Gpu_Command_List* cmd, const void* data, u32 bytes)
+{
+    if (bytes > cmd->pc_stash_cap)
+    {
+        if (cmd->pc_stash)
+            mel_dealloc(cmd->dev->alloc, cmd->pc_stash);
+        cmd->pc_stash = mel_alloc(cmd->dev->alloc, bytes);
+        cmd->pc_stash_cap = bytes;
+    }
+    memcpy(cmd->pc_stash, data, bytes);
+    cmd->pc_stash_len = bytes;
+    cmd->pc_stashed = true;
+}
+
 void mel_gpu_cmd_push_constants(Mel_Gpu_Command_List* cmd, u32 offset, u32 bytes, const void* data)
 {
     if (offset != 0)
@@ -339,6 +383,20 @@ void mel_gpu_cmd_push_constants(Mel_Gpu_Command_List* cmd, u32 offset, u32 bytes
     }
     if (cmd->compute_encoder)
     {
+        Mel_Gpu_Pipeline_Obj plan;
+        if (mel_gpu__compute_argbuffer_plan(cmd, &plan))
+        {
+            if (bytes < plan.arg_host_size)
+            {
+                mel_log_error("gpu",
+                              "cmd_push_constants: from-slang bindless pipeline expects %u host bytes for its inlined argument buffer but only %u supplied; the host push-constant struct does not match the shader Root",
+                              plan.arg_host_size,
+                              bytes);
+                return;
+            }
+            mel_gpu__pc_stash(cmd, data, bytes);
+            return;
+        }
         [cmd->compute_encoder setBytes:data length:bytes atIndex:MEL_GPU_METAL_PUSH_CONSTANT_INDEX];
         return;
     }
@@ -347,8 +405,32 @@ void mel_gpu_cmd_push_constants(Mel_Gpu_Command_List* cmd, u32 offset, u32 bytes
         mel_log_error("gpu", "cmd_push_constants: no active render or compute encoder");
         return;
     }
+    Mel_Gpu_Pipeline_Obj gfx_plan;
+    if (mel_gpu__graphics_argbuffer_plan(cmd, &gfx_plan))
+    {
+        if (bytes < gfx_plan.arg_host_size)
+        {
+            mel_log_error("gpu",
+                          "cmd_push_constants: from-slang bindless graphics pipeline expects %u host bytes for its inlined argument buffer but only %u supplied; the host push-constant struct does not match the shader Root",
+                          gfx_plan.arg_host_size,
+                          bytes);
+            return;
+        }
+        mel_gpu__pc_stash(cmd, data, bytes);
+        return;
+    }
     [cmd->encoder setVertexBytes:data length:bytes atIndex:MEL_GPU_METAL_PUSH_CONSTANT_INDEX];
     [cmd->encoder setFragmentBytes:data length:bytes atIndex:MEL_GPU_METAL_PUSH_CONSTANT_INDEX];
+}
+
+static bool mel_gpu__build_graphics_argbuffer(Mel_Gpu_Command_List* cmd, Mel_Gpu_Pipeline_Obj* plan);
+
+static bool mel_gpu__draw_prologue(Mel_Gpu_Command_List* cmd)
+{
+    Mel_Gpu_Pipeline_Obj plan;
+    if (!mel_gpu__graphics_argbuffer_plan(cmd, &plan))
+        return true;
+    return mel_gpu__build_graphics_argbuffer(cmd, &plan);
 }
 
 void mel_gpu_cmd_draw(Mel_Gpu_Command_List* cmd, u32 vertex_count, u32 instance_count)
@@ -358,6 +440,8 @@ void mel_gpu_cmd_draw(Mel_Gpu_Command_List* cmd, u32 vertex_count, u32 instance_
         mel_log_error("gpu", "cmd_draw: no active render encoder with a bound pipeline");
         return;
     }
+    if (!mel_gpu__draw_prologue(cmd))
+        return;
     [cmd->encoder drawPrimitives:cmd->primitive vertexStart:0 vertexCount:vertex_count instanceCount:instance_count ? instance_count : 1];
 }
 
@@ -373,7 +457,121 @@ void mel_gpu_cmd_draw_indexed(Mel_Gpu_Command_List* cmd, u32 index_count, u32 in
         mel_log_error("gpu", "cmd_draw_indexed: no index buffer bound");
         return;
     }
+    if (!mel_gpu__draw_prologue(cmd))
+        return;
     [cmd->encoder drawIndexedPrimitives:cmd->primitive indexCount:index_count indexType:cmd->index_type indexBuffer:cmd->index_buffer indexBufferOffset:0 instanceCount:instance_count ? instance_count : 1];
+}
+
+/* Build one per-dispatch/per-draw argument buffer from a from-slang bindless plan: allocate a
+   transient MTLBuffer of the encoder's encodedLength, then for each plan field either resolve
+   its 4-byte slot to a live bindless resource (texture/buffer/sampler) and inline it into the
+   argument buffer, or memcpy the inline uniform bytes at the reflected member. Each resolved
+   resource is made resident on whichever command encoder is live (compute or render). Returns
+   the filled buffer (nil + a loud error on failure). The compute encoder reuses this through
+   the render encoder's symmetric path — same Slang argument-buffer shape, same resolution. */
+static id<MTLBuffer> mel_gpu__mtl_encode_arg_buffer(Mel_Gpu_Command_List* cmd, id<MTLArgumentEncoder> enc, usize encoded_length, const Mel_Gpu_Pipeline_Obj* plan, MTLRenderStages render_stages)
+{
+    Mel_Gpu_Device* dev = cmd->dev;
+    id<MTLBuffer>   ab = [dev->mtl newBufferWithLength:encoded_length options:MTLResourceStorageModeShared];
+    if (!ab)
+    {
+        mel_log_error("gpu", "from-slang bindless: failed to allocate %zu-byte argument buffer", encoded_length);
+        return nil;
+    }
+    [enc setArgumentBuffer:ab offset:0];
+
+    const u8* host = (const u8*)cmd->pc_stash;
+    for (u32 i = 0; i < plan->arg_field_count; i++)
+    {
+        const Mel_Gpu_Mtl_Arg_Field* f = &plan->arg_fields[i];
+        if (f->is_uniform)
+        {
+            void* dst = [enc constantDataAtIndex:f->arg_index];
+            if (!dst)
+            {
+                mel_log_error("gpu", "from-slang bindless: argument encoder exposed no constant data at index %u for uniform field (host offset %u)", f->arg_index, f->host_offset);
+                return nil;
+            }
+            memcpy(dst, host + f->host_offset, f->size);
+            continue;
+        }
+
+        u32 slot = *(const u32*)(host + f->host_offset);
+        u32 cls = mel_gpu__bindless_class_of_slang_kind(f->resource_kind);
+        if (cls >= MEL_GPU_BINDLESS_BINDING_COUNT)
+        {
+            mel_log_error("gpu", "from-slang bindless: resource field (host offset %u) has unmappable resource kind %u", f->host_offset, f->resource_kind);
+            return nil;
+        }
+        if (cls == MEL_GPU_BINDLESS_BINDING_SAMPLER)
+        {
+            id<MTLSamplerState> smp = mel_gpu__bindless_sampler(dev, slot);
+            if (!smp)
+            {
+                mel_log_error("gpu", "from-slang bindless: sampler slot %u is not registered (no live sampler); cannot build the argument buffer", slot);
+                return nil;
+            }
+            [enc setSamplerState:smp atIndex:f->arg_index];
+            continue;
+        }
+        id<MTLResource> res = mel_gpu__bindless_resource(dev, cls, slot);
+        if (!res)
+        {
+            mel_log_error("gpu", "from-slang bindless: slot %u (class %u) is not registered (no live resource); cannot build the argument buffer", slot, cls);
+            return nil;
+        }
+        if (cls == MEL_GPU_BINDLESS_BINDING_SAMPLED_IMAGE || cls == MEL_GPU_BINDLESS_BINDING_STORAGE_IMAGE)
+            [enc setTexture:(id<MTLTexture>)res atIndex:f->arg_index];
+        else
+            [enc setBuffer:(id<MTLBuffer>)res offset:0 atIndex:f->arg_index];
+        MTLResourceUsage usage = cls == MEL_GPU_BINDLESS_BINDING_STORAGE_IMAGE || cls == MEL_GPU_BINDLESS_BINDING_STORAGE_BUFFER ? (MTLResourceUsageRead | MTLResourceUsageWrite) : MTLResourceUsageRead;
+        if (cmd->compute_encoder)
+            [cmd->compute_encoder useResource:res usage:usage];
+        else if (cmd->encoder)
+            [cmd->encoder useResource:res usage:usage stages:render_stages];
+    }
+    return ab;
+}
+
+static bool mel_gpu__build_compute_argbuffer(Mel_Gpu_Command_List* cmd, Mel_Gpu_Pipeline_Obj* plan)
+{
+    if (!cmd->pc_stashed)
+    {
+        mel_log_error("gpu", "cmd_dispatch: from-slang bindless pipeline dispatched without cmd_push_constants; the inlined argument buffer carries the slot indices and inline uniforms");
+        return false;
+    }
+    id<MTLArgumentEncoder> enc = (__bridge id<MTLArgumentEncoder>)plan->arg_encoder;
+    id<MTLBuffer>          ab = mel_gpu__mtl_encode_arg_buffer(cmd, enc, plan->arg_encoded_length, plan, 0);
+    if (!ab)
+        return false;
+    [cmd->compute_encoder setBuffer:ab offset:0 atIndex:MEL_GPU_METAL_PUSH_CONSTANT_INDEX];
+    return true;
+}
+
+static bool mel_gpu__build_graphics_argbuffer(Mel_Gpu_Command_List* cmd, Mel_Gpu_Pipeline_Obj* plan)
+{
+    if (!cmd->pc_stashed)
+    {
+        mel_log_error("gpu", "cmd_draw: from-slang bindless graphics pipeline drawn without cmd_push_constants; the inlined argument buffer carries the slot indices and inline uniforms");
+        return false;
+    }
+    if (plan->vs_arg_encoder)
+    {
+        id<MTLArgumentEncoder> enc = (__bridge id<MTLArgumentEncoder>)plan->vs_arg_encoder;
+        id<MTLBuffer>          ab = mel_gpu__mtl_encode_arg_buffer(cmd, enc, plan->vs_arg_encoded_length, plan, MTLRenderStageVertex);
+        if (!ab)
+            return false;
+        [cmd->encoder setVertexBuffer:ab offset:0 atIndex:MEL_GPU_METAL_PUSH_CONSTANT_INDEX];
+    }
+    if (plan->fs_arg_encoder)
+    {
+        id<MTLArgumentEncoder> enc = (__bridge id<MTLArgumentEncoder>)plan->fs_arg_encoder;
+        id<MTLBuffer>          ab = mel_gpu__mtl_encode_arg_buffer(cmd, enc, plan->fs_arg_encoded_length, plan, MTLRenderStageFragment);
+        if (!ab)
+            return false;
+        [cmd->encoder setFragmentBuffer:ab offset:0 atIndex:MEL_GPU_METAL_PUSH_CONSTANT_INDEX];
+    }
+    return true;
 }
 
 void mel_gpu_cmd_dispatch(Mel_Gpu_Command_List* cmd, u32 groups_x, u32 groups_y, u32 groups_z)
@@ -382,6 +580,12 @@ void mel_gpu_cmd_dispatch(Mel_Gpu_Command_List* cmd, u32 groups_x, u32 groups_y,
     {
         mel_log_error("gpu", "cmd_dispatch: no active compute encoder with a bound compute pipeline (call cmd_bind_pipeline on a compute pipeline first)");
         return;
+    }
+    Mel_Gpu_Pipeline_Obj plan;
+    if (mel_gpu__compute_argbuffer_plan(cmd, &plan))
+    {
+        if (!mel_gpu__build_compute_argbuffer(cmd, &plan))
+            return;
     }
     MTLSize groups = MTLSizeMake(groups_x ? groups_x : 1, groups_y ? groups_y : 1, groups_z ? groups_z : 1);
     [cmd->compute_encoder dispatchThreadgroups:groups threadsPerThreadgroup:cmd->compute_threadgroup];

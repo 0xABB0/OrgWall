@@ -234,16 +234,58 @@ bool mel_gpu_texture_alive(Mel_Gpu_Device* dev, Mel_Gpu_Texture tex) { return me
 
 void mel_gpu_texture_write(Mel_Gpu_Device* dev, Mel_Gpu_Texture tex, Mel_Gpu_Texture_Region region, const void* data, usize bytes)
 {
-    (void)bytes;
     Mel_Gpu_Texture_Obj o;
     if (!mel_gpu__table_get_copy(dev, &dev->textures, tex.slot, &o))
     {
         mel_assert(!"texture_write: invalid texture handle");
         return;
     }
-    mel_log_error("gpu", "texture_write: device-local texture upload is not implemented on the Metal backend this round (texture '%s')", o.header.name ? o.header.name : "(unnamed)");
-    (void)region;
-    (void)data;
+    if (!data)
+    {
+        mel_log_error("gpu", "texture_write: null source data for texture '%s'", o.header.name ? o.header.name : "(unnamed)");
+        return;
+    }
+
+    u32 w = region.extent.width ? region.extent.width : o.width;
+    u32 h = region.extent.height ? region.extent.height : o.height;
+    u32 d = region.extent.depth ? region.extent.depth : 1;
+    u32 bpp = mel_gpu_format_bytes(mel_gpu__mtl_format_to_mel(o.format));
+    if (!bpp)
+    {
+        mel_log_error("gpu", "texture_write: texture '%s' has a format with no host byte size; cannot upload", o.header.name ? o.header.name : "(unnamed)");
+        return;
+    }
+    usize row_pitch = region.row_pitch ? region.row_pitch : (usize)w * bpp;
+    usize slice_pitch = region.slice_pitch ? region.slice_pitch : row_pitch * h;
+    usize need = slice_pitch * d;
+    if (bytes < need)
+    {
+        mel_log_error("gpu", "texture_write: texture '%s' upload needs %zu bytes (%ux%ux%u, %u bpp) but only %zu supplied", o.header.name ? o.header.name : "(unnamed)", need, w, h, d, bpp, bytes);
+        return;
+    }
+
+    id<MTLBuffer> staging = [dev->mtl newBufferWithBytes:data length:need options:MTLResourceStorageModeShared];
+    if (!staging)
+    {
+        mel_log_error("gpu", "texture_write: failed to allocate %zu-byte staging buffer for texture '%s'", need, o.header.name ? o.header.name : "(unnamed)");
+        return;
+    }
+
+    id<MTLTexture>            mt = (__bridge id<MTLTexture>)o.texture;
+    id<MTLCommandBuffer>      cb = [dev->queue commandBuffer];
+    id<MTLBlitCommandEncoder> blit = [cb blitCommandEncoder];
+    [blit copyFromBuffer:staging
+             sourceOffset:0
+        sourceBytesPerRow:row_pitch
+      sourceBytesPerImage:slice_pitch
+               sourceSize:MTLSizeMake(w, h, d)
+                toTexture:mt
+         destinationSlice:region.subresource.base_layer
+         destinationLevel:region.subresource.base_mip
+        destinationOrigin:MTLOriginMake(region.offset.width, region.offset.height, region.offset.depth)];
+    [blit endEncoding];
+    [cb commit];
+    [cb waitUntilCompleted];
 }
 
 Mel_Gpu_Texture_View_Create_Result mel_gpu_texture_view_create_opt(Mel_Gpu_Device* dev, Mel_Gpu_Texture_View_Opt opt)

@@ -43,6 +43,11 @@ static const char RAYMARCH_SLANG[] = {
     , 0
 };
 
+static const char BINDLESS_PRESENT_SLANG[] = {
+#embed "shaders/slang/bindless_present.slang"
+    , 0
+};
+
 #if MEL_GPU_VULKAN
 #define SCENE_BACKEND "vulkan"
 #elif MEL_GPU_METAL
@@ -528,26 +533,6 @@ MEL_TEST(scene_shared, mandelbrot)
         MEL_SKIP("mandelbrot scene needs the device-global bindless heap (descriptor_indexing); device does not advertise it");
     }
 
-#if MEL_GPU_METAL
-    /* The mandelbrot compute kernel writes an unbounded bindless storage-image heap
-       (RWTexture2D<float4> u_images[]). Slang's stock MSL emit lowers any unbounded
-       resource-heap array to a flexible-array-member kernel parameter
-       (texture2d<...> u_images[]), which Metal's runtime newLibraryWithSource rejects
-       ("flexible array members are a C99 feature"). The Metal RHI's bindless model
-       binds each heap class as a device buffer of MTLResourceIDs at a reserved buffer
-       index, indexed by slot — a different binding model than Slang auto-emits, and the
-       gpu module exposes no NON-bindless compute storage-texture binding to fall back
-       to. So the storage-image compute kernel cannot be runtime-compiled to MSL today.
-       Degrade honestly (MEL-ENGINE-VII / -VIII) — skip with the precise cause rather
-       than fabricate a pass. Vulkan proves the compute + runtime-Slang + reflected
-       threadgroup pipeline end-to-end; closing this needs a Slang->MSL bindless-heap
-       lowering (or an MSL post-process) in the slang wrapper / Metal RHI, a separate
-       lane. The same kernel emits valid SPIR-V (RuntimeDescriptorArray) and valid WGSL
-       (array<texture_storage_2d>), so the wall is specific to the Slang Metal target. */
-    mel_gpu_device_destroy(dev);
-    mel_gpu_instance_destroy(inst);
-    MEL_SKIP("mandelbrot storage-image compute: Slang's MSL emit of the unbounded bindless heap is a flexible-array kernel param Metal rejects; needs a Slang->MSL bindless lowering (slang wrapper / Metal RHI lane)");
-#else
     Mel_Gpu_Texture_Create_Result img = mel_gpu_texture_create(dev, .kind = MEL_GPU_TEXTURE_2D, .extent = { SCENE_W, SCENE_H, 1 }, .format = MEL_GPU_FORMAT_RGBA8_UNORM,
                                                                .usage = MEL_GPU_TEXTURE_STORAGE | MEL_GPU_TEXTURE_COPY_SRC, .name = "mandel-img");
     MEL_REQUIRE(!mel_gpu_failed(img.status));
@@ -606,7 +591,111 @@ MEL_TEST(scene_shared, mandelbrot)
     mel_gpu_texture_destroy(dev, img.value);
     mel_gpu_device_destroy(dev);
     mel_gpu_instance_destroy(inst);
-#endif
+}
+
+typedef struct
+{
+    u32 tex;
+    u32 smp;
+} Bindless_Present_Root;
+
+static void scene_fill_checker(u8* px, u32 w, u32 h)
+{
+    for (u32 y = 0; y < h; y++)
+        for (u32 x = 0; x < w; x++)
+        {
+            u8*  p = px + ((usize)y * w + x) * 4;
+            bool a = (((x >> 3) ^ (y >> 3)) & 1) == 0;
+            p[0] = a ? 220 : 30;
+            p[1] = (u8)((x * 255) / (w - 1));
+            p[2] = a ? 30 : 220;
+            p[3] = 255;
+        }
+}
+
+MEL_TEST(scene_shared, bindless_present)
+{
+    Mel_Gpu_Instance* inst = NULL;
+    Mel_Gpu_Device*   dev = scene_make_device_bindless(&inst);
+    MEL_REQUIRE_NOT_NULL(dev);
+
+    if (!mel_gpu_bindless_available(dev))
+    {
+        mel_gpu_device_destroy(dev);
+        mel_gpu_instance_destroy(inst);
+        MEL_SKIP("bindless_present scene needs the device-global bindless heap (descriptor_indexing); device does not advertise it");
+    }
+
+    u8* checker = malloc((usize)SCENE_W * SCENE_H * 4);
+    MEL_REQUIRE_NOT_NULL(checker);
+    scene_fill_checker(checker, SCENE_W, SCENE_H);
+
+    Mel_Gpu_Texture_Create_Result src = mel_gpu_texture_create(dev, .kind = MEL_GPU_TEXTURE_2D, .extent = { SCENE_W, SCENE_H, 1 }, .format = MEL_GPU_FORMAT_RGBA8_UNORM,
+                                                               .usage = MEL_GPU_TEXTURE_SAMPLED | MEL_GPU_TEXTURE_COPY_DST, .name = "bp-src");
+    MEL_REQUIRE(!mel_gpu_failed(src.status));
+    Mel_Gpu_Texture_Region region = { .subresource = { MEL_GPU_ASPECT_COLOR, 0, 1, 0, 1 }, .offset = { 0, 0, 0 }, .extent = { SCENE_W, SCENE_H, 1 } };
+    mel_gpu_texture_write(dev, src.value, region, checker, (usize)SCENE_W * SCENE_H * 4);
+    free(checker);
+
+    Mel_Gpu_Texture_View_Create_Result src_view = mel_gpu_texture_default_view(dev, src.value);
+    MEL_REQUIRE(!mel_gpu_failed(src_view.status));
+
+    Mel_Gpu_Sampler_Create_Result smp = mel_gpu_sampler_create(dev, .min_filter = MEL_GPU_FILTER_NEAREST, .mag_filter = MEL_GPU_FILTER_NEAREST,
+                                                               .wrap_u = MEL_GPU_WRAP_CLAMP_EDGE, .wrap_v = MEL_GPU_WRAP_CLAMP_EDGE, .name = "bp-nearest");
+    MEL_REQUIRE(!mel_gpu_failed(smp.status));
+
+    Mel_Gpu_Pipeline_From_Slang_Result pipe = mel_gpu_pipeline_create_from_slang(dev,
+                                                                                 .source = BINDLESS_PRESENT_SLANG,
+                                                                                 .vertex_entry = "vs_main",
+                                                                                 .fragment_entry = "fs_main",
+                                                                                 .topology = MEL_GPU_TOPOLOGY_TRIANGLE_LIST,
+                                                                                 .cull = MEL_GPU_CULL_NONE,
+                                                                                 .color_format = MEL_GPU_FORMAT_RGBA8_UNORM,
+                                                                                 .bindless = true,
+                                                                                 .name = "scene-bindless-present");
+    MEL_REQUIRE(!mel_gpu_failed(pipe.status));
+
+    Bindless_Present_Root root = {
+        .tex = mel_gpu_texture_view_bindless_slot(dev, src_view.value),
+        .smp = mel_gpu_sampler_bindless_slot(dev, smp.value),
+    };
+
+    Scene_Target          tgt = scene_target_create(dev, SCENE_W, SCENE_H);
+    Mel_Gpu_Queue*        q = mel_gpu_queue_request(dev, MEL_GPU_QUEUE_GRAPHICS);
+    Mel_Gpu_Command_List* cmd = mel_gpu_command_list_create(q);
+    mel_gpu_command_list_begin(cmd);
+    Mel_Gpu_Subresource_Range range = { MEL_GPU_ASPECT_COLOR, 0, 1, 0, 1 };
+    mel_gpu_cmd_texture_barrier(cmd, tgt.rt, range, MEL_GPU_STATE_COMMON, MEL_GPU_STATE_RENDER_TARGET);
+    Mel_Gpu_Color_Attachment color = { .view = tgt.rt_view, .load = MEL_GPU_LOAD_CLEAR, .store = MEL_GPU_STORE_STORE, .clear = mel_gpu_rgba(0.0f, 0.0f, 0.0f, 1.0f) };
+    mel_gpu_cmd_begin_rendering(cmd, .colors = &color, .color_count = 1, .width = tgt.w, .height = tgt.h);
+    mel_gpu_cmd_bind_pipeline(cmd, pipe.value);
+    mel_gpu_cmd_bind_bindless(cmd);
+    mel_gpu_cmd_push_constants(cmd, 0, sizeof root, &root);
+    mel_gpu_cmd_draw(cmd, 3, 1);
+    mel_gpu_cmd_end_rendering(cmd);
+    mel_gpu_cmd_texture_barrier(cmd, tgt.rt, range, MEL_GPU_STATE_RENDER_TARGET, MEL_GPU_STATE_COPY_SOURCE);
+    mel_gpu_cmd_copy_texture_to_buffer(cmd, tgt.rt, range, tgt.rb);
+    mel_gpu_command_list_end(cmd);
+
+    Mel_Gpu_Future* f = mel_gpu_queue_submit(q, (Mel_Gpu_Submit){ .command_lists = &cmd, .command_list_count = 1 });
+    bool            ok = mel_gpu_ok(mel_gpu_future_wait(f));
+    mel_gpu_future_destroy(f);
+    MEL_REQUIRE(ok);
+
+    const u8* px = mel_gpu_buffer_mapped(dev, tgt.rb);
+    MEL_REQUIRE_NOT_NULL(px);
+    MEL_GOLDEN(SCENE_BACKEND, "shared/bindless_present", px, tgt.w, tgt.h, SCENE_TOL);
+
+    scene_target_destroy(dev, &tgt);
+    mel_gpu_command_list_destroy(cmd);
+    mel_gpu_queue_release(q);
+    mel_gpu_pipeline_destroy(dev, pipe.value);
+    mel_gpu_shader_destroy(dev, pipe.shader);
+    mel_gpu_sampler_destroy(dev, smp.value);
+    mel_gpu_texture_view_destroy(dev, src_view.value);
+    mel_gpu_texture_destroy(dev, src.value);
+    mel_gpu_device_destroy(dev);
+    mel_gpu_instance_destroy(inst);
 }
 
 #else
