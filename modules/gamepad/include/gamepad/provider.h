@@ -42,7 +42,7 @@ typedef struct
 Mel_Joystick_Provider mel_joystick_provider_register(const Mel_Joystick_Provider_Desc* desc);
 void                  mel_joystick_provider_unregister(Mel_Joystick_Provider p);
 
-void mel_joystick__register_host_providers(void);
+void mel_joystick__register_host_providers(const Mel_Alloc* alloc);
 
 typedef struct
 {
@@ -62,6 +62,8 @@ Mel_Joystick_Virtual mel_joystick_virtual_create_opt(Mel_Joystick_Virtual_Opt op
 void mel_joystick_virtual_destroy(Mel_Joystick_Virtual v);
 
 void mel_joystick_virtual_set_state(Mel_Joystick_Virtual v, const Mel_Joystick_State* state);
+
+void mel_joystick_virtual_set_descriptor(Mel_Joystick_Virtual v, const Mel_Joystick_Descriptor* desc);
 
 Mel_Joystick_Rumble mel_joystick_virtual_last_rumble(Mel_Joystick_Virtual v);
 Mel_Joystick_Led    mel_joystick_virtual_last_led(Mel_Joystick_Virtual v);

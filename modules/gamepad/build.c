@@ -35,6 +35,8 @@ void build(Mel_Build* b)
     mel_depends(lib, "reflect");
     mel_depends(lib, "guid");
     mel_depends(lib, "platform");
+    mel_depends(lib, "thread");
+    mel_depends(lib, "debug");
 
     mel_codegen(lib, "enum-str-gen", "gamepad.protocol.enum.gen.c", "$out", "$cflags", "$hostclang", "--", "gamepad/protocol.h");
     mel_codegen(lib, "enum-str-gen", "gamepad.gamepad.enum.gen.c", "$out", "$cflags", "$hostclang", "--", "gamepad/gamepad.h");
@@ -52,4 +54,6 @@ void build(Mel_Build* b)
     mel_depends(t, "event");
     mel_depends(t, "executor");
     mel_depends(t, "log");
+    mel_depends(t, "thread");
+    mel_depends(t, "debug");
 }

@@ -3,6 +3,9 @@
 
 #include "../joystick_backend.h"
 
+#include <allocator/allocator.h>
+#include <allocator/heap.h>
+#include <collection.array/array.h>
 #include <string/str8.h>
 #include <log/log.h>
 
@@ -20,31 +23,38 @@
 #define NBITS(x)   ((((x) - 1) / BITS_PER_LONG) + 1)
 #define TEST_BIT(bit, array) (((array)[(bit) / BITS_PER_LONG] >> ((bit) % BITS_PER_LONG)) & 1)
 
+#define LIN_HAT_MAX 4
+
 typedef struct
 {
-    int   fd;
-    u64   stable_id;
-    char  path[64];
-    char  name[128];
-    int   abs_map[ABS_CNT];
-    int   key_map[KEY_CNT];
-    u32   axis_count;
-    u32   button_count;
-    u32   hat_count;
-    i16   axes[ABS_CNT];
-    u8    buttons[KEY_CNT];
-    u8    hats[4];
-    i16   ff_rumble_id;
+    int            fd;
+    u64            stable_id;
+    char           path[64];
+    char           name[128];
+    Mel_Array(int) abs_map;
+    Mel_Array(int) key_map;
+    u32            axis_count;
+    u32            button_count;
+    u32            hat_count;
+    Mel_Array(i16) axes;
+    Mel_Array(u8)  buttons;
+    Mel_Array(u8)  hats;
+    i16            ff_rumble_id;
 } Lin_Pad;
 
-static Lin_Pad g_pads[32];
-static u32     g_pad_count;
+typedef struct
+{
+    const Mel_Alloc* alloc;
+    Mel_Array(Lin_Pad) pads;
+} Lin_Backend;
+
+static Lin_Backend g_backend;
 
 static Lin_Pad* pad_for(u64 stable_id)
 {
-    for (u32 i = 0; i < g_pad_count; i++)
-        if (g_pads[i].stable_id == stable_id && g_pads[i].fd >= 0)
-            return &g_pads[i];
+    for (usize i = 0; i < g_backend.pads.count; i++)
+        if (g_backend.pads.items[i].stable_id == stable_id && g_backend.pads.items[i].fd >= 0)
+            return &g_backend.pads.items[i];
     return NULL;
 }
 
@@ -57,6 +67,26 @@ static u64 stable_id_from_path(const char* path)
         h *= 1099511628211ULL;
     }
     return h;
+}
+
+static void pad_free(Lin_Pad* pad)
+{
+    mel_array_free(&pad->abs_map);
+    mel_array_free(&pad->key_map);
+    mel_array_free(&pad->axes);
+    mel_array_free(&pad->buttons);
+    mel_array_free(&pad->hats);
+}
+
+static void pads_close_all(void)
+{
+    for (usize i = 0; i < g_backend.pads.count; i++)
+    {
+        if (g_backend.pads.items[i].fd >= 0)
+            close(g_backend.pads.items[i].fd);
+        pad_free(&g_backend.pads.items[i]);
+    }
+    mel_array_clear(&g_backend.pads);
 }
 
 static bool open_device(const char* node, Lin_Pad* pad)
@@ -86,9 +116,14 @@ static bool open_device(const char* node, Lin_Pad* pad)
         return false;
     }
 
-    memset(pad, 0, sizeof *pad);
+    *pad = (Lin_Pad){ 0 };
     pad->fd = fd;
     pad->ff_rumble_id = -1;
+    mel_array_init(&pad->abs_map, g_backend.alloc);
+    mel_array_init(&pad->key_map, g_backend.alloc);
+    mel_array_init(&pad->axes, g_backend.alloc);
+    mel_array_init(&pad->buttons, g_backend.alloc);
+    mel_array_init(&pad->hats, g_backend.alloc);
     strncpy(pad->path, node, sizeof pad->path - 1);
     pad->stable_id = stable_id_from_path(node);
     if (ioctl(fd, EVIOCGNAME(sizeof pad->name), pad->name) < 0)
@@ -97,29 +132,38 @@ static bool open_device(const char* node, Lin_Pad* pad)
     u32 axis = 0;
     for (int code = 0; code < ABS_CNT; code++)
     {
-        pad->abs_map[code] = -1;
+        int slot = -1;
         if (TEST_BIT(code, absbit))
         {
-            if (code == ABS_HAT0X || code == ABS_HAT0Y || code == ABS_HAT1X || code == ABS_HAT1Y || code == ABS_HAT2X || code == ABS_HAT2Y || code == ABS_HAT3X || code == ABS_HAT3Y)
-                continue;
-            pad->abs_map[code] = (int)axis++;
+            bool is_hat = (code == ABS_HAT0X || code == ABS_HAT0Y || code == ABS_HAT1X || code == ABS_HAT1Y || code == ABS_HAT2X || code == ABS_HAT2Y || code == ABS_HAT3X || code == ABS_HAT3Y);
+            if (!is_hat)
+                slot = (int)axis++;
         }
+        mel_array_push(&pad->abs_map, slot);
     }
     pad->axis_count = axis;
 
     u32 btn = 0;
     for (int code = 0; code < KEY_CNT; code++)
     {
-        pad->key_map[code] = -1;
+        int slot = -1;
         if (TEST_BIT(code, keybit) && code >= BTN_MISC && code < KEY_MAX)
-            pad->key_map[code] = (int)btn++;
+            slot = (int)btn++;
+        mel_array_push(&pad->key_map, slot);
     }
     pad->button_count = btn;
 
     pad->hat_count = 0;
-    for (int h = 0; h < 4; h++)
+    for (int h = 0; h < LIN_HAT_MAX; h++)
         if (TEST_BIT(ABS_HAT0X + h * 2, absbit))
             pad->hat_count++;
+
+    for (u32 i = 0; i < pad->axis_count; i++)
+        mel_array_push(&pad->axes, (i16)0);
+    for (u32 i = 0; i < pad->button_count; i++)
+        mel_array_push(&pad->buttons, (u8)0);
+    for (u32 i = 0; i < LIN_HAT_MAX; i++)
+        mel_array_push(&pad->hats, (u8)MEL_JOYSTICK_HAT_CENTERED);
 
     return true;
 }
@@ -127,48 +171,45 @@ static bool open_device(const char* node, Lin_Pad* pad)
 static u32 lin_enumerate(void* user, Mel_Joystick_Raw* out, u32 cap)
 {
     (void)user;
-    for (u32 i = 0; i < g_pad_count; i++)
-        if (g_pads[i].fd >= 0)
-            close(g_pads[i].fd);
-    g_pad_count = 0;
+    pads_close_all();
 
     DIR* d = opendir("/dev/input");
     if (!d)
         return 0;
     struct dirent* e;
     u32            n = 0;
-    while ((e = readdir(d)) != NULL && g_pad_count < 32 && n < cap)
+    while ((e = readdir(d)) != NULL && n < cap)
     {
         if (strncmp(e->d_name, "event", 5) != 0)
             continue;
         char node[64];
         snprintf(node, sizeof node, "/dev/input/%s", e->d_name);
-        Lin_Pad* pad = &g_pads[g_pad_count];
-        if (!open_device(node, pad))
+        Lin_Pad pad;
+        if (!open_device(node, &pad))
             continue;
 
         struct input_id id = { 0 };
-        ioctl(pad->fd, EVIOCGID, &id);
+        ioctl(pad.fd, EVIOCGID, &id);
 
         Mel_Joystick_Descriptor desc;
         memset(&desc, 0, sizeof desc);
-        desc.name = str8_from_cstr(pad->name);
+        desc.name = str8_from_cstr(pad.name);
         desc.vendor_id = id.vendor;
         desc.product_id = id.product;
         desc.version = id.version;
-        desc.guid = mel_guid_from_hidapi(id.bustype, id.vendor, id.product, id.version, pad->name, 0, 0);
-        desc.axis_count = pad->axis_count;
-        desc.button_count = pad->button_count;
-        desc.hat_count = pad->hat_count;
+        desc.guid = mel_guid_from_hidapi(id.bustype, id.vendor, id.product, id.version, pad.name, 0, 0);
+        desc.axis_count = pad.axis_count;
+        desc.button_count = pad.button_count;
+        desc.hat_count = pad.hat_count;
         desc.player_index = -1;
 
         unsigned long ffbit[NBITS(FF_MAX)] = { 0 };
-        if (ioctl(pad->fd, EVIOCGBIT(EV_FF, sizeof ffbit), ffbit) >= 0)
+        if (ioctl(pad.fd, EVIOCGBIT(EV_FF, sizeof ffbit), ffbit) >= 0)
             desc.features.dual_motor_rumble = TEST_BIT(FF_RUMBLE, ffbit);
 
-        out[n].stable_id = pad->stable_id;
+        out[n].stable_id = pad.stable_id;
         out[n].desc = desc;
-        g_pad_count++;
+        mel_array_push(&g_backend.pads, pad);
         n++;
     }
     closedir(d);
@@ -187,24 +228,24 @@ static bool lin_poll(void* user, u64 stable_id, Mel_Joystick_State* out)
     {
         if (ev.type == EV_KEY)
         {
-            if (ev.code < KEY_CNT && pad->key_map[ev.code] >= 0)
-                pad->buttons[pad->key_map[ev.code]] = ev.value ? 1 : 0;
+            if (ev.code < pad->key_map.count && pad->key_map.items[ev.code] >= 0)
+                pad->buttons.items[pad->key_map.items[ev.code]] = ev.value ? 1 : 0;
         }
         else if (ev.type == EV_ABS)
         {
             if (ev.code == ABS_HAT0X || ev.code == ABS_HAT1X || ev.code == ABS_HAT2X || ev.code == ABS_HAT3X)
             {
                 int hi = (ev.code - ABS_HAT0X) / 2;
-                pad->hats[hi] = (u8)((pad->hats[hi] & ~(MEL_JOYSTICK_HAT_LEFT | MEL_JOYSTICK_HAT_RIGHT)) | (ev.value < 0 ? MEL_JOYSTICK_HAT_LEFT : ev.value > 0 ? MEL_JOYSTICK_HAT_RIGHT : 0));
+                pad->hats.items[hi] = (u8)((pad->hats.items[hi] & ~(MEL_JOYSTICK_HAT_LEFT | MEL_JOYSTICK_HAT_RIGHT)) | (ev.value < 0 ? MEL_JOYSTICK_HAT_LEFT : ev.value > 0 ? MEL_JOYSTICK_HAT_RIGHT : 0));
             }
             else if (ev.code == ABS_HAT0Y || ev.code == ABS_HAT1Y || ev.code == ABS_HAT2Y || ev.code == ABS_HAT3Y)
             {
                 int hi = (ev.code - ABS_HAT0Y) / 2;
-                pad->hats[hi] = (u8)((pad->hats[hi] & ~(MEL_JOYSTICK_HAT_UP | MEL_JOYSTICK_HAT_DOWN)) | (ev.value < 0 ? MEL_JOYSTICK_HAT_UP : ev.value > 0 ? MEL_JOYSTICK_HAT_DOWN : 0));
+                pad->hats.items[hi] = (u8)((pad->hats.items[hi] & ~(MEL_JOYSTICK_HAT_UP | MEL_JOYSTICK_HAT_DOWN)) | (ev.value < 0 ? MEL_JOYSTICK_HAT_UP : ev.value > 0 ? MEL_JOYSTICK_HAT_DOWN : 0));
             }
-            else if (ev.code < ABS_CNT && pad->abs_map[ev.code] >= 0)
+            else if (ev.code < pad->abs_map.count && pad->abs_map.items[ev.code] >= 0)
             {
-                pad->axes[pad->abs_map[ev.code]] = (i16)ev.value;
+                pad->axes.items[pad->abs_map.items[ev.code]] = (i16)ev.value;
             }
         }
     }
@@ -212,11 +253,11 @@ static bool lin_poll(void* user, u64 stable_id, Mel_Joystick_State* out)
         return false;
 
     memset(out, 0, sizeof *out);
-    out->axes = pad->axes;
+    out->axes = pad->axes.items;
     out->axis_count = pad->axis_count;
-    out->buttons = pad->buttons;
+    out->buttons = pad->buttons.items;
     out->button_count = pad->button_count;
-    out->hats = pad->hats;
+    out->hats = pad->hats.items;
     out->hat_count = pad->hat_count;
     return true;
 }
@@ -252,16 +293,23 @@ static Mel_Joystick_Status lin_rumble(void* user, u64 stable_id, Mel_Joystick_Ru
 static void lin_close(void* user, u64 stable_id)
 {
     (void)user;
-    Lin_Pad* pad = pad_for(stable_id);
-    if (pad && pad->fd >= 0)
+    for (usize i = 0; i < g_backend.pads.count; i++)
     {
-        close(pad->fd);
-        pad->fd = -1;
+        Lin_Pad* pad = &g_backend.pads.items[i];
+        if (pad->stable_id != stable_id)
+            continue;
+        if (pad->fd >= 0)
+            close(pad->fd);
+        pad_free(pad);
+        *pad = (Lin_Pad){ .fd = -1, .ff_rumble_id = -1 };
+        return;
     }
 }
 
-void mel_joystick__register_host_providers(void)
+void mel_joystick__register_host_providers(const Mel_Alloc* alloc)
 {
+    g_backend.alloc = alloc ? alloc : mel_alloc_heap();
+    mel_array_init(&g_backend.pads, g_backend.alloc);
     Mel_Joystick_Provider_Desc desc = {
         .name = "evdev",
         .enumerate = lin_enumerate,

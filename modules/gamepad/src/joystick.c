@@ -8,6 +8,8 @@
 #include <collection.array/array.h>
 #include <event/event.h>
 #include <log/log.h>
+#include <thread/thread.h>
+#include <debug/assert.h>
 
 #include <string/str8.h>
 
@@ -55,9 +57,15 @@ typedef struct
     Mel_Event*    events;
     Mel_Event_Sub poll_sub;
     u32           provider_gen;
+    Mel_Thread_Id owner;
 } Joystick;
 
 static Joystick g;
+
+static void assert_affinity(void)
+{
+    mel_assert(mel_thread_id_equal(g.owner, mel_thread_current_id()));
+}
 
 static Mel_Joystick_Host_Register_Fn g_host_register_override;
 
@@ -130,6 +138,8 @@ static void slot_adopt(Device_Slot* s, const Mel_Joystick_Descriptor* src)
 
 Mel_Joystick_Provider mel_joystick_provider_register(const Mel_Joystick_Provider_Desc* desc)
 {
+    if (g.initialized)
+        assert_affinity();
     Provider_Entry e = { .desc = *desc, .generation = ++g.provider_gen, .active = true };
     u32            idx = (u32)g.providers.count;
     mel_array_push(&g.providers, e);
@@ -138,6 +148,8 @@ Mel_Joystick_Provider mel_joystick_provider_register(const Mel_Joystick_Provider
 
 void mel_joystick_provider_unregister(Mel_Joystick_Provider p)
 {
+    if (g.initialized)
+        assert_affinity();
     if (p.index < g.providers.count && g.providers.items[p.index].generation == p.generation)
         g.providers.items[p.index].active = false;
 }
@@ -154,11 +166,12 @@ void mel_joystick_init_ex(const Mel_Alloc* alloc, Mel_Executor* exec)
     g.provider_gen = 0;
     g.events = mel_event_create(g.alloc, sizeof(Mel_Joystick_Event), MEL_JOYSTICK_EVENTS_CAP, mel_event_policy_latest(events_overflow_report, NULL));
     g.poll_sub = g.events != NULL ? mel_event_subscribe_pull(g.events, NULL) : MEL_EVENT_SUB_NULL;
+    g.owner = mel_thread_current_id();
     g.initialized = true;
     if (g_host_register_override)
-        g_host_register_override();
+        g_host_register_override(g.alloc);
     else
-        mel_joystick__register_host_providers();
+        mel_joystick__register_host_providers(g.alloc);
     mel_joystick_refresh();
 }
 
@@ -168,6 +181,7 @@ void mel_joystick_shutdown(void)
 {
     if (!g.initialized)
         return;
+    assert_affinity();
     for (usize i = 0; i < g.registry.count; i++)
     {
         Device_Slot* s = device_slot(g.registry.items[i].handle);
@@ -192,6 +206,7 @@ u32 mel_joystick_refresh(void)
 {
     if (!g.initialized)
         mel_joystick_init(NULL);
+    assert_affinity();
 
     Mel_Array(Gathered) gs;
     mel_array_init(&gs, g.alloc);

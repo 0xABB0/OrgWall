@@ -17,3 +17,21 @@
 - Shared spine unification with the `input` module at merge time (see readme).
 - Bundled `gamecontrollerdb.txt` carries a small seed set; wire a periodic sync to upstream
   SDL_GameControllerDB or load the full db as a runtime asset.
+
+## Performance (should-fix, non-blocking)
+
+- linux: `enumerate` tears down and re-opens every `/dev/input/event*` fd on each refresh
+  (`pads_close_all` then re-`open_device`). A udev hot-plug monitor would let refresh diff without
+  re-scanning; until then the cost is O(devices) syscalls per refresh.
+- gamepad mapping: `mapping_for` is a linear scan of the loaded db per `mel_gamepad_read`/binding
+  query (O(mappings) per lookup). Index mappings by GUID (hash map) for O(1) match when the db grows.
+
+## Stable identity gaps
+
+- ios: GameController exposes no public durable per-device id (no IOKit registry, no VID/PID/serial),
+  so the stable id falls back to the GCController pointer — address reuse across reconnect can alias.
+  Revisit if a public durable source appears (e.g. `GCDevice` identity on a future OS).
+- macos: HID-to-GCController correlation in `match_hid` is positional (claims the next unclaimed HID
+  joystick record). Two identical controllers attached simultaneously may swap VID/PID/serial/registry
+  id between them. Correlate on serial when present, then on a private IOHID-GCController join if Apple
+  exposes one.

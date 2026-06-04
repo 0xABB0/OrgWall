@@ -198,7 +198,10 @@ static u32 parse_u32(str8 s)
     {
         if (s.data[i] < '0' || s.data[i] > '9')
             break;
-        v = v * 10 + (u32)(s.data[i] - '0');
+        u32 digit = (u32)(s.data[i] - '0');
+        if (v > (0xFFFFFFFFu - digit) / 10u)
+            return 0xFFFFFFFFu;
+        v = v * 10u + digit;
     }
     return v;
 }

@@ -15,7 +15,7 @@
 
 #include "../src/joystick_backend.h"
 
-static void noop_host_register(void) {}
+static void noop_host_register(const Mel_Alloc* alloc) { MEL_UNUSED(alloc); }
 
 MEL_TEST(guid, vidpid_round_trip)
 {
@@ -278,6 +278,55 @@ MEL_TEST(joystick, event_spine_added_removed)
             removed = true;
     MEL_EXPECT(removed);
 
+    mel_joystick_shutdown();
+}
+
+MEL_TEST(joystick, changed_event_fires_on_descriptor_diff)
+{
+    mel_joystick__set_host_register(noop_host_register);
+    mel_joystick_init(mel_alloc_heap());
+
+    Mel_Joystick_Descriptor desc;
+    memset(&desc, 0, sizeof desc);
+    desc.axis_count = 6;
+    desc.button_count = MEL_GAMEPAD_BUTTON_COUNT;
+    desc.player_index = 0;
+
+    Mel_Joystick_Virtual v = mel_joystick_virtual_create(.desc = desc);
+    MEL_REQUIRE(v.stable_id != 0);
+
+    mel_joystick_refresh();
+
+    Mel_Joystick_Event evs[32];
+    u32                ne = mel_joystick_poll_events(evs, 32);
+    Mel_Joystick       added_handle = MEL_JOYSTICK_NULL;
+    for (u32 i = 0; i < ne; i++)
+        if (evs[i].kind == MEL_JOYSTICK_EVENT_ADDED)
+            added_handle = evs[i].joystick;
+    MEL_REQUIRE(mel_joystick_alive(added_handle));
+
+    Mel_Joystick_Descriptor mutated = desc;
+    mutated.player_index = 3;
+    mel_joystick_virtual_set_descriptor(v, &mutated);
+
+    mel_joystick_refresh();
+
+    ne = mel_joystick_poll_events(evs, 32);
+    bool changed = false;
+    for (u32 i = 0; i < ne; i++)
+        if (evs[i].kind == MEL_JOYSTICK_EVENT_CHANGED && mel_joystick_equal(evs[i].joystick, added_handle))
+        {
+            changed = true;
+            MEL_EXPECT((evs[i].changed_fields & MEL_JOYSTICK_FIELD_PLAYER_INDEX) != 0u);
+        }
+    MEL_EXPECT(changed);
+
+    Mel_Joystick_Describe_Result r = mel_joystick_describe(added_handle);
+    MEL_REQUIRE(r.status == MEL_JOYSTICK_OK);
+    MEL_EXPECT_EQ(r.value.player_index, 3);
+
+    mel_joystick_virtual_destroy(v);
+    mel_joystick_refresh();
     mel_joystick_shutdown();
 }
 
