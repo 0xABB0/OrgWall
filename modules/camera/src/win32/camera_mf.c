@@ -50,6 +50,22 @@ static bool mf_subtype_for(const mel_image_format* fmt, GUID* out)
     return false;
 }
 
+static bool mf_attr_size(IMFMediaType* mt, REFGUID key, UINT32* hi, UINT32* lo)
+{
+    UINT64 packed = 0;
+    if (FAILED(IMFAttributes_GetUINT64((IMFAttributes*)mt, key, &packed)))
+        return false;
+    *hi = (UINT32)(packed >> 32);
+    *lo = (UINT32)(packed & 0xFFFFFFFFull);
+    return true;
+}
+
+static void mf_attr_set_size(IMFMediaType* mt, REFGUID key, UINT32 hi, UINT32 lo)
+{
+    UINT64 packed = ((UINT64)hi << 32) | (UINT64)lo;
+    IMFAttributes_SetUINT64((IMFAttributes*)mt, key, packed);
+}
+
 static const mel_image_format* mf_format_for(REFGUID subtype)
 {
     usize                n = 0;
@@ -168,9 +184,9 @@ static void modes_collect(IMFMediaSource* source, Mel_Camera_Modes* modes)
             if (fmt)
             {
                 UINT32 w = 0, h = 0;
-                MFGetAttributeSize((IMFAttributes*)mt, &MF_MT_FRAME_SIZE, &w, &h);
+                mf_attr_size(mt, &MF_MT_FRAME_SIZE, &w, &h);
                 UINT32 num = 0, den = 0;
-                MFGetAttributeRatio((IMFAttributes*)mt, &MF_MT_FRAME_RATE, &num, &den);
+                mf_attr_size(mt, &MF_MT_FRAME_RATE, &num, &den);
                 f32 fps = den != 0 ? (f32)num / (f32)den : 0.0f;
                 Mel_Camera_Mode mode = {
                     .format = fmt,
@@ -480,14 +496,14 @@ static bool reader_select_format(IMFSourceReader* reader, const GUID* subtype, i
         bool   match = false;
         if (SUCCEEDED(IMFMediaType_GetGUID(mt, &MF_MT_SUBTYPE, &got)) && IsEqualGUID(&got, subtype))
         {
-            MFGetAttributeSize((IMFAttributes*)mt, &MF_MT_FRAME_SIZE, &mw, &mh);
+            mf_attr_size(mt, &MF_MT_FRAME_SIZE, &mw, &mh);
             if ((i32)mw == w && (i32)mh == h)
                 match = true;
         }
         if (match)
         {
             if (fps > 0.0f)
-                MFSetAttributeRatio((IMFAttributes*)mt, &MF_MT_FRAME_RATE, (UINT32)(fps + 0.5f), 1);
+                mf_attr_set_size(mt, &MF_MT_FRAME_RATE, (UINT32)(fps + 0.5f), 1);
             HRESULT sr = IMFSourceReader_SetCurrentMediaType(reader, (DWORD)MF_SOURCE_READER_FIRST_VIDEO_STREAM, NULL, mt);
             IMFMediaType_Release(mt);
             return SUCCEEDED(sr);
