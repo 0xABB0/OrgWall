@@ -748,6 +748,8 @@ static void mel__log_init(void)
 MEL_DESTRUCTOR_PRIO(101)
 static void mel__log_shutdown(void)
 {
+    fprintf(stderr, "DIAG mel__log_shutdown enter running=%d\n", (int)atomic_load_explicit(&writer_running, memory_order_acquire));
+    fflush(stderr);
     if (atomic_load_explicit(&writer_running, memory_order_acquire))
     {
         atomic_store_explicit(&writer_shutdown, true, memory_order_release);
