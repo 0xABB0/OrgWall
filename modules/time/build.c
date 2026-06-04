@@ -7,6 +7,7 @@ void build(Mel_Build* b)
     mel_sources(lib, ALWAYS, "src/duration.c");
     mel_sources(lib, ALWAYS, "src/clock.c");
     mel_sources(lib, WHEN(.platforms = MEL_ON(MACOS) | MEL_ON(IOS) | MEL_ON(LINUX) | MEL_ON(ANDROID) | MEL_ON(WASM)), "src/nano.unix.c");
+    mel_cflags(lib, MEL_PRIVATE, WHEN(.platforms = MEL_ON(WASM)), "-D_POSIX_C_SOURCE=199309L");
     mel_sources(lib, WHEN(.platforms = MEL_ON(WIN32)), "src/nano.win32.c");
     mel_depends(lib, "core");
     mel_depends(lib, "string");
