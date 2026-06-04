@@ -118,15 +118,18 @@ MEL_TEST(joystick, trigger_rumble_warns_when_unsupported)
 
     Mel_Joystick list[16];
     u32          n = mel_joystick_list(list, 16);
+    bool         found = false;
     for (u32 i = 0; i < n; i++)
     {
         Mel_Joystick_Describe_Result r = mel_joystick_describe(list[i]);
         if (r.status == MEL_JOYSTICK_OK && !r.value.features.trigger_rumble && r.value.features.dual_motor_rumble)
         {
+            found = true;
             Mel_Joystick_Status rs = mel_joystick_rumble(list[i], (Mel_Joystick_Rumble){ .left_trigger = 0.7f });
             MEL_EXPECT((rs & MEL_JOYSTICK_TRIGGER_RUMBLE_OFF) != 0u);
         }
     }
+    MEL_EXPECT(found);
 
     mel_joystick_virtual_destroy(v);
     mel_joystick_refresh();
@@ -236,4 +239,106 @@ MEL_TEST(gamepad, protocol_enum_reflection)
     MEL_EXPECT_EQ_STR8(Mel_Gamepad_Button_to_string(MEL_GAMEPAD_BUTTON_SOUTH), S8("South"));
     MEL_EXPECT_EQ_STR8(Mel_Gamepad_Axis_to_string(MEL_GAMEPAD_AXIS_LEFT_TRIGGER), S8("LeftTrigger"));
     MEL_EXPECT_EQ_STR8(Mel_Scancode_to_string(MEL_SCANCODE_A), S8("A"));
+}
+
+MEL_TEST(joystick, event_spine_added_removed)
+{
+    mel_joystick__set_host_register(noop_host_register);
+    mel_joystick_init(mel_alloc_heap());
+
+    Mel_Joystick_Descriptor desc;
+    memset(&desc, 0, sizeof desc);
+    desc.axis_count = 6;
+    desc.button_count = MEL_GAMEPAD_BUTTON_COUNT;
+
+    Mel_Joystick_Virtual v = mel_joystick_virtual_create(.desc = desc);
+    MEL_REQUIRE(v.stable_id != 0);
+
+    mel_joystick_refresh();
+
+    Mel_Joystick_Event evs[32];
+    u32                ne = mel_joystick_poll_events(evs, 32);
+    bool               added = false;
+    Mel_Joystick       added_handle = MEL_JOYSTICK_NULL;
+    for (u32 i = 0; i < ne; i++)
+        if (evs[i].kind == MEL_JOYSTICK_EVENT_ADDED)
+        {
+            added = true;
+            added_handle = evs[i].joystick;
+        }
+    MEL_EXPECT(added);
+    MEL_REQUIRE(mel_joystick_alive(added_handle));
+
+    mel_joystick_virtual_destroy(v);
+    mel_joystick_refresh();
+    ne = mel_joystick_poll_events(evs, 32);
+    bool removed = false;
+    for (u32 i = 0; i < ne; i++)
+        if (evs[i].kind == MEL_JOYSTICK_EVENT_REMOVED)
+            removed = true;
+    MEL_EXPECT(removed);
+
+    mel_joystick_shutdown();
+}
+
+MEL_TEST(joystick, enumerate_grows_past_initial_cap)
+{
+    mel_joystick__set_host_register(noop_host_register);
+    mel_joystick_init(mel_alloc_heap());
+
+    Mel_Joystick_Descriptor desc;
+    memset(&desc, 0, sizeof desc);
+    desc.axis_count = 2;
+    desc.button_count = 4;
+
+    const u32             made = 20;
+    Mel_Joystick_Virtual* vs = (Mel_Joystick_Virtual*)mel_alloc(mel_alloc_heap(), sizeof(Mel_Joystick_Virtual) * made);
+    MEL_REQUIRE_NOT_NULL(vs);
+    for (u32 i = 0; i < made; i++)
+        vs[i] = mel_joystick_virtual_create(.desc = desc);
+
+    mel_joystick_refresh();
+    MEL_EXPECT_GE(mel_joystick_count(), made);
+
+    for (u32 i = 0; i < made; i++)
+        mel_joystick_virtual_destroy(vs[i]);
+    mel_joystick_refresh();
+    mel_dealloc(mel_alloc_heap(), vs);
+    mel_joystick_shutdown();
+}
+
+MEL_TEST(joystick, descriptor_name_survives_refresh)
+{
+    mel_joystick__set_host_register(noop_host_register);
+    mel_joystick_init(mel_alloc_heap());
+
+    char namebuf[32];
+    strncpy(namebuf, "WanderingName", sizeof namebuf - 1);
+    namebuf[sizeof namebuf - 1] = '\0';
+
+    Mel_Joystick_Descriptor desc;
+    memset(&desc, 0, sizeof desc);
+    desc.axis_count = 2;
+    desc.button_count = 4;
+    desc.name = str8_from_cstr(namebuf);
+
+    Mel_Joystick_Virtual v = mel_joystick_virtual_create(.desc = desc);
+    mel_joystick_refresh();
+
+    memset(namebuf, 'Z', sizeof namebuf);
+
+    Mel_Joystick list[16];
+    u32          n = mel_joystick_list(list, 16);
+    bool         matched = false;
+    for (u32 i = 0; i < n; i++)
+    {
+        Mel_Joystick_Describe_Result r = mel_joystick_describe(list[i]);
+        if (r.status == MEL_JOYSTICK_OK && str8_equals(r.value.name, S8("WanderingName")))
+            matched = true;
+    }
+    MEL_EXPECT(matched);
+
+    mel_joystick_virtual_destroy(v);
+    mel_joystick_refresh();
+    mel_joystick_shutdown();
 }

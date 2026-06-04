@@ -122,11 +122,17 @@ static u32 android_enumerate(void* user, Mel_Joystick_Raw* out, u32 cap)
 static bool android_poll(void* user, u64 stable_id, Mel_Joystick_State* out)
 {
     (void)user;
+    (void)out;
     And_Pad* pad = pad_for(stable_id);
     if (!pad)
         return false;
-    memset(out, 0, sizeof *out);
-    return true;
+    static bool warned;
+    if (!warned)
+    {
+        mel_log_warn("gamepad", "android poll has no MotionEvent/KeyEvent bridge; input state is unavailable (device_id=%d)", pad->device_id);
+        warned = true;
+    }
+    return false;
 }
 
 static Mel_Joystick_Status android_rumble(void* user, u64 stable_id, Mel_Joystick_Rumble rumble)

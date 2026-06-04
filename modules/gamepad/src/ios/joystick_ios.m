@@ -66,8 +66,8 @@ static u32 ios_enumerate(void* user, Mel_Joystick_Raw* out, u32 cap)
             if (@available(iOS 14.0, *))
             {
                 d.features.gyro = (c.motion != nil && c.motion.hasRotationRate);
-                d.features.dual_motor_rumble = (c.haptics != nil);
-                d.features.trigger_rumble = (c.haptics != nil);
+                d.features.dual_motor_rumble = false;
+                d.features.trigger_rumble = false;
             }
         }
         if (@available(iOS 14.0, *))
@@ -144,12 +144,6 @@ static Mel_Joystick_Status ios_rumble(void* user, u64 stable_id, Mel_Joystick_Ru
     GCController* c = controller_of(pad);
     if (!c)
         return MEL_JOYSTICK_ERROR | MEL_JOYSTICK_DEVICE_LOST;
-    if (@available(iOS 14.0, *))
-    {
-        if (c.haptics == nil)
-            return MEL_JOYSTICK_ERROR | MEL_JOYSTICK_UNSUPPORTED;
-        return MEL_JOYSTICK_OK;
-    }
     return MEL_JOYSTICK_ERROR | MEL_JOYSTICK_UNSUPPORTED;
 }
 

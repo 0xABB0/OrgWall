@@ -9,6 +9,8 @@
 #include <event/event.h>
 #include <log/log.h>
 
+#include <string/str8.h>
+
 #include <string.h>
 
 #include "joystick_backend.h"
@@ -99,9 +101,31 @@ static u32 changed_fields(const Mel_Joystick_Descriptor* a, const Mel_Joystick_D
         fields |= MEL_JOYSTICK_FIELD_PLAYER_INDEX;
     if (memcmp(&a->features, &b->features, sizeof a->features) != 0)
         fields |= MEL_JOYSTICK_FIELD_FEATURES;
-    if (a->name.data != b->name.data || a->name.len != b->name.len)
+    if (!str8_equals(a->name, b->name))
         fields |= MEL_JOYSTICK_FIELD_NAME;
     return fields;
+}
+
+static void slot_release_strings(Device_Slot* s)
+{
+    if (s->desc.name.data != NULL)
+    {
+        mel_dealloc(g.alloc, s->desc.name.data);
+        s->desc.name = (str8){ 0 };
+    }
+    if (s->desc.serial.data != NULL)
+    {
+        mel_dealloc(g.alloc, s->desc.serial.data);
+        s->desc.serial = (str8){ 0 };
+    }
+}
+
+static void slot_adopt(Device_Slot* s, const Mel_Joystick_Descriptor* src)
+{
+    Mel_Joystick_Descriptor d = *src;
+    d.name = src->name.len > 0 ? str8_dup_alloc(src->name, g.alloc) : (str8){ 0 };
+    d.serial = src->serial.len > 0 ? str8_dup_alloc(src->serial, g.alloc) : (str8){ 0 };
+    s->desc = d;
 }
 
 Mel_Joystick_Provider mel_joystick_provider_register(const Mel_Joystick_Provider_Desc* desc)
@@ -146,6 +170,9 @@ void mel_joystick_shutdown(void)
         return;
     for (usize i = 0; i < g.registry.count; i++)
     {
+        Device_Slot* s = device_slot(g.registry.items[i].handle);
+        if (s)
+            slot_release_strings(s);
         Provider_Entry* prov = provider_get(g.registry.items[i].provider_idx);
         if (prov && prov->desc.close)
             prov->desc.close(prov->desc.user, g.registry.items[i].stable_id);
@@ -178,9 +205,9 @@ u32 mel_joystick_refresh(void)
         mel_array_init(&tmp, g.alloc);
         mel_array_reserve(&tmp, 8);
         u32 n = pe->desc.enumerate(pe->desc.user, tmp.items, (u32)tmp.capacity);
-        while (n > tmp.capacity)
+        while (n == tmp.capacity)
         {
-            mel_array_reserve(&tmp, n);
+            mel_array_reserve(&tmp, tmp.capacity * 2);
             n = pe->desc.enumerate(pe->desc.user, tmp.items, (u32)tmp.capacity);
         }
         for (u32 i = 0; i < n; i++)
@@ -207,13 +234,15 @@ u32 mel_joystick_refresh(void)
             if (s)
             {
                 u32 fields = changed_fields(&s->desc, &gt->raw.desc);
-                s->desc = gt->raw.desc;
+                slot_release_strings(s);
+                slot_adopt(s, &gt->raw.desc);
                 if (fields != 0)
                     fire_event((Mel_Joystick_Event){ .kind = MEL_JOYSTICK_EVENT_CHANGED, .joystick = { e->handle }, .changed_fields = fields });
             }
             continue;
         }
-        Device_Slot        slot = { .provider_idx = gt->prov, .stable_id = gt->raw.stable_id, .desc = gt->raw.desc };
+        Device_Slot slot = { .provider_idx = gt->prov, .stable_id = gt->raw.stable_id };
+        slot_adopt(&slot, &gt->raw.desc);
         Mel_SlotMap_Handle h = mel_slotmap_insert(&g.devices, &slot);
         Reg_Entry          re = { .provider_idx = gt->prov, .stable_id = gt->raw.stable_id, .handle = h };
         mel_array_push(&g.registry, re);
@@ -230,7 +259,10 @@ u32 mel_joystick_refresh(void)
             continue;
         }
         Mel_SlotMap_Handle h = g.registry.items[i].handle;
-        Provider_Entry*    prov = provider_get(g.registry.items[i].provider_idx);
+        Device_Slot*       rs = device_slot(h);
+        if (rs)
+            slot_release_strings(rs);
+        Provider_Entry* prov = provider_get(g.registry.items[i].provider_idx);
         if (prov && prov->desc.close)
             prov->desc.close(prov->desc.user, g.registry.items[i].stable_id);
         mel_slotmap_remove(&g.devices, h);
