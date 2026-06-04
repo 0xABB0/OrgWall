@@ -205,7 +205,7 @@ Mel_Gpu_Device_Create_Result mel_gpu_device_create_opt(Mel_Gpu_Instance* inst, M
     mel_dealloc(alloc, exts);
     if (r != VK_SUCCESS)
     {
-        res.status = r == VK_ERROR_OUT_OF_HOST_MEMORY || r == VK_ERROR_OUT_OF_DEVICE_MEMORY ? MEL_GPU_DEVICE_CREATE_OOM : MEL_GPU_DEVICE_CREATE_VK_FAILED;
+        res.status = r == VK_ERROR_OUT_OF_HOST_MEMORY || r == VK_ERROR_OUT_OF_DEVICE_MEMORY ? MEL_GPU_DEVICE_CREATE_OOM : MEL_GPU_DEVICE_CREATE_BACKEND_FAILED;
         mel_log_error("gpu", "vkCreateDevice failed: %s", mel_gpu__vk_result_str(r));
         return res;
     }

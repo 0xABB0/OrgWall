@@ -101,7 +101,7 @@ Mel_Gpu_Device_Create_Result mel_gpu_device_create_opt(Mel_Gpu_Instance* inst, M
 
     if (!req.ok)
     {
-        res.status = MEL_GPU_DEVICE_CREATE_VK_FAILED;
+        res.status = MEL_GPU_DEVICE_CREATE_BACKEND_FAILED;
         mel_log_error("gpu", "device_create: requestDevice did not resolve to a device");
         mel_dealloc(alloc, dev);
         return res;

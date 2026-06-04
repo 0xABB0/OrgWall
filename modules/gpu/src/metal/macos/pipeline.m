@@ -75,7 +75,7 @@ Mel_Gpu_Shader_Create_Result mel_gpu_shader_create_from_bytecode_opt(Mel_Gpu_Dev
     id<MTLLibrary> flib = vblob == fblob ? vlib : mel_gpu__mtl_library(dev, fblob, fsize, dbg_name);
     if (!vlib || !flib)
     {
-        res.status = MEL_GPU_SHADER_CREATE_VK_FAILED;
+        res.status = MEL_GPU_SHADER_CREATE_BACKEND_FAILED;
         return res;
     }
 
@@ -83,7 +83,7 @@ Mel_Gpu_Shader_Create_Result mel_gpu_shader_create_from_bytecode_opt(Mel_Gpu_Dev
     id<MTLFunction> ffn = mel_gpu__mtl_function(flib, opt.fragment_entry, dbg_name, "fragment");
     if (!vfn || !ffn)
     {
-        res.status = MEL_GPU_SHADER_CREATE_VK_FAILED;
+        res.status = MEL_GPU_SHADER_CREATE_BACKEND_FAILED;
         return res;
     }
 
@@ -133,13 +133,13 @@ Mel_Gpu_Shader_Create_Result mel_gpu_shader_create_compute_from_bytecode_opt(Mel
     id<MTLLibrary> lib = mel_gpu__mtl_library(dev, cblob, csize, dbg_name);
     if (!lib)
     {
-        res.status = MEL_GPU_SHADER_CREATE_VK_FAILED;
+        res.status = MEL_GPU_SHADER_CREATE_BACKEND_FAILED;
         return res;
     }
     id<MTLFunction> cfn = mel_gpu__mtl_function(lib, opt.entry, dbg_name, "compute");
     if (!cfn)
     {
-        res.status = MEL_GPU_SHADER_CREATE_VK_FAILED;
+        res.status = MEL_GPU_SHADER_CREATE_BACKEND_FAILED;
         return res;
     }
 
@@ -484,7 +484,7 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_create_opt(Mel_Gpu_Device* dev, 
         if (pf == MTLPixelFormatInvalid)
         {
             mel_log_error("gpu", "pipeline_create '%s': color target %u format %d has no Metal mapping", dbg_name, i, (int)targets[i].format);
-            res.status = MEL_GPU_PIPELINE_CREATE_VK_FAILED;
+            res.status = MEL_GPU_PIPELINE_CREATE_BACKEND_FAILED;
             return res;
         }
         const Mel_Gpu_Blend* b = &targets[i].blend;
@@ -505,7 +505,7 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_create_opt(Mel_Gpu_Device* dev, 
         if (df == MTLPixelFormatInvalid)
         {
             mel_log_error("gpu", "pipeline_create '%s': depth format %d has no Metal mapping", dbg_name, (int)opt.depth_format);
-            res.status = MEL_GPU_PIPELINE_CREATE_VK_FAILED;
+            res.status = MEL_GPU_PIPELINE_CREATE_BACKEND_FAILED;
             return res;
         }
         rpd.depthAttachmentPixelFormat = df;
@@ -535,7 +535,7 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_create_opt(Mel_Gpu_Device* dev, 
         }
         if (!ok)
         {
-            res.status = MEL_GPU_PIPELINE_CREATE_VK_FAILED;
+            res.status = MEL_GPU_PIPELINE_CREATE_BACKEND_FAILED;
             return res;
         }
         vd.layouts[MEL_GPU_METAL_VERTEX_BUFFER_INDEX].stride = opt.vertex_stride;
@@ -548,7 +548,7 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_create_opt(Mel_Gpu_Device* dev, 
     if (!state)
     {
         mel_log_error("gpu", "pipeline_create '%s': newRenderPipelineState failed: %s", dbg_name, err ? err.localizedDescription.UTF8String : "(no error)");
-        res.status = MEL_GPU_PIPELINE_CREATE_VK_FAILED;
+        res.status = MEL_GPU_PIPELINE_CREATE_BACKEND_FAILED;
         return res;
     }
 
@@ -556,7 +556,7 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_create_opt(Mel_Gpu_Device* dev, 
     if ((opt.depth_stencil || opt.depth_format != MEL_GPU_FORMAT_UNDEFINED) && !dss)
     {
         mel_log_error("gpu", "pipeline_create '%s': newDepthStencilState returned nil", dbg_name);
-        res.status = MEL_GPU_PIPELINE_CREATE_VK_FAILED;
+        res.status = MEL_GPU_PIPELINE_CREATE_BACKEND_FAILED;
         return res;
     }
 
@@ -603,7 +603,7 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_compute_create_opt(Mel_Gpu_Devic
     if (!state)
     {
         mel_log_error("gpu", "pipeline_compute_create '%s': newComputePipelineState failed: %s", dbg_name, err ? err.localizedDescription.UTF8String : "(no error)");
-        res.status = MEL_GPU_PIPELINE_CREATE_VK_FAILED;
+        res.status = MEL_GPU_PIPELINE_CREATE_BACKEND_FAILED;
         return res;
     }
 

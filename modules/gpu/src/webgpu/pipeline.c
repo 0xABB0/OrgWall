@@ -233,7 +233,7 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_create_opt(Mel_Gpu_Device* dev, 
         mel_dealloc(dev->alloc, attrs);
     if (!wp)
     {
-        res.status = MEL_GPU_PIPELINE_CREATE_VK_FAILED;
+        res.status = MEL_GPU_PIPELINE_CREATE_BACKEND_FAILED;
         mel_log_error("gpu", "pipeline_create: wgpuDeviceCreateRenderPipeline returned null for '%s'", opt.name ? opt.name : "(unnamed)");
         return res;
     }
