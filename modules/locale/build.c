@@ -20,6 +20,7 @@ void build(Mel_Build* b)
     mel_depends(lib, "event");
     mel_depends(lib, "executor");
     mel_depends(lib, "log");
+    mel_depends(lib, "debug");
     mel_depends_when(lib, "platform", WHEN(.platforms = MEL_ON(ANDROID)));
 
     Mel_Target* t = mel_add_test(b, "locale-core");
@@ -35,4 +36,5 @@ void build(Mel_Build* b)
     mel_depends(t, "event");
     mel_depends(t, "executor");
     mel_depends(t, "log");
+    mel_depends(t, "debug");
 }
