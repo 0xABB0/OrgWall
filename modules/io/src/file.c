@@ -32,7 +32,6 @@ typedef struct
     Mel_Stream* stream;
     i64         target_pos;
     bool        advance;
-    bool        is_read;
 } File_Cont;
 
 static Mel_IO_Status status_from_port(Mel_Port_Status ps)
@@ -113,7 +112,6 @@ static Mel_Future* file_submit(Mel_Stream* s, File_State* f, bool is_read, void*
     k->stream = s;
     k->target_pos = pos;
     k->advance = advance;
-    k->is_read = is_read;
     mel_task_init(&k->task, file_cont_run);
     mel_future_then(pf, &k->task, deliver ? deliver : mel_port_executor(f->port));
     return &op->future;
@@ -153,6 +151,11 @@ static bool file_size(Mel_Stream* s, void* user, i64* out_size)
 {
     File_State* f = (File_State*)user;
     (void)s;
+    if (!f->writable && f->native.seekable)
+    {
+        *out_size = f->native.initial_size;
+        return true;
+    }
     return mel_io__backend_size(f->native, out_size);
 }
 
