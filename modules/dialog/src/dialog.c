@@ -24,7 +24,6 @@ struct Mel_Dialog_Job
     Mel_Future         future;
     Mel_SlotMap_Handle self;
     const Mel_Alloc*   alloc;
-    Mel_Executor*      deliver;
 
     u32        request;
     Mel_Window parent;
@@ -34,7 +33,6 @@ struct Mel_Dialog_Job
     Mel_Array(Filter_Copy) filters;
 
     Mel_Array(char*) paths;
-    Mel_Array(const char*) path_view;
     u32                  chosen_filter;
     Mel_Dialog_Selection selection;
 
@@ -47,7 +45,6 @@ typedef struct
     bool             initialized;
     const Mel_Alloc* alloc;
     Mel_Reactor*     reactor;
-    Mel_Executor*    exec;
     Mel_SlotMap      jobs;
 } Dialog;
 
@@ -68,10 +65,13 @@ static char* dup_cstr(const Mel_Alloc* a, const char* s)
 void mel_dialog_init(const Mel_Alloc* alloc, Mel_Reactor* reactor)
 {
     if (g.initialized)
+    {
+        if ((alloc && alloc != g.alloc) || (reactor && reactor != g.reactor))
+            mel_log_warn("dialog", "init: already initialized; ignoring differing allocator/reactor");
         return;
+    }
     g.alloc = alloc ? alloc : mel_alloc_heap();
     g.reactor = reactor;
-    g.exec = reactor ? mel_reactor_executor(reactor) : mel_executor_inline();
     mel_slotmap_init(&g.jobs, g.alloc, .item_size = sizeof(Mel_Dialog_Job*), .initial_capacity = 4);
     g.initialized = true;
 }
@@ -93,7 +93,6 @@ static void job_storage_free(Mel_Dialog_Job* j)
         if (j->paths.items[i])
             mel_dealloc(j->alloc, j->paths.items[i]);
     mel_array_free(&j->paths);
-    mel_array_free(&j->path_view);
     if (j->title)
         mel_dealloc(j->alloc, j->title);
     if (j->default_path)
@@ -111,20 +110,18 @@ void mel_dialog_job_resolve(Mel_Dialog_Job* j, Mel_Dialog_Status s)
     j->resolved = true;
     j->status |= s;
 
-    mel_array_reserve(&j->path_view, j->paths.count);
-    j->path_view.count = 0;
-    for (usize i = 0; i < j->paths.count; i++)
-        mel_array_push(&j->path_view, (const char*)j->paths.items[i]);
+    if ((j->status & MEL_DIALOG_SEVERITY_MASK) == MEL_DIALOG_OK && (j->status & MEL_DIALOG_WARN_MASK) != 0u)
+        j->status |= MEL_DIALOG_WARNED;
 
-    j->selection.paths = j->path_view.items;
-    j->selection.path_count = (u32)j->path_view.count;
+    j->selection.paths = (const char* const*)j->paths.items;
+    j->selection.path_count = (u32)j->paths.count;
     j->selection.chosen_filter = j->chosen_filter;
     j->selection.status = j->status;
 
     mel_future_resolve(&j->future, &j->selection, (Mel_Future_Status)(j->status & MEL_DIALOG_SEVERITY_MASK));
 }
 
-static Mel_Dialog_Job* job_new(const Mel_Alloc* alloc, Mel_Executor* deliver, u32 request)
+static Mel_Dialog_Job* job_new(const Mel_Alloc* alloc, u32 request)
 {
     const Mel_Alloc* a = alloc ? alloc : g.alloc;
     Mel_Dialog_Job*  j = mel_alloc_type(a, Mel_Dialog_Job);
@@ -132,12 +129,10 @@ static Mel_Dialog_Job* job_new(const Mel_Alloc* alloc, Mel_Executor* deliver, u3
         return NULL;
     memset(j, 0, sizeof *j);
     j->alloc = a;
-    j->deliver = deliver ? deliver : g.exec;
     j->request = request;
     mel_future_init(&j->future, NULL, a);
     mel_array_init(&j->filters, a);
     mel_array_init(&j->paths, a);
-    mel_array_init(&j->path_view, a);
     Mel_Dialog_Job* slot = j;
     j->self = mel_slotmap_insert(&g.jobs, &slot);
     return j;
@@ -187,7 +182,7 @@ Mel_Future* mel_dialog_open_file_opt(Mel_Dialog_Open_File_Opt opt)
 {
     if (!g.initialized)
         return NULL;
-    Mel_Dialog_Job* j = job_new(opt.alloc, opt.deliver, MEL_DIALOG_REQUEST_OPEN_FILE);
+    Mel_Dialog_Job* j = job_new(opt.alloc, MEL_DIALOG_REQUEST_OPEN_FILE);
     if (!j)
         return NULL;
     if (!deliver_ok(opt.deliver, opt.reactor, "open_file"))
@@ -206,7 +201,7 @@ Mel_Future* mel_dialog_open_files_opt(Mel_Dialog_Open_File_Opt opt)
 {
     if (!g.initialized)
         return NULL;
-    Mel_Dialog_Job* j = job_new(opt.alloc, opt.deliver, MEL_DIALOG_REQUEST_OPEN_FILE | MEL_DIALOG_REQUEST_MULTI);
+    Mel_Dialog_Job* j = job_new(opt.alloc, MEL_DIALOG_REQUEST_OPEN_FILE | MEL_DIALOG_REQUEST_MULTI);
     if (!j)
         return NULL;
     if (!deliver_ok(opt.deliver, opt.reactor, "open_files"))
@@ -225,7 +220,7 @@ Mel_Future* mel_dialog_save_file_opt(Mel_Dialog_Save_File_Opt opt)
 {
     if (!g.initialized)
         return NULL;
-    Mel_Dialog_Job* j = job_new(opt.alloc, opt.deliver, MEL_DIALOG_REQUEST_SAVE_FILE);
+    Mel_Dialog_Job* j = job_new(opt.alloc, MEL_DIALOG_REQUEST_SAVE_FILE);
     if (!j)
         return NULL;
     if (!deliver_ok(opt.deliver, opt.reactor, "save_file"))
@@ -245,7 +240,7 @@ Mel_Future* mel_dialog_open_folder_opt(Mel_Dialog_Open_Folder_Opt opt)
 {
     if (!g.initialized)
         return NULL;
-    Mel_Dialog_Job* j = job_new(opt.alloc, opt.deliver, MEL_DIALOG_REQUEST_OPEN_DIR);
+    Mel_Dialog_Job* j = job_new(opt.alloc, MEL_DIALOG_REQUEST_OPEN_DIR);
     if (!j)
         return NULL;
     if (!deliver_ok(opt.deliver, opt.reactor, "open_folder"))
@@ -298,11 +293,11 @@ void mel_dialog_shutdown(void)
     for (usize i = 0; i < snap.count; i++)
     {
         Mel_Dialog_Job* j = snap.items[i];
-        bool            had_cont = atomic_load_explicit(&j->future.cont, memory_order_acquire) != NULL;
+        atomic_store_explicit(&j->future.cont, NULL, memory_order_seq_cst);
+        j->future.cont_exec = NULL;
         if (!j->resolved)
             mel_future_cancel(&j->future);
-        if (!had_cont)
-            job_storage_free(j);
+        job_storage_free(j);
     }
     mel_array_free(&snap);
     mel_slotmap_free(&g.jobs);

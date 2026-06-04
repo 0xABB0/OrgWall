@@ -38,8 +38,8 @@ and warns on the ones it cannot honor.
 ## Backends
 
 - macos — `NSOpenPanel` / `NSSavePanel`, dispatched to the main queue; filters map to
-  `UTType` (`allowedContentTypes`) on macOS 11+, `allowedFileTypes` below; the chosen
-  filter index is reported.
+  `UTType` (`allowedContentTypes`) on macOS 11+, `allowedFileTypes` below. `NSOpenPanel`
+  has no chosen-filter concept, so the chosen filter index is not reported on macOS.
 - ios — `UIDocumentPickerViewController` (open / export / folder modes), presented from
   the key window's root controller or a supplied `Mel_Window`; security-scoped URLs are
   resolved to filesystem paths.
@@ -56,7 +56,9 @@ and warns on the ones it cannot honor.
 - wasm — `showOpenFilePicker` where available, `<input type=file>` otherwise; chosen
   files are written into the Emscripten virtual FS and their VFS paths emitted, so the
   rest of the framework's `io` can read them (MEL-ENGINE-VII: an honest alternative, not
-  a broken shadow).
+  a broken shadow). Save-file is not yet serviceable on the web: it resolves with
+  `MEL_DIALOG_WARNED | MEL_DIALOG_WARN_SAVE_UNSUPPORTED` rather than fabricating success,
+  pending a save-content contract.
 
 ## Dependencies
 

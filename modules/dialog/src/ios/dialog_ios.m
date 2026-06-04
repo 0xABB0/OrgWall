@@ -135,6 +135,7 @@ void mel_dialog__plat_run(Mel_Dialog_Job* job)
                     (void)types;
                     if (ignored)
                         mel_dialog_job_add_warning(j, MEL_DIALOG_WARN_FILTER_IGNORED);
+                    mel_dialog_job_add_warning(j, MEL_DIALOG_WARN_SAVE_UNSUPPORTED);
                     NSString* name = mel_dialog_job_default_name(j) ? [NSString stringWithUTF8String:mel_dialog_job_default_name(j)] : @"untitled";
                     NSURL*    tmp = [[NSFileManager.defaultManager temporaryDirectory] URLByAppendingPathComponent:name];
                     [@"" writeToURL:tmp atomically:YES encoding:NSUTF8StringEncoding error:nil];

@@ -60,9 +60,8 @@ static void emit_item(Mel_Dialog_Job* job, IShellItem* item)
 
 typedef struct
 {
-    wchar_t*       label;
-    wchar_t*       spec;
-    COMDLG_FILTERSPEC fs;
+    wchar_t* label;
+    wchar_t* spec;
 } Built_Filter;
 
 static wchar_t* join_patterns(const Mel_Alloc* a, Mel_Dialog_Job* job, u32 filter)
@@ -170,8 +169,17 @@ void mel_dialog__plat_run(Mel_Dialog_Job* job)
                 specs[i].pszSpec = built[i].spec ? built[i].spec : L"*.*";
             }
             IFileDialog_SetFileTypes(dlg, fc, specs);
-            mel_dealloc(a, specs);
         }
+        else
+        {
+            if (built)
+            {
+                mel_dealloc(a, built);
+                built = NULL;
+            }
+        }
+        if (specs)
+            mel_dealloc(a, specs);
     }
 
     const char* dir = mel_dialog_job_default_path(job);

@@ -80,6 +80,27 @@ static void dict_string(DBusMessageIter* dict, const char* key, const char* valu
     dbus_message_iter_close_container(dict, &entry);
 }
 
+static void dict_current_folder(DBusMessageIter* dict, const char* path)
+{
+    if (!path)
+        return;
+    DBusMessageIter entry, variant, arr;
+    const char*     key = "current_folder";
+    dbus_message_iter_open_container(dict, DBUS_TYPE_DICT_ENTRY, NULL, &entry);
+    dbus_message_iter_append_basic(&entry, DBUS_TYPE_STRING, &key);
+    dbus_message_iter_open_container(&entry, DBUS_TYPE_VARIANT, "ay", &variant);
+    dbus_message_iter_open_container(&variant, DBUS_TYPE_ARRAY, "y", &arr);
+    usize n = strlen(path);
+    for (usize i = 0; i <= n; i++)
+    {
+        unsigned char b = (unsigned char)path[i];
+        dbus_message_iter_append_basic(&arr, DBUS_TYPE_BYTE, &b);
+    }
+    dbus_message_iter_close_container(&variant, &arr);
+    dbus_message_iter_close_container(&entry, &variant);
+    dbus_message_iter_close_container(dict, &entry);
+}
+
 static void dict_filters(DBusMessageIter* dict, Mel_Dialog_Job* job)
 {
     u32 fc = mel_dialog_job_filter_count(job);
@@ -215,7 +236,10 @@ bool mel_dialog__portal_run(Mel_Dialog_Job* job)
     const char* method = (request & MEL_DIALOG_REQUEST_SAVE_FILE) ? "SaveFile" : "OpenFile";
     DBusMessage* call = dbus_message_new_method_call(PORTAL_BUS, PORTAL_PATH, PORTAL_IFACE, method);
     if (!call)
+    {
+        dbus_connection_unref(conn);
         return false;
+    }
 
     char token_str[64];
     snprintf(token_str, sizeof token_str, "mel_dialog_%llu", (unsigned long long)mel_dialog_job_token(job));
@@ -241,6 +265,7 @@ bool mel_dialog__portal_run(Mel_Dialog_Job* job)
         if (name)
             dict_string(&dict, "current_name", name);
     }
+    dict_current_folder(&dict, mel_dialog_job_default_path(job));
     if (!(request & MEL_DIALOG_REQUEST_OPEN_DIR))
         dict_filters(&dict, job);
     dbus_message_iter_close_container(&args, &dict);
@@ -253,6 +278,7 @@ bool mel_dialog__portal_run(Mel_Dialog_Job* job)
             dbus_error_free(&err);
         if (reply)
             dbus_message_unref(reply);
+        dbus_connection_unref(conn);
         return false;
     }
 
@@ -264,13 +290,27 @@ bool mel_dialog__portal_run(Mel_Dialog_Job* job)
         dbus_message_unref(reply);
         if (dbus_error_is_set(&perr))
             dbus_error_free(&perr);
+        dbus_connection_unref(conn);
         return false;
     }
 
     Portal_Call* pc = mel_alloc_type(a, Portal_Call);
+    if (!pc)
+    {
+        dbus_message_unref(reply);
+        dbus_connection_unref(conn);
+        return false;
+    }
     memset(pc, 0, sizeof *pc);
     pc->token = mel_dialog_job_token(job);
     pc->request_path = (char*)mel_alloc(a, strlen(req_path) + 1);
+    if (!pc->request_path)
+    {
+        mel_dealloc(a, pc);
+        dbus_message_unref(reply);
+        dbus_connection_unref(conn);
+        return false;
+    }
     strcpy(pc->request_path, req_path);
     dbus_message_unref(reply);
 
@@ -283,11 +323,21 @@ bool mel_dialog__portal_run(Mel_Dialog_Job* job)
     while (!pc->done && dbus_connection_read_write_dispatch(conn, 200))
         ;
 
+    bool serviced = pc->done;
+
     dbus_connection_remove_filter(conn, on_signal, pc);
     dbus_bus_remove_match(conn, rule, NULL);
     if (dbus_error_is_set(&err))
         dbus_error_free(&err);
     mel_dealloc(a, pc->request_path);
     mel_dealloc(a, pc);
+    dbus_connection_unref(conn);
+
+    if (!serviced)
+    {
+        Mel_Dialog_Job* j = mel_dialog__job_from_token(mel_dialog_job_token(job));
+        if (j)
+            mel_dialog_job_resolve(j, MEL_DIALOG_ERROR | MEL_DIALOG_UNAVAILABLE);
+    }
     return true;
 }

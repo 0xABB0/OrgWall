@@ -11,12 +11,13 @@
 
 #include <string.h>
 
-static bool fake_available = true;
-static bool fake_defer;
-static u64  fake_pending_token;
-static bool fake_cancel;
-static u32  fake_emit_count = 1;
-static u32  fake_chosen_filter;
+static bool              fake_available = true;
+static bool              fake_defer;
+static u64               fake_pending_token;
+static bool              fake_cancel;
+static u32               fake_emit_count = 1;
+static u32               fake_chosen_filter;
+static Mel_Dialog_Status fake_warn;
 
 bool mel_dialog__plat_available(void) { return fake_available; }
 
@@ -27,6 +28,8 @@ static void fake_emit(Mel_Dialog_Job* job)
         mel_dialog_job_resolve(job, MEL_DIALOG_OK | MEL_DIALOG_CANCELLED);
         return;
     }
+    if (fake_warn)
+        mel_dialog_job_add_warning(job, fake_warn);
     u32 request = mel_dialog_job_request(job);
     for (u32 i = 0; i < fake_emit_count; i++)
     {
@@ -61,6 +64,7 @@ static void reset_fake(void)
     fake_cancel = false;
     fake_emit_count = 1;
     fake_chosen_filter = 0;
+    fake_warn = 0;
 }
 
 MEL_TEST(dialog, available_reports_backend)
@@ -172,6 +176,44 @@ MEL_TEST(dialog, reports_chosen_filter)
     mel_dialog_shutdown();
 }
 
+MEL_TEST(dialog, warning_path_sets_warned_severity_and_bit)
+{
+    reset_fake();
+    fake_warn = MEL_DIALOG_WARN_FILTER_IGNORED;
+    mel_dialog_init(mel_alloc_heap(), NULL);
+
+    Mel_Future* f = mel_dialog_open_file();
+    MEL_REQUIRE_NOT_NULL(f);
+    const Mel_Dialog_Selection* sel = mel_dialog_future_selection(f);
+    MEL_REQUIRE_NOT_NULL(sel);
+    MEL_EXPECT(mel_dialog_status_warned(sel->status));
+    MEL_EXPECT((sel->status & MEL_DIALOG_WARN_FILTER_IGNORED) != 0u);
+    MEL_EXPECT(!mel_dialog_status_failed(sel->status));
+    mel_dialog_future_free(f);
+    mel_dialog_shutdown();
+}
+
+static void test_noop_submit(Mel_Executor* self, Mel_Task* task)
+{
+    (void)self;
+    (void)task;
+}
+
+MEL_TEST(dialog, mismatched_deliver_executor_rejected)
+{
+    reset_fake();
+    mel_dialog_init(mel_alloc_heap(), NULL);
+
+    Mel_Executor wrong = { test_noop_submit };
+    Mel_Future*  f = mel_dialog_open_file(.deliver = &wrong);
+    MEL_REQUIRE_NOT_NULL(f);
+    Mel_Dialog_Status st = mel_dialog_future_status(f);
+    MEL_EXPECT(mel_dialog_status_failed(st));
+    MEL_EXPECT((st & MEL_DIALOG_UNAVAILABLE) != 0u);
+    mel_dialog_future_free(f);
+    mel_dialog_shutdown();
+}
+
 MEL_TEST(dialog, no_backend_fails_loudly)
 {
     reset_fake();
@@ -257,3 +299,62 @@ MEL_TEST(dialog, deferred_resolution_delivers_on_executor)
     MEL_EXPECT(mel_dialog_status_ok(a.status));
     mel_dialog_shutdown();
 }
+
+typedef struct
+{
+    Mel_Reactor* reactor;
+    int          turn;
+    Mel_Task     task;
+    Mel_Future*  pending;
+    bool         cont_ran;
+    bool         shut;
+} Shutdown_Ctx;
+
+static void shutdown_on_picked(Mel_Task* self)
+{
+    Shutdown_Ctx* c = mel_container_of(self, Shutdown_Ctx, task);
+    c->cont_ran = true;
+}
+
+static bool shutdown_idle(void* user)
+{
+    Shutdown_Ctx* c = (Shutdown_Ctx*)user;
+    c->turn++;
+    if (c->turn == 2)
+    {
+        c->pending = mel_dialog_open_file(.reactor = c->reactor, .deliver = mel_reactor_executor(c->reactor));
+        mel_task_init(&c->task, shutdown_on_picked);
+        mel_future_then(c->pending, &c->task, mel_reactor_executor(c->reactor));
+    }
+    if (c->turn == 4)
+    {
+        mel_dialog_shutdown();
+        c->shut = true;
+    }
+    if (c->shut || c->turn > 5000)
+        mel_reactor_quit(c->reactor);
+    return true;
+}
+
+static bool shutdown_init(Mel_Reactor* r, void* user)
+{
+    Shutdown_Ctx* c = (Shutdown_Ctx*)user;
+    c->reactor = r;
+    mel_dialog_init(mel_alloc_heap(), r);
+    Mel_Reactor_Source* idle = mel_reactor_idle_new(shutdown_idle, c);
+    mel_reactor_source_attach(r, idle);
+    return true;
+}
+
+MEL_TEST(dialog, shutdown_with_pending_continuation_does_not_crash_or_leak)
+{
+    reset_fake();
+    fake_defer = true;
+
+    Shutdown_Ctx c = { 0 };
+    mel_reactor_spawn(MEL_REACTOR_THREADED, shutdown_init, &c);
+
+    MEL_EXPECT(c.shut);
+    MEL_EXPECT(!c.cont_ran);
+}
+

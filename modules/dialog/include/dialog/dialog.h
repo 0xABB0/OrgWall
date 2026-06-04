@@ -30,6 +30,12 @@ typedef u32 Mel_Dialog_Status;
 #define MEL_DIALOG_WARN_MULTI_UNSUPPORTED    (1u << 9)
 #define MEL_DIALOG_WARN_DEFAULT_PATH_IGNORED (1u << 10)
 #define MEL_DIALOG_WARN_PARENT_IGNORED       (1u << 11)
+#define MEL_DIALOG_WARN_SAVE_UNSUPPORTED     (1u << 12)
+
+#define MEL_DIALOG_WARN_MASK                                                     \
+    (MEL_DIALOG_WARN_FILTER_IGNORED | MEL_DIALOG_WARN_MULTI_UNSUPPORTED |        \
+     MEL_DIALOG_WARN_DEFAULT_PATH_IGNORED | MEL_DIALOG_WARN_PARENT_IGNORED |     \
+     MEL_DIALOG_WARN_SAVE_UNSUPPORTED)
 
 static inline bool mel_dialog_status_ok(Mel_Dialog_Status s) { return (s & MEL_DIALOG_SEVERITY_MASK) == MEL_DIALOG_OK; }
 static inline bool mel_dialog_status_warned(Mel_Dialog_Status s) { return (s & MEL_DIALOG_SEVERITY_MASK) == MEL_DIALOG_WARNED; }

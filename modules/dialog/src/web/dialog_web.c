@@ -132,8 +132,13 @@ void mel_dialog__plat_run(Mel_Dialog_Job* job)
         for (u32 p = 0; p < pc && w + 8 < sizeof accept; p++)
         {
             const char* pat = mel_dialog_job_filter_pattern(job, i, p);
-            if (!pat || strchr(pat, '*'))
+            if (!pat)
                 continue;
+            if (strchr(pat, '*'))
+            {
+                mel_dialog_job_add_warning(job, MEL_DIALOG_WARN_FILTER_IGNORED);
+                continue;
+            }
             const char* ext = strrchr(pat, '.');
             const char* dotpat = ext ? ext : pat;
             int         n = snprintf(accept + w, sizeof accept - w, "%s%s%s", w ? "," : "", (dotpat[0] == '.') ? "" : ".", dotpat);
@@ -142,7 +147,7 @@ void mel_dialog__plat_run(Mel_Dialog_Job* job)
         }
     }
     if (request & MEL_DIALOG_REQUEST_SAVE_FILE)
-        mel_dialog_job_add_warning(job, MEL_DIALOG_WARN_DEFAULT_PATH_IGNORED);
+        mel_dialog_job_add_warning(job, MEL_DIALOG_WARN_SAVE_UNSUPPORTED | MEL_DIALOG_WARN_DEFAULT_PATH_IGNORED);
 
     mel_dialog_js_open((unsigned)(mel_dialog_job_token(job) & 0xffffffffu),
                        (unsigned)(mel_dialog_job_token(job) >> 32),
