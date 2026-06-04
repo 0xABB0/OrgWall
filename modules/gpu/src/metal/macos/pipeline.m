@@ -447,6 +447,39 @@ static id<MTLDepthStencilState> mel_gpu__mtl_depth_stencil_state(Mel_Gpu_Device*
     return [dev->mtl newDepthStencilStateWithDescriptor:dsd];
 }
 
+/* Copy the from-slang bindless argument-field plan onto the pipeline object and report the
+   host push-constant span it consumes. The plan is identical for the compute kernel and for
+   every graphics stage that reads the Root argument buffer (the same Slang struct lowers the
+   same way), so both the compute and render paths share this. */
+static u32 mel_gpu__mtl_copy_arg_fields(Mel_Gpu_Device* dev, Mel_Gpu_Pipeline_Obj* obj, const Mel_Gpu_Bindless_Arg_Field* fields, u32 count)
+{
+    obj->arg_fields = mel_alloc_array(dev->alloc, Mel_Gpu_Mtl_Arg_Field, count);
+    obj->arg_field_count = count;
+    u32 host_size = 0;
+    for (u32 i = 0; i < count; i++)
+    {
+        const Mel_Gpu_Bindless_Arg_Field* f = &fields[i];
+        obj->arg_fields[i] = (Mel_Gpu_Mtl_Arg_Field){ .is_uniform = f->is_uniform != 0, .host_offset = f->host_offset, .arg_index = f->arg_index, .size = f->size, .resource_kind = f->resource_kind };
+        u32 end = f->host_offset + f->size;
+        if (end > host_size)
+            host_size = end;
+    }
+    return host_size;
+}
+
+/* True iff the stage's reflected bindings expose buffer index 0 as an argument buffer — i.e.
+   the Slang Root with DescriptorHandle fields lowered to a [[buffer(0)]] argument buffer in
+   THIS stage's MSL. Stages that never touch the heap (e.g. a fullscreen-triangle vertex shader)
+   elide the argument buffer entirely; querying newArgumentEncoderWithBufferIndex:0 on such a
+   stage fires a Metal assertion, so the reflection gate is mandatory, not an optimization. */
+static bool mel_gpu__mtl_stage_has_arg_buffer(NSArray<id<MTLBinding>>* bindings)
+{
+    for (id<MTLBinding> b in bindings)
+        if (b.type == MTLBindingTypeBuffer && b.index == MEL_GPU_METAL_PUSH_CONSTANT_INDEX && ((id<MTLBufferBinding>)b).bufferDataType == MTLDataTypeStruct)
+            return true;
+    return false;
+}
+
 Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_create_opt(Mel_Gpu_Device* dev, Mel_Gpu_Pipeline_Opt opt)
 {
     Mel_Gpu_Pipeline_Create_Result res = { .value = { mel_gpu_handle_null() }, .status = MEL_GPU_PIPELINE_CREATE_OK };
@@ -572,8 +605,11 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_create_opt(Mel_Gpu_Device* dev, 
         rpd.vertexDescriptor = vd;
     }
 
-    NSError*                   err = nil;
-    id<MTLRenderPipelineState> state = [dev->mtl newRenderPipelineStateWithDescriptor:rpd error:&err];
+    bool                          want_arg_buffer = opt.bindless_arg_field_count && opt.bindless_arg_fields;
+    NSError*                      err = nil;
+    MTLRenderPipelineReflection*  refl = nil;
+    id<MTLRenderPipelineState>    state = want_arg_buffer ? [dev->mtl newRenderPipelineStateWithDescriptor:rpd options:MTLPipelineOptionBindingInfo reflection:&refl error:&err]
+                                                          : [dev->mtl newRenderPipelineStateWithDescriptor:rpd error:&err];
     if (!state)
     {
         mel_log_error("gpu", "pipeline_create '%s': newRenderPipelineState failed: %s", dbg_name, err ? err.localizedDescription.UTF8String : "(no error)");
@@ -602,6 +638,55 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_create_opt(Mel_Gpu_Device* dev, 
     obj.stencil_test = opt.depth_stencil ? opt.depth_stencil->stencil_test : false;
     obj.stencil_ref_front = opt.depth_stencil ? opt.depth_stencil->front.reference : 0;
     obj.stencil_ref_back = opt.depth_stencil ? opt.depth_stencil->back.reference : 0;
+
+    if (want_arg_buffer)
+    {
+        if (!refl)
+        {
+            mel_log_error("gpu", "pipeline_create '%s': from-slang bindless graphics pipeline requested but newRenderPipelineState returned no reflection; cannot locate the per-stage argument buffer", dbg_name);
+            id s = (__bridge_transfer id)obj.state;
+            (void)s;
+            if (obj.depth_stencil_state)
+            {
+                id d = (__bridge_transfer id)obj.depth_stencil_state;
+                (void)d;
+            }
+            res.status = MEL_GPU_PIPELINE_CREATE_BACKEND_FAILED;
+            return res;
+        }
+        bool vs_has = mel_gpu__mtl_stage_has_arg_buffer(refl.vertexBindings);
+        bool fs_has = mel_gpu__mtl_stage_has_arg_buffer(refl.fragmentBindings);
+        if (!vs_has && !fs_has)
+        {
+            mel_log_error("gpu",
+                          "pipeline_create '%s': from-slang bindless graphics pipeline supplied an argument-field plan but neither the vertex nor fragment stage exposes an argument buffer at buffer(%u); the DescriptorHandle lowering produced no argument buffer",
+                          dbg_name,
+                          MEL_GPU_METAL_PUSH_CONSTANT_INDEX);
+            id s = (__bridge_transfer id)obj.state;
+            (void)s;
+            if (obj.depth_stencil_state)
+            {
+                id d = (__bridge_transfer id)obj.depth_stencil_state;
+                (void)d;
+            }
+            res.status = MEL_GPU_PIPELINE_CREATE_BACKEND_FAILED;
+            return res;
+        }
+        obj.arg_host_size = mel_gpu__mtl_copy_arg_fields(dev, &obj, opt.bindless_arg_fields, opt.bindless_arg_field_count);
+        if (vs_has)
+        {
+            id<MTLArgumentEncoder> venc = [vfn newArgumentEncoderWithBufferIndex:MEL_GPU_METAL_PUSH_CONSTANT_INDEX];
+            obj.vs_arg_encoder = (__bridge_retained void*)venc;
+            obj.vs_arg_encoded_length = venc.encodedLength;
+        }
+        if (fs_has)
+        {
+            id<MTLArgumentEncoder> fenc = [ffn newArgumentEncoderWithBufferIndex:MEL_GPU_METAL_PUSH_CONSTANT_INDEX];
+            obj.fs_arg_encoder = (__bridge_retained void*)fenc;
+            obj.fs_arg_encoded_length = fenc.encodedLength;
+        }
+    }
+
     res.value.slot = mel_gpu__table_insert(dev, &dev->pipelines, &obj);
     return res;
 }
@@ -662,18 +747,7 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_compute_create_opt(Mel_Gpu_Devic
         }
         obj.arg_encoder = (__bridge_retained void*)enc;
         obj.arg_encoded_length = enc.encodedLength;
-        obj.arg_field_count = opt.bindless_arg_field_count;
-        obj.arg_fields = mel_alloc_array(dev->alloc, Mel_Gpu_Mtl_Arg_Field, opt.bindless_arg_field_count);
-        u32 host_size = 0;
-        for (u32 i = 0; i < opt.bindless_arg_field_count; i++)
-        {
-            const Mel_Gpu_Bindless_Arg_Field* f = &opt.bindless_arg_fields[i];
-            obj.arg_fields[i] = (Mel_Gpu_Mtl_Arg_Field){ .is_uniform = f->is_uniform != 0, .host_offset = f->host_offset, .arg_index = f->arg_index, .size = f->size, .resource_kind = f->resource_kind };
-            u32 end = f->host_offset + f->size;
-            if (end > host_size)
-                host_size = end;
-        }
-        obj.arg_host_size = host_size;
+        obj.arg_host_size = mel_gpu__mtl_copy_arg_fields(dev, &obj, opt.bindless_arg_fields, opt.bindless_arg_field_count);
     }
 
     res.value.slot = mel_gpu__table_insert(dev, &dev->pipelines, &obj);
@@ -701,6 +775,18 @@ void mel_gpu_pipeline_destroy(Mel_Gpu_Device* dev, Mel_Gpu_Pipeline pipe)
     {
         id e = (__bridge_transfer id)o->arg_encoder;
         o->arg_encoder = NULL;
+        (void)e;
+    }
+    if (o->vs_arg_encoder)
+    {
+        id e = (__bridge_transfer id)o->vs_arg_encoder;
+        o->vs_arg_encoder = NULL;
+        (void)e;
+    }
+    if (o->fs_arg_encoder)
+    {
+        id e = (__bridge_transfer id)o->fs_arg_encoder;
+        o->fs_arg_encoder = NULL;
         (void)e;
     }
     if (o->arg_fields)
