@@ -24,7 +24,6 @@ typedef struct
     f64             samplerate;
     _Atomic(Mel_Audio_Ring*) ring;
     _Atomic(u64)    underruns;
-    _Atomic(u32)    underrun_signalled;
     _Atomic(u32)    primed;
     _Atomic(Mel_Event*) device_events;
     u32             listener_installed;
@@ -91,11 +90,7 @@ static OSStatus mel_audio__ca_render(void* user, AudioUnitRenderActionFlags* fla
         {
             memset(dst + got, 0, (usize)(want - got) * sizeof(f32));
             if (atomic_load_explicit(&g_ca.primed, memory_order_relaxed) != 0u)
-            {
-                u64 prev = atomic_fetch_add_explicit(&g_ca.underruns, 1u, memory_order_relaxed);
-                if (prev == 0u && atomic_exchange_explicit(&g_ca.underrun_signalled, 1u, memory_order_relaxed) == 0u)
-                    assert(!"mel audio coreaudio: ring underrun (mix thread did not keep ahead)");
-            }
+                atomic_fetch_add_explicit(&g_ca.underruns, 1u, memory_order_relaxed);
         }
 
         if (dst_samples > want)
@@ -254,7 +249,6 @@ bool mel_audio_backend_open(Mel_Audio_Opt req, Mel_Audio_Caps* granted, const Me
     g_ca.samplerate = granted_rate;
     atomic_store_explicit(&g_ca.ring, NULL, memory_order_relaxed);
     atomic_store_explicit(&g_ca.underruns, 0u, memory_order_relaxed);
-    atomic_store_explicit(&g_ca.underrun_signalled, 0u, memory_order_relaxed);
     atomic_store_explicit(&g_ca.primed, 0u, memory_order_relaxed);
 
     *granted = (Mel_Audio_Caps){

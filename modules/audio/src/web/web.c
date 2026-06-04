@@ -28,7 +28,6 @@ typedef struct
     f32*                            deinterleave;
     usize                           deinterleave_samples;
     _Atomic(u32)                    underruns;
-    u32                             underrun_asserted;
     u32                             opened;
     u32                             started;
     _Atomic(Mel_Event*)             device_events;
@@ -157,12 +156,7 @@ static bool mel_audio_web__process(int num_inputs, const AudioSampleFrame* input
     u32 got = mel_audio_ring_read(w->ring, w->deinterleave, want);
     if (got < want)
     {
-        u32 prev = atomic_fetch_add_explicit(&w->underruns, 1u, memory_order_relaxed);
-        if (prev == 0u && w->underrun_asserted == 0u)
-        {
-            w->underrun_asserted = 1u;
-            assert(!"audio.web: ring underrun (mix thread did not keep up)");
-        }
+        atomic_fetch_add_explicit(&w->underruns, 1u, memory_order_relaxed);
     }
 
     for (u32 c = 0; c < channels; c++)

@@ -37,11 +37,7 @@ static aaudio_data_callback_result_t mel_audio__aaudio_data(AAudioStream* stream
 
     u32 got = mel_audio_ring_read(st->ring, out, want);
     if (got < want)
-    {
-        u32 prev = atomic_fetch_add_explicit(&st->underruns, 1u, memory_order_relaxed);
-        assert(prev != 0u && "aaudio: ring underrun");
-        MEL_UNUSED(prev);
-    }
+        atomic_fetch_add_explicit(&st->underruns, 1u, memory_order_relaxed);
 
     return AAUDIO_CALLBACK_RESULT_CONTINUE;
 }

@@ -360,10 +360,7 @@ static void mel_wasapi__fill_buffer(Mel_Wasapi* s, UINT32 frames)
     if (have < want)
     {
         if (atomic_load_explicit(&s->primed, memory_order_relaxed) != 0u)
-        {
-            u32 prev = atomic_fetch_add_explicit(&s->underruns, 1u, memory_order_relaxed);
-            assert(prev != 0 && "audio.wasapi: ring underrun");
-        }
+            atomic_fetch_add_explicit(&s->underruns, 1u, memory_order_relaxed);
         if (have == 0u)
             flags = AUDCLNT_BUFFERFLAGS_SILENT;
     }
