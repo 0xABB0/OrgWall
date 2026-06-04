@@ -199,6 +199,7 @@ static void reactor_backend_attached_run(Mel_Reactor* r)
     // We are already on the thread whose run loop will drive us, so run init
     // inline. The first iterate then arms a wakeup only if a source needs one;
     // with nothing pending it stays detached and the loop just runs its host.
+    reactor_capture_owner(r);
     if (r->init && !r->init(r, r->init_user)) {
         atomic_store(&r->running, false);
         reactor_attached_destroy(r);
