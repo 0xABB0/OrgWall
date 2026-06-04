@@ -1,7 +1,5 @@
 #include "cocoa.h"
 
-#include <debug/assert.h>
-
 #import <objc/runtime.h>
 #import <QuartzCore/QuartzCore.h>
 
@@ -338,7 +336,6 @@ static bool cocoa_get_surface(Mel_Window_Node* n, Mel_Window_Surface* out)
         if (n->surface_pixels)
             mel_dealloc(a, n->surface_pixels);
         n->surface_pixels = mel_alloc(a, (usize)stride * (usize)(n->h > 0 ? n->h : 1));
-        mel_assert(n->surface_pixels != NULL);
         n->surface_w = n->w;
         n->surface_h = n->h;
         n->surface_stride = stride;
@@ -388,7 +385,6 @@ static bool cocoa_icc_profile(Mel_Window_Node* n, Mel_Window_Icc_Profile* out)
     const Mel_Alloc* a = mel_window__alloc();
     usize len = (usize)data.length;
     u8*   copy = (u8*)mel_alloc(a, len);
-    mel_assert(copy != NULL);
     memcpy(copy, data.bytes, len);
     out->data = copy;
     out->size = len;

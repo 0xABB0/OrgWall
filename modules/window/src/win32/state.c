@@ -1,7 +1,5 @@
 #include "../window_internal.h"
 
-#include <debug/assert.h>
-
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <shobjidl.h>
@@ -345,7 +343,6 @@ static bool win32_get_surface(Mel_Window_Node* n, Mel_Window_Surface* out)
         if (n->surface_pixels)
             mel_dealloc(a, n->surface_pixels);
         n->surface_pixels = mel_alloc(a, (usize)stride * (usize)(n->h > 0 ? n->h : 1));
-        mel_assert(n->surface_pixels != NULL);
         n->surface_w = n->w;
         n->surface_h = n->h;
         n->surface_stride = stride;
@@ -404,7 +401,6 @@ static bool win32_icc_profile(Mel_Window_Node* n, Mel_Window_Icc_Profile* out)
     }
     const Mel_Alloc* a = mel_window__alloc();
     u8*   buf = (u8*)mel_alloc(a, size);
-    mel_assert(buf != NULL);
     DWORD read = 0;
     BOOL  rok = ReadFile(f, buf, size, &read, NULL);
     CloseHandle(f);
