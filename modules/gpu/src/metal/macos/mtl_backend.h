@@ -233,3 +233,5 @@ MTLPrimitiveType mel_gpu__topology_to_primitive(Mel_Gpu_Topology t);
 
 #define MEL_GPU_METAL_VERTEX_BUFFER_INDEX 30u
 #define MEL_GPU_METAL_PUSH_CONSTANT_INDEX 0u
+#define MEL_GPU_METAL_VERTEX_BUFFER_BASE 30u
+#define MEL_GPU_METAL_VERTEX_SLOT_TO_INDEX(slot) (MEL_GPU_METAL_VERTEX_BUFFER_BASE - (slot))

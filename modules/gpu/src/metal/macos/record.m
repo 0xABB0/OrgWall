@@ -247,14 +247,16 @@ void mel_gpu_cmd_bind_pipeline(Mel_Gpu_Command_List* cmd, Mel_Gpu_Pipeline pipe)
 
 void mel_gpu_cmd_bind_vertex_buffer(Mel_Gpu_Command_List* cmd, u32 slot, Mel_Gpu_Buffer buf)
 {
-    if (slot != 0)
+    if (slot >= MEL_GPU_METAL_VERTEX_BUFFER_BASE)
     {
         mel_log_error("gpu",
-                      "cmd_bind_vertex_buffer: slot %u rejected; the Metal backend binds a single vertex stream (slot 0) to bufferIndex %u and the vertex layout carries no per-element stream selector, so slot>0 would silently collapse "
-                      "onto the slot-0 stream and lose data",
+                      "cmd_bind_vertex_buffer: slot %u out of range; the Metal backend maps vertex slots onto buffer indices descending from %u (slot s -> index %u-s) to clear the push-constant index %u, so the usable slot range is 0..%u",
                       slot,
-                      MEL_GPU_METAL_VERTEX_BUFFER_INDEX);
-        mel_assert(slot == 0);
+                      MEL_GPU_METAL_VERTEX_BUFFER_BASE,
+                      MEL_GPU_METAL_VERTEX_BUFFER_BASE,
+                      MEL_GPU_METAL_PUSH_CONSTANT_INDEX,
+                      MEL_GPU_METAL_VERTEX_BUFFER_BASE - 1u);
+        mel_assert(slot < MEL_GPU_METAL_VERTEX_BUFFER_BASE);
         return;
     }
     id<MTLBuffer> mb = nil;
@@ -268,7 +270,7 @@ void mel_gpu_cmd_bind_vertex_buffer(Mel_Gpu_Command_List* cmd, u32 slot, Mel_Gpu
         mel_log_error("gpu", "cmd_bind_vertex_buffer: no active render encoder");
         return;
     }
-    [cmd->encoder setVertexBuffer:mb offset:0 atIndex:MEL_GPU_METAL_VERTEX_BUFFER_INDEX];
+    [cmd->encoder setVertexBuffer:mb offset:0 atIndex:MEL_GPU_METAL_VERTEX_SLOT_TO_INDEX(slot)];
 }
 
 void mel_gpu_cmd_bind_index_buffer(Mel_Gpu_Command_List* cmd, Mel_Gpu_Buffer buf, Mel_Gpu_Index_Type type)

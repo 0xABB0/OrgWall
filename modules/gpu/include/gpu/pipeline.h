@@ -145,7 +145,15 @@ typedef struct
     u32            location;
     Mel_Gpu_Format format;
     u32            offset;
+    u32            buffer_slot;
 } Mel_Gpu_Vertex_Element;
+
+typedef struct
+{
+    u32  slot;
+    u32  stride;
+    bool per_instance;
+} Mel_Gpu_Vertex_Buffer_Layout;
 
 typedef struct
 {
@@ -184,6 +192,8 @@ typedef struct
     const Mel_Gpu_Vertex_Element* vertex_layout;
     u32                           vertex_layout_count;
     u32                           vertex_stride;
+    const Mel_Gpu_Vertex_Buffer_Layout* vertex_buffers;
+    u32                                 vertex_buffer_count;
     u32                           push_constant_size;
     bool                          bindless;
     const Mel_Gpu_Bind_Group_Layout* set_layouts;

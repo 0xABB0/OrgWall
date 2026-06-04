@@ -178,6 +178,8 @@ typedef struct
     D3D12_PRIMITIVE_TOPOLOGY topology;
     u32                      push_constant_size;
     u32                      vertex_stride;
+    u32*                     slot_strides;
+    u32                      slot_stride_count;
     u32                      srv_table_param;
     u32                      smp_table_param;
     Mel_Gpu_Set_Param*       set_params;
