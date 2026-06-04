@@ -85,3 +85,25 @@ applied must-fix findings once and re-verified the host build.
   vibration-FFB, clipboard primary-selection, debug assertion levels).
 - **Worktree hygiene.** Six `wf_16b4282c-668-*` worktrees survive; `-1` (redundant input)
   and merged `-3`/`-4`/`-6` are prunable; keep `-2` (gamepad) and `-5` (io).
+
+## Update — ambers taken to green and merged
+
+A focused fix→adversarial-verify pass cleared both held modules; the verifier mutation-checked
+each must-fix (neutering the fix makes a test fail), then re-ran host tests. Both merged to
+`main` and re-verified there.
+
+- `gamepad` (merge `e16bd8eb`, fixes `d259f7c1`) — fixed-array device caps replaced with dynamic
+  `Mel_Array` across spine + all six backends (incl. the ~142KB linux BSS); macOS identity keyed
+  on `IORegistryEntryGetRegistryEntryID` with a real VID/PID GUID (no more GUID 0 / pointer key);
+  `CHANGED`-event test added and mutation-verified. 15/15 on `main`. New should-fix (documented in
+  `modules/gamepad/todo.md`): macOS HID↔GCController correlation is positional, so two identical
+  pads attached at once may swap; iOS keeps a pointer-derived id fallback (no public durable id).
+- `io` (merge `ee53bef3`, fixes `44a3c7e4`) — zero steady-state allocation on the sync path
+  (embedded reusable scratch op + 8-byte stack endian buffers; a counting-allocator test asserts
+  zero allocations); `deliver` honored-or-loud-rejected; APPEND-without-WRITE rejected. 12/12 +
+  wasm links. Residual should-fix: win32 true overlapped I/O pending a `win-pilot` build
+  (`async_capable=false` is honest in the meantime).
+
+All five pilot modules (`sensor`, `hid`, `fs`, `gamepad`, `io`) are now on local `main`; `input`
+was already there. Still not pushed to `origin`. Non-macOS backends remain static-only until a
+`win-pilot`/device build.
