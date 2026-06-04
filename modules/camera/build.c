@@ -8,6 +8,7 @@ void build(Mel_Build* b)
     mel_sources(lib, ALWAYS, "src/descriptors.c");
     mel_sources(lib, WHEN(.platforms = MEL_ON(MACOS) | MEL_ON(IOS)), "src/apple/*.m");
     mel_sources(lib, WHEN(.platforms = MEL_ON(ANDROID)), "src/android/*.c");
+    mel_android_java(lib, "src/android/java");
     mel_sources(lib, WHEN(.platforms = MEL_ON(LINUX)), "src/linux/*.c");
     mel_sources(lib, WHEN(.platforms = MEL_ON(WIN32)), "src/win32/*.c");
     mel_sources(lib, WHEN(.platforms = MEL_ON(WASM)), "src/web/*.c");
@@ -24,6 +25,7 @@ void build(Mel_Build* b)
     mel_depends(lib, "executor");
     mel_depends(lib, "string");
     mel_depends(lib, "log");
+    mel_depends_when(lib, "platform", WHEN(.platforms = MEL_ON(ANDROID)));
 
     Mel_Target* t = mel_add_test(b, "camera-core");
     mel_includes(t, MEL_PUBLIC, ALWAYS, "include");

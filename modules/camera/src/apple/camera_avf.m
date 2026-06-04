@@ -6,6 +6,8 @@
 
 #include <log/log.h>
 
+#import <TargetConditionals.h>
+
 #import <AVFoundation/AVFoundation.h>
 #import <CoreMedia/CoreMedia.h>
 #import <CoreVideo/CoreVideo.h>
@@ -66,6 +68,8 @@
             }
             wrapped = mel_image_wrap(&image, fmt, w, h, planes, 2);
         }
+        else
+            mel_log_error("camera", "avf frame: unsupported planar count %zu", plane_count);
     }
     else
     {
@@ -81,7 +85,7 @@
     if (wrapped)
     {
         CMTime           pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer);
-        u64              ns = CMTIME_IS_VALID(pts) ? (u64)(CMTimeGetSeconds(pts) * 1.0e9) : 0;
+        u64              ns = (CMTIME_IS_VALID(pts) && pts.timescale != 0) ? (u64)pts.value * 1000000000ull / (u64)pts.timescale : 0;
         Mel_Camera_Frame frame = {
             .image = image,
             .timestamp_ns = ns,
@@ -106,6 +110,7 @@ static NSMutableDictionary<NSNumber*, Mel_AVF_Session*>* avf_sessions(void)
 
 static u64 avf_stable_id(AVCaptureDevice* dev) { return (u64)[dev.uniqueID hash]; }
 
+#if TARGET_OS_OSX
 static AVCaptureDeviceType avf_external_type(void)
 {
     if (@available(macOS 14.0, *))
@@ -115,6 +120,7 @@ static AVCaptureDeviceType avf_external_type(void)
     return AVCaptureDeviceTypeExternalUnknown;
 #pragma clang diagnostic pop
 }
+#endif
 
 static const mel_camera_facing* avf_facing(AVCaptureDevice* dev)
 {
@@ -125,11 +131,19 @@ static const mel_camera_facing* avf_facing(AVCaptureDevice* dev)
     case AVCaptureDevicePositionBack:
         return &mel_camera_back;
     default:
+#if TARGET_OS_OSX
         return [dev.deviceType isEqualToString:avf_external_type()] ? &mel_camera_external : &mel_camera_unknown;
+#else
+        return &mel_camera_unknown;
+#endif
     }
 }
 
+#if TARGET_OS_OSX
 static NSArray<AVCaptureDeviceType>* avf_device_types(void) { return @[ AVCaptureDeviceTypeBuiltInWideAngleCamera, avf_external_type() ]; }
+#else
+static NSArray<AVCaptureDeviceType>* avf_device_types(void) { return @[ AVCaptureDeviceTypeBuiltInWideAngleCamera, AVCaptureDeviceTypeBuiltInUltraWideCamera, AVCaptureDeviceTypeBuiltInTelephotoCamera ]; }
+#endif
 
 typedef struct
 {
@@ -239,6 +253,12 @@ static bool avf_open(void* user, u64 stable_id, Mel_Camera_Config cfg, Mel_Camer
     (void)user;
     @autoreleasepool
     {
+        if ([AVCaptureDevice authorizationStatusForMediaType:AVMediaTypeVideo] != AVAuthorizationStatusAuthorized)
+        {
+            mel_log_error("camera", "avf open: camera not authorized; call mel_camera_authorize first");
+            return false;
+        }
+
         AVCaptureDevice* dev = avf_device_for(stable_id);
         if (!dev)
         {

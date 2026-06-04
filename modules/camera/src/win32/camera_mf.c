@@ -66,35 +66,47 @@ static void mf_attr_set_size(IMFMediaType* mt, REFGUID key, UINT32 hi, UINT32 lo
     IMFAttributes_SetUINT64((IMFAttributes*)mt, key, packed);
 }
 
-static const mel_image_format* mf_format_for(REFGUID subtype)
+static i32 mf_default_stride(IMFMediaType* mt, i32 w)
 {
-    usize                n = 0;
-    const Mf_Format_Map* map = mf_format_map(&n);
-    for (usize i = 0; i < n; i++)
-        if (IsEqualGUID(&map[i].subtype, subtype))
-            return map[i].fmt;
-    return NULL;
+    UINT32 ds = 0;
+    if (SUCCEEDED(IMFAttributes_GetUINT32((IMFAttributes*)mt, &MF_MT_DEFAULT_STRIDE, &ds)) && ds != 0)
+    {
+        LONG s = (LONG)ds;
+        return (i32)(s < 0 ? -s : s);
+    }
+    GUID subtype;
+    if (SUCCEEDED(IMFMediaType_GetGUID(mt, &MF_MT_SUBTYPE, &subtype)))
+    {
+        LONG s = 0;
+        if (SUCCEEDED(MFGetStrideForBitmapInfoHeader(subtype.Data1, (UINT32)w, &s)) && s != 0)
+            return (i32)(s < 0 ? -s : s);
+    }
+    return 0;
 }
 
 typedef struct
 {
-    u64              stable_id;
-    str8             name;
-    WCHAR*           symlink;
-    u32              symlink_len;
-    Mel_Camera_Modes modes;
+    u64    stable_id;
+    str8   name;
+    WCHAR* symlink;
 } Device_Rec;
 
-typedef struct
+typedef bool (*Mf_Lock_Fn)(IMFMediaBuffer* buffer, struct mf_session* s, IMFSample* sample, u64 ns);
+
+typedef struct mf_session
 {
-    u64                stable_id;
-    IMFSourceReader*   reader;
-    Mel_Camera_Sink    sink;
+    u64                     stable_id;
+    IMFSourceReader*        reader;
+    Mel_Camera_Sink         sink;
     const mel_image_format* fmt;
-    i32                w, h;
-    HANDLE             thread;
-    volatile LONG      running;
-    volatile LONG      stop_request;
+    i32                     w, h;
+    i32                     default_stride;
+    Mf_Lock_Fn              lock_fn;
+    HANDLE                  thread;
+    volatile LONG           running;
+    volatile LONG           stop_request;
+    volatile LONG           warned_multibuffer;
+    volatile LONG           warned_wrapfail;
 } Session;
 
 typedef struct
@@ -149,7 +161,6 @@ static void device_rec_free(Device_Rec* d)
         mel_dealloc(g_mf.alloc, d->name.data);
     if (d->symlink)
         mel_dealloc(g_mf.alloc, d->symlink);
-    mel_array_free(&d->modes);
     memset(d, 0, sizeof *d);
 }
 
@@ -158,50 +169,6 @@ static void devices_clear(void)
     for (usize i = 0; i < g_mf.devices.count; i++)
         device_rec_free(&g_mf.devices.items[i]);
     mel_array_clear(&g_mf.devices);
-}
-
-static void modes_collect(IMFMediaSource* source, Mel_Camera_Modes* modes)
-{
-    IMFSourceReader* reader = NULL;
-    if (FAILED(MFCreateSourceReaderFromMediaSource(source, NULL, &reader)) || reader == NULL)
-        return;
-
-    for (DWORD mi = 0;; mi++)
-    {
-        IMFMediaType* mt = NULL;
-        HRESULT       hr = IMFSourceReader_GetNativeMediaType(reader, (DWORD)MF_SOURCE_READER_FIRST_VIDEO_STREAM, mi, &mt);
-        if (hr == MF_E_NO_MORE_TYPES || FAILED(hr) || mt == NULL)
-        {
-            if (mt)
-                IMFMediaType_Release(mt);
-            break;
-        }
-
-        GUID subtype;
-        if (SUCCEEDED(IMFMediaType_GetGUID(mt, &MF_MT_SUBTYPE, &subtype)))
-        {
-            const mel_image_format* fmt = mf_format_for(&subtype);
-            if (fmt)
-            {
-                UINT32 w = 0, h = 0;
-                mf_attr_size(mt, &MF_MT_FRAME_SIZE, &w, &h);
-                UINT32 num = 0, den = 0;
-                mf_attr_size(mt, &MF_MT_FRAME_RATE, &num, &den);
-                f32 fps = den != 0 ? (f32)num / (f32)den : 0.0f;
-                Mel_Camera_Mode mode = {
-                    .format = fmt,
-                    .width = (i32)w,
-                    .height = (i32)h,
-                    .fps_min = fps,
-                    .fps_max = fps,
-                };
-                mel_array_push(modes, mode);
-            }
-        }
-        IMFMediaType_Release(mt);
-    }
-
-    IMFSourceReader_Release(reader);
 }
 
 static void devices_rebuild(void)
@@ -248,17 +215,7 @@ static void devices_rebuild(void)
         memset(&rec, 0, sizeof rec);
         rec.stable_id = mf_hash_wide(symlink, symlen);
         rec.symlink = mf_dup_wide(symlink, symlen, g_mf.alloc);
-        rec.symlink_len = symlen;
         rec.name = mf_utf8_from_wide(friendly ? friendly : symlink, g_mf.alloc);
-        mel_array_init(&rec.modes, g_mf.alloc);
-
-        IMFMediaSource* source = NULL;
-        if (SUCCEEDED(IMFActivate_ActivateObject(act, &IID_IMFMediaSource, (void**)&source)) && source != NULL)
-        {
-            modes_collect(source, &rec.modes);
-            IMFMediaSource_Shutdown(source);
-            IMFMediaSource_Release(source);
-        }
 
         mel_array_push(&g_mf.devices, rec);
 
@@ -290,6 +247,11 @@ static Session* session_find(u64 stable_id)
 static u32 mf_enumerate(void* user, Mel_Camera_Raw* out, u32 cap)
 {
     (void)user;
+    if (!g_mf.mf_started)
+    {
+        mel_log_error("camera", "mf enumerate: Media Foundation not started");
+        return 0;
+    }
     devices_rebuild();
     u32 n = (u32)g_mf.devices.count < cap ? (u32)g_mf.devices.count : cap;
     for (u32 i = 0; i < n; i++)
@@ -298,125 +260,215 @@ static u32 mf_enumerate(void* user, Mel_Camera_Raw* out, u32 cap)
         out[i].stable_id = d->stable_id;
         out[i].name = d->name;
         out[i].facing = &mel_camera_external;
-        out[i].modes = d->modes.items;
-        out[i].mode_count = (u32)d->modes.count;
+        out[i].modes = NULL;
+        out[i].mode_count = 0;
     }
     return n;
+}
+
+static const mel_camera_auth* mf_consent(void)
+{
+    WCHAR   data[32];
+    DWORD   size = sizeof data;
+    DWORD   type = 0;
+    LSTATUS st = RegGetValueW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\webcam", L"Value", RRF_RT_REG_SZ, &type, data, &size);
+    if (st != ERROR_SUCCESS)
+        return &mel_camera_auth_not_determined;
+    if (lstrcmpiW(data, L"Allow") == 0)
+        return &mel_camera_auth_granted;
+    if (lstrcmpiW(data, L"Deny") == 0)
+        return &mel_camera_auth_denied;
+    return &mel_camera_auth_not_determined;
 }
 
 static const mel_camera_auth* mf_authorization(void* user)
 {
     (void)user;
-    return &mel_camera_auth_granted;
+    return mf_consent();
 }
 
 static void mf_authorize(void* user, Mel_Camera_Sink sink)
 {
     (void)user;
     if (sink.on_auth)
-        sink.on_auth(sink.token, &mel_camera_auth_granted);
+        sink.on_auth(sink.token, mf_consent());
+}
+
+static bool deliver_nv12(Session* s, BYTE* base, i32 stride, u64 ns)
+{
+    Mel_Image_Plane planes[2];
+    planes[0] = (Mel_Image_Plane){ .pixels = (u8*)base, .stride = stride, .w = s->w, .h = s->h, .bpp = 1 };
+    planes[1] = (Mel_Image_Plane){ .pixels = (u8*)base + (usize)stride * (usize)s->h, .stride = stride, .w = s->w / 2, .h = s->h / 2, .bpp = 2 };
+
+    Mel_Image image;
+    if (!mel_image_wrap(&image, s->fmt, s->w, s->h, planes, 2))
+    {
+        if (InterlockedExchange(&s->warned_wrapfail, 1) == 0)
+            mel_log_error("camera", "mf capture: mel_image_wrap rejected buffer (stride=%d %dx%d) - stream will be black", stride, s->w, s->h);
+        return false;
+    }
+    Mel_Camera_Frame frame = {
+        .image = image,
+        .timestamp_ns = ns,
+        .sequence = 0,
+        .orient = { .quarter_turns = 0, .flip_x = false },
+    };
+    if (s->sink.on_frame)
+        s->sink.on_frame(s->sink.token, &frame);
+    return true;
+}
+
+static bool mf_pitch_ok(Session* s, LONG pitch)
+{
+    if (pitch >= 0)
+        return true;
+    if (InterlockedExchange(&s->warned_wrapfail, 1) == 0)
+        mel_log_error("camera", "mf capture: bottom-up buffer (pitch=%ld) unsupported; rejecting frame to avoid OOB read", pitch);
+    return false;
+}
+
+static bool lock_b2(IMFMediaBuffer* buffer, Session* s, IMFSample* sample, u64 ns)
+{
+    (void)sample;
+    IMF2DBuffer2* b2 = NULL;
+    if (FAILED(IMFMediaBuffer_QueryInterface(buffer, &IID_IMF2DBuffer2, (void**)&b2)) || b2 == NULL)
+        return false;
+    bool  delivered = false;
+    BYTE* scanline0 = NULL;
+    LONG  pitch = 0;
+    BYTE* start = NULL;
+    DWORD length = 0;
+    if (SUCCEEDED(IMF2DBuffer2_Lock2DSize(b2, MF2DBuffer_LockFlags_Read, &scanline0, &pitch, &start, &length)))
+    {
+        (void)start;
+        (void)length;
+        if (mf_pitch_ok(s, pitch))
+            delivered = deliver_nv12(s, scanline0, (i32)pitch, ns);
+        IMF2DBuffer2_Unlock2D(b2);
+    }
+    IMF2DBuffer2_Release(b2);
+    return delivered;
+}
+
+static bool lock_b1(IMFMediaBuffer* buffer, Session* s, IMFSample* sample, u64 ns)
+{
+    (void)sample;
+    IMF2DBuffer* b1 = NULL;
+    if (FAILED(IMFMediaBuffer_QueryInterface(buffer, &IID_IMF2DBuffer, (void**)&b1)) || b1 == NULL)
+        return false;
+    bool  delivered = false;
+    BYTE* scanline0 = NULL;
+    LONG  pitch = 0;
+    if (SUCCEEDED(IMF2DBuffer_Lock2D(b1, &scanline0, &pitch)))
+    {
+        if (mf_pitch_ok(s, pitch))
+            delivered = deliver_nv12(s, scanline0, (i32)pitch, ns);
+        IMF2DBuffer_Unlock2D(b1);
+    }
+    IMF2DBuffer_Release(b1);
+    return delivered;
+}
+
+static bool lock_plain(IMFMediaBuffer* buffer, Session* s, IMFSample* sample, u64 ns)
+{
+    (void)sample;
+    if (s->default_stride <= 0)
+    {
+        if (InterlockedExchange(&s->warned_wrapfail, 1) == 0)
+            mel_log_error("camera", "mf capture: plain Lock path has no known stride; rejecting frame");
+        return false;
+    }
+    BYTE* data = NULL;
+    DWORD maxlen = 0, curlen = 0;
+    bool  delivered = false;
+    if (SUCCEEDED(IMFMediaBuffer_Lock(buffer, &data, &maxlen, &curlen)))
+    {
+        delivered = deliver_nv12(s, data, s->default_stride, ns);
+        IMFMediaBuffer_Unlock(buffer);
+    }
+    return delivered;
+}
+
+static Mf_Lock_Fn mf_resolve_lock_fn(IMFMediaBuffer* buffer)
+{
+    IMF2DBuffer2* b2 = NULL;
+    if (SUCCEEDED(IMFMediaBuffer_QueryInterface(buffer, &IID_IMF2DBuffer2, (void**)&b2)) && b2 != NULL)
+    {
+        IMF2DBuffer2_Release(b2);
+        return lock_b2;
+    }
+    IMF2DBuffer* b1 = NULL;
+    if (SUCCEEDED(IMFMediaBuffer_QueryInterface(buffer, &IID_IMF2DBuffer, (void**)&b1)) && b1 != NULL)
+    {
+        IMF2DBuffer_Release(b1);
+        return lock_b1;
+    }
+    return lock_plain;
+}
+
+static IMFMediaBuffer* sample_single_buffer(Session* s, IMFSample* sample)
+{
+    DWORD bufcount = 0;
+    if (FAILED(IMFSample_GetBufferCount(sample, &bufcount)))
+        return NULL;
+    if (bufcount == 1)
+    {
+        IMFMediaBuffer* buffer = NULL;
+        if (FAILED(IMFSample_GetBufferByIndex(sample, 0, &buffer)) || buffer == NULL)
+            return NULL;
+        return buffer;
+    }
+    if (InterlockedExchange(&s->warned_multibuffer, 1) == 0)
+        mel_log_warn("camera", "mf capture: multi-buffer sample (%lu); falling back to ConvertToContiguousBuffer (per-frame copy)", (unsigned long)bufcount);
+    IMFMediaBuffer* buffer = NULL;
+    if (FAILED(IMFSample_ConvertToContiguousBuffer(sample, &buffer)) || buffer == NULL)
+        return NULL;
+    return buffer;
+}
+
+static bool session_resync_type(Session* s)
+{
+    IMFMediaType* mt = NULL;
+    if (FAILED(IMFSourceReader_GetCurrentMediaType(s->reader, (DWORD)MF_SOURCE_READER_FIRST_VIDEO_STREAM, &mt)) || mt == NULL)
+    {
+        mel_log_error("camera", "mf capture: media type changed but GetCurrentMediaType failed");
+        return false;
+    }
+    GUID subtype;
+    GUID want;
+    bool ok = false;
+    if (SUCCEEDED(IMFMediaType_GetGUID(mt, &MF_MT_SUBTYPE, &subtype)) && mf_subtype_for(s->fmt, &want) && IsEqualGUID(&subtype, &want))
+    {
+        UINT32 w = 0, h = 0;
+        if (mf_attr_size(mt, &MF_MT_FRAME_SIZE, &w, &h) && w > 0 && h > 0)
+        {
+            s->w = (i32)w;
+            s->h = (i32)h;
+            s->default_stride = mf_default_stride(mt, s->w);
+            s->lock_fn = NULL;
+            ok = true;
+        }
+    }
+    if (!ok)
+        mel_log_error("camera", "mf capture: media type changed to an unsupported format; dropping frames");
+    IMFMediaType_Release(mt);
+    return ok;
 }
 
 static bool sample_deliver(Session* s, IMFSample* sample)
 {
-    IMFMediaBuffer* buffer = NULL;
-    if (FAILED(IMFSample_ConvertToContiguousBuffer(sample, &buffer)) || buffer == NULL)
+    IMFMediaBuffer* buffer = sample_single_buffer(s, sample);
+    if (!buffer)
         return false;
-
-    bool delivered = false;
 
     LONGLONG ts100ns = 0;
     IMFSample_GetSampleTime(sample, &ts100ns);
     u64 ns = (u64)ts100ns * 100ull;
 
-    IMF2DBuffer2* b2 = NULL;
-    IMF2DBuffer*  b1 = NULL;
+    if (!s->lock_fn)
+        s->lock_fn = mf_resolve_lock_fn(buffer);
 
-    if (SUCCEEDED(IMFMediaBuffer_QueryInterface(buffer, &IID_IMF2DBuffer2, (void**)&b2)) && b2 != NULL)
-    {
-        BYTE*  scanline0 = NULL;
-        LONG   pitch = 0;
-        BYTE*  start = NULL;
-        DWORD  length = 0;
-        if (SUCCEEDED(IMF2DBuffer2_Lock2DSize(b2, MF2DBuffer_LockFlags_Read, &scanline0, &pitch, &start, &length)))
-        {
-            i32 stride = (i32)(pitch < 0 ? -pitch : pitch);
-            Mel_Image_Plane planes[2];
-            planes[0] = (Mel_Image_Plane){ .pixels = (u8*)scanline0, .stride = stride, .w = s->w, .h = s->h, .bpp = 1 };
-            planes[1] = (Mel_Image_Plane){ .pixels = (u8*)scanline0 + (usize)stride * (usize)s->h, .stride = stride, .w = s->w / 2, .h = s->h / 2, .bpp = 2 };
-
-            Mel_Image image;
-            if (mel_image_wrap(&image, s->fmt, s->w, s->h, planes, 2))
-            {
-                Mel_Camera_Frame frame = {
-                    .image = image,
-                    .timestamp_ns = ns,
-                    .sequence = 0,
-                    .orient = { .quarter_turns = 0, .flip_x = false },
-                };
-                if (s->sink.on_frame)
-                    s->sink.on_frame(s->sink.token, &frame);
-                delivered = true;
-            }
-            IMF2DBuffer2_Unlock2D(b2);
-        }
-        IMF2DBuffer2_Release(b2);
-    }
-    else if (SUCCEEDED(IMFMediaBuffer_QueryInterface(buffer, &IID_IMF2DBuffer, (void**)&b1)) && b1 != NULL)
-    {
-        BYTE* scanline0 = NULL;
-        LONG  pitch = 0;
-        if (SUCCEEDED(IMF2DBuffer_Lock2D(b1, &scanline0, &pitch)))
-        {
-            i32 stride = (i32)(pitch < 0 ? -pitch : pitch);
-            Mel_Image_Plane planes[2];
-            planes[0] = (Mel_Image_Plane){ .pixels = (u8*)scanline0, .stride = stride, .w = s->w, .h = s->h, .bpp = 1 };
-            planes[1] = (Mel_Image_Plane){ .pixels = (u8*)scanline0 + (usize)stride * (usize)s->h, .stride = stride, .w = s->w / 2, .h = s->h / 2, .bpp = 2 };
-
-            Mel_Image image;
-            if (mel_image_wrap(&image, s->fmt, s->w, s->h, planes, 2))
-            {
-                Mel_Camera_Frame frame = {
-                    .image = image,
-                    .timestamp_ns = ns,
-                    .sequence = 0,
-                    .orient = { .quarter_turns = 0, .flip_x = false },
-                };
-                if (s->sink.on_frame)
-                    s->sink.on_frame(s->sink.token, &frame);
-                delivered = true;
-            }
-            IMF2DBuffer_Unlock2D(b1);
-        }
-        IMF2DBuffer_Release(b1);
-    }
-    else
-    {
-        BYTE*  data = NULL;
-        DWORD  maxlen = 0, curlen = 0;
-        if (SUCCEEDED(IMFMediaBuffer_Lock(buffer, &data, &maxlen, &curlen)))
-        {
-            i32 stride = s->w;
-            Mel_Image_Plane planes[2];
-            planes[0] = (Mel_Image_Plane){ .pixels = (u8*)data, .stride = stride, .w = s->w, .h = s->h, .bpp = 1 };
-            planes[1] = (Mel_Image_Plane){ .pixels = (u8*)data + (usize)stride * (usize)s->h, .stride = stride, .w = s->w / 2, .h = s->h / 2, .bpp = 2 };
-
-            Mel_Image image;
-            if (mel_image_wrap(&image, s->fmt, s->w, s->h, planes, 2))
-            {
-                Mel_Camera_Frame frame = {
-                    .image = image,
-                    .timestamp_ns = ns,
-                    .sequence = 0,
-                    .orient = { .quarter_turns = 0, .flip_x = false },
-                };
-                if (s->sink.on_frame)
-                    s->sink.on_frame(s->sink.token, &frame);
-                delivered = true;
-            }
-            IMFMediaBuffer_Unlock(buffer);
-        }
-    }
+    bool delivered = s->lock_fn(buffer, s, sample, ns);
 
     IMFMediaBuffer_Release(buffer);
     return delivered;
@@ -450,6 +502,15 @@ static DWORD WINAPI capture_thread(LPVOID param)
                 IMFSample_Release(sample);
             break;
         }
+        if (flags & MF_SOURCE_READERF_CURRENTMEDIATYPECHANGED)
+        {
+            if (!session_resync_type(s))
+            {
+                if (sample)
+                    IMFSample_Release(sample);
+                continue;
+            }
+        }
         if (sample)
         {
             sample_deliver(s, sample);
@@ -461,14 +522,13 @@ static DWORD WINAPI capture_thread(LPVOID param)
     return 0;
 }
 
-static IMFMediaSource* source_from_symlink(const WCHAR* symlink, u32 symlen)
+static IMFMediaSource* source_from_symlink(const WCHAR* symlink)
 {
     IMFAttributes* attrs = NULL;
     if (FAILED(MFCreateAttributes(&attrs, 2)) || attrs == NULL)
         return NULL;
     IMFAttributes_SetGUID(attrs, &MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE, &MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_GUID);
     IMFAttributes_SetString(attrs, &MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_SYMBOLIC_LINK, symlink);
-    (void)symlen;
 
     IMFMediaSource* source = NULL;
     HRESULT         hr = MFCreateDeviceSource(attrs, &source);
@@ -478,7 +538,25 @@ static IMFMediaSource* source_from_symlink(const WCHAR* symlink, u32 symlen)
     return source;
 }
 
-static bool reader_select_format(IMFSourceReader* reader, const GUID* subtype, i32 w, i32 h, f32 fps)
+static bool mf_fps_in_range(IMFMediaType* mt, f32 fps)
+{
+    UINT32 lo_n = 0, lo_d = 0, hi_n = 0, hi_d = 0;
+    bool   have_lo = mf_attr_size(mt, &MF_MT_FRAME_RATE_RANGE_MIN, &lo_n, &lo_d);
+    bool   have_hi = mf_attr_size(mt, &MF_MT_FRAME_RATE_RANGE_MAX, &hi_n, &hi_d);
+    if (!have_lo || !have_hi || lo_d == 0 || hi_d == 0)
+    {
+        UINT32 n = 0, d = 0;
+        if (!mf_attr_size(mt, &MF_MT_FRAME_RATE, &n, &d) || d == 0)
+            return false;
+        f32 r = (f32)n / (f32)d;
+        return fps <= r + 0.5f && fps >= r - 0.5f;
+    }
+    f32 lo = (f32)lo_n / (f32)lo_d;
+    f32 hi = (f32)hi_n / (f32)hi_d;
+    return fps >= lo - 0.5f && fps <= hi + 0.5f;
+}
+
+static bool reader_select_format(IMFSourceReader* reader, const GUID* subtype, i32 w, i32 h, f32 fps, i32* out_stride)
 {
     for (DWORD mi = 0;; mi++)
     {
@@ -503,8 +581,24 @@ static bool reader_select_format(IMFSourceReader* reader, const GUID* subtype, i
         if (match)
         {
             if (fps > 0.0f)
-                mf_attr_set_size(mt, &MF_MT_FRAME_RATE, (UINT32)(fps + 0.5f), 1);
+            {
+                if (mf_fps_in_range(mt, fps))
+                    mf_attr_set_size(mt, &MF_MT_FRAME_RATE, (UINT32)(fps + 0.5f), 1);
+                else
+                    mel_log_warn("camera", "mf open: requested %.1f fps outside native range; using device default", (double)fps);
+            }
             HRESULT sr = IMFSourceReader_SetCurrentMediaType(reader, (DWORD)MF_SOURCE_READER_FIRST_VIDEO_STREAM, NULL, mt);
+            if (SUCCEEDED(sr))
+            {
+                IMFMediaType* cur = NULL;
+                if (SUCCEEDED(IMFSourceReader_GetCurrentMediaType(reader, (DWORD)MF_SOURCE_READER_FIRST_VIDEO_STREAM, &cur)) && cur != NULL)
+                {
+                    *out_stride = mf_default_stride(cur, w);
+                    IMFMediaType_Release(cur);
+                }
+                else
+                    *out_stride = mf_default_stride(mt, w);
+            }
             IMFMediaType_Release(mt);
             return SUCCEEDED(sr);
         }
@@ -516,6 +610,11 @@ static bool reader_select_format(IMFSourceReader* reader, const GUID* subtype, i
 static bool mf_open(void* user, u64 stable_id, Mel_Camera_Config cfg, Mel_Camera_Sink sink)
 {
     (void)user;
+    if (!g_mf.mf_started)
+    {
+        mel_log_error("camera", "mf open: Media Foundation not started");
+        return false;
+    }
     if (session_find(stable_id))
     {
         mel_log_error("camera", "mf open: device %llu already open", (unsigned long long)stable_id);
@@ -535,7 +634,7 @@ static bool mf_open(void* user, u64 stable_id, Mel_Camera_Config cfg, Mel_Camera
         return false;
     }
 
-    IMFMediaSource* source = source_from_symlink(dev->symlink, dev->symlink_len);
+    IMFMediaSource* source = source_from_symlink(dev->symlink);
     if (!source)
     {
         mel_log_error("camera", "mf open: MFCreateDeviceSource failed for %llu", (unsigned long long)stable_id);
@@ -552,7 +651,8 @@ static bool mf_open(void* user, u64 stable_id, Mel_Camera_Config cfg, Mel_Camera
         return false;
     }
 
-    if (!reader_select_format(reader, &subtype, cfg.width, cfg.height, cfg.fps))
+    i32 stride = 0;
+    if (!reader_select_format(reader, &subtype, cfg.width, cfg.height, cfg.fps, &stride))
     {
         mel_log_error("camera", "mf open: no native media type for %dx%d", cfg.width, cfg.height);
         IMFSourceReader_Release(reader);
@@ -576,6 +676,8 @@ static bool mf_open(void* user, u64 stable_id, Mel_Camera_Config cfg, Mel_Camera
     s->fmt = cfg.format;
     s->w = cfg.width;
     s->h = cfg.height;
+    s->default_stride = stride;
+    s->lock_fn = NULL;
     s->running = 0;
     s->stop_request = 0;
 
@@ -620,16 +722,16 @@ static Mel_Camera_Status mf_start(void* user, u64 stable_id)
     Session* s = session_find(stable_id);
     if (!s)
         return MEL_CAMERA_ERROR | MEL_CAMERA_RESULT_NO_DEVICE;
-    if (InterlockedCompareExchange(&s->running, 0, 0) != 0)
+    if (InterlockedCompareExchange(&s->running, 1, 0) != 0)
         return MEL_CAMERA_OK;
     InterlockedExchange(&s->stop_request, 0);
     s->thread = CreateThread(NULL, 0, capture_thread, s, 0, NULL);
     if (!s->thread)
     {
+        InterlockedExchange(&s->running, 0);
         mel_log_error("camera", "mf start: CreateThread failed");
         return MEL_CAMERA_ERROR | MEL_CAMERA_RESULT_BUSY;
     }
-    InterlockedExchange(&s->running, 1);
     return MEL_CAMERA_OK;
 }
 
