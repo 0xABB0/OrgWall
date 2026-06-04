@@ -97,6 +97,34 @@ typedef struct
     void*                   sampler;
 } Mel_Gpu_Sampler_Obj;
 
+typedef struct
+{
+    Mel_Gpu_Resource_Header header;
+    void*                   library;
+    void*                   vs;
+    void*                   fs;
+    void*                   cs;
+    char*                   vs_entry;
+    char*                   fs_entry;
+    char*                   cs_entry;
+} Mel_Gpu_Shader_Obj;
+
+typedef struct
+{
+    Mel_Gpu_Resource_Header header;
+    void*                   state;
+    void*                   depth_stencil_state;
+    Mel_Gpu_Topology        topology;
+    bool                    compute;
+    MTLSize                 threadgroup;
+    MTLCullMode             cull_mode;
+    MTLWinding              front_face;
+    MTLTriangleFillMode     fill_mode;
+    bool                    stencil_test;
+    u32                     stencil_ref_front;
+    u32                     stencil_ref_back;
+} Mel_Gpu_Pipeline_Obj;
+
 struct Mel_Gpu_Device
 {
     Mel_Gpu_Instance*        instance;
@@ -123,6 +151,8 @@ struct Mel_Gpu_Device
     Mel_Gpu_Resource_Table textures;
     Mel_Gpu_Resource_Table texture_views;
     Mel_Gpu_Resource_Table samplers;
+    Mel_Gpu_Resource_Table shaders;
+    Mel_Gpu_Resource_Table pipelines;
 
     bool                     submit_poller_registered;
     struct Mel_Gpu_Pending*  pending;
@@ -148,6 +178,11 @@ struct Mel_Gpu_Command_List
     bool               standalone;
     bool               recording;
     bool               warned_unsupported;
+
+    MTLPrimitiveType   primitive;
+    bool               has_pipeline;
+    id<MTLBuffer>      index_buffer;
+    MTLIndexType       index_type;
 };
 
 struct Mel_Gpu_Queue
@@ -192,3 +227,11 @@ Mel_Gpu_Format mel_gpu__mtl_format_to_mel(MTLPixelFormat fmt);
 bool mel_gpu__buffer_get(Mel_Gpu_Device* dev, Mel_Gpu_Buffer buf, id<MTLBuffer>* out);
 bool mel_gpu__texture_get(Mel_Gpu_Device* dev, Mel_Gpu_Texture tex, Mel_Gpu_Texture_Obj* out);
 bool mel_gpu__texture_view_get(Mel_Gpu_Device* dev, Mel_Gpu_Texture_View view, Mel_Gpu_Texture_View_Obj* out);
+
+bool             mel_gpu__pipeline_get(Mel_Gpu_Device* dev, Mel_Gpu_Pipeline pipe, Mel_Gpu_Pipeline_Obj* out);
+MTLPrimitiveType mel_gpu__topology_to_primitive(Mel_Gpu_Topology t);
+
+#define MEL_GPU_METAL_VERTEX_BUFFER_INDEX 30u
+#define MEL_GPU_METAL_PUSH_CONSTANT_INDEX 0u
+#define MEL_GPU_METAL_VERTEX_BUFFER_BASE 30u
+#define MEL_GPU_METAL_VERTEX_SLOT_TO_INDEX(slot) (MEL_GPU_METAL_VERTEX_BUFFER_BASE - (slot))

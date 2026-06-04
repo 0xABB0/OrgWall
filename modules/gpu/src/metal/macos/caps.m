@@ -19,7 +19,11 @@ void mel_gpu__caps_probe(id<MTLDevice> mtl, Mel_Gpu_Caps* out)
         memcpy(a->name, name, n);
         a->name[n] = 0;
     }
+#if TARGET_OS_OSX
     a->adapter_type = mtl.lowPower ? MEL_GPU_ADAPTER_INTEGRATED : (mtl.hasUnifiedMemory ? MEL_GPU_ADAPTER_INTEGRATED : MEL_GPU_ADAPTER_DISCRETE);
+#else
+    a->adapter_type = MEL_GPU_ADAPTER_INTEGRATED;
+#endif
     a->vendor_id = (u32)mtl.registryID;
     a->has_luid = false;
     if (@available(macOS 10.13, *))
@@ -32,8 +36,11 @@ void mel_gpu__caps_probe(id<MTLDevice> mtl, Mel_Gpu_Caps* out)
     m->host_visible_device_local = mtl.hasUnifiedMemory ? MEL_GPU_HOST_VISIBLE_DEVICE_LOCAL_FULL_UMA : MEL_GPU_HOST_VISIBLE_DEVICE_LOCAL_NONE;
     m->persistent_map = true;
     m->residency_control = MEL_GPU_RESIDENCY_NONE;
-    m->device_local_bytes = (u64)mtl.recommendedMaxWorkingSetSize;
-    m->host_visible_bytes = mtl.hasUnifiedMemory ? (u64)mtl.recommendedMaxWorkingSetSize : 0;
+    u64 working_set = 0;
+    if (@available(macOS 10.12, iOS 16.0, *))
+        working_set = (u64)mtl.recommendedMaxWorkingSetSize;
+    m->device_local_bytes = working_set;
+    m->host_visible_bytes = mtl.hasUnifiedMemory ? working_set : 0;
     m->bindless.tier = MEL_GPU_TIER_NONE;
     m->bindless.binding_model = MEL_GPU_BINDING_MODEL_DESCRIPTOR_TABLES;
 
@@ -51,8 +58,10 @@ void mel_gpu__caps_probe(id<MTLDevice> mtl, Mel_Gpu_Caps* out)
     s->int64 = false;
     s->fp64 = false;
     s->wave_ops = true;
+    s->draw_parameters = false;
     s->subgroup_size_min = 32;
     s->subgroup_size_max = 32;
+    s->bytecode_passthrough.msl = true;
 
     out->sampler.anisotropy = true;
     out->sampler.max_anisotropy = 16.0f;

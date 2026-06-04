@@ -2,19 +2,6 @@
 
 #include <log/log.h>
 
-static void mel_gpu__warn_unsupported(Mel_Gpu_Command_List* cmd, const char* what)
-{
-    if (cmd && !cmd->warned_unsupported)
-    {
-        cmd->warned_unsupported = true;
-        mel_log_warn("gpu", "metal backend: %s is not implemented this round; the call is a loud no-op (clear-and-present only)", what);
-    }
-    else if (!cmd)
-    {
-        mel_log_warn("gpu", "metal backend: %s is not implemented this round", what);
-    }
-}
-
 void mel_gpu_frame_begin(Mel_Gpu_Swapchain* sc)
 {
     Mel_Gpu_Device* dev = sc->dev;
@@ -40,6 +27,8 @@ void mel_gpu_frame_begin(Mel_Gpu_Swapchain* sc)
     sc->drawable = drawable;
     sc->recorder.cb = cb;
     sc->recorder.encoder = nil;
+    sc->recorder.has_pipeline = false;
+    sc->recorder.index_buffer = nil;
     sc->frame_ok = true;
 }
 
@@ -92,6 +81,7 @@ void mel_gpu_cmd_begin_pass(Mel_Gpu_Command_List* cmd, Mel_Gpu_Color clear)
     rp.colorAttachments[0].clearColor = MTLClearColorMake(clear.r, clear.g, clear.b, clear.a);
 
     cmd->encoder = [cmd->cb renderCommandEncoderWithDescriptor:rp];
+    cmd->has_pipeline = false;
 
     MTLViewport vp = { 0.0, 0.0, (double)sc->width, (double)sc->height, 0.0, 1.0 };
     [cmd->encoder setViewport:vp];
@@ -111,8 +101,9 @@ Mel_Gpu_Command_List* mel_gpu_command_list_create(Mel_Gpu_Queue* q)
     if (!q)
         return NULL;
     Mel_Gpu_Device*       dev = q->dev;
-    Mel_Gpu_Command_List* cmd = mel_alloc_type(dev->alloc, Mel_Gpu_Command_List);
-    *cmd = (Mel_Gpu_Command_List){ .dev = dev, .standalone = true };
+    Mel_Gpu_Command_List* cmd = mel_calloc(dev->alloc, sizeof(Mel_Gpu_Command_List));
+    cmd->dev = dev;
+    cmd->standalone = true;
     return cmd;
 }
 
@@ -124,6 +115,8 @@ void mel_gpu_command_list_begin(Mel_Gpu_Command_List* cmd)
     cmd->encoder = nil;
     cmd->warned_unsupported = false;
     cmd->recording = true;
+    cmd->has_pipeline = false;
+    cmd->index_buffer = nil;
 }
 
 void mel_gpu_command_list_end(Mel_Gpu_Command_List* cmd)
@@ -167,60 +160,170 @@ void mel_gpu_cmd_buffer_barrier(Mel_Gpu_Command_List* cmd, Mel_Gpu_Buffer buf, M
 
 void mel_gpu_cmd_copy_texture_to_buffer(Mel_Gpu_Command_List* cmd, Mel_Gpu_Texture tex, Mel_Gpu_Subresource_Range subresource, Mel_Gpu_Buffer dst)
 {
-    (void)tex;
-    (void)subresource;
-    (void)dst;
-    mel_gpu__warn_unsupported(cmd, "cmd_copy_texture_to_buffer");
+    if (!cmd || !cmd->cb)
+    {
+        mel_log_error("gpu", "cmd_copy_texture_to_buffer: command list has no command buffer");
+        return;
+    }
+
+    Mel_Gpu_Texture_Obj to;
+    id<MTLBuffer>       db = nil;
+    if (!mel_gpu__texture_get(cmd->dev, tex, &to) || !mel_gpu__buffer_get(cmd->dev, dst, &db))
+    {
+        mel_log_error("gpu", "cmd_copy_texture_to_buffer: source texture or destination buffer is not a live handle");
+        return;
+    }
+
+    if (cmd->encoder)
+    {
+        [cmd->encoder endEncoding];
+        cmd->encoder = nil;
+    }
+
+    id<MTLTexture> src = (__bridge id<MTLTexture>)to.texture;
+    u32            mip = subresource.base_mip;
+    u32            layer = subresource.base_layer;
+    u32            w = to.width >> mip ? to.width >> mip : 1;
+    u32            h = to.height >> mip ? to.height >> mip : 1;
+    usize          row_bytes = (usize)w * 4;
+
+    id<MTLBlitCommandEncoder> blit = [cmd->cb blitCommandEncoder];
+    [blit copyFromTexture:src sourceSlice:layer sourceLevel:mip sourceOrigin:MTLOriginMake(0, 0, 0) sourceSize:MTLSizeMake(w, h, 1) toBuffer:db destinationOffset:0 destinationBytesPerRow:row_bytes destinationBytesPerImage:row_bytes * h];
+    [blit endEncoding];
 }
 
 void mel_gpu_cmd_copy_buffer(Mel_Gpu_Command_List* cmd, Mel_Gpu_Buffer src, Mel_Gpu_Buffer dst, usize bytes)
 {
-    (void)src;
-    (void)dst;
-    (void)bytes;
-    mel_gpu__warn_unsupported(cmd, "cmd_copy_buffer");
+    if (!cmd || !cmd->cb)
+    {
+        mel_log_error("gpu", "cmd_copy_buffer: command list has no command buffer");
+        return;
+    }
+    id<MTLBuffer> sb = nil, db = nil;
+    if (!mel_gpu__buffer_get(cmd->dev, src, &sb) || !mel_gpu__buffer_get(cmd->dev, dst, &db))
+    {
+        mel_log_error("gpu", "cmd_copy_buffer: source or destination buffer is not a live handle");
+        return;
+    }
+    if (cmd->encoder)
+    {
+        [cmd->encoder endEncoding];
+        cmd->encoder = nil;
+    }
+    id<MTLBlitCommandEncoder> blit = [cmd->cb blitCommandEncoder];
+    [blit copyFromBuffer:sb sourceOffset:0 toBuffer:db destinationOffset:0 size:bytes];
+    [blit endEncoding];
 }
 
 void mel_gpu_cmd_bind_pipeline(Mel_Gpu_Command_List* cmd, Mel_Gpu_Pipeline pipe)
 {
-    (void)pipe;
-    mel_gpu__warn_unsupported(cmd, "cmd_bind_pipeline (no pipeline lowering this round)");
+    Mel_Gpu_Pipeline_Obj o;
+    if (!mel_gpu__pipeline_get(cmd->dev, pipe, &o) || !o.state)
+    {
+        mel_log_error("gpu", "cmd_bind_pipeline: pipeline is not a live handle");
+        return;
+    }
+    if (o.compute)
+    {
+        mel_log_error("gpu", "cmd_bind_pipeline: compute pipelines are not bindable on the Metal backend's render-encoder command list this round (MissingFeature)");
+        return;
+    }
+    if (!cmd->encoder)
+    {
+        mel_log_error("gpu", "cmd_bind_pipeline: no active render encoder (call begin_pass / begin_rendering first)");
+        return;
+    }
+    [cmd->encoder setRenderPipelineState:(__bridge id<MTLRenderPipelineState>)o.state];
+    [cmd->encoder setCullMode:o.cull_mode];
+    [cmd->encoder setFrontFacingWinding:o.front_face];
+    [cmd->encoder setTriangleFillMode:o.fill_mode];
+    if (o.depth_stencil_state)
+        [cmd->encoder setDepthStencilState:(__bridge id<MTLDepthStencilState>)o.depth_stencil_state];
+    if (o.stencil_test)
+        [cmd->encoder setStencilFrontReferenceValue:o.stencil_ref_front backReferenceValue:o.stencil_ref_back];
+    cmd->primitive = mel_gpu__topology_to_primitive(o.topology);
+    cmd->has_pipeline = true;
 }
 
 void mel_gpu_cmd_bind_vertex_buffer(Mel_Gpu_Command_List* cmd, u32 slot, Mel_Gpu_Buffer buf)
 {
-    (void)slot;
-    (void)buf;
-    mel_gpu__warn_unsupported(cmd, "cmd_bind_vertex_buffer");
+    if (slot >= MEL_GPU_METAL_VERTEX_BUFFER_BASE)
+    {
+        mel_log_error("gpu",
+                      "cmd_bind_vertex_buffer: slot %u out of range; the Metal backend maps vertex slots onto buffer indices descending from %u (slot s -> index %u-s) to clear the push-constant index %u, so the usable slot range is 0..%u",
+                      slot,
+                      MEL_GPU_METAL_VERTEX_BUFFER_BASE,
+                      MEL_GPU_METAL_VERTEX_BUFFER_BASE,
+                      MEL_GPU_METAL_PUSH_CONSTANT_INDEX,
+                      MEL_GPU_METAL_VERTEX_BUFFER_BASE - 1u);
+        mel_assert(slot < MEL_GPU_METAL_VERTEX_BUFFER_BASE);
+        return;
+    }
+    id<MTLBuffer> mb = nil;
+    if (!mel_gpu__buffer_get(cmd->dev, buf, &mb))
+    {
+        mel_log_error("gpu", "cmd_bind_vertex_buffer: buffer is not a live handle");
+        return;
+    }
+    if (!cmd->encoder)
+    {
+        mel_log_error("gpu", "cmd_bind_vertex_buffer: no active render encoder");
+        return;
+    }
+    [cmd->encoder setVertexBuffer:mb offset:0 atIndex:MEL_GPU_METAL_VERTEX_SLOT_TO_INDEX(slot)];
 }
 
 void mel_gpu_cmd_bind_index_buffer(Mel_Gpu_Command_List* cmd, Mel_Gpu_Buffer buf, Mel_Gpu_Index_Type type)
 {
-    (void)buf;
-    (void)type;
-    mel_gpu__warn_unsupported(cmd, "cmd_bind_index_buffer");
+    id<MTLBuffer> mb = nil;
+    if (!mel_gpu__buffer_get(cmd->dev, buf, &mb))
+    {
+        mel_log_error("gpu", "cmd_bind_index_buffer: buffer is not a live handle");
+        return;
+    }
+    cmd->index_buffer = mb;
+    cmd->index_type = type == MEL_GPU_INDEX_UINT32 ? MTLIndexTypeUInt32 : MTLIndexTypeUInt16;
 }
 
 void mel_gpu_cmd_push_constants(Mel_Gpu_Command_List* cmd, u32 offset, u32 bytes, const void* data)
 {
-    (void)offset;
-    (void)bytes;
-    (void)data;
-    mel_gpu__warn_unsupported(cmd, "cmd_push_constants");
+    if (!cmd->encoder)
+    {
+        mel_log_error("gpu", "cmd_push_constants: no active render encoder");
+        return;
+    }
+    if (offset != 0)
+    {
+        mel_log_error("gpu", "cmd_push_constants: nonzero offset %u unsupported on the Metal backend (push constants ride a single buffer slot)", offset);
+        return;
+    }
+    [cmd->encoder setVertexBytes:data length:bytes atIndex:MEL_GPU_METAL_PUSH_CONSTANT_INDEX];
+    [cmd->encoder setFragmentBytes:data length:bytes atIndex:MEL_GPU_METAL_PUSH_CONSTANT_INDEX];
 }
 
 void mel_gpu_cmd_draw(Mel_Gpu_Command_List* cmd, u32 vertex_count, u32 instance_count)
 {
-    (void)vertex_count;
-    (void)instance_count;
-    mel_gpu__warn_unsupported(cmd, "cmd_draw (no pipeline lowering this round)");
+    if (!cmd->encoder || !cmd->has_pipeline)
+    {
+        mel_log_error("gpu", "cmd_draw: no active render encoder with a bound pipeline");
+        return;
+    }
+    [cmd->encoder drawPrimitives:cmd->primitive vertexStart:0 vertexCount:vertex_count instanceCount:instance_count ? instance_count : 1];
 }
 
 void mel_gpu_cmd_draw_indexed(Mel_Gpu_Command_List* cmd, u32 index_count, u32 instance_count)
 {
-    (void)index_count;
-    (void)instance_count;
-    mel_gpu__warn_unsupported(cmd, "cmd_draw_indexed");
+    if (!cmd->encoder || !cmd->has_pipeline)
+    {
+        mel_log_error("gpu", "cmd_draw_indexed: no active render encoder with a bound pipeline");
+        return;
+    }
+    if (!cmd->index_buffer)
+    {
+        mel_log_error("gpu", "cmd_draw_indexed: no index buffer bound");
+        return;
+    }
+    [cmd->encoder drawIndexedPrimitives:cmd->primitive indexCount:index_count indexType:cmd->index_type indexBuffer:cmd->index_buffer indexBufferOffset:0 instanceCount:instance_count ? instance_count : 1];
 }
 
 void mel_gpu_cmd_dispatch(Mel_Gpu_Command_List* cmd, u32 groups_x, u32 groups_y, u32 groups_z)
@@ -228,12 +331,13 @@ void mel_gpu_cmd_dispatch(Mel_Gpu_Command_List* cmd, u32 groups_x, u32 groups_y,
     (void)groups_x;
     (void)groups_y;
     (void)groups_z;
-    mel_gpu__warn_unsupported(cmd, "cmd_dispatch");
+    mel_log_error("gpu", "cmd_dispatch: compute dispatch is unsupported on the Metal backend's render-encoder command list this round (MissingFeature)");
 }
 
 void mel_gpu_cmd_dispatch_indirect(Mel_Gpu_Command_List* cmd, Mel_Gpu_Buffer args, usize offset)
 {
+    (void)cmd;
     (void)args;
     (void)offset;
-    mel_gpu__warn_unsupported(cmd, "cmd_dispatch_indirect");
+    mel_log_error("gpu", "cmd_dispatch_indirect: compute dispatch is unsupported on the Metal backend this round (MissingFeature)");
 }

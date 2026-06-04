@@ -1,8 +1,12 @@
 #include <stddef.h>
 #include <stdlib.h>
 
+#include <gpu/caps.h>
+#include <gpu/device.h>
+
+#include "bundle_select.h"
 #include "triangle.h"
-#include "triangle_spv.h"
+#include "triangle_bundle.h"
 
 typedef struct
 {
@@ -31,14 +35,24 @@ static void* triangle_init(Mel_Gpu_Device* dev, Mel_Gpu_Swapchain* sc)
 
     t->vbo = mel_gpu_buffer_create(dev, .size = sizeof verts, .usage = MEL_GPU_BUFFER_VERTEX, .memory = MEL_GPU_MEMORY_UPLOAD, .data = verts, .name = "triangle-vbo").value;
 
-    t->shader = mel_gpu_shader_create_from_bytecode(dev,
-                                                    .spirv_vertex = TRIANGLE_VERT_SPV,
-                                                    .spirv_vertex_size = sizeof TRIANGLE_VERT_SPV,
-                                                    .spirv_fragment = TRIANGLE_FRAG_SPV,
-                                                    .spirv_fragment_size = sizeof TRIANGLE_FRAG_SPV,
-                                                    .vertex_entry = "vs_main",
-                                                    .fragment_entry = "fs_main")
-                    .value;
+    const Mel_Bundle_Graphics bundle = {
+        .name = "triangle",
+        .spirv_vertex = TRIANGLE_VERT_SPV,
+        .spirv_vertex_size = sizeof TRIANGLE_VERT_SPV,
+        .spirv_fragment = TRIANGLE_FRAG_SPV,
+        .spirv_fragment_size = sizeof TRIANGLE_FRAG_SPV,
+        .msl_vertex = TRIANGLE_VERT_MSL,
+        .msl_vertex_size = sizeof TRIANGLE_VERT_MSL,
+        .msl_fragment = TRIANGLE_FRAG_MSL,
+        .msl_fragment_size = sizeof TRIANGLE_FRAG_MSL,
+        .wgsl_vertex = TRIANGLE_VERT_WGSL,
+        .wgsl_vertex_size = sizeof TRIANGLE_VERT_WGSL,
+        .wgsl_fragment = TRIANGLE_FRAG_WGSL,
+        .wgsl_fragment_size = sizeof TRIANGLE_FRAG_WGSL,
+        .vertex_entry = TRIANGLE_VERT_ENTRY,
+        .fragment_entry = TRIANGLE_FRAG_ENTRY,
+    };
+    t->shader = mel_bundle_select_graphics(dev, &bundle).value;
 
     const Mel_Gpu_Vertex_Element layout[] = {
         { .location = 0, .format = MEL_GPU_FORMAT_RGB32_FLOAT, .offset = offsetof(Vertex, pos) },

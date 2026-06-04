@@ -71,6 +71,8 @@ static Mel_Mutex             level_lock;
 
 static Mel_Thread    writer_thread;
 static _Atomic(bool) writer_running;
+static _Atomic(bool) writer_thread_active;
+static _Atomic(bool) sync_mode;
 static _Atomic(bool) writer_shutdown;
 static _Atomic(bool) flush_requested;
 static Mel_Mutex     flush_mutex;
@@ -454,6 +456,32 @@ static int mel__writer_thread_fn(void* arg)
     return 0;
 }
 
+static void mel__sync_note(void)
+{
+    Mel_Log_Entry entry = {
+        .timestamp_ns = mel__log_timestamp(),
+        .level = MEL_LOG_WARN,
+        .domain = S8("log"),
+        .message = S8("writer thread unavailable; draining synchronously on the calling thread"),
+        .file = STR8_EMPTY,
+        .line = 0,
+        .thread_id = mel__log_thread_id(),
+        .global_frame = 0,
+        .sim_frame = 0,
+        .fixed_tick = 0,
+        .context = STR8_EMPTY,
+    };
+
+    mel_rwlock_lock_shared(&sink_lock);
+    for (u32 i = 0; i < sink_count; i++)
+    {
+        Mel__Log_Sink_Slot* slot = &sinks[i];
+        if (slot->sink && entry.level <= slot->sink->level_threshold)
+            slot->sink->write(slot->sink, &entry);
+    }
+    mel_rwlock_unlock_shared(&sink_lock);
+}
+
 static void mel__ensure_writer_thread(void)
 {
     bool expected = false;
@@ -461,9 +489,22 @@ static void mel__ensure_writer_thread(void)
     {
         atomic_store_explicit(&writer_shutdown, false, memory_order_relaxed);
         bool ok = mel_thread_spawn(&writer_thread, mel__writer_thread_fn, NULL, .name = "mel_log_writer");
-        assert(ok);
-        (void)ok;
+        if (ok)
+        {
+            atomic_store_explicit(&writer_thread_active, true, memory_order_release);
+        }
+        else
+        {
+            atomic_store_explicit(&sync_mode, true, memory_order_release);
+            mel__sync_note();
+        }
     }
+}
+
+static void mel__drain_inline_if_sync(void)
+{
+    if (atomic_load_explicit(&sync_mode, memory_order_relaxed))
+        mel__drain_all();
 }
 
 void mel__log(u32 level, str8 domain, const char* file, u32 line, const char* fmt, ...)
@@ -498,6 +539,8 @@ void mel__log(u32 level, str8 domain, const char* file, u32 line, const char* fm
     mel__push_entry(level, domain, file, line, (str8){ (u8*)scratch, n }, context, mel__log_timestamp(), mel__log_thread_id(), tls.global_frame, tls.sim_frame, tls.fixed_tick);
 
     tls.in_log = false;
+
+    mel__drain_inline_if_sync();
 }
 
 void mel_log_context_push(str8 tag)
@@ -611,6 +654,13 @@ void mel_log_sink_flush_all(void)
     if (!atomic_load_explicit(&writer_running, memory_order_acquire))
         return;
 
+    if (atomic_load_explicit(&sync_mode, memory_order_acquire))
+    {
+        mel__drain_all();
+        mel__flush_sinks();
+        return;
+    }
+
     atomic_store_explicit(&flush_done, false, memory_order_release);
     atomic_store_explicit(&flush_requested, true, memory_order_release);
 
@@ -723,6 +773,8 @@ void mel__log_signal(u32 level, const char* static_message)
         mel__ring_write(&ring, wp, static_message, msg_len);
 
     mel__ring_commit(&ring, pos);
+
+    mel__drain_inline_if_sync();
 }
 
 static void mel__log_shutdown(void);
@@ -755,10 +807,17 @@ MEL_DESTRUCTOR_PRIO(101)
 #endif
 static void mel__log_shutdown(void)
 {
-    if (atomic_load_explicit(&writer_running, memory_order_acquire))
+    if (atomic_load_explicit(&writer_thread_active, memory_order_acquire))
     {
         atomic_store_explicit(&writer_shutdown, true, memory_order_release);
         mel_thread_join(&writer_thread, NULL);
+        atomic_store_explicit(&writer_thread_active, false, memory_order_relaxed);
+        atomic_store_explicit(&writer_running, false, memory_order_relaxed);
+    }
+    else if (atomic_load_explicit(&writer_running, memory_order_acquire))
+    {
+        mel__drain_all();
+        mel__flush_sinks();
         atomic_store_explicit(&writer_running, false, memory_order_relaxed);
     }
 

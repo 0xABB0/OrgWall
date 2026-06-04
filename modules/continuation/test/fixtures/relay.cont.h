@@ -17,10 +17,10 @@ Mel_Cont_Suspended child_seq__resume(Mel_Cont_Frame_child_seq* __f, int* __f_out
 
 typedef struct Mel_Cont_Frame_relay
 {
-    i32                      state;
-    i32                      base;
+    i32 state;
+    i32 base;
     Mel_Cont_Frame_child_seq c;
-    i32                      __ret;
+    i32 __ret;
 } Mel_Cont_Frame_relay;
 
 #define MEL_CONT_LAYOUT_HASH_relay 0xa4b7dffe7272b83dull

@@ -17,6 +17,7 @@
 #include <gpu/binding.h>
 #include <gpu/bind_group.h>
 #include <gpu/format.h>
+#include <gpu/format_props.h>
 #include <gpu/surface.h>
 #include <gpu/swapchain.h>
 
@@ -222,6 +223,37 @@ MEL_TEST(d3d12_residency, budget_and_caps)
     MEL_EXPECT(mel_gpu_warned(mel_gpu_buffer_make_resident(dev, buf.value)));
     MEL_EXPECT(mel_gpu_warned(mel_gpu_buffer_evict(dev, buf.value)));
     mel_gpu_buffer_destroy(dev, buf.value);
+
+    mel_gpu_device_destroy(dev);
+    mel_gpu_instance_destroy(inst);
+}
+
+MEL_TEST(d3d12_format, properties_honesty)
+{
+    Mel_Gpu_Instance* inst = NULL;
+    Mel_Gpu_Device*   dev = test_make_device(&inst);
+    MEL_REQUIRE_NOT_NULL(dev);
+
+    Mel_Gpu_Format_Properties color = mel_gpu_format_properties(dev, MEL_GPU_FORMAT_RGBA8_UNORM, MEL_GPU_TILING_OPTIMAL);
+    MEL_EXPECT(color.tiling_features & MEL_GPU_FMT_SAMPLED);
+    MEL_EXPECT(color.tiling_features & MEL_GPU_FMT_LINEAR_FILTER);
+    MEL_EXPECT(color.tiling_features & MEL_GPU_FMT_COLOR_ATTACHMENT);
+    MEL_EXPECT(color.tiling_features & MEL_GPU_FMT_TRANSFER_SRC);
+    MEL_EXPECT(color.tiling_features & MEL_GPU_FMT_TRANSFER_DST);
+    MEL_EXPECT(color.tiling_features & MEL_GPU_FMT_BLIT_SRC);
+    MEL_EXPECT(color.tiling_features & MEL_GPU_FMT_BLIT_DST);
+    MEL_EXPECT_EQ(color.tiling_features & MEL_GPU_FMT_DEPTH_ATTACHMENT, 0u);
+    MEL_EXPECT(color.sample_counts != 0u);
+
+    Mel_Gpu_Format_Properties depth = mel_gpu_format_properties(dev, MEL_GPU_FORMAT_D32_FLOAT, MEL_GPU_TILING_OPTIMAL);
+    MEL_EXPECT(depth.tiling_features & MEL_GPU_FMT_DEPTH_ATTACHMENT);
+    MEL_EXPECT(depth.tiling_features & MEL_GPU_FMT_TRANSFER_SRC);
+    MEL_EXPECT(depth.tiling_features & MEL_GPU_FMT_TRANSFER_DST);
+    MEL_EXPECT_EQ(depth.tiling_features & MEL_GPU_FMT_COLOR_ATTACHMENT, 0u);
+    MEL_EXPECT_EQ(depth.tiling_features & MEL_GPU_FMT_COLOR_BLEND, 0u);
+
+    Mel_Gpu_Format_Properties vbuf = mel_gpu_format_properties(dev, MEL_GPU_FORMAT_RGB32_FLOAT, MEL_GPU_TILING_OPTIMAL);
+    MEL_EXPECT(vbuf.buffer_features & MEL_GPU_FMT_VERTEX_BUFFER);
 
     mel_gpu_device_destroy(dev);
     mel_gpu_instance_destroy(inst);
@@ -464,7 +496,7 @@ MEL_TEST(d3d12_pipeline, graphics_create)
     usize vss = 0, pss = 0;
     MEL_REQUIRE(dxc_compile(VS_HLSL, "vs_6_0", &vs, &vss));
     MEL_REQUIRE(dxc_compile(SOLID_PS_HLSL, "ps_6_0", &ps, &pss));
-    Mel_Gpu_Shader_Create_Result sh = mel_gpu_shader_create_from_bytecode(dev, .spirv_vertex = vs, .spirv_vertex_size = vss, .spirv_fragment = ps, .spirv_fragment_size = pss, .name = "solid");
+    Mel_Gpu_Shader_Create_Result sh = mel_gpu_shader_create_from_bytecode(dev, .target = MEL_GPU_SHADER_TARGET_DXIL, .vertex_blob = vs, .vertex_blob_size = vss, .fragment_blob = ps, .fragment_blob_size = pss, .name = "solid");
     free(vs);
     free(ps);
     MEL_REQUIRE(!mel_gpu_failed(sh.status));
@@ -518,7 +550,7 @@ MEL_TEST(d3d12_bindless, sample_texture_readback)
     usize vss = 0, pss = 0;
     MEL_REQUIRE(dxc_compile(VS_HLSL, "vs_6_0", &vs, &vss));
     MEL_REQUIRE(dxc_compile(SAMPLE_PS_HLSL, "ps_6_0", &ps, &pss));
-    Mel_Gpu_Shader_Create_Result sh = mel_gpu_shader_create_from_bytecode(dev, .spirv_vertex = vs, .spirv_vertex_size = vss, .spirv_fragment = ps, .spirv_fragment_size = pss, .name = "sample");
+    Mel_Gpu_Shader_Create_Result sh = mel_gpu_shader_create_from_bytecode(dev, .target = MEL_GPU_SHADER_TARGET_DXIL, .vertex_blob = vs, .vertex_blob_size = vss, .fragment_blob = ps, .fragment_blob_size = pss, .name = "sample");
     free(vs);
     free(ps);
     MEL_REQUIRE(!mel_gpu_failed(sh.status));
@@ -588,7 +620,7 @@ MEL_TEST(d3d12_compute, storage_buffer_bindless)
     void* cs = NULL;
     usize css = 0;
     MEL_REQUIRE(dxc_compile(ADD_CS_HLSL, "cs_6_0", &cs, &css));
-    Mel_Gpu_Shader_Create_Result sh = mel_gpu_shader_create_compute_from_bytecode(dev, .spirv = cs, .spirv_size = css, .name = "add");
+    Mel_Gpu_Shader_Create_Result sh = mel_gpu_shader_create_compute_from_bytecode(dev, .target = MEL_GPU_SHADER_TARGET_DXIL, .compute_blob = cs, .compute_blob_size = css, .name = "add");
     free(cs);
     MEL_REQUIRE(!mel_gpu_failed(sh.status));
     Mel_Gpu_Pipeline_Create_Result pso = mel_gpu_pipeline_compute_create(dev, .shader = sh.value, .push_constant_size = 12, .bindless = true, .name = "add-pso");
@@ -655,7 +687,7 @@ MEL_TEST(d3d12_compute, storage_image_bindless)
     void* cs = NULL;
     usize css = 0;
     MEL_REQUIRE(dxc_compile(IMGWRITE_CS_HLSL, "cs_6_0", &cs, &css));
-    Mel_Gpu_Shader_Create_Result sh = mel_gpu_shader_create_compute_from_bytecode(dev, .spirv = cs, .spirv_size = css, .name = "imgwrite");
+    Mel_Gpu_Shader_Create_Result sh = mel_gpu_shader_create_compute_from_bytecode(dev, .target = MEL_GPU_SHADER_TARGET_DXIL, .compute_blob = cs, .compute_blob_size = css, .name = "imgwrite");
     free(cs);
     MEL_REQUIRE(!mel_gpu_failed(sh.status));
     Mel_Gpu_Pipeline_Create_Result pso = mel_gpu_pipeline_compute_create(dev, .shader = sh.value, .push_constant_size = 12, .bindless = true, .name = "imgwrite-pso");
@@ -760,7 +792,7 @@ MEL_TEST(d3d12_bind_group, classic_descriptor_set)
     usize vss = 0, pss = 0;
     MEL_REQUIRE(dxc_compile(VS_HLSL, "vs_6_0", &vs, &vss));
     MEL_REQUIRE(dxc_compile(CLASSIC_PS_HLSL, "ps_6_0", &ps, &pss));
-    Mel_Gpu_Shader_Create_Result sh = mel_gpu_shader_create_from_bytecode(dev, .spirv_vertex = vs, .spirv_vertex_size = vss, .spirv_fragment = ps, .spirv_fragment_size = pss, .name = "classic");
+    Mel_Gpu_Shader_Create_Result sh = mel_gpu_shader_create_from_bytecode(dev, .target = MEL_GPU_SHADER_TARGET_DXIL, .vertex_blob = vs, .vertex_blob_size = vss, .fragment_blob = ps, .fragment_blob_size = pss, .name = "classic");
     free(vs);
     free(ps);
     MEL_REQUIRE(!mel_gpu_failed(sh.status));
@@ -899,7 +931,7 @@ MEL_TEST(d3d12_bind_group, classic_churn_under_submission)
     usize vss = 0, pss = 0;
     MEL_REQUIRE(dxc_compile(VS_HLSL, "vs_6_0", &vs, &vss));
     MEL_REQUIRE(dxc_compile(CLASSIC_PS_HLSL, "ps_6_0", &ps, &pss));
-    Mel_Gpu_Shader_Create_Result sh = mel_gpu_shader_create_from_bytecode(dev, .spirv_vertex = vs, .spirv_vertex_size = vss, .spirv_fragment = ps, .spirv_fragment_size = pss, .name = "classic");
+    Mel_Gpu_Shader_Create_Result sh = mel_gpu_shader_create_from_bytecode(dev, .target = MEL_GPU_SHADER_TARGET_DXIL, .vertex_blob = vs, .vertex_blob_size = vss, .fragment_blob = ps, .fragment_blob_size = pss, .name = "classic");
     free(vs);
     free(ps);
     MEL_REQUIRE(!mel_gpu_failed(sh.status));
@@ -1080,7 +1112,7 @@ MEL_TEST(d3d12_bind_group, classic_uniform_buffer)
     usize vss = 0, pss = 0;
     MEL_REQUIRE(dxc_compile(VS_HLSL, "vs_6_0", &vs, &vss));
     MEL_REQUIRE(dxc_compile(CLASSIC_CB_PS_HLSL, "ps_6_0", &ps, &pss));
-    Mel_Gpu_Shader_Create_Result sh = mel_gpu_shader_create_from_bytecode(dev, .spirv_vertex = vs, .spirv_vertex_size = vss, .spirv_fragment = ps, .spirv_fragment_size = pss, .name = "classic-cb");
+    Mel_Gpu_Shader_Create_Result sh = mel_gpu_shader_create_from_bytecode(dev, .target = MEL_GPU_SHADER_TARGET_DXIL, .vertex_blob = vs, .vertex_blob_size = vss, .fragment_blob = ps, .fragment_blob_size = pss, .name = "classic-cb");
     free(vs);
     free(ps);
     MEL_REQUIRE(!mel_gpu_failed(sh.status));
@@ -1291,6 +1323,14 @@ MEL_TEST(d3d12_swapchain, present_clear_readback)
         DestroyWindow(hwnd);
     mel_gpu_device_destroy(dev);
     mel_gpu_instance_destroy(inst);
+}
+
+#else
+
+MEL_TEST(d3d12_gating, backend_not_selected)
+{
+    MEL_SKIP("gpu-d3d12 was built without the d3d12 backend; the entire suite compiled to no tests. "
+             "Re-run with the d3d12 backend selected: nob test gpu-d3d12 --gpu=d3d12");
 }
 
 #endif

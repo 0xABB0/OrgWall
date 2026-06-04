@@ -143,7 +143,7 @@ bool mel_gather_compile(Mel_Graph* g, size_t idx, const Mel_Variant* v, Mel_StrV
     }
 
     Mel_IdxVec order = { 0 };
-    if (!mel_topo_closure(g, target->name, &order))
+    if (!mel_topo_closure(g, target->name, v, &order))
     {
         free(order.items);
         return false;
@@ -168,7 +168,7 @@ void mel_gather_link(Mel_Graph* g, size_t idx, const Mel_Variant* v, Mel_StrVec*
 {
     Mel_Target* target = g->nodes.items[idx].t;
     Mel_IdxVec  order = { 0 };
-    if (!mel_topo_closure(g, target->name, &order))
+    if (!mel_topo_closure(g, target->name, v, &order))
     {
         free(order.items);
         return;

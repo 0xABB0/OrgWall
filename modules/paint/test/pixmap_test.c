@@ -1,10 +1,16 @@
 #include <test/test.h>
 
+#include <core/compiler.h>
+
 #include <allocator/heap.h>
 #include <color/rgba8.h>
 #include <math.geo/rect.h>
 
 #include <paint/paint.h>
+
+#include <stdlib.h>
+
+MEL_CONSTRUCTOR static void paint_test_nofork(void) { setenv("MEL_TEST_NOFORK", "1", 1); }
 
 static inline mel_color8 sample(Mel_Pixmap_Pixels px, i32 x, i32 y) { return px.pixels[(usize)y * (usize)(px.stride / 4) + (usize)x]; }
 
@@ -75,4 +81,38 @@ MEL_TEST(paint, two_painters_compose)
 
     mel_pixmap_destroy(a);
     mel_pixmap_destroy(b);
+}
+
+MEL_TEST(paint, pixmap_image_wraps_into_convert)
+{
+    const Mel_Alloc* a = mel_alloc_heap();
+
+    Mel_Pixmap pm = mel_pixmap_create(a, 8, 4);
+    Mel_Painter p = mel_painter_begin(mel_pixmap_drawable(pm));
+    mel_painter_clear(&p, mel_color8_rgba(255, 0, 0, 255));
+    mel_painter_end(&p);
+
+    Mel_Image view;
+    MEL_REQUIRE(mel_pixmap_image(pm, &view));
+    MEL_EXPECT_NULL(view.alloc);
+    MEL_EXPECT_EQ(view.w, 8);
+    MEL_EXPECT_EQ(view.h, 4);
+
+    Mel_Pixmap_Pixels px = mel_pixmap_pixels(pm);
+    Mel_Image_Plane   vp = mel_image_plane(&view, 0);
+    MEL_EXPECT_EQ((const void*)vp.pixels, (const void*)px.pixels);
+    MEL_EXPECT_EQ(vp.stride, px.stride);
+
+    Mel_Image straight;
+    MEL_REQUIRE(mel_image_init(&straight, &mel_image_rgba8, 8, 4, a));
+    MEL_REQUIRE(mel_image_convert(&view, &straight));
+    Mel_Image_Plane qp = mel_image_plane(&straight, 0);
+    MEL_EXPECT_EQ(qp.pixels[0], 255);
+    MEL_EXPECT_EQ(qp.pixels[1], 0);
+    MEL_EXPECT_EQ(qp.pixels[2], 0);
+    MEL_EXPECT_EQ(qp.pixels[3], 255);
+
+    mel_image_free(&straight);
+    mel_image_free(&view);
+    mel_pixmap_destroy(pm);
 }

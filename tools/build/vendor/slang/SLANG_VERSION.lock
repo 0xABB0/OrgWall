@@ -1,0 +1,5 @@
+SLANG_VERSION=2026.10.2
+SLANG_UPSTREAM=https://github.com/shader-slang/slang/releases/tag/v2026.10.2
+SLANG_PREBUILT_URL=https://github.com/shader-slang/slang/releases/download/v2026.10.2/slang-2026.10.2-<os>-<arch>.zip
+SLANG_PIN_SOURCE=third-party/slang/build.c (SLANG_VERSION macro)
+SLANGC=<prefix>/bin/slangc fetched per-host by `./nob build slang-compile <platform>`

@@ -178,6 +178,8 @@ typedef struct
     D3D12_PRIMITIVE_TOPOLOGY topology;
     u32                      push_constant_size;
     u32                      vertex_stride;
+    u32*                     slot_strides;
+    u32                      slot_stride_count;
     u32                      srv_table_param;
     u32                      smp_table_param;
     Mel_Gpu_Set_Param*       set_params;
@@ -309,6 +311,9 @@ struct Mel_Gpu_Device
     u32                   dsv_size;
     u32                   dsv_cap;
     u32                   dsv_next;
+
+    ID3D12CommandSignature* dispatch_indirect_sig;
+    Mel_Mutex               dispatch_indirect_lock;
 
     void (*budget_pressure_cb)(struct Mel_Gpu_Device*, Mel_Gpu_Memory_Budget, void*);
     void* budget_pressure_user;

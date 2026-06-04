@@ -357,7 +357,10 @@ void mel_gpu_cmd_bind_vertex_buffer(Mel_Gpu_Command_List* cmd, u32 slot, Mel_Gpu
         mel_assert(!"cmd_bind_vertex_buffer: invalid buffer handle");
         return;
     }
-    D3D12_VERTEX_BUFFER_VIEW vbv = { .BufferLocation = o->gpu_va, .SizeInBytes = (UINT)o->size, .StrideInBytes = cmd->cur_vertex_stride };
+    u32 stride = cmd->cur_vertex_stride;
+    if (cmd->cur_pipeline && cmd->cur_pipeline->slot_strides && slot < cmd->cur_pipeline->slot_stride_count)
+        stride = cmd->cur_pipeline->slot_strides[slot];
+    D3D12_VERTEX_BUFFER_VIEW vbv = { .BufferLocation = o->gpu_va, .SizeInBytes = (UINT)o->size, .StrideInBytes = stride };
     ID3D12GraphicsCommandList_IASetVertexBuffers(cmd->list, slot, 1, &vbv);
 }
 
@@ -389,4 +392,34 @@ void mel_gpu_cmd_dispatch(Mel_Gpu_Command_List* cmd, u32 groups_x, u32 groups_y,
 {
     mel_assert(cmd);
     ID3D12GraphicsCommandList_Dispatch(cmd->list, groups_x, groups_y, groups_z);
+}
+
+static ID3D12CommandSignature* mel_gpu__dispatch_indirect_sig(Mel_Gpu_Device* dev)
+{
+    mel_mutex_lock(&dev->dispatch_indirect_lock);
+    if (!dev->dispatch_indirect_sig)
+    {
+        D3D12_INDIRECT_ARGUMENT_DESC arg = { .Type = D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH };
+        D3D12_COMMAND_SIGNATURE_DESC desc = { .ByteStride = sizeof(D3D12_DISPATCH_ARGUMENTS), .NumArgumentDescs = 1, .pArgumentDescs = &arg, .NodeMask = 0 };
+        HRESULT                      hr = ID3D12Device_CreateCommandSignature(dev->d3d, &desc, NULL, &IID_ID3D12CommandSignature, (void**)&dev->dispatch_indirect_sig);
+        if (FAILED(hr))
+            mel_log_error("gpu", "cmd_dispatch_indirect: CreateCommandSignature(DISPATCH) failed: 0x%08lx", (unsigned long)hr);
+    }
+    ID3D12CommandSignature* sig = dev->dispatch_indirect_sig;
+    mel_mutex_unlock(&dev->dispatch_indirect_lock);
+    return sig;
+}
+
+void mel_gpu_cmd_dispatch_indirect(Mel_Gpu_Command_List* cmd, Mel_Gpu_Buffer args, usize offset)
+{
+    ID3D12Resource* res = NULL;
+    if (!cmd || !mel_gpu__buffer_resource(cmd->dev, args, &res))
+    {
+        mel_assert(!"cmd_dispatch_indirect: invalid args buffer handle");
+        return;
+    }
+    ID3D12CommandSignature* sig = mel_gpu__dispatch_indirect_sig(cmd->dev);
+    if (!sig)
+        return;
+    ID3D12GraphicsCommandList_ExecuteIndirect(cmd->list, sig, 1, res, (UINT64)offset, NULL, 0);
 }

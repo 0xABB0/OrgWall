@@ -7,8 +7,11 @@ Mel_Gpu_Instance* mel_gpu_instance_create_opt(Mel_Gpu_Instance_Opt opt)
 {
     const Mel_Alloc* alloc = opt.alloc ? opt.alloc : mel_alloc_heap();
 
-    NSArray<id<MTLDevice>>* devices = MTLCopyAllDevices();
-    u32                     count = (u32)devices.count;
+    NSArray<id<MTLDevice>>* devices = nil;
+#if TARGET_OS_OSX
+    devices = MTLCopyAllDevices();
+#endif
+    u32 count = (u32)devices.count;
     if (count == 0)
     {
         id<MTLDevice> sys = MTLCreateSystemDefaultDevice();

@@ -1,0 +1,3 @@
+*.produced.ppm
+*.diff.ppm
+__selftest_*.ppm

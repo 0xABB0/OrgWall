@@ -145,7 +145,15 @@ typedef struct
     u32            location;
     Mel_Gpu_Format format;
     u32            offset;
+    u32            buffer_slot;
 } Mel_Gpu_Vertex_Element;
+
+typedef struct
+{
+    u32  slot;
+    u32  stride;
+    bool per_instance;
+} Mel_Gpu_Vertex_Buffer_Layout;
 
 typedef struct
 {
@@ -156,7 +164,7 @@ typedef struct
 typedef enum
 {
     MEL_GPU_PIPELINE_CREATE_OK = MEL_GPU_STATUS(0, MEL_GPU_SEVERITY_OK),
-    MEL_GPU_PIPELINE_CREATE_VK_FAILED = MEL_GPU_STATUS(1, MEL_GPU_SEVERITY_ERROR),
+    MEL_GPU_PIPELINE_CREATE_BACKEND_FAILED = MEL_GPU_STATUS(1, MEL_GPU_SEVERITY_ERROR),
     MEL_GPU_PIPELINE_CREATE_NO_SHADER = MEL_GPU_STATUS(2, MEL_GPU_SEVERITY_ERROR),
     MEL_GPU_PIPELINE_CREATE_MISSING_FEATURE = MEL_GPU_STATUS(3, MEL_GPU_SEVERITY_ERROR),
     MEL_GPU_PIPELINE_CREATE_MISSING_BINDLESS_SLOT = MEL_GPU_STATUS(4, MEL_GPU_SEVERITY_ERROR),
@@ -184,6 +192,8 @@ typedef struct
     const Mel_Gpu_Vertex_Element* vertex_layout;
     u32                           vertex_layout_count;
     u32                           vertex_stride;
+    const Mel_Gpu_Vertex_Buffer_Layout* vertex_buffers;
+    u32                                 vertex_buffer_count;
     u32                           push_constant_size;
     bool                          bindless;
     const Mel_Gpu_Bind_Group_Layout* set_layouts;

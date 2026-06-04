@@ -290,10 +290,12 @@ static char* emit_one(FILE* f, Mel_Graph* g, size_t idx, const Mel_Variant* v, M
         }
 
         Mel_StrVec libs = { 0 }, lib_deps = { 0 };
+        bool       reverse_libs = !host && v->platform == MEL_PLATFORM_WASM;
         if (order)
         {
-            for (size_t i = 0; i < order->len; i++)
+            for (size_t ii = 0; ii < order->len; ii++)
             {
+                size_t      i = reverse_libs ? order->len - 1 - ii : ii;
                 size_t      di = order->items[i];
                 Mel_Target* d = g->nodes.items[di].t;
                 if (di != idx && d->kind == MEL_KIND_LIBRARY && produced_has(produced, d->name))
@@ -351,7 +353,7 @@ static char* emit_one(FILE* f, Mel_Graph* g, size_t idx, const Mel_Variant* v, M
 bool mel_emit_and_build(Mel_Graph* g, const char* root, const Mel_Variant* v, bool run_ninja, bool do_package, char** out_bin)
 {
     Mel_IdxVec order = { 0 };
-    if (!mel_topo_closure(g, root, &order))
+    if (!mel_topo_closure(g, root, v, &order))
     {
         free(order.items);
         return false;

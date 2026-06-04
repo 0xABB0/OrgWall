@@ -27,6 +27,14 @@ void build(Mel_Build* b)
     mel_link(lib, MEL_PUBLIC, WHEN(.gpu = "vulkan", .platforms = MEL_ON(MACOS)), "-L/opt/homebrew/lib");
     mel_link(lib, MEL_PUBLIC, WHEN(.gpu = "vulkan", .platforms = MEL_ON(MACOS)), "-framework", "QuartzCore", "-framework", "Foundation");
 
+    mel_sources(lib, WHEN(.gpu = "vulkan", .platforms = MEL_ON(ANDROID)), "src/vulkan/android/*.c");
+    mel_link(lib, MEL_PUBLIC, WHEN(.gpu = "vulkan", .platforms = MEL_ON(ANDROID)), "-lvulkan", "-landroid");
+
+    mel_sources(lib, WHEN(.gpu = "vulkan", .platforms = MEL_ON(LINUX)), "src/vulkan/linux/*.c");
+    mel_depends_when(lib, "vulkan-headers", WHEN(.gpu = "vulkan", .platforms = MEL_ON(LINUX)));
+    mel_depends_when(lib, "vulkan-loader-stub", WHEN(.gpu = "vulkan", .platforms = MEL_ON(LINUX)));
+    mel_link(lib, MEL_PUBLIC, WHEN(.gpu = "vulkan", .platforms = MEL_ON(LINUX)), "-lvulkan");
+
     mel_sources(lib, WHEN(.gpu = "vulkan", .platforms = MEL_ON(WIN32)), "src/vulkan/windows/*.c");
     mel_link(lib, MEL_PUBLIC, WHEN(.gpu = "vulkan", .platforms = MEL_ON(WIN32)), "-lvulkan-1");
     const char* vksdk = getenv("VULKAN_SDK");
@@ -43,6 +51,21 @@ void build(Mel_Build* b)
     mel_sources(lib, WHEN(.gpu = "metal", .platforms = MEL_ON(MACOS)), "src/metal/macos/*.m");
     mel_defines(lib, MEL_PRIVATE, WHEN(.gpu = "metal"), "MEL_GPU_METAL=1");
     mel_link(lib, MEL_PUBLIC, WHEN(.gpu = "metal", .platforms = MEL_ON(MACOS)), "-framework", "Metal", "-framework", "QuartzCore", "-framework", "Foundation", "-framework", "AppKit");
+
+    mel_sources(lib, WHEN(.gpu = "metal", .platforms = MEL_ON(IOS)), "src/metal/macos/*.m");
+    mel_exclude_source(lib, WHEN(.gpu = "metal", .platforms = MEL_ON(IOS)), "src/metal/macos/surface.m");
+    mel_sources(lib, WHEN(.gpu = "metal", .platforms = MEL_ON(IOS)), "src/metal/ios/*.m");
+    mel_link(lib, MEL_PUBLIC, WHEN(.gpu = "metal", .platforms = MEL_ON(IOS)), "-framework", "Metal", "-framework", "QuartzCore", "-framework", "Foundation", "-framework", "UIKit");
+
+    mel_sources(lib, WHEN(.gpu = "webgpu"), "src/webgpu/*.c");
+    mel_sources(lib, WHEN(.gpu = "webgpu", .platforms = MEL_ON(MACOS)), "src/webgpu/*.m");
+    mel_sources(lib, WHEN(.gpu = "webgpu", .platforms = MEL_ON(WASM)), "src/webgpu/wasm/*.c");
+    mel_defines(lib, MEL_PRIVATE, WHEN(.gpu = "webgpu"), "MEL_GPU_WEBGPU=1");
+    mel_depends(lib, "webgpu");
+    mel_link(lib, MEL_PUBLIC, WHEN(.gpu = "webgpu", .platforms = MEL_ON(MACOS)), "-framework", "QuartzCore", "-framework", "Foundation", "-framework", "AppKit", "-framework", "Metal");
+
+    mel_cflags(lib, MEL_PUBLIC, WHEN(.gpu = "webgpu", .platforms = MEL_ON(WASM)), "--use-port=emdawnwebgpu");
+    mel_link(lib, MEL_PUBLIC, WHEN(.gpu = "webgpu", .platforms = MEL_ON(WASM)), "--use-port=emdawnwebgpu", "-sASYNCIFY", "-sALLOW_MEMORY_GROWTH=1");
 
     mel_depends(lib, "core");
     mel_depends(lib, "allocator");
@@ -119,6 +142,7 @@ void build(Mel_Build* b)
 
     Mel_Target* vistest = mel_add_test(b, "gpu-visual");
     mel_sources(vistest, ALWAYS, "test/test_visual.c");
+    mel_sources(vistest, ALWAYS, "test/img_golden.c");
     mel_sources(vistest, ALWAYS, "../../tools/test/src/runner.c");
     mel_defines(vistest, MEL_PRIVATE, WHEN(.gpu = "vulkan"), "MEL_GPU_VULKAN=1");
     mel_link(vistest, MEL_PUBLIC, WHEN(.platforms = MEL_ON(MACOS)), "-framework", "AppKit");
@@ -152,4 +176,48 @@ void build(Mel_Build* b)
     mel_depends(d3dtest, "allocator");
     mel_depends(d3dtest, "collection");
     mel_depends(d3dtest, "reactor");
+
+    Mel_Target* metaltest = mel_add_test(b, "gpu-metal");
+    mel_sources(metaltest, ALWAYS, "test/test_metal.c");
+    mel_sources(metaltest, ALWAYS, "../../tools/test/src/runner.c");
+    mel_includes(metaltest, MEL_PRIVATE, ALWAYS, "../../apps/hello-gpu/src");
+    mel_defines(metaltest, MEL_PRIVATE, WHEN(.gpu = "metal"), "MEL_GPU_METAL=1");
+    mel_link(metaltest, MEL_PUBLIC, WHEN(.platforms = MEL_ON(MACOS)), "-framework", "AppKit");
+    mel_depends(metaltest, "test");
+    mel_depends(metaltest, "gpu");
+    mel_depends(metaltest, "core");
+    mel_depends(metaltest, "allocator");
+    mel_depends(metaltest, "collection");
+    mel_depends(metaltest, "reactor");
+
+    Mel_Target* wgputest = mel_add_test(b, "gpu-webgpu");
+    mel_sources(wgputest, ALWAYS, "test/test_webgpu.c");
+    mel_sources(wgputest, ALWAYS, "test/img_golden.c");
+    mel_sources(wgputest, ALWAYS, "../../tools/test/src/runner.c");
+    mel_defines(wgputest, MEL_PRIVATE, WHEN(.gpu = "webgpu"), "MEL_GPU_WEBGPU=1");
+    mel_link(wgputest, MEL_PUBLIC, WHEN(.platforms = MEL_ON(MACOS)), "-framework", "AppKit");
+    mel_depends(wgputest, "test");
+    mel_depends(wgputest, "gpu");
+    mel_depends(wgputest, "core");
+    mel_depends(wgputest, "allocator");
+    mel_depends(wgputest, "collection");
+    mel_depends(wgputest, "reactor");
+
+    Mel_Target* scenetest = mel_add_test(b, "gpu-scene");
+    mel_sources(scenetest, ALWAYS, "test/test_scene.c");
+    mel_sources(scenetest, ALWAYS, "test/img_golden.c");
+    mel_sources(scenetest, ALWAYS, "../../tools/test/src/runner.c");
+    mel_includes(scenetest, MEL_PRIVATE, ALWAYS, "../../apps/hello-gpu/src");
+    mel_defines(scenetest, MEL_PRIVATE, WHEN(.gpu = "vulkan"), "MEL_GPU_VULKAN=1");
+    mel_defines(scenetest, MEL_PRIVATE, WHEN(.gpu = "metal"), "MEL_GPU_METAL=1");
+    mel_defines(scenetest, MEL_PRIVATE, WHEN(.gpu = "webgpu"), "MEL_GPU_WEBGPU=1");
+    mel_defines(scenetest, MEL_PRIVATE, WHEN(.gpu = "d3d12"), "MEL_GPU_D3D12=1");
+    mel_link(scenetest, MEL_PUBLIC, WHEN(.platforms = MEL_ON(MACOS)), "-framework", "AppKit");
+    mel_depends(scenetest, "test");
+    mel_depends(scenetest, "gpu");
+    mel_depends(scenetest, "core");
+    mel_depends(scenetest, "allocator");
+    mel_depends(scenetest, "collection");
+    mel_depends(scenetest, "reactor");
+    mel_depends(scenetest, "log");
 }

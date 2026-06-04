@@ -458,6 +458,7 @@ VkSurfaceKHR mel_gpu__vk_create_metal_surface(VkInstance instance, void* native_
 void         mel_gpu__vk_metal_layer_set_size(void* layer, i32 width, i32 height);
 void         mel_gpu__vk_metal_layer_release(void* layer);
 VkSurfaceKHR mel_gpu__vk_create_win32_surface(VkInstance instance, void* hwnd);
+VkSurfaceKHR mel_gpu__vk_create_android_surface(VkInstance instance, void* window);
 
 VkFormat       mel_gpu__vk_format(Mel_Gpu_Format fmt);
 Mel_Gpu_Format mel_gpu__vk_format_to_mel(VkFormat fmt);

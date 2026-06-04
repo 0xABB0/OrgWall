@@ -107,7 +107,7 @@ Mel_Gpu_Buffer_Create_Result mel_gpu_buffer_create_opt(Mel_Gpu_Device* dev, Mel_
     if (r != VK_SUCCESS)
     {
         mel_log_error("gpu", "vkCreateBuffer failed: %s", mel_gpu__vk_result_str(r));
-        res.status = MEL_GPU_BUFFER_CREATE_VK_FAILED;
+        res.status = MEL_GPU_BUFFER_CREATE_BACKEND_FAILED;
         return res;
     }
 
@@ -140,7 +140,7 @@ Mel_Gpu_Buffer_Create_Result mel_gpu_buffer_create_opt(Mel_Gpu_Device* dev, Mel_
             {
                 mel_gpu__mem_free(dev, &obj.alloc);
                 vkDestroyBuffer(dev->vk, buf, NULL);
-                res.status = MEL_GPU_BUFFER_CREATE_VK_FAILED;
+                res.status = MEL_GPU_BUFFER_CREATE_BACKEND_FAILED;
                 return res;
             }
         }

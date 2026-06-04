@@ -181,7 +181,10 @@ static bool build_autotools(Mel_Graph* g, Mel_Target* t, const Mel_Variant* v)
     Mel_StrVec cpp = { 0 }, ld = { 0 };
     for (size_t i = 0; i < t->deps.len; i++)
     {
-        char* dp = dep_prefix_abs(g, t->deps.items[i], v);
+        Mel_Dep dep = t->deps.items[i];
+        if (!mel_when_match(dep.when, v))
+            continue;
+        char* dp = dep_prefix_abs(g, dep.name, v);
         if (dp)
         {
             mel_da_push(&cpp, mel_str_fmt("-I%s/include", dp));
@@ -195,12 +198,16 @@ static bool build_autotools(Mel_Graph* g, Mel_Target* t, const Mel_Variant* v)
     srcpath = (t->autotools_dir && strcmp(t->autotools_dir, ".") != 0) ? mel_str_fmt("../../../%s", t->autotools_dir) : "../../..";
 #endif
 
+    const char* cc_extra = v->platform == MEL_PLATFORM_ANDROID ? " -fPIC" : "";
+
     char* cfg = mel_str_fmt("'%s/configure' --prefix='%s' --disable-shared --enable-static", srcpath, absprefix);
     if (tc.cross)
         cfg = mel_str_fmt("%s --host=%s", cfg, tc.triple);
+    if (v->platform == MEL_PLATFORM_ANDROID)
+        cfg = mel_str_fmt("%s --disable-dependency-tracking", cfg);
     if (tc.cross || v->platform == MEL_PLATFORM_WIN32)
     {
-        cfg = t->autotools_cstd ? mel_str_fmt("%s CC='%s -std=%s'", cfg, cc_cfg, t->autotools_cstd) : mel_str_fmt("%s CC='%s'", cfg, cc_cfg);
+        cfg = t->autotools_cstd ? mel_str_fmt("%s CC='%s -std=%s%s'", cfg, cc_cfg, t->autotools_cstd, cc_extra) : mel_str_fmt("%s CC='%s%s'", cfg, cc_cfg, cc_extra);
     }
     // Emscripten objects are wasm/bitcode; the host ar/ranlib choke on them
     // ("malformed uleb128"). Hand autotools/libtool the emscripten archiver

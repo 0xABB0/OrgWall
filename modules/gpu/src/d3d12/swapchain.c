@@ -288,6 +288,17 @@ void mel_gpu_swapchain_destroy(Mel_Gpu_Swapchain* sc)
 
 Mel_Gpu_Format mel_gpu_swapchain_format(const Mel_Gpu_Swapchain* sc) { return sc ? sc->mel_format : MEL_GPU_FORMAT_UNDEFINED; }
 
+Mel_Gpu_Swapchain_Extent mel_gpu_swapchain_extent(const Mel_Gpu_Swapchain* sc)
+{
+    Mel_Gpu_Swapchain_Extent e = { 0 };
+    if (sc)
+    {
+        e.width = sc->width;
+        e.height = sc->height;
+    }
+    return e;
+}
+
 void mel_gpu_frame_begin(Mel_Gpu_Swapchain* sc)
 {
     Mel_Gpu_Device* dev = sc->dev;
