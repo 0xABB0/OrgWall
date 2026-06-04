@@ -2,6 +2,8 @@
 
 #include <debug/assert.h>
 
+#include "assert_backend.h"
+
 Mel_Assert_Dialog_Result mel_assert_dialog(bool condition, str8 message, str8 detail_message, Mel_Stacktrace* stack_frame)
 {
     if (condition)
@@ -16,7 +18,13 @@ Mel_Assert_Dialog_Result mel_assert_dialog(bool condition, str8 message, str8 de
     };
 
     Mel_Assert_Handler_Slot slot = mel_assert_handler();
-    Mel_Assert_Response     response = slot.handler != NULL ? slot.handler(&report, slot.user) : mel_assert_default_handler(&report, slot.user);
+    Mel_Assert_Response     response;
+    if (slot.handler != NULL)
+        response = slot.handler(&report, slot.user);
+    else if (mel__assert_dialog_available())
+        response = mel__assert_dialog(&report);
+    else
+        response = mel_assert_default_handler(&report, slot.user);
 
     if (mel_assert_response_retry(response))
         return ASSERT_DIALOG_RESULT_RETRY;

@@ -73,15 +73,16 @@ Mel_Assert_Response mel_assert_default_handler(const Mel_Assert_Report* report, 
 #endif
 }
 
-bool mel_assert_interactive_available(void) { return mel__assert_prompt_available(); }
+bool mel_assert_interactive_available(void) { return mel__assert_dialog_available() || mel__assert_prompt_available(); }
 
 Mel_Assert_Response mel_assert_interactive_handler(const Mel_Assert_Report* report, void* user)
 {
     (void)user;
-    if (!mel__assert_prompt_available())
-        return mel_assert_default_handler(report, user);
-
-    return mel__assert_prompt(report);
+    if (mel__assert_dialog_available())
+        return mel__assert_dialog(report);
+    if (mel__assert_prompt_available())
+        return mel__assert_prompt(report);
+    return mel_assert_default_handler(report, user);
 }
 
 #if MEL_ASSERT_LEVEL >= MEL_ASSERT_LEVEL_RELEASE
