@@ -4,8 +4,11 @@
 #include <log/log.h>
 
 #include "compute_plasma.h"
-#include "plasma_spv.h"
-#include "instances_spv.h"
+
+static const char COMPUTE_PLASMA_SLANG[] = {
+#embed "shaders/slang/compute_plasma.slang"
+    , 0
+};
 
 #define GRID_W     64
 #define GRID_H     48
@@ -13,18 +16,13 @@
 
 typedef struct
 {
-    u32 cell_buf;
+    u32 cells_rw;
+    u32 cells_ro;
     u32 grid_w;
     u32 grid_h;
     f32 time;
-} Compute_Root;
-
-typedef struct
-{
-    u32 cell_buf;
-    u32 grid_w;
-    u32 grid_h;
-} Cells_Root;
+    f32 pad;
+} Plasma_Root;
 
 typedef struct
 {
@@ -51,25 +49,25 @@ static void* plasma_init(Mel_Gpu_Device* dev, Mel_Gpu_Swapchain* sc)
         return p;
     }
 
-    Mel_Gpu_Shader_Create_Result cs = mel_gpu_shader_create_compute_from_bytecode(dev, .spirv = PLASMA_COMP_SPV, .spirv_size = sizeof PLASMA_COMP_SPV, .entry = "main", .name = "plasma");
-    if (mel_gpu_failed(cs.status))
-        return p;
-    p->comp_shader = cs.value;
-    Mel_Gpu_Pipeline_Create_Result cp = mel_gpu_pipeline_compute_create(dev, .shader = p->comp_shader, .name = "plasma");
+    Mel_Gpu_Pipeline_From_Slang_Result cp = mel_gpu_pipeline_compute_create_from_slang(dev, .source = COMPUTE_PLASMA_SLANG, .compute_entry = "cs_main", .push_constant_size = sizeof(Plasma_Root), .bindless = true, .name = "plasma");
     if (mel_gpu_failed(cp.status))
         return p;
+    p->comp_shader = cp.shader;
     p->comp_pipeline = cp.value;
 
-    p->draw_shader = mel_gpu_shader_create_from_bytecode(dev,
-                                                         .spirv_vertex = CELLS_VERT_SPV,
-                                                         .spirv_vertex_size = sizeof CELLS_VERT_SPV,
-                                                         .spirv_fragment = INSTANCES_FRAG_SPV,
-                                                         .spirv_fragment_size = sizeof INSTANCES_FRAG_SPV,
-                                                         .vertex_entry = "main",
-                                                         .fragment_entry = "main",
-                                                         .name = "cells")
-                         .value;
-    p->draw_pipeline = mel_gpu_pipeline_create(dev, .shader = p->draw_shader, .topology = MEL_GPU_TOPOLOGY_TRIANGLE_LIST, .cull = MEL_GPU_CULL_NONE, .color_format = mel_gpu_swapchain_format(sc), .name = "cells").value;
+    Mel_Gpu_Pipeline_From_Slang_Result dp = mel_gpu_pipeline_create_from_slang(dev,
+                                                                               .source = COMPUTE_PLASMA_SLANG,
+                                                                               .vertex_entry = "vs_cells",
+                                                                               .fragment_entry = "fs_cells",
+                                                                               .topology = MEL_GPU_TOPOLOGY_TRIANGLE_LIST,
+                                                                               .cull = MEL_GPU_CULL_NONE,
+                                                                               .color_format = mel_gpu_swapchain_format(sc),
+                                                                               .bindless = true,
+                                                                               .name = "cells");
+    if (mel_gpu_failed(dp.status))
+        return p;
+    p->draw_shader = dp.shader;
+    p->draw_pipeline = dp.value;
 
     Mel_Gpu_Buffer_Create_Result cb = mel_gpu_buffer_create(dev, .size = (usize)CELL_COUNT * 4 * sizeof(f32), .usage = MEL_GPU_BUFFER_STORAGE, .memory = MEL_GPU_MEMORY_DEVICE, .name = "plasma-cells");
     if (mel_gpu_failed(cb.status))
@@ -98,16 +96,18 @@ static void plasma_render(void* state, Mel_Gpu_Command_List* cmd, f64 dt)
     p->first_frame = false;
     mel_gpu_cmd_buffer_barrier(cmd, p->cells, buf_src, MEL_GPU_STATE_UNORDERED_ACCESS);
 
-    Compute_Root croot = { .cell_buf = p->cell_slot, .grid_w = GRID_W, .grid_h = GRID_H, .time = (f32)p->t };
+    Plasma_Root croot = { .cells_rw = p->cell_slot, .cells_ro = p->cell_slot, .grid_w = GRID_W, .grid_h = GRID_H, .time = (f32)p->t };
     mel_gpu_cmd_bind_pipeline(cmd, p->comp_pipeline);
+    mel_gpu_cmd_bind_bindless(cmd);
     mel_gpu_cmd_push_constants(cmd, 0, sizeof croot, &croot);
     mel_gpu_cmd_dispatch(cmd, (GRID_W + 7) / 8, (GRID_H + 7) / 8, 1);
 
     mel_gpu_cmd_buffer_barrier(cmd, p->cells, MEL_GPU_STATE_UNORDERED_ACCESS, MEL_GPU_STATE_SHADER_RESOURCE);
 
-    Cells_Root droot = { .cell_buf = p->cell_slot, .grid_w = GRID_W, .grid_h = GRID_H };
+    Plasma_Root droot = { .cells_rw = p->cell_slot, .cells_ro = p->cell_slot, .grid_w = GRID_W, .grid_h = GRID_H };
     mel_gpu_cmd_begin_pass(cmd, mel_gpu_rgba(0.02f, 0.02f, 0.03f, 1.0f));
     mel_gpu_cmd_bind_pipeline(cmd, p->draw_pipeline);
+    mel_gpu_cmd_bind_bindless(cmd);
     mel_gpu_cmd_push_constants(cmd, 0, sizeof droot, &droot);
     mel_gpu_cmd_draw(cmd, 6, CELL_COUNT);
     mel_gpu_cmd_end_pass(cmd);
