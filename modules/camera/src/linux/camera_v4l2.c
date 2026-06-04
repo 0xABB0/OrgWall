@@ -5,10 +5,10 @@
 #include <image/geometry.h>
 
 #include <allocator/allocator.h>
-#include <allocator/heap.h>
 #include <collection.array/array.h>
 #include <string/str8.h>
 #include <thread/thread.h>
+#include <debug/assert.h>
 #include <log/log.h>
 
 #include <errno.h>
@@ -38,6 +38,7 @@ static const V4l2_Format_Map* v4l2_format_map(usize* count)
         { &mel_image_nv12, V4L2_PIX_FMT_NV12 },
         { &mel_image_nv21, V4L2_PIX_FMT_NV21 },
         { &mel_image_i420, V4L2_PIX_FMT_YUV420 },
+        { &mel_image_yuyv, V4L2_PIX_FMT_YUYV },
     };
     *count = sizeof map / sizeof map[0];
     return map;
@@ -103,6 +104,7 @@ typedef struct
     Mel_Camera_Sink sink;
     bool            have_sink;
     bool            streaming;
+    bool            warned_wrapfail;
 
     Mel_Thread   thread;
     bool         thread_started;
@@ -116,7 +118,13 @@ static struct
     bool scanned;
 } g_v4l2;
 
-static const Mel_Alloc* v4l2_alloc(void) { return g_v4l2.alloc ? g_v4l2.alloc : mel_alloc_heap(); }
+static const Mel_Alloc* v4l2_alloc(void)
+{
+    mel_assert(g_v4l2.alloc != NULL && "v4l2_alloc: allocator queried after shutdown");
+    return g_v4l2.alloc;
+}
+
+static void v4l2_unmap(V4l2_Device* d);
 
 static u64 v4l2_stable_id(const char* path)
 {
@@ -154,6 +162,7 @@ static bool v4l2_node_is_capture(int fd, char* name, usize name_cap)
 
 static void v4l2_free_device(V4l2_Device* d)
 {
+    v4l2_unmap(d);
     if (d->fd >= 0)
         close(d->fd);
     mel_array_free(&d->buffers);
@@ -277,9 +286,10 @@ static void v4l2_scan(void)
     g_v4l2.scanned = true;
 }
 
-static u32 v4l2_enumerate(void* user, Mel_Camera_Raw* out, u32 cap)
+static u32 v4l2_enumerate(void* user, const Mel_Alloc* alloc, Mel_Camera_Raw* out, u32 cap)
 {
     (void)user;
+    g_v4l2.alloc = alloc;
     if (!g_v4l2.scanned)
         v4l2_scan();
 
@@ -318,9 +328,10 @@ static void v4l2_unmap(V4l2_Device* d)
     mel_array_clear(&d->buffers);
 }
 
-static bool v4l2_open(void* user, u64 stable_id, Mel_Camera_Config cfg, Mel_Camera_Sink sink)
+static bool v4l2_open(void* user, const Mel_Alloc* alloc, u64 stable_id, Mel_Camera_Config cfg, Mel_Camera_Sink sink)
 {
     (void)user;
+    mel_assert((g_v4l2.alloc == NULL || alloc == g_v4l2.alloc) && "v4l2 open: allocator must match the one passed to enumerate; per-device memory is bound at enumerate time");
     V4l2_Device* d = v4l2_device_by_id(stable_id);
     if (!d)
     {
@@ -331,7 +342,7 @@ static bool v4l2_open(void* user, u64 stable_id, Mel_Camera_Config cfg, Mel_Came
     u32 fourcc = 0;
     if (!v4l2_fourcc_for_format(cfg.format, &fourcc))
     {
-        mel_log_error("camera", "v4l2 open: pixel format '%s' unsupported by backend (NV12/NV21/YUV420 only)", mel_image_format_name(cfg.format));
+        mel_log_error("camera", "v4l2 open: pixel format '%s' unsupported by backend (NV12/NV21/YUV420/YUYV only)", mel_image_format_name(cfg.format));
         return false;
     }
 
@@ -365,6 +376,11 @@ static bool v4l2_open(void* user, u64 stable_id, Mel_Camera_Config cfg, Mel_Came
         goto fail;
     }
 
+    if (fmt.fmt.pix.colorspace != V4L2_COLORSPACE_SMPTE170M && fmt.fmt.pix.colorspace != V4L2_COLORSPACE_DEFAULT)
+        mel_log_warn("camera", "v4l2 open: device negotiated colorspace=%u quantization=%u; '%s' decodes as BT.601 limited-range and will be off", fmt.fmt.pix.colorspace, fmt.fmt.pix.quantization, mel_image_format_name(cfg.format));
+    else if (fmt.fmt.pix.quantization == V4L2_QUANTIZATION_FULL_RANGE)
+        mel_log_warn("camera", "v4l2 open: device negotiated full-range quantization; '%s' decodes as BT.601 limited-range and luma will be off", mel_image_format_name(cfg.format));
+
     if (cfg.fps > 0.0f)
     {
         struct v4l2_streamparm parm;
@@ -392,7 +408,7 @@ static bool v4l2_open(void* user, u64 stable_id, Mel_Camera_Config cfg, Mel_Came
         goto fail;
     }
 
-    mel_array_clear(&d->buffers);
+    v4l2_unmap(d);
     for (u32 i = 0; i < req.count; i++)
     {
         struct v4l2_buffer buf;
@@ -424,23 +440,31 @@ static bool v4l2_open(void* user, u64 stable_id, Mel_Camera_Config cfg, Mel_Came
     d->bytesperline = (i32)fmt.fmt.pix.bytesperline;
 
     d->plane_count = mel_image_format_plane_count(d->fmt);
-    d->y_stride = d->bytesperline > 0 ? d->bytesperline : d->width;
-    d->chroma_w = (d->width + 1) / 2;
-    d->chroma_h = (d->height + 1) / 2;
-    d->off_u = (usize)d->y_stride * (usize)d->height;
-    if (d->plane_count == 2)
+    if (d->plane_count == 1)
     {
-        d->chroma_stride = d->y_stride;
-        d->off_v = 0;
+        d->y_stride = d->bytesperline > 0 ? d->bytesperline : d->width * 2;
     }
     else
     {
-        d->chroma_stride = d->y_stride / 2;
-        d->off_v = d->off_u + (usize)d->chroma_stride * (usize)d->chroma_h;
+        d->y_stride = d->bytesperline > 0 ? d->bytesperline : d->width;
+        d->chroma_w = (d->width + 1) / 2;
+        d->chroma_h = (d->height + 1) / 2;
+        d->off_u = (usize)d->y_stride * (usize)d->height;
+        if (d->plane_count == 2)
+        {
+            d->chroma_stride = d->y_stride;
+            d->off_v = 0;
+        }
+        else
+        {
+            d->chroma_stride = d->y_stride / 2;
+            d->off_v = d->off_u + (usize)d->chroma_stride * (usize)d->chroma_h;
+        }
     }
 
     d->sink = sink;
     d->have_sink = true;
+    d->warned_wrapfail = false;
     return true;
 
 fail:
@@ -459,7 +483,17 @@ static void v4l2_deliver(V4l2_Device* d, const struct v4l2_buffer* buf)
     Mel_Image image;
     bool      wrapped = false;
 
-    if (d->plane_count == 2)
+    if (d->plane_count == 1)
+    {
+        Mel_Image_Plane plane;
+        plane.pixels = (u8*)base;
+        plane.stride = d->y_stride;
+        plane.w = d->width;
+        plane.h = d->height;
+        plane.bpp = 2;
+        wrapped = mel_image_wrap(&image, d->fmt, d->width, d->height, &plane, 1);
+    }
+    else if (d->plane_count == 2)
     {
         Mel_Image_Plane planes[2];
         planes[0].pixels = (u8*)base;
@@ -496,7 +530,14 @@ static void v4l2_deliver(V4l2_Device* d, const struct v4l2_buffer* buf)
     }
 
     if (!wrapped)
+    {
+        if (!d->warned_wrapfail)
+        {
+            d->warned_wrapfail = true;
+            mel_log_error("camera", "v4l2 deliver: mel_image_wrap rejected buffer (fmt=%s %dx%d y_stride=%d) - stream will be black", mel_image_format_name(d->fmt), d->width, d->height, d->y_stride);
+        }
         return;
+    }
 
     u64              ns = (u64)buf->timestamp.tv_sec * 1000000000ull + (u64)buf->timestamp.tv_usec * 1000ull;
     Mel_Camera_Frame frame = {
@@ -654,11 +695,24 @@ static void* v4l2_native(void* user, u64 stable_id)
     return (d && d->fd >= 0) ? &d->fd : NULL;
 }
 
+static void v4l2_shutdown(void* user, const Mel_Alloc* alloc)
+{
+    (void)user;
+    (void)alloc;
+    if (g_v4l2.devices.allocator != NULL)
+    {
+        v4l2_clear_devices();
+        mel_array_free(&g_v4l2.devices);
+        mel_array_init(&g_v4l2.devices, NULL);
+    }
+    g_v4l2.scanned = false;
+    g_v4l2.alloc = NULL;
+}
+
 static Mel_Camera_Provider_Desc g_desc;
 
 void mel_camera__register_host_providers(void)
 {
-    g_v4l2.alloc = mel_alloc_heap();
     g_desc = (Mel_Camera_Provider_Desc){
         .name = "linux-v4l2",
         .enumerate = v4l2_enumerate,
@@ -669,6 +723,7 @@ void mel_camera__register_host_providers(void)
         .authorization = v4l2_authorization,
         .authorize = v4l2_authorize,
         .native = v4l2_native,
+        .shutdown = v4l2_shutdown,
     };
     mel_camera_provider_register(&g_desc);
 }

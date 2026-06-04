@@ -11,8 +11,8 @@
 #endif
 
 #include <allocator/allocator.h>
-#include <allocator/heap.h>
 #include <collection.array/array.h>
+#include <debug/assert.h>
 #include <log/log.h>
 
 #include <emscripten.h>
@@ -43,7 +43,6 @@ static struct
     Mel_Camera_Sink        auth_sink;
     bool                   have_auth_sink;
     const mel_camera_auth* last_auth;
-    bool                   registered;
 } g_web;
 
 EM_JS(void, mel_camera_web__ensure_init, (void), {
@@ -360,9 +359,21 @@ static str8 web_intern_name(const char* utf8)
     return (str8){ data, (size)len };
 }
 
-static u32 web_enumerate(void* user, Mel_Camera_Raw* out, u32 cap)
+static void web_ensure_arrays(const Mel_Alloc* alloc)
+{
+    mel_assert((g_web.sessions.allocator == NULL || g_web.sessions.allocator == alloc) && "web: allocator diverged across calls; per-element frees would cross pools");
+    mel_assert((g_web.devices.allocator == NULL || g_web.devices.allocator == alloc) && "web: allocator diverged across calls; per-element frees would cross pools");
+    g_web.alloc = alloc;
+    if (g_web.sessions.allocator == NULL)
+        mel_array_init(&g_web.sessions, alloc);
+    if (g_web.devices.allocator == NULL)
+        mel_array_init(&g_web.devices, alloc);
+}
+
+static u32 web_enumerate(void* user, const Mel_Alloc* alloc, Mel_Camera_Raw* out, u32 cap)
 {
     (void)user;
+    web_ensure_arrays(alloc);
     mel_camera_web__ensure_init();
     if (!mel_camera_web__ready())
         return 0;
@@ -409,9 +420,10 @@ static void web_authorize(void* user, Mel_Camera_Sink sink)
     mel_camera_web__authorize();
 }
 
-static bool web_open(void* user, u64 stable_id, Mel_Camera_Config cfg, Mel_Camera_Sink sink)
+static bool web_open(void* user, const Mel_Alloc* alloc, u64 stable_id, Mel_Camera_Config cfg, Mel_Camera_Sink sink)
 {
     (void)user;
+    web_ensure_arrays(alloc);
     if (cfg.format != &mel_image_rgba8)
     {
         mel_log_error("camera", "web open: only rgba8 is delivered by the canvas backend");
@@ -490,16 +502,38 @@ static void* web_native(void* user, u64 stable_id)
     return s ? (void*)s : NULL;
 }
 
-void mel_camera__register_host_providers(void)
+static void web_shutdown(void* user, const Mel_Alloc* alloc)
 {
-    if (!g_web.registered)
+    (void)user;
+    (void)alloc;
+    for (usize i = 0; i < g_web.sessions.count; i++)
     {
-        g_web.alloc = mel_alloc_heap();
-        mel_array_init(&g_web.sessions, g_web.alloc);
-        mel_array_init(&g_web.devices, g_web.alloc);
-        g_web.registered = true;
+        Web_Session* s = &g_web.sessions.items[i];
+        mel_camera_web__close((unsigned)(s->stable_id & 0xffffffffu), (unsigned)(s->stable_id >> 32));
+        s->have_sink = false;
+        if (s->buf)
+            mel_dealloc(g_web.alloc, s->buf);
+    }
+    if (g_web.sessions.allocator != NULL)
+    {
+        mel_array_free(&g_web.sessions);
+        mel_array_init(&g_web.sessions, NULL);
     }
 
+    web_devices_clear();
+    if (g_web.devices.allocator != NULL)
+    {
+        mel_array_free(&g_web.devices);
+        mel_array_init(&g_web.devices, NULL);
+    }
+
+    g_web.have_auth_sink = false;
+    g_web.auth_sink = (Mel_Camera_Sink){ 0 };
+    g_web.alloc = NULL;
+}
+
+void mel_camera__register_host_providers(void)
+{
     static const Mel_Camera_Provider_Desc desc = {
         .name = "web-getusermedia",
         .enumerate = web_enumerate,
@@ -510,6 +544,7 @@ void mel_camera__register_host_providers(void)
         .authorization = web_authorization,
         .authorize = web_authorize,
         .native = web_native,
+        .shutdown = web_shutdown,
     };
     mel_camera_provider_register(&desc);
 }

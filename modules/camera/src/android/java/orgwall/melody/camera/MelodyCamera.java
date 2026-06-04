@@ -13,15 +13,11 @@ import java.lang.reflect.Method;
 public final class MelodyCamera {
     private static final String PERMISSION = "android.permission.CAMERA";
     private static final int REQUEST_CODE = 0x4D43;
-    private static final long POLL_INTERVAL_MS = 100;
-    private static final long POLL_TIMEOUT_MS = 30000;
 
     private static volatile Activity current;
     private static boolean lifecycleHooked;
 
     private MelodyCamera() {}
-
-    public static native void nativePermissionResult(boolean granted);
 
     private static Application application() {
         try {
@@ -57,11 +53,6 @@ public final class MelodyCamera {
         if (app == null) return false;
         hookLifecycle(app);
 
-        if (granted(app)) {
-            nativePermissionResult(true);
-            return true;
-        }
-
         final Activity activity = current;
         if (activity == null) return false;
 
@@ -71,23 +62,6 @@ public final class MelodyCamera {
                 activity.requestPermissions(new String[] { PERMISSION }, REQUEST_CODE);
             }
         });
-        pollResult(app, handler, 0);
         return true;
-    }
-
-    private static void pollResult(final Context ctx, final Handler handler, final long elapsed) {
-        handler.postDelayed(new Runnable() {
-            @Override public void run() {
-                if (granted(ctx)) {
-                    nativePermissionResult(true);
-                    return;
-                }
-                if (elapsed >= POLL_TIMEOUT_MS) {
-                    nativePermissionResult(false);
-                    return;
-                }
-                pollResult(ctx, handler, elapsed + POLL_INTERVAL_MS);
-            }
-        }, POLL_INTERVAL_MS);
     }
 }

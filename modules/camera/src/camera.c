@@ -210,6 +210,9 @@ void mel_camera_shutdown(void)
         if (s)
             device_teardown(s);
     }
+    for (usize i = 0; i < g.providers.count; i++)
+        if (g.providers.items[i].desc.shutdown)
+            g.providers.items[i].desc.shutdown(g.providers.items[i].desc.user, g.alloc);
     mel_event_destroy(g.hotplug);
     mel_array_free(&g.registry);
     mel_array_free(&g.providers);
@@ -246,11 +249,11 @@ u32 mel_camera_refresh(void)
         if (!pe->active || !pe->desc.enumerate)
             continue;
         mel_array_clear(&tmp);
-        u32 n = pe->desc.enumerate(pe->desc.user, tmp.items, (u32)tmp.capacity);
+        u32 n = pe->desc.enumerate(pe->desc.user, g.alloc, tmp.items, (u32)tmp.capacity);
         while (n > tmp.capacity)
         {
             mel_array_reserve(&tmp, n);
-            n = pe->desc.enumerate(pe->desc.user, tmp.items, (u32)tmp.capacity);
+            n = pe->desc.enumerate(pe->desc.user, g.alloc, tmp.items, (u32)tmp.capacity);
         }
         for (u32 i = 0; i < n; i++)
         {
@@ -557,7 +560,7 @@ Mel_Future* mel_camera_open(Mel_Camera c, Mel_Camera_Config cfg, const Mel_Alloc
     }
 
     Mel_Camera_Sink sink = device_sink(c.h);
-    if (!prov->desc.open(prov->desc.user, s->stable_id, cfg, sink))
+    if (!prov->desc.open(prov->desc.user, g.alloc, s->stable_id, cfg, sink))
     {
         mel_log_error("camera", "provider open failed");
         return op_fail(j, MEL_CAMERA_ERROR | MEL_CAMERA_RESULT_UNSUPPORTED);

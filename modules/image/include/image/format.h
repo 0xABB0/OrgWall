@@ -21,6 +21,8 @@ extern const mel_image_format mel_image_nv21;
 extern const mel_image_format mel_image_i420;
 extern const mel_image_format mel_image_i422;
 extern const mel_image_format mel_image_i444;
+extern const mel_image_format mel_image_yuyv;
+extern const mel_image_format mel_image_uyvy;
 
 i32         mel_image_format_plane_count(const mel_image_format* f);
 i32         mel_image_format_channels(const mel_image_format* f);

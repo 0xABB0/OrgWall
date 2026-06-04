@@ -4,7 +4,14 @@
 #include <image/format.h>
 #include <image/geometry.h>
 
+#include <allocator/allocator.h>
+#include <collection.array/array.h>
+#include <string/str8.h>
+
+#include <debug/assert.h>
 #include <log/log.h>
+
+#include <string.h>
 
 #import <TargetConditionals.h>
 
@@ -100,12 +107,13 @@
 
 @end
 
+static NSMutableDictionary<NSNumber*, Mel_AVF_Session*>* g_avf_sessions;
+
 static NSMutableDictionary<NSNumber*, Mel_AVF_Session*>* avf_sessions(void)
 {
-    static NSMutableDictionary* d;
-    static dispatch_once_t      once;
-    dispatch_once(&once, ^{ d = [NSMutableDictionary dictionary]; });
-    return d;
+    if (g_avf_sessions == nil)
+        g_avf_sessions = [NSMutableDictionary dictionary];
+    return g_avf_sessions;
 }
 
 static u64 avf_stable_id(AVCaptureDevice* dev) { return (u64)[dev.uniqueID hash]; }
@@ -198,9 +206,48 @@ static AVCaptureDevice* avf_device_for(u64 stable_id)
     return nil;
 }
 
-static u32 avf_enumerate(void* user, Mel_Camera_Raw* out, u32 cap)
+typedef struct
+{
+    u64  stable_id;
+    str8 name;
+} Avf_Name_Rec;
+
+static struct
+{
+    const Mel_Alloc* alloc;
+    Mel_Array(Avf_Name_Rec) names;
+} g_avf;
+
+static void avf_names_clear(void)
+{
+    for (usize i = 0; i < g_avf.names.count; i++)
+        if (g_avf.names.items[i].name.data)
+            mel_dealloc(g_avf.alloc, g_avf.names.items[i].name.data);
+    mel_array_clear(&g_avf.names);
+}
+
+static str8 avf_intern_name(u64 stable_id, const char* utf8)
+{
+    usize len = utf8 ? strlen(utf8) : 0;
+    u8*   data = (u8*)mel_alloc(g_avf.alloc, len + 1);
+    if (!data)
+        return (str8){ 0 };
+    if (len)
+        memcpy(data, utf8, len);
+    data[len] = 0;
+    Avf_Name_Rec rec = { .stable_id = stable_id, .name = (str8){ data, (size)len } };
+    mel_array_push(&g_avf.names, rec);
+    return rec.name;
+}
+
+static u32 avf_enumerate(void* user, const Mel_Alloc* alloc, Mel_Camera_Raw* out, u32 cap)
 {
     (void)user;
+    g_avf.alloc = alloc;
+    if (g_avf.names.allocator == NULL)
+        mel_array_init(&g_avf.names, alloc);
+    mel_assert(g_avf.names.allocator == alloc && "avf_enumerate: allocator changed across calls");
+    avf_names_clear();
     @autoreleasepool
     {
         AVCaptureDeviceDiscoverySession* disco = [AVCaptureDeviceDiscoverySession discoverySessionWithDeviceTypes:avf_device_types() mediaType:AVMediaTypeVideo position:AVCaptureDevicePositionUnspecified];
@@ -209,9 +256,9 @@ static u32 avf_enumerate(void* user, Mel_Camera_Raw* out, u32 cap)
         {
             if (n >= cap)
                 break;
-            const char* name = dev.localizedName.UTF8String;
-            out[n].stable_id = avf_stable_id(dev);
-            out[n].name = (str8){ (u8*)name, (size)(name ? strlen(name) : 0) };
+            u64 stable_id = avf_stable_id(dev);
+            out[n].stable_id = stable_id;
+            out[n].name = avf_intern_name(stable_id, dev.localizedName.UTF8String);
             out[n].facing = avf_facing(dev);
             out[n].modes = NULL;
             out[n].mode_count = 0;
@@ -248,9 +295,10 @@ static void avf_authorize(void* user, Mel_Camera_Sink sink)
                              }];
 }
 
-static bool avf_open(void* user, u64 stable_id, Mel_Camera_Config cfg, Mel_Camera_Sink sink)
+static bool avf_open(void* user, const Mel_Alloc* alloc, u64 stable_id, Mel_Camera_Config cfg, Mel_Camera_Sink sink)
 {
     (void)user;
+    (void)alloc;
     @autoreleasepool
     {
         if ([AVCaptureDevice authorizationStatusForMediaType:AVMediaTypeVideo] != AVAuthorizationStatusAuthorized)
@@ -382,6 +430,34 @@ static void* avf_native(void* user, u64 stable_id)
     return s ? (__bridge void*)s.session : NULL;
 }
 
+static void avf_shutdown(void* user, const Mel_Alloc* alloc)
+{
+    (void)user;
+    (void)alloc;
+    @autoreleasepool
+    {
+        if (g_avf_sessions != nil)
+        {
+            for (NSNumber* key in [g_avf_sessions allKeys])
+            {
+                Mel_AVF_Session* s = g_avf_sessions[key];
+                if (s.session.running)
+                    [s.session stopRunning];
+                s.haveSink = NO;
+            }
+            [g_avf_sessions removeAllObjects];
+            g_avf_sessions = nil;
+        }
+    }
+    if (g_avf.names.allocator != NULL)
+    {
+        avf_names_clear();
+        mel_array_free(&g_avf.names);
+        mel_array_init(&g_avf.names, NULL);
+    }
+    g_avf.alloc = NULL;
+}
+
 void mel_camera__register_host_providers(void)
 {
     static const Mel_Camera_Provider_Desc desc = {
@@ -394,6 +470,7 @@ void mel_camera__register_host_providers(void)
         .authorization = avf_authorization,
         .authorize = avf_authorize,
         .native = avf_native,
+        .shutdown = avf_shutdown,
     };
     mel_camera_provider_register(&desc);
 }

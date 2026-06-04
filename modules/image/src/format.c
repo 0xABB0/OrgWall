@@ -377,6 +377,38 @@ const mel_image_format mel_image_i444 = {
     .from_canonical = mel_image__yuv_from_canonical,
 };
 
+const mel_image_format mel_image_yuyv = {
+    .name = "yuyv",
+    .plane_count = 1,
+    .channels = 3,
+    .bytes_per_pixel = 2,
+    .off_r = -1,
+    .off_g = -1,
+    .off_b = -1,
+    .off_a = -1,
+    .has_luma = false,
+    .geom = packed_geom,
+    .yuv = { MEL_IMAGE_BT601, .full_range = false, .packed = true, .y0_byte = 0, .y1_byte = 2, .pu_byte = 1, .pv_byte = 3 },
+    .to_canonical = mel_image__packed_yuv_to_canonical,
+    .from_canonical = mel_image__packed_yuv_from_canonical,
+};
+
+const mel_image_format mel_image_uyvy = {
+    .name = "uyvy",
+    .plane_count = 1,
+    .channels = 3,
+    .bytes_per_pixel = 2,
+    .off_r = -1,
+    .off_g = -1,
+    .off_b = -1,
+    .off_a = -1,
+    .has_luma = false,
+    .geom = packed_geom,
+    .yuv = { MEL_IMAGE_BT601, .full_range = false, .packed = true, .y0_byte = 1, .y1_byte = 3, .pu_byte = 0, .pv_byte = 2 },
+    .to_canonical = mel_image__packed_yuv_to_canonical,
+    .from_canonical = mel_image__packed_yuv_from_canonical,
+};
+
 i32 mel_image_format_plane_count(const mel_image_format* f) { return f ? f->plane_count : 0; }
 
 i32 mel_image_format_channels(const mel_image_format* f) { return f ? f->channels : 0; }

@@ -27,6 +27,8 @@ static bool mel_image__alloc(Mel_Image* out, const mel_image_format* f, i32 w, i
 {
     if (!out || !f || !a || w <= 0 || h <= 0)
         return false;
+    if (f->yuv.packed && (w & 1))
+        return false;
     if (row_align == 0)
         row_align = 1;
     if (row_align > 1 && (row_align & (row_align - 1)) != 0)
@@ -61,6 +63,8 @@ bool mel_image_init(Mel_Image* out, const mel_image_format* f, i32 w, i32 h, con
 bool mel_image_wrap(Mel_Image* out, const mel_image_format* f, i32 w, i32 h, const Mel_Image_Plane* planes, i32 count)
 {
     if (!out || !f || !planes || w <= 0 || h <= 0)
+        return false;
+    if (f->yuv.packed && (w & 1))
         return false;
     if (count != f->plane_count)
         return false;

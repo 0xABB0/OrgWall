@@ -39,9 +39,10 @@ static void mock_fill_y(void)
     memset(mock_uv, 128, sizeof mock_uv);
 }
 
-static u32 mock_enumerate(void* user, Mel_Camera_Raw* out, u32 cap)
+static u32 mock_enumerate(void* user, const Mel_Alloc* alloc, Mel_Camera_Raw* out, u32 cap)
 {
     (void)user;
+    (void)alloc;
     if (cap == 0)
         return 1;
     static const Mel_Camera_Mode modes[] = {
@@ -56,9 +57,10 @@ static u32 mock_enumerate(void* user, Mel_Camera_Raw* out, u32 cap)
     return 1;
 }
 
-static bool mock_open(void* user, u64 stable_id, Mel_Camera_Config cfg, Mel_Camera_Sink sink)
+static bool mock_open(void* user, const Mel_Alloc* alloc, u64 stable_id, Mel_Camera_Config cfg, Mel_Camera_Sink sink)
 {
     (void)user;
+    (void)alloc;
     (void)cfg;
     if (stable_id != MOCK_STABLE_ID)
         return false;
