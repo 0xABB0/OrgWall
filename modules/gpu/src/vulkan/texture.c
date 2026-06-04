@@ -133,7 +133,7 @@ Mel_Gpu_Texture_Create_Result mel_gpu_texture_create_opt(Mel_Gpu_Device* dev, Me
     if (r != VK_SUCCESS)
     {
         mel_log_error("gpu", "vkCreateImage failed: %s", mel_gpu__vk_result_str(r));
-        res.status = MEL_GPU_TEXTURE_CREATE_VK_FAILED;
+        res.status = MEL_GPU_TEXTURE_CREATE_BACKEND_FAILED;
         return res;
     }
 
@@ -244,7 +244,7 @@ Mel_Gpu_Texture_View_Create_Result mel_gpu_texture_view_create_opt(Mel_Gpu_Devic
     if (r != VK_SUCCESS)
     {
         mel_log_error("gpu", "vkCreateImageView failed: %s", mel_gpu__vk_result_str(r));
-        res.status = MEL_GPU_TEXTURE_VIEW_CREATE_VK_FAILED;
+        res.status = MEL_GPU_TEXTURE_VIEW_CREATE_BACKEND_FAILED;
         return res;
     }
 

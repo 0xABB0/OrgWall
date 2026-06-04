@@ -63,7 +63,7 @@ Mel_Gpu_Shader_Create_Result mel_gpu_shader_create_from_bytecode_opt(Mel_Gpu_Dev
             wgpuShaderModuleRelease(vmod);
         if (fmod)
             wgpuShaderModuleRelease(fmod);
-        res.status = MEL_GPU_SHADER_CREATE_VK_FAILED;
+        res.status = MEL_GPU_SHADER_CREATE_BACKEND_FAILED;
         mel_log_error("gpu", "shader_create_from_bytecode: wgpuDeviceCreateShaderModule failed for '%s'", opt.name ? opt.name : "(unnamed)");
         return res;
     }
@@ -111,7 +111,7 @@ Mel_Gpu_Shader_Create_Result mel_gpu_shader_create_compute_from_bytecode_opt(Mel
     WGPUShaderModule cmod = mel_gpu__module_wgsl(dev, opt.compute_blob, opt.compute_blob_size, opt.name);
     if (!cmod)
     {
-        res.status = MEL_GPU_SHADER_CREATE_VK_FAILED;
+        res.status = MEL_GPU_SHADER_CREATE_BACKEND_FAILED;
         mel_log_error("gpu", "shader_create_compute_from_bytecode: wgpuDeviceCreateShaderModule failed for '%s'", opt.name ? opt.name : "(unnamed)");
         return res;
     }

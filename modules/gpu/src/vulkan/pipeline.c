@@ -465,7 +465,7 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_create_opt(Mel_Gpu_Device* dev, 
             mel_dealloc(dev->alloc, spec_entries);
         if (spec_data)
             mel_dealloc(dev->alloc, spec_data);
-        res.status = MEL_GPU_PIPELINE_CREATE_VK_FAILED;
+        res.status = MEL_GPU_PIPELINE_CREATE_BACKEND_FAILED;
         return res;
     }
 
@@ -587,7 +587,7 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_create_opt(Mel_Gpu_Device* dev, 
         vkDestroyPipelineLayout(dev->vk, layout, NULL);
         if (static_sampler_layout)
             vkDestroyDescriptorSetLayout(dev->vk, static_sampler_layout, NULL);
-        res.status = MEL_GPU_PIPELINE_CREATE_VK_FAILED;
+        res.status = MEL_GPU_PIPELINE_CREATE_BACKEND_FAILED;
         return res;
     }
 
@@ -662,7 +662,7 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_compute_create_opt(Mel_Gpu_Devic
 
     if (!sets_ok)
     {
-        res.status = MEL_GPU_PIPELINE_CREATE_VK_FAILED;
+        res.status = MEL_GPU_PIPELINE_CREATE_BACKEND_FAILED;
         return res;
     }
     if (r != VK_SUCCESS)
@@ -670,7 +670,7 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_compute_create_opt(Mel_Gpu_Devic
         mel_log_error("gpu", "vkCreateComputePipelines failed: %s", mel_gpu__vk_result_str(r));
         if (layout)
             vkDestroyPipelineLayout(dev->vk, layout, NULL);
-        res.status = MEL_GPU_PIPELINE_CREATE_VK_FAILED;
+        res.status = MEL_GPU_PIPELINE_CREATE_BACKEND_FAILED;
         return res;
     }
 

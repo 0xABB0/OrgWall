@@ -101,7 +101,7 @@ Mel_Gpu_Buffer_Create_Result mel_gpu_buffer_create_opt(Mel_Gpu_Device* dev, Mel_
     if (FAILED(hr) || !resource)
     {
         mel_log_error("gpu", "CreateCommittedResource(buffer %llu) failed: 0x%08lx", (unsigned long long)opt.size, (unsigned long)hr);
-        res.status = hr == E_OUTOFMEMORY ? MEL_GPU_BUFFER_CREATE_OOM : MEL_GPU_BUFFER_CREATE_VK_FAILED;
+        res.status = hr == E_OUTOFMEMORY ? MEL_GPU_BUFFER_CREATE_OOM : MEL_GPU_BUFFER_CREATE_BACKEND_FAILED;
         return res;
     }
 
@@ -128,7 +128,7 @@ Mel_Gpu_Buffer_Create_Result mel_gpu_buffer_create_opt(Mel_Gpu_Device* dev, Mel_
             if (!mel_gpu__upload_via_copy(dev, resource, opt.data, opt.size))
             {
                 ID3D12Resource_Release(resource);
-                res.status = MEL_GPU_BUFFER_CREATE_VK_FAILED;
+                res.status = MEL_GPU_BUFFER_CREATE_BACKEND_FAILED;
                 return res;
             }
         }

@@ -377,7 +377,7 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_create_opt(Mel_Gpu_Device* dev, 
     u32                  set_param_count = 0;
     if (!mel_gpu__build_root_sig(dev, bindless, false, pc_size, opt.set_layouts, opt.set_layout_count, &set_params, &set_param_count, opt.static_samplers, opt.static_sampler_count, &root_sig))
     {
-        res.status = MEL_GPU_PIPELINE_CREATE_VK_FAILED;
+        res.status = MEL_GPU_PIPELINE_CREATE_BACKEND_FAILED;
         return res;
     }
 
@@ -500,7 +500,7 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_create_opt(Mel_Gpu_Device* dev, 
         ID3D12RootSignature_Release(root_sig);
         if (set_params)
             mel_dealloc(dev->alloc, set_params);
-        res.status = MEL_GPU_PIPELINE_CREATE_VK_FAILED;
+        res.status = MEL_GPU_PIPELINE_CREATE_BACKEND_FAILED;
         return res;
     }
 
@@ -571,7 +571,7 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_compute_create_opt(Mel_Gpu_Devic
     u32                  set_param_count = 0;
     if (!mel_gpu__build_root_sig(dev, bindless, true, pc_size, opt.set_layouts, opt.set_layout_count, &set_params, &set_param_count, NULL, 0, &root_sig))
     {
-        res.status = MEL_GPU_PIPELINE_CREATE_VK_FAILED;
+        res.status = MEL_GPU_PIPELINE_CREATE_BACKEND_FAILED;
         return res;
     }
 
@@ -587,7 +587,7 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_compute_create_opt(Mel_Gpu_Devic
         ID3D12RootSignature_Release(root_sig);
         if (set_params)
             mel_dealloc(dev->alloc, set_params);
-        res.status = MEL_GPU_PIPELINE_CREATE_VK_FAILED;
+        res.status = MEL_GPU_PIPELINE_CREATE_BACKEND_FAILED;
         return res;
     }
 
