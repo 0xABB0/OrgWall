@@ -8,6 +8,7 @@
 #define WIN32_LEAN_AND_MEAN
 #define COBJMACROS
 #define INITGUID
+#include <initguid.h>
 #include <windows.h>
 #include <objbase.h>
 #include <mmdeviceapi.h>

@@ -13,12 +13,14 @@ void build(Mel_Build* b)
     mel_link(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(WIN32)), "-lole32", "-lksuser");
 
     mel_sources(lib, WHEN(.platforms = MEL_ON(LINUX)), "src/alsa/*.c");
-    mel_link(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(LINUX)), "-lasound");
+    mel_includes(lib, MEL_PRIVATE, WHEN(.platforms = MEL_ON(LINUX)), "../../third-party/alsa/include");
+    mel_link(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(LINUX)), "-Lthird-party/alsa/lib", "-lasound", "-Wl,--allow-shlib-undefined");
 
     mel_sources(lib, WHEN(.platforms = MEL_ON(ANDROID)), "src/aaudio/*.c");
     mel_link(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(ANDROID)), "-laaudio");
 
     mel_sources(lib, WHEN(.platforms = MEL_ON(WASM)), "src/web/*.c");
+    mel_link(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(WASM)), "-sAUDIO_WORKLET=1", "-sWASM_WORKERS=1");
 
     mel_depends(lib, "core");
     mel_depends(lib, "allocator");

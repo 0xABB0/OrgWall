@@ -13,6 +13,8 @@
 #define BLOCK 256u
 #define STEP  480u
 
+static const f32 MEL_SQRT1_2 = 0.70710678118654752440f;
+
 static const Mel_Alloc* test_alloc(void) { return mel_alloc_heap(); }
 
 static Mel_Audio_Opt base_opt(void)
@@ -53,7 +55,7 @@ MEL_TEST(fader, fade_volume_reaches_target_on_time)
     Mel_Audio_Source* src = mono_const(a, 64u * STEP, 1.0f);
     Mel_Audio_Voice   v = mel_audio_play_ex(eng, src, 1.0f, 0.0f, false);
 
-    const f32 center = (f32)M_SQRT1_2;
+    const f32 center = MEL_SQRT1_2;
     const u32 dur_frames = 4u * STEP;
     const f64 seconds = (f64)dur_frames / (f64)SR;
     mel_audio_fade_volume(eng, v, 0.0f, seconds);
@@ -112,7 +114,7 @@ MEL_TEST(fader, oscillate_volume_traverses_extremes)
     Mel_Audio_Source* src = mono_const(a, 64u * STEP, 1.0f);
     Mel_Audio_Voice   v = mel_audio_play_ex(eng, src, 1.0f, 0.0f, false);
 
-    const f32 center = (f32)M_SQRT1_2;
+    const f32 center = MEL_SQRT1_2;
     const u32 period_frames = 8u * STEP;
     const f64 period = (f64)period_frames / (f64)SR;
     mel_audio_oscillate_volume(eng, v, 0.0f, 1.0f, period);
@@ -198,7 +200,7 @@ MEL_TEST(fader, fade_master_volume_reaches_target)
     Mel_Audio_Source* src = mono_const(a, 64u * STEP, 1.0f);
     mel_audio_play_ex(eng, src, 1.0f, 0.0f, false);
 
-    const f32 center = (f32)M_SQRT1_2;
+    const f32 center = MEL_SQRT1_2;
     const u32 dur_frames = 4u * STEP;
     const f64 seconds = (f64)dur_frames / (f64)SR;
     mel_audio_fade_master_volume(eng, 0.0f, seconds);

@@ -270,6 +270,13 @@ static char* emit_one(FILE* f, Mel_Graph* g, size_t idx, const Mel_Variant* v, M
             mel_da_push(&ldflags, mel_str_dup("--shell-file"));
             mel_da_push(&ldflags, mel_str_dup("modules/build/web/shell.html"));
         }
+        bool web_app = !host && v->platform == MEL_PLATFORM_WASM && t->kind == MEL_KIND_EXECUTABLE && !t->is_test && !web_gui;
+        if (web_app)
+        {
+            ext = ".html";
+            mel_da_push(&ldflags, mel_str_dup("--shell-file"));
+            mel_da_push(&ldflags, mel_str_dup("modules/build/web/shell-audio.html"));
+        }
         bool android_so = !host && v->platform == MEL_PLATFORM_ANDROID && t->kind == MEL_KIND_EXECUTABLE;
         if (android_so)
         {

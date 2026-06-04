@@ -12,6 +12,8 @@
 #define CH    2u
 #define BLOCK 256u
 
+static const f32 MEL_SQRT1_2 = 0.70710678118654752440f;
+
 static const Mel_Alloc* test_alloc(void) { return mel_alloc_heap(); }
 
 static Mel_Audio_Opt base_opt(void)
@@ -60,7 +62,7 @@ MEL_TEST(render, unity_gain_single_voice)
     u32 produced = mel_audio_render(eng, out, 64u);
     MEL_REQUIRE_EQ(produced, 64u);
 
-    f32 center = (f32)(M_SQRT1_2);
+    f32 center = MEL_SQRT1_2;
     for (u32 i = 0; i < 64u; i++)
     {
         MEL_EXPECT_FLOAT_EQ(out[i * CH + 0u], center, 1e-4f);
@@ -83,7 +85,7 @@ MEL_TEST(render, volume_scaling)
     f32 out[32u * CH];
     mel_audio_render(eng, out, 32u);
 
-    f32 expect = (f32)(M_SQRT1_2) * 0.25f;
+    f32 expect = MEL_SQRT1_2 * 0.25f;
     for (u32 i = 0; i < 32u; i++)
     {
         MEL_EXPECT_FLOAT_EQ(out[i * CH + 0u], expect, 1e-4f);
