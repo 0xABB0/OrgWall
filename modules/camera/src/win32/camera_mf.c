@@ -91,6 +91,7 @@ typedef struct
     WCHAR* symlink;
 } Device_Rec;
 
+struct mf_session;
 typedef bool (*Mf_Lock_Fn)(IMFMediaBuffer* buffer, struct mf_session* s, IMFSample* sample, u64 ns);
 
 typedef struct mf_session
