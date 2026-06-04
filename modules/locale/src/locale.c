@@ -3,11 +3,11 @@
 #include <locale/provider.h>
 
 #include <allocator/allocator.h>
-#include <allocator/heap.h>
 #include <collection.array/array.h>
 #include <collection.slotmap/slotmap.fwd.h>
 #include <event/event.h>
 #include <log/log.h>
+#include <debug/assert.h>
 
 #include <string.h>
 
@@ -201,7 +201,8 @@ void mel_locale_init_ex(const Mel_Alloc* alloc, Mel_Executor* exec)
 {
     if (g_reg.initialized)
         return;
-    g_reg.alloc = alloc ? alloc : mel_alloc_heap();
+    mel_assert(alloc != NULL);
+    g_reg.alloc = alloc;
     g_reg.exec = exec;
     mel_array_init(&g_reg.list, g_reg.alloc);
     mel_array_init(&g_reg.providers, g_reg.alloc);
@@ -242,7 +243,11 @@ void mel_locale_shutdown(void)
 u32 mel_locale_refresh(void)
 {
     if (!g_reg.initialized)
-        mel_locale_init(NULL);
+    {
+        mel_log_error("locale", "refresh() before init; call mel_locale_init first");
+        mel_assert(g_reg.initialized);
+        return 0;
+    }
 
     Locale_List fresh;
     mel_array_init(&fresh, g_reg.alloc);
