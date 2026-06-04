@@ -14,6 +14,10 @@ void build(Mel_Build* b)
     mel_depends(app, "barcode");
     mel_depends(app, "image");
     mel_depends(app, "paint");
+    mel_depends(app, "vibration");
+    mel_depends(app, "clipboard");
+    mel_depends(app, "math");
+    mel_depends(app, "time");
     mel_depends(app, "thread");
     mel_depends(app, "future");
     mel_depends(app, "reactor");

@@ -131,18 +131,70 @@ void mel_painter_fill_round_rect(Mel_Painter* p, Mel_Rect r, f32 radius, mel_col
     SelectObject(dc, op);
 }
 
-void mel_painter_draw_image(Mel_Painter* p, const Mel_Image* img, Mel_Rect dst, const Mel_Alloc* scratch)
+static Mel_Image        s_conv;
+static const Mel_Alloc* s_conv_alloc;
+
+static void v4_masks(BITMAPV4HEADER* h, bool rgba)
 {
-    (void)p;
-    (void)img;
-    (void)dst;
-    (void)scratch;
-    static bool warned;
-    if (!warned)
+    h->bV4RedMask = rgba ? 0x000000FFu : 0x00FF0000u;
+    h->bV4GreenMask = 0x0000FF00u;
+    h->bV4BlueMask = rgba ? 0x00FF0000u : 0x000000FFu;
+    h->bV4AlphaMask = 0xFF000000u;
+}
+
+void mel_painter_draw_image(Mel_Painter* p, const Mel_Image* img, Mel_Rect dst, const Mel_Alloc* scratch_alloc)
+{
+    mel_assert(p && img && img->format);
+
+    const Mel_Image* src = img;
+    Mel_Image_Plane  plane = mel_image_plane(src, 0);
+    bool             tight = plane.stride == plane.w * 4;
+    bool             rgba = img->format == &mel_image_rgba8;
+    bool             direct = tight && (rgba || img->format == &mel_image_bgra8);
+
+    if (!direct)
     {
-        warned = true;
-        mel_log_warn("paint", "mel_painter_draw_image: gdi backend stub (not implemented)");
+        if (!scratch_alloc)
+        {
+            mel_log_fatal("paint", "mel_painter_draw_image: format '%s' needs conversion but no scratch allocator given", mel_image_format_name(img->format));
+            MEL_BREAKPOINT();
+            return;
+        }
+        if (s_conv.format && (s_conv.w != img->w || s_conv.h != img->h || s_conv_alloc != scratch_alloc))
+        {
+            mel_image_free(&s_conv);
+            s_conv = (Mel_Image){ 0 };
+        }
+        if (!s_conv.format && !mel_image_init(&s_conv, &mel_image_bgra8, img->w, img->h, scratch_alloc))
+        {
+            mel_log_error("paint", "mel_painter_draw_image: scratch bgra8 init failed (%dx%d)", img->w, img->h);
+            return;
+        }
+        s_conv_alloc = scratch_alloc;
+        if (!mel_image_convert_scratch(img, &s_conv, scratch_alloc))
+        {
+            mel_log_error("paint", "mel_painter_draw_image: convert '%s' -> bgra8 failed", mel_image_format_name(img->format));
+            return;
+        }
+        src = &s_conv;
+        plane = mel_image_plane(src, 0);
+        rgba = false;
     }
+
+    BITMAPV4HEADER bi = { 0 };
+    bi.bV4Size = sizeof bi;
+    bi.bV4Width = plane.w;
+    bi.bV4Height = -plane.h;
+    bi.bV4Planes = 1;
+    bi.bV4BitCount = 32;
+    bi.bV4V4Compression = BI_BITFIELDS;
+    v4_masks(&bi, rgba);
+
+    HDC dc = pdc(p);
+    int old_mode = SetStretchBltMode(dc, HALFTONE);
+    SetBrushOrgEx(dc, 0, 0, NULL);
+    StretchDIBits(dc, ipx(dst.x), ipx(dst.y), ipx(dst.w), ipx(dst.h), 0, 0, plane.w, plane.h, plane.pixels, (const BITMAPINFO*)&bi, DIB_RGB_COLORS, SRCCOPY);
+    SetStretchBltMode(dc, old_mode);
 }
 
 void mel_painter_draw_text(Mel_Painter* p, str8 text, Mel_Vec2 pos, mel_color8 k, f32 size)

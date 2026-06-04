@@ -92,11 +92,18 @@ EM_JS(void, mel_paint_dom__image, (int id, const unsigned char* px, int sw, int 
         e.idata = e.octx.createImageData(sw, sh);
     }
     const idata = e.idata;
-    for (let y = 0; y < sh; ++y)
+    if (stride === sw * 4)
     {
-        const srow = px + y * stride;
-        const drow = y * sw * 4;
-        idata.data.set(HEAPU8.subarray(srow, srow + sw * 4), drow);
+        idata.data.set(HEAPU8.subarray(px, px + sh * sw * 4));
+    }
+    else
+    {
+        for (let y = 0; y < sh; ++y)
+        {
+            const srow = px + y * stride;
+            const drow = y * sw * 4;
+            idata.data.set(HEAPU8.subarray(srow, srow + sw * 4), drow);
+        }
     }
     e.octx.putImageData(idata, 0, 0);
     c.drawImage(e.off, dx, dy, dw, dh);
@@ -133,35 +140,43 @@ void mel_painter_stroke_rect(Mel_Painter* p, Mel_Rect r, mel_color8 k, f32 width
 void mel_painter_draw_line(Mel_Painter* p, Mel_Vec2 a, Mel_Vec2 b, mel_color8 k, f32 width) { mel_paint_dom__line(id_of(p), a.x, a.y, b.x, b.y, packrgba(k), width); }
 void mel_painter_fill_round_rect(Mel_Painter* p, Mel_Rect r, f32 radius, mel_color8 k) { mel_paint_dom__round_rect(id_of(p), r.x, r.y, r.w, r.h, radius, packrgba(k)); }
 
+static Mel_Image        s_conv;
+static const Mel_Alloc* s_conv_alloc;
+
 void mel_painter_draw_image(Mel_Painter* p, const Mel_Image* img, Mel_Rect dst, const Mel_Alloc* scratch_alloc)
 {
     mel_assert(p && img && img->format);
 
-    Mel_Image        scratch = { 0 };
     const Mel_Image* src = img;
 
-    if (img->format != &mel_image_rgba8 && img->format != &mel_image_rgba8_premul)
+    if (img->format != &mel_image_rgba8)
     {
         if (!scratch_alloc)
         {
             mel_log_fatal("paint", "mel_painter_draw_image: format '%s' needs conversion but no scratch allocator given", mel_image_format_name(img->format));
             return;
         }
-        if (!mel_image_init(&scratch, &mel_image_rgba8, img->w, img->h, scratch_alloc) || !mel_image_convert_scratch(img, &scratch, scratch_alloc))
+        if (s_conv.format && (s_conv.w != img->w || s_conv.h != img->h || s_conv_alloc != scratch_alloc))
         {
-            mel_log_error("paint", "mel_painter_draw_image: convert '%s' -> rgba8 failed", mel_image_format_name(img->format));
-            if (scratch.format)
-                mel_image_free(&scratch);
+            mel_image_free(&s_conv);
+            s_conv = (Mel_Image){ 0 };
+        }
+        if (!s_conv.format && !mel_image_init(&s_conv, &mel_image_rgba8, img->w, img->h, scratch_alloc))
+        {
+            mel_log_error("paint", "mel_painter_draw_image: scratch rgba8 init failed (%dx%d)", img->w, img->h);
             return;
         }
-        src = &scratch;
+        s_conv_alloc = scratch_alloc;
+        if (!mel_image_convert_scratch(img, &s_conv, scratch_alloc))
+        {
+            mel_log_error("paint", "mel_painter_draw_image: convert '%s' -> rgba8 failed", mel_image_format_name(img->format));
+            return;
+        }
+        src = &s_conv;
     }
 
     Mel_Image_Plane plane = mel_image_plane(src, 0);
     mel_paint_dom__image(id_of(p), plane.pixels, plane.w, plane.h, plane.stride, dst.x, dst.y, dst.w, dst.h);
-
-    if (scratch.format)
-        mel_image_free(&scratch);
 }
 
 void mel_painter_draw_text(Mel_Painter* p, str8 text, Mel_Vec2 pos, mel_color8 k, f32 size)
