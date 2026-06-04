@@ -94,18 +94,23 @@ static Mel_Future* file_submit(Mel_Stream* s, File_State* f, bool is_read, void*
     assert(mel_reactor_is_owner(mel_port_reactor(f->port)));
 
     i64         port_off = f->native.seekable ? pos : MEL_PORT_NO_OFFSET;
+    Mel_Port_Op port_op = MEL_PORT_OP_NULL;
     Mel_Future* pf;
     if (is_read)
-        pf = mel_port_read_opt(f->port, (Mel_Port_Read_Opt){ .fd = f->native.fd, .buffer = buf, .len = len, .offset = port_off, .deliver = deliver });
+        pf = mel_port_read_opt(f->port, (Mel_Port_Read_Opt){ .fd = f->native.fd, .buffer = buf, .len = len, .offset = port_off, .deliver = deliver, .out_op = &port_op });
     else
-        pf = mel_port_write_opt(f->port, (Mel_Port_Write_Opt){ .fd = f->native.fd, .buffer = (const void*)buf, .len = len, .offset = port_off, .deliver = deliver });
+        pf = mel_port_write_opt(f->port, (Mel_Port_Write_Opt){ .fd = f->native.fd, .buffer = (const void*)buf, .len = len, .offset = port_off, .deliver = deliver, .out_op = &port_op });
 
     if (!pf)
         return mel_io__op_resolve(op, 0, pos, 0, MEL_IO_ERROR | MEL_IO_UNAVAILABLE);
 
     File_Cont* k = mel_alloc_type(s->alloc, File_Cont);
     if (!k)
+    {
+        mel_port_cancel(f->port, port_op);
+        mel_port_future_release(pf);
         return mel_io__op_resolve(op, 0, pos, 0, MEL_IO_ERROR | MEL_IO_UNAVAILABLE);
+    }
     memset(k, 0, sizeof *k);
     k->port_future = pf;
     k->op = op;
@@ -257,7 +262,7 @@ Mel_IO_File_Open_Result mel_io_file_open_opt(Mel_IO_File_Open_Opt opt)
                                       .alloc = alloc,
                                       .reactor = opt.reactor,
                                       .executor = opt.reactor ? mel_reactor_executor(opt.reactor) : NULL,
-                                      .caps = { .readable = f->readable, .writable = f->writable, .seekable = native.seekable, .sized = native.seekable, .async = opt.reactor != NULL, .size_bytes = native.initial_size });
+                                      .caps = { .readable = f->readable, .writable = f->writable, .seekable = native.seekable, .sized = native.seekable, .async = (opt.reactor && f->port && mel_port_available(f->port)), .size_bytes = native.initial_size });
     if (!s)
     {
         if (f->owns_port && f->port)
