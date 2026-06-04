@@ -11,3 +11,15 @@ Mel_Cpu_Info mel_cpu_info(void)
     info.page_size = 65536u;
     return info;
 }
+
+#include "../cpu_internal.h"
+
+u64 mel_cpu__ram_total(void)
+{
+    return 0;
+}
+
+Mel_Cpu_Features mel_cpu__detect_features(void)
+{
+    return 0;
+}
