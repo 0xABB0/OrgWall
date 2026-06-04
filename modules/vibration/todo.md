@@ -35,3 +35,34 @@
 - Controller providers (XInput / evdev / web Gamepad) once an input module supplies discovery.
 - Tests: a `mel_add_test` exercising lowering + a null provider (no platform haptics) for caps
   degradation and pause/resume tail-slicing.
+
+## Force-feedback augmentation (confessed — MEL-ENGINE-VIII)
+
+- **One effect slot per device on win32.** The DirectInput backend keeps a single
+  `LPDIRECTINPUTEFFECT` per node and rebuilds it on upload/update; `ff_caps.max_effects = 1`. Many
+  wheels permit several concurrent hardware effects (constant + periodic + spring). Multi-effect
+  uploads are not yet held simultaneously on win32; evdev honors `EVIOCGEFFECTS` and reports the
+  real count.
+- **Win32 backend is host-unverifiable.** `vibration_dinput.c` needs the Windows SDK; the macOS
+  cross toolchain (`zig cc`/bare clang) has no `windows.h`. Core, FFB core, and the Linux evdev
+  backend cross-compile and the test passes on host, but the DirectInput path is reviewed by
+  inspection only and must be confirmed on `win-pilot`.
+- **Effect-status is engine-tracked, not hardware-polled.** `mel_vib_ff_status` reports the
+  playing/paused state the core last commanded, not a live hardware completion. evdev's status fd
+  and DirectInput's `IDirectInputEffect_GetEffectStatus` are not yet polled, so a self-terminating
+  finite effect still reads `playing` until stopped/released. No native completion is wired (the
+  pre-existing `MEL_VIB_WARN_COMPLETION_SYNTHESIZED` note still stands for the timeline path).
+- **Direction is encoded but minimally lowered.** Cartesian/spherical/steering all collapse to a
+  single polar angle (`atan2`) for both backends; per-axis cartesian forces on >1-axis hardware are
+  flagged `AXES_REDUCED`/`DIRECTION_FLATTENED` rather than driven independently. The encoding is
+  preserved end-to-end; only the lowering is single-axis.
+- **Pause is provider-native or stop-fallback.** Where a provider exposes `ff_pause`/`ff_resume`
+  the core forwards; otherwise pause stops the effect and resume restarts it from the top. evdev and
+  DirectInput leave `ff_pause`/`ff_resume` NULL, so pause is stop-and-restart (not mid-effect
+  resume). No `PauseQuantized` analog is raised for FFB yet.
+- **evdev FF scratch bitset is a fixed stack array** (`ff_bits[]`, sized from the kernel `FF_MAX`
+  protocol constant). It is a protocol bitmap query buffer, not a growable collection, so MEL-CODE-002
+  does not bite; flagged for Gabbo's judgment.
+- **`ff_set_autocenter_strength` on DirectInput is on/off only.** `DIPROP_AUTOCENTER` takes
+  `ON`/`OFF`; the strength float is clamped and used only as a boolean. evdev's `FF_AUTOCENTER`
+  honors the full 0..1 magnitude.
