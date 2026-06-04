@@ -51,8 +51,8 @@ static void fill_descriptor(GCController* c, Mac_Pad* pad, Mel_Joystick_Descript
     {
         d->axis_count = 6;
         d->button_count = MEL_GAMEPAD_BUTTON_COUNT;
-        d->features.dual_motor_rumble = (c.haptics != nil);
-        d->features.trigger_rumble = (c.haptics != nil);
+        d->features.dual_motor_rumble = false;
+        d->features.trigger_rumble = false;
         d->features.player_led = true;
         if (@available(macOS 11.0, *))
         {
@@ -169,9 +169,7 @@ static Mel_Joystick_Status mac_rumble(void* user, u64 stable_id, Mel_Joystick_Ru
     GCController* c = controller_of(pad);
     if (!c)
         return MEL_JOYSTICK_ERROR | MEL_JOYSTICK_DEVICE_LOST;
-    if (c.haptics == nil)
-        return MEL_JOYSTICK_ERROR | MEL_JOYSTICK_UNSUPPORTED;
-    return MEL_JOYSTICK_OK;
+    return MEL_JOYSTICK_ERROR | MEL_JOYSTICK_UNSUPPORTED;
 }
 
 static Mel_Joystick_Status mac_set_player_index(void* user, u64 stable_id, i32 player_index)

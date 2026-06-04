@@ -4,6 +4,7 @@
 #include <allocator/heap.h>
 #include <collection.array/array.h>
 #include <log/log.h>
+#include <string/str8.h>
 
 #include <string.h>
 
@@ -128,6 +129,8 @@ Mel_Joystick_Virtual mel_joystick_virtual_create_opt(Mel_Joystick_Virtual_Opt op
     d.active = true;
     d.stable_id = vr.next_id++;
     d.desc = opt.desc;
+    d.desc.name = opt.desc.name.len > 0 ? str8_dup_alloc(opt.desc.name, vr.alloc) : (str8){ 0 };
+    d.desc.serial = opt.desc.serial.len > 0 ? str8_dup_alloc(opt.desc.serial, vr.alloc) : (str8){ 0 };
     mel_array_init(&d.axes, vr.alloc);
     mel_array_init(&d.buttons, vr.alloc);
     mel_array_init(&d.hats, vr.alloc);
@@ -150,6 +153,12 @@ void mel_joystick_virtual_destroy(Mel_Joystick_Virtual v)
     mel_array_free(&d->axes);
     mel_array_free(&d->buttons);
     mel_array_free(&d->hats);
+    if (d->desc.name.data != NULL)
+        mel_dealloc(vr.alloc, d->desc.name.data);
+    if (d->desc.serial.data != NULL)
+        mel_dealloc(vr.alloc, d->desc.serial.data);
+    d->desc.name = (str8){ 0 };
+    d->desc.serial = (str8){ 0 };
     d->active = false;
 }
 
