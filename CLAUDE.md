@@ -14,7 +14,8 @@ Fuller documentation lives in `modules/build/platforms.md`.
     ./nob run   <target> [platform]            # build then launch/serve
     ./nob debug <target> [platform]            # build then run under debugger (Android: tail logcat)
     ./nob test  [name] [platform] [-- <args>]  # build & run the discovered mel_add_test targets
-    ./nob configure|compile|link|package <target> [platform]
+    ./nob package <target> [platform]          # packages the target in a .app/apk
+    ./nob configure|compile|link <target> [platform]
     ./nob compdb [platform ...]                # write compile_commands.json for LSP (host-first; all platforms if none)
 
 Configuration, GPU backend and target arch are selectable by flag anywhere on the line:
@@ -22,12 +23,16 @@ Configuration, GPU backend and target arch are selectable by flag anywhere on th
     --release | --debug     # configuration (default is debug)
     --gpu=<id> | --gpu <id> # GPU backend, validated per platform
     --arch=<arch>           # target architecture (arm64, x86_64)
+    --device                # run on device instead of simulator
 
 Platform defaults to the host; otherwise it is the positional argument. Known platforms:
 `macos`, `ios`, `linux`, `android`, `win32`, `wasm`. Valid GPU backends: `metal` (macos/ios),
 `vulkan` (macos/linux/android/win32), `webgpu` (macos/android/wasm); each platform's default is
 the first that applies. The UI backend and runtime are fixed per-platform defaults (not
 CLI-selectable). Output lives under each target's `build/<platform>-<config>/`.
+
+### Runnable targets
+On the Darwin host, android, ios and web are runnable too. For mobile devices, unless --device is passed, it will run on the respective simulator. For web, you can use a headless browser
 
 ## Sources & modules
 
