@@ -48,12 +48,22 @@ public final class MelodyCamera {
         return ctx != null && ctx.checkSelfPermission(PERMISSION) == PackageManager.PERMISSION_GRANTED;
     }
 
-    public static boolean requestPermission() {
+    private static Activity resolveActivity() {
         Application app = application();
-        if (app == null) return false;
         hookLifecycle(app);
+        if (current != null) return current;
+        try {
+            Class<?> gui = Class.forName("orgwall.melody.platform.MelGui");
+            Method m = gui.getMethod("activity");
+            Object a = m.invoke(null);
+            if (a instanceof Activity) return (Activity) a;
+        } catch (Throwable t) {
+        }
+        return null;
+    }
 
-        final Activity activity = current;
+    public static boolean requestPermission() {
+        final Activity activity = resolveActivity();
         if (activity == null) return false;
 
         final Handler handler = new Handler(Looper.getMainLooper());

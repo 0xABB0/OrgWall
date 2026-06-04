@@ -5,6 +5,7 @@ void build(Mel_Build* b)
     Mel_Target* lib = mel_add_library(b, "log");
     mel_includes(lib, MEL_PUBLIC, ALWAYS, "include");
     mel_sources(lib, ALWAYS, "src/*.c");
+    mel_link(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(ANDROID)), "-llog");
     mel_depends(lib, "core");
     mel_depends(lib, "allocator");
     mel_depends(lib, "collection");
