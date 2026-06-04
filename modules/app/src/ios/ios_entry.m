@@ -1,11 +1,13 @@
 #import <UIKit/UIKit.h>
 
 #include <app/app.h>
+#include <app/subsystem.h>
 #include <reactor/reactor.h>
 
 static bool app_init(Mel_Reactor* reactor, void* user)
 {
     (void)user;
+    mel_app_init(.reactor = reactor);
     mel_app_setup(reactor);
     return true;
 }
@@ -18,9 +20,6 @@ static bool app_init(Mel_Reactor* reactor, void* user)
 {
     (void)application;
     (void)options;
-    // Attach the reactor to the main run loop UIApplicationMain is already
-    // running: it installs a tick and returns, so the reactor and all UIKit
-    // work share the main thread. No extra thread, no cross-thread marshalling.
     mel_reactor_spawn(MEL_REACTOR_ATTACHED, app_init, NULL);
     return YES;
 }

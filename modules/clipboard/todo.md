@@ -23,8 +23,15 @@
 - **Web rich + query** — implement `navigator.clipboard.read()`/`write([ClipboardItem])` for
   `text/html` and `image/png`, and enumerate types for `query`. Currently text-only; non-text write
   reps dropped, `query` logs unsupported.
-- **Linux** — X11/Wayland selection ownership and `SelectionRequest` serving, coupled to the
-  `window` event loop. Currently a stub reporting `NoClipboard`.
+- **Linux X11 rich targets** — advertise/serve `text/html`, `image/png`, `text/uri-list` in `TARGETS`
+  and on read (parse the offered targets) rather than UTF-8 text only. Currently non-text reps drop
+  with `RepresentationDropped`.
+- **Linux X11 INCR** — large payloads over the `INCR` protocol; currently a single bounded property.
+- **Wayland selection serving** — implement `wl_data_device_manager`/`wl_data_source`/`wl_data_offer`
+  with pipe fd transfer for cross-client copy/paste and the zwp_primary_selection protocol. Currently
+  the Wayland path is a same-connection selection cache (honest: serves only this process).
+- **Linux run-verification** — X11/Wayland sources are `-fsyntax-only`/`-Wall -Wextra` clean on the
+  macOS host but unbuilt/unrun against a real X server or compositor; exercise on Linux.
 
 ## Possible refinements
 - `Stale` detection: capture `sequence()` at request and compare at serve to set the bit.

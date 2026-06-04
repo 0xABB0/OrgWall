@@ -25,3 +25,25 @@ Mel_Cpu_Info mel_cpu_info(void)
     info.cache_line_size = (u32)mel_cpu__sysctl("hw.cachelinesize");
     return info;
 }
+
+#include "../cpu_internal.h"
+#include "../cpu_x86.h"
+
+u64 mel_cpu__ram_total(void)
+{
+    return mel_cpu__sysctl("hw.memsize");
+}
+
+Mel_Cpu_Features mel_cpu__detect_features(void)
+{
+#if MEL_CPU_X86
+    return mel_cpu__detect_x86();
+#elif MEL_CPU_ARM
+    Mel_Cpu_Features f = 0;
+    if (mel_cpu__sysctl("hw.optional.neon") != 0 || mel_cpu__sysctl("hw.optional.AdvSIMD") != 0)
+        f |= MEL_CPU_FEATURE_NEON;
+    return f;
+#else
+    return 0;
+#endif
+}

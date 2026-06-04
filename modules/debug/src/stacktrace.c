@@ -10,7 +10,7 @@ bool mel_stacktrace_capture(Mel_Stacktrace* stacktrace, usize skip, size keep, M
     if (stacktrace == NULL)
         return false;
     if (keep <= 0)
-        return true; // TODO: understand if it's reasonable to have this check
+        return true;
     return mel__platform_stacktrace_capture(stacktrace, skip, keep, alloc);
 }
 

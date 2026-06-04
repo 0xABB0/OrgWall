@@ -11,12 +11,25 @@
 #include <string/str8.h>
 #include <string.h>
 
-static char  fake_text[256];
-static usize fake_len;
-static u64   fake_seq;
-static bool  fake_avail = true;
-static bool  fake_defer_read;
-static u64   fake_pending_token;
+typedef struct
+{
+    char  text[256];
+    usize len;
+    u64   seq;
+} Fake_Channel;
+
+static Fake_Channel fake_clip;
+static Fake_Channel fake_prim;
+static bool         fake_avail = true;
+static bool         fake_primary_supported = true;
+static bool         fake_defer_read;
+static u64          fake_pending_token;
+
+static Fake_Channel* fake_chan(Mel_Clip_Channel ch) { return mel_clip_channel_resolve(ch) == (Mel_Clip_Channel)MEL_CLIP_CHANNEL_PRIMARY ? &fake_prim : &fake_clip; }
+
+#define fake_text fake_clip.text
+#define fake_len  fake_clip.len
+#define fake_seq  fake_clip.seq
 
 typedef struct
 {
@@ -46,59 +59,97 @@ static void* counting_cb(void* ptr, usize size, u32 align, const char* file, con
     return mel_realloc(heap, ptr, size);
 }
 
-bool  mel_clip__plat_available(void) { return fake_avail; }
-u64   mel_clip__plat_sequence(void) { return fake_seq; }
+bool mel_clip__plat_available(void) { return fake_avail; }
+
+void mel_clip__plat_shutdown(void) {}
+
+bool mel_clip__plat_channel_supported(Mel_Clip_Channel ch)
+{
+    if (mel_clip_channel_resolve(ch) == (Mel_Clip_Channel)MEL_CLIP_CHANNEL_PRIMARY)
+        return fake_primary_supported;
+    return true;
+}
+
+u64   mel_clip__plat_sequence(Mel_Clip_Channel ch) { return mel_clip__plat_channel_supported(ch) ? fake_chan(ch)->seq : 0; }
 void* mel_clip__plat_native(void) { return NULL; }
 
 void mel_clip__plat_write(Mel_Clip_Job* j)
 {
-    fake_len = 0;
+    if (!mel_clip__plat_channel_supported(mel_clip_job_channel(j)))
+    {
+        mel_clip_job_resolve(j, MEL_CLIP_ERROR | MEL_CLIP_RESULT_NO_CLIPBOARD);
+        return;
+    }
+    Fake_Channel* c = fake_chan(mel_clip_job_channel(j));
+    c->len = 0;
     u32 reps = mel_clip_job_rep_count(j, 0);
     for (u32 r = 0; r < reps; r++)
     {
         Mel_Clip_Rep rep = mel_clip_job_rep(j, 0, r);
         if (rep.format == MEL_CLIP_FMT_TEXT)
         {
-            usize n = (usize)rep.bytes.len < sizeof fake_text ? (usize)rep.bytes.len : sizeof fake_text - 1;
-            memcpy(fake_text, rep.bytes.data, n);
-            fake_len = n;
+            usize n = (usize)rep.bytes.len < sizeof c->text ? (usize)rep.bytes.len : sizeof c->text - 1;
+            memcpy(c->text, rep.bytes.data, n);
+            c->len = n;
         }
     }
-    fake_seq++;
+    c->seq++;
     mel_clip_job_resolve(j, MEL_CLIP_OK);
 }
 
 void mel_clip__plat_read(Mel_Clip_Job* j)
 {
+    if (!mel_clip__plat_channel_supported(mel_clip_job_channel(j)))
+    {
+        mel_clip_job_resolve(j, MEL_CLIP_ERROR | MEL_CLIP_RESULT_NO_CLIPBOARD);
+        return;
+    }
     if (fake_defer_read)
     {
         fake_pending_token = mel_clip_job_token(j);
         return;
     }
-    if (fake_len)
-        mel_clip_job_emit(j, MEL_CLIP_FMT_TEXT, fake_text, fake_len);
-    mel_clip_job_resolve(j, fake_len ? MEL_CLIP_OK : (MEL_CLIP_RESULT_EMPTY));
+    Fake_Channel* c = fake_chan(mel_clip_job_channel(j));
+    if (c->len)
+        mel_clip_job_emit(j, MEL_CLIP_FMT_TEXT, c->text, c->len);
+    mel_clip_job_resolve(j, c->len ? MEL_CLIP_OK : (MEL_CLIP_RESULT_EMPTY));
 }
 
 void mel_clip__plat_clear(Mel_Clip_Job* j)
 {
-    fake_len = 0;
-    fake_seq++;
+    Fake_Channel* c = fake_chan(mel_clip_job_channel(j));
+    c->len = 0;
+    c->seq++;
     mel_clip_job_resolve(j, MEL_CLIP_OK);
 }
 
 void mel_clip__plat_query(Mel_Clip_Job* j)
 {
-    if (fake_len)
+    Fake_Channel* c = fake_chan(mel_clip_job_channel(j));
+    if (c->len)
         mel_clip_job_emit_format(j, MEL_CLIP_FMT_TEXT);
+    mel_clip_job_resolve(j, MEL_CLIP_OK);
+}
+
+void mel_clip__plat_has(Mel_Clip_Job* j)
+{
+    if (!mel_clip__plat_channel_supported(mel_clip_job_channel(j)))
+    {
+        mel_clip_job_set_present(j, false);
+        mel_clip_job_resolve(j, MEL_CLIP_OK);
+        return;
+    }
+    Fake_Channel* c = fake_chan(mel_clip_job_channel(j));
+    mel_clip_job_set_present(j, c->len > 0);
     mel_clip_job_resolve(j, MEL_CLIP_OK);
 }
 
 static void install_fake(void)
 {
     fake_avail = true;
-    fake_len = 0;
-    fake_seq = 0;
+    fake_primary_supported = true;
+    fake_clip = (Fake_Channel){ 0 };
+    fake_prim = (Fake_Channel){ 0 };
     fake_defer_read = false;
     fake_pending_token = 0;
     mel_clip_init(mel_alloc_heap(), NULL);
@@ -481,6 +532,180 @@ MEL_TEST(clipboard, token_invalid_after_free)
     mel_clip_future_free(r);
 
     MEL_EXPECT(mel_clip__job_from_token(tok) == NULL);
+    mel_clip_shutdown();
+}
+
+MEL_TEST(clipboard, channel_resolve_defaults_to_clipboard)
+{
+    install_fake();
+    MEL_EXPECT_EQ(mel_clip_channel_resolve(0), (Mel_Clip_Channel)MEL_CLIP_CHANNEL_CLIPBOARD);
+    MEL_EXPECT_EQ(mel_clip_channel_resolve(MEL_CLIP_CHANNEL_PRIMARY), (Mel_Clip_Channel)MEL_CLIP_CHANNEL_PRIMARY);
+    mel_clip_shutdown();
+}
+
+MEL_TEST(clipboard, primary_and_clipboard_are_independent_channels)
+{
+    install_fake();
+
+    mel_clip_future_free(mel_clip_write_text(S8("on-clipboard")));
+    mel_clip_future_free(mel_clip_write_text(S8("on-primary"), .channel = MEL_CLIP_CHANNEL_PRIMARY));
+
+    Mel_Future* rc = mel_clip_read_text();
+    MEL_EXPECT_EQ_STR8(mel_clip_future_text(rc), S8("on-clipboard"));
+    mel_clip_future_free(rc);
+
+    Mel_Future* rp = mel_clip_read_text(.channel = MEL_CLIP_CHANNEL_PRIMARY);
+    MEL_EXPECT_EQ_STR8(mel_clip_future_text(rp), S8("on-primary"));
+    mel_clip_future_free(rp);
+
+    mel_clip_shutdown();
+}
+
+MEL_TEST(clipboard, primary_write_does_not_disturb_clipboard)
+{
+    install_fake();
+    mel_clip_future_free(mel_clip_write_text(S8("keep me")));
+    mel_clip_future_free(mel_clip_write_text(S8("middle click"), .channel = MEL_CLIP_CHANNEL_PRIMARY));
+
+    Mel_Future* rc = mel_clip_read_text();
+    MEL_EXPECT_EQ_STR8(mel_clip_future_text(rc), S8("keep me"));
+    mel_clip_future_free(rc);
+    mel_clip_shutdown();
+}
+
+MEL_TEST(clipboard, has_reports_presence_per_channel)
+{
+    install_fake();
+
+    Mel_Future* h0 = mel_clip_has();
+    MEL_REQUIRE(h0 != NULL);
+    MEL_EXPECT(mel_future_resolved(h0));
+    MEL_EXPECT(!mel_clip_future_has(h0));
+    mel_clip_future_free(h0);
+
+    mel_clip_future_free(mel_clip_write_text(S8("present")));
+
+    Mel_Future* hc = mel_clip_has();
+    MEL_EXPECT(mel_clip_future_has(hc));
+    mel_clip_future_free(hc);
+
+    Mel_Future* hp = mel_clip_has(.channel = MEL_CLIP_CHANNEL_PRIMARY);
+    MEL_EXPECT(!mel_clip_future_has(hp));
+    mel_clip_future_free(hp);
+
+    mel_clip_future_free(mel_clip_write_text(S8("p"), .channel = MEL_CLIP_CHANNEL_PRIMARY));
+    Mel_Future* hp2 = mel_clip_has(.channel = MEL_CLIP_CHANNEL_PRIMARY);
+    MEL_EXPECT(mel_clip_future_has(hp2));
+    mel_clip_future_free(hp2);
+
+    mel_clip_shutdown();
+}
+
+MEL_TEST(clipboard, channel_supported_reflects_backend)
+{
+    install_fake();
+    MEL_EXPECT(mel_clip_channel_supported(MEL_CLIP_CHANNEL_CLIPBOARD));
+    MEL_EXPECT(mel_clip_channel_supported(MEL_CLIP_CHANNEL_PRIMARY));
+    mel_clip_shutdown();
+
+    fake_primary_supported = false;
+    mel_clip_init(mel_alloc_heap(), NULL);
+    MEL_EXPECT(mel_clip_channel_supported(MEL_CLIP_CHANNEL_CLIPBOARD));
+    MEL_EXPECT(!mel_clip_channel_supported(MEL_CLIP_CHANNEL_PRIMARY));
+    mel_clip_shutdown();
+    fake_primary_supported = true;
+}
+
+MEL_TEST(clipboard, unsupported_primary_channel_reads_no_clipboard)
+{
+    fake_primary_supported = false;
+    mel_clip_init(mel_alloc_heap(), NULL);
+
+    Mel_Future* r = mel_clip_read_text(.channel = MEL_CLIP_CHANNEL_PRIMARY);
+    MEL_REQUIRE(r != NULL);
+    MEL_EXPECT(mel_clip_failed(mel_clip_future_status(r)));
+    MEL_EXPECT((mel_clip_future_status(r) & MEL_CLIP_RESULT_NO_CLIPBOARD) != 0);
+    mel_clip_future_free(r);
+
+    mel_clip_shutdown();
+    fake_primary_supported = true;
+}
+
+MEL_TEST(clipboard, unsupported_channel_rejected_before_dispatch_all_ops)
+{
+    fake_primary_supported = false;
+    mel_clip_init(mel_alloc_heap(), NULL);
+
+    mel_clip_future_free(mel_clip_write_text(S8("real clipboard")));
+    u64 clip_seq = mel_clip_sequence_ch(MEL_CLIP_CHANNEL_CLIPBOARD);
+
+    Mel_Future* w = mel_clip_write_text(S8("would clobber"), .channel = MEL_CLIP_CHANNEL_PRIMARY);
+    MEL_REQUIRE(w != NULL);
+    MEL_EXPECT(mel_clip_failed(mel_clip_future_status(w)));
+    MEL_EXPECT((mel_clip_future_status(w) & MEL_CLIP_RESULT_NO_CLIPBOARD) != 0);
+    mel_clip_future_free(w);
+
+    Mel_Future* c = mel_clip_clear(.channel = MEL_CLIP_CHANNEL_PRIMARY);
+    MEL_REQUIRE(c != NULL);
+    MEL_EXPECT(mel_clip_failed(mel_clip_future_status(c)));
+    MEL_EXPECT((mel_clip_future_status(c) & MEL_CLIP_RESULT_NO_CLIPBOARD) != 0);
+    mel_clip_future_free(c);
+
+    Mel_Future* q = mel_clip_query(.channel = MEL_CLIP_CHANNEL_PRIMARY);
+    MEL_REQUIRE(q != NULL);
+    MEL_EXPECT(mel_clip_failed(mel_clip_future_status(q)));
+    MEL_EXPECT((mel_clip_future_status(q) & MEL_CLIP_RESULT_NO_CLIPBOARD) != 0);
+    mel_clip_future_free(q);
+
+    Mel_Future* h = mel_clip_has(.channel = MEL_CLIP_CHANNEL_PRIMARY);
+    MEL_REQUIRE(h != NULL);
+    MEL_EXPECT(mel_clip_failed(mel_clip_future_status(h)));
+    MEL_EXPECT((mel_clip_future_status(h) & MEL_CLIP_RESULT_NO_CLIPBOARD) != 0);
+    mel_clip_future_free(h);
+
+    MEL_EXPECT_EQ(mel_clip_sequence_ch(MEL_CLIP_CHANNEL_CLIPBOARD), clip_seq);
+    MEL_EXPECT_EQ(fake_prim.len, (usize)0);
+    MEL_EXPECT_EQ(fake_prim.seq, (u64)0);
+
+    Mel_Future* rc = mel_clip_read_text();
+    MEL_EXPECT_EQ_STR8(mel_clip_future_text(rc), S8("real clipboard"));
+    mel_clip_future_free(rc);
+
+    mel_clip_shutdown();
+    fake_primary_supported = true;
+}
+
+MEL_TEST(clipboard, sequence_is_channel_scoped)
+{
+    install_fake();
+    u64 c0 = mel_clip_sequence_ch(MEL_CLIP_CHANNEL_CLIPBOARD);
+    u64 p0 = mel_clip_sequence_ch(MEL_CLIP_CHANNEL_PRIMARY);
+
+    mel_clip_future_free(mel_clip_write_text(S8("x"), .channel = MEL_CLIP_CHANNEL_PRIMARY));
+
+    MEL_EXPECT_EQ(mel_clip_sequence_ch(MEL_CLIP_CHANNEL_CLIPBOARD), c0);
+    MEL_EXPECT_GT(mel_clip_sequence_ch(MEL_CLIP_CHANNEL_PRIMARY), p0);
+    MEL_EXPECT_EQ(mel_clip_sequence(), c0);
+    mel_clip_shutdown();
+}
+
+MEL_TEST(clipboard, watch_targets_requested_channel)
+{
+    install_fake();
+    fake_prim.seq = 5;
+
+    Mel_Event* ev = mel_clip_watch(.channel = MEL_CLIP_CHANNEL_PRIMARY);
+    MEL_REQUIRE(ev != NULL);
+    Mel_Event_Sub sub = mel_event_subscribe_pull(ev, NULL);
+
+    u64 change = 6;
+    mel_event_fire(ev, &change);
+    u64 got = 0;
+    MEL_EXPECT(mel_event_pull(ev, sub, &got));
+    MEL_EXPECT_EQ(got, (u64)6);
+
+    mel_event_unsubscribe(ev, sub);
+    mel_clip_unwatch();
     mel_clip_shutdown();
 }
 

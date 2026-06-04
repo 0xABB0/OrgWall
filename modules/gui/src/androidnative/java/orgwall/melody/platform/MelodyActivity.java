@@ -1,6 +1,7 @@
 package orgwall.melody.platform;
 
 import android.app.Activity;
+import android.content.ComponentCallbacks2;
 import android.graphics.Color;
 import android.os.Build;
 import android.os.Bundle;
@@ -51,6 +52,37 @@ public final class MelodyActivity extends Activity implements MelGui.BackHost {
     }
 
     @Override
+    protected void onResume() {
+        super.onResume();
+        MelGui.nativeOnResume();
+    }
+
+    @Override
+    protected void onPause() {
+        MelGui.nativeOnPause();
+        super.onPause();
+    }
+
+    @Override
+    protected void onStop() {
+        MelGui.nativeOnStop();
+        super.onStop();
+    }
+
+    @Override
+    public void onTrimMemory(int level) {
+        super.onTrimMemory(level);
+        if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) MelGui.nativeOnLowMemory();
+    }
+
+    @Override
+    @SuppressWarnings("deprecation")
+    public void onLowMemory() {
+        super.onLowMemory();
+        MelGui.nativeOnLowMemory();
+    }
+
+    @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         MelGui.nativeRequestPermissionsResult(requestCode, grantResults);
@@ -62,6 +94,7 @@ public final class MelodyActivity extends Activity implements MelGui.BackHost {
             getOnBackInvokedDispatcher().unregisterOnBackInvokedCallback(backCallback);
             backCallback = null;
         }
+        MelGui.nativeOnDestroy();
         MelGui.stop();
         super.onDestroy();
     }

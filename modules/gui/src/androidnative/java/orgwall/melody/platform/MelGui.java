@@ -114,6 +114,11 @@ public final class MelGui {
     public static native void nativeStop();
     public static native void nativeFocus(long handle, boolean in, long fnIn, long fnOut);
 
+    public static native void nativeOnResume();
+    public static native void nativeOnPause();
+    public static native void nativeOnStop();
+    public static native void nativeOnDestroy();
+    public static native void nativeOnLowMemory();
     public static native void nativeRequestPermissionsResult(int requestCode, int[] grantResults);
 
     /* OS back entry: drives the C Navigator, which pops this Java stack via back()

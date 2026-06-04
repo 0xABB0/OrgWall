@@ -1,6 +1,7 @@
 #pragma once
 
 #include <vibration/vibration.h>
+#include <vibration/ffb.h>
 
 #ifdef __cplusplus
 extern "C"
@@ -31,10 +32,16 @@ typedef struct
 
 typedef struct
 {
+    Mel_Vib_FF_Effect effect;
+    Mel_Vib_FF_Caps   caps;
+} Mel_Vib_FF_Lowered;
+
+typedef struct
+{
     const char* name;
     void*       user;
 
-    u32  (*enumerate)(void* user, Mel_Vib_Raw* out, u32 cap);
+    u32 (*enumerate)(void* user, Mel_Vib_Raw* out, u32 cap);
     bool (*open)(void* user, u64 stable_id, Mel_Vib_Descriptor* out);
     void (*close)(void* user, u64 stable_id);
 
@@ -42,6 +49,17 @@ typedef struct
     void (*abort)(void* user, u64 stable_id, u64 playback_token);
     void (*pause)(void* user, u64 stable_id, u64 playback_token);
     void (*resume)(void* user, u64 stable_id, u64 playback_token);
+
+    bool (*ff_query)(void* user, u64 stable_id, Mel_Vib_FF_Caps* out);
+    Mel_Vib_Status (*ff_upload)(void* user, u64 stable_id, u64 effect_token, const Mel_Vib_FF_Lowered* lowered);
+    Mel_Vib_Status (*ff_update)(void* user, u64 stable_id, u64 effect_token, const Mel_Vib_FF_Lowered* lowered);
+    Mel_Vib_Status (*ff_start)(void* user, u64 stable_id, u64 effect_token, u32 loop);
+    Mel_Vib_Status (*ff_stop)(void* user, u64 stable_id, u64 effect_token);
+    Mel_Vib_Status (*ff_pause)(void* user, u64 stable_id, u64 effect_token);
+    Mel_Vib_Status (*ff_resume)(void* user, u64 stable_id, u64 effect_token);
+    void (*ff_release)(void* user, u64 stable_id, u64 effect_token);
+    Mel_Vib_Status (*ff_set_gain)(void* user, u64 stable_id, f32 gain);
+    Mel_Vib_Status (*ff_set_autocenter)(void* user, u64 stable_id, bool enabled, f32 strength);
 
     void* (*native)(void* user, u64 stable_id);
 } Mel_Vib_Provider_Desc;
