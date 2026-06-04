@@ -49,7 +49,7 @@ bool        mel_discover_dir(Mel_Graph* g, const char* dir);
 void        mel_discover(Mel_Graph* g);
 Mel_Target* mel_graph_find(Mel_Graph* g, const char* name);
 int         mel_graph_index(Mel_Graph* g, const char* name);
-bool        mel_topo_closure(Mel_Graph* g, const char* root, Mel_IdxVec* order);
+bool        mel_topo_closure(Mel_Graph* g, const char* root, const Mel_Variant* v, Mel_IdxVec* order);
 bool        mel_package(Mel_Graph* g, Mel_IdxVec* order, Mel_Target* t, const Mel_Variant* v, const char* outdir, const char* exe);
 
 Mel_Variant mel_variant_native(Mel_Platform platform, const char* config);

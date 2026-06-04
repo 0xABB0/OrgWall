@@ -36,7 +36,7 @@ Mel_Target* mel_add_test(Mel_Build* b, const char* name)
     return t;
 }
 
-void mel_depends(Mel_Target* t, const char* name) { mel_da_push(&t->deps, name); }
+void mel_depends_(Mel_Target* t, const char* name, Mel_When when) { mel_da_push(&t->deps, ((Mel_Dep){ name, when })); }
 void mel_depends_host(Mel_Target* t, const char* name) { mel_da_push(&t->host_deps, name); }
 void mel_unavailable(Mel_Target* t, Mel_When when) { mel_da_push(&t->unavailable, when); }
 void mel_whole_archive(Mel_Target* t, Mel_When when) { mel_da_push(&t->whole_archive, when); }
