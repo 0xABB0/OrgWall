@@ -17,6 +17,7 @@ const Mel_Alloc* mel_clip__alloc(void);
 // The core links and calls them directly — there is exactly one clipboard per platform, so no
 // runtime indirection. A platform that completes asynchronously resolves the job later.
 bool  mel_clip__plat_available(void);
+void  mel_clip__plat_shutdown(void);
 bool  mel_clip__plat_channel_supported(Mel_Clip_Channel ch);
 void  mel_clip__plat_read(Mel_Clip_Job* job);
 void  mel_clip__plat_write(Mel_Clip_Job* job);

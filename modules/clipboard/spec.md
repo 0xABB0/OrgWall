@@ -134,16 +134,22 @@ no registration — there is one clipboard per platform, selected by the build (
 
 ```c
 bool  mel_clip__plat_available(void);
+bool  mel_clip__plat_channel_supported(Mel_Clip_Channel ch);   // §1b; the core gates dispatch on this
+void  mel_clip__plat_shutdown(void);               // teardown the backend (reactor source, dlopen handle, retained payload)
 void  mel_clip__plat_read(Mel_Clip_Job* job);    // requested formats; emit reps; resolve
 void  mel_clip__plat_write(Mel_Clip_Job* job);    // lowered payload; resolve
 void  mel_clip__plat_clear(Mel_Clip_Job* job);
 void  mel_clip__plat_query(Mel_Clip_Job* job);    // emit available format ids; resolve
-u64   mel_clip__plat_sequence(void);               // 0 ⇒ unsupported (§7)
+u64   mel_clip__plat_sequence(Mel_Clip_Channel ch); // 0 ⇒ unsupported (§7)
 void* mel_clip__plat_native(void);                 // §5.3
 ```
 
-The host-none stub (Linux/fallback) defines `available == false` and resolves every op
-`NoClipboard`. A unit test links its own `mel_clip__plat_*` against the core — an in-memory fake.
+The core gates every op on `mel_clip__plat_channel_supported(job->channel)` before dispatch: an op on
+an unsupported channel resolves `NoClipboard` in the core, so a backend never sees a channel it does
+not serve (one rule, all ops — MEL-ENGINE-IX). `mel_clip_shutdown` calls `mel_clip__plat_shutdown`
+after the in-flight jobs are swept, so the backend reclaims its reactor source, `dlopen` handle, and
+retained payload (MEL-ENGINE-III). A unit test links its own `mel_clip__plat_*` against the core — an
+in-memory fake.
 
 `Mel_Clip_Job` is opaque; the platform layer uses accessors: `mel_clip_job_request_count/request/wants`
 (read/query inputs), `mel_clip_job_item_count/rep_count/rep` (write payload),

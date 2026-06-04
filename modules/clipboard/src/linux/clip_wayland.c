@@ -107,10 +107,21 @@ bool mel_clip__wl_init(void)
     if (w->ok)
         return true;
     if (!wl_load(w))
+    {
+        if (w->lib)
+        {
+            dlclose(w->lib);
+            w->lib = NULL;
+        }
         return false;
+    }
     w->display = w->api.display_connect(NULL);
     if (!w->display)
+    {
+        dlclose(w->lib);
+        memset(w, 0, sizeof *w);
         return false;
+    }
     w->api.display_roundtrip(w->display);
 
     Mel_Reactor* reactor = mel_clip__reactor();

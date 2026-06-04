@@ -287,16 +287,12 @@ void mel_clip__plat_query(Mel_Clip_Job* job)
 
 bool mel_clip__plat_available(void) { return true; }
 
+void mel_clip__plat_shutdown(void) {}
+
 bool mel_clip__plat_channel_supported(Mel_Clip_Channel ch) { return mel_clip_channel_resolve(ch) == (Mel_Clip_Channel)MEL_CLIP_CHANNEL_CLIPBOARD; }
 
 void mel_clip__plat_has(Mel_Clip_Job* job)
 {
-    if (!mel_clip__plat_channel_supported(mel_clip_job_channel(job)))
-    {
-        mel_clip_job_set_present(job, false);
-        mel_clip_job_resolve(job, MEL_CLIP_OK);
-        return;
-    }
     JNIEnv* env = mel_platform_android_env();
     if (!env || (*env)->PushLocalFrame(env, 16) != 0)
     {

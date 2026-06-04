@@ -371,16 +371,34 @@ bool mel_clip__x11_init(void)
     if (x->ok)
         return true;
     if (!x11_load(x))
+    {
+        if (x->lib)
+        {
+            dlclose(x->lib);
+            x->lib = NULL;
+        }
         return false;
+    }
 
     int scr = 0;
     x->conn = x->api.connect(NULL, &scr);
     if (!x->conn || x->api.connection_has_error(x->conn))
+    {
+        if (x->conn)
+            x->api.disconnect(x->conn);
+        dlclose(x->lib);
+        memset(x, 0, sizeof *x);
         return false;
+    }
 
     xcb_screen_iterator_t it = x->api.setup_roots_iterator(x->api.get_setup(x->conn));
     if (!it.rem || !it.data)
+    {
+        x->api.disconnect(x->conn);
+        dlclose(x->lib);
+        memset(x, 0, sizeof *x);
         return false;
+    }
     x->root = it.data->root;
     xcb_visualid_t visual = it.data->root_visual;
     u8             depth = it.data->root_depth;

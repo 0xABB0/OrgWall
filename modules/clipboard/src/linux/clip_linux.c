@@ -32,7 +32,7 @@ static void linux_clip_ensure(void)
     if (!want_x11 && mel_clip__wl_init())
     {
         g_lin.wl = true;
-        mel_log_info("clipboard", "linux backend: Wayland wl_data_device");
+        mel_log_warn("clipboard", "linux backend: Wayland connected, same-process selection cache only (no cross-client wl_data_device serving)");
         return;
     }
     mel_log_error("clipboard", "linux backend: neither X11 nor Wayland available (no DISPLAY/WAYLAND_DISPLAY)");
@@ -42,6 +42,15 @@ bool mel_clip__plat_available(void)
 {
     linux_clip_ensure();
     return g_lin.x11 || g_lin.wl;
+}
+
+void mel_clip__plat_shutdown(void)
+{
+    if (g_lin.x11)
+        mel_clip__x11_shutdown();
+    if (g_lin.wl)
+        mel_clip__wl_shutdown();
+    g_lin = (Linux_Clip){ 0 };
 }
 
 bool mel_clip__plat_channel_supported(Mel_Clip_Channel ch)

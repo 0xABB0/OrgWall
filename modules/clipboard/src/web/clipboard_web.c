@@ -105,6 +105,8 @@ void mel_clip__plat_has(Mel_Clip_Job* job)
 
 bool mel_clip__plat_available(void) { return mel_clip_js_available() != 0; }
 
+void mel_clip__plat_shutdown(void) {}
+
 bool mel_clip__plat_channel_supported(Mel_Clip_Channel ch) { return mel_clip_channel_resolve(ch) == (Mel_Clip_Channel)MEL_CLIP_CHANNEL_CLIPBOARD; }
 
 u64 mel_clip__plat_sequence(Mel_Clip_Channel ch)

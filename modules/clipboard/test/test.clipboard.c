@@ -61,6 +61,8 @@ static void* counting_cb(void* ptr, usize size, u32 align, const char* file, con
 
 bool mel_clip__plat_available(void) { return fake_avail; }
 
+void mel_clip__plat_shutdown(void) {}
+
 bool mel_clip__plat_channel_supported(Mel_Clip_Channel ch)
 {
     if (mel_clip_channel_resolve(ch) == (Mel_Clip_Channel)MEL_CLIP_CHANNEL_PRIMARY)
@@ -624,6 +626,50 @@ MEL_TEST(clipboard, unsupported_primary_channel_reads_no_clipboard)
     MEL_EXPECT(mel_clip_failed(mel_clip_future_status(r)));
     MEL_EXPECT((mel_clip_future_status(r) & MEL_CLIP_RESULT_NO_CLIPBOARD) != 0);
     mel_clip_future_free(r);
+
+    mel_clip_shutdown();
+    fake_primary_supported = true;
+}
+
+MEL_TEST(clipboard, unsupported_channel_rejected_before_dispatch_all_ops)
+{
+    fake_primary_supported = false;
+    mel_clip_init(mel_alloc_heap(), NULL);
+
+    mel_clip_future_free(mel_clip_write_text(S8("real clipboard")));
+    u64 clip_seq = mel_clip_sequence_ch(MEL_CLIP_CHANNEL_CLIPBOARD);
+
+    Mel_Future* w = mel_clip_write_text(S8("would clobber"), .channel = MEL_CLIP_CHANNEL_PRIMARY);
+    MEL_REQUIRE(w != NULL);
+    MEL_EXPECT(mel_clip_failed(mel_clip_future_status(w)));
+    MEL_EXPECT((mel_clip_future_status(w) & MEL_CLIP_RESULT_NO_CLIPBOARD) != 0);
+    mel_clip_future_free(w);
+
+    Mel_Future* c = mel_clip_clear(.channel = MEL_CLIP_CHANNEL_PRIMARY);
+    MEL_REQUIRE(c != NULL);
+    MEL_EXPECT(mel_clip_failed(mel_clip_future_status(c)));
+    MEL_EXPECT((mel_clip_future_status(c) & MEL_CLIP_RESULT_NO_CLIPBOARD) != 0);
+    mel_clip_future_free(c);
+
+    Mel_Future* q = mel_clip_query(.channel = MEL_CLIP_CHANNEL_PRIMARY);
+    MEL_REQUIRE(q != NULL);
+    MEL_EXPECT(mel_clip_failed(mel_clip_future_status(q)));
+    MEL_EXPECT((mel_clip_future_status(q) & MEL_CLIP_RESULT_NO_CLIPBOARD) != 0);
+    mel_clip_future_free(q);
+
+    Mel_Future* h = mel_clip_has(.channel = MEL_CLIP_CHANNEL_PRIMARY);
+    MEL_REQUIRE(h != NULL);
+    MEL_EXPECT(mel_clip_failed(mel_clip_future_status(h)));
+    MEL_EXPECT((mel_clip_future_status(h) & MEL_CLIP_RESULT_NO_CLIPBOARD) != 0);
+    mel_clip_future_free(h);
+
+    MEL_EXPECT_EQ(mel_clip_sequence_ch(MEL_CLIP_CHANNEL_CLIPBOARD), clip_seq);
+    MEL_EXPECT_EQ(fake_prim.len, (usize)0);
+    MEL_EXPECT_EQ(fake_prim.seq, (u64)0);
+
+    Mel_Future* rc = mel_clip_read_text();
+    MEL_EXPECT_EQ_STR8(mel_clip_future_text(rc), S8("real clipboard"));
+    mel_clip_future_free(rc);
 
     mel_clip_shutdown();
     fake_primary_supported = true;

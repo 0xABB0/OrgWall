@@ -234,6 +234,15 @@ static Mel_Clip_Job* job_new(Mel_Clip_Opt opt, Build_View build_view)
 
 static bool backend_ready(void) { return g.initialized && mel_clip__plat_available(); }
 
+static bool reject_unsupported_channel(Mel_Clip_Job* j, const char* op)
+{
+    if (mel_clip__plat_channel_supported(j->channel))
+        return false;
+    mel_log_error("clipboard", "%s: channel %u unsupported by backend", op, j->channel);
+    mel_clip_job_resolve(j, MEL_CLIP_ERROR | MEL_CLIP_RESULT_NO_CLIPBOARD);
+    return true;
+}
+
 static void copy_request(Mel_Clip_Job* j, const Mel_Clip_Format* fmts, u32 n)
 {
     for (u32 i = 0; i < n; i++)
@@ -265,6 +274,8 @@ Mel_Future* mel_clip_read_opt(const Mel_Clip_Format* fmts, u32 n, Mel_Clip_Opt o
         mel_clip_job_resolve(j, MEL_CLIP_ERROR | MEL_CLIP_RESULT_NO_CLIPBOARD);
         return &j->future;
     }
+    if (reject_unsupported_channel(j, "read"))
+        return &j->future;
     mel_clip__plat_read(j);
     return &j->future;
 }
@@ -283,6 +294,8 @@ Mel_Future* mel_clip_read_text_opt(Mel_Clip_Opt opt)
         mel_clip_job_resolve(j, MEL_CLIP_ERROR | MEL_CLIP_RESULT_NO_CLIPBOARD);
         return &j->future;
     }
+    if (reject_unsupported_channel(j, "read_text"))
+        return &j->future;
     mel_clip__plat_read(j);
     return &j->future;
 }
@@ -302,6 +315,8 @@ Mel_Future* mel_clip_write_opt(const Mel_Clip_Transferable* t, Mel_Clip_Opt opt)
         mel_clip_job_resolve(j, MEL_CLIP_ERROR | MEL_CLIP_RESULT_NO_CLIPBOARD);
         return &j->future;
     }
+    if (reject_unsupported_channel(j, "write"))
+        return &j->future;
     mel_clip__plat_write(j);
     return &j->future;
 }
@@ -321,6 +336,8 @@ Mel_Future* mel_clip_write_text_opt(str8 text, Mel_Clip_Opt opt)
         mel_clip_job_resolve(j, MEL_CLIP_ERROR | MEL_CLIP_RESULT_NO_CLIPBOARD);
         return &j->future;
     }
+    if (reject_unsupported_channel(j, "write_text"))
+        return &j->future;
     mel_clip__plat_write(j);
     return &j->future;
 }
@@ -338,6 +355,8 @@ Mel_Future* mel_clip_query_opt(Mel_Clip_Opt opt)
         mel_clip_job_resolve(j, MEL_CLIP_ERROR | MEL_CLIP_RESULT_NO_CLIPBOARD);
         return &j->future;
     }
+    if (reject_unsupported_channel(j, "query"))
+        return &j->future;
     mel_clip__plat_query(j);
     return &j->future;
 }
@@ -355,6 +374,8 @@ Mel_Future* mel_clip_clear_opt(Mel_Clip_Opt opt)
         mel_clip_job_resolve(j, MEL_CLIP_ERROR | MEL_CLIP_RESULT_NO_CLIPBOARD);
         return &j->future;
     }
+    if (reject_unsupported_channel(j, "clear"))
+        return &j->future;
     mel_clip__plat_clear(j);
     return &j->future;
 }
@@ -372,6 +393,8 @@ Mel_Future* mel_clip_has_opt(Mel_Clip_Opt opt)
         mel_clip_job_resolve(j, MEL_CLIP_ERROR | MEL_CLIP_RESULT_NO_CLIPBOARD);
         return &j->future;
     }
+    if (reject_unsupported_channel(j, "has"))
+        return &j->future;
     mel_clip__plat_has(j);
     return &j->future;
 }
@@ -497,6 +520,8 @@ void mel_clip_shutdown(void)
             job_storage_free(j);
     }
     mel_array_free(&snap);
+
+    mel_clip__plat_shutdown();
 
     for (usize i = 0; i < g.formats.count; i++)
         if (g.formats.items[i].owned && g.formats.items[i].mime.data)
