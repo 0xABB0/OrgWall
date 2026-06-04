@@ -7,8 +7,13 @@ void build(Mel_Build* b)
     mel_sources(lib, ALWAYS, "src/camera.c");
     mel_sources(lib, ALWAYS, "src/descriptors.c");
     mel_sources(lib, WHEN(.platforms = MEL_ON(MACOS) | MEL_ON(IOS)), "src/apple/*.m");
-    mel_sources(lib, WHEN(.platforms = MEL_ON(LINUX) | MEL_ON(WIN32) | MEL_ON(WASM) | MEL_ON(ANDROID)), "src/camera_host_none.c");
+    mel_sources(lib, WHEN(.platforms = MEL_ON(ANDROID)), "src/android/*.c");
+    mel_sources(lib, WHEN(.platforms = MEL_ON(LINUX)), "src/linux/*.c");
+    mel_sources(lib, WHEN(.platforms = MEL_ON(WIN32)), "src/win32/*.c");
+    mel_sources(lib, WHEN(.platforms = MEL_ON(WASM)), "src/web/*.c");
     mel_link(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(MACOS) | MEL_ON(IOS)), "-framework", "AVFoundation", "-framework", "CoreMedia", "-framework", "CoreVideo", "-framework", "Foundation");
+    mel_link(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(ANDROID)), "-lcamera2ndk", "-lmediandk", "-landroid", "-llog");
+    mel_link(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(WIN32)), "-lmfplat", "-lmf", "-lmfreadwrite", "-lmfuuid", "-lole32");
     mel_depends(lib, "core");
     mel_depends(lib, "allocator");
     mel_depends(lib, "collection");
