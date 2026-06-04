@@ -123,7 +123,7 @@ Mel_Gpu_Sampler_Create_Result mel_gpu_sampler_create_opt(Mel_Gpu_Device* dev, Me
     {
         mel_mutex_unlock(&dev->sampler_lock);
         mel_log_error("gpu", "vkCreateSampler failed: %s", mel_gpu__vk_result_str(r));
-        res.status = MEL_GPU_SAMPLER_CREATE_VK_FAILED;
+        res.status = MEL_GPU_SAMPLER_CREATE_BACKEND_FAILED;
         return res;
     }
 

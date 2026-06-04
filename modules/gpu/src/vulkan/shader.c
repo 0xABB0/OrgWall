@@ -41,6 +41,16 @@ Mel_Gpu_Shader_Create_Result mel_gpu_shader_create_from_bytecode_opt(Mel_Gpu_Dev
         return res;
     }
 
+    if (!dev || !dev->caps.shader.bytecode_passthrough.spirv)
+    {
+        mel_log_error("gpu", "shader '%s': device reports caps.shader.bytecode_passthrough.spirv=false; refusing SPIR-V bytecode", opt.name ? opt.name : "(unnamed)");
+        res.status = MEL_GPU_SHADER_CREATE_TARGET_UNSUPPORTED;
+        return res;
+    }
+
+    mel_assert(!(opt.vertex_blob && opt.spirv_vertex) && "shader_create_from_bytecode: both vertex_blob and spirv_vertex set; pass exactly one");
+    mel_assert(!(opt.fragment_blob && opt.spirv_fragment) && "shader_create_from_bytecode: both fragment_blob and spirv_fragment set; pass exactly one");
+
     const void* vcode = opt.vertex_blob ? opt.vertex_blob : opt.spirv_vertex;
     usize       vsize = opt.vertex_blob ? opt.vertex_blob_size : opt.spirv_vertex_size;
     const void* fcode = opt.fragment_blob ? opt.fragment_blob : opt.spirv_fragment;
@@ -60,7 +70,7 @@ Mel_Gpu_Shader_Create_Result mel_gpu_shader_create_from_bytecode_opt(Mel_Gpu_Dev
             vkDestroyShaderModule(dev->vk, vs, NULL);
         if (fs)
             vkDestroyShaderModule(dev->vk, fs, NULL);
-        res.status = MEL_GPU_SHADER_CREATE_VK_FAILED;
+        res.status = MEL_GPU_SHADER_CREATE_BACKEND_FAILED;
         return res;
     }
 
@@ -91,6 +101,15 @@ Mel_Gpu_Shader_Create_Result mel_gpu_shader_create_compute_from_bytecode_opt(Mel
         return res;
     }
 
+    if (!dev || !dev->caps.shader.bytecode_passthrough.spirv)
+    {
+        mel_log_error("gpu", "compute shader '%s': device reports caps.shader.bytecode_passthrough.spirv=false; refusing SPIR-V bytecode", opt.name ? opt.name : "(unnamed)");
+        res.status = MEL_GPU_SHADER_CREATE_TARGET_UNSUPPORTED;
+        return res;
+    }
+
+    mel_assert(!(opt.compute_blob && opt.spirv) && "shader_create_compute_from_bytecode: both compute_blob and spirv set; pass exactly one");
+
     const void* ccode = opt.compute_blob ? opt.compute_blob : opt.spirv;
     usize       csize = opt.compute_blob ? opt.compute_blob_size : opt.spirv_size;
 
@@ -103,7 +122,7 @@ Mel_Gpu_Shader_Create_Result mel_gpu_shader_create_compute_from_bytecode_opt(Mel
     VkShaderModule cs = mel_gpu__make_module(dev, ccode, csize);
     if (cs == VK_NULL_HANDLE)
     {
-        res.status = MEL_GPU_SHADER_CREATE_VK_FAILED;
+        res.status = MEL_GPU_SHADER_CREATE_BACKEND_FAILED;
         return res;
     }
 

@@ -10,7 +10,7 @@ int mel_graph_index(Mel_Graph* g, const char* name)
     return -1;
 }
 
-static bool visit(Mel_Graph* g, size_t i, char* state, Mel_IdxVec* order)
+static bool visit(Mel_Graph* g, size_t i, const Mel_Variant* v, char* state, Mel_IdxVec* order)
 {
     if (state[i] == 2)
         return true;
@@ -23,13 +23,16 @@ static bool visit(Mel_Graph* g, size_t i, char* state, Mel_IdxVec* order)
     Mel_Target* t = g->nodes.items[i].t;
     for (size_t k = 0; k < t->deps.len; k++)
     {
-        int j = mel_graph_index(g, t->deps.items[k]);
+        Mel_Dep dep = t->deps.items[k];
+        if (!mel_when_match(dep.when, v))
+            continue;
+        int j = mel_graph_index(g, dep.name);
         if (j < 0)
         {
-            fprintf(stderr, "build: '%s' depends on unknown target '%s'\n", t->name, t->deps.items[k]);
+            fprintf(stderr, "build: '%s' depends on unknown target '%s'\n", t->name, dep.name);
             return false;
         }
-        if (!visit(g, (size_t)j, state, order))
+        if (!visit(g, (size_t)j, v, state, order))
             return false;
     }
     state[i] = 2;
@@ -37,7 +40,7 @@ static bool visit(Mel_Graph* g, size_t i, char* state, Mel_IdxVec* order)
     return true;
 }
 
-bool mel_topo_closure(Mel_Graph* g, const char* root, Mel_IdxVec* order)
+bool mel_topo_closure(Mel_Graph* g, const char* root, const Mel_Variant* v, Mel_IdxVec* order)
 {
     int r = mel_graph_index(g, root);
     if (r < 0)
@@ -48,7 +51,7 @@ bool mel_topo_closure(Mel_Graph* g, const char* root, Mel_IdxVec* order)
     char* state = calloc(g->nodes.len, 1);
     if (!state)
         abort();
-    bool ok = visit(g, (size_t)r, state, order);
+    bool ok = visit(g, (size_t)r, v, state, order);
     free(state);
     return ok;
 }

@@ -51,7 +51,7 @@ Mel_Gpu_Query_Pool_Create_Result mel_gpu_query_pool_create_opt(Mel_Gpu_Device* d
     if (r != VK_SUCCESS)
     {
         mel_log_error("gpu", "query_pool_create: vkCreateQueryPool failed: %s", mel_gpu__vk_result_str(r));
-        res.status = MEL_GPU_QUERY_POOL_CREATE_VK_FAILED;
+        res.status = MEL_GPU_QUERY_POOL_CREATE_BACKEND_FAILED;
         return res;
     }
 
@@ -171,7 +171,7 @@ static void mel_gpu__query_resolve_complete(Mel_Gpu_Future* submit_future, void*
     if (mel_gpu_failed(submit_status))
     {
         mel_log_error("gpu", "query_pool_resolve_async: resolve-copy submission failed; future resolves ERROR");
-        mel_gpu_future_resolve(c->result_future, NULL, MEL_GPU_QUERY_RESOLVE_VK_FAILED);
+        mel_gpu_future_resolve(c->result_future, NULL, MEL_GPU_QUERY_RESOLVE_BACKEND_FAILED);
     }
     else
     {
@@ -184,7 +184,7 @@ static void mel_gpu__query_resolve_complete(Mel_Gpu_Future* submit_future, void*
             ns[i] = ticks ? (u64)((f64)ticks[i] * c->period_ns) : 0;
         out->ns = ns;
         out->count = c->count;
-        mel_gpu_future_resolve(c->result_future, out, ticks ? MEL_GPU_QUERY_RESOLVE_OK : MEL_GPU_QUERY_RESOLVE_VK_FAILED);
+        mel_gpu_future_resolve(c->result_future, out, ticks ? MEL_GPU_QUERY_RESOLVE_OK : MEL_GPU_QUERY_RESOLVE_BACKEND_FAILED);
     }
 
     mel_gpu_future_destroy(submit_future);
@@ -216,7 +216,7 @@ Mel_Gpu_Future* mel_gpu_query_pool_resolve_async(Mel_Gpu_Device* dev, Mel_Gpu_Qu
     {
         mel_log_error("gpu", "query_pool_resolve_async: readback buffer create failed");
         Mel_Gpu_Future* f = mel_gpu_future_create(dev->pump, dev->reactor);
-        mel_gpu_future_resolve(f, NULL, MEL_GPU_QUERY_RESOLVE_VK_FAILED);
+        mel_gpu_future_resolve(f, NULL, MEL_GPU_QUERY_RESOLVE_BACKEND_FAILED);
         return f;
     }
     VkBuffer rb_vk = VK_NULL_HANDLE;
@@ -228,7 +228,7 @@ Mel_Gpu_Future* mel_gpu_query_pool_resolve_async(Mel_Gpu_Device* dev, Mel_Gpu_Qu
         mel_log_error("gpu", "query_pool_resolve_async: command list create failed");
         mel_gpu_buffer_destroy(dev, rb.value);
         Mel_Gpu_Future* f = mel_gpu_future_create(dev->pump, dev->reactor);
-        mel_gpu_future_resolve(f, NULL, MEL_GPU_QUERY_RESOLVE_VK_FAILED);
+        mel_gpu_future_resolve(f, NULL, MEL_GPU_QUERY_RESOLVE_BACKEND_FAILED);
         return f;
     }
 

@@ -64,11 +64,18 @@ typedef struct
     const char* value;
 } Mel_KV;
 
+typedef struct
+{
+    const char* name;
+    Mel_When    when;
+} Mel_Dep;
+
 typedef MEL_VEC(const char*) Mel_StrVec;
 typedef MEL_VEC(Mel_When) Mel_WhenVec;
 typedef MEL_VEC(Mel_Glob) Mel_GlobVec;
 typedef MEL_VEC(Mel_Flag) Mel_FlagVec;
 typedef MEL_VEC(Mel_KV) Mel_KVVec;
+typedef MEL_VEC(Mel_Dep) Mel_DepVec;
 
 typedef struct
 {
@@ -87,7 +94,7 @@ struct Mel_Target
     bool        is_test;
     const char* subsystem;
 
-    Mel_StrVec     deps;
+    Mel_DepVec     deps;
     Mel_StrVec     host_deps;
     Mel_WhenVec    unavailable;
     Mel_WhenVec    whole_archive;

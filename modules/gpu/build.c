@@ -31,8 +31,8 @@ void build(Mel_Build* b)
     mel_link(lib, MEL_PUBLIC, WHEN(.gpu = "vulkan", .platforms = MEL_ON(ANDROID)), "-lvulkan", "-landroid");
 
     mel_sources(lib, WHEN(.gpu = "vulkan", .platforms = MEL_ON(LINUX)), "src/vulkan/linux/*.c");
-    mel_depends(lib, "vulkan-headers");
-    mel_depends(lib, "vulkan-loader-stub");
+    mel_depends_when(lib, "vulkan-headers", WHEN(.gpu = "vulkan", .platforms = MEL_ON(LINUX)));
+    mel_depends_when(lib, "vulkan-loader-stub", WHEN(.gpu = "vulkan", .platforms = MEL_ON(LINUX)));
     mel_link(lib, MEL_PUBLIC, WHEN(.gpu = "vulkan", .platforms = MEL_ON(LINUX)), "-lvulkan");
 
     mel_sources(lib, WHEN(.gpu = "vulkan", .platforms = MEL_ON(WIN32)), "src/vulkan/windows/*.c");
@@ -211,6 +211,7 @@ void build(Mel_Build* b)
     mel_defines(scenetest, MEL_PRIVATE, WHEN(.gpu = "vulkan"), "MEL_GPU_VULKAN=1");
     mel_defines(scenetest, MEL_PRIVATE, WHEN(.gpu = "metal"), "MEL_GPU_METAL=1");
     mel_defines(scenetest, MEL_PRIVATE, WHEN(.gpu = "webgpu"), "MEL_GPU_WEBGPU=1");
+    mel_defines(scenetest, MEL_PRIVATE, WHEN(.gpu = "d3d12"), "MEL_GPU_D3D12=1");
     mel_link(scenetest, MEL_PUBLIC, WHEN(.platforms = MEL_ON(MACOS)), "-framework", "AppKit");
     mel_depends(scenetest, "test");
     mel_depends(scenetest, "gpu");

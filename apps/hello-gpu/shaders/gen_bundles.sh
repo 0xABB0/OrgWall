@@ -53,6 +53,9 @@ emit_u8_array()
     } >>"$out"
 }
 
+DXIL_PROFILE="${MEL_DXIL_PROFILE:-sm_6_0}"
+DXIL_ONLY="${MEL_GEN_DXIL_ONLY:-0}"
+
 compile_one()
 {
     local src="$1" entry="$2" target="$3" out="$4"
@@ -60,6 +63,7 @@ compile_one()
         spirv) "$SLANGC" "$src" -target spirv -profile spirv_1_5 -fvk-use-entrypoint-name -entry "$entry" -o "$out" ;;
         metal) "$SLANGC" "$src" -target metal -entry "$entry" -o "$out" ;;
         wgsl)  "$SLANGC" "$src" -target wgsl -entry "$entry" -o "$out" ;;
+        dxil)  "$SLANGC" "$src" -target dxil -profile "$DXIL_PROFILE" -entry "$entry" -o "$out" ;;
     esac
 }
 
@@ -73,12 +77,49 @@ try_compile()
     return 1
 }
 
+gen_graphics_dxil()
+{
+    local stem="$1" upper="$2" vs="$3" fs="$4"
+    local src="$SLANG_DIR/$stem.slang"
+    local hdr="$OUT_DIR/${stem}_bundle.h"
+    local tmp; tmp="$(mktemp -d)"
+
+    echo "  $stem  dxil (vs=$vs fs=$fs)"
+    if ! [ -f "$hdr" ]; then
+        echo "    ERROR: $hdr missing; run the full (non-DXIL-only) pass first to mint SPIR-V/MSL/WGSL" >&2
+        rm -rf "$tmp"
+        exit 1
+    fi
+    if ! try_compile "$src" "$vs" dxil "$tmp/vs.dxil" || ! try_compile "$src" "$fs" dxil "$tmp/fs.dxil"; then
+        echo "    ERROR: $stem DXIL emit failed (need slangc with DXC downstream + dxil.dll signer; Windows only)" >&2
+        rm -rf "$tmp"
+        exit 1
+    fi
+
+    grep -v -E "^#define ${upper}_HAS_DXIL " "$hdr" >"$tmp/hdr"
+    awk -v u="$upper" '
+        /_HAS_WGSL / && $2 == u "_HAS_WGSL" { print; printf "#define %s_HAS_DXIL 1\n", u; next }
+        { print }' "$tmp/hdr" >"$hdr"
+
+    printf '\n' >>"$hdr"
+    emit_u8_array "${upper}_VERT_DXIL" "$tmp/vs.dxil" "$hdr"; printf '\n' >>"$hdr"
+    emit_u8_array "${upper}_FRAG_DXIL" "$tmp/fs.dxil" "$hdr"
+
+    rm -rf "$tmp"
+}
+
 gen_graphics()
 {
     local stem="$1" upper="$2" vs="$3" fs="$4"
     local src="$SLANG_DIR/$stem.slang"
     local hdr="$OUT_DIR/${stem}_bundle.h"
     local tmp; tmp="$(mktemp -d)"
+
+    if [ "$DXIL_ONLY" = 1 ]; then
+        rm -rf "$tmp"
+        gen_graphics_dxil "$stem" "$upper" "$vs" "$fs"
+        return
+    fi
 
     echo "  $stem  (vs=$vs fs=$fs)"
     compile_one "$src" "$vs" spirv "$tmp/vs.spv" >/dev/null
@@ -107,7 +148,8 @@ gen_graphics()
         printf 'static const char %s_VERT_ENTRY[] = "%s";\n' "$upper" "$vs"
         printf 'static const char %s_FRAG_ENTRY[] = "%s";\n' "$upper" "$fs"
         printf '#define %s_HAS_MSL %d\n' "$upper" "$has_msl"
-        printf '#define %s_HAS_WGSL %d\n\n' "$upper" "$has_wgsl"
+        printf '#define %s_HAS_WGSL %d\n' "$upper" "$has_wgsl"
+        printf '#define %s_HAS_DXIL 0\n\n' "$upper"
     } >"$hdr"
 
     emit_u32_array "${upper}_VERT_SPV" "$tmp/vs.spv" "$hdr"; printf '\n' >>"$hdr"
@@ -174,16 +216,32 @@ gen_compute()
     rm -rf "$tmp"
 }
 
-echo "gen_bundles: slangc $SLANG_VERSION ($SLANGC)"
+echo "gen_bundles: slangc $SLANG_VERSION ($SLANGC) dxil_only=$DXIL_ONLY"
 
-mkdir -p "$(dirname "$LOCK")"
-{
-    printf 'SLANG_VERSION=%s\n' "$SLANG_VERSION"
-    printf 'SLANG_UPSTREAM=https://github.com/shader-slang/slang/releases/tag/v%s\n' "$SLANG_VERSION"
-    printf 'SLANG_PREBUILT_URL=https://github.com/shader-slang/slang/releases/download/v%s/slang-%s-<os>-<arch>.zip\n' "$SLANG_VERSION" "$SLANG_VERSION"
-    printf 'SLANG_PIN_SOURCE=third-party/slang/build.c (SLANG_VERSION macro)\n'
-    printf 'SLANGC=<prefix>/bin/slangc fetched per-host by `./nob build slang-compile <platform>`\n'
-} >"$LOCK"
+if [ "$DXIL_ONLY" = 1 ]; then
+    gen_graphics triangle TRIANGLE vs_main fs_main
+    gen_graphics gradient GRADIENT vs_main fs_main
+    gen_graphics quad     QUAD     vs_main fs_main
+    echo "gen_bundles: appended signed DXIL to triangle/gradient/quad bundles in $OUT_DIR"
+    exit 0
+fi
+
+if [ ! -f "$LOCK" ]; then
+    echo "gen_bundles: SLANG_VERSION.lock missing at $LOCK" >&2
+    echo "    the slangc version pin is the source of truth and must be committed; refusing to mint a lock implicitly." >&2
+    exit 1
+fi
+LOCKED_VERSION="$(sed -n 's/^SLANG_VERSION=//p' "$LOCK" | head -1 | tr -d '[:space:]')"
+if [ -z "$LOCKED_VERSION" ]; then
+    echo "gen_bundles: SLANG_VERSION.lock at $LOCK has no SLANG_VERSION= line; lock is malformed." >&2
+    exit 1
+fi
+if [ "$LOCKED_VERSION" != "$SLANG_VERSION" ]; then
+    echo "gen_bundles: slangc version mismatch — discovered '$SLANG_VERSION' but $LOCK pins '$LOCKED_VERSION'." >&2
+    echo "    The pin is enforced, not regenerated: align the slangc toolchain to the pinned version," >&2
+    echo "    or deliberately bump the pin (third-party/slang/build.c SLANG_VERSION macro + $LOCK) and re-mint." >&2
+    exit 1
+fi
 
 gen_graphics triangle TRIANGLE vs_main fs_main
 gen_graphics blit     BLIT     vs_main fs_main
@@ -191,4 +249,4 @@ gen_graphics gradient GRADIENT vs_main fs_main
 gen_graphics quad     QUAD     vs_main fs_main
 gen_compute  clear    CLEAR    cs_main
 
-echo "gen_bundles: wrote $LOCK and *_bundle.h to $OUT_DIR"
+echo "gen_bundles: slangc matches pin $LOCKED_VERSION; wrote *_bundle.h to $OUT_DIR"
