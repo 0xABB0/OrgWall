@@ -138,6 +138,10 @@ typedef struct
 
     void*                  arg_encoder;
     usize                  arg_encoded_length;
+    void*                  vs_arg_encoder;
+    usize                  vs_arg_encoded_length;
+    void*                  fs_arg_encoder;
+    usize                  fs_arg_encoded_length;
     Mel_Gpu_Mtl_Arg_Field* arg_fields;
     u32                    arg_field_count;
     u32                    arg_host_size;
@@ -229,6 +233,7 @@ struct Mel_Gpu_Command_List
     bool             has_pipeline;
     id<MTLBuffer>    index_buffer;
     MTLIndexType     index_type;
+    Mel_Gpu_Pipeline gfx_pipeline_handle;
 
     id<MTLComputePipelineState> compute_state;
     MTLSize                     compute_threadgroup;

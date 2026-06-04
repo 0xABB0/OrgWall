@@ -70,6 +70,30 @@ static const char* mel_gpu__slang_target_name(Mel_Slang_Target t)
 
 static const char* mel_gpu__downstream_entry(Mel_Slang_Target target, const char* entry) { return target == MEL_SLANG_TARGET_SPIRV ? "main" : entry; }
 
+/* Translate the wrapper's Metal argument-buffer reflection (a DescriptorHandle push-constant
+   struct lowered to an inlined argument buffer) into the backend-facing arg-field plan. Shared
+   by the compute and graphics from-slang paths; returns NULL when the source authored no
+   bindless argument buffer (every non-Metal target, and Metal sources with no DescriptorHandle
+   field). Caller deallocs with the same allocator. */
+static Mel_Gpu_Bindless_Arg_Field* mel_gpu__slang_arg_fields(const Mel_Alloc* a, const Mel_Slang_Reflection* refl)
+{
+    if (!refl->metal_arg_buffer || !refl->metal_arg_field_count)
+        return NULL;
+    Mel_Gpu_Bindless_Arg_Field* arg_fields = mel_alloc_array(a, Mel_Gpu_Bindless_Arg_Field, refl->metal_arg_field_count);
+    for (u32 i = 0; i < refl->metal_arg_field_count; ++i)
+    {
+        const Mel_Slang_Metal_Arg_Field* f = &refl->metal_arg_fields[i];
+        arg_fields[i] = (Mel_Gpu_Bindless_Arg_Field){
+            .is_uniform = f->is_uniform,
+            .host_offset = f->host_offset,
+            .arg_index = f->arg_index,
+            .size = f->size,
+            .resource_kind = (u32)f->kind,
+        };
+    }
+    return arg_fields;
+}
+
 static bool mel_gpu__gpu_format_of_slang(Mel_Slang_Vertex_Format f, Mel_Gpu_Format* out)
 {
     switch (f)
@@ -206,9 +230,10 @@ Mel_Gpu_Pipeline_From_Slang_Result mel_gpu_pipeline_create_from_slang_opt(Mel_Gp
         return res;
     }
 
-    const Mel_Alloc*        a = mel_alloc_heap();
-    Mel_Gpu_Vertex_Element* layout = refl.vertex_attr_count ? mel_alloc_array(a, Mel_Gpu_Vertex_Element, refl.vertex_attr_count) : NULL;
-    bool                    layout_ok = true;
+    const Mel_Alloc*            a = mel_alloc_heap();
+    Mel_Gpu_Bindless_Arg_Field* arg_fields = mel_gpu__slang_arg_fields(a, &refl);
+    Mel_Gpu_Vertex_Element*     layout = refl.vertex_attr_count ? mel_alloc_array(a, Mel_Gpu_Vertex_Element, refl.vertex_attr_count) : NULL;
+    bool                        layout_ok = true;
     for (u32 i = 0; i < refl.vertex_attr_count; ++i)
     {
         const Mel_Slang_Vertex_Attr* va = &refl.vertex_attrs[i];
@@ -236,6 +261,8 @@ Mel_Gpu_Pipeline_From_Slang_Result mel_gpu_pipeline_create_from_slang_opt(Mel_Gp
 
     if (!layout_ok || mel_gpu_failed(sh.status))
     {
+        if (arg_fields)
+            mel_dealloc(a, arg_fields);
         if (layout)
             mel_dealloc(a, layout);
         mel_slang_reflection_free(&refl);
@@ -278,6 +305,8 @@ Mel_Gpu_Pipeline_From_Slang_Result mel_gpu_pipeline_create_from_slang_opt(Mel_Gp
                                                                   .static_sampler_count = opt.static_sampler_count,
                                                                   .spec_constants = opt.spec_constants,
                                                                   .spec_constant_count = opt.spec_constant_count,
+                                                                  .bindless_arg_fields = arg_fields,
+                                                                  .bindless_arg_field_count = refl.metal_arg_buffer ? refl.metal_arg_field_count : 0,
                                                                   .name = opt.name);
 
     if (mel_gpu_failed(pipe.status))
@@ -287,6 +316,8 @@ Mel_Gpu_Pipeline_From_Slang_Result mel_gpu_pipeline_create_from_slang_opt(Mel_Gp
     res.value = pipe.value;
     res.status = pipe.status;
 
+    if (arg_fields)
+        mel_dealloc(a, arg_fields);
     if (layout)
         mel_dealloc(a, layout);
     mel_slang_reflection_free(&refl);
@@ -337,22 +368,7 @@ Mel_Gpu_Pipeline_From_Slang_Result mel_gpu_pipeline_compute_create_from_slang_op
     }
 
     const Mel_Alloc*            a = mel_alloc_heap();
-    Mel_Gpu_Bindless_Arg_Field* arg_fields = NULL;
-    if (refl.metal_arg_buffer && refl.metal_arg_field_count)
-    {
-        arg_fields = mel_alloc_array(a, Mel_Gpu_Bindless_Arg_Field, refl.metal_arg_field_count);
-        for (u32 i = 0; i < refl.metal_arg_field_count; ++i)
-        {
-            const Mel_Slang_Metal_Arg_Field* f = &refl.metal_arg_fields[i];
-            arg_fields[i] = (Mel_Gpu_Bindless_Arg_Field){
-                .is_uniform = f->is_uniform,
-                .host_offset = f->host_offset,
-                .arg_index = f->arg_index,
-                .size = f->size,
-                .resource_kind = (u32)f->kind,
-            };
-        }
-    }
+    Mel_Gpu_Bindless_Arg_Field* arg_fields = mel_gpu__slang_arg_fields(a, &refl);
 
     u32                            pcs = opt.push_constant_size ? opt.push_constant_size : refl.push_constant_size;
     Mel_Gpu_Pipeline_Create_Result pipe = mel_gpu_pipeline_compute_create(dev,
