@@ -641,7 +641,10 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_compute_create_opt(Mel_Gpu_Devic
     obj.header.name = opt.name;
     obj.state = (__bridge_retained void*)state;
     obj.compute = true;
-    obj.threadgroup = MTLSizeMake(state.threadExecutionWidth, 1, 1);
+    if (opt.threadgroup[0] && opt.threadgroup[1] && opt.threadgroup[2])
+        obj.threadgroup = MTLSizeMake(opt.threadgroup[0], opt.threadgroup[1], opt.threadgroup[2]);
+    else
+        obj.threadgroup = MTLSizeMake(state.threadExecutionWidth, 1, 1);
     res.value.slot = mel_gpu__table_insert(dev, &dev->pipelines, &obj);
     return res;
 }
