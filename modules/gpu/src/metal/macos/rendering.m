@@ -30,6 +30,8 @@ void mel_gpu_cmd_begin_rendering_opt(Mel_Gpu_Command_List* cmd, Mel_Gpu_Renderin
         return;
     }
 
+    mel_gpu__cmd_end_active_encoder(cmd);
+
     MTLRenderPassDescriptor* rp = [MTLRenderPassDescriptor renderPassDescriptor];
 
     for (u32 i = 0; i < opt.color_count; i++)

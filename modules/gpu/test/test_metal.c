@@ -516,6 +516,173 @@ MEL_TEST(metal_state, back_face_cull)
     mel_gpu_instance_destroy(inst);
 }
 
+static const char FILL_COMP_MSL[] =
+    "#include <metal_stdlib>\n"
+    "using namespace metal;\n"
+    "struct Params { uint n; };\n"
+    "kernel void cs_main(device uint* out [[buffer(1)]],\n"
+    "                    constant Params& p [[buffer(0)]],\n"
+    "                    uint gid [[thread_position_in_grid]]) {\n"
+    "    if (gid >= p.n) return;\n"
+    "    out[gid] = gid * 3u + 7u;\n"
+    "}\n";
+
+MEL_TEST(metal_compute, storage_buffer_write)
+{
+    Mel_Gpu_Instance* inst = NULL;
+    Mel_Gpu_Device*   dev = test_make_device(&inst);
+    MEL_REQUIRE_NOT_NULL(dev);
+
+    const u32 N = 256;
+
+    Mel_Gpu_Buffer_Create_Result out_buf =
+        mel_gpu_buffer_create(dev, .size = (usize)N * sizeof(u32), .usage = MEL_GPU_BUFFER_STORAGE, .memory = MEL_GPU_MEMORY_READBACK, .name = "compute-out");
+    MEL_REQUIRE(!mel_gpu_failed(out_buf.status));
+
+    Mel_Gpu_Shader_Create_Result sh = mel_gpu_shader_create_compute_from_bytecode(dev,
+                                                                                  .target = MEL_GPU_SHADER_TARGET_MSL,
+                                                                                  .compute_blob = FILL_COMP_MSL,
+                                                                                  .compute_blob_size = sizeof FILL_COMP_MSL,
+                                                                                  .entry = "cs_main",
+                                                                                  .name = "fill");
+    MEL_REQUIRE(!mel_gpu_failed(sh.status));
+
+    Mel_Gpu_Pipeline_Create_Result pipe = mel_gpu_pipeline_compute_create(dev, .shader = sh.value, .name = "fill");
+    MEL_REQUIRE(!mel_gpu_failed(pipe.status));
+    MEL_REQUIRE(mel_gpu_pipeline_alive(dev, pipe.value));
+
+    struct
+    {
+        u32 n;
+    } root = { N };
+
+    Mel_Gpu_Queue*        q = mel_gpu_queue_request(dev, MEL_GPU_QUEUE_GRAPHICS);
+    Mel_Gpu_Command_List* cmd = mel_gpu_command_list_create(q);
+    mel_gpu_command_list_begin(cmd);
+    mel_gpu_cmd_bind_pipeline(cmd, pipe.value);
+    mel_gpu_cmd_bind_vertex_buffer(cmd, 1, out_buf.value);
+    mel_gpu_cmd_push_constants(cmd, 0, sizeof root, &root);
+    mel_gpu_cmd_dispatch(cmd, (N + 31) / 32, 1, 1);
+    mel_gpu_command_list_end(cmd);
+    Mel_Gpu_Future* f = mel_gpu_queue_submit(q, (Mel_Gpu_Submit){ .command_lists = &cmd, .command_list_count = 1 });
+    MEL_EXPECT(mel_gpu_ok(mel_gpu_future_wait(f)));
+    mel_gpu_future_destroy(f);
+
+    const u32* out = mel_gpu_buffer_mapped(dev, out_buf.value);
+    MEL_REQUIRE_NOT_NULL(out);
+    bool ok = true;
+    for (u32 i = 0; i < N; i++)
+        if (out[i] != i * 3u + 7u)
+            ok = false;
+    MEL_EXPECT(ok);
+
+    mel_gpu_command_list_destroy(cmd);
+    mel_gpu_queue_release(q);
+    mel_gpu_pipeline_destroy(dev, pipe.value);
+    mel_gpu_shader_destroy(dev, sh.value);
+    mel_gpu_buffer_destroy(dev, out_buf.value);
+    mel_gpu_device_destroy(dev);
+    mel_gpu_instance_destroy(inst);
+}
+
+static const char GEN_VERTS_COMP_MSL[] =
+    "#include <metal_stdlib>\n"
+    "using namespace metal;\n"
+    "struct Vert { packed_float3 pos; packed_float4 color; };\n"
+    "kernel void cs_main(device Vert* out [[buffer(1)]],\n"
+    "                    uint gid [[thread_position_in_grid]]) {\n"
+    "    if (gid >= 3u) return;\n"
+    "    float2 p[3] = { float2(0.0, 0.8), float2(0.8, -0.8), float2(-0.8, -0.8) };\n"
+    "    out[gid].pos = float3(p[gid], 0.0);\n"
+    "    out[gid].color = float4(0.0, 1.0, 0.0, 1.0);\n"
+    "}\n";
+
+MEL_TEST(metal_compute, compute_to_graphics)
+{
+    Mel_Gpu_Instance* inst = NULL;
+    Mel_Gpu_Device*   dev = test_make_device(&inst);
+    MEL_REQUIRE_NOT_NULL(dev);
+
+    Mel_Gpu_Buffer_Create_Result vbo =
+        mel_gpu_buffer_create(dev, .size = sizeof(Tri_Vertex) * 3, .usage = MEL_GPU_BUFFER_STORAGE | MEL_GPU_BUFFER_VERTEX, .memory = MEL_GPU_MEMORY_DEVICE, .name = "compute-vbo");
+    MEL_REQUIRE(!mel_gpu_failed(vbo.status));
+
+    Mel_Gpu_Shader_Create_Result csh = mel_gpu_shader_create_compute_from_bytecode(dev,
+                                                                                   .target = MEL_GPU_SHADER_TARGET_MSL,
+                                                                                   .compute_blob = GEN_VERTS_COMP_MSL,
+                                                                                   .compute_blob_size = sizeof GEN_VERTS_COMP_MSL,
+                                                                                   .entry = "cs_main",
+                                                                                   .name = "gen-verts");
+    MEL_REQUIRE(!mel_gpu_failed(csh.status));
+    Mel_Gpu_Pipeline_Create_Result cpipe = mel_gpu_pipeline_compute_create(dev, .shader = csh.value, .name = "gen-verts");
+    MEL_REQUIRE(!mel_gpu_failed(cpipe.status));
+
+    Mel_Gpu_Shader gsh = mel_test_state_shader(dev);
+    MEL_REQUIRE(!mel_gpu_handle_eq(gsh.slot, mel_gpu_handle_null()));
+    const Mel_Gpu_Vertex_Element layout[] = {
+        { .location = 0, .format = MEL_GPU_FORMAT_RGB32_FLOAT, .offset = offsetof(Tri_Vertex, pos) },
+        { .location = 1, .format = MEL_GPU_FORMAT_RGBA32_FLOAT, .offset = offsetof(Tri_Vertex, color) },
+    };
+    Mel_Gpu_Pipeline_Create_Result gpipe = mel_gpu_pipeline_create(dev,
+                                                                   .shader = gsh,
+                                                                   .topology = MEL_GPU_TOPOLOGY_TRIANGLE_LIST,
+                                                                   .cull = MEL_GPU_CULL_NONE,
+                                                                   .color_format = MEL_GPU_FORMAT_RGBA8_UNORM,
+                                                                   .vertex_layout = layout,
+                                                                   .vertex_layout_count = 2,
+                                                                   .vertex_stride = sizeof(Tri_Vertex),
+                                                                   .name = "c2g-draw");
+    MEL_REQUIRE(!mel_gpu_failed(gpipe.status));
+
+    Metal_Target          tgt = test_target_create(dev, 32, 32);
+    Mel_Gpu_Queue*        q = mel_gpu_queue_request(dev, MEL_GPU_QUEUE_GRAPHICS);
+    Mel_Gpu_Command_List* cmd = mel_gpu_command_list_create(q);
+    mel_gpu_command_list_begin(cmd);
+
+    mel_gpu_cmd_bind_pipeline(cmd, cpipe.value);
+    mel_gpu_cmd_bind_vertex_buffer(cmd, 1, vbo.value);
+    mel_gpu_cmd_dispatch(cmd, 1, 1, 1);
+    mel_gpu_cmd_buffer_barrier(cmd, vbo.value, MEL_GPU_STATE_UNORDERED_ACCESS, MEL_GPU_STATE_VERTEX_BUFFER);
+
+    Mel_Gpu_Subresource_Range range = { MEL_GPU_ASPECT_COLOR, 0, 1, 0, 1 };
+    Mel_Gpu_Color_Attachment  color = { .view = tgt.rt_view, .load = MEL_GPU_LOAD_CLEAR, .store = MEL_GPU_STORE_STORE, .clear = mel_gpu_rgba(0, 0, 0, 1) };
+    mel_gpu_cmd_begin_rendering(cmd, .colors = &color, .color_count = 1, .width = tgt.w, .height = tgt.h);
+    mel_gpu_cmd_bind_pipeline(cmd, gpipe.value);
+    mel_gpu_cmd_bind_vertex_buffer(cmd, 0, vbo.value);
+    mel_gpu_cmd_draw(cmd, 3, 1);
+    mel_gpu_cmd_end_rendering(cmd);
+    mel_gpu_cmd_copy_texture_to_buffer(cmd, tgt.rt, range, tgt.rb);
+    mel_gpu_command_list_end(cmd);
+
+    Mel_Gpu_Future* f = mel_gpu_queue_submit(q, (Mel_Gpu_Submit){ .command_lists = &cmd, .command_list_count = 1 });
+    MEL_EXPECT(mel_gpu_ok(mel_gpu_future_wait(f)));
+    mel_gpu_future_destroy(f);
+
+    const u8* px = mel_gpu_buffer_mapped(dev, tgt.rb);
+    MEL_REQUIRE_NOT_NULL(px);
+    test_dump_ppm("metal_compute_to_graphics", px, tgt.w, tgt.h);
+
+    const u8* center = px + ((usize)(tgt.h / 2) * tgt.w + tgt.w / 2) * 4;
+    MEL_EXPECT(center[1] > 200);
+    MEL_EXPECT(center[0] < 60);
+    MEL_EXPECT(center[2] < 60);
+    MEL_EXPECT_EQ(center[3], 255u);
+
+    const u8* corner = px;
+    MEL_EXPECT(corner[0] == 0 && corner[1] == 0 && corner[2] == 0);
+
+    mel_gpu_command_list_destroy(cmd);
+    mel_gpu_queue_release(q);
+    mel_gpu_pipeline_destroy(dev, gpipe.value);
+    mel_gpu_pipeline_destroy(dev, cpipe.value);
+    mel_gpu_shader_destroy(dev, gsh);
+    mel_gpu_shader_destroy(dev, csh.value);
+    test_target_destroy(dev, &tgt);
+    mel_gpu_buffer_destroy(dev, vbo.value);
+    mel_gpu_device_destroy(dev);
+    mel_gpu_instance_destroy(inst);
+}
+
 #else
 
 MEL_TEST(metal_render, skipped_without_metal) { MEL_SKIP("metal backend not selected (build with --gpu=metal)"); }
