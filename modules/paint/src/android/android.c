@@ -348,10 +348,9 @@ void mel_painter_draw_image(Mel_Painter* p, const Mel_Image* img, Mel_Rect dst, 
         }
         src = &s_conv;
         plane = mel_image_plane(src, 0);
-        premul = false;
     }
 
-    jobject bitmap = ensure_bitmap(e, plane.w, plane.h, premul);
+    jobject bitmap = ensure_bitmap(e, plane.w, plane.h, true);
     if (!bitmap || !s_src_rect)
     {
         mel_log_error("paint", "mel_painter_draw_image: Bitmap.createBitmap failed (%dx%d)", plane.w, plane.h);
@@ -390,7 +389,10 @@ void mel_painter_draw_image(Mel_Painter* p, const Mel_Image* img, Mel_Rect dst, 
     (*e)->DeleteLocalRef(e, buf);
 
     if ((*e)->ExceptionCheck(e))
+    {
         (*e)->ExceptionClear(e);
+        mel_log_error("paint", "mel_painter_draw_image: drawBitmap raised");
+    }
 }
 
 void mel_painter_draw_text(Mel_Painter* p, str8 text, Mel_Vec2 pos, mel_color8 k, f32 size)

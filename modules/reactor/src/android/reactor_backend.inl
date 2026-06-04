@@ -111,6 +111,7 @@ static int reactor_android_tick(int fd, int events, void* data)
     (void)got;
     if (!r->init_done) {
         r->init_done = true;
+        reactor_capture_owner(r);
         if (r->init && !r->init(r, r->init_user)) {
             r->android_looping = false;
             reactor_attached_destroy(r);

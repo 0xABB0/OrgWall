@@ -1,7 +1,12 @@
 #include <log/log.h>
 #include <core/compiler.h>
+#include <core/platform.h>
 
 #if !MEL_LOG_DISABLED
+
+#if MEL_PLATFORM_ANDROID
+Mel_Log_Sink* mel__log_sink_android_create(void);
+#endif
 
 #include <log.sink/sink.h>
 #include <log.sink.console/sink.console.h>
@@ -799,7 +804,11 @@ static void mel__log_init(void)
     mel_log_level_register(MEL_LOG_DEBUG, S8("DEBUG"));
     mel_log_level_register(MEL_LOG_TRACE, S8("TRACE"));
 
+#if MEL_PLATFORM_ANDROID
+    mel_log_sink_add(mel__log_sink_android_create());
+#else
     mel_log_sink_add(mel_log_sink_console_create(.color = true));
+#endif
 }
 
 #if !MEL_CRT_MSVC

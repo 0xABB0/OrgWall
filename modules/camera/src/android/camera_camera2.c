@@ -25,7 +25,7 @@
 #include <string.h>
 
 #define MEL_CAM2_YUV420 AIMAGE_FORMAT_YUV_420_888
-#define MEL_CAM2_READER_BUFFERS 3
+#define MEL_CAM2_READER_BUFFERS 4
 #define MEL_CAM2_PERMISSION_REQUEST_CODE 0x4D43
 
 typedef struct
@@ -375,19 +375,30 @@ static void cam2_on_image(void* context, AImageReader* reader)
         return;
     }
 
-    AImage*       image = NULL;
-    media_status_t st = AImageReader_acquireLatestImage(reader, &image);
+    AImage*        image = NULL;
+    media_status_t st = AImageReader_acquireNextImage(reader, &image);
     if (st != AMEDIA_OK || image == NULL)
     {
-        if (!s->logged_acquire_error)
+        if (st != AMEDIA_IMGREADER_NO_BUFFER_AVAILABLE && !s->logged_acquire_error)
         {
-            mel_log_error("camera", "camera2: acquireLatestImage failed (status=%d); frames stalling", (int)st);
+            mel_log_error("camera", "camera2: acquireNextImage failed (status=%d); frames stalling", (int)st);
             s->logged_acquire_error = true;
         }
         pthread_mutex_unlock(&s->lock);
         return;
     }
 
+    for (;;)
+    {
+        AImage*        next = NULL;
+        media_status_t ns = AImageReader_acquireNextImage(reader, &next);
+        if (ns != AMEDIA_OK || next == NULL)
+            break;
+        AImage_delete(image);
+        image = next;
+    }
+
+    s->logged_acquire_error = false;
     cam2_emit_image(s, image);
     AImage_delete(image);
     pthread_mutex_unlock(&s->lock);

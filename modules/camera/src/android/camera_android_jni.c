@@ -72,7 +72,7 @@ bool mel_camera_android_request_permission(void)
     if ((*env)->PushLocalFrame(env, 4) < 0)
         return false;
 
-    jclass cls = (*env)->FindClass(env, "orgwall/melody/camera/MelodyCamera");
+    jclass cls = mel_platform_android_find_class(env, "orgwall/melody/camera/MelodyCamera");
     if (!cls)
     {
         (*env)->ExceptionClear(env);

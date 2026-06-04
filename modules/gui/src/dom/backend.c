@@ -120,6 +120,8 @@ EM_JS(void, mel_web__el_destroy, (int id), {
     if (el && el.parentNode)
         el.parentNode.removeChild(el);
     MelWeb.els[id] = null;
+    if (MelWeb.imgCache)
+        delete MelWeb.imgCache[id];
 });
 
 // --- event-listener wiring; each forwards into an exported dispatcher below ---

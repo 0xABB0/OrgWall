@@ -88,6 +88,7 @@ static void reactor_backend_attached_run(Mel_Reactor* r)
     // next wakeup only if a source needs one, then hand control back to the
     // browser while keeping the module alive. Later iterations come from the
     // scheduled rAF/timeout and from DOM event handlers that call wake().
+    reactor_capture_owner(r);
     if (r->init && !r->init(r, r->init_user)) {
         atomic_store(&r->running, false);
         reactor_attached_destroy(r);

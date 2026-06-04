@@ -77,6 +77,7 @@ struct Mel_Reactor
 };
 
 static bool                  reactor_iterate(Mel_Reactor* r, bool may_block);
+static void                  reactor_capture_owner(Mel_Reactor* r);
 static void                  reactor_executor_submit(Mel_Executor* self, Mel_Task* task);
 [[maybe_unused]] static void reactor_attached_destroy(Mel_Reactor* r);
 
