@@ -173,8 +173,9 @@ struct Mel_Gpu_Command_List
 {
     Mel_Gpu_Device*    dev;
     Mel_Gpu_Swapchain* sc;
-    id<MTLCommandBuffer>        cb;
-    id<MTLRenderCommandEncoder> encoder;
+    id<MTLCommandBuffer>         cb;
+    id<MTLRenderCommandEncoder>  encoder;
+    id<MTLComputeCommandEncoder> compute_encoder;
     bool               standalone;
     bool               recording;
     bool               warned_unsupported;
@@ -183,6 +184,10 @@ struct Mel_Gpu_Command_List
     bool               has_pipeline;
     id<MTLBuffer>      index_buffer;
     MTLIndexType       index_type;
+
+    id<MTLComputePipelineState> compute_state;
+    MTLSize                     compute_threadgroup;
+    bool                        has_compute_pipeline;
 };
 
 struct Mel_Gpu_Queue
@@ -230,6 +235,8 @@ bool mel_gpu__texture_view_get(Mel_Gpu_Device* dev, Mel_Gpu_Texture_View view, M
 
 bool             mel_gpu__pipeline_get(Mel_Gpu_Device* dev, Mel_Gpu_Pipeline pipe, Mel_Gpu_Pipeline_Obj* out);
 MTLPrimitiveType mel_gpu__topology_to_primitive(Mel_Gpu_Topology t);
+
+void mel_gpu__cmd_end_active_encoder(Mel_Gpu_Command_List* cmd);
 
 #define MEL_GPU_METAL_VERTEX_BUFFER_INDEX 30u
 #define MEL_GPU_METAL_PUSH_CONSTANT_INDEX 0u
