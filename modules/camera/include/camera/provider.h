@@ -29,8 +29,8 @@ typedef struct
     const char* name;
     void*       user;
 
-    u32  (*enumerate)(void* user, Mel_Camera_Raw* out, u32 cap);
-    bool (*open)(void* user, u64 stable_id, Mel_Camera_Config cfg, Mel_Camera_Sink sink);
+    u32  (*enumerate)(void* user, const Mel_Alloc* alloc, Mel_Camera_Raw* out, u32 cap);
+    bool (*open)(void* user, const Mel_Alloc* alloc, u64 stable_id, Mel_Camera_Config cfg, Mel_Camera_Sink sink);
     void (*close)(void* user, u64 stable_id);
     Mel_Camera_Status (*start)(void* user, u64 stable_id);
     Mel_Camera_Status (*stop)(void* user, u64 stable_id);
@@ -39,6 +39,8 @@ typedef struct
     void (*authorize)(void* user, Mel_Camera_Sink sink);
 
     void* (*native)(void* user, u64 stable_id);
+
+    void (*shutdown)(void* user, const Mel_Alloc* alloc);
 } Mel_Camera_Provider_Desc;
 
 typedef struct

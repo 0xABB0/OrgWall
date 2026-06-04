@@ -98,10 +98,3 @@ bool mel_camera_android_request_permission(void)
     (*env)->PopLocalFrame(env, NULL);
     return ok == JNI_TRUE;
 }
-
-JNIEXPORT void JNICALL Java_orgwall_melody_camera_MelodyCamera_nativePermissionResult(JNIEnv* env, jclass cls, jboolean granted)
-{
-    (void)env;
-    (void)cls;
-    mel_camera_android_on_permission(granted == JNI_TRUE);
-}

@@ -6,8 +6,8 @@
 #include <image/geometry.h>
 
 #include <allocator/allocator.h>
-#include <allocator/heap.h>
 #include <collection.array/array.h>
+#include <debug/assert.h>
 #include <log/log.h>
 
 #include <platform/android/jni.h>
@@ -26,6 +26,7 @@
 
 #define MEL_CAM2_YUV420 AIMAGE_FORMAT_YUV_420_888
 #define MEL_CAM2_READER_BUFFERS 3
+#define MEL_CAM2_PERMISSION_REQUEST_CODE 0x4D43
 
 typedef struct
 {
@@ -76,6 +77,8 @@ typedef struct
     Mel_Array(Cam2_Session*)     sessions;
     Mel_Camera_Sink              auth_sink;
     bool                         have_auth_sink;
+    bool                         permission_listening;
+    bool                         scanned;
 } Cam2;
 
 static Cam2 g_cam2;
@@ -190,6 +193,7 @@ static void cam2_refresh_devices(void)
     }
 
     ACameraManager_deleteCameraIdList(list);
+    g_cam2.scanned = true;
 }
 
 static Cam2_Device* cam2_device_by_id(u64 stable_id)
@@ -200,10 +204,23 @@ static Cam2_Device* cam2_device_by_id(u64 stable_id)
     return NULL;
 }
 
-static u32 cam2_enumerate(void* user, Mel_Camera_Raw* out, u32 cap)
+static void cam2_ensure_arrays(const Mel_Alloc* alloc)
+{
+    mel_assert((g_cam2.devices.allocator == NULL || g_cam2.devices.allocator == alloc) && "camera2: allocator diverged across calls; per-element frees would cross pools");
+    mel_assert((g_cam2.sessions.allocator == NULL || g_cam2.sessions.allocator == alloc) && "camera2: allocator diverged across calls; per-element frees would cross pools");
+    g_cam2.alloc = alloc;
+    if (g_cam2.devices.allocator == NULL)
+        mel_array_init(&g_cam2.devices, alloc);
+    if (g_cam2.sessions.allocator == NULL)
+        mel_array_init(&g_cam2.sessions, alloc);
+}
+
+static u32 cam2_enumerate(void* user, const Mel_Alloc* alloc, Mel_Camera_Raw* out, u32 cap)
 {
     (void)user;
-    cam2_refresh_devices();
+    cam2_ensure_arrays(alloc);
+    if (!g_cam2.scanned)
+        cam2_refresh_devices();
 
     u32 n = (u32)g_cam2.devices.count;
     if (cap == 0)
@@ -380,6 +397,7 @@ static void cam2_dev_on_disconnected(void* ctx, ACameraDevice* dev)
 {
     (void)ctx;
     (void)dev;
+    g_cam2.scanned = false;
     mel_log_warn("camera", "camera2: device disconnected");
 }
 
@@ -478,9 +496,10 @@ static void cam2_session_free(Cam2_Session* s)
     mel_dealloc(g_cam2.alloc, s);
 }
 
-static bool cam2_open(void* user, u64 stable_id, Mel_Camera_Config cfg, Mel_Camera_Sink sink)
+static bool cam2_open(void* user, const Mel_Alloc* alloc, u64 stable_id, Mel_Camera_Config cfg, Mel_Camera_Sink sink)
 {
     (void)user;
+    cam2_ensure_arrays(alloc);
     if (cam2_session_by_id(stable_id) != NULL)
     {
         mel_log_error("camera", "camera2: device %llu already open", (unsigned long long)stable_id);
@@ -658,6 +677,27 @@ static const mel_camera_auth* cam2_authorization(void* user)
     return mel_camera_android_permission_granted() ? &mel_camera_auth_granted : &mel_camera_auth_not_determined;
 }
 
+static void cam2_on_permission_result(void* user, i32 request_code, bool granted)
+{
+    (void)user;
+    (void)request_code;
+    mel_camera_android_on_permission(granted);
+}
+
+static bool cam2_listen_permission(void)
+{
+    if (g_cam2.permission_listening)
+        return true;
+    if (g_cam2.alloc == NULL)
+    {
+        mel_log_error("camera", "camera2: authorize before provider allocator established; cannot listen for permission result");
+        return false;
+    }
+    mel_platform_android_permission_listen(g_cam2.alloc, MEL_CAM2_PERMISSION_REQUEST_CODE, cam2_on_permission_result, NULL);
+    g_cam2.permission_listening = true;
+    return true;
+}
+
 static void cam2_authorize(void* user, Mel_Camera_Sink sink)
 {
     (void)user;
@@ -670,7 +710,7 @@ static void cam2_authorize(void* user, Mel_Camera_Sink sink)
     }
     g_cam2.auth_sink = sink;
     g_cam2.have_auth_sink = true;
-    if (!mel_camera_android_request_permission())
+    if (!cam2_listen_permission() || !mel_camera_android_request_permission())
     {
         g_cam2.have_auth_sink = false;
         sink.on_auth(sink.token, &mel_camera_auth_denied);
@@ -693,12 +733,45 @@ void mel_camera_android_on_permission(bool granted)
     sink.on_auth(sink.token, granted ? &mel_camera_auth_granted : &mel_camera_auth_denied);
 }
 
+static void cam2_shutdown(void* user, const Mel_Alloc* alloc)
+{
+    (void)user;
+    (void)alloc;
+    for (usize i = 0; i < g_cam2.sessions.count; i++)
+        cam2_session_free(g_cam2.sessions.items[i]);
+    if (g_cam2.sessions.allocator != NULL)
+    {
+        mel_array_free(&g_cam2.sessions);
+        mel_array_init(&g_cam2.sessions, NULL);
+    }
+
+    cam2_devices_clear();
+    if (g_cam2.devices.allocator != NULL)
+    {
+        mel_array_free(&g_cam2.devices);
+        mel_array_init(&g_cam2.devices, NULL);
+    }
+
+    if (g_cam2.manager != NULL)
+    {
+        ACameraManager_delete(g_cam2.manager);
+        g_cam2.manager = NULL;
+    }
+
+    if (g_cam2.permission_listening)
+    {
+        mel_platform_android_permission_unlisten(MEL_CAM2_PERMISSION_REQUEST_CODE, cam2_on_permission_result, NULL);
+        g_cam2.permission_listening = false;
+    }
+
+    g_cam2.have_auth_sink = false;
+    g_cam2.auth_sink = (Mel_Camera_Sink){ 0 };
+    g_cam2.scanned = false;
+    g_cam2.alloc = NULL;
+}
+
 void mel_camera__register_host_providers(void)
 {
-    g_cam2.alloc = mel_alloc_heap();
-    mel_array_init(&g_cam2.devices, g_cam2.alloc);
-    mel_array_init(&g_cam2.sessions, g_cam2.alloc);
-
     static const Mel_Camera_Provider_Desc desc = {
         .name = "android-camera2",
         .enumerate = cam2_enumerate,
@@ -709,6 +782,7 @@ void mel_camera__register_host_providers(void)
         .authorization = cam2_authorization,
         .authorize = cam2_authorize,
         .native = cam2_native,
+        .shutdown = cam2_shutdown,
     };
     mel_camera_provider_register(&desc);
 }

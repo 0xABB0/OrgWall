@@ -15,8 +15,8 @@
 #include <image/geometry.h>
 
 #include <allocator/allocator.h>
-#include <allocator/heap.h>
 #include <collection.array/array.h>
+#include <debug/assert.h>
 
 #include <log/log.h>
 
@@ -98,6 +98,7 @@ typedef struct mf_session
 {
     u64                     stable_id;
     IMFSourceReader*        reader;
+    IMFMediaSource*         source;
     Mel_Camera_Sink         sink;
     const mel_image_format* fmt;
     i32                     w, h;
@@ -245,9 +246,21 @@ static Session* session_find(u64 stable_id)
     return NULL;
 }
 
-static u32 mf_enumerate(void* user, Mel_Camera_Raw* out, u32 cap)
+static void mf_ensure_arrays(const Mel_Alloc* alloc)
+{
+    mel_assert((g_mf.devices.allocator == NULL || g_mf.devices.allocator == alloc) && "mf: allocator diverged across calls; per-element frees would cross pools");
+    mel_assert((g_mf.sessions.allocator == NULL || g_mf.sessions.allocator == alloc) && "mf: allocator diverged across calls; per-element frees would cross pools");
+    g_mf.alloc = alloc;
+    if (g_mf.devices.allocator == NULL)
+        mel_array_init(&g_mf.devices, alloc);
+    if (g_mf.sessions.allocator == NULL)
+        mel_array_init(&g_mf.sessions, alloc);
+}
+
+static u32 mf_enumerate(void* user, const Mel_Alloc* alloc, Mel_Camera_Raw* out, u32 cap)
 {
     (void)user;
+    mf_ensure_arrays(alloc);
     if (!g_mf.mf_started)
     {
         mel_log_error("camera", "mf enumerate: Media Foundation not started");
@@ -608,9 +621,10 @@ static bool reader_select_format(IMFSourceReader* reader, const GUID* subtype, i
     return false;
 }
 
-static bool mf_open(void* user, u64 stable_id, Mel_Camera_Config cfg, Mel_Camera_Sink sink)
+static bool mf_open(void* user, const Mel_Alloc* alloc, u64 stable_id, Mel_Camera_Config cfg, Mel_Camera_Sink sink)
 {
     (void)user;
+    mf_ensure_arrays(alloc);
     if (!g_mf.mf_started)
     {
         mel_log_error("camera", "mf open: Media Foundation not started");
@@ -662,17 +676,18 @@ static bool mf_open(void* user, u64 stable_id, Mel_Camera_Config cfg, Mel_Camera
         return false;
     }
 
-    IMFMediaSource_Release(source);
-
     Session* s = mel_alloc_type(g_mf.alloc, Session);
     if (!s)
     {
         IMFSourceReader_Release(reader);
+        IMFMediaSource_Shutdown(source);
+        IMFMediaSource_Release(source);
         return false;
     }
     memset(s, 0, sizeof *s);
     s->stable_id = stable_id;
     s->reader = reader;
+    s->source = source;
     s->sink = sink;
     s->fmt = cfg.format;
     s->w = cfg.width;
@@ -699,6 +714,23 @@ static void session_stop_thread(Session* s)
     InterlockedExchange(&s->stop_request, 0);
 }
 
+static void session_free(Session* s)
+{
+    session_stop_thread(s);
+    if (s->reader)
+    {
+        IMFSourceReader_Release(s->reader);
+        s->reader = NULL;
+    }
+    if (s->source)
+    {
+        IMFMediaSource_Shutdown(s->source);
+        IMFMediaSource_Release(s->source);
+        s->source = NULL;
+    }
+    mel_dealloc(g_mf.alloc, s);
+}
+
 static void mf_close(void* user, u64 stable_id)
 {
     (void)user;
@@ -707,12 +739,9 @@ static void mf_close(void* user, u64 stable_id)
         Session* s = g_mf.sessions.items[i];
         if (s->stable_id != stable_id)
             continue;
-        session_stop_thread(s);
-        if (s->reader)
-            IMFSourceReader_Release(s->reader);
-        mel_dealloc(g_mf.alloc, s);
         g_mf.sessions.items[i] = g_mf.sessions.items[g_mf.sessions.count - 1];
         g_mf.sessions.count--;
+        session_free(s);
         return;
     }
 }
@@ -753,15 +782,40 @@ static void* mf_native(void* user, u64 stable_id)
     return s ? (void*)s->reader : NULL;
 }
 
+static void mf_shutdown(void* user, const Mel_Alloc* alloc)
+{
+    (void)user;
+    (void)alloc;
+    for (usize i = 0; i < g_mf.sessions.count; i++)
+        session_free(g_mf.sessions.items[i]);
+    if (g_mf.sessions.allocator != NULL)
+    {
+        mel_array_free(&g_mf.sessions);
+        mel_array_init(&g_mf.sessions, NULL);
+    }
+
+    devices_clear();
+    if (g_mf.devices.allocator != NULL)
+    {
+        mel_array_free(&g_mf.devices);
+        mel_array_init(&g_mf.devices, NULL);
+    }
+
+    if (g_mf.mf_started)
+    {
+        MFShutdown();
+        g_mf.mf_started = false;
+    }
+    g_mf.initialized = false;
+    g_mf.alloc = NULL;
+}
+
 static Mel_Camera_Provider_Desc g_desc;
 
 void mel_camera__register_host_providers(void)
 {
     if (!g_mf.initialized)
     {
-        g_mf.alloc = mel_alloc_heap();
-        mel_array_init(&g_mf.devices, g_mf.alloc);
-        mel_array_init(&g_mf.sessions, g_mf.alloc);
         HRESULT hr = MFStartup(MF_VERSION, MFSTARTUP_FULL);
         g_mf.mf_started = SUCCEEDED(hr);
         if (!g_mf.mf_started)
@@ -779,6 +833,7 @@ void mel_camera__register_host_providers(void)
         .authorization = mf_authorization,
         .authorize = mf_authorize,
         .native = mf_native,
+        .shutdown = mf_shutdown,
     };
     mel_camera_provider_register(&g_desc);
 }
