@@ -50,7 +50,14 @@ static bool grow_to(Mem_State* m, Mel_Stream* s, usize need)
         return true;
     usize cap = m->capacity ? m->capacity : 16;
     while (cap < need)
+    {
+        if (cap > SIZE_MAX / 2)
+        {
+            cap = need;
+            break;
+        }
         cap *= 2;
+    }
     u8* nb = m->base ? mel_realloc(s->alloc, m->base, cap) : mel_alloc(s->alloc, cap);
     if (!nb)
         return false;
@@ -70,6 +77,8 @@ static Mel_Future* mem_write(Mel_Stream* s, void* user, Mel_Stream_Write_Opt opt
     if (pos < 0)
         return mel_io__op_resolve(op, 0, mel_stream__position(s), 0, MEL_IO_ERROR | MEL_IO_BAD_HANDLE);
 
+    if (opt.len > SIZE_MAX - (usize)pos)
+        return mel_io__op_resolve(op, 0, pos, 0, MEL_IO_ERROR | MEL_IO_NO_SPACE);
     usize end = (usize)pos + opt.len;
 
     if (m->growable)
