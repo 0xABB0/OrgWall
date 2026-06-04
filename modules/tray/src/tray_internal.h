@@ -10,19 +10,16 @@
 
 typedef struct
 {
-    u32                provider_idx;
     Mel_SlotMap_Handle menu;
     Mel_Tray_Image     image;
     str8               tooltip;
     str8               title;
     bool               visible;
-    const Mel_Alloc*   alloc;
 } Tray_Slot;
 
 typedef struct
 {
     Mel_SlotMap_Handle tray;
-    Mel_SlotMap_Handle owner_item;
     Mel_Array(Mel_SlotMap_Handle) items;
 } Menu_Slot;
 
@@ -35,7 +32,6 @@ typedef struct
     Mel_Tray_Item_Flags    flags;
     Mel_Tray_Item_Callback on_activate;
     void*                  user;
-    const Mel_Alloc*       alloc;
 } Item_Slot;
 
 Mel_SlotMap* mel_tray__trays(void);

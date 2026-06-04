@@ -254,13 +254,11 @@ Mel_Tray_Create_Result mel_tray_create_opt(Mel_Tray_Opt opt)
 
     Mel_Tray_Status warn = 0;
     Tray_Slot       ts = { 0 };
-    ts.provider_idx = (u32)g.active_provider;
     ts.menu = menu_h;
     ts.image = image_dup(opt.image, &warn);
     ts.tooltip = str_dup(opt.tooltip);
     ts.title = str_dup(opt.title);
     ts.visible = opt.visible;
-    ts.alloc = g.alloc;
     Mel_SlotMap_Handle th = mel_slotmap_insert(&g.trays, &ts);
 
     Menu_Slot* msp = mel_tray__menu_slot(menu_h);
@@ -270,7 +268,13 @@ Mel_Tray_Create_Result mel_tray_create_opt(Mel_Tray_Opt opt)
     {
         Mel_Tray_Status s = prov->desc.menu_create(prov->desc.user, mel_slotmap_handle_pack64(menu_h));
         if (mel_tray_failed(s))
-            warn |= s;
+        {
+            mel_log_error("tray", "provider '%s' menu_create failed", prov->desc.name ? prov->desc.name : "?");
+            tray_destroy_internal(th);
+            r.status = s;
+            return r;
+        }
+        warn |= (s & ~MEL_TRAY_SEVERITY_MASK);
     }
 
     Mel_Tray_Lowered lowered = {
