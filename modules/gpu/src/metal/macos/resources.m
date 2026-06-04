@@ -11,15 +11,9 @@ bool mel_gpu__buffer_get(Mel_Gpu_Device* dev, Mel_Gpu_Buffer buf, id<MTLBuffer>*
     return true;
 }
 
-bool mel_gpu__texture_get(Mel_Gpu_Device* dev, Mel_Gpu_Texture tex, Mel_Gpu_Texture_Obj* out)
-{
-    return mel_gpu__table_get_copy(dev, &dev->textures, tex.slot, out);
-}
+bool mel_gpu__texture_get(Mel_Gpu_Device* dev, Mel_Gpu_Texture tex, Mel_Gpu_Texture_Obj* out) { return mel_gpu__table_get_copy(dev, &dev->textures, tex.slot, out); }
 
-bool mel_gpu__texture_view_get(Mel_Gpu_Device* dev, Mel_Gpu_Texture_View view, Mel_Gpu_Texture_View_Obj* out)
-{
-    return mel_gpu__table_get_copy(dev, &dev->texture_views, view.slot, out);
-}
+bool mel_gpu__texture_view_get(Mel_Gpu_Device* dev, Mel_Gpu_Texture_View view, Mel_Gpu_Texture_View_Obj* out) { return mel_gpu__table_get_copy(dev, &dev->texture_views, view.slot, out); }
 
 Mel_Gpu_Buffer_Create_Result mel_gpu_buffer_create_opt(Mel_Gpu_Device* dev, Mel_Gpu_Buffer_Opt opt)
 {
@@ -31,7 +25,7 @@ Mel_Gpu_Buffer_Create_Result mel_gpu_buffer_create_opt(Mel_Gpu_Device* dev, Mel_
         return res;
     }
 
-    bool host_visible = opt.memory == MEL_GPU_MEMORY_UPLOAD || opt.memory == MEL_GPU_MEMORY_READBACK;
+    bool               host_visible = opt.memory == MEL_GPU_MEMORY_UPLOAD || opt.memory == MEL_GPU_MEMORY_READBACK;
     MTLResourceOptions ropt = host_visible ? MTLResourceStorageModeShared : MTLResourceStorageModePrivate;
 
     id<MTLBuffer> mb = nil;
@@ -54,9 +48,35 @@ Mel_Gpu_Buffer_Create_Result mel_gpu_buffer_create_opt(Mel_Gpu_Device* dev, Mel_
         .buf = (__bridge_retained void*)mb,
         .size = opt.size,
         .host_visible = host_visible,
+        .usage = opt.usage,
     };
     Mel_SlotMap_Handle h = mel_gpu__table_insert(dev, &dev->buffers, &o);
     res.value = (Mel_Gpu_Buffer){ h };
+
+    if (dev->bindless.enabled)
+    {
+        bool stor = (opt.usage & MEL_GPU_BUFFER_STORAGE) != 0;
+        bool unif = (opt.usage & MEL_GPU_BUFFER_UNIFORM) != 0;
+        bool fits = true;
+        if (stor)
+            fits = mel_gpu__bindless_slot_fits(dev, MEL_GPU_BINDLESS_BINDING_STORAGE_BUFFER, h.index) && fits;
+        if (unif)
+            fits = mel_gpu__bindless_slot_fits(dev, MEL_GPU_BINDLESS_BINDING_UNIFORM_BUFFER, h.index) && fits;
+        if (!fits)
+        {
+            mel_log_error("gpu", "buffer_create '%s': bindless slot %u exceeds a heap class cap (BindlessSlotExhausted)", opt.name ? opt.name : "(unnamed)", h.index);
+            mel_gpu__table_remove(dev, &dev->buffers, h);
+            id discard = (__bridge_transfer id)o.buf;
+            (void)discard;
+            res.value = (Mel_Gpu_Buffer){ mel_gpu_handle_null() };
+            res.status = MEL_GPU_BUFFER_CREATE_BINDLESS_SLOT_EXHAUSTED;
+            return res;
+        }
+        if (stor)
+            mel_gpu__bindless_register_storage_buffer(dev, h.index, mb);
+        if (unif)
+            mel_gpu__bindless_register_uniform_buffer(dev, h.index, mb);
+    }
     return res;
 }
 
@@ -189,6 +209,7 @@ Mel_Gpu_Texture_Create_Result mel_gpu_texture_create_opt(Mel_Gpu_Device* dev, Me
         .mip_levels = (u32)td.mipmapLevelCount,
         .array_layers = (u32)td.arrayLength,
         .sample_count = (u32)td.sampleCount,
+        .usage = opt.usage,
     };
     Mel_SlotMap_Handle h = mel_gpu__table_insert(dev, &dev->textures, &o);
     res.value = (Mel_Gpu_Texture){ h };
@@ -247,10 +268,7 @@ Mel_Gpu_Texture_View_Create_Result mel_gpu_texture_view_create_opt(Mel_Gpu_Devic
     bool           full = base_mip == 0 && mip_count == tex.mip_levels && base_layer == 0 && layer_count == tex.array_layers && fmt == tex.format;
     if (!full)
     {
-        view = [srctex newTextureViewWithPixelFormat:fmt
-                                         textureType:srctex.textureType
-                                              levels:NSMakeRange(base_mip, mip_count)
-                                              slices:NSMakeRange(base_layer, layer_count)];
+        view = [srctex newTextureViewWithPixelFormat:fmt textureType:srctex.textureType levels:NSMakeRange(base_mip, mip_count) slices:NSMakeRange(base_layer, layer_count)];
         if (!view)
         {
             res.status = MEL_GPU_TEXTURE_VIEW_CREATE_BACKEND_FAILED;
@@ -269,16 +287,39 @@ Mel_Gpu_Texture_View_Create_Result mel_gpu_texture_view_create_opt(Mel_Gpu_Devic
         .mip_count = mip_count,
         .base_layer = base_layer,
         .layer_count = layer_count,
+        .usage = tex.usage,
     };
     Mel_SlotMap_Handle h = mel_gpu__table_insert(dev, &dev->texture_views, &o);
     res.value = (Mel_Gpu_Texture_View){ h };
+
+    if (dev->bindless.enabled)
+    {
+        bool sampled = (tex.usage & MEL_GPU_TEXTURE_SAMPLED) != 0;
+        bool storage = (tex.usage & MEL_GPU_TEXTURE_STORAGE) != 0;
+        bool fits = true;
+        if (sampled)
+            fits = mel_gpu__bindless_slot_fits(dev, MEL_GPU_BINDLESS_BINDING_SAMPLED_IMAGE, h.index) && fits;
+        if (storage)
+            fits = mel_gpu__bindless_slot_fits(dev, MEL_GPU_BINDLESS_BINDING_STORAGE_IMAGE, h.index) && fits;
+        if (!fits)
+        {
+            mel_log_error("gpu", "texture_view_create '%s': bindless slot %u exceeds a heap class cap (BindlessSlotExhausted)", opt.name ? opt.name : "(unnamed)", h.index);
+            mel_gpu__table_remove(dev, &dev->texture_views, h);
+            id discard = (__bridge_transfer id)o.view;
+            (void)discard;
+            res.value = (Mel_Gpu_Texture_View){ mel_gpu_handle_null() };
+            res.status = MEL_GPU_TEXTURE_VIEW_CREATE_BINDLESS_SLOT_EXHAUSTED;
+            return res;
+        }
+        if (sampled)
+            mel_gpu__bindless_register_sampled_image(dev, h.index, view);
+        if (storage)
+            mel_gpu__bindless_register_storage_image(dev, h.index, view);
+    }
     return res;
 }
 
-Mel_Gpu_Texture_View_Create_Result mel_gpu_texture_default_view(Mel_Gpu_Device* dev, Mel_Gpu_Texture tex)
-{
-    return mel_gpu_texture_view_create(dev, .texture = tex);
-}
+Mel_Gpu_Texture_View_Create_Result mel_gpu_texture_default_view(Mel_Gpu_Device* dev, Mel_Gpu_Texture tex) { return mel_gpu_texture_view_create(dev, .texture = tex); }
 
 void mel_gpu_texture_view_destroy(Mel_Gpu_Device* dev, Mel_Gpu_Texture_View view)
 {
@@ -325,6 +366,8 @@ Mel_Gpu_Sampler_Create_Result mel_gpu_sampler_create_opt(Mel_Gpu_Device* dev, Me
     sd.maxAnisotropy = opt.max_anisotropy >= 1.0f ? (NSUInteger)opt.max_anisotropy : 1;
     sd.lodMinClamp = opt.lod_min;
     sd.lodMaxClamp = opt.lod_max > 0.0f ? opt.lod_max : FLT_MAX;
+    if (dev->bindless.enabled)
+        sd.supportArgumentBuffers = YES;
 
     id<MTLSamplerState> ms = [dev->mtl newSamplerStateWithDescriptor:sd];
     if (!ms)
@@ -340,6 +383,21 @@ Mel_Gpu_Sampler_Create_Result mel_gpu_sampler_create_opt(Mel_Gpu_Device* dev, Me
     };
     Mel_SlotMap_Handle h = mel_gpu__table_insert(dev, &dev->samplers, &o);
     res.value = (Mel_Gpu_Sampler){ h };
+
+    if (dev->bindless.enabled)
+    {
+        if (!mel_gpu__bindless_slot_fits(dev, MEL_GPU_BINDLESS_BINDING_SAMPLER, h.index))
+        {
+            mel_log_error("gpu", "sampler_create '%s': bindless slot %u exceeds the sampler heap cap (BindlessSlotExhausted)", opt.name ? opt.name : "(unnamed)", h.index);
+            mel_gpu__table_remove(dev, &dev->samplers, h);
+            id discard = (__bridge_transfer id)o.sampler;
+            (void)discard;
+            res.value = (Mel_Gpu_Sampler){ mel_gpu_handle_null() };
+            res.status = MEL_GPU_SAMPLER_CREATE_BINDLESS_SLOT_EXHAUSTED;
+            return res;
+        }
+        mel_gpu__bindless_register_sampler(dev, h.index, ms);
+    }
     return res;
 }
 
