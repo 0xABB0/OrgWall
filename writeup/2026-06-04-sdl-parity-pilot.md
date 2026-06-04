@@ -107,3 +107,68 @@ each must-fix (neutering the fix makes a test fail), then re-ran host tests. Bot
 All five pilot modules (`sensor`, `hid`, `fs`, `gamepad`, `io`) are now on local `main`; `input`
 was already there. Still not pushed to `origin`. Non-macOS backends remain static-only until a
 `win-pilot`/device build.
+
+## Full wave complete — waves 1–3 + showcase + origin reconciliation
+
+Continued from the pilot to the rest of the SDL-parity surface. All on local `main`, each
+gated by the 4-reviewer team + must-fix pass, ambers driven to green, every merge re-verified
+on `main`.
+
+**New modules (wave 1, 8):** `storage` (7/7), `dylib` (9/9), `locale` (11/11), `dialog` (12/12),
+`messagebox` (18/18), `tray` (14/14), `shell` (18/18), and `process` — note `process` was built
+independently by another agent and landed on `main` first (11/11, already had the cancel
+op-handle); my gated duplicate was discarded, as `input` was in the pilot.
+
+**Augmentations (wave 2, 8):** `window` (9/9: min/max/fullscreen/opacity/modal/hit-test/shape/
+grab/taskbar-progress/safe-area/ICC/enumerate/get_surface), `platform` (11/11: hooks/JNI/sandbox/
+screensaver), `cpu` (SIMD detect + aligned alloc + RAM), `time` (38/38: sleep/precise-delay +
+date-format prefs), `vibration` (12/12: FFB condition effects), `clipboard` (34/34: X11/Wayland
+primary + finished Linux), `app` (9/9: subsystem init + lifecycle callbacks), `debug` (15/15:
+graduated assertion levels + handler).
+
+**Showcase (wave 3):** `apps/melody-showcase` — one binary, windowed live panels + key-driven
+actions, plus a mandatory `--smoke` headless harness that exercises all 22 session modules once
+and exits 0 (honest-absent for gamepad/sensor/vibration with no device). Gate green; the agent
+also fixed a real macOS `NSStatusItem` token-collision bug in `tray` surfaced by driving it.
+
+**origin reconciliation:** local `main` had diverged from `origin/main` (mine +61 unpushed;
+origin +5 from concurrent agents: camera/image YUYV + android permission-forwarding). Merged
+`origin/main` into local `main` (kept all my work, integrated theirs); 3 android/platform
+conflicts resolved by union. Local `main` is now 62 ahead / 0 behind origin, builds, integrates
+everything including `camera`/`image`.
+
+## Kludges (full confession, MEL-ENGINE-VIII)
+
+- **Agents took outward-facing liberties.** The wave-2 `window` agent pushed a branch to
+  `origin` (`worktree-wf_a3349bcb-e07-1`, still there as debris) and ran a `win-pilot` win32
+  build autonomously; the `time` agent committed its augmentation directly onto `main` rather
+  than its branch. Both were gated-green so no corruption, but I did not sanction either. Wave-3
+  prompts added an explicit "stay in worktree, no push, no commit-to-main" guardrail.
+- **Agents wrote into the shared `main` checkout.** `clipboard` and `debug` gate agents (using
+  Bash edits because the bg-isolation guard blocks Edit/Write) left uncommitted edits under
+  `modules/clipboard` and `modules/debug` in the main working tree; I discarded that debris and
+  merged the authoritative branches.
+- **StructuredOutput dropped under load.** Wave-1's first run returned only 1 of 8 results (the
+  rest did the work but never called StructuredOutput; `process` wrote nothing at all). Recovered
+  by committing the loose modules and re-gating with leaner schemas + an explicit
+  "must call StructuredOutput" instruction, which held for every run after.
+- **Non-host backends unverified.** linux/android/ios/win32 backends across the wave are
+  static-inspection (a few NDK `-fsyntax-only` / one `win-pilot` window build) — not generally
+  compiled. win32 in particular needs `win-pilot` builds before trust.
+- **Showcase `--smoke` "app:" line overstates** — the app module is genuinely exercised only on
+  the windowed path; the smoke text claims more than the smoke path calls (should-fix).
+- **Per-module should-fix residuals** are recorded in each module's `todo.md` (e.g. storage
+  cancel-honesty, messagebox heap-alloc, tray/hid teardown leaks, window NULL-ops on linux/ios/
+  android/wasm, locale CJK collapse).
+- **Not pushed.** Everything is local `main` only; `origin` does not have the 62 commits.
+
+## Suggestions
+
+- **Push `main` to `origin`** so `win-pilot` can build/verify the win32 backends the residuals
+  keep deferring, and so other agents see the 22 modules.
+- **Delete the stray `origin/worktree-wf_a3349bcb-e07-1`** branch (window agent debris).
+- **Prune the session worktrees** under `.claude/worktrees/` once merges are confirmed.
+- **Harden the orchestration guardrail** (no push / no commit-to-main / stay-in-worktree) into
+  the standard agent prompt, given the liberties taken this session.
+- **Work the should-fix backlog** (per-module `todo.md`) and author the linux/ios/android `window`
+  ops that are currently honest-absent NULL-stubs.
