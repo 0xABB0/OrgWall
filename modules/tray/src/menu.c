@@ -64,15 +64,7 @@ static Mel_Tray_Item_Result item_make(Mel_Tray_Menu m, u32 at, Mel_Tray_Item_Des
     is.flags = normalize_flags(desc.flags);
     is.on_activate = desc.on_activate;
     is.user = desc.user;
-    is.alloc = mel_tray__alloc();
     Mel_SlotMap_Handle ih = mel_slotmap_insert(mel_tray__items(), &is);
-
-    if (mel_slotmap_handle_valid(submenu))
-    {
-        Menu_Slot* sub = mel_tray__menu_slot(submenu);
-        if (sub != NULL)
-            sub->owner_item = ih;
-    }
 
     mel_array_insert(&ms->items, at, ih);
 
