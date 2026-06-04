@@ -27,7 +27,21 @@ Mel_IO_Op* mel_io__op_new(const Mel_Alloc* alloc)
         return NULL;
     memset(op, 0, sizeof *op);
     op->alloc = alloc;
+    op->owned = true;
     mel_future_init(&op->future, NULL, alloc);
+    op->future.value = &op->result;
+    return op;
+}
+
+Mel_IO_Op* mel_io__op_sync(Mel_Stream* s)
+{
+    assert(!s->scratch_busy);
+    s->scratch_busy = true;
+    Mel_IO_Op* op = &s->scratch;
+    memset(&op->result, 0, sizeof op->result);
+    op->alloc = s->alloc;
+    op->owned = false;
+    mel_future_init(&op->future, NULL, s->alloc);
     op->future.value = &op->result;
     return op;
 }
@@ -149,6 +163,12 @@ void mel_stream_future_release(Mel_Future* f)
     if (!f)
         return;
     Mel_IO_Op* op = mel_container_of(f, Mel_IO_Op, future);
+    if (!op->owned)
+    {
+        Mel_Stream* s = mel_container_of(op, Mel_Stream, scratch);
+        s->scratch_busy = false;
+        return;
+    }
     mel_dealloc(op->alloc, op);
 }
 

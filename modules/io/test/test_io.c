@@ -1,5 +1,8 @@
 #include <io/io.h>
 
+#include <allocator/allocator.h>
+#include <allocator/heap.h>
+
 #include <reactor/reactor.h>
 #include <future/future.h>
 #include <executor/executor.h>
@@ -63,7 +66,8 @@ MEL_TEST(io, fixed_memory_write_then_seek_read)
 
 MEL_TEST(io, growable_grows_and_detaches)
 {
-    Mel_Stream* s = mel_io_memory_growable(.initial_capacity = 2);
+    const Mel_Alloc* alloc = mel_alloc_heap();
+    Mel_Stream*      s = mel_io_memory_growable(.initial_capacity = 2, .alloc = alloc);
     MEL_REQUIRE_NOT_NULL(s);
 
     const char* payload = "growable-stream-payload";
@@ -81,7 +85,7 @@ MEL_TEST(io, growable_grows_and_detaches)
     MEL_REQUIRE_NOT_NULL(detached);
     MEL_EXPECT_EQ((i64)out_len, (i64)strlen(payload));
     MEL_EXPECT(memcmp(detached, payload, strlen(payload)) == 0);
-    free(detached);
+    mel_dealloc(alloc, detached);
     mel_stream_destroy(s);
 }
 
@@ -116,6 +120,146 @@ MEL_TEST(io, endian_helpers_roundtrip)
     MEL_EXPECT_EQ((i64)c, (i64)0xDEADBEEFu);
     MEL_EXPECT((u64)d == 0x0102030405060708ull);
     mel_stream_destroy(s);
+}
+
+typedef struct
+{
+    const Mel_Alloc* inner;
+    usize            calls;
+} Counting_Alloc;
+
+static void* counting_cb(void* ptr, usize size, u32 align, const char* file, const char* func, u32 line, void* user)
+{
+    Counting_Alloc* c = (Counting_Alloc*)user;
+    c->calls++;
+    const Mel_Alloc* in = c->inner;
+    if (ptr == NULL)
+        return align ? in->alloc_cb(NULL, size, align, file, func, line, in->user_data) : mel__alloc(in, size, file, func, line);
+    if (size == 0)
+    {
+        in->alloc_cb(ptr, 0, align, file, func, line, in->user_data);
+        return NULL;
+    }
+    return in->alloc_cb(ptr, size, align, file, func, line, in->user_data);
+}
+
+MEL_TEST(io, sync_ops_do_not_allocate)
+{
+    Counting_Alloc state = { .inner = mel_alloc_heap(), .calls = 0 };
+    Mel_Alloc      counting = { .alloc_cb = counting_cb, .user_data = &state };
+
+    u8          backing[64] = { 0 };
+    Mel_Stream* s = mel_io_memory_fixed(.buffer = backing, .len = sizeof backing, .alloc = &counting);
+    MEL_REQUIRE_NOT_NULL(s);
+
+    usize baseline = state.calls;
+
+    MEL_EXPECT_EQ(mel_stream_write_u32_le(s, 0xDEADBEEFu), MEL_IO_OK);
+    MEL_EXPECT_EQ(mel_stream_write_u64_be(s, 0x0102030405060708ull), MEL_IO_OK);
+    char src[8] = "abcdefgh";
+    MEL_EXPECT_EQ(mel_stream_write_all(s, src, sizeof src), MEL_IO_OK);
+
+    i64 pos = 0;
+    MEL_EXPECT_EQ(mel_stream_seek(s, 0, MEL_IO_SEEK_SET, &pos), MEL_IO_OK);
+
+    u32 a = 0;
+    u64 b = 0;
+    char dst[8] = { 0 };
+    MEL_EXPECT_EQ(mel_stream_read_u32_le(s, &a), MEL_IO_OK);
+    MEL_EXPECT_EQ(mel_stream_read_u64_be(s, &b), MEL_IO_OK);
+    MEL_EXPECT_EQ(mel_stream_read_exact(s, dst, sizeof dst), MEL_IO_OK);
+    for (int i = 0; i < 32; i++)
+    {
+        Mel_IO_Result r = mel_stream_read_sync(s, dst, 0, 0);
+        (void)r;
+    }
+
+    MEL_EXPECT_EQ((i64)a, (i64)0xDEADBEEFu);
+    MEL_EXPECT((u64)b == 0x0102030405060708ull);
+    MEL_EXPECT(memcmp(dst, src, sizeof src) == 0);
+
+    MEL_EXPECT_EQ((i64)(state.calls - baseline), (i64)0);
+    mel_stream_destroy(s);
+}
+
+MEL_TEST(io, save_append_extends_file)
+{
+    char path[] = "/tmp/mel_io_append_XXXXXX";
+    int  tfd = mkstemp(path);
+    MEL_REQUIRE(tfd >= 0);
+    close(tfd);
+
+    const char* first = "first-";
+    Mel_Future* f1 = mel_io_save_file(.path = path, .data = first, .len = strlen(first));
+    MEL_REQUIRE_NOT_NULL(f1);
+    MEL_EXPECT_EQ(mel_io_status_failed(mel_io_save_future_result(f1)->status), false);
+    mel_io_save_future_release(f1);
+
+    const char* second = "second";
+    Mel_Future* f2 = mel_io_save_file(.path = path, .data = second, .len = strlen(second), .flags = MEL_IO_FILE_APPEND);
+    MEL_REQUIRE_NOT_NULL(f2);
+    const Mel_IO_Result* r2 = mel_io_save_future_result(f2);
+    MEL_EXPECT_EQ(mel_io_status_failed(r2->status), false);
+    MEL_EXPECT_EQ((i64)r2->bytes_transferred, (i64)strlen(second));
+    mel_io_save_future_release(f2);
+
+    Mel_Future* lf = mel_io_load_file(.path = path);
+    MEL_REQUIRE_NOT_NULL(lf);
+    const Mel_IO_Blob* blob = mel_io_load_future_result(lf);
+    MEL_EXPECT_EQ(mel_io_status_failed(blob->status), false);
+    MEL_EXPECT_EQ((i64)blob->len, (i64)(strlen(first) + strlen(second)));
+    MEL_EXPECT(memcmp(blob->data, "first-second", strlen("first-second")) == 0);
+    mel_io_load_future_release(lf);
+
+    unlink(path);
+}
+
+MEL_TEST(io, append_without_write_rejected)
+{
+    char path[] = "/tmp/mel_io_appflag_XXXXXX";
+    int  tfd = mkstemp(path);
+    MEL_REQUIRE(tfd >= 0);
+    close(tfd);
+
+    Mel_IO_File_Open_Result o = mel_io_file_open(.path = path, .flags = MEL_IO_FILE_READ | MEL_IO_FILE_APPEND);
+    MEL_EXPECT(mel_io_status_failed(o.status));
+    MEL_EXPECT_EQ((void*)o.value, (void*)NULL);
+
+    unlink(path);
+}
+
+static void stub_submit(Mel_Executor* self, Mel_Task* task)
+{
+    (void)self;
+    (void)task;
+}
+
+MEL_TEST(io, load_deliver_mismatch_rejected)
+{
+    char path[] = "/tmp/mel_io_deliver_XXXXXX";
+    int  tfd = mkstemp(path);
+    MEL_REQUIRE(tfd >= 0);
+    const char* payload = "deliver-mismatch";
+    ssize_t     w = write(tfd, payload, strlen(payload));
+    (void)w;
+    close(tfd);
+
+    Mel_Executor foreign = { .submit = stub_submit };
+
+    Mel_Future* lf = mel_io_load_file(.path = path, .deliver = &foreign);
+    MEL_REQUIRE_NOT_NULL(lf);
+    const Mel_IO_Blob* blob = mel_io_load_future_result(lf);
+    MEL_EXPECT(mel_io_status_failed(blob->status));
+    mel_io_load_future_release(lf);
+
+    Mel_Future* lf_ok = mel_io_load_file(.path = path, .deliver = mel_executor_inline());
+    MEL_REQUIRE_NOT_NULL(lf_ok);
+    const Mel_IO_Blob* ok = mel_io_load_future_result(lf_ok);
+    MEL_EXPECT_EQ(mel_io_status_failed(ok->status), false);
+    MEL_EXPECT_EQ((i64)ok->len, (i64)strlen(payload));
+    mel_io_load_future_release(lf_ok);
+
+    unlink(path);
 }
 
 MEL_TEST(io, file_sync_save_then_load_roundtrip)

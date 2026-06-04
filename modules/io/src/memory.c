@@ -5,6 +5,7 @@
 #include <allocator/allocator.h>
 #include <allocator/heap.h>
 #include <log/log.h>
+#include <executor/executor.h>
 
 #include <string.h>
 
@@ -19,10 +20,12 @@ typedef struct
 
 static i64 resolve_offset(Mel_Stream* s, i64 offset) { return offset == MEL_IO_NO_OFFSET ? mel_stream__position(s) : offset; }
 
+static Mel_IO_Op* pick_op(Mel_Stream* s, Mel_Executor* deliver) { return deliver == mel_executor_inline() ? mel_io__op_sync(s) : mel_io__op_new(s->alloc); }
+
 static Mel_Future* mem_read(Mel_Stream* s, void* user, Mel_Stream_Read_Opt opt)
 {
     Mem_State* m = (Mem_State*)user;
-    Mel_IO_Op* op = mel_io__op_new(s->alloc);
+    Mel_IO_Op* op = pick_op(s, opt.deliver);
     if (!op)
         return NULL;
 
@@ -69,7 +72,7 @@ static bool grow_to(Mem_State* m, Mel_Stream* s, usize need)
 static Mel_Future* mem_write(Mel_Stream* s, void* user, Mel_Stream_Write_Opt opt)
 {
     Mem_State* m = (Mem_State*)user;
-    Mel_IO_Op* op = mel_io__op_new(s->alloc);
+    Mel_IO_Op* op = pick_op(s, opt.deliver);
     if (!op)
         return NULL;
 

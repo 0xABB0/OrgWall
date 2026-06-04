@@ -17,6 +17,7 @@ typedef struct
     void*         handle;
     i64           initial_size;
     bool          seekable;
+    bool          async_capable;
     Mel_IO_Status status;
 } Mel_IO_File_Native;
 

@@ -37,9 +37,12 @@ a stream is its interface, not an enum (MEL-CODE-001).
 
 - macos / ios / linux / android — POSIX (`open`/`pread`/`pwrite`/`lseek`/`fsync`),
   async lowered onto `port`.
-- win32 — CRT fd (`_open`/`_read`/`_write`/`_lseeki64`/`FlushFileBuffers`); the same fd
-  feeds `port`'s IOCP-shaped backend; native `HANDLE` exposed via
-  `mel_stream_native_file_handle`.
+- win32 — CRT fd (`_open`/`_read`/`_write`/`_lseeki64`/`FlushFileBuffers`); native
+  `HANDLE` exposed via `mel_stream_native_file_handle`. The CRT handle is
+  synchronous, so overlapped I/O on it would block the loop; the backend reports
+  `caps.async = false` and runs file ops synchronously inline rather than
+  advertising async and blocking (MEL-ENGINE-VIII). True overlapped file I/O is
+  pending a win-pilot build (see `todo.md`).
 - wasm — Emscripten virtual FS (MEMFS by default; OPFS/IDBFS/NODEFS when mounted).
   Synchronous: the `port` proactor is absent on wasm, so file ops degrade honestly to
   the direct virtual-FS path rather than failing.
