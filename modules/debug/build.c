@@ -9,10 +9,8 @@ void build(Mel_Build* b)
     mel_sources(lib, WHEN(.platforms = MEL_ON(IOS)), "src/ios/*.c", "src/posix/assert_backend.c", "src/nodialog/assert_dialog.c");
     mel_sources(lib, WHEN(.platforms = MEL_ON(WIN32)), "src/windows/*.c");
     mel_link(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(MACOS)), "-framework", "AppKit", "-framework", "Foundation");
-    // src/windows/stacktrace.c resolves symbols via DbgHelp (SymFromAddr / SymGetLineFromAddr64).
     mel_link(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(WIN32)), "-ldbghelp");
     mel_sources(lib, WHEN(.platforms = MEL_ON(ANDROID)), "src/android/*.c", "src/posix/assert_backend.c", "src/nodialog/assert_dialog.c");
-    // src/linux/stacktrace.c resolves symbols via glibc backtrace() + dladdr().
     mel_sources(lib, WHEN(.platforms = MEL_ON(LINUX)), "src/linux/*.c", "src/posix/assert_backend.c", "src/nodialog/assert_dialog.c");
     mel_sources(lib, WHEN(.platforms = MEL_ON(WASM)), "src/wasm/*.c", "src/nodialog/assert_dialog.c");
     mel_depends(lib, "core");

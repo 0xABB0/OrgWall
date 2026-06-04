@@ -208,3 +208,10 @@ MEL_TEST(debug_assert, interactive_handler_symbols_link)
     MEL_EXPECT(h != NULL);
     MEL_EXPECT(mel_assert_interactive_available() == mel_assert_interactive_available());
 }
+
+MEL_TEST(debug_assert, honest_absence_degrades_to_fallback_disposition)
+{
+    mel_assert_install_handler(NULL, NULL);
+    Mel_Assert_Dialog_Result r = mel_assert_dialog(false, S8("c"), S8("d"), NULL);
+    MEL_EXPECT_EQ(r, ASSERT_DIALOG_RESULT_ABORT);
+}
