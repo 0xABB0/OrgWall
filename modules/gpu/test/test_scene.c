@@ -27,6 +27,11 @@
 #include "gradient_bundle.h"
 #include "quad_bundle.h"
 
+static const char TRIANGLE_SLANG[] = {
+#embed "shaders/slang/triangle.slang"
+    , 0
+};
+
 #if MEL_GPU_VULKAN
 #define SCENE_BACKEND "vulkan"
 #elif MEL_GPU_METAL
@@ -167,45 +172,14 @@ MEL_TEST(scene_shared, triangle)
     Mel_Gpu_Buffer_Create_Result vbo = mel_gpu_buffer_create(dev, .size = sizeof verts, .usage = MEL_GPU_BUFFER_VERTEX, .memory = MEL_GPU_MEMORY_UPLOAD, .data = verts, .name = "scene-tri-vbo");
     MEL_REQUIRE(!mel_gpu_failed(vbo.status));
 
-    const Mel_Bundle_Graphics bundle = {
-        .name = "scene-triangle",
-        .spirv_vertex = TRIANGLE_VERT_SPV,
-        .spirv_vertex_size = sizeof TRIANGLE_VERT_SPV,
-        .spirv_fragment = TRIANGLE_FRAG_SPV,
-        .spirv_fragment_size = sizeof TRIANGLE_FRAG_SPV,
-        .msl_vertex = TRIANGLE_VERT_MSL,
-        .msl_vertex_size = sizeof TRIANGLE_VERT_MSL,
-        .msl_fragment = TRIANGLE_FRAG_MSL,
-        .msl_fragment_size = sizeof TRIANGLE_FRAG_MSL,
-        .wgsl_vertex = TRIANGLE_VERT_WGSL,
-        .wgsl_vertex_size = sizeof TRIANGLE_VERT_WGSL,
-        .wgsl_fragment = TRIANGLE_FRAG_WGSL,
-        .wgsl_fragment_size = sizeof TRIANGLE_FRAG_WGSL,
-#if TRIANGLE_HAS_DXIL
-        .dxil_vertex = TRIANGLE_VERT_DXIL,
-        .dxil_vertex_size = sizeof TRIANGLE_VERT_DXIL,
-        .dxil_fragment = TRIANGLE_FRAG_DXIL,
-        .dxil_fragment_size = sizeof TRIANGLE_FRAG_DXIL,
-#endif
-        .vertex_entry = TRIANGLE_VERT_ENTRY,
-        .fragment_entry = TRIANGLE_FRAG_ENTRY,
-    };
-    Mel_Gpu_Shader_Create_Result sh = mel_bundle_select_graphics(dev, &bundle);
-    MEL_REQUIRE(!mel_gpu_failed(sh.status));
-
-    const Mel_Gpu_Vertex_Element layout[] = {
-        { .location = 0, .format = MEL_GPU_FORMAT_RGB32_FLOAT, .offset = offsetof(Scene_Vertex, pos) },
-        { .location = 1, .format = MEL_GPU_FORMAT_RGBA32_FLOAT, .offset = offsetof(Scene_Vertex, color) },
-    };
-    Mel_Gpu_Pipeline_Create_Result pipe = mel_gpu_pipeline_create(dev,
-                                                                  .shader = sh.value,
-                                                                  .topology = MEL_GPU_TOPOLOGY_TRIANGLE_LIST,
-                                                                  .cull = MEL_GPU_CULL_NONE,
-                                                                  .color_format = MEL_GPU_FORMAT_RGBA8_UNORM,
-                                                                  .vertex_layout = layout,
-                                                                  .vertex_layout_count = 2,
-                                                                  .vertex_stride = sizeof(Scene_Vertex),
-                                                                  .name = "scene-triangle");
+    Mel_Gpu_Pipeline_From_Slang_Result pipe = mel_gpu_pipeline_create_from_slang(dev,
+                                                                                 .source = TRIANGLE_SLANG,
+                                                                                 .vertex_entry = "vs_main",
+                                                                                 .fragment_entry = "fs_main",
+                                                                                 .topology = MEL_GPU_TOPOLOGY_TRIANGLE_LIST,
+                                                                                 .cull = MEL_GPU_CULL_NONE,
+                                                                                 .color_format = MEL_GPU_FORMAT_RGBA8_UNORM,
+                                                                                 .name = "scene-triangle");
     MEL_REQUIRE(!mel_gpu_failed(pipe.status));
 
     Scene_Target tgt = scene_target_create(dev, SCENE_W, SCENE_H);
@@ -215,7 +189,7 @@ MEL_TEST(scene_shared, triangle)
 
     scene_target_destroy(dev, &tgt);
     mel_gpu_pipeline_destroy(dev, pipe.value);
-    mel_gpu_shader_destroy(dev, sh.value);
+    mel_gpu_shader_destroy(dev, pipe.shader);
     mel_gpu_buffer_destroy(dev, vbo.value);
     mel_gpu_device_destroy(dev);
     mel_gpu_instance_destroy(inst);

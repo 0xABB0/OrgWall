@@ -80,6 +80,7 @@ void build(Mel_Build* b)
     mel_depends(lib, "time");
     mel_depends(lib, "thermal");
     mel_depends(lib, "power");
+    mel_depends(lib, "slang");
 
     Mel_Target* found = mel_add_test(b, "gpu-foundation");
     mel_sources(found, ALWAYS, "test/test_foundation.c");
@@ -208,6 +209,7 @@ void build(Mel_Build* b)
     mel_sources(scenetest, ALWAYS, "test/img_golden.c");
     mel_sources(scenetest, ALWAYS, "../../tools/test/src/runner.c");
     mel_includes(scenetest, MEL_PRIVATE, ALWAYS, "../../apps/hello-gpu/src");
+    mel_cflags(scenetest, MEL_PRIVATE, ALWAYS, "--embed-dir=apps/hello-gpu");
     mel_defines(scenetest, MEL_PRIVATE, WHEN(.gpu = "vulkan"), "MEL_GPU_VULKAN=1");
     mel_defines(scenetest, MEL_PRIVATE, WHEN(.gpu = "metal"), "MEL_GPU_METAL=1");
     mel_defines(scenetest, MEL_PRIVATE, WHEN(.gpu = "webgpu"), "MEL_GPU_WEBGPU=1");
