@@ -4,6 +4,9 @@ void build(Mel_Build* b)
 {
     Mel_Target* app = mel_add_executable(b, "barcode-reader");
     mel_sources(app, ALWAYS, "src/*.c");
+    mel_manifest(app, "APP_LABEL", "Barcode Reader");
+    mel_manifest(app, "BUNDLE_ID", "orgwall.barcodereader");
+    mel_apple_plist(app, "apple/Info.plist.partial");
     mel_depends(app, "camera");
     mel_depends(app, "barcode");
     mel_depends(app, "image");

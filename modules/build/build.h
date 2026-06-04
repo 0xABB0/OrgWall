@@ -62,6 +62,7 @@ MEL_API void mel_subsystem(Mel_Target* t, const char* subsystem);
 MEL_API void mel_android_manifest(Mel_Target* t, const char* path);
 MEL_API void mel_android_java(Mel_Target* t, const char* dir);
 MEL_API void mel_android_namespace(Mel_Target* t, const char* ns);
+MEL_API void mel_apple_plist(Mel_Target* t, const char* path);
 
 MEL_API void mel_sources_(Mel_Target* t, Mel_When when, ...);
 MEL_API void mel_exclude_source_(Mel_Target* t, Mel_When when, ...);

@@ -207,6 +207,20 @@ static int launch(Mel_Graph* g, const char* target, const Mel_Variant* v, const 
             fprintf(stderr, "nob: '%s' produced nothing to run\n", target);
             return 1;
         }
+        if (v->platform == MEL_PLATFORM_MACOS)
+        {
+            Mel_Target* mt = mel_graph_find(g, target);
+            char*       mout = mt ? mel_target_outdir(mt->dir, v) : NULL;
+            if (mout)
+            {
+                char* bundle = mel_str_fmt("%s/%s.app/Contents/MacOS/%s", mout, target, target);
+                if (mel_path_is_file(bundle))
+                {
+                    fprintf(stderr, "nob: running %s\n", bundle);
+                    return spawn(bundle, xtra, nxtra);
+                }
+            }
+        }
         fprintf(stderr, "nob: running %s\n", bin);
         return spawn(bin, xtra, nxtra);
     }

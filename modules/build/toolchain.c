@@ -103,6 +103,8 @@ Mel_Toolchain mel_toolchain(const Mel_Variant* v)
         tc.ar = mel_str_fmt("%s/toolchains/llvm/prebuilt/darwin-x86_64/bin/llvm-ar", ndk);
         tc.triple = mel_str_fmt("%s-linux-android", la);
         tc.cross = true;
+        free(tc.base_cflags);
+        tc.base_cflags = mel_str_dup("-fPIC");
         free(ndk);
         break;
     }

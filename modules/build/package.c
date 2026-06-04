@@ -137,6 +137,23 @@ static bool package_apple(Mel_Target* t, const char* outdir, const char* exe, co
         return false;
     }
     char* plist = substitute(tpl, &vars);
+    if (t->apple_plist)
+    {
+        char* frag_path = mel_str_fmt("%s/%s", t->dir, t->apple_plist);
+        char* frag_raw = mel_read_file(frag_path);
+        if (!frag_raw)
+        {
+            fprintf(stderr, "build: package: missing apple plist fragment %s\n", frag_path);
+            return false;
+        }
+        char*       frag = substitute(frag_raw, &vars);
+        const char* tag = "</dict>";
+        const char* last = NULL;
+        for (const char* p = strstr(plist, tag); p; p = strstr(p + 1, tag))
+            last = p;
+        if (last)
+            plist = mel_str_fmt("%.*s%s%s", (int)(last - plist), plist, frag, last);
+    }
     char* plist_dst = mel_path_join(plistdir, "Info.plist");
     mel_write_file(plist_dst, plist);
 

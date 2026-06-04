@@ -110,6 +110,7 @@ struct Mel_Target
     const char* android_manifest;
     const char* android_java;
     const char* android_namespace;
+    const char* apple_plist;
 
     const char* cmake_dir;
     Mel_StrVec  cmake_args;
