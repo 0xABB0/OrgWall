@@ -7,7 +7,7 @@ void mel_shell_init(const Mel_Alloc* alloc, Mel_Reactor* reactor);
 void mel_shell_shutdown(void);
 bool mel_shell_available(void);
 
-Mel_Future* mel_shell_open_url(str8 url, ...);       // .deliver, .alloc, .out_op
+Mel_Future* mel_shell_open_url(str8 url, ...);       // .alloc, .out_op
 Mel_Future* mel_shell_reveal_path(str8 path, ...);
 
 bool             mel_shell_cancel(Mel_Shell_Op op);
@@ -46,7 +46,8 @@ loop (the main run loop for the Apple callbacks).
 - `reveal_path` that can only open the parent folder → `WARNED | REVEAL_DEGRADED`.
 
 `shutdown` cancels every unresolved job; jobs with a continuation are freed by the future's
-continuation path, the rest by shutdown directly.
+continuation path (safe even after `g` teardown — the job owns its allocator and the slotmap is
+freed wholesale), the rest by shutdown directly.
 
 ## Backends
 

@@ -34,8 +34,17 @@ static Mel_Shell_Status spawn_detached(char* const argv[])
         mel_log_error("shell", "posix_spawnp %s: %s", argv[0], strerror(rc));
         return MEL_SHELL_ERROR | (rc == ENOENT ? MEL_SHELL_RESULT_NO_HANDLER : MEL_SHELL_RESULT_SPAWN_FAIL);
     }
-    int wst = 0;
-    if (waitpid(pid, &wst, 0) == pid && WIFEXITED(wst) && WEXITSTATUS(wst) != 0)
+    int   wst = 0;
+    pid_t reaped;
+    do
+        reaped = waitpid(pid, &wst, 0);
+    while (reaped < 0 && errno == EINTR);
+    if (reaped < 0)
+    {
+        mel_log_error("shell", "waitpid %s: %s", argv[0], strerror(errno));
+        return MEL_SHELL_ERROR | MEL_SHELL_RESULT_SPAWN_FAIL;
+    }
+    if (WIFEXITED(wst) && WEXITSTATUS(wst) != 0)
         return MEL_SHELL_ERROR | MEL_SHELL_RESULT_NO_HANDLER;
     return MEL_SHELL_OK;
 }
