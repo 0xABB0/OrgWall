@@ -4,29 +4,25 @@
 
 #include <core/types.h>
 #include <allocator/allocator.h>
+#include <event/event.h>
 #include <log/log.h>
+
+#include <aaudio/AAudio.h>
 
 #include <stdatomic.h>
 #include <string.h>
 
-void mel_audio_backend_set_device_event(Mel_Event* ev)
-{
-    MEL_UNUSED(ev);
-    mel_log_info("audio", "aaudio: device-event hook installed but unfired (no AAudio default-route change listener wired)");
-}
-
-#if defined(__ANDROID_API__) && __ANDROID_API__ >= 26
-
-#include <aaudio/AAudio.h>
+#define MEL_AUDIO__DEVICE_EVENT_DISCONNECTED 1u
 
 typedef struct
 {
-    AAudioStream*   stream;
-    Mel_Audio_Ring* ring;
-    u32             channels;
-    u32             block_frames;
-    _Atomic(u32)    underruns;
-    u32             started;
+    AAudioStream*       stream;
+    Mel_Audio_Ring*     ring;
+    u32                 channels;
+    u32                 block_frames;
+    _Atomic(u32)        underruns;
+    u32                 started;
+    _Atomic(Mel_Event*) device_events;
 } Mel_Audio__AAudio;
 
 static Mel_Audio__AAudio g_aaudio;
@@ -53,8 +49,19 @@ static aaudio_data_callback_result_t mel_audio__aaudio_data(AAudioStream* stream
 static void mel_audio__aaudio_error(AAudioStream* stream, void* user, aaudio_result_t error)
 {
     MEL_UNUSED(stream);
-    MEL_UNUSED(user);
+
+    Mel_Audio__AAudio* st = (Mel_Audio__AAudio*)user;
     mel_log_error("audio", "aaudio device error: %s", AAudio_convertResultToText(error));
+
+    if (error == AAUDIO_ERROR_DISCONNECTED)
+    {
+        Mel_Event* ev = atomic_load_explicit(&st->device_events, memory_order_acquire);
+        if (ev != NULL)
+        {
+            u32 code = MEL_AUDIO__DEVICE_EVENT_DISCONNECTED;
+            mel_event_fire(ev, &code);
+        }
+    }
 }
 
 bool mel_audio_backend_open(Mel_Audio_Opt req, Mel_Audio_Caps* granted, const Mel_Alloc* a)
@@ -67,7 +74,9 @@ bool mel_audio_backend_open(Mel_Audio_Opt req, Mel_Audio_Caps* granted, const Me
 
     MEL_UNUSED(a);
 
+    Mel_Event* prior_events = atomic_load_explicit(&g_aaudio.device_events, memory_order_relaxed);
     g_aaudio = (Mel_Audio__AAudio){ 0 };
+    atomic_store_explicit(&g_aaudio.device_events, prior_events, memory_order_relaxed);
 
     AAudioStreamBuilder* builder = NULL;
     aaudio_result_t      res = AAudio_createStreamBuilder(&builder);
@@ -178,36 +187,12 @@ void mel_audio_backend_close(const Mel_Alloc* a)
     if (underruns > 0u)
         mel_log_warn("audio", "aaudio closed with %u underruns", underruns);
 
+    Mel_Event* prior_events = atomic_load_explicit(&g_aaudio.device_events, memory_order_relaxed);
     g_aaudio = (Mel_Audio__AAudio){ 0 };
+    atomic_store_explicit(&g_aaudio.device_events, prior_events, memory_order_relaxed);
 }
 
-#else
-
-bool mel_audio_backend_open(Mel_Audio_Opt req, Mel_Audio_Caps* granted, const Mel_Alloc* a)
+void mel_audio_backend_set_device_event(Mel_Event* ev)
 {
-    MEL_UNUSED(req);
-    MEL_UNUSED(granted);
-    MEL_UNUSED(a);
-    mel_log_error("audio", "OpenSL ES backend (Android API < 26) is unimplemented; AAudio requires API 26+");
-    assert(!"unimplemented: OpenSL ES floor backend_open (Android API < 26)");
-    return false;
+    atomic_store_explicit(&g_aaudio.device_events, ev, memory_order_release);
 }
-
-void mel_audio_backend_start(Mel_Audio_Ring* ring)
-{
-    MEL_UNUSED(ring);
-    assert(!"unimplemented: OpenSL ES floor backend_start (Android API < 26)");
-}
-
-void mel_audio_backend_stop(void)
-{
-    assert(!"unimplemented: OpenSL ES floor backend_stop (Android API < 26)");
-}
-
-void mel_audio_backend_close(const Mel_Alloc* a)
-{
-    MEL_UNUSED(a);
-    assert(!"unimplemented: OpenSL ES floor backend_close (Android API < 26)");
-}
-
-#endif

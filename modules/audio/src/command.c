@@ -251,6 +251,28 @@ void mel_audio__end_future_resolve(Mel_Audio* eng, Mel_SlotMap_Handle handle, Me
     }
 }
 
+void mel_audio__end_future_release(Mel_Audio* eng, Mel_Future* fut)
+{
+    assert(eng != NULL);
+    assert(fut != NULL);
+    for (usize i = 0; i < eng->end_futures.count; i++)
+    {
+        Mel_Audio__End_Future* e = &eng->end_futures.items[i];
+        if (e->fut == fut)
+        {
+            if (e->resolved == 0u)
+                mel_future_resolve(e->fut, NULL, MEL_FUTURE_BROKEN);
+            mel_dealloc(eng->alloc, e->fut);
+            usize last = eng->end_futures.count - 1u;
+            if (i != last)
+                eng->end_futures.items[i] = eng->end_futures.items[last];
+            eng->end_futures.count--;
+            return;
+        }
+    }
+    mel_log_warn("audio", "voice_end_future_free: future not in registry (double free or foreign future)");
+}
+
 void mel_audio__end_futures_free(Mel_Audio* eng)
 {
     assert(eng != NULL);
@@ -269,6 +291,11 @@ void mel_audio__cmd_attach_end_future(Mel_Audio* eng, const Mel_Audio__Command* 
     mel_audio__end_future_register(eng, cmd->handle, cmd->fut);
     if (!mel_audio__voice_alive(&eng->voices, cmd->handle))
         mel_audio__end_future_resolve(eng, cmd->handle, MEL_FUTURE_OK);
+}
+
+void mel_audio__cmd_release_end_future(Mel_Audio* eng, const Mel_Audio__Command* cmd)
+{
+    mel_audio__end_future_release(eng, cmd->fut);
 }
 
 void mel_audio__commands_drain(Mel_Audio* eng)

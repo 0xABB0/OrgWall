@@ -241,7 +241,10 @@ void mel_audio_backend_close(const Mel_Alloc* a)
 
 void mel_audio_backend_set_device_event(Mel_Event* ev)
 {
-    MEL_UNUSED(ev);
-    if (ev != NULL)
-        mel_log_info("audio.alsa", "device-event hook installed but unfired (no ALSA hotplug listener wired)");
+    static u32 announced = 0u;
+    if (ev != NULL && announced == 0u)
+    {
+        announced = 1u;
+        mel_log_info("audio.alsa", "device-change events unavailable: the ALSA 'default' PCM exposes no portable hotplug notification (PipeWire would); this is a capability boundary, not a missing feature");
+    }
 }

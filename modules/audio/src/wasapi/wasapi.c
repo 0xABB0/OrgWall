@@ -2,6 +2,7 @@
 
 #include <core/types.h>
 #include <allocator/allocator.h>
+#include <event/event.h>
 #include <thread/thread.h>
 #include <log/log.h>
 
@@ -19,8 +20,11 @@ DEFINE_GUID(CLSID_MMDeviceEnumerator, 0xBCDE0395, 0xE52F, 0x467C, 0x8E, 0x3D, 0x
 DEFINE_GUID(IID_IMMDeviceEnumerator, 0xA95664D2, 0x9614, 0x4F35, 0xA7, 0x46, 0xDE, 0x8D, 0xB6, 0x36, 0x17, 0xE6);
 DEFINE_GUID(IID_IAudioClient, 0x1CB9AD4C, 0xDBFA, 0x4C32, 0xB1, 0x78, 0xC2, 0xF5, 0x68, 0xA7, 0x03, 0xB2);
 DEFINE_GUID(IID_IAudioRenderClient, 0xF294ACFC, 0x3146, 0x4483, 0xA7, 0xBF, 0xAD, 0xDC, 0xA7, 0xC2, 0x60, 0xE2);
+DEFINE_GUID(IID_IMMNotificationClient, 0x7991EEC9, 0x7E89, 0x4D85, 0x83, 0x90, 0x6C, 0x70, 0x3C, 0xEC, 0x60, 0xC0);
 
 #include <stdatomic.h>
+
+#define MEL_AUDIO__DEVICE_EVENT_DEFAULT_CHANGED 1u
 
 u32 mel_audio_ring_read_available(const Mel_Audio_Ring* r);
 u32 mel_audio_ring_read(Mel_Audio_Ring* r, f32* dst, u32 count);
@@ -48,9 +52,107 @@ typedef struct
     _Atomic(u32)    underruns;
     _Atomic(u32)    primed;
     _Atomic(u32)    com_owned;
+
+    _Atomic(Mel_Event*) device_events;
+    u32                 notify_registered;
 } Mel_Wasapi;
 
 static Mel_Wasapi mel_wasapi__state;
+
+typedef struct
+{
+    IMMNotificationClientVtbl* lpVtbl;
+    _Atomic(LONG)              refs;
+} Mel_Wasapi_Notify;
+
+static Mel_Wasapi_Notify mel_wasapi__notify;
+
+static void mel_wasapi__fire_default_changed(void)
+{
+    Mel_Event* ev = atomic_load_explicit(&mel_wasapi__state.device_events, memory_order_acquire);
+    if (ev != NULL)
+    {
+        u32 code = MEL_AUDIO__DEVICE_EVENT_DEFAULT_CHANGED;
+        mel_event_fire(ev, &code);
+    }
+}
+
+static HRESULT STDMETHODCALLTYPE mel_wasapi__notify_query(IMMNotificationClient* self, REFIID riid, void** out)
+{
+    if (out == NULL)
+        return E_POINTER;
+    if (IsEqualGUID(riid, &IID_IUnknown) || IsEqualGUID(riid, &IID_IMMNotificationClient))
+    {
+        *out = self;
+        atomic_fetch_add_explicit(&mel_wasapi__notify.refs, 1, memory_order_relaxed);
+        return S_OK;
+    }
+    *out = NULL;
+    return E_NOINTERFACE;
+}
+
+static ULONG STDMETHODCALLTYPE mel_wasapi__notify_addref(IMMNotificationClient* self)
+{
+    MEL_UNUSED(self);
+    return (ULONG)(atomic_fetch_add_explicit(&mel_wasapi__notify.refs, 1, memory_order_relaxed) + 1);
+}
+
+static ULONG STDMETHODCALLTYPE mel_wasapi__notify_release(IMMNotificationClient* self)
+{
+    MEL_UNUSED(self);
+    return (ULONG)(atomic_fetch_sub_explicit(&mel_wasapi__notify.refs, 1, memory_order_relaxed) - 1);
+}
+
+static HRESULT STDMETHODCALLTYPE mel_wasapi__notify_default_changed(IMMNotificationClient* self, EDataFlow flow, ERole role, LPCWSTR id)
+{
+    MEL_UNUSED(self);
+    MEL_UNUSED(id);
+    if (flow == eRender && role == eConsole)
+        mel_wasapi__fire_default_changed();
+    return S_OK;
+}
+
+static HRESULT STDMETHODCALLTYPE mel_wasapi__notify_state_changed(IMMNotificationClient* self, LPCWSTR id, DWORD state)
+{
+    MEL_UNUSED(self);
+    MEL_UNUSED(id);
+    MEL_UNUSED(state);
+    mel_wasapi__fire_default_changed();
+    return S_OK;
+}
+
+static HRESULT STDMETHODCALLTYPE mel_wasapi__notify_device_added(IMMNotificationClient* self, LPCWSTR id)
+{
+    MEL_UNUSED(self);
+    MEL_UNUSED(id);
+    return S_OK;
+}
+
+static HRESULT STDMETHODCALLTYPE mel_wasapi__notify_device_removed(IMMNotificationClient* self, LPCWSTR id)
+{
+    MEL_UNUSED(self);
+    MEL_UNUSED(id);
+    return S_OK;
+}
+
+static HRESULT STDMETHODCALLTYPE mel_wasapi__notify_property_changed(IMMNotificationClient* self, LPCWSTR id, const PROPERTYKEY key)
+{
+    MEL_UNUSED(self);
+    MEL_UNUSED(id);
+    MEL_UNUSED(key);
+    return S_OK;
+}
+
+static IMMNotificationClientVtbl mel_wasapi__notify_vtbl = {
+    .QueryInterface = mel_wasapi__notify_query,
+    .AddRef = mel_wasapi__notify_addref,
+    .Release = mel_wasapi__notify_release,
+    .OnDeviceStateChanged = mel_wasapi__notify_state_changed,
+    .OnDeviceAdded = mel_wasapi__notify_device_added,
+    .OnDeviceRemoved = mel_wasapi__notify_device_removed,
+    .OnDefaultDeviceChanged = mel_wasapi__notify_default_changed,
+    .OnPropertyValueChanged = mel_wasapi__notify_property_changed,
+};
 
 static void mel_wasapi__log_hr(const char* what, HRESULT hr)
 {
@@ -417,7 +519,38 @@ void mel_audio_backend_close(const Mel_Alloc* a)
 
 void mel_audio_backend_set_device_event(Mel_Event* ev)
 {
-    MEL_UNUSED(ev);
+    Mel_Wasapi* s = &mel_wasapi__state;
+
+    atomic_store_explicit(&s->device_events, ev, memory_order_release);
+
     if (ev != NULL)
-        mel_log_info("audio.wasapi", "device-event hook installed but unfired (IMMNotificationClient hotplug listener not wired)");
+    {
+        if (s->enumerator == NULL)
+        {
+            mel_log_error("audio.wasapi", "set_device_event before backend_open; no enumerator to register notifications on");
+            return;
+        }
+        if (s->notify_registered)
+            return;
+
+        mel_wasapi__notify.lpVtbl = &mel_wasapi__notify_vtbl;
+        atomic_store_explicit(&mel_wasapi__notify.refs, 1, memory_order_relaxed);
+
+        HRESULT hr = IMMDeviceEnumerator_RegisterEndpointNotificationCallback(s->enumerator, (IMMNotificationClient*)&mel_wasapi__notify);
+        if (FAILED(hr))
+        {
+            mel_wasapi__log_hr("IMMDeviceEnumerator::RegisterEndpointNotificationCallback", hr);
+            return;
+        }
+        s->notify_registered = 1u;
+        return;
+    }
+
+    if (s->notify_registered && s->enumerator != NULL)
+    {
+        HRESULT hr = IMMDeviceEnumerator_UnregisterEndpointNotificationCallback(s->enumerator, (IMMNotificationClient*)&mel_wasapi__notify);
+        if (FAILED(hr))
+            mel_wasapi__log_hr("IMMDeviceEnumerator::UnregisterEndpointNotificationCallback", hr);
+        s->notify_registered = 0u;
+    }
 }

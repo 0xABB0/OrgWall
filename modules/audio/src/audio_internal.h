@@ -197,9 +197,11 @@ void mel_audio__cmd_schedule_pause(Mel_Audio* eng, const Mel_Audio__Command* cmd
 void mel_audio__cmd_schedule_stop(Mel_Audio* eng, const Mel_Audio__Command* cmd);
 void mel_audio__cmd_fade_master(Mel_Audio* eng, const Mel_Audio__Command* cmd);
 void mel_audio__cmd_attach_end_future(Mel_Audio* eng, const Mel_Audio__Command* cmd);
+void mel_audio__cmd_release_end_future(Mel_Audio* eng, const Mel_Audio__Command* cmd);
 
 void mel_audio__end_future_register(Mel_Audio* eng, Mel_SlotMap_Handle handle, Mel_Future* fut);
 void mel_audio__end_future_resolve(Mel_Audio* eng, Mel_SlotMap_Handle handle, Mel_Future_Status status);
+void mel_audio__end_future_release(Mel_Audio* eng, Mel_Future* fut);
 void mel_audio__end_futures_free(Mel_Audio* eng);
 
 f32  mel_audio__fade_eval(const Mel_Audio__Scalar_Fade* f, f64 clock, u32* done);

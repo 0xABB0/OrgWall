@@ -10,7 +10,8 @@ extern "C"
 #endif
 
 Mel_Future* mel_audio_voice_end_future(Mel_Audio* eng, Mel_Audio_Voice v);
-Mel_Event* mel_audio_device_events(Mel_Audio* eng);
+void        mel_audio_voice_end_future_free(Mel_Audio* eng, Mel_Future* fut);
+Mel_Event*  mel_audio_device_events(Mel_Audio* eng);
 
 #ifdef __cplusplus
 }

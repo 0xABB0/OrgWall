@@ -36,6 +36,28 @@ Mel_Future* mel_audio_voice_end_future(Mel_Audio* eng, Mel_Audio_Voice v)
     return fut;
 }
 
+void mel_audio_voice_end_future_free(Mel_Audio* eng, Mel_Future* fut)
+{
+    assert(eng != NULL);
+    if (fut == NULL)
+        return;
+
+    if (!mel_audio__api_enter(eng))
+        return;
+
+    if (eng->online == 0u)
+    {
+        Mel_Audio__Command cmd = { .apply = mel_audio__cmd_release_end_future, .fut = fut };
+        mel_audio__cmd_release_end_future(eng, &cmd);
+        mel_audio__api_leave(eng);
+        return;
+    }
+
+    Mel_Audio__Command cmd = { .apply = mel_audio__cmd_release_end_future, .fut = fut };
+    mel_audio__command_push(eng, &cmd);
+    mel_audio__api_leave(eng);
+}
+
 Mel_Event* mel_audio_device_events(Mel_Audio* eng)
 {
     assert(eng != NULL);

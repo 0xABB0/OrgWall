@@ -348,7 +348,7 @@ void mel_audio_backend_set_device_event(Mel_Event* ev)
         {
             OSStatus st = AudioObjectAddPropertyListener(kAudioObjectSystemObject, &g_ca_default_device_addr, mel_audio__ca_device_listener, NULL);
             if (st != noErr)
-                mel_log_warn("audio", "coreaudio: install default-device listener failed (OSStatus %d); hotplug events unfired", (i32)st);
+                mel_log_warn("audio", "coreaudio: install default-device listener failed (OSStatus %d); no device-change events this session", (i32)st);
             else
                 g_ca.listener_installed = 1u;
         }

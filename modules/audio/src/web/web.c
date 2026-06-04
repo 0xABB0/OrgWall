@@ -2,15 +2,19 @@
 
 #include <core/types.h>
 #include <allocator/allocator.h>
+#include <event/event.h>
 #include <log/log.h>
 
 #include <emscripten/webaudio.h>
+#include <emscripten/em_js.h>
 
 #include <stdatomic.h>
 #include <string.h>
 
 #define MEL_AUDIO_WEB_QUANTUM       128
 #define MEL_AUDIO_WEB_WORKLET_STACK (1u << 16)
+
+#define MEL_AUDIO__DEVICE_EVENT_DEVICECHANGE 1u
 
 typedef struct
 {
@@ -27,9 +31,42 @@ typedef struct
     u32                             underrun_asserted;
     u32                             opened;
     u32                             started;
+    _Atomic(Mel_Event*)             device_events;
+    u32                             devicechange_listening;
 } Mel_Audio_Web;
 
 static Mel_Audio_Web g_web;
+
+EMSCRIPTEN_KEEPALIVE void mel_audio_web__on_devicechange(void)
+{
+    Mel_Event* ev = atomic_load_explicit(&g_web.device_events, memory_order_acquire);
+    if (ev != NULL)
+    {
+        u32 code = MEL_AUDIO__DEVICE_EVENT_DEVICECHANGE;
+        mel_event_fire(ev, &code);
+    }
+}
+
+EM_JS(int, mel_audio_web__add_devicechange_listener, (void), {
+    if (typeof navigator === 'undefined' || !navigator.mediaDevices)
+        return 0;
+    if (Module['_mel_audio_web_devicechange_handler'])
+        return 1;
+    var handler = function() { _mel_audio_web__on_devicechange(); };
+    Module['_mel_audio_web_devicechange_handler'] = handler;
+    navigator.mediaDevices.addEventListener('devicechange', handler);
+    return 1;
+});
+
+EM_JS(void, mel_audio_web__remove_devicechange_listener, (void), {
+    if (typeof navigator === 'undefined' || !navigator.mediaDevices)
+        return;
+    var handler = Module['_mel_audio_web_devicechange_handler'];
+    if (handler) {
+        navigator.mediaDevices.removeEventListener('devicechange', handler);
+        Module['_mel_audio_web_devicechange_handler'] = undefined;
+    }
+});
 
 bool mel_audio_backend_open(Mel_Audio_Opt req, Mel_Audio_Caps* granted, const Mel_Alloc* a)
 {
@@ -261,7 +298,20 @@ void mel_audio_backend_close(const Mel_Alloc* a)
 
 void mel_audio_backend_set_device_event(Mel_Event* ev)
 {
-    MEL_UNUSED(ev);
+    atomic_store_explicit(&g_web.device_events, ev, memory_order_release);
+
     if (ev != NULL)
-        mel_log_info("audio.web", "device-event hook installed but unfired (Web Audio device-change events not wired)");
+    {
+        if (g_web.devicechange_listening)
+            return;
+        if (mel_audio_web__add_devicechange_listener() != 0)
+            g_web.devicechange_listening = 1u;
+        return;
+    }
+
+    if (g_web.devicechange_listening)
+    {
+        mel_audio_web__remove_devicechange_listener();
+        g_web.devicechange_listening = 0u;
+    }
 }
