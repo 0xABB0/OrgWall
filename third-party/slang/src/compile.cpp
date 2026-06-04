@@ -255,7 +255,88 @@ static void mel_slang__collect_binding(VariableLayoutReflection* param, Mel_Slan
     refl->binding_count = n;
 }
 
-static void mel_slang__reflect(IComponentType* linked, const char* entry, Mel_Slang_Reflection* out)
+static void mel_slang__append_arg_field(Mel_Slang_Reflection* refl, Mel_Slang_Resource_Kind kind, int is_uniform, uint32_t host_offset, uint32_t arg_index, uint32_t size)
+{
+    uint32_t n             = refl->metal_arg_field_count + 1;
+    refl->metal_arg_fields = (Mel_Slang_Metal_Arg_Field*)realloc(refl->metal_arg_fields, n * sizeof(Mel_Slang_Metal_Arg_Field));
+    Mel_Slang_Metal_Arg_Field* f = &refl->metal_arg_fields[refl->metal_arg_field_count];
+    f->kind                     = kind;
+    f->is_uniform               = is_uniform;
+    f->host_offset              = host_offset;
+    f->arg_index                = arg_index;
+    f->size                     = size;
+    refl->metal_arg_field_count = n;
+}
+
+/* Collect the Metal argument-buffer layout of a push-constant struct that lowered to an
+   inlined argument buffer (a DescriptorHandle field present). Walks the struct fields in
+   declaration order: a resource field is a bindless slot (the host carries a 4-byte slot
+   index, matching the Vulkan/WGSL `uint` lane); a scalar/vector/matrix field is an inline
+   uniform. The Metal argument-buffer member index equals the field's positional index
+   (probed: texture at index 0, the trailing scalars at 1..N), which MTLArgumentEncoder
+   consumes via setTexture:/constantDataAtIndex:. Returns true iff at least one resource
+   field was found (i.e. the struct really is a mixed argument buffer, not pure uniforms). */
+static bool mel_slang__collect_metal_arg_fields(TypeLayoutReflection* body, Mel_Slang_Reflection* refl)
+{
+    unsigned fc           = body->getFieldCount();
+    uint32_t host_cursor  = 0;
+    bool     has_resource = false;
+    for (unsigned i = 0; i < fc; ++i)
+    {
+        VariableLayoutReflection* fv  = body->getFieldByIndex(i);
+        TypeLayoutReflection*     ftl = fv->getTypeLayout();
+        if (!ftl)
+            return false;
+        TypeReflection*      fty  = ftl->getType();
+        TypeReflection::Kind kind = fty ? fty->getKind() : TypeReflection::Kind::None;
+
+        bool is_resource = kind == TypeReflection::Kind::Resource || kind == TypeReflection::Kind::SamplerState || kind == TypeReflection::Kind::ShaderStorageBuffer || kind == TypeReflection::Kind::ConstantBuffer;
+        if (is_resource)
+        {
+            has_resource = true;
+            mel_slang__append_arg_field(refl, mel_slang__resource_kind(ftl), 0, host_cursor, (uint32_t)i, 4);
+            host_cursor += 4;
+        }
+        else
+        {
+            uint32_t sz = (uint32_t)ftl->getSize(SLANG_PARAMETER_CATEGORY_UNIFORM);
+            mel_slang__append_arg_field(refl, MEL_SLANG_RESOURCE_UNKNOWN, 1, host_cursor, (uint32_t)i, sz);
+            host_cursor += sz;
+        }
+    }
+    return has_resource;
+}
+
+static void mel_slang__collect_metal_arg_buffer(ProgramLayout* layout, Mel_Slang_Reflection* out)
+{
+    unsigned gpc = layout->getParameterCount();
+    for (unsigned i = 0; i < gpc; ++i)
+    {
+        VariableLayoutReflection* p  = layout->getParameterByIndex(i);
+        TypeLayoutReflection*     tl = p ? p->getTypeLayout() : nullptr;
+        if (!tl)
+            continue;
+        TypeLayoutReflection* body = tl->getElementTypeLayout();
+        if (!body)
+            body = tl;
+        TypeReflection* ty = body->getType();
+        if (!ty || ty->getKind() != TypeReflection::Kind::Struct)
+            continue;
+        if (mel_slang__collect_metal_arg_fields(body, out))
+        {
+            out->metal_arg_buffer = 1;
+            return;
+        }
+        if (out->metal_arg_field_count)
+        {
+            free(out->metal_arg_fields);
+            out->metal_arg_fields      = nullptr;
+            out->metal_arg_field_count = 0;
+        }
+    }
+}
+
+static void mel_slang__reflect(IComponentType* linked, const char* entry, Mel_Slang_Target target, Mel_Slang_Reflection* out)
 {
     memset(out, 0, sizeof(*out));
 
@@ -312,6 +393,9 @@ static void mel_slang__reflect(IComponentType* linked, const char* entry, Mel_Sl
     unsigned gpc = layout->getParameterCount();
     for (unsigned i = 0; i < gpc; ++i)
         mel_slang__collect_binding(layout->getParameterByIndex(i), out);
+
+    if (target == MEL_SLANG_TARGET_MSL)
+        mel_slang__collect_metal_arg_buffer(layout, out);
 }
 
 extern "C" Mel_Slang_Blob mel_slang_compile_reflect(const char* source, const char* entry, Mel_Slang_Stage stage, Mel_Slang_Target target, Mel_Slang_Reflection* out_reflection)
@@ -336,9 +420,35 @@ extern "C" Mel_Slang_Blob mel_slang_compile_reflect(const char* source, const ch
     targetDesc.format     = map.format;
     targetDesc.profile    = global->findProfile(map.profile);
 
-    SessionDesc sessionDesc = {};
-    sessionDesc.targets     = &targetDesc;
-    sessionDesc.targetCount = 1;
+    /* MEL_FLAG(metal-bindless-reflection): a per-target preprocessor macro lets ONE .slang
+       source author the bindless access two ways — the hand-placed [[vk::binding]] heap on
+       SPIR-V/WGSL (the green §6.7 lane, untouched) and a first-class DescriptorHandle field
+       on Metal. Slang predefines no per-target macro (only __HLSL__/__SLANG__), so the host
+       injects one. The split is at preprocess time because the two lanes differ in top-level
+       declarations (heap array vs handle field), which __target_switch cannot gate. */
+    PreprocessorMacroDesc targetMacro = {};
+    targetMacro.value = "1";
+    switch (target)
+    {
+        case MEL_SLANG_TARGET_MSL:
+            targetMacro.name = "MEL_TARGET_METAL";
+            break;
+        case MEL_SLANG_TARGET_SPIRV:
+            targetMacro.name = "MEL_TARGET_SPIRV";
+            break;
+        case MEL_SLANG_TARGET_WGSL:
+            targetMacro.name = "MEL_TARGET_WGSL";
+            break;
+        case MEL_SLANG_TARGET_DXIL:
+            targetMacro.name = "MEL_TARGET_DXIL";
+            break;
+    }
+
+    SessionDesc sessionDesc            = {};
+    sessionDesc.targets                = &targetDesc;
+    sessionDesc.targetCount            = 1;
+    sessionDesc.preprocessorMacros     = &targetMacro;
+    sessionDesc.preprocessorMacroCount = 1;
 
     ComPtr<ISession> session;
     if (SLANG_FAILED(global->createSession(sessionDesc, session.writeRef())) || !session)
@@ -367,7 +477,7 @@ extern "C" Mel_Slang_Blob mel_slang_compile_reflect(const char* source, const ch
         return mel_slang__fail(mel_slang__diag(diag, "slang: code generation failed"));
 
     if (out_reflection)
-        mel_slang__reflect(linked.get(), entry, out_reflection);
+        mel_slang__reflect(linked.get(), entry, target, out_reflection);
 
     Mel_Slang_Blob out  = { nullptr, 0, nullptr };
     size_t         n    = code->getBufferSize();
@@ -412,6 +522,7 @@ extern "C" void mel_slang_reflection_free(Mel_Slang_Reflection* reflection)
     for (uint32_t i = 0; i < reflection->binding_count; ++i)
         free(reflection->bindings[i].name);
     free(reflection->bindings);
+    free(reflection->metal_arg_fields);
     free(reflection->entry);
     memset(reflection, 0, sizeof(*reflection));
 }

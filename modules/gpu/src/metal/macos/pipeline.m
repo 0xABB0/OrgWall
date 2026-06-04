@@ -645,6 +645,37 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_compute_create_opt(Mel_Gpu_Devic
         obj.threadgroup = MTLSizeMake(opt.threadgroup[0], opt.threadgroup[1], opt.threadgroup[2]);
     else
         obj.threadgroup = MTLSizeMake(state.threadExecutionWidth, 1, 1);
+
+    if (opt.bindless_arg_field_count && opt.bindless_arg_fields)
+    {
+        id<MTLArgumentEncoder> enc = [cfn newArgumentEncoderWithBufferIndex:MEL_GPU_METAL_PUSH_CONSTANT_INDEX];
+        if (!enc)
+        {
+            mel_log_error("gpu",
+                          "pipeline_compute_create '%s': from-slang bindless argument buffer requested but the compute function exposes no argument buffer at buffer(%u); the DescriptorHandle lowering did not produce an argument buffer",
+                          dbg_name,
+                          MEL_GPU_METAL_PUSH_CONSTANT_INDEX);
+            id s = (__bridge_transfer id)obj.state;
+            (void)s;
+            res.status = MEL_GPU_PIPELINE_CREATE_BACKEND_FAILED;
+            return res;
+        }
+        obj.arg_encoder = (__bridge_retained void*)enc;
+        obj.arg_encoded_length = enc.encodedLength;
+        obj.arg_field_count = opt.bindless_arg_field_count;
+        obj.arg_fields = mel_alloc_array(dev->alloc, Mel_Gpu_Mtl_Arg_Field, opt.bindless_arg_field_count);
+        u32 host_size = 0;
+        for (u32 i = 0; i < opt.bindless_arg_field_count; i++)
+        {
+            const Mel_Gpu_Bindless_Arg_Field* f = &opt.bindless_arg_fields[i];
+            obj.arg_fields[i] = (Mel_Gpu_Mtl_Arg_Field){ .is_uniform = f->is_uniform != 0, .host_offset = f->host_offset, .arg_index = f->arg_index, .size = f->size, .resource_kind = f->resource_kind };
+            u32 end = f->host_offset + f->size;
+            if (end > host_size)
+                host_size = end;
+        }
+        obj.arg_host_size = host_size;
+    }
+
     res.value.slot = mel_gpu__table_insert(dev, &dev->pipelines, &obj);
     return res;
 }
@@ -665,6 +696,18 @@ void mel_gpu_pipeline_destroy(Mel_Gpu_Device* dev, Mel_Gpu_Pipeline pipe)
         id d = (__bridge_transfer id)o->depth_stencil_state;
         o->depth_stencil_state = NULL;
         (void)d;
+    }
+    if (o->arg_encoder)
+    {
+        id e = (__bridge_transfer id)o->arg_encoder;
+        o->arg_encoder = NULL;
+        (void)e;
+    }
+    if (o->arg_fields)
+    {
+        mel_dealloc(dev->alloc, o->arg_fields);
+        o->arg_fields = NULL;
+        o->arg_field_count = 0;
     }
     mel_gpu__table_remove(dev, &dev->pipelines, pipe.slot);
 }

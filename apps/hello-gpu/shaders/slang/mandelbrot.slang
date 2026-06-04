@@ -1,3 +1,24 @@
+#if defined(MEL_TARGET_METAL)
+
+struct Root
+{
+    DescriptorHandle<RWTexture2D<float4> > image;
+    uint w;
+    uint h;
+    uint max_iter;
+    float center_x;
+    float center_y;
+    float scale;
+    float time;
+};
+
+[[vk::push_constant]]
+Root root;
+
+RWTexture2D<float4> mel_storage_image() { return root.image; }
+
+#else
+
 struct Root
 {
     uint image;
@@ -16,6 +37,10 @@ Root root;
 [[vk::binding(4, 0)]]
 [format("rgba8")]
 RWTexture2D<float4> u_images[];
+
+RWTexture2D<float4> mel_storage_image() { return u_images[root.image]; }
+
+#endif
 
 float3 palette(float t)
 {
@@ -72,5 +97,5 @@ void cs_main(uint3 tid : SV_DispatchThreadID)
         col *= 0.35 + 0.65 * clamp(smooth_i * 0.04, 0.0, 1.0);
     }
 
-    u_images[root.image][int2(px)] = float4(col, 1.0);
+    mel_storage_image()[int2(px)] = float4(col, 1.0);
 }

@@ -528,26 +528,6 @@ MEL_TEST(scene_shared, mandelbrot)
         MEL_SKIP("mandelbrot scene needs the device-global bindless heap (descriptor_indexing); device does not advertise it");
     }
 
-#if MEL_GPU_METAL
-    /* The mandelbrot compute kernel writes an unbounded bindless storage-image heap
-       (RWTexture2D<float4> u_images[]). Slang's stock MSL emit lowers any unbounded
-       resource-heap array to a flexible-array-member kernel parameter
-       (texture2d<...> u_images[]), which Metal's runtime newLibraryWithSource rejects
-       ("flexible array members are a C99 feature"). The Metal RHI's bindless model
-       binds each heap class as a device buffer of MTLResourceIDs at a reserved buffer
-       index, indexed by slot — a different binding model than Slang auto-emits, and the
-       gpu module exposes no NON-bindless compute storage-texture binding to fall back
-       to. So the storage-image compute kernel cannot be runtime-compiled to MSL today.
-       Degrade honestly (MEL-ENGINE-VII / -VIII) — skip with the precise cause rather
-       than fabricate a pass. Vulkan proves the compute + runtime-Slang + reflected
-       threadgroup pipeline end-to-end; closing this needs a Slang->MSL bindless-heap
-       lowering (or an MSL post-process) in the slang wrapper / Metal RHI, a separate
-       lane. The same kernel emits valid SPIR-V (RuntimeDescriptorArray) and valid WGSL
-       (array<texture_storage_2d>), so the wall is specific to the Slang Metal target. */
-    mel_gpu_device_destroy(dev);
-    mel_gpu_instance_destroy(inst);
-    MEL_SKIP("mandelbrot storage-image compute: Slang's MSL emit of the unbounded bindless heap is a flexible-array kernel param Metal rejects; needs a Slang->MSL bindless lowering (slang wrapper / Metal RHI lane)");
-#else
     Mel_Gpu_Texture_Create_Result img = mel_gpu_texture_create(dev, .kind = MEL_GPU_TEXTURE_2D, .extent = { SCENE_W, SCENE_H, 1 }, .format = MEL_GPU_FORMAT_RGBA8_UNORM,
                                                                .usage = MEL_GPU_TEXTURE_STORAGE | MEL_GPU_TEXTURE_COPY_SRC, .name = "mandel-img");
     MEL_REQUIRE(!mel_gpu_failed(img.status));
@@ -606,7 +586,6 @@ MEL_TEST(scene_shared, mandelbrot)
     mel_gpu_texture_destroy(dev, img.value);
     mel_gpu_device_destroy(dev);
     mel_gpu_instance_destroy(inst);
-#endif
 }
 
 #else

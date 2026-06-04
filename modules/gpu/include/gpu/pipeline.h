@@ -214,17 +214,37 @@ typedef struct
 Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_create_opt(Mel_Gpu_Device* dev, Mel_Gpu_Pipeline_Opt opt);
 #define mel_gpu_pipeline_create(dev, ...) mel_gpu_pipeline_create_opt((dev), (Mel_Gpu_Pipeline_Opt){ __VA_ARGS__ })
 
+/* One field of a from-slang inlined bindless argument buffer (the Metal lane of dual-lane
+   bindless). On targets without a device-global heap for Slang bindless, a DescriptorHandle
+   field lowers to a per-dispatch argument buffer mixing resolved resources and inline
+   uniforms. `is_uniform` distinguishes the two roles; `host_offset` is the field's byte
+   offset in the host push-constant struct (a resource field carries a 4-byte slot index,
+   identical to the heap-indexing lane); `arg_index` is the argument-buffer member index;
+   `size` is the host byte span; `resource_kind` matches Mel_Slang_Resource_Kind for resource
+   fields (selects texture vs buffer vs sampler binding). Backends with a device-global heap
+   ignore this; only the from-slang Metal path consumes it. */
 typedef struct
 {
-    Mel_Gpu_Shader                   shader;
-    u32                              push_constant_size;
-    bool                             bindless;
-    const Mel_Gpu_Bind_Group_Layout* set_layouts;
-    u32                              set_layout_count;
-    const Mel_Gpu_Spec_Constant*     spec_constants;
-    u32                              spec_constant_count;
-    u32                              threadgroup[3];
-    const char*                      name;
+    int is_uniform;
+    u32 host_offset;
+    u32 arg_index;
+    u32 size;
+    u32 resource_kind;
+} Mel_Gpu_Bindless_Arg_Field;
+
+typedef struct
+{
+    Mel_Gpu_Shader                    shader;
+    u32                               push_constant_size;
+    bool                              bindless;
+    const Mel_Gpu_Bind_Group_Layout*  set_layouts;
+    u32                               set_layout_count;
+    const Mel_Gpu_Spec_Constant*      spec_constants;
+    u32                               spec_constant_count;
+    u32                               threadgroup[3];
+    const Mel_Gpu_Bindless_Arg_Field* bindless_arg_fields;
+    u32                               bindless_arg_field_count;
+    const char*                       name;
 } Mel_Gpu_Pipeline_Compute_Opt;
 
 Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_compute_create_opt(Mel_Gpu_Device* dev, Mel_Gpu_Pipeline_Compute_Opt opt);

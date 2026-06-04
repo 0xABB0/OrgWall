@@ -114,6 +114,15 @@ typedef struct
 
 typedef struct
 {
+    bool is_uniform;
+    u32  host_offset;
+    u32  arg_index;
+    u32  size;
+    u32  resource_kind;
+} Mel_Gpu_Mtl_Arg_Field;
+
+typedef struct
+{
     Mel_Gpu_Resource_Header header;
     void*                   state;
     void*                   depth_stencil_state;
@@ -126,6 +135,12 @@ typedef struct
     bool                    stencil_test;
     u32                     stencil_ref_front;
     u32                     stencil_ref_back;
+
+    void*                  arg_encoder;
+    usize                  arg_encoded_length;
+    Mel_Gpu_Mtl_Arg_Field* arg_fields;
+    u32                    arg_field_count;
+    u32                    arg_host_size;
 } Mel_Gpu_Pipeline_Obj;
 
 enum
@@ -142,6 +157,8 @@ typedef struct
 {
     bool      enabled;
     void*     heaps[MEL_GPU_BINDLESS_BINDING_COUNT];
+    void**    resources[MEL_GPU_BINDLESS_BINDING_COUNT];
+    u32       caps[MEL_GPU_BINDLESS_BINDING_COUNT];
     void*     residency;
     u32       cap_sampled_image;
     u32       cap_sampler;
@@ -216,6 +233,12 @@ struct Mel_Gpu_Command_List
     id<MTLComputePipelineState> compute_state;
     MTLSize                     compute_threadgroup;
     bool                        has_compute_pipeline;
+    Mel_Gpu_Pipeline            compute_pipeline_handle;
+
+    void* pc_stash;
+    usize pc_stash_cap;
+    usize pc_stash_len;
+    bool  pc_stashed;
 };
 
 struct Mel_Gpu_Queue
@@ -276,6 +299,10 @@ void mel_gpu__bindless_register_uniform_buffer(Mel_Gpu_Device* dev, u32 slot, id
 void mel_gpu__bindless_register_sampler(Mel_Gpu_Device* dev, u32 slot, id<MTLSamplerState> sampler);
 void mel_gpu__bindless_bind_render(Mel_Gpu_Device* dev, id<MTLRenderCommandEncoder> enc);
 void mel_gpu__bindless_bind_compute(Mel_Gpu_Device* dev, id<MTLComputeCommandEncoder> enc);
+
+id<MTLResource>     mel_gpu__bindless_resource(Mel_Gpu_Device* dev, u32 binding_class, u32 slot);
+id<MTLSamplerState> mel_gpu__bindless_sampler(Mel_Gpu_Device* dev, u32 slot);
+u32                 mel_gpu__bindless_class_of_slang_kind(u32 slang_resource_kind);
 
 #define MEL_GPU_METAL_VERTEX_BUFFER_INDEX        30u
 #define MEL_GPU_METAL_PUSH_CONSTANT_INDEX        0u
