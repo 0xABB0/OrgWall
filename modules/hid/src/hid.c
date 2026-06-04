@@ -511,12 +511,6 @@ void* mel_hid_native(Mel_Hid_Device d)
     return (prov && prov->desc.native) ? prov->desc.native(prov->desc.user, s->channel) : NULL;
 }
 
-// ----------------------------------------------------------------------------------------------
-// Async read. The future carries a Mel_Hid_Io_Result the core owns. Two lowerings share that shape:
-// (1) an fd-bearing channel rides the port proactor, a continuation translating the Mel_Port_Result;
-// (2) any other channel is pumped by a reactor idle source that issues one bounded blocking read.
-// ----------------------------------------------------------------------------------------------
-
 typedef struct
 {
     Mel_Future        future;
@@ -529,8 +523,10 @@ typedef struct
 
     Mel_Port*           port;
     Mel_Future*         inner;
+    Mel_Port_Op         op;
     Mel_Task            translate;
     Mel_Reactor_Source* source;
+    bool                released;
 } Async_Read;
 
 static void async_resolve(Async_Read* ar, Mel_Hid_Io_Result res)
@@ -571,13 +567,18 @@ static void translate_port_result(Mel_Task* t)
     }
     mel_port_future_release(ar->inner);
     ar->inner = NULL;
+    if (ar->released)
+    {
+        mel_dealloc(ar->alloc, ar);
+        return;
+    }
     async_resolve(ar, res);
 }
 
 static bool async_source_dispatch(void* user)
 {
     Async_Read*       ar = user;
-    Mel_Hid_Io_Result res = mel_hid__read_now(ar->d, ar->buffer, ar->len, MEL_HID_TIMEOUT_BLOCK);
+    Mel_Hid_Io_Result res = mel_hid__read_now(ar->d, ar->buffer, ar->len, MEL_HID_TIMEOUT_POLL);
     if (mel_hid_would_block(res.status))
         return true;
     if (ar->source)
@@ -616,7 +617,7 @@ Mel_Future* mel_hid_read_async_opt(Mel_Hid_Device d, Mel_Hid_Read_Async_Opt opt)
 
     if (opt.port && mel_port_available(opt.port) && ch.fd != MEL_HID_NO_FD)
     {
-        ar->inner = mel_port_read(opt.port, .fd = ch.fd, .buffer = opt.buffer, .len = opt.len, .deliver = deliver);
+        ar->inner = mel_port_read(opt.port, .fd = ch.fd, .buffer = opt.buffer, .len = opt.len, .deliver = deliver, .out_op = &ar->op);
         if (!ar->inner)
         {
             mel_dealloc(g.alloc, ar);
@@ -661,6 +662,12 @@ void mel_hid_future_release(Mel_Future* f)
     {
         mel_reactor_source_destroy(ar->source);
         ar->source = NULL;
+    }
+    if (ar->inner)
+    {
+        ar->released = true;
+        mel_port_cancel(ar->port, ar->op);
+        return;
     }
     mel_dealloc(ar->alloc, ar);
 }

@@ -26,12 +26,65 @@ EM_JS(int, mel_hid_js_available, (void), { return (navigator && navigator.hid) ?
 EM_JS(int, mel_hid_js_refresh, (void), {
     if (!(navigator && navigator.hid))
         return 0;
-    if (!Module.__mel_hid)
-        Module.__mel_hid = { devices : [], queues : {} };
-    return Module.__mel_hid.devices.length;
+    var t = Module.__mel_hid;
+    if (!t)
+    {
+        t = Module.__mel_hid = { devices : [], queues : {}, index : new Map() };
+        t.adopt = function(dev) {
+            if (t.index.has(dev))
+                return t.index.get(dev);
+            var i = t.devices.length;
+            t.devices.push(dev);
+            t.index.set(dev, i);
+            return i;
+        };
+        t.forget = function(dev) {
+            if (!t.index.has(dev))
+                return;
+            var i = t.index.get(dev);
+            t.devices[i] = null;
+            t.index.delete(dev);
+            t.queues[i] = [];
+        };
+        navigator.hid.addEventListener("connect", function(e) { t.adopt(e.device); });
+        navigator.hid.addEventListener("disconnect", function(e) { t.forget(e.device); });
+        navigator.hid.getDevices().then(function(list) {
+            for (var i = 0; i < list.length; i++)
+                t.adopt(list[i]);
+        });
+    }
+    return t.devices.length;
+});
+
+EM_JS(int, mel_hid_js_request, (int vendor_id, int product_id), {
+    if (!(navigator && navigator.hid))
+        return -1;
+    var t = Module.__mel_hid;
+    if (!t)
+        return -1;
+    var filters = [];
+    if (vendor_id || product_id)
+    {
+        var f = {};
+        if (vendor_id)
+            f.vendorId = vendor_id;
+        if (product_id)
+            f.productId = product_id;
+        filters.push(f);
+    }
+    navigator.hid.requestDevice({ filters : filters }).then(function(list) {
+        for (var i = 0; i < list.length; i++)
+            t.adopt(list[i]);
+    }).catch(function(e) {});
+    return 0;
 });
 
 EM_JS(int, mel_hid_js_count, (void), { return (Module.__mel_hid && Module.__mel_hid.devices) ? Module.__mel_hid.devices.length : 0; });
+
+EM_JS(int, mel_hid_js_present, (int idx), {
+    var t = Module.__mel_hid;
+    return (t && t.devices[idx]) ? 1 : 0;
+});
 
 EM_JS(int, mel_hid_js_vid, (int idx), {
     var t = Module.__mel_hid;
@@ -77,7 +130,7 @@ EM_JS(void, mel_hid_js_close, (int idx), {
 
 EM_JS(int, mel_hid_js_drain, (int idx, char* out, int cap), {
     var t = Module.__mel_hid;
-    if (!t || !t.queues[idx] || t.queues[idx].length == = 0)
+    if (!t || !t.queues[idx] || t.queues[idx].length === 0)
         return -1;
     var report = t.queues[idx].shift();
     var n = Math.min(report.length, cap);
@@ -107,6 +160,8 @@ static u32 wasm_enumerate(void* user, Mel_Hid_Raw* out, u32 cap)
     u32 written = 0;
     for (int i = 0; i < n && written < (int)cap; i++)
     {
+        if (!mel_hid_js_present(i))
+            continue;
         Mel_Hid_Raw* r = &out[written++];
         memset(r, 0, sizeof *r);
         r->stable_id = (u64)(u32)i;
@@ -236,4 +291,12 @@ int mel_hid_wasm_device_id(Mel_Hid_Device d)
     if (!mel_hid__channel(d, &ch, NULL, NULL))
         return -1;
     return (int)(intptr_t)ch.value;
+}
+
+void mel_hid_wasm_request_devices(u16 vendor_id, u16 product_id)
+{
+    if (!g_wasm.available)
+        return;
+    mel_hid_js_refresh();
+    mel_hid_js_request((int)vendor_id, (int)product_id);
 }

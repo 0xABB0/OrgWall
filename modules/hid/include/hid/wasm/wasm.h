@@ -12,6 +12,8 @@ extern "C"
 // the JS HIDDevice object lives behind the Emscripten boundary.
 int mel_hid_wasm_device_id(Mel_Hid_Device d);
 
+void mel_hid_wasm_request_devices(u16 vendor_id, u16 product_id);
+
 #ifdef __cplusplus
 }
 #endif
