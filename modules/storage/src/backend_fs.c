@@ -90,9 +90,21 @@ typedef struct
     Mel_Fs*          fs;
 } Chain;
 
+static bool chain_orphaned(Mel_Storage_Job* job)
+{
+    if (!job->orphaned)
+        return false;
+    mel_fs_future_release(job->backend_pending);
+    job->backend_pending = NULL;
+    mel_storage__job_free_record(job);
+    return true;
+}
+
 static void chain_read(Mel_Task* self)
 {
     Mel_Storage_Job*           job = mel_container_of(self, Mel_Storage_Job, backend_task);
+    if (chain_orphaned(job))
+        return;
     const Mel_Fs_Bytes_Result* r = mel_fs_future_bytes(job->backend_pending);
     Mel_Storage_Status         st = status_from_fs(r->status);
     if (mel_storage_failed(st))
@@ -131,6 +143,8 @@ static void chain_read(Mel_Task* self)
 static void chain_size(Mel_Task* self)
 {
     Mel_Storage_Job*          job = mel_container_of(self, Mel_Storage_Job, backend_task);
+    if (chain_orphaned(job))
+        return;
     const Mel_Fs_Stat_Result* r = mel_fs_future_stat(job->backend_pending);
     Mel_Storage_Status        st = status_from_fs(r->status);
     if (!mel_storage_failed(st) && !r->value.exists)
@@ -144,6 +158,8 @@ static void chain_size(Mel_Task* self)
 static void chain_meta(Mel_Task* self)
 {
     Mel_Storage_Job*          job = mel_container_of(self, Mel_Storage_Job, backend_task);
+    if (chain_orphaned(job))
+        return;
     const Mel_Fs_Stat_Result* r = mel_fs_future_stat(job->backend_pending);
     Mel_Storage_Status        st = status_from_fs(r->status);
     Mel_Storage_Meta          m = { 0 };
@@ -160,6 +176,8 @@ static void chain_meta(Mel_Task* self)
 static void chain_void(Mel_Task* self)
 {
     Mel_Storage_Job*          job = mel_container_of(self, Mel_Storage_Job, backend_task);
+    if (chain_orphaned(job))
+        return;
     const Mel_Fs_Void_Result* r = mel_fs_future_void(job->backend_pending);
     Mel_Storage_Status        st = status_from_fs(r->status);
     mel_fs_future_release(job->backend_pending);
@@ -170,6 +188,8 @@ static void chain_void(Mel_Task* self)
 static void chain_list(Mel_Task* self)
 {
     Mel_Storage_Job*         job = mel_container_of(self, Mel_Storage_Job, backend_task);
+    if (chain_orphaned(job))
+        return;
     const Mel_Fs_Dir_Result* r = mel_fs_future_dir(job->backend_pending);
     Mel_Storage_Status       st = status_from_fs(r->status);
     if (mel_storage_failed(st))
