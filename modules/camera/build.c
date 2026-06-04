@@ -8,6 +8,7 @@ void build(Mel_Build* b)
     mel_sources(lib, ALWAYS, "src/descriptors.c");
     mel_sources(lib, WHEN(.platforms = MEL_ON(MACOS) | MEL_ON(IOS)), "src/apple/*.m");
     mel_sources(lib, WHEN(.platforms = MEL_ON(ANDROID)), "src/android/*.c");
+    mel_android_manifest(lib, "src/android/AndroidManifest.xml");
     mel_android_java(lib, "src/android/java");
     mel_sources(lib, WHEN(.platforms = MEL_ON(LINUX)), "src/linux/*.c");
     mel_sources(lib, WHEN(.platforms = MEL_ON(WIN32)), "src/win32/*.c");
