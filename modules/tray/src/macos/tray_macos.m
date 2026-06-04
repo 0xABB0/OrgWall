@@ -9,25 +9,30 @@
 @interface MelTrayTarget: NSObject <NSMenuDelegate>
 @end
 
-static NSMutableDictionary<NSNumber*, id>* g_objects;
+static NSMutableDictionary<NSNumber*, id>* g_trays;
+static NSMutableDictionary<NSNumber*, id>* g_menus;
+static NSMutableDictionary<NSNumber*, id>* g_items;
 static MelTrayTarget*                      g_target;
 
 static NSNumber* key64(u64 token) { return @(token); }
 
-static void put(u64 token, id obj)
+static void put_in(NSMutableDictionary<NSNumber*, id>* d, u64 token, id obj)
 {
     if (obj != nil)
-        g_objects[key64(token)] = obj;
+        d[key64(token)] = obj;
 }
 
-static id get(u64 token) { return g_objects[key64(token)]; }
-
-static void drop(u64 token) { [g_objects removeObjectForKey:key64(token)]; }
+static id   get_in(NSMutableDictionary<NSNumber*, id>* d, u64 token) { return d[key64(token)]; }
+static void drop_in(NSMutableDictionary<NSNumber*, id>* d, u64 token) { [d removeObjectForKey:key64(token)]; }
 
 static void ensure_state(void)
 {
-    if (g_objects == nil)
-        g_objects = [[NSMutableDictionary alloc] init];
+    if (g_trays == nil)
+        g_trays = [[NSMutableDictionary alloc] init];
+    if (g_menus == nil)
+        g_menus = [[NSMutableDictionary alloc] init];
+    if (g_items == nil)
+        g_items = [[NSMutableDictionary alloc] init];
     if (g_target == nil)
         g_target = [[MelTrayTarget alloc] init];
 }
@@ -97,30 +102,30 @@ static Mel_Tray_Status macos_create(void* user, const Mel_Tray_Lowered* lowered)
         item.button.toolTip = nsstr(lowered->tooltip);
     item.visible = lowered->visible;
 
-    NSMenu* menu = get(lowered->menu_token);
+    NSMenu* menu = get_in(g_menus, lowered->menu_token);
     if (menu != nil)
     {
         menu.delegate = g_target;
         item.menu = menu;
     }
 
-    put(lowered->token, item);
+    put_in(g_trays, lowered->token, item);
     return warn ? (MEL_TRAY_WARNED | warn) : MEL_TRAY_OK;
 }
 
 static void macos_destroy(void* user, u64 token)
 {
     (void)user;
-    NSStatusItem* item = get(token);
+    NSStatusItem* item = get_in(g_trays, token);
     if (item != nil)
         [[NSStatusBar systemStatusBar] removeStatusItem:item];
-    drop(token);
+    drop_in(g_trays, token);
 }
 
 static Mel_Tray_Status macos_set_image(void* user, u64 token, Mel_Tray_Image image)
 {
     (void)user;
-    NSStatusItem* item = get(token);
+    NSStatusItem* item = get_in(g_trays, token);
     if (item == nil)
         return MEL_TRAY_ERROR | MEL_TRAY_ERR_BACKEND_FAIL;
     item.button.image = image_from(image);
@@ -130,7 +135,7 @@ static Mel_Tray_Status macos_set_image(void* user, u64 token, Mel_Tray_Image ima
 static Mel_Tray_Status macos_set_tooltip(void* user, u64 token, str8 tooltip)
 {
     (void)user;
-    NSStatusItem* item = get(token);
+    NSStatusItem* item = get_in(g_trays, token);
     if (item == nil)
         return MEL_TRAY_ERROR | MEL_TRAY_ERR_BACKEND_FAIL;
     item.button.toolTip = nsstr(tooltip);
@@ -140,7 +145,7 @@ static Mel_Tray_Status macos_set_tooltip(void* user, u64 token, str8 tooltip)
 static Mel_Tray_Status macos_set_title(void* user, u64 token, str8 title)
 {
     (void)user;
-    NSStatusItem* item = get(token);
+    NSStatusItem* item = get_in(g_trays, token);
     if (item == nil)
         return MEL_TRAY_ERROR | MEL_TRAY_ERR_BACKEND_FAIL;
     item.button.title = nsstr(title);
@@ -150,7 +155,7 @@ static Mel_Tray_Status macos_set_title(void* user, u64 token, str8 title)
 static Mel_Tray_Status macos_set_visible(void* user, u64 token, bool visible)
 {
     (void)user;
-    NSStatusItem* item = get(token);
+    NSStatusItem* item = get_in(g_trays, token);
     if (item == nil)
         return MEL_TRAY_ERROR | MEL_TRAY_ERR_BACKEND_FAIL;
     item.visible = visible;
@@ -164,14 +169,14 @@ static Mel_Tray_Status macos_menu_create(void* user, u64 menu_token)
     NSMenu* menu = [[NSMenu alloc] init];
     menu.autoenablesItems = NO;
     menu.delegate = g_target;
-    put(menu_token, menu);
+    put_in(g_menus, menu_token, menu);
     return MEL_TRAY_OK;
 }
 
 static void macos_menu_destroy(void* user, u64 menu_token)
 {
     (void)user;
-    drop(menu_token);
+    drop_in(g_menus, menu_token);
 }
 
 static void apply_flags(NSMenuItem* mi, Mel_Tray_Item_Flags flags)
@@ -186,7 +191,7 @@ static void apply_flags(NSMenuItem* mi, Mel_Tray_Item_Flags flags)
 static Mel_Tray_Status macos_item_add(void* user, const Mel_Tray_Item_Lowered* lowered)
 {
     (void)user;
-    NSMenu* menu = get(lowered->parent_menu_token);
+    NSMenu* menu = get_in(g_menus, lowered->parent_menu_token);
     if (menu == nil)
         return MEL_TRAY_ERROR | MEL_TRAY_ERR_BACKEND_FAIL;
 
@@ -203,7 +208,7 @@ static Mel_Tray_Status macos_item_add(void* user, const Mel_Tray_Item_Lowered* l
         apply_flags(mi, lowered->flags);
         if (lowered->submenu_token != 0)
         {
-            NSMenu* sub = get(lowered->submenu_token);
+            NSMenu* sub = get_in(g_menus, lowered->submenu_token);
             if (sub != nil)
             {
                 mi.submenu = sub;
@@ -213,23 +218,23 @@ static Mel_Tray_Status macos_item_add(void* user, const Mel_Tray_Item_Lowered* l
         }
     }
     [menu insertItem:mi atIndex:(NSInteger)lowered->at];
-    put(lowered->token, mi);
+    put_in(g_items, lowered->token, mi);
     return MEL_TRAY_OK;
 }
 
 static void macos_item_remove(void* user, u64 token)
 {
     (void)user;
-    NSMenuItem* mi = get(token);
+    NSMenuItem* mi = get_in(g_items, token);
     if (mi != nil && mi.menu != nil)
         [mi.menu removeItem:mi];
-    drop(token);
+    drop_in(g_items, token);
 }
 
 static Mel_Tray_Status macos_item_set_label(void* user, u64 token, str8 label)
 {
     (void)user;
-    NSMenuItem* mi = get(token);
+    NSMenuItem* mi = get_in(g_items, token);
     if (mi == nil)
         return MEL_TRAY_ERROR | MEL_TRAY_ERR_BACKEND_FAIL;
     mi.title = nsstr(label);
@@ -239,7 +244,7 @@ static Mel_Tray_Status macos_item_set_label(void* user, u64 token, str8 label)
 static Mel_Tray_Status macos_item_set_flags(void* user, u64 token, Mel_Tray_Item_Flags flags)
 {
     (void)user;
-    NSMenuItem* mi = get(token);
+    NSMenuItem* mi = get_in(g_items, token);
     if (mi == nil)
         return MEL_TRAY_ERROR | MEL_TRAY_ERR_BACKEND_FAIL;
     apply_flags(mi, flags);
@@ -249,7 +254,7 @@ static Mel_Tray_Status macos_item_set_flags(void* user, u64 token, Mel_Tray_Item
 static void* macos_native(void* user, u64 token)
 {
     (void)user;
-    return (__bridge void*)get(token);
+    return (__bridge void*)get_in(g_trays, token);
 }
 
 @implementation MelTrayTarget
@@ -297,5 +302,5 @@ NSStatusItem* mel_tray_macos_status_item(Mel_Tray t) { return (__bridge NSStatus
 NSMenu* mel_tray_macos_menu(Mel_Tray t)
 {
     Mel_Tray_Menu m = mel_tray_menu(t);
-    return get(mel_slotmap_handle_pack64(m.h));
+    return get_in(g_menus, mel_slotmap_handle_pack64(m.h));
 }
