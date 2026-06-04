@@ -139,11 +139,12 @@ void mel_gpu__submit_complete(Mel_Gpu_Device* dev, u64 serial)
     mel_mutex_unlock(&dev->submit_lock);
 }
 
-void mel_gpu__instance_pump_tick(void* user)
+bool mel_gpu__instance_pump_tick(void* user)
 {
     Mel_Gpu_Device* dev = (Mel_Gpu_Device*)user;
     if (dev && dev->wgpu_instance)
         wgpuInstanceProcessEvents(dev->wgpu_instance);
+    return true;
 }
 
 bool mel_gpu__drain_until(WGPUInstance instance, const bool* done)

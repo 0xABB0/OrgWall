@@ -181,7 +181,10 @@ static bool build_autotools(Mel_Graph* g, Mel_Target* t, const Mel_Variant* v)
     Mel_StrVec cpp = { 0 }, ld = { 0 };
     for (size_t i = 0; i < t->deps.len; i++)
     {
-        char* dp = dep_prefix_abs(g, t->deps.items[i], v);
+        Mel_Dep dep = t->deps.items[i];
+        if (!mel_when_match(dep.when, v))
+            continue;
+        char* dp = dep_prefix_abs(g, dep.name, v);
         if (dp)
         {
             mel_da_push(&cpp, mel_str_fmt("-I%s/include", dp));

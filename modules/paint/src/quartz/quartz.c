@@ -1,12 +1,12 @@
 #include "../paint_internal.h"
 
-#include <allocator/allocator.h>
+#include <core/compiler.h>
+
 #include <debug/assert.h>
+#include <log/log.h>
 
 #include <paint/painter.h>
 #include <paint/pixmap.h>
-
-#include <string.h>
 
 #include <CoreGraphics/CoreGraphics.h>
 #include <CoreText/CoreText.h>
@@ -23,22 +23,23 @@ Mel_Pixmap mel_pixmap_create(const Mel_Alloc* alloc, i32 w, i32 h)
 {
     mel_assert(w > 0 && h > 0);
 
-    i32   stride = w * 4;
-    usize size = (usize)stride * (usize)h;
-    u8*   pixels = (u8*)mel_alloc(alloc, size);
-    memset(pixels, 0, size);
+    Mel_Image img;
+    if (!mel_image_init(&img, &mel_image_rgba8_premul, w, h, alloc))
+    {
+        mel_log_fatal("paint", "mel_pixmap_create: image init failed (%dx%d)", w, h);
+        MEL_BREAKPOINT();
+    }
 
-    /* Device RGB, premultiplied, byte order R,G,B,A in memory — matches
-     * mel_color8. Device (not sRGB) so fills land verbatim for readback. */
+    Mel_Image_Plane plane = mel_image_plane(&img, 0);
+
     CGColorSpaceRef cs = CGColorSpaceCreateDeviceRGB();
-    CGContextRef    cg = CGBitmapContextCreate(pixels, (size_t)w, (size_t)h, 8, (size_t)stride, cs, kCGImageAlphaPremultipliedLast | kCGBitmapByteOrder32Big);
+    CGContextRef    cg = CGBitmapContextCreate(plane.pixels, (size_t)w, (size_t)h, 8, (size_t)plane.stride, cs, kCGImageAlphaPremultipliedLast | kCGBitmapByteOrder32Big);
     CGColorSpaceRelease(cs);
 
-    /* Flip to y-down drawing with top-down memory (row 0 = top scanline). */
     CGContextTranslateCTM(cg, 0, h);
     CGContextScaleCTM(cg, 1, -1);
 
-    Paint_Drawable rec = { .native = cg, .w = w, .h = h, .owns = true, .alloc = alloc, .pixels = pixels, .stride = stride, .painting = false };
+    Paint_Drawable rec = { .native = cg, .w = w, .h = h, .owns = true, .img = img, .painting = false };
     return mel_paint__insert(&rec);
 }
 
@@ -48,7 +49,7 @@ void mel_pixmap_destroy(Mel_Pixmap pm)
     mel_assert(d->owns);
     mel_assert(!d->painting);
     CGContextRelease((CGContextRef)d->native);
-    mel_dealloc(d->alloc, d->pixels);
+    mel_image_free(&d->img);
     mel_paint__remove(pm);
 }
 

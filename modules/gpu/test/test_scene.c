@@ -1,6 +1,6 @@
 #include <test/test.h>
 
-#if MEL_GPU_VULKAN || MEL_GPU_METAL || MEL_GPU_WEBGPU
+#if MEL_GPU_VULKAN || MEL_GPU_METAL || MEL_GPU_WEBGPU || MEL_GPU_D3D12
 
 #include <gpu/device.h>
 #include <gpu/caps.h>
@@ -31,6 +31,8 @@
 #define SCENE_BACKEND "vulkan"
 #elif MEL_GPU_METAL
 #define SCENE_BACKEND "metal"
+#elif MEL_GPU_D3D12
+#define SCENE_BACKEND "d3d12"
 #else
 #define SCENE_BACKEND "webgpu"
 #endif
@@ -45,6 +47,16 @@
    non-zero solely to tolerate cross-HOST rasterizer divergence (edge coverage,
    interpolation precision) when a real Vulkan or D3D12 device mints/diffs elsewhere. */
 #if MEL_GPU_VULKAN
+static const Mel_Golden_Tolerance SCENE_TOL = { .max_channel_delta = 2, .max_fraction_exceeding = 0.0f };
+#elif MEL_GPU_D3D12
+/* D3D12 diffs against the macOS-Vulkan-oracle goldens from a real NVIDIA rasterizer
+   (RTX 2060 SUPER, signed DXIL sm_6_0), a different interpolation/round pipeline than the
+   Metal rasterizer that minted the oracle. Measured on win-pilot (64x64, 4096 px;
+   writeup/2026-06-04-gpu-dxil.md): the divergence is a uniform +-1 LSB on a single
+   channel — triangle max delta 1 (3440 px off-by-1), gradient max delta 1 (363 px),
+   quad max delta 1 (3072 px). No structural difference; the scenes render correctly to
+   within 1/255. The band absorbs that LSB everywhere (delta<=2) and tolerates NO pixel
+   beyond it (frac 0.0) — the same strict shape as the Vulkan-oracle band, set from data. */
 static const Mel_Golden_Tolerance SCENE_TOL = { .max_channel_delta = 2, .max_fraction_exceeding = 0.0f };
 #else
 static const Mel_Golden_Tolerance SCENE_TOL = { .max_channel_delta = 4, .max_fraction_exceeding = 0.02f };
@@ -169,6 +181,12 @@ MEL_TEST(scene_shared, triangle)
         .wgsl_vertex_size = sizeof TRIANGLE_VERT_WGSL,
         .wgsl_fragment = TRIANGLE_FRAG_WGSL,
         .wgsl_fragment_size = sizeof TRIANGLE_FRAG_WGSL,
+#if TRIANGLE_HAS_DXIL
+        .dxil_vertex = TRIANGLE_VERT_DXIL,
+        .dxil_vertex_size = sizeof TRIANGLE_VERT_DXIL,
+        .dxil_fragment = TRIANGLE_FRAG_DXIL,
+        .dxil_fragment_size = sizeof TRIANGLE_FRAG_DXIL,
+#endif
         .vertex_entry = TRIANGLE_VERT_ENTRY,
         .fragment_entry = TRIANGLE_FRAG_ENTRY,
     };
@@ -229,6 +247,12 @@ MEL_TEST(scene_shared, gradient)
         .wgsl_vertex_size = sizeof GRADIENT_VERT_WGSL,
         .wgsl_fragment = GRADIENT_FRAG_WGSL,
         .wgsl_fragment_size = sizeof GRADIENT_FRAG_WGSL,
+#if GRADIENT_HAS_DXIL
+        .dxil_vertex = GRADIENT_VERT_DXIL,
+        .dxil_vertex_size = sizeof GRADIENT_VERT_DXIL,
+        .dxil_fragment = GRADIENT_FRAG_DXIL,
+        .dxil_fragment_size = sizeof GRADIENT_FRAG_DXIL,
+#endif
         .vertex_entry = GRADIENT_VERT_ENTRY,
         .fragment_entry = GRADIENT_FRAG_ENTRY,
     };
@@ -292,6 +316,12 @@ MEL_TEST(scene_shared, quad)
         .wgsl_vertex_size = sizeof QUAD_VERT_WGSL,
         .wgsl_fragment = QUAD_FRAG_WGSL,
         .wgsl_fragment_size = sizeof QUAD_FRAG_WGSL,
+#if QUAD_HAS_DXIL
+        .dxil_vertex = QUAD_VERT_DXIL,
+        .dxil_vertex_size = sizeof QUAD_VERT_DXIL,
+        .dxil_fragment = QUAD_FRAG_DXIL,
+        .dxil_fragment_size = sizeof QUAD_FRAG_DXIL,
+#endif
         .vertex_entry = QUAD_VERT_ENTRY,
         .fragment_entry = QUAD_FRAG_ENTRY,
     };

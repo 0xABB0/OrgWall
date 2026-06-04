@@ -91,6 +91,7 @@ void mel_gpu__caps_probe(WGPUAdapter adapter, Mel_Gpu_Caps* out)
     s->int64 = false;
     s->int8 = false;
     s->wave_ops = wgpuAdapterHasFeature(adapter, WGPUFeatureName_Subgroups);
+    s->draw_parameters = false;
     s->subgroup_size_min = have_info ? info.subgroupMinSize : 0;
     s->subgroup_size_max = have_info ? info.subgroupMaxSize : 0;
     s->bytecode_passthrough.wgsl = true;

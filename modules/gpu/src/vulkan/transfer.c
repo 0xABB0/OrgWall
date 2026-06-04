@@ -18,7 +18,7 @@ static void mel_gpu__transfer_complete(Mel_Gpu_Future* submit_future, void* user
     Mel_Gpu_Device*       dev = c->dev;
 
     u32 status = mel_gpu_future_status(submit_future);
-    mel_gpu_future_resolve(c->result_future, NULL, mel_gpu_failed(status) ? MEL_GPU_TRANSFER_VK_FAILED : MEL_GPU_TRANSFER_OK);
+    mel_gpu_future_resolve(c->result_future, NULL, mel_gpu_failed(status) ? MEL_GPU_TRANSFER_BACKEND_FAILED : MEL_GPU_TRANSFER_OK);
 
     mel_gpu_future_destroy(submit_future);
     mel_gpu_command_list_destroy(c->cmd);
@@ -68,7 +68,7 @@ Mel_Gpu_Future* mel_gpu_buffer_upload_async(Mel_Gpu_Device* dev, Mel_Gpu_Queue* 
     if (mel_gpu_failed(st.status))
     {
         mel_log_error("gpu", "buffer_upload_async: staging buffer create failed");
-        return mel_gpu__transfer_fail(dev, MEL_GPU_TRANSFER_VK_FAILED);
+        return mel_gpu__transfer_fail(dev, MEL_GPU_TRANSFER_BACKEND_FAILED);
     }
     VkBuffer staging_vk = VK_NULL_HANDLE;
     mel_gpu__buffer_get(dev, st.value, &staging_vk);
@@ -78,7 +78,7 @@ Mel_Gpu_Future* mel_gpu_buffer_upload_async(Mel_Gpu_Device* dev, Mel_Gpu_Queue* 
     {
         mel_log_error("gpu", "buffer_upload_async: command list create failed");
         mel_gpu_buffer_destroy(dev, st.value);
-        return mel_gpu__transfer_fail(dev, MEL_GPU_TRANSFER_VK_FAILED);
+        return mel_gpu__transfer_fail(dev, MEL_GPU_TRANSFER_BACKEND_FAILED);
     }
 
     mel_gpu_command_list_begin(cmd);
@@ -108,7 +108,7 @@ Mel_Gpu_Future* mel_gpu_texture_upload_async(Mel_Gpu_Device* dev, Mel_Gpu_Queue*
     if (mel_gpu_failed(st.status))
     {
         mel_log_error("gpu", "texture_upload_async: staging buffer create failed");
-        return mel_gpu__transfer_fail(dev, MEL_GPU_TRANSFER_VK_FAILED);
+        return mel_gpu__transfer_fail(dev, MEL_GPU_TRANSFER_BACKEND_FAILED);
     }
     VkBuffer staging_vk = VK_NULL_HANDLE;
     mel_gpu__buffer_get(dev, st.value, &staging_vk);
@@ -118,7 +118,7 @@ Mel_Gpu_Future* mel_gpu_texture_upload_async(Mel_Gpu_Device* dev, Mel_Gpu_Queue*
     {
         mel_log_error("gpu", "texture_upload_async: command list create failed");
         mel_gpu_buffer_destroy(dev, st.value);
-        return mel_gpu__transfer_fail(dev, MEL_GPU_TRANSFER_VK_FAILED);
+        return mel_gpu__transfer_fail(dev, MEL_GPU_TRANSFER_BACKEND_FAILED);
     }
 
     VkImageAspectFlags aspect = mel_gpu__aspect_flags(region.subresource.aspect, o.format);

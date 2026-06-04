@@ -18,6 +18,8 @@ void build(Mel_Build* b)
     mel_depends(lib, "string");
     mel_depends(lib, "color");
     mel_depends(lib, "debug");
+    mel_depends(lib, "log");
+    mel_depends(lib, "image");
 
     Mel_Target* ex = mel_add_executable(b, "paint-example");
     mel_sources(ex, ALWAYS, "example/paint_example.c");

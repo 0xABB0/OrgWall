@@ -30,6 +30,7 @@
 #define VISUAL_BACKEND "vulkan"
 
 static const Mel_Golden_Tolerance VISUAL_TOL_EXACT = { .max_channel_delta = 2, .max_fraction_exceeding = 0.0f };
+static const Mel_Golden_Tolerance VISUAL_TOL_EXACT_OPAQUE = { .max_channel_delta = 2, .max_fraction_exceeding = 0.0f, .assert_opaque_alpha = true };
 static const Mel_Golden_Tolerance VISUAL_TOL_EDGE = { .max_channel_delta = 8, .max_fraction_exceeding = 0.05f };
 
 static Mel_Gpu_Device* test_make_device_bindless(Mel_Gpu_Instance** out_inst)
@@ -148,7 +149,7 @@ MEL_TEST(visual_bindless, uniform_buffer_readback)
     const u8* px = mel_gpu_buffer_mapped(dev, tgt.rb);
     MEL_REQUIRE_NOT_NULL(px);
     test_dump_ppm("ubo_bindless", px, tgt.w, tgt.h);
-    MEL_GOLDEN(VISUAL_BACKEND, "ubo_bindless", px, tgt.w, tgt.h, VISUAL_TOL_EXACT);
+    MEL_GOLDEN(VISUAL_BACKEND, "ubo_bindless", px, tgt.w, tgt.h, VISUAL_TOL_EXACT_OPAQUE);
 
     MEL_EXPECT(px[0] >= 75 && px[0] <= 78);
     MEL_EXPECT(px[1] >= 139 && px[1] <= 142);
@@ -234,7 +235,7 @@ MEL_TEST(visual_bindless, sampled_checker_readback)
     const u8* px = mel_gpu_buffer_mapped(dev, tgt.rb);
     MEL_REQUIRE_NOT_NULL(px);
     test_dump_ppm("sampled_checker", px, tgt.w, tgt.h);
-    MEL_GOLDEN(VISUAL_BACKEND, "sampled_checker", px, tgt.w, tgt.h, VISUAL_TOL_EXACT);
+    MEL_GOLDEN(VISUAL_BACKEND, "sampled_checker", px, tgt.w, tgt.h, VISUAL_TOL_EXACT_OPAQUE);
 
     const u8* tl = px + 0;
     const u8* mid = px + (usize)2 * 4;
@@ -310,7 +311,7 @@ MEL_TEST(visual_state, alpha_blend_readback)
     const u8* px = mel_gpu_buffer_mapped(dev, tgt.rb);
     MEL_REQUIRE_NOT_NULL(px);
     test_dump_ppm("alpha_blend", px, tgt.w, tgt.h);
-    MEL_GOLDEN(VISUAL_BACKEND, "alpha_blend", px, tgt.w, tgt.h, VISUAL_TOL_EXACT);
+    MEL_GOLDEN(VISUAL_BACKEND, "alpha_blend", px, tgt.w, tgt.h, VISUAL_TOL_EXACT_OPAQUE);
 
     MEL_EXPECT(px[0] >= 151 && px[0] <= 155);
     MEL_EXPECT(px[1] >= 49 && px[1] <= 53);
@@ -451,7 +452,7 @@ MEL_TEST(visual_bindless, storage_image_readback)
     const u8* px = mel_gpu_buffer_mapped(dev, rb.value);
     MEL_REQUIRE_NOT_NULL(px);
     test_dump_ppm("storage_image_checker", px, W, H);
-    MEL_GOLDEN(VISUAL_BACKEND, "storage_image_checker", px, W, H, VISUAL_TOL_EXACT);
+    MEL_GOLDEN(VISUAL_BACKEND, "storage_image_checker", px, W, H, VISUAL_TOL_EXACT_OPAQUE);
 
     const u8* c00 = px;
     const u8* c20 = px + (usize)2 * 4;
@@ -896,7 +897,7 @@ MEL_TEST(visual_state, sync2_barrier_smoke_readback)
     const u8* px = mel_gpu_buffer_mapped(dev, rb.value);
     MEL_REQUIRE_NOT_NULL(px);
     test_dump_ppm("sync2_barrier", px, 8, 8);
-    MEL_GOLDEN(VISUAL_BACKEND, "sync2_barrier", px, 8, 8, VISUAL_TOL_EXACT);
+    MEL_GOLDEN(VISUAL_BACKEND, "sync2_barrier", px, 8, 8, VISUAL_TOL_EXACT_OPAQUE);
 
     MEL_EXPECT(px[0] >= 100 && px[0] <= 104);
     MEL_EXPECT(px[1] >= 176 && px[1] <= 180);
@@ -913,6 +914,69 @@ MEL_TEST(visual_state, sync2_barrier_smoke_readback)
     mel_gpu_buffer_destroy(dev, ubo.value);
     mel_gpu_device_destroy(dev);
     mel_gpu_instance_destroy(inst);
+}
+
+MEL_TEST(visual_golden, opaque_alpha_catches_regression)
+{
+    const u32 W = 8, H = 8;
+    u8        produced[W * H * 4];
+    for (u32 i = 0; i < W * H; i++)
+    {
+        produced[i * 4 + 0] = 77;
+        produced[i * 4 + 1] = 140;
+        produced[i * 4 + 2] = 204;
+        produced[i * 4 + 3] = 255;
+    }
+    produced[5 * 4 + 3] = 200;
+
+    Mel_Golden_Result r = mel_golden_compare(VISUAL_BACKEND, "ubo_bindless", produced, W, H, VISUAL_TOL_EXACT_OPAQUE);
+    MEL_EXPECT(!r.pass);
+    MEL_EXPECT_NOT_NULL(strstr(r.message, "opaque-alpha"));
+    MEL_EXPECT_NOT_NULL(strstr(r.message, "produced alpha 200 != 255"));
+
+    Mel_Golden_Result rg = mel_golden_compare(VISUAL_BACKEND, "ubo_bindless", produced, W, H, VISUAL_TOL_EXACT);
+    MEL_EXPECT_NULL(strstr(rg.message, "opaque-alpha"));
+}
+
+static void test_write_raw(const char* path, const void* data, usize size)
+{
+    FILE* f = fopen(path, "wb");
+    MEL_REQUIRE_NOT_NULL(f);
+    fwrite(data, 1, size, f);
+    fclose(f);
+}
+
+MEL_TEST(visual_golden, loader_reports_precise_cause)
+{
+    const u32 W = 8, H = 8;
+    u8        produced[W * H * 4];
+    memset(produced, 0, sizeof produced);
+    for (u32 i = 0; i < W * H; i++)
+        produced[i * 4 + 3] = 255;
+
+    const char* name = "__selftest_badppm";
+    char        path[512];
+    snprintf(path, sizeof path, "modules/gpu/test/golden/%s.ppm", name);
+
+    const char magic[] = "P3\n8 8\n255\n";
+    test_write_raw(path, magic, sizeof magic - 1);
+    Mel_Golden_Result rm = mel_golden_compare(VISUAL_BACKEND, name, produced, W, H, VISUAL_TOL_EXACT);
+    MEL_EXPECT(!rm.pass);
+    MEL_EXPECT_NOT_NULL(strstr(rm.message, "not a binary P6 PPM"));
+
+    const char maxv[] = "P6\n8 8\n127\n........................";
+    test_write_raw(path, maxv, sizeof maxv - 1);
+    Mel_Golden_Result rmax = mel_golden_compare(VISUAL_BACKEND, name, produced, W, H, VISUAL_TOL_EXACT);
+    MEL_EXPECT(!rmax.pass);
+    MEL_EXPECT_NOT_NULL(strstr(rmax.message, "maxval 127 unsupported"));
+
+    const char trunc[] = "P6\n8 8\n255\nABC";
+    test_write_raw(path, trunc, sizeof trunc - 1);
+    Mel_Golden_Result rt = mel_golden_compare(VISUAL_BACKEND, name, produced, W, H, VISUAL_TOL_EXACT);
+    MEL_EXPECT(!rt.pass);
+    MEL_EXPECT_NOT_NULL(strstr(rt.message, "pixel payload short"));
+
+    remove(path);
 }
 
 #else

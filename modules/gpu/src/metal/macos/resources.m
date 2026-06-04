@@ -253,7 +253,7 @@ Mel_Gpu_Texture_View_Create_Result mel_gpu_texture_view_create_opt(Mel_Gpu_Devic
                                               slices:NSMakeRange(base_layer, layer_count)];
         if (!view)
         {
-            res.status = MEL_GPU_TEXTURE_VIEW_CREATE_VK_FAILED;
+            res.status = MEL_GPU_TEXTURE_VIEW_CREATE_BACKEND_FAILED;
             mel_log_error("gpu", "texture_view_create: newTextureView returned nil");
             return res;
         }
@@ -329,7 +329,7 @@ Mel_Gpu_Sampler_Create_Result mel_gpu_sampler_create_opt(Mel_Gpu_Device* dev, Me
     id<MTLSamplerState> ms = [dev->mtl newSamplerStateWithDescriptor:sd];
     if (!ms)
     {
-        res.status = MEL_GPU_SAMPLER_CREATE_VK_FAILED;
+        res.status = MEL_GPU_SAMPLER_CREATE_BACKEND_FAILED;
         mel_log_error("gpu", "sampler_create: newSamplerState returned nil");
         return res;
     }

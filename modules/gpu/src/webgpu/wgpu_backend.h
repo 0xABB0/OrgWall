@@ -208,7 +208,7 @@ void mel_gpu__track_exit(Mel_Gpu_Device* dev, const void* object);
 u64  mel_gpu__submit_serial_next(Mel_Gpu_Device* dev);
 void mel_gpu__submit_complete(Mel_Gpu_Device* dev, u64 serial);
 
-void mel_gpu__instance_pump_tick(void* user);
+bool mel_gpu__instance_pump_tick(void* user);
 
 bool mel_gpu__drain_until(WGPUInstance instance, const bool* done);
 bool mel_gpu__drain_sync(Mel_Gpu_Device* dev, const bool* done, const char* what);

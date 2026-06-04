@@ -41,6 +41,8 @@ void mel_gpu__caps_from_adapter(IDXGIAdapter1* adapter, Mel_Gpu_Caps* out)
     out->queues.dedicated_transfer = true;
 
     out->shader.int8 = false;
+    out->shader.draw_parameters = true;
+    out->shader.bytecode_passthrough.dxil = true;
 
     out->memory.sparse_buffer = false;
     out->memory.sparse_texture = false;
