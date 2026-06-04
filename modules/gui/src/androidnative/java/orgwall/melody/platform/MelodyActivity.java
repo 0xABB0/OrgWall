@@ -51,6 +51,12 @@ public final class MelodyActivity extends Activity implements MelGui.BackHost {
     }
 
     @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        MelGui.nativeRequestPermissionsResult(requestCode, grantResults);
+    }
+
+    @Override
     protected void onDestroy() {
         if (backCallback != null) {
             getOnBackInvokedDispatcher().unregisterOnBackInvokedCallback(backCallback);

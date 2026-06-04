@@ -7,4 +7,6 @@ void build(Mel_Build* b)
     mel_sources(lib, WHEN(.platforms = MEL_ON(WIN32)), "src/win32/*.c");
     mel_sources(lib, WHEN(.platforms = MEL_ON(ANDROID)), "src/android/*.c");
     mel_depends(lib, "core");
+    mel_depends_when(lib, "allocator", WHEN(.platforms = MEL_ON(ANDROID)));
+    mel_depends_when(lib, "collection", WHEN(.platforms = MEL_ON(ANDROID)));
 }
