@@ -1,6 +1,8 @@
 #include <vibration/vibration.h>
 #include <vibration/provider.h>
 
+#include "vibration_internal.h"
+
 #include <allocator/allocator.h>
 #include <allocator/heap.h>
 #include <collection.slotmap/slotmap.h>
@@ -13,19 +15,8 @@
 
 #define MEL_VIB_TRANSIENT_FLOOR_S 0.02f
 
-typedef struct
-{
-    Mel_Vib_Provider_Desc desc;
-    u32                    generation;
-    bool                   active;
-} Provider_Entry;
-
-typedef struct
-{
-    u32                provider_idx;
-    u64                stable_id;
-    Mel_Vib_Descriptor desc;
-} Device_Slot;
+typedef Mel_Vib_Provider_Entry Provider_Entry;
+typedef Mel_Vib_Device_Slot    Device_Slot;
 
 typedef struct
 {
@@ -36,22 +27,22 @@ typedef struct
 
 typedef struct
 {
-    Mel_Vib_Device          device;
-    u32                     provider_idx;
-    u64                     stable_id;
-    u64                     token;
+    Mel_Vib_Device device;
+    u32            provider_idx;
+    u64            stable_id;
+    u64            token;
     Mel_Array(Mel_Vib_Event) events;
-    u32                     loop;
-    f32                     total_duration_s;
-    Mel_Vib_Status          warnings;
-    Mel_Reactor*            reactor;
-    Mel_Vib_On_Complete     on_complete;
-    void*                   user;
-    Mel_Reactor_Source*     timer;
-    u64                     start_ns;
-    f32                     elapsed_s;
-    bool                    paused;
-    bool                    resolved;
+    u32                 loop;
+    f32                 total_duration_s;
+    Mel_Vib_Status      warnings;
+    Mel_Reactor*        reactor;
+    Mel_Vib_On_Complete on_complete;
+    void*               user;
+    Mel_Reactor_Source* timer;
+    u64                 start_ns;
+    f32                 elapsed_s;
+    bool                paused;
+    bool                resolved;
 } Playback_Slot;
 
 typedef struct
@@ -75,6 +66,10 @@ typedef struct
 } Vib;
 
 static Vib g;
+
+static Mel_Vib_Host_Register_Fn g_host_register_override;
+
+void mel_vib__set_host_register(Mel_Vib_Host_Register_Fn fn) { g_host_register_override = fn; }
 
 static u64 now_ns(void) { return mel_nanos_since_unspecified_epoch(); }
 
@@ -113,7 +108,7 @@ static void resolve(Mel_SlotMap_Handle h, Playback_Slot* ps, Mel_Vib_Status stat
     if (ps->resolved)
         return;
     ps->resolved = true;
-    Mel_Vib_Playback pb = { h };
+    Mel_Vib_Playback    pb = { h };
     Mel_Vib_On_Complete cb = ps->on_complete;
     void*               user = ps->user;
     active_remove(pb);
@@ -178,7 +173,10 @@ void mel_vib_init(const Mel_Alloc* alloc, Mel_Reactor* reactor)
     g.next_token = 0;
     g.provider_gen = 0;
     g.initialized = true;
-    mel_vib__register_host_providers();
+    if (g_host_register_override)
+        g_host_register_override();
+    else
+        mel_vib__register_host_providers();
     mel_vib_refresh();
 }
 
@@ -186,6 +184,7 @@ void mel_vib_shutdown(void)
 {
     if (!g.initialized)
         return;
+    mel_vib_ff__shutdown();
     while (g.active.count > 0)
         mel_vib_abort(g.active.items[g.active.count - 1]);
     for (usize i = 0; i < g.registry.count; i++)
@@ -252,7 +251,7 @@ u32 mel_vib_refresh(void)
             }
             continue;
         }
-        Device_Slot slot = { .provider_idx = gt->prov, .stable_id = gt->raw.stable_id, .desc = { .name = gt->raw.name, .caps = gt->raw.caps } };
+        Device_Slot        slot = { .provider_idx = gt->prov, .stable_id = gt->raw.stable_id, .desc = { .name = gt->raw.name, .caps = gt->raw.caps } };
         Mel_SlotMap_Handle h = mel_slotmap_insert(&g.devices, &slot);
         Reg_Entry          re = { .stable_id = gt->raw.stable_id, .provider_idx = gt->prov, .handle = h };
         mel_array_push(&g.registry, re);
@@ -510,7 +509,7 @@ Mel_Vib_Status mel_vib_resume(Mel_Vib_Playback pb)
     }
     if (!ps->paused)
         return MEL_VIB_OK;
-    Device_Slot* ds = device_slot(ps->device.h);
+    Device_Slot*    ds = device_slot(ps->device.h);
     Provider_Entry* prov = provider_get(ps->provider_idx);
     if (!ds || !prov)
         return MEL_VIB_ERROR;
@@ -573,3 +572,13 @@ void* mel_vib_native(Mel_Vib_Device d)
     Provider_Entry* prov = provider_get(ds->provider_idx);
     return (prov && prov->desc.native) ? prov->desc.native(prov->desc.user, ds->stable_id) : NULL;
 }
+
+const Mel_Alloc* mel_vib__alloc(void) { return g.alloc; }
+
+bool mel_vib__ready(void) { return g.initialized; }
+
+Mel_Vib_Device_Slot* mel_vib__device_slot(Mel_SlotMap_Handle h) { return g.initialized ? device_slot(h) : NULL; }
+
+Mel_Vib_Provider_Entry* mel_vib__provider(u32 idx) { return g.initialized ? provider_get(idx) : NULL; }
+
+u64 mel_vib__next_token(void) { return ++g.next_token; }
