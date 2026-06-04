@@ -69,3 +69,29 @@ Mel_Cpu_Info mel_cpu_info(void)
 
     return info;
 }
+
+#include "../cpu_internal.h"
+#include "../cpu_x86.h"
+
+u64 mel_cpu__ram_total(void)
+{
+    MEMORYSTATUSEX ms;
+    ms.dwLength = sizeof ms;
+    if (GlobalMemoryStatusEx(&ms))
+        return (u64)ms.ullTotalPhys;
+    return 0;
+}
+
+Mel_Cpu_Features mel_cpu__detect_features(void)
+{
+#if MEL_CPU_X86
+    return mel_cpu__detect_x86();
+#elif MEL_CPU_ARM
+    Mel_Cpu_Features f = 0;
+    if (IsProcessorFeaturePresent(PF_ARM_NEON_INSTRUCTIONS_AVAILABLE))
+        f |= MEL_CPU_FEATURE_NEON;
+    return f;
+#else
+    return 0;
+#endif
+}

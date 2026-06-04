@@ -45,6 +45,31 @@ executor. A NULL init reactor makes the default executor the inline executor —
 through the inline trampoline (synchronous, non-re-entrant), used by hermetic unit tests; production
 passes a reactor.
 
+## 1b. Channels
+
+`Mel_Clip_Channel` is a `u32` flag bitset — **not an enum** (MEL-CODE-001): `MEL_CLIP_CHANNEL_CLIPBOARD`
+(the explicit copy/paste buffer) and `MEL_CLIP_CHANNEL_PRIMARY` (the X11/Wayland selection a
+middle-click pastes). `Mel_Clip_Opt.channel` carries it for every op (`read`/`write`/`query`/`clear`/
+`has`/`read_text`/`write_text`/`watch`); `0` resolves to `CLIPBOARD` via `mel_clip_channel_resolve`,
+the documented canonical channel (the same zero-init-default idiom as `opt.exec`/`opt.alloc`).
+`mel_clip_channel_supported(ch)` reports whether the active backend serves the channel — only Linux
+serves `PRIMARY`; Apple/Win32/Android/Web support `CLIPBOARD` alone, and an op on an unsupported
+channel resolves `NoClipboard` (honest, MEL-ENGINE-VIII). `mel_clip_sequence_ch(ch)` is the
+per-channel change counter (`mel_clip_sequence()` is the `CLIPBOARD` channel). The platform layer
+sees the channel via `mel_clip_job_channel(job)`.
+
+## 1c. Presence
+
+```c
+Mel_Future* mel_clip_has(.channel=, .exec=, .alloc=);   // value: bool, read by mel_clip_future_has
+```
+
+`has` resolves a `bool` (read by `mel_clip_future_has`) reporting whether the channel currently holds
+any content, without transferring it — cheaper than `read` and gesture-free where the OS exposes a
+synchronous presence test (X11 selection owner, `NSPasteboard.types`, `CountClipboardFormats`,
+Android `hasPrimaryClip`). The Web backend has no synchronous presence API: `has` resolves `false`
+with `FormatUnavailable` and logs unsupported.
+
 ## 2. Status
 
 `Mel_Clip_Status` is a `u32`: a 2-bit severity (`Ok | Warned | Error`, mask `0x3`) plus a
@@ -109,16 +134,22 @@ no registration — there is one clipboard per platform, selected by the build (
 
 ```c
 bool  mel_clip__plat_available(void);
+bool  mel_clip__plat_channel_supported(Mel_Clip_Channel ch);   // §1b; the core gates dispatch on this
+void  mel_clip__plat_shutdown(void);               // teardown the backend (reactor source, dlopen handle, retained payload)
 void  mel_clip__plat_read(Mel_Clip_Job* job);    // requested formats; emit reps; resolve
 void  mel_clip__plat_write(Mel_Clip_Job* job);    // lowered payload; resolve
 void  mel_clip__plat_clear(Mel_Clip_Job* job);
 void  mel_clip__plat_query(Mel_Clip_Job* job);    // emit available format ids; resolve
-u64   mel_clip__plat_sequence(void);               // 0 ⇒ unsupported (§7)
+u64   mel_clip__plat_sequence(Mel_Clip_Channel ch); // 0 ⇒ unsupported (§7)
 void* mel_clip__plat_native(void);                 // §5.3
 ```
 
-The host-none stub (Linux/fallback) defines `available == false` and resolves every op
-`NoClipboard`. A unit test links its own `mel_clip__plat_*` against the core — an in-memory fake.
+The core gates every op on `mel_clip__plat_channel_supported(job->channel)` before dispatch: an op on
+an unsupported channel resolves `NoClipboard` in the core, so a backend never sees a channel it does
+not serve (one rule, all ops — MEL-ENGINE-IX). `mel_clip_shutdown` calls `mel_clip__plat_shutdown`
+after the in-flight jobs are swept, so the backend reclaims its reactor source, `dlopen` handle, and
+retained payload (MEL-ENGINE-III). A unit test links its own `mel_clip__plat_*` against the core — an
+in-memory fake.
 
 `Mel_Clip_Job` is opaque; the platform layer uses accessors: `mel_clip_job_request_count/request/wants`
 (read/query inputs), `mel_clip_job_item_count/rep_count/rep` (write payload),
@@ -245,9 +276,16 @@ MEL-ENGINE-VIII). `unwatch` destroys the timer and the channel.
   `EMSCRIPTEN_KEEPALIVE` resolves back via the split-token. No sequence ⇒ `watch` unsupported. Rich
   `ClipboardItem` read/write (`text/html`, `image/png`) and format enumeration are the future path;
   non-text write reps are dropped with `RepresentationDropped`, `query` logs unsupported.
-- **Linux — X11/Wayland.** Stub: `available()` false, every op `NoClipboard`. The real backend owns
-  the `CLIPBOARD`/`PRIMARY` selections and serves `SelectionRequest` from retained payload —
-  coupled to the `window` event loop, so it lands once that hook exists.
+- **Linux — X11/Wayland.** A dispatcher (`src/linux/clip_linux.c`) selects X11 first (libxcb,
+  `dlopen`'d), else Wayland (libwayland-client), else reports `NoClipboard`; `MEL_CLIP_BACKEND=x11|wayland`
+  forces one. **X11** owns the `CLIPBOARD` and `PRIMARY` selections from a hidden 1×1 window,
+  serves `SelectionRequest`/`SelectionClear` from retained payload on a reactor poll source (the
+  connection fd, the `gui` xcb precedent), and reads a foreign selection by `convert_selection` +
+  a bounded pump for `SelectionNotify`. Text rides `UTF8_STRING`; `TARGETS` is advertised; non-text
+  reps drop with `RepresentationDropped` (rich targets are a todo). **Wayland** establishes the
+  display connection and a reactor poll source; cross-client selection serving via
+  `wl_data_source`/`wl_data_offer` fd transfer is a todo, so the present path is a same-connection
+  selection cache. Both channels (CLIPBOARD, PRIMARY) are supported and tracked independently.
 
 ## 9. Coding-guideline compliance
 

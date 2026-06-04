@@ -44,3 +44,5 @@ void mel_window_set_visible(Mel_Window w, bool visible)
 void mel_window_set_focus(Mel_Window w) { (void)w; }
 
 void mel_window_refresh(Mel_Window w) { (void)w; }
+
+const Mel_Window_Backend_Ops* mel_window__backend_ops(void) { return NULL; }
