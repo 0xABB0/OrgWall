@@ -4,6 +4,9 @@
 #include "../joystick_backend.h"
 
 #include <platform/android/jni.h>
+#include <allocator/allocator.h>
+#include <allocator/heap.h>
+#include <collection.array/array.h>
 #include <string/str8.h>
 #include <log/log.h>
 
@@ -16,14 +19,19 @@ typedef struct
     char name[128];
 } And_Pad;
 
-static And_Pad g_pads[16];
-static u32      g_pad_count;
+typedef struct
+{
+    const Mel_Alloc* alloc;
+    Mel_Array(And_Pad) pads;
+} And_Backend;
+
+static And_Backend g_backend;
 
 static And_Pad* pad_for(u64 stable_id)
 {
-    for (u32 i = 0; i < g_pad_count; i++)
-        if (g_pads[i].stable_id == stable_id)
-            return &g_pads[i];
+    for (usize i = 0; i < g_backend.pads.count; i++)
+        if (g_backend.pads.items[i].stable_id == stable_id)
+            return &g_backend.pads.items[i];
     return NULL;
 }
 
@@ -33,7 +41,7 @@ static u32 android_enumerate(void* user, Mel_Joystick_Raw* out, u32 cap)
     JNIEnv* env = mel_platform_android_env();
     if (!env)
         return 0;
-    g_pad_count = 0;
+    mel_array_clear(&g_backend.pads);
 
     jclass id_cls = (*env)->FindClass(env, "android/view/InputDevice");
     if (!id_cls)
@@ -63,7 +71,7 @@ static u32 android_enumerate(void* user, Mel_Joystick_Raw* out, u32 cap)
     const jint SOURCE_JOYSTICK = 0x01000010;
 
     u32 n = 0;
-    for (jsize i = 0; i < count && g_pad_count < 16 && n < cap; i++)
+    for (jsize i = 0; i < count && n < cap; i++)
     {
         jobject dev = (*env)->CallStaticObjectMethod(env, id_cls, get_dev, elems[i]);
         if (!dev)
@@ -75,10 +83,10 @@ static u32 android_enumerate(void* user, Mel_Joystick_Raw* out, u32 cap)
             continue;
         }
 
-        And_Pad* pad = &g_pads[g_pad_count];
-        memset(pad, 0, sizeof *pad);
-        pad->device_id = elems[i];
-        pad->stable_id = (u64)(u32)elems[i];
+        And_Pad pad;
+        memset(&pad, 0, sizeof pad);
+        pad.device_id = elems[i];
+        pad.stable_id = (u64)(u32)elems[i];
 
         if (get_name)
         {
@@ -88,28 +96,30 @@ static u32 android_enumerate(void* user, Mel_Joystick_Raw* out, u32 cap)
                 const char* cn = (*env)->GetStringUTFChars(env, jname, NULL);
                 if (cn)
                 {
-                    strncpy(pad->name, cn, sizeof pad->name - 1);
+                    strncpy(pad.name, cn, sizeof pad.name - 1);
                     (*env)->ReleaseStringUTFChars(env, jname, cn);
                 }
                 (*env)->DeleteLocalRef(env, jname);
             }
         }
 
+        mel_array_push(&g_backend.pads, pad);
+        And_Pad* stored = &g_backend.pads.items[g_backend.pads.count - 1];
+
         Mel_Joystick_Descriptor desc;
         memset(&desc, 0, sizeof desc);
-        desc.name = str8_from_cstr(pad->name);
+        desc.name = str8_from_cstr(stored->name);
         if (get_vid && get_pid)
         {
             desc.vendor_id = (u16)(*env)->CallIntMethod(env, dev, get_vid);
             desc.product_id = (u16)(*env)->CallIntMethod(env, dev, get_pid);
         }
-        desc.guid = mel_guid_from_hidapi(3, desc.vendor_id, desc.product_id, 0, pad->name, 0, 0);
+        desc.guid = mel_guid_from_hidapi(3, desc.vendor_id, desc.product_id, 0, stored->name, 0, 0);
         desc.player_index = -1;
         desc.features.dual_motor_rumble = true;
 
-        out[n].stable_id = pad->stable_id;
+        out[n].stable_id = stored->stable_id;
         out[n].desc = desc;
-        g_pad_count++;
         n++;
         (*env)->DeleteLocalRef(env, dev);
     }
@@ -174,8 +184,10 @@ static Mel_Joystick_Status android_rumble(void* user, u64 stable_id, Mel_Joystic
     return MEL_JOYSTICK_OK;
 }
 
-void mel_joystick__register_host_providers(void)
+void mel_joystick__register_host_providers(const Mel_Alloc* alloc)
 {
+    g_backend.alloc = alloc ? alloc : mel_alloc_heap();
+    mel_array_init(&g_backend.pads, g_backend.alloc);
     Mel_Joystick_Provider_Desc desc = {
         .name = "android-inputdevice",
         .enumerate = android_enumerate,

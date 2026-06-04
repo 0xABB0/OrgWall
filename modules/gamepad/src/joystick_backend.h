@@ -9,6 +9,6 @@ const Mel_Joystick_Descriptor* mel_joystick__descriptor(Mel_Joystick j);
 
 const Mel_Joystick_Provider_Desc* mel_joystick__provider_desc(u32 provider_idx);
 
-typedef void (*Mel_Joystick_Host_Register_Fn)(void);
+typedef void (*Mel_Joystick_Host_Register_Fn)(const Mel_Alloc* alloc);
 
 void mel_joystick__set_host_register(Mel_Joystick_Host_Register_Fn fn);

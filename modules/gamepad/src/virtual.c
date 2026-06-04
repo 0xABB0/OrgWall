@@ -179,6 +179,21 @@ void mel_joystick_virtual_set_state(Mel_Joystick_Virtual v, const Mel_Joystick_S
         mel_array_push(&d->hats, state->hats[i]);
 }
 
+void mel_joystick_virtual_set_descriptor(Mel_Joystick_Virtual v, const Mel_Joystick_Descriptor* desc)
+{
+    Virtual_Device* d = virtual_find(v.stable_id);
+    if (!d || !desc)
+        return;
+    if (d->desc.name.data != NULL)
+        mel_dealloc(vr.alloc, d->desc.name.data);
+    if (d->desc.serial.data != NULL)
+        mel_dealloc(vr.alloc, d->desc.serial.data);
+    Mel_Joystick_Descriptor nd = *desc;
+    nd.name = desc->name.len > 0 ? str8_dup_alloc(desc->name, vr.alloc) : (str8){ 0 };
+    nd.serial = desc->serial.len > 0 ? str8_dup_alloc(desc->serial, vr.alloc) : (str8){ 0 };
+    d->desc = nd;
+}
+
 Mel_Joystick_Rumble mel_joystick_virtual_last_rumble(Mel_Joystick_Virtual v)
 {
     Virtual_Device* d = virtual_find(v.stable_id);
