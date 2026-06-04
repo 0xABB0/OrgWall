@@ -39,8 +39,8 @@ enum
 
 typedef struct
 {
-    u32 phase;
     u64 monotonic_ns;
+    u32 phase;
 } Mel_App_Lifecycle_Event;
 
 typedef struct

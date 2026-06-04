@@ -13,6 +13,10 @@
 static int fake_started;
 static int fake_stopped;
 
+static int              tracked_started;
+static int              tracked_stopped;
+static Mel_App_Provider tracked_handle;
+
 static void fake_start(void* user)
 {
     (void)user;
@@ -25,16 +29,34 @@ static void fake_stop(void* user)
     fake_stopped++;
 }
 
+static void tracked_start(void* user)
+{
+    (void)user;
+    tracked_started++;
+}
+
+static void tracked_stop(void* user)
+{
+    (void)user;
+    tracked_stopped++;
+}
+
 void mel_app__register_platform_provider(void)
 {
-    Mel_App_Provider_Desc desc = { .name = "test-fake", .start = fake_start, .stop = fake_stop };
-    mel_app_provider_register(&desc);
+    Mel_App_Provider_Desc fake = { .name = "test-fake", .start = fake_start, .stop = fake_stop };
+    mel_app_provider_register(&fake);
+
+    Mel_App_Provider_Desc tracked = { .name = "test-tracked", .start = tracked_start, .stop = tracked_stop };
+    tracked_handle = mel_app_provider_register(&tracked);
 }
 
 static void reset_fake(void)
 {
     fake_started = 0;
     fake_stopped = 0;
+    tracked_started = 0;
+    tracked_stopped = 0;
+    tracked_handle = (Mel_App_Provider){ 0 };
 }
 
 MEL_TEST(app, init_quit_refcount_balances)
@@ -199,4 +221,46 @@ MEL_TEST(app, status_predicates_classify_severity)
     MEL_EXPECT(mel_app_status_failed(MEL_APP_ERROR));
     MEL_EXPECT(mel_app_status_failed(MEL_APP_ERROR | MEL_APP_NO_BACKEND));
     MEL_EXPECT(!mel_app_status_ok(MEL_APP_ERROR));
+}
+
+MEL_TEST(app, provider_register_start_unregister_stop_then_quit_no_double_stop)
+{
+    reset_fake();
+    mel_app_init(.alloc = mel_alloc_heap());
+
+    MEL_REQUIRE(tracked_handle.generation != 0u);
+    MEL_EXPECT_EQ((i64)tracked_started, (i64)1);
+    MEL_EXPECT_EQ((i64)tracked_stopped, (i64)0);
+
+    mel_app__emit(MEL_APP_PHASE_WILL_RESIGN_ACTIVE);
+    MEL_EXPECT_EQ((i64)tracked_started, (i64)1);
+    MEL_EXPECT_EQ((i64)tracked_stopped, (i64)0);
+
+    mel_app_provider_unregister(tracked_handle);
+    MEL_EXPECT_EQ((i64)tracked_stopped, (i64)1);
+
+    mel_app__emit(MEL_APP_PHASE_DID_BECOME_ACTIVE);
+    MEL_EXPECT_EQ((i64)tracked_started, (i64)1);
+    MEL_EXPECT_EQ((i64)tracked_stopped, (i64)1);
+
+    mel_app_quit();
+    MEL_EXPECT_EQ((i64)tracked_stopped, (i64)1);
+}
+
+MEL_TEST(app, provider_unregister_stale_generation_is_noop)
+{
+    reset_fake();
+    mel_app_init(.alloc = mel_alloc_heap());
+
+    Mel_App_Provider stale = { .index = tracked_handle.index, .generation = tracked_handle.generation + 1000u };
+    mel_app_provider_unregister(stale);
+    MEL_EXPECT_EQ((i64)tracked_stopped, (i64)0);
+
+    mel_app_provider_unregister(tracked_handle);
+    MEL_EXPECT_EQ((i64)tracked_stopped, (i64)1);
+
+    mel_app_provider_unregister(tracked_handle);
+    MEL_EXPECT_EQ((i64)tracked_stopped, (i64)1);
+
+    mel_app_quit();
 }
