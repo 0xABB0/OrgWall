@@ -35,6 +35,7 @@ Mel_Future* mel_platform_android_request_permission_opt(const char* permission, 
 #define mel_platform_android_request_permission(permission, ...) mel_platform_android_request_permission_opt((permission), (Mel_Platform_Permission_Opt){ __VA_ARGS__ })
 
 const Mel_Platform_Permission_Outcome* mel_platform_android_permission_outcome(Mel_Future* f);
+void                                   mel_platform_android_permission_free(Mel_Future* f);
 
 void mel_platform_android__permission_resolve(u64 token, bool granted);
 

@@ -10,8 +10,10 @@
 
 #include <allocator/allocator.h>
 #include <collection.array/array.h>
+#include <executor/executor.h>
 
 #include <stdatomic.h>
+#include <string.h>
 
 static jobject g_activity;
 
@@ -158,8 +160,9 @@ const char* mel_platform_android_cache_path(void) { return fetch_path("cachePath
 
 typedef struct
 {
-    u64         token;
-    Mel_Future* future;
+    u64           token;
+    Mel_Future*   future;
+    Mel_Executor* deliver;
 } Pending_Permission;
 
 static Mel_Array(Pending_Permission) g_pending;
@@ -167,6 +170,16 @@ static bool         g_pending_init;
 static _Atomic(u64) g_token_seq;
 
 static void permission_free(void* value, const Mel_Alloc* alloc) { mel_dealloc(alloc, value); }
+
+void mel_platform_android_permission_free(Mel_Future* f)
+{
+    if (f == NULL)
+        return;
+    const Mel_Alloc* alloc = f->alloc;
+    if (f->free_value != NULL && f->value != NULL)
+        f->free_value(f->value, alloc);
+    mel_dealloc(alloc, f);
+}
 
 Mel_Future* mel_platform_android_request_permission_opt(const char* permission, Mel_Platform_Permission_Opt opt)
 {
@@ -179,7 +192,7 @@ Mel_Future* mel_platform_android_request_permission_opt(const char* permission, 
     {
         Mel_Platform_Permission_Outcome* out = mel_alloc_type(alloc, Mel_Platform_Permission_Outcome);
         out->result = MEL_PLATFORM_PERMISSION_DENIED;
-        mel_future_resolve(f, out, MEL_FUTURE_ERROR);
+        mel_future_resolve(f, out, MEL_FUTURE_ERROR | MEL_FUTURE_BROKEN);
         return f;
     }
 
@@ -189,7 +202,7 @@ Mel_Future* mel_platform_android_request_permission_opt(const char* permission, 
         g_pending_init = true;
     }
     u64                token = atomic_fetch_add(&g_token_seq, 1) + 1;
-    Pending_Permission p = { token, f };
+    Pending_Permission p = { token, f, opt.deliver };
     mel_array_push(&g_pending, p);
 
     jclass    helper = find_helper(env);
@@ -198,7 +211,6 @@ Mel_Future* mel_platform_android_request_permission_opt(const char* permission, 
     (*env)->CallStaticVoidMethod(env, helper, m, g_activity, js, (jlong)token);
     (*env)->DeleteLocalRef(env, js);
 
-    (void)opt;
     return f;
 }
 
@@ -209,18 +221,36 @@ const Mel_Platform_Permission_Outcome* mel_platform_android_permission_outcome(M
     return (const Mel_Platform_Permission_Outcome*)mel_future_value(f);
 }
 
+typedef struct
+{
+    Mel_Future* future;
+    bool        granted;
+} Permission_Resolution;
+
+static void permission_resolution_run(void* data)
+{
+    Permission_Resolution*           r = (Permission_Resolution*)data;
+    const Mel_Alloc*                 alloc = r->future->alloc;
+    Mel_Platform_Permission_Outcome* out = mel_alloc_type(alloc, Mel_Platform_Permission_Outcome);
+    out->result = r->granted ? MEL_PLATFORM_PERMISSION_GRANTED : MEL_PLATFORM_PERMISSION_DENIED;
+    mel_future_resolve(r->future, out, MEL_FUTURE_OK);
+    mel_dealloc(alloc, r);
+}
+
 void mel_platform_android__permission_resolve(u64 token, bool granted)
 {
     for (usize i = 0; i < g_pending.count; i++)
     {
         if (g_pending.items[i].token != token)
             continue;
-        Mel_Future*                      f = g_pending.items[i].future;
-        const Mel_Alloc*                 alloc = mel_platform__alloc();
-        Mel_Platform_Permission_Outcome* out = mel_alloc_type(alloc, Mel_Platform_Permission_Outcome);
-        out->result = granted ? MEL_PLATFORM_PERMISSION_GRANTED : MEL_PLATFORM_PERMISSION_DENIED;
-        mel_future_resolve(f, out, MEL_FUTURE_OK);
+        Mel_Future*      f = g_pending.items[i].future;
+        Mel_Executor*    deliver = g_pending.items[i].deliver;
+        const Mel_Alloc* alloc = f->alloc;
         mel_array_remove_unordered(&g_pending, i);
+        Permission_Resolution* r = mel_alloc_type(alloc, Permission_Resolution);
+        r->future = f;
+        r->granted = granted;
+        mel_executor_call(deliver ? deliver : mel_executor_inline(), permission_resolution_run, r, alloc);
         return;
     }
 }

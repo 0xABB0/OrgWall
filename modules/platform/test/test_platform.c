@@ -46,6 +46,10 @@ MEL_TEST(platform, status_predicates_decode_severity)
     MEL_EXPECT(mel_platform_status_failed(MEL_PLATFORM_ERROR | MEL_PLATFORM_UNAVAILABLE));
     MEL_EXPECT(mel_platform_status_denied(MEL_PLATFORM_ERROR | MEL_PLATFORM_DENIED));
     MEL_EXPECT(!mel_platform_status_ok(MEL_PLATFORM_ERROR));
+    MEL_EXPECT(mel_platform_status_warned(MEL_PLATFORM_WARNED | MEL_PLATFORM_ALREADY));
+    MEL_EXPECT(!mel_platform_status_warned(MEL_PLATFORM_OK));
+    MEL_EXPECT(mel_platform_status_unsupported(MEL_PLATFORM_ERROR | MEL_PLATFORM_UNSUPPORTED));
+    MEL_EXPECT(!mel_platform_status_unsupported(MEL_PLATFORM_ERROR | MEL_PLATFORM_UNAVAILABLE));
 }
 
 MEL_TEST(platform, screensaver_inhibit_roundtrip)

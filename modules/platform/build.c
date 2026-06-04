@@ -21,6 +21,7 @@ void build(Mel_Build* b)
     mel_depends(lib, "allocator");
     mel_depends(lib, "collection");
     mel_depends(lib, "future");
+    mel_depends(lib, "executor");
 
     Mel_Target* t = mel_add_test(b, "platform-core");
     mel_includes(t, MEL_PUBLIC, ALWAYS, "include");
@@ -40,4 +41,5 @@ void build(Mel_Build* b)
     mel_depends(t, "allocator");
     mel_depends(t, "collection");
     mel_depends(t, "future");
+    mel_depends(t, "executor");
 }
