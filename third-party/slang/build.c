@@ -32,6 +32,11 @@ void build(Mel_Build* b)
     mel_depends(lib, "slang-runtime");
     mel_link(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(MACOS) | MEL_ON(LINUX)), "-lc++");
 
+    // Emit-target gating: DXIL needs D3D12 + the dxcompiler/dxil signers, which exist only on win32.
+    // Off-win32 the DXIL codegen path is compiled out (loud-fail) so it dead-strips. Public so
+    // dependents can gate DXIL requests on the same condition.
+    mel_defines(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(WIN32)), "MEL_SLANG_EMIT_DXIL=1");
+
     Mel_Target* t = mel_add_test(b, "slang-compile");
     mel_sources(t, ALWAYS, "test/compile_test.c");
     mel_sources(t, ALWAYS, "../../tools/test/src/runner.c");
