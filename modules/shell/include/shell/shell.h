@@ -10,9 +10,8 @@ extern "C"
 {
 #endif
 
-typedef struct Mel_Reactor  Mel_Reactor;
-typedef struct Mel_Executor Mel_Executor;
-typedef struct Mel_Future   Mel_Future;
+typedef struct Mel_Reactor Mel_Reactor;
+typedef struct Mel_Future  Mel_Future;
 
 typedef u32 Mel_Shell_Status;
 
@@ -51,7 +50,6 @@ static inline bool mel_shell_op_equal(Mel_Shell_Op a, Mel_Shell_Op b) { return a
 
 typedef struct
 {
-    Mel_Executor*    deliver;
     const Mel_Alloc* alloc;
     Mel_Shell_Op*    out_op;
 } Mel_Shell_Opt;

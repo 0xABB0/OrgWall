@@ -315,3 +315,93 @@ MEL_TEST(shell, no_leak_shutdown_pending_path)
     body_shutdown_pending(&tracked);
     MEL_EXPECT_EQ(cnt.live, (i64)0);
 }
+
+typedef struct
+{
+    Mel_Executor exec;
+    Mel_Task*    queued;
+    int          submits;
+} Deferred_Exec;
+
+static void deferred_submit(Mel_Executor* self, Mel_Task* task)
+{
+    Deferred_Exec* d = mel_container_of(self, Deferred_Exec, exec);
+    d->queued = task;
+    d->submits++;
+}
+
+static void deferred_drain(Deferred_Exec* d)
+{
+    Mel_Task* t = d->queued;
+    d->queued = NULL;
+    if (t)
+        t->run(t);
+}
+
+static void body_shutdown_deferred_cont(const Mel_Alloc* a, Deferred_Exec* d, Cont* c)
+{
+    fake_avail = true;
+    fake_defer = true;
+    mel_shell_init(a, NULL);
+    Mel_Future* f = mel_shell_open_url(S8("https://deferred-cont"));
+    c->fut = f;
+    mel_task_init(&c->task, cont_run);
+    mel_future_then(f, &c->task, &d->exec);
+    mel_shell_shutdown();
+}
+
+MEL_TEST(shell, no_leak_shutdown_deferred_continuation)
+{
+    Counting_Alloc cnt = { 0 };
+    Mel_Alloc      tracked = { counting_cb, &cnt };
+    Deferred_Exec  d = { 0 };
+    d.exec.submit = deferred_submit;
+    Cont c = { 0 };
+    body_shutdown_deferred_cont(&tracked, &d, &c);
+    MEL_EXPECT_EQ(c.ran, 0);
+    MEL_EXPECT_EQ(d.submits, 1);
+    deferred_drain(&d);
+    MEL_EXPECT_EQ(c.ran, 1);
+    MEL_EXPECT(mel_shell_cancelled(c.status));
+    MEL_EXPECT_EQ(cnt.live, (i64)0);
+}
+
+MEL_TEST(shell, native_wrapper_gates_on_init)
+{
+    mel_shell_shutdown();
+    MEL_EXPECT(mel_shell_native() == NULL);
+    install_fake();
+    MEL_EXPECT(mel_shell_native() == NULL);
+    mel_shell_shutdown();
+}
+
+MEL_TEST(shell, op_equal_predicate)
+{
+    Mel_Shell_Op a = { 3, 7 };
+    Mel_Shell_Op b = { 3, 7 };
+    Mel_Shell_Op c = { 3, 8 };
+    Mel_Shell_Op d = { 4, 7 };
+    MEL_EXPECT(mel_shell_op_equal(a, b));
+    MEL_EXPECT(!mel_shell_op_equal(a, c));
+    MEL_EXPECT(!mel_shell_op_equal(a, d));
+    MEL_EXPECT(mel_shell_op_equal(MEL_SHELL_OP_NULL, MEL_SHELL_OP_NULL));
+}
+
+MEL_TEST(shell, add_warning_accumulates_without_flipping_severity)
+{
+    install_fake();
+    fake_defer = true;
+    Mel_Future* f = mel_shell_open_url(S8("https://warn"));
+    MEL_REQUIRE(f != NULL);
+    Mel_Shell_Job* j = mel_shell__job_from_token(fake_token);
+    MEL_REQUIRE(j != NULL);
+    mel_shell_job_add_warning(j, MEL_SHELL_WARN_LAUNCH_UNVERIFIED);
+    mel_shell_job_add_warning(j, MEL_SHELL_WARN_SCHEME_UNTRUSTED);
+    mel_shell_job_resolve(j, MEL_SHELL_OK);
+    Mel_Shell_Status s = mel_shell_future_status(f);
+    MEL_EXPECT(mel_shell_ok(s));
+    MEL_EXPECT((s & MEL_SHELL_WARN_LAUNCH_UNVERIFIED) != 0);
+    MEL_EXPECT((s & MEL_SHELL_WARN_SCHEME_UNTRUSTED) != 0);
+    mel_shell_future_free(f);
+    mel_shell_shutdown();
+}

@@ -18,7 +18,6 @@ struct Mel_Shell_Job
 {
     Mel_Future         future;
     Mel_SlotMap_Handle self;
-    Mel_Executor*      deliver;
     const Mel_Alloc*   alloc;
 
     str8 target;
@@ -32,7 +31,6 @@ typedef struct
     bool             initialized;
     const Mel_Alloc* alloc;
     Mel_Reactor*     reactor;
-    Mel_Executor*    exec;
     Mel_SlotMap      jobs;
 } Shell;
 
@@ -44,17 +42,18 @@ void mel_shell_init(const Mel_Alloc* alloc, Mel_Reactor* reactor)
         return;
     g.alloc = alloc ? alloc : mel_alloc_heap();
     g.reactor = reactor;
-    g.exec = reactor ? mel_reactor_executor(reactor) : mel_executor_inline();
     mel_slotmap_init(&g.jobs, g.alloc, .item_size = sizeof(Mel_Shell_Job*), .initial_capacity = 8);
     g.initialized = true;
 }
 
 static void job_storage_free(Mel_Shell_Job* j)
 {
+    const Mel_Alloc* a = j->alloc;
+    if (g.initialized)
+        mel_slotmap_remove(&g.jobs, j->self);
     if (j->target.data)
-        mel_dealloc(j->alloc, j->target.data);
-    mel_slotmap_remove(&g.jobs, j->self);
-    mel_dealloc(g.alloc, j);
+        mel_dealloc(a, j->target.data);
+    mel_dealloc(a, j);
 }
 
 void mel_shell_job_resolve(Mel_Shell_Job* j, Mel_Shell_Status s)
@@ -74,12 +73,12 @@ void mel_shell_job_add_warning(Mel_Shell_Job* j, Mel_Shell_Status warn_bits)
 
 static Mel_Shell_Job* job_new(str8 target, Mel_Shell_Opt opt)
 {
-    Mel_Shell_Job* j = mel_alloc_type(g.alloc, Mel_Shell_Job);
+    const Mel_Alloc* a = opt.alloc ? opt.alloc : g.alloc;
+    Mel_Shell_Job*   j = mel_alloc_type(a, Mel_Shell_Job);
     if (!j)
         return NULL;
     memset(j, 0, sizeof *j);
-    j->deliver = opt.deliver ? opt.deliver : g.exec;
-    j->alloc = opt.alloc ? opt.alloc : g.alloc;
+    j->alloc = a;
     j->target = str8_is_empty(target) ? STR8_EMPTY : str8_dup(target, j->alloc);
     mel_future_init(&j->future, NULL, j->alloc);
     Mel_Shell_Job* slot = j;
@@ -94,7 +93,10 @@ static bool backend_ready(void) { return g.initialized && mel_shell__plat_availa
 static Mel_Future* dispatch(str8 target, Mel_Shell_Opt opt, void (*plat)(Mel_Shell_Job*), const char* what)
 {
     if (!g.initialized)
+    {
+        mel_log_error("shell", "%s: called before mel_shell_init", what);
         return NULL;
+    }
     Mel_Shell_Job* j = job_new(target, opt);
     if (!j)
         return NULL;
@@ -136,6 +138,11 @@ Mel_Shell_Status mel_shell_future_status(const Mel_Future* f)
 {
     if (!f)
         return MEL_SHELL_ERROR | MEL_SHELL_RESULT_CANCELLED;
+    if (!mel_future_resolved(f))
+    {
+        mel_log_error("shell", "mel_shell_future_status: future not yet resolved");
+        return MEL_SHELL_ERROR;
+    }
     Mel_Future_Status s = mel_future_status((Mel_Future*)f);
     if (s & MEL_FUTURE_CANCELLED)
         return MEL_SHELL_ERROR | MEL_SHELL_RESULT_CANCELLED;
@@ -145,7 +152,7 @@ Mel_Shell_Status mel_shell_future_status(const Mel_Future* f)
 
 void mel_shell_future_free(Mel_Future* f)
 {
-    if (!f || !g.initialized)
+    if (!f)
         return;
     Mel_Shell_Job* j = mel_container_of(f, Mel_Shell_Job, future);
     job_storage_free(j);
