@@ -81,8 +81,7 @@ static const char DISPATCH_INDIRECT_SLANG[] = {
 #embed "shaders/slang/dispatch_indirect.slang"
     , 0
 };
-/* ===== end task #35 batch G1 embeds ===== */
-/* ---- batch G2 graphics screens (depth3d/msaa/shadow/prepass/passthrough) ---- */
+
 static const char PASSTHROUGH_SLANG[] = {
 #embed "shaders/slang/passthrough.slang"
     , 0
@@ -107,6 +106,8 @@ static const char SHADOW_SLANG[] = {
 #embed "shaders/slang/shadow.slang"
     , 0
 };
+
+/* ===== end task #35 batch G1 embeds ===== */
 
 #if MEL_GPU_VULKAN
 #define SCENE_BACKEND "vulkan"
@@ -1296,10 +1297,190 @@ MEL_TEST(scene_shared, reacdiff)
     mel_gpu_cmd_push_constants(cmd, 0, sizeof dr, &dr);
     mel_gpu_cmd_draw(cmd, 3, 1);
     mel_gpu_cmd_end_rendering(cmd);
-/* =====================================================================================
-   batch G2 graphics screens — depth3d / msaa / shadow / prepass / passthrough
-   Contiguous append block (a sibling batch also appends here; keep this delimited).
-   ===================================================================================== */
+    mel_gpu_cmd_texture_barrier(cmd, tgt.rt, range, MEL_GPU_STATE_RENDER_TARGET, MEL_GPU_STATE_COPY_SOURCE);
+    mel_gpu_cmd_copy_texture_to_buffer(cmd, tgt.rt, range, tgt.rb);
+    mel_gpu_command_list_end(cmd);
+
+    Mel_Gpu_Future* f = mel_gpu_queue_submit(q, (Mel_Gpu_Submit){ .command_lists = &cmd, .command_list_count = 1 });
+    bool            ok = mel_gpu_ok(mel_gpu_future_wait(f));
+    mel_gpu_future_destroy(f);
+    MEL_REQUIRE(ok);
+
+    const u8* px = mel_gpu_buffer_mapped(dev, tgt.rb);
+    MEL_REQUIRE_NOT_NULL(px);
+    MEL_GOLDEN(SCENE_BACKEND, "shared/reacdiff", px, tgt.w, tgt.h, SCENE_TOL);
+
+    scene_target_destroy(dev, &tgt);
+    mel_gpu_command_list_destroy(cmd);
+    mel_gpu_queue_release(q);
+    mel_gpu_pipeline_destroy(dev, draw_pl.value);
+    mel_gpu_shader_destroy(dev, draw_pl.shader);
+    mel_gpu_pipeline_destroy(dev, step_pl.value);
+    mel_gpu_shader_destroy(dev, step_pl.shader);
+    mel_gpu_pipeline_destroy(dev, init_pl.value);
+    mel_gpu_shader_destroy(dev, init_pl.shader);
+    mel_gpu_sampler_destroy(dev, smp.value);
+    for (u32 k = 0; k < 2; ++k)
+    {
+        mel_gpu_texture_view_destroy(dev, img_view[k]);
+        mel_gpu_texture_destroy(dev, img[k]);
+    }
+    mel_gpu_device_destroy(dev);
+    mel_gpu_instance_destroy(inst);
+}
+
+#define DI_SCENE_AGENTS 4096u
+#define DI_SCENE_LOCAL  64u
+
+typedef struct
+{
+    f32 pos_phase[4];
+} Di_Scene_Agent;
+
+typedef struct
+{
+    u32 agents, survivors, args, image, total, w, h, local;
+    f32 time, cull_r, cull_x, cull_y;
+} Di_Scene_Root;
+
+MEL_TEST(scene_shared, dispatch_indirect)
+{
+    Mel_Gpu_Instance* inst = NULL;
+    Mel_Gpu_Device*   dev = scene_make_device_bindless(&inst);
+    MEL_REQUIRE_NOT_NULL(dev);
+
+    if (!mel_gpu_bindless_available(dev))
+    {
+        mel_gpu_device_destroy(dev);
+        mel_gpu_instance_destroy(inst);
+        MEL_SKIP("dispatch_indirect scene needs the device-global bindless storage-image + storage-buffer heaps (descriptor_indexing); device does not advertise it");
+    }
+
+#if MEL_GPU_METAL
+    /* The shade pass is dispatched via cmd_dispatch_indirect on a from-slang bindless
+       compute pipeline. The Metal RHI's mel_gpu_cmd_dispatch_indirect (record.m) does NOT
+       build the per-dispatch inlined argument buffer that mel_gpu_cmd_dispatch builds, so the
+       shade kernel runs with no bound bindless resources and writes nothing — the image comes
+       back without the survivor splats. The fix is to lift the compute-argbuffer build (the
+       same lines cmd_dispatch runs) into cmd_dispatch_indirect; that is gpu backend src, out
+       of this task's ownership. Skip honestly here rather than diff a blank image against the
+       Vulkan oracle (MEL-ENGINE-VIII). cull/buildargs/clear all run on Metal; only the
+       indirectly-dispatched shade is blocked. The Vulkan oracle proves the algorithm. */
+    mel_gpu_device_destroy(dev);
+    mel_gpu_instance_destroy(inst);
+    MEL_SKIP("dispatch_indirect scene needs the Metal RHI to build the from-slang bindless argument buffer in cmd_dispatch_indirect (record.m); it only builds it in cmd_dispatch — RHI gap, gpu backend src out of this task's scope");
+#else
+    Di_Scene_Agent* pool = malloc(DI_SCENE_AGENTS * sizeof(Di_Scene_Agent));
+    MEL_REQUIRE_NOT_NULL(pool);
+    for (u32 i = 0; i < DI_SCENE_AGENTS; ++i)
+    {
+        f32 fi = (f32)i;
+        f32 a = fi * 2.3999632f;
+        f32 r = 0.95f * sqrtf(fi / (f32)DI_SCENE_AGENTS);
+        pool[i] = (Di_Scene_Agent){ { r * cosf(a), r * sinf(a), 0.06f + 0.05f * sinf(fi * 0.05f), a } };
+    }
+    Mel_Gpu_Buffer_Create_Result ab = mel_gpu_buffer_create(dev, .size = DI_SCENE_AGENTS * sizeof(Di_Scene_Agent), .usage = MEL_GPU_BUFFER_STORAGE, .memory = MEL_GPU_MEMORY_DEVICE, .data = pool, .name = "scene-di-agents");
+    free(pool);
+    MEL_REQUIRE(!mel_gpu_failed(ab.status));
+    u32 agents_slot = mel_gpu_buffer_bindless_slot(dev, ab.value);
+
+    Mel_Gpu_Buffer_Create_Result sb = mel_gpu_buffer_create(dev, .size = 16 + (usize)DI_SCENE_AGENTS * sizeof(u32), .usage = MEL_GPU_BUFFER_STORAGE, .memory = MEL_GPU_MEMORY_UPLOAD, .name = "scene-di-survivors");
+    MEL_REQUIRE(!mel_gpu_failed(sb.status));
+    u32 surv_slot = mel_gpu_buffer_bindless_slot(dev, sb.value);
+    Mel_Gpu_Buffer_Create_Result rb = mel_gpu_buffer_create(dev, .size = 3 * sizeof(u32), .usage = MEL_GPU_BUFFER_STORAGE | MEL_GPU_BUFFER_INDIRECT, .memory = MEL_GPU_MEMORY_UPLOAD, .name = "scene-di-args");
+    MEL_REQUIRE(!mel_gpu_failed(rb.status));
+    u32 args_slot = mel_gpu_buffer_bindless_slot(dev, rb.value);
+
+    Mel_Gpu_Texture_Create_Result it = mel_gpu_texture_create(dev, .kind = MEL_GPU_TEXTURE_2D, .extent = { SCENE_W, SCENE_H, 1 }, .format = MEL_GPU_FORMAT_RGBA8_UNORM, .usage = MEL_GPU_TEXTURE_STORAGE | MEL_GPU_TEXTURE_COPY_SRC, .name = "scene-di-img");
+    MEL_REQUIRE(!mel_gpu_failed(it.status));
+    Mel_Gpu_Texture_View_Create_Result iv = mel_gpu_texture_default_view(dev, it.value);
+    MEL_REQUIRE(!mel_gpu_failed(iv.status));
+    u32                          img_slot = mel_gpu_texture_view_bindless_slot(dev, iv.value);
+    Mel_Gpu_Buffer_Create_Result imgrb = mel_gpu_buffer_create(dev, .size = (usize)SCENE_W * SCENE_H * 4, .usage = MEL_GPU_BUFFER_TRANSFER_DST, .memory = MEL_GPU_MEMORY_READBACK, .name = "scene-di-rb");
+    MEL_REQUIRE(!mel_gpu_failed(imgrb.status));
+
+    Mel_Gpu_Pipeline_From_Slang_Result cull_pl = mel_gpu_pipeline_compute_create_from_slang(dev, .source = DISPATCH_INDIRECT_SLANG, .compute_entry = "cs_cull", .push_constant_size = sizeof(Di_Scene_Root), .bindless = true, .name = "scene-di-cull");
+    MEL_REQUIRE(!mel_gpu_failed(cull_pl.status));
+    Mel_Gpu_Pipeline_From_Slang_Result args_pl = mel_gpu_pipeline_compute_create_from_slang(dev, .source = DISPATCH_INDIRECT_SLANG, .compute_entry = "cs_args", .push_constant_size = sizeof(Di_Scene_Root), .bindless = true, .name = "scene-di-args");
+    MEL_REQUIRE(!mel_gpu_failed(args_pl.status));
+    Mel_Gpu_Pipeline_From_Slang_Result clear_pl = mel_gpu_pipeline_compute_create_from_slang(dev, .source = DISPATCH_INDIRECT_SLANG, .compute_entry = "cs_clear", .push_constant_size = sizeof(Di_Scene_Root), .bindless = true, .name = "scene-di-clear");
+    MEL_REQUIRE(!mel_gpu_failed(clear_pl.status));
+    Mel_Gpu_Pipeline_From_Slang_Result shade_pl = mel_gpu_pipeline_compute_create_from_slang(dev, .source = DISPATCH_INDIRECT_SLANG, .compute_entry = "cs_shade", .push_constant_size = sizeof(Di_Scene_Root), .bindless = true, .name = "scene-di-shade");
+    MEL_REQUIRE(!mel_gpu_failed(shade_pl.status));
+
+    u32* surv_map = mel_gpu_buffer_mapped(dev, sb.value);
+    MEL_REQUIRE_NOT_NULL(surv_map);
+    surv_map[0] = 0;
+
+    Mel_Gpu_Queue*        q = mel_gpu_queue_request(dev, MEL_GPU_QUEUE_GRAPHICS);
+    Mel_Gpu_Command_List* cmd = mel_gpu_command_list_create(q);
+    mel_gpu_command_list_begin(cmd);
+
+    mel_gpu_cmd_buffer_barrier(cmd, sb.value, MEL_GPU_STATE_COMMON, MEL_GPU_STATE_UNORDERED_ACCESS);
+    Di_Scene_Root croot = { .agents = agents_slot, .survivors = surv_slot, .total = DI_SCENE_AGENTS, .time = 0.0f, .cull_r = 0.8f, .cull_x = 0.0f, .cull_y = 0.0f };
+    mel_gpu_cmd_bind_pipeline(cmd, cull_pl.value);
+    mel_gpu_cmd_bind_bindless(cmd);
+    mel_gpu_cmd_push_constants(cmd, 0, sizeof croot, &croot);
+    mel_gpu_cmd_dispatch(cmd, (DI_SCENE_AGENTS + DI_SCENE_LOCAL - 1) / DI_SCENE_LOCAL, 1, 1);
+
+    mel_gpu_cmd_buffer_barrier(cmd, sb.value, MEL_GPU_STATE_UNORDERED_ACCESS, MEL_GPU_STATE_SHADER_RESOURCE);
+    mel_gpu_cmd_buffer_barrier(cmd, rb.value, MEL_GPU_STATE_COMMON, MEL_GPU_STATE_UNORDERED_ACCESS);
+    Di_Scene_Root aroot = { .survivors = surv_slot, .args = args_slot, .local = DI_SCENE_LOCAL };
+    mel_gpu_cmd_bind_pipeline(cmd, args_pl.value);
+    mel_gpu_cmd_bind_bindless(cmd);
+    mel_gpu_cmd_push_constants(cmd, 0, sizeof aroot, &aroot);
+    mel_gpu_cmd_dispatch(cmd, 1, 1, 1);
+    mel_gpu_cmd_buffer_barrier(cmd, rb.value, MEL_GPU_STATE_UNORDERED_ACCESS, MEL_GPU_STATE_INDIRECT_ARGUMENT);
+
+    Mel_Gpu_Subresource_Range range = { MEL_GPU_ASPECT_COLOR, 0, 1, 0, 1 };
+    mel_gpu_cmd_texture_barrier(cmd, it.value, range, MEL_GPU_STATE_COMMON, MEL_GPU_STATE_UNORDERED_ACCESS);
+    Di_Scene_Root clroot = { .image = img_slot, .w = SCENE_W, .h = SCENE_H, .time = 0.0f };
+    mel_gpu_cmd_bind_pipeline(cmd, clear_pl.value);
+    mel_gpu_cmd_bind_bindless(cmd);
+    mel_gpu_cmd_push_constants(cmd, 0, sizeof clroot, &clroot);
+    mel_gpu_cmd_dispatch(cmd, (SCENE_W + 7) / 8, (SCENE_H + 7) / 8, 1);
+    mel_gpu_cmd_texture_barrier(cmd, it.value, range, MEL_GPU_STATE_UNORDERED_ACCESS, MEL_GPU_STATE_UNORDERED_ACCESS);
+
+    Di_Scene_Root sroot = { .agents = agents_slot, .survivors = surv_slot, .image = img_slot, .total = DI_SCENE_AGENTS, .w = SCENE_W, .h = SCENE_H, .time = 0.0f, .cull_r = 0.8f, .cull_x = 0.0f, .cull_y = 0.0f };
+    mel_gpu_cmd_bind_pipeline(cmd, shade_pl.value);
+    mel_gpu_cmd_bind_bindless(cmd);
+    mel_gpu_cmd_push_constants(cmd, 0, sizeof sroot, &sroot);
+    mel_gpu_cmd_dispatch_indirect(cmd, rb.value, 0);
+
+    mel_gpu_cmd_texture_barrier(cmd, it.value, range, MEL_GPU_STATE_UNORDERED_ACCESS, MEL_GPU_STATE_COPY_SOURCE);
+    mel_gpu_cmd_copy_texture_to_buffer(cmd, it.value, range, imgrb.value);
+    mel_gpu_command_list_end(cmd);
+
+    Mel_Gpu_Future* f = mel_gpu_queue_submit(q, (Mel_Gpu_Submit){ .command_lists = &cmd, .command_list_count = 1 });
+    bool            ok = mel_gpu_ok(mel_gpu_future_wait(f));
+    mel_gpu_future_destroy(f);
+    MEL_REQUIRE(ok);
+
+    const u8* px = mel_gpu_buffer_mapped(dev, imgrb.value);
+    MEL_REQUIRE_NOT_NULL(px);
+    MEL_GOLDEN(SCENE_BACKEND, "shared/dispatch_indirect", px, SCENE_W, SCENE_H, SCENE_TOL);
+
+    mel_gpu_command_list_destroy(cmd);
+    mel_gpu_queue_release(q);
+    mel_gpu_pipeline_destroy(dev, shade_pl.value);
+    mel_gpu_shader_destroy(dev, shade_pl.shader);
+    mel_gpu_pipeline_destroy(dev, clear_pl.value);
+    mel_gpu_shader_destroy(dev, clear_pl.shader);
+    mel_gpu_pipeline_destroy(dev, args_pl.value);
+    mel_gpu_shader_destroy(dev, args_pl.shader);
+    mel_gpu_pipeline_destroy(dev, cull_pl.value);
+    mel_gpu_shader_destroy(dev, cull_pl.shader);
+    mel_gpu_buffer_destroy(dev, imgrb.value);
+    mel_gpu_texture_view_destroy(dev, iv.value);
+    mel_gpu_texture_destroy(dev, it.value);
+    mel_gpu_buffer_destroy(dev, rb.value);
+    mel_gpu_buffer_destroy(dev, sb.value);
+    mel_gpu_buffer_destroy(dev, ab.value);
+    mel_gpu_device_destroy(dev);
+    mel_gpu_instance_destroy(inst);
+#endif
+}
+/* ===== end task #35 batch G1 scenes ===== */
 
 static void scene_record_passthrough(Mel_Gpu_Command_List* cmd, void* ctx)
 {
@@ -1712,175 +1893,11 @@ MEL_TEST(scene_shared, msaa)
 
     const u8* px = mel_gpu_buffer_mapped(dev, tgt.rb);
     MEL_REQUIRE_NOT_NULL(px);
-    MEL_GOLDEN(SCENE_BACKEND, "shared/reacdiff", px, tgt.w, tgt.h, SCENE_TOL);
     MEL_GOLDEN(SCENE_BACKEND, "shared/msaa", px, tgt.w, tgt.h, SCENE_TOL);
 
     scene_target_destroy(dev, &tgt);
     mel_gpu_command_list_destroy(cmd);
     mel_gpu_queue_release(q);
-    mel_gpu_pipeline_destroy(dev, draw_pl.value);
-    mel_gpu_shader_destroy(dev, draw_pl.shader);
-    mel_gpu_pipeline_destroy(dev, step_pl.value);
-    mel_gpu_shader_destroy(dev, step_pl.shader);
-    mel_gpu_pipeline_destroy(dev, init_pl.value);
-    mel_gpu_shader_destroy(dev, init_pl.shader);
-    mel_gpu_sampler_destroy(dev, smp.value);
-    for (u32 k = 0; k < 2; ++k)
-    {
-        mel_gpu_texture_view_destroy(dev, img_view[k]);
-        mel_gpu_texture_destroy(dev, img[k]);
-    }
-    mel_gpu_device_destroy(dev);
-    mel_gpu_instance_destroy(inst);
-}
-
-#define DI_SCENE_AGENTS 4096u
-#define DI_SCENE_LOCAL  64u
-
-typedef struct
-{
-    f32 pos_phase[4];
-} Di_Scene_Agent;
-
-typedef struct
-{
-    u32 agents, survivors, args, image, total, w, h, local;
-    f32 time, cull_r, cull_x, cull_y;
-} Di_Scene_Root;
-
-MEL_TEST(scene_shared, dispatch_indirect)
-{
-    Mel_Gpu_Instance* inst = NULL;
-    Mel_Gpu_Device*   dev = scene_make_device_bindless(&inst);
-    MEL_REQUIRE_NOT_NULL(dev);
-
-    if (!mel_gpu_bindless_available(dev))
-    {
-        mel_gpu_device_destroy(dev);
-        mel_gpu_instance_destroy(inst);
-        MEL_SKIP("dispatch_indirect scene needs the device-global bindless storage-image + storage-buffer heaps (descriptor_indexing); device does not advertise it");
-    }
-
-#if MEL_GPU_METAL
-    /* The shade pass is dispatched via cmd_dispatch_indirect on a from-slang bindless
-       compute pipeline. The Metal RHI's mel_gpu_cmd_dispatch_indirect (record.m) does NOT
-       build the per-dispatch inlined argument buffer that mel_gpu_cmd_dispatch builds, so the
-       shade kernel runs with no bound bindless resources and writes nothing — the image comes
-       back without the survivor splats. The fix is to lift the compute-argbuffer build (the
-       same lines cmd_dispatch runs) into cmd_dispatch_indirect; that is gpu backend src, out
-       of this task's ownership. Skip honestly here rather than diff a blank image against the
-       Vulkan oracle (MEL-ENGINE-VIII). cull/buildargs/clear all run on Metal; only the
-       indirectly-dispatched shade is blocked. The Vulkan oracle proves the algorithm. */
-    mel_gpu_device_destroy(dev);
-    mel_gpu_instance_destroy(inst);
-    MEL_SKIP("dispatch_indirect scene needs the Metal RHI to build the from-slang bindless argument buffer in cmd_dispatch_indirect (record.m); it only builds it in cmd_dispatch — RHI gap, gpu backend src out of this task's scope");
-#else
-    Di_Scene_Agent* pool = malloc(DI_SCENE_AGENTS * sizeof(Di_Scene_Agent));
-    MEL_REQUIRE_NOT_NULL(pool);
-    for (u32 i = 0; i < DI_SCENE_AGENTS; ++i)
-    {
-        f32 fi = (f32)i;
-        f32 a = fi * 2.3999632f;
-        f32 r = 0.95f * sqrtf(fi / (f32)DI_SCENE_AGENTS);
-        pool[i] = (Di_Scene_Agent){ { r * cosf(a), r * sinf(a), 0.06f + 0.05f * sinf(fi * 0.05f), a } };
-    }
-    Mel_Gpu_Buffer_Create_Result ab = mel_gpu_buffer_create(dev, .size = DI_SCENE_AGENTS * sizeof(Di_Scene_Agent), .usage = MEL_GPU_BUFFER_STORAGE, .memory = MEL_GPU_MEMORY_DEVICE, .data = pool, .name = "scene-di-agents");
-    free(pool);
-    MEL_REQUIRE(!mel_gpu_failed(ab.status));
-    u32 agents_slot = mel_gpu_buffer_bindless_slot(dev, ab.value);
-
-    Mel_Gpu_Buffer_Create_Result sb = mel_gpu_buffer_create(dev, .size = 16 + (usize)DI_SCENE_AGENTS * sizeof(u32), .usage = MEL_GPU_BUFFER_STORAGE, .memory = MEL_GPU_MEMORY_UPLOAD, .name = "scene-di-survivors");
-    MEL_REQUIRE(!mel_gpu_failed(sb.status));
-    u32 surv_slot = mel_gpu_buffer_bindless_slot(dev, sb.value);
-    Mel_Gpu_Buffer_Create_Result rb = mel_gpu_buffer_create(dev, .size = 3 * sizeof(u32), .usage = MEL_GPU_BUFFER_STORAGE | MEL_GPU_BUFFER_INDIRECT, .memory = MEL_GPU_MEMORY_UPLOAD, .name = "scene-di-args");
-    MEL_REQUIRE(!mel_gpu_failed(rb.status));
-    u32 args_slot = mel_gpu_buffer_bindless_slot(dev, rb.value);
-
-    Mel_Gpu_Texture_Create_Result it = mel_gpu_texture_create(dev, .kind = MEL_GPU_TEXTURE_2D, .extent = { SCENE_W, SCENE_H, 1 }, .format = MEL_GPU_FORMAT_RGBA8_UNORM, .usage = MEL_GPU_TEXTURE_STORAGE | MEL_GPU_TEXTURE_COPY_SRC, .name = "scene-di-img");
-    MEL_REQUIRE(!mel_gpu_failed(it.status));
-    Mel_Gpu_Texture_View_Create_Result iv = mel_gpu_texture_default_view(dev, it.value);
-    MEL_REQUIRE(!mel_gpu_failed(iv.status));
-    u32                          img_slot = mel_gpu_texture_view_bindless_slot(dev, iv.value);
-    Mel_Gpu_Buffer_Create_Result imgrb = mel_gpu_buffer_create(dev, .size = (usize)SCENE_W * SCENE_H * 4, .usage = MEL_GPU_BUFFER_TRANSFER_DST, .memory = MEL_GPU_MEMORY_READBACK, .name = "scene-di-rb");
-    MEL_REQUIRE(!mel_gpu_failed(imgrb.status));
-
-    Mel_Gpu_Pipeline_From_Slang_Result cull_pl = mel_gpu_pipeline_compute_create_from_slang(dev, .source = DISPATCH_INDIRECT_SLANG, .compute_entry = "cs_cull", .push_constant_size = sizeof(Di_Scene_Root), .bindless = true, .name = "scene-di-cull");
-    MEL_REQUIRE(!mel_gpu_failed(cull_pl.status));
-    Mel_Gpu_Pipeline_From_Slang_Result args_pl = mel_gpu_pipeline_compute_create_from_slang(dev, .source = DISPATCH_INDIRECT_SLANG, .compute_entry = "cs_args", .push_constant_size = sizeof(Di_Scene_Root), .bindless = true, .name = "scene-di-args");
-    MEL_REQUIRE(!mel_gpu_failed(args_pl.status));
-    Mel_Gpu_Pipeline_From_Slang_Result clear_pl = mel_gpu_pipeline_compute_create_from_slang(dev, .source = DISPATCH_INDIRECT_SLANG, .compute_entry = "cs_clear", .push_constant_size = sizeof(Di_Scene_Root), .bindless = true, .name = "scene-di-clear");
-    MEL_REQUIRE(!mel_gpu_failed(clear_pl.status));
-    Mel_Gpu_Pipeline_From_Slang_Result shade_pl = mel_gpu_pipeline_compute_create_from_slang(dev, .source = DISPATCH_INDIRECT_SLANG, .compute_entry = "cs_shade", .push_constant_size = sizeof(Di_Scene_Root), .bindless = true, .name = "scene-di-shade");
-    MEL_REQUIRE(!mel_gpu_failed(shade_pl.status));
-
-    u32* surv_map = mel_gpu_buffer_mapped(dev, sb.value);
-    MEL_REQUIRE_NOT_NULL(surv_map);
-    surv_map[0] = 0;
-
-    Mel_Gpu_Queue*        q = mel_gpu_queue_request(dev, MEL_GPU_QUEUE_GRAPHICS);
-    Mel_Gpu_Command_List* cmd = mel_gpu_command_list_create(q);
-    mel_gpu_command_list_begin(cmd);
-
-    mel_gpu_cmd_buffer_barrier(cmd, sb.value, MEL_GPU_STATE_COMMON, MEL_GPU_STATE_UNORDERED_ACCESS);
-    Di_Scene_Root croot = { .agents = agents_slot, .survivors = surv_slot, .total = DI_SCENE_AGENTS, .time = 0.0f, .cull_r = 0.8f, .cull_x = 0.0f, .cull_y = 0.0f };
-    mel_gpu_cmd_bind_pipeline(cmd, cull_pl.value);
-    mel_gpu_cmd_bind_bindless(cmd);
-    mel_gpu_cmd_push_constants(cmd, 0, sizeof croot, &croot);
-    mel_gpu_cmd_dispatch(cmd, (DI_SCENE_AGENTS + DI_SCENE_LOCAL - 1) / DI_SCENE_LOCAL, 1, 1);
-
-    mel_gpu_cmd_buffer_barrier(cmd, sb.value, MEL_GPU_STATE_UNORDERED_ACCESS, MEL_GPU_STATE_SHADER_RESOURCE);
-    mel_gpu_cmd_buffer_barrier(cmd, rb.value, MEL_GPU_STATE_COMMON, MEL_GPU_STATE_UNORDERED_ACCESS);
-    Di_Scene_Root aroot = { .survivors = surv_slot, .args = args_slot, .local = DI_SCENE_LOCAL };
-    mel_gpu_cmd_bind_pipeline(cmd, args_pl.value);
-    mel_gpu_cmd_bind_bindless(cmd);
-    mel_gpu_cmd_push_constants(cmd, 0, sizeof aroot, &aroot);
-    mel_gpu_cmd_dispatch(cmd, 1, 1, 1);
-    mel_gpu_cmd_buffer_barrier(cmd, rb.value, MEL_GPU_STATE_UNORDERED_ACCESS, MEL_GPU_STATE_INDIRECT_ARGUMENT);
-
-    Mel_Gpu_Subresource_Range range = { MEL_GPU_ASPECT_COLOR, 0, 1, 0, 1 };
-    mel_gpu_cmd_texture_barrier(cmd, it.value, range, MEL_GPU_STATE_COMMON, MEL_GPU_STATE_UNORDERED_ACCESS);
-    Di_Scene_Root clroot = { .image = img_slot, .w = SCENE_W, .h = SCENE_H, .time = 0.0f };
-    mel_gpu_cmd_bind_pipeline(cmd, clear_pl.value);
-    mel_gpu_cmd_bind_bindless(cmd);
-    mel_gpu_cmd_push_constants(cmd, 0, sizeof clroot, &clroot);
-    mel_gpu_cmd_dispatch(cmd, (SCENE_W + 7) / 8, (SCENE_H + 7) / 8, 1);
-    mel_gpu_cmd_texture_barrier(cmd, it.value, range, MEL_GPU_STATE_UNORDERED_ACCESS, MEL_GPU_STATE_UNORDERED_ACCESS);
-
-    Di_Scene_Root sroot = { .agents = agents_slot, .survivors = surv_slot, .image = img_slot, .total = DI_SCENE_AGENTS, .w = SCENE_W, .h = SCENE_H, .time = 0.0f, .cull_r = 0.8f, .cull_x = 0.0f, .cull_y = 0.0f };
-    mel_gpu_cmd_bind_pipeline(cmd, shade_pl.value);
-    mel_gpu_cmd_bind_bindless(cmd);
-    mel_gpu_cmd_push_constants(cmd, 0, sizeof sroot, &sroot);
-    mel_gpu_cmd_dispatch_indirect(cmd, rb.value, 0);
-
-    mel_gpu_cmd_texture_barrier(cmd, it.value, range, MEL_GPU_STATE_UNORDERED_ACCESS, MEL_GPU_STATE_COPY_SOURCE);
-    mel_gpu_cmd_copy_texture_to_buffer(cmd, it.value, range, imgrb.value);
-    mel_gpu_command_list_end(cmd);
-
-    Mel_Gpu_Future* f = mel_gpu_queue_submit(q, (Mel_Gpu_Submit){ .command_lists = &cmd, .command_list_count = 1 });
-    bool            ok = mel_gpu_ok(mel_gpu_future_wait(f));
-    mel_gpu_future_destroy(f);
-    MEL_REQUIRE(ok);
-
-    const u8* px = mel_gpu_buffer_mapped(dev, imgrb.value);
-    MEL_REQUIRE_NOT_NULL(px);
-    MEL_GOLDEN(SCENE_BACKEND, "shared/dispatch_indirect", px, SCENE_W, SCENE_H, SCENE_TOL);
-
-    mel_gpu_command_list_destroy(cmd);
-    mel_gpu_queue_release(q);
-    mel_gpu_pipeline_destroy(dev, shade_pl.value);
-    mel_gpu_shader_destroy(dev, shade_pl.shader);
-    mel_gpu_pipeline_destroy(dev, clear_pl.value);
-    mel_gpu_shader_destroy(dev, clear_pl.shader);
-    mel_gpu_pipeline_destroy(dev, args_pl.value);
-    mel_gpu_shader_destroy(dev, args_pl.shader);
-    mel_gpu_pipeline_destroy(dev, cull_pl.value);
-    mel_gpu_shader_destroy(dev, cull_pl.shader);
-    mel_gpu_buffer_destroy(dev, imgrb.value);
-    mel_gpu_texture_view_destroy(dev, iv.value);
-    mel_gpu_texture_destroy(dev, it.value);
-    mel_gpu_buffer_destroy(dev, rb.value);
-    mel_gpu_buffer_destroy(dev, sb.value);
-    mel_gpu_buffer_destroy(dev, ab.value);
     mel_gpu_sampler_destroy(dev, heap_smp.value);
     mel_gpu_texture_view_destroy(dev, heap_view.value);
     mel_gpu_texture_destroy(dev, heap_tex.value);
@@ -1893,7 +1910,6 @@ MEL_TEST(scene_shared, dispatch_indirect)
     mel_gpu_instance_destroy(inst);
 #endif
 }
-/* ===== end task #35 batch G1 scenes ===== */
 
 typedef struct
 {
