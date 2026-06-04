@@ -357,7 +357,10 @@ void mel_gpu_cmd_bind_vertex_buffer(Mel_Gpu_Command_List* cmd, u32 slot, Mel_Gpu
         mel_assert(!"cmd_bind_vertex_buffer: invalid buffer handle");
         return;
     }
-    D3D12_VERTEX_BUFFER_VIEW vbv = { .BufferLocation = o->gpu_va, .SizeInBytes = (UINT)o->size, .StrideInBytes = cmd->cur_vertex_stride };
+    u32 stride = cmd->cur_vertex_stride;
+    if (cmd->cur_pipeline && cmd->cur_pipeline->slot_strides && slot < cmd->cur_pipeline->slot_stride_count)
+        stride = cmd->cur_pipeline->slot_strides[slot];
+    D3D12_VERTEX_BUFFER_VIEW vbv = { .BufferLocation = o->gpu_va, .SizeInBytes = (UINT)o->size, .StrideInBytes = stride };
     ID3D12GraphicsCommandList_IASetVertexBuffers(cmd->list, slot, 1, &vbv);
 }
 

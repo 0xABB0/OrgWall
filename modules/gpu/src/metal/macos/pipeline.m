@@ -516,7 +516,7 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_create_opt(Mel_Gpu_Device* dev, 
     u32 req_samples = opt.samples ? opt.samples : 1;
     rpd.rasterSampleCount = req_samples;
 
-    if (opt.vertex_layout_count && opt.vertex_stride)
+    if (opt.vertex_layout_count && (opt.vertex_stride || opt.vertex_buffer_count))
     {
         MTLVertexDescriptor* vd = [MTLVertexDescriptor vertexDescriptor];
         bool                 ok = true;
@@ -529,17 +529,46 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_create_opt(Mel_Gpu_Device* dev, 
                 ok = false;
                 break;
             }
+            u32 slot = opt.vertex_layout[i].buffer_slot;
+            if (opt.vertex_buffer_count)
+            {
+                bool found = false;
+                for (u32 b = 0; b < opt.vertex_buffer_count; b++)
+                    if (opt.vertex_buffers[b].slot == slot)
+                    {
+                        found = true;
+                        break;
+                    }
+                if (!found)
+                {
+                    mel_log_error("gpu", "pipeline_create '%s': vertex element %u references buffer_slot %u with no matching vertex_buffers entry", dbg_name, i, slot);
+                    ok = false;
+                    break;
+                }
+            }
             vd.attributes[opt.vertex_layout[i].location].format = vf;
             vd.attributes[opt.vertex_layout[i].location].offset = opt.vertex_layout[i].offset;
-            vd.attributes[opt.vertex_layout[i].location].bufferIndex = MEL_GPU_METAL_VERTEX_BUFFER_INDEX;
+            vd.attributes[opt.vertex_layout[i].location].bufferIndex = MEL_GPU_METAL_VERTEX_SLOT_TO_INDEX(slot);
         }
         if (!ok)
         {
             res.status = MEL_GPU_PIPELINE_CREATE_BACKEND_FAILED;
             return res;
         }
-        vd.layouts[MEL_GPU_METAL_VERTEX_BUFFER_INDEX].stride = opt.vertex_stride;
-        vd.layouts[MEL_GPU_METAL_VERTEX_BUFFER_INDEX].stepFunction = MTLVertexStepFunctionPerVertex;
+        if (opt.vertex_buffer_count)
+        {
+            for (u32 b = 0; b < opt.vertex_buffer_count; b++)
+            {
+                u32 idx = MEL_GPU_METAL_VERTEX_SLOT_TO_INDEX(opt.vertex_buffers[b].slot);
+                vd.layouts[idx].stride = opt.vertex_buffers[b].stride;
+                vd.layouts[idx].stepFunction = opt.vertex_buffers[b].per_instance ? MTLVertexStepFunctionPerInstance : MTLVertexStepFunctionPerVertex;
+            }
+        }
+        else
+        {
+            vd.layouts[MEL_GPU_METAL_VERTEX_BUFFER_INDEX].stride = opt.vertex_stride;
+            vd.layouts[MEL_GPU_METAL_VERTEX_BUFFER_INDEX].stepFunction = MTLVertexStepFunctionPerVertex;
+        }
         rpd.vertexDescriptor = vd;
     }
 

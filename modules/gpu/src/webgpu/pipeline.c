@@ -149,9 +149,58 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_create_opt(Mel_Gpu_Device* dev, 
         return res;
     }
 
-    WGPUVertexAttribute*  attrs = NULL;
-    WGPUVertexBufferLayout vbl = { 0 };
-    if (opt.vertex_layout_count)
+    WGPUVertexAttribute*    attrs = NULL;
+    WGPUVertexBufferLayout* vbls = NULL;
+    u32                     vbl_count = 0;
+    if (opt.vertex_layout_count && opt.vertex_buffer_count)
+    {
+        u32 max_slot = 0;
+        for (u32 i = 0; i < opt.vertex_layout_count; i++)
+            if (opt.vertex_layout[i].buffer_slot > max_slot)
+                max_slot = opt.vertex_layout[i].buffer_slot;
+        for (u32 b = 0; b < opt.vertex_buffer_count; b++)
+            if (opt.vertex_buffers[b].slot > max_slot)
+                max_slot = opt.vertex_buffers[b].slot;
+        vbl_count = max_slot + 1;
+
+        attrs = mel_alloc_array(dev->alloc, WGPUVertexAttribute, opt.vertex_layout_count);
+        vbls = mel_alloc_array(dev->alloc, WGPUVertexBufferLayout, vbl_count);
+        for (u32 s = 0; s < vbl_count; s++)
+            vbls[s] = (WGPUVertexBufferLayout){ .stepMode = WGPUVertexStepMode_Vertex, .arrayStride = 0, .attributeCount = 0, .attributes = NULL };
+
+        u32 written = 0;
+        for (u32 b = 0; b < opt.vertex_buffer_count; b++)
+        {
+            u32                  slot = opt.vertex_buffers[b].slot;
+            WGPUVertexAttribute* base = attrs + written;
+            u32                  n = 0;
+            for (u32 i = 0; i < opt.vertex_layout_count; i++)
+                if (opt.vertex_layout[i].buffer_slot == slot)
+                {
+                    attrs[written++] = (WGPUVertexAttribute){
+                        .format = mel_gpu__vertex_format(opt.vertex_layout[i].format),
+                        .offset = opt.vertex_layout[i].offset,
+                        .shaderLocation = opt.vertex_layout[i].location,
+                    };
+                    n++;
+                }
+            vbls[slot] = (WGPUVertexBufferLayout){
+                .stepMode = opt.vertex_buffers[b].per_instance ? WGPUVertexStepMode_Instance : WGPUVertexStepMode_Vertex,
+                .arrayStride = opt.vertex_buffers[b].stride,
+                .attributeCount = n,
+                .attributes = n ? base : NULL,
+            };
+        }
+        if (written != opt.vertex_layout_count)
+        {
+            mel_log_error("gpu", "pipeline_create: %u vertex element(s) reference a buffer_slot with no matching vertex_buffers entry; pipeline '%s' refused", opt.vertex_layout_count - written, opt.name ? opt.name : "(unnamed)");
+            mel_dealloc(dev->alloc, attrs);
+            mel_dealloc(dev->alloc, vbls);
+            res.status = MEL_GPU_PIPELINE_CREATE_BACKEND_FAILED;
+            return res;
+        }
+    }
+    else if (opt.vertex_layout_count)
     {
         attrs = mel_alloc_array(dev->alloc, WGPUVertexAttribute, opt.vertex_layout_count);
         for (u32 i = 0; i < opt.vertex_layout_count; i++)
@@ -162,17 +211,16 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_create_opt(Mel_Gpu_Device* dev, 
                 .shaderLocation = opt.vertex_layout[i].location,
             };
         }
-        vbl.stepMode = WGPUVertexStepMode_Vertex;
-        vbl.arrayStride = opt.vertex_stride;
-        vbl.attributeCount = opt.vertex_layout_count;
-        vbl.attributes = attrs;
+        vbls = mel_alloc_array(dev->alloc, WGPUVertexBufferLayout, 1);
+        vbl_count = 1;
+        vbls[0] = (WGPUVertexBufferLayout){ .stepMode = WGPUVertexStepMode_Vertex, .arrayStride = opt.vertex_stride, .attributeCount = opt.vertex_layout_count, .attributes = attrs };
     }
 
     WGPUVertexState vstate = {
         .module = sh.vertex,
         .entryPoint = mel_gpu__sv(sh.vertex_entry),
-        .bufferCount = opt.vertex_layout_count ? 1 : 0,
-        .buffers = opt.vertex_layout_count ? &vbl : NULL,
+        .bufferCount = vbl_count,
+        .buffers = vbls,
     };
 
     u32                  ntargets = opt.color_target_count ? opt.color_target_count : 1;
@@ -231,6 +279,8 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_create_opt(Mel_Gpu_Device* dev, 
     WGPURenderPipeline wp = wgpuDeviceCreateRenderPipeline(dev->wgpu, &desc);
     if (attrs)
         mel_dealloc(dev->alloc, attrs);
+    if (vbls)
+        mel_dealloc(dev->alloc, vbls);
     if (!wp)
     {
         res.status = MEL_GPU_PIPELINE_CREATE_BACKEND_FAILED;
