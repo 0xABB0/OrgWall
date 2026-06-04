@@ -17,6 +17,7 @@ void build(Mel_Build* b)
     mel_depends(lib, "string");
     mel_depends(lib, "future");
     mel_depends(lib, "executor");
+    mel_depends(lib, "debug");
 
     Mel_Target* t = mel_add_test(b, "window-state");
     mel_sources(t, ALWAYS, "test/state_test.c");
@@ -31,4 +32,5 @@ void build(Mel_Build* b)
     mel_depends(t, "string");
     mel_depends(t, "future");
     mel_depends(t, "executor");
+    mel_depends(t, "debug");
 }

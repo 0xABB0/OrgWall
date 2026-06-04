@@ -1,5 +1,7 @@
 #include "cocoa.h"
 
+#include <debug/assert.h>
+
 #import <objc/runtime.h>
 #import <QuartzCore/QuartzCore.h>
 
@@ -60,8 +62,9 @@ static bool cocoa_set_fullscreen(Mel_Window_Node* n, u32 flags)
 
 static bool cocoa_set_fullscreen_mode(Mel_Window_Node* n, Mel_Window_Video_Mode mode)
 {
+    (void)n;
     (void)mode;
-    return mel_window__cocoa(n) != nil;
+    return false;
 }
 
 static bool cocoa_get_fullscreen_mode(Mel_Window_Node* n, Mel_Window_Video_Mode* out)
@@ -195,20 +198,23 @@ static bool cocoa_set_shape(Mel_Window_Node* n, const u8* alpha, i32 w, i32 h)
 
 static bool cocoa_set_mouse_grab(Mel_Window_Node* n, bool grab)
 {
+    (void)n;
     (void)grab;
-    return mel_window__cocoa(n) != nil ? true : false;
+    return false;
 }
 
 static bool cocoa_set_keyboard_grab(Mel_Window_Node* n, bool grab)
 {
+    (void)n;
     (void)grab;
-    return mel_window__cocoa(n) != nil ? true : false;
+    return false;
 }
 
 static bool cocoa_set_mouse_rect(Mel_Window_Node* n, Mel_Window_Rect rect)
 {
+    (void)n;
     (void)rect;
-    return mel_window__cocoa(n) != nil ? true : false;
+    return false;
 }
 
 static bool cocoa_set_progress_state(Mel_Window_Node* n, u32 state)
@@ -332,6 +338,7 @@ static bool cocoa_get_surface(Mel_Window_Node* n, Mel_Window_Surface* out)
         if (n->surface_pixels)
             mel_dealloc(a, n->surface_pixels);
         n->surface_pixels = mel_alloc(a, (usize)stride * (usize)(n->h > 0 ? n->h : 1));
+        mel_assert(n->surface_pixels != NULL);
         n->surface_w = n->w;
         n->surface_h = n->h;
         n->surface_stride = stride;
@@ -381,6 +388,7 @@ static bool cocoa_icc_profile(Mel_Window_Node* n, Mel_Window_Icc_Profile* out)
     const Mel_Alloc* a = mel_window__alloc();
     usize len = (usize)data.length;
     u8*   copy = (u8*)mel_alloc(a, len);
+    mel_assert(copy != NULL);
     memcpy(copy, data.bytes, len);
     out->data = copy;
     out->size = len;

@@ -2,6 +2,7 @@
 
 #include <executor/executor.h>
 #include <collection.list/list.h>
+#include <debug/assert.h>
 
 typedef struct
 {
@@ -150,7 +151,7 @@ Mel_Window_Status mel_window_set_opacity(Mel_Window w, f32 opacity)
     }
     n->opacity = opacity;
     if (!n->ops || !n->ops->set_opacity || !n->ops->set_opacity(n, opacity))
-        return MEL_WINDOW_WARNED | MEL_WINDOW_UNAVAILABLE;
+        return st | MEL_WINDOW_WARNED | MEL_WINDOW_UNAVAILABLE;
     return st;
 }
 
@@ -254,7 +255,7 @@ Mel_Window_Status mel_window_set_hit_test(Mel_Window w, Mel_Window_Hit_Test cb, 
         return g;
     n->hit_test = cb;
     n->hit_test_user = user;
-    return MEL_WINDOW_OK;
+    return MEL_WINDOW_WARNED | MEL_WINDOW_UNAVAILABLE;
 }
 
 Mel_Window_Status mel_window_set_shape(Mel_Window w, const u8* alpha_mask, i32 width, i32 height)
@@ -340,7 +341,7 @@ Mel_Window_Status mel_window_set_progress_value(Mel_Window w, f32 value)
     }
     n->progress_value = value;
     if (!n->ops || !n->ops->set_progress_value || !n->ops->set_progress_value(n, value))
-        return MEL_WINDOW_WARNED | MEL_WINDOW_UNAVAILABLE;
+        return st | MEL_WINDOW_WARNED | MEL_WINDOW_UNAVAILABLE;
     return st;
 }
 
@@ -536,7 +537,7 @@ void mel_window_icc_future_release(Mel_Future* f)
     if (!f)
         return;
     Mel_Window_Icc_Op* op = (Mel_Window_Icc_Op*)f;
-    if (g_icc_ops_inited && op->op_index != 0)
+    if (g_icc_ops_inited && op->op_generation != 0)
     {
         Mel_SlotMap_Handle h = { .index = op->op_index, .generation = op->op_generation };
         mel_slotmap_remove(&g_icc_ops, h);
@@ -569,6 +570,7 @@ Mel_Future* mel_window_fetch_icc_opt(Mel_Window w, Mel_Window_Icc_Opt opt)
 {
     const Mel_Alloc* alloc = mel_window__alloc();
     Mel_Window_Icc_Op* op = (Mel_Window_Icc_Op*)mel_alloc(alloc, sizeof(*op));
+    mel_assert(op != NULL);
     *op = (Mel_Window_Icc_Op){ 0 };
     mel_future_init(&op->future, NULL, alloc);
     mel_task_init(&op->deliver_task, mel_window__icc_deliver);

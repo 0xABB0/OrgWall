@@ -186,6 +186,30 @@ MEL_TEST(window_state, async_icc_fetch_delivers_on_executor)
     mel_window_shutdown();
 }
 
+MEL_TEST(window_state, async_icc_release_unregisters_op)
+{
+    mel_window_init(NULL);
+    Mel_Window w = mel_window_create(.title = S8("icc3"), .w = 80, .h = 60, .start_hidden = true);
+    MEL_REQUIRE(mel_window_alive(w));
+
+    Deferred_Executor def = { .base = { deferred_submit } };
+    Mel_Window_Op     op = MEL_WINDOW_OP_NULL;
+    Mel_Future*       f = mel_window_fetch_icc(w, .deliver = &def.base, .out_op = &op);
+    MEL_REQUIRE_NOT_NULL(f);
+    MEL_EXPECT(mel_window_op_valid(op));
+
+    deferred_drain(&def);
+    const Mel_Window_Icc_Result* r = mel_window_icc_future_result(f);
+    if (r && !mel_window_status_failed(r->status) && r->value.data)
+        mel_dealloc(mel_alloc_heap(), (void*)r->value.data);
+
+    mel_window_icc_future_release(f);
+    MEL_EXPECT(!mel_window_cancel(op));
+
+    mel_window_destroy(w);
+    mel_window_shutdown();
+}
+
 MEL_TEST(window_state, async_icc_cancel_marks_cancelled)
 {
     mel_window_init(NULL);
