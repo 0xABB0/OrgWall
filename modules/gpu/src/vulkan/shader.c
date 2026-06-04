@@ -70,7 +70,7 @@ Mel_Gpu_Shader_Create_Result mel_gpu_shader_create_from_bytecode_opt(Mel_Gpu_Dev
             vkDestroyShaderModule(dev->vk, vs, NULL);
         if (fs)
             vkDestroyShaderModule(dev->vk, fs, NULL);
-        res.status = MEL_GPU_SHADER_CREATE_VK_FAILED;
+        res.status = MEL_GPU_SHADER_CREATE_BACKEND_FAILED;
         return res;
     }
 
@@ -122,7 +122,7 @@ Mel_Gpu_Shader_Create_Result mel_gpu_shader_create_compute_from_bytecode_opt(Mel
     VkShaderModule cs = mel_gpu__make_module(dev, ccode, csize);
     if (cs == VK_NULL_HANDLE)
     {
-        res.status = MEL_GPU_SHADER_CREATE_VK_FAILED;
+        res.status = MEL_GPU_SHADER_CREATE_BACKEND_FAILED;
         return res;
     }
 

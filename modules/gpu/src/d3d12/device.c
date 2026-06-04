@@ -22,7 +22,7 @@ Mel_Gpu_Device_Create_Result mel_gpu_device_create_opt(Mel_Gpu_Instance* inst, M
     HRESULT       hr = D3D12CreateDevice((IUnknown*)adapter->dxgi, D3D_FEATURE_LEVEL_12_0, &IID_ID3D12Device, (void**)&d3d);
     if (FAILED(hr) || !d3d)
     {
-        res.status = hr == E_OUTOFMEMORY ? MEL_GPU_DEVICE_CREATE_OOM : MEL_GPU_DEVICE_CREATE_VK_FAILED;
+        res.status = hr == E_OUTOFMEMORY ? MEL_GPU_DEVICE_CREATE_OOM : MEL_GPU_DEVICE_CREATE_BACKEND_FAILED;
         mel_log_error("gpu", "D3D12CreateDevice failed: 0x%08lx", (unsigned long)hr);
         return res;
     }
@@ -43,7 +43,7 @@ Mel_Gpu_Device_Create_Result mel_gpu_device_create_opt(Mel_Gpu_Instance* inst, M
     HANDLE event = hr == S_OK ? CreateEventW(NULL, FALSE, FALSE, NULL) : NULL;
     if (FAILED(hr) || !fence || !event)
     {
-        res.status = MEL_GPU_DEVICE_CREATE_VK_FAILED;
+        res.status = MEL_GPU_DEVICE_CREATE_BACKEND_FAILED;
         mel_log_error("gpu", "CreateFence/CreateEvent failed: 0x%08lx", (unsigned long)hr);
         if (event)
             CloseHandle(event);

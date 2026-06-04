@@ -356,7 +356,7 @@ Mel_Gpu_Texture_View_Create_Result mel_gpu_texture_view_create_opt(Mel_Gpu_Devic
     WGPUTextureView view = wgpuTextureCreateView(tex.wgpu, &desc);
     if (!view)
     {
-        res.status = MEL_GPU_TEXTURE_VIEW_CREATE_VK_FAILED;
+        res.status = MEL_GPU_TEXTURE_VIEW_CREATE_BACKEND_FAILED;
         mel_log_error("gpu", "texture_view_create: wgpuTextureCreateView returned null");
         return res;
     }
@@ -432,7 +432,7 @@ Mel_Gpu_Sampler_Create_Result mel_gpu_sampler_create_opt(Mel_Gpu_Device* dev, Me
     WGPUSampler ws = wgpuDeviceCreateSampler(dev->wgpu, &sd);
     if (!ws)
     {
-        res.status = MEL_GPU_SAMPLER_CREATE_VK_FAILED;
+        res.status = MEL_GPU_SAMPLER_CREATE_BACKEND_FAILED;
         mel_log_error("gpu", "sampler_create: wgpuDeviceCreateSampler returned null");
         return res;
     }

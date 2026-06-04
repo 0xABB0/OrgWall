@@ -330,28 +330,69 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_create_opt(Mel_Gpu_Device* dev, 
         stages[1].pSpecializationInfo = &spec_info;
     }
 
-    bool                          from_reflection = opt.vertex_layout_count == 0 && opt.vertex_stride == 0 && refl.vertex_attr_count > 0;
+    bool                          from_reflection = opt.vertex_layout_count == 0 && opt.vertex_stride == 0 && opt.vertex_buffer_count == 0 && refl.vertex_attr_count > 0;
     u32                           layout_count = from_reflection ? refl.vertex_attr_count : opt.vertex_layout_count;
     u32                           stride = from_reflection ? refl.vertex_stride : opt.vertex_stride;
-    VkVertexInputBindingDescription binding = { .binding = 0, .stride = stride, .inputRate = VK_VERTEX_INPUT_RATE_VERTEX };
+
+    VkVertexInputBindingDescription* bindings = NULL;
+    u32                              binding_count = 0;
+    if (opt.vertex_buffer_count)
+    {
+        bindings = mel_alloc_array(dev->alloc, VkVertexInputBindingDescription, opt.vertex_buffer_count);
+        binding_count = opt.vertex_buffer_count;
+        for (u32 i = 0; i < opt.vertex_buffer_count; i++)
+            bindings[i] = (VkVertexInputBindingDescription){
+                .binding = opt.vertex_buffers[i].slot,
+                .stride = opt.vertex_buffers[i].stride,
+                .inputRate = opt.vertex_buffers[i].per_instance ? VK_VERTEX_INPUT_RATE_INSTANCE : VK_VERTEX_INPUT_RATE_VERTEX,
+            };
+    }
+    else if (stride)
+    {
+        bindings = mel_alloc_array(dev->alloc, VkVertexInputBindingDescription, 1);
+        binding_count = 1;
+        bindings[0] = (VkVertexInputBindingDescription){ .binding = 0, .stride = stride, .inputRate = VK_VERTEX_INPUT_RATE_VERTEX };
+    }
 
     VkVertexInputAttributeDescription* attrs = NULL;
     if (layout_count)
     {
         attrs = mel_alloc_array(dev->alloc, VkVertexInputAttributeDescription, layout_count);
         for (u32 i = 0; i < layout_count; i++)
+        {
+            u32 slot = from_reflection ? 0u : opt.vertex_layout[i].buffer_slot;
+            if (opt.vertex_buffer_count)
+            {
+                bool found = false;
+                for (u32 b = 0; b < opt.vertex_buffer_count; b++)
+                    if (opt.vertex_buffers[b].slot == slot)
+                    {
+                        found = true;
+                        break;
+                    }
+                if (!found)
+                {
+                    mel_log_error("gpu", "pipeline_create '%s': vertex element %u references buffer_slot %u with no matching vertex_buffers entry", dbg_name, i, slot);
+                    mel_dealloc(dev->alloc, attrs);
+                    if (bindings)
+                        mel_dealloc(dev->alloc, bindings);
+                    res.status = MEL_GPU_PIPELINE_CREATE_BACKEND_FAILED;
+                    return res;
+                }
+            }
             attrs[i] = (VkVertexInputAttributeDescription){
                 .location = from_reflection ? refl.vertex_attrs[i].location : opt.vertex_layout[i].location,
-                .binding = 0,
+                .binding = slot,
                 .format = mel_gpu__vk_format(from_reflection ? refl.vertex_attrs[i].format : opt.vertex_layout[i].format),
                 .offset = from_reflection ? refl.vertex_attrs[i].offset : opt.vertex_layout[i].offset,
             };
+        }
     }
 
     VkPipelineVertexInputStateCreateInfo vin = {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
-        .vertexBindingDescriptionCount = stride ? 1u : 0u,
-        .pVertexBindingDescriptions = stride ? &binding : NULL,
+        .vertexBindingDescriptionCount = binding_count,
+        .pVertexBindingDescriptions = bindings,
         .vertexAttributeDescriptionCount = layout_count,
         .pVertexAttributeDescriptions = attrs,
     };
@@ -465,7 +506,7 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_create_opt(Mel_Gpu_Device* dev, 
             mel_dealloc(dev->alloc, spec_entries);
         if (spec_data)
             mel_dealloc(dev->alloc, spec_data);
-        res.status = MEL_GPU_PIPELINE_CREATE_VK_FAILED;
+        res.status = MEL_GPU_PIPELINE_CREATE_BACKEND_FAILED;
         return res;
     }
 
@@ -572,6 +613,8 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_create_opt(Mel_Gpu_Device* dev, 
         vkDestroyRenderPass(dev->vk, rp, NULL);
     if (attrs)
         mel_dealloc(dev->alloc, attrs);
+    if (bindings)
+        mel_dealloc(dev->alloc, bindings);
     if (spec_entries)
         mel_dealloc(dev->alloc, spec_entries);
     if (spec_data)
@@ -587,7 +630,7 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_create_opt(Mel_Gpu_Device* dev, 
         vkDestroyPipelineLayout(dev->vk, layout, NULL);
         if (static_sampler_layout)
             vkDestroyDescriptorSetLayout(dev->vk, static_sampler_layout, NULL);
-        res.status = MEL_GPU_PIPELINE_CREATE_VK_FAILED;
+        res.status = MEL_GPU_PIPELINE_CREATE_BACKEND_FAILED;
         return res;
     }
 
@@ -662,7 +705,7 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_compute_create_opt(Mel_Gpu_Devic
 
     if (!sets_ok)
     {
-        res.status = MEL_GPU_PIPELINE_CREATE_VK_FAILED;
+        res.status = MEL_GPU_PIPELINE_CREATE_BACKEND_FAILED;
         return res;
     }
     if (r != VK_SUCCESS)
@@ -670,7 +713,7 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_compute_create_opt(Mel_Gpu_Devic
         mel_log_error("gpu", "vkCreateComputePipelines failed: %s", mel_gpu__vk_result_str(r));
         if (layout)
             vkDestroyPipelineLayout(dev->vk, layout, NULL);
-        res.status = MEL_GPU_PIPELINE_CREATE_VK_FAILED;
+        res.status = MEL_GPU_PIPELINE_CREATE_BACKEND_FAILED;
         return res;
     }
 

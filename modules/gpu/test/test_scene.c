@@ -221,6 +221,102 @@ MEL_TEST(scene_shared, triangle)
     mel_gpu_instance_destroy(inst);
 }
 
+typedef struct
+{
+    Mel_Gpu_Buffer pos;
+    Mel_Gpu_Buffer color;
+} Scene_Multistream_Vbos;
+
+static void scene_record_triangle_multistream(Mel_Gpu_Command_List* cmd, void* ctx)
+{
+    Scene_Multistream_Vbos* v = ctx;
+    mel_gpu_cmd_bind_vertex_buffer(cmd, 0, v->pos);
+    mel_gpu_cmd_bind_vertex_buffer(cmd, 1, v->color);
+    mel_gpu_cmd_draw(cmd, 3, 1);
+}
+
+MEL_TEST(scene_shared, triangle_multistream)
+{
+    Mel_Gpu_Instance* inst = NULL;
+    Mel_Gpu_Device*   dev = scene_make_device(&inst);
+    MEL_REQUIRE_NOT_NULL(dev);
+
+    const f32 positions[] = {
+        0.0f, 0.6f, 0.0f,
+        0.6f, -0.6f, 0.0f,
+        -0.6f, -0.6f, 0.0f,
+    };
+    const f32 colors[] = {
+        1.0f, 0.0f, 0.0f, 1.0f,
+        0.0f, 1.0f, 0.0f, 1.0f,
+        0.0f, 0.0f, 1.0f, 1.0f,
+    };
+    Mel_Gpu_Buffer_Create_Result vbo_pos = mel_gpu_buffer_create(dev, .size = sizeof positions, .usage = MEL_GPU_BUFFER_VERTEX, .memory = MEL_GPU_MEMORY_UPLOAD, .data = positions, .name = "scene-ms-pos");
+    MEL_REQUIRE(!mel_gpu_failed(vbo_pos.status));
+    Mel_Gpu_Buffer_Create_Result vbo_col = mel_gpu_buffer_create(dev, .size = sizeof colors, .usage = MEL_GPU_BUFFER_VERTEX, .memory = MEL_GPU_MEMORY_UPLOAD, .data = colors, .name = "scene-ms-col");
+    MEL_REQUIRE(!mel_gpu_failed(vbo_col.status));
+
+    const Mel_Bundle_Graphics bundle = {
+        .name = "scene-triangle-ms",
+        .spirv_vertex = TRIANGLE_VERT_SPV,
+        .spirv_vertex_size = sizeof TRIANGLE_VERT_SPV,
+        .spirv_fragment = TRIANGLE_FRAG_SPV,
+        .spirv_fragment_size = sizeof TRIANGLE_FRAG_SPV,
+        .msl_vertex = TRIANGLE_VERT_MSL,
+        .msl_vertex_size = sizeof TRIANGLE_VERT_MSL,
+        .msl_fragment = TRIANGLE_FRAG_MSL,
+        .msl_fragment_size = sizeof TRIANGLE_FRAG_MSL,
+        .wgsl_vertex = TRIANGLE_VERT_WGSL,
+        .wgsl_vertex_size = sizeof TRIANGLE_VERT_WGSL,
+        .wgsl_fragment = TRIANGLE_FRAG_WGSL,
+        .wgsl_fragment_size = sizeof TRIANGLE_FRAG_WGSL,
+#if TRIANGLE_HAS_DXIL
+        .dxil_vertex = TRIANGLE_VERT_DXIL,
+        .dxil_vertex_size = sizeof TRIANGLE_VERT_DXIL,
+        .dxil_fragment = TRIANGLE_FRAG_DXIL,
+        .dxil_fragment_size = sizeof TRIANGLE_FRAG_DXIL,
+#endif
+        .vertex_entry = TRIANGLE_VERT_ENTRY,
+        .fragment_entry = TRIANGLE_FRAG_ENTRY,
+    };
+    Mel_Gpu_Shader_Create_Result sh = mel_bundle_select_graphics(dev, &bundle);
+    MEL_REQUIRE(!mel_gpu_failed(sh.status));
+
+    const Mel_Gpu_Vertex_Element layout[] = {
+        { .location = 0, .format = MEL_GPU_FORMAT_RGB32_FLOAT, .offset = 0, .buffer_slot = 0 },
+        { .location = 1, .format = MEL_GPU_FORMAT_RGBA32_FLOAT, .offset = 0, .buffer_slot = 1 },
+    };
+    const Mel_Gpu_Vertex_Buffer_Layout buffers[] = {
+        { .slot = 0, .stride = 3 * sizeof(f32) },
+        { .slot = 1, .stride = 4 * sizeof(f32) },
+    };
+    Mel_Gpu_Pipeline_Create_Result pipe = mel_gpu_pipeline_create(dev,
+                                                                  .shader = sh.value,
+                                                                  .topology = MEL_GPU_TOPOLOGY_TRIANGLE_LIST,
+                                                                  .cull = MEL_GPU_CULL_NONE,
+                                                                  .color_format = MEL_GPU_FORMAT_RGBA8_UNORM,
+                                                                  .vertex_layout = layout,
+                                                                  .vertex_layout_count = 2,
+                                                                  .vertex_buffers = buffers,
+                                                                  .vertex_buffer_count = 2,
+                                                                  .name = "scene-triangle-ms");
+    MEL_REQUIRE(!mel_gpu_failed(pipe.status));
+
+    Scene_Multistream_Vbos vbos = { .pos = vbo_pos.value, .color = vbo_col.value };
+    Scene_Target           tgt = scene_target_create(dev, SCENE_W, SCENE_H);
+    const u8*              px = scene_render_readback(dev, &tgt, pipe.value, scene_record_triangle_multistream, &vbos);
+    MEL_REQUIRE_NOT_NULL(px);
+    MEL_GOLDEN(SCENE_BACKEND, "shared/triangle", px, tgt.w, tgt.h, SCENE_TOL);
+
+    scene_target_destroy(dev, &tgt);
+    mel_gpu_pipeline_destroy(dev, pipe.value);
+    mel_gpu_shader_destroy(dev, sh.value);
+    mel_gpu_buffer_destroy(dev, vbo_col.value);
+    mel_gpu_buffer_destroy(dev, vbo_pos.value);
+    mel_gpu_device_destroy(dev);
+    mel_gpu_instance_destroy(inst);
+}
+
 static void scene_record_fullscreen3(Mel_Gpu_Command_List* cmd, void* ctx)
 {
     (void)ctx;
