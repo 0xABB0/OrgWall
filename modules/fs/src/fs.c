@@ -117,6 +117,32 @@ static void op_free_owned(Mel_Fs_Op_Record* op)
     op->glob_pattern = STR8_EMPTY;
 }
 
+static void op_free_record(Mel_Fs_Op_Record* op)
+{
+    const Mel_Alloc* a = op->alloc;
+    if (op->kind == MEL_FS_JOB_READ_FILE && op->result.bytes.data)
+        mel_dealloc(a, op->result.bytes.data);
+    if (op->kind == MEL_FS_JOB_WRITE_FILE && op->write_data)
+        mel_dealloc(a, (void*)op->write_data);
+    if ((op->kind == MEL_FS_JOB_ENUMERATE || op->kind == MEL_FS_JOB_GLOB) && op->result.dir.entries)
+    {
+        for (u32 i = 0; i < op->result.dir.count; i++)
+            if (op->result.dir.entries[i].name.data)
+                mel_dealloc(a, op->result.dir.entries[i].name.data);
+        mel_dealloc(a, op->result.dir.entries);
+    }
+    mel_dealloc(a, op);
+}
+
+static void fs_finalize(Mel_Fs* fs)
+{
+    mel_sem_destroy(&fs->queue_items);
+    mel_slotmap_free(&fs->ops);
+    const Mel_Alloc* alloc = fs->alloc;
+    mel_dealloc(alloc, fs->workers);
+    mel_dealloc(alloc, fs);
+}
+
 void mel_fs__op_settle(Mel_Fs_Op_Record* op, Mel_Fs_Status status, i32 os_error)
 {
     assert(mel_reactor_is_owner(op->fs->reactor));
@@ -189,12 +215,18 @@ void mel_fs__job_run(Mel_Fs_Op_Record* op)
 static void completion_post(void* user)
 {
     Mel_Fs_Op_Record* op = (Mel_Fs_Op_Record*)user;
+    Mel_Fs*           fs = op->fs;
+    bool              reclaim = fs->destroying && atomic_load_explicit(&op->future.cont, memory_order_acquire) == NULL;
     if (op->cancel_requested)
-    {
         mel_fs__op_settle(op, MEL_FS_ERROR | MEL_FS_CANCELLED, 0);
-        return;
-    }
-    mel_fs__op_settle(op, result_status(op), 0);
+    else
+        mel_fs__op_settle(op, result_status(op), 0);
+    if (reclaim)
+        op_free_record(op);
+
+    fs->pending_posts--;
+    if (fs->destroying && fs->pending_posts == 0)
+        fs_finalize(fs);
 }
 
 static int worker_main(void* user)
@@ -264,21 +296,19 @@ Mel_Fs* mel_fs_create_opt(Mel_Fs_Opt opt)
     {
         if (!mel_thread_spawn(&fs->workers[i], worker_main, fs, .name = "mel-fs"))
         {
-            mel_log_error("fs", "create: failed to spawn worker %u/%u", i, fs->worker_count);
+            mel_log_warn("fs", "create: failed to spawn worker %u/%u", i, fs->worker_count);
             break;
         }
         spawned++;
     }
+    fs->worker_count = spawned;
     if (spawned == 0)
     {
         atomic_store_explicit(&fs->running, 0, memory_order_release);
-        mel_sem_destroy(&fs->queue_items);
         mel_dealloc(alloc, fs->workers);
-        mel_slotmap_free(&fs->ops);
-        mel_dealloc(alloc, fs);
-        return NULL;
+        fs->workers = NULL;
+        mel_log_warn("fs", "create: no worker threads available; running filesystem ops inline on the loop thread");
     }
-    fs->worker_count = spawned;
 
     return fs;
 }
@@ -289,14 +319,10 @@ void mel_fs_destroy(Mel_Fs* fs)
         return;
     assert(mel_reactor_is_owner(fs->reactor));
 
-    Mel_Array(Mel_Fs_Op_Record*) snap;
-    mel_array_init(&snap, fs->alloc);
     Mel_Fs_Op_Record** data = (Mel_Fs_Op_Record**)mel_slotmap_data(&fs->ops);
     u32                n = mel_slotmap_count(&fs->ops);
     for (u32 i = 0; i < n; i++)
-        mel_array_push(&snap, data[i]);
-    for (usize i = 0; i < snap.count; i++)
-        snap.items[i]->cancel_requested = true;
+        data[i]->cancel_requested = true;
 
     atomic_store_explicit(&fs->running, 0, memory_order_release);
     for (u32 i = 0; i < fs->worker_count; i++)
@@ -304,16 +330,25 @@ void mel_fs_destroy(Mel_Fs* fs)
     for (u32 i = 0; i < fs->worker_count; i++)
         mel_thread_join(&fs->workers[i], NULL);
 
-    for (usize i = 0; i < snap.count; i++)
-        mel_fs__op_settle(snap.items[i], MEL_FS_ERROR | MEL_FS_CANCELLED, 0);
-    mel_array_free(&snap);
+    for (;;)
+    {
+        Mel_Mpsc_Node* node = mel_mpsc_pop(&fs->queue);
+        if (!node)
+            break;
+        Mel_Fs_Op_Record* op = mel_container_of(node, Mel_Fs_Op_Record, queue_node);
+        bool              has_cont = atomic_load_explicit(&op->future.cont, memory_order_acquire) != NULL;
+        mel_fs__op_settle(op, MEL_FS_ERROR | MEL_FS_CANCELLED, 0);
+        fs->pending_posts--;
+        if (!has_cont)
+            op_free_record(op);
+    }
 
-    mel_sem_destroy(&fs->queue_items);
-    mel_slotmap_free(&fs->ops);
-
-    const Mel_Alloc* alloc = fs->alloc;
-    mel_dealloc(alloc, fs->workers);
-    mel_dealloc(alloc, fs);
+    if (fs->pending_posts == 0)
+    {
+        fs_finalize(fs);
+        return;
+    }
+    fs->destroying = true;
 }
 
 bool          mel_fs_available(const Mel_Fs* fs) { return fs && fs->backend_ready; }
@@ -358,6 +393,13 @@ static Mel_Future* op_dup_path(Mel_Fs_Op_Record* op, str8* dst, str8 src)
 static Mel_Future* op_submit(Mel_Fs_Op_Record* op)
 {
     op->submitted = true;
+    op->fs->pending_posts++;
+    if (op->fs->worker_count == 0)
+    {
+        mel_fs__job_run(op);
+        mel_reactor_post(op->fs->reactor, completion_post, op);
+        return &op->future;
+    }
     mel_mpsc_push(&op->fs->queue, &op->queue_node);
     mel_sem_post(&op->fs->queue_items);
     return &op->future;
@@ -609,18 +651,5 @@ void mel_fs_future_release(Mel_Future* f)
 {
     if (!f)
         return;
-    Mel_Fs_Op_Record* op = op_of_future(f);
-    const Mel_Alloc*  a = op->alloc;
-    if (op->kind == MEL_FS_JOB_READ_FILE && op->result.bytes.data)
-        mel_dealloc(a, op->result.bytes.data);
-    if (op->kind == MEL_FS_JOB_WRITE_FILE && op->write_data)
-        mel_dealloc(a, (void*)op->write_data);
-    if ((op->kind == MEL_FS_JOB_ENUMERATE || op->kind == MEL_FS_JOB_GLOB) && op->result.dir.entries)
-    {
-        for (u32 i = 0; i < op->result.dir.count; i++)
-            if (op->result.dir.entries[i].name.data)
-                mel_dealloc(a, op->result.dir.entries[i].name.data);
-        mel_dealloc(a, op->result.dir.entries);
-    }
-    mel_dealloc(a, op);
+    op_free_record(op_of_future(f));
 }

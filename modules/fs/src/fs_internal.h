@@ -93,6 +93,9 @@ struct Mel_Fs
     Mel_Sem      queue_items;
     _Atomic(u32) running;
     bool         backend_ready;
+
+    u32  pending_posts;
+    bool destroying;
 };
 
 void mel_fs__op_settle(Mel_Fs_Op_Record* op, Mel_Fs_Status status, i32 os_error);

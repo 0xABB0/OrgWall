@@ -350,3 +350,133 @@ MEL_TEST(fs, stat_missing_path_is_ok_with_exists_false)
     MEL_EXPECT(m.done);
     MEL_EXPECT(m.not_found_ok);
 }
+
+typedef struct
+{
+    Mel_Reactor* reactor;
+    Mel_Fs*      fs;
+    int          turn;
+    bool         done;
+    bool         submitted;
+    Mel_Fs_Op    cancel_op;
+    bool         cancel_ret;
+    bool         pending_seen;
+} Teardown;
+
+static bool teardown_idle(void* user)
+{
+    Teardown* t = (Teardown*)user;
+    t->turn++;
+    if (t->turn == 2 && !t->submitted)
+    {
+        t->submitted = true;
+        for (int i = 0; i < 8; i++)
+            (void)mel_fs_stat(t->fs, S8("/tmp"));
+        t->pending_seen = mel_fs_pending(t->fs) > 0;
+        Mel_Fs_Op op = MEL_FS_OP_NULL;
+        (void)mel_fs_stat(t->fs, S8("/tmp"), .out_op = &op);
+        t->cancel_op = op;
+        t->cancel_ret = mel_fs_cancel(t->fs, op);
+        mel_fs_destroy(t->fs);
+        t->fs = NULL;
+        t->done = true;
+        mel_reactor_quit(t->reactor);
+    }
+    if (t->turn > 100000)
+    {
+        if (t->fs)
+        {
+            mel_fs_destroy(t->fs);
+            t->fs = NULL;
+        }
+        mel_reactor_quit(t->reactor);
+    }
+    return true;
+}
+
+static bool teardown_init(Mel_Reactor* r, void* user)
+{
+    Teardown* t = (Teardown*)user;
+    t->reactor = r;
+    t->fs = mel_fs_create_opt((Mel_Fs_Opt){ .reactor = r, .worker_count = 4 });
+    Mel_Reactor_Source* idle = mel_reactor_idle_new(teardown_idle, t);
+    mel_reactor_source_attach(r, idle);
+    return true;
+}
+
+MEL_TEST(fs, destroy_with_inflight_ops_and_cancel)
+{
+    Teardown t = { 0 };
+    mel_reactor_spawn(MEL_REACTOR_THREADED, teardown_init, &t);
+    MEL_EXPECT(t.done);
+    MEL_EXPECT(t.pending_seen);
+    MEL_EXPECT(mel_fs_op_valid(t.cancel_op));
+    MEL_EXPECT(t.cancel_ret);
+}
+
+typedef struct
+{
+    Mel_Reactor* reactor;
+    Mel_Fs*      fs;
+    int          turn;
+    Mel_Task     cont;
+    Mel_Future*  pending;
+    bool         done;
+    bool         cancelled_ok;
+} CancelStarted;
+
+static void cancel_started_cont(Mel_Task* self)
+{
+    CancelStarted*            c = mel_container_of(self, CancelStarted, cont);
+    const Mel_Fs_Stat_Result* r = mel_fs_future_stat(c->pending);
+    c->cancelled_ok = mel_fs_cancelled(r->status) || !mel_fs_failed(r->status);
+    mel_fs_future_release(c->pending);
+    c->pending = NULL;
+    c->done = true;
+    mel_fs_destroy(c->fs);
+    c->fs = NULL;
+    mel_reactor_quit(c->reactor);
+}
+
+static bool cancel_started_idle(void* user)
+{
+    CancelStarted* c = (CancelStarted*)user;
+    c->turn++;
+    if (c->turn == 2 && c->pending == NULL && !c->done)
+    {
+        Mel_Fs_Op op = MEL_FS_OP_NULL;
+        c->pending = mel_fs_stat(c->fs, S8("/tmp"), .out_op = &op);
+        mel_task_init(&c->cont, cancel_started_cont);
+        mel_future_then(c->pending, &c->cont, mel_fs_executor(c->fs));
+        (void)mel_fs_cancel(c->fs, op);
+    }
+    if (c->turn > 100000)
+    {
+        if (c->fs)
+        {
+            mel_fs_destroy(c->fs);
+            c->fs = NULL;
+        }
+        mel_reactor_quit(c->reactor);
+    }
+    return true;
+}
+
+static bool cancel_started_init(Mel_Reactor* r, void* user)
+{
+    CancelStarted* c = (CancelStarted*)user;
+    c->reactor = r;
+    c->fs = mel_fs_create(.reactor = r);
+    Mel_Reactor_Source* idle = mel_reactor_idle_new(cancel_started_idle, c);
+    mel_reactor_source_attach(r, idle);
+    return true;
+}
+
+MEL_TEST(fs, cancel_inflight_op_settles_cancelled)
+{
+    CancelStarted c = { 0 };
+    mel_reactor_spawn(MEL_REACTOR_THREADED, cancel_started_init, &c);
+    MEL_EXPECT(c.done);
+    MEL_EXPECT(c.cancelled_ok);
+}
+
