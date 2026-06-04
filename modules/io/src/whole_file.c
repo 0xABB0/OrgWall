@@ -6,6 +6,7 @@
 #include <allocator/heap.h>
 #include <future/future.h>
 #include <executor/executor.h>
+#include <reactor/reactor.h>
 #include <collection.list/list.h>
 #include <log/log.h>
 
@@ -146,6 +147,17 @@ static void load_step(Load_Drive* d)
     mel_future_then(f, &d->task, mel_stream_executor(d->stream) ? mel_stream_executor(d->stream) : mel_executor_inline());
 }
 
+static bool deliver_ok(Mel_Executor* deliver, Mel_Reactor* reactor, const char* op)
+{
+    if (!deliver)
+        return true;
+    Mel_Executor* expected = reactor ? mel_reactor_executor(reactor) : mel_executor_inline();
+    if (deliver == expected)
+        return true;
+    mel_log_error("io", "%s: deliver executor must be %s; pass that or leave NULL", op, reactor ? "the reactor's executor" : "the inline executor");
+    return false;
+}
+
 Mel_Future* mel_io_load_file_opt(Mel_IO_Load_Opt opt)
 {
     const Mel_Alloc* alloc = opt.alloc ? opt.alloc : mel_alloc_heap();
@@ -153,6 +165,9 @@ Mel_Future* mel_io_load_file_opt(Mel_IO_Load_Opt opt)
     if (!op)
         return NULL;
     op->future.free_value = load_blob_free;
+
+    if (!deliver_ok(opt.deliver, opt.reactor, "load_file"))
+        return load_resolve(op, NULL, 0, MEL_IO_ERROR | MEL_IO_UNAVAILABLE);
 
     Mel_IO_File_Open_Result o = mel_io_file_open(.path = opt.path, .flags = MEL_IO_FILE_READ, .reactor = opt.reactor, .alloc = alloc);
     if (mel_io_status_failed(o.status))
@@ -277,9 +292,14 @@ Mel_Future* mel_io_save_file_opt(Mel_IO_Save_Opt opt)
     if (!op)
         return NULL;
 
+    if (!deliver_ok(opt.deliver, opt.reactor, "save_file"))
+        return mel_io__op_resolve(op, 0, 0, 0, MEL_IO_ERROR | MEL_IO_UNAVAILABLE);
+
     u32 flags = opt.flags;
     if ((flags & (MEL_IO_FILE_WRITE | MEL_IO_FILE_APPEND)) == 0)
         flags |= MEL_IO_FILE_WRITE | MEL_IO_FILE_CREATE | MEL_IO_FILE_TRUNCATE;
+    if (flags & MEL_IO_FILE_APPEND)
+        flags |= MEL_IO_FILE_WRITE | MEL_IO_FILE_CREATE;
 
     Mel_IO_File_Open_Result o = mel_io_file_open_opt((Mel_IO_File_Open_Opt){ .path = opt.path, .flags = flags, .mode = opt.mode, .reactor = opt.reactor, .alloc = alloc });
     if (mel_io_status_failed(o.status))

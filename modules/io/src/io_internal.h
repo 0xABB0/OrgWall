@@ -13,6 +13,14 @@ extern "C"
 {
 #endif
 
+typedef struct
+{
+    Mel_Future       future;
+    Mel_IO_Result    result;
+    const Mel_Alloc* alloc;
+    bool             owned;
+} Mel_IO_Op;
+
 struct Mel_Stream
 {
     const Mel_Stream_Iface* iface;
@@ -22,16 +30,12 @@ struct Mel_Stream
     Mel_Reactor*            reactor;
     Mel_Executor*           executor;
     i64                     position;
+    Mel_IO_Op               scratch;
+    bool                    scratch_busy;
 };
 
-typedef struct
-{
-    Mel_Future       future;
-    Mel_IO_Result    result;
-    const Mel_Alloc* alloc;
-} Mel_IO_Op;
-
 Mel_IO_Op*  mel_io__op_new(const Mel_Alloc* alloc);
+Mel_IO_Op*  mel_io__op_sync(Mel_Stream* s);
 Mel_Future* mel_io__op_resolve(Mel_IO_Op* op, usize bytes, i64 position, i32 os_error, Mel_IO_Status status);
 
 Mel_Future_Status mel_io__future_status_from(Mel_IO_Status status);

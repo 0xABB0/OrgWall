@@ -22,6 +22,7 @@ typedef struct
     bool               owns_port;
     bool               readable;
     bool               writable;
+    bool               async_capable;
 } File_State;
 
 typedef struct
@@ -74,15 +75,13 @@ static void file_cont_run(Mel_Task* self)
 
 static Mel_Future* file_submit(Mel_Stream* s, File_State* f, bool is_read, void* buf, usize len, i64 offset, Mel_Executor* deliver)
 {
-    Mel_IO_Op* op = mel_io__op_new(s->alloc);
-    if (!op)
-        return NULL;
-
     bool advance = (offset == MEL_IO_NO_OFFSET);
     i64  pos = advance ? mel_stream__position(s) : offset;
 
-    if (deliver == mel_executor_inline() || !f->port || !mel_port_available(f->port))
+    bool sync_path = (!f->async_capable || deliver == mel_executor_inline() || !f->port || !mel_port_available(f->port));
+    if (sync_path)
     {
+        Mel_IO_Op* op = mel_io__op_sync(s);
         Mel_IO_Result r;
         Mel_IO_Status st = mel_io__backend_pio(f->native, is_read, buf, len, pos, &r);
         i64           new_pos = pos + (i64)r.bytes_transferred;
@@ -90,6 +89,10 @@ static Mel_Future* file_submit(Mel_Stream* s, File_State* f, bool is_read, void*
             mel_stream__set_position(s, new_pos);
         return mel_io__op_resolve(op, r.bytes_transferred, advance ? mel_stream__position(s) : new_pos, r.os_error, st);
     }
+
+    Mel_IO_Op* op = mel_io__op_new(s->alloc);
+    if (!op)
+        return NULL;
 
     assert(mel_reactor_is_owner(mel_port_reactor(f->port)));
 
@@ -137,8 +140,7 @@ static Mel_Future* file_write(Mel_Stream* s, void* user, Mel_Stream_Write_Opt op
 static Mel_Future* file_flush(Mel_Stream* s, void* user, Mel_Executor* deliver)
 {
     File_State* f = (File_State*)user;
-    (void)deliver;
-    Mel_IO_Op* op = mel_io__op_new(s->alloc);
+    Mel_IO_Op*  op = deliver == mel_executor_inline() ? mel_io__op_sync(s) : mel_io__op_new(s->alloc);
     if (!op)
         return NULL;
     Mel_IO_Status st = mel_io__backend_flush(f->native);
@@ -223,6 +225,12 @@ Mel_IO_File_Open_Result mel_io_file_open_opt(Mel_IO_File_Open_Opt opt)
         out.status = MEL_IO_ERROR | MEL_IO_BAD_HANDLE;
         return out;
     }
+    if ((opt.flags & MEL_IO_FILE_APPEND) && !(opt.flags & MEL_IO_FILE_WRITE))
+    {
+        mel_log_error("io", "file_open: APPEND without WRITE is nonsensical for '%s'; appending implies writing", opt.path);
+        out.status = MEL_IO_ERROR | MEL_IO_BAD_HANDLE;
+        return out;
+    }
     if (!mel_io__backend_available())
     {
         mel_log_warn("io", "file_open: no file backend on this platform");
@@ -250,6 +258,7 @@ Mel_IO_File_Open_Result mel_io_file_open_opt(Mel_IO_File_Open_Opt opt)
     f->native = native;
     f->readable = (opt.flags & MEL_IO_FILE_READ) != 0;
     f->writable = (opt.flags & MEL_IO_FILE_WRITE) != 0;
+    f->async_capable = native.async_capable;
 
     if (opt.reactor)
     {
@@ -262,7 +271,7 @@ Mel_IO_File_Open_Result mel_io_file_open_opt(Mel_IO_File_Open_Opt opt)
                                       .alloc = alloc,
                                       .reactor = opt.reactor,
                                       .executor = opt.reactor ? mel_reactor_executor(opt.reactor) : NULL,
-                                      .caps = { .readable = f->readable, .writable = f->writable, .seekable = native.seekable, .sized = native.seekable, .async = (opt.reactor && f->port && mel_port_available(f->port)), .size_bytes = native.initial_size });
+                                      .caps = { .readable = f->readable, .writable = f->writable, .seekable = native.seekable, .sized = native.seekable, .async = (opt.reactor && f->port && mel_port_available(f->port) && native.async_capable), .size_bytes = native.initial_size });
     if (!s)
     {
         if (f->owns_port && f->port)
