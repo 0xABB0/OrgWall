@@ -460,9 +460,9 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_create_opt(Mel_Gpu_Device* dev, 
         return res;
     }
 
-    if (opt.bindless)
+    if (opt.bindless && !dev->bindless.enabled)
     {
-        mel_log_error("gpu", "pipeline_create '%s': bindless pipelines are unsupported on the Metal backend (bindless tier=none)", dbg_name);
+        mel_log_error("gpu", "pipeline_create '%s': bindless pipeline requested but the device-global bindless heap is not enabled (request features.descriptor_indexing at device-create)", dbg_name);
         res.status = MEL_GPU_PIPELINE_CREATE_MISSING_FEATURE;
         return res;
     }
@@ -618,9 +618,9 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_compute_create_opt(Mel_Gpu_Devic
         res.status = MEL_GPU_PIPELINE_CREATE_NO_SHADER;
         return res;
     }
-    if (opt.bindless)
+    if (opt.bindless && !dev->bindless.enabled)
     {
-        mel_log_error("gpu", "pipeline_compute_create '%s': bindless pipelines are unsupported on the Metal backend", dbg_name);
+        mel_log_error("gpu", "pipeline_compute_create '%s': bindless pipeline requested but the device-global bindless heap is not enabled (request features.descriptor_indexing at device-create)", dbg_name);
         res.status = MEL_GPU_PIPELINE_CREATE_MISSING_FEATURE;
         return res;
     }

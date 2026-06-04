@@ -52,8 +52,13 @@ Mel_Gpu_Device_Create_Result mel_gpu_device_create_opt(Mel_Gpu_Instance* inst, M
     mel_slotmap_init(&dev->pipelines.map, alloc, .item_size = sizeof(Mel_Gpu_Pipeline_Obj), .initial_capacity = 16);
     dev->buffers.init = dev->textures.init = dev->texture_views.init = dev->samplers.init = dev->shaders.init = dev->pipelines.init = true;
 
-    if (opt.features.descriptor_indexing)
-        mel_log_warn("gpu", "device_create: bindless (descriptor_indexing) requested but not implemented on the Metal backend; caps.memory.bindless stays tier=none");
+    mel_gpu__bindless_init(dev, opt.features.descriptor_indexing);
+    Mel_Gpu_Caps_Bindless* bl = &dev->caps.memory.bindless;
+    bl->binding_model = dev->bindless.enabled ? MEL_GPU_BINDING_MODEL_ROOT_RECORD : MEL_GPU_BINDING_MODEL_DESCRIPTOR_TABLES;
+    if (!dev->bindless.enabled)
+        bl->root_record_payload = MEL_GPU_ROOT_RECORD_PAYLOAD_DESCRIPTOR_INDICES;
+    if (opt.features.descriptor_indexing && !dev->bindless.enabled && bl->tier != MEL_GPU_TIER_NONE)
+        mel_log_warn("gpu", "device_create: bindless (descriptor_indexing) requested but heap init failed; bindless stays disabled on this device");
     if (opt.features.ray_tracing)
         mel_log_warn("gpu", "device_create: ray_tracing requested but not implemented on the Metal backend");
     if (opt.features.mesh_shaders)
@@ -93,6 +98,8 @@ void mel_gpu_device_destroy(Mel_Gpu_Device* dev)
     mel_gpu__table_report_leaks(&dev->samplers, "sampler");
     mel_gpu__table_report_leaks(&dev->shaders, "shader");
     mel_gpu__table_report_leaks(&dev->pipelines, "pipeline");
+
+    mel_gpu__bindless_shutdown(dev);
 
     mel_slotmap_free(&dev->buffers.map);
     mel_slotmap_free(&dev->textures.map);
