@@ -6,7 +6,11 @@
 #include "mandelbrot.h"
 #include "hud.h"
 #include "bindless_present.h"
-#include "mandelbrot_spv.h"
+
+static const char MANDELBROT_SLANG[] = {
+#embed "shaders/slang/mandelbrot.slang"
+    , 0
+};
 
 #define MAX_ITER 512
 
@@ -75,13 +79,15 @@ static void* mandel_init(Mel_Gpu_Device* dev, Mel_Gpu_Swapchain* sc)
         return m;
     }
 
-    Mel_Gpu_Shader_Create_Result cs = mel_gpu_shader_create_compute_from_bytecode(dev, .spirv = MANDELBROT_COMP_SPV, .spirv_size = sizeof MANDELBROT_COMP_SPV, .entry = "main", .name = "mandelbrot");
-    if (mel_gpu_failed(cs.status))
-        return m;
-    m->shader = cs.value;
-    Mel_Gpu_Pipeline_Create_Result cp = mel_gpu_pipeline_compute_create(dev, .shader = m->shader, .push_constant_size = sizeof(Mandel_Root), .name = "mandelbrot");
+    Mel_Gpu_Pipeline_From_Slang_Result cp = mel_gpu_pipeline_compute_create_from_slang(dev,
+                                                                                      .source = MANDELBROT_SLANG,
+                                                                                      .compute_entry = "cs_main",
+                                                                                      .push_constant_size = sizeof(Mandel_Root),
+                                                                                      .bindless = true,
+                                                                                      .name = "mandelbrot");
     if (mel_gpu_failed(cp.status))
         return m;
+    m->shader = cp.shader;
     m->pipeline = cp.value;
 
     if (!bindless_present_init(&m->present, dev, mel_gpu_swapchain_format(sc)))
@@ -129,6 +135,7 @@ static void mandel_render(void* state, Mel_Gpu_Command_List* cmd, f64 dt)
 
     Mandel_Root root = { .image = m->img_slot, .w = (u32)m->w, .h = (u32)m->h, .max_iter = iter, .center_x = cxp, .center_y = cyp, .scale = scale, .time = (f32)m->t };
     mel_gpu_cmd_bind_pipeline(cmd, m->pipeline);
+    mel_gpu_cmd_bind_bindless(cmd);
     mel_gpu_cmd_push_constants(cmd, 0, sizeof root, &root);
     mel_gpu_cmd_dispatch(cmd, ((u32)m->w + 7) / 8, ((u32)m->h + 7) / 8, 1);
 
