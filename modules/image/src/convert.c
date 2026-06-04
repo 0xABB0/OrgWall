@@ -4,6 +4,7 @@
 
 #include <allocator/allocator.h>
 #include <color/rgba.h>
+#include <debug/assert.h>
 #include <log/log.h>
 #include <thread/once.h>
 
@@ -438,6 +439,142 @@ void mel_image__yuv_from_canonical(const mel_image_format* f, Mel_Image* dst, i3
     }
 }
 
+void mel_image__packed_yuv_to_canonical(const mel_image_format* f, const Mel_Image* src, i32 y, mel_image_canon out)
+{
+    mel_image_yuv m = f->yuv;
+    i32           w = out.w;
+    f32           kr = m.kr, kb = m.kb, kg = m.kg;
+
+    mel_assert((w & 1) == 0 && "packed 4:2:2 requires even width");
+    mel_image__srgb_lut_init();
+
+    Mel_Image_Plane p = mel_image_plane(src, 0);
+    const u8*       row = p.pixels + (usize)y * p.stride;
+
+    for (i32 x = 0; x < w; x++)
+    {
+        const u8* mp = row + (usize)(x & ~1) * 2;
+        f32       Y = (f32)mp[(x & 1) ? m.y1_byte : m.y0_byte];
+        f32       U = (f32)mp[m.pu_byte];
+        f32       V = (f32)mp[m.pv_byte];
+
+        f32 yn = (Y - 16.0f) * (1.0f / 219.0f);
+        f32 un = (U - 128.0f) * (1.0f / 224.0f);
+        f32 vn = (V - 128.0f) * (1.0f / 224.0f);
+
+        f32 r = yn + 2.0f * (1.0f - kr) * vn;
+        f32 b = yn + 2.0f * (1.0f - kb) * un;
+        f32 g = (yn - kr * r - kb * b) / kg;
+
+        r = mel_image__srgb_to_lin_f(r);
+        g = mel_image__srgb_to_lin_f(g);
+        b = mel_image__srgb_to_lin_f(b);
+
+        out.row[x] = (mel_color){ r, g, b, 1.0f };
+    }
+}
+
+void mel_image__packed_yuv_from_canonical(const mel_image_format* f, Mel_Image* dst, i32 y, mel_image_canon in)
+{
+    mel_image_yuv m = f->yuv;
+    i32           w = in.w;
+    f32           kr = m.kr, kg = m.kg, kb = m.kb;
+
+    mel_assert((w & 1) == 0 && "packed 4:2:2 requires even width");
+    mel_image__srgb_lut_init();
+
+    Mel_Image_Plane p = mel_image_plane(dst, 0);
+    u8*             row = p.pixels + (usize)y * p.stride;
+
+    for (i32 x = 0; x < w; x++)
+    {
+        mel_color c = in.row[x];
+        f32       inv = c.a > 0.0f ? 1.0f / c.a : 0.0f;
+        f32       r = mel_image__lin_to_srgb_f(c.r * inv);
+        f32       g = mel_image__lin_to_srgb_f(c.g * inv);
+        f32       b = mel_image__lin_to_srgb_f(c.b * inv);
+
+        f32 yn = kr * r + kg * g + kb * b;
+        f32 un = (b - yn) / (2.0f * (1.0f - kb));
+        f32 vn = (r - yn) / (2.0f * (1.0f - kr));
+
+        f32 Y = yn * 219.0f + 16.0f;
+        f32 U = un * 224.0f + 128.0f;
+        f32 V = vn * 224.0f + 128.0f;
+
+        u8* mp = row + (usize)(x & ~1) * 2;
+        mp[(x & 1) ? m.y1_byte : m.y0_byte] = (u8)(Y < 0.0f ? 0.0f : (Y > 255.0f ? 255.0f : Y + 0.5f));
+
+        if (x & 1)
+            continue;
+
+        mp[m.pu_byte] = (u8)(U < 0.0f ? 0.0f : (U > 255.0f ? 255.0f : U + 0.5f));
+        mp[m.pv_byte] = (u8)(V < 0.0f ? 0.0f : (V > 255.0f ? 255.0f : V + 0.5f));
+    }
+}
+
+static void k_packed_yuv_gray8(const Mel_Image* src, Mel_Image* dst)
+{
+    Mel_Image_Plane sp = mel_image_plane(src, 0);
+    Mel_Image_Plane d = mel_image_plane(dst, 0);
+    i32             w = src->w, h = src->h;
+    mel_image_yuv   m = src->format->yuv;
+    mel_assert((w & 1) == 0 && "packed 4:2:2 requires even width");
+    mel_image__srgb_lut_init();
+    for (i32 y = 0; y < h; y++)
+    {
+        const u8* restrict sr = sp.pixels + (usize)y * sp.stride;
+        u8* restrict dr = d.pixels + (usize)y * d.stride;
+        for (i32 x = 0; x < w; x++)
+        {
+            const u8* mp = sr + (usize)(x & ~1) * 2;
+            dr[x] = g_srgb.vr_to_full[mp[(x & 1) ? m.y1_byte : m.y0_byte]];
+        }
+    }
+}
+
+static void k_packed_yuv_rgba8(const Mel_Image* src, Mel_Image* dst)
+{
+    Mel_Image_Plane         sp = mel_image_plane(src, 0);
+    Mel_Image_Plane         d = mel_image_plane(dst, 0);
+    i32                     w = src->w, h = src->h;
+    const mel_image_format* f = src->format;
+    mel_image_yuv           m = f->yuv;
+    f32                     kr = m.kr, kb = m.kb, kg = m.kg;
+    bool                    dst_linear = (dst->format->to_linear == mel_image__tf_linear);
+
+    mel_assert((w & 1) == 0 && "packed 4:2:2 requires even width");
+    mel_image__srgb_lut_init();
+    const u8* tab = dst_linear ? g_srgb.srgb_to_lin : g_srgb.identity;
+
+    for (i32 y = 0; y < h; y++)
+    {
+        const u8* restrict sr = sp.pixels + (usize)y * sp.stride;
+        u8* restrict dr = d.pixels + (usize)y * d.stride;
+        for (i32 x = 0; x < w; x++)
+        {
+            const u8* mp = sr + (usize)(x & ~1) * 2;
+            f32       yn = ((f32)mp[(x & 1) ? m.y1_byte : m.y0_byte] - 16.0f) * (255.0f / 219.0f);
+            f32       un = ((f32)mp[m.pu_byte] - 128.0f) * (255.0f / 224.0f);
+            f32       vn = ((f32)mp[m.pv_byte] - 128.0f) * (255.0f / 224.0f);
+
+            f32 r = yn + 2.0f * (1.0f - kr) * vn;
+            f32 b = yn + 2.0f * (1.0f - kb) * un;
+            f32 g = (yn - kr * r - kb * b) / kg;
+
+            u8 ru = (u8)(r < 0.0f ? 0.0f : (r > 255.0f ? 255.0f : r + 0.5f));
+            u8 gu = (u8)(g < 0.0f ? 0.0f : (g > 255.0f ? 255.0f : g + 0.5f));
+            u8 bu = (u8)(b < 0.0f ? 0.0f : (b > 255.0f ? 255.0f : b + 0.5f));
+
+            u8* q = dr + (usize)x * 4;
+            q[0] = tab[ru];
+            q[1] = tab[gu];
+            q[2] = tab[bu];
+            q[3] = 255;
+        }
+    }
+}
+
 static void k_rgba8_bgra8(const Mel_Image* src, Mel_Image* dst)
 {
     Mel_Image_Plane s = mel_image_plane(src, 0);
@@ -712,6 +849,12 @@ mel_image_kernel mel_image__find_kernel(const mel_image_format* s, const mel_ima
         { &mel_image_i420, &mel_image_gray8, k_yuv_gray8 },
         { &mel_image_i422, &mel_image_gray8, k_yuv_gray8 },
         { &mel_image_i444, &mel_image_gray8, k_yuv_gray8 },
+        { &mel_image_yuyv, &mel_image_rgba8, k_packed_yuv_rgba8 },
+        { &mel_image_uyvy, &mel_image_rgba8, k_packed_yuv_rgba8 },
+        { &mel_image_yuyv, &mel_image_rgba8_srgb, k_packed_yuv_rgba8 },
+        { &mel_image_uyvy, &mel_image_rgba8_srgb, k_packed_yuv_rgba8 },
+        { &mel_image_yuyv, &mel_image_gray8, k_packed_yuv_gray8 },
+        { &mel_image_uyvy, &mel_image_gray8, k_packed_yuv_gray8 },
     };
     for (usize i = 0; i < sizeof(table) / sizeof(table[0]); i++)
         if (table[i].src == s && table[i].dst == d)

@@ -25,6 +25,8 @@ typedef struct mel_image_yuv
     float kr, kg, kb;
     bool  full_range;
     i8    u_byte, v_byte;
+    bool  packed;
+    i8    y0_byte, y1_byte, pu_byte, pv_byte;
 } mel_image_yuv;
 
 struct mel_image_format
@@ -69,6 +71,8 @@ void mel_image__packed_to_canonical(const mel_image_format* f, const Mel_Image* 
 void mel_image__packed_from_canonical(const mel_image_format* f, Mel_Image* dst, i32 y, mel_image_canon in);
 void mel_image__yuv_to_canonical(const mel_image_format* f, const Mel_Image* src, i32 y, mel_image_canon out);
 void mel_image__yuv_from_canonical(const mel_image_format* f, Mel_Image* dst, i32 y, mel_image_canon in);
+void mel_image__packed_yuv_to_canonical(const mel_image_format* f, const Mel_Image* src, i32 y, mel_image_canon out);
+void mel_image__packed_yuv_from_canonical(const mel_image_format* f, Mel_Image* dst, i32 y, mel_image_canon in);
 
 typedef void (*mel_image_kernel)(const Mel_Image* src, Mel_Image* dst);
 mel_image_kernel mel_image__find_kernel(const mel_image_format* s, const mel_image_format* d);

@@ -1094,6 +1094,133 @@ MEL_TEST(image, yuv_rgba8_srgb_differs_from_rgba8)
     mel_image_free(&src);
 }
 
+MEL_TEST(image, yuyv_gray8_deinterleaves_luma)
+{
+    const Mel_Alloc* a = mel_alloc_heap();
+
+    Mel_Image src;
+    MEL_REQUIRE(mel_image_init(&src, &mel_image_yuyv, 2, 1, a));
+    Mel_Image_Plane sp = mel_image_plane(&src, 0);
+    MEL_EXPECT_EQ(sp.stride, 2 * 2);
+    sp.pixels[0] = 100;
+    sp.pixels[1] = 90;
+    sp.pixels[2] = 200;
+    sp.pixels[3] = 240;
+
+    Mel_Image gray;
+    MEL_REQUIRE(mel_image_init(&gray, &mel_image_gray8, 2, 1, a));
+    MEL_REQUIRE(mel_image_convert(&src, &gray));
+
+    Mel_Image_Plane gp = mel_image_plane(&gray, 0);
+    i32             d0 = (i32)gp.pixels[0] - (i32)(u8)(((100 - 16) * 255 + 109) / 219);
+    i32             d1 = (i32)gp.pixels[1] - (i32)(u8)(((200 - 16) * 255 + 109) / 219);
+    MEL_EXPECT_LE(d0 < 0 ? -d0 : d0, 1);
+    MEL_EXPECT_LE(d1 < 0 ? -d1 : d1, 1);
+    MEL_EXPECT_LT(gp.pixels[0], gp.pixels[1]);
+
+    mel_image_free(&gray);
+    mel_image_free(&src);
+}
+
+MEL_TEST(image, yuyv_rgba8_red_reference)
+{
+    const Mel_Alloc* a = mel_alloc_heap();
+
+    Mel_Image src;
+    MEL_REQUIRE(mel_image_init(&src, &mel_image_yuyv, 2, 1, a));
+    Mel_Image_Plane sp = mel_image_plane(&src, 0);
+    sp.pixels[0] = 81;
+    sp.pixels[1] = 90;
+    sp.pixels[2] = 81;
+    sp.pixels[3] = 240;
+
+    Mel_Image rgba;
+    MEL_REQUIRE(mel_image_init(&rgba, &mel_image_rgba8, 2, 1, a));
+    MEL_REQUIRE(mel_image_convert(&src, &rgba));
+
+    Mel_Image_Plane rp = mel_image_plane(&rgba, 0);
+    for (i32 x = 0; x < 2; x++)
+    {
+        const u8* px = rp.pixels + (usize)x * 4;
+        MEL_EXPECT_GE(px[0], 250);
+        MEL_EXPECT_LE(px[1], 4);
+        MEL_EXPECT_LE(px[2], 4);
+        MEL_EXPECT_EQ(px[3], 255);
+    }
+
+    mel_image_free(&rgba);
+    mel_image_free(&src);
+}
+
+MEL_TEST(image, uyvy_rgba8_matches_yuyv)
+{
+    const Mel_Alloc* a = mel_alloc_heap();
+
+    Mel_Image y, u;
+    MEL_REQUIRE(mel_image_init(&y, &mel_image_yuyv, 2, 1, a));
+    MEL_REQUIRE(mel_image_init(&u, &mel_image_uyvy, 2, 1, a));
+    Mel_Image_Plane yp = mel_image_plane(&y, 0);
+    Mel_Image_Plane up = mel_image_plane(&u, 0);
+    yp.pixels[0] = 120;
+    yp.pixels[1] = 100;
+    yp.pixels[2] = 200;
+    yp.pixels[3] = 150;
+    up.pixels[0] = 100;
+    up.pixels[1] = 120;
+    up.pixels[2] = 150;
+    up.pixels[3] = 200;
+
+    Mel_Image ry, ru;
+    MEL_REQUIRE(mel_image_init(&ry, &mel_image_rgba8, 2, 1, a));
+    MEL_REQUIRE(mel_image_init(&ru, &mel_image_rgba8, 2, 1, a));
+    MEL_REQUIRE(mel_image_convert(&y, &ry));
+    MEL_REQUIRE(mel_image_convert(&u, &ru));
+
+    Mel_Image_Plane ryp = mel_image_plane(&ry, 0);
+    Mel_Image_Plane rup = mel_image_plane(&ru, 0);
+    for (i32 i = 0; i < 2 * 4; i++)
+        MEL_EXPECT_EQ(ryp.pixels[i], rup.pixels[i]);
+
+    mel_image_free(&ru);
+    mel_image_free(&ry);
+    mel_image_free(&u);
+    mel_image_free(&y);
+}
+
+MEL_TEST(image, yuyv_to_i420_luma_roundtrip)
+{
+    const Mel_Alloc* a = mel_alloc_heap();
+
+    Mel_Image src;
+    MEL_REQUIRE(mel_image_init(&src, &mel_image_yuyv, 4, 2, a));
+    Mel_Image_Plane sp = mel_image_plane(&src, 0);
+    for (i32 r = 0; r < 2; r++)
+        for (i32 mac = 0; mac < 2; mac++)
+        {
+            u8* mp = sp.pixels + (usize)r * sp.stride + (usize)mac * 4;
+            mp[0] = (u8)(60 + r * 30 + mac * 10);
+            mp[1] = 110;
+            mp[2] = (u8)(70 + r * 30 + mac * 10);
+            mp[3] = 150;
+        }
+
+    Mel_Image i420;
+    MEL_REQUIRE(mel_image_convert_new(&src, &mel_image_i420, a, &i420));
+
+    Mel_Image_Plane yp = mel_image_plane(&i420, 0);
+    for (i32 r = 0; r < 2; r++)
+        for (i32 x = 0; x < 4; x++)
+        {
+            const u8* mp = sp.pixels + (usize)r * sp.stride + (usize)(x & ~1) * 2;
+            u8        want = mp[(x & 1) ? 2 : 0];
+            i32       diff = (i32)yp.pixels[(usize)r * yp.stride + x] - (i32)want;
+            MEL_EXPECT_LE(diff < 0 ? -diff : diff, 2);
+        }
+
+    mel_image_free(&i420);
+    mel_image_free(&src);
+}
+
 MEL_TEST(image, resize_gray16_box_half)
 {
     const Mel_Alloc* a = mel_alloc_heap();
