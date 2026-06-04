@@ -88,6 +88,10 @@ static void inject_prefix(Mel_Target* t, const char* absprefix, const Mel_Varian
     mel_da_push(&t->links, ((Mel_Flag){ (Mel_When){ 0 }, MEL_PUBLIC, mel_str_fmt("-L%s/lib", absprefix) }));
     if (v->platform != MEL_PLATFORM_WIN32)
         mel_da_push(&t->links, ((Mel_Flag){ (Mel_When){ 0 }, MEL_PUBLIC, mel_str_fmt("-Wl,-rpath,%s/lib", absprefix) }));
+    char* lto = mel_str_fmt("%s/lib/libLTO.dylib", absprefix);
+    if (mel_path_is_file(lto))
+        mel_da_push(&t->links, ((Mel_Flag){ (Mel_When){ 0 }, MEL_PUBLIC, mel_str_fmt("-Wl,-lto_library,%s", lto) }));
+    free(lto);
 #ifdef _WIN32
     mirror_archives_to_lib(absprefix);
 #endif
@@ -273,23 +277,41 @@ static bool build_prebuilt(Mel_Target* t, const Mel_Variant* v)
         return true;
     }
     mel_mkdirs(absprefix);
-    char* zip = mel_path_join(absprefix, "_prebuilt.zip");
+
+    size_t      ulen = strlen(t->prebuilt_url);
+    bool        is_tar = (ulen > 7 && strcmp(t->prebuilt_url + ulen - 7, ".tar.xz") == 0) ||
+                  (ulen > 7 && strcmp(t->prebuilt_url + ulen - 7, ".tar.gz") == 0) ||
+                  (ulen > 4 && strcmp(t->prebuilt_url + ulen - 4, ".tgz") == 0);
+    const char* archive_name = is_tar ? "_prebuilt.tar" : "_prebuilt.zip";
+    char*       archive = mel_path_join(absprefix, archive_name);
 
     Mel_StrVec c = { 0 };
     mel_da_push(&c, "curl");
     mel_da_push(&c, "-fSL");
     mel_da_push(&c, "-o");
-    mel_da_push(&c, zip);
+    mel_da_push(&c, archive);
     mel_da_push(&c, t->prebuilt_url);
     bool ok = mel_run_vec(&c) == 0;
     if (ok)
     {
         c.len = 0;
-        mel_da_push(&c, "unzip");
-        mel_da_push(&c, "-oq");
-        mel_da_push(&c, zip);
-        mel_da_push(&c, "-d");
-        mel_da_push(&c, absprefix);
+        if (is_tar)
+        {
+            mel_da_push(&c, "tar");
+            mel_da_push(&c, "--strip-components=1");
+            mel_da_push(&c, "-xf");
+            mel_da_push(&c, archive);
+            mel_da_push(&c, "-C");
+            mel_da_push(&c, absprefix);
+        }
+        else
+        {
+            mel_da_push(&c, "unzip");
+            mel_da_push(&c, "-oq");
+            mel_da_push(&c, archive);
+            mel_da_push(&c, "-d");
+            mel_da_push(&c, absprefix);
+        }
         ok = mel_run_vec(&c) == 0;
     }
     free(c.items);
