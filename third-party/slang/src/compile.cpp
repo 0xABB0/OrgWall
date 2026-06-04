@@ -144,6 +144,16 @@ static void mel_slang__collect_vertex_attr(VariableLayoutReflection* field, Mel_
         return;
     }
 
+    bool     is_varying = false;
+    unsigned cats       = tl->getCategoryCount();
+    for (unsigned i = 0; i < cats; ++i)
+        if (tl->getCategoryByIndex(i) == VaryingInput)
+            is_varying = true;
+    if (cats == 0 && tl->getParameterCategory() == VaryingInput)
+        is_varying = true;
+    if (!is_varying)
+        return;
+
     unsigned                   comps  = mel_slang__component_count(type);
     TypeReflection::ScalarType scalar = mel_slang__scalar_of(type);
     Mel_Slang_Vertex_Format    fmt    = mel_slang__vertex_format(scalar, comps);
