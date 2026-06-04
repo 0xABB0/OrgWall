@@ -24,6 +24,7 @@ typedef u32 Mel_Sensor_Status;
 #define MEL_SENSOR_WARN_AXIS_SYNTHESIZED  (1u << 4)
 #define MEL_SENSOR_WARN_TIMESTAMP_SYNTHED (1u << 5)
 #define MEL_SENSOR_WARN_PERMISSION_NEEDED (1u << 6)
+#define MEL_SENSOR_WARN_POLL_ONLY         (1u << 7)
 
 #define MEL_SENSOR_RESULT_DEVICE_LOST     (1u << 8)
 #define MEL_SENSOR_RESULT_UNAVAILABLE     (1u << 9)

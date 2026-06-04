@@ -25,6 +25,7 @@ void build(Mel_Build* b)
     mel_depends(lib, "executor");
     mel_depends(lib, "log");
     mel_depends(lib, "platform");
+    mel_depends(lib, "thread");
 
     Mel_Target* t = mel_add_test(b, "sensor-core");
     mel_sources(t, ALWAYS, "test/sensor_test.c");
@@ -39,4 +40,5 @@ void build(Mel_Build* b)
     mel_depends(t, "event");
     mel_depends(t, "executor");
     mel_depends(t, "log");
+    mel_depends(t, "thread");
 }

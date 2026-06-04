@@ -153,7 +153,8 @@ static Mel_Sensor_Status win32_start(void* user, u64 stable_id, const Mel_Sensor
         return MEL_SENSOR_ERROR | MEL_SENSOR_RESULT_UNAVAILABLE;
     g.sink = sink;
     g.streaming = true;
-    return MEL_SENSOR_OK;
+    mel_log_warn("sensor", "win32: ISensorEvents push sink unimplemented; poll-only, no push samples (use mel_sensor_read)");
+    return MEL_SENSOR_OK | MEL_SENSOR_WARNED | MEL_SENSOR_WARN_POLL_ONLY;
 }
 
 static void win32_stop(void* user, u64 stable_id)

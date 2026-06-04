@@ -10,6 +10,8 @@
 #include <collection.array/array.h>
 #include <event/event.h>
 #include <log/log.h>
+#include <thread/mutex.h>
+#include <thread/once.h>
 
 #include <string.h>
 
@@ -30,7 +32,6 @@ typedef struct
     bool                  streaming;
     Mel_Sensor_Reading    latest;
     bool                  have_latest;
-    u64                   sequence;
 } Sensor_Slot;
 
 typedef struct
@@ -59,7 +60,19 @@ typedef struct
     u32           provider_gen;
 } Sensors;
 
-static Sensors g;
+static Sensors   g;
+static Mel_Mutex g_lock;
+static Mel_Once  g_lock_once = MEL_ONCE_INIT;
+
+static void lock_init(void) { mel_mutex_init(&g_lock, MEL_MUTEX_RECURSIVE); }
+
+static void registry_lock(void)
+{
+    mel_once(&g_lock_once, lock_init);
+    mel_mutex_lock(&g_lock);
+}
+
+static void registry_unlock(void) { mel_mutex_unlock(&g_lock); }
 
 static Provider_Entry* provider_get(u32 idx)
 {
@@ -107,23 +120,43 @@ static u32 caps_changed_fields(const Mel_Sensor_Caps* a, const Mel_Sensor_Caps* 
 static void on_provider_sample(void* token, const Mel_Sensor_Reading* reading)
 {
     Mel_SlotMap_Handle h = mel_slotmap_handle_unpack64((u64)(usize)token);
-    Sensor_Slot*       s = sensor_slot(h);
-    if (!s)
+    registry_lock();
+    if (!g.initialized)
+    {
+        registry_unlock();
         return;
+    }
+    Sensor_Slot* s = sensor_slot(h);
+    if (!s)
+    {
+        registry_unlock();
+        return;
+    }
     Mel_Sensor_Reading r = *reading;
-    r.sequence = ++s->sequence;
+    r.sequence = ++s->latest.sequence;
     s->latest = r;
     s->have_latest = true;
     fire_event((Mel_Sensor_Event){ .kind = MEL_SENSOR_EVENT_SAMPLE, .sensor = { h }, .sample = r });
+    registry_unlock();
 }
 
 static void on_provider_lost(void* token)
 {
     Mel_SlotMap_Handle h = mel_slotmap_handle_unpack64((u64)(usize)token);
-    Sensor_Slot*       s = sensor_slot(h);
-    if (!s)
+    registry_lock();
+    if (!g.initialized)
+    {
+        registry_unlock();
         return;
+    }
+    Sensor_Slot* s = sensor_slot(h);
+    if (!s)
+    {
+        registry_unlock();
+        return;
+    }
     s->streaming = false;
+    registry_unlock();
     mel_log_warn("sensor", "provider reported device loss for sensor {index=%u, gen=%u}", h.index, h.generation);
 }
 
@@ -164,6 +197,7 @@ void mel_sensor_shutdown(void)
 {
     if (!g.initialized)
         return;
+    registry_lock();
     for (usize i = 0; i < g.registry.count; i++)
     {
         Sensor_Slot*    s = sensor_slot(g.registry.items[i].handle);
@@ -173,12 +207,15 @@ void mel_sensor_shutdown(void)
         if (prov && prov->desc.close)
             prov->desc.close(prov->desc.user, g.registry.items[i].stable_id);
     }
+    g.initialized = false;
     if (g.events != NULL)
         mel_event_unsubscribe(g.events, g.poll_sub);
     mel_event_destroy(g.events);
     mel_array_free(&g.registry);
     mel_array_free(&g.providers);
     mel_slotmap_free(&g.sensors);
+    g.events = NULL;
+    registry_unlock();
     memset(&g, 0, sizeof g);
 }
 
@@ -186,6 +223,8 @@ u32 mel_sensor_refresh(void)
 {
     if (!g.initialized)
         mel_sensor_init(NULL);
+
+    registry_lock();
 
     Mel_Array(Gathered) gs;
     mel_array_init(&gs, g.alloc);
@@ -270,7 +309,9 @@ u32 mel_sensor_refresh(void)
 
     mel_array_free(&seen);
     mel_array_free(&gs);
-    return (u32)g.registry.count;
+    u32 count = (u32)g.registry.count;
+    registry_unlock();
+    return count;
 }
 
 u32 mel_sensor_count(void) { return g.initialized ? (u32)g.registry.count : 0; }
@@ -352,15 +393,18 @@ Mel_Sensor_Status mel_sensor_start_opt(Mel_Sensor s, Mel_Sensor_Stream_Opt opt)
 {
     if (!g.initialized)
         return MEL_SENSOR_ERROR;
+    registry_lock();
     Sensor_Slot* ss = sensor_slot(s.h);
     if (!ss)
     {
+        registry_unlock();
         mel_log_error("sensor", "start on dead handle {index=%u, gen=%u}", s.h.index, s.h.generation);
         return MEL_SENSOR_ERROR;
     }
     Provider_Entry* prov = provider_get(ss->provider_idx);
     if (!prov || !prov->desc.start)
     {
+        registry_unlock();
         mel_log_error("sensor", "sensor has no start provider");
         return MEL_SENSOR_ERROR | MEL_SENSOR_RESULT_UNAVAILABLE;
     }
@@ -380,9 +424,13 @@ Mel_Sensor_Status mel_sensor_start_opt(Mel_Sensor s, Mel_Sensor_Stream_Opt opt)
     };
     Mel_Sensor_Status st = prov->desc.start(prov->desc.user, ss->stable_id, &cfg, sink);
     if (mel_sensor_failed(st))
+    {
+        registry_unlock();
         return st;
+    }
     ss->streaming = true;
     fire_event((Mel_Sensor_Event){ .kind = MEL_SENSOR_EVENT_CHANGED, .sensor = { s.h }, .changed_fields = MEL_SENSOR_FIELD_STREAMS });
+    registry_unlock();
     return warn ? (warn | MEL_SENSOR_WARNED | (st & ~MEL_SENSOR_SEVERITY_MASK)) : st;
 }
 
@@ -390,19 +438,25 @@ Mel_Sensor_Status mel_sensor_stop(Mel_Sensor s)
 {
     if (!g.initialized)
         return MEL_SENSOR_ERROR;
+    registry_lock();
     Sensor_Slot* ss = sensor_slot(s.h);
     if (!ss)
     {
+        registry_unlock();
         mel_log_error("sensor", "stop on dead handle {index=%u, gen=%u}", s.h.index, s.h.generation);
         return MEL_SENSOR_ERROR;
     }
     if (!ss->streaming)
+    {
+        registry_unlock();
         return MEL_SENSOR_OK | MEL_SENSOR_RESULT_NOT_STREAMING;
+    }
     Provider_Entry* prov = provider_get(ss->provider_idx);
     if (prov && prov->desc.stop)
         prov->desc.stop(prov->desc.user, ss->stable_id);
     ss->streaming = false;
     fire_event((Mel_Sensor_Event){ .kind = MEL_SENSOR_EVENT_CHANGED, .sensor = { s.h }, .changed_fields = MEL_SENSOR_FIELD_STREAMS });
+    registry_unlock();
     return MEL_SENSOR_OK;
 }
 
@@ -415,9 +469,17 @@ bool mel_sensor_streaming(Mel_Sensor s)
 Mel_Sensor_Read_Result mel_sensor_read(Mel_Sensor s)
 {
     Mel_Sensor_Read_Result r = { 0 };
-    Sensor_Slot*           ss = g.initialized ? sensor_slot(s.h) : NULL;
+    if (!g.initialized)
+    {
+        mel_log_error("sensor", "read before init {index=%u, gen=%u}", s.h.index, s.h.generation);
+        r.status = MEL_SENSOR_ERROR;
+        return r;
+    }
+    registry_lock();
+    Sensor_Slot* ss = sensor_slot(s.h);
     if (!ss)
     {
+        registry_unlock();
         mel_log_error("sensor", "read on dead handle {index=%u, gen=%u}", s.h.index, s.h.generation);
         r.status = MEL_SENSOR_ERROR;
         return r;
@@ -429,26 +491,30 @@ Mel_Sensor_Read_Result mel_sensor_read(Mel_Sensor s)
         Mel_Sensor_Status  st = prov->desc.read(prov->desc.user, ss->stable_id, &out);
         if (!mel_sensor_failed(st))
         {
-            out.sequence = ++ss->sequence;
+            out.sequence = ++ss->latest.sequence;
             ss->latest = out;
             ss->have_latest = true;
             r.value = out;
             r.status = st;
+            registry_unlock();
             return r;
         }
         if (!ss->have_latest)
         {
             r.status = st;
+            registry_unlock();
             return r;
         }
     }
     if (!ss->have_latest)
     {
         r.status = ss->streaming ? (MEL_SENSOR_OK | MEL_SENSOR_RESULT_NO_DATA) : (MEL_SENSOR_OK | MEL_SENSOR_RESULT_NOT_STREAMING);
+        registry_unlock();
         return r;
     }
     r.value = ss->latest;
     r.status = MEL_SENSOR_OK;
+    registry_unlock();
     return r;
 }
 

@@ -22,6 +22,7 @@ typedef struct
 {
     bool open;
     char path[256];
+    u64  stable_id;
     bool has_accel, has_gyro;
     f32  accel_scale[3];
     f32  gyro_scale[3];
@@ -70,6 +71,17 @@ static bool channel_present(const char* dir, const char* leaf)
     return true;
 }
 
+static u64 stable_id_for(const char* dir)
+{
+    u64 h = 1469598103934665603ULL;
+    for (const char* p = dir; *p; p++)
+    {
+        h ^= (u8)*p;
+        h *= 1099511628211ULL;
+    }
+    return h;
+}
+
 static void probe_device(const char* dir)
 {
     bool accel = channel_present(dir, "in_accel_x_raw");
@@ -79,6 +91,7 @@ static void probe_device(const char* dir)
 
     Linux_Sensor s = { .open = true, .has_accel = accel, .has_gyro = gyro };
     strncpy(s.path, dir, sizeof s.path - 1);
+    s.stable_id = stable_id_for(dir);
 
     f32 ascale = 1.0f, gscale = 1.0f;
     read_f32_file(dir, "in_accel_scale", &ascale);
@@ -91,21 +104,10 @@ static void probe_device(const char* dir)
     mel_array_push(&g_lx.devices, s);
 }
 
-static u64 stable_id_for(usize index, const char* dir)
-{
-    u64 h = 1469598103934665603ULL;
-    for (const char* p = dir; *p; p++)
-    {
-        h ^= (u8)*p;
-        h *= 1099511628211ULL;
-    }
-    return h ^ ((u64)index << 56);
-}
-
 static Linux_Sensor* device_by_id(u64 id)
 {
     for (usize i = 0; i < g_lx.devices.count; i++)
-        if (g_lx.devices.items[i].open && stable_id_for(i, g_lx.devices.items[i].path) == id)
+        if (g_lx.devices.items[i].open && g_lx.devices.items[i].stable_id == id)
             return &g_lx.devices.items[i];
     return NULL;
 }
@@ -136,7 +138,7 @@ static u32 linux_enumerate(void* user, Mel_Sensor_Raw* out, u32 cap)
     {
         Linux_Sensor* s = &g_lx.devices.items[i];
         out[n++] = (Mel_Sensor_Raw){
-            .stable_id = stable_id_for(i, s->path),
+            .stable_id = s->stable_id,
             .name = S8("iio-imu"),
             .caps = {
                 .has_accel = s->has_accel,
@@ -163,7 +165,8 @@ static Mel_Sensor_Status linux_start(void* user, u64 stable_id, const Mel_Sensor
     if (!s)
         return MEL_SENSOR_ERROR | MEL_SENSOR_RESULT_DEVICE_LOST;
     s->streaming = true;
-    return MEL_SENSOR_OK;
+    mel_log_warn("sensor", "linux: IIO buffered streaming unimplemented; poll-only, no push samples (use mel_sensor_read)");
+    return MEL_SENSOR_OK | MEL_SENSOR_WARNED | MEL_SENSOR_WARN_POLL_ONLY;
 }
 
 static void linux_stop(void* user, u64 stable_id)
