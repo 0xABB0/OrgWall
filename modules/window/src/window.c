@@ -34,6 +34,11 @@ void mel_window_shutdown(void)
     Mel_Window_Node* data = (Mel_Window_Node*)mel_slotmap_data(&g_windows);
     for (u32 i = 0; i < count; i++)
     {
+        if (data[i].surface_pixels)
+        {
+            mel_dealloc(g_alloc, data[i].surface_pixels);
+            data[i].surface_pixels = NULL;
+        }
         if (data[i].native)
             mel_window__backend_destroy(&data[i]);
     }
@@ -55,6 +60,16 @@ Mel_Window_Node* mel_window__node(Mel_Window w)
     if (mel_window_is_none(w))
         return NULL;
     return (Mel_Window_Node*)mel_slotmap_get(&g_windows, to_sm(w));
+}
+
+u32 mel_window__node_count(void) { return mel_slotmap_count(&g_windows); }
+
+Mel_Window_Node* mel_window__node_dense(u32 dense_index)
+{
+    if (dense_index >= mel_slotmap_count(&g_windows))
+        return NULL;
+    Mel_Window_Node* data = (Mel_Window_Node*)mel_slotmap_data(&g_windows);
+    return &data[dense_index];
 }
 
 bool mel_window_alive(Mel_Window w)
@@ -106,6 +121,16 @@ Mel_Window mel_window_create_opt(Mel_Window_Opt o)
     n->point_w = n->w;
     n->point_h = n->h;
     n->scale = 1.0f;
+    n->min_w = o.min_w;
+    n->min_h = o.min_h;
+    n->max_w = o.max_w;
+    n->max_h = o.max_h;
+    n->opacity = 1.0f;
+    n->resizable = !o.not_resizable;
+    n->borderless = o.undecorated;
+    n->fullscreen_flags = MEL_WINDOW_FULLSCREEN_OFF;
+    n->progress_state = MEL_WINDOW_PROGRESS_NONE;
+    n->ops = mel_window__backend_ops();
     n->lifecycle = o.lifecycle;
     n->display = o.display;
     n->app = o.app;
@@ -144,6 +169,11 @@ void mel_window__closed(Mel_Window w)
 
     if (n->lifecycle.on_closed)
         n->lifecycle.on_closed(w, n->user);
+    if (n->surface_pixels)
+    {
+        mel_dealloc(g_alloc, n->surface_pixels);
+        n->surface_pixels = NULL;
+    }
     if (g_shutting)
         return;
 

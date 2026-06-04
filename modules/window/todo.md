@@ -56,8 +56,21 @@ not re-implemented here.
 - 2D drawing into a window without GPU — `paint` module (borrowed-window drawable + `Mel_Pixmap`).
 - Safe-area / cutout / IME / system-bar insets and PAD/EDGE_TO_EDGE policy — `gui/insets.h` (typed superset of `SDL_GetWindowSafeArea`).
 
+## SDL-parity state surface (`include/window/state.h`)
+Implemented as the augmented surface: min/max size, aspect-ratio lock, fullscreen + exclusive
+video-mode select, opacity, always-on-top, borderless/resizable runtime toggles, window icon,
+modal + parent/child, custom hit-test, window shape (alpha mask), mouse/keyboard grab,
+mouse-confinement rect, taskbar progress (state+value), flags query, safe-area rect, ICC fetch
+(sync + async over future/executor with generation-checked cancel op), pixel-format/density,
+window-by-id + enumerate-all, maximize/minimize/restore/raise, flash, get/present CPU surface.
+Closed sets are anonymous flag bitsets (no reflection enums); operations carry `Mel_Window_Status`.
+
 ## Backend coverage
-- cocoa: full. win32: partial. ios / android / linux / wasm: no-op stub (`src/stub/backend.c`).
+- cocoa (host): full `Mel_Window_Backend_Ops` (`src/cocoa/state.m`).
+- win32: full ops authored (`src/win32/state.c`), compiles on win-pilot; unbuilt/untested on macos host.
+- ios / android / linux / wasm: no-op `src/stub/backend.c` returns NULL ops — every augmented call
+  reports `MEL_WINDOW_WARNED | MEL_WINDOW_UNAVAILABLE` (honest-absent, MEL-ENGINE-VII).
+  Linux X11/Wayland ops not yet authored (gap, not a refusal).
 
 ## Declared but never fired
 - `Mel_Window_Backing_Cb` (`on_backing_lost`, `on_content_replaced`) — declared, never invoked.
