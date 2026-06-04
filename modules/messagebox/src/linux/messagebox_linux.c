@@ -112,15 +112,19 @@ static bool load(void)
 
 bool mel_msgbox__plat_available(void) { return load(); }
 
-static const char* cstr_or(const Mel_Alloc* a, str8 s, const char* fallback)
+static char* cstr_own(const Mel_Alloc* a, str8 s, const char* fallback)
 {
-    if (s.len <= 0 || !s.data)
-        return fallback;
-    char* c = (char*)mel_alloc(a, (usize)s.len + 1);
+    usize  flen = strlen(fallback);
+    usize  slen = (s.len > 0 && s.data) ? (usize)s.len : 0;
+    usize  n = slen > 0 ? slen : flen;
+    char*  c = (char*)mel_alloc(a, n + 1);
     if (!c)
-        return fallback;
-    memcpy(c, s.data, (usize)s.len);
-    c[s.len] = 0;
+        return NULL;
+    if (slen > 0)
+        memcpy(c, s.data, slen);
+    else if (flen > 0)
+        memcpy(c, fallback, flen);
+    c[n] = 0;
     return c;
 }
 
@@ -141,15 +145,28 @@ static void apply_colors(const Mel_Msgbox_Request* req, GtkWidget* dialog)
     if (!g.css_provider_new || !g.css_provider_load_from_data || !g.style_context_add_provider_for_screen || !g.widget_get_screen)
         return;
 
-    char css[512];
-    int  n = snprintf(css, sizeof css, "dialog {");
+    char   css[512];
+    size_t cap = sizeof css;
+    size_t n = (size_t)snprintf(css, cap, "dialog {");
+    if (n >= cap)
+        n = cap - 1;
     if (req->background.has_value)
-        n += snprintf(css + n, (size_t)(sizeof css - n), " background-color: rgba(%u,%u,%u,%f);", req->background.value.r, req->background.value.g, req->background.value.b, req->background.value.a / 255.0);
+    {
+        n += (size_t)snprintf(css + n, cap - n, " background-color: rgba(%u,%u,%u,%f);", req->background.value.r, req->background.value.g, req->background.value.b, req->background.value.a / 255.0);
+        if (n >= cap)
+            n = cap - 1;
+    }
     if (req->text.has_value)
-        n += snprintf(css + n, (size_t)(sizeof css - n), " color: rgba(%u,%u,%u,%f);", req->text.value.r, req->text.value.g, req->text.value.b, req->text.value.a / 255.0);
-    n += snprintf(css + n, (size_t)(sizeof css - n), " }");
+    {
+        n += (size_t)snprintf(css + n, cap - n, " color: rgba(%u,%u,%u,%f);", req->text.value.r, req->text.value.g, req->text.value.b, req->text.value.a / 255.0);
+        if (n >= cap)
+            n = cap - 1;
+    }
+    n += (size_t)snprintf(css + n, cap - n, " }");
+    if (n >= cap)
+        n = cap - 1;
     if (req->accent.has_value)
-        snprintf(css + n, (size_t)(sizeof css - n), " button:default { background: rgba(%u,%u,%u,%f); }", req->accent.value.r, req->accent.value.g, req->accent.value.b, req->accent.value.a / 255.0);
+        snprintf(css + n, cap - n, " button:default { background: rgba(%u,%u,%u,%f); }", req->accent.value.r, req->accent.value.g, req->accent.value.b, req->accent.value.a / 255.0);
 
     GtkCssProvider* prov = g.css_provider_new();
     if (!prov)
@@ -171,12 +188,28 @@ Mel_Msgbox_Status mel_msgbox__plat_show(const Mel_Msgbox_Request* req, i32* out_
     }
 
     const Mel_Alloc* a = mel_alloc_heap();
-    const char*      title = cstr_or(a, req->title, "");
-    const char*      message = cstr_or(a, req->message, "");
+    Mel_Msgbox_Status warn = 0;
+    if (req->native_parent)
+        warn |= MEL_MSGBOX_WARN_PARENT_DROPPED;
+
+    char* title = cstr_own(a, req->title, "");
+    char* message = cstr_own(a, req->message, "");
+    if (!title || !message)
+    {
+        if (title)
+            mel_dealloc(a, title);
+        if (message)
+            mel_dealloc(a, message);
+        mel_log_error("messagebox", "gtk dialog: out of memory");
+        *out_chosen_id = req->escape_id;
+        return MEL_MSGBOX_ERROR;
+    }
 
     GtkWidget* dialog = g.message_dialog_new(NULL, 0, gtk_type_for(req->severity), GTK_BUTTONS_NONE, "%s", title[0] ? title : message);
     if (!dialog)
     {
+        mel_dealloc(a, title);
+        mel_dealloc(a, message);
         *out_chosen_id = req->escape_id;
         return MEL_MSGBOX_ERROR;
     }
@@ -186,8 +219,10 @@ Mel_Msgbox_Status mel_msgbox__plat_show(const Mel_Msgbox_Request* req, i32* out_
     int default_response = 0;
     for (u32 i = 0; i < req->button_count; i++)
     {
-        const char* label = cstr_or(a, req->buttons[i].label, "OK");
-        g.dialog_add_button((GtkDialog*)dialog, label, (int)(i + 1));
+        char* label = cstr_own(a, req->buttons[i].label, "OK");
+        g.dialog_add_button((GtkDialog*)dialog, label ? label : "OK", (int)(i + 1));
+        if (label)
+            mel_dealloc(a, label);
         if (req->buttons[i].id == req->default_id)
             default_response = (int)(i + 1);
     }
@@ -205,6 +240,9 @@ Mel_Msgbox_Status mel_msgbox__plat_show(const Mel_Msgbox_Request* req, i32* out_
         while (g.events_pending())
             g.main_iteration();
 
+    mel_dealloc(a, title);
+    mel_dealloc(a, message);
+
     i32               chosen = req->escape_id;
     Mel_Msgbox_Status st = MEL_MSGBOX_OK;
     if (response >= 1 && (u32)response <= req->button_count)
@@ -213,5 +251,5 @@ Mel_Msgbox_Status mel_msgbox__plat_show(const Mel_Msgbox_Request* req, i32* out_
         st |= MEL_MSGBOX_RESULT_DISMISSED;
 
     *out_chosen_id = chosen;
-    return st;
+    return st | warn | (warn && (st & MEL_MSGBOX_SEVERITY_MASK) == MEL_MSGBOX_OK ? MEL_MSGBOX_WARNED : MEL_MSGBOX_OK);
 }

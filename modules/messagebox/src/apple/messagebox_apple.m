@@ -16,9 +16,14 @@ static NSString* ns_from_str8(str8 s)
     return [[NSString alloc] initWithBytes:s.data length:(NSUInteger)s.len encoding:NSUTF8StringEncoding] ?: @"";
 }
 
-bool mel_msgbox__plat_available(void) { return true; }
+static Mel_Msgbox_Status merge_status(Mel_Msgbox_Status st, Mel_Msgbox_Status warn)
+{
+    return st | warn | (warn && (st & MEL_MSGBOX_SEVERITY_MASK) == MEL_MSGBOX_OK ? MEL_MSGBOX_WARNED : MEL_MSGBOX_OK);
+}
 
 #if TARGET_OS_OSX
+
+bool mel_msgbox__plat_available(void) { return true; }
 
 static NSAlertStyle alert_style(Mel_Msgbox_Severity sev)
 {
@@ -70,13 +75,15 @@ Mel_Msgbox_Status mel_msgbox__plat_show(const Mel_Msgbox_Request* req, i32* out_
     else
         dispatch_sync(dispatch_get_main_queue(), body);
 
+    if (req->native_parent)
+        warn |= MEL_MSGBOX_WARN_PARENT_DROPPED;
     if (req->accent.has_value || req->text.has_value || req->background.has_value)
         warn |= MEL_MSGBOX_WARN_COLOR_DROPPED;
     if (req->right_to_left)
         warn |= MEL_MSGBOX_WARN_RTL_DROPPED;
 
     *out_chosen_id = chosen;
-    return st | warn | (warn ? MEL_MSGBOX_WARNED : MEL_MSGBOX_OK);
+    return merge_status(st, warn);
 }
 
 #else
@@ -103,6 +110,8 @@ static UIViewController* top_view_controller(void)
         vc = vc.presentedViewController;
     return vc;
 }
+
+bool mel_msgbox__plat_available(void) { return top_view_controller() != nil; }
 
 Mel_Msgbox_Status mel_msgbox__plat_show(const Mel_Msgbox_Request* req, i32* out_chosen_id)
 {
@@ -152,7 +161,7 @@ Mel_Msgbox_Status mel_msgbox__plat_show(const Mel_Msgbox_Request* req, i32* out_
         [[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
 
     *out_chosen_id = chosen;
-    return st | warn | (warn ? MEL_MSGBOX_WARNED : MEL_MSGBOX_OK);
+    return merge_status(st, warn);
 }
 
 #endif
