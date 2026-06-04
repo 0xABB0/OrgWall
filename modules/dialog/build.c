@@ -27,6 +27,7 @@ void build(Mel_Build* b)
     mel_depends(lib, "future");
     mel_depends(lib, "event");
     mel_depends(lib, "reactor");
+    mel_depends(lib, "thread");
     mel_depends(lib, "window");
     mel_depends(lib, "log");
     mel_depends(lib, "platform");
@@ -45,6 +46,7 @@ void build(Mel_Build* b)
     mel_depends(t, "future");
     mel_depends(t, "event");
     mel_depends(t, "reactor");
+    mel_depends(t, "thread");
     mel_depends(t, "window");
     mel_depends(t, "log");
     mel_depends(t, "platform");

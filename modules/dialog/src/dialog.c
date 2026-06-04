@@ -9,8 +9,10 @@
 #include <future/future.h>
 #include <executor/executor.h>
 #include <reactor/reactor.h>
+#include <thread/thread.h>
 #include <log/log.h>
 
+#include <assert.h>
 #include <string.h>
 
 typedef struct
@@ -46,9 +48,17 @@ typedef struct
     const Mel_Alloc* alloc;
     Mel_Reactor*     reactor;
     Mel_SlotMap      jobs;
+    Mel_Thread_Id    loop_thread;
+    bool             loop_bound;
 } Dialog;
 
 static Dialog g;
+
+static void assert_loop_affinity(void)
+{
+    if (g.loop_bound)
+        assert(mel_thread_id_equal(mel_thread_current_id(), g.loop_thread));
+}
 
 static char* dup_cstr(const Mel_Alloc* a, const char* s)
 {
@@ -72,12 +82,19 @@ void mel_dialog_init(const Mel_Alloc* alloc, Mel_Reactor* reactor)
     }
     g.alloc = alloc ? alloc : mel_alloc_heap();
     g.reactor = reactor;
+    if (reactor)
+    {
+        assert(mel_reactor_is_owner(reactor));
+        g.loop_thread = mel_thread_current_id();
+        g.loop_bound = true;
+    }
     mel_slotmap_init(&g.jobs, g.alloc, .item_size = sizeof(Mel_Dialog_Job*), .initial_capacity = 4);
     g.initialized = true;
 }
 
 static void job_storage_free(Mel_Dialog_Job* j)
 {
+    assert_loop_affinity();
     for (usize i = 0; i < j->filters.count; i++)
     {
         Filter_Copy* fc = &j->filters.items[i];
@@ -123,6 +140,7 @@ void mel_dialog_job_resolve(Mel_Dialog_Job* j, Mel_Dialog_Status s)
 
 static Mel_Dialog_Job* job_new(const Mel_Alloc* alloc, u32 request)
 {
+    assert_loop_affinity();
     const Mel_Alloc* a = alloc ? alloc : g.alloc;
     Mel_Dialog_Job*  j = mel_alloc_type(a, Mel_Dialog_Job);
     if (!j)
@@ -284,6 +302,7 @@ void mel_dialog_shutdown(void)
 {
     if (!g.initialized)
         return;
+    assert_loop_affinity();
     Mel_Array(Mel_Dialog_Job*) snap;
     mel_array_init(&snap, g.alloc);
     Mel_Dialog_Job** data = (Mel_Dialog_Job**)mel_slotmap_data(&g.jobs);
