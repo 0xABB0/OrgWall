@@ -17,6 +17,7 @@
 
 #include <log/log.h>
 
+#include <math.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -45,6 +46,16 @@ static const char RAYMARCH_SLANG[] = {
 
 static const char BINDLESS_PRESENT_SLANG[] = {
 #embed "shaders/slang/bindless_present.slang"
+    , 0
+};
+
+static const char BLOOM_SLANG[] = {
+#embed "shaders/slang/bloom.slang"
+    , 0
+};
+
+static const char BOIDS_SLANG[] = {
+#embed "shaders/slang/boids.slang"
     , 0
 };
 
@@ -694,6 +705,270 @@ MEL_TEST(scene_shared, bindless_present)
     mel_gpu_sampler_destroy(dev, smp.value);
     mel_gpu_texture_view_destroy(dev, src_view.value);
     mel_gpu_texture_destroy(dev, src.value);
+    mel_gpu_device_destroy(dev);
+    mel_gpu_instance_destroy(inst);
+}
+
+typedef struct
+{
+    u32   tex0;
+    u32   tex1;
+    u32   smp;
+    u32   img;
+    u32   w;
+    u32   h;
+    float param0;
+    float param1;
+} Bloom_Root;
+
+typedef struct
+{
+    Mel_Gpu_Texture      tex;
+    Mel_Gpu_Texture_View view;
+    u32                  slot;
+} Bloom_Image;
+
+static Bloom_Image bloom_image_create(Mel_Gpu_Device* dev, u32 w, u32 h, const char* name)
+{
+    Bloom_Image i;
+    i.tex  = mel_gpu_texture_create(dev, .kind = MEL_GPU_TEXTURE_2D, .extent = { w, h, 1 }, .format = MEL_GPU_FORMAT_RGBA8_UNORM, .usage = MEL_GPU_TEXTURE_STORAGE | MEL_GPU_TEXTURE_SAMPLED, .name = name).value;
+    i.view = mel_gpu_texture_default_view(dev, i.tex).value;
+    i.slot = mel_gpu_texture_view_bindless_slot(dev, i.view);
+    return i;
+}
+
+static void bloom_image_destroy(Mel_Gpu_Device* dev, Bloom_Image* i)
+{
+    mel_gpu_texture_view_destroy(dev, i->view);
+    mel_gpu_texture_destroy(dev, i->tex);
+}
+
+static void bloom_barrier(Mel_Gpu_Command_List* cmd, Mel_Gpu_Texture tex, Mel_Gpu_Resource_State src, Mel_Gpu_Resource_State dst)
+{
+    Mel_Gpu_Subresource_Range r = { MEL_GPU_ASPECT_COLOR, 0, 1, 0, 1 };
+    mel_gpu_cmd_texture_barrier(cmd, tex, r, src, dst);
+}
+
+MEL_TEST(scene_shared, bloom)
+{
+    Mel_Gpu_Instance* inst = NULL;
+    Mel_Gpu_Device*   dev = scene_make_device_bindless(&inst);
+    MEL_REQUIRE_NOT_NULL(dev);
+
+    if (!mel_gpu_bindless_available(dev))
+    {
+        mel_gpu_device_destroy(dev);
+        mel_gpu_instance_destroy(inst);
+        MEL_SKIP("bloom scene needs the device-global bindless heap (descriptor_indexing); device does not advertise it");
+    }
+
+    Bloom_Image img_scene  = bloom_image_create(dev, SCENE_W, SCENE_H, "bloom-scene");
+    Bloom_Image img_bright = bloom_image_create(dev, SCENE_W, SCENE_H, "bloom-bright");
+    Bloom_Image img_blurx  = bloom_image_create(dev, SCENE_W, SCENE_H, "bloom-blurx");
+    Bloom_Image img_bloom  = bloom_image_create(dev, SCENE_W, SCENE_H, "bloom-blur");
+
+    Mel_Gpu_Sampler_Create_Result smp = mel_gpu_sampler_create(dev, .min_filter = MEL_GPU_FILTER_LINEAR, .mag_filter = MEL_GPU_FILTER_LINEAR, .wrap_u = MEL_GPU_WRAP_CLAMP_EDGE, .wrap_v = MEL_GPU_WRAP_CLAMP_EDGE, .name = "bloom-smp");
+    MEL_REQUIRE(!mel_gpu_failed(smp.status));
+    u32 smp_slot = mel_gpu_sampler_bindless_slot(dev, smp.value);
+
+    Mel_Gpu_Pipeline_From_Slang_Result scene_pl  = mel_gpu_pipeline_compute_create_from_slang(dev, .source = BLOOM_SLANG, .compute_entry = "cs_scene", .push_constant_size = sizeof(Bloom_Root), .bindless = true, .name = "scene-bloom-scene");
+    MEL_REQUIRE(!mel_gpu_failed(scene_pl.status));
+    Mel_Gpu_Pipeline_From_Slang_Result bright_pl = mel_gpu_pipeline_compute_create_from_slang(dev, .source = BLOOM_SLANG, .compute_entry = "cs_bright", .push_constant_size = sizeof(Bloom_Root), .bindless = true, .name = "scene-bloom-bright");
+    MEL_REQUIRE(!mel_gpu_failed(bright_pl.status));
+    Mel_Gpu_Pipeline_From_Slang_Result blurx_pl  = mel_gpu_pipeline_compute_create_from_slang(dev, .source = BLOOM_SLANG, .compute_entry = "cs_blurx", .push_constant_size = sizeof(Bloom_Root), .bindless = true, .name = "scene-bloom-blurx");
+    MEL_REQUIRE(!mel_gpu_failed(blurx_pl.status));
+    Mel_Gpu_Pipeline_From_Slang_Result blury_pl  = mel_gpu_pipeline_compute_create_from_slang(dev, .source = BLOOM_SLANG, .compute_entry = "cs_blury", .push_constant_size = sizeof(Bloom_Root), .bindless = true, .name = "scene-bloom-blury");
+    MEL_REQUIRE(!mel_gpu_failed(blury_pl.status));
+    Mel_Gpu_Pipeline_From_Slang_Result comp_pl   = mel_gpu_pipeline_create_from_slang(dev, .source = BLOOM_SLANG, .vertex_entry = "vs_composite", .fragment_entry = "fs_composite", .topology = MEL_GPU_TOPOLOGY_TRIANGLE_LIST, .cull = MEL_GPU_CULL_NONE, .color_format = MEL_GPU_FORMAT_RGBA8_UNORM, .bindless = true, .name = "scene-bloom-composite");
+    MEL_REQUIRE(!mel_gpu_failed(comp_pl.status));
+
+    Scene_Target          tgt = scene_target_create(dev, SCENE_W, SCENE_H);
+    Mel_Gpu_Queue*        q = mel_gpu_queue_request(dev, MEL_GPU_QUEUE_GRAPHICS);
+    Mel_Gpu_Command_List* cmd = mel_gpu_command_list_create(q);
+    mel_gpu_command_list_begin(cmd);
+
+    u32 gx = (SCENE_W + 7) / 8;
+    u32 gy = (SCENE_H + 7) / 8;
+
+    bloom_barrier(cmd, img_scene.tex, MEL_GPU_STATE_COMMON, MEL_GPU_STATE_UNORDERED_ACCESS);
+    Bloom_Root sr = { .tex0 = img_scene.slot, .tex1 = img_scene.slot, .smp = smp_slot, .img = img_scene.slot, .w = SCENE_W, .h = SCENE_H, .param0 = 0.0f };
+    mel_gpu_cmd_bind_pipeline(cmd, scene_pl.value);
+    mel_gpu_cmd_bind_bindless(cmd);
+    mel_gpu_cmd_push_constants(cmd, 0, sizeof sr, &sr);
+    mel_gpu_cmd_dispatch(cmd, gx, gy, 1);
+    bloom_barrier(cmd, img_scene.tex, MEL_GPU_STATE_UNORDERED_ACCESS, MEL_GPU_STATE_SHADER_RESOURCE);
+
+    bloom_barrier(cmd, img_bright.tex, MEL_GPU_STATE_COMMON, MEL_GPU_STATE_UNORDERED_ACCESS);
+    Bloom_Root br = { .tex0 = img_scene.slot, .tex1 = img_scene.slot, .smp = smp_slot, .img = img_bright.slot, .w = SCENE_W, .h = SCENE_H, .param0 = 0.55f };
+    mel_gpu_cmd_bind_pipeline(cmd, bright_pl.value);
+    mel_gpu_cmd_bind_bindless(cmd);
+    mel_gpu_cmd_push_constants(cmd, 0, sizeof br, &br);
+    mel_gpu_cmd_dispatch(cmd, gx, gy, 1);
+    bloom_barrier(cmd, img_bright.tex, MEL_GPU_STATE_UNORDERED_ACCESS, MEL_GPU_STATE_SHADER_RESOURCE);
+
+    bloom_barrier(cmd, img_blurx.tex, MEL_GPU_STATE_COMMON, MEL_GPU_STATE_UNORDERED_ACCESS);
+    Bloom_Root bxr = { .tex0 = img_bright.slot, .tex1 = img_bright.slot, .smp = smp_slot, .img = img_blurx.slot, .w = SCENE_W, .h = SCENE_H };
+    mel_gpu_cmd_bind_pipeline(cmd, blurx_pl.value);
+    mel_gpu_cmd_bind_bindless(cmd);
+    mel_gpu_cmd_push_constants(cmd, 0, sizeof bxr, &bxr);
+    mel_gpu_cmd_dispatch(cmd, gx, gy, 1);
+    bloom_barrier(cmd, img_blurx.tex, MEL_GPU_STATE_UNORDERED_ACCESS, MEL_GPU_STATE_SHADER_RESOURCE);
+
+    bloom_barrier(cmd, img_bloom.tex, MEL_GPU_STATE_COMMON, MEL_GPU_STATE_UNORDERED_ACCESS);
+    Bloom_Root byr = { .tex0 = img_blurx.slot, .tex1 = img_blurx.slot, .smp = smp_slot, .img = img_bloom.slot, .w = SCENE_W, .h = SCENE_H };
+    mel_gpu_cmd_bind_pipeline(cmd, blury_pl.value);
+    mel_gpu_cmd_bind_bindless(cmd);
+    mel_gpu_cmd_push_constants(cmd, 0, sizeof byr, &byr);
+    mel_gpu_cmd_dispatch(cmd, gx, gy, 1);
+    bloom_barrier(cmd, img_bloom.tex, MEL_GPU_STATE_UNORDERED_ACCESS, MEL_GPU_STATE_SHADER_RESOURCE);
+
+    Mel_Gpu_Subresource_Range range = { MEL_GPU_ASPECT_COLOR, 0, 1, 0, 1 };
+    mel_gpu_cmd_texture_barrier(cmd, tgt.rt, range, MEL_GPU_STATE_COMMON, MEL_GPU_STATE_RENDER_TARGET);
+    Bloom_Root cr = { .tex0 = img_scene.slot, .tex1 = img_bloom.slot, .smp = smp_slot, .img = img_scene.slot, .w = SCENE_W, .h = SCENE_H, .param0 = 1.8f };
+    Mel_Gpu_Color_Attachment color = { .view = tgt.rt_view, .load = MEL_GPU_LOAD_CLEAR, .store = MEL_GPU_STORE_STORE, .clear = mel_gpu_rgba(0.0f, 0.0f, 0.0f, 1.0f) };
+    mel_gpu_cmd_begin_rendering(cmd, .colors = &color, .color_count = 1, .width = tgt.w, .height = tgt.h);
+    mel_gpu_cmd_bind_pipeline(cmd, comp_pl.value);
+    mel_gpu_cmd_bind_bindless(cmd);
+    mel_gpu_cmd_push_constants(cmd, 0, sizeof cr, &cr);
+    mel_gpu_cmd_draw(cmd, 3, 1);
+    mel_gpu_cmd_end_rendering(cmd);
+    mel_gpu_cmd_texture_barrier(cmd, tgt.rt, range, MEL_GPU_STATE_RENDER_TARGET, MEL_GPU_STATE_COPY_SOURCE);
+    mel_gpu_cmd_copy_texture_to_buffer(cmd, tgt.rt, range, tgt.rb);
+    mel_gpu_command_list_end(cmd);
+
+    Mel_Gpu_Future* f = mel_gpu_queue_submit(q, (Mel_Gpu_Submit){ .command_lists = &cmd, .command_list_count = 1 });
+    bool            ok = mel_gpu_ok(mel_gpu_future_wait(f));
+    mel_gpu_future_destroy(f);
+    MEL_REQUIRE(ok);
+
+    const u8* px = mel_gpu_buffer_mapped(dev, tgt.rb);
+    MEL_REQUIRE_NOT_NULL(px);
+    MEL_GOLDEN(SCENE_BACKEND, "shared/bloom", px, tgt.w, tgt.h, SCENE_TOL);
+
+    scene_target_destroy(dev, &tgt);
+    mel_gpu_command_list_destroy(cmd);
+    mel_gpu_queue_release(q);
+    mel_gpu_pipeline_destroy(dev, comp_pl.value);
+    mel_gpu_shader_destroy(dev, comp_pl.shader);
+    mel_gpu_pipeline_destroy(dev, blury_pl.value);
+    mel_gpu_shader_destroy(dev, blury_pl.shader);
+    mel_gpu_pipeline_destroy(dev, blurx_pl.value);
+    mel_gpu_shader_destroy(dev, blurx_pl.shader);
+    mel_gpu_pipeline_destroy(dev, bright_pl.value);
+    mel_gpu_shader_destroy(dev, bright_pl.shader);
+    mel_gpu_pipeline_destroy(dev, scene_pl.value);
+    mel_gpu_shader_destroy(dev, scene_pl.shader);
+    mel_gpu_sampler_destroy(dev, smp.value);
+    bloom_image_destroy(dev, &img_bloom);
+    bloom_image_destroy(dev, &img_blurx);
+    bloom_image_destroy(dev, &img_bright);
+    bloom_image_destroy(dev, &img_scene);
+    mel_gpu_device_destroy(dev);
+    mel_gpu_instance_destroy(inst);
+}
+
+#define BOIDS_SCENE_COUNT 4096u
+#define BOIDS_SCENE_LOCAL 64u
+
+typedef struct
+{
+    f32 pos_vel[4];
+} Boids_Boid;
+
+typedef struct
+{
+    u32 src, dst, total, pad;
+    f32 dt, time, goal_x, goal_y, aspect, pad1;
+} Boids_Root;
+
+MEL_TEST(scene_shared, boids)
+{
+    Mel_Gpu_Instance* inst = NULL;
+    Mel_Gpu_Device*   dev = scene_make_device_bindless(&inst);
+    MEL_REQUIRE_NOT_NULL(dev);
+
+    if (!mel_gpu_bindless_available(dev))
+    {
+        mel_gpu_device_destroy(dev);
+        mel_gpu_instance_destroy(inst);
+        MEL_SKIP("boids scene needs the device-global bindless storage-buffer heap (descriptor_indexing); device does not advertise it");
+    }
+
+    Boids_Boid* seed = malloc(BOIDS_SCENE_COUNT * sizeof(Boids_Boid));
+    MEL_REQUIRE_NOT_NULL(seed);
+    for (u32 i = 0; i < BOIDS_SCENE_COUNT; ++i)
+    {
+        f32 a = (f32)i * 2.3999632f;
+        f32 r = 0.9f * sqrtf((f32)i / (f32)BOIDS_SCENE_COUNT);
+        f32 vx = 0.25f * cosf(a * 1.3f);
+        f32 vy = 0.25f * sinf(a * 1.3f);
+        seed[i] = (Boids_Boid){ { r * cosf(a), r * sinf(a), vx, vy } };
+    }
+
+    Mel_Gpu_Buffer       buf[2];
+    u32                  buf_slot[2];
+    for (u32 k = 0; k < 2; ++k)
+    {
+        Mel_Gpu_Buffer_Create_Result pb = mel_gpu_buffer_create(dev, .size = BOIDS_SCENE_COUNT * sizeof(Boids_Boid), .usage = MEL_GPU_BUFFER_STORAGE, .memory = MEL_GPU_MEMORY_DEVICE, .data = seed, .name = "scene-boids");
+        MEL_REQUIRE(!mel_gpu_failed(pb.status));
+        buf[k] = pb.value;
+        buf_slot[k] = mel_gpu_buffer_bindless_slot(dev, buf[k]);
+    }
+    free(seed);
+
+    Mel_Gpu_Pipeline_From_Slang_Result sim_pl = mel_gpu_pipeline_compute_create_from_slang(dev, .source = BOIDS_SLANG, .compute_entry = "cs_sim", .push_constant_size = sizeof(Boids_Root), .bindless = true, .name = "scene-boids-sim");
+    MEL_REQUIRE(!mel_gpu_failed(sim_pl.status));
+    Mel_Gpu_Pipeline_From_Slang_Result draw_pl = mel_gpu_pipeline_create_from_slang(dev, .source = BOIDS_SLANG, .vertex_entry = "vs_draw", .fragment_entry = "fs_draw", .topology = MEL_GPU_TOPOLOGY_TRIANGLE_LIST, .cull = MEL_GPU_CULL_NONE, .color_format = MEL_GPU_FORMAT_RGBA8_UNORM, .bindless = true, .name = "scene-boids-draw");
+    MEL_REQUIRE(!mel_gpu_failed(draw_pl.status));
+
+    Scene_Target          tgt = scene_target_create(dev, SCENE_W, SCENE_H);
+    Mel_Gpu_Queue*        q = mel_gpu_queue_request(dev, MEL_GPU_QUEUE_GRAPHICS);
+    Mel_Gpu_Command_List* cmd = mel_gpu_command_list_create(q);
+    mel_gpu_command_list_begin(cmd);
+
+    mel_gpu_cmd_buffer_barrier(cmd, buf[0], MEL_GPU_STATE_COMMON, MEL_GPU_STATE_SHADER_RESOURCE);
+    mel_gpu_cmd_buffer_barrier(cmd, buf[1], MEL_GPU_STATE_COMMON, MEL_GPU_STATE_UNORDERED_ACCESS);
+
+    Boids_Root sroot = { .src = buf_slot[0], .dst = buf_slot[1], .total = BOIDS_SCENE_COUNT, .dt = 0.016f, .time = 0.0f, .goal_x = 0.0f, .goal_y = 0.0f };
+    mel_gpu_cmd_bind_pipeline(cmd, sim_pl.value);
+    mel_gpu_cmd_bind_bindless(cmd);
+    mel_gpu_cmd_push_constants(cmd, 0, sizeof sroot, &sroot);
+    mel_gpu_cmd_dispatch(cmd, (BOIDS_SCENE_COUNT + BOIDS_SCENE_LOCAL - 1) / BOIDS_SCENE_LOCAL, 1, 1);
+
+    mel_gpu_cmd_buffer_barrier(cmd, buf[1], MEL_GPU_STATE_UNORDERED_ACCESS, MEL_GPU_STATE_SHADER_RESOURCE);
+
+    Mel_Gpu_Subresource_Range range = { MEL_GPU_ASPECT_COLOR, 0, 1, 0, 1 };
+    mel_gpu_cmd_texture_barrier(cmd, tgt.rt, range, MEL_GPU_STATE_COMMON, MEL_GPU_STATE_RENDER_TARGET);
+    Boids_Root droot = { .src = buf_slot[1], .dst = buf_slot[0], .aspect = 1.0f, .time = 0.0f };
+    Mel_Gpu_Color_Attachment color = { .view = tgt.rt_view, .load = MEL_GPU_LOAD_CLEAR, .store = MEL_GPU_STORE_STORE, .clear = mel_gpu_rgba(0.02f, 0.03f, 0.05f, 1.0f) };
+    mel_gpu_cmd_begin_rendering(cmd, .colors = &color, .color_count = 1, .width = tgt.w, .height = tgt.h);
+    mel_gpu_cmd_bind_pipeline(cmd, draw_pl.value);
+    mel_gpu_cmd_bind_bindless(cmd);
+    mel_gpu_cmd_push_constants(cmd, 0, sizeof droot, &droot);
+    mel_gpu_cmd_draw(cmd, 3, BOIDS_SCENE_COUNT);
+    mel_gpu_cmd_end_rendering(cmd);
+    mel_gpu_cmd_texture_barrier(cmd, tgt.rt, range, MEL_GPU_STATE_RENDER_TARGET, MEL_GPU_STATE_COPY_SOURCE);
+    mel_gpu_cmd_copy_texture_to_buffer(cmd, tgt.rt, range, tgt.rb);
+    mel_gpu_command_list_end(cmd);
+
+    Mel_Gpu_Future* f = mel_gpu_queue_submit(q, (Mel_Gpu_Submit){ .command_lists = &cmd, .command_list_count = 1 });
+    bool            ok = mel_gpu_ok(mel_gpu_future_wait(f));
+    mel_gpu_future_destroy(f);
+    MEL_REQUIRE(ok);
+
+    const u8* px = mel_gpu_buffer_mapped(dev, tgt.rb);
+    MEL_REQUIRE_NOT_NULL(px);
+    MEL_GOLDEN(SCENE_BACKEND, "shared/boids", px, tgt.w, tgt.h, SCENE_TOL);
+
+    scene_target_destroy(dev, &tgt);
+    mel_gpu_command_list_destroy(cmd);
+    mel_gpu_queue_release(q);
+    mel_gpu_pipeline_destroy(dev, draw_pl.value);
+    mel_gpu_shader_destroy(dev, draw_pl.shader);
+    mel_gpu_pipeline_destroy(dev, sim_pl.value);
+    mel_gpu_shader_destroy(dev, sim_pl.shader);
+    mel_gpu_buffer_destroy(dev, buf[1]);
+    mel_gpu_buffer_destroy(dev, buf[0]);
     mel_gpu_device_destroy(dev);
     mel_gpu_instance_destroy(inst);
 }

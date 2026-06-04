@@ -5,9 +5,11 @@
 
 #include "boids.h"
 #include "hud.h"
-#include "boids_sim_spv.h"
-#include "boids_draw_spv.h"
-#include "instances_spv.h"
+
+static const char BOIDS_SLANG[] = {
+#embed "shaders/slang/boids.slang"
+    , 0
+};
 
 #define BOID_COUNT 4096
 #define LOCAL      64
@@ -20,14 +22,8 @@ typedef struct
 typedef struct
 {
     u32 src, dst, total, pad;
-    f32 dt, time, goal_x, goal_y;
-} Sim_Root;
-
-typedef struct
-{
-    u32 boids;
-    f32 aspect, time, pad;
-} Draw_Root;
+    f32 dt, time, goal_x, goal_y, aspect, pad1;
+} Boids_Root;
 
 typedef struct
 {
@@ -59,29 +55,25 @@ static void* boids_init(Mel_Gpu_Device* dev, Mel_Gpu_Swapchain* sc)
         return b;
     }
 
-    Mel_Gpu_Shader_Create_Result cs = mel_gpu_shader_create_compute_from_bytecode(dev, .spirv = BOIDS_SIM_COMP_SPV, .spirv_size = sizeof BOIDS_SIM_COMP_SPV, .entry = "main", .name = "boids-sim");
-    if (mel_gpu_failed(cs.status))
+    Mel_Gpu_Pipeline_From_Slang_Result sim = mel_gpu_pipeline_compute_create_from_slang(dev, .source = BOIDS_SLANG, .compute_entry = "cs_sim", .push_constant_size = sizeof(Boids_Root), .bindless = true, .name = "boids-sim");
+    if (mel_gpu_failed(sim.status))
         return b;
-    b->sim_sh = cs.value;
-    b->sim_pl = mel_gpu_pipeline_compute_create(dev, .shader = b->sim_sh, .push_constant_size = sizeof(Sim_Root), .name = "boids-sim").value;
+    b->sim_sh = sim.shader;
+    b->sim_pl = sim.value;
 
-    b->draw_sh = mel_gpu_shader_create_from_bytecode(dev,
-                                                     .spirv_vertex = BOIDS_DRAW_VERT_SPV,
-                                                     .spirv_vertex_size = sizeof BOIDS_DRAW_VERT_SPV,
-                                                     .spirv_fragment = INSTANCES_FRAG_SPV,
-                                                     .spirv_fragment_size = sizeof INSTANCES_FRAG_SPV,
-                                                     .vertex_entry = "main",
-                                                     .fragment_entry = "main",
-                                                     .name = "boids-draw")
-                     .value;
-    b->draw_pl = mel_gpu_pipeline_create(dev,
-                                         .shader = b->draw_sh,
-                                         .topology = MEL_GPU_TOPOLOGY_TRIANGLE_LIST,
-                                         .cull = MEL_GPU_CULL_NONE,
-                                         .color_format = mel_gpu_swapchain_format(sc),
-                                         .push_constant_size = sizeof(Draw_Root),
-                                         .name = "boids-draw")
-                     .value;
+    Mel_Gpu_Pipeline_From_Slang_Result draw = mel_gpu_pipeline_create_from_slang(dev,
+                                                                                 .source = BOIDS_SLANG,
+                                                                                 .vertex_entry = "vs_draw",
+                                                                                 .fragment_entry = "fs_draw",
+                                                                                 .topology = MEL_GPU_TOPOLOGY_TRIANGLE_LIST,
+                                                                                 .cull = MEL_GPU_CULL_NONE,
+                                                                                 .color_format = mel_gpu_swapchain_format(sc),
+                                                                                 .bindless = true,
+                                                                                 .name = "boids-draw");
+    if (mel_gpu_failed(draw.status))
+        return b;
+    b->draw_sh = draw.shader;
+    b->draw_pl = draw.value;
 
     Boid* seed = malloc(BOID_COUNT * sizeof(Boid));
     for (i32 i = 0; i < BOID_COUNT; ++i)
@@ -139,18 +131,20 @@ static void boids_render(void* state, Mel_Gpu_Command_List* cmd, f64 dt)
     mel_gpu_cmd_buffer_barrier(cmd, b->buf[src], src_state, MEL_GPU_STATE_SHADER_RESOURCE);
     mel_gpu_cmd_buffer_barrier(cmd, b->buf[dst], dst_state, MEL_GPU_STATE_UNORDERED_ACCESS);
 
-    f32      gx = 0.55f * (f32)sin(b->t * 0.37);
-    f32      gy = 0.55f * (f32)sin(b->t * 0.51 + 1.7);
-    Sim_Root sroot = { .src = b->buf_slot[src], .dst = b->buf_slot[dst], .total = BOID_COUNT, .dt = (f32)(dt > 0.05 ? 0.05 : dt), .time = (f32)b->t, .goal_x = gx, .goal_y = gy };
+    f32        gx = 0.55f * (f32)sin(b->t * 0.37);
+    f32        gy = 0.55f * (f32)sin(b->t * 0.51 + 1.7);
+    Boids_Root sroot = { .src = b->buf_slot[src], .dst = b->buf_slot[dst], .total = BOID_COUNT, .dt = (f32)(dt > 0.05 ? 0.05 : dt), .time = (f32)b->t, .goal_x = gx, .goal_y = gy };
     mel_gpu_cmd_bind_pipeline(cmd, b->sim_pl);
+    mel_gpu_cmd_bind_bindless(cmd);
     mel_gpu_cmd_push_constants(cmd, 0, sizeof sroot, &sroot);
     mel_gpu_cmd_dispatch(cmd, (BOID_COUNT + LOCAL - 1) / LOCAL, 1, 1);
 
     mel_gpu_cmd_buffer_barrier(cmd, b->buf[dst], MEL_GPU_STATE_UNORDERED_ACCESS, MEL_GPU_STATE_SHADER_RESOURCE);
 
-    Draw_Root droot = { .boids = b->buf_slot[dst], .aspect = b->aspect, .time = (f32)b->t };
+    Boids_Root droot = { .src = b->buf_slot[dst], .dst = b->buf_slot[src], .aspect = b->aspect, .time = (f32)b->t };
     mel_gpu_cmd_begin_pass(cmd, mel_gpu_rgba(0.02f, 0.03f, 0.05f, 1.0f));
     mel_gpu_cmd_bind_pipeline(cmd, b->draw_pl);
+    mel_gpu_cmd_bind_bindless(cmd);
     mel_gpu_cmd_push_constants(cmd, 0, sizeof droot, &droot);
     mel_gpu_cmd_draw(cmd, 3, BOID_COUNT);
     mel_gpu_cmd_end_pass(cmd);
