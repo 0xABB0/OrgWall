@@ -397,3 +397,139 @@ MEL_TEST(storage, read_only_rejects_writes)
     MEL_EXPECT(ro.not_writable);
     MEL_EXPECT(ro.read_only_rejected);
 }
+
+typedef struct
+{
+    Mel_Reactor* reactor;
+    Mel_Storage* st;
+    int          turn;
+    bool         destroyed;
+    bool         survived;
+} DestroyFlight;
+
+static bool df_idle(void* user)
+{
+    DestroyFlight* d = (DestroyFlight*)user;
+    d->turn++;
+    if (d->turn == 2 && !d->destroyed)
+    {
+        const char* body = "destroy-during-flight";
+        (void)mel_storage_write(d->st, S8("saves/slot.dat"), .data = (const u8*)body, .len = strlen(body));
+        mel_storage_destroy(d->st);
+        d->st = NULL;
+        d->destroyed = true;
+    }
+    if (d->destroyed && d->turn > 12)
+    {
+        d->survived = true;
+        mel_reactor_quit(d->reactor);
+    }
+    if (d->turn > 200000)
+        mel_reactor_quit(d->reactor);
+    return true;
+}
+
+static bool df_init(Mel_Reactor* r, void* user)
+{
+    DestroyFlight* d = (DestroyFlight*)user;
+    d->reactor = r;
+    char  tmpl[] = "/tmp/melstorage-df-XXXXXX";
+    char* dir = mkdtemp(tmpl);
+    if (!dir)
+    {
+        mel_reactor_quit(r);
+        return true;
+    }
+    char root[256];
+    snprintf(root, sizeof root, "%s/sandbox", dir);
+    d->st = mel_storage_open_fs(.root = str8_from_cstr(root), .reactor = r);
+    if (!d->st)
+    {
+        mel_reactor_quit(r);
+        return true;
+    }
+    Mel_Reactor_Source* idle = mel_reactor_idle_new(df_idle, d);
+    mel_reactor_source_attach(r, idle);
+    return true;
+}
+
+MEL_TEST(storage, destroy_during_flight)
+{
+    DestroyFlight d = { 0 };
+    mel_reactor_spawn(MEL_REACTOR_THREADED, df_init, &d);
+    MEL_EXPECT(d.destroyed);
+    MEL_EXPECT(d.survived);
+}
+
+typedef struct
+{
+    Mel_Reactor*   reactor;
+    Mel_Storage*   st;
+    int            turn;
+    Mel_Task       cont;
+    Mel_Future*    pending;
+    Mel_Storage_Op op;
+    bool           armed;
+    bool           done;
+} CancelFlight;
+
+static void cf_cont(Mel_Task* self)
+{
+    CancelFlight* c = mel_container_of(self, CancelFlight, cont);
+    mel_storage_future_release(c->pending);
+    c->pending = NULL;
+    c->done = true;
+    mel_storage_destroy(c->st);
+    c->st = NULL;
+    mel_reactor_quit(c->reactor);
+}
+
+static bool cf_idle(void* user)
+{
+    CancelFlight* c = (CancelFlight*)user;
+    c->turn++;
+    if (c->turn == 2 && !c->armed)
+    {
+        const char* body = "cancel-me";
+        c->pending = mel_storage_write(c->st, S8("saves/slot.dat"), .data = (const u8*)body, .len = strlen(body), .out_op = &c->op);
+        mel_task_init(&c->cont, cf_cont);
+        mel_future_then(c->pending, &c->cont, mel_storage_executor(c->st));
+        bool ok = mel_storage_cancel(c->st, c->op);
+        (void)ok;
+        c->armed = true;
+    }
+    if (c->turn > 200000)
+        mel_reactor_quit(c->reactor);
+    return true;
+}
+
+static bool cf_init(Mel_Reactor* r, void* user)
+{
+    CancelFlight* c = (CancelFlight*)user;
+    c->reactor = r;
+    char  tmpl[] = "/tmp/melstorage-cf-XXXXXX";
+    char* dir = mkdtemp(tmpl);
+    if (!dir)
+    {
+        mel_reactor_quit(r);
+        return true;
+    }
+    char root[256];
+    snprintf(root, sizeof root, "%s/sandbox", dir);
+    c->st = mel_storage_open_fs(.root = str8_from_cstr(root), .reactor = r);
+    if (!c->st)
+    {
+        mel_reactor_quit(r);
+        return true;
+    }
+    Mel_Reactor_Source* idle = mel_reactor_idle_new(cf_idle, c);
+    mel_reactor_source_attach(r, idle);
+    return true;
+}
+
+MEL_TEST(storage, cancel_settles_future)
+{
+    CancelFlight c = { 0 };
+    mel_reactor_spawn(MEL_REACTOR_THREADED, cf_init, &c);
+    MEL_EXPECT(c.done);
+}

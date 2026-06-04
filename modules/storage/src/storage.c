@@ -93,7 +93,7 @@ static void job_free_owned(Mel_Storage_Job* job)
     job->pattern = STR8_EMPTY;
 }
 
-static void job_free_record(Mel_Storage_Job* job)
+void mel_storage__job_free_record(Mel_Storage_Job* job)
 {
     const Mel_Alloc* a = job->alloc;
     if (job->kind == MEL_STORAGE_JOB_READ && job->result.bytes.data)
@@ -112,15 +112,15 @@ static void job_free_record(Mel_Storage_Job* job)
 
 void mel_storage__job_settle(Mel_Storage_Job* job, Mel_Storage_Status status)
 {
-    assert(mel_reactor_is_owner(job->st->reactor));
     if (job->settled)
         return;
+    assert(job->orphaned || mel_reactor_is_owner(job->st->reactor));
     job->settled = true;
 
     result_set_status(job, status);
     job_free_owned(job);
 
-    if (mel_slotmap_alive(&job->st->ops, job->self))
+    if (!job->orphaned && mel_slotmap_alive(&job->st->ops, job->self))
         mel_slotmap_remove(&job->st->ops, job->self);
 
     if (status & MEL_STORAGE_CANCELLED)
@@ -175,13 +175,21 @@ void mel_storage_destroy(Mel_Storage* st)
         return;
     assert(mel_reactor_is_owner(st->reactor));
 
-    Mel_Storage_Job** data = (Mel_Storage_Job**)mel_slotmap_data(&st->ops);
-    u32               n = mel_slotmap_count(&st->ops);
-    for (u32 i = 0; i < n; i++)
+    while (mel_slotmap_count(&st->ops) > 0)
     {
-        data[i]->cancel_requested = true;
+        Mel_Storage_Job** data = (Mel_Storage_Job**)mel_slotmap_data(&st->ops);
+        Mel_Storage_Job*  job = data[0];
+        job->cancel_requested = true;
         if (st->iface->cancel)
-            st->iface->cancel(st, st->backend_user, data[i]);
+            st->iface->cancel(st, st->backend_user, job);
+        if (job->settled)
+            continue;
+        bool has_backend_cont = job->submitted && job->backend_pending != NULL;
+        job->orphaned = has_backend_cont;
+        mel_slotmap_remove(&st->ops, job->self);
+        mel_storage__job_settle(job, MEL_STORAGE_ERROR | MEL_STORAGE_CANCELLED);
+        if (!has_backend_cont)
+            mel_storage__job_free_record(job);
     }
 
     if (st->iface->destroy)
@@ -548,7 +556,10 @@ void mel_storage_future_release(Mel_Future* f)
 {
     if (!f)
         return;
-    job_free_record(job_of_future(f));
+    Mel_Storage_Job* job = job_of_future(f);
+    if (job->orphaned)
+        return;
+    mel_storage__job_free_record(job);
 }
 
 Mel_Storage_Job_Kind mel_storage_job_kind(const Mel_Storage_Job* job) { return job->kind; }

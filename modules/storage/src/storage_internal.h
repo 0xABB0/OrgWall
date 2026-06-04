@@ -35,6 +35,7 @@ struct Mel_Storage_Job
     bool                 submitted;
     bool                 settled;
     bool                 cancel_requested;
+    bool                 orphaned;
 
     str8 path_a;
     str8 path_b;
@@ -79,6 +80,7 @@ struct Mel_Storage
 };
 
 void mel_storage__job_settle(Mel_Storage_Job* job, Mel_Storage_Status status);
+void mel_storage__job_free_record(Mel_Storage_Job* job);
 
 Mel_Storage* mel_storage__open_fs_folder(u32 folder, Mel_Reactor* reactor, const Mel_Alloc* alloc, bool writable, bool create_root);
 
