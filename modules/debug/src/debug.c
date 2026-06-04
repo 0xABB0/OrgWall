@@ -1,16 +1,26 @@
 #include <debug/debug.h>
 
-#include <allocator/heap.h>
-
-Mel_Assert_Dialog_Result mel__native_assert_dialog(str8 text, str8 caption);
+#include <debug/assert.h>
 
 Mel_Assert_Dialog_Result mel_assert_dialog(bool condition, str8 message, str8 detail_message, Mel_Stacktrace* stack_frame)
 {
-    const Mel_Alloc*         alloc = mel_alloc_heap();
-    str8                     trace = mel_stacktrace_format(stack_frame, (Mel_Alloc*)alloc);
-    str8                     text = str8_fmt_alloc(alloc, "%.*s\n%.*s\n%.*s", (int)message.len, message.data, (int)detail_message.len, detail_message.data, (int)trace.len, trace.data);
-    Mel_Assert_Dialog_Result result = mel__native_assert_dialog(text, S8("Assertion failed"));
-    mel_dealloc(alloc, text.data);
-    mel_dealloc(alloc, trace.data);
-    return result;
+    if (condition)
+        return ASSERT_DIALOG_RESULT_IGNORE;
+
+    Mel_Assert_Report report = {
+        .condition = message,
+        .location = detail_message,
+        .message = STR8_EMPTY,
+        .level = MEL_ASSERT_LEVEL_DEBUG,
+        .stack = stack_frame,
+    };
+
+    Mel_Assert_Handler_Slot slot = mel_assert_handler();
+    Mel_Assert_Response     response = slot.handler != NULL ? slot.handler(&report, slot.user) : mel_assert_default_handler(&report, slot.user);
+
+    if (mel_assert_response_retry(response))
+        return ASSERT_DIALOG_RESULT_RETRY;
+    if (mel_assert_response_ignored(response))
+        return ASSERT_DIALOG_RESULT_IGNORE;
+    return ASSERT_DIALOG_RESULT_ABORT;
 }
