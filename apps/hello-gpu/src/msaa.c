@@ -5,10 +5,11 @@
 
 #include "msaa.h"
 #include "hud.h"
-#include "star_spv.h"
-#include "instances_spv.h"
-#include "blit_spv.h"
-#include "msaa_compose_spv.h"
+
+static const char MSAA_SLANG[] = {
+#embed "shaders/slang/msaa.slang"
+    , 0
+};
 
 #define STAR_SPOKES 11
 #define STAR_VERTS  (STAR_SPOKES * 3)
@@ -24,17 +25,14 @@ typedef struct
 
 typedef struct
 {
-    f32 angle;
-    f32 aspect;
-} Star_Root;
-
-typedef struct
-{
     u32 resolved;
     u32 reference;
     u32 smp;
-    u32 pad;
-} Compose_Root;
+    f32 angle;
+    f32 aspect;
+    f32 pad0;
+    f32 pad1;
+} Msaa_Root;
 
 typedef struct
 {
@@ -42,8 +40,9 @@ typedef struct
     bool            ready;
     u32             samples;
 
-    Mel_Gpu_Shader   star_shader;
+    Mel_Gpu_Shader   ms_shader;
     Mel_Gpu_Pipeline ms_pipeline;
+    Mel_Gpu_Shader   ref_shader;
     Mel_Gpu_Pipeline ref_pipeline;
     Mel_Gpu_Buffer   vbo[VBO_FRAMES];
     i32              vframe;
@@ -112,58 +111,52 @@ static void* msaa_init(Mel_Gpu_Device* dev, Mel_Gpu_Swapchain* sc)
     if (m->samples < 2)
         mel_log_warn("hello-gpu", "msaa: device offers no multisample RGBA8; both halves render single-sampled");
 
-    m->star_shader = mel_gpu_shader_create_from_bytecode(dev,
-                                                         .spirv_vertex = STAR_VERT_SPV,
-                                                         .spirv_vertex_size = sizeof STAR_VERT_SPV,
-                                                         .spirv_fragment = INSTANCES_FRAG_SPV,
-                                                         .spirv_fragment_size = sizeof INSTANCES_FRAG_SPV,
-                                                         .vertex_entry = "main",
-                                                         .fragment_entry = "main",
-                                                         .name = "star")
-                         .value;
+    Mel_Gpu_Pipeline_From_Slang_Result ms = mel_gpu_pipeline_create_from_slang(dev,
+                                                                               .source = MSAA_SLANG,
+                                                                               .vertex_entry = "vs_star",
+                                                                               .fragment_entry = "fs_star",
+                                                                               .topology = MEL_GPU_TOPOLOGY_TRIANGLE_LIST,
+                                                                               .cull = MEL_GPU_CULL_NONE,
+                                                                               .color_format = MEL_GPU_FORMAT_RGBA8_UNORM,
+                                                                               .samples = m->samples,
+                                                                               .bindless = true,
+                                                                               .name = "star-msaa");
+    if (mel_gpu_failed(ms.status))
+        return m;
+    m->ms_shader = ms.shader;
+    m->ms_pipeline = ms.value;
 
-    const Mel_Gpu_Vertex_Element layout[] = {
-        { .location = 0, .format = MEL_GPU_FORMAT_RG32_FLOAT, .offset = offsetof(Star_Vertex, pos) },
-        { .location = 1, .format = MEL_GPU_FORMAT_RGBA32_FLOAT, .offset = offsetof(Star_Vertex, color) },
-    };
-    m->ms_pipeline = mel_gpu_pipeline_create(dev,
-                                             .shader = m->star_shader,
-                                             .topology = MEL_GPU_TOPOLOGY_TRIANGLE_LIST,
-                                             .cull = MEL_GPU_CULL_NONE,
-                                             .color_format = MEL_GPU_FORMAT_RGBA8_UNORM,
-                                             .samples = m->samples,
-                                             .vertex_layout = layout,
-                                             .vertex_layout_count = 2,
-                                             .vertex_stride = sizeof(Star_Vertex),
-                                             .push_constant_size = sizeof(Star_Root),
-                                             .name = "star-msaa")
-                         .value;
-    m->ref_pipeline = mel_gpu_pipeline_create(dev,
-                                              .shader = m->star_shader,
-                                              .topology = MEL_GPU_TOPOLOGY_TRIANGLE_LIST,
-                                              .cull = MEL_GPU_CULL_NONE,
-                                              .color_format = MEL_GPU_FORMAT_RGBA8_UNORM,
-                                              .samples = 1,
-                                              .vertex_layout = layout,
-                                              .vertex_layout_count = 2,
-                                              .vertex_stride = sizeof(Star_Vertex),
-                                              .push_constant_size = sizeof(Star_Root),
-                                              .name = "star-ref")
-                          .value;
+    Mel_Gpu_Pipeline_From_Slang_Result ref = mel_gpu_pipeline_create_from_slang(dev,
+                                                                                .source = MSAA_SLANG,
+                                                                                .vertex_entry = "vs_star",
+                                                                                .fragment_entry = "fs_star",
+                                                                                .topology = MEL_GPU_TOPOLOGY_TRIANGLE_LIST,
+                                                                                .cull = MEL_GPU_CULL_NONE,
+                                                                                .color_format = MEL_GPU_FORMAT_RGBA8_UNORM,
+                                                                                .samples = 1,
+                                                                                .bindless = true,
+                                                                                .name = "star-ref");
+    if (mel_gpu_failed(ref.status))
+        return m;
+    m->ref_shader = ref.shader;
+    m->ref_pipeline = ref.value;
 
     for (i32 i = 0; i < VBO_FRAMES; ++i)
         m->vbo[i] = mel_gpu_buffer_create(dev, .size = STAR_VERTS * sizeof(Star_Vertex), .usage = MEL_GPU_BUFFER_VERTEX, .memory = MEL_GPU_MEMORY_UPLOAD, .name = "star-vbo").value;
 
-    m->compose_shader = mel_gpu_shader_create_from_bytecode(dev,
-                                                            .spirv_vertex = BLIT_VERT_SPV,
-                                                            .spirv_vertex_size = sizeof BLIT_VERT_SPV,
-                                                            .spirv_fragment = MSAA_COMPOSE_FRAG_SPV,
-                                                            .spirv_fragment_size = sizeof MSAA_COMPOSE_FRAG_SPV,
-                                                            .vertex_entry = "main",
-                                                            .fragment_entry = "main",
-                                                            .name = "msaa-compose")
-                            .value;
-    m->compose_pipeline = mel_gpu_pipeline_create(dev, .shader = m->compose_shader, .topology = MEL_GPU_TOPOLOGY_TRIANGLE_LIST, .cull = MEL_GPU_CULL_NONE, .color_format = mel_gpu_swapchain_format(sc), .name = "msaa-compose").value;
+    Mel_Gpu_Pipeline_From_Slang_Result compose = mel_gpu_pipeline_create_from_slang(dev,
+                                                                                    .source = MSAA_SLANG,
+                                                                                    .vertex_entry = "vs_compose",
+                                                                                    .fragment_entry = "fs_compose",
+                                                                                    .topology = MEL_GPU_TOPOLOGY_TRIANGLE_LIST,
+                                                                                    .cull = MEL_GPU_CULL_NONE,
+                                                                                    .color_format = mel_gpu_swapchain_format(sc),
+                                                                                    .bindless = true,
+                                                                                    .name = "msaa-compose");
+    if (mel_gpu_failed(compose.status))
+        return m;
+    m->compose_shader = compose.shader;
+    m->compose_pipeline = compose.value;
 
     m->sampler = mel_gpu_sampler_create(dev, .min_filter = MEL_GPU_FILTER_LINEAR, .mag_filter = MEL_GPU_FILTER_LINEAR, .wrap_u = MEL_GPU_WRAP_CLAMP_EDGE, .wrap_v = MEL_GPU_WRAP_CLAMP_EDGE, .name = "msaa-sampler").value;
 
@@ -246,7 +239,13 @@ static void msaa_render(void* state, Mel_Gpu_Command_List* cmd, f64 dt)
     Mel_Gpu_Buffer vbo = m->vbo[m->vframe];
     mel_gpu_buffer_write(m->dev, vbo, verts, count * sizeof(Star_Vertex));
 
-    Star_Root root = { .angle = (f32)m->angle, .aspect = (f32)m->tw / (f32)m->th };
+    Msaa_Root root = {
+        .resolved = m->aa_slot,
+        .reference = m->ref_slot,
+        .smp = mel_gpu_sampler_bindless_slot(m->dev, m->sampler),
+        .angle = (f32)m->angle,
+        .aspect = (f32)m->tw / (f32)m->th,
+    };
 
     Mel_Gpu_Subresource_Range range = { MEL_GPU_ASPECT_COLOR, 0, 1, 0, 1 };
     bool                      fresh = m->targets_fresh;
@@ -261,6 +260,7 @@ static void msaa_render(void* state, Mel_Gpu_Command_List* cmd, f64 dt)
         Mel_Gpu_Color_Attachment color = { .view = m->ms_view, .load = MEL_GPU_LOAD_CLEAR, .store = MEL_GPU_STORE_DONT_CARE, .clear = mel_gpu_rgba(0.05f, 0.06f, 0.09f, 1.0f), .resolve_view = m->aa_view };
         mel_gpu_cmd_begin_rendering(cmd, .colors = &color, .color_count = 1, .width = (u32)m->tw, .height = (u32)m->th);
         mel_gpu_cmd_bind_pipeline(cmd, m->ms_pipeline);
+        mel_gpu_cmd_bind_bindless(cmd);
         mel_gpu_cmd_push_constants(cmd, 0, sizeof root, &root);
         mel_gpu_cmd_bind_vertex_buffer(cmd, 0, vbo);
         mel_gpu_cmd_draw(cmd, count, 1);
@@ -271,6 +271,7 @@ static void msaa_render(void* state, Mel_Gpu_Command_List* cmd, f64 dt)
         Mel_Gpu_Color_Attachment color = { .view = m->aa_view, .load = MEL_GPU_LOAD_CLEAR, .store = MEL_GPU_STORE_STORE, .clear = mel_gpu_rgba(0.05f, 0.06f, 0.09f, 1.0f) };
         mel_gpu_cmd_begin_rendering(cmd, .colors = &color, .color_count = 1, .width = (u32)m->tw, .height = (u32)m->th);
         mel_gpu_cmd_bind_pipeline(cmd, m->ref_pipeline);
+        mel_gpu_cmd_bind_bindless(cmd);
         mel_gpu_cmd_push_constants(cmd, 0, sizeof root, &root);
         mel_gpu_cmd_bind_vertex_buffer(cmd, 0, vbo);
         mel_gpu_cmd_draw(cmd, count, 1);
@@ -282,16 +283,17 @@ static void msaa_render(void* state, Mel_Gpu_Command_List* cmd, f64 dt)
     Mel_Gpu_Color_Attachment refc = { .view = m->ref_view, .load = MEL_GPU_LOAD_CLEAR, .store = MEL_GPU_STORE_STORE, .clear = mel_gpu_rgba(0.05f, 0.06f, 0.09f, 1.0f) };
     mel_gpu_cmd_begin_rendering(cmd, .colors = &refc, .color_count = 1, .width = (u32)m->tw, .height = (u32)m->th);
     mel_gpu_cmd_bind_pipeline(cmd, m->ref_pipeline);
+    mel_gpu_cmd_bind_bindless(cmd);
     mel_gpu_cmd_push_constants(cmd, 0, sizeof root, &root);
     mel_gpu_cmd_bind_vertex_buffer(cmd, 0, vbo);
     mel_gpu_cmd_draw(cmd, count, 1);
     mel_gpu_cmd_end_rendering(cmd);
     mel_gpu_cmd_texture_barrier(cmd, m->ref, range, MEL_GPU_STATE_RENDER_TARGET, MEL_GPU_STATE_SHADER_RESOURCE);
 
-    Compose_Root croot = { .resolved = m->aa_slot, .reference = m->ref_slot, .smp = mel_gpu_sampler_bindless_slot(m->dev, m->sampler) };
     mel_gpu_cmd_begin_pass(cmd, mel_gpu_rgba(0, 0, 0, 1));
     mel_gpu_cmd_bind_pipeline(cmd, m->compose_pipeline);
-    mel_gpu_cmd_push_constants(cmd, 0, sizeof croot, &croot);
+    mel_gpu_cmd_bind_bindless(cmd);
+    mel_gpu_cmd_push_constants(cmd, 0, sizeof root, &root);
     mel_gpu_cmd_draw(cmd, 3, 1);
     mel_gpu_cmd_end_pass(cmd);
 }
@@ -310,8 +312,9 @@ static void msaa_teardown(void* state)
         for (i32 i = 0; i < VBO_FRAMES; ++i)
             mel_gpu_buffer_destroy(m->dev, m->vbo[i]);
         mel_gpu_pipeline_destroy(m->dev, m->ref_pipeline);
+        mel_gpu_shader_destroy(m->dev, m->ref_shader);
         mel_gpu_pipeline_destroy(m->dev, m->ms_pipeline);
-        mel_gpu_shader_destroy(m->dev, m->star_shader);
+        mel_gpu_shader_destroy(m->dev, m->ms_shader);
     }
     free(m);
 }

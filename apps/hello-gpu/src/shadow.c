@@ -6,10 +6,11 @@
 #include "shadow.h"
 #include "hud.h"
 #include "bindless_present.h"
-#include "shadow_depth_vert_spv.h"
-#include "shadow_depth_frag_spv.h"
-#include "shadow_scene_vert_spv.h"
-#include "shadow_scene_frag_spv.h"
+
+static const char SHADOW_SLANG[] = {
+#embed "shaders/slang/shadow.slang"
+    , 0
+};
 
 #define SHADOW_RES  512
 #define BOX_COUNT   5
@@ -34,10 +35,9 @@ typedef struct
 {
     u32 shadow_tex;
     u32 shadow_smp;
-    u32 pad0;
-    u32 pad1;
-    f32 light_dir[3];
-    f32 pad2;
+    f32 depth_bias;
+    f32 pad1;
+    f32 light_dir[4];
 } Scene_Root;
 
 typedef struct
@@ -207,61 +207,38 @@ static void* shadow_init(Mel_Gpu_Device* dev, Mel_Gpu_Swapchain* sc)
         return s;
     }
 
-    s->depth_sh = mel_gpu_shader_create_from_bytecode(dev,
-                                                      .spirv_vertex        = SHADOW_DEPTH_VERT_SPV,
-                                                      .spirv_vertex_size   = sizeof SHADOW_DEPTH_VERT_SPV,
-                                                      .spirv_fragment      = SHADOW_DEPTH_FRAG_SPV,
-                                                      .spirv_fragment_size = sizeof SHADOW_DEPTH_FRAG_SPV,
-                                                      .vertex_entry = "main", .fragment_entry = "main",
-                                                      .name = "shadow-depth")
-                     .value;
-    s->scene_sh = mel_gpu_shader_create_from_bytecode(dev,
-                                                      .spirv_vertex        = SHADOW_SCENE_VERT_SPV,
-                                                      .spirv_vertex_size   = sizeof SHADOW_SCENE_VERT_SPV,
-                                                      .spirv_fragment      = SHADOW_SCENE_FRAG_SPV,
-                                                      .spirv_fragment_size = sizeof SHADOW_SCENE_FRAG_SPV,
-                                                      .vertex_entry = "main", .fragment_entry = "main",
-                                                      .name = "shadow-scene")
-                     .value;
-
-    const Mel_Gpu_Vertex_Element depth_layout[] = {
-        { .location = 0, .format = MEL_GPU_FORMAT_RGB32_FLOAT, .offset = 0 },
-    };
     Mel_Gpu_Depth_Stencil depth_ds = { .depth_test = true, .depth_write = true, .depth_compare = MEL_GPU_COMPARE_LESS };
-    s->depth_pl = mel_gpu_pipeline_create(dev,
-                                          .shader              = s->depth_sh,
-                                          .topology            = MEL_GPU_TOPOLOGY_TRIANGLE_LIST,
-                                          .cull                = MEL_GPU_CULL_BACK,
-                                          .front_face          = MEL_GPU_FRONT_FACE_CCW,
-                                          .depth_format        = MEL_GPU_FORMAT_D32_FLOAT,
-                                          .depth_stencil       = &depth_ds,
-                                          .vertex_layout       = depth_layout,
-                                          .vertex_layout_count = 1,
-                                          .vertex_stride       = sizeof(Depth_Vertex),
-                                          .name                = "shadow-depth")
-                     .value;
+    Mel_Gpu_Pipeline_From_Slang_Result depth = mel_gpu_pipeline_create_from_slang(dev,
+                                                                                  .source         = SHADOW_SLANG,
+                                                                                  .vertex_entry   = "vs_depth",
+                                                                                  .fragment_entry = "fs_depth",
+                                                                                  .topology       = MEL_GPU_TOPOLOGY_TRIANGLE_LIST,
+                                                                                  .cull           = MEL_GPU_CULL_BACK,
+                                                                                  .front_face     = MEL_GPU_FRONT_FACE_CCW,
+                                                                                  .depth_format   = MEL_GPU_FORMAT_D32_FLOAT,
+                                                                                  .depth_stencil  = &depth_ds,
+                                                                                  .bindless       = true,
+                                                                                  .name           = "shadow-depth");
+    if (mel_gpu_failed(depth.status)) return s;
+    s->depth_sh = depth.shader;
+    s->depth_pl = depth.value;
 
-    const Mel_Gpu_Vertex_Element scene_layout[] = {
-        { .location = 0, .format = MEL_GPU_FORMAT_RGB32_FLOAT, .offset = offsetof(Scene_Vertex, pos) },
-        { .location = 1, .format = MEL_GPU_FORMAT_RGB32_FLOAT, .offset = offsetof(Scene_Vertex, normal) },
-        { .location = 2, .format = MEL_GPU_FORMAT_RGB32_FLOAT, .offset = offsetof(Scene_Vertex, color) },
-        { .location = 3, .format = MEL_GPU_FORMAT_RGB32_FLOAT, .offset = offsetof(Scene_Vertex, shadow_uvz) },
-    };
     Mel_Gpu_Depth_Stencil scene_ds = { .depth_test = true, .depth_write = true, .depth_compare = MEL_GPU_COMPARE_LESS };
-    s->scene_pl = mel_gpu_pipeline_create(dev,
-                                          .shader              = s->scene_sh,
-                                          .topology            = MEL_GPU_TOPOLOGY_TRIANGLE_LIST,
-                                          .cull                = MEL_GPU_CULL_BACK,
-                                          .front_face          = MEL_GPU_FRONT_FACE_CCW,
-                                          .color_format        = MEL_GPU_FORMAT_RGBA8_UNORM,
-                                          .depth_format        = MEL_GPU_FORMAT_D32_FLOAT,
-                                          .depth_stencil       = &scene_ds,
-                                          .vertex_layout       = scene_layout,
-                                          .vertex_layout_count = 4,
-                                          .vertex_stride       = sizeof(Scene_Vertex),
-                                          .push_constant_size  = sizeof(Scene_Root),
-                                          .name                = "shadow-scene")
-                     .value;
+    Mel_Gpu_Pipeline_From_Slang_Result scene = mel_gpu_pipeline_create_from_slang(dev,
+                                                                                  .source         = SHADOW_SLANG,
+                                                                                  .vertex_entry   = "vs_scene",
+                                                                                  .fragment_entry = "fs_scene",
+                                                                                  .topology       = MEL_GPU_TOPOLOGY_TRIANGLE_LIST,
+                                                                                  .cull           = MEL_GPU_CULL_BACK,
+                                                                                  .front_face     = MEL_GPU_FRONT_FACE_CCW,
+                                                                                  .color_format   = MEL_GPU_FORMAT_RGBA8_UNORM,
+                                                                                  .depth_format   = MEL_GPU_FORMAT_D32_FLOAT,
+                                                                                  .depth_stencil  = &scene_ds,
+                                                                                  .bindless       = true,
+                                                                                  .name           = "shadow-scene");
+    if (mel_gpu_failed(scene.status)) return s;
+    s->scene_sh = scene.shader;
+    s->scene_pl = scene.value;
 
     s->shadow_map      = mel_gpu_texture_create(dev, .kind = MEL_GPU_TEXTURE_2D, .extent = { SHADOW_RES, SHADOW_RES, 1 }, .format = MEL_GPU_FORMAT_D32_FLOAT, .usage = MEL_GPU_TEXTURE_ATTACHMENT | MEL_GPU_TEXTURE_SAMPLED, .name = "shadow-map").value;
     s->shadow_map_view = mel_gpu_texture_default_view(dev, s->shadow_map).value;
@@ -352,11 +329,20 @@ static void shadow_render(void* state, Mel_Gpu_Command_List* cmd, f64 dt)
     Mel_Gpu_Subresource_Range drange = { MEL_GPU_ASPECT_DEPTH, 0, 1, 0, 1 };
     Mel_Gpu_Subresource_Range crange = { MEL_GPU_ASPECT_COLOR, 0, 1, 0, 1 };
 
+    Scene_Root root = {
+        .shadow_tex = s->shadow_slot,
+        .shadow_smp = mel_gpu_sampler_bindless_slot(s->dev, s->sampler),
+        .depth_bias = 0.0f,
+        .light_dir  = { light_dir.x, light_dir.y, light_dir.z },
+    };
+
     mel_gpu_cmd_texture_barrier(cmd, s->shadow_map, drange, MEL_GPU_STATE_COMMON, MEL_GPU_STATE_DEPTH_WRITE);
 
     Mel_Gpu_Depth_Attachment shadow_da = { .view = s->shadow_map_view, .load = MEL_GPU_LOAD_CLEAR, .store = MEL_GPU_STORE_STORE, .clear_depth = 1.0f };
     mel_gpu_cmd_begin_rendering(cmd, .depth = &shadow_da, .width = SHADOW_RES, .height = SHADOW_RES);
     mel_gpu_cmd_bind_pipeline(cmd, s->depth_pl);
+    mel_gpu_cmd_bind_bindless(cmd);
+    mel_gpu_cmd_push_constants(cmd, 0, sizeof root, &root);
     mel_gpu_cmd_bind_vertex_buffer(cmd, 0, s->depth_vbo);
     mel_gpu_cmd_draw(cmd, vert_count, 1);
     mel_gpu_cmd_end_rendering(cmd);
@@ -371,16 +357,11 @@ static void shadow_render(void* state, Mel_Gpu_Command_List* cmd, f64 dt)
     s->scene_depth_fresh = false;
     mel_gpu_cmd_texture_barrier(cmd, s->scene_depth, drange, sd_init, MEL_GPU_STATE_DEPTH_WRITE);
 
-    Scene_Root root = {
-        .shadow_tex = s->shadow_slot,
-        .shadow_smp = mel_gpu_sampler_bindless_slot(s->dev, s->sampler),
-        .light_dir  = { light_dir.x, light_dir.y, light_dir.z },
-    };
-
     Mel_Gpu_Color_Attachment ca  = { .view = s->color_view, .load = MEL_GPU_LOAD_CLEAR, .store = MEL_GPU_STORE_STORE, .clear = mel_gpu_rgba(0.55f, 0.65f, 0.80f, 1.0f) };
     Mel_Gpu_Depth_Attachment sda = { .view = s->scene_depth_view, .load = MEL_GPU_LOAD_CLEAR, .store = MEL_GPU_STORE_DONT_CARE, .clear_depth = 1.0f };
     mel_gpu_cmd_begin_rendering(cmd, .colors = &ca, .color_count = 1, .depth = &sda, .width = (u32)s->w, .height = (u32)s->h);
     mel_gpu_cmd_bind_pipeline(cmd, s->scene_pl);
+    mel_gpu_cmd_bind_bindless(cmd);
     mel_gpu_cmd_push_constants(cmd, 0, sizeof root, &root);
     mel_gpu_cmd_bind_vertex_buffer(cmd, 0, s->scene_vbo);
     mel_gpu_cmd_draw(cmd, vert_count, 1);

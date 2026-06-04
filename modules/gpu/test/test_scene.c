@@ -4,6 +4,7 @@
 
 #include <gpu/device.h>
 #include <gpu/caps.h>
+#include <gpu/format_props.h>
 #include <gpu/buffer.h>
 #include <gpu/texture.h>
 #include <gpu/pipeline.h>
@@ -56,6 +57,32 @@ static const char BLOOM_SLANG[] = {
 
 static const char BOIDS_SLANG[] = {
 #embed "shaders/slang/boids.slang"
+    , 0
+};
+
+/* ---- batch G2 graphics screens (depth3d/msaa/shadow/prepass/passthrough) ---- */
+static const char PASSTHROUGH_SLANG[] = {
+#embed "shaders/slang/passthrough.slang"
+    , 0
+};
+
+static const char DEPTH3D_SLANG[] = {
+#embed "shaders/slang/depth3d.slang"
+    , 0
+};
+
+static const char PREPASS_SLANG[] = {
+#embed "shaders/slang/prepass.slang"
+    , 0
+};
+
+static const char MSAA_SLANG[] = {
+#embed "shaders/slang/msaa.slang"
+    , 0
+};
+
+static const char SHADOW_SLANG[] = {
+#embed "shaders/slang/shadow.slang"
     , 0
 };
 
@@ -972,6 +999,619 @@ MEL_TEST(scene_shared, boids)
     mel_gpu_device_destroy(dev);
     mel_gpu_instance_destroy(inst);
 }
+
+/* =====================================================================================
+   batch G2 graphics screens — depth3d / msaa / shadow / prepass / passthrough
+   Contiguous append block (a sibling batch also appends here; keep this delimited).
+   ===================================================================================== */
+
+static void scene_record_passthrough(Mel_Gpu_Command_List* cmd, void* ctx)
+{
+    Mel_Gpu_Buffer* vbo = ctx;
+    mel_gpu_cmd_bind_vertex_buffer(cmd, 0, *vbo);
+    mel_gpu_cmd_draw(cmd, 3, 1);
+}
+
+MEL_TEST(scene_shared, passthrough)
+{
+    Mel_Gpu_Instance* inst = NULL;
+    Mel_Gpu_Device*   dev = scene_make_device(&inst);
+    MEL_REQUIRE_NOT_NULL(dev);
+
+    const Scene_Vertex verts[] = {
+        { { 0.0f, 0.6f, 0.0f }, { 1.0f, 0.0f, 0.0f, 1.0f } },
+        { { 0.6f, -0.6f, 0.0f }, { 0.0f, 1.0f, 0.0f, 1.0f } },
+        { { -0.6f, -0.6f, 0.0f }, { 0.0f, 0.0f, 1.0f, 1.0f } },
+    };
+    Mel_Gpu_Buffer_Create_Result vbo = mel_gpu_buffer_create(dev, .size = sizeof verts, .usage = MEL_GPU_BUFFER_VERTEX, .memory = MEL_GPU_MEMORY_UPLOAD, .data = verts, .name = "scene-pt-vbo");
+    MEL_REQUIRE(!mel_gpu_failed(vbo.status));
+
+    Mel_Gpu_Pipeline_From_Slang_Result pipe = mel_gpu_pipeline_create_from_slang(dev,
+                                                                                 .source = PASSTHROUGH_SLANG,
+                                                                                 .vertex_entry = "vs_main",
+                                                                                 .fragment_entry = "fs_main",
+                                                                                 .topology = MEL_GPU_TOPOLOGY_TRIANGLE_LIST,
+                                                                                 .cull = MEL_GPU_CULL_NONE,
+                                                                                 .color_format = MEL_GPU_FORMAT_RGBA8_UNORM,
+                                                                                 .name = "scene-passthrough");
+    MEL_REQUIRE(!mel_gpu_failed(pipe.status));
+
+    Scene_Target tgt = scene_target_create(dev, SCENE_W, SCENE_H);
+    const u8*    px = scene_render_readback(dev, &tgt, pipe.value, scene_record_passthrough, &vbo.value);
+    MEL_REQUIRE_NOT_NULL(px);
+    MEL_GOLDEN(SCENE_BACKEND, "shared/passthrough", px, tgt.w, tgt.h, SCENE_TOL);
+
+    scene_target_destroy(dev, &tgt);
+    mel_gpu_pipeline_destroy(dev, pipe.value);
+    mel_gpu_shader_destroy(dev, pipe.shader);
+    mel_gpu_buffer_destroy(dev, vbo.value);
+    mel_gpu_device_destroy(dev);
+    mel_gpu_instance_destroy(inst);
+}
+
+/* depth3d / prepass exercise depth-stencil state through a deterministic overlap: a near
+   blue quad (z=0.25) and a far red quad (z=0.75) issued far-first. With depth-test LESS the
+   near quad must win the overlap region — proving the depth buffer occludes correctly. */
+typedef struct
+{
+    f32 pos[3];
+    f32 color[4];
+} Depth_Scene_Vertex;
+
+static u32 scene_build_depth_overlap(Depth_Scene_Vertex* out)
+{
+    const f32 red[4] = { 0.85f, 0.18f, 0.16f, 1.0f };
+    const f32 blue[4] = { 0.16f, 0.32f, 0.85f, 1.0f };
+    u32       n = 0;
+
+    const f32 rx0 = -0.7f, ry0 = -0.7f, rx1 = 0.5f, ry1 = 0.5f, rz = 0.75f;
+    const f32 rq[6][3] = { { rx0, ry0, rz }, { rx1, ry0, rz }, { rx1, ry1, rz }, { rx0, ry0, rz }, { rx1, ry1, rz }, { rx0, ry1, rz } };
+    for (i32 i = 0; i < 6; ++i)
+    {
+        out[n].pos[0] = rq[i][0];
+        out[n].pos[1] = rq[i][1];
+        out[n].pos[2] = rq[i][2];
+        for (i32 k = 0; k < 4; ++k)
+            out[n].color[k] = red[k];
+        ++n;
+    }
+
+    const f32 bx0 = -0.5f, by0 = -0.5f, bx1 = 0.7f, by1 = 0.7f, bz = 0.25f;
+    const f32 bq[6][3] = { { bx0, by0, bz }, { bx1, by0, bz }, { bx1, by1, bz }, { bx0, by0, bz }, { bx1, by1, bz }, { bx0, by1, bz } };
+    for (i32 i = 0; i < 6; ++i)
+    {
+        out[n].pos[0] = bq[i][0];
+        out[n].pos[1] = bq[i][1];
+        out[n].pos[2] = bq[i][2];
+        for (i32 k = 0; k < 4; ++k)
+            out[n].color[k] = blue[k];
+        ++n;
+    }
+    return n;
+}
+
+typedef struct
+{
+    Mel_Gpu_Buffer       vbo;
+    u32                  count;
+    Mel_Gpu_Texture      depth;
+    Mel_Gpu_Texture_View depth_view;
+} Depth_Scene_Ctx;
+
+static const u8* scene_depth_readback(Mel_Gpu_Device* dev, Scene_Target* tgt, Mel_Gpu_Pipeline pipe, Depth_Scene_Ctx* ctx)
+{
+    Mel_Gpu_Queue*        q = mel_gpu_queue_request(dev, MEL_GPU_QUEUE_GRAPHICS);
+    Mel_Gpu_Command_List* cmd = mel_gpu_command_list_create(q);
+    mel_gpu_command_list_begin(cmd);
+    Mel_Gpu_Subresource_Range crange = { MEL_GPU_ASPECT_COLOR, 0, 1, 0, 1 };
+    Mel_Gpu_Subresource_Range drange = { MEL_GPU_ASPECT_DEPTH, 0, 1, 0, 1 };
+    mel_gpu_cmd_texture_barrier(cmd, tgt->rt, crange, MEL_GPU_STATE_COMMON, MEL_GPU_STATE_RENDER_TARGET);
+    mel_gpu_cmd_texture_barrier(cmd, ctx->depth, drange, MEL_GPU_STATE_COMMON, MEL_GPU_STATE_DEPTH_WRITE);
+    Mel_Gpu_Color_Attachment color = { .view = tgt->rt_view, .load = MEL_GPU_LOAD_CLEAR, .store = MEL_GPU_STORE_STORE, .clear = mel_gpu_rgba(0.08f, 0.10f, 0.13f, 1.0f) };
+    Mel_Gpu_Depth_Attachment depth = { .view = ctx->depth_view, .load = MEL_GPU_LOAD_CLEAR, .store = MEL_GPU_STORE_DONT_CARE, .clear_depth = 1.0f };
+    mel_gpu_cmd_begin_rendering(cmd, .colors = &color, .color_count = 1, .depth = &depth, .width = tgt->w, .height = tgt->h);
+    mel_gpu_cmd_bind_pipeline(cmd, pipe);
+    mel_gpu_cmd_bind_vertex_buffer(cmd, 0, ctx->vbo);
+    mel_gpu_cmd_draw(cmd, ctx->count, 1);
+    mel_gpu_cmd_end_rendering(cmd);
+    mel_gpu_cmd_texture_barrier(cmd, tgt->rt, crange, MEL_GPU_STATE_RENDER_TARGET, MEL_GPU_STATE_COPY_SOURCE);
+    mel_gpu_cmd_copy_texture_to_buffer(cmd, tgt->rt, crange, tgt->rb);
+    mel_gpu_command_list_end(cmd);
+
+    Mel_Gpu_Future* f = mel_gpu_queue_submit(q, (Mel_Gpu_Submit){ .command_lists = &cmd, .command_list_count = 1 });
+    bool            ok = mel_gpu_ok(mel_gpu_future_wait(f));
+    mel_gpu_future_destroy(f);
+    mel_gpu_command_list_destroy(cmd);
+    mel_gpu_queue_release(q);
+    if (!ok)
+        return NULL;
+    return mel_gpu_buffer_mapped(dev, tgt->rb);
+}
+
+MEL_TEST(scene_shared, depth3d)
+{
+    Mel_Gpu_Instance* inst = NULL;
+    Mel_Gpu_Device*   dev = scene_make_device(&inst);
+    MEL_REQUIRE_NOT_NULL(dev);
+
+    Depth_Scene_Vertex verts[12];
+    u32                count = scene_build_depth_overlap(verts);
+    Mel_Gpu_Buffer_Create_Result vbo = mel_gpu_buffer_create(dev, .size = count * sizeof(Depth_Scene_Vertex), .usage = MEL_GPU_BUFFER_VERTEX, .memory = MEL_GPU_MEMORY_UPLOAD, .data = verts, .name = "scene-depth3d-vbo");
+    MEL_REQUIRE(!mel_gpu_failed(vbo.status));
+
+    Mel_Gpu_Depth_Stencil depth_ds = { .depth_test = true, .depth_write = true, .depth_compare = MEL_GPU_COMPARE_LESS };
+    Mel_Gpu_Pipeline_From_Slang_Result pipe = mel_gpu_pipeline_create_from_slang(dev,
+                                                                                 .source = DEPTH3D_SLANG,
+                                                                                 .vertex_entry = "vs_scene",
+                                                                                 .fragment_entry = "fs_scene",
+                                                                                 .topology = MEL_GPU_TOPOLOGY_TRIANGLE_LIST,
+                                                                                 .cull = MEL_GPU_CULL_NONE,
+                                                                                 .color_format = MEL_GPU_FORMAT_RGBA8_UNORM,
+                                                                                 .depth_format = MEL_GPU_FORMAT_D32_FLOAT,
+                                                                                 .depth_stencil = &depth_ds,
+                                                                                 .name = "scene-depth3d");
+    MEL_REQUIRE(!mel_gpu_failed(pipe.status));
+
+    Mel_Gpu_Texture_Create_Result depth = mel_gpu_texture_create(dev, .kind = MEL_GPU_TEXTURE_2D, .extent = { SCENE_W, SCENE_H, 1 }, .format = MEL_GPU_FORMAT_D32_FLOAT, .usage = MEL_GPU_TEXTURE_ATTACHMENT, .name = "scene-depth3d-depth");
+    MEL_REQUIRE(!mel_gpu_failed(depth.status));
+    Mel_Gpu_Texture_View_Create_Result depth_view = mel_gpu_texture_default_view(dev, depth.value);
+    MEL_REQUIRE(!mel_gpu_failed(depth_view.status));
+
+    Scene_Target    tgt = scene_target_create(dev, SCENE_W, SCENE_H);
+    Depth_Scene_Ctx ctx = { .vbo = vbo.value, .count = count, .depth = depth.value, .depth_view = depth_view.value };
+    const u8*       px = scene_depth_readback(dev, &tgt, pipe.value, &ctx);
+    MEL_REQUIRE_NOT_NULL(px);
+    MEL_GOLDEN(SCENE_BACKEND, "shared/depth3d", px, tgt.w, tgt.h, SCENE_TOL);
+
+    scene_target_destroy(dev, &tgt);
+    mel_gpu_texture_view_destroy(dev, depth_view.value);
+    mel_gpu_texture_destroy(dev, depth.value);
+    mel_gpu_pipeline_destroy(dev, pipe.value);
+    mel_gpu_shader_destroy(dev, pipe.shader);
+    mel_gpu_buffer_destroy(dev, vbo.value);
+    mel_gpu_device_destroy(dev);
+    mel_gpu_instance_destroy(inst);
+}
+
+MEL_TEST(scene_shared, prepass)
+{
+    Mel_Gpu_Instance* inst = NULL;
+    Mel_Gpu_Device*   dev = scene_make_device(&inst);
+    MEL_REQUIRE_NOT_NULL(dev);
+
+    Depth_Scene_Vertex verts[12];
+    u32                count = scene_build_depth_overlap(verts);
+    Mel_Gpu_Buffer_Create_Result vbo = mel_gpu_buffer_create(dev, .size = count * sizeof(Depth_Scene_Vertex), .usage = MEL_GPU_BUFFER_VERTEX, .memory = MEL_GPU_MEMORY_UPLOAD, .data = verts, .name = "scene-prepass-vbo");
+    MEL_REQUIRE(!mel_gpu_failed(vbo.status));
+
+    Mel_Gpu_Depth_Stencil depth_ds = { .depth_test = true, .depth_write = true, .depth_compare = MEL_GPU_COMPARE_LESS };
+    Mel_Gpu_Pipeline_From_Slang_Result depth_pl = mel_gpu_pipeline_create_from_slang(dev,
+                                                                                     .source = PREPASS_SLANG,
+                                                                                     .vertex_entry = "vs_scene",
+                                                                                     .fragment_entry = "fs_depth",
+                                                                                     .topology = MEL_GPU_TOPOLOGY_TRIANGLE_LIST,
+                                                                                     .cull = MEL_GPU_CULL_NONE,
+                                                                                     .depth_format = MEL_GPU_FORMAT_D32_FLOAT,
+                                                                                     .depth_stencil = &depth_ds,
+                                                                                     .name = "scene-prepass-depth");
+    MEL_REQUIRE(!mel_gpu_failed(depth_pl.status));
+
+    Mel_Gpu_Depth_Stencil lit_ds = { .depth_test = true, .depth_write = false, .depth_compare = MEL_GPU_COMPARE_EQUAL };
+    Mel_Gpu_Pipeline_From_Slang_Result lit_pl = mel_gpu_pipeline_create_from_slang(dev,
+                                                                                   .source = PREPASS_SLANG,
+                                                                                   .vertex_entry = "vs_scene",
+                                                                                   .fragment_entry = "fs_lit",
+                                                                                   .topology = MEL_GPU_TOPOLOGY_TRIANGLE_LIST,
+                                                                                   .cull = MEL_GPU_CULL_NONE,
+                                                                                   .color_format = MEL_GPU_FORMAT_RGBA8_UNORM,
+                                                                                   .depth_format = MEL_GPU_FORMAT_D32_FLOAT,
+                                                                                   .depth_stencil = &lit_ds,
+                                                                                   .name = "scene-prepass-lit");
+    MEL_REQUIRE(!mel_gpu_failed(lit_pl.status));
+
+    Mel_Gpu_Texture_Create_Result depth = mel_gpu_texture_create(dev, .kind = MEL_GPU_TEXTURE_2D, .extent = { SCENE_W, SCENE_H, 1 }, .format = MEL_GPU_FORMAT_D32_FLOAT, .usage = MEL_GPU_TEXTURE_ATTACHMENT, .name = "scene-prepass-depth-tex");
+    MEL_REQUIRE(!mel_gpu_failed(depth.status));
+    Mel_Gpu_Texture_View_Create_Result depth_view = mel_gpu_texture_default_view(dev, depth.value);
+    MEL_REQUIRE(!mel_gpu_failed(depth_view.status));
+
+    Scene_Target          tgt = scene_target_create(dev, SCENE_W, SCENE_H);
+    Mel_Gpu_Queue*        q = mel_gpu_queue_request(dev, MEL_GPU_QUEUE_GRAPHICS);
+    Mel_Gpu_Command_List* cmd = mel_gpu_command_list_create(q);
+    mel_gpu_command_list_begin(cmd);
+    Mel_Gpu_Subresource_Range crange = { MEL_GPU_ASPECT_COLOR, 0, 1, 0, 1 };
+    Mel_Gpu_Subresource_Range drange = { MEL_GPU_ASPECT_DEPTH, 0, 1, 0, 1 };
+    mel_gpu_cmd_texture_barrier(cmd, tgt.rt, crange, MEL_GPU_STATE_COMMON, MEL_GPU_STATE_RENDER_TARGET);
+    mel_gpu_cmd_texture_barrier(cmd, depth.value, drange, MEL_GPU_STATE_COMMON, MEL_GPU_STATE_DEPTH_WRITE);
+
+    Mel_Gpu_Depth_Attachment pre_depth = { .view = depth_view.value, .load = MEL_GPU_LOAD_CLEAR, .store = MEL_GPU_STORE_STORE, .clear_depth = 1.0f };
+    mel_gpu_cmd_begin_rendering(cmd, .depth = &pre_depth, .width = tgt.w, .height = tgt.h);
+    mel_gpu_cmd_bind_pipeline(cmd, depth_pl.value);
+    mel_gpu_cmd_bind_vertex_buffer(cmd, 0, vbo.value);
+    mel_gpu_cmd_draw(cmd, count, 1);
+    mel_gpu_cmd_end_rendering(cmd);
+
+    Mel_Gpu_Color_Attachment lit_color = { .view = tgt.rt_view, .load = MEL_GPU_LOAD_CLEAR, .store = MEL_GPU_STORE_STORE, .clear = mel_gpu_rgba(0.03f, 0.04f, 0.06f, 1.0f) };
+    Mel_Gpu_Depth_Attachment lit_depth = { .view = depth_view.value, .load = MEL_GPU_LOAD_LOAD, .store = MEL_GPU_STORE_DONT_CARE, .clear_depth = 1.0f };
+    mel_gpu_cmd_begin_rendering(cmd, .colors = &lit_color, .color_count = 1, .depth = &lit_depth, .width = tgt.w, .height = tgt.h);
+    mel_gpu_cmd_bind_pipeline(cmd, lit_pl.value);
+    mel_gpu_cmd_bind_vertex_buffer(cmd, 0, vbo.value);
+    mel_gpu_cmd_draw(cmd, count, 1);
+    mel_gpu_cmd_end_rendering(cmd);
+
+    mel_gpu_cmd_texture_barrier(cmd, tgt.rt, crange, MEL_GPU_STATE_RENDER_TARGET, MEL_GPU_STATE_COPY_SOURCE);
+    mel_gpu_cmd_copy_texture_to_buffer(cmd, tgt.rt, crange, tgt.rb);
+    mel_gpu_command_list_end(cmd);
+
+    Mel_Gpu_Future* f = mel_gpu_queue_submit(q, (Mel_Gpu_Submit){ .command_lists = &cmd, .command_list_count = 1 });
+    bool            ok = mel_gpu_ok(mel_gpu_future_wait(f));
+    mel_gpu_future_destroy(f);
+    MEL_REQUIRE(ok);
+
+    const u8* px = mel_gpu_buffer_mapped(dev, tgt.rb);
+    MEL_REQUIRE_NOT_NULL(px);
+    MEL_GOLDEN(SCENE_BACKEND, "shared/prepass", px, tgt.w, tgt.h, SCENE_TOL);
+
+    scene_target_destroy(dev, &tgt);
+    mel_gpu_command_list_destroy(cmd);
+    mel_gpu_queue_release(q);
+    mel_gpu_texture_view_destroy(dev, depth_view.value);
+    mel_gpu_texture_destroy(dev, depth.value);
+    mel_gpu_pipeline_destroy(dev, lit_pl.value);
+    mel_gpu_shader_destroy(dev, lit_pl.shader);
+    mel_gpu_pipeline_destroy(dev, depth_pl.value);
+    mel_gpu_shader_destroy(dev, depth_pl.shader);
+    mel_gpu_buffer_destroy(dev, vbo.value);
+    mel_gpu_device_destroy(dev);
+    mel_gpu_instance_destroy(inst);
+}
+
+typedef struct
+{
+    u32 resolved;
+    u32 reference;
+    u32 smp;
+    f32 angle;
+    f32 aspect;
+    f32 pad0;
+    f32 pad1;
+} Scene_Msaa_Root;
+
+typedef struct
+{
+    f32 pos[2];
+    f32 color[4];
+} Scene_Star_Vertex;
+
+static u32 scene_build_star(Scene_Star_Vertex* out)
+{
+    const f32 tip = 0.85f, valley = 0.32f;
+    const i32 spokes = 11;
+    u32       n = 0;
+    for (i32 s = 0; s < spokes; ++s)
+    {
+        f32 a0 = (f32)s / (f32)spokes * 6.2831853f;
+        f32 a1 = (f32)(s + 1) / (f32)spokes * 6.2831853f;
+        f32 am = (a0 + a1) * 0.5f;
+        f32 hue = (f32)s / (f32)spokes;
+        f32 cr = 0.5f + 0.5f * cosf(6.2831f * (hue + 0.00f));
+        f32 cg = 0.5f + 0.5f * cosf(6.2831f * (hue + 0.33f));
+        f32 cb = 0.5f + 0.5f * cosf(6.2831f * (hue + 0.67f));
+
+        out[n++] = (Scene_Star_Vertex){ { 0.0f, 0.0f }, { cr, cg, cb, 1.0f } };
+        out[n++] = (Scene_Star_Vertex){ { tip * cosf(am), tip * sinf(am) }, { cr, cg, cb, 1.0f } };
+        out[n++] = (Scene_Star_Vertex){ { valley * cosf(a1), valley * sinf(a1) }, { cr * 0.5f, cg * 0.5f, cb * 0.5f, 1.0f } };
+    }
+    return n;
+}
+
+MEL_TEST(scene_shared, msaa)
+{
+    Mel_Gpu_Instance* inst = NULL;
+    Mel_Gpu_Device*   dev = scene_make_device_bindless(&inst);
+    MEL_REQUIRE_NOT_NULL(dev);
+
+#if MEL_GPU_WEBGPU
+    /* msaa drives the star vertex through a push constant (angle/aspect) and the resolve
+       presents through the device-global bindless heap. WebGPU core has neither push
+       constants nor that heap, so this scene cannot diff against the shared golden there.
+       Degrade honestly — skip (MEL-ENGINE-VII / -VIII). */
+    mel_gpu_device_destroy(dev);
+    mel_gpu_instance_destroy(inst);
+    MEL_SKIP("msaa scene needs push constants + device-global bindless heap; WebGPU core lacks both");
+#elif MEL_GPU_METAL
+    /* The Metal RHI's begin_rendering ignores Mel_Gpu_Color_Attachment.resolve_view — the
+       MSAA resolve (resolveTexture + MTLStoreActionMultisampleResolve) is not wired up, so a
+       multisampled pass cannot present its resolved target. This is a genuine RHI gap, not a
+       shader-port issue: the depth3d/prepass/shadow/passthrough screens render on Metal; only
+       msaa's resolve step is unimplemented there. Skip honestly until the RHI lands resolve
+       (MEL-ENGINE-VII / -VIII). The Slang->MSL star compiles and the Vulkan oracle proves the
+       scene; Metal coverage returns the moment begin_rendering honors resolve_view. */
+    mel_gpu_device_destroy(dev);
+    mel_gpu_instance_destroy(inst);
+    MEL_SKIP("msaa scene needs MSAA resolve; the Metal RHI begin_rendering does not yet wire resolve_view (RHI gap)");
+#else
+    if (!mel_gpu_bindless_available(dev))
+    {
+        mel_gpu_device_destroy(dev);
+        mel_gpu_instance_destroy(inst);
+        MEL_SKIP("msaa scene needs the device-global bindless heap (descriptor_indexing); device does not advertise it");
+    }
+
+    Mel_Gpu_Format_Properties fp = mel_gpu_format_properties(dev, MEL_GPU_FORMAT_RGBA8_UNORM, MEL_GPU_TILING_OPTIMAL);
+    u32                       samples = (fp.sample_counts & 4u) ? 4u : (fp.sample_counts & 2u) ? 2u : 1u;
+    if (samples < 2)
+    {
+        mel_gpu_device_destroy(dev);
+        mel_gpu_instance_destroy(inst);
+        MEL_SKIP("msaa scene needs a multisample RGBA8 format; device offers only 1x");
+    }
+
+    Scene_Star_Vertex verts[33];
+    u32               count = scene_build_star(verts);
+    Mel_Gpu_Buffer_Create_Result vbo = mel_gpu_buffer_create(dev, .size = count * sizeof(Scene_Star_Vertex), .usage = MEL_GPU_BUFFER_VERTEX, .memory = MEL_GPU_MEMORY_UPLOAD, .data = verts, .name = "scene-msaa-vbo");
+    MEL_REQUIRE(!mel_gpu_failed(vbo.status));
+
+    Mel_Gpu_Pipeline_From_Slang_Result star_pl = mel_gpu_pipeline_create_from_slang(dev,
+                                                                                    .source = MSAA_SLANG,
+                                                                                    .vertex_entry = "vs_star",
+                                                                                    .fragment_entry = "fs_star",
+                                                                                    .topology = MEL_GPU_TOPOLOGY_TRIANGLE_LIST,
+                                                                                    .cull = MEL_GPU_CULL_NONE,
+                                                                                    .color_format = MEL_GPU_FORMAT_RGBA8_UNORM,
+                                                                                    .samples = samples,
+                                                                                    .bindless = true,
+                                                                                    .name = "scene-msaa-star");
+    MEL_REQUIRE(!mel_gpu_failed(star_pl.status));
+
+    Mel_Gpu_Texture_Create_Result ms = mel_gpu_texture_create(dev, .kind = MEL_GPU_TEXTURE_2D, .extent = { SCENE_W, SCENE_H, 1 }, .format = MEL_GPU_FORMAT_RGBA8_UNORM, .sample_count = samples, .usage = MEL_GPU_TEXTURE_ATTACHMENT, .name = "scene-msaa-ms");
+    MEL_REQUIRE(!mel_gpu_failed(ms.status));
+    Mel_Gpu_Texture_View_Create_Result ms_view = mel_gpu_texture_default_view(dev, ms.value);
+    MEL_REQUIRE(!mel_gpu_failed(ms_view.status));
+
+    /* The unified Root carries DescriptorHandle slots (resolved/reference/smp) consumed by
+       the compose pass; the star pass ignores them, but Metal builds the whole argument
+       buffer at draw, so every slot must name a live resource. Register a sampled texture
+       and a sampler purely to populate those handles for the star-only render. */
+    Mel_Gpu_Texture_Create_Result heap_tex = mel_gpu_texture_create(dev, .kind = MEL_GPU_TEXTURE_2D, .extent = { SCENE_W, SCENE_H, 1 }, .format = MEL_GPU_FORMAT_RGBA8_UNORM, .usage = MEL_GPU_TEXTURE_SAMPLED, .name = "scene-msaa-heap-tex");
+    MEL_REQUIRE(!mel_gpu_failed(heap_tex.status));
+    Mel_Gpu_Texture_View_Create_Result heap_view = mel_gpu_texture_default_view(dev, heap_tex.value);
+    MEL_REQUIRE(!mel_gpu_failed(heap_view.status));
+    Mel_Gpu_Sampler_Create_Result heap_smp = mel_gpu_sampler_create(dev, .min_filter = MEL_GPU_FILTER_LINEAR, .mag_filter = MEL_GPU_FILTER_LINEAR, .wrap_u = MEL_GPU_WRAP_CLAMP_EDGE, .wrap_v = MEL_GPU_WRAP_CLAMP_EDGE, .name = "scene-msaa-heap-smp");
+    MEL_REQUIRE(!mel_gpu_failed(heap_smp.status));
+    u32 heap_slot = mel_gpu_texture_view_bindless_slot(dev, heap_view.value);
+
+    Scene_Msaa_Root root = {
+        .resolved = heap_slot,
+        .reference = heap_slot,
+        .smp = mel_gpu_sampler_bindless_slot(dev, heap_smp.value),
+        .angle = 0.0f,
+        .aspect = 1.0f,
+    };
+
+    Scene_Target          tgt = scene_target_create(dev, SCENE_W, SCENE_H);
+    Mel_Gpu_Queue*        q = mel_gpu_queue_request(dev, MEL_GPU_QUEUE_GRAPHICS);
+    Mel_Gpu_Command_List* cmd = mel_gpu_command_list_create(q);
+    mel_gpu_command_list_begin(cmd);
+    Mel_Gpu_Subresource_Range range = { MEL_GPU_ASPECT_COLOR, 0, 1, 0, 1 };
+    mel_gpu_cmd_texture_barrier(cmd, ms.value, range, MEL_GPU_STATE_COMMON, MEL_GPU_STATE_RENDER_TARGET);
+    mel_gpu_cmd_texture_barrier(cmd, tgt.rt, range, MEL_GPU_STATE_COMMON, MEL_GPU_STATE_RENDER_TARGET);
+
+    Mel_Gpu_Color_Attachment color = { .view = ms_view.value, .load = MEL_GPU_LOAD_CLEAR, .store = MEL_GPU_STORE_DONT_CARE, .clear = mel_gpu_rgba(0.05f, 0.06f, 0.09f, 1.0f), .resolve_view = tgt.rt_view };
+    mel_gpu_cmd_begin_rendering(cmd, .colors = &color, .color_count = 1, .width = tgt.w, .height = tgt.h);
+    mel_gpu_cmd_bind_pipeline(cmd, star_pl.value);
+    mel_gpu_cmd_bind_bindless(cmd);
+    mel_gpu_cmd_push_constants(cmd, 0, sizeof root, &root);
+    mel_gpu_cmd_bind_vertex_buffer(cmd, 0, vbo.value);
+    mel_gpu_cmd_draw(cmd, count, 1);
+    mel_gpu_cmd_end_rendering(cmd);
+
+    mel_gpu_cmd_texture_barrier(cmd, tgt.rt, range, MEL_GPU_STATE_RENDER_TARGET, MEL_GPU_STATE_COPY_SOURCE);
+    mel_gpu_cmd_copy_texture_to_buffer(cmd, tgt.rt, range, tgt.rb);
+    mel_gpu_command_list_end(cmd);
+
+    Mel_Gpu_Future* f = mel_gpu_queue_submit(q, (Mel_Gpu_Submit){ .command_lists = &cmd, .command_list_count = 1 });
+    bool            ok = mel_gpu_ok(mel_gpu_future_wait(f));
+    mel_gpu_future_destroy(f);
+    MEL_REQUIRE(ok);
+
+    const u8* px = mel_gpu_buffer_mapped(dev, tgt.rb);
+    MEL_REQUIRE_NOT_NULL(px);
+    MEL_GOLDEN(SCENE_BACKEND, "shared/msaa", px, tgt.w, tgt.h, SCENE_TOL);
+
+    scene_target_destroy(dev, &tgt);
+    mel_gpu_command_list_destroy(cmd);
+    mel_gpu_queue_release(q);
+    mel_gpu_sampler_destroy(dev, heap_smp.value);
+    mel_gpu_texture_view_destroy(dev, heap_view.value);
+    mel_gpu_texture_destroy(dev, heap_tex.value);
+    mel_gpu_texture_view_destroy(dev, ms_view.value);
+    mel_gpu_texture_destroy(dev, ms.value);
+    mel_gpu_pipeline_destroy(dev, star_pl.value);
+    mel_gpu_shader_destroy(dev, star_pl.shader);
+    mel_gpu_buffer_destroy(dev, vbo.value);
+    mel_gpu_device_destroy(dev);
+    mel_gpu_instance_destroy(inst);
+#endif
+}
+
+typedef struct
+{
+    f32 pos[3];
+} Scene_Shadow_Depth_Vertex;
+
+typedef struct
+{
+    f32 pos[3];
+    f32 normal[3];
+    f32 color[3];
+    f32 shadow_uvz[3];
+} Scene_Shadow_Scene_Vertex;
+
+typedef struct
+{
+    u32 shadow_tex;
+    u32 shadow_smp;
+    f32 depth_bias;
+    f32 pad1;
+    f32 light_dir[4];
+} Scene_Shadow_Root;
+
+/* A single lit quad facing the camera plus a caster quad above it; the depth-from-light
+   pass writes the caster's depth, the lit pass samples it and darkens the occluded band.
+   Deterministic geometry already projected to NDC (light + camera bakes done host-side). */
+static u32 scene_build_shadow(Scene_Shadow_Depth_Vertex* dv, Scene_Shadow_Scene_Vertex* sv)
+{
+    u32 n = 0;
+
+    const f32 gq[6][2] = { { -0.9f, -0.9f }, { 0.9f, -0.9f }, { 0.9f, 0.9f }, { -0.9f, -0.9f }, { 0.9f, 0.9f }, { -0.9f, 0.9f } };
+    for (i32 i = 0; i < 6; ++i)
+    {
+        f32 x = gq[i][0], y = gq[i][1];
+        f32 u = x * 0.5f + 0.5f, v = y * 0.5f + 0.5f;
+        dv[n] = (Scene_Shadow_Depth_Vertex){ { x, y, 0.8f } };
+        sv[n] = (Scene_Shadow_Scene_Vertex){ { x, y, 0.6f }, { 0.0f, 0.0f, 1.0f }, { 0.7f, 0.7f, 0.75f }, { u, v, 0.8f } };
+        ++n;
+    }
+
+    const f32 oq[6][2] = { { -0.35f, -0.9f }, { 0.35f, -0.9f }, { 0.35f, 0.9f }, { -0.35f, -0.9f }, { 0.35f, 0.9f }, { -0.35f, 0.9f } };
+    for (i32 i = 0; i < 6; ++i)
+    {
+        f32 x = oq[i][0], y = oq[i][1];
+        dv[n] = (Scene_Shadow_Depth_Vertex){ { x, y, 0.3f } };
+        ++n;
+    }
+    return n;
+}
+
+MEL_TEST(scene_shared, shadow)
+{
+    Mel_Gpu_Instance* inst = NULL;
+    Mel_Gpu_Device*   dev = scene_make_device_bindless(&inst);
+    MEL_REQUIRE_NOT_NULL(dev);
+
+#if MEL_GPU_WEBGPU
+    /* shadow's lit pass samples the shadow map through the device-global bindless heap and
+       drives light_dir via a push constant. WebGPU core has neither, so this scene cannot
+       diff against the shared golden there. Degrade honestly — skip (MEL-ENGINE-VII / -VIII). */
+    mel_gpu_device_destroy(dev);
+    mel_gpu_instance_destroy(inst);
+    MEL_SKIP("shadow scene needs push constants + device-global bindless heap; WebGPU core lacks both");
+#else
+    if (!mel_gpu_bindless_available(dev))
+    {
+        mel_gpu_device_destroy(dev);
+        mel_gpu_instance_destroy(inst);
+        MEL_SKIP("shadow scene needs the device-global bindless heap (descriptor_indexing); device does not advertise it");
+    }
+
+    Scene_Shadow_Depth_Vertex dv[12];
+    Scene_Shadow_Scene_Vertex sv[12];
+    u32                       depth_count = scene_build_shadow(dv, sv);
+    u32                       scene_count = 6;
+
+    Mel_Gpu_Buffer_Create_Result depth_vbo = mel_gpu_buffer_create(dev, .size = depth_count * sizeof(Scene_Shadow_Depth_Vertex), .usage = MEL_GPU_BUFFER_VERTEX, .memory = MEL_GPU_MEMORY_UPLOAD, .data = dv, .name = "scene-shadow-dvbo");
+    MEL_REQUIRE(!mel_gpu_failed(depth_vbo.status));
+    Mel_Gpu_Buffer_Create_Result scene_vbo = mel_gpu_buffer_create(dev, .size = scene_count * sizeof(Scene_Shadow_Scene_Vertex), .usage = MEL_GPU_BUFFER_VERTEX, .memory = MEL_GPU_MEMORY_UPLOAD, .data = sv, .name = "scene-shadow-svbo");
+    MEL_REQUIRE(!mel_gpu_failed(scene_vbo.status));
+
+    Mel_Gpu_Depth_Stencil depth_ds = { .depth_test = true, .depth_write = true, .depth_compare = MEL_GPU_COMPARE_LESS };
+    Mel_Gpu_Pipeline_From_Slang_Result depth_pl = mel_gpu_pipeline_create_from_slang(dev,
+                                                                                     .source = SHADOW_SLANG,
+                                                                                     .vertex_entry = "vs_depth",
+                                                                                     .fragment_entry = "fs_depth",
+                                                                                     .topology = MEL_GPU_TOPOLOGY_TRIANGLE_LIST,
+                                                                                     .cull = MEL_GPU_CULL_NONE,
+                                                                                     .depth_format = MEL_GPU_FORMAT_D32_FLOAT,
+                                                                                     .depth_stencil = &depth_ds,
+                                                                                     .bindless = true,
+                                                                                     .name = "scene-shadow-depth");
+    MEL_REQUIRE(!mel_gpu_failed(depth_pl.status));
+
+    Mel_Gpu_Pipeline_From_Slang_Result scene_pl = mel_gpu_pipeline_create_from_slang(dev,
+                                                                                     .source = SHADOW_SLANG,
+                                                                                     .vertex_entry = "vs_scene",
+                                                                                     .fragment_entry = "fs_scene",
+                                                                                     .topology = MEL_GPU_TOPOLOGY_TRIANGLE_LIST,
+                                                                                     .cull = MEL_GPU_CULL_NONE,
+                                                                                     .color_format = MEL_GPU_FORMAT_RGBA8_UNORM,
+                                                                                     .bindless = true,
+                                                                                     .name = "scene-shadow-scene");
+    MEL_REQUIRE(!mel_gpu_failed(scene_pl.status));
+
+    Mel_Gpu_Texture_Create_Result shadow_map = mel_gpu_texture_create(dev, .kind = MEL_GPU_TEXTURE_2D, .extent = { SCENE_W, SCENE_H, 1 }, .format = MEL_GPU_FORMAT_D32_FLOAT, .usage = MEL_GPU_TEXTURE_ATTACHMENT | MEL_GPU_TEXTURE_SAMPLED, .name = "scene-shadow-map");
+    MEL_REQUIRE(!mel_gpu_failed(shadow_map.status));
+    Mel_Gpu_Texture_View_Create_Result shadow_view = mel_gpu_texture_default_view(dev, shadow_map.value);
+    MEL_REQUIRE(!mel_gpu_failed(shadow_view.status));
+
+    Mel_Gpu_Sampler_Create_Result smp = mel_gpu_sampler_create(dev, .min_filter = MEL_GPU_FILTER_NEAREST, .mag_filter = MEL_GPU_FILTER_NEAREST, .wrap_u = MEL_GPU_WRAP_CLAMP_EDGE, .wrap_v = MEL_GPU_WRAP_CLAMP_EDGE, .name = "scene-shadow-smp");
+    MEL_REQUIRE(!mel_gpu_failed(smp.status));
+
+    Scene_Shadow_Root root = {
+        .shadow_tex = mel_gpu_texture_view_bindless_slot(dev, shadow_view.value),
+        .shadow_smp = mel_gpu_sampler_bindless_slot(dev, smp.value),
+        .light_dir = { 0.0f, 0.0f, -1.0f },
+    };
+
+    Scene_Target          tgt = scene_target_create(dev, SCENE_W, SCENE_H);
+    Mel_Gpu_Queue*        q = mel_gpu_queue_request(dev, MEL_GPU_QUEUE_GRAPHICS);
+    Mel_Gpu_Command_List* cmd = mel_gpu_command_list_create(q);
+    mel_gpu_command_list_begin(cmd);
+    Mel_Gpu_Subresource_Range crange = { MEL_GPU_ASPECT_COLOR, 0, 1, 0, 1 };
+    Mel_Gpu_Subresource_Range drange = { MEL_GPU_ASPECT_DEPTH, 0, 1, 0, 1 };
+
+    mel_gpu_cmd_texture_barrier(cmd, shadow_map.value, drange, MEL_GPU_STATE_COMMON, MEL_GPU_STATE_DEPTH_WRITE);
+    Mel_Gpu_Depth_Attachment shadow_da = { .view = shadow_view.value, .load = MEL_GPU_LOAD_CLEAR, .store = MEL_GPU_STORE_STORE, .clear_depth = 1.0f };
+    mel_gpu_cmd_begin_rendering(cmd, .depth = &shadow_da, .width = tgt.w, .height = tgt.h);
+    mel_gpu_cmd_bind_pipeline(cmd, depth_pl.value);
+    mel_gpu_cmd_bind_bindless(cmd);
+    mel_gpu_cmd_push_constants(cmd, 0, sizeof root, &root);
+    mel_gpu_cmd_bind_vertex_buffer(cmd, 0, depth_vbo.value);
+    mel_gpu_cmd_draw(cmd, depth_count, 1);
+    mel_gpu_cmd_end_rendering(cmd);
+    mel_gpu_cmd_texture_barrier(cmd, shadow_map.value, drange, MEL_GPU_STATE_DEPTH_WRITE, MEL_GPU_STATE_SHADER_RESOURCE);
+
+    mel_gpu_cmd_texture_barrier(cmd, tgt.rt, crange, MEL_GPU_STATE_COMMON, MEL_GPU_STATE_RENDER_TARGET);
+    Mel_Gpu_Color_Attachment ca = { .view = tgt.rt_view, .load = MEL_GPU_LOAD_CLEAR, .store = MEL_GPU_STORE_STORE, .clear = mel_gpu_rgba(0.55f, 0.65f, 0.80f, 1.0f) };
+    mel_gpu_cmd_begin_rendering(cmd, .colors = &ca, .color_count = 1, .width = tgt.w, .height = tgt.h);
+    mel_gpu_cmd_bind_pipeline(cmd, scene_pl.value);
+    mel_gpu_cmd_bind_bindless(cmd);
+    mel_gpu_cmd_push_constants(cmd, 0, sizeof root, &root);
+    mel_gpu_cmd_bind_vertex_buffer(cmd, 0, scene_vbo.value);
+    mel_gpu_cmd_draw(cmd, scene_count, 1);
+    mel_gpu_cmd_end_rendering(cmd);
+
+    mel_gpu_cmd_texture_barrier(cmd, shadow_map.value, drange, MEL_GPU_STATE_SHADER_RESOURCE, MEL_GPU_STATE_COMMON);
+    mel_gpu_cmd_texture_barrier(cmd, tgt.rt, crange, MEL_GPU_STATE_RENDER_TARGET, MEL_GPU_STATE_COPY_SOURCE);
+    mel_gpu_cmd_copy_texture_to_buffer(cmd, tgt.rt, crange, tgt.rb);
+    mel_gpu_command_list_end(cmd);
+
+    Mel_Gpu_Future* f = mel_gpu_queue_submit(q, (Mel_Gpu_Submit){ .command_lists = &cmd, .command_list_count = 1 });
+    bool            ok = mel_gpu_ok(mel_gpu_future_wait(f));
+    mel_gpu_future_destroy(f);
+    MEL_REQUIRE(ok);
+
+    const u8* px = mel_gpu_buffer_mapped(dev, tgt.rb);
+    MEL_REQUIRE_NOT_NULL(px);
+    MEL_GOLDEN(SCENE_BACKEND, "shared/shadow", px, tgt.w, tgt.h, SCENE_TOL);
+
+    scene_target_destroy(dev, &tgt);
+    mel_gpu_command_list_destroy(cmd);
+    mel_gpu_queue_release(q);
+    mel_gpu_sampler_destroy(dev, smp.value);
+    mel_gpu_texture_view_destroy(dev, shadow_view.value);
+    mel_gpu_texture_destroy(dev, shadow_map.value);
+    mel_gpu_pipeline_destroy(dev, scene_pl.value);
+    mel_gpu_shader_destroy(dev, scene_pl.shader);
+    mel_gpu_pipeline_destroy(dev, depth_pl.value);
+    mel_gpu_shader_destroy(dev, depth_pl.shader);
+    mel_gpu_buffer_destroy(dev, scene_vbo.value);
+    mel_gpu_buffer_destroy(dev, depth_vbo.value);
+    mel_gpu_device_destroy(dev);
+    mel_gpu_instance_destroy(inst);
+#endif
+}
+
+/* ---- end batch G2 graphics screens ---- */
 
 #else
 

@@ -6,7 +6,11 @@
 #include "depth3d.h"
 #include "bindless_present.h"
 #include "passthrough.h"
-#include "scene3d_spv.h"
+
+static const char DEPTH3D_SLANG[] = {
+#embed "shaders/slang/depth3d.slang"
+    , 0
+};
 
 #define OFF_W       1024
 #define OFF_H       768
@@ -78,32 +82,22 @@ static void* depth3d_init(Mel_Gpu_Device* dev, Mel_Gpu_Swapchain* sc)
         return d;
     }
 
-    d->shader = mel_gpu_shader_create_from_bytecode(dev,
-                                                    .spirv_vertex = SCENE3D_VERT_SPV,
-                                                    .spirv_vertex_size = sizeof SCENE3D_VERT_SPV,
-                                                    .spirv_fragment = SCENE3D_FRAG_SPV,
-                                                    .spirv_fragment_size = sizeof SCENE3D_FRAG_SPV,
-                                                    .vertex_entry = "main",
-                                                    .fragment_entry = "main",
-                                                    .name = "scene3d")
-                    .value;
-
-    const Mel_Gpu_Vertex_Element layout[] = {
-        { .location = 0, .format = MEL_GPU_FORMAT_RGB32_FLOAT, .offset = offsetof(Pt_Vertex, pos) },
-        { .location = 1, .format = MEL_GPU_FORMAT_RGBA32_FLOAT, .offset = offsetof(Pt_Vertex, color) },
-    };
-    d->pipeline = mel_gpu_pipeline_create(dev,
-                                          .shader = d->shader,
-                                          .topology = MEL_GPU_TOPOLOGY_TRIANGLE_LIST,
-                                          .cull = MEL_GPU_CULL_BACK,
-                                          .front_face = MEL_GPU_FRONT_FACE_CCW,
-                                          .color_format = MEL_GPU_FORMAT_RGBA8_UNORM,
-                                          .depth_format = MEL_GPU_FORMAT_D32_FLOAT,
-                                          .vertex_layout = layout,
-                                          .vertex_layout_count = 2,
-                                          .vertex_stride = sizeof(Pt_Vertex),
-                                          .name = "scene3d")
-                      .value;
+    Mel_Gpu_Depth_Stencil scene_ds = { .depth_test = true, .depth_write = true, .depth_compare = MEL_GPU_COMPARE_LESS };
+    Mel_Gpu_Pipeline_From_Slang_Result scene = mel_gpu_pipeline_create_from_slang(dev,
+                                                                                  .source = DEPTH3D_SLANG,
+                                                                                  .vertex_entry = "vs_scene",
+                                                                                  .fragment_entry = "fs_scene",
+                                                                                  .topology = MEL_GPU_TOPOLOGY_TRIANGLE_LIST,
+                                                                                  .cull = MEL_GPU_CULL_BACK,
+                                                                                  .front_face = MEL_GPU_FRONT_FACE_CCW,
+                                                                                  .color_format = MEL_GPU_FORMAT_RGBA8_UNORM,
+                                                                                  .depth_format = MEL_GPU_FORMAT_D32_FLOAT,
+                                                                                  .depth_stencil = &scene_ds,
+                                                                                  .name = "scene3d");
+    if (mel_gpu_failed(scene.status))
+        return d;
+    d->shader = scene.shader;
+    d->pipeline = scene.value;
 
     Mel_Gpu_Texture_Create_Result color = mel_gpu_texture_create(dev,
                                                                  .kind = MEL_GPU_TEXTURE_2D,
