@@ -81,7 +81,14 @@ u32 mel_app_init_opt(Mel_App_Init_Opt opt)
     }
 
     g.events = mel_event_create(g.alloc, sizeof(Mel_App_Lifecycle_Event), MEL_APP_LIFECYCLE_RING_CAP, mel_event_policy_lossless(events_overflow_report, NULL));
-    g.poll_sub = g.events != NULL ? mel_event_subscribe_pull(g.events, NULL) : MEL_EVENT_SUB_NULL;
+    if (g.events == NULL)
+    {
+        mel_log_error("app", "init: lifecycle event channel allocation failed; subsystem unavailable");
+        assert(g.events != NULL);
+        memset(&g, 0, sizeof g);
+        return MEL_APP_ERROR | MEL_APP_UNAVAILABLE;
+    }
+    g.poll_sub = mel_event_subscribe_pull(g.events, NULL);
 
     mel_array_init(&g.providers, g.alloc);
     g.provider_gen = 0;
