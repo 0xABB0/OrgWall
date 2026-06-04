@@ -1,5 +1,7 @@
 #include "mtl_backend.h"
 
+#include <slang/compile.h>
+
 #include <log/log.h>
 
 static u32 mel_gpu__min_u32(u32 a, u32 b) { return a < b ? a : b; }
@@ -68,12 +70,16 @@ void mel_gpu__bindless_init(Mel_Gpu_Device* dev, bool want)
                 id h = (__bridge_transfer id)b->heaps[j];
                 b->heaps[j] = NULL;
                 (void)h;
+                if (b->resources[j])
+                    mel_dealloc(dev->alloc, b->resources[j]);
             }
             *b = (Mel_Gpu_Bindless){ 0 };
             return;
         }
         memset(heap.contents, 0, bytes);
         b->heaps[i] = (__bridge_retained void*)heap;
+        b->caps[i] = caps[i];
+        b->resources[i] = mel_calloc(dev->alloc, (usize)caps[i] * sizeof(void*));
     }
 
     MTLResidencySetDescriptor* rsd = [[MTLResidencySetDescriptor alloc] init];
@@ -88,6 +94,8 @@ void mel_gpu__bindless_init(Mel_Gpu_Device* dev, bool want)
             id h = (__bridge_transfer id)b->heaps[j];
             b->heaps[j] = NULL;
             (void)h;
+            if (b->resources[j])
+                mel_dealloc(dev->alloc, b->resources[j]);
         }
         *b = (Mel_Gpu_Bindless){ 0 };
         return;
@@ -126,6 +134,20 @@ void mel_gpu__bindless_shutdown(Mel_Gpu_Device* dev)
     }
     for (u32 i = 0; i < MEL_GPU_BINDLESS_BINDING_COUNT; i++)
     {
+        if (b->resources[i])
+        {
+            for (u32 s = 0; s < b->caps[i]; s++)
+            {
+                if (b->resources[i][s])
+                {
+                    id r = (__bridge_transfer id)b->resources[i][s];
+                    b->resources[i][s] = NULL;
+                    (void)r;
+                }
+            }
+            mel_dealloc(dev->alloc, b->resources[i]);
+            b->resources[i] = NULL;
+        }
         if (b->heaps[i])
         {
             id h = (__bridge_transfer id)b->heaps[i];
@@ -182,12 +204,59 @@ static void mel_gpu__bindless_write_address(Mel_Gpu_Device* dev, u32 binding_cla
     table[slot] = address;
 }
 
+/* Mirror the slot->resource registration (alongside the #34 gpuResourceID/gpuAddress heap
+   write) so the from-slang Metal per-dispatch argument buffer can resolve slot -> live
+   resource by id<MTLResource>. The argument encoder needs the object, not just its id. */
+static void mel_gpu__bindless_store_resource(Mel_Gpu_Device* dev, u32 binding_class, u32 slot, id<MTLResource> res)
+{
+    void** table = dev->bindless.resources[binding_class];
+    if (!table)
+        return;
+    if (table[slot])
+    {
+        id prev = (__bridge_transfer id)table[slot];
+        table[slot] = NULL;
+        (void)prev;
+    }
+    table[slot] = (__bridge_retained void*)res;
+}
+
+id<MTLResource> mel_gpu__bindless_resource(Mel_Gpu_Device* dev, u32 binding_class, u32 slot)
+{
+    if (binding_class >= MEL_GPU_BINDLESS_BINDING_COUNT)
+        return nil;
+    void** table = dev->bindless.resources[binding_class];
+    if (!table || slot >= dev->bindless.caps[binding_class])
+        return nil;
+    return (__bridge id<MTLResource>)table[slot];
+}
+
+u32 mel_gpu__bindless_class_of_slang_kind(u32 slang_resource_kind)
+{
+    switch (slang_resource_kind)
+    {
+    case MEL_SLANG_RESOURCE_SAMPLED_TEXTURE:
+        return MEL_GPU_BINDLESS_BINDING_SAMPLED_IMAGE;
+    case MEL_SLANG_RESOURCE_STORAGE_TEXTURE:
+        return MEL_GPU_BINDLESS_BINDING_STORAGE_IMAGE;
+    case MEL_SLANG_RESOURCE_STORAGE_BUFFER:
+        return MEL_GPU_BINDLESS_BINDING_STORAGE_BUFFER;
+    case MEL_SLANG_RESOURCE_UNIFORM_BUFFER:
+        return MEL_GPU_BINDLESS_BINDING_UNIFORM_BUFFER;
+    case MEL_SLANG_RESOURCE_SAMPLER:
+        return MEL_GPU_BINDLESS_BINDING_SAMPLER;
+    default:
+        return MEL_GPU_BINDLESS_BINDING_COUNT;
+    }
+}
+
 void mel_gpu__bindless_register_sampled_image(Mel_Gpu_Device* dev, u32 slot, id<MTLTexture> view)
 {
     if (!mel_gpu__bindless_check(dev, slot, MEL_GPU_BINDLESS_BINDING_SAMPLED_IMAGE, "sampled-image"))
         return;
     mel_mutex_lock(&dev->bindless.lock);
     mel_gpu__bindless_write_id(dev, MEL_GPU_BINDLESS_BINDING_SAMPLED_IMAGE, slot, view.gpuResourceID);
+    mel_gpu__bindless_store_resource(dev, MEL_GPU_BINDLESS_BINDING_SAMPLED_IMAGE, slot, view);
     mel_gpu__bindless_make_resident(dev, view);
     mel_mutex_unlock(&dev->bindless.lock);
 }
@@ -198,6 +267,7 @@ void mel_gpu__bindless_register_storage_image(Mel_Gpu_Device* dev, u32 slot, id<
         return;
     mel_mutex_lock(&dev->bindless.lock);
     mel_gpu__bindless_write_id(dev, MEL_GPU_BINDLESS_BINDING_STORAGE_IMAGE, slot, view.gpuResourceID);
+    mel_gpu__bindless_store_resource(dev, MEL_GPU_BINDLESS_BINDING_STORAGE_IMAGE, slot, view);
     mel_gpu__bindless_make_resident(dev, view);
     mel_mutex_unlock(&dev->bindless.lock);
 }
@@ -208,6 +278,7 @@ void mel_gpu__bindless_register_storage_buffer(Mel_Gpu_Device* dev, u32 slot, id
         return;
     mel_mutex_lock(&dev->bindless.lock);
     mel_gpu__bindless_write_address(dev, MEL_GPU_BINDLESS_BINDING_STORAGE_BUFFER, slot, buf.gpuAddress);
+    mel_gpu__bindless_store_resource(dev, MEL_GPU_BINDLESS_BINDING_STORAGE_BUFFER, slot, buf);
     mel_gpu__bindless_make_resident(dev, buf);
     mel_mutex_unlock(&dev->bindless.lock);
 }
@@ -218,8 +289,23 @@ void mel_gpu__bindless_register_uniform_buffer(Mel_Gpu_Device* dev, u32 slot, id
         return;
     mel_mutex_lock(&dev->bindless.lock);
     mel_gpu__bindless_write_address(dev, MEL_GPU_BINDLESS_BINDING_UNIFORM_BUFFER, slot, buf.gpuAddress);
+    mel_gpu__bindless_store_resource(dev, MEL_GPU_BINDLESS_BINDING_UNIFORM_BUFFER, slot, buf);
     mel_gpu__bindless_make_resident(dev, buf);
     mel_mutex_unlock(&dev->bindless.lock);
+}
+
+static void mel_gpu__bindless_store_object(Mel_Gpu_Device* dev, u32 binding_class, u32 slot, id obj)
+{
+    void** table = dev->bindless.resources[binding_class];
+    if (!table)
+        return;
+    if (table[slot])
+    {
+        id prev = (__bridge_transfer id)table[slot];
+        table[slot] = NULL;
+        (void)prev;
+    }
+    table[slot] = (__bridge_retained void*)obj;
 }
 
 void mel_gpu__bindless_register_sampler(Mel_Gpu_Device* dev, u32 slot, id<MTLSamplerState> sampler)
@@ -228,7 +314,16 @@ void mel_gpu__bindless_register_sampler(Mel_Gpu_Device* dev, u32 slot, id<MTLSam
         return;
     mel_mutex_lock(&dev->bindless.lock);
     mel_gpu__bindless_write_id(dev, MEL_GPU_BINDLESS_BINDING_SAMPLER, slot, sampler.gpuResourceID);
+    mel_gpu__bindless_store_object(dev, MEL_GPU_BINDLESS_BINDING_SAMPLER, slot, sampler);
     mel_mutex_unlock(&dev->bindless.lock);
+}
+
+id<MTLSamplerState> mel_gpu__bindless_sampler(Mel_Gpu_Device* dev, u32 slot)
+{
+    void** table = dev->bindless.resources[MEL_GPU_BINDLESS_BINDING_SAMPLER];
+    if (!table || slot >= dev->bindless.caps[MEL_GPU_BINDLESS_BINDING_SAMPLER])
+        return nil;
+    return (__bridge id<MTLSamplerState>)table[slot];
 }
 
 void mel_gpu__bindless_bind_render(Mel_Gpu_Device* dev, id<MTLRenderCommandEncoder> enc)

@@ -336,6 +336,24 @@ Mel_Gpu_Pipeline_From_Slang_Result mel_gpu_pipeline_compute_create_from_slang_op
         return res;
     }
 
+    const Mel_Alloc*            a = mel_alloc_heap();
+    Mel_Gpu_Bindless_Arg_Field* arg_fields = NULL;
+    if (refl.metal_arg_buffer && refl.metal_arg_field_count)
+    {
+        arg_fields = mel_alloc_array(a, Mel_Gpu_Bindless_Arg_Field, refl.metal_arg_field_count);
+        for (u32 i = 0; i < refl.metal_arg_field_count; ++i)
+        {
+            const Mel_Slang_Metal_Arg_Field* f = &refl.metal_arg_fields[i];
+            arg_fields[i] = (Mel_Gpu_Bindless_Arg_Field){
+                .is_uniform = f->is_uniform,
+                .host_offset = f->host_offset,
+                .arg_index = f->arg_index,
+                .size = f->size,
+                .resource_kind = (u32)f->kind,
+            };
+        }
+    }
+
     u32                            pcs = opt.push_constant_size ? opt.push_constant_size : refl.push_constant_size;
     Mel_Gpu_Pipeline_Create_Result pipe = mel_gpu_pipeline_compute_create(dev,
                                                                           .shader = sh.value,
@@ -346,6 +364,8 @@ Mel_Gpu_Pipeline_From_Slang_Result mel_gpu_pipeline_compute_create_from_slang_op
                                                                           .spec_constants = opt.spec_constants,
                                                                           .spec_constant_count = opt.spec_constant_count,
                                                                           .threadgroup = { refl.workgroup[0], refl.workgroup[1], refl.workgroup[2] },
+                                                                          .bindless_arg_fields = arg_fields,
+                                                                          .bindless_arg_field_count = refl.metal_arg_buffer ? refl.metal_arg_field_count : 0,
                                                                           .name = opt.name);
 
     if (mel_gpu_failed(pipe.status))
@@ -355,6 +375,8 @@ Mel_Gpu_Pipeline_From_Slang_Result mel_gpu_pipeline_compute_create_from_slang_op
     res.value = pipe.value;
     res.status = pipe.status;
 
+    if (arg_fields)
+        mel_dealloc(a, arg_fields);
     mel_slang_reflection_free(&refl);
     mel_slang_blob_free(&cs);
     return res;
