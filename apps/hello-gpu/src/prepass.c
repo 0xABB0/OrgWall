@@ -7,8 +7,11 @@
 #include "hud.h"
 #include "passthrough.h"
 #include "bindless_present.h"
-#include "scene3d_spv.h"
-#include "depth_only_spv.h"
+
+static const char PREPASS_SLANG[] = {
+#embed "shaders/slang/prepass.slang"
+    , 0
+};
 
 #define CUBE_COUNT  14
 #define CUBE_VERTS  36
@@ -94,59 +97,38 @@ static void* prepass_init(Mel_Gpu_Device* dev, Mel_Gpu_Swapchain* sc)
         return p;
     }
 
-    p->shader = mel_gpu_shader_create_from_bytecode(dev,
-                                                    .spirv_vertex = SCENE3D_VERT_SPV,
-                                                    .spirv_vertex_size = sizeof SCENE3D_VERT_SPV,
-                                                    .spirv_fragment = SCENE3D_FRAG_SPV,
-                                                    .spirv_fragment_size = sizeof SCENE3D_FRAG_SPV,
-                                                    .vertex_entry = "main",
-                                                    .fragment_entry = "main",
-                                                    .name = "prepass-scene")
-                    .value;
-
-    p->depth_shader = mel_gpu_shader_create_from_bytecode(dev,
-                                                          .spirv_vertex = SCENE3D_VERT_SPV,
-                                                          .spirv_vertex_size = sizeof SCENE3D_VERT_SPV,
-                                                          .spirv_fragment = DEPTH_ONLY_FRAG_SPV,
-                                                          .spirv_fragment_size = sizeof DEPTH_ONLY_FRAG_SPV,
-                                                          .vertex_entry = "main",
-                                                          .fragment_entry = "main",
-                                                          .name = "prepass-depth")
-                          .value;
-
-    const Mel_Gpu_Vertex_Element layout[] = {
-        { .location = 0, .format = MEL_GPU_FORMAT_RGB32_FLOAT, .offset = offsetof(Pt_Vertex, pos) },
-        { .location = 1, .format = MEL_GPU_FORMAT_RGBA32_FLOAT, .offset = offsetof(Pt_Vertex, color) },
-    };
-
     Mel_Gpu_Depth_Stencil depth_ds = { .depth_test = true, .depth_write = true, .depth_compare = MEL_GPU_COMPARE_LESS };
-    p->depth_pl = mel_gpu_pipeline_create(dev,
-                                          .shader = p->depth_shader,
-                                          .topology = MEL_GPU_TOPOLOGY_TRIANGLE_LIST,
-                                          .cull = MEL_GPU_CULL_BACK,
-                                          .front_face = MEL_GPU_FRONT_FACE_CCW,
-                                          .depth_format = MEL_GPU_FORMAT_D32_FLOAT,
-                                          .depth_stencil = &depth_ds,
-                                          .vertex_layout = layout,
-                                          .vertex_layout_count = 2,
-                                          .vertex_stride = sizeof(Pt_Vertex),
-                                          .name = "prepass-depth")
-                      .value;
+    Mel_Gpu_Pipeline_From_Slang_Result depth = mel_gpu_pipeline_create_from_slang(dev,
+                                                                                  .source = PREPASS_SLANG,
+                                                                                  .vertex_entry = "vs_scene",
+                                                                                  .fragment_entry = "fs_depth",
+                                                                                  .topology = MEL_GPU_TOPOLOGY_TRIANGLE_LIST,
+                                                                                  .cull = MEL_GPU_CULL_BACK,
+                                                                                  .front_face = MEL_GPU_FRONT_FACE_CCW,
+                                                                                  .depth_format = MEL_GPU_FORMAT_D32_FLOAT,
+                                                                                  .depth_stencil = &depth_ds,
+                                                                                  .name = "prepass-depth");
+    if (mel_gpu_failed(depth.status))
+        return p;
+    p->depth_shader = depth.shader;
+    p->depth_pl = depth.value;
 
     Mel_Gpu_Depth_Stencil lit_ds = { .depth_test = true, .depth_write = false, .depth_compare = MEL_GPU_COMPARE_EQUAL };
-    p->lit_pl = mel_gpu_pipeline_create(dev,
-                                        .shader = p->shader,
-                                        .topology = MEL_GPU_TOPOLOGY_TRIANGLE_LIST,
-                                        .cull = MEL_GPU_CULL_BACK,
-                                        .front_face = MEL_GPU_FRONT_FACE_CCW,
-                                        .color_format = MEL_GPU_FORMAT_RGBA8_UNORM,
-                                        .depth_format = MEL_GPU_FORMAT_D32_FLOAT,
-                                        .depth_stencil = &lit_ds,
-                                        .vertex_layout = layout,
-                                        .vertex_layout_count = 2,
-                                        .vertex_stride = sizeof(Pt_Vertex),
-                                        .name = "prepass-lit")
-                    .value;
+    Mel_Gpu_Pipeline_From_Slang_Result lit = mel_gpu_pipeline_create_from_slang(dev,
+                                                                                .source = PREPASS_SLANG,
+                                                                                .vertex_entry = "vs_scene",
+                                                                                .fragment_entry = "fs_lit",
+                                                                                .topology = MEL_GPU_TOPOLOGY_TRIANGLE_LIST,
+                                                                                .cull = MEL_GPU_CULL_BACK,
+                                                                                .front_face = MEL_GPU_FRONT_FACE_CCW,
+                                                                                .color_format = MEL_GPU_FORMAT_RGBA8_UNORM,
+                                                                                .depth_format = MEL_GPU_FORMAT_D32_FLOAT,
+                                                                                .depth_stencil = &lit_ds,
+                                                                                .name = "prepass-lit");
+    if (mel_gpu_failed(lit.status))
+        return p;
+    p->shader = lit.shader;
+    p->lit_pl = lit.value;
 
     for (i32 i = 0; i < VBO_FRAMES; ++i)
         p->vbo[i] = mel_gpu_buffer_create(dev, .size = SCENE_VERTS * sizeof(Pt_Vertex), .usage = MEL_GPU_BUFFER_VERTEX, .memory = MEL_GPU_MEMORY_UPLOAD, .name = "prepass-vbo").value;

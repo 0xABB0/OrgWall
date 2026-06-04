@@ -1,17 +1,19 @@
 #include <stddef.h>
 
 #include "passthrough.h"
-#include "triangle_spv.h"
+
+static const char PASSTHROUGH_SLANG[] = {
+#embed "shaders/slang/passthrough.slang"
+    , 0
+};
 
 Mel_Gpu_Shader passthrough_shader(Mel_Gpu_Device* dev)
 {
-    return mel_gpu_shader_create_from_bytecode(dev,
-                                               .spirv_vertex = TRIANGLE_VERT_SPV,
-                                               .spirv_vertex_size = sizeof TRIANGLE_VERT_SPV,
-                                               .spirv_fragment = TRIANGLE_FRAG_SPV,
-                                               .spirv_fragment_size = sizeof TRIANGLE_FRAG_SPV,
-                                               .vertex_entry = "vs_main",
-                                               .fragment_entry = "fs_main")
+    return mel_gpu_shader_create_from_slang(dev,
+                                            .source = PASSTHROUGH_SLANG,
+                                            .vertex_entry = "vs_main",
+                                            .fragment_entry = "fs_main",
+                                            .name = "passthrough")
         .value;
 }
 
