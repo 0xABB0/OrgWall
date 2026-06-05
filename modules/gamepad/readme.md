@@ -28,7 +28,7 @@ gamepad-specific.
 ## Public surface
 
 - `<guid/guid.h>` — `Mel_Guid` (128-bit), SDL-format GUID parse/format, VID/PID/version extraction,
-  hash (over `hash`). A standalone library target (`guid`) so other modules can bind device identity.
+  hash (over `hash`); owned by the standalone `guid` module and re-exported through `joystick.h`.
 - `<gamepad/joystick.h>` — raw joystick: `Mel_Joystick` handle, `Mel_Joystick_Descriptor`,
   `Mel_Joystick_State` (axes/buttons/hats/balls + touches + gyro/accel), lifecycle, describe, poll,
   rumble/LED/player-index/effect output, Steam Input + native escapes. `Mel_Joystick_Status` is a

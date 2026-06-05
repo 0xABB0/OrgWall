@@ -2,13 +2,6 @@
 
 void build(Mel_Build* b)
 {
-    Mel_Target* guid = mel_add_library(b, "guid");
-    mel_includes(guid, MEL_PUBLIC, ALWAYS, "include");
-    mel_sources(guid, ALWAYS, "src/guid.c");
-    mel_depends(guid, "core");
-    mel_depends(guid, "hash");
-    mel_depends(guid, "string");
-
     Mel_Target* lib = mel_add_library(b, "gamepad");
     mel_includes(lib, MEL_PUBLIC, ALWAYS, "include");
     mel_sources(lib, ALWAYS, "src/joystick.c", "src/gamepad.c", "src/virtual.c");
