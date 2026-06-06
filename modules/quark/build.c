@@ -9,4 +9,13 @@ void build(Mel_Build* b)
     mel_depends(lib, "allocator");
     mel_depends(lib, "collection");
     mel_depends(lib, "string");
+
+    Mel_Target* test = mel_add_test(b, "quark-intern");
+    mel_sources(test, ALWAYS, "test/test_quark.c");
+    mel_sources(test, ALWAYS, "../../tools/test/src/runner.c");
+    mel_depends(test, "test");
+    mel_depends(test, "quark");
+    mel_depends(test, "core");
+    mel_depends(test, "allocator");
+    mel_depends(test, "string");
 }
