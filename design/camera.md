@@ -108,8 +108,7 @@ void mel_camera_each(Mel_Camera_Visitor visit, void* user);                  // 
 bool mel_camera_describe(Mel_Camera cam, Mel_Camera_Visitor visit, void* user);  // one device; false if gone
 ```
 
-Modes are themselves visited, never returned as an array (no allocation, no
-`[MAX_MODES]`):
+Modes are themselves visited, never returned as an array (no allocation, no `[MAX_MODES]`):
 
 ```
 typedef struct {
