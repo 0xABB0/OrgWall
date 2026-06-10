@@ -64,6 +64,10 @@ void mel_gui__win32_free_ctl(HWND hwnd)
     if (c)
     {
         SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
+        if (c->font)
+            DeleteObject(c->font);
+        if (c->bg_brush)
+            DeleteObject(c->bg_brush);
         mel_dealloc(mel_gui__alloc(), c);
     }
 }

@@ -104,6 +104,8 @@ Mel_Gui_Handle mel_frame_create_opt(Mel_Frame_Opt o)
         n->x = 0;
         n->y = 0;
     }
+    if (mel_style_any(&o.style))
+        mel_gui_set_style(h, o.style);
     return h;
 }
 

@@ -9,6 +9,9 @@
 #include <gui/screen.h>
 #include <gui/layout.h>
 #include <gui/layouts/column.h>
+#include <gui/layouts/row.h>
+#include <gui/layouts/stack.h>
+#include <gui/style.h>
 #include <color/rgba8.h>
 #include <paint/painter.h>
 #include <gui/controls/frame.h>

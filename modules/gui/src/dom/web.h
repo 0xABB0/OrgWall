@@ -91,6 +91,10 @@ void mel_web__checkbox_set(int id, int checked);
 int  mel_web__checkbox_get(int id);
 void mel_web__checkbox_label(int id, const char* s);
 
+/* flex/grid lowering (layout.c): apply lowered-parent membership to a freshly
+ * created widget (position:static, flex/grid item props, resize mirroring). */
+void mel_web__member_sync(Mel_Gui_Handle h);
+
 /* canvas (canvas.c) */
 void mel_web__canvas_size(int id, i32 w, i32 h);
 void mel_web__canvas_repaint(Mel_Gui_Node* n);

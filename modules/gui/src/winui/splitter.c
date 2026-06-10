@@ -105,8 +105,19 @@ static LRESULT CALLBACK splitter_wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM 
         }
         break;
     case WM_CTLCOLORSTATIC:
-        SetBkMode((HDC)wp, TRANSPARENT);
-        return (LRESULT)(UINT_PTR)GetSysColorBrush(COLOR_BTNFACE);
+    case WM_CTLCOLORBTN:
+    case WM_CTLCOLOREDIT:
+    {
+        LRESULT brush = mel_gui__win32_ctl_color(msg, (HDC)wp, hwnd, (HWND)lp);
+        if (brush)
+            return brush;
+        if (msg == WM_CTLCOLORSTATIC)
+        {
+            SetBkMode((HDC)wp, TRANSPARENT);
+            return (LRESULT)(UINT_PTR)GetSysColorBrush(COLOR_BTNFACE);
+        }
+        break;
+    }
     case WM_SETCURSOR:
         if (s && LOWORD(lp) == HTCLIENT)
         {
@@ -192,11 +203,8 @@ static void ensure_splitter_class(void)
     g_splitter_class = true;
 }
 
-static void split_arrange(Mel_Layout* layout, Mel_Gui_Handle container, i32 avail_w, i32 avail_h)
+static void split_arrange(Mel_Gui_Handle container)
 {
-    (void)layout;
-    (void)avail_w;
-    (void)avail_h;
     Mel_Gui_Node* node = mel_gui__node(container);
     if (!node || !node->native)
         return;
@@ -204,20 +212,15 @@ static void split_arrange(Mel_Layout* layout, Mel_Gui_Handle container, i32 avai
     split_relayout(s);
 }
 
-static const Mel_Layout_Vtable s_split_vtable = { .arrange = split_arrange };
-
 Mel_Gui_Handle mel_splitter_create_opt(Mel_Gui_Handle parent, Mel_Splitter_Opt o)
 {
     ensure_splitter_class();
 
-    Mel_Layout* layout = (Mel_Layout*)mel_calloc(mel_gui__alloc(), sizeof *layout);
-    if (layout)
-        layout->vtable = &s_split_vtable;
-
-    Mel_Gui_Handle h = mel_gui__node_new(parent, o.x, o.y, o.w, o.h, o.id, o.user, o.hidden, &o.layoutable, layout);
+    Mel_Gui_Handle h = mel_gui__node_new(parent, o.x, o.y, o.w, o.h, o.id, o.user, o.hidden, &o.layoutable, NULL);
     Mel_Gui_Node*  n = mel_gui__node(h);
     if (!n)
         return h;
+    n->container_arrange = split_arrange;
 
     HWND par = mel_gui__win32_parent_hwnd(n);
     if (!par)
@@ -235,6 +238,8 @@ Mel_Gui_Handle mel_splitter_create_opt(Mel_Gui_Handle parent, Mel_Splitter_Opt o
         s->vertical = (o.orientation == MEL_SPLIT_VERTICAL);
         s->drag_index = -1;
     }
+    if (mel_style_any(&o.style))
+        mel_gui_set_style(h, o.style);
     return h;
 }
 
@@ -265,5 +270,7 @@ Mel_Gui_Handle mel_splitpane_create_opt(Mel_Gui_Handle splitter, Mel_SplitPane_O
     s->pane_count++;
 
     split_relayout(s);
+    if (mel_style_any(&o.style))
+        mel_gui_set_style(h, o.style);
     return h;
 }

@@ -50,6 +50,10 @@ Mel_Gui_Handle mel_dialog_create_opt(Mel_Dialog_Opt o)
     (*env)->DeleteLocalRef(env, content);
 
     mel_gui__frames_inc();
+
+    mel_gui__node_native_ready(h);
+    if (mel_style_any(&o.style))
+        mel_gui_set_style(h, o.style);
     return h;
 }
 

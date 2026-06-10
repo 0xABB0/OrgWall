@@ -22,5 +22,7 @@ Mel_Gui_Handle mel_groupbox_create_opt(Mel_Gui_Handle parent, Mel_GroupBox_Opt o
         mel_gui__macos_install_child(n, box);
         n->content = (__bridge void*)host;
     }
+    if (mel_style_any(&o.style))
+        mel_gui_set_style(h, o.style);
     return h;
 }

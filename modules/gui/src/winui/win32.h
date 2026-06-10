@@ -20,6 +20,11 @@ typedef struct
     Mel_Gui_Handle      handle;
     Mel_Gui_Focus_Cb    focus;
     Mel_Gui_Keyboard_Cb keyboard;
+    HFONT               font;     /* owned; freed in mel_gui__win32_free_ctl */
+    HBRUSH              bg_brush; /* owned; freed in mel_gui__win32_free_ctl */
+    COLORREF            fg, bg;
+    bool                has_fg, has_bg;
+    i32                 corner_radius;
 } Mel_Win32_Ctl;
 
 typedef struct
@@ -118,6 +123,12 @@ void           mel_gui__win32_free_ctl(HWND hwnd);
 HWND  mel_gui__win32_parent_hwnd(Mel_Gui_Node* n);
 DWORD mel_gui__win32_child_style(Mel_Gui_Node* n, bool disabled);
 bool  mel_gui__win32_subclass_common(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp);
+
+/* Shared WM_CTLCOLOR{STATIC,BTN,EDIT} handling for the container procs: text
+ * colors come from the child's ctl, the fallback surface from the container's
+ * own bg. Returns the brush to return from the wndproc, or 0 when nothing is
+ * styled and the caller's legacy path should run. */
+LRESULT mel_gui__win32_ctl_color(UINT msg, HDC dc, HWND container, HWND child);
 
 void mel_gui__win32_ensure_container_class(void);
 HWND mel_gui__win32_make_container(HWND parent, i32 x, i32 y, i32 w, i32 h, Mel_Gui_Handle handle, Mel_Gui_Pointer_Cb pointer, Mel_Gui_Focus_Cb focus, Mel_Gui_Keyboard_Cb keyboard, bool hidden, bool disabled);

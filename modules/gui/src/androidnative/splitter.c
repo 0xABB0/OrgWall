@@ -1,6 +1,5 @@
 #include "android.h"
 
-#include <math.h>
 #include <stdint.h>
 
 static jclass    s_cls;
@@ -8,14 +7,6 @@ static jmethodID s_create;
 static jmethodID s_addPane;
 static jmethodID s_view_getWidth;
 static jmethodID s_view_getHeight;
-
-static i32 px2dp(int px)
-{
-    float d = mel_gui__android()->density;
-    if (d <= 0)
-        d = 1.0f;
-    return (i32)lroundf((float)px / d);
-}
 
 bool mel_gui__android_splitter_register_jni(JNIEnv* env)
 {
@@ -66,6 +57,9 @@ Mel_Gui_Handle mel_splitter_create_opt(Mel_Gui_Handle parent, Mel_Splitter_Opt o
 
     mel_gui__android_attach(n, view);
     (*env)->DeleteLocalRef(env, view);
+
+    if (mel_style_any(&o.style))
+        mel_gui_set_style(h, o.style);
     return h;
 }
 
@@ -95,6 +89,10 @@ Mel_Gui_Handle mel_splitpane_create_opt(Mel_Gui_Handle splitter, Mel_SplitPane_O
 
     n->native = (*env)->NewGlobalRef(env, pane);
     (*env)->DeleteLocalRef(env, pane);
+
+    mel_gui__node_native_ready(h);
+    if (mel_style_any(&o.style))
+        mel_gui_set_style(h, o.style);
     return h;
 }
 
@@ -112,8 +110,8 @@ JNIEXPORT void JNICALL Java_orgwall_melody_platform_MelSplitter_nativeLayout(JNI
             continue;
 
         jobject pane = (jobject)c->native;
-        i32     pw = px2dp((*env)->CallIntMethod(env, pane, s_view_getWidth));
-        i32     ph = px2dp((*env)->CallIntMethod(env, pane, s_view_getHeight));
+        i32     pw = mel_gui__android_px2dp((*env)->CallIntMethod(env, pane, s_view_getWidth));
+        i32     ph = mel_gui__android_px2dp((*env)->CallIntMethod(env, pane, s_view_getHeight));
 
         c->x = 0;
         c->y = 0;

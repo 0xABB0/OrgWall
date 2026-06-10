@@ -49,6 +49,10 @@ Mel_Gui_Handle mel_frame_create_opt(Mel_Frame_Opt o)
     n->native = (*env)->NewGlobalRef(env, view);
     (*env)->DeleteLocalRef(env, view);
     mel_gui__frames_inc();
+
+    mel_gui__node_native_ready(h);
+    if (mel_style_any(&o.style))
+        mel_gui_set_style(h, o.style);
     return h;
 }
 

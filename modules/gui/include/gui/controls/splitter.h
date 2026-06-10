@@ -5,6 +5,7 @@
 #include <gui/handle.h>
 #include <gui/callbacks.h>
 #include <gui/layout.h>
+#include <gui/style.h>
 
 typedef enum
 {
@@ -22,6 +23,7 @@ typedef struct
     void*                 user;
     Mel_Gui_Focus_Cb      focus;
     Mel_Layoutable        layoutable;
+    Mel_Style             style;
 } Mel_Splitter_Opt;
 
 Mel_Gui_Handle mel_splitter_create_opt(Mel_Gui_Handle parent, Mel_Splitter_Opt opt);
@@ -35,6 +37,7 @@ typedef struct
     void*          user;
     Mel_Layout*    layout;
     Mel_Layoutable layoutable;
+    Mel_Style      style;
 } Mel_SplitPane_Opt;
 
 Mel_Gui_Handle mel_splitpane_create_opt(Mel_Gui_Handle splitter, Mel_SplitPane_Opt opt);

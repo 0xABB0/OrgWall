@@ -303,6 +303,7 @@ void mel_gui_set_text(Mel_Gui_Handle h, str8 text)
     else if ([obj isKindOfClass:[NSButton class]])
     {
         [(NSButton*)obj setTitle:s];
+        mel_gui__macos_button_reapply_fg((NSButton*)obj);
     }
 }
 

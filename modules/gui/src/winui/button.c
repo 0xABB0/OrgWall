@@ -53,5 +53,7 @@ Mel_Gui_Handle mel_button_create_opt(Mel_Gui_Handle parent, Mel_Button_Opt o)
         b->pointer = o.pointer;
     }
     SetWindowSubclass(hwnd, button_subclass, 1, 0);
+    if (mel_style_any(&o.style))
+        mel_gui_set_style(h, o.style);
     return h;
 }

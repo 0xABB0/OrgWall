@@ -2,6 +2,8 @@
 
 #include "../gui_internal.h"
 
+#include <layout/linear.h>
+
 #include <jni.h>
 
 #include <paint/painter.h>
@@ -14,14 +16,17 @@ typedef struct
 {
     float density;
 
-    jmethodID view_setVisibility;   /* (I)V */
-    jmethodID view_setEnabled;      /* (Z)V */
-    jmethodID view_requestFocus;    /* ()Z  */
-    jmethodID view_invalidate;      /* ()V  */
-    jmethodID view_setLayoutParams; /* (Landroid/view/ViewGroup$LayoutParams;)V */
-    jmethodID view_getParent;       /* ()Landroid/view/ViewParent; */
-    jmethodID view_setTag;          /* (Ljava/lang/Object;)V */
-    jmethodID view_getTag;          /* ()Ljava/lang/Object; */
+    jmethodID view_setVisibility;     /* (I)V */
+    jmethodID view_setEnabled;        /* (Z)V */
+    jmethodID view_requestFocus;      /* ()Z  */
+    jmethodID view_invalidate;        /* ()V  */
+    jmethodID view_setLayoutParams;   /* (Landroid/view/ViewGroup$LayoutParams;)V */
+    jmethodID view_getParent;         /* ()Landroid/view/ViewParent; */
+    jmethodID view_setTag;            /* (Ljava/lang/Object;)V */
+    jmethodID view_getTag;            /* ()Ljava/lang/Object; */
+    jmethodID view_measure;           /* (II)V */
+    jmethodID view_getMeasuredWidth;  /* ()I */
+    jmethodID view_getMeasuredHeight; /* ()I */
 
     jclass    vg_cls;        /* android/view/ViewGroup */
     jmethodID vg_addView;    /* (Landroid/view/View;)V */
@@ -31,6 +36,14 @@ typedef struct
     jmethodID lp_ctor;       /* (II)V */
     jfieldID  lp_leftMargin; /* I */
     jfieldID  lp_topMargin;  /* I */
+
+    jclass    llp_cls;          /* android/widget/LinearLayout$LayoutParams */
+    jmethodID llp_ctor;         /* (IIF)V */
+    jfieldID  llp_gravity;      /* I */
+    jfieldID  llp_leftMargin;   /* I */
+    jfieldID  llp_topMargin;    /* I */
+    jfieldID  llp_rightMargin;  /* I */
+    jfieldID  llp_bottomMargin; /* I */
 
     jclass    tv_cls;     /* android/widget/TextView */
     jmethodID tv_setText; /* (Ljava/lang/CharSequence;)V */
@@ -64,6 +77,13 @@ jstring          mel_gui__android_jstring(JNIEnv* env, str8 s);
 jlong            mel_gui__android_pack(Mel_Gui_Handle h);
 Mel_Gui_Handle   mel_gui__android_unpack(jlong p);
 int              mel_gui__android_dp2px(i32 dp);
+i32              mel_gui__android_px2dp(int px);
+
+/* LinearLayout.LayoutParams (a local ref) for `child` under a container lowered
+ * to `lin`: main-axis size from fixed/preferred (else weight-driven 0, else
+ * wrap), cross-axis stretch via MATCH_PARENT, gravity from the resolved cross
+ * align, margins from the layoutable. */
+jobject mel_gui__android_linear_params(JNIEnv* env, const Mel_Linear_Layout* lin, const Mel_Gui_Node* child);
 
 /* Make `view` a child of n->parent's View at n's bounds, then pin it as
  * n->native (a global ref). */
@@ -72,6 +92,8 @@ void mel_gui__android_attach(Mel_Gui_Node* n, jobject view);
 /* Install the shared focus listener when either focus slot is set. */
 void mel_gui__android_install_focus(JNIEnv* env, jobject view, Mel_Gui_Handle h, Mel_Gui_Focus_Cb focus);
 
+bool mel_gui__android_layout_register_jni(JNIEnv* env);
+bool mel_gui__android_style_register_jni(JNIEnv* env);
 bool mel_gui__android_frame_register_jni(JNIEnv* env);
 bool mel_gui__android_dialog_register_jni(JNIEnv* env);
 bool mel_gui__android_panel_register_jni(JNIEnv* env);

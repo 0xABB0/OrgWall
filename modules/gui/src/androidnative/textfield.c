@@ -49,6 +49,9 @@ Mel_Gui_Handle mel_textfield_create_opt(Mel_Gui_Handle parent, Mel_TextField_Opt
     mel_gui__android_install_focus(env, view, h, o.focus);
 
     (*env)->DeleteLocalRef(env, view);
+
+    if (mel_style_any(&o.style))
+        mel_gui_set_style(h, o.style);
     return h;
 }
 

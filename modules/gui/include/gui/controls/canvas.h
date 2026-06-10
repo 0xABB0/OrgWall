@@ -6,6 +6,7 @@
 #include <gui/callbacks.h>
 #include <gui/layout.h>
 #include <paint/painter.h>
+#include <gui/style.h>
 
 typedef struct
 {
@@ -24,6 +25,7 @@ typedef struct
     Mel_Gui_Keyboard_Cb  keyboard;
     Mel_Canvas_On        on_;
     Mel_Layoutable       layoutable;
+    Mel_Style            style;
 } Mel_Canvas_Opt;
 
 Mel_Gui_Handle mel_canvas_create_opt(Mel_Gui_Handle parent, Mel_Canvas_Opt opt);

@@ -33,12 +33,22 @@ EM_JS(void, mel_web__tab_add_button, (int tv, int bar, int index, const char* ti
     btn.addEventListener('click', () => { _mel_web__ev_select(tv, index); });
     b.appendChild(btn);
 });
+// Restore a lowered page's display mode (flex/grid) instead of forcing block.
 EM_JS(void, mel_web__tab_show, (int pages, int index), {
     const p = MelWeb.els[pages];
     if (!p)
         return;
     for (let i = 0; i < p.children.length; i++)
-        p.children[i].style.display = (i === index) ? 'block' : 'none';
+        p.children[i].style.display = (i === index) ? (p.children[i].dataset.melDisplay || 'block') : 'none';
+});
+EM_JS(void, mel_web__el_fill, (int id), {
+    const el = MelWeb.els[id];
+    if (!el)
+        return;
+    el.style.left = '0';
+    el.style.top = '0';
+    el.style.width = '100%';
+    el.style.height = '100%';
 });
 EM_JS(void, mel_web__flex_item, (int id, int basis, int vertical), {
     const el = MelWeb.els[id];
@@ -99,6 +109,9 @@ Mel_Gui_Handle mel_tabview_create_opt(Mel_Gui_Handle parent, Mel_TabView_Opt o)
     }
     if (n->hidden)
         mel_web__el_visible(tv, 0);
+    mel_web__member_sync(h);
+    if (mel_style_any(&o.style))
+        mel_gui_set_style(h, o.style);
     return h;
 }
 
@@ -119,14 +132,18 @@ Mel_Gui_Handle mel_tab_create_opt(Mel_Gui_Handle tabview, Mel_Tab_Opt o)
 
     int page = mel_web__el_create("div");
     mel_web__el_append((int)(intptr_t)tn->content, page);
-    mel_web__el_bounds(page, 0, 0, 0, 0); // sized to fill via inset below
+    mel_web__el_fill(page); // pages fill the inset content rect
     n->native = (void*)(intptr_t)page;
     n->content = (void*)(intptr_t)page;
+    mel_web__ctl_new(page, h);
 
     int  index = tc->aux1++;
     char b[256];
     mel_web__tab_add_button(tv, tc->aux0, index, mel_web__cstr(o.title, b, sizeof b));
     mel_web__tab_show((int)(intptr_t)tn->content, tc->aux2);
+    mel_gui__node_native_ready(h);
+    if (mel_style_any(&o.style))
+        mel_gui_set_style(h, o.style);
     return h;
 }
 
@@ -172,6 +189,9 @@ Mel_Gui_Handle mel_splitter_create_opt(Mel_Gui_Handle parent, Mel_Splitter_Opt o
     }
     if (n->hidden)
         mel_web__el_visible(id, 0);
+    mel_web__member_sync(h);
+    if (mel_style_any(&o.style))
+        mel_gui_set_style(h, o.style);
     return h;
 }
 
@@ -193,6 +213,9 @@ Mel_Gui_Handle mel_splitpane_create_opt(Mel_Gui_Handle splitter, Mel_SplitPane_O
     n->native = (void*)(intptr_t)pane;
     n->content = (void*)(intptr_t)pane;
     mel_web__ctl_new(pane, h);
+    mel_gui__node_native_ready(h);
+    if (mel_style_any(&o.style))
+        mel_gui_set_style(h, o.style);
     return h;
 }
 
@@ -225,6 +248,9 @@ Mel_Gui_Handle mel_dialog_create_opt(Mel_Dialog_Opt o)
         mel_web__el_title(mel_web__cstr(o.title, b, sizeof b));
     }
     mel_gui__frames_inc();
+    mel_gui__node_native_ready(h);
+    if (mel_style_any(&o.style))
+        mel_gui_set_style(h, o.style);
     return h;
 }
 

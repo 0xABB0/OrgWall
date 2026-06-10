@@ -55,6 +55,7 @@
 @property(assign) Mel_Gui_Pointer_Cb  pointer;
 @property(assign) Mel_Gui_Focus_Cb    focus;
 @property(assign) Mel_Gui_Keyboard_Cb keyboard;
+@property(strong) NSColor*            style_fg;
 @end
 
 @interface                            MelGuiCheckBox: NSButton
@@ -62,6 +63,7 @@
 @property(assign) Mel_CheckBox_On     on_;
 @property(assign) Mel_Gui_Focus_Cb    focus;
 @property(assign) Mel_Gui_Keyboard_Cb keyboard;
+@property(strong) NSColor*            style_fg;
 @end
 
 @interface                            MelGuiSlider: NSSlider
@@ -110,4 +112,8 @@ void      mel_gui__macos_focus_out(Mel_Gui_Handle h, Mel_Gui_Focus_Cb fc);
 void      mel_gui__macos_key(Mel_Gui_Handle h, Mel_Gui_Keyboard_Cb kc, NSEvent* e, bool down);
 Mel_Key   mel_gui__macos_key_for_event(NSEvent* e);
 NSText*   mel_gui__macos_field_editor(NSWindow* window, id client);
+
+/* Setting an NSButton title regenerates the attributed title and drops the
+ * styled foreground; reapply the stored one after every title change. */
+void mel_gui__macos_button_reapply_fg(NSButton* button);
 #endif

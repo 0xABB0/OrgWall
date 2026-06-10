@@ -36,8 +36,19 @@ static LRESULT CALLBACK dialog_wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp
         }
         break;
     case WM_CTLCOLORSTATIC:
-        SetBkMode((HDC)wp, TRANSPARENT);
-        return (LRESULT)(UINT_PTR)GetSysColorBrush(COLOR_BTNFACE);
+    case WM_CTLCOLORBTN:
+    case WM_CTLCOLOREDIT:
+    {
+        LRESULT brush = mel_gui__win32_ctl_color(msg, (HDC)wp, hwnd, (HWND)lp);
+        if (brush)
+            return brush;
+        if (msg == WM_CTLCOLORSTATIC)
+        {
+            SetBkMode((HDC)wp, TRANSPARENT);
+            return (LRESULT)(UINT_PTR)GetSysColorBrush(COLOR_BTNFACE);
+        }
+        break;
+    }
     case WM_SIZE:
     {
         i32 cw = (i32)LOWORD(lp);
@@ -223,6 +234,9 @@ Mel_Gui_Handle mel_dialog_create_opt(Mel_Dialog_Opt o)
 
     if (owner_hwnd)
         EnableWindow(owner_hwnd, FALSE);
+
+    if (mel_style_any(&o.style))
+        mel_gui_set_style(h, o.style);
 
     mel_gui__frames_inc();
     ShowWindow(hwnd, SW_SHOWNORMAL);
