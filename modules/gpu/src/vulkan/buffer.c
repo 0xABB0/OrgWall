@@ -158,9 +158,9 @@ Mel_Gpu_Buffer_Create_Result mel_gpu_buffer_create_opt(Mel_Gpu_Device* dev, Mel_
         bool unif = (opt.usage & MEL_GPU_BUFFER_UNIFORM) != 0;
         bool fits = true;
         if (stor)
-            fits = mel_gpu__bindless_slot_fits(dev, MEL_GPU_BINDLESS_BINDING_STORAGE_BUFFER, res.value.slot.index) && fits;
+            fits = mel_gpu__bindless_slot_fits(dev, MEL_GPU_BINDLESS_CLASS_STORAGE_BUFFER, res.value.slot.index) && fits;
         if (unif)
-            fits = mel_gpu__bindless_slot_fits(dev, MEL_GPU_BINDLESS_BINDING_UNIFORM_BUFFER, res.value.slot.index) && fits;
+            fits = mel_gpu__bindless_slot_fits(dev, MEL_GPU_BINDLESS_CLASS_UNIFORM_BUFFER, res.value.slot.index) && fits;
         if (!fits)
         {
             mel_log_error("gpu", "buffer_create '%s': bindless slot %u exceeds a heap class cap (BindlessSlotExhausted)", opt.name ? opt.name : "(unnamed)", res.value.slot.index);
@@ -192,6 +192,8 @@ void mel_gpu_buffer_destroy(Mel_Gpu_Device* dev, Mel_Gpu_Buffer buf)
     bool               borrowed = o.header.ownership == MEL_GPU_OWNERSHIP_BORROWED;
     Mel_Gpu_Allocation alloc = o.alloc;
     VkBuffer           vk = o.buf;
+    mel_gpu__bindless_unregister(dev, MEL_GPU_BINDLESS_CLASS_STORAGE_BUFFER, buf.slot.index);
+    mel_gpu__bindless_unregister(dev, MEL_GPU_BINDLESS_CLASS_UNIFORM_BUFFER, buf.slot.index);
     if (borrowed)
     {
         mel_gpu__table_remove(dev, &dev->buffers, buf.slot);

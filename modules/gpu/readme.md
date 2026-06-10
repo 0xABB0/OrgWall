@@ -23,7 +23,11 @@ the tree implements today:
   root-signature tables, first-class, not degraded. `ResourceDescriptorHeap` direct indexing and the
   rest of the SM 6.9 ceiling ride the Agility SDK / Win11 and are deferred. Selected with
   `--gpu=d3d12` on win32; gated by `MEL_GPU_D3D12`.
-- **Metal / WebGPU** — spec targets (§2), not yet built. Future (M4).
+- **Metal** — built (`src/metal/macos/`): MSL graphics + compute pipelines, tier-2 argument-buffer
+  bindless heap, encoder-boundary barriers. Gated by `MEL_GPU_METAL`.
+- **WebGPU** — built (`src/webgpu/`): WGSL pipelines, browser canvas (emdawnwebgpu/wasm) and native
+  Dawn; bindless / classic set_layouts / static samplers refuse with `MISSING_FEATURE`. Gated by
+  `MEL_GPU_WEBGPU`.
 
 ## Dependencies
 
@@ -40,15 +44,24 @@ descriptor-set path**.
 
 ### Bindless heap (the simple-is-powerful path)
 
-- One **device-global bindless heap** lives at **set 0**: a persistent integer-indexed descriptor
-  array per resource class. The binding index within set 0 selects the **heap class** (texture views,
-  samplers, storage buffers, uniform buffers, storage images). Available only when the device was
-  created with `Mel_Gpu_Feature_Request.descriptor_indexing` (`mel_gpu_bindless_available`).
+- The **device-global bindless heap** is partitioned into **one descriptor set per resource class**
+  (`design/gpu-bindless-growable.md` §1): set 0 sampled images, set 1 samplers, set 2 storage
+  buffers, set 3 uniform buffers, set 4 storage images — each a single runtime array at **binding 0**
+  (shaders address `set = class, binding = 0`). Available only when the device was created with
+  `Mel_Gpu_Feature_Request.descriptor_indexing` (`mel_gpu_bindless_available`).
 - **`slot == handle.index` for the direct families.** Engine-created `Mel_Gpu_Buffer`,
   `Mel_Gpu_Texture_View`, `Mel_Gpu_Sampler` auto-register at their slotmap index at creation and keep
   that slot until destroy — no per-frame rebinding. Query the shader-visible slot rather than assume
-  it: `mel_gpu_{texture_view,buffer,sampler}_bindless_slot`. Over-capacity registration fails loudly
-  with `..._CREATE_BINDLESS_SLOT_EXHAUSTED` (heap-class caps are fixed today; grow-on-demand is owed).
+  it: `mel_gpu_{texture_view,buffer,sampler}_bindless_slot`.
+- **Grow-on-demand (Vulkan).** When the device grants `descriptorBindingVariableDescriptorCount`
+  (`caps.memory.bindless.growable`), each class seeds small (`seed_*_slots` in caps) and grows
+  geometrically on the first registration past capacity — variable-count sets on an immutable
+  per-class layout, index-stable re-publish from a side table, old pools retired only after every
+  submission that bound them resolves. `..._CREATE_BINDLESS_SLOT_EXHAUSTED` fires only at the device
+  wall (`caps.memory.bindless.max_*_slots`); each grow logs a warning naming the class and the
+  old→new capacity. Classes whose driver charges pools at layout size (MoltenVK buffer classes)
+  allocate at the wall up front and never grow. Non-growable devices keep fixed caps; Metal keeps
+  its fixed argument-buffer heap (growable Metal is owed).
 - **Indirect family.** `handle.h` provides `MEL_GPU_HANDLE_INDIRECT` (slot carried separately,
   resolved via `*_bindless_slot`). The realized public surface uses it for **one type only** —
   `Mel_Gpu_Sampler_Indirect` — and it is **engine-owned** (the compacted-heap / capped-bindless form);

@@ -26,7 +26,7 @@ Root root;
 [[vk::binding(0, 0)]]
 Texture2D u_textures[];
 
-[[vk::binding(1, 0)]]
+[[vk::binding(0, 1)]]
 SamplerState u_samplers[];
 
 Texture2D<float4> mel_bindless_texture() { return u_textures[NonUniformResourceIndex(root.tex)]; }

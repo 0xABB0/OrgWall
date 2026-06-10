@@ -146,11 +146,13 @@ void mel_gpu__caps_probe(VkPhysicalDevice phys, Mel_Gpu_Caps* out)
         VkPhysicalDeviceDescriptorIndexingProperties dip = { .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_PROPERTIES };
         VkPhysicalDeviceProperties2 dprops = { .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, .pNext = &dip };
         vkGetPhysicalDeviceProperties2(phys, &dprops);
-        out->memory.bindless.max_texture_view_slots = dip.maxPerStageDescriptorUpdateAfterBindSampledImages;
+        u32 share = dip.maxPerStageUpdateAfterBindResources / 4;
+        out->memory.bindless.max_texture_view_slots = dip.maxPerStageDescriptorUpdateAfterBindSampledImages < share ? dip.maxPerStageDescriptorUpdateAfterBindSampledImages : share;
         out->memory.bindless.max_sampler_slots = dip.maxPerStageDescriptorUpdateAfterBindSamplers;
-        out->memory.bindless.max_storage_buffer_slots = dip.maxPerStageDescriptorUpdateAfterBindStorageBuffers;
-        out->memory.bindless.max_uniform_buffer_slots = dip.maxPerStageDescriptorUpdateAfterBindUniformBuffers;
-        out->memory.bindless.max_storage_image_slots = dip.maxPerStageDescriptorUpdateAfterBindStorageImages;
+        out->memory.bindless.max_storage_buffer_slots = dip.maxPerStageDescriptorUpdateAfterBindStorageBuffers < share ? dip.maxPerStageDescriptorUpdateAfterBindStorageBuffers : share;
+        out->memory.bindless.max_uniform_buffer_slots = dip.maxPerStageDescriptorUpdateAfterBindUniformBuffers < share ? dip.maxPerStageDescriptorUpdateAfterBindUniformBuffers : share;
+        out->memory.bindless.max_storage_image_slots = dip.maxPerStageDescriptorUpdateAfterBindStorageImages < share ? dip.maxPerStageDescriptorUpdateAfterBindStorageImages : share;
+        out->memory.bindless.growable = di.descriptorBindingVariableDescriptorCount;
     }
 
     out->features.ray_tracing = MEL_GPU_RT_NONE;

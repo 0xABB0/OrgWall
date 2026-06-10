@@ -2,7 +2,7 @@
 #extension GL_EXT_nonuniform_qualifier : require
 
 layout(set = 0, binding = 0) uniform texture2D u_textures[];
-layout(set = 0, binding = 1) uniform sampler   u_samplers[];
+layout(set = 1, binding = 0) uniform sampler   u_samplers[];
 
 layout(push_constant, std430) uniform Root
 {

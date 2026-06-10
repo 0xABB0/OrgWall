@@ -268,9 +268,9 @@ Mel_Gpu_Texture_View_Create_Result mel_gpu_texture_view_create_opt(Mel_Gpu_Devic
         bool storage = (tex->usage & VK_IMAGE_USAGE_STORAGE_BIT) != 0;
         bool fits = true;
         if (sampled)
-            fits = mel_gpu__bindless_slot_fits(dev, MEL_GPU_BINDLESS_BINDING_SAMPLED_IMAGE, res.value.slot.index) && fits;
+            fits = mel_gpu__bindless_slot_fits(dev, MEL_GPU_BINDLESS_CLASS_SAMPLED_IMAGE, res.value.slot.index) && fits;
         if (storage)
-            fits = mel_gpu__bindless_slot_fits(dev, MEL_GPU_BINDLESS_BINDING_STORAGE_IMAGE, res.value.slot.index) && fits;
+            fits = mel_gpu__bindless_slot_fits(dev, MEL_GPU_BINDLESS_CLASS_STORAGE_IMAGE, res.value.slot.index) && fits;
         if (!fits)
         {
             mel_log_error("gpu", "texture_view_create '%s': bindless slot %u exceeds a heap class cap (BindlessSlotExhausted)", opt.name ? opt.name : "(unnamed)", res.value.slot.index);
@@ -316,6 +316,8 @@ void mel_gpu_texture_view_destroy(Mel_Gpu_Device* dev, Mel_Gpu_Texture_View view
     }
     VkImageView vk = o.view;
     bool        borrowed = o.header.ownership == MEL_GPU_OWNERSHIP_BORROWED;
+    mel_gpu__bindless_unregister(dev, MEL_GPU_BINDLESS_CLASS_SAMPLED_IMAGE, view.slot.index);
+    mel_gpu__bindless_unregister(dev, MEL_GPU_BINDLESS_CLASS_STORAGE_IMAGE, view.slot.index);
     if (borrowed)
     {
         mel_gpu__table_remove(dev, &dev->texture_views, view.slot);

@@ -285,6 +285,10 @@ void mel_gpu_swapchain_destroy(Mel_Gpu_Swapchain* sc)
     Mel_Gpu_Device* dev = sc->dev;
     vkDeviceWaitIdle(dev->vk);
 
+    mel_gpu__bindless_cl_release(&sc->recorder);
+    if (sc->recorder.held_epochs)
+        mel_dealloc(dev->alloc, sc->recorder.held_epochs);
+
     for (u32 i = 0; i < sc->frames_in_flight; i++)
     {
         if (sc->image_available[i])

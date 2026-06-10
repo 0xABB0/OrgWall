@@ -121,6 +121,8 @@ Mel_Gpu_Device_Create_Result mel_gpu_device_create_opt(Mel_Gpu_Instance* inst, M
         feat12.descriptorBindingStorageImageUpdateAfterBind = VK_TRUE;
         feat12.descriptorBindingStorageBufferUpdateAfterBind = VK_TRUE;
         feat12.descriptorBindingUniformBufferUpdateAfterBind = VK_TRUE;
+        if (adapter->caps.memory.bindless.growable)
+            feat12.descriptorBindingVariableDescriptorCount = VK_TRUE;
     }
 
     bool                                         grant_draw_params = adapter->caps.shader.draw_parameters;
@@ -506,6 +508,8 @@ static void mel_gpu__free_deferred_entry(Mel_Gpu_Device* dev, Mel_Gpu_Deferred_F
         mel_gpu__mem_free(dev, &e->alloc);
     if (e->has_reclaim)
         mel_gpu__table_reclaim(dev, e->reclaim_table, e->reclaim_index);
+    if (e->bindless_epoch)
+        mel_gpu__bindless_epoch_release(dev, e->bindless_epoch);
 }
 
 u64 mel_gpu__submit_serial_next(Mel_Gpu_Device* dev)
@@ -534,10 +538,8 @@ void mel_gpu__submit_complete(Mel_Gpu_Device* dev, u64 serial)
     mel_mutex_unlock(&dev->submit_lock);
 }
 
-void mel_gpu__defer_free(Mel_Gpu_Device* dev, Mel_Gpu_Deferred_Free entry)
+static void mel_gpu__defer_free_locked(Mel_Gpu_Device* dev, Mel_Gpu_Deferred_Free entry)
 {
-    mel_mutex_lock(&dev->submit_lock);
-    entry.marker = dev->submit_serial;
     if (entry.marker <= dev->submit_completed)
     {
         mel_mutex_unlock(&dev->submit_lock);
@@ -552,6 +554,20 @@ void mel_gpu__defer_free(Mel_Gpu_Device* dev, Mel_Gpu_Deferred_Free entry)
     }
     dev->deferred[dev->deferred_count++] = entry;
     mel_mutex_unlock(&dev->submit_lock);
+}
+
+void mel_gpu__defer_free(Mel_Gpu_Device* dev, Mel_Gpu_Deferred_Free entry)
+{
+    mel_mutex_lock(&dev->submit_lock);
+    entry.marker = dev->submit_serial;
+    mel_gpu__defer_free_locked(dev, entry);
+}
+
+void mel_gpu__defer_free_marked(Mel_Gpu_Device* dev, Mel_Gpu_Deferred_Free entry, u64 marker)
+{
+    mel_mutex_lock(&dev->submit_lock);
+    entry.marker = marker;
+    mel_gpu__defer_free_locked(dev, entry);
 }
 
 VkCommandPool mel_gpu__thread_pool(Mel_Gpu_Device* dev, u32 family)

@@ -44,10 +44,10 @@ struct Root
 [[vk::push_constant]]
 Root root;
 
-[[vk::binding(2, 0)]]
+[[vk::binding(0, 2)]]
 StructuredBuffer<Boid> u_src_buffers[];
 
-[[vk::binding(2, 0)]]
+[[vk::binding(0, 2)]]
 RWStructuredBuffer<Boid> u_dst_buffers[];
 
 StructuredBuffer<Boid> mel_src() { return u_src_buffers[NonUniformResourceIndex(root.src)]; }

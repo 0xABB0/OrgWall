@@ -31,10 +31,10 @@ struct Root
 [[vk::push_constant]]
 Root root;
 
-[[vk::binding(2, 0)]]
+[[vk::binding(0, 2)]]
 RWStructuredBuffer<float4> u_rw_buffers[];
 
-[[vk::binding(2, 0)]]
+[[vk::binding(0, 2)]]
 StructuredBuffer<float4> u_ro_buffers[];
 
 RWStructuredBuffer<float4> mel_cells_rw() { return u_rw_buffers[root.cells_rw]; }

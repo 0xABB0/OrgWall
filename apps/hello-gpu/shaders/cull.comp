@@ -8,8 +8,8 @@ struct Agent
     vec4 pos_phase;
 };
 
-layout(set = 0, binding = 2, std430) readonly buffer Agents { Agent a[]; } agents_buf[];
-layout(set = 0, binding = 2, std430) buffer Survivors { uint count; uint pad0; uint pad1; uint pad2; uint idx[]; } surv_buf[];
+layout(set = 2, binding = 0, std430) readonly buffer Agents { Agent a[]; } agents_buf[];
+layout(set = 2, binding = 0, std430) buffer Survivors { uint count; uint pad0; uint pad1; uint pad2; uint idx[]; } surv_buf[];
 
 layout(push_constant, std430) uniform Root
 {

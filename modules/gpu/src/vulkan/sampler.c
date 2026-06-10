@@ -136,7 +136,7 @@ Mel_Gpu_Sampler_Create_Result mel_gpu_sampler_create_opt(Mel_Gpu_Device* dev, Me
     obj.refcount = 1;
     Mel_SlotMap_Handle h = mel_gpu__table_insert(dev, &dev->samplers, &obj);
 
-    if (!mel_gpu__bindless_slot_fits(dev, MEL_GPU_BINDLESS_BINDING_SAMPLER, h.index))
+    if (!mel_gpu__bindless_slot_fits(dev, MEL_GPU_BINDLESS_CLASS_SAMPLER, h.index))
     {
         mel_gpu__table_remove(dev, &dev->samplers, h);
         mel_mutex_unlock(&dev->sampler_lock);
@@ -195,6 +195,7 @@ void mel_gpu_sampler_destroy(Mel_Gpu_Device* dev, Mel_Gpu_Sampler sampler)
     mel_gpu__table_remove_deferred(dev, &dev->samplers, sampler.slot);
     mel_mutex_unlock(&dev->sampler_lock);
 
+    mel_gpu__bindless_unregister(dev, MEL_GPU_BINDLESS_CLASS_SAMPLER, sampler.slot.index);
     mel_gpu__defer_free(dev, (Mel_Gpu_Deferred_Free){ .sampler = vk, .reclaim_table = &dev->samplers, .reclaim_index = sampler.slot.index, .has_reclaim = true });
     mel_gpu__track_exit(dev, trk);
 }

@@ -40,10 +40,10 @@ Root root;
 [[vk::binding(0, 0)]]
 Texture2D<float4> u_textures[];
 
-[[vk::binding(1, 0)]]
+[[vk::binding(0, 1)]]
 SamplerState u_samplers[];
 
-[[vk::binding(4, 0)]]
+[[vk::binding(0, 4)]]
 [format("rgba8")]
 RWTexture2D<float4> u_images[];
 

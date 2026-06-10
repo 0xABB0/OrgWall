@@ -7,7 +7,7 @@ struct Instance
     vec4 color;
 };
 
-layout(set = 0, binding = 2, std430) readonly buffer Instances
+layout(set = 2, binding = 0, std430) readonly buffer Instances
 {
     Instance items[];
 } u_buffers[];

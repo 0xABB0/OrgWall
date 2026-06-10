@@ -81,19 +81,19 @@ static Mel_Gpu_Format mel_spv__vertex_format(u8 kind, u8 comps)
     return MEL_GPU_FORMAT_UNDEFINED;
 }
 
-static void mel_spv__push_set0(const Mel_Alloc* a, Mel_Gpu_Spirv_Reflection* r, u32 binding, u32 array_len, bool runtime)
+static void mel_spv__push_desc_binding(const Mel_Alloc* a, Mel_Gpu_Spirv_Reflection* r, u32 set, u32 binding, u32 array_len, bool runtime)
 {
-    for (u32 i = 0; i < r->set0_count; i++)
-        if (r->set0[i].binding == binding)
+    for (u32 i = 0; i < r->binding_count; i++)
+        if (r->bindings[i].set == set && r->bindings[i].binding == binding)
         {
-            if (array_len > r->set0[i].array_len)
-                r->set0[i].array_len = array_len;
-            r->set0[i].runtime_array = r->set0[i].runtime_array || runtime;
+            if (array_len > r->bindings[i].array_len)
+                r->bindings[i].array_len = array_len;
+            r->bindings[i].runtime_array = r->bindings[i].runtime_array || runtime;
             return;
         }
-    u32 cap = r->set0_count + 1;
-    r->set0 = r->set0 ? mel_realloc(a, r->set0, sizeof(*r->set0) * cap) : mel_alloc(a, sizeof(*r->set0) * cap);
-    r->set0[r->set0_count++] = (Mel_Gpu_Reflect_Set0_Binding){ .binding = binding, .array_len = array_len, .runtime_array = runtime };
+    u32 cap = r->binding_count + 1;
+    r->bindings = r->bindings ? mel_realloc(a, r->bindings, sizeof(*r->bindings) * cap) : mel_alloc(a, sizeof(*r->bindings) * cap);
+    r->bindings[r->binding_count++] = (Mel_Gpu_Reflect_Desc_Binding){ .set = set, .binding = binding, .array_len = array_len, .runtime_array = runtime };
 }
 
 static void mel_spv__push_spec(const Mel_Alloc* a, Mel_Gpu_Spirv_Reflection* r, u32 id, u32 bytes)
@@ -300,12 +300,12 @@ void mel_gpu__spirv_reflect(const u32* code, usize size_bytes, bool vertex_stage
                 if (is_push_ptr[ptr])
                     pc_struct_id = ptr_pointee[ptr];
             }
-            else if (has_set[var] && dec_set[var] == 0)
+            else if (has_set[var])
             {
                 u32  pointee = ptr_pointee[ptr];
                 bool runtime = type_is_runtime[pointee] != 0;
                 u32  len = type_is_array[pointee] ? type_array_len[pointee] : 1;
-                mel_spv__push_set0(alloc, accum, dec_binding[var], len, runtime);
+                mel_spv__push_desc_binding(alloc, accum, dec_set[var], dec_binding[var], len, runtime);
             }
             else if (vertex_stage && sc == SpvStorageClassInput && has_location[var] && !is_builtin[var])
             {
@@ -330,8 +330,8 @@ void mel_gpu__spirv_reflect(const u32* code, usize size_bytes, bool vertex_stage
     if (pc_struct_id && type_size[pc_struct_id % bound] > accum->push_constant_size)
         accum->push_constant_size = type_size[pc_struct_id % bound];
 
-    for (u32 s = 0; s < accum->set0_count; s++)
-        if (accum->set0[s].runtime_array)
+    for (u32 s = 0; s < accum->binding_count; s++)
+        if (accum->bindings[s].runtime_array && accum->bindings[s].binding == 0 && accum->bindings[s].set < MEL_GPU_BINDLESS_CLASS_COUNT)
             accum->uses_bindless_set = true;
 
     if (vertex_stage)
@@ -388,14 +388,14 @@ void mel_gpu__reflection_free(Mel_Gpu_Spirv_Reflection* r)
 {
     if (!r->alloc)
         return;
-    if (r->set0)
-        mel_dealloc(r->alloc, r->set0);
+    if (r->bindings)
+        mel_dealloc(r->alloc, r->bindings);
     if (r->vertex_attrs)
         mel_dealloc(r->alloc, r->vertex_attrs);
     if (r->spec_constants)
         mel_dealloc(r->alloc, r->spec_constants);
-    r->set0 = NULL;
+    r->bindings = NULL;
     r->vertex_attrs = NULL;
     r->spec_constants = NULL;
-    r->set0_count = r->vertex_attr_count = r->spec_constant_count = 0;
+    r->binding_count = r->vertex_attr_count = r->spec_constant_count = 0;
 }

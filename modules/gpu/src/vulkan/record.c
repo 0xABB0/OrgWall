@@ -36,6 +36,7 @@ void mel_gpu_command_list_begin(Mel_Gpu_Command_List* cmd)
     vkBeginCommandBuffer(cmd->cb, &bi);
     cmd->cur_layout = VK_NULL_HANDLE;
     cmd->state_count = 0;
+    mel_gpu__bindless_cl_release(cmd);
     cmd->recording = true;
 }
 
@@ -52,6 +53,9 @@ void mel_gpu_command_list_destroy(Mel_Gpu_Command_List* cmd)
     if (!cmd)
         return;
     mel_assert(cmd->standalone);
+    mel_gpu__bindless_cl_release(cmd);
+    if (cmd->held_epochs)
+        mel_dealloc(cmd->dev->alloc, cmd->held_epochs);
     if (cmd->cb)
         vkFreeCommandBuffers(cmd->dev->vk, cmd->owner_pool, 1, &cmd->cb);
     if (cmd->states)

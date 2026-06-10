@@ -50,13 +50,13 @@ struct Root
 [[vk::push_constant]]
 Root root;
 
-[[vk::binding(2, 0)]]
+[[vk::binding(0, 2)]]
 StructuredBuffer<Agent> u_agent_buffers[];
 
-[[vk::binding(2, 0)]]
+[[vk::binding(0, 2)]]
 RWStructuredBuffer<uint> u_uint_buffers[];
 
-[[vk::binding(4, 0)]]
+[[vk::binding(0, 4)]]
 [format("rgba8")]
 RWTexture2D<float4> u_images[];
 

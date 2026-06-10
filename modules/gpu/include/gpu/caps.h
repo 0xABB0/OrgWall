@@ -168,6 +168,12 @@ typedef struct
     u32                         max_storage_buffer_slots;
     u32                         max_uniform_buffer_slots;
     u32                         max_storage_image_slots;
+    bool                        growable;
+    u32                         seed_texture_view_slots;
+    u32                         seed_sampler_slots;
+    u32                         seed_storage_buffer_slots;
+    u32                         seed_uniform_buffer_slots;
+    u32                         seed_storage_image_slots;
 } Mel_Gpu_Caps_Bindless;
 
 typedef struct

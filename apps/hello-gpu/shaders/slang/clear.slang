@@ -26,7 +26,7 @@ struct Root
 [[vk::push_constant]]
 Root root;
 
-[[vk::binding(4, 0)]]
+[[vk::binding(0, 4)]]
 [format("rgba8")]
 RWTexture2D<float4> u_images[];
 
