@@ -92,6 +92,40 @@
   crash report revealed the true assert. MEL-ENGINE-VIII failure in the
   failure path itself.
 
+## Cross-platform check (android / ios)
+
+- **Neither platform could run ANY boot-hosted app** — the boot entries were
+  owed (`modules/boot/readme.md`); iOS failed at link (`_main` undefined),
+  Android crashed at launch (`MelGui.nativeStart` unimplemented — it IS the
+  entry). Both entries written this session, mirroring the web guest entry:
+  - `boot/src/ios/entry.m` — `main` → `UIApplicationMain`; the delegate opens
+    the root vat over `mel_vat_waiter_guest` with a dispatch-main-queue
+    embedder, runs `mel_app_setup`, drives `mel_vat_step` per callback;
+    UIKit notification observers feed `mel_app__emit`.
+  - `boot/src/android/entry.c` — implements MelGui's seven owed JNI natives;
+    the embedder rides the main `ALooper` via eventfd (work) + timerfd
+    (deadline); Activity lifecycle natives map to `mel_app__emit` phases;
+    `whole_archive` on android keeps the JNI exports.
+- **Android build was broken repo-wide**: every executable target emitted
+  `<outdir>/libmelody.so`, so any module with two executables (paint:
+  example + test) generated duplicate ninja rules. Fixed in `build/emit.c`:
+  emit `lib<target>.so`, packaging renames to `libmelody.so` in jniLibs.
+- `BUNDLE_ID` with a hyphen is not a valid Android package; camera-gui is now
+  `orgwall.camerabench`.
+- camera-gui gained a mobile arrangement (`BENCH_MOBILE`): column, controls
+  scroll above a fixed-height preview; desktop keeps the sidebar row.
+- **iOS: verified.** Bench renders on the iPhone 16 simulator (iOS 26.2):
+  controls ordered and usable, 0 devices reported (simulator has no camera),
+  canvas placed. Screenshot-verified.
+- **Android: blocked by the gui backend, not by layout.** The new entry works
+  (app runs, vat pumps, both emulator cameras enumerate, hotplug delivers) but
+  the androidnative gui backend renders pure black for every app —
+  hello-world-gui included — on what is its first-ever live run (nothing could
+  launch before the entry existed). Backend bring-up is its own workstream.
+- Android camera sink detail noticed in logcat: hotplug callbacks arrive on a
+  camera-manager thread, not the executor given to `mel_camera_subscribe` —
+  check the android backend's executor routing during the camera rewrite.
+
 ## Kludges
 
 - `camera-gui` reads open/start/stop future status inline immediately after

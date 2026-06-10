@@ -23,6 +23,12 @@ static const char* MEL_TAG = "camera-gui";
 #define PREVIEW_BUFFERS 3
 #define HOTPLUG_LINES   4
 
+#if MEL_PLATFORM_ANDROID || MEL_PLATFORM_IOS
+#define BENCH_MOBILE 1
+#else
+#define BENCH_MOBILE 0
+#endif
+
 typedef struct
 {
     const Mel_Alloc* alloc;
@@ -674,10 +680,21 @@ static void build_main(Mel_Gui_Handle frame, void* user)
     g_app.frame = frame;
 
     mel_gui_set_text(frame, S8("Camera Bench"));
+
+    Mel_Layoutable side_spec;
+    Mel_Layoutable canvas_spec;
+#if BENCH_MOBILE
+    mel_gui_set_layout(frame, mel_column_layout(.spacing = 0, .margin = 0, .cross_align = MEL_ALIGN_STRETCH));
+    side_spec = (Mel_Layoutable){ .weight = 1 };
+    canvas_spec = (Mel_Layoutable){ .preferred_h = 320 };
+#else
     mel_gui_set_bounds(frame, 60, 60, 1280, 1080);
     mel_gui_set_layout(frame, mel_row_layout(.spacing = 0, .margin = 0, .cross_align = MEL_ALIGN_STRETCH));
+    side_spec = (Mel_Layoutable){ .fixed_w = 360 };
+    canvas_spec = (Mel_Layoutable){ .preferred_w = 640, .preferred_h = 480, .weight = 1 };
+#endif
 
-    Mel_Gui_Handle side = mel_scrollview_create(frame, .layout = mel_column_layout(.spacing = 10, .margin = 10, .cross_align = MEL_ALIGN_STRETCH), .layoutable = { .fixed_w = 360 });
+    Mel_Gui_Handle side = mel_scrollview_create(frame, .layout = mel_column_layout(.spacing = 10, .margin = 10, .cross_align = MEL_ALIGN_STRETCH), .layoutable = side_spec);
 
     Mel_Gui_Handle auth_box = mel_groupbox_create(side, .title = S8("Authorization"), .layout = mel_column_layout(.spacing = 6, .margin = 8, .cross_align = MEL_ALIGN_STRETCH), .layoutable = { .preferred_h = 100 });
     g_app.auth_label = mel_label_create(auth_box, .text = S8("Authorization: unknown"), .layoutable = { .preferred_h = 20 });
@@ -711,7 +728,7 @@ static void build_main(Mel_Gui_Handle frame, void* user)
     for (i32 i = 0; i < HOTPLUG_LINES; ++i)
         g_app.hotplug_labels[i] = mel_label_create(hp_box, .text = S8("-"), .layoutable = { .preferred_h = 18 });
 
-    g_app.canvas = mel_canvas_create(frame, .w = 640, .h = 480, .on_.on_paint = on_paint, .user = &g_app, .layoutable = { .preferred_w = 640, .preferred_h = 480, .weight = 1 });
+    g_app.canvas = mel_canvas_create(frame, .w = 640, .h = 480, .on_.on_paint = on_paint, .user = &g_app, .layoutable = canvas_spec);
 
     show_auth(mel_camera_authorization());
 

@@ -6,7 +6,7 @@ void build(Mel_Build* b)
     mel_subsystem(app, "gui");
     mel_sources(app, ALWAYS, "src/*.c");
     mel_manifest(app, "APP_LABEL", "Camera Bench");
-    mel_manifest(app, "BUNDLE_ID", "orgwall.camera-gui");
+    mel_manifest(app, "BUNDLE_ID", "orgwall.camerabench");
     mel_apple_plist(app, "apple/Info.plist.partial");
     mel_depends(app, "boot");
     mel_depends(app, "vat");
