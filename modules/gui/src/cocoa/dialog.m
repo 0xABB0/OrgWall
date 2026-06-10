@@ -165,6 +165,8 @@ Mel_Gui_Handle mel_dialog_create_opt(Mel_Dialog_Opt o)
         mel_window_keepalive_inc();
         [window makeKeyAndOrderFront:nil];
     }
+    if (mel_style_any(&o.style))
+        mel_gui_set_style(h, o.style);
     return h;
 }
 

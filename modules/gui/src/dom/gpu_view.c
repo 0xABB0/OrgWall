@@ -36,6 +36,7 @@ Mel_Gui_Handle mel_gpu_view_create_opt(Mel_Gui_Handle parent, Mel_Gpu_View_Opt o
         mel_web__on_focus(id);
     if (n->hidden)
         mel_web__el_visible(id, 0);
+    mel_web__member_sync(h);
     return h;
 }
 

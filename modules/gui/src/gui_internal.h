@@ -9,10 +9,21 @@
 
 #include <gui/gui.h>
 
-typedef struct Mel_Gui_Node
+typedef struct Mel_Gui_Node Mel_Gui_Node;
+
+/* A container whose children the backend itself arranges (tab pages fill the
+ * tab content rect, splitter panes get native-computed sizes). Replaces the
+ * old trick of a private Mel_Layout with a custom vtable. */
+typedef void (*Mel_Gui_Container_Arrange)(Mel_Gui_Handle container);
+
+struct Mel_Gui_Node
 {
     Mel_Gui_Handle self;
     Mel_Gui_Handle parent;
+    Mel_Gui_Handle first_child;
+    Mel_Gui_Handle last_child;
+    Mel_Gui_Handle next_sibling;
+    Mel_Gui_Handle prev_sibling;
     void*          native;
     void*          content;
     void*          user;
@@ -21,17 +32,25 @@ typedef struct Mel_Gui_Node
     bool           hidden;
     bool           is_screen;
     bool           is_scroll_host;
+    bool           lowered; /* layout handed to the native engine; the portable solver stays out */
     i32            content_floor_w, content_floor_h;
     str8           screen_title;
     Mel_Layoutable layoutable;
     Mel_Layout*    layout;
-} Mel_Gui_Node;
+
+    Mel_Gui_Container_Arrange container_arrange;
+};
 
 const Mel_Alloc* mel_gui__alloc(void);
 Mel_Vat*         mel_gui__vat(void);
 
 Mel_Gui_Node* mel_gui__node(Mel_Gui_Handle h);
 Mel_Gui_Node* mel_gui__nodes(u32* count_out);
+
+/* Children in creation order via the intrusive sibling list. */
+Mel_Gui_Handle mel_gui__first_child(Mel_Gui_Handle parent);
+Mel_Gui_Handle mel_gui__next_sibling(Mel_Gui_Handle child);
+u32            mel_gui__child_count(Mel_Gui_Handle parent);
 
 Mel_Gui_Handle mel_gui__node_new(Mel_Gui_Handle parent, i32 x, i32 y, i32 w, i32 h, u32 id, void* user, bool hidden, const Mel_Layoutable* layoutable, Mel_Layout* layout);
 void           mel_gui__node_release(Mel_Gui_Handle h);
@@ -120,8 +139,24 @@ void mel_gui__backend_set_content_size(Mel_Gui_Node* n, i32 w, i32 h);
  * is fired by the backend from the callbacks it stores on the native object. */
 void mel_gui__resized(Mel_Gui_Handle h, i32 w, i32 height);
 
-/* The two hooks every backend implements. Everything else a backend exposes is
+/* The hooks every backend implements. Everything else a backend exposes is
  * the public API itself (mel_<widget>_create_opt, mel_gui_set_*, ...), defined
  * directly in src/<backend>/. There is no generic create or op delegation. */
 bool mel_gui__backend_init(void);
 void mel_gui__backend_destroy(Mel_Gui_Node* n);
+
+/* Lower `layout` to the platform layout engine for `n`'s children. Returns
+ * true when the native engine now owns arrangement (the portable solver stays
+ * out); false is not a failure — it is the honest answer of a backend whose
+ * idiom is absolute positioning (win32) or that does not recognise the class. */
+bool mel_gui__backend_layout_adopt(Mel_Gui_Node* n, Mel_Layout* layout);
+
+/* The control's natively-measured size (what the OS control wants to be).
+ * False when the backend cannot measure; the host falls back to the node's
+ * current extent. */
+bool mel_gui__backend_natural_size(Mel_Gui_Node* n, i32* out_w, i32* out_h);
+
+/* A container created with .layout in its opt: run adoption once the native
+ * object exists. Backends that lower call this at the end of container
+ * creation; portable-solver backends need not bother. */
+void mel_gui__node_native_ready(Mel_Gui_Handle h);

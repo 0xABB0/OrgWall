@@ -99,8 +99,19 @@ static LRESULT CALLBACK frame_wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         }
         break;
     case WM_CTLCOLORSTATIC:
-        SetBkMode((HDC)wp, TRANSPARENT);
-        return (LRESULT)(UINT_PTR)GetSysColorBrush(COLOR_BTNFACE);
+    case WM_CTLCOLORBTN:
+    case WM_CTLCOLOREDIT:
+    {
+        LRESULT brush = mel_gui__win32_ctl_color(msg, (HDC)wp, hwnd, (HWND)lp);
+        if (brush)
+            return brush;
+        if (msg == WM_CTLCOLORSTATIC)
+        {
+            SetBkMode((HDC)wp, TRANSPARENT);
+            return (LRESULT)(UINT_PTR)GetSysColorBrush(COLOR_BTNFACE);
+        }
+        break;
+    }
     case WM_SIZE:
     {
         i32 cw = (i32)LOWORD(lp);
@@ -318,6 +329,9 @@ Mel_Gui_Handle mel_frame_create_opt(Mel_Frame_Opt o)
     n->y = got.top;
     n->width = cw;
     n->height = ch;
+
+    if (mel_style_any(&o.style))
+        mel_gui_set_style(h, o.style);
 
     mel_gui__frames_inc();
     return h;

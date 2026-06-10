@@ -7,6 +7,7 @@
 #include <gui/callbacks.h>
 #include <gui/insets.h>
 #include <gui/layout.h>
+#include <gui/style.h>
 
 typedef enum
 {
@@ -40,6 +41,7 @@ typedef struct
     Mel_Gui_Keyboard_Cb  keyboard;
     Mel_Gui_Insets_Cb    insets;
     Mel_Layout*          layout;
+    Mel_Style            style;
 } Mel_Frame_Opt;
 
 Mel_Gui_Handle mel_frame_create_opt(Mel_Frame_Opt opt);

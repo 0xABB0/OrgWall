@@ -5,6 +5,7 @@
 #include <gui/handle.h>
 #include <gui/callbacks.h>
 #include <gui/layout.h>
+#include <gui/style.h>
 
 typedef struct
 {
@@ -18,6 +19,7 @@ typedef struct
     Mel_Gui_Keyboard_Cb keyboard;
     Mel_Layout*         layout;
     Mel_Layoutable      layoutable;
+    Mel_Style           style;
 } Mel_Panel_Opt;
 
 Mel_Gui_Handle mel_panel_create_opt(Mel_Gui_Handle parent, Mel_Panel_Opt opt);

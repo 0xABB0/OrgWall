@@ -123,8 +123,19 @@ static LRESULT CALLBACK scroll_wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp
         }
         break;
     case WM_CTLCOLORSTATIC:
-        SetBkMode((HDC)wp, TRANSPARENT);
-        return (LRESULT)(UINT_PTR)GetSysColorBrush(COLOR_BTNFACE);
+    case WM_CTLCOLORBTN:
+    case WM_CTLCOLOREDIT:
+    {
+        LRESULT brush = mel_gui__win32_ctl_color(msg, (HDC)wp, hwnd, (HWND)lp);
+        if (brush)
+            return brush;
+        if (msg == WM_CTLCOLORSTATIC)
+        {
+            SetBkMode((HDC)wp, TRANSPARENT);
+            return (LRESULT)(UINT_PTR)GetSysColorBrush(COLOR_BTNFACE);
+        }
+        break;
+    }
     case WM_SIZE:
         scroll_apply(hwnd, s);
         return 0;
@@ -197,6 +208,8 @@ Mel_Gui_Handle mel_scrollview_create_opt(Mel_Gui_Handle parent, Mel_ScrollView_O
     n->content = inner;
 
     scroll_apply(outer, s);
+    if (mel_style_any(&o.style))
+        mel_gui_set_style(h, o.style);
     return h;
 }
 

@@ -1,22 +1,15 @@
 #include "macos.h"
 
-static void split_arrange(Mel_Layout* layout, Mel_Gui_Handle container, i32 avail_w, i32 avail_h)
+static void split_arrange(Mel_Gui_Handle container)
 {
-    (void)layout;
-    (void)avail_w;
-    (void)avail_h;
     Mel_Gui_Node* node = mel_gui__node(container);
     if (!node || !node->native)
         return;
 
-    u32           count = 0;
-    Mel_Gui_Node* data = mel_gui__nodes(&count);
-    for (u32 i = 0; i < count; i++)
+    for (Mel_Gui_Handle ch = mel_gui__first_child(container); !mel_gui_handle_is_none(ch); ch = mel_gui__next_sibling(ch))
     {
-        Mel_Gui_Node* c = &data[i];
-        if (!mel_gui_handle_eq(c->parent, container))
-            continue;
-        if (!c->native)
+        Mel_Gui_Node* c = mel_gui__node(ch);
+        if (!c || !c->native)
             continue;
         NSView* host = (__bridge NSView*)c->native;
         NSRect  fr = host.frame;
@@ -28,8 +21,6 @@ static void split_arrange(Mel_Layout* layout, Mel_Gui_Handle container, i32 avai
             mel_gui__layout_arrange(c->self);
     }
 }
-
-static const Mel_Layout_Vtable s_split_vtable = { .arrange = split_arrange };
 
 @implementation MelGuiSplitView
 
@@ -56,14 +47,11 @@ static const Mel_Layout_Vtable s_split_vtable = { .arrange = split_arrange };
 
 Mel_Gui_Handle mel_splitter_create_opt(Mel_Gui_Handle parent, Mel_Splitter_Opt o)
 {
-    Mel_Layout* layout = (Mel_Layout*)mel_calloc(mel_gui__alloc(), sizeof *layout);
-    if (layout)
-        layout->vtable = &s_split_vtable;
-
-    Mel_Gui_Handle h = mel_gui__node_new(parent, o.x, o.y, o.w, o.h, o.id, o.user, o.hidden, &o.layoutable, layout);
+    Mel_Gui_Handle h = mel_gui__node_new(parent, o.x, o.y, o.w, o.h, o.id, o.user, o.hidden, &o.layoutable, NULL);
     Mel_Gui_Node*  n = mel_gui__node(h);
     if (!n)
         return h;
+    n->container_arrange = split_arrange;
 
     @autoreleasepool
     {
@@ -76,6 +64,8 @@ Mel_Gui_Handle mel_splitter_create_opt(Mel_Gui_Handle parent, Mel_Splitter_Opt o
         sv.delegate = sv;
         mel_gui__macos_install_child(n, sv);
     }
+    if (mel_style_any(&o.style))
+        mel_gui_set_style(h, o.style);
     return h;
 }
 
@@ -102,5 +92,7 @@ Mel_Gui_Handle mel_splitpane_create_opt(Mel_Gui_Handle splitter, Mel_SplitPane_O
         n->native = (void*)CFBridgingRetain(host);
         n->content = (__bridge void*)host;
     }
+    if (mel_style_any(&o.style))
+        mel_gui_set_style(h, o.style);
     return h;
 }

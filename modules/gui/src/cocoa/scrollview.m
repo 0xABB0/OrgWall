@@ -32,6 +32,8 @@ Mel_Gui_Handle mel_scrollview_create_opt(Mel_Gui_Handle parent, Mel_ScrollView_O
         mel_gui__macos_install_child(n, scroll);
         n->content = (__bridge void*)doc;
     }
+    if (mel_style_any(&o.style))
+        mel_gui_set_style(h, o.style);
     return h;
 }
 

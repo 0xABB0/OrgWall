@@ -65,5 +65,7 @@ Mel_Gui_Handle mel_canvas_create_opt(Mel_Gui_Handle parent, Mel_Canvas_Opt o)
     view.backgroundColor = [UIColor clearColor];
     view.contentMode = UIViewContentModeRedraw;
     mel_gui__ios_install_child(n, view);
+    if (mel_style_any(&o.style))
+        mel_gui_set_style(h, o.style);
     return h;
 }

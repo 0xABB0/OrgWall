@@ -55,5 +55,9 @@ Mel_Gui_Handle mel_groupbox_create_opt(Mel_Gui_Handle parent, Mel_GroupBox_Opt o
     }
 
     (*env)->DeleteLocalRef(env, view);
+
+    mel_gui__node_native_ready(h);
+    if (mel_style_any(&o.style))
+        mel_gui_set_style(h, o.style);
     return h;
 }

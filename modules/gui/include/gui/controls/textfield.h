@@ -6,6 +6,7 @@
 #include <gui/handle.h>
 #include <gui/callbacks.h>
 #include <gui/layout.h>
+#include <gui/style.h>
 
 typedef struct
 {
@@ -25,6 +26,7 @@ typedef struct
     Mel_Gui_Keyboard_Cb  keyboard;
     Mel_TextField_On     on_;
     Mel_Layoutable       layoutable;
+    Mel_Style            style;
 } Mel_TextField_Opt;
 
 Mel_Gui_Handle mel_textfield_create_opt(Mel_Gui_Handle parent, Mel_TextField_Opt opt);

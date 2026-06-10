@@ -26,8 +26,19 @@ static LRESULT CALLBACK container_wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM
         }
         break;
     case WM_CTLCOLORSTATIC:
-        SetBkMode((HDC)wp, TRANSPARENT);
-        return (LRESULT)(UINT_PTR)GetSysColorBrush(COLOR_BTNFACE);
+    case WM_CTLCOLORBTN:
+    case WM_CTLCOLOREDIT:
+    {
+        LRESULT brush = mel_gui__win32_ctl_color(msg, (HDC)wp, hwnd, (HWND)lp);
+        if (brush)
+            return brush;
+        if (msg == WM_CTLCOLORSTATIC)
+        {
+            SetBkMode((HDC)wp, TRANSPARENT);
+            return (LRESULT)(UINT_PTR)GetSysColorBrush(COLOR_BTNFACE);
+        }
+        break;
+    }
     case WM_LBUTTONDOWN:
         if (p && p->pointer.on_pointer_down)
             p->pointer.on_pointer_down(h, GET_X_LPARAM(lp), GET_Y_LPARAM(lp), u);
@@ -115,5 +126,7 @@ Mel_Gui_Handle mel_panel_create_opt(Mel_Gui_Handle parent, Mel_Panel_Opt o)
 
     HWND hwnd = mel_gui__win32_make_container(par, n->x, n->y, n->width, n->height, h, o.pointer, o.focus, o.keyboard, n->hidden, o.disabled);
     n->native = hwnd;
+    if (hwnd && mel_style_any(&o.style))
+        mel_gui_set_style(h, o.style);
     return h;
 }

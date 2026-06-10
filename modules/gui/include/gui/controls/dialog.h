@@ -6,6 +6,7 @@
 #include <gui/handle.h>
 #include <gui/callbacks.h>
 #include <gui/layout.h>
+#include <gui/style.h>
 
 typedef struct
 {
@@ -31,6 +32,7 @@ typedef struct
     Mel_Gui_Focus_Cb     focus;
     Mel_Gui_Keyboard_Cb  keyboard;
     Mel_Layout*          layout;
+    Mel_Style            style;
 } Mel_Dialog_Opt;
 
 Mel_Gui_Handle mel_dialog_create_opt(Mel_Dialog_Opt opt);

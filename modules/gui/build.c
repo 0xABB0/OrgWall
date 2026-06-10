@@ -31,4 +31,5 @@ void build(Mel_Build* b)
     mel_depends(lib, "window");
     mel_depends(lib, "color");
     mel_depends(lib, "paint");
+    mel_depends(lib, "layout");
 }

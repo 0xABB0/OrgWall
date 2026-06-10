@@ -10,24 +10,21 @@ static jmethodID s_addTab;
 static jmethodID s_select;
 static jmethodID s_selected;
 
-static void tab_arrange(Mel_Layout* layout, Mel_Gui_Handle container, i32 avail_w, i32 avail_h)
+static void tab_arrange(Mel_Gui_Handle container)
 {
-    (void)layout;
     Mel_Gui_Node* node = mel_gui__node(container);
     if (!node)
         return;
 
-    i32 pw = avail_w;
-    i32 ph = avail_h - TABSTRIP_DP;
+    i32 pw = node->width;
+    i32 ph = node->height - TABSTRIP_DP;
     if (ph < 0)
         ph = 0;
 
-    u32           count = 0;
-    Mel_Gui_Node* data = mel_gui__nodes(&count);
-    for (u32 i = 0; i < count; i++)
+    for (Mel_Gui_Handle ch = mel_gui__first_child(container); !mel_gui_handle_is_none(ch); ch = mel_gui__next_sibling(ch))
     {
-        Mel_Gui_Node* c = &data[i];
-        if (!mel_gui_handle_eq(c->parent, container))
+        Mel_Gui_Node* c = mel_gui__node(ch);
+        if (!c)
             continue;
         c->x = 0;
         c->y = 0;
@@ -37,8 +34,6 @@ static void tab_arrange(Mel_Layout* layout, Mel_Gui_Handle container, i32 avail_
             mel_gui__layout_arrange(c->self);
     }
 }
-
-static const Mel_Layout_Vtable s_tab_vtable = { .arrange = tab_arrange };
 
 bool mel_gui__android_tabview_register_jni(JNIEnv* env)
 {
@@ -62,14 +57,11 @@ bool mel_gui__android_tabview_register_jni(JNIEnv* env)
 
 Mel_Gui_Handle mel_tabview_create_opt(Mel_Gui_Handle parent, Mel_TabView_Opt o)
 {
-    Mel_Layout* layout = (Mel_Layout*)mel_calloc(mel_gui__alloc(), sizeof *layout);
-    if (layout)
-        layout->vtable = &s_tab_vtable;
-
-    Mel_Gui_Handle h = mel_gui__node_new(parent, o.x, o.y, o.w, o.h, o.id, o.user, o.hidden, &o.layoutable, layout);
+    Mel_Gui_Handle h = mel_gui__node_new(parent, o.x, o.y, o.w, o.h, o.id, o.user, o.hidden, &o.layoutable, NULL);
     Mel_Gui_Node*  n = mel_gui__node(h);
     if (!n)
         return h;
+    n->container_arrange = tab_arrange;
 
     JNIEnv* env = mel_gui__android_env();
     if (!env)
@@ -87,6 +79,9 @@ Mel_Gui_Handle mel_tabview_create_opt(Mel_Gui_Handle parent, Mel_TabView_Opt o)
     mel_gui__android_attach(n, view);
     mel_gui__android_install_focus(env, view, h, o.focus);
     (*env)->DeleteLocalRef(env, view);
+
+    if (mel_style_any(&o.style))
+        mel_gui_set_style(h, o.style);
     return h;
 }
 
@@ -118,6 +113,10 @@ Mel_Gui_Handle mel_tab_create_opt(Mel_Gui_Handle tabview, Mel_Tab_Opt o)
 
     n->native = (*env)->NewGlobalRef(env, page);
     (*env)->DeleteLocalRef(env, page);
+
+    mel_gui__node_native_ready(h);
+    if (mel_style_any(&o.style))
+        mel_gui_set_style(h, o.style);
     return h;
 }
 

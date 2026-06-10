@@ -53,6 +53,8 @@ Mel_Gui_Handle mel_slider_create_opt(Mel_Gui_Handle parent, Mel_Slider_Opt o)
     SendMessageW(hwnd, TBM_SETRANGEMAX, FALSE, max_value);
     SendMessageW(hwnd, TBM_SETPOS, TRUE, o.value);
     SetWindowSubclass(hwnd, slider_subclass, 1, 0);
+    if (mel_style_any(&o.style))
+        mel_gui_set_style(h, o.style);
     return h;
 }
 

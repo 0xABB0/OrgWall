@@ -6,6 +6,7 @@
 #include <gui/handle.h>
 #include <gui/callbacks.h>
 #include <gui/layout.h>
+#include <gui/style.h>
 
 typedef struct
 {
@@ -17,6 +18,7 @@ typedef struct
     void (*on_select)(Mel_Gui_Handle h, i32 index, void* user);
     Mel_Gui_Focus_Cb focus;
     Mel_Layoutable   layoutable;
+    Mel_Style        style;
 } Mel_TabView_Opt;
 
 Mel_Gui_Handle mel_tabview_create_opt(Mel_Gui_Handle parent, Mel_TabView_Opt opt);
@@ -29,6 +31,7 @@ typedef struct
     void*          user;
     Mel_Layout*    layout;
     Mel_Layoutable layoutable;
+    Mel_Style      style;
 } Mel_Tab_Opt;
 
 Mel_Gui_Handle mel_tab_create_opt(Mel_Gui_Handle tabview, Mel_Tab_Opt opt);

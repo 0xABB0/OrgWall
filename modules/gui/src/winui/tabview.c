@@ -6,11 +6,8 @@ static void tab_display_rect(HWND tabctl, RECT* out)
     TabCtrl_AdjustRect(tabctl, FALSE, out);
 }
 
-static void tab_arrange(Mel_Layout* layout, Mel_Gui_Handle container, i32 avail_w, i32 avail_h)
+static void tab_arrange(Mel_Gui_Handle container)
 {
-    (void)layout;
-    (void)avail_w;
-    (void)avail_h;
     Mel_Gui_Node* node = mel_gui__node(container);
     if (!node || !node->native)
         return;
@@ -19,12 +16,10 @@ static void tab_arrange(Mel_Layout* layout, Mel_Gui_Handle container, i32 avail_
     RECT rc;
     tab_display_rect(tabctl, &rc);
 
-    u32           count = 0;
-    Mel_Gui_Node* data = mel_gui__nodes(&count);
-    for (u32 i = 0; i < count; i++)
+    for (Mel_Gui_Handle ch = mel_gui__first_child(container); !mel_gui_handle_is_none(ch); ch = mel_gui__next_sibling(ch))
     {
-        Mel_Gui_Node* c = &data[i];
-        if (!mel_gui_handle_eq(c->parent, container))
+        Mel_Gui_Node* c = mel_gui__node(ch);
+        if (!c)
             continue;
         c->x = rc.left;
         c->y = rc.top;
@@ -35,8 +30,6 @@ static void tab_arrange(Mel_Layout* layout, Mel_Gui_Handle container, i32 avail_
             mel_gui__layout_arrange(c->self);
     }
 }
-
-static const Mel_Layout_Vtable s_tab_vtable = { .arrange = tab_arrange };
 
 static LRESULT CALLBACK tabview_parent_subclass(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp, UINT_PTR id, DWORD_PTR ref)
 {
@@ -64,14 +57,11 @@ static LRESULT CALLBACK tabview_parent_subclass(HWND hwnd, UINT msg, WPARAM wp, 
 
 Mel_Gui_Handle mel_tabview_create_opt(Mel_Gui_Handle parent, Mel_TabView_Opt o)
 {
-    Mel_Layout* layout = (Mel_Layout*)mel_calloc(mel_gui__alloc(), sizeof *layout);
-    if (layout)
-        layout->vtable = &s_tab_vtable;
-
-    Mel_Gui_Handle h = mel_gui__node_new(parent, o.x, o.y, o.w, o.h, o.id, o.user, o.hidden, &o.layoutable, layout);
+    Mel_Gui_Handle h = mel_gui__node_new(parent, o.x, o.y, o.w, o.h, o.id, o.user, o.hidden, &o.layoutable, NULL);
     Mel_Gui_Node*  n = mel_gui__node(h);
     if (!n)
         return h;
+    n->container_arrange = tab_arrange;
 
     HWND par = mel_gui__win32_parent_hwnd(n);
     if (!par)
@@ -91,6 +81,8 @@ Mel_Gui_Handle mel_tabview_create_opt(Mel_Gui_Handle parent, Mel_TabView_Opt o)
         tv->selected = -1;
         SetWindowSubclass(par, tabview_parent_subclass, (UINT_PTR)tabctl, (DWORD_PTR)tv);
     }
+    if (mel_style_any(&o.style))
+        mel_gui_set_style(h, o.style);
     return h;
 }
 
@@ -134,6 +126,8 @@ Mel_Gui_Handle mel_tab_create_opt(Mel_Gui_Handle tabview, Mel_Tab_Opt o)
     tv->page_count++;
     if (tv->selected < 0)
         tv->selected = 0;
+    if (mel_style_any(&o.style))
+        mel_gui_set_style(h, o.style);
     return h;
 }
 

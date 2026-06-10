@@ -92,10 +92,12 @@ EM_JS(int, mel_web__el_get_value, (int id, char* buf, int cap), {
 
 EM_JS(void, mel_web__el_title, (const char* s), { document.title = UTF8ToString(s); });
 
+// Showing restores the element's lowered display mode (flex/grid) when one
+// was recorded; otherwise it clears the inline display so the class CSS rules.
 EM_JS(void, mel_web__el_visible, (int id, int v), {
     const el = MelWeb.els[id];
     if (el)
-        el.style.display = v ? 'block' : 'none';
+        el.style.display = v ? (el.dataset.melDisplay || '') : 'none';
 });
 
 EM_JS(void, mel_web__el_enabled, (int id, int v), {
@@ -117,6 +119,11 @@ EM_JS(void, mel_web__el_focus, (int id), {
 
 EM_JS(void, mel_web__el_destroy, (int id), {
     const el = MelWeb.els[id];
+    if (el && MelWeb.roIds && MelWeb.roIds.has(el))
+    {
+        MelWeb.ro.unobserve(el);
+        MelWeb.roIds.delete(el);
+    }
     if (el && el.parentNode)
         el.parentNode.removeChild(el);
     MelWeb.els[id] = null;
@@ -473,7 +480,9 @@ void mel_gui_set_bounds(Mel_Gui_Handle h, i32 x, i32 y, i32 width, i32 height)
     int id = mel_web__id_of(n);
     if (!id)
         return;
-    mel_web__el_bounds(id, x, y, width, height);
+    Mel_Gui_Node* p = mel_gui__node(n->parent);
+    if (!(p && p->lowered)) // flex/grid members are positioned by the browser
+        mel_web__el_bounds(id, x, y, width, height);
     Mel_Web_Ctl* c = mel_web__ctl(id);
     if (c && c->canvas.on_paint)
         mel_web__canvas_repaint(n);

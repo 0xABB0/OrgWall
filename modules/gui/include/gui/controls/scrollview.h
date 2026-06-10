@@ -5,6 +5,7 @@
 #include <gui/handle.h>
 #include <gui/callbacks.h>
 #include <gui/layout.h>
+#include <gui/style.h>
 
 typedef struct
 {
@@ -17,6 +18,7 @@ typedef struct
     Mel_Gui_Focus_Cb focus;
     Mel_Layout*      layout;
     Mel_Layoutable   layoutable;
+    Mel_Style        style;
 } Mel_ScrollView_Opt;
 
 Mel_Gui_Handle mel_scrollview_create_opt(Mel_Gui_Handle parent, Mel_ScrollView_Opt opt);
