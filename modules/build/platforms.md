@@ -14,9 +14,13 @@ committed system actually does.
 A `build.c` per target declares **named artifacts** built from sources and exposed to dependents.
 `nob` discovers every `build.c`, runs each one's `build()` to construct the artifact graph,
 resolves a single **variant** `(platform, arch, config, backend, gpu, runtime)`, propagates flags
-along the explicit dependency graph, and emits a `ninja` file it then runs. There is no implicit
-source discovery and no directory-shadowing magic — a target sees exactly the sources, includes,
-flags and dependencies its `build.c` declares, each gated by an explicit `Mel_When` selector.
+along the explicit dependency graph, and emits one **global per-variant** ninja file
+(`build/<platform>[-sim]-<config>/build.ninja`, covering every discovered target) that it then
+runs on the requested target. There is no implicit source discovery and no directory-shadowing
+magic — a target sees exactly the sources, includes, flags and dependencies its `build.c`
+declares, each gated by an explicit `Mel_When` selector. Graph errors are fatal: a `build.c` that
+fails to compile, an unknown dependency or codegen tool, and a library/executable whose
+variant-matched source globs match nothing all abort the run with the underlying error shown.
 
 ## Authoring a `build.c`
 
@@ -114,22 +118,40 @@ variant applies to the entire dependency closure.
     ./nob compile   <target> [platform]   # build without packaging
     ./nob link      <target> [platform]   # (same as compile — no object-only stop yet)
     ./nob package   <target> [platform]   # build + package
-    ./nob compdb    [platform …]          # write root compile_commands.json (see below)
+    ./nob compdb    [target] [platform …] # write per-directory compile_commands.json (see below)
 
 Flags usable anywhere: `--debug`/`--release`, `--gpu=<id>`/`--gpu <id>`, `--arch=<a>`, and
 `-- <args>` forwards the remainder to the launched binary (`run`) or test.
 
 ## Outputs & layout
 
-Per target: `<target_dir>/build/<platform>-<config>/` — objects under `obj/` (mirroring the source
-tree), generated sources under `gen/`, the emitted `build.ninja` at the root target's outdir.
+Per target: `<target_dir>/build/<platform>[-sim]-<config>/` — objects under `obj/<target>/`
+(namespaced per target so two targets sharing a source never collide; `..` glob segments are
+sanitized to `__`), generated sources under `gen/`.
 
-- Library → `lib<name>.a`; executable → `<name>` (`.exe` on win32); the root executable is the
-  ninja `default`.
+The emitted graph lives at `build/<platform>[-sim]-<config>/build.ninja` (repo root), one file per
+variant covering every discovered target, with ninja's `.ninja_log`/`.ninja_deps` in the same
+directory (`builddir`). Every target gets a phony alias named after it, so
+`ninja -f build/macos-debug/build.ninja audio` works. `nob` passes the requested target's output
+explicitly; nothing is `default`.
+
+- Library → `lib<name>.a`; executable → `<name>` (`.exe` on win32).
 - Host tools build with plain `clang` into `<target_dir>/build/host/`.
 - Android executables link as a shared `libmelody.so`; web GUI executables link to `.html` with the
   Emscripten shell.
 - Third-party install prefixes land in `<outdir>/prefix/{include,lib}`.
+
+## Incremental correctness & concurrency
+
+- Compile edges use `-MMD` depfiles + ninja's command-hash log, both per-variant; changing a flag
+  anywhere in a dependency's `build.c` rebuilds exactly the affected objects.
+- Discovery loader `.so`s are tracked by their own clang-generated depfiles; editing any header a
+  `build.c` includes recompiles its loader.
+- A per-variant advisory lock (`build/<variant>/.lock`) serializes concurrent `nob` runs of the
+  same variant; a second invocation waits and says so. Different variants proceed in parallel.
+  Host tools (`build/host/`) are shared across variants and not covered by the lock.
+- After each successful build `nob` runs `ninja -t cleandead`, deleting outputs that fell out of
+  the graph (renamed/removed sources).
 
 ## Toolchains
 
@@ -168,10 +190,12 @@ for the cmake step (default `ALWAYS`). A matched prebuilt takes precedence and s
 target can fetch a prebuilt on one platform and build from source on another (webgpu: prebuilt on
 macos, cmake-from-source on android, inert when `gpu ≠ webgpu`).
 
-CMake/autotools builds are stamp-gated (`.thirdparty-built`); prebuilt is gated on the expected lib
-already being present — a clean rebuild needs `rm -rf` of the target's `build/` dir. On success the
-prefix's `include`/`-Llib` (and, off-win32, an absolute `-Wl,-rpath`) are injected as public flags,
-so dependents resolve the headers and libraries automatically.
+The `.thirdparty-built` stamp is a **fingerprint** (builder kind, full configure args, toolchain,
+config, prebuilt url/lib): any mismatch wipes the third-party build dir and reconfigures from
+scratch. On a match, `cmake --build`/`make` still run each time — staleness of vendored sources is
+delegated to the third-party's own build system, which no-ops when fresh; prebuilt skips entirely.
+The prefix's `include`/`-Llib` (and, off-win32, an absolute `-Wl,-rpath`) are injected as public
+flags at emission, so dependents resolve the headers and libraries automatically.
 
 ## Codegen
 
@@ -184,9 +208,16 @@ A host-tool plus `mel_codegen` is the one generic codegen primitive. Declare the
 The tool runs at build time producing `gen/<output>`, which is compiled into the target.
 Substitutions in the argument list: `$out` (the generated path), `$dir` (the target's dir),
 `$cflags` (the target's compile flags), `$hostclang` (host SDK `-isysroot` + clang builtin-include,
-for libclang-based parsers). Header arguments ending in `.h` become order-only build deps
-(best-effort; no depfile, so transitive header edits don't retrigger). Two generators ship today:
-`enum_str_gen` (in `reflect`) and `continuation_gen` (in `continuation`).
+for libclang-based parsers). Codegen inputs are tracked explicitly, never guessed:
+
+- `mel_codegen_input(t, "$dir/include/foo/bar.h", …)` — declares ninja inputs on the most recently
+  declared codegen of the target.
+- `mel_codegen_depfile(t)` — marks the most recent codegen as writing a Makefile-syntax depfile at
+  `<output>.d`; the tool emits it (e.g. from its libclang inclusions), so transitive header edits
+  retrigger generation.
+
+Both are fatal if no codegen was declared first. The shipped generators (`enum_str_gen` in
+`reflect`, `coro_gen` in `coro`) emit depfiles.
 
 ## Packaging
 
@@ -207,14 +238,15 @@ placing the same file under `apps/<app>/<platform>/`.
 
 ## compile_commands.json
 
-`./nob compdb` writes a root `compile_commands.json` (git-ignored) for clangd/LSP. With no
-argument it emits a **host-first** set of all six platforms; pass platforms to restrict
-(`./nob compdb linux win32`). It covers every `build.c` (so `build.h` and the `mel_*` API resolve),
-the build system's own sources, and every target source per platform — flags gathered through the
-same `mel_gather_compile` the real build uses, so the DB never drifts. Cross sources carry
-`-target <triple>` plus the toolchain's own libc/sysroot headers (scraped from `cc -E -v`), so
-non-host files resolve too. It is an explicit step, not auto-run; re-run it after adding files. See
-`writeup/2026-05-31-compile-commands-db.md`.
+`./nob compdb [target] [platform …]` writes **per-directory** databases: each target directory gets
+its own `compile_commands.json` covering only that directory's sources (clangd walks up from a
+source file and uses the first one it finds, so the nearest DB wins). With a target it writes the
+target plus its transitive dependency closure; with none, every discovered target. The framework's
+own sources get `modules/build/compile_commands.json`, and the repo root keeps a single-entry DB
+for `nob.c`. Platform behavior is unchanged: **host-first** set of all six platforms by default,
+pass platforms to restrict (`./nob compdb hello-world-gui linux win32`). Flags are gathered through
+the same `mel_gather_compile` the real build uses, so the DBs never drift. It is an explicit step,
+not auto-run; re-run it after adding files. See `writeup/2026-05-31-compile-commands-db.md`.
 
 ## Known gaps (honest account — MEL-ENGINE-VIII)
 

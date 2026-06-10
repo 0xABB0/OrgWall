@@ -197,7 +197,7 @@ static char* android_application_id(Mel_Target* t)
     return id;
 }
 
-char* mel_win32_resource(Mel_Target* t, const char* outdir)
+char* mel_win32_resource(Mel_Target* t, const char* outdir, Mel_StrVec* deps, Mel_StrVec* rcflags)
 {
     char* tpl_path = find_override(t->dir, "win32", "app.rc");
     if (!tpl_path)
@@ -220,29 +220,21 @@ char* mel_win32_resource(Mel_Target* t, const char* outdir)
     char* rc_text = substitute(tpl, &vars);
     mel_mkdirs(outdir);
     char* rc_file = mel_str_fmt("%s/app.rc", outdir);
-    char* res = mel_str_fmt("%s/app.res", outdir);
     char* prev = mel_read_file(rc_file);
-    bool  same = prev && strcmp(prev, rc_text) == 0;
+    if (!prev || strcmp(prev, rc_text) != 0)
+        mel_write_file(rc_file, rc_text);
     free(prev);
-    if (same && mel_path_is_file(res))
-        return res;
-    mel_write_file(rc_file, rc_text);
 
-    Mel_StrVec c = { 0 };
-    mel_da_push(&c, "llvm-rc");
-    mel_da_push(&c, mel_str_fmt("/I%s", win32dir));
-    mel_da_push(&c, "/Imodules/build/win32");
-    mel_da_push(&c, "/fo");
-    mel_da_push(&c, res);
-    mel_da_push(&c, rc_file);
-    int rcode = mel_run_vec(&c);
-    free(c.items);
-    if (rcode != 0)
-    {
-        fprintf(stderr, "build: win32 resource compile failed for '%s'\n", t->name);
-        return NULL;
-    }
-    return res;
+    if (icon)
+        mel_da_push(deps, mel_path_join(win32dir, icon));
+    char* manifest = find_override(t->dir, "win32", "app.manifest");
+    if (!manifest)
+        manifest = mel_str_dup("modules/build/win32/app.manifest");
+    mel_da_push(deps, manifest);
+
+    mel_da_push(rcflags, mel_str_fmt("/I%s", win32dir));
+    mel_da_push(rcflags, mel_str_dup("/Imodules/build/win32"));
+    return mel_str_fmt("%s/app.res", outdir);
 }
 
 static char* cwd_abs(const char* rel)

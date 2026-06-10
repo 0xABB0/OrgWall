@@ -26,7 +26,7 @@ static void config_base(const char* config, Mel_StrVec* out)
     }
 }
 
-static char* obj_path(const char* outdir, const char* dir, const char* src)
+static char* obj_path(const char* outdir, const char* tname, const char* dir, const char* src)
 {
     const char* rel = src;
     size_t      dl = strlen(dir);
@@ -36,7 +36,20 @@ static char* obj_path(const char* outdir, const char* dir, const char* src)
     char* dot = strrchr(stem, '.');
     if (dot)
         *dot = 0;
-    char* out = mel_str_fmt("%s/obj/%s.o", outdir, stem);
+    for (char* s = stem; *s;)
+    {
+        char* seg = s;
+        while (*s && *s != '/')
+            s++;
+        if (s - seg == 2 && seg[0] == '.' && seg[1] == '.')
+        {
+            seg[0] = '_';
+            seg[1] = '_';
+        }
+        if (*s)
+            s++;
+    }
+    char* out = mel_str_fmt("%s/obj/%s/%s.o", outdir, tname, stem);
     free(stem);
     return out;
 }
@@ -177,7 +190,7 @@ static bool emit_codegens(FILE* f, Mel_Graph* g, Mel_Target* t, const char* outd
         char* dot = strrchr(stem, '.');
         if (dot)
             *dot = 0;
-        char* obj = mel_str_fmt("%s/obj/gen/%s.o", outdir, stem);
+        char* obj = mel_str_fmt("%s/obj/%s/gen/%s.o", outdir, t->name, stem);
         fprintf(f, "build %s: cc %s\n  cflags = $%s_cflags\n", obj, genc, t->name);
         mel_da_push(objs, obj);
         (void)v;
@@ -231,7 +244,7 @@ static char* emit_one(FILE* f, Mel_Graph* g, size_t idx, const Mel_Variant* v, M
         size_t      sl = strlen(src);
         bool        objc = (sl >= 2 && strcmp(src + sl - 2, ".m") == 0) || (sl >= 3 && strcmp(src + sl - 3, ".mm") == 0);
         bool        cpp = (sl >= 4 && strcmp(src + sl - 4, ".cpp") == 0) || (sl >= 3 && strcmp(src + sl - 3, ".cc") == 0) || (sl >= 4 && strcmp(src + sl - 4, ".cxx") == 0);
-        char*       obj = obj_path(outdir, t->dir, src);
+        char*       obj = obj_path(outdir, t->name, t->dir, src);
         fprintf(f, "build %s: %s %s", obj, cc_rule, src);
         if (genout.len)
         {
@@ -245,9 +258,23 @@ static char* emit_one(FILE* f, Mel_Graph* g, size_t idx, const Mel_Variant* v, M
 
     if (!host && t->kind == MEL_KIND_EXECUTABLE && v->platform == MEL_PLATFORM_WIN32)
     {
-        char* res = mel_win32_resource(t, outdir);
-        if (res)
-            mel_da_push(&objs, res);
+        Mel_StrVec rdeps = { 0 }, rcflags = { 0 };
+        char*      res = mel_win32_resource(t, outdir, &rdeps, &rcflags);
+        if (!res)
+        {
+            *ok = false;
+            return NULL;
+        }
+        fprintf(f, "build %s: rc %s/app.rc", res, outdir);
+        if (rdeps.len)
+        {
+            fputs(" |", f);
+            join_into(f, &rdeps);
+        }
+        fprintf(f, "\n  rcflags =");
+        join_into(f, &rcflags);
+        fputc('\n', f);
+        mel_da_push(&objs, res);
     }
 
     char* out = NULL;
@@ -469,6 +496,7 @@ bool mel_emit_and_build(Mel_Graph* g, const char* root, const Mel_Variant* v, bo
     fputs("rule link\n  command = $cc $in $libs $ldflags -o $out\n  description = LINK $out\n\n", f);
     fputs("rule hostlink\n  command = clang $in $libs $ldflags -o $out\n  description = LINK(host) $out\n\n", f);
     fputs("rule codegen\n  command = $cmd\n  description = GEN $out\n\n", f);
+    fputs("rule rc\n  command = llvm-rc $rcflags /fo $out $in\n  description = RC $out\n\n", f);
 
     Mel_IdxVec all = { 0 };
     if (!mel_topo_all(g, v, &all))
