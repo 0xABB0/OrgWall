@@ -8,9 +8,11 @@ void build(Mel_Build* b)
     mel_sources(lib, ALWAYS, "src/boot.c", "src/lifecycle.c");
     mel_sources(lib, WHEN(.platforms = MEL_ON(MACOS)), "src/macos/*.c");
     mel_sources(lib, WHEN(.platforms = MEL_ON(MACOS)), "src/macos/*.m");
+    mel_sources(lib, WHEN(.platforms = MEL_ON(IOS)), "src/ios/*.m");
     mel_sources(lib, WHEN(.platforms = MEL_ON(WASM)), "src/web/*.c");
 
     mel_link(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(MACOS)), "-framework", "AppKit");
+    mel_link(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(IOS)), "-framework", "UIKit");
     mel_depends(lib, "core");
     mel_depends(lib, "allocator");
     mel_depends(lib, "collection");

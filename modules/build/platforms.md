@@ -137,8 +137,9 @@ explicitly; nothing is `default`.
 
 - Library → `lib<name>.a`; executable → `<name>` (`.exe` on win32).
 - Host tools build with plain `clang` into `<target_dir>/build/host/`.
-- Android executables link as a shared `libmelody.so`; web GUI executables link to `.html` with the
-  Emscripten shell.
+- Android executables link as a shared `<outdir>/<target>/libmelody.so` (per-target subdir, since
+  the basename is fixed and one directory can host several executables); web GUI executables link
+  to `.html` with the Emscripten shell.
 - Third-party install prefixes land in `<outdir>/prefix/{include,lib}`.
 
 ## Incremental correctness & concurrency
