@@ -297,10 +297,66 @@ non-obvious choice.
 
 ** Layout
 
-Deferred. When added, layout is the *one* place a vtable is justified (the
-user's explicit exception). Until then, widgets are positioned with absolute
-=.x .y .w .h= in their opt. wx "Sizer" / gtk "Box+Grid" vocabulary will be
-revisited at that time. Tracked in =todo.org=.
+Layout lives in its own module, =modules/layout/= — pure solvers over
+=Mel_Layout_Item= arrays, no gui dependency (the drawn family will consume it
+directly). The gui is one host: it gathers a container's visible children into
+items (via the node sibling lists), runs the layout class, writes the results
+back and pushes bounds. A layout kind is its =Mel_Layout_Class= pointer — an
+open set, never a tag. Shipped kinds: =linear= (column + row: spacing, margin,
+per-child margins, weights, cross-align) and =stack= (overlay); grid is
+=todo.org=.
+
+*Lowering — be idiomatic to the backend.* A backend that recognises a layout
+class may hand arrangement to the platform's own engine
+(=mel_gui__backend_layout_adopt=); the portable solver then stays out of that
+container (=node->lowered=). Absolute positioning is used only where it is the
+platform's actual idiom:
+
+| Backend       | Linear layout executes as                          |
+|---------------+-----------------------------------------------------|
+| dom           | CSS flexbox (=display:flex=, =gap=, =flex-grow=, =align-self=); stack lowers to single-cell grid; sizes mirror back to C via a ResizeObserver |
+| androidnative | =LinearLayout= (weights, gravity, margins; spacing as a transparent middle divider) |
+| cocoa / uikit | portable solver, absolute frames (NSStackView/UIStackView lowering: =todo.org=) |
+| winui         | portable solver — absolute positioning /is/ the win32 idiom, not a fallback |
+| xcb           | portable solver (XCB core has no layout engine)     |
+
+Child sizing rule everywhere: =fixed= > =preferred= > natural — the natural
+size asks the native control (=mel_gui__backend_natural_size=: =fittingSize=
+on appkit, =sizeThatFits= on uikit, =View.measure= on android; dom and win32
+honestly return false and fall back to the node's current extent).
+
+Containers the backend itself arranges (tab pages, splitter panes) use an
+internal =container_arrange= hook on the node — they are not =Mel_Layout=s.
+
+* Styling
+
+=<gui/style.h>= defines =Mel_Style=, embedded as =.style= in every widget opt
+and applied at runtime with =mel_gui_set_style= (backend-owned, like every
+op): font family/size/weight/italic, =fg=, =bg=, =border_color= +
+=border_width=, =corner_radius=, =padding_l/t/r/b=. Optional colors are
+=Mel_Style_Color= via =mel_style_rgb(a)= — the zero value means "the
+platform's native look", which is the meaningful zero of every field
+(MEL-CODE-007). =mel_gui_set_style= applies set fields and never resets unset
+ones; reset-to-native is deferred (=todo.org=).
+
+*Native first, per-property emulation.* Every property a platform expresses
+natively maps natively. A property the platform lacks is emulated in the
+narrowest way that property allows — a rounded corner rounds that widget's
+surface (CALayer on Apple, =SetWindowRgn= on win32, =GradientDrawable= on
+android, =border-radius= on dom); it never escalates the widget to
+custom-drawn. The honesty matrix:
+
+| Property      | dom    | cocoa                          | uikit                  | androidnative          | winui                              | xcb |
+|---------------+--------+--------------------------------+------------------------+------------------------+------------------------------------+-----|
+| font          | native | native (=NSFont=)              | native (=UIFont=)      | native (=Typeface=)    | native (=WM_SETFONT=)              | —   |
+| fg            | native | native / =attributedTitle=     | native                 | native                 | native (=WM_CTLCOLOR*=); push-button needs owner-draw (=todo=) | —   |
+| bg            | native | native or layer; button drops bezel only when bg/radius set | native       | =GradientDrawable=     | native (=WM_CTLCOLOR*= / =WM_ERASEBKGND=) | =CW_BACK_PIXEL= |
+| border        | native | layer                          | layer                  | =GradientDrawable= stroke | gap (=WM_NCPAINT=, =todo=)        | —   |
+| corner radius | native | layer                          | layer                  | =GradientDrawable=     | =SetWindowRgn= (hard-edged)        | —   |
+| padding       | native | =NSBox= l/t only               | =UIButton= insets only | =setPadding=           | n/a (absolute layout)              | —   |
+
+Per-widget exceptions and every remaining gap are itemised in =todo.org=; xcb
+logs once that only background is stylable (it draws no text at all).
 
 * Native widgets versus drawn widgets
 

@@ -112,20 +112,64 @@ Do not block the android backend; tracked for later.
 * Deferred — subsystems
 
 ** WIP  Layout system
-   Shipped: =Mel_Layoutable= per widget (=preferred/fixed_w_h=, =weight=,
-   =cross_align=, four-side =margin=); =Mel_Layout= opaque + single vtable
-   (=measure=/=arrange=); =Mel_Align=; =Mel_Column_Layout= (the one algorithm).
+   Shipped: extracted to =modules/layout/= (items-based solvers, open
+   =Mel_Layout_Class=, no gui dependency, unit-tested); column + row
+   (=linear=) and stack kinds; node sibling lists (fixes the O(all-nodes)
+   child scan and slot-reuse ordering); =container_arrange= replacing the
+   per-backend fake-vtable layouts; lowering hooks with dom (flexbox +
+   single-cell-grid stack + ResizeObserver size mirroring) and androidnative
+   (=LinearLayout=, divider-drawable spacing) adopting =linear=;
+   =mel_gui__backend_natural_size= on cocoa/uikit/android.
    Open items:
-   - =Mel_Row_Layout= — horizontal sibling of column.
    - =Mel_Grid_Layout= — 2D with row/col spans + stretch factors per track.
-   - Stack/Overlay layout — z-stacked siblings, naming still deferred.
-   - Intrinsic-size query: today =preferred_h = 0= on a child means "use the
-     widget's current width/height" (whatever the opt passed). The right
-     semantic is "ask the native control" — e.g. an =EditText= on Android needs
-     ~40dp tall, an =NSTextField= ~22pt. Add a
-     =mel_gui__backend_natural_size(w, *nw, *nh)= per-widget hook the layout
-     consults when preferred is 0; ship per-widget defaults from each backend.
-     Until then, opt heights are picked conservatively.
+   - Stack per-child alignment (today: pure fill-overlay; dom grid items
+     always stretch).
+   - Un-lowering: =mel_gui_set_layout(parent, NULL)= (or swapping to an
+     unrecognised class) clears =lowered= but leaves native engine state —
+     dom keeps flex inline styles on host and children; android keeps (and on
+     re-lowering nests) the injected =LinearLayout=. Needs a per-backend
+     un-adopt.
+   - Lowered-state C mirror: dom mirrors only w/h (async, frame-batched;
+     x/y stay 0 → =content_size= under-reports); android does not mirror
+     bounds under a lowered parent at all.
+   - Natural size on dom (no cheap reliable measurement found) and win32
+     (=GetTextExtentPoint32= per control font); android =View.measure= on an
+     attached view briefly perturbs its measured state.
+   - NSStackView (cocoa) / UIStackView (uikit) lowering.
+   - cocoa tab pages: =container_arrange= updates the C mirror but does not
+     push bounds (NSTabView owns the host frames) — unchanged from the old
+     vtable, worth a second look with lowering.
+
+** WIP  Styling (Mel_Style)
+   Shipped: =<gui/style.h>= (=Mel_Style=, =Mel_Style_Color= set-flag optional
+   colors), =.style= in every widget opt except gpu_view (deliberate),
+   =mel_gui_set_style= on all six backends, applied from every create. Native
+   first; per-property emulation only (cocoa/uikit layer, win32
+   =SetWindowRgn=, android =GradientDrawable=, dom inline CSS).
+   Open items:
+   - Reset-to-native: set_style applies set fields only; nothing restores a
+     native look (e.g. an NSButton whose bezel was dropped for bg/radius
+     stays bezel-less).
+   - win32: push-button fg/bg needs =BS_OWNERDRAW= (font + region apply
+     today); colored borders need =WM_NCPAINT=; trackbar colors are
+     comctl-owner-drawn; comctl v6 themes may override checkbox/groupbox
+     caption colors; *the whole winui style/layout code is compile-unverified
+     — the win-pilot box was unreachable this session* (build
+     =worktree-gui-style-layout= there first thing).
+   - cocoa: padding has no native knob outside =NSBox= (l/t only); NSBox
+     title color; NSWindow styles only bg; NSSlider only track fill (inert
+     before 10.12.2); splitter divider color; per-tab-label styles.
+   - uikit: padding only on UIButton (=contentEdgeInsets=, deprecated-at-15
+     but the targeted floor is 13); UISwitch/UISlider style only their tints.
+   - android: a styled bg replaces the platform ripple/elevation drawable;
+     font weights collapse to BOLD/NORMAL before API 28; style padding and
+     =MODE_PAD= inset padding overwrite each other on frames; the hard-coded
+     factory colors (MelLabel/MelCheckBox/MelTextField =0xE9EEF5= text,
+     groupbox border) pre-empt the "unset = native default" promise —
+     revisit.
+   - xcb: only =CW_BACK_PIXEL= bg (TrueColor assumption); logged once.
+   - Theming: an app-wide per-widget-kind style table resolved at create
+     time (no retained cascade).
 
 ** WIP  Unified Canvas drawing API
    Shipped: =Mel_Painter= immediate-mode surface handed to Canvas =on_paint=.
