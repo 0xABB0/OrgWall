@@ -38,6 +38,30 @@
 
 ## Bugs found while verifying
 
+- **camera-gui layout was broken on first ship (fixed):** every groupbox was
+  created without a `preferred_h`, and the layout solver does not derive a
+  container's height from its children (`linear_measure` reads each child's
+  preferred/natural size; a nested container's natural size is its native
+  measurement, not a recursive solve) — so all six boxes collapsed and
+  overlapped. House pattern (hello-world-gui) is explicit heights on every
+  container; applied. The dynamic device/mode button lists moved into fixed-
+  height inner scrollviews because layoutable cannot be updated after create.
+  Verified by screenshot + synthesized clicks: authorize → device → mode →
+  open → start (live preview, 30 fps, correct extent) → stop → close.
+- **AVF ignored the requested capture extent (fixed):** the backend set
+  `activeFormat` before the input joined the session, and the session's
+  default `High` preset overrode it at start — a 1280x720 config silently
+  streamed 1920x1080, exactly the "silent fallback" the module contract
+  forbids. Fix: configure inside the session transaction after `addInput`;
+  on iOS use `AVCaptureSessionPresetInputPriority` (unavailable on macOS);
+  on macOS additionally pin `kCVPixelBufferWidthKey/HeightKey` on the output's
+  `videoSettings`, which is the macOS knob that actually honours the extent
+  (activeFormat-after-addInput alone was verified insufficient). Verified:
+  frames arrive at the configured 1280x720.
+- **No gui API to update a widget's `Mel_Layoutable` after creation** — forced
+  the fixed-height inner-scrollview workaround above. A
+  `mel_gui_set_layoutable` would let dynamic lists size to content.
+
 - **AVF backend never enumerated modes (fixed here):** `avf_enumerate` set
   `modes = NULL, mode_count = 0` since the backend's first commit, so
   `mel_camera_describe` reported zero modes on macOS and both camera-scanner

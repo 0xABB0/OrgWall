@@ -423,20 +423,6 @@ static bool avf_open(void* user, const Mel_Alloc* alloc, u64 stable_id, Mel_Came
             return false;
         }
 
-        if (![dev lockForConfiguration:&err])
-        {
-            mel_log_error("camera", "avf open: lockForConfiguration failed: %s", err ? err.localizedDescription.UTF8String : "unknown");
-            return false;
-        }
-        dev.activeFormat = devFormat;
-        if (cfg.fps > 0.0f)
-        {
-            CMTime dur = CMTimeMake(1, (int32_t)(cfg.fps + 0.5f));
-            dev.activeVideoMinFrameDuration = dur;
-            dev.activeVideoMaxFrameDuration = dur;
-        }
-        [dev unlockForConfiguration];
-
         Mel_AVF_Session* s = [[Mel_AVF_Session alloc] init];
         s.stable_id = stable_id;
         s.device = dev;
@@ -448,10 +434,21 @@ static bool avf_open(void* user, const Mel_Alloc* alloc, u64 stable_id, Mel_Came
         s.queue = dispatch_queue_create("melody.camera.avf", DISPATCH_QUEUE_SERIAL);
         s.output = [[AVCaptureVideoDataOutput alloc] init];
         s.output.alwaysDiscardsLateVideoFrames = YES;
+#if TARGET_OS_OSX
+        s.output.videoSettings = @{
+            (id)kCVPixelBufferPixelFormatTypeKey : @(fourcc),
+            (id)kCVPixelBufferWidthKey : @(cfg.width),
+            (id)kCVPixelBufferHeightKey : @(cfg.height),
+        };
+#else
         s.output.videoSettings = @{(id)kCVPixelBufferPixelFormatTypeKey : @(fourcc)};
+#endif
         [s.output setSampleBufferDelegate:s queue:s.queue];
 
         [s.session beginConfiguration];
+#if !TARGET_OS_OSX
+        s.session.sessionPreset = AVCaptureSessionPresetInputPriority;
+#endif
         if (![s.session canAddInput:input] || ![s.session canAddOutput:s.output])
         {
             [s.session commitConfiguration];
@@ -460,6 +457,21 @@ static bool avf_open(void* user, const Mel_Alloc* alloc, u64 stable_id, Mel_Came
         }
         [s.session addInput:input];
         [s.session addOutput:s.output];
+
+        if (![dev lockForConfiguration:&err])
+        {
+            [s.session commitConfiguration];
+            mel_log_error("camera", "avf open: lockForConfiguration failed: %s", err ? err.localizedDescription.UTF8String : "unknown");
+            return false;
+        }
+        dev.activeFormat = devFormat;
+        if (cfg.fps > 0.0f)
+        {
+            CMTime dur = CMTimeMake(1, (int32_t)(cfg.fps + 0.5f));
+            dev.activeVideoMinFrameDuration = dur;
+            dev.activeVideoMaxFrameDuration = dur;
+        }
+        [dev unlockForConfiguration];
         [s.session commitConfiguration];
 
         avf_sessions()[@(stable_id)] = s;

@@ -34,8 +34,10 @@ typedef struct
     Mel_Gui_Handle auth_label;
     Mel_Gui_Handle authorize_btn;
     Mel_Gui_Handle devices_box;
+    Mel_Gui_Handle devices_list;
     Mel_Gui_Handle device_label;
     Mel_Gui_Handle modes_box;
+    Mel_Gui_Handle modes_list;
     Mel_Gui_Handle mode_label;
     Mel_Gui_Handle open_btn;
     Mel_Gui_Handle start_btn;
@@ -355,7 +357,7 @@ static void rebuild_modes(void)
         Mel_Camera_Mode m = g_app.modes.items[i];
         char            text[96];
         snprintf(text, sizeof text, "%dx%d @%.0f %s", m.width, m.height, (f64)m.fps_max, mel_image_format_name(m.format));
-        Mel_Gui_Handle btn = mel_button_create(g_app.modes_box, .text = str8_from_cstr(text), .pointer.on_click = on_mode_clicked, .user = (void*)(usize)i, .layoutable = { .preferred_h = 28 });
+        Mel_Gui_Handle btn = mel_button_create(g_app.modes_list, .text = str8_from_cstr(text), .pointer.on_click = on_mode_clicked, .user = (void*)(usize)i, .layoutable = { .preferred_h = 28 });
         mel_array_push(&g_app.mode_btns, btn);
     }
 
@@ -418,7 +420,7 @@ static void rebuild_devices(bool refresh)
 
         char text[160];
         snprintf(text, sizeof text, "%s  [%s]", name, facing);
-        Mel_Gui_Handle btn = mel_button_create(g_app.devices_box, .text = str8_from_cstr(text), .pointer.on_click = on_device_clicked, .user = (void*)(usize)i, .layoutable = { .preferred_h = 32 });
+        Mel_Gui_Handle btn = mel_button_create(g_app.devices_list, .text = str8_from_cstr(text), .pointer.on_click = on_device_clicked, .user = (void*)(usize)i, .layoutable = { .preferred_h = 32 });
         mel_array_push(&g_app.device_btns, btn);
     }
 
@@ -672,23 +674,26 @@ static void build_main(Mel_Gui_Handle frame, void* user)
     g_app.frame = frame;
 
     mel_gui_set_text(frame, S8("Camera Bench"));
+    mel_gui_set_bounds(frame, 60, 60, 1280, 1080);
     mel_gui_set_layout(frame, mel_row_layout(.spacing = 0, .margin = 0, .cross_align = MEL_ALIGN_STRETCH));
 
     Mel_Gui_Handle side = mel_scrollview_create(frame, .layout = mel_column_layout(.spacing = 10, .margin = 10, .cross_align = MEL_ALIGN_STRETCH), .layoutable = { .fixed_w = 360 });
 
-    Mel_Gui_Handle auth_box = mel_groupbox_create(side, .title = S8("Authorization"), .layout = mel_column_layout(.spacing = 6, .margin = 8, .cross_align = MEL_ALIGN_STRETCH));
+    Mel_Gui_Handle auth_box = mel_groupbox_create(side, .title = S8("Authorization"), .layout = mel_column_layout(.spacing = 6, .margin = 8, .cross_align = MEL_ALIGN_STRETCH), .layoutable = { .preferred_h = 100 });
     g_app.auth_label = mel_label_create(auth_box, .text = S8("Authorization: unknown"), .layoutable = { .preferred_h = 20 });
     g_app.authorize_btn = mel_button_create(auth_box, .text = S8("Authorize"), .pointer.on_click = on_authorize_clicked, .layoutable = { .preferred_h = 32 });
 
-    g_app.devices_box = mel_groupbox_create(side, .title = S8("Devices"), .layout = mel_column_layout(.spacing = 6, .margin = 8, .cross_align = MEL_ALIGN_STRETCH));
+    g_app.devices_box = mel_groupbox_create(side, .title = S8("Devices"), .layout = mel_column_layout(.spacing = 6, .margin = 8, .cross_align = MEL_ALIGN_STRETCH), .layoutable = { .preferred_h = 240 });
     Mel_Gui_Handle refresh = mel_button_create(g_app.devices_box, .text = S8("Refresh"), .pointer.on_click = on_refresh_clicked, .layoutable = { .preferred_h = 32 });
     (void)refresh;
     g_app.device_label = mel_label_create(g_app.devices_box, .text = S8("No devices listed"), .layoutable = { .preferred_h = 20 });
+    g_app.devices_list = mel_scrollview_create(g_app.devices_box, .layout = mel_column_layout(.spacing = 4, .margin = 2, .cross_align = MEL_ALIGN_STRETCH), .layoutable = { .preferred_h = 120, .weight = 1 });
 
-    g_app.modes_box = mel_groupbox_create(side, .title = S8("Modes"), .layout = mel_column_layout(.spacing = 4, .margin = 8, .cross_align = MEL_ALIGN_STRETCH));
+    g_app.modes_box = mel_groupbox_create(side, .title = S8("Modes"), .layout = mel_column_layout(.spacing = 4, .margin = 8, .cross_align = MEL_ALIGN_STRETCH), .layoutable = { .preferred_h = 280 });
     g_app.mode_label = mel_label_create(g_app.modes_box, .text = S8("No mode selected"), .layoutable = { .preferred_h = 20 });
+    g_app.modes_list = mel_scrollview_create(g_app.modes_box, .layout = mel_column_layout(.spacing = 4, .margin = 2, .cross_align = MEL_ALIGN_STRETCH), .layoutable = { .preferred_h = 200, .weight = 1 });
 
-    Mel_Gui_Handle stream_box = mel_groupbox_create(side, .title = S8("Stream"), .layout = mel_column_layout(.spacing = 6, .margin = 8, .cross_align = MEL_ALIGN_STRETCH));
+    Mel_Gui_Handle stream_box = mel_groupbox_create(side, .title = S8("Stream"), .layout = mel_column_layout(.spacing = 6, .margin = 8, .cross_align = MEL_ALIGN_STRETCH), .layoutable = { .preferred_h = 140 });
     Mel_Gui_Handle row1 = mel_panel_create(stream_box, .layout = mel_row_layout(.spacing = 6, .cross_align = MEL_ALIGN_STRETCH), .layoutable = { .preferred_h = 32 });
     g_app.open_btn = mel_button_create(row1, .text = S8("Open"), .disabled = true, .pointer.on_click = on_open_clicked, .layoutable = { .weight = 1 });
     g_app.start_btn = mel_button_create(row1, .text = S8("Start"), .disabled = true, .pointer.on_click = on_start_clicked, .layoutable = { .weight = 1 });
@@ -697,12 +702,12 @@ static void build_main(Mel_Gui_Handle frame, void* user)
     g_app.close_btn = mel_button_create(row2, .text = S8("Close"), .disabled = true, .pointer.on_click = on_close_clicked, .layoutable = { .weight = 1 });
     g_app.mirror_check = mel_checkbox_create(stream_box, .text = S8("Mirror preview"), .on_.on_toggled = on_mirror_toggled, .layoutable = { .preferred_h = 24 });
 
-    Mel_Gui_Handle stats_box = mel_groupbox_create(side, .title = S8("Stats"), .layout = mel_column_layout(.spacing = 4, .margin = 8, .cross_align = MEL_ALIGN_STRETCH));
+    Mel_Gui_Handle stats_box = mel_groupbox_create(side, .title = S8("Stats"), .layout = mel_column_layout(.spacing = 4, .margin = 8, .cross_align = MEL_ALIGN_STRETCH), .layoutable = { .preferred_h = 110 });
     g_app.state_label = mel_label_create(stats_box, .text = S8("State: closed"), .layoutable = { .preferred_h = 20 });
     g_app.frames_label = mel_label_create(stats_box, .text = S8("Frames: 0"), .layoutable = { .preferred_h = 20 });
     g_app.last_label = mel_label_create(stats_box, .text = S8("Last: -"), .layoutable = { .preferred_h = 20 });
 
-    Mel_Gui_Handle hp_box = mel_groupbox_create(side, .title = S8("Hotplug"), .layout = mel_column_layout(.spacing = 4, .margin = 8, .cross_align = MEL_ALIGN_STRETCH));
+    Mel_Gui_Handle hp_box = mel_groupbox_create(side, .title = S8("Hotplug"), .layout = mel_column_layout(.spacing = 4, .margin = 8, .cross_align = MEL_ALIGN_STRETCH), .layoutable = { .preferred_h = 130 });
     for (i32 i = 0; i < HOTPLUG_LINES; ++i)
         g_app.hotplug_labels[i] = mel_label_create(hp_box, .text = S8("-"), .layoutable = { .preferred_h = 18 });
 
