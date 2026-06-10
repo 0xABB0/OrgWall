@@ -64,14 +64,11 @@ typedef struct
     Mel_Task    cont;
     Mel_Task    kick;
 
-    Mel_Process* proc;
-    Mel_Stream*  proc_out;
-
     char fs_path[512];
     char storage_root[512];
-    char proc_out_path[512];
 
     bool assert_fired;
+    bool failed;
 } Smoke;
 
 static Smoke g_smoke;
@@ -311,7 +308,7 @@ static void sync_modules(Smoke* s)
 
 static void smoke_finish(Smoke* s)
 {
-    emit("app", "lifecycle: vat run driven to completion (smoke sequence done)");
+    emit("app", "lifecycle: vat run driven to completion (smoke sequence %s)", s->failed ? "FAILED" : "done");
     if (s->fs)
         mel_fs_destroy(s->fs);
     if (s->storage)
@@ -319,7 +316,7 @@ static void smoke_finish(Smoke* s)
     mel_dialog_shutdown();
     mel_shell_shutdown();
     mel_clip_shutdown();
-    mel_app_set_exit_code(0);
+    mel_app_set_exit_code(s->failed ? 1 : 0);
     mel_vat_quit(s->vat);
 }
 
@@ -356,6 +353,7 @@ static void smoke_advance(Mel_Task* self)
         {
             emit("fs", "write failed status=0x%x", ws);
             emit("storage", "skipped — fs precondition failed");
+            s->failed = true;
             s->step = 99;
             smoke_finish(s);
             return;
@@ -368,6 +366,8 @@ static void smoke_advance(Mel_Task* self)
     {
         const Mel_Fs_Bytes_Result* rd = mel_fs_future_bytes(s->pending);
         emit("fs", "wrote+read temp file %s bytes=%zu status=0x%x", s->fs_path, rd->len, rd->status);
+        if (mel_fs_failed(rd->status))
+            s->failed = true;
         mel_fs_future_release(s->pending);
         s->step = 3;
         const char* sdata = "storage-relative-key payload";
@@ -382,6 +382,7 @@ static void smoke_advance(Mel_Task* self)
         if (mel_storage_failed(ws))
         {
             emit("storage", "write failed status=0x%x", ws);
+            s->failed = true;
             s->step = 50;
             smoke_advance(self);
             return;
@@ -394,6 +395,8 @@ static void smoke_advance(Mel_Task* self)
     {
         const Mel_Storage_Bytes* rb = mel_storage_future_bytes(s->pending);
         emit("storage", "wrote+read key showcase/value.bin under %s bytes=%zu status=0x%x", s->storage_root, rb->len, rb->status);
+        if (mel_storage_failed(rb->status))
+            s->failed = true;
         mel_storage_future_release(s->pending);
         if (!mel_process_available())
         {
@@ -402,48 +405,33 @@ static void smoke_advance(Mel_Task* self)
             smoke_advance(self);
             return;
         }
-        snprintf(s->proc_out_path, sizeof s->proc_out_path, "/tmp/melody_showcase_proc_%llu.txt", (unsigned long long)mel_nanos_since_unspecified_epoch());
-        Mel_IO_File_Open_Result of = mel_io_file_open(.path = s->proc_out_path, .flags = MEL_IO_FILE_READ | MEL_IO_FILE_WRITE | MEL_IO_FILE_CREATE | MEL_IO_FILE_TRUNCATE, .alloc = mel_alloc_heap());
-        if (mel_io_status_failed(of.status))
-        {
-            emit("process", "stdout capture file open failed status=0x%x", of.status);
-            s->step = 50;
-            smoke_advance(self);
-            return;
-        }
-        s->proc_out = of.value;
         static const char* const pargv[] = { "/bin/echo", "process-stdout-capture", NULL };
-        Mel_Process_Spawn_Result sr = mel_process_spawn(.argv = pargv, .argc = 2, .stdout_cfg = { .disposition = MEL_PROCESS_STDIO_REDIRECT, .redirect = s->proc_out }, .vat = s->vat, .alloc = mel_alloc_heap());
-        if (mel_process_status_failed(sr.status))
+        Mel_Future*              pf = mel_process_run(.argv = pargv, .argc = 2, .vat = s->vat, .deliver = s->exec, .alloc = mel_alloc_heap());
+        if (pf == NULL)
         {
-            emit("process", "spawn failed status=0x%x", sr.status);
-            mel_stream_destroy(s->proc_out);
-            s->proc_out = NULL;
+            emit("process", "run failed to launch");
+            s->failed = true;
             s->step = 50;
             smoke_advance(self);
             return;
         }
-        s->proc = sr.value;
         s->step = 40;
-        smoke_chain(s, mel_process_wait(s->proc));
+        smoke_chain(s, pf);
         return;
     }
     case 40:
     {
-        const Mel_Process_Exit* ex = mel_process_wait_future_result(s->pending);
-        char                    out[128] = { 0 };
-        Mel_IO_Result           rd = mel_stream_read_sync(s->proc_out, out, sizeof out - 1, 0);
-        usize                   n = rd.bytes_transferred;
+        const Mel_Process_Output* o = mel_process_run_future_result(s->pending);
+        char                      out[128] = { 0 };
+        usize                     n = o->stdout_len < sizeof out - 1 ? o->stdout_len : sizeof out - 1;
+        memcpy(out, o->stdout_data, n);
         for (usize i = 0; i < n; i++)
             if (out[i] == '\n')
                 out[i] = 0;
-        emit("process", "spawned /bin/echo exit=%d captured=%zuB stdout=\"%s\" status=0x%x (file redirect; pipe capture needs fd wakeables the ui waiter lacks)", ex->exit_code, n, out, ex->status);
-        mel_process_wait_future_release(s->pending);
-        mel_process_destroy(s->proc);
-        s->proc = NULL;
-        mel_stream_destroy(s->proc_out);
-        s->proc_out = NULL;
-        remove(s->proc_out_path);
+        emit("process", "ran /bin/echo exit=%d captured=%zuB stdout=\"%s\" status=0x%x (pipe capture over the ui waiter's fd bridge)", o->exit_code, n, out, o->status);
+        if (mel_process_status_failed(o->status) || o->exit_code != 0)
+            s->failed = true;
+        mel_process_run_future_release(s->pending);
         s->step = 50;
         smoke_advance(self);
         return;
@@ -470,6 +458,7 @@ static void smoke_advance(Mel_Task* self)
         if (mel_clip_failed(ws))
         {
             emit("clipboard", "write failed status=0x%x", ws);
+            s->failed = true;
             s->step = 99;
             smoke_finish(s);
             return;
@@ -483,6 +472,8 @@ static void smoke_advance(Mel_Task* self)
         str8            txt = mel_clip_future_text(s->pending);
         Mel_Clip_Status rs = mel_clip_future_status(s->pending);
         emit("clipboard", "copied then read back \"%.*s\" status=0x%x seq=%llu", (int)txt.len, (const char*)txt.data, rs, (unsigned long long)mel_clip_sequence());
+        if (mel_clip_failed(rs))
+            s->failed = true;
         mel_clip_future_free(s->pending);
         s->step = 99;
         smoke_finish(s);

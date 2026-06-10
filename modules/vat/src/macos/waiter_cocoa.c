@@ -42,6 +42,7 @@ struct Cocoa_Waiter
     const Mel_Alloc* alloc;
     id               app;
     id               mode;
+    CFRunLoopRef     runloop;
     bool             launched;
     atomic_bool      rung;
     Mel_Array(Cocoa_Fd_Bridge*) bridges;
@@ -73,6 +74,7 @@ static void cocoa_fd_fired(CFFileDescriptorRef fdref, CFOptionFlags types, void*
 static bool cocoa_arm(Mel_Vat_Waiter* waiter, Mel_Vat_Wakeable* wakeable)
 {
     Cocoa_Waiter* w = mel_container_of(waiter, Cocoa_Waiter, base);
+    mel_assert_msg("cocoa waiter: arm off the opening thread", CFRunLoopGetCurrent() == w->runloop);
     for (usize i = 0; i < w->bridges.count; i++)
     {
         if (w->bridges.items[i]->wakeable == wakeable)
@@ -92,7 +94,7 @@ static bool cocoa_arm(Mel_Vat_Waiter* waiter, Mel_Vat_Wakeable* wakeable)
         return false;
     }
     bridge->source = CFFileDescriptorCreateRunLoopSource(kCFAllocatorDefault, bridge->fdref, 0);
-    CFRunLoopAddSource(CFRunLoopGetCurrent(), bridge->source, kCFRunLoopCommonModes);
+    CFRunLoopAddSource(w->runloop, bridge->source, kCFRunLoopCommonModes);
     CFFileDescriptorEnableCallBacks(bridge->fdref, cocoa_fd_flags(wakeable->events));
     mel_array_push(&w->bridges, bridge);
     return true;
@@ -101,12 +103,13 @@ static bool cocoa_arm(Mel_Vat_Waiter* waiter, Mel_Vat_Wakeable* wakeable)
 static void cocoa_disarm(Mel_Vat_Waiter* waiter, Mel_Vat_Wakeable* wakeable)
 {
     Cocoa_Waiter* w = mel_container_of(waiter, Cocoa_Waiter, base);
+    mel_assert_msg("cocoa waiter: disarm off the opening thread", CFRunLoopGetCurrent() == w->runloop);
     for (usize i = 0; i < w->bridges.count; i++)
     {
         Cocoa_Fd_Bridge* bridge = w->bridges.items[i];
         if (bridge->wakeable != wakeable)
             continue;
-        CFRunLoopRemoveSource(CFRunLoopGetCurrent(), bridge->source, kCFRunLoopCommonModes);
+        CFRunLoopRemoveSource(w->runloop, bridge->source, kCFRunLoopCommonModes);
         CFFileDescriptorInvalidate(bridge->fdref);
         CFRelease(bridge->source);
         CFRelease(bridge->fdref);
@@ -188,6 +191,7 @@ Mel_Vat_Waiter* mel_vat_waiter_cocoa(const Mel_Alloc* alloc)
     w->alloc = alloc;
     w->app = msend(objc_class("NSApplication"), "sharedApplication");
     w->mode = (id)CFSTR("kCFRunLoopDefaultMode");
+    w->runloop = CFRunLoopGetCurrent();
     w->launched = false;
     atomic_init(&w->rung, false);
     mel_array_init(&w->bridges, alloc);

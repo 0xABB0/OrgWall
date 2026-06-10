@@ -17,7 +17,8 @@ INC=(
   -Imodules/future/include
   -Imodules/string/include
   -Imodules/time/include
-  -Imodules/reactor/include
+  -Imodules/vat/include
+  -Imodules/debug/include
   -Imodules/log/include
   -Imodules/port/include
 )
@@ -27,10 +28,13 @@ FLAGS=(-std=c23 -g -O1 -fsanitize=thread -DMEL_LOG_DISABLED=1 -arch arm64 $INC)
 SRCS=(
   modules/port/src/port.c
   modules/port/src/apple/port_backend.c
+  modules/vat/src/vat.c
+  modules/vat/src/driver_fair.c
+  modules/vat/src/timer.c
+  modules/vat/src/darwin/waiter_kqueue.c
+  modules/vat/src/macos/waiter_cocoa.c
   modules/future/src/future.c
   modules/executor/src/executor.c
-  modules/reactor/src/reactor.c
-  modules/reactor/src/macos/event_pump.m
   modules/collection/src/slotmap.c
   modules/collection/src/collection.mpsc.c
   modules/allocator/src/allocator.c
@@ -43,6 +47,13 @@ SRCS=(
   modules/thread/src/once.c
   modules/time/src/nano.unix.c
   modules/time/src/clock.c
+  modules/debug/src/assert.c
+  modules/debug/src/stacktrace.c
+  modules/debug/src/macos/stacktrace.c
+  modules/debug/src/posix/assert_backend.c
+  modules/debug/src/macos/assert_dialog.m
+  modules/string/src/str8.c
+  modules/hash/src/xxh.c
 )
 
 OBJS=()

@@ -34,6 +34,8 @@ static void mel_await__coro_run(Mel_Task* self)
         return;
     }
 
+    assert((step.future != NULL) + (step.channel != NULL) + (step.after_ns > 0) + (int)step.reschedule == 1);
+
     if (step.future)
     {
         c->waited = step.future;
