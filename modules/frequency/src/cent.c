@@ -1,4 +1,4 @@
-#include <musictheory/cent.h>
+#include <frequency/cent.h>
 
 void mel_cent_from_ratio(mpfr_ptr out, mpfr_srcptr ratio)
 {
