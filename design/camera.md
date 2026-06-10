@@ -3,16 +3,20 @@
 OS camera capture: enumerate capture devices across providers, authorize, open
 and configure a device, stream frames to consumers as a zero-copy borrowed
 `Mel_Image`. The decode path (barcode chief among them) is the load-bearing
-consumer.
+consumer. This replaces the shipped `modules/camera` surface; the migration
+ledger at the end maps old symbols to new.
 
 ## Invariants
 
-1. **The module allocates nothing.** No call to any `Mel_Alloc` in the module's
-   own code. All storage is caller-owned (passed in) or static (const
-   singletons, backend-static provider nodes). The only memory in play is the
-   OS's own — `AVCaptureSession`, Camera2 objects, V4L2 `mmap`'d DMA buffers —
-   which the OS allocates because the OS must, and which *are* the zero-copy
-   frame source.
+1. **The module allocates nothing — with one named exception.** No call to any
+   `Mel_Alloc` in the module's own code. Storage is caller-owned (passed in) or
+   static (const singletons, backend-static provider nodes). The OS's own memory
+   (`AVCaptureSession`, Camera2 objects, V4L2 `mmap`'d DMA buffers) is the
+   zero-copy frame source and is the OS's to allocate. The exception: pollable
+   backends host their readiness in vat sources, and `mel_vat_source_open`
+   allocates the source node from the vat's allocator — memory the vat's owner
+   chose at `mel_vat_open`, accounted to the vat, freed at
+   `mel_vat_source_close`.
 2. **No wasted cycles.** Steady-state frame delivery is one indirect call per
    subscriber over a borrowed buffer: no copy, no allocation, no per-frame
    bookkeeping beyond a sequence increment.
@@ -20,13 +24,16 @@ consumer.
    OS's own thread; the core imposes no thread of its own and spawns none.
 4. **Open data, not enums** (MEL-CODE-001). Facing, authorization, and result
    are classifications that grow — modelled as opaque structs with const
-   singletons, never enums.
+   singletons, never enums and never status bitmasks.
 5. **No fixed-cap collections** (MEL-CODE-002). Variable-length lists (devices,
    modes, subscribers) are *visited or intrusively linked*, never returned as a
    sized array and never stored behind a `[MAX]`.
 6. **Loud failure** (MEL-ENGINE-VIII). Misuse (open on a dead camera,
-   unsatisfiable config, pull on a borrowed frame) fails immediately and
-   audibly, never as silent no-frames.
+   unsatisfiable config, wrong-thread mutation) fails immediately and audibly,
+   never as silent no-frames.
+7. **No silent defaults** (MEL-CODE-007). Config carries every knob explicitly —
+   format, extent, fps, buffer count; a zero field fails the open. Hotplug
+   subscriptions name their executor; there is no implicit delivery target.
 
 ## Identity & classifications
 
@@ -69,7 +76,31 @@ bool        mel_camera_result_ok(const mel_camera_result*);
 
 One classification idiom across the module: facing, auth, result are all open
 data with const singletons. `mel_camera_result*` is what start/stop return and
-what the open future carries — no parallel bitset, no `container_of` recovery.
+what futures carry as value — it is the one truth; the future's
+`Mel_Future_Status` severity merely mirrors `mel_camera_result_ok` so generic
+future plumbing composes.
+
+## Init — the home vat
+
+```
+void mel_camera_init(Mel_Vat* vat);    // registers host providers; vat hosts pollable backends
+void mel_camera_shutdown(void);
+```
+
+The module has one home vat, given at init (the port precedent:
+`mel_port_create(.vat = v)`):
+
+- Backends whose delivery and hotplug are fd/handle readiness (V4L2, Media
+  Foundation) open their vat sources on it.
+- It pins the owner thread: enumeration, open/close, subscribe/unsubscribe are
+  confined to the vat owner, asserted with `mel_vat_is_owner`
+  (MEL-ENGINE-VIII) — no lock on the frame path.
+
+OS-push backends (AVFoundation, Camera2) never touch the vat's waiter; they
+still honor the confinement contract. `mel_camera_init` calls
+`mel_camera__register_host_providers` — apps never call it; with boot owning
+`main`, `mel_app_setup(Mel_Vat* root)` calls `mel_camera_init(root)` (or a
+dedicated io vat).
 
 ## Provider registry (intrusive, static nodes)
 
@@ -126,7 +157,12 @@ calls the visitor, and releases it — no list ever materialises. `modes_each`
 streams `VIDIOC_ENUM_*` / `AVCaptureDeviceFormat` results one at a time through
 the visitor on the stack.
 
-## Hotplug (intrusive subscriber, inline)
+## Hotplug (intrusive subscriber, executor-delivered)
+
+Hotplug is rare and off the hot path; consumers should not hand-marshal it. A
+subscription names its executor — `mel_executor_inline` is the explicit way to
+ask for delivery on the provider's notification thread (MEL-CODE-007: named,
+never implied).
 
 ```
 typedef struct {
@@ -141,44 +177,57 @@ typedef struct Mel_Camera_Hotplug_Sub Mel_Camera_Hotplug_Sub;
 struct Mel_Camera_Hotplug_Sub {                 // caller-owned node
     Mel_Camera_Hotplug_Fn   cb;
     void*                   user;
+    Mel_Executor*           exec;               // required; asserted non-NULL
     Mel_Camera_Hotplug_Sub* next;               // core-managed link
+    Mel_Task                task;               // core-managed posting state
+    Mel_Camera_Hotplug      pending;            // core-managed; latest-wins coalescing per sub
 };
 
-void mel_camera_hotplug_subscribe(Mel_Camera_Hotplug_Sub* sub);    // caller fills cb/user
+void mel_camera_hotplug_subscribe(Mel_Camera_Hotplug_Sub* sub);    // caller fills cb/user/exec
 void mel_camera_hotplug_unsubscribe(Mel_Camera_Hotplug_Sub* sub);
 ```
 
-Backend hotplug notification → core walks the intrusive sub list inline → each
-`cb`. Zero allocation. Delivery thread is the provider's notification thread (see
-Threading).
+Backend notification → core walks the intrusive sub list → each sub's event is
+posted as its embedded `Mel_Task` to `sub->exec`. Zero allocation: the task and
+payload live in the caller's node.
 
 ## Authorization (future, caller-owned storage)
 
-Permission is the genuinely-async OS step. The future lives in caller memory; the
-module initialises and resolves it, allocating nothing.
+Permission is the genuinely-async OS step. `Mel_Future` is a public struct
+initialised in place (`mel_future_init`); the future lives in caller memory, the
+module resolves it, allocating nothing and adding no destructor.
 
 ```
-const mel_camera_auth* mel_camera_authorization(void);                 // sync current status
-bool mel_camera_authorize(Mel_Future* future);                          // caller owns *future; resolves to const mel_camera_auth*
+const mel_camera_auth* mel_camera_authorization(void);                  // sync current status
+void                   mel_camera_authorize(Mel_Future* future);        // caller init'd; resolves to const mel_camera_auth*
 const mel_camera_auth* mel_camera_future_auth(const Mel_Future* f);     // singleton; never freed
 ```
 
-The future's value is a `const mel_camera_auth*` static singleton. The caller
-owns the `Mel_Future` storage and tears it down with `mel_future` directly — the
-module adds no destructor because it allocated nothing.
+**Consumption discipline.** A camera future is consumed only from a
+`mel_future_then` continuation (deliver on `mel_vat_executor(vat)`), or awaited
+from a fiber/coro via `mel_await_future`. Reading `mel_camera_future_auth` on a
+possibly-pending future is the eliminated bug class: a pending authorization
+misread as denial. In debug, value accessors assert `mel_future_resolved`.
+
+On platforms where authorization is already determined, the backend resolves the
+future inline before `authorize` returns — the continuation still runs; callers
+never branch on "was it inline".
 
 ## Open / stream / frames
 
-The open *stream* is caller-owned storage, the only way to support a dynamic
-count of simultaneously-open cameras with neither allocation nor a `[MAX]`. The
-caller embeds `Mel_Camera_Stream` (stack or in its own struct) and the module
-initialises it in place.
+Stream storage is caller-provided, the only way to support a dynamic count of
+simultaneously-open cameras with neither module allocation nor a `[MAX]`.
+Footprint is queried per device + config, because a backend's session state is
+variable (the V4L2 `mmap` buffer table scales with `cfg.buffers`); the caller
+allocates from its own allocator (MEL-CODE-003) or embeds a worst-case buffer it
+owns.
 
 ```
 typedef struct {
     const mel_image_format* format;
     i32 width, height;
     f32 fps;
+    u32 buffers;        // in-flight capture buffers (V4L2 REQBUFS / AImageReader maxImages / MF queue); explicit, no default
 } Mel_Camera_Config;
 
 typedef struct {
@@ -191,15 +240,17 @@ typedef struct {
 typedef void (*Mel_Camera_Frame_Fn)(const Mel_Camera_Frame* frame, void* user);
 
 typedef struct Mel_Camera_Frame_Sub Mel_Camera_Frame_Sub;
-struct Mel_Camera_Frame_Sub {                  // caller-owned node
+struct Mel_Camera_Frame_Sub {                  // caller-owned node; NO executor — delivery is inline by contract
     Mel_Camera_Frame_Fn   cb;
     void*                 user;
     Mel_Camera_Frame_Sub* next;                // core-managed link
 };
 
-typedef struct Mel_Camera_Stream Mel_Camera_Stream;   // caller-owned storage; fixed layout (see Failure modes)
+typedef struct Mel_Camera_Stream Mel_Camera_Stream;   // header view over caller-provided storage
 
-bool                     mel_camera_open(Mel_Camera cam, Mel_Camera_Config cfg, Mel_Camera_Stream* stream, Mel_Future* future);
+usize              mel_camera_stream_footprint(Mel_Camera cam, const Mel_Camera_Config* cfg);  // 0 if cam dead/cfg invalid
+Mel_Camera_Stream* mel_camera_open(Mel_Camera cam, const Mel_Camera_Config* cfg,
+                                   void* storage, Mel_Future* future);   // storage ≥ footprint, caller-owned
 const mel_camera_result* mel_camera_start(Mel_Camera_Stream* stream);   // begin delivery
 const mel_camera_result* mel_camera_stop(Mel_Camera_Stream* stream);
 void                     mel_camera_close(Mel_Camera_Stream* stream);   // release OS objects, unlink subs
@@ -214,7 +265,8 @@ void* mel_camera_native(Mel_Camera_Stream* stream);
 session is configured; the web backend resolves it when `getUserMedia` settles.
 The open future carries `const mel_camera_result*`. `start`/`stop` are
 synchronous — no backend defers them — so they return a result directly rather
-than wearing a future costume.
+than wearing a future costume. The same consumption discipline applies to the
+open future.
 
 Frame delivery: OS hands a locked buffer → backend wraps it as a borrowed
 `Mel_Image` (NV12 Y plane is luminance, zero copy) → core walks the stream's
@@ -222,35 +274,57 @@ intrusive sub list inline → each `cb` runs while the buffer is locked → core
 releases the buffer on return. `frame.image` is valid only for the callback; a
 consumer that needs it afterward copies/converts inside the callback. There is
 no pull API — the borrow would dangle, so it does not exist (rather than fail at
-runtime).
+runtime). The frame sub carries no executor for the same reason: a deferring
+executor would dangle the borrow, so the field does not exist.
 
-## Threading & reactor integration
+**Borrow across drain.** On pollable backends the buffer stays dequeued
+(`VIDIOC_DQBUF`) for the whole sub-list walk and is requeued on return; the walk
+is synchronous, bounded, and never re-enters the drain.
+
+**Hotplug ↔ stream coherence.** A `removed` event for a camera with a live
+stream drives that stream to `lost`: a pending open future resolves
+`mel_camera_lost`, a started stream's next `start`/`stop` returns it, and the
+hotplug event fires — never a silent stall.
+
+## Threading & vat integration
 
 Frames are delivered on the OS's own delivery thread for that backend. The core
-neither spawns a thread nor forces one. The reactor *owns* the backends whose
+neither spawns a thread nor forces one. The home vat hosts the backends whose
 delivery is fd/handle readiness; it does not try to unify the push backends
 (that would require a copy across a thread hop, breaking zero-copy).
 
-- **Pollable backends → reactor source** (à la `modules/port`): the backend
-  embeds a `Mel_Reactor_Source` in its session (`mel_reactor_source_init`,
-  external storage — no allocation), adds a `Mel_Reactor_Poll` over the readiness
-  handle, and dispatches frames from the reactor's `dispatch`. No private thread.
-  - Linux V4L2: the capture fd (`O_NONBLOCK`), `MEL_REACTOR_POLL_IN`; dispatch =
-    `VIDIOC_DQBUF` → deliver → `VIDIOC_QBUF`.
-  - Win32 Media Foundation: async mode (`IMFSourceReaderCallback`), the callback
-    signals an event HANDLE registered as the poll handle; dispatch reads the
-    queued sample. (Replaces the synchronous `ReadSample` thread.)
+- **Pollable backends → vat source** (à la `modules/port`): the backend opens a
+  `Mel_Vat_Source` on the home vat (`mel_vat_source_open`, vtbl =
+  wakeables/deadline/drain/cancel) and delivers frames from `drain`.
+  - Linux V4L2: the capture fd (`O_NONBLOCK`) as a wakeable with
+    `MEL_VAT_WAKE_IN`; drain = `VIDIOC_DQBUF` → deliver → `VIDIOC_QBUF`. The
+    udev monitor fd is a second, provider-level source feeding hotplug.
+    **Gated on the epoll/io_uring waiter** — until it ships the backend reports
+    `mel_camera_unsupported` honestly rather than spawning a private thread
+    (MEL-ENGINE-VII: honest alternative, not a broken shadow).
+  - Win32 Media Foundation: a native completion source on the IOCP waiter —
+    `IMFSourceReaderCallback` completions land as completion packets, drain
+    reads the queued sample. No event-handle shim, no synchronous `ReadSample`
+    thread. **Gated on the IOCP waiter** (the same gate `port` win32 sits
+    behind); same honest `unsupported` until then.
+  - The cocoa ui waiter refuses fd wakeables: a fd-backed camera source cannot
+    ride the macOS root vat. Moot for AVFoundation (OS-push), recorded so
+    nobody routes a virtual/V4L2-style provider onto it.
 - **OS-push backends → deliver on the OS thread**, which is hugging the OS:
   - Apple AVFoundation: `AVCaptureVideoDataOutput` delegate on its GCD serial
     queue.
   - Android Camera2: `AImageReader` `onImageAvailable` on the reader's thread.
-- **Browser → main thread**: `requestVideoFrameCallback` (per actual decoded
-  frame), not `requestAnimationFrame` (per display refresh). The canvas readback
-  is inherent to the browser and is the one platform where the frame is not a
-  raw OS plane.
+    The backend keeps its JNI + `MelodyCamera.java` companion: authorization is
+    an Activity permission request round-trip — the future resolves from the
+    JNI callback, never synchronously.
+- **Browser → guest vat**: the browser loop is the vat (`mel_vat_waiter_guest`
+  + embedder). Frames via `requestVideoFrameCallback` (per actual decoded
+  frame), not `requestAnimationFrame` (per display refresh). The canvas
+  readback is inherent to the browser and is the one platform where the frame
+  is not a raw OS plane.
 
-Hotplug notifications are rare and delivered inline on the provider's
-notification thread.
+Hotplug notifications are posted per-sub to each subscription's executor (see
+Hotplug).
 
 ## Backend contract (provider desc)
 
@@ -267,13 +341,17 @@ typedef struct {
     const char* name;
     void*       user;
 
+    void (*attach)(void* user, Mel_Vat* vat);    // home vat handed once at init; provider opens its sources here
+    void (*detach)(void* user);                  // close provider-level sources
+
     void                   (*enumerate)(void* user, Mel_Camera_Raw_Visitor visit, void* core_ctx);
     void                   (*modes)(void* user, u64 stable_id, Mel_Camera_Mode_Visitor visit, void* mv_user);
 
     const mel_camera_auth* (*authorization)(void* user);
     void                   (*authorize)(void* user, Mel_Future* future, Mel_Camera_Sink sink);
 
-    const mel_camera_result* (*open)(void* user, u64 stable_id, Mel_Camera_Config cfg, Mel_Camera_Stream* stream, Mel_Camera_Sink sink);
+    usize                    (*footprint)(void* user, u64 stable_id, const Mel_Camera_Config* cfg);
+    const mel_camera_result* (*open)(void* user, u64 stable_id, const Mel_Camera_Config* cfg, Mel_Camera_Stream* stream, Mel_Camera_Sink sink);
     const mel_camera_result* (*start)(void* user, Mel_Camera_Stream* stream);
     const mel_camera_result* (*stop)(void* user, Mel_Camera_Stream* stream);
     void                     (*close)(void* user, Mel_Camera_Stream* stream);
@@ -283,39 +361,52 @@ typedef struct {
 ```
 
 The core owns the registry, the sub lists, and the sequence counter; the backend
-owns the OS objects, anchored in the caller-provided `Mel_Camera_Stream`.
+owns the OS objects, anchored in the caller-provided stream storage past the
+core header. `footprint` is the provider's session size for that device+config —
+the core adds its header and returns the sum; a third-party provider states its
+own size, nothing is capped at a compile-time max over known backends.
 
-## Failure modes / open decisions
+## Migration ledger (shipped module → this design)
 
-1. **`Mel_Camera_Stream` storage layout.** It must hold core state (sub-list
-   head, sequence, owning `Mel_Camera`, result) *and* the active backend's
-   session state, in a fixed caller-owned footprint with no allocation. Backend
-   session state varies (AVF: an object ptr; V4L2: fd + reactor source + a table
-   of `mmap`'d buffers; MF: reader ptr + event + reactor source). Candidate: a
-   header struct plus a backend scratch region sized to the max over compiled
-   backends (one backend per platform, so the max is that platform's). The V4L2
-   buffer *table* is the sole variable-length piece.
-2. **Bounded capture buffers vs MEL-CODE-002.** The count of in-flight DMA
-   capture buffers is a tuning constant, not a growable collection — V4L2
-   `REQBUFS`, Camera2 `AImageReader` max images, MF sample queue all take a fixed
-   small N at open. This is the one place a compile-time constant N is
-   structurally inherent. Decision needed: treat N as a protocol-ish constant
-   (allowed), or make the buffer table itself caller-provided storage.
-3. **Borrow lifetime across reactor dispatch.** On pollable backends the buffer
-   must stay `DQBUF`'d for the whole sub-list walk and be `QBUF`'d on return;
-   the dispatch must not re-enter. Single-consumer-per-frame is the contract; the
-   walk is synchronous and bounded.
-4. **Cross-thread subscribe/unsubscribe.** Frames deliver on the OS/reactor
-   thread; subscription mutates the intrusive list. Either confine
-   subscribe/unsubscribe to the same thread (documented) or guard the list. Lean:
-   confine, asserted — no lock in the hot path.
-5. **Hotplug ↔ open-stream coherence.** A `removed` event for a camera with a
-   live stream must drive that stream to `lost` (the open future / next frame
-   surfaces it), never a silent stall.
+The shipped `modules/camera` (slotmap handles, `Mel_Event` frames, heap
+futures, `Mel_Camera_Status` bitmask) migrates by coordinated rename — two app
+consumers (`camera-scanner`, `barcode-reader`), no shim.
+
+| shipped | this design |
+|---|---|
+| `Mel_Camera { Mel_SlotMap_Handle }` | `Mel_Camera { provider, stable_id }` |
+| `Mel_Camera_Status` bitmask | `const mel_camera_result*` singletons |
+| `mel_camera_init(alloc, Mel_Executor*)` | `mel_camera_init(Mel_Vat*)` |
+| `mel_camera_refresh/count/list` | `mel_camera_each` visitor |
+| `mel_camera_describe(c, alloc)` + `describe_free` | `mel_camera_describe(c, visitor, user)`, borrowed descriptor |
+| `Mel_Camera_Modes` dynamic array on descriptor | `mel_camera_modes_each` visitor |
+| `mel_camera_subscribe(exec, cb, user)` slotmap sub | `mel_camera_hotplug_subscribe(Mel_Camera_Hotplug_Sub*)` intrusive node (keeps the executor) |
+| `mel_camera_authorize(alloc) → Mel_Future*` | `mel_camera_authorize(Mel_Future*)` caller storage |
+| `mel_camera_open/start/stop(c, alloc) → Mel_Future*` | `mel_camera_open(c, cfg, storage, Mel_Future*)`; sync `start`/`stop` results |
+| `mel_camera_future_status/free` | gone — caller-owned future, result singleton as value |
+| `mel_camera_frames(c) → Mel_Event*` ring | gone — intrusive `Mel_Camera_Frame_Sub`, inline by contract |
+| `mel_camera_frame_subscribe(c, cb, user)` slotmap sub | `mel_camera_stream_subscribe(stream, Mel_Camera_Frame_Sub*)` |
+| `mel_camera_frame_pull` (fails loudly) | does not exist |
+
+Per-backend: `camera_avf.m` (OS-push; mechanical port), `camera_camera2.c` +
+JNI/Java (OS-push; auth via Activity round-trip), `camera_v4l2.c` (rewrite as
+vat source; gated on epoll waiter), `camera_mf.c` (rewrite as IOCP completion
+source; gated on IOCP waiter), `camera_web.c` (guest vat). The mock provider and
+`camera-core` test migrate with the contract.
 
 ## Dependencies
 
-`core`, `allocator` (types only — no allocation), `image`, `future`, `reactor`,
-`string`, `log`. Dropped versus the prior shape: `collection` (no slotmap, no
-dynamic arrays) and `event` (no ring; intrusive inline delivery). `executor`
-only if a backend needs to marshal — otherwise dropped.
+`core`, `allocator` (types only — module-owned allocation is nil), `image`,
+`future`, `executor` (waist types), `vat`, `string`, `log`. Dropped versus the
+shipped module: `collection` (no slotmap, no dynamic arrays) and `event` (no
+ring; intrusive inline delivery).
+
+## Open decisions (gabbo)
+
+1. **Per-stream vat override.** One home vat suffices today; a `vat` field on
+   `Mel_Camera_Config` would let an app pin a busy capture stream to a
+   dedicated io vat. Lean: defer until a consumer exists.
+2. **Hotplug coalescing.** The per-sub embedded task coalesces to latest-wins
+   when the executor lags. Acceptable for hotplug (add/remove of the same
+   device collapses); if per-event fidelity is ever needed the sub grows a
+   caller-sized queue. Lean: latest-wins, documented.

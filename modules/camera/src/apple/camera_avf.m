@@ -22,16 +22,16 @@
 
 @class Mel_AVF_Session;
 
-@interface Mel_AVF_Session : NSObject <AVCaptureVideoDataOutputSampleBufferDelegate>
-@property(nonatomic, strong) AVCaptureDevice* device;
-@property(nonatomic, strong) AVCaptureSession* session;
+@interface                                             Mel_AVF_Session: NSObject <AVCaptureVideoDataOutputSampleBufferDelegate>
+@property(nonatomic, strong) AVCaptureDevice*          device;
+@property(nonatomic, strong) AVCaptureSession*         session;
 @property(nonatomic, strong) AVCaptureVideoDataOutput* output;
-@property(nonatomic, strong) dispatch_queue_t queue;
-@property(nonatomic, assign) u64 stable_id;
-@property(nonatomic, assign) Mel_Camera_Sink sink;
-@property(nonatomic, assign) BOOL haveSink;
-@property(nonatomic, assign) const mel_image_format* fmt;
-@property(nonatomic, assign) BOOL flipX;
+@property(nonatomic, strong) dispatch_queue_t          queue;
+@property(nonatomic, assign) u64                       stable_id;
+@property(nonatomic, assign) Mel_Camera_Sink           sink;
+@property(nonatomic, assign) BOOL                      haveSink;
+@property(nonatomic, assign) const mel_image_format*   fmt;
+@property(nonatomic, assign) BOOL                      flipX;
 @end
 
 @implementation Mel_AVF_Session
@@ -183,6 +183,16 @@ static bool avf_fourcc_for(const mel_image_format* fmt, OSType* out)
     return false;
 }
 
+static const mel_image_format* avf_format_for(OSType fourcc)
+{
+    usize                 n = 0;
+    const Avf_Format_Map* map = avf_format_map(&n);
+    for (usize i = 0; i < n; i++)
+        if (map[i].fourcc == fourcc)
+            return map[i].fmt;
+    return NULL;
+}
+
 static AVCaptureDeviceFormat* avf_select_format(AVCaptureDevice* dev, OSType fourcc, i32 w, i32 h)
 {
     for (AVCaptureDeviceFormat* f in dev.formats)
@@ -212,10 +222,17 @@ typedef struct
     str8 name;
 } Avf_Name_Rec;
 
+typedef struct
+{
+    u64 stable_id;
+    Mel_Array(Mel_Camera_Mode) modes;
+} Avf_Modes_Rec;
+
 static struct
 {
     const Mel_Alloc* alloc;
     Mel_Array(Avf_Name_Rec) names;
+    Mel_Array(Avf_Modes_Rec) modes;
 } g_avf;
 
 static void avf_names_clear(void)
@@ -224,6 +241,74 @@ static void avf_names_clear(void)
         if (g_avf.names.items[i].name.data)
             mel_dealloc(g_avf.alloc, g_avf.names.items[i].name.data);
     mel_array_clear(&g_avf.names);
+}
+
+static void avf_modes_clear(void)
+{
+    for (usize i = 0; i < g_avf.modes.count; i++)
+        mel_array_free(&g_avf.modes.items[i].modes);
+    mel_array_clear(&g_avf.modes);
+}
+
+static u32 avf_collect_modes(AVCaptureDevice* dev, u64 stable_id, const Mel_Camera_Mode** out_modes)
+{
+    Avf_Modes_Rec rec = { .stable_id = stable_id };
+    mel_array_init(&rec.modes, g_avf.alloc);
+
+    for (AVCaptureDeviceFormat* f in dev.formats)
+    {
+        CMFormatDescriptionRef  desc = f.formatDescription;
+        const mel_image_format* fmt = avf_format_for(CMFormatDescriptionGetMediaSubType(desc));
+        if (fmt == NULL)
+            continue;
+
+        CMVideoDimensions dim = CMVideoFormatDescriptionGetDimensions(desc);
+        f32               fps_min = 0.0f;
+        f32               fps_max = 0.0f;
+        bool              have = false;
+        for (AVFrameRateRange* r in f.videoSupportedFrameRateRanges)
+        {
+            f32 lo = (f32)r.minFrameRate;
+            f32 hi = (f32)r.maxFrameRate;
+            if (!have)
+            {
+                fps_min = lo;
+                fps_max = hi;
+                have = true;
+            }
+            else
+            {
+                if (lo < fps_min)
+                    fps_min = lo;
+                if (hi > fps_max)
+                    fps_max = hi;
+            }
+        }
+
+        bool merged = false;
+        for (usize i = 0; i < rec.modes.count; i++)
+        {
+            Mel_Camera_Mode* m = &rec.modes.items[i];
+            if (m->format == fmt && m->width == dim.width && m->height == dim.height)
+            {
+                if (fps_min < m->fps_min)
+                    m->fps_min = fps_min;
+                if (fps_max > m->fps_max)
+                    m->fps_max = fps_max;
+                merged = true;
+                break;
+            }
+        }
+        if (merged)
+            continue;
+
+        Mel_Camera_Mode m = { .format = fmt, .width = dim.width, .height = dim.height, .fps_min = fps_min, .fps_max = fps_max };
+        mel_array_push(&rec.modes, m);
+    }
+
+    mel_array_push(&g_avf.modes, rec);
+    *out_modes = rec.modes.items;
+    return (u32)rec.modes.count;
 }
 
 static str8 avf_intern_name(u64 stable_id, const char* utf8)
@@ -248,6 +333,9 @@ static u32 avf_enumerate(void* user, const Mel_Alloc* alloc, Mel_Camera_Raw* out
         mel_array_init(&g_avf.names, alloc);
     mel_assert(g_avf.names.allocator == alloc && "avf_enumerate: allocator changed across calls");
     avf_names_clear();
+    if (g_avf.modes.allocator == NULL)
+        mel_array_init(&g_avf.modes, alloc);
+    avf_modes_clear();
     @autoreleasepool
     {
         AVCaptureDeviceDiscoverySession* disco = [AVCaptureDeviceDiscoverySession discoverySessionWithDeviceTypes:avf_device_types() mediaType:AVMediaTypeVideo position:AVCaptureDevicePositionUnspecified];
@@ -260,8 +348,7 @@ static u32 avf_enumerate(void* user, const Mel_Alloc* alloc, Mel_Camera_Raw* out
             out[n].stable_id = stable_id;
             out[n].name = avf_intern_name(stable_id, dev.localizedName.UTF8String);
             out[n].facing = avf_facing(dev);
-            out[n].modes = NULL;
-            out[n].mode_count = 0;
+            out[n].mode_count = avf_collect_modes(dev, stable_id, &out[n].modes);
             n++;
         }
         return n;
@@ -291,7 +378,7 @@ static void avf_authorize(void* user, Mel_Camera_Sink sink)
         return;
     [AVCaptureDevice requestAccessForMediaType:AVMediaTypeVideo
                              completionHandler:^(BOOL granted) {
-                               sink.on_auth(sink.token, granted ? &mel_camera_auth_granted : &mel_camera_auth_denied);
+                                 sink.on_auth(sink.token, granted ? &mel_camera_auth_granted : &mel_camera_auth_denied);
                              }];
 }
 
@@ -361,7 +448,7 @@ static bool avf_open(void* user, const Mel_Alloc* alloc, u64 stable_id, Mel_Came
         s.queue = dispatch_queue_create("melody.camera.avf", DISPATCH_QUEUE_SERIAL);
         s.output = [[AVCaptureVideoDataOutput alloc] init];
         s.output.alwaysDiscardsLateVideoFrames = YES;
-        s.output.videoSettings = @{ (id)kCVPixelBufferPixelFormatTypeKey : @(fourcc) };
+        s.output.videoSettings = @{(id)kCVPixelBufferPixelFormatTypeKey : @(fourcc)};
         [s.output setSampleBufferDelegate:s queue:s.queue];
 
         [s.session beginConfiguration];
@@ -454,6 +541,12 @@ static void avf_shutdown(void* user, const Mel_Alloc* alloc)
         avf_names_clear();
         mel_array_free(&g_avf.names);
         mel_array_init(&g_avf.names, NULL);
+    }
+    if (g_avf.modes.allocator != NULL)
+    {
+        avf_modes_clear();
+        mel_array_free(&g_avf.modes);
+        mel_array_init(&g_avf.modes, NULL);
     }
     g_avf.alloc = NULL;
 }

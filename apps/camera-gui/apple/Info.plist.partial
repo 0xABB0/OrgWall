@@ -1,0 +1,2 @@
+    <key>NSCameraUsageDescription</key>
+    <string>Camera Bench exercises the camera module: enumeration, authorization, capture and preview.</string>
