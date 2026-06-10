@@ -8,9 +8,9 @@ struct Agent
     vec4 pos_phase;
 };
 
-layout(set = 0, binding = 2, std430) readonly buffer Agents { Agent a[]; } agents_buf[];
-layout(set = 0, binding = 2, std430) readonly buffer Survivors { uint count; uint pad0; uint pad1; uint pad2; uint idx[]; } surv_buf[];
-layout(set = 0, binding = 4, rgba8) uniform image2D u_images[];
+layout(set = 2, binding = 0, std430) readonly buffer Agents { Agent a[]; } agents_buf[];
+layout(set = 2, binding = 0, std430) readonly buffer Survivors { uint count; uint pad0; uint pad1; uint pad2; uint idx[]; } surv_buf[];
+layout(set = 4, binding = 0, rgba8) uniform image2D u_images[];
 
 layout(push_constant, std430) uniform Root
 {

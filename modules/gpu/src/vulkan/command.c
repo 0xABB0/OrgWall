@@ -37,6 +37,7 @@ void mel_gpu_frame_begin(Mel_Gpu_Swapchain* sc)
     sc->recorder.cb = cb;
     sc->recorder.cur_layout = VK_NULL_HANDLE;
     sc->recorder.state_count = 0;
+    mel_gpu__bindless_cl_release(&sc->recorder);
     sc->frame_ok = true;
 }
 
@@ -68,8 +69,12 @@ void mel_gpu_frame_end(Mel_Gpu_Swapchain* sc)
     VkResult sr = vkQueueSubmit(dev->graphics_queue, 1, &si, sc->in_flight[frame]);
     mel_mutex_unlock(&dev->submit_lock);
     if (sr != VK_SUCCESS && mel_gpu__device_is_lost(dev, sr, "vkQueueSubmit"))
+    {
+        mel_gpu__bindless_cl_release(&sc->recorder);
         return;
+    }
     sc->frame_serial[frame] = serial;
+    mel_gpu__bindless_cl_transfer(&sc->recorder, serial);
 
     VkPresentInfoKHR pi = {
         .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
@@ -193,7 +198,7 @@ void mel_gpu_cmd_bind_pipeline(Mel_Gpu_Command_List* cmd, Mel_Gpu_Pipeline pipe)
     cmd->cur_bind_point = o.bind_point;
     cmd->cur_pc_stages = o.pc_stages;
     if (o.bindless && cmd->dev->bindless.enabled)
-        vkCmdBindDescriptorSets(cmd->cb, o.bind_point, o.layout, 0, 1, &cmd->dev->bindless.set, 0, NULL);
+        mel_gpu__bindless_cl_bind(cmd, o.bind_point, o.layout);
 }
 
 void mel_gpu_cmd_bind_vertex_buffer(Mel_Gpu_Command_List* cmd, u32 slot, Mel_Gpu_Buffer buf)

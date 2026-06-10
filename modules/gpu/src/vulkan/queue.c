@@ -170,6 +170,9 @@ Mel_Gpu_Future* mel_gpu_queue_submit(Mel_Gpu_Queue* q, Mel_Gpu_Submit submit)
         }
         cbs[i] = submit.command_lists[i]->cb;
     }
+    for (u32 i = 0; i < submit.command_list_count; i++)
+        if (submit.command_lists[i])
+            mel_gpu__bindless_cl_transfer(submit.command_lists[i], serial);
 
     VkSemaphore*          wait_sems = submit.wait_count ? mel_alloc_array(dev->alloc, VkSemaphore, submit.wait_count) : NULL;
     VkPipelineStageFlags* wait_stages = submit.wait_count ? mel_alloc_array(dev->alloc, VkPipelineStageFlags, submit.wait_count) : NULL;

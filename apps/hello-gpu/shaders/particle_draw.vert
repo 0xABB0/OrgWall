@@ -7,7 +7,7 @@ struct Particle
     vec4 vel;
 };
 
-layout(set = 0, binding = 2, std430) readonly buffer Particles { Particle p[]; } buf[];
+layout(set = 2, binding = 0, std430) readonly buffer Particles { Particle p[]; } buf[];
 
 layout(push_constant, std430) uniform Root
 {

@@ -41,10 +41,10 @@ struct Root
 [[vk::push_constant]]
 Root root;
 
-[[vk::binding(2, 0)]]
+[[vk::binding(0, 2)]]
 RWStructuredBuffer<Particle> u_rw_buffers[];
 
-[[vk::binding(2, 0)]]
+[[vk::binding(0, 2)]]
 StructuredBuffer<Particle> u_ro_buffers[];
 
 RWStructuredBuffer<Particle> mel_particles_rw() { return u_rw_buffers[root.particles_rw]; }

@@ -2,7 +2,7 @@
 
 Granular spec for the deferred bindless restructure. Replaces the fixed-capacity heap (over-capacity creation fails with `..._CREATE_BINDLESS_SLOT_EXHAUSTED`) with a grow-on-demand partition that preserves the §3.1 `slot == handle.index` contract. Bound by `design/gpu-rhi.md` §3.1 (handle identity, direct/indirect), §3.3 (future-gated retire), §3.4 (caps), §6.7 (binding model), §13 (module structure). Cites `MEL-ENGINE-N` where a decision turns on a commandment.
 
-This document targets **target state**. The realized state is one Vulkan descriptor set at set 0 carrying five fixed-capacity bindings; see "Realization status" at the end of each unit and §6.7's realization note in `gpu-rhi.md`.
+B1 (Vulkan set-split) and B2 (Vulkan grow) are **realized**; D3D12 (B3/B4), the pre-sizing surface (B5), the ceiling rungs (B6) and the WebGPU floor (B7) remain target-state. See "Realization status" at the end of each unit. The Metal backend landed after this spec was written and has no lowering rung here; growable Metal (tier-2 argument-buffer heap) is owed a §4 entry and an implementation.
 
 ---
 
@@ -33,7 +33,7 @@ The "5" is the floor, not a ceiling. The AS class (`Mel_Gpu_Accel_Struct` bindle
 **WebGPU floor exception.** WebGPU's `maxBindGroups = 4` cannot host five sets. The §6.7 4-bind-group packing (group 0 root record, group 1 textures, group 2 samplers, group 3 SSBO+UBO dual-entry) stands unchanged; growth on WebGPU is recreation of the affected bind group (§4.5). The 5-set partition is the native/desktop shape; WebGPU keeps its 4-group packing and grows by bind-group reconstruction.
 
 ### Realization status
-Realized: one set, five bindings. Target: five sets, one binding each (six+ with AS / fewer with mutable collapse). The split is the prerequisite for every grow path below.
+Realized (Vulkan): five sets, one binding each; shaders address `set = class, binding = 0`; the pipeline layout of a `bindless = true` pipeline carries all five class layouts (static-sampler set follows at set 5). Reflection tracks (set, binding) pairs; the heap signature is a runtime array at binding 0 of a class set. Target: AS set 5 (M3), mutable collapse.
 
 ---
 
@@ -68,7 +68,9 @@ The rejected alternative — compact freed slots and renumber — is forbidden: 
 Step 4 swaps which set the *next* bind uses; submissions already in flight hold `old_set` and keep reading it until they retire. This is the §6.7 "writing a live slot is undefined; the engine never writes a live slot" contract applied to the *set object*: the old set is never mutated after the swap (its descriptors are frozen), the new set is fully populated before the swap, and the old pool's free is future-gated. No in-flight reader observes a half-grown set (MEL-ENGINE-VIII). The swap itself is `SerializedPerObject` on the heap (§3.7) — it coincides with the class's grow lock.
 
 ### Realization status
-Realized: `cap_C` fixed at device-create; `index >= cap_C` refuses. Target: geometric grow bounded by hardware max; refuse only at the hardware wall.
+Realized (Vulkan): geometric grow bounded by the hardware wall; refusal only at the wall, diagnostic names the wall and the indirect/compacted remedy. The realized grow mechanism refines §2.2: instead of a new layout per capacity, each class layout is created **once** at the wall with `VARIABLE_DESCRIPTOR_COUNT`, and a grow allocates a new pool + variable-count set at the larger capacity — pipeline layouts survive every grow by construction. Two driver findings the implementation encodes:
+- The per-class wall is `min(per-type maxPerStageDescriptorUpdateAfterBind*, maxPerStageUpdateAfterBindResources / 4)` (samplers are outside the aggregate budget), else `vkCreatePipelineLayout` exceeds the per-stage aggregate.
+- MoltenVK charges **buffer-class** pools at the layout count, not the variable count (`VK_ERROR_OUT_OF_POOL_MEMORY` on a seed pool). Init probes each class: seed pool first; on pool-charge failure the class allocates at the wall up front and never grows (cost logged); a halving ladder shrinks the wall when even that fails. Image and sampler classes grow normally on MoltenVK.
 
 ---
 
@@ -82,7 +84,7 @@ Two reclaim events, both gated on completion futures, never on a frame index (§
 No silent default on the reclaim interval (MEL-CODE-007): reclaim is exactly "all gating futures resolved," queryable, never a fixed N-frame guess.
 
 ### Realization status
-Realized: deferred-free watermark exists for slot frees; no grow ⇒ no pool reclaim. Target: pool reclaim joins the same future-gated pump.
+Realized (Vulkan): slot-index reclaim rides the deferred-free watermark (`has_reclaim`); destroy clears the slot's re-publish side-table entry so a grow never re-publishes a dying resource. Pool reclaim is **epoch-gated, stronger than the watermark**: each grown-out set is an epoch object; command lists take an epoch reference at bind-record time, references transfer to the submission at submit and release on that submission's completion — so a list recorded concurrently with a grow can never observe its set freed (the conservative watermark alone could not guarantee that). Pools free in completion order.
 
 ---
 
@@ -118,7 +120,7 @@ D3D12's no-prerequisite sub-unit is **classic-heap reclaim** (§6), because it i
 No 5-set partition (`maxBindGroups = 4`); the §6.7 packing stands. Grow = reconstruct the affected bind group at the larger `sized binding array` size and rebind. WebGPU bind groups are immutable post-create, so "grow" is "create a new bind group, copy nothing (descriptors are the resource references the engine re-supplies from slot metadata), bind the new group." Future-gate the old group's drop. `GPUResourceTable` (Milestone 3, when it lands) makes this a true growable table; until then sized-binding-arrays + group reconstruction is the honest floor (MEL-ENGINE-VII: degrade gracefully, do not deform). Past the WebGPU hardware array cap, creation hard-errors (P1 sync-impossible refinement, §6.7).
 
 ### Realization status
-Realized rungs: Vulkan `descriptor_indexing` (one set, five bindings, no grow); D3D12 classic heap (no reclaim, no grow). Target rungs: all of the above with grow + reclaim; `descriptor_buffer` / `descriptor_heap` / `ResourceDescriptorHeap` ceilings additive.
+Realized rungs: Vulkan `descriptor_indexing` five-set partition with grow + reclaim (§4.1, via variable-count sets — see §2 realization note). Target rungs: D3D12 classic heap reclaim + grow (B3/B4); `descriptor_buffer` / `descriptor_heap` / `ResourceDescriptorHeap` ceilings additive; WebGPU bind-group reconstruction (B7); Metal (no rung specified yet — owed).
 
 ---
 
@@ -137,8 +139,8 @@ No new resource API; growth is invisible to the common path (MEL-ENGINE-II — t
 
 Per the new-feature workflow (spec → granular → implement no-prereq-first). Sub-units and their dependency edges:
 
-- **B1 — Vulkan set-split refactor (NO PREREQUISITE).** Re-partition the realized one-set-five-bindings into five per-class `VkDescriptorSet`s with the fixed class→set map (§1). Pure refactor: capacities stay fixed (still `min(seed, hw_max)`), behavior unchanged, all suites stay green. This is the seam every grow path needs and changes no public API. **Start here.**
-- **B2 — Vulkan `descriptor_indexing` grow (depends: B1).** New-pool + re-publish + swap + future-gated old-pool free (§2.2, §4.1). `BindlessSlotExhausted` retreats to the hardware max. Add `growth_model`/`seed_<class>` caps.
+- **B1 — Vulkan set-split refactor (DONE).** Re-partition the realized one-set-five-bindings into five per-class `VkDescriptorSet`s with the fixed class→set map (§1). Landed with the shader-side migration: `.slang` heap declarations (`[[vk::binding(0, class)]]`), the GLSL fixture sources, and the embedded SPIR-V test fixtures (decoration-patched, `spirv-val`-clean).
+- **B2 — Vulkan `descriptor_indexing` grow (DONE, depends: B1).** Variable-count sets + new-pool re-publish + swap + epoch-gated old-pool free (§2.2 as refined by the §2 realization note, §4.1). `BindlessSlotExhausted` retreats to the hardware wall. `caps.memory.bindless` gained `growable` + `seed_<class>_slots`.
 - **B3 — D3D12 classic-heap reclaim (NO PREREQUISITE, parallel to B1).** Wire the classic heap's freed table slots to the §3.3 future-gated pump (§4.4). Pure addition; fixes the round-3 "no slot reclaim" debt independently of grow. Can land before or alongside B1.
 - **B4 — D3D12 classic-heap grow (depends: B3).** `CopyDescriptorsSimple` to a larger heap + `SetDescriptorHeaps` + unbounded-range root signature + future-gated old-heap release (§4.4).
 - **B5 — pre-sizing surface (depends: B2 or B4).** `bindless_heap_create` seed/growth_factor params (§5); grow U2 warning.

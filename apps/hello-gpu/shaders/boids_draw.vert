@@ -6,7 +6,7 @@ struct Boid
     vec4 pos_vel;
 };
 
-layout(set = 0, binding = 2, std430) readonly buffer Boids { Boid b[]; } buf[];
+layout(set = 2, binding = 0, std430) readonly buffer Boids { Boid b[]; } buf[];
 
 layout(push_constant, std430) uniform Root
 {

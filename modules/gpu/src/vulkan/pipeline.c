@@ -207,14 +207,20 @@ static Mel_Gpu_Pipeline_Create_Status mel_gpu__binding_gate(Mel_Gpu_Device* dev,
         return MEL_GPU_PIPELINE_CREATE_MISSING_FEATURE;
     }
     if (bindless)
-        for (u32 s = 0; s < refl->set0_count; s++)
+        for (u32 s = 0; s < refl->binding_count; s++)
         {
-            if (refl->set0[s].runtime_array)
+            const Mel_Gpu_Reflect_Desc_Binding* db = &refl->bindings[s];
+            if (db->runtime_array || db->set >= MEL_GPU_BINDLESS_CLASS_COUNT)
                 continue;
-            u32 cap = mel_gpu__heap_cap_for_class(dev, refl->set0[s].binding);
-            if (refl->set0[s].array_len > cap)
+            if (db->binding != 0)
             {
-                mel_log_error("gpu", "%s '%s': shader demands %u descriptors at set 0 binding %u but the heap holds %u (MissingBindlessSlot)", what, dbg_name, refl->set0[s].array_len, refl->set0[s].binding, cap);
+                mel_log_error("gpu", "%s '%s': shader declares set %u binding %u but heap sets carry one array at binding 0 (MissingBindlessSlot)", what, dbg_name, db->set, db->binding);
+                return MEL_GPU_PIPELINE_CREATE_MISSING_BINDLESS_SLOT;
+            }
+            u32 cap = mel_gpu__heap_cap_for_class(dev, db->set);
+            if (db->array_len > cap)
+            {
+                mel_log_error("gpu", "%s '%s': shader demands %u descriptors at heap set %u but the heap holds %u (MissingBindlessSlot)", what, dbg_name, db->array_len, db->set, cap);
                 return MEL_GPU_PIPELINE_CREATE_MISSING_BINDLESS_SLOT;
             }
         }
@@ -254,14 +260,15 @@ static bool mel_gpu__build_pipeline_layout(Mel_Gpu_Device* dev, bool bindless, c
 {
     *out_layout = VK_NULL_HANDLE;
     if (bindless && set_layout_count)
-        mel_log_warn("gpu", "%s '%s': set_layouts ignored on a bindless pipeline (set 0 is the heap)", what, dbg_name);
+        mel_log_warn("gpu", "%s '%s': set_layouts ignored on a bindless pipeline (sets 0..%u are the heap)", what, dbg_name, (u32)MEL_GPU_BINDLESS_CLASS_COUNT - 1);
     u32                    classic_count = bindless ? 0u : set_layout_count;
-    u32                    total_sets = (bindless ? 1u : classic_count) + (static_sampler_layout ? 1u : 0u);
+    u32                    total_sets = (bindless ? (u32)MEL_GPU_BINDLESS_CLASS_COUNT : classic_count) + (static_sampler_layout ? 1u : 0u);
     VkDescriptorSetLayout* set_layouts_vk = total_sets ? mel_alloc_array(dev->alloc, VkDescriptorSetLayout, total_sets) : NULL;
     u32                    set_count = 0;
     bool                   sets_ok = true;
     if (bindless)
-        set_layouts_vk[set_count++] = dev->bindless.set_layout;
+        for (u32 cls = 0; cls < MEL_GPU_BINDLESS_CLASS_COUNT; cls++)
+            set_layouts_vk[set_count++] = dev->bindless.set_layouts[cls];
     else
         for (u32 i = 0; i < classic_count; i++)
         {

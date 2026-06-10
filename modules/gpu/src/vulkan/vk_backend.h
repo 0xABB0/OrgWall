@@ -125,10 +125,11 @@ typedef struct
 
 typedef struct
 {
+    u32  set;
     u32  binding;
     u32  array_len;
     bool runtime_array;
-} Mel_Gpu_Reflect_Set0_Binding;
+} Mel_Gpu_Reflect_Desc_Binding;
 
 typedef struct
 {
@@ -148,8 +149,8 @@ typedef struct
     u32  push_constant_size;
     bool uses_bindless_set;
 
-    Mel_Gpu_Reflect_Set0_Binding* set0;
-    u32                           set0_count;
+    Mel_Gpu_Reflect_Desc_Binding* bindings;
+    u32                           binding_count;
 
     Mel_Gpu_Reflect_Vertex_Attr* vertex_attrs;
     u32                          vertex_attr_count;
@@ -234,6 +235,8 @@ typedef struct
     VkCommandPool pool;
 } Mel_Gpu_Thread_Pool;
 
+typedef struct Mel_Gpu_Bindless_Epoch Mel_Gpu_Bindless_Epoch;
+
 typedef struct
 {
     u64                     marker;
@@ -254,6 +257,7 @@ typedef struct
     Mel_Gpu_Resource_Table* reclaim_table;
     u32                     reclaim_index;
     bool                    has_reclaim;
+    Mel_Gpu_Bindless_Epoch* bindless_epoch;
 } Mel_Gpu_Deferred_Free;
 
 typedef struct
@@ -267,26 +271,41 @@ typedef struct
 
 enum
 {
-    MEL_GPU_BINDLESS_BINDING_SAMPLED_IMAGE = 0,
-    MEL_GPU_BINDLESS_BINDING_SAMPLER = 1,
-    MEL_GPU_BINDLESS_BINDING_STORAGE_BUFFER = 2,
-    MEL_GPU_BINDLESS_BINDING_UNIFORM_BUFFER = 3,
-    MEL_GPU_BINDLESS_BINDING_STORAGE_IMAGE = 4,
-    MEL_GPU_BINDLESS_BINDING_COUNT = 5,
+    MEL_GPU_BINDLESS_CLASS_SAMPLED_IMAGE = 0,
+    MEL_GPU_BINDLESS_CLASS_SAMPLER = 1,
+    MEL_GPU_BINDLESS_CLASS_STORAGE_BUFFER = 2,
+    MEL_GPU_BINDLESS_CLASS_UNIFORM_BUFFER = 3,
+    MEL_GPU_BINDLESS_CLASS_STORAGE_IMAGE = 4,
+    MEL_GPU_BINDLESS_CLASS_COUNT = 5,
+};
+
+struct Mel_Gpu_Bindless_Epoch
+{
+    u32              cls;
+    VkDescriptorPool pool;
+    VkDescriptorSet  set;
+    u32              cap;
+    u32              refs;
+    bool             superseded;
 };
 
 typedef struct
 {
-    bool                  enabled;
-    VkDescriptorPool      pool;
-    VkDescriptorSetLayout set_layout;
-    VkDescriptorSet       set;
-    u32                   cap_sampled_image;
-    u32                   cap_sampler;
-    u32                   cap_storage_buffer;
-    u32                   cap_uniform_buffer;
-    u32                   cap_storage_image;
-    Mel_Mutex             lock;
+    VkDescriptorImageInfo  image;
+    VkDescriptorBufferInfo buffer;
+    bool                   live;
+} Mel_Gpu_Bindless_Slot_Src;
+
+typedef struct
+{
+    bool                       enabled;
+    bool                       growable;
+    VkDescriptorSetLayout      set_layouts[MEL_GPU_BINDLESS_CLASS_COUNT];
+    Mel_Gpu_Bindless_Epoch*    cur[MEL_GPU_BINDLESS_CLASS_COUNT];
+    u32                        caps[MEL_GPU_BINDLESS_CLASS_COUNT];
+    u32                        hw_max[MEL_GPU_BINDLESS_CLASS_COUNT];
+    Mel_Gpu_Bindless_Slot_Src* srcs[MEL_GPU_BINDLESS_CLASS_COUNT];
+    Mel_Mutex                  locks[MEL_GPU_BINDLESS_CLASS_COUNT];
 } Mel_Gpu_Bindless;
 
 typedef struct
@@ -404,6 +423,10 @@ struct Mel_Gpu_Command_List
     Mel_Gpu_Cmd_State_Entry* states;
     u32                      state_count;
     u32                      state_cap;
+
+    Mel_Gpu_Bindless_Epoch** held_epochs;
+    u32                      held_count;
+    u32                      held_cap;
 };
 
 struct Mel_Gpu_Queue
@@ -514,6 +537,12 @@ bool mel_gpu__bindless_register_storage_image(Mel_Gpu_Device* dev, u32 slot, VkI
 bool mel_gpu__bindless_register_storage_buffer(Mel_Gpu_Device* dev, u32 slot, VkBuffer buf, VkDeviceSize range);
 bool mel_gpu__bindless_register_uniform_buffer(Mel_Gpu_Device* dev, u32 slot, VkBuffer buf, VkDeviceSize range);
 bool mel_gpu__bindless_register_sampler(Mel_Gpu_Device* dev, u32 slot, VkSampler sampler);
+void mel_gpu__bindless_unregister(Mel_Gpu_Device* dev, u32 binding_class, u32 slot);
+void mel_gpu__bindless_cl_bind(Mel_Gpu_Command_List* cmd, VkPipelineBindPoint bind_point, VkPipelineLayout layout);
+void mel_gpu__bindless_cl_release(Mel_Gpu_Command_List* cmd);
+void mel_gpu__bindless_cl_transfer(Mel_Gpu_Command_List* cmd, u64 serial);
+void mel_gpu__bindless_epoch_release(Mel_Gpu_Device* dev, Mel_Gpu_Bindless_Epoch* epoch);
+void mel_gpu__defer_free_marked(Mel_Gpu_Device* dev, Mel_Gpu_Deferred_Free entry, u64 marker);
 
 VkDescriptorSet mel_gpu__classic_descriptor_alloc(Mel_Gpu_Device* dev, VkDescriptorSetLayout layout, VkDescriptorPool* out_pool);
 void            mel_gpu__classic_pools_shutdown(Mel_Gpu_Device* dev);

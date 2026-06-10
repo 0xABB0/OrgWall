@@ -539,6 +539,116 @@ MEL_TEST(vk_bindless, sample_texture_readback)
     mel_gpu_instance_destroy(inst);
 }
 
+MEL_TEST(vk_bindless, heap_grows_past_seed)
+{
+    Mel_Gpu_Instance* inst = NULL;
+    Mel_Gpu_Device*   dev = test_make_device_bindless(&inst);
+    MEL_REQUIRE_NOT_NULL(dev);
+    MEL_REQUIRE(mel_gpu_bindless_available(dev));
+
+    const Mel_Gpu_Caps* caps = mel_gpu_device_caps(dev);
+    if (!caps->memory.bindless.growable)
+    {
+        mel_log_info("gpu", "heap_grows_past_seed: device heap is fixed; nothing to grow");
+        mel_gpu_device_destroy(dev);
+        mel_gpu_instance_destroy(inst);
+        return;
+    }
+    u32 seed = caps->memory.bindless.seed_texture_view_slots;
+    MEL_REQUIRE(seed < caps->memory.bindless.max_texture_view_slots);
+
+    const u8 src_px[4] = { 40, 80, 120, 255 };
+    Mel_Gpu_Texture_Create_Result src = mel_gpu_texture_create(dev, .kind = MEL_GPU_TEXTURE_2D, .extent = { 1, 1, 1 }, .format = MEL_GPU_FORMAT_RGBA8_UNORM,
+                                                               .usage = MEL_GPU_TEXTURE_SAMPLED | MEL_GPU_TEXTURE_COPY_DST, .name = "src");
+    MEL_REQUIRE(!mel_gpu_failed(src.status));
+    Mel_Gpu_Texture_Region region = { .subresource = { MEL_GPU_ASPECT_COLOR, 0, 1, 0, 1 }, .offset = { 0, 0, 0 }, .extent = { 1, 1, 1 } };
+    mel_gpu_texture_write(dev, src.value, region, src_px, sizeof src_px);
+
+    const Mel_Alloc*      alloc = mel_alloc_heap();
+    u32                   view_count = seed + 64;
+    Mel_Gpu_Texture_View* views = mel_alloc_array(alloc, Mel_Gpu_Texture_View, view_count);
+    u32                   max_slot = 0;
+    for (u32 i = 0; i < view_count; i++)
+    {
+        Mel_Gpu_Texture_View_Create_Result v = mel_gpu_texture_default_view(dev, src.value);
+        MEL_REQUIRE(!mel_gpu_failed(v.status));
+        views[i] = v.value;
+        u32 slot = mel_gpu_texture_view_bindless_slot(dev, v.value);
+        MEL_EXPECT_EQ(slot, v.value.slot.index);
+        if (slot > max_slot)
+            max_slot = slot;
+    }
+    MEL_REQUIRE(max_slot >= seed);
+
+    Mel_Gpu_Sampler_Create_Result smp2 = mel_gpu_sampler_create(dev, .min_filter = MEL_GPU_FILTER_NEAREST, .mag_filter = MEL_GPU_FILTER_NEAREST,
+                                                                .wrap_u = MEL_GPU_WRAP_CLAMP_EDGE, .wrap_v = MEL_GPU_WRAP_CLAMP_EDGE, .name = "nearest");
+    MEL_REQUIRE(!mel_gpu_failed(smp2.status));
+
+    const u32 W = 4, H = 4;
+    Mel_Gpu_Texture_Create_Result rt = mel_gpu_texture_create(dev, .kind = MEL_GPU_TEXTURE_2D, .extent = { W, H, 1 }, .format = MEL_GPU_FORMAT_RGBA8_UNORM,
+                                                              .usage = MEL_GPU_TEXTURE_ATTACHMENT | MEL_GPU_TEXTURE_COPY_SRC, .name = "rt");
+    MEL_REQUIRE(!mel_gpu_failed(rt.status));
+    Mel_Gpu_Texture_View_Create_Result rt_view = mel_gpu_texture_default_view(dev, rt.value);
+    MEL_REQUIRE(!mel_gpu_failed(rt_view.status));
+    Mel_Gpu_Buffer_Create_Result rb = mel_gpu_buffer_create(dev, .size = (usize)W * H * 4, .usage = MEL_GPU_BUFFER_TRANSFER_DST, .memory = MEL_GPU_MEMORY_READBACK, .name = "rb");
+    MEL_REQUIRE(!mel_gpu_failed(rb.status));
+
+    Mel_Gpu_Shader_Create_Result sh = mel_gpu_shader_create_from_bytecode(dev,
+                                                                          .spirv_vertex = BINDLESS_VERT_SPV, .spirv_vertex_size = sizeof BINDLESS_VERT_SPV,
+                                                                          .spirv_fragment = BINDLESS_FRAG_SPV, .spirv_fragment_size = sizeof BINDLESS_FRAG_SPV,
+                                                                          .vertex_entry = "main", .fragment_entry = "main", .name = "bindless");
+    MEL_REQUIRE(!mel_gpu_failed(sh.status));
+    Mel_Gpu_Pipeline_Create_Result pipe = mel_gpu_pipeline_create(dev, .shader = sh.value, .color_format = MEL_GPU_FORMAT_RGBA8_UNORM, .name = "grow-sample");
+    MEL_REQUIRE(!mel_gpu_failed(pipe.status));
+
+    struct
+    {
+        u32 tex;
+        u32 smp;
+    } root = { max_slot, mel_gpu_sampler_bindless_slot(dev, smp2.value) };
+
+    Mel_Gpu_Queue*        q = mel_gpu_queue_request(dev, MEL_GPU_QUEUE_GRAPHICS);
+    Mel_Gpu_Command_List* cmd = mel_gpu_command_list_create(q);
+    mel_gpu_command_list_begin(cmd);
+    Mel_Gpu_Subresource_Range range = { MEL_GPU_ASPECT_COLOR, 0, 1, 0, 1 };
+    mel_gpu_cmd_texture_barrier(cmd, rt.value, range, MEL_GPU_STATE_COMMON, MEL_GPU_STATE_RENDER_TARGET);
+    Mel_Gpu_Color_Attachment color = { .view = rt_view.value, .load = MEL_GPU_LOAD_CLEAR, .store = MEL_GPU_STORE_STORE, .clear = mel_gpu_rgba(0, 0, 0, 1) };
+    mel_gpu_cmd_begin_rendering(cmd, .colors = &color, .color_count = 1, .width = W, .height = H);
+    mel_gpu_cmd_bind_pipeline(cmd, pipe.value);
+    mel_gpu_cmd_push_constants(cmd, 0, sizeof root, &root);
+    mel_gpu_cmd_draw(cmd, 3, 1);
+    mel_gpu_cmd_end_rendering(cmd);
+    mel_gpu_cmd_texture_barrier(cmd, rt.value, range, MEL_GPU_STATE_RENDER_TARGET, MEL_GPU_STATE_COPY_SOURCE);
+    mel_gpu_cmd_copy_texture_to_buffer(cmd, rt.value, range, rb.value);
+    mel_gpu_command_list_end(cmd);
+
+    Mel_Gpu_Future* f = mel_gpu_queue_submit(q, (Mel_Gpu_Submit){ .command_lists = &cmd, .command_list_count = 1 });
+    MEL_EXPECT(mel_gpu_ok(mel_gpu_future_status(f)));
+    mel_gpu_future_destroy(f);
+
+    const u8* px = mel_gpu_buffer_mapped(dev, rb.value);
+    MEL_REQUIRE_NOT_NULL(px);
+    MEL_EXPECT(px[0] >= 39 && px[0] <= 41);
+    MEL_EXPECT(px[1] >= 79 && px[1] <= 81);
+    MEL_EXPECT(px[2] >= 119 && px[2] <= 121);
+    MEL_EXPECT_EQ(px[3], 255u);
+
+    mel_gpu_command_list_destroy(cmd);
+    mel_gpu_queue_release(q);
+    mel_gpu_pipeline_destroy(dev, pipe.value);
+    mel_gpu_shader_destroy(dev, sh.value);
+    mel_gpu_buffer_destroy(dev, rb.value);
+    mel_gpu_sampler_destroy(dev, smp2.value);
+    for (u32 i = 0; i < view_count; i++)
+        mel_gpu_texture_view_destroy(dev, views[i]);
+    mel_dealloc(alloc, views);
+    mel_gpu_texture_view_destroy(dev, rt_view.value);
+    mel_gpu_texture_destroy(dev, src.value);
+    mel_gpu_texture_destroy(dev, rt.value);
+    mel_gpu_device_destroy(dev);
+    mel_gpu_instance_destroy(inst);
+}
+
 MEL_TEST(vk_bindless, static_sampler_pipeline_create)
 {
     Mel_Gpu_Instance* inst = NULL;
@@ -787,7 +897,7 @@ MEL_TEST(vk_bindless, missing_bindless_slot)
     Mel_Gpu_Device*   dev = test_make_device_bindless(&inst);
     MEL_REQUIRE_NOT_NULL(dev);
     MEL_REQUIRE(mel_gpu_bindless_available(dev));
-    MEL_REQUIRE(mel_gpu_device_caps(dev)->memory.bindless.max_texture_view_slots < 20000u);
+    MEL_REQUIRE(mel_gpu_device_caps(dev)->memory.bindless.max_texture_view_slots < (1u << 30));
 
     Mel_Gpu_Shader_Create_Result sh = mel_gpu_shader_create_from_bytecode(dev,
                                                                           .spirv_vertex = BINDLESS_VERT_SPV, .spirv_vertex_size = sizeof BINDLESS_VERT_SPV,

@@ -3,8 +3,8 @@
 
 layout(local_size_x = 1) in;
 
-layout(set = 0, binding = 2, std430) readonly buffer Survivors { uint count; } surv_buf[];
-layout(set = 0, binding = 2, std430) buffer Indirect { uint gx; uint gy; uint gz; } args_buf[];
+layout(set = 2, binding = 0, std430) readonly buffer Survivors { uint count; } surv_buf[];
+layout(set = 2, binding = 0, std430) buffer Indirect { uint gx; uint gy; uint gz; } args_buf[];
 
 layout(push_constant, std430) uniform Root
 {

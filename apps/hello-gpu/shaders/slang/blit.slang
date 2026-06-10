@@ -10,7 +10,7 @@ Root root;
 [[vk::binding(0, 0)]]
 Texture2D u_textures[];
 
-[[vk::binding(1, 0)]]
+[[vk::binding(0, 1)]]
 SamplerState u_samplers[];
 
 struct VOut
