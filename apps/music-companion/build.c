@@ -16,6 +16,9 @@ void build(Mel_Build* b)
     mel_depends(app, "notation");
     mel_depends(app, "collection");
     mel_depends(app, "string");
+    mel_depends(app, "audiocapture");
+    mel_depends(app, "pitchdetect");
+    mel_depends(app, "frequency");
 
     mel_manifest(app, "APP_LABEL", "Music Companion");
     mel_manifest(app, "BUNDLE_ID", "orgwall.musiccompanion");

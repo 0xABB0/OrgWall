@@ -13,11 +13,18 @@
 #include <musictheory/pitch.h>
 #include <musictheory/scale.h>
 #include <notation/western.h>
+#include <frequency/cent.h>
+#include <audiocapture/audiocapture.h>
+#include <pitchdetect/pitchdetect.h>
 
 #include "companion.h"
 
-#define POLL_INTERVAL_NS ((i64)1000000)
-#define HELD_DISPLAY_MAX 12
+#define POLL_INTERVAL_NS  ((i64)1000000)
+#define HELD_DISPLAY_MAX  12
+#define TUNER_SAMPLE_RATE 48000u
+#define TUNER_WINDOW      2048u
+#define TUNER_HOP         1024u
+#define TUNER_HOLD_TICKS  24
 
 typedef struct
 {
@@ -35,6 +42,17 @@ typedef struct
     Mel_Gui_Handle held_label;
     Mel_Gui_Handle chord_label;
     Mel_Gui_Handle detail_label;
+
+    Mel_AudioCapture* cap;
+    Mel_PitchDetector detector;
+    Mel_Vat_Tick*     tuner_timer;
+    f32               window[TUNER_WINDOW];
+    u32               window_fill;
+    i32               unvoiced_ticks;
+
+    Mel_Gui_Handle tuner_status;
+    Mel_Gui_Handle tuner_note;
+    Mel_Gui_Handle tuner_cents;
 } Companion_State;
 
 static Companion_State g_app;
@@ -271,11 +289,128 @@ static void build_chords_tab(Mel_Gui_Handle tab)
     g_app.detail_label = mel_label_create(tab, .text = S8(""), .x = 24, .y = 244, .w = 480, .h = 30);
 }
 
+static void tuner_show_estimate(Mel_Pitch_Estimate est)
+{
+    const Mel_Alloc* alloc = mel_alloc_heap();
+
+    Mel_Hz   detected = mel_freq(est.frequency_hz);
+    i64      idx = mel_tuning_find_index(&g_app.tuning, detected);
+    Mel_Hz   target = mel_tuning_frequency_for_index(&g_app.tuning, idx);
+    f64      cents = mel_cent_to_double(mel_cent_from_freqs_c(&detected, &target));
+    Mel_Note note = mel_notation_guess_note(&g_app.western.base, mel_pitch_make(&g_app.tuning, idx));
+    str8     symbol = mel_nat_acc_note_symbol(&g_app.western, note, alloc);
+
+    char text[96];
+    snprintf(text, sizeof(text), "%.*s%d", (int)symbol.len, (const char*)symbol.data, (int)(note.nat_bi_index + 4));
+    mel_gui_set_text(g_app.tuner_note, str8_from_cstr(text));
+    if (symbol.data)
+        mel_dealloc(alloc, symbol.data);
+
+    snprintf(text, sizeof(text), "%+.1f cents  (%.2f Hz, clarity %.0f%%)", cents, est.frequency_hz, (f64)est.clarity * 100.0);
+    mel_gui_set_text(g_app.tuner_cents, str8_from_cstr(text));
+}
+
+static bool tuner_tick(void* user)
+{
+    MEL_UNUSED(user);
+    if (g_app.cap == NULL)
+        return true;
+
+    bool detected_any = false;
+    for (;;)
+    {
+        u32 got = mel_audiocapture_read(g_app.cap, g_app.window + g_app.window_fill, TUNER_WINDOW - g_app.window_fill);
+        g_app.window_fill += got;
+        if (g_app.window_fill < TUNER_WINDOW)
+            break;
+
+        Mel_Pitch_Estimate est = mel_pitch_detect(&g_app.detector, g_app.window, TUNER_WINDOW);
+        if (est.voiced)
+        {
+            tuner_show_estimate(est);
+            g_app.unvoiced_ticks = 0;
+            detected_any = true;
+        }
+
+        memmove(g_app.window, g_app.window + TUNER_HOP, (TUNER_WINDOW - TUNER_HOP) * sizeof(f32));
+        g_app.window_fill = TUNER_WINDOW - TUNER_HOP;
+    }
+
+    if (!detected_any && g_app.unvoiced_ticks <= TUNER_HOLD_TICKS && ++g_app.unvoiced_ticks == TUNER_HOLD_TICKS)
+    {
+        mel_gui_set_text(g_app.tuner_note, S8("-"));
+        mel_gui_set_text(g_app.tuner_cents, S8("listening..."));
+    }
+    return true;
+}
+
+static void tuner_start_clicked(Mel_Gui_Handle h, void* user)
+{
+    MEL_UNUSED(h);
+    MEL_UNUSED(user);
+
+    if (g_app.cap != NULL)
+    {
+        mel_gui_set_text(g_app.tuner_status, S8("Status: already running"));
+        return;
+    }
+
+    u32 device = 0;
+    if (!mel_audiocapture_default_device(&device))
+    {
+        mel_gui_set_text(g_app.tuner_status, S8("Status: no input device"));
+        return;
+    }
+
+    g_app.cap = mel_audiocapture_open(mel_alloc_heap(), device, (Mel_AudioCapture_Opt){ .sample_rate = TUNER_SAMPLE_RATE, .ring_capacity_frames = TUNER_SAMPLE_RATE / 4 });
+    if (g_app.cap == NULL)
+    {
+        mel_gui_set_text(g_app.tuner_status, S8("Status: open failed (mic permission?)"));
+        return;
+    }
+
+    g_app.window_fill = 0;
+    g_app.unvoiced_ticks = 0;
+    mel_gui_set_text(g_app.tuner_status, S8("Status: listening"));
+    mel_gui_set_text(g_app.tuner_cents, S8("listening..."));
+
+    if (g_app.tuner_timer == NULL)
+        g_app.tuner_timer = mel_vat_tick_open(g_app.vat, mel_alloc_heap(), POLL_INTERVAL_NS, tuner_tick, NULL);
+}
+
+static void tuner_stop_clicked(Mel_Gui_Handle h, void* user)
+{
+    MEL_UNUSED(h);
+    MEL_UNUSED(user);
+
+    if (g_app.cap == NULL)
+    {
+        mel_gui_set_text(g_app.tuner_status, S8("Status: not running"));
+        return;
+    }
+
+    if (g_app.tuner_timer != NULL)
+    {
+        mel_vat_tick_close(g_app.tuner_timer);
+        g_app.tuner_timer = NULL;
+    }
+    mel_audiocapture_close(g_app.cap);
+    g_app.cap = NULL;
+    mel_gui_set_text(g_app.tuner_status, S8("Status: stopped"));
+    mel_gui_set_text(g_app.tuner_note, S8("-"));
+    mel_gui_set_text(g_app.tuner_cents, S8(""));
+}
+
 static void build_tuner_tab(Mel_Gui_Handle tab)
 {
-    mel_label_create(tab, .text = S8("Tuner"), .x = 24, .y = 16, .w = 480, .h = 32);
-    mel_label_create(tab, .text = S8("Pitch detection is ready (pitchdetect module);"), .x = 24, .y = 56, .w = 480, .h = 30);
-    mel_label_create(tab, .text = S8("waiting on microphone capture support."), .x = 24, .y = 88, .w = 480, .h = 30);
+    mel_label_create(tab, .text = S8("Play a note; the nearest pitch and deviation appear below."), .x = 24, .y = 16, .w = 480, .h = 32);
+
+    mel_button_create(tab, .text = S8("Start"), .x = 24, .y = 60, .w = 120, .h = 48, .pointer.on_click = tuner_start_clicked);
+    mel_button_create(tab, .text = S8("Stop"), .x = 156, .y = 60, .w = 120, .h = 48, .pointer.on_click = tuner_stop_clicked);
+
+    g_app.tuner_status = mel_label_create(tab, .text = S8("Status: idle"), .x = 24, .y = 124, .w = 480, .h = 30);
+    g_app.tuner_note = mel_label_create(tab, .text = S8("-"), .x = 24, .y = 162, .w = 480, .h = 60);
+    g_app.tuner_cents = mel_label_create(tab, .text = S8(""), .x = 24, .y = 228, .w = 480, .h = 30);
 }
 
 static void build_sightreading_tab(Mel_Gui_Handle tab)
@@ -294,6 +429,14 @@ void build_companion(Mel_Gui_Handle frame, void* user)
     g_app.tuning = mel_tuning_western(alloc, mel_freq(440.0));
     g_app.western = mel_notation_western(alloc, &g_app.tuning);
     g_app.catalog = mel_chord_catalog_western(alloc);
+    g_app.detector = mel_pitch_detector_make(alloc,
+                                             (Mel_PitchDetector_Opt){
+                                                 .sample_rate = TUNER_SAMPLE_RATE,
+                                                 .window_size = TUNER_WINDOW,
+                                                 .min_hz = 50.0,
+                                                 .max_hz = 1500.0,
+                                                 .threshold = 0.15f,
+                                             });
 
     mel_gui_set_text(frame, S8("Music Companion"));
 
