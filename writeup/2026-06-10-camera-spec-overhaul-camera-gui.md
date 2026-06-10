@@ -38,6 +38,17 @@
 
 ## Bugs found while verifying
 
+- **AVF backend never enumerated modes (fixed here):** `avf_enumerate` set
+  `modes = NULL, mode_count = 0` since the backend's first commit, so
+  `mel_camera_describe` reported zero modes on macOS and both camera-scanner
+  and barcode-reader bailed with "describe failed or has no modes" — the
+  macOS capture path was dead; the apps had only ever been verified on
+  android/ios. Fixed in `camera_avf.m`: modes are collected per device from
+  `dev.formats` (fourcc→`mel_image_format` via the existing map, dimensions,
+  fps ranges merged per format+extent) and interned like device names,
+  cleared per enumerate and on shutdown. Verified: camera-scanner and
+  barcode-reader now describe, open, and stream on macos.
+
 - **Hotplug feedback storm (app-side, fixed):** the hotplug handler called
   `rebuild_devices()` which called `mel_camera_refresh()`, and refresh emits a
   `changed` event per device even when nothing changed → infinite event loop
