@@ -1,69 +1,64 @@
 #include <musictheory/scale.h>
-#include <musictheory/interval_seq.h>
-#include <musictheory/pitch.h>
-#include <stdlib.h>
-#include <string.h>
+#include <musictheory/scale_gen.coro.h>
 
-#define MEL_SCALE_INITIAL_CAPACITY 16
+#include <assert.h>
 
 void mel_scale_free(Mel_Scale* s)
 {
     if (!s)
         return;
-    free(s->pitches);
-    s->pitches = NULL;
-    s->count = 0;
-    s->capacity = 0;
+    mel_array_free(&s->indices);
 }
 
-Mel_Scale mel_scale_make(const Mel_Tuning* tuning)
+Mel_Scale mel_scale_make(const Mel_Alloc* alloc, const Mel_Tuning* tuning)
 {
+    assert(alloc && tuning);
     Mel_Scale s;
     s.tuning = tuning;
-    s.count = 0;
-    s.capacity = MEL_SCALE_INITIAL_CAPACITY;
-    s.pitches = malloc(s.capacity * sizeof(Mel_Pitch));
+    mel_array_init(&s.indices, alloc);
     return s;
 }
 
-Mel_Scale mel_scale_from_indices(const Mel_Tuning* tuning, const int64_t* indices, int32_t count)
+Mel_Scale mel_scale_from_indices(const Mel_Alloc* alloc, const Mel_Tuning* tuning, const i64* indices, i32 count)
 {
-    Mel_Scale s = mel_scale_make(tuning);
-    for (int32_t i = 0; i < count; i++)
+    Mel_Scale s = mel_scale_make(alloc, tuning);
+    for (i32 i = 0; i < count; i++)
         mel_scale_add_index(&s, indices[i]);
     return s;
 }
 
-Mel_Scale mel_scale_from_pitches(const Mel_Tuning* tuning, const Mel_Pitch* pitches, int32_t count)
+Mel_Scale mel_scale_from_pitches(const Mel_Alloc* alloc, const Mel_Tuning* tuning, const Mel_Pitch* pitches, i32 count)
 {
-    Mel_Scale s = mel_scale_make(tuning);
-    for (int32_t i = 0; i < count; i++)
+    Mel_Scale s = mel_scale_make(alloc, tuning);
+    for (i32 i = 0; i < count; i++)
         mel_scale_add_pitch(&s, pitches[i]);
     return s;
 }
 
-Mel_Scale mel_scale_copy(const Mel_Scale* s)
+Mel_Scale mel_scale_copy(const Mel_Alloc* alloc, const Mel_Scale* s)
 {
-    Mel_Scale c;
-    c.tuning = s->tuning;
-    c.count = s->count;
-    c.capacity = s->capacity;
-    c.pitches = malloc(c.capacity * sizeof(Mel_Pitch));
-    for (int32_t i = 0; i < s->count; i++)
-        c.pitches[i] = mel_pitch_copy(s->pitches[i]);
+    Mel_Scale c = mel_scale_make(alloc, s->tuning);
+    mel_array_reserve(&c.indices, s->indices.count);
+    for (usize i = 0; i < s->indices.count; i++)
+        mel_array_push(&c.indices, s->indices.items[i]);
     return c;
 }
 
-static int32_t mel_scale_find_insert_pos(const Mel_Scale* s, Mel_Pitch pitch)
+i64 mel_scale_index_at(const Mel_Scale* s, i32 idx)
 {
-    int32_t lo = 0, hi = s->count;
+    assert(idx >= 0 && (usize)idx < s->indices.count);
+    return s->indices.items[idx];
+}
+
+Mel_Pitch mel_scale_at(const Mel_Scale* s, i32 idx) { return mel_pitch_make(s->tuning, mel_scale_index_at(s, idx)); }
+
+static usize mel_scale__lower_bound(const Mel_Scale* s, i64 index)
+{
+    usize lo = 0, hi = s->indices.count;
     while (lo < hi)
     {
-        int32_t mid = lo + (hi - lo) / 2;
-        uint8_t cmp = mel_pitch_cmp(s->pitches[mid], pitch);
-        if (cmp == 1)
-            return mid;
-        if (cmp == 0)
+        usize mid = lo + (hi - lo) / 2;
+        if (s->indices.items[mid] < index)
             lo = mid + 1;
         else
             hi = mid;
@@ -71,377 +66,240 @@ static int32_t mel_scale_find_insert_pos(const Mel_Scale* s, Mel_Pitch pitch)
     return lo;
 }
 
-static void mel_scale_grow(Mel_Scale* s)
+void mel_scale_add_index(Mel_Scale* s, i64 index)
 {
-    s->capacity *= 2;
-    s->pitches = realloc(s->pitches, s->capacity * sizeof(Mel_Pitch));
+    usize pos = mel_scale__lower_bound(s, index);
+    if (pos < s->indices.count && s->indices.items[pos] == index)
+        return;
+    mel_array_insert(&s->indices, pos, index);
 }
 
 void mel_scale_add_pitch(Mel_Scale* s, Mel_Pitch pitch)
 {
-    if (pitch.tuning != s->tuning)
-        return;
-
-    int32_t pos = mel_scale_find_insert_pos(s, pitch);
-    if (pos < s->count && mel_pitch_cmp(s->pitches[pos], pitch) == 1)
-        return;
-
-    if (s->count >= s->capacity)
-        mel_scale_grow(s);
-
-    for (int32_t i = s->count; i > pos; i--)
-        s->pitches[i] = s->pitches[i - 1];
-
-    s->pitches[pos] = mel_pitch_copy(pitch);
-    s->count++;
+    assert(pitch.tuning == s->tuning);
+    mel_scale_add_index(s, pitch.index);
 }
 
-void mel_scale_add_index(Mel_Scale* s, int64_t index)
+u8 mel_scale_contains_index(const Mel_Scale* s, i64 index)
 {
-    Mel_Pitch p = mel_pitch_make(s->tuning, index);
-    mel_scale_add_pitch(s, p);
+    usize pos = mel_scale__lower_bound(s, index);
+    return pos < s->indices.count && s->indices.items[pos] == index ? 1 : 0;
 }
 
-Mel_Pitch mel_scale_get(const Mel_Scale* s, int32_t idx) { return mel_pitch_copy(s->pitches[idx]); }
-
-uint8_t mel_scale_contains_pitch(const Mel_Scale* s, Mel_Pitch pitch)
+u8 mel_scale_contains_pitch(const Mel_Scale* s, Mel_Pitch pitch)
 {
-    if (pitch.tuning != s->tuning)
-        return 0;
-    int32_t lo = 0, hi = s->count;
-    while (lo < hi)
-    {
-        int32_t mid = lo + (hi - lo) / 2;
-        uint8_t cmp = mel_pitch_cmp(s->pitches[mid], pitch);
-        if (cmp == 1)
+    assert(pitch.tuning == s->tuning);
+    return mel_scale_contains_index(s, pitch.index);
+}
+
+u8 mel_scale_contains_pc(const Mel_Scale* s, i64 pc)
+{
+    for (usize i = 0; i < s->indices.count; i++)
+        if (mel_pitch_pc_index(mel_scale_at(s, (i32)i)) == pc)
             return 1;
-        if (cmp == 0)
-            lo = mid + 1;
-        else
-            hi = mid;
-    }
     return 0;
 }
 
-uint8_t mel_scale_contains_index(const Mel_Scale* s, int64_t index)
+Mel_Interval mel_scale_spec_interval(const Mel_Scale* s, i32 source_idx, i32 target_idx) { return mel_interval_from_pitches(mel_scale_at(s, source_idx), mel_scale_at(s, target_idx)); }
+
+void mel_scale_indices(const Mel_Scale* s, i64* out_indices)
 {
-    Mel_Pitch p = mel_pitch_make(s->tuning, index);
-    return mel_scale_contains_pitch(s, p);
+    for (usize i = 0; i < s->indices.count; i++)
+        out_indices[i] = s->indices.items[i];
 }
 
-Mel_Interval mel_scale_spec_interval(const Mel_Scale* s, int32_t source_idx, int32_t target_idx) { return mel_interval_from_pitches(s->pitches[source_idx], s->pitches[target_idx]); }
-
-Mel_Scale mel_scale_transpose(const Mel_Scale* s, int64_t diff)
+Mel_Scale mel_scale_transpose(const Mel_Alloc* alloc, const Mel_Scale* s, i64 diff)
 {
-    Mel_Scale r = mel_scale_make(s->tuning);
-    for (int32_t i = 0; i < s->count; i++)
-        mel_scale_add_index(&r, s->pitches[i].pitch_index + diff);
+    Mel_Scale r = mel_scale_make(alloc, s->tuning);
+    mel_array_reserve(&r.indices, s->indices.count);
+    for (usize i = 0; i < s->indices.count; i++)
+        mel_array_push(&r.indices, s->indices.items[i] + diff);
     return r;
 }
 
-Mel_Scale mel_scale_union(const Mel_Scale* a, const Mel_Scale* b)
+Mel_Scale mel_scale_union(const Mel_Alloc* alloc, const Mel_Scale* a, const Mel_Scale* b)
 {
-    Mel_Scale r = mel_scale_make(a->tuning);
-    int32_t   ai = 0, bi = 0;
-    while (ai < a->count && bi < b->count)
-    {
-        uint8_t cmp = mel_pitch_cmp(a->pitches[ai], b->pitches[bi]);
-        if (cmp == 1)
-        {
-            mel_scale_add_pitch(&r, a->pitches[ai]);
-            ai++;
-            bi++;
-        }
-        else if (cmp == 0)
-        {
-            mel_scale_add_pitch(&r, a->pitches[ai]);
-            ai++;
-        }
-        else
-        {
-            mel_scale_add_pitch(&r, b->pitches[bi]);
-            bi++;
-        }
-    }
-    for (; ai < a->count; ai++)
-        mel_scale_add_pitch(&r, a->pitches[ai]);
-    for (; bi < b->count; bi++)
-        mel_scale_add_pitch(&r, b->pitches[bi]);
+    assert(a->tuning == b->tuning);
+    Mel_Scale r = mel_scale_make(alloc, a->tuning);
+
+    Mel_Coro_Frame_mel_scale_union_g f = { 0 };
+    f.a = a;
+    f.b = b;
+    i64 idx;
+    while (mel_scale_union_g__resume(&f, &idx))
+        mel_array_push(&r.indices, idx);
     return r;
 }
 
-Mel_Scale mel_scale_intersection(const Mel_Scale* a, const Mel_Scale* b)
+Mel_Scale mel_scale_intersection(const Mel_Alloc* alloc, const Mel_Scale* a, const Mel_Scale* b)
 {
-    Mel_Scale r = mel_scale_make(a->tuning);
-    int32_t   ai = 0, bi = 0;
-    while (ai < a->count && bi < b->count)
-    {
-        uint8_t cmp = mel_pitch_cmp(a->pitches[ai], b->pitches[bi]);
-        if (cmp == 1)
-        {
-            mel_scale_add_pitch(&r, a->pitches[ai]);
-            ai++;
-            bi++;
-        }
-        else if (cmp == 0)
-        {
-            ai++;
-        }
-        else
-        {
-            bi++;
-        }
-    }
+    assert(a->tuning == b->tuning);
+    Mel_Scale r = mel_scale_make(alloc, a->tuning);
+
+    Mel_Coro_Frame_mel_scale_intersection_g f = { 0 };
+    f.a = a;
+    f.b = b;
+    i64 idx;
+    while (mel_scale_intersection_g__resume(&f, &idx))
+        mel_array_push(&r.indices, idx);
     return r;
 }
 
-Mel_Scale mel_scale_difference(const Mel_Scale* a, const Mel_Scale* b)
+Mel_Scale mel_scale_difference(const Mel_Alloc* alloc, const Mel_Scale* a, const Mel_Scale* b)
 {
-    Mel_Scale r = mel_scale_make(a->tuning);
-    int32_t   ai = 0, bi = 0;
-    while (ai < a->count && bi < b->count)
-    {
-        uint8_t cmp = mel_pitch_cmp(a->pitches[ai], b->pitches[bi]);
-        if (cmp == 1)
-        {
-            ai++;
-            bi++;
-        }
-        else if (cmp == 0)
-        {
-            mel_scale_add_pitch(&r, a->pitches[ai]);
-            ai++;
-        }
-        else
-        {
-            bi++;
-        }
-    }
-    for (; ai < a->count; ai++)
-        mel_scale_add_pitch(&r, a->pitches[ai]);
+    assert(a->tuning == b->tuning);
+    Mel_Scale r = mel_scale_make(alloc, a->tuning);
+
+    Mel_Coro_Frame_mel_scale_difference_g f = { 0 };
+    f.a = a;
+    f.b = b;
+    i64 idx;
+    while (mel_scale_difference_g__resume(&f, &idx))
+        mel_array_push(&r.indices, idx);
     return r;
 }
 
-uint8_t mel_scale_is_subset(const Mel_Scale* a, const Mel_Scale* b)
+u8 mel_scale_is_subset(const Mel_Scale* a, const Mel_Scale* b)
 {
-    if (a->count > b->count)
+    if (a->indices.count > b->indices.count)
         return 0;
-    int32_t bi = 0;
-    for (int32_t ai = 0; ai < a->count; ai++)
+    usize bi = 0;
+    for (usize ai = 0; ai < a->indices.count; ai++)
     {
-        while (bi < b->count && mel_pitch_cmp(a->pitches[ai], b->pitches[bi]) == 2)
+        while (bi < b->indices.count && b->indices.items[bi] < a->indices.items[ai])
             bi++;
-        if (bi >= b->count || mel_pitch_cmp(a->pitches[ai], b->pitches[bi]) != 1)
+        if (bi >= b->indices.count || b->indices.items[bi] != a->indices.items[ai])
             return 0;
         bi++;
     }
     return 1;
 }
 
-uint8_t mel_scale_eq(const Mel_Scale* a, const Mel_Scale* b)
+u8 mel_scale_eq(const Mel_Scale* a, const Mel_Scale* b)
 {
-    if (a->count != b->count)
+    if (a->tuning != b->tuning || a->indices.count != b->indices.count)
         return 0;
-    for (int32_t i = 0; i < a->count; i++)
-        if (!mel_pitch_eq(a->pitches[i], b->pitches[i]))
+    for (usize i = 0; i < a->indices.count; i++)
+        if (a->indices.items[i] != b->indices.items[i])
             return 0;
     return 1;
 }
 
-Mel_Scale mel_scale_reflect(const Mel_Scale* s, Mel_Pitch axis)
+u8 mel_scale_is_set_equivalent(const Mel_Scale* a, const Mel_Scale* b)
 {
-    Mel_Scale r = mel_scale_make(s->tuning);
-    for (int32_t i = 0; i < s->count; i++)
-    {
-        Mel_Interval iv = mel_interval_from_pitches(s->pitches[i], axis);
-        int64_t      reflected_idx = axis.pitch_index + iv.pitch_diff;
-        mel_scale_add_index(&r, reflected_idx);
-        mel_interval_free(&iv);
-    }
-    return r;
-}
-
-Mel_Scale mel_scale_zero_normalized(const Mel_Scale* s)
-{
-    if (s->count == 0)
-        return mel_scale_make(s->tuning);
-
-    Mel_Pitch root = s->pitches[0];
-    if (root.pitch_index == 0)
-        return mel_scale_copy(s);
-
-    return mel_scale_transpose(s, -root.pitch_index);
-}
-
-void mel_scale_indices(const Mel_Scale* s, int64_t* out_indices)
-{
-    for (int32_t i = 0; i < s->count; i++)
-        out_indices[i] = s->pitches[i].pitch_index;
-}
-
-Mel_Scale mel_scale_rotated_up(const Mel_Scale* s)
-{
-    if (s->count == 0)
-        return mel_scale_make(s->tuning);
-
-    Mel_Pitch first = s->pitches[0];
-    Mel_Pitch last = s->pitches[s->count - 1];
-
-    int64_t   bi_diff = mel_pitch_bi_index(last) - mel_pitch_bi_index(first);
-    Mel_Pitch new_first = mel_pitch_transpose_bi(first, bi_diff);
-    if (mel_pitch_cmp(new_first, last) != 2)
-        new_first = mel_pitch_transpose_bi(new_first, 1);
-
-    Mel_Scale r = mel_scale_make(s->tuning);
-    for (int32_t i = 1; i < s->count; i++)
-        mel_scale_add_pitch(&r, s->pitches[i]);
-    mel_scale_add_pitch(&r, new_first);
-
-    return r;
-}
-
-Mel_Scale mel_scale_rotated_down(const Mel_Scale* s)
-{
-    if (s->count == 0)
-        return mel_scale_make(s->tuning);
-
-    Mel_Pitch first = s->pitches[0];
-    Mel_Pitch last = s->pitches[s->count - 1];
-
-    int64_t   bi_diff = mel_pitch_bi_index(first) - mel_pitch_bi_index(last);
-    Mel_Pitch new_last = mel_pitch_transpose_bi(last, bi_diff);
-    if (mel_pitch_cmp(new_last, first) != 0)
-        new_last = mel_pitch_transpose_bi(new_last, -1);
-
-    Mel_Scale r = mel_scale_make(s->tuning);
-    mel_scale_add_pitch(&r, new_last);
-    for (int32_t i = 0; i < s->count - 1; i++)
-        mel_scale_add_pitch(&r, s->pitches[i]);
-
-    return r;
-}
-
-Mel_Scale mel_scale_rotation(const Mel_Scale* s, int32_t order)
-{
-    Mel_Scale r = mel_scale_copy(s);
-    if (order > 0)
-    {
-        for (int32_t i = 0; i < order; i++)
-        {
-            Mel_Scale tmp = mel_scale_rotated_up(&r);
-            mel_scale_free(&r);
-            r = tmp;
-        }
-    }
-    else if (order < 0)
-    {
-        for (int32_t i = 0; i < -order; i++)
-        {
-            Mel_Scale tmp = mel_scale_rotated_down(&r);
-            mel_scale_free(&r);
-            r = tmp;
-        }
-    }
-    return r;
-}
-
-Mel_Scale mel_scale_pcs_normalized(const Mel_Scale* s)
-{
-    Mel_Scale r = mel_scale_make(s->tuning);
-    for (int32_t i = 0; i < s->count; i++)
-    {
-        Mel_Pitch normalized = mel_pitch_pcs_normalized(s->pitches[i]);
-        mel_scale_add_pitch(&r, normalized);
-    }
-    return r;
-}
-
-Mel_Scale mel_scale_period_normalized(const Mel_Scale* s)
-{
-    if (s->count == 0)
-        return mel_scale_make(s->tuning);
-
-    Mel_Pitch root = s->pitches[0];
-    Mel_Scale r = mel_scale_make(s->tuning);
-    mel_scale_add_pitch(&r, root);
-
-    for (int32_t i = 1; i < s->count; i++)
-    {
-        Mel_Pitch elem = s->pitches[i];
-        int64_t   bi_diff = mel_pitch_bi_index(root) - mel_pitch_bi_index(elem);
-        elem = mel_pitch_transpose_bi(elem, bi_diff);
-
-        if (mel_pitch_cmp(elem, root) != 2)
-        {
-            continue;
-        }
-        if (mel_pitch_cmp(elem, root) == 0)
-        {
-            elem = mel_pitch_transpose_bi(elem, 1);
-        }
-
-        mel_scale_add_pitch(&r, elem);
-    }
-
-    return r;
-}
-
-Mel_Scale mel_scale_pcs_complement(const Mel_Scale* s)
-{
-    uint32_t period = mel_tuning_period_length(s->tuning);
-    if (period == 0)
-        return mel_scale_make(s->tuning);
-
-    Mel_Scale norm = mel_scale_pcs_normalized(s);
-    Mel_Scale complement = mel_scale_make(s->tuning);
-
-    for (uint32_t i = 0; i < period; i++)
-    {
-        uint8_t found = 0;
-        for (int32_t j = 0; j < norm.count; j++)
-        {
-            if (norm.pitches[j].pitch_index == (int64_t)i)
-            {
-                found = 1;
-                break;
-            }
-        }
-        if (!found)
-            mel_scale_add_index(&complement, (int64_t)i);
-    }
-
-    mel_scale_free(&norm);
-    return complement;
-}
-
-uint8_t mel_scale_is_set_equivalent(const Mel_Scale* a, const Mel_Scale* b)
-{
-    if (a->tuning == b->tuning)
-    {
-        if (a->count != b->count)
+    for (usize i = 0; i < a->indices.count; i++)
+        if (!mel_scale_contains_pc(b, mel_pitch_pc_index(mel_scale_at(a, (i32)i))))
             return 0;
-        for (int32_t i = 0; i < a->count; i++)
-        {
-            int64_t pc_a = mel_pitch_pc_index(a->pitches[i]);
-            uint8_t found = 0;
-            for (int32_t j = 0; j < b->count; j++)
-            {
-                if (mel_pitch_pc_index(b->pitches[j]) == pc_a)
-                {
-                    found = 1;
-                    break;
-                }
-            }
-            if (!found)
-                return 0;
-        }
-        return 1;
-    }
+    for (usize i = 0; i < b->indices.count; i++)
+        if (!mel_scale_contains_pc(a, mel_pitch_pc_index(mel_scale_at(b, (i32)i))))
+            return 0;
+    return 1;
+}
 
-    Mel_Scale na = mel_scale_pcs_normalized(a);
-    Mel_Scale nb = mel_scale_pcs_normalized(b);
-    uint8_t   result = mel_scale_eq(&na, &nb);
-    mel_scale_free(&na);
-    mel_scale_free(&nb);
-    return result;
+Mel_Scale mel_scale_reflect(const Mel_Alloc* alloc, const Mel_Scale* s, Mel_Pitch axis)
+{
+    assert(axis.tuning == s->tuning);
+    Mel_Scale r = mel_scale_make(alloc, s->tuning);
+    for (usize i = 0; i < s->indices.count; i++)
+        mel_scale_add_index(&r, 2 * axis.index - s->indices.items[i]);
+    return r;
+}
+
+Mel_Scale mel_scale_zero_normalized(const Mel_Alloc* alloc, const Mel_Scale* s)
+{
+    if (s->indices.count == 0)
+        return mel_scale_make(alloc, s->tuning);
+    return mel_scale_transpose(alloc, s, -s->indices.items[0]);
+}
+
+Mel_Scale mel_scale_pcs_normalized(const Mel_Alloc* alloc, const Mel_Scale* s)
+{
+    Mel_Scale r = mel_scale_make(alloc, s->tuning);
+    for (usize i = 0; i < s->indices.count; i++)
+        mel_scale_add_index(&r, mel_pitch_pc_index(mel_scale_at(s, (i32)i)));
+    return r;
+}
+
+Mel_Scale mel_scale_period_normalized(const Mel_Alloc* alloc, const Mel_Scale* s)
+{
+    assert(mel_tuning_is_periodic(s->tuning));
+    Mel_Scale r = mel_scale_make(alloc, s->tuning);
+    if (s->indices.count == 0)
+        return r;
+
+    i64 period = (i64)s->tuning->period;
+    i64 root = s->indices.items[0];
+    mel_scale_add_index(&r, root);
+
+    for (usize i = 1; i < s->indices.count; i++)
+    {
+        i64 pc_diff = (s->indices.items[i] - root) % period;
+        if (pc_diff < 0)
+            pc_diff += period;
+        if (pc_diff == 0)
+            continue;
+        mel_scale_add_index(&r, root + pc_diff);
+    }
+    return r;
+}
+
+Mel_Scale mel_scale_pcs_complement(const Mel_Alloc* alloc, const Mel_Scale* s)
+{
+    assert(mel_tuning_is_periodic(s->tuning));
+    Mel_Scale r = mel_scale_make(alloc, s->tuning);
+
+    Mel_Coro_Frame_mel_scale_complement_g f = { 0 };
+    f.s = s;
+    i64 pc;
+    while (mel_scale_complement_g__resume(&f, &pc))
+        mel_array_push(&r.indices, pc);
+    return r;
+}
+
+Mel_Scale mel_scale_rotated_up(const Mel_Alloc* alloc, const Mel_Scale* s)
+{
+    assert(mel_tuning_is_periodic(s->tuning));
+    if (s->indices.count == 0)
+        return mel_scale_make(alloc, s->tuning);
+
+    i64 period = (i64)s->tuning->period;
+    i64 first = s->indices.items[0];
+    i64 last = s->indices.items[s->indices.count - 1];
+    i64 lifted = first + ((last - first) / period + 1) * period;
+
+    Mel_Scale r = mel_scale_make(alloc, s->tuning);
+    for (usize i = 1; i < s->indices.count; i++)
+        mel_scale_add_index(&r, s->indices.items[i]);
+    mel_scale_add_index(&r, lifted);
+    return r;
+}
+
+Mel_Scale mel_scale_rotated_down(const Mel_Alloc* alloc, const Mel_Scale* s)
+{
+    assert(mel_tuning_is_periodic(s->tuning));
+    if (s->indices.count == 0)
+        return mel_scale_make(alloc, s->tuning);
+
+    i64 period = (i64)s->tuning->period;
+    i64 first = s->indices.items[0];
+    i64 last = s->indices.items[s->indices.count - 1];
+    i64 dropped = last - ((last - first) / period + 1) * period;
+
+    Mel_Scale r = mel_scale_make(alloc, s->tuning);
+    mel_scale_add_index(&r, dropped);
+    for (usize i = 0; i + 1 < s->indices.count; i++)
+        mel_scale_add_index(&r, s->indices.items[i]);
+    return r;
+}
+
+Mel_Scale mel_scale_rotation(const Mel_Alloc* alloc, const Mel_Scale* s, i32 order)
+{
+    Mel_Scale r = mel_scale_copy(alloc, s);
+    for (i32 i = 0; i < (order >= 0 ? order : -order); i++)
+    {
+        Mel_Scale next = order >= 0 ? mel_scale_rotated_up(alloc, &r) : mel_scale_rotated_down(alloc, &r);
+        mel_scale_free(&r);
+        r = next;
+    }
+    return r;
 }

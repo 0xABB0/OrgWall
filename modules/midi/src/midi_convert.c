@@ -1,7 +1,7 @@
 #include <midi/midi_convert.h>
 
 #include <musictheory/pitch.h>
-#include <musictheory/tuning.h>
+#include <tuning/tuning.h>
 
 Mel_Pitch mel_midi_note_to_pitch(uint8_t midi_note, const Mel_Tuning* tuning)
 {
@@ -11,8 +11,7 @@ Mel_Pitch mel_midi_note_to_pitch(uint8_t midi_note, const Mel_Tuning* tuning)
 
 uint8_t mel_midi_pitch_to_note(Mel_Pitch pitch)
 {
-    int64_t idx = mel_pitch_pc_index(pitch);
-    int64_t midi = idx + MEL_MIDI_MIDDLE_C;
+    int64_t midi = pitch.index + MEL_MIDI_MIDDLE_C;
     if (midi < MEL_MIDI_NOTE_MIN)
         return MEL_MIDI_NOTE_MIN;
     if (midi > MEL_MIDI_NOTE_MAX)

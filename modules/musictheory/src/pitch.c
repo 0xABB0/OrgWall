@@ -1,108 +1,98 @@
 #include <musictheory/pitch.h>
-#include <stdlib.h>
 
-Mel_Pitch mel_pitch_make(const Mel_Tuning* tuning, int64_t pitch_index)
+#include <assert.h>
+
+static i64 mel_pitch__floor_div(i64 a, i64 b) { return a >= 0 ? a / b : -((-a + b - 1) / b); }
+
+Mel_Pitch mel_pitch_make(const Mel_Tuning* tuning, i64 index)
 {
-    Mel_Pitch p;
-    p.tuning = tuning;
-    p.pitch_index = pitch_index;
-    p.frequency = mel_tuning_frequency_for_index(tuning, pitch_index);
-    return p;
+    assert(tuning);
+    return (Mel_Pitch){ .tuning = tuning, .index = index };
 }
 
-Mel_Pitch mel_pitch_copy(Mel_Pitch pitch) { return pitch; }
+Mel_Hz mel_pitch_frequency(Mel_Pitch p) { return mel_tuning_frequency_for_index(p.tuning, p.index); }
 
-Mel_Pitch mel_pitch_transpose(Mel_Pitch pitch, int64_t diff) { return mel_pitch_make(pitch.tuning, pitch.pitch_index + diff); }
+Mel_Pitch mel_pitch_transpose(Mel_Pitch p, i64 diff) { return mel_pitch_make(p.tuning, p.index + diff); }
 
-Mel_Pitch mel_pitch_retune(Mel_Pitch pitch, const Mel_Tuning* target_tuning)
+Mel_Pitch mel_pitch_retune(Mel_Pitch p, const Mel_Tuning* target_tuning)
 {
-    int64_t new_index = mel_tuning_find_index(target_tuning, pitch.frequency);
-    return mel_pitch_make(target_tuning, new_index);
+    assert(target_tuning);
+    return mel_pitch_make(target_tuning, mel_tuning_find_index(target_tuning, mel_pitch_frequency(p)));
 }
 
-int64_t mel_pitch_pc_index(Mel_Pitch p)
+i64 mel_pitch_pc_index(Mel_Pitch p)
 {
-    uint32_t period = mel_tuning_period_length(p.tuning);
+    u32 period = p.tuning->period;
     if (period == 0)
         return 0;
-    int64_t pc = p.pitch_index % (int64_t)period;
-    if (pc < 0)
-        pc += period;
-    return pc;
+    return p.index - mel_pitch__floor_div(p.index, (i64)period) * (i64)period;
 }
 
-int64_t mel_pitch_bi_index(Mel_Pitch p)
+i64 mel_pitch_bi_index(Mel_Pitch p)
 {
-    uint32_t period = mel_tuning_period_length(p.tuning);
+    u32 period = p.tuning->period;
     if (period == 0)
         return 0;
-    return p.pitch_index / (int64_t)period;
+    return mel_pitch__floor_div(p.index, (i64)period);
 }
 
-Mel_Pitch mel_pitch_transpose_bi(Mel_Pitch p, int64_t bi_diff)
+Mel_Pitch mel_pitch_transpose_bi(Mel_Pitch p, i64 bi_diff)
 {
-    uint32_t period = mel_tuning_period_length(p.tuning);
-    int64_t  pc = mel_pitch_pc_index(p);
-    int64_t  bi = mel_pitch_bi_index(p) + bi_diff;
-    return mel_pitch_make(p.tuning, pc + bi * period);
+    assert(mel_tuning_is_periodic(p.tuning));
+    return mel_pitch_make(p.tuning, p.index + bi_diff * (i64)p.tuning->period);
 }
 
-Mel_Pitch mel_pitch_pcs_normalized(Mel_Pitch p) { return mel_pitch_transpose_bi(p, -mel_pitch_bi_index(p)); }
+Mel_Pitch mel_pitch_pcs_normalized(Mel_Pitch p) { return mel_pitch_make(p.tuning, mel_pitch_pc_index(p)); }
 
-uint8_t mel_pitch_is_equivalent(Mel_Pitch a, Mel_Pitch b)
+u8 mel_pitch_is_equivalent(Mel_Pitch a, Mel_Pitch b)
 {
     if (a.tuning == b.tuning)
         return mel_pitch_pc_index(a) == mel_pitch_pc_index(b) ? 1 : 0;
     return mel_pitch_eq(mel_pitch_pcs_normalized(a), mel_pitch_pcs_normalized(b));
 }
 
-int64_t mel_pitch_generator_distance(Mel_Pitch pitch, Mel_Pitch generator)
+i64 mel_pitch_generator_distance(Mel_Pitch pitch, Mel_Pitch generator)
 {
-    if (pitch.tuning != generator.tuning)
-        return -1;
+    assert(pitch.tuning == generator.tuning);
+    assert(mel_tuning_is_periodic(pitch.tuning));
 
-    uint32_t period = mel_tuning_period_length(pitch.tuning);
-    if (period == 0)
-        return -1;
-
-    int64_t gen_pc = mel_pitch_pc_index(generator);
+    i64 period = (i64)pitch.tuning->period;
+    i64 gen_pc = mel_pitch_pc_index(generator);
     if (gen_pc == 0)
         return -1;
 
-    int64_t pc = 0;
-    int64_t dist = 0;
-    int64_t target_pc = mel_pitch_pc_index(pitch);
+    i64 pc = 0;
+    i64 dist = 0;
+    i64 target_pc = mel_pitch_pc_index(pitch);
 
-    while (1)
+    while (pc != target_pc)
     {
-        if (pc == target_pc)
-            break;
         dist++;
-        pc = (pc + gen_pc) % (int64_t)period;
-        if (dist > (int64_t)period)
+        pc = (pc + gen_pc) % period;
+        if (dist > period)
             return -1;
     }
 
-    int64_t alt_dist = (int64_t)period - dist;
+    i64 alt_dist = period - dist;
     return dist < alt_dist ? dist : alt_dist;
 }
 
-uint8_t mel_pitch_eq(Mel_Pitch a, Mel_Pitch b)
+u8 mel_pitch_eq(Mel_Pitch a, Mel_Pitch b)
 {
     if (a.tuning == b.tuning)
-        return a.pitch_index == b.pitch_index ? 1 : 0;
-    return mel_freq_eq(a.frequency, b.frequency);
+        return a.index == b.index ? 1 : 0;
+    return mel_freq_eq(mel_pitch_frequency(a), mel_pitch_frequency(b));
 }
 
-uint8_t mel_pitch_cmp(Mel_Pitch a, Mel_Pitch b)
+u8 mel_pitch_cmp(Mel_Pitch a, Mel_Pitch b)
 {
     if (a.tuning == b.tuning)
     {
-        if (a.pitch_index < b.pitch_index)
+        if (a.index < b.index)
             return 0;
-        if (a.pitch_index > b.pitch_index)
+        if (a.index > b.index)
             return 2;
         return 1;
     }
-    return mel_freq_cmp(a.frequency, b.frequency);
+    return mel_freq_cmp(mel_pitch_frequency(a), mel_pitch_frequency(b));
 }
