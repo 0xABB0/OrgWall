@@ -80,3 +80,4 @@ captures/
 *.aab
 /.ninja_deps
 /.ninja_log
+/modules/build/.cache/clangd/index
