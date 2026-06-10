@@ -4,7 +4,7 @@
 #include <allocator/heap.h>
 #include <future/future.h>
 #include <executor/executor.h>
-#include <reactor/reactor.h>
+#include <vat/vat.h>
 #include <io/stream.h>
 #include <collection/list.h>
 #include <log/log.h>
@@ -46,7 +46,7 @@ struct Run_Ctx
 {
     Mel_Process*     proc;
     Run_Op*          op;
-    Mel_Reactor*     reactor;
+    Mel_Vat*         vat;
     Mel_Executor*    deliver;
     const Mel_Alloc* alloc;
 
@@ -119,8 +119,10 @@ static void run_finalize(Run_Ctx* c)
     else
         mel_future_resolve(f, &op->result, run_future_status_from(c->exit.status));
 
+    Mel_Vat*         vat = c->vat;
     const Mel_Alloc* alloc = c->alloc;
     mel_dealloc(alloc, c);
+    mel_vat_release(vat);
 }
 
 static void drain_kick(Drain* d);
@@ -158,7 +160,7 @@ static void drain_on_read(Mel_Task* self)
 
 static void drain_kick(Drain* d)
 {
-    d->pending = mel_stream_read(d->stream, .buffer = d->buf.chunk, .len = sizeof d->buf.chunk, .deliver = mel_reactor_executor(d->ctx->reactor));
+    d->pending = mel_stream_read(d->stream, .buffer = d->buf.chunk, .len = sizeof d->buf.chunk, .deliver = mel_vat_executor(d->ctx->vat));
     if (!d->pending)
     {
         if (d->is_stdout)
@@ -169,7 +171,7 @@ static void drain_kick(Drain* d)
         return;
     }
     mel_task_init(&d->task, drain_on_read);
-    mel_future_then(d->pending, &d->task, mel_reactor_executor(d->ctx->reactor));
+    mel_future_then(d->pending, &d->task, mel_vat_executor(d->ctx->vat));
 }
 
 static void stdin_on_write(Mel_Task* self)
@@ -227,30 +229,29 @@ Mel_Future* mel_process_run_opt(Mel_Process_Run_Opt opt)
         mel_log_error("process", "run: argv with at least argv[0] is required");
         return run_fail(alloc, MEL_PROCESS_ERROR | MEL_PROCESS_SPAWN_FAILED, -1);
     }
-    if (!opt.reactor)
+    if (!opt.vat)
     {
-        mel_log_error("process", "run: a reactor is required to collect output asynchronously");
+        mel_log_error("process", "run: a vat is required to collect output asynchronously");
         return run_fail(alloc, MEL_PROCESS_ERROR | MEL_PROCESS_UNAVAILABLE, -1);
     }
-    assert(mel_reactor_is_owner(opt.reactor));
+    assert(mel_vat_is_owner(opt.vat));
 
     bool has_stdin = opt.stdin_data && opt.stdin_len > 0;
 
-    Mel_Process_Spawn_Result sr = mel_process_spawn_opt(
-        (Mel_Process_Spawn_Opt){
-            .argv = opt.argv,
-            .argc = opt.argc,
-            .env = opt.env,
-            .env_count = opt.env_count,
-            .env_clear = opt.env_clear,
-            .cwd = opt.cwd,
-            .stdin_cfg = { .disposition = has_stdin ? MEL_PROCESS_STDIO_PIPE : MEL_PROCESS_STDIO_NULL },
-            .stdout_cfg = { .disposition = MEL_PROCESS_STDIO_PIPE },
-            .stderr_cfg = { .disposition = opt.merge_stderr ? MEL_PROCESS_STDIO_INHERIT : MEL_PROCESS_STDIO_PIPE },
-            .merge_stderr = opt.merge_stderr,
-            .reactor = opt.reactor,
-            .alloc = alloc,
-        });
+    Mel_Process_Spawn_Result sr = mel_process_spawn_opt((Mel_Process_Spawn_Opt){
+        .argv = opt.argv,
+        .argc = opt.argc,
+        .env = opt.env,
+        .env_count = opt.env_count,
+        .env_clear = opt.env_clear,
+        .cwd = opt.cwd,
+        .stdin_cfg = { .disposition = has_stdin ? MEL_PROCESS_STDIO_PIPE : MEL_PROCESS_STDIO_NULL },
+        .stdout_cfg = { .disposition = MEL_PROCESS_STDIO_PIPE },
+        .stderr_cfg = { .disposition = opt.merge_stderr ? MEL_PROCESS_STDIO_INHERIT : MEL_PROCESS_STDIO_PIPE },
+        .merge_stderr = opt.merge_stderr,
+        .vat = opt.vat,
+        .alloc = alloc,
+    });
 
     if (mel_process_status_failed(sr.status))
         return run_fail(alloc, sr.status, -1);
@@ -272,9 +273,10 @@ Mel_Future* mel_process_run_opt(Mel_Process_Run_Opt opt)
     memset(c, 0, sizeof *c);
     c->proc = sr.value;
     c->op = op;
-    c->reactor = opt.reactor;
-    c->deliver = opt.deliver;
+    c->vat = opt.vat;
+    c->deliver = opt.deliver ? opt.deliver : mel_vat_executor(opt.vat);
     c->alloc = alloc;
+    mel_vat_retain(opt.vat);
     c->has_stdin = has_stdin;
     c->has_stderr = !opt.merge_stderr;
     c->stdout_drain.ctx = c;
@@ -288,16 +290,16 @@ Mel_Future* mel_process_run_opt(Mel_Process_Run_Opt opt)
     c->stderr_drain.is_stdout = false;
 
     Mel_Process_Op wop = MEL_PROCESS_OP_NULL;
-    c->wait_pending = mel_process_wait(c->proc, .deliver = mel_reactor_executor(opt.reactor), .out_op = &wop);
+    c->wait_pending = mel_process_wait(c->proc, .deliver = mel_vat_executor(opt.vat), .out_op = &wop);
     mel_task_init(&c->wait_task, wait_on_exit);
-    mel_future_then(c->wait_pending, &c->wait_task, mel_reactor_executor(opt.reactor));
+    mel_future_then(c->wait_pending, &c->wait_task, mel_vat_executor(opt.vat));
 
     if (has_stdin)
     {
         Mel_Stream* sin = mel_process_stdin(c->proc);
-        c->stdin_pending = mel_stream_write(sin, .buffer = opt.stdin_data, .len = opt.stdin_len, .deliver = mel_reactor_executor(opt.reactor));
+        c->stdin_pending = mel_stream_write(sin, .buffer = opt.stdin_data, .len = opt.stdin_len, .deliver = mel_vat_executor(opt.vat));
         mel_task_init(&c->stdin_task, stdin_on_write);
-        mel_future_then(c->stdin_pending, &c->stdin_task, mel_reactor_executor(opt.reactor));
+        mel_future_then(c->stdin_pending, &c->stdin_task, mel_vat_executor(opt.vat));
     }
     else
     {

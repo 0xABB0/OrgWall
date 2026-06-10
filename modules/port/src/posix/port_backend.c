@@ -1,6 +1,6 @@
 #include "../port_internal.h"
 
-#include <reactor/reactor.h>
+#include <vat/vat.h>
 
 #include <errno.h>
 #include <fcntl.h>
@@ -57,7 +57,7 @@ static ssize_t port_posix_write_nosigpipe(Mel_Port_Op_Record* op, const void* ba
     return n;
 }
 
-static Mel_Port_Op_Record* port_posix_op_of(Mel_Reactor_Source* s) { return (Mel_Port_Op_Record*)s->user; }
+static Mel_Port_Op_Record* port_posix_op_of(Mel_Vat_Source* s) { return (Mel_Port_Op_Record*)mel_vat_source_state(s); }
 
 static bool port_posix_read_step(Mel_Port_Op_Record* op)
 {
@@ -130,29 +130,26 @@ static bool port_posix_write_step(Mel_Port_Op_Record* op)
     }
 }
 
-static bool port_posix_check(Mel_Reactor_Source* s)
+static void port_posix_wakeables(Mel_Vat_Source* s, Mel_Vat_Wakeable** out, usize* count)
 {
     Mel_Port_Op_Record* op = port_posix_op_of(s);
-    u32                 re = op->backend.poll.revents;
-    u32                 want = op->backend.poll.events;
-    return (re & (want | MEL_REACTOR_POLL_ERR | MEL_REACTOR_POLL_HUP)) != 0;
+    *out = &op->backend.wakeable;
+    *count = 1;
 }
 
-static bool port_posix_dispatch(Mel_Reactor_Source* s, Mel_Reactor_Source_Proc callback, void* user)
+static bool port_posix_drain(Mel_Vat_Source* s, u32 budget)
 {
-    (void)callback;
-    (void)user;
+    (void)budget;
     Mel_Port_Op_Record* op = port_posix_op_of(s);
     op->step(op);
-    return true;
+    return false;
 }
 
-static void port_posix_finalize(Mel_Reactor_Source* s) { (void)s; }
-
-static const Mel_Reactor_Source_Callbacks PORT_POSIX_VT = {
-    .check = port_posix_check,
-    .dispatch = port_posix_dispatch,
-    .finalize = port_posix_finalize,
+static const Mel_Vat_Source_Vtbl PORT_POSIX_VT = {
+    .wakeables = port_posix_wakeables,
+    .deadline = NULL,
+    .drain = port_posix_drain,
+    .cancel = NULL,
 };
 
 bool mel_port__backend_available(void) { return true; }
@@ -167,7 +164,7 @@ void mel_port__backend_port_teardown(Mel_Port* port) { (void)port; }
 
 void mel_port__backend_submit(Mel_Port_Op_Record* op)
 {
-    op->step = (op->backend.poll.events & MEL_REACTOR_POLL_IN) ? port_posix_read_step : port_posix_write_step;
+    op->step = (op->backend.wakeable.events & MEL_VAT_WAKE_IN) ? port_posix_read_step : port_posix_write_step;
 
     if (fcntl(op->fd, F_GETFL, 0) == -1)
     {
@@ -176,11 +173,7 @@ void mel_port__backend_submit(Mel_Port_Op_Record* op)
     }
     port_posix_nonblock(op->fd);
 
-    Mel_Reactor_Source* s = mel_reactor_source_new(&PORT_POSIX_VT, sizeof(Mel_Reactor_Source));
-    op->backend.source = s;
-    mel_reactor_source_set_callback(s, NULL, op);
-    mel_reactor_source_add_poll(s, &op->backend.poll);
-    mel_reactor_source_attach(op->port->reactor, s);
+    op->backend.source = mel_vat_source_open(op->port->vat, &PORT_POSIX_VT, op);
     op->backend.attached = true;
 }
 
@@ -189,5 +182,5 @@ void mel_port__backend_retract(Mel_Port_Op_Record* op)
     if (!op->backend.attached)
         return;
     op->backend.attached = false;
-    mel_reactor_source_destroy(op->backend.source);
+    mel_vat_source_close(op->backend.source);
 }

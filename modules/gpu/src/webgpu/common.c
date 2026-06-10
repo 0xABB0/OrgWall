@@ -169,10 +169,10 @@ bool mel_gpu__drain_until(WGPUInstance instance, const bool* done)
 
 bool mel_gpu__drain_sync(Mel_Gpu_Device* dev, const bool* done, const char* what)
 {
-    if (mel_reactor_is_owner(dev->reactor))
+    if (dev->vat && mel_vat_is_owner(dev->vat))
     {
-        mel_log_error("gpu", "%s: synchronous drain invoked on the device reactor thread; re-entrant pumping deadlocks (spec §3.3 *_sync is off-reactor only)", what);
-        mel_assert(!"webgpu *_sync drain re-entered the reactor thread");
+        mel_log_error("gpu", "%s: synchronous drain invoked on the device vat thread; re-entrant pumping deadlocks (spec §3.3 *_sync is off-vat only)", what);
+        mel_assert(!"webgpu *_sync drain re-entered the vat thread");
         return false;
     }
     bool resolved = mel_gpu__drain_until(dev->wgpu_instance, done);
@@ -181,17 +181,8 @@ bool mel_gpu__drain_sync(Mel_Gpu_Device* dev, const bool* done, const char* what
     return resolved;
 }
 
-bool mel_gpu__buffer_get(Mel_Gpu_Device* dev, Mel_Gpu_Buffer buf, Mel_Gpu_Buffer_Obj* out)
-{
-    return mel_gpu__table_get_copy(dev, &dev->buffers, buf.slot, out);
-}
+bool mel_gpu__buffer_get(Mel_Gpu_Device* dev, Mel_Gpu_Buffer buf, Mel_Gpu_Buffer_Obj* out) { return mel_gpu__table_get_copy(dev, &dev->buffers, buf.slot, out); }
 
-bool mel_gpu__texture_get(Mel_Gpu_Device* dev, Mel_Gpu_Texture tex, Mel_Gpu_Texture_Obj* out)
-{
-    return mel_gpu__table_get_copy(dev, &dev->textures, tex.slot, out);
-}
+bool mel_gpu__texture_get(Mel_Gpu_Device* dev, Mel_Gpu_Texture tex, Mel_Gpu_Texture_Obj* out) { return mel_gpu__table_get_copy(dev, &dev->textures, tex.slot, out); }
 
-bool mel_gpu__texture_view_get(Mel_Gpu_Device* dev, Mel_Gpu_Texture_View view, Mel_Gpu_Texture_View_Obj* out)
-{
-    return mel_gpu__table_get_copy(dev, &dev->texture_views, view.slot, out);
-}
+bool mel_gpu__texture_view_get(Mel_Gpu_Device* dev, Mel_Gpu_Texture_View view, Mel_Gpu_Texture_View_Obj* out) { return mel_gpu__table_get_copy(dev, &dev->texture_views, view.slot, out); }

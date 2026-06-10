@@ -13,9 +13,10 @@ void build(Mel_Build* b)
     mel_depends(lib, "collection");
     mel_depends(lib, "executor");
     mel_depends(lib, "future");
-    mel_depends(lib, "reactor");
+    mel_depends(lib, "vat");
     mel_depends(lib, "port");
     mel_depends(lib, "io");
+    mel_depends(lib, "time");
     mel_depends(lib, "log");
 
     Mel_Target* t = mel_add_test(b, "process-spawn");
@@ -29,7 +30,7 @@ void build(Mel_Build* b)
     mel_depends(t, "collection");
     mel_depends(t, "executor");
     mel_depends(t, "future");
-    mel_depends(t, "reactor");
+    mel_depends(t, "vat");
     mel_depends(t, "port");
     mel_depends(t, "io");
     mel_depends(t, "thread");

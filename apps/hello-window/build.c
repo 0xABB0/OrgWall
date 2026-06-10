@@ -6,7 +6,9 @@ void build(Mel_Build* b)
     mel_subsystem(app, "gui");
     mel_sources(app, ALWAYS, "src/*.c");
     mel_depends(app, "window");
-    mel_depends(app, "reactor");
+    mel_depends(app, "boot");
+    mel_depends(app, "vat");
+    mel_depends(app, "allocator");
     mel_depends(app, "string");
     mel_depends(app, "core");
 

@@ -2,7 +2,6 @@
 
 #include <core/types.h>
 #include <string/str8.h>
-#include <reactor/reactor.h>
 
 typedef struct
 {
@@ -76,7 +75,13 @@ typedef struct
     Mel_Window_Backing_Cb   backing;
 } Mel_Window_Opt;
 
-void mel_window_init(Mel_Reactor* reactor);
+typedef struct Mel_Window_Host
+{
+    void (*quit)(void* user);
+    void* user;
+} Mel_Window_Host;
+
+void mel_window_init(Mel_Window_Host host);
 void mel_window_shutdown(void);
 bool mel_window_alive(Mel_Window w);
 

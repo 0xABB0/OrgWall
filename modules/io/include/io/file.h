@@ -11,7 +11,7 @@ extern "C"
 {
 #endif
 
-typedef struct Mel_Reactor  Mel_Reactor;
+typedef struct Mel_Vat      Mel_Vat;
 typedef struct Mel_Executor Mel_Executor;
 
 #define MEL_IO_FILE_READ     (1u << 0)
@@ -26,7 +26,7 @@ typedef struct
     const char*      path;
     u32              flags;
     u32              mode;
-    Mel_Reactor*     reactor;
+    Mel_Vat*         vat;
     const Mel_Alloc* alloc;
 } Mel_IO_File_Open_Opt;
 
@@ -51,8 +51,7 @@ typedef struct
 typedef struct
 {
     const char*      path;
-    Mel_Reactor*     reactor;
-    Mel_Executor*    deliver;
+    Mel_Vat*         vat;
     const Mel_Alloc* alloc;
 } Mel_IO_Load_Opt;
 
@@ -66,8 +65,7 @@ typedef struct
     usize            len;
     u32              flags;
     u32              mode;
-    Mel_Reactor*     reactor;
-    Mel_Executor*    deliver;
+    Mel_Vat*         vat;
     const Mel_Alloc* alloc;
 } Mel_IO_Save_Opt;
 

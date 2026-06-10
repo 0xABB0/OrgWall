@@ -1,6 +1,7 @@
 #include <port/port.h>
 
-#include <reactor/reactor.h>
+#include <vat/vat.h>
+#include <allocator/heap.h>
 #include <future/future.h>
 #include <executor/executor.h>
 
@@ -25,7 +26,7 @@ typedef struct
 
 typedef struct
 {
-    Mel_Reactor*  reactor;
+    Mel_Vat*      vat;
     Mel_Port*     port;
     Mel_Executor* exec;
     int           turn;
@@ -53,7 +54,7 @@ static void hup_cont(Mel_Task* self)
     const Mel_Port_Result* r = mel_port_future_result(k->future);
     printf("WRITE COMPLETED bytes=%zu status=0x%x os_error=%d\n", r->bytes_transferred, r->status, r->os_error);
     mel_port_future_release(k->future);
-    mel_reactor_quit(c->reactor);
+    mel_vat_quit(c->vat);
 }
 
 static bool hup_idle(void* user)
@@ -82,20 +83,55 @@ static bool hup_idle(void* user)
     if (!c->done && c->turn >= c->max_turns)
     {
         printf("TIMEOUT: write op never completed after %d turns; pending=%u (HANG)\n", c->turn, mel_port_pending(c->port));
-        mel_reactor_quit(c->reactor);
+        mel_vat_quit(c->vat);
     }
     return true;
 }
 
-static bool hup_init(Mel_Reactor* r, void* user)
+static i64 hup_idle_deadline(Mel_Vat_Source* s)
 {
-    Hup_Ctx* c = (Hup_Ctx*)user;
-    c->reactor = r;
-    c->port = mel_port_create(.reactor = r);
+    (void)s;
+    return 0;
+}
+
+static bool hup_idle_drain(Mel_Vat_Source* s, u32 budget)
+{
+    (void)budget;
+    hup_idle(mel_vat_source_state(s));
+    return false;
+}
+
+static const Mel_Alloc* g_vat_alloc;
+static Mel_Vat_Waiter*  g_vat_waiter;
+static Mel_Vat_Driver*  g_vat_driver;
+static Mel_Vat*         g_vat;
+
+static const Mel_Vat_Source_Vtbl HUP_IDLE_VT = {
+    .wakeables = NULL,
+    .deadline = hup_idle_deadline,
+    .drain = hup_idle_drain,
+    .cancel = NULL,
+};
+
+static void hup_run(Hup_Ctx* c)
+{
+    g_vat_alloc = mel_alloc_heap();
+    g_vat_waiter = mel_vat_waiter_io(g_vat_alloc);
+    g_vat_driver = mel_vat_driver_fair(g_vat_alloc, 64);
+    g_vat = mel_vat_open(g_vat_alloc, (Mel_Vat_Desc){ .waiter = g_vat_waiter, .driver = g_vat_driver });
+    c->vat = g_vat;
+    c->port = mel_port_create(.vat = g_vat);
     c->exec = mel_port_executor(c->port);
-    Mel_Reactor_Source* idle = mel_reactor_idle_new(hup_idle, c);
-    mel_reactor_source_attach(r, idle);
-    return true;
+    Mel_Vat_Source* idle = mel_vat_source_open(g_vat, &HUP_IDLE_VT, c);
+    mel_vat_run(g_vat);
+    mel_vat_source_close(idle);
+}
+
+static void hup_loop_close(void)
+{
+    mel_vat_close(g_vat);
+    g_vat_driver->vt->close(g_vat_driver);
+    g_vat_waiter->vt->close(g_vat_waiter);
 }
 
 int main(void)
@@ -119,8 +155,9 @@ int main(void)
 
     memset(c->big, 'x', sizeof c->big);
 
-    mel_reactor_spawn(MEL_REACTOR_THREADED, hup_init, c);
+    hup_run(c);
     mel_port_destroy(c->port);
+    hup_loop_close();
 
     if (c->rfd >= 0)
         close(c->rfd);

@@ -113,7 +113,7 @@ static void mel_audio__free_engine_shell(Mel_Audio* eng)
     mel_dealloc(eng->alloc, eng);
 }
 
-static Mel_Audio* mel_audio__alloc_engine(const Mel_Alloc* a, Mel_Reactor* reactor, Mel_Audio_Opt opt)
+static Mel_Audio* mel_audio__alloc_engine(const Mel_Alloc* a, Mel_Audio_Opt opt)
 {
     Mel_Audio* eng = mel_alloc(a, sizeof(*eng));
     if (eng == NULL)
@@ -124,7 +124,6 @@ static Mel_Audio* mel_audio__alloc_engine(const Mel_Alloc* a, Mel_Reactor* react
 
     *eng = (Mel_Audio){ 0 };
     eng->alloc = a;
-    eng->reactor = reactor;
     eng->exec = opt.exec;
     eng->resampler = opt.resampler != NULL ? opt.resampler : mel_audio_resample_linear;
     eng->master_volume = opt.master_volume;
@@ -154,13 +153,13 @@ static Mel_Audio* mel_audio__alloc_engine(const Mel_Alloc* a, Mel_Reactor* react
     return eng;
 }
 
-Mel_Audio* mel_audio_create_offline(const Mel_Alloc* a, Mel_Reactor* reactor, Mel_Audio_Opt opt)
+Mel_Audio* mel_audio_create_offline(const Mel_Alloc* a, Mel_Audio_Opt opt)
 {
     assert(a != NULL);
     assert(opt.samplerate > 0);
     assert(opt.channels >= 1u);
 
-    Mel_Audio* eng = mel_audio__alloc_engine(a, reactor, opt);
+    Mel_Audio* eng = mel_audio__alloc_engine(a, opt);
     if (eng == NULL)
         return NULL;
 
@@ -217,7 +216,7 @@ static int mel_audio__mix_thread_fn(void* user)
     return 0;
 }
 
-Mel_Audio* mel_audio_create(const Mel_Alloc* a, Mel_Reactor* reactor, Mel_Audio_Opt opt)
+Mel_Audio* mel_audio_create(const Mel_Alloc* a, Mel_Audio_Opt opt)
 {
     assert(a != NULL);
     assert(opt.samplerate > 0);
@@ -227,7 +226,7 @@ Mel_Audio* mel_audio_create(const Mel_Alloc* a, Mel_Reactor* reactor, Mel_Audio_
     assert(opt.max_voice_channels >= opt.channels);
     assert(opt.max_voice_ratio >= 1.0);
 
-    Mel_Audio* eng = mel_audio__alloc_engine(a, reactor, opt);
+    Mel_Audio* eng = mel_audio__alloc_engine(a, opt);
     if (eng == NULL)
         return NULL;
 

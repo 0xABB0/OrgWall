@@ -11,7 +11,7 @@ extern "C"
 {
 #endif
 
-typedef struct Mel_Reactor  Mel_Reactor;
+typedef struct Mel_Vat      Mel_Vat;
 typedef struct Mel_Executor Mel_Executor;
 typedef struct Mel_Future   Mel_Future;
 typedef struct Mel_Event    Mel_Event;
@@ -84,7 +84,7 @@ typedef struct
 Mel_Clip_Channel mel_clip_channel_resolve(Mel_Clip_Channel ch);
 bool             mel_clip_channel_supported(Mel_Clip_Channel ch);
 
-void mel_clip_init(const Mel_Alloc* alloc, Mel_Reactor* reactor);
+void mel_clip_init(const Mel_Alloc* alloc, Mel_Vat* vat);
 void mel_clip_shutdown(void);
 bool mel_clip_available(void);
 

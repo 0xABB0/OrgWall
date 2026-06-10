@@ -102,7 +102,7 @@ Metal backend from clear-present to actually rendering the demos.
   host-tool pass (mechanism sketch retained below) — do NOT adopt without explicit approval.
   Retained sketch: `mel_codegen(t, tool, output, ...args)` resolving `tool` as a repo-built host-tool
   target (`tool->dir/build/host/tool->name`), output compiled as a C TU and linked into `t`
-  (`modules/{reflect,continuation,display}` pattern); the fit would be a host tool `mel-slangc`
+  (`modules/{reflect,coro,display}` pattern); the fit would be a host tool `mel-slangc`
   invoking the vendored `slangc` and emitting a compiled `.c` + `.h`.
 - **D3 Migration scope.** Incremental (triangle first, then roll out) — recommended — vs big-bang
   rewrite of all 37 at once.

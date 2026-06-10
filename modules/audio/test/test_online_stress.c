@@ -150,7 +150,7 @@ MEL_TEST(online, live_play_destroy_no_crash_no_leak)
     bool       online = false;
     if (device_path_safe())
     {
-        eng = mel_audio_create(a, NULL, online_opt());
+        eng = mel_audio_create(a, online_opt());
         online = eng != NULL;
     }
 
@@ -160,7 +160,7 @@ MEL_TEST(online, live_play_destroy_no_crash_no_leak)
             fprintf(stderr, "      [online] fork-isolated run; CoreAudio cannot init after fork() — using offline concurrent harness (set MEL_TEST_NOFORK=1 to drive the real device)\n");
         else
             fprintf(stderr, "      [online] no CoreAudio device this run; falling back to offline concurrent harness\n");
-        eng = mel_audio_create_offline(a, NULL, offline_opt());
+        eng = mel_audio_create_offline(a, offline_opt());
         MEL_REQUIRE_NOT_NULL(eng);
     }
     else
@@ -204,7 +204,7 @@ MEL_TEST(online, live_play_destroy_no_crash_no_leak)
 
     if (online)
     {
-        Mel_Audio* eng2 = mel_audio_create(a, NULL, online_opt());
+        Mel_Audio* eng2 = mel_audio_create(a, online_opt());
         MEL_REQUIRE_NOT_NULL(eng2);
         for (u32 i = 0; i < source_count; i++)
             mel_audio_play_ex(eng2, sources[i], 0.2f, 0.0f, false);
@@ -234,12 +234,12 @@ MEL_TEST(online, play_then_immediate_destroy)
         bool       online = false;
         if (device_path_safe())
         {
-            eng = mel_audio_create(a, NULL, online_opt());
+            eng = mel_audio_create(a, online_opt());
             online = eng != NULL;
         }
         if (!online)
         {
-            eng = mel_audio_create_offline(a, NULL, offline_opt());
+            eng = mel_audio_create_offline(a, offline_opt());
             MEL_REQUIRE_NOT_NULL(eng);
         }
 

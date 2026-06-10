@@ -39,7 +39,7 @@ static Mel_Audio_Source* mono_const(const Mel_Alloc* a, u32 frames, f32 value)
 MEL_TEST(voice, play_returns_valid_handle_synchronously)
 {
     const Mel_Alloc* a = test_alloc();
-    Mel_Audio*       eng = mel_audio_create_offline(a, NULL, base_opt());
+    Mel_Audio*       eng = mel_audio_create_offline(a, base_opt());
     MEL_REQUIRE_NOT_NULL(eng);
 
     Mel_Audio_Source* src = mono_const(a, 64u, 1.0f);
@@ -59,7 +59,7 @@ MEL_TEST(voice, play_returns_valid_handle_synchronously)
 MEL_TEST(voice, destroy_with_reserved_unactivated_voice)
 {
     const Mel_Alloc* a = test_alloc();
-    Mel_Audio*       eng = mel_audio_create_offline(a, NULL, base_opt());
+    Mel_Audio*       eng = mel_audio_create_offline(a, base_opt());
     MEL_REQUIRE_NOT_NULL(eng);
 
     Mel_Audio_Source* src = mono_const(a, 64u, 1.0f);
@@ -73,7 +73,7 @@ MEL_TEST(voice, destroy_with_reserved_unactivated_voice)
 MEL_TEST(voice, reserve_bumps_count_before_activation)
 {
     const Mel_Alloc* a = test_alloc();
-    Mel_Audio*       eng = mel_audio_create_offline(a, NULL, base_opt());
+    Mel_Audio*       eng = mel_audio_create_offline(a, base_opt());
     MEL_REQUIRE_NOT_NULL(eng);
 
     MEL_EXPECT_EQ(mel_audio_active_voice_count(eng), 0u);
@@ -94,7 +94,7 @@ MEL_TEST(voice, reserve_bumps_count_before_activation)
 MEL_TEST(voice, stop_noops_via_generation)
 {
     const Mel_Alloc* a = test_alloc();
-    Mel_Audio*       eng = mel_audio_create_offline(a, NULL, base_opt());
+    Mel_Audio*       eng = mel_audio_create_offline(a, base_opt());
     MEL_REQUIRE_NOT_NULL(eng);
 
     Mel_Audio_Source* src = mono_const(a, 64u, 1.0f);
@@ -128,7 +128,7 @@ MEL_TEST(voice, stop_noops_via_generation)
 MEL_TEST(voice, slot_reuse_rolls_generation)
 {
     const Mel_Alloc* a = test_alloc();
-    Mel_Audio*       eng = mel_audio_create_offline(a, NULL, base_opt());
+    Mel_Audio*       eng = mel_audio_create_offline(a, base_opt());
     MEL_REQUIRE_NOT_NULL(eng);
 
     Mel_Audio_Source* src = mono_const(a, 64u, 1.0f);
@@ -157,7 +157,7 @@ MEL_TEST(voice, slot_reuse_rolls_generation)
 MEL_TEST(voice, count_tracks_reserve_activate_end)
 {
     const Mel_Alloc* a = test_alloc();
-    Mel_Audio*       eng = mel_audio_create_offline(a, NULL, base_opt());
+    Mel_Audio*       eng = mel_audio_create_offline(a, base_opt());
     MEL_REQUIRE_NOT_NULL(eng);
 
     MEL_EXPECT_EQ(mel_audio_active_voice_count(eng), 0u);
@@ -185,7 +185,7 @@ MEL_TEST(voice, count_tracks_reserve_activate_end)
 MEL_TEST(voice, stop_all_clears_count)
 {
     const Mel_Alloc* a = test_alloc();
-    Mel_Audio*       eng = mel_audio_create_offline(a, NULL, base_opt());
+    Mel_Audio*       eng = mel_audio_create_offline(a, base_opt());
     MEL_REQUIRE_NOT_NULL(eng);
 
     Mel_Audio_Source* s0 = mono_const(a, 256u, 1.0f);

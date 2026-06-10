@@ -8,8 +8,7 @@
 #include <collection/list.h>
 #include <future/future.h>
 #include <executor/executor.h>
-#include <reactor/reactor.h>
-#include <thread/thread.h>
+#include <vat/vat.h>
 #include <log/log.h>
 
 #include <assert.h>
@@ -46,18 +45,16 @@ typedef struct
 {
     bool             initialized;
     const Mel_Alloc* alloc;
-    Mel_Reactor*     reactor;
+    Mel_Vat*         vat;
     Mel_SlotMap      jobs;
-    Mel_Thread_Id    loop_thread;
-    bool             loop_bound;
 } Dialog;
 
 static Dialog g;
 
 static void assert_loop_affinity(void)
 {
-    if (g.loop_bound)
-        assert(mel_thread_id_equal(mel_thread_current_id(), g.loop_thread));
+    if (g.vat)
+        assert(mel_vat_is_owner(g.vat));
 }
 
 static char* dup_cstr(const Mel_Alloc* a, const char* s)
@@ -72,22 +69,18 @@ static char* dup_cstr(const Mel_Alloc* a, const char* s)
     return d;
 }
 
-void mel_dialog_init(const Mel_Alloc* alloc, Mel_Reactor* reactor)
+void mel_dialog_init(const Mel_Alloc* alloc, Mel_Vat* vat)
 {
     if (g.initialized)
     {
-        if ((alloc && alloc != g.alloc) || (reactor && reactor != g.reactor))
-            mel_log_warn("dialog", "init: already initialized; ignoring differing allocator/reactor");
+        if ((alloc && alloc != g.alloc) || (vat && vat != g.vat))
+            mel_log_warn("dialog", "init: already initialized; ignoring differing allocator/vat");
         return;
     }
     g.alloc = alloc ? alloc : mel_alloc_heap();
-    g.reactor = reactor;
-    if (reactor)
-    {
-        assert(mel_reactor_is_owner(reactor));
-        g.loop_thread = mel_thread_current_id();
-        g.loop_bound = true;
-    }
+    g.vat = vat;
+    if (vat)
+        assert(mel_vat_is_owner(vat));
     mel_slotmap_init(&g.jobs, g.alloc, .item_size = sizeof(Mel_Dialog_Job*), .initial_capacity = 4);
     g.initialized = true;
 }
@@ -169,14 +162,14 @@ static void copy_filters(Mel_Dialog_Job* j, const Mel_Dialog_Filter* filters, u3
     }
 }
 
-static bool deliver_ok(Mel_Executor* deliver, Mel_Reactor* reactor, const char* op)
+static bool deliver_ok(Mel_Executor* deliver, Mel_Vat* vat, const char* op)
 {
     if (!deliver)
         return true;
-    Mel_Executor* expected = reactor ? mel_reactor_executor(reactor) : (g.reactor ? mel_reactor_executor(g.reactor) : mel_executor_inline());
+    Mel_Executor* expected = vat ? mel_vat_executor(vat) : (g.vat ? mel_vat_executor(g.vat) : mel_executor_inline());
     if (deliver == expected)
         return true;
-    mel_log_error("dialog", "%s: deliver executor must match the reactor's executor; pass that or leave NULL", op);
+    mel_log_error("dialog", "%s: deliver executor must match the vat's executor; pass that or leave NULL", op);
     return false;
 }
 
@@ -203,7 +196,7 @@ Mel_Future* mel_dialog_open_file_opt(Mel_Dialog_Open_File_Opt opt)
     Mel_Dialog_Job* j = job_new(opt.alloc, MEL_DIALOG_REQUEST_OPEN_FILE);
     if (!j)
         return NULL;
-    if (!deliver_ok(opt.deliver, opt.reactor, "open_file"))
+    if (!deliver_ok(opt.deliver, opt.vat, "open_file"))
     {
         mel_dialog_job_resolve(j, MEL_DIALOG_ERROR | MEL_DIALOG_UNAVAILABLE);
         return &j->future;
@@ -222,7 +215,7 @@ Mel_Future* mel_dialog_open_files_opt(Mel_Dialog_Open_File_Opt opt)
     Mel_Dialog_Job* j = job_new(opt.alloc, MEL_DIALOG_REQUEST_OPEN_FILE | MEL_DIALOG_REQUEST_MULTI);
     if (!j)
         return NULL;
-    if (!deliver_ok(opt.deliver, opt.reactor, "open_files"))
+    if (!deliver_ok(opt.deliver, opt.vat, "open_files"))
     {
         mel_dialog_job_resolve(j, MEL_DIALOG_ERROR | MEL_DIALOG_UNAVAILABLE);
         return &j->future;
@@ -241,7 +234,7 @@ Mel_Future* mel_dialog_save_file_opt(Mel_Dialog_Save_File_Opt opt)
     Mel_Dialog_Job* j = job_new(opt.alloc, MEL_DIALOG_REQUEST_SAVE_FILE);
     if (!j)
         return NULL;
-    if (!deliver_ok(opt.deliver, opt.reactor, "save_file"))
+    if (!deliver_ok(opt.deliver, opt.vat, "save_file"))
     {
         mel_dialog_job_resolve(j, MEL_DIALOG_ERROR | MEL_DIALOG_UNAVAILABLE);
         return &j->future;
@@ -261,7 +254,7 @@ Mel_Future* mel_dialog_open_folder_opt(Mel_Dialog_Open_Folder_Opt opt)
     Mel_Dialog_Job* j = job_new(opt.alloc, MEL_DIALOG_REQUEST_OPEN_DIR);
     if (!j)
         return NULL;
-    if (!deliver_ok(opt.deliver, opt.reactor, "open_folder"))
+    if (!deliver_ok(opt.deliver, opt.vat, "open_folder"))
     {
         mel_dialog_job_resolve(j, MEL_DIALOG_ERROR | MEL_DIALOG_UNAVAILABLE);
         return &j->future;
@@ -272,10 +265,7 @@ Mel_Future* mel_dialog_open_folder_opt(Mel_Dialog_Open_Folder_Opt opt)
     return launch(j, "open_folder");
 }
 
-const Mel_Dialog_Selection* mel_dialog_future_selection(const Mel_Future* f)
-{
-    return f ? (const Mel_Dialog_Selection*)mel_future_value((Mel_Future*)f) : NULL;
-}
+const Mel_Dialog_Selection* mel_dialog_future_selection(const Mel_Future* f) { return f ? (const Mel_Dialog_Selection*)mel_future_value((Mel_Future*)f) : NULL; }
 
 Mel_Dialog_Status mel_dialog_future_status(const Mel_Future* f)
 {
@@ -348,15 +338,9 @@ const char* mel_dialog_job_default_name(const Mel_Dialog_Job* j) { return j ? j-
 
 u32 mel_dialog_job_filter_count(const Mel_Dialog_Job* j) { return j ? (u32)j->filters.count : 0; }
 
-const char* mel_dialog_job_filter_label(const Mel_Dialog_Job* j, u32 filter)
-{
-    return (j && filter < j->filters.count) ? j->filters.items[filter].label : NULL;
-}
+const char* mel_dialog_job_filter_label(const Mel_Dialog_Job* j, u32 filter) { return (j && filter < j->filters.count) ? j->filters.items[filter].label : NULL; }
 
-u32 mel_dialog_job_filter_pattern_count(const Mel_Dialog_Job* j, u32 filter)
-{
-    return (j && filter < j->filters.count) ? (u32)j->filters.items[filter].patterns.count : 0;
-}
+u32 mel_dialog_job_filter_pattern_count(const Mel_Dialog_Job* j, u32 filter) { return (j && filter < j->filters.count) ? (u32)j->filters.items[filter].patterns.count : 0; }
 
 const char* mel_dialog_job_filter_pattern(const Mel_Dialog_Job* j, u32 filter, u32 pattern)
 {

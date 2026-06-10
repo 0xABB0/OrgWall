@@ -8,7 +8,7 @@
 #include <collection/list.h>
 #include <executor/executor.h>
 #include <future/future.h>
-#include <reactor/reactor.h>
+#include <vat/vat.h>
 #include <thread/thread.h>
 #include <thread/sem.h>
 #include <log/log.h>
@@ -145,7 +145,7 @@ static void fs_finalize(Mel_Fs* fs)
 
 void mel_fs__op_settle(Mel_Fs_Op_Record* op, Mel_Fs_Status status, i32 os_error)
 {
-    assert(mel_reactor_is_owner(op->fs->reactor));
+    assert(mel_vat_is_owner(op->fs->vat));
     if (op->settled)
         return;
     op->settled = true;
@@ -212,9 +212,9 @@ void mel_fs__job_run(Mel_Fs_Op_Record* op)
     }
 }
 
-static void completion_post(void* user)
+static void completion_run(Mel_Task* self)
 {
-    Mel_Fs_Op_Record* op = (Mel_Fs_Op_Record*)user;
+    Mel_Fs_Op_Record* op = mel_container_of(self, Mel_Fs_Op_Record, completion_task);
     Mel_Fs*           fs = op->fs;
     bool              reclaim = fs->destroying && atomic_load_explicit(&op->future.cont, memory_order_acquire) == NULL;
     if (op->cancel_requested)
@@ -224,6 +224,7 @@ static void completion_post(void* user)
     if (reclaim)
         op_free_record(op);
 
+    mel_vat_release(fs->vat);
     fs->pending_posts--;
     if (fs->destroying && fs->pending_posts == 0)
         fs_finalize(fs);
@@ -245,16 +246,16 @@ static int worker_main(void* user)
         Mel_Fs_Op_Record* op = mel_container_of(node, Mel_Fs_Op_Record, queue_node);
         if (!op->cancel_requested)
             mel_fs__job_run(op);
-        mel_reactor_post(fs->reactor, completion_post, op);
+        mel_vat_post(fs->vat, &op->completion_task);
     }
     return 0;
 }
 
 Mel_Fs* mel_fs_create_opt(Mel_Fs_Opt opt)
 {
-    if (!opt.reactor)
+    if (!opt.vat)
     {
-        mel_log_error("fs", "create: reactor is required");
+        mel_log_error("fs", "create: vat is required");
         return NULL;
     }
 
@@ -264,8 +265,8 @@ Mel_Fs* mel_fs_create_opt(Mel_Fs_Opt opt)
         return NULL;
     memset(fs, 0, sizeof *fs);
 
-    fs->reactor = opt.reactor;
-    fs->executor = mel_reactor_executor(opt.reactor);
+    fs->vat = opt.vat;
+    fs->executor = mel_vat_executor(opt.vat);
     fs->alloc = alloc;
     fs->backend_ready = mel_fs__backend_available();
 
@@ -317,7 +318,7 @@ void mel_fs_destroy(Mel_Fs* fs)
 {
     if (!fs)
         return;
-    assert(mel_reactor_is_owner(fs->reactor));
+    assert(mel_vat_is_owner(fs->vat));
 
     Mel_Fs_Op_Record** data = (Mel_Fs_Op_Record**)mel_slotmap_data(&fs->ops);
     u32                n = mel_slotmap_count(&fs->ops);
@@ -338,6 +339,7 @@ void mel_fs_destroy(Mel_Fs* fs)
         Mel_Fs_Op_Record* op = mel_container_of(node, Mel_Fs_Op_Record, queue_node);
         bool              has_cont = atomic_load_explicit(&op->future.cont, memory_order_acquire) != NULL;
         mel_fs__op_settle(op, MEL_FS_ERROR | MEL_FS_CANCELLED, 0);
+        mel_vat_release(fs->vat);
         fs->pending_posts--;
         if (!has_cont)
             op_free_record(op);
@@ -352,7 +354,7 @@ void mel_fs_destroy(Mel_Fs* fs)
 }
 
 bool          mel_fs_available(const Mel_Fs* fs) { return fs && fs->backend_ready; }
-Mel_Reactor*  mel_fs_reactor(const Mel_Fs* fs) { return fs ? fs->reactor : NULL; }
+Mel_Vat*      mel_fs_vat(const Mel_Fs* fs) { return fs ? fs->vat : NULL; }
 Mel_Executor* mel_fs_executor(const Mel_Fs* fs) { return fs ? fs->executor : NULL; }
 u32           mel_fs_pending(const Mel_Fs* fs) { return fs ? mel_slotmap_count((Mel_SlotMap*)&fs->ops) : 0; }
 
@@ -394,10 +396,12 @@ static Mel_Future* op_submit(Mel_Fs_Op_Record* op)
 {
     op->submitted = true;
     op->fs->pending_posts++;
+    mel_task_init(&op->completion_task, completion_run);
+    mel_vat_retain(op->fs->vat);
     if (op->fs->worker_count == 0)
     {
         mel_fs__job_run(op);
-        mel_reactor_post(op->fs->reactor, completion_post, op);
+        mel_vat_post(op->fs->vat, &op->completion_task);
         return &op->future;
     }
     mel_mpsc_push(&op->fs->queue, &op->queue_node);
@@ -419,7 +423,7 @@ Mel_Future* mel_fs_stat_opt(Mel_Fs* fs, str8 path, Mel_Fs_Stat_Opt opt)
 {
     if (!fs)
         return NULL;
-    assert(mel_reactor_is_owner(fs->reactor));
+    assert(mel_vat_is_owner(fs->vat));
     if (!fs->backend_ready)
         return op_fail_unavailable(fs, MEL_FS_JOB_STAT, opt.deliver, opt.out_op);
 
@@ -437,7 +441,7 @@ Mel_Future* mel_fs_exists_opt(Mel_Fs* fs, str8 path, Mel_Fs_Exists_Opt opt)
 {
     if (!fs)
         return NULL;
-    assert(mel_reactor_is_owner(fs->reactor));
+    assert(mel_vat_is_owner(fs->vat));
     if (!fs->backend_ready)
         return op_fail_unavailable(fs, MEL_FS_JOB_EXISTS, opt.deliver, opt.out_op);
 
@@ -454,7 +458,7 @@ Mel_Future* mel_fs_mkdir_opt(Mel_Fs* fs, str8 path, Mel_Fs_Mkdir_Opt opt)
 {
     if (!fs)
         return NULL;
-    assert(mel_reactor_is_owner(fs->reactor));
+    assert(mel_vat_is_owner(fs->vat));
     if (!fs->backend_ready)
         return op_fail_unavailable(fs, MEL_FS_JOB_MKDIR, opt.deliver, opt.out_op);
 
@@ -473,7 +477,7 @@ Mel_Future* mel_fs_remove_opt(Mel_Fs* fs, str8 path, Mel_Fs_Remove_Opt opt)
 {
     if (!fs)
         return NULL;
-    assert(mel_reactor_is_owner(fs->reactor));
+    assert(mel_vat_is_owner(fs->vat));
     if (!fs->backend_ready)
         return op_fail_unavailable(fs, MEL_FS_JOB_REMOVE, opt.deliver, opt.out_op);
 
@@ -491,7 +495,7 @@ Mel_Future* mel_fs_rename_opt(Mel_Fs* fs, str8 from, str8 to, Mel_Fs_Rename_Opt 
 {
     if (!fs)
         return NULL;
-    assert(mel_reactor_is_owner(fs->reactor));
+    assert(mel_vat_is_owner(fs->vat));
     if (!fs->backend_ready)
         return op_fail_unavailable(fs, MEL_FS_JOB_RENAME, opt.deliver, opt.out_op);
 
@@ -512,7 +516,7 @@ Mel_Future* mel_fs_copy_opt(Mel_Fs* fs, str8 from, str8 to, Mel_Fs_Copy_Opt opt)
 {
     if (!fs)
         return NULL;
-    assert(mel_reactor_is_owner(fs->reactor));
+    assert(mel_vat_is_owner(fs->vat));
     if (!fs->backend_ready)
         return op_fail_unavailable(fs, MEL_FS_JOB_COPY, opt.deliver, opt.out_op);
 
@@ -534,7 +538,7 @@ Mel_Future* mel_fs_read_file_opt(Mel_Fs* fs, str8 path, Mel_Fs_Read_File_Opt opt
 {
     if (!fs)
         return NULL;
-    assert(mel_reactor_is_owner(fs->reactor));
+    assert(mel_vat_is_owner(fs->vat));
     if (!fs->backend_ready)
         return op_fail_unavailable(fs, MEL_FS_JOB_READ_FILE, opt.deliver, opt.out_op);
 
@@ -551,7 +555,7 @@ Mel_Future* mel_fs_write_file_opt(Mel_Fs* fs, str8 path, Mel_Fs_Write_File_Opt o
 {
     if (!fs)
         return NULL;
-    assert(mel_reactor_is_owner(fs->reactor));
+    assert(mel_vat_is_owner(fs->vat));
     if (!fs->backend_ready)
         return op_fail_unavailable(fs, MEL_FS_JOB_WRITE_FILE, opt.deliver, opt.out_op);
 
@@ -583,7 +587,7 @@ Mel_Future* mel_fs_enumerate_opt(Mel_Fs* fs, str8 path, Mel_Fs_Enumerate_Opt opt
 {
     if (!fs)
         return NULL;
-    assert(mel_reactor_is_owner(fs->reactor));
+    assert(mel_vat_is_owner(fs->vat));
     if (!fs->backend_ready)
         return op_fail_unavailable(fs, MEL_FS_JOB_ENUMERATE, opt.deliver, opt.out_op);
 
@@ -604,7 +608,7 @@ Mel_Future* mel_fs_glob_opt(Mel_Fs* fs, str8 root, str8 pattern, Mel_Fs_Glob_Opt
 {
     if (!fs)
         return NULL;
-    assert(mel_reactor_is_owner(fs->reactor));
+    assert(mel_vat_is_owner(fs->vat));
     if (!fs->backend_ready)
         return op_fail_unavailable(fs, MEL_FS_JOB_GLOB, opt.deliver, opt.out_op);
 
@@ -626,7 +630,7 @@ bool mel_fs_cancel(Mel_Fs* fs, Mel_Fs_Op handle)
 {
     if (!fs)
         return false;
-    assert(mel_reactor_is_owner(fs->reactor));
+    assert(mel_vat_is_owner(fs->vat));
     Mel_SlotMap_Handle h = mel_slotmap_handle_make(handle.index, handle.generation);
     Mel_Fs_Op_Record** pp = (Mel_Fs_Op_Record**)mel_slotmap_get(&fs->ops, h);
     Mel_Fs_Op_Record*  op = pp ? *pp : NULL;

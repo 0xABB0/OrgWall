@@ -119,22 +119,15 @@ static const char* host_clang_flags(void)
     return buf;
 }
 
-static char* find_header(const char* spelling, Mel_StrVec* cflags)
+static char* expand_dir(const char* s, const char* dir)
 {
-    for (size_t i = 0; i < cflags->len; i++)
-    {
-        const char* fl = cflags->items[i];
-        if (strncmp(fl, "-I", 2) != 0)
-            continue;
-        char* cand = mel_path_join(fl + 2, spelling);
-        if (mel_path_is_file(cand))
-            return cand;
-        free(cand);
-    }
-    return NULL;
+    const char* p = strstr(s, "$dir");
+    if (!p)
+        return mel_str_dup(s);
+    return mel_str_fmt("%.*s%s%s", (int)(p - s), s, dir, p + 4);
 }
 
-static void emit_codegens(FILE* f, Mel_Graph* g, Mel_Target* t, const char* outdir, Mel_StrVec* cflags, const Mel_Variant* v, Mel_StrVec* objs, Mel_StrVec* genout)
+static bool emit_codegens(FILE* f, Mel_Graph* g, Mel_Target* t, const char* outdir, Mel_StrVec* cflags, const Mel_Variant* v, Mel_StrVec* objs, Mel_StrVec* genout)
 {
     char* cflags_joined = join_str(cflags);
     for (size_t c = 0; c < t->codegens.len; c++)
@@ -144,7 +137,7 @@ static void emit_codegens(FILE* f, Mel_Graph* g, Mel_Target* t, const char* outd
         if (ti < 0)
         {
             fprintf(stderr, "build: '%s' codegen references unknown tool '%s'\n", t->name, cg.tool);
-            continue;
+            return false;
         }
         Mel_Target* tool = g->nodes.items[ti].t;
         char*       texe = mel_str_fmt("%s/build/host/%s", tool->dir, tool->name);
@@ -163,37 +156,22 @@ static void emit_codegens(FILE* f, Mel_Graph* g, Mel_Target* t, const char* outd
             else if (strcmp(arg, "$hostclang") == 0)
                 mel_da_push(&expanded, mel_str_dup(host_clang_flags()));
             else if (strstr(arg, "$dir"))
-            {
-                const char* p = strstr(arg, "$dir");
-                mel_da_push(&expanded, mel_str_fmt("%.*s%s%s", (int)(p - arg), arg, t->dir, p + 4));
-            }
+                mel_da_push(&expanded, expand_dir(arg, t->dir));
             else
                 mel_da_push(&expanded, mel_str_dup(arg));
-        }
-
-        Mel_StrVec headers = { 0 };
-        for (size_t a = 0; a < expanded.len; a++)
-        {
-            const char* e = expanded.items[a];
-            size_t      l = strlen(e);
-            if (l > 2 && strcmp(e + l - 2, ".h") == 0)
-            {
-                if (mel_path_is_file(e))
-                    mel_da_push(&headers, mel_str_dup(e));
-                else
-                {
-                    char* real = find_header(e, cflags);
-                    if (real)
-                        mel_da_push(&headers, real);
-                }
-            }
         }
         char* cmd = join_str(&expanded);
 
         fprintf(f, "build %s: codegen %s", genc, texe);
-        for (size_t h = 0; h < headers.len; h++)
-            fprintf(f, " %s", headers.items[h]);
+        for (size_t i = 0; i < cg.inputs.len; i++)
+        {
+            char* in = expand_dir(cg.inputs.items[i], t->dir);
+            fprintf(f, " %s", in);
+            free(in);
+        }
         fprintf(f, "\n  cmd = %s %s\n", texe, cmd);
+        if (cg.depfile)
+            fprintf(f, "  depfile = %s.d\n", genc);
 
         char* stem = mel_str_dup(cg.output);
         char* dot = strrchr(stem, '.');
@@ -204,9 +182,21 @@ static void emit_codegens(FILE* f, Mel_Graph* g, Mel_Target* t, const char* outd
         mel_da_push(objs, obj);
         (void)v;
     }
+    return true;
 }
 
-static char* emit_one(FILE* f, Mel_Graph* g, size_t idx, const Mel_Variant* v, Mel_StrVec* produced, Mel_IdxVec* order)
+#ifdef _WIN32
+static char* backslashed(const char* p)
+{
+    char* s = mel_str_dup(p);
+    for (char* c = s; *c; c++)
+        if (*c == '/')
+            *c = '\\';
+    return s;
+}
+#endif
+
+static char* emit_one(FILE* f, Mel_Graph* g, size_t idx, const Mel_Variant* v, Mel_StrVec* produced, bool* ok)
 {
     Mel_Target* t = g->nodes.items[idx].t;
     if (t->kind == MEL_KIND_THIRD_PARTY && !t->cmake_dir && t->sources.len == 0)
@@ -216,7 +206,10 @@ static char* emit_one(FILE* f, Mel_Graph* g, size_t idx, const Mel_Variant* v, M
     Mel_StrVec srcs = { 0 }, cflags = { 0 };
     config_base(v->config, &cflags);
     if (!mel_gather_compile(g, idx, v, &srcs, &cflags))
+    {
+        *ok = false;
         return NULL;
+    }
 
     bool        host = t->kind == MEL_KIND_HOST_TOOL;
     const char* cc_rule = host ? "hostcc" : "cc";
@@ -226,7 +219,11 @@ static char* emit_one(FILE* f, Mel_Graph* g, size_t idx, const Mel_Variant* v, M
     fputc('\n', f);
 
     Mel_StrVec objs = { 0 }, genout = { 0 };
-    emit_codegens(f, g, t, outdir, &cflags, v, &objs, &genout);
+    if (!emit_codegens(f, g, t, outdir, &cflags, v, &objs, &genout))
+    {
+        *ok = false;
+        return NULL;
+    }
 
     for (size_t i = 0; i < srcs.len; i++)
     {
@@ -256,6 +253,23 @@ static char* emit_one(FILE* f, Mel_Graph* g, size_t idx, const Mel_Variant* v, M
     char* out = NULL;
     if (t->kind == MEL_KIND_EXECUTABLE || t->kind == MEL_KIND_HOST_TOOL)
     {
+        if (objs.len == 0)
+        {
+            fprintf(stderr, "build: '%s' has no sources on %s\n", t->name, mel_platform_name(v->platform));
+            *ok = false;
+            return NULL;
+        }
+        Mel_IdxVec  eorder = { 0 };
+        Mel_IdxVec* order = NULL;
+        if (!host)
+        {
+            if (!mel_topo_closure(g, t->name, v, &eorder))
+            {
+                *ok = false;
+                return NULL;
+            }
+            order = &eorder;
+        }
         Mel_StrVec ldflags = { 0 };
         mel_gather_link(g, idx, v, &ldflags);
         bool apple_ld = host || v->platform == MEL_PLATFORM_MACOS || v->platform == MEL_PLATFORM_IOS;
@@ -336,15 +350,37 @@ static char* emit_one(FILE* f, Mel_Graph* g, size_t idx, const Mel_Variant* v, M
         join_into(f, &ldflags);
         fputc('\n', f);
         out = mel_str_dup(bin);
+        free(eorder.items);
     }
-    else if (t->kind == MEL_KIND_LIBRARY && objs.len)
+    else if (t->kind == MEL_KIND_LIBRARY)
     {
-        char* lib = mel_str_fmt("%s/lib%s.a", outdir, t->name);
-        fprintf(f, "build %s: ar", lib);
-        join_into(f, &objs);
-        fputc('\n', f);
-        mel_da_push(produced, t->name);
-        out = mel_str_dup(lib);
+        if (objs.len)
+        {
+            char* lib = mel_str_fmt("%s/lib%s.a", outdir, t->name);
+            fprintf(f, "build %s: ar", lib);
+            join_into(f, &objs);
+            fputc('\n', f);
+#ifdef _WIN32
+            char* bs = backslashed(lib);
+            fprintf(f, "  out_win = %s\n", bs);
+            free(bs);
+#endif
+            mel_da_push(produced, t->name);
+            out = mel_str_dup(lib);
+        }
+        else
+        {
+            bool globbed = false;
+            for (size_t i = 0; i < t->sources.len; i++)
+                if (mel_when_match(t->sources.items[i].when, v))
+                    globbed = true;
+            if (globbed)
+            {
+                fprintf(stderr, "build: library '%s' matched no sources on %s\n", t->name, mel_platform_name(v->platform));
+                *ok = false;
+                return NULL;
+            }
+        }
     }
     fputc('\n', f);
     return out;
@@ -352,24 +388,61 @@ static char* emit_one(FILE* f, Mel_Graph* g, size_t idx, const Mel_Variant* v, M
 
 bool mel_emit_and_build(Mel_Graph* g, const char* root, const Mel_Variant* v, bool run_ninja, bool do_package, char** out_bin)
 {
-    Mel_IdxVec order = { 0 };
-    if (!mel_topo_closure(g, root, v, &order))
-    {
-        free(order.items);
-        return false;
-    }
-    if (!mel_prepare_thirdparty(g, &order, v))
-    {
-        free(order.items);
-        return false;
-    }
-
     int ri = mel_graph_index(g, root);
     if (ri < 0)
+    {
+        fprintf(stderr, "build: unknown target '%s'\n", root);
         return false;
-    char* root_outdir = outdir_for(g->nodes.items[ri].t, v);
-    mel_mkdirs(root_outdir);
-    char* ninja_path = mel_str_fmt("%s/build.ninja", root_outdir);
+    }
+    Mel_Target* rootT = g->nodes.items[ri].t;
+
+    Mel_IdxVec rorder = { 0 };
+    if (!mel_topo_closure(g, root, v, &rorder))
+    {
+        free(rorder.items);
+        return false;
+    }
+    for (size_t i = 0; i < rorder.len; i++)
+    {
+        Mel_Target* d = g->nodes.items[rorder.items[i]].t;
+        if (!mel_target_available(d, v))
+        {
+            fprintf(stderr, "build: '%s' (needed by '%s') is unavailable on %s\n", d->name, root, mel_platform_name(v->platform));
+            free(rorder.items);
+            return false;
+        }
+    }
+
+    char* vdir = mel_str_fmt("build/%s%s-%s", mel_platform_name(v->platform), v->simulator ? "-sim" : "", v->config);
+    mel_mkdirs(vdir);
+    static bool locked = false;
+    if (!locked)
+    {
+        if (!mel_lock_dir(vdir))
+        {
+            free(rorder.items);
+            return false;
+        }
+        bool removed = remove(".ninja_log") == 0;
+        removed = remove(".ninja_deps") == 0 || removed;
+        if (removed)
+            fprintf(stderr, "build: removed legacy repo-root ninja state\n");
+        locked = true;
+    }
+
+    if (!mel_prepare_thirdparty(g, &rorder, v))
+    {
+        free(rorder.items);
+        return false;
+    }
+    static bool injected = false;
+    if (!injected)
+    {
+        mel_inject_thirdparty(g, v);
+        injected = true;
+    }
+
+    char* ninja_path = mel_str_fmt("%s/build.ninja", vdir);
     FILE* f = fopen(ninja_path, "wb");
     if (!f)
     {
@@ -378,6 +451,7 @@ bool mel_emit_and_build(Mel_Graph* g, const char* root, const Mel_Variant* v, bo
     }
 
     g_tc = mel_toolchain(v);
+    fprintf(f, "builddir = %s\n", vdir);
     fprintf(f, "cc = %s\n", g_tc.cc);
     fprintf(f, "ar = %s\n", g_tc.ar);
     fprintf(f, "base_cflags = %s\n", g_tc.base_cflags);
@@ -388,7 +462,7 @@ bool mel_emit_and_build(Mel_Graph* g, const char* root, const Mel_Variant* v, bo
     fputs("rule hostcc\n  command = clang $cflags -MMD -MF $out.d -c $in -o $out\n", f);
     fputs("  depfile = $out.d\n  deps = gcc\n  description = CC(host) $out\n\n", f);
 #ifdef _WIN32
-    fputs("rule ar\n  command = $ar rcs $out $in\n  description = AR $out\n\n", f);
+    fputs("rule ar\n  command = cmd /c del /f /q $out_win 2>nul & $ar rcs $out $in\n  description = AR $out\n\n", f);
 #else
     fputs("rule ar\n  command = rm -f $out && $ar rcs $out $in\n  description = AR $out\n\n", f);
 #endif
@@ -396,38 +470,63 @@ bool mel_emit_and_build(Mel_Graph* g, const char* root, const Mel_Variant* v, bo
     fputs("rule hostlink\n  command = clang $in $libs $ldflags -o $out\n  description = LINK(host) $out\n\n", f);
     fputs("rule codegen\n  command = $cmd\n  description = GEN $out\n\n", f);
 
-    Mel_StrVec produced = { 0 };
-    Mel_IdxVec hosttools = { 0 };
-    for (size_t oi = 0; oi < order.len; oi++)
+    Mel_IdxVec all = { 0 };
+    if (!mel_topo_all(g, v, &all))
     {
-        Mel_Target* t = g->nodes.items[order.items[oi]].t;
-        for (size_t c = 0; c < t->codegens.len; c++)
-        {
-            int ti = mel_graph_index(g, t->codegens.items[c].tool);
-            if (ti < 0)
-                continue;
-            bool seen = false;
-            for (size_t k = 0; k < hosttools.len; k++)
-                if (hosttools.items[k] == (size_t)ti)
-                    seen = true;
-            if (!seen)
-                mel_da_push(&hosttools, (size_t)ti);
-        }
+        fclose(f);
+        free(all.items);
+        free(rorder.items);
+        return false;
     }
-    for (size_t i = 0; i < hosttools.len; i++)
-        emit_one(f, g, hosttools.items[i], v, &produced, NULL);
 
-    char* root_out = NULL;
-    for (size_t oi = 0; oi < order.len; oi++)
+    char* skip = calloc(g->nodes.len, 1);
+    if (!skip)
+        abort();
+    size_t nskip = 0;
+    for (size_t oi = 0; oi < all.len; oi++)
     {
-        char* out = emit_one(f, g, order.items[oi], v, &produced, &order);
-        if (order.items[oi] == (size_t)ri && out)
+        size_t      i = all.items[oi];
+        Mel_Target* t = g->nodes.items[i].t;
+        if (!mel_target_available(t, v))
+            skip[i] = 1;
+        for (size_t k = 0; !skip[i] && k < t->deps.len; k++)
+        {
+            Mel_Dep dep = t->deps.items[k];
+            if (!mel_when_match(dep.when, v))
+                continue;
+            int j = mel_graph_index(g, dep.name);
+            if (j >= 0 && skip[j])
+                skip[i] = 1;
+        }
+        if (skip[i])
+            nskip++;
+    }
+    if (nskip)
+        fprintf(stderr, "build: %zu target(s) unavailable on %s\n", nskip, mel_platform_name(v->platform));
+
+    Mel_StrVec produced = { 0 };
+    char*      root_out = NULL;
+    bool       ok = true;
+    for (size_t oi = 0; oi < all.len && ok; oi++)
+    {
+        size_t i = all.items[oi];
+        if (skip[i])
+            continue;
+        char* out = emit_one(f, g, i, v, &produced, &ok);
+        if (!out)
+            continue;
+        fprintf(f, "build %s: phony %s\n\n", g->nodes.items[i].t->name, out);
+        if (i == (size_t)ri)
             root_out = out;
     }
-
-    if (root_out)
-        fprintf(f, "default %s\n", root_out);
     fclose(f);
+    free(skip);
+    free(all.items);
+    if (!ok)
+    {
+        free(rorder.items);
+        return false;
+    }
 
     if (out_bin)
         *out_bin = root_out ? mel_str_dup(root_out) : NULL;
@@ -435,7 +534,17 @@ bool mel_emit_and_build(Mel_Graph* g, const char* root, const Mel_Variant* v, bo
     if (!run_ninja)
     {
         fprintf(stderr, "build: configured %s\n", ninja_path);
+        free(rorder.items);
         return true;
+    }
+
+    if (!root_out)
+    {
+        free(rorder.items);
+        if (rootT->kind == MEL_KIND_THIRD_PARTY)
+            return true;
+        fprintf(stderr, "build: '%s' produced no outputs on %s\n", root, mel_platform_name(v->platform));
+        return false;
     }
 
     fprintf(stderr, "build: emitted %s\n", ninja_path);
@@ -443,16 +552,32 @@ bool mel_emit_and_build(Mel_Graph* g, const char* root, const Mel_Variant* v, bo
     mel_da_push(&cmd, "ninja");
     mel_da_push(&cmd, "-f");
     mel_da_push(&cmd, ninja_path);
+    mel_da_push(&cmd, root_out);
     int rc = mel_run_vec(&cmd);
     free(cmd.items);
     if (rc != 0)
-        return false;
-
-    if (do_package)
     {
-        Mel_Target* rootT = g->nodes.items[ri].t;
-        if (rootT->kind == MEL_KIND_EXECUTABLE && root_out)
-            mel_package(g, &order, rootT, v, root_outdir, root_out);
+        free(rorder.items);
+        return false;
     }
+
+    Mel_StrVec cd = { 0 };
+    mel_da_push(&cd, "ninja");
+    mel_da_push(&cd, "-f");
+    mel_da_push(&cd, ninja_path);
+    mel_da_push(&cd, "-t");
+    mel_da_push(&cd, "cleandead");
+    mel_da_push(&cd, NULL);
+    mel_run_quiet((char* const*)cd.items);
+    free(cd.items);
+
+    if (do_package && rootT->kind == MEL_KIND_EXECUTABLE)
+    {
+        char* root_outdir = outdir_for(rootT, v);
+        mel_mkdirs(root_outdir);
+        mel_package(g, &rorder, rootT, v, root_outdir, root_out);
+        free(root_outdir);
+    }
+    free(rorder.items);
     return true;
 }

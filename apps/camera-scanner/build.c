@@ -8,7 +8,8 @@ void build(Mel_Build* b)
     mel_manifest(app, "APP_LABEL", "Scanner");
     mel_manifest(app, "BUNDLE_ID", "orgwall.scanner");
     mel_apple_plist(app, "apple/Info.plist.partial");
-    mel_depends(app, "app");
+    mel_depends(app, "boot");
+    mel_depends(app, "vat");
     mel_depends(app, "gui");
     mel_depends(app, "camera");
     mel_depends(app, "barcode");
@@ -20,7 +21,6 @@ void build(Mel_Build* b)
     mel_depends(app, "time");
     mel_depends(app, "thread");
     mel_depends(app, "future");
-    mel_depends(app, "reactor");
     mel_depends(app, "executor");
     mel_depends(app, "allocator");
     mel_depends(app, "color");

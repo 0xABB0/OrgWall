@@ -66,7 +66,7 @@ static void bench_run(u32 voices, Bench_Result* out)
     Mel_Alloc        tracked = mel_track_allocator(&tracker);
     const Mel_Alloc* a = &tracked;
 
-    Mel_Audio* eng = mel_audio_create_offline(a, NULL, bench_opt());
+    Mel_Audio* eng = mel_audio_create_offline(a, bench_opt());
     MEL_REQUIRE_NOT_NULL(eng);
 
     Mel_Audio_Source* src = bench_stereo_source(a);

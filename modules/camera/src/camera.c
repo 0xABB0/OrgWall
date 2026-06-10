@@ -11,7 +11,6 @@
 #include <future/future.h>
 #include <executor/executor.h>
 #include <event/event.h>
-#include <reactor/reactor.h>
 #include <log/log.h>
 #include <debug/assert.h>
 
@@ -78,7 +77,6 @@ typedef struct
 {
     bool             initialized;
     const Mel_Alloc* alloc;
-    Mel_Reactor*     reactor;
     Mel_Executor*    exec;
 
     Mel_SlotMap devices;
@@ -150,13 +148,12 @@ void mel_camera_provider_unregister(Mel_Camera_Provider p)
         g.providers.items[p.index].active = false;
 }
 
-void mel_camera_init(const Mel_Alloc* alloc, Mel_Reactor* reactor)
+void mel_camera_init(const Mel_Alloc* alloc, Mel_Executor* deliver)
 {
     if (g.initialized)
         return;
     g.alloc = alloc ? alloc : mel_alloc_heap();
-    g.reactor = reactor;
-    g.exec = reactor ? mel_reactor_executor(reactor) : mel_executor_inline();
+    g.exec = deliver ? deliver : mel_executor_inline();
     mel_slotmap_init(&g.devices, g.alloc, .item_size = sizeof(Device_Slot), .initial_capacity = 4);
     mel_array_init(&g.providers, g.alloc);
     mel_array_init(&g.registry, g.alloc);

@@ -4,7 +4,7 @@
 
 static Mel_SlotMap      g_windows;
 static const Mel_Alloc* g_alloc;
-static Mel_Reactor*     g_reactor;
+static Mel_Window_Host  g_host;
 static bool             g_inited;
 static bool             g_shutting;
 static i32              g_count;
@@ -13,12 +13,12 @@ static Mel_SlotMap_Handle to_sm(Mel_Window w) { return (Mel_SlotMap_Handle){ .in
 
 static Mel_Window from_sm(Mel_SlotMap_Handle h) { return (Mel_Window){ .index = h.index, .generation = h.generation }; }
 
-void mel_window_init(Mel_Reactor* reactor)
+void mel_window_init(Mel_Window_Host host)
 {
     if (g_inited)
         return;
     g_alloc = mel_alloc_heap();
-    g_reactor = reactor;
+    g_host = host;
     mel_slotmap_init(&g_windows, g_alloc, .item_size = sizeof(Mel_Window_Node), .initial_capacity = 8);
     mel_window__backend_init();
     g_inited = true;
@@ -47,13 +47,11 @@ void mel_window_shutdown(void)
     g_inited = false;
     g_shutting = false;
     g_alloc = NULL;
-    g_reactor = NULL;
+    g_host = (Mel_Window_Host){ 0 };
     g_count = 0;
 }
 
 const Mel_Alloc* mel_window__alloc(void) { return g_alloc ? g_alloc : mel_alloc_heap(); }
-
-Mel_Reactor* mel_window__reactor(void) { return g_reactor; }
 
 Mel_Window_Node* mel_window__node(Mel_Window w)
 {
@@ -94,12 +92,8 @@ void mel_window_keepalive_dec(void)
 {
     if (g_shutting)
         return;
-    if (mel_window__count_dec() == 0)
-    {
-        Mel_Reactor* r = mel_window__reactor();
-        if (r)
-            mel_reactor_quit(r);
-    }
+    if (mel_window__count_dec() == 0 && g_host.quit)
+        g_host.quit(g_host.user);
 }
 
 Mel_Window mel_window_create_opt(Mel_Window_Opt o)
@@ -178,12 +172,8 @@ void mel_window__closed(Mel_Window w)
         return;
 
     mel_slotmap_remove(&g_windows, to_sm(w));
-    if (mel_window__count_dec() == 0)
-    {
-        Mel_Reactor* r = mel_window__reactor();
-        if (r)
-            mel_reactor_quit(r);
-    }
+    if (mel_window__count_dec() == 0 && g_host.quit)
+        g_host.quit(g_host.user);
 }
 
 void* mel_window_content_native(Mel_Window w)

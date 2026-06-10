@@ -36,7 +36,7 @@ const u8*            mel_storage_job_write_data(const Mel_Storage_Job* job);
 usize                mel_storage_job_write_len(const Mel_Storage_Job* job);
 usize                mel_storage_job_read_expect(const Mel_Storage_Job* job);
 const Mel_Alloc*     mel_storage_job_alloc(const Mel_Storage_Job* job);
-Mel_Reactor*         mel_storage_job_reactor(const Mel_Storage_Job* job);
+Mel_Vat*             mel_storage_job_vat(const Mel_Storage_Job* job);
 Mel_Executor*        mel_storage_job_deliver(const Mel_Storage_Job* job);
 bool                 mel_storage_job_create_parents(const Mel_Storage_Job* job);
 bool                 mel_storage_job_atomic(const Mel_Storage_Job* job);

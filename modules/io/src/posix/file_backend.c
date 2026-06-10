@@ -64,10 +64,12 @@ Mel_IO_File_Native mel_io__backend_open(const char* path, u32 flags, u32 mode)
 
     struct stat st;
     bool        seekable = false;
+    bool        readiness = false;
     i64         size = 0;
     if (fstat(fd, &st) == 0)
     {
         seekable = S_ISREG(st.st_mode);
+        readiness = S_ISFIFO(st.st_mode) || S_ISSOCK(st.st_mode) || S_ISCHR(st.st_mode);
         if (seekable)
             size = (i64)st.st_size;
     }
@@ -76,7 +78,7 @@ Mel_IO_File_Native mel_io__backend_open(const char* path, u32 flags, u32 mode)
     out.handle = NULL;
     out.initial_size = size;
     out.seekable = seekable;
-    out.async_capable = true;
+    out.readiness = readiness;
     out.status = MEL_IO_OK;
     return out;
 }

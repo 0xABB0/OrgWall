@@ -1,5 +1,5 @@
 #include <core/platform.h>
-#include <app/app.h>
+#include <vat/vat.h>
 #include <gui/gui.h>
 
 #include "mainscreen.h"
@@ -7,9 +7,9 @@
 #include "replacescreen.h"
 #include "structscreen.h"
 
-void mel_app_setup(Mel_Reactor* reactor)
+void mel_app_setup(Mel_Vat* root)
 {
-    mel_gui_init(reactor);
+    mel_gui_init(root);
     mel_app_register_screen(S8("main"), .build = build_main, .on_enter = main_on_enter);
     mel_app_register_screen(S8("details"), build_details, NULL);
     mel_app_register_screen(S8("replaced"), build_replace, NULL);

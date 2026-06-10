@@ -5,7 +5,7 @@ runnable on the macOS host. Two modes share one process.
 
 ## Modes
 
-- **Default (windowed, interactive)** — opens a window and runs the app/reactor loop.
+- **Default (windowed, interactive)** — opens a window on the boot-owned root vat.
   A `paint` canvas draws live panels; key commands trigger one-shot module actions.
 - **`--smoke` (headless)** — exercises each listed module once in sequence without
   opening a window or blocking on input, prints one `module: <result-or-honest-absence>`
@@ -37,11 +37,11 @@ Run:
 - `debug` — installs a guarded assert handler, fires a failing `mel_assert`, confirms it is caught/handled (no crash).
 - `fs` — writes a temp file under the system temp dir and reads it back (async via the fs proactor).
 - `storage` — writes then reads a relative key inside an fs-backed storage root.
-- `process` — runs `/bin/echo` via the async runner and captures its stdout + exit code.
+- `process` — spawns `/bin/echo` with stdout redirected to a temp file, awaits the exit asynchronously, reads the capture back (pipes need fd wakeables the macOS ui waiter lacks).
 - `dialog` — backend availability (open-file picker suppressed in smoke; requested in windowed mode).
 - `shell` — backend availability (URL open suppressed in smoke; requested in windowed mode).
 - `clipboard` — writes text then reads it back, prints the round-tripped text + change sequence.
-- `app` — the reactor loop is driven to completion by the smoke continuation chain.
+- `app` — the root vat is driven to completion by the smoke continuation chain, which quits it and sets the exit code.
 
 Honest absence is surfaced, never skipped or faked: gamepad, sensor, and vibration
 report their absence on a host with no such device.
@@ -62,7 +62,7 @@ key-command results and `app` lifecycle phases as they fire.
 - `U` — shell: open a URL
 - `F` — fs + io + storage: growable stream probe
 - `L` — dylib: open libSystem + resolve a symbol
-- `P` — process: spawn `/bin/echo`, capture stdout asynchronously
+- `P` — process: spawn `/bin/echo`, capture stdout asynchronously (asserts on macOS today: the ui waiter refuses the pipe's fd wakeables)
 - `H` — hid: re-enumerate devices
 - `V` — vibration: play a short pattern if a device exists
 - `D` — debug: fire a guarded demo assertion that is caught/handled
@@ -70,6 +70,7 @@ key-command results and `app` lifecycle phases as they fire.
 
 ## Build
 
-`build.c` declares the `melody-showcase` executable under the `gui` subsystem and
-`mel_depends` on every module it calls. It builds on the macOS host; no platform-specific
+`build.c` declares the `melody-showcase` executable under the `gui` subsystem, depends on
+`boot` (which owns `main`; the app defines only `mel_app_setup`) and on every module it
+calls. It builds on the macOS host; no platform-specific
 sources are required because every dependency degrades honestly on the host.

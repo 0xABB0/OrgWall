@@ -11,14 +11,14 @@ extern "C"
 {
 #endif
 
-typedef struct Mel_Reactor Mel_Reactor;
+typedef struct Mel_Vat Mel_Vat;
 
 typedef u32 Mel_Vib_Status;
 
-#define MEL_VIB_SEVERITY_MASK 0x3u
-#define MEL_VIB_OK            0u
-#define MEL_VIB_WARNED        1u
-#define MEL_VIB_ERROR         2u
+#define MEL_VIB_SEVERITY_MASK               0x3u
+#define MEL_VIB_OK                          0u
+#define MEL_VIB_WARNED                      1u
+#define MEL_VIB_ERROR                       2u
 
 #define MEL_VIB_WARN_AMPLITUDE_QUANTIZED    (1u << 2)
 #define MEL_VIB_WARN_SHARPNESS_DROPPED      (1u << 3)
@@ -27,8 +27,8 @@ typedef u32 Mel_Vib_Status;
 #define MEL_VIB_WARN_COMPLETION_SYNTHESIZED (1u << 6)
 #define MEL_VIB_WARN_PAUSE_QUANTIZED        (1u << 7)
 
-#define MEL_VIB_RESULT_ABORTED     (1u << 8)
-#define MEL_VIB_RESULT_DEVICE_LOST (1u << 9)
+#define MEL_VIB_RESULT_ABORTED              (1u << 8)
+#define MEL_VIB_RESULT_DEVICE_LOST          (1u << 9)
 
 static inline bool mel_vib_failed(Mel_Vib_Status s) { return (s & MEL_VIB_SEVERITY_MASK) == MEL_VIB_ERROR; }
 static inline bool mel_vib_warned(Mel_Vib_Status s) { return (s & MEL_VIB_SEVERITY_MASK) == MEL_VIB_WARNED; }
@@ -106,16 +106,13 @@ typedef struct
     u32                  loop;
 } Mel_Vib_Pattern;
 
-static inline Mel_Vib_Event mel_vib_pulse(f32 amplitude, f32 sharpness, f32 duration_s)
-{
-    return (Mel_Vib_Event){ .at = 0.0f, .duration = duration_s, .intensity = amplitude, .sharpness = sharpness };
-}
+static inline Mel_Vib_Event mel_vib_pulse(f32 amplitude, f32 sharpness, f32 duration_s) { return (Mel_Vib_Event){ .at = 0.0f, .duration = duration_s, .intensity = amplitude, .sharpness = sharpness }; }
 
 typedef void (*Mel_Vib_On_Complete)(Mel_Vib_Playback pb, Mel_Vib_Status status, void* user);
 
 typedef struct
 {
-    Mel_Reactor*        reactor;
+    Mel_Vat*            vat;
     Mel_Vib_On_Complete on_complete;
     void*               user;
 } Mel_Vib_Play_Opt;
@@ -132,7 +129,7 @@ typedef struct
     Mel_Vib_Status     status;
 } Mel_Vib_Describe_Result;
 
-void mel_vib_init(const Mel_Alloc* alloc, Mel_Reactor* reactor);
+void mel_vib_init(const Mel_Alloc* alloc, Mel_Vat* vat);
 void mel_vib_shutdown(void);
 
 u32 mel_vib_refresh(void);

@@ -8,8 +8,8 @@ Two operations:
 - `reveal_path(str8)` — surface a file or folder in the OS file manager, selected, the way Finder,
   Explorer, or a `FileManager1` browser do it.
 
-Both return a `Mel_Future`, resolved on the caller's executor (default: derived from the init
-reactor; the inline executor when init took no reactor). The OS launch is fire-and-forget on most
+Both return a `Mel_Future`, resolved on the caller's executor (whatever `mel_future_then` is
+given; shell binds to no loop). The OS launch is fire-and-forget on most
 platforms; the future resolves as soon as the hand-off is accepted (Win32, Linux, Android, Web) or
 when the platform's completion handler fires (the macOS `NSWorkspace` and iOS `UIApplication`
 configuration-callbacks). Completion, deferral, and cancellation are the `future` module's; shell
@@ -17,7 +17,7 @@ owns no per-op timer and no bespoke deliver path. A generation-checked `Mel_Shel
 reported via `.out_op`) cancels a still-pending hand-off through `mel_shell_cancel`.
 
 ```c
-mel_shell_init(alloc, reactor);
+mel_shell_init(alloc);
 mel_shell_future_free(mel_shell_open_url(S8("https://melody.example")));
 
 Mel_Shell_Op op;
@@ -45,4 +45,4 @@ Backends (one compiles per platform):
   sandbox has no file manager).
 
 Spec: `spec.md`. Dependencies: `core`, `allocator`, `collection`, `string`, `executor`, `future`,
-`reactor`, `log`; `platform` on Android only.
+`log`; `platform` on Android only.

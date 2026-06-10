@@ -2,6 +2,8 @@
 
 #include <stdio.h>
 #ifndef _WIN32
+#include <dirent.h>
+#include <sys/stat.h>
 #include <unistd.h>
 #endif
 
@@ -51,6 +53,54 @@ static char* abspath(const char* rel)
             *s = '/';
 #endif
     return p;
+}
+
+static bool is_real_dir(const char* p)
+{
+#ifdef _WIN32
+    DWORD a = GetFileAttributesA(p);
+    return a != INVALID_FILE_ATTRIBUTES && (a & FILE_ATTRIBUTE_DIRECTORY) && !(a & FILE_ATTRIBUTE_REPARSE_POINT);
+#else
+    struct stat st;
+    return lstat(p, &st) == 0 && S_ISDIR(st.st_mode);
+#endif
+}
+
+static void wipe_tree(const char* p)
+{
+    if (is_real_dir(p))
+    {
+        DIR* d = opendir(p);
+        if (d)
+        {
+            for (struct dirent* e; (e = readdir(d));)
+            {
+                if (strcmp(e->d_name, ".") == 0 || strcmp(e->d_name, "..") == 0)
+                    continue;
+                char* child = mel_path_join(p, e->d_name);
+                wipe_tree(child);
+                free(child);
+            }
+            closedir(d);
+        }
+#ifdef _WIN32
+        _rmdir(p);
+#else
+        rmdir(p);
+#endif
+    }
+    else
+        remove(p);
+}
+
+static bool fingerprint_matches(const char* stamp, const char* fp)
+{
+    char* old = mel_read_file(stamp);
+    if (!old)
+        return false;
+    bool match = strcmp(old, fp) == 0;
+    free(old);
+    return match;
 }
 
 #ifdef _WIN32
@@ -113,15 +163,8 @@ static bool build_cmake(Mel_Target* t, const Mel_Variant* v)
     char* outdir = mel_target_outdir(t->dir, v);
     char* absprefix = abspath(mel_path_join(outdir, "prefix"));
     char* stamp = mel_path_join(outdir, ".thirdparty-built");
-    if (mel_path_is_file(stamp))
-    {
-        inject_prefix(t, absprefix, v);
-        return true;
-    }
-
     char* bld = mel_path_join(outdir, "cmake");
     char* src = t->cmake_dir ? mel_path_join(t->dir, t->cmake_dir) : mel_str_dup(t->dir);
-    mel_mkdirs(bld);
 
     Mel_StrVec c = { 0 };
     mel_da_push(&c, "cmake");
@@ -135,7 +178,21 @@ static bool build_cmake(Mel_Target* t, const Mel_Variant* v)
     mel_da_push(&c, v->config && strcmp(v->config, "release") == 0 ? "-DCMAKE_BUILD_TYPE=Release" : "-DCMAKE_BUILD_TYPE=Debug");
     for (size_t i = 0; i < t->cmake_args.len; i++)
         mel_da_push(&c, t->cmake_args.items[i]);
-    bool ok = mel_run_vec(&c) == 0;
+
+    Mel_Toolchain tc = mel_toolchain(v);
+    char*         fp = mel_str_fmt("kind=cmake\ncc=%s\ntriple=%s\nconfig=%s\n", tc.cc, tc.triple, v->config ? v->config : "");
+    for (size_t i = 0; i < c.len; i++)
+        fp = mel_str_fmt("%sarg=%s\n", fp, c.items[i]);
+
+    bool fresh = fingerprint_matches(stamp, fp);
+    bool ok = true;
+    if (!fresh)
+    {
+        remove(stamp);
+        wipe_tree(bld);
+        mel_mkdirs(bld);
+        ok = mel_run_vec(&c) == 0;
+    }
     if (ok)
     {
         c.len = 0;
@@ -158,8 +215,8 @@ static bool build_cmake(Mel_Target* t, const Mel_Variant* v)
         fprintf(stderr, "build: cmake failed for '%s'\n", t->name);
         return false;
     }
-    mel_write_file(stamp, "ok\n");
-    inject_prefix(t, absprefix, v);
+    if (!fresh)
+        mel_write_file(stamp, fp);
     return true;
 }
 
@@ -168,15 +225,8 @@ static bool build_autotools(Mel_Graph* g, Mel_Target* t, const Mel_Variant* v)
     char* outdir = mel_target_outdir(t->dir, v);
     char* absprefix = abspath(mel_path_join(outdir, "prefix"));
     char* stamp = mel_path_join(outdir, ".thirdparty-built");
-    if (mel_path_is_file(stamp))
-    {
-        inject_prefix(t, absprefix, v);
-        return true;
-    }
-
     char* bld = mel_path_join(outdir, "autotools");
     char* abssrc = abspath(t->autotools_dir && strcmp(t->autotools_dir, ".") != 0 ? mel_path_join(t->dir, t->autotools_dir) : t->dir);
-    mel_mkdirs(bld);
 #ifdef _WIN32
     ensure_llvm_on_path();
 #endif
@@ -238,12 +288,22 @@ static bool build_autotools(Mel_Graph* g, Mel_Target* t, const Mel_Variant* v)
     for (size_t i = 0; i < t->autotools_args.len; i++)
         cfg = mel_str_fmt("%s %s", cfg, t->autotools_args.items[i]);
 
-    char* script = mel_path_join(bld, "_mel_configure.sh");
-    mel_write_file(script, mel_str_fmt("%s\n", cfg));
+    char* fp = mel_str_fmt("kind=autotools\ncc=%s\ntriple=%s\nconfig=%s\ncmd=%s\n", tc.cc, tc.triple, v->config ? v->config : "", cfg);
+
+    bool       fresh = fingerprint_matches(stamp, fp);
+    bool       ok = true;
     Mel_StrVec c = { 0 };
-    mel_da_push(&c, "sh");
-    mel_da_push(&c, "_mel_configure.sh");
-    bool ok = mel_run_cwd(bld, &c) == 0;
+    if (!fresh)
+    {
+        remove(stamp);
+        wipe_tree(bld);
+        mel_mkdirs(bld);
+        char* script = mel_path_join(bld, "_mel_configure.sh");
+        mel_write_file(script, mel_str_fmt("%s\n", cfg));
+        mel_da_push(&c, "sh");
+        mel_da_push(&c, "_mel_configure.sh");
+        ok = mel_run_cwd(bld, &c) == 0;
+    }
     if (ok)
     {
         c.len = 0;
@@ -264,8 +324,8 @@ static bool build_autotools(Mel_Graph* g, Mel_Target* t, const Mel_Variant* v)
         fprintf(stderr, "build: autotools failed for '%s'\n", t->name);
         return false;
     }
-    mel_write_file(stamp, "ok\n");
-    inject_prefix(t, absprefix, v);
+    if (!fresh)
+        mel_write_file(stamp, fp);
     return true;
 }
 
@@ -273,12 +333,16 @@ static bool build_prebuilt(Mel_Target* t, const Mel_Variant* v)
 {
     char* outdir = mel_target_outdir(t->dir, v);
     char* absprefix = abspath(mel_path_join(outdir, "prefix"));
+    char* stamp = mel_path_join(outdir, ".thirdparty-built");
     char* lib = t->prebuilt_lib ? mel_str_fmt("%s/lib/%s", absprefix, t->prebuilt_lib) : NULL;
-    if (lib && mel_path_is_file(lib))
-    {
-        inject_prefix(t, absprefix, v);
+
+    Mel_Toolchain tc = mel_toolchain(v);
+    char*         fp = mel_str_fmt("kind=prebuilt\ncc=%s\ntriple=%s\nconfig=%s\nurl=%s\nlib=%s\n", tc.cc, tc.triple, v->config ? v->config : "", t->prebuilt_url, t->prebuilt_lib ? t->prebuilt_lib : "");
+
+    if (fingerprint_matches(stamp, fp) && (!lib || mel_path_is_file(lib)))
         return true;
-    }
+    remove(stamp);
+    wipe_tree(absprefix);
     mel_mkdirs(absprefix);
 
     size_t      ulen = strlen(t->prebuilt_url);
@@ -323,7 +387,7 @@ static bool build_prebuilt(Mel_Target* t, const Mel_Variant* v)
         fprintf(stderr, "build: prebuilt fetch failed for '%s'\n", t->name);
         return false;
     }
-    inject_prefix(t, absprefix, v);
+    mel_write_file(stamp, fp);
     return true;
 }
 

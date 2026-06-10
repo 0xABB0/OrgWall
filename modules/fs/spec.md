@@ -2,13 +2,13 @@
 
 ## Model
 
-`Mel_Fs` owns a worker-thread pool and a slotmap of in-flight ops, bound to one `Mel_Reactor`.
-Blocking syscalls run on a worker; completion is `mel_reactor_post`-ed to the loop, which resolves
-the op's `Mel_Future` and runs its continuation on `deliver` (default: the reactor executor).
+`Mel_Fs` owns a worker-thread pool and a slotmap of in-flight ops, bound to one `Mel_Vat`.
+Blocking syscalls run on a worker; completion is an embedded `Mel_Task` `mel_vat_post`-ed to the vat, which resolves
+the op's `Mel_Future` and runs its continuation on `deliver` (default: the vat executor).
 
 ## Affinity
 
-Submission, cancel, destroy, and future resolution all happen on the reactor's owner thread
+Submission, cancel, destroy, and future resolution all happen on the vat's owner thread
 (asserted in debug). Workers only touch the op's owned input copies and its result union; the loop
 owns the slotmap and the future state machine. Submitted ops copy their path/data inputs so the
 caller's buffers need not outlive the call.

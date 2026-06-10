@@ -3,7 +3,6 @@
 #include <core/types.h>
 #include <collection/slotmap.h>
 #include <allocator/allocator.h>
-#include <reactor/reactor.h>
 
 #include <window/window.h>
 #include <window/state.h>
@@ -92,7 +91,6 @@ struct Mel_Window_Node
 };
 
 const Mel_Alloc* mel_window__alloc(void);
-Mel_Reactor*     mel_window__reactor(void);
 Mel_Window_Node* mel_window__node(Mel_Window w);
 
 u32              mel_window__node_count(void);

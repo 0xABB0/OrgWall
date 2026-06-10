@@ -8,9 +8,9 @@ extern "C"
 #endif
 
 typedef struct Mel_Clip_Job Mel_Clip_Job;
-typedef struct Mel_Reactor  Mel_Reactor;
+typedef struct Mel_Vat      Mel_Vat;
 
-Mel_Reactor*     mel_clip__reactor(void);
+Mel_Vat*         mel_clip__vat(void);
 const Mel_Alloc* mel_clip__alloc(void);
 
 // The platform layer: one translation unit implements these per platform, build-time selected.

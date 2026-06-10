@@ -2,10 +2,11 @@
 
 #include <core/types.h>
 #include <allocator/allocator.fwd.h>
-#include <reactor/reactor.h>
 #include <gpu/status.h>
 #include <gpu/caps.h>
 #include <gpu/future.h>
+
+typedef struct Mel_Vat Mel_Vat;
 
 typedef struct Mel_Gpu_Instance Mel_Gpu_Instance;
 typedef struct Mel_Gpu_Adapter  Mel_Gpu_Adapter;
@@ -63,7 +64,7 @@ typedef void (*Mel_Gpu_Device_Lost_Fn)(Mel_Gpu_Device* dev, const char* reason, 
 
 typedef struct
 {
-    Mel_Reactor*             reactor;
+    Mel_Vat*                 vat;
     Mel_Gpu_Feature_Request  features;
     Mel_Gpu_Debug_Config     debug;
     const Mel_Alloc*         alloc;
@@ -83,11 +84,11 @@ Mel_Gpu_Device_Create_Result mel_gpu_device_create_opt(Mel_Gpu_Instance* inst, M
 void mel_gpu_device_destroy(Mel_Gpu_Device* dev);
 
 const Mel_Gpu_Caps* mel_gpu_device_caps(Mel_Gpu_Device* dev);
-Mel_Reactor*        mel_gpu_device_reactor(Mel_Gpu_Device* dev);
+Mel_Vat*            mel_gpu_device_vat(Mel_Gpu_Device* dev);
 
 typedef struct
 {
-    Mel_Reactor*             reactor;
+    Mel_Vat*                 vat;
     Mel_Gpu_Feature_Request  features;
     Mel_Gpu_Debug_Config     debug;
     Mel_Gpu_Power_Preference power_preference;

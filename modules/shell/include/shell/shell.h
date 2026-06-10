@@ -10,8 +10,7 @@ extern "C"
 {
 #endif
 
-typedef struct Mel_Reactor Mel_Reactor;
-typedef struct Mel_Future  Mel_Future;
+typedef struct Mel_Future Mel_Future;
 
 typedef u32 Mel_Shell_Status;
 
@@ -54,7 +53,7 @@ typedef struct
     Mel_Shell_Op*    out_op;
 } Mel_Shell_Opt;
 
-void mel_shell_init(const Mel_Alloc* alloc, Mel_Reactor* reactor);
+void mel_shell_init(const Mel_Alloc* alloc);
 void mel_shell_shutdown(void);
 bool mel_shell_available(void);
 

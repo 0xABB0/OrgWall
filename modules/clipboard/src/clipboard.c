@@ -9,7 +9,8 @@
 #include <future/future.h>
 #include <executor/executor.h>
 #include <event/event.h>
-#include <reactor/reactor.h>
+#include <vat/vat.h>
+#include <vat/tick.h>
 #include <log/log.h>
 
 #include <string.h>
@@ -54,17 +55,16 @@ typedef struct
 {
     bool             initialized;
     const Mel_Alloc* alloc;
-    Mel_Reactor*     reactor;
+    Mel_Vat*         vat;
     Mel_Executor*    exec;
 
     Mel_SlotMap jobs;
     Mel_Array(Format_Entry) formats;
 
-    Mel_Reactor_Source* watch_timer;
-    Mel_Event*          watch_event;
-    Mel_Reactor*        watch_reactor;
-    Mel_Clip_Channel    watch_channel;
-    u64                 watch_last_seq;
+    Mel_Vat_Tick*    watch_timer;
+    Mel_Event*       watch_event;
+    Mel_Clip_Channel watch_channel;
+    u64              watch_last_seq;
 } Clip;
 
 static Clip g;
@@ -151,13 +151,13 @@ str8 mel_clip_format_mime(Mel_Clip_Format f)
     return g.formats.items[f - 1].mime;
 }
 
-void mel_clip_init(const Mel_Alloc* alloc, Mel_Reactor* reactor)
+void mel_clip_init(const Mel_Alloc* alloc, Mel_Vat* vat)
 {
     if (g.initialized)
         return;
     g.alloc = alloc ? alloc : mel_alloc_heap();
-    g.reactor = reactor;
-    g.exec = reactor ? mel_reactor_executor(reactor) : mel_executor_inline();
+    g.vat = vat;
+    g.exec = vat ? mel_vat_executor(vat) : mel_executor_inline();
     mel_slotmap_init(&g.jobs, g.alloc, .item_size = sizeof(Mel_Clip_Job*), .initial_capacity = 8);
     mel_array_init(&g.formats, g.alloc);
     seed_formats();
@@ -472,13 +472,10 @@ Mel_Event* mel_clip_watch_opt(Mel_Clip_Opt opt)
     mel_clip_unwatch();
     g.watch_channel = ch;
     g.watch_event = mel_event_create(g.alloc, sizeof(u64), MEL_CLIP_WATCH_RING_CAP, mel_event_policy_latest(NULL, NULL));
-    g.watch_reactor = g.reactor;
     g.watch_last_seq = mel_clip__plat_sequence(ch);
-    if (!g.watch_reactor)
+    if (!g.vat)
         return g.watch_event;
-    g.watch_timer = mel_reactor_timer_new(MEL_CLIP_WATCH_POLL_NS, watch_tick, NULL);
-    if (g.watch_timer)
-        mel_reactor_source_attach(g.watch_reactor, g.watch_timer);
+    g.watch_timer = mel_vat_tick_open(g.vat, g.alloc, MEL_CLIP_WATCH_POLL_NS, watch_tick, NULL);
     return g.watch_event;
 }
 
@@ -486,7 +483,7 @@ void mel_clip_unwatch(void)
 {
     if (g.watch_timer)
     {
-        mel_reactor_source_destroy(g.watch_timer);
+        mel_vat_tick_close(g.watch_timer);
         g.watch_timer = NULL;
     }
     if (g.watch_event)
@@ -494,7 +491,6 @@ void mel_clip_unwatch(void)
         mel_event_destroy(g.watch_event);
         g.watch_event = NULL;
     }
-    g.watch_reactor = NULL;
     g.watch_channel = 0;
 }
 
@@ -531,7 +527,7 @@ void mel_clip_shutdown(void)
     memset(&g, 0, sizeof g);
 }
 
-Mel_Reactor*     mel_clip__reactor(void) { return g.initialized ? g.reactor : NULL; }
+Mel_Vat*         mel_clip__vat(void) { return g.initialized ? g.vat : NULL; }
 const Mel_Alloc* mel_clip__alloc(void) { return g.initialized ? g.alloc : NULL; }
 
 const Mel_Alloc* mel_clip_job_alloc(const Mel_Clip_Job* j) { return j ? j->alloc : NULL; }

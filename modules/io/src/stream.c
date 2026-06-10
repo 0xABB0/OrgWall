@@ -4,6 +4,7 @@
 #include <allocator/heap.h>
 #include <future/future.h>
 #include <executor/executor.h>
+#include <vat/vat.h>
 #include <collection/list.h>
 #include <log/log.h>
 
@@ -77,8 +78,8 @@ Mel_Stream* mel_stream_create_opt(Mel_Stream_Opt opt)
     s->user = opt.user;
     s->caps = opt.caps;
     s->alloc = alloc;
-    s->reactor = opt.reactor;
-    s->executor = opt.executor;
+    s->vat = opt.vat;
+    s->executor = opt.executor ? opt.executor : (opt.vat ? mel_vat_executor(opt.vat) : NULL);
     s->position = 0;
     return s;
 }
@@ -96,7 +97,7 @@ void mel_stream_destroy(Mel_Stream* s)
 Mel_Stream_Caps  mel_stream_caps(const Mel_Stream* s) { return s ? s->caps : (Mel_Stream_Caps){ 0 }; }
 i64              mel_stream_position(const Mel_Stream* s) { return s ? s->position : 0; }
 const Mel_Alloc* mel_stream_alloc(const Mel_Stream* s) { return s ? s->alloc : NULL; }
-Mel_Reactor*     mel_stream_reactor(const Mel_Stream* s) { return s ? s->reactor : NULL; }
+Mel_Vat*         mel_stream_vat(const Mel_Stream* s) { return s ? s->vat : NULL; }
 Mel_Executor*    mel_stream_executor(const Mel_Stream* s) { return s ? s->executor : NULL; }
 void*            mel_stream_user(const Mel_Stream* s) { return s ? s->user : NULL; }
 const char*      mel_stream_iface_name(const Mel_Stream* s) { return (s && s->iface) ? s->iface->name : NULL; }

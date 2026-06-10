@@ -53,10 +53,7 @@ static void mel_gpu__device_lost_cb(WGPUDevice const* device, WGPUDeviceLostReas
         dev->on_device_lost(dev, message.data ? message.data : "device lost", dev->device_lost_user);
 }
 
-static void mel_gpu__warn_unsupported_feature(const char* name)
-{
-    mel_log_warn("gpu", "device_create: feature '%s' requested but not available on the WebGPU backend; caps report the honest tier", name);
-}
+static void mel_gpu__warn_unsupported_feature(const char* name) { mel_log_warn("gpu", "device_create: feature '%s' requested but not available on the WebGPU backend; caps report the honest tier", name); }
 
 Mel_Gpu_Device_Create_Result mel_gpu_device_create_opt(Mel_Gpu_Instance* inst, Mel_Gpu_Adapter* adapter, Mel_Gpu_Device_Opt opt)
 {
@@ -89,7 +86,7 @@ Mel_Gpu_Device_Create_Result mel_gpu_device_create_opt(Mel_Gpu_Instance* inst, M
         .deviceLostCallbackInfo = { .mode = WGPUCallbackMode_AllowProcessEvents, .callback = mel_gpu__device_lost_cb, .userdata1 = dev },
     };
 
-    Mel_Gpu_Device_Request req = { 0 };
+    Mel_Gpu_Device_Request        req = { 0 };
     WGPURequestDeviceCallbackInfo cbi = {
         .mode = WGPUCallbackMode_AllowProcessEvents,
         .callback = mel_gpu__device_cb,
@@ -124,7 +121,7 @@ Mel_Gpu_Device_Create_Result mel_gpu_device_create_opt(Mel_Gpu_Instance* inst, M
     dev->queue = queue;
     dev->caps = adapter->caps;
     dev->alloc = alloc;
-    dev->reactor = opt.reactor;
+    dev->vat = opt.vat;
     dev->debug = opt.debug;
     dev->on_device_lost = opt.on_device_lost;
     dev->device_lost_user = opt.device_lost_user;
@@ -143,11 +140,9 @@ Mel_Gpu_Device_Create_Result mel_gpu_device_create_opt(Mel_Gpu_Instance* inst, M
     if (opt.debug.thread_safety_tracker)
         dev->tracker = mel_gpu_thread_tracker_create();
 
-    if (opt.reactor)
+    if (opt.vat)
     {
-        dev->pump = mel_gpu_pump_create(opt.reactor);
-        /* WebGPU completion source (spec §3.3 "Pump on tick"): one ProcessEvents
-           tick-source per instance, serviced from the device's reactor. */
+        dev->pump = mel_gpu_pump_create(opt.vat);
         mel_gpu_pump_add_poller(dev->pump, mel_gpu__instance_pump_tick, dev);
     }
 
@@ -212,7 +207,7 @@ void mel_gpu_device_destroy(Mel_Gpu_Device* dev)
 
 const Mel_Gpu_Caps* mel_gpu_device_caps(Mel_Gpu_Device* dev) { return dev ? &dev->caps : NULL; }
 
-Mel_Reactor* mel_gpu_device_reactor(Mel_Gpu_Device* dev) { return dev ? dev->reactor : NULL; }
+Mel_Vat* mel_gpu_device_vat(Mel_Gpu_Device* dev) { return dev ? dev->vat : NULL; }
 
 Mel_Gpu_Memory_Budget mel_gpu_memory_budget(Mel_Gpu_Device* dev)
 {
@@ -249,10 +244,10 @@ Mel_Gpu_Future* mel_gpu_device_create_default_opt(Mel_Gpu_Device_Default_Opt opt
 
     Mel_Gpu_Device_Create_Result dr = { 0 };
     if (adapter)
-        dr = mel_gpu_device_create(inst, adapter, .reactor = opt.reactor, .features = opt.features, .debug = opt.debug, .power_preference = opt.power_preference);
+        dr = mel_gpu_device_create(inst, adapter, .vat = opt.vat, .features = opt.features, .debug = opt.debug, .power_preference = opt.power_preference);
 
     Mel_Gpu_Completion_Pump* pump = dr.value ? dr.value->pump : NULL;
-    Mel_Gpu_Future*          f = mel_gpu_future_create(pump, opt.reactor);
+    Mel_Gpu_Future*          f = mel_gpu_future_create(pump, opt.vat);
 
     if (dr.value)
     {

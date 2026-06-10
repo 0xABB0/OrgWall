@@ -22,5 +22,5 @@ Mel_Storage* mel_storage_open_title_opt(Mel_Storage_Opt opt)
         mel_log_warn("storage", "open_title: native title backend failed to initialise; falling back to bundled-folder storage");
     }
 
-    return mel_storage__open_fs_folder(MEL_FS_FOLDER_BASE, opt.reactor, alloc, false, false);
+    return mel_storage__open_fs_folder(MEL_FS_FOLDER_BASE, opt.vat, alloc, false, false);
 }

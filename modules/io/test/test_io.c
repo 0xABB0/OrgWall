@@ -3,8 +3,9 @@
 #include <allocator/allocator.h>
 #include <allocator/heap.h>
 
-#include <reactor/reactor.h>
+#include <vat/vat.h>
 #include <future/future.h>
+#include <thread/thread.h>
 #include <executor/executor.h>
 #include <test/test.h>
 
@@ -162,8 +163,8 @@ MEL_TEST(io, sync_ops_do_not_allocate)
     i64 pos = 0;
     MEL_EXPECT_EQ(mel_stream_seek(s, 0, MEL_IO_SEEK_SET, &pos), MEL_IO_OK);
 
-    u32 a = 0;
-    u64 b = 0;
+    u32  a = 0;
+    u64  b = 0;
     char dst[8] = { 0 };
     MEL_EXPECT_EQ(mel_stream_read_u32_le(s, &a), MEL_IO_OK);
     MEL_EXPECT_EQ(mel_stream_read_u64_be(s, &b), MEL_IO_OK);
@@ -228,40 +229,6 @@ MEL_TEST(io, append_without_write_rejected)
     unlink(path);
 }
 
-static void stub_submit(Mel_Executor* self, Mel_Task* task)
-{
-    (void)self;
-    (void)task;
-}
-
-MEL_TEST(io, load_deliver_mismatch_rejected)
-{
-    char path[] = "/tmp/mel_io_deliver_XXXXXX";
-    int  tfd = mkstemp(path);
-    MEL_REQUIRE(tfd >= 0);
-    const char* payload = "deliver-mismatch";
-    ssize_t     w = write(tfd, payload, strlen(payload));
-    (void)w;
-    close(tfd);
-
-    Mel_Executor foreign = { .submit = stub_submit };
-
-    Mel_Future* lf = mel_io_load_file(.path = path, .deliver = &foreign);
-    MEL_REQUIRE_NOT_NULL(lf);
-    const Mel_IO_Blob* blob = mel_io_load_future_result(lf);
-    MEL_EXPECT(mel_io_status_failed(blob->status));
-    mel_io_load_future_release(lf);
-
-    Mel_Future* lf_ok = mel_io_load_file(.path = path, .deliver = mel_executor_inline());
-    MEL_REQUIRE_NOT_NULL(lf_ok);
-    const Mel_IO_Blob* ok = mel_io_load_future_result(lf_ok);
-    MEL_EXPECT_EQ(mel_io_status_failed(ok->status), false);
-    MEL_EXPECT_EQ((i64)ok->len, (i64)strlen(payload));
-    mel_io_load_future_release(lf_ok);
-
-    unlink(path);
-}
-
 MEL_TEST(io, file_sync_save_then_load_roundtrip)
 {
     char path[] = "/tmp/mel_io_test_XXXXXX";
@@ -302,20 +269,25 @@ MEL_TEST(io, load_missing_file_fails_not_found)
 
 typedef struct
 {
-    Mel_Reactor*  reactor;
+    Mel_Vat*      vat;
     const char*   path;
     int           turn;
+    int           submit_turn;
     Mel_Task      task;
     Mel_Future*   pending;
+    bool          armed;
+    bool          ran_inline;
     bool          done;
+    Mel_Thread_Id loop_tid;
+    Mel_Thread_Id cont_tid;
     Mel_IO_Status status;
     usize         len;
     char          got[64];
-} Async_Ctx;
+} Vat_Load_Ctx;
 
-static void async_loaded(Mel_Task* self)
+static void vat_loaded(Mel_Task* self)
 {
-    Async_Ctx*         a = mel_container_of(self, Async_Ctx, task);
+    Vat_Load_Ctx*      a = mel_container_of(self, Vat_Load_Ctx, task);
     const Mel_IO_Blob* blob = mel_io_load_future_result(a->pending);
     a->status = blob->status;
     a->len = blob->len;
@@ -323,50 +295,79 @@ static void async_loaded(Mel_Task* self)
         memcpy(a->got, blob->data, blob->len);
     mel_io_load_future_release(a->pending);
     a->pending = NULL;
+    a->cont_tid = mel_thread_current_id();
+    if (!a->armed)
+        a->ran_inline = true;
     a->done = true;
 }
 
-static bool async_idle(void* user)
+static void vat_load_idle(void* user)
 {
-    Async_Ctx* a = (Async_Ctx*)user;
+    Vat_Load_Ctx* a = (Vat_Load_Ctx*)user;
     a->turn++;
     if (a->turn == 2)
     {
-        a->pending = mel_io_load_file(.path = a->path, .reactor = a->reactor);
-        mel_task_init(&a->task, async_loaded);
-        mel_future_then(a->pending, &a->task, mel_reactor_executor(a->reactor));
+        a->submit_turn = a->turn;
+        a->pending = mel_io_load_file(.path = a->path, .vat = a->vat);
+        mel_task_init(&a->task, vat_loaded);
+        mel_future_then(a->pending, &a->task, mel_vat_executor(a->vat));
+        a->armed = true;
     }
     if (a->done)
-        mel_reactor_quit(a->reactor);
+        mel_vat_quit(a->vat);
     if (a->turn > 5000)
-        mel_reactor_quit(a->reactor);
-    return true;
+        mel_vat_quit(a->vat);
 }
 
-static bool async_init(Mel_Reactor* r, void* user)
+static i64 vat_load_deadline(Mel_Vat_Source* s)
 {
-    Async_Ctx* a = (Async_Ctx*)user;
-    a->reactor = r;
-    Mel_Reactor_Source* idle = mel_reactor_idle_new(async_idle, a);
-    mel_reactor_source_attach(r, idle);
-    return true;
+    (void)s;
+    return 0;
 }
 
-MEL_TEST(io, async_load_through_reactor_proactor)
+static bool vat_load_drain(Mel_Vat_Source* s, u32 budget)
+{
+    (void)budget;
+    vat_load_idle(mel_vat_source_state(s));
+    return false;
+}
+
+static const Mel_Vat_Source_Vtbl VAT_LOAD_VT = {
+    .wakeables = NULL,
+    .deadline = vat_load_deadline,
+    .drain = vat_load_drain,
+    .cancel = NULL,
+};
+
+MEL_TEST(io, load_on_vat_delivers_on_loop_executor)
 {
     char path[] = "/tmp/mel_io_async_XXXXXX";
     int  tfd = mkstemp(path);
     MEL_REQUIRE(tfd >= 0);
-    const char* payload = "async-proactor-load";
+    const char* payload = "vat-hosted-load";
     ssize_t     w = write(tfd, payload, strlen(payload));
     (void)w;
     close(tfd);
 
-    Async_Ctx a = { 0 };
+    Vat_Load_Ctx a = { 0 };
     a.path = path;
-    mel_reactor_spawn(MEL_REACTOR_THREADED, async_init, &a);
+
+    const Mel_Alloc* alloc = mel_alloc_heap();
+    Mel_Vat_Waiter*  waiter = mel_vat_waiter_io(alloc);
+    Mel_Vat_Driver*  driver = mel_vat_driver_fair(alloc, 64);
+    Mel_Vat*         vat = mel_vat_open(alloc, (Mel_Vat_Desc){ .waiter = waiter, .driver = driver });
+    a.vat = vat;
+    a.loop_tid = mel_thread_current_id();
+    Mel_Vat_Source* idle = mel_vat_source_open(vat, &VAT_LOAD_VT, &a);
+    mel_vat_run(vat);
+    mel_vat_source_close(idle);
+    mel_vat_close(vat);
+    driver->vt->close(driver);
+    waiter->vt->close(waiter);
 
     MEL_EXPECT(a.done);
+    MEL_EXPECT_EQ(a.ran_inline, false);
+    MEL_EXPECT(mel_thread_id_equal(a.cont_tid, a.loop_tid));
     MEL_EXPECT_EQ(mel_io_status_failed(a.status), false);
     MEL_EXPECT_EQ((i64)a.len, (i64)strlen(payload));
     MEL_EXPECT(memcmp(a.got, payload, strlen(payload)) == 0);

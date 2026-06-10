@@ -19,7 +19,6 @@ void build(Mel_Build* b)
     mel_depends(lib, "string");
     mel_depends(lib, "executor");
     mel_depends(lib, "future");
-    mel_depends(lib, "reactor");
     mel_depends(lib, "log");
     mel_depends_when(lib, "platform", WHEN(.platforms = MEL_ON(ANDROID)));
 
@@ -35,6 +34,5 @@ void build(Mel_Build* b)
     mel_depends(t, "collection");
     mel_depends(t, "executor");
     mel_depends(t, "future");
-    mel_depends(t, "reactor");
     mel_depends(t, "log");
 }

@@ -2,7 +2,7 @@
 #include <string.h>
 
 #include <core/platform.h>
-#include <app/app.h>
+#include <gui/gui.h>
 #include <gui/gui.h>
 
 #include "tapcounter.h"

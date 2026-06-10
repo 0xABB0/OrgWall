@@ -1,7 +1,7 @@
 #pragma once
 
 #include <core/types.h>
-#include <reactor/reactor.h>
+#include <vat/vat.h>
 
 typedef enum
 {
@@ -9,7 +9,7 @@ typedef enum
     MEL_GUI_CAP_NATIVE_MENUS,
 } Mel_Gui_Capability;
 
-void mel_gui_init(Mel_Reactor* reactor);
+void mel_gui_init(Mel_Vat* vat);
 void mel_gui_shutdown(void);
 bool mel_gui_backend_supports(Mel_Gui_Capability cap);
 

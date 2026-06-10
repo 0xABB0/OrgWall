@@ -1,7 +1,7 @@
 #include <storage/storage.h>
 #include <storage/status.h>
 
-#include <reactor/reactor.h>
+#include <vat/vat.h>
 #include <future/future.h>
 #include <executor/executor.h>
 #include <allocator/allocator.h>
@@ -55,7 +55,52 @@ MEL_TEST(storage, op_handle)
 
 typedef struct
 {
-    Mel_Reactor*  reactor;
+    bool (*idle)(void* user);
+    void* user;
+} Vat_Idle;
+
+static i64 vat_idle_deadline(Mel_Vat_Source* s)
+{
+    (void)s;
+    return 0;
+}
+
+static bool vat_idle_drain(Mel_Vat_Source* s, u32 budget)
+{
+    (void)budget;
+    Vat_Idle* w = (Vat_Idle*)mel_vat_source_state(s);
+    w->idle(w->user);
+    return false;
+}
+
+static const Mel_Vat_Source_Vtbl VAT_IDLE_VT = {
+    .wakeables = NULL,
+    .deadline = vat_idle_deadline,
+    .drain = vat_idle_drain,
+    .cancel = NULL,
+};
+
+static void run_on_vat(bool (*init)(Mel_Vat*, void*), bool (*idle)(void*), void* user)
+{
+    const Mel_Alloc* a = mel_alloc_heap();
+    Mel_Vat_Waiter*  waiter = mel_vat_waiter_io(a);
+    Mel_Vat_Driver*  driver = mel_vat_driver_fair(a, 64);
+    Mel_Vat*         vat = mel_vat_open(a, (Mel_Vat_Desc){ .waiter = waiter, .driver = driver });
+    Vat_Idle         w = { .idle = idle, .user = user };
+    if (init(vat, user))
+    {
+        Mel_Vat_Source* src = mel_vat_source_open(vat, &VAT_IDLE_VT, &w);
+        mel_vat_run(vat);
+        mel_vat_source_close(src);
+    }
+    mel_vat_close(vat);
+    driver->vt->close(driver);
+    waiter->vt->close(waiter);
+}
+
+typedef struct
+{
+    Mel_Vat*      vat;
     Mel_Storage*  st;
     Mel_Executor* exec;
     str8          root;
@@ -80,9 +125,9 @@ typedef struct
     bool escape_rejected;
     bool batch_seen;
 
-    u64           seen_size;
-    u32           enum_count;
-    u32           glob_count;
+    u64 seen_size;
+    u32 enum_count;
+    u32 glob_count;
 } Life;
 
 static const char* PAYLOAD = "melody-storage-payload";
@@ -148,7 +193,7 @@ static void advance(Life* L)
         L->all_ok = true;
         mel_storage_destroy(L->st);
         L->st = NULL;
-        mel_reactor_quit(L->reactor);
+        mel_vat_quit(L->vat);
         break;
     }
 }
@@ -269,24 +314,19 @@ static bool life_idle(void* user)
             mel_storage_destroy(L->st);
             L->st = NULL;
         }
-        mel_reactor_quit(L->reactor);
+        mel_vat_quit(L->vat);
     }
     return true;
 }
 
-static bool life_init(Mel_Reactor* r, void* user)
+static bool life_init(Mel_Vat* vat, void* user)
 {
     Life* L = (Life*)user;
-    L->reactor = r;
-    L->st = mel_storage_open_fs(.root = L->root, .reactor = r);
+    L->vat = vat;
+    L->st = mel_storage_open_fs(.root = L->root, .vat = vat);
     if (!L->st)
-    {
-        mel_reactor_quit(r);
-        return true;
-    }
+        return false;
     L->exec = mel_storage_executor(L->st);
-    Mel_Reactor_Source* idle = mel_reactor_idle_new(life_idle, L);
-    mel_reactor_source_attach(r, idle);
     return true;
 }
 
@@ -301,7 +341,7 @@ MEL_TEST(storage, fs_backed_lifecycle)
     snprintf(root, sizeof root, "%s/sandbox", dir);
     L.root = str8_from_cstr(root);
 
-    mel_reactor_spawn(MEL_REACTOR_THREADED, life_init, &L);
+    run_on_vat(life_init, life_idle, &L);
 
     MEL_EXPECT(L.all_ok);
     MEL_EXPECT(L.wrote);
@@ -327,7 +367,7 @@ MEL_TEST(storage, fs_backed_lifecycle)
 
 typedef struct
 {
-    Mel_Reactor* reactor;
+    Mel_Vat*     vat;
     Mel_Storage* st;
     int          turn;
     Mel_Task     cont;
@@ -347,7 +387,7 @@ static void ro_cont(Mel_Task* self)
     ro->done = true;
     mel_storage_destroy(ro->st);
     ro->st = NULL;
-    mel_reactor_quit(ro->reactor);
+    mel_vat_quit(ro->vat);
 }
 
 static bool ro_idle(void* user)
@@ -362,37 +402,29 @@ static bool ro_idle(void* user)
         mel_future_then(ro->pending, &ro->cont, mel_storage_executor(ro->st));
     }
     if (ro->turn > 200000)
-        mel_reactor_quit(ro->reactor);
+        mel_vat_quit(ro->vat);
     return true;
 }
 
-static bool ro_init(Mel_Reactor* r, void* user)
+static bool ro_init(Mel_Vat* vat, void* user)
 {
     ReadOnly* ro = (ReadOnly*)user;
-    ro->reactor = r;
-    char tmpl[] = "/tmp/melstorage-ro-XXXXXX";
+    ro->vat = vat;
+    char  tmpl[] = "/tmp/melstorage-ro-XXXXXX";
     char* dir = mkdtemp(tmpl);
     if (!dir)
-    {
-        mel_reactor_quit(r);
-        return true;
-    }
-    ro->st = mel_storage_open_fs_opt((Mel_Storage_Fs_Opt){ .root = str8_from_cstr(dir), .reactor = r, .writable = false, .create_root = false });
+        return false;
+    ro->st = mel_storage_open_fs_opt((Mel_Storage_Fs_Opt){ .root = str8_from_cstr(dir), .vat = vat, .writable = false, .create_root = false });
     if (!ro->st)
-    {
-        mel_reactor_quit(r);
-        return true;
-    }
+        return false;
     ro->not_writable = !mel_storage_writable(ro->st);
-    Mel_Reactor_Source* idle = mel_reactor_idle_new(ro_idle, ro);
-    mel_reactor_source_attach(r, idle);
     return true;
 }
 
 MEL_TEST(storage, read_only_rejects_writes)
 {
     ReadOnly ro = { 0 };
-    mel_reactor_spawn(MEL_REACTOR_THREADED, ro_init, &ro);
+    run_on_vat(ro_init, ro_idle, &ro);
     MEL_EXPECT(ro.done);
     MEL_EXPECT(ro.not_writable);
     MEL_EXPECT(ro.read_only_rejected);
@@ -400,7 +432,7 @@ MEL_TEST(storage, read_only_rejects_writes)
 
 typedef struct
 {
-    Mel_Reactor* reactor;
+    Mel_Vat*     vat;
     Mel_Storage* st;
     int          turn;
     bool         destroyed;
@@ -422,48 +454,40 @@ static bool df_idle(void* user)
     if (d->destroyed && d->turn > 12)
     {
         d->survived = true;
-        mel_reactor_quit(d->reactor);
+        mel_vat_quit(d->vat);
     }
     if (d->turn > 200000)
-        mel_reactor_quit(d->reactor);
+        mel_vat_quit(d->vat);
     return true;
 }
 
-static bool df_init(Mel_Reactor* r, void* user)
+static bool df_init(Mel_Vat* vat, void* user)
 {
     DestroyFlight* d = (DestroyFlight*)user;
-    d->reactor = r;
+    d->vat = vat;
     char  tmpl[] = "/tmp/melstorage-df-XXXXXX";
     char* dir = mkdtemp(tmpl);
     if (!dir)
-    {
-        mel_reactor_quit(r);
-        return true;
-    }
+        return false;
     char root[256];
     snprintf(root, sizeof root, "%s/sandbox", dir);
-    d->st = mel_storage_open_fs(.root = str8_from_cstr(root), .reactor = r);
+    d->st = mel_storage_open_fs(.root = str8_from_cstr(root), .vat = vat);
     if (!d->st)
-    {
-        mel_reactor_quit(r);
-        return true;
-    }
-    Mel_Reactor_Source* idle = mel_reactor_idle_new(df_idle, d);
-    mel_reactor_source_attach(r, idle);
+        return false;
     return true;
 }
 
 MEL_TEST(storage, destroy_during_flight)
 {
     DestroyFlight d = { 0 };
-    mel_reactor_spawn(MEL_REACTOR_THREADED, df_init, &d);
+    run_on_vat(df_init, df_idle, &d);
     MEL_EXPECT(d.destroyed);
     MEL_EXPECT(d.survived);
 }
 
 typedef struct
 {
-    Mel_Reactor*   reactor;
+    Mel_Vat*       vat;
     Mel_Storage*   st;
     int            turn;
     Mel_Task       cont;
@@ -481,7 +505,7 @@ static void cf_cont(Mel_Task* self)
     c->done = true;
     mel_storage_destroy(c->st);
     c->st = NULL;
-    mel_reactor_quit(c->reactor);
+    mel_vat_quit(c->vat);
 }
 
 static bool cf_idle(void* user)
@@ -499,37 +523,29 @@ static bool cf_idle(void* user)
         c->armed = true;
     }
     if (c->turn > 200000)
-        mel_reactor_quit(c->reactor);
+        mel_vat_quit(c->vat);
     return true;
 }
 
-static bool cf_init(Mel_Reactor* r, void* user)
+static bool cf_init(Mel_Vat* vat, void* user)
 {
     CancelFlight* c = (CancelFlight*)user;
-    c->reactor = r;
+    c->vat = vat;
     char  tmpl[] = "/tmp/melstorage-cf-XXXXXX";
     char* dir = mkdtemp(tmpl);
     if (!dir)
-    {
-        mel_reactor_quit(r);
-        return true;
-    }
+        return false;
     char root[256];
     snprintf(root, sizeof root, "%s/sandbox", dir);
-    c->st = mel_storage_open_fs(.root = str8_from_cstr(root), .reactor = r);
+    c->st = mel_storage_open_fs(.root = str8_from_cstr(root), .vat = vat);
     if (!c->st)
-    {
-        mel_reactor_quit(r);
-        return true;
-    }
-    Mel_Reactor_Source* idle = mel_reactor_idle_new(cf_idle, c);
-    mel_reactor_source_attach(r, idle);
+        return false;
     return true;
 }
 
 MEL_TEST(storage, cancel_settles_future)
 {
     CancelFlight c = { 0 };
-    mel_reactor_spawn(MEL_REACTOR_THREADED, cf_init, &c);
+    run_on_vat(cf_init, cf_idle, &c);
     MEL_EXPECT(c.done);
 }

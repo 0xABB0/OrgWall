@@ -1,6 +1,7 @@
 #include <stdlib.h>
 
 #include <core/platform.h>
+#include <boot/boot.h>
 #include <gui/gui.h>
 #include <string/str8.h>
 
@@ -20,7 +21,7 @@ typedef struct Gpu_Window
     struct Gpu_Window*     next;
 } Gpu_Window;
 
-static Mel_Reactor*      g_reactor;
+static Mel_Vat*          g_vat;
 static Mel_Gpu_Instance* g_instance;
 static Mel_Gpu_Device*   g_device;
 static Gpu_Window*       g_windows;
@@ -35,8 +36,9 @@ void gpu_host_set_status(str8 text)
 
 static void teardown(Gpu_Window* w);
 
-static void gpu_host_shutdown(void)
+static void gpu_host_shutdown(void* user)
 {
+    (void)user;
     for (Gpu_Window* w = g_windows; w; w = w->next)
         teardown(w);
     if (g_device)
@@ -51,9 +53,9 @@ static void gpu_host_shutdown(void)
     }
 }
 
-void gpu_host_init(Mel_Reactor* reactor)
+void gpu_host_init(Mel_Vat* vat)
 {
-    g_reactor = reactor;
+    g_vat = vat;
 
     g_instance = mel_gpu_instance_create(.app_name = "hello-gpu", .debug = { .enabled = true });
     if (!g_instance)
@@ -64,10 +66,10 @@ void gpu_host_init(Mel_Reactor* reactor)
     if (n == 0)
         return;
 
-    Mel_Gpu_Device_Create_Result dr = mel_gpu_device_create(g_instance, adapters[0], .reactor = reactor, .features = { .timeline_semaphores = true, .descriptor_indexing = true, .buffer_device_address = true });
+    Mel_Gpu_Device_Create_Result dr = mel_gpu_device_create(g_instance, adapters[0], .vat = vat, .features = { .timeline_semaphores = true, .descriptor_indexing = true, .buffer_device_address = true });
     g_device = dr.value;
 
-    atexit(gpu_host_shutdown);
+    mel_app_on_exit(gpu_host_shutdown, NULL);
 }
 
 static void window_render(Mel_Gpu_Swapchain* sc, f64 dt, void* user)
@@ -147,7 +149,7 @@ static void window_resized(Mel_Gui_Handle h, i32 cw, i32 ch, void* user)
     w->state = w->app->init ? w->app->init(g_device, w->swapchain) : NULL;
     if (w->app->resize)
         w->app->resize(w->state, cw, ch);
-    w->source = mel_gpu_render_source_new(g_reactor, w->swapchain, 60, window_render, w);
+    w->source = mel_gpu_render_source_new(g_vat, w->swapchain, 60, window_render, w);
 }
 
 void gpu_host_open(const Graphical_App* app)

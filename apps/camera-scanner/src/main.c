@@ -1,6 +1,5 @@
 #include <core/platform.h>
-#include <app/app.h>
-#include <app/provider.h>
+#include <gui/gui.h>
 #include <gui/gui.h>
 
 #include <allocator/heap.h>
@@ -12,7 +11,8 @@
 #include <paint/painter.h>
 #include <future/future.h>
 #include <executor/executor.h>
-#include <reactor/reactor.h>
+#include <vat/vat.h>
+#include <collection/list.h>
 #include <thread/mutex.h>
 #include <time/nano.h>
 #include <vibration/vibration.h>
@@ -22,28 +22,29 @@
 static const char* MEL_TAG = "camera-scanner";
 
 #define PREVIEW_BUFFERS     3
-#define DECODE_TEXT_LIMIT   256
-#define SYMBOLOGY_LIMIT     32
 #define DECODE_EVERY_N      8
 #define DECODE_EVERY_N_IDLE 30
 #define PREVIEW_MIN_WIDTH   720
 
-#define FLASH_DURATION_NS ((i64)280 * 1000 * 1000)
-#define TOAST_DURATION_NS ((i64)1400 * 1000 * 1000)
+#define FLASH_DURATION_NS   ((i64)280 * 1000 * 1000)
 
 typedef struct
 {
-    char text[DECODE_TEXT_LIMIT];
-    i32  text_len;
-    char symbology[SYMBOLOGY_LIMIT];
-    i32  symbology_len;
+    char*       text;
+    i32         text_len;
+    const char* symbology;
 } Decode_Payload;
 
 typedef struct
 {
     const Mel_Alloc* alloc;
-    Mel_Reactor*     reactor;
-    Mel_Gui_Handle   canvas;
+    Mel_Vat*         vat;
+    Mel_Task         gui_update_task;
+
+    Mel_Gui_Handle canvas;
+    Mel_Gui_Handle status_label;
+    Mel_Gui_Handle detail_label;
+    Mel_Gui_Handle copy_button;
 
     mel_barcode_decoder decoder;
     bool                decoder_ready;
@@ -72,23 +73,17 @@ typedef struct
     Decode_Payload shared;
     bool           shared_dirty;
 
-    Decode_Payload front;
-    bool           has_decode;
+    Decode_Payload last;
     u64            decode_interval;
 
-    bool tearing_down;
+    Decode_Payload front;
+    bool           has_decode;
 
-    bool        scanning;
-    const char* status_title;
-    const char* status_detail;
+    bool tearing_down;
+    bool scanning;
 
     i64  flash_origin_ns;
     bool flashing;
-
-    i64  toast_origin_ns;
-    bool toast_showing;
-
-    Mel_Rect card_rect;
 
     Mel_Future* copy_future;
 } App_State;
@@ -100,6 +95,15 @@ static mel_color8 rgba(u8 r, u8 g, u8 b, u8 a) { return mel_color8_rgba(r, g, b,
 static f32 clamp01(f32 x) { return x < 0.0f ? 0.0f : (x > 1.0f ? 1.0f : x); }
 
 static i64 now_ns(void) { return (i64)mel_nanos_since_unspecified_epoch(); }
+
+static void payload_free(Decode_Payload* p, const Mel_Alloc* a)
+{
+    if (p->text != NULL)
+        mel_dealloc(a, p->text);
+    p->text = NULL;
+    p->text_len = 0;
+    p->symbology = NULL;
+}
 
 static Mel_Rect letterbox(f32 win_w, f32 win_h, f32 img_w, f32 img_h)
 {
@@ -144,106 +148,6 @@ static Mel_Rect reticle_rect(f32 w, f32 h)
     return mel_rect(x, y, r, r);
 }
 
-static i32 measure_chars(f32 width_px, f32 font_size)
-{
-    f32 per = font_size * 0.55f;
-    if (per < 1.0f)
-        per = 1.0f;
-    i32 n = (i32)(width_px / per);
-    return n < 1 ? 1 : n;
-}
-
-static void draw_elided(Mel_Painter* p, str8 text, Mel_Vec2 pos, mel_color8 c, f32 font, f32 max_w)
-{
-    i32 budget = measure_chars(max_w, font);
-    if ((i32)text.len <= budget)
-    {
-        mel_painter_draw_text(p, text, pos, c, font);
-        return;
-    }
-
-    char buf[DECODE_TEXT_LIMIT + 4];
-    i32  keep = budget - 1;
-    if (keep < 1)
-        keep = 1;
-    if (keep > DECODE_TEXT_LIMIT)
-        keep = DECODE_TEXT_LIMIT;
-    if (keep > (i32)text.len)
-        keep = (i32)text.len;
-    while (keep > 0 && (text.data[keep] & 0xC0) == 0x80)
-        --keep;
-    memcpy(buf, text.data, (usize)keep);
-    buf[keep] = (char)0xE2;
-    buf[keep + 1] = (char)0x80;
-    buf[keep + 2] = (char)0xA6;
-    str8 out = { (u8*)buf, (size)(keep + 3) };
-    mel_painter_draw_text(p, out, pos, c, font);
-}
-
-static void draw_result_card(Mel_Painter* p, i32 w, i32 ht)
-{
-    f32 margin = 16.0f;
-    f32 card_h = 96.0f;
-    f32 card_w = (f32)w - 2.0f * margin;
-    if (card_w > 560.0f)
-        card_w = 560.0f;
-    f32 card_x = ((f32)w - card_w) * 0.5f;
-    f32 card_y = (f32)ht - card_h - margin;
-
-    Mel_Rect card = mel_rect(card_x, card_y, card_w, card_h);
-    g_app.card_rect = card;
-
-    mel_painter_fill_round_rect(p, card, 14.0f, rgba(24, 24, 28, 235));
-
-    f32 pad = 16.0f;
-    f32 inner_x = card_x + pad;
-    f32 inner_w = card_w - 2.0f * pad;
-
-    if (g_app.has_decode && g_app.front.text_len > 0)
-    {
-        str8 badge = { (u8*)g_app.front.symbology, (size)g_app.front.symbology_len };
-        f32  badge_w = (f32)g_app.front.symbology_len * 9.0f + 22.0f;
-        if (badge_w < 48.0f)
-            badge_w = 48.0f;
-        Mel_Rect badge_rect = mel_rect(inner_x, card_y + pad, badge_w, 24.0f);
-        mel_painter_fill_round_rect(p, badge_rect, 7.0f, rgba(46, 120, 90, 255));
-        if (g_app.front.symbology_len > 0)
-            mel_painter_draw_text(p, badge, mel_vec2(inner_x + 11.0f, card_y + pad + 5.0f), rgba(235, 255, 244, 255), 13.0f);
-
-        str8 payload = { (u8*)g_app.front.text, (size)g_app.front.text_len };
-        draw_elided(p, payload, mel_vec2(inner_x, card_y + pad + 38.0f), rgba(236, 236, 240, 255), 17.0f, inner_w);
-
-        const char* hint = "Tap to copy";
-        if (g_app.toast_showing)
-        {
-            i64 e = now_ns() - g_app.toast_origin_ns;
-            if (e < TOAST_DURATION_NS)
-                hint = "Copied";
-            else
-                g_app.toast_showing = false;
-        }
-        mel_painter_draw_text(p, str8_from_cstr(hint), mel_vec2(inner_x, card_y + card_h - 22.0f), rgba(150, 200, 175, 255), 12.0f);
-    }
-    else
-    {
-        mel_painter_draw_text(p, S8("Ready"), mel_vec2(inner_x, card_y + pad + 4.0f), rgba(150, 150, 158, 255), 13.0f);
-        mel_painter_draw_text(p, S8("Point the camera at a barcode or QR code"), mel_vec2(inner_x, card_y + pad + 34.0f), rgba(220, 220, 226, 255), 16.0f);
-    }
-}
-
-static void draw_state_message(Mel_Painter* p, i32 w, i32 ht, const char* title, const char* detail)
-{
-    f32 cx = (f32)w * 0.5f;
-    f32 cy = (f32)ht * 0.42f;
-    f32 tw = (f32)strlen(title) * 9.0f;
-    mel_painter_draw_text(p, str8_from_cstr(title), mel_vec2(cx - tw * 0.5f, cy), rgba(235, 235, 240, 255), 18.0f);
-    if (detail && detail[0])
-    {
-        f32 dw = (f32)strlen(detail) * 6.5f;
-        mel_painter_draw_text(p, str8_from_cstr(detail), mel_vec2(cx - dw * 0.5f, cy + 28.0f), rgba(170, 170, 178, 255), 14.0f);
-    }
-}
-
 static void on_paint(Mel_Gui_Handle h, Mel_Painter* p, i32 w, i32 ht, void* user)
 {
     (void)h;
@@ -251,69 +155,69 @@ static void on_paint(Mel_Gui_Handle h, Mel_Painter* p, i32 w, i32 ht, void* user
 
     mel_painter_clear(p, rgba(10, 10, 12, 255));
 
-    Mel_Rect view = mel_rect(0, 0, (f32)w, (f32)ht);
-
     if (g_app.preview_ready)
     {
         Mel_Image* img = &g_app.preview[g_app.idx_consume];
-        view = letterbox((f32)w, (f32)ht, (f32)img->w, (f32)img->h);
+        Mel_Rect   view = letterbox((f32)w, (f32)ht, (f32)img->w, (f32)img->h);
         mel_painter_draw_image(p, img, view, g_app.alloc);
     }
 
-    if (g_app.scanning)
+    if (!g_app.scanning)
+        return;
+
+    Mel_Rect ret = reticle_rect((f32)w, (f32)ht);
+    f32      radius = 18.0f;
+
+    mel_color8 dim = rgba(0, 0, 0, 120);
+    mel_painter_fill_rect(p, mel_rect(0, 0, (f32)w, ret.y), dim);
+    mel_painter_fill_rect(p, mel_rect(0, ret.y + ret.h, (f32)w, (f32)ht - (ret.y + ret.h)), dim);
+    mel_painter_fill_rect(p, mel_rect(0, ret.y, ret.x, ret.h), dim);
+    mel_painter_fill_rect(p, mel_rect(ret.x + ret.w, ret.y, (f32)w - (ret.x + ret.w), ret.h), dim);
+
+    f32        flash = 0.0f;
+    mel_color8 frame_col = rgba(245, 245, 250, 220);
+    if (g_app.flashing)
     {
-        Mel_Rect ret = reticle_rect((f32)w, (f32)ht);
-        f32      radius = 18.0f;
-
-        mel_color8 dim = rgba(0, 0, 0, 120);
-        mel_painter_fill_rect(p, mel_rect(0, 0, (f32)w, ret.y), dim);
-        mel_painter_fill_rect(p, mel_rect(0, ret.y + ret.h, (f32)w, (f32)ht - (ret.y + ret.h)), dim);
-        mel_painter_fill_rect(p, mel_rect(0, ret.y, ret.x, ret.h), dim);
-        mel_painter_fill_rect(p, mel_rect(ret.x + ret.w, ret.y, (f32)w - (ret.x + ret.w), ret.h), dim);
-
-        f32        flash = 0.0f;
-        mel_color8 frame_col = rgba(245, 245, 250, 220);
-        if (g_app.flashing)
+        i64 e = now_ns() - g_app.flash_origin_ns;
+        if (e < FLASH_DURATION_NS)
         {
-            i64 e = now_ns() - g_app.flash_origin_ns;
-            if (e < FLASH_DURATION_NS)
-            {
-                flash = 1.0f - clamp01((f32)e / (f32)FLASH_DURATION_NS);
-                u8 a = (u8)(160.0f + 95.0f * flash);
-                frame_col = rgba((u8)(80 - 40 * flash), 235, (u8)(140 + 30 * flash), a);
-            }
-            else
-            {
-                g_app.flashing = false;
-            }
+            flash = 1.0f - clamp01((f32)e / (f32)FLASH_DURATION_NS);
+            u8 a = (u8)(160.0f + 95.0f * flash);
+            frame_col = rgba((u8)(80 - 40 * flash), 235, (u8)(140 + 30 * flash), a);
         }
-
-        if (flash > 0.0f)
+        else
         {
-            u8       glow = (u8)(70.0f * flash);
-            Mel_Rect grow = mel_rect(ret.x - 6.0f, ret.y - 6.0f, ret.w + 12.0f, ret.h + 12.0f);
-            mel_painter_fill_round_rect(p, grow, radius + 6.0f, rgba(60, 230, 130, glow));
+            g_app.flashing = false;
         }
-
-        mel_painter_stroke_rect(p, ret, frame_col, 2.0f);
-        draw_corner_ticks(p, ret, ret.w * 0.12f, 4.0f, frame_col);
-
-        draw_result_card(p, w, ht);
     }
-    else
+
+    if (flash > 0.0f)
     {
-        const char* title = g_app.status_title ? g_app.status_title : "Camera unavailable";
-        draw_state_message(p, w, ht, title, g_app.status_detail);
+        u8       glow = (u8)(70.0f * flash);
+        Mel_Rect grow = mel_rect(ret.x - 6.0f, ret.y - 6.0f, ret.w + 12.0f, ret.h + 12.0f);
+        mel_painter_fill_round_rect(p, grow, radius + 6.0f, rgba(60, 230, 130, glow));
     }
+
+    mel_painter_stroke_rect(p, ret, frame_col, 2.0f);
+    draw_corner_ticks(p, ret, ret.w * 0.12f, 4.0f, frame_col);
 }
 
-static void on_gui_update(void* user)
+static void show_decode(const Decode_Payload* d)
 {
-    App_State* app = user;
+    str8 text = { (u8*)d->text, (size)d->text_len };
+    mel_gui_set_text(g_app.status_label, str8_from_cstr(d->symbology ? d->symbology : "CODE"));
+    mel_gui_set_text(g_app.detail_label, text);
+    mel_gui_set_text(g_app.copy_button, S8("Copy to clipboard"));
+    mel_gui_set_enabled(g_app.copy_button, true);
+}
+
+static void on_gui_update(Mel_Task* self)
+{
+    App_State* app = mel_container_of(self, App_State, gui_update_task);
 
     bool           got_frame = false;
     bool           got_text = false;
-    Decode_Payload payload;
+    Decode_Payload payload = { 0 };
 
     mel_mutex_lock(&app->swap_lock);
     if (app->tearing_down)
@@ -332,6 +236,7 @@ static void on_gui_update(void* user)
     if (app->shared_dirty)
     {
         payload = app->shared;
+        app->shared = (Decode_Payload){ 0 };
         app->shared_dirty = false;
         got_text = true;
     }
@@ -343,8 +248,11 @@ static void on_gui_update(void* user)
     if (got_text && payload.text_len > 0)
     {
         bool changed = !app->has_decode || payload.text_len != app->front.text_len || memcmp(payload.text, app->front.text, (usize)payload.text_len) != 0;
+        payload_free(&app->front, app->alloc);
         app->front = payload;
         app->has_decode = true;
+
+        show_decode(&app->front);
 
         if (changed)
         {
@@ -361,6 +269,10 @@ static void on_gui_update(void* user)
                     mel_log_warn(MEL_TAG, "haptic pulse failed (status 0x%x)", pr.status);
             }
         }
+    }
+    else if (got_text)
+    {
+        payload_free(&payload, app->alloc);
     }
 
     if (got_frame || got_text)
@@ -420,6 +332,34 @@ static bool ensure_raw(App_State* app, i32 fw, i32 fh)
     return true;
 }
 
+static void publish_decode(App_State* app, mel_barcode_decode_result* r)
+{
+    bool same = app->last.text_len == r->text_len && (r->text_len == 0 || memcmp(app->last.text, r->text, (usize)r->text_len) == 0);
+
+    payload_free(&app->last, app->alloc);
+    app->last.text = r->text;
+    app->last.text_len = r->text_len;
+    app->last.symbology = r->symbology;
+    r->text = NULL;
+
+    Decode_Payload pub = { 0 };
+    pub.symbology = app->last.symbology;
+    if (app->last.text_len > 0)
+    {
+        str8 dup = str8_dup_alloc((str8){ (u8*)app->last.text, (size)app->last.text_len }, app->alloc);
+        pub.text = (char*)dup.data;
+        pub.text_len = (i32)dup.len;
+    }
+
+    mel_mutex_lock(&app->swap_lock);
+    payload_free(&app->shared, app->alloc);
+    app->shared = pub;
+    app->shared_dirty = true;
+    mel_mutex_unlock(&app->swap_lock);
+
+    app->decode_interval = same ? DECODE_EVERY_N_IDLE : DECODE_EVERY_N;
+}
+
 static void on_frame(const Mel_Camera_Frame* frame, void* user)
 {
     App_State* app = user;
@@ -433,26 +373,7 @@ static void on_frame(const Mel_Camera_Frame* frame, void* user)
             mel_barcode_decode_result r;
             if (mel_barcode_decoder_decode(&app->decoder, &gray, &r))
             {
-                i32 n = r.text_len;
-                if (n > DECODE_TEXT_LIMIT)
-                    n = DECODE_TEXT_LIMIT;
-
-                const char* sym = r.symbology ? r.symbology : "CODE";
-                i32         sn = (i32)strlen(sym);
-                if (sn > SYMBOLOGY_LIMIT)
-                    sn = SYMBOLOGY_LIMIT;
-
-                mel_mutex_lock(&app->swap_lock);
-                bool same = app->shared.text_len == n && (n == 0 || memcmp(app->shared.text, r.text, (usize)n) == 0);
-                if (n > 0)
-                    memcpy(app->shared.text, r.text, (usize)n);
-                app->shared.text_len = n;
-                memcpy(app->shared.symbology, sym, (usize)sn);
-                app->shared.symbology_len = sn;
-                app->shared_dirty = true;
-                mel_mutex_unlock(&app->swap_lock);
-
-                app->decode_interval = same ? DECODE_EVERY_N_IDLE : DECODE_EVERY_N;
+                publish_decode(app, &r);
                 changed = true;
                 mel_barcode_decode_result_free(&r, app->alloc);
             }
@@ -494,14 +415,18 @@ static void on_frame(const Mel_Camera_Frame* frame, void* user)
     }
 
     if (changed)
-        mel_reactor_post(app->reactor, on_gui_update, app);
+        mel_vat_post(app->vat, &app->gui_update_task);
 }
 
 static void set_status(const char* title, const char* detail)
 {
     g_app.scanning = false;
-    g_app.status_title = title;
-    g_app.status_detail = detail;
+    if (!mel_gui_handle_is_none(g_app.status_label))
+        mel_gui_set_text(g_app.status_label, str8_from_cstr(title));
+    if (!mel_gui_handle_is_none(g_app.detail_label))
+        mel_gui_set_text(g_app.detail_label, str8_from_cstr(detail));
+    if (!mel_gui_handle_is_none(g_app.copy_button))
+        mel_gui_set_enabled(g_app.copy_button, false);
     if (!mel_gui_handle_is_none(g_app.canvas))
         mel_gui_invalidate(g_app.canvas);
 }
@@ -509,10 +434,9 @@ static void set_status(const char* title, const char* detail)
 static void set_scanning(void)
 {
     g_app.scanning = true;
-    g_app.status_title = NULL;
-    g_app.status_detail = NULL;
-    if (!mel_gui_handle_is_none(g_app.canvas))
-        mel_gui_invalidate(g_app.canvas);
+    mel_gui_set_text(g_app.status_label, S8("Ready"));
+    mel_gui_set_text(g_app.detail_label, S8("Point the camera at a barcode or QR code"));
+    mel_gui_invalidate(g_app.canvas);
 }
 
 static bool pick_mode(const Mel_Camera_Modes* modes, Mel_Camera_Mode* out)
@@ -592,7 +516,15 @@ static void start_camera(void)
 
     Mel_Camera_Config cfg = { .format = mode.format, .width = mode.width, .height = mode.height, .fps = mode.fps_max };
     i32               w = mode.width, h = mode.height;
-    mel_log_info(MEL_TAG, "device \"%.*s\" mode %dx%d @ %.0ffps fmt %s facing %s", (int)d.value.name.len, (const char*)d.value.name.data, w, h, (double)mode.fps_max, mel_image_format_name(mode.format), mel_camera_facing_name(d.value.facing));
+    mel_log_info(MEL_TAG,
+                 "device \"%.*s\" mode %dx%d @ %.0ffps fmt %s facing %s",
+                 (int)d.value.name.len,
+                 (const char*)d.value.name.data,
+                 w,
+                 h,
+                 (double)mode.fps_max,
+                 mel_image_format_name(mode.format),
+                 mel_camera_facing_name(d.value.facing));
     mel_camera_describe_free(&d);
 
     if (!mel_barcode_decoder_init(&g_app.decoder, w, a))
@@ -654,13 +586,11 @@ static void on_auth_resolved(Mel_Task* self)
     }
 }
 
-static void on_pointer_down(Mel_Gui_Handle h, i32 x, i32 y, void* user)
+static void on_copy_clicked(Mel_Gui_Handle h, void* user)
 {
     (void)h;
     App_State* app = user;
     if (!app->has_decode || app->front.text_len <= 0)
-        return;
-    if (!mel_rect_contains_point(app->card_rect, mel_vec2((f32)x, (f32)y)))
         return;
 
     if (app->copy_future)
@@ -677,15 +607,13 @@ static void on_pointer_down(Mel_Gui_Handle h, i32 x, i32 y, void* user)
         return;
     }
 
-    app->toast_showing = true;
-    app->toast_origin_ns = now_ns();
-    mel_gui_invalidate(app->canvas);
+    mel_gui_set_text(app->copy_button, S8("Copied"));
 }
 
-static void on_destroy(Mel_Gui_Handle h, void* user)
+static void main_destroy(Mel_Gui_Handle frame, void* arg)
 {
-    (void)h;
-    (void)user;
+    (void)frame;
+    (void)arg;
 
     if (g_app.cam_subscribed)
     {
@@ -729,6 +657,10 @@ static void on_destroy(Mel_Gui_Handle h, void* user)
         mel_clip_future_free(g_app.copy_future);
         g_app.copy_future = NULL;
     }
+    payload_free(&g_app.shared, g_app.alloc);
+    payload_free(&g_app.last, g_app.alloc);
+    payload_free(&g_app.front, g_app.alloc);
+    g_app.has_decode = false;
     mel_mutex_destroy(&g_app.swap_lock);
     mel_clip_shutdown();
     mel_vib_shutdown();
@@ -738,9 +670,16 @@ static void on_destroy(Mel_Gui_Handle h, void* user)
 static void build_main(Mel_Gui_Handle frame, void* user)
 {
     (void)user;
+
+    mel_gui_set_text(frame, S8("Scanner"));
     mel_gui_set_layout(frame, mel_column_layout(.spacing = 0, .margin = 0, .cross_align = MEL_ALIGN_STRETCH));
 
-    g_app.canvas = mel_canvas_create(frame, .on_.on_paint = on_paint, .pointer.on_pointer_down = on_pointer_down, .lifecycle.on_destroy = on_destroy, .user = &g_app, .layoutable = { .preferred_h = 480, .weight = 1 });
+    g_app.canvas = mel_canvas_create(frame, .on_.on_paint = on_paint, .user = &g_app, .layoutable = { .preferred_h = 480, .weight = 1 });
+
+    Mel_Gui_Handle card = mel_panel_create(frame, .layout = mel_column_layout(.spacing = 6, .margin = 12, .cross_align = MEL_ALIGN_STRETCH), .layoutable = { .preferred_h = 132 });
+    g_app.status_label = mel_label_create(card, .text = S8("Requesting camera permission"), .layoutable = { .preferred_h = 22 });
+    g_app.detail_label = mel_label_create(card, .text = S8("Allow access to start scanning."), .layoutable = { .preferred_h = 24 });
+    g_app.copy_button = mel_button_create(card, .text = S8("Copy to clipboard"), .disabled = true, .pointer.on_click = on_copy_clicked, .user = &g_app, .layoutable = { .preferred_h = 40 });
 
     const Mel_Alloc* a = g_app.alloc;
     g_app.auth_future = mel_camera_authorize(a);
@@ -752,29 +691,28 @@ static void build_main(Mel_Gui_Handle frame, void* user)
     }
 
     mel_task_init(&g_app.auth_task, on_auth_resolved);
-    mel_future_then(g_app.auth_future, &g_app.auth_task, mel_reactor_executor(g_app.reactor));
+    mel_future_then(g_app.auth_future, &g_app.auth_task, mel_vat_executor(g_app.vat));
 }
 
-void mel_app_setup(Mel_Reactor* reactor)
+void mel_app_setup(Mel_Vat* root)
 {
-    mel_gui_init(reactor);
+    mel_gui_init(root);
 
     g_app.alloc = mel_alloc_heap();
-    g_app.reactor = reactor;
+    g_app.vat = root;
+    mel_task_init(&g_app.gui_update_task, on_gui_update);
     g_app.idx_produce = 0;
     g_app.idx_spare = 1;
     g_app.idx_consume = 2;
     g_app.decode_interval = DECODE_EVERY_N;
     g_app.scanning = false;
-    g_app.status_title = "Requesting camera permission";
-    g_app.status_detail = "Allow access to start scanning.";
     mel_mutex_init(&g_app.swap_lock, MEL_MUTEX_PLAIN);
 
-    mel_camera_init(g_app.alloc, reactor);
-    mel_vib_init(g_app.alloc, reactor);
+    mel_camera_init(g_app.alloc, mel_vat_executor(root));
+    mel_vib_init(g_app.alloc, root);
     mel_vib_refresh();
-    mel_clip_init(g_app.alloc, reactor);
+    mel_clip_init(g_app.alloc, root);
 
-    mel_app_register_screen(S8("main"), build_main, NULL);
+    mel_app_register_screen(S8("main"), .build = build_main, .on_destroy = main_destroy);
     mel_app_present(S8("main"), NULL);
 }

@@ -7,7 +7,7 @@
 #include <allocator/allocator.fwd.h>
 #include <collection/slotmap.h>
 #include <future/future.h>
-#include <reactor/reactor.h>
+#include <vat/vat.h>
 
 #ifdef __cplusplus
 extern "C"
@@ -16,11 +16,11 @@ extern "C"
 
 typedef struct
 {
-    Mel_Reactor_Source* source;
-    Mel_Reactor_Poll    poll;
-    void*               native;
-    bool                attached;
-} Mel_Port_Reactor_Slot;
+    Mel_Vat_Source*  source;
+    Mel_Vat_Wakeable wakeable;
+    void*            native;
+    bool             attached;
+} Mel_Port_Loop_Slot;
 
 typedef bool (*Mel_Port__Step_Fn)(Mel_Port_Op_Record* op);
 
@@ -44,12 +44,12 @@ struct Mel_Port_Op_Record
     Mel_Port_Result result;
     Mel_Executor*   deliver;
 
-    Mel_Port_Reactor_Slot backend;
+    Mel_Port_Loop_Slot backend;
 };
 
 struct Mel_Port
 {
-    Mel_Reactor*     reactor;
+    Mel_Vat*         vat;
     Mel_Executor*    executor;
     const Mel_Alloc* alloc;
 

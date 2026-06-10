@@ -28,7 +28,6 @@ void build(Mel_Build* b)
     mel_depends(lib, "math");
     mel_depends(lib, "thread");
     mel_depends(lib, "time");
-    mel_depends(lib, "reactor");
     mel_depends(lib, "executor");
     mel_depends(lib, "future");
     mel_depends(lib, "event");

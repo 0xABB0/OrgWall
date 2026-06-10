@@ -32,79 +32,94 @@
 
 static const char TRIANGLE_SLANG[] = {
 #embed "shaders/slang/triangle.slang"
-    , 0
+    ,
+    0
 };
 
 static const char MANDELBROT_SLANG[] = {
 #embed "shaders/slang/mandelbrot.slang"
-    , 0
+    ,
+    0
 };
 
 static const char RAYMARCH_SLANG[] = {
 #embed "shaders/slang/raymarch.slang"
-    , 0
+    ,
+    0
 };
 
 static const char BINDLESS_PRESENT_SLANG[] = {
 #embed "shaders/slang/bindless_present.slang"
-    , 0
+    ,
+    0
 };
 
 static const char BLOOM_SLANG[] = {
 #embed "shaders/slang/bloom.slang"
-    , 0
+    ,
+    0
 };
 
 static const char BOIDS_SLANG[] = {
 #embed "shaders/slang/boids.slang"
-    , 0
+    ,
+    0
 };
 
 /* ===== task #35 batch G1: compute/sim screens (reacdiff, compute_plasma, particles,
    dispatch_indirect) — contiguous block to ease union-merge with sibling batches ===== */
 static const char COMPUTE_PLASMA_SLANG[] = {
 #embed "shaders/slang/compute_plasma.slang"
-    , 0
+    ,
+    0
 };
 
 static const char PARTICLES_SLANG[] = {
 #embed "shaders/slang/particles.slang"
-    , 0
+    ,
+    0
 };
 
 static const char REACDIFF_SLANG[] = {
 #embed "shaders/slang/reacdiff.slang"
-    , 0
+    ,
+    0
 };
 
 static const char DISPATCH_INDIRECT_SLANG[] = {
 #embed "shaders/slang/dispatch_indirect.slang"
-    , 0
+    ,
+    0
 };
 
 static const char PASSTHROUGH_SLANG[] = {
 #embed "shaders/slang/passthrough.slang"
-    , 0
+    ,
+    0
 };
 
 static const char DEPTH3D_SLANG[] = {
 #embed "shaders/slang/depth3d.slang"
-    , 0
+    ,
+    0
 };
 
 static const char PREPASS_SLANG[] = {
 #embed "shaders/slang/prepass.slang"
-    , 0
+    ,
+    0
 };
 
 static const char MSAA_SLANG[] = {
 #embed "shaders/slang/msaa.slang"
-    , 0
+    ,
+    0
 };
 
 static const char SHADOW_SLANG[] = {
 #embed "shaders/slang/shadow.slang"
-    , 0
+    ,
+    0
 };
 
 /* ===== end task #35 batch G1 embeds ===== */
@@ -165,7 +180,7 @@ static Mel_Gpu_Device* scene_make_device(Mel_Gpu_Instance** out_inst)
         mel_gpu_instance_destroy(inst);
         return NULL;
     }
-    Mel_Gpu_Device_Create_Result dr = mel_gpu_device_create(inst, adapters[0], .reactor = NULL);
+    Mel_Gpu_Device_Create_Result dr = mel_gpu_device_create(inst, adapters[0], .vat = NULL);
     if (!dr.value)
     {
         mel_gpu_instance_destroy(inst);
@@ -293,14 +308,10 @@ MEL_TEST(scene_shared, triangle_multistream)
     MEL_REQUIRE_NOT_NULL(dev);
 
     const f32 positions[] = {
-        0.0f, 0.6f, 0.0f,
-        0.6f, -0.6f, 0.0f,
-        -0.6f, -0.6f, 0.0f,
+        0.0f, 0.6f, 0.0f, 0.6f, -0.6f, 0.0f, -0.6f, -0.6f, 0.0f,
     };
     const f32 colors[] = {
-        1.0f, 0.0f, 0.0f, 1.0f,
-        0.0f, 1.0f, 0.0f, 1.0f,
-        0.0f, 0.0f, 1.0f, 1.0f,
+        1.0f, 0.0f, 0.0f, 1.0f, 0.0f, 1.0f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f, 1.0f,
     };
     Mel_Gpu_Buffer_Create_Result vbo_pos = mel_gpu_buffer_create(dev, .size = sizeof positions, .usage = MEL_GPU_BUFFER_VERTEX, .memory = MEL_GPU_MEMORY_UPLOAD, .data = positions, .name = "scene-ms-pos");
     MEL_REQUIRE(!mel_gpu_failed(vbo_pos.status));
@@ -571,7 +582,7 @@ static Mel_Gpu_Device* scene_make_device_bindless(Mel_Gpu_Instance** out_inst)
         mel_gpu_instance_destroy(inst);
         return NULL;
     }
-    Mel_Gpu_Device_Create_Result dr = mel_gpu_device_create(inst, adapters[0], .reactor = NULL, .features = { .descriptor_indexing = true });
+    Mel_Gpu_Device_Create_Result dr = mel_gpu_device_create(inst, adapters[0], .vat = NULL, .features = { .descriptor_indexing = true });
     if (!dr.value)
     {
         mel_gpu_instance_destroy(inst);
@@ -594,20 +605,19 @@ MEL_TEST(scene_shared, mandelbrot)
         MEL_SKIP("mandelbrot scene needs the device-global bindless heap (descriptor_indexing); device does not advertise it");
     }
 
-    Mel_Gpu_Texture_Create_Result img = mel_gpu_texture_create(dev, .kind = MEL_GPU_TEXTURE_2D, .extent = { SCENE_W, SCENE_H, 1 }, .format = MEL_GPU_FORMAT_RGBA8_UNORM,
-                                                               .usage = MEL_GPU_TEXTURE_STORAGE | MEL_GPU_TEXTURE_COPY_SRC, .name = "mandel-img");
+    Mel_Gpu_Texture_Create_Result img = mel_gpu_texture_create(dev,
+                                                               .kind = MEL_GPU_TEXTURE_2D,
+                                                               .extent = { SCENE_W, SCENE_H, 1 },
+                                                               .format = MEL_GPU_FORMAT_RGBA8_UNORM,
+                                                               .usage = MEL_GPU_TEXTURE_STORAGE | MEL_GPU_TEXTURE_COPY_SRC,
+                                                               .name = "mandel-img");
     MEL_REQUIRE(!mel_gpu_failed(img.status));
     Mel_Gpu_Texture_View_Create_Result view = mel_gpu_texture_default_view(dev, img.value);
     MEL_REQUIRE(!mel_gpu_failed(view.status));
     Mel_Gpu_Buffer_Create_Result rb = mel_gpu_buffer_create(dev, .size = (usize)SCENE_W * SCENE_H * 4, .usage = MEL_GPU_BUFFER_TRANSFER_DST, .memory = MEL_GPU_MEMORY_READBACK, .name = "mandel-rb");
     MEL_REQUIRE(!mel_gpu_failed(rb.status));
 
-    Mel_Gpu_Pipeline_From_Slang_Result pipe = mel_gpu_pipeline_compute_create_from_slang(dev,
-                                                                                        .source = MANDELBROT_SLANG,
-                                                                                        .compute_entry = "cs_main",
-                                                                                        .push_constant_size = sizeof(Mandel_Root),
-                                                                                        .bindless = true,
-                                                                                        .name = "scene-mandelbrot");
+    Mel_Gpu_Pipeline_From_Slang_Result pipe = mel_gpu_pipeline_compute_create_from_slang(dev, .source = MANDELBROT_SLANG, .compute_entry = "cs_main", .push_constant_size = sizeof(Mandel_Root), .bindless = true, .name = "scene-mandelbrot");
     MEL_REQUIRE(!mel_gpu_failed(pipe.status));
 
     Mandel_Root root = {
@@ -691,8 +701,12 @@ MEL_TEST(scene_shared, bindless_present)
     MEL_REQUIRE_NOT_NULL(checker);
     scene_fill_checker(checker, SCENE_W, SCENE_H);
 
-    Mel_Gpu_Texture_Create_Result src = mel_gpu_texture_create(dev, .kind = MEL_GPU_TEXTURE_2D, .extent = { SCENE_W, SCENE_H, 1 }, .format = MEL_GPU_FORMAT_RGBA8_UNORM,
-                                                               .usage = MEL_GPU_TEXTURE_SAMPLED | MEL_GPU_TEXTURE_COPY_DST, .name = "bp-src");
+    Mel_Gpu_Texture_Create_Result src = mel_gpu_texture_create(dev,
+                                                               .kind = MEL_GPU_TEXTURE_2D,
+                                                               .extent = { SCENE_W, SCENE_H, 1 },
+                                                               .format = MEL_GPU_FORMAT_RGBA8_UNORM,
+                                                               .usage = MEL_GPU_TEXTURE_SAMPLED | MEL_GPU_TEXTURE_COPY_DST,
+                                                               .name = "bp-src");
     MEL_REQUIRE(!mel_gpu_failed(src.status));
     Mel_Gpu_Texture_Region region = { .subresource = { MEL_GPU_ASPECT_COLOR, 0, 1, 0, 1 }, .offset = { 0, 0, 0 }, .extent = { SCENE_W, SCENE_H, 1 } };
     mel_gpu_texture_write(dev, src.value, region, checker, (usize)SCENE_W * SCENE_H * 4);
@@ -701,8 +715,7 @@ MEL_TEST(scene_shared, bindless_present)
     Mel_Gpu_Texture_View_Create_Result src_view = mel_gpu_texture_default_view(dev, src.value);
     MEL_REQUIRE(!mel_gpu_failed(src_view.status));
 
-    Mel_Gpu_Sampler_Create_Result smp = mel_gpu_sampler_create(dev, .min_filter = MEL_GPU_FILTER_NEAREST, .mag_filter = MEL_GPU_FILTER_NEAREST,
-                                                               .wrap_u = MEL_GPU_WRAP_CLAMP_EDGE, .wrap_v = MEL_GPU_WRAP_CLAMP_EDGE, .name = "bp-nearest");
+    Mel_Gpu_Sampler_Create_Result smp = mel_gpu_sampler_create(dev, .min_filter = MEL_GPU_FILTER_NEAREST, .mag_filter = MEL_GPU_FILTER_NEAREST, .wrap_u = MEL_GPU_WRAP_CLAMP_EDGE, .wrap_v = MEL_GPU_WRAP_CLAMP_EDGE, .name = "bp-nearest");
     MEL_REQUIRE(!mel_gpu_failed(smp.status));
 
     Mel_Gpu_Pipeline_From_Slang_Result pipe = mel_gpu_pipeline_create_from_slang(dev,
@@ -781,7 +794,7 @@ typedef struct
 static Bloom_Image bloom_image_create(Mel_Gpu_Device* dev, u32 w, u32 h, const char* name)
 {
     Bloom_Image i;
-    i.tex  = mel_gpu_texture_create(dev, .kind = MEL_GPU_TEXTURE_2D, .extent = { w, h, 1 }, .format = MEL_GPU_FORMAT_RGBA8_UNORM, .usage = MEL_GPU_TEXTURE_STORAGE | MEL_GPU_TEXTURE_SAMPLED, .name = name).value;
+    i.tex = mel_gpu_texture_create(dev, .kind = MEL_GPU_TEXTURE_2D, .extent = { w, h, 1 }, .format = MEL_GPU_FORMAT_RGBA8_UNORM, .usage = MEL_GPU_TEXTURE_STORAGE | MEL_GPU_TEXTURE_SAMPLED, .name = name).value;
     i.view = mel_gpu_texture_default_view(dev, i.tex).value;
     i.slot = mel_gpu_texture_view_bindless_slot(dev, i.view);
     return i;
@@ -812,24 +825,37 @@ MEL_TEST(scene_shared, bloom)
         MEL_SKIP("bloom scene needs the device-global bindless heap (descriptor_indexing); device does not advertise it");
     }
 
-    Bloom_Image img_scene  = bloom_image_create(dev, SCENE_W, SCENE_H, "bloom-scene");
+    Bloom_Image img_scene = bloom_image_create(dev, SCENE_W, SCENE_H, "bloom-scene");
     Bloom_Image img_bright = bloom_image_create(dev, SCENE_W, SCENE_H, "bloom-bright");
-    Bloom_Image img_blurx  = bloom_image_create(dev, SCENE_W, SCENE_H, "bloom-blurx");
-    Bloom_Image img_bloom  = bloom_image_create(dev, SCENE_W, SCENE_H, "bloom-blur");
+    Bloom_Image img_blurx = bloom_image_create(dev, SCENE_W, SCENE_H, "bloom-blurx");
+    Bloom_Image img_bloom = bloom_image_create(dev, SCENE_W, SCENE_H, "bloom-blur");
 
     Mel_Gpu_Sampler_Create_Result smp = mel_gpu_sampler_create(dev, .min_filter = MEL_GPU_FILTER_LINEAR, .mag_filter = MEL_GPU_FILTER_LINEAR, .wrap_u = MEL_GPU_WRAP_CLAMP_EDGE, .wrap_v = MEL_GPU_WRAP_CLAMP_EDGE, .name = "bloom-smp");
     MEL_REQUIRE(!mel_gpu_failed(smp.status));
     u32 smp_slot = mel_gpu_sampler_bindless_slot(dev, smp.value);
 
-    Mel_Gpu_Pipeline_From_Slang_Result scene_pl  = mel_gpu_pipeline_compute_create_from_slang(dev, .source = BLOOM_SLANG, .compute_entry = "cs_scene", .push_constant_size = sizeof(Bloom_Root), .bindless = true, .name = "scene-bloom-scene");
+    Mel_Gpu_Pipeline_From_Slang_Result scene_pl = mel_gpu_pipeline_compute_create_from_slang(dev, .source = BLOOM_SLANG, .compute_entry = "cs_scene", .push_constant_size = sizeof(Bloom_Root), .bindless = true, .name = "scene-bloom-scene");
     MEL_REQUIRE(!mel_gpu_failed(scene_pl.status));
-    Mel_Gpu_Pipeline_From_Slang_Result bright_pl = mel_gpu_pipeline_compute_create_from_slang(dev, .source = BLOOM_SLANG, .compute_entry = "cs_bright", .push_constant_size = sizeof(Bloom_Root), .bindless = true, .name = "scene-bloom-bright");
+    Mel_Gpu_Pipeline_From_Slang_Result bright_pl = mel_gpu_pipeline_compute_create_from_slang(dev,
+                                                                                              .source = BLOOM_SLANG,
+                                                                                              .compute_entry = "cs_bright",
+                                                                                              .push_constant_size = sizeof(Bloom_Root),
+                                                                                              .bindless = true,
+                                                                                              .name = "scene-bloom-bright");
     MEL_REQUIRE(!mel_gpu_failed(bright_pl.status));
-    Mel_Gpu_Pipeline_From_Slang_Result blurx_pl  = mel_gpu_pipeline_compute_create_from_slang(dev, .source = BLOOM_SLANG, .compute_entry = "cs_blurx", .push_constant_size = sizeof(Bloom_Root), .bindless = true, .name = "scene-bloom-blurx");
+    Mel_Gpu_Pipeline_From_Slang_Result blurx_pl = mel_gpu_pipeline_compute_create_from_slang(dev, .source = BLOOM_SLANG, .compute_entry = "cs_blurx", .push_constant_size = sizeof(Bloom_Root), .bindless = true, .name = "scene-bloom-blurx");
     MEL_REQUIRE(!mel_gpu_failed(blurx_pl.status));
-    Mel_Gpu_Pipeline_From_Slang_Result blury_pl  = mel_gpu_pipeline_compute_create_from_slang(dev, .source = BLOOM_SLANG, .compute_entry = "cs_blury", .push_constant_size = sizeof(Bloom_Root), .bindless = true, .name = "scene-bloom-blury");
+    Mel_Gpu_Pipeline_From_Slang_Result blury_pl = mel_gpu_pipeline_compute_create_from_slang(dev, .source = BLOOM_SLANG, .compute_entry = "cs_blury", .push_constant_size = sizeof(Bloom_Root), .bindless = true, .name = "scene-bloom-blury");
     MEL_REQUIRE(!mel_gpu_failed(blury_pl.status));
-    Mel_Gpu_Pipeline_From_Slang_Result comp_pl   = mel_gpu_pipeline_create_from_slang(dev, .source = BLOOM_SLANG, .vertex_entry = "vs_composite", .fragment_entry = "fs_composite", .topology = MEL_GPU_TOPOLOGY_TRIANGLE_LIST, .cull = MEL_GPU_CULL_NONE, .color_format = MEL_GPU_FORMAT_RGBA8_UNORM, .bindless = true, .name = "scene-bloom-composite");
+    Mel_Gpu_Pipeline_From_Slang_Result comp_pl = mel_gpu_pipeline_create_from_slang(dev,
+                                                                                    .source = BLOOM_SLANG,
+                                                                                    .vertex_entry = "vs_composite",
+                                                                                    .fragment_entry = "fs_composite",
+                                                                                    .topology = MEL_GPU_TOPOLOGY_TRIANGLE_LIST,
+                                                                                    .cull = MEL_GPU_CULL_NONE,
+                                                                                    .color_format = MEL_GPU_FORMAT_RGBA8_UNORM,
+                                                                                    .bindless = true,
+                                                                                    .name = "scene-bloom-composite");
     MEL_REQUIRE(!mel_gpu_failed(comp_pl.status));
 
     Scene_Target          tgt = scene_target_create(dev, SCENE_W, SCENE_H);
@@ -874,7 +900,7 @@ MEL_TEST(scene_shared, bloom)
 
     Mel_Gpu_Subresource_Range range = { MEL_GPU_ASPECT_COLOR, 0, 1, 0, 1 };
     mel_gpu_cmd_texture_barrier(cmd, tgt.rt, range, MEL_GPU_STATE_COMMON, MEL_GPU_STATE_RENDER_TARGET);
-    Bloom_Root cr = { .tex0 = img_scene.slot, .tex1 = img_bloom.slot, .smp = smp_slot, .img = img_scene.slot, .w = SCENE_W, .h = SCENE_H, .param0 = 1.8f };
+    Bloom_Root               cr = { .tex0 = img_scene.slot, .tex1 = img_bloom.slot, .smp = smp_slot, .img = img_scene.slot, .w = SCENE_W, .h = SCENE_H, .param0 = 1.8f };
     Mel_Gpu_Color_Attachment color = { .view = tgt.rt_view, .load = MEL_GPU_LOAD_CLEAR, .store = MEL_GPU_STORE_STORE, .clear = mel_gpu_rgba(0.0f, 0.0f, 0.0f, 1.0f) };
     mel_gpu_cmd_begin_rendering(cmd, .colors = &color, .color_count = 1, .width = tgt.w, .height = tgt.h);
     mel_gpu_cmd_bind_pipeline(cmd, comp_pl.value);
@@ -955,8 +981,8 @@ MEL_TEST(scene_shared, boids)
         seed[i] = (Boids_Boid){ { r * cosf(a), r * sinf(a), vx, vy } };
     }
 
-    Mel_Gpu_Buffer       buf[2];
-    u32                  buf_slot[2];
+    Mel_Gpu_Buffer buf[2];
+    u32            buf_slot[2];
     for (u32 k = 0; k < 2; ++k)
     {
         Mel_Gpu_Buffer_Create_Result pb = mel_gpu_buffer_create(dev, .size = BOIDS_SCENE_COUNT * sizeof(Boids_Boid), .usage = MEL_GPU_BUFFER_STORAGE, .memory = MEL_GPU_MEMORY_DEVICE, .data = seed, .name = "scene-boids");
@@ -968,7 +994,15 @@ MEL_TEST(scene_shared, boids)
 
     Mel_Gpu_Pipeline_From_Slang_Result sim_pl = mel_gpu_pipeline_compute_create_from_slang(dev, .source = BOIDS_SLANG, .compute_entry = "cs_sim", .push_constant_size = sizeof(Boids_Root), .bindless = true, .name = "scene-boids-sim");
     MEL_REQUIRE(!mel_gpu_failed(sim_pl.status));
-    Mel_Gpu_Pipeline_From_Slang_Result draw_pl = mel_gpu_pipeline_create_from_slang(dev, .source = BOIDS_SLANG, .vertex_entry = "vs_draw", .fragment_entry = "fs_draw", .topology = MEL_GPU_TOPOLOGY_TRIANGLE_LIST, .cull = MEL_GPU_CULL_NONE, .color_format = MEL_GPU_FORMAT_RGBA8_UNORM, .bindless = true, .name = "scene-boids-draw");
+    Mel_Gpu_Pipeline_From_Slang_Result draw_pl = mel_gpu_pipeline_create_from_slang(dev,
+                                                                                    .source = BOIDS_SLANG,
+                                                                                    .vertex_entry = "vs_draw",
+                                                                                    .fragment_entry = "fs_draw",
+                                                                                    .topology = MEL_GPU_TOPOLOGY_TRIANGLE_LIST,
+                                                                                    .cull = MEL_GPU_CULL_NONE,
+                                                                                    .color_format = MEL_GPU_FORMAT_RGBA8_UNORM,
+                                                                                    .bindless = true,
+                                                                                    .name = "scene-boids-draw");
     MEL_REQUIRE(!mel_gpu_failed(draw_pl.status));
 
     Scene_Target          tgt = scene_target_create(dev, SCENE_W, SCENE_H);
@@ -989,7 +1023,7 @@ MEL_TEST(scene_shared, boids)
 
     Mel_Gpu_Subresource_Range range = { MEL_GPU_ASPECT_COLOR, 0, 1, 0, 1 };
     mel_gpu_cmd_texture_barrier(cmd, tgt.rt, range, MEL_GPU_STATE_COMMON, MEL_GPU_STATE_RENDER_TARGET);
-    Boids_Root droot = { .src = buf_slot[1], .dst = buf_slot[0], .aspect = 1.0f, .time = 0.0f };
+    Boids_Root               droot = { .src = buf_slot[1], .dst = buf_slot[0], .aspect = 1.0f, .time = 0.0f };
     Mel_Gpu_Color_Attachment color = { .view = tgt.rt_view, .load = MEL_GPU_LOAD_CLEAR, .store = MEL_GPU_STORE_STORE, .clear = mel_gpu_rgba(0.02f, 0.03f, 0.05f, 1.0f) };
     mel_gpu_cmd_begin_rendering(cmd, .colors = &color, .color_count = 1, .width = tgt.w, .height = tgt.h);
     mel_gpu_cmd_bind_pipeline(cmd, draw_pl.value);
@@ -1057,9 +1091,22 @@ MEL_TEST(scene_shared, compute_plasma)
     MEL_REQUIRE(!mel_gpu_failed(cb.status));
     u32 cell_slot = mel_gpu_buffer_bindless_slot(dev, cb.value);
 
-    Mel_Gpu_Pipeline_From_Slang_Result comp_pl = mel_gpu_pipeline_compute_create_from_slang(dev, .source = COMPUTE_PLASMA_SLANG, .compute_entry = "cs_main", .push_constant_size = sizeof(Plasma_Scene_Root), .bindless = true, .name = "scene-plasma-cs");
+    Mel_Gpu_Pipeline_From_Slang_Result comp_pl = mel_gpu_pipeline_compute_create_from_slang(dev,
+                                                                                            .source = COMPUTE_PLASMA_SLANG,
+                                                                                            .compute_entry = "cs_main",
+                                                                                            .push_constant_size = sizeof(Plasma_Scene_Root),
+                                                                                            .bindless = true,
+                                                                                            .name = "scene-plasma-cs");
     MEL_REQUIRE(!mel_gpu_failed(comp_pl.status));
-    Mel_Gpu_Pipeline_From_Slang_Result draw_pl = mel_gpu_pipeline_create_from_slang(dev, .source = COMPUTE_PLASMA_SLANG, .vertex_entry = "vs_cells", .fragment_entry = "fs_cells", .topology = MEL_GPU_TOPOLOGY_TRIANGLE_LIST, .cull = MEL_GPU_CULL_NONE, .color_format = MEL_GPU_FORMAT_RGBA8_UNORM, .bindless = true, .name = "scene-plasma-draw");
+    Mel_Gpu_Pipeline_From_Slang_Result draw_pl = mel_gpu_pipeline_create_from_slang(dev,
+                                                                                    .source = COMPUTE_PLASMA_SLANG,
+                                                                                    .vertex_entry = "vs_cells",
+                                                                                    .fragment_entry = "fs_cells",
+                                                                                    .topology = MEL_GPU_TOPOLOGY_TRIANGLE_LIST,
+                                                                                    .cull = MEL_GPU_CULL_NONE,
+                                                                                    .color_format = MEL_GPU_FORMAT_RGBA8_UNORM,
+                                                                                    .bindless = true,
+                                                                                    .name = "scene-plasma-draw");
     MEL_REQUIRE(!mel_gpu_failed(draw_pl.status));
 
     Scene_Target          tgt = scene_target_create(dev, SCENE_W, SCENE_H);
@@ -1077,7 +1124,7 @@ MEL_TEST(scene_shared, compute_plasma)
 
     Mel_Gpu_Subresource_Range range = { MEL_GPU_ASPECT_COLOR, 0, 1, 0, 1 };
     mel_gpu_cmd_texture_barrier(cmd, tgt.rt, range, MEL_GPU_STATE_COMMON, MEL_GPU_STATE_RENDER_TARGET);
-    Plasma_Scene_Root droot = { .cells_rw = cell_slot, .cells_ro = cell_slot, .grid_w = PLASMA_SCENE_GRID_W, .grid_h = PLASMA_SCENE_GRID_H };
+    Plasma_Scene_Root        droot = { .cells_rw = cell_slot, .cells_ro = cell_slot, .grid_w = PLASMA_SCENE_GRID_W, .grid_h = PLASMA_SCENE_GRID_H };
     Mel_Gpu_Color_Attachment color = { .view = tgt.rt_view, .load = MEL_GPU_LOAD_CLEAR, .store = MEL_GPU_STORE_STORE, .clear = mel_gpu_rgba(0.02f, 0.02f, 0.03f, 1.0f) };
     mel_gpu_cmd_begin_rendering(cmd, .colors = &color, .color_count = 1, .width = tgt.w, .height = tgt.h);
     mel_gpu_cmd_bind_pipeline(cmd, draw_pl.value);
@@ -1151,13 +1198,34 @@ MEL_TEST(scene_shared, particles)
     MEL_REQUIRE(!mel_gpu_failed(pb.status));
     u32 part_slot = mel_gpu_buffer_bindless_slot(dev, pb.value);
 
-    Mel_Gpu_Pipeline_From_Slang_Result sim_pl = mel_gpu_pipeline_compute_create_from_slang(dev, .source = PARTICLES_SLANG, .compute_entry = "cs_sim", .push_constant_size = sizeof(Particles_Scene_Root), .bindless = true, .name = "scene-particles-sim");
+    Mel_Gpu_Pipeline_From_Slang_Result sim_pl = mel_gpu_pipeline_compute_create_from_slang(dev,
+                                                                                           .source = PARTICLES_SLANG,
+                                                                                           .compute_entry = "cs_sim",
+                                                                                           .push_constant_size = sizeof(Particles_Scene_Root),
+                                                                                           .bindless = true,
+                                                                                           .name = "scene-particles-sim");
     MEL_REQUIRE(!mel_gpu_failed(sim_pl.status));
     Mel_Gpu_Color_Target target = {
         .format = MEL_GPU_FORMAT_RGBA8_UNORM,
-        .blend = { .enable = true, .src_color = MEL_GPU_BLEND_SRC_ALPHA, .dst_color = MEL_GPU_BLEND_ONE, .color_op = MEL_GPU_BLEND_OP_ADD, .src_alpha = MEL_GPU_BLEND_ONE, .dst_alpha = MEL_GPU_BLEND_ONE, .alpha_op = MEL_GPU_BLEND_OP_ADD, .write_mask = MEL_GPU_COLOR_WRITE_ALL },
+        .blend = { .enable = true,
+                   .src_color = MEL_GPU_BLEND_SRC_ALPHA,
+                   .dst_color = MEL_GPU_BLEND_ONE,
+                   .color_op = MEL_GPU_BLEND_OP_ADD,
+                   .src_alpha = MEL_GPU_BLEND_ONE,
+                   .dst_alpha = MEL_GPU_BLEND_ONE,
+                   .alpha_op = MEL_GPU_BLEND_OP_ADD,
+                   .write_mask = MEL_GPU_COLOR_WRITE_ALL },
     };
-    Mel_Gpu_Pipeline_From_Slang_Result draw_pl = mel_gpu_pipeline_create_from_slang(dev, .source = PARTICLES_SLANG, .vertex_entry = "vs_draw", .fragment_entry = "fs_draw", .topology = MEL_GPU_TOPOLOGY_TRIANGLE_LIST, .cull = MEL_GPU_CULL_NONE, .color_targets = &target, .color_target_count = 1, .bindless = true, .name = "scene-particles-draw");
+    Mel_Gpu_Pipeline_From_Slang_Result draw_pl = mel_gpu_pipeline_create_from_slang(dev,
+                                                                                    .source = PARTICLES_SLANG,
+                                                                                    .vertex_entry = "vs_draw",
+                                                                                    .fragment_entry = "fs_draw",
+                                                                                    .topology = MEL_GPU_TOPOLOGY_TRIANGLE_LIST,
+                                                                                    .cull = MEL_GPU_CULL_NONE,
+                                                                                    .color_targets = &target,
+                                                                                    .color_target_count = 1,
+                                                                                    .bindless = true,
+                                                                                    .name = "scene-particles-draw");
     MEL_REQUIRE(!mel_gpu_failed(draw_pl.status));
 
     Scene_Target          tgt = scene_target_create(dev, SCENE_W, SCENE_H);
@@ -1175,7 +1243,7 @@ MEL_TEST(scene_shared, particles)
 
     Mel_Gpu_Subresource_Range range = { MEL_GPU_ASPECT_COLOR, 0, 1, 0, 1 };
     mel_gpu_cmd_texture_barrier(cmd, tgt.rt, range, MEL_GPU_STATE_COMMON, MEL_GPU_STATE_RENDER_TARGET);
-    Particles_Scene_Root droot = { .particles_rw = part_slot, .particles_ro = part_slot, .aspect = 1.0f };
+    Particles_Scene_Root     droot = { .particles_rw = part_slot, .particles_ro = part_slot, .aspect = 1.0f };
     Mel_Gpu_Color_Attachment color = { .view = tgt.rt_view, .load = MEL_GPU_LOAD_CLEAR, .store = MEL_GPU_STORE_STORE, .clear = mel_gpu_rgba(0.02f, 0.02f, 0.04f, 1.0f) };
     mel_gpu_cmd_begin_rendering(cmd, .colors = &color, .color_count = 1, .width = tgt.w, .height = tgt.h);
     mel_gpu_cmd_bind_pipeline(cmd, draw_pl.value);
@@ -1234,7 +1302,12 @@ MEL_TEST(scene_shared, reacdiff)
     u32                  img_slot[2];
     for (u32 k = 0; k < 2; ++k)
     {
-        Mel_Gpu_Texture_Create_Result it = mel_gpu_texture_create(dev, .kind = MEL_GPU_TEXTURE_2D, .extent = { SCENE_W, SCENE_H, 1 }, .format = MEL_GPU_FORMAT_RGBA8_UNORM, .usage = MEL_GPU_TEXTURE_STORAGE | MEL_GPU_TEXTURE_SAMPLED, .name = "scene-reacdiff");
+        Mel_Gpu_Texture_Create_Result it = mel_gpu_texture_create(dev,
+                                                                  .kind = MEL_GPU_TEXTURE_2D,
+                                                                  .extent = { SCENE_W, SCENE_H, 1 },
+                                                                  .format = MEL_GPU_FORMAT_RGBA8_UNORM,
+                                                                  .usage = MEL_GPU_TEXTURE_STORAGE | MEL_GPU_TEXTURE_SAMPLED,
+                                                                  .name = "scene-reacdiff");
         MEL_REQUIRE(!mel_gpu_failed(it.status));
         img[k] = it.value;
         img_view[k] = mel_gpu_texture_default_view(dev, img[k]).value;
@@ -1245,11 +1318,29 @@ MEL_TEST(scene_shared, reacdiff)
     MEL_REQUIRE(!mel_gpu_failed(smp.status));
     u32 smp_slot = mel_gpu_sampler_bindless_slot(dev, smp.value);
 
-    Mel_Gpu_Pipeline_From_Slang_Result init_pl = mel_gpu_pipeline_compute_create_from_slang(dev, .source = REACDIFF_SLANG, .compute_entry = "cs_init", .push_constant_size = sizeof(Reacdiff_Scene_Root), .bindless = true, .name = "scene-reacdiff-init");
+    Mel_Gpu_Pipeline_From_Slang_Result init_pl = mel_gpu_pipeline_compute_create_from_slang(dev,
+                                                                                            .source = REACDIFF_SLANG,
+                                                                                            .compute_entry = "cs_init",
+                                                                                            .push_constant_size = sizeof(Reacdiff_Scene_Root),
+                                                                                            .bindless = true,
+                                                                                            .name = "scene-reacdiff-init");
     MEL_REQUIRE(!mel_gpu_failed(init_pl.status));
-    Mel_Gpu_Pipeline_From_Slang_Result step_pl = mel_gpu_pipeline_compute_create_from_slang(dev, .source = REACDIFF_SLANG, .compute_entry = "cs_step", .push_constant_size = sizeof(Reacdiff_Scene_Root), .bindless = true, .name = "scene-reacdiff-step");
+    Mel_Gpu_Pipeline_From_Slang_Result step_pl = mel_gpu_pipeline_compute_create_from_slang(dev,
+                                                                                            .source = REACDIFF_SLANG,
+                                                                                            .compute_entry = "cs_step",
+                                                                                            .push_constant_size = sizeof(Reacdiff_Scene_Root),
+                                                                                            .bindless = true,
+                                                                                            .name = "scene-reacdiff-step");
     MEL_REQUIRE(!mel_gpu_failed(step_pl.status));
-    Mel_Gpu_Pipeline_From_Slang_Result draw_pl = mel_gpu_pipeline_create_from_slang(dev, .source = REACDIFF_SLANG, .vertex_entry = "vs_draw", .fragment_entry = "fs_draw", .topology = MEL_GPU_TOPOLOGY_TRIANGLE_LIST, .cull = MEL_GPU_CULL_NONE, .color_format = MEL_GPU_FORMAT_RGBA8_UNORM, .bindless = true, .name = "scene-reacdiff-draw");
+    Mel_Gpu_Pipeline_From_Slang_Result draw_pl = mel_gpu_pipeline_create_from_slang(dev,
+                                                                                    .source = REACDIFF_SLANG,
+                                                                                    .vertex_entry = "vs_draw",
+                                                                                    .fragment_entry = "fs_draw",
+                                                                                    .topology = MEL_GPU_TOPOLOGY_TRIANGLE_LIST,
+                                                                                    .cull = MEL_GPU_CULL_NONE,
+                                                                                    .color_format = MEL_GPU_FORMAT_RGBA8_UNORM,
+                                                                                    .bindless = true,
+                                                                                    .name = "scene-reacdiff-draw");
     MEL_REQUIRE(!mel_gpu_failed(draw_pl.status));
 
     Scene_Target          tgt = scene_target_create(dev, SCENE_W, SCENE_H);
@@ -1289,7 +1380,7 @@ MEL_TEST(scene_shared, reacdiff)
     }
 
     mel_gpu_cmd_texture_barrier(cmd, tgt.rt, range, MEL_GPU_STATE_COMMON, MEL_GPU_STATE_RENDER_TARGET);
-    Reacdiff_Scene_Root dr = { .tex = img_slot[cur], .smp = smp_slot, .time = 0.0f };
+    Reacdiff_Scene_Root      dr = { .tex = img_slot[cur], .smp = smp_slot, .time = 0.0f };
     Mel_Gpu_Color_Attachment color = { .view = tgt.rt_view, .load = MEL_GPU_LOAD_CLEAR, .store = MEL_GPU_STORE_STORE, .clear = mel_gpu_rgba(0.0f, 0.0f, 0.0f, 1.0f) };
     mel_gpu_cmd_begin_rendering(cmd, .colors = &color, .color_count = 1, .width = tgt.w, .height = tgt.h);
     mel_gpu_cmd_bind_pipeline(cmd, draw_pl.value);
@@ -1386,12 +1477,17 @@ MEL_TEST(scene_shared, dispatch_indirect)
 
     Mel_Gpu_Buffer_Create_Result sb = mel_gpu_buffer_create(dev, .size = 16 + (usize)DI_SCENE_AGENTS * sizeof(u32), .usage = MEL_GPU_BUFFER_STORAGE, .memory = MEL_GPU_MEMORY_UPLOAD, .name = "scene-di-survivors");
     MEL_REQUIRE(!mel_gpu_failed(sb.status));
-    u32 surv_slot = mel_gpu_buffer_bindless_slot(dev, sb.value);
+    u32                          surv_slot = mel_gpu_buffer_bindless_slot(dev, sb.value);
     Mel_Gpu_Buffer_Create_Result rb = mel_gpu_buffer_create(dev, .size = 3 * sizeof(u32), .usage = MEL_GPU_BUFFER_STORAGE | MEL_GPU_BUFFER_INDIRECT, .memory = MEL_GPU_MEMORY_UPLOAD, .name = "scene-di-args");
     MEL_REQUIRE(!mel_gpu_failed(rb.status));
     u32 args_slot = mel_gpu_buffer_bindless_slot(dev, rb.value);
 
-    Mel_Gpu_Texture_Create_Result it = mel_gpu_texture_create(dev, .kind = MEL_GPU_TEXTURE_2D, .extent = { SCENE_W, SCENE_H, 1 }, .format = MEL_GPU_FORMAT_RGBA8_UNORM, .usage = MEL_GPU_TEXTURE_STORAGE | MEL_GPU_TEXTURE_COPY_SRC, .name = "scene-di-img");
+    Mel_Gpu_Texture_Create_Result it = mel_gpu_texture_create(dev,
+                                                              .kind = MEL_GPU_TEXTURE_2D,
+                                                              .extent = { SCENE_W, SCENE_H, 1 },
+                                                              .format = MEL_GPU_FORMAT_RGBA8_UNORM,
+                                                              .usage = MEL_GPU_TEXTURE_STORAGE | MEL_GPU_TEXTURE_COPY_SRC,
+                                                              .name = "scene-di-img");
     MEL_REQUIRE(!mel_gpu_failed(it.status));
     Mel_Gpu_Texture_View_Create_Result iv = mel_gpu_texture_default_view(dev, it.value);
     MEL_REQUIRE(!mel_gpu_failed(iv.status));
@@ -1399,13 +1495,33 @@ MEL_TEST(scene_shared, dispatch_indirect)
     Mel_Gpu_Buffer_Create_Result imgrb = mel_gpu_buffer_create(dev, .size = (usize)SCENE_W * SCENE_H * 4, .usage = MEL_GPU_BUFFER_TRANSFER_DST, .memory = MEL_GPU_MEMORY_READBACK, .name = "scene-di-rb");
     MEL_REQUIRE(!mel_gpu_failed(imgrb.status));
 
-    Mel_Gpu_Pipeline_From_Slang_Result cull_pl = mel_gpu_pipeline_compute_create_from_slang(dev, .source = DISPATCH_INDIRECT_SLANG, .compute_entry = "cs_cull", .push_constant_size = sizeof(Di_Scene_Root), .bindless = true, .name = "scene-di-cull");
+    Mel_Gpu_Pipeline_From_Slang_Result cull_pl = mel_gpu_pipeline_compute_create_from_slang(dev,
+                                                                                            .source = DISPATCH_INDIRECT_SLANG,
+                                                                                            .compute_entry = "cs_cull",
+                                                                                            .push_constant_size = sizeof(Di_Scene_Root),
+                                                                                            .bindless = true,
+                                                                                            .name = "scene-di-cull");
     MEL_REQUIRE(!mel_gpu_failed(cull_pl.status));
-    Mel_Gpu_Pipeline_From_Slang_Result args_pl = mel_gpu_pipeline_compute_create_from_slang(dev, .source = DISPATCH_INDIRECT_SLANG, .compute_entry = "cs_args", .push_constant_size = sizeof(Di_Scene_Root), .bindless = true, .name = "scene-di-args");
+    Mel_Gpu_Pipeline_From_Slang_Result args_pl = mel_gpu_pipeline_compute_create_from_slang(dev,
+                                                                                            .source = DISPATCH_INDIRECT_SLANG,
+                                                                                            .compute_entry = "cs_args",
+                                                                                            .push_constant_size = sizeof(Di_Scene_Root),
+                                                                                            .bindless = true,
+                                                                                            .name = "scene-di-args");
     MEL_REQUIRE(!mel_gpu_failed(args_pl.status));
-    Mel_Gpu_Pipeline_From_Slang_Result clear_pl = mel_gpu_pipeline_compute_create_from_slang(dev, .source = DISPATCH_INDIRECT_SLANG, .compute_entry = "cs_clear", .push_constant_size = sizeof(Di_Scene_Root), .bindless = true, .name = "scene-di-clear");
+    Mel_Gpu_Pipeline_From_Slang_Result clear_pl = mel_gpu_pipeline_compute_create_from_slang(dev,
+                                                                                             .source = DISPATCH_INDIRECT_SLANG,
+                                                                                             .compute_entry = "cs_clear",
+                                                                                             .push_constant_size = sizeof(Di_Scene_Root),
+                                                                                             .bindless = true,
+                                                                                             .name = "scene-di-clear");
     MEL_REQUIRE(!mel_gpu_failed(clear_pl.status));
-    Mel_Gpu_Pipeline_From_Slang_Result shade_pl = mel_gpu_pipeline_compute_create_from_slang(dev, .source = DISPATCH_INDIRECT_SLANG, .compute_entry = "cs_shade", .push_constant_size = sizeof(Di_Scene_Root), .bindless = true, .name = "scene-di-shade");
+    Mel_Gpu_Pipeline_From_Slang_Result shade_pl = mel_gpu_pipeline_compute_create_from_slang(dev,
+                                                                                             .source = DISPATCH_INDIRECT_SLANG,
+                                                                                             .compute_entry = "cs_shade",
+                                                                                             .push_constant_size = sizeof(Di_Scene_Root),
+                                                                                             .bindless = true,
+                                                                                             .name = "scene-di-shade");
     MEL_REQUIRE(!mel_gpu_failed(shade_pl.status));
 
     u32* surv_map = mel_gpu_buffer_mapped(dev, sb.value);
@@ -1611,12 +1727,12 @@ MEL_TEST(scene_shared, depth3d)
     Mel_Gpu_Device*   dev = scene_make_device(&inst);
     MEL_REQUIRE_NOT_NULL(dev);
 
-    Depth_Scene_Vertex verts[12];
-    u32                count = scene_build_depth_overlap(verts);
+    Depth_Scene_Vertex           verts[12];
+    u32                          count = scene_build_depth_overlap(verts);
     Mel_Gpu_Buffer_Create_Result vbo = mel_gpu_buffer_create(dev, .size = count * sizeof(Depth_Scene_Vertex), .usage = MEL_GPU_BUFFER_VERTEX, .memory = MEL_GPU_MEMORY_UPLOAD, .data = verts, .name = "scene-depth3d-vbo");
     MEL_REQUIRE(!mel_gpu_failed(vbo.status));
 
-    Mel_Gpu_Depth_Stencil depth_ds = { .depth_test = true, .depth_write = true, .depth_compare = MEL_GPU_COMPARE_LESS };
+    Mel_Gpu_Depth_Stencil              depth_ds = { .depth_test = true, .depth_write = true, .depth_compare = MEL_GPU_COMPARE_LESS };
     Mel_Gpu_Pipeline_From_Slang_Result pipe = mel_gpu_pipeline_create_from_slang(dev,
                                                                                  .source = DEPTH3D_SLANG,
                                                                                  .vertex_entry = "vs_scene",
@@ -1656,12 +1772,12 @@ MEL_TEST(scene_shared, prepass)
     Mel_Gpu_Device*   dev = scene_make_device(&inst);
     MEL_REQUIRE_NOT_NULL(dev);
 
-    Depth_Scene_Vertex verts[12];
-    u32                count = scene_build_depth_overlap(verts);
+    Depth_Scene_Vertex           verts[12];
+    u32                          count = scene_build_depth_overlap(verts);
     Mel_Gpu_Buffer_Create_Result vbo = mel_gpu_buffer_create(dev, .size = count * sizeof(Depth_Scene_Vertex), .usage = MEL_GPU_BUFFER_VERTEX, .memory = MEL_GPU_MEMORY_UPLOAD, .data = verts, .name = "scene-prepass-vbo");
     MEL_REQUIRE(!mel_gpu_failed(vbo.status));
 
-    Mel_Gpu_Depth_Stencil depth_ds = { .depth_test = true, .depth_write = true, .depth_compare = MEL_GPU_COMPARE_LESS };
+    Mel_Gpu_Depth_Stencil              depth_ds = { .depth_test = true, .depth_write = true, .depth_compare = MEL_GPU_COMPARE_LESS };
     Mel_Gpu_Pipeline_From_Slang_Result depth_pl = mel_gpu_pipeline_create_from_slang(dev,
                                                                                      .source = PREPASS_SLANG,
                                                                                      .vertex_entry = "vs_scene",
@@ -1673,7 +1789,7 @@ MEL_TEST(scene_shared, prepass)
                                                                                      .name = "scene-prepass-depth");
     MEL_REQUIRE(!mel_gpu_failed(depth_pl.status));
 
-    Mel_Gpu_Depth_Stencil lit_ds = { .depth_test = true, .depth_write = false, .depth_compare = MEL_GPU_COMPARE_EQUAL };
+    Mel_Gpu_Depth_Stencil              lit_ds = { .depth_test = true, .depth_write = false, .depth_compare = MEL_GPU_COMPARE_EQUAL };
     Mel_Gpu_Pipeline_From_Slang_Result lit_pl = mel_gpu_pipeline_create_from_slang(dev,
                                                                                    .source = PREPASS_SLANG,
                                                                                    .vertex_entry = "vs_scene",
@@ -1686,7 +1802,12 @@ MEL_TEST(scene_shared, prepass)
                                                                                    .name = "scene-prepass-lit");
     MEL_REQUIRE(!mel_gpu_failed(lit_pl.status));
 
-    Mel_Gpu_Texture_Create_Result depth = mel_gpu_texture_create(dev, .kind = MEL_GPU_TEXTURE_2D, .extent = { SCENE_W, SCENE_H, 1 }, .format = MEL_GPU_FORMAT_D32_FLOAT, .usage = MEL_GPU_TEXTURE_ATTACHMENT, .name = "scene-prepass-depth-tex");
+    Mel_Gpu_Texture_Create_Result depth = mel_gpu_texture_create(dev,
+                                                                 .kind = MEL_GPU_TEXTURE_2D,
+                                                                 .extent = { SCENE_W, SCENE_H, 1 },
+                                                                 .format = MEL_GPU_FORMAT_D32_FLOAT,
+                                                                 .usage = MEL_GPU_TEXTURE_ATTACHMENT,
+                                                                 .name = "scene-prepass-depth-tex");
     MEL_REQUIRE(!mel_gpu_failed(depth.status));
     Mel_Gpu_Texture_View_Create_Result depth_view = mel_gpu_texture_default_view(dev, depth.value);
     MEL_REQUIRE(!mel_gpu_failed(depth_view.status));
@@ -1823,8 +1944,8 @@ MEL_TEST(scene_shared, msaa)
         MEL_SKIP("msaa scene needs a multisample RGBA8 format; device offers only 1x");
     }
 
-    Scene_Star_Vertex verts[33];
-    u32               count = scene_build_star(verts);
+    Scene_Star_Vertex            verts[33];
+    u32                          count = scene_build_star(verts);
     Mel_Gpu_Buffer_Create_Result vbo = mel_gpu_buffer_create(dev, .size = count * sizeof(Scene_Star_Vertex), .usage = MEL_GPU_BUFFER_VERTEX, .memory = MEL_GPU_MEMORY_UPLOAD, .data = verts, .name = "scene-msaa-vbo");
     MEL_REQUIRE(!mel_gpu_failed(vbo.status));
 
@@ -1840,7 +1961,8 @@ MEL_TEST(scene_shared, msaa)
                                                                                     .name = "scene-msaa-star");
     MEL_REQUIRE(!mel_gpu_failed(star_pl.status));
 
-    Mel_Gpu_Texture_Create_Result ms = mel_gpu_texture_create(dev, .kind = MEL_GPU_TEXTURE_2D, .extent = { SCENE_W, SCENE_H, 1 }, .format = MEL_GPU_FORMAT_RGBA8_UNORM, .sample_count = samples, .usage = MEL_GPU_TEXTURE_ATTACHMENT, .name = "scene-msaa-ms");
+    Mel_Gpu_Texture_Create_Result
+        ms = mel_gpu_texture_create(dev, .kind = MEL_GPU_TEXTURE_2D, .extent = { SCENE_W, SCENE_H, 1 }, .format = MEL_GPU_FORMAT_RGBA8_UNORM, .sample_count = samples, .usage = MEL_GPU_TEXTURE_ATTACHMENT, .name = "scene-msaa-ms");
     MEL_REQUIRE(!mel_gpu_failed(ms.status));
     Mel_Gpu_Texture_View_Create_Result ms_view = mel_gpu_texture_default_view(dev, ms.value);
     MEL_REQUIRE(!mel_gpu_failed(ms_view.status));
@@ -1853,7 +1975,12 @@ MEL_TEST(scene_shared, msaa)
     MEL_REQUIRE(!mel_gpu_failed(heap_tex.status));
     Mel_Gpu_Texture_View_Create_Result heap_view = mel_gpu_texture_default_view(dev, heap_tex.value);
     MEL_REQUIRE(!mel_gpu_failed(heap_view.status));
-    Mel_Gpu_Sampler_Create_Result heap_smp = mel_gpu_sampler_create(dev, .min_filter = MEL_GPU_FILTER_LINEAR, .mag_filter = MEL_GPU_FILTER_LINEAR, .wrap_u = MEL_GPU_WRAP_CLAMP_EDGE, .wrap_v = MEL_GPU_WRAP_CLAMP_EDGE, .name = "scene-msaa-heap-smp");
+    Mel_Gpu_Sampler_Create_Result heap_smp = mel_gpu_sampler_create(dev,
+                                                                    .min_filter = MEL_GPU_FILTER_LINEAR,
+                                                                    .mag_filter = MEL_GPU_FILTER_LINEAR,
+                                                                    .wrap_u = MEL_GPU_WRAP_CLAMP_EDGE,
+                                                                    .wrap_v = MEL_GPU_WRAP_CLAMP_EDGE,
+                                                                    .name = "scene-msaa-heap-smp");
     MEL_REQUIRE(!mel_gpu_failed(heap_smp.status));
     u32 heap_slot = mel_gpu_texture_view_bindless_slot(dev, heap_view.value);
 
@@ -1991,7 +2118,7 @@ MEL_TEST(scene_shared, shadow)
     Mel_Gpu_Buffer_Create_Result scene_vbo = mel_gpu_buffer_create(dev, .size = scene_count * sizeof(Scene_Shadow_Scene_Vertex), .usage = MEL_GPU_BUFFER_VERTEX, .memory = MEL_GPU_MEMORY_UPLOAD, .data = sv, .name = "scene-shadow-svbo");
     MEL_REQUIRE(!mel_gpu_failed(scene_vbo.status));
 
-    Mel_Gpu_Depth_Stencil depth_ds = { .depth_test = true, .depth_write = true, .depth_compare = MEL_GPU_COMPARE_LESS };
+    Mel_Gpu_Depth_Stencil              depth_ds = { .depth_test = true, .depth_write = true, .depth_compare = MEL_GPU_COMPARE_LESS };
     Mel_Gpu_Pipeline_From_Slang_Result depth_pl = mel_gpu_pipeline_create_from_slang(dev,
                                                                                      .source = SHADOW_SLANG,
                                                                                      .vertex_entry = "vs_depth",
@@ -2015,12 +2142,22 @@ MEL_TEST(scene_shared, shadow)
                                                                                      .name = "scene-shadow-scene");
     MEL_REQUIRE(!mel_gpu_failed(scene_pl.status));
 
-    Mel_Gpu_Texture_Create_Result shadow_map = mel_gpu_texture_create(dev, .kind = MEL_GPU_TEXTURE_2D, .extent = { SCENE_W, SCENE_H, 1 }, .format = MEL_GPU_FORMAT_D32_FLOAT, .usage = MEL_GPU_TEXTURE_ATTACHMENT | MEL_GPU_TEXTURE_SAMPLED, .name = "scene-shadow-map");
+    Mel_Gpu_Texture_Create_Result shadow_map = mel_gpu_texture_create(dev,
+                                                                      .kind = MEL_GPU_TEXTURE_2D,
+                                                                      .extent = { SCENE_W, SCENE_H, 1 },
+                                                                      .format = MEL_GPU_FORMAT_D32_FLOAT,
+                                                                      .usage = MEL_GPU_TEXTURE_ATTACHMENT | MEL_GPU_TEXTURE_SAMPLED,
+                                                                      .name = "scene-shadow-map");
     MEL_REQUIRE(!mel_gpu_failed(shadow_map.status));
     Mel_Gpu_Texture_View_Create_Result shadow_view = mel_gpu_texture_default_view(dev, shadow_map.value);
     MEL_REQUIRE(!mel_gpu_failed(shadow_view.status));
 
-    Mel_Gpu_Sampler_Create_Result smp = mel_gpu_sampler_create(dev, .min_filter = MEL_GPU_FILTER_NEAREST, .mag_filter = MEL_GPU_FILTER_NEAREST, .wrap_u = MEL_GPU_WRAP_CLAMP_EDGE, .wrap_v = MEL_GPU_WRAP_CLAMP_EDGE, .name = "scene-shadow-smp");
+    Mel_Gpu_Sampler_Create_Result smp = mel_gpu_sampler_create(dev,
+                                                               .min_filter = MEL_GPU_FILTER_NEAREST,
+                                                               .mag_filter = MEL_GPU_FILTER_NEAREST,
+                                                               .wrap_u = MEL_GPU_WRAP_CLAMP_EDGE,
+                                                               .wrap_v = MEL_GPU_WRAP_CLAMP_EDGE,
+                                                               .name = "scene-shadow-smp");
     MEL_REQUIRE(!mel_gpu_failed(smp.status));
 
     Scene_Shadow_Root root = {

@@ -1,7 +1,7 @@
 #include <stdio.h>
 
 #include <core/platform.h>
-#include <app/app.h>
+#include <vat/vat.h>
 #include <gui/gui.h>
 
 #include <allocator/heap.h>
@@ -155,9 +155,9 @@ static void build_main(Mel_Gui_Handle frame, void* user)
     g_app.canvas = mel_canvas_create(frame, .on_.on_paint = on_paint, .lifecycle.on_destroy = on_destroy, .layoutable = { .preferred_h = 320, .weight = 1 });
 }
 
-void mel_app_setup(Mel_Reactor* reactor)
+void mel_app_setup(Mel_Vat* root)
 {
-    mel_gui_init(reactor);
+    mel_gui_init(root);
     mel_app_register_screen(S8("main"), build_main, NULL);
     mel_app_present(S8("main"), NULL);
 }

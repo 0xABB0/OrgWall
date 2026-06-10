@@ -380,7 +380,7 @@ int mel_build_main(int argc, char** argv)
         {
             target = a;
         }
-        else if (!parse_platform(a, &platform))
+        else if (!parse_platform(a, &platform) && strcmp(verb, "compdb") != 0)
         {
             fprintf(stderr, "nob: unknown platform '%s'\n", a);
             return 2;
@@ -388,7 +388,8 @@ int mel_build_main(int argc, char** argv)
     }
 
     Mel_Graph g = { 0 };
-    mel_discover(&g);
+    if (!mel_discover(&g))
+        return 1;
 
     if (strcmp(verb, "compdb") == 0)
     {
@@ -397,13 +398,35 @@ int mel_build_main(int argc, char** argv)
             Mel_Variant* items;
             size_t       len, cap;
         } vars = { 0 };
+        const char* db_target = NULL;
         for (int i = 2; i < argc; i++)
         {
+            if (strcmp(argv[i], "--") == 0)
+                break;
+            if (strcmp(argv[i], "--gpu") == 0)
+            {
+                i++;
+                continue;
+            }
             if (strncmp(argv[i], "--", 2) == 0)
                 continue;
             Mel_Platform p;
             if (parse_platform(argv[i], &p))
                 mel_da_push(&vars, mel_variant_native(p, config));
+            else if (!db_target)
+                db_target = argv[i];
+            else
+            {
+                fprintf(stderr, "nob: unknown platform or target '%s'\n", argv[i]);
+                free(vars.items);
+                return 2;
+            }
+        }
+        if (db_target && !mel_graph_find(&g, db_target))
+        {
+            fprintf(stderr, "nob: unknown target '%s'\n", db_target);
+            free(vars.items);
+            return 2;
         }
         if (vars.len == 0)
         {
@@ -412,9 +435,10 @@ int mel_build_main(int argc, char** argv)
                 if (p != host_platform())
                     mel_da_push(&vars, mel_variant_native(p, config));
         }
-        bool ok = mel_emit_compdb(&g, vars.items, vars.len, "compile_commands.json");
+        size_t written = 0;
+        bool   ok = mel_emit_compdb(&g, vars.items, vars.len, db_target, &written);
         if (ok)
-            fprintf(stderr, "build: wrote compile_commands.json (%zu platform%s)\n", vars.len, vars.len == 1 ? "" : "s");
+            fprintf(stderr, "build: wrote %zu compile database%s (%zu platform%s)\n", written, written == 1 ? "" : "s", vars.len, vars.len == 1 ? "" : "s");
         free(vars.items);
         return ok ? 0 : 1;
     }

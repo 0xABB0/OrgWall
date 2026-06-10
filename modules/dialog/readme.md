@@ -62,5 +62,5 @@ and warns on the ones it cannot honor.
 
 ## Dependencies
 
-`core`, `allocator`, `collection`, `string`, `executor`, `future`, `event`, `reactor`,
+`core`, `allocator`, `collection`, `string`, `executor`, `future`, `event`, `vat`,
 `window`, `log`, `platform`.

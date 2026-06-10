@@ -55,3 +55,15 @@ bool mel_topo_closure(Mel_Graph* g, const char* root, const Mel_Variant* v, Mel_
     free(state);
     return ok;
 }
+
+bool mel_topo_all(Mel_Graph* g, const Mel_Variant* v, Mel_IdxVec* order)
+{
+    char* state = calloc(g->nodes.len, 1);
+    if (!state)
+        abort();
+    bool ok = true;
+    for (size_t i = 0; i < g->nodes.len && ok; i++)
+        ok = visit(g, i, v, state, order);
+    free(state);
+    return ok;
+}

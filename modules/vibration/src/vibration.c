@@ -7,7 +7,8 @@
 #include <allocator/heap.h>
 #include <collection/slotmap.h>
 #include <collection/array.h>
-#include <reactor/reactor.h>
+#include <vat/tick.h>
+#include <vat/vat.h>
 #include <time/nano.h>
 #include <log/log.h>
 
@@ -35,10 +36,10 @@ typedef struct
     u32                 loop;
     f32                 total_duration_s;
     Mel_Vib_Status      warnings;
-    Mel_Reactor*        reactor;
+    Mel_Vat*            vat;
     Mel_Vib_On_Complete on_complete;
     void*               user;
-    Mel_Reactor_Source* timer;
+    Mel_Vat_Tick*       timer;
     u64                 start_ns;
     f32                 elapsed_s;
     bool                paused;
@@ -55,7 +56,7 @@ typedef struct
 {
     bool             initialized;
     const Mel_Alloc* alloc;
-    Mel_Reactor*     reactor;
+    Mel_Vat*         vat;
     Mel_SlotMap      devices;
     Mel_SlotMap      playbacks;
     Mel_Array(Provider_Entry) providers;
@@ -138,7 +139,7 @@ static void core_notify(void* token, Mel_Vib_Status status)
     {
         if (ps->timer)
         {
-            mel_reactor_source_destroy(ps->timer);
+            mel_vat_tick_close(ps->timer);
             ps->timer = NULL;
         }
         resolve(h, ps, status);
@@ -159,12 +160,12 @@ void mel_vib_provider_unregister(Mel_Vib_Provider p)
         g.providers.items[p.index].active = false;
 }
 
-void mel_vib_init(const Mel_Alloc* alloc, Mel_Reactor* reactor)
+void mel_vib_init(const Mel_Alloc* alloc, Mel_Vat* vat)
 {
     if (g.initialized)
         return;
     g.alloc = alloc ? alloc : mel_alloc_heap();
-    g.reactor = reactor;
+    g.vat = vat;
     mel_slotmap_init(&g.devices, g.alloc, .item_size = sizeof(Device_Slot), .initial_capacity = 4);
     mel_slotmap_init(&g.playbacks, g.alloc, .item_size = sizeof(Playback_Slot), .initial_capacity = 8);
     mel_array_init(&g.providers, g.alloc);
@@ -276,7 +277,7 @@ u32 mel_vib_refresh(void)
             {
                 if (ps->timer)
                 {
-                    mel_reactor_source_destroy(ps->timer);
+                    mel_vat_tick_close(ps->timer);
                     ps->timer = NULL;
                 }
                 resolve(pb.h, ps, MEL_VIB_ERROR | MEL_VIB_RESULT_DEVICE_LOST);
@@ -371,7 +372,7 @@ Mel_Vib_Play_Result mel_vib_play_opt(Mel_Vib_Device d, const Mel_Vib_Pattern* p,
     slot.stable_id = ds->stable_id;
     slot.token = ++g.next_token;
     slot.loop = p->loop;
-    slot.reactor = opt.reactor ? opt.reactor : g.reactor;
+    slot.vat = opt.vat ? opt.vat : g.vat;
     slot.on_complete = opt.on_complete;
     slot.user = opt.user;
     mel_array_init(&slot.events, g.alloc);
@@ -419,9 +420,8 @@ Mel_Vib_Play_Result mel_vib_play_opt(Mel_Vib_Device d, const Mel_Vib_Pattern* p,
     if (p->loop != MEL_VIB_LOOP_FOREVER && total > 0.0f)
     {
         warn |= MEL_VIB_WARN_COMPLETION_SYNTHESIZED;
-        ps->timer = mel_reactor_timer_new((i64)((f64)total * 1.0e9), on_timer, comp.token);
-        if (ps->timer && ps->reactor)
-            mel_reactor_source_attach(ps->reactor, ps->timer);
+        if (ps->vat)
+            ps->timer = mel_vat_tick_open(ps->vat, g.alloc, (i64)((f64)total * 1.0e9), on_timer, comp.token);
     }
     ps->warnings = warn;
 
@@ -442,7 +442,7 @@ void mel_vib_abort(Mel_Vib_Playback pb)
     Provider_Entry* prov = provider_get(ps->provider_idx);
     if (ps->timer)
     {
-        mel_reactor_source_destroy(ps->timer);
+        mel_vat_tick_close(ps->timer);
         ps->timer = NULL;
     }
     if (prov && prov->desc.abort)
@@ -488,7 +488,7 @@ Mel_Vib_Status mel_vib_pause(Mel_Vib_Playback pb)
     Provider_Entry* prov = provider_get(ps->provider_idx);
     ps->elapsed_s += (f32)((f64)(now_ns() - ps->start_ns) / 1.0e9);
     if (ps->timer)
-        mel_reactor_source_set_ready_time(ps->timer, MEL_REACTOR_READY_TIME_NEVER);
+        mel_vat_tick_pause(ps->timer);
     if (prov && prov->desc.pause)
         prov->desc.pause(prov->desc.user, ps->stable_id, ps->token);
     else if (prov && prov->desc.abort)
@@ -546,7 +546,7 @@ Mel_Vib_Status mel_vib_resume(Mel_Vib_Playback pb)
     ps->start_ns = now_ns();
     ps->paused = false;
     if (ps->timer && ps->loop != MEL_VIB_LOOP_FOREVER && remaining > 0.0f)
-        mel_reactor_timer_set_interval(ps->timer, (i64)((f64)remaining * 1.0e9));
+        mel_vat_tick_set_interval(ps->timer, (i64)((f64)remaining * 1.0e9));
     return warn ? (warn | MEL_VIB_WARNED) : MEL_VIB_OK;
 }
 

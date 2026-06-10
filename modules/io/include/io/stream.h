@@ -11,7 +11,7 @@ extern "C"
 {
 #endif
 
-typedef struct Mel_Reactor  Mel_Reactor;
+typedef struct Mel_Vat      Mel_Vat;
 typedef struct Mel_Executor Mel_Executor;
 
 typedef struct Mel_Stream Mel_Stream;
@@ -82,7 +82,7 @@ typedef struct
     void*                   user;
     Mel_Stream_Caps         caps;
     const Mel_Alloc*        alloc;
-    Mel_Reactor*            reactor;
+    Mel_Vat*                vat;
     Mel_Executor*           executor;
 } Mel_Stream_Opt;
 
@@ -94,7 +94,7 @@ void mel_stream_destroy(Mel_Stream* s);
 Mel_Stream_Caps  mel_stream_caps(const Mel_Stream* s);
 i64              mel_stream_position(const Mel_Stream* s);
 const Mel_Alloc* mel_stream_alloc(const Mel_Stream* s);
-Mel_Reactor*     mel_stream_reactor(const Mel_Stream* s);
+Mel_Vat*         mel_stream_vat(const Mel_Stream* s);
 Mel_Executor*    mel_stream_executor(const Mel_Stream* s);
 void*            mel_stream_user(const Mel_Stream* s);
 const char*      mel_stream_iface_name(const Mel_Stream* s);

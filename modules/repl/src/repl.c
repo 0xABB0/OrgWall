@@ -94,6 +94,112 @@ static void mel_repl_emit(Mel_Repl_Sink sink, str8 bytes)
         sink.write(sink.self, bytes);
 }
 
+struct Mel_Repl_Drive
+{
+    Mel_Repl*        repl;
+    Mel_Repl_Sink    sink;
+    Mel_Repl_Prompts prompts;
+    Mel_Array(u8) unit;
+    bool  first;
+    usize evaluated;
+};
+
+Mel_Repl_Drive* mel_repl_drive_create(Mel_Repl* repl, Mel_Repl_Sink sink, Mel_Repl_Prompts prompts)
+{
+    if (!repl)
+    {
+        mel_log_error("repl", "mel_repl_drive_create requires a non-null repl");
+        return NULL;
+    }
+    if (!sink.write)
+    {
+        mel_log_error("repl", "mel_repl_drive_create requires a sink with a write callback");
+        return NULL;
+    }
+
+    Mel_Repl_Drive* d = mel_alloc_type(repl->allocator, Mel_Repl_Drive);
+    if (!d)
+        return NULL;
+
+    d->repl = repl;
+    d->sink = sink;
+    d->prompts = prompts;
+    mel_array_init(&d->unit, repl->allocator);
+    d->first = true;
+    d->evaluated = 0;
+
+    mel_repl_emit(d->sink, d->prompts.primary);
+    return d;
+}
+
+static void mel_repl_drive_dispatch(Mel_Repl_Drive* d)
+{
+    str8 accumulated = str8_from_parts(d->unit.items, (size)d->unit.count);
+
+    mel_repl_emit(d->sink, accumulated);
+    mel_repl_emit(d->sink, S8("\n"));
+
+    Mel_Repl_Result r = mel_repl_eval(d->repl, accumulated);
+    d->evaluated++;
+
+    if (r.ok)
+    {
+        if (r.text)
+            mel_repl_emit(d->sink, str8_from_cstr(r.text));
+    }
+    else if (r.diagnostics)
+    {
+        mel_repl_emit(d->sink, str8_from_cstr(r.diagnostics));
+    }
+    mel_repl_emit(d->sink, S8("\n"));
+
+    mel_repl_result_free(&r);
+
+    mel_array_clear(&d->unit);
+    d->first = true;
+}
+
+void mel_repl_drive_line(Mel_Repl_Drive* d, str8 line)
+{
+    if (!d)
+        return;
+
+    if (!d->first)
+        mel_array_push(&d->unit, (u8)'\n');
+    for (size i = 0; i < line.len; i++)
+        mel_array_push(&d->unit, line.data[i]);
+    d->first = false;
+
+    str8 accumulated = str8_from_parts(d->unit.items, (size)d->unit.count);
+    if (!d->repl->lang.complete || d->repl->lang.complete(d->repl->lang.self, accumulated))
+    {
+        mel_repl_drive_dispatch(d);
+        mel_repl_emit(d->sink, d->prompts.primary);
+    }
+    else
+    {
+        mel_repl_emit(d->sink, d->prompts.continuation);
+    }
+}
+
+usize mel_repl_drive_destroy(Mel_Repl_Drive* d)
+{
+    if (!d)
+        return 0;
+
+    if (!d->first)
+    {
+        mel_log_warn("repl", "input ended mid-unit; dispatching the unterminated fragment");
+        mel_repl_drive_dispatch(d);
+    }
+
+    usize            evaluated = d->evaluated;
+    const Mel_Alloc* a = d->repl->allocator;
+    mel_array_free(&d->unit);
+    mel_dealloc(a, d);
+    return evaluated;
+}
+
 usize mel_repl_run(Mel_Repl* repl, Mel_Repl_Source source, Mel_Repl_Sink sink, Mel_Repl_Prompts prompts)
 {
     if (!repl)
@@ -112,73 +218,13 @@ usize mel_repl_run(Mel_Repl* repl, Mel_Repl_Source source, Mel_Repl_Sink sink, M
         return 0;
     }
 
-    const Mel_Alloc* a = repl->allocator;
-    Mel_Array(u8) unit;
-    mel_array_init(&unit, a);
+    Mel_Repl_Drive* d = mel_repl_drive_create(repl, sink, prompts);
+    if (!d)
+        return 0;
 
-    usize evaluated = 0;
+    str8 line;
+    while (source.read(source.self, &line))
+        mel_repl_drive_line(d, line);
 
-    for (;;)
-    {
-        mel_array_clear(&unit);
-        bool first = true;
-        bool got_unit = false;
-
-        for (;;)
-        {
-            str8 prompt = first ? prompts.primary : prompts.continuation;
-            mel_repl_emit(sink, prompt);
-
-            str8 line;
-            if (!source.read(source.self, &line))
-            {
-                if (!first)
-                {
-                    mel_log_warn("repl", "input ended mid-unit; dispatching the unterminated fragment");
-                    got_unit = true;
-                }
-                break;
-            }
-
-            if (!first)
-                mel_array_push(&unit, (u8)'\n');
-            for (size i = 0; i < line.len; i++)
-                mel_array_push(&unit, line.data[i]);
-            first = false;
-
-            str8 accumulated = str8_from_parts(unit.items, (size)unit.count);
-            if (!repl->lang.complete || repl->lang.complete(repl->lang.self, accumulated))
-            {
-                got_unit = true;
-                break;
-            }
-        }
-
-        if (!got_unit)
-            break;
-
-        str8 accumulated = str8_from_parts(unit.items, (size)unit.count);
-
-        mel_repl_emit(sink, accumulated);
-        mel_repl_emit(sink, S8("\n"));
-
-        Mel_Repl_Result r = mel_repl_eval(repl, accumulated);
-        evaluated++;
-
-        if (r.ok)
-        {
-            if (r.text)
-                mel_repl_emit(sink, str8_from_cstr(r.text));
-        }
-        else if (r.diagnostics)
-        {
-            mel_repl_emit(sink, str8_from_cstr(r.diagnostics));
-        }
-        mel_repl_emit(sink, S8("\n"));
-
-        mel_repl_result_free(&r);
-    }
-
-    mel_array_free(&unit);
-    return evaluated;
+    return mel_repl_drive_destroy(d);
 }

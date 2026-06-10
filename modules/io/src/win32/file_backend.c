@@ -79,7 +79,7 @@ Mel_IO_File_Native mel_io__backend_open(const char* path, u32 flags, u32 mode)
     out.handle = (h == INVALID_HANDLE_VALUE) ? NULL : (void*)h;
     out.initial_size = size;
     out.seekable = seekable;
-    out.async_capable = false;
+    out.readiness = false;
     out.status = MEL_IO_OK;
     return out;
 }

@@ -32,7 +32,11 @@ void build(Mel_Build* b)
     mel_depends(lib, "debug");
 
     mel_codegen(lib, "enum-str-gen", "gamepad.protocol.enum.gen.c", "$out", "$cflags", "$hostclang", "--", "gamepad/protocol.h");
+    mel_codegen_input(lib, "$dir/include/gamepad/protocol.h");
+    mel_codegen_depfile(lib);
     mel_codegen(lib, "enum-str-gen", "gamepad.gamepad.enum.gen.c", "$out", "$cflags", "$hostclang", "--", "gamepad/gamepad.h");
+    mel_codegen_input(lib, "$dir/include/gamepad/gamepad.h");
+    mel_codegen_depfile(lib);
 
     Mel_Target* t = mel_add_test(b, "gamepad-core");
     mel_sources(t, ALWAYS, "test/gamepad_test.c");

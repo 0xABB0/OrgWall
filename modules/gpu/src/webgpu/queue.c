@@ -146,7 +146,7 @@ Mel_Gpu_Future* mel_gpu_queue_submit(Mel_Gpu_Queue* q, Mel_Gpu_Submit submit)
         mel_log_warn("gpu", "queue_submit: explicit wait/signal sync primitives are ignored on the WebGPU backend (single implicit queue; use the completion future)");
 
     u64             serial = mel_gpu__submit_serial_next(dev);
-    Mel_Gpu_Future* f = mel_gpu_future_create(dev->pump, dev->reactor);
+    Mel_Gpu_Future* f = mel_gpu_future_create(dev->pump, dev->vat);
 
     u32                buffer_count = 0;
     WGPUCommandBuffer  stack[8];

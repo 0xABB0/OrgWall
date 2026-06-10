@@ -219,7 +219,7 @@ Mel_Gpu_Future* mel_gpu_queue_submit(Mel_Gpu_Queue* q, Mel_Gpu_Submit submit)
         mel_dealloc(dev->alloc, signal_sems);
         mel_dealloc(dev->alloc, signal_vals);
         mel_gpu__submit_complete(dev, serial);
-        Mel_Gpu_Future* fe = mel_gpu_future_create(dev->pump, dev->reactor);
+        Mel_Gpu_Future* fe = mel_gpu_future_create(dev->pump, dev->vat);
         mel_gpu_future_resolve(fe, NULL, MEL_GPU_STATUS(2, MEL_GPU_SEVERITY_ERROR));
         return fe;
     }
@@ -259,7 +259,7 @@ Mel_Gpu_Future* mel_gpu_queue_submit(Mel_Gpu_Queue* q, Mel_Gpu_Submit submit)
     mel_dealloc(dev->alloc, signal_sems);
     mel_dealloc(dev->alloc, signal_vals);
 
-    Mel_Gpu_Future* f = mel_gpu_future_create(dev->pump, dev->reactor);
+    Mel_Gpu_Future* f = mel_gpu_future_create(dev->pump, dev->vat);
 
     if (r != VK_SUCCESS)
     {

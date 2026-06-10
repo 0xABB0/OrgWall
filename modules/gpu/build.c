@@ -70,7 +70,7 @@ void build(Mel_Build* b)
     mel_depends(lib, "core");
     mel_depends(lib, "allocator");
     mel_depends(lib, "collection");
-    mel_depends(lib, "reactor");
+    mel_depends(lib, "vat");
     mel_depends(lib, "executor");
     mel_depends(lib, "future");
     mel_depends(lib, "log");
@@ -91,7 +91,7 @@ void build(Mel_Build* b)
     mel_depends(found, "core");
     mel_depends(found, "allocator");
     mel_depends(found, "collection");
-    mel_depends(found, "reactor");
+    mel_depends(found, "vat");
 
     Mel_Target* restest = mel_add_test(b, "gpu-resources");
     mel_sources(restest, ALWAYS, "test/test_resources.c");
@@ -104,7 +104,7 @@ void build(Mel_Build* b)
     mel_depends(restest, "core");
     mel_depends(restest, "allocator");
     mel_depends(restest, "collection");
-    mel_depends(restest, "reactor");
+    mel_depends(restest, "vat");
 
     Mel_Target* vktest = mel_add_test(b, "gpu-vulkan");
     mel_sources(vktest, ALWAYS, "test/test_vulkan.c");
@@ -116,7 +116,7 @@ void build(Mel_Build* b)
     mel_depends(vktest, "core");
     mel_depends(vktest, "allocator");
     mel_depends(vktest, "collection");
-    mel_depends(vktest, "reactor");
+    mel_depends(vktest, "vat");
 
     Mel_Target* stress = mel_add_test(b, "gpu-stress");
     mel_sources(stress, ALWAYS, "test/test_stress.c");
@@ -128,7 +128,7 @@ void build(Mel_Build* b)
     mel_depends(stress, "core");
     mel_depends(stress, "allocator");
     mel_depends(stress, "collection");
-    mel_depends(stress, "reactor");
+    mel_depends(stress, "vat");
     Mel_Target* conc = mel_add_test(b, "gpu-concurrency");
     mel_sources(conc, ALWAYS, "test/test_concurrency.c");
     mel_sources(conc, ALWAYS, "../../tools/test/src/runner.c");
@@ -139,7 +139,7 @@ void build(Mel_Build* b)
     mel_depends(conc, "core");
     mel_depends(conc, "allocator");
     mel_depends(conc, "collection");
-    mel_depends(conc, "reactor");
+    mel_depends(conc, "vat");
 
     Mel_Target* vistest = mel_add_test(b, "gpu-visual");
     mel_sources(vistest, ALWAYS, "test/test_visual.c");
@@ -152,7 +152,7 @@ void build(Mel_Build* b)
     mel_depends(vistest, "core");
     mel_depends(vistest, "allocator");
     mel_depends(vistest, "collection");
-    mel_depends(vistest, "reactor");
+    mel_depends(vistest, "vat");
 
     Mel_Target* bench = mel_add_test(b, "gpu-bench");
     mel_sources(bench, ALWAYS, "test/test_bench.c");
@@ -164,7 +164,7 @@ void build(Mel_Build* b)
     mel_depends(bench, "core");
     mel_depends(bench, "allocator");
     mel_depends(bench, "collection");
-    mel_depends(bench, "reactor");
+    mel_depends(bench, "vat");
     mel_depends(bench, "time");
 
     Mel_Target* d3dtest = mel_add_test(b, "gpu-d3d12");
@@ -176,7 +176,7 @@ void build(Mel_Build* b)
     mel_depends(d3dtest, "core");
     mel_depends(d3dtest, "allocator");
     mel_depends(d3dtest, "collection");
-    mel_depends(d3dtest, "reactor");
+    mel_depends(d3dtest, "vat");
 
     Mel_Target* metaltest = mel_add_test(b, "gpu-metal");
     mel_sources(metaltest, ALWAYS, "test/test_metal.c");
@@ -189,7 +189,7 @@ void build(Mel_Build* b)
     mel_depends(metaltest, "core");
     mel_depends(metaltest, "allocator");
     mel_depends(metaltest, "collection");
-    mel_depends(metaltest, "reactor");
+    mel_depends(metaltest, "vat");
 
     Mel_Target* wgputest = mel_add_test(b, "gpu-webgpu");
     mel_sources(wgputest, ALWAYS, "test/test_webgpu.c");
@@ -202,7 +202,7 @@ void build(Mel_Build* b)
     mel_depends(wgputest, "core");
     mel_depends(wgputest, "allocator");
     mel_depends(wgputest, "collection");
-    mel_depends(wgputest, "reactor");
+    mel_depends(wgputest, "vat");
 
     Mel_Target* scenetest = mel_add_test(b, "gpu-scene");
     mel_sources(scenetest, ALWAYS, "test/test_scene.c");
@@ -220,6 +220,6 @@ void build(Mel_Build* b)
     mel_depends(scenetest, "core");
     mel_depends(scenetest, "allocator");
     mel_depends(scenetest, "collection");
-    mel_depends(scenetest, "reactor");
+    mel_depends(scenetest, "vat");
     mel_depends(scenetest, "log");
 }

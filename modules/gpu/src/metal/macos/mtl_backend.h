@@ -6,7 +6,7 @@
 #include <core/types.h>
 #include <allocator/allocator.h>
 #include <collection/slotmap.h>
-#include <reactor/reactor.h>
+#include <vat/vat.h>
 #include <thread/mutex.h>
 #include <thread/thread.h>
 #include <debug/assert.h>
@@ -180,7 +180,7 @@ struct Mel_Gpu_Device
     id<MTLCommandQueue>      queue;
     Mel_Gpu_Caps             caps;
     const Mel_Alloc*         alloc;
-    Mel_Reactor*             reactor;
+    Mel_Vat*                 vat;
     Mel_Gpu_Completion_Pump* pump;
     Mel_Gpu_Thread_Tracker*  tracker;
     Mel_Gpu_Debug_Config     debug;

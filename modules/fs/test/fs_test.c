@@ -2,7 +2,7 @@
 #include <fs/dir.h>
 #include <fs/paths.h>
 
-#include <reactor/reactor.h>
+#include <vat/vat.h>
 #include <future/future.h>
 #include <executor/executor.h>
 #include <allocator/allocator.h>
@@ -65,7 +65,52 @@ MEL_TEST(fs, folder_out_of_range_is_loud_unavailable)
 
 typedef struct
 {
-    Mel_Reactor*  reactor;
+    bool (*idle)(void* user);
+    void* user;
+} Vat_Idle;
+
+static i64 vat_idle_deadline(Mel_Vat_Source* s)
+{
+    (void)s;
+    return 0;
+}
+
+static bool vat_idle_drain(Mel_Vat_Source* s, u32 budget)
+{
+    (void)budget;
+    Vat_Idle* w = (Vat_Idle*)mel_vat_source_state(s);
+    w->idle(w->user);
+    return false;
+}
+
+static const Mel_Vat_Source_Vtbl VAT_IDLE_VT = {
+    .wakeables = NULL,
+    .deadline = vat_idle_deadline,
+    .drain = vat_idle_drain,
+    .cancel = NULL,
+};
+
+static void run_on_vat(bool (*init)(Mel_Vat*, void*), bool (*idle)(void*), void* user)
+{
+    const Mel_Alloc* a = mel_alloc_heap();
+    Mel_Vat_Waiter*  waiter = mel_vat_waiter_io(a);
+    Mel_Vat_Driver*  driver = mel_vat_driver_fair(a, 64);
+    Mel_Vat*         vat = mel_vat_open(a, (Mel_Vat_Desc){ .waiter = waiter, .driver = driver });
+    Vat_Idle         w = { .idle = idle, .user = user };
+    if (init(vat, user))
+    {
+        Mel_Vat_Source* src = mel_vat_source_open(vat, &VAT_IDLE_VT, &w);
+        mel_vat_run(vat);
+        mel_vat_source_close(src);
+    }
+    mel_vat_close(vat);
+    driver->vt->close(driver);
+    waiter->vt->close(waiter);
+}
+
+typedef struct
+{
+    Mel_Vat*      vat;
     Mel_Fs*       fs;
     Mel_Executor* exec;
     int           turn;
@@ -141,7 +186,7 @@ static void advance(Lifecycle* L)
         L->all_ok = true;
         mel_fs_destroy(L->fs);
         L->fs = NULL;
-        mel_reactor_quit(L->reactor);
+        mel_vat_quit(L->vat);
         (void)a;
         break;
     }
@@ -244,20 +289,18 @@ static bool lifecycle_idle(void* user)
             mel_fs_destroy(L->fs);
             L->fs = NULL;
         }
-        mel_reactor_quit(L->reactor);
+        mel_vat_quit(L->vat);
     }
     return true;
 }
 
-static bool lifecycle_init(Mel_Reactor* r, void* user)
+static bool lifecycle_init(Mel_Vat* vat, void* user)
 {
     Lifecycle* L = (Lifecycle*)user;
-    L->reactor = r;
+    L->vat = vat;
     L->loop_tid = mel_thread_current_id();
-    L->fs = mel_fs_create(.reactor = r);
+    L->fs = mel_fs_create(.vat = vat);
     L->exec = mel_fs_executor(L->fs);
-    Mel_Reactor_Source* idle = mel_reactor_idle_new(lifecycle_idle, L);
-    mel_reactor_source_attach(r, idle);
     return true;
 }
 
@@ -278,7 +321,7 @@ MEL_TEST(fs, async_lifecycle_mkdir_write_stat_read_enumerate_glob_rename_remove)
     L.file_a = str8_from_cstr(file_a);
     L.file_b = str8_from_cstr(file_b);
 
-    mel_reactor_spawn(MEL_REACTOR_THREADED, lifecycle_init, &L);
+    run_on_vat(lifecycle_init, lifecycle_idle, &L);
 
     MEL_EXPECT(L.all_ok);
     MEL_EXPECT(L.wrote);
@@ -296,13 +339,13 @@ MEL_TEST(fs, async_lifecycle_mkdir_write_stat_read_enumerate_glob_rename_remove)
 
 typedef struct
 {
-    Mel_Reactor* reactor;
-    Mel_Fs*      fs;
-    int          turn;
-    Mel_Task     cont;
-    Mel_Future*  pending;
-    bool         done;
-    bool         not_found_ok;
+    Mel_Vat*    vat;
+    Mel_Fs*     fs;
+    int         turn;
+    Mel_Task    cont;
+    Mel_Future* pending;
+    bool        done;
+    bool        not_found_ok;
 } Missing;
 
 static void missing_cont(Mel_Task* self)
@@ -315,7 +358,7 @@ static void missing_cont(Mel_Task* self)
     m->done = true;
     mel_fs_destroy(m->fs);
     m->fs = NULL;
-    mel_reactor_quit(m->reactor);
+    mel_vat_quit(m->vat);
 }
 
 static bool missing_idle(void* user)
@@ -329,38 +372,36 @@ static bool missing_idle(void* user)
         mel_future_then(m->pending, &m->cont, mel_fs_executor(m->fs));
     }
     if (m->turn > 100000)
-        mel_reactor_quit(m->reactor);
+        mel_vat_quit(m->vat);
     return true;
 }
 
-static bool missing_init(Mel_Reactor* r, void* user)
+static bool missing_init(Mel_Vat* vat, void* user)
 {
     Missing* m = (Missing*)user;
-    m->reactor = r;
-    m->fs = mel_fs_create(.reactor = r);
-    Mel_Reactor_Source* idle = mel_reactor_idle_new(missing_idle, m);
-    mel_reactor_source_attach(r, idle);
+    m->vat = vat;
+    m->fs = mel_fs_create(.vat = vat);
     return true;
 }
 
 MEL_TEST(fs, stat_missing_path_is_ok_with_exists_false)
 {
     Missing m = { 0 };
-    mel_reactor_spawn(MEL_REACTOR_THREADED, missing_init, &m);
+    run_on_vat(missing_init, missing_idle, &m);
     MEL_EXPECT(m.done);
     MEL_EXPECT(m.not_found_ok);
 }
 
 typedef struct
 {
-    Mel_Reactor* reactor;
-    Mel_Fs*      fs;
-    int          turn;
-    bool         done;
-    bool         submitted;
-    Mel_Fs_Op    cancel_op;
-    bool         cancel_ret;
-    bool         pending_seen;
+    Mel_Vat*  vat;
+    Mel_Fs*   fs;
+    int       turn;
+    bool      done;
+    bool      submitted;
+    Mel_Fs_Op cancel_op;
+    bool      cancel_ret;
+    bool      pending_seen;
 } Teardown;
 
 static bool teardown_idle(void* user)
@@ -380,7 +421,7 @@ static bool teardown_idle(void* user)
         mel_fs_destroy(t->fs);
         t->fs = NULL;
         t->done = true;
-        mel_reactor_quit(t->reactor);
+        mel_vat_quit(t->vat);
     }
     if (t->turn > 100000)
     {
@@ -389,25 +430,23 @@ static bool teardown_idle(void* user)
             mel_fs_destroy(t->fs);
             t->fs = NULL;
         }
-        mel_reactor_quit(t->reactor);
+        mel_vat_quit(t->vat);
     }
     return true;
 }
 
-static bool teardown_init(Mel_Reactor* r, void* user)
+static bool teardown_init(Mel_Vat* vat, void* user)
 {
     Teardown* t = (Teardown*)user;
-    t->reactor = r;
-    t->fs = mel_fs_create_opt((Mel_Fs_Opt){ .reactor = r, .worker_count = 4 });
-    Mel_Reactor_Source* idle = mel_reactor_idle_new(teardown_idle, t);
-    mel_reactor_source_attach(r, idle);
+    t->vat = vat;
+    t->fs = mel_fs_create_opt((Mel_Fs_Opt){ .vat = vat, .worker_count = 4 });
     return true;
 }
 
 MEL_TEST(fs, destroy_with_inflight_ops_and_cancel)
 {
     Teardown t = { 0 };
-    mel_reactor_spawn(MEL_REACTOR_THREADED, teardown_init, &t);
+    run_on_vat(teardown_init, teardown_idle, &t);
     MEL_EXPECT(t.done);
     MEL_EXPECT(t.pending_seen);
     MEL_EXPECT(mel_fs_op_valid(t.cancel_op));
@@ -416,13 +455,13 @@ MEL_TEST(fs, destroy_with_inflight_ops_and_cancel)
 
 typedef struct
 {
-    Mel_Reactor* reactor;
-    Mel_Fs*      fs;
-    int          turn;
-    Mel_Task     cont;
-    Mel_Future*  pending;
-    bool         done;
-    bool         cancelled_ok;
+    Mel_Vat*    vat;
+    Mel_Fs*     fs;
+    int         turn;
+    Mel_Task    cont;
+    Mel_Future* pending;
+    bool        done;
+    bool        cancelled_ok;
 } CancelStarted;
 
 static void cancel_started_cont(Mel_Task* self)
@@ -435,7 +474,7 @@ static void cancel_started_cont(Mel_Task* self)
     c->done = true;
     mel_fs_destroy(c->fs);
     c->fs = NULL;
-    mel_reactor_quit(c->reactor);
+    mel_vat_quit(c->vat);
 }
 
 static bool cancel_started_idle(void* user)
@@ -457,26 +496,23 @@ static bool cancel_started_idle(void* user)
             mel_fs_destroy(c->fs);
             c->fs = NULL;
         }
-        mel_reactor_quit(c->reactor);
+        mel_vat_quit(c->vat);
     }
     return true;
 }
 
-static bool cancel_started_init(Mel_Reactor* r, void* user)
+static bool cancel_started_init(Mel_Vat* vat, void* user)
 {
     CancelStarted* c = (CancelStarted*)user;
-    c->reactor = r;
-    c->fs = mel_fs_create(.reactor = r);
-    Mel_Reactor_Source* idle = mel_reactor_idle_new(cancel_started_idle, c);
-    mel_reactor_source_attach(r, idle);
+    c->vat = vat;
+    c->fs = mel_fs_create(.vat = vat);
     return true;
 }
 
 MEL_TEST(fs, cancel_inflight_op_settles_cancelled)
 {
     CancelStarted c = { 0 };
-    mel_reactor_spawn(MEL_REACTOR_THREADED, cancel_started_init, &c);
+    run_on_vat(cancel_started_init, cancel_started_idle, &c);
     MEL_EXPECT(c.done);
     MEL_EXPECT(c.cancelled_ok);
 }
-

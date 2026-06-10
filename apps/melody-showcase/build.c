@@ -13,12 +13,12 @@ void build(Mel_Build* b)
     mel_depends(app, "log");
     mel_depends(app, "color");
 
-    mel_depends(app, "reactor");
+    mel_depends(app, "vat");
     mel_depends(app, "event");
     mel_depends(app, "future");
     mel_depends(app, "executor");
 
-    mel_depends(app, "app");
+    mel_depends(app, "boot");
     mel_depends(app, "gui");
     mel_depends(app, "window");
     mel_depends(app, "paint");

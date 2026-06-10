@@ -28,6 +28,8 @@ void build(Mel_Build* b)
     mel_depends(lib, "platform");
 
     mel_codegen(lib, "enum-str-gen", "input.enum.gen.c", "$out", "$cflags", "$hostclang", "--", "input/scancode.h");
+    mel_codegen_input(lib, "$dir/include/input/scancode.h");
+    mel_codegen_depfile(lib);
 
     Mel_Target* t = mel_add_test(b, "input-core");
     mel_sources(t, ALWAYS, "test/input_test.c");

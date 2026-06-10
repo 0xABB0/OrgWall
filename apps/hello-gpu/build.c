@@ -6,7 +6,8 @@ void build(Mel_Build* b)
     mel_subsystem(app, "gui");
     mel_sources(app, ALWAYS, "src/*.c");
     mel_cflags(app, MEL_PRIVATE, ALWAYS, "--embed-dir=apps/hello-gpu");
-    mel_depends(app, "app");
+    mel_depends(app, "boot");
+    mel_depends(app, "vat");
     mel_depends(app, "gpu");
     mel_depends(app, "gui");
     mel_depends(app, "core");

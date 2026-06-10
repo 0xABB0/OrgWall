@@ -2,7 +2,7 @@
 #include <string.h>
 
 #include <core/platform.h>
-#include <app/app.h>
+#include <vat/vat.h>
 #include <gui/gui.h>
 #include <string/str8.h>
 
@@ -87,10 +87,10 @@ static void build_host(Mel_Gui_Handle frame, void* user)
     mel_button_create(frame, .text = S8("shadow mapping (depth-from-light → lit scene)"), .pointer.on_click = open_shadow_clicked, .layoutable = { .preferred_h = 36 });
 }
 
-void mel_app_setup(Mel_Reactor* reactor)
+void mel_app_setup(Mel_Vat* root)
 {
-    mel_gui_init(reactor);
-    gpu_host_init(reactor);
+    mel_gui_init(root);
+    gpu_host_init(root);
     mel_app_register_screen(S8("host"), build_host, NULL);
     mel_app_present(S8("host"), NULL);
 

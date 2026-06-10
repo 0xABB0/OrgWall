@@ -3,7 +3,9 @@
 #include <string.h>
 
 #include <core/platform.h>
-#include <app/app.h>
+#include <vat/tick.h>
+#include <vat/vat.h>
+#include <allocator/heap.h>
 #include <gui/gui.h>
 #include <display/display.h>
 #include <display/events.h>
@@ -21,13 +23,13 @@
 
 typedef struct
 {
-    Mel_Reactor*        reactor;
-    Mel_Reactor_Source* timer;
-    Mel_Gui_Handle      canvas;
-    char                evlog[EVLOG_CAP][EVLOG_LINE];
-    u32                 evlog_count;
-    u64                 tick;
-    bool                edr_force;
+    Mel_Vat*       vat;
+    Mel_Vat_Tick*  timer;
+    Mel_Gui_Handle canvas;
+    char           evlog[EVLOG_CAP][EVLOG_LINE];
+    u32            evlog_count;
+    u64            tick;
+    bool           edr_force;
 } Inspector;
 
 static Inspector g;
@@ -263,17 +265,15 @@ static void build_inspector(Mel_Gui_Handle frame, void* user)
 #endif
     g.canvas = mel_canvas_create(frame, .on_.on_paint = canvas_paint, .layoutable = { .preferred_w = 900, .preferred_h = 660, .weight = 1 });
 
-    g.timer = mel_reactor_timer_new(TICK_NS, tick, NULL);
-    if (g.timer)
-        mel_reactor_source_attach(g.reactor, g.timer);
+    g.timer = mel_vat_tick_open(g.vat, mel_alloc_heap(), TICK_NS, tick, NULL);
 }
 
-void mel_app_setup(Mel_Reactor* reactor)
+void mel_app_setup(Mel_Vat* root)
 {
     memset(&g, 0, sizeof g);
     g.canvas = MEL_GUI_HANDLE_NONE;
-    g.reactor = reactor;
-    mel_gui_init(reactor);
+    g.vat = root;
+    mel_gui_init(root);
     mel_display_init(NULL);
     mel_app_register_screen(S8("inspector"), build_inspector, NULL);
     mel_app_present(S8("inspector"), NULL);

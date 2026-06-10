@@ -241,7 +241,7 @@ cannot.
 
 ### 6.4 Ergonomics
 
-Coroutine suspension via `coroutine`; a plain continuation callback; `mel_vib_play_sync`
+Routine suspension via `routine`; a plain continuation callback; `mel_vib_play_sync`
 that pumps the reactor until completion — off-reactor threads only, debug-asserts on the reactor's
 own thread (re-entrant pumping deadlocks).
 
@@ -402,7 +402,7 @@ controller provider), `mel_depends` on the §11 modules.
   vtable (§5), a null provider and a host stub so the surface compiles, lowers, and unit-tests on
   the host without platform haptics.
 - **`vibration-reactor`** — the completion pump, the three completion fidelities (§6.2), the
-  pause/resume realizations (§6.7: native, engine-driven, resynth), `play_sync`, coroutine/callback
+  pause/resume realizations (§6.7: native, engine-driven, resynth), `play_sync`, routine/callback
   ergonomics. Depends on core.
 - **`vibration-android`** — `Vibrator`/`VibratorManager` host provider + manifest permission.
 - **`vibration-apple`** — CoreHaptics host provider, OS-feedback fallback, `GameController`

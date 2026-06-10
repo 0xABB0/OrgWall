@@ -77,6 +77,9 @@ MEL_API void mel_configure_(Mel_Target* t, const char* dir, ...);
 MEL_API void mel_configure_cstd(Mel_Target* t, const char* std);
 MEL_API void mel_codegen_(Mel_Target* t, const char* tool, const char* output, ...);
 #define mel_codegen(t, tool, output, ...) mel_codegen_(t, tool, output __VA_OPT__(, ) __VA_ARGS__, NULL)
+MEL_API void mel_codegen_input_(Mel_Target* t, ...);
+#define mel_codegen_input(t, ...) mel_codegen_input_(t __VA_OPT__(, ) __VA_ARGS__, NULL)
+MEL_API void mel_codegen_depfile(Mel_Target* t);
 
 #define mel_sources(t, when, ...)         mel_sources_(t, when __VA_OPT__(, ) __VA_ARGS__, NULL)
 #define mel_exclude_source(t, when, ...)  mel_exclude_source_(t, when __VA_OPT__(, ) __VA_ARGS__, NULL)

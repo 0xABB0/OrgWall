@@ -71,6 +71,28 @@ void mel_codegen_(Mel_Target* t, const char* tool, const char* output, ...)
     mel_da_push(&t->codegens, cg);
 }
 
+static Mel_Codegen* last_codegen(Mel_Target* t, const char* api)
+{
+    if (t->codegens.len == 0)
+    {
+        fprintf(stderr, "build: %s('%s'): no codegen declared on this target\n", api, t->name);
+        exit(1);
+    }
+    return &t->codegens.items[t->codegens.len - 1];
+}
+
+void mel_codegen_input_(Mel_Target* t, ...)
+{
+    Mel_Codegen* cg = last_codegen(t, "mel_codegen_input");
+    va_list      ap;
+    va_start(ap, t);
+    for (const char* a = va_arg(ap, const char*); a; a = va_arg(ap, const char*))
+        mel_da_push(&cg->inputs, a);
+    va_end(ap);
+}
+
+void mel_codegen_depfile(Mel_Target* t) { last_codegen(t, "mel_codegen_depfile")->depfile = true; }
+
 void mel_cmake_(Mel_Target* t, const char* dir, ...)
 {
     t->cmake_dir = dir;

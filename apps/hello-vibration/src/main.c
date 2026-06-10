@@ -1,12 +1,11 @@
 #include <stdio.h>
 
-#include <app/app.h>
+#include <vat/vat.h>
 #include <gui/gui.h>
-#include <reactor/reactor.h>
 #include <vibration/vibration.h>
 #include <log/log.h>
 
-static Mel_Reactor*     g_reactor;
+static Mel_Vat*         g_vat;
 static Mel_Vib_Device   g_dev = MEL_VIB_DEVICE_NULL;
 static Mel_Vib_Playback g_pb = MEL_VIB_PLAYBACK_NULL;
 static Mel_Gui_Handle   g_status;
@@ -48,7 +47,7 @@ static void play_clicked(Mel_Gui_Handle h, void* user)
         set_status("no vibration device present");
         return;
     }
-    Mel_Vib_Play_Result r = mel_vib_play(g_dev, &g_pattern, .reactor = g_reactor, .on_complete = on_done);
+    Mel_Vib_Play_Result r = mel_vib_play(g_dev, &g_pattern, .vat = g_vat, .on_complete = on_done);
     g_pb = r.value;
     set_status("PLAY status=0x%x playing=%d", r.status, (int)mel_vib_playing(g_pb));
 }
@@ -88,9 +87,7 @@ static void build_main(Mel_Gui_Handle frame, void* user)
     if (mel_vib_alive(g_dev))
     {
         Mel_Vib_Describe_Result d = mel_vib_describe(g_dev);
-        snprintf(info, sizeof info, "device: %.*s  amp=%d sharp=%d pause=%d",
-                 (int)d.value.name.len, (const char*)d.value.name.data,
-                 (int)d.value.caps.amplitude, (int)d.value.caps.sharpness, (int)d.value.caps.can_pause);
+        snprintf(info, sizeof info, "device: %.*s  amp=%d sharp=%d pause=%d", (int)d.value.name.len, (const char*)d.value.name.data, (int)d.value.caps.amplitude, (int)d.value.caps.sharpness, (int)d.value.caps.can_pause);
     }
     else
         snprintf(info, sizeof info, "no vibration device (count=%u)", mel_vib_count());
@@ -104,11 +101,11 @@ static void build_main(Mel_Gui_Handle frame, void* user)
     g_status = mel_label_create(frame, .text = S8("tap Play"), .layoutable = { .preferred_h = 48 });
 }
 
-void mel_app_setup(Mel_Reactor* reactor)
+void mel_app_setup(Mel_Vat* root)
 {
-    g_reactor = reactor;
-    mel_gui_init(reactor);
-    mel_vib_init(NULL, reactor);
+    g_vat = root;
+    mel_gui_init(root);
+    mel_vib_init(NULL, root);
 
     u32 n = mel_vib_count();
     mel_log_info("vib-demo", "vibration devices: %u", n);

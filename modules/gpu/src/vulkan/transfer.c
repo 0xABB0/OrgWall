@@ -28,7 +28,7 @@ static void mel_gpu__transfer_complete(Mel_Gpu_Future* submit_future, void* user
 
 static Mel_Gpu_Future* mel_gpu__transfer_fail(Mel_Gpu_Device* dev, u32 status)
 {
-    Mel_Gpu_Future* f = mel_gpu_future_create(dev ? dev->pump : NULL, dev ? dev->reactor : NULL);
+    Mel_Gpu_Future* f = mel_gpu_future_create(dev ? dev->pump : NULL, dev ? dev->vat : NULL);
     mel_gpu_future_resolve(f, NULL, status);
     return f;
 }
@@ -37,7 +37,7 @@ static Mel_Gpu_Future* mel_gpu__transfer_dispatch(Mel_Gpu_Device* dev, Mel_Gpu_Q
 {
     Mel_Gpu_Transfer_Ctx* c = mel_alloc_type(dev->alloc, Mel_Gpu_Transfer_Ctx);
     *c = (Mel_Gpu_Transfer_Ctx){ .dev = dev, .cmd = cmd, .staging = staging };
-    c->result_future = mel_gpu_future_create(dev->pump, dev->reactor);
+    c->result_future = mel_gpu_future_create(dev->pump, dev->vat);
     Mel_Gpu_Future* result_future = c->result_future;
 
     Mel_Gpu_Future* submit_future = mel_gpu_queue_submit(q, (Mel_Gpu_Submit){ .command_lists = &cmd, .command_list_count = 1 });

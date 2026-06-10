@@ -10,7 +10,7 @@ extern "C"
 {
 #endif
 
-typedef struct Mel_Reactor  Mel_Reactor;
+typedef struct Mel_Vat      Mel_Vat;
 typedef struct Mel_Executor Mel_Executor;
 
 typedef struct Mel_Fs Mel_Fs;
@@ -76,7 +76,7 @@ static inline bool mel_fs_op_valid(Mel_Fs_Op op) { return op.index != 0 || op.ge
 
 typedef struct
 {
-    Mel_Reactor*     reactor;
+    Mel_Vat*         vat;
     const Mel_Alloc* alloc;
     u32              worker_count;
 } Mel_Fs_Opt;
@@ -87,7 +87,7 @@ Mel_Fs* mel_fs_create_opt(Mel_Fs_Opt opt);
 void mel_fs_destroy(Mel_Fs* fs);
 
 bool          mel_fs_available(const Mel_Fs* fs);
-Mel_Reactor*  mel_fs_reactor(const Mel_Fs* fs);
+Mel_Vat*      mel_fs_vat(const Mel_Fs* fs);
 Mel_Executor* mel_fs_executor(const Mel_Fs* fs);
 u32           mel_fs_pending(const Mel_Fs* fs);
 

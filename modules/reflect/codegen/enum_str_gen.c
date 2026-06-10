@@ -205,6 +205,50 @@ static void write_str8_literal(FILE* f, const char* s)
     fprintf(f, "\", %zu }", strlen(s));
 }
 
+static void write_dep_path(FILE* f, const char* p)
+{
+    for (; *p; p++)
+    {
+        if (*p == ' ' || *p == '#')
+            fputc('\\', f);
+        fputc(*p, f);
+    }
+}
+
+static void note_inclusion(CXFile file, CXSourceLocation* stack, unsigned depth, CXClientData d)
+{
+    (void)stack;
+    (void)depth;
+    CXString    s = clang_getFileName(file);
+    const char* p = clang_getCString(s);
+    if (p && strcmp(p, "mel_umbrella.c") != 0)
+    {
+        fputc(' ', (FILE*)d);
+        write_dep_path((FILE*)d, p);
+    }
+    clang_disposeString(s);
+}
+
+static int write_depfile(CXTranslationUnit tu, const char* outc)
+{
+    char* path = malloc(strlen(outc) + 3);
+    sprintf(path, "%s.d", outc);
+    FILE* f = fopen(path, "w");
+    if (!f)
+    {
+        fprintf(stderr, "enum_str_gen: cannot open %s\n", path);
+        free(path);
+        return 1;
+    }
+    write_dep_path(f, outc);
+    fputc(':', f);
+    clang_getInclusions(tu, note_inclusion, f);
+    fputc('\n', f);
+    fclose(f);
+    free(path);
+    return 0;
+}
+
 static int emit(const char* outc, char** spellings, int spelling_n)
 {
     FILE* c = fopen(outc, "w");
@@ -324,6 +368,8 @@ int main(int argc, char** argv)
     clang_visitChildren(clang_getTranslationUnitCursor(tu), visit_tu, NULL);
 
     int rc = emit(outc, spellings, spelling_n);
+    if (rc == 0)
+        rc = write_depfile(tu, outc);
 
     clang_disposeTranslationUnit(tu);
     clang_disposeIndex(idx);

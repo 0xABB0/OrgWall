@@ -8,7 +8,6 @@
 #include <collection/slotmap.h>
 #include <future/future.h>
 #include <executor/executor.h>
-#include <reactor/reactor.h>
 #include <string/str8.h>
 #include <log/log.h>
 
@@ -30,18 +29,16 @@ typedef struct
 {
     bool             initialized;
     const Mel_Alloc* alloc;
-    Mel_Reactor*     reactor;
     Mel_SlotMap      jobs;
 } Shell;
 
 static Shell g;
 
-void mel_shell_init(const Mel_Alloc* alloc, Mel_Reactor* reactor)
+void mel_shell_init(const Mel_Alloc* alloc)
 {
     if (g.initialized)
         return;
     g.alloc = alloc ? alloc : mel_alloc_heap();
-    g.reactor = reactor;
     mel_slotmap_init(&g.jobs, g.alloc, .item_size = sizeof(Mel_Shell_Job*), .initial_capacity = 8);
     g.initialized = true;
 }

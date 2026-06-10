@@ -4,7 +4,7 @@
 
 static Mel_SlotMap      g_nodes;
 static const Mel_Alloc* g_alloc;
-static Mel_Reactor*     g_reactor;
+static Mel_Vat*         g_vat;
 static bool             g_inited;
 static i32              g_frame_count;
 static Mel_Gui_Handle   g_focused;
@@ -13,12 +13,14 @@ static Mel_SlotMap_Handle to_sm(Mel_Gui_Handle h) { return (Mel_SlotMap_Handle){
 
 static Mel_Gui_Handle from_sm(Mel_SlotMap_Handle h) { return (Mel_Gui_Handle){ .index = h.index, .generation = h.generation }; }
 
-void mel_gui_init(Mel_Reactor* reactor)
+void mel_gui_init(Mel_Vat* vat)
 {
     if (g_inited)
         return;
     g_alloc = mel_alloc_heap();
-    g_reactor = reactor;
+    g_vat = vat;
+    if (vat)
+        mel_vat_retain(vat);
     mel_slotmap_init(&g_nodes, g_alloc, .item_size = sizeof(Mel_Gui_Node), .initial_capacity = 64);
     mel_gui__backend_init();
     g_inited = true;
@@ -26,7 +28,7 @@ void mel_gui_init(Mel_Reactor* reactor)
 
 const Mel_Alloc* mel_gui__alloc(void) { return g_alloc ? g_alloc : mel_alloc_heap(); }
 
-Mel_Reactor* mel_gui__reactor(void) { return g_reactor; }
+Mel_Vat* mel_gui__vat(void) { return g_vat; }
 
 bool mel_gui_backend_supports(Mel_Gui_Capability cap)
 {
@@ -232,6 +234,9 @@ void mel_gui_shutdown(void)
     if (!g_inited)
         return;
 
+    if (g_vat && mel_vat_is_owner(g_vat))
+        mel_vat_release(g_vat);
+
     /* Drop navigation bookkeeping first (it only holds handles, destroys no
      * frames), so the backend teardown below — which fires each frame's OS-close
      * path and thus mel_gui__frame_closed — finds an empty g_navs and no-ops
@@ -263,5 +268,5 @@ void mel_gui_shutdown(void)
     g_frame_count = 0;
     g_inited = false;
     g_alloc = NULL;
-    g_reactor = NULL;
+    g_vat = NULL;
 }

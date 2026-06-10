@@ -5,7 +5,7 @@
 #include <core/types.h>
 #include <allocator/allocator.h>
 #include <collection/slotmap.h>
-#include <reactor/reactor.h>
+#include <vat/vat.h>
 #include <thread/mutex.h>
 #include <thread/thread.h>
 #include <debug/assert.h>
@@ -69,52 +69,52 @@ typedef struct
 typedef struct
 {
     Mel_Gpu_Resource_Header header;
-    WGPUTexture            wgpu;
-    WGPUTextureFormat      format;
-    Mel_Gpu_Texture_Aspect aspect;
-    u32                    width;
-    u32                    height;
-    u32                    depth;
-    u32                    mip_levels;
-    u32                    array_layers;
-    u32                    sample_count;
+    WGPUTexture             wgpu;
+    WGPUTextureFormat       format;
+    Mel_Gpu_Texture_Aspect  aspect;
+    u32                     width;
+    u32                     height;
+    u32                     depth;
+    u32                     mip_levels;
+    u32                     array_layers;
+    u32                     sample_count;
 } Mel_Gpu_Texture_Obj;
 
 typedef struct
 {
     Mel_Gpu_Resource_Header header;
-    WGPUTextureView        wgpu;
-    Mel_SlotMap_Handle     texture;
-    WGPUTextureFormat      format;
-    Mel_Gpu_Texture_Aspect aspect;
-    u32                    base_mip;
-    u32                    mip_count;
-    u32                    base_layer;
-    u32                    layer_count;
+    WGPUTextureView         wgpu;
+    Mel_SlotMap_Handle      texture;
+    WGPUTextureFormat       format;
+    Mel_Gpu_Texture_Aspect  aspect;
+    u32                     base_mip;
+    u32                     mip_count;
+    u32                     base_layer;
+    u32                     layer_count;
 } Mel_Gpu_Texture_View_Obj;
 
 typedef struct
 {
     Mel_Gpu_Resource_Header header;
-    WGPUSampler            wgpu;
+    WGPUSampler             wgpu;
 } Mel_Gpu_Sampler_Obj;
 
 typedef struct
 {
     Mel_Gpu_Resource_Header header;
-    WGPUShaderModule       vertex;
-    WGPUShaderModule       fragment;
-    WGPUShaderModule       compute;
-    char*                  vertex_entry;
-    char*                  fragment_entry;
-    char*                  compute_entry;
+    WGPUShaderModule        vertex;
+    WGPUShaderModule        fragment;
+    WGPUShaderModule        compute;
+    char*                   vertex_entry;
+    char*                   fragment_entry;
+    char*                   compute_entry;
 } Mel_Gpu_Shader_Obj;
 
 typedef struct
 {
     Mel_Gpu_Resource_Header header;
-    WGPURenderPipeline     render;
-    WGPUComputePipeline    compute;
+    WGPURenderPipeline      render;
+    WGPUComputePipeline     compute;
 } Mel_Gpu_Pipeline_Obj;
 
 struct Mel_Gpu_Device
@@ -126,7 +126,7 @@ struct Mel_Gpu_Device
     WGPUQueue                queue;
     Mel_Gpu_Caps             caps;
     const Mel_Alloc*         alloc;
-    Mel_Reactor*             reactor;
+    Mel_Vat*                 vat;
     Mel_Gpu_Completion_Pump* pump;
     Mel_Gpu_Thread_Tracker*  tracker;
     Mel_Gpu_Debug_Config     debug;

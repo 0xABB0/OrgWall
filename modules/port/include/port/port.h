@@ -9,7 +9,7 @@ extern "C"
 {
 #endif
 
-typedef struct Mel_Reactor  Mel_Reactor;
+typedef struct Mel_Vat      Mel_Vat;
 typedef struct Mel_Executor Mel_Executor;
 
 typedef struct Mel_Port Mel_Port;
@@ -52,7 +52,7 @@ static inline bool mel_port_op_valid(Mel_Port_Op op) { return op.index != 0 || o
 
 typedef struct
 {
-    Mel_Reactor*     reactor;
+    Mel_Vat*         vat;
     const Mel_Alloc* alloc;
 } Mel_Port_Opt;
 
@@ -62,7 +62,7 @@ Mel_Port* mel_port_create_opt(Mel_Port_Opt opt);
 void mel_port_destroy(Mel_Port* port);
 
 bool          mel_port_available(const Mel_Port* port);
-Mel_Reactor*  mel_port_reactor(const Mel_Port* port);
+Mel_Vat*      mel_port_vat(const Mel_Port* port);
 Mel_Executor* mel_port_executor(const Mel_Port* port);
 
 typedef struct

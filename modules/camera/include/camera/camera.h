@@ -15,7 +15,6 @@ extern "C"
 {
 #endif
 
-typedef struct Mel_Reactor  Mel_Reactor;
 typedef struct Mel_Executor Mel_Executor;
 typedef struct Mel_Future   Mel_Future;
 typedef struct Mel_Event    Mel_Event;
@@ -126,7 +125,7 @@ typedef struct
 typedef void (*Mel_Camera_Event_Callback)(const Mel_Camera_Event* ev, void* user);
 typedef void (*Mel_Camera_Frame_Callback)(const Mel_Camera_Frame* frame, void* user);
 
-void mel_camera_init(const Mel_Alloc* alloc, Mel_Reactor* reactor);
+void mel_camera_init(const Mel_Alloc* alloc, Mel_Executor* deliver);
 void mel_camera_shutdown(void);
 
 u32 mel_camera_refresh(void);

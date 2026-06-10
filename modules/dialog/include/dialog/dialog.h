@@ -9,22 +9,22 @@ extern "C"
 {
 #endif
 
-typedef struct Mel_Reactor  Mel_Reactor;
+typedef struct Mel_Vat      Mel_Vat;
 typedef struct Mel_Executor Mel_Executor;
 typedef struct Mel_Future   Mel_Future;
 
 typedef u32 Mel_Dialog_Status;
 
-#define MEL_DIALOG_SEVERITY_MASK 0x3u
-#define MEL_DIALOG_OK            0u
-#define MEL_DIALOG_WARNED        1u
-#define MEL_DIALOG_ERROR         2u
+#define MEL_DIALOG_SEVERITY_MASK             0x3u
+#define MEL_DIALOG_OK                        0u
+#define MEL_DIALOG_WARNED                    1u
+#define MEL_DIALOG_ERROR                     2u
 
-#define MEL_DIALOG_CANCELLED   (1u << 2)
-#define MEL_DIALOG_NO_BACKEND  (1u << 3)
-#define MEL_DIALOG_DENIED      (1u << 4)
-#define MEL_DIALOG_BAD_PARENT  (1u << 5)
-#define MEL_DIALOG_UNAVAILABLE (1u << 6)
+#define MEL_DIALOG_CANCELLED                 (1u << 2)
+#define MEL_DIALOG_NO_BACKEND                (1u << 3)
+#define MEL_DIALOG_DENIED                    (1u << 4)
+#define MEL_DIALOG_BAD_PARENT                (1u << 5)
+#define MEL_DIALOG_UNAVAILABLE               (1u << 6)
 
 #define MEL_DIALOG_WARN_FILTER_IGNORED       (1u << 8)
 #define MEL_DIALOG_WARN_MULTI_UNSUPPORTED    (1u << 9)
@@ -32,10 +32,7 @@ typedef u32 Mel_Dialog_Status;
 #define MEL_DIALOG_WARN_PARENT_IGNORED       (1u << 11)
 #define MEL_DIALOG_WARN_SAVE_UNSUPPORTED     (1u << 12)
 
-#define MEL_DIALOG_WARN_MASK                                                     \
-    (MEL_DIALOG_WARN_FILTER_IGNORED | MEL_DIALOG_WARN_MULTI_UNSUPPORTED |        \
-     MEL_DIALOG_WARN_DEFAULT_PATH_IGNORED | MEL_DIALOG_WARN_PARENT_IGNORED |     \
-     MEL_DIALOG_WARN_SAVE_UNSUPPORTED)
+#define MEL_DIALOG_WARN_MASK                 (MEL_DIALOG_WARN_FILTER_IGNORED | MEL_DIALOG_WARN_MULTI_UNSUPPORTED | MEL_DIALOG_WARN_DEFAULT_PATH_IGNORED | MEL_DIALOG_WARN_PARENT_IGNORED | MEL_DIALOG_WARN_SAVE_UNSUPPORTED)
 
 static inline bool mel_dialog_status_ok(Mel_Dialog_Status s) { return (s & MEL_DIALOG_SEVERITY_MASK) == MEL_DIALOG_OK; }
 static inline bool mel_dialog_status_warned(Mel_Dialog_Status s) { return (s & MEL_DIALOG_SEVERITY_MASK) == MEL_DIALOG_WARNED; }
@@ -56,7 +53,7 @@ typedef struct
     const char*              default_path;
     const Mel_Dialog_Filter* filters;
     u32                      filter_count;
-    Mel_Reactor*             reactor;
+    Mel_Vat*                 vat;
     Mel_Executor*            deliver;
     const Mel_Alloc*         alloc;
 } Mel_Dialog_Open_File_Opt;
@@ -69,7 +66,7 @@ typedef struct
     const char*              default_name;
     const Mel_Dialog_Filter* filters;
     u32                      filter_count;
-    Mel_Reactor*             reactor;
+    Mel_Vat*                 vat;
     Mel_Executor*            deliver;
     const Mel_Alloc*         alloc;
 } Mel_Dialog_Save_File_Opt;
@@ -79,7 +76,7 @@ typedef struct
     Mel_Window       parent;
     const char*      title;
     const char*      default_path;
-    Mel_Reactor*     reactor;
+    Mel_Vat*         vat;
     Mel_Executor*    deliver;
     const Mel_Alloc* alloc;
 } Mel_Dialog_Open_Folder_Opt;
@@ -92,7 +89,7 @@ typedef struct
     Mel_Dialog_Status  status;
 } Mel_Dialog_Selection;
 
-void mel_dialog_init(const Mel_Alloc* alloc, Mel_Reactor* reactor);
+void mel_dialog_init(const Mel_Alloc* alloc, Mel_Vat* vat);
 void mel_dialog_shutdown(void);
 bool mel_dialog_available(void);
 

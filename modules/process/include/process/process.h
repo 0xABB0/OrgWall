@@ -13,7 +13,7 @@ extern "C"
 {
 #endif
 
-typedef struct Mel_Reactor  Mel_Reactor;
+typedef struct Mel_Vat      Mel_Vat;
 typedef struct Mel_Executor Mel_Executor;
 
 typedef struct Mel_Process Mel_Process;
@@ -51,7 +51,7 @@ typedef struct
 
     bool detached;
 
-    Mel_Reactor*     reactor;
+    Mel_Vat*         vat;
     const Mel_Alloc* alloc;
 } Mel_Process_Spawn_Opt;
 
@@ -69,9 +69,9 @@ bool mel_process_available(void);
 
 void mel_process_destroy(Mel_Process* p);
 
-i64           mel_process_pid(const Mel_Process* p);
-bool          mel_process_running(Mel_Process* p);
-bool          mel_process_detached(const Mel_Process* p);
+i64  mel_process_pid(const Mel_Process* p);
+bool mel_process_running(Mel_Process* p);
+bool mel_process_detached(const Mel_Process* p);
 
 Mel_Stream* mel_process_stdin(Mel_Process* p);
 void        mel_process_close_stdin(Mel_Process* p);
@@ -148,7 +148,7 @@ typedef struct
     usize                      stdin_len;
     bool                       merge_stderr;
     Mel_Executor*              deliver;
-    Mel_Reactor*               reactor;
+    Mel_Vat*                   vat;
     const Mel_Alloc*           alloc;
 } Mel_Process_Run_Opt;
 

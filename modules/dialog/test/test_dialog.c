@@ -4,7 +4,7 @@
 
 #include <future/future.h>
 #include <executor/executor.h>
-#include <reactor/reactor.h>
+#include <vat/vat.h>
 #include <allocator/allocator.h>
 #include <allocator/heap.h>
 #include <collection/list.h>
@@ -161,8 +161,8 @@ MEL_TEST(dialog, reports_chosen_filter)
     fake_chosen_filter = 1;
     mel_dialog_init(mel_alloc_heap(), NULL);
 
-    const char* png[] = { "*.png" };
-    const char* txt[] = { "*.txt" };
+    const char*       png[] = { "*.png" };
+    const char*       txt[] = { "*.txt" };
     Mel_Dialog_Filter filters[] = {
         { .label = "Images", .patterns = png, .pattern_count = 1 },
         { .label = "Text", .patterns = txt, .pattern_count = 1 },
@@ -231,12 +231,56 @@ MEL_TEST(dialog, no_backend_fails_loudly)
 
 typedef struct
 {
-    Mel_Reactor* reactor;
-    int          turn;
-    Mel_Task     task;
-    Mel_Future*  pending;
-    bool         done;
-    u32          path_count;
+    bool (*fn)(void* user);
+    void* user;
+} Idle;
+
+static i64 idle_deadline(Mel_Vat_Source* s)
+{
+    (void)s;
+    return 0;
+}
+
+static bool idle_drain(Mel_Vat_Source* s, u32 budget)
+{
+    (void)budget;
+    Idle* idle = mel_vat_source_state(s);
+    idle->fn(idle->user);
+    return false;
+}
+
+static const Mel_Vat_Source_Vtbl IDLE_VT = {
+    .wakeables = NULL,
+    .deadline = idle_deadline,
+    .drain = idle_drain,
+    .cancel = NULL,
+};
+
+static void run_with_dialog_vat(bool (*fn)(void* user), void* user, Mel_Vat** vat_slot)
+{
+    const Mel_Alloc* a = mel_alloc_heap();
+    Mel_Vat_Waiter*  waiter = mel_vat_waiter_io(a);
+    Mel_Vat_Driver*  driver = mel_vat_driver_fair(a, 64);
+    Mel_Vat*         vat = mel_vat_open(a, (Mel_Vat_Desc){ .waiter = waiter, .driver = driver });
+    *vat_slot = vat;
+    mel_dialog_init(a, vat);
+    Idle            idle = { .fn = fn, .user = user };
+    Mel_Vat_Source* src = mel_vat_source_open(vat, &IDLE_VT, &idle);
+    mel_vat_run(vat);
+    mel_vat_source_close(src);
+    mel_vat_close(vat);
+    driver->vt->close(driver);
+    waiter->vt->close(waiter);
+}
+
+typedef struct
+{
+    Mel_Vat*          vat;
+    int               turn;
+    Mel_Task          task;
+    Mel_Future*       pending;
+    bool              done;
+    u32               path_count;
     Mel_Dialog_Status status;
 } Async_Ctx;
 
@@ -257,9 +301,9 @@ static bool async_idle(void* user)
     a->turn++;
     if (a->turn == 2)
     {
-        a->pending = mel_dialog_open_file(.reactor = a->reactor, .deliver = mel_reactor_executor(a->reactor));
+        a->pending = mel_dialog_open_file(.vat = a->vat, .deliver = mel_vat_executor(a->vat));
         mel_task_init(&a->task, on_picked);
-        mel_future_then(a->pending, &a->task, mel_reactor_executor(a->reactor));
+        mel_future_then(a->pending, &a->task, mel_vat_executor(a->vat));
     }
     if (a->turn == 4 && fake_pending_token)
     {
@@ -272,17 +316,10 @@ static bool async_idle(void* user)
         fake_pending_token = 0;
     }
     if (a->done || a->turn > 5000)
-        mel_reactor_quit(a->reactor);
-    return true;
-}
-
-static bool async_init(Mel_Reactor* r, void* user)
-{
-    Async_Ctx* a = (Async_Ctx*)user;
-    a->reactor = r;
-    mel_dialog_init(mel_alloc_heap(), r);
-    Mel_Reactor_Source* idle = mel_reactor_idle_new(async_idle, a);
-    mel_reactor_source_attach(r, idle);
+    {
+        mel_dialog_shutdown();
+        mel_vat_quit(a->vat);
+    }
     return true;
 }
 
@@ -292,22 +329,21 @@ MEL_TEST(dialog, deferred_resolution_delivers_on_executor)
     fake_defer = true;
 
     Async_Ctx a = { 0 };
-    mel_reactor_spawn(MEL_REACTOR_THREADED, async_init, &a);
+    run_with_dialog_vat(async_idle, &a, &a.vat);
 
     MEL_EXPECT(a.done);
     MEL_EXPECT_EQ((i64)a.path_count, (i64)1);
     MEL_EXPECT(mel_dialog_status_ok(a.status));
-    mel_dialog_shutdown();
 }
 
 typedef struct
 {
-    Mel_Reactor* reactor;
-    int          turn;
-    Mel_Task     task;
-    Mel_Future*  pending;
-    bool         cont_ran;
-    bool         shut;
+    Mel_Vat*    vat;
+    int         turn;
+    Mel_Task    task;
+    Mel_Future* pending;
+    bool        cont_ran;
+    bool        shut;
 } Shutdown_Ctx;
 
 static void shutdown_on_picked(Mel_Task* self)
@@ -322,9 +358,9 @@ static bool shutdown_idle(void* user)
     c->turn++;
     if (c->turn == 2)
     {
-        c->pending = mel_dialog_open_file(.reactor = c->reactor, .deliver = mel_reactor_executor(c->reactor));
+        c->pending = mel_dialog_open_file(.vat = c->vat, .deliver = mel_vat_executor(c->vat));
         mel_task_init(&c->task, shutdown_on_picked);
-        mel_future_then(c->pending, &c->task, mel_reactor_executor(c->reactor));
+        mel_future_then(c->pending, &c->task, mel_vat_executor(c->vat));
     }
     if (c->turn == 4)
     {
@@ -332,17 +368,7 @@ static bool shutdown_idle(void* user)
         c->shut = true;
     }
     if (c->shut || c->turn > 5000)
-        mel_reactor_quit(c->reactor);
-    return true;
-}
-
-static bool shutdown_init(Mel_Reactor* r, void* user)
-{
-    Shutdown_Ctx* c = (Shutdown_Ctx*)user;
-    c->reactor = r;
-    mel_dialog_init(mel_alloc_heap(), r);
-    Mel_Reactor_Source* idle = mel_reactor_idle_new(shutdown_idle, c);
-    mel_reactor_source_attach(r, idle);
+        mel_vat_quit(c->vat);
     return true;
 }
 
@@ -352,9 +378,8 @@ MEL_TEST(dialog, shutdown_with_pending_continuation_does_not_crash_or_leak)
     fake_defer = true;
 
     Shutdown_Ctx c = { 0 };
-    mel_reactor_spawn(MEL_REACTOR_THREADED, shutdown_init, &c);
+    run_with_dialog_vat(shutdown_idle, &c, &c.vat);
 
     MEL_EXPECT(c.shut);
     MEL_EXPECT(!c.cont_ran);
 }
-

@@ -6,10 +6,11 @@
 
 #include <allocator/heap.h>
 #include <core/types.h>
+#include <boot/boot.h>
 #include <executor/executor.h>
 #include <future/future.h>
-#include <reactor/reactor.h>
 #include <string/str8.h>
+#include <vat/vat.h>
 
 #include <clipboard/clipboard.h>
 #include <cpu/cpu.h>
@@ -51,7 +52,7 @@ static void emit(const char* module, const char* fmt, ...)
 
 typedef struct
 {
-    Mel_Reactor*  reactor;
+    Mel_Vat*      vat;
     Mel_Executor* exec;
 
     Mel_Fs*      fs;
@@ -61,9 +62,14 @@ typedef struct
 
     Mel_Future* pending;
     Mel_Task    cont;
+    Mel_Task    kick;
+
+    Mel_Process* proc;
+    Mel_Stream*  proc_out;
 
     char fs_path[512];
     char storage_root[512];
+    char proc_out_path[512];
 
     bool assert_fired;
 } Smoke;
@@ -281,7 +287,7 @@ static void sync_modules(Smoke* s)
     }
 
     {
-        mel_vib_init(mel_alloc_heap(), s->reactor);
+        mel_vib_init(mel_alloc_heap(), s->vat);
         u32 n = mel_vib_count();
         if (n == 0)
             emit("vibration", "no haptic device present — honest-absent");
@@ -305,7 +311,7 @@ static void sync_modules(Smoke* s)
 
 static void smoke_finish(Smoke* s)
 {
-    emit("app", "lifecycle: reactor loop driven to completion (smoke sequence done)");
+    emit("app", "lifecycle: vat run driven to completion (smoke sequence done)");
     if (s->fs)
         mel_fs_destroy(s->fs);
     if (s->storage)
@@ -313,7 +319,8 @@ static void smoke_finish(Smoke* s)
     mel_dialog_shutdown();
     mel_shell_shutdown();
     mel_clip_shutdown();
-    mel_reactor_quit(s->reactor);
+    mel_app_set_exit_code(0);
+    mel_vat_quit(s->vat);
 }
 
 static void smoke_advance(Mel_Task* self);
@@ -395,22 +402,48 @@ static void smoke_advance(Mel_Task* self)
             smoke_advance(self);
             return;
         }
+        snprintf(s->proc_out_path, sizeof s->proc_out_path, "/tmp/melody_showcase_proc_%llu.txt", (unsigned long long)mel_nanos_since_unspecified_epoch());
+        Mel_IO_File_Open_Result of = mel_io_file_open(.path = s->proc_out_path, .flags = MEL_IO_FILE_READ | MEL_IO_FILE_WRITE | MEL_IO_FILE_CREATE | MEL_IO_FILE_TRUNCATE, .alloc = mel_alloc_heap());
+        if (mel_io_status_failed(of.status))
+        {
+            emit("process", "stdout capture file open failed status=0x%x", of.status);
+            s->step = 50;
+            smoke_advance(self);
+            return;
+        }
+        s->proc_out = of.value;
         static const char* const pargv[] = { "/bin/echo", "process-stdout-capture", NULL };
+        Mel_Process_Spawn_Result sr = mel_process_spawn(.argv = pargv, .argc = 2, .stdout_cfg = { .disposition = MEL_PROCESS_STDIO_REDIRECT, .redirect = s->proc_out }, .vat = s->vat, .alloc = mel_alloc_heap());
+        if (mel_process_status_failed(sr.status))
+        {
+            emit("process", "spawn failed status=0x%x", sr.status);
+            mel_stream_destroy(s->proc_out);
+            s->proc_out = NULL;
+            s->step = 50;
+            smoke_advance(self);
+            return;
+        }
+        s->proc = sr.value;
         s->step = 40;
-        smoke_chain(s, mel_process_run(.argv = pargv, .argc = 2, .reactor = s->reactor, .deliver = s->exec, .alloc = mel_alloc_heap()));
+        smoke_chain(s, mel_process_wait(s->proc));
         return;
     }
     case 40:
     {
-        const Mel_Process_Output* o = mel_process_run_future_result(s->pending);
-        char                      out[128] = { 0 };
-        usize                     n = o->stdout_len < sizeof out - 1 ? o->stdout_len : sizeof out - 1;
-        memcpy(out, o->stdout_data, n);
+        const Mel_Process_Exit* ex = mel_process_wait_future_result(s->pending);
+        char                    out[128] = { 0 };
+        Mel_IO_Result           rd = mel_stream_read_sync(s->proc_out, out, sizeof out - 1, 0);
+        usize                   n = rd.bytes_transferred;
         for (usize i = 0; i < n; i++)
             if (out[i] == '\n')
                 out[i] = 0;
-        emit("process", "spawned /bin/echo exit=%d captured=%zuB stdout=\"%s\" status=0x%x", o->exit_code, o->stdout_len, out, o->status);
-        mel_process_run_future_release(s->pending);
+        emit("process", "spawned /bin/echo exit=%d captured=%zuB stdout=\"%s\" status=0x%x (file redirect; pipe capture needs fd wakeables the ui waiter lacks)", ex->exit_code, n, out, ex->status);
+        mel_process_wait_future_release(s->pending);
+        mel_process_destroy(s->proc);
+        s->proc = NULL;
+        mel_stream_destroy(s->proc_out);
+        s->proc_out = NULL;
+        remove(s->proc_out_path);
         s->step = 50;
         smoke_advance(self);
         return;
@@ -461,42 +494,34 @@ static void smoke_advance(Mel_Task* self)
     }
 }
 
-static bool smoke_idle(void* user)
+static void smoke_kick(Mel_Task* task)
 {
-    Smoke* s = (Smoke*)user;
+    (void)task;
+    Smoke* s = &g_smoke;
 
     sync_modules(s);
 
-    s->fs = mel_fs_create(.reactor = s->reactor, .alloc = mel_alloc_heap());
+    s->fs = mel_fs_create(.vat = s->vat, .alloc = mel_alloc_heap());
 
     Mel_Fs_Path_Result base = mel_fs_folder(MEL_FS_FOLDER_TEMP, mel_alloc_heap());
     snprintf(s->storage_root, sizeof s->storage_root, "%.*s/melody_showcase_store_%llu", (int)base.value.len, (const char*)base.value.data, (unsigned long long)(mel_nanos_since_unspecified_epoch() & 0xffffff));
-    s->storage = mel_storage_open_fs(.root = str8_from_cstr(s->storage_root), .reactor = s->reactor, .alloc = mel_alloc_heap());
+    s->storage = mel_storage_open_fs(.root = str8_from_cstr(s->storage_root), .vat = s->vat, .alloc = mel_alloc_heap());
 
-    mel_dialog_init(mel_alloc_heap(), s->reactor);
-    mel_shell_init(mel_alloc_heap(), s->reactor);
-    mel_clip_init(mel_alloc_heap(), s->reactor);
+    mel_dialog_init(mel_alloc_heap(), s->vat);
+    mel_shell_init(mel_alloc_heap());
+    mel_clip_init(mel_alloc_heap(), s->vat);
 
     s->step = 0;
     Mel_Task* self = &s->cont;
     mel_task_init(self, smoke_advance);
     smoke_advance(self);
-
-    return false;
 }
 
-static bool smoke_init(Mel_Reactor* reactor, void* user)
-{
-    Smoke* s = (Smoke*)user;
-    s->reactor = reactor;
-    s->exec = mel_reactor_executor(reactor);
-    Mel_Reactor_Source* idle = mel_reactor_idle_new(smoke_idle, s);
-    mel_reactor_source_attach(reactor, idle);
-    return true;
-}
-
-int showcase_smoke(void)
+void showcase_smoke_setup(Mel_Vat* root)
 {
     memset(&g_smoke, 0, sizeof g_smoke);
-    return mel_reactor_spawn(MEL_REACTOR_THREADED, smoke_init, &g_smoke);
+    g_smoke.vat = root;
+    g_smoke.exec = mel_vat_executor(root);
+    mel_task_init(&g_smoke.kick, smoke_kick);
+    mel_vat_post(root, &g_smoke.kick);
 }

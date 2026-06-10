@@ -55,10 +55,6 @@ There is no hard-constraint on how a module is laid out physically. use the stru
 
 Search with `ast-grep`; the source tree's structure (axis dirs, suffixes) is better matched structurally than by line grep.
 
-## Codegen
-
-This repo uses a custom codegen step. Registering a new pass is undocumented — halt and query before depending on it.
-
 ## Commandments
 Development in this repo is bound by the Ten Commandments of the Engine. Honor every one. When a decision turns on one, cite it by tag (MEL-ENGINE-N).
 

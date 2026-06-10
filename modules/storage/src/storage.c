@@ -6,7 +6,7 @@
 #include <collection/list.h>
 #include <executor/executor.h>
 #include <future/future.h>
-#include <reactor/reactor.h>
+#include <vat/vat.h>
 #include <log/log.h>
 
 #include <assert.h>
@@ -114,7 +114,7 @@ void mel_storage__job_settle(Mel_Storage_Job* job, Mel_Storage_Status status)
 {
     if (job->settled)
         return;
-    assert(job->orphaned || mel_reactor_is_owner(job->st->reactor));
+    assert(job->orphaned || mel_vat_is_owner(job->st->vat));
     job->settled = true;
 
     result_set_status(job, status);
@@ -131,9 +131,9 @@ void mel_storage__job_settle(Mel_Storage_Job* job, Mel_Storage_Status status)
 
 static Mel_Storage* storage_alloc(Mel_Storage_Opt opt, const Mel_Storage_Interface* iface, void* backend_user)
 {
-    if (!opt.reactor)
+    if (!opt.vat)
     {
-        mel_log_error("storage", "create: reactor is required");
+        mel_log_error("storage", "create: vat is required");
         return NULL;
     }
     if (!iface)
@@ -148,8 +148,8 @@ static Mel_Storage* storage_alloc(Mel_Storage_Opt opt, const Mel_Storage_Interfa
         return NULL;
     memset(st, 0, sizeof *st);
 
-    st->reactor = opt.reactor;
-    st->executor = mel_reactor_executor(opt.reactor);
+    st->vat = opt.vat;
+    st->executor = mel_vat_executor(opt.vat);
     st->alloc = alloc;
     st->iface = iface;
     st->backend_user = backend_user;
@@ -173,7 +173,7 @@ void mel_storage_destroy(Mel_Storage* st)
 {
     if (!st)
         return;
-    assert(mel_reactor_is_owner(st->reactor));
+    assert(mel_vat_is_owner(st->vat));
 
     while (mel_slotmap_count(&st->ops) > 0)
     {
@@ -210,7 +210,7 @@ bool mel_storage_ready(const Mel_Storage* st)
 }
 
 bool          mel_storage_writable(const Mel_Storage* st) { return st && st->writable; }
-Mel_Reactor*  mel_storage_reactor(const Mel_Storage* st) { return st ? st->reactor : NULL; }
+Mel_Vat*      mel_storage_vat(const Mel_Storage* st) { return st ? st->vat : NULL; }
 Mel_Executor* mel_storage_executor(const Mel_Storage* st) { return st ? st->executor : NULL; }
 u32           mel_storage_pending(const Mel_Storage* st) { return st ? mel_slotmap_count((Mel_SlotMap*)&st->ops) : 0; }
 
@@ -278,7 +278,7 @@ Mel_Future* mel_storage_read_opt(Mel_Storage* st, str8 rel, Mel_Storage_Read_Opt
 {
     if (!st)
         return NULL;
-    assert(mel_reactor_is_owner(st->reactor));
+    assert(mel_vat_is_owner(st->vat));
     if (!check_path(rel))
         return job_reject(st, MEL_STORAGE_JOB_READ, opt.deliver, opt.out_op, MEL_STORAGE_ERROR | MEL_STORAGE_BAD_PATH | MEL_STORAGE_ESCAPE);
     if (!mel_storage_ready(st))
@@ -298,7 +298,7 @@ Mel_Future* mel_storage_write_opt(Mel_Storage* st, str8 rel, Mel_Storage_Write_O
 {
     if (!st)
         return NULL;
-    assert(mel_reactor_is_owner(st->reactor));
+    assert(mel_vat_is_owner(st->vat));
     if (!check_path(rel))
         return job_reject(st, MEL_STORAGE_JOB_WRITE, opt.deliver, opt.out_op, MEL_STORAGE_ERROR | MEL_STORAGE_BAD_PATH | MEL_STORAGE_ESCAPE);
     if (!st->writable)
@@ -333,7 +333,7 @@ Mel_Future* mel_storage_size_opt(Mel_Storage* st, str8 rel, Mel_Storage_Size_Opt
 {
     if (!st)
         return NULL;
-    assert(mel_reactor_is_owner(st->reactor));
+    assert(mel_vat_is_owner(st->vat));
     if (!check_path(rel))
         return job_reject(st, MEL_STORAGE_JOB_SIZE, opt.deliver, opt.out_op, MEL_STORAGE_ERROR | MEL_STORAGE_BAD_PATH | MEL_STORAGE_ESCAPE);
     if (!mel_storage_ready(st))
@@ -352,7 +352,7 @@ Mel_Future* mel_storage_meta_opt(Mel_Storage* st, str8 rel, Mel_Storage_Meta_Opt
 {
     if (!st)
         return NULL;
-    assert(mel_reactor_is_owner(st->reactor));
+    assert(mel_vat_is_owner(st->vat));
     if (!check_path(rel))
         return job_reject(st, MEL_STORAGE_JOB_META, opt.deliver, opt.out_op, MEL_STORAGE_ERROR | MEL_STORAGE_BAD_PATH | MEL_STORAGE_ESCAPE);
     if (!mel_storage_ready(st))
@@ -371,7 +371,7 @@ Mel_Future* mel_storage_enumerate_opt(Mel_Storage* st, str8 rel, Mel_Storage_Enu
 {
     if (!st)
         return NULL;
-    assert(mel_reactor_is_owner(st->reactor));
+    assert(mel_vat_is_owner(st->vat));
     if (!check_path(rel))
         return job_reject(st, MEL_STORAGE_JOB_ENUMERATE, opt.deliver, opt.out_op, MEL_STORAGE_ERROR | MEL_STORAGE_BAD_PATH | MEL_STORAGE_ESCAPE);
     if (!mel_storage_ready(st))
@@ -394,7 +394,7 @@ Mel_Future* mel_storage_glob_opt(Mel_Storage* st, str8 rel, str8 pattern, Mel_St
 {
     if (!st)
         return NULL;
-    assert(mel_reactor_is_owner(st->reactor));
+    assert(mel_vat_is_owner(st->vat));
     if (!check_path(rel))
         return job_reject(st, MEL_STORAGE_JOB_GLOB, opt.deliver, opt.out_op, MEL_STORAGE_ERROR | MEL_STORAGE_BAD_PATH | MEL_STORAGE_ESCAPE);
     if (!mel_storage_ready(st))
@@ -418,7 +418,7 @@ Mel_Future* mel_storage_mkdir_opt(Mel_Storage* st, str8 rel, Mel_Storage_Mkdir_O
 {
     if (!st)
         return NULL;
-    assert(mel_reactor_is_owner(st->reactor));
+    assert(mel_vat_is_owner(st->vat));
     if (!check_path(rel))
         return job_reject(st, MEL_STORAGE_JOB_MKDIR, opt.deliver, opt.out_op, MEL_STORAGE_ERROR | MEL_STORAGE_BAD_PATH | MEL_STORAGE_ESCAPE);
     if (!st->writable)
@@ -440,7 +440,7 @@ Mel_Future* mel_storage_remove_opt(Mel_Storage* st, str8 rel, Mel_Storage_Remove
 {
     if (!st)
         return NULL;
-    assert(mel_reactor_is_owner(st->reactor));
+    assert(mel_vat_is_owner(st->vat));
     if (!check_path(rel))
         return job_reject(st, MEL_STORAGE_JOB_REMOVE, opt.deliver, opt.out_op, MEL_STORAGE_ERROR | MEL_STORAGE_BAD_PATH | MEL_STORAGE_ESCAPE);
     if (rel.len == 0)
@@ -464,7 +464,7 @@ Mel_Future* mel_storage_rename_opt(Mel_Storage* st, str8 from, str8 to, Mel_Stor
 {
     if (!st)
         return NULL;
-    assert(mel_reactor_is_owner(st->reactor));
+    assert(mel_vat_is_owner(st->vat));
     if (!check_path(from) || !check_path(to) || from.len == 0 || to.len == 0)
         return job_reject(st, MEL_STORAGE_JOB_RENAME, opt.deliver, opt.out_op, MEL_STORAGE_ERROR | MEL_STORAGE_BAD_PATH | MEL_STORAGE_ESCAPE);
     if (!st->writable)
@@ -489,7 +489,7 @@ Mel_Future* mel_storage_copy_opt(Mel_Storage* st, str8 from, str8 to, Mel_Storag
 {
     if (!st)
         return NULL;
-    assert(mel_reactor_is_owner(st->reactor));
+    assert(mel_vat_is_owner(st->vat));
     if (!check_path(from) || !check_path(to) || from.len == 0 || to.len == 0)
         return job_reject(st, MEL_STORAGE_JOB_COPY, opt.deliver, opt.out_op, MEL_STORAGE_ERROR | MEL_STORAGE_BAD_PATH | MEL_STORAGE_ESCAPE);
     if (!st->writable)
@@ -515,7 +515,7 @@ Mel_Future* mel_storage_space_opt(Mel_Storage* st, Mel_Storage_Space_Opt opt)
 {
     if (!st)
         return NULL;
-    assert(mel_reactor_is_owner(st->reactor));
+    assert(mel_vat_is_owner(st->vat));
     if (!mel_storage_ready(st))
         return job_reject(st, MEL_STORAGE_JOB_SPACE, opt.deliver, opt.out_op, MEL_STORAGE_ERROR | MEL_STORAGE_NOT_READY);
 
@@ -529,7 +529,7 @@ bool mel_storage_cancel(Mel_Storage* st, Mel_Storage_Op op)
 {
     if (!st)
         return false;
-    assert(mel_reactor_is_owner(st->reactor));
+    assert(mel_vat_is_owner(st->vat));
     Mel_SlotMap_Handle h = mel_slotmap_handle_make(op.index, op.generation);
     Mel_Storage_Job**  pp = (Mel_Storage_Job**)mel_slotmap_get(&st->ops, h);
     Mel_Storage_Job*   job = pp ? *pp : NULL;
@@ -570,7 +570,7 @@ const u8*            mel_storage_job_write_data(const Mel_Storage_Job* job) { re
 usize                mel_storage_job_write_len(const Mel_Storage_Job* job) { return job->write_len; }
 usize                mel_storage_job_read_expect(const Mel_Storage_Job* job) { return job->read_expect; }
 const Mel_Alloc*     mel_storage_job_alloc(const Mel_Storage_Job* job) { return job->alloc; }
-Mel_Reactor*         mel_storage_job_reactor(const Mel_Storage_Job* job) { return job->st->reactor; }
+Mel_Vat*             mel_storage_job_vat(const Mel_Storage_Job* job) { return job->st->vat; }
 Mel_Executor*        mel_storage_job_deliver(const Mel_Storage_Job* job) { return job->deliver; }
 bool                 mel_storage_job_create_parents(const Mel_Storage_Job* job) { return job->create_parents; }
 bool                 mel_storage_job_atomic(const Mel_Storage_Job* job) { return job->atomic; }
@@ -596,10 +596,7 @@ void mel_storage_job_settle_size(Mel_Storage_Job* job, u64 value, Mel_Storage_St
     mel_storage__job_settle(job, status);
 }
 
-void mel_storage_job_settle_void(Mel_Storage_Job* job, Mel_Storage_Status status)
-{
-    mel_storage__job_settle(job, status);
-}
+void mel_storage_job_settle_void(Mel_Storage_Job* job, Mel_Storage_Status status) { mel_storage__job_settle(job, status); }
 
 void mel_storage_job_settle_meta(Mel_Storage_Job* job, Mel_Storage_Meta value, Mel_Storage_Status status)
 {

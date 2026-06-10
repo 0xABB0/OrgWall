@@ -50,7 +50,7 @@ MEL_TEST(window_state, dead_handle_is_loud_not_fatal)
 
 MEL_TEST(window_state, enumerate_empty_is_zero)
 {
-    mel_window_init(NULL);
+    mel_window_init((Mel_Window_Host){ 0 });
     Mel_Window buf[8];
     u32        n = mel_window_enumerate_all(buf, 8);
     MEL_EXPECT_EQ(n, 0u);
@@ -60,7 +60,7 @@ MEL_TEST(window_state, enumerate_empty_is_zero)
 
 MEL_TEST(window_state, live_window_ops_round_trip)
 {
-    mel_window_init(NULL);
+    mel_window_init((Mel_Window_Host){ 0 });
 
     Mel_Window w = mel_window_create(.title = S8("state test"), .w = 320, .h = 240, .start_hidden = true);
     MEL_REQUIRE(mel_window_alive(w));
@@ -100,7 +100,7 @@ MEL_TEST(window_state, live_window_ops_round_trip)
 
 MEL_TEST(window_state, surface_present_round_trip)
 {
-    mel_window_init(NULL);
+    mel_window_init((Mel_Window_Host){ 0 });
     Mel_Window w = mel_window_create(.title = S8("surf"), .w = 64, .h = 48, .start_hidden = true);
     MEL_REQUIRE(mel_window_alive(w));
 
@@ -157,7 +157,7 @@ static u32 deferred_drain(Deferred_Executor* d)
 
 MEL_TEST(window_state, async_icc_fetch_delivers_on_executor)
 {
-    mel_window_init(NULL);
+    mel_window_init((Mel_Window_Host){ 0 });
     Mel_Window w = mel_window_create(.title = S8("icc"), .w = 128, .h = 96, .start_hidden = true);
     MEL_REQUIRE(mel_window_alive(w));
 
@@ -188,7 +188,7 @@ MEL_TEST(window_state, async_icc_fetch_delivers_on_executor)
 
 MEL_TEST(window_state, async_icc_release_unregisters_op)
 {
-    mel_window_init(NULL);
+    mel_window_init((Mel_Window_Host){ 0 });
     Mel_Window w = mel_window_create(.title = S8("icc3"), .w = 80, .h = 60, .start_hidden = true);
     MEL_REQUIRE(mel_window_alive(w));
 
@@ -212,7 +212,7 @@ MEL_TEST(window_state, async_icc_release_unregisters_op)
 
 MEL_TEST(window_state, async_icc_cancel_marks_cancelled)
 {
-    mel_window_init(NULL);
+    mel_window_init((Mel_Window_Host){ 0 });
     Mel_Window w = mel_window_create(.title = S8("icc2"), .w = 100, .h = 100, .start_hidden = true);
     MEL_REQUIRE(mel_window_alive(w));
 

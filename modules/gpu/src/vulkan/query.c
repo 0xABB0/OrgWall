@@ -2,10 +2,7 @@
 
 #include <log/log.h>
 
-static bool mel_gpu__query_pool_get(Mel_Gpu_Device* dev, Mel_Gpu_Query_Pool pool, Mel_Gpu_Query_Pool_Obj* out)
-{
-    return mel_gpu__table_get_copy(dev, &dev->query_pools, pool.slot, out);
-}
+static bool mel_gpu__query_pool_get(Mel_Gpu_Device* dev, Mel_Gpu_Query_Pool pool, Mel_Gpu_Query_Pool_Obj* out) { return mel_gpu__table_get_copy(dev, &dev->query_pools, pool.slot, out); }
 
 Mel_Gpu_Query_Pool_Create_Result mel_gpu_query_pool_create_opt(Mel_Gpu_Device* dev, Mel_Gpu_Query_Pool_Opt opt)
 {
@@ -135,8 +132,7 @@ bool mel_gpu_query_pool_resolve(Mel_Gpu_Device* dev, Mel_Gpu_Query_Pool pool, u3
     }
 
     u64*     ticks = mel_alloc_array(dev->alloc, u64, count);
-    VkResult r = vkGetQueryPoolResults(dev->vk, o.pool, first, count, sizeof(u64) * count, ticks, sizeof(u64),
-                                       VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT);
+    VkResult r = vkGetQueryPoolResults(dev->vk, o.pool, first, count, sizeof(u64) * count, ticks, sizeof(u64), VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT);
     if (r != VK_SUCCESS)
     {
         mel_log_error("gpu", "query_pool_resolve: vkGetQueryPoolResults failed: %s", mel_gpu__vk_result_str(r));
@@ -175,9 +171,9 @@ static void mel_gpu__query_resolve_complete(Mel_Gpu_Future* submit_future, void*
     }
     else
     {
-        const u64* ticks = mel_gpu_buffer_mapped(dev, c->readback);
-        usize      bytes = sizeof(Mel_Gpu_Query_Resolve) + (usize)c->count * sizeof(u64);
-        u8*        block = mel_alloc(dev->alloc, bytes);
+        const u64*             ticks = mel_gpu_buffer_mapped(dev, c->readback);
+        usize                  bytes = sizeof(Mel_Gpu_Query_Resolve) + (usize)c->count * sizeof(u64);
+        u8*                    block = mel_alloc(dev->alloc, bytes);
         Mel_Gpu_Query_Resolve* out = (Mel_Gpu_Query_Resolve*)block;
         u64*                   ns = (u64*)(block + sizeof(Mel_Gpu_Query_Resolve));
         for (u32 i = 0; i < c->count; i++)
@@ -199,14 +195,14 @@ Mel_Gpu_Future* mel_gpu_query_pool_resolve_async(Mel_Gpu_Device* dev, Mel_Gpu_Qu
     if (!dev || !q || count == 0 || !mel_gpu__query_pool_get(dev, pool, &o))
     {
         mel_log_error("gpu", "query_pool_resolve_async: invalid arguments (dev/queue/count/pool)");
-        Mel_Gpu_Future* f = mel_gpu_future_create(dev ? dev->pump : NULL, dev ? dev->reactor : NULL);
+        Mel_Gpu_Future* f = mel_gpu_future_create(dev ? dev->pump : NULL, dev ? dev->vat : NULL);
         mel_gpu_future_resolve(f, NULL, MEL_GPU_QUERY_RESOLVE_BAD_PARAMS);
         return f;
     }
     if (first + count > o.count)
     {
         mel_log_error("gpu", "query_pool_resolve_async: range [%u, %u) exceeds pool count %u", first, first + count, o.count);
-        Mel_Gpu_Future* f = mel_gpu_future_create(dev->pump, dev->reactor);
+        Mel_Gpu_Future* f = mel_gpu_future_create(dev->pump, dev->vat);
         mel_gpu_future_resolve(f, NULL, MEL_GPU_QUERY_RESOLVE_BAD_PARAMS);
         return f;
     }
@@ -215,7 +211,7 @@ Mel_Gpu_Future* mel_gpu_query_pool_resolve_async(Mel_Gpu_Device* dev, Mel_Gpu_Qu
     if (mel_gpu_failed(rb.status))
     {
         mel_log_error("gpu", "query_pool_resolve_async: readback buffer create failed");
-        Mel_Gpu_Future* f = mel_gpu_future_create(dev->pump, dev->reactor);
+        Mel_Gpu_Future* f = mel_gpu_future_create(dev->pump, dev->vat);
         mel_gpu_future_resolve(f, NULL, MEL_GPU_QUERY_RESOLVE_BACKEND_FAILED);
         return f;
     }
@@ -227,7 +223,7 @@ Mel_Gpu_Future* mel_gpu_query_pool_resolve_async(Mel_Gpu_Device* dev, Mel_Gpu_Qu
     {
         mel_log_error("gpu", "query_pool_resolve_async: command list create failed");
         mel_gpu_buffer_destroy(dev, rb.value);
-        Mel_Gpu_Future* f = mel_gpu_future_create(dev->pump, dev->reactor);
+        Mel_Gpu_Future* f = mel_gpu_future_create(dev->pump, dev->vat);
         mel_gpu_future_resolve(f, NULL, MEL_GPU_QUERY_RESOLVE_BACKEND_FAILED);
         return f;
     }
@@ -239,7 +235,7 @@ Mel_Gpu_Future* mel_gpu_query_pool_resolve_async(Mel_Gpu_Device* dev, Mel_Gpu_Qu
 
     Mel_Gpu_Query_Resolve_Ctx* c = mel_alloc_type(dev->alloc, Mel_Gpu_Query_Resolve_Ctx);
     *c = (Mel_Gpu_Query_Resolve_Ctx){ .dev = dev, .cmd = cmd, .readback = rb.value, .count = count, .period_ns = o.period_ns };
-    c->result_future = mel_gpu_future_create(dev->pump, dev->reactor);
+    c->result_future = mel_gpu_future_create(dev->pump, dev->vat);
     Mel_Gpu_Future* result_future = c->result_future;
 
     Mel_Gpu_Future* submit_future = mel_gpu_queue_submit(q, (Mel_Gpu_Submit){ .command_lists = &cmd, .command_list_count = 1 });

@@ -233,9 +233,15 @@ Mel_Key mel_gui__macos_key_for_event(NSEvent* e)
     return MEL_KEY_NONE;
 }
 
+static void mel_gui__window_quit(void* user)
+{
+    if (user)
+        mel_vat_quit((Mel_Vat*)user);
+}
+
 bool mel_gui__backend_init(void)
 {
-    mel_window_init(mel_gui__reactor());
+    mel_window_init((Mel_Window_Host){ .quit = mel_gui__window_quit, .user = mel_gui__vat() });
     return true;
 }
 

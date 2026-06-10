@@ -34,20 +34,20 @@ static bool mel_gui__xcb_load(Mel_Xcb_State* x)
     a->disconnect = (void (*)(mel_xcb_connection*))mel_gui__xcb_sym(x->lib, "xcb_disconnect");
     a->get_file_descriptor = (int (*)(mel_xcb_connection*))mel_gui__xcb_sym(x->lib, "xcb_get_file_descriptor");
     a->flush = (int (*)(mel_xcb_connection*))mel_gui__xcb_sym(x->lib, "xcb_flush");
-    a->generate_id = (u32 (*)(mel_xcb_connection*))mel_gui__xcb_sym(x->lib, "xcb_generate_id");
+    a->generate_id = (u32(*)(mel_xcb_connection*))mel_gui__xcb_sym(x->lib, "xcb_generate_id");
     a->get_setup = (const mel_xcb_setup* (*)(mel_xcb_connection*))mel_gui__xcb_sym(x->lib, "xcb_get_setup");
-    a->setup_roots_iterator = (mel_xcb_screen_iterator (*)(const mel_xcb_setup*))mel_gui__xcb_sym(x->lib, "xcb_setup_roots_iterator");
+    a->setup_roots_iterator = (mel_xcb_screen_iterator(*)(const mel_xcb_setup*))mel_gui__xcb_sym(x->lib, "xcb_setup_roots_iterator");
     a->screen_next = (void (*)(mel_xcb_screen_iterator*))mel_gui__xcb_sym(x->lib, "xcb_screen_next");
     a->poll_for_event = (mel_xcb_generic_event * (*)(mel_xcb_connection*)) mel_gui__xcb_sym(x->lib, "xcb_poll_for_event");
-    a->create_window = (mel_xcb_void_cookie (*)(mel_xcb_connection*, u8, mel_xcb_window, mel_xcb_window, i16, i16, u16, u16, u16, u16, mel_xcb_visualid, u32, const void*))mel_gui__xcb_sym(x->lib, "xcb_create_window");
-    a->destroy_window = (mel_xcb_void_cookie (*)(mel_xcb_connection*, mel_xcb_window))mel_gui__xcb_sym(x->lib, "xcb_destroy_window");
-    a->map_window = (mel_xcb_void_cookie (*)(mel_xcb_connection*, mel_xcb_window))mel_gui__xcb_sym(x->lib, "xcb_map_window");
-    a->unmap_window = (mel_xcb_void_cookie (*)(mel_xcb_connection*, mel_xcb_window))mel_gui__xcb_sym(x->lib, "xcb_unmap_window");
-    a->configure_window = (mel_xcb_void_cookie (*)(mel_xcb_connection*, mel_xcb_window, u16, const void*))mel_gui__xcb_sym(x->lib, "xcb_configure_window");
-    a->change_property = (mel_xcb_void_cookie (*)(mel_xcb_connection*, u8, mel_xcb_window, mel_xcb_atom, mel_xcb_atom, u8, u32, const void*))mel_gui__xcb_sym(x->lib, "xcb_change_property");
-    a->change_window_attributes = (mel_xcb_void_cookie (*)(mel_xcb_connection*, mel_xcb_window, u32, const void*))mel_gui__xcb_sym(x->lib, "xcb_change_window_attributes");
-    a->set_input_focus = (mel_xcb_void_cookie (*)(mel_xcb_connection*, u8, mel_xcb_window, u32))mel_gui__xcb_sym(x->lib, "xcb_set_input_focus");
-    a->intern_atom = (mel_xcb_intern_atom_cookie (*)(mel_xcb_connection*, u8, u16, const char*))mel_gui__xcb_sym(x->lib, "xcb_intern_atom");
+    a->create_window = (mel_xcb_void_cookie(*)(mel_xcb_connection*, u8, mel_xcb_window, mel_xcb_window, i16, i16, u16, u16, u16, u16, mel_xcb_visualid, u32, const void*))mel_gui__xcb_sym(x->lib, "xcb_create_window");
+    a->destroy_window = (mel_xcb_void_cookie(*)(mel_xcb_connection*, mel_xcb_window))mel_gui__xcb_sym(x->lib, "xcb_destroy_window");
+    a->map_window = (mel_xcb_void_cookie(*)(mel_xcb_connection*, mel_xcb_window))mel_gui__xcb_sym(x->lib, "xcb_map_window");
+    a->unmap_window = (mel_xcb_void_cookie(*)(mel_xcb_connection*, mel_xcb_window))mel_gui__xcb_sym(x->lib, "xcb_unmap_window");
+    a->configure_window = (mel_xcb_void_cookie(*)(mel_xcb_connection*, mel_xcb_window, u16, const void*))mel_gui__xcb_sym(x->lib, "xcb_configure_window");
+    a->change_property = (mel_xcb_void_cookie(*)(mel_xcb_connection*, u8, mel_xcb_window, mel_xcb_atom, mel_xcb_atom, u8, u32, const void*))mel_gui__xcb_sym(x->lib, "xcb_change_property");
+    a->change_window_attributes = (mel_xcb_void_cookie(*)(mel_xcb_connection*, mel_xcb_window, u32, const void*))mel_gui__xcb_sym(x->lib, "xcb_change_window_attributes");
+    a->set_input_focus = (mel_xcb_void_cookie(*)(mel_xcb_connection*, u8, mel_xcb_window, u32))mel_gui__xcb_sym(x->lib, "xcb_set_input_focus");
+    a->intern_atom = (mel_xcb_intern_atom_cookie(*)(mel_xcb_connection*, u8, u16, const char*))mel_gui__xcb_sym(x->lib, "xcb_intern_atom");
     a->intern_atom_reply = (mel_xcb_intern_atom_reply * (*)(mel_xcb_connection*, mel_xcb_intern_atom_cookie, void*)) mel_gui__xcb_sym(x->lib, "xcb_intern_atom_reply");
 
     return a->connect && a->connection_has_error && a->disconnect && a->get_file_descriptor && a->flush && a->generate_id && a->get_setup && a->setup_roots_iterator && a->screen_next && a->poll_for_event && a->create_window &&
@@ -116,7 +116,7 @@ static void mel_gui__xcb_dispatch_event(Mel_Xcb_State* x, mel_xcb_generic_event*
         x->api.destroy_window(x->conn, m->window);
         mel_gui__destroy_tree(h);
         if (mel_gui__frames_dec() == 0)
-            mel_reactor_quit(mel_reactor_source_reactor(x->source));
+            mel_vat_quit(mel_vat_source_vat(x->source));
         break;
     }
     default:
@@ -124,26 +124,25 @@ static void mel_gui__xcb_dispatch_event(Mel_Xcb_State* x, mel_xcb_generic_event*
     }
 }
 
-static bool xcb_source_prepare(Mel_Reactor_Source* source, i32* timeout)
+static Mel_Vat_Wakeable g_xcb_wakeable;
+
+static void xcb_source_wakeables(Mel_Vat_Source* source, Mel_Vat_Wakeable** out, usize* count)
 {
     (void)source;
-    *timeout = MEL_REACTOR_FOREVER;
+    *out = &g_xcb_wakeable;
+    *count = 1;
+}
+
+static i64 xcb_source_deadline(Mel_Vat_Source* source)
+{
+    (void)source;
     g_xcb.api.flush(g_xcb.conn);
-    return false;
+    return MEL_VAT_NEVER;
 }
 
-static bool xcb_source_check(Mel_Reactor_Source* source)
+static bool xcb_source_drain(Mel_Vat_Source* source, u32 budget)
 {
-    if (source->poll_count == 0 || !source->polls[0])
-        return false;
-    return (source->polls[0]->revents & (MEL_REACTOR_POLL_IN | MEL_REACTOR_POLL_HUP | MEL_REACTOR_POLL_ERR)) != 0;
-}
-
-static bool xcb_source_dispatch(Mel_Reactor_Source* source, Mel_Reactor_Source_Proc callback, void* user)
-{
-    (void)source;
-    (void)callback;
-    (void)user;
+    (void)budget;
     for (mel_xcb_generic_event* ev; (ev = g_xcb.api.poll_for_event(g_xcb.conn));)
     {
         mel_gui__xcb_dispatch_event(&g_xcb, ev);
@@ -152,20 +151,19 @@ static bool xcb_source_dispatch(Mel_Reactor_Source* source, Mel_Reactor_Source_P
     if (g_xcb.api.connection_has_error(g_xcb.conn))
     {
         mel_log_error("gui", "xcb backend: X connection lost");
+        mel_vat_source_close(source);
         return false;
     }
     g_xcb.api.flush(g_xcb.conn);
-    return true;
+    return false;
 }
 
-static const Mel_Reactor_Source_Callbacks g_xcb_source_cb = {
-    .prepare = xcb_source_prepare,
-    .check = xcb_source_check,
-    .dispatch = xcb_source_dispatch,
-    .finalize = NULL,
+static const Mel_Vat_Source_Vtbl g_xcb_source_cb = {
+    .wakeables = xcb_source_wakeables,
+    .deadline = xcb_source_deadline,
+    .drain = xcb_source_drain,
+    .cancel = NULL,
 };
-
-static Mel_Reactor_Poll g_xcb_poll;
 
 bool mel_gui__backend_init(void)
 {
@@ -201,18 +199,15 @@ bool mel_gui__backend_init(void)
     x->wm_protocols = mel_gui__xcb_atom(x, "WM_PROTOCOLS");
     x->wm_delete_window = mel_gui__xcb_atom(x, "WM_DELETE_WINDOW");
 
-    Mel_Reactor* reactor = mel_gui__reactor();
-    if (!reactor)
+    Mel_Vat* vat = mel_gui__vat();
+    if (!vat)
     {
-        mel_log_error("gui", "xcb backend: no reactor; event loop cannot be driven");
+        mel_log_error("gui", "xcb backend: no vat; event loop cannot be driven");
         return false;
     }
 
-    x->source = mel_reactor_source_new(&g_xcb_source_cb, sizeof(Mel_Reactor_Source));
-    g_xcb_poll = (Mel_Reactor_Poll){ .handle = x->api.get_file_descriptor(x->conn), .events = MEL_REACTOR_POLL_IN };
-    mel_reactor_source_add_poll(x->source, &g_xcb_poll);
-    mel_reactor_source_set_priority(x->source, MEL_REACTOR_PRIORITY_HIGH);
-    mel_reactor_source_attach(reactor, x->source);
+    g_xcb_wakeable = (Mel_Vat_Wakeable){ .handle = x->api.get_file_descriptor(x->conn), .events = MEL_VAT_WAKE_IN };
+    x->source = mel_vat_source_open(vat, &g_xcb_source_cb, x);
 
     x->ok = true;
     mel_log_info("gui", "xcb backend: connected to X server, screen %dx%d depth %u", x->screen->width_in_pixels, x->screen->height_in_pixels, x->depth);

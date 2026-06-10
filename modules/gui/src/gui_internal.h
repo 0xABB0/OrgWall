@@ -5,7 +5,7 @@
 #include <collection/slotmap.h>
 #include <allocator/allocator.h>
 #include <string/str8.h>
-#include <reactor/reactor.h>
+#include <vat/vat.h>
 
 #include <gui/gui.h>
 
@@ -28,7 +28,7 @@ typedef struct Mel_Gui_Node
 } Mel_Gui_Node;
 
 const Mel_Alloc* mel_gui__alloc(void);
-Mel_Reactor*     mel_gui__reactor(void);
+Mel_Vat*         mel_gui__vat(void);
 
 Mel_Gui_Node* mel_gui__node(Mel_Gui_Handle h);
 Mel_Gui_Node* mel_gui__nodes(u32* count_out);

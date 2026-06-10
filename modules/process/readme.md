@@ -4,7 +4,7 @@ Subprocess spawn and lifecycle on the async substrate. Launch a child from an
 `argv` (optional env, cwd), redirect each stdio stream, drive the pipes as async
 byte streams, query and wait for exit, kill, and collect run-to-completion output.
 
-deps: core, allocator, collection, executor, future, reactor, port, io, log.
+deps: core, allocator, collection, executor, future, vat, port, io, time, log.
 namespace: `<process/...>`, prefix `mel_process_`.
 
 ## Surface
@@ -13,7 +13,7 @@ namespace: `<process/...>`, prefix `mel_process_`.
                                                .env_clear?, .cwd?,
                                                .stdin_cfg?, .stdout_cfg?, .stderr_cfg?,
                                                .merge_stderr?, .detached?,
-                                               .reactor?, .alloc?);
+                                               .vat?, .alloc?);
     bool        mel_process_available(void);
     void        mel_process_destroy(Mel_Process*);
 
@@ -31,7 +31,7 @@ namespace: `<process/...>`, prefix `mel_process_`.
     Mel_Process_Status mel_process_kill(p, .signal = TERM | KILL);
 
     Mel_Future* mel_process_run(.argv, .argc, .stdin_data?, .stdin_len?,
-                                .merge_stderr?, .reactor, .deliver?, ...);
+                                .merge_stderr?, .vat, .deliver?, ...);
 
 ## Stdio disposition
 
@@ -39,7 +39,7 @@ Each stream is configured by a `Mel_Process_Stdio` descriptor, not an enum: a
 `disposition` bit value (`INHERIT` / `NULL` / `PIPE` / `REDIRECT`) plus, for
 `REDIRECT`, the target `Mel_Stream*` (its native fd is dup'd onto the child's
 stream). `PIPE` exposes the stream as a `Mel_Stream` (`mel_process_stdin/stdout/
-stderr`), backed by `port` for async byte transfer — it requires a reactor.
+stderr`), backed by `port` for async byte transfer — it requires a vat.
 `merge_stderr` ties the child's stderr to its stdout (`2>&1`).
 
 ## Status
@@ -67,7 +67,8 @@ merged) piped, optionally feed `stdin_data`, drain both pipes and the exit code,
 resolve a future with `Mel_Process_Output` (`stdout_data/len`, `stderr_data/len`,
 `exit_code`, `term_signal`, `status`). The process is destroyed when the future
 resolves; the caller frees the buffers with `mel_process_run_future_release`. It
-requires a reactor and runs entirely on the loop thread.
+requires a vat and runs entirely on the loop thread; the run holds a
+`mel_vat_retain` until its future resolves.
 
 ## Detached / background
 
@@ -81,9 +82,9 @@ neither kills nor reaps a detached child — it outlives the handle.
 
 The async entries (`mel_process_wait`, `mel_process_cancel_wait`, the pipe
 stream reads/writes, `mel_process_run`) are loop-thread-only and assert
-`mel_reactor_is_owner(reactor)`, inherited from `port`/`reactor`. `wait_sync`,
-`poll`, `kill`, `pid`, `running` and `destroy` are callable from the owning
-thread of a reactorless process or marshalled onto the loop otherwise.
+`mel_vat_is_owner(vat)`, inherited from `port`/`vat`. `wait_sync`, `poll`,
+`kill`, `pid`, `running` and `destroy` are callable from the owning thread of a
+vatless process or marshalled onto the loop otherwise.
 
 ## Platform selection
 
@@ -93,7 +94,7 @@ thread of a reactorless process or marshalled onto the loop otherwise.
   `posix_spawnp` with `posix_spawn_file_actions` for stdio dup2 and cwd
   (`addchdir`/`addchdir_np`), `pipe2(O_CLOEXEC)` (Linux/Android) or
   `pipe`+`FD_CLOEXEC` pipes, exit reaped with `waitpid(WNOHANG)` driven by a
-  reactor timer source on the loop, `kill(SIGTERM/SIGKILL)`.
+  deadline-only vat source on the loop, `kill(SIGTERM/SIGKILL)`.
 - **win32** → `src/win32/process_backend.c` — `CreateProcessW` with a UTF-16
   command line (MSVC argv-quoting) and environment block, overlapped named
   pipes bridged to CRT fds (`_open_osfhandle`) for the `port` overlapped engine,
@@ -102,24 +103,25 @@ thread of a reactorless process or marshalled onto the loop otherwise.
   `ERROR | UNAVAILABLE`. A browser/WASI sandbox has no `fork`/`exec`; faking it
   would be a silent lie (MEL-ENGINE-VIII).
 
-## Exit detection: why a reactor timer, not SIGCHLD
+## Exit detection: why a deadline poll, not SIGCHLD
 
-The posix backend reaps with `waitpid(WNOHANG)` on a reactor timer source
+The posix backend reaps with `waitpid(WNOHANG)` on a deadline-only vat source
 (2 ms cadence) rather than a global `SIGCHLD` handler + self-pipe. A process-wide
-signal handler is global mutable state that would collide across reactors and
-with a host app's own `SIGCHLD` use; the timer is reactor-local, loop-thread,
-and zero-cost when no wait is pending (the source is attached only while a wait
-is outstanding). A kqueue `EVFILT_PROC` / Linux `pidfd` source would be the
-zero-latency ideal and slots behind the same backend seam when the reactor
-surfaces a process-readiness source.
+signal handler is global mutable state that would collide across vats and with a
+host app's own `SIGCHLD` use; the source is vat-local, loop-thread, and
+zero-cost when no wait is pending (opened only while a wait is outstanding, and
+it `mel_vat_retain`s the vat for its lifetime). A kqueue `EVFILT_PROC` / Linux
+`pidfd` wakeable would be the zero-latency ideal and slots behind the same seam
+once the waiter accepts non-fd filters.
 
 ## Tests
 
 `process-spawn` drives real host binaries: `true`/`false` exit codes,
 missing-binary `NOT_FOUND`, `argv` requirement, `kill` of a sleeper surfacing
-`SIGNALLED`, detached status + piped-detached rejection, and — under a threaded
-reactor — `run` collecting `printf` stdout with exit 0, feeding stdin through
-`cat`, and passing an env var through `sh -c`. Runs on macOS here; the posix
-backend compiles/links identically on Linux/Android (same `posix_spawn` +
-`waitpid` + reactor-source model). win32 is built/run on win-pilot. wasm has no
-surface to test (`available()==false`).
+`SIGNALLED`, detached status + piped-detached rejection, and — on a vat opened
+on the test thread (io waiter + fair driver + deadline-0 idle source) — `run`
+collecting `printf` stdout with exit 0, feeding stdin through `cat`, and passing
+an env var through `sh -c`. Runs on macOS here; the posix backend
+compiles/links identically on Linux/Android (same `posix_spawn` + `waitpid` +
+vat-source model). win32 is built/run on win-pilot. wasm has no surface to test
+(`available()==false`).

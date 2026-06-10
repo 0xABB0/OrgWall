@@ -1,16 +1,19 @@
 # fs
 
 Async-first filesystem. Every metadata or bulk operation returns a `Mel_Future*` lowered onto a
-worker-thread proactor bound to a `Mel_Reactor`; the completion is posted back to the loop thread,
-which resolves the future and runs the continuation on the caller's `deliver` executor. Synchronous
-folder/cwd helpers are thin shims that do not touch the proactor.
+worker-thread pool bound to a `Mel_Vat` — the doctrine's executor-offload discipline for objects
+readiness cannot represent. The completion is an intrusive `Mel_Task` embedded in the op record,
+posted back to the vat (`mel_vat_post` rings the doorbell); the loop turn resolves the future and
+runs the continuation on the caller's `deliver` executor (default `mel_vat_executor`). In-flight
+ops retain the vat (`mel_vat_retain`/`release`), so `mel_vat_run` stays live until completions
+drain. Synchronous folder/cwd helpers are thin shims that do not touch the pool.
 
 ## Why it exists
 
-The reactor/port substrate is a readiness-based proactor (poll IN/OUT) — it serves sockets and
-pipes, not blocking filesystem syscalls (`stat`, `mkdir`, `readdir`, `rename`, `copy`). `fs` carries
-its own worker pool that runs those blocking calls off the loop and hands results back through
-`mel_reactor_post`, so a single-threaded loop never blocks on disk.
+The vat/port substrate is readiness-based (poll IN/OUT) — it serves sockets and pipes, not
+blocking filesystem syscalls (`stat`, `mkdir`, `readdir`, `rename`, `copy`). `fs` carries its own
+worker pool that runs those blocking calls off the loop and hands results back through
+`mel_vat_post`, so a single-threaded vat never blocks on disk.
 
 ## Surface
 
@@ -41,5 +44,5 @@ loop-thread affinity.
 
 ## Dependencies
 
-`core`, `allocator`, `collection`, `string`, `executor`, `future`, `reactor`, `thread`, `log`,
+`core`, `allocator`, `collection`, `string`, `executor`, `future`, `vat`, `thread`, `log`,
 `platform` (android JNI bridge).

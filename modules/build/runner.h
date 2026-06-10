@@ -21,6 +21,7 @@ int   mel_run(char* const argv[]);
 int   mel_run_quiet(char* const argv[]);
 int   mel_run_vec(Mel_StrVec* cmd);
 int   mel_run_cwd(const char* dir, Mel_StrVec* cmd);
+bool  mel_lock_dir(const char* dir);
 void  mel_mkdirs(const char* path);
 char* mel_read_file(const char* path);
 bool  mel_write_file(const char* path, const char* data);
@@ -46,10 +47,11 @@ typedef struct
 typedef MEL_VEC(size_t) Mel_IdxVec;
 
 bool        mel_discover_dir(Mel_Graph* g, const char* dir);
-void        mel_discover(Mel_Graph* g);
+bool        mel_discover(Mel_Graph* g);
 Mel_Target* mel_graph_find(Mel_Graph* g, const char* name);
 int         mel_graph_index(Mel_Graph* g, const char* name);
 bool        mel_topo_closure(Mel_Graph* g, const char* root, const Mel_Variant* v, Mel_IdxVec* order);
+bool        mel_topo_all(Mel_Graph* g, const Mel_Variant* v, Mel_IdxVec* order);
 bool        mel_package(Mel_Graph* g, Mel_IdxVec* order, Mel_Target* t, const Mel_Variant* v, const char* outdir, const char* exe);
 
 Mel_Variant mel_variant_native(Mel_Platform platform, const char* config);
@@ -77,6 +79,6 @@ char* mel_target_outdir(const char* target_dir, const Mel_Variant* v);
 bool  mel_prepare_thirdparty(Mel_Graph* g, Mel_IdxVec* order, const Mel_Variant* v);
 void  mel_inject_thirdparty(Mel_Graph* g, const Mel_Variant* v);
 bool  mel_emit_and_build(Mel_Graph* g, const char* root, const Mel_Variant* v, bool run_ninja, bool do_package, char** out_bin);
-bool  mel_emit_compdb(Mel_Graph* g, const Mel_Variant* variants, size_t nvar, const char* out_path);
+bool  mel_emit_compdb(Mel_Graph* g, const Mel_Variant* variants, size_t nvar, const char* root, size_t* written);
 
 #endif

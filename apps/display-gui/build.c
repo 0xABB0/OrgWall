@@ -7,7 +7,9 @@ void build(Mel_Build* b)
     mel_sources(app, ALWAYS, "src/*.c");
     mel_sources(app, WHEN(.platforms = MEL_ON(MACOS)), "src/macos/*.m");
     mel_link(app, MEL_PRIVATE, WHEN(.platforms = MEL_ON(MACOS)), "-framework", "Metal");
-    mel_depends(app, "app");
+    mel_depends(app, "boot");
+    mel_depends(app, "vat");
+    mel_depends(app, "allocator");
     mel_depends(app, "gui");
     mel_depends(app, "display");
     mel_depends(app, "core");

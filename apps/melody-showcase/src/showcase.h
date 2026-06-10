@@ -1,8 +1,6 @@
 #pragma once
 
-#include <reactor/reactor.h>
+typedef struct Mel_Vat Mel_Vat;
 
-typedef void (*Showcase_Line_Fn)(const char* module, const char* fmt, ...);
-
-int  showcase_smoke(void);
-void showcase_window_setup(Mel_Reactor* reactor);
+void showcase_smoke_setup(Mel_Vat* root);
+void showcase_window_setup(Mel_Vat* root);

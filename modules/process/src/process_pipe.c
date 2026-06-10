@@ -4,7 +4,7 @@
 #include <allocator/heap.h>
 #include <future/future.h>
 #include <executor/executor.h>
-#include <reactor/reactor.h>
+#include <vat/vat.h>
 #include <port/port.h>
 #include <collection/list.h>
 #include <log/log.h>
@@ -125,7 +125,7 @@ static Mel_Future* pipe_submit(Mel_Stream* s, Pipe_State* f, bool is_read, void*
     if (!op)
         return NULL;
 
-    assert(mel_reactor_is_owner(mel_port_reactor(f->port)));
+    assert(mel_vat_is_owner(mel_port_vat(f->port)));
 
     Mel_Port_Op port_op = MEL_PORT_OP_NULL;
     Mel_Future* pf;
@@ -184,13 +184,13 @@ const Mel_Stream_Iface MEL_PROCESS_PIPE_IFACE = {
 
 static const Mel_Stream_Iface* pipe_iface(void) { return &MEL_PROCESS_PIPE_IFACE; }
 
-Mel_Stream* mel_process__pipe_stream(i32 fd, bool readable, bool writable, Mel_Reactor* reactor, const Mel_Alloc* alloc)
+Mel_Stream* mel_process__pipe_stream(i32 fd, bool readable, bool writable, Mel_Vat* vat, const Mel_Alloc* alloc)
 {
     if (fd < 0)
         return NULL;
-    if (!reactor)
+    if (!vat)
     {
-        mel_log_error("process", "pipe stream requires a reactor for async byte transfer");
+        mel_log_error("process", "pipe stream requires a vat for async byte transfer");
         return NULL;
     }
 
@@ -202,16 +202,11 @@ Mel_Stream* mel_process__pipe_stream(i32 fd, bool readable, bool writable, Mel_R
     f->readable = readable;
     f->writable = writable;
     f->alloc = alloc;
-    f->port = mel_port_create(.reactor = reactor, .alloc = alloc);
+    f->port = mel_port_create(.vat = vat, .alloc = alloc);
 
     bool async = f->port && mel_port_available(f->port);
 
-    Mel_Stream* s = mel_stream_create(.iface = pipe_iface(),
-                                      .user = f,
-                                      .alloc = alloc,
-                                      .reactor = reactor,
-                                      .executor = mel_reactor_executor(reactor),
-                                      .caps = { .readable = readable, .writable = writable, .async = async });
+    Mel_Stream* s = mel_stream_create(.iface = pipe_iface(), .user = f, .alloc = alloc, .vat = vat, .executor = mel_vat_executor(vat), .caps = { .readable = readable, .writable = writable, .async = async });
     if (!s)
     {
         if (f->port)

@@ -8,27 +8,28 @@
 #include <allocator/allocator.h>
 #include <allocator/heap.h>
 
-#include <app/app.h>
+#include <gui/gui.h>
 #include <gui/gui.h>
 
 #include <audio/audio.h>
 
-#include <reactor/reactor.h>
+#include <vat/tick.h>
+#include <vat/vat.h>
 #include <executor/executor.h>
 #include <time/nano.h>
 #include <log/log.h>
 
-#define HELLO_TAU      6.28318530717958647692
-#define HELLO_SR       48000u
-#define HELLO_CH       2u
-#define HELLO_BLOCK    512u
-#define HELLO_RING     4u
-#define HELLO_MAXCH    2u
-#define HELLO_MAXRATIO 4.0
-#define HELLO_DOMAIN   "hello-audio"
+#define HELLO_TAU           6.28318530717958647692
+#define HELLO_SR            48000u
+#define HELLO_CH            2u
+#define HELLO_BLOCK         512u
+#define HELLO_RING          4u
+#define HELLO_MAXCH         2u
+#define HELLO_MAXRATIO      4.0
+#define HELLO_DOMAIN        "hello-audio"
 
-#define HELLO_METER_HZ 30
-#define HELLO_SEQ_HZ   20
+#define HELLO_METER_HZ      30
+#define HELLO_SEQ_HZ        20
 
 #define HELLO_STRESS_TARGET 192u
 
@@ -41,7 +42,7 @@ typedef enum
 typedef struct
 {
     const Mel_Alloc* alloc;
-    Mel_Reactor*     reactor;
+    Mel_Vat*         vat;
     Mel_Audio*       engine;
     Mel_Audio_Caps   caps;
 
@@ -55,9 +56,9 @@ typedef struct
     Mel_Gui_Handle count_label;
     Mel_Gui_Handle canvas;
 
-    Mel_Reactor_Source* meter_timer;
-    Mel_Reactor_Source* seq_timer;
-    Mel_Reactor_Source* auto_timer;
+    Mel_Vat_Tick* meter_timer;
+    Mel_Vat_Tick* seq_timer;
+    Mel_Vat_Tick* auto_timer;
 
     Hello_Mode mode;
     bool       sequence_active;
@@ -70,18 +71,15 @@ typedef struct
     u32 active_voices;
     u32 peak_voices;
 
-    f64 auto_seconds;
-    f64 auto_elapsed;
+    f64  auto_seconds;
+    f64  auto_elapsed;
     bool auto_quitting;
     bool torn_down;
 } Hello_State;
 
 static Hello_State g_app;
 
-static f64 note_hz(i32 midi)
-{
-    return 440.0 * pow(2.0, (f64)(midi - 69) / 12.0);
-}
+static f64 note_hz(i32 midi) { return 440.0 * pow(2.0, (f64)(midi - 69) / 12.0); }
 
 static u32 rng_next(u32* state)
 {
@@ -93,10 +91,7 @@ static u32 rng_next(u32* state)
     return x;
 }
 
-static f32 rng_unit(u32* state)
-{
-    return (f32)(rng_next(state) >> 8) / (f32)(1u << 24);
-}
+static f32 rng_unit(u32* state) { return (f32)(rng_next(state) >> 8) / (f32)(1u << 24); }
 
 static void envelope(f32* interleaved, u32 frames, u32 channels, u32 samplerate, f64 attack_s, f64 release_s)
 {
@@ -184,9 +179,15 @@ static void update_mode_label(Hello_State* s)
     if (mel_gui_handle_is_none(s->mode_label))
         return;
     char text[160];
-    snprintf(text, sizeof text, "mode: %s   device: %uHz %uch  block %u  ring %u  latency %u",
+    snprintf(text,
+             sizeof text,
+             "mode: %s   device: %uHz %uch  block %u  ring %u  latency %u",
              s->mode == HELLO_MODE_STRESS ? "STRESS" : "DEMO",
-             s->caps.samplerate, s->caps.channels, s->caps.block_frames, s->caps.ring_blocks, s->caps.latency_frames);
+             s->caps.samplerate,
+             s->caps.channels,
+             s->caps.block_frames,
+             s->caps.ring_blocks,
+             s->caps.latency_frames);
     mel_gui_set_text(s->mode_label, str8_from_cstr(text));
 }
 
@@ -195,8 +196,7 @@ static void update_count_label(Hello_State* s)
     if (mel_gui_handle_is_none(s->count_label))
         return;
     char text[128];
-    snprintf(text, sizeof text, "voices: %u  (peak %u)   %s",
-             s->active_voices, s->peak_voices, s->sequence_active ? "playing" : "idle");
+    snprintf(text, sizeof text, "voices: %u  (peak %u)   %s", s->active_voices, s->peak_voices, s->sequence_active ? "playing" : "idle");
     mel_gui_set_text(s->count_label, str8_from_cstr(text));
 }
 
@@ -321,11 +321,11 @@ static void teardown(Hello_State* s)
     s->torn_down = true;
 
     if (s->meter_timer != NULL)
-        mel_reactor_source_destroy(s->meter_timer);
+        mel_vat_tick_close(s->meter_timer);
     if (s->seq_timer != NULL)
-        mel_reactor_source_destroy(s->seq_timer);
+        mel_vat_tick_close(s->seq_timer);
     if (s->auto_timer != NULL)
-        mel_reactor_source_destroy(s->auto_timer);
+        mel_vat_tick_close(s->auto_timer);
     s->meter_timer = NULL;
     s->seq_timer = NULL;
     s->auto_timer = NULL;
@@ -352,7 +352,7 @@ static bool auto_tick(void* user)
         s->auto_quitting = true;
         mel_log_info(HELLO_DOMAIN, "auto run complete at %.1fs, quitting", s->auto_elapsed);
         teardown(s);
-        mel_reactor_quit(s->reactor);
+        mel_vat_quit(s->vat);
         return false;
     }
     return true;
@@ -424,8 +424,7 @@ static void canvas_paint(Mel_Gui_Handle h, Mel_Painter* p, i32 w, i32 height, vo
     }
 
     char head[96];
-    snprintf(head, sizeof head, "%s  -  %u voices (peak %u)",
-             s->mode == HELLO_MODE_STRESS ? "STRESS" : "DEMO", s->active_voices, s->peak_voices);
+    snprintf(head, sizeof head, "%s  -  %u voices (peak %u)", s->mode == HELLO_MODE_STRESS ? "STRESS" : "DEMO", s->active_voices, s->peak_voices);
     mel_painter_draw_text(p, str8_from_cstr(head), mel_vec2(margin, 14.0f), mel_color8_rgb(220, 228, 240), 16.0f);
 
     const char* hint = s->started ? "D = demo   S = stress   click = replay" : "click or press D / S to play";
@@ -458,29 +457,22 @@ static void build_main(Mel_Gui_Handle frame, void* user)
     s->mode_label = mel_label_create(frame, .text = S8(""), .layoutable = { .preferred_h = 26 });
     s->count_label = mel_label_create(frame, .text = S8("voices: 0"), .layoutable = { .preferred_h = 24 });
 
-    mel_button_create(frame, .text = S8("Play Demo (C-major arpeggio + scale)"),
-                      .pointer.on_click = demo_clicked, .user = s, .layoutable = { .preferred_h = 40 });
-    mel_button_create(frame, .text = S8("Play Stress (ramp to ~192 voices)"),
-                      .pointer.on_click = stress_clicked, .user = s, .layoutable = { .preferred_h = 40 });
+    mel_button_create(frame, .text = S8("Play Demo (C-major arpeggio + scale)"), .pointer.on_click = demo_clicked, .user = s, .layoutable = { .preferred_h = 40 });
+    mel_button_create(frame, .text = S8("Play Stress (ramp to ~192 voices)"), .pointer.on_click = stress_clicked, .user = s, .layoutable = { .preferred_h = 40 });
 
-    s->canvas = mel_canvas_create(frame,
-                                  .on_.on_paint = canvas_paint,
-                                  .pointer.on_pointer_down = canvas_pointer_down,
-                                  .keyboard.on_key_down = canvas_key_down,
-                                  .user = s,
-                                  .layoutable = { .preferred_h = 180, .weight = 1 });
+    s->canvas = mel_canvas_create(frame, .on_.on_paint = canvas_paint, .pointer.on_pointer_down = canvas_pointer_down, .keyboard.on_key_down = canvas_key_down, .user = s, .layoutable = { .preferred_h = 180, .weight = 1 });
 
     update_mode_label(s);
     update_count_label(s);
     mel_gui_set_focus(s->canvas);
 }
 
-void mel_app_setup(Mel_Reactor* reactor)
+void mel_app_setup(Mel_Vat* root)
 {
     Hello_State* s = &g_app;
     memset(s, 0, sizeof *s);
     s->alloc = mel_alloc_heap();
-    s->reactor = reactor;
+    s->vat = root;
     s->rng = 0xC0FFEEu;
     s->mode = initial_mode();
 
@@ -488,10 +480,10 @@ void mel_app_setup(Mel_Reactor* reactor)
     if (auto_env != NULL)
         s->auto_seconds = atof(auto_env);
 
-    mel_gui_init(reactor);
+    mel_gui_init(root);
 
-    Mel_Executor*  exec = mel_reactor_executor(reactor);
-    Mel_Audio_Opt  opt = {
+    Mel_Executor* exec = mel_vat_executor(root);
+    Mel_Audio_Opt opt = {
         .samplerate = HELLO_SR,
         .channels = HELLO_CH,
         .block_frames = HELLO_BLOCK,
@@ -503,34 +495,31 @@ void mel_app_setup(Mel_Reactor* reactor)
         .max_voice_ratio = HELLO_MAXRATIO,
     };
 
-    s->engine = mel_audio_create(s->alloc, reactor, opt);
+    s->engine = mel_audio_create(s->alloc, opt);
     if (s->engine == NULL)
     {
         mel_log_fatal(HELLO_DOMAIN, "mel_audio_create returned NULL (no audio device)");
         abort();
     }
     s->caps = mel_audio_caps(s->engine);
-    mel_log_info(HELLO_DOMAIN, "device %uHz %uch block %u ring %u latency %u",
-                 s->caps.samplerate, s->caps.channels, s->caps.block_frames, s->caps.ring_blocks, s->caps.latency_frames);
+    mel_log_info(HELLO_DOMAIN, "device %uHz %uch block %u ring %u latency %u", s->caps.samplerate, s->caps.channels, s->caps.block_frames, s->caps.ring_blocks, s->caps.latency_frames);
 
     build_demo_sources(s);
     build_stress_sources(s);
 
-    s->meter_timer = mel_reactor_timer_new((i64)MEL_NANOS_PER_SEC / HELLO_METER_HZ, meter_tick, s);
+    s->meter_timer = mel_vat_tick_open(root, s->alloc, (i64)MEL_NANOS_PER_SEC / HELLO_METER_HZ, meter_tick, s);
     if (s->meter_timer == NULL)
     {
         mel_log_fatal(HELLO_DOMAIN, "failed to create meter timer");
         abort();
     }
-    mel_reactor_source_attach(reactor, s->meter_timer);
 
-    s->seq_timer = mel_reactor_timer_new((i64)MEL_NANOS_PER_SEC / HELLO_SEQ_HZ, seq_tick, s);
+    s->seq_timer = mel_vat_tick_open(root, s->alloc, (i64)MEL_NANOS_PER_SEC / HELLO_SEQ_HZ, seq_tick, s);
     if (s->seq_timer == NULL)
     {
         mel_log_fatal(HELLO_DOMAIN, "failed to create sequencer timer");
         abort();
     }
-    mel_reactor_source_attach(reactor, s->seq_timer);
 
     mel_app_register_screen(S8("main"), .build = build_main, .user = s, .on_destroy = screen_on_destroy);
     mel_app_present(S8("main"), NULL);
@@ -539,12 +528,11 @@ void mel_app_setup(Mel_Reactor* reactor)
 
     if (s->auto_seconds > 0.0)
     {
-        s->auto_timer = mel_reactor_timer_new((i64)MEL_NANOS_PER_SEC / HELLO_SEQ_HZ, auto_tick, s);
+        s->auto_timer = mel_vat_tick_open(root, s->alloc, (i64)MEL_NANOS_PER_SEC / HELLO_SEQ_HZ, auto_tick, s);
         if (s->auto_timer == NULL)
         {
             mel_log_fatal(HELLO_DOMAIN, "failed to create auto timer");
             abort();
         }
-        mel_reactor_source_attach(reactor, s->auto_timer);
     }
 }

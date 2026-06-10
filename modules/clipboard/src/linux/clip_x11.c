@@ -1,7 +1,7 @@
 #include "clip_linux.h"
 
 #include <allocator/allocator.h>
-#include <reactor/reactor.h>
+#include <vat/vat.h>
 #include <log/log.h>
 
 #include <dlfcn.h>
@@ -185,13 +185,13 @@ typedef struct
 
 typedef struct
 {
-    void*               lib;
-    Xcb_Api             api;
-    xcb_connection_t*   conn;
-    xcb_window_t        window;
-    xcb_window_t        root;
-    Mel_Reactor_Source* source;
-    Mel_Reactor_Poll    poll;
+    void*             lib;
+    Xcb_Api           api;
+    xcb_connection_t* conn;
+    xcb_window_t      window;
+    xcb_window_t      root;
+    Mel_Vat_Source*   source;
+    Mel_Vat_Wakeable  wakeable;
 
     xcb_atom_t clipboard;
     xcb_atom_t primary;
@@ -229,23 +229,23 @@ static bool x11_load(X11_State* x)
     a->disconnect = (void (*)(xcb_connection_t*))x11_sym(x->lib, "xcb_disconnect");
     a->get_file_descriptor = (int (*)(xcb_connection_t*))x11_sym(x->lib, "xcb_get_file_descriptor");
     a->flush = (int (*)(xcb_connection_t*))x11_sym(x->lib, "xcb_flush");
-    a->generate_id = (u32 (*)(xcb_connection_t*))x11_sym(x->lib, "xcb_generate_id");
+    a->generate_id = (u32(*)(xcb_connection_t*))x11_sym(x->lib, "xcb_generate_id");
     a->get_setup = (const xcb_setup_t* (*)(xcb_connection_t*))x11_sym(x->lib, "xcb_get_setup");
-    a->setup_roots_iterator = (xcb_screen_iterator_t (*)(const xcb_setup_t*))x11_sym(x->lib, "xcb_setup_roots_iterator");
+    a->setup_roots_iterator = (xcb_screen_iterator_t(*)(const xcb_setup_t*))x11_sym(x->lib, "xcb_setup_roots_iterator");
     a->poll_for_event = (xcb_generic_event_t * (*)(xcb_connection_t*)) x11_sym(x->lib, "xcb_poll_for_event");
-    a->create_window = (xcb_void_cookie_t (*)(xcb_connection_t*, u8, xcb_window_t, xcb_window_t, i16, i16, u16, u16, u16, u16, xcb_visualid_t, u32, const void*))x11_sym(x->lib, "xcb_create_window");
-    a->destroy_window = (xcb_void_cookie_t (*)(xcb_connection_t*, xcb_window_t))x11_sym(x->lib, "xcb_destroy_window");
-    a->change_property = (xcb_void_cookie_t (*)(xcb_connection_t*, u8, xcb_window_t, xcb_atom_t, xcb_atom_t, u8, u32, const void*))x11_sym(x->lib, "xcb_change_property");
-    a->set_selection_owner = (xcb_void_cookie_t (*)(xcb_connection_t*, xcb_window_t, xcb_atom_t, xcb_timestamp_t))x11_sym(x->lib, "xcb_set_selection_owner");
-    a->get_selection_owner = (xcb_get_selection_owner_cookie_t (*)(xcb_connection_t*, xcb_atom_t))x11_sym(x->lib, "xcb_get_selection_owner");
+    a->create_window = (xcb_void_cookie_t(*)(xcb_connection_t*, u8, xcb_window_t, xcb_window_t, i16, i16, u16, u16, u16, u16, xcb_visualid_t, u32, const void*))x11_sym(x->lib, "xcb_create_window");
+    a->destroy_window = (xcb_void_cookie_t(*)(xcb_connection_t*, xcb_window_t))x11_sym(x->lib, "xcb_destroy_window");
+    a->change_property = (xcb_void_cookie_t(*)(xcb_connection_t*, u8, xcb_window_t, xcb_atom_t, xcb_atom_t, u8, u32, const void*))x11_sym(x->lib, "xcb_change_property");
+    a->set_selection_owner = (xcb_void_cookie_t(*)(xcb_connection_t*, xcb_window_t, xcb_atom_t, xcb_timestamp_t))x11_sym(x->lib, "xcb_set_selection_owner");
+    a->get_selection_owner = (xcb_get_selection_owner_cookie_t(*)(xcb_connection_t*, xcb_atom_t))x11_sym(x->lib, "xcb_get_selection_owner");
     a->get_selection_owner_reply = (xcb_get_selection_owner_reply_t * (*)(xcb_connection_t*, xcb_get_selection_owner_cookie_t, void*)) x11_sym(x->lib, "xcb_get_selection_owner_reply");
-    a->convert_selection = (xcb_void_cookie_t (*)(xcb_connection_t*, xcb_window_t, xcb_atom_t, xcb_atom_t, xcb_atom_t, xcb_timestamp_t))x11_sym(x->lib, "xcb_convert_selection");
-    a->get_property = (xcb_get_property_cookie_t (*)(xcb_connection_t*, u8, xcb_window_t, xcb_atom_t, xcb_atom_t, u32, u32))x11_sym(x->lib, "xcb_get_property");
+    a->convert_selection = (xcb_void_cookie_t(*)(xcb_connection_t*, xcb_window_t, xcb_atom_t, xcb_atom_t, xcb_atom_t, xcb_timestamp_t))x11_sym(x->lib, "xcb_convert_selection");
+    a->get_property = (xcb_get_property_cookie_t(*)(xcb_connection_t*, u8, xcb_window_t, xcb_atom_t, xcb_atom_t, u32, u32))x11_sym(x->lib, "xcb_get_property");
     a->get_property_reply = (xcb_get_property_reply_t * (*)(xcb_connection_t*, xcb_get_property_cookie_t, void*)) x11_sym(x->lib, "xcb_get_property_reply");
     a->get_property_value = (void* (*)(const xcb_get_property_reply_t*))x11_sym(x->lib, "xcb_get_property_value");
     a->get_property_value_length = (int (*)(const xcb_get_property_reply_t*))x11_sym(x->lib, "xcb_get_property_value_length");
-    a->send_event = (xcb_void_cookie_t (*)(xcb_connection_t*, u8, xcb_window_t, u32, const char*))x11_sym(x->lib, "xcb_send_event");
-    a->intern_atom = (xcb_intern_atom_cookie_t (*)(xcb_connection_t*, u8, u16, const char*))x11_sym(x->lib, "xcb_intern_atom");
+    a->send_event = (xcb_void_cookie_t(*)(xcb_connection_t*, u8, xcb_window_t, u32, const char*))x11_sym(x->lib, "xcb_send_event");
+    a->intern_atom = (xcb_intern_atom_cookie_t(*)(xcb_connection_t*, u8, u16, const char*))x11_sym(x->lib, "xcb_intern_atom");
     a->intern_atom_reply = (xcb_intern_atom_reply_t * (*)(xcb_connection_t*, xcb_intern_atom_cookie_t, void*)) x11_sym(x->lib, "xcb_intern_atom_reply");
 
     return a->connect && a->connection_has_error && a->disconnect && a->get_file_descriptor && a->flush && a->generate_id && a->get_setup && a->setup_roots_iterator && a->poll_for_event && a->create_window && a->destroy_window &&
@@ -324,45 +324,45 @@ static void handle_event(X11_State* x, xcb_generic_event_t* ev)
     }
 }
 
-static bool x11_source_prepare(Mel_Reactor_Source* source, i32* timeout)
+static void x11_source_wakeables(Mel_Vat_Source* source, Mel_Vat_Wakeable** out, usize* count)
+{
+    X11_State* x = mel_vat_source_state(source);
+    *out = &x->wakeable;
+    *count = 1;
+}
+
+static i64 x11_source_deadline(Mel_Vat_Source* source)
 {
     (void)source;
-    *timeout = MEL_REACTOR_FOREVER;
     g_x.api.flush(g_x.conn);
+    return MEL_VAT_NEVER;
+}
+
+static bool x11_source_drain(Mel_Vat_Source* source, u32 budget)
+{
+    (void)budget;
+    X11_State* x = mel_vat_source_state(source);
+    for (xcb_generic_event_t* ev; (ev = x->api.poll_for_event(x->conn));)
+    {
+        handle_event(x, ev);
+        free(ev);
+    }
+    if (x->api.connection_has_error(x->conn))
+    {
+        mel_log_error("clipboard", "x11 backend: X connection lost");
+        mel_vat_source_close(source);
+        x->source = NULL;
+        return false;
+    }
+    x->api.flush(x->conn);
     return false;
 }
 
-static bool x11_source_check(Mel_Reactor_Source* source)
-{
-    if (source->poll_count == 0 || !source->polls[0])
-        return false;
-    return (source->polls[0]->revents & (MEL_REACTOR_POLL_IN | MEL_REACTOR_POLL_HUP | MEL_REACTOR_POLL_ERR)) != 0;
-}
-
-static bool x11_source_dispatch(Mel_Reactor_Source* source, Mel_Reactor_Source_Proc cb, void* user)
-{
-    (void)source;
-    (void)cb;
-    (void)user;
-    for (xcb_generic_event_t* ev; (ev = g_x.api.poll_for_event(g_x.conn));)
-    {
-        handle_event(&g_x, ev);
-        free(ev);
-    }
-    if (g_x.api.connection_has_error(g_x.conn))
-    {
-        mel_log_error("clipboard", "x11 backend: X connection lost");
-        return false;
-    }
-    g_x.api.flush(g_x.conn);
-    return true;
-}
-
-static const Mel_Reactor_Source_Callbacks g_x11_cb = {
-    .prepare = x11_source_prepare,
-    .check = x11_source_check,
-    .dispatch = x11_source_dispatch,
-    .finalize = NULL,
+static const Mel_Vat_Source_Vtbl g_x11_vt = {
+    .wakeables = x11_source_wakeables,
+    .deadline = x11_source_deadline,
+    .drain = x11_source_drain,
+    .cancel = NULL,
 };
 
 bool mel_clip__x11_init(void)
@@ -414,14 +414,11 @@ bool mel_clip__x11_init(void)
     x->utf8_string = x11_atom(x, "UTF8_STRING");
     x->prop = x11_atom(x, "MEL_CLIP_PROP");
 
-    Mel_Reactor* reactor = mel_clip__reactor();
-    if (reactor)
+    Mel_Vat* vat = mel_clip__vat();
+    if (vat)
     {
-        x->source = mel_reactor_source_new(&g_x11_cb, sizeof(Mel_Reactor_Source));
-        x->poll = (Mel_Reactor_Poll){ .handle = x->api.get_file_descriptor(x->conn), .events = MEL_REACTOR_POLL_IN };
-        mel_reactor_source_add_poll(x->source, &x->poll);
-        mel_reactor_source_set_priority(x->source, MEL_REACTOR_PRIORITY_HIGH);
-        mel_reactor_source_attach(reactor, x->source);
+        x->wakeable = (Mel_Vat_Wakeable){ .handle = x->api.get_file_descriptor(x->conn), .events = MEL_VAT_WAKE_IN };
+        x->source = mel_vat_source_open(vat, &g_x11_vt, x);
     }
     x->api.flush(x->conn);
     x->ok = true;
@@ -435,7 +432,7 @@ void mel_clip__x11_shutdown(void)
         return;
     if (x->source)
     {
-        mel_reactor_source_destroy(x->source);
+        mel_vat_source_close(x->source);
         x->source = NULL;
     }
     const Mel_Alloc* al = mel_clip__alloc();

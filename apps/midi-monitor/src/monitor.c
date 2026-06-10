@@ -2,9 +2,11 @@
 #include <string.h>
 
 #include <core/platform.h>
-#include <app/app.h>
 #include <gui/gui.h>
-#include <reactor/reactor.h>
+#include <gui/gui.h>
+#include <vat/tick.h>
+#include <vat/vat.h>
+#include <allocator/heap.h>
 
 #include <midi/midi.h>
 #include <midi/midi_port.h>
@@ -16,15 +18,15 @@
 
 typedef struct
 {
-    Mel_Reactor*        reactor;
-    Mel_Reactor_Source* poll_timer;
-    Mel_Midi_Port*      port;
-    Mel_Gui_Handle      status;
-    Mel_Gui_Handle      last_event;
-    Mel_Gui_Handle      count_label;
-    Mel_Gui_Handle      device_rows[DEVICE_ROW_COUNT];
-    i32                 event_count;
-    i32                 device_count;
+    Mel_Vat*       vat;
+    Mel_Vat_Tick*  poll_timer;
+    Mel_Midi_Port* port;
+    Mel_Gui_Handle status;
+    Mel_Gui_Handle last_event;
+    Mel_Gui_Handle count_label;
+    Mel_Gui_Handle device_rows[DEVICE_ROW_COUNT];
+    i32            event_count;
+    i32            device_count;
 } Monitor_State;
 
 static Monitor_State g_app;
@@ -125,18 +127,14 @@ static void start_polling(void)
 {
     if (g_app.poll_timer != NULL)
         return;
-    g_app.poll_timer = mel_reactor_timer_new(POLL_INTERVAL_NS, poll_tick, NULL);
-    if (g_app.poll_timer != NULL)
-    {
-        mel_reactor_source_attach(g_app.reactor, g_app.poll_timer);
-    }
+    g_app.poll_timer = mel_vat_tick_open(g_app.vat, mel_alloc_heap(), POLL_INTERVAL_NS, poll_tick, NULL);
 }
 
 static void stop_polling(void)
 {
     if (g_app.poll_timer == NULL)
         return;
-    mel_reactor_source_destroy(g_app.poll_timer);
+    mel_vat_tick_close(g_app.poll_timer);
     g_app.poll_timer = NULL;
 }
 
@@ -207,9 +205,9 @@ static void disconnect_clicked(Mel_Gui_Handle h, void* user)
 
 void build_monitor(Mel_Gui_Handle frame, void* user)
 {
-    Mel_Reactor* reactor = (Mel_Reactor*)user;
+    Mel_Vat* vat = (Mel_Vat*)user;
     memset(&g_app, 0, sizeof(g_app));
-    g_app.reactor = reactor;
+    g_app.vat = vat;
 
     mel_gui_set_text(frame, S8("MIDI Monitor"));
 

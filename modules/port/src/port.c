@@ -6,7 +6,7 @@
 #include <collection/list.h>
 #include <executor/executor.h>
 #include <future/future.h>
-#include <reactor/reactor.h>
+#include <vat/vat.h>
 #include <log/log.h>
 
 #include <assert.h>
@@ -14,9 +14,9 @@
 
 Mel_Port* mel_port_create_opt(Mel_Port_Opt opt)
 {
-    if (!opt.reactor)
+    if (!opt.vat)
     {
-        mel_log_error("port", "create: reactor is required");
+        mel_log_error("port", "create: vat is required");
         return NULL;
     }
 
@@ -26,8 +26,8 @@ Mel_Port* mel_port_create_opt(Mel_Port_Opt opt)
         return NULL;
     memset(port, 0, sizeof *port);
 
-    port->reactor = opt.reactor;
-    port->executor = mel_reactor_executor(opt.reactor);
+    port->vat = opt.vat;
+    port->executor = mel_vat_executor(opt.vat);
     port->alloc = alloc;
 
     mel_slotmap_init(&port->ops, alloc, .item_size = sizeof(Mel_Port_Op_Record*), .initial_capacity = 8);
@@ -59,7 +59,7 @@ void mel_port_destroy(Mel_Port* port)
 {
     if (!port)
         return;
-    assert(mel_reactor_is_owner(port->reactor));
+    assert(mel_vat_is_owner(port->vat));
 
     Mel_Array(Mel_Port_Op_Record*) snap;
     mel_array_init(&snap, port->alloc);
@@ -80,7 +80,7 @@ void mel_port_destroy(Mel_Port* port)
 }
 
 bool          mel_port_available(const Mel_Port* port) { return port && port->backend_ready; }
-Mel_Reactor*  mel_port_reactor(const Mel_Port* port) { return port ? port->reactor : NULL; }
+Mel_Vat*      mel_port_vat(const Mel_Port* port) { return port ? port->vat : NULL; }
 Mel_Executor* mel_port_executor(const Mel_Port* port) { return port ? port->executor : NULL; }
 u32           mel_port_pending(const Mel_Port* port) { return port ? mel_slotmap_count((Mel_SlotMap*)&port->ops) : 0; }
 
@@ -149,7 +149,7 @@ Mel_Future* mel_port_read_opt(Mel_Port* port, Mel_Port_Read_Opt opt)
 {
     if (!port)
         return NULL;
-    assert(mel_reactor_is_owner(port->reactor));
+    assert(mel_vat_is_owner(port->vat));
     if (!port->backend_ready)
         return op_fail_unavailable(port, opt.deliver, opt.out_op);
 
@@ -162,8 +162,8 @@ Mel_Future* mel_port_read_opt(Mel_Port* port, Mel_Port_Read_Opt opt)
     op->offset = opt.offset;
     op->len = opt.len;
     op->buffer = opt.buffer;
-    op->backend.poll.handle = opt.fd;
-    op->backend.poll.events = MEL_REACTOR_POLL_IN;
+    op->backend.wakeable.handle = opt.fd;
+    op->backend.wakeable.events = MEL_VAT_WAKE_IN;
 
     if (opt.len == 0)
     {
@@ -180,7 +180,7 @@ Mel_Future* mel_port_write_opt(Mel_Port* port, Mel_Port_Write_Opt opt)
 {
     if (!port)
         return NULL;
-    assert(mel_reactor_is_owner(port->reactor));
+    assert(mel_vat_is_owner(port->vat));
     if (!port->backend_ready)
         return op_fail_unavailable(port, opt.deliver, opt.out_op);
 
@@ -193,8 +193,8 @@ Mel_Future* mel_port_write_opt(Mel_Port* port, Mel_Port_Write_Opt opt)
     op->offset = opt.offset;
     op->len = opt.len;
     op->buffer = (void*)opt.buffer;
-    op->backend.poll.handle = opt.fd;
-    op->backend.poll.events = MEL_REACTOR_POLL_OUT;
+    op->backend.wakeable.handle = opt.fd;
+    op->backend.wakeable.events = MEL_VAT_WAKE_OUT;
 
     if (opt.len == 0)
     {
@@ -211,7 +211,7 @@ bool mel_port_cancel(Mel_Port* port, Mel_Port_Op handle)
 {
     if (!port)
         return false;
-    assert(mel_reactor_is_owner(port->reactor));
+    assert(mel_vat_is_owner(port->vat));
     Mel_SlotMap_Handle  h = mel_slotmap_handle_make(handle.index, handle.generation);
     Mel_Port_Op_Record* op = op_from_slot(port, h);
     if (!op || op->settled)

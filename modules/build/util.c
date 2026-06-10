@@ -4,6 +4,7 @@
 #include <sys/stat.h>
 #ifndef _WIN32
 #include <fcntl.h>
+#include <sys/file.h>
 #include <sys/wait.h>
 #include <unistd.h>
 #endif
@@ -231,6 +232,58 @@ int mel_run_cwd(const char* dir, Mel_StrVec* cmd)
     if (waitpid(pid, &st, 0) < 0)
         return -1;
     return WIFEXITED(st) ? WEXITSTATUS(st) : -1;
+#endif
+}
+
+bool mel_lock_dir(const char* dir)
+{
+    char* path = mel_path_join(dir, ".lock");
+#ifdef _WIN32
+    bool warned = false;
+    for (;;)
+    {
+        HANDLE h = CreateFileA(path, GENERIC_WRITE, 0, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+        if (h != INVALID_HANDLE_VALUE)
+        {
+            free(path);
+            return true;
+        }
+        DWORD e = GetLastError();
+        if (e != ERROR_SHARING_VIOLATION)
+        {
+            fprintf(stderr, "build: cannot lock %s (error %lu)\n", path, e);
+            free(path);
+            return false;
+        }
+        if (!warned)
+        {
+            fprintf(stderr, "build: waiting for %s (another nob is running)\n", path);
+            warned = true;
+        }
+        Sleep(300);
+    }
+#else
+    int fd = open(path, O_CREAT | O_RDWR | O_CLOEXEC, 0644);
+    if (fd < 0)
+    {
+        fprintf(stderr, "build: cannot open %s\n", path);
+        free(path);
+        return false;
+    }
+    if (flock(fd, LOCK_EX | LOCK_NB) == 0)
+    {
+        free(path);
+        return true;
+    }
+    fprintf(stderr, "build: waiting for %s (another nob is running)\n", path);
+    if (flock(fd, LOCK_EX) == 0)
+    {
+        free(path);
+        return true;
+    }
+    fprintf(stderr, "build: cannot lock %s\n", path);
+    free(path);
+    return false;
 #endif
 }
 

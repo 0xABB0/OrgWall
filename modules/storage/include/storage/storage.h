@@ -12,7 +12,7 @@ extern "C"
 {
 #endif
 
-typedef struct Mel_Reactor  Mel_Reactor;
+typedef struct Mel_Vat      Mel_Vat;
 typedef struct Mel_Executor Mel_Executor;
 
 typedef struct Mel_Storage Mel_Storage;
@@ -64,11 +64,11 @@ struct Mel_Storage_Interface;
 
 typedef struct
 {
-    Mel_Reactor*                         reactor;
-    const Mel_Alloc*                     alloc;
-    bool                                 writable;
-    const struct Mel_Storage_Interface*  iface;
-    void*                                backend_user;
+    Mel_Vat*                            vat;
+    const Mel_Alloc*                    alloc;
+    bool                                writable;
+    const struct Mel_Storage_Interface* iface;
+    void*                               backend_user;
 } Mel_Storage_Opt;
 
 Mel_Storage* mel_storage_create_opt(Mel_Storage_Opt opt);
@@ -83,7 +83,7 @@ Mel_Storage* mel_storage_open_user_opt(Mel_Storage_Opt opt);
 typedef struct
 {
     str8             root;
-    Mel_Reactor*     reactor;
+    Mel_Vat*         vat;
     const Mel_Alloc* alloc;
     bool             writable;
     bool             create_root;
@@ -96,7 +96,7 @@ void mel_storage_destroy(Mel_Storage* st);
 
 bool          mel_storage_ready(const Mel_Storage* st);
 bool          mel_storage_writable(const Mel_Storage* st);
-Mel_Reactor*  mel_storage_reactor(const Mel_Storage* st);
+Mel_Vat*      mel_storage_vat(const Mel_Storage* st);
 Mel_Executor* mel_storage_executor(const Mel_Storage* st);
 u32           mel_storage_pending(const Mel_Storage* st);
 
@@ -143,9 +143,9 @@ typedef struct
 
 typedef struct
 {
-    usize              expect;
-    Mel_Executor*      deliver;
-    Mel_Storage_Op*    out_op;
+    usize           expect;
+    Mel_Executor*   deliver;
+    Mel_Storage_Op* out_op;
 } Mel_Storage_Read_Opt;
 
 Mel_Future* mel_storage_read_opt(Mel_Storage* st, str8 rel, Mel_Storage_Read_Opt opt);
@@ -153,12 +153,12 @@ Mel_Future* mel_storage_read_opt(Mel_Storage* st, str8 rel, Mel_Storage_Read_Opt
 
 typedef struct
 {
-    const u8*          data;
-    usize              len;
-    bool               create_parents;
-    bool               atomic;
-    Mel_Executor*      deliver;
-    Mel_Storage_Op*    out_op;
+    const u8*       data;
+    usize           len;
+    bool            create_parents;
+    bool            atomic;
+    Mel_Executor*   deliver;
+    Mel_Storage_Op* out_op;
 } Mel_Storage_Write_Opt;
 
 Mel_Future* mel_storage_write_opt(Mel_Storage* st, str8 rel, Mel_Storage_Write_Opt opt);

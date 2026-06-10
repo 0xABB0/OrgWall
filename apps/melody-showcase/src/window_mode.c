@@ -12,10 +12,12 @@
 #include <log/log.h>
 #include <string/str8.h>
 
-#include <app/lifecycle.h>
-#include <app/subsystem.h>
+#include <boot/boot.h>
+#include <boot/lifecycle.h>
 #include <gui/gui.h>
 #include <paint/painter.h>
+#include <vat/tick.h>
+#include <vat/vat.h>
 
 #include <clipboard/clipboard.h>
 #include <cpu/cpu.h>
@@ -46,10 +48,10 @@
 
 typedef struct
 {
-    Mel_Reactor*        reactor;
-    Mel_Executor*       exec;
-    Mel_Reactor_Source* timer;
-    Mel_Gui_Handle      canvas;
+    Mel_Vat*       vat;
+    Mel_Executor*  exec;
+    Mel_Vat_Tick*  timer;
+    Mel_Gui_Handle canvas;
 
     u64 tick;
 
@@ -110,7 +112,7 @@ static void do_dialog(void)
         action("dialog: no backend");
         return;
     }
-    mel_dialog_open_file(.title = "Showcase: pick a file", .reactor = g.reactor, .deliver = g.exec);
+    mel_dialog_open_file(.title = "Showcase: pick a file", .vat = g.vat, .deliver = g.exec);
     action("dialog: open-file picker requested");
 }
 
@@ -227,7 +229,7 @@ static void do_process(void)
         return;
     }
     static const char* const argv[] = { "/bin/echo", "from-showcase", NULL };
-    g.proc_pending = mel_process_run(.argv = argv, .argc = 2, .reactor = g.reactor, .deliver = g.exec, .alloc = mel_alloc_heap());
+    g.proc_pending = mel_process_run(.argv = argv, .argc = 2, .vat = g.vat, .deliver = g.exec, .alloc = mel_alloc_heap());
     if (!g.proc_pending)
     {
         action("process: run failed to launch");
@@ -256,7 +258,7 @@ static void do_vibration(void)
     mel_vib_list(&d, 1);
     Mel_Vib_Event       evs[] = { mel_vib_pulse(1.0f, 0.8f, 0.1f), mel_vib_pulse(0.5f, 0.4f, 0.2f) };
     Mel_Vib_Pattern     pat = { .events = evs, .count = 2, .loop = 0 };
-    Mel_Vib_Play_Result r = mel_vib_play(d, &pat, .reactor = g.reactor);
+    Mel_Vib_Play_Result r = mel_vib_play(d, &pat, .vat = g.vat);
     action("vibration: play status=0x%x", r.status);
 }
 
@@ -310,7 +312,7 @@ static void on_key_down(Mel_Gui_Handle h, Mel_Key key, void* user)
         do_debug();
         break;
     case MEL_KEY_Q:
-        mel_reactor_quit(g.reactor);
+        mel_vat_quit(g.vat);
         break;
     default:
         break;
@@ -474,20 +476,38 @@ static void build_screen(Mel_Gui_Handle frame, void* user)
                                  .pointer.on_pointer_up = on_pointer_up,
                                  .layoutable = { .preferred_w = 940, .preferred_h = 660, .weight = 1 });
 
-    g.timer = mel_reactor_timer_new(TICK_NS, tick, NULL);
-    if (g.timer)
-        mel_reactor_source_attach(g.reactor, g.timer);
+    g.timer = mel_vat_tick_open(g.vat, mel_alloc_heap(), TICK_NS, tick, NULL);
 }
 
-void showcase_window_setup(Mel_Reactor* reactor)
+static void window_teardown(void* user)
+{
+    (void)user;
+    if (g.timer)
+    {
+        mel_vat_tick_close(g.timer);
+        g.timer = NULL;
+    }
+    mel_app_lifecycle_unsubscribe(g.life_sub);
+    if (g.tray_on)
+    {
+        mel_tray_destroy(g.tray);
+        g.tray = MEL_TRAY_NULL;
+        g.tray_on = false;
+    }
+    mel_dialog_shutdown();
+    mel_shell_shutdown();
+    mel_clip_shutdown();
+}
+
+void showcase_window_setup(Mel_Vat* root)
 {
     memset(&g, 0, sizeof g);
     g.canvas = MEL_GUI_HANDLE_NONE;
     g.tray = MEL_TRAY_NULL;
-    g.reactor = reactor;
-    g.exec = mel_reactor_executor(reactor);
+    g.vat = root;
+    g.exec = mel_vat_executor(root);
 
-    mel_gui_init(reactor);
+    mel_gui_init(root);
     mel_platform_init(mel_alloc_heap());
     mel_display_init(mel_alloc_heap());
     mel_locale_init(mel_alloc_heap());
@@ -497,12 +517,13 @@ void showcase_window_setup(Mel_Reactor* reactor)
     mel_sensor_init(mel_alloc_heap());
     mel_hid_init(mel_alloc_heap());
     mel_tray_init(mel_alloc_heap(), g.exec);
-    mel_vib_init(mel_alloc_heap(), reactor);
-    mel_dialog_init(mel_alloc_heap(), reactor);
-    mel_shell_init(mel_alloc_heap(), reactor);
-    mel_clip_init(mel_alloc_heap(), reactor);
+    mel_vib_init(mel_alloc_heap(), root);
+    mel_dialog_init(mel_alloc_heap(), root);
+    mel_shell_init(mel_alloc_heap());
+    mel_clip_init(mel_alloc_heap(), root);
 
     g.life_sub = mel_app_lifecycle_subscribe(g.exec, on_lifecycle, NULL);
+    mel_app_on_exit(window_teardown, NULL);
     action("showcase started — press keys to trigger actions");
 
     mel_app_register_screen(S8("showcase"), build_screen, NULL);

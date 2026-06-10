@@ -1,6 +1,7 @@
 #include <port/port.h>
 
-#include <reactor/reactor.h>
+#include <vat/vat.h>
+#include <allocator/heap.h>
 #include <future/future.h>
 #include <executor/executor.h>
 
@@ -26,7 +27,7 @@ typedef struct
 
 typedef struct
 {
-    Mel_Reactor*  reactor;
+    Mel_Vat*      vat;
     Mel_Port*     port;
     Mel_Executor* exec;
 
@@ -121,23 +122,58 @@ static bool race_idle(void* user)
     }
 
     if (atomic_load(&c->finished_cancellers) == N_OPS && atomic_load(&c->total_done) == N_OPS)
-        mel_reactor_quit(c->reactor);
+        mel_vat_quit(c->vat);
 
     if (c->turn > 200000)
-        mel_reactor_quit(c->reactor);
+        mel_vat_quit(c->vat);
 
     return true;
 }
 
-static bool race_init(Mel_Reactor* r, void* user)
+static i64 race_idle_deadline(Mel_Vat_Source* s)
 {
-    Race_Ctx* c = (Race_Ctx*)user;
-    c->reactor = r;
-    c->port = mel_port_create(.reactor = r);
+    (void)s;
+    return 0;
+}
+
+static bool race_idle_drain(Mel_Vat_Source* s, u32 budget)
+{
+    (void)budget;
+    race_idle(mel_vat_source_state(s));
+    return false;
+}
+
+static const Mel_Alloc* g_vat_alloc;
+static Mel_Vat_Waiter*  g_vat_waiter;
+static Mel_Vat_Driver*  g_vat_driver;
+static Mel_Vat*         g_vat;
+
+static const Mel_Vat_Source_Vtbl RACE_IDLE_VT = {
+    .wakeables = NULL,
+    .deadline = race_idle_deadline,
+    .drain = race_idle_drain,
+    .cancel = NULL,
+};
+
+static void race_run(Race_Ctx* c)
+{
+    g_vat_alloc = mel_alloc_heap();
+    g_vat_waiter = mel_vat_waiter_io(g_vat_alloc);
+    g_vat_driver = mel_vat_driver_fair(g_vat_alloc, 64);
+    g_vat = mel_vat_open(g_vat_alloc, (Mel_Vat_Desc){ .waiter = g_vat_waiter, .driver = g_vat_driver });
+    c->vat = g_vat;
+    c->port = mel_port_create(.vat = g_vat);
     c->exec = mel_port_executor(c->port);
-    Mel_Reactor_Source* idle = mel_reactor_idle_new(race_idle, c);
-    mel_reactor_source_attach(r, idle);
-    return true;
+    Mel_Vat_Source* idle = mel_vat_source_open(g_vat, &RACE_IDLE_VT, c);
+    mel_vat_run(g_vat);
+    mel_vat_source_close(idle);
+}
+
+static void race_loop_close(void)
+{
+    mel_vat_close(g_vat);
+    g_vat_driver->vt->close(g_vat_driver);
+    g_vat_waiter->vt->close(g_vat_waiter);
 }
 
 int main(void)
@@ -156,12 +192,13 @@ int main(void)
         c->wfds[i] = fds[1];
     }
 
-    mel_reactor_spawn(MEL_REACTOR_THREADED, race_init, c);
+    race_run(c);
 
     for (int i = 0; i < N_OPS; i++)
         mel_thread_join(&c->cancellers[i], NULL);
 
     mel_port_destroy(c->port);
+    race_loop_close();
 
     int settled_twice = 0;
     int never_done = 0;

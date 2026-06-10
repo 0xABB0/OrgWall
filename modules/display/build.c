@@ -24,6 +24,8 @@ void build(Mel_Build* b)
     mel_depends(lib, "reflect");
 
     mel_codegen(lib, "enum-str-gen", "display.enum.gen.c", "$out", "$cflags", "$hostclang", "--", "display/display.h");
+    mel_codegen_input(lib, "$dir/include/display/display.h");
+    mel_codegen_depfile(lib);
 
     Mel_Target* t = mel_add_test(b, "display-core");
     mel_sources(t, ALWAYS, "test/display_test.c");

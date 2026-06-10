@@ -80,6 +80,20 @@ void            mel_repl_result_free(Mel_Repl_Result* r);
 // of units evaluated. `source` and `sink` are required; `prompts` is required.
 usize mel_repl_run(Mel_Repl* repl, Mel_Repl_Source source, Mel_Repl_Sink sink, Mel_Repl_Prompts prompts);
 
+// The push flavor of the same loop, for callers whose lines arrive as events
+// instead of from a pull source (an async stdin on the vat, a network feed).
+// `create` emits the primary prompt; each `line` is one physical line (newline
+// stripped, bytes borrowed for the call) — it accumulates, dispatches complete
+// units, and emits the next prompt; `destroy` dispatches any unterminated
+// fragment and returns the count of units evaluated. `prompts` bytes are
+// borrowed for the drive's lifetime. mel_repl_run is this loop over a pull
+// source; the two emit byte-identical streams for identical input.
+typedef struct Mel_Repl_Drive Mel_Repl_Drive;
+
+Mel_Repl_Drive* mel_repl_drive_create(Mel_Repl* repl, Mel_Repl_Sink sink, Mel_Repl_Prompts prompts);
+void            mel_repl_drive_line(Mel_Repl_Drive* d, str8 line);
+usize           mel_repl_drive_destroy(Mel_Repl_Drive* d);
+
 // History of evaluated inputs (one str8 per dispatched unit), owned by the repl's
 // allocator. Borrowed; valid until mel_repl_destroy. `*count` receives the length.
 const str8* mel_repl_history(const Mel_Repl* repl, usize* count);

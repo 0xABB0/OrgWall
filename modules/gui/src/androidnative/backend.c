@@ -187,9 +187,9 @@ void mel_gui__backend_destroy(Mel_Gui_Node* n)
 
     if (toplevel && mel_gui__frames_dec() == 0)
     {
-        Mel_Reactor* r = mel_gui__reactor();
-        if (r)
-            mel_reactor_quit(r);
+        Mel_Vat* v = mel_gui__vat();
+        if (v)
+            mel_vat_quit(v);
     }
 }
 

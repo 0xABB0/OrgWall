@@ -1,6 +1,7 @@
 #include <port/port.h>
 
-#include <reactor/reactor.h>
+#include <vat/vat.h>
+#include <allocator/heap.h>
 #include <future/future.h>
 #include <executor/executor.h>
 #include <test/test.h>
@@ -26,7 +27,7 @@ typedef struct
 
 struct Port_Ctx
 {
-    Mel_Reactor*  reactor;
+    Mel_Vat*      vat;
     Mel_Port*     port;
     Mel_Executor* exec;
 
@@ -128,7 +129,7 @@ static bool port_idle(void* user)
                 c->pending_seen_zero_after = mel_port_pending(c->port) == 0;
                 mel_port_destroy(c->port);
                 c->port = NULL;
-                mel_reactor_quit(c->reactor);
+                mel_vat_quit(c->vat);
             }
         }
         else
@@ -136,32 +137,53 @@ static bool port_idle(void* user)
             c->pending_seen_zero_after = mel_port_pending(c->port) == 0;
             mel_port_destroy(c->port);
             c->port = NULL;
-            mel_reactor_quit(c->reactor);
+            mel_vat_quit(c->vat);
         }
     }
 
     if (c->turn > 5000)
-        mel_reactor_quit(c->reactor);
+        mel_vat_quit(c->vat);
 
     return true;
 }
 
-static bool base_init(Mel_Reactor* r, void* user)
+static i64 port_idle_deadline(Mel_Vat_Source* s)
 {
-    Port_Ctx* c = (Port_Ctx*)user;
-    c->reactor = r;
-    c->loop_tid = mel_thread_current_id();
-    c->port = mel_port_create(.reactor = r);
-    c->exec = mel_port_executor(c->port);
-    Mel_Reactor_Source* idle = mel_reactor_idle_new(port_idle, c);
-    mel_reactor_source_attach(r, idle);
-    return true;
+    (void)s;
+    return 0;
 }
+
+static bool port_idle_drain(Mel_Vat_Source* s, u32 budget)
+{
+    (void)budget;
+    port_idle(mel_vat_source_state(s));
+    return false;
+}
+
+static const Mel_Vat_Source_Vtbl PORT_IDLE_VT = {
+    .wakeables = NULL,
+    .deadline = port_idle_deadline,
+    .drain = port_idle_drain,
+    .cancel = NULL,
+};
 
 static void run_ctx(Port_Ctx* c)
 {
     c->arm_turn = c->arm_turn ? c->arm_turn : 2;
-    mel_reactor_spawn(MEL_REACTOR_THREADED, base_init, c);
+    const Mel_Alloc* a = mel_alloc_heap();
+    Mel_Vat_Waiter*  waiter = mel_vat_waiter_io(a);
+    Mel_Vat_Driver*  driver = mel_vat_driver_fair(a, 64);
+    Mel_Vat*         vat = mel_vat_open(a, (Mel_Vat_Desc){ .waiter = waiter, .driver = driver });
+    c->vat = vat;
+    c->loop_tid = mel_thread_current_id();
+    c->port = mel_port_create(.vat = vat);
+    c->exec = mel_port_executor(c->port);
+    Mel_Vat_Source* idle = mel_vat_source_open(vat, &PORT_IDLE_VT, c);
+    mel_vat_run(vat);
+    mel_vat_source_close(idle);
+    mel_vat_close(vat);
+    driver->vt->close(driver);
+    waiter->vt->close(waiter);
 }
 
 static void arm_read_after_write(Port_Ctx* c)
@@ -383,7 +405,7 @@ MEL_TEST(port, cancel_after_completion_returns_false_stale_handle)
 
 typedef struct
 {
-    Mel_Reactor*  reactor;
+    Mel_Vat*      vat;
     Mel_Port*     port;
     Mel_Executor* exec;
     int           turn;
@@ -434,23 +456,49 @@ static bool multi_idle(void* user)
         {
             mel_port_destroy(m->port);
             m->port = NULL;
-            mel_reactor_quit(m->reactor);
+            mel_vat_quit(m->vat);
         }
     }
     if (m->turn > 5000)
-        mel_reactor_quit(m->reactor);
+        mel_vat_quit(m->vat);
     return true;
 }
 
-static bool multi_init(Mel_Reactor* r, void* user)
+static i64 multi_src_deadline(Mel_Vat_Source* s)
 {
-    Multi_Ctx* m = (Multi_Ctx*)user;
-    m->reactor = r;
-    m->port = mel_port_create(.reactor = r);
-    m->exec = mel_port_executor(m->port);
-    Mel_Reactor_Source* idle = mel_reactor_idle_new(multi_idle, m);
-    mel_reactor_source_attach(r, idle);
-    return true;
+    (void)s;
+    return 0;
+}
+
+static bool multi_src_drain(Mel_Vat_Source* s, u32 budget)
+{
+    (void)budget;
+    multi_idle(mel_vat_source_state(s));
+    return false;
+}
+
+static const Mel_Vat_Source_Vtbl MULTI_SRC_VT = {
+    .wakeables = NULL,
+    .deadline = multi_src_deadline,
+    .drain = multi_src_drain,
+    .cancel = NULL,
+};
+
+static void multi_run(Multi_Ctx* c0)
+{
+    const Mel_Alloc* a = mel_alloc_heap();
+    Mel_Vat_Waiter*  waiter = mel_vat_waiter_io(a);
+    Mel_Vat_Driver*  driver = mel_vat_driver_fair(a, 64);
+    Mel_Vat*         vat = mel_vat_open(a, (Mel_Vat_Desc){ .waiter = waiter, .driver = driver });
+    c0->vat = vat;
+    c0->port = mel_port_create(.vat = vat);
+    c0->exec = mel_port_executor(c0->port);
+    Mel_Vat_Source* src = mel_vat_source_open(vat, &MULTI_SRC_VT, c0);
+    mel_vat_run(vat);
+    mel_vat_source_close(src);
+    mel_vat_close(vat);
+    driver->vt->close(driver);
+    waiter->vt->close(waiter);
 }
 
 MEL_TEST(port, many_concurrent_reads_all_complete)
@@ -466,7 +514,7 @@ MEL_TEST(port, many_concurrent_reads_all_complete)
         m.wfds[i] = fds[1];
     }
 
-    mel_reactor_spawn(MEL_REACTOR_THREADED, multi_init, &m);
+    multi_run(&m);
 
     MEL_EXPECT_EQ(m.completed, m.n);
     for (int i = 0; i < m.n; i++)
@@ -478,7 +526,7 @@ MEL_TEST(port, many_concurrent_reads_all_complete)
 
 typedef struct
 {
-    Mel_Reactor*  reactor;
+    Mel_Vat*      vat;
     Mel_Port*     port;
     Mel_Executor* exec;
     int           turn;
@@ -498,7 +546,7 @@ static void teardown_cont(Mel_Task* self)
     t->cont_ran = true;
     t->cancelled = mel_future_status_cancelled(mel_future_status(k->future));
     mel_port_future_release(k->future);
-    mel_reactor_quit(t->reactor);
+    mel_vat_quit(t->vat);
 }
 
 static bool teardown_idle(void* user)
@@ -520,19 +568,45 @@ static bool teardown_idle(void* user)
         t->port = NULL;
     }
     if (t->turn > 5000)
-        mel_reactor_quit(t->reactor);
+        mel_vat_quit(t->vat);
     return true;
 }
 
-static bool teardown_init(Mel_Reactor* r, void* user)
+static i64 teardown_src_deadline(Mel_Vat_Source* s)
 {
-    Teardown_Ctx* t = (Teardown_Ctx*)user;
-    t->reactor = r;
-    t->port = mel_port_create(.reactor = r);
-    t->exec = mel_port_executor(t->port);
-    Mel_Reactor_Source* idle = mel_reactor_idle_new(teardown_idle, t);
-    mel_reactor_source_attach(r, idle);
-    return true;
+    (void)s;
+    return 0;
+}
+
+static bool teardown_src_drain(Mel_Vat_Source* s, u32 budget)
+{
+    (void)budget;
+    teardown_idle(mel_vat_source_state(s));
+    return false;
+}
+
+static const Mel_Vat_Source_Vtbl TEARDOWN_SRC_VT = {
+    .wakeables = NULL,
+    .deadline = teardown_src_deadline,
+    .drain = teardown_src_drain,
+    .cancel = NULL,
+};
+
+static void teardown_run(Teardown_Ctx* c0)
+{
+    const Mel_Alloc* a = mel_alloc_heap();
+    Mel_Vat_Waiter*  waiter = mel_vat_waiter_io(a);
+    Mel_Vat_Driver*  driver = mel_vat_driver_fair(a, 64);
+    Mel_Vat*         vat = mel_vat_open(a, (Mel_Vat_Desc){ .waiter = waiter, .driver = driver });
+    c0->vat = vat;
+    c0->port = mel_port_create(.vat = vat);
+    c0->exec = mel_port_executor(c0->port);
+    Mel_Vat_Source* src = mel_vat_source_open(vat, &TEARDOWN_SRC_VT, c0);
+    mel_vat_run(vat);
+    mel_vat_source_close(src);
+    mel_vat_close(vat);
+    driver->vt->close(driver);
+    waiter->vt->close(waiter);
 }
 
 MEL_TEST(port, destroy_with_pending_op_resolves_cancelled)
@@ -543,7 +617,7 @@ MEL_TEST(port, destroy_with_pending_op_resolves_cancelled)
     t.rfd = fds[0];
     t.wfd = fds[1];
 
-    mel_reactor_spawn(MEL_REACTOR_THREADED, teardown_init, &t);
+    teardown_run(&t);
 
     MEL_EXPECT(t.destroyed);
     MEL_EXPECT(t.cont_ran);
@@ -554,12 +628,12 @@ MEL_TEST(port, destroy_with_pending_op_resolves_cancelled)
 
 typedef struct
 {
-    Mel_Reactor* reactor;
-    Mel_Port*    port;
-    atomic_int   timer_fires;
-    int          fires_to_quit;
-    bool         had_pending;
-    bool         available;
+    Mel_Vat*   vat;
+    Mel_Port*  port;
+    atomic_int timer_fires;
+    int        fires_to_quit;
+    bool       had_pending;
+    bool       available;
 } Idle_Ctx;
 
 static bool idle_timer(void* user)
@@ -573,19 +647,49 @@ static bool idle_timer(void* user)
         c->available = mel_port_available(c->port);
         mel_port_destroy(c->port);
         c->port = NULL;
-        mel_reactor_quit(c->reactor);
+        mel_vat_quit(c->vat);
     }
     return true;
 }
 
-static bool idle_init(Mel_Reactor* r, void* user)
+static i64 g_idle_next;
+
+static i64 idle_src_deadline(Mel_Vat_Source* s)
 {
-    Idle_Ctx* c = (Idle_Ctx*)user;
-    c->reactor = r;
-    c->port = mel_port_create(.reactor = r);
-    Mel_Reactor_Source* t = mel_reactor_timer_new((i64)5 * 1000 * 1000, idle_timer, c);
-    mel_reactor_source_attach(r, t);
-    return true;
+    (void)s;
+    return g_idle_next;
+}
+
+static bool idle_src_drain(Mel_Vat_Source* s, u32 budget)
+{
+    (void)budget;
+    g_idle_next += (i64)5 * 1000 * 1000;
+    idle_timer(mel_vat_source_state(s));
+    return false;
+}
+
+static const Mel_Vat_Source_Vtbl IDLE_SRC_VT = {
+    .wakeables = NULL,
+    .deadline = idle_src_deadline,
+    .drain = idle_src_drain,
+    .cancel = NULL,
+};
+
+static void idle_run(Idle_Ctx* c0)
+{
+    const Mel_Alloc* a = mel_alloc_heap();
+    Mel_Vat_Waiter*  waiter = mel_vat_waiter_io(a);
+    Mel_Vat_Driver*  driver = mel_vat_driver_fair(a, 64);
+    Mel_Vat*         vat = mel_vat_open(a, (Mel_Vat_Desc){ .waiter = waiter, .driver = driver });
+    c0->vat = vat;
+    c0->port = mel_port_create(.vat = vat);
+    g_idle_next = (i64)mel_nanos_since_unspecified_epoch() + (i64)5 * 1000 * 1000;
+    Mel_Vat_Source* src = mel_vat_source_open(vat, &IDLE_SRC_VT, c0);
+    mel_vat_run(vat);
+    mel_vat_source_close(src);
+    mel_vat_close(vat);
+    driver->vt->close(driver);
+    waiter->vt->close(waiter);
 }
 
 MEL_TEST(port, idle_port_does_not_busy_spin)
@@ -595,7 +699,7 @@ MEL_TEST(port, idle_port_does_not_busy_spin)
     atomic_store(&c.timer_fires, 0);
 
     i64 start = (i64)mel_nanos_since_unspecified_epoch();
-    mel_reactor_spawn(MEL_REACTOR_THREADED, idle_init, &c);
+    idle_run(&c);
     i64 elapsed = (i64)mel_nanos_since_unspecified_epoch() - start;
 
     MEL_EXPECT_EQ(atomic_load(&c.timer_fires), c.fires_to_quit);
@@ -609,7 +713,7 @@ MEL_TEST(port, available_true_on_macos)
     Idle_Ctx c = { 0 };
     c.fires_to_quit = 1;
     atomic_store(&c.timer_fires, 0);
-    mel_reactor_spawn(MEL_REACTOR_THREADED, idle_init, &c);
+    idle_run(&c);
     MEL_EXPECT(c.available);
 }
 
@@ -690,7 +794,7 @@ MEL_TEST(port, zero_length_read_completes_ok_immediately)
 
 typedef struct
 {
-    Mel_Reactor*    reactor;
+    Mel_Vat*        vat;
     Mel_Port*       port;
     Mel_Executor*   exec;
     int             turn;
@@ -738,26 +842,52 @@ static bool peer_close_idle(void* user)
         p->completed_in_budget = true;
         mel_port_destroy(p->port);
         p->port = NULL;
-        mel_reactor_quit(p->reactor);
+        mel_vat_quit(p->vat);
     }
     if (p->turn > 80)
     {
         mel_port_destroy(p->port);
         p->port = NULL;
-        mel_reactor_quit(p->reactor);
+        mel_vat_quit(p->vat);
     }
     return true;
 }
 
-static bool peer_close_init(Mel_Reactor* r, void* user)
+static i64 peer_close_src_deadline(Mel_Vat_Source* s)
 {
-    Peer_Close_Ctx* p = (Peer_Close_Ctx*)user;
-    p->reactor = r;
-    p->port = mel_port_create(.reactor = r);
-    p->exec = mel_port_executor(p->port);
-    Mel_Reactor_Source* idle = mel_reactor_idle_new(peer_close_idle, p);
-    mel_reactor_source_attach(r, idle);
-    return true;
+    (void)s;
+    return 0;
+}
+
+static bool peer_close_src_drain(Mel_Vat_Source* s, u32 budget)
+{
+    (void)budget;
+    peer_close_idle(mel_vat_source_state(s));
+    return false;
+}
+
+static const Mel_Vat_Source_Vtbl PEER_CLOSE_SRC_VT = {
+    .wakeables = NULL,
+    .deadline = peer_close_src_deadline,
+    .drain = peer_close_src_drain,
+    .cancel = NULL,
+};
+
+static void peer_close_run(Peer_Close_Ctx* c0)
+{
+    const Mel_Alloc* a = mel_alloc_heap();
+    Mel_Vat_Waiter*  waiter = mel_vat_waiter_io(a);
+    Mel_Vat_Driver*  driver = mel_vat_driver_fair(a, 64);
+    Mel_Vat*         vat = mel_vat_open(a, (Mel_Vat_Desc){ .waiter = waiter, .driver = driver });
+    c0->vat = vat;
+    c0->port = mel_port_create(.vat = vat);
+    c0->exec = mel_port_executor(c0->port);
+    Mel_Vat_Source* src = mel_vat_source_open(vat, &PEER_CLOSE_SRC_VT, c0);
+    mel_vat_run(vat);
+    mel_vat_source_close(src);
+    mel_vat_close(vat);
+    driver->vt->close(driver);
+    waiter->vt->close(waiter);
 }
 
 MEL_TEST(port, write_to_closed_peer_resolves_peer_close_process_survives)
@@ -772,7 +902,7 @@ MEL_TEST(port, write_to_closed_peer_resolves_peer_close_process_survives)
     p.buf = (u8*)malloc(p.buflen);
     MEL_REQUIRE_NOT_NULL(p.buf);
 
-    mel_reactor_spawn(MEL_REACTOR_THREADED, peer_close_init, &p);
+    peer_close_run(&p);
 
     if (p.rfd >= 0)
         close(p.rfd);
@@ -789,7 +919,7 @@ MEL_TEST(port, write_to_closed_peer_resolves_peer_close_process_survives)
 
 typedef struct
 {
-    Mel_Reactor*  reactor;
+    Mel_Vat*      vat;
     Mel_Port*     port;
     Mel_Executor* exec;
     int           turn;
@@ -809,7 +939,7 @@ static void hung_destroy_cont(Mel_Task* self)
     h->cancelled = mel_future_status_cancelled(mel_future_status(k->future));
     h->done = true;
     mel_port_future_release(k->future);
-    mel_reactor_quit(h->reactor);
+    mel_vat_quit(h->vat);
 }
 
 static bool hung_destroy_idle(void* user)
@@ -831,19 +961,45 @@ static bool hung_destroy_idle(void* user)
         h->port = NULL;
     }
     if (h->turn > 5000)
-        mel_reactor_quit(h->reactor);
+        mel_vat_quit(h->vat);
     return true;
 }
 
-static bool hung_destroy_init(Mel_Reactor* r, void* user)
+static i64 hung_destroy_src_deadline(Mel_Vat_Source* s)
 {
-    Hung_Destroy_Ctx* h = (Hung_Destroy_Ctx*)user;
-    h->reactor = r;
-    h->port = mel_port_create(.reactor = r);
-    h->exec = mel_port_executor(h->port);
-    Mel_Reactor_Source* idle = mel_reactor_idle_new(hung_destroy_idle, h);
-    mel_reactor_source_attach(r, idle);
-    return true;
+    (void)s;
+    return 0;
+}
+
+static bool hung_destroy_src_drain(Mel_Vat_Source* s, u32 budget)
+{
+    (void)budget;
+    hung_destroy_idle(mel_vat_source_state(s));
+    return false;
+}
+
+static const Mel_Vat_Source_Vtbl HUNG_DESTROY_SRC_VT = {
+    .wakeables = NULL,
+    .deadline = hung_destroy_src_deadline,
+    .drain = hung_destroy_src_drain,
+    .cancel = NULL,
+};
+
+static void hung_destroy_run(Hung_Destroy_Ctx* c0)
+{
+    const Mel_Alloc* a = mel_alloc_heap();
+    Mel_Vat_Waiter*  waiter = mel_vat_waiter_io(a);
+    Mel_Vat_Driver*  driver = mel_vat_driver_fair(a, 64);
+    Mel_Vat*         vat = mel_vat_open(a, (Mel_Vat_Desc){ .waiter = waiter, .driver = driver });
+    c0->vat = vat;
+    c0->port = mel_port_create(.vat = vat);
+    c0->exec = mel_port_executor(c0->port);
+    Mel_Vat_Source* src = mel_vat_source_open(vat, &HUNG_DESTROY_SRC_VT, c0);
+    mel_vat_run(vat);
+    mel_vat_source_close(src);
+    mel_vat_close(vat);
+    driver->vt->close(driver);
+    waiter->vt->close(waiter);
 }
 
 MEL_TEST(port, destroy_with_hung_op_cancels_no_crash)
@@ -854,7 +1010,7 @@ MEL_TEST(port, destroy_with_hung_op_cancels_no_crash)
     h.rfd = sv[0];
     h.wfd = sv[1];
 
-    mel_reactor_spawn(MEL_REACTOR_THREADED, hung_destroy_init, &h);
+    hung_destroy_run(&h);
 
     MEL_EXPECT(h.destroyed);
     MEL_EXPECT(h.done);

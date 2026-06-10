@@ -7,6 +7,7 @@
 #include <allocator/allocator.fwd.h>
 #include <collection/slotmap.h>
 #include <collection/mpsc.h>
+#include <executor/executor.h>
 #include <future/future.h>
 #include <thread/thread.h>
 #include <thread/sem.h>
@@ -48,6 +49,7 @@ struct Mel_Fs_Op_Record
     Mel_SlotMap_Handle self;
 
     Mel_Mpsc_Node queue_node;
+    Mel_Task      completion_task;
 
     u32  kind;
     bool submitted;
@@ -81,7 +83,7 @@ struct Mel_Fs_Op_Record
 
 struct Mel_Fs
 {
-    Mel_Reactor*     reactor;
+    Mel_Vat*         vat;
     Mel_Executor*    executor;
     const Mel_Alloc* alloc;
 

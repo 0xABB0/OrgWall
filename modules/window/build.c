@@ -13,7 +13,6 @@ void build(Mel_Build* b)
     mel_depends(lib, "core");
     mel_depends(lib, "allocator");
     mel_depends(lib, "collection");
-    mel_depends(lib, "reactor");
     mel_depends(lib, "string");
     mel_depends(lib, "future");
     mel_depends(lib, "executor");
@@ -28,7 +27,6 @@ void build(Mel_Build* b)
     mel_depends(t, "core");
     mel_depends(t, "allocator");
     mel_depends(t, "collection");
-    mel_depends(t, "reactor");
     mel_depends(t, "string");
     mel_depends(t, "future");
     mel_depends(t, "executor");

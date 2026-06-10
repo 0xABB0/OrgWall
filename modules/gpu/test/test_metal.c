@@ -45,7 +45,7 @@ static Mel_Gpu_Device* test_make_device(Mel_Gpu_Instance** out_inst)
         mel_gpu_instance_destroy(inst);
         return NULL;
     }
-    Mel_Gpu_Device_Create_Result dr = mel_gpu_device_create(inst, adapters[0], .reactor = NULL);
+    Mel_Gpu_Device_Create_Result dr = mel_gpu_device_create(inst, adapters[0], .vat = NULL);
     if (!dr.value)
     {
         mel_gpu_instance_destroy(inst);
@@ -688,7 +688,7 @@ static Mel_Gpu_Device* test_make_device_bindless(Mel_Gpu_Instance** out_inst)
         mel_gpu_instance_destroy(inst);
         return NULL;
     }
-    Mel_Gpu_Device_Create_Result dr = mel_gpu_device_create(inst, adapters[0], .reactor = NULL, .features = { .descriptor_indexing = true });
+    Mel_Gpu_Device_Create_Result dr = mel_gpu_device_create(inst, adapters[0], .vat = NULL, .features = { .descriptor_indexing = true });
     if (!dr.value)
     {
         mel_gpu_instance_destroy(inst);

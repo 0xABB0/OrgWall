@@ -195,7 +195,7 @@ typedef struct
     u32                 black_pixel;
     mel_xcb_atom        wm_protocols;
     mel_xcb_atom        wm_delete_window;
-    Mel_Reactor_Source* source;
+    Mel_Vat_Source* source;
     bool                ok;
 } Mel_Xcb_State;
 

@@ -1,6 +1,6 @@
 #include <stdio.h>
 
-#include <app/app.h>
+#include <gui/gui.h>
 #include <gui/gui.h>
 
 #include "structscreen.h"

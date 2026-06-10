@@ -218,7 +218,6 @@ Mel_Window_Status         mel_window_present_surface(Mel_Window w);
 
 typedef struct
 {
-    Mel_Reactor*   reactor;
     Mel_Executor*  deliver;
     Mel_Window_Op* out_op;
 } Mel_Window_Icc_Opt;

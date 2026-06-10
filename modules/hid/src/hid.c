@@ -11,7 +11,7 @@
 #include <executor/executor.h>
 #include <future/future.h>
 #include <port/port.h>
-#include <reactor/reactor.h>
+#include <vat/vat.h>
 #include <log/log.h>
 
 #include <string.h>
@@ -521,12 +521,12 @@ typedef struct
     u8*            buffer;
     usize          len;
 
-    Mel_Port*           port;
-    Mel_Future*         inner;
-    Mel_Port_Op         op;
-    Mel_Task            translate;
-    Mel_Reactor_Source* source;
-    bool                released;
+    Mel_Port*       port;
+    Mel_Future*     inner;
+    Mel_Port_Op     op;
+    Mel_Task        translate;
+    Mel_Vat_Source* source;
+    bool            released;
 } Async_Read;
 
 static void async_resolve(Async_Read* ar, Mel_Hid_Io_Result res)
@@ -575,20 +575,31 @@ static void translate_port_result(Mel_Task* t)
     async_resolve(ar, res);
 }
 
-static bool async_source_dispatch(void* user)
+static i64 async_read_deadline(Mel_Vat_Source* source)
 {
-    Async_Read*       ar = user;
+    (void)source;
+    return 0;
+}
+
+static bool async_read_drain(Mel_Vat_Source* source, u32 budget)
+{
+    (void)budget;
+    Async_Read*       ar = mel_vat_source_state(source);
     Mel_Hid_Io_Result res = mel_hid__read_now(ar->d, ar->buffer, ar->len, MEL_HID_TIMEOUT_POLL);
     if (mel_hid_would_block(res.status))
-        return true;
-    if (ar->source)
-    {
-        mel_reactor_source_destroy(ar->source);
-        ar->source = NULL;
-    }
+        return false;
+    ar->source = NULL;
+    mel_vat_source_close(source);
     async_resolve(ar, res);
     return false;
 }
+
+static const Mel_Vat_Source_Vtbl ASYNC_READ_VT = {
+    .wakeables = NULL,
+    .deadline = async_read_deadline,
+    .drain = async_read_drain,
+    .cancel = NULL,
+};
 
 Mel_Future* mel_hid_read_async_opt(Mel_Hid_Device d, Mel_Hid_Read_Async_Opt opt)
 {
@@ -628,20 +639,19 @@ Mel_Future* mel_hid_read_async_opt(Mel_Hid_Device d, Mel_Hid_Read_Async_Opt opt)
         return &ar->future;
     }
 
-    Mel_Reactor* reactor = opt.port ? mel_port_reactor(opt.port) : NULL;
-    if (!reactor)
+    Mel_Vat* vat = opt.port ? mel_port_vat(opt.port) : NULL;
+    if (!vat)
     {
-        mel_log_warn("hid", "read_async without a pollable fd and without a reactor; no async substrate");
+        mel_log_warn("hid", "read_async without a pollable fd and without a vat; no async substrate");
         mel_dealloc(g.alloc, ar);
         return NULL;
     }
-    ar->source = mel_reactor_idle_new(async_source_dispatch, ar);
+    ar->source = mel_vat_source_open(vat, &ASYNC_READ_VT, ar);
     if (!ar->source)
     {
         mel_dealloc(g.alloc, ar);
         return NULL;
     }
-    mel_reactor_source_attach(reactor, ar->source);
     return &ar->future;
 }
 
@@ -660,7 +670,7 @@ void mel_hid_future_release(Mel_Future* f)
     Async_Read* ar = mel_container_of(f, Async_Read, future);
     if (ar->source)
     {
-        mel_reactor_source_destroy(ar->source);
+        mel_vat_source_close(ar->source);
         ar->source = NULL;
     }
     if (ar->inner)

@@ -7,8 +7,9 @@
 #include <allocator/heap.h>
 #include <future/future.h>
 #include <executor/executor.h>
-#include <reactor/reactor.h>
+#include <vat/vat.h>
 #include <collection/list.h>
+#include <time/nano.h>
 #include <log/log.h>
 
 #include <assert.h>
@@ -27,7 +28,7 @@ typedef struct
 struct Mel_Process
 {
     Mel_Process_Native native;
-    Mel_Reactor*       reactor;
+    Mel_Vat*           vat;
     const Mel_Alloc*   alloc;
     bool               detached;
 
@@ -38,9 +39,10 @@ struct Mel_Process
     bool             reaped;
     Mel_Process_Exit exit;
 
-    Wait_Op*            pending_wait;
-    u32                 wait_generation;
-    Mel_Reactor_Source* reap_source;
+    Wait_Op*        pending_wait;
+    u32             wait_generation;
+    Mel_Vat_Source* reap_source;
+    i64             reap_next;
 
     Wait_Op scratch;
     bool    scratch_busy;
@@ -115,21 +117,50 @@ static void process_resolve_pending(Mel_Process* p)
     wait_op_resolve(op, p->exit);
 }
 
-static bool reap_tick(void* user)
+static void reap_source_close(Mel_Process* p)
 {
-    Mel_Process* p = (Mel_Process*)user;
+    if (!p->reap_source)
+        return;
+    Mel_Vat_Source* src = p->reap_source;
+    p->reap_source = NULL;
+    mel_vat_source_close(src);
+    mel_vat_release(p->vat);
+}
+
+static i64 reap_deadline(Mel_Vat_Source* source)
+{
+    Mel_Process* p = mel_vat_source_state(source);
+    return p->reap_next;
+}
+
+static bool reap_drain(Mel_Vat_Source* source, u32 budget)
+{
+    (void)budget;
+    Mel_Process* p = mel_vat_source_state(source);
     if (process_try_reap(p))
     {
-        if (p->reap_source)
-        {
-            Mel_Reactor_Source* src = p->reap_source;
-            p->reap_source = NULL;
-            mel_reactor_source_destroy(src);
-        }
+        reap_source_close(p);
         process_resolve_pending(p);
         return false;
     }
-    return true;
+    p->reap_next = (i64)mel_nanos_since_unspecified_epoch() + MEL_PROCESS_REAP_INTERVAL_NS;
+    return false;
+}
+
+static const Mel_Vat_Source_Vtbl REAP_VT = {
+    .wakeables = NULL,
+    .deadline = reap_deadline,
+    .drain = reap_drain,
+    .cancel = NULL,
+};
+
+static void reap_source_open(Mel_Process* p)
+{
+    if (p->reap_source)
+        return;
+    p->reap_next = (i64)mel_nanos_since_unspecified_epoch() + MEL_PROCESS_REAP_INTERVAL_NS;
+    p->reap_source = mel_vat_source_open(p->vat, &REAP_VT, p);
+    mel_vat_retain(p->vat);
 }
 
 bool mel_process_available(void) { return mel_process__backend_available(); }
@@ -167,9 +198,9 @@ Mel_Process_Spawn_Result mel_process_spawn_opt(Mel_Process_Spawn_Opt opt)
         out.status = MEL_PROCESS_ERROR | MEL_PROCESS_SPAWN_FAILED;
         return out;
     }
-    if (wants_pipe && !opt.reactor)
+    if (wants_pipe && !opt.vat)
     {
-        mel_log_error("process", "spawn: piped stdio requires a reactor for async byte streams");
+        mel_log_error("process", "spawn: piped stdio requires a vat for async byte streams");
         out.status = MEL_PROCESS_ERROR | MEL_PROCESS_SPAWN_FAILED;
         return out;
     }
@@ -183,7 +214,7 @@ Mel_Process_Spawn_Result mel_process_spawn_opt(Mel_Process_Spawn_Opt opt)
         return out;
     }
     memset(p, 0, sizeof *p);
-    p->reactor = opt.reactor;
+    p->vat = opt.vat;
     p->alloc = alloc;
     p->detached = opt.detached;
 
@@ -195,7 +226,8 @@ Mel_Process_Spawn_Result mel_process_spawn_opt(Mel_Process_Spawn_Opt opt)
     if (opt.stderr_cfg.disposition == MEL_PROCESS_STDIO_REDIRECT && !mel_process__pipe_fd(opt.stderr_cfg.redirect, &stderr_redirect))
         (void)mel_stream_native_fd(opt.stderr_cfg.redirect, &stderr_redirect);
 
-    if ((opt.stdin_cfg.disposition == MEL_PROCESS_STDIO_REDIRECT && stdin_redirect < 0) || (opt.stdout_cfg.disposition == MEL_PROCESS_STDIO_REDIRECT && stdout_redirect < 0) || (opt.stderr_cfg.disposition == MEL_PROCESS_STDIO_REDIRECT && stderr_redirect < 0))
+    if ((opt.stdin_cfg.disposition == MEL_PROCESS_STDIO_REDIRECT && stdin_redirect < 0) || (opt.stdout_cfg.disposition == MEL_PROCESS_STDIO_REDIRECT && stdout_redirect < 0) ||
+        (opt.stderr_cfg.disposition == MEL_PROCESS_STDIO_REDIRECT && stderr_redirect < 0))
     {
         mel_log_error("process", "spawn: redirect target stream has no native fd");
         mel_dealloc(alloc, p);
@@ -231,11 +263,11 @@ Mel_Process_Spawn_Result mel_process_spawn_opt(Mel_Process_Spawn_Opt opt)
     }
 
     if (opt.stdin_cfg.disposition == MEL_PROCESS_STDIO_PIPE)
-        p->stdin_stream = mel_process__pipe_stream(p->native.child_stdin.fd, false, true, opt.reactor, alloc);
+        p->stdin_stream = mel_process__pipe_stream(p->native.child_stdin.fd, false, true, opt.vat, alloc);
     if (opt.stdout_cfg.disposition == MEL_PROCESS_STDIO_PIPE)
-        p->stdout_stream = mel_process__pipe_stream(p->native.child_stdout.fd, true, false, opt.reactor, alloc);
+        p->stdout_stream = mel_process__pipe_stream(p->native.child_stdout.fd, true, false, opt.vat, alloc);
     if (opt.stderr_cfg.disposition == MEL_PROCESS_STDIO_PIPE && !opt.merge_stderr)
-        p->stderr_stream = mel_process__pipe_stream(p->native.child_stderr.fd, true, false, opt.reactor, alloc);
+        p->stderr_stream = mel_process__pipe_stream(p->native.child_stderr.fd, true, false, opt.vat, alloc);
 
     if (p->stdin_stream)
     {
@@ -329,9 +361,9 @@ Mel_Future* mel_process_wait_opt(Mel_Process* p, Mel_Process_Wait_Opt opt)
         return wait_op_resolve(op, p->exit);
     }
 
-    if (!p->reactor)
+    if (!p->vat)
     {
-        mel_log_error("process", "async wait requires a reactor; use mel_process_wait_sync for a reactorless process");
+        mel_log_error("process", "async wait requires a vat; use mel_process_wait_sync for a vatless process");
         Wait_Op* op = wait_op_new(p->alloc);
         if (!op)
             return NULL;
@@ -339,7 +371,7 @@ Mel_Future* mel_process_wait_opt(Mel_Process* p, Mel_Process_Wait_Opt opt)
         return wait_op_resolve(op, ex);
     }
 
-    assert(mel_reactor_is_owner(p->reactor));
+    assert(mel_vat_is_owner(p->vat));
 
     if (p->pending_wait)
     {
@@ -362,11 +394,7 @@ Mel_Future* mel_process_wait_opt(Mel_Process* p, Mel_Process_Wait_Opt opt)
     if (opt.out_op)
         *opt.out_op = (Mel_Process_Op){ .index = 1, .generation = p->wait_generation };
 
-    if (!p->reap_source)
-    {
-        p->reap_source = mel_reactor_timer_new(MEL_PROCESS_REAP_INTERVAL_NS, reap_tick, p);
-        mel_reactor_source_attach(p->reactor, p->reap_source);
-    }
+    reap_source_open(p);
 
     (void)opt.deliver;
     return &op->future;
@@ -378,16 +406,11 @@ bool mel_process_cancel_wait(Mel_Process* p, Mel_Process_Op op)
         return false;
     if (op.index != 1 || op.generation != p->wait_generation)
         return false;
-    assert(mel_reactor_is_owner(p->reactor));
+    assert(mel_vat_is_owner(p->vat));
 
     Wait_Op* w = p->pending_wait;
     p->pending_wait = NULL;
-    if (p->reap_source)
-    {
-        Mel_Reactor_Source* src = p->reap_source;
-        p->reap_source = NULL;
-        mel_reactor_source_destroy(src);
-    }
+    reap_source_close(p);
     Mel_Process_Exit ex = { .status = MEL_PROCESS_CANCELLED };
     wait_op_resolve(w, ex);
     return true;
@@ -420,12 +443,7 @@ Mel_Process_Exit mel_process_wait_sync(Mel_Process* p)
 
     if (p->pending_wait)
     {
-        if (p->reap_source)
-        {
-            Mel_Reactor_Source* src = p->reap_source;
-            p->reap_source = NULL;
-            mel_reactor_source_destroy(src);
-        }
+        reap_source_close(p);
         process_resolve_pending(p);
     }
     return p->exit;
@@ -467,15 +485,10 @@ void mel_process_destroy(Mel_Process* p)
     if (!p)
         return;
 
-    if (p->reap_source)
-    {
-        Mel_Reactor_Source* src = p->reap_source;
-        p->reap_source = NULL;
-        mel_reactor_source_destroy(src);
-    }
+    reap_source_close(p);
     if (p->pending_wait)
     {
-        Wait_Op*         op = p->pending_wait;
+        Wait_Op* op = p->pending_wait;
         p->pending_wait = NULL;
         Mel_Process_Exit ex = { .status = MEL_PROCESS_CANCELLED };
         wait_op_resolve(op, ex);

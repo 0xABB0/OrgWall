@@ -5,7 +5,7 @@
 #include <core/types.h>
 #include <allocator/allocator.h>
 #include <collection/slotmap.h>
-#include <reactor/reactor.h>
+#include <vat/vat.h>
 #include <thread/mutex.h>
 #include <thread/thread.h>
 #include <debug/assert.h>
@@ -188,10 +188,10 @@ typedef struct
 
 typedef struct
 {
-    Mel_Gpu_Resource_Header           header;
-    VkDescriptorSetLayout             layout;
-    Mel_Gpu_Bind_Group_Layout_Entry*  entries;
-    u32                               entry_count;
+    Mel_Gpu_Resource_Header          header;
+    VkDescriptorSetLayout            layout;
+    Mel_Gpu_Bind_Group_Layout_Entry* entries;
+    u32                              entry_count;
 } Mel_Gpu_Bind_Group_Layout_Obj;
 
 typedef struct
@@ -236,21 +236,21 @@ typedef struct
 
 typedef struct
 {
-    u64                   marker;
-    VkImage               image;
-    VkImageView           view;
-    VkBuffer              buffer;
-    VkPipeline            pipeline;
-    VkPipelineLayout      pipeline_layout;
-    VkDescriptorSetLayout descriptor_set_layout;
-    VkSampler             sampler;
-    VkSemaphore           semaphore;
-    VkShaderModule        shader_vs;
-    VkShaderModule        shader_fs;
-    VkDescriptorSet       descriptor_set;
-    VkDescriptorPool      descriptor_set_pool;
-    Mel_Gpu_Allocation    alloc;
-    bool                  has_alloc;
+    u64                     marker;
+    VkImage                 image;
+    VkImageView             view;
+    VkBuffer                buffer;
+    VkPipeline              pipeline;
+    VkPipelineLayout        pipeline_layout;
+    VkDescriptorSetLayout   descriptor_set_layout;
+    VkSampler               sampler;
+    VkSemaphore             semaphore;
+    VkShaderModule          shader_vs;
+    VkShaderModule          shader_fs;
+    VkDescriptorSet         descriptor_set;
+    VkDescriptorPool        descriptor_set_pool;
+    Mel_Gpu_Allocation      alloc;
+    bool                    has_alloc;
     Mel_Gpu_Resource_Table* reclaim_table;
     u32                     reclaim_index;
     bool                    has_reclaim;
@@ -303,7 +303,7 @@ struct Mel_Gpu_Device
     VkDevice                 vk;
     Mel_Gpu_Caps             caps;
     const Mel_Alloc*         alloc;
-    Mel_Reactor*             reactor;
+    Mel_Vat*                 vat;
     Mel_Gpu_Completion_Pump* pump;
     Mel_Gpu_Thread_Tracker*  tracker;
     Mel_Gpu_Debug_Config     debug;
@@ -316,8 +316,8 @@ struct Mel_Gpu_Device
     void (*budget_pressure_cb)(struct Mel_Gpu_Device*, Mel_Gpu_Memory_Budget, void*);
     void* budget_pressure_user;
 
-    u32     graphics_family;
-    VkQueue graphics_queue;
+    u32       graphics_family;
+    VkQueue   graphics_queue;
     Mel_Mutex submit_lock;
 
     VkPhysicalDeviceMemoryProperties mem_props;
@@ -372,10 +372,10 @@ struct Mel_Gpu_Device
     u32                  thread_pool_cap;
 
     bool                       dynamic_rendering;
-    PFN_vkCmdBeginRenderingKHR  cmd_begin_rendering;
-    PFN_vkCmdEndRenderingKHR    cmd_end_rendering;
+    PFN_vkCmdBeginRenderingKHR cmd_begin_rendering;
+    PFN_vkCmdEndRenderingKHR   cmd_end_rendering;
 
-    bool                        sync2;
+    bool                         sync2;
     PFN_vkCmdPipelineBarrier2KHR cmd_pipeline_barrier2;
 };
 
@@ -391,15 +391,15 @@ struct Mel_Gpu_Surface
 
 struct Mel_Gpu_Command_List
 {
-    Mel_Gpu_Device*    dev;
-    VkCommandBuffer    cb;
-    Mel_Gpu_Swapchain* sc;
-    VkPipelineLayout   cur_layout;
+    Mel_Gpu_Device*     dev;
+    VkCommandBuffer     cb;
+    Mel_Gpu_Swapchain*  sc;
+    VkPipelineLayout    cur_layout;
     VkPipelineBindPoint cur_bind_point;
     VkShaderStageFlags  cur_pc_stages;
-    VkCommandPool      owner_pool;
-    bool               standalone;
-    bool               recording;
+    VkCommandPool       owner_pool;
+    bool                standalone;
+    bool                recording;
 
     Mel_Gpu_Cmd_State_Entry* states;
     u32                      state_count;
@@ -408,12 +408,12 @@ struct Mel_Gpu_Command_List
 
 struct Mel_Gpu_Queue
 {
-    Mel_Gpu_Device*        dev;
-    VkQueue                vk;
-    u32                    family;
-    Mel_Gpu_Queue_Role     role;
-    bool                   internally_synchronized;
-    bool                   locked_fallback;
+    Mel_Gpu_Device*    dev;
+    VkQueue            vk;
+    u32                family;
+    Mel_Gpu_Queue_Role role;
+    bool               internally_synchronized;
+    bool               locked_fallback;
 };
 
 struct Mel_Gpu_Swapchain
@@ -452,7 +452,7 @@ void        mel_gpu__caps_probe(VkPhysicalDevice phys, Mel_Gpu_Caps* out);
 VkDebugUtilsMessengerCreateInfoEXT mel_gpu__debug_messenger_info(void);
 void                               mel_gpu__debug_messenger_create(VkInstance instance, VkDebugUtilsMessengerEXT* out);
 void                               mel_gpu__debug_messenger_destroy(VkInstance instance, VkDebugUtilsMessengerEXT messenger);
-bool        mel_gpu__device_is_lost(Mel_Gpu_Device* dev, VkResult r, const char* where);
+bool                               mel_gpu__device_is_lost(Mel_Gpu_Device* dev, VkResult r, const char* where);
 
 VkSurfaceKHR mel_gpu__vk_create_metal_surface(VkInstance instance, void* native_view, void** out_layer);
 void         mel_gpu__vk_metal_layer_set_size(void* layer, i32 width, i32 height);
@@ -460,10 +460,10 @@ void         mel_gpu__vk_metal_layer_release(void* layer);
 VkSurfaceKHR mel_gpu__vk_create_win32_surface(VkInstance instance, void* hwnd);
 VkSurfaceKHR mel_gpu__vk_create_android_surface(VkInstance instance, void* window);
 
-VkFormat       mel_gpu__vk_format(Mel_Gpu_Format fmt);
-Mel_Gpu_Format mel_gpu__vk_format_to_mel(VkFormat fmt);
+VkFormat           mel_gpu__vk_format(Mel_Gpu_Format fmt);
+Mel_Gpu_Format     mel_gpu__vk_format_to_mel(VkFormat fmt);
 VkImageAspectFlags mel_gpu__aspect_flags(Mel_Gpu_Texture_Aspect aspect, VkFormat fmt);
-VkCompareOp mel_gpu__vk_compare_op(Mel_Gpu_Compare_Op c);
+VkCompareOp        mel_gpu__vk_compare_op(Mel_Gpu_Compare_Op c);
 
 u32 mel_gpu__vk_find_memory_type(Mel_Gpu_Device* dev, u32 type_bits, VkMemoryPropertyFlags props);
 
@@ -489,8 +489,8 @@ bool               mel_gpu__table_remove(Mel_Gpu_Device* dev, Mel_Gpu_Resource_T
 void        mel_gpu__track_enter(Mel_Gpu_Device* dev, const void* object, Mel_Gpu_Concurrency cls);
 void        mel_gpu__track_exit(Mel_Gpu_Device* dev, const void* object);
 const void* mel_gpu__track_key(const Mel_Gpu_Resource_Table* t, u32 index);
-bool               mel_gpu__table_remove_deferred(Mel_Gpu_Device* dev, Mel_Gpu_Resource_Table* t, Mel_SlotMap_Handle h);
-void               mel_gpu__table_reclaim(Mel_Gpu_Device* dev, Mel_Gpu_Resource_Table* t, u32 index);
+bool        mel_gpu__table_remove_deferred(Mel_Gpu_Device* dev, Mel_Gpu_Resource_Table* t, Mel_SlotMap_Handle h);
+void        mel_gpu__table_reclaim(Mel_Gpu_Device* dev, Mel_Gpu_Resource_Table* t, u32 index);
 
 VkRenderPass mel_gpu__make_render_pass(Mel_Gpu_Device* dev, VkFormat color);
 bool         mel_gpu__shader_modules(Mel_Gpu_Device* dev, Mel_Gpu_Shader sh, VkShaderModule* vs, VkShaderModule* fs, const char** vs_entry, const char** fs_entry);
@@ -499,11 +499,11 @@ bool         mel_gpu__shader_reflection(Mel_Gpu_Device* dev, Mel_Gpu_Shader sh, 
 
 void mel_gpu__spirv_reflect(const u32* code, usize size_bytes, bool vertex_stage, const Mel_Alloc* alloc, Mel_Gpu_Spirv_Reflection* accum);
 void mel_gpu__reflection_free(Mel_Gpu_Spirv_Reflection* r);
-bool         mel_gpu__pipeline_get(Mel_Gpu_Device* dev, Mel_Gpu_Pipeline pipe, VkPipeline* out_pipe, VkPipelineLayout* out_layout);
-bool         mel_gpu__pipeline_obj(Mel_Gpu_Device* dev, Mel_Gpu_Pipeline pipe, Mel_Gpu_Pipeline_Obj* out);
-bool         mel_gpu__buffer_get(Mel_Gpu_Device* dev, Mel_Gpu_Buffer buf, VkBuffer* out);
-bool         mel_gpu__sampler_get(Mel_Gpu_Device* dev, Mel_Gpu_Sampler sampler, VkSampler* out);
-bool         mel_gpu__sampler_retain(Mel_Gpu_Device* dev, Mel_Gpu_Sampler sampler);
+bool mel_gpu__pipeline_get(Mel_Gpu_Device* dev, Mel_Gpu_Pipeline pipe, VkPipeline* out_pipe, VkPipelineLayout* out_layout);
+bool mel_gpu__pipeline_obj(Mel_Gpu_Device* dev, Mel_Gpu_Pipeline pipe, Mel_Gpu_Pipeline_Obj* out);
+bool mel_gpu__buffer_get(Mel_Gpu_Device* dev, Mel_Gpu_Buffer buf, VkBuffer* out);
+bool mel_gpu__sampler_get(Mel_Gpu_Device* dev, Mel_Gpu_Sampler sampler, VkSampler* out);
+bool mel_gpu__sampler_retain(Mel_Gpu_Device* dev, Mel_Gpu_Sampler sampler);
 
 void mel_gpu__bindless_init(Mel_Gpu_Device* dev, bool want);
 void mel_gpu__bindless_shutdown(Mel_Gpu_Device* dev);

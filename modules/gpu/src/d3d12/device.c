@@ -64,7 +64,7 @@ Mel_Gpu_Device_Create_Result mel_gpu_device_create_opt(Mel_Gpu_Instance* inst, M
     dev->fence_event = event;
     dev->caps = adapter->caps;
     dev->alloc = alloc;
-    dev->reactor = opt.reactor;
+    dev->vat = opt.vat;
     dev->debug = opt.debug;
     dev->on_device_lost = opt.on_device_lost;
     dev->device_lost_user = opt.device_lost_user;
@@ -117,8 +117,8 @@ Mel_Gpu_Device_Create_Result mel_gpu_device_create_opt(Mel_Gpu_Instance* inst, M
     if (opt.debug.thread_safety_tracker)
         dev->tracker = mel_gpu_thread_tracker_create();
 
-    if (opt.reactor)
-        dev->pump = mel_gpu_pump_create(opt.reactor);
+    if (opt.vat)
+        dev->pump = mel_gpu_pump_create(opt.vat);
 
     if (inst->debug_layer)
     {
@@ -238,7 +238,7 @@ void mel_gpu_device_destroy(Mel_Gpu_Device* dev)
 
 const Mel_Gpu_Caps* mel_gpu_device_caps(Mel_Gpu_Device* dev) { return dev ? &dev->caps : NULL; }
 
-Mel_Reactor* mel_gpu_device_reactor(Mel_Gpu_Device* dev) { return dev ? dev->reactor : NULL; }
+Mel_Vat* mel_gpu_device_vat(Mel_Gpu_Device* dev) { return dev ? dev->vat : NULL; }
 
 Mel_SlotMap_Handle mel_gpu__table_insert(Mel_Gpu_Device* dev, Mel_Gpu_Resource_Table* t, const void* obj)
 {
@@ -372,10 +372,10 @@ Mel_Gpu_Future* mel_gpu_device_create_default_opt(Mel_Gpu_Device_Default_Opt opt
 
     Mel_Gpu_Device_Create_Result dr = { 0 };
     if (adapter)
-        dr = mel_gpu_device_create(inst, adapter, .reactor = opt.reactor, .features = opt.features, .debug = opt.debug, .power_preference = opt.power_preference);
+        dr = mel_gpu_device_create(inst, adapter, .vat = opt.vat, .features = opt.features, .debug = opt.debug, .power_preference = opt.power_preference);
 
     Mel_Gpu_Completion_Pump* pump = dr.value ? dr.value->pump : NULL;
-    Mel_Gpu_Future*          f = mel_gpu_future_create(pump, opt.reactor);
+    Mel_Gpu_Future*          f = mel_gpu_future_create(pump, opt.vat);
 
     if (dr.value)
     {

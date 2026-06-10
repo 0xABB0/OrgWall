@@ -24,7 +24,7 @@ void build(Mel_Build* b)
     mel_depends(lib, "executor");
     mel_depends(lib, "future");
     mel_depends(lib, "port");
-    mel_depends(lib, "reactor");
+    mel_depends(lib, "vat");
     mel_depends(lib, "log");
     mel_depends(lib, "platform");
 
@@ -40,6 +40,6 @@ void build(Mel_Build* b)
     mel_depends(t, "executor");
     mel_depends(t, "future");
     mel_depends(t, "port");
-    mel_depends(t, "reactor");
+    mel_depends(t, "vat");
     mel_depends(t, "log");
 }

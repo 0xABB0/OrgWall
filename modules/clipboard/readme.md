@@ -5,14 +5,14 @@ The interface to the operating system's clipboard across every platform. One log
 any custom MIME type), so the receiving application picks the best.
 
 Every operation returns a `Mel_Future`: `read`, `write`, `query`, `clear`, `read_text`,
-`write_text` each return `Mel_Future*`, resolved on the caller's executor (default: derived from the
-init reactor; the inline executor when init took no reactor). The clipboard is synchronous and
+`write_text` each return `Mel_Future*`, resolved on the caller's executor (default: the init
+vat's executor; the inline executor when init took no vat). The clipboard is synchronous and
 instant on Apple/Win32/Android, a permission-gated promise on the Web, and a selection round-trip on
 Linux — one contract spans them. Completion, deferral, and cancellation are the `future` module's:
 the clipboard owns no per-op timer and no bespoke deliver path.
 
 ```c
-mel_clip_init(alloc, reactor);
+mel_clip_init(alloc, vat);
 mel_clip_future_free(mel_clip_write_text(S8("hello")));
 
 Mel_Future* f = mel_clip_read_text();
@@ -40,7 +40,7 @@ Backends (one compiles per platform):
 - Win32 — user32 clipboard (text transcoded UTF-8⇄UTF-16, png/custom raw; HTML pending the CF_HTML wrapper).
 - Android — `ClipboardManager` via JNI (text, html; no sequence counter).
 - Web — `navigator.clipboard` async (text; rich `ClipboardItem` and enumeration pending).
-- Linux — X11 selections (libxcb, `dlopen`'d) over the reactor: owns CLIPBOARD + PRIMARY, serves SelectionRequest; Wayland connection fallback (cross-client serve is a todo).
+- Linux — X11 selections (libxcb, `dlopen`'d) over the vat: owns CLIPBOARD + PRIMARY, serves SelectionRequest; Wayland connection fallback (cross-client serve is a todo).
 
 Spec: `spec.md`. Todo: `todo.md`. Dependencies: `core`, `allocator`, `collection`, `string`,
-`executor`, `future`, `event`, `reactor`, `log`, `platform`.
+`executor`, `future`, `event`, `vat`, `log`, `platform`.

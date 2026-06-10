@@ -116,7 +116,6 @@ typedef Mel_Array(Mel_Audio__End_Future) Mel_Audio__End_Future_Reg;
 struct Mel_Audio
 {
     const Mel_Alloc* alloc;
-    Mel_Reactor*     reactor;
     Mel_Executor*    exec;
 
     Mel_Audio_Caps      caps;

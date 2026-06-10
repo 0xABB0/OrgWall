@@ -52,7 +52,7 @@ static Mel_Audio_Source* mono_const(const Mel_Alloc* a, u32 frames, f32 value)
 MEL_TEST(render, unity_gain_single_voice)
 {
     const Mel_Alloc* a = test_alloc();
-    Mel_Audio*       eng = mel_audio_create_offline(a, NULL, base_opt());
+    Mel_Audio*       eng = mel_audio_create_offline(a, base_opt());
     MEL_REQUIRE_NOT_NULL(eng);
 
     Mel_Audio_Source* src = mono_const(a, 64u, 1.0f);
@@ -76,7 +76,7 @@ MEL_TEST(render, unity_gain_single_voice)
 MEL_TEST(render, volume_scaling)
 {
     const Mel_Alloc* a = test_alloc();
-    Mel_Audio*       eng = mel_audio_create_offline(a, NULL, base_opt());
+    Mel_Audio*       eng = mel_audio_create_offline(a, base_opt());
     MEL_REQUIRE_NOT_NULL(eng);
 
     Mel_Audio_Source* src = mono_const(a, 32u, 1.0f);
@@ -99,7 +99,7 @@ MEL_TEST(render, volume_scaling)
 MEL_TEST(render, constant_power_pan)
 {
     const Mel_Alloc* a = test_alloc();
-    Mel_Audio*       eng = mel_audio_create_offline(a, NULL, base_opt());
+    Mel_Audio*       eng = mel_audio_create_offline(a, base_opt());
     MEL_REQUIRE_NOT_NULL(eng);
 
     Mel_Audio_Source* hard_left = mono_const(a, 16u, 1.0f);
@@ -117,7 +117,7 @@ MEL_TEST(render, constant_power_pan)
     mel_audio_destroy(eng);
     hard_left->source_free(hard_left, a);
 
-    eng = mel_audio_create_offline(a, NULL, base_opt());
+    eng = mel_audio_create_offline(a, base_opt());
     Mel_Audio_Source* hard_right = mono_const(a, 16u, 1.0f);
     mel_audio_play_ex(eng, hard_right, 1.0f, 1.0f, false);
     mel_audio_render(eng, out, 16u);
@@ -134,7 +134,7 @@ MEL_TEST(render, constant_power_pan)
 MEL_TEST(render, two_voice_mix)
 {
     const Mel_Alloc* a = test_alloc();
-    Mel_Audio*       eng = mel_audio_create_offline(a, NULL, base_opt());
+    Mel_Audio*       eng = mel_audio_create_offline(a, base_opt());
     MEL_REQUIRE_NOT_NULL(eng);
 
     Mel_Audio_Source* a_src = mono_const(a, 16u, 0.5f);
@@ -159,7 +159,7 @@ MEL_TEST(render, two_voice_mix)
 MEL_TEST(render, loop_wrap)
 {
     const Mel_Alloc* a = test_alloc();
-    Mel_Audio*       eng = mel_audio_create_offline(a, NULL, base_opt());
+    Mel_Audio*       eng = mel_audio_create_offline(a, base_opt());
     MEL_REQUIRE_NOT_NULL(eng);
 
     f32               pattern[4] = { 0.1f, 0.2f, 0.3f, 0.4f };
@@ -183,7 +183,7 @@ MEL_TEST(render, loop_wrap)
 MEL_TEST(render, voice_ends_when_source_exhausted)
 {
     const Mel_Alloc* a = test_alloc();
-    Mel_Audio*       eng = mel_audio_create_offline(a, NULL, base_opt());
+    Mel_Audio*       eng = mel_audio_create_offline(a, base_opt());
     MEL_REQUIRE_NOT_NULL(eng);
 
     Mel_Audio_Source* src = mono_const(a, 8u, 1.0f);
@@ -207,7 +207,7 @@ MEL_TEST(render, voice_ends_when_source_exhausted)
 MEL_TEST(render, resample_double_speed)
 {
     const Mel_Alloc* a = test_alloc();
-    Mel_Audio*       eng = mel_audio_create_offline(a, NULL, base_opt());
+    Mel_Audio*       eng = mel_audio_create_offline(a, base_opt());
     MEL_REQUIRE_NOT_NULL(eng);
 
     Mel_Audio_Source* src = mono_ramp(a, 64u);

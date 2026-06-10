@@ -4,8 +4,8 @@ Raw HID transport: the floor beneath gamepad and any device that speaks HID. Enu
 VID/PID, open by path, exchange input/output/feature reports, read the raw report descriptor,
 recover manufacturer/product/serial strings, classify the bus (USB/Bluetooth/I2C/SPI), and track
 arrivals/departures with a monotonic device-change counter. Allocator-driven throughout; async
-reads ride the `port` proactor where the OS exposes a pollable fd, and a reactor-pumped readiness
-source everywhere else.
+reads ride the `port` proactor where the OS exposes a pollable fd, and a deadline-0 vat source
+pumping bounded reads everywhere else.
 
 ## Why it exists
 
@@ -18,7 +18,7 @@ consumers (MEL-ENGINE-IX).
 ## Dependencies
 
 `core`, `allocator`, `collection` (slotmap + dynamic arrays + container_of), `event` (the dual
-pull/push delivery channel), `executor`, `future` + `port` + `reactor` (the async read substrate),
+pull/push delivery channel), `executor`, `future` + `port` + `vat` (the async read substrate),
 `log`, `platform` (Android JNI env).
 
 ## Public surface
@@ -54,14 +54,14 @@ back at `open` is threaded into every I/O call so the backend never re-resolves 
 
 Async reads: `mel_hid_read_async` returns a future the core owns carrying a `Mel_Hid_Io_Result`. When
 the channel exposes a pollable fd and a `Mel_Port` is supplied, it lowers onto the port proactor and a
-continuation translates the `Mel_Port_Result`; otherwise a reactor idle source pumps one bounded
-blocking read. With neither substrate it returns NULL loudly (MEL-CODE-007 — no silent fallback).
+continuation translates the `Mel_Port_Result`; otherwise a deadline-0 vat source on the port's vat pumps one bounded
+blocking read per drain. With neither substrate it returns NULL loudly (MEL-CODE-007 — no silent fallback).
 
 ## Backends
 
 - macOS (`src/macos/`) — IOHIDManager / IOKit. Full enumeration, open, output/feature reports, raw
   report descriptor (`kIOHIDReportDescriptorKey`), strings, transport classification. No pollable fd
-  exists on this path, so async rides the reactor source (honest).
+  exists on this path, so async rides the polling vat source (honest).
 - iOS (`src/ios/`) — honest absence. iOS does not expose the public IOKit HID interface to
   third-party apps, so raw HID enumeration is not a capability the platform grants (MEL-ENGINE-VII):
   the iOS backend registers no provider and `mel_hid_count()` is 0. HID-class input on iOS arrives
@@ -76,7 +76,7 @@ blocking read. With neither substrate it returns NULL loudly (MEL-CODE-007 — n
   profile and surfaces no fd. Feature reports unsupported on this path (honest absence).
 - wasm (`src/wasm/`) — WebHID via Emscripten `EM_JS`. Honest unavailable where the browser lacks
   `navigator.hid`. Synchronous blocking reads cannot exist on the main thread, so blocking read
-  returns WOULD_BLOCK; the supported route is the reactor-pumped async read draining the JS ring.
+  returns WOULD_BLOCK; the supported route is the vat-pumped async read draining the JS ring.
 
 ## Verification
 

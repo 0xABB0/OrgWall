@@ -1,7 +1,7 @@
 #include "clip_linux.h"
 
 #include <allocator/allocator.h>
-#include <reactor/reactor.h>
+#include <vat/vat.h>
 #include <log/log.h>
 
 #include <dlfcn.h>
@@ -22,18 +22,18 @@ typedef struct
 
 typedef struct
 {
-    void*               lib;
-    Wl_Api              api;
-    wl_display*         display;
-    Mel_Reactor_Source* source;
-    Mel_Reactor_Poll    poll;
-    str8                clip_bytes;
-    str8                prim_bytes;
-    bool                clip_valid;
-    bool                prim_valid;
-    u64                 clip_seq;
-    u64                 prim_seq;
-    bool                ok;
+    void*            lib;
+    Wl_Api           api;
+    wl_display*      display;
+    Mel_Vat_Source*  source;
+    Mel_Vat_Wakeable wakeable;
+    str8             clip_bytes;
+    str8             prim_bytes;
+    bool             clip_valid;
+    bool             prim_valid;
+    u64              clip_seq;
+    u64              prim_seq;
+    bool             ok;
 } Wl_State;
 
 static Wl_State g_wl;
@@ -64,41 +64,41 @@ static bool wl_load(Wl_State* w)
     return a->display_connect && a->display_disconnect && a->display_get_fd && a->display_dispatch && a->display_dispatch_pending && a->display_flush && a->display_roundtrip;
 }
 
-static bool wl_source_prepare(Mel_Reactor_Source* source, i32* timeout)
+static void wl_source_wakeables(Mel_Vat_Source* source, Mel_Vat_Wakeable** out, usize* count)
+{
+    Wl_State* w = mel_vat_source_state(source);
+    *out = &w->wakeable;
+    *count = 1;
+}
+
+static i64 wl_source_deadline(Mel_Vat_Source* source)
 {
     (void)source;
-    *timeout = MEL_REACTOR_FOREVER;
     if (g_wl.display)
         g_wl.api.display_flush(g_wl.display);
+    return MEL_VAT_NEVER;
+}
+
+static bool wl_source_drain(Mel_Vat_Source* source, u32 budget)
+{
+    (void)budget;
+    Wl_State* w = mel_vat_source_state(source);
+    if (w->api.display_dispatch(w->display) < 0)
+    {
+        mel_log_error("clipboard", "wayland backend: display dispatch failed");
+        mel_vat_source_close(source);
+        w->source = NULL;
+        return false;
+    }
+    w->api.display_flush(w->display);
     return false;
 }
 
-static bool wl_source_check(Mel_Reactor_Source* source)
-{
-    if (source->poll_count == 0 || !source->polls[0])
-        return false;
-    return (source->polls[0]->revents & (MEL_REACTOR_POLL_IN | MEL_REACTOR_POLL_HUP | MEL_REACTOR_POLL_ERR)) != 0;
-}
-
-static bool wl_source_dispatch(Mel_Reactor_Source* source, Mel_Reactor_Source_Proc cb, void* user)
-{
-    (void)source;
-    (void)cb;
-    (void)user;
-    if (g_wl.api.display_dispatch(g_wl.display) < 0)
-    {
-        mel_log_error("clipboard", "wayland backend: display dispatch failed");
-        return false;
-    }
-    g_wl.api.display_flush(g_wl.display);
-    return true;
-}
-
-static const Mel_Reactor_Source_Callbacks g_wl_cb = {
-    .prepare = wl_source_prepare,
-    .check = wl_source_check,
-    .dispatch = wl_source_dispatch,
-    .finalize = NULL,
+static const Mel_Vat_Source_Vtbl g_wl_vt = {
+    .wakeables = wl_source_wakeables,
+    .deadline = wl_source_deadline,
+    .drain = wl_source_drain,
+    .cancel = NULL,
 };
 
 bool mel_clip__wl_init(void)
@@ -124,14 +124,11 @@ bool mel_clip__wl_init(void)
     }
     w->api.display_roundtrip(w->display);
 
-    Mel_Reactor* reactor = mel_clip__reactor();
-    if (reactor)
+    Mel_Vat* vat = mel_clip__vat();
+    if (vat)
     {
-        w->source = mel_reactor_source_new(&g_wl_cb, sizeof(Mel_Reactor_Source));
-        w->poll = (Mel_Reactor_Poll){ .handle = w->api.display_get_fd(w->display), .events = MEL_REACTOR_POLL_IN };
-        mel_reactor_source_add_poll(w->source, &w->poll);
-        mel_reactor_source_set_priority(w->source, MEL_REACTOR_PRIORITY_HIGH);
-        mel_reactor_source_attach(reactor, w->source);
+        w->wakeable = (Mel_Vat_Wakeable){ .handle = w->api.display_get_fd(w->display), .events = MEL_VAT_WAKE_IN };
+        w->source = mel_vat_source_open(vat, &g_wl_vt, w);
     }
     w->ok = true;
     return true;
@@ -144,7 +141,7 @@ void mel_clip__wl_shutdown(void)
         return;
     if (w->source)
     {
-        mel_reactor_source_destroy(w->source);
+        mel_vat_source_close(w->source);
         w->source = NULL;
     }
     const Mel_Alloc* al = mel_clip__alloc();

@@ -62,7 +62,7 @@ static void install_fake(void)
     last_len = 0;
     open_calls = 0;
     reveal_calls = 0;
-    mel_shell_init(mel_alloc_heap(), NULL);
+    mel_shell_init(mel_alloc_heap());
 }
 
 MEL_TEST(shell, open_url_resolves_ok_and_passes_target)
@@ -109,7 +109,7 @@ MEL_TEST(shell, empty_target_is_bad_target)
 MEL_TEST(shell, no_backend_reports_no_backend)
 {
     fake_avail = false;
-    mel_shell_init(mel_alloc_heap(), NULL);
+    mel_shell_init(mel_alloc_heap());
     MEL_EXPECT(!mel_shell_available());
     Mel_Future* f = mel_shell_open_url(S8("https://x"));
     MEL_REQUIRE(f != NULL);
@@ -284,7 +284,7 @@ static void body_success(const Mel_Alloc* a)
 {
     fake_avail = true;
     fake_defer = false;
-    mel_shell_init(a, NULL);
+    mel_shell_init(a);
     mel_shell_future_free(mel_shell_open_url(S8("https://leak")));
     mel_shell_future_free(mel_shell_reveal_path(S8("/leak/path")));
     mel_shell_shutdown();
@@ -294,7 +294,7 @@ static void body_shutdown_pending(const Mel_Alloc* a)
 {
     fake_avail = true;
     fake_defer = true;
-    mel_shell_init(a, NULL);
+    mel_shell_init(a);
     (void)mel_shell_open_url(S8("https://p1"));
     (void)mel_shell_reveal_path(S8("/p2"));
     mel_shell_shutdown();
@@ -342,7 +342,7 @@ static void body_shutdown_deferred_cont(const Mel_Alloc* a, Deferred_Exec* d, Co
 {
     fake_avail = true;
     fake_defer = true;
-    mel_shell_init(a, NULL);
+    mel_shell_init(a);
     Mel_Future* f = mel_shell_open_url(S8("https://deferred-cont"));
     c->fut = f;
     mel_task_init(&c->task, cont_run);

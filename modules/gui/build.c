@@ -26,7 +26,7 @@ void build(Mel_Build* b)
     mel_depends(lib, "collection");
     mel_depends(lib, "math");
     mel_depends(lib, "platform");
-    mel_depends(lib, "reactor");
+    mel_depends(lib, "vat");
     mel_depends(lib, "string");
     mel_depends(lib, "window");
     mel_depends(lib, "color");

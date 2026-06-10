@@ -1,0 +1,5 @@
+#pragma once
+
+#ifndef MEL_ROUTINE_DEFAULT_INITIAL
+#define MEL_ROUTINE_DEFAULT_INITIAL 16
+#endif

@@ -82,6 +82,8 @@ typedef struct
     const char* tool;
     const char* output;
     Mel_StrVec  args;
+    Mel_StrVec  inputs;
+    bool        depfile;
 } Mel_Codegen;
 
 typedef MEL_VEC(Mel_Codegen) Mel_CodegenVec;

@@ -4,7 +4,7 @@ The Melody Render Hardware Interface: one explicit, capability-rich GPU surface 
 faithfully across backends. It is designed to the most-capable APIs — ceiling Vulkan Roadmap 2026 /
 D3D12 SM 6.9 / Metal 4 — and degrades, never deforms, toward each backend's support floor; caps
 report the tier, the API shape is the same, only the lowering differs (`design/gpu-rhi.md` §1 P1/P2,
-§2). Resources are value-typed handles over per-device slotmaps (§3.1); creation is reactor-driven
+§2). Resources are value-typed handles over per-device slotmaps (§3.1); creation is vat-delivered
 futures (§3.3); features are request-and-grant with no silent default (§3.4, MEL-CODE-007); failure
 is loud (MEL-ENGINE-VIII).
 
@@ -27,9 +27,9 @@ the tree implements today:
 
 ## Dependencies
 
-`core`, `allocator`, `collection`, `reactor`, `executor`, `future`, `log`, `debug`, `string`,
+`core`, `allocator`, `collection`, `vat`, `executor`, `future`, `log`, `debug`, `string`,
 `thread`, `time`, `thermal`, `power` (see `build.c`). The completion future is a thin wrapper over
-the shared `future` substrate; the pump retains only the reactor timer and fence-poller list.
+the shared `future` substrate; the pump retains only a deadline-paced vat source and its fence-poller list.
 Headers are consumed as `<gpu/...>`.
 
 ## Binding model

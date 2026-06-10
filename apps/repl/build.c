@@ -11,6 +11,11 @@ void build(Mel_Build* b)
     mel_depends(app, "clang");
     mel_depends(app, "llvm");
     mel_depends(app, "jit");
+    mel_depends(app, "boot");
+    mel_depends(app, "vat");
+    mel_depends(app, "port");
+    mel_depends(app, "executor");
+    mel_depends(app, "future");
     mel_depends(app, "core");
     mel_depends(app, "allocator");
     mel_depends(app, "string");

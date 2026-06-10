@@ -1,6 +1,6 @@
 # process — spec
 
-Subprocess spawn + lifecycle on the Melody async substrate (port/reactor/io/future).
+Subprocess spawn + lifecycle on the Melody async substrate (port/vat/io/future).
 
 ## Goals
 
@@ -22,9 +22,9 @@ Subprocess spawn + lifecycle on the Melody async substrate (port/reactor/io/futu
 ## Contracts honored
 
 - Status: `u32 Mel_Process_Status`, severity mask `0x3` + flag bits + static-inline predicates; no error strings. Mirrors io/port.
-- Async ops return `Mel_Future*` resolved on the port/reactor loop, delivered via the explicit `.deliver` executor through `mel_future_then`.
+- Async ops return `Mel_Future*` resolved on the vat loop, delivered via the explicit `.deliver` executor through `mel_future_then` (default `mel_vat_executor(vat)`).
 - Generation-checked op handle (`Mel_Process_Op {index, generation}`) for `cancel_wait`; stale cancel is a safe `false`.
-- Loop-thread affinity asserted on the async entries (`mel_reactor_is_owner`), inherited from port/reactor.
+- Loop-thread affinity asserted on the async entries (`mel_vat_is_owner`), inherited from port/vat; in-flight ops `mel_vat_retain/release` the vat.
 - `const Mel_Alloc*` passed in; never `mel_malloc` in allocator-taking code. `Mel_X_Opt` + `mel_x_create_opt` + variadic macro.
 - No new enums: stdio disposition, kill signal, severity/flags are bitset constants / descriptor structs, never `enum`.
 - Honest failure: every error surfaces in `status` (+ `os_error` on spawn); asserts on contract violation; wasm `available()==false`.
@@ -33,11 +33,11 @@ Subprocess spawn + lifecycle on the Melody async substrate (port/reactor/io/futu
 
 - byte streams: `<io/stream.h>` (`Mel_Stream`) — pipes are `Mel_Stream`s.
 - proactor: `<port/port.h>` — pipe fd async read/write.
-- readiness loop: `<reactor/reactor.h>` — pipe sources + the exit-reap timer source.
+- loop substrate: `<vat/vat.h>` — pipe readiness rides port's vat sources; the exit reap is a deadline-only vat source.
 - futures: `<future/future.h>` — wait/run completion.
 
 ## Backends
 
-- posix (macos/ios/linux/android): `posix_spawnp` + `posix_spawn_file_actions` (dup2 + chdir), `pipe2`/`pipe`+CLOEXEC, `waitpid(WNOHANG)` reaped on a reactor timer, `kill`.
+- posix (macos/ios/linux/android): `posix_spawnp` + `posix_spawn_file_actions` (dup2 + chdir), `pipe2`/`pipe`+CLOEXEC, `waitpid(WNOHANG)` reaped on a deadline-only vat source, `kill`.
 - win32: `CreateProcessW` + overlapped named pipes (bridged to CRT fds) + job object (`KILL_ON_JOB_CLOSE`) for kill-tree.
 - wasm: honest-absent (`available()==false`, spawn → `ERROR | UNAVAILABLE`).

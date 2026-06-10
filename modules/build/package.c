@@ -220,9 +220,14 @@ char* mel_win32_resource(Mel_Target* t, const char* outdir)
     char* rc_text = substitute(tpl, &vars);
     mel_mkdirs(outdir);
     char* rc_file = mel_str_fmt("%s/app.rc", outdir);
+    char* res = mel_str_fmt("%s/app.res", outdir);
+    char* prev = mel_read_file(rc_file);
+    bool  same = prev && strcmp(prev, rc_text) == 0;
+    free(prev);
+    if (same && mel_path_is_file(res))
+        return res;
     mel_write_file(rc_file, rc_text);
 
-    char*      res = mel_str_fmt("%s/app.res", outdir);
     Mel_StrVec c = { 0 };
     mel_da_push(&c, "llvm-rc");
     mel_da_push(&c, mel_str_fmt("/I%s", win32dir));

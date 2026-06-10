@@ -10,7 +10,7 @@
 #include <allocator/heap.h>
 #include <executor/executor.h>
 #include <future/future.h>
-#include <reactor/reactor.h>
+#include <vat/vat.h>
 #include <string/str8.h>
 #include <string/path.h>
 #include <collection/list.h>
@@ -26,7 +26,6 @@ typedef struct
     bool             create_root;
     const Mel_Alloc* alloc;
 } Fs_Backend;
-
 
 Mel_Storage_Space mel_storage__native_space(str8 host_root);
 
@@ -72,10 +71,7 @@ static Mel_Storage_Kind kind_from_fs(Mel_Fs_Kind k)
     return out;
 }
 
-static str8 host_path(Fs_Backend* b, str8 rel, u8* buf, usize cap)
-{
-    return mel_path_join(b->root, rel, buf, cap);
-}
+static str8 host_path(Fs_Backend* b, str8 rel, u8* buf, usize cap) { return mel_path_join(b->root, rel, buf, cap); }
 
 static bool fs_ready(Mel_Storage* st, void* user)
 {
@@ -102,7 +98,7 @@ static bool chain_orphaned(Mel_Storage_Job* job)
 
 static void chain_read(Mel_Task* self)
 {
-    Mel_Storage_Job*           job = mel_container_of(self, Mel_Storage_Job, backend_task);
+    Mel_Storage_Job* job = mel_container_of(self, Mel_Storage_Job, backend_task);
     if (chain_orphaned(job))
         return;
     const Mel_Fs_Bytes_Result* r = mel_fs_future_bytes(job->backend_pending);
@@ -142,7 +138,7 @@ static void chain_read(Mel_Task* self)
 
 static void chain_size(Mel_Task* self)
 {
-    Mel_Storage_Job*          job = mel_container_of(self, Mel_Storage_Job, backend_task);
+    Mel_Storage_Job* job = mel_container_of(self, Mel_Storage_Job, backend_task);
     if (chain_orphaned(job))
         return;
     const Mel_Fs_Stat_Result* r = mel_fs_future_stat(job->backend_pending);
@@ -157,7 +153,7 @@ static void chain_size(Mel_Task* self)
 
 static void chain_meta(Mel_Task* self)
 {
-    Mel_Storage_Job*          job = mel_container_of(self, Mel_Storage_Job, backend_task);
+    Mel_Storage_Job* job = mel_container_of(self, Mel_Storage_Job, backend_task);
     if (chain_orphaned(job))
         return;
     const Mel_Fs_Stat_Result* r = mel_fs_future_stat(job->backend_pending);
@@ -175,7 +171,7 @@ static void chain_meta(Mel_Task* self)
 
 static void chain_void(Mel_Task* self)
 {
-    Mel_Storage_Job*          job = mel_container_of(self, Mel_Storage_Job, backend_task);
+    Mel_Storage_Job* job = mel_container_of(self, Mel_Storage_Job, backend_task);
     if (chain_orphaned(job))
         return;
     const Mel_Fs_Void_Result* r = mel_fs_future_void(job->backend_pending);
@@ -187,7 +183,7 @@ static void chain_void(Mel_Task* self)
 
 static void chain_list(Mel_Task* self)
 {
-    Mel_Storage_Job*         job = mel_container_of(self, Mel_Storage_Job, backend_task);
+    Mel_Storage_Job* job = mel_container_of(self, Mel_Storage_Job, backend_task);
     if (chain_orphaned(job))
         return;
     const Mel_Fs_Dir_Result* r = mel_fs_future_dir(job->backend_pending);
@@ -290,7 +286,9 @@ static void fs_submit(Mel_Storage* st, void* user, Mel_Storage_Job* job)
         armed = arm(job, b->fs, f, chain_read);
         break;
     case MEL_STORAGE_JOB_WRITE:
-        f = mel_fs_write_file_opt(b->fs, ha, (Mel_Fs_Write_File_Opt){ .data = job->write_data, .len = job->write_len, .create_parents = job->create_parents, .atomic = job->atomic, .mode_bits = MEL_FS_MODE_DEFAULT_FILE, .deliver = deliver });
+        f = mel_fs_write_file_opt(b->fs,
+                                  ha,
+                                  (Mel_Fs_Write_File_Opt){ .data = job->write_data, .len = job->write_len, .create_parents = job->create_parents, .atomic = job->atomic, .mode_bits = MEL_FS_MODE_DEFAULT_FILE, .deliver = deliver });
         armed = arm(job, b->fs, f, chain_void);
         break;
     case MEL_STORAGE_JOB_SIZE:
@@ -302,7 +300,9 @@ static void fs_submit(Mel_Storage* st, void* user, Mel_Storage_Job* job)
         armed = arm(job, b->fs, f, chain_meta);
         break;
     case MEL_STORAGE_JOB_ENUMERATE:
-        f = mel_fs_enumerate_opt(b->fs, ha, (Mel_Fs_Enumerate_Opt){ .stat_entries = job->stat_entries, .batch = job->batch ? job->batch : 64, .on_batch = job->on_batch ? enum_stream_trampoline : NULL, .stream_user = job, .deliver = deliver });
+        f = mel_fs_enumerate_opt(b->fs,
+                                 ha,
+                                 (Mel_Fs_Enumerate_Opt){ .stat_entries = job->stat_entries, .batch = job->batch ? job->batch : 64, .on_batch = job->on_batch ? enum_stream_trampoline : NULL, .stream_user = job, .deliver = deliver });
         armed = arm(job, b->fs, f, chain_list);
         break;
     case MEL_STORAGE_JOB_GLOB:
@@ -364,12 +364,12 @@ static const Mel_Storage_Interface FS_IFACE = {
 
 const Mel_Storage_Interface* mel_storage_fs_interface(void) { return &FS_IFACE; }
 
-static Mel_Storage* open_with_root(str8 host_root, Mel_Reactor* reactor, const Mel_Alloc* alloc, bool writable, bool create_root, bool host_root_owned)
+static Mel_Storage* open_with_root(str8 host_root, Mel_Vat* vat, const Mel_Alloc* alloc, bool writable, bool create_root, bool host_root_owned)
 {
     alloc = alloc ? alloc : mel_alloc_heap();
-    if (!reactor)
+    if (!vat)
     {
-        mel_log_error("storage", "open: reactor is required");
+        mel_log_error("storage", "open: vat is required");
         if (host_root_owned && host_root.data)
             mel_dealloc(alloc, host_root.data);
         return NULL;
@@ -398,7 +398,7 @@ static Mel_Storage* open_with_root(str8 host_root, Mel_Reactor* reactor, const M
         return NULL;
     }
     b->create_root = create_root;
-    b->fs = mel_fs_create(.reactor = reactor, .alloc = alloc);
+    b->fs = mel_fs_create(.vat = vat, .alloc = alloc);
     if (!b->fs)
     {
         mel_log_error("storage", "open: failed to create the filesystem driver");
@@ -409,7 +409,7 @@ static Mel_Storage* open_with_root(str8 host_root, Mel_Reactor* reactor, const M
     }
     b->owns_fs = true;
 
-    Mel_Storage* st = mel_storage_create_opt((Mel_Storage_Opt){ .reactor = reactor, .alloc = alloc, .writable = writable, .iface = &FS_IFACE, .backend_user = b });
+    Mel_Storage* st = mel_storage_create_opt((Mel_Storage_Opt){ .vat = vat, .alloc = alloc, .writable = writable, .iface = &FS_IFACE, .backend_user = b });
     if (!st)
     {
         mel_fs_destroy(b->fs);
@@ -432,10 +432,10 @@ Mel_Storage* mel_storage_open_fs_opt(Mel_Storage_Fs_Opt opt)
         mel_log_error("storage", "open_fs: root must be an absolute host path");
         return NULL;
     }
-    return open_with_root(opt.root, opt.reactor, opt.alloc, opt.writable, opt.create_root, false);
+    return open_with_root(opt.root, opt.vat, opt.alloc, opt.writable, opt.create_root, false);
 }
 
-Mel_Storage* mel_storage__open_fs_folder(u32 folder, Mel_Reactor* reactor, const Mel_Alloc* alloc, bool writable, bool create_root)
+Mel_Storage* mel_storage__open_fs_folder(u32 folder, Mel_Vat* vat, const Mel_Alloc* alloc, bool writable, bool create_root)
 {
     alloc = alloc ? alloc : mel_alloc_heap();
     Mel_Fs_Path_Result r = mel_fs_folder(folder, alloc);
@@ -446,10 +446,7 @@ Mel_Storage* mel_storage__open_fs_folder(u32 folder, Mel_Reactor* reactor, const
             mel_dealloc(alloc, r.value.data);
         return NULL;
     }
-    return open_with_root(r.value, reactor, alloc, writable, create_root, true);
+    return open_with_root(r.value, vat, alloc, writable, create_root, true);
 }
 
-Mel_Storage* mel_storage_open_user_opt(Mel_Storage_Opt opt)
-{
-    return mel_storage__open_fs_folder(MEL_FS_FOLDER_PREF, opt.reactor, opt.alloc, opt.writable, true);
-}
+Mel_Storage* mel_storage_open_user_opt(Mel_Storage_Opt opt) { return mel_storage__open_fs_folder(MEL_FS_FOLDER_PREF, opt.vat, opt.alloc, opt.writable, true); }

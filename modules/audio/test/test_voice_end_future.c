@@ -56,7 +56,7 @@ MEL_TEST(voice_end, resolves_when_source_exhausts)
     Mel_Alloc        tracked = mel_track_allocator(&tracker);
     const Mel_Alloc* a = &tracked;
 
-    Mel_Audio* eng = mel_audio_create_offline(a, NULL, offline_opt());
+    Mel_Audio* eng = mel_audio_create_offline(a, offline_opt());
     MEL_REQUIRE_NOT_NULL(eng);
 
     Mel_Audio_Source* src = const_source(a, 8u, 1.0f);
@@ -93,7 +93,7 @@ MEL_TEST(voice_end, resolves_when_source_exhausts)
 MEL_TEST(voice_end, resolves_on_explicit_stop)
 {
     const Mel_Alloc* a = mel_alloc_heap();
-    Mel_Audio*       eng = mel_audio_create_offline(a, NULL, offline_opt());
+    Mel_Audio*       eng = mel_audio_create_offline(a, offline_opt());
     MEL_REQUIRE_NOT_NULL(eng);
 
     Mel_Audio_Source* src = const_source(a, SR, 0.5f);
@@ -120,7 +120,7 @@ MEL_TEST(voice_end, resolves_on_explicit_stop)
 MEL_TEST(voice_end, resolves_when_requested_after_end)
 {
     const Mel_Alloc* a = mel_alloc_heap();
-    Mel_Audio*       eng = mel_audio_create_offline(a, NULL, offline_opt());
+    Mel_Audio*       eng = mel_audio_create_offline(a, offline_opt());
     MEL_REQUIRE_NOT_NULL(eng);
 
     Mel_Audio_Source* src = const_source(a, 8u, 1.0f);
@@ -147,7 +147,7 @@ MEL_TEST(voice_end, registry_bounded_by_caller_release)
     Mel_Alloc        tracked = mel_track_allocator(&tracker);
     const Mel_Alloc* a = &tracked;
 
-    Mel_Audio* eng = mel_audio_create_offline(a, NULL, offline_opt());
+    Mel_Audio* eng = mel_audio_create_offline(a, offline_opt());
     MEL_REQUIRE_NOT_NULL(eng);
 
     Mel_Audio_Source* src = const_source(a, 8u, 1.0f);
@@ -187,7 +187,7 @@ MEL_TEST(voice_end, registry_bounded_by_caller_release)
 MEL_TEST(device_events, engine_owns_a_fireable_event)
 {
     const Mel_Alloc* a = mel_alloc_heap();
-    Mel_Audio*       eng = mel_audio_create_offline(a, NULL, offline_opt());
+    Mel_Audio*       eng = mel_audio_create_offline(a, offline_opt());
     MEL_REQUIRE_NOT_NULL(eng);
 
     Mel_Event* ev = mel_audio_device_events(eng);

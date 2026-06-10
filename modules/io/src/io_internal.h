@@ -27,7 +27,7 @@ struct Mel_Stream
     void*                   user;
     Mel_Stream_Caps         caps;
     const Mel_Alloc*        alloc;
-    Mel_Reactor*            reactor;
+    Mel_Vat*                vat;
     Mel_Executor*           executor;
     i64                     position;
     Mel_IO_Op               scratch;

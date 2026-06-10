@@ -7,7 +7,7 @@
 #include <allocator/heap.h>
 #include <executor/executor.h>
 #include <future/future.h>
-#include <reactor/reactor.h>
+#include <vat/vat.h>
 #include <thread/thread.h>
 #include <thread/sem.h>
 #include <collection/mpsc.h>
@@ -34,13 +34,14 @@ typedef struct
     Mel_Mpsc         queue;
     Mel_Sem          items;
     _Atomic(u32)     running;
-    Mel_Reactor*     reactor;
+    Mel_Vat*         vat;
     const Mel_Alloc* alloc;
 } Asset_Backend;
 
 typedef struct
 {
     Mel_Mpsc_Node      node;
+    Mel_Task           completion_task;
     Mel_Storage_Job*   job;
     Asset_Backend*     backend;
     Mel_Storage_Status status;
@@ -53,10 +54,7 @@ typedef struct
     u32                entry_count;
 } Asset_Task;
 
-static const char* job_cpath(Mel_Storage_Job* job, str8 path)
-{
-    return str8_to_cstr(path, mel_storage_job_alloc(job));
-}
+static const char* job_cpath(Mel_Storage_Job* job, str8 path) { return str8_to_cstr(path, mel_storage_job_alloc(job)); }
 
 static bool asset_is_dir(const char* path)
 {
@@ -263,9 +261,9 @@ static void settle_from_task(Asset_Task* t)
     }
 }
 
-static void completion_post(void* user)
+static void completion_run(Mel_Task* self)
 {
-    Asset_Task*    t = (Asset_Task*)user;
+    Asset_Task*    t = mel_container_of(self, Asset_Task, completion_task);
     Asset_Backend* b = t->backend;
     if (t->job->cancel_requested)
     {
@@ -285,6 +283,7 @@ static void completion_post(void* user)
     {
         settle_from_task(t);
     }
+    mel_vat_release(b->vat);
     mel_dealloc(b->alloc, t);
 }
 
@@ -302,7 +301,7 @@ static int worker_main(void* user)
         Asset_Task* t = mel_container_of(node, Asset_Task, node);
         if (!t->job->cancel_requested)
             work_run(t);
-        mel_reactor_post(b->reactor, completion_post, t);
+        mel_vat_post(b->vat, &t->completion_task);
     }
     return 0;
 }
@@ -339,6 +338,8 @@ static void asset_submit(Mel_Storage* st, void* user, Mel_Storage_Job* job)
         mel_dealloc(b->alloc, t);
         return;
     }
+    mel_task_init(&t->completion_task, completion_run);
+    mel_vat_retain(b->vat);
     mel_mpsc_push(&b->queue, &t->node);
     mel_sem_post(&b->items);
 }
@@ -362,6 +363,7 @@ static void asset_destroy(Mel_Storage* st, void* user)
             break;
         Asset_Task* t = mel_container_of(node, Asset_Task, node);
         mel_storage_job_settle_void(t->job, MEL_STORAGE_ERROR | MEL_STORAGE_CANCELLED);
+        mel_vat_release(b->vat);
         mel_dealloc(b->alloc, t);
     }
     mel_sem_destroy(&b->items);
@@ -381,9 +383,9 @@ const Mel_Storage_Interface* mel_storage_title_interface(void) { return &ASSET_I
 Mel_Storage* mel_storage__open_title_native(Mel_Storage_Opt opt)
 {
     const Mel_Alloc* alloc = opt.alloc ? opt.alloc : mel_alloc_heap();
-    if (!opt.reactor)
+    if (!opt.vat)
     {
-        mel_log_error("storage", "open_title: reactor is required");
+        mel_log_error("storage", "open_title: vat is required");
         return NULL;
     }
     if (!g_assets)
@@ -393,7 +395,7 @@ Mel_Storage* mel_storage__open_title_native(Mel_Storage_Opt opt)
     if (!b)
         return NULL;
     memset(b, 0, sizeof *b);
-    b->reactor = opt.reactor;
+    b->vat = opt.vat;
     b->alloc = alloc;
     mel_mpsc_init(&b->queue);
     if (!mel_sem_init(&b->items, 0))
@@ -408,7 +410,7 @@ Mel_Storage* mel_storage__open_title_native(Mel_Storage_Opt opt)
         mel_log_warn("storage", "open_title: asset worker thread unavailable; reads run inline on the loop thread");
     }
 
-    Mel_Storage* st = mel_storage_create_opt((Mel_Storage_Opt){ .reactor = opt.reactor, .alloc = alloc, .writable = false, .iface = &ASSET_IFACE, .backend_user = b });
+    Mel_Storage* st = mel_storage_create_opt((Mel_Storage_Opt){ .vat = opt.vat, .alloc = alloc, .writable = false, .iface = &ASSET_IFACE, .backend_user = b });
     if (!st)
     {
         asset_destroy(NULL, b);

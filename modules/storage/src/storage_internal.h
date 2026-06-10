@@ -67,7 +67,7 @@ struct Mel_Storage_Job
 
 struct Mel_Storage
 {
-    Mel_Reactor*     reactor;
+    Mel_Vat*         vat;
     Mel_Executor*    executor;
     const Mel_Alloc* alloc;
 
@@ -82,7 +82,7 @@ struct Mel_Storage
 void mel_storage__job_settle(Mel_Storage_Job* job, Mel_Storage_Status status);
 void mel_storage__job_free_record(Mel_Storage_Job* job);
 
-Mel_Storage* mel_storage__open_fs_folder(u32 folder, Mel_Reactor* reactor, const Mel_Alloc* alloc, bool writable, bool create_root);
+Mel_Storage* mel_storage__open_fs_folder(u32 folder, Mel_Vat* vat, const Mel_Alloc* alloc, bool writable, bool create_root);
 
 #ifdef __cplusplus
 }

@@ -10,8 +10,6 @@ extern "C"
 {
 #endif
 
-typedef struct Mel_Reactor Mel_Reactor;
-
 typedef struct
 {
     i32   fd;
@@ -41,14 +39,14 @@ typedef struct
     bool                       env_clear;
     const char*                cwd;
 
-    u32         stdin_disposition;
-    u32         stdout_disposition;
-    u32         stderr_disposition;
-    i32         stdin_redirect_fd;
-    i32         stdout_redirect_fd;
-    i32         stderr_redirect_fd;
-    bool        merge_stderr;
-    bool        detached;
+    u32  stdin_disposition;
+    u32  stdout_disposition;
+    u32  stderr_disposition;
+    i32  stdin_redirect_fd;
+    i32  stdout_redirect_fd;
+    i32  stderr_redirect_fd;
+    bool merge_stderr;
+    bool detached;
 
     const Mel_Alloc* alloc;
 } Mel_Process_Spawn_Args;

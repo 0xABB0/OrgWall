@@ -49,7 +49,7 @@ static f32 first_left(Mel_Audio* eng, f32* scratch)
 MEL_TEST(fader, fade_volume_reaches_target_on_time)
 {
     const Mel_Alloc* a = test_alloc();
-    Mel_Audio*       eng = mel_audio_create_offline(a, NULL, base_opt());
+    Mel_Audio*       eng = mel_audio_create_offline(a, base_opt());
     MEL_REQUIRE_NOT_NULL(eng);
 
     Mel_Audio_Source* src = mono_const(a, 64u * STEP, 1.0f);
@@ -79,7 +79,7 @@ MEL_TEST(fader, fade_volume_reaches_target_on_time)
 MEL_TEST(fader, fade_pan_reaches_target_on_time)
 {
     const Mel_Alloc* a = test_alloc();
-    Mel_Audio*       eng = mel_audio_create_offline(a, NULL, base_opt());
+    Mel_Audio*       eng = mel_audio_create_offline(a, base_opt());
     MEL_REQUIRE_NOT_NULL(eng);
 
     Mel_Audio_Source* src = mono_const(a, 64u * STEP, 1.0f);
@@ -108,7 +108,7 @@ MEL_TEST(fader, fade_pan_reaches_target_on_time)
 MEL_TEST(fader, oscillate_volume_traverses_extremes)
 {
     const Mel_Alloc* a = test_alloc();
-    Mel_Audio*       eng = mel_audio_create_offline(a, NULL, base_opt());
+    Mel_Audio*       eng = mel_audio_create_offline(a, base_opt());
     MEL_REQUIRE_NOT_NULL(eng);
 
     Mel_Audio_Source* src = mono_const(a, 64u * STEP, 1.0f);
@@ -140,7 +140,7 @@ MEL_TEST(fader, oscillate_volume_traverses_extremes)
 MEL_TEST(fader, schedule_stop_silences_voice_on_time)
 {
     const Mel_Alloc* a = test_alloc();
-    Mel_Audio*       eng = mel_audio_create_offline(a, NULL, base_opt());
+    Mel_Audio*       eng = mel_audio_create_offline(a, base_opt());
     MEL_REQUIRE_NOT_NULL(eng);
 
     Mel_Audio_Source* src = mono_const(a, 64u * STEP, 1.0f);
@@ -167,7 +167,7 @@ MEL_TEST(fader, schedule_stop_silences_voice_on_time)
 MEL_TEST(fader, schedule_pause_freezes_voice_on_time)
 {
     const Mel_Alloc* a = test_alloc();
-    Mel_Audio*       eng = mel_audio_create_offline(a, NULL, base_opt());
+    Mel_Audio*       eng = mel_audio_create_offline(a, base_opt());
     MEL_REQUIRE_NOT_NULL(eng);
 
     Mel_Audio_Source* src = mono_const(a, 64u * STEP, 1.0f);
@@ -194,7 +194,7 @@ MEL_TEST(fader, schedule_pause_freezes_voice_on_time)
 MEL_TEST(fader, fade_master_volume_reaches_target)
 {
     const Mel_Alloc* a = test_alloc();
-    Mel_Audio*       eng = mel_audio_create_offline(a, NULL, base_opt());
+    Mel_Audio*       eng = mel_audio_create_offline(a, base_opt());
     MEL_REQUIRE_NOT_NULL(eng);
 
     Mel_Audio_Source* src = mono_const(a, 64u * STEP, 1.0f);

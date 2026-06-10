@@ -143,7 +143,7 @@ Mel_Gpu_Future* mel_gpu_queue_submit(Mel_Gpu_Queue* q, Mel_Gpu_Submit submit)
     if (cls != stackbuf)
         mel_dealloc(dev->alloc, cls);
 
-    Mel_Gpu_Future* f = mel_gpu_future_create(dev->pump, dev->reactor);
+    Mel_Gpu_Future* f = mel_gpu_future_create(dev->pump, dev->vat);
 
     if (FAILED(hr))
     {

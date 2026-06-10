@@ -341,27 +341,17 @@ static void emit_build_c(FILE* f, bool* first, const char* dir, const char* file
     free(cmd.items);
 }
 
-static void scan_build_c(FILE* f, bool* first, const char* dir, const char* root)
+static bool write_framework_db(const char* dir)
 {
-    DIR* d = opendir(root);
-    if (!d)
-        return;
-    for (struct dirent* e; (e = readdir(d));)
+    const char* path = "modules/build/compile_commands.json";
+    FILE*       f = fopen(path, "w");
+    if (!f)
     {
-        if (e->d_name[0] == '.')
-            continue;
-        char* sub = mel_path_join(root, e->d_name);
-        char* build_c = mel_path_join(sub, "build.c");
-        if (mel_path_is_file(build_c))
-            emit_build_c(f, first, dir, build_c);
-        free(build_c);
-        free(sub);
+        fprintf(stderr, "build: cannot write %s\n", path);
+        return false;
     }
-    closedir(d);
-}
-
-static void scan_build_system(FILE* f, bool* first, const char* dir)
-{
+    bool first = true;
+    fputs("[\n", f);
     DIR* d = opendir("modules/build");
     if (d)
     {
@@ -371,83 +361,166 @@ static void scan_build_system(FILE* f, bool* first, const char* dir)
             if (!dot || strcmp(dot, ".c") != 0)
                 continue;
             char* src = mel_str_fmt("modules/build/%s", e->d_name);
-            emit_build_c(f, first, dir, src);
+            emit_build_c(f, &first, dir, src);
             free(src);
         }
         closedir(d);
     }
-    if (mel_path_is_file("nob.c"))
-        emit_build_c(f, first, dir, "nob.c");
-}
-
-bool mel_emit_compdb(Mel_Graph* g, const Mel_Variant* variants, size_t nvar, const char* out_path)
-{
-    FILE* f = fopen(out_path, "w");
-    if (!f)
-    {
-        fprintf(stderr, "build: cannot write %s\n", out_path);
-        return false;
-    }
-    char* dir = compdb_cwd();
-    bool  first = true;
-    fputs("[\n", f);
-
-    scan_build_c(f, &first, dir, "modules");
-    scan_build_c(f, &first, dir, "apps");
-    scan_build_c(f, &first, dir, "third-party");
-    scan_build_system(f, &first, dir);
-
-    Mel_StrVec host_prefix = { 0 };
-    if (nvar)
-        build_prefix(&variants[0], true, &host_prefix);
-
-    Mel_StrVec seen = { 0 };
-    size_t*    snap_inc = malloc(g->nodes.len * sizeof *snap_inc);
-    size_t*    snap_lnk = malloc(g->nodes.len * sizeof *snap_lnk);
-    for (size_t vi = 0; vi < nvar; vi++)
-    {
-        const Mel_Variant* v = &variants[vi];
-        fprintf(stderr, "build: compdb resolving %s\n", mel_platform_name(v->platform));
-        Mel_StrVec prefix = { 0 };
-        build_prefix(v, false, &prefix);
-
-        for (size_t i = 0; i < g->nodes.len; i++)
-        {
-            snap_inc[i] = g->nodes.items[i].t->includes.len;
-            snap_lnk[i] = g->nodes.items[i].t->links.len;
-        }
-        mel_inject_thirdparty(g, v);
-
-        for (size_t i = 0; i < g->nodes.len; i++)
-        {
-            bool is_host = g->nodes.items[i].t->kind == MEL_KIND_HOST_TOOL;
-            if (is_host && vi != 0)
-                continue;
-            if (is_host)
-                emit_target(f, &first, dir, g, i, &variants[0], &host_prefix, &seen);
-            else
-                emit_target(f, &first, dir, g, i, v, &prefix, &seen);
-        }
-
-        for (size_t i = 0; i < g->nodes.len; i++)
-        {
-            Mel_Target* t = g->nodes.items[i].t;
-            for (size_t k = snap_inc[i]; k < t->includes.len; k++)
-                free((void*)t->includes.items[k].value);
-            t->includes.len = snap_inc[i];
-            for (size_t k = snap_lnk[i]; k < t->links.len; k++)
-                free((void*)t->links.items[k].value);
-            t->links.len = snap_lnk[i];
-        }
-        free(prefix.items);
-    }
-    free_strvec(&seen);
-    free(snap_inc);
-    free(snap_lnk);
-    free(host_prefix.items);
-
     fputs("\n]\n", f);
     fclose(f);
-    free(dir);
     return true;
+}
+
+static bool write_root_db(const char* dir)
+{
+    const char* path = "compile_commands.json";
+    FILE*       f = fopen(path, "w");
+    if (!f)
+    {
+        fprintf(stderr, "build: cannot write %s\n", path);
+        return false;
+    }
+    bool first = true;
+    fputs("[\n", f);
+    if (mel_path_is_file("nob.c"))
+        emit_build_c(f, &first, dir, "nob.c");
+    fputs("\n]\n", f);
+    fclose(f);
+    return true;
+}
+
+typedef struct
+{
+    const char* dir;
+    FILE*       f;
+    bool        first;
+    Mel_StrVec  seen;
+} Compdb_Db;
+
+typedef MEL_VEC(Compdb_Db) Compdb_DbVec;
+
+static size_t db_for_dir(Compdb_DbVec* dbs, const char* cwd, const char* tdir, bool* ok)
+{
+    for (size_t i = 0; i < dbs->len; i++)
+        if (strcmp(dbs->items[i].dir, tdir) == 0)
+            return i;
+    char* path = mel_path_join(tdir, "compile_commands.json");
+    FILE* f = fopen(path, "w");
+    if (!f)
+    {
+        fprintf(stderr, "build: cannot write %s\n", path);
+        free(path);
+        *ok = false;
+        return dbs->len;
+    }
+    free(path);
+    Compdb_Db db = { .dir = tdir, .f = f, .first = true, .seen = { 0 } };
+    fputs("[\n", f);
+    char* bc = mel_path_join(tdir, "build.c");
+    if (mel_path_is_file(bc))
+        emit_build_c(f, &db.first, cwd, bc);
+    free(bc);
+    mel_da_push(dbs, db);
+    return dbs->len - 1;
+}
+
+bool mel_emit_compdb(Mel_Graph* g, const Mel_Variant* variants, size_t nvar, const char* root, size_t* written)
+{
+    char* dir = compdb_cwd();
+    if (!write_framework_db(dir) || !write_root_db(dir))
+    {
+        free(dir);
+        return false;
+    }
+
+    bool* scope = malloc(g->nodes.len * sizeof *scope);
+    for (size_t i = 0; i < g->nodes.len; i++)
+        scope[i] = root == NULL;
+    if (root)
+    {
+        int ri = mel_graph_index(g, root);
+        if (ri >= 0)
+            scope[ri] = true;
+        for (size_t vi = 0; vi < nvar; vi++)
+        {
+            Mel_IdxVec order = { 0 };
+            if (mel_topo_closure(g, root, &variants[vi], &order))
+                for (size_t k = 0; k < order.len; k++)
+                    scope[order.items[k]] = true;
+            free(order.items);
+        }
+    }
+
+    bool         ok = true;
+    Compdb_DbVec dbs = { 0 };
+    size_t*      node_db = malloc(g->nodes.len * sizeof *node_db);
+    for (size_t i = 0; i < g->nodes.len && ok; i++)
+        node_db[i] = scope[i] ? db_for_dir(&dbs, dir, g->nodes.items[i].t->dir, &ok) : (size_t)-1;
+
+    if (ok)
+    {
+        Mel_StrVec host_prefix = { 0 };
+        if (nvar)
+            build_prefix(&variants[0], true, &host_prefix);
+
+        size_t* snap_inc = malloc(g->nodes.len * sizeof *snap_inc);
+        size_t* snap_lnk = malloc(g->nodes.len * sizeof *snap_lnk);
+        for (size_t vi = 0; vi < nvar; vi++)
+        {
+            const Mel_Variant* v = &variants[vi];
+            fprintf(stderr, "build: compdb resolving %s\n", mel_platform_name(v->platform));
+            Mel_StrVec prefix = { 0 };
+            build_prefix(v, false, &prefix);
+
+            for (size_t i = 0; i < g->nodes.len; i++)
+            {
+                snap_inc[i] = g->nodes.items[i].t->includes.len;
+                snap_lnk[i] = g->nodes.items[i].t->links.len;
+            }
+            mel_inject_thirdparty(g, v);
+
+            for (size_t i = 0; i < g->nodes.len; i++)
+            {
+                if (node_db[i] >= dbs.len)
+                    continue;
+                Compdb_Db* db = &dbs.items[node_db[i]];
+                bool       is_host = g->nodes.items[i].t->kind == MEL_KIND_HOST_TOOL;
+                if (is_host && vi != 0)
+                    continue;
+                if (is_host)
+                    emit_target(db->f, &db->first, dir, g, i, &variants[0], &host_prefix, &db->seen);
+                else
+                    emit_target(db->f, &db->first, dir, g, i, v, &prefix, &db->seen);
+            }
+
+            for (size_t i = 0; i < g->nodes.len; i++)
+            {
+                Mel_Target* t = g->nodes.items[i].t;
+                for (size_t k = snap_inc[i]; k < t->includes.len; k++)
+                    free((void*)t->includes.items[k].value);
+                t->includes.len = snap_inc[i];
+                for (size_t k = snap_lnk[i]; k < t->links.len; k++)
+                    free((void*)t->links.items[k].value);
+                t->links.len = snap_lnk[i];
+            }
+            free(prefix.items);
+        }
+        free(snap_inc);
+        free(snap_lnk);
+        free(host_prefix.items);
+    }
+
+    for (size_t i = 0; i < dbs.len; i++)
+    {
+        fputs("\n]\n", dbs.items[i].f);
+        fclose(dbs.items[i].f);
+        free_strvec(&dbs.items[i].seen);
+    }
+    if (ok)
+        *written = dbs.len + 2;
+    free(dbs.items);
+    free(node_db);
+    free(scope);
+    free(dir);
+    return ok;
 }
