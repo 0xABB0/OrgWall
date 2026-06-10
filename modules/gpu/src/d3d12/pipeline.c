@@ -165,7 +165,7 @@ static bool mel_gpu__build_root_sig(Mel_Gpu_Device* dev, bool bindless, bool is_
         *out_set_param_count = 0;
 
     u32 classic_sets = bindless ? 0u : set_layout_count;
-    u32 max_params = 1 + (bindless ? 2u : 0u) + classic_sets * 2u;
+    u32 max_params = 1 + (bindless ? 5u : 0u) + classic_sets * 2u;
     u32 max_ranges = (bindless ? 5u : 0u) + (classic_sets ? 1u : 0u);
     for (u32 s = 0; s < classic_sets; s++)
     {
@@ -192,17 +192,28 @@ static bool mel_gpu__build_root_sig(Mel_Gpu_Device* dev, bool bindless, bool is_
     const D3D12_DESCRIPTOR_RANGE_FLAGS vol = D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE;
     if (bindless)
     {
-        u32 base = nranges;
-        ranges[nranges++] = (D3D12_DESCRIPTOR_RANGE1){ .RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV, .NumDescriptors = dev->cap_sampled_image, .BaseShaderRegister = 0, .RegisterSpace = 0, .Flags = vol, .OffsetInDescriptorsFromTableStart = dev->base_sampled_image };
-        ranges[nranges++] = (D3D12_DESCRIPTOR_RANGE1){ .RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV, .NumDescriptors = dev->cap_storage_buffer, .BaseShaderRegister = 0, .RegisterSpace = 0, .Flags = vol, .OffsetInDescriptorsFromTableStart = dev->base_storage_buffer };
-        ranges[nranges++] = (D3D12_DESCRIPTOR_RANGE1){ .RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_CBV, .NumDescriptors = dev->cap_uniform_buffer, .BaseShaderRegister = 1, .RegisterSpace = 0, .Flags = vol, .OffsetInDescriptorsFromTableStart = dev->base_uniform_buffer };
-        ranges[nranges++] = (D3D12_DESCRIPTOR_RANGE1){ .RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV, .NumDescriptors = dev->cap_storage_image, .BaseShaderRegister = 0, .RegisterSpace = 1, .Flags = vol, .OffsetInDescriptorsFromTableStart = dev->base_storage_image };
-        params[nparams] = (D3D12_ROOT_PARAMETER1){ .ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE, .ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL };
-        params[nparams].DescriptorTable.NumDescriptorRanges = 4;
-        params[nparams].DescriptorTable.pDescriptorRanges = &ranges[base];
-        nparams++;
+        static const struct
+        {
+            D3D12_DESCRIPTOR_RANGE_TYPE type;
+            u32                         reg;
+            u32                         space;
+        } cls[4] = {
+            { D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 0, 0 },
+            { D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 0, 0 },
+            { D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, 0 },
+            { D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 0, 1 },
+        };
+        for (u32 c = 0; c < 4; c++)
+        {
+            u32 base = nranges;
+            ranges[nranges++] = (D3D12_DESCRIPTOR_RANGE1){ .RangeType = cls[c].type, .NumDescriptors = UINT_MAX, .BaseShaderRegister = cls[c].reg, .RegisterSpace = cls[c].space, .Flags = vol, .OffsetInDescriptorsFromTableStart = 0 };
+            params[nparams] = (D3D12_ROOT_PARAMETER1){ .ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE, .ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL };
+            params[nparams].DescriptorTable.NumDescriptorRanges = 1;
+            params[nparams].DescriptorTable.pDescriptorRanges = &ranges[base];
+            nparams++;
+        }
         u32 smp_base = nranges;
-        ranges[nranges++] = (D3D12_DESCRIPTOR_RANGE1){ .RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER, .NumDescriptors = dev->smp_cap, .BaseShaderRegister = 0, .RegisterSpace = 0, .Flags = vol, .OffsetInDescriptorsFromTableStart = 0 };
+        ranges[nranges++] = (D3D12_DESCRIPTOR_RANGE1){ .RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER, .NumDescriptors = UINT_MAX, .BaseShaderRegister = 0, .RegisterSpace = 0, .Flags = vol, .OffsetInDescriptorsFromTableStart = 0 };
         params[nparams] = (D3D12_ROOT_PARAMETER1){ .ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE, .ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL };
         params[nparams].DescriptorTable.NumDescriptorRanges = 1;
         params[nparams].DescriptorTable.pDescriptorRanges = &ranges[smp_base];
@@ -569,8 +580,10 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_create_opt(Mel_Gpu_Device* dev, 
     obj.set_param_count = set_param_count;
     if (bindless)
     {
-        obj.srv_table_param = pc_size > 0 ? 1 : 0;
-        obj.smp_table_param = obj.srv_table_param + 1;
+        u32 first = pc_size > 0 ? 1 : 0;
+        for (u32 c = 0; c < 4; c++)
+            obj.class_table_param[c] = first + c;
+        obj.smp_table_param = first + 4;
     }
     if (opt.static_sampler_count > 0)
     {
@@ -654,8 +667,10 @@ Mel_Gpu_Pipeline_Create_Result mel_gpu_pipeline_compute_create_opt(Mel_Gpu_Devic
     obj.set_param_count = set_param_count;
     if (bindless)
     {
-        obj.srv_table_param = pc_size > 0 ? 1 : 0;
-        obj.smp_table_param = obj.srv_table_param + 1;
+        u32 first = pc_size > 0 ? 1 : 0;
+        for (u32 c = 0; c < 4; c++)
+            obj.class_table_param[c] = first + c;
+        obj.smp_table_param = first + 4;
     }
 
     res.value.slot = mel_gpu__table_insert(dev, &dev->pipelines, &obj);

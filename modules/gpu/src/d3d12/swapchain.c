@@ -258,6 +258,10 @@ void mel_gpu_swapchain_destroy(Mel_Gpu_Swapchain* sc)
         mel_gpu__submit_complete(dev, s);
     }
 
+    mel_gpu__bindless_cl_release(&sc->recorder);
+    if (sc->recorder.held_heaps)
+        mel_dealloc(dev->alloc, sc->recorder.held_heaps);
+
     if (sc->lists)
         for (u32 i = 0; i < sc->frames_in_flight; i++)
             if (sc->lists[i])
@@ -321,6 +325,7 @@ void mel_gpu_frame_begin(Mel_Gpu_Swapchain* sc)
     sc->recorder.list = sc->lists[frame];
     sc->recorder.recording = true;
     sc->recorder.state_count = 0;
+    mel_gpu__bindless_cl_release(&sc->recorder);
     sc->frame_ok = true;
 }
 
@@ -344,8 +349,12 @@ void mel_gpu_frame_end(Mel_Gpu_Swapchain* sc)
     HRESULT hr = ID3D12CommandQueue_Signal(dev->direct_queue, dev->timeline, serial);
     mel_mutex_unlock(&dev->submit_lock);
     if (FAILED(hr) && mel_gpu__device_is_lost(dev, hr, "frame_end Signal"))
+    {
+        mel_gpu__bindless_cl_release(&sc->recorder);
         return;
+    }
     sc->frame_serial[frame] = serial;
+    mel_gpu__bindless_cl_transfer(&sc->recorder, serial);
 
     UINT    sync = sc->vsync ? 1 : 0;
     UINT    flags = (!sc->vsync && sc->allow_tearing) ? DXGI_PRESENT_ALLOW_TEARING : 0;

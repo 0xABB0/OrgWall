@@ -180,7 +180,7 @@ typedef struct
     u32                      vertex_stride;
     u32*                     slot_strides;
     u32                      slot_stride_count;
-    u32                      srv_table_param;
+    u32                      class_table_param[4];
     u32                      smp_table_param;
     Mel_Gpu_Set_Param*       set_params;
     u32                      set_param_count;
@@ -216,6 +216,7 @@ typedef struct
     Mel_Gpu_Classic_Block   classic_smp;
     bool                    has_classic_res;
     bool                    has_classic_smp;
+    ID3D12DescriptorHeap*   heap;
 } Mel_Gpu_Deferred_Free;
 
 typedef struct
@@ -301,6 +302,12 @@ struct Mel_Gpu_Device
     u32                   base_storage_buffer;
     u32                   base_uniform_buffer;
     u32                   base_storage_image;
+    u32                   hw_max_sampled_image;
+    u32                   hw_max_storage_buffer;
+    u32                   hw_max_uniform_buffer;
+    u32                   hw_max_storage_image;
+    ID3D12DescriptorHeap* srv_mirror;
+    Mel_Mutex             bindless_lock;
 
     Mel_Mutex             desc_lock;
     ID3D12DescriptorHeap* rtv_heap;
@@ -347,6 +354,10 @@ struct Mel_Gpu_Command_List
     u32                   cur_vertex_stride;
     Mel_Gpu_Pipeline_Obj* cur_pipeline;
     bool                  classic_heaps_bound;
+
+    ID3D12DescriptorHeap** held_heaps;
+    u32                    held_count;
+    u32                    held_cap;
 };
 
 struct Mel_Gpu_Surface
@@ -423,6 +434,10 @@ void mel_gpu__bindless_register_texture_view(Mel_Gpu_Device* dev, u32 index, con
 void mel_gpu__bindless_register_storage_image(Mel_Gpu_Device* dev, u32 index, const Mel_Gpu_Texture_View_Obj* v);
 void mel_gpu__bindless_register_buffer(Mel_Gpu_Device* dev, u32 index, const Mel_Gpu_Buffer_Obj* b, Mel_Gpu_Buffer_Usage usage);
 void mel_gpu__bindless_register_sampler(Mel_Gpu_Device* dev, u32 index, const D3D12_SAMPLER_DESC* d);
+void mel_gpu__bindless_cl_bind(Mel_Gpu_Command_List* cmd);
+void mel_gpu__bindless_cl_release(Mel_Gpu_Command_List* cmd);
+void mel_gpu__bindless_cl_transfer(Mel_Gpu_Command_List* cmd, u64 serial);
+void mel_gpu__defer_free_marked(Mel_Gpu_Device* dev, Mel_Gpu_Deferred_Free entry, u64 marker);
 
 D3D12_DESCRIPTOR_RANGE_TYPE mel_gpu__range_type(Mel_Gpu_Descriptor_Kind kind);
 bool                        mel_gpu__descriptor_is_sampler(Mel_Gpu_Descriptor_Kind kind);

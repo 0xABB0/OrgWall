@@ -132,7 +132,10 @@ Mel_Gpu_Future* mel_gpu_queue_submit(Mel_Gpu_Queue* q, Mel_Gpu_Submit submit)
     ID3D12CommandList*  stackbuf[8];
     ID3D12CommandList** cls = submit.command_list_count <= 8 ? stackbuf : mel_alloc_array(dev->alloc, ID3D12CommandList*, submit.command_list_count);
     for (u32 i = 0; i < submit.command_list_count; i++)
+    {
         cls[i] = (ID3D12CommandList*)submit.command_lists[i]->list;
+        mel_gpu__bindless_cl_transfer(submit.command_lists[i], serial);
+    }
 
     mel_mutex_lock(&dev->submit_lock);
     if (submit.command_list_count)

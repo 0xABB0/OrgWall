@@ -293,6 +293,8 @@ static void mel_gpu__free_deferred_entry(Mel_Gpu_Device* dev, Mel_Gpu_Deferred_F
         mel_gpu__classic_res_free(dev, e->classic_res);
     if (e->has_classic_smp)
         mel_gpu__classic_smp_free(dev, e->classic_smp);
+    if (e->heap)
+        ID3D12DescriptorHeap_Release(e->heap);
 }
 
 void mel_gpu__wait_serial(Mel_Gpu_Device* dev, u64 serial)
@@ -329,10 +331,8 @@ void mel_gpu__submit_complete(Mel_Gpu_Device* dev, u64 serial)
     mel_mutex_unlock(&dev->submit_lock);
 }
 
-void mel_gpu__defer_free(Mel_Gpu_Device* dev, Mel_Gpu_Deferred_Free entry)
+static void mel_gpu__defer_free_locked(Mel_Gpu_Device* dev, Mel_Gpu_Deferred_Free entry)
 {
-    mel_mutex_lock(&dev->submit_lock);
-    entry.marker = dev->submit_serial;
     if (entry.marker <= dev->submit_completed)
     {
         mel_mutex_unlock(&dev->submit_lock);
@@ -347,6 +347,20 @@ void mel_gpu__defer_free(Mel_Gpu_Device* dev, Mel_Gpu_Deferred_Free entry)
     }
     dev->deferred[dev->deferred_count++] = entry;
     mel_mutex_unlock(&dev->submit_lock);
+}
+
+void mel_gpu__defer_free(Mel_Gpu_Device* dev, Mel_Gpu_Deferred_Free entry)
+{
+    mel_mutex_lock(&dev->submit_lock);
+    entry.marker = dev->submit_serial;
+    mel_gpu__defer_free_locked(dev, entry);
+}
+
+void mel_gpu__defer_free_marked(Mel_Gpu_Device* dev, Mel_Gpu_Deferred_Free entry, u64 marker)
+{
+    mel_mutex_lock(&dev->submit_lock);
+    entry.marker = marker;
+    mel_gpu__defer_free_locked(dev, entry);
 }
 
 static Mel_Gpu_Adapter* mel_gpu__pick_adapter(Mel_Gpu_Instance* inst, Mel_Gpu_Power_Preference pref)
