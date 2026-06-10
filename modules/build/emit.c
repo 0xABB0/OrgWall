@@ -363,7 +363,7 @@ static char* emit_one(FILE* f, Mel_Graph* g, size_t idx, const Mel_Variant* v, M
             }
         }
 
-        char* bin = android_so ? mel_str_fmt("%s/libmelody.so", outdir) : mel_str_fmt("%s/%s%s", outdir, t->name, ext);
+        char* bin = android_so ? mel_str_fmt("%s/%s/libmelody.so", outdir, t->name) : mel_str_fmt("%s/%s%s", outdir, t->name, ext);
         fprintf(f, "build %s: %s", bin, host ? "hostlink" : "link");
         join_into(f, &objs);
         if (lib_deps.len)

@@ -27,6 +27,14 @@ that returns immediately — retention-based exit is the CLI-app story, no separ
 - macos (`src/macos/entry.c`) — sovereign. `main` opens the root vat over
   `mel_vat_waiter_ui` + `mel_vat_driver_fair(alloc, 64)` on the heap allocator, calls
   `mel_app_setup`, `mel_vat_run`, fires the exit hooks, tears down, returns the exit code.
+- ios (`src/ios/entry.m`) — subordinate. `main` hands the thread to `UIApplicationMain`; the
+  delegate's `didFinishLaunching` opens the root vat over `mel_vat_waiter_guest` with a GCD
+  embedder (`schedule_work` → `dispatch_async` on the main queue; `schedule_delayed_work` →
+  `dispatch_after`, negative delay = wake only on ring), calls `mel_app_setup`, and drives one
+  `mel_vat_step` per host callback. A turn that never reached the waiter is redriven with an
+  immediate `dispatch_async`; quit or retention loss fires the exit hooks and `exit`s with the
+  stored code. `src/ios/lifecycle.m` forwards the `UIApplication` notifications into
+  `mel_app__emit`.
 - web (`src/web/entry.c`) — subordinate. `main` opens the root vat over
   `mel_vat_waiter_guest` with an emscripten embedder (`schedule_work` → `emscripten_async_call`
   / proxied to the main runtime thread; `schedule_delayed_work` → `emscripten_set_timeout`,
@@ -38,9 +46,9 @@ that returns immediately — retention-based exit is the CLI-app story, no separ
 
 ## Owed (MEL-ENGINE-VIII)
 
-- ios: skipped this wave entirely; needs a `UIApplicationMain`-subordinate entry on the
-  guest waiter (the `app` module's `ios_entry.m` is the shape to port).
 - linux / win32 / android entries.
+- The ios entry was verified to compile and link only; an app was not run on the simulator
+  this wave.
 - The web entry never cancels stale `emscripten_set_timeout` arms; a superseded deadline
   costs one empty drive when the old timer fires.
 - The web entry was authored against the external probe's guest pump; the wasm build of a
