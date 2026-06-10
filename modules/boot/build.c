@@ -9,8 +9,14 @@ void build(Mel_Build* b)
     mel_sources(lib, WHEN(.platforms = MEL_ON(MACOS)), "src/macos/*.c");
     mel_sources(lib, WHEN(.platforms = MEL_ON(MACOS)), "src/macos/*.m");
     mel_sources(lib, WHEN(.platforms = MEL_ON(WASM)), "src/web/*.c");
+    mel_sources(lib, WHEN(.platforms = MEL_ON(IOS)), "src/ios/*.m");
+    mel_sources(lib, WHEN(.platforms = MEL_ON(ANDROID)), "src/android/*.c");
+
+    mel_whole_archive(lib, WHEN(.platforms = MEL_ON(ANDROID)));
 
     mel_link(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(MACOS)), "-framework", "AppKit");
+    mel_link(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(IOS)), "-framework", "UIKit");
+    mel_link(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(ANDROID)), "-landroid");
     mel_depends(lib, "core");
     mel_depends(lib, "allocator");
     mel_depends(lib, "collection");
