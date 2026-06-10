@@ -117,11 +117,18 @@
 - **iOS: verified.** Bench renders on the iPhone 16 simulator (iOS 26.2):
   controls ordered and usable, 0 devices reported (simulator has no camera),
   canvas placed. Screenshot-verified.
-- **Android: blocked by the gui backend, not by layout.** The new entry works
-  (app runs, vat pumps, both emulator cameras enumerate, hotplug delivers) but
-  the androidnative gui backend renders pure black for every app —
-  hello-world-gui included — on what is its first-ever live run (nothing could
-  launch before the entry existed). Backend bring-up is its own workstream.
+- **Android: verified end-to-end.** Initial "pure black for every app" was the
+  emulator lockscreen (lesson: `wm dismiss-keyguard` before screencap-driving).
+  Awake, the bench renders and was click-driven through the full path: select
+  front camera, modes populate from Camera2, Authorize raises the real
+  permission dialog, grant resolves the future to granted, open + start
+  stream the emulator camera at 24 fps with live preview in the canvas.
+  Material buttons need ~44dp (32 clips label text); heights are
+  platform-split (`BENCH_BTN_H`).
+- Android module nits spotted while driving: the mode list advertises `nv12`
+  but frames arrive `i420` (Camera2 format mapping); fps ranges read `0` on
+  the emulator (`@0` in mode labels); first enumerate emits a `changed`
+  hotplug event per device.
 - Android camera sink detail noticed in logcat: hotplug callbacks arrive on a
   camera-manager thread, not the executor given to `mel_camera_subscribe` —
   check the android backend's executor routing during the camera rewrite.
