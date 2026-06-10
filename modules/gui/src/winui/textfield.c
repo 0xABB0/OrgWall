@@ -58,7 +58,7 @@ Mel_Gui_Handle mel_textfield_create_opt(Mel_Gui_Handle parent, Mel_TextField_Opt
         tf->on_ = o.on_;
     }
     SetWindowSubclass(hwnd, textfield_subclass, 1, 0);
-    if (mel_style_any(&o.style))
-        mel_gui_set_style(h, o.style);
+    if (mel_textfield_style_any(&o.style))
+        mel_textfield_set_style_opt(h, o.style);
     return h;
 }

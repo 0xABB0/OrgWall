@@ -208,8 +208,8 @@ Mel_Gui_Handle mel_scrollview_create_opt(Mel_Gui_Handle parent, Mel_ScrollView_O
     n->content = inner;
 
     scroll_apply(outer, s);
-    if (mel_style_any(&o.style))
-        mel_gui_set_style(h, o.style);
+    if (mel_scrollview_style_any(&o.style))
+        mel_scrollview_set_style_opt(h, o.style);
     return h;
 }
 

@@ -64,8 +64,8 @@ Mel_Gui_Handle mel_splitter_create_opt(Mel_Gui_Handle parent, Mel_Splitter_Opt o
         sv.delegate = sv;
         mel_gui__macos_install_child(n, sv);
     }
-    if (mel_style_any(&o.style))
-        mel_gui_set_style(h, o.style);
+    if (mel_splitter_style_any(&o.style))
+        mel_splitter_set_style_opt(h, o.style);
     return h;
 }
 
@@ -92,7 +92,7 @@ Mel_Gui_Handle mel_splitpane_create_opt(Mel_Gui_Handle splitter, Mel_SplitPane_O
         n->native = (void*)CFBridgingRetain(host);
         n->content = (__bridge void*)host;
     }
-    if (mel_style_any(&o.style))
-        mel_gui_set_style(h, o.style);
+    if (mel_splitpane_style_any(&o.style))
+        mel_splitpane_set_style_opt(h, o.style);
     return h;
 }

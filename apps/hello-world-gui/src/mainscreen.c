@@ -205,21 +205,21 @@ void build_main(Mel_Gui_Handle frame, void* user)
 
     mel_label_create(frame,
                      .text = S8("Main Screen"),
-                     .style = { .font_size = 20, .font_weight = 700, .fg = mel_style_rgb(0x4A, 0x90, 0xD9) },
+                     .style = { .font = { .size = 20, .weight = 700 }, .fg = mel_style_rgb(0x4A, 0x90, 0xD9) },
                      .layoutable = { .preferred_w = 380, .preferred_h = 30 });
-    mel_label_create(frame, .text = S8("This screen is selected and built from C."), .style = { .italic = true }, .layoutable = { .preferred_h = 24 });
+    mel_label_create(frame, .text = S8("This screen is selected and built from C."), .style = { .font.italic = true }, .layoutable = { .preferred_h = 24 });
 
     Mel_Gui_Handle stylerow = mel_panel_create(frame,
                                                .layout = mel_row_layout(.spacing = 8, .cross_align = MEL_ALIGN_STRETCH),
-                                               .style = { .bg = mel_style_rgba(0x4A, 0x90, 0xD9, 0x22), .corner_radius = 8 },
+                                               .style = { .surface = { .bg = mel_style_rgba(0x4A, 0x90, 0xD9, 0x22), .corner_radius = 8 } },
                                                .layoutable = { .preferred_h = 44 });
     mel_button_create(stylerow,
                       .text = S8("Styled"),
-                      .style = { .bg = mel_style_rgb(0x4A, 0x90, 0xD9), .fg = mel_style_rgb(0xFF, 0xFF, 0xFF), .corner_radius = 10, .font_weight = 700 },
+                      .style = { .fg = mel_style_rgb(0xFF, 0xFF, 0xFF), .font.weight = 700, .surface = { .bg = mel_style_rgb(0x4A, 0x90, 0xD9), .corner_radius = 10 } },
                       .layoutable = { .weight = 1, .margin_l = 6, .margin_t = 6, .margin_b = 6 });
     mel_button_create(stylerow,
                       .text = S8("Bordered"),
-                      .style = { .border_color = mel_style_rgb(0x4A, 0x90, 0xD9), .border_width = 2, .corner_radius = 10 },
+                      .style = { .surface = { .border_color = mel_style_rgb(0x4A, 0x90, 0xD9), .border_width = 2, .corner_radius = 10 } },
                       .layoutable = { .weight = 1, .margin_t = 6, .margin_b = 6, .margin_r = 6 });
 
     mel_button_create(frame,

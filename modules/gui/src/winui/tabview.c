@@ -81,8 +81,8 @@ Mel_Gui_Handle mel_tabview_create_opt(Mel_Gui_Handle parent, Mel_TabView_Opt o)
         tv->selected = -1;
         SetWindowSubclass(par, tabview_parent_subclass, (UINT_PTR)tabctl, (DWORD_PTR)tv);
     }
-    if (mel_style_any(&o.style))
-        mel_gui_set_style(h, o.style);
+    if (mel_tabview_style_any(&o.style))
+        mel_tabview_set_style_opt(h, o.style);
     return h;
 }
 
@@ -126,8 +126,8 @@ Mel_Gui_Handle mel_tab_create_opt(Mel_Gui_Handle tabview, Mel_Tab_Opt o)
     tv->page_count++;
     if (tv->selected < 0)
         tv->selected = 0;
-    if (mel_style_any(&o.style))
-        mel_gui_set_style(h, o.style);
+    if (mel_tab_style_any(&o.style))
+        mel_tab_set_style_opt(h, o.style);
     return h;
 }
 

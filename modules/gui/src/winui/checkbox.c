@@ -55,8 +55,8 @@ Mel_Gui_Handle mel_checkbox_create_opt(Mel_Gui_Handle parent, Mel_CheckBox_Opt o
     }
     SendMessageW(hwnd, BM_SETCHECK, o.checked ? BST_CHECKED : BST_UNCHECKED, 0);
     SetWindowSubclass(hwnd, checkbox_subclass, 1, 0);
-    if (mel_style_any(&o.style))
-        mel_gui_set_style(h, o.style);
+    if (mel_checkbox_style_any(&o.style))
+        mel_checkbox_set_style_opt(h, o.style);
     return h;
 }
 

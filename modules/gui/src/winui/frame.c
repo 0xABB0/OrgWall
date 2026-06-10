@@ -330,8 +330,8 @@ Mel_Gui_Handle mel_frame_create_opt(Mel_Frame_Opt o)
     n->width = cw;
     n->height = ch;
 
-    if (mel_style_any(&o.style))
-        mel_gui_set_style(h, o.style);
+    if (mel_frame_style_any(&o.style))
+        mel_frame_set_style_opt(h, o.style);
 
     mel_gui__frames_inc();
     return h;

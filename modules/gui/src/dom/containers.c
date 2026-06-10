@@ -45,8 +45,8 @@ Mel_Gui_Handle mel_panel_create_opt(Mel_Gui_Handle parent, Mel_Panel_Opt o)
         mel_web__el_visible(id, 0);
     mel_gui__node_native_ready(h);
     mel_web__member_sync(h);
-    if (mel_style_any(&o.style))
-        mel_gui_set_style(h, o.style);
+    if (mel_panel_style_any(&o.style))
+        mel_panel_set_style_opt(h, o.style);
     return h;
 }
 
@@ -78,8 +78,8 @@ Mel_Gui_Handle mel_groupbox_create_opt(Mel_Gui_Handle parent, Mel_GroupBox_Opt o
         mel_web__el_visible(box, 0);
     mel_gui__node_native_ready(h);
     mel_web__member_sync(h);
-    if (mel_style_any(&o.style))
-        mel_gui_set_style(h, o.style);
+    if (mel_groupbox_style_any(&o.style))
+        mel_groupbox_set_style_opt(h, o.style);
     return h;
 }
 
@@ -116,8 +116,8 @@ Mel_Gui_Handle mel_scrollview_create_opt(Mel_Gui_Handle parent, Mel_ScrollView_O
         mel_web__el_visible(outer, 0);
     mel_gui__node_native_ready(h);
     mel_web__member_sync(h);
-    if (mel_style_any(&o.style))
-        mel_gui_set_style(h, o.style);
+    if (mel_scrollview_style_any(&o.style))
+        mel_scrollview_set_style_opt(h, o.style);
     return h;
 }
 

@@ -52,8 +52,8 @@ Mel_Gui_Handle mel_tabview_create_opt(Mel_Gui_Handle parent, Mel_TabView_Opt o)
         tv.delegate = tv;
         mel_gui__macos_install_child(n, tv);
     }
-    if (mel_style_any(&o.style))
-        mel_gui_set_style(h, o.style);
+    if (mel_tabview_style_any(&o.style))
+        mel_tabview_set_style_opt(h, o.style);
     return h;
 }
 
@@ -84,8 +84,8 @@ Mel_Gui_Handle mel_tab_create_opt(Mel_Gui_Handle tabview, Mel_Tab_Opt o)
         n->width = (i32)tv.contentRect.size.width;
         n->height = (i32)tv.contentRect.size.height;
     }
-    if (mel_style_any(&o.style))
-        mel_gui_set_style(h, o.style);
+    if (mel_tab_style_any(&o.style))
+        mel_tab_set_style_opt(h, o.style);
     return h;
 }
 

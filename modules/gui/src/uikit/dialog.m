@@ -27,8 +27,8 @@ Mel_Gui_Handle mel_dialog_create_opt(Mel_Dialog_Opt o)
 
     n->x = 0;
     n->y = 0;
-    if (mel_style_any(&o.style))
-        mel_gui_set_style(h, o.style);
+    if (mel_dialog_style_any(&o.style))
+        mel_dialog_set_style_opt(h, o.style);
     return h;
 }
 

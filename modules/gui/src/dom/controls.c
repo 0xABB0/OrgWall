@@ -66,8 +66,8 @@ Mel_Gui_Handle mel_label_create_opt(Mel_Gui_Handle parent, Mel_Label_Opt o)
     if (n->hidden)
         mel_web__el_visible(id, 0);
     mel_web__member_sync(h);
-    if (mel_style_any(&o.style))
-        mel_gui_set_style(h, o.style);
+    if (mel_label_style_any(&o.style))
+        mel_label_set_style_opt(h, o.style);
     return h;
 }
 
@@ -104,8 +104,8 @@ Mel_Gui_Handle mel_button_create_opt(Mel_Gui_Handle parent, Mel_Button_Opt o)
     if (n->hidden)
         mel_web__el_visible(id, 0);
     mel_web__member_sync(h);
-    if (mel_style_any(&o.style))
-        mel_gui_set_style(h, o.style);
+    if (mel_button_style_any(&o.style))
+        mel_button_set_style_opt(h, o.style);
     return h;
 }
 
@@ -143,8 +143,8 @@ Mel_Gui_Handle mel_textfield_create_opt(Mel_Gui_Handle parent, Mel_TextField_Opt
     if (n->hidden)
         mel_web__el_visible(id, 0);
     mel_web__member_sync(h);
-    if (mel_style_any(&o.style))
-        mel_gui_set_style(h, o.style);
+    if (mel_textfield_style_any(&o.style))
+        mel_textfield_set_style_opt(h, o.style);
     return h;
 }
 
@@ -174,8 +174,8 @@ Mel_Gui_Handle mel_checkbox_create_opt(Mel_Gui_Handle parent, Mel_CheckBox_Opt o
     if (n->hidden)
         mel_web__el_visible(id, 0);
     mel_web__member_sync(h);
-    if (mel_style_any(&o.style))
-        mel_gui_set_style(h, o.style);
+    if (mel_checkbox_style_any(&o.style))
+        mel_checkbox_set_style_opt(h, o.style);
     return h;
 }
 
@@ -214,8 +214,8 @@ Mel_Gui_Handle mel_slider_create_opt(Mel_Gui_Handle parent, Mel_Slider_Opt o)
     if (n->hidden)
         mel_web__el_visible(id, 0);
     mel_web__member_sync(h);
-    if (mel_style_any(&o.style))
-        mel_gui_set_style(h, o.style);
+    if (mel_slider_style_any(&o.style))
+        mel_slider_set_style_opt(h, o.style);
     return h;
 }
 

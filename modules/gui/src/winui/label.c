@@ -16,7 +16,7 @@ Mel_Gui_Handle mel_label_create_opt(Mel_Gui_Handle parent, Mel_Label_Opt o)
 
     HWND hwnd = CreateWindowExW(0, L"STATIC", wbuf, mel_gui__win32_child_style(n, false) | SS_LEFT | SS_NOPREFIX, n->x, n->y, n->width, n->height, par, NULL, current_hinst, NULL);
     n->native = hwnd;
-    if (hwnd && mel_style_any(&o.style))
-        mel_gui_set_style(h, o.style);
+    if (hwnd && mel_label_style_any(&o.style))
+        mel_label_set_style_opt(h, o.style);
     return h;
 }

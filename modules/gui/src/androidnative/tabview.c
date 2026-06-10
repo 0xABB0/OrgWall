@@ -80,8 +80,8 @@ Mel_Gui_Handle mel_tabview_create_opt(Mel_Gui_Handle parent, Mel_TabView_Opt o)
     mel_gui__android_install_focus(env, view, h, o.focus);
     (*env)->DeleteLocalRef(env, view);
 
-    if (mel_style_any(&o.style))
-        mel_gui_set_style(h, o.style);
+    if (mel_tabview_style_any(&o.style))
+        mel_tabview_set_style_opt(h, o.style);
     return h;
 }
 
@@ -115,8 +115,8 @@ Mel_Gui_Handle mel_tab_create_opt(Mel_Gui_Handle tabview, Mel_Tab_Opt o)
     (*env)->DeleteLocalRef(env, page);
 
     mel_gui__node_native_ready(h);
-    if (mel_style_any(&o.style))
-        mel_gui_set_style(h, o.style);
+    if (mel_tab_style_any(&o.style))
+        mel_tab_set_style_opt(h, o.style);
     return h;
 }
 

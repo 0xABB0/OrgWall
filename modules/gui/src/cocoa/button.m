@@ -71,7 +71,7 @@ Mel_Gui_Handle mel_button_create_opt(Mel_Gui_Handle parent, Mel_Button_Opt o)
 
         mel_gui__macos_install_child(n, button);
     }
-    if (mel_style_any(&o.style))
-        mel_gui_set_style(h, o.style);
+    if (mel_button_style_any(&o.style))
+        mel_button_set_style_opt(h, o.style);
     return h;
 }

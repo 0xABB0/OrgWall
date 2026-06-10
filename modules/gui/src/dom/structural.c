@@ -110,8 +110,8 @@ Mel_Gui_Handle mel_tabview_create_opt(Mel_Gui_Handle parent, Mel_TabView_Opt o)
     if (n->hidden)
         mel_web__el_visible(tv, 0);
     mel_web__member_sync(h);
-    if (mel_style_any(&o.style))
-        mel_gui_set_style(h, o.style);
+    if (mel_tabview_style_any(&o.style))
+        mel_tabview_set_style_opt(h, o.style);
     return h;
 }
 
@@ -142,8 +142,8 @@ Mel_Gui_Handle mel_tab_create_opt(Mel_Gui_Handle tabview, Mel_Tab_Opt o)
     mel_web__tab_add_button(tv, tc->aux0, index, mel_web__cstr(o.title, b, sizeof b));
     mel_web__tab_show((int)(intptr_t)tn->content, tc->aux2);
     mel_gui__node_native_ready(h);
-    if (mel_style_any(&o.style))
-        mel_gui_set_style(h, o.style);
+    if (mel_tab_style_any(&o.style))
+        mel_tab_set_style_opt(h, o.style);
     return h;
 }
 
@@ -190,8 +190,8 @@ Mel_Gui_Handle mel_splitter_create_opt(Mel_Gui_Handle parent, Mel_Splitter_Opt o
     if (n->hidden)
         mel_web__el_visible(id, 0);
     mel_web__member_sync(h);
-    if (mel_style_any(&o.style))
-        mel_gui_set_style(h, o.style);
+    if (mel_splitter_style_any(&o.style))
+        mel_splitter_set_style_opt(h, o.style);
     return h;
 }
 
@@ -214,8 +214,8 @@ Mel_Gui_Handle mel_splitpane_create_opt(Mel_Gui_Handle splitter, Mel_SplitPane_O
     n->content = (void*)(intptr_t)pane;
     mel_web__ctl_new(pane, h);
     mel_gui__node_native_ready(h);
-    if (mel_style_any(&o.style))
-        mel_gui_set_style(h, o.style);
+    if (mel_splitpane_style_any(&o.style))
+        mel_splitpane_set_style_opt(h, o.style);
     return h;
 }
 
@@ -249,8 +249,8 @@ Mel_Gui_Handle mel_dialog_create_opt(Mel_Dialog_Opt o)
     }
     mel_gui__frames_inc();
     mel_gui__node_native_ready(h);
-    if (mel_style_any(&o.style))
-        mel_gui_set_style(h, o.style);
+    if (mel_dialog_style_any(&o.style))
+        mel_dialog_set_style_opt(h, o.style);
     return h;
 }
 

@@ -7,31 +7,30 @@ import android.graphics.drawable.GradientDrawable;
 import android.os.Build;
 import android.util.TypedValue;
 import android.view.View;
+import android.widget.CompoundButton;
+import android.widget.LinearLayout;
 import android.widget.SeekBar;
 import android.widget.TextView;
 
+/* Composable style appliers, one per styling primitive plus the
+ * widget-specific ones. Each applies only the set fields; an unset field
+ * leaves the platform default (or an earlier application) untouched. Colors
+ * are ARGB ints. */
 public final class MelStyle {
 
     private MelStyle() {}
 
-    /* Apply only the set fields; an unset field leaves the platform default
-     * (or an earlier application) untouched. Colors are ARGB ints. */
-    public static void apply(View v, boolean hasFg, int fg, boolean hasBg, int bg,
-                             boolean hasBorder, int borderColor, float borderWidthDp,
-                             float radiusDp, float textSizeSp, int fontWeight, boolean italic,
-                             String family, int padL, int padT, int padR, int padB) {
-        if (v instanceof TextView) {
-            TextView tv = (TextView) v;
-            if (hasFg) tv.setTextColor(fg);
-            if (textSizeSp > 0) tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, textSizeSp);
-            applyTypeface(tv, fontWeight, italic, family);
-        } else if (hasFg && v instanceof SeekBar) {
-            ColorStateList tint = ColorStateList.valueOf(fg);
-            SeekBar sb = (SeekBar) v;
-            sb.setThumbTintList(tint);
-            sb.setProgressTintList(tint);
-        }
+    public static void applyText(View v, boolean hasFg, int fg, float sizeSp,
+                                 int weight, boolean italic, String family) {
+        TextView tv = (TextView) v;
+        if (hasFg) tv.setTextColor(fg);
+        if (sizeSp > 0) tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, sizeSp);
+        applyTypeface(tv, weight, italic, family);
+    }
 
+    public static void applySurface(View v, boolean hasBg, int bg,
+                                    boolean hasBorder, int borderColor, float borderWidthDp,
+                                    float radiusDp, int padL, int padT, int padR, int padB) {
         if (hasBg || hasBorder || radiusDp > 0) {
             GradientDrawable gd = new GradientDrawable();
             gd.setColor(hasBg ? bg : Color.TRANSPARENT);
@@ -41,9 +40,29 @@ public final class MelStyle {
         }
 
         if (padL != 0 || padT != 0 || padR != 0 || padB != 0) {
-            v.setPadding(MelGui.dp2px(padL), MelGui.dp2px(padT),
-                         MelGui.dp2px(padR), MelGui.dp2px(padB));
+            v.setPadding(padL, padT, padR, padB);
         }
+    }
+
+    public static void applySlider(View v, boolean hasTrack, int track,
+                                   boolean hasThumb, int thumb) {
+        SeekBar sb = (SeekBar) v;
+        if (hasTrack) sb.setProgressTintList(ColorStateList.valueOf(track));
+        if (hasThumb) sb.setThumbTintList(ColorStateList.valueOf(thumb));
+    }
+
+    public static void applyCheckTint(View v, int tint) {
+        ((CompoundButton) v).setButtonTintList(ColorStateList.valueOf(tint));
+    }
+
+    public static void applyGroupBoxTitle(View v, boolean hasFg, int fg, float sizeSp,
+                                          int weight, boolean italic, String family) {
+        View title = ((LinearLayout) v).getChildAt(0);
+        applyText(title, hasFg, fg, sizeSp, weight, italic, family);
+    }
+
+    public static void applySplitterDivider(View v, int color) {
+        ((MelSplitter) v).setDividerColor(color);
     }
 
     private static int px(float dp) { return Math.round(dp * MelGui.density()); }

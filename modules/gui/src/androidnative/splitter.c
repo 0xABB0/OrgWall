@@ -58,8 +58,8 @@ Mel_Gui_Handle mel_splitter_create_opt(Mel_Gui_Handle parent, Mel_Splitter_Opt o
     mel_gui__android_attach(n, view);
     (*env)->DeleteLocalRef(env, view);
 
-    if (mel_style_any(&o.style))
-        mel_gui_set_style(h, o.style);
+    if (mel_splitter_style_any(&o.style))
+        mel_splitter_set_style_opt(h, o.style);
     return h;
 }
 
@@ -91,8 +91,8 @@ Mel_Gui_Handle mel_splitpane_create_opt(Mel_Gui_Handle splitter, Mel_SplitPane_O
     (*env)->DeleteLocalRef(env, pane);
 
     mel_gui__node_native_ready(h);
-    if (mel_style_any(&o.style))
-        mel_gui_set_style(h, o.style);
+    if (mel_splitpane_style_any(&o.style))
+        mel_splitpane_set_style_opt(h, o.style);
     return h;
 }
 

@@ -10,6 +10,13 @@
 
 typedef struct
 {
+    Mel_Style_Surface surface;
+} Mel_Dialog_Style;
+
+static inline bool mel_dialog_style_any(const Mel_Dialog_Style* s) { return mel_style_surface_any(&s->surface); }
+
+typedef struct
+{
     void (*on_result)(Mel_Gui_Handle h, i32 result, void* user);
 } Mel_Dialog_On;
 
@@ -32,10 +39,13 @@ typedef struct
     Mel_Gui_Focus_Cb     focus;
     Mel_Gui_Keyboard_Cb  keyboard;
     Mel_Layout*          layout;
-    Mel_Style            style;
+    Mel_Dialog_Style     style;
 } Mel_Dialog_Opt;
 
 Mel_Gui_Handle mel_dialog_create_opt(Mel_Dialog_Opt opt);
 #define mel_dialog_create(...) mel_dialog_create_opt((Mel_Dialog_Opt){ __VA_ARGS__ })
 
 void mel_dialog_close(Mel_Gui_Handle dialog, i32 result);
+
+void mel_dialog_set_style_opt(Mel_Gui_Handle h, Mel_Dialog_Style style);
+#define mel_dialog_set_style(h, ...) mel_dialog_set_style_opt((h), (Mel_Dialog_Style){ __VA_ARGS__ })

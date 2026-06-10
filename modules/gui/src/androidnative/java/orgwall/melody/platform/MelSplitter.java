@@ -40,6 +40,11 @@ public final class MelSplitter extends ViewGroup {
         return s;
     }
 
+    public void setDividerColor(int color) {
+        dividerPaint.setColor(color);
+        invalidate();
+    }
+
     public static View addPane(View splitter, int minDp, int initialDp) {
         MelSplitter s = (MelSplitter) splitter;
         FrameLayout pane = new FrameLayout(MelGui.activity());

@@ -9,6 +9,13 @@
 #include <gui/layout.h>
 #include <gui/style.h>
 
+typedef struct
+{
+    Mel_Style_Surface surface;
+} Mel_Frame_Style;
+
+static inline bool mel_frame_style_any(const Mel_Frame_Style* s) { return mel_style_surface_any(&s->surface); }
+
 typedef enum
 {
     MEL_FRAME_NORMAL = 0,
@@ -41,8 +48,11 @@ typedef struct
     Mel_Gui_Keyboard_Cb  keyboard;
     Mel_Gui_Insets_Cb    insets;
     Mel_Layout*          layout;
-    Mel_Style            style;
+    Mel_Frame_Style      style;
 } Mel_Frame_Opt;
 
 Mel_Gui_Handle mel_frame_create_opt(Mel_Frame_Opt opt);
 #define mel_frame_create(...) mel_frame_create_opt((Mel_Frame_Opt){ __VA_ARGS__ })
+
+void mel_frame_set_style_opt(Mel_Gui_Handle h, Mel_Frame_Style style);
+#define mel_frame_set_style(h, ...) mel_frame_set_style_opt((h), (Mel_Frame_Style){ __VA_ARGS__ })

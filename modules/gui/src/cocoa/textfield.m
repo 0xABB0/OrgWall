@@ -88,7 +88,7 @@ Mel_Gui_Handle mel_textfield_create_opt(Mel_Gui_Handle parent, Mel_TextField_Opt
 
         mel_gui__macos_install_child(n, tf);
     }
-    if (mel_style_any(&o.style))
-        mel_gui_set_style(h, o.style);
+    if (mel_textfield_style_any(&o.style))
+        mel_textfield_set_style_opt(h, o.style);
     return h;
 }

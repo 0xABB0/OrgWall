@@ -80,8 +80,8 @@ Mel_Gui_Handle mel_button_create_opt(Mel_Gui_Handle parent, Mel_Button_Opt o)
     b.enabled = !o.disabled;
     [b addTarget:b action:@selector(melTapped) forControlEvents:UIControlEventTouchUpInside];
     mel_gui__ios_install_child(n, b);
-    if (mel_style_any(&o.style))
-        mel_gui_set_style(h, o.style);
+    if (mel_button_style_any(&o.style))
+        mel_button_set_style_opt(h, o.style);
     return h;
 }
 
@@ -97,8 +97,8 @@ Mel_Gui_Handle mel_label_create_opt(Mel_Gui_Handle parent, Mel_Label_Opt o)
     l.text = text;
     l.numberOfLines = 0;
     mel_gui__ios_install_child(n, l);
-    if (mel_style_any(&o.style))
-        mel_gui_set_style(h, o.style);
+    if (mel_label_style_any(&o.style))
+        mel_label_set_style_opt(h, o.style);
     return h;
 }
 
@@ -115,8 +115,8 @@ Mel_Gui_Handle mel_checkbox_create_opt(Mel_Gui_Handle parent, Mel_CheckBox_Opt o
     [s setOn:o.checked];
     [s addTarget:s action:@selector(melToggled) forControlEvents:UIControlEventValueChanged];
     mel_gui__ios_install_child(n, s);
-    if (mel_style_any(&o.style))
-        mel_gui_set_style(h, o.style);
+    if (mel_checkbox_style_any(&o.style))
+        mel_checkbox_set_style_opt(h, o.style);
     return h;
 }
 
@@ -144,8 +144,8 @@ Mel_Gui_Handle mel_slider_create_opt(Mel_Gui_Handle parent, Mel_Slider_Opt o)
     s.enabled = !o.disabled;
     [s addTarget:s action:@selector(melChanged) forControlEvents:UIControlEventValueChanged];
     mel_gui__ios_install_child(n, s);
-    if (mel_style_any(&o.style))
-        mel_gui_set_style(h, o.style);
+    if (mel_slider_style_any(&o.style))
+        mel_slider_set_style_opt(h, o.style);
     return h;
 }
 
@@ -184,8 +184,8 @@ Mel_Gui_Handle mel_textfield_create_opt(Mel_Gui_Handle parent, Mel_TextField_Opt
     f.enabled = !o.disabled;
     [f addTarget:f action:@selector(melChanged) forControlEvents:UIControlEventEditingChanged];
     mel_gui__ios_install_child(n, f);
-    if (mel_style_any(&o.style))
-        mel_gui_set_style(h, o.style);
+    if (mel_textfield_style_any(&o.style))
+        mel_textfield_set_style_opt(h, o.style);
     return h;
 }
 
@@ -207,16 +207,21 @@ static Mel_Gui_Handle make_container(Mel_Gui_Handle parent, i32 x, i32 y, i32 w,
     return h;
 }
 
-static Mel_Gui_Handle styled(Mel_Gui_Handle h, const Mel_Style* s)
+Mel_Gui_Handle mel_panel_create_opt(Mel_Gui_Handle parent, Mel_Panel_Opt o)
 {
-    if (mel_style_any(s))
-        mel_gui_set_style(h, *s);
+    Mel_Gui_Handle h = make_container(parent, o.x, o.y, o.w, o.h, o.id, o.user, o.hidden, &o.layoutable, o.layout, o.pointer, o.focus);
+    if (mel_panel_style_any(&o.style))
+        mel_panel_set_style_opt(h, o.style);
     return h;
 }
 
-Mel_Gui_Handle mel_panel_create_opt(Mel_Gui_Handle parent, Mel_Panel_Opt o) { return styled(make_container(parent, o.x, o.y, o.w, o.h, o.id, o.user, o.hidden, &o.layoutable, o.layout, o.pointer, o.focus), &o.style); }
-
-Mel_Gui_Handle mel_groupbox_create_opt(Mel_Gui_Handle parent, Mel_GroupBox_Opt o) { return styled(make_container(parent, o.x, o.y, o.w, o.h, o.id, o.user, o.hidden, &o.layoutable, o.layout, (Mel_Gui_Pointer_Cb){ 0 }, o.focus), &o.style); }
+Mel_Gui_Handle mel_groupbox_create_opt(Mel_Gui_Handle parent, Mel_GroupBox_Opt o)
+{
+    Mel_Gui_Handle h = make_container(parent, o.x, o.y, o.w, o.h, o.id, o.user, o.hidden, &o.layoutable, o.layout, (Mel_Gui_Pointer_Cb){ 0 }, o.focus);
+    if (mel_groupbox_style_any(&o.style))
+        mel_groupbox_set_style_opt(h, o.style);
+    return h;
+}
 
 Mel_Gui_Handle mel_scrollview_create_opt(Mel_Gui_Handle parent, Mel_ScrollView_Opt o)
 {
@@ -231,8 +236,8 @@ Mel_Gui_Handle mel_scrollview_create_opt(Mel_Gui_Handle parent, Mel_ScrollView_O
     UIScrollView* sv = [[UIScrollView alloc] initWithFrame:CGRectMake(0, 0, n->width, n->height)];
     sv.contentSize = CGSizeMake(cw > 0 ? cw : n->width, ch > 0 ? ch : n->height);
     mel_gui__ios_install_child(n, sv);
-    if (mel_style_any(&o.style))
-        mel_gui_set_style(h, o.style);
+    if (mel_scrollview_style_any(&o.style))
+        mel_scrollview_set_style_opt(h, o.style);
     return h;
 }
 
@@ -245,14 +250,29 @@ void mel_gui__backend_set_content_size(Mel_Gui_Node* n, i32 w, i32 h)
         [(UIScrollView*)obj setContentSize:CGSizeMake(w, h)];
 }
 
-Mel_Gui_Handle mel_splitter_create_opt(Mel_Gui_Handle parent, Mel_Splitter_Opt o) { return styled(make_container(parent, o.x, o.y, o.w, o.h, o.id, o.user, o.hidden, &o.layoutable, NULL, (Mel_Gui_Pointer_Cb){ 0 }, o.focus), &o.style); }
+Mel_Gui_Handle mel_splitter_create_opt(Mel_Gui_Handle parent, Mel_Splitter_Opt o)
+{
+    Mel_Gui_Handle h = make_container(parent, o.x, o.y, o.w, o.h, o.id, o.user, o.hidden, &o.layoutable, NULL, (Mel_Gui_Pointer_Cb){ 0 }, o.focus);
+    if (mel_splitter_style_any(&o.style))
+        mel_splitter_set_style_opt(h, o.style);
+    return h;
+}
 
 Mel_Gui_Handle mel_splitpane_create_opt(Mel_Gui_Handle splitter, Mel_SplitPane_Opt o)
 {
-    return styled(make_container(splitter, 0, 0, 0, 0, o.id, o.user, false, &o.layoutable, o.layout, (Mel_Gui_Pointer_Cb){ 0 }, (Mel_Gui_Focus_Cb){ 0 }), &o.style);
+    Mel_Gui_Handle h = make_container(splitter, 0, 0, 0, 0, o.id, o.user, false, &o.layoutable, o.layout, (Mel_Gui_Pointer_Cb){ 0 }, (Mel_Gui_Focus_Cb){ 0 });
+    if (mel_splitpane_style_any(&o.style))
+        mel_splitpane_set_style_opt(h, o.style);
+    return h;
 }
 
-Mel_Gui_Handle mel_tabview_create_opt(Mel_Gui_Handle parent, Mel_TabView_Opt o) { return styled(make_container(parent, o.x, o.y, o.w, o.h, o.id, o.user, o.hidden, &o.layoutable, NULL, (Mel_Gui_Pointer_Cb){ 0 }, o.focus), &o.style); }
+Mel_Gui_Handle mel_tabview_create_opt(Mel_Gui_Handle parent, Mel_TabView_Opt o)
+{
+    Mel_Gui_Handle h = make_container(parent, o.x, o.y, o.w, o.h, o.id, o.user, o.hidden, &o.layoutable, NULL, (Mel_Gui_Pointer_Cb){ 0 }, o.focus);
+    if (mel_tabview_style_any(&o.style))
+        mel_tabview_set_style_opt(h, o.style);
+    return h;
+}
 
 Mel_Gui_Handle mel_tab_create_opt(Mel_Gui_Handle tabview, Mel_Tab_Opt o)
 {
@@ -270,7 +290,10 @@ Mel_Gui_Handle mel_tab_create_opt(Mel_Gui_Handle tabview, Mel_Tab_Opt o)
             }
     }
     // Barebone: tabs stack; only the first is shown (no tab bar yet).
-    return styled(make_container(tabview, 0, 0, 0, 0, o.id, o.user, !first, &o.layoutable, o.layout, (Mel_Gui_Pointer_Cb){ 0 }, (Mel_Gui_Focus_Cb){ 0 }), &o.style);
+    Mel_Gui_Handle h = make_container(tabview, 0, 0, 0, 0, o.id, o.user, !first, &o.layoutable, o.layout, (Mel_Gui_Pointer_Cb){ 0 }, (Mel_Gui_Focus_Cb){ 0 });
+    if (mel_tab_style_any(&o.style))
+        mel_tab_set_style_opt(h, o.style);
+    return h;
 }
 
 void mel_tabview_select(Mel_Gui_Handle tabview, i32 index)

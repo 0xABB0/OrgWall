@@ -60,8 +60,8 @@ Mel_Gui_Handle mel_checkbox_create_opt(Mel_Gui_Handle parent, Mel_CheckBox_Opt o
 
     (*env)->DeleteLocalRef(env, view);
 
-    if (mel_style_any(&o.style))
-        mel_gui_set_style(h, o.style);
+    if (mel_checkbox_style_any(&o.style))
+        mel_checkbox_set_style_opt(h, o.style);
     return h;
 }
 

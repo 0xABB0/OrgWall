@@ -107,7 +107,7 @@ Mel_Gui_Handle mel_canvas_create_opt(Mel_Gui_Handle parent, Mel_Canvas_Opt o)
         c->pointer = o.pointer;
         c->on_ = o.on_;
     }
-    if (mel_style_any(&o.style))
-        mel_gui_set_style(h, o.style);
+    if (mel_canvas_style_any(&o.style))
+        mel_canvas_set_style_opt(h, o.style);
     return h;
 }

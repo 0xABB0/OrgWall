@@ -45,27 +45,25 @@ static NSInteger style_manager_weight(u16 w)
     return 12;
 }
 
-static bool style_wants_font(const Mel_Style* s) { return s->font_family.len || s->font_size || s->font_weight || s->italic; }
-
-static NSFont* style_resolve_font(const Mel_Style* s, NSFont* current)
+static NSFont* style_resolve_font(const Mel_Font* f, NSFont* current)
 {
     NSFontManager* fm = [NSFontManager sharedFontManager];
-    CGFloat        pts = s->font_size > 0 ? (CGFloat)s->font_size : (current ? current.pointSize : [NSFont systemFontSize]);
+    CGFloat        pts = f->size > 0 ? (CGFloat)f->size : (current ? current.pointSize : [NSFont systemFontSize]);
 
     NSFont* font = nil;
-    if (s->font_family.len)
+    if (f->family.len)
     {
-        font = [NSFont fontWithName:mel_gui__macos_nsstring(s->font_family) size:pts];
-        if (font && s->font_weight)
+        font = [NSFont fontWithName:mel_gui__macos_nsstring(f->family) size:pts];
+        if (font && f->weight)
         {
-            font = [fm fontWithFamily:font.familyName traits:0 weight:style_manager_weight(s->font_weight) size:pts] ?: font;
+            font = [fm fontWithFamily:font.familyName traits:0 weight:style_manager_weight(f->weight) size:pts] ?: font;
         }
     }
     if (!font)
     {
-        if (s->font_weight)
+        if (f->weight)
         {
-            font = [NSFont systemFontOfSize:pts weight:style_system_weight(s->font_weight)];
+            font = [NSFont systemFontOfSize:pts weight:style_system_weight(f->weight)];
         }
         else if (current)
         {
@@ -76,14 +74,14 @@ static NSFont* style_resolve_font(const Mel_Style* s, NSFont* current)
             font = [NSFont systemFontOfSize:pts];
         }
     }
-    if (s->italic)
+    if (f->italic)
     {
         font = [fm convertFont:font toHaveTrait:NSItalicFontMask];
     }
     return font;
 }
 
-static void style_layer_border(NSView* view, const Mel_Style* s)
+static void style_layer_border(NSView* view, const Mel_Style_Surface* s)
 {
     if (!s->border_color.set && !s->border_width)
         return;
@@ -94,7 +92,7 @@ static void style_layer_border(NSView* view, const Mel_Style* s)
         view.layer.borderColor = style_color(s->border_color.color).CGColor;
 }
 
-static void style_layer_radius(NSView* view, const Mel_Style* s, bool mask)
+static void style_layer_radius(NSView* view, const Mel_Style_Surface* s, bool mask)
 {
     if (!s->corner_radius)
         return;
@@ -104,38 +102,32 @@ static void style_layer_radius(NSView* view, const Mel_Style* s, bool mask)
         view.layer.masksToBounds = YES;
 }
 
-static void style_apply_window(NSWindow* window, const Mel_Style* s)
+static void style_layer_surface(NSView* view, const Mel_Style_Surface* s)
 {
     if (s->bg.set)
-        window.backgroundColor = style_color(s->bg.color);
+    {
+        view.wantsLayer = YES;
+        view.layer.backgroundColor = style_color(s->bg.color).CGColor;
+    }
+    style_layer_border(view, s);
+    style_layer_radius(view, s, false);
 }
 
-static void style_apply_box(NSBox* box, const Mel_Style* s)
+static id style_native(Mel_Gui_Handle h, Class cls)
 {
-    if (style_wants_font(s))
-        box.titleFont = style_resolve_font(s, box.titleFont);
-    if (s->bg.set || s->border_color.set || s->border_width || s->corner_radius)
-        box.boxType = NSBoxCustom;
-    if (s->bg.set)
-        box.fillColor = style_color(s->bg.color);
-    if (s->border_color.set)
-        box.borderColor = style_color(s->border_color.color);
-    if (s->border_width)
-        box.borderWidth = (CGFloat)s->border_width;
-    if (s->corner_radius)
-        box.cornerRadius = (CGFloat)s->corner_radius;
-    /* contentViewMargins is an NSSize: left/top only, mirrored right/bottom;
-     * asymmetric padding is not expressible on NSBox. */
-    if (s->padding_l || s->padding_t)
-        box.contentViewMargins = NSMakeSize(s->padding_l, s->padding_t);
+    Mel_Gui_Node* n = mel_gui__node(h);
+    if (!n || !n->native)
+        return nil;
+    id obj = (__bridge id)n->native;
+    return [obj isKindOfClass:cls] ? obj : nil;
 }
 
-static void style_apply_textfield(NSTextField* tf, const Mel_Style* s)
+static void style_apply_text(NSTextField* tf, const Mel_Font* font, Mel_Style_Color fg, const Mel_Style_Surface* s)
 {
-    if (style_wants_font(s))
-        tf.font = style_resolve_font(s, tf.font);
-    if (s->fg.set)
-        tf.textColor = style_color(s->fg.color);
+    if (mel_font_any(font))
+        tf.font = style_resolve_font(font, tf.font);
+    if (fg.set)
+        tf.textColor = style_color(fg.color);
     if (s->bg.set)
     {
         tf.drawsBackground = YES;
@@ -165,19 +157,12 @@ void mel_gui__macos_button_reapply_fg(NSButton* button)
         style_button_fg(button, fg);
 }
 
-static void style_apply_button(NSButton* button, const Mel_Style* s)
+static void style_apply_button(NSButton* button, const Mel_Font* font, Mel_Style_Color fg, const Mel_Style_Surface* s)
 {
-    if (style_wants_font(s))
-        button.font = style_resolve_font(s, button.font);
-    if (s->fg.set)
-    {
-        NSColor* fg = style_color(s->fg.color);
-        if ([button isKindOfClass:[MelGuiButton class]])
-            [(MelGuiButton*)button setStyle_fg:fg];
-        else if ([button isKindOfClass:[MelGuiCheckBox class]])
-            [(MelGuiCheckBox*)button setStyle_fg:fg];
-        style_button_fg(button, fg);
-    }
+    if (mel_font_any(font))
+        button.font = style_resolve_font(font, button.font);
+    if (fg.set)
+        style_button_fg(button, style_color(fg.color));
     /* bg/radius have no native bezel knob: drop the bezel and emulate just
      * the surface on the layer; an untouched button keeps the native bezel. */
     if (s->bg.set || s->corner_radius)
@@ -192,73 +177,205 @@ static void style_apply_button(NSButton* button, const Mel_Style* s)
     style_layer_border(button, s);
 }
 
-static void style_apply_slider(NSSlider* slider, const Mel_Style* s)
+void mel_label_set_style_opt(Mel_Gui_Handle h, Mel_Label_Style style)
 {
-    if (s->fg.set)
-    {
-        if (@available(macOS 10.12.2, *))
-            slider.trackFillColor = style_color(s->fg.color);
-    }
-}
-
-static void style_apply_scrollview(NSScrollView* scroll, const Mel_Style* s)
-{
-    if (s->bg.set)
-    {
-        scroll.drawsBackground = YES;
-        scroll.backgroundColor = style_color(s->bg.color);
-    }
-    style_layer_border(scroll, s);
-    style_layer_radius(scroll, s, true);
-}
-
-static void style_apply_view(NSView* view, const Mel_Style* s)
-{
-    if (s->bg.set)
-    {
-        view.wantsLayer = YES;
-        view.layer.backgroundColor = style_color(s->bg.color).CGColor;
-    }
-    style_layer_border(view, s);
-    style_layer_radius(view, s, false);
-}
-
-void mel_gui_set_style(Mel_Gui_Handle h, Mel_Style style)
-{
-    Mel_Gui_Node* n = mel_gui__node(h);
-    if (!n || !n->native)
-        return;
-
     @autoreleasepool
     {
-        id obj = (__bridge id)n->native;
-        if ([obj isKindOfClass:[NSWindow class]])
+        MelGuiLabel* label = style_native(h, [MelGuiLabel class]);
+        if (!label)
+            return;
+        style_apply_text(label, &style.font, style.fg, &style.surface);
+    }
+}
+
+void mel_textfield_set_style_opt(Mel_Gui_Handle h, Mel_TextField_Style style)
+{
+    @autoreleasepool
+    {
+        MelGuiTextField* tf = style_native(h, [MelGuiTextField class]);
+        if (!tf)
+            return;
+        style_apply_text(tf, &style.font, style.fg, &style.surface);
+    }
+}
+
+void mel_button_set_style_opt(Mel_Gui_Handle h, Mel_Button_Style style)
+{
+    @autoreleasepool
+    {
+        MelGuiButton* button = style_native(h, [MelGuiButton class]);
+        if (!button)
+            return;
+        if (style.fg.set)
+            button.style_fg = style_color(style.fg.color);
+        style_apply_button(button, &style.font, style.fg, &style.surface);
+    }
+}
+
+void mel_checkbox_set_style_opt(Mel_Gui_Handle h, Mel_CheckBox_Style style)
+{
+    @autoreleasepool
+    {
+        MelGuiCheckBox* box = style_native(h, [MelGuiCheckBox class]);
+        if (!box)
+            return;
+        if (style.fg.set)
+            box.style_fg = style_color(style.fg.color);
+        style_apply_button(box, &style.font, style.fg, &style.surface);
+        /* tint: the check glyph has no color API on NSButton; honest gap. */
+    }
+}
+
+void mel_slider_set_style_opt(Mel_Gui_Handle h, Mel_Slider_Style style)
+{
+    @autoreleasepool
+    {
+        MelGuiSlider* slider = style_native(h, [MelGuiSlider class]);
+        if (!slider)
+            return;
+        if (style.track.set)
         {
-            style_apply_window((NSWindow*)obj, &style);
+            if (@available(macOS 10.12.2, *))
+                slider.trackFillColor = style_color(style.track.color);
         }
-        else if ([obj isKindOfClass:[NSBox class]])
+        /* thumb: no NSSlider knob-color API; honest gap. */
+        style_layer_surface(slider, &style.surface);
+    }
+}
+
+void mel_groupbox_set_style_opt(Mel_Gui_Handle h, Mel_GroupBox_Style style)
+{
+    @autoreleasepool
+    {
+        NSBox* box = style_native(h, [NSBox class]);
+        if (!box)
+            return;
+        const Mel_Style_Surface* s = &style.surface;
+        if (mel_font_any(&style.title_font))
+            box.titleFont = style_resolve_font(&style.title_font, box.titleFont);
+        /* title_fg: NSBox exposes no title color; honest gap. */
+        if (s->bg.set || s->border_color.set || s->border_width || s->corner_radius)
+            box.boxType = NSBoxCustom;
+        if (s->bg.set)
+            box.fillColor = style_color(s->bg.color);
+        if (s->border_color.set)
+            box.borderColor = style_color(s->border_color.color);
+        if (s->border_width)
+            box.borderWidth = (CGFloat)s->border_width;
+        if (s->corner_radius)
+            box.cornerRadius = (CGFloat)s->corner_radius;
+        /* contentViewMargins is an NSSize: left/top only, mirrored right/bottom;
+         * asymmetric padding is not expressible on NSBox. */
+        if (s->padding_l || s->padding_t)
+            box.contentViewMargins = NSMakeSize(s->padding_l, s->padding_t);
+    }
+}
+
+void mel_scrollview_set_style_opt(Mel_Gui_Handle h, Mel_ScrollView_Style style)
+{
+    @autoreleasepool
+    {
+        NSScrollView* scroll = style_native(h, [NSScrollView class]);
+        if (!scroll)
+            return;
+        if (style.surface.bg.set)
         {
-            style_apply_box((NSBox*)obj, &style);
+            scroll.drawsBackground = YES;
+            scroll.backgroundColor = style_color(style.surface.bg.color);
         }
-        else if ([obj isKindOfClass:[NSTextField class]])
-        {
-            style_apply_textfield((NSTextField*)obj, &style);
-        }
-        else if ([obj isKindOfClass:[NSButton class]])
-        {
-            style_apply_button((NSButton*)obj, &style);
-        }
-        else if ([obj isKindOfClass:[NSSlider class]])
-        {
-            style_apply_slider((NSSlider*)obj, &style);
-        }
-        else if ([obj isKindOfClass:[NSScrollView class]])
-        {
-            style_apply_scrollview((NSScrollView*)obj, &style);
-        }
-        else if ([obj isKindOfClass:[NSView class]])
-        {
-            style_apply_view((NSView*)obj, &style);
-        }
+        style_layer_border(scroll, &style.surface);
+        style_layer_radius(scroll, &style.surface, true);
+    }
+}
+
+void mel_splitter_set_style_opt(Mel_Gui_Handle h, Mel_Splitter_Style style)
+{
+    @autoreleasepool
+    {
+        MelGuiSplitView* sv = style_native(h, [MelGuiSplitView class]);
+        if (!sv)
+            return;
+        style_layer_surface(sv, &style.surface);
+        /* divider: NSSplitView dividerColor is read-only; honest gap. */
+    }
+}
+
+void mel_splitpane_set_style_opt(Mel_Gui_Handle h, Mel_SplitPane_Style style)
+{
+    @autoreleasepool
+    {
+        MelGuiContainerView* host = style_native(h, [MelGuiContainerView class]);
+        if (!host)
+            return;
+        style_layer_surface(host, &style.surface);
+    }
+}
+
+void mel_panel_set_style_opt(Mel_Gui_Handle h, Mel_Panel_Style style)
+{
+    @autoreleasepool
+    {
+        MelGuiContainerView* view = style_native(h, [MelGuiContainerView class]);
+        if (!view)
+            return;
+        style_layer_surface(view, &style.surface);
+    }
+}
+
+void mel_canvas_set_style_opt(Mel_Gui_Handle h, Mel_Canvas_Style style)
+{
+    @autoreleasepool
+    {
+        MelGuiCanvasView* view = style_native(h, [MelGuiCanvasView class]);
+        if (!view)
+            return;
+        style_layer_surface(view, &style.surface);
+    }
+}
+
+void mel_tabview_set_style_opt(Mel_Gui_Handle h, Mel_TabView_Style style)
+{
+    @autoreleasepool
+    {
+        MelGuiTabView* tv = style_native(h, [MelGuiTabView class]);
+        if (!tv)
+            return;
+        style_layer_surface(tv, &style.surface);
+    }
+}
+
+void mel_tab_set_style_opt(Mel_Gui_Handle h, Mel_Tab_Style style)
+{
+    @autoreleasepool
+    {
+        MelGuiContainerView* host = style_native(h, [MelGuiContainerView class]);
+        if (!host)
+            return;
+        style_layer_surface(host, &style.surface);
+    }
+}
+
+void mel_frame_set_style_opt(Mel_Gui_Handle h, Mel_Frame_Style style)
+{
+    @autoreleasepool
+    {
+        NSWindow* window = style_native(h, [NSWindow class]);
+        if (!window)
+            return;
+        /* only bg maps to a window natively; border/radius/padding: honest gap. */
+        if (style.surface.bg.set)
+            window.backgroundColor = style_color(style.surface.bg.color);
+    }
+}
+
+void mel_dialog_set_style_opt(Mel_Gui_Handle h, Mel_Dialog_Style style)
+{
+    @autoreleasepool
+    {
+        NSWindow* window = style_native(h, [NSWindow class]);
+        if (!window)
+            return;
+        if (style.surface.bg.set)
+            window.backgroundColor = style_color(style.surface.bg.color);
     }
 }

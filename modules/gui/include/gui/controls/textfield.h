@@ -10,6 +10,15 @@
 
 typedef struct
 {
+    Mel_Font          font;
+    Mel_Style_Color   fg;
+    Mel_Style_Surface surface;
+} Mel_TextField_Style;
+
+static inline bool mel_textfield_style_any(const Mel_TextField_Style* s) { return mel_font_any(&s->font) || s->fg.set || mel_style_surface_any(&s->surface); }
+
+typedef struct
+{
     void (*on_text_changed)(Mel_Gui_Handle h, str8 text, void* user);
 } Mel_TextField_On;
 
@@ -26,8 +35,11 @@ typedef struct
     Mel_Gui_Keyboard_Cb  keyboard;
     Mel_TextField_On     on_;
     Mel_Layoutable       layoutable;
-    Mel_Style            style;
+    Mel_TextField_Style  style;
 } Mel_TextField_Opt;
 
 Mel_Gui_Handle mel_textfield_create_opt(Mel_Gui_Handle parent, Mel_TextField_Opt opt);
 #define mel_textfield_create(parent, ...) mel_textfield_create_opt((parent), (Mel_TextField_Opt){ __VA_ARGS__ })
+
+void mel_textfield_set_style_opt(Mel_Gui_Handle h, Mel_TextField_Style style);
+#define mel_textfield_set_style(h, ...) mel_textfield_set_style_opt((h), (Mel_TextField_Style){ __VA_ARGS__ })

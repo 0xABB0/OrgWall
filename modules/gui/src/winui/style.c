@@ -1,14 +1,5 @@
 #include "win32.h"
 
-static bool style_wants_font(const Mel_Style* s) { return s->font_family.len || s->font_size || s->font_weight || s->italic; }
-
-static bool style_is_trackbar(HWND hwnd)
-{
-    wchar_t cls[64];
-    GetClassNameW(hwnd, cls, 64);
-    return lstrcmpiW(cls, TRACKBAR_CLASSW) == 0;
-}
-
 static void style_apply_region(HWND hwnd, i32 radius)
 {
     RECT rc;
@@ -56,7 +47,7 @@ static Mel_Win32_Ctl* style_ctl(HWND hwnd, Mel_Gui_Handle h)
     return c;
 }
 
-static HFONT style_font(HWND hwnd, const Mel_Style* s)
+static HFONT style_font(HWND hwnd, const Mel_Font* f)
 {
     HFONT cur = (HFONT)SendMessageW(hwnd, WM_GETFONT, 0, 0);
     if (!cur)
@@ -64,19 +55,19 @@ static HFONT style_font(HWND hwnd, const Mel_Style* s)
     LOGFONTW lf = { 0 };
     if (!GetObjectW(cur, sizeof lf, &lf))
         return NULL;
-    if (s->font_size > 0)
+    if (f->size > 0)
     {
         HDC screen = GetDC(NULL);
-        lf.lfHeight = -MulDiv((int)s->font_size, GetDeviceCaps(screen, LOGPIXELSY), 72);
+        lf.lfHeight = -MulDiv((int)f->size, GetDeviceCaps(screen, LOGPIXELSY), 72);
         ReleaseDC(NULL, screen);
         lf.lfWidth = 0;
     }
-    if (s->font_weight)
-        lf.lfWeight = s->font_weight;
-    if (s->italic)
+    if (f->weight)
+        lf.lfWeight = f->weight;
+    if (f->italic)
         lf.lfItalic = TRUE;
-    if (s->font_family.len)
-        mel_gui__win32_widen(s->font_family, lf.lfFaceName, LF_FACESIZE);
+    if (f->family.len)
+        mel_gui__win32_widen(f->family, lf.lfFaceName, LF_FACESIZE);
     lf.lfQuality = CLEARTYPE_QUALITY;
     return CreateFontIndirectW(&lf);
 }
@@ -120,7 +111,73 @@ LRESULT mel_gui__win32_ctl_color(UINT msg, HDC dc, HWND container, HWND child)
     return (LRESULT)(UINT_PTR)GetSysColorBrush(COLOR_BTNFACE);
 }
 
-void mel_gui_set_style(Mel_Gui_Handle h, Mel_Style style)
+static Mel_Win32_Ctl* style_target(Mel_Gui_Handle h, HWND* hwnd)
+{
+    Mel_Gui_Node* n = mel_gui__node(h);
+    if (!n || !n->native)
+        return NULL;
+    *hwnd = (HWND)n->native;
+    return style_ctl(*hwnd, h);
+}
+
+static void apply_font(HWND hwnd, Mel_Win32_Ctl* c, const Mel_Font* f)
+{
+    if (!mel_font_any(f))
+        return;
+    HFONT font = style_font(hwnd, f);
+    if (!font)
+        return;
+    SendMessageW(hwnd, WM_SETFONT, (WPARAM)font, MAKELPARAM(TRUE, 0));
+    if (c->font)
+        DeleteObject(c->font);
+    c->font = font;
+}
+
+static void apply_fg(HWND hwnd, Mel_Win32_Ctl* c, Mel_Style_Color fg)
+{
+    if (!fg.set)
+        return;
+    c->fg = RGB(fg.color.r, fg.color.g, fg.color.b);
+    c->has_fg = true;
+    InvalidateRect(hwnd, NULL, TRUE);
+}
+
+static void apply_bg(HWND hwnd, Mel_Win32_Ctl* c, Mel_Style_Color bg)
+{
+    if (!bg.set)
+        return;
+    style_store_bg(c, bg.color);
+    InvalidateRect(hwnd, NULL, TRUE);
+}
+
+static void apply_corner(HWND hwnd, Mel_Win32_Ctl* c, f32 radius)
+{
+    if (radius <= 0)
+        return;
+    c->corner_radius = (i32)radius;
+    style_apply_region(hwnd, c->corner_radius);
+}
+
+static void apply_surface(HWND hwnd, Mel_Win32_Ctl* c, const Mel_Style_Surface* s)
+{
+    apply_bg(hwnd, c, s->bg);
+    apply_corner(hwnd, c, s->corner_radius);
+}
+
+/* A container whose visible surface is a separate content hwnd (scrollview
+ * inner, groupbox inner) paints the bg there too. */
+static void apply_content_bg(Mel_Gui_Node* n, Mel_Gui_Handle h, Mel_Style_Color bg)
+{
+    if (!bg.set || !n->content || n->content == n->native)
+        return;
+    Mel_Win32_Ctl* inner = style_ctl((HWND)n->content, h);
+    if (!inner)
+        return;
+    style_store_bg(inner, bg.color);
+    InvalidateRect((HWND)n->content, NULL, TRUE);
+}
+
+static void style_set_surface(Mel_Gui_Handle h, const Mel_Style_Surface* s)
 {
     Mel_Gui_Node* n = mel_gui__node(h);
     if (!n || !n->native)
@@ -129,48 +186,101 @@ void mel_gui_set_style(Mel_Gui_Handle h, Mel_Style style)
     Mel_Win32_Ctl* c = style_ctl(hwnd, h);
     if (!c)
         return;
-
-    if (style_wants_font(&style))
-    {
-        HFONT font = style_font(hwnd, &style);
-        if (font)
-        {
-            SendMessageW(hwnd, WM_SETFONT, (WPARAM)font, MAKELPARAM(TRUE, 0));
-            if (c->font)
-                DeleteObject(c->font);
-            c->font = font;
-        }
-    }
-
-    /* The trackbar owner-draws thumb and channel; its colors are not honestly
-     * reachable, only the font path applies. */
-    bool colorable = !style_is_trackbar(hwnd);
-    if (colorable && style.fg.set)
-    {
-        c->fg = RGB(style.fg.color.r, style.fg.color.g, style.fg.color.b);
-        c->has_fg = true;
-    }
-    if (colorable && style.bg.set)
-    {
-        style_store_bg(c, style.bg.color);
-        /* A container whose visible surface is a separate content hwnd
-         * (scrollview inner, groupbox inner) paints the bg there too. */
-        if (n->content && n->content != n->native)
-        {
-            Mel_Win32_Ctl* inner = style_ctl((HWND)n->content, h);
-            if (inner)
-            {
-                style_store_bg(inner, style.bg.color);
-                InvalidateRect((HWND)n->content, NULL, TRUE);
-            }
-        }
-    }
-    if (colorable && (style.fg.set || style.bg.set))
-        InvalidateRect(hwnd, NULL, TRUE);
-
-    if (style.corner_radius > 0)
-    {
-        c->corner_radius = (i32)style.corner_radius;
-        style_apply_region(hwnd, c->corner_radius);
-    }
+    apply_surface(hwnd, c, s);
+    apply_content_bg(n, h, s->bg);
 }
+
+void mel_label_set_style_opt(Mel_Gui_Handle h, Mel_Label_Style style)
+{
+    HWND           hwnd = NULL;
+    Mel_Win32_Ctl* c = style_target(h, &hwnd);
+    if (!c)
+        return;
+    apply_font(hwnd, c, &style.font);
+    apply_fg(hwnd, c, style.fg);
+    apply_surface(hwnd, c, &style.surface);
+}
+
+void mel_button_set_style_opt(Mel_Gui_Handle h, Mel_Button_Style style)
+{
+    HWND           hwnd = NULL;
+    Mel_Win32_Ctl* c = style_target(h, &hwnd);
+    if (!c)
+        return;
+    apply_font(hwnd, c, &style.font);
+    apply_corner(hwnd, c, style.surface.corner_radius);
+}
+
+void mel_checkbox_set_style_opt(Mel_Gui_Handle h, Mel_CheckBox_Style style)
+{
+    HWND           hwnd = NULL;
+    Mel_Win32_Ctl* c = style_target(h, &hwnd);
+    if (!c)
+        return;
+    apply_font(hwnd, c, &style.font);
+    apply_fg(hwnd, c, style.fg);
+    apply_surface(hwnd, c, &style.surface);
+}
+
+void mel_textfield_set_style_opt(Mel_Gui_Handle h, Mel_TextField_Style style)
+{
+    HWND           hwnd = NULL;
+    Mel_Win32_Ctl* c = style_target(h, &hwnd);
+    if (!c)
+        return;
+    apply_font(hwnd, c, &style.font);
+    apply_fg(hwnd, c, style.fg);
+    apply_surface(hwnd, c, &style.surface);
+}
+
+/* The trackbar owner-draws thumb and channel: track and thumb are not honestly
+ * reachable, only the surface applies. */
+void mel_slider_set_style_opt(Mel_Gui_Handle h, Mel_Slider_Style style)
+{
+    HWND           hwnd = NULL;
+    Mel_Win32_Ctl* c = style_target(h, &hwnd);
+    if (!c)
+        return;
+    apply_surface(hwnd, c, &style.surface);
+}
+
+void mel_groupbox_set_style_opt(Mel_Gui_Handle h, Mel_GroupBox_Style style)
+{
+    Mel_Gui_Node* n = mel_gui__node(h);
+    if (!n || !n->native)
+        return;
+    HWND           hwnd = (HWND)n->native;
+    Mel_Win32_Ctl* c = style_ctl(hwnd, h);
+    if (!c)
+        return;
+    apply_font(hwnd, c, &style.title_font);
+    apply_fg(hwnd, c, style.title_fg);
+    apply_surface(hwnd, c, &style.surface);
+    apply_content_bg(n, h, style.surface.bg);
+}
+
+void mel_splitter_set_style_opt(Mel_Gui_Handle h, Mel_Splitter_Style style)
+{
+    HWND           hwnd = NULL;
+    Mel_Win32_Ctl* c = style_target(h, &hwnd);
+    if (!c)
+        return;
+    apply_surface(hwnd, c, &style.surface);
+    apply_bg(hwnd, c, style.divider);
+}
+
+void mel_splitpane_set_style_opt(Mel_Gui_Handle h, Mel_SplitPane_Style style) { style_set_surface(h, &style.surface); }
+
+void mel_panel_set_style_opt(Mel_Gui_Handle h, Mel_Panel_Style style) { style_set_surface(h, &style.surface); }
+
+void mel_canvas_set_style_opt(Mel_Gui_Handle h, Mel_Canvas_Style style) { style_set_surface(h, &style.surface); }
+
+void mel_scrollview_set_style_opt(Mel_Gui_Handle h, Mel_ScrollView_Style style) { style_set_surface(h, &style.surface); }
+
+void mel_frame_set_style_opt(Mel_Gui_Handle h, Mel_Frame_Style style) { style_set_surface(h, &style.surface); }
+
+void mel_dialog_set_style_opt(Mel_Gui_Handle h, Mel_Dialog_Style style) { style_set_surface(h, &style.surface); }
+
+void mel_tabview_set_style_opt(Mel_Gui_Handle h, Mel_TabView_Style style) { style_set_surface(h, &style.surface); }
+
+void mel_tab_set_style_opt(Mel_Gui_Handle h, Mel_Tab_Style style) { style_set_surface(h, &style.surface); }

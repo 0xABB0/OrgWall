@@ -45,7 +45,7 @@ Mel_Gui_Handle mel_label_create_opt(Mel_Gui_Handle parent, Mel_Label_Opt o)
     mel_gui__android_attach(n, view);
     (*env)->DeleteLocalRef(env, view);
 
-    if (mel_style_any(&o.style))
-        mel_gui_set_style(h, o.style);
+    if (mel_label_style_any(&o.style))
+        mel_label_set_style_opt(h, o.style);
     return h;
 }

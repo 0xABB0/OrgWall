@@ -126,7 +126,7 @@ Mel_Gui_Handle mel_panel_create_opt(Mel_Gui_Handle parent, Mel_Panel_Opt o)
 
     HWND hwnd = mel_gui__win32_make_container(par, n->x, n->y, n->width, n->height, h, o.pointer, o.focus, o.keyboard, n->hidden, o.disabled);
     n->native = hwnd;
-    if (hwnd && mel_style_any(&o.style))
-        mel_gui_set_style(h, o.style);
+    if (hwnd && mel_panel_style_any(&o.style))
+        mel_panel_set_style_opt(h, o.style);
     return h;
 }

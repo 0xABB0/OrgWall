@@ -60,7 +60,7 @@ Mel_Gui_Handle mel_groupbox_create_opt(Mel_Gui_Handle parent, Mel_GroupBox_Opt o
     n->content = inner;
 
     SetWindowSubclass(box, groupbox_subclass, 1, (DWORD_PTR)inner);
-    if (mel_style_any(&o.style))
-        mel_gui_set_style(h, o.style);
+    if (mel_groupbox_style_any(&o.style))
+        mel_groupbox_set_style_opt(h, o.style);
     return h;
 }

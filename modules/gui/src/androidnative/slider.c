@@ -62,8 +62,8 @@ Mel_Gui_Handle mel_slider_create_opt(Mel_Gui_Handle parent, Mel_Slider_Opt o)
 
     (*env)->DeleteLocalRef(env, view);
 
-    if (mel_style_any(&o.style))
-        mel_gui_set_style(h, o.style);
+    if (mel_slider_style_any(&o.style))
+        mel_slider_set_style_opt(h, o.style);
     return h;
 }
 

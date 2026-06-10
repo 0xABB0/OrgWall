@@ -77,7 +77,7 @@ Mel_Gui_Handle mel_panel_create_opt(Mel_Gui_Handle parent, Mel_Panel_Opt o)
         view.keyboard = o.keyboard;
         mel_gui__macos_install_child(n, view);
     }
-    if (mel_style_any(&o.style))
-        mel_gui_set_style(h, o.style);
+    if (mel_panel_style_any(&o.style))
+        mel_panel_set_style_opt(h, o.style);
     return h;
 }

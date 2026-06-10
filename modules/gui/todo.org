@@ -140,11 +140,14 @@ Do not block the android backend; tracked for later.
      push bounds (NSTabView owns the host frames) — unchanged from the old
      vtable, worth a second look with lowering.
 
-** WIP  Styling (Mel_Style)
-   Shipped: =<gui/style.h>= (=Mel_Style=, =Mel_Style_Color= set-flag optional
-   colors), =.style= in every widget opt except gpu_view (deliberate),
-   =mel_gui_set_style= on all six backends, applied from every create. Native
-   first; per-property emulation only (cocoa/uikit layer, win32
+** WIP  Styling (per-component)
+   Shipped: per-widget =Mel_<Widget>_Style= structs composed from the
+   =<gui/style.h>= primitives (=Mel_Style_Color=, =Mel_Font=,
+   =Mel_Style_Surface=), =.style= in every widget opt except gpu_view
+   (deliberate), per-widget =mel_<widget>_set_style= ops on all six backends,
+   applied from every create. Widget-specific knobs: slider =track/thumb=,
+   checkbox =tint=, groupbox =title_font/title_fg=, splitter =divider=.
+   Native first; per-property emulation only (cocoa/uikit layer, win32
    =SetWindowRgn=, android =GradientDrawable=, dom inline CSS).
    Open items:
    - Reset-to-native: set_style applies set fields only; nothing restores a
@@ -168,6 +171,13 @@ Do not block the android backend; tracked for later.
      groupbox border) pre-empt the "unset = native default" promise —
      revisit.
    - xcb: only =CW_BACK_PIXEL= bg (TrueColor assumption); logged once.
+   - New per-widget gaps: slider thumb on dom (needs injected
+     ::-webkit-slider-thumb rules) and cocoa (no thumb API); checkbox tint on
+     cocoa (no glyph API) and win32 (theme-drawn); checkbox fg/font on uikit
+     (bare UISwitch has no label); groupbox title_fg on cocoa (NSBox has no
+     title color) and title entirely on uikit (plain view); splitter divider
+     everywhere except android (native paint) and win32 (bg-brush nuance:
+     divider and surface.bg are the same physical surface there).
    - Theming: an app-wide per-widget-kind style table resolved at create
      time (no retained cascade).
 

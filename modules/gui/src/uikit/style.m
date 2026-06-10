@@ -23,18 +23,16 @@ static UIFontWeight ios_font_weight(u16 w)
     return UIFontWeightBlack;
 }
 
-static bool ios_wants_font(const Mel_Style* s) { return s->font_family.len || s->font_size || s->font_weight || s->italic; }
-
 // Every zero axis inherits from the widget's current font, so a lone
-// font_size (or italic) does not silently reset weight or family.
-static UIFont* ios_font(const Mel_Style* s, UIFont* current)
+// size (or italic) does not silently reset weight or family.
+static UIFont* ios_font(const Mel_Font* s, UIFont* current)
 {
-    CGFloat sz = s->font_size > 0 ? (CGFloat)s->font_size : (current ? current.pointSize : UIFont.systemFontSize);
+    CGFloat sz = s->size > 0 ? (CGFloat)s->size : (current ? current.pointSize : UIFont.systemFontSize);
     UIFont* f = nil;
-    if (s->font_family.len)
-        f = [UIFont fontWithName:mel_gui__ios_nsstring(s->font_family) size:sz];
-    if (!f && s->font_weight)
-        f = [UIFont systemFontOfSize:sz weight:ios_font_weight(s->font_weight)];
+    if (s->family.len)
+        f = [UIFont fontWithName:mel_gui__ios_nsstring(s->family) size:sz];
+    if (!f && s->weight)
+        f = [UIFont systemFontOfSize:sz weight:ios_font_weight(s->weight)];
     if (!f)
         f = current ? [current fontWithSize:sz] : [UIFont systemFontOfSize:sz];
     if (s->italic)
@@ -46,7 +44,7 @@ static UIFont* ios_font(const Mel_Style* s, UIFont* current)
     return f;
 }
 
-static void ios_surface(UIView* v, const Mel_Style* s)
+static void ios_surface(UIView* v, const Mel_Style_Surface* s)
 {
     if (s->bg.set)
         v.backgroundColor = ios_color(s->bg.color);
@@ -61,74 +59,118 @@ static void ios_surface(UIView* v, const Mel_Style* s)
     }
 }
 
-void mel_gui_set_style(Mel_Gui_Handle h, Mel_Style style)
+static UIView* ios_view(Mel_Gui_Handle h)
+{
+    Mel_Gui_Node* n = mel_gui__node(h);
+    if (!n || !n->native)
+        return nil;
+    id obj = (__bridge id)n->native;
+    return [obj isKindOfClass:[UIView class]] ? (UIView*)obj : nil;
+}
+
+static void ios_view_surface(Mel_Gui_Handle h, const Mel_Style_Surface* s)
+{
+    UIView* v = ios_view(h);
+    if (v)
+        ios_surface(v, s);
+}
+
+static void ios_controller_surface(Mel_Gui_Handle h, const Mel_Style_Surface* s)
 {
     Mel_Gui_Node* n = mel_gui__node(h);
     if (!n || !n->native)
         return;
     id obj = (__bridge id)n->native;
-    if ([obj isKindOfClass:[UIViewController class]])
-    {
-        if (style.bg.set)
-            ((UIViewController*)obj).view.backgroundColor = ios_color(style.bg.color);
-        return;
-    }
-    if (![obj isKindOfClass:[UIView class]])
-        return;
-    UIView* v = (UIView*)obj;
-
-    if ([v isKindOfClass:[UIButton class]])
-    {
-        UIButton* b = (UIButton*)v;
-        if (style.fg.set)
-            [b setTitleColor:ios_color(style.fg.color) forState:UIControlStateNormal];
-        if (ios_wants_font(&style))
-            b.titleLabel.font = ios_font(&style, b.titleLabel.font);
-        // UIButtonConfiguration needs iOS 15; the build's floor is 13.
-        if (style.padding_l || style.padding_t || style.padding_r || style.padding_b)
-            b.contentEdgeInsets = UIEdgeInsetsMake(style.padding_t, style.padding_l, style.padding_b, style.padding_r);
-        ios_surface(v, &style);
-        return;
-    }
-    if ([v isKindOfClass:[UILabel class]])
-    {
-        UILabel* l = (UILabel*)v;
-        if (style.fg.set)
-            l.textColor = ios_color(style.fg.color);
-        if (ios_wants_font(&style))
-            l.font = ios_font(&style, l.font);
-        ios_surface(v, &style);
-        return;
-    }
-    if ([v isKindOfClass:[UITextField class]])
-    {
-        UITextField* f = (UITextField*)v;
-        if (style.fg.set)
-            f.textColor = ios_color(style.fg.color);
-        if (ios_wants_font(&style))
-            f.font = ios_font(&style, f.font);
-        // The native bezel and a layer border would stack; drop the bezel
-        // only when the style draws its own edge.
-        if (style.border_color.set || style.border_width > 0 || style.corner_radius > 0)
-            f.borderStyle = UITextBorderStyleNone;
-        ios_surface(v, &style);
-        return;
-    }
-    if ([v isKindOfClass:[UISwitch class]])
-    {
-        if (style.fg.set)
-            ((UISwitch*)v).onTintColor = ios_color(style.fg.color);
-        return;
-    }
-    if ([v isKindOfClass:[UISlider class]])
-    {
-        UISlider* s = (UISlider*)v;
-        if (style.fg.set)
-        {
-            s.minimumTrackTintColor = ios_color(style.fg.color);
-            s.thumbTintColor = ios_color(style.fg.color);
-        }
-        return;
-    }
-    ios_surface(v, &style);
+    if ([obj isKindOfClass:[UIViewController class]] && s->bg.set)
+        ((UIViewController*)obj).view.backgroundColor = ios_color(s->bg.color);
 }
+
+void mel_label_set_style_opt(Mel_Gui_Handle h, Mel_Label_Style style)
+{
+    UIView* v = ios_view(h);
+    if (![v isKindOfClass:[UILabel class]])
+        return;
+    UILabel* l = (UILabel*)v;
+    if (style.fg.set)
+        l.textColor = ios_color(style.fg.color);
+    if (mel_font_any(&style.font))
+        l.font = ios_font(&style.font, l.font);
+    ios_surface(l, &style.surface);
+}
+
+void mel_button_set_style_opt(Mel_Gui_Handle h, Mel_Button_Style style)
+{
+    UIView* v = ios_view(h);
+    if (![v isKindOfClass:[UIButton class]])
+        return;
+    UIButton* b = (UIButton*)v;
+    if (style.fg.set)
+        [b setTitleColor:ios_color(style.fg.color) forState:UIControlStateNormal];
+    if (mel_font_any(&style.font))
+        b.titleLabel.font = ios_font(&style.font, b.titleLabel.font);
+    // UIButtonConfiguration needs iOS 15; the build's floor is 13.
+    const Mel_Style_Surface* s = &style.surface;
+    if (s->padding_l || s->padding_t || s->padding_r || s->padding_b)
+        b.contentEdgeInsets = UIEdgeInsetsMake(s->padding_t, s->padding_l, s->padding_b, s->padding_r);
+    ios_surface(b, s);
+}
+
+void mel_textfield_set_style_opt(Mel_Gui_Handle h, Mel_TextField_Style style)
+{
+    UIView* v = ios_view(h);
+    if (![v isKindOfClass:[UITextField class]])
+        return;
+    UITextField* f = (UITextField*)v;
+    if (style.fg.set)
+        f.textColor = ios_color(style.fg.color);
+    if (mel_font_any(&style.font))
+        f.font = ios_font(&style.font, f.font);
+    // The native bezel and a layer border would stack; drop the bezel
+    // only when the style draws its own edge.
+    if (style.surface.border_color.set || style.surface.border_width > 0 || style.surface.corner_radius > 0)
+        f.borderStyle = UITextBorderStyleNone;
+    ios_surface(f, &style.surface);
+}
+
+void mel_checkbox_set_style_opt(Mel_Gui_Handle h, Mel_CheckBox_Style style)
+{
+    UIView* v = ios_view(h);
+    if (![v isKindOfClass:[UISwitch class]])
+        return;
+    if (style.tint.set)
+        ((UISwitch*)v).onTintColor = ios_color(style.tint.color);
+    ios_surface(v, &style.surface);
+}
+
+void mel_slider_set_style_opt(Mel_Gui_Handle h, Mel_Slider_Style style)
+{
+    UIView* v = ios_view(h);
+    if (![v isKindOfClass:[UISlider class]])
+        return;
+    UISlider* s = (UISlider*)v;
+    if (style.track.set)
+        s.minimumTrackTintColor = ios_color(style.track.color);
+    if (style.thumb.set)
+        s.thumbTintColor = ios_color(style.thumb.color);
+    ios_surface(s, &style.surface);
+}
+
+void mel_groupbox_set_style_opt(Mel_Gui_Handle h, Mel_GroupBox_Style style) { ios_view_surface(h, &style.surface); }
+
+void mel_panel_set_style_opt(Mel_Gui_Handle h, Mel_Panel_Style style) { ios_view_surface(h, &style.surface); }
+
+void mel_canvas_set_style_opt(Mel_Gui_Handle h, Mel_Canvas_Style style) { ios_view_surface(h, &style.surface); }
+
+void mel_scrollview_set_style_opt(Mel_Gui_Handle h, Mel_ScrollView_Style style) { ios_view_surface(h, &style.surface); }
+
+void mel_splitter_set_style_opt(Mel_Gui_Handle h, Mel_Splitter_Style style) { ios_view_surface(h, &style.surface); }
+
+void mel_splitpane_set_style_opt(Mel_Gui_Handle h, Mel_SplitPane_Style style) { ios_view_surface(h, &style.surface); }
+
+void mel_tabview_set_style_opt(Mel_Gui_Handle h, Mel_TabView_Style style) { ios_view_surface(h, &style.surface); }
+
+void mel_tab_set_style_opt(Mel_Gui_Handle h, Mel_Tab_Style style) { ios_view_surface(h, &style.surface); }
+
+void mel_frame_set_style_opt(Mel_Gui_Handle h, Mel_Frame_Style style) { ios_controller_surface(h, &style.surface); }
+
+void mel_dialog_set_style_opt(Mel_Gui_Handle h, Mel_Dialog_Style style) { ios_controller_surface(h, &style.surface); }

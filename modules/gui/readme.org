@@ -330,14 +330,22 @@ internal =container_arrange= hook on the node — they are not =Mel_Layout=s.
 
 * Styling
 
-=<gui/style.h>= defines =Mel_Style=, embedded as =.style= in every widget opt
-and applied at runtime with =mel_gui_set_style= (backend-owned, like every
-op): font family/size/weight/italic, =fg=, =bg=, =border_color= +
-=border_width=, =corner_radius=, =padding_l/t/r/b=. Optional colors are
-=Mel_Style_Color= via =mel_style_rgb(a)= — the zero value means "the
-platform's native look", which is the meaningful zero of every field
-(MEL-CODE-007). =mel_gui_set_style= applies set fields and never resets unset
-ones; reset-to-native is deferred (=todo.org=).
+Styles are *per component*: each widget defines its own =Mel_<Widget>_Style=
+in its control header, exposing exactly the visual properties that widget
+supports — including widget-specific ones a shared struct could never carry
+(=Mel_Slider_Style.track/.thumb=, =Mel_CheckBox_Style.tint=,
+=Mel_GroupBox_Style.title_font/.title_fg=, =Mel_Splitter_Style.divider=).
+=<gui/style.h>= holds only the shared primitives the per-widget structs
+compose: =Mel_Style_Color= (set-flag optional color, =mel_style_rgb(a)=),
+=Mel_Font= (family/size/weight/italic) and =Mel_Style_Surface= (bg, border,
+corner radius, padding — the box around the content).
+
+Each widget opt embeds its =.style=, and each widget has its own setter op,
+=mel_<widget>_set_style(h, ...)= (a designated-initializer macro over
+=mel_<widget>_set_style_opt=, backend-owned like every op). The zero value of
+every field means "the platform's native look" (MEL-CODE-007); setters apply
+set fields and never reset unset ones; reset-to-native is deferred
+(=todo.org=).
 
 *Native first, per-property emulation.* Every property a platform expresses
 natively maps natively. A property the platform lacks is emulated in the
@@ -350,6 +358,10 @@ custom-drawn. The honesty matrix:
 |---------------+--------+--------------------------------+------------------------+------------------------+------------------------------------+-----|
 | font          | native | native (=NSFont=)              | native (=UIFont=)      | native (=Typeface=)    | native (=WM_SETFONT=)              | —   |
 | fg            | native | native / =attributedTitle=     | native                 | native                 | native (=WM_CTLCOLOR*=); push-button needs owner-draw (=todo=) | —   |
+| slider track/thumb | track: =accent-color=; thumb gap | track: =trackFillColor=; thumb gap | both native (tints) | both native (tints) | gap (comctl owner-drawn) | —   |
+| checkbox tint | =accent-color= | gap (glyph has no API) | native (=onTintColor=) | native (=setButtonTintList=) | gap (theme-drawn) | —   |
+| groupbox title | native (=<legend>=) | font only (=titleFont=) | gap (no native title) | native (title view) | native (caption font + =WM_CTLCOLOR*=) | —   |
+| splitter divider | gap (no divider element) | gap (read-only) | gap | native (divider paint) | bg-brush (divider = background) | —   |
 | bg            | native | native or layer; button drops bezel only when bg/radius set | native       | =GradientDrawable=     | native (=WM_CTLCOLOR*= / =WM_ERASEBKGND=) | =CW_BACK_PIXEL= |
 | border        | native | layer                          | layer                  | =GradientDrawable= stroke | gap (=WM_NCPAINT=, =todo=)        | —   |
 | corner radius | native | layer                          | layer                  | =GradientDrawable=     | =SetWindowRgn= (hard-edged)        | —   |
