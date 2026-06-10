@@ -20,7 +20,7 @@ then the remaining backends were brought to the growable-bindless level where th
   `metal_bindless.heap_grows_past_seed` (grow past seed, dispatch through a post-grow slot,
   readback); cube/texquad/plasma screens clean on `--gpu=metal`.
 
-**D3D12 (B4 — implemented, UNTESTED: win-pilot unreachable all session).**
+**D3D12 (B4 — implemented and tested on win-pilot: 23 passed / 1 interactive-swapchain skip of 24, debug layer on, RTX 2060 SUPER; `d3d12_bindless.heap_grows_past_seed` exercises a real grow 1024→2048).**
 - B3 (slot reclaim) was found already realized — destroys future-gate via
   `table_remove_deferred` + `has_reclaim`; the round-3 "no slot reclaim" debt note was stale.
 - Root signatures no longer bake heap capacities or sub-range offsets: the bindless block emits
@@ -43,18 +43,27 @@ floor until M4 sized binding arrays / `GPUResourceTable`).
 
 ## Kludges
 
-- **D3D12 work is committed untested.** win-pilot never became reachable; the code compiles on no
-  local toolchain (win32-only sources). First action when the box is up:
-  `ssh win-pilot "cd /d D:\repo\OrgWall && git pull --ff-only && C:\Users\Gabbo\dev.cmd nob test gpu-d3d12 win32 --gpu=d3d12"`.
-  Expect debug-layer feedback on the unbounded-range root signatures and the mirror-copy path.
+- **win-pilot build environment grew hands.** Getting the suite to run surfaced four pre-existing
+  win32 walls, all fixed or worked around this session:
+  - `temperature → math → mpfr → gmp` is in the gpu closure; gmp/mpfr need autotools, which needs a
+    POSIX shell + m4. MSYS2 was already on the box (choco, `C:\tools\msys64`); `unzip` was added via
+    pacman. Builds need `C:\tools\msys64\usr\bin` appended to PATH (after vcvars so MSVC's link.exe
+    wins) — dev.cmd should probably append it permanently.
+  - nob emits ninja rules for **every** discovered target (`mel_topo_all`), so any broken target
+    sinks unrelated builds; an untracked empty-src skeleton `modules/loop` on the box broke
+    everything and is parked at `D:\repo\OrgWall\_parked_loop_module` (not deleted — someone's WIP).
+  - Two executables in one module collided on the win32 resource rule (`app.rc`/`app.res` written at
+    the module outdir). Fixed: per-target `<name>.rc`/`<name>.res` (modules/build/package.c, emit.c).
+  - The box carried uncommitted Vulkan swapchain robustness fixes (surface-caps failure handling,
+    resize guard); they are preserved in the working tree and deserve a commit.
 - **D3D12 whole-heap rebuild per class grow.** Growing any class rebuilds the entire CBV/SRV/UAV
   heap (all four classes' descriptors copied) because the classes share one shader-visible heap.
   Amortized fine (geometric), but a grow-heavy startup pays 4-way copies; pre-sizing (B5) is the fix.
 - **Metal unregister reads `dev->submit_serial` without `submit_lock`** (aligned u64 load on
   Apple targets). Same convention as the marker stamping elsewhere on that backend, but it is a
   relaxed read where Vulkan takes the lock.
-- **No D3D12 grow test exists yet** — `test_d3d12.c` needs a `heap_grows_past_seed` analog once
-  the box is reachable.
+- **nob's whole-graph emission remains** (`mel_topo_all` in emit.c): a broken target anywhere still
+  sinks every build. Closure-scoped emission would honor MEL-ENGINE-III; left untouched this session.
 
 ## CLAUDE.md suggestions
 

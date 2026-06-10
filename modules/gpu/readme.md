@@ -62,7 +62,10 @@ descriptor-set path**.
   old→new capacity. Classes whose driver charges pools at layout size (MoltenVK buffer classes)
   allocate at the wall up front and never grow. Non-growable devices keep fixed caps. **Metal** grows
   the same way (argument-buffer table copy + swap; in-flight safety via Metal's command-buffer
-  retention) with watermark-deferred reclaim and batched residency commits.
+  retention) with watermark-deferred reclaim and batched residency commits. **D3D12** grows the
+  classic heap the same way (per-class unbounded root-signature tables, CPU mirror heap as the copy
+  source, COM-refcount epoch retire); resource classes seed 1024 with a 250k/class wall, samplers
+  stay at the 2048 sampler-heap wall.
 - **Indirect family.** `handle.h` provides `MEL_GPU_HANDLE_INDIRECT` (slot carried separately,
   resolved via `*_bindless_slot`). The realized public surface uses it for **one type only** —
   `Mel_Gpu_Sampler_Indirect` — and it is **engine-owned** (the compacted-heap / capped-bindless form);
