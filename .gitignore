@@ -47,7 +47,7 @@ cmake-build-debug
 out/build/x64-Debug
 /build/
 .vscode
-.cache/clangd/index
+.cache/
 .claude
 .DS_Store
 *.exp
@@ -67,6 +67,8 @@ bought_assets
 .superset
 compile_commands.json
 
+*.cache
+
 # Dawn source, shallow-cloned on demand for the Android from-source webgpu build
 /third-party/webgpu/dawn/
 
@@ -80,4 +82,3 @@ captures/
 *.aab
 /.ninja_deps
 /.ninja_log
-/modules/build/.cache/clangd/index
