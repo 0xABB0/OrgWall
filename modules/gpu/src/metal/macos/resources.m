@@ -99,6 +99,8 @@ void mel_gpu_buffer_destroy(Mel_Gpu_Device* dev, Mel_Gpu_Buffer buf)
     Mel_Gpu_Buffer_Obj* o = mel_gpu__table_get(dev, &dev->buffers, buf.slot);
     if (!o)
         return;
+    mel_gpu__bindless_unregister(dev, MEL_GPU_BINDLESS_BINDING_STORAGE_BUFFER, buf.slot.index);
+    mel_gpu__bindless_unregister(dev, MEL_GPU_BINDLESS_BINDING_UNIFORM_BUFFER, buf.slot.index);
     if (o->buf)
     {
         id mb = (__bridge_transfer id)o->buf;
@@ -382,6 +384,8 @@ void mel_gpu_texture_view_destroy(Mel_Gpu_Device* dev, Mel_Gpu_Texture_View view
     Mel_Gpu_Texture_View_Obj* o = mel_gpu__table_get(dev, &dev->texture_views, view.slot);
     if (!o)
         return;
+    mel_gpu__bindless_unregister(dev, MEL_GPU_BINDLESS_BINDING_SAMPLED_IMAGE, view.slot.index);
+    mel_gpu__bindless_unregister(dev, MEL_GPU_BINDLESS_BINDING_STORAGE_IMAGE, view.slot.index);
     if (o->view)
     {
         id v = (__bridge_transfer id)o->view;
@@ -462,6 +466,7 @@ void mel_gpu_sampler_destroy(Mel_Gpu_Device* dev, Mel_Gpu_Sampler sampler)
     Mel_Gpu_Sampler_Obj* o = mel_gpu__table_get(dev, &dev->samplers, sampler.slot);
     if (!o)
         return;
+    mel_gpu__bindless_unregister(dev, MEL_GPU_BINDLESS_BINDING_SAMPLER, sampler.slot.index);
     if (o->sampler)
     {
         id s = (__bridge_transfer id)o->sampler;

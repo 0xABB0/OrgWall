@@ -90,6 +90,7 @@ Mel_Gpu_Future* mel_gpu_queue_submit(Mel_Gpu_Queue* q, Mel_Gpu_Submit submit)
 
     u64             serial = mel_gpu__submit_serial_next(dev);
     Mel_Gpu_Future* f = mel_gpu_future_create(dev->pump, dev->vat);
+    mel_gpu__bindless_residency_flush(dev);
 
     for (u32 i = 0; i < submit.command_list_count; i++)
     {

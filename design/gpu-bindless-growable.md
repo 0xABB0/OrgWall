@@ -2,7 +2,7 @@
 
 Granular spec for the deferred bindless restructure. Replaces the fixed-capacity heap (over-capacity creation fails with `..._CREATE_BINDLESS_SLOT_EXHAUSTED`) with a grow-on-demand partition that preserves the §3.1 `slot == handle.index` contract. Bound by `design/gpu-rhi.md` §3.1 (handle identity, direct/indirect), §3.3 (future-gated retire), §3.4 (caps), §6.7 (binding model), §13 (module structure). Cites `MEL-ENGINE-N` where a decision turns on a commandment.
 
-B1 (Vulkan set-split) and B2 (Vulkan grow) are **realized**; D3D12 (B3/B4), the pre-sizing surface (B5), the ceiling rungs (B6) and the WebGPU floor (B7) remain target-state. See "Realization status" at the end of each unit. The Metal backend landed after this spec was written and has no lowering rung here; growable Metal (tier-2 argument-buffer heap) is owed a §4 entry and an implementation.
+B1 (Vulkan set-split), B2 (Vulkan grow) and the Metal rung (§4.5: argument-buffer grow + deferred reclaim + batched residency) are **realized**; D3D12 (B3/B4), the pre-sizing surface (B5), the ceiling rungs (B6) and the WebGPU floor (B7) remain target-state. See "Realization status" at the end of each unit.
 
 ---
 
@@ -30,7 +30,7 @@ The set index per class is **fixed and part of the pipeline-layout contract**: a
 
 The "5" is the floor, not a ceiling. The AS class (`Mel_Gpu_Accel_Struct` bindless, §6.6, M3) is set 5 when `ray_tracing` is granted; mutable-descriptor collapse (§6.7, `mutable_descriptor_type`) folds classes into one set sized to the kind union, which is the *fewer-sets* direction and is compatible — a mutable layout is one grown set carrying the union, the per-class layout is N grown sets, both lower from the same source declaration (§6.4 `melody.binding` mixin).
 
-**WebGPU floor exception.** WebGPU's `maxBindGroups = 4` cannot host five sets. The §6.7 4-bind-group packing (group 0 root record, group 1 textures, group 2 samplers, group 3 SSBO+UBO dual-entry) stands unchanged; growth on WebGPU is recreation of the affected bind group (§4.5). The 5-set partition is the native/desktop shape; WebGPU keeps its 4-group packing and grows by bind-group reconstruction.
+**WebGPU floor exception.** WebGPU's `maxBindGroups = 4` cannot host five sets. The §6.7 4-bind-group packing (group 0 root record, group 1 textures, group 2 samplers, group 3 SSBO+UBO dual-entry) stands unchanged; growth on WebGPU is recreation of the affected bind group (§4.6). The 5-set partition is the native/desktop shape; WebGPU keeps its 4-group packing and grows by bind-group reconstruction.
 
 ### Realization status
 Realized (Vulkan): five sets, one binding each; shaders address `set = class, binding = 0`; the pipeline layout of a `bindless = true` pipeline carries all five class layouts (static-sampler set follows at set 5). Reflection tracks (set, binding) pairs; the heap signature is a runtime array at binding 0 of a class set. Target: AS set 5 (M3), mutable collapse.
@@ -115,12 +115,18 @@ Five `UPDATE_AFTER_BIND` + `PARTIALLY_BOUND` + `UPDATE_UNUSED_WHILE_PENDING` des
 
 D3D12's no-prerequisite sub-unit is **classic-heap reclaim** (§6), because it is a pure addition (wire existing free-list to existing pump) and unblocks every classic-path renderer regardless of grow.
 
-### 4.5 WebGPU — 4-bind-group floor
+### 4.5 Metal — tier-2 argument-buffer heap
+
+The Metal heap is five per-class `MTLBuffer` tables of 8-byte entries (`MTLResourceID` for images/samplers, `gpuAddress` for buffers), bound at fixed buffer indices — the §4.2 descriptor-buffer shape exactly. Grow = allocate a larger `MTLBuffer`, `memcpy` the old table (entries are position-independent), swap, release the engine's reference to the old buffer — **no epoch machinery**: Metal command buffers retain directly-bound buffers, so in-flight encodings keep the old table alive natively (the idiomatic lowering of §3's pool reclaim). `slot == handle.index` holds: entry `k` lives at `k * 8` in both tables.
+
+Reclaim is the part Metal cannot get for free: bindless resources are *not* encoder-referenced (that is what `MTLResidencySet` exists for), so destroy defers the side-table release and the residency-set removal on the submit-serial watermark — release fires only once every submission issued before the destroy completes. Residency-set `commit`/`requestResidency` is batched: registrations and drained removals mark the set dirty; the flush runs once per queue submit / frame end, replacing the per-registration commit (the round-3 O(N) debt).
+
+### 4.6 WebGPU — 4-bind-group floor
 
 No 5-set partition (`maxBindGroups = 4`); the §6.7 packing stands. Grow = reconstruct the affected bind group at the larger `sized binding array` size and rebind. WebGPU bind groups are immutable post-create, so "grow" is "create a new bind group, copy nothing (descriptors are the resource references the engine re-supplies from slot metadata), bind the new group." Future-gate the old group's drop. `GPUResourceTable` (Milestone 3, when it lands) makes this a true growable table; until then sized-binding-arrays + group reconstruction is the honest floor (MEL-ENGINE-VII: degrade gracefully, do not deform). Past the WebGPU hardware array cap, creation hard-errors (P1 sync-impossible refinement, §6.7).
 
 ### Realization status
-Realized rungs: Vulkan `descriptor_indexing` five-set partition with grow + reclaim (§4.1, via variable-count sets — see §2 realization note). Target rungs: D3D12 classic heap reclaim + grow (B3/B4); `descriptor_buffer` / `descriptor_heap` / `ResourceDescriptorHeap` ceilings additive; WebGPU bind-group reconstruction (B7); Metal (no rung specified yet — owed).
+Realized rungs: Vulkan `descriptor_indexing` five-set partition with grow + reclaim (§4.1, via variable-count sets — see §2 realization note); Metal argument-buffer grow + watermark-deferred reclaim + batched residency (§4.5). Target rungs: D3D12 classic heap reclaim + grow (B3/B4); `descriptor_buffer` / `descriptor_heap` / `ResourceDescriptorHeap` ceilings additive; WebGPU bind-group reconstruction (B7).
 
 ---
 
@@ -145,7 +151,7 @@ Per the new-feature workflow (spec → granular → implement no-prereq-first). 
 - **B4 — D3D12 classic-heap grow (depends: B3).** `CopyDescriptorsSimple` to a larger heap + `SetDescriptorHeaps` + unbounded-range root signature + future-gated old-heap release (§4.4).
 - **B5 — pre-sizing surface (depends: B2 or B4).** `bindless_heap_create` seed/growth_factor params (§5); grow U2 warning.
 - **B6 — ceiling rungs (depends: B2; additive).** `descriptor_buffer` (§4.2), `descriptor_heap` (§4.3), D3D12 `ResourceDescriptorHeap` (§4.4 ceiling). Each is purely additive — a granted rung replaces the grow *mechanism* for that backend without touching the public surface.
-- **B7 — WebGPU growable floor (depends: M4 WebGPU backend).** Bind-group reconstruction grow (§4.5); `GPUResourceTable` when it lands.
+- **B7 — WebGPU growable floor (depends: M4 WebGPU backend).** Bind-group reconstruction grow (§4.6); `GPUResourceTable` when it lands.
 - **B8 — AS bindless class (depends: B1, M3 ray tracing).** Append set 5 for `Mel_Gpu_Accel_Struct` bindless (§1, §6.6); additive.
 
 B1 and B3 are the two no-prerequisite roots; they are independent (different backends) and can be done concurrently by different agents.
