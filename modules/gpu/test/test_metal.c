@@ -16,6 +16,7 @@
 #include <gpu/state.h>
 #include <gpu/future.h>
 
+#include <allocator/heap.h>
 #include <log/log.h>
 
 #include <stdio.h>
@@ -711,6 +712,9 @@ MEL_TEST(metal_bindless, heap_caps_reported)
     MEL_EXPECT_EQ((int)caps->memory.bindless.root_record_payload, (int)MEL_GPU_ROOT_RECORD_PAYLOAD_MIXED);
     MEL_EXPECT(caps->memory.bindless.max_storage_buffer_slots > 0);
     MEL_EXPECT(caps->memory.bindless.max_sampler_slots > 0);
+    MEL_EXPECT(caps->memory.bindless.growable);
+    MEL_EXPECT(caps->memory.bindless.seed_storage_buffer_slots > 0);
+    MEL_EXPECT(caps->memory.bindless.seed_storage_buffer_slots < caps->memory.bindless.max_storage_buffer_slots);
 
     mel_gpu_device_destroy(dev);
     mel_gpu_instance_destroy(inst);
@@ -816,6 +820,86 @@ MEL_TEST(metal_bindless, compute_storage_buffer)
     mel_gpu_shader_destroy(dev, sh.value);
     for (u32 k = 0; k < K; k++)
         mel_gpu_buffer_destroy(dev, bufs[k]);
+    mel_gpu_device_destroy(dev);
+    mel_gpu_instance_destroy(inst);
+}
+
+MEL_TEST(metal_bindless, heap_grows_past_seed)
+{
+    Mel_Gpu_Instance* inst = NULL;
+    Mel_Gpu_Device*   dev = test_make_device_bindless(&inst);
+    MEL_REQUIRE_NOT_NULL(dev);
+    MEL_REQUIRE(mel_gpu_bindless_available(dev));
+
+    const Mel_Gpu_Caps* caps = mel_gpu_device_caps(dev);
+    MEL_REQUIRE(caps->memory.bindless.growable);
+    u32 seed = caps->memory.bindless.seed_storage_buffer_slots;
+    MEL_REQUIRE(seed < caps->memory.bindless.max_storage_buffer_slots);
+
+    const u32        N = 64;
+    const Mel_Alloc* alloc = mel_alloc_heap();
+    u32              count = seed + 8;
+    Mel_Gpu_Buffer*  bufs = mel_alloc_array(alloc, Mel_Gpu_Buffer, count);
+    u32              max_slot = 0, max_at = 0;
+    for (u32 i = 0; i < count; i++)
+    {
+        Mel_Gpu_Buffer_Create_Result b = mel_gpu_buffer_create(dev, .size = (usize)N * sizeof(u32), .usage = MEL_GPU_BUFFER_STORAGE, .memory = MEL_GPU_MEMORY_READBACK, .name = "grow-out");
+        MEL_REQUIRE(!mel_gpu_failed(b.status));
+        bufs[i] = b.value;
+        u32 slot = mel_gpu_buffer_bindless_slot(dev, b.value);
+        MEL_EXPECT_EQ(slot, b.value.slot.index);
+        if (slot > max_slot)
+        {
+            max_slot = slot;
+            max_at = i;
+        }
+    }
+    MEL_REQUIRE(max_slot >= seed);
+
+    Mel_Gpu_Shader_Create_Result sh = mel_gpu_shader_create_compute_from_bytecode(dev,
+                                                                                  .target = MEL_GPU_SHADER_TARGET_MSL,
+                                                                                  .compute_blob = BINDLESS_FILL_COMP_MSL,
+                                                                                  .compute_blob_size = sizeof BINDLESS_FILL_COMP_MSL,
+                                                                                  .entry = "cs_main",
+                                                                                  .name = "grow-fill");
+    MEL_REQUIRE(!mel_gpu_failed(sh.status));
+    Mel_Gpu_Pipeline_Create_Result pipe = mel_gpu_pipeline_compute_create(dev, .shader = sh.value, .bindless = true, .name = "grow-fill");
+    MEL_REQUIRE(!mel_gpu_failed(pipe.status));
+
+    struct
+    {
+        u32 count;
+        u32 n;
+        u32 slot[8];
+    } root = { 1, N, { max_slot } };
+
+    Mel_Gpu_Queue*        q = mel_gpu_queue_request(dev, MEL_GPU_QUEUE_GRAPHICS);
+    Mel_Gpu_Command_List* cmd = mel_gpu_command_list_create(q);
+    mel_gpu_command_list_begin(cmd);
+    mel_gpu_cmd_bind_pipeline(cmd, pipe.value);
+    mel_gpu_cmd_bind_bindless(cmd);
+    mel_gpu_cmd_push_constants(cmd, 0, sizeof root, &root);
+    mel_gpu_cmd_dispatch(cmd, (N + 31) / 32, 1, 1);
+    mel_gpu_command_list_end(cmd);
+    Mel_Gpu_Future* f = mel_gpu_queue_submit(q, (Mel_Gpu_Submit){ .command_lists = &cmd, .command_list_count = 1 });
+    MEL_EXPECT(mel_gpu_ok(mel_gpu_future_wait(f)));
+    mel_gpu_future_destroy(f);
+
+    const u32* out = mel_gpu_buffer_mapped(dev, bufs[max_at]);
+    MEL_REQUIRE_NOT_NULL(out);
+    bool ok = true;
+    for (u32 i = 0; i < N; i++)
+        if (out[i] != 1000u + i * 3u + 7u)
+            ok = false;
+    MEL_EXPECT(ok);
+
+    mel_gpu_command_list_destroy(cmd);
+    mel_gpu_queue_release(q);
+    mel_gpu_pipeline_destroy(dev, pipe.value);
+    mel_gpu_shader_destroy(dev, sh.value);
+    for (u32 i = 0; i < count; i++)
+        mel_gpu_buffer_destroy(dev, bufs[i]);
+    mel_dealloc(alloc, bufs);
     mel_gpu_device_destroy(dev);
     mel_gpu_instance_destroy(inst);
 }

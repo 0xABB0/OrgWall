@@ -159,17 +159,24 @@ enum
 
 typedef struct
 {
-    bool      enabled;
-    void*     heaps[MEL_GPU_BINDLESS_BINDING_COUNT];
-    void**    resources[MEL_GPU_BINDLESS_BINDING_COUNT];
-    u32       caps[MEL_GPU_BINDLESS_BINDING_COUNT];
-    void*     residency;
-    u32       cap_sampled_image;
-    u32       cap_sampler;
-    u32       cap_storage_buffer;
-    u32       cap_uniform_buffer;
-    u32       cap_storage_image;
-    Mel_Mutex lock;
+    u64   marker;
+    void* res;
+    bool  remove_residency;
+} Mel_Gpu_Mtl_Bindless_Deferred;
+
+typedef struct
+{
+    bool                           enabled;
+    void*                          heaps[MEL_GPU_BINDLESS_BINDING_COUNT];
+    void**                         resources[MEL_GPU_BINDLESS_BINDING_COUNT];
+    u32                            caps[MEL_GPU_BINDLESS_BINDING_COUNT];
+    u32                            hw_max[MEL_GPU_BINDLESS_BINDING_COUNT];
+    void*                          residency;
+    bool                           residency_dirty;
+    Mel_Gpu_Mtl_Bindless_Deferred* deferred;
+    u32                            deferred_count;
+    u32                            deferred_cap;
+    Mel_Mutex                      lock;
 } Mel_Gpu_Bindless;
 
 struct Mel_Gpu_Device
@@ -302,6 +309,9 @@ void mel_gpu__bindless_register_storage_image(Mel_Gpu_Device* dev, u32 slot, id<
 void mel_gpu__bindless_register_storage_buffer(Mel_Gpu_Device* dev, u32 slot, id<MTLBuffer> buf);
 void mel_gpu__bindless_register_uniform_buffer(Mel_Gpu_Device* dev, u32 slot, id<MTLBuffer> buf);
 void mel_gpu__bindless_register_sampler(Mel_Gpu_Device* dev, u32 slot, id<MTLSamplerState> sampler);
+void mel_gpu__bindless_unregister(Mel_Gpu_Device* dev, u32 binding_class, u32 slot);
+void mel_gpu__bindless_residency_flush(Mel_Gpu_Device* dev);
+void mel_gpu__bindless_drain(Mel_Gpu_Device* dev, u64 watermark);
 void mel_gpu__bindless_bind_render(Mel_Gpu_Device* dev, id<MTLRenderCommandEncoder> enc);
 void mel_gpu__bindless_bind_compute(Mel_Gpu_Device* dev, id<MTLComputeCommandEncoder> enc);
 

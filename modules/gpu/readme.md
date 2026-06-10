@@ -60,8 +60,9 @@ descriptor-set path**.
   submission that bound them resolves. `..._CREATE_BINDLESS_SLOT_EXHAUSTED` fires only at the device
   wall (`caps.memory.bindless.max_*_slots`); each grow logs a warning naming the class and the
   old→new capacity. Classes whose driver charges pools at layout size (MoltenVK buffer classes)
-  allocate at the wall up front and never grow. Non-growable devices keep fixed caps; Metal keeps
-  its fixed argument-buffer heap (growable Metal is owed).
+  allocate at the wall up front and never grow. Non-growable devices keep fixed caps. **Metal** grows
+  the same way (argument-buffer table copy + swap; in-flight safety via Metal's command-buffer
+  retention) with watermark-deferred reclaim and batched residency commits.
 - **Indirect family.** `handle.h` provides `MEL_GPU_HANDLE_INDIRECT` (slot carried separately,
   resolved via `*_bindless_slot`). The realized public surface uses it for **one type only** —
   `Mel_Gpu_Sampler_Indirect` — and it is **engine-owned** (the compacted-heap / capped-bindless form);

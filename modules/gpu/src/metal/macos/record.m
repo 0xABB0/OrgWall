@@ -82,6 +82,7 @@ void mel_gpu_frame_end(Mel_Gpu_Swapchain* sc)
         mel_gpu__submit_complete(bdev, bserial);
     }];
 
+    mel_gpu__bindless_residency_flush(dev);
     [sc->recorder.cb commit];
 
     sc->recorder.cb = nil;

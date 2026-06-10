@@ -200,7 +200,9 @@ void mel_gpu__submit_complete(Mel_Gpu_Device* dev, u64 serial)
     mel_mutex_lock(&dev->submit_lock);
     if (serial > dev->submit_completed)
         dev->submit_completed = serial;
+    u64 wm = dev->submit_completed;
     mel_mutex_unlock(&dev->submit_lock);
+    mel_gpu__bindless_drain(dev, wm);
 }
 
 Mel_Gpu_Memory_Budget mel_gpu_memory_budget(Mel_Gpu_Device* dev)
