@@ -67,6 +67,8 @@ bought_assets
 .superset
 compile_commands.json
 
+.cache/
+
 # Dawn source, shallow-cloned on demand for the Android from-source webgpu build
 /third-party/webgpu/dawn/
 
@@ -80,4 +82,3 @@ captures/
 *.aab
 /.ninja_deps
 /.ninja_log
-/modules/build/.cache/clangd/index
