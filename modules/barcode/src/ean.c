@@ -1,5 +1,7 @@
 #include <barcode/ean.h>
 
+#include "paint.h"
+
 #include <string.h>
 
 static const u8 mel__ean_l[10] = {
@@ -41,25 +43,6 @@ static i32 mel__checkdigit(const char* digits, i32 n)
 i32 mel_ean13_checkdigit(const char* digits12) { return mel__checkdigit(digits12, 12); }
 
 i32 mel_ean8_checkdigit(const char* digits7) { return mel__checkdigit(digits7, 7); }
-
-typedef struct mel__painter
-{
-    mel_barcode_matrix* m;
-    i32                 x;
-} mel__painter;
-
-static void mel__paint_bits(mel__painter* p, u8 value, i32 bit_count)
-{
-    for (i32 i = 0; i < bit_count; ++i)
-    {
-        bool dark = ((value >> (bit_count - 1 - i)) & 1) != 0;
-        if (dark)
-        {
-            mel_barcode_matrix_fill_column(p->m, p->x, true);
-        }
-        p->x += 1;
-    }
-}
 
 static bool mel__emit_ean13(mel_barcode_matrix* out, const char* d13, i32 height, const Mel_Alloc* allocator)
 {
