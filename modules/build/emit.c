@@ -319,9 +319,12 @@ static char* emit_one(FILE* f, Mel_Graph* g, size_t idx, const Mel_Variant* v, M
             mel_da_push(&ldflags, mel_str_dup("-landroid"));
         }
 
-        bool win32_gui = !host && v->platform == MEL_PLATFORM_WIN32 && t->kind == MEL_KIND_EXECUTABLE && t->subsystem && strcmp(t->subsystem, "gui") == 0;
+        bool win32_exe = !host && v->platform == MEL_PLATFORM_WIN32 && t->kind == MEL_KIND_EXECUTABLE;
+        bool win32_gui = win32_exe && t->subsystem && strcmp(t->subsystem, "gui") == 0;
         if (win32_gui)
             mel_da_push(&ldflags, mel_str_dup("-Wl,/subsystem:windows"));
+        else if (win32_exe)
+            mel_da_push(&ldflags, mel_str_dup("-Wl,/subsystem:console"));
 
         if (!host && v->platform == MEL_PLATFORM_WIN32)
         {
