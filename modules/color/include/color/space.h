@@ -27,6 +27,9 @@ typedef struct mel_color_space
     mel_white_point  white;
     float (*to_linear)(float c);
     float (*to_encoded)(float c);
+    float   to_xyz[9];
+    float   from_xyz[9];
+    uint8_t matrices_valid;
 } mel_color_space;
 
 mel_color_space mel_color_space_srgb(void);

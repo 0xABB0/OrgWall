@@ -186,18 +186,44 @@ mel_color_space mel_color_space_aces2065_1(void)
     };
 }
 
-static Mel_Mat3 mel__space_to_xyz(const mel_color_space* s)
+static void mel__space_ensure_matrices(const mel_color_space* s)
 {
-    Mel_Vec3 r = mel__chromaticity_xyz(s->red.x, s->red.y);
-    Mel_Vec3 g = mel__chromaticity_xyz(s->green.x, s->green.y);
-    Mel_Vec3 b = mel__chromaticity_xyz(s->blue.x, s->blue.y);
-    Mel_Mat3 primaries = mel__mat3_cols(r, g, b);
-    Mel_Vec3 w = mel__chromaticity_xyz(s->white.x, s->white.y);
-    Mel_Vec3 scale = mel_mat3_mul_vec3(mel_mat3_inverse(primaries), w);
-    return mel__mat3_cols(mel__vec3_scale(r, scale.x), mel__vec3_scale(g, scale.y), mel__vec3_scale(b, scale.z));
+    if (s->matrices_valid)
+        return;
+    mel_color_space* m = (mel_color_space*)s;
+    Mel_Vec3         r = mel__chromaticity_xyz(s->red.x, s->red.y);
+    Mel_Vec3         g = mel__chromaticity_xyz(s->green.x, s->green.y);
+    Mel_Vec3         b = mel__chromaticity_xyz(s->blue.x, s->blue.y);
+    Mel_Mat3         primaries = mel__mat3_cols(r, g, b);
+    Mel_Vec3         w = mel__chromaticity_xyz(s->white.x, s->white.y);
+    Mel_Vec3         scale = mel_mat3_mul_vec3(mel_mat3_inverse(primaries), w);
+    Mel_Mat3         to = mel__mat3_cols(mel__vec3_scale(r, scale.x), mel__vec3_scale(g, scale.y), mel__vec3_scale(b, scale.z));
+    Mel_Mat3         from = mel_mat3_inverse(to);
+    for (int i = 0; i < 9; i++)
+    {
+        m->to_xyz[i] = to.e[i];
+        m->from_xyz[i] = from.e[i];
+    }
+    m->matrices_valid = 1;
 }
 
-static Mel_Mat3 mel__space_from_xyz(const mel_color_space* s) { return mel_mat3_inverse(mel__space_to_xyz(s)); }
+static Mel_Mat3 mel__space_to_xyz(const mel_color_space* s)
+{
+    mel__space_ensure_matrices(s);
+    Mel_Mat3 m;
+    for (int i = 0; i < 9; i++)
+        m.e[i] = s->to_xyz[i];
+    return m;
+}
+
+static Mel_Mat3 mel__space_from_xyz(const mel_color_space* s)
+{
+    mel__space_ensure_matrices(s);
+    Mel_Mat3 m;
+    for (int i = 0; i < 9; i++)
+        m.e[i] = s->from_xyz[i];
+    return m;
+}
 
 mel_xyz mel_linear_rgb_to_xyz(mel_color linear, const mel_color_space* s)
 {
