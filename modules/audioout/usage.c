@@ -1,4 +1,6 @@
 #include <audioout/audioout.h>
+#include <audioout/events.h>
+#include <audioout/os.h>
 
 #include <allocator/allocator.h>
 #include <executor/executor.h>

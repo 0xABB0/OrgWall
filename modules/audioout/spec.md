@@ -9,6 +9,14 @@ with two deliberate differences: no consent surface (nothing gates output;
 ceremony that always answers granted would lie — MEL-ENGINE-V), and a pull
 stream plane (output devices ask for frames on their clock).
 
+## Headers
+
+- `<audioout/audioout.h>` — identity: handles, kinds, descriptors, registry,
+  default, volume/mute.
+- `<audioout/events.h>` — hotplug events and subscriptions.
+- `<audioout/os.h>` — OS integration: publish plane, native handles.
+- `<audioout/provider.h>` — the provider plugin contract.
+
 ## Identity
 
 Identical contract to `audioin`: generational `Mel_AudioOut` handle for
@@ -39,7 +47,9 @@ Caps-gated OS endpoint volume — the settings-panel/kiosk knob, distinct from
 the engine's `master_volume` (which scales the mix, not the device):
 `volume(dev)` / `set_volume(dev, v)` in `[0, 1]`, `muted(dev)` /
 `set_muted(dev, b)`. `!caps.volume` fails `ERROR | UNSUPPORTED`. External
-volume changes surface as hotplug `changed` events.
+volume changes surface as hotplug `changed` events: the provider's raw
+descriptor carries `volume`/`muted` shadows solely so reconciliation can
+detect them; the live getters always ask the provider.
 
 ## Provider plugin
 
@@ -48,7 +58,8 @@ Host OS is provider 0; virtual sinks register the same way (MEL-ENGINE-IX).
 ```
 Mel_AudioOut_Provider_Desc {
     name, user,
-    enumerate(raw out, cap)
+    enumerate(fn, fn_user)           // calls fn per device; provider-interned str8s, valid
+                                     // until next enumerate/shutdown; fn false = stop
     default_id() -> str8
     open(stable_id, req format, granted format*, pull, token)   // negotiate, hold
     start(stable_id, token)                                     // provider begins pulling

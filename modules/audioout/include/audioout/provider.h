@@ -17,7 +17,11 @@ typedef struct
     const u32*               samplerates;
     u32                      samplerate_count;
     Mel_AudioOut_Caps        caps;
+    f32                      volume;
+    bool                     muted;
 } Mel_AudioOut_Raw;
+
+typedef bool (*Mel_AudioOut_Enum_Fn)(const Mel_AudioOut_Raw* raw, void* user);
 
 typedef struct
 {
@@ -33,7 +37,7 @@ typedef struct
     const char* name;
     void*       user;
 
-    u32 (*enumerate)(void* user, Mel_AudioOut_Raw* out, u32 cap);
+    void (*enumerate)(void* user, Mel_AudioOut_Enum_Fn fn, void* fn_user);
     str8 (*default_id)(void* user);
 
     Mel_AudioOut_Status (*open)(void* user, str8 stable_id, Mel_AudioOut_Format req, Mel_AudioOut_Format* granted, Mel_AudioOut_Pull_Fn pull, void* token);
