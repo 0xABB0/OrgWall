@@ -2,7 +2,7 @@
 
 ## MEL-ENGINE-I: Thou shalt not shy from the hard problem
 
-The engine shall embrace every feature the domain demandeth. Where a capability existeth — in hardware, in protocol, in platform — the engine shall not pretend it doth not exist. To omit a feature out of laziness is cowardice; to defer it out of strategy is wisdom. But to declare "we shall never support this" is forbidden, for the engine that refuseth to grow hath already begun to die.
+The engine shall embrace every feature the domain demandeth. Where a capability existeth — in hardware, in protocol, in platform — the engine shall not pretend it doth not exist. To omit a feature out of laziness is cowardice; to defer it is the same cowardice in finer robes, for deferral is laziness that hath learned to speak of strategy. What the domain demandeth, the engine taketh on now. And to declare "we shall never support this" is forbidden, for the engine that refuseth to grow hath already begun to die.
 
 ## MEL-ENGINE-II: Thou shalt hide thy complexity, not thy power
 
