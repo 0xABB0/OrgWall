@@ -44,9 +44,19 @@ that returns immediately — retention-based exit is the CLI-app story, no separ
   callback; quit or retention loss fires the exit hooks and `emscripten_force_exit`s with the
   stored code.
 
+- win32 (`src/win32/entry.c`) — sovereign. Defines both `main` (console subsystem) and
+  `WinMain` (gui subsystem, forwards `__argc`/`__argv`); both funnel into the same run: open
+  the root vat over `mel_vat_waiter_ui` + `mel_vat_driver_fair(alloc, 64)` on the heap
+  allocator, `mel_app_setup`, `mel_vat_run`, exit hooks, teardown, return the exit code.
+  `mel_vat_waiter_ui` on win32 (`vat/src/win32/waiter_msg.c`) pumps the thread message queue
+  and parks in `MsgWaitForMultipleObjectsEx` over a doorbell event plus armed waitable
+  HANDLEs.
+
 ## Owed (MEL-ENGINE-VIII)
 
-- linux / win32 / android entries.
+- linux entries.
+- The win32 waiter treats wakeable handles as waitable HANDLEs; bare SOCKETs are not
+  waitable — a socket source on win32 needs a WSAEventSelect bridge before it can arm.
 - The ios entry was verified to compile and link only; an app was not run on the simulator
   this wave.
 - The web entry never cancels stale `emscripten_set_timeout` arms; a superseded deadline

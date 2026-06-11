@@ -11,6 +11,7 @@ void build(Mel_Build* b)
     mel_sources(lib, WHEN(.platforms = MEL_ON(IOS)), "src/ios/*.m");
     mel_sources(lib, WHEN(.platforms = MEL_ON(WASM)), "src/web/*.c");
     mel_sources(lib, WHEN(.platforms = MEL_ON(ANDROID)), "src/android/*.c");
+    mel_sources(lib, WHEN(.platforms = MEL_ON(WIN32)), "src/win32/*.c");
 
     mel_whole_archive(lib, WHEN(.platforms = MEL_ON(ANDROID)));
 

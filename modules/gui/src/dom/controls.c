@@ -20,12 +20,6 @@ EM_JS(void, mel_web__checkbox_set, (int id, int v), {
     if (i)
         i.checked = !!v;
 });
-EM_JS(int, mel_web__checkbox_get, (int id), {
-    const el = MelWeb.els[id];
-    const i = el && el.querySelector('input');
-    return i && i.checked ? 1 : 0;
-});
-
 EM_JS(void, mel_web__slider_setup, (int id, int lo, int hi, int value), {
     const el = MelWeb.els[id];
     if (!el)
@@ -40,11 +34,6 @@ EM_JS(void, mel_web__slider_set, (int id, int value), {
     if (el)
         el.value = value;
 });
-EM_JS(int, mel_web__slider_value, (int id), {
-    const el = MelWeb.els[id];
-    return el ? (parseInt(el.value) | 0) : 0;
-});
-
 Mel_Gui_Handle mel_label_create_opt(Mel_Gui_Handle parent, Mel_Label_Opt o)
 {
     Mel_Gui_Handle h = mel_gui__node_new(parent, o.x, o.y, o.w, o.h, o.id, o.user, o.hidden, &o.layoutable, NULL);
