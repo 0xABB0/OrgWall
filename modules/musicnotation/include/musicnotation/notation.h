@@ -2,7 +2,7 @@
 
 #include <core/compiler.h>
 #include <core/types.h>
-#include <tuning/tuning.h>
+#include <musictuning/tuning.h>
 #include <musictheory/pitch.h>
 
 #include "note.h"

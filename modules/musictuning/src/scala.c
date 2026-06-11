@@ -1,4 +1,4 @@
-#include <tuning/scala.h>
+#include <musictuning/scala.h>
 
 #include <assert.h>
 #include <stdlib.h>

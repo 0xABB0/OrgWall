@@ -3,7 +3,7 @@
 #include <core/compiler.h>
 #include <core/types.h>
 #include <allocator/allocator.h>
-#include <tuning/tuning.h>
+#include <musictuning/tuning.h>
 #include <musictheory/pattern.h>
 
 #include "nat_acc.h"

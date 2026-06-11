@@ -5,7 +5,7 @@
 #include <allocator/allocator.h>
 #include <collection/array.h>
 #include <string/str8.h>
-#include <tuning/tuning.h>
+#include <musictuning/tuning.h>
 
 #include "notation.h"
 #include "note.h"

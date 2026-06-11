@@ -11,9 +11,9 @@ void build(Mel_Build* b)
     mel_depends(app, "core");
     mel_depends(app, "gui");
     mel_depends(app, "midi");
-    mel_depends(app, "tuning");
+    mel_depends(app, "musictuning");
     mel_depends(app, "musictheory");
-    mel_depends(app, "notation");
+    mel_depends(app, "musicnotation");
     mel_depends(app, "collection");
     mel_depends(app, "string");
     mel_depends(app, "audiocapture");

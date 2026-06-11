@@ -9,10 +9,10 @@
 
 #include <midi/midi.h>
 #include <midi/midi_port.h>
-#include <tuning/tuning.h>
+#include <musictuning/tuning.h>
 #include <musictheory/pitch.h>
 #include <musictheory/scale.h>
-#include <notation/western.h>
+#include <musicnotation/western.h>
 #include <frequency/cent.h>
 #include <audiocapture/audiocapture.h>
 #include <pitchdetect/pitchdetect.h>

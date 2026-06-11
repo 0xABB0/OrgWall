@@ -9,7 +9,7 @@ void build(Mel_Build* b)
     mel_depends(lib, "core");
     mel_depends(lib, "math");
     mel_depends(lib, "frequency");
-    mel_depends(lib, "tuning");
+    mel_depends(lib, "musictuning");
     mel_depends(lib, "allocator");
     mel_depends(lib, "collection");
     mel_depends(lib, "coro");

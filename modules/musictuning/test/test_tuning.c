@@ -1,8 +1,8 @@
 #include <test/test.h>
 
 #include <math.h>
-#include <tuning/tuning.h>
-#include <tuning/scala.h>
+#include <musictuning/tuning.h>
+#include <musictuning/scala.h>
 #include <allocator/heap.h>
 
 static bool freq_near(Mel_Hz f, double expected) { return fabs(mel_freq_to_double(f) - expected) < 1e-6; }

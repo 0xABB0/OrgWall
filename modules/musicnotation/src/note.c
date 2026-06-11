@@ -1,4 +1,4 @@
-#include <notation/note.h>
+#include <musicnotation/note.h>
 
 Mel_Note mel_note_transpose_bi(Mel_Note n, i32 bi_diff)
 {

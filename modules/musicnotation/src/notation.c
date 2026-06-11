@@ -1,4 +1,4 @@
-#include <notation/notation.h>
+#include <musicnotation/notation.h>
 
 #include <assert.h>
 

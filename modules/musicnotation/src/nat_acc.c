@@ -1,4 +1,4 @@
-#include <notation/nat_acc.h>
+#include <musicnotation/nat_acc.h>
 
 #include <assert.h>
 

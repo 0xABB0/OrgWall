@@ -3,7 +3,7 @@
 #include <core/compiler.h>
 #include <core/types.h>
 #include <allocator/allocator.h>
-#include <tuning/tuning.h>
+#include <musictuning/tuning.h>
 
 #include "pitch.h"
 #include "scale.h"

@@ -1,4 +1,4 @@
-#include <tuning/tuning.h>
+#include <musictuning/tuning.h>
 
 #include <assert.h>
 

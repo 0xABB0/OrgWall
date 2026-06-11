@@ -1,5 +1,5 @@
-#include <notation/chord_id.h>
-#include <notation/identify.coro.h>
+#include <musicnotation/chord_id.h>
+#include <musicnotation/identify.coro.h>
 
 #include <assert.h>
 #include <stdlib.h>

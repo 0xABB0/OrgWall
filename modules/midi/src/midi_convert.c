@@ -1,7 +1,7 @@
 #include <midi/midi_convert.h>
 
 #include <musictheory/pitch.h>
-#include <tuning/tuning.h>
+#include <musictuning/tuning.h>
 
 Mel_Pitch mel_midi_note_to_pitch(uint8_t midi_note, const Mel_Tuning* tuning)
 {

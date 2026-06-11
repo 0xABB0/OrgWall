@@ -4,7 +4,7 @@
 #include <core/types.h>
 #include <allocator/allocator.h>
 #include <collection/array.h>
-#include <tuning/tuning.h>
+#include <musictuning/tuning.h>
 
 #include "pitch.h"
 #include "interval.h"

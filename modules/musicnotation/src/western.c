@@ -1,4 +1,4 @@
-#include <notation/western.h>
+#include <musicnotation/western.h>
 
 #include <assert.h>
 #include <math/real.h>

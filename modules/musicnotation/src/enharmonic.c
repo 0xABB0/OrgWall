@@ -1,5 +1,5 @@
-#include <notation/enharmonic.h>
-#include <notation/notation.h>
+#include <musicnotation/enharmonic.h>
+#include <musicnotation/notation.h>
 
 #include <assert.h>
 
