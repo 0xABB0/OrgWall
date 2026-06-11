@@ -1,33 +1,85 @@
 #pragma once
 
-#include <core/compiler.h>
 #include <core/types.h>
-#include <allocator/allocator.h>
-#include <string/str8.h>
+#include <core/compiler.h>
+#include <allocator/allocator.fwd.h>
+#include <audioin/audioin.h>
 
-typedef struct Mel_AudioCapture_Opt Mel_AudioCapture_Opt;
-
-struct Mel_AudioCapture_Opt
+#ifdef __cplusplus
+extern "C"
 {
-    u32 sample_rate;
-    u32 ring_capacity_frames;
-};
+#endif
+
+typedef u32 Mel_AudioCapture_Status;
+
+#define MEL_AUDIOCAPTURE_SEVERITY_MASK 0x3u
+#define MEL_AUDIOCAPTURE_OK            0u
+#define MEL_AUDIOCAPTURE_WARNED        1u
+#define MEL_AUDIOCAPTURE_ERROR         2u
+
+#define MEL_AUDIOCAPTURE_RESULT_DENIED      (1u << 2)
+#define MEL_AUDIOCAPTURE_RESULT_NO_DEVICE   (1u << 3)
+#define MEL_AUDIOCAPTURE_RESULT_UNSUPPORTED (1u << 4)
+#define MEL_AUDIOCAPTURE_RESULT_BUSY        (1u << 5)
+#define MEL_AUDIOCAPTURE_RESULT_LOST        (1u << 6)
+
+#define MEL_AUDIOCAPTURE_WARN_CONVERTED          (1u << 7)
+#define MEL_AUDIOCAPTURE_WARN_OVERRUN            (1u << 8)
+#define MEL_AUDIOCAPTURE_WARN_PROCESSING_DROPPED (1u << 9)
+#define MEL_AUDIOCAPTURE_WARN_EXCLUSIVE_DROPPED  (1u << 10)
+
+static inline bool mel_audiocapture_status_failed(Mel_AudioCapture_Status s) { return (s & MEL_AUDIOCAPTURE_SEVERITY_MASK) == MEL_AUDIOCAPTURE_ERROR; }
+static inline bool mel_audiocapture_status_warned(Mel_AudioCapture_Status s) { return (s & MEL_AUDIOCAPTURE_SEVERITY_MASK) == MEL_AUDIOCAPTURE_WARNED; }
 
 typedef struct Mel_AudioCapture Mel_AudioCapture;
 
-i32 mel_audiocapture_enumerate(u32* out_ids, i32 max_count);
+typedef struct
+{
+    bool echo_cancellation;
+    bool noise_suppression;
+    bool auto_gain;
+} Mel_AudioCapture_Processing;
 
-MEL_NODISCARD str8 mel_audiocapture_device_name(u32 id, const Mel_Alloc* alloc);
+typedef struct
+{
+    u32                         sample_rate;
+    u32                         channels;
+    u32                         ring_capacity_frames;
+    bool                        exclusive;
+    Mel_AudioCapture_Processing processing;
+} Mel_AudioCapture_Opt;
 
-MEL_NODISCARD bool mel_audiocapture_default_device(u32* out_id);
+typedef struct
+{
+    Mel_AudioCapture*       capture;
+    Mel_AudioCapture_Status status;
+} Mel_AudioCapture_Open_Result;
 
-MEL_NODISCARD bool mel_audiocapture_authorized(void);
-MEL_NODISCARD bool mel_audiocapture_auth_determined(void);
+typedef struct
+{
+    Mel_AudioCapture_Processing processing;
+    bool                        exclusive;
+    bool                        os_timestamps;
+} Mel_AudioCapture_Granted;
 
-MEL_NODISCARD Mel_AudioCapture* mel_audiocapture_open(const Mel_Alloc* alloc, u32 device_id, Mel_AudioCapture_Opt opt);
+typedef struct
+{
+    u32 frames;
+    u64 timestamp_ns;
+} Mel_AudioCapture_Read;
 
-MEL_NODISCARD u32 mel_audiocapture_read(Mel_AudioCapture* c, f32* dst, u32 max_frames);
+MEL_NODISCARD Mel_AudioCapture_Open_Result mel_audiocapture_open(const Mel_Alloc* alloc, Mel_AudioIn device, Mel_AudioCapture_Opt opt);
 
-MEL_NODISCARD u32 mel_audiocapture_available(const Mel_AudioCapture* c);
+MEL_NODISCARD u32                   mel_audiocapture_read(Mel_AudioCapture* c, f32* interleaved_dst, u32 max_frames);
+MEL_NODISCARD Mel_AudioCapture_Read mel_audiocapture_read_ex(Mel_AudioCapture* c, f32* interleaved_dst, u32 max_frames);
+MEL_NODISCARD u32                   mel_audiocapture_available(const Mel_AudioCapture* c);
+
+Mel_AudioCapture_Status  mel_audiocapture_status(const Mel_AudioCapture* c);
+Mel_AudioCapture_Granted mel_audiocapture_granted(const Mel_AudioCapture* c);
+u64                      mel_audiocapture_dropped_frames(const Mel_AudioCapture* c);
 
 void mel_audiocapture_close(Mel_AudioCapture* c);
+
+#ifdef __cplusplus
+}
+#endif

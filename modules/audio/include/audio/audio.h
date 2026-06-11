@@ -8,4 +8,5 @@
 #include <audio/voice.h>
 #include <audio/fader.h>
 #include <audio/event.h>
+#include <audio/tap.h>
 #include <audio/backend.h>
