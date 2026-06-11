@@ -463,8 +463,15 @@ static void fetch_on_resolve(Mel_Http_Op_Record* op, Mel_Future* f)
     Mel_Net_Address addr = r->items[0];
     mel_net_future_release(f);
 
+    i64 connect_budget = op->connect_timeout;
+    if (connect_budget == 0 && op->deadline_total != 0)
+    {
+        i64 remaining = op->deadline_total - now_ns();
+        connect_budget = remaining > 1 ? remaining : 1;
+    }
+
     Mel_Net_Op  nop = MEL_NET_OP_NULL;
-    Mel_Future* cf = mel_net_tcp_connect(op->http->net, .address = addr, .timeout_ns = op->connect_timeout, .nodelay = true, .out_op = &nop);
+    Mel_Future* cf = mel_net_tcp_connect(op->http->net, .address = addr, .timeout_ns = connect_budget, .nodelay = true, .out_op = &nop);
     op->net_op = nop;
     net_submit(op, cf, fetch_on_connect);
 }
