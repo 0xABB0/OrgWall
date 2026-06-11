@@ -106,6 +106,27 @@ static char* android_emulator_serial(void)
     return sim_capture("adb devices | awk '/^emulator-/ && $2 == \"device\" { print $1; exit }'");
 }
 
+static char* android_device_serial(void)
+{
+    const char* env = getenv("ANDROID_SERIAL");
+    if (env && *env)
+        return mel_str_dup(env);
+    char* list = sim_capture("adb devices | awk '$2 == \"device\" && $1 !~ /^emulator-/ { print $1 }'");
+    if (!*list)
+    {
+        fprintf(stderr, "nob: no physical Android device connected (is it authorized?)\n");
+        free(list);
+        return NULL;
+    }
+    if (strchr(list, '\n'))
+    {
+        fprintf(stderr, "nob: multiple Android devices connected:\n%s\nset ANDROID_SERIAL to choose one\n", list);
+        free(list);
+        return NULL;
+    }
+    return list;
+}
+
 static char* android_boot_emu(const char* avd)
 {
     char* serial = android_emulator_serial();
@@ -230,28 +251,16 @@ static int launch(Mel_Graph* g, const char* target, const Mel_Variant* v, const 
         return launch_ios_sim(t, out);
     if (v->platform == MEL_PLATFORM_ANDROID && out)
     {
-        char* serial = NULL;
-        if (v->simulator)
-        {
-            serial = android_boot_emu(mf_get(t, "AVD", NULL));
-            if (!serial)
-                return 1;
-        }
+        char* serial = v->simulator ? android_boot_emu(mf_get(t, "AVD", NULL)) : android_device_serial();
+        if (!serial)
+            return 1;
         char* apk = mel_str_fmt("%s/android/app/build/outputs/apk/melody/debug/app-melody-debug.apk", out);
         char* act = mel_str_fmt("%s/orgwall.melody.platform.MelodyActivity", mf_get(t, "BUNDLE_ID", t->name));
-        if (serial && *serial)
-        {
-            char* iargs[] = { "-s", serial, "install", "-r", apk };
-            if (spawn("adb", iargs, 5) != 0)
-                return 1;
-            char* sargs[] = { "-s", serial, "shell", "am", "start", "-n", act };
-            return spawn("adb", sargs, 7);
-        }
-        char* iargs[] = { "install", "-r", apk };
-        if (spawn("adb", iargs, 3) != 0)
+        char* iargs[] = { "-s", serial, "install", "-r", apk };
+        if (spawn("adb", iargs, 5) != 0)
             return 1;
-        char* sargs[] = { "shell", "am", "start", "-n", act };
-        return spawn("adb", sargs, 5);
+        char* sargs[] = { "-s", serial, "shell", "am", "start", "-n", act };
+        return spawn("adb", sargs, 7);
     }
     if (v->platform == MEL_PLATFORM_WASM && out)
     {
