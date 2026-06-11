@@ -1,4 +1,5 @@
 #include <hash/murmur3.h>
+#include <core/compiler.h>
 #include <string.h>
 
 #define MURMUR3_C1 0xCC9E2D51U
@@ -46,8 +47,10 @@ u32 mel_murmur3_32(const void* data, usize len, u32 seed)
     {
     case 3:
         k ^= (u32)tail[2] << 16;
+        MEL_FALLTHROUGH;
     case 2:
         k ^= (u32)tail[1] << 8;
+        MEL_FALLTHROUGH;
     case 1:
         k ^= (u32)tail[0];
         k *= MURMUR3_C1;
