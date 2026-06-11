@@ -306,5 +306,5 @@ void mel_geo__register_host_providers(void)
         .stream_update = geo_wasm_stream_update,
         .stream_stop = geo_wasm_stream_stop,
     };
-    mel_geo_provider_register(&node);
+    mel_geo_provider_register_host(&node);
 }

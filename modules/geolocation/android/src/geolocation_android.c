@@ -552,7 +552,7 @@ void mel_geo__register_host_providers(void)
         .geocode_forward = geo_and__geocode_forward,
         .geocode_reverse = geo_and__geocode_reverse,
     };
-    mel_geo_provider_register(&fused_node);
+    mel_geo_provider_register_host(&fused_node);
 
     static Mel_Geo_Provider_Node framework_node;
     framework_node.desc = (Mel_Geo_Provider_Desc){
@@ -573,5 +573,5 @@ void mel_geo__register_host_providers(void)
         .geocode_forward = geo_and__geocode_forward,
         .geocode_reverse = geo_and__geocode_reverse,
     };
-    mel_geo_provider_register(&framework_node);
+    mel_geo_provider_register_host(&framework_node);
 }

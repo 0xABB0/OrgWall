@@ -555,5 +555,5 @@ void mel_geo__register_host_providers(void)
         node.desc.region_add = apple_region_add;
         node.desc.region_remove = apple_region_remove;
     }
-    mel_geo_provider_register(&node);
+    mel_geo_provider_register_host(&node);
 }

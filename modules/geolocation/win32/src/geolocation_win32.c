@@ -719,5 +719,5 @@ void mel_geo__register_host_providers(void)
         .region_add = geo_win_region_add,
         .region_remove = geo_win_region_remove,
     };
-    mel_geo_provider_register(&node);
+    mel_geo_provider_register_host(&node);
 }
