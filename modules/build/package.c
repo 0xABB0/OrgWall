@@ -303,7 +303,37 @@ static void gen_android_library(const char* proj, Mel_Target* d)
     free(g.items);
 }
 
-static bool package_android(Mel_Graph* g, Mel_IdxVec* order, Mel_Target* t, const char* outdir, const char* so)
+static void android_copy_thirdparty_libs(Mel_Graph* g, Mel_IdxVec* order, const Mel_Variant* v, const char* jni)
+{
+    for (size_t i = 0; order && i < order->len; i++)
+    {
+        Mel_Target* d = g->nodes.items[order->items[i]].t;
+        if (d->kind != MEL_KIND_THIRD_PARTY || !mel_target_available(d, v))
+            continue;
+        char* prefix = mel_target_outdir(d->dir, v);
+        char* libdir = mel_str_fmt("%s/prefix/lib", prefix);
+        DIR*  dir = opendir(libdir);
+        if (dir)
+        {
+            for (struct dirent* e = readdir(dir); e; e = readdir(dir))
+            {
+                size_t n = strlen(e->d_name);
+                if (n < 4 || strcmp(e->d_name + n - 3, ".so") != 0)
+                    continue;
+                char* src = mel_str_fmt("%s/%s", libdir, e->d_name);
+                char* dst = mel_str_fmt("%s/%s", jni, e->d_name);
+                mel_copy_file(src, dst);
+                free(src);
+                free(dst);
+            }
+            closedir(dir);
+        }
+        free(libdir);
+        free(prefix);
+    }
+}
+
+static bool package_android(Mel_Graph* g, Mel_IdxVec* order, Mel_Target* t, const Mel_Variant* v, const char* outdir, const char* so)
 {
     char* proj = mel_str_fmt("%s/android", outdir);
     mel_mkdirs(proj);
@@ -327,6 +357,7 @@ static bool package_android(Mel_Graph* g, Mel_IdxVec* order, Mel_Target* t, cons
     mel_mkdirs(jni);
     char* sodst = mel_path_join(jni, "libmelody.so");
     mel_copy_file(so, sodst);
+    android_copy_thirdparty_libs(g, order, v, jni);
 
     char* libcsv = NULL;
     for (size_t i = 0; order && i < order->len; i++)
@@ -384,6 +415,6 @@ bool mel_package(Mel_Graph* g, Mel_IdxVec* order, Mel_Target* t, const Mel_Varia
     if (v->platform == MEL_PLATFORM_IOS)
         return package_apple(t, outdir, exe, "ios", true);
     if (v->platform == MEL_PLATFORM_ANDROID)
-        return package_android(g, order, t, outdir, exe);
+        return package_android(g, order, t, v, outdir, exe);
     return true;
 }

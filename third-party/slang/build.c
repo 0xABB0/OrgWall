@@ -1,6 +1,31 @@
 #include "build.h"
 
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <unistd.h>
+
 #define SLANG_VERSION "2026.10.2"
+
+#define SLANG_VENDOR_REL "tools/build/vendor/slang/slang-" SLANG_VERSION "-android-aarch64.zip"
+
+static char* mel_slang__vendor_url(void)
+{
+    char cwd[4096];
+    if (!getcwd(cwd, sizeof cwd))
+        return NULL;
+    size_t n = strlen("file://") + strlen(cwd) + 1 + strlen(SLANG_VENDOR_REL) + 1;
+    char*  s = malloc(n);
+    snprintf(s, n, "file://%s/%s", cwd, SLANG_VENDOR_REL);
+    struct stat st;
+    if (stat(SLANG_VENDOR_REL, &st) != 0)
+        fprintf(stderr,
+                "build: slang android prebuilt missing at %s\n"
+                "build: produce it with tools/build/vendor/slang/build-android-arm64.sh\n",
+                SLANG_VENDOR_REL);
+    return s;
+}
 
 #if defined(__aarch64__) || defined(__arm64__)
 #  define SLANG_ARCH "aarch64"
@@ -41,15 +66,21 @@ void build(Mel_Build* b)
     mel_link(wasm, MEL_PUBLIC, WHEN(.platforms = MEL_ON(WASM)), "-llz4");
     mel_link(wasm, MEL_PUBLIC, WHEN(.platforms = MEL_ON(WASM)), "-Wl,--end-group");
 
+    Mel_Target* droid = mel_add_third_party(b, "slang-android");
+    mel_prebuilt(droid, WHEN(.platforms = MEL_ON(ANDROID)), mel_slang__vendor_url(), "libslang-compiler.so");
+    mel_link(droid, MEL_PUBLIC, WHEN(.platforms = MEL_ON(ANDROID)), "-lslang-compiler");
+
     Mel_Target* lib = mel_add_library(b, "slang");
     mel_includes(lib, MEL_PUBLIC, ALWAYS, "include");
     mel_sources(lib, ALWAYS, "src/*.cpp");
     mel_cflags(lib, MEL_PRIVATE, WHEN(.platforms = MEL_ON(WASM)), "-fwasm-exceptions");
     mel_depends_when(lib, "slang-runtime", WHEN(.platforms = MEL_ON(MACOS) | MEL_ON(LINUX) | MEL_ON(WIN32)));
     mel_depends_when(lib, "slang-wasm", WHEN(.platforms = MEL_ON(WASM)));
+    mel_depends_when(lib, "slang-android", WHEN(.platforms = MEL_ON(ANDROID)));
     mel_link(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(MACOS) | MEL_ON(LINUX)), "-lc++");
+    mel_link(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(ANDROID)), "-lc++_static", "-lc++abi");
 
-    mel_unavailable(lib, WHEN(.platforms = MEL_ON(ANDROID) | MEL_ON(IOS)));
+    mel_unavailable(lib, WHEN(.platforms = MEL_ON(IOS)));
 
     mel_defines(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(WIN32)), "MEL_SLANG_EMIT_DXIL=1");
 
