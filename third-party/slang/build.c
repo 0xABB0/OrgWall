@@ -15,6 +15,7 @@
 
 #define SLANG_VENDOR_ANDROID "tools/build/vendor/slang/slang-" SLANG_VERSION "-android-aarch64.zip"
 #define SLANG_VENDOR_IOS_SIM "tools/build/vendor/slang/slang-" SLANG_VERSION "-ios-sim-aarch64.zip"
+#define SLANG_VENDOR_WASM_MT "tools/build/vendor/slang/slang-" SLANG_VERSION "-wasm-mt.zip"
 
 #define SLANG_OS_ARCH_URL(os, arch) \
     SLANG_REL_BASE "slang-" SLANG_VERSION "-" os "-" arch ".zip"
@@ -40,9 +41,6 @@ static char* mel_slang__vendor_url(const char* rel, const char* script)
 #define SLANG_REL_BASE \
     "https://github.com/shader-slang/slang/releases/download/v" SLANG_VERSION "/"
 
-#define SLANG_WASM_LIBS_URL \
-    SLANG_REL_BASE "slang-" SLANG_VERSION "-wasm-libs.zip"
-
 void build(Mel_Build* b)
 {
     Mel_Target* rt = mel_add_third_party(b, "slang-runtime");
@@ -55,7 +53,7 @@ void build(Mel_Build* b)
     mel_link(rt, MEL_PUBLIC, WHEN(.platforms = MEL_ON(MACOS) | MEL_ON(LINUX) | MEL_ON(WIN32)), "-lslang");
 
     Mel_Target* wasm = mel_add_third_party(b, "slang-wasm");
-    mel_prebuilt(wasm, WHEN(.platforms = MEL_ON(WASM)), SLANG_WASM_LIBS_URL, "libslang-compiler.a");
+    mel_prebuilt(wasm, WHEN(.platforms = MEL_ON(WASM)), mel_slang__vendor_url(SLANG_VENDOR_WASM_MT, "build-wasm-mt.sh"), "libslang-compiler.a");
     mel_link(wasm, MEL_PUBLIC, WHEN(.platforms = MEL_ON(WASM)), "-fwasm-exceptions");
     mel_link(wasm, MEL_PUBLIC, WHEN(.platforms = MEL_ON(WASM)), "-Wl,--start-group");
     mel_link(wasm, MEL_PUBLIC, WHEN(.platforms = MEL_ON(WASM)), "-lslang-compiler");
@@ -78,7 +76,7 @@ void build(Mel_Build* b)
     Mel_Target* lib = mel_add_library(b, "slang");
     mel_includes(lib, MEL_PUBLIC, ALWAYS, "include");
     mel_sources(lib, ALWAYS, "src/*.cpp");
-    mel_cflags(lib, MEL_PRIVATE, WHEN(.platforms = MEL_ON(WASM)), "-fwasm-exceptions");
+    mel_cflags(lib, MEL_PRIVATE, WHEN(.platforms = MEL_ON(WASM)), "-fwasm-exceptions", "-pthread");
     mel_depends_when(lib, "slang-runtime", WHEN(.platforms = MEL_ON(MACOS) | MEL_ON(LINUX) | MEL_ON(WIN32)));
     mel_depends_when(lib, "slang-wasm", WHEN(.platforms = MEL_ON(WASM)));
     mel_depends_when(lib, "slang-android", WHEN(.platforms = MEL_ON(ANDROID)));
