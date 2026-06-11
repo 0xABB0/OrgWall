@@ -9,4 +9,12 @@ void build(Mel_Build* b)
     mel_depends(lib, "allocator");
     mel_depends(lib, "hash");
     mel_depends(lib, "collection");
+
+    Mel_Target* test = mel_add_test(b, "string-builder");
+    mel_sources(test, ALWAYS, "test/test_builder.c");
+    mel_sources(test, ALWAYS, "../../tools/test/src/runner.c");
+    mel_depends(test, "test");
+    mel_depends(test, "string");
+    mel_depends(test, "allocator");
+    mel_depends(test, "core");
 }

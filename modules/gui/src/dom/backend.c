@@ -308,6 +308,17 @@ EMSCRIPTEN_KEEPALIVE void mel_web__ev_input(int id)
     c->textfield.on_text_changed(c->handle, str8_from_range((u8*)buf, (u8*)buf + n), mel_gui_user(c->handle));
 }
 
+EM_JS(int, mel_web__checkbox_get, (int id), {
+    const el = MelWeb.els[id];
+    const i = el && el.querySelector('input');
+    return i && i.checked ? 1 : 0;
+});
+
+EM_JS(int, mel_web__slider_value, (int id), {
+    const el = MelWeb.els[id];
+    return el ? (parseInt(el.value) | 0) : 0;
+});
+
 EMSCRIPTEN_KEEPALIVE void mel_web__ev_check(int id)
 {
     Mel_Web_Ctl* c = mel_web__ctl(id);

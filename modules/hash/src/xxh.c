@@ -3,6 +3,8 @@
 
 static inline u64 mel__xxh_rotl64(u64 v, int n) { return (v << n) | (v >> (64 - n)); }
 
+static inline u32 mel__xxh_rotl32(u32 v, int n) { return (v << n) | (v >> (32 - n)); }
+
 static inline u32 mel__xxh_read32(const void* p)
 {
     u32 v;
@@ -323,10 +325,10 @@ static inline void mel__xxh3_init_custom_secret(u8* custom_secret, u64 seed)
     }
 }
 
-static u64 mel__xxh3_hash_long(const void* input, usize len, const u8* secret, usize secret_size)
-{
-    _Alignas(64) u64 acc[XXH_ACC_NB] = { XXH_PRIME32_3, XXH_PRIME64_1, XXH_PRIME64_2, XXH_PRIME64_3, XXH_PRIME64_4, XXH_PRIME32_2, XXH_PRIME64_5, XXH_PRIME32_1 };
+static const u64 mel__xxh3_acc_init[XXH_ACC_NB] = { XXH_PRIME32_3, XXH_PRIME64_1, XXH_PRIME64_2, XXH_PRIME64_3, XXH_PRIME64_4, XXH_PRIME32_2, XXH_PRIME64_5, XXH_PRIME32_1 };
 
+static void mel__xxh3_hash_long_accum(u64* acc, const void* input, usize len, const u8* secret, usize secret_size)
+{
     const u8* p = (const u8*)input;
     usize     nb_stripes_per_block = (secret_size - XXH_STRIPE_LEN) / XXH_SECRET_CONSUME_RATE;
     usize     block_len = XXH_STRIPE_LEN * nb_stripes_per_block;
@@ -343,7 +345,13 @@ static u64 mel__xxh3_hash_long(const void* input, usize len, const u8* secret, u
 
     const u8* last_stripe = p + len - XXH_STRIPE_LEN;
     mel__xxh3_accumulate_512(acc, last_stripe, secret + secret_size - XXH_STRIPE_LEN - XXH_SECRET_LASTACC_START);
+}
 
+static u64 mel__xxh3_hash_long(const void* input, usize len, const u8* secret, usize secret_size)
+{
+    _Alignas(64) u64 acc[XXH_ACC_NB];
+    memcpy(acc, mel__xxh3_acc_init, sizeof(acc));
+    mel__xxh3_hash_long_accum(acc, input, len, secret, secret_size);
     return mel__xxh3_merge_accs(acc, secret + XXH_SECRET_MERGEACCS_START, (u64)len * XXH_PRIME64_1);
 }
 
@@ -371,4 +379,306 @@ u64 mel_xxh3_64_seeded(const void* data, usize len, u64 seed)
     _Alignas(64) u8 custom_secret[XXH_SECRET_DEFAULT_SIZE];
     mel__xxh3_init_custom_secret(custom_secret, seed);
     return mel__xxh3_hash_long(data, len, custom_secret, sizeof(custom_secret));
+}
+
+static inline Mel_Xxh128 mel__xxh3_mul128(u64 lhs, u64 rhs)
+{
+    __uint128_t product = (__uint128_t)lhs * (__uint128_t)rhs;
+    Mel_Xxh128  r = { (u64)product, (u64)(product >> 64) };
+    return r;
+}
+
+static inline u64 mel__xxh3_xorshift64(u64 v, int shift) { return v ^ (v >> shift); }
+
+static inline Mel_Xxh128 mel__xxh3_len_1to3_128(const u8* input, usize len, const u8* secret, u64 seed)
+{
+    u8         c1 = input[0];
+    u8         c2 = input[len >> 1];
+    u8         c3 = input[len - 1];
+    u32        combined_lo = ((u32)c1 << 16) | ((u32)c2 << 24) | ((u32)c3 << 0) | ((u32)len << 8);
+    u32        combined_hi = mel__xxh_rotl32(mel__xxh_swap32(combined_lo), 13);
+    u64        bitflip_lo = (mel__xxh_read32(secret) ^ mel__xxh_read32(secret + 4)) + seed;
+    u64        bitflip_hi = (mel__xxh_read32(secret + 8) ^ mel__xxh_read32(secret + 12)) - seed;
+    Mel_Xxh128 h = { mel__xxh64_avalanche((u64)combined_lo ^ bitflip_lo), mel__xxh64_avalanche((u64)combined_hi ^ bitflip_hi) };
+    return h;
+}
+
+static inline Mel_Xxh128 mel__xxh3_len_4to8_128(const u8* input, usize len, const u8* secret, u64 seed)
+{
+    seed ^= (u64)mel__xxh_swap32((u32)seed) << 32;
+    u32        input_lo = mel__xxh_read32(input);
+    u32        input_hi = mel__xxh_read32(input + len - 4);
+    u64        input64 = input_lo + ((u64)input_hi << 32);
+    u64        bitflip = (mel__xxh_read64(secret + 16) ^ mel__xxh_read64(secret + 24)) + seed;
+    u64        keyed = input64 ^ bitflip;
+    Mel_Xxh128 m128 = mel__xxh3_mul128(keyed, XXH_PRIME64_1 + (len << 2));
+
+    m128.high += m128.low << 1;
+    m128.low ^= m128.high >> 3;
+    m128.low = mel__xxh3_xorshift64(m128.low, 35);
+    m128.low *= PRIME_MX2;
+    m128.low = mel__xxh3_xorshift64(m128.low, 28);
+    m128.high = mel__xxh3_avalanche(m128.high);
+    return m128;
+}
+
+static inline Mel_Xxh128 mel__xxh3_len_9to16_128(const u8* input, usize len, const u8* secret, u64 seed)
+{
+    u64        bitflip_lo = (mel__xxh_read64(secret + 32) ^ mel__xxh_read64(secret + 40)) - seed;
+    u64        bitflip_hi = (mel__xxh_read64(secret + 48) ^ mel__xxh_read64(secret + 56)) + seed;
+    u64        input_lo = mel__xxh_read64(input);
+    u64        input_hi = mel__xxh_read64(input + len - 8);
+    Mel_Xxh128 m128 = mel__xxh3_mul128(input_lo ^ input_hi ^ bitflip_lo, XXH_PRIME64_1);
+
+    m128.low += (u64)(len - 1) << 54;
+    input_hi ^= bitflip_hi;
+    m128.high += input_hi + (u64)(u32)input_hi * (u64)(XXH_PRIME32_2 - 1);
+    m128.low ^= mel__xxh_swap64(m128.high);
+
+    Mel_Xxh128 h = mel__xxh3_mul128(m128.low, XXH_PRIME64_2);
+    h.high += m128.high * XXH_PRIME64_2;
+    h.low = mel__xxh3_avalanche(h.low);
+    h.high = mel__xxh3_avalanche(h.high);
+    return h;
+}
+
+static inline Mel_Xxh128 mel__xxh3_len_0to16_128(const u8* input, usize len, const u8* secret, u64 seed)
+{
+    if (len > 8)
+        return mel__xxh3_len_9to16_128(input, len, secret, seed);
+    if (len >= 4)
+        return mel__xxh3_len_4to8_128(input, len, secret, seed);
+    if (len)
+        return mel__xxh3_len_1to3_128(input, len, secret, seed);
+    u64        bitflip_lo = mel__xxh_read64(secret + 64) ^ mel__xxh_read64(secret + 72);
+    u64        bitflip_hi = mel__xxh_read64(secret + 80) ^ mel__xxh_read64(secret + 88);
+    Mel_Xxh128 h = { mel__xxh64_avalanche(seed ^ bitflip_lo), mel__xxh64_avalanche(seed ^ bitflip_hi) };
+    return h;
+}
+
+static inline Mel_Xxh128 mel__xxh3_mix32b(Mel_Xxh128 acc, const u8* input1, const u8* input2, const u8* secret, u64 seed)
+{
+    acc.low += mel__xxh3_mix16b(input1, secret, seed);
+    acc.low ^= mel__xxh_read64(input2) + mel__xxh_read64(input2 + 8);
+    acc.high += mel__xxh3_mix16b(input2, secret + 16, seed);
+    acc.high ^= mel__xxh_read64(input1) + mel__xxh_read64(input1 + 8);
+    return acc;
+}
+
+static inline Mel_Xxh128 mel__xxh3_merge_128(Mel_Xxh128 acc, usize len, u64 seed)
+{
+    Mel_Xxh128 h;
+    h.low = acc.low + acc.high;
+    h.high = (acc.low * XXH_PRIME64_1) + (acc.high * XXH_PRIME64_4) + ((len - seed) * XXH_PRIME64_2);
+    h.low = mel__xxh3_avalanche(h.low);
+    h.high = (u64)0 - mel__xxh3_avalanche(h.high);
+    return h;
+}
+
+static inline Mel_Xxh128 mel__xxh3_len_17to128_128(const u8* input, usize len, const u8* secret, u64 seed)
+{
+    Mel_Xxh128 acc = { len * XXH_PRIME64_1, 0 };
+
+    if (len > 32)
+    {
+        if (len > 64)
+        {
+            if (len > 96)
+            {
+                acc = mel__xxh3_mix32b(acc, input + 48, input + len - 64, secret + 96, seed);
+            }
+            acc = mel__xxh3_mix32b(acc, input + 32, input + len - 48, secret + 64, seed);
+        }
+        acc = mel__xxh3_mix32b(acc, input + 16, input + len - 32, secret + 32, seed);
+    }
+    acc = mel__xxh3_mix32b(acc, input, input + len - 16, secret, seed);
+
+    return mel__xxh3_merge_128(acc, len, seed);
+}
+
+static inline Mel_Xxh128 mel__xxh3_len_129to240_128(const u8* input, usize len, const u8* secret, u64 seed)
+{
+    Mel_Xxh128 acc = { len * XXH_PRIME64_1, 0 };
+
+    for (usize i = 32; i < 160; i += 32)
+    {
+        acc = mel__xxh3_mix32b(acc, input + i - 32, input + i - 16, secret + i - 32, seed);
+    }
+    acc.low = mel__xxh3_avalanche(acc.low);
+    acc.high = mel__xxh3_avalanche(acc.high);
+
+    for (usize i = 160; i <= len; i += 32)
+    {
+        acc = mel__xxh3_mix32b(acc, input + i - 32, input + i - 16, secret + XXH3_MIDSIZE_STARTOFFSET + i - 160, seed);
+    }
+    acc = mel__xxh3_mix32b(acc, input + len - 16, input + len - 32, secret + XXH3_SECRET_SIZE_MIN - XXH3_MIDSIZE_LASTOFFSET - 16, (u64)0 - seed);
+
+    return mel__xxh3_merge_128(acc, len, seed);
+}
+
+static Mel_Xxh128 mel__xxh3_hash_long_128(const void* input, usize len, const u8* secret, usize secret_size)
+{
+    _Alignas(64) u64 acc[XXH_ACC_NB];
+    memcpy(acc, mel__xxh3_acc_init, sizeof(acc));
+    mel__xxh3_hash_long_accum(acc, input, len, secret, secret_size);
+
+    Mel_Xxh128 h;
+    h.low = mel__xxh3_merge_accs(acc, secret + XXH_SECRET_MERGEACCS_START, (u64)len * XXH_PRIME64_1);
+    h.high = mel__xxh3_merge_accs(acc, secret + secret_size - XXH_STRIPE_LEN - XXH_SECRET_MERGEACCS_START, ~((u64)len * XXH_PRIME64_2));
+    return h;
+}
+
+static Mel_Xxh128 mel__xxh3_128_internal(const void* input, usize len, u64 seed, const u8* secret, usize secret_size)
+{
+    if (len <= 16)
+        return mel__xxh3_len_0to16_128((const u8*)input, len, secret, seed);
+    if (len <= 128)
+        return mel__xxh3_len_17to128_128((const u8*)input, len, secret, seed);
+    if (len <= XXH3_MIDSIZE_MAX)
+        return mel__xxh3_len_129to240_128((const u8*)input, len, secret, seed);
+    return mel__xxh3_hash_long_128(input, len, secret, secret_size);
+}
+
+Mel_Xxh128 mel_xxh3_128(const void* data, usize len) { return mel__xxh3_128_internal(data, len, 0, mel__xxh3_secret, sizeof(mel__xxh3_secret)); }
+
+Mel_Xxh128 mel_xxh3_128_seeded(const void* data, usize len, u64 seed)
+{
+    if (len <= XXH3_MIDSIZE_MAX)
+        return mel__xxh3_128_internal(data, len, seed, mel__xxh3_secret, sizeof(mel__xxh3_secret));
+
+    if (seed == 0)
+        return mel__xxh3_hash_long_128(data, len, mel__xxh3_secret, sizeof(mel__xxh3_secret));
+
+    _Alignas(64) u8 custom_secret[XXH_SECRET_DEFAULT_SIZE];
+    mel__xxh3_init_custom_secret(custom_secret, seed);
+    return mel__xxh3_hash_long_128(data, len, custom_secret, sizeof(custom_secret));
+}
+
+#define XXH3_STREAM_BUFFER_SIZE    256
+#define XXH3_STREAM_BUFFER_STRIPES (XXH3_STREAM_BUFFER_SIZE / XXH_STRIPE_LEN)
+#define XXH3_STREAM_SECRET_LIMIT   (XXH_SECRET_DEFAULT_SIZE - XXH_STRIPE_LEN)
+#define XXH3_STREAM_BLOCK_STRIPES  (XXH3_STREAM_SECRET_LIMIT / XXH_SECRET_CONSUME_RATE)
+
+static void mel__xxh3_consume_stripes(u64* acc, usize* nb_stripes_so_far, const u8* input, usize nb_stripes, const u8* secret)
+{
+    const u8* initial_secret = secret + *nb_stripes_so_far * XXH_SECRET_CONSUME_RATE;
+    if (nb_stripes >= XXH3_STREAM_BLOCK_STRIPES - *nb_stripes_so_far)
+    {
+        usize nb_stripes_this_iter = XXH3_STREAM_BLOCK_STRIPES - *nb_stripes_so_far;
+        do
+        {
+            mel__xxh3_accumulate(acc, input, initial_secret, nb_stripes_this_iter);
+            mel__xxh3_scramble_acc(acc, secret + XXH3_STREAM_SECRET_LIMIT);
+            input += nb_stripes_this_iter * XXH_STRIPE_LEN;
+            nb_stripes -= nb_stripes_this_iter;
+            nb_stripes_this_iter = XXH3_STREAM_BLOCK_STRIPES;
+            initial_secret = secret;
+        } while (nb_stripes >= XXH3_STREAM_BLOCK_STRIPES);
+        *nb_stripes_so_far = 0;
+    }
+    if (nb_stripes > 0)
+    {
+        mel__xxh3_accumulate(acc, input, initial_secret, nb_stripes);
+        *nb_stripes_so_far += nb_stripes;
+    }
+}
+
+static void mel__xxh3_state_init(Mel_Xxh3_State* st, u64 seed)
+{
+    memcpy(st->acc, mel__xxh3_acc_init, sizeof(st->acc));
+    if (seed == 0)
+        memcpy(st->secret, mel__xxh3_secret, sizeof(st->secret));
+    else
+        mel__xxh3_init_custom_secret(st->secret, seed);
+    st->total_len = 0;
+    st->seed = seed;
+    st->nb_stripes_so_far = 0;
+    st->buffered_size = 0;
+}
+
+void mel_xxh3_init(Mel_Xxh3_State* st) { mel__xxh3_state_init(st, 0); }
+
+void mel_xxh3_init_seeded(Mel_Xxh3_State* st, u64 seed) { mel__xxh3_state_init(st, seed); }
+
+void mel_xxh3_update(Mel_Xxh3_State* st, const void* data, usize len)
+{
+    const u8* p = (const u8*)data;
+    const u8* end = p + len;
+
+    st->total_len += len;
+
+    if (st->buffered_size + len <= XXH3_STREAM_BUFFER_SIZE)
+    {
+        memcpy(st->buffer + st->buffered_size, p, len);
+        st->buffered_size += (u32)len;
+        return;
+    }
+
+    if (st->buffered_size)
+    {
+        usize load_size = XXH3_STREAM_BUFFER_SIZE - st->buffered_size;
+        memcpy(st->buffer + st->buffered_size, p, load_size);
+        p += load_size;
+        mel__xxh3_consume_stripes(st->acc, &st->nb_stripes_so_far, st->buffer, XXH3_STREAM_BUFFER_STRIPES, st->secret);
+        st->buffered_size = 0;
+    }
+
+    if (end - p > XXH3_STREAM_BUFFER_SIZE)
+    {
+        const u8* limit = end - XXH3_STREAM_BUFFER_SIZE;
+        do
+        {
+            mel__xxh3_consume_stripes(st->acc, &st->nb_stripes_so_far, p, XXH3_STREAM_BUFFER_STRIPES, st->secret);
+            p += XXH3_STREAM_BUFFER_SIZE;
+        } while (p < limit);
+        memcpy(st->buffer + XXH3_STREAM_BUFFER_SIZE - XXH_STRIPE_LEN, p - XXH_STRIPE_LEN, XXH_STRIPE_LEN);
+    }
+
+    memcpy(st->buffer, p, (usize)(end - p));
+    st->buffered_size = (u32)(end - p);
+}
+
+static void mel__xxh3_digest_long(u64* acc, const Mel_Xxh3_State* st)
+{
+    memcpy(acc, st->acc, XXH_ACC_NB * sizeof(u64));
+
+    if (st->buffered_size >= XXH_STRIPE_LEN)
+    {
+        usize nb_stripes = (st->buffered_size - 1) / XXH_STRIPE_LEN;
+        usize nb_stripes_so_far = st->nb_stripes_so_far;
+        mel__xxh3_consume_stripes(acc, &nb_stripes_so_far, st->buffer, nb_stripes, st->secret);
+        mel__xxh3_accumulate_512(acc, st->buffer + st->buffered_size - XXH_STRIPE_LEN, st->secret + XXH3_STREAM_SECRET_LIMIT - XXH_SECRET_LASTACC_START);
+    }
+    else
+    {
+        u8    last_stripe[XXH_STRIPE_LEN];
+        usize catchup_size = XXH_STRIPE_LEN - st->buffered_size;
+        memcpy(last_stripe, st->buffer + XXH3_STREAM_BUFFER_SIZE - catchup_size, catchup_size);
+        memcpy(last_stripe + catchup_size, st->buffer, st->buffered_size);
+        mel__xxh3_accumulate_512(acc, last_stripe, st->secret + XXH3_STREAM_SECRET_LIMIT - XXH_SECRET_LASTACC_START);
+    }
+}
+
+u64 mel_xxh3_final_64(const Mel_Xxh3_State* st)
+{
+    if (st->total_len <= XXH3_MIDSIZE_MAX)
+        return mel__xxh3_64_internal(st->buffer, (usize)st->total_len, st->seed, mel__xxh3_secret, sizeof(mel__xxh3_secret));
+
+    _Alignas(64) u64 acc[XXH_ACC_NB];
+    mel__xxh3_digest_long(acc, st);
+    return mel__xxh3_merge_accs(acc, st->secret + XXH_SECRET_MERGEACCS_START, st->total_len * XXH_PRIME64_1);
+}
+
+Mel_Xxh128 mel_xxh3_final_128(const Mel_Xxh3_State* st)
+{
+    if (st->total_len <= XXH3_MIDSIZE_MAX)
+        return mel__xxh3_128_internal(st->buffer, (usize)st->total_len, st->seed, mel__xxh3_secret, sizeof(mel__xxh3_secret));
+
+    _Alignas(64) u64 acc[XXH_ACC_NB];
+    mel__xxh3_digest_long(acc, st);
+
+    Mel_Xxh128 h;
+    h.low = mel__xxh3_merge_accs(acc, st->secret + XXH_SECRET_MERGEACCS_START, st->total_len * XXH_PRIME64_1);
+    h.high = mel__xxh3_merge_accs(acc, st->secret + sizeof(st->secret) - XXH_STRIPE_LEN - XXH_SECRET_MERGEACCS_START, ~(st->total_len * XXH_PRIME64_2));
+    return h;
 }
