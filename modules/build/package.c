@@ -96,7 +96,38 @@ static void build_vars(Mel_Target* t, const char* icon, Mel_KVVec* vars)
         mel_da_push(vars, ((Mel_KV){ "BUNDLE_ID", t->name }));
 }
 
-static bool package_apple(Mel_Target* t, const char* outdir, const char* exe, const char* plat, bool flat)
+static void apple_copy_thirdparty_dylibs(Mel_Graph* g, Mel_IdxVec* order, const Mel_Variant* v, const char* fwdir)
+{
+    for (size_t i = 0; order && i < order->len; i++)
+    {
+        Mel_Target* d = g->nodes.items[order->items[i]].t;
+        if (d->kind != MEL_KIND_THIRD_PARTY || !mel_target_available(d, v))
+            continue;
+        char* prefix = mel_target_outdir(d->dir, v);
+        char* libdir = mel_str_fmt("%s/prefix/lib", prefix);
+        DIR*  dir = opendir(libdir);
+        if (dir)
+        {
+            for (struct dirent* e = readdir(dir); e; e = readdir(dir))
+            {
+                size_t n = strlen(e->d_name);
+                if (n < 7 || strcmp(e->d_name + n - 6, ".dylib") != 0)
+                    continue;
+                mel_mkdirs(fwdir);
+                char* src = mel_str_fmt("%s/%s", libdir, e->d_name);
+                char* dst = mel_str_fmt("%s/%s", fwdir, e->d_name);
+                mel_copy_file(src, dst);
+                free(src);
+                free(dst);
+            }
+            closedir(dir);
+        }
+        free(libdir);
+        free(prefix);
+    }
+}
+
+static bool package_apple(Mel_Graph* g, Mel_IdxVec* order, Mel_Target* t, const Mel_Variant* v, const char* outdir, const char* exe, const char* plat, bool flat)
 {
     char* appdir = mel_str_fmt("%s/%s.app", outdir, t->name);
     char* macdir = flat ? mel_str_dup(appdir) : mel_str_fmt("%s/Contents/MacOS", appdir);
@@ -104,6 +135,13 @@ static bool package_apple(Mel_Target* t, const char* outdir, const char* exe, co
     char* plistdir = flat ? mel_str_dup(appdir) : mel_str_fmt("%s/Contents", appdir);
     mel_mkdirs(macdir);
     mel_mkdirs(resdir);
+
+    if (flat)
+    {
+        char* fwdir = mel_str_fmt("%s/Frameworks", appdir);
+        apple_copy_thirdparty_dylibs(g, order, v, fwdir);
+        free(fwdir);
+    }
 
     char* dstexe = mel_path_join(macdir, t->name);
     if (!mel_copy_file(exe, dstexe))
@@ -411,9 +449,9 @@ bool mel_package(Mel_Graph* g, Mel_IdxVec* order, Mel_Target* t, const Mel_Varia
     if (t->kind != MEL_KIND_EXECUTABLE)
         return true;
     if (v->platform == MEL_PLATFORM_MACOS)
-        return package_apple(t, outdir, exe, "macos", false);
+        return package_apple(g, order, t, v, outdir, exe, "macos", false);
     if (v->platform == MEL_PLATFORM_IOS)
-        return package_apple(t, outdir, exe, "ios", true);
+        return package_apple(g, order, t, v, outdir, exe, "ios", true);
     if (v->platform == MEL_PLATFORM_ANDROID)
         return package_android(g, order, t, v, outdir, exe);
     return true;

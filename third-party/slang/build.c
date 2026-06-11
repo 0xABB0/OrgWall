@@ -13,25 +13,27 @@
 
 #define SLANG_VERSION "2026.10.2"
 
-#define SLANG_VENDOR_REL "tools/build/vendor/slang/slang-" SLANG_VERSION "-android-aarch64.zip"
+#define SLANG_VENDOR_ANDROID "tools/build/vendor/slang/slang-" SLANG_VERSION "-android-aarch64.zip"
+#define SLANG_VENDOR_IOS_SIM "tools/build/vendor/slang/slang-" SLANG_VERSION "-ios-sim-aarch64.zip"
 
 #define SLANG_OS_ARCH_URL(os, arch) \
     SLANG_REL_BASE "slang-" SLANG_VERSION "-" os "-" arch ".zip"
 
-static char* mel_slang__vendor_url(void)
+static char* mel_slang__vendor_url(const char* rel, const char* script)
 {
     char cwd[4096];
     if (!getcwd(cwd, sizeof cwd))
         return NULL;
-    size_t n = strlen("file://") + strlen(cwd) + 1 + strlen(SLANG_VENDOR_REL) + 1;
+    size_t n = strlen("file://") + strlen(cwd) + 1 + strlen(rel) + 1;
     char*  s = malloc(n);
-    snprintf(s, n, "file://%s/%s", cwd, SLANG_VENDOR_REL);
+    snprintf(s, n, "file://%s/%s", cwd, rel);
     struct stat st;
-    if (stat(SLANG_VENDOR_REL, &st) != 0)
+    if (stat(rel, &st) != 0)
         fprintf(stderr,
-                "build: slang android prebuilt missing at %s\n"
-                "build: produce it with tools/build/vendor/slang/build-android-arm64.sh\n",
-                SLANG_VENDOR_REL);
+                "build: slang prebuilt missing at %s\n"
+                "build: produce it with tools/build/vendor/slang/%s\n",
+                rel,
+                script);
     return s;
 }
 
@@ -65,8 +67,13 @@ void build(Mel_Build* b)
     mel_link(wasm, MEL_PUBLIC, WHEN(.platforms = MEL_ON(WASM)), "-Wl,--end-group");
 
     Mel_Target* droid = mel_add_third_party(b, "slang-android");
-    mel_prebuilt(droid, WHEN(.platforms = MEL_ON(ANDROID)), mel_slang__vendor_url(), "libslang-compiler.so");
+    mel_prebuilt(droid, WHEN(.platforms = MEL_ON(ANDROID)), mel_slang__vendor_url(SLANG_VENDOR_ANDROID, "build-android-arm64.sh"), "libslang-compiler.so");
     mel_link(droid, MEL_PUBLIC, WHEN(.platforms = MEL_ON(ANDROID)), "-lslang-compiler");
+
+    Mel_Target* ios = mel_add_third_party(b, "slang-ios");
+    mel_prebuilt(ios, WHEN(.platforms = MEL_ON(IOS)), mel_slang__vendor_url(SLANG_VENDOR_IOS_SIM, "build-ios-sim-arm64.sh"), "libslang-compiler.dylib");
+    mel_link(ios, MEL_PUBLIC, WHEN(.platforms = MEL_ON(IOS)), "-lslang-compiler");
+    mel_link(ios, MEL_PUBLIC, WHEN(.platforms = MEL_ON(IOS)), "-Wl,-rpath,@executable_path/Frameworks");
 
     Mel_Target* lib = mel_add_library(b, "slang");
     mel_includes(lib, MEL_PUBLIC, ALWAYS, "include");
@@ -75,10 +82,9 @@ void build(Mel_Build* b)
     mel_depends_when(lib, "slang-runtime", WHEN(.platforms = MEL_ON(MACOS) | MEL_ON(LINUX) | MEL_ON(WIN32)));
     mel_depends_when(lib, "slang-wasm", WHEN(.platforms = MEL_ON(WASM)));
     mel_depends_when(lib, "slang-android", WHEN(.platforms = MEL_ON(ANDROID)));
-    mel_link(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(MACOS) | MEL_ON(LINUX)), "-lc++");
+    mel_depends_when(lib, "slang-ios", WHEN(.platforms = MEL_ON(IOS)));
+    mel_link(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(MACOS) | MEL_ON(LINUX) | MEL_ON(IOS)), "-lc++");
     mel_link(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(ANDROID)), "-lc++_static", "-lc++abi");
-
-    mel_unavailable(lib, WHEN(.platforms = MEL_ON(IOS)));
 
     mel_defines(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(WIN32)), "MEL_SLANG_EMIT_DXIL=1");
 
