@@ -61,6 +61,7 @@ bool        mel_target_available(Mel_Target* t, const Mel_Variant* v);
 typedef struct
 {
     char*       cc;
+    char*       cxx;
     char*       ar;
     char*       autotools_cc;
     char*       base_cflags;

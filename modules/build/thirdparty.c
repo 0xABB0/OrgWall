@@ -329,15 +329,15 @@ static bool build_autotools(Mel_Graph* g, Mel_Target* t, const Mel_Variant* v)
     return true;
 }
 
-static bool build_prebuilt(Mel_Target* t, const Mel_Variant* v)
+static bool build_prebuilt(Mel_Target* t, const Mel_Prebuilt* pb, const Mel_Variant* v)
 {
     char* outdir = mel_target_outdir(t->dir, v);
     char* absprefix = abspath(mel_path_join(outdir, "prefix"));
     char* stamp = mel_path_join(outdir, ".thirdparty-built");
-    char* lib = t->prebuilt_lib ? mel_str_fmt("%s/lib/%s", absprefix, t->prebuilt_lib) : NULL;
+    char* lib = pb->lib ? mel_str_fmt("%s/lib/%s", absprefix, pb->lib) : NULL;
 
     Mel_Toolchain tc = mel_toolchain(v);
-    char*         fp = mel_str_fmt("kind=prebuilt\ncc=%s\ntriple=%s\nconfig=%s\nurl=%s\nlib=%s\n", tc.cc, tc.triple, v->config ? v->config : "", t->prebuilt_url, t->prebuilt_lib ? t->prebuilt_lib : "");
+    char*         fp = mel_str_fmt("kind=prebuilt\ncc=%s\ntriple=%s\nconfig=%s\nurl=%s\nlib=%s\n", tc.cc, tc.triple, v->config ? v->config : "", pb->url, pb->lib ? pb->lib : "");
 
     if (fingerprint_matches(stamp, fp) && (!lib || mel_path_is_file(lib)))
         return true;
@@ -345,10 +345,10 @@ static bool build_prebuilt(Mel_Target* t, const Mel_Variant* v)
     wipe_tree(absprefix);
     mel_mkdirs(absprefix);
 
-    size_t      ulen = strlen(t->prebuilt_url);
-    bool        is_tar = (ulen > 7 && strcmp(t->prebuilt_url + ulen - 7, ".tar.xz") == 0) ||
-                  (ulen > 7 && strcmp(t->prebuilt_url + ulen - 7, ".tar.gz") == 0) ||
-                  (ulen > 4 && strcmp(t->prebuilt_url + ulen - 4, ".tgz") == 0);
+    size_t      ulen = strlen(pb->url);
+    bool        is_tar = (ulen > 7 && strcmp(pb->url + ulen - 7, ".tar.xz") == 0) ||
+                  (ulen > 7 && strcmp(pb->url + ulen - 7, ".tar.gz") == 0) ||
+                  (ulen > 4 && strcmp(pb->url + ulen - 4, ".tgz") == 0);
     const char* archive_name = is_tar ? "_prebuilt.tar" : "_prebuilt.zip";
     char*       archive = mel_path_join(absprefix, archive_name);
 
@@ -357,7 +357,7 @@ static bool build_prebuilt(Mel_Target* t, const Mel_Variant* v)
     mel_da_push(&c, "-fSL");
     mel_da_push(&c, "-o");
     mel_da_push(&c, archive);
-    mel_da_push(&c, t->prebuilt_url);
+    mel_da_push(&c, pb->url);
     bool ok = mel_run_vec(&c) == 0;
     if (ok)
     {
@@ -373,11 +373,19 @@ static bool build_prebuilt(Mel_Target* t, const Mel_Variant* v)
         }
         else
         {
+#ifdef _WIN32
+            mel_da_push(&c, "tar");
+            mel_da_push(&c, "-xf");
+            mel_da_push(&c, archive);
+            mel_da_push(&c, "-C");
+            mel_da_push(&c, absprefix);
+#else
             mel_da_push(&c, "unzip");
             mel_da_push(&c, "-oq");
             mel_da_push(&c, archive);
             mel_da_push(&c, "-d");
             mel_da_push(&c, absprefix);
+#endif
         }
         ok = mel_run_vec(&c) == 0;
     }
@@ -413,9 +421,13 @@ bool mel_prepare_thirdparty(Mel_Graph* g, Mel_IdxVec* order, const Mel_Variant* 
         Mel_Target* t = g->nodes.items[order->items[i]].t;
         if (t->kind != MEL_KIND_THIRD_PARTY || !mel_target_available(t, v))
             continue;
-        if (t->prebuilt_url && mel_when_match(t->prebuilt_when, v))
+        const Mel_Prebuilt* pb = NULL;
+        for (size_t j = 0; j < t->prebuilts.len && !pb; j++)
+            if (mel_when_match(t->prebuilts.items[j].when, v))
+                pb = &t->prebuilts.items[j];
+        if (pb)
         {
-            if (!build_prebuilt(t, v))
+            if (!build_prebuilt(t, pb, v))
                 return false;
             continue;
         }

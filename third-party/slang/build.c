@@ -10,6 +10,9 @@
 
 #define SLANG_VENDOR_REL "tools/build/vendor/slang/slang-" SLANG_VERSION "-android-aarch64.zip"
 
+#define SLANG_OS_ARCH_URL(os, arch) \
+    SLANG_REL_BASE "slang-" SLANG_VERSION "-" os "-" arch ".zip"
+
 static char* mel_slang__vendor_url(void)
 {
     char cwd[4096];
@@ -27,17 +30,8 @@ static char* mel_slang__vendor_url(void)
     return s;
 }
 
-#if defined(__aarch64__) || defined(__arm64__)
-#  define SLANG_ARCH "aarch64"
-#else
-#  define SLANG_ARCH "x86_64"
-#endif
-
 #define SLANG_REL_BASE \
     "https://github.com/shader-slang/slang/releases/download/v" SLANG_VERSION "/"
-
-#define SLANG_URL(os) \
-    SLANG_REL_BASE "slang-" SLANG_VERSION "-" os "-" SLANG_ARCH ".zip"
 
 #define SLANG_WASM_LIBS_URL \
     SLANG_REL_BASE "slang-" SLANG_VERSION "-wasm-libs.zip"
@@ -45,13 +39,12 @@ static char* mel_slang__vendor_url(void)
 void build(Mel_Build* b)
 {
     Mel_Target* rt = mel_add_third_party(b, "slang-runtime");
-#if defined(__APPLE__)
-    mel_prebuilt(rt, WHEN(.platforms = MEL_ON(MACOS)), SLANG_URL("macos"), "libslang.dylib");
-#elif defined(_WIN32)
-    mel_prebuilt(rt, WHEN(.platforms = MEL_ON(WIN32)), SLANG_URL("windows"), "slang.lib");
-#elif defined(__linux__)
-    mel_prebuilt(rt, WHEN(.platforms = MEL_ON(LINUX)), SLANG_URL("linux"), "libslang.so");
-#endif
+    mel_prebuilt(rt, WHEN(.platforms = MEL_ON(MACOS), .arch = "arm64"), SLANG_OS_ARCH_URL("macos", "aarch64"), "libslang.dylib");
+    mel_prebuilt(rt, WHEN(.platforms = MEL_ON(MACOS), .arch = "x86_64"), SLANG_OS_ARCH_URL("macos", "x86_64"), "libslang.dylib");
+    mel_prebuilt(rt, WHEN(.platforms = MEL_ON(LINUX), .arch = "arm64"), SLANG_OS_ARCH_URL("linux", "aarch64"), "libslang.so");
+    mel_prebuilt(rt, WHEN(.platforms = MEL_ON(LINUX), .arch = "x86_64"), SLANG_OS_ARCH_URL("linux", "x86_64"), "libslang.so");
+    mel_prebuilt(rt, WHEN(.platforms = MEL_ON(WIN32), .arch = "arm64"), SLANG_OS_ARCH_URL("windows", "aarch64"), "slang.lib");
+    mel_prebuilt(rt, WHEN(.platforms = MEL_ON(WIN32), .arch = "x86_64"), SLANG_OS_ARCH_URL("windows", "x86_64"), "slang.lib");
     mel_link(rt, MEL_PUBLIC, WHEN(.platforms = MEL_ON(MACOS) | MEL_ON(LINUX) | MEL_ON(WIN32)), "-lslang");
 
     Mel_Target* wasm = mel_add_third_party(b, "slang-wasm");
