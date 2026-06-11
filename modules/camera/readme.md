@@ -64,7 +64,7 @@ once at open time and cached on the session, not re-dispatched per frame.
 
 ## Platforms
 
-macOS/iOS AVFoundation (`src/apple/camera_avf.m`). Linux V4L2, Android
+macOS/iOS AVFoundation (`apple/src/camera_avf.m`). Linux V4L2, Android
 Camera2/NDK, Win32 Media Foundation, wasm getUserMedia are sequenced;
 unsupported platforms get a `host_none` stub so the module always builds
 (MEL-ENGINE-I/VII). The AVFoundation backend links and compiles on macOS;

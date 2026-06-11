@@ -79,9 +79,9 @@ per-platform reading lives behind one seam, `mel_display__enumerate`
 override it via `mel_display__set_enumerate` to drive the diff with a fake backend.
 
 Each platform implements that one seam in its own axis dir, selected by the
-build's platform/runtime chain — `src/macos/` (`NSScreen` + Core Graphics),
-`src/ios/` (`UIScreen`), `src/win32/` (`IDXGIOutput6`), `src/linux/` (XRandR),
-`src/android/` (`DisplayManager` over JNI), `src/emscripten/` (browser `screen.*`),
+build's platform/runtime chain — `macos/src/` (`NSScreen` + Core Graphics),
+`ios/src/` (`UIScreen`), `win32/src/` (`IDXGIOutput6`), `linux/src/` (XRandR),
+`android/src/` (`DisplayManager` over JNI), `src/emscripten/` (browser `screen.*`),
 and a `src/wasi/` no-display stub. macOS is runtime-verified on hardware; the rest
 are compile-verified against their SDKs (see `todo.md` for per-platform gaps).
 

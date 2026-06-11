@@ -168,7 +168,7 @@ is luminance, zero copy) plus timestamp and sensor orientation.
 
 ## Platforms
 
-macOS/iOS AVFoundation first (`src/apple/*.m`, `-framework AVFoundation
+macOS/iOS AVFoundation first (`apple/src/*.m`, `-framework AVFoundation
 -framework CoreMedia -framework CoreVideo -framework Foundation`). Linux V4L2,
 Android Camera2/NDK, Win32 Media Foundation, wasm getUserMedia are sequenced;
 unsupported platforms get a `host_none` stub (`mel_camera__register_host_providers`

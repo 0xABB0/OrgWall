@@ -5,12 +5,17 @@ void build(Mel_Build* b)
     Mel_Target* lib = mel_add_library(b, "display");
     mel_includes(lib, MEL_PUBLIC, ALWAYS, "include");
     mel_sources(lib, ALWAYS, "src/display.c", "src/events.c");
-    mel_sources(lib, WHEN(.platforms = MEL_ON(MACOS)), "src/macos/*.m");
-    mel_sources(lib, WHEN(.platforms = MEL_ON(LINUX)), "src/linux/*.c");
-    mel_sources(lib, WHEN(.platforms = MEL_ON(WIN32)), "src/win32/*.c");
-    mel_sources(lib, WHEN(.platforms = MEL_ON(ANDROID)), "src/android/*.c");
-    mel_sources(lib, WHEN(.platforms = MEL_ON(IOS)), "src/ios/*.m");
-    mel_android_java(lib, "src/android/java");
+    mel_sources(lib, WHEN(.platforms = MEL_ON(MACOS)), "macos/src/*.m");
+    mel_includes(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(MACOS)), "macos/include");
+    mel_sources(lib, WHEN(.platforms = MEL_ON(LINUX)), "linux/src/*.c");
+    mel_includes(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(LINUX)), "linux/include");
+    mel_sources(lib, WHEN(.platforms = MEL_ON(WIN32)), "win32/src/*.c");
+    mel_includes(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(WIN32)), "win32/include");
+    mel_sources(lib, WHEN(.platforms = MEL_ON(ANDROID)), "android/src/*.c");
+    mel_includes(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(ANDROID)), "android/include");
+    mel_sources(lib, WHEN(.platforms = MEL_ON(IOS)), "ios/src/*.m");
+    mel_includes(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(IOS)), "ios/include");
+    mel_android_java(lib, "android/java");
 
     mel_link(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(MACOS)), "-framework", "CoreGraphics", "-framework", "IOKit", "-framework", "AppKit", "-framework", "Foundation");
 

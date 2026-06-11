@@ -14,7 +14,7 @@ Execution checklist and resume point. `spec.md` is authoritative for design.
   one-time enumeration.
 - All platforms cross-compile clean (macos, ios, linux, android, win32, wasm).
   The iOS `temperature.c` is now correctly gated (the former `sensor` build
-  globbed only `src/ios/*.m`, dropping it).
+  globbed only `ios/src/*.m`, dropping it).
 
 ## Remaining
 

@@ -5,18 +5,18 @@ void build(Mel_Build* b)
     Mel_Target* lib = mel_add_library(b, "geolocation");
     mel_includes(lib, MEL_PUBLIC, ALWAYS, "include");
     mel_sources(lib, ALWAYS, "src/geolocation.c");
-    mel_sources(lib, WHEN(.platforms = MEL_ON(MACOS) | MEL_ON(IOS)), "src/apple/*.m");
-    mel_sources(lib, WHEN(.platforms = MEL_ON(ANDROID)), "src/android/*.c");
-    mel_sources(lib, WHEN(.platforms = MEL_ON(LINUX)), "src/linux/*.c");
-    mel_sources(lib, WHEN(.platforms = MEL_ON(WIN32)), "src/win32/*.c", "src/win32/*.cpp");
-    mel_sources(lib, WHEN(.platforms = MEL_ON(WASM)), "src/wasm/*.c");
+    mel_sources(lib, WHEN(.platforms = MEL_ON(MACOS) | MEL_ON(IOS)), "apple/src/*.m");
+    mel_sources(lib, WHEN(.platforms = MEL_ON(ANDROID)), "android/src/*.c");
+    mel_sources(lib, WHEN(.platforms = MEL_ON(LINUX)), "linux/src/*.c");
+    mel_sources(lib, WHEN(.platforms = MEL_ON(WIN32)), "win32/src/*.c", "win32/src/*.cpp");
+    mel_sources(lib, WHEN(.platforms = MEL_ON(WASM)), "wasm/src/*.c");
 
     mel_link(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(MACOS) | MEL_ON(IOS)), "-framework", "CoreLocation", "-framework", "Foundation");
     mel_link(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(WIN32)), "-lwindowsapp", "-lole32");
     mel_link(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(LINUX)), "-ldl");
 
-    mel_android_manifest(lib, "src/android/AndroidManifest.xml");
-    mel_android_java(lib, "src/android/java");
+    mel_android_manifest(lib, "android/AndroidManifest.xml");
+    mel_android_java(lib, "android/java");
     mel_android_dependency(lib, "com.google.android.gms:play-services-location:21.3.0");
 
     mel_depends(lib, "core");

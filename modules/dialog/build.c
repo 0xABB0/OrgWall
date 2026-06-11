@@ -5,14 +5,14 @@ void build(Mel_Build* b)
     Mel_Target* lib = mel_add_library(b, "dialog");
     mel_includes(lib, MEL_PUBLIC, ALWAYS, "include");
     mel_sources(lib, ALWAYS, "src/dialog.c");
-    mel_sources(lib, WHEN(.platforms = MEL_ON(MACOS)), "src/apple/*.m");
-    mel_sources(lib, WHEN(.platforms = MEL_ON(IOS)), "src/ios/*.m");
-    mel_sources(lib, WHEN(.platforms = MEL_ON(WIN32)), "src/win32/*.c");
-    mel_sources(lib, WHEN(.platforms = MEL_ON(LINUX)), "src/linux/*.c");
-    mel_sources(lib, WHEN(.platforms = MEL_ON(ANDROID)), "src/android/*.c");
-    mel_sources(lib, WHEN(.platforms = MEL_ON(WASM)), "src/web/*.c");
-    mel_android_java(lib, "src/android/java");
-    mel_android_manifest(lib, "src/android/AndroidManifest.xml");
+    mel_sources(lib, WHEN(.platforms = MEL_ON(MACOS)), "apple/src/*.m");
+    mel_sources(lib, WHEN(.platforms = MEL_ON(IOS)), "ios/src/*.m");
+    mel_sources(lib, WHEN(.platforms = MEL_ON(WIN32)), "win32/src/*.c");
+    mel_sources(lib, WHEN(.platforms = MEL_ON(LINUX)), "linux/src/*.c");
+    mel_sources(lib, WHEN(.platforms = MEL_ON(ANDROID)), "android/src/*.c");
+    mel_sources(lib, WHEN(.platforms = MEL_ON(WASM)), "web/src/*.c");
+    mel_android_java(lib, "android/java");
+    mel_android_manifest(lib, "android/AndroidManifest.xml");
 
     mel_link(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(MACOS)), "-framework", "AppKit", "-framework", "Foundation", "-framework", "UniformTypeIdentifiers");
     mel_link(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(IOS)), "-framework", "UIKit", "-framework", "Foundation", "-framework", "UniformTypeIdentifiers");

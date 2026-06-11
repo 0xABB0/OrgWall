@@ -40,7 +40,18 @@ On the Darwin host, android, ios and web are runnable too. For mobile devices, u
 
 Every `modules/<m>/`, `apps/<app>/` and `third-party/<lib>/` carries a `build.c` whose `build()` declares its artifacts; discovery runs each one. A module exposes its headers by declaring `mel_includes(t, MEL_PUBLIC, ALWAYS, "include")`; dependents that `mel_depends` on it inherit that path and include as `<subtree/...>` (e.g. `<rng/pcg32.h>`), never by module name. `<m>/src` holds its code.
 
-Within a target, sources and flags are gated **explicitly** by a `Mel_When` selector — there is no automatic axis-directory discovery or basename shadowing. Conventional layout is `src/` (common) plus `src/<platform>/`, `src/<gpu>/`, `src/<backend>/`, `src/<runtime>/`, but each subset is selected by the target's `build.c` (e.g. `mel_sources(t, WHEN(.platforms = MEL_ON(WIN32)), "src/win32/*.c")`). See `modules/build/platforms.md` for the full authoring surface.
+Within a target, sources and flags are gated **explicitly** by a `Mel_When` selector — there is no automatic axis-directory discovery or basename shadowing. Conventional layout splits common code from axis-specific code at the top of the module:
+
+    <m>/
+      build.c
+      include/<m>/        # common public headers, consumed as <m/...>
+      src/                # common sources + internal headers
+      <axis>/             # one folder per platform/gpu/backend/runtime axis
+        include/<m>/<axis>/   # axis-specific public headers, consumed as <m/axis/...>
+        src/                  # axis-specific sources + internal headers
+        [manifests, java, …]  # axis resources (e.g. AndroidManifest.xml, java/)
+
+Each axis is selected by the target's `build.c`: gate its sources with `mel_sources(t, WHEN(.platforms = MEL_ON(WIN32)), "win32/src/*.c")` and expose its public headers with a matching `mel_includes(t, MEL_PUBLIC, WHEN(.platforms = MEL_ON(WIN32)), "win32/include")`. Common code that is merely organizational (codecs, shared `.inl` helpers) stays under `src/`, not hoisted. See `modules/build/platforms.md` for the full authoring surface.
 
 Fuller documentation lives in `modules/build/platforms.md`.
 

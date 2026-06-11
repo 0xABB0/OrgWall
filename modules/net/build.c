@@ -9,8 +9,8 @@ void build(Mel_Build* b)
     mel_sources(lib, ALWAYS, "src/resolve.c");
     mel_sources(lib, ALWAYS, "src/tcp.c");
     mel_sources(lib, ALWAYS, "src/udp.c");
-    mel_sources(lib, WHEN(.platforms = MEL_ON(MACOS) | MEL_ON(IOS) | MEL_ON(LINUX) | MEL_ON(ANDROID)), "src/posix/net_backend.c");
-    mel_sources(lib, WHEN(.platforms = MEL_ON(WIN32) | MEL_ON(WASM)), "src/none/net_backend.c");
+    mel_sources(lib, WHEN(.platforms = MEL_ON(MACOS) | MEL_ON(IOS) | MEL_ON(LINUX) | MEL_ON(ANDROID)), "posix/src/net_backend.c");
+    mel_sources(lib, WHEN(.platforms = MEL_ON(WIN32) | MEL_ON(WASM)), "none/src/net_backend.c");
     mel_depends(lib, "core");
     mel_depends(lib, "allocator");
     mel_depends(lib, "collection");

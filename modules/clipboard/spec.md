@@ -276,7 +276,7 @@ MEL-ENGINE-VIII). `unwatch` destroys the timer and the channel.
   `EMSCRIPTEN_KEEPALIVE` resolves back via the split-token. No sequence ⇒ `watch` unsupported. Rich
   `ClipboardItem` read/write (`text/html`, `image/png`) and format enumeration are the future path;
   non-text write reps are dropped with `RepresentationDropped`, `query` logs unsupported.
-- **Linux — X11/Wayland.** A dispatcher (`src/linux/clip_linux.c`) selects X11 first (libxcb,
+- **Linux — X11/Wayland.** A dispatcher (`linux/src/clip_linux.c`) selects X11 first (libxcb,
   `dlopen`'d), else Wayland (libwayland-client), else reports `NoClipboard`; `MEL_CLIP_BACKEND=x11|wayland`
   forces one. **X11** owns the `CLIPBOARD` and `PRIMARY` selections from a hidden 1×1 window,
   serves `SelectionRequest`/`SelectionClear` from retained payload on a reactor poll source (the

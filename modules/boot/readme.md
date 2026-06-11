@@ -24,18 +24,18 @@ that returns immediately — retention-based exit is the CLI-app story, no separ
 
 ## Entries
 
-- macos (`src/macos/entry.c`) — sovereign. `main` opens the root vat over
+- macos (`macos/src/entry.c`) — sovereign. `main` opens the root vat over
   `mel_vat_waiter_ui` + `mel_vat_driver_fair(alloc, 64)` on the heap allocator, calls
   `mel_app_setup`, `mel_vat_run`, fires the exit hooks, tears down, returns the exit code.
-- ios (`src/ios/entry.m`) — subordinate. `main` hands the thread to `UIApplicationMain`; the
+- ios (`ios/src/entry.m`) — subordinate. `main` hands the thread to `UIApplicationMain`; the
   delegate's `didFinishLaunching` opens the root vat over `mel_vat_waiter_guest` with a GCD
   embedder (`schedule_work` → `dispatch_async` on the main queue; `schedule_delayed_work` →
   `dispatch_after`, negative delay = wake only on ring), calls `mel_app_setup`, and drives one
   `mel_vat_step` per host callback. A turn that never reached the waiter is redriven with an
   immediate `dispatch_async`; quit or retention loss fires the exit hooks and `exit`s with the
-  stored code. `src/ios/lifecycle.m` forwards the `UIApplication` notifications into
+  stored code. `ios/src/lifecycle.m` forwards the `UIApplication` notifications into
   `mel_app__emit`.
-- web (`src/web/entry.c`) — subordinate. `main` opens the root vat over
+- web (`web/src/entry.c`) — subordinate. `main` opens the root vat over
   `mel_vat_waiter_guest` with an emscripten embedder (`schedule_work` → `emscripten_async_call`
   / proxied to the main runtime thread; `schedule_delayed_work` → `emscripten_set_timeout`,
   negative delay = wake only on ring), calls `mel_app_setup`, drives one `mel_vat_step` per
@@ -44,11 +44,11 @@ that returns immediately — retention-based exit is the CLI-app story, no separ
   callback; quit or retention loss fires the exit hooks and `emscripten_force_exit`s with the
   stored code.
 
-- win32 (`src/win32/entry.c`) — sovereign. Defines both `main` (console subsystem) and
+- win32 (`win32/src/entry.c`) — sovereign. Defines both `main` (console subsystem) and
   `WinMain` (gui subsystem, forwards `__argc`/`__argv`); both funnel into the same run: open
   the root vat over `mel_vat_waiter_ui` + `mel_vat_driver_fair(alloc, 64)` on the heap
   allocator, `mel_app_setup`, `mel_vat_run`, exit hooks, teardown, return the exit code.
-  `mel_vat_waiter_ui` on win32 (`vat/src/win32/waiter_msg.c`) pumps the thread message queue
+  `mel_vat_waiter_ui` on win32 (`vat/win32/src/waiter_msg.c`) pumps the thread message queue
   and parks in `MsgWaitForMultipleObjectsEx` over a doorbell event plus armed waitable
   HANDLEs.
 

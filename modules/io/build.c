@@ -5,9 +5,9 @@ void build(Mel_Build* b)
     Mel_Target* lib = mel_add_library(b, "io");
     mel_includes(lib, MEL_PUBLIC, ALWAYS, "include");
     mel_sources(lib, ALWAYS, "src/stream.c", "src/memory.c", "src/file.c", "src/whole_file.c");
-    mel_sources(lib, WHEN(.platforms = MEL_ON(MACOS) | MEL_ON(IOS) | MEL_ON(LINUX) | MEL_ON(ANDROID)), "src/posix/file_backend.c");
-    mel_sources(lib, WHEN(.platforms = MEL_ON(WIN32)), "src/win32/file_backend.c");
-    mel_sources(lib, WHEN(.platforms = MEL_ON(WASM)), "src/wasm/file_backend.c");
+    mel_sources(lib, WHEN(.platforms = MEL_ON(MACOS) | MEL_ON(IOS) | MEL_ON(LINUX) | MEL_ON(ANDROID)), "posix/src/file_backend.c");
+    mel_sources(lib, WHEN(.platforms = MEL_ON(WIN32)), "win32/src/file_backend.c");
+    mel_sources(lib, WHEN(.platforms = MEL_ON(WASM)), "wasm/src/file_backend.c");
     mel_depends(lib, "core");
     mel_depends(lib, "allocator");
     mel_depends(lib, "collection");

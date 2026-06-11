@@ -74,7 +74,7 @@ Recv resolves to `Mel_Net_Udp_Result{ bytes, Mel_Net_Address from, status, os_er
 
 ## 8. Backends
 
-- `src/posix/` — macOS, iOS, Linux, Android share one POSIX backend (sockets are the one POSIX corner that is actually portable); per-OS deltas (`SO_NOSIGPIPE` vs `MSG_NOSIGNAL`, `accept4` presence) are compile-time branches inside it, not separate trees, until a real divergence forces a split.
+- `posix/src/` — macOS, iOS, Linux, Android share one POSIX backend (sockets are the one POSIX corner that is actually portable); per-OS deltas (`SO_NOSIGPIPE` vs `MSG_NOSIGNAL`, `accept4` presence) are compile-time branches inside it, not separate trees, until a real divergence forces a split.
 - `src/win32/` — Winsock2 (`WSAStartup` owned by the net context, non-blocking + the same readiness shape; IOCP/`ConnectEx` is a later lowering behind the same surface). Owed, stubbed `UNAVAILABLE` first.
 - `src/wasm/` — `UNAVAILABLE` honestly: browsers have no raw sockets. The web story is http/websocket at their own layers over `fetch`/`WebSocket` (MEL-ENGINE-VII: honest alternative, not a broken shadow).
 - build.c gates by `WHEN(.platforms = ...)` exactly as `port/build.c` does.

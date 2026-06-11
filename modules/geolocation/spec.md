@@ -510,7 +510,7 @@ thread`).
 
 # geolocation apple backend — spec
 
-`src/apple/geolocation_apple.m`, shared macOS + iOS, gated
+`apple/src/geolocation_apple.m`, shared macOS + iOS, gated
 `WHEN(.platforms = MEL_ON(MACOS) | MEL_ON(IOS))`. Links `CoreLocation` +
 `Foundation`. Prerequisite: core spec.
 
@@ -580,8 +580,8 @@ background mode. The module logs the exact missing key.
 
 Two providers registered fused-first (the runtime fallback): GMS
 FusedLocationProvider when Play services are present, framework
-`android.location.LocationManager` otherwise. `src/android/geolocation_android.c`
-(JNI for both) + `src/android/java/orgwall/melody/geolocation/MelodyGeo.java` +
+`android.location.LocationManager` otherwise. `android/src/geolocation_android.c`
+(JNI for both) + `android/java/orgwall/melody/geolocation/MelodyGeo.java` +
 `MelodyGeoFused.java`. Prerequisites: core spec; `mel_android_dependency`
 build extension (below).
 
@@ -640,7 +640,7 @@ heading false on both.
 
 # geolocation win32 backend — spec
 
-`src/win32/geolocation_win32.c`: `Windows.Devices.Geolocation` WinRT consumed
+`win32/src/geolocation_win32.c`: `Windows.Devices.Geolocation` WinRT consumed
 through the raw COM ABI from C (`RoInitialize`, `RoGetActivationFactory`,
 `windows.devices.geolocation.h` MIDL interfaces). Links
 `-lruntimeobject -lole32`. Prerequisite: core spec.
@@ -685,7 +685,7 @@ hand-rolled vtables (`IUnknown` + the typed delegate); refcounts are real
 
 # geolocation linux backend — spec
 
-`src/linux/geolocation_linux.c`: GeoClue2 (`org.freedesktop.GeoClue2`) over
+`linux/src/geolocation_linux.c`: GeoClue2 (`org.freedesktop.GeoClue2`) over
 the system D-Bus. Transport: **libdbus-1 via `dlopen`** (`libdbus-1.so.3`,
 SDL precedent) — a raw-socket D-Bus client is a module of its own and out of
 scope. `geolocation_dbus.h` declares the minimal ABI surface locally
@@ -733,7 +733,7 @@ request timeouts are unaffected (core-owned deadline source).
 
 # geolocation web backend — spec
 
-`src/wasm/geolocation_wasm.c`: `navigator.geolocation` via `EM_JS` (sensor
+`wasm/src/geolocation_wasm.c`: `navigator.geolocation` via `EM_JS` (sensor
 module precedent: JS writes into exported alloc/commit shims, C feeds the
 sink). Browser callbacks run on the main thread — the guest vat — so sink
 calls are already home. Prerequisite: core spec.

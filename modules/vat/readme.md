@@ -63,7 +63,7 @@ work). Nested runs are legal; `mel_vat_quit` stops the innermost run only.
 - Timer cancellation handles; today an added timer fires or dies with the timers source.
 - Wakeable bridging for subordinate vats: the guest waiter refuses `arm`, so an fd source on a
   guest vat asserts; epoll/io_uring/IOCP waiters, the unfair driver.
-- `vat/vsync.h` ships only the macOS CVDisplayLink source (`src/macos/vsync.c`: atomic
+- `vat/vsync.h` ships only the macOS CVDisplayLink source (`macos/src/vsync.c`: atomic
   signaled flag set on the CV thread, doorbell ring, deadline `0` when signaled else `NEVER`);
   CADisplayLink (ios), DXGI waitable swapchain (win32) and `requestAnimationFrame` (web)
   flavors are owed. Close stops the link before freeing, but `CVDisplayLinkStop` does not

@@ -5,18 +5,18 @@ void build(Mel_Build* b)
     Mel_Target* lib = mel_add_library(b, "messagebox");
     mel_includes(lib, MEL_PUBLIC, ALWAYS, "include");
     mel_sources(lib, ALWAYS, "src/messagebox.c");
-    mel_sources(lib, WHEN(.platforms = MEL_ON(MACOS) | MEL_ON(IOS)), "src/apple/*.m");
-    mel_sources(lib, WHEN(.platforms = MEL_ON(WIN32)), "src/win32/*.c");
-    mel_sources(lib, WHEN(.platforms = MEL_ON(LINUX)), "src/linux/*.c");
-    mel_sources(lib, WHEN(.platforms = MEL_ON(ANDROID)), "src/android/*.c");
-    mel_sources(lib, WHEN(.platforms = MEL_ON(WASM)), "src/web/*.c");
+    mel_sources(lib, WHEN(.platforms = MEL_ON(MACOS) | MEL_ON(IOS)), "apple/src/*.m");
+    mel_sources(lib, WHEN(.platforms = MEL_ON(WIN32)), "win32/src/*.c");
+    mel_sources(lib, WHEN(.platforms = MEL_ON(LINUX)), "linux/src/*.c");
+    mel_sources(lib, WHEN(.platforms = MEL_ON(ANDROID)), "android/src/*.c");
+    mel_sources(lib, WHEN(.platforms = MEL_ON(WASM)), "web/src/*.c");
 
     mel_link(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(MACOS)), "-framework", "AppKit", "-framework", "Foundation");
     mel_link(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(IOS)), "-framework", "UIKit", "-framework", "Foundation");
     mel_link(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(WIN32)), "-lcomctl32");
     mel_link(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(LINUX)), "-ldl");
 
-    mel_android_java(lib, "src/android/java");
+    mel_android_java(lib, "android/java");
 
     mel_depends(lib, "core");
     mel_depends(lib, "string");

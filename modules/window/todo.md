@@ -66,9 +66,9 @@ window-by-id + enumerate-all, maximize/minimize/restore/raise, flash, get/presen
 Closed sets are anonymous flag bitsets (no reflection enums); operations carry `Mel_Window_Status`.
 
 ## Backend coverage
-- cocoa (host): full `Mel_Window_Backend_Ops` (`src/cocoa/state.m`).
-- win32: full ops authored (`src/win32/state.c`), compiles on win-pilot; unbuilt/untested on macos host.
-- ios / android / linux / wasm: no-op `src/stub/backend.c` returns NULL ops — every augmented call
+- cocoa (host): full `Mel_Window_Backend_Ops` (`cocoa/src/state.m`).
+- win32: full ops authored (`win32/src/state.c`), compiles on win-pilot; unbuilt/untested on macos host.
+- ios / android / linux / wasm: no-op `stub/src/backend.c` returns NULL ops — every augmented call
   reports `MEL_WINDOW_WARNED | MEL_WINDOW_UNAVAILABLE` (honest-absent, MEL-ENGINE-VII).
   Linux X11/Wayland ops not yet authored (gap, not a refusal).
 
@@ -80,7 +80,7 @@ Closed sets are anonymous flag bitsets (no reflection enums); operations carry `
 ## Gate residuals (deferred, honest-absent)
 - Backend OOM allocs unchecked in `cocoa_get_surface`/`cocoa_icc_profile` and `win32_get_surface`/`win32_icc_profile`: `mel_assert` cannot be used in `win32/state.c` because `S8`/`countof` expands `(size)` which collides with the local `DWORD size`; needs a collision-free assert or a renamed local before adding the OOM guard. `state.c` async fetch path is guarded (`mel_assert(op != NULL)`).
 - `set_fullscreen_mode` (cocoa + win32) now returns false → honest `MEL_WINDOW_WARNED | MEL_WINDOW_UNAVAILABLE`; exclusive video-mode switch (CGDisplaySetDisplayMode / ChangeDisplaySettingsEx) unauthored.
-- win32 `set_min_size`/`set_max_size`/`set_aspect` return false (honest unavailable); `WM_GETMINMAXINFO` handler in `src/win32/backend.c` unauthored.
+- win32 `set_min_size`/`set_max_size`/`set_aspect` return false (honest unavailable); `WM_GETMINMAXINFO` handler in `win32/src/backend.c` unauthored.
 - win32 `set_keyboard_grab` and `set_shape`, cocoa `set_mouse_grab`/`set_keyboard_grab`/`set_mouse_rect` return false (honest unavailable); WH_KEYBOARD_LL / SetWindowRgn / CGAssociateMouseAndMouseCursorPosition unauthored.
 - `mel_window_set_hit_test` returns `MEL_WINDOW_WARNED | MEL_WINDOW_UNAVAILABLE`: no backend consumes `n->hit_test` (no `WM_NCHITTEST`, no cocoa hitTest override) yet.
 - Live-state honesty: setters store `n->mouse_grab`/`n->keyboard_grab`/etc. before dispatch, so `query_state` flags may report a state the (now-false) backend op never effected. `MEL_WINDOW_STATE_TRANSPARENT` is composed from `n->transparent`, which is written nowhere.

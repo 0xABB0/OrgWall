@@ -5,11 +5,11 @@ void build(Mel_Build* b)
     Mel_Target* lib = mel_add_library(b, "locale");
     mel_includes(lib, MEL_PUBLIC, ALWAYS, "include");
     mel_sources(lib, ALWAYS, "src/locale.c");
-    mel_sources(lib, WHEN(.platforms = MEL_ON(MACOS) | MEL_ON(IOS)), "src/apple/*.m");
-    mel_sources(lib, WHEN(.platforms = MEL_ON(LINUX)), "src/linux/*.c");
-    mel_sources(lib, WHEN(.platforms = MEL_ON(ANDROID)), "src/android/*.c");
-    mel_sources(lib, WHEN(.platforms = MEL_ON(WIN32)), "src/win32/*.c");
-    mel_sources(lib, WHEN(.platforms = MEL_ON(WASM)), "src/wasm/*.c");
+    mel_sources(lib, WHEN(.platforms = MEL_ON(MACOS) | MEL_ON(IOS)), "apple/src/*.m");
+    mel_sources(lib, WHEN(.platforms = MEL_ON(LINUX)), "linux/src/*.c");
+    mel_sources(lib, WHEN(.platforms = MEL_ON(ANDROID)), "android/src/*.c");
+    mel_sources(lib, WHEN(.platforms = MEL_ON(WIN32)), "win32/src/*.c");
+    mel_sources(lib, WHEN(.platforms = MEL_ON(WASM)), "wasm/src/*.c");
 
     mel_link(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(MACOS) | MEL_ON(IOS)), "-framework", "Foundation");
 

@@ -6,12 +6,12 @@ void build(Mel_Build* b)
     mel_includes(lib, MEL_PUBLIC, ALWAYS, "include");
 
     mel_sources(lib, ALWAYS, "src/boot.c", "src/lifecycle.c");
-    mel_sources(lib, WHEN(.platforms = MEL_ON(MACOS)), "src/macos/*.c");
-    mel_sources(lib, WHEN(.platforms = MEL_ON(MACOS)), "src/macos/*.m");
-    mel_sources(lib, WHEN(.platforms = MEL_ON(IOS)), "src/ios/*.m");
-    mel_sources(lib, WHEN(.platforms = MEL_ON(WASM)), "src/web/*.c");
-    mel_sources(lib, WHEN(.platforms = MEL_ON(ANDROID)), "src/android/*.c");
-    mel_sources(lib, WHEN(.platforms = MEL_ON(WIN32)), "src/win32/*.c");
+    mel_sources(lib, WHEN(.platforms = MEL_ON(MACOS)), "macos/src/*.c");
+    mel_sources(lib, WHEN(.platforms = MEL_ON(MACOS)), "macos/src/*.m");
+    mel_sources(lib, WHEN(.platforms = MEL_ON(IOS)), "ios/src/*.m");
+    mel_sources(lib, WHEN(.platforms = MEL_ON(WASM)), "web/src/*.c");
+    mel_sources(lib, WHEN(.platforms = MEL_ON(ANDROID)), "android/src/*.c");
+    mel_sources(lib, WHEN(.platforms = MEL_ON(WIN32)), "win32/src/*.c");
 
     mel_whole_archive(lib, WHEN(.platforms = MEL_ON(ANDROID)));
 

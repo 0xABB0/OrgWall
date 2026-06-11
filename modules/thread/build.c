@@ -7,11 +7,11 @@ void build(Mel_Build* b)
     mel_depends(lib, "core");
 
     mel_sources(lib, ALWAYS, "src/*.c");
-    mel_sources(lib, WHEN(.platforms = MEL_ON(MACOS) | MEL_ON(IOS)), "src/apple/*.c");
-    mel_sources(lib, WHEN(.platforms = MEL_ON(MACOS) | MEL_ON(IOS)), "src/posix/mutex.c", "src/posix/rwlock.c", "src/posix/tls.c");
-    mel_sources(lib, WHEN(.platforms = MEL_ON(LINUX) | MEL_ON(ANDROID)), "src/posix/*.c");
-    mel_sources(lib, WHEN(.platforms = MEL_ON(WASM)), "src/posix/*.c", "src/wasm/*.c");
-    mel_sources(lib, WHEN(.platforms = MEL_ON(WIN32)), "src/win32/*.c");
+    mel_sources(lib, WHEN(.platforms = MEL_ON(MACOS) | MEL_ON(IOS)), "apple/src/*.c");
+    mel_sources(lib, WHEN(.platforms = MEL_ON(MACOS) | MEL_ON(IOS)), "posix/src/mutex.c", "posix/src/rwlock.c", "posix/src/tls.c");
+    mel_sources(lib, WHEN(.platforms = MEL_ON(LINUX) | MEL_ON(ANDROID)), "posix/src/*.c");
+    mel_sources(lib, WHEN(.platforms = MEL_ON(WASM)), "posix/src/*.c", "wasm/src/*.c");
+    mel_sources(lib, WHEN(.platforms = MEL_ON(WIN32)), "win32/src/*.c");
 
     mel_cflags(lib, MEL_PRIVATE, WHEN(.platforms = MEL_ON(WASM)), "-D_GNU_SOURCE");
     mel_cflags(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(WASM)), "-pthread");

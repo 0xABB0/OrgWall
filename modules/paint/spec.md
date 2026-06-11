@@ -49,14 +49,14 @@ across window and pixmap. Deps: `core`, `allocator`, `collection`, `math`, `stri
 
 ## Backends
 
-- `quartz` (`src/quartz/*.c`, `MEL_ON(MACOS)|MEL_ON(IOS)`) — CoreGraphics + CoreText, pure C
+- `quartz` (`quartz/src/*.c`, `MEL_ON(MACOS)|MEL_ON(IOS)`) — CoreGraphics + CoreText, pure C
   (no AppKit/UIKit, no ObjC runtime). Owned-pixmap **and** borrowed-window paths; `native` is a
   `CGContextRef`. Serves both the `gui` cocoa and uikit canvases.
-- `gdi` (`src/gdi/*.c`, `MEL_ON(WIN32)`) — Win32 GDI; `native` is an `HDC`.
-- `dom` (`src/dom/*.c`, `MEL_ON(WASM)`) — Canvas2D via `EM_JS`; `native` is the canvas element id.
+- `gdi` (`gdi/src/*.c`, `MEL_ON(WIN32)`) — Win32 GDI; `native` is an `HDC`.
+- `dom` (`dom/src/*.c`, `MEL_ON(WASM)`) — Canvas2D via `EM_JS`; `native` is the canvas element id.
   Resolves the element through the `gui` web backend's JS registry (`MelWeb.els`) — a runtime
   coupling, see `todo.md`.
-- `android` (`src/android/*.c`, `MEL_ON(ANDROID)`) — `android.graphics.Canvas`/`Paint` via JNI;
+- `android` (`android/src/*.c`, `MEL_ON(ANDROID)`) — `android.graphics.Canvas`/`Paint` via JNI;
   `native` is `Mel_Paint_Android_Native` (`<paint/native_android.h>`: env + canvas + paint, vended
   per paint). Method IDs cache lazily off the passed env, so no `platform` dep.
 - `soft` — deferred (no gui consumer; for the Linux CLI). See `todo.md`.

@@ -14,10 +14,10 @@ void build(Mel_Build* b)
     mel_sources(lib, WHEN(.platforms = MEL_ON(WIN32)), "src/nano.win32.c");
     mel_sources(lib, WHEN(.platforms = MEL_ON(WIN32)), "src/sleep.win32.c");
 
-    mel_sources(lib, WHEN(.platforms = MEL_ON(MACOS) | MEL_ON(IOS)), "src/apple/*.m");
-    mel_sources(lib, WHEN(.platforms = MEL_ON(LINUX)), "src/linux/*.c");
-    mel_sources(lib, WHEN(.platforms = MEL_ON(WIN32)), "src/win32/*.c");
-    mel_sources(lib, WHEN(.platforms = MEL_ON(ANDROID) | MEL_ON(WASM)), "src/none/*.c");
+    mel_sources(lib, WHEN(.platforms = MEL_ON(MACOS) | MEL_ON(IOS)), "apple/src/*.m");
+    mel_sources(lib, WHEN(.platforms = MEL_ON(LINUX)), "linux/src/*.c");
+    mel_sources(lib, WHEN(.platforms = MEL_ON(WIN32)), "win32/src/*.c");
+    mel_sources(lib, WHEN(.platforms = MEL_ON(ANDROID) | MEL_ON(WASM)), "none/src/*.c");
 
     mel_link(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(MACOS) | MEL_ON(IOS)), "-framework", "Foundation");
 

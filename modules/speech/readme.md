@@ -67,22 +67,22 @@ on an `http` module; nothing in this surface will need to change for them.
 
 ## Platforms — all five hosts implemented
 
-- macOS/iOS (`src/apple/speech_apple.m`) — AVSpeechSynthesizer; SFSpeechRecognizer
+- macOS/iOS (`apple/src/speech_apple.m`) — AVSpeechSynthesizer; SFSpeechRecognizer
   + AVAudioEngine. STT authorization combines speech-recognition and microphone
   consent and answers the most restrictive. Apps carry
   `NSSpeechRecognitionUsageDescription` + `NSMicrophoneUsageDescription` in their
   plist partial (and `com.apple.security.device.audio-input` when sandboxed).
-- Android (`src/android/`) — `TextToSpeech` + `SpeechRecognizer` through the
+- Android (`android/src/`) — `TextToSpeech` + `SpeechRecognizer` through the
   `platform` JNI bridge and a `MelodySpeech` java helper; ships the `RECORD_AUDIO`
   manifest fragment. Voices appear once the engine finishes its async init — call
   `mel_speech_refresh` (the app's Refresh button exists for this).
-- Win32 (`src/win32/speech_sapi.c`) — SAPI 5: `ISpVoice` (rate mapped log-scale to
+- Win32 (`win32/src/speech_sapi.c`) — SAPI 5: `ISpVoice` (rate mapped log-scale to
   ±10, word boundaries converted UTF-16→UTF-8), shared `ISpRecognizer` dictation
   with hypothesis partials; completion via notify-event waiter threads.
-- Linux (`src/linux/speech_spd.c`) — speech-dispatcher over its SSIP unix socket
+- Linux (`linux/src/speech_spd.c`) — speech-dispatcher over its SSIP unix socket
   directly (no libspeechd dependency), notifications drive exact completion;
   honest-absent when the daemon isn't running. No blessed host STT.
-- Web (`src/web/speech_web.c`) — `speechSynthesis` + `SpeechRecognition`
+- Web (`web/src/speech_web.c`) — `speechSynthesis` + `SpeechRecognition`
   (webkit-prefixed) via EM_JS; microphone consent through `getUserMedia`.
 
 Showcase: `apps/hello-speech` (macos/ios/android/wasm/win32) — voice cycler,

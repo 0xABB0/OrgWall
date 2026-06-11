@@ -109,18 +109,18 @@ tell me the count"; the substrate owns resolve + deliver.
 `WHEN(.platforms = MEL_ON(...))`, mirroring how other modules pick
 `src/<platform>/`:
 
-- **macOS / iOS** → `src/apple/port_backend.c` — vat-source readiness (the io
+- **macOS / iOS** → `apple/src/port_backend.c` — vat-source readiness (the io
   waiter's kqueue, or the ui waiter's CFFileDescriptor bridge),
   `F_SETNOSIGPIPE` + the SIGPIPE-guarded write.
-- **Linux / Android** → `src/posix/port_backend.c` — vat-source readiness
+- **Linux / Android** → `posix/src/port_backend.c` — vat-source readiness
   against the vat wakeable surface (IN/OUT/ERR/HUP), SIGPIPE-guarded write; a
   Linux/Android vat waiter (epoll/ALooper) is owed by the vat's epoll wave. See
   *Linux readiness* below for why epoll/io_uring resolve to this one TU.
-- **win32** → `src/win32/port_backend.c` — the `unavailable` stub: the vat has
+- **win32** → `win32/src/port_backend.c` — the `unavailable` stub: the vat has
   no win32 waiter to poll OVERLAPPED events with yet (see *Windows*).
-- **wasm** → `src/none/port_backend.c` — `available()==false` (see *wasm*).
+- **wasm** → `none/src/port_backend.c` — `available()==false` (see *wasm*).
 
-`src/none/port_backend.c` is an honest, loud "no proactor here": `available()`
+`none/src/port_backend.c` is an honest, loud "no proactor here": `available()`
 is `false` and `submit` resolves `MEL_PORT_ERROR | MEL_PORT_UNAVAILABLE`, never a
 dead stub pretending to work.
 
@@ -147,7 +147,7 @@ deliberate:
 
 ## Windows (win32): unavailable stub, pending the IOCP waiter
 
-`src/win32/port_backend.c` is the `unavailable` stub: `available()` is `false`
+`win32/src/port_backend.c` is the `unavailable` stub: `available()` is `false`
 and every submit resolves `MEL_PORT_ERROR | MEL_PORT_UNAVAILABLE` — loud, not
 silent (MEL-ENGINE-VIII). The old reactor-era backend polled OVERLAPPED event
 handles through the reactor's wait set; the vat has no win32 waiter to poll them
@@ -161,7 +161,7 @@ issues an overlapped `ReadFile`/`WriteFile` and the loop turn harvests with
 
 A browser/WASI sandbox has no generic file-descriptor async I/O: there is no
 `read`/`write` proactor over arbitrary fds to wrap. Faking a surface would be a
-silent lie (MEL-ENGINE-VIII). So wasm compiles `src/none/port_backend.c`:
+silent lie (MEL-ENGINE-VIII). So wasm compiles `none/src/port_backend.c`:
 `mel_port_available()` returns `false` and any submit resolves
 `MEL_PORT_ERROR | MEL_PORT_UNAVAILABLE`. A real wasm async story (Asyncify-driven
 `fetch`, OPFS, or WASI poll_oneoff) is a *different* surface than fd read/write

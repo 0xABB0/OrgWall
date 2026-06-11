@@ -6,20 +6,20 @@ void build(Mel_Build* b)
     mel_includes(lib, MEL_PUBLIC, ALWAYS, "include");
     mel_sources(lib, ALWAYS, "src/*.c");
 
-    mel_sources(lib, WHEN(.platforms = MEL_ON(MACOS) | MEL_ON(IOS)), "src/coreaudio/*.m");
+    mel_sources(lib, WHEN(.platforms = MEL_ON(MACOS) | MEL_ON(IOS)), "coreaudio/src/*.m");
     mel_link(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(MACOS) | MEL_ON(IOS)), "-framework", "AudioToolbox", "-framework", "CoreAudio", "-framework", "AudioUnit");
 
-    mel_sources(lib, WHEN(.platforms = MEL_ON(WIN32)), "src/wasapi/*.c");
+    mel_sources(lib, WHEN(.platforms = MEL_ON(WIN32)), "wasapi/src/*.c");
     mel_link(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(WIN32)), "-lole32", "-lksuser");
 
-    mel_sources(lib, WHEN(.platforms = MEL_ON(LINUX)), "src/alsa/*.c");
+    mel_sources(lib, WHEN(.platforms = MEL_ON(LINUX)), "alsa/src/*.c");
     mel_includes(lib, MEL_PRIVATE, WHEN(.platforms = MEL_ON(LINUX)), "../../third-party/alsa/include");
     mel_link(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(LINUX)), "-Lthird-party/alsa/lib", "-lasound", "-Wl,--allow-shlib-undefined");
 
-    mel_sources(lib, WHEN(.platforms = MEL_ON(ANDROID)), "src/aaudio/*.c");
+    mel_sources(lib, WHEN(.platforms = MEL_ON(ANDROID)), "aaudio/src/*.c");
     mel_link(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(ANDROID)), "-laaudio");
 
-    mel_sources(lib, WHEN(.platforms = MEL_ON(WASM)), "src/web/*.c");
+    mel_sources(lib, WHEN(.platforms = MEL_ON(WASM)), "web/src/*.c");
     mel_link(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(WASM)), "-sAUDIO_WORKLET=1", "-sWASM_WORKERS=1");
 
     mel_depends(lib, "core");

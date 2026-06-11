@@ -136,11 +136,11 @@ Architecture: a portable registry/diff core (`src/display.c`) owns the slotmap, 
 
 Per-platform lowering status:
 
-- **macOS** (`src/macos/`) — implemented and verified on hardware (`apps/display-gui`). `NSScreen` + Core Graphics, exact-millihertz refresh, P3 gamut, EDR ratios, ICC bytes, `NSScreen*` native handle. `scale_factor` is `backingScaleFactor`, i.e. the backing scale of the *current mode* — 1.0 for a 1× mode (e.g. a 2560×1600 framebuffer where pixels == points), 2.0 for a HiDPI "Retina" mode — so it tracks the user's resolution choice. `edr_max_now` is live headroom and rises above 1.0 only while EDR content is on screen or at lower SDR brightness (the inspector's EDR-force button demonstrates this).
-- **iOS** (`src/ios/`) — implemented via `UIScreen`. Single main screen; external screens are a follow-up via `UIScene` notifications.
-- **Linux** (`src/linux/`) — implemented via XRandR 1.5+. Wayland (`wl_output` + color-management) and Vulkan-KMS (`VK_KHR_display`) remain follow-ups.
-- **Android** (`src/android/`) — implemented via `DisplayManager` + `Display` through JNI (`mel_platform_android_env`).
-- **Windows** (`src/win32/`) — implemented via `IDXGIOutput6` / `DXGI_OUTPUT_DESC1`.
+- **macOS** (`macos/src/`) — implemented and verified on hardware (`apps/display-gui`). `NSScreen` + Core Graphics, exact-millihertz refresh, P3 gamut, EDR ratios, ICC bytes, `NSScreen*` native handle. `scale_factor` is `backingScaleFactor`, i.e. the backing scale of the *current mode* — 1.0 for a 1× mode (e.g. a 2560×1600 framebuffer where pixels == points), 2.0 for a HiDPI "Retina" mode — so it tracks the user's resolution choice. `edr_max_now` is live headroom and rises above 1.0 only while EDR content is on screen or at lower SDR brightness (the inspector's EDR-force button demonstrates this).
+- **iOS** (`ios/src/`) — implemented via `UIScreen`. Single main screen; external screens are a follow-up via `UIScene` notifications.
+- **Linux** (`linux/src/`) — implemented via XRandR 1.5+. Wayland (`wl_output` + color-management) and Vulkan-KMS (`VK_KHR_display`) remain follow-ups.
+- **Android** (`android/src/`) — implemented via `DisplayManager` + `Display` through JNI (`mel_platform_android_env`).
+- **Windows** (`win32/src/`) — implemented via `IDXGIOutput6` / `DXGI_OUTPUT_DESC1`.
 - **Web** (`src/emscripten/`, plus a `src/wasi/` no-display stub) — the synthetic privacy-limited entry below, read from `screen.*` / `matchMedia` / `devicePixelRatio`.
 
 Delivery is dual: the diff fires into a registry-owned `Mel_Event` channel; pull (`mel_display_poll_events`) and push (`mel_display_subscribe`) both read it. An injectable `enumerate` seam (`mel_display__set_enumerate`) unit-tests the diff with a fake backend. Deferred (tracked in `todo.md`): an OS hot-plug notification source that drives `refresh()` autonomously (today `refresh()` is caller-pumped); the per-platform field gaps (connector kind beyond Internal/Unknown, VRR range, honest mastering-metadata detection); and all the GPU/surface coupling above.

@@ -33,8 +33,8 @@ function:
         Mel_Target *lib = mel_add_library(b, "rng");
         mel_includes(lib, MEL_PUBLIC, ALWAYS, "include");
         mel_sources(lib, ALWAYS, "src/*.c");
-        mel_sources(lib, WHEN(.platforms = MEL_ON(MACOS) | MEL_ON(LINUX)), "src/posix/*.c");
-        mel_sources(lib, WHEN(.platforms = MEL_ON(WIN32)), "src/win32/*.c");
+        mel_sources(lib, WHEN(.platforms = MEL_ON(MACOS) | MEL_ON(LINUX)), "posix/src/*.c");
+        mel_sources(lib, WHEN(.platforms = MEL_ON(WIN32)), "win32/src/*.c");
         mel_link(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(WIN32)), "-lbcrypt");
         mel_depends(lib, "core");
     }
@@ -61,12 +61,17 @@ A single `build.c` may declare several artifacts (a library, its host-tool, an e
 
 **Sources** are globs relative to the target dir, with `*` (one segment) and `**` (recursive):
 
-- `mel_sources(t, when, "src/*.c", "src/metal/*.m", …)`
+- `mel_sources(t, when, "src/*.c", "metal/src/*.m", …)`
 - `mel_exclude_source(t, when, "src/legacy/*.c", …)` removes already-gathered matches.
 
-There is no automatic axis-directory selection: to build `src/win32/` only on win32, you gate it
-with `WHEN(.platforms = MEL_ON(WIN32))` yourself. Conventional layout is `src/<platform>/`,
-`src/<gpu>/`, `src/<backend>/`, `src/<runtime>/`, but the gating is always explicit.
+There is no automatic axis-directory selection: to build the `win32` axis only on win32, you gate it
+with `WHEN(.platforms = MEL_ON(WIN32))` yourself. Conventional layout hoists each axis to its own
+top-level folder — `<axis>/src/` for sources, `<axis>/include/<m>/<axis>/` for public headers (paired
+with a `WHEN`-gated `mel_includes(t, MEL_PUBLIC, …, "<axis>/include")`), plus any axis resources
+(manifests, java) at `<axis>/`. Common code stays in `src/` and `include/<m>/`; the gating is always
+explicit. Axes are platforms (`win32`, `linux`, …), gpu backends (`vulkan`, `metal`, …), backends,
+and runtimes. Internal headers move with their sources, so a hoisted source reaches a common
+internal header as `"../../src/<m>_internal.h"`.
 
 **Dependencies & misc.**
 

@@ -8,17 +8,17 @@ painter except where a correctness gotcha is flagged — verify on the target pl
 The borrowed-window path (begin/end + the 7 ops) ships on every backend `gui` targets; every
 gui canvas is migrated. The owned `Mel_Pixmap` path stays quartz-only (gui doesn't use it).
 
-- **gdi** (`src/gdi/*.c`, win32) — **done** (borrowed). `HDC` native; `g_font` single-thread;
+- **gdi** (`gdi/src/*.c`, win32) — **done** (borrowed). `HDC` native; `g_font` single-thread;
   UTF-8→UTF-16 via `MultiByteToWideChar`. Compile-verified with `zig cc -target
   x86_64-windows-gnu`; `./nob build … win32` can't link it — pre-existing nob toolchain gap
   (plain `clang` + `x86_64-windows-msvc`, no Windows SDK, triple not applied to cflags).
-- **dom** (`src/dom/*.c`, wasm) — **done** (borrowed). Canvas2D via `EM_JS`; `native` is the
+- **dom** (`dom/src/*.c`, wasm) — **done** (borrowed). Canvas2D via `EM_JS`; `native` is the
   canvas element id, resolved through `gui`'s `MelWeb.els`. Builds + links (`.wasm/.js/.html`).
   **Runtime coupling:** paint's web ops read `gui`'s JS element registry — the borrowed model
   leaks here because a JS canvas context can't cross the C ABI except by index into a shared JS
   table that `gui` owns. Proper fix: a shared `dom` micro-module owning the registry, depended on
   by both. Not browser-run-verified yet.
-- **android** (`src/android/*.c`) — **done** (borrowed). JNI `Canvas`/`Paint`; `native` is
+- **android** (`android/src/*.c`) — **done** (borrowed). JNI `Canvas`/`Paint`; `native` is
   `Mel_Paint_Android_Native`; method IDs cache lazily off the passed env (no `platform` dep).
   Compiles; `.so` links + **loads** on device (after the `-lm`/`-landroid` link fixes, below).
   **Not boot-verified:** the app still crashes at `MelGui.nativeRegister` — `gui`'s JNI entry

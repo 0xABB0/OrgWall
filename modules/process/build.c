@@ -5,9 +5,9 @@ void build(Mel_Build* b)
     Mel_Target* lib = mel_add_library(b, "process");
     mel_includes(lib, MEL_PUBLIC, ALWAYS, "include");
     mel_sources(lib, ALWAYS, "src/process.c", "src/process_pipe.c", "src/process_run.c");
-    mel_sources(lib, WHEN(.platforms = MEL_ON(MACOS) | MEL_ON(IOS) | MEL_ON(LINUX) | MEL_ON(ANDROID)), "src/posix/process_backend.c");
-    mel_sources(lib, WHEN(.platforms = MEL_ON(WIN32)), "src/win32/process_backend.c");
-    mel_sources(lib, WHEN(.platforms = MEL_ON(WASM)), "src/wasm/process_backend.c");
+    mel_sources(lib, WHEN(.platforms = MEL_ON(MACOS) | MEL_ON(IOS) | MEL_ON(LINUX) | MEL_ON(ANDROID)), "posix/src/process_backend.c");
+    mel_sources(lib, WHEN(.platforms = MEL_ON(WIN32)), "win32/src/process_backend.c");
+    mel_sources(lib, WHEN(.platforms = MEL_ON(WASM)), "wasm/src/process_backend.c");
     mel_depends(lib, "core");
     mel_depends(lib, "allocator");
     mel_depends(lib, "collection");

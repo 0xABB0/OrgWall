@@ -5,11 +5,11 @@ void build(Mel_Build* b)
     Mel_Target* lib = mel_add_library(b, "fs");
     mel_includes(lib, MEL_PUBLIC, ALWAYS, "include");
     mel_sources(lib, ALWAYS, "src/fs.c", "src/glob.c", "src/paths.c");
-    mel_sources(lib, WHEN(.platforms = MEL_ON(MACOS) | MEL_ON(IOS)), "src/apple/fs_apple.m");
-    mel_sources(lib, WHEN(.platforms = MEL_ON(LINUX)), "src/linux/fs_linux.c");
-    mel_sources(lib, WHEN(.platforms = MEL_ON(ANDROID)), "src/android/fs_android.c");
-    mel_sources(lib, WHEN(.platforms = MEL_ON(WIN32)), "src/win32/fs_win32.c");
-    mel_sources(lib, WHEN(.platforms = MEL_ON(WASM)), "src/wasm/fs_wasm.c");
+    mel_sources(lib, WHEN(.platforms = MEL_ON(MACOS) | MEL_ON(IOS)), "apple/src/fs_apple.m");
+    mel_sources(lib, WHEN(.platforms = MEL_ON(LINUX)), "linux/src/fs_linux.c");
+    mel_sources(lib, WHEN(.platforms = MEL_ON(ANDROID)), "android/src/fs_android.c");
+    mel_sources(lib, WHEN(.platforms = MEL_ON(WIN32)), "win32/src/fs_win32.c");
+    mel_sources(lib, WHEN(.platforms = MEL_ON(WASM)), "wasm/src/fs_wasm.c");
 
     mel_cflags(lib, MEL_PRIVATE, WHEN(.platforms = MEL_ON(MACOS) | MEL_ON(IOS)), "-fobjc-arc");
     mel_link(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(MACOS) | MEL_ON(IOS)), "-framework", "Foundation");

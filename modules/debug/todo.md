@@ -14,12 +14,12 @@
 
 ## Compiler-unverified
 
-- **win32 `MessageBoxW` dialog** (`src/windows/assert_dialog.c`) is unverified on this
+- **win32 `MessageBoxW` dialog** (`windows/src/assert_dialog.c`) is unverified on this
   host; it requires a build on win-pilot. Accepted posture, not a defect.
 
 ## Tolerated carve-outs
 
-- **`char buf[4096]`** in `src/windows/assert_dialog.c` formats the report on the
+- **`char buf[4096]`** in `windows/src/assert_dialog.c` formats the report on the
   already-failed assertion path. A fixed snapshot buffer here is a tolerated carve-out
   (MEL-CODE-002): the path is terminal and pre-abort, the text is truncated safely with
   a NUL terminator, and threading an allocator-backed builder through a process that is

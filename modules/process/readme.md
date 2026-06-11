@@ -90,16 +90,16 @@ vatless process or marshalled onto the loop otherwise.
 
 `build.c` selects exactly one backend translation unit per platform:
 
-- **macOS / iOS / Linux / Android** → `src/posix/process_backend.c` —
+- **macOS / iOS / Linux / Android** → `posix/src/process_backend.c` —
   `posix_spawnp` with `posix_spawn_file_actions` for stdio dup2 and cwd
   (`addchdir`/`addchdir_np`), `pipe2(O_CLOEXEC)` (Linux/Android) or
   `pipe`+`FD_CLOEXEC` pipes, exit reaped with `waitpid(WNOHANG)` driven by a
   deadline-only vat source on the loop, `kill(SIGTERM/SIGKILL)`.
-- **win32** → `src/win32/process_backend.c` — `CreateProcessW` with a UTF-16
+- **win32** → `win32/src/process_backend.c` — `CreateProcessW` with a UTF-16
   command line (MSVC argv-quoting) and environment block, overlapped named
   pipes bridged to CRT fds (`_open_osfhandle`) for the `port` overlapped engine,
   a job object with `KILL_ON_JOB_CLOSE` for kill-tree (`TerminateJobObject`).
-- **wasm** → `src/wasm/process_backend.c` — `available()==false`; spawn resolves
+- **wasm** → `wasm/src/process_backend.c` — `available()==false`; spawn resolves
   `ERROR | UNAVAILABLE`. A browser/WASI sandbox has no `fork`/`exec`; faking it
   would be a silent lie (MEL-ENGINE-VIII).
 

@@ -59,22 +59,22 @@ blocking read per drain. With neither substrate it returns NULL loudly (MEL-CODE
 
 ## Backends
 
-- macOS (`src/macos/`) — IOHIDManager / IOKit. Full enumeration, open, output/feature reports, raw
+- macOS (`macos/src/`) — IOHIDManager / IOKit. Full enumeration, open, output/feature reports, raw
   report descriptor (`kIOHIDReportDescriptorKey`), strings, transport classification. No pollable fd
   exists on this path, so async rides the polling vat source (honest).
-- iOS (`src/ios/`) — honest absence. iOS does not expose the public IOKit HID interface to
+- iOS (`ios/src/`) — honest absence. iOS does not expose the public IOKit HID interface to
   third-party apps, so raw HID enumeration is not a capability the platform grants (MEL-ENGINE-VII):
   the iOS backend registers no provider and `mel_hid_count()` is 0. HID-class input on iOS arrives
   through GameController.framework / ExternalAccessory for permitted accessory classes; a future
   bridge over those would register here.
-- Linux (`src/linux/`) — hidraw + libudev. fd-bearing: async rides the port proactor. Feature reports
+- Linux (`linux/src/`) — hidraw + libudev. fd-bearing: async rides the port proactor. Feature reports
   and report descriptor via `HIDIOC*` ioctls.
-- Windows (`src/win32/`) — hid.dll + SetupAPI; opened `FILE_FLAG_OVERLAPPED`. Bluetooth devices are
+- Windows (`win32/src/`) — hid.dll + SetupAPI; opened `FILE_FLAG_OVERLAPPED`. Bluetooth devices are
   classified by interface path. Report-descriptor read is unsupported by the API (honest absence).
-- Android (`src/android/`) — JNI `UsbManager`; the dup'd `UsbDeviceConnection` fd is fd-bearing and
-  rides the port proactor. Java helper in `src/android/java/`. Bluetooth HID routes through the Java
+- Android (`android/src/`) — JNI `UsbManager`; the dup'd `UsbDeviceConnection` fd is fd-bearing and
+  rides the port proactor. Java helper in `android/java/`. Bluetooth HID routes through the Java
   profile and surfaces no fd. Feature reports unsupported on this path (honest absence).
-- wasm (`src/wasm/`) — WebHID via Emscripten `EM_JS`. Honest unavailable where the browser lacks
+- wasm (`wasm/src/`) — WebHID via Emscripten `EM_JS`. Honest unavailable where the browser lacks
   `navigator.hid`. Synchronous blocking reads cannot exist on the main thread, so blocking read
   returns WOULD_BLOCK; the supported route is the vat-pumped async read draining the JS ring.
 

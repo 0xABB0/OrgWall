@@ -18,24 +18,25 @@ void build(Mel_Build* b)
     mel_includes(lib, MEL_PUBLIC, ALWAYS, "include");
     mel_sources(lib, ALWAYS, "src/*.c");
 
-    mel_sources(lib, WHEN(.gpu = "vulkan"), "src/vulkan/*.c");
+    mel_sources(lib, WHEN(.gpu = "vulkan"), "vulkan/src/*.c");
+    mel_includes(lib, MEL_PUBLIC, WHEN(.gpu = "vulkan"), "vulkan/include");
     mel_defines(lib, MEL_PRIVATE, WHEN(.gpu = "vulkan"), "MEL_GPU_VULKAN=1");
 
-    mel_sources(lib, WHEN(.gpu = "vulkan", .platforms = MEL_ON(MACOS)), "src/vulkan/macos/*.m");
+    mel_sources(lib, WHEN(.gpu = "vulkan", .platforms = MEL_ON(MACOS)), "vulkan/src/macos/*.m");
     mel_link(lib, MEL_PUBLIC, WHEN(.gpu = "vulkan", .platforms = MEL_ON(MACOS)), "-lvulkan");
     mel_cflags(lib, MEL_PUBLIC, WHEN(.gpu = "vulkan", .platforms = MEL_ON(MACOS)), "-I/opt/homebrew/include");
     mel_link(lib, MEL_PUBLIC, WHEN(.gpu = "vulkan", .platforms = MEL_ON(MACOS)), "-L/opt/homebrew/lib");
     mel_link(lib, MEL_PUBLIC, WHEN(.gpu = "vulkan", .platforms = MEL_ON(MACOS)), "-framework", "QuartzCore", "-framework", "Foundation");
 
-    mel_sources(lib, WHEN(.gpu = "vulkan", .platforms = MEL_ON(ANDROID)), "src/vulkan/android/*.c");
+    mel_sources(lib, WHEN(.gpu = "vulkan", .platforms = MEL_ON(ANDROID)), "vulkan/src/android/*.c");
     mel_link(lib, MEL_PUBLIC, WHEN(.gpu = "vulkan", .platforms = MEL_ON(ANDROID)), "-lvulkan", "-landroid");
 
-    mel_sources(lib, WHEN(.gpu = "vulkan", .platforms = MEL_ON(LINUX)), "src/vulkan/linux/*.c");
+    mel_sources(lib, WHEN(.gpu = "vulkan", .platforms = MEL_ON(LINUX)), "vulkan/src/linux/*.c");
     mel_depends_when(lib, "vulkan-headers", WHEN(.gpu = "vulkan", .platforms = MEL_ON(LINUX)));
     mel_depends_when(lib, "vulkan-loader-stub", WHEN(.gpu = "vulkan", .platforms = MEL_ON(LINUX)));
     mel_link(lib, MEL_PUBLIC, WHEN(.gpu = "vulkan", .platforms = MEL_ON(LINUX)), "-lvulkan");
 
-    mel_sources(lib, WHEN(.gpu = "vulkan", .platforms = MEL_ON(WIN32)), "src/vulkan/windows/*.c");
+    mel_sources(lib, WHEN(.gpu = "vulkan", .platforms = MEL_ON(WIN32)), "vulkan/src/windows/*.c");
     mel_link(lib, MEL_PUBLIC, WHEN(.gpu = "vulkan", .platforms = MEL_ON(WIN32)), "-lvulkan-1");
     const char* vksdk = getenv("VULKAN_SDK");
     if (vksdk)
@@ -44,22 +45,22 @@ void build(Mel_Build* b)
         mel_link(lib, MEL_PUBLIC, WHEN(.gpu = "vulkan", .platforms = MEL_ON(WIN32)), mel_gpu__flag("-L", vksdk, "/Lib"));
     }
 
-    mel_sources(lib, WHEN(.gpu = "d3d12", .platforms = MEL_ON(WIN32)), "src/d3d12/*.c");
+    mel_sources(lib, WHEN(.gpu = "d3d12", .platforms = MEL_ON(WIN32)), "d3d12/src/*.c");
     mel_defines(lib, MEL_PRIVATE, WHEN(.gpu = "d3d12"), "MEL_GPU_D3D12=1");
     mel_link(lib, MEL_PUBLIC, WHEN(.gpu = "d3d12", .platforms = MEL_ON(WIN32)), "-ld3d12", "-ldxgi", "-ldxguid");
 
-    mel_sources(lib, WHEN(.gpu = "metal", .platforms = MEL_ON(MACOS)), "src/metal/macos/*.m");
+    mel_sources(lib, WHEN(.gpu = "metal", .platforms = MEL_ON(MACOS)), "metal/src/macos/*.m");
     mel_defines(lib, MEL_PRIVATE, WHEN(.gpu = "metal"), "MEL_GPU_METAL=1");
     mel_link(lib, MEL_PUBLIC, WHEN(.gpu = "metal", .platforms = MEL_ON(MACOS)), "-framework", "Metal", "-framework", "QuartzCore", "-framework", "Foundation", "-framework", "AppKit");
 
-    mel_sources(lib, WHEN(.gpu = "metal", .platforms = MEL_ON(IOS)), "src/metal/macos/*.m");
-    mel_exclude_source(lib, WHEN(.gpu = "metal", .platforms = MEL_ON(IOS)), "src/metal/macos/surface.m");
-    mel_sources(lib, WHEN(.gpu = "metal", .platforms = MEL_ON(IOS)), "src/metal/ios/*.m");
+    mel_sources(lib, WHEN(.gpu = "metal", .platforms = MEL_ON(IOS)), "metal/src/macos/*.m");
+    mel_exclude_source(lib, WHEN(.gpu = "metal", .platforms = MEL_ON(IOS)), "metal/src/macos/surface.m");
+    mel_sources(lib, WHEN(.gpu = "metal", .platforms = MEL_ON(IOS)), "metal/src/ios/*.m");
     mel_link(lib, MEL_PUBLIC, WHEN(.gpu = "metal", .platforms = MEL_ON(IOS)), "-framework", "Metal", "-framework", "QuartzCore", "-framework", "Foundation", "-framework", "UIKit");
 
-    mel_sources(lib, WHEN(.gpu = "webgpu"), "src/webgpu/*.c");
-    mel_sources(lib, WHEN(.gpu = "webgpu", .platforms = MEL_ON(MACOS)), "src/webgpu/*.m");
-    mel_sources(lib, WHEN(.gpu = "webgpu", .platforms = MEL_ON(WASM)), "src/webgpu/wasm/*.c");
+    mel_sources(lib, WHEN(.gpu = "webgpu"), "webgpu/src/*.c");
+    mel_sources(lib, WHEN(.gpu = "webgpu", .platforms = MEL_ON(MACOS)), "webgpu/src/*.m");
+    mel_sources(lib, WHEN(.gpu = "webgpu", .platforms = MEL_ON(WASM)), "webgpu/src/wasm/*.c");
     mel_defines(lib, MEL_PRIVATE, WHEN(.gpu = "webgpu"), "MEL_GPU_WEBGPU=1");
     mel_depends(lib, "webgpu");
     mel_link(lib, MEL_PUBLIC, WHEN(.gpu = "webgpu", .platforms = MEL_ON(MACOS)), "-framework", "QuartzCore", "-framework", "Foundation", "-framework", "AppKit", "-framework", "Metal");

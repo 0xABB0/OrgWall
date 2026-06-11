@@ -14,8 +14,8 @@ The spec defines four backend targets, each with a ceiling and a floor (`design/
 the tree implements today:
 
 - **Vulkan** — the M1/M2 surface, runnable. Floor Vulkan 1.2 with feature probes; ceiling Roadmap
-  2026. Built and tested on macOS via the Homebrew MoltenVK loader (`src/vulkan/macos/*.m`, Metal
-  surface) and natively on win32 against the Vulkan SDK loader (`src/vulkan/windows/*.c`). Selected
+  2026. Built and tested on macOS via the Homebrew MoltenVK loader (`vulkan/src/macos/*.m`, Metal
+  surface) and natively on win32 against the Vulkan SDK loader (`vulkan/src/windows/*.c`). Selected
   with `--gpu=vulkan`; gated by `MEL_GPU_VULKAN`.
 - **D3D12** — co-primary, brought up on `win-pilot` (Windows 10 22H2, in-box Windows SDK) through the
   Phase-3 binding model. The in-box Win10 floor cannot honor SM 6.6 `ResourceDescriptorHeap` direct
@@ -23,9 +23,9 @@ the tree implements today:
   root-signature tables, first-class, not degraded. `ResourceDescriptorHeap` direct indexing and the
   rest of the SM 6.9 ceiling ride the Agility SDK / Win11 and are deferred. Selected with
   `--gpu=d3d12` on win32; gated by `MEL_GPU_D3D12`.
-- **Metal** — built (`src/metal/macos/`): MSL graphics + compute pipelines, tier-2 argument-buffer
+- **Metal** — built (`metal/src/macos/`): MSL graphics + compute pipelines, tier-2 argument-buffer
   bindless heap, encoder-boundary barriers. Gated by `MEL_GPU_METAL`.
-- **WebGPU** — built (`src/webgpu/`): WGSL pipelines, browser canvas (emdawnwebgpu/wasm) and native
+- **WebGPU** — built (`webgpu/src/`): WGSL pipelines, browser canvas (emdawnwebgpu/wasm) and native
   Dawn; bindless / classic set_layouts / static samplers refuse with `MISSING_FEATURE`. Gated by
   `MEL_GPU_WEBGPU`.
 
@@ -143,8 +143,8 @@ seconds, the harness the showcase screens use for clean-exit verification:
 - `include/gpu/` — the public C API (per-resource headers: `device`, `buffer`, `texture`, `sampler`,
   `pipeline`, `command`, `binding`, `bind_group`, `caps`, …).
 - `src/` — backend-agnostic glue (`format.c`, `future.c`, `render_source.c`, `threading.c`).
-- `src/vulkan/` — the Vulkan backend; `src/vulkan/macos/` (Metal surface, Objective-C),
-  `src/vulkan/windows/` (Win32 surface).
-- `src/d3d12/` — the D3D12 backend (win32).
+- `vulkan/src/` — the Vulkan backend; `vulkan/src/macos/` (Metal surface, Objective-C),
+  `vulkan/src/windows/` (Win32 surface).
+- `d3d12/src/` — the D3D12 backend (win32).
 - `test/` — `test_foundation.c`, `test_vulkan.c`, `test_stress.c`, `test_visual.c`, `test_d3d12.c`,
   with embedded SPIR-V/DXIL fixtures.

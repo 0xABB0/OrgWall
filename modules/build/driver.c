@@ -280,8 +280,17 @@ static int debug(Mel_Graph* g, const char* target, const Mel_Variant* v, const c
 {
     if (v->platform == MEL_PLATFORM_ANDROID)
     {
-        char* args[] = { "logcat" };
-        return spawn("adb", args, 1);
+        char* serial = v->simulator ? android_emulator_serial() : android_device_serial();
+        if (v->simulator && !*serial)
+        {
+            fprintf(stderr, "nob: no Android emulator running\n");
+            free(serial);
+            return 1;
+        }
+        if (!serial)
+            return 1;
+        char* args[] = { "-s", serial, "logcat" };
+        return spawn("adb", args, 3);
     }
     if (v->platform == host_platform() && bin)
     {
