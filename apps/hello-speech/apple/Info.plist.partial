@@ -1,0 +1,4 @@
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Speech listens to the microphone to transcribe what you say.</string>
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>Speech transcribes your voice to text to showcase the speech module.</string>
