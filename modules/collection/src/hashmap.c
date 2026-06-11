@@ -1,5 +1,6 @@
 #include <collection/hashmap.h>
 #include <allocator/allocator.h>
+#include <hash/mix.h>
 #include <hash/xxh.h>
 
 #include <string.h>
@@ -238,11 +239,7 @@ void mel_hashmap_reserve(Mel_HashMap* hm, usize capacity)
     }
 }
 
-u64 mel_hashmap_hash_u64(const void* key)
-{
-    u64 val = (u64)(usize)key;
-    return mel_xxh64(&val, sizeof(val), 0);
-}
+u64 mel_hashmap_hash_u64(const void* key) { return mel_hash_mix64((u64)(usize)key); }
 
 u64 mel_hashmap_hash_str(const void* key)
 {
@@ -250,11 +247,7 @@ u64 mel_hashmap_hash_str(const void* key)
     return mel_xxh64(str, strlen(str), 0);
 }
 
-u64 mel_hashmap_hash_ptr(const void* key)
-{
-    usize val = (usize)key;
-    return mel_xxh64(&val, sizeof(val), 0);
-}
+u64 mel_hashmap_hash_ptr(const void* key) { return mel_hash_mix64((u64)(usize)key); }
 
 bool mel_hashmap_eq_u64(const void* a, const void* b) { return (u64)(usize)a == (u64)(usize)b; }
 

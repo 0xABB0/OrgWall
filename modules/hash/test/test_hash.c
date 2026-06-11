@@ -2,9 +2,20 @@
 
 #include <hash/crc32.h>
 #include <hash/fnv.h>
+#include <hash/mix.h>
 #include <hash/murmur3.h>
 #include <hash/siphash.h>
 #include <hash/xxh.h>
+
+#include "xxh3_vectors.h"
+
+#define MEL__HASH_FILL_MAX 5000
+
+static void mel__hash_fill(u8* buf, usize len)
+{
+    for (usize i = 0; i < len; i++)
+        buf[i] = (u8)(((u32)(i * 2654435761U)) >> 24);
+}
 
 MEL_TEST(hash, fnv1a32_vectors)
 {
@@ -77,4 +88,72 @@ MEL_TEST(hash, xxh3_seed_zero_matches_unseeded)
 {
     const char* msg = "The quick brown fox jumps over the lazy dog";
     MEL_EXPECT_EQ(mel_xxh3_64_seeded(msg, 43, 0), mel_xxh3_64(msg, 43));
+}
+
+MEL_TEST(hash, xxh3_64_reference_vectors)
+{
+    static u8 buf[MEL__HASH_FILL_MAX];
+    mel__hash_fill(buf, sizeof(buf));
+    for (usize i = 0; i < (usize)countof(mel__xxh3_vectors); i++)
+    {
+        const Mel__Xxh3_Vector* v = &mel__xxh3_vectors[i];
+        MEL_EXPECT_EQ(mel_xxh3_64_seeded(buf, v->len, v->seed), v->h64);
+        if (v->seed == 0)
+            MEL_EXPECT_EQ(mel_xxh3_64(buf, v->len), v->h64);
+    }
+}
+
+MEL_TEST(hash, xxh3_128_reference_vectors)
+{
+    static u8 buf[MEL__HASH_FILL_MAX];
+    mel__hash_fill(buf, sizeof(buf));
+    for (usize i = 0; i < (usize)countof(mel__xxh3_vectors); i++)
+    {
+        const Mel__Xxh3_Vector* v = &mel__xxh3_vectors[i];
+        Mel_Xxh128              h = mel_xxh3_128_seeded(buf, v->len, v->seed);
+        MEL_EXPECT_EQ(h.low, v->low128);
+        MEL_EXPECT_EQ(h.high, v->high128);
+        if (v->seed == 0)
+        {
+            Mel_Xxh128 u = mel_xxh3_128(buf, v->len);
+            MEL_EXPECT_EQ(u.low, v->low128);
+            MEL_EXPECT_EQ(u.high, v->high128);
+        }
+    }
+}
+
+MEL_TEST(hash, xxh3_streaming_matches_oneshot)
+{
+    static u8 buf[MEL__HASH_FILL_MAX];
+    mel__hash_fill(buf, sizeof(buf));
+    usize chunk_sizes[] = { 1, 7, 64, 256, 1000 };
+    for (usize c = 0; c < (usize)countof(chunk_sizes); c++)
+    {
+        for (usize i = 0; i < (usize)countof(mel__xxh3_vectors); i++)
+        {
+            const Mel__Xxh3_Vector* v = &mel__xxh3_vectors[i];
+            Mel_Xxh3_State          st;
+            mel_xxh3_init_seeded(&st, v->seed);
+            for (usize fed = 0; fed < v->len; fed += chunk_sizes[c])
+            {
+                usize n = v->len - fed < chunk_sizes[c] ? v->len - fed : chunk_sizes[c];
+                mel_xxh3_update(&st, buf + fed, n);
+            }
+            MEL_EXPECT_EQ(mel_xxh3_final_64(&st), v->h64);
+            Mel_Xxh128 h = mel_xxh3_final_128(&st);
+            MEL_EXPECT_EQ(h.low, v->low128);
+            MEL_EXPECT_EQ(h.high, v->high128);
+        }
+    }
+}
+
+MEL_TEST(hash, mix_vectors)
+{
+    MEL_EXPECT_EQ(mel_hash_mix64(0x9E3779B97F4A7C15ULL), 0xE220A8397B1DCDAFULL);
+    MEL_EXPECT_EQ(mel_hash_mix64(1), 0x5692161D100B05E5ULL);
+    MEL_EXPECT_EQ(mel_hash_mix32(1), 0x514E28B7U);
+    MEL_EXPECT_EQ(mel_hash_mix32(0xDEADBEEFU), 0x0DE5C6A9U);
+    MEL_EXPECT_EQ(mel_hash_combine64(0, 1), 0x910A2DEC89025CC1ULL);
+    MEL_EXPECT_EQ(mel_hash_combine64(1, 0), 0x8C741196ACC47E35ULL);
+    MEL_EXPECT_EQ(mel_hash_combine64(mel_hash_combine64(0, 1), 2), 0x35EAEB1C84D55087ULL);
 }
