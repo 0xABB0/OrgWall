@@ -58,24 +58,34 @@ char* clang_dup_string(const Mel_Alloc* a, const std::string& s)
     return p;
 }
 
-std::string clang_resource_dir()
+const std::string& clang_resource_dir()
 {
-    uint32_t count = _dyld_image_count();
-    for (uint32_t i = 0; i < count; i++)
+    static const std::string cached = []() -> std::string
     {
-        const char* path = _dyld_get_image_name(i);
-        if (!path)
-            continue;
-        std::string image = path;
-        size_t      slash = image.find_last_of('/');
-        std::string base = slash == std::string::npos ? image : image.substr(slash + 1);
-        if (base.rfind("libclang-cpp", 0) == 0)
+        uint32_t count = _dyld_image_count();
+        for (uint32_t i = 0; i < count; i++)
         {
-            std::string libdir = slash == std::string::npos ? std::string() : image.substr(0, slash);
-            return libdir + "/clang/" + std::to_string(LLVM_VERSION_MAJOR);
+            const char* path = _dyld_get_image_name(i);
+            if (!path)
+                continue;
+            std::string image = path;
+            size_t      slash = image.find_last_of('/');
+            std::string base = slash == std::string::npos ? image : image.substr(slash + 1);
+            if (base.rfind("libclang-cpp", 0) == 0)
+            {
+                std::string libdir = slash == std::string::npos ? std::string() : image.substr(0, slash);
+                return libdir + "/clang/" + std::to_string(LLVM_VERSION_MAJOR);
+            }
         }
-    }
-    return std::string();
+        return std::string();
+    }();
+    return cached;
+}
+
+const std::string& clang_process_triple()
+{
+    static const std::string cached = llvm::sys::getProcessTriple();
+    return cached;
 }
 
 class Clang_IR_Action: public clang::ASTFrontendAction
@@ -118,20 +128,17 @@ bool clang_emit_ir(str8 name, str8 source, u32 opt_level, std::string& ir_out, s
     auto                                               diag_ids = llvm::makeIntrusiveRefCnt<clang::DiagnosticIDs>();
     llvm::IntrusiveRefCntPtr<clang::DiagnosticsEngine> diags = llvm::makeIntrusiveRefCnt<clang::DiagnosticsEngine>(diag_ids, diag_opts, &diag_printer, false);
 
-    std::string resource_dir = clang_resource_dir();
-    std::string opt_flag = "-O" + std::to_string(opt_level > 3 ? 3u : opt_level);
+    const std::string& resource_dir = clang_resource_dir();
+    std::string        opt_flag = "-O" + std::to_string(opt_level > 3 ? 3u : opt_level);
 
     std::vector<const char*> args;
     args.push_back("-triple");
-    args.push_back(nullptr);
-    std::string triple = llvm::sys::getProcessTriple();
-    args[1] = triple.c_str();
+    args.push_back(clang_process_triple().c_str());
     args.push_back("-x");
     args.push_back("c");
     args.push_back("-std=c23");
     args.push_back("-emit-llvm-only");
     args.push_back(opt_flag.c_str());
-    args.push_back("-disable-free");
     if (!resource_dir.empty())
     {
         args.push_back("-resource-dir");
@@ -174,7 +181,7 @@ bool clang_emit_ir(str8 name, str8 source, u32 opt_level, std::string& ir_out, s
     return true;
 }
 
-}
+} // namespace
 
 Mel_Jit_Module* mel_clang_compile(const Mel_Alloc* a, str8 name, str8 source, const Mel_Clang_Config* cfg, Mel_Jit_Result* out)
 {
@@ -301,7 +308,7 @@ void clang_lang_destroy(void* self)
 }
 }
 
-}
+} // namespace
 
 Mel_Repl_Lang mel_clang_repl_lang(const Mel_Alloc* a)
 {
@@ -309,7 +316,7 @@ Mel_Repl_Lang mel_clang_repl_lang(const Mel_Alloc* a)
 
     clang_ensure_native_target();
 
-    std::string              rd = clang_resource_dir();
+    const std::string&       rd = clang_resource_dir();
     std::vector<const char*> cargs;
     if (!rd.empty())
     {
