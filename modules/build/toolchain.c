@@ -101,7 +101,7 @@ Mel_Toolchain mel_toolchain(const Mel_Variant* v)
         free(tc.ar);
         tc.cc = mel_str_fmt("%s/toolchains/llvm/prebuilt/darwin-x86_64/bin/clang -target %s-linux-android26", ndk, la);
         tc.ar = mel_str_fmt("%s/toolchains/llvm/prebuilt/darwin-x86_64/bin/llvm-ar", ndk);
-        tc.triple = mel_str_fmt("%s-linux-android", la);
+        tc.triple = mel_str_fmt("%s-linux-android26", la);
         tc.cross = true;
         free(tc.base_cflags);
         tc.base_cflags = mel_str_dup("-fPIC");

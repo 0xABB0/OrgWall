@@ -72,6 +72,7 @@ typedef struct
 
 Mel_Toolchain mel_toolchain(const Mel_Variant* v);
 
+void mel_config_base_flags(const char* config, Mel_StrVec* out);
 bool mel_gather_compile(Mel_Graph* g, size_t idx, const Mel_Variant* v, Mel_StrVec* srcs, Mel_StrVec* cflags);
 void mel_gather_link(Mel_Graph* g, size_t idx, const Mel_Variant* v, Mel_StrVec* ldflags);
 
