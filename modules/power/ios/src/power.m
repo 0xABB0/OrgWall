@@ -51,7 +51,15 @@ Mel_Power_Battery mel_power_battery_current(void)
 
 Mel_Power_Caps mel_power_caps(void)
 {
-    NSProcessInfo*    info = [NSProcessInfo processInfo];
-    Mel_Power_Battery b = mel_power_battery_current();
-    return (Mel_Power_Caps) { .power_source_present = true, .profile_present = [info respondsToSelector:@selector(isLowPowerModeEnabled)], .battery_present = b.present, };
+    NSProcessInfo* info = [NSProcessInfo processInfo];
+
+    UIDevice* device = [UIDevice currentDevice];
+    BOOL      was_enabled = device.batteryMonitoringEnabled;
+    if (!was_enabled)
+        device.batteryMonitoringEnabled = YES;
+    bool battery_present = device.batteryLevel >= 0.0f;
+    if (!was_enabled)
+        device.batteryMonitoringEnabled = NO;
+
+    return (Mel_Power_Caps) { .power_source_present = true, .profile_present = [info respondsToSelector:@selector(isLowPowerModeEnabled)], .battery_present = battery_present, };
 }

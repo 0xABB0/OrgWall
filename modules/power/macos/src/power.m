@@ -72,7 +72,32 @@ Mel_Power_Battery mel_power_battery_current(void)
 
 Mel_Power_Caps mel_power_caps(void)
 {
-    NSProcessInfo*    info = [NSProcessInfo processInfo];
-    Mel_Power_Battery b = mel_power_battery_current();
-    return (Mel_Power_Caps) { .power_source_present = true, .profile_present = [info respondsToSelector:@selector(isLowPowerModeEnabled)], .battery_present = b.present, };
+    NSProcessInfo* info = [NSProcessInfo processInfo];
+
+    bool battery_present = false;
+    CFTypeRef blob = IOPSCopyPowerSourcesInfo();
+    if (blob)
+    {
+        CFArrayRef list = IOPSCopyPowerSourcesList(blob);
+        if (list)
+        {
+            CFIndex n = CFArrayGetCount(list);
+            for (CFIndex i = 0; i < n; i++)
+            {
+                CFDictionaryRef d = IOPSGetPowerSourceDescription(blob, CFArrayGetValueAtIndex(list, i));
+                if (!d)
+                    continue;
+                CFStringRef type = CFDictionaryGetValue(d, CFSTR(kIOPSTypeKey));
+                if (type && CFEqual(type, CFSTR(kIOPSInternalBatteryType)))
+                {
+                    battery_present = true;
+                    break;
+                }
+            }
+            CFRelease(list);
+        }
+        CFRelease(blob);
+    }
+
+    return (Mel_Power_Caps) { .power_source_present = true, .profile_present = [info respondsToSelector:@selector(isLowPowerModeEnabled)], .battery_present = battery_present, };
 }
