@@ -1,5 +1,7 @@
 #include "process_pipe.h"
 
+#include <io/op.h>
+
 #include <allocator/allocator.h>
 #include <allocator/heap.h>
 #include <future/future.h>
@@ -10,19 +12,10 @@
 #include <log/log.h>
 
 #include <assert.h>
-#include <stddef.h>
 #include <string.h>
 #include <unistd.h>
 
-typedef struct
-{
-    Mel_Future       future;
-    Mel_IO_Result    result;
-    const Mel_Alloc* alloc;
-    bool             owned;
-} Pipe_Op;
-
-static_assert(offsetof(Pipe_Op, future) == 0, "io stream-op contract: the embedded future must lead the record so mel_stream_future_release(mel_container_of(f, op, future)) recovers the op");
+typedef Mel_IO_Op Pipe_Op;
 
 typedef struct
 {

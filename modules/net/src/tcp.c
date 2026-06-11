@@ -1,6 +1,8 @@
 #include "net_internal.h"
 #include "net_backend.h"
 
+#include <io/op.h>
+
 #include <allocator/allocator.h>
 #include <collection/list.h>
 #include <io/stream.h>
@@ -9,18 +11,9 @@
 #include <time/nano.h>
 
 #include <assert.h>
-#include <stddef.h>
 #include <string.h>
 
-typedef struct
-{
-    Mel_Future       future;
-    Mel_IO_Result    result;
-    const Mel_Alloc* alloc;
-    bool             owned;
-} Conn_Stream_Op;
-
-static_assert(offsetof(Conn_Stream_Op, future) == 0, "io stream-op contract: the record must mirror Mel_IO_Op (future, result, alloc, owned) so mel_stream_future_release recovers it");
+typedef Mel_IO_Op Conn_Stream_Op;
 
 typedef struct
 {
