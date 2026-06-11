@@ -52,11 +52,18 @@ name were Gabbo's calls.
 
 ## Kludges
 
-- **win32 backend never compiled.** Host cross-build for win32 is broken repo-wide (plain
-  clang, no Windows SDK), and remote validation needs either this branch merged to main (then
-  the documented pull+build flow) or permission to check the branch out on win-pilot. The
-  WinRT C ABI names are written against the SDK MIDL headers from memory — expect a round of
-  compile fixes.
+- **win32 validated post-merge on win-pilot** (compile, link, and a live geo-tour run —
+  denied path, location off in that machine's settings). It took four fix rounds, each a
+  finding: the geofencing types need `windows.devices.geolocation.geofencing.h`;
+  `RequestAccessAsync` lives on `IGeolocatorStatics` (not Statics2); the SDK ships **no C
+  definitions for WinRT ABI IIDs** — `geolocation_win32_iids.cpp` defines them via
+  `__uuidof` (single-declaration `extern "C"` form; the brace form leaves the parameterized
+  ones internal-linkage and the linker silently misses exactly those); and link
+  `windowsapp` instead of `runtimeobject`. The granted path (live fixes, regions) is still
+  unexercised on win32.
+- **win32 console executables were unlinkable repo-wide**: link.exe infers the subsystem
+  from object files only, and boot's `main` lives in a static library → LNK1561 for every
+  non-gui app. emit.c now passes `/subsystem:console` for non-gui win32 executables.
 - **win32 altitude reference unchecked**: the altitude valid bit is set whenever Windows
   reports one, without QI-ing for `AltitudeReferenceSystem`; may be surface-referenced,
   deviating from the "ellipsoid where the OS says so" field contract.
