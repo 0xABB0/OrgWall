@@ -31,6 +31,8 @@ Platform defaults to the host; otherwise it is the positional argument. Known pl
 the first that applies. The UI backend and runtime are fixed per-platform defaults (not
 CLI-selectable). Output lives under each target's `build/<platform>-<config>/`.
 
+It is extremely important to not break the build system and the targets on other platforms; be always mindful of the includes you use and what is available on the platform.
+
 ### Runnable targets
 On the Darwin host, android, ios and web are runnable too. For mobile devices, unless --device is passed, it will run on the respective simulator. For web, you can use a headless browser
 
@@ -64,13 +66,6 @@ There are also rules for how to write code in the style of this repo. Never brea
 
 @docs/coding-guidelines.md
 
-## New features
-When developing new features, follow this workflow:
-- Write a design spec in `design/` (freeform).
-- Iterate it against every failure mode.
-- Split it into more granular specs.
-- Implement those with no prerequisite first.
-
 ## Session writeup
 At each session's close, write a recap to `writeup/`, one file per session, named `YYYY-MM-DD-<topic>.md`:
 - Work done — what changed, and why.
@@ -81,7 +76,7 @@ At each session's close, write a recap to `writeup/`, one file per session, name
 ## Behaviour
 - This repo is heavily WIP. it's small enough that pervasive changes are doable since consumers are few.
 - This repo keeps being worked on, by multiple agents at a time, so if something changes that you did not do, it's fine.
-- Use worktrees when working on a large task, but if the task is small, avoid doing something heavy like worktrees and accept that sometimes the build breaks because multiple agents are working.
+- Use worktrees when working, then merge into main
 
 ## Windows builds (remote)
 

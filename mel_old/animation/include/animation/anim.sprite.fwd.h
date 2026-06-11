@@ -1,5 +1,0 @@
-#pragma once
-
-typedef struct Mel_Sprite_Anim_Frame Mel_Sprite_Anim_Frame;
-typedef struct Mel_Sprite_Anim_Event Mel_Sprite_Anim_Event;
-typedef struct Mel_Sprite_Anim_Def   Mel_Sprite_Anim_Def;
