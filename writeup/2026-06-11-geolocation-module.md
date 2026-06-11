@@ -40,6 +40,16 @@ name were Gabbo's calls.
 - **Validation**: tests green on macOS; lib compiles for macos, ios, android (C side), wasm,
   linux (zig cross). Neighbor suites (vat-core, future-core, sensor-core) still green.
 
+- **Demo app** `apps/geo-tour` (boot-hosted console tour): prints caps + current
+  authorization, authorizes (in-use scope), then on grant: last-known, one-shot request
+  (bounding the run via the module's own timeout), a watch with interval filter, heading
+  where supported, a 75 m geofence armed on the first fix (reporting native vs software
+  monitoring), reverse geocode of the fix, plus a forward geocode that also runs on the
+  denied path. Exits by releasing the root vat once all stages settle; a 10 s "grace"
+  one-shot bounds the watch on stationary machines. Verified live on macOS: granted path
+  delivered real fixes, armed an OS-monitored region, and resolved both geocodes; denied
+  path (unbundled binary, no plist key) exits 0 through geocoding-only. Builds for wasm.
+
 ## Kludges
 
 - **win32 backend never compiled.** Host cross-build for win32 is broken repo-wide (plain
@@ -71,6 +81,12 @@ name were Gabbo's calls.
   external registrants are affected.
 - **Region software seeding never fires an initial event** (spec'd, but a surprise if the app
   adds a region while inside and waits for an enter).
+- **geo-tour's grace path is reasoned, not observed**: the live granted run happened before
+  the grace bound was added, and re-verifying requires answering a fresh TCC prompt
+  (rebuilt binary → re-prompt). The denied path is verified end-to-end with the final code.
+- **geo-tour found a lifetime gotcha worth knowing**: `mel_geo_init` opens a vat source, so
+  a retained-then-released root vat still does not end its run until `mel_geo_shutdown` —
+  apps must shut the module down from inside the run, not from `mel_app_on_exit`.
 - **Full `./nob test` sweep aborted** — the background run produced no output in 20 minutes
   (likely ninja contention with the foreground builds); replaced with targeted suites
   (geolocation-core, vat-core, future-core, sensor-core), all green. The full-suite pass on a
@@ -87,8 +103,9 @@ name were Gabbo's calls.
 ## Suggestions
 
 - Merge → main, then `git pull` + `nob build geolocation` on win-pilot for the win32 round.
-- An example app (`apps/`) consuming geolocation would close the android packaging gap and
-  give the module a living smoke test.
+- `apps/geo-tour` is the living smoke test; the android packaging gap stays open until a
+  boot entry for android exists (boot today: macos + wasm) — packaging geo-tour for android
+  then will exercise `mel_android_dependency` and the Java companions end-to-end.
 - The camera.md migration would benefit from the marshalling pattern built here (seqlock
   slots + armed pump task); they're siblings.
 - CLGeocoder is deprecated in the macOS/iOS 26 SDKs — MapKit migration tracked in
