@@ -6,29 +6,16 @@ Mel_Coro_Suspended child_seq__resume(Mel_Coro_Frame_child_seq* __f, int* __f_out
     {
     case MEL_CORO_STATE_START:;
 
-        {
-            *__f_out = (__f->base + 1);
-            __f->state = 1;
-            return true;
-        case 1:;
-        }
-        {
-            *__f_out = (__f->base + 2);
-            __f->state = 2;
-            return true;
-        case 2:;
-        }
-        {
-            __f->__ret = (0);
-            __f->state = MEL_CORO_STATE_DONE;
-            return false;
-        }
+    { *__f_out = (__f->base + 1); __f->state = 1; return true; case 1:; }
+    { *__f_out = (__f->base + 2); __f->state = 2; return true; case 2:; }
+    { __f->__ret = (0); __f->state = MEL_CORO_STATE_DONE; return false; }
 
     default:;
     }
     __f->state = MEL_CORO_STATE_DONE;
     return false;
 }
+
 
 Mel_Coro_Suspended relay__resume(Mel_Coro_Frame_relay* __f, int* __f_out)
 {
@@ -36,38 +23,17 @@ Mel_Coro_Suspended relay__resume(Mel_Coro_Frame_relay* __f, int* __f_out)
     {
     case MEL_CORO_STATE_START:;
 
-        {
-            *__f_out = (__f->base);
-            __f->state = 1;
-            return true;
-        case 1:;
-        }
-        __f->c = (Mel_Coro_Frame_child_seq){ 0 };
-        __f->c.base = __f->base;
-        {
-            for (;;)
-            {
-                if (!child_seq__resume(&(__f->c), __f_out))
-                    break;
-                __f->state = 2;
-                return true;
-            case 2:;
-            }
-        }
-        {
-            *__f_out = (__f->base + 100);
-            __f->state = 3;
-            return true;
-        case 3:;
-        }
-        {
-            __f->__ret = (__f->base);
-            __f->state = MEL_CORO_STATE_DONE;
-            return false;
-        }
+    { *__f_out = (__f->base); __f->state = 1; return true; case 1:; }
+    __f->c = (Mel_Coro_Frame_child_seq){ 0 };
+    __f->c.base = __f->base;
+    { for (;;) { if (!child_seq__resume(&(__f->c), __f_out)) break; __f->state = 2; return true; case 2:; } }
+    { *__f_out = (__f->base + 100); __f->state = 3; return true; case 3:; }
+    { __f->__ret = (__f->base); __f->state = MEL_CORO_STATE_DONE; return false; }
 
     default:;
     }
     __f->state = MEL_CORO_STATE_DONE;
     return false;
 }
+
+

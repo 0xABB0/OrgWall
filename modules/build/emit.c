@@ -366,13 +366,25 @@ static char* emit_one(FILE* f, Mel_Graph* g, size_t idx, const Mel_Variant* v, M
             }
         }
 
+        Mel_StrVec host_dep_bins = { 0 };
+        for (size_t k = 0; k < t->host_deps.len; k++)
+        {
+            int hi = mel_graph_index(g, t->host_deps.items[k]);
+            if (hi >= 0)
+            {
+                Mel_Target* ht = g->nodes.items[(size_t)hi].t;
+                mel_da_push(&host_dep_bins, mel_str_fmt("%s/build/host/%s", ht->dir, ht->name));
+            }
+        }
+
         char* bin = android_so ? mel_str_fmt("%s/%s/libmelody.so", outdir, t->name) : mel_str_fmt("%s/%s%s", outdir, t->name, ext);
         fprintf(f, "build %s: %s", bin, host ? "hostlink" : "link");
         join_into(f, &objs);
-        if (lib_deps.len)
+        if (lib_deps.len || host_dep_bins.len)
         {
             fputs(" |", f);
             join_into(f, &lib_deps);
+            join_into(f, &host_dep_bins);
         }
         fprintf(f, "\n  libs =");
         join_into(f, &libs);
