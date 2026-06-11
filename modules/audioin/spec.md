@@ -155,6 +155,8 @@ asserts.
 - `executor` — hotplug delivery.
 - `event` — the hotplug channel that marshals to subscriber executors.
 - `pcm` — the publish feed ring.
+- `thread` — provider-owned capture threads (win32/linux) and teardown
+  helpers (android).
 - `log` — enumeration/consent/publish diagnostics.
 - `platform` (android only) — JNI bridge.
 

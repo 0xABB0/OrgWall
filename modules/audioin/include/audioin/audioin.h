@@ -16,17 +16,17 @@ typedef struct Mel_Executor Mel_Executor;
 
 typedef u32 Mel_AudioIn_Status;
 
-#define MEL_AUDIOIN_SEVERITY_MASK 0x3u
-#define MEL_AUDIOIN_OK            0u
-#define MEL_AUDIOIN_WARNED        1u
-#define MEL_AUDIOIN_ERROR         2u
+#define MEL_AUDIOIN_SEVERITY_MASK      0x3u
+#define MEL_AUDIOIN_OK                 0u
+#define MEL_AUDIOIN_WARNED             1u
+#define MEL_AUDIOIN_ERROR              2u
 
 #define MEL_AUDIOIN_RESULT_NO_DEVICE   (1u << 2)
 #define MEL_AUDIOIN_RESULT_LOST        (1u << 3)
 #define MEL_AUDIOIN_RESULT_DENIED      (1u << 4)
 #define MEL_AUDIOIN_RESULT_UNSUPPORTED (1u << 5)
 
-#define MEL_AUDIOIN_WARN_LOCAL_ONLY (1u << 6)
+#define MEL_AUDIOIN_WARN_LOCAL_ONLY    (1u << 6)
 
 static inline bool mel_audioin_status_failed(Mel_AudioIn_Status s) { return (s & MEL_AUDIOIN_SEVERITY_MASK) == MEL_AUDIOIN_ERROR; }
 static inline bool mel_audioin_status_warned(Mel_AudioIn_Status s) { return (s & MEL_AUDIOIN_SEVERITY_MASK) == MEL_AUDIOIN_WARNED; }
