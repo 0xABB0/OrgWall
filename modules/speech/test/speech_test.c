@@ -1,4 +1,3 @@
-#include <speech/speech.h>
 #include <speech/provider.h>
 #include <test/test.h>
 

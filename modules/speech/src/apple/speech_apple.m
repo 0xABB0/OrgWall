@@ -10,12 +10,7 @@
 #import <TargetConditionals.h>
 #import <AVFoundation/AVFoundation.h>
 #import <Foundation/Foundation.h>
-#import <Speech/SFSpeechRecognizer.h>
-#import <Speech/SFSpeechRecognitionRequest.h>
-#import <Speech/SFSpeechRecognitionTask.h>
-#import <Speech/SFSpeechRecognitionResult.h>
-#import <Speech/SFTranscription.h>
-#import <Speech/SFTranscriptionSegment.h>
+#import <Speech/Speech.h>
 
 static void apple_stt_finish(u64 token, Mel_Speech_Status status);
 
@@ -34,6 +29,9 @@ static void apple_stt_finish(u64 token, Mel_Speech_Status status);
 @property(nonatomic, strong) AVAudioEngine*                         engine;
 @property(nonatomic, assign) u64                                    token;
 @property(nonatomic, assign) Mel_Speech_Sink                        sink;
+@end
+
+@implementation Mel_Speech_STT_Job
 @end
 
 static NSMutableDictionary<NSNumber*, Mel_Speech_TTS_Job*>* g_tts_jobs;

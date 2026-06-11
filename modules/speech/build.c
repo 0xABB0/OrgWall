@@ -6,8 +6,15 @@ void build(Mel_Build* b)
     mel_includes(lib, MEL_PUBLIC, ALWAYS, "include");
     mel_sources(lib, ALWAYS, "src/speech.c", "src/descriptors.c");
     mel_sources(lib, WHEN(.platforms = MEL_ON(MACOS) | MEL_ON(IOS)), "src/apple/*.m");
-    mel_sources(lib, WHEN(.platforms = MEL_ON(LINUX) | MEL_ON(WIN32) | MEL_ON(ANDROID) | MEL_ON(WASM)), "src/speech_host_none.c");
+    mel_sources(lib, WHEN(.platforms = MEL_ON(LINUX)), "src/linux/*.c");
+    mel_sources(lib, WHEN(.platforms = MEL_ON(WASM)), "src/web/*.c");
+    mel_sources(lib, WHEN(.platforms = MEL_ON(ANDROID)), "src/android/*.c");
+    mel_sources(lib, WHEN(.platforms = MEL_ON(WIN32)), "src/win32/*.c");
+    mel_android_manifest(lib, "src/android/AndroidManifest.xml");
+    mel_android_java(lib, "src/android/java");
     mel_link(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(MACOS) | MEL_ON(IOS)), "-framework", "AVFoundation", "-framework", "Speech", "-framework", "Foundation");
+    mel_link(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(ANDROID)), "-landroid", "-llog");
+    mel_link(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(WIN32)), "-lole32", "-lsapi");
     mel_depends(lib, "core");
     mel_depends(lib, "allocator");
     mel_depends(lib, "collection");
@@ -15,6 +22,8 @@ void build(Mel_Build* b)
     mel_depends(lib, "executor");
     mel_depends(lib, "string");
     mel_depends(lib, "log");
+    mel_depends(lib, "thread");
+    mel_depends_when(lib, "platform", WHEN(.platforms = MEL_ON(ANDROID)));
 
     Mel_Target* t = mel_add_test(b, "speech-core");
     mel_includes(t, MEL_PUBLIC, ALWAYS, "include");

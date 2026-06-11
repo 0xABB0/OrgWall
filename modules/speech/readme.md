@@ -8,6 +8,18 @@ Structurally this is `camera` (authorization future, provider-plugin backends,
 registry refresh) crossed with `vibration` (option lowering against declared caps,
 completion callbacks, playback-style handles).
 
+## Headers
+
+- `<speech/tts.h>` — voices, speak, utterances.
+- `<speech/stt.h>` — recognizers, listen, sessions.
+- `<speech/common.h>` — status, authorization, init/refresh (pulled in by both).
+- `<speech/provider.h>` — the backend surface.
+
+There is deliberately no `speech/speech.h`: on case-insensitive filesystems that
+file would shadow Apple's `<Speech/Speech.h>` umbrella (the module's public include
+path is searched before framework paths), silently breaking every TU that imports
+the framework. Never add one.
+
 ## Result lifetime — the load-bearing contract
 
 `Mel_Speech_Result.text` borrows the recognizer's transcript buffer and is valid
@@ -18,7 +30,7 @@ it is not retained.
 
 Providers may invoke result/completion callbacks on their own threads (the same
 contract as camera frame delivery); consumers marshal to their own executor or
-vat if they need to.
+vat if they need to (`apps/hello-speech` shows the dirty-flag + vat-tick pattern).
 
 ## Open descriptors (not enums)
 
@@ -42,31 +54,44 @@ cannot drain a final result.
 static singleton and must never be freed. `mel_speech_future_free` is the one
 destructor for futures this module returns.
 
-## Provider plugin
+## Provider plugin — composition
 
 Backends register a `Mel_Speech_Provider_Desc`; the core owns handles, registries,
 and lowering. A provider may expose only one of the two surfaces — a TTS-only
 provider leaves the listen entries `NULL` and recognizers simply don't appear
-(honest-absent, never faked).
+(honest-absent, never faked). Host backends are not special: a cloud TTS/STT
+provider (OpenAI, ElevenLabs), a local model (whisper.cpp, piper), or a game's own
+synthesizer composes through the exact same `mel_speech_provider_register` call and
+shows up in the same voice/recognizer lists (MEL-ENGINE-IX). Cloud providers wait
+on an `http` module; nothing in this surface will need to change for them.
 
-## Platforms
+## Platforms — all five hosts implemented
 
-macOS/iOS (`src/apple/speech_apple.m`): AVSpeechSynthesizer for TTS,
-SFSpeechRecognizer + AVAudioEngine for STT. STT authorization combines speech
-recognition and microphone consent and answers the most restrictive of the two.
-Apps must carry `NSSpeechRecognitionUsageDescription` and
-`NSMicrophoneUsageDescription` in their Info.plist partial (and the
-`com.apple.security.device.audio-input` entitlement when sandboxed). Android
-TextToSpeech/SpeechRecognizer, Win32 WinRT SpeechSynthesizer/SpeechRecognizer,
-Linux speech-dispatcher, and wasm Web Speech are sequenced; those platforms build
-the `host_none` stub so the module always links (MEL-ENGINE-I/VII).
+- macOS/iOS (`src/apple/speech_apple.m`) — AVSpeechSynthesizer; SFSpeechRecognizer
+  + AVAudioEngine. STT authorization combines speech-recognition and microphone
+  consent and answers the most restrictive. Apps carry
+  `NSSpeechRecognitionUsageDescription` + `NSMicrophoneUsageDescription` in their
+  plist partial (and `com.apple.security.device.audio-input` when sandboxed).
+- Android (`src/android/`) — `TextToSpeech` + `SpeechRecognizer` through the
+  `platform` JNI bridge and a `MelodySpeech` java helper; ships the `RECORD_AUDIO`
+  manifest fragment. Voices appear once the engine finishes its async init — call
+  `mel_speech_refresh` (the app's Refresh button exists for this).
+- Win32 (`src/win32/speech_sapi.c`) — SAPI 5: `ISpVoice` (rate mapped log-scale to
+  ±10, word boundaries converted UTF-16→UTF-8), shared `ISpRecognizer` dictation
+  with hypothesis partials; completion via notify-event waiter threads.
+- Linux (`src/linux/speech_spd.c`) — speech-dispatcher over its SSIP unix socket
+  directly (no libspeechd dependency), notifications drive exact completion;
+  honest-absent when the daemon isn't running. No blessed host STT.
+- Web (`src/web/speech_web.c`) — `speechSynthesis` + `SpeechRecognition`
+  (webkit-prefixed) via EM_JS; microphone consent through `getUserMedia`.
 
-Headless TTS/STT cannot be run-verified; module logic is proven against a mock
-provider (`test/speech_test.c`).
+Showcase: `apps/hello-speech` (macos/ios/android/wasm/win32) — voice cycler,
+rate slider, speak/pause/resume/abort, authorize, live transcript.
 
 ## Dependencies
 
-`core`, `allocator`, `collection`, `future`, `executor`, `string`, `log`.
+`core`, `allocator`, `collection`, `future`, `executor`, `string`, `log`,
+`thread`; `platform` on Android.
 
 ## Test
 

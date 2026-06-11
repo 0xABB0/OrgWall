@@ -92,6 +92,12 @@ thread. Provider sinks may fire on OS threads; the core's resolved guards make
 late/racing terminal callbacks idempotent, and consumers marshal results to their
 own executor or vat.
 
+## Headers
+
+`speech/common.h` (status, auth, init/refresh), `speech/tts.h`, `speech/stt.h`,
+`speech/provider.h`. No `speech/speech.h` may ever exist: it case-collides with
+Apple's `<Speech/Speech.h>` umbrella through the module's public include path.
+
 ## Platform lowering
 
 - Apple — AVSpeechSynthesizer (rate mapped as multiplier of
@@ -99,11 +105,26 @@ own executor or vat.
   boundary ranges converted to UTF-8 byte ranges); SFSpeechRecognizer +
   AVAudioEngine input tap; auth = most restrictive of speech-recognition and
   microphone consent.
-- Android — TextToSpeech / SpeechRecognizer over JNI; `RECORD_AUDIO` manifest
-  fragment. Sequenced.
-- Win32 — WinRT SpeechSynthesizer / SpeechRecognizer. Sequenced.
-- Linux — speech-dispatcher (TTS); no blessed host STT, honest-absent. Sequenced.
-- Web — SpeechSynthesis / webkitSpeechRecognition. Sequenced.
+- Android — TextToSpeech / SpeechRecognizer via the `platform` JNI bridge and the
+  `MelodySpeech` java helper (main-looper dispatch, native callbacks via
+  RegisterNatives); `RECORD_AUDIO` manifest fragment; auth through the activity
+  permission flow. UTF-16 boundary ranges converted to UTF-8 in java. TTS pause
+  honest-absent.
+- Win32 — SAPI 5 `ISpVoice` (log-scale rate to ±10, word-boundary events,
+  notify-event waiter thread) and shared `ISpRecognizer` dictation (hypothesis =
+  partial, recognition = final, confidence from the phrase rule); abort lowers to
+  a queue purge, every purged utterance resolves ABORTED.
+- Linux — direct SSIP client to speech-dispatcher's unix socket (CLIENT_NAME +
+  NOTIFICATION ALL; per-message END/CANCEL events drive completion); voices from
+  `LIST SYNTHESIS_VOICES`; rate/pitch/volume lowered to ±100 percents;
+  honest-absent without the daemon; no host STT.
+- Web — `speechSynthesis` voices/utterances (boundary events converted to UTF-8
+  byte ranges in JS) and webkit `SpeechRecognition` (one recognizer, the
+  navigator language); microphone consent via `getUserMedia`; auth snapshot
+  cached from the Permissions API.
+
+External providers (cloud TTS/STT, local models) register the same vtable from
+their own module or app; the host backends hold no privileged path.
 
 ## Test contract
 

@@ -1,6 +1,7 @@
 #pragma once
 
-#include <speech/speech.h>
+#include <speech/tts.h>
+#include <speech/stt.h>
 
 #ifdef __cplusplus
 extern "C"
