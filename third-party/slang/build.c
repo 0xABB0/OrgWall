@@ -4,7 +4,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#ifdef _WIN32
+#include <direct.h>
+#define getcwd _getcwd
+#else
 #include <unistd.h>
+#endif
 
 #define SLANG_VERSION "2026.10.2"
 
