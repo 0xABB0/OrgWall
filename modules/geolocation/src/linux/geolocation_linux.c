@@ -5,7 +5,7 @@
 #include <time/nano.h>
 #include <vat/vat.h>
 
-#include <dbus/dbus.h>
+#include "geolocation_dbus.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -25,15 +25,15 @@
 #define GEO_GC_LEVEL_STREET       6
 #define GEO_GC_LEVEL_EXACT        8
 
-typedef enum
-{
-    GEO_GC_IDLE,
-    GEO_GC_GETTING_CLIENT,
-    GEO_GC_CONFIGURING,
-    GEO_GC_STARTING,
-    GEO_GC_RUNNING,
-} Geo_Gc_State;
+typedef u32 Geo_Gc_State;
 
+#define GEO_GC_IDLE           0u
+#define GEO_GC_GETTING_CLIENT 1u
+#define GEO_GC_CONFIGURING    2u
+#define GEO_GC_STARTING       3u
+#define GEO_GC_RUNNING        4u
+
+static Geo_DBus                     g_dbus;
 static const Mel_Geo_Provider_Sink* g_sink;
 static DBusConnection*              g_conn;
 static Mel_Vat_Source*              g_source;
@@ -118,38 +118,38 @@ static void geo_gc__stopped(const mel_geo_result* why)
 static void geo_gc__location_fetched(DBusPendingCall* pending, void* user)
 {
     (void)user;
-    DBusMessage* reply = dbus_pending_call_steal_reply(pending);
-    dbus_pending_call_unref(pending);
+    DBusMessage* reply = g_dbus.pending_call_steal_reply(pending);
+    g_dbus.pending_call_unref(pending);
     if (reply == NULL)
         return;
-    if (dbus_message_get_type(reply) == DBUS_MESSAGE_TYPE_ERROR)
+    if (g_dbus.message_get_type(reply) == DBUS_MESSAGE_TYPE_ERROR)
     {
-        dbus_message_unref(reply);
+        g_dbus.message_unref(reply);
         return;
     }
 
     Mel_Geo_Fix fix = { .monotonic_ns = mel_nanos_since_unspecified_epoch(), .valid = MEL_GEO_VALID_MONOTONIC };
 
     DBusMessageIter it, dict;
-    if (!dbus_message_iter_init(reply, &it) || dbus_message_iter_get_arg_type(&it) != DBUS_TYPE_ARRAY)
+    if (!g_dbus.message_iter_init(reply, &it) || g_dbus.message_iter_get_arg_type(&it) != DBUS_TYPE_ARRAY)
     {
-        dbus_message_unref(reply);
+        g_dbus.message_unref(reply);
         return;
     }
-    dbus_message_iter_recurse(&it, &dict);
-    while (dbus_message_iter_get_arg_type(&dict) == DBUS_TYPE_DICT_ENTRY)
+    g_dbus.message_iter_recurse(&it, &dict);
+    while (g_dbus.message_iter_get_arg_type(&dict) == DBUS_TYPE_DICT_ENTRY)
     {
         DBusMessageIter entry, var;
-        dbus_message_iter_recurse(&dict, &entry);
+        g_dbus.message_iter_recurse(&dict, &entry);
         const char* key = NULL;
-        dbus_message_iter_get_basic(&entry, &key);
-        dbus_message_iter_next(&entry);
-        dbus_message_iter_recurse(&entry, &var);
-        int type = dbus_message_iter_get_arg_type(&var);
+        g_dbus.message_iter_get_basic(&entry, &key);
+        g_dbus.message_iter_next(&entry);
+        g_dbus.message_iter_recurse(&entry, &var);
+        int type = g_dbus.message_iter_get_arg_type(&var);
         if (type == DBUS_TYPE_DOUBLE)
         {
             double v = 0.0;
-            dbus_message_iter_get_basic(&var, &v);
+            g_dbus.message_iter_get_basic(&var, &v);
             if (strcmp(key, "Latitude") == 0)
             {
                 fix.latitude_deg = v;
@@ -181,21 +181,21 @@ static void geo_gc__location_fetched(DBusPendingCall* pending, void* user)
         else if (type == DBUS_TYPE_STRUCT && strcmp(key, "Timestamp") == 0)
         {
             DBusMessageIter ts;
-            dbus_message_iter_recurse(&var, &ts);
+            g_dbus.message_iter_recurse(&var, &ts);
             dbus_uint64_t sec = 0, usec = 0;
-            if (dbus_message_iter_get_arg_type(&ts) == DBUS_TYPE_UINT64)
+            if (g_dbus.message_iter_get_arg_type(&ts) == DBUS_TYPE_UINT64)
             {
-                dbus_message_iter_get_basic(&ts, &sec);
-                dbus_message_iter_next(&ts);
-                if (dbus_message_iter_get_arg_type(&ts) == DBUS_TYPE_UINT64)
-                    dbus_message_iter_get_basic(&ts, &usec);
+                g_dbus.message_iter_get_basic(&ts, &sec);
+                g_dbus.message_iter_next(&ts);
+                if (g_dbus.message_iter_get_arg_type(&ts) == DBUS_TYPE_UINT64)
+                    g_dbus.message_iter_get_basic(&ts, &usec);
                 fix.utc_unix_ms = (u64)sec * 1000u + (u64)usec / 1000u;
                 fix.valid |= MEL_GEO_VALID_UTC;
             }
         }
-        dbus_message_iter_next(&dict);
+        g_dbus.message_iter_next(&dict);
     }
-    dbus_message_unref(reply);
+    g_dbus.message_unref(reply);
 
     if (!(fix.valid & MEL_GEO_VALID_POSITION))
         return;
@@ -209,25 +209,25 @@ static void geo_gc__location_fetched(DBusPendingCall* pending, void* user)
 
 static void geo_gc__fetch_location(const char* location_path)
 {
-    DBusMessage* msg = dbus_message_new_method_call(GEO_GC_BUS, location_path, GEO_PROPS_I, "GetAll");
+    DBusMessage* msg = g_dbus.message_new_method_call(GEO_GC_BUS, location_path, GEO_PROPS_I, "GetAll");
     const char*  iface = GEO_GC_LOC_I;
-    dbus_message_append_args(msg, DBUS_TYPE_STRING, &iface, DBUS_TYPE_INVALID);
+    g_dbus.message_append_args(msg, DBUS_TYPE_STRING, &iface, DBUS_TYPE_INVALID);
     DBusPendingCall* pending = NULL;
-    if (dbus_connection_send_with_reply(g_conn, msg, &pending, GEO_CALL_TIMEOUT) && pending != NULL)
-        dbus_pending_call_set_notify(pending, geo_gc__location_fetched, NULL, NULL);
-    dbus_message_unref(msg);
-    dbus_connection_flush(g_conn);
+    if (g_dbus.connection_send_with_reply(g_conn, msg, &pending, GEO_CALL_TIMEOUT) && pending != NULL)
+        g_dbus.pending_call_set_notify(pending, geo_gc__location_fetched, NULL, NULL);
+    g_dbus.message_unref(msg);
+    g_dbus.connection_flush(g_conn);
 }
 
-static DBusHandlerResult geo_gc__filter(DBusConnection* conn, DBusMessage* msg, void* user)
+static int geo_gc__filter(DBusConnection* conn, DBusMessage* msg, void* user)
 {
     (void)conn;
     (void)user;
-    if (dbus_message_is_signal(msg, GEO_GC_CLIENT_I, "LocationUpdated"))
+    if (g_dbus.message_is_signal(msg, GEO_GC_CLIENT_I, "LocationUpdated"))
     {
         const char* old_path = NULL;
         const char* new_path = NULL;
-        if (dbus_message_get_args(msg, NULL, DBUS_TYPE_OBJECT_PATH, &old_path, DBUS_TYPE_OBJECT_PATH, &new_path, DBUS_TYPE_INVALID))
+        if (g_dbus.message_get_args(msg, NULL, DBUS_TYPE_OBJECT_PATH, &old_path, DBUS_TYPE_OBJECT_PATH, &new_path, DBUS_TYPE_INVALID))
             geo_gc__fetch_location(new_path);
         return DBUS_HANDLER_RESULT_HANDLED;
     }
@@ -236,32 +236,32 @@ static DBusHandlerResult geo_gc__filter(DBusConnection* conn, DBusMessage* msg, 
 
 static void geo_gc__set_prop_u32(const char* prop, u32 value)
 {
-    DBusMessage*    msg = dbus_message_new_method_call(GEO_GC_BUS, g_client_path, GEO_PROPS_I, "Set");
+    DBusMessage*    msg = g_dbus.message_new_method_call(GEO_GC_BUS, g_client_path, GEO_PROPS_I, "Set");
     const char*     iface = GEO_GC_CLIENT_I;
     DBusMessageIter it, var;
-    dbus_message_iter_init_append(msg, &it);
-    dbus_message_iter_append_basic(&it, DBUS_TYPE_STRING, &iface);
-    dbus_message_iter_append_basic(&it, DBUS_TYPE_STRING, &prop);
-    dbus_message_iter_open_container(&it, DBUS_TYPE_VARIANT, "u", &var);
-    dbus_message_iter_append_basic(&var, DBUS_TYPE_UINT32, &value);
-    dbus_message_iter_close_container(&it, &var);
-    dbus_connection_send(g_conn, msg, NULL);
-    dbus_message_unref(msg);
+    g_dbus.message_iter_init_append(msg, &it);
+    g_dbus.message_iter_append_basic(&it, DBUS_TYPE_STRING, &iface);
+    g_dbus.message_iter_append_basic(&it, DBUS_TYPE_STRING, &prop);
+    g_dbus.message_iter_open_container(&it, DBUS_TYPE_VARIANT, "u", &var);
+    g_dbus.message_iter_append_basic(&var, DBUS_TYPE_UINT32, &value);
+    g_dbus.message_iter_close_container(&it, &var);
+    g_dbus.connection_send(g_conn, msg, NULL);
+    g_dbus.message_unref(msg);
 }
 
 static void geo_gc__set_prop_str(const char* prop, const char* value)
 {
-    DBusMessage*    msg = dbus_message_new_method_call(GEO_GC_BUS, g_client_path, GEO_PROPS_I, "Set");
+    DBusMessage*    msg = g_dbus.message_new_method_call(GEO_GC_BUS, g_client_path, GEO_PROPS_I, "Set");
     const char*     iface = GEO_GC_CLIENT_I;
     DBusMessageIter it, var;
-    dbus_message_iter_init_append(msg, &it);
-    dbus_message_iter_append_basic(&it, DBUS_TYPE_STRING, &iface);
-    dbus_message_iter_append_basic(&it, DBUS_TYPE_STRING, &prop);
-    dbus_message_iter_open_container(&it, DBUS_TYPE_VARIANT, "s", &var);
-    dbus_message_iter_append_basic(&var, DBUS_TYPE_STRING, &value);
-    dbus_message_iter_close_container(&it, &var);
-    dbus_connection_send(g_conn, msg, NULL);
-    dbus_message_unref(msg);
+    g_dbus.message_iter_init_append(msg, &it);
+    g_dbus.message_iter_append_basic(&it, DBUS_TYPE_STRING, &iface);
+    g_dbus.message_iter_append_basic(&it, DBUS_TYPE_STRING, &prop);
+    g_dbus.message_iter_open_container(&it, DBUS_TYPE_VARIANT, "s", &var);
+    g_dbus.message_iter_append_basic(&var, DBUS_TYPE_STRING, &value);
+    g_dbus.message_iter_close_container(&it, &var);
+    g_dbus.connection_send(g_conn, msg, NULL);
+    g_dbus.message_unref(msg);
 }
 
 static void geo_gc__configure(void)
@@ -273,20 +273,20 @@ static void geo_gc__configure(void)
     geo_gc__set_prop_u32("DistanceThreshold", g_demand.min_distance_m > 0.0 ? (u32)g_demand.min_distance_m : 0u);
     u32 time_threshold_s = g_demand.min_interval_ns > 0 ? (u32)(g_demand.min_interval_ns / 1000000000ll) : 0u;
     geo_gc__set_prop_u32("TimeThreshold", time_threshold_s);
-    dbus_connection_flush(g_conn);
+    g_dbus.connection_flush(g_conn);
 }
 
 static void geo_gc__started(DBusPendingCall* pending, void* user)
 {
     (void)user;
-    DBusMessage* reply = dbus_pending_call_steal_reply(pending);
-    dbus_pending_call_unref(pending);
+    DBusMessage* reply = g_dbus.pending_call_steal_reply(pending);
+    g_dbus.pending_call_unref(pending);
     if (reply == NULL)
         return;
-    bool error = dbus_message_get_type(reply) == DBUS_MESSAGE_TYPE_ERROR;
-    const char* error_name = error ? dbus_message_get_error_name(reply) : NULL;
+    bool error = g_dbus.message_get_type(reply) == DBUS_MESSAGE_TYPE_ERROR;
+    const char* error_name = error ? g_dbus.message_get_error_name(reply) : NULL;
     bool denied = error_name != NULL && strstr(error_name, "AccessDenied") != NULL;
-    dbus_message_unref(reply);
+    g_dbus.message_unref(reply);
     if (error)
     {
         mel_log_warn("geo", "geoclue client start failed: %s", error_name != NULL ? error_name : "unknown");
@@ -301,43 +301,43 @@ static void geo_gc__started(DBusPendingCall* pending, void* user)
 static void geo_gc__client_got(DBusPendingCall* pending, void* user)
 {
     (void)user;
-    DBusMessage* reply = dbus_pending_call_steal_reply(pending);
-    dbus_pending_call_unref(pending);
-    if (reply == NULL || dbus_message_get_type(reply) == DBUS_MESSAGE_TYPE_ERROR)
+    DBusMessage* reply = g_dbus.pending_call_steal_reply(pending);
+    g_dbus.pending_call_unref(pending);
+    if (reply == NULL || g_dbus.message_get_type(reply) == DBUS_MESSAGE_TYPE_ERROR)
     {
         if (reply != NULL)
-            dbus_message_unref(reply);
+            g_dbus.message_unref(reply);
         geo_gc__stopped(&mel_geo_unavailable);
         return;
     }
     const char* path = NULL;
-    if (!dbus_message_get_args(reply, NULL, DBUS_TYPE_OBJECT_PATH, &path, DBUS_TYPE_INVALID) || path == NULL)
+    if (!g_dbus.message_get_args(reply, NULL, DBUS_TYPE_OBJECT_PATH, &path, DBUS_TYPE_INVALID) || path == NULL)
     {
-        dbus_message_unref(reply);
+        g_dbus.message_unref(reply);
         geo_gc__stopped(&mel_geo_unavailable);
         return;
     }
     snprintf(g_client_path, sizeof g_client_path, "%s", path);
-    dbus_message_unref(reply);
+    g_dbus.message_unref(reply);
 
     g_state = GEO_GC_CONFIGURING;
     geo_gc__configure();
 
     char rule[512];
     snprintf(rule, sizeof rule, "type='signal',interface='%s',member='LocationUpdated',path='%s'", GEO_GC_CLIENT_I, g_client_path);
-    DBusMessage* add = dbus_message_new_method_call("org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus", "AddMatch");
+    DBusMessage* add = g_dbus.message_new_method_call("org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus", "AddMatch");
     const char*  rp = rule;
-    dbus_message_append_args(add, DBUS_TYPE_STRING, &rp, DBUS_TYPE_INVALID);
-    dbus_connection_send(g_conn, add, NULL);
-    dbus_message_unref(add);
+    g_dbus.message_append_args(add, DBUS_TYPE_STRING, &rp, DBUS_TYPE_INVALID);
+    g_dbus.connection_send(g_conn, add, NULL);
+    g_dbus.message_unref(add);
 
     g_state = GEO_GC_STARTING;
-    DBusMessage*     start = dbus_message_new_method_call(GEO_GC_BUS, g_client_path, GEO_GC_CLIENT_I, "Start");
+    DBusMessage*     start = g_dbus.message_new_method_call(GEO_GC_BUS, g_client_path, GEO_GC_CLIENT_I, "Start");
     DBusPendingCall* p = NULL;
-    if (dbus_connection_send_with_reply(g_conn, start, &p, GEO_CALL_TIMEOUT) && p != NULL)
-        dbus_pending_call_set_notify(p, geo_gc__started, NULL, NULL);
-    dbus_message_unref(start);
-    dbus_connection_flush(g_conn);
+    if (g_dbus.connection_send_with_reply(g_conn, start, &p, GEO_CALL_TIMEOUT) && p != NULL)
+        g_dbus.pending_call_set_notify(p, geo_gc__started, NULL, NULL);
+    g_dbus.message_unref(start);
+    g_dbus.connection_flush(g_conn);
 }
 
 static void geo_gc__kick(void)
@@ -345,14 +345,14 @@ static void geo_gc__kick(void)
     if (g_state != GEO_GC_IDLE)
         return;
     g_state = GEO_GC_GETTING_CLIENT;
-    DBusMessage*     msg = dbus_message_new_method_call(GEO_GC_BUS, GEO_GC_MANAGER, GEO_GC_MANAGER_I, "GetClient");
+    DBusMessage*     msg = g_dbus.message_new_method_call(GEO_GC_BUS, GEO_GC_MANAGER, GEO_GC_MANAGER_I, "GetClient");
     DBusPendingCall* pending = NULL;
-    if (dbus_connection_send_with_reply(g_conn, msg, &pending, GEO_CALL_TIMEOUT) && pending != NULL)
-        dbus_pending_call_set_notify(pending, geo_gc__client_got, NULL, NULL);
+    if (g_dbus.connection_send_with_reply(g_conn, msg, &pending, GEO_CALL_TIMEOUT) && pending != NULL)
+        g_dbus.pending_call_set_notify(pending, geo_gc__client_got, NULL, NULL);
     else
         geo_gc__stopped(&mel_geo_unavailable);
-    dbus_message_unref(msg);
-    dbus_connection_flush(g_conn);
+    g_dbus.message_unref(msg);
+    g_dbus.connection_flush(g_conn);
 }
 
 static void geo_gc__client_stop(void)
@@ -362,10 +362,10 @@ static void geo_gc__client_stop(void)
         g_state = GEO_GC_IDLE;
         return;
     }
-    DBusMessage* stop = dbus_message_new_method_call(GEO_GC_BUS, g_client_path, GEO_GC_CLIENT_I, "Stop");
-    dbus_connection_send(g_conn, stop, NULL);
-    dbus_message_unref(stop);
-    dbus_connection_flush(g_conn);
+    DBusMessage* stop = g_dbus.message_new_method_call(GEO_GC_BUS, g_client_path, GEO_GC_CLIENT_I, "Stop");
+    g_dbus.connection_send(g_conn, stop, NULL);
+    g_dbus.message_unref(stop);
+    g_dbus.connection_flush(g_conn);
     geo_gc__stopped(NULL);
 }
 
@@ -388,8 +388,8 @@ static bool geo_gc__source_drain(Mel_Vat_Source* source, u32 budget)
     (void)budget;
     if (g_conn == NULL)
         return false;
-    dbus_connection_read_write(g_conn, 0);
-    while (dbus_connection_dispatch(g_conn) == DBUS_DISPATCH_DATA_REMAINS)
+    g_dbus.connection_read_write(g_conn, 0);
+    while (g_dbus.connection_dispatch(g_conn) == DBUS_DISPATCH_DATA_REMAINS)
         ;
     return false;
 }
@@ -404,17 +404,19 @@ static bool geo_gc_available(void* user)
     (void)user;
     if (g_conn != NULL)
         return true;
+    if (!geo_dbus_load(&g_dbus))
+        return false;
     DBusError err;
-    dbus_error_init(&err);
-    g_conn = dbus_bus_get_private(DBUS_BUS_SYSTEM, &err);
-    if (dbus_error_is_set(&err))
+    g_dbus.error_init(&err);
+    g_conn = g_dbus.bus_get_private(DBUS_BUS_SYSTEM, &err);
+    if ((err.name != NULL))
     {
-        dbus_error_free(&err);
+        g_dbus.error_free(&err);
         g_conn = NULL;
         return false;
     }
-    dbus_connection_set_exit_on_disconnect(g_conn, FALSE);
-    dbus_connection_add_filter(g_conn, geo_gc__filter, NULL, NULL);
+    g_dbus.connection_set_exit_on_disconnect(g_conn, 0);
+    g_dbus.connection_add_filter(g_conn, geo_gc__filter, NULL, NULL);
     return true;
 }
 
@@ -423,7 +425,7 @@ static void geo_gc_attach(void* user, Mel_Vat* vat, const Mel_Geo_Provider_Sink*
     (void)user;
     g_sink = sink;
     int fd = -1;
-    if (dbus_connection_get_unix_fd(g_conn, &fd) && fd >= 0)
+    if (g_dbus.connection_get_unix_fd(g_conn, &fd) && fd >= 0)
     {
         g_wakeable = (Mel_Vat_Wakeable){ .handle = fd, .events = MEL_VAT_WAKE_IN };
         g_source = mel_vat_source_open(vat, &GEO_GC_SOURCE_VT, NULL);
@@ -443,9 +445,9 @@ static void geo_gc_detach(void* user)
     }
     if (g_conn != NULL)
     {
-        dbus_connection_remove_filter(g_conn, geo_gc__filter, NULL);
-        dbus_connection_close(g_conn);
-        dbus_connection_unref(g_conn);
+        g_dbus.connection_remove_filter(g_conn, geo_gc__filter, NULL);
+        g_dbus.connection_close(g_conn);
+        g_dbus.connection_unref(g_conn);
         g_conn = NULL;
     }
     g_sink = NULL;

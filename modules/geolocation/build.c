@@ -13,8 +13,7 @@ void build(Mel_Build* b)
 
     mel_link(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(MACOS) | MEL_ON(IOS)), "-framework", "CoreLocation", "-framework", "Foundation");
     mel_link(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(WIN32)), "-lruntimeobject", "-lole32");
-    mel_link(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(LINUX)), "-ldbus-1");
-    mel_cflags(lib, MEL_PRIVATE, WHEN(.platforms = MEL_ON(LINUX)), "-I/usr/include/dbus-1.0", "-I/usr/lib/x86_64-linux-gnu/dbus-1.0/include", "-I/usr/lib/dbus-1.0/include");
+    mel_link(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(LINUX)), "-ldl");
 
     mel_android_manifest(lib, "src/android/AndroidManifest.xml");
     mel_android_java(lib, "src/android/java");
