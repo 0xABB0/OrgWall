@@ -19,3 +19,11 @@ static void mel__paint_run(mel__painter* p, i32 width, bool dark)
         p->x += 1;
     }
 }
+
+static void mel__paint_bits(mel__painter* p, u8 value, i32 bit_count)
+{
+    for (i32 i = 0; i < bit_count; ++i)
+    {
+        mel__paint_run(p, 1, ((value >> (bit_count - 1 - i)) & 1) != 0);
+    }
+}
