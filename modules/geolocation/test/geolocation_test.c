@@ -437,3 +437,21 @@ MEL_TEST(geolocation, distance_great_circle_sanity)
     MEL_EXPECT(d > 111000.0 && d < 111400.0);
     MEL_EXPECT_EQ(mel_geo_distance_m(45.0, 7.0, 45.0, 7.0), 0.0);
 }
+
+MEL_TEST(geolocation, external_provider_survives_reinit)
+{
+    const Mel_Alloc* a = mel_alloc_heap();
+    Mel_Vat*         vat = mel_vat_open(a, (Mel_Vat_Desc){ .waiter = mel_vat_waiter_io(a), .driver = mel_vat_driver_fair(a, 64) });
+
+    mock_geo_install();
+    mel_geo_init(vat);
+    MEL_EXPECT(mel_geo_caps().fixes);
+    mel_geo_shutdown();
+
+    mel_geo_init(vat);
+    MEL_EXPECT(mel_geo_caps().fixes);
+    mel_geo_shutdown();
+
+    mock_geo_uninstall();
+    mel_vat_close(vat);
+}

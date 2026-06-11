@@ -651,6 +651,12 @@ void mel_geo_provider_register(Mel_Geo_Provider_Node* node)
         geo__activate();
 }
 
+void mel_geo_provider_register_host(Mel_Geo_Provider_Node* node)
+{
+    node->host = true;
+    mel_geo_provider_register(node);
+}
+
 void mel_geo_provider_unregister(Mel_Geo_Provider_Node* node)
 {
     mel_assert(node != NULL);
@@ -772,7 +778,23 @@ void mel_geo_shutdown(void)
             p->detach(p->user);
     }
     mel_vat_source_close(g_geo.timeouts);
+
+    Mel_Geo_Provider_Node* external_head = NULL;
+    Mel_Geo_Provider_Node** ep = &external_head;
+    for (Mel_Geo_Provider_Node* n = g_geo.providers; n != NULL;)
+    {
+        Mel_Geo_Provider_Node* next = n->next;
+        n->next = NULL;
+        if (!n->host)
+        {
+            *ep = n;
+            ep = &n->next;
+        }
+        n = next;
+    }
+
     memset(&g_geo, 0, sizeof g_geo);
+    g_geo.providers = external_head;
 }
 
 Mel_Geo_Caps mel_geo_caps(void)

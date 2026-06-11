@@ -62,9 +62,11 @@ struct Mel_Geo_Provider_Node
 {
     Mel_Geo_Provider_Desc  desc;
     Mel_Geo_Provider_Node* next;
+    bool                   host;
 };
 
 void mel_geo_provider_register(Mel_Geo_Provider_Node* node);
+void mel_geo_provider_register_host(Mel_Geo_Provider_Node* node);
 void mel_geo_provider_unregister(Mel_Geo_Provider_Node* node);
 
 bool mel_geo_provider_geocode_claim(Mel_Geo_Geocode* g);
