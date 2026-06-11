@@ -284,6 +284,17 @@ static void gen_android_library(const char* proj, Mel_Target* d)
     put_str(&g, "        }\n");
     put_str(&g, "    }\n");
     put_str(&g, "}\n");
+    if (d->android_dependencies.len > 0)
+    {
+        put_str(&g, "\ndependencies {\n");
+        for (size_t i = 0; i < d->android_dependencies.len; i++)
+        {
+            put_str(&g, "    implementation(\"");
+            put_str(&g, d->android_dependencies.items[i]);
+            put_str(&g, "\")\n");
+        }
+        put_str(&g, "}\n");
+    }
     mel_da_push(&g, 0);
 
     char* dir = mel_str_fmt("%s/%s", proj, d->name);

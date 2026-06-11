@@ -1,0 +1,4 @@
+    <key>NSLocationWhenInUseUsageDescription</key>
+    <string>Geo Tour demonstrates the Melody geolocation module with your current position.</string>
+    <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+    <string>Geo Tour demonstrates background-capable location scopes.</string>

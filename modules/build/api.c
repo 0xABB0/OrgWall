@@ -47,6 +47,7 @@ void mel_android_manifest(Mel_Target* t, const char* path) { t->android_manifest
 void mel_android_java(Mel_Target* t, const char* dir) { t->android_java = dir; }
 void mel_apple_plist(Mel_Target* t, const char* path) { t->apple_plist = path; }
 void mel_android_namespace(Mel_Target* t, const char* ns) { t->android_namespace = ns; }
+void mel_android_dependency(Mel_Target* t, const char* coord) { mel_da_push(&t->android_dependencies, coord); }
 
 void mel_subsystem(Mel_Target* t, const char* subsystem)
 {
