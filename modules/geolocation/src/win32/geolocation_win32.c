@@ -20,7 +20,7 @@
 #include <wchar.h>
 
 typedef __x_ABI_CWindows_CDevices_CGeolocation_CIGeolocator                          Geo_ILocator;
-typedef __x_ABI_CWindows_CDevices_CGeolocation_CIGeolocatorStatics2                  Geo_ILocatorStatics2;
+typedef __x_ABI_CWindows_CDevices_CGeolocation_CIGeolocatorStatics                  Geo_ILocatorStatics;
 typedef __x_ABI_CWindows_CDevices_CGeolocation_CIGeoposition                         Geo_IPosition;
 typedef __x_ABI_CWindows_CDevices_CGeolocation_CIGeocoordinate                       Geo_ICoordinate;
 typedef __x_ABI_CWindows_CDevices_CGeolocation_CIPositionChangedEventArgs            Geo_IPositionArgs;
@@ -521,8 +521,8 @@ static void geo_win_authorize(void* user, const mel_geo_scope* scope, Mel_Future
     (void)user;
     (void)scope;
     HSTRING cls = geo_win__hstr(RuntimeClass_Windows_Devices_Geolocation_Geolocator);
-    Geo_ILocatorStatics2* statics = NULL;
-    HRESULT hr = RoGetActivationFactory(cls, &IID___x_ABI_CWindows_CDevices_CGeolocation_CIGeolocatorStatics2, (void**)&statics);
+    Geo_ILocatorStatics* statics = NULL;
+    HRESULT hr = RoGetActivationFactory(cls, &IID___x_ABI_CWindows_CDevices_CGeolocation_CIGeolocatorStatics, (void**)&statics);
     WindowsDeleteString(cls);
     if (FAILED(hr) || statics == NULL)
     {
@@ -530,8 +530,8 @@ static void geo_win_authorize(void* user, const mel_geo_scope* scope, Mel_Future
         return;
     }
     Geo_AccessOp* op = NULL;
-    hr = __x_ABI_CWindows_CDevices_CGeolocation_CIGeolocatorStatics2_RequestAccessAsync(statics, &op);
-    __x_ABI_CWindows_CDevices_CGeolocation_CIGeolocatorStatics2_Release(statics);
+    hr = __x_ABI_CWindows_CDevices_CGeolocation_CIGeolocatorStatics_RequestAccessAsync(statics, &op);
+    __x_ABI_CWindows_CDevices_CGeolocation_CIGeolocatorStatics_Release(statics);
     if (FAILED(hr) || op == NULL)
     {
         g_sink->on_auth(future, &mel_geo_auth_restricted);
