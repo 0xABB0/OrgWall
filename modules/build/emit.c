@@ -265,7 +265,7 @@ static char* emit_one(FILE* f, Mel_Graph* g, size_t idx, const Mel_Variant* v, M
             *ok = false;
             return NULL;
         }
-        fprintf(f, "build %s: rc %s/app.rc", res, outdir);
+        fprintf(f, "build %s: rc %s/%s.rc", res, outdir, t->name);
         if (rdeps.len)
         {
             fputs(" |", f);

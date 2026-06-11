@@ -665,6 +665,94 @@ MEL_TEST(d3d12_compute, storage_buffer_bindless)
     mel_gpu_instance_destroy(inst);
 }
 
+MEL_TEST(d3d12_bindless, heap_grows_past_seed)
+{
+    Mel_Gpu_Instance* inst = NULL;
+    Mel_Gpu_Device*   dev = test_make_device(&inst);
+    MEL_REQUIRE_NOT_NULL(dev);
+    MEL_REQUIRE(mel_gpu_bindless_available(dev));
+
+    const Mel_Gpu_Caps* caps = mel_gpu_device_caps(dev);
+    MEL_REQUIRE(caps->memory.bindless.growable);
+    u32 seed = caps->memory.bindless.seed_storage_buffer_slots;
+    MEL_REQUIRE(seed < caps->memory.bindless.max_storage_buffer_slots);
+
+    const u32        N = 64;
+    const Mel_Alloc* alloc = mel_alloc_heap();
+    u32              filler_count = seed + 8;
+    Mel_Gpu_Buffer*  fillers = mel_alloc_array(alloc, Mel_Gpu_Buffer, filler_count);
+    for (u32 i = 0; i < filler_count; i++)
+    {
+        Mel_Gpu_Buffer_Create_Result b = mel_gpu_buffer_create(dev, .size = 256, .usage = MEL_GPU_BUFFER_STORAGE, .memory = MEL_GPU_MEMORY_DEVICE, .name = "filler");
+        MEL_REQUIRE(!mel_gpu_failed(b.status));
+        fillers[i] = b.value;
+        MEL_EXPECT_EQ(mel_gpu_buffer_bindless_slot(dev, b.value), b.value.slot.index);
+    }
+
+    u32 input[64];
+    for (u32 i = 0; i < N; i++)
+        input[i] = i;
+    Mel_Gpu_Buffer_Create_Result in = mel_gpu_buffer_create(dev, .size = sizeof input, .usage = MEL_GPU_BUFFER_STORAGE, .memory = MEL_GPU_MEMORY_DEVICE, .data = input, .name = "in");
+    Mel_Gpu_Buffer_Create_Result out = mel_gpu_buffer_create(dev, .size = sizeof input, .usage = MEL_GPU_BUFFER_STORAGE, .memory = MEL_GPU_MEMORY_DEVICE, .name = "out");
+    Mel_Gpu_Buffer_Create_Result rb = mel_gpu_buffer_create(dev, .size = sizeof input, .usage = MEL_GPU_BUFFER_TRANSFER_DST, .memory = MEL_GPU_MEMORY_READBACK, .name = "rb");
+    MEL_REQUIRE(!mel_gpu_failed(in.status) && !mel_gpu_failed(out.status) && !mel_gpu_failed(rb.status));
+
+    u32 in_slot = mel_gpu_buffer_bindless_slot(dev, in.value);
+    u32 out_slot = mel_gpu_buffer_bindless_slot(dev, out.value);
+    MEL_REQUIRE(in_slot >= seed);
+    MEL_REQUIRE(out_slot >= seed);
+
+    void* cs = NULL;
+    usize css = 0;
+    MEL_REQUIRE(dxc_compile(ADD_CS_HLSL, "cs_6_0", &cs, &css));
+    Mel_Gpu_Shader_Create_Result sh = mel_gpu_shader_create_compute_from_bytecode(dev, .target = MEL_GPU_SHADER_TARGET_DXIL, .compute_blob = cs, .compute_blob_size = css, .name = "grow-add");
+    free(cs);
+    MEL_REQUIRE(!mel_gpu_failed(sh.status));
+    Mel_Gpu_Pipeline_Create_Result pso = mel_gpu_pipeline_compute_create(dev, .shader = sh.value, .push_constant_size = 12, .bindless = true, .name = "grow-add-pso");
+    MEL_REQUIRE(!mel_gpu_failed(pso.status));
+
+    Mel_Gpu_Queue*        q = mel_gpu_queue_request(dev, MEL_GPU_QUEUE_GRAPHICS);
+    Mel_Gpu_Command_List* cmd = mel_gpu_command_list_create(q);
+
+    mel_gpu_command_list_begin(cmd);
+    mel_gpu_cmd_bind_pipeline(cmd, pso.value);
+    u32 root[3] = { in_slot, out_slot, N };
+    mel_gpu_cmd_push_constants(cmd, 0, sizeof root, root);
+    mel_gpu_cmd_dispatch(cmd, 1, 1, 1);
+    mel_gpu_command_list_end(cmd);
+    Mel_Gpu_Future* f1 = mel_gpu_queue_submit(q, (Mel_Gpu_Submit){ .command_lists = &cmd, .command_list_count = 1 });
+    MEL_EXPECT(mel_gpu_ok(mel_gpu_future_status(f1)));
+    mel_gpu_future_destroy(f1);
+
+    mel_gpu_command_list_begin(cmd);
+    mel_gpu_cmd_copy_buffer(cmd, out.value, rb.value, sizeof input);
+    mel_gpu_command_list_end(cmd);
+    Mel_Gpu_Future* f2 = mel_gpu_queue_submit(q, (Mel_Gpu_Submit){ .command_lists = &cmd, .command_list_count = 1 });
+    MEL_EXPECT(mel_gpu_ok(mel_gpu_future_status(f2)));
+    mel_gpu_future_destroy(f2);
+
+    const u32* got = mel_gpu_buffer_mapped(dev, rb.value);
+    MEL_REQUIRE_NOT_NULL(got);
+    bool ok = true;
+    for (u32 i = 0; i < N; i++)
+        if (got[i] != i + 1)
+            ok = false;
+    MEL_EXPECT(ok);
+
+    mel_gpu_command_list_destroy(cmd);
+    mel_gpu_queue_release(q);
+    mel_gpu_buffer_destroy(dev, in.value);
+    mel_gpu_buffer_destroy(dev, out.value);
+    mel_gpu_buffer_destroy(dev, rb.value);
+    for (u32 i = 0; i < filler_count; i++)
+        mel_gpu_buffer_destroy(dev, fillers[i]);
+    mel_dealloc(alloc, fillers);
+    mel_gpu_pipeline_destroy(dev, pso.value);
+    mel_gpu_shader_destroy(dev, sh.value);
+    mel_gpu_device_destroy(dev);
+    mel_gpu_instance_destroy(inst);
+}
+
 MEL_TEST(d3d12_compute, storage_image_bindless)
 {
     Mel_Gpu_Instance* inst = NULL;

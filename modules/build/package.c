@@ -219,7 +219,7 @@ char* mel_win32_resource(Mel_Target* t, const char* outdir, Mel_StrVec* deps, Me
     }
     char* rc_text = substitute(tpl, &vars);
     mel_mkdirs(outdir);
-    char* rc_file = mel_str_fmt("%s/app.rc", outdir);
+    char* rc_file = mel_str_fmt("%s/%s.rc", outdir, t->name);
     char* prev = mel_read_file(rc_file);
     if (!prev || strcmp(prev, rc_text) != 0)
         mel_write_file(rc_file, rc_text);
@@ -234,7 +234,7 @@ char* mel_win32_resource(Mel_Target* t, const char* outdir, Mel_StrVec* deps, Me
 
     mel_da_push(rcflags, mel_str_fmt("/I%s", win32dir));
     mel_da_push(rcflags, mel_str_dup("/Imodules/build/win32"));
-    return mel_str_fmt("%s/app.res", outdir);
+    return mel_str_fmt("%s/%s.res", outdir, t->name);
 }
 
 static char* cwd_abs(const char* rel)

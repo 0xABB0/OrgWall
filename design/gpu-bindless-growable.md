@@ -2,7 +2,7 @@
 
 Granular spec for the deferred bindless restructure. Replaces the fixed-capacity heap (over-capacity creation fails with `..._CREATE_BINDLESS_SLOT_EXHAUSTED`) with a grow-on-demand partition that preserves the §3.1 `slot == handle.index` contract. Bound by `design/gpu-rhi.md` §3.1 (handle identity, direct/indirect), §3.3 (future-gated retire), §3.4 (caps), §6.7 (binding model), §13 (module structure). Cites `MEL-ENGINE-N` where a decision turns on a commandment.
 
-B1 (Vulkan set-split), B2 (Vulkan grow) and the Metal rung (§4.5: argument-buffer grow + deferred reclaim + batched residency) are **realized**; D3D12 (B3/B4), the pre-sizing surface (B5), the ceiling rungs (B6) and the WebGPU floor (B7) remain target-state. See "Realization status" at the end of each unit.
+B1 (Vulkan set-split), B2 (Vulkan grow), the Metal rung (§4.5) and the D3D12 classic-heap rung (B3 reclaim + B4 grow) are **realized**; the pre-sizing surface (B5), the ceiling rungs (B6) and the WebGPU floor (B7) remain target-state. See "Realization status" at the end of each unit.
 
 ---
 
@@ -126,7 +126,7 @@ Reclaim is the part Metal cannot get for free: bindless resources are *not* enco
 No 5-set partition (`maxBindGroups = 4`); the §6.7 packing stands. Grow = reconstruct the affected bind group at the larger `sized binding array` size and rebind. WebGPU bind groups are immutable post-create, so "grow" is "create a new bind group, copy nothing (descriptors are the resource references the engine re-supplies from slot metadata), bind the new group." Future-gate the old group's drop. `GPUResourceTable` (Milestone 3, when it lands) makes this a true growable table; until then sized-binding-arrays + group reconstruction is the honest floor (MEL-ENGINE-VII: degrade gracefully, do not deform). Past the WebGPU hardware array cap, creation hard-errors (P1 sync-impossible refinement, §6.7).
 
 ### Realization status
-Realized rungs: Vulkan `descriptor_indexing` five-set partition with grow + reclaim (§4.1, via variable-count sets — see §2 realization note); Metal argument-buffer grow + watermark-deferred reclaim + batched residency (§4.5). Target rungs: D3D12 classic heap reclaim + grow (B3/B4); `descriptor_buffer` / `descriptor_heap` / `ResourceDescriptorHeap` ceilings additive; WebGPU bind-group reconstruction (B7).
+Realized rungs: Vulkan `descriptor_indexing` five-set partition with grow + reclaim (§4.1, via variable-count sets — see §2 realization note); Metal argument-buffer grow + watermark-deferred reclaim + batched residency (§4.5); D3D12 classic heap reclaim + grow (§4.4 — five unbounded volatile tables so root signatures bake no capacities, CPU mirror heap as the copy source, COM-refcount epoch retire of superseded shader-visible heaps; resource classes seed 1024 with a 250k/class wall, samplers fixed at the 2048 sampler-heap wall). Target rungs: `descriptor_buffer` / `descriptor_heap` / `ResourceDescriptorHeap` ceilings additive; WebGPU bind-group reconstruction (B7).
 
 ---
 
@@ -147,8 +147,8 @@ Per the new-feature workflow (spec → granular → implement no-prereq-first). 
 
 - **B1 — Vulkan set-split refactor (DONE).** Re-partition the realized one-set-five-bindings into five per-class `VkDescriptorSet`s with the fixed class→set map (§1). Landed with the shader-side migration: `.slang` heap declarations (`[[vk::binding(0, class)]]`), the GLSL fixture sources, and the embedded SPIR-V test fixtures (decoration-patched, `spirv-val`-clean).
 - **B2 — Vulkan `descriptor_indexing` grow (DONE, depends: B1).** Variable-count sets + new-pool re-publish + swap + epoch-gated old-pool free (§2.2 as refined by the §2 realization note, §4.1). `BindlessSlotExhausted` retreats to the hardware wall. `caps.memory.bindless` gained `growable` + `seed_<class>_slots`.
-- **B3 — D3D12 classic-heap reclaim (NO PREREQUISITE, parallel to B1).** Wire the classic heap's freed table slots to the §3.3 future-gated pump (§4.4). Pure addition; fixes the round-3 "no slot reclaim" debt independently of grow. Can land before or alongside B1.
-- **B4 — D3D12 classic-heap grow (depends: B3).** `CopyDescriptorsSimple` to a larger heap + `SetDescriptorHeaps` + unbounded-range root signature + future-gated old-heap release (§4.4).
+- **B3 — D3D12 classic-heap reclaim (DONE).** Found already realized: destroys future-gate via `table_remove_deferred` + deferred reclaim; the round-3 "no slot reclaim" debt note was stale.
+- **B4 — D3D12 classic-heap grow (DONE, depends: B3).** `CopyDescriptorsSimple` from a CPU mirror heap into a rebuilt shader-visible heap + `SetDescriptorHeaps` + per-class unbounded-range tables + COM-refcount epoch release of the old heap (§4.4 realization note). Registration also gained the previously-missing capacity gate.
 - **B5 — pre-sizing surface (depends: B2 or B4).** `bindless_heap_create` seed/growth_factor params (§5); grow U2 warning.
 - **B6 — ceiling rungs (depends: B2; additive).** `descriptor_buffer` (§4.2), `descriptor_heap` (§4.3), D3D12 `ResourceDescriptorHeap` (§4.4 ceiling). Each is purely additive — a granted rung replaces the grow *mechanism* for that backend without touching the public surface.
 - **B7 — WebGPU growable floor (depends: M4 WebGPU backend).** Bind-group reconstruction grow (§4.6); `GPUResourceTable` when it lands.

@@ -34,6 +34,7 @@ void mel_gpu_command_list_begin(Mel_Gpu_Command_List* cmd)
     cmd->recording = true;
     cmd->cur_pipeline = NULL;
     cmd->classic_heaps_bound = false;
+    mel_gpu__bindless_cl_release(cmd);
 }
 
 void mel_gpu_command_list_end(Mel_Gpu_Command_List* cmd)
@@ -47,6 +48,9 @@ void mel_gpu_command_list_destroy(Mel_Gpu_Command_List* cmd)
 {
     if (!cmd)
         return;
+    mel_gpu__bindless_cl_release(cmd);
+    if (cmd->held_heaps)
+        mel_dealloc(cmd->dev->alloc, cmd->held_heaps);
     if (cmd->list)
         ID3D12GraphicsCommandList_Release(cmd->list);
     if (cmd->allocator)
@@ -308,8 +312,6 @@ void mel_gpu_cmd_bind_pipeline(Mel_Gpu_Command_List* cmd, Mel_Gpu_Pipeline pipe)
     cmd->cur_pipeline = o;
 
     Mel_Gpu_Device* dev = cmd->dev;
-    if (o->bindless)
-        mel_gpu_cmd_bind_bindless(cmd);
 
     if (o->is_compute)
         ID3D12GraphicsCommandList_SetComputeRootSignature(cmd->list, o->root_sig);
@@ -320,21 +322,7 @@ void mel_gpu_cmd_bind_pipeline(Mel_Gpu_Command_List* cmd, Mel_Gpu_Pipeline pipe)
     }
 
     if (o->bindless && dev->bindless_enabled)
-    {
-        D3D12_GPU_DESCRIPTOR_HANDLE srv, smp;
-        ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(dev->srv_heap, &srv);
-        ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(dev->smp_heap, &smp);
-        if (o->is_compute)
-        {
-            ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(cmd->list, o->srv_table_param, srv);
-            ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(cmd->list, o->smp_table_param, smp);
-        }
-        else
-        {
-            ID3D12GraphicsCommandList_SetGraphicsRootDescriptorTable(cmd->list, o->srv_table_param, srv);
-            ID3D12GraphicsCommandList_SetGraphicsRootDescriptorTable(cmd->list, o->smp_table_param, smp);
-        }
-    }
+        mel_gpu__bindless_cl_bind(cmd);
     ID3D12GraphicsCommandList_SetPipelineState(cmd->list, o->pso);
 }
 
