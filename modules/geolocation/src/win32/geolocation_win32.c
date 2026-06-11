@@ -12,6 +12,7 @@
 #include <objidl.h>
 #include <windows.foundation.h>
 #include <windows.devices.geolocation.h>
+#include <windows.devices.geolocation.geofencing.h>
 
 #include <stdio.h>
 #include <stdlib.h>
