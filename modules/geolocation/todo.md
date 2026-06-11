@@ -1,7 +1,7 @@
 # geolocation — todo
 
-- win32: compile-validate on the windows box (WinRT C ABI names written against the SDK MIDL
-  headers, never compiled; host cross-build lacks windows headers repo-wide).
+- win32: exercise the granted path (live fixes, GeofenceMonitor) — validated so far: build,
+  link, and the denied-path geo-tour run on a box with location off.
 - win32: check `AltitudeReferenceSystem` (QI Geopoint→IGeoshape) before claiming the altitude
   valid bit; currently set whenever Windows reports an altitude.
 - linux: run against a live GeoClue2 (built via zig cross only); verify the oversized
