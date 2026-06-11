@@ -67,21 +67,6 @@ static void entry(FILE* f, bool* first, const char* dir, Mel_StrVec* cmd, const 
     free(command);
 }
 
-static void config_cflags(const char* config, Mel_StrVec* out)
-{
-    mel_da_push(out, "-std=c23");
-    if (config && strcmp(config, "release") == 0)
-    {
-        mel_da_push(out, "-O2");
-        mel_da_push(out, "-DNDEBUG");
-    }
-    else
-    {
-        mel_da_push(out, "-g");
-        mel_da_push(out, "-O0");
-    }
-}
-
 static char* read_all(FILE* p)
 {
     size_t cap = 1 << 16, len = 0;
@@ -161,7 +146,7 @@ static void build_prefix(const Mel_Variant* v, bool host_tool, Mel_StrVec* prefi
         if (tc.cross && !strstr(tc.base_cflags, "-isysroot"))
             probe_system_includes(tc.cc, tc.base_cflags, prefix);
     }
-    config_cflags(v->config, prefix);
+    mel_config_base_flags(v->config, prefix);
 }
 
 static bool closure_available(Mel_Graph* g, const char* name, const Mel_Variant* v)

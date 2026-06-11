@@ -11,7 +11,7 @@ char* mel_target_outdir(const char* target_dir, const Mel_Variant* v) { return m
 
 static char* outdir_for(Mel_Target* t, const Mel_Variant* v) { return t->kind == MEL_KIND_HOST_TOOL ? mel_str_fmt("%s/build/host", t->dir) : mel_target_outdir(t->dir, v); }
 
-static void config_base(const char* config, Mel_StrVec* out)
+void mel_config_base_flags(const char* config, Mel_StrVec* out)
 {
     mel_da_push(out, mel_str_dup("-std=c23"));
     if (config && strcmp(config, "release") == 0)
@@ -217,7 +217,7 @@ static char* emit_one(FILE* f, Mel_Graph* g, size_t idx, const Mel_Variant* v, M
 
     char*      outdir = outdir_for(t, v);
     Mel_StrVec srcs = { 0 }, cflags = { 0 };
-    config_base(v->config, &cflags);
+    mel_config_base_flags(v->config, &cflags);
     if (!mel_gather_compile(g, idx, v, &srcs, &cflags))
     {
         *ok = false;
