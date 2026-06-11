@@ -60,6 +60,13 @@ typedef struct
 
 typedef struct
 {
+    Mel_When    when;
+    const char* url;
+    const char* lib;
+} Mel_Prebuilt;
+
+typedef struct
+{
     const char* key;
     const char* value;
 } Mel_KV;
@@ -121,9 +128,7 @@ struct Mel_Target
     const char* autotools_dir;
     Mel_StrVec  autotools_args;
     const char* autotools_cstd;
-    const char* prebuilt_url;
-    const char* prebuilt_lib;
-    Mel_When    prebuilt_when;
+    MEL_VEC(Mel_Prebuilt) prebuilts;
 };
 
 typedef MEL_VEC(Mel_Target*) Mel_TargetVec;

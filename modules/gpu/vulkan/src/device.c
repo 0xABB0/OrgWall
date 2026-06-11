@@ -247,13 +247,17 @@ Mel_Gpu_Device_Create_Result mel_gpu_device_create_opt(Mel_Gpu_Instance* inst, M
     dev->fb_color_samples = devprops.limits.framebufferColorSampleCounts;
     dev->fb_depth_samples = devprops.limits.framebufferDepthSampleCounts;
 
-    if (has_dr)
+    bool quirk_gfxstream = strstr(devprops.deviceName, "GFXStream") != NULL;
+    if (has_dr && !quirk_gfxstream)
     {
         dev->cmd_begin_rendering = (PFN_vkCmdBeginRenderingKHR)vkGetDeviceProcAddr(vk, "vkCmdBeginRenderingKHR");
         dev->cmd_end_rendering = (PFN_vkCmdEndRenderingKHR)vkGetDeviceProcAddr(vk, "vkCmdEndRenderingKHR");
         dev->dynamic_rendering = dev->cmd_begin_rendering && dev->cmd_end_rendering;
     }
-    mel_log_info("gpu", "render lowering: %s", dev->dynamic_rendering ? "dynamic rendering" : "render passes (floor)");
+    if (has_dr && quirk_gfxstream)
+        mel_log_warn("gpu", "render lowering: render passes (gfxstream quirk: dynamic rendering never completes on host '%s')", devprops.deviceName);
+    else
+        mel_log_info("gpu", "render lowering: %s", dev->dynamic_rendering ? "dynamic rendering" : "render passes (floor)");
 
     if (has_sync2)
     {

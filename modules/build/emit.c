@@ -245,14 +245,14 @@ static char* emit_one(FILE* f, Mel_Graph* g, size_t idx, const Mel_Variant* v, M
         bool        objc = (sl >= 2 && strcmp(src + sl - 2, ".m") == 0) || (sl >= 3 && strcmp(src + sl - 3, ".mm") == 0);
         bool        cpp = (sl >= 4 && strcmp(src + sl - 4, ".cpp") == 0) || (sl >= 3 && strcmp(src + sl - 3, ".cc") == 0) || (sl >= 4 && strcmp(src + sl - 4, ".cxx") == 0);
         char*       obj = obj_path(outdir, t->name, t->dir, src);
-        fprintf(f, "build %s: %s %s", obj, cc_rule, src);
+        fprintf(f, "build %s: %s %s", obj, cpp && !host ? "cxx" : cc_rule, src);
         if (genout.len)
         {
             fputs(" ||", f);
             for (size_t k = 0; k < genout.len; k++)
                 fprintf(f, " %s", genout.items[k]);
         }
-        fprintf(f, "\n  cflags = $%s_cflags%s%s\n", t->name, objc ? " -fobjc-arc" : "", cpp ? " -x c++ -std=c++17" : "");
+        fprintf(f, "\n  cflags = $%s_cflags%s%s\n", t->name, objc ? " -fobjc-arc" : "", cpp ? (host ? " -x c++ -std=c++17" : " -std=c++17") : "");
         mel_da_push(&objs, obj);
     }
 
@@ -495,12 +495,15 @@ bool mel_emit_and_build(Mel_Graph* g, const char* root, const Mel_Variant* v, bo
     g_tc = mel_toolchain(v);
     fprintf(f, "builddir = %s\n", vdir);
     fprintf(f, "cc = %s\n", g_tc.cc);
+    fprintf(f, "cxx = %s\n", g_tc.cxx);
     fprintf(f, "ar = %s\n", g_tc.ar);
     fprintf(f, "base_cflags = %s\n", g_tc.base_cflags);
     fprintf(f, "base_ldflags = %s\n\n", g_tc.base_ldflags);
 
     fputs("rule cc\n  command = $cc $cflags -MMD -MF $out.d -c $in -o $out\n", f);
     fputs("  depfile = $out.d\n  deps = gcc\n  description = CC $out\n\n", f);
+    fputs("rule cxx\n  command = $cxx $cflags -MMD -MF $out.d -c $in -o $out\n", f);
+    fputs("  depfile = $out.d\n  deps = gcc\n  description = CXX $out\n\n", f);
     fputs("rule hostcc\n  command = clang $cflags -MMD -MF $out.d -c $in -o $out\n", f);
     fputs("  depfile = $out.d\n  deps = gcc\n  description = CC(host) $out\n\n", f);
 #ifdef _WIN32

@@ -108,9 +108,7 @@ void mel_cmake_when(Mel_Target* t, Mel_When when) { t->cmake_when = when; }
 
 void mel_prebuilt(Mel_Target* t, Mel_When when, const char* url, const char* lib)
 {
-    t->prebuilt_when = when;
-    t->prebuilt_url = url;
-    t->prebuilt_lib = lib;
+    mel_da_push(&t->prebuilts, ((Mel_Prebuilt){ when, url, lib }));
 }
 
 void mel_configure_(Mel_Target* t, const char* dir, ...)

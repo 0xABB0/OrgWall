@@ -159,7 +159,17 @@ void mel_gui_set_visible(Mel_Gui_Handle h, bool visible)
     // is only the navigator's container — its screens carry the content.
     if ([obj isKindOfClass:[UIViewController class]])
     {
-        if (visible && n->is_screen)
+        bool has_screen = false;
+        for (Mel_Gui_Handle c = n->first_child; !mel_gui_handle_eq(c, MEL_GUI_HANDLE_NONE); c = mel_gui__next_sibling(c))
+        {
+            Mel_Gui_Node* cn = mel_gui__node(c);
+            if (cn && cn->is_screen)
+            {
+                has_screen = true;
+                break;
+            }
+        }
+        if (visible && (n->is_screen || !has_screen))
             mel_gui__ios_show_frame(n);
     }
     else if ([obj isKindOfClass:[UIView class]])

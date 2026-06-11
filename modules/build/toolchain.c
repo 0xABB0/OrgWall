@@ -43,6 +43,7 @@ Mel_Toolchain mel_toolchain(const Mel_Variant* v)
 {
     Mel_Toolchain tc = {
         .cc = mel_str_dup("clang"),
+        .cxx = mel_str_dup("clang++"),
         .ar = mel_str_dup("ar"),
         .base_cflags = mel_str_dup(""),
         .base_ldflags = mel_str_dup(""),
@@ -79,6 +80,8 @@ Mel_Toolchain mel_toolchain(const Mel_Variant* v)
         free(tc.ar);
         free(tc.base_cflags);
         tc.cc = mel_str_fmt("zig cc -target %s-linux-gnu", la);
+        free(tc.cxx);
+        tc.cxx = mel_str_fmt("zig c++ -target %s-linux-gnu", la);
         tc.ar = mel_str_dup("zig ar");
         tc.base_cflags = mel_str_dup("-D_GNU_SOURCE");
         tc.triple = mel_str_fmt("%s-linux-gnu", la);
@@ -88,6 +91,8 @@ Mel_Toolchain mel_toolchain(const Mel_Variant* v)
         free(tc.cc);
         free(tc.ar);
         tc.cc = mel_str_dup("clang");
+        free(tc.cxx);
+        tc.cxx = mel_str_dup("clang++");
         tc.ar = mel_str_dup("llvm-ar");
         tc.autotools_cc = mel_str_dup("clang");
         tc.exe_ext = ".exe";
@@ -100,6 +105,8 @@ Mel_Toolchain mel_toolchain(const Mel_Variant* v)
         free(tc.cc);
         free(tc.ar);
         tc.cc = mel_str_fmt("%s/toolchains/llvm/prebuilt/darwin-x86_64/bin/clang -target %s-linux-android26", ndk, la);
+        free(tc.cxx);
+        tc.cxx = mel_str_fmt("%s/toolchains/llvm/prebuilt/darwin-x86_64/bin/clang++ -target %s-linux-android26", ndk, la);
         tc.ar = mel_str_fmt("%s/toolchains/llvm/prebuilt/darwin-x86_64/bin/llvm-ar", ndk);
         tc.triple = mel_str_fmt("%s-linux-android26", la);
         tc.cross = true;
@@ -113,6 +120,8 @@ Mel_Toolchain mel_toolchain(const Mel_Variant* v)
         free(tc.ar);
         free(tc.base_cflags);
         tc.cc = mel_str_dup("emcc");
+        free(tc.cxx);
+        tc.cxx = mel_str_dup("em++");
         tc.ar = mel_str_dup("emar");
         tc.base_cflags = mel_str_dup("-D_GNU_SOURCE");
         tc.exe_ext = ".js";
