@@ -97,4 +97,5 @@ typedef struct
     X("in_out_smoother", mel_ease_in_out_smoother) \
     X("step", mel_ease_step)
 
-#define MEL_EASING_COUNT 34
+#define MEL__EASING_ENTRY(n, f) { n, f },
+#define MEL_EASING_COUNT (int)(sizeof((Mel_Easing_Entry[]){ MEL_EASING_LIST(MEL__EASING_ENTRY) }) / sizeof(Mel_Easing_Entry))

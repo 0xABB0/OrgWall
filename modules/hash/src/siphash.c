@@ -1,4 +1,5 @@
 #include <hash/siphash.h>
+#include <core/compiler.h>
 #include <string.h>
 
 static inline u64 mel__sip_rotl64(u64 v, int n) { return (v << n) | (v >> (64 - n)); }
@@ -54,16 +55,22 @@ u64 mel_siphash24(const void* data, usize len, u64 k0, u64 k1)
     {
     case 7:
         b |= (u64)p[6] << 48;
+        MEL_FALLTHROUGH;
     case 6:
         b |= (u64)p[5] << 40;
+        MEL_FALLTHROUGH;
     case 5:
         b |= (u64)p[4] << 32;
+        MEL_FALLTHROUGH;
     case 4:
         b |= (u64)p[3] << 24;
+        MEL_FALLTHROUGH;
     case 3:
         b |= (u64)p[2] << 16;
+        MEL_FALLTHROUGH;
     case 2:
         b |= (u64)p[1] << 8;
+        MEL_FALLTHROUGH;
     case 1:
         b |= (u64)p[0];
     }
