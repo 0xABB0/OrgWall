@@ -1,4 +1,4 @@
-# 2026-06-12 — audioin form rework + all six host providers
+# 2026-06-12 — audioin form rework + audioin/audioout host providers
 
 ## Work done
 
@@ -61,6 +61,57 @@ Per Gabbo's review of the audioin core:
   unreachable (ssh timeout)**; the file mirrors `audio/wasapi/wasapi.c`
   COM idioms exactly. Branch `worktree-audio-v2-wireframes` pushed to
   origin for that build.
+
+## audioout (same session, after the form rework)
+
+Implemented `audioout` against its wireframe, form-aligned with the
+reworked audioin from the start:
+
+- **Core** — registry/hotplug/default skeleton shared with audioin (no
+  consent, no `future` dep — deliberate); volume/mute caps-gated quartet;
+  `Mel_AudioOut_Raw` gained `volume`/`muted` shadow fields so external
+  volume changes diff into `changed` events through normal reconciliation
+  (the live getters still ask the provider; the shadows exist only for
+  change detection — recorded in spec.md).
+- **Pull plane** — `mel_audioout__open(req, granted*, pull, token)` +
+  `__start/__stop/__close` internal bridges (audio engine's door);
+  providers pull from openers on their own clock.
+- **Publish** — a published output is a device others play into:
+  `publish_read` is the pull clock; it zeroes the destination, pulls every
+  STARTED opener into scratch, sums, returns the longest fill. Format
+  negotiation answers the published format honestly. The `pcm` ring is NOT
+  used here (the read IS the clock; nothing to buffer) — spec's pcm
+  dependency line no longer applies to audioout and was dropped from
+  build.c; flagged here.
+- **Tests** — 9 mock-provider tests: reconciliation, default_changed,
+  volume/mute caps gating, external-volume `changed` events,
+  publish negotiation honesty + pull multiplexing + stop/close semantics,
+  dead-handle LOST, silent no-change refresh. All pass.
+- **All six host providers** (parallel agents, audioin twins as
+  precedent): CoreAudio HAL with per-device VolumeScalar/Mute listeners
+  feeding `changed` (macos); AVAudioSession route outputs +
+  AVAudioSourceNode render, caps.volume=false (iOS volume is read-only)
+  (ios); WASAPI render with IAudioEndpointVolumeCallback per device, mix
+  into the device buffer, s16 fallback (win32, unverified — box offline);
+  ALSA playback with silence-paced idle clock and Master-element volume
+  (linux); AudioManager JNI + AAudio output streams, caps.volume=false
+  (STREAM_MUSIC is global, not per-device — audiopolicy's home) (android);
+  mediaDevices + AudioContext.setSinkId gate with an honest single
+  `web:default` device where setSinkId is absent, AudioWorklet sink (wasm).
+- **Verified**: macos clean build + 9/9 tests; ios/android/linux/wasm
+  cross-compile clean. win32 committed/pushed, awaiting the build box.
+
+Cross-cutting contract questions the backends raised (for the
+audioplayback/audio-delta steps):
+- The pull plane has no `on_lost` twin — openers learn device death only
+  via hotplug `removed`. wasm/ios/win32 all flagged it. Candidate for a
+  spec amendment when `audio` binds.
+- `granted.block_frames` semantics vary (render quantum vs period vs
+  buffer bound); audio's ring sizing should treat it as a hint, not a cap.
+- iOS read-only volume is observable but caps.volume=false suppresses
+  `changed` for it — a `caps.volume_observe` split is a wireframe question.
+- linux asked for a `caps.mute` split (cards with volume but no switch)
+  and a BUSY status bit (both twins).
 
 ## Kludges
 
