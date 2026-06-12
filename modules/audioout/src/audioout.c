@@ -531,7 +531,7 @@ void* mel_audioout_native(Mel_AudioOut d)
     return (pe && pe->desc.native) ? pe->desc.native(pe->desc.user, s->stable_id) : NULL;
 }
 
-Mel_AudioOut_Status mel_audioout__open(Mel_AudioOut d, Mel_AudioOut_Format req, Mel_AudioOut_Format* granted, Mel_AudioOut_Source src)
+Mel_AudioOut_Status mel_audioout__open(Mel_AudioOut d, Mel_AudioOut_Format req, Mel_AudioOut_Open_Opt opt, Mel_AudioOut_Granted* granted, Mel_AudioOut_Source src)
 {
     assert(granted != NULL);
     assert(src.pull != NULL);
@@ -547,7 +547,7 @@ Mel_AudioOut_Status mel_audioout__open(Mel_AudioOut d, Mel_AudioOut_Format req, 
         mel_log_error("audioout", "device %.*s has no open path", (int)s->name.len, s->name.data);
         return MEL_AUDIOOUT_ERROR | MEL_AUDIOOUT_RESULT_UNSUPPORTED;
     }
-    return pe->desc.open(pe->desc.user, s->stable_id, req, granted, src);
+    return pe->desc.open(pe->desc.user, s->stable_id, req, opt, granted, src);
 }
 
 static Provider_Entry* slot_provider(Mel_AudioOut d, Device_Slot** out_slot)

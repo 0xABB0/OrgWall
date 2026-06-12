@@ -77,12 +77,14 @@ typedef struct
     pthread_mutex_t lock;
     _Atomic(void*)  opens;
     Mel_Array(void*) garbage;
-    bool         running;
-    bool         lost_handled;
-    bool         closing;
-    bool         reaper_spawned;
-    _Atomic(u32) lost;
-    Mel_Thread   reaper;
+    Mel_AudioOut_Open_Opt opt;
+    Mel_AudioOut_Granted  granted;
+    bool                  running;
+    bool                  lost_handled;
+    bool                  closing;
+    bool                  reaper_spawned;
+    _Atomic(u32)          lost;
+    Mel_Thread            reaper;
 } AOut_Stream;
 
 typedef struct
@@ -382,7 +384,7 @@ static Mel_AudioOut_Status aout_status_from_aaudio(aaudio_result_t res)
     return MEL_AUDIOOUT_ERROR | MEL_AUDIOOUT_RESULT_UNSUPPORTED;
 }
 
-static AOut_Stream* aout_stream_open(const AOut_Device* dev, Mel_AudioOut_Status* why)
+static AOut_Stream* aout_stream_open(const AOut_Device* dev, Mel_AudioOut_Open_Opt opt, Mel_AudioOut_Status* why)
 {
     *why = MEL_AUDIOOUT_ERROR | MEL_AUDIOOUT_RESULT_UNSUPPORTED;
     AOut_Stream* st = mel_alloc_type(g_aout.alloc, AOut_Stream);
@@ -411,7 +413,7 @@ static AOut_Stream* aout_stream_open(const AOut_Device* dev, Mel_AudioOut_Status
 
     AAudioStreamBuilder_setDirection(builder, AAUDIO_DIRECTION_OUTPUT);
     AAudioStreamBuilder_setDeviceId(builder, dev->device_id);
-    AAudioStreamBuilder_setSharingMode(builder, AAUDIO_SHARING_MODE_SHARED);
+    AAudioStreamBuilder_setSharingMode(builder, opt.exclusive ? AAUDIO_SHARING_MODE_EXCLUSIVE : AAUDIO_SHARING_MODE_SHARED);
     AAudioStreamBuilder_setPerformanceMode(builder, AAUDIO_PERFORMANCE_MODE_NONE);
     AAudioStreamBuilder_setFormat(builder, AAUDIO_FORMAT_PCM_FLOAT);
     AAudioStreamBuilder_setSampleRate(builder, (int32_t)dev->samplerate);
@@ -470,6 +472,16 @@ static AOut_Stream* aout_stream_open(const AOut_Device* dev, Mel_AudioOut_Status
         aout_stream_destroy(st);
         return NULL;
     }
+    int32_t buffer_frames = AAudioStream_getBufferSizeInFrames(stream);
+    st->opt = opt;
+    st->granted = (Mel_AudioOut_Granted){
+        .format = { .samplerate = st->samplerate, .channels = st->channels, .block_frames = st->burst_frames },
+        .exclusive = AAudioStream_getSharingMode(stream) == AAUDIO_SHARING_MODE_EXCLUSIVE,
+        .os_timestamps = buffer_frames > 0,
+        .latency_frames = buffer_frames > 0 ? (u32)buffer_frames : st->scratch_frames,
+    };
+    if (opt.exclusive && !st->granted.exclusive)
+        mel_log_warn("audioout", "android: exclusive requested on %.*s; granted shared", (int)dev->stable_id.len, dev->stable_id.data);
     return st;
 }
 
@@ -507,7 +519,7 @@ static str8 aout_default_id(void* user)
     return STR8_EMPTY;
 }
 
-static Mel_AudioOut_Status aout_open(void* user, str8 stable_id, Mel_AudioOut_Format req, Mel_AudioOut_Format* granted, Mel_AudioOut_Source src)
+static Mel_AudioOut_Status aout_open(void* user, str8 stable_id, Mel_AudioOut_Format req, Mel_AudioOut_Open_Opt opt, Mel_AudioOut_Granted* granted, Mel_AudioOut_Source src)
 {
     MEL_UNUSED(user);
     assert(granted != NULL);
@@ -525,11 +537,13 @@ static Mel_AudioOut_Status aout_open(void* user, str8 stable_id, Mel_AudioOut_Fo
             return MEL_AUDIOOUT_ERROR | MEL_AUDIOOUT_RESULT_NO_DEVICE;
         }
         Mel_AudioOut_Status why;
-        st = aout_stream_open(dev, &why);
+        st = aout_stream_open(dev, opt, &why);
         if (!st)
             return why;
         fresh = true;
     }
+    else if (opt.exclusive != st->opt.exclusive)
+        mel_log_warn("audioout", "android: open options differ from the live stream on %.*s; first open's configuration applies", (int)stable_id.len, stable_id.data);
 
     if (!aout_open_add(st, src))
     {
@@ -544,12 +558,10 @@ static Mel_AudioOut_Status aout_open(void* user, str8 stable_id, Mel_AudioOut_Fo
     if (fresh)
     {
         mel_array_push(&g_aout.streams, st);
-        mel_log_info("audioout", "android: output stream opened on %.*s (%u ch @ %u Hz, burst %u)", (int)stable_id.len, stable_id.data, st->channels, st->samplerate, st->burst_frames);
+        mel_log_info("audioout", "android: output stream opened on %.*s (%u ch @ %u Hz, burst %u, %s)", (int)stable_id.len, stable_id.data, st->channels, st->samplerate, st->burst_frames, st->granted.exclusive ? "exclusive" : "shared");
     }
 
-    granted->samplerate = st->samplerate;
-    granted->channels = st->channels;
-    granted->block_frames = st->burst_frames;
+    *granted = st->granted;
     if ((req.samplerate != 0 && req.samplerate != st->samplerate) || (req.channels != 0 && req.channels != st->channels))
         mel_log_info("audioout", "android: granted %uHz %uch on %.*s (requested %uHz %uch)", st->samplerate, st->channels, (int)stable_id.len, stable_id.data, req.samplerate, req.channels);
     return MEL_AUDIOOUT_OK;

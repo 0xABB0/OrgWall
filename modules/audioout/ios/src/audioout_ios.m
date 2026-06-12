@@ -481,9 +481,10 @@ static void ios_engine_run_state(void)
     }
 }
 
-static Mel_AudioOut_Status ios_open(void* user, str8 stable_id, Mel_AudioOut_Format req, Mel_AudioOut_Format* granted, Mel_AudioOut_Source src)
+static Mel_AudioOut_Status ios_open(void* user, str8 stable_id, Mel_AudioOut_Format req, Mel_AudioOut_Open_Opt opt, Mel_AudioOut_Granted* granted, Mel_AudioOut_Source src)
 {
     MEL_UNUSED(user);
+    MEL_UNUSED(opt);
     assert(granted != NULL);
     assert(src.pull != NULL);
     @autoreleasepool
@@ -525,17 +526,22 @@ static Mel_AudioOut_Status ios_open(void* user, str8 stable_id, Mel_AudioOut_For
                     };
                     nl->count++;
                     ios_opens_swap(nl);
-                    granted->samplerate = g_ios.samplerate;
-                    granted->channels = g_ios.channels;
-                    granted->block_frames = g_ios.scratch_frames;
-                    if (req.samplerate != granted->samplerate || req.channels != granted->channels)
+                    granted->format.samplerate = g_ios.samplerate;
+                    granted->format.channels = g_ios.channels;
+                    granted->format.block_frames = g_ios.scratch_frames;
+                    granted->exclusive = false;
+                    AVAudioSession* session = [AVAudioSession sharedInstance];
+                    f64             latency_sec = (f64)session.outputLatency + (f64)session.IOBufferDuration;
+                    granted->os_timestamps = latency_sec > 0.0;
+                    granted->latency_frames = latency_sec > 0.0 ? (u32)(latency_sec * (f64)g_ios.samplerate + 0.5) : 0;
+                    if (req.samplerate != granted->format.samplerate || req.channels != granted->format.channels)
                         mel_log_info("audioout",
                                      "ios: open %.*s granted %u Hz %u ch block %u (requested %u Hz %u ch)",
                                      (int)stable_id.len,
                                      stable_id.data,
-                                     granted->samplerate,
-                                     granted->channels,
-                                     granted->block_frames,
+                                     granted->format.samplerate,
+                                     granted->format.channels,
+                                     granted->format.block_frames,
                                      req.samplerate,
                                      req.channels);
                 }

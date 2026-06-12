@@ -64,7 +64,7 @@ Mel_AudioOut_Provider_Desc {
     enumerate(fn, fn_user)           // calls fn per device; provider-interned str8s, valid
                                      // until next enumerate/shutdown; fn false = stop
     default_id() -> str8
-    open(stable_id, req format, granted format*, source)        // negotiate, hold
+    open(stable_id, req format, open_opt, granted*, source)     // negotiate, hold
     start(stable_id, token)                                     // provider begins pulling
     stop(stable_id, token)
     close(stable_id, token)
@@ -74,7 +74,18 @@ Mel_AudioOut_Provider_Desc {
 }
 Mel_AudioOut_Pull_Fn: (token, interleaved_dst, frames) -> frames written
 Mel_AudioOut_Source:  { pull, on_lost(token), token }
+Mel_AudioOut_Open_Opt: { exclusive }
+Mel_AudioOut_Granted:  { format, exclusive, os_timestamps, latency_frames }
 ```
+
+`open` negotiation grew the output twin of audioin's capture negotiation:
+`open_opt.exclusive` requests raw/exclusive device access (hog mode / WASAPI
+exclusive / AAudio exclusive sharing / ALSA hw semantics; absent on ios/web).
+`granted` is always read back from what is in effect, never the request
+echoed: `exclusive` from OS read-back, `latency_frames` the honest output-path
+latency in frames at the granted rate, `os_timestamps` whether that figure is
+the OS's own or the provider's bound. A device held exclusively elsewhere is
+`ERROR | BUSY`.
 
 `on_lost` fires at most once per open when the device dies mid-stream — the
 pull plane's loss signal; hotplug `removed` follows via the registry.

@@ -56,6 +56,9 @@ typedef struct
     Mel_Thread        thread;
     bool              spawned;
     bool              underrun_warned;
+    bool              exclusive;
+    bool              latency_known;
+    u32               latency_frames;
     u64               xruns;
     _Atomic(u32)      running;
     _Atomic(u32)      lost;
@@ -549,6 +552,14 @@ static int alsa_engine_configure(Alsa_Engine* e, u32 want_channels, u32 want_rat
     if (rc < 0)
         return rc;
 
+    snd_pcm_uframes_t buffer_frames = 0;
+    snd_pcm_uframes_t queried_period = 0;
+    int               qrc = snd_pcm_get_params(e->pcm, &buffer_frames, &queried_period);
+    e->latency_known = qrc == 0;
+    e->latency_frames = qrc == 0 ? (u32)buffer_frames : 0u;
+    if (qrc < 0)
+        mel_log_info("audioout", "alsa: snd_pcm_get_params failed on %.*s: %s; latency unreported", (int)e->stable_id.len, e->stable_id.data, snd_strerror(qrc));
+
     u32 sample_bytes = e->format == SND_PCM_FORMAT_S16_LE ? (u32)sizeof(i16) : (u32)sizeof(i32);
     if (e->format == SND_PCM_FORMAT_FLOAT_LE)
         sample_bytes = (u32)sizeof(f32);
@@ -592,12 +603,25 @@ static void alsa_engine_destroy(Alsa_Engine* e)
     mel_dealloc(g_alsa.alloc, e);
 }
 
-static Mel_AudioOut_Status alsa_out_open(void* user, str8 stable_id, Mel_AudioOut_Format req, Mel_AudioOut_Format* granted, Mel_AudioOut_Source src)
+static void alsa_grant(const Alsa_Engine* e, Mel_AudioOut_Open_Opt opt, Mel_AudioOut_Granted* granted)
+{
+    if (opt.exclusive && !e->exclusive)
+        mel_log_warn("audioout", "alsa: exclusive requested on %.*s but the default plug device shares via dmix; granted shared", (int)e->stable_id.len, e->stable_id.data);
+    granted->format.samplerate = e->samplerate;
+    granted->format.channels = e->channels;
+    granted->format.block_frames = (u32)e->period_frames;
+    granted->exclusive = e->exclusive;
+    granted->os_timestamps = e->latency_known;
+    granted->latency_frames = e->latency_frames;
+}
+
+static Mel_AudioOut_Status alsa_out_open(void* user, str8 stable_id, Mel_AudioOut_Format req, Mel_AudioOut_Open_Opt opt, Mel_AudioOut_Granted* granted, Mel_AudioOut_Source src)
 {
     MEL_UNUSED(user);
     MEL_UNUSED(req);
     assert(granted != NULL);
     assert(src.pull != NULL);
+    *granted = (Mel_AudioOut_Granted){ 0 };
 
     Alsa_Engine* e = alsa_engine_find(stable_id);
     if (e)
@@ -611,9 +635,7 @@ static Mel_AudioOut_Status alsa_out_open(void* user, str8 stable_id, Mel_AudioOu
         nl->opens[nl->count] = (Alsa_Open){ .src = src, .started = false };
         nl->count++;
         alsa_opens_swap(e, nl);
-        granted->samplerate = e->samplerate;
-        granted->channels = e->channels;
-        granted->block_frames = (u32)e->period_frames;
+        alsa_grant(e, opt, granted);
         return MEL_AUDIOOUT_OK;
     }
 
@@ -627,6 +649,7 @@ static Mel_AudioOut_Status alsa_out_open(void* user, str8 stable_id, Mel_AudioOu
     e = mel_alloc_type(g_alsa.alloc, Alsa_Engine);
     memset(e, 0, sizeof *e);
     e->stable_id = str8_dup(d->stable_id, g_alsa.alloc);
+    e->exclusive = !str8_equals(stable_id, S8("alsa:default"));
     mel_array_init(&e->garbage, g_alsa.alloc);
 
     const char* open_name = alsa_open_name(d->stable_id);
@@ -674,11 +697,16 @@ static Mel_AudioOut_Status alsa_out_open(void* user, str8 stable_id, Mel_AudioOu
     }
     e->spawned = true;
     mel_array_push(&g_alsa.engines, e);
-    mel_log_info("audioout", "alsa: playback opened %s: %u ch @ %u Hz, period %u frames, fmt %s", open_name, e->channels, e->samplerate, (u32)e->period_frames, snd_pcm_format_name(e->format));
-
-    granted->samplerate = e->samplerate;
-    granted->channels = e->channels;
-    granted->block_frames = (u32)e->period_frames;
+    alsa_grant(e, opt, granted);
+    mel_log_info("audioout",
+                 "alsa: playback opened %s: %u ch @ %u Hz, period %u frames, fmt %s, %s, buffer %u frames",
+                 open_name,
+                 e->channels,
+                 e->samplerate,
+                 (u32)e->period_frames,
+                 snd_pcm_format_name(e->format),
+                 e->exclusive ? "exclusive" : "shared",
+                 e->latency_frames);
     return MEL_AUDIOOUT_OK;
 }
 

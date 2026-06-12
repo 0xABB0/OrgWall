@@ -114,10 +114,11 @@ static str8 pub_default_id(void* user)
     return STR8_EMPTY;
 }
 
-static Mel_AudioOut_Status pub_open(void* user, str8 stable_id, Mel_AudioOut_Format req, Mel_AudioOut_Format* granted, Mel_AudioOut_Source src)
+static Mel_AudioOut_Status pub_open(void* user, str8 stable_id, Mel_AudioOut_Format req, Mel_AudioOut_Open_Opt opt, Mel_AudioOut_Granted* granted, Mel_AudioOut_Source src)
 {
     MEL_UNUSED(user);
     MEL_UNUSED(req);
+    MEL_UNUSED(opt);
     assert(granted != NULL);
     assert(src.pull != NULL);
     Pub_Slot* p = pub_find(stable_id);
@@ -131,9 +132,12 @@ static Mel_AudioOut_Status pub_open(void* user, str8 stable_id, Mel_AudioOut_For
     nl->count++;
     pub_opens_swap(p, nl);
 
-    granted->samplerate = p->samplerate;
-    granted->channels = p->channels;
-    granted->block_frames = p->scratch_frames;
+    granted->format.samplerate = p->samplerate;
+    granted->format.channels = p->channels;
+    granted->format.block_frames = p->scratch_frames;
+    granted->exclusive = false;
+    granted->os_timestamps = false;
+    granted->latency_frames = 0;
     return MEL_AUDIOOUT_OK;
 }
 

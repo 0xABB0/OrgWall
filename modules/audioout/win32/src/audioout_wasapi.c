@@ -49,6 +49,8 @@ typedef struct
 {
     str8                stable_id;
     bool                fmt_float;
+    bool                exclusive;
+    bool                os_timestamps;
     IMMDevice*          device;
     IAudioClient*       client;
     IAudioRenderClient* render;
@@ -59,6 +61,7 @@ typedef struct
     u32                 samplerate;
     u32                 buffer_frames;
     u32                 block_frames;
+    u32                 latency_frames;
     f32*                scratch;
     f32*                mix;
     Mel_Thread          worker;
@@ -279,6 +282,21 @@ static bool wasapi_format_is_pcm16(const WAVEFORMATEX* f)
         return IsEqualGUID(&x->SubFormat, &KSDATAFORMAT_SUBTYPE_PCM) && f->wBitsPerSample == 16u;
     }
     return false;
+}
+
+static void wasapi_build_pcm16_format(WAVEFORMATEXTENSIBLE* ext, u32 channels, u32 rate)
+{
+    memset(ext, 0, sizeof *ext);
+    ext->Format.wFormatTag = WAVE_FORMAT_EXTENSIBLE;
+    ext->Format.nChannels = (WORD)channels;
+    ext->Format.nSamplesPerSec = (DWORD)rate;
+    ext->Format.wBitsPerSample = 16u;
+    ext->Format.nBlockAlign = (WORD)(channels * 2u);
+    ext->Format.nAvgBytesPerSec = (DWORD)(rate * channels * 2u);
+    ext->Format.cbSize = (WORD)(sizeof(WAVEFORMATEXTENSIBLE) - sizeof(WAVEFORMATEX));
+    ext->Samples.wValidBitsPerSample = 16u;
+    ext->dwChannelMask = channels == 1u ? KSAUDIO_SPEAKER_MONO : KSAUDIO_SPEAKER_STEREO;
+    ext->SubFormat = KSDATAFORMAT_SUBTYPE_PCM;
 }
 
 static Device_Rec* wasapi_device_find(str8 stable_id)
@@ -643,17 +661,22 @@ static int wasapi_engine_worker(void* user)
         u32 want = atomic_load_explicit(&e->want_running, memory_order_acquire);
         if (want != 0u && !running)
         {
-            UINT32  pad = 0;
-            HRESULT hr = IAudioClient_GetCurrentPadding(e->client, &pad);
-            if (FAILED(hr))
+            u32 prime = e->buffer_frames;
+            if (!e->exclusive)
             {
-                lost = hr == AUDCLNT_E_DEVICE_INVALIDATED;
-                wasapi_log_hr("IAudioClient::GetCurrentPadding", hr);
-                break;
+                UINT32  pad = 0;
+                HRESULT ph = IAudioClient_GetCurrentPadding(e->client, &pad);
+                if (FAILED(ph))
+                {
+                    lost = ph == AUDCLNT_E_DEVICE_INVALIDATED;
+                    wasapi_log_hr("IAudioClient::GetCurrentPadding", ph);
+                    break;
+                }
+                prime = e->buffer_frames - pad;
             }
-            if (!wasapi_engine_fill(e, e->buffer_frames - pad, &lost))
+            if (!wasapi_engine_fill(e, prime, &lost))
                 break;
-            hr = IAudioClient_Start(e->client);
+            HRESULT hr = IAudioClient_Start(e->client);
             if (FAILED(hr))
             {
                 lost = hr == AUDCLNT_E_DEVICE_INVALIDATED;
@@ -672,6 +695,15 @@ static int wasapi_engine_worker(void* user)
         }
         if (!running)
             continue;
+
+        if (e->exclusive)
+        {
+            if (w != WAIT_OBJECT_0 + 2)
+                continue;
+            if (!wasapi_engine_fill(e, e->buffer_frames, &lost))
+                break;
+            continue;
+        }
 
         UINT32  pad = 0;
         HRESULT hr = IAudioClient_GetCurrentPadding(e->client, &pad);
@@ -778,7 +810,92 @@ static void wasapi_engine_update_running(Engine* e)
     SetEvent(e->wake_event);
 }
 
-static Engine* wasapi_engine_create(Device_Rec* rec, Mel_AudioOut_Source src, Mel_AudioOut_Status* status)
+static bool wasapi_engine_activate(Engine* e)
+{
+    if (e->client != NULL)
+    {
+        IAudioClient_Release(e->client);
+        e->client = NULL;
+    }
+    HRESULT hr = IMMDevice_Activate(e->device, &IID_IAudioClient, CLSCTX_ALL, NULL, (void**)&e->client);
+    if (FAILED(hr) || e->client == NULL)
+    {
+        wasapi_log_hr("IMMDevice::Activate(IAudioClient)", hr);
+        return false;
+    }
+    return true;
+}
+
+static Mel_AudioOut_Status wasapi_engine_try_exclusive(Engine* e, const WAVEFORMATEX* mix, Mel_AudioOut_Format req, REFERENCE_TIME default_period, bool* granted_exclusive)
+{
+    *granted_exclusive = false;
+
+    u32 channels = req.channels != 0u ? req.channels : (u32)mix->nChannels;
+    u32 rate = req.samplerate != 0u ? req.samplerate : (u32)mix->nSamplesPerSec;
+
+    WAVEFORMATEXTENSIBLE fmt;
+    wasapi_build_pcm16_format(&fmt, channels, rate);
+
+    HRESULT hr = IAudioClient_IsFormatSupported(e->client, AUDCLNT_SHAREMODE_EXCLUSIVE, (WAVEFORMATEX*)&fmt, NULL);
+    if (hr == AUDCLNT_E_DEVICE_IN_USE)
+    {
+        mel_log_error("audioout", "exclusive open: device in use: %.*s", (int)e->stable_id.len, e->stable_id.data);
+        return MEL_AUDIOOUT_ERROR | MEL_AUDIOOUT_RESULT_BUSY;
+    }
+    if (hr != S_OK && (channels != (u32)mix->nChannels || rate != (u32)mix->nSamplesPerSec))
+    {
+        mel_log_warn("audioout", "exclusive format (pcm16 %uch @ %uHz) rejected (hr=0x%08lx) on %.*s; trying device mix format", channels, rate, (unsigned long)hr, (int)e->stable_id.len, e->stable_id.data);
+        channels = (u32)mix->nChannels;
+        rate = (u32)mix->nSamplesPerSec;
+        wasapi_build_pcm16_format(&fmt, channels, rate);
+        hr = IAudioClient_IsFormatSupported(e->client, AUDCLNT_SHAREMODE_EXCLUSIVE, (WAVEFORMATEX*)&fmt, NULL);
+        if (hr == AUDCLNT_E_DEVICE_IN_USE)
+        {
+            mel_log_error("audioout", "exclusive open: device in use: %.*s", (int)e->stable_id.len, e->stable_id.data);
+            return MEL_AUDIOOUT_ERROR | MEL_AUDIOOUT_RESULT_BUSY;
+        }
+    }
+    if (hr != S_OK)
+    {
+        mel_log_warn("audioout", "exclusive format (pcm16 %uch @ %uHz) rejected (hr=0x%08lx) on %.*s; falling back to shared", channels, rate, (unsigned long)hr, (int)e->stable_id.len, e->stable_id.data);
+        return MEL_AUDIOOUT_OK;
+    }
+
+    REFERENCE_TIME period = default_period;
+    hr = IAudioClient_Initialize(e->client, AUDCLNT_SHAREMODE_EXCLUSIVE, AUDCLNT_STREAMFLAGS_EVENTCALLBACK, period, period, (WAVEFORMATEX*)&fmt, NULL);
+    if (hr == AUDCLNT_E_BUFFER_SIZE_NOT_ALIGNED)
+    {
+        UINT32  aligned = 0;
+        HRESULT bh = IAudioClient_GetBufferSize(e->client, &aligned);
+        if (SUCCEEDED(bh) && aligned > 0u && fmt.Format.nSamplesPerSec > 0u)
+        {
+            period = (REFERENCE_TIME)((10000000.0 * (f64)aligned / (f64)fmt.Format.nSamplesPerSec) + 0.5);
+            if (!wasapi_engine_activate(e))
+                return MEL_AUDIOOUT_ERROR | MEL_AUDIOOUT_RESULT_UNSUPPORTED;
+            hr = IAudioClient_Initialize(e->client, AUDCLNT_SHAREMODE_EXCLUSIVE, AUDCLNT_STREAMFLAGS_EVENTCALLBACK, period, period, (WAVEFORMATEX*)&fmt, NULL);
+        }
+    }
+    if (hr == AUDCLNT_E_DEVICE_IN_USE)
+    {
+        mel_log_error("audioout", "exclusive open: device in use: %.*s", (int)e->stable_id.len, e->stable_id.data);
+        return MEL_AUDIOOUT_ERROR | MEL_AUDIOOUT_RESULT_BUSY;
+    }
+    if (FAILED(hr))
+    {
+        mel_log_warn("audioout", "IAudioClient::Initialize(EXCLUSIVE,EVENTCALLBACK) failed (hr=0x%08lx) on %.*s; falling back to shared", (unsigned long)hr, (int)e->stable_id.len, e->stable_id.data);
+        if (!wasapi_engine_activate(e))
+            return MEL_AUDIOOUT_ERROR | MEL_AUDIOOUT_RESULT_UNSUPPORTED;
+        return MEL_AUDIOOUT_OK;
+    }
+
+    e->fmt_float = false;
+    e->channels = (u32)fmt.Format.nChannels;
+    e->samplerate = (u32)fmt.Format.nSamplesPerSec;
+    *granted_exclusive = true;
+    return MEL_AUDIOOUT_OK;
+}
+
+static Engine* wasapi_engine_create(Device_Rec* rec, Mel_AudioOut_Format req, Mel_AudioOut_Open_Opt opt, Mel_AudioOut_Source src, Mel_AudioOut_Status* status)
 {
     *status = MEL_AUDIOOUT_ERROR | MEL_AUDIOOUT_RESULT_UNSUPPORTED;
     Engine* e = mel_alloc_type(g_out.alloc, Engine);
@@ -790,36 +907,20 @@ static Engine* wasapi_engine_create(Device_Rec* rec, Mel_AudioOut_Source src, Me
     e->device = rec->device;
     IMMDevice_AddRef(e->device);
 
-    HRESULT hr = IMMDevice_Activate(e->device, &IID_IAudioClient, CLSCTX_ALL, NULL, (void**)&e->client);
-    if (FAILED(hr) || e->client == NULL)
+    if (!wasapi_engine_activate(e))
     {
-        wasapi_log_hr("IMMDevice::Activate(IAudioClient)", hr);
         wasapi_engine_free(e);
         return NULL;
     }
 
     WAVEFORMATEX* mix = NULL;
-    hr = IAudioClient_GetMixFormat(e->client, &mix);
+    HRESULT       hr = IAudioClient_GetMixFormat(e->client, &mix);
     if (FAILED(hr) || mix == NULL)
     {
         wasapi_log_hr("IAudioClient::GetMixFormat", hr);
         wasapi_engine_free(e);
         return NULL;
     }
-
-    if (wasapi_format_is_float32(mix))
-        e->fmt_float = true;
-    else if (wasapi_format_is_pcm16(mix))
-        e->fmt_float = false;
-    else
-    {
-        mel_log_error("audioout", "mix format unsupported for render (tag=%u bits=%u) on %.*s", (u32)mix->wFormatTag, (u32)mix->wBitsPerSample, (int)e->stable_id.len, e->stable_id.data);
-        CoTaskMemFree(mix);
-        wasapi_engine_free(e);
-        return NULL;
-    }
-    e->channels = (u32)mix->nChannels;
-    e->samplerate = (u32)mix->nSamplesPerSec;
 
     REFERENCE_TIME default_period = 0;
     REFERENCE_TIME min_period = 0;
@@ -832,18 +933,50 @@ static Engine* wasapi_engine_create(Device_Rec* rec, Mel_AudioOut_Source src, Me
         return NULL;
     }
 
-    hr = IAudioClient_Initialize(e->client, AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_EVENTCALLBACK, default_period, 0, mix, NULL);
-    CoTaskMemFree(mix);
-    if (FAILED(hr))
+    bool exclusive = false;
+    if (opt.exclusive)
     {
-        wasapi_log_hr("IAudioClient::Initialize(SHARED,EVENTCALLBACK)", hr);
-        if (hr == AUDCLNT_E_DEVICE_INVALIDATED)
-            *status = MEL_AUDIOOUT_ERROR | MEL_AUDIOOUT_RESULT_LOST;
-        else if (hr == AUDCLNT_E_DEVICE_IN_USE)
-            *status = MEL_AUDIOOUT_ERROR | MEL_AUDIOOUT_RESULT_BUSY;
-        wasapi_engine_free(e);
-        return NULL;
+        Mel_AudioOut_Status xs = wasapi_engine_try_exclusive(e, mix, req, default_period, &exclusive);
+        if (mel_audioout_status_failed(xs))
+        {
+            CoTaskMemFree(mix);
+            wasapi_engine_free(e);
+            *status = xs;
+            return NULL;
+        }
     }
+    e->exclusive = exclusive;
+
+    if (!exclusive)
+    {
+        if (wasapi_format_is_float32(mix))
+            e->fmt_float = true;
+        else if (wasapi_format_is_pcm16(mix))
+            e->fmt_float = false;
+        else
+        {
+            mel_log_error("audioout", "mix format unsupported for render (tag=%u bits=%u) on %.*s", (u32)mix->wFormatTag, (u32)mix->wBitsPerSample, (int)e->stable_id.len, e->stable_id.data);
+            CoTaskMemFree(mix);
+            wasapi_engine_free(e);
+            return NULL;
+        }
+        e->channels = (u32)mix->nChannels;
+        e->samplerate = (u32)mix->nSamplesPerSec;
+
+        hr = IAudioClient_Initialize(e->client, AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_EVENTCALLBACK, default_period, 0, mix, NULL);
+        if (FAILED(hr))
+        {
+            wasapi_log_hr("IAudioClient::Initialize(SHARED,EVENTCALLBACK)", hr);
+            if (hr == AUDCLNT_E_DEVICE_INVALIDATED)
+                *status = MEL_AUDIOOUT_ERROR | MEL_AUDIOOUT_RESULT_LOST;
+            else if (hr == AUDCLNT_E_DEVICE_IN_USE)
+                *status = MEL_AUDIOOUT_ERROR | MEL_AUDIOOUT_RESULT_BUSY;
+            CoTaskMemFree(mix);
+            wasapi_engine_free(e);
+            return NULL;
+        }
+    }
+    CoTaskMemFree(mix);
 
     e->audio_event = CreateEventW(NULL, FALSE, FALSE, NULL);
     if (e->audio_event == NULL)
@@ -869,11 +1002,32 @@ static Engine* wasapi_engine_create(Device_Rec* rec, Mel_AudioOut_Source src, Me
         return NULL;
     }
     e->buffer_frames = (u32)buffer_frames;
-    e->block_frames = (u32)(((i64)default_period * (i64)e->samplerate) / MEL_AUDIOOUT_WASAPI_REFTIMES_PER_SEC);
-    if (e->block_frames == 0u || e->block_frames > e->buffer_frames)
+    if (exclusive)
     {
-        mel_log_warn("audioout", "device period of %.*s maps to %u frames; granting buffer size %u", (int)e->stable_id.len, e->stable_id.data, e->block_frames, e->buffer_frames);
         e->block_frames = e->buffer_frames;
+    }
+    else
+    {
+        e->block_frames = (u32)(((i64)default_period * (i64)e->samplerate) / MEL_AUDIOOUT_WASAPI_REFTIMES_PER_SEC);
+        if (e->block_frames == 0u || e->block_frames > e->buffer_frames)
+        {
+            mel_log_warn("audioout", "device period of %.*s maps to %u frames; granting buffer size %u", (int)e->stable_id.len, e->stable_id.data, e->block_frames, e->buffer_frames);
+            e->block_frames = e->buffer_frames;
+        }
+    }
+
+    REFERENCE_TIME stream_latency = 0;
+    hr = IAudioClient_GetStreamLatency(e->client, &stream_latency);
+    if (SUCCEEDED(hr))
+    {
+        e->os_timestamps = true;
+        e->latency_frames = (u32)(((i64)stream_latency * (i64)e->samplerate) / MEL_AUDIOOUT_WASAPI_REFTIMES_PER_SEC) + e->buffer_frames;
+    }
+    else
+    {
+        mel_log_warn("audioout", "IAudioClient::GetStreamLatency failed (hr=0x%08lx) on %.*s; reporting buffer size only", (unsigned long)hr, (int)e->stable_id.len, e->stable_id.data);
+        e->os_timestamps = false;
+        e->latency_frames = e->buffer_frames;
     }
 
     hr = IAudioClient_GetService(e->client, &IID_IAudioRenderClient, (void**)&e->render);
@@ -929,15 +1083,34 @@ static Engine* wasapi_engine_create(Device_Rec* rec, Mel_AudioOut_Source src, Me
     }
     e->worker_spawned = true;
 
-    mel_log_info("audioout", "render engine ready: %.*s %uch @ %uHz (%s, buffer %u frames, block %u)", (int)e->stable_id.len, e->stable_id.data, e->channels, e->samplerate, e->fmt_float ? "f32" : "s16", e->buffer_frames, e->block_frames);
+    mel_log_info("audioout",
+                 "render engine ready: %.*s %uch @ %uHz (%s, %s, buffer %u frames, block %u, latency %u)",
+                 (int)e->stable_id.len,
+                 e->stable_id.data,
+                 e->channels,
+                 e->samplerate,
+                 e->exclusive ? "exclusive" : "shared",
+                 e->fmt_float ? "f32" : "s16",
+                 e->buffer_frames,
+                 e->block_frames,
+                 e->latency_frames);
     *status = MEL_AUDIOOUT_OK;
     return e;
 }
 
-static Mel_AudioOut_Status wasapi_open(void* user, str8 stable_id, Mel_AudioOut_Format req, Mel_AudioOut_Format* granted, Mel_AudioOut_Source src)
+static void wasapi_granted_fill(const Engine* e, Mel_AudioOut_Granted* granted)
+{
+    granted->format.samplerate = e->samplerate;
+    granted->format.channels = e->channels;
+    granted->format.block_frames = e->block_frames;
+    granted->exclusive = e->exclusive;
+    granted->os_timestamps = e->os_timestamps;
+    granted->latency_frames = e->latency_frames;
+}
+
+static Mel_AudioOut_Status wasapi_open(void* user, str8 stable_id, Mel_AudioOut_Format req, Mel_AudioOut_Open_Opt opt, Mel_AudioOut_Granted* granted, Mel_AudioOut_Source src)
 {
     MEL_UNUSED(user);
-    MEL_UNUSED(req);
     assert(granted != NULL);
     assert(src.pull != NULL);
 
@@ -949,11 +1122,11 @@ static Mel_AudioOut_Status wasapi_open(void* user, str8 stable_id, Mel_AudioOut_
             mel_log_error("audioout", "open on lost render engine %.*s", (int)stable_id.len, stable_id.data);
             return MEL_AUDIOOUT_ERROR | MEL_AUDIOOUT_RESULT_LOST;
         }
+        if (opt.exclusive != e->exclusive)
+            mel_log_warn("audioout", "open requested exclusive=%d but engine on %.*s runs exclusive=%d; granting engine config", (int)opt.exclusive, (int)stable_id.len, stable_id.data, (int)e->exclusive);
         if (!wasapi_engine_open_add(e, src))
             return MEL_AUDIOOUT_ERROR | MEL_AUDIOOUT_RESULT_UNSUPPORTED;
-        granted->samplerate = e->samplerate;
-        granted->channels = e->channels;
-        granted->block_frames = e->block_frames;
+        wasapi_granted_fill(e, granted);
         return MEL_AUDIOOUT_OK;
     }
 
@@ -965,13 +1138,11 @@ static Mel_AudioOut_Status wasapi_open(void* user, str8 stable_id, Mel_AudioOut_
     }
 
     Mel_AudioOut_Status status;
-    e = wasapi_engine_create(rec, src, &status);
+    e = wasapi_engine_create(rec, req, opt, src, &status);
     if (e == NULL)
         return status;
     mel_array_push(&g_out.engines, e);
-    granted->samplerate = e->samplerate;
-    granted->channels = e->channels;
-    granted->block_frames = e->block_frames;
+    wasapi_granted_fill(e, granted);
     return status;
 }
 

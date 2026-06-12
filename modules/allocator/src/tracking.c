@@ -382,13 +382,13 @@ static void* mel__track_alloc_locked(Mel_Track_Allocator* t, usize size, u32 ali
     return user;
 }
 
-static void mel__track_free_locked(Mel_Track_Allocator* t, void* ptr, const char* file, const char* func, u32 line)
+static void mel__track_free_locked(Mel_Track_Allocator* t, void* ptr, u32 align, const char* file, const char* func, u32 line)
 {
     Mel_Track_Header* h = (Mel_Track_Header*)mel__track_map_take(&t->registry, (u64)(uintptr_t)ptr);
     assert(h && "tracking: free of untracked pointer");
     mel__track_account_free(t, h);
     t->total_free_count += 1;
-    t->backing->alloc_cb(ptr, 0, 0, file, func, line, t->backing->user_data);
+    t->backing->alloc_cb(ptr, 0, align, file, func, line, t->backing->user_data);
     t->meta->alloc_cb(h, 0, 0, file, func, line, t->meta->user_data);
 }
 
@@ -427,7 +427,7 @@ static void* mel__track_cb(void* ptr, usize size, u32 align, const char* file, c
     else if (ptr != NULL && size > 0)
         result = mel__track_realloc_locked(t, ptr, size, align, file, func, line);
     else if (ptr != NULL && size == 0)
-        mel__track_free_locked(t, ptr, file, func, line);
+        mel__track_free_locked(t, ptr, align, file, func, line);
     mel__track_unlock(t);
     return result;
 }

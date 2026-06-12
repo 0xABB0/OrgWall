@@ -326,17 +326,19 @@ MEL_TEST(audioout, publish_negotiates_and_sums)
     Pull_State p1 = { .fill = 0.25f, .frames_limit = 64u };
     Pull_State p2 = { .fill = 0.5f, .frames_limit = 32u };
 
-    Mel_AudioOut_Format req = { .samplerate = 44100, .channels = 1, .block_frames = 512 };
-    Mel_AudioOut_Format granted = { 0 };
-    Mel_AudioOut_Source s1 = { .pull = pull_constant, .on_lost = pull_on_lost, .token = &p1 };
-    Mel_AudioOut_Source s2 = { .pull = pull_constant, .on_lost = pull_on_lost, .token = &p2 };
-    MEL_EXPECT(!mel_audioout_status_failed(mel_audioout__open(pub.device, req, &granted, s1)));
-    MEL_EXPECT_EQ(granted.samplerate, 48000u);
-    MEL_EXPECT_EQ(granted.channels, 2u);
-    MEL_EXPECT_EQ(granted.block_frames, 256u);
+    Mel_AudioOut_Format   req = { .samplerate = 44100, .channels = 1, .block_frames = 512 };
+    Mel_AudioOut_Open_Opt oopt = { 0 };
+    Mel_AudioOut_Granted  granted = { 0 };
+    Mel_AudioOut_Source   s1 = { .pull = pull_constant, .on_lost = pull_on_lost, .token = &p1 };
+    Mel_AudioOut_Source   s2 = { .pull = pull_constant, .on_lost = pull_on_lost, .token = &p2 };
+    MEL_EXPECT(!mel_audioout_status_failed(mel_audioout__open(pub.device, req, oopt, &granted, s1)));
+    MEL_EXPECT_EQ(granted.format.samplerate, 48000u);
+    MEL_EXPECT_EQ(granted.format.channels, 2u);
+    MEL_EXPECT_EQ(granted.format.block_frames, 256u);
+    MEL_EXPECT(!granted.exclusive);
 
-    Mel_AudioOut_Format granted2 = { 0 };
-    MEL_EXPECT(!mel_audioout_status_failed(mel_audioout__open(pub.device, req, &granted2, s2)));
+    Mel_AudioOut_Granted granted2 = { 0 };
+    MEL_EXPECT(!mel_audioout_status_failed(mel_audioout__open(pub.device, req, oopt, &granted2, s2)));
 
     f32 dst[64 * 2];
     MEL_EXPECT_EQ(mel_audioout_publish_read(pub.published, dst, 64u), 0u);
@@ -373,13 +375,14 @@ MEL_TEST(audioout, publish_negotiates_and_sums)
 MEL_TEST(audioout, open_on_dead_handle_is_lost)
 {
     install();
-    Mel_AudioOut        ghost = mel_audioout_find(S8("mock:ghost"));
-    Mel_AudioOut_Format req = { .samplerate = 48000, .channels = 2, .block_frames = 256 };
-    Mel_AudioOut_Format granted = { 0 };
-    Pull_State          ps = { .fill = 0.f, .frames_limit = 16u };
+    Mel_AudioOut          ghost = mel_audioout_find(S8("mock:ghost"));
+    Mel_AudioOut_Format   req = { .samplerate = 48000, .channels = 2, .block_frames = 256 };
+    Mel_AudioOut_Open_Opt oopt = { 0 };
+    Mel_AudioOut_Granted  granted = { 0 };
+    Pull_State            ps = { .fill = 0.f, .frames_limit = 16u };
 
     Mel_AudioOut_Source src = { .pull = pull_constant, .on_lost = pull_on_lost, .token = &ps };
-    Mel_AudioOut_Status st = mel_audioout__open(ghost, req, &granted, src);
+    Mel_AudioOut_Status st = mel_audioout__open(ghost, req, oopt, &granted, src);
     MEL_EXPECT(mel_audioout_status_failed(st));
     MEL_EXPECT(st & MEL_AUDIOOUT_RESULT_LOST);
 

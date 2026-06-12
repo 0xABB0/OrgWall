@@ -8,6 +8,7 @@
 
 #include <stdatomic.h>
 #include <string.h>
+#include <unistd.h>
 
 #include <AudioToolbox/AudioToolbox.h>
 #include <CoreAudio/CoreAudio.h>
@@ -31,19 +32,21 @@ struct Open_List
 
 typedef struct
 {
-    str8                stable_id;
-    AudioDeviceID       device_id;
-    AudioUnit           unit;
-    u32                 channels;
-    u32                 samplerate;
-    u32                 capacity_frames;
-    f32*                scratch;
-    _Atomic(Open_List*) opens;
-    _Atomic(Open_List*) garbage;
-    _Atomic(u32)        oversized;
-    _Atomic(bool)       lost;
-    bool                running;
-    bool                alive_listener;
+    str8                 stable_id;
+    AudioDeviceID        device_id;
+    AudioUnit            unit;
+    u32                  channels;
+    u32                  samplerate;
+    u32                  capacity_frames;
+    f32*                 scratch;
+    Mel_AudioOut_Granted granted;
+    _Atomic(Open_List*)  opens;
+    _Atomic(Open_List*)  garbage;
+    _Atomic(u32)         oversized;
+    _Atomic(bool)        lost;
+    bool                 running;
+    bool                 alive_listener;
+    bool                 hogged;
 } Open_Device;
 
 typedef struct
@@ -86,6 +89,12 @@ static const AudioObjectPropertyAddress g_ca_default_output_addr = {
 
 static const AudioObjectPropertyAddress g_ca_alive_addr = {
     kAudioDevicePropertyDeviceIsAlive,
+    kAudioObjectPropertyScopeGlobal,
+    kAudioObjectPropertyElementMain,
+};
+
+static const AudioObjectPropertyAddress g_ca_hog_addr = {
+    kAudioDevicePropertyHogMode,
     kAudioObjectPropertyScopeGlobal,
     kAudioObjectPropertyElementMain,
 };
@@ -323,6 +332,79 @@ static AudioDeviceID ca_device_for(str8 stable_id)
         mel_dealloc(g_ca.alloc, ids);
     CFRelease(want);
     return found;
+}
+
+static pid_t ca_hog_owner(AudioDeviceID id)
+{
+    pid_t  owner = -1;
+    UInt32 size = sizeof owner;
+    if (AudioObjectGetPropertyData(id, &g_ca_hog_addr, 0, NULL, &size, &owner) != noErr)
+        return -1;
+    return owner;
+}
+
+static bool ca_hog_take(AudioDeviceID id)
+{
+    pid_t    pid = getpid();
+    OSStatus st = AudioObjectSetPropertyData(id, &g_ca_hog_addr, 0, NULL, sizeof pid, &pid);
+    return st == noErr && ca_hog_owner(id) == getpid();
+}
+
+static void ca_hog_release(AudioDeviceID id)
+{
+    pid_t    free_pid = -1;
+    OSStatus st = AudioObjectSetPropertyData(id, &g_ca_hog_addr, 0, NULL, sizeof free_pid, &free_pid);
+    if (st != noErr)
+        mel_log_warn("audioout", "coreaudio: hog release failed for device %u (OSStatus %d)", (u32)id, (i32)st);
+}
+
+static u32 ca_output_latency_frames(AudioDeviceID id, bool* os_timestamps)
+{
+    *os_timestamps = false;
+    u32 total = 0;
+
+    AudioObjectPropertyAddress addr = {
+        kAudioDevicePropertyLatency,
+        kAudioObjectPropertyScopeOutput,
+        kAudioObjectPropertyElementMain,
+    };
+    UInt32 value = 0;
+    UInt32 size = sizeof value;
+    if (AudioObjectGetPropertyData(id, &addr, 0, NULL, &size, &value) == noErr)
+    {
+        total += value;
+        *os_timestamps = true;
+    }
+
+    addr.mSelector = kAudioDevicePropertyBufferFrameSize;
+    value = 0;
+    size = sizeof value;
+    if (AudioObjectGetPropertyData(id, &addr, 0, NULL, &size, &value) == noErr)
+        total += value;
+
+    addr.mSelector = kAudioDevicePropertyStreams;
+    UInt32 streams_size = 0;
+    if (AudioObjectGetPropertyDataSize(id, &addr, 0, NULL, &streams_size) == noErr && streams_size >= sizeof(AudioStreamID))
+    {
+        AudioStreamID* streams = mel_alloc(g_ca.alloc, streams_size);
+        if (streams)
+        {
+            if (AudioObjectGetPropertyData(id, &addr, 0, NULL, &streams_size, streams) == noErr && streams_size >= sizeof(AudioStreamID))
+            {
+                AudioObjectPropertyAddress saddr = {
+                    kAudioStreamPropertyLatency,
+                    kAudioObjectPropertyScopeGlobal,
+                    kAudioObjectPropertyElementMain,
+                };
+                value = 0;
+                size = sizeof value;
+                if (AudioObjectGetPropertyData(streams[0], &saddr, 0, NULL, &size, &value) == noErr)
+                    total += value;
+            }
+            mel_dealloc(g_ca.alloc, streams);
+        }
+    }
+    return total;
 }
 
 static OSStatus ca_prop_listener(AudioObjectID obj, UInt32 n, const AudioObjectPropertyAddress* addrs, void* user)
@@ -671,6 +753,8 @@ static void od_teardown(Open_Device* od)
     }
     if (od->alive_listener)
         AudioObjectRemovePropertyListener(od->device_id, &g_ca_alive_addr, ca_alive_listener, od);
+    if (od->hogged)
+        ca_hog_release(od->device_id);
 
     u32 oversized = atomic_load_explicit(&od->oversized, memory_order_relaxed);
     if (oversized > 0)
@@ -697,7 +781,7 @@ static void ca_opens_remove(Open_Device* od)
         }
 }
 
-static Mel_AudioOut_Status od_create(str8 stable_id, AudioDeviceID id, Open_Device** out)
+static Mel_AudioOut_Status od_create(str8 stable_id, AudioDeviceID id, Mel_AudioOut_Open_Opt opt, Open_Device** out)
 {
     *out = NULL;
     u32 channels = ca_output_channels(id);
@@ -754,8 +838,10 @@ static Mel_AudioOut_Status od_create(str8 stable_id, AudioDeviceID id, Open_Devi
     if (st != noErr)
     {
         mel_log_error("audioout", "coreaudio: AUHAL output configuration failed for %.*s (OSStatus %d)", (int)stable_id.len, stable_id.data, (i32)st);
+        pid_t owner = ca_hog_owner(id);
+        bool  busy = owner != -1 && owner != getpid();
         od_teardown(od);
-        return MEL_AUDIOOUT_ERROR | MEL_AUDIOOUT_RESULT_UNSUPPORTED;
+        return MEL_AUDIOOUT_ERROR | (busy ? MEL_AUDIOOUT_RESULT_BUSY : MEL_AUDIOOUT_RESULT_UNSUPPORTED);
     }
 
     AudioStreamBasicDescription fmt = {
@@ -783,8 +869,26 @@ static Mel_AudioOut_Status od_create(str8 stable_id, AudioDeviceID id, Open_Devi
     if (st != noErr)
     {
         mel_log_error("audioout", "coreaudio: AUHAL initialize failed for %.*s (OSStatus %d)", (int)stable_id.len, stable_id.data, (i32)st);
+        pid_t owner = ca_hog_owner(id);
+        bool  busy = owner != -1 && owner != getpid();
         od_teardown(od);
-        return MEL_AUDIOOUT_ERROR | MEL_AUDIOOUT_RESULT_UNSUPPORTED;
+        return MEL_AUDIOOUT_ERROR | (busy ? MEL_AUDIOOUT_RESULT_BUSY : MEL_AUDIOOUT_RESULT_UNSUPPORTED);
+    }
+
+    bool busy_contention = false;
+    if (opt.exclusive)
+    {
+        if (ca_hog_take(id))
+        {
+            od->hogged = true;
+            od->granted.exclusive = true;
+        }
+        else
+        {
+            pid_t owner = ca_hog_owner(id);
+            busy_contention = owner != -1 && owner != getpid();
+            mel_log_warn("audioout", "coreaudio: hog mode refused for %.*s (owner pid %d); exclusive lowered", (int)stable_id.len, stable_id.data, (int)owner);
+        }
     }
 
     UInt32 max_frames = 0;
@@ -805,23 +909,37 @@ static Mel_AudioOut_Status od_create(str8 stable_id, AudioDeviceID id, Open_Devi
     else
         od->alive_listener = true;
 
+    od->granted.format.samplerate = od->samplerate;
+    od->granted.format.channels = od->channels;
+    od->granted.format.block_frames = od->capacity_frames;
+    od->granted.latency_frames = ca_output_latency_frames(id, &od->granted.os_timestamps);
+
     mel_array_push(&g_ca.opens, od);
-    mel_log_info("audioout", "coreaudio: opened %.*s (%u ch @ %u Hz, %u frame slices)", (int)stable_id.len, stable_id.data, channels, od->samplerate, od->capacity_frames);
+    mel_log_info("audioout", "coreaudio: opened %.*s (%u ch @ %u Hz, %u frame slices, %u frames latency%s)", (int)stable_id.len, stable_id.data, channels, od->samplerate, od->capacity_frames, od->granted.latency_frames, od->granted.exclusive ? ", exclusive" : "");
     *out = od;
+    if (opt.exclusive && !od->granted.exclusive)
+        return MEL_AUDIOOUT_WARNED | (busy_contention ? MEL_AUDIOOUT_RESULT_BUSY : 0u);
     return MEL_AUDIOOUT_OK;
 }
 
-static Mel_AudioOut_Status ca_open(void* user, str8 stable_id, Mel_AudioOut_Format req, Mel_AudioOut_Format* granted, Mel_AudioOut_Source src)
+static Mel_AudioOut_Status ca_open(void* user, str8 stable_id, Mel_AudioOut_Format req, Mel_AudioOut_Open_Opt opt, Mel_AudioOut_Granted* granted, Mel_AudioOut_Source src)
 {
     MEL_UNUSED(user);
     assert(granted != NULL);
     assert(src.pull != NULL);
+    memset(granted, 0, sizeof *granted);
 
-    Open_Device* od = ca_open_find(stable_id);
+    Mel_AudioOut_Status status = MEL_AUDIOOUT_OK;
+    Open_Device*        od = ca_open_find(stable_id);
     if (od && atomic_load_explicit(&od->lost, memory_order_acquire))
     {
         mel_log_error("audioout", "coreaudio: open %.*s: device lost", (int)stable_id.len, stable_id.data);
         return MEL_AUDIOOUT_ERROR | MEL_AUDIOOUT_RESULT_LOST;
+    }
+    if (od && opt.exclusive != od->granted.exclusive)
+    {
+        mel_log_warn("audioout", "coreaudio: %.*s already open; requested options differ from the active configuration", (int)stable_id.len, stable_id.data);
+        status = MEL_AUDIOOUT_WARNED;
     }
     if (!od)
     {
@@ -831,9 +949,9 @@ static Mel_AudioOut_Status ca_open(void* user, str8 stable_id, Mel_AudioOut_Form
             mel_log_error("audioout", "coreaudio: open %.*s: device not present", (int)stable_id.len, stable_id.data);
             return MEL_AUDIOOUT_ERROR | MEL_AUDIOOUT_RESULT_NO_DEVICE;
         }
-        Mel_AudioOut_Status st = od_create(stable_id, id, &od);
-        if (mel_audioout_status_failed(st))
-            return st;
+        status = od_create(stable_id, id, opt, &od);
+        if (mel_audioout_status_failed(status))
+            return status;
     }
 
     Open_List* nl = od_opens_clone(od, 1);
@@ -843,12 +961,10 @@ static Mel_AudioOut_Status ca_open(void* user, str8 stable_id, Mel_AudioOut_Form
     nl->count++;
     od_swap(od, nl);
 
-    granted->samplerate = od->samplerate;
-    granted->channels = od->channels;
-    granted->block_frames = od->capacity_frames;
-    if (req.samplerate != granted->samplerate || req.channels != granted->channels)
-        mel_log_debug("audioout", "coreaudio: %.*s granted %u ch @ %u Hz (requested %u ch @ %u Hz)", (int)stable_id.len, stable_id.data, granted->channels, granted->samplerate, req.channels, req.samplerate);
-    return MEL_AUDIOOUT_OK;
+    *granted = od->granted;
+    if (req.samplerate != granted->format.samplerate || req.channels != granted->format.channels)
+        mel_log_debug("audioout", "coreaudio: %.*s granted %u ch @ %u Hz (requested %u ch @ %u Hz)", (int)stable_id.len, stable_id.data, granted->format.channels, granted->format.samplerate, req.channels, req.samplerate);
+    return status;
 }
 
 static void ca_set_started(str8 stable_id, void* token, bool started, const char* what)

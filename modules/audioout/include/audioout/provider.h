@@ -41,13 +41,26 @@ typedef struct
 
 typedef struct
 {
+    bool exclusive;
+} Mel_AudioOut_Open_Opt;
+
+typedef struct
+{
+    Mel_AudioOut_Format format;
+    bool                exclusive;
+    bool                os_timestamps;
+    u32                 latency_frames;
+} Mel_AudioOut_Granted;
+
+typedef struct
+{
     const char* name;
     void*       user;
 
     void (*enumerate)(void* user, Mel_AudioOut_Enum_Fn fn, void* fn_user);
     str8 (*default_id)(void* user);
 
-    Mel_AudioOut_Status (*open)(void* user, str8 stable_id, Mel_AudioOut_Format req, Mel_AudioOut_Format* granted, Mel_AudioOut_Source src);
+    Mel_AudioOut_Status (*open)(void* user, str8 stable_id, Mel_AudioOut_Format req, Mel_AudioOut_Open_Opt opt, Mel_AudioOut_Granted* granted, Mel_AudioOut_Source src);
     void (*start)(void* user, str8 stable_id, void* token);
     void (*stop)(void* user, str8 stable_id, void* token);
     void (*close)(void* user, str8 stable_id, void* token);
@@ -71,7 +84,7 @@ Mel_AudioOut_Provider mel_audioout_provider_register(const Mel_AudioOut_Provider
 void                  mel_audioout_provider_unregister(Mel_AudioOut_Provider p);
 void                  mel_audioout_provider_notify(Mel_AudioOut_Provider p);
 
-Mel_AudioOut_Status mel_audioout__open(Mel_AudioOut d, Mel_AudioOut_Format req, Mel_AudioOut_Format* granted, Mel_AudioOut_Source src);
+Mel_AudioOut_Status mel_audioout__open(Mel_AudioOut d, Mel_AudioOut_Format req, Mel_AudioOut_Open_Opt opt, Mel_AudioOut_Granted* granted, Mel_AudioOut_Source src);
 void                mel_audioout__start(Mel_AudioOut d, void* token);
 void                mel_audioout__stop(Mel_AudioOut d, void* token);
 void                mel_audioout__close(Mel_AudioOut d, void* token);

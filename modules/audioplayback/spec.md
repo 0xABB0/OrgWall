@@ -97,7 +97,6 @@ performance modes), wasm (AudioWorklet; no exclusive). Every refusal named.
 - `allocator` — every byte from the caller's allocator.
 - `audioout` — identity and the provider pull plane.
 - `pcm` — the write-mode ring; conversion.
-- `time` — latency bookkeeping.
 - `log` — open/loss diagnostics.
 
 ## Test contract

@@ -168,6 +168,25 @@ EM_JS(void, audioout_web__js_suspend, (int ctx_handle), {
         ctx.suspend();
 });
 
+EM_JS(double, audioout_web__js_latency_seconds, (int ctx_handle), {
+    var ctx = emscriptenGetAudioObject(ctx_handle);
+    if (!ctx)
+        return -1.0;
+    var total = 0.0;
+    var readable = false;
+    if (typeof ctx.baseLatency == 'number')
+    {
+        total += ctx.baseLatency;
+        readable = true;
+    }
+    if (typeof ctx.outputLatency == 'number')
+    {
+        total += ctx.outputLatency;
+        readable = true;
+    }
+    return readable ? total : -1.0;
+});
+
 static Playback* playback_find(str8 stable_id)
 {
     for (usize i = 0; i < g_out.playbacks.count; i++)
@@ -490,20 +509,32 @@ static str8 web_default_id(void* user)
     return g_out.devices.count > 0 ? g_out.devices.items[0].stable_id : STR8_EMPTY;
 }
 
-static Mel_AudioOut_Status web_open(void* user, str8 stable_id, Mel_AudioOut_Format req, Mel_AudioOut_Format* granted, Mel_AudioOut_Source src)
+static void playback_fill_granted(Playback* p, Mel_AudioOut_Granted* granted)
+{
+    f64 latency = audioout_web__js_latency_seconds(p->context);
+    granted->format.samplerate = p->samplerate;
+    granted->format.channels = p->channels;
+    granted->format.block_frames = p->quantum;
+    granted->exclusive = false;
+    granted->os_timestamps = latency >= 0.0;
+    granted->latency_frames = latency >= 0.0 ? (u32)(latency * (f64)p->samplerate + 0.5) : 0u;
+}
+
+static Mel_AudioOut_Status web_open(void* user, str8 stable_id, Mel_AudioOut_Format req, Mel_AudioOut_Open_Opt opt, Mel_AudioOut_Granted* granted, Mel_AudioOut_Source src)
 {
     MEL_UNUSED(user);
     assert(granted != NULL);
     assert(src.pull != NULL);
+
+    if (opt.exclusive)
+        mel_log_warn("audioout", "web: open %.*s: exclusive output is not available on the web; granting shared", (int)stable_id.len, stable_id.data);
 
     Playback* existing = playback_find(stable_id);
     if (existing)
     {
         if (!playback_open_add(existing, src))
             return MEL_AUDIOOUT_ERROR | MEL_AUDIOOUT_RESULT_UNSUPPORTED;
-        granted->samplerate = existing->samplerate;
-        granted->channels = existing->channels;
-        granted->block_frames = existing->quantum;
+        playback_fill_granted(existing, granted);
         return MEL_AUDIOOUT_OK;
     }
 
@@ -572,9 +603,7 @@ static Mel_AudioOut_Status web_open(void* user, str8 stable_id, Mel_AudioOut_For
         audioout_web__js_set_sink(p->id, p->context, (const char*)p->stable_id.data + 4, (int)(p->stable_id.len - 4));
     emscripten_start_wasm_audio_worklet_thread_async(p->context, p->worklet_stack, MEL_AUDIOOUT_WEB_WORKLET_STACK, playback_worklet_ready, (void*)(uintptr_t)p->id);
 
-    granted->samplerate = p->samplerate;
-    granted->channels = p->channels;
-    granted->block_frames = p->quantum;
+    playback_fill_granted(p, granted);
     if (req.samplerate != p->samplerate || req.channels != p->channels || req.block_frames != p->quantum)
         mel_log_info("audioout", "web: open %.*s granted %u Hz %u ch quantum %u (requested %u Hz %u ch block %u)", (int)stable_id.len, stable_id.data, p->samplerate, p->channels, p->quantum, req.samplerate, req.channels, req.block_frames);
     return MEL_AUDIOOUT_OK;
