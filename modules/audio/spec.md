@@ -96,6 +96,11 @@ visualizer (tap → `spectrum`), TTS into the mix (`tts` render →
   serves).
 - `pcm` — resampler contract (`Mel_Audio_Resampler` = `Mel_Pcm_Resampler`),
   tap rings.
+- `audiopolicy` — interruption events (hold/auto-resume). Subscribed only
+  when `mel_audiopolicy_active()`; initialize audiopolicy before
+  `mel_audio_create` to receive `{ interrupted }`/`{ resumed }` — without it
+  the OS taking the hardware surfaces as device loss. During the hold,
+  `mel_audio_device_status` reports `ERROR | INTERRUPTED`.
 
 ## Test contract (delta)
 

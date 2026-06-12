@@ -1,6 +1,7 @@
 #include <test/test.h>
 
 #include <audio/audio.h>
+#include <audioout/audioout.h>
 
 #include <allocator/allocator.h>
 #include <allocator/heap.h>
@@ -16,6 +17,19 @@ static bool device_path_safe(void)
 {
     return getenv("MEL_TEST_NOFORK") != NULL;
 }
+
+static bool device_plane_up(void)
+{
+    if (!device_path_safe())
+        return false;
+    mel_audioout_init(mel_alloc_heap(), NULL);
+    if (mel_audioout_alive(mel_audioout_default()))
+        return true;
+    mel_audioout_shutdown();
+    return false;
+}
+
+static void device_plane_down(void) { mel_audioout_shutdown(); }
 
 #define SR             48000u
 #define CH             2u
@@ -148,10 +162,13 @@ MEL_TEST(online, live_play_destroy_no_crash_no_leak)
 
     Mel_Audio* eng = NULL;
     bool       online = false;
-    if (device_path_safe())
+    bool       plane = device_plane_up();
+    if (plane)
     {
         eng = mel_audio_create(a, online_opt());
         online = eng != NULL;
+        if (!online)
+            device_plane_down();
     }
 
     if (!online)
@@ -212,6 +229,9 @@ MEL_TEST(online, live_play_destroy_no_crash_no_leak)
     }
 
     free_sources(a, sources, source_count);
+
+    if (online)
+        device_plane_down();
 
     Mel_Track_Allocator_Stats s = mel_track_stats(&tracker);
     fprintf(stderr, "      [online] live_allocs=%zu live_bytes=%zu peak_allocs=%zu\n", s.live_allocs, s.live_bytes, s.peak_allocs);

@@ -22,6 +22,7 @@ typedef u32 Mel_Audio_Status;
 #define MEL_AUDIO_RESULT_BUDGET_CULLED   (1u << 7)
 
 #define MEL_AUDIO_RESULT_DEVICE_LOST     (1u << 12)
+#define MEL_AUDIO_RESULT_INTERRUPTED     (1u << 13)
 
 #define MEL_AUDIO_WARN_RATE_RESAMPLED    (1u << 8)
 #define MEL_AUDIO_WARN_CHANNELS_REMIXED  (1u << 9)

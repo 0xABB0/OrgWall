@@ -74,6 +74,7 @@ typedef struct
 
 void mel_audiopolicy_init(const Mel_Alloc* alloc, Mel_Executor* deliver);
 void mel_audiopolicy_shutdown(void);
+bool mel_audiopolicy_active(void);
 
 Mel_AudioPolicy_Status mel_audiopolicy_apply(Mel_AudioPolicy policy);
 Mel_AudioPolicy        mel_audiopolicy_current(void);

@@ -60,6 +60,8 @@ void mel_audiopolicy_shutdown(void)
     memset(&g, 0, sizeof g);
 }
 
+bool mel_audiopolicy_active(void) { return g.initialized; }
+
 Mel_AudioPolicy_Status mel_audiopolicy_apply(Mel_AudioPolicy policy)
 {
     assert(g.initialized);

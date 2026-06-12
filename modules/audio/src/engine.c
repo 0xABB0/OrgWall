@@ -88,6 +88,8 @@ void mel_audio__scratch_ensure_offline(Mel_Audio* eng, u32 frames)
     }
 
     u32 fetch = mel_audio__fetch_frames_for(frames, max_ratio, 1.0) + 2u;
+    if (eng->taps.count > 0u && !mel_audio__tap_scratch_ensure(eng, frames))
+        mel_log_error("audio", "offline tap scratch alloc failed (%u frames)", frames);
     if (eng->scratch_frames >= frames && eng->scratch_fetch_frames >= fetch && eng->scratch_channels >= channels)
         return;
 
@@ -100,6 +102,9 @@ void mel_audio__scratch_ensure_offline(Mel_Audio* eng, u32 frames)
         mel_log_error("audio", "offline scratch alloc failed (%u frames, %u fetch, %u ch)", want_frames, want_fetch, want_channels);
         assert(!"mel audio: offline scratch allocation failed");
     }
+
+    if (eng->taps.count > 0u && !mel_audio__tap_scratch_ensure(eng, want_frames))
+        mel_log_error("audio", "offline tap scratch alloc failed (%u frames)", want_frames);
 }
 
 static void mel_audio__free_engine_shell(Mel_Audio* eng)
@@ -110,6 +115,11 @@ static void mel_audio__free_engine_shell(Mel_Audio* eng)
     mel_audio__voices_free(&eng->voices);
     mel_array_free(&eng->commands);
     mel_array_free(&eng->commands_back);
+    mel_array_free(&eng->taps);
+    if (eng->scratch_tap_planar != NULL)
+        mel_dealloc(eng->alloc, eng->scratch_tap_planar);
+    if (eng->scratch_tap_inter != NULL)
+        mel_dealloc(eng->alloc, eng->scratch_tap_inter);
     mel_dealloc(eng->alloc, eng);
 }
 
@@ -135,10 +145,11 @@ static Mel_Audio* mel_audio__alloc_engine(const Mel_Alloc* a, Mel_Audio_Opt opt)
     mel_array_init(&eng->commands, a);
     mel_array_init(&eng->commands_back, a);
     mel_array_init(&eng->end_futures, a);
+    mel_array_init(&eng->taps, a);
 
     eng->command_lock = (Mel_Spinlock){ 0 };
 
-    eng->device_events = mel_event_create(a, sizeof(u32), 8u, mel_event_policy_latest(NULL, NULL));
+    eng->device_events = mel_event_create(a, sizeof(Mel_Audio_Device_Event), 8u, mel_event_policy_latest(NULL, NULL));
     if (eng->device_events == NULL)
     {
         mel_log_error("audio", "device-events event create failed");
@@ -146,6 +157,7 @@ static Mel_Audio* mel_audio__alloc_engine(const Mel_Alloc* a, Mel_Audio_Opt opt)
         mel_array_free(&eng->commands);
         mel_array_free(&eng->commands_back);
         mel_array_free(&eng->end_futures);
+        mel_array_free(&eng->taps);
         mel_dealloc(a, eng);
         return NULL;
     }
@@ -232,30 +244,26 @@ Mel_Audio* mel_audio_create(const Mel_Alloc* a, Mel_Audio_Opt opt)
 
     eng->online = 1u;
 
-    Mel_Audio_Caps granted = { 0 };
-    if (!mel_audio_backend_open(opt, &granted, a))
-    {
-        mel_log_error("audio", "backend open denied (requested %uHz %uch block %u)", opt.samplerate, opt.channels, opt.block_frames);
-        mel_audio__free_engine_shell(eng);
-        return NULL;
-    }
-
-    eng->caps = granted;
-    assert(granted.ring_blocks > 0u);
-    eng->worst_channels = opt.max_voice_channels > granted.channels ? opt.max_voice_channels : granted.channels;
+    eng->caps = (Mel_Audio_Caps){
+        .samplerate = opt.samplerate,
+        .channels = opt.channels,
+        .block_frames = opt.block_frames,
+        .ring_blocks = opt.ring_blocks,
+        .latency_frames = 0u,
+    };
+    eng->worst_channels = opt.max_voice_channels > opt.channels ? opt.max_voice_channels : opt.channels;
     eng->worst_ratio = opt.max_voice_ratio;
 
-    u32 ring_samples = granted.ring_blocks * granted.block_frames * granted.channels;
+    u32 ring_samples = opt.ring_blocks * opt.block_frames * opt.channels;
     eng->ring = mel_audio_ring_create(a, ring_samples);
     if (eng->ring == NULL)
     {
         mel_log_error("audio", "ring alloc failed (%u samples)", ring_samples);
-        mel_audio_backend_close(a);
         mel_audio__free_engine_shell(eng);
         return NULL;
     }
 
-    mel_audio__scratch_size_worst(eng, granted.block_frames);
+    mel_audio__scratch_size_worst(eng, opt.block_frames);
 
     atomic_store_explicit(&eng->mix_stop, 0u, memory_order_relaxed);
     if (!mel_sem_init(&eng->mix_wake, 0u))
@@ -263,7 +271,6 @@ Mel_Audio* mel_audio_create(const Mel_Alloc* a, Mel_Audio_Opt opt)
         mel_log_error("audio", "mix wake semaphore init failed");
         mel_audio__scratch_free(eng);
         mel_audio_ring_destroy(eng->ring);
-        mel_audio_backend_close(a);
         mel_audio__free_engine_shell(eng);
         return NULL;
     }
@@ -277,13 +284,33 @@ Mel_Audio* mel_audio_create(const Mel_Alloc* a, Mel_Audio_Opt opt)
         mel_sem_destroy(&eng->mix_wake);
         mel_audio__scratch_free(eng);
         mel_audio_ring_destroy(eng->ring);
-        mel_audio_backend_close(a);
         mel_audio__free_engine_shell(eng);
         return NULL;
     }
 
-    mel_audio_backend_set_device_event(eng->device_events);
-    mel_audio_backend_start(eng->ring);
+    bool         follow = mel_audioout_equal(opt.device, MEL_AUDIOOUT_NULL);
+    Mel_AudioOut target = follow ? mel_audioout_default() : opt.device;
+
+    Mel_Audio_Status st;
+    if (!mel_audio__device_open(eng, target, &st))
+    {
+        mel_log_error("audio", "create denied: no usable output device (status 0x%x)", st);
+        atomic_store_explicit(&eng->mix_stop, 1u, memory_order_release);
+        mel_sem_post(&eng->mix_wake);
+        mel_thread_join(&eng->mix_thread, NULL);
+        mel_audio_ring_set_wake(eng->ring, NULL);
+        mel_sem_destroy(&eng->mix_wake);
+        mel_audio__scratch_free(eng);
+        mel_audio_ring_destroy(eng->ring);
+        mel_audio__free_engine_shell(eng);
+        return NULL;
+    }
+    eng->follow = follow ? 1u : 0u;
+
+    if (mel_audio_warned(st))
+        mel_log_warn("audio", "device format differs from the engine's (status 0x%x); audioplayback converts", st);
+
+    mel_audio__device_subscribe(eng);
     return eng;
 }
 
@@ -296,14 +323,13 @@ void mel_audio_destroy(Mel_Audio* eng)
 
     if (eng->online)
     {
-        mel_audio_backend_set_device_event(NULL);
-        mel_audio_backend_stop();
+        mel_audio__device_unsubscribe(eng);
+        mel_audio__device_close(eng);
         atomic_store_explicit(&eng->mix_stop, 1u, memory_order_release);
         mel_sem_post(&eng->mix_wake);
         mel_thread_join(&eng->mix_thread, NULL);
         mel_audio_ring_set_wake(eng->ring, NULL);
         mel_sem_destroy(&eng->mix_wake);
-        mel_audio_backend_close(eng->alloc);
         if (eng->ring != NULL)
             mel_audio_ring_destroy(eng->ring);
     }
@@ -318,6 +344,8 @@ void mel_audio_destroy(Mel_Audio* eng)
 
     while (eng->voices.packed.count > 0u)
         mel_audio__voice_remove(eng, mel_array_last(&eng->voices.packed).self);
+
+    mel_audio__taps_free_all(eng);
 
     mel_audio__scratch_free(eng);
 

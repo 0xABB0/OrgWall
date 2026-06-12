@@ -14,6 +14,7 @@ typedef struct Mel_Audio_Source
     f64   base_samplerate;
     bool  single_instance;
     usize instance_size;
+    bool (*instance_open)(struct Mel_Audio_Source* src);
     void (*instance_init)(struct Mel_Audio_Source* src, void* inst, const Mel_Alloc* a);
     u32 (*get_audio)(struct Mel_Audio_Source* src, void* inst, f32* planar_dst, u32 frames);
     void (*seek)(struct Mel_Audio_Source* src, void* inst, f64 seconds);

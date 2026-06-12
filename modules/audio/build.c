@@ -6,22 +6,6 @@ void build(Mel_Build* b)
     mel_includes(lib, MEL_PUBLIC, ALWAYS, "include");
     mel_sources(lib, ALWAYS, "src/*.c");
 
-    mel_sources(lib, WHEN(.platforms = MEL_ON(MACOS) | MEL_ON(IOS)), "coreaudio/src/*.m");
-    mel_link(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(MACOS) | MEL_ON(IOS)), "-framework", "AudioToolbox", "-framework", "CoreAudio", "-framework", "AudioUnit");
-
-    mel_sources(lib, WHEN(.platforms = MEL_ON(WIN32)), "wasapi/src/*.c");
-    mel_link(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(WIN32)), "-lole32", "-lksuser");
-
-    mel_sources(lib, WHEN(.platforms = MEL_ON(LINUX)), "alsa/src/*.c");
-    mel_includes(lib, MEL_PRIVATE, WHEN(.platforms = MEL_ON(LINUX)), "../../third-party/alsa/include");
-    mel_link(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(LINUX)), "-Lthird-party/alsa/lib", "-lasound", "-Wl,--allow-shlib-undefined");
-
-    mel_sources(lib, WHEN(.platforms = MEL_ON(ANDROID)), "aaudio/src/*.c");
-    mel_link(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(ANDROID)), "-laaudio");
-
-    mel_sources(lib, WHEN(.platforms = MEL_ON(WASM)), "web/src/*.c");
-    mel_link(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(WASM)), "-sAUDIO_WORKLET=1", "-sWASM_WORKERS=1");
-
     mel_depends(lib, "core");
     mel_depends(lib, "allocator");
     mel_depends(lib, "collection");
@@ -35,6 +19,10 @@ void build(Mel_Build* b)
     mel_depends(lib, "log");
     mel_depends(lib, "debug");
     mel_depends(lib, "string");
+    mel_depends(lib, "pcm");
+    mel_depends(lib, "audioout");
+    mel_depends(lib, "audioplayback");
+    mel_depends(lib, "audiopolicy");
 
     Mel_Target* voice = mel_add_test(b, "audio-voice");
     mel_sources(voice, ALWAYS, "test/test_voice_handle.c");
@@ -93,6 +81,45 @@ void build(Mel_Build* b)
     mel_depends(event, "future");
     mel_depends(event, "event");
     mel_depends(event, "executor");
+
+    Mel_Target* device = mel_add_test(b, "audio-device");
+    mel_includes(device, MEL_PUBLIC, ALWAYS, "include");
+    mel_includes(device, MEL_PUBLIC, ALWAYS, "../audioout/include");
+    mel_includes(device, MEL_PUBLIC, ALWAYS, "../audioplayback/include");
+    mel_includes(device, MEL_PUBLIC, ALWAYS, "../audiopolicy/include");
+    mel_sources(device, ALWAYS, "src/*.c");
+    mel_sources(device, ALWAYS, "../audioout/src/audioout.c");
+    mel_sources(device, ALWAYS, "../audioout/src/descriptors.c");
+    mel_sources(device, ALWAYS, "../audioout/src/publish.c");
+    mel_sources(device, ALWAYS, "../audioplayback/src/audioplayback.c");
+    mel_sources(device, ALWAYS, "../audiopolicy/src/audiopolicy.c");
+    mel_sources(device, ALWAYS, "../audiopolicy/src/descriptors.c");
+    mel_sources(device, ALWAYS, "test/test_device.c");
+    mel_sources(device, ALWAYS, "../../tools/test/src/runner.c");
+    mel_depends(device, "test");
+    mel_depends(device, "core");
+    mel_depends(device, "allocator");
+    mel_depends(device, "collection");
+    mel_depends(device, "math");
+    mel_depends(device, "thread");
+    mel_depends(device, "time");
+    mel_depends(device, "executor");
+    mel_depends(device, "future");
+    mel_depends(device, "event");
+    mel_depends(device, "channel");
+    mel_depends(device, "log");
+    mel_depends(device, "debug");
+    mel_depends(device, "string");
+    mel_depends(device, "pcm");
+
+    Mel_Target* taps = mel_add_test(b, "audio-taps");
+    mel_sources(taps, ALWAYS, "test/test_taps.c");
+    mel_sources(taps, ALWAYS, "../../tools/test/src/runner.c");
+    mel_depends(taps, "test");
+    mel_depends(taps, "audio");
+    mel_depends(taps, "core");
+    mel_depends(taps, "allocator");
+    mel_depends(taps, "collection");
 
     Mel_Target* bench = mel_add_test(b, "audio-bench");
     mel_sources(bench, ALWAYS, "test/bench_mix.c");
