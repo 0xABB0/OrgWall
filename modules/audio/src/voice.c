@@ -245,6 +245,13 @@ static Mel_Audio_Voice mel_audio__play_impl(Mel_Audio* eng, Mel_Audio_Source* sr
     if (!mel_audio__api_enter(eng))
         return (Mel_Audio_Voice){ .slot = MEL_SLOTMAP_HANDLE_NULL };
 
+    if (src->instance_open != NULL && !src->instance_open(src))
+    {
+        mel_log_error("audio", "play refused by the source");
+        mel_audio__api_leave(eng);
+        return (Mel_Audio_Voice){ .slot = MEL_SLOTMAP_HANDLE_NULL };
+    }
+
     void* instance = NULL;
     if (src->instance_size > 0)
     {
@@ -252,6 +259,8 @@ static Mel_Audio_Voice mel_audio__play_impl(Mel_Audio* eng, Mel_Audio_Source* sr
         if (instance == NULL)
         {
             mel_log_error("audio", "play: instance alloc failed (%zu bytes)", src->instance_size);
+            if (src->instance_open != NULL && src->instance_free != NULL)
+                src->instance_free(src, NULL, eng->alloc);
             mel_audio__api_leave(eng);
             return (Mel_Audio_Voice){ .slot = MEL_SLOTMAP_HANDLE_NULL };
         }

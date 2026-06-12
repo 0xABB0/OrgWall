@@ -148,6 +148,7 @@ u32 mel_audio__mix_block(Mel_Audio* eng, f32* planar_out, u32 frames)
         }
 
         mel_audio__pan_accumulate(eng->scratch_resampled, src_channels, frames, v->gain_l, v->gain_r, planar_out, out_channels);
+        mel_audio__taps_voice_write(eng, v->self, src_channels, frames, v->gain_l, v->gain_r);
 
         if (ended)
         {
@@ -179,6 +180,8 @@ u32 mel_audio__mix_block(Mel_Audio* eng, f32* planar_out, u32 frames)
         for (usize i = 0; i < total; i++)
             planar_out[i] *= master;
     }
+
+    mel_audio__taps_master_write(eng, planar_out, frames);
 
     eng->stream_clock += (f64)frames;
 

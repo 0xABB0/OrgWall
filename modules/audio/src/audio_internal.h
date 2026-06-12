@@ -11,18 +11,27 @@
 #include <audio/engine.h>
 #include <audio/source.h>
 #include <audio/voice.h>
-#include <audio/backend.h>
+#include <audio/event.h>
+#include <audio/tap.h>
+
+#include <audioout/audioout.h>
+#include <audioout/events.h>
+#include <audioplayback/audioplayback.h>
+#include <audiopolicy/events.h>
+#include <pcm/ring.h>
 
 #include <future/future.h>
 #include <event/event.h>
 
 #include <stdatomic.h>
 
-#define MEL_AUDIO__FADER_NONE   0u
-#define MEL_AUDIO__FADER_LINEAR 1u
-#define MEL_AUDIO__FADER_OSC    2u
+typedef struct Mel_Audio_Ring Mel_Audio_Ring;
 
-#define MEL_AUDIO__VOICE_ENDED  (1u << 16)
+#define MEL_AUDIO__FADER_NONE    0u
+#define MEL_AUDIO__FADER_LINEAR  1u
+#define MEL_AUDIO__FADER_OSC     2u
+
+#define MEL_AUDIO__VOICE_ENDED   (1u << 16)
 
 #define MEL_AUDIO__SLOT_SENTINEL UINT32_MAX
 
@@ -113,6 +122,18 @@ typedef struct
 
 typedef Mel_Array(Mel_Audio__End_Future) Mel_Audio__End_Future_Reg;
 
+struct Mel_Audio_Tap
+{
+    Mel_Audio*         eng;
+    const Mel_Alloc*   alloc;
+    Mel_Pcm_Ring*      ring;
+    Mel_SlotMap_Handle voice;
+    u32                is_voice;
+    _Atomic(u64)       dropped;
+};
+
+typedef Mel_Array(Mel_Audio_Tap*) Mel_Audio__Tap_List;
+
 struct Mel_Audio
 {
     const Mel_Alloc* alloc;
@@ -151,6 +172,25 @@ struct Mel_Audio
     Mel_Thread      mix_thread;
     _Atomic(u32)    mix_stop;
     Mel_Sem         mix_wake;
+
+    Mel_AudioPlayback* playback;
+    Mel_AudioOut       bound;
+    u32                follow;
+    u32                interrupted;
+    u32                native_rate;
+    u32                native_channels;
+    _Atomic(u32)       device_bits;
+    _Atomic(u64)       device_underruns;
+
+    Mel_AudioOut_Hotplug_Sub out_sub;
+    Mel_AudioPolicy_Sub      policy_sub;
+    u32                      policy_bound;
+
+    Mel_Audio__Tap_List taps;
+    f32*                scratch_tap_planar;
+    f32*                scratch_tap_inter;
+    u32                 scratch_tap_frames;
+    u32                 scratch_tap_channels;
 };
 
 static inline bool mel_audio__api_enter(Mel_Audio* eng)
@@ -166,10 +206,7 @@ static inline bool mel_audio__api_enter(Mel_Audio* eng)
     return true;
 }
 
-static inline void mel_audio__api_leave(Mel_Audio* eng)
-{
-    atomic_fetch_sub_explicit(&eng->api_inflight, 1u, memory_order_seq_cst);
-}
+static inline void mel_audio__api_leave(Mel_Audio* eng) { atomic_fetch_sub_explicit(&eng->api_inflight, 1u, memory_order_seq_cst); }
 
 u32 mel_audio_resample_linear(const f32* src, u32 src_frames, f32* dst, u32 dst_frames, f64 ratio, f64* cursor);
 
@@ -197,15 +234,28 @@ void mel_audio__cmd_schedule_stop(Mel_Audio* eng, const Mel_Audio__Command* cmd)
 void mel_audio__cmd_fade_master(Mel_Audio* eng, const Mel_Audio__Command* cmd);
 void mel_audio__cmd_attach_end_future(Mel_Audio* eng, const Mel_Audio__Command* cmd);
 void mel_audio__cmd_release_end_future(Mel_Audio* eng, const Mel_Audio__Command* cmd);
+void mel_audio__cmd_tap_attach(Mel_Audio* eng, const Mel_Audio__Command* cmd);
+void mel_audio__cmd_tap_detach(Mel_Audio* eng, const Mel_Audio__Command* cmd);
+
+bool mel_audio__device_open(Mel_Audio* eng, Mel_AudioOut target, Mel_Audio_Status* status);
+void mel_audio__device_close(Mel_Audio* eng);
+void mel_audio__device_subscribe(Mel_Audio* eng);
+void mel_audio__device_unsubscribe(Mel_Audio* eng);
+void mel_audio__device_event_fire(Mel_Audio* eng, Mel_Audio_Device_Event ev);
+
+void mel_audio__taps_master_write(Mel_Audio* eng, const f32* planar_out, u32 frames);
+void mel_audio__taps_voice_write(Mel_Audio* eng, Mel_SlotMap_Handle voice, u32 src_channels, u32 frames, f32 gain_l, f32 gain_r);
+bool mel_audio__tap_scratch_ensure(Mel_Audio* eng, u32 frames);
+void mel_audio__taps_free_all(Mel_Audio* eng);
 
 void mel_audio__end_future_register(Mel_Audio* eng, Mel_SlotMap_Handle handle, Mel_Future* fut);
 void mel_audio__end_future_resolve(Mel_Audio* eng, Mel_SlotMap_Handle handle, Mel_Future_Status status);
 void mel_audio__end_future_release(Mel_Audio* eng, Mel_Future* fut);
 void mel_audio__end_futures_free(Mel_Audio* eng);
 
-f32  mel_audio__fade_eval(const Mel_Audio__Scalar_Fade* f, f64 clock, u32* done);
+f32 mel_audio__fade_eval(const Mel_Audio__Scalar_Fade* f, f64 clock, u32* done);
 
-u32  mel_audio__mix_block(Mel_Audio* eng, f32* planar_out, u32 frames);
+u32 mel_audio__mix_block(Mel_Audio* eng, f32* planar_out, u32 frames);
 
 void               mel_audio__voices_init(Mel_Audio__Voice_Table* t, const Mel_Alloc* a, u32 initial_capacity);
 void               mel_audio__voices_free(Mel_Audio__Voice_Table* t);

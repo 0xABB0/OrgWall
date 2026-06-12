@@ -74,3 +74,9 @@
 #undef MEL_ARCH_32BIT
 #define MEL_ARCH_32BIT 1
 #endif
+
+#if MEL_PLATFORM_APPLE && MEL_CPU_ARM
+#define MEL_CACHE_LINE_SIZE 128
+#else
+#define MEL_CACHE_LINE_SIZE 64
+#endif

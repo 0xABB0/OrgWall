@@ -1,6 +1,8 @@
 #pragma once
 
 #include <core/types.h>
+#include <core/platform.h>
+#include <core/compiler.h>
 #include <allocator/allocator.fwd.h>
 #include <stdatomic.h>
 
@@ -12,8 +14,8 @@ typedef struct
 
 typedef struct Mel_Mpmc
 {
-    _Alignas(64) _Atomic(u64) head;
-    _Alignas(64) _Atomic(u64) tail;
+    MEL_ALIGNAS(MEL_CACHE_LINE_SIZE) _Atomic(u64) head;
+    MEL_ALIGNAS(MEL_CACHE_LINE_SIZE) _Atomic(u64) tail;
     Mel__Mpmc_Cell*  cells;
     u64              mask;
     const Mel_Alloc* alloc;

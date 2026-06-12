@@ -5,13 +5,15 @@
 #include <vat/vat.h>
 #include <vat/tick.h>
 #include <gui/gui.h>
-#include <speech/tts.h>
-#include <speech/stt.h>
+#include <tts/tts.h>
+#include <stt/stt.h>
+#include <audioin/audioin.h>
 #include <future/future.h>
 #include <thread/mutex.h>
 #include <collection/array.h>
 #include <allocator/allocator.h>
 #include <allocator/heap.h>
+#include <executor/executor.h>
 #include <log/log.h>
 
 #define HELLO_SPEECH_TICK_NS 50000000ll
@@ -23,12 +25,12 @@ typedef struct
     Mel_Vat_Tick*    tick;
     Mel_Mutex        lock;
 
-    Mel_Array(Mel_Speech_Voice) voices;
-    usize                 voice_idx;
-    Mel_Speech_Recognizer rec;
-    Mel_Speech_Utterance  utt;
-    Mel_Speech_Session    session;
-    Mel_Future*           auth_future;
+    Mel_Array(Mel_Tts_Voice) voices;
+    usize              voice_idx;
+    Mel_Stt_Recognizer rec;
+    Mel_Tts_Utterance  utt;
+    Mel_Stt_Session    session;
+    Mel_Future*        auth_future;
 
     Mel_Gui_Handle info_label;
     Mel_Gui_Handle voice_label;
@@ -70,7 +72,7 @@ static void post_tts_status(const char* fmt, ...)
     mel_mutex_unlock(&g_app.lock);
 }
 
-static void update_info(void) { set_label(g_app.info_label, "voices: %u   recognizers: %u   auth: %s", mel_speech_voice_count(), mel_speech_recognizer_count(), mel_speech_auth_name(mel_speech_authorization())); }
+static void update_info(void) { set_label(g_app.info_label, "voices: %u   recognizers: %u   auth: %s", mel_tts_voice_count(), mel_stt_recognizer_count(), mel_stt_auth_name(mel_stt_authorization())); }
 
 static void update_voice_label(void)
 {
@@ -79,9 +81,9 @@ static void update_voice_label(void)
         set_label(g_app.voice_label, "no voices on this host");
         return;
     }
-    Mel_Speech_Voice                 v = g_app.voices.items[g_app.voice_idx];
-    Mel_Speech_Voice_Describe_Result d = mel_speech_voice_describe(v);
-    if (mel_speech_failed(d.status))
+    Mel_Tts_Voice                 v = g_app.voices.items[g_app.voice_idx];
+    Mel_Tts_Voice_Describe_Result d = mel_tts_voice_describe(v);
+    if (mel_tts_failed(d.status))
     {
         set_label(g_app.voice_label, "voice %zu/%zu: <dead>", g_app.voice_idx + 1, g_app.voices.count);
         return;
@@ -100,18 +102,18 @@ static void update_voice_label(void)
 
 static void voices_reload(void)
 {
-    u32 n = mel_speech_voice_count();
+    u32 n = mel_tts_voice_count();
     mel_array_clear(&g_app.voices);
     if (n > 0)
     {
         mel_array_reserve(&g_app.voices, n);
-        g_app.voices.count = mel_speech_voice_list(g_app.voices.items, n);
+        g_app.voices.count = mel_tts_voice_list(g_app.voices.items, n);
     }
     if (g_app.voice_idx >= g_app.voices.count)
         g_app.voice_idx = 0;
 
-    Mel_Speech_Recognizer recs[1];
-    g_app.rec = mel_speech_recognizer_list(recs, 1) > 0 ? recs[0] : MEL_SPEECH_RECOGNIZER_NULL;
+    Mel_Stt_Recognizer recs[1];
+    g_app.rec = mel_stt_recognizer_list(recs, 1) > 0 ? recs[0] : MEL_STT_RECOGNIZER_NULL;
 
     update_info();
     update_voice_label();
@@ -121,7 +123,8 @@ static void refresh_clicked(Mel_Gui_Handle h, void* user)
 {
     (void)h;
     (void)user;
-    mel_speech_refresh();
+    mel_tts_refresh();
+    mel_stt_refresh();
     voices_reload();
 }
 
@@ -145,14 +148,14 @@ static void next_voice_clicked(Mel_Gui_Handle h, void* user)
     update_voice_label();
 }
 
-static void on_speak_done(Mel_Speech_Utterance u, Mel_Speech_Status status, void* user)
+static void on_speak_done(Mel_Tts_Utterance u, Mel_Tts_Status status, void* user)
 {
     (void)u;
     (void)user;
-    post_tts_status("utterance resolved status=0x%x%s", status, (status & MEL_SPEECH_RESULT_ABORTED) ? " (aborted)" : "");
+    post_tts_status("utterance resolved status=0x%x%s", status, (status & MEL_TTS_RESULT_ABORTED) ? " (aborted)" : "");
 }
 
-static void on_speak_range(Mel_Speech_Utterance u, Mel_Speech_Range range, void* user)
+static void on_speak_range(Mel_Tts_Utterance u, Mel_Tts_Range range, void* user)
 {
     (void)u;
     (void)user;
@@ -175,35 +178,35 @@ static void speak_clicked(Mel_Gui_Handle h, void* user)
         set_label(g_app.tts_label, "type some text first");
         return;
     }
-    f32                     rate = (f32)mel_slider_value(g_app.rate_slider) / 100.0f;
-    Mel_Speech_Voice        v = g_app.voices.items[g_app.voice_idx];
-    Mel_Speech_Speak_Result r = mel_speech_speak(v, str8_from_parts((u8*)text, n), .rate = rate, .on_complete = on_speak_done, .on_range = on_speak_range);
+    f32                  rate = (f32)mel_slider_value(g_app.rate_slider) / 100.0f;
+    Mel_Tts_Voice        v = g_app.voices.items[g_app.voice_idx];
+    Mel_Tts_Speak_Result r = mel_tts_speak(v, str8_from_parts((u8*)text, n), .rate = rate, .on_complete = on_speak_done, .on_range = on_speak_range);
     g_app.utt = r.value;
-    set_label(g_app.tts_label, "SPEAK status=0x%x speaking=%d", r.status, (int)mel_speech_speaking(r.value));
+    set_label(g_app.tts_label, "SPEAK status=0x%x speaking=%d", r.status, (int)mel_tts_speaking(r.value));
 }
 
 static void pause_clicked(Mel_Gui_Handle h, void* user)
 {
     (void)h;
     (void)user;
-    Mel_Speech_Status s = mel_speech_speak_pause(g_app.utt);
-    set_label(g_app.tts_label, "PAUSE status=0x%x paused=%d", s, (int)mel_speech_speak_paused(g_app.utt));
+    Mel_Tts_Status s = mel_tts_pause(g_app.utt);
+    set_label(g_app.tts_label, "PAUSE status=0x%x paused=%d", s, (int)mel_tts_paused(g_app.utt));
 }
 
 static void resume_clicked(Mel_Gui_Handle h, void* user)
 {
     (void)h;
     (void)user;
-    Mel_Speech_Status s = mel_speech_speak_resume(g_app.utt);
-    set_label(g_app.tts_label, "RESUME status=0x%x speaking=%d", s, (int)mel_speech_speaking(g_app.utt));
+    Mel_Tts_Status s = mel_tts_resume(g_app.utt);
+    set_label(g_app.tts_label, "RESUME status=0x%x speaking=%d", s, (int)mel_tts_speaking(g_app.utt));
 }
 
 static void abort_clicked(Mel_Gui_Handle h, void* user)
 {
     (void)h;
     (void)user;
-    mel_speech_speak_abort(g_app.utt);
-    g_app.utt = MEL_SPEECH_UTTERANCE_NULL;
+    mel_tts_abort(g_app.utt);
+    g_app.utt = MEL_TTS_UTTERANCE_NULL;
     set_label(g_app.tts_label, "ABORT");
 }
 
@@ -216,11 +219,11 @@ static void authorize_clicked(Mel_Gui_Handle h, void* user)
         set_label(g_app.auth_label, "authorization already pending");
         return;
     }
-    g_app.auth_future = mel_speech_authorize(NULL);
+    g_app.auth_future = mel_stt_authorize(g_app.alloc);
     set_label(g_app.auth_label, "authorizing...");
 }
 
-static void on_result(Mel_Speech_Session s, const Mel_Speech_Result* result, void* user)
+static void on_result(Mel_Stt_Session s, const Mel_Stt_Result* result, void* user)
 {
     (void)s;
     (void)user;
@@ -238,7 +241,7 @@ static void on_result(Mel_Speech_Session s, const Mel_Speech_Result* result, voi
     mel_mutex_unlock(&g_app.lock);
 }
 
-static void on_listen_done(Mel_Speech_Session s, Mel_Speech_Status status, void* user)
+static void on_listen_done(Mel_Stt_Session s, Mel_Stt_Status status, void* user)
 {
     (void)s;
     (void)user;
@@ -254,20 +257,20 @@ static void listen_clicked(Mel_Gui_Handle h, void* user)
 {
     (void)h;
     (void)user;
-    if (mel_speech_listening(g_app.session))
+    if (mel_stt_listening(g_app.session))
     {
-        Mel_Speech_Status s = mel_speech_listen_stop(g_app.session);
+        Mel_Stt_Status s = mel_stt_stop(g_app.session);
         set_label(g_app.transcript_label, "STOP status=0x%x", s);
         return;
     }
-    if (!mel_speech_recognizer_alive(g_app.rec))
+    if (!mel_stt_recognizer_alive(g_app.rec))
     {
         set_label(g_app.transcript_label, "no recognizer on this host");
         return;
     }
-    Mel_Speech_Listen_Result r = mel_speech_listen(g_app.rec, .partials = true, .on_result = on_result, .on_complete = on_listen_done);
+    Mel_Stt_Listen_Result r = mel_stt_listen(g_app.rec, .partials = true, .on_result = on_result, .on_complete = on_listen_done);
     g_app.session = r.value;
-    if (mel_speech_failed(r.status))
+    if (mel_stt_failed(r.status))
     {
         set_label(g_app.transcript_label, "LISTEN failed status=0x%x (authorize first?)", r.status);
         return;
@@ -280,8 +283,8 @@ static void listen_abort_clicked(Mel_Gui_Handle h, void* user)
 {
     (void)h;
     (void)user;
-    mel_speech_listen_abort(g_app.session);
-    g_app.session = MEL_SPEECH_SESSION_NULL;
+    mel_stt_abort(g_app.session);
+    g_app.session = MEL_STT_SESSION_NULL;
 }
 
 static bool on_tick(void* user)
@@ -308,15 +311,15 @@ static bool on_tick(void* user)
         set_label(g_app.transcript_label, "%s", transcript_buf);
     if (listen_ended)
     {
-        g_app.session = MEL_SPEECH_SESSION_NULL;
+        g_app.session = MEL_STT_SESSION_NULL;
         mel_gui_set_text(g_app.listen_btn, S8("Listen"));
     }
     if (g_app.auth_future && mel_future_resolved(g_app.auth_future))
     {
-        const mel_speech_auth* a = mel_speech_future_auth(g_app.auth_future);
-        mel_speech_future_free(g_app.auth_future);
+        const mel_stt_auth* a = mel_stt_future_auth(g_app.auth_future);
+        mel_stt_future_free(g_app.auth_future);
         g_app.auth_future = NULL;
-        set_label(g_app.auth_label, "auth: %s", mel_speech_auth_name(a));
+        set_label(g_app.auth_label, "auth: %s", mel_stt_auth_name(a));
         update_info();
     }
     return true;
@@ -336,7 +339,7 @@ static void build_main(Mel_Gui_Handle frame, void* user)
     mel_button_create(voice_row, .text = S8(">"), .pointer.on_click = next_voice_clicked, .layoutable = { .preferred_w = 44 });
     mel_button_create(voice_row, .text = S8("Refresh"), .pointer.on_click = refresh_clicked, .layoutable = { .preferred_w = 90 });
 
-    g_app.text_field = mel_textfield_create(frame, .text = S8("Hello from Melody! This is the speech module talking."), .layoutable = { .preferred_h = 36 });
+    g_app.text_field = mel_textfield_create(frame, .text = S8("Hello from Melody! This is the tts module talking."), .layoutable = { .preferred_h = 36 });
     g_app.rate_slider = mel_slider_create(frame, .min_value = 50, .max_value = 200, .value = 100, .layoutable = { .preferred_h = 32 });
 
     Mel_Gui_Handle tts_row = mel_panel_create(frame, .layout = mel_row_layout(.spacing = 8), .layoutable = { .preferred_h = 44 });
@@ -358,7 +361,7 @@ static void build_main(Mel_Gui_Handle frame, void* user)
     g_app.transcript_label = mel_label_create(frame, .text = S8("transcript appears here"), .layoutable = { .preferred_h = 64 });
 
     voices_reload();
-    set_label(g_app.auth_label, "auth: %s", mel_speech_auth_name(mel_speech_authorization()));
+    set_label(g_app.auth_label, "auth: %s", mel_stt_auth_name(mel_stt_authorization()));
 }
 
 void mel_app_setup(Mel_Vat* root)
@@ -369,8 +372,10 @@ void mel_app_setup(Mel_Vat* root)
     mel_array_init(&g_app.voices, g_app.alloc);
 
     mel_gui_init(root);
-    mel_speech_init(g_app.alloc);
-    mel_log_info("hello-speech", "voices=%u recognizers=%u", mel_speech_voice_count(), mel_speech_recognizer_count());
+    mel_audioin_init(g_app.alloc, NULL);
+    mel_tts_init(g_app.alloc);
+    mel_stt_init(g_app.alloc);
+    mel_log_info("hello-speech", "voices=%u recognizers=%u", mel_tts_voice_count(), mel_stt_recognizer_count());
 
     g_app.tick = mel_vat_tick_open(root, g_app.alloc, HELLO_SPEECH_TICK_NS, on_tick, NULL);
 

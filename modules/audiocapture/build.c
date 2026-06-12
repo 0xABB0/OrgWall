@@ -5,18 +5,31 @@ void build(Mel_Build* b)
     Mel_Target* lib = mel_add_library(b, "audiocapture");
     mel_includes(lib, MEL_PUBLIC, ALWAYS, "include");
     mel_sources(lib, ALWAYS, "src/*.c");
-    mel_sources(lib, WHEN(.platforms = MEL_ON(MACOS)), "macos/src/*.c");
-    mel_sources(lib, WHEN(.platforms = MEL_ON(MACOS)), "macos/src/*.m");
-    mel_link(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(MACOS)), "-framework", "AudioToolbox", "-framework", "CoreAudio", "-framework", "CoreFoundation", "-framework", "AVFoundation", "-framework", "Foundation");
     mel_depends(lib, "core");
     mel_depends(lib, "allocator");
-    mel_depends(lib, "string");
+    mel_depends(lib, "audioin");
+    mel_depends(lib, "pcm");
+    mel_depends(lib, "time");
+    mel_depends(lib, "log");
 
-    Mel_Target* t = mel_add_test(b, "audiocapture-test");
+    Mel_Target* t = mel_add_test(b, "audiocapture-core");
+    mel_includes(t, MEL_PUBLIC, ALWAYS, "include");
+    mel_includes(t, MEL_PUBLIC, ALWAYS, "../audioin/include");
+    mel_sources(t, ALWAYS, "src/audiocapture.c");
+    mel_sources(t, ALWAYS, "../audioin/src/audioin.c");
+    mel_sources(t, ALWAYS, "../audioin/src/descriptors.c");
+    mel_sources(t, ALWAYS, "../audioin/src/publish.c");
     mel_sources(t, ALWAYS, "test/test_audiocapture.c");
     mel_sources(t, ALWAYS, "../../tools/test/src/runner.c");
     mel_depends(t, "test");
-    mel_depends(t, "audiocapture");
     mel_depends(t, "core");
     mel_depends(t, "allocator");
+    mel_depends(t, "collection");
+    mel_depends(t, "string");
+    mel_depends(t, "future");
+    mel_depends(t, "executor");
+    mel_depends(t, "event");
+    mel_depends(t, "log");
+    mel_depends(t, "pcm");
+    mel_depends(t, "time");
 }
