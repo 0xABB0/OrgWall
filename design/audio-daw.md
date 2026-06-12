@@ -13,10 +13,10 @@ own wireframe interview — nothing here is designed, only named and bounded
   inserts, sends/returns, buses, master), arbitrary routing, per-edge gain,
   plugin-delay compensation, block-accurate parameter automation. Realtime
   thread executes a compiled schedule; mutation is command-queued (the
-  `audio` engine's transport pattern generalized). Consumes
+  `audiomixer` engine's transport pattern generalized). Consumes
   `audioplayback` (pull mode) for the device, `pcm` throughout. The flat
-  mixer (`audio`) stays — games don't pay for a console (MEL-ENGINE-III);
-  a DAW skips `audio` entirely.
+  mixer (`audiomixer`) stays — games don't pay for a console (MEL-ENGINE-III);
+  a DAW skips `audiomixer` entirely.
 - **`transport`** — musical timeline: sample-accurate event scheduling,
   tempo/meter map, position/loop/locate, punch ranges, clock export. Pure
   data + scheduling contract consumed by `audiograph` and `midi`; owns no
@@ -52,7 +52,7 @@ own wireframe interview — nothing here is designed, only named and bounded
 
 Device choice/pinning/hotplug/stable-ids, exclusive mode, input processing
 toggles, capture timestamps, output latency query, loopback capture,
-virtual devices and OS-publish, offline render (`mel_audio_create_offline`),
+virtual devices and OS-publish, offline render (`mel_mixer_create_offline`),
 mix/voice taps, FFT (`spectrum`), MIDI/musictheory/musictuning/musicnotation
 modules.
 

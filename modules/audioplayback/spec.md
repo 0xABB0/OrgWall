@@ -5,7 +5,7 @@ interleaved f32 frames to it, close. The thin output door — the exact twin of
 `audiocapture` on the other side of the identity seam
 (`audiocapture : audioin :: audioplayback : audioout`). For consumers that
 bring their own engine — a DAW graph, a custom synth, an emulator core — the
-mixer (`audio`) is just one sibling client of `audioout`, not a toll gate
+mixer (`audiomixer`) is just one sibling client of `audioout`, not a toll gate
 (MEL-ENGINE-IV).
 
 ## Two modes, one open
@@ -77,7 +77,7 @@ the control thread.
 
 ## Composition
 
-A DAW graph or synth renders into `write` (or serves `pull`); `audio` itself
+A DAW graph or synth renders into `write` (or serves `pull`); `audiomixer` itself
 is implementable over this door (and that is the implementation intent: the
 engine's device plane becomes an `audioplayback` pull-mode client).
 `mel_audioout_publish_read → mel_audioplayback_write` is a software patch

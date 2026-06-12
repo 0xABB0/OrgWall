@@ -80,8 +80,8 @@ the control thread.
 
 ## Composition
 
-`mel_audiocapture_read` matches `audio`'s `Mel_Audio_Pull_Fn` — mic→mixer is
-one `mel_audio_pull_source` call, no dependency either way (MEL-ENGINE-IX).
+`mel_audiocapture_read` matches `audiomixer`'s `Mel_Mixer_Pull_Fn` — mic→mixer is
+one `mel_mixer_pull_source` call, no dependency either way (MEL-ENGINE-IX).
 `pitchdetect`/`spectrum` consume the read buffer directly. `stt` fed sessions
 pump from here. Loopback devices (`audioin` kind) make this the system-audio
 reader with zero new API.

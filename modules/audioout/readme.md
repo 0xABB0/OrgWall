@@ -2,7 +2,7 @@
 
 Audio output device identity: enumerate outputs across providers, describe
 them, name the system default, own OS volume/mute, publish app-created
-outputs. No audio is mixed here — `audio` binds its engine to a
+outputs. No audio is mixed here — `audiomixer` binds its engine to a
 `Mel_AudioOut`. Twin of `audioin` with two deliberate differences: no
 consent surface, and a pull stream plane (output devices ask for frames on
 their own clock).

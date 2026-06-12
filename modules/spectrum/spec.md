@@ -40,5 +40,5 @@ Debug asserts on NULL buffers, non-power-of-two windows, and aliasing
 
 ## Consumers
 
-Visualizers over `mel_audio_tap_read` / `mel_audiocapture_read`; `pitchdetect`
+Visualizers over `mel_mixer_tap_read` / `mel_audiocapture_read`; `pitchdetect`
 stays independent (YIN needs no FFT). This module knows none of them.

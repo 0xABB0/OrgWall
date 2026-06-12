@@ -1,6 +1,6 @@
 # Melody Audio — Mixer-Core Spec
 
-This document specifies `modules/audio`: a SoLoud-shaped PCM mixing and playback engine. Scope here
+This document specifies `modules/audiomixer`: a SoLoud-shaped PCM mixing and playback engine. Scope here
 is the **mixer core** — the engine, the voice-handle model, the source producer, raw-PCM playback,
 per-voice gain/pan/resample, and faders — across a **native backend per platform** plus an always-on
 `null` backend. Filters, sub-mixer buses, 3D spatialization, visualization, and file decoders are
@@ -14,7 +14,7 @@ Bound by the coding guidelines (`docs/coding-guidelines.md`); `MEL-CODE-NNN`.
 
 ## 1. Design principles
 
-**P1 — The simple path is the powerful path.** `mel_audio_play(eng, source)` returns a voice handle
+**P1 — The simple path is the powerful path.** `mel_mixer_play(eng, source)` returns a voice handle
 and makes sound; the same machinery serves master gain, per-voice pan, relative play-speed, and timed
 faders without a second API (MEL-ENGINE-II).
 
@@ -22,8 +22,8 @@ faders without a second API (MEL-ENGINE-II).
 (MEL-CODE-003); the mix thread is spawned through `thread`, named, and never "in shadow"
 (MEL-ENGINE-III). The device callback steals no cycles beyond a bounded `memcpy`.
 
-**P3 — Request and grant, never silently default.** `Mel_Audio_Opt` *requests* sample-rate, channel
-count, block size, ring depth, and resampler; `Mel_Audio_Caps` *reports* what the device granted. A
+**P3 — Request and grant, never silently default.** `Mel_Mixer_Opt` *requests* sample-rate, channel
+count, block size, ring depth, and resampler; `Mel_Mixer_Caps` *reports* what the device granted. A
 mismatch is observable, never swallowed (MEL-CODE-007, MEL-ENGINE-VIII).
 
 **P4 — Open sets, not enums.** Backends are build-axis source selection; the source set is an open
@@ -45,7 +45,7 @@ idiomatic, ceiling-first, degrading only where the platform forces it (MEL-ENGIN
 - **WASAPI** (win32) — shared-mode, event-driven `IAudioClient` render.
 - **ALSA** floor / **PipeWire** ceiling (linux) — one ABI per link, so the two are a build-time choice
   (ALSA is the portable floor compiled by default; PipeWire the age-forward ceiling, selected by a
-  future `audio` build-axis).
+  future `audiomixer` build-axis).
 - **AAudio** ceiling / **OpenSL ES** floor (android).
 - **AudioWorklet** over Web Audio (wasm / emscripten).
 
@@ -53,8 +53,8 @@ Each is a native §6 ring consumer, platform-gated in `build.c` — none is a ro
 is reserved for a platform that genuinely has no backend (none of the above).
 
 **Offline (no backend).** `nob test` and app-clock-driven headless do not select a `null` backend —
-they construct an *offline engine* (`mel_audio_create_offline`, §4.1) that owns no device, no device
-thread, and no ring, and pump it synchronously with `mel_audio_render(eng, dst, frames)`. Hermetic,
+they construct an *offline engine* (`mel_mixer_create_offline`, §4.1) that owns no device, no device
+thread, and no ring, and pump it synchronously with `mel_mixer_render(eng, dst, frames)`. Hermetic,
 deterministic, the produced PCM returned to the caller for assertion (MEL-ENGINE-VIII). Offline is an
 engine mode, not a member of the backend set.
 
@@ -65,13 +65,13 @@ engine mode, not a member of the backend set.
 The timeline splits into two threads of differing hardness:
 
 **The device thread (hard real-time).** The backend's device callback does exactly one thing: copy
-`block` frames of interleaved float out of the audio ring (`Mel_Audio_Ring`, §3.1) into the device
+`block` frames of interleaved float out of the audio ring (`Mel_Mixer_Ring`, §3.1) into the device
 buffer, advancing the read cursor. No lock, no allocation, no source code runs here. On an empty ring
 it copies silence and bumps a profiled **underrun** counter (MEL-CODE-006); in debug the first underrun
 also asserts (MEL-ENGINE-VIII). This is the only code with hard-RT obligations, and it is a `memcpy` —
 dignity on the weakest device falls out for free (MEL-ENGINE-VI).
 
-**The mix thread (soft real-time).** A `thread`-spawned loop owned by `Mel_Audio`. Each iteration: (a)
+**The mix thread (soft real-time).** A `thread`-spawned loop owned by `Mel_Mixer`. Each iteration: (a)
 drain the API→mix command queue; (b) while the ring has room for a block, mix one block of every live
 voice into a **planar** float scratch (channel-major, for the resample/pan inner loops — MEL-CODE-005),
 apply master gain, interleave into the ring; (c) park on a `thread/cond` / `thread/sem` until the
@@ -81,10 +81,10 @@ reason this model was chosen over mixing inside the callback. Events the mix thr
 publishes via `future`/`event` (§4.6) — `mel_event_fire` is callable from the mix thread, and delivery
 lands on a subscriber's executor, never re-entrantly here.
 
-**Latency** ≈ `ring_depth_blocks × block / samplerate`, reported verbatim in `Mel_Audio_Caps`. The mix
+**Latency** ≈ `ring_depth_blocks × block / samplerate`, reported verbatim in `Mel_Mixer_Caps`. The mix
 thread keeps the ring at least one block ahead.
 
-### 3.1 The audio ring — `Mel_Audio_Ring`
+### 3.1 The audio ring — `Mel_Mixer_Ring`
 
 A **module-owned, lock-free, single-producer/single-consumer** float sample ring with `_Atomic` read
 and write cursors (acquire/release ordering) and **bulk** `memcpy` read/write of whole blocks. It is
@@ -98,7 +98,7 @@ lock crosses between them.
 
 ## 4. Object model
 
-### 4.1 Engine — `Mel_Audio` (U1)
+### 4.1 Engine — `Mel_Mixer` (U1)
 
 Owns, in **online** mode, the linked platform backend, the resolved format, the mix thread, the planar
 scratch buffers, the SPSC ring, the API→mix command queue, the master gain, the voice table (§5), and
@@ -110,22 +110,22 @@ the `Mel_Reactor` + `Mel_Executor` over which control-plane futures and events r
 ```c
 typedef struct {
     u32 samplerate;      u32 channels;       u32 block_frames;
-    u32 ring_blocks;     f32 master_volume;  Mel_Audio_Resampler resampler;
+    u32 ring_blocks;     f32 master_volume;  Mel_Mixer_Resampler resampler;
     Mel_Executor* exec;  /* control-plane future/event target — the Mel_Clip_Opt.exec shape */
-} Mel_Audio_Opt;
+} Mel_Mixer_Opt;
 
 typedef struct {
     u32 samplerate;  u32 channels;  u32 block_frames;
     u32 ring_blocks; u32 latency_frames;
-} Mel_Audio_Caps;
+} Mel_Mixer_Caps;
 
-Mel_Audio* mel_audio_create(const Mel_Alloc* a, Mel_Reactor* reactor, Mel_Audio_Opt opt);
-Mel_Audio* mel_audio_create_offline(const Mel_Alloc* a, Mel_Reactor* reactor, Mel_Audio_Opt opt);
-u32        mel_audio_render(Mel_Audio* eng, f32* interleaved_dst, u32 frames);
-void       mel_audio_destroy(Mel_Audio* eng);
-Mel_Audio_Caps mel_audio_caps(const Mel_Audio* eng);
-void       mel_audio_set_master_volume(Mel_Audio* eng, f32 v);
-u32        mel_audio_active_voice_count(const Mel_Audio* eng);
+Mel_Mixer* mel_mixer_create(const Mel_Alloc* a, Mel_Reactor* reactor, Mel_Mixer_Opt opt);
+Mel_Mixer* mel_mixer_create_offline(const Mel_Alloc* a, Mel_Reactor* reactor, Mel_Mixer_Opt opt);
+u32        mel_mixer_render(Mel_Mixer* eng, f32* interleaved_dst, u32 frames);
+void       mel_mixer_destroy(Mel_Mixer* eng);
+Mel_Mixer_Caps mel_mixer_caps(const Mel_Mixer* eng);
+void       mel_mixer_set_master_volume(Mel_Mixer* eng, f32 v);
+u32        mel_mixer_active_voice_count(const Mel_Mixer* eng);
 ```
 
 `create` opens the linked backend (loud on denial, with the reason — the backend identity is fixed by
@@ -135,7 +135,7 @@ only; `render` drains the command queue and mixes `frames` synchronously on the 
 returning frames produced — no device, no ring, no threads. `destroy` stops the backend (online), joins
 the mix thread, drains, frees.
 
-### 4.2 Source & instance — `Mel_Audio_Source` (U2)
+### 4.2 Source & instance — `Mel_Mixer_Source` (U2)
 
 SoLoud's two-level model, minimized: a **shared, immutable source** (sample data or stream config, plus
 attributes) and a **per-voice instance** (the playhead / decoder state). The producer is one hot
@@ -143,17 +143,17 @@ callback at the instance level; everything else is cold lifecycle. Not enum-tagg
 set (MEL-CODE-001, MEL-ENGINE-IX).
 
 ```c
-typedef struct Mel_Audio_Source {
+typedef struct Mel_Mixer_Source {
     u32   channels;
     f64   base_samplerate;
     bool  single_instance;
     usize instance_size;
-    void  (*instance_init)(struct Mel_Audio_Source* src, void* inst, const Mel_Alloc* a);
-    u32   (*get_audio)    (struct Mel_Audio_Source* src, void* inst, f32* planar_dst, u32 frames);
-    void  (*seek)         (struct Mel_Audio_Source* src, void* inst, f64 seconds);
-    void  (*instance_free)(struct Mel_Audio_Source* src, void* inst, const Mel_Alloc* a);
-    void  (*source_free)  (struct Mel_Audio_Source* src, const Mel_Alloc* a);
-} Mel_Audio_Source;
+    void  (*instance_init)(struct Mel_Mixer_Source* src, void* inst, const Mel_Alloc* a);
+    u32   (*get_audio)    (struct Mel_Mixer_Source* src, void* inst, f32* planar_dst, u32 frames);
+    void  (*seek)         (struct Mel_Mixer_Source* src, void* inst, f64 seconds);
+    void  (*instance_free)(struct Mel_Mixer_Source* src, void* inst, const Mel_Alloc* a);
+    void  (*source_free)  (struct Mel_Mixer_Source* src, const Mel_Alloc* a);
+} Mel_Mixer_Source;
 ```
 
 `get_audio` is the **only** hot, required slot — the sole indirect call on the mix path, once per voice
@@ -167,42 +167,42 @@ create command (§5) — the mix thread never allocates (MEL-ENGINE-III). A deco
 is exactly this interface with a fuller `instance_size` and real lifecycle hooks; engine code does not
 change (the §9 additivity test).
 
-### 4.3 Raw-PCM source — `Mel_Audio_Pcm` (U3)
+### 4.3 Raw-PCM source — `Mel_Mixer_Pcm` (U3)
 
 The one concrete source here, and stateless-shared: the **source** holds the float buffer (owned or
-borrowed — explicit `Mel_Audio_Ownership`, mirroring `gpu/handle.h`), its channel count, native rate,
+borrowed — explicit `Mel_Mixer_Ownership`, mirroring `gpu/handle.h`), its channel count, native rate,
 and optional loop point; the **instance** holds only an integer playhead. `instance_init`/
 `instance_free` are NULL (zero-init suffices, no per-voice resources); `get_audio` reads the shared
 buffer at the playhead, advancing and looping; `seek` sets the playhead; `source_free` releases the
 buffer when `Owned`.
 
 ```c
-Mel_Audio_Source* mel_audio_pcm_from_float(const Mel_Alloc* a, const f32* interleaved,
+Mel_Mixer_Source* mel_mixer_pcm_from_float(const Mel_Alloc* a, const f32* interleaved,
                                            u32 frames, u32 channels, u32 samplerate,
-                                           Mel_Audio_Ownership own);
-void mel_audio_pcm_set_loop(Mel_Audio_Source* s, bool loop, f64 loop_start_seconds);
+                                           Mel_Mixer_Ownership own);
+void mel_mixer_pcm_set_loop(Mel_Mixer_Source* s, bool loop, f64 loop_start_seconds);
 ```
 
-### 4.4 Voice — `Mel_Audio_Voice` (U4)
+### 4.4 Voice — `Mel_Mixer_Voice` (U4)
 
 `{ Mel_SlotMap_Handle slot; }` — the SoLoud voice handle, re-expressed as the repo's handle-over-slotmap
 idiom (`gpu/handle.h:19`). The slotmap `generation` is the stale-handle guard: every mutator below
 no-ops on a dead handle (debug-logs), never touching freed state (MEL-ENGINE-VIII).
 
 ```c
-Mel_Audio_Voice mel_audio_play(Mel_Audio* eng, Mel_Audio_Source* src);
-Mel_Audio_Voice mel_audio_play_ex(Mel_Audio* eng, Mel_Audio_Source* src,
+Mel_Mixer_Voice mel_mixer_play(Mel_Mixer* eng, Mel_Mixer_Source* src);
+Mel_Mixer_Voice mel_mixer_play_ex(Mel_Mixer* eng, Mel_Mixer_Source* src,
                                   f32 volume, f32 pan, bool start_paused);
 
-bool mel_audio_voice_valid(const Mel_Audio* eng, Mel_Audio_Voice v);
-void mel_audio_set_volume     (Mel_Audio* eng, Mel_Audio_Voice v, f32 volume);
-void mel_audio_set_pan        (Mel_Audio* eng, Mel_Audio_Voice v, f32 pan);
-void mel_audio_set_play_speed (Mel_Audio* eng, Mel_Audio_Voice v, f64 ratio);
-void mel_audio_set_paused     (Mel_Audio* eng, Mel_Audio_Voice v, bool paused);
-void mel_audio_set_looping    (Mel_Audio* eng, Mel_Audio_Voice v, bool loop);
-void mel_audio_seek           (Mel_Audio* eng, Mel_Audio_Voice v, f64 seconds);
-void mel_audio_stop           (Mel_Audio* eng, Mel_Audio_Voice v);
-void mel_audio_stop_all       (Mel_Audio* eng);
+bool mel_mixer_voice_valid(const Mel_Mixer* eng, Mel_Mixer_Voice v);
+void mel_mixer_set_volume     (Mel_Mixer* eng, Mel_Mixer_Voice v, f32 volume);
+void mel_mixer_set_pan        (Mel_Mixer* eng, Mel_Mixer_Voice v, f32 pan);
+void mel_mixer_set_play_speed (Mel_Mixer* eng, Mel_Mixer_Voice v, f64 ratio);
+void mel_mixer_set_paused     (Mel_Mixer* eng, Mel_Mixer_Voice v, bool paused);
+void mel_mixer_set_looping    (Mel_Mixer* eng, Mel_Mixer_Voice v, bool loop);
+void mel_mixer_seek           (Mel_Mixer* eng, Mel_Mixer_Voice v, f64 seconds);
+void mel_mixer_stop           (Mel_Mixer* eng, Mel_Mixer_Voice v);
+void mel_mixer_stop_all       (Mel_Mixer* eng);
 ```
 
 `play_ex` with `start_paused` is the set-params-then-unpause pattern, avoiding a one-block window at the
@@ -214,19 +214,19 @@ fractional `cursor`, target `volume`/`pan`, resolved per-channel gains, `play_sp
 and a `u32 flags` of named booleans (`paused`, `looping`, `protected`, `inaudible_keep_ticking`) —
 never an enum (MEL-CODE-001). No `[N]` anywhere (MEL-CODE-002).
 
-### 4.5 Fader — `Mel_Audio_Fader` (U5)
+### 4.5 Fader — `Mel_Mixer_Fader` (U5)
 
 Smooths one scalar from `a` to `b` over `t` seconds against the stream clock; the timed forms of the
 voice mutators and master volume. Oscillating and fade-to-pause/stop included.
 
 ```c
-void mel_audio_fade_volume    (Mel_Audio* eng, Mel_Audio_Voice v, f32 to, f64 seconds);
-void mel_audio_fade_pan       (Mel_Audio* eng, Mel_Audio_Voice v, f32 to, f64 seconds);
-void mel_audio_fade_play_speed(Mel_Audio* eng, Mel_Audio_Voice v, f64 to, f64 seconds);
-void mel_audio_oscillate_volume(Mel_Audio* eng, Mel_Audio_Voice v, f32 lo, f32 hi, f64 period);
-void mel_audio_schedule_pause (Mel_Audio* eng, Mel_Audio_Voice v, f64 seconds);
-void mel_audio_schedule_stop  (Mel_Audio* eng, Mel_Audio_Voice v, f64 seconds);
-void mel_audio_fade_master_volume(Mel_Audio* eng, f32 to, f64 seconds);
+void mel_mixer_fade_volume    (Mel_Mixer* eng, Mel_Mixer_Voice v, f32 to, f64 seconds);
+void mel_mixer_fade_pan       (Mel_Mixer* eng, Mel_Mixer_Voice v, f32 to, f64 seconds);
+void mel_mixer_fade_play_speed(Mel_Mixer* eng, Mel_Mixer_Voice v, f64 to, f64 seconds);
+void mel_mixer_oscillate_volume(Mel_Mixer* eng, Mel_Mixer_Voice v, f32 lo, f32 hi, f64 period);
+void mel_mixer_schedule_pause (Mel_Mixer* eng, Mel_Mixer_Voice v, f64 seconds);
+void mel_mixer_schedule_stop  (Mel_Mixer* eng, Mel_Mixer_Voice v, f64 seconds);
+void mel_mixer_fade_master_volume(Mel_Mixer* eng, f32 to, f64 seconds);
 ```
 
 Faders advance on the mix thread against the frame-counted stream clock — sample-accurate, immune to
@@ -237,19 +237,19 @@ API-thread jitter.
 The control plane rides Melody's coordination trio — `future` (1→1), `event` (1→N), `channel` (M→N) —
 over the executor waist, exactly as `clipboard` migrated ("ops → future, watch → event"); it is **not**
 a bespoke callback. The §3 data plane touches none of it. Construction carries a `Mel_Reactor` (the
-backend registers its device IO there) and a `Mel_Executor` (`Mel_Audio_Opt.exec`, e.g.
+backend registers its device IO there) and a `Mel_Executor` (`Mel_Mixer_Opt.exec`, e.g.
 `mel_reactor_executor(reactor)`) on which completions resolve — the `Mel_Clip_Opt.exec` shape.
 
 - **One-shot → `Mel_Future`** (write-once, zero-alloc resolve, single continuation):
-  `mel_audio_voice_end_future(eng, v)` resolves once when voice `v` ends or is stopped; a device-started
+  `mel_mixer_voice_end_future(eng, v)` resolves once when voice `v` ends or is stopped; a device-started
   future covers async-open platforms (CoreAudio opens synchronously and pre-resolves it). Offline
   `render` is synchronous and needs none.
 - **1→N broadcast → `Mel_Event`** (fire-from-any-thread, pushed to each subscriber's executor):
-  `mel_audio_device_events(eng)` carries device-changed / hotplug / format-change, fired by the backend.
+  `mel_mixer_device_events(eng)` carries device-changed / hotplug / format-change, fired by the backend.
 - **API→mix transport → `channel` `try` / the executor's intrusive MPSC** (§5): the mix thread drains
   it non-blocking at each block boundary, never parking — the hard-RT discipline.
 
-`Mel_Audio_Status` is a `u32` severity + warning bitset, never an enum — the `Mel_Clip_Status` idiom
+`Mel_Mixer_Status` is a `u32` severity + warning bitset, never an enum — the `Mel_Clip_Status` idiom
 (MEL-CODE-001). The mix thread may call `mel_event_fire` directly (sanctioned cross-thread); delivery
 lands on a subscriber's executor, never re-entrantly. The `todo.org` "reactor-driven device callback"
 is thus honored as the control-plane *substrate*; the per-block pull stays the raw native callback +
@@ -297,10 +297,10 @@ The seam is a **fixed-name ABI the engine calls directly**; the platform's gated
 supplies the one definition:
 
 ```c
-bool mel_audio_backend_open (Mel_Audio_Opt req, Mel_Audio_Caps* granted, const Mel_Alloc* a);
-void mel_audio_backend_start(Mel_Audio_Ring* ring);   /* device thread copies blocks out of the ring */
-void mel_audio_backend_stop (void);
-void mel_audio_backend_close(const Mel_Alloc* a);
+bool mel_mixer_backend_open (Mel_Mixer_Opt req, Mel_Mixer_Caps* granted, const Mel_Alloc* a);
+void mel_mixer_backend_start(Mel_Mixer_Ring* ring);   /* device thread copies blocks out of the ring */
+void mel_mixer_backend_stop (void);
+void mel_mixer_backend_close(const Mel_Alloc* a);
 ```
 
 `open` negotiates the real device format and fills `granted` (loud, with cause, on failure — P3). Given
@@ -314,7 +314,7 @@ offline engine (§4.1) calls none of this.
 
 ## 7. Failure modes (iterated per the design workflow)
 
-- **Device open denied / format ungranted** — `mel_audio_create` returns NULL after logging the device
+- **Device open denied / format ungranted** — `mel_mixer_create` returns NULL after logging the device
   error and the requested-vs-available format (P3, MEL-ENGINE-VIII).
 - **Ring underrun** — device thread emits silence, increments a profiled counter; debug asserts on
   first occurrence. Never garbage, never a stale block (MEL-ENGINE-VIII).
@@ -326,8 +326,8 @@ offline engine (§4.1) calls none of this.
   is logged, never silently truncated.
 - **`play` during `destroy`** — rejected, returns the null handle.
 - **Source / instance lifetime** — a source is shared and outlives its voices; the caller owns the
-  `Mel_Audio_Source` and frees it (`source_free`) after its voices end. Each voice owns its instance and
-  frees it (`instance_free`) when it ends or is stopped. The PCM `Mel_Audio_Ownership` governs only the
+  `Mel_Mixer_Source` and frees it (`source_free`) after its voices end. Each voice owns its instance and
+  frees it (`instance_free`) when it ends or is stopped. The PCM `Mel_Mixer_Ownership` governs only the
   sample buffer — `Owned` ⇒ `source_free` releases it, `Borrowed` ⇒ the caller's. Freeing a source while
   its voices are live, or destroying the engine while voices hold instances, is a contract violation
   asserted in debug (MEL-ENGINE-VIII).
@@ -339,7 +339,7 @@ offline engine (§4.1) calls none of this.
 ## 8. Module layout & build
 
 ```
-modules/audio/
+modules/audiomixer/
   readme.md  build.c
   include/audio/
     audio.h     engine.h   source.h   pcm.h
@@ -364,7 +364,7 @@ string`. Tests are `mel_add_test` targets that construct an **offline** engine a
 output — hermetic, no device, no thread (the platform's backend TU is linked but never entered).
 
 Backend selection is **platform-gated source selection**, not a CLI axis. If a second backend per
-platform later earns its keep (e.g. CoreAudio vs a JACK backend on macOS), promote to an `audio` axis
+platform later earns its keep (e.g. CoreAudio vs a JACK backend on macOS), promote to an `audiomixer` axis
 in `resolve.c` mirroring `--gpu`; until then the axis would be cost without benefit.
 
 ---

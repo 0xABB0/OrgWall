@@ -3,7 +3,7 @@
 Audio output device identity: enumerate outputs (speakers, headphones, HDMI,
 virtual sinks) across providers, describe them, name the system default, own
 OS volume/mute, publish app-created outputs — local always, OS-wide where the
-platform allows. No audio is mixed here: `audio` binds its engine to a
+platform allows. No audio is mixed here: `audiomixer` binds its engine to a
 `Mel_AudioOut`; a settings panel links this module alone. Twin of `audioin`
 with two deliberate differences: no consent surface (nothing gates output;
 ceremony that always answers granted would lie — MEL-ENGINE-V), and a pull
@@ -29,7 +29,7 @@ virtual / unknown. Descriptor: `name`, `stable_id`, `kind`, `channels`,
 `samplerate`, `samplerates` (dynamic, MEL-CODE-002), `caps { volume, mute }`,
 `alloc`; caller-allocator describe with one destructor (MEL-CODE-003).
 
-`MEL_AUDIOOUT_NULL` doubles as `audio`'s named follow-system-default binding;
+`MEL_AUDIOOUT_NULL` doubles as `audiomixer`'s named follow-system-default binding;
 this module assigns it no meaning beyond "no specific device".
 
 ## Registry, hotplug
@@ -38,7 +38,7 @@ As `audioin`: `init(alloc, deliver)`, `refresh` reconciliation keyed by
 `(provider, stable_id)` with handle stability, `default_()`, hotplug events
 (`added` / `removed` / `changed` / `default_changed`) marshaled to the
 subscriber's executor, `mel_audioout_provider_notify` from providers.
-`default_changed` is load-bearing: it is how `audio`'s follow-default mode
+`default_changed` is load-bearing: it is how `audiomixer`'s follow-default mode
 learns to migrate on platforms whose OS doesn't move streams itself.
 
 ## Volume / mute
@@ -92,11 +92,11 @@ pull plane's loss signal; hotplug `removed` follows via the registry.
 
 The stream plane is pull on the provider's clock: the host provider pulls
 from its device callback; a file-writer provider pulls as fast as it likes; a
-network sink pulls on its own timer. The core side being pulled (the `audio`
+network sink pulls on its own timer. The core side being pulled (the `audiomixer`
 engine's ring) must satisfy the pull wait-free; a short fill is the puller's
 to pad — underruns are the engine's `WARN_RING_UNDERRUN`, never a provider
 guess. `open` negotiates: the provider answers the granted format honestly
-(`granted` may differ from `req`; the caller resamples/remixes — `audio`
+(`granted` may differ from `req`; the caller resamples/remixes — `audiomixer`
 already does). Multiple opens per device are token-distinguished.
 
 ## Publish

@@ -69,7 +69,7 @@ Each line restates the opening of that module's readme; the readme is canonical.
 - image — CPU-side pixel buffers, format-plural; key: `Mel_Image`
 - camera — OS camera capture: authorization futures, frame streaming, delivery on an executor; key: `mel_camera_init(alloc, Mel_Executor*)`
 - barcode — barcode/QR encode AND decode (code128/39, EAN, ITF, QR detect+decode, Reed-Solomon); key: `barcode/decode.h`, `barcode/qr.h`
-- audio — the audio engine: voices, mixing, faders, offline render; key: `mel_audio_create(alloc, opt)`, `Mel_Voice`
+- audiomixer — the voice mixer: voices, mixing, faders, offline render; key: `mel_mixer_create(alloc, opt)`, `Mel_Mixer_Voice`
 - midi — MIDI protocol constants and device I/O
 - musictheory — notes, scales, note↔frequency math
 - vibration — haptics/force-feedback across devices, pattern playback on the vat; key: `mel_vib_init(alloc, Mel_Vat*)`, `mel_vib_play`
