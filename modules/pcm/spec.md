@@ -4,7 +4,7 @@ Realtime PCM plumbing shared by every producer and consumer of audio frames: a
 wait-free SPSC frame ring, the resampler contract plus a linear implementation,
 and interleave/format conversions. Pure computation and one opaque ring; no
 platform code, no threads spawned, no OS calls. Supersedes the private ring
-copies in `audio` and `audiocapture` and `audio`'s private resampler.
+copies in `audiomixer` and `audiocapture` and `audiomixer`'s private resampler.
 
 ## Headers
 
@@ -54,7 +54,7 @@ Planar↔interleaved f32 and i16↔f32 sample conversion. Pure loops; `dst` and
 
 The ring is the only concurrent object and only in its SPSC roles; everything
 else is thread-free pure code. The ring embeds no wake primitive — a consumer
-that sleeps layers its own semaphore beside the ring (as `audio`'s mix thread
+that sleeps layers its own semaphore beside the ring (as `audiomixer`'s mix thread
 does), keeping `thread` out of this module's dependencies (MEL-ENGINE-III).
 
 ## Failure
@@ -70,5 +70,5 @@ detectable); no error codes — misuse is a bug, not a runtime condition
 
 ## Consumers
 
-`audio` (device ring, mixer resampling), `audiocapture` (capture ring, rate
+`audiomixer` (device ring, mixer resampling), `audiocapture` (capture ring, rate
 conversion). This module knows neither.

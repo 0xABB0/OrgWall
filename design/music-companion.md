@@ -39,13 +39,13 @@ API only.
 - `midi` — input devices, note on/off, already converts to `Mel_Pitch`.
 - `gui` (tabview, labels, canvas, sliders), `paint`, `color` — UI.
 - `boot`, `vat`, `allocator`, `collection`, `string`, `log` — app plumbing.
-- `audio` — output for replay/reference tones.
+- `audiomixer` — output for replay/reference tones.
 - `fs`/`io` — scala file loading, progress persistence.
 
 ### New modules needed
-- `audiocapture` (or capture support inside `audio`): microphone input as a pull/ring
+- `audiocapture` (or capture support inside `audiomixer`): microphone input as a pull/ring
   stream with device enumeration and permission handling per platform (CoreAudio,
-  WASAPI, ALSA, AAudio, Web Audio). The `audio` module is currently playback-only.
+  WASAPI, ALSA, AAudio, Web Audio). The `audiomixer` module is currently playback-only.
 - `pitchdetect`: fundamental-frequency estimation over PCM windows (YIN or MPM/
   McLeod; autocorrelation baseline). Input: f32 frames; output: `Mel_Hz` + confidence.
   Alloc-free hot path (caller-provided scratch), no platform code.

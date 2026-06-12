@@ -3,7 +3,7 @@
 OS audio routing and arbitration policy: session category and mode, output
 override, bluetooth options, mixing/ducking, audio focus, interruptions,
 route-change events. One module because the OS session object spans input
-and output at once; `audio`, `audiocapture`, `tts`/`stt` honor the applied
+and output at once; `audiomixer`, `audiocapture`, `tts`/`stt` honor the applied
 policy, none of them owns it.
 
 One internal backend per platform behind a vtable: AVAudioSession (ios, the

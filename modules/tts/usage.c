@@ -1,6 +1,6 @@
 #include <tts/tts.h>
 
-#include <audio/audio.h>
+#include <audiomixer/audiomixer.h>
 #include <audioout/audioout.h>
 
 #include <allocator/allocator.h>
@@ -13,7 +13,7 @@
 
 typedef struct
 {
-    Mel_Audio*       eng;
+    Mel_Mixer*       eng;
     const Mel_Alloc* alloc;
     _Atomic(bool)    done;
 } App;
@@ -48,10 +48,10 @@ static void on_render(Mel_Tts_Utterance u, const Mel_Tts_Render* pcm, Mel_Tts_St
     f32*  copy = mel_alloc(app->alloc, bytes);
     memcpy(copy, pcm->frames, bytes);
 
-    Mel_Audio_Source* src = mel_audio_pcm_from_float(app->alloc, copy, pcm->frame_count,
+    Mel_Mixer_Source* src = mel_mixer_pcm_from_float(app->alloc, copy, pcm->frame_count,
                                                      pcm->channels, pcm->sample_rate,
-                                                     MEL_AUDIO_OWNERSHIP_OWNED);
-    mel_audio_play(app->eng, src);
+                                                     MEL_MIXER_OWNERSHIP_OWNED);
+    mel_mixer_play(app->eng, src);
     atomic_store(&app->done, true);
 }
 
@@ -62,7 +62,7 @@ int main(void)
     mel_audioout_init(alloc, mel_executor_inline());
     mel_tts_init(alloc);
 
-    Mel_Audio* eng = mel_audio_create(alloc, (Mel_Audio_Opt){
+    Mel_Mixer* eng = mel_mixer_create(alloc, (Mel_Mixer_Opt){
                                                  .samplerate = 48000,
                                                  .channels = 2,
                                                  .block_frames = 256,
@@ -122,7 +122,7 @@ int main(void)
     }
 
     mel_dealloc(alloc, voices);
-    mel_audio_destroy(eng);
+    mel_mixer_destroy(eng);
     mel_tts_shutdown();
     mel_audioout_shutdown();
     return 0;

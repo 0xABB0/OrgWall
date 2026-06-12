@@ -11,7 +11,7 @@
 #include <gui/gui.h>
 #include <gui/gui.h>
 
-#include <audio/audio.h>
+#include <audiomixer/audiomixer.h>
 
 #include <vat/tick.h>
 #include <vat/vat.h>
@@ -43,12 +43,12 @@ typedef struct
 {
     const Mel_Alloc* alloc;
     Mel_Vat*         vat;
-    Mel_Audio*       engine;
-    Mel_Audio_Caps   caps;
+    Mel_Mixer*       engine;
+    Mel_Mixer_Caps   caps;
 
-    Mel_Audio_Source** demo_srcs;
+    Mel_Mixer_Source** demo_srcs;
     u32                demo_count;
-    Mel_Audio_Source** stress_srcs;
+    Mel_Mixer_Source** stress_srcs;
     u32                stress_count;
 
     Mel_Gui_Handle frame;
@@ -117,7 +117,7 @@ static void envelope(f32* interleaved, u32 frames, u32 channels, u32 samplerate,
     }
 }
 
-static Mel_Audio_Source* tone_source(const Mel_Alloc* a, f64 freq, f64 seconds, u32 samplerate, f32 amp)
+static Mel_Mixer_Source* tone_source(const Mel_Alloc* a, f64 freq, f64 seconds, u32 samplerate, f32 amp)
 {
     u32  frames = (u32)(seconds * (f64)samplerate);
     f32* buf = mel_alloc(a, sizeof(f32) * (usize)frames * (usize)HELLO_CH);
@@ -132,7 +132,7 @@ static Mel_Audio_Source* tone_source(const Mel_Alloc* a, f64 freq, f64 seconds, 
             buf[(usize)i * HELLO_CH + c] = s;
     }
     envelope(buf, frames, HELLO_CH, samplerate, 0.006, 0.040);
-    Mel_Audio_Source* src = mel_audio_pcm_from_float(a, buf, frames, HELLO_CH, samplerate, MEL_AUDIO_OWNERSHIP_OWNED);
+    Mel_Mixer_Source* src = mel_mixer_pcm_from_float(a, buf, frames, HELLO_CH, samplerate, MEL_MIXER_OWNERSHIP_OWNED);
     mel_dealloc(a, buf);
     return src;
 }
@@ -145,7 +145,7 @@ static void build_demo_sources(Hello_State* s)
     u32              melody_n = (u32)(sizeof(melody) / sizeof(melody[0]));
 
     s->demo_count = chord_n + melody_n;
-    s->demo_srcs = mel_alloc(s->alloc, sizeof(Mel_Audio_Source*) * s->demo_count);
+    s->demo_srcs = mel_alloc(s->alloc, sizeof(Mel_Mixer_Source*) * s->demo_count);
     for (u32 i = 0; i < chord_n; i++)
         s->demo_srcs[i] = tone_source(s->alloc, note_hz(chord[i]), 2.4, s->caps.samplerate, 0.32f);
     for (u32 i = 0; i < melody_n; i++)
@@ -156,15 +156,15 @@ static void build_stress_sources(Hello_State* s)
 {
     static const i32 scale[] = { 48, 50, 52, 55, 57, 60, 62, 64, 67, 69, 72, 74 };
     s->stress_count = (u32)(sizeof(scale) / sizeof(scale[0]));
-    s->stress_srcs = mel_alloc(s->alloc, sizeof(Mel_Audio_Source*) * s->stress_count);
+    s->stress_srcs = mel_alloc(s->alloc, sizeof(Mel_Mixer_Source*) * s->stress_count);
     for (u32 i = 0; i < s->stress_count; i++)
     {
         s->stress_srcs[i] = tone_source(s->alloc, note_hz(scale[i]), 2.0, s->caps.samplerate, 0.5f);
-        mel_audio_pcm_set_loop(s->stress_srcs[i], true, 0.0);
+        mel_mixer_pcm_set_loop(s->stress_srcs[i], true, 0.0);
     }
 }
 
-static void free_sources(Hello_State* s, Mel_Audio_Source** srcs, u32 count)
+static void free_sources(Hello_State* s, Mel_Mixer_Source** srcs, u32 count)
 {
     if (srcs == NULL)
         return;
@@ -203,8 +203,8 @@ static void update_count_label(Hello_State* s)
 static void reset_sequence(Hello_State* s, Hello_Mode mode)
 {
     if (s->engine != NULL)
-        mel_audio_stop_all(s->engine);
-    mel_audio_set_master_volume(s->engine, mode == HELLO_MODE_STRESS ? 0.5f : 0.8f);
+        mel_mixer_stop_all(s->engine);
+    mel_mixer_set_master_volume(s->engine, mode == HELLO_MODE_STRESS ? 0.5f : 0.8f);
     s->mode = mode;
     s->seq_step = 0u;
     s->seq_elapsed = 0.0;
@@ -232,7 +232,7 @@ static void demo_step(Hello_State* s, f64 dt)
         if (prev <= chord_at[i] && now > chord_at[i])
         {
             f32 pan = -0.4f + 0.27f * (f32)i;
-            mel_audio_play_ex(s->engine, s->demo_srcs[i], 0.9f, pan, false);
+            mel_mixer_play_ex(s->engine, s->demo_srcs[i], 0.9f, pan, false);
         }
     }
     for (u32 i = 0; i < melody_n; i++)
@@ -241,13 +241,13 @@ static void demo_step(Hello_State* s, f64 dt)
         if (prev <= at && now > at)
         {
             f32 pan = (rng_unit(&s->rng) - 0.5f) * 0.6f;
-            mel_audio_play_ex(s->engine, s->demo_srcs[chord_n + i], 0.85f, pan, false);
+            mel_mixer_play_ex(s->engine, s->demo_srcs[chord_n + i], 0.85f, pan, false);
         }
     }
 
     f64 fade_at = melody_base + melody_dt * (f64)melody_n + 0.5;
     if (prev <= fade_at && now > fade_at)
-        mel_audio_fade_master_volume(s->engine, 0.0f, 1.2);
+        mel_mixer_fade_master_volume(s->engine, 0.0f, 1.2);
 
     if (now > fade_at + 1.4)
         s->sequence_active = false;
@@ -267,22 +267,22 @@ static void stress_step(Hello_State* s, f64 dt)
 
     while (s->stress_spawned < want)
     {
-        Mel_Audio_Source* src = s->stress_srcs[s->stress_spawned % s->stress_count];
+        Mel_Mixer_Source* src = s->stress_srcs[s->stress_spawned % s->stress_count];
         f32               pan = (rng_unit(&s->rng) - 0.5f) * 1.8f;
         f32               vol = 0.18f + 0.12f * rng_unit(&s->rng);
-        Mel_Audio_Voice   v = mel_audio_play_ex(s->engine, src, 0.0f, pan, false);
-        mel_audio_set_play_speed(s->engine, v, 0.5 + 1.4 * (f64)rng_unit(&s->rng));
-        mel_audio_fade_volume(s->engine, v, vol, 0.8 + 1.5 * (f64)rng_unit(&s->rng));
-        mel_audio_oscillate_volume(s->engine, v, vol * 0.4f, vol, 2.0 + 4.0 * (f64)rng_unit(&s->rng));
+        Mel_Mixer_Voice   v = mel_mixer_play_ex(s->engine, src, 0.0f, pan, false);
+        mel_mixer_set_play_speed(s->engine, v, 0.5 + 1.4 * (f64)rng_unit(&s->rng));
+        mel_mixer_fade_volume(s->engine, v, vol, 0.8 + 1.5 * (f64)rng_unit(&s->rng));
+        mel_mixer_oscillate_volume(s->engine, v, vol * 0.4f, vol, 2.0 + 4.0 * (f64)rng_unit(&s->rng));
         s->stress_spawned++;
     }
 
     f64 hold_until = ramp + 4.0;
     if (prev <= hold_until && now > hold_until)
-        mel_audio_fade_master_volume(s->engine, 0.0f, 1.5);
+        mel_mixer_fade_master_volume(s->engine, 0.0f, 1.5);
     if (now > hold_until + 1.7)
     {
-        mel_audio_stop_all(s->engine);
+        mel_mixer_stop_all(s->engine);
         s->sequence_active = false;
     }
 }
@@ -305,7 +305,7 @@ static bool meter_tick(void* user)
     Hello_State* s = user;
     if (s->engine == NULL)
         return true;
-    s->active_voices = mel_audio_active_voice_count(s->engine);
+    s->active_voices = mel_mixer_active_voice_count(s->engine);
     if (s->active_voices > s->peak_voices)
         s->peak_voices = s->active_voices;
     update_count_label(s);
@@ -332,7 +332,7 @@ static void teardown(Hello_State* s)
 
     if (s->engine != NULL)
     {
-        mel_audio_destroy(s->engine);
+        mel_mixer_destroy(s->engine);
         s->engine = NULL;
     }
 
@@ -483,7 +483,7 @@ void mel_app_setup(Mel_Vat* root)
     mel_gui_init(root);
 
     Mel_Executor* exec = mel_vat_executor(root);
-    Mel_Audio_Opt opt = {
+    Mel_Mixer_Opt opt = {
         .samplerate = HELLO_SR,
         .channels = HELLO_CH,
         .block_frames = HELLO_BLOCK,
@@ -495,13 +495,13 @@ void mel_app_setup(Mel_Vat* root)
         .max_voice_ratio = HELLO_MAXRATIO,
     };
 
-    s->engine = mel_audio_create(s->alloc, opt);
+    s->engine = mel_mixer_create(s->alloc, opt);
     if (s->engine == NULL)
     {
-        mel_log_fatal(HELLO_DOMAIN, "mel_audio_create returned NULL (no audio device)");
+        mel_log_fatal(HELLO_DOMAIN, "mel_mixer_create returned NULL (no audio device)");
         abort();
     }
-    s->caps = mel_audio_caps(s->engine);
+    s->caps = mel_mixer_caps(s->engine);
     mel_log_info(HELLO_DOMAIN, "device %uHz %uch block %u ring %u latency %u", s->caps.samplerate, s->caps.channels, s->caps.block_frames, s->caps.ring_blocks, s->caps.latency_frames);
 
     build_demo_sources(s);

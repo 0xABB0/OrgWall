@@ -58,7 +58,7 @@ honored identically. `on_render` is mandatory and the single terminal
 callback, exactly once: `OK` with PCM, or `ERROR|*` / `OK|ABORTED` with
 `pcm == NULL`. `Mel_Tts_Render.frames` is borrowed, valid only during the
 callback — the module's one lifetime rule; play it by copying into
-`mel_audio_pcm_from_float` inside the callback.
+`mel_mixer_pcm_from_float` inside the callback.
 
 ## Registry & refresh
 

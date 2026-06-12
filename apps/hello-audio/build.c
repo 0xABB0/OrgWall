@@ -11,7 +11,7 @@ void build(Mel_Build* b)
     mel_depends(app, "gui");
     mel_depends(app, "paint");
     mel_depends(app, "color");
-    mel_depends(app, "audio");
+    mel_depends(app, "audiomixer");
     mel_depends(app, "core");
     mel_depends(app, "allocator");
     mel_depends(app, "executor");

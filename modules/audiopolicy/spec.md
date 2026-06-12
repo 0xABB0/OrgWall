@@ -4,7 +4,7 @@ OS audio routing and arbitration policy: session category and mode, output
 override (earpiece↔speaker), bluetooth routing options, mixing/ducking with
 other apps, audio focus, interruptions, route-change events. One module
 because the OS object is one thing spanning input and output at once (a
-duplex category configures both directions in one call); `audio`,
+duplex category configures both directions in one call); `audiomixer`,
 `audiocapture`, `tts`/`stt` honor the applied policy, none of them owns it. A
 recorder app gets focus and interruptions without linking the mixer.
 
@@ -82,9 +82,9 @@ Mel_AudioPolicy_Event {
 compose (never an enum). The module observes its own stream: permanent
 `focus_lost` (without `interruption_began`) releases the held focus grant,
 `focus_gained` re-arms it — `focus_abandon` after a final loss is a no-op,
-not a misuse. Consumers react at their level: the `audio` engine
+not a misuse. Consumers react at their level: the `audiomixer` engine
 observes interruptions itself (its device goes away — engine semantics live
-in `audio`'s spec); the *app* decides policy reactions (pause music on
+in `audiomixer`'s spec); the *app* decides policy reactions (pause music on
 interruption, resume on `should_resume`, lower volume on `should_duck`).
 
 ## Concurrency
