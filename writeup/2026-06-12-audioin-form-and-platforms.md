@@ -1,4 +1,4 @@
-# 2026-06-12 — audioin form rework + audioin/audioout host providers
+# 2026-06-12 — audioin form rework + audioin/audioout/audiopolicy platforms
 
 ## Work done
 
@@ -112,6 +112,47 @@ audioplayback/audio-delta steps):
   `changed` for it — a `caps.volume_observe` split is a wireframe question.
 - linux asked for a `caps.mute` split (cards with volume but no switch)
   and a BUSY status bit (both twins).
+
+## audiopolicy (same session)
+
+No provider plugin here — the OS session is singular, so platforms live
+behind an internal backend vtable (`mel_audiopolicy__backend()`), with
+`mel_audiopolicy__emit()` as the thread-safe door OS notifications push
+through. Events split into `<audiopolicy/events.h>` per the form rules.
+Core normalizes NULL mode to `mode_default` (the struct's zero value, not
+an invented default — noted since spec only names NULL category as the
+violation), backends return bare warn bits and write `in_force` honestly,
+core attaches WARNED severity and owns `focus_held` (abandon-without-grant
+asserts; shutdown abandons).
+
+Backends: **ios** — AVAudioSession 1:1 with progressive lowering on
+setCategory failure and `in_force`/warn bits derived from *readback*, never
+the request; interruption (began/ended+should_resume), route-change
+(reason-mapped), and secondary-audio-hint→should_duck events. **android** —
+AudioFocusRequest via a java proxy (focus-change mapping: LOSS→focus_lost,
+LOSS_TRANSIENT→interruption_began+focus_lost, CAN_DUCK→should_duck,
+GAIN→focus_gained+interruption_ended+should_resume), comms mode drives
+MODE_IN_COMMUNICATION + setCommunicationDevice (API 31+), duck_others
+shapes the next focus request rather than warning. **wasm** — one probe
+AudioContext whose statechange surfaces autoplay interruptions
+(suspended→began, running→ended+should_resume); no gesture handlers
+installed. **macos** — honest lowering + HAL default-device listeners
+emitting route_changed (done directly, not via audioout as the spec
+sketched — avoids cross-module init-order coupling; deviation flagged).
+**win32** — voice/video-chat mode + duck_others acknowledged (OS comms-role
+ducking engages when streams open with the role — the audio delta owns
+wiring that role), rest named-ignored. **linux** — fully honest-absent.
+
+9 mock-backend tests (apply lowering/readback, NULL-mode normalization,
+override round-trip, focus sequencing with injected events, interruption
+payloads, unsubscribe, focus-failure not holding). macos/ios/android/wasm/
+linux compile-verified; win32 backend is pure C over core (no COM) and
+near-certain, still queued for the build box.
+
+Contract questions raised: a duck-end signal is missing from the event
+struct (iOS secondary-audio End and Android GAIN both have one to give);
+should permanent focus loss clear `focus_held`; wasm's initial
+interruption_began fires before any subscriber exists (readback surface?).
 
 ## Kludges
 
