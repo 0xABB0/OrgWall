@@ -1,6 +1,8 @@
 #include <audiopolicy/audiopolicy.h>
+#include <audiopolicy/events.h>
 
 #include <allocator/allocator.h>
+#include <allocator/heap.h>
 #include <executor/executor.h>
 
 #include <stdio.h>

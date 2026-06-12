@@ -8,6 +8,11 @@ duplex category configures both directions in one call); `audio`,
 `audiocapture`, `tts`/`stt` honor the applied policy, none of them owns it. A
 recorder app gets focus and interruptions without linking the mixer.
 
+## Headers
+
+- `<audiopolicy/audiopolicy.h>` — policy: apply/current, override, focus.
+- `<audiopolicy/events.h>` — the policy event stream and subscriptions.
+
 ## Open descriptors (never enums)
 
 - `mel_audiopolicy_category`: playback / record / duplex / ambient —
@@ -112,6 +117,7 @@ named in status bits.
 - `allocator` — subscription registry.
 - `collection` — subscription slotmap.
 - `executor` — event delivery.
+- `event` — the policy event channel that marshals to subscriber executors.
 - `log` — lowering and event diagnostics.
 - `platform` (android only) — JNI bridge.
 

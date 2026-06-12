@@ -14,10 +14,10 @@ typedef struct Mel_Executor Mel_Executor;
 
 typedef u32 Mel_AudioPolicy_Status;
 
-#define MEL_AUDIOPOLICY_SEVERITY_MASK 0x3u
-#define MEL_AUDIOPOLICY_OK            0u
-#define MEL_AUDIOPOLICY_WARNED        1u
-#define MEL_AUDIOPOLICY_ERROR         2u
+#define MEL_AUDIOPOLICY_SEVERITY_MASK          0x3u
+#define MEL_AUDIOPOLICY_OK                     0u
+#define MEL_AUDIOPOLICY_WARNED                 1u
+#define MEL_AUDIOPOLICY_ERROR                  2u
 
 #define MEL_AUDIOPOLICY_WARN_CATEGORY_LOWERED  (1u << 2)
 #define MEL_AUDIOPOLICY_WARN_MODE_IGNORED      (1u << 3)
@@ -26,8 +26,8 @@ typedef u32 Mel_AudioPolicy_Status;
 #define MEL_AUDIOPOLICY_WARN_BLUETOOTH_IGNORED (1u << 6)
 #define MEL_AUDIOPOLICY_WARN_OVERRIDE_IGNORED  (1u << 7)
 
-#define MEL_AUDIOPOLICY_RESULT_UNSUPPORTED (1u << 8)
-#define MEL_AUDIOPOLICY_RESULT_BUSY        (1u << 9)
+#define MEL_AUDIOPOLICY_RESULT_UNSUPPORTED     (1u << 8)
+#define MEL_AUDIOPOLICY_RESULT_BUSY            (1u << 9)
 
 static inline bool mel_audiopolicy_status_failed(Mel_AudioPolicy_Status s) { return (s & MEL_AUDIOPOLICY_SEVERITY_MASK) == MEL_AUDIOPOLICY_ERROR; }
 static inline bool mel_audiopolicy_status_warned(Mel_AudioPolicy_Status s) { return (s & MEL_AUDIOPOLICY_SEVERITY_MASK) == MEL_AUDIOPOLICY_WARNED; }
@@ -56,16 +56,6 @@ typedef struct mel_audiopolicy_output mel_audiopolicy_output;
 extern const mel_audiopolicy_output mel_audiopolicy_output_default;
 extern const mel_audiopolicy_output mel_audiopolicy_output_speaker;
 
-typedef struct mel_audiopolicy_route_reason mel_audiopolicy_route_reason;
-
-extern const mel_audiopolicy_route_reason mel_audiopolicy_route_device_added;
-extern const mel_audiopolicy_route_reason mel_audiopolicy_route_device_removed;
-extern const mel_audiopolicy_route_reason mel_audiopolicy_route_category_changed;
-extern const mel_audiopolicy_route_reason mel_audiopolicy_route_override;
-extern const mel_audiopolicy_route_reason mel_audiopolicy_route_unknown;
-
-const char* mel_audiopolicy_route_reason_name(const mel_audiopolicy_route_reason* r);
-
 typedef struct
 {
     const mel_audiopolicy_category* category;
@@ -82,27 +72,6 @@ typedef struct
     bool may_duck_me;
 } Mel_AudioPolicy_Focus_Opt;
 
-typedef struct
-{
-    bool                                interruption_began;
-    bool                                interruption_ended;
-    bool                                should_resume;
-    bool                                should_duck;
-    bool                                focus_lost;
-    bool                                focus_gained;
-    bool                                route_changed;
-    const mel_audiopolicy_route_reason* reason;
-} Mel_AudioPolicy_Event;
-
-typedef struct
-{
-    Mel_SlotMap_Handle handle;
-} Mel_AudioPolicy_Sub;
-
-#define MEL_AUDIOPOLICY_SUB_NULL ((Mel_AudioPolicy_Sub){ MEL_SLOTMAP_HANDLE_NULL })
-
-typedef void (*Mel_AudioPolicy_Event_Callback)(const Mel_AudioPolicy_Event* ev, void* user);
-
 void mel_audiopolicy_init(const Mel_Alloc* alloc, Mel_Executor* deliver);
 void mel_audiopolicy_shutdown(void);
 
@@ -113,9 +82,6 @@ Mel_AudioPolicy_Status mel_audiopolicy_override_output(const mel_audiopolicy_out
 
 Mel_AudioPolicy_Status mel_audiopolicy_focus_request(Mel_AudioPolicy_Focus_Opt opt);
 void                   mel_audiopolicy_focus_abandon(void);
-
-Mel_AudioPolicy_Sub mel_audiopolicy_subscribe(Mel_Executor* exec, Mel_AudioPolicy_Event_Callback cb, void* user);
-void                mel_audiopolicy_unsubscribe(Mel_AudioPolicy_Sub sub);
 
 #ifdef __cplusplus
 }
