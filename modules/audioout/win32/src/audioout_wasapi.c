@@ -35,9 +35,8 @@ DEFINE_GUID(IID_IAudioEndpointVolumeCallback, 0x657804FA, 0xD6AD, 0x4496, 0x8A, 
 
 typedef struct
 {
-    void*                token;
-    Mel_AudioOut_Pull_Fn pull;
-    bool                 started;
+    Mel_AudioOut_Source src;
+    bool                started;
 } Open_Rec;
 
 typedef struct
@@ -503,7 +502,7 @@ static void wasapi_enumerate(void* user, Mel_AudioOut_Enum_Fn fn, void* fn_user)
             .samplerate = rec->samplerate,
             .samplerates = &rec->samplerate,
             .samplerate_count = 1,
-            .caps = { .volume = rec->vol != NULL },
+            .caps = { .volume = rec->vol != NULL, .mute = rec->vol != NULL },
             .volume = rec->volume,
             .muted = rec->muted,
         };
@@ -568,7 +567,7 @@ static bool wasapi_engine_fill(Engine* e, u32 frames, bool* lost)
         {
             if (!ol->opens[i].started)
                 continue;
-            u32 got = ol->opens[i].pull(ol->opens[i].token, e->scratch, frames);
+            u32 got = ol->opens[i].src.pull(ol->opens[i].src.token, e->scratch, frames);
             if (got > frames)
                 got = frames;
             u32 n = got * e->channels;
@@ -606,6 +605,18 @@ static bool wasapi_engine_fill(Engine* e, u32 frames, bool* lost)
         return false;
     }
     return true;
+}
+
+static void wasapi_engine_fire_lost(Engine* e)
+{
+    if (atomic_exchange_explicit(&e->lost, 1u, memory_order_acq_rel) != 0u)
+        return;
+    Open_List* ol = atomic_load_explicit(&e->opens, memory_order_acquire);
+    if (ol == NULL)
+        return;
+    for (u32 i = 0; i < ol->count; i++)
+        if (ol->opens[i].src.on_lost)
+            ol->opens[i].src.on_lost(ol->opens[i].src.token);
 }
 
 static int wasapi_engine_worker(void* user)
@@ -681,8 +692,8 @@ static int wasapi_engine_worker(void* user)
     }
     if (lost)
     {
-        atomic_store_explicit(&e->lost, 1u, memory_order_release);
         mel_log_error("audioout", "render device invalidated: %.*s; engine wound down", (int)e->stable_id.len, e->stable_id.data);
+        wasapi_engine_fire_lost(e);
         mel_audioout_provider_notify(g_out.provider);
     }
     if (co_owned)
@@ -744,12 +755,12 @@ static Open_List* wasapi_engine_opens_clone(Engine* e, u32 extra)
     return nl;
 }
 
-static bool wasapi_engine_open_add(Engine* e, Mel_AudioOut_Pull_Fn pull, void* token)
+static bool wasapi_engine_open_add(Engine* e, Mel_AudioOut_Source src)
 {
     Open_List* nl = wasapi_engine_opens_clone(e, 1);
     if (nl == NULL)
         return false;
-    nl->opens[nl->count] = (Open_Rec){ .token = token, .pull = pull, .started = false };
+    nl->opens[nl->count] = (Open_Rec){ .src = src, .started = false };
     nl->count++;
     wasapi_engine_opens_swap(e, nl);
     return true;
@@ -767,7 +778,7 @@ static void wasapi_engine_update_running(Engine* e)
     SetEvent(e->wake_event);
 }
 
-static Engine* wasapi_engine_create(Device_Rec* rec, Mel_AudioOut_Pull_Fn pull, void* token, Mel_AudioOut_Status* status)
+static Engine* wasapi_engine_create(Device_Rec* rec, Mel_AudioOut_Source src, Mel_AudioOut_Status* status)
 {
     *status = MEL_AUDIOOUT_ERROR | MEL_AUDIOOUT_RESULT_UNSUPPORTED;
     Engine* e = mel_alloc_type(g_out.alloc, Engine);
@@ -828,6 +839,8 @@ static Engine* wasapi_engine_create(Device_Rec* rec, Mel_AudioOut_Pull_Fn pull, 
         wasapi_log_hr("IAudioClient::Initialize(SHARED,EVENTCALLBACK)", hr);
         if (hr == AUDCLNT_E_DEVICE_INVALIDATED)
             *status = MEL_AUDIOOUT_ERROR | MEL_AUDIOOUT_RESULT_LOST;
+        else if (hr == AUDCLNT_E_DEVICE_IN_USE)
+            *status = MEL_AUDIOOUT_ERROR | MEL_AUDIOOUT_RESULT_BUSY;
         wasapi_engine_free(e);
         return NULL;
     }
@@ -902,7 +915,7 @@ static Engine* wasapi_engine_create(Device_Rec* rec, Mel_AudioOut_Pull_Fn pull, 
         return NULL;
     }
 
-    if (!wasapi_engine_open_add(e, pull, token))
+    if (!wasapi_engine_open_add(e, src))
     {
         wasapi_engine_free(e);
         return NULL;
@@ -921,12 +934,12 @@ static Engine* wasapi_engine_create(Device_Rec* rec, Mel_AudioOut_Pull_Fn pull, 
     return e;
 }
 
-static Mel_AudioOut_Status wasapi_open(void* user, str8 stable_id, Mel_AudioOut_Format req, Mel_AudioOut_Format* granted, Mel_AudioOut_Pull_Fn pull, void* token)
+static Mel_AudioOut_Status wasapi_open(void* user, str8 stable_id, Mel_AudioOut_Format req, Mel_AudioOut_Format* granted, Mel_AudioOut_Source src)
 {
     MEL_UNUSED(user);
     MEL_UNUSED(req);
     assert(granted != NULL);
-    assert(pull != NULL);
+    assert(src.pull != NULL);
 
     Engine* e = wasapi_engine_find(stable_id);
     if (e != NULL)
@@ -936,7 +949,7 @@ static Mel_AudioOut_Status wasapi_open(void* user, str8 stable_id, Mel_AudioOut_
             mel_log_error("audioout", "open on lost render engine %.*s", (int)stable_id.len, stable_id.data);
             return MEL_AUDIOOUT_ERROR | MEL_AUDIOOUT_RESULT_LOST;
         }
-        if (!wasapi_engine_open_add(e, pull, token))
+        if (!wasapi_engine_open_add(e, src))
             return MEL_AUDIOOUT_ERROR | MEL_AUDIOOUT_RESULT_UNSUPPORTED;
         granted->samplerate = e->samplerate;
         granted->channels = e->channels;
@@ -952,7 +965,7 @@ static Mel_AudioOut_Status wasapi_open(void* user, str8 stable_id, Mel_AudioOut_
     }
 
     Mel_AudioOut_Status status;
-    e = wasapi_engine_create(rec, pull, token, &status);
+    e = wasapi_engine_create(rec, src, &status);
     if (e == NULL)
         return status;
     mel_array_push(&g_out.engines, e);
@@ -976,7 +989,7 @@ static void wasapi_set_started(str8 stable_id, void* token, bool started, const 
     bool found = false;
     for (u32 i = 0; i < nl->count; i++)
     {
-        if (nl->opens[i].token == token)
+        if (nl->opens[i].src.token == token)
         {
             nl->opens[i].started = started;
             found = true;
@@ -1033,7 +1046,7 @@ static void wasapi_close(void* user, str8 stable_id, void* token)
         return;
     u32 kept = 0;
     for (u32 i = 0; i < count; i++)
-        if (cur->opens[i].token != token)
+        if (cur->opens[i].src.token != token)
             nl->opens[kept++] = cur->opens[i];
     nl->count = kept;
     if (kept == count)

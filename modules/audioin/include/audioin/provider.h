@@ -24,7 +24,27 @@ typedef bool (*Mel_AudioIn_Enum_Fn)(const Mel_AudioIn_Raw* raw, void* user);
 
 typedef struct
 {
-    void (*on_frames)(void* token, const f32* interleaved, u32 frames, u32 samplerate, u32 channels);
+    bool echo_cancellation;
+    bool noise_suppression;
+    bool auto_gain;
+} Mel_AudioIn_Processing;
+
+typedef struct
+{
+    Mel_AudioIn_Processing processing;
+    bool                   exclusive;
+} Mel_AudioIn_Open_Opt;
+
+typedef struct
+{
+    Mel_AudioIn_Processing processing;
+    bool                   exclusive;
+    bool                   os_timestamps;
+} Mel_AudioIn_Granted;
+
+typedef struct
+{
+    void (*on_frames)(void* token, const f32* interleaved, u32 frames, u32 samplerate, u32 channels, u64 timestamp_ns);
     void (*on_lost)(void* token);
     void (*on_auth)(void* token, const mel_audioin_auth* auth);
     void* token;
@@ -38,7 +58,7 @@ typedef struct
     void (*enumerate)(void* user, Mel_AudioIn_Enum_Fn fn, void* fn_user);
     str8 (*default_id)(void* user);
 
-    Mel_AudioIn_Status (*open)(void* user, str8 stable_id, Mel_AudioIn_Sink sink);
+    Mel_AudioIn_Status (*open)(void* user, str8 stable_id, Mel_AudioIn_Sink sink, Mel_AudioIn_Open_Opt opt, Mel_AudioIn_Granted* granted);
     void (*close)(void* user, str8 stable_id, void* token);
 
     f32 (*gain)(void* user, str8 stable_id);
@@ -60,6 +80,9 @@ typedef struct
 Mel_AudioIn_Provider mel_audioin_provider_register(const Mel_AudioIn_Provider_Desc* desc);
 void                 mel_audioin_provider_unregister(Mel_AudioIn_Provider p);
 void                 mel_audioin_provider_notify(Mel_AudioIn_Provider p);
+
+Mel_AudioIn_Status mel_audioin__open(Mel_AudioIn d, Mel_AudioIn_Sink sink, Mel_AudioIn_Open_Opt opt, Mel_AudioIn_Granted* granted);
+void               mel_audioin__close(Mel_AudioIn d, void* token);
 
 void mel_audioin__register_host_providers(void);
 

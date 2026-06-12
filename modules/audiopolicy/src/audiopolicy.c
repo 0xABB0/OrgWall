@@ -164,5 +164,9 @@ void mel_audiopolicy__emit(const Mel_AudioPolicy_Event* ev)
 {
     if (!g.initialized || g.events == NULL)
         return;
+    if (ev->focus_lost && !ev->interruption_began)
+        g.focus_held = false;
+    if (ev->focus_gained)
+        g.focus_held = true;
     mel_event_fire(g.events, ev);
 }

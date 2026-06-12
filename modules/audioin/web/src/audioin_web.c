@@ -39,6 +39,9 @@ typedef struct
     u32                             interleave_channels;
     u32                             quantum;
     u32                             samplerate;
+    Mel_AudioIn_Processing          requested;
+    Mel_AudioIn_Processing          actual;
+    bool                            actual_known;
     _Atomic(void*)                  sinks;
     _Atomic(u32)                    dropped;
     Mel_Array(void*) garbage;
@@ -182,13 +185,13 @@ EM_JS(void, audioin_web__js_authorize, (void), {
         });
 });
 
-EM_JS(int, audioin_web__js_open, (unsigned id, const char* device_id, int len), {
+EM_JS(int, audioin_web__js_open, (unsigned id, const char* device_id, int len, int ec, int ns, int agc), {
     var S = globalThis.MelAIn;
     if (!S || typeof navigator == 'undefined' || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia)
         return 0;
     var did = UTF8ToString(device_id, len);
     S.open[id] = { stream : null, src : null };
-    navigator.mediaDevices.getUserMedia({ audio : { deviceId : { exact : did } } })
+    navigator.mediaDevices.getUserMedia({ audio : { deviceId : { exact : did }, echoCancellation : !!ec, noiseSuppression : !!ns, autoGainControl : !!agc } })
         .then(function(stream) {
             var st = S.open[id];
             if (!st)
@@ -199,19 +202,16 @@ EM_JS(int, audioin_web__js_open, (unsigned id, const char* device_id, int len), 
             S.granted = true;
             st.stream = stream;
             var tracks = stream.getAudioTracks();
-            var ch = 0;
-            if (tracks.length)
-            {
-                var settings = tracks[0].getSettings ? tracks[0].getSettings() : {};
-                ch = settings.channelCount | 0;
-            }
+            var settings = (tracks.length && tracks[0].getSettings) ? tracks[0].getSettings() : {};
+            var ch = settings.channelCount | 0;
+            var flag = function(v) { return typeof v == 'undefined' ? -1 : (v ? 1 : 0); };
             tracks.forEach(function(t) { t.addEventListener('ended', function() { _mel_audioin_web__on_ended(id); }); });
             S.refresh();
-            _mel_audioin_web__on_media(id, 1, ch);
+            _mel_audioin_web__on_media(id, 1, ch, flag(settings.echoCancellation), flag(settings.noiseSuppression), flag(settings.autoGainControl));
         })
         .catch(function(e) {
             delete S.open[id];
-            _mel_audioin_web__on_media(id, 0, 0);
+            _mel_audioin_web__on_media(id, 0, 0, -1, -1, -1);
         });
     return 1;
 });
@@ -354,7 +354,7 @@ static bool capture_process(int num_inputs, const AudioSampleFrame* inputs, int 
     if (sl)
         for (u32 i = 0; i < sl->count; i++)
             if (sl->sinks[i].on_frames)
-                sl->sinks[i].on_frames(sl->sinks[i].token, c->interleave, frames, c->samplerate, channels);
+                sl->sinks[i].on_frames(sl->sinks[i].token, c->interleave, frames, c->samplerate, channels, 0u);
     return true;
 }
 
@@ -411,7 +411,7 @@ static void capture_worklet_ready(EMSCRIPTEN_WEBAUDIO_T context, bool success, v
     emscripten_create_wasm_audio_worklet_processor_async(context, &popts, capture_processor_created, user);
 }
 
-EMSCRIPTEN_KEEPALIVE void mel_audioin_web__on_media(unsigned id, int ok, int channels)
+EMSCRIPTEN_KEEPALIVE void mel_audioin_web__on_media(unsigned id, int ok, int channels, int ec, int ns, int agc)
 {
     Capture* c = capture_by_id((u32)id);
     if (!c)
@@ -422,6 +422,20 @@ EMSCRIPTEN_KEEPALIVE void mel_audioin_web__on_media(unsigned id, int ok, int cha
         capture_destroy(c, true);
         return;
     }
+    c->actual = (Mel_AudioIn_Processing){ .echo_cancellation = ec == 1, .noise_suppression = ns == 1, .auto_gain = agc == 1 };
+    c->actual_known = true;
+    if (ec < 0 || ns < 0 || agc < 0)
+        mel_log_warn("audioin", "web: track settings omit processing flags for %.*s; unknown reported as off", (int)c->stable_id.len, c->stable_id.data);
+    mel_log_info("audioin",
+                 "web: %.*s settings resolved: ec=%d ns=%d agc=%d (requested %d/%d/%d)",
+                 (int)c->stable_id.len,
+                 c->stable_id.data,
+                 ec == 1,
+                 ns == 1,
+                 agc == 1,
+                 c->requested.echo_cancellation,
+                 c->requested.noise_suppression,
+                 c->requested.auto_gain);
     c->interleave_channels = channels > 0 ? (u32)channels : 2u;
     c->interleave = mel_alloc(g_in.alloc, sizeof(f32) * (usize)c->quantum * c->interleave_channels);
     c->worklet_stack = mel_calloc(g_in.alloc, MEL_AUDIOIN_WEB_WORKLET_STACK);
@@ -555,14 +569,24 @@ static str8 web_default_id(void* user)
     return g_in.devices.count > 0 ? g_in.devices.items[0].stable_id : STR8_EMPTY;
 }
 
-static Mel_AudioIn_Status web_open(void* user, str8 stable_id, Mel_AudioIn_Sink sink)
+static bool processing_equal(Mel_AudioIn_Processing a, Mel_AudioIn_Processing b) { return a.echo_cancellation == b.echo_cancellation && a.noise_suppression == b.noise_suppression && a.auto_gain == b.auto_gain; }
+
+static Mel_AudioIn_Status web_open(void* user, str8 stable_id, Mel_AudioIn_Sink sink, Mel_AudioIn_Open_Opt opt, Mel_AudioIn_Granted* granted)
 {
     MEL_UNUSED(user);
+    if (granted)
+        *granted = (Mel_AudioIn_Granted){ 0 };
+    if (opt.exclusive)
+        mel_log_warn("audioin", "web: exclusive capture requested for %.*s; the web has no exclusive surface, granted shared", (int)stable_id.len, stable_id.data);
     Capture* existing = capture_find(stable_id);
     if (existing)
     {
+        if (!processing_equal(opt.processing, existing->requested))
+            mel_log_warn("audioin", "web: open %.*s: processing options differ from the live stream; existing stream settings win", (int)stable_id.len, stable_id.data);
         if (!capture_sink_add(existing, sink))
             return MEL_AUDIOIN_ERROR | MEL_AUDIOIN_RESULT_UNSUPPORTED;
+        if (granted && existing->actual_known)
+            granted->processing = existing->actual;
         return MEL_AUDIOIN_OK;
     }
 
@@ -606,6 +630,7 @@ static Mel_AudioIn_Status web_open(void* user, str8 stable_id, Mel_AudioIn_Sink 
     }
     c->samplerate = (u32)rate;
     c->quantum = (u32)quantum;
+    c->requested = opt.processing;
 
     if (!capture_sink_add(c, sink))
     {
@@ -616,12 +641,13 @@ static Mel_AudioIn_Status web_open(void* user, str8 stable_id, Mel_AudioIn_Sink 
     }
     mel_array_push(&g_in.captures, c);
 
-    if (!audioin_web__js_open(c->id, (const char*)c->stable_id.data + 4, (int)(c->stable_id.len - 4)))
+    if (!audioin_web__js_open(c->id, (const char*)c->stable_id.data + 4, (int)(c->stable_id.len - 4), opt.processing.echo_cancellation ? 1 : 0, opt.processing.noise_suppression ? 1 : 0, opt.processing.auto_gain ? 1 : 0))
     {
         mel_log_error("audioin", "web: getUserMedia unavailable; cannot open %.*s", (int)stable_id.len, stable_id.data);
         capture_destroy(c, false);
         return MEL_AUDIOIN_ERROR | MEL_AUDIOIN_RESULT_UNSUPPORTED;
     }
+    mel_log_info("audioin", "web: open %.*s: processing grants resolve asynchronously; reported off until track settings arrive", (int)stable_id.len, stable_id.data);
     return MEL_AUDIOIN_OK;
 }
 

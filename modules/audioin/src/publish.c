@@ -97,12 +97,17 @@ static str8 pub_default_id(void* user)
     return STR8_EMPTY;
 }
 
-static Mel_AudioIn_Status pub_open(void* user, str8 stable_id, Mel_AudioIn_Sink sink)
+static Mel_AudioIn_Status pub_open(void* user, str8 stable_id, Mel_AudioIn_Sink sink, Mel_AudioIn_Open_Opt opt, Mel_AudioIn_Granted* granted)
 {
     MEL_UNUSED(user);
+    assert(granted != NULL);
     Pub_Slot* p = pub_find(stable_id);
     if (!p)
         return MEL_AUDIOIN_ERROR | MEL_AUDIOIN_RESULT_NO_DEVICE;
+
+    *granted = (Mel_AudioIn_Granted){ 0 };
+    if (opt.processing.echo_cancellation || opt.processing.noise_suppression || opt.processing.auto_gain || opt.exclusive)
+        mel_log_info("audioin", "published input '%.*s': processing/exclusive requests lower to none", (int)p->name.len, p->name.data);
 
     Sink_List* cur = atomic_load_explicit(&p->sinks, memory_order_acquire);
     u32        count = cur ? cur->count : 0;
@@ -270,7 +275,7 @@ u32 mel_audioin_publish_feed(Mel_AudioIn_Published pub, const f32* interleaved, 
         while ((got = mel_pcm_ring_read(p->ring, p->scratch, p->scratch_frames)) > 0)
             for (u32 i = 0; i < sl->count; i++)
                 if (sl->sinks[i].on_frames)
-                    sl->sinks[i].on_frames(sl->sinks[i].token, p->scratch, got, p->samplerate, p->channels);
+                    sl->sinks[i].on_frames(sl->sinks[i].token, p->scratch, got, p->samplerate, p->channels, 0);
     }
     return accepted;
 }

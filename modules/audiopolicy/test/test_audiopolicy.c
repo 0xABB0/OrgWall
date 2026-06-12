@@ -142,6 +142,7 @@ typedef struct
     u32                                 interruptions_ended;
     u32                                 should_resume;
     u32                                 should_duck;
+    u32                                 duck_ended;
     u32                                 focus_lost;
     u32                                 focus_gained;
     u32                                 route_changed;
@@ -159,6 +160,8 @@ static void on_event(const Mel_AudioPolicy_Event* ev, void* user)
         t->should_resume++;
     if (ev->should_duck)
         t->should_duck++;
+    if (ev->duck_ended)
+        t->duck_ended++;
     if (ev->focus_lost)
         t->focus_lost++;
     if (ev->focus_gained)
@@ -181,13 +184,16 @@ MEL_TEST(audiopolicy, focus_sequencing_with_events)
     MEL_EXPECT_EQ(mockb.focus_requests, 1u);
     MEL_EXPECT(mockb.last_may_duck_me);
 
-    mel_audiopolicy__emit(&(Mel_AudioPolicy_Event){ .focus_lost = true });
     mel_audiopolicy__emit(&(Mel_AudioPolicy_Event){ .should_duck = true });
-    mel_audiopolicy__emit(&(Mel_AudioPolicy_Event){ .focus_gained = true });
-    MEL_EXPECT_EQ(tally.focus_lost, 1u);
+    mel_audiopolicy__emit(&(Mel_AudioPolicy_Event){ .duck_ended = true, .focus_gained = true });
     MEL_EXPECT_EQ(tally.should_duck, 1u);
+    MEL_EXPECT_EQ(tally.duck_ended, 1u);
     MEL_EXPECT_EQ(tally.focus_gained, 1u);
 
+    mel_audiopolicy__emit(&(Mel_AudioPolicy_Event){ .focus_lost = true });
+    MEL_EXPECT_EQ(tally.focus_lost, 1u);
+
+    mel_audiopolicy_focus_request((Mel_AudioPolicy_Focus_Opt){ 0 });
     mel_audiopolicy_focus_abandon();
     MEL_EXPECT_EQ(mockb.focus_abandons, 1u);
 

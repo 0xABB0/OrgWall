@@ -42,6 +42,7 @@ typedef struct
 {
     str8                 stable_id;
     bool                 loopback;
+    bool                 exclusive;
     bool                 fmt_float;
     IMMDevice*           device;
     IAudioClient*        client;
@@ -218,6 +219,21 @@ static bool wasapi_format_is_pcm16(const WAVEFORMATEX* f)
         return IsEqualGUID(&x->SubFormat, &KSDATAFORMAT_SUBTYPE_PCM) && f->wBitsPerSample == 16u;
     }
     return false;
+}
+
+static void wasapi_build_pcm16_format(WAVEFORMATEXTENSIBLE* ext, u32 channels, u32 rate)
+{
+    memset(ext, 0, sizeof *ext);
+    ext->Format.wFormatTag = WAVE_FORMAT_EXTENSIBLE;
+    ext->Format.nChannels = (WORD)channels;
+    ext->Format.nSamplesPerSec = (DWORD)rate;
+    ext->Format.wBitsPerSample = 16u;
+    ext->Format.nBlockAlign = (WORD)(channels * 2u);
+    ext->Format.nAvgBytesPerSec = (DWORD)(rate * channels * 2u);
+    ext->Format.cbSize = (WORD)(sizeof(WAVEFORMATEXTENSIBLE) - sizeof(WAVEFORMATEX));
+    ext->Samples.wValidBitsPerSample = 16u;
+    ext->dwChannelMask = channels == 1u ? KSAUDIO_SPEAKER_MONO : KSAUDIO_SPEAKER_STEREO;
+    ext->SubFormat = KSDATAFORMAT_SUBTYPE_PCM;
 }
 
 static Device_Rec* wasapi_device_find(str8 stable_id)
@@ -458,14 +474,21 @@ static str8 wasapi_default_id(void* user)
     return g_in.default_id;
 }
 
-static void wasapi_engine_deliver(Engine* e, const f32* samples, u32 frames)
+static u64 wasapi_ts_advance(u64 timestamp_ns, u32 frames, u32 samplerate)
+{
+    if (timestamp_ns == 0ull || samplerate == 0u)
+        return 0ull;
+    return timestamp_ns + (u64)frames * 1000000000ull / samplerate;
+}
+
+static void wasapi_engine_deliver(Engine* e, const f32* samples, u32 frames, u64 timestamp_ns)
 {
     Sink_List* sl = atomic_load_explicit(&e->sinks, memory_order_acquire);
     if (sl == NULL)
         return;
     for (u32 i = 0; i < sl->count; i++)
         if (sl->sinks[i].on_frames)
-            sl->sinks[i].on_frames(sl->sinks[i].token, samples, frames, e->samplerate, e->channels);
+            sl->sinks[i].on_frames(sl->sinks[i].token, samples, frames, e->samplerate, e->channels, timestamp_ns);
 }
 
 static void wasapi_engine_fire_lost(Engine* e)
@@ -480,28 +503,32 @@ static void wasapi_engine_fire_lost(Engine* e)
             sl->sinks[i].on_lost(sl->sinks[i].token);
 }
 
-static void wasapi_engine_deliver_silent(Engine* e, u32 frames)
+static void wasapi_engine_deliver_silent(Engine* e, u32 frames, u64 timestamp_ns)
 {
     u32 left = frames;
+    u64 ts = timestamp_ns;
     while (left > 0u)
     {
         u32 n = left < e->buffer_frames ? left : e->buffer_frames;
         memset(e->scratch, 0, sizeof(f32) * (usize)n * e->channels);
-        wasapi_engine_deliver(e, e->scratch, n);
+        wasapi_engine_deliver(e, e->scratch, n, ts);
+        ts = wasapi_ts_advance(ts, n, e->samplerate);
         left -= n;
     }
 }
 
-static void wasapi_engine_deliver_pcm16(Engine* e, const i16* src, u32 frames)
+static void wasapi_engine_deliver_pcm16(Engine* e, const i16* src, u32 frames, u64 timestamp_ns)
 {
     u32 left = frames;
+    u64 ts = timestamp_ns;
     while (left > 0u)
     {
         u32 n = left < e->buffer_frames ? left : e->buffer_frames;
         u32 samples = n * e->channels;
         for (u32 i = 0; i < samples; i++)
             e->scratch[i] = (f32)src[i] * (1.0f / 32768.0f);
-        wasapi_engine_deliver(e, e->scratch, n);
+        wasapi_engine_deliver(e, e->scratch, n, ts);
+        ts = wasapi_ts_advance(ts, n, e->samplerate);
         src += samples;
         left -= n;
     }
@@ -525,7 +552,8 @@ static bool wasapi_engine_drain(Engine* e, bool* lost)
         BYTE*  data = NULL;
         UINT32 frames = 0;
         DWORD  flags = 0;
-        hr = IAudioCaptureClient_GetBuffer(e->capture, &data, &frames, &flags, NULL, NULL);
+        UINT64 qpc = 0;
+        hr = IAudioCaptureClient_GetBuffer(e->capture, &data, &frames, &flags, NULL, &qpc);
         if (hr == AUDCLNT_S_BUFFER_EMPTY)
             return true;
         if (FAILED(hr))
@@ -535,14 +563,16 @@ static bool wasapi_engine_drain(Engine* e, bool* lost)
             return false;
         }
 
+        u64 timestamp_ns = ((flags & AUDCLNT_BUFFERFLAGS_TIMESTAMP_ERROR) != 0u || qpc == 0ull) ? 0ull : (u64)qpc * 100ull;
+
         if (frames > 0u)
         {
             if (flags & AUDCLNT_BUFFERFLAGS_SILENT)
-                wasapi_engine_deliver_silent(e, (u32)frames);
+                wasapi_engine_deliver_silent(e, (u32)frames, timestamp_ns);
             else if (e->fmt_float)
-                wasapi_engine_deliver(e, (const f32*)data, (u32)frames);
+                wasapi_engine_deliver(e, (const f32*)data, (u32)frames, timestamp_ns);
             else
-                wasapi_engine_deliver_pcm16(e, (const i16*)data, (u32)frames);
+                wasapi_engine_deliver_pcm16(e, (const i16*)data, (u32)frames, timestamp_ns);
         }
 
         hr = IAudioCaptureClient_ReleaseBuffer(e->capture, frames);
@@ -650,7 +680,82 @@ static bool wasapi_engine_sink_add(Engine* e, Mel_AudioIn_Sink sink)
     return true;
 }
 
-static Engine* wasapi_engine_create(Device_Rec* rec, Mel_AudioIn_Sink sink, Mel_AudioIn_Status* status)
+static bool wasapi_engine_activate(Engine* e)
+{
+    if (e->client != NULL)
+    {
+        IAudioClient_Release(e->client);
+        e->client = NULL;
+    }
+    HRESULT hr = IMMDevice_Activate(e->device, &IID_IAudioClient, CLSCTX_ALL, NULL, (void**)&e->client);
+    if (FAILED(hr) || e->client == NULL)
+    {
+        wasapi_log_hr("IMMDevice::Activate(IAudioClient)", hr);
+        return false;
+    }
+    return true;
+}
+
+static Mel_AudioIn_Status wasapi_engine_try_exclusive(Engine* e, const WAVEFORMATEX* mix, REFERENCE_TIME default_period, bool* granted_exclusive)
+{
+    *granted_exclusive = false;
+
+    WAVEFORMATEXTENSIBLE fmt;
+    wasapi_build_pcm16_format(&fmt, (u32)mix->nChannels, (u32)mix->nSamplesPerSec);
+
+    HRESULT hr = IAudioClient_IsFormatSupported(e->client, AUDCLNT_SHAREMODE_EXCLUSIVE, (WAVEFORMATEX*)&fmt, NULL);
+    if (hr == AUDCLNT_E_DEVICE_IN_USE)
+    {
+        mel_log_error("audioin", "exclusive open: device in use: %.*s", (int)e->stable_id.len, e->stable_id.data);
+        return MEL_AUDIOIN_ERROR | MEL_AUDIOIN_RESULT_BUSY;
+    }
+    if (hr != S_OK)
+    {
+        mel_log_warn("audioin",
+                     "exclusive format (pcm16 %uch @ %uHz) rejected (hr=0x%08lx) on %.*s; falling back to shared",
+                     (u32)fmt.Format.nChannels,
+                     (u32)fmt.Format.nSamplesPerSec,
+                     (unsigned long)hr,
+                     (int)e->stable_id.len,
+                     e->stable_id.data);
+        return MEL_AUDIOIN_OK;
+    }
+
+    REFERENCE_TIME period = default_period;
+    hr = IAudioClient_Initialize(e->client, AUDCLNT_SHAREMODE_EXCLUSIVE, AUDCLNT_STREAMFLAGS_EVENTCALLBACK, period, period, (WAVEFORMATEX*)&fmt, NULL);
+    if (hr == AUDCLNT_E_BUFFER_SIZE_NOT_ALIGNED)
+    {
+        UINT32  aligned = 0;
+        HRESULT bh = IAudioClient_GetBufferSize(e->client, &aligned);
+        if (SUCCEEDED(bh) && aligned > 0u && fmt.Format.nSamplesPerSec > 0u)
+        {
+            period = (REFERENCE_TIME)((10000000.0 * (f64)aligned / (f64)fmt.Format.nSamplesPerSec) + 0.5);
+            if (!wasapi_engine_activate(e))
+                return MEL_AUDIOIN_ERROR | MEL_AUDIOIN_RESULT_UNSUPPORTED;
+            hr = IAudioClient_Initialize(e->client, AUDCLNT_SHAREMODE_EXCLUSIVE, AUDCLNT_STREAMFLAGS_EVENTCALLBACK, period, period, (WAVEFORMATEX*)&fmt, NULL);
+        }
+    }
+    if (hr == AUDCLNT_E_DEVICE_IN_USE)
+    {
+        mel_log_error("audioin", "exclusive open: device in use: %.*s", (int)e->stable_id.len, e->stable_id.data);
+        return MEL_AUDIOIN_ERROR | MEL_AUDIOIN_RESULT_BUSY;
+    }
+    if (FAILED(hr))
+    {
+        mel_log_warn("audioin", "IAudioClient::Initialize(EXCLUSIVE,EVENTCALLBACK) failed (hr=0x%08lx) on %.*s; falling back to shared", (unsigned long)hr, (int)e->stable_id.len, e->stable_id.data);
+        if (!wasapi_engine_activate(e))
+            return MEL_AUDIOIN_ERROR | MEL_AUDIOIN_RESULT_UNSUPPORTED;
+        return MEL_AUDIOIN_OK;
+    }
+
+    e->fmt_float = false;
+    e->channels = (u32)fmt.Format.nChannels;
+    e->samplerate = (u32)fmt.Format.nSamplesPerSec;
+    *granted_exclusive = true;
+    return MEL_AUDIOIN_OK;
+}
+
+static Engine* wasapi_engine_create(Device_Rec* rec, Mel_AudioIn_Sink sink, Mel_AudioIn_Open_Opt opt, Mel_AudioIn_Status* status)
 {
     *status = MEL_AUDIOIN_ERROR | MEL_AUDIOIN_RESULT_UNSUPPORTED;
     Engine* e = mel_alloc_type(g_in.alloc, Engine);
@@ -663,36 +768,20 @@ static Engine* wasapi_engine_create(Device_Rec* rec, Mel_AudioIn_Sink sink, Mel_
     e->device = rec->device;
     IMMDevice_AddRef(e->device);
 
-    HRESULT hr = IMMDevice_Activate(e->device, &IID_IAudioClient, CLSCTX_ALL, NULL, (void**)&e->client);
-    if (FAILED(hr) || e->client == NULL)
+    if (!wasapi_engine_activate(e))
     {
-        wasapi_log_hr("IMMDevice::Activate(IAudioClient)", hr);
         wasapi_engine_free(e);
         return NULL;
     }
 
     WAVEFORMATEX* mix = NULL;
-    hr = IAudioClient_GetMixFormat(e->client, &mix);
+    HRESULT       hr = IAudioClient_GetMixFormat(e->client, &mix);
     if (FAILED(hr) || mix == NULL)
     {
         wasapi_log_hr("IAudioClient::GetMixFormat", hr);
         wasapi_engine_free(e);
         return NULL;
     }
-
-    if (wasapi_format_is_float32(mix))
-        e->fmt_float = true;
-    else if (wasapi_format_is_pcm16(mix))
-        e->fmt_float = false;
-    else
-    {
-        mel_log_error("audioin", "mix format unsupported for capture (tag=%u bits=%u) on %.*s", (u32)mix->wFormatTag, (u32)mix->wBitsPerSample, (int)e->stable_id.len, e->stable_id.data);
-        CoTaskMemFree(mix);
-        wasapi_engine_free(e);
-        return NULL;
-    }
-    e->channels = (u32)mix->nChannels;
-    e->samplerate = (u32)mix->nSamplesPerSec;
 
     REFERENCE_TIME default_period = 0;
     REFERENCE_TIME min_period = 0;
@@ -705,19 +794,58 @@ static Engine* wasapi_engine_create(Device_Rec* rec, Mel_AudioIn_Sink sink, Mel_
         return NULL;
     }
 
-    DWORD stream_flags = AUDCLNT_STREAMFLAGS_EVENTCALLBACK;
-    if (e->loopback)
-        stream_flags |= AUDCLNT_STREAMFLAGS_LOOPBACK;
-    hr = IAudioClient_Initialize(e->client, AUDCLNT_SHAREMODE_SHARED, stream_flags, default_period, 0, mix, NULL);
-    CoTaskMemFree(mix);
-    if (FAILED(hr))
+    bool exclusive = false;
+    if (opt.exclusive)
     {
-        wasapi_log_hr("IAudioClient::Initialize(SHARED,EVENTCALLBACK)", hr);
-        if (hr == AUDCLNT_E_DEVICE_INVALIDATED)
-            *status = MEL_AUDIOIN_ERROR | MEL_AUDIOIN_RESULT_LOST;
-        wasapi_engine_free(e);
-        return NULL;
+        if (e->loopback)
+        {
+            mel_log_warn("audioin", "exclusive capture unavailable on loopback endpoint %.*s; lowering to shared", (int)e->stable_id.len, e->stable_id.data);
+        }
+        else
+        {
+            Mel_AudioIn_Status xs = wasapi_engine_try_exclusive(e, mix, default_period, &exclusive);
+            if (mel_audioin_status_failed(xs))
+            {
+                CoTaskMemFree(mix);
+                wasapi_engine_free(e);
+                *status = xs;
+                return NULL;
+            }
+        }
     }
+    e->exclusive = exclusive;
+
+    if (!exclusive)
+    {
+        if (wasapi_format_is_float32(mix))
+            e->fmt_float = true;
+        else if (wasapi_format_is_pcm16(mix))
+            e->fmt_float = false;
+        else
+        {
+            mel_log_error("audioin", "mix format unsupported for capture (tag=%u bits=%u) on %.*s", (u32)mix->wFormatTag, (u32)mix->wBitsPerSample, (int)e->stable_id.len, e->stable_id.data);
+            CoTaskMemFree(mix);
+            wasapi_engine_free(e);
+            return NULL;
+        }
+        e->channels = (u32)mix->nChannels;
+        e->samplerate = (u32)mix->nSamplesPerSec;
+
+        DWORD stream_flags = AUDCLNT_STREAMFLAGS_EVENTCALLBACK;
+        if (e->loopback)
+            stream_flags |= AUDCLNT_STREAMFLAGS_LOOPBACK;
+        hr = IAudioClient_Initialize(e->client, AUDCLNT_SHAREMODE_SHARED, stream_flags, default_period, 0, mix, NULL);
+        if (FAILED(hr))
+        {
+            wasapi_log_hr("IAudioClient::Initialize(SHARED,EVENTCALLBACK)", hr);
+            if (hr == AUDCLNT_E_DEVICE_INVALIDATED)
+                *status = MEL_AUDIOIN_ERROR | MEL_AUDIOIN_RESULT_LOST;
+            CoTaskMemFree(mix);
+            wasapi_engine_free(e);
+            return NULL;
+        }
+    }
+    CoTaskMemFree(mix);
 
     e->audio_event = CreateEventW(NULL, FALSE, FALSE, NULL);
     if (e->audio_event == NULL)
@@ -781,14 +909,34 @@ static Engine* wasapi_engine_create(Device_Rec* rec, Mel_AudioIn_Sink sink, Mel_
     }
     e->worker_spawned = true;
 
-    mel_log_info("audioin", "capture engine started: %.*s %uch @ %uHz (%s, buffer %u frames)", (int)e->stable_id.len, e->stable_id.data, e->channels, e->samplerate, e->fmt_float ? "f32" : "s16", e->buffer_frames);
+    mel_log_info("audioin",
+                 "capture engine started: %.*s %uch @ %uHz (%s, %s, buffer %u frames)",
+                 (int)e->stable_id.len,
+                 e->stable_id.data,
+                 e->channels,
+                 e->samplerate,
+                 e->exclusive ? "exclusive" : "shared",
+                 e->fmt_float ? "f32" : "s16",
+                 e->buffer_frames);
     *status = MEL_AUDIOIN_OK;
     return e;
 }
 
-static Mel_AudioIn_Status wasapi_open(void* user, str8 stable_id, Mel_AudioIn_Sink sink)
+static Mel_AudioIn_Status wasapi_open(void* user, str8 stable_id, Mel_AudioIn_Sink sink, Mel_AudioIn_Open_Opt opt, Mel_AudioIn_Granted* granted)
 {
     MEL_UNUSED(user);
+    assert(granted != NULL);
+    memset(granted, 0, sizeof *granted);
+
+    if (opt.processing.echo_cancellation || opt.processing.noise_suppression || opt.processing.auto_gain)
+        mel_log_warn("audioin",
+                     "voice processing (aec=%d ns=%d agc=%d) is APO/driver-owned on win32, not per-stream requestable; lowering to off for %.*s",
+                     (int)opt.processing.echo_cancellation,
+                     (int)opt.processing.noise_suppression,
+                     (int)opt.processing.auto_gain,
+                     (int)stable_id.len,
+                     stable_id.data);
+
     Engine* e = wasapi_engine_find(stable_id);
     if (e != NULL)
     {
@@ -797,8 +945,12 @@ static Mel_AudioIn_Status wasapi_open(void* user, str8 stable_id, Mel_AudioIn_Si
             mel_log_error("audioin", "open on lost capture engine %.*s", (int)stable_id.len, stable_id.data);
             return MEL_AUDIOIN_ERROR | MEL_AUDIOIN_RESULT_LOST;
         }
+        if (opt.exclusive != e->exclusive)
+            mel_log_warn("audioin", "open requested exclusive=%d but engine on %.*s runs exclusive=%d; granting engine config", (int)opt.exclusive, (int)stable_id.len, stable_id.data, (int)e->exclusive);
         if (!wasapi_engine_sink_add(e, sink))
             return MEL_AUDIOIN_ERROR | MEL_AUDIOIN_RESULT_UNSUPPORTED;
+        granted->exclusive = e->exclusive;
+        granted->os_timestamps = true;
         return MEL_AUDIOIN_OK;
     }
 
@@ -810,10 +962,12 @@ static Mel_AudioIn_Status wasapi_open(void* user, str8 stable_id, Mel_AudioIn_Si
     }
 
     Mel_AudioIn_Status status;
-    e = wasapi_engine_create(rec, sink, &status);
+    e = wasapi_engine_create(rec, sink, opt, &status);
     if (e == NULL)
         return status;
     mel_array_push(&g_in.engines, e);
+    granted->exclusive = e->exclusive;
+    granted->os_timestamps = true;
     return status;
 }
 

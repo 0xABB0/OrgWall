@@ -211,12 +211,12 @@ static bool device_update(Device_Slot* s, const Mel_AudioOut_Raw* raw)
         s->samplerate = raw->samplerate;
         changed = true;
     }
-    if (s->caps.volume != raw->caps.volume)
+    if (s->caps.volume != raw->caps.volume || s->caps.mute != raw->caps.mute)
     {
         s->caps = raw->caps;
         changed = true;
     }
-    if (s->caps.volume && (s->volume != raw->volume || s->muted != raw->muted))
+    if (s->volume != raw->volume || s->muted != raw->muted)
     {
         s->volume = raw->volume;
         s->muted = raw->muted;
@@ -475,9 +475,9 @@ bool mel_audioout_muted(Mel_AudioOut d)
         mel_log_error("audioout", "muted on dead handle");
         return false;
     }
-    if (!s->caps.volume)
+    if (!s->caps.mute)
     {
-        mel_log_error("audioout", "muted on device without volume capability: %.*s", (int)s->name.len, s->name.data);
+        mel_log_error("audioout", "muted on device without mute capability: %.*s", (int)s->name.len, s->name.data);
         return false;
     }
     Provider_Entry* pe = provider_get(s->provider_idx);
@@ -493,7 +493,7 @@ Mel_AudioOut_Status mel_audioout_set_muted(Mel_AudioOut d, bool muted)
         return MEL_AUDIOOUT_ERROR | MEL_AUDIOOUT_RESULT_LOST;
     }
     Provider_Entry* pe = provider_get(s->provider_idx);
-    if (!s->caps.volume || !pe || !pe->desc.set_muted)
+    if (!s->caps.mute || !pe || !pe->desc.set_muted)
     {
         mel_log_error("audioout", "set_muted unsupported on %.*s", (int)s->name.len, s->name.data);
         return MEL_AUDIOOUT_ERROR | MEL_AUDIOOUT_RESULT_UNSUPPORTED;
@@ -531,10 +531,10 @@ void* mel_audioout_native(Mel_AudioOut d)
     return (pe && pe->desc.native) ? pe->desc.native(pe->desc.user, s->stable_id) : NULL;
 }
 
-Mel_AudioOut_Status mel_audioout__open(Mel_AudioOut d, Mel_AudioOut_Format req, Mel_AudioOut_Format* granted, Mel_AudioOut_Pull_Fn pull, void* token)
+Mel_AudioOut_Status mel_audioout__open(Mel_AudioOut d, Mel_AudioOut_Format req, Mel_AudioOut_Format* granted, Mel_AudioOut_Source src)
 {
     assert(granted != NULL);
-    assert(pull != NULL);
+    assert(src.pull != NULL);
     Device_Slot* s = g.initialized ? device_slot(d.h) : NULL;
     if (!s)
     {
@@ -547,7 +547,7 @@ Mel_AudioOut_Status mel_audioout__open(Mel_AudioOut d, Mel_AudioOut_Format req, 
         mel_log_error("audioout", "device %.*s has no open path", (int)s->name.len, s->name.data);
         return MEL_AUDIOOUT_ERROR | MEL_AUDIOOUT_RESULT_UNSUPPORTED;
     }
-    return pe->desc.open(pe->desc.user, s->stable_id, req, granted, pull, token);
+    return pe->desc.open(pe->desc.user, s->stable_id, req, granted, src);
 }
 
 static Provider_Entry* slot_provider(Mel_AudioOut d, Device_Slot** out_slot)

@@ -8,6 +8,9 @@
 
 #include <stdatomic.h>
 #include <string.h>
+#include <unistd.h>
+
+#include <mach/mach_time.h>
 
 #include <AudioToolbox/AudioToolbox.h>
 #include <CoreAudio/CoreAudio.h>
@@ -24,11 +27,13 @@ typedef struct
     u32                                capacity_frames;
     f32*                               render_buf;
     AudioBufferList                    abl;
+    Mel_AudioIn_Granted                granted;
     _Atomic(Mel_AudioIn__Macos_Sinks*) sinks;
     _Atomic(Mel_AudioIn__Macos_Sinks*) garbage;
     _Atomic(bool)                      lost;
     _Atomic(u32)                       overruns;
     bool                               alive_listener;
+    bool                               hogged;
 } Open_Device;
 
 typedef struct
@@ -45,6 +50,8 @@ typedef struct
 } Macos_State;
 
 static Macos_State g_ca;
+
+static mach_timebase_info_data_t g_ca_timebase;
 
 static const AudioObjectPropertyAddress g_ca_devices_addr = {
     kAudioHardwarePropertyDevices,
@@ -69,6 +76,19 @@ static const AudioObjectPropertyAddress g_ca_volume_addr = {
     kAudioObjectPropertyScopeInput,
     kAudioObjectPropertyElementMain,
 };
+
+static const AudioObjectPropertyAddress g_ca_hog_addr = {
+    kAudioDevicePropertyHogMode,
+    kAudioObjectPropertyScopeGlobal,
+    kAudioObjectPropertyElementMain,
+};
+
+u64 mel_audioin__macos_host_ns(u64 host_time)
+{
+    if (host_time == 0 || g_ca_timebase.denom == 0)
+        return 0;
+    return host_time * g_ca_timebase.numer / g_ca_timebase.denom;
+}
 
 Mel_AudioIn__Macos_Sinks* mel_audioin__macos_sinks_with(const Mel_Alloc* alloc, const Mel_AudioIn__Macos_Sinks* cur, Mel_AudioIn_Sink sink)
 {
@@ -341,6 +361,30 @@ static AudioDeviceID ca_device_for(str8 stable_id)
     return found;
 }
 
+static pid_t ca_hog_owner(AudioDeviceID id)
+{
+    pid_t  owner = -1;
+    UInt32 size = sizeof owner;
+    if (AudioObjectGetPropertyData(id, &g_ca_hog_addr, 0, NULL, &size, &owner) != noErr)
+        return -1;
+    return owner;
+}
+
+static bool ca_hog_take(AudioDeviceID id)
+{
+    pid_t    pid = getpid();
+    OSStatus st = AudioObjectSetPropertyData(id, &g_ca_hog_addr, 0, NULL, sizeof pid, &pid);
+    return st == noErr && ca_hog_owner(id) == getpid();
+}
+
+static void ca_hog_release(AudioDeviceID id)
+{
+    pid_t    free_pid = -1;
+    OSStatus st = AudioObjectSetPropertyData(id, &g_ca_hog_addr, 0, NULL, sizeof free_pid, &free_pid);
+    if (st != noErr)
+        mel_log_warn("audioin", "coreaudio: hog release failed for device %u (OSStatus %d)", (u32)id, (i32)st);
+}
+
 static void ca_enumerate(void* user, Mel_AudioIn_Enum_Fn fn, void* fn_user)
 {
     MEL_UNUSED(user);
@@ -514,11 +558,13 @@ static OSStatus ca_input_proc(void* user, AudioUnitRenderActionFlags* flags, con
     if (st != noErr)
         return st;
 
+    u64 stamp = (ts && (ts->mFlags & kAudioTimeStampHostTimeValid)) ? mel_audioin__macos_host_ns(ts->mHostTime) : 0;
+
     Mel_AudioIn__Macos_Sinks* sl = atomic_load_explicit(&od->sinks, memory_order_acquire);
     if (sl)
         for (u32 i = 0; i < sl->count; i++)
             if (sl->sinks[i].on_frames)
-                sl->sinks[i].on_frames(sl->sinks[i].token, od->render_buf, frames, od->samplerate, od->channels);
+                sl->sinks[i].on_frames(sl->sinks[i].token, od->render_buf, frames, od->samplerate, od->channels, stamp);
     return noErr;
 }
 
@@ -532,6 +578,8 @@ static void od_teardown(Open_Device* od)
     }
     if (od->alive_listener)
         AudioObjectRemovePropertyListener(od->device_id, &g_ca_alive_addr, ca_alive_listener, od);
+    if (od->hogged)
+        ca_hog_release(od->device_id);
 
     u32 overruns = atomic_load_explicit(&od->overruns, memory_order_relaxed);
     if (overruns > 0)
@@ -558,7 +606,82 @@ static void ca_opens_remove(Open_Device* od)
         }
 }
 
-static Mel_AudioIn_Status od_create(str8 stable_id, AudioDeviceID id, Mel_AudioIn_Sink sink)
+static OSStatus od_unit_create(AudioDeviceID id, u32 channels, f64 rate, bool vpio, bool agc_requested, void* refcon, AudioUnit* out_unit, bool* out_agc)
+{
+    *out_unit = NULL;
+    *out_agc = false;
+
+    AudioComponentDescription comp_desc = {
+        .componentType = kAudioUnitType_Output,
+        .componentSubType = vpio ? kAudioUnitSubType_VoiceProcessingIO : kAudioUnitSubType_HALOutput,
+        .componentManufacturer = kAudioUnitManufacturer_Apple,
+    };
+    AudioComponent comp = AudioComponentFindNext(NULL, &comp_desc);
+    if (!comp)
+        return kAudio_UnimplementedError;
+
+    AudioUnit unit = NULL;
+    OSStatus  st = AudioComponentInstanceNew(comp, &unit);
+    if (st != noErr || !unit)
+        return st != noErr ? st : kAudio_UnimplementedError;
+
+    UInt32 enable = 1;
+    UInt32 disable = 0;
+    st = AudioUnitSetProperty(unit, kAudioOutputUnitProperty_EnableIO, kAudioUnitScope_Input, 1, &enable, sizeof enable);
+    if (st == noErr)
+        st = AudioUnitSetProperty(unit, kAudioOutputUnitProperty_EnableIO, kAudioUnitScope_Output, 0, &disable, sizeof disable);
+    if (st == noErr)
+        st = AudioUnitSetProperty(unit, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0, &id, sizeof id);
+
+    if (st == noErr)
+    {
+        AudioStreamBasicDescription fmt = {
+            .mSampleRate = rate,
+            .mFormatID = kAudioFormatLinearPCM,
+            .mFormatFlags = kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked,
+            .mBytesPerPacket = (UInt32)(sizeof(f32) * channels),
+            .mFramesPerPacket = 1,
+            .mBytesPerFrame = (UInt32)(sizeof(f32) * channels),
+            .mChannelsPerFrame = channels,
+            .mBitsPerChannel = 32,
+        };
+        st = AudioUnitSetProperty(unit, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Output, 1, &fmt, sizeof fmt);
+    }
+
+    if (st == noErr)
+    {
+        AURenderCallbackStruct cb = { .inputProc = ca_input_proc, .inputProcRefCon = refcon };
+        st = AudioUnitSetProperty(unit, kAudioOutputUnitProperty_SetInputCallback, kAudioUnitScope_Global, 0, &cb, sizeof cb);
+    }
+
+    if (st == noErr && vpio)
+    {
+        UInt32   agc = agc_requested ? 1u : 0u;
+        OSStatus ast = AudioUnitSetProperty(unit, kAUVoiceIOProperty_VoiceProcessingEnableAGC, kAudioUnitScope_Global, 0, &agc, sizeof agc);
+        if (ast != noErr && agc_requested)
+            mel_log_warn("audioin", "coreaudio: voice-processing AGC enable failed (OSStatus %d)", (i32)ast);
+        UInt32 agc_now = 0;
+        UInt32 agc_size = sizeof agc_now;
+        if (AudioUnitGetProperty(unit, kAUVoiceIOProperty_VoiceProcessingEnableAGC, kAudioUnitScope_Global, 0, &agc_now, &agc_size) == noErr)
+            *out_agc = agc_now != 0;
+        else
+            *out_agc = ast == noErr && agc_requested;
+    }
+
+    if (st == noErr)
+        st = AudioUnitInitialize(unit);
+    if (st != noErr)
+    {
+        AudioComponentInstanceDispose(unit);
+        *out_agc = false;
+        return st;
+    }
+
+    *out_unit = unit;
+    return noErr;
+}
+
+static Mel_AudioIn_Status od_create(str8 stable_id, AudioDeviceID id, Mel_AudioIn_Sink sink, Mel_AudioIn_Open_Opt opt, Mel_AudioIn_Granted* granted)
 {
     u32 channels = ca_input_channels(id);
     f64 rate = ca_nominal_rate(id);
@@ -568,82 +691,63 @@ static Mel_AudioIn_Status od_create(str8 stable_id, AudioDeviceID id, Mel_AudioI
         return MEL_AUDIOIN_ERROR | MEL_AUDIOIN_RESULT_NO_DEVICE;
     }
 
-    AudioComponentDescription comp_desc = {
-        .componentType = kAudioUnitType_Output,
-        .componentSubType = kAudioUnitSubType_HALOutput,
-        .componentManufacturer = kAudioUnitManufacturer_Apple,
-    };
-    AudioComponent comp = AudioComponentFindNext(NULL, &comp_desc);
-    if (!comp)
-    {
-        mel_log_error("audioin", "coreaudio: no HALOutput AudioComponent");
-        return MEL_AUDIOIN_ERROR | MEL_AUDIOIN_RESULT_UNSUPPORTED;
-    }
-
-    AudioUnit unit = NULL;
-    OSStatus  st = AudioComponentInstanceNew(comp, &unit);
-    if (st != noErr || !unit)
-    {
-        mel_log_error("audioin", "coreaudio: AudioComponentInstanceNew failed (OSStatus %d)", (i32)st);
-        return MEL_AUDIOIN_ERROR | MEL_AUDIOIN_RESULT_UNSUPPORTED;
-    }
-
     Open_Device* od = mel_alloc_type(g_ca.alloc, Open_Device);
     if (!od)
-    {
-        AudioComponentInstanceDispose(unit);
         return MEL_AUDIOIN_ERROR | MEL_AUDIOIN_RESULT_UNSUPPORTED;
-    }
     memset(od, 0, sizeof *od);
     od->device_id = id;
-    od->unit = unit;
     od->channels = channels;
     od->samplerate = (u32)(rate + 0.5);
     od->stable_id = str8_dup(stable_id, g_ca.alloc);
     atomic_store_explicit(&od->sinks, NULL, memory_order_relaxed);
     atomic_store_explicit(&od->garbage, NULL, memory_order_relaxed);
 
-    UInt32 enable = 1;
-    UInt32 disable = 0;
-    st = AudioUnitSetProperty(unit, kAudioOutputUnitProperty_EnableIO, kAudioUnitScope_Input, 1, &enable, sizeof enable);
-    if (st == noErr)
-        st = AudioUnitSetProperty(unit, kAudioOutputUnitProperty_EnableIO, kAudioUnitScope_Output, 0, &disable, sizeof disable);
-    if (st == noErr)
-        st = AudioUnitSetProperty(unit, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0, &id, sizeof id);
-    if (st != noErr)
-    {
-        mel_log_error("audioin", "coreaudio: AUHAL input configuration failed for %.*s (OSStatus %d)", (int)stable_id.len, stable_id.data, (i32)st);
-        od_teardown(od);
-        return MEL_AUDIOIN_ERROR | MEL_AUDIOIN_RESULT_UNSUPPORTED;
-    }
+    bool want_processing = opt.processing.echo_cancellation || opt.processing.noise_suppression || opt.processing.auto_gain;
+    bool vpio = false;
+    bool agc = false;
 
-    AudioStreamBasicDescription fmt = {
-        .mSampleRate = rate,
-        .mFormatID = kAudioFormatLinearPCM,
-        .mFormatFlags = kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked,
-        .mBytesPerPacket = (UInt32)(sizeof(f32) * channels),
-        .mFramesPerPacket = 1,
-        .mBytesPerFrame = (UInt32)(sizeof(f32) * channels),
-        .mChannelsPerFrame = channels,
-        .mBitsPerChannel = 32,
-    };
-    st = AudioUnitSetProperty(unit, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Output, 1, &fmt, sizeof fmt);
-    if (st != noErr)
+    AudioUnit unit = NULL;
+    OSStatus  st = noErr;
+    if (want_processing)
     {
-        mel_log_error("audioin", "coreaudio: client format rejected for %.*s (OSStatus %d, %u ch @ %u Hz f32 interleaved)", (int)stable_id.len, stable_id.data, (i32)st, channels, od->samplerate);
-        od_teardown(od);
-        return MEL_AUDIOIN_ERROR | MEL_AUDIOIN_RESULT_UNSUPPORTED;
+        st = od_unit_create(id, channels, rate, true, opt.processing.auto_gain, od, &unit, &agc);
+        if (st == noErr)
+            vpio = true;
+        else
+            mel_log_warn("audioin", "coreaudio: voice-processing unit failed for %.*s (OSStatus %d); capturing unprocessed", (int)stable_id.len, stable_id.data, (i32)st);
     }
-
-    AURenderCallbackStruct cb = { .inputProc = ca_input_proc, .inputProcRefCon = od };
-    st = AudioUnitSetProperty(unit, kAudioOutputUnitProperty_SetInputCallback, kAudioUnitScope_Global, 0, &cb, sizeof cb);
-    if (st == noErr)
-        st = AudioUnitInitialize(unit);
-    if (st != noErr)
+    if (!unit)
     {
-        mel_log_error("audioin", "coreaudio: AUHAL initialize failed for %.*s (OSStatus %d)", (int)stable_id.len, stable_id.data, (i32)st);
-        od_teardown(od);
-        return MEL_AUDIOIN_ERROR | MEL_AUDIOIN_RESULT_UNSUPPORTED;
+        st = od_unit_create(id, channels, rate, false, false, od, &unit, &agc);
+        if (st != noErr)
+        {
+            mel_log_error("audioin", "coreaudio: AUHAL input setup failed for %.*s (OSStatus %d)", (int)stable_id.len, stable_id.data, (i32)st);
+            pid_t owner = ca_hog_owner(id);
+            bool  busy = owner != -1 && owner != getpid();
+            od_teardown(od);
+            return MEL_AUDIOIN_ERROR | (busy ? MEL_AUDIOIN_RESULT_BUSY : MEL_AUDIOIN_RESULT_UNSUPPORTED);
+        }
+    }
+    od->unit = unit;
+    od->granted.processing.echo_cancellation = vpio;
+    od->granted.processing.noise_suppression = vpio;
+    od->granted.processing.auto_gain = agc;
+    od->granted.os_timestamps = true;
+
+    bool busy_contention = false;
+    if (opt.exclusive)
+    {
+        if (ca_hog_take(id))
+        {
+            od->hogged = true;
+            od->granted.exclusive = true;
+        }
+        else
+        {
+            pid_t owner = ca_hog_owner(id);
+            busy_contention = owner != -1 && owner != getpid();
+            mel_log_warn("audioin", "coreaudio: hog mode refused for %.*s (owner pid %d); exclusive lowered", (int)stable_id.len, stable_id.data, (int)owner);
+        }
     }
 
     UInt32 max_frames = 0;
@@ -675,20 +779,39 @@ static Mel_AudioIn_Status od_create(str8 stable_id, AudioDeviceID id, Mel_AudioI
     if (st != noErr)
     {
         mel_log_error("audioin", "coreaudio: AudioOutputUnitStart failed for %.*s (OSStatus %d)", (int)stable_id.len, stable_id.data, (i32)st);
+        pid_t owner = ca_hog_owner(id);
+        bool  busy = owner != -1 && owner != getpid();
         od_teardown(od);
-        return MEL_AUDIOIN_ERROR | MEL_AUDIOIN_RESULT_UNSUPPORTED;
+        return MEL_AUDIOIN_ERROR | (busy ? MEL_AUDIOIN_RESULT_BUSY : MEL_AUDIOIN_RESULT_UNSUPPORTED);
     }
 
     mel_array_push(&g_ca.opens, od);
-    mel_log_info("audioin", "coreaudio: capturing %.*s (%u ch @ %u Hz)", (int)stable_id.len, stable_id.data, channels, od->samplerate);
-    return MEL_AUDIOIN_OK;
+    mel_log_info("audioin", "coreaudio: capturing %.*s (%u ch @ %u Hz%s%s)", (int)stable_id.len, stable_id.data, channels, od->samplerate, vpio ? ", voice-processed" : "", od->granted.exclusive ? ", exclusive" : "");
+
+    *granted = od->granted;
+    bool lowered = (opt.processing.echo_cancellation && !od->granted.processing.echo_cancellation) || (opt.processing.noise_suppression && !od->granted.processing.noise_suppression) ||
+                   (opt.processing.auto_gain && !od->granted.processing.auto_gain) || (opt.exclusive && !od->granted.exclusive);
+    if (!lowered)
+        return MEL_AUDIOIN_OK;
+    return MEL_AUDIOIN_WARNED | (busy_contention ? MEL_AUDIOIN_RESULT_BUSY : 0u);
 }
 
-static Mel_AudioIn_Status ca_open(void* user, str8 stable_id, Mel_AudioIn_Sink sink)
+static bool granted_matches_opt(Mel_AudioIn_Open_Opt opt, Mel_AudioIn_Granted g)
+{
+    return opt.processing.echo_cancellation == g.processing.echo_cancellation && opt.processing.noise_suppression == g.processing.noise_suppression && opt.processing.auto_gain == g.processing.auto_gain && opt.exclusive == g.exclusive;
+}
+
+static Mel_AudioIn_Status ca_open(void* user, str8 stable_id, Mel_AudioIn_Sink sink, Mel_AudioIn_Open_Opt opt, Mel_AudioIn_Granted* granted)
 {
     MEL_UNUSED(user);
+    assert(granted != NULL);
+    Mel_AudioIn_Granted local;
+    if (!granted)
+        granted = &local;
+    memset(granted, 0, sizeof *granted);
+
     if (str8_equals(stable_id, MEL_AUDIOIN_CA_LOOPBACK_ID))
-        return mel_audioin__macos_loopback_open(g_ca.alloc, sink);
+        return mel_audioin__macos_loopback_open(g_ca.alloc, sink, opt, granted);
 
     Open_Device* od = ca_open_find(stable_id);
     if (od)
@@ -698,7 +821,16 @@ static Mel_AudioIn_Status ca_open(void* user, str8 stable_id, Mel_AudioIn_Sink s
             mel_log_error("audioin", "coreaudio: open %.*s: device lost", (int)stable_id.len, stable_id.data);
             return MEL_AUDIOIN_ERROR | MEL_AUDIOIN_RESULT_LOST;
         }
-        return od_sink_add(od, sink);
+        Mel_AudioIn_Status add = od_sink_add(od, sink);
+        if (mel_audioin_status_failed(add))
+            return add;
+        *granted = od->granted;
+        if (!granted_matches_opt(opt, od->granted))
+        {
+            mel_log_warn("audioin", "coreaudio: %.*s already open; requested options differ from the active configuration", (int)stable_id.len, stable_id.data);
+            return MEL_AUDIOIN_WARNED;
+        }
+        return MEL_AUDIOIN_OK;
     }
 
     AudioDeviceID id = ca_device_for(stable_id);
@@ -707,7 +839,7 @@ static Mel_AudioIn_Status ca_open(void* user, str8 stable_id, Mel_AudioIn_Sink s
         mel_log_error("audioin", "coreaudio: open %.*s: device not present", (int)stable_id.len, stable_id.data);
         return MEL_AUDIOIN_ERROR | MEL_AUDIOIN_RESULT_NO_DEVICE;
     }
-    return od_create(stable_id, id, sink);
+    return od_create(stable_id, id, sink, opt, granted);
 }
 
 static void ca_close(void* user, str8 stable_id, void* token)
@@ -870,6 +1002,8 @@ void mel_audioin__register_host_providers(void)
         .native = ca_native,
         .shutdown = ca_shutdown,
     };
+
+    mach_timebase_info(&g_ca_timebase);
 
     g_ca.alloc = mel_alloc_heap();
     mel_array_init(&g_ca.strings, g_ca.alloc);

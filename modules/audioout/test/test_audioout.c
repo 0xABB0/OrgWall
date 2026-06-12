@@ -24,6 +24,7 @@ typedef struct
     u32         channels;
     u32         samplerate;
     bool        volume_cap;
+    bool        mute_cap;
 } Mock_Device;
 
 typedef struct
@@ -55,7 +56,7 @@ static void mock_enumerate(void* user, Mel_AudioOut_Enum_Fn fn, void* fn_user)
             .samplerate = m->devices[i].samplerate,
             .samplerates = m->rates,
             .samplerate_count = 2,
-            .caps = { .volume = m->devices[i].volume_cap },
+            .caps = { .volume = m->devices[i].volume_cap, .mute = m->devices[i].mute_cap },
             .volume = m->volume,
             .muted = m->muted,
         };
@@ -127,8 +128,8 @@ static void mock_reset(Mock_State* m)
 static Mel_AudioOut_Provider install(void)
 {
     mock_reset(&mock1);
-    mock1.devices[0] = (Mock_Device){ "mock:speakers", "Speakers", 2, 48000, true };
-    mock1.devices[1] = (Mock_Device){ "mock:hdmi", "HDMI Out", 8, 48000, false };
+    mock1.devices[0] = (Mock_Device){ "mock:speakers", "Speakers", 2, 48000, true, true };
+    mock1.devices[1] = (Mock_Device){ "mock:hdmi", "HDMI Out", 8, 48000, false, false };
     mock1.count = 2;
     mel_audioout_init(mel_alloc_heap(), NULL);
     Mel_AudioOut_Provider p = mel_audioout_provider_register(&MOCK_DESC1);
@@ -170,7 +171,7 @@ MEL_TEST(audioout, reconciliation_keeps_surviving_handles)
     Mel_AudioOut spk = mel_audioout_find(S8("mock:speakers"));
     Mel_AudioOut hdmi = mel_audioout_find(S8("mock:hdmi"));
 
-    mock1.devices[1] = (Mock_Device){ "mock:usb-dac", "USB DAC", 2, 96000, true };
+    mock1.devices[1] = (Mock_Device){ "mock:usb-dac", "USB DAC", 2, 96000, true, true };
     mel_audioout_refresh();
 
     MEL_EXPECT_EQ(mel_audioout_count(), 2u);
@@ -257,14 +258,14 @@ MEL_TEST(audioout, external_volume_change_fires_changed)
 
     mock1.volume = 0.9f;
     mel_audioout_provider_notify(p);
-    MEL_EXPECT_EQ(tally.changed, 1u);
+    MEL_EXPECT_EQ(tally.changed, 2u);
 
     mock1.muted = true;
     mel_audioout_provider_notify(p);
-    MEL_EXPECT_EQ(tally.changed, 2u);
+    MEL_EXPECT_EQ(tally.changed, 4u);
 
     mel_audioout_provider_notify(p);
-    MEL_EXPECT_EQ(tally.changed, 2u);
+    MEL_EXPECT_EQ(tally.changed, 4u);
 
     mel_audioout_unsubscribe(sub);
     mel_audioout_shutdown();
@@ -275,7 +276,14 @@ typedef struct
     f32 fill;
     u32 frames_limit;
     u32 pulls;
+    u32 lost;
 } Pull_State;
+
+static void pull_on_lost(void* token)
+{
+    Pull_State* ps = token;
+    ps->lost++;
+}
 
 static u32 pull_constant(void* token, f32* dst, u32 frames)
 {
@@ -320,13 +328,15 @@ MEL_TEST(audioout, publish_negotiates_and_sums)
 
     Mel_AudioOut_Format req = { .samplerate = 44100, .channels = 1, .block_frames = 512 };
     Mel_AudioOut_Format granted = { 0 };
-    MEL_EXPECT(!mel_audioout_status_failed(mel_audioout__open(pub.device, req, &granted, pull_constant, &p1)));
+    Mel_AudioOut_Source s1 = { .pull = pull_constant, .on_lost = pull_on_lost, .token = &p1 };
+    Mel_AudioOut_Source s2 = { .pull = pull_constant, .on_lost = pull_on_lost, .token = &p2 };
+    MEL_EXPECT(!mel_audioout_status_failed(mel_audioout__open(pub.device, req, &granted, s1)));
     MEL_EXPECT_EQ(granted.samplerate, 48000u);
     MEL_EXPECT_EQ(granted.channels, 2u);
     MEL_EXPECT_EQ(granted.block_frames, 256u);
 
     Mel_AudioOut_Format granted2 = { 0 };
-    MEL_EXPECT(!mel_audioout_status_failed(mel_audioout__open(pub.device, req, &granted2, pull_constant, &p2)));
+    MEL_EXPECT(!mel_audioout_status_failed(mel_audioout__open(pub.device, req, &granted2, s2)));
 
     f32 dst[64 * 2];
     MEL_EXPECT_EQ(mel_audioout_publish_read(pub.published, dst, 64u), 0u);
@@ -347,14 +357,15 @@ MEL_TEST(audioout, publish_negotiates_and_sums)
     MEL_EXPECT_FLOAT_EQ(dst[0], 0.5f, 1e-6f);
 
     mel_audioout__close(pub.device, &p1);
-    mel_audioout__close(pub.device, &p2);
     got = mel_audioout_publish_read(pub.published, dst, 64u);
-    MEL_EXPECT_EQ(got, 0u);
+    MEL_EXPECT_EQ(got, 32u);
 
     mel_audioout_unpublish(pub.published);
     MEL_EXPECT_EQ(mel_audioout_count(), before);
     MEL_EXPECT_EQ(tally.removed, 1u);
     MEL_EXPECT(!mel_audioout_alive(pub.device));
+    MEL_EXPECT_EQ(p1.lost, 0u);
+    MEL_EXPECT_EQ(p2.lost, 1u);
 
     mel_audioout_shutdown();
 }
@@ -367,7 +378,8 @@ MEL_TEST(audioout, open_on_dead_handle_is_lost)
     Mel_AudioOut_Format granted = { 0 };
     Pull_State          ps = { .fill = 0.f, .frames_limit = 16u };
 
-    Mel_AudioOut_Status st = mel_audioout__open(ghost, req, &granted, pull_constant, &ps);
+    Mel_AudioOut_Source src = { .pull = pull_constant, .on_lost = pull_on_lost, .token = &ps };
+    Mel_AudioOut_Status st = mel_audioout__open(ghost, req, &granted, src);
     MEL_EXPECT(mel_audioout_status_failed(st));
     MEL_EXPECT(st & MEL_AUDIOOUT_RESULT_LOST);
 

@@ -623,8 +623,9 @@ void* mel_audioin_native(Mel_AudioIn d)
     return (pe && pe->desc.native) ? pe->desc.native(pe->desc.user, s->stable_id) : NULL;
 }
 
-Mel_AudioIn_Status mel_audioin__open(Mel_AudioIn d, Mel_AudioIn_Sink sink)
+Mel_AudioIn_Status mel_audioin__open(Mel_AudioIn d, Mel_AudioIn_Sink sink, Mel_AudioIn_Open_Opt opt, Mel_AudioIn_Granted* granted)
 {
+    assert(granted != NULL);
     Device_Slot* s = g.initialized ? device_slot(d.h) : NULL;
     if (!s)
     {
@@ -637,7 +638,7 @@ Mel_AudioIn_Status mel_audioin__open(Mel_AudioIn d, Mel_AudioIn_Sink sink)
         mel_log_error("audioin", "device %.*s has no open path", (int)s->name.len, s->name.data);
         return MEL_AUDIOIN_ERROR | MEL_AUDIOIN_RESULT_UNSUPPORTED;
     }
-    return pe->desc.open(pe->desc.user, s->stable_id, sink);
+    return pe->desc.open(pe->desc.user, s->stable_id, sink, opt, granted);
 }
 
 void mel_audioin__close(Mel_AudioIn d, void* token)

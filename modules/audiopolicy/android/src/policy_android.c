@@ -164,6 +164,7 @@ void mel_audiopolicy_android__on_focus_change(i32 change)
         ev.focus_gained = true;
         ev.interruption_ended = true;
         ev.should_resume = true;
+        ev.duck_ended = true;
     }
     else
     {

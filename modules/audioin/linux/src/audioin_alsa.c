@@ -48,6 +48,8 @@ typedef struct
     Mel_Thread        thread;
     bool              spawned;
     bool              overrun_warned;
+    bool              exclusive;
+    bool              os_timestamps;
     u64               xruns;
     _Atomic(u32)      running;
     _Atomic(u32)      lost;
@@ -375,6 +377,23 @@ static void alsa_engine_convert(Alsa_Engine* e, usize samples)
     }
 }
 
+static u64 alsa_engine_read_timestamp(Alsa_Engine* e, snd_pcm_uframes_t got)
+{
+    if (!e->os_timestamps)
+        return 0u;
+    snd_pcm_status_t* st = NULL;
+    snd_pcm_status_alloca(&st);
+    if (snd_pcm_status(e->pcm, st) < 0)
+        return 0u;
+    snd_htimestamp_t ht;
+    snd_pcm_status_get_htstamp(st, &ht);
+    if (ht.tv_sec == 0 && ht.tv_nsec == 0)
+        return 0u;
+    u64 now_ns = (u64)ht.tv_sec * 1000000000ull + (u64)ht.tv_nsec;
+    u64 back_ns = ((u64)snd_pcm_status_get_avail(st) + (u64)got) * 1000000000ull / e->samplerate;
+    return now_ns > back_ns ? now_ns - back_ns : 0u;
+}
+
 static int alsa_engine_reader(void* user)
 {
     Alsa_Engine* e = user;
@@ -409,11 +428,12 @@ static int alsa_engine_reader(void* user)
         e->overrun_warned = false;
         if (e->format != SND_PCM_FORMAT_FLOAT_LE)
             alsa_engine_convert(e, (usize)got * e->channels);
+        u64             ts = alsa_engine_read_timestamp(e, (snd_pcm_uframes_t)got);
         Alsa_Sink_List* sl = atomic_load_explicit(&e->sinks, memory_order_acquire);
         if (sl)
             for (u32 i = 0; i < sl->count; i++)
                 if (sl->sinks[i].on_frames)
-                    sl->sinks[i].on_frames(sl->sinks[i].token, e->samples, (u32)got, e->samplerate, e->channels);
+                    sl->sinks[i].on_frames(sl->sinks[i].token, e->samples, (u32)got, e->samplerate, e->channels, ts);
     }
     return 0;
 }
@@ -463,6 +483,13 @@ static int alsa_engine_configure(Alsa_Engine* e, const Alsa_Device* d)
     if (rc < 0)
         return rc;
 
+    snd_pcm_sw_params_t* sw = NULL;
+    snd_pcm_sw_params_alloca(&sw);
+    e->os_timestamps = snd_pcm_sw_params_current(e->pcm, sw) == 0 && snd_pcm_sw_params_set_tstamp_mode(e->pcm, sw, SND_PCM_TSTAMP_ENABLE) == 0 && snd_pcm_sw_params_set_tstamp_type(e->pcm, sw, SND_PCM_TSTAMP_TYPE_MONOTONIC) == 0 &&
+                       snd_pcm_sw_params(e->pcm, sw) == 0;
+    if (!e->os_timestamps)
+        mel_log_info("audioin", "alsa: monotonic capture timestamps unavailable on %.*s; frames carry timestamp 0", (int)d->stable_id.len, d->stable_id.data);
+
     e->channels = channels;
     e->samplerate = rate;
     e->period_frames = period;
@@ -500,9 +527,25 @@ static void alsa_engine_destroy(Alsa_Engine* e)
     mel_dealloc(g_alsa.alloc, e);
 }
 
-static Mel_AudioIn_Status alsa_open(void* user, str8 stable_id, Mel_AudioIn_Sink sink)
+static void alsa_grant(const Alsa_Engine* e, Mel_AudioIn_Open_Opt opt, Mel_AudioIn_Granted* granted)
+{
+    if (opt.processing.echo_cancellation || opt.processing.noise_suppression || opt.processing.auto_gain)
+        mel_log_warn("audioin", "alsa: capture processing (aec/ns/agc) requested on %.*s but ALSA has no processing surface; granted none", (int)e->stable_id.len, e->stable_id.data);
+    if (opt.exclusive && !e->exclusive)
+        mel_log_warn("audioin", "alsa: exclusive requested on %.*s but the default plug device shares via dsnoop/dmix; granted shared", (int)e->stable_id.len, e->stable_id.data);
+    if (granted)
+    {
+        granted->processing = (Mel_AudioIn_Processing){ 0 };
+        granted->exclusive = e->exclusive;
+        granted->os_timestamps = e->os_timestamps;
+    }
+}
+
+static Mel_AudioIn_Status alsa_open(void* user, str8 stable_id, Mel_AudioIn_Sink sink, Mel_AudioIn_Open_Opt opt, Mel_AudioIn_Granted* granted)
 {
     MEL_UNUSED(user);
+    if (granted)
+        *granted = (Mel_AudioIn_Granted){ 0 };
     Alsa_Engine* e = alsa_engine_find(stable_id);
     if (e)
     {
@@ -519,6 +562,7 @@ static Mel_AudioIn_Status alsa_open(void* user, str8 stable_id, Mel_AudioIn_Sink
         nl->sinks[count] = sink;
         nl->count = count + 1u;
         alsa_sinks_swap(e, nl);
+        alsa_grant(e, opt, granted);
         return MEL_AUDIOIN_OK;
     }
 
@@ -532,6 +576,7 @@ static Mel_AudioIn_Status alsa_open(void* user, str8 stable_id, Mel_AudioIn_Sink
     e = mel_alloc_type(g_alsa.alloc, Alsa_Engine);
     memset(e, 0, sizeof *e);
     e->stable_id = str8_dup(d->stable_id, g_alsa.alloc);
+    e->exclusive = !str8_equals(stable_id, S8("alsa:default"));
     mel_array_init(&e->garbage, g_alsa.alloc);
 
     const char* open_name = alsa_open_name(d->stable_id);
@@ -540,7 +585,7 @@ static Mel_AudioIn_Status alsa_open(void* user, str8 stable_id, Mel_AudioIn_Sink
     {
         mel_log_error("audioin", "alsa: snd_pcm_open(%s, CAPTURE) failed: %s", open_name, snd_strerror(rc));
         alsa_engine_destroy(e);
-        return MEL_AUDIOIN_ERROR | MEL_AUDIOIN_RESULT_NO_DEVICE;
+        return rc == -EBUSY ? (MEL_AUDIOIN_ERROR | MEL_AUDIOIN_RESULT_BUSY) : (MEL_AUDIOIN_ERROR | MEL_AUDIOIN_RESULT_NO_DEVICE);
     }
     rc = alsa_engine_configure(e, d);
     if (rc < 0)
@@ -579,7 +624,16 @@ static Mel_AudioIn_Status alsa_open(void* user, str8 stable_id, Mel_AudioIn_Sink
     }
     e->spawned = true;
     mel_array_push(&g_alsa.engines, e);
-    mel_log_info("audioin", "alsa: capture opened %s: %u ch @ %u Hz, period %u frames, fmt %s", open_name, e->channels, e->samplerate, (u32)e->period_frames, snd_pcm_format_name(e->format));
+    alsa_grant(e, opt, granted);
+    mel_log_info("audioin",
+                 "alsa: capture opened %s: %u ch @ %u Hz, period %u frames, fmt %s, %s, os_timestamps=%s",
+                 open_name,
+                 e->channels,
+                 e->samplerate,
+                 (u32)e->period_frames,
+                 snd_pcm_format_name(e->format),
+                 e->exclusive ? "exclusive" : "shared",
+                 e->os_timestamps ? "true" : "false");
     return MEL_AUDIOIN_OK;
 }
 

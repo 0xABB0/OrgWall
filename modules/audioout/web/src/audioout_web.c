@@ -25,9 +25,8 @@
 
 typedef struct
 {
-    void*                token;
-    Mel_AudioOut_Pull_Fn pull;
-    bool                 started;
+    Mel_AudioOut_Source src;
+    bool                started;
 } Web_Open;
 
 typedef struct
@@ -192,7 +191,7 @@ static void playback_opens_swap(Playback* p, Open_List* nl)
         mel_array_push(&p->garbage, old);
 }
 
-static bool playback_open_add(Playback* p, Mel_AudioOut_Pull_Fn pull, void* token)
+static bool playback_open_add(Playback* p, Mel_AudioOut_Source src)
 {
     Open_List* cur = atomic_load_explicit(&p->opens, memory_order_acquire);
     u32        count = cur ? cur->count : 0;
@@ -201,7 +200,7 @@ static bool playback_open_add(Playback* p, Mel_AudioOut_Pull_Fn pull, void* toke
         return false;
     for (u32 i = 0; i < count; i++)
         nl->opens[i] = cur->opens[i];
-    nl->opens[count] = (Web_Open){ .token = token, .pull = pull, .started = false };
+    nl->opens[count] = (Web_Open){ .src = src, .started = false };
     nl->count = count + 1u;
     playback_opens_swap(p, nl);
     return true;
@@ -235,7 +234,7 @@ static void playback_engine_sync(Playback* p)
     }
 }
 
-static void playback_destroy(Playback* p)
+static void playback_destroy(Playback* p, bool lost)
 {
     if (p->node > 0)
         emscripten_destroy_web_audio_node(p->node);
@@ -248,7 +247,13 @@ static void playback_destroy(Playback* p)
 
     Open_List* ol = atomic_exchange_explicit(&p->opens, NULL, memory_order_acq_rel);
     if (ol)
+    {
+        if (lost)
+            for (u32 i = 0; i < ol->count; i++)
+                if (ol->opens[i].src.on_lost)
+                    ol->opens[i].src.on_lost(ol->opens[i].src.token);
         mel_dealloc(g_out.alloc, ol);
+    }
     for (usize i = 0; i < p->garbage.count; i++)
         mel_dealloc(g_out.alloc, p->garbage.items[i]);
     mel_array_free(&p->garbage);
@@ -302,7 +307,7 @@ static bool playback_process(int num_inputs, const AudioSampleFrame* inputs, int
     {
         if (!ol->opens[i].started)
             continue;
-        u32 got = ol->opens[i].pull(ol->opens[i].token, p->scratch, frames);
+        u32 got = ol->opens[i].src.pull(ol->opens[i].src.token, p->scratch, frames);
         if (got > frames)
             got = frames;
         for (u32 ch = 0; ch < mix; ch++)
@@ -323,7 +328,7 @@ static void playback_processor_created(EMSCRIPTEN_WEBAUDIO_T context, bool succe
     if (!success)
     {
         mel_log_error("audioout", "web: AudioWorkletProcessor creation failed for %.*s; output lost", (int)p->stable_id.len, p->stable_id.data);
-        playback_destroy(p);
+        playback_destroy(p, true);
         return;
     }
 
@@ -337,7 +342,7 @@ static void playback_processor_created(EMSCRIPTEN_WEBAUDIO_T context, bool succe
     if (p->node <= 0)
     {
         mel_log_error("audioout", "web: AudioWorkletNode creation failed for %.*s; output lost", (int)p->stable_id.len, p->stable_id.data);
-        playback_destroy(p);
+        playback_destroy(p, true);
         return;
     }
     emscripten_audio_node_connect(p->node, context, 0, 0);
@@ -353,7 +358,7 @@ static void playback_worklet_ready(EMSCRIPTEN_WEBAUDIO_T context, bool success, 
     if (!success)
     {
         mel_log_error("audioout", "web: AudioWorklet thread creation failed for %.*s; output lost", (int)p->stable_id.len, p->stable_id.data);
-        playback_destroy(p);
+        playback_destroy(p, true);
         return;
     }
     WebAudioWorkletProcessorCreateOptions popts = {
@@ -373,7 +378,7 @@ EMSCRIPTEN_KEEPALIVE void mel_audioout_web__on_sink(unsigned id, int ok)
         return;
     }
     mel_log_error("audioout", "web: setSinkId rejected for %.*s (device gone or not allowed); output lost", (int)p->stable_id.len, p->stable_id.data);
-    playback_destroy(p);
+    playback_destroy(p, true);
 }
 
 static void devices_free(Device_Array* arr)
@@ -467,7 +472,7 @@ static void web_enumerate(void* user, Mel_AudioOut_Enum_Fn fn, void* fn_user)
             .samplerate = rate,
             .samplerates = rate > 0 ? &rate : NULL,
             .samplerate_count = rate > 0 ? 1u : 0u,
-            .caps = { .volume = false },
+            .caps = { .volume = false, .mute = false },
         };
         if (!fn(&raw, fn_user))
             break;
@@ -485,16 +490,16 @@ static str8 web_default_id(void* user)
     return g_out.devices.count > 0 ? g_out.devices.items[0].stable_id : STR8_EMPTY;
 }
 
-static Mel_AudioOut_Status web_open(void* user, str8 stable_id, Mel_AudioOut_Format req, Mel_AudioOut_Format* granted, Mel_AudioOut_Pull_Fn pull, void* token)
+static Mel_AudioOut_Status web_open(void* user, str8 stable_id, Mel_AudioOut_Format req, Mel_AudioOut_Format* granted, Mel_AudioOut_Source src)
 {
     MEL_UNUSED(user);
     assert(granted != NULL);
-    assert(pull != NULL);
+    assert(src.pull != NULL);
 
     Playback* existing = playback_find(stable_id);
     if (existing)
     {
-        if (!playback_open_add(existing, pull, token))
+        if (!playback_open_add(existing, src))
             return MEL_AUDIOOUT_ERROR | MEL_AUDIOOUT_RESULT_UNSUPPORTED;
         granted->samplerate = existing->samplerate;
         granted->channels = existing->channels;
@@ -554,11 +559,11 @@ static Mel_AudioOut_Status web_open(void* user, str8 stable_id, Mel_AudioOut_For
 
     p->scratch = mel_alloc(g_out.alloc, sizeof(f32) * (usize)p->quantum * p->channels);
     p->worklet_stack = mel_calloc(g_out.alloc, MEL_AUDIOOUT_WEB_WORKLET_STACK);
-    if (!p->scratch || !p->worklet_stack || !playback_open_add(p, pull, token))
+    if (!p->scratch || !p->worklet_stack || !playback_open_add(p, src))
     {
         mel_log_error("audioout", "web: playback allocation failed for %.*s", (int)stable_id.len, stable_id.data);
         mel_array_push(&g_out.playbacks, p);
-        playback_destroy(p);
+        playback_destroy(p, false);
         return MEL_AUDIOOUT_ERROR | MEL_AUDIOOUT_RESULT_UNSUPPORTED;
     }
     mel_array_push(&g_out.playbacks, p);
@@ -591,7 +596,7 @@ static void web_set_started(str8 stable_id, void* token, bool started)
     for (u32 i = 0; i < count; i++)
     {
         nl->opens[i] = cur->opens[i];
-        if (nl->opens[i].token == token)
+        if (nl->opens[i].src.token == token)
             nl->opens[i].started = started;
     }
     nl->count = count;
@@ -625,14 +630,14 @@ static void web_close(void* user, str8 stable_id, void* token)
         return;
     u32 kept = 0;
     for (u32 i = 0; i < count; i++)
-        if (cur->opens[i].token != token)
+        if (cur->opens[i].src.token != token)
             nl->opens[kept++] = cur->opens[i];
     nl->count = kept;
 
     if (kept == 0)
     {
         mel_dealloc(g_out.alloc, nl);
-        playback_destroy(p);
+        playback_destroy(p, false);
         return;
     }
     playback_opens_swap(p, nl);
@@ -650,7 +655,7 @@ static void web_shutdown(void* user, const Mel_Alloc* alloc)
     MEL_UNUSED(user);
     MEL_UNUSED(alloc);
     while (g_out.playbacks.count > 0)
-        playback_destroy(g_out.playbacks.items[g_out.playbacks.count - 1]);
+        playback_destroy(g_out.playbacks.items[g_out.playbacks.count - 1], true);
     devices_free(&g_out.devices);
     mel_array_free(&g_out.playbacks);
     audioout_web__js_shutdown();

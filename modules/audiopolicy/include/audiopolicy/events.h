@@ -23,6 +23,7 @@ typedef struct
     bool                                interruption_ended;
     bool                                should_resume;
     bool                                should_duck;
+    bool                                duck_ended;
     bool                                focus_lost;
     bool                                focus_gained;
     bool                                route_changed;

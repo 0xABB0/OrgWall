@@ -13,9 +13,8 @@
 
 typedef struct
 {
-    void*                token;
-    Mel_AudioOut_Pull_Fn pull;
-    bool                 started;
+    Mel_AudioOut_Source src;
+    bool                started;
 } Pub_Open;
 
 typedef struct
@@ -102,7 +101,7 @@ static void pub_enumerate(void* user, Mel_AudioOut_Enum_Fn fn, void* fn_user)
             .samplerate = p->samplerate,
             .samplerates = &p->samplerate,
             .samplerate_count = 1,
-            .caps = { .volume = false },
+            .caps = { .volume = false, .mute = false },
         };
         if (!fn(&raw, fn_user))
             return;
@@ -115,12 +114,12 @@ static str8 pub_default_id(void* user)
     return STR8_EMPTY;
 }
 
-static Mel_AudioOut_Status pub_open(void* user, str8 stable_id, Mel_AudioOut_Format req, Mel_AudioOut_Format* granted, Mel_AudioOut_Pull_Fn pull, void* token)
+static Mel_AudioOut_Status pub_open(void* user, str8 stable_id, Mel_AudioOut_Format req, Mel_AudioOut_Format* granted, Mel_AudioOut_Source src)
 {
     MEL_UNUSED(user);
     MEL_UNUSED(req);
     assert(granted != NULL);
-    assert(pull != NULL);
+    assert(src.pull != NULL);
     Pub_Slot* p = pub_find(stable_id);
     if (!p)
         return MEL_AUDIOOUT_ERROR | MEL_AUDIOOUT_RESULT_NO_DEVICE;
@@ -128,7 +127,7 @@ static Mel_AudioOut_Status pub_open(void* user, str8 stable_id, Mel_AudioOut_For
     Open_List* nl = pub_opens_clone(p, 1);
     if (!nl)
         return MEL_AUDIOOUT_ERROR | MEL_AUDIOOUT_RESULT_UNSUPPORTED;
-    nl->opens[nl->count] = (Pub_Open){ .token = token, .pull = pull, .started = false };
+    nl->opens[nl->count] = (Pub_Open){ .src = src, .started = false };
     nl->count++;
     pub_opens_swap(p, nl);
 
@@ -147,7 +146,7 @@ static void pub_set_started(str8 stable_id, void* token, bool started)
     if (!nl)
         return;
     for (u32 i = 0; i < nl->count; i++)
-        if (nl->opens[i].token == token)
+        if (nl->opens[i].src.token == token)
             nl->opens[i].started = started;
     pub_opens_swap(p, nl);
 }
@@ -178,17 +177,23 @@ static void pub_close(void* user, str8 stable_id, void* token)
         return;
     u32 kept = 0;
     for (u32 i = 0; i < cur->count; i++)
-        if (cur->opens[i].token != token)
+        if (cur->opens[i].src.token != token)
             nl->opens[kept++] = cur->opens[i];
     nl->count = kept;
     pub_opens_swap(p, nl);
 }
 
-static void pub_release(Pub_Slot* p)
+static void pub_release(Pub_Slot* p, bool lost)
 {
     Open_List* ol = atomic_exchange_explicit(&p->opens, NULL, memory_order_acq_rel);
     if (ol)
+    {
+        if (lost)
+            for (u32 i = 0; i < ol->count; i++)
+                if (ol->opens[i].src.on_lost)
+                    ol->opens[i].src.on_lost(ol->opens[i].src.token);
         mel_dealloc(p->alloc, ol);
+    }
     for (usize i = 0; i < p->garbage.count; i++)
         mel_dealloc(p->alloc, p->garbage.items[i]);
     mel_array_free(&p->garbage);
@@ -211,7 +216,7 @@ static void pub_provider_shutdown(void* user, const Mel_Alloc* alloc)
         if (!p)
             continue;
         mel_log_warn("audioout", "published output '%.*s' still live at shutdown; releasing", (int)p->name.len, p->name.data);
-        pub_release(p);
+        pub_release(p, true);
     }
     mel_array_free(&pg.order);
     mel_slotmap_free(&pg.pubs);
@@ -273,7 +278,7 @@ Mel_AudioOut_Publish_Result mel_audioout_publish(const Mel_Alloc* a, Mel_AudioOu
 
     if (!p->scratch)
     {
-        pub_release(p);
+        pub_release(p, false);
         r.status = MEL_AUDIOOUT_ERROR | MEL_AUDIOOUT_RESULT_UNSUPPORTED;
         return r;
     }
@@ -316,7 +321,7 @@ u32 mel_audioout_publish_read(Mel_AudioOut_Published pub, f32* interleaved_dst, 
     {
         if (!ol->opens[i].started)
             continue;
-        u32 got = ol->opens[i].pull(ol->opens[i].token, p->scratch, frames);
+        u32 got = ol->opens[i].src.pull(ol->opens[i].src.token, p->scratch, frames);
         if (got > frames)
             got = frames;
         for (usize sample = 0; sample < (usize)got * channels; sample++)
@@ -352,6 +357,6 @@ void mel_audioout_unpublish(Mel_AudioOut_Published pub)
         }
     }
     mel_slotmap_remove(&pg.pubs, pub.handle);
-    pub_release(p);
+    pub_release(p, true);
     mel_audioout_provider_notify(pg.provider);
 }

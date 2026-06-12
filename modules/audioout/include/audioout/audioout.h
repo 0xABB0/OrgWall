@@ -25,7 +25,9 @@ typedef u32 Mel_AudioOut_Status;
 #define MEL_AUDIOOUT_RESULT_LOST        (1u << 3)
 #define MEL_AUDIOOUT_RESULT_UNSUPPORTED (1u << 4)
 
-#define MEL_AUDIOOUT_WARN_LOCAL_ONLY    (1u << 5)
+#define MEL_AUDIOOUT_RESULT_BUSY        (1u << 5)
+
+#define MEL_AUDIOOUT_WARN_LOCAL_ONLY    (1u << 6)
 
 static inline bool mel_audioout_status_failed(Mel_AudioOut_Status s) { return (s & MEL_AUDIOOUT_SEVERITY_MASK) == MEL_AUDIOOUT_ERROR; }
 static inline bool mel_audioout_status_warned(Mel_AudioOut_Status s) { return (s & MEL_AUDIOOUT_SEVERITY_MASK) == MEL_AUDIOOUT_WARNED; }
@@ -51,6 +53,7 @@ const char* mel_audioout_kind_name(const mel_audioout_kind* k);
 typedef struct
 {
     bool volume;
+    bool mute;
 } Mel_AudioOut_Caps;
 
 typedef Mel_Array(u32) Mel_AudioOut_Rates;

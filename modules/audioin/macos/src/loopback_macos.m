@@ -40,7 +40,6 @@ static OSStatus lb_io_proc(AudioObjectID device, const AudioTimeStamp* now, cons
 {
     MEL_UNUSED(device);
     MEL_UNUSED(now);
-    MEL_UNUSED(input_time);
     MEL_UNUSED(output);
     MEL_UNUSED(output_time);
     MEL_UNUSED(user);
@@ -84,9 +83,12 @@ static OSStatus lb_io_proc(AudioObjectID device, const AudioTimeStamp* now, cons
 
     if (frames == 0 || !interleaved)
         return noErr;
+
+    u64 stamp = (input_time && (input_time->mFlags & kAudioTimeStampHostTimeValid)) ? mel_audioin__macos_host_ns(input_time->mHostTime) : 0;
+
     for (u32 i = 0; i < sl->count; i++)
         if (sl->sinks[i].on_frames)
-            sl->sinks[i].on_frames(sl->sinks[i].token, interleaved, frames, g_lb.samplerate, g_lb.channels);
+            sl->sinks[i].on_frames(sl->sinks[i].token, interleaved, frames, g_lb.samplerate, g_lb.channels, stamp);
     return noErr;
 }
 
@@ -130,10 +132,27 @@ static void lb_teardown(void)
     memset(&g_lb, 0, sizeof g_lb);
 }
 
-Mel_AudioIn_Status mel_audioin__macos_loopback_open(const Mel_Alloc* alloc, Mel_AudioIn_Sink sink)
+static Mel_AudioIn_Status lb_grant(Mel_AudioIn_Open_Opt opt, Mel_AudioIn_Granted* granted, Mel_AudioIn_Status ok_status)
+{
+    memset(granted, 0, sizeof *granted);
+    granted->os_timestamps = true;
+    if (opt.processing.echo_cancellation || opt.processing.noise_suppression || opt.processing.auto_gain || opt.exclusive)
+    {
+        mel_log_warn("audioin", "coreaudio: loopback supports neither processing nor exclusive; lowered");
+        return MEL_AUDIOIN_WARNED;
+    }
+    return ok_status;
+}
+
+Mel_AudioIn_Status mel_audioin__macos_loopback_open(const Mel_Alloc* alloc, Mel_AudioIn_Sink sink, Mel_AudioIn_Open_Opt opt, Mel_AudioIn_Granted* granted)
 {
     if (g_lb.running)
-        return lb_sink_add(sink);
+    {
+        Mel_AudioIn_Status add = lb_sink_add(sink);
+        if (mel_audioin_status_failed(add))
+            return add;
+        return lb_grant(opt, granted, MEL_AUDIOIN_OK);
+    }
 
     if (__builtin_available(macOS 14.2, *))
     {
@@ -243,7 +262,10 @@ Mel_AudioIn_Status mel_audioin__macos_loopback_open(const Mel_Alloc* alloc, Mel_
             }
 
             mel_log_info("audioin", "coreaudio: system loopback running (%u ch @ %u Hz)", g_lb.channels, g_lb.samplerate);
-            return lb_sink_add(sink);
+            Mel_AudioIn_Status add = lb_sink_add(sink);
+            if (mel_audioin_status_failed(add))
+                return add;
+            return lb_grant(opt, granted, MEL_AUDIOIN_OK);
         }
     }
 

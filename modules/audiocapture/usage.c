@@ -1,5 +1,6 @@
 #include <audiocapture/audiocapture.h>
 #include <audioin/audioin.h>
+#include <audioin/permission.h>
 
 #include <allocator/allocator.h>
 #include <executor/executor.h>

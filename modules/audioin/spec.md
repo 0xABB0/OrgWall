@@ -81,16 +81,26 @@ Mel_AudioIn_Provider_Desc {
     enumerate(fn, fn_user)           // calls fn per device; provider-interned str8s, valid
                                      // until next enumerate/shutdown; fn false = stop
     default_id() -> str8
-    open(stable_id, sink, token)     // begin pushing
+    open(stable_id, sink, opt, granted*)   // begin pushing; negotiate processing/exclusive
     close(stable_id, token)
     gain / set_gain(stable_id)
     authorization / authorize(sink)
     native(stable_id)
     shutdown(alloc)
 }
-Mel_AudioIn_Sink { on_frames(token, interleaved, frames, samplerate, channels),
+Mel_AudioIn_Sink { on_frames(token, interleaved, frames, samplerate, channels, timestamp_ns),
                    on_lost(token), on_auth(token, auth), token }
+Mel_AudioIn_Open_Opt { processing { echo_cancellation, noise_suppression, auto_gain }, exclusive }
+Mel_AudioIn_Granted  { processing, exclusive, os_timestamps }
 ```
+
+`open` negotiates: the provider answers what is actually in effect in
+`granted` — never the request echoed back. `timestamp_ns` is the OS-monotonic
+stamp of the batch's first frame, 0 when unknown; `granted.os_timestamps`
+says whether the provider stamps. The first open's options configure a shared
+device stream; later opens receive the actuals. The consumer bridge
+(`mel_audioin__open`/`__close` in `<audioin/provider.h>`) is how
+`audiocapture` reaches this plane by handle.
 
 The stream plane is push: the provider delivers native-format frames from its
 own thread/clock into the sink; the consumer core (`audiocapture`) owns the
@@ -124,8 +134,8 @@ fire on provider threads; hotplug marshals to the deliver executor;
 
 Stale handle: assert + `ERROR | LOST`. Unknown `find`: `MEL_AUDIOIN_NULL`.
 Zero devices enumerate as zero with a loud log — never a fabricated default.
-Caps violations: `ERROR | UNSUPPORTED`. `init` twice / `shutdown` without:
-asserts.
+Caps violations: `ERROR | UNSUPPORTED`. A device held exclusively elsewhere:
+`ERROR | BUSY`. `init` twice / `shutdown` without: asserts.
 
 ## Platform story (host provider + publish reach)
 

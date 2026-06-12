@@ -26,7 +26,9 @@ typedef u32 Mel_AudioIn_Status;
 #define MEL_AUDIOIN_RESULT_DENIED      (1u << 4)
 #define MEL_AUDIOIN_RESULT_UNSUPPORTED (1u << 5)
 
-#define MEL_AUDIOIN_WARN_LOCAL_ONLY    (1u << 6)
+#define MEL_AUDIOIN_RESULT_BUSY        (1u << 6)
+
+#define MEL_AUDIOIN_WARN_LOCAL_ONLY    (1u << 7)
 
 static inline bool mel_audioin_status_failed(Mel_AudioIn_Status s) { return (s & MEL_AUDIOIN_SEVERITY_MASK) == MEL_AUDIOIN_ERROR; }
 static inline bool mel_audioin_status_warned(Mel_AudioIn_Status s) { return (s & MEL_AUDIOIN_SEVERITY_MASK) == MEL_AUDIOIN_WARNED; }

@@ -70,6 +70,7 @@ Mel_AudioPolicy_Event {
     bool interruption_ended;
     bool should_resume;          // OS says resuming is appropriate
     bool should_duck;            // lower volume, keep playing
+    bool duck_ended;             // stop ducking
     bool focus_lost;
     bool focus_gained;
     bool route_changed;
@@ -78,7 +79,10 @@ Mel_AudioPolicy_Event {
 ```
 
 `subscribe(exec, cb, user)` marshals to the subscriber's executor; booleans
-compose (never an enum). Consumers react at their level: the `audio` engine
+compose (never an enum). The module observes its own stream: permanent
+`focus_lost` (without `interruption_began`) releases the held focus grant,
+`focus_gained` re-arms it — `focus_abandon` after a final loss is a no-op,
+not a misuse. Consumers react at their level: the `audio` engine
 observes interruptions itself (its device goes away — engine semantics live
 in `audio`'s spec); the *app* decides policy reactions (pause music on
 interruption, resume on `should_resume`, lower volume on `should_duck`).

@@ -284,7 +284,11 @@ static void policy_handle_secondary_audio(NSNotification* n)
         mel_audiopolicy__emit(&ev);
     }
     else
-        mel_log_debug("audiopolicy", "ios: secondary audio silence hint ended; the event stream carries no duck-end, app volume policy decides recovery");
+    {
+        mel_log_debug("audiopolicy", "ios: secondary audio silence hint ended; emitting duck_ended");
+        Mel_AudioPolicy_Event ev = { .duck_ended = true };
+        mel_audiopolicy__emit(&ev);
+    }
 }
 
 static void policy_startup(void)

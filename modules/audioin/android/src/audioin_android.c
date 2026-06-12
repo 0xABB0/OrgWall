@@ -18,9 +18,11 @@
 
 #include <aaudio/AAudio.h>
 
+#include <dlfcn.h>
 #include <pthread.h>
 #include <stdatomic.h>
 #include <string.h>
+#include <time.h>
 
 #define MEL_AUDIOIN_ANDROID_PERMISSION_REQUEST_CODE 0x4D41
 #define MEL_AUDIOIN_ANDROID_DEFAULT_SAMPLERATE      48000u
@@ -51,13 +53,16 @@ typedef struct
 
 typedef struct
 {
-    str8            stable_id;
-    i32             device_id;
-    AAudioStream*   stream;
-    u32             channels;
-    u32             samplerate;
-    pthread_mutex_t lock;
-    _Atomic(void*)  sinks;
+    str8                 stable_id;
+    i32                  device_id;
+    AAudioStream*        stream;
+    u32                  channels;
+    u32                  samplerate;
+    u64                  frames_delivered;
+    Mel_AudioIn_Open_Opt opt;
+    Mel_AudioIn_Granted  granted;
+    pthread_mutex_t      lock;
+    _Atomic(void*)       sinks;
     Mel_Array(void*) garbage;
     bool         lost_handled;
     bool         closing;
@@ -234,15 +239,26 @@ static void ain_reap(void)
 
 static aaudio_data_callback_result_t ain_stream_on_data(AAudioStream* stream, void* user, void* audio_data, int32_t num_frames)
 {
-    MEL_UNUSED(stream);
     AIn_Stream* st = (AIn_Stream*)user;
     if (num_frames <= 0)
         return AAUDIO_CALLBACK_RESULT_CONTINUE;
+
+    u64     ts = 0;
+    int64_t fpos = 0;
+    int64_t tns = 0;
+    if (st->samplerate > 0 && AAudioStream_getTimestamp(stream, CLOCK_MONOTONIC, &fpos, &tns) == AAUDIO_OK)
+    {
+        i64 t = tns + (((i64)st->frames_delivered - fpos) * 1000000000ll) / (i64)st->samplerate;
+        if (t > 0)
+            ts = (u64)t;
+    }
+
     Sink_List* sl = atomic_load_explicit(&st->sinks, memory_order_acquire);
     if (sl)
         for (u32 i = 0; i < sl->count; i++)
             if (sl->sinks[i].on_frames)
-                sl->sinks[i].on_frames(sl->sinks[i].token, (const f32*)audio_data, (u32)num_frames, st->samplerate, st->channels);
+                sl->sinks[i].on_frames(sl->sinks[i].token, (const f32*)audio_data, (u32)num_frames, st->samplerate, st->channels, ts);
+    st->frames_delivered += (u64)num_frames;
     return AAUDIO_CALLBACK_RESULT_CONTINUE;
 }
 
@@ -314,8 +330,20 @@ static bool ain_sink_add(AIn_Stream* st, Mel_AudioIn_Sink sink)
     return true;
 }
 
-static AIn_Stream* ain_stream_open(const AIn_Device* dev)
+static bool ain_opt_equal(Mel_AudioIn_Open_Opt a, Mel_AudioIn_Open_Opt b)
 {
+    return a.processing.echo_cancellation == b.processing.echo_cancellation && a.processing.noise_suppression == b.processing.noise_suppression && a.processing.auto_gain == b.processing.auto_gain && a.exclusive == b.exclusive;
+}
+
+static bool ain_result_busy(aaudio_result_t res) { return res == AAUDIO_ERROR_NO_FREE_HANDLES || res == AAUDIO_ERROR_UNAVAILABLE; }
+
+typedef void (*AIn_Set_Input_Preset_Fn)(AAudioStreamBuilder* builder, aaudio_input_preset_t preset);
+
+static AIn_Set_Input_Preset_Fn ain_set_input_preset_fn(void) { return (AIn_Set_Input_Preset_Fn)dlsym(RTLD_DEFAULT, "AAudioStreamBuilder_setInputPreset"); }
+
+static AIn_Stream* ain_stream_open(const AIn_Device* dev, Mel_AudioIn_Open_Opt opt, Mel_AudioIn_Status* fail_status)
+{
+    *fail_status = MEL_AUDIOIN_ERROR | MEL_AUDIOIN_RESULT_UNSUPPORTED;
     AIn_Stream* st = mel_alloc_type(g_ain.alloc, AIn_Stream);
     if (!st)
         return NULL;
@@ -340,9 +368,25 @@ static AIn_Stream* ain_stream_open(const AIn_Device* dev)
         return NULL;
     }
 
+    bool want_voice = opt.processing.echo_cancellation || opt.processing.noise_suppression;
+    bool preset_applied = false;
+    if (want_voice)
+    {
+        AIn_Set_Input_Preset_Fn set_preset = ain_set_input_preset_fn();
+        if (set_preset)
+        {
+            set_preset(builder, AAUDIO_INPUT_PRESET_VOICE_COMMUNICATION);
+            preset_applied = true;
+        }
+        else
+            mel_log_warn("audioin", "android: voice processing requested on %.*s but input presets need API 28; capturing unprocessed", (int)dev->stable_id.len, dev->stable_id.data);
+    }
+    if (opt.processing.auto_gain)
+        mel_log_warn("audioin", "android: auto_gain requested on %.*s; no queryable AGC surface, not granted", (int)dev->stable_id.len, dev->stable_id.data);
+
     AAudioStreamBuilder_setDirection(builder, AAUDIO_DIRECTION_INPUT);
     AAudioStreamBuilder_setDeviceId(builder, dev->device_id);
-    AAudioStreamBuilder_setSharingMode(builder, AAUDIO_SHARING_MODE_SHARED);
+    AAudioStreamBuilder_setSharingMode(builder, opt.exclusive ? AAUDIO_SHARING_MODE_EXCLUSIVE : AAUDIO_SHARING_MODE_SHARED);
     AAudioStreamBuilder_setPerformanceMode(builder, AAUDIO_PERFORMANCE_MODE_NONE);
     AAudioStreamBuilder_setFormat(builder, AAUDIO_FORMAT_PCM_FLOAT);
     AAudioStreamBuilder_setSampleRate(builder, (int32_t)dev->samplerate);
@@ -365,6 +409,8 @@ static AIn_Stream* ain_stream_open(const AIn_Device* dev)
     if (res != AAUDIO_OK || !stream)
     {
         mel_log_error("audioin", "android: input openStream failed for %.*s: %s", (int)dev->stable_id.len, dev->stable_id.data, AAudio_convertResultToText(res));
+        if (ain_result_busy(res))
+            *fail_status = MEL_AUDIOIN_ERROR | MEL_AUDIOIN_RESULT_BUSY;
         ain_stream_destroy(st);
         return NULL;
     }
@@ -379,6 +425,14 @@ static AIn_Stream* ain_stream_open(const AIn_Device* dev)
     st->stream = stream;
     st->samplerate = (u32)AAudioStream_getSampleRate(stream);
     st->channels = (u32)AAudioStream_getChannelCount(stream);
+    st->opt = opt;
+    st->granted = (Mel_AudioIn_Granted){
+        .processing = { .echo_cancellation = preset_applied, .noise_suppression = preset_applied, .auto_gain = false },
+        .exclusive = AAudioStream_getSharingMode(stream) == AAUDIO_SHARING_MODE_EXCLUSIVE,
+        .os_timestamps = true,
+    };
+    if (opt.exclusive && !st->granted.exclusive)
+        mel_log_warn("audioin", "android: exclusive requested on %.*s; granted shared", (int)dev->stable_id.len, dev->stable_id.data);
     return st;
 }
 
@@ -416,7 +470,7 @@ static str8 ain_default_id(void* user)
     return STR8_EMPTY;
 }
 
-static Mel_AudioIn_Status ain_open(void* user, str8 stable_id, Mel_AudioIn_Sink sink)
+static Mel_AudioIn_Status ain_open(void* user, str8 stable_id, Mel_AudioIn_Sink sink, Mel_AudioIn_Open_Opt opt, Mel_AudioIn_Granted* granted)
 {
     MEL_UNUSED(user);
     ain_reap();
@@ -432,6 +486,10 @@ static Mel_AudioIn_Status ain_open(void* user, str8 stable_id, Mel_AudioIn_Sink 
     {
         if (!ain_sink_add(st, sink))
             return MEL_AUDIOIN_ERROR | MEL_AUDIOIN_RESULT_LOST;
+        if (!ain_opt_equal(opt, st->opt))
+            mel_log_warn("audioin", "android: open options differ from the live stream on %.*s; first open's configuration applies", (int)stable_id.len, stable_id.data);
+        if (granted)
+            *granted = st->granted;
         return MEL_AUDIOIN_OK;
     }
 
@@ -442,9 +500,10 @@ static Mel_AudioIn_Status ain_open(void* user, str8 stable_id, Mel_AudioIn_Sink 
         return MEL_AUDIOIN_ERROR | MEL_AUDIOIN_RESULT_NO_DEVICE;
     }
 
-    st = ain_stream_open(dev);
+    Mel_AudioIn_Status fail_status = MEL_AUDIOIN_ERROR | MEL_AUDIOIN_RESULT_UNSUPPORTED;
+    st = ain_stream_open(dev, opt, &fail_status);
     if (!st)
-        return MEL_AUDIOIN_ERROR | MEL_AUDIOIN_RESULT_UNSUPPORTED;
+        return fail_status;
     if (!ain_sink_add(st, sink))
     {
         AAudioStream_close(st->stream);
@@ -462,7 +521,16 @@ static Mel_AudioIn_Status ain_open(void* user, str8 stable_id, Mel_AudioIn_Sink 
     }
 
     mel_array_push(&g_ain.streams, st);
-    mel_log_info("audioin", "android: input stream opened on %.*s (%u ch @ %u Hz)", (int)stable_id.len, stable_id.data, st->channels, st->samplerate);
+    if (granted)
+        *granted = st->granted;
+    mel_log_info("audioin",
+                 "android: input stream opened on %.*s (%u ch @ %u Hz, %s%s)",
+                 (int)stable_id.len,
+                 stable_id.data,
+                 st->channels,
+                 st->samplerate,
+                 st->granted.exclusive ? "exclusive" : "shared",
+                 st->granted.processing.echo_cancellation ? ", voice-processed" : "");
     return MEL_AUDIOIN_OK;
 }
 

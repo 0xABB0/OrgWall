@@ -1,18 +1,17 @@
 # audiocapture
 
-Microphone input as a pull stream. The OS capture thread writes f32 mono frames into a
-lock-free SPSC ring; the app reads with `mel_audiocapture_read` at its own cadence.
-Sibling of `audio` (which is playback-only) — deliberately tiny so consumers like a
-tuner depend on capture alone, not the mixer engine.
+Audio input as a pull stream, and nothing else: open a `Mel_AudioIn`, read
+interleaved f32 frames at your own cadence, close. Device identity,
+enumeration, consent, and gain live in `audioin`; this module never
+enumerates, never prompts.
 
-- Enumeration returns device ids; names come per-id as `str8` from a caller allocator.
-- `mel_audiocapture_open(alloc, device_id, opt)` — explicit sample rate and ring
-  capacity, mono f32. Returns NULL on failure (device gone, permission denied at the
-  OS level).
-- Permission: `mel_audiocapture_authorized()` / `mel_audiocapture_auth_determined()`;
-  opening an input triggers the system prompt when undetermined.
+Providers push native frames through `audioin`'s sink plane; this module
+rings them (`pcm` SPSC frame ring) and converts once (resample with
+one-sample streaming history, channel remix) — one conversion
+implementation for every provider, virtual ones included. Voice processing
+and exclusive access are negotiated through the provider open and reported
+back honestly in `granted`, with every refusal named in the open status.
+`read_ex` carries per-batch capture timestamps (OS stamps where the
+provider grants them, ring-arrival time otherwise). See `spec.md`.
 
-Platforms: macOS (CoreAudio HAL enumeration + AudioQueue input). Other platforms are
-owed — see todo.md.
-
-Dependencies: core, allocator, string.
+Dependencies: `core`, `allocator`, `audioin`, `pcm`, `time`, `log`.

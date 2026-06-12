@@ -42,9 +42,8 @@
 
 typedef struct
 {
-    void*                token;
-    Mel_AudioOut_Pull_Fn pull;
-    bool                 started;
+    Mel_AudioOut_Source src;
+    bool                started;
 } AOut_Open;
 
 typedef struct
@@ -278,7 +277,7 @@ static aaudio_data_callback_result_t aout_stream_on_data(AAudioStream* stream, v
             u32 chunk = frames - done;
             if (chunk > st->scratch_frames)
                 chunk = st->scratch_frames;
-            u32 got = ol->opens[i].pull(ol->opens[i].token, st->scratch, chunk);
+            u32 got = ol->opens[i].src.pull(ol->opens[i].src.token, st->scratch, chunk);
             if (got > chunk)
                 got = chunk;
             f32* dst = out + (usize)done * channels;
@@ -310,11 +309,12 @@ static void aout_stream_on_error(AAudioStream* stream, void* user, aaudio_result
         return;
 
     pthread_mutex_lock(&st->lock);
-    bool first = !st->lost_handled && !st->closing;
+    bool       first = !st->lost_handled && !st->closing;
+    Open_List* ol = NULL;
     st->lost_handled = true;
     if (first)
     {
-        Open_List* ol = atomic_exchange_explicit(&st->opens, NULL, memory_order_acq_rel);
+        ol = atomic_exchange_explicit(&st->opens, NULL, memory_order_acq_rel);
         if (ol)
             mel_array_push(&st->garbage, ol);
     }
@@ -322,6 +322,10 @@ static void aout_stream_on_error(AAudioStream* stream, void* user, aaudio_result
 
     if (!first)
         return;
+    if (ol)
+        for (u32 i = 0; i < ol->count; i++)
+            if (ol->opens[i].src.on_lost)
+                ol->opens[i].src.on_lost(ol->opens[i].src.token);
     st->reaper_spawned = mel_thread_spawn(&st->reaper, aout_stream_close_main, st, .name = "audioout-close");
     if (!st->reaper_spawned)
         mel_log_error("audioout", "android: failed to spawn close thread; stream closes at next provider call");
@@ -348,7 +352,7 @@ static void aout_opens_swap(AOut_Stream* st, Open_List* nl)
         mel_array_push(&st->garbage, cur);
 }
 
-static bool aout_open_add(AOut_Stream* st, Mel_AudioOut_Pull_Fn pull, void* token)
+static bool aout_open_add(AOut_Stream* st, Mel_AudioOut_Source src)
 {
     pthread_mutex_lock(&st->lock);
     if (st->lost_handled || st->closing)
@@ -362,15 +366,25 @@ static bool aout_open_add(AOut_Stream* st, Mel_AudioOut_Pull_Fn pull, void* toke
         pthread_mutex_unlock(&st->lock);
         return false;
     }
-    nl->opens[nl->count] = (AOut_Open){ .token = token, .pull = pull, .started = false };
+    nl->opens[nl->count] = (AOut_Open){ .src = src, .started = false };
     nl->count++;
     aout_opens_swap(st, nl);
     pthread_mutex_unlock(&st->lock);
     return true;
 }
 
-static AOut_Stream* aout_stream_open(const AOut_Device* dev)
+static Mel_AudioOut_Status aout_status_from_aaudio(aaudio_result_t res)
 {
+    if (res == AAUDIO_ERROR_NO_FREE_HANDLES || res == AAUDIO_ERROR_UNAVAILABLE)
+        return MEL_AUDIOOUT_ERROR | MEL_AUDIOOUT_RESULT_BUSY;
+    if (res == AAUDIO_ERROR_DISCONNECTED || res == AAUDIO_ERROR_INVALID_HANDLE)
+        return MEL_AUDIOOUT_ERROR | MEL_AUDIOOUT_RESULT_LOST;
+    return MEL_AUDIOOUT_ERROR | MEL_AUDIOOUT_RESULT_UNSUPPORTED;
+}
+
+static AOut_Stream* aout_stream_open(const AOut_Device* dev, Mel_AudioOut_Status* why)
+{
+    *why = MEL_AUDIOOUT_ERROR | MEL_AUDIOOUT_RESULT_UNSUPPORTED;
     AOut_Stream* st = mel_alloc_type(g_aout.alloc, AOut_Stream);
     if (!st)
         return NULL;
@@ -420,6 +434,7 @@ static AOut_Stream* aout_stream_open(const AOut_Device* dev)
     if (res != AAUDIO_OK || !stream)
     {
         mel_log_error("audioout", "android: output openStream failed for %.*s: %s", (int)dev->stable_id.len, dev->stable_id.data, AAudio_convertResultToText(res));
+        *why = aout_status_from_aaudio(res);
         aout_stream_destroy(st);
         return NULL;
     }
@@ -476,7 +491,7 @@ static void aout_enumerate(void* user, Mel_AudioOut_Enum_Fn fn, void* fn_user)
             .samplerate = d->samplerate,
             .samplerates = d->rates.items,
             .samplerate_count = (u32)d->rates.count,
-            .caps = { .volume = false },
+            .caps = { .volume = false, .mute = false },
         };
         if (!fn(&raw, fn_user))
             return;
@@ -492,11 +507,11 @@ static str8 aout_default_id(void* user)
     return STR8_EMPTY;
 }
 
-static Mel_AudioOut_Status aout_open(void* user, str8 stable_id, Mel_AudioOut_Format req, Mel_AudioOut_Format* granted, Mel_AudioOut_Pull_Fn pull, void* token)
+static Mel_AudioOut_Status aout_open(void* user, str8 stable_id, Mel_AudioOut_Format req, Mel_AudioOut_Format* granted, Mel_AudioOut_Source src)
 {
     MEL_UNUSED(user);
     assert(granted != NULL);
-    assert(pull != NULL);
+    assert(src.pull != NULL);
     aout_reap();
 
     AOut_Stream* st = aout_stream_find(stable_id);
@@ -509,13 +524,14 @@ static Mel_AudioOut_Status aout_open(void* user, str8 stable_id, Mel_AudioOut_Fo
             mel_log_error("audioout", "android: open unknown device %.*s", (int)stable_id.len, stable_id.data);
             return MEL_AUDIOOUT_ERROR | MEL_AUDIOOUT_RESULT_NO_DEVICE;
         }
-        st = aout_stream_open(dev);
+        Mel_AudioOut_Status why;
+        st = aout_stream_open(dev, &why);
         if (!st)
-            return MEL_AUDIOOUT_ERROR | MEL_AUDIOOUT_RESULT_UNSUPPORTED;
+            return why;
         fresh = true;
     }
 
-    if (!aout_open_add(st, pull, token))
+    if (!aout_open_add(st, src))
     {
         if (fresh)
         {
@@ -569,7 +585,7 @@ static void aout_set_started(str8 stable_id, void* token, bool started)
         return;
     }
     for (u32 i = 0; i < nl->count; i++)
-        if (nl->opens[i].token == token)
+        if (nl->opens[i].src.token == token)
             nl->opens[i].started = started;
     aout_opens_swap(st, nl);
     u32  active = aout_started_count(nl);
@@ -634,7 +650,7 @@ static void aout_close(void* user, str8 stable_id, void* token)
     }
     u32 kept = 0;
     for (u32 i = 0; i < count; i++)
-        if (cur->opens[i].token != token)
+        if (cur->opens[i].src.token != token)
             nl->opens[kept++] = cur->opens[i];
     nl->count = kept;
     aout_opens_swap(st, nl);
@@ -703,7 +719,12 @@ static void aout_shutdown(void* user, const Mel_Alloc* alloc)
         pthread_mutex_unlock(&st->lock);
 
         if (ol && ol->count > 0)
+        {
             mel_log_warn("audioout", "android: output stream on %.*s still open at shutdown; releasing", (int)st->stable_id.len, st->stable_id.data);
+            for (u32 j = 0; j < ol->count; j++)
+                if (ol->opens[j].src.on_lost)
+                    ol->opens[j].src.on_lost(ol->opens[j].src.token);
+        }
 
         AAudioStream_requestStop(st->stream);
         aaudio_result_t res = AAudioStream_close(st->stream);

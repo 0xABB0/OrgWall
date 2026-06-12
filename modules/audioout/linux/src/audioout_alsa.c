@@ -16,9 +16,8 @@
 
 typedef struct
 {
-    void*                token;
-    Mel_AudioOut_Pull_Fn pull;
-    bool                 started;
+    Mel_AudioOut_Source src;
+    bool                started;
 } Alsa_Open;
 
 typedef struct
@@ -249,6 +248,7 @@ static void alsa_probe_device(Alsa_Device* d)
     snd_mixer_elem_t* elem = NULL;
     snd_mixer_t*      m = alsa_mixer_open(d, &elem);
     d->caps.volume = m != NULL;
+    d->caps.mute = m != NULL && snd_mixer_selem_has_playback_switch(elem);
     if (m)
         snd_mixer_close(m);
 }
@@ -375,7 +375,7 @@ static void alsa_enumerate(void* user, Mel_AudioOut_Enum_Fn fn, void* fn_user)
             .samplerate_count = (u32)d->rates.count,
             .caps = d->caps,
         };
-        if (d->caps.volume)
+        if (d->caps.volume || d->caps.mute)
             alsa_volume_state(d, &raw.volume, &raw.muted);
         if (!fn(&raw, fn_user))
             return;
@@ -404,6 +404,18 @@ static Alsa_Open_List* alsa_opens_clone(Alsa_Engine* e, u32 extra)
         nl->opens[i] = cur->opens[i];
     nl->count = count;
     return nl;
+}
+
+static void alsa_engine_fire_lost(Alsa_Engine* e)
+{
+    if (atomic_exchange_explicit(&e->lost, 1u, memory_order_acq_rel) != 0u)
+        return;
+    Alsa_Open_List* ol = atomic_load_explicit(&e->opens, memory_order_acquire);
+    if (!ol)
+        return;
+    for (u32 i = 0; i < ol->count; i++)
+        if (ol->opens[i].src.on_lost)
+            ol->opens[i].src.on_lost(ol->opens[i].src.token);
 }
 
 static void alsa_engine_convert(Alsa_Engine* e, usize samples)
@@ -446,7 +458,7 @@ static int alsa_engine_writer(void* user)
             {
                 if (!ol->opens[i].started)
                     continue;
-                u32 got = ol->opens[i].pull(ol->opens[i].token, e->pull_scratch, frames);
+                u32 got = ol->opens[i].src.pull(ol->opens[i].src.token, e->pull_scratch, frames);
                 if (got > frames)
                     got = frames;
                 for (usize s = 0; s < (usize)got * channels; s++)
@@ -472,7 +484,7 @@ static int alsa_engine_writer(void* user)
                 if (rc < 0)
                 {
                     mel_log_error("audioout", "alsa: playback on %.*s unrecoverable: %s", (int)e->stable_id.len, e->stable_id.data, snd_strerror((int)written));
-                    atomic_store_explicit(&e->lost, 1u, memory_order_release);
+                    alsa_engine_fire_lost(e);
                     return 1;
                 }
                 e->xruns++;
@@ -580,12 +592,12 @@ static void alsa_engine_destroy(Alsa_Engine* e)
     mel_dealloc(g_alsa.alloc, e);
 }
 
-static Mel_AudioOut_Status alsa_out_open(void* user, str8 stable_id, Mel_AudioOut_Format req, Mel_AudioOut_Format* granted, Mel_AudioOut_Pull_Fn pull, void* token)
+static Mel_AudioOut_Status alsa_out_open(void* user, str8 stable_id, Mel_AudioOut_Format req, Mel_AudioOut_Format* granted, Mel_AudioOut_Source src)
 {
     MEL_UNUSED(user);
     MEL_UNUSED(req);
     assert(granted != NULL);
-    assert(pull != NULL);
+    assert(src.pull != NULL);
 
     Alsa_Engine* e = alsa_engine_find(stable_id);
     if (e)
@@ -596,7 +608,7 @@ static Mel_AudioOut_Status alsa_out_open(void* user, str8 stable_id, Mel_AudioOu
             return MEL_AUDIOOUT_ERROR | MEL_AUDIOOUT_RESULT_LOST;
         }
         Alsa_Open_List* nl = alsa_opens_clone(e, 1u);
-        nl->opens[nl->count] = (Alsa_Open){ .token = token, .pull = pull, .started = false };
+        nl->opens[nl->count] = (Alsa_Open){ .src = src, .started = false };
         nl->count++;
         alsa_opens_swap(e, nl);
         granted->samplerate = e->samplerate;
@@ -623,7 +635,7 @@ static Mel_AudioOut_Status alsa_out_open(void* user, str8 stable_id, Mel_AudioOu
     {
         mel_log_error("audioout", "alsa: snd_pcm_open(%s, PLAYBACK) failed: %s", open_name, snd_strerror(rc));
         alsa_engine_destroy(e);
-        return MEL_AUDIOOUT_ERROR | MEL_AUDIOOUT_RESULT_NO_DEVICE;
+        return MEL_AUDIOOUT_ERROR | (rc == -EBUSY ? MEL_AUDIOOUT_RESULT_BUSY : MEL_AUDIOOUT_RESULT_NO_DEVICE);
     }
     bool is_default = str8_equals(d->stable_id, S8("alsa:default"));
     rc = alsa_engine_configure(e, is_default ? 2u : d->channels, is_default ? 48000u : d->samplerate);
@@ -642,7 +654,7 @@ static Mel_AudioOut_Status alsa_out_open(void* user, str8 stable_id, Mel_AudioOu
 
     Alsa_Open_List* ol = mel_alloc(g_alsa.alloc, sizeof(Alsa_Open_List) + sizeof(Alsa_Open));
     ol->count = 1u;
-    ol->opens[0] = (Alsa_Open){ .token = token, .pull = pull, .started = false };
+    ol->opens[0] = (Alsa_Open){ .src = src, .started = false };
     atomic_store_explicit(&e->opens, ol, memory_order_release);
 
     rc = snd_pcm_prepare(e->pcm);
@@ -680,7 +692,7 @@ static void alsa_set_started(str8 stable_id, void* token, bool started)
     }
     Alsa_Open_List* nl = alsa_opens_clone(e, 0u);
     for (u32 i = 0; i < nl->count; i++)
-        if (nl->opens[i].token == token)
+        if (nl->opens[i].src.token == token)
             nl->opens[i].started = started;
     alsa_opens_swap(e, nl);
 }
@@ -710,7 +722,7 @@ static void alsa_out_close(void* user, str8 stable_id, void* token)
         Alsa_Open_List* nl = mel_alloc(g_alsa.alloc, sizeof(Alsa_Open_List) + sizeof(Alsa_Open) * (usize)count);
         u32             kept = 0u;
         for (u32 i = 0; i < count; i++)
-            if (cur->opens[i].token != token)
+            if (cur->opens[i].src.token != token)
                 nl->opens[kept++] = cur->opens[i];
         nl->count = kept;
         if (kept == 0u)
@@ -788,9 +800,9 @@ static bool alsa_out_muted(void* user, str8 stable_id)
 {
     MEL_UNUSED(user);
     Alsa_Device* d = alsa_device_find(stable_id);
-    if (!d || !d->caps.volume)
+    if (!d || !d->caps.mute)
     {
-        mel_log_error("audioout", "alsa: muted on device without playback volume: %.*s", (int)stable_id.len, stable_id.data);
+        mel_log_error("audioout", "alsa: muted on device without playback switch: %.*s", (int)stable_id.len, stable_id.data);
         return false;
     }
     snd_mixer_elem_t* elem = NULL;
@@ -817,9 +829,9 @@ static Mel_AudioOut_Status alsa_out_set_muted(void* user, str8 stable_id, bool m
 {
     MEL_UNUSED(user);
     Alsa_Device* d = alsa_device_find(stable_id);
-    if (!d || !d->caps.volume)
+    if (!d || !d->caps.mute)
     {
-        mel_log_error("audioout", "alsa: set_muted on device without playback volume: %.*s", (int)stable_id.len, stable_id.data);
+        mel_log_error("audioout", "alsa: set_muted on device without playback switch: %.*s", (int)stable_id.len, stable_id.data);
         return MEL_AUDIOOUT_ERROR | MEL_AUDIOOUT_RESULT_UNSUPPORTED;
     }
     snd_mixer_elem_t* elem = NULL;
@@ -835,7 +847,7 @@ static Mel_AudioOut_Status alsa_out_set_muted(void* user, str8 stable_id, bool m
     snd_mixer_close(m);
     if (rc < 0)
     {
-        mel_log_error("audioout", "alsa: setting mute failed for %.*s (no playback switch on the mixer element): %s", (int)stable_id.len, stable_id.data, snd_strerror(rc));
+        mel_log_error("audioout", "alsa: setting mute failed for %.*s: %s", (int)stable_id.len, stable_id.data, snd_strerror(rc));
         return MEL_AUDIOOUT_ERROR | MEL_AUDIOOUT_RESULT_UNSUPPORTED;
     }
     return MEL_AUDIOOUT_OK;

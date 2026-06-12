@@ -22,7 +22,10 @@ typedef struct
 {
     void*                token;
     Mel_AudioOut_Pull_Fn pull;
-    bool                 started;
+    void (*on_lost)(void* token);
+    str8 stable_id;
+    bool started;
+    bool lost;
 } Ios_Open;
 
 typedef struct
@@ -157,7 +160,7 @@ static void ios_enumerate(void* user, Mel_AudioOut_Enum_Fn fn, void* fn_user)
                 .samplerate = rate,
                 .samplerates = &rate,
                 .samplerate_count = 1,
-                .caps = { .volume = false },
+                .caps = { .volume = false, .mute = false },
                 .volume = volume,
                 .muted = false,
             };
@@ -274,16 +277,79 @@ static void ios_config_changed(void)
 {
     @autoreleasepool
     {
+        Mel_Array(Ios_Open) fired;
+        mel_array_init(&fired, g_ios.alloc);
         pthread_mutex_lock(&g_ios_lock);
         if (g_ios_engine != nil && ios_started_count() > 0)
         {
             NSError* err = nil;
             if (![g_ios_engine startAndReturnError:&err])
-                mel_log_error("audioout", "ios: engine restart after configuration change failed: %s; output is silent until the next start", ios_errstr(err));
+            {
+                mel_log_error("audioout", "ios: engine restart after configuration change failed: %s; signalling lost to all streams", ios_errstr(err));
+                Open_List* nl = ios_opens_clone(0);
+                if (nl == NULL)
+                    mel_log_error("audioout", "ios: open list allocation failed after restart failure; loss signal not delivered");
+                else
+                {
+                    for (u32 i = 0; i < nl->count; i++)
+                    {
+                        Ios_Open* o = &nl->opens[i];
+                        if (o->lost)
+                            continue;
+                        o->lost = true;
+                        if (o->on_lost != NULL)
+                            mel_array_push(&fired, *o);
+                    }
+                    ios_opens_swap(nl);
+                }
+            }
             else
                 mel_log_info("audioout", "ios: engine restarted after configuration change");
         }
         pthread_mutex_unlock(&g_ios_lock);
+        for (usize i = 0; i < fired.count; i++)
+            fired.items[i].on_lost(fired.items[i].token);
+        mel_array_free(&fired);
+    }
+}
+
+static void ios_route_changed(void)
+{
+    mel_audioout_provider_notify(g_ios.provider);
+    @autoreleasepool
+    {
+        Mel_Array(Ios_Open) fired;
+        mel_array_init(&fired, g_ios.alloc);
+        pthread_mutex_lock(&g_ios_lock);
+        Open_List* cur = atomic_load_explicit(&g_ios.opens, memory_order_acquire);
+        bool       stale = false;
+        if (cur != NULL)
+            for (u32 i = 0; i < cur->count && !stale; i++)
+                stale = !cur->opens[i].lost && ios_route_port_for(cur->opens[i].stable_id) == nil;
+        if (stale)
+        {
+            Open_List* nl = ios_opens_clone(0);
+            if (nl == NULL)
+                mel_log_error("audioout", "ios: open list allocation failed on route change; loss signal not delivered");
+            else
+            {
+                for (u32 i = 0; i < nl->count; i++)
+                {
+                    Ios_Open* o = &nl->opens[i];
+                    if (o->lost || ios_route_port_for(o->stable_id) != nil)
+                        continue;
+                    o->lost = true;
+                    mel_log_warn("audioout", "ios: output %.*s left the route; signalling lost to its stream", (int)o->stable_id.len, o->stable_id.data);
+                    if (o->on_lost != NULL)
+                        mel_array_push(&fired, *o);
+                }
+                ios_opens_swap(nl);
+            }
+        }
+        pthread_mutex_unlock(&g_ios_lock);
+        for (usize i = 0; i < fired.count; i++)
+            fired.items[i].on_lost(fired.items[i].token);
+        mel_array_free(&fired);
     }
 }
 
@@ -304,7 +370,12 @@ static void ios_engine_teardown(void)
     }
     Open_List* ol = atomic_exchange_explicit(&g_ios.opens, NULL, memory_order_acq_rel);
     if (ol != NULL)
+    {
+        for (u32 i = 0; i < ol->count; i++)
+            if (ol->opens[i].stable_id.data != NULL)
+                mel_dealloc(g_ios.alloc, ol->opens[i].stable_id.data);
         mel_dealloc(g_ios.alloc, ol);
+    }
     for (usize i = 0; i < g_ios.garbage.count; i++)
         mel_dealloc(g_ios.alloc, g_ios.garbage.items[i]);
     mel_array_clear(&g_ios.garbage);
@@ -410,11 +481,11 @@ static void ios_engine_run_state(void)
     }
 }
 
-static Mel_AudioOut_Status ios_open(void* user, str8 stable_id, Mel_AudioOut_Format req, Mel_AudioOut_Format* granted, Mel_AudioOut_Pull_Fn pull, void* token)
+static Mel_AudioOut_Status ios_open(void* user, str8 stable_id, Mel_AudioOut_Format req, Mel_AudioOut_Format* granted, Mel_AudioOut_Source src)
 {
     MEL_UNUSED(user);
     assert(granted != NULL);
-    assert(pull != NULL);
+    assert(src.pull != NULL);
     @autoreleasepool
     {
         pthread_mutex_lock(&g_ios_lock);
@@ -444,7 +515,14 @@ static Mel_AudioOut_Status ios_open(void* user, str8 stable_id, Mel_AudioOut_For
                 }
                 else
                 {
-                    nl->opens[nl->count] = (Ios_Open){ .token = token, .pull = pull, .started = false };
+                    nl->opens[nl->count] = (Ios_Open){
+                        .token = src.token,
+                        .pull = src.pull,
+                        .on_lost = src.on_lost,
+                        .stable_id = str8_dup(stable_id, g_ios.alloc),
+                        .started = false,
+                        .lost = false,
+                    };
                     nl->count++;
                     ios_opens_swap(nl);
                     granted->samplerate = g_ios.samplerate;
@@ -531,10 +609,15 @@ static void ios_close(void* user, str8 stable_id, void* token)
                 mel_log_error("audioout", "ios: open list allocation failed on close; stream stays attached");
             else
             {
-                u32 kept = 0;
+                u32  kept = 0;
+                str8 removed = STR8_EMPTY;
                 for (u32 i = 0; i < cur->count; i++)
+                {
                     if (cur->opens[i].token != token)
                         nl->opens[kept++] = cur->opens[i];
+                    else
+                        removed = cur->opens[i].stable_id;
+                }
                 if (kept == cur->count)
                 {
                     mel_dealloc(g_ios.alloc, nl);
@@ -544,6 +627,8 @@ static void ios_close(void* user, str8 stable_id, void* token)
                 {
                     nl->count = kept;
                     ios_opens_swap(nl);
+                    if (removed.data != NULL)
+                        mel_dealloc(g_ios.alloc, removed.data);
                     if (kept == 0)
                     {
                         ios_engine_teardown();
@@ -632,7 +717,7 @@ void mel_audioout__register_host_providers(void)
                                                                                   queue:nil
                                                                              usingBlock:^(NSNotification* n) {
                                                                                  MEL_UNUSED(n);
-                                                                                 mel_audioout_provider_notify(g_ios.provider);
+                                                                                 ios_route_changed();
                                                                              }];
         g_ios_volume_observer = [[MelAudioOutIosVolumeObserver alloc] init];
         [session addObserver:g_ios_volume_observer forKeyPath:@"outputVolume" options:NSKeyValueObservingOptionNew context:NULL];

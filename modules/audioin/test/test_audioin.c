@@ -404,8 +404,9 @@ typedef struct
     int id;
 } Consume_State;
 
-static void consume_on_frames(void* token, const f32* interleaved, u32 frames, u32 samplerate, u32 channels)
+static void consume_on_frames(void* token, const f32* interleaved, u32 frames, u32 samplerate, u32 channels, u64 timestamp_ns)
 {
+    MEL_UNUSED(timestamp_ns);
     Consume_State* c = token;
     if (c->frames == 0 && frames > 0)
         c->first_sample = interleaved[0];
@@ -456,9 +457,14 @@ MEL_TEST(audioin, publish_lifecycle)
         block[i] = 0.25f;
     MEL_EXPECT_EQ(mel_audioin_publish_feed(pub.published, block, 64u), 64u);
 
-    Consume_State    consumer = { 0 };
-    Mel_AudioIn_Sink sink = { .on_frames = consume_on_frames, .on_lost = consume_on_lost, .token = &consumer };
-    MEL_EXPECT(!mel_audioin_status_failed(mel_audioin__open(pub.device, sink)));
+    Consume_State       consumer = { 0 };
+    Mel_AudioIn_Sink    sink = { .on_frames = consume_on_frames, .on_lost = consume_on_lost, .token = &consumer };
+    Mel_AudioIn_Granted granted = { 0 };
+    Mel_AudioIn_Open_Opt want = { .processing = { .echo_cancellation = true }, .exclusive = true };
+    MEL_EXPECT(!mel_audioin_status_failed(mel_audioin__open(pub.device, sink, want, &granted)));
+    MEL_EXPECT(!granted.processing.echo_cancellation);
+    MEL_EXPECT(!granted.exclusive);
+    MEL_EXPECT(!granted.os_timestamps);
 
     MEL_EXPECT_EQ(mel_audioin_publish_feed(pub.published, block, 32u), 32u);
     MEL_EXPECT_EQ(consumer.frames, 96u);
@@ -513,10 +519,12 @@ MEL_TEST(audioin, multiple_opens_multiplex_by_token)
 
     Consume_State    c1 = { .id = 1 };
     Consume_State    c2 = { .id = 2 };
-    Mel_AudioIn_Sink s1 = { .on_frames = consume_on_frames, .on_lost = consume_on_lost, .token = &c1 };
-    Mel_AudioIn_Sink s2 = { .on_frames = consume_on_frames, .on_lost = consume_on_lost, .token = &c2 };
-    MEL_EXPECT(!mel_audioin_status_failed(mel_audioin__open(pub.device, s1)));
-    MEL_EXPECT(!mel_audioin_status_failed(mel_audioin__open(pub.device, s2)));
+    Mel_AudioIn_Sink    s1 = { .on_frames = consume_on_frames, .on_lost = consume_on_lost, .token = &c1 };
+    Mel_AudioIn_Sink    s2 = { .on_frames = consume_on_frames, .on_lost = consume_on_lost, .token = &c2 };
+    Mel_AudioIn_Granted g1 = { 0 };
+    Mel_AudioIn_Granted g2 = { 0 };
+    MEL_EXPECT(!mel_audioin_status_failed(mel_audioin__open(pub.device, s1, (Mel_AudioIn_Open_Opt){ 0 }, &g1)));
+    MEL_EXPECT(!mel_audioin_status_failed(mel_audioin__open(pub.device, s2, (Mel_AudioIn_Open_Opt){ 0 }, &g2)));
 
     f32 block[10] = { 0 };
     mel_audioin_publish_feed(pub.published, block, 10u);

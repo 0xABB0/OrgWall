@@ -6,6 +6,7 @@
 #include <string/str8.h>
 #include <log/log.h>
 
+#include <mach/mach_time.h>
 #include <pthread.h>
 #include <stdatomic.h>
 #include <string.h>
@@ -30,13 +31,15 @@ typedef struct
     str8           active_id;
     _Atomic(void*) sinks;
     Mel_Array(void*) garbage;
-    f32* interleave;
-    u32  interleave_cap;
-    bool tap_complained;
+    f32*                interleave;
+    u32                 interleave_cap;
+    bool                tap_complained;
+    Mel_AudioIn_Granted granted_active;
 } Ios_State;
 
-static Ios_State       g_ios;
-static pthread_mutex_t g_ios_lock = PTHREAD_MUTEX_INITIALIZER;
+static Ios_State                 g_ios;
+static pthread_mutex_t           g_ios_lock = PTHREAD_MUTEX_INITIALIZER;
+static mach_timebase_info_data_t g_ios_timebase;
 
 static AVAudioEngine*                           g_ios_engine;
 static NSArray<AVAudioSessionPortDescription*>* g_ios_ports;
@@ -46,6 +49,13 @@ static id                                       g_ios_config_observer;
 static const char* ios_nscstr(NSString* s) { return s != nil && s.UTF8String != NULL ? s.UTF8String : ""; }
 
 static const char* ios_errstr(NSError* err) { return err != nil ? ios_nscstr(err.localizedDescription) : "unknown"; }
+
+static u64 ios_host_to_ns(u64 host)
+{
+    if (g_ios_timebase.denom == 0)
+        return 0;
+    return (u64)(((__uint128_t)host * g_ios_timebase.numer) / g_ios_timebase.denom);
+}
 
 static void ios_intern_clear(void)
 {
@@ -211,7 +221,7 @@ static u32 ios_sink_remove(void* token)
     return kept;
 }
 
-static void ios_deliver(AVAudioPCMBuffer* buf)
+static void ios_deliver(AVAudioPCMBuffer* buf, u64 timestamp_ns)
 {
     Sink_List* sl = atomic_load_explicit(&g_ios.sinks, memory_order_acquire);
     if (sl == NULL || sl->count == 0)
@@ -260,7 +270,7 @@ static void ios_deliver(AVAudioPCMBuffer* buf)
     }
     for (u32 i = 0; i < sl->count; i++)
         if (sl->sinks[i].on_frames != NULL)
-            sl->sinks[i].on_frames(sl->sinks[i].token, interleaved, frames, samplerate, channels);
+            sl->sinks[i].on_frames(sl->sinks[i].token, interleaved, frames, samplerate, channels, timestamp_ns);
 }
 
 static void ios_install_tap(void)
@@ -271,8 +281,8 @@ static void ios_install_tap(void)
                 bufferSize:MEL_AUDIOIN_IOS_TAP_FRAMES
                     format:fmt
                      block:^(AVAudioPCMBuffer* buffer, AVAudioTime* when) {
-                         MEL_UNUSED(when);
-                         ios_deliver(buffer);
+                         u64 ts = (when != nil && when.hostTimeValid) ? ios_host_to_ns(when.hostTime) : 0;
+                         ios_deliver(buffer, ts);
                      }];
 }
 
@@ -304,6 +314,7 @@ static Sink_List* ios_engine_detach(void)
         mel_dealloc(g_ios.alloc, g_ios.active_id.data);
         g_ios.active_id = STR8_EMPTY;
     }
+    g_ios.granted_active = (Mel_AudioIn_Granted){ 0 };
     return sl;
 }
 
@@ -350,7 +361,7 @@ static void ios_config_changed(void)
     }
 }
 
-static Mel_AudioIn_Status ios_engine_start(AVAudioSessionPortDescription* port, str8 stable_id)
+static Mel_AudioIn_Status ios_engine_start(AVAudioSessionPortDescription* port, str8 stable_id, Mel_AudioIn_Open_Opt opt)
 {
     AVAudioSession* session = [AVAudioSession sharedInstance];
     NSError*        err = nil;
@@ -367,8 +378,9 @@ static Mel_AudioIn_Status ios_engine_start(AVAudioSessionPortDescription* port, 
     }
     if (![session setActive:YES error:&err])
     {
-        mel_log_error("audioin", "ios: session activation failed: %s", ios_errstr(err));
-        return MEL_AUDIOIN_ERROR | MEL_AUDIOIN_RESULT_UNSUPPORTED;
+        bool busy = err != nil && (err.code == AVAudioSessionErrorCodeInsufficientPriority || err.code == AVAudioSessionErrorCodeIsBusy);
+        mel_log_error("audioin", "ios: session activation failed: %s%s", ios_errstr(err), busy ? " (another app holds the audio session)" : "");
+        return MEL_AUDIOIN_ERROR | (busy ? MEL_AUDIOIN_RESULT_BUSY : MEL_AUDIOIN_RESULT_UNSUPPORTED);
     }
     NSString* current_uid = session.currentRoute.inputs.firstObject.UID;
     if (current_uid == nil || ![current_uid isEqualToString:port.UID])
@@ -381,9 +393,28 @@ static Mel_AudioIn_Status ios_engine_start(AVAudioSessionPortDescription* port, 
     }
 
     g_ios_engine = [[AVAudioEngine alloc] init];
-    AVAudioInputNode* input = g_ios_engine.inputNode;
-    AVAudioFormat*    fmt = [input outputFormatForBus:0];
-    u32               channels = (u32)fmt.channelCount;
+    AVAudioInputNode*   input = g_ios_engine.inputNode;
+    Mel_AudioIn_Granted granted = { .os_timestamps = true };
+    bool                want_vp = opt.processing.echo_cancellation || opt.processing.noise_suppression || opt.processing.auto_gain;
+    if (want_vp)
+    {
+        NSError* vperr = nil;
+        if ([input setVoiceProcessingEnabled:YES error:&vperr])
+        {
+            granted.processing = (Mel_AudioIn_Processing){ .echo_cancellation = true, .noise_suppression = true, .auto_gain = true };
+            mel_log_info("audioin",
+                         "ios: voice processing enabled (requested aec=%d ns=%d agc=%d); Apple's stack bundles AEC+NS+AGC, all three in effect",
+                         opt.processing.echo_cancellation,
+                         opt.processing.noise_suppression,
+                         opt.processing.auto_gain);
+        }
+        else
+            mel_log_warn("audioin", "ios: setVoiceProcessingEnabled failed: %s; capturing unprocessed", ios_errstr(vperr));
+    }
+    if (opt.exclusive)
+        mel_log_warn("audioin", "ios: exclusive capture requested but iOS has no exclusive-access surface; capture is shared");
+    AVAudioFormat* fmt = [input outputFormatForBus:0];
+    u32            channels = (u32)fmt.channelCount;
     if (channels == 0)
     {
         mel_log_error("audioin", "ios: input node reports zero channels; cannot capture");
@@ -419,17 +450,28 @@ static Mel_AudioIn_Status ios_engine_start(AVAudioSessionPortDescription* port, 
                                                                               ios_config_changed();
                                                                           }];
     g_ios.active_id = str8_dup(stable_id, g_ios.alloc);
+    g_ios.granted_active = granted;
     mel_log_info("audioin", "ios: capture engine started on %.*s (%u ch @ %u Hz)", (int)stable_id.len, stable_id.data, channels, (u32)(fmt.sampleRate + 0.5));
     return MEL_AUDIOIN_OK;
 }
 
-static Mel_AudioIn_Status ios_open(void* user, str8 stable_id, Mel_AudioIn_Sink sink)
+static bool ios_opt_differs(Mel_AudioIn_Open_Opt opt, Mel_AudioIn_Granted actual)
+{
+    return opt.processing.echo_cancellation != actual.processing.echo_cancellation || opt.processing.noise_suppression != actual.processing.noise_suppression || opt.processing.auto_gain != actual.processing.auto_gain ||
+           opt.exclusive != actual.exclusive;
+}
+
+static Mel_AudioIn_Status ios_open(void* user, str8 stable_id, Mel_AudioIn_Sink sink, Mel_AudioIn_Open_Opt opt, Mel_AudioIn_Granted* granted)
 {
     MEL_UNUSED(user);
+    assert(granted != NULL);
+    if (granted != NULL)
+        *granted = (Mel_AudioIn_Granted){ 0 };
     @autoreleasepool
     {
         pthread_mutex_lock(&g_ios_lock);
         Mel_AudioIn_Status st = MEL_AUDIOIN_OK;
+        bool               was_running = g_ios_engine != nil;
         if (g_ios_engine != nil && !str8_equals(g_ios.active_id, stable_id))
         {
             mel_log_error("audioin", "ios: capture already active on %.*s; iOS has a single input route, cannot also open %.*s", (int)g_ios.active_id.len, g_ios.active_id.data, (int)stable_id.len, stable_id.data);
@@ -453,15 +495,30 @@ static Mel_AudioIn_Status ios_open(void* user, str8 stable_id, Mel_AudioIn_Sink 
                         st = MEL_AUDIOIN_ERROR | MEL_AUDIOIN_RESULT_NO_DEVICE;
                     }
                     else
-                        st = ios_engine_start(port, stable_id);
+                        st = ios_engine_start(port, stable_id, opt);
                 }
             }
             if (!mel_audioin_status_failed(st))
             {
+                if (was_running && ios_opt_differs(opt, g_ios.granted_active))
+                    mel_log_warn("audioin",
+                                 "ios: open on %.*s requested aec=%d ns=%d agc=%d exclusive=%d but shared engine is configured aec=%d ns=%d agc=%d exclusive=%d; first open's options rule",
+                                 (int)stable_id.len,
+                                 stable_id.data,
+                                 opt.processing.echo_cancellation,
+                                 opt.processing.noise_suppression,
+                                 opt.processing.auto_gain,
+                                 opt.exclusive,
+                                 g_ios.granted_active.processing.echo_cancellation,
+                                 g_ios.granted_active.processing.noise_suppression,
+                                 g_ios.granted_active.processing.auto_gain,
+                                 g_ios.granted_active.exclusive);
                 st = ios_sink_add(sink);
                 Sink_List* cur = atomic_load_explicit(&g_ios.sinks, memory_order_acquire);
                 if (mel_audioin_status_failed(st) && (cur == NULL || cur->count == 0))
                     mel_dealloc(g_ios.alloc, ios_engine_detach());
+                else if (!mel_audioin_status_failed(st) && granted != NULL)
+                    *granted = g_ios.granted_active;
             }
         }
         pthread_mutex_unlock(&g_ios_lock);
@@ -641,6 +698,11 @@ void mel_audioin__register_host_providers(void)
     g_ios.default_storage = STR8_EMPTY;
     g_ios.active_id = STR8_EMPTY;
     atomic_store_explicit(&g_ios.sinks, NULL, memory_order_relaxed);
+    if (mach_timebase_info(&g_ios_timebase) != KERN_SUCCESS)
+    {
+        g_ios_timebase = (mach_timebase_info_data_t){ 0 };
+        mel_log_warn("audioin", "ios: mach_timebase_info failed; capture timestamps will be 0");
+    }
 
     static const Mel_AudioIn_Provider_Desc desc = {
         .name = "ios-avaudiosession",

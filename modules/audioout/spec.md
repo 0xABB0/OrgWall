@@ -26,7 +26,7 @@ persistence; `mel_audioout_find(stable_id)` resolves at startup
 
 `mel_audioout_kind` open descriptors: builtin / hdmi / usb / bluetooth /
 virtual / unknown. Descriptor: `name`, `stable_id`, `kind`, `channels`,
-`samplerate`, `samplerates` (dynamic, MEL-CODE-002), `caps { volume }`,
+`samplerate`, `samplerates` (dynamic, MEL-CODE-002), `caps { volume, mute }`,
 `alloc`; caller-allocator describe with one destructor (MEL-CODE-003).
 
 `MEL_AUDIOOUT_NULL` doubles as `audio`'s named follow-system-default binding;
@@ -46,10 +46,13 @@ learns to migrate on platforms whose OS doesn't move streams itself.
 Caps-gated OS endpoint volume — the settings-panel/kiosk knob, distinct from
 the engine's `master_volume` (which scales the mix, not the device):
 `volume(dev)` / `set_volume(dev, v)` in `[0, 1]`, `muted(dev)` /
-`set_muted(dev, b)`. `!caps.volume` fails `ERROR | UNSUPPORTED`. External
+`set_muted(dev, b)`. `!caps.volume` / `!caps.mute` fail `ERROR | UNSUPPORTED`
+(split caps: cards exist with volume but no mute switch). External
 volume changes surface as hotplug `changed` events: the provider's raw
 descriptor carries `volume`/`muted` shadows solely so reconciliation can
-detect them; the live getters always ask the provider.
+detect them; the live getters always ask the provider. The shadows diff
+regardless of caps — readable-but-not-settable volume (iOS) still surfaces
+external changes.
 
 ## Provider plugin
 
@@ -61,7 +64,7 @@ Mel_AudioOut_Provider_Desc {
     enumerate(fn, fn_user)           // calls fn per device; provider-interned str8s, valid
                                      // until next enumerate/shutdown; fn false = stop
     default_id() -> str8
-    open(stable_id, req format, granted format*, pull, token)   // negotiate, hold
+    open(stable_id, req format, granted format*, source)        // negotiate, hold
     start(stable_id, token)                                     // provider begins pulling
     stop(stable_id, token)
     close(stable_id, token)
@@ -70,7 +73,11 @@ Mel_AudioOut_Provider_Desc {
     shutdown(alloc)
 }
 Mel_AudioOut_Pull_Fn: (token, interleaved_dst, frames) -> frames written
+Mel_AudioOut_Source:  { pull, on_lost(token), token }
 ```
+
+`on_lost` fires at most once per open when the device dies mid-stream — the
+pull plane's loss signal; hotplug `removed` follows via the registry.
 
 The stream plane is pull on the provider's clock: the host provider pulls
 from its device callback; a file-writer provider pulls as fast as it likes; a
@@ -103,6 +110,7 @@ executor-marshaled hotplug, wait-free publish reads.
 ## Failure
 
 Stale handle: assert + `ERROR | LOST`. Caps violations `ERROR | UNSUPPORTED`.
+Device held exclusively elsewhere: `ERROR | BUSY`.
 Zero devices honest with loud log. `init` twice / `shutdown` without: asserts.
 
 ## Platform story (host provider + publish reach)

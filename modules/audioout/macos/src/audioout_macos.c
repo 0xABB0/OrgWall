@@ -16,9 +16,8 @@
 
 typedef struct
 {
-    void*                token;
-    Mel_AudioOut_Pull_Fn pull;
-    bool                 started;
+    Mel_AudioOut_Source src;
+    bool                started;
 } Out_Open;
 
 typedef struct Open_List Open_List;
@@ -42,7 +41,9 @@ typedef struct
     _Atomic(Open_List*) opens;
     _Atomic(Open_List*) garbage;
     _Atomic(u32)        oversized;
+    _Atomic(bool)       lost;
     bool                running;
+    bool                alive_listener;
 } Open_Device;
 
 typedef struct
@@ -79,6 +80,12 @@ static const AudioObjectPropertyAddress g_ca_devices_addr = {
 
 static const AudioObjectPropertyAddress g_ca_default_output_addr = {
     kAudioHardwarePropertyDefaultOutputDevice,
+    kAudioObjectPropertyScopeGlobal,
+    kAudioObjectPropertyElementMain,
+};
+
+static const AudioObjectPropertyAddress g_ca_alive_addr = {
+    kAudioDevicePropertyDeviceIsAlive,
     kAudioObjectPropertyScopeGlobal,
     kAudioObjectPropertyElementMain,
 };
@@ -343,7 +350,7 @@ static void watch_remove_listeners(Watch_Entry* w)
     }
 }
 
-static void watch_ensure(AudioDeviceID id, UInt32 volume_element, bool has_mute, UInt32 mute_element)
+static void watch_ensure(AudioDeviceID id, bool has_volume, UInt32 volume_element, bool has_mute, UInt32 mute_element)
 {
     for (usize i = 0; i < g_ca.watches.count; i++)
         if (g_ca.watches.items[i].device_id == id)
@@ -354,19 +361,22 @@ static void watch_ensure(AudioDeviceID id, UInt32 volume_element, bool has_mute,
 
     Watch_Entry w = { .device_id = id, .volume_element = volume_element, .mute_element = mute_element, .seen = true };
 
-    AudioObjectPropertyAddress vaddr = ca_volume_addr(volume_element);
-    OSStatus                   st = AudioObjectAddPropertyListener(id, &vaddr, ca_prop_listener, NULL);
-    if (st != noErr)
-        mel_log_warn("audioout", "coreaudio: volume listener failed for device %u (OSStatus %d); external volume changes need manual refresh", (u32)id, (i32)st);
-    else
-        w.volume_listener = true;
-    if (volume_element != kAudioObjectPropertyElementMain)
-        mel_log_debug("audioout", "coreaudio: device %u exposes volume on channel 1, not the main element", (u32)id);
+    if (has_volume)
+    {
+        AudioObjectPropertyAddress vaddr = ca_volume_addr(volume_element);
+        OSStatus                   st = AudioObjectAddPropertyListener(id, &vaddr, ca_prop_listener, NULL);
+        if (st != noErr)
+            mel_log_warn("audioout", "coreaudio: volume listener failed for device %u (OSStatus %d); external volume changes need manual refresh", (u32)id, (i32)st);
+        else
+            w.volume_listener = true;
+        if (volume_element != kAudioObjectPropertyElementMain)
+            mel_log_debug("audioout", "coreaudio: device %u exposes volume on channel 1, not the main element", (u32)id);
+    }
 
     if (has_mute)
     {
         AudioObjectPropertyAddress maddr = ca_mute_addr(mute_element);
-        st = AudioObjectAddPropertyListener(id, &maddr, ca_prop_listener, NULL);
+        OSStatus                   st = AudioObjectAddPropertyListener(id, &maddr, ca_prop_listener, NULL);
         if (st != noErr)
             mel_log_warn("audioout", "coreaudio: mute listener failed for device %u (OSStatus %d); external mute changes need manual refresh", (u32)id, (i32)st);
         else
@@ -435,32 +445,30 @@ static void ca_enumerate(void* user, Mel_AudioOut_Enum_Fn fn, void* fn_user)
         UInt32 volume_element = kAudioObjectPropertyElementMain;
         bool   volume_settable = false;
         bool   has_volume = ca_probe_element(ids[i], ca_volume_addr, &volume_element, &volume_settable);
-        bool   cap_volume = has_volume && volume_settable;
+        UInt32 mute_element = kAudioObjectPropertyElementMain;
+        bool   mute_settable = false;
+        bool   has_mute = ca_probe_element(ids[i], ca_mute_addr, &mute_element, &mute_settable);
 
         f32  volume = 0.0f;
         bool muted = false;
-        if (cap_volume)
+        if (has_volume)
         {
             AudioObjectPropertyAddress vaddr = ca_volume_addr(volume_element);
             Float32                    v = 0.0f;
             UInt32                     vsize = sizeof v;
             if (AudioObjectGetPropertyData(ids[i], &vaddr, 0, NULL, &vsize, &v) == noErr)
                 volume = (f32)v;
-
-            UInt32 mute_element = kAudioObjectPropertyElementMain;
-            bool   mute_settable = false;
-            bool   has_mute = ca_probe_element(ids[i], ca_mute_addr, &mute_element, &mute_settable);
-            if (has_mute)
-            {
-                AudioObjectPropertyAddress maddr = ca_mute_addr(mute_element);
-                UInt32                     m = 0;
-                UInt32                     msize = sizeof m;
-                if (AudioObjectGetPropertyData(ids[i], &maddr, 0, NULL, &msize, &m) == noErr)
-                    muted = m != 0;
-            }
-
-            watch_ensure(ids[i], volume_element, has_mute, mute_element);
         }
+        if (has_mute)
+        {
+            AudioObjectPropertyAddress maddr = ca_mute_addr(mute_element);
+            UInt32                     m = 0;
+            UInt32                     msize = sizeof m;
+            if (AudioObjectGetPropertyData(ids[i], &maddr, 0, NULL, &msize, &m) == noErr)
+                muted = m != 0;
+        }
+        if (has_volume || has_mute)
+            watch_ensure(ids[i], has_volume, volume_element, has_mute, mute_element);
 
         Mel_AudioOut_Raw raw = {
             .stable_id = stable_id,
@@ -470,7 +478,7 @@ static void ca_enumerate(void* user, Mel_AudioOut_Enum_Fn fn, void* fn_user)
             .samplerate = (u32)(ca_nominal_rate(ids[i]) + 0.5),
             .samplerates = g_ca.rates.items,
             .samplerate_count = (u32)g_ca.rates.count,
-            .caps = { .volume = cap_volume },
+            .caps = { .volume = has_volume && volume_settable, .mute = has_mute && mute_settable },
             .volume = volume,
             .muted = muted,
         };
@@ -530,6 +538,35 @@ static void od_garbage_drain(Open_Device* od)
     }
 }
 
+static OSStatus ca_alive_listener(AudioObjectID obj, UInt32 n, const AudioObjectPropertyAddress* addrs, void* user)
+{
+    MEL_UNUSED(n);
+    MEL_UNUSED(addrs);
+    Open_Device* od = user;
+
+    UInt32 alive = 1;
+    UInt32 size = sizeof alive;
+    if (AudioObjectGetPropertyData(obj, &g_ca_alive_addr, 0, NULL, &size, &alive) == noErr && alive != 0)
+        return noErr;
+
+    if (atomic_exchange_explicit(&od->lost, true, memory_order_acq_rel))
+        return noErr;
+
+    mel_log_warn("audioout", "coreaudio: device %.*s lost mid-stream", (int)od->stable_id.len, od->stable_id.data);
+    Open_List* old = atomic_exchange_explicit(&od->opens, NULL, memory_order_acq_rel);
+    if (old)
+    {
+        for (u32 i = 0; i < old->count; i++)
+            if (old->opens[i].src.on_lost)
+                old->opens[i].src.on_lost(old->opens[i].src.token);
+        od_garbage_push(od, old);
+    }
+    AudioOutputUnitStop(od->unit);
+    if (g_ca.registered)
+        mel_audioout_provider_notify(g_ca.provider);
+    return noErr;
+}
+
 static Open_List* od_opens_clone(Open_Device* od, u32 extra)
 {
     Open_List* cur = atomic_load_explicit(&od->opens, memory_order_acquire);
@@ -559,6 +596,8 @@ static u32 od_swap(Open_Device* od, Open_List* nl)
 
 static void od_apply_running(Open_Device* od, u32 started)
 {
+    if (atomic_load_explicit(&od->lost, memory_order_acquire))
+        return;
     if (started > 0 && !od->running)
     {
         OSStatus st = AudioOutputUnitStart(od->unit);
@@ -610,7 +649,7 @@ static OSStatus ca_render(void* user, AudioUnitRenderActionFlags* flags, const A
             if (!ol->opens[i].started)
                 continue;
             any = true;
-            u32 got = ol->opens[i].pull(ol->opens[i].token, od->scratch, n);
+            u32 got = ol->opens[i].src.pull(ol->opens[i].src.token, od->scratch, n);
             if (got > n)
                 got = n;
             for (usize s = 0; s < (usize)got * od->channels; s++)
@@ -630,6 +669,8 @@ static void od_teardown(Open_Device* od)
         AudioUnitUninitialize(od->unit);
         AudioComponentInstanceDispose(od->unit);
     }
+    if (od->alive_listener)
+        AudioObjectRemovePropertyListener(od->device_id, &g_ca_alive_addr, ca_alive_listener, od);
 
     u32 oversized = atomic_load_explicit(&od->oversized, memory_order_relaxed);
     if (oversized > 0)
@@ -701,6 +742,7 @@ static Mel_AudioOut_Status od_create(str8 stable_id, AudioDeviceID id, Open_Devi
     od->stable_id = str8_dup(stable_id, g_ca.alloc);
     atomic_store_explicit(&od->opens, NULL, memory_order_relaxed);
     atomic_store_explicit(&od->garbage, NULL, memory_order_relaxed);
+    atomic_store_explicit(&od->lost, false, memory_order_relaxed);
 
     UInt32 enable = 1;
     UInt32 disable = 0;
@@ -757,19 +799,30 @@ static Mel_AudioOut_Status od_create(str8 stable_id, AudioDeviceID id, Open_Devi
         return MEL_AUDIOOUT_ERROR | MEL_AUDIOOUT_RESULT_UNSUPPORTED;
     }
 
+    st = AudioObjectAddPropertyListener(id, &g_ca_alive_addr, ca_alive_listener, od);
+    if (st != noErr)
+        mel_log_warn("audioout", "coreaudio: device-alive listener failed for %.*s (OSStatus %d); loss will surface on refresh only", (int)stable_id.len, stable_id.data, (i32)st);
+    else
+        od->alive_listener = true;
+
     mel_array_push(&g_ca.opens, od);
     mel_log_info("audioout", "coreaudio: opened %.*s (%u ch @ %u Hz, %u frame slices)", (int)stable_id.len, stable_id.data, channels, od->samplerate, od->capacity_frames);
     *out = od;
     return MEL_AUDIOOUT_OK;
 }
 
-static Mel_AudioOut_Status ca_open(void* user, str8 stable_id, Mel_AudioOut_Format req, Mel_AudioOut_Format* granted, Mel_AudioOut_Pull_Fn pull, void* token)
+static Mel_AudioOut_Status ca_open(void* user, str8 stable_id, Mel_AudioOut_Format req, Mel_AudioOut_Format* granted, Mel_AudioOut_Source src)
 {
     MEL_UNUSED(user);
     assert(granted != NULL);
-    assert(pull != NULL);
+    assert(src.pull != NULL);
 
     Open_Device* od = ca_open_find(stable_id);
+    if (od && atomic_load_explicit(&od->lost, memory_order_acquire))
+    {
+        mel_log_error("audioout", "coreaudio: open %.*s: device lost", (int)stable_id.len, stable_id.data);
+        return MEL_AUDIOOUT_ERROR | MEL_AUDIOOUT_RESULT_LOST;
+    }
     if (!od)
     {
         AudioDeviceID id = ca_device_for(stable_id);
@@ -786,7 +839,7 @@ static Mel_AudioOut_Status ca_open(void* user, str8 stable_id, Mel_AudioOut_Form
     Open_List* nl = od_opens_clone(od, 1);
     if (!nl)
         return MEL_AUDIOOUT_ERROR | MEL_AUDIOOUT_RESULT_UNSUPPORTED;
-    nl->opens[nl->count] = (Out_Open){ .token = token, .pull = pull, .started = false };
+    nl->opens[nl->count] = (Out_Open){ .src = src, .started = false };
     nl->count++;
     od_swap(od, nl);
 
@@ -806,6 +859,11 @@ static void ca_set_started(str8 stable_id, void* token, bool started, const char
         mel_log_warn("audioout", "coreaudio: %s %.*s: not open", what, (int)stable_id.len, stable_id.data);
         return;
     }
+    if (atomic_load_explicit(&od->lost, memory_order_acquire))
+    {
+        mel_log_warn("audioout", "coreaudio: %s %.*s: device lost", what, (int)stable_id.len, stable_id.data);
+        return;
+    }
     Open_List* nl = od_opens_clone(od, 0);
     if (!nl)
     {
@@ -814,7 +872,7 @@ static void ca_set_started(str8 stable_id, void* token, bool started, const char
     }
     bool found = false;
     for (u32 i = 0; i < nl->count; i++)
-        if (nl->opens[i].token == token)
+        if (nl->opens[i].src.token == token)
         {
             nl->opens[i].started = started;
             found = true;
@@ -858,7 +916,7 @@ static void ca_close(void* user, str8 stable_id, void* token)
     nl->next = NULL;
     u32 kept = 0;
     for (u32 i = 0; i < count; i++)
-        if (cur->opens[i].token != token)
+        if (cur->opens[i].src.token != token)
             nl->opens[kept++] = cur->opens[i];
     nl->count = kept;
 
@@ -947,7 +1005,7 @@ static bool ca_muted(void* user, str8 stable_id)
     bool   settable = false;
     if (!ca_probe_element(id, ca_mute_addr, &element, &settable))
     {
-        mel_log_debug("audioout", "coreaudio: muted %.*s: no mute control; reporting unmuted", (int)stable_id.len, stable_id.data);
+        mel_log_error("audioout", "coreaudio: muted %.*s: no mute control; reporting unmuted", (int)stable_id.len, stable_id.data);
         return false;
     }
     AudioObjectPropertyAddress addr = ca_mute_addr(element);
