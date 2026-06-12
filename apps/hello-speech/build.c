@@ -8,7 +8,9 @@ void build(Mel_Build* b)
     mel_depends(app, "boot");
     mel_depends(app, "vat");
     mel_depends(app, "gui");
-    mel_depends(app, "speech");
+    mel_depends(app, "tts");
+    mel_depends(app, "stt");
+    mel_depends(app, "audioin");
     mel_depends(app, "future");
     mel_depends(app, "executor");
     mel_depends(app, "thread");

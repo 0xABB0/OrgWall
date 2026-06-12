@@ -54,8 +54,8 @@ typedef struct
 
 typedef struct
 {
-    _Alignas(64) _Atomic(u64) write_cursor;
-    _Alignas(64) _Atomic(u64) read_cursor;
+    MEL_ALIGNAS(MEL_CACHE_LINE_SIZE) _Atomic(u64) write_cursor;
+    MEL_ALIGNAS(MEL_CACHE_LINE_SIZE) _Atomic(u64) read_cursor;
     _Atomic(u64) dropped;
     u8*          buf;
     u64          capacity;

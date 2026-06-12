@@ -1,6 +1,8 @@
 #pragma once
 
 #include <core/types.h>
+#include <core/platform.h>
+#include <core/compiler.h>
 #include <stdatomic.h>
 
 #include "mpsc.cfg.h"
@@ -13,9 +15,9 @@ struct Mel_Mpsc_Node
 
 struct Mel_Mpsc
 {
-    _Alignas(64) _Atomic(Mel_Mpsc_Node*) producer_tail;
-    _Alignas(64) Mel_Mpsc_Node* consumer_head;
-    _Alignas(64) Mel_Mpsc_Node stub;
+    MEL_ALIGNAS(MEL_CACHE_LINE_SIZE) _Atomic(Mel_Mpsc_Node*) producer_tail;
+    MEL_ALIGNAS(MEL_CACHE_LINE_SIZE) Mel_Mpsc_Node* consumer_head;
+    MEL_ALIGNAS(MEL_CACHE_LINE_SIZE) Mel_Mpsc_Node stub;
 #if MEL_COLLECTION_MPSC_DEBUG
     _Atomic(usize) push_count;
     _Atomic(usize) pop_count;
