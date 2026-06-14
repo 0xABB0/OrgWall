@@ -58,7 +58,10 @@ def _impl(ctx):
 
     res = ctx.actions.declare_file(ctx.label.name + ".res")
     rc_dir = rc.dirname
-    inc_dirs = [rc_dir]
+    # The .rc names the manifest (and icon) by basename, so llvm-rc must be given each
+    # referenced file's staged directory on its /I search path — the manifest lives in
+    # its own package, not beside the generated .rc.
+    inc_dirs = [rc_dir, ctx.file.manifest.dirname]
     if ctx.file.icon:
         inc_dirs.append(ctx.file.icon.dirname)
     args = ctx.actions.args()

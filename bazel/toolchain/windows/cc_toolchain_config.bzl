@@ -16,12 +16,14 @@ legacy set and define every needed feature here in MSVC spelling — compile
 (/I,/D,/Fo,/c,user flags), link (/OUT:, libraries_to_link, /machine, param file)
 and archive (/OUT: via llvm-lib). DLL .def exports and linkstamps are not wired up.
 
-CASE-SENSITIVITY REQUIREMENT: build win32 from a case-sensitive filesystem (Linux,
-CI, or a case-sensitive macOS volume). The Windows SDK ships CamelCase headers
-(Windows.h) that code includes lowercase (<windows.h>); xwin disambiguates with
-symlinks on case-sensitive hosts, but on case-insensitive APFS those symlinks
-can't exist, so Bazel's case-sensitive /showIncludes validation rejects the
-headers. The compile itself is correct on every host — only the validation differs."""
+CASE-INSENSITIVE EXEC HOSTS (macOS APFS): dependency discovery is disabled (see the
+no_dotd_file feature below). The Windows SDK ships CamelCase headers (Windows.h) that
+code includes lowercase (<windows.h>); on case-insensitive APFS clang-cl resolves the
+file but reports the lowercase path, which Bazel's case-sensitive /showIncludes
+validation rejected as an undeclared inclusion. Turning discovery off makes Bazel use
+the declared input set instead, so the build is correct from every exec host at the
+cost of fine-grained header-change pruning (system headers never change; our headers
+stay declared inputs, so changes still rebuild)."""
 
 load("@bazel_tools//tools/build_defs/cc:action_names.bzl", "ACTION_NAMES")
 load(
@@ -164,13 +166,16 @@ def _impl(ctx):
             flag_set(actions = [ACTION_NAMES.cpp_compile], flag_groups = [flag_group(flags = ["/EHsc"])]),
         ],
     )
-    showincludes = feature(
-        name = "parse_showincludes",
-        enabled = True,
-        flag_sets = [flag_set(actions = [ACTION_NAMES.c_compile, ACTION_NAMES.cpp_compile], flag_groups = [flag_group(flags = [
-            "/showIncludes",
-        ])])],
-    )
+    # Dependency discovery is DISABLED (no /showIncludes parsing, no .d file). Bazel
+    # then takes the declared input set (all transitive hdrs) as the dependency set —
+    # conservative and correct, forgoing only fine-grained header-change pruning. This
+    # is what lets win32 build from a case-INSENSITIVE exec filesystem (macOS APFS):
+    # clang-cl resolves <windows.h> to the SDK's CamelCase Windows.h and reports the
+    # requested lowercase path, which Bazel's case-sensitive /showIncludes validation
+    # rejects as an undeclared inclusion. With discovery off there is nothing to
+    # mis-validate. (parse_showincludes alone reverts Bazel to GCC-style .d files that
+    # clang-cl never emits; no_dotd_file suppresses that expectation too.)
+    no_dotd = feature(name = "no_dotd_file", enabled = True)
     link_feature = feature(
         name = "msvc_clang_cl_link",
         enabled = True,
@@ -370,7 +375,7 @@ def _impl(ctx):
             sysroot_compile,
             exceptions,
             user_compile_flags,
-            showincludes,
+            no_dotd,
             opt,
             dbg,
             generate_pdb_file,

@@ -33,9 +33,12 @@ build:android --android_platforms=//bazel/platforms:arm64-v8a
 build:android --tool_java_language_version=17
 build:android --tool_java_runtime_version=remotejdk_17
 
+# clang-cl's /std: knows only c11/c17/clatest for C and silently drops /std:c23
+# (-> default C17, no C23 nullptr/constexpr). Forward the real standard to the clang
+# frontend with /clang: so c23 is actually pinned. C++ /std:c++23 clang-cl honors.
 build:win32 --platforms=//bazel/platforms:win32
 build:win32 --//bazel/config:gpu=vulkan
-build:win32 --conlyopt=/std:c23
+build:win32 --conlyopt=/clang:-std=c23
 build:win32 --cxxopt=/std:c++23
 
 build:wasm --config=gnustd
