@@ -16,9 +16,9 @@ from a non-Windows host)."""
 
 _XWIN_VERSION = "0.9.0"
 _PREBUILT = {
-    "linux-x86_64": ("x86_64-unknown-linux-musl", "tar.gz"),
-    "linux-aarch64": ("aarch64-unknown-linux-musl", "tar.gz"),
-    "windows-x86_64": ("x86_64-pc-windows-msvc", "zip"),
+    "linux-x86_64": ("x86_64-unknown-linux-musl", "tar.gz", "31e1033f30608ba6b821d17f1461042bd54c23424813c9b4e9ae15b6d32fa4cd"),
+    "linux-aarch64": ("aarch64-unknown-linux-musl", "tar.gz", "41466ca41e16fe7fc1b82a67babc7c3811021bf32de354b90b34d8c4edb153e2"),
+    "windows-x86_64": ("x86_64-pc-windows-msvc", "tar.gz", "36a03b1bc21ead290eda3891b5ddfe3219eed45dd592329412248d143a26dda2"),
 }
 
 def _xwin_bin(rctx):
@@ -36,10 +36,11 @@ def _xwin_bin(rctx):
     key = ("linux-" + a) if "linux" in osn else ("windows-x86_64" if "win" in osn else None)
     if not key:
         fail("xwin not found and no prebuilt for host (os=%s arch=%s). Install it once: cargo install xwin (or brew install xwin)." % (osn, arch))
-    triple, ext = _PREBUILT[key]
+    triple, ext, sha256 = _PREBUILT[key]
     base = "xwin-%s-%s" % (_XWIN_VERSION, triple)
     rctx.download_and_extract(
         url = "https://github.com/Jake-Shadle/xwin/releases/download/%s/%s.%s" % (_XWIN_VERSION, base, ext),
+        sha256 = sha256,
         stripPrefix = base,
     )
     return str(rctx.path("xwin.exe" if "win" in osn else "xwin"))

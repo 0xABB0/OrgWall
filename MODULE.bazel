@@ -91,7 +91,10 @@ single_version_override(
 llvm_ext = use_extension("//bazel/extensions:llvm.bzl", "llvm_ext")
 use_repo(llvm_ext, "llvm")
 
-# slang shader compiler — GitHub release prebuilt (macOS host; other platforms Phase 4).
+# slang shader compiler — GitHub release prebuilts, one repo per platform; the
+# select in //third-party/slang maps the resolved platform to its repo. No
+# android prebuilt is published in this release (linux/macos/windows + wasm only),
+# so android is not wired.
 http_archive = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 
 http_archive(
@@ -99,6 +102,20 @@ http_archive(
     build_file = "//bazel/third_party:slang.BUILD",
     sha256 = "5f37e80b16ee332669fa2355485f6cf2795fa5d406bf6e0b1533b3ea2f0e6d76",
     url = "https://github.com/shader-slang/slang/releases/download/v2026.10.2/slang-2026.10.2-macos-aarch64.zip",
+)
+
+http_archive(
+    name = "slang_linux",
+    build_file = "//bazel/third_party:slang_linux.BUILD",
+    sha256 = "ff3db135c2e896da9241a092c3fcf489bfa9f3809467559f07abf3840c9d3f31",
+    url = "https://github.com/shader-slang/slang/releases/download/v2026.10.2/slang-2026.10.2-linux-x86_64.zip",
+)
+
+http_archive(
+    name = "slang_win32",
+    build_file = "//bazel/third_party:slang_win32.BUILD",
+    sha256 = "f21fca4ba78bfb366ef3b282b4926e3efca61c2ffd72a482b024c9f8413331d0",
+    url = "https://github.com/shader-slang/slang/releases/download/v2026.10.2/slang-2026.10.2-windows-x86_64.zip",
 )
 
 # compile_commands.json for clangd (replaces nob's compdb).

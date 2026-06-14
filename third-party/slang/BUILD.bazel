@@ -1,10 +1,13 @@
-# Hand-authored. slang-runtime = the slang release prebuilt (@slang_macos on the
-# host); wasm/android/ios prebuilts are Phase 4. The slang lib wraps it.
+# Hand-authored. slang-runtime = the slang release prebuilt, one repo per
+# platform. No android/ios/wasm prebuilt is published in this release, so those
+# platforms fall to the empty default. The slang lib wraps it.
 cc_library(
     name = "slang-runtime",
     visibility = ["//visibility:public"],
     deps = select({
         "//bazel/config:plat_macos": ["@slang_macos//:slang_runtime"],
+        "//bazel/config:plat_linux": ["@slang_linux//:slang_runtime"],
+        "//bazel/config:plat_win32": ["@slang_win32//:slang_runtime"],
         "//conditions:default": [],
     }),
 )

@@ -1,6 +1,8 @@
 load("@rules_android//rules:rules.bzl", "android_binary")
 load("@rules_apple//apple:macos.bzl", "macos_application")
 load("@rules_apple//apple:versioning.bzl", "apple_bundle_version")
+load("//bazel/rules:mel_wasm.bzl", "mel_wasm_app")
+load("//bazel/rules:mel_win32_resources.bzl", "mel_win32_resources")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -18,9 +20,23 @@ cc_library(
     ],
 )
 
+mel_win32_resources(
+    name = "win32_resources",
+    app_label = "Hello World GUI",
+    icon = "win32/app.ico",
+    target_compatible_with = ["@platforms//os:windows"],
+)
+
 cc_binary(
     name = "hello-world-gui",
-    deps = [":lib"],
+    linkopts = select({
+        "//bazel/config:plat_win32": ["-Wl,/subsystem:windows"],
+        "//conditions:default": [],
+    }),
+    deps = [":lib"] + select({
+        "//bazel/config:plat_win32": [":win32_resources"],
+        "//conditions:default": [],
+    }),
 )
 
 apple_bundle_version(
@@ -49,4 +65,9 @@ android_binary(
         ":lib",
         "//modules/gui:android_java",
     ],
+)
+
+mel_wasm_app(
+    name = "hello-world-gui_web",
+    deps = [":lib"],
 )
