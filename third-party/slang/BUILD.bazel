@@ -1,6 +1,11 @@
+load("@rules_apple//apple:apple.bzl", "apple_dynamic_framework_import")
+
 # Hand-authored. slang-runtime = the slang release prebuilt, one repo per
-# platform. No android/ios/wasm prebuilt is published in this release, so those
-# platforms fall to the empty default. The slang lib wraps it.
+# platform. No android prebuilt is published in this release. macOS/linux/win32
+# link the bare dylib directly (auto-embedded for macos_application). iOS uses the
+# vendored simulator prebuilt repackaged as a dynamic framework (see below): its
+# slang-runtime arm is headers-only, the link+embed ride a framework import
+# attached at the ios_application level.
 cc_library(
     name = "slang-runtime",
     visibility = ["//visibility:public"],
@@ -8,6 +13,7 @@ cc_library(
         "//bazel/config:plat_macos": ["@slang_macos//:slang_runtime"],
         "//bazel/config:plat_linux": ["@slang_linux//:slang_runtime"],
         "//bazel/config:plat_win32": ["@slang_win32//:slang_runtime"],
+        "//bazel/config:plat_ios": [":slang_ios_headers"],
         "//conditions:default": [],
     }),
 )
@@ -19,6 +25,7 @@ cc_library(
     includes = ["include"],
     linkopts = select({
         "//bazel/config:plat_macos": ["-lc++"],
+        "//bazel/config:plat_ios": ["-lc++"],
         "//conditions:default": [],
     }),
     visibility = ["//visibility:public"],
@@ -34,4 +41,68 @@ cc_test(
         "//modules/core:core",
         "//tools/test:runner",
     ],
+)
+
+# --- iOS (simulator) slang as a dynamic framework ---
+# rules_apple auto-embeds bare CcInfo .dylibs into Frameworks/ for
+# macos_application, but the equivalent partial is not wired into ios_rules; so the
+# ios-sim slang dylib (self-contained: only libc++/libSystem) is repackaged into
+# slang.framework, its install name retargeted to @rpath/slang.framework/slang, and
+# attached via apple_dynamic_framework_import at the ios_application level —
+# AppleFrameworkImportInfo does not propagate through cc_library deps, so it cannot
+# ride the gpu->slang cc graph. The vendored zip ships only the simulator slice.
+genrule(
+    name = "ios_framework",
+    srcs = [
+        "//tools/build/vendor/slang:slang-2026.10.2-ios-sim-aarch64.zip",
+        "ios/slang_framework_info.plist",
+    ],
+    outs = [
+        "slang.framework/slang",
+        "slang.framework/Info.plist",
+        "ios_include/slang.h",
+        "ios_include/slang-com-helper.h",
+        "ios_include/slang-com-ptr.h",
+        "ios_include/slang-image-format-defs.h",
+        "ios_include/slang-deprecated.h",
+    ],
+    cmd = """
+set -e
+tmp=$$(mktemp -d)
+unzip -q -o $(location //tools/build/vendor/slang:slang-2026.10.2-ios-sim-aarch64.zip) -d "$$tmp"
+cp "$$tmp/lib/libslang-compiler.dylib" $(location slang.framework/slang)
+chmod u+w $(location slang.framework/slang)
+/usr/bin/install_name_tool -id @rpath/slang.framework/slang $(location slang.framework/slang)
+cp $(location ios/slang_framework_info.plist) $(location slang.framework/Info.plist)
+cp "$$tmp/include/slang.h" $(location ios_include/slang.h)
+cp "$$tmp/include/slang-com-helper.h" $(location ios_include/slang-com-helper.h)
+cp "$$tmp/include/slang-com-ptr.h" $(location ios_include/slang-com-ptr.h)
+cp "$$tmp/include/slang-image-format-defs.h" $(location ios_include/slang-image-format-defs.h)
+cp "$$tmp/include/slang-deprecated.h" $(location ios_include/slang-deprecated.h)
+""",
+    target_compatible_with = ["@platforms//os:ios"],
+)
+
+cc_library(
+    name = "slang_ios_headers",
+    hdrs = [
+        "ios_include/slang.h",
+        "ios_include/slang-com-helper.h",
+        "ios_include/slang-com-ptr.h",
+        "ios_include/slang-image-format-defs.h",
+        "ios_include/slang-deprecated.h",
+    ],
+    includes = ["ios_include"],
+    target_compatible_with = ["@platforms//os:ios"],
+    visibility = ["//visibility:public"],
+)
+
+apple_dynamic_framework_import(
+    name = "slang_ios_framework",
+    framework_imports = [
+        "slang.framework/slang",
+        "slang.framework/Info.plist",
+    ],
+    target_compatible_with = ["@platforms//os:ios"],
+    visibility = ["//visibility:public"],
 )

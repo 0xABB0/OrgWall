@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleExecutable</key>
+    <string>slang</string>
+    <key>CFBundleIdentifier</key>
+    <string>org.shader-slang.slang</string>
+    <key>CFBundleName</key>
+    <string>slang</string>
+    <key>CFBundlePackageType</key>
+    <string>FMWK</string>
+    <key>CFBundleVersion</key>
+    <string>2026.10.2</string>
+    <key>CFBundleShortVersionString</key>
+    <string>2026.10.2</string>
+    <key>MinimumOSVersion</key>
+    <string>14.4</string>
+</dict>
+</plist>
