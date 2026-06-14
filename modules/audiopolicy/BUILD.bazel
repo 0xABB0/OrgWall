@@ -1,0 +1,78 @@
+load("@rules_android//rules:rules.bzl", "android_library")
+
+package(default_visibility = ["//visibility:public"])
+
+DEPS = [
+    "//modules/core",
+    "//modules/allocator",
+    "//modules/collection",
+    "//modules/executor",
+    "//modules/event",
+    "//modules/log",
+]
+
+cc_library(
+    name = "audiopolicy",
+    srcs = glob(["src/*.c", "src/*.h"]) + select({
+        "//bazel/config:plat_macos": glob(["macos/src/*.c", "macos/src/*.h"], allow_empty = True),
+        "//bazel/config:plat_win32": glob(["win32/src/*.c", "win32/src/*.h"], allow_empty = True),
+        "//bazel/config:plat_linux": glob(["linux/src/*.c", "linux/src/*.h"], allow_empty = True),
+        "//bazel/config:plat_android": glob(["android/src/*.c", "android/src/*.h"]),
+        "//bazel/config:plat_wasm": glob(["web/src/*.c", "web/src/*.h"], allow_empty = True),
+        "//conditions:default": [],
+    }),
+    hdrs = glob(["include/**/*.h"]),
+    includes = ["include"],
+    linkopts = select({
+        "//bazel/config:plat_macos": ["-framework", "CoreAudio", "-framework", "CoreFoundation"],
+        "//bazel/config:plat_ios": ["-framework", "AVFoundation", "-framework", "Foundation"],
+        "//bazel/config:plat_android": ["-llog"],
+        "//conditions:default": [],
+    }),
+    deps = DEPS + select({
+        "//bazel/config:plat_android": ["//modules/platform"],
+        "//conditions:default": [],
+    }) + select({
+        "//bazel/config:plat_ios": [":audiopolicy_ios"],
+        "//conditions:default": [],
+    }),
+)
+
+android_library(
+    name = "android_java",
+    srcs = glob(["android/java/**/*.java"]),
+    custom_package = "orgwall.melody.audiopolicy",
+    target_compatible_with = select({
+        "//bazel/config:plat_android": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+)
+
+objc_library(
+    name = "audiopolicy_ios",
+    srcs = glob(["ios/src/*.m", "ios/src/*.h", "src/*.h", "include/**/*.h"], allow_empty = True),
+    includes = ["include"],
+    deps = DEPS,
+    target_compatible_with = select({
+        "//bazel/config:plat_ios": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+)
+
+cc_library(
+    name = "audiopolicy_core",
+    srcs = ["src/audiopolicy.c", "src/descriptors.c"],
+    hdrs = glob(["include/**/*.h", "src/*.h"]),
+    includes = ["include"],
+    deps = DEPS,
+)
+
+cc_test(
+    name = "audiopolicy-core",
+    srcs = ["test/test_audiopolicy.c"] + glob(["src/*.h"]),
+    deps = [
+        "//tools/test:runner",
+        "//modules/test",
+        ":audiopolicy",
+    ],
+)

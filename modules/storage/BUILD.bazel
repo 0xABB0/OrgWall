@@ -1,0 +1,53 @@
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "storage",
+    srcs = ["src/storage.c", "src/backend_fs.c", "src/backend_title.c"] + glob(["src/*.h"]) + select({
+        "//bazel/config:plat_macos": ["posix/src/space_posix.c"],
+        "//bazel/config:plat_ios": ["posix/src/space_posix.c"],
+        "//bazel/config:plat_linux": ["posix/src/space_posix.c"],
+        "//bazel/config:plat_android": ["posix/src/space_posix.c"],
+        "//bazel/config:plat_win32": ["win32/src/space_win32.c"],
+        "//bazel/config:plat_wasm": ["wasm/src/space_wasm.c"],
+        "//conditions:default": [],
+    }) + select({
+        "//bazel/config:plat_android": ["android/src/title_android.c"],
+        "//conditions:default": ["src/title_none.c"],
+    }),
+    hdrs = glob(["include/**/*.h"]) + select({
+        "//bazel/config:plat_android": glob(["android/include/**/*.h"]),
+        "//conditions:default": [],
+    }),
+    includes = ["include"] + select({
+        "//bazel/config:plat_android": ["android/include"],
+        "//conditions:default": [],
+    }),
+    linkopts = select({
+        "//bazel/config:plat_android": ["-landroid"],
+        "//conditions:default": [],
+    }),
+    deps = [
+        "//modules/core",
+        "//modules/allocator",
+        "//modules/collection",
+        "//modules/string",
+        "//modules/executor",
+        "//modules/future",
+        "//modules/vat",
+        "//modules/thread",
+        "//modules/log",
+        "//modules/fs",
+        "//modules/io",
+    ],
+)
+
+cc_test(
+    name = "storage-core",
+    srcs = ["test/storage_test.c"],
+    deps = [
+        "//tools/test:runner",
+        "//modules/test",
+        ":storage",
+        "//modules/time",
+    ],
+)

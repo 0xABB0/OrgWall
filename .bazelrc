@@ -1,0 +1,50 @@
+# C/C++ standard. clang-cl (win32) ignores the GNU -std= spelling and wants the
+# MSVC /std: form, so the standard is set per-platform rather than globally: the
+# unix/wasm platforms pull in :gnustd; win32 sets /std: in its own block below. No
+# std flag is emitted that the target compiler would silently drop.
+build:gnustd --conlyopt=-std=c2x
+build:gnustd --objccopt=-std=c2x
+build:gnustd --cxxopt=-std=c++23
+
+# Each platform sets the resolved target platform (single source of truth) plus
+# the gpu axis, the one degree of freedom platform constraints don't capture.
+build:macos --config=gnustd
+build:macos --platforms=//bazel/platforms:macos
+build:macos --//bazel/config:gpu=metal
+
+build:ios --config=gnustd
+build:ios --platforms=//bazel/platforms:ios
+build:ios --//bazel/config:gpu=metal
+
+build:linux --config=gnustd
+build:linux --platforms=//bazel/platforms:linux
+build:linux --//bazel/config:gpu=vulkan
+build:linux --copt=-D_GNU_SOURCE
+
+build:android --config=gnustd
+build:android --platforms=//bazel/platforms:android
+build:android --//bazel/config:gpu=vulkan
+build:android --extra_toolchains=@androidndk//:all
+build:android --extra_toolchains=@androidsdk//:all
+build:android --android_platforms=//bazel/platforms:arm64-v8a
+# rules_android 0.7.3's bundled Java tools (DexFileSplitter, rules_jvm_external's
+# jar stampers) use records / are compiled for Java 17, so the exec-side Java
+# language and runtime must be 17, not rules_java's older default.
+build:android --tool_java_language_version=17
+build:android --tool_java_runtime_version=remotejdk_17
+
+build:win32 --platforms=//bazel/platforms:win32
+build:win32 --//bazel/config:gpu=vulkan
+build:win32 --conlyopt=/std:c23
+build:win32 --cxxopt=/std:c++23
+
+build:wasm --config=gnustd
+build:wasm --platforms=//bazel/platforms:wasm
+build:wasm --//bazel/config:gpu=webgpu
+
+# debug/release ride Bazel's native compilation mode: -c dbg keeps asserts (NDEBUG
+# unset, per MEL-ENGINE-VIII), -c opt strips them. Debug is the default.
+build:debug -c dbg
+build:release -c opt
+
+test --test_output=errors

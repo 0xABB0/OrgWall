@@ -1,0 +1,85 @@
+load("@rules_android//rules:rules.bzl", "android_library")
+load("//bazel/rules:mel_codegen.bzl", "mel_codegen")
+
+package(default_visibility = ["//visibility:public"])
+
+DEPS = ["//modules/core", "//modules/allocator", "//modules/collection", "//modules/event", "//modules/executor", "//modules/log", "//modules/platform", "//modules/reflect"]
+
+mel_codegen(
+    name = "display_enum_gen",
+    out = "display.enum.gen.c",
+    tool = "//modules/reflect:enum-str-gen",
+    args = ["$out", "$cflags", "$hostclang", "--", "display/display.h"],
+    srcs = ["include/display/display.h"],
+    deps = DEPS,
+    local_includes = ["modules/display/include", "modules/display/macos/include", "modules/display/linux/include", "modules/display/win32/include", "modules/display/android/include", "modules/display/ios/include"],
+)
+
+cc_library(
+    name = "display",
+    srcs = ["src/display.c", "src/events.c"] + glob(["src/*.h"]) + [":display_enum_gen"] + select({
+        "//bazel/config:plat_linux": glob(["linux/src/*.c", "linux/src/*.h"], allow_empty = True),
+        "//bazel/config:plat_win32": glob(["win32/src/*.c", "win32/src/*.h"], allow_empty = True),
+        "//bazel/config:plat_android": glob(["android/src/*.c", "android/src/*.h"], allow_empty = True),
+        "//conditions:default": [],
+    }),
+    hdrs = glob(["include/**/*.h", "*/include/**/*.h"]),
+    includes = ["include"] + select({
+        "//bazel/config:plat_macos": ["macos/include"],
+        "//bazel/config:plat_linux": ["linux/include"],
+        "//bazel/config:plat_win32": ["win32/include"],
+        "//bazel/config:plat_android": ["android/include"],
+        "//bazel/config:plat_ios": ["ios/include"],
+        "//conditions:default": [],
+    }),
+    linkopts = select({
+        "//bazel/config:plat_macos": ["-framework", "CoreGraphics", "-framework", "IOKit", "-framework", "AppKit", "-framework", "Foundation"],
+        "//conditions:default": [],
+    }),
+    deps = DEPS + select({
+        "//bazel/config:plat_macos": [":display_apple"],
+        "//bazel/config:plat_ios": [":display_apple"],
+        "//conditions:default": [],
+    }),
+)
+
+android_library(
+    name = "android_java",
+    srcs = glob(["android/java/**/*.java"]),
+    custom_package = "orgwall.melody.display",
+    target_compatible_with = select({
+        "//bazel/config:plat_android": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+)
+
+objc_library(
+    name = "display_apple",
+    srcs = glob(["src/*.h"]) + select({
+        "//bazel/config:plat_macos": glob(["macos/src/*.m"]),
+        "//bazel/config:plat_ios": glob(["ios/src/*.m"]),
+        "//conditions:default": [],
+    }),
+    hdrs = glob(["include/**/*.h", "macos/include/**/*.h", "ios/include/**/*.h"]),
+    includes = ["include"] + select({
+        "//bazel/config:plat_macos": ["macos/include"],
+        "//bazel/config:plat_ios": ["ios/include"],
+        "//conditions:default": [],
+    }),
+    deps = DEPS,
+    target_compatible_with = select({
+        "//bazel/config:plat_macos": [],
+        "//bazel/config:plat_ios": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+)
+
+cc_test(
+    name = "display-core",
+    srcs = ["test/display_test.c"],
+    linkopts = select({
+        "//bazel/config:plat_macos": ["-framework", "AppKit", "-framework", "Foundation"],
+        "//conditions:default": [],
+    }),
+    deps = ["//tools/test:runner", "//modules/test", ":display"],
+)

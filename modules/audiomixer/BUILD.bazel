@@ -1,0 +1,104 @@
+package(default_visibility = ["//visibility:public"])
+
+DEPS = [
+    "//modules/core",
+    "//modules/allocator",
+    "//modules/collection",
+    "//modules/math",
+    "//modules/thread",
+    "//modules/time",
+    "//modules/executor",
+    "//modules/future",
+    "//modules/event",
+    "//modules/channel",
+    "//modules/log",
+    "//modules/debug",
+    "//modules/string",
+    "//modules/pcm",
+    "//modules/audioout",
+    "//modules/audioplayback",
+    "//modules/audiopolicy",
+]
+
+cc_library(
+    name = "audiomixer",
+    srcs = glob(["src/*.c", "src/*.h"]),
+    hdrs = glob(["include/**/*.h"]),
+    includes = ["include"],
+    deps = DEPS,
+)
+
+cc_test(
+    name = "audiomixer-voice",
+    srcs = ["test/test_voice_handle.c"],
+    deps = ["//tools/test:runner", "//modules/test", ":audiomixer"],
+)
+
+cc_test(
+    name = "audiomixer-render",
+    srcs = ["test/test_render_offline.c"],
+    deps = ["//tools/test:runner", "//modules/test", ":audiomixer"],
+)
+
+cc_test(
+    name = "audiomixer-fader",
+    srcs = ["test/test_fader.c"],
+    deps = ["//tools/test:runner", "//modules/test", ":audiomixer"],
+)
+
+cc_test(
+    name = "audiomixer-ring",
+    srcs = ["test/test_ring_spsc.c"],
+    deps = ["//tools/test:runner", "//modules/test", ":audiomixer"],
+)
+
+cc_test(
+    name = "audiomixer-online",
+    srcs = ["test/test_online_stress.c"],
+    deps = ["//tools/test:runner", "//modules/test", ":audiomixer", "//modules/thread"],
+)
+
+cc_test(
+    name = "audiomixer-event",
+    srcs = ["test/test_voice_end_future.c"],
+    deps = ["//tools/test:runner", "//modules/test", ":audiomixer", "//modules/future", "//modules/event", "//modules/executor"],
+)
+
+cc_test(
+    name = "audiomixer-device",
+    srcs = glob(["src/*.c", "src/*.h", "include/**/*.h"]) + ["test/test_device.c"],
+    includes = ["include"],
+    deps = [
+        "//tools/test:runner",
+        "//modules/test",
+        "//modules/audioout:audioout_core",
+        "//modules/audioplayback:audioplayback_core",
+        "//modules/audiopolicy:audiopolicy_core",
+        "//modules/core",
+        "//modules/allocator",
+        "//modules/collection",
+        "//modules/math",
+        "//modules/thread",
+        "//modules/time",
+        "//modules/executor",
+        "//modules/future",
+        "//modules/event",
+        "//modules/channel",
+        "//modules/log",
+        "//modules/debug",
+        "//modules/string",
+        "//modules/pcm",
+    ],
+)
+
+cc_test(
+    name = "audiomixer-taps",
+    srcs = ["test/test_taps.c"],
+    deps = ["//tools/test:runner", "//modules/test", ":audiomixer"],
+)
+
+cc_test(
+    name = "audiomixer-bench",
+    srcs = ["test/bench_mix.c"],
+    deps = ["//tools/test:runner", "//modules/test", ":audiomixer"],
+)

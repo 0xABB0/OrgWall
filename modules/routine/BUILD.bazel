@@ -1,0 +1,13 @@
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "routine",
+    srcs = glob(["src/*.c"]),
+    hdrs = glob(["include/**/*.h"]),
+    includes = ["include"],
+    deps = [
+        "//modules/core",
+        "//modules/allocator",
+        "//modules/fiber",
+    ],
+)

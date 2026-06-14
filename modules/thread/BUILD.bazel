@@ -1,0 +1,24 @@
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "thread",
+    srcs = glob(["src/*.c"]) + select({
+        "//bazel/config:plat_macos": glob(["apple/src/*.c"]) + ["posix/src/mutex.c", "posix/src/rwlock.c", "posix/src/tls.c"],
+        "//bazel/config:plat_ios": glob(["apple/src/*.c"]) + ["posix/src/mutex.c", "posix/src/rwlock.c", "posix/src/tls.c"],
+        "//bazel/config:plat_linux": glob(["posix/src/*.c"]),
+        "//bazel/config:plat_android": glob(["posix/src/*.c"]),
+        "//bazel/config:plat_wasm": glob(["posix/src/*.c", "wasm/src/*.c"]),
+        "//bazel/config:plat_win32": glob(["win32/src/*.c", "win32/src/*.h"], allow_empty = True),
+    }),
+    hdrs = glob(["include/**/*.h"]),
+    includes = ["include"],
+    copts = select({
+        "//bazel/config:plat_wasm": ["-D_GNU_SOURCE", "-pthread"],
+        "//conditions:default": [],
+    }),
+    linkopts = select({
+        "//bazel/config:plat_wasm": ["-pthread", "-sWASM_WORKERS=1"],
+        "//conditions:default": [],
+    }),
+    deps = ["//modules/core"],
+)

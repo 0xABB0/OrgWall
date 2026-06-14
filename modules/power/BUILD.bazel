@@ -1,0 +1,45 @@
+package(default_visibility = ["//visibility:public"])
+
+DEPS = [
+    "//modules/core",
+    "//modules/platform",
+]
+
+cc_library(
+    name = "power",
+    srcs = glob(["src/*.c", "src/*.h"]) + select({
+        "//bazel/config:plat_linux": glob(["linux/src/*.c", "linux/src/*.h"], allow_empty = True),
+        "//bazel/config:plat_win32": glob(["win32/src/*.c", "win32/src/*.h"], allow_empty = True),
+        "//bazel/config:plat_android": glob(["android/src/*.c", "android/src/*.h"], allow_empty = True),
+        "//bazel/config:plat_wasm": glob(["web/src/*.c", "web/src/*.h"], allow_empty = True),
+        "//conditions:default": [],
+    }),
+    hdrs = glob(["include/**/*.h"]),
+    includes = ["include"],
+    linkopts = select({
+        "//bazel/config:plat_macos": ["-framework", "Foundation", "-framework", "IOKit"],
+        "//bazel/config:plat_ios": ["-framework", "Foundation", "-framework", "UIKit"],
+        "//conditions:default": [],
+    }),
+    deps = DEPS + select({
+        "//bazel/config:plat_macos": [":power_apple"],
+        "//bazel/config:plat_ios": [":power_apple"],
+        "//conditions:default": [],
+    }),
+)
+
+objc_library(
+    name = "power_apple",
+    srcs = glob(["src/*.h", "include/**/*.h"]) + select({
+        "//bazel/config:plat_macos": glob(["macos/src/*.m", "apple/src/*.m"]),
+        "//bazel/config:plat_ios": glob(["ios/src/*.m", "apple/src/*.m"]),
+        "//conditions:default": [],
+    }),
+    includes = ["include"],
+    deps = DEPS,
+    target_compatible_with = select({
+        "//bazel/config:plat_macos": [],
+        "//bazel/config:plat_ios": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+)

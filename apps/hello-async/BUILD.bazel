@@ -1,0 +1,15 @@
+package(default_visibility = ["//visibility:public"])
+
+cc_binary(
+    name = "hello-async",
+    srcs = [
+        "src/main.c",
+        "src/seam.cc",
+        "src/seam.hh",
+    ],
+    target_compatible_with = select({
+        "//bazel/config:plat_macos": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+    deps = ["@stdexec//:stdexec"],
+)

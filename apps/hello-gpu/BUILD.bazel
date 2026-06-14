@@ -1,0 +1,64 @@
+load("@rules_android//rules:rules.bzl", "android_binary")
+load("@rules_apple//apple:macos.bzl", "macos_application")
+load("@rules_apple//apple:versioning.bzl", "apple_bundle_version")
+
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "assets",
+    textual_hdrs = glob(["shaders/**"]),
+)
+
+cc_library(
+    name = "app_headers",
+    hdrs = glob(["src/*.h"]),
+    includes = ["src"],
+)
+
+cc_library(
+    name = "lib",
+    srcs = glob(["src/*.c", "src/*.h"]),
+    copts = ["--embed-dir=apps/hello-gpu"],
+    deps = [
+        "//modules/boot",
+        "//modules/vat",
+        "//modules/gpu",
+        "//modules/gui",
+        "//modules/core",
+        "//modules/log",
+        ":assets",
+    ],
+)
+
+cc_binary(
+    name = "hello-gpu",
+    deps = [":lib"],
+)
+
+apple_bundle_version(
+    name = "version",
+    build_version = "1.0.0",
+)
+
+macos_application(
+    name = "hello-gpu_app",
+    bundle_id = "orgwall.hellogpu",
+    bundle_name = "hello-gpu",
+    infoplists = ["macos/Info.plist"],
+    minimum_os_version = "14.4",
+    target_compatible_with = ["@platforms//os:macos"],
+    version = ":version",
+    deps = [":lib"],
+)
+
+android_binary(
+    name = "melody",
+    custom_package = "orgwall.hellogpu",
+    manifest = "android/AndroidManifest.xml",
+    manifest_values = {"appLabel": "Hello GPU"},
+    target_compatible_with = ["@platforms//os:android"],
+    deps = [
+        ":lib",
+        "//modules/gui:android_java",
+    ],
+)

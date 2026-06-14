@@ -33,3 +33,20 @@ If:
 CompileFlags:
   Add:
     - "-xc"
+
+---
+
+If:
+  PathMatch: ".*\\.(cpp|cc|cxx|cppm|ixx|hpp|hh|hxx|ipp)"
+CompileFlags:
+  Compiler: /Users/gabbo/clang-p2996/bin/clang++
+  Remove:
+    - "-std=*"
+    - "-xc"
+  Add:
+    - "-std=c++26"
+    - "-freflection"
+    - "-fexpansion-statements"
+    - "-stdlib=libc++"
+    - "-isysroot"
+    - "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk"

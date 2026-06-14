@@ -1,0 +1,54 @@
+package(default_visibility = ["//visibility:public"])
+
+DEPS = [
+    "//modules/core",
+    "//modules/allocator",
+    "//modules/collection",
+    "//modules/vat",
+    "//modules/event",
+    "//modules/executor",
+    "//modules/log",
+    "//modules/time",
+    "//modules/debug",
+]
+
+cc_library(
+    name = "boot",
+    srcs = glob(["src/*.c", "src/*.h"]) + select({
+        "//bazel/config:plat_macos": glob(["macos/src/*.c", "macos/src/*.h"], allow_empty = True),
+        "//bazel/config:plat_wasm": glob(["web/src/*.c", "web/src/*.h"], allow_empty = True),
+        "//bazel/config:plat_android": glob(["android/src/*.c", "android/src/*.h"], allow_empty = True),
+        "//bazel/config:plat_win32": glob(["win32/src/*.c", "win32/src/*.h"], allow_empty = True),
+        "//conditions:default": [],
+    }),
+    hdrs = glob(["include/**/*.h"]),
+    includes = ["include"],
+    linkopts = select({
+        "//bazel/config:plat_macos": ["-framework", "AppKit"],
+        "//bazel/config:plat_ios": ["-framework", "UIKit"],
+        "//bazel/config:plat_android": ["-landroid"],
+        "//conditions:default": [],
+    }),
+    alwayslink = True,
+    deps = DEPS + select({
+        "//bazel/config:plat_macos": [":boot_apple"],
+        "//bazel/config:plat_ios": [":boot_apple"],
+        "//conditions:default": [],
+    }),
+)
+
+objc_library(
+    name = "boot_apple",
+    srcs = glob(["src/*.h", "include/**/*.h"]) + select({
+        "//bazel/config:plat_macos": glob(["macos/src/*.m"]),
+        "//bazel/config:plat_ios": glob(["ios/src/*.m"]),
+        "//conditions:default": [],
+    }),
+    includes = ["include"],
+    deps = DEPS,
+    target_compatible_with = select({
+        "//bazel/config:plat_macos": [],
+        "//bazel/config:plat_ios": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+)

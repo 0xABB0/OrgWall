@@ -1,0 +1,44 @@
+load("@rules_foreign_cc//foreign_cc:defs.bzl", "configure_make")
+
+filegroup(
+    name = "mpfr_srcs",
+    srcs = glob(["mpfr/**"]),
+)
+
+configure_make(
+    name = "mpfr",
+    lib_source = ":mpfr_srcs",
+    build_data = ["//third-party/gmp:cc_for_build.sh"],
+    configure_in_place = True,
+    configure_options = [
+        "--disable-shared",
+        "--enable-static",
+        "--with-gmp=$$EXT_BUILD_DEPS",
+    ] + select({
+        "//bazel/config:plat_linux": ["--host=x86_64-linux-gnu"],
+        "//bazel/config:plat_android": ["--host=aarch64-linux-android"],
+        "//bazel/config:plat_wasm": ["--host=wasm32-unknown-emscripten"],
+        "//bazel/config:plat_ios": ["--host=aarch64-apple-ios"],
+        "//conditions:default": [],
+    }),
+    env = select({
+        "//bazel/config:plat_macos": {
+            "CFLAGS": "-std=gnu17",
+            "AR": "ar",
+            "RANLIB": "ranlib",
+        },
+        "//bazel/config:plat_ios": {
+            "CFLAGS": "-std=gnu17",
+            "AR": "ar",
+            "RANLIB": "ranlib",
+            "CC_FOR_BUILD": "$$EXT_BUILD_ROOT/third-party/gmp/cc_for_build.sh",
+        },
+        "//conditions:default": {
+            "CFLAGS": "-std=gnu17",
+            "CC_FOR_BUILD": "$$EXT_BUILD_ROOT/third-party/gmp/cc_for_build.sh",
+        },
+    }),
+    out_static_libs = ["libmpfr.a"],
+    deps = ["//third-party/gmp"],
+    visibility = ["//visibility:public"],
+)

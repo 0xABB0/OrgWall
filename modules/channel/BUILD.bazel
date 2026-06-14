@@ -1,0 +1,48 @@
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "channel",
+    srcs = glob(["src/*.c", "src/*.h"]),
+    hdrs = glob(["include/**/*.h"]),
+    includes = ["include"],
+    deps = [
+        "//modules/core",
+        "//modules/allocator",
+        "//modules/collection",
+        "//modules/executor",
+        "//modules/future",
+        "//modules/signal",
+        "//modules/thread",
+    ],
+)
+
+cc_test(
+    name = "channel-core",
+    srcs = ["test/test_channel.c"],
+    deps = [
+        "//tools/test:runner",
+        "//modules/test",
+        ":channel",
+    ],
+)
+
+cc_test(
+    name = "channel-race",
+    srcs = ["test/test_channel_race.c"],
+    deps = [
+        "//tools/test:runner",
+        "//modules/test",
+        ":channel",
+    ],
+)
+
+cc_test(
+    name = "channel-fiber",
+    srcs = ["test/test_channel_fiber.c"],
+    deps = [
+        "//tools/test:runner",
+        "//modules/test",
+        ":channel",
+        "//modules/job",
+    ],
+)

@@ -1,0 +1,74 @@
+load("@rules_android//rules:rules.bzl", "android_library")
+
+package(default_visibility = ["//visibility:public"])
+
+CORE_DEPS = ["//modules/thread", "//modules/core", "//modules/allocator", "//modules/collection", "//modules/string", "//modules/future", "//modules/executor", "//modules/event", "//modules/log", "//modules/pcm"]
+
+cc_library(
+    name = "audioin_core",
+    srcs = ["src/audioin.c", "src/descriptors.c", "src/publish.c"] + glob(["src/*.h"]),
+    hdrs = glob(["include/**/*.h"]),
+    includes = ["include"],
+    deps = CORE_DEPS,
+)
+
+cc_library(
+    name = "audioin",
+    srcs = glob(["src/*.h"]) + select({
+        "//bazel/config:plat_macos": glob(["macos/src/*.c", "macos/src/*.h"]),
+        "//bazel/config:plat_win32": glob(["win32/src/*.c", "win32/src/*.h"], allow_empty = True),
+        "//bazel/config:plat_linux": glob(["linux/src/*.c", "linux/src/*.h"], allow_empty = True),
+        "//bazel/config:plat_android": glob(["android/src/*.c", "android/src/*.h"]),
+        "//bazel/config:plat_wasm": glob(["web/src/*.c", "web/src/*.h"], allow_empty = True),
+        "//conditions:default": [],
+    }),
+    linkopts = select({
+        "//bazel/config:plat_macos": ["-framework", "CoreAudio", "-framework", "AudioToolbox", "-framework", "CoreFoundation", "-framework", "AVFoundation", "-framework", "Foundation"],
+        "//bazel/config:plat_ios": ["-framework", "AVFoundation", "-framework", "Foundation"],
+        "//bazel/config:plat_win32": ["-lole32", "-lksuser"],
+        "//bazel/config:plat_android": ["-laaudio", "-llog"],
+        "//bazel/config:plat_wasm": ["-sAUDIO_WORKLET=1", "-sWASM_WORKERS=1"],
+        "//conditions:default": [],
+    }),
+    deps = [":audioin_core"] + select({
+        "//bazel/config:plat_linux": ["//third-party/alsa"],
+        "//bazel/config:plat_android": ["//modules/platform"],
+        "//bazel/config:plat_macos": [":audioin_apple"],
+        "//bazel/config:plat_ios": [":audioin_apple"],
+        "//conditions:default": [],
+    }),
+)
+
+android_library(
+    name = "android_java",
+    srcs = glob(["android/java/**/*.java"]),
+    custom_package = "orgwall.melody.audioin",
+    exports_manifest = True,
+    manifest = "android/AndroidManifest.xml",
+    target_compatible_with = select({
+        "//bazel/config:plat_android": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+)
+
+objc_library(
+    name = "audioin_apple",
+    srcs = select({
+        "//bazel/config:plat_macos": glob(["macos/src/*.m", "macos/src/*.h"]),
+        "//bazel/config:plat_ios": glob(["ios/src/*.m", "ios/src/*.h"], allow_empty = True),
+        "//conditions:default": [],
+    }) + glob(["src/*.h", "include/**/*.h"]),
+    includes = ["include"],
+    deps = CORE_DEPS,
+    target_compatible_with = select({
+        "//bazel/config:plat_macos": [],
+        "//bazel/config:plat_ios": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+)
+
+cc_test(
+    name = "audioin-core",
+    srcs = ["test/test_audioin.c"],
+    deps = ["//tools/test:runner", "//modules/test", ":audioin_core"],
+)

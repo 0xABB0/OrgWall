@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+# Melody build/run dispatcher over Bazel. Ports nob's driver.c launch logic:
+# Bazel owns the build graph; this script owns simulator/device/serve/debugger
+# orchestration that Bazel cannot do.
+#
+#   tools/mel <build|run|test|debug> <target> [platform] [-- args...]
+#
+# platform in {macos,ios,linux,android,win32,wasm}; default = host (macos).
+# target may be a label (//apps/foo) or a bare name (foo), resolved by query.
+set -euo pipefail
+
+BAZEL="${BAZEL:-bazel}"
+verb="${1:-}"; shift || true
+
+platform="macos"
+target=""
+xargs=()
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --) shift; xargs=("$@"); break ;;
+        macos|ios|linux|android|win32|wasm) platform="$1" ;;
+        --*) ;; # ignore stray flags
+        *) [[ -z "$target" ]] && target="$1" ;;
+    esac
+    shift
+done
+
+[[ -z "$verb" || -z "$target" ]] && { echo "usage: tools/mel <build|run|test|debug> <target> [platform] [-- args]" >&2; exit 2; }
+
+# config flags per platform (host macos needs none; others select toolchain+axes).
+cfg=()
+[[ "$platform" != "macos" ]] && cfg=(--config="$platform")
+
+# Resolve a bare name to a label (search apps/modules/third-party), else use as-is.
+label="$target"
+if [[ "$target" != //* && "$target" != :* ]]; then
+    label=$($BAZEL query "attr(name, '^${target}\$', //apps/... + //modules/... + //third-party/...)" 2>/dev/null | head -1 || true)
+    [[ -z "$label" ]] && { echo "mel: no target named '$target'" >&2; exit 2; }
+fi
+
+case "$verb" in
+    build)   exec "$BAZEL" build "${cfg[@]}" "$label" ;;
+    test)    exec "$BAZEL" test "${cfg[@]}" "$label" ${xargs[@]+--test_arg "${xargs[@]}"} ;;
+    debug)
+        if [[ "$platform" == "android" ]]; then exec adb logcat; fi
+        out=$($BAZEL cquery "${cfg[@]}" --output=files "$label" 2>/dev/null | head -1)
+        $BAZEL build "${cfg[@]}" "$label"
+        exec lldb -- "$out" "${xargs[@]}"
+        ;;
+    run)
+        $BAZEL build "${cfg[@]}" "$label"
+        out=$($BAZEL cquery "${cfg[@]}" --output=files "$label" 2>/dev/null | head -1)
+        case "$platform" in
+            macos|linux|win32) exec "$out" "${xargs[@]}" ;;
+            ios)
+                udid=$(xcrun simctl list devices booted | grep -Eo '[0-9A-Fa-f-]{36}' | head -1)
+                [[ -z "$udid" ]] && udid=$(xcrun simctl list devices available | grep -E 'iPhone ' | grep -Eo '[0-9A-Fa-f-]{36}' | head -1)
+                open -a Simulator
+                xcrun simctl bootstatus "$udid" -b
+                app=$(dirname "$out")/$(basename "$out").app
+                xcrun simctl install "$udid" "$app"
+                exec xcrun simctl launch --console-pty "$udid" "$(basename "$out")"
+                ;;
+            android)
+                serial=$(adb devices | awk '$2=="device"{print $1; exit}')
+                apk=$(dirname "$out")/*.apk
+                adb -s "$serial" install -r $apk
+                exec adb -s "$serial" shell am start -n "$(basename "$out")/orgwall.melody.platform.MelodyActivity"
+                ;;
+            wasm)
+                dir=$(dirname "$out")
+                open "http://localhost:8000/$(basename "$out" .js).html" || true
+                exec python3 modules/build/web/serve.py "$dir" 8000 1
+                ;;
+        esac
+        ;;
+    *) echo "mel: unknown verb '$verb'" >&2; exit 2 ;;
+esac

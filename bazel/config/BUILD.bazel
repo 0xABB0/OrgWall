@@ -1,0 +1,67 @@
+load("@bazel_skylib//rules:common_settings.bzl", "string_flag")
+
+package(default_visibility = ["//visibility:public"])
+
+# GPU backend is the one genuinely free axis: metal/vulkan/webgpu can each be
+# chosen within a single platform, so it stays a user-set build setting. Every
+# other axis below is derived from the resolved target platform — one source of
+# truth that also drives toolchain resolution.
+string_flag(
+    name = "gpu",
+    build_setting_default = "metal",
+    values = ["metal", "vulkan", "webgpu", "d3d12"],
+)
+
+[
+    config_setting(name = "gpu_" + g, flag_values = {":gpu": g})
+    for g in ["metal", "vulkan", "webgpu", "d3d12"]
+]
+
+_PLAT_OS = {
+    "macos": "@platforms//os:osx",
+    "ios": "@platforms//os:ios",
+    "linux": "@platforms//os:linux",
+    "android": "@platforms//os:android",
+    "win32": "@platforms//os:windows",
+}
+
+[
+    config_setting(name = "plat_" + p, constraint_values = [c])
+    for p, c in _PLAT_OS.items()
+]
+
+config_setting(
+    name = "plat_wasm",
+    constraint_values = ["@platforms//cpu:wasm32"],
+)
+
+# UI backend is currently a pure function of platform; derive it rather than
+# carry a redundant flag. Promote to a string_flag the day a platform offers a
+# choice of backend (as gpu does).
+_BACKEND_OS = {
+    "cocoa": "@platforms//os:osx",
+    "uikit": "@platforms//os:ios",
+    "winui": "@platforms//os:windows",
+    "androidnative": "@platforms//os:android",
+}
+
+[
+    config_setting(name = "backend_" + b, constraint_values = [c])
+    for b, c in _BACKEND_OS.items()
+]
+
+config_setting(
+    name = "backend_dom",
+    constraint_values = ["@platforms//cpu:wasm32"],
+)
+
+_ARCH_CPU = {
+    "arm64": "@platforms//cpu:arm64",
+    "x86_64": "@platforms//cpu:x86_64",
+    "wasm32": "@platforms//cpu:wasm32",
+}
+
+[
+    config_setting(name = "arch_" + a, constraint_values = [c])
+    for a, c in _ARCH_CPU.items()
+]

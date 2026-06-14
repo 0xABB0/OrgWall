@@ -1,0 +1,34 @@
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "cpu",
+    srcs = glob(["src/*.c", "src/*.h"]) + select({
+        "//bazel/config:plat_macos": glob(["apple/src/*.c"]),
+        "//bazel/config:plat_ios": glob(["apple/src/*.c"]),
+        "//bazel/config:plat_linux": glob(["linux/src/*.c", "linux/src/*.h"], allow_empty = True),
+        "//bazel/config:plat_android": glob(["linux/src/*.c", "linux/src/*.h"], allow_empty = True),
+        "//bazel/config:plat_win32": glob(["win32/src/*.c", "win32/src/*.h"], allow_empty = True),
+        "//bazel/config:plat_wasm": glob(["web/src/*.c", "web/src/*.h"], allow_empty = True),
+        "//conditions:default": [],
+    }),
+    hdrs = glob(["include/**/*.h"]),
+    includes = ["include"],
+    linkopts = select({
+        "//bazel/config:plat_win32": ["-ladvapi32"],
+        "//conditions:default": [],
+    }),
+    deps = [
+        "//modules/core",
+        "//modules/allocator",
+    ],
+)
+
+cc_test(
+    name = "cpu-test",
+    srcs = ["test/cpu_test.c"],
+    deps = [
+        ":cpu",
+        "//modules/core",
+        "//modules/allocator",
+    ],
+)

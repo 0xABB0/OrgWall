@@ -1,0 +1,34 @@
+--- a/toolchain/defs.bzl	2026-06-14 12:23:50
++++ b/toolchain/defs.bzl	2026-06-14 12:23:50
+@@ -151,11 +151,13 @@
+         "_ext": zig_ext,
+         "version": repository_ctx.attr.version,
+         "host_platform": host_platform,
++        "dl_platform": "{}-{}".format(host_arch, host_os),
+     }
+     format_vars_exec = {
+         "_ext": repository_ctx.attr.host_platform_ext[exec_platform],
+         "version": repository_ctx.attr.version,
+         "host_platform": exec_platform,
++        "dl_platform": "{}-{}".format(exec_arch, exec_os),
+     }
+ 
+     for dest, src in {
+@@ -177,7 +179,7 @@
+     repository_ctx.download_and_extract(
+         auth = use_netrc(read_user_netrc(repository_ctx), urls, {}),
+         url = urls,
+-        stripPrefix = "zig-{host_platform}-{version}/".format(**format_vars),
++        stripPrefix = "zig-{dl_platform}-{version}/".format(**format_vars),
+         sha256 = zig_sha256,
+     )
+ 
+@@ -259,7 +261,7 @@
+     repository_ctx.download_and_extract(
+         auth = use_netrc(read_user_netrc(repository_ctx), urls, {}),
+         url = urls,
+-        stripPrefix = "zig-{host_platform}-{version}/".format(**format_vars_exec),
++        stripPrefix = "zig-{dl_platform}-{version}/".format(**format_vars_exec),
+         sha256 = repository_ctx.attr.host_platform_sha256[exec_platform],
+     )
+ 

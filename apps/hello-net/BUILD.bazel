@@ -1,0 +1,26 @@
+package(default_visibility = ["//visibility:public"])
+
+cc_binary(
+    name = "hello-net",
+    srcs = glob(["src/*.c"]),
+    target_compatible_with = select({
+        "//bazel/config:plat_wasm": ["@platforms//:incompatible"],
+        "//conditions:default": [],
+    }),
+    deps = [
+        "//modules/boot",
+        "//modules/vat",
+        "//modules/net",
+        "//modules/http",
+        "//modules/io",
+        "//modules/port",
+        "//modules/future",
+        "//modules/executor",
+        "//modules/collection",
+        "//modules/string",
+        "//modules/allocator",
+        "//modules/time",
+        "//modules/log",
+        "//modules/core",
+    ],
+)

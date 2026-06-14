@@ -1,0 +1,41 @@
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "vat",
+    srcs = glob(["src/*.c", "src/*.h"]) + select({
+        "//bazel/config:plat_macos": glob(["darwin/src/*.c", "macos/src/*.c"]),
+        "//bazel/config:plat_ios": glob(["darwin/src/*.c"]),
+        "//bazel/config:plat_win32": glob(["win32/src/*.c", "win32/src/*.h"], allow_empty = True),
+        "//conditions:default": [],
+    }),
+    hdrs = glob(["include/**/*.h"]),
+    includes = ["include"],
+    linkopts = select({
+        "//bazel/config:plat_macos": ["-framework", "Cocoa", "-framework", "CoreVideo"],
+        "//conditions:default": [],
+    }),
+    deps = [
+        "//modules/core",
+        "//modules/allocator",
+        "//modules/collection",
+        "//modules/executor",
+        "//modules/thread",
+        "//modules/time",
+    ],
+)
+
+cc_test(
+    name = "vat-core",
+    srcs = ["test/test_vat.c"],
+    deps = [
+        "//tools/test:runner",
+        "//modules/test",
+        ":vat",
+    ],
+)
+
+cc_binary(
+    name = "vat-bench",
+    srcs = ["bench/vat_bench.c"],
+    deps = [":vat"],
+)

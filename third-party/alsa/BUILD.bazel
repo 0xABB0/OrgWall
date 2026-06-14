@@ -1,0 +1,11 @@
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "alsa",
+    hdrs = glob(["include/**/*.h"]),
+    includes = ["include"],
+    linkopts = select({
+        "//bazel/config:plat_linux": ["-Lthird-party/alsa/lib", "-lasound", "-Wl,--allow-shlib-undefined"],
+        "//conditions:default": [],
+    }),
+)

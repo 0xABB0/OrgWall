@@ -1,0 +1,90 @@
+package(default_visibility = ["//visibility:public"])
+
+load("@bazel_skylib//lib:selects.bzl", "selects")
+
+selects.config_setting_group(
+    name = "apple",
+    match_any = [
+        "//bazel/config:plat_macos",
+        "//bazel/config:plat_ios",
+    ],
+)
+
+selects.config_setting_group(
+    name = "linux_or_android",
+    match_any = [
+        "//bazel/config:plat_linux",
+        "//bazel/config:plat_android",
+    ],
+)
+
+selects.config_setting_group(
+    name = "asm_apple_arm64",
+    match_all = [
+        ":apple",
+        "//bazel/config:arch_arm64",
+    ],
+)
+
+selects.config_setting_group(
+    name = "asm_apple_x86_64",
+    match_all = [
+        ":apple",
+        "//bazel/config:arch_x86_64",
+    ],
+)
+
+selects.config_setting_group(
+    name = "asm_linuxlike_arm64",
+    match_all = [
+        ":linux_or_android",
+        "//bazel/config:arch_arm64",
+    ],
+)
+
+selects.config_setting_group(
+    name = "asm_linux_x86_64",
+    match_all = [
+        "//bazel/config:plat_linux",
+        "//bazel/config:arch_x86_64",
+    ],
+)
+
+selects.config_setting_group(
+    name = "asm_win32_x86_64",
+    match_all = [
+        "//bazel/config:plat_win32",
+        "//bazel/config:arch_x86_64",
+    ],
+)
+
+cc_library(
+    name = "fiber",
+    srcs = glob(["src/*.c"]) +
+           select({
+               ":asm_apple_arm64": glob(["src/asm/*_arm64_aapcs_macho_gas.S"]),
+               "//conditions:default": [],
+           }) +
+           select({
+               ":asm_apple_x86_64": glob(["src/asm/*_x86_64_sysv_macho_gas.S"]),
+               "//conditions:default": [],
+           }) +
+           select({
+               ":asm_linuxlike_arm64": glob(["src/asm/*_arm64_aapcs_elf_gas.S"]),
+               "//conditions:default": [],
+           }) +
+           select({
+               ":asm_linux_x86_64": glob(["src/asm/*_x86_64_sysv_elf_gas.S"]),
+               "//conditions:default": [],
+           }) +
+           select({
+               ":asm_win32_x86_64": glob(["src/asm/*_x86_64_ms_pe_clang_gas.S"]),
+               "//conditions:default": [],
+           }),
+    hdrs = glob(["include/**/*.h"]),
+    includes = ["include"],
+    deps = [
+        "//modules/core",
+        "//modules/allocator",
+    ],
+)

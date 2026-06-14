@@ -1,0 +1,10 @@
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "zstd",
+    srcs = glob(["zstd/common/*.c", "zstd/compress/*.c", "zstd/decompress/*.c"]),
+    hdrs = glob(["zstd/**/*.h"]),
+    includes = ["zstd"],
+    copts = ["-w"],
+    local_defines = ["ZSTD_DISABLE_ASM=1"],
+)

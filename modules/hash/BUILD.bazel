@@ -1,0 +1,24 @@
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "hash",
+    srcs = glob(["src/*.c"]),
+    hdrs = glob(["include/**/*.h"]),
+    includes = ["include"],
+    deps = [
+        "//modules/core",
+    ],
+)
+
+cc_test(
+    name = "hash-vectors",
+    srcs = [
+        "test/test_hash.c",
+        "test/xxh3_vectors.h",
+    ],
+    deps = [
+        "//tools/test:runner",
+        "//modules/test",
+        ":hash",
+    ],
+)

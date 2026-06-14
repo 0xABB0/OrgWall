@@ -1,0 +1,55 @@
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "barcode",
+    srcs = glob(["src/*.c", "src/*.h", "src/decode/*.c"]),
+    hdrs = glob(["include/**/*.h"]),
+    includes = ["include"],
+    deps = [
+        "//modules/core",
+        "//modules/allocator",
+        "//modules/collection",
+        "//modules/image",
+        "//modules/math",
+    ],
+)
+
+cc_test(
+    name = "barcode-decode",
+    srcs = ["test/test.decode.c"],
+    deps = [
+        "//tools/test:runner",
+        "//modules/test",
+        ":barcode",
+    ],
+)
+
+cc_test(
+    name = "barcode-foundations",
+    srcs = ["test/test.foundations.c"],
+    deps = [
+        "//tools/test:runner",
+        "//modules/test",
+        ":barcode",
+    ],
+)
+
+cc_test(
+    name = "barcode-qr",
+    srcs = ["test/test.qr.c"],
+    deps = [
+        "//tools/test:runner",
+        "//modules/test",
+        ":barcode",
+    ],
+)
+
+cc_test(
+    name = "barcode-qr-scan",
+    srcs = ["test/test.qr_scan.c"],
+    deps = [
+        "//tools/test:runner",
+        "//modules/test",
+        ":barcode",
+    ],
+)

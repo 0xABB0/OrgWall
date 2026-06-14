@@ -1,0 +1,36 @@
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "dylib",
+    srcs = glob(["src/*.c"]) + select({
+        "//bazel/config:plat_macos": glob(["posix/src/*.c"]),
+        "//bazel/config:plat_ios": glob(["posix/src/*.c"]),
+        "//bazel/config:plat_linux": glob(["posix/src/*.c"]),
+        "//bazel/config:plat_android": glob(["posix/src/*.c"]),
+        "//bazel/config:plat_win32": glob(["win32/src/*.c", "win32/src/*.h"], allow_empty = True),
+        "//bazel/config:plat_wasm": glob(["wasm/src/*.c"]),
+        "//conditions:default": [],
+    }),
+    hdrs = glob(["include/**/*.h"]),
+    includes = ["include"],
+    linkopts = select({
+        "//bazel/config:plat_linux": ["-ldl"],
+        "//bazel/config:plat_android": ["-ldl"],
+        "//conditions:default": [],
+    }),
+    deps = [
+        "//modules/core",
+        "//modules/allocator",
+        "//modules/log",
+    ],
+)
+
+cc_test(
+    name = "dylib-core",
+    srcs = ["test/dylib_test.c"],
+    deps = [
+        "//tools/test:runner",
+        "//modules/test",
+        ":dylib",
+    ],
+)

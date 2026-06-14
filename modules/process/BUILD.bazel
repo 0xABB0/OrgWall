@@ -1,0 +1,39 @@
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "process",
+    srcs = glob(["src/*.c", "src/*.h"]) + select({
+        "//bazel/config:plat_macos": glob(["posix/src/process_backend.c"]),
+        "//bazel/config:plat_ios": glob(["posix/src/process_backend.c"]),
+        "//bazel/config:plat_linux": glob(["posix/src/process_backend.c"]),
+        "//bazel/config:plat_android": glob(["posix/src/process_backend.c"]),
+        "//bazel/config:plat_win32": glob(["win32/src/process_backend.c"]),
+        "//bazel/config:plat_wasm": glob(["wasm/src/process_backend.c"]),
+        "//conditions:default": [],
+    }),
+    hdrs = glob(["include/**/*.h"]),
+    includes = ["include"],
+    deps = [
+        "//modules/core",
+        "//modules/allocator",
+        "//modules/collection",
+        "//modules/executor",
+        "//modules/future",
+        "//modules/vat",
+        "//modules/port",
+        "//modules/io",
+        "//modules/time",
+        "//modules/log",
+    ],
+)
+
+cc_test(
+    name = "process-spawn",
+    srcs = ["test/test_process.c"],
+    deps = [
+        "//tools/test:runner",
+        "//modules/test",
+        ":process",
+        "//modules/thread",
+    ],
+)

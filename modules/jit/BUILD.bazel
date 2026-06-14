@@ -1,0 +1,25 @@
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "jit",
+    srcs = glob(["src/*.c"]),
+    hdrs = glob(["include/**/*.h"]),
+    includes = ["include"],
+    deps = [
+        "//modules/core",
+        "//modules/allocator",
+        "//modules/log",
+    ],
+)
+
+cc_test(
+    name = "jit-facade",
+    srcs = ["test/jit_test.c"],
+    deps = [
+        "//tools/test:runner",
+        "//modules/test",
+        ":jit",
+        "//modules/core",
+        "//modules/allocator",
+    ],
+)

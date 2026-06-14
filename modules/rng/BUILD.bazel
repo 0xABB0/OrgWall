@@ -1,0 +1,24 @@
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "rng",
+    srcs = glob(["src/*.c"]) + select({
+        "//bazel/config:plat_macos": glob(["posix/src/*.c"]),
+        "//bazel/config:plat_ios": glob(["posix/src/*.c"]),
+        "//bazel/config:plat_linux": glob(["posix/src/*.c"]),
+        "//bazel/config:plat_android": glob(["posix/src/*.c"]),
+        "//bazel/config:plat_win32": glob(["win32/src/*.c", "win32/src/*.h"], allow_empty = True),
+        "//bazel/config:plat_wasm": glob(["wasm/src/*.c"]),
+        "//conditions:default": [],
+    }),
+    hdrs = glob(["include/**/*.h"]),
+    textual_hdrs = glob(["include/**/*.inl"]),
+    includes = ["include"],
+    linkopts = select({
+        "//bazel/config:plat_win32": ["-lbcrypt"],
+        "//conditions:default": [],
+    }),
+    deps = [
+        "//modules/core",
+    ],
+)

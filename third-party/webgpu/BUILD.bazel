@@ -1,0 +1,26 @@
+load("@bazel_skylib//lib:selects.bzl", "selects")
+
+package(default_visibility = ["//visibility:public"])
+
+selects.config_setting_group(
+    name = "dawn_macos",
+    match_all = ["//bazel/config:plat_macos", "//bazel/config:gpu_webgpu"],
+)
+
+selects.config_setting_group(
+    name = "dawn_android",
+    match_all = ["//bazel/config:plat_android", "//bazel/config:gpu_webgpu"],
+)
+
+selects.config_setting_group(
+    name = "dawn",
+    match_any = [":dawn_macos", ":dawn_android"],
+)
+
+cc_library(
+    name = "webgpu",
+    linkopts = select({
+        ":dawn": ["-lwebgpu_dawn"],
+        "//conditions:default": [],
+    }),
+)

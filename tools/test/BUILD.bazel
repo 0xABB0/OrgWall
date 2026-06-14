@@ -1,0 +1,7 @@
+cc_library(
+    name = "runner",
+    srcs = ["src/runner.c"],
+    alwayslink = True,
+    visibility = ["//visibility:public"],
+    deps = ["//modules/test"],
+)

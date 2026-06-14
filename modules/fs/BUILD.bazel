@@ -1,0 +1,64 @@
+package(default_visibility = ["//visibility:public"])
+
+DEPS = [
+    "//modules/core",
+    "//modules/allocator",
+    "//modules/collection",
+    "//modules/string",
+    "//modules/executor",
+    "//modules/future",
+    "//modules/vat",
+    "//modules/thread",
+    "//modules/log",
+    "//modules/platform",
+]
+
+cc_library(
+    name = "fs",
+    srcs = glob(["src/*.c", "src/*.h"]) + select({
+        "//bazel/config:plat_linux": ["linux/src/fs_linux.c"],
+        "//bazel/config:plat_android": ["android/src/fs_android.c"],
+        "//bazel/config:plat_win32": ["win32/src/fs_win32.c"],
+        "//bazel/config:plat_wasm": ["wasm/src/fs_wasm.c"],
+        "//conditions:default": [],
+    }),
+    hdrs = glob(["include/**/*.h"]),
+    textual_hdrs = glob(["src/**/*.inl"]),
+    includes = ["include"],
+    linkopts = select({
+        "//bazel/config:plat_macos": ["-framework", "Foundation"],
+        "//bazel/config:plat_ios": ["-framework", "Foundation"],
+        "//bazel/config:plat_win32": ["-lshell32", "-lole32"],
+        "//conditions:default": [],
+    }),
+    deps = DEPS + select({
+        "//bazel/config:plat_macos": [":fs_apple"],
+        "//bazel/config:plat_ios": [":fs_apple"],
+        "//conditions:default": [],
+    }),
+)
+
+objc_library(
+    name = "fs_apple",
+    srcs = glob(["apple/src/*.m", "src/*.h", "include/**/*.h"]),
+    textual_hdrs = glob(["src/**/*.inl"]),
+    includes = ["include"],
+    copts = ["-fobjc-arc"],
+    deps = DEPS,
+    target_compatible_with = select({
+        "//bazel/config:plat_macos": [],
+        "//bazel/config:plat_ios": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+)
+
+cc_test(
+    name = "fs-core",
+    srcs = ["test/fs_test.c"],
+    deps = [
+        "//tools/test:runner",
+        "//modules/test",
+        ":fs",
+        "//modules/time",
+    ],
+)

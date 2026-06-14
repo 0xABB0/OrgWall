@@ -1,0 +1,75 @@
+load("@rules_android//rules:rules.bzl", "android_library")
+
+package(default_visibility = ["//visibility:public"])
+
+DEPS = [
+    "//modules/core",
+    "//modules/allocator",
+    "//modules/collection",
+    "//modules/string",
+    "//modules/event",
+    "//modules/executor",
+    "//modules/log",
+    "//modules/platform",
+    "//modules/thread",
+]
+
+cc_library(
+    name = "sensor",
+    srcs = glob(["src/*.c", "src/*.h"]) + select({
+        "//bazel/config:plat_linux": glob(["linux/src/*.c", "linux/src/*.h"], allow_empty = True),
+        "//bazel/config:plat_android": glob(["android/src/*.c", "android/src/*.h"], allow_empty = True),
+        "//bazel/config:plat_win32": glob(["win32/src/*.c", "win32/src/*.h"], allow_empty = True),
+        "//bazel/config:plat_wasm": glob(["wasm/src/*.c"]),
+        "//conditions:default": [],
+    }),
+    hdrs = glob(["include/**/*.h"]),
+    includes = ["include"],
+    linkopts = select({
+        "//bazel/config:plat_macos": ["-framework", "Foundation"],
+        "//bazel/config:plat_ios": ["-framework", "CoreMotion", "-framework", "Foundation"],
+        "//bazel/config:plat_win32": ["-lsensorsapi", "-lpropsys", "-lole32"],
+        "//conditions:default": [],
+    }),
+    deps = DEPS + select({
+        "//bazel/config:plat_macos": [":sensor_apple"],
+        "//bazel/config:plat_ios": [":sensor_apple"],
+        "//conditions:default": [],
+    }),
+)
+
+android_library(
+    name = "android_java",
+    srcs = glob(["android/java/**/*.java"]),
+    custom_package = "orgwall.melody.sensor",
+    target_compatible_with = select({
+        "//bazel/config:plat_android": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+)
+
+objc_library(
+    name = "sensor_apple",
+    srcs = glob(["src/*.h", "include/**/*.h"]) + select({
+        "//bazel/config:plat_macos": glob(["macos/src/*.m"]),
+        "//bazel/config:plat_ios": glob(["ios/src/*.m"]),
+        "//conditions:default": [],
+    }),
+    includes = ["include"],
+    deps = DEPS,
+    target_compatible_with = select({
+        "//bazel/config:plat_macos": [],
+        "//bazel/config:plat_ios": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+)
+
+cc_test(
+    name = "sensor-core",
+    srcs = ["test/sensor_test.c"],
+    deps = [
+        "//tools/test:runner",
+        "//modules/test",
+        ":sensor",
+    ],
+)

@@ -1,0 +1,14 @@
+package(default_visibility = ["//visibility:public"])
+
+cc_binary(
+    name = "melody-wasi",
+    srcs = glob(["src/*.c"]),
+    deps = [
+        "//modules/boot",
+        "//modules/vat",
+        "//modules/allocator",
+        "//modules/collection",
+        "//modules/core",
+        "//modules/string",
+    ],
+)

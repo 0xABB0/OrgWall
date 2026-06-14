@@ -82,3 +82,8 @@ captures/
 *.aab
 /.ninja_deps
 /.ninja_log
+
+# Bazel convenience symlinks (point into the output base)
+/bazel-*
+/external
+/MODULE.bazel.lock

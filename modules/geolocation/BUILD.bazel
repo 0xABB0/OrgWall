@@ -1,0 +1,83 @@
+load("@rules_android//rules:rules.bzl", "android_library")
+
+package(default_visibility = ["//visibility:public"])
+
+DEPS = [
+    "//modules/core",
+    "//modules/allocator",
+    "//modules/collection",
+    "//modules/string",
+    "//modules/future",
+    "//modules/executor",
+    "//modules/vat",
+    "//modules/time",
+    "//modules/log",
+    "//modules/debug",
+]
+
+cc_library(
+    name = "geolocation",
+    srcs = glob(["src/*.c"]) + select({
+        "//bazel/config:plat_android": glob(["android/src/*.c", "android/src/*.h"], allow_empty = True),
+        "//bazel/config:plat_linux": glob(["linux/src/*.c", "linux/src/*.h"]),
+        "//bazel/config:plat_win32": glob(["win32/src/*.c", "win32/src/*.cpp"]),
+        "//bazel/config:plat_wasm": glob(["wasm/src/*.c"]),
+        "//conditions:default": [],
+    }),
+    hdrs = glob(["include/**/*.h"]),
+    includes = ["include"],
+    linkopts = select({
+        "//bazel/config:plat_macos": ["-framework", "CoreLocation", "-framework", "Foundation"],
+        "//bazel/config:plat_ios": ["-framework", "CoreLocation", "-framework", "Foundation"],
+        "//bazel/config:plat_win32": ["-lwindowsapp", "-lole32"],
+        "//bazel/config:plat_linux": ["-ldl"],
+        "//conditions:default": [],
+    }),
+    deps = DEPS + select({
+        "//bazel/config:plat_android": ["//modules/platform"],
+        "//conditions:default": [],
+    }) + select({
+        "//bazel/config:plat_macos": [":geolocation_apple"],
+        "//bazel/config:plat_ios": [":geolocation_apple"],
+        "//conditions:default": [],
+    }),
+)
+
+android_library(
+    name = "android_java",
+    srcs = glob(["android/java/**/*.java"]),
+    custom_package = "orgwall.melody.geolocation",
+    exports_manifest = True,
+    manifest = "android/AndroidManifest.xml",
+    target_compatible_with = select({
+        "//bazel/config:plat_android": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+)
+
+objc_library(
+    name = "geolocation_apple",
+    srcs = glob(["apple/src/*.m", "src/*.h", "include/**/*.h"], allow_empty = True),
+    includes = ["include"],
+    deps = DEPS,
+    target_compatible_with = select({
+        "//bazel/config:plat_macos": [],
+        "//bazel/config:plat_ios": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+)
+
+cc_test(
+    name = "geolocation-core",
+    srcs = [
+        "src/geolocation.c",
+        "test/mock_provider.c",
+        "test/mock_provider.h",
+        "test/geolocation_test.c",
+    ] + glob(["include/**/*.h"]),
+    includes = ["include"],
+    deps = [
+        "//tools/test:runner",
+        "//modules/test",
+    ] + DEPS + ["//modules/thread"],
+)

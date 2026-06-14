@@ -1,0 +1,63 @@
+load("@rules_android//rules:rules.bzl", "android_binary")
+load("@rules_apple//apple:macos.bzl", "macos_application")
+load("@rules_apple//apple:versioning.bzl", "apple_bundle_version")
+
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "lib",
+    srcs = glob(["src/*.c"]),
+    linkopts = select({
+        "//bazel/config:plat_wasm": ["-sAUDIO_WORKLET=1", "-sWASM_WORKERS=1"],
+        "//conditions:default": [],
+    }),
+    deps = [
+        "//modules/boot",
+        "//modules/vat",
+        "//modules/gui",
+        "//modules/paint",
+        "//modules/color",
+        "//modules/audiomixer",
+        "//modules/core",
+        "//modules/allocator",
+        "//modules/executor",
+        "//modules/time",
+        "//modules/math",
+        "//modules/log",
+    ],
+)
+
+cc_binary(
+    name = "hello-audio",
+    deps = [":lib"],
+)
+
+apple_bundle_version(
+    name = "version",
+    build_version = "1.0.0",
+)
+
+macos_application(
+    name = "hello-audio_app",
+    bundle_id = "org.melody.helloaudio",
+    bundle_name = "hello-audio",
+    infoplists = ["macos/Info.plist"],
+    minimum_os_version = "14.4",
+    target_compatible_with = ["@platforms//os:macos"],
+    version = ":version",
+    deps = [":lib"],
+)
+
+android_binary(
+    name = "melody",
+    custom_package = "org.melody.helloaudio",
+    manifest = "android/AndroidManifest.xml",
+    manifest_values = {"appLabel": "Melody Audio"},
+    target_compatible_with = ["@platforms//os:android"],
+    deps = [
+        ":lib",
+        "//modules/gui:android_java",
+        "//modules/audioout:android_java",
+        "//modules/audiopolicy:android_java",
+    ],
+)

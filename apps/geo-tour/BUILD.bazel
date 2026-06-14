@@ -1,0 +1,42 @@
+load("@rules_apple//apple:macos.bzl", "macos_application")
+load("@rules_apple//apple:versioning.bzl", "apple_bundle_version")
+
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "lib",
+    srcs = glob(["src/*.c"]),
+    deps = [
+        "//modules/boot",
+        "//modules/vat",
+        "//modules/geolocation",
+        "//modules/future",
+        "//modules/executor",
+        "//modules/allocator",
+        "//modules/collection",
+        "//modules/string",
+        "//modules/log",
+        "//modules/core",
+    ],
+)
+
+cc_binary(
+    name = "geo-tour",
+    deps = [":lib"],
+)
+
+apple_bundle_version(
+    name = "version",
+    build_version = "1.0.0",
+)
+
+macos_application(
+    name = "geo-tour_app",
+    bundle_id = "orgwall.geotour",
+    bundle_name = "geo-tour",
+    infoplists = ["macos/Info.plist"],
+    minimum_os_version = "14.4",
+    target_compatible_with = ["@platforms//os:macos"],
+    version = ":version",
+    deps = [":lib"],
+)

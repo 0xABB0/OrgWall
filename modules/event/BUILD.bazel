@@ -1,0 +1,26 @@
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "event",
+    srcs = glob(["src/*.c"]),
+    hdrs = glob(["include/**/*.h"]),
+    includes = ["include"],
+    deps = [
+        "//modules/core",
+        "//modules/allocator",
+        "//modules/collection",
+        "//modules/executor",
+        "//modules/thread",
+        "//modules/log",
+    ],
+)
+
+cc_test(
+    name = "event-core",
+    srcs = ["test/test_event.c"],
+    deps = [
+        "//tools/test:runner",
+        "//modules/test",
+        ":event",
+    ],
+)

@@ -1,0 +1,60 @@
+package(default_visibility = ["//visibility:public"])
+
+DEPS = [
+    "//modules/core",
+    "//modules/allocator",
+    "//modules/collection",
+    "//modules/string",
+    "//modules/event",
+    "//modules/executor",
+    "//modules/log",
+    "//modules/debug",
+] + select({
+    "//bazel/config:plat_android": ["//modules/platform"],
+    "//conditions:default": [],
+})
+
+cc_library(
+    name = "locale",
+    srcs = glob(["src/*.c", "src/*.h"]) + select({
+        "//bazel/config:plat_linux": glob(["linux/src/*.c", "linux/src/*.h"], allow_empty = True),
+        "//bazel/config:plat_android": glob(["android/src/*.c", "android/src/*.h"], allow_empty = True),
+        "//bazel/config:plat_win32": glob(["win32/src/*.c", "win32/src/*.h"], allow_empty = True),
+        "//bazel/config:plat_wasm": glob(["wasm/src/*.c"]),
+        "//conditions:default": [],
+    }),
+    hdrs = glob(["include/**/*.h"]),
+    includes = ["include"],
+    linkopts = select({
+        "//bazel/config:plat_macos": ["-framework", "Foundation"],
+        "//bazel/config:plat_ios": ["-framework", "Foundation"],
+        "//conditions:default": [],
+    }),
+    deps = DEPS + select({
+        "//bazel/config:plat_macos": [":locale_apple"],
+        "//bazel/config:plat_ios": [":locale_apple"],
+        "//conditions:default": [],
+    }),
+)
+
+objc_library(
+    name = "locale_apple",
+    srcs = glob(["apple/src/*.m", "src/*.h", "include/**/*.h"]),
+    includes = ["include"],
+    deps = DEPS,
+    target_compatible_with = select({
+        "//bazel/config:plat_macos": [],
+        "//bazel/config:plat_ios": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+)
+
+cc_test(
+    name = "locale-core",
+    srcs = ["test/locale_test.c"],
+    deps = [
+        "//tools/test:runner",
+        "//modules/test",
+        ":locale",
+    ],
+)

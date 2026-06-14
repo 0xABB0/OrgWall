@@ -1,0 +1,21 @@
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "temperature",
+    hdrs = glob(["include/**/*.h"]),
+    textual_hdrs = glob(["include/**/*.inl"]),
+    includes = ["include"],
+    deps = [
+        "//modules/core",
+        "//modules/math",
+    ],
+)
+
+cc_binary(
+    name = "temperature-example",
+    srcs = ["example/temperature_example.c"],
+    deps = [
+        ":temperature",
+        "//modules/core",
+    ],
+)

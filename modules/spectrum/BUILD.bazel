@@ -1,0 +1,22 @@
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "spectrum",
+    srcs = glob(["src/*.c"]),
+    hdrs = glob(["include/**/*.h"]),
+    includes = ["include"],
+    deps = [
+        "//modules/core",
+        "//modules/allocator",
+    ],
+)
+
+cc_test(
+    name = "spectrum-test",
+    srcs = ["test/test_spectrum.c"],
+    deps = [
+        "//tools/test:runner",
+        "//modules/test",
+        ":spectrum",
+    ],
+)

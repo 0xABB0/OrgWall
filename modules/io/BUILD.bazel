@@ -1,0 +1,37 @@
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "io",
+    srcs = glob(["src/*.c", "src/*.h"]) + select({
+        "//bazel/config:plat_macos": glob(["posix/src/file_backend.c"]),
+        "//bazel/config:plat_ios": glob(["posix/src/file_backend.c"]),
+        "//bazel/config:plat_linux": glob(["posix/src/file_backend.c"]),
+        "//bazel/config:plat_android": glob(["posix/src/file_backend.c"]),
+        "//bazel/config:plat_win32": glob(["win32/src/file_backend.c"]),
+        "//bazel/config:plat_wasm": glob(["wasm/src/file_backend.c"]),
+    }),
+    hdrs = glob(["include/**/*.h"]),
+    includes = ["include"],
+    deps = [
+        "//modules/core",
+        "//modules/allocator",
+        "//modules/collection",
+        "//modules/executor",
+        "//modules/future",
+        "//modules/vat",
+        "//modules/port",
+        "//modules/log",
+    ],
+)
+
+cc_test(
+    name = "io-stream",
+    srcs = ["test/test_io.c"],
+    deps = [
+        "//tools/test:runner",
+        "//modules/test",
+        ":io",
+        "//modules/thread",
+        "//modules/time",
+    ],
+)

@@ -1,0 +1,26 @@
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "musictuning",
+    srcs = glob(["src/*.c"]),
+    hdrs = glob(["include/**/*.h"]),
+    includes = ["include"],
+    deps = [
+        "//modules/core",
+        "//modules/math",
+        "//modules/frequency",
+        "//modules/allocator",
+        "//modules/collection",
+        "//modules/string",
+    ],
+)
+
+cc_test(
+    name = "tuning-test",
+    srcs = ["test/test_tuning.c"],
+    deps = [
+        "//tools/test:runner",
+        "//modules/test",
+        ":musictuning",
+    ],
+)

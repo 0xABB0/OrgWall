@@ -1,0 +1,49 @@
+load("//bazel/toolchain/windows:cc_toolchain_config.bzl", "cc_toolchain_config")
+
+package(default_visibility = ["//visibility:public"])
+
+# clang-cl/lld-link binaries (per exec host) + the xwin MSVC sysroot. Referencing
+# @xwin here does not fetch it until this toolchain is analyzed (a win32 build).
+filegroup(
+    name = "toolchain_files",
+    srcs = [
+        # :bin carries the clang-cl/lld-link/llvm-lib symlinks; :clang the real
+        # clang (symlink targets); :include clang's resource-dir builtin headers.
+        "@llvm_toolchain_llvm//:bin",
+        "@llvm_toolchain_llvm//:clang",
+        "@llvm_toolchain_llvm//:include",
+        "@xwin//:sysroot_files",
+    ],
+)
+
+filegroup(name = "empty")
+
+cc_toolchain_config(
+    name = "clang_cl_config",
+    clang_cl = "@llvm_toolchain_llvm//:bin/clang-cl",
+    clang_files = "@llvm_toolchain_llvm//:include",
+    llvm_lib = "@llvm_toolchain_llvm//:bin/llvm-lib",
+    lld_link = "@llvm_toolchain_llvm//:bin/lld-link",
+    sysroot = "@xwin//:sysroot_files",
+)
+
+cc_toolchain(
+    name = "clang_cl",
+    all_files = ":toolchain_files",
+    compiler_files = ":toolchain_files",
+    dwp_files = ":empty",
+    linker_files = ":toolchain_files",
+    objcopy_files = ":empty",
+    strip_files = ":empty",
+    toolchain_config = ":clang_cl_config",
+)
+
+toolchain(
+    name = "clang_cl_toolchain",
+    target_compatible_with = [
+        "@platforms//os:windows",
+        "@platforms//cpu:x86_64",
+    ],
+    toolchain = ":clang_cl",
+    toolchain_type = "@bazel_tools//tools/cpp:toolchain_type",
+)

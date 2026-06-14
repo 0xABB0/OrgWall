@@ -1,0 +1,25 @@
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "string",
+    srcs = glob(["src/*.c"]),
+    hdrs = glob(["include/**/*.h"]),
+    textual_hdrs = glob(["include/**/*.inl"]),
+    includes = ["include"],
+    deps = [
+        "//modules/core",
+        "//modules/allocator",
+        "//modules/hash",
+        "//modules/collection",
+    ],
+)
+
+cc_test(
+    name = "string-builder",
+    srcs = ["test/test_builder.c"],
+    deps = [
+        "//tools/test:runner",
+        "//modules/test",
+        ":string",
+    ],
+)

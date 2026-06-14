@@ -1,0 +1,24 @@
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "digest",
+    srcs = glob(["src/*.c"]),
+    hdrs = glob(["include/**/*.h"]),
+    includes = ["include"],
+    deps = [
+        "//modules/core",
+    ],
+)
+
+cc_test(
+    name = "digest-vectors",
+    srcs = [
+        "test/test_digest.c",
+        "test/digest_vectors.h",
+    ],
+    deps = [
+        "//tools/test:runner",
+        "//modules/test",
+        ":digest",
+    ],
+)

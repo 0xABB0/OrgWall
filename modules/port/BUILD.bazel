@@ -1,0 +1,36 @@
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "port",
+    srcs = glob(["src/*.c", "src/*.h"]) + select({
+        "//bazel/config:plat_macos": ["apple/src/port_backend.c"],
+        "//bazel/config:plat_ios": ["apple/src/port_backend.c"],
+        "//bazel/config:plat_linux": ["posix/src/port_backend.c"],
+        "//bazel/config:plat_android": ["posix/src/port_backend.c"],
+        "//bazel/config:plat_win32": ["win32/src/port_backend.c"],
+        "//bazel/config:plat_wasm": ["none/src/port_backend.c"],
+    }),
+    hdrs = glob(["include/**/*.h"]),
+    includes = ["include"],
+    deps = [
+        "//modules/core",
+        "//modules/allocator",
+        "//modules/collection",
+        "//modules/executor",
+        "//modules/future",
+        "//modules/vat",
+        "//modules/log",
+    ],
+)
+
+cc_test(
+    name = "port-loop",
+    srcs = ["test/test_port.c"],
+    deps = [
+        "//tools/test:runner",
+        "//modules/test",
+        ":port",
+        "//modules/thread",
+        "//modules/time",
+    ],
+)

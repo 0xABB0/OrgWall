@@ -1,0 +1,61 @@
+load("@rules_android//rules:rules.bzl", "android_binary")
+load("@rules_apple//apple:macos.bzl", "macos_application")
+load("@rules_apple//apple:versioning.bzl", "apple_bundle_version")
+
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "lib",
+    srcs = glob(["src/*.c"]),
+    deps = [
+        "//modules/boot",
+        "//modules/vat",
+        "//modules/gui",
+        "//modules/tts",
+        "//modules/stt",
+        "//modules/audioin",
+        "//modules/future",
+        "//modules/executor",
+        "//modules/thread",
+        "//modules/collection",
+        "//modules/allocator",
+        "//modules/string",
+        "//modules/log",
+        "//modules/core",
+    ],
+)
+
+cc_binary(
+    name = "hello-speech",
+    deps = [":lib"],
+)
+
+apple_bundle_version(
+    name = "version",
+    build_version = "1.0.0",
+)
+
+macos_application(
+    name = "hello-speech_app",
+    bundle_id = "orgwall.speech",
+    bundle_name = "hello-speech",
+    infoplists = ["macos/Info.plist"],
+    minimum_os_version = "14.4",
+    target_compatible_with = ["@platforms//os:macos"],
+    version = ":version",
+    deps = [":lib"],
+)
+
+android_binary(
+    name = "melody",
+    custom_package = "orgwall.speech",
+    manifest = "android/AndroidManifest.xml",
+    manifest_values = {"appLabel": "Speech"},
+    target_compatible_with = ["@platforms//os:android"],
+    deps = [
+        ":lib",
+        "//modules/gui:android_java",
+        "//modules/audioin:android_java",
+        "//modules/stt:android_java",
+    ],
+)

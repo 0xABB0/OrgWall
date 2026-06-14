@@ -1,0 +1,12 @@
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "curve",
+    srcs = glob(["src/*.c"]),
+    hdrs = glob(["include/**/*.h"]),
+    textual_hdrs = glob(["include/**/*.inl"]),
+    includes = ["include"],
+    deps = [
+        "//modules/core",
+    ],
+)

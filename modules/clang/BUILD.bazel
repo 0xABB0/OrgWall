@@ -1,0 +1,32 @@
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "clang",
+    srcs = glob(["src/*.cpp"]),
+    hdrs = glob(["include/**/*.h"]),
+    includes = ["include"],
+    copts = ["-fno-rtti"],
+    deps = [
+        "//third-party/llvm:llvm-runtime",
+        "//modules/llvm",
+        "//modules/jit",
+        "//modules/repl",
+        "//modules/core",
+        "//modules/allocator",
+        "//modules/string",
+        "//modules/log",
+    ],
+)
+
+cc_test(
+    name = "clang-frontend",
+    srcs = ["test/clang_test.c"],
+    deps = [
+        "//tools/test:runner",
+        "//modules/test",
+        ":clang",
+        "//modules/llvm",
+        "//modules/repl",
+        "//modules/jit",
+    ],
+)

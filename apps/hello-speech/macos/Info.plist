@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key>
+    <string>Speech</string>
+    <key>CFBundleDisplayName</key>
+    <string>Speech</string>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <key>NSPrincipalClass</key>
+    <string>NSApplication</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Speech listens to the microphone to transcribe what you say.</string>
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>Speech transcribes your voice to text to showcase the speech module.</string>
+</dict>
+</plist>

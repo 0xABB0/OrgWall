@@ -1,0 +1,1 @@
+# Package marker so mel_codegen.bzl is loadable as //bazel/rules:mel_codegen.bzl.

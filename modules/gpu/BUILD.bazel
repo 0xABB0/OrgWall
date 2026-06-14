@@ -1,0 +1,300 @@
+load("@bazel_skylib//lib:selects.bzl", "selects")
+
+package(default_visibility = ["//visibility:public"])
+
+COMMON = [
+    "//modules/core",
+    "//modules/allocator",
+    "//modules/collection",
+    "//modules/vat",
+    "//modules/executor",
+    "//modules/future",
+    "//modules/log",
+    "//modules/debug",
+    "//modules/string",
+    "//modules/thread",
+    "//modules/time",
+    "//modules/thermal",
+    "//modules/power",
+    "//third-party/slang",
+    "//third-party/webgpu",
+]
+
+selects.config_setting_group(
+    name = "vulkan_macos",
+    match_all = ["//bazel/config:gpu_vulkan", "//bazel/config:plat_macos"],
+)
+
+selects.config_setting_group(
+    name = "webgpu_macos",
+    match_all = ["//bazel/config:gpu_webgpu", "//bazel/config:plat_macos"],
+)
+
+cc_library(
+    name = "gpu",
+    srcs = glob(["src/*.c"]),
+    hdrs = glob(["include/**/*.h"]) + select({
+        "//bazel/config:gpu_vulkan": glob(["vulkan/include/**/*.h"]),
+        "//conditions:default": [],
+    }),
+    includes = ["include"] + select({
+        "//bazel/config:gpu_vulkan": ["vulkan/include"],
+        "//conditions:default": [],
+    }),
+    local_defines = select({
+        "//bazel/config:gpu_metal": ["MEL_GPU_METAL=1"],
+        "//bazel/config:gpu_vulkan": ["MEL_GPU_VULKAN=1"],
+        "//bazel/config:gpu_webgpu": ["MEL_GPU_WEBGPU=1"],
+        "//bazel/config:gpu_d3d12": ["MEL_GPU_D3D12=1"],
+    }),
+    deps = COMMON + select({
+        "//bazel/config:gpu_metal": [":gpu_metal"],
+        "//bazel/config:gpu_vulkan": [":gpu_vulkan"],
+        "//bazel/config:gpu_webgpu": [":gpu_webgpu"],
+        "//bazel/config:gpu_d3d12": [":gpu_d3d12"],
+    }),
+)
+
+objc_library(
+    name = "gpu_metal",
+    srcs = select({
+        "//bazel/config:plat_macos": glob(["metal/src/macos/*.m"]),
+        "//bazel/config:plat_ios": glob(["metal/src/macos/*.m"], exclude = ["metal/src/macos/surface.m"]) + glob(["metal/src/ios/*.m"]),
+        "//conditions:default": [],
+    }) + glob(["metal/src/macos/*.h", "include/**/*.h"]),
+    includes = ["include"],
+    copts = ["-DMEL_GPU_METAL=1"],
+    linkopts = select({
+        "//bazel/config:plat_macos": ["-framework", "Metal", "-framework", "QuartzCore", "-framework", "Foundation", "-framework", "AppKit"],
+        "//bazel/config:plat_ios": ["-framework", "Metal", "-framework", "QuartzCore", "-framework", "Foundation", "-framework", "UIKit"],
+        "//conditions:default": [],
+    }),
+    deps = COMMON,
+    target_compatible_with = select({
+        "//bazel/config:gpu_metal": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+)
+
+cc_library(
+    name = "gpu_vulkan",
+    srcs = glob(["vulkan/src/*.c", "vulkan/src/*.h"]) + select({
+        "//bazel/config:plat_android": glob(["vulkan/src/android/*.c"]),
+        "//bazel/config:plat_linux": glob(["vulkan/src/linux/*.c", "vulkan/src/linux/*.h"]),
+        "//bazel/config:plat_win32": glob(["vulkan/src/windows/*.c"]),
+        "//conditions:default": [],
+    }),
+    hdrs = glob(["include/**/*.h", "vulkan/include/**/*.h"]),
+    includes = ["include", "vulkan/include"],
+    local_defines = ["MEL_GPU_VULKAN=1"],
+    copts = select({
+        "//bazel/config:plat_macos": ["-I/opt/homebrew/include"],
+        "//conditions:default": [],
+    }),
+    linkopts = select({
+        "//bazel/config:plat_macos": ["-lvulkan", "-L/opt/homebrew/lib", "-framework", "QuartzCore", "-framework", "Foundation"],
+        "//bazel/config:plat_android": ["-lvulkan", "-landroid"],
+        "//bazel/config:plat_linux": ["-lvulkan"],
+        "//bazel/config:plat_win32": ["-lvulkan-1"],
+        "//conditions:default": [],
+    }),
+    deps = COMMON + select({
+        "//bazel/config:plat_linux": ["//third-party/vulkan-headers", "//third-party/vulkan-loader-stub"],
+        "//bazel/config:plat_macos": [":gpu_vulkan_apple"],
+        "//conditions:default": [],
+    }),
+    target_compatible_with = select({
+        "//bazel/config:gpu_vulkan": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+)
+
+objc_library(
+    name = "gpu_vulkan_apple",
+    srcs = glob(["vulkan/src/macos/*.m", "vulkan/src/*.h", "include/**/*.h", "vulkan/include/**/*.h"]),
+    includes = ["include", "vulkan/include"],
+    deps = COMMON,
+    target_compatible_with = select({
+        ":vulkan_macos": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+)
+
+cc_library(
+    name = "gpu_webgpu",
+    srcs = glob(["webgpu/src/*.c", "webgpu/src/*.h"]) + select({
+        "//bazel/config:plat_wasm": glob(["webgpu/src/wasm/*.c"]),
+        "//conditions:default": [],
+    }),
+    hdrs = glob(["include/**/*.h"]),
+    includes = ["include"],
+    local_defines = ["MEL_GPU_WEBGPU=1"],
+    copts = select({
+        "//bazel/config:plat_wasm": ["--use-port=emdawnwebgpu"],
+        "//conditions:default": [],
+    }),
+    linkopts = select({
+        "//bazel/config:plat_wasm": ["--use-port=emdawnwebgpu", "-sASYNCIFY=2", "-sALLOW_MEMORY_GROWTH=1"],
+        "//conditions:default": [],
+    }),
+    deps = COMMON + select({
+        "//bazel/config:plat_macos": [":gpu_webgpu_apple"],
+        "//conditions:default": [],
+    }),
+    target_compatible_with = select({
+        "//bazel/config:gpu_webgpu": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+)
+
+objc_library(
+    name = "gpu_webgpu_apple",
+    srcs = glob(["webgpu/src/*.m", "webgpu/src/*.h", "include/**/*.h"]),
+    includes = ["include"],
+    linkopts = ["-framework", "QuartzCore", "-framework", "Foundation", "-framework", "AppKit", "-framework", "Metal"],
+    deps = COMMON,
+    target_compatible_with = select({
+        ":webgpu_macos": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+)
+
+cc_library(
+    name = "gpu_d3d12",
+    srcs = glob(["d3d12/src/*.c", "d3d12/src/*.h"]),
+    hdrs = glob(["include/**/*.h"]),
+    includes = ["include"],
+    local_defines = ["MEL_GPU_D3D12=1"],
+    linkopts = ["-ld3d12", "-ldxgi", "-ldxguid"],
+    deps = COMMON,
+    target_compatible_with = select({
+        "//bazel/config:gpu_d3d12": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+)
+
+TEST_DEPS = [
+    "//tools/test:runner",
+    "//modules/test",
+    ":gpu",
+    "//modules/core",
+    "//modules/allocator",
+    "//modules/collection",
+    "//modules/vat",
+]
+
+DEF_VULKAN = select({
+    "//bazel/config:gpu_vulkan": ["MEL_GPU_VULKAN=1"],
+    "//conditions:default": [],
+})
+
+TEST_ENV = {"MEL_TEST_NOFORK": "1"}
+
+cc_test(
+    name = "gpu-foundation",
+    srcs = ["test/test_foundation.c"],
+    env = TEST_ENV,
+    deps = TEST_DEPS,
+)
+
+cc_test(
+    name = "gpu-resources",
+    srcs = ["test/test_resources.c"],
+    env = TEST_ENV,
+    local_defines = select({
+        "//bazel/config:gpu_vulkan": ["MEL_GPU_VULKAN=1"],
+        "//bazel/config:gpu_metal": ["MEL_GPU_METAL=1"],
+        "//conditions:default": [],
+    }),
+    deps = TEST_DEPS,
+)
+
+cc_test(
+    name = "gpu-vulkan",
+    srcs = ["test/test_vulkan.c"],
+    env = TEST_ENV,
+    local_defines = DEF_VULKAN,
+    deps = TEST_DEPS,
+)
+
+cc_test(
+    name = "gpu-stress",
+    srcs = ["test/test_stress.c"],
+    env = TEST_ENV,
+    local_defines = DEF_VULKAN,
+    deps = TEST_DEPS,
+)
+
+cc_test(
+    name = "gpu-concurrency",
+    srcs = ["test/test_concurrency.c"],
+    env = TEST_ENV,
+    local_defines = DEF_VULKAN,
+    deps = TEST_DEPS,
+)
+
+cc_test(
+    name = "gpu-visual",
+    srcs = ["test/test_visual.c", "test/img_golden.c"] + glob(["test/*.h"]),
+    data = glob(["test/golden/**/*.ppm"]),
+    env = TEST_ENV,
+    local_defines = DEF_VULKAN,
+    deps = TEST_DEPS,
+)
+
+cc_test(
+    name = "gpu-bench",
+    srcs = ["test/test_bench.c"],
+    env = TEST_ENV,
+    local_defines = DEF_VULKAN,
+    deps = TEST_DEPS + ["//modules/time"],
+)
+
+cc_test(
+    name = "gpu-d3d12",
+    srcs = ["test/test_d3d12.c"],
+    env = TEST_ENV,
+    local_defines = select({
+        "//bazel/config:gpu_d3d12": ["MEL_GPU_D3D12=1"],
+        "//conditions:default": [],
+    }),
+    deps = TEST_DEPS,
+)
+
+cc_test(
+    name = "gpu-metal",
+    srcs = ["test/test_metal.c"],
+    env = TEST_ENV,
+    local_defines = select({
+        "//bazel/config:gpu_metal": ["MEL_GPU_METAL=1"],
+        "//conditions:default": [],
+    }),
+    deps = TEST_DEPS + ["//apps/hello-gpu:app_headers"],
+)
+
+cc_test(
+    name = "gpu-webgpu",
+    srcs = ["test/test_webgpu.c", "test/img_golden.c"] + glob(["test/*.h"]),
+    data = glob(["test/golden/**/*.ppm"]),
+    env = TEST_ENV,
+    local_defines = select({
+        "//bazel/config:gpu_webgpu": ["MEL_GPU_WEBGPU=1"],
+        "//conditions:default": [],
+    }),
+    deps = TEST_DEPS,
+)
+
+cc_test(
+    name = "gpu-scene",
+    srcs = ["test/test_scene.c", "test/img_golden.c"] + glob(["test/*.h"]),
+    copts = ["--embed-dir=apps/hello-gpu"],
+    data = glob(["test/golden/**/*.ppm"]),
+    env = TEST_ENV,
+    local_defines = select({
+        "//bazel/config:gpu_vulkan": ["MEL_GPU_VULKAN=1"],
+        "//bazel/config:gpu_metal": ["MEL_GPU_METAL=1"],
+        "//bazel/config:gpu_webgpu": ["MEL_GPU_WEBGPU=1"],
+        "//bazel/config:gpu_d3d12": ["MEL_GPU_D3D12=1"],
+    }),
+    deps = TEST_DEPS + ["//modules/log", "//apps/hello-gpu:app_headers", "//apps/hello-gpu:assets"],
+)

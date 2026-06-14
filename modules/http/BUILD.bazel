@@ -1,0 +1,33 @@
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "http",
+    srcs = glob(["src/*.c", "src/*.h"]),
+    hdrs = glob(["include/**/*.h"]),
+    includes = ["include"],
+    deps = [
+        "//modules/core",
+        "//modules/allocator",
+        "//modules/collection",
+        "//modules/string",
+        "//modules/executor",
+        "//modules/future",
+        "//modules/vat",
+        "//modules/port",
+        "//modules/io",
+        "//modules/net",
+        "//modules/time",
+        "//modules/log",
+    ],
+)
+
+cc_test(
+    name = "http-core",
+    srcs = ["test/test_http.c"] + glob(["src/*.h"]),
+    deps = [
+        "//tools/test:runner",
+        "//modules/test",
+        ":http",
+        "//modules/net",
+    ],
+)

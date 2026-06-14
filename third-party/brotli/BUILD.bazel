@@ -1,0 +1,9 @@
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "brotli",
+    srcs = glob(["brotli/common/*.c", "brotli/dec/*.c", "brotli/enc/*.c", "brotli/**/*.h"]),
+    hdrs = glob(["include/**/*.h"]),
+    includes = ["include"],
+    copts = ["-w"],
+)

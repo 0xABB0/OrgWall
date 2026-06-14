@@ -1,0 +1,53 @@
+package(default_visibility = ["//visibility:public"])
+
+DEPS = [
+    "//modules/core",
+    "//modules/allocator",
+    "//modules/platform",
+    "//modules/string",
+]
+
+cc_library(
+    name = "debug",
+    srcs = glob(["src/*.c", "src/*.h"]) + select({
+        "//bazel/config:plat_macos": glob(["macos/src/*.c", "posix/src/*.c"]),
+        "//bazel/config:plat_ios": glob(["ios/src/*.c", "posix/src/*.c", "nodialog/src/*.c"]),
+        "//bazel/config:plat_win32": glob(["windows/src/*.c"]),
+        "//bazel/config:plat_android": glob(["android/src/*.c", "posix/src/*.c", "nodialog/src/*.c"]),
+        "//bazel/config:plat_linux": glob(["linux/src/*.c", "posix/src/*.c", "nodialog/src/*.c"]),
+        "//bazel/config:plat_wasm": glob(["wasm/src/*.c", "nodialog/src/*.c"]),
+        "//conditions:default": [],
+    }),
+    hdrs = glob(["include/**/*.h"]),
+    includes = ["include"],
+    linkopts = select({
+        "//bazel/config:plat_macos": ["-framework", "AppKit", "-framework", "Foundation"],
+        "//bazel/config:plat_win32": ["-ldbghelp"],
+        "//conditions:default": [],
+    }),
+    deps = DEPS + select({
+        "//bazel/config:plat_macos": [":debug_objc"],
+        "//conditions:default": [],
+    }),
+)
+
+objc_library(
+    name = "debug_objc",
+    srcs = glob(["macos/src/*.m", "src/*.h", "include/**/*.h"]),
+    includes = ["include"],
+    deps = DEPS,
+    target_compatible_with = select({
+        "//bazel/config:plat_macos": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+)
+
+cc_test(
+    name = "debug-assert",
+    srcs = ["test/test_assert.c"],
+    deps = [
+        "//tools/test:runner",
+        "//modules/test",
+        ":debug",
+    ],
+)

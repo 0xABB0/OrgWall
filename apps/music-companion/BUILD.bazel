@@ -1,0 +1,61 @@
+load("@rules_android//rules:rules.bzl", "android_binary")
+load("@rules_apple//apple:macos.bzl", "macos_application")
+load("@rules_apple//apple:versioning.bzl", "apple_bundle_version")
+
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "lib",
+    srcs = glob(["src/*.c", "src/*.h"]),
+    deps = [
+        "//modules/boot",
+        "//modules/vat",
+        "//modules/allocator",
+        "//modules/core",
+        "//modules/gui",
+        "//modules/midi",
+        "//modules/musictuning",
+        "//modules/musictheory",
+        "//modules/musicnotation",
+        "//modules/collection",
+        "//modules/string",
+        "//modules/audiocapture",
+        "//modules/pitchdetect",
+        "//modules/frequency",
+    ],
+)
+
+cc_binary(
+    name = "music-companion",
+    deps = [":lib"],
+)
+
+apple_bundle_version(
+    name = "version",
+    build_version = "1.0.0",
+)
+
+macos_application(
+    name = "music-companion_app",
+    bundle_id = "orgwall.musiccompanion",
+    bundle_name = "music-companion",
+    infoplists = ["macos/Info.plist"],
+    minimum_os_version = "14.4",
+    target_compatible_with = ["@platforms//os:macos"],
+    version = ":version",
+    deps = [":lib"],
+)
+
+android_binary(
+    name = "melody",
+    custom_package = "orgwall.musiccompanion",
+    manifest = "android/AndroidManifest.xml",
+    manifest_values = {"appLabel": "Music Companion"},
+    target_compatible_with = ["@platforms//os:android"],
+    deps = [
+        ":lib",
+        "//modules/gui:android_java",
+        "//modules/audioin:android_java",
+        "//modules/midi:android_java",
+    ],
+)

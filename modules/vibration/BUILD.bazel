@@ -1,0 +1,79 @@
+load("@rules_android//rules:rules.bzl", "android_library")
+
+package(default_visibility = ["//visibility:public"])
+
+DEPS = [
+    "//modules/core",
+    "//modules/allocator",
+    "//modules/collection",
+    "//modules/string",
+    "//modules/vat",
+    "//modules/time",
+    "//modules/log",
+    "//modules/platform",
+]
+
+cc_library(
+    name = "vibration",
+    srcs = [
+        "src/vibration.c",
+        "src/vibration_ff.c",
+        "src/vibration_internal.h",
+    ] + select({
+        "//bazel/config:plat_android": glob(["android/src/*.c", "android/src/*.h"], allow_empty = True),
+        "//bazel/config:plat_linux": glob(["linux/src/*.c", "linux/src/*.h"], allow_empty = True),
+        "//bazel/config:plat_win32": glob(["win32/src/*.c", "win32/src/*.h"], allow_empty = True),
+        "//bazel/config:plat_wasm": ["src/vibration_host_none.c"],
+        "//conditions:default": [],
+    }),
+    hdrs = glob(["include/**/*.h"]),
+    includes = ["include"],
+    linkopts = select({
+        "//bazel/config:plat_macos": ["-framework", "CoreHaptics", "-framework", "Foundation"],
+        "//bazel/config:plat_ios": ["-framework", "CoreHaptics", "-framework", "Foundation"],
+        "//bazel/config:plat_win32": ["-ldinput8", "-ldxguid", "-lole32"],
+        "//conditions:default": [],
+    }),
+    deps = DEPS + select({
+        "//bazel/config:plat_macos": [":vibration_apple"],
+        "//bazel/config:plat_ios": [":vibration_apple"],
+        "//conditions:default": [],
+    }),
+)
+
+android_library(
+    name = "android_java",
+    custom_package = "orgwall.melody.vibration",
+    exports_manifest = True,
+    manifest = "android/AndroidManifest.xml",
+    target_compatible_with = select({
+        "//bazel/config:plat_android": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+)
+
+objc_library(
+    name = "vibration_apple",
+    srcs = glob([
+        "apple/src/*.m",
+        "src/*.h",
+        "include/**/*.h",
+    ]),
+    includes = ["include"],
+    deps = DEPS,
+    target_compatible_with = select({
+        "//bazel/config:plat_macos": [],
+        "//bazel/config:plat_ios": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+)
+
+cc_test(
+    name = "vibration-core",
+    srcs = ["test/vibration_test.c"],
+    deps = [
+        "//tools/test:runner",
+        "//modules/test",
+        ":vibration",
+    ],
+)

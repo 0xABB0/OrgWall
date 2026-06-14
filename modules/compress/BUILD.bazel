@@ -1,0 +1,108 @@
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "compress",
+    srcs = glob(["src/*.c"]),
+    hdrs = glob(["include/**/*.h"]),
+    includes = ["include"],
+    deps = [
+        "//modules/core",
+        "//modules/allocator",
+        "//modules/collection",
+        "//modules/string",
+        "//modules/log",
+    ],
+)
+
+cc_library(
+    name = "compress-rle",
+    srcs = glob(["src/rle/*.c"]),
+    deps = [
+        ":compress",
+        "//modules/core",
+        "//modules/allocator",
+    ],
+)
+
+cc_library(
+    name = "compress-deflate",
+    srcs = glob(["src/miniz/*.c"]),
+    deps = [
+        ":compress",
+        "//modules/core",
+        "//modules/allocator",
+        "//third-party/miniz",
+    ],
+)
+
+cc_library(
+    name = "compress-lz4",
+    srcs = glob(["src/lz4/*.c"]),
+    deps = [
+        ":compress",
+        "//modules/core",
+        "//modules/allocator",
+        "//third-party/lz4",
+    ],
+)
+
+cc_library(
+    name = "compress-zstd",
+    srcs = glob(["src/zstd/*.c"]),
+    deps = [
+        ":compress",
+        "//modules/core",
+        "//modules/allocator",
+        "//third-party/zstd",
+    ],
+)
+
+cc_library(
+    name = "compress-brotli",
+    srcs = glob(["src/brotli/*.c"]),
+    deps = [
+        ":compress",
+        "//modules/core",
+        "//modules/allocator",
+        "//third-party/brotli",
+    ],
+)
+
+cc_library(
+    name = "compress-zip",
+    srcs = glob(["src/zip/*.c"]),
+    deps = [
+        ":compress",
+        "//modules/core",
+        "//modules/allocator",
+        "//third-party/miniz",
+        "//modules/collection",
+        "//modules/string",
+    ],
+)
+
+cc_test(
+    name = "compress-roundtrip",
+    srcs = ["test/roundtrip_test.c"],
+    deps = [
+        "//tools/test:runner",
+        "//modules/test",
+        ":compress",
+        ":compress-rle",
+        ":compress-deflate",
+        ":compress-lz4",
+        ":compress-zstd",
+        ":compress-brotli",
+    ],
+)
+
+cc_test(
+    name = "compress-zip-test",
+    srcs = ["test/zip_test.c"],
+    deps = [
+        "//tools/test:runner",
+        "//modules/test",
+        ":compress",
+        ":compress-zip",
+    ],
+)

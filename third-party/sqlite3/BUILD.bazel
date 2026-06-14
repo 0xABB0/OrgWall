@@ -1,0 +1,8 @@
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "sqlite3",
+    srcs = ["sqlite/sqlite3.c"],
+    hdrs = glob(["sqlite/**/*.h"]),
+    includes = ["sqlite"],
+)

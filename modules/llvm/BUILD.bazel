@@ -1,0 +1,36 @@
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "llvm",
+    srcs = glob(["src/*.cpp"]),
+    hdrs = glob(["include/**/*.h"]),
+    includes = ["include"],
+    linkopts = select({
+        "//bazel/config:plat_macos": ["-lc++"],
+        "//bazel/config:plat_linux": ["-lc++"],
+        "//conditions:default": [],
+    }),
+    deps = [
+        "//modules/jit",
+        "//modules/core",
+        "//modules/allocator",
+        "//modules/string",
+        "//modules/log",
+        "//modules/collection",
+        "//third-party/llvm:llvm-runtime",
+    ],
+)
+
+cc_test(
+    name = "llvm-orc",
+    srcs = ["test/llvm_test.c"],
+    deps = [
+        "//tools/test:runner",
+        "//modules/test",
+        ":llvm",
+        "//modules/jit",
+        "//modules/core",
+        "//modules/allocator",
+        "//modules/string",
+    ],
+)

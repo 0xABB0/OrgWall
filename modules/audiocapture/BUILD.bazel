@@ -1,0 +1,32 @@
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "audiocapture",
+    srcs = glob(["src/*.c"]),
+    hdrs = glob(["include/**/*.h"]),
+    includes = ["include"],
+    deps = [
+        "//modules/core",
+        "//modules/allocator",
+        "//modules/audioin",
+        "//modules/pcm",
+        "//modules/time",
+        "//modules/log",
+    ],
+)
+
+cc_test(
+    name = "audiocapture-core",
+    srcs = [
+        "src/audiocapture.c",
+        "test/test_audiocapture.c",
+    ] + glob(["include/**/*.h", "src/*.h"], allow_empty = True),
+    includes = ["include"],
+    deps = [
+        "//tools/test:runner",
+        "//modules/test",
+        "//modules/audioin:audioin_core",
+        "//modules/pcm",
+        "//modules/time",
+    ],
+)

@@ -1,0 +1,24 @@
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "future",
+    srcs = glob(["src/*.c"]),
+    hdrs = glob(["include/**/*.h"]),
+    includes = ["include"],
+    deps = [
+        "//modules/core",
+        "//modules/allocator",
+        "//modules/collection",
+        "//modules/executor",
+    ],
+)
+
+cc_test(
+    name = "future-core",
+    srcs = ["test/test_future.c"],
+    deps = [
+        "//tools/test:runner",
+        "//modules/test",
+        ":future",
+    ],
+)

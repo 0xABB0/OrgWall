@@ -1,0 +1,8 @@
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "mongoose",
+    srcs = ["mongoose/mongoose.c"],
+    hdrs = glob(["mongoose/**/*.h"]),
+    includes = ["mongoose"],
+)

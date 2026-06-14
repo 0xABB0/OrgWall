@@ -1,0 +1,77 @@
+load("@rules_android//rules:rules.bzl", "android_library")
+
+package(default_visibility = ["//visibility:public"])
+
+DEPS = [
+    "//modules/core",
+    "//modules/allocator",
+    "//modules/collection",
+    "//modules/image",
+    "//modules/event",
+    "//modules/future",
+    "//modules/executor",
+    "//modules/string",
+    "//modules/log",
+]
+
+cc_library(
+    name = "camera",
+    srcs = glob(["src/*.c", "src/*.h"]) + select({
+        "//bazel/config:plat_android": glob(["android/src/*.c", "android/src/*.h"], allow_empty = True),
+        "//bazel/config:plat_linux": glob(["linux/src/*.c", "linux/src/*.h"], allow_empty = True),
+        "//bazel/config:plat_win32": glob(["win32/src/*.c", "win32/src/*.h"], allow_empty = True),
+        "//bazel/config:plat_wasm": glob(["web/src/*.c", "web/src/*.h"], allow_empty = True),
+        "//conditions:default": [],
+    }),
+    hdrs = glob(["include/**/*.h", "android/include/**/*.h"]),
+    includes = ["include", "android/include"],
+    linkopts = select({
+        "//bazel/config:plat_macos": ["-framework", "AVFoundation", "-framework", "CoreMedia", "-framework", "CoreVideo", "-framework", "Foundation"],
+        "//bazel/config:plat_ios": ["-framework", "AVFoundation", "-framework", "CoreMedia", "-framework", "CoreVideo", "-framework", "Foundation"],
+        "//bazel/config:plat_android": ["-lcamera2ndk", "-lmediandk", "-landroid", "-llog"],
+        "//bazel/config:plat_win32": ["-lmfplat", "-lmf", "-lmfreadwrite", "-lmfuuid", "-lole32"],
+        "//conditions:default": [],
+    }),
+    deps = DEPS + select({
+        "//bazel/config:plat_android": ["//modules/platform"],
+        "//conditions:default": [],
+    }) + select({
+        "//bazel/config:plat_macos": [":camera_apple"],
+        "//bazel/config:plat_ios": [":camera_apple"],
+        "//conditions:default": [],
+    }),
+)
+
+android_library(
+    name = "android_java",
+    srcs = glob(["android/java/**/*.java"]),
+    custom_package = "orgwall.melody.camera",
+    exports_manifest = True,
+    manifest = "android/AndroidManifest.xml",
+    target_compatible_with = select({
+        "//bazel/config:plat_android": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+)
+
+objc_library(
+    name = "camera_apple",
+    srcs = glob(["apple/src/*.m", "apple/src/*.h", "src/*.h", "include/**/*.h", "android/include/**/*.h"], allow_empty = True),
+    includes = ["include", "android/include"],
+    deps = DEPS,
+    target_compatible_with = select({
+        "//bazel/config:plat_macos": [],
+        "//bazel/config:plat_ios": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+)
+
+cc_test(
+    name = "camera-core",
+    srcs = ["test/camera_test.c"],
+    deps = [
+        "//tools/test:runner",
+        "//modules/test",
+        ":camera",
+    ],
+)

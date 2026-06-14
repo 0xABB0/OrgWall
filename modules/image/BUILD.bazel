@@ -1,0 +1,52 @@
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "image",
+    srcs = glob(["src/*.c", "src/*.h"]),
+    hdrs = glob(["include/**/*.h"]),
+    includes = ["include"],
+    deps = [
+        "//modules/core",
+        "//modules/allocator",
+        "//modules/color",
+        "//modules/debug",
+        "//modules/log",
+        "//modules/collection",
+        "//modules/thread",
+        "//third-party/stb",
+    ],
+)
+
+cc_test(
+    name = "image-core",
+    srcs = ["test/image_test.c"],
+    deps = [
+        "//tools/test:runner",
+        "//modules/test",
+        ":image",
+    ],
+)
+
+cc_library(
+    name = "image-gpu",
+    srcs = glob(["src/gpu/*.c"]),
+    hdrs = glob(["include/**/*.h"]),
+    includes = ["include"],
+    deps = [
+        ":image",
+        "//modules/core",
+        "//modules/gpu",
+    ],
+)
+
+cc_test(
+    name = "image-gpu-test",
+    srcs = ["test/gpu_test.c"],
+    deps = [
+        "//tools/test:runner",
+        "//modules/test",
+        ":image-gpu",
+        ":image",
+        "//modules/gpu",
+    ],
+)

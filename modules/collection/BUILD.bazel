@@ -1,0 +1,40 @@
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "collection",
+    srcs = glob(["src/*.c"]),
+    hdrs = glob(["include/**/*.h"]),
+    textual_hdrs = glob(["include/**/*.inl"]),
+    includes = ["include"],
+    deps = [
+        "//modules/core",
+        "//modules/allocator",
+        "//modules/hash",
+        "//modules/thread",
+    ],
+)
+
+cc_test(
+    name = "collection-slotmap",
+    srcs = ["test/test_slotmap.c"],
+    deps = [
+        "//tools/test:runner",
+        "//modules/test",
+        ":collection",
+        "//modules/core",
+        "//modules/allocator",
+    ],
+)
+
+cc_test(
+    name = "collection-mpsc",
+    srcs = ["test/test_mpsc.c"],
+    deps = [
+        "//tools/test:runner",
+        "//modules/test",
+        ":collection",
+        "//modules/core",
+        "//modules/allocator",
+        "//modules/thread",
+    ],
+)

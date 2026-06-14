@@ -1,0 +1,14 @@
+# SHELVED during the migration: the REPL/JIT subsystem (modules/llvm, jit, clang,
+# repl, apps/repl) is paused. The official LLVM release links its JIT only under
+# lld-22, which Apple's ld64 cannot provide and macOS must keep for objc; the REPL
+# is deferred until the C++ direction settles. This incompatibility shelves the
+# whole chain from wildcard builds — it fails loud if a target names it directly.
+cc_library(
+    name = "llvm-runtime",
+    visibility = ["//visibility:public"],
+    target_compatible_with = ["@platforms//:incompatible"],
+    deps = select({
+        "//bazel/config:plat_macos": ["@llvm//:llvm_runtime"],
+        "//conditions:default": [],
+    }),
+)

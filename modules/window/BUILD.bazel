@@ -1,0 +1,52 @@
+package(default_visibility = ["//visibility:public"])
+
+DEPS = [
+    "//modules/core",
+    "//modules/allocator",
+    "//modules/collection",
+    "//modules/string",
+    "//modules/future",
+    "//modules/executor",
+    "//modules/debug",
+]
+
+cc_library(
+    name = "window",
+    srcs = glob(["src/*.c", "src/*.h"]) + select({
+        "//bazel/config:plat_macos": [],
+        "//bazel/config:plat_win32": glob(["win32/src/*.c", "win32/src/*.h"], allow_empty = True),
+        "//conditions:default": glob(["stub/src/*.c"]),
+    }),
+    hdrs = glob(["include/**/*.h"]),
+    includes = ["include"],
+    linkopts = select({
+        "//bazel/config:plat_macos": ["-framework", "Cocoa", "-framework", "QuartzCore"],
+        "//bazel/config:plat_win32": ["-luser32", "-lgdi32", "-lole32", "-lmscms"],
+        "//conditions:default": [],
+    }),
+    deps = DEPS + select({
+        "//bazel/config:backend_cocoa": [":window_cocoa"],
+        "//conditions:default": [],
+    }),
+)
+
+objc_library(
+    name = "window_cocoa",
+    srcs = glob(["cocoa/src/*.m", "cocoa/src/*.h", "src/*.h", "include/**/*.h"]),
+    includes = ["include"],
+    deps = DEPS,
+    target_compatible_with = select({
+        "//bazel/config:backend_cocoa": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+)
+
+cc_test(
+    name = "window-state",
+    srcs = ["test/state_test.c"],
+    deps = [
+        "//tools/test:runner",
+        "//modules/test",
+        ":window",
+    ],
+)

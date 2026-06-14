@@ -1,0 +1,43 @@
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "pcm",
+    srcs = glob(["src/*.c"]),
+    hdrs = glob(["include/**/*.h"]),
+    includes = ["include"],
+    deps = [
+        "//modules/core",
+        "//modules/allocator",
+    ],
+)
+
+cc_test(
+    name = "pcm-ring",
+    srcs = ["test/test_ring.c"],
+    deps = [
+        "//tools/test:runner",
+        "//modules/test",
+        ":pcm",
+        "//modules/thread",
+    ],
+)
+
+cc_test(
+    name = "pcm-resample",
+    srcs = ["test/test_resample.c"],
+    deps = [
+        "//tools/test:runner",
+        "//modules/test",
+        ":pcm",
+    ],
+)
+
+cc_test(
+    name = "pcm-convert",
+    srcs = ["test/test_convert.c"],
+    deps = [
+        "//tools/test:runner",
+        "//modules/test",
+        ":pcm",
+    ],
+)

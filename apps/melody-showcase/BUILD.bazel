@@ -1,0 +1,88 @@
+load("@rules_android//rules:rules.bzl", "android_binary")
+load("@rules_apple//apple:macos.bzl", "macos_application")
+load("@rules_apple//apple:versioning.bzl", "apple_bundle_version")
+
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "lib",
+    srcs = glob(["src/*.c", "src/*.h"]),
+    deps = [
+        "//modules/core",
+        "//modules/string",
+        "//modules/allocator",
+        "//modules/log",
+        "//modules/color",
+        "//modules/vat",
+        "//modules/event",
+        "//modules/future",
+        "//modules/executor",
+        "//modules/boot",
+        "//modules/gui",
+        "//modules/window",
+        "//modules/paint",
+        "//modules/display",
+        "//modules/platform",
+        "//modules/cpu",
+        "//modules/power",
+        "//modules/time",
+        "//modules/locale",
+        "//modules/debug",
+        "//modules/input",
+        "//modules/gamepad",
+        "//modules/sensor",
+        "//modules/hid",
+        "//modules/fs",
+        "//modules/io",
+        "//modules/storage",
+        "//modules/process",
+        "//modules/dylib",
+        "//modules/dialog",
+        "//modules/messagebox",
+        "//modules/tray",
+        "//modules/shell",
+        "//modules/clipboard",
+        "//modules/vibration",
+    ],
+)
+
+cc_binary(
+    name = "melody-showcase",
+    deps = [":lib"],
+)
+
+apple_bundle_version(
+    name = "version",
+    build_version = "1.0.0",
+)
+
+macos_application(
+    name = "melody-showcase_app",
+    bundle_id = "orgwall.melodyshowcase",
+    bundle_name = "melody-showcase",
+    infoplists = ["macos/Info.plist"],
+    minimum_os_version = "14.4",
+    target_compatible_with = ["@platforms//os:macos"],
+    version = ":version",
+    deps = [":lib"],
+)
+
+android_binary(
+    name = "melody",
+    custom_package = "orgwall.melodyshowcase",
+    manifest = "android/AndroidManifest.xml",
+    manifest_values = {"appLabel": "Melody Showcase"},
+    target_compatible_with = ["@platforms//os:android"],
+    deps = [
+        ":lib",
+        "//modules/gui:android_java",
+        "//modules/dialog:android_java",
+        "//modules/display:android_java",
+        "//modules/gamepad:android_java",
+        "//modules/hid:android_java",
+        "//modules/input:android_java",
+        "//modules/messagebox:android_java",
+        "//modules/sensor:android_java",
+        "//modules/vibration:android_java",
+    ],
+)

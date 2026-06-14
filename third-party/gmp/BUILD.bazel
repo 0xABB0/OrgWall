@@ -1,0 +1,45 @@
+load("@rules_foreign_cc//foreign_cc:defs.bzl", "configure_make")
+
+exports_files(["cc_for_build.sh"])
+
+filegroup(
+    name = "gmp_srcs",
+    srcs = glob(["gmp/**"]),
+)
+
+configure_make(
+    name = "gmp",
+    lib_source = ":gmp_srcs",
+    build_data = ["cc_for_build.sh"],
+    configure_in_place = True,
+    configure_options = [
+        "--disable-shared",
+        "--enable-static",
+        "--disable-assembly",
+    ] + select({
+        "//bazel/config:plat_linux": ["--host=x86_64-linux-gnu"],
+        "//bazel/config:plat_android": ["--host=aarch64-linux-android"],
+        "//bazel/config:plat_wasm": ["--host=wasm32-unknown-emscripten"],
+        "//bazel/config:plat_ios": ["--host=aarch64-apple-ios"],
+        "//conditions:default": [],
+    }),
+    env = select({
+        "//bazel/config:plat_macos": {
+            "CFLAGS": "-std=gnu17",
+            "AR": "ar",
+            "RANLIB": "ranlib",
+        },
+        "//bazel/config:plat_ios": {
+            "CFLAGS": "-std=gnu17",
+            "AR": "ar",
+            "RANLIB": "ranlib",
+            "CC_FOR_BUILD": "$$EXT_BUILD_ROOT/third-party/gmp/cc_for_build.sh",
+        },
+        "//conditions:default": {
+            "CFLAGS": "-std=gnu17",
+            "CC_FOR_BUILD": "$$EXT_BUILD_ROOT/third-party/gmp/cc_for_build.sh",
+        },
+    }),
+    out_static_libs = ["libgmp.a"],
+    visibility = ["//visibility:public"],
+)

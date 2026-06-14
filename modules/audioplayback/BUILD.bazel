@@ -1,0 +1,40 @@
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "audioplayback",
+    srcs = glob(["src/*.c"]),
+    hdrs = glob(["include/**/*.h"]),
+    includes = ["include"],
+    deps = [
+        "//modules/core",
+        "//modules/allocator",
+        "//modules/audioout",
+        "//modules/pcm",
+        "//modules/log",
+    ],
+)
+
+cc_library(
+    name = "audioplayback_core",
+    srcs = ["src/audioplayback.c"],
+    hdrs = glob(["include/**/*.h"]),
+    includes = ["include"],
+    deps = [
+        "//modules/core",
+        "//modules/allocator",
+        "//modules/pcm",
+        "//modules/log",
+        "//modules/audioout:audioout_core",
+    ],
+)
+
+cc_test(
+    name = "audioplayback-core",
+    srcs = ["test/test_audioplayback.c"],
+    deps = [
+        "//tools/test:runner",
+        "//modules/test",
+        ":audioplayback_core",
+        "//modules/pcm",
+    ],
+)

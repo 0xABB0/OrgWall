@@ -1,0 +1,80 @@
+load("@rules_android//rules:rules.bzl", "android_library")
+
+package(default_visibility = ["//visibility:public"])
+
+DEPS = [
+    "//modules/core",
+    "//modules/allocator",
+    "//modules/collection",
+    "//modules/future",
+    "//modules/executor",
+]
+
+cc_library(
+    name = "platform",
+    srcs = glob(["src/*.c", "src/*.h"]) + select({
+        "//bazel/config:plat_macos": glob(["macos/src/*.c", "macos/src/*.h"], allow_empty = True),
+        "//bazel/config:plat_linux": glob(["linux/src/*.c", "linux/src/*.h"], allow_empty = True),
+        "//bazel/config:plat_win32": glob(["win32/src/*.c", "win32/src/*.h"], allow_empty = True),
+        "//bazel/config:plat_android": glob(["android/src/*.c", "android/src/*.h"], allow_empty = True),
+        "//bazel/config:plat_wasm": glob(["web/src/*.c", "web/src/*.h"], allow_empty = True),
+        "//conditions:default": [],
+    }),
+    hdrs = glob(["include/**/*.h", "ios/include/**/*.h", "linux/include/**/*.h", "win32/include/**/*.h", "android/include/**/*.h"]),
+    includes = ["include", "ios/include", "linux/include", "win32/include", "android/include"],
+    linkopts = select({
+        "//bazel/config:plat_macos": ["-framework", "IOKit", "-framework", "CoreFoundation"],
+        "//bazel/config:plat_ios": ["-framework", "UIKit", "-framework", "QuartzCore", "-framework", "Foundation"],
+        "//conditions:default": [],
+    }),
+    deps = DEPS + select({
+        "//bazel/config:plat_ios": [":platform_ios"],
+        "//conditions:default": [],
+    }),
+)
+
+android_library(
+    name = "android_java",
+    srcs = glob(["android/java/**/*.java"]),
+    custom_package = "orgwall.melody.platform",
+    target_compatible_with = select({
+        "//bazel/config:plat_android": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+)
+
+objc_library(
+    name = "platform_ios",
+    srcs = glob(["ios/src/*.m", "ios/src/*.h", "src/*.h", "include/**/*.h", "ios/include/**/*.h"], allow_empty = True),
+    includes = ["include", "ios/include"],
+    deps = DEPS,
+    target_compatible_with = select({
+        "//bazel/config:plat_ios": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+)
+
+cc_test(
+    name = "platform-core",
+    srcs = ["test/test_platform.c", "src/platform.c"] + glob(["src/*.h", "include/**/*.h", "ios/include/**/*.h", "linux/include/**/*.h", "win32/include/**/*.h", "android/include/**/*.h"]) + select({
+        "//bazel/config:plat_macos": glob(["macos/src/*.c", "macos/src/*.h"], allow_empty = True),
+        "//bazel/config:plat_linux": glob(["linux/src/*.c", "linux/src/*.h"], allow_empty = True),
+        "//bazel/config:plat_win32": glob(["win32/src/*.c", "win32/src/*.h"], allow_empty = True),
+        "//bazel/config:plat_android": glob(["android/src/*.c", "android/src/*.h"], allow_empty = True),
+        "//bazel/config:plat_wasm": glob(["web/src/*.c", "web/src/*.h"], allow_empty = True),
+        "//conditions:default": [],
+    }),
+    includes = ["include", "ios/include", "linux/include", "win32/include", "android/include"],
+    linkopts = select({
+        "//bazel/config:plat_macos": ["-framework", "IOKit", "-framework", "CoreFoundation"],
+        "//bazel/config:plat_ios": ["-framework", "UIKit", "-framework", "QuartzCore", "-framework", "Foundation"],
+        "//conditions:default": [],
+    }),
+    deps = [
+        "//tools/test:runner",
+        "//modules/test",
+    ] + DEPS + select({
+        "//bazel/config:plat_ios": [":platform_ios"],
+        "//conditions:default": [],
+    }),
+)

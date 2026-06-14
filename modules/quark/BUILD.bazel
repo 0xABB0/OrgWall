@@ -1,0 +1,24 @@
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "quark",
+    srcs = glob(["src/*.c"]),
+    hdrs = glob(["include/**/*.h"]),
+    includes = ["include"],
+    deps = [
+        "//modules/core",
+        "//modules/allocator",
+        "//modules/collection",
+        "//modules/string",
+    ],
+)
+
+cc_test(
+    name = "quark-intern",
+    srcs = ["test/test_quark.c"],
+    deps = [
+        "//tools/test:runner",
+        "//modules/test",
+        ":quark",
+    ],
+)

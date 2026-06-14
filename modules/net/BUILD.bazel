@@ -1,0 +1,38 @@
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "net",
+    srcs = glob(["src/*.c", "src/*.h"]) + select({
+        "//bazel/config:plat_macos": glob(["posix/src/net_backend.c"]),
+        "//bazel/config:plat_ios": glob(["posix/src/net_backend.c"]),
+        "//bazel/config:plat_linux": glob(["posix/src/net_backend.c"]),
+        "//bazel/config:plat_android": glob(["posix/src/net_backend.c"]),
+        "//conditions:default": glob(["none/src/net_backend.c"]),
+    }),
+    hdrs = glob(["include/**/*.h"]),
+    includes = ["include"],
+    deps = [
+        "//modules/core",
+        "//modules/allocator",
+        "//modules/collection",
+        "//modules/string",
+        "//modules/executor",
+        "//modules/future",
+        "//modules/vat",
+        "//modules/port",
+        "//modules/io",
+        "//modules/thread",
+        "//modules/time",
+        "//modules/log",
+    ],
+)
+
+cc_test(
+    name = "net-core",
+    srcs = ["test/test_net.c"],
+    deps = [
+        "//tools/test:runner",
+        "//modules/test",
+        ":net",
+    ],
+)

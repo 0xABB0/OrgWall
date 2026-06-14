@@ -1,0 +1,67 @@
+load("@rules_android//rules:rules.bzl", "android_library")
+
+package(default_visibility = ["//visibility:public"])
+
+CORE_DEPS = ["//modules/core", "//modules/allocator", "//modules/collection", "//modules/string", "//modules/log", "//modules/future", "//modules/executor", "//modules/audioin"]
+
+cc_library(
+    name = "stt_core",
+    srcs = glob(["src/*.c"]) + glob(["src/*.h"]),
+    hdrs = glob(["include/**/*.h"]),
+    includes = ["include"],
+    deps = CORE_DEPS,
+)
+
+cc_library(
+    name = "stt",
+    srcs = glob(["src/*.h"]) + select({
+        "//bazel/config:plat_win32": glob(["win32/src/*.c", "win32/src/*.h"], allow_empty = True),
+        "//bazel/config:plat_linux": glob(["linux/src/*.c", "linux/src/*.h"], allow_empty = True),
+        "//bazel/config:plat_android": glob(["android/src/*.c", "android/src/*.h"], allow_empty = True),
+        "//bazel/config:plat_wasm": glob(["web/src/*.c", "web/src/*.h"], allow_empty = True),
+        "//conditions:default": [],
+    }),
+    linkopts = select({
+        "//bazel/config:plat_macos": ["-framework", "Speech", "-framework", "AVFoundation", "-framework", "Foundation", "-framework", "CoreAudio"],
+        "//bazel/config:plat_ios": ["-framework", "Speech", "-framework", "AVFoundation", "-framework", "Foundation"],
+        "//bazel/config:plat_win32": ["-lole32", "-lsapi"],
+        "//bazel/config:plat_android": ["-landroid", "-llog"],
+        "//conditions:default": [],
+    }),
+    deps = [":stt_core"] + select({
+        "//bazel/config:plat_macos": [":stt_apple"],
+        "//bazel/config:plat_ios": [":stt_apple"],
+        "//bazel/config:plat_android": ["//modules/platform"],
+        "//conditions:default": [],
+    }),
+)
+
+android_library(
+    name = "android_java",
+    srcs = glob(["android/java/**/*.java"]),
+    custom_package = "orgwall.melody.stt",
+    exports_manifest = True,
+    manifest = "android/AndroidManifest.xml",
+    target_compatible_with = select({
+        "//bazel/config:plat_android": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+)
+
+objc_library(
+    name = "stt_apple",
+    srcs = glob(["apple/src/*.m", "apple/src/*.h", "src/*.h", "include/**/*.h"], allow_empty = True),
+    includes = ["include"],
+    deps = CORE_DEPS,
+    target_compatible_with = select({
+        "//bazel/config:plat_macos": [],
+        "//bazel/config:plat_ios": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+)
+
+cc_test(
+    name = "stt-core",
+    srcs = ["test/test_stt.c"],
+    deps = ["//tools/test:runner", "//modules/test", ":stt_core", "//modules/audioin:audioin_core"],
+)

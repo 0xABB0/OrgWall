@@ -1,0 +1,53 @@
+load("@rules_android//rules:rules.bzl", "android_binary")
+load("@rules_apple//apple:macos.bzl", "macos_application")
+load("@rules_apple//apple:versioning.bzl", "apple_bundle_version")
+
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "lib",
+    srcs = glob(["src/*.c"]),
+    deps = [
+        "//modules/boot",
+        "//modules/vat",
+        "//modules/gui",
+        "//modules/vibration",
+        "//modules/string",
+        "//modules/log",
+        "//modules/core",
+    ],
+)
+
+cc_binary(
+    name = "hello-vibration",
+    deps = [":lib"],
+)
+
+apple_bundle_version(
+    name = "version",
+    build_version = "1.0.0",
+)
+
+macos_application(
+    name = "hello-vibration_app",
+    bundle_id = "orgwall.vibration",
+    bundle_name = "hello-vibration",
+    infoplists = ["macos/Info.plist"],
+    minimum_os_version = "14.4",
+    target_compatible_with = ["@platforms//os:macos"],
+    version = ":version",
+    deps = [":lib"],
+)
+
+android_binary(
+    name = "melody",
+    custom_package = "orgwall.vibration",
+    manifest = "android/AndroidManifest.xml",
+    manifest_values = {"appLabel": "Vibration"},
+    target_compatible_with = ["@platforms//os:android"],
+    deps = [
+        ":lib",
+        "//modules/gui:android_java",
+        "//modules/vibration:android_java",
+    ],
+)

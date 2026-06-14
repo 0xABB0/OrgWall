@@ -1,0 +1,25 @@
+# Hand-authored. lz4hc.c does `#define LZ4_COMMONDEFS_ONLY; #include "lz4.c"` to
+# pull only static helpers (no public symbols). So lz4.c must also compile
+# standalone (lz4_core) for the public API, while lz4hc.c gets it as a textual_hdr.
+cc_library(
+    name = "lz4_core",
+    srcs = [
+        "lz4/lz4.c",
+        "lz4/lz4frame.c",
+        "lz4/xxhash.c",
+    ],
+    hdrs = glob(["lz4/*.h"]),
+    copts = ["-w"],
+    includes = ["lz4"],
+)
+
+cc_library(
+    name = "lz4",
+    srcs = ["lz4/lz4hc.c"],
+    hdrs = glob(["lz4/*.h"]),
+    textual_hdrs = ["lz4/lz4.c"],
+    copts = ["-w"],
+    includes = ["lz4"],
+    visibility = ["//visibility:public"],
+    deps = [":lz4_core"],
+)

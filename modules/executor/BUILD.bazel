@@ -1,0 +1,23 @@
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "executor",
+    srcs = glob(["src/*.c"]),
+    hdrs = glob(["include/**/*.h"]),
+    includes = ["include"],
+    deps = [
+        "//modules/core",
+        "//modules/allocator",
+        "//modules/collection",
+    ],
+)
+
+cc_test(
+    name = "executor-core",
+    srcs = ["test/test_executor.c"],
+    deps = [
+        "//tools/test:runner",
+        "//modules/test",
+        ":executor",
+    ],
+)

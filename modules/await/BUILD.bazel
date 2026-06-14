@@ -1,0 +1,31 @@
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "await",
+    srcs = glob(["src/*.c"]),
+    hdrs = glob(["include/**/*.h"]),
+    includes = ["include"],
+    deps = [
+        "//modules/core",
+        "//modules/allocator",
+        "//modules/collection",
+        "//modules/executor",
+        "//modules/future",
+        "//modules/channel",
+        "//modules/signal",
+        "//modules/vat",
+        "//modules/time",
+    ],
+)
+
+cc_test(
+    name = "await-bridge",
+    srcs = ["test/test_await.c"],
+    deps = [
+        "//tools/test:runner",
+        "//modules/test",
+        ":await",
+        "//modules/job",
+        "//modules/thread",
+    ],
+)

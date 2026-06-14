@@ -1,0 +1,77 @@
+load("@rules_android//rules:rules.bzl", "android_library")
+
+package(default_visibility = ["//visibility:public"])
+
+DEPS = [
+    "//modules/core",
+    "//modules/allocator",
+    "//modules/collection",
+    "//modules/string",
+    "//modules/log",
+    "//modules/thread",
+]
+
+cc_library(
+    name = "tts",
+    srcs = glob(["src/*.c"]) + select({
+        "//bazel/config:plat_win32": glob(["win32/src/*.c", "win32/src/*.h"], allow_empty = True),
+        "//bazel/config:plat_linux": glob(["linux/src/*.c", "linux/src/*.h"], allow_empty = True),
+        "//bazel/config:plat_android": glob(["android/src/*.c", "android/src/*.h"], allow_empty = True),
+        "//bazel/config:plat_wasm": glob(["web/src/*.c", "web/src/*.h"], allow_empty = True),
+        "//conditions:default": [],
+    }),
+    hdrs = glob(["include/**/*.h"]),
+    includes = ["include"],
+    linkopts = select({
+        "//bazel/config:plat_macos": ["-framework", "AVFoundation", "-framework", "Foundation"],
+        "//bazel/config:plat_ios": ["-framework", "AVFoundation", "-framework", "Foundation"],
+        "//bazel/config:plat_win32": ["-lole32", "-lsapi"],
+        "//bazel/config:plat_android": ["-landroid", "-llog"],
+        "//conditions:default": [],
+    }),
+    deps = DEPS + select({
+        "//bazel/config:plat_android": ["//modules/platform"],
+        "//conditions:default": [],
+    }) + select({
+        "//bazel/config:plat_macos": [":tts_apple"],
+        "//bazel/config:plat_ios": [":tts_apple"],
+        "//conditions:default": [],
+    }),
+)
+
+android_library(
+    name = "android_java",
+    srcs = glob(["android/java/**/*.java"]),
+    custom_package = "orgwall.melody.tts",
+    target_compatible_with = select({
+        "//bazel/config:plat_android": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+)
+
+objc_library(
+    name = "tts_apple",
+    srcs = glob(["apple/src/*.m", "src/*.h", "include/**/*.h"], allow_empty = True),
+    includes = ["include"],
+    deps = DEPS,
+    target_compatible_with = select({
+        "//bazel/config:plat_macos": [],
+        "//bazel/config:plat_ios": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+)
+
+cc_test(
+    name = "tts-core",
+    srcs = glob(["src/*.c"]) + ["test/test_tts.c"] + glob(["include/**/*.h"]),
+    includes = ["include"],
+    deps = [
+        "//tools/test:runner",
+        "//modules/test",
+        "//modules/core",
+        "//modules/allocator",
+        "//modules/collection",
+        "//modules/string",
+        "//modules/log",
+    ],
+)

@@ -1,0 +1,52 @@
+load("@rules_android//rules:rules.bzl", "android_binary")
+load("@rules_apple//apple:macos.bzl", "macos_application")
+load("@rules_apple//apple:versioning.bzl", "apple_bundle_version")
+
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "lib",
+    srcs = glob(["src/*.c", "src/*.h"]),
+    deps = [
+        "//modules/boot",
+        "//modules/vat",
+        "//modules/allocator",
+        "//modules/gui",
+        "//modules/core",
+        "//modules/color",
+        "//modules/paint",
+    ],
+)
+
+cc_binary(
+    name = "hello-world-gui",
+    deps = [":lib"],
+)
+
+apple_bundle_version(
+    name = "version",
+    build_version = "1.0.0",
+)
+
+macos_application(
+    name = "hello-world-gui_app",
+    bundle_id = "orgwall.helloworld",
+    bundle_name = "hello-world-gui",
+    infoplists = ["macos/Info.plist"],
+    minimum_os_version = "14.4",
+    target_compatible_with = ["@platforms//os:macos"],
+    version = ":version",
+    deps = [":lib"],
+)
+
+android_binary(
+    name = "melody",
+    custom_package = "orgwall.helloworld",
+    manifest = "android/AndroidManifest.xml",
+    manifest_values = {"appLabel": "Hello World GUI"},
+    target_compatible_with = ["@platforms//os:android"],
+    deps = [
+        ":lib",
+        "//modules/gui:android_java",
+    ],
+)

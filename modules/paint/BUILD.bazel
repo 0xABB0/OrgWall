@@ -1,0 +1,60 @@
+package(default_visibility = ["//visibility:public"])
+
+DEPS = [
+    "//modules/core",
+    "//modules/allocator",
+    "//modules/color",
+    "//modules/math",
+    "//modules/string",
+]
+
+cc_library(
+    name = "paint",
+    srcs = glob(["src/*.c", "src/*.h"]) + select({
+        "//bazel/config:plat_macos": glob(["quartz/src/*.c"]),
+        "//bazel/config:plat_ios": glob(["quartz/src/*.c"]),
+        "//bazel/config:plat_win32": glob(["gdi/src/*.c"]),
+        "//bazel/config:plat_wasm": glob(["dom/src/*.c"]),
+        "//bazel/config:plat_android": glob(["android/src/*.c", "android/src/*.h"], allow_empty = True),
+        "//conditions:default": [],
+    }),
+    hdrs = glob(["include/**/*.h"]),
+    includes = ["include"],
+    linkopts = select({
+        "//bazel/config:plat_macos": ["-framework", "CoreGraphics", "-framework", "CoreText", "-framework", "CoreFoundation"],
+        "//bazel/config:plat_ios": ["-framework", "CoreGraphics", "-framework", "CoreText", "-framework", "CoreFoundation"],
+        "//bazel/config:plat_win32": ["-lgdi32"],
+        "//conditions:default": [],
+    }),
+    deps = [
+        "//modules/core",
+        "//modules/allocator",
+        "//modules/collection",
+        "//modules/math",
+        "//modules/string",
+        "//modules/color",
+        "//modules/debug",
+        "//modules/log",
+        "//modules/image",
+    ],
+)
+
+cc_binary(
+    name = "paint-example",
+    srcs = ["example/paint_example.c"],
+    deps = [":paint"] + DEPS,
+)
+
+cc_test(
+    name = "paint-pixmap",
+    srcs = ["test/pixmap_test.c"] + select({
+        "//bazel/config:plat_macos": ["test/borrow_test.c"],
+        "//bazel/config:plat_ios": ["test/borrow_test.c"],
+        "//conditions:default": [],
+    }),
+    deps = [
+        "//tools/test:runner",
+        "//modules/test",
+        ":paint",
+    ] + DEPS,
+)

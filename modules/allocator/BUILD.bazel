@@ -1,0 +1,20 @@
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "allocator",
+    srcs = glob(["src/*.c"]),
+    hdrs = glob(["include/**/*.h"]),
+    textual_hdrs = glob(["include/**/*.inl"]),
+    includes = ["include"],
+    deps = ["//modules/core"],
+)
+
+cc_test(
+    name = "allocator-tracking",
+    srcs = ["test/test.tracking.c"],
+    deps = [
+        "//tools/test:runner",
+        "//modules/test",
+        ":allocator",
+    ],
+)

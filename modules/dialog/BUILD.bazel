@@ -1,0 +1,89 @@
+load("@rules_android//rules:rules.bzl", "android_library")
+
+package(default_visibility = ["//visibility:public"])
+
+DEPS = [
+    "//modules/core",
+    "//modules/allocator",
+    "//modules/collection",
+    "//modules/string",
+    "//modules/executor",
+    "//modules/future",
+    "//modules/event",
+    "//modules/vat",
+    "//modules/window",
+    "//modules/log",
+    "//modules/platform",
+]
+
+cc_library(
+    name = "dialog",
+    srcs = ["src/dialog.c"] + select({
+        "//bazel/config:plat_win32": glob(["win32/src/*.c", "win32/src/*.h"], allow_empty = True),
+        "//bazel/config:plat_linux": glob(["linux/src/*.c", "linux/src/*.h"]),
+        "//bazel/config:plat_android": glob(["android/src/*.c", "android/src/*.h"], allow_empty = True),
+        "//bazel/config:plat_wasm": glob(["web/src/*.c", "web/src/*.h"], allow_empty = True),
+        "//conditions:default": [],
+    }),
+    hdrs = glob(["include/**/*.h"]),
+    includes = ["include"],
+    linkopts = select({
+        "//bazel/config:plat_macos": ["-framework", "AppKit", "-framework", "Foundation", "-framework", "UniformTypeIdentifiers"],
+        "//bazel/config:plat_ios": ["-framework", "UIKit", "-framework", "Foundation", "-framework", "UniformTypeIdentifiers"],
+        "//bazel/config:plat_win32": ["-lole32", "-loleaut32", "-lshell32", "-luuid"],
+        "//bazel/config:plat_linux": ["-ldbus-1", "-ldl"],
+        "//conditions:default": [],
+    }),
+    deps = DEPS + select({
+        "//bazel/config:plat_macos": [":dialog_apple"],
+        "//bazel/config:plat_ios": [":dialog_ios"],
+        "//conditions:default": [],
+    }),
+)
+
+android_library(
+    name = "android_java",
+    srcs = glob(["android/java/**/*.java"]),
+    custom_package = "orgwall.melody.dialog",
+    exports_manifest = True,
+    manifest = "android/AndroidManifest.xml",
+    target_compatible_with = select({
+        "//bazel/config:plat_android": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+)
+
+objc_library(
+    name = "dialog_apple",
+    srcs = glob(["apple/src/*.m", "include/**/*.h"]),
+    includes = ["include"],
+    deps = DEPS,
+    target_compatible_with = select({
+        "//bazel/config:plat_macos": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+)
+
+objc_library(
+    name = "dialog_ios",
+    srcs = glob(["ios/src/*.m", "include/**/*.h"]),
+    includes = ["include"],
+    deps = DEPS,
+    target_compatible_with = select({
+        "//bazel/config:plat_ios": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+)
+
+cc_test(
+    name = "dialog-core",
+    srcs = [
+        "src/dialog.c",
+        "test/test_dialog.c",
+    ] + glob(["include/**/*.h"]),
+    includes = ["include"],
+    deps = [
+        "//tools/test:runner",
+        "//modules/test",
+    ] + DEPS,
+)

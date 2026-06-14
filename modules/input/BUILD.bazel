@@ -1,0 +1,76 @@
+load("@rules_android//rules:rules.bzl", "android_library")
+load("//bazel/rules:mel_codegen.bzl", "mel_codegen")
+
+package(default_visibility = ["//visibility:public"])
+
+DEPS = ["//modules/core", "//modules/allocator", "//modules/collection", "//modules/event", "//modules/executor", "//modules/log", "//modules/string", "//modules/reflect", "//modules/platform"]
+
+mel_codegen(
+    name = "input_enum_gen",
+    out = "input.enum.gen.c",
+    tool = "//modules/reflect:enum-str-gen",
+    args = ["$out", "$cflags", "$hostclang", "--", "input/scancode.h"],
+    srcs = ["include/input/scancode.h"],
+    deps = DEPS,
+    local_includes = ["modules/input/include"],
+)
+
+cc_library(
+    name = "input",
+    srcs = ["src/input.c", "src/events.c", "src/input_internal.h", ":input_enum_gen"] + select({
+        "//bazel/config:plat_linux": glob(["linux/src/*.c", "linux/src/*.h"], allow_empty = True),
+        "//bazel/config:plat_win32": glob(["win32/src/*.c", "win32/src/*.h"], allow_empty = True),
+        "//bazel/config:plat_android": glob(["android/src/*.c", "android/src/*.h"], allow_empty = True),
+        "//bazel/config:plat_wasm": glob(["wasm/src/*.c"]),
+        "//conditions:default": [],
+    }),
+    hdrs = glob(["include/**/*.h", "*/include/**/*.h"]),
+    includes = ["include", "macos/include", "ios/include", "linux/include", "win32/include", "android/include", "wasm/include"],
+    linkopts = select({
+        "//bazel/config:plat_macos": ["-framework", "AppKit", "-framework", "CoreGraphics", "-framework", "Carbon", "-framework", "Foundation"],
+        "//bazel/config:plat_ios": ["-framework", "UIKit", "-framework", "Foundation"],
+        "//bazel/config:plat_win32": ["-luser32", "-lgdi32", "-limm32"],
+        "//conditions:default": [],
+    }),
+    deps = DEPS + select({
+        "//bazel/config:plat_macos": [":input_apple"],
+        "//bazel/config:plat_ios": [":input_apple"],
+        "//conditions:default": [],
+    }),
+)
+
+android_library(
+    name = "android_java",
+    srcs = glob(["android/java/**/*.java"]),
+    custom_package = "orgwall.melody.input",
+    target_compatible_with = select({
+        "//bazel/config:plat_android": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+)
+
+objc_library(
+    name = "input_apple",
+    srcs = select({
+        "//bazel/config:plat_macos": glob(["macos/src/*.m"]),
+        "//bazel/config:plat_ios": glob(["ios/src/*.m"]),
+        "//conditions:default": [],
+    }) + glob(["src/*.h", "include/**/*.h", "macos/include/**/*.h", "ios/include/**/*.h"]),
+    includes = ["include", "macos/include", "ios/include"],
+    deps = DEPS,
+    target_compatible_with = select({
+        "//bazel/config:plat_macos": [],
+        "//bazel/config:plat_ios": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+)
+
+cc_test(
+    name = "input-core",
+    srcs = ["test/input_test.c"],
+    linkopts = select({
+        "//bazel/config:plat_macos": ["-framework", "AppKit", "-framework", "CoreGraphics", "-framework", "Carbon", "-framework", "Foundation"],
+        "//conditions:default": [],
+    }),
+    deps = ["//tools/test:runner", "//modules/test", ":input", "//modules/core", "//modules/allocator", "//modules/collection", "//modules/event", "//modules/executor", "//modules/log", "//modules/string"],
+)

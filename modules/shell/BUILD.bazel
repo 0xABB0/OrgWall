@@ -1,0 +1,70 @@
+package(default_visibility = ["//visibility:public"])
+
+DEPS = [
+    "//modules/core",
+    "//modules/allocator",
+    "//modules/collection",
+    "//modules/string",
+    "//modules/executor",
+    "//modules/future",
+    "//modules/log",
+]
+
+cc_library(
+    name = "shell",
+    srcs = glob(["src/*.c"]) + select({
+        "//bazel/config:plat_win32": glob(["win32/src/*.c", "win32/src/*.h"], allow_empty = True),
+        "//bazel/config:plat_linux": glob(["linux/src/*.c", "linux/src/*.h"], allow_empty = True),
+        "//bazel/config:plat_android": glob(["android/src/*.c", "android/src/*.h"], allow_empty = True),
+        "//bazel/config:plat_wasm": glob(["web/src/*.c", "web/src/*.h"], allow_empty = True),
+        "//conditions:default": [],
+    }),
+    hdrs = glob(["include/**/*.h"]),
+    includes = ["include"],
+    linkopts = select({
+        "//bazel/config:plat_macos": ["-framework", "AppKit", "-framework", "Foundation"],
+        "//bazel/config:plat_ios": ["-framework", "UIKit", "-framework", "Foundation"],
+        "//bazel/config:plat_win32": ["-lshell32"],
+        "//conditions:default": [],
+    }),
+    deps = DEPS + select({
+        "//bazel/config:plat_android": ["//modules/platform"],
+        "//conditions:default": [],
+    }) + select({
+        "//bazel/config:plat_macos": [":shell_apple"],
+        "//bazel/config:plat_ios": [":shell_apple"],
+        "//conditions:default": [],
+    }),
+)
+
+objc_library(
+    name = "shell_apple",
+    srcs = glob(["apple/src/*.m", "apple/src/*.h", "src/*.h", "include/**/*.h"], allow_empty = True),
+    includes = ["include"],
+    deps = DEPS,
+    target_compatible_with = select({
+        "//bazel/config:plat_macos": [],
+        "//bazel/config:plat_ios": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+)
+
+cc_test(
+    name = "shell-core",
+    srcs = [
+        "src/shell.c",
+        "test/test.shell.c",
+    ] + glob(["include/**/*.h"]),
+    includes = ["include"],
+    deps = [
+        "//tools/test:runner",
+        "//modules/test",
+        "//modules/core",
+        "//modules/string",
+        "//modules/allocator",
+        "//modules/collection",
+        "//modules/executor",
+        "//modules/future",
+        "//modules/log",
+    ],
+)

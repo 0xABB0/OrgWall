@@ -1,0 +1,14 @@
+package(default_visibility = ["//visibility:public"])
+
+cc_binary(
+    name = "midi-monitor",
+    srcs = glob(["src/*.c", "src/*.h"]),
+    deps = [
+        "//modules/boot",
+        "//modules/vat",
+        "//modules/allocator",
+        "//modules/gui",
+        "//modules/midi",
+        "//modules/core",
+    ],
+)

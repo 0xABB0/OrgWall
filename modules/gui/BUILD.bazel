@@ -1,0 +1,99 @@
+load("@rules_android//rules:rules.bzl", "android_library")
+
+package(default_visibility = ["//visibility:public"])
+
+DEPS = [
+    "//modules/core",
+    "//modules/allocator",
+    "//modules/collection",
+    "//modules/math",
+    "//modules/platform",
+    "//modules/vat",
+    "//modules/string",
+    "//modules/window",
+    "//modules/color",
+    "//modules/paint",
+    "//modules/layout",
+] + select({
+    "//bazel/config:plat_linux": ["//modules/log"],
+    "//conditions:default": [],
+})
+
+cc_library(
+    name = "gui",
+    srcs = glob(["src/*.c", "src/*.h"]) + select({
+        "//bazel/config:backend_dom": glob(["src/dom/*.c", "src/dom/*.h"]),
+        "//conditions:default": [],
+    }) + select({
+        "//bazel/config:backend_winui": glob(["src/winui/*.c", "src/winui/*.h"]),
+        "//conditions:default": [],
+    }) + select({
+        "//bazel/config:backend_androidnative": glob(["src/androidnative/*.c", "src/androidnative/*.h"]),
+        "//conditions:default": [],
+    }) + select({
+        "//bazel/config:plat_linux": glob(["src/xcb/*.c", "src/xcb/*.h"]),
+        "//conditions:default": [],
+    }),
+    hdrs = glob(["include/**/*.h"]),
+    includes = ["include"],
+    linkopts = select({
+        "//bazel/config:plat_linux": ["-ldl"],
+        "//conditions:default": [],
+    }) + select({
+        "//bazel/config:plat_macos": ["-framework", "Cocoa", "-framework", "QuartzCore", "-framework", "CoreGraphics"],
+        "//conditions:default": [],
+    }) + select({
+        "//bazel/config:plat_ios": ["-framework", "UIKit", "-framework", "QuartzCore", "-framework", "CoreGraphics"],
+        "//conditions:default": [],
+    }) + select({
+        "//bazel/config:plat_win32": ["-lcomctl32", "-lgdi32"],
+        "//conditions:default": [],
+    }) + select({
+        "//bazel/config:plat_android": ["-landroid"],
+        "//conditions:default": [],
+    }),
+    alwayslink = True,
+    deps = DEPS + select({
+        "//bazel/config:backend_cocoa": [":gui_cocoa"],
+        "//conditions:default": [],
+    }) + select({
+        "//bazel/config:backend_uikit": [":gui_uikit"],
+        "//conditions:default": [],
+    }),
+)
+
+android_library(
+    name = "android_java",
+    srcs = glob(["src/androidnative/java/**/*.java"]),
+    custom_package = "orgwall.melody.platform",
+    exports_manifest = True,
+    manifest = "android/AndroidManifest.xml",
+    resource_files = glob(["android/res/**"]),
+    deps = ["//modules/platform:android_java"],
+    target_compatible_with = select({
+        "//bazel/config:backend_androidnative": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+)
+
+objc_library(
+    name = "gui_cocoa",
+    srcs = glob(["src/cocoa/*.m", "src/cocoa/*.h", "src/*.h", "include/**/*.h"]),
+    includes = ["include"],
+    deps = DEPS,
+    target_compatible_with = select({
+        "//bazel/config:backend_cocoa": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+)
+
+objc_library(
+    name = "gui_uikit",
+    srcs = glob(["src/uikit/*.m", "src/uikit/*.h", "src/*.h", "include/**/*.h"]),
+    includes = ["include"],
+    deps = DEPS,
+    target_compatible_with = select({
+        "//bazel/config:backend_uikit": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+)

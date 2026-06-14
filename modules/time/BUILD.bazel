@@ -1,0 +1,119 @@
+package(default_visibility = ["//visibility:public"])
+
+DEPS = [
+    "//modules/core",
+    "//modules/string",
+    "//modules/allocator",
+    "//modules/collection",
+    "//modules/debug",
+]
+
+cc_library(
+    name = "time",
+    srcs = [
+        "src/duration.c",
+        "src/clock.c",
+        "src/sleep.c",
+        "src/format_prefs.c",
+        "src/sleep_backend.h",
+        "src/format_backend.h",
+    ] + select({
+        "//bazel/config:plat_macos": ["src/nano.unix.c", "src/sleep.unix.c"],
+        "//bazel/config:plat_ios": ["src/nano.unix.c", "src/sleep.unix.c"],
+        "//bazel/config:plat_linux": ["src/nano.unix.c", "src/sleep.unix.c"] + glob(["linux/src/*.c", "linux/src/*.h"], allow_empty = True),
+        "//bazel/config:plat_android": ["src/nano.unix.c", "src/sleep.unix.c"] + glob(["none/src/*.c"]),
+        "//bazel/config:plat_wasm": ["src/nano.unix.c", "src/sleep.unix.c"] + glob(["none/src/*.c"]),
+        "//bazel/config:plat_win32": ["src/nano.win32.c", "src/sleep.win32.c"] + glob(["win32/src/*.c", "win32/src/*.h"], allow_empty = True),
+        "//conditions:default": [],
+    }),
+    hdrs = glob(["include/**/*.h"]),
+    includes = ["include"],
+    copts = select({
+        "//bazel/config:plat_wasm": ["-D_POSIX_C_SOURCE=199309L"],
+        "//conditions:default": [],
+    }),
+    linkopts = select({
+        "//bazel/config:plat_macos": ["-framework", "Foundation"],
+        "//bazel/config:plat_ios": ["-framework", "Foundation"],
+        "//conditions:default": [],
+    }),
+    deps = DEPS + select({
+        "//bazel/config:plat_macos": [":time_apple"],
+        "//bazel/config:plat_ios": [":time_apple"],
+        "//conditions:default": [],
+    }),
+)
+
+objc_library(
+    name = "time_apple",
+    srcs = glob(["apple/src/*.m", "src/*.h", "include/**/*.h"]),
+    includes = ["include"],
+    deps = DEPS,
+    target_compatible_with = select({
+        "//bazel/config:plat_macos": [],
+        "//bazel/config:plat_ios": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+)
+
+cc_test(
+    name = "time-duration",
+    srcs = ["test/test.duration.c"],
+    deps = [
+        "//tools/test:runner",
+        "//modules/test",
+        ":time",
+        "//modules/core",
+        "//modules/string",
+        "//modules/allocator",
+    ],
+)
+
+cc_test(
+    name = "time-frame-clock",
+    srcs = ["test/test.frame_clock.c"],
+    deps = [
+        "//tools/test:runner",
+        "//modules/test",
+        ":time",
+        "//modules/core",
+    ],
+)
+
+cc_test(
+    name = "time-clock",
+    srcs = ["test/test.clock.c"],
+    deps = [
+        "//tools/test:runner",
+        "//modules/test",
+        ":time",
+        "//modules/core",
+        "//modules/string",
+        "//modules/allocator",
+    ],
+)
+
+cc_test(
+    name = "time-sleep",
+    srcs = ["test/test.sleep.c"],
+    deps = [
+        "//tools/test:runner",
+        "//modules/test",
+        ":time",
+        "//modules/core",
+    ],
+)
+
+cc_test(
+    name = "time-format-prefs",
+    srcs = ["test/test.format_prefs.c"],
+    deps = [
+        "//tools/test:runner",
+        "//modules/test",
+        ":time",
+        "//modules/core",
+        "//modules/allocator",
+        "//modules/collection",
+        "//modules/debug",
+    ],
+)

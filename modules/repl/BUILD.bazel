@@ -1,0 +1,24 @@
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "repl",
+    srcs = glob(["src/*.c"]),
+    hdrs = glob(["include/**/*.h"]),
+    includes = ["include"],
+    deps = [
+        "//modules/core",
+        "//modules/allocator",
+        "//modules/string",
+        "//modules/log",
+    ],
+)
+
+cc_test(
+    name = "repl-loop",
+    srcs = ["test/repl_test.c"],
+    deps = [
+        "//tools/test:runner",
+        "//modules/test",
+        ":repl",
+    ],
+)

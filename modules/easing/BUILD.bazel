@@ -1,0 +1,22 @@
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "easing",
+    hdrs = glob(["include/**/*.h"]),
+    textual_hdrs = glob(["include/**/*.inl"]),
+    includes = ["include"],
+    deps = [
+        "//modules/math",
+    ],
+)
+
+cc_test(
+    name = "easing-test",
+    srcs = ["test/test.easing.c"],
+    deps = [
+        "//tools/test:runner",
+        "//modules/test",
+        ":easing",
+        "//modules/core",
+    ],
+)

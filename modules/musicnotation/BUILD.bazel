@@ -1,0 +1,29 @@
+load("//bazel/rules:mel_codegen.bzl", "mel_codegen")
+
+package(default_visibility = ["//visibility:public"])
+
+DEPS = ["//modules/core", "//modules/math", "//modules/frequency", "//modules/musictuning", "//modules/musictheory", "//modules/allocator", "//modules/collection", "//modules/string", "//modules/coro"]
+
+mel_codegen(
+    name = "identify_gen",
+    out = "identify.gen.c",
+    tool = "//modules/coro:coro-gen",
+    args = ["$dir/include/musicnotation/identify.coro.h", "$out", "-DMEL_CORO_CODEGEN", "$cflags", "$hostclang"],
+    srcs = ["include/musicnotation/identify.coro.h"],
+    deps = DEPS,
+    local_includes = ["modules/musicnotation/include", "modules/musicnotation/include/musicnotation"],
+)
+
+cc_library(
+    name = "musicnotation",
+    srcs = glob(["src/*.c"]) + [":identify_gen"],
+    hdrs = glob(["include/**/*.h"]),
+    includes = ["include", "include/musicnotation"],
+    deps = DEPS,
+)
+
+cc_test(
+    name = "notation-test",
+    srcs = ["test/test_notation.c"],
+    deps = ["//tools/test:runner", "//modules/test", ":musicnotation", "//modules/core", "//modules/allocator"],
+)
