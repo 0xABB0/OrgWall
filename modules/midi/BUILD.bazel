@@ -13,6 +13,7 @@ cc_library(
     name = "midi",
     srcs = glob(["src/*.c"]) + select({
         "//bazel/config:plat_macos": glob(["macos/src/*.c", "macos/src/*.h"], allow_empty = True),
+        "//bazel/config:plat_ios": glob(["macos/src/*.c", "macos/src/*.h"], allow_empty = True),
         "//bazel/config:plat_linux": glob(["linux/src/*.c", "linux/src/*.h"], allow_empty = True),
         "//bazel/config:plat_win32": glob(["win32/src/*.c", "win32/src/*.h"], allow_empty = True),
         "//bazel/config:plat_android": glob(["android/src/*.c", "android/src/*.h"], allow_empty = True),
@@ -22,6 +23,7 @@ cc_library(
     includes = ["include"],
     linkopts = select({
         "//bazel/config:plat_macos": ["-framework", "CoreMIDI", "-framework", "CoreFoundation"],
+        "//bazel/config:plat_ios": ["-framework", "CoreMIDI", "-framework", "CoreFoundation"],
         "//bazel/config:plat_win32": ["-lwinmm"],
         "//conditions:default": [],
     }),

@@ -2,8 +2,8 @@
 
 #include <core/platform.h>
 
-#if !MEL_PLATFORM_OSX
-#error "This file should only be compiled on macOS"
+#if !MEL_PLATFORM_APPLE
+#error "This file should only be compiled on Apple platforms (CoreMIDI)"
 #endif
 
 #include <CoreMIDI/CoreMIDI.h>
