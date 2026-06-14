@@ -96,6 +96,7 @@ Mel_Vat*        mel_vat_source_vat(Mel_Vat_Source* source);
 void            mel_vat_source_demand_changed(Mel_Vat_Source* source);
 
 Mel_Vat_Waiter* mel_vat_waiter_kqueue(const Mel_Alloc* alloc);
+Mel_Vat_Waiter* mel_vat_waiter_epoll(const Mel_Alloc* alloc);
 Mel_Vat_Waiter* mel_vat_waiter_cocoa(const Mel_Alloc* alloc);
 Mel_Vat_Waiter* mel_vat_waiter_ui(const Mel_Alloc* alloc);
 Mel_Vat_Waiter* mel_vat_waiter_io(const Mel_Alloc* alloc);

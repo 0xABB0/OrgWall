@@ -7,6 +7,7 @@ void build(Mel_Build* b)
     mel_sources(lib, ALWAYS, "src/*.c");
     mel_sources(lib, WHEN(.platforms = MEL_ON(MACOS) | MEL_ON(IOS)), "darwin/src/*.c");
     mel_sources(lib, WHEN(.platforms = MEL_ON(MACOS)), "macos/src/*.c");
+    mel_sources(lib, WHEN(.platforms = MEL_ON(LINUX)), "linux/src/*.c");
     mel_sources(lib, WHEN(.platforms = MEL_ON(WIN32)), "win32/src/*.c");
     mel_link(lib, MEL_PUBLIC, WHEN(.platforms = MEL_ON(MACOS)), "-framework", "Cocoa", "-framework", "CoreVideo");
     mel_depends(lib, "core");

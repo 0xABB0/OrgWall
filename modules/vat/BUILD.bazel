@@ -5,6 +5,7 @@ cc_library(
     srcs = glob(["src/*.c", "src/*.h"]) + select({
         "//bazel/config:plat_macos": glob(["darwin/src/*.c", "macos/src/*.c"]),
         "//bazel/config:plat_ios": glob(["darwin/src/*.c"]),
+        "//bazel/config:plat_linux": glob(["linux/src/*.c", "linux/src/*.h"], allow_empty = True),
         "//bazel/config:plat_win32": glob(["win32/src/*.c", "win32/src/*.h"], allow_empty = True),
         "//conditions:default": [],
     }),

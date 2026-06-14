@@ -92,8 +92,12 @@ vatless process or marshalled onto the loop otherwise.
 
 - **macOS / iOS / Linux / Android** → `posix/src/process_backend.c` —
   `posix_spawnp` with `posix_spawn_file_actions` for stdio dup2 and cwd
-  (`addchdir`/`addchdir_np`), `pipe2(O_CLOEXEC)` (Linux/Android) or
-  `pipe`+`FD_CLOEXEC` pipes, exit reaped with `waitpid(WNOHANG)` driven by a
+  (`addchdir` on apple, `addchdir_np` on glibc). On Android the spawn is
+  `fork` + `dup2`/`chdir`/`setsid` + `execvpe`, because bionic offers no
+  `posix_spawn` below API 28 (and no `addchdir_np` below API 34); exec failure
+  is funnelled back to the parent over a `CLOEXEC` report pipe so it surfaces
+  identically (`NOT_FOUND`, …). Pipes are `pipe2(O_CLOEXEC)` (Linux/Android) or
+  `pipe`+`FD_CLOEXEC`; exit is reaped with `waitpid(WNOHANG)` driven by a
   deadline-only vat source on the loop, `kill(SIGTERM/SIGKILL)`.
 - **win32** → `win32/src/process_backend.c` — `CreateProcessW` with a UTF-16
   command line (MSVC argv-quoting) and environment block, overlapped named

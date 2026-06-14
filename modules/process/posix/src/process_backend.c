@@ -141,6 +141,125 @@ static int dispose_child_fd(u32 disposition, int redirect_fd, int pipe_child_fd,
     }
 }
 
+typedef struct
+{
+    int         child_in;
+    int         child_out;
+    int         child_err;
+    const char* cwd;
+    bool        detached;
+} Mel_Process_Child_Setup;
+
+#if defined(__ANDROID__)
+static pid_t spawn_child(Mel_Process_Child_Setup setup, char* const* argv, char* const* envp, int* out_rc)
+{
+    int report[2];
+    if (pipe2(report, O_CLOEXEC) != 0)
+    {
+        *out_rc = errno;
+        return -1;
+    }
+
+    pid_t pid = fork();
+    if (pid < 0)
+    {
+        *out_rc = errno;
+        close(report[0]);
+        close(report[1]);
+        return -1;
+    }
+
+    if (pid == 0)
+    {
+        close(report[0]);
+        if (setup.detached)
+            setsid();
+        if (setup.child_in >= 0 && setup.child_in != STDIN_FILENO)
+            dup2(setup.child_in, STDIN_FILENO);
+        if (setup.child_out >= 0 && setup.child_out != STDOUT_FILENO)
+            dup2(setup.child_out, STDOUT_FILENO);
+        if (setup.child_err >= 0 && setup.child_err != STDERR_FILENO)
+            dup2(setup.child_err, STDERR_FILENO);
+        if (setup.cwd && chdir(setup.cwd) != 0)
+        {
+            int err = errno;
+            (void)write(report[1], &err, sizeof(err));
+            _exit(127);
+        }
+        execvpe(argv[0], argv, envp);
+        int err = errno;
+        (void)write(report[1], &err, sizeof(err));
+        _exit(127);
+    }
+
+    close(report[1]);
+    int     child_err = 0;
+    ssize_t n;
+    do
+    {
+        n = read(report[0], &child_err, sizeof(child_err));
+    } while (n < 0 && errno == EINTR);
+    close(report[0]);
+
+    if (n == (ssize_t)sizeof(child_err) && child_err != 0)
+    {
+        int status;
+        do
+        {
+            n = waitpid(pid, &status, 0);
+        } while (n < 0 && errno == EINTR);
+        *out_rc = child_err;
+        return -1;
+    }
+
+    *out_rc = 0;
+    return pid;
+}
+#else
+static pid_t spawn_child(Mel_Process_Child_Setup setup, char* const* argv, char* const* envp, int* out_rc)
+{
+    posix_spawn_file_actions_t fa;
+    posix_spawn_file_actions_init(&fa);
+
+    if (setup.child_in >= 0 && setup.child_in != STDIN_FILENO)
+        posix_spawn_file_actions_adddup2(&fa, setup.child_in, STDIN_FILENO);
+    if (setup.child_out >= 0 && setup.child_out != STDOUT_FILENO)
+        posix_spawn_file_actions_adddup2(&fa, setup.child_out, STDOUT_FILENO);
+    if (setup.child_err >= 0 && setup.child_err != STDERR_FILENO)
+        posix_spawn_file_actions_adddup2(&fa, setup.child_err, STDERR_FILENO);
+
+    if (setup.cwd)
+    {
+#if defined(__APPLE__)
+        posix_spawn_file_actions_addchdir(&fa, setup.cwd);
+#else
+        posix_spawn_file_actions_addchdir_np(&fa, setup.cwd);
+#endif
+    }
+
+    posix_spawnattr_t sa;
+    posix_spawnattr_init(&sa);
+    short flags = 0;
+    if (setup.detached)
+        flags |= POSIX_SPAWN_SETSID;
+    posix_spawnattr_setflags(&sa, flags);
+
+    pid_t pid = 0;
+    int   rc = posix_spawnp(&pid, argv[0], &fa, &sa, argv, envp);
+
+    posix_spawn_file_actions_destroy(&fa);
+    posix_spawnattr_destroy(&sa);
+
+    if (rc != 0)
+    {
+        *out_rc = rc;
+        return -1;
+    }
+    *out_rc = 0;
+    return pid;
+}
+#endif
+
 Mel_Process_Native mel_process__backend_spawn(Mel_Process_Spawn_Args args)
 {
     Mel_Process_Native out = { .pid = -1 };
@@ -173,9 +292,6 @@ Mel_Process_Native mel_process__backend_spawn(Mel_Process_Spawn_Args args)
     if (args.stderr_disposition == MEL_PROCESS_STDIO_PIPE && !make_pipe(err_pipe))
         goto pipe_fail;
 
-    posix_spawn_file_actions_t fa;
-    posix_spawn_file_actions_init(&fa);
-
     int detach_in = args.detached ? null_fd : STDIN_FILENO;
     int detach_out = args.detached ? null_fd : STDOUT_FILENO;
     int detach_err = args.detached ? null_fd : STDERR_FILENO;
@@ -188,49 +304,28 @@ Mel_Process_Native mel_process__backend_spawn(Mel_Process_Spawn_Args args)
     else
         child_err = dispose_child_fd(args.stderr_disposition, args.stderr_redirect_fd, err_pipe[1], null_fd, detach_err);
 
-    if (child_in >= 0 && child_in != STDIN_FILENO)
-        posix_spawn_file_actions_adddup2(&fa, child_in, STDIN_FILENO);
-    if (child_out >= 0 && child_out != STDOUT_FILENO)
-        posix_spawn_file_actions_adddup2(&fa, child_out, STDOUT_FILENO);
-    if (child_err >= 0 && child_err != STDERR_FILENO)
-        posix_spawn_file_actions_adddup2(&fa, child_err, STDERR_FILENO);
-
-    if (args.cwd)
-    {
-#if defined(__APPLE__)
-        posix_spawn_file_actions_addchdir(&fa, args.cwd);
-#else
-        posix_spawn_file_actions_addchdir_np(&fa, args.cwd);
-#endif
-    }
-
-    posix_spawnattr_t sa;
-    posix_spawnattr_init(&sa);
-    short flags = 0;
-    if (args.detached)
-    {
-        flags |= POSIX_SPAWN_SETSID;
-    }
-    posix_spawnattr_setflags(&sa, flags);
-
     char** envp_storage = NULL;
     char** envp = build_envp(args, &envp_storage);
     if (!envp)
     {
-        posix_spawn_file_actions_destroy(&fa);
-        posix_spawnattr_destroy(&sa);
         out.status = MEL_PROCESS_ERROR | MEL_PROCESS_NO_MEMORY;
         goto cleanup_pipes;
     }
 
-    pid_t pid = 0;
-    int   rc = posix_spawnp(&pid, args.argv[0], &fa, &sa, (char* const*)args.argv, envp);
+    Mel_Process_Child_Setup setup = {
+        .child_in = child_in,
+        .child_out = child_out,
+        .child_err = child_err,
+        .cwd = args.cwd,
+        .detached = args.detached,
+    };
+
+    int   rc = 0;
+    pid_t pid = spawn_child(setup, (char* const*)args.argv, envp, &rc);
 
     free_envp(args, envp_storage);
-    posix_spawn_file_actions_destroy(&fa);
-    posix_spawnattr_destroy(&sa);
 
-    if (rc != 0)
+    if (pid < 0)
     {
         out.status = status_from_errno(rc);
         out.os_error = rc;

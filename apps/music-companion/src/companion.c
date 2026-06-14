@@ -15,6 +15,11 @@
 #include <musicnotation/western.h>
 #include <frequency/cent.h>
 #include <audiocapture/audiocapture.h>
+#include <audioin/audioin.h>
+#include <audioin/permission.h>
+#include <executor/executor.h>
+#include <future/future.h>
+#include <thread/thread.h>
 #include <pitchdetect/pitchdetect.h>
 
 #include "companion.h"
@@ -344,6 +349,18 @@ static bool tuner_tick(void* user)
     return true;
 }
 
+static bool tuner_authorize(void)
+{
+    Mel_Future* auth = mel_audioin_authorize(mel_alloc_heap());
+    if (auth == NULL)
+        return false;
+    while (!mel_future_resolved(auth))
+        mel_thread_sleep(10 * 1000 * 1000);
+    bool granted = mel_audioin_auth_is_granted(mel_audioin_future_auth(auth));
+    mel_audioin_future_free(auth);
+    return granted;
+}
+
 static void tuner_start_clicked(Mel_Gui_Handle h, void* user)
 {
     MEL_UNUSED(h);
@@ -355,19 +372,31 @@ static void tuner_start_clicked(Mel_Gui_Handle h, void* user)
         return;
     }
 
-    u32 device = 0;
-    if (!mel_audiocapture_default_device(&device))
+    if (!tuner_authorize())
+    {
+        mel_gui_set_text(g_app.tuner_status, S8("Status: microphone access denied"));
+        return;
+    }
+
+    Mel_AudioIn device = mel_audioin_default();
+    if (!mel_audioin_alive(device))
     {
         mel_gui_set_text(g_app.tuner_status, S8("Status: no input device"));
         return;
     }
 
-    g_app.cap = mel_audiocapture_open(mel_alloc_heap(), device, (Mel_AudioCapture_Opt){ .sample_rate = TUNER_SAMPLE_RATE, .ring_capacity_frames = TUNER_SAMPLE_RATE / 4 });
-    if (g_app.cap == NULL)
+    Mel_AudioCapture_Open_Result opened = mel_audiocapture_open(mel_alloc_heap(), device,
+                                                               (Mel_AudioCapture_Opt){
+                                                                   .sample_rate = TUNER_SAMPLE_RATE,
+                                                                   .channels = 1,
+                                                                   .ring_capacity_frames = TUNER_SAMPLE_RATE / 4,
+                                                               });
+    if (mel_audiocapture_status_failed(opened.status))
     {
         mel_gui_set_text(g_app.tuner_status, S8("Status: open failed (mic permission?)"));
         return;
     }
+    g_app.cap = opened.capture;
 
     g_app.window_fill = 0;
     g_app.unvoiced_ticks = 0;
@@ -426,6 +455,7 @@ void build_companion(Mel_Gui_Handle frame, void* user)
     g_app.vat = vat;
 
     const Mel_Alloc* alloc = mel_alloc_heap();
+    mel_audioin_init(alloc, mel_executor_inline());
     g_app.tuning = mel_tuning_western(alloc, mel_freq(440.0));
     g_app.western = mel_notation_western(alloc, &g_app.tuning);
     g_app.catalog = mel_chord_catalog_western(alloc);
