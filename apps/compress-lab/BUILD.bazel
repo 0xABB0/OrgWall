@@ -1,4 +1,5 @@
 load("@rules_android//rules:rules.bzl", "android_binary")
+load("@rules_apple//apple:ios.bzl", "ios_application")
 load("@rules_apple//apple:macos.bzl", "macos_application")
 load("@rules_apple//apple:versioning.bzl", "apple_bundle_version")
 
@@ -45,4 +46,19 @@ android_binary(
         ":lib",
         "//modules/gui:android_java",
     ],
+)
+
+ios_application(
+    name = "compress-lab_ios",
+    bundle_id = "orgwall.compresslab",
+    bundle_name = "compress-lab",
+    families = [
+        "iphone",
+        "ipad",
+    ],
+    infoplists = ["ios/Info.plist"],
+    minimum_os_version = "14.4",
+    target_compatible_with = ["@platforms//os:ios"],
+    version = ":version",
+    deps = [":lib"],
 )

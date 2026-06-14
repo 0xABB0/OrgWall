@@ -11,6 +11,9 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/wait.h>
+#if defined(__APPLE__)
+#include <TargetConditionals.h>
+#endif
 
 extern char** environ;
 
@@ -230,8 +233,12 @@ static pid_t spawn_child(Mel_Process_Child_Setup setup, char* const* argv, char*
 
     if (setup.cwd)
     {
-#if defined(__APPLE__)
+#if defined(__APPLE__) && TARGET_OS_OSX
         posix_spawn_file_actions_addchdir(&fa, setup.cwd);
+#elif defined(__APPLE__)
+        posix_spawn_file_actions_destroy(&fa);
+        *out_rc = ENOTSUP;
+        return -1;
 #else
         posix_spawn_file_actions_addchdir_np(&fa, setup.cwd);
 #endif

@@ -1,3 +1,4 @@
+load("@rules_apple//apple:ios.bzl", "ios_application")
 load("@rules_apple//apple:macos.bzl", "macos_application")
 load("@rules_apple//apple:versioning.bzl", "apple_bundle_version")
 
@@ -33,6 +34,21 @@ macos_application(
     infoplists = ["macos/Info.plist"],
     minimum_os_version = "14.4",
     target_compatible_with = ["@platforms//os:macos"],
+    version = ":version",
+    deps = [":lib"],
+)
+
+ios_application(
+    name = "hello-window_ios",
+    bundle_id = "orgwall.hellowindow",
+    bundle_name = "hello-window",
+    families = [
+        "iphone",
+        "ipad",
+    ],
+    infoplists = ["ios/Info.plist"],
+    minimum_os_version = "14.4",
+    target_compatible_with = ["@platforms//os:ios"],
     version = ":version",
     deps = [":lib"],
 )

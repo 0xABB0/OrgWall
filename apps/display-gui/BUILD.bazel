@@ -1,4 +1,5 @@
 load("@rules_android//rules:rules.bzl", "android_binary")
+load("@rules_apple//apple:ios.bzl", "ios_application")
 load("@rules_apple//apple:macos.bzl", "macos_application")
 load("@rules_apple//apple:versioning.bzl", "apple_bundle_version")
 
@@ -71,4 +72,19 @@ android_binary(
         "//modules/gui:android_java",
         "//modules/display:android_java",
     ],
+)
+
+ios_application(
+    name = "display-gui_ios",
+    bundle_id = "orgwall.displaygui",
+    bundle_name = "display-gui",
+    families = [
+        "iphone",
+        "ipad",
+    ],
+    infoplists = ["ios/Info.plist"],
+    minimum_os_version = "14.4",
+    target_compatible_with = ["@platforms//os:ios"],
+    version = ":version",
+    deps = [":lib"],
 )

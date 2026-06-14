@@ -1,4 +1,5 @@
 load("@rules_android//rules:rules.bzl", "android_binary")
+load("@rules_apple//apple:ios.bzl", "ios_application")
 load("@rules_apple//apple:macos.bzl", "macos_application")
 load("@rules_apple//apple:versioning.bzl", "apple_bundle_version")
 load("//bazel/rules:mel_wasm.bzl", "mel_wasm_app")
@@ -51,6 +52,21 @@ macos_application(
     infoplists = ["macos/Info.plist"],
     minimum_os_version = "14.4",
     target_compatible_with = ["@platforms//os:macos"],
+    version = ":version",
+    deps = [":lib"],
+)
+
+ios_application(
+    name = "hello-world-gui_ios",
+    bundle_id = "orgwall.helloworld",
+    bundle_name = "hello-world-gui",
+    families = [
+        "iphone",
+        "ipad",
+    ],
+    infoplists = ["ios/Info.plist"],
+    minimum_os_version = "14.4",
+    target_compatible_with = ["@platforms//os:ios"],
     version = ":version",
     deps = [":lib"],
 )
