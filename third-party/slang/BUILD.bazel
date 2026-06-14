@@ -1,11 +1,13 @@
 load("@rules_apple//apple:apple.bzl", "apple_dynamic_framework_import")
 
 # Hand-authored. slang-runtime = the slang release prebuilt, one repo per
-# platform. No android prebuilt is published in this release. macOS/linux/win32
-# link the bare dylib directly (auto-embedded for macos_application). iOS uses the
-# vendored simulator prebuilt repackaged as a dynamic framework (see below): its
-# slang-runtime arm is headers-only, the link+embed ride a framework import
-# attached at the ios_application level.
+# platform. macOS/linux/win32 come from upstream GitHub release http_archives and
+# link the bare shared lib directly (auto-embedded for macos_application). The
+# release publishes no ios/android/wasm artifact, so those three are built locally
+# (tools/build/vendor/slang/build-*.sh) and committed as zips, extracted by genrule
+# here: iOS is headers-only (link+embed ride a framework import at the
+# ios_application level); android links + bundles libslang-compiler.so into the apk;
+# wasm links the static archive set.
 cc_library(
     name = "slang-runtime",
     visibility = ["//visibility:public"],
@@ -14,6 +16,8 @@ cc_library(
         "//bazel/config:plat_linux": ["@slang_linux//:slang_runtime"],
         "//bazel/config:plat_win32": ["@slang_win32//:slang_runtime"],
         "//bazel/config:plat_ios": [":slang_ios_headers"],
+        "//bazel/config:plat_android": [":slang_android"],
+        "//bazel/config:plat_wasm": [":slang_wasm"],
         "//conditions:default": [],
     }),
 )
@@ -26,6 +30,10 @@ cc_library(
     linkopts = select({
         "//bazel/config:plat_macos": ["-lc++"],
         "//bazel/config:plat_ios": ["-lc++"],
+        # The vendored wasm archives are built with native wasm exceptions; linking
+        # them needs the exception-enabled libc++abi (emcc otherwise picks the
+        # -noexcept variant -> undefined __cpp_exception/_Unwind_CallPersonality).
+        "//bazel/config:plat_wasm": ["-fwasm-exceptions"],
         "//conditions:default": [],
     }),
     visibility = ["//visibility:public"],
@@ -104,5 +112,112 @@ apple_dynamic_framework_import(
         "slang.framework/Info.plist",
     ],
     target_compatible_with = ["@platforms//os:ios"],
+    visibility = ["//visibility:public"],
+)
+
+# --- Android (arm64) slang ---
+# libslang-compiler.so NEEDs only libdl/libm/libc (the glslang/glsl-module plugin
+# .sos beside it are dlopen'd for GLSL output, not DT_NEEDED — unused by the Vulkan/
+# SPIR-V path, so omitted, mirroring the macОS arm which also links only the
+# compiler). The .so in srcs links the app's libmelody.so against it; android_binary
+# bundles it into the apk's lib/arm64-v8a/.
+genrule(
+    name = "android_extract",
+    srcs = ["//tools/build/vendor/slang:slang-2026.10.2-android-aarch64.zip"],
+    outs = [
+        "android/libslang-compiler.so",
+        "android_include/slang.h",
+        "android_include/slang-com-helper.h",
+        "android_include/slang-com-ptr.h",
+        "android_include/slang-image-format-defs.h",
+        "android_include/slang-deprecated.h",
+    ],
+    cmd = """
+set -e
+tmp=$$(mktemp -d)
+unzip -q -o $(location //tools/build/vendor/slang:slang-2026.10.2-android-aarch64.zip) -d "$$tmp"
+cp "$$tmp/lib/libslang-compiler.so" $(location android/libslang-compiler.so)
+cp "$$tmp/include/slang.h" $(location android_include/slang.h)
+cp "$$tmp/include/slang-com-helper.h" $(location android_include/slang-com-helper.h)
+cp "$$tmp/include/slang-com-ptr.h" $(location android_include/slang-com-ptr.h)
+cp "$$tmp/include/slang-image-format-defs.h" $(location android_include/slang-image-format-defs.h)
+cp "$$tmp/include/slang-deprecated.h" $(location android_include/slang-deprecated.h)
+""",
+    target_compatible_with = ["@platforms//os:android"],
+)
+
+cc_library(
+    name = "slang_android",
+    srcs = ["android/libslang-compiler.so"],
+    hdrs = [
+        "android_include/slang.h",
+        "android_include/slang-com-helper.h",
+        "android_include/slang-com-ptr.h",
+        "android_include/slang-image-format-defs.h",
+        "android_include/slang-deprecated.h",
+    ],
+    includes = ["android_include"],
+    target_compatible_with = ["@platforms//os:android"],
+    visibility = ["//visibility:public"],
+)
+
+# --- wasm (emscripten, multithreaded) slang ---
+# Fully static: libslang-compiler.a depends on the sibling core/compiler-core/cmark/
+# lz4/miniz archives; wasm-ld resolves archives iteratively (no single-pass ordering
+# trap), so listing all six in srcs links them into the .wasm.
+genrule(
+    name = "wasm_extract",
+    srcs = ["//tools/build/vendor/slang:slang-2026.10.2-wasm-mt.zip"],
+    outs = [
+        "wasm/libslang-compiler.a",
+        "wasm/libcompiler-core.a",
+        "wasm/libcore.a",
+        "wasm/libcmark-gfm.a",
+        "wasm/liblz4.a",
+        "wasm/libminiz.a",
+        "wasm_include/slang.h",
+        "wasm_include/slang-com-helper.h",
+        "wasm_include/slang-com-ptr.h",
+        "wasm_include/slang-image-format-defs.h",
+        "wasm_include/slang-deprecated.h",
+    ],
+    cmd = """
+set -e
+tmp=$$(mktemp -d)
+unzip -q -o $(location //tools/build/vendor/slang:slang-2026.10.2-wasm-mt.zip) -d "$$tmp"
+cp "$$tmp/lib/libslang-compiler.a" $(location wasm/libslang-compiler.a)
+cp "$$tmp/lib/libcompiler-core.a" $(location wasm/libcompiler-core.a)
+cp "$$tmp/lib/libcore.a" $(location wasm/libcore.a)
+cp "$$tmp/lib/libcmark-gfm.a" $(location wasm/libcmark-gfm.a)
+cp "$$tmp/lib/liblz4.a" $(location wasm/liblz4.a)
+cp "$$tmp/lib/libminiz.a" $(location wasm/libminiz.a)
+cp "$$tmp/include/slang.h" $(location wasm_include/slang.h)
+cp "$$tmp/include/slang-com-helper.h" $(location wasm_include/slang-com-helper.h)
+cp "$$tmp/include/slang-com-ptr.h" $(location wasm_include/slang-com-ptr.h)
+cp "$$tmp/include/slang-image-format-defs.h" $(location wasm_include/slang-image-format-defs.h)
+cp "$$tmp/include/slang-deprecated.h" $(location wasm_include/slang-deprecated.h)
+""",
+    target_compatible_with = ["@platforms//cpu:wasm32"],
+)
+
+cc_library(
+    name = "slang_wasm",
+    srcs = [
+        "wasm/libslang-compiler.a",
+        "wasm/libcompiler-core.a",
+        "wasm/libcore.a",
+        "wasm/libcmark-gfm.a",
+        "wasm/liblz4.a",
+        "wasm/libminiz.a",
+    ],
+    hdrs = [
+        "wasm_include/slang.h",
+        "wasm_include/slang-com-helper.h",
+        "wasm_include/slang-com-ptr.h",
+        "wasm_include/slang-image-format-defs.h",
+        "wasm_include/slang-deprecated.h",
+    ],
+    includes = ["wasm_include"],
+    target_compatible_with = ["@platforms//cpu:wasm32"],
     visibility = ["//visibility:public"],
 )
