@@ -42,9 +42,18 @@ typedef struct
     i32              current;
 } Lab_Race;
 
+#ifdef __cplusplus
+extern "C"
+{
+#endif
+
 bool lab_job_open(Lab_Job* job);
 void lab_job_chunk(Lab_Job* job);
 void lab_job_close(Lab_Job* job);
 
 void lab_race_arm(Lab_Race* race, i32 index);
 void lab_race_settle(Lab_Race* race, i32 index);
+
+#ifdef __cplusplus
+}
+#endif

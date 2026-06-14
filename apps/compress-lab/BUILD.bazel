@@ -1,25 +1,14 @@
 load("@rules_android//rules:rules.bzl", "android_binary")
 load("@rules_apple//apple:macos.bzl", "macos_application")
 load("@rules_apple//apple:versioning.bzl", "apple_bundle_version")
-load("//bazel/rules:mel_codegen.bzl", "mel_codegen")
 
 package(default_visibility = ["//visibility:public"])
 
-DEPS = ["//modules/boot", "//modules/vat", "//modules/core", "//modules/allocator", "//modules/collection", "//modules/string", "//modules/log", "//modules/time", "//modules/executor", "//modules/future", "//modules/io", "//modules/dialog", "//modules/gui", "//modules/coro", "//modules/compress", "//modules/compress:compress-rle", "//modules/compress:compress-deflate", "//modules/compress:compress-lz4", "//modules/compress:compress-zstd", "//modules/compress:compress-brotli", "//modules/compress:compress-zip"]
-
-mel_codegen(
-    name = "job_gen",
-    out = "job.gen.c",
-    tool = "//modules/coro:coro-gen",
-    args = ["$dir/src/job.coro.h", "$out", "-DMEL_CORO_CODEGEN", "$cflags", "$hostclang"],
-    srcs = ["src/job.coro.h"],
-    deps = DEPS,
-    local_includes = ["apps/compress-lab/src"],
-)
+DEPS = ["//modules/boot", "//modules/vat", "//modules/core", "//modules/allocator", "//modules/collection", "//modules/string", "//modules/log", "//modules/time", "//modules/executor", "//modules/future", "//modules/io", "//modules/dialog", "//modules/gui", "//third-party/cppcoro", "//modules/compress", "//modules/compress:compress-rle", "//modules/compress:compress-deflate", "//modules/compress:compress-lz4", "//modules/compress:compress-zstd", "//modules/compress:compress-brotli", "//modules/compress:compress-zip"]
 
 cc_library(
     name = "lib",
-    srcs = glob(["src/*.c", "src/*.h"]) + [":job_gen"],
+    srcs = glob(["src/*.c", "src/*.cc", "src/*.h"]),
     includes = ["src"],
     linkopts = select({"//bazel/config:plat_wasm": ["-sALLOW_MEMORY_GROWTH=1"], "//conditions:default": []}),
     deps = DEPS,

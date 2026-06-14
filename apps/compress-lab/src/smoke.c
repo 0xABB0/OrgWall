@@ -1,4 +1,4 @@
-#include "job.coro.h"
+#include "job.h"
 #include "lab.h"
 
 #include <allocator/allocator.h>
@@ -38,12 +38,11 @@ static bool smoke_roundtrip(const Mel_Alloc* alloc, str8 input)
         Lab_Job packed = { .codec = codec, .alloc = alloc, .level = codec->level_default, .in = input };
         if (!lab_job_open(&packed))
             return false;
-        Mel_Coro_Frame_lab_pump frame = { 0 };
-        frame.job = &packed;
-        i64 y = 0;
-        u32 resumes = 0;
-        while (lab_pump__resume(&frame, &y))
+        Lab_Pump_Co* pump = lab_pump_begin(&packed);
+        u32          resumes = 0;
+        while (lab_pump_step(pump))
             resumes++;
+        lab_pump_end(pump);
         lab_job_close(&packed);
         if (packed.failed)
         {
@@ -54,10 +53,10 @@ static bool smoke_roundtrip(const Mel_Alloc* alloc, str8 input)
         Lab_Job plain = { .codec = codec, .alloc = alloc, .decompress = true, .in = str8_from_parts(packed.out, (size)packed.out_len) };
         if (!lab_job_open(&plain))
             return false;
-        Mel_Coro_Frame_lab_pump dframe = { 0 };
-        dframe.job = &plain;
-        while (lab_pump__resume(&dframe, &y))
+        Lab_Pump_Co* dpump = lab_pump_begin(&plain);
+        while (lab_pump_step(dpump))
             resumes++;
+        lab_pump_end(dpump);
         lab_job_close(&plain);
 
         ok = !plain.failed && plain.out_len == (usize)input.len && memcmp(plain.out, input.data, plain.out_len) == 0;
@@ -82,11 +81,10 @@ static bool smoke_race(const Mel_Alloc* alloc, str8 input)
     if (!race.results)
         return false;
 
-    Mel_Coro_Frame_lab_race_run frame = { 0 };
-    frame.race = &race;
-    i64 y = 0;
-    while (lab_race_run__resume(&frame, &y))
+    Lab_Race_Co* run = lab_race_begin(&race);
+    while (lab_race_step(run))
         ;
+    lab_race_end(run);
 
     bool ok = true;
     for (usize i = 0; i < race.count; i++)

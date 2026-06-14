@@ -1,4 +1,4 @@
-#include "job.coro.h"
+#include "job.h"
 #include "lab.h"
 
 #include <allocator/allocator.h>
@@ -66,8 +66,8 @@ typedef struct
 
     Lab_Job                     job;
     Lab_Race                    race;
-    Mel_Coro_Frame_lab_pump     pump_frame;
-    Mel_Coro_Frame_lab_race_run race_frame;
+    Lab_Pump_Co*                pump_co;
+    Lab_Race_Co*                race_co;
     bool                        job_live;
     bool                        race_live;
     bool                        busy;
@@ -248,6 +248,8 @@ static void start_tick(void) { mel_vat_tick_set_interval(g.tick, LAB_TICK_NS); }
 static void finish_single(void)
 {
     lab_job_close(&g.job);
+    lab_pump_end(g.pump_co);
+    g.pump_co = NULL;
     g.job_live = false;
     mel_slider_set_value(g.progress_bar, LAB_PROGRESS_MAX);
 
@@ -297,6 +299,8 @@ static void finish_single(void)
 
 static void finish_race(void)
 {
+    lab_race_end(g.race_co);
+    g.race_co = NULL;
     g.race_live = false;
     mel_slider_set_value(g.progress_bar, LAB_PROGRESS_MAX);
     update_race_labels();
@@ -342,10 +346,9 @@ static bool lab_tick(void* user)
 
     if (g.job_live)
     {
-        i64  y = 0;
         bool suspended = true;
         while (suspended && mel_nanos_since_unspecified_epoch() - t0 < LAB_TICK_BUDGET)
-            suspended = lab_pump__resume(&g.pump_frame, &y);
+            suspended = lab_pump_step(g.pump_co);
         if (suspended)
         {
             update_progress(g.job.in_consumed, (usize)g.job.in.len, mel_nanos_since_unspecified_epoch() - g.job.t_begin);
@@ -357,10 +360,9 @@ static bool lab_tick(void* user)
 
     if (g.race_live)
     {
-        i64  y = 0;
         bool suspended = true;
         while (suspended && mel_nanos_since_unspecified_epoch() - t0 < LAB_TICK_BUDGET)
-            suspended = lab_race_run__resume(&g.race_frame, &y);
+            suspended = lab_race_step(g.race_co);
         if (suspended)
         {
             update_progress(g.race.job.in_consumed, (usize)g.race.input.len, mel_nanos_since_unspecified_epoch() - g.race.job.t_begin);
@@ -499,8 +501,7 @@ static void start_job(bool decompress)
         return;
     }
 
-    g.pump_frame = (Mel_Coro_Frame_lab_pump){ 0 };
-    g.pump_frame.job = &g.job;
+    g.pump_co = lab_pump_begin(&g.job);
     g.job_live = true;
     mel_slider_set_value(g.progress_bar, 0);
     start_tick();
@@ -535,8 +536,7 @@ static void on_race_clicked(Mel_Gui_Handle h, void* user)
     g.race.count = g.codec_count;
     g.race.current = 0;
 
-    g.race_frame = (Mel_Coro_Frame_lab_race_run){ 0 };
-    g.race_frame.race = &g.race;
+    g.race_co = lab_race_begin(&g.race);
     g.race_live = true;
     mel_slider_set_value(g.progress_bar, 0);
     update_race_labels();

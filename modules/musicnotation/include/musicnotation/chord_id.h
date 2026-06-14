@@ -7,6 +7,11 @@
 #include <string/str8.h>
 #include <musictheory/scale.h>
 
+#ifdef __cplusplus
+extern "C"
+{
+#endif
+
 typedef struct Mel_Chord_Quality Mel_Chord_Quality;
 
 struct Mel_Chord_Quality
@@ -72,3 +77,7 @@ MEL_NODISCARD static inline i32 mel_chord_bass_member(const Mel_Scale* pcs, i32 
 }
 
 MEL_NODISCARD Mel_Chord_Match_Array mel_chord_identify(const Mel_Alloc* alloc, const Mel_Chord_Catalog* cat, const Mel_Scale* pcs, i64 bass_pc);
+
+#ifdef __cplusplus
+}
+#endif

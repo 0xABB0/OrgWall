@@ -1,5 +1,3 @@
-load("//bazel/rules:mel_codegen.bzl", "mel_codegen")
-
 package(default_visibility = ["//visibility:public"])
 
 DEPS = [
@@ -9,22 +7,12 @@ DEPS = [
     "//modules/musictuning",
     "//modules/allocator",
     "//modules/collection",
-    "//modules/coro",
+    "//third-party/cppcoro",
 ]
-
-mel_codegen(
-    name = "scale_gen",
-    out = "scale_gen.gen.c",
-    tool = "//modules/coro:coro-gen",
-    args = ["$dir/include/musictheory/scale_gen.coro.h", "$out", "-DMEL_CORO_CODEGEN", "$cflags", "$hostclang"],
-    srcs = ["include/musictheory/scale_gen.coro.h"],
-    deps = DEPS,
-    local_includes = ["modules/musictheory/include", "modules/musictheory/include/musictheory"],
-)
 
 cc_library(
     name = "musictheory",
-    srcs = glob(["src/*.c"]) + [":scale_gen"],
+    srcs = glob(["src/*.c", "src/*.cc"]),
     hdrs = glob(["include/**/*.h"]),
     includes = ["include", "include/musictheory"],
     deps = DEPS,

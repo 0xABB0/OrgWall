@@ -2,7 +2,7 @@
 
 #include <math.h>
 #include <musicnotation/western.h>
-#include <musicnotation/identify.coro.h>
+#include <musicnotation/chord_id.h>
 #include <allocator/heap.h>
 
 static Mel_Tuning         g_tuning;

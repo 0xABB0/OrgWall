@@ -14,10 +14,10 @@ acc_value}` — symbols are generated on demand into a caller allocator as `str8
 - `western.h`: 12-TET preset — `mel_tuning_western(alloc, a4)` (index 0 = C4, MIDI 60),
   `mel_notation_western`, named scale patterns (major, minors, modes, pentatonics,
   blues, chromatic), and a chord-quality catalog (triads through ninths).
-- `chord_id.h` + `identify.coro.h`: chord identification over an open quality catalog.
-  `mel_chord_identify_g` yields `{root_pc, quality, bass_member}` candidates for a
-  pcs-normalized pitch-class scale; the eager wrapper collects and ranks them
+- `chord_id.h`: chord identification over an open quality catalog. An internal
+  `cppcoro::generator` yields `{root_pc, quality, bass_member}` candidates for a
+  pcs-normalized pitch-class scale; `mel_chord_identify` collects and ranks them
   (root-position first, catalog order second).
 
 Dependencies: core, math, frequency, tuning, musictheory, allocator, collection,
-string, coro.
+string, cppcoro.

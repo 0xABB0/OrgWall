@@ -18,6 +18,11 @@ struct Mel_Interval
     i64               diff;
 };
 
+#ifdef __cplusplus
+extern "C"
+{
+#endif
+
 MEL_NODISCARD Mel_Interval mel_interval_make(const Mel_Tuning* tuning, i64 ref_index, i64 diff);
 
 MEL_NODISCARD Mel_Interval mel_interval_from_pitches(Mel_Pitch source, Mel_Pitch target);
@@ -38,3 +43,7 @@ MEL_NODISCARD Mel_Cent mel_interval_cents(Mel_Interval i);
 
 MEL_NODISCARD u8 mel_interval_eq(Mel_Interval a, Mel_Interval b);
 MEL_NODISCARD u8 mel_interval_cmp(Mel_Interval a, Mel_Interval b);
+
+#ifdef __cplusplus
+}
+#endif

@@ -33,6 +33,11 @@ static inline str8 str8_prefix(str8 s, size len);
 static inline str8 str8_suffix(str8 s, size len);
 static inline size str8_to_buf(str8 s, char* buf, size buf_size);
 
+#ifdef __cplusplus
+extern "C"
+{
+#endif
+
 bool str8_contains(str8 haystack, str8 needle);
 size str8_find(str8 haystack, str8 needle);
 size str8_rfind(str8 haystack, str8 needle);
@@ -49,6 +54,10 @@ const char* str8_to_cstr_alloc(str8 s, const Mel_Alloc* alloc);
 
 str8 str8_fmt_arena(Mel_Arena* arena, const char* fmt, ...) MEL_PRINTF_FORMAT(2, 3);
 str8 str8_fmt_alloc(const Mel_Alloc* alloc, const char* fmt, ...) MEL_PRINTF_FORMAT(2, 3);
+
+#ifdef __cplusplus
+}
+#endif
 
 #define str8_dup(s, allocator)        _Generic((allocator), Mel_Arena*: str8_dup_arena, const Mel_Alloc*: str8_dup_alloc)(s, allocator)
 

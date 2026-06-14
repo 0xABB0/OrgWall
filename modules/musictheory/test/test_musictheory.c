@@ -6,7 +6,6 @@
 #include <musictheory/scale.h>
 #include <musictheory/pattern.h>
 #include <musictheory/chord.h>
-#include <musictheory/scale_gen.coro.h>
 #include <frequency/cent.h>
 #include <allocator/heap.h>
 
@@ -93,18 +92,12 @@ MEL_TEST(musictheory, scale_pitches_generator)
 {
     Mel_Scale s = mel_scale_from_indices(mel_alloc_heap(), edo12(), (i64[]){ 0, 4, 7 }, 3);
 
-    Mel_Coro_Frame_mel_scale_pitches_g f = { 0 };
-    f.s = &s;
-
-    Mel_Pitch p;
+    Mel_Pitch pitches[8];
+    i32       cnt = mel_scale_pitches(&s, pitches, 8);
     i64       expected[] = { 0, 4, 7 };
-    i32       n = 0;
-    while (mel_scale_pitches_g__resume(&f, &p))
-    {
-        MEL_EXPECT_EQ(p.index, expected[n]);
-        n++;
-    }
-    MEL_EXPECT_EQ(n, 3);
+    MEL_EXPECT_EQ(cnt, 3);
+    for (i32 i = 0; i < cnt; i++)
+        MEL_EXPECT_EQ(pitches[i].index, expected[i]);
     mel_scale_free(&s);
 }
 
@@ -112,23 +105,15 @@ MEL_TEST(musictheory, scale_stream_generator)
 {
     Mel_Scale s = mel_scale_from_indices(mel_alloc_heap(), edo12(), (i64[]){ 0, 2, 4 }, 3);
 
-    Mel_Coro_Frame_mel_scale_stream_g f = { 0 };
-    f.s = &s;
-    f.from_index = 0;
-
     i64       expected[] = { 0, 2, 4, 12, 14, 16, 24 };
-    Mel_Pitch p;
+    Mel_Pitch buf[7];
+    MEL_REQUIRE_EQ(mel_scale_stream(&s, 0, buf, 7), 7);
     for (i32 n = 0; n < 7; n++)
-    {
-        MEL_REQUIRE(mel_scale_stream_g__resume(&f, &p));
-        MEL_EXPECT_EQ(p.index, expected[n]);
-    }
+        MEL_EXPECT_EQ(buf[n].index, expected[n]);
 
-    Mel_Coro_Frame_mel_scale_stream_g f2 = { 0 };
-    f2.s = &s;
-    f2.from_index = 5;
-    MEL_REQUIRE(mel_scale_stream_g__resume(&f2, &p));
-    MEL_EXPECT_EQ(p.index, 12);
+    Mel_Pitch one;
+    MEL_REQUIRE_EQ(mel_scale_stream(&s, 5, &one, 1), 1);
+    MEL_EXPECT_EQ(one.index, 12);
 
     mel_scale_free(&s);
 }
@@ -197,19 +182,13 @@ MEL_TEST(musictheory, pattern_pitches_generator)
 {
     Mel_Pattern p = mel_pattern_from_diffs(mel_alloc_heap(), edo12(), (i64[]){ 4, 3 }, 2);
 
-    Mel_Coro_Frame_mel_pattern_pitches_g f = { 0 };
-    f.p = &p;
-    f.root = mel_pitch_make(edo12(), 60);
-
+    Mel_Pitch root = mel_pitch_make(edo12(), 60);
+    Mel_Pitch out[8];
+    i32       cnt = mel_pattern_pitches(&p, root, out, 8);
     i64       expected[] = { 60, 64, 67 };
-    Mel_Pitch out;
-    i32       n = 0;
-    while (mel_pattern_pitches_g__resume(&f, &out))
-    {
-        MEL_EXPECT_EQ(out.index, expected[n]);
-        n++;
-    }
-    MEL_EXPECT_EQ(n, 3);
+    MEL_EXPECT_EQ(cnt, 3);
+    for (i32 i = 0; i < cnt; i++)
+        MEL_EXPECT_EQ(out[i].index, expected[i]);
     mel_pattern_free(&p);
 }
 

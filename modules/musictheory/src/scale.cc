@@ -1,7 +1,173 @@
+#include <musictheory/pattern.h>
 #include <musictheory/scale.h>
-#include <musictheory/scale_gen.coro.h>
+
+#include <cppcoro/generator.hpp>
 
 #include <assert.h>
+
+namespace
+{
+
+cppcoro::generator<i64> scale_union_g(const Mel_Scale* a, const Mel_Scale* b)
+{
+    usize ia = 0;
+    usize ib = 0;
+    while (ia < a->indices.count && ib < b->indices.count)
+    {
+        if (a->indices.items[ia] == b->indices.items[ib])
+        {
+            co_yield a->indices.items[ia];
+            ia++;
+            ib++;
+        }
+        else if (a->indices.items[ia] < b->indices.items[ib])
+        {
+            co_yield a->indices.items[ia];
+            ia++;
+        }
+        else
+        {
+            co_yield b->indices.items[ib];
+            ib++;
+        }
+    }
+    while (ia < a->indices.count)
+    {
+        co_yield a->indices.items[ia];
+        ia++;
+    }
+    while (ib < b->indices.count)
+    {
+        co_yield b->indices.items[ib];
+        ib++;
+    }
+}
+
+cppcoro::generator<i64> scale_intersection_g(const Mel_Scale* a, const Mel_Scale* b)
+{
+    usize ia = 0;
+    usize ib = 0;
+    while (ia < a->indices.count && ib < b->indices.count)
+    {
+        if (a->indices.items[ia] == b->indices.items[ib])
+        {
+            co_yield a->indices.items[ia];
+            ia++;
+            ib++;
+        }
+        else if (a->indices.items[ia] < b->indices.items[ib])
+        {
+            ia++;
+        }
+        else
+        {
+            ib++;
+        }
+    }
+}
+
+cppcoro::generator<i64> scale_difference_g(const Mel_Scale* a, const Mel_Scale* b)
+{
+    usize ia = 0;
+    usize ib = 0;
+    while (ia < a->indices.count && ib < b->indices.count)
+    {
+        if (a->indices.items[ia] == b->indices.items[ib])
+        {
+            ia++;
+            ib++;
+        }
+        else if (a->indices.items[ia] < b->indices.items[ib])
+        {
+            co_yield a->indices.items[ia];
+            ia++;
+        }
+        else
+        {
+            ib++;
+        }
+    }
+    while (ia < a->indices.count)
+    {
+        co_yield a->indices.items[ia];
+        ia++;
+    }
+}
+
+cppcoro::generator<i64> scale_complement_g(const Mel_Scale* s)
+{
+    for (i64 pc = 0; pc < (i64)s->tuning->period; pc++)
+        if (!mel_scale_contains_pc(s, pc))
+            co_yield pc;
+}
+
+cppcoro::generator<Mel_Pitch> scale_pitches_g(const Mel_Scale* s)
+{
+    for (usize i = 0; i < s->indices.count; i++)
+        co_yield mel_pitch_make(s->tuning, s->indices.items[i]);
+}
+
+cppcoro::generator<Mel_Pitch> scale_stream_g(const Mel_Scale* s, i64 from_index)
+{
+    i64 period = (i64)s->tuning->period;
+    i64 start_bi = from_index >= 0 ? from_index / period : -((-from_index + period - 1) / period);
+    for (i64 bi = start_bi;; bi++)
+        for (usize i = 0; i < s->indices.count; i++)
+        {
+            i64 idx = s->indices.items[i] + bi * period;
+            if (idx >= from_index)
+                co_yield mel_pitch_make(s->tuning, idx);
+        }
+}
+
+cppcoro::generator<Mel_Pitch> pattern_pitches_g(const Mel_Pattern* p, Mel_Pitch root)
+{
+    co_yield root;
+    i64 idx = root.index;
+    for (usize i = 0; i < p->diffs.count; i++)
+    {
+        idx += p->diffs.items[i];
+        co_yield mel_pitch_make(root.tuning, idx);
+    }
+}
+
+}
+
+i32 mel_scale_pitches(const Mel_Scale* s, Mel_Pitch* out, i32 cap)
+{
+    i32 n = 0;
+    for (Mel_Pitch p : scale_pitches_g(s))
+    {
+        if (n >= cap)
+            break;
+        out[n++] = p;
+    }
+    return n;
+}
+
+i32 mel_scale_stream(const Mel_Scale* s, i64 from_index, Mel_Pitch* out, i32 count)
+{
+    i32 n = 0;
+    for (Mel_Pitch p : scale_stream_g(s, from_index))
+    {
+        if (n >= count)
+            break;
+        out[n++] = p;
+    }
+    return n;
+}
+
+i32 mel_pattern_pitches(const Mel_Pattern* p, Mel_Pitch root, Mel_Pitch* out, i32 cap)
+{
+    i32 n = 0;
+    for (Mel_Pitch pitch : pattern_pitches_g(p, root))
+    {
+        if (n >= cap)
+            break;
+        out[n++] = pitch;
+    }
+    return n;
+}
 
 void mel_scale_free(Mel_Scale* s)
 {
@@ -121,12 +287,7 @@ Mel_Scale mel_scale_union(const Mel_Alloc* alloc, const Mel_Scale* a, const Mel_
 {
     assert(a->tuning == b->tuning);
     Mel_Scale r = mel_scale_make(alloc, a->tuning);
-
-    Mel_Coro_Frame_mel_scale_union_g f = { 0 };
-    f.a = a;
-    f.b = b;
-    i64 idx;
-    while (mel_scale_union_g__resume(&f, &idx))
+    for (i64 idx : scale_union_g(a, b))
         mel_array_push(&r.indices, idx);
     return r;
 }
@@ -135,12 +296,7 @@ Mel_Scale mel_scale_intersection(const Mel_Alloc* alloc, const Mel_Scale* a, con
 {
     assert(a->tuning == b->tuning);
     Mel_Scale r = mel_scale_make(alloc, a->tuning);
-
-    Mel_Coro_Frame_mel_scale_intersection_g f = { 0 };
-    f.a = a;
-    f.b = b;
-    i64 idx;
-    while (mel_scale_intersection_g__resume(&f, &idx))
+    for (i64 idx : scale_intersection_g(a, b))
         mel_array_push(&r.indices, idx);
     return r;
 }
@@ -149,12 +305,7 @@ Mel_Scale mel_scale_difference(const Mel_Alloc* alloc, const Mel_Scale* a, const
 {
     assert(a->tuning == b->tuning);
     Mel_Scale r = mel_scale_make(alloc, a->tuning);
-
-    Mel_Coro_Frame_mel_scale_difference_g f = { 0 };
-    f.a = a;
-    f.b = b;
-    i64 idx;
-    while (mel_scale_difference_g__resume(&f, &idx))
+    for (i64 idx : scale_difference_g(a, b))
         mel_array_push(&r.indices, idx);
     return r;
 }
@@ -247,11 +398,7 @@ Mel_Scale mel_scale_pcs_complement(const Mel_Alloc* alloc, const Mel_Scale* s)
 {
     assert(mel_tuning_is_periodic(s->tuning));
     Mel_Scale r = mel_scale_make(alloc, s->tuning);
-
-    Mel_Coro_Frame_mel_scale_complement_g f = { 0 };
-    f.s = s;
-    i64 pc;
-    while (mel_scale_complement_g__resume(&f, &pc))
+    for (i64 pc : scale_complement_g(s))
         mel_array_push(&r.indices, pc);
     return r;
 }

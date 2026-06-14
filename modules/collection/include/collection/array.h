@@ -44,11 +44,11 @@
             usize new_size = sizeof(*(arr)->items) * new_cap;                             \
             if ((arr)->items == NULL)                                                     \
             {                                                                             \
-                (arr)->items = mel_alloc((arr)->allocator, new_size);                     \
+                (arr)->items = (__typeof__((arr)->items))mel_alloc((arr)->allocator, new_size);                     \
             }                                                                             \
             else                                                                          \
             {                                                                             \
-                (arr)->items = mel_realloc((arr)->allocator, (arr)->items, new_size);     \
+                (arr)->items = (__typeof__((arr)->items))mel_realloc((arr)->allocator, (arr)->items, new_size);     \
             }                                                                             \
             (arr)->capacity = new_cap;                                                    \
         }                                                                                 \
@@ -69,11 +69,11 @@
             usize new_size = sizeof(*(arr)->items) * (n);                             \
             if ((arr)->items == NULL)                                                 \
             {                                                                         \
-                (arr)->items = mel_alloc((arr)->allocator, new_size);                 \
+                (arr)->items = (__typeof__((arr)->items))mel_alloc((arr)->allocator, new_size);                 \
             }                                                                         \
             else                                                                      \
             {                                                                         \
-                (arr)->items = mel_realloc((arr)->allocator, (arr)->items, new_size); \
+                (arr)->items = (__typeof__((arr)->items))mel_realloc((arr)->allocator, (arr)->items, new_size); \
             }                                                                         \
             (arr)->capacity = (n);                                                    \
         }                                                                             \
@@ -104,11 +104,11 @@
             usize new_size = sizeof(*(arr)->items) * new_cap;                                                               \
             if ((arr)->items == NULL)                                                                                       \
             {                                                                                                               \
-                (arr)->items = mel_alloc((arr)->allocator, new_size);                                                       \
+                (arr)->items = (__typeof__((arr)->items))mel_alloc((arr)->allocator, new_size);                                                       \
             }                                                                                                               \
             else                                                                                                            \
             {                                                                                                               \
-                (arr)->items = mel_realloc((arr)->allocator, (arr)->items, new_size);                                       \
+                (arr)->items = (__typeof__((arr)->items))mel_realloc((arr)->allocator, (arr)->items, new_size);                                       \
             }                                                                                                               \
             (arr)->capacity = new_cap;                                                                                      \
         }                                                                                                                   \

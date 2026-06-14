@@ -16,6 +16,11 @@ struct Mel_Pattern
     Mel_Index_Array   diffs;
 };
 
+#ifdef __cplusplus
+extern "C"
+{
+#endif
+
 void               mel_pattern_free(Mel_Pattern* p);
 static inline void mel_pattern_cleanup(Mel_Pattern* p) { mel_pattern_free(p); }
 #define Mel_Pattern_AUTO MEL_CLEANUP(mel_pattern_cleanup) Mel_Pattern
@@ -47,3 +52,9 @@ MEL_NODISCARD Mel_Pattern mel_pattern_repeat(const Mel_Alloc* alloc, const Mel_P
 MEL_NODISCARD Mel_Pattern mel_pattern_retrograde(const Mel_Alloc* alloc, const Mel_Pattern* p);
 
 MEL_NODISCARD Mel_Scale mel_pattern_to_scale(const Mel_Alloc* alloc, const Mel_Pattern* p, Mel_Pitch root);
+
+MEL_NODISCARD i32 mel_pattern_pitches(const Mel_Pattern* p, Mel_Pitch root, Mel_Pitch* out, i32 cap);
+
+#ifdef __cplusplus
+}
+#endif

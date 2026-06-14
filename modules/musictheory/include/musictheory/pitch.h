@@ -12,6 +12,11 @@ struct Mel_Pitch
     i64               index;
 };
 
+#ifdef __cplusplus
+extern "C"
+{
+#endif
+
 MEL_NODISCARD Mel_Pitch mel_pitch_make(const Mel_Tuning* tuning, i64 index);
 
 MEL_NODISCARD Mel_Hz mel_pitch_frequency(Mel_Pitch p);
@@ -33,6 +38,10 @@ MEL_NODISCARD i64 mel_pitch_generator_distance(Mel_Pitch pitch, Mel_Pitch genera
 
 MEL_NODISCARD u8 mel_pitch_eq(Mel_Pitch a, Mel_Pitch b);
 MEL_NODISCARD u8 mel_pitch_cmp(Mel_Pitch a, Mel_Pitch b);
+
+#ifdef __cplusplus
+}
+#endif
 
 MEL_NODISCARD static inline int mel_pitch_cmp_int(Mel_Pitch a, Mel_Pitch b)
 {

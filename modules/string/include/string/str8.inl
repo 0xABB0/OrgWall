@@ -29,7 +29,7 @@ static inline MEL_OVERLOADABLE bool str8_clone_cstr(str8* str, const char* s, Me
 
 static inline MEL_OVERLOADABLE bool str8_clone_cstr(str8* str, const char* s, usize len, Mel_Alloc* alloc) {
     if (str == NULL) return false;
-    u8* data = mel_alloc(alloc, len + 1);
+    u8* data = (u8*)mel_alloc(alloc, len + 1);
     if (data == NULL) return false;
     memcpy(data, s, len);
     data[len] = '\0';

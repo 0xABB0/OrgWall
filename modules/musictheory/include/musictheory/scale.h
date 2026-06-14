@@ -19,6 +19,11 @@ struct Mel_Scale
     Mel_Index_Array   indices;
 };
 
+#ifdef __cplusplus
+extern "C"
+{
+#endif
+
 void               mel_scale_free(Mel_Scale* s);
 static inline void mel_scale_cleanup(Mel_Scale* s) { mel_scale_free(s); }
 #define Mel_Scale_AUTO MEL_CLEANUP(mel_scale_cleanup) Mel_Scale
@@ -67,3 +72,10 @@ MEL_NODISCARD Mel_Scale mel_scale_pcs_complement(const Mel_Alloc* alloc, const M
 MEL_NODISCARD Mel_Scale mel_scale_rotated_up(const Mel_Alloc* alloc, const Mel_Scale* s);
 MEL_NODISCARD Mel_Scale mel_scale_rotated_down(const Mel_Alloc* alloc, const Mel_Scale* s);
 MEL_NODISCARD Mel_Scale mel_scale_rotation(const Mel_Alloc* alloc, const Mel_Scale* s, i32 order);
+
+MEL_NODISCARD i32 mel_scale_pitches(const Mel_Scale* s, Mel_Pitch* out, i32 cap);
+MEL_NODISCARD i32 mel_scale_stream(const Mel_Scale* s, i64 from_index, Mel_Pitch* out, i32 count);
+
+#ifdef __cplusplus
+}
+#endif
