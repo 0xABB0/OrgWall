@@ -111,3 +111,46 @@ is wrong. Findings:
   link). Track it as engine work, not A2.
 - Consider a `mel_ios_app` macro to dedupe the plist/target boilerplate before more iOS apps
   land.
+
+## Addendum — same session, continued: midi iOS (done) + slang iOS D2 (findings)
+
+### midi on iOS — DONE, music-companion green (14/16)
+
+The macos midi backend (`modules/midi/macos/src/midi_port_macos.c`) is pure CoreMIDI +
+`mach_time`, no AppKit — and CoreMIDI is shared across Apple platforms. The only blocker was
+the `#if !MEL_PLATFORM_OSX #error` guard. Relaxed to `!MEL_PLATFORM_APPLE`; added a `plat_ios`
+arm to `modules/midi/BUILD.bazel` reusing `macos/src` + CoreMIDI/CoreFoundation linkopts
+(mirrors gpu's `metal/src/macos` serving iOS — an established repo idiom). `music-companion_ios`
+verified on `sim_arm64`: build → install → launch → renders (midi enumerate honestly returns 0
+sources in the sim). macOS midi byte-identical. Committed.
+
+### slang on iOS (ballgame, hello-gpu) — ATTEMPTED, REVERTED, fully scoped for next session
+
+Confirmed the link path works and pinned the exact remaining blocker, then reverted (would have
+shipped crash-on-launch apps). What was learned/built (reproduce next session):
+
+1. **The ios-sim slang artifact already exists** — `tools/build/vendor/slang/slang-2026.10.2-
+   ios-sim-aarch64.zip` (`lib/libslang-compiler.dylib` unversioned + `include/slang.h`).
+2. **A portable in-repo-zip consumer is needed** (no upstream URL; `file://` is non-portable).
+   Designed a `vendored_archive` repo rule (extract via Label, write BUILD via Label) +
+   `exports_files` in `tools/build/vendor/slang/`. This same rule wires android/wasm slang too.
+3. With `slang_ios` wired into the `//third-party/slang:slang-runtime` select (`plat_ios`) and
+   `-lc++` added for ios, **`ballgame_ios`/`hello-gpu_ios` COMPILE + LINK clean** (`compile.cpp`
+   finds slang.h, binary links `@rpath/libslang-compiler.dylib`, rpath `@executable_path/
+   Frameworks`).
+4. **But they crash at launch** — the dylib is NOT embedded in the `.ipa` (no `Frameworks/`).
+   Root cause pinned: rules_apple 4.5.3's `cc_info_dylibs_partial` (which bundles bare CcInfo
+   `.dylib`s into `Frameworks/`) is wired into `apple/internal/macos_rules.bzl` (line ~334)
+   **only — not `ios_rules.bzl`**. macOS auto-embeds; iOS does not.
+5. **The D2 path** (next session): repackage `libslang-compiler.dylib` into a `slang.framework`
+   (genrule + `install_name_tool -id @rpath/slang.framework/slang`), wrap with
+   `apple_dynamic_framework_import`, and attach it **at the `ios_application` level** — because
+   `AppleFrameworkImportInfo` does NOT propagate through `cc_library` deps, so it can't ride the
+   `gpu`→`slang` cc graph. Split: a headers-only `slang_ios` cc_library (for `<slang.h>` on the
+   compile path) + the framework import (for link + embed). Verify by running a GPU app in the
+   sim (Metal works in the Apple-Silicon simulator) and confirming shader compile + render.
+
+### iOS column status after this session
+
+14/16 GUI apps build + run on `sim_arm64`. Remaining: ballgame, hello-gpu (slang D2 above).
+hello-window builds+launches blank (desktop windowing stubbed on mobile, by design).
