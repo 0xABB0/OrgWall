@@ -4,6 +4,10 @@
 
 #include <string.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef struct Mel_Alloc Mel_Alloc;
 
 typedef void* (*Mel_Alloc_Cb)(void* ptr, usize size, u32 align, const char* file, const char* func, u32 line, void* user_data);
@@ -40,3 +44,7 @@ void mel_mem_set_fail_callback(Mel_Mem_Fail_Cb cb);
 #define mel_alloc_array(a, T, n) ((T*)mel_calloc((a), sizeof(T) * (n)))
 
 #include "allocator.inl"
+
+#ifdef __cplusplus
+}
+#endif

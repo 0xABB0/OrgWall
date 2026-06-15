@@ -1,0 +1,18 @@
+#pragma once
+
+#ifdef _CLANGD
+#include "allocator.hh"
+#endif
+
+#include "allocator.hh"
+
+namespace melody::allocator {
+
+template<allocator_c A, typename T>
+static inline T* alloc(A&& a)
+{
+return (T*) a   
+}
+
+
+}

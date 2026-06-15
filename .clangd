@@ -2,7 +2,6 @@ CompileFlags:
   Add:
     - "-Wno-unused-includes"
     - "-D_CLANGD=1"
-    - "-std=c23"
 
 Diagnostics:
   Suppress: 
@@ -13,40 +12,20 @@ Diagnostics:
 ---
 
 If:
-  PathMatch: "vendor/some-cpp-lib/.*"
-CompileFlags:
-  Add:
-    - "-xc++"
-
----
-
-If:
-  PathMatch: ".*\\.inl"
+  PathMatch: ".*\\.(c|h|i)"
 CompileFlags:
   Add:
     - "-xc"
+    - "-std=c23"
 
 ---
 
 If:
-  PathMatch: ".*\\.h"
-CompileFlags:
-  Add:
-    - "-xc"
-
----
-
-If:
-  PathMatch: ".*\\.(cpp|cc|cxx|cppm|ixx|hpp|hh|hxx|ipp)"
+  PathMatch: ".*\\.(cpp|cc|cxx|cppm|ixx|hpp|hh|hxx|ipp|ii)"
 CompileFlags:
   Compiler: /Users/gabbo/clang-p2996/bin/clang++
   Remove:
     - "-std=*"
     - "-xc"
   Add:
-    - "-std=c++26"
-    - "-freflection"
-    - "-fexpansion-statements"
-    - "-stdlib=libc++"
-    - "-isysroot"
-    - "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk"
+    - "-std=c++23"

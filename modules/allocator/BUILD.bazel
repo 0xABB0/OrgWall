@@ -9,6 +9,14 @@ cc_library(
     deps = ["//modules/core"],
 )
 
+cc_library(
+    name = "allocator_cpp",
+    hdrs = glob(["include/**/*.hh"]),
+    textual_hdrs = glob(["include/**/*.ii"]),
+    includes = ["include"],
+    deps = ["//modules/core", ":allocator"],
+)
+
 cc_test(
     name = "allocator-tracking",
     srcs = ["test/test.tracking.c"],
