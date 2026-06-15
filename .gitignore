@@ -87,3 +87,4 @@ captures/
 /bazel-*
 /external
 /MODULE.bazel.lock
+/.dir-locals.el
