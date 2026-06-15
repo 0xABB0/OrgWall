@@ -87,12 +87,8 @@ cc_library(
     hdrs = glob(["include/**/*.h", "vulkan/include/**/*.h"]),
     includes = ["include", "vulkan/include"],
     local_defines = ["MEL_GPU_VULKAN=1"],
-    copts = select({
-        "//bazel/config:plat_macos": ["-I/opt/homebrew/include"],
-        "//conditions:default": [],
-    }),
     linkopts = select({
-        "//bazel/config:plat_macos": ["-lvulkan", "-L/opt/homebrew/lib", "-framework", "QuartzCore", "-framework", "Foundation"],
+        "//bazel/config:plat_macos": ["-framework", "QuartzCore", "-framework", "Foundation"],
         "//bazel/config:plat_android": ["-lvulkan", "-landroid"],
         "//bazel/config:plat_linux": ["-lvulkan"],
         "//bazel/config:plat_win32": ["-lvulkan-1"],
@@ -100,7 +96,7 @@ cc_library(
     }),
     deps = COMMON + select({
         "//bazel/config:plat_linux": ["//third-party/vulkan-headers", "//third-party/vulkan-loader-stub"],
-        "//bazel/config:plat_macos": [":gpu_vulkan_apple"],
+        "//bazel/config:plat_macos": ["//third-party/vulkan-headers", "@vulkan_macos//:loader", ":gpu_vulkan_apple"],
         "//conditions:default": [],
     }),
     target_compatible_with = select({
@@ -113,7 +109,7 @@ objc_library(
     name = "gpu_vulkan_apple",
     srcs = glob(["vulkan/src/macos/*.m", "vulkan/src/*.h", "include/**/*.h", "vulkan/include/**/*.h"]),
     includes = ["include", "vulkan/include"],
-    deps = COMMON,
+    deps = COMMON + ["//third-party/vulkan-headers"],
     target_compatible_with = select({
         ":vulkan_macos": [],
         "//conditions:default": ["@platforms//:incompatible"],

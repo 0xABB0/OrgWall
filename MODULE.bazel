@@ -118,10 +118,19 @@ http_archive(
     url = "https://github.com/shader-slang/slang/releases/download/v2026.10.2/slang-2026.10.2-windows-x86_64.zip",
 )
 
+# macOS Vulkan loader (MoltenVK): location discovered from $VULKAN_SDK or
+# `brew --prefix`, never hardcoded. Fetched lazily — only a macOS Vulkan build
+# references @vulkan_macos//:loader, so non-macOS/non-Vulkan builds never run brew.
+vulkan_repo = use_repo_rule("//bazel/extensions:vulkan.bzl", "vulkan_sysroot")
+
+vulkan_repo(name = "vulkan_macos")
+
 # compile_commands.json for clangd (replaces nob's compdb).
 http_archive(
     name = "hedron_compile_commands",
     sha256 = "1b08abffbfbe89f6dbee6a5b33753792e8004f6a36f37c0f72115bec86e68724",
     strip_prefix = "bazel-compile-commands-extractor-abb61a688167623088f8768cc9264798df6a9d10",
     url = "https://github.com/hedronvision/bazel-compile-commands-extractor/archive/abb61a688167623088f8768cc9264798df6a9d10.tar.gz",
+    patch_args = ["-p1"],
+    patches = ["//bazel/patches:hedron_apple_sdkroot.patch"],
 )

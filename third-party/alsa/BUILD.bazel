@@ -1,11 +1,32 @@
 package(default_visibility = ["//visibility:public"])
 
+# Bazel derives a clean `-lasound` only from an unversioned `libasound.so`; the
+# vendored file is `libasound.so.2.0.0` (an unversioned source symlink would be
+# eaten by .gitignore's `*.so`). Materialize the unversioned name as a build
+# output so the link emits `-lasound` (which the zig linker resolves) rather than
+# `-l:libasound.so.2.0.0` (which it does not). DT_SONAME stays libasound.so.2.
+genrule(
+    name = "libasound_unversioned",
+    srcs = ["lib/libasound.so.2.0.0"],
+    outs = ["libasound.so"],
+    cmd = "cp $< $@",
+)
+
+cc_import(
+    name = "libasound",
+    shared_library = ":libasound_unversioned",
+)
+
 cc_library(
     name = "alsa",
     hdrs = glob(["include/**/*.h"]),
     includes = ["include"],
     linkopts = select({
-        "//bazel/config:plat_linux": ["-Lthird-party/alsa/lib", "-lasound", "-Wl,--allow-shlib-undefined"],
+        "//bazel/config:plat_linux": ["-Wl,--allow-shlib-undefined"],
+        "//conditions:default": [],
+    }),
+    deps = select({
+        "//bazel/config:plat_linux": [":libasound"],
         "//conditions:default": [],
     }),
 )

@@ -1,0 +1,9 @@
+--- a/refresh.template.py
++++ b/refresh.template.py
+@@ -729,5 +729,5 @@
+         stderr=subprocess.DEVNULL,
+         encoding=locale.getpreferredencoding()
+     ).rstrip()
+-    return SDKROOT_maybe_versioned.replace(version, '') # Strip version and use unversioned SDK symlink so the compile commands are still valid after an SDK update.
++    return re.sub(re.escape(version) + r'(?=\.sdk$)', '', SDKROOT_maybe_versioned) # Strip version (only the trailing SDK basename) and use the unversioned SDK symlink so compile commands stay valid after an SDK update. Anchored to '.sdk' so a versioned Xcode bundle name (e.g. /Applications/Xcode-26.0.0.app) is not also corrupted.
+     # Traditionally stored in SDKROOT environment variable, but not provided by Bazel. See https://github.com/bazelbuild/bazel/issues/12852

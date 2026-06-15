@@ -2,10 +2,6 @@ load("@bazel_skylib//rules:common_settings.bzl", "string_flag")
 
 package(default_visibility = ["//visibility:public"])
 
-# GPU backend is the one genuinely free axis: metal/vulkan/webgpu can each be
-# chosen within a single platform, so it stays a user-set build setting. Every
-# other axis below is derived from the resolved target platform — one source of
-# truth that also drives toolchain resolution.
 string_flag(
     name = "gpu",
     build_setting_default = "metal",
@@ -35,9 +31,6 @@ config_setting(
     constraint_values = ["@platforms//cpu:wasm32"],
 )
 
-# UI backend is currently a pure function of platform; derive it rather than
-# carry a redundant flag. Promote to a string_flag the day a platform offers a
-# choice of backend (as gpu does).
 _BACKEND_OS = {
     "cocoa": "@platforms//os:osx",
     "uikit": "@platforms//os:ios",

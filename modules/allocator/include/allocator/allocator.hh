@@ -42,6 +42,9 @@ concept deallocator_aligned_c = requires(DA d, void* p, size_t alignment) {
 template<allocator_c A, typename T>
 static inline T* alloc(A a);
 
+template<allocator_c A, typename T>
+static inline T* calloc(A a);
+
 }
 
 #include <allocator/allocator.ii>

@@ -11,7 +11,7 @@ namespace melody::allocator {
 template<allocator_c A, typename T>
 static inline T* alloc(A&& a)
 {
-return (T*) a   
+return (T*) a;
 }
 
 
