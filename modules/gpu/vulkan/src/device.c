@@ -147,7 +147,7 @@ Mel_Gpu_Device_Create_Result mel_gpu_device_create_opt(Mel_Gpu_Instance* inst, M
     {
         VkPhysicalDeviceSynchronization2FeaturesKHR probe = { .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES_KHR };
         VkPhysicalDeviceFeatures2                   q = { .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, .pNext = &probe };
-        vkGetPhysicalDeviceFeatures2(adapter->phys, &q);
+        inst->get_physical_device_features2(adapter->phys, &q);
         has_sync2 = probe.synchronization2 != 0;
     }
     if (has_sync2)
@@ -227,6 +227,8 @@ Mel_Gpu_Device_Create_Result mel_gpu_device_create_opt(Mel_Gpu_Instance* inst, M
     dev->graphics_family = gfx;
     dev->has_memory_budget = has_budget;
     dev->bda_enabled = opt.features.buffer_device_address;
+    if (dev->bda_enabled)
+        dev->get_buffer_device_address = (PFN_vkGetBufferDeviceAddress)vkGetDeviceProcAddr(vk, "vkGetBufferDeviceAddress");
     vkGetDeviceQueue(vk, gfx, 0, &dev->graphics_queue);
     vkGetPhysicalDeviceMemoryProperties(adapter->phys, &dev->mem_props);
 

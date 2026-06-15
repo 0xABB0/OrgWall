@@ -285,6 +285,11 @@ u64 mel_gpu_buffer_device_address(Mel_Gpu_Device* dev, Mel_Gpu_Buffer buf)
         mel_log_error("gpu", "buffer_device_address: device was not created with buffer_device_address");
         return 0;
     }
+    if (!dev->get_buffer_device_address)
+    {
+        mel_log_error("gpu", "buffer_device_address: vkGetBufferDeviceAddress entrypoint unavailable");
+        return 0;
+    }
     Mel_Gpu_Buffer_Obj o;
     if (!mel_gpu__table_get_copy(dev, &dev->buffers, buf.slot, &o))
     {
@@ -292,5 +297,5 @@ u64 mel_gpu_buffer_device_address(Mel_Gpu_Device* dev, Mel_Gpu_Buffer buf)
         return 0;
     }
     VkBufferDeviceAddressInfo info = { .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO, .buffer = o.buf };
-    return (u64)vkGetBufferDeviceAddress(dev->vk, &info);
+    return (u64)dev->get_buffer_device_address(dev->vk, &info);
 }

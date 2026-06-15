@@ -43,6 +43,10 @@ struct Mel_Gpu_Instance
     Mel_Gpu_Adapter*         adapters;
     u32                      adapter_count;
     bool                     portability;
+
+    PFN_vkGetPhysicalDeviceProperties2       get_physical_device_properties2;
+    PFN_vkGetPhysicalDeviceFeatures2         get_physical_device_features2;
+    PFN_vkGetPhysicalDeviceMemoryProperties2 get_physical_device_memory_properties2;
 };
 
 struct Mel_Gpu_Adapter
@@ -396,6 +400,8 @@ struct Mel_Gpu_Device
 
     bool                         sync2;
     PFN_vkCmdPipelineBarrier2KHR cmd_pipeline_barrier2;
+
+    PFN_vkGetBufferDeviceAddress get_buffer_device_address;
 };
 
 struct Mel_Gpu_Surface
@@ -470,7 +476,7 @@ struct Mel_Gpu_Swapchain
 };
 
 const char* mel_gpu__vk_result_str(VkResult r);
-void        mel_gpu__caps_probe(VkPhysicalDevice phys, Mel_Gpu_Caps* out);
+void        mel_gpu__caps_probe(Mel_Gpu_Instance* inst, VkPhysicalDevice phys, Mel_Gpu_Caps* out);
 
 VkDebugUtilsMessengerCreateInfoEXT mel_gpu__debug_messenger_info(void);
 void                               mel_gpu__debug_messenger_create(VkInstance instance, VkDebugUtilsMessengerEXT* out);

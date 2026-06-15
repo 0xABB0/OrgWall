@@ -136,6 +136,17 @@ Mel_Gpu_Instance* mel_gpu_instance_create_opt(Mel_Gpu_Instance_Opt opt)
     inst->portability = portability;
     inst->messenger = VK_NULL_HANDLE;
 
+    inst->get_physical_device_properties2 = (PFN_vkGetPhysicalDeviceProperties2)vkGetInstanceProcAddr(vk, "vkGetPhysicalDeviceProperties2");
+    inst->get_physical_device_features2 = (PFN_vkGetPhysicalDeviceFeatures2)vkGetInstanceProcAddr(vk, "vkGetPhysicalDeviceFeatures2");
+    inst->get_physical_device_memory_properties2 = (PFN_vkGetPhysicalDeviceMemoryProperties2)vkGetInstanceProcAddr(vk, "vkGetPhysicalDeviceMemoryProperties2");
+    if (!inst->get_physical_device_properties2 || !inst->get_physical_device_features2 || !inst->get_physical_device_memory_properties2)
+    {
+        mel_log_error("gpu", "vulkan loader does not provide the core 1.1 physical-device query entrypoints");
+        vkDestroyInstance(vk, NULL);
+        mel_dealloc(alloc, inst);
+        return NULL;
+    }
+
     if (have_debug_utils)
         mel_gpu__debug_messenger_create(vk, &inst->messenger);
 
@@ -158,7 +169,7 @@ Mel_Gpu_Instance* mel_gpu_instance_create_opt(Mel_Gpu_Instance_Opt opt)
     {
         inst->adapters[i].instance = inst;
         inst->adapters[i].phys = physs[i];
-        mel_gpu__caps_probe(physs[i], &inst->adapters[i].caps);
+        mel_gpu__caps_probe(inst, physs[i], &inst->adapters[i].caps);
         inst->adapters[i].caps.debug.validation_available = have_validation;
     }
     mel_dealloc(alloc, physs);

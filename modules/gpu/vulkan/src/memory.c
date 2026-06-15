@@ -220,7 +220,7 @@ Mel_Gpu_Memory_Budget mel_gpu_memory_budget(Mel_Gpu_Device* dev)
     {
         VkPhysicalDeviceMemoryBudgetPropertiesEXT bp = { .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_BUDGET_PROPERTIES_EXT };
         VkPhysicalDeviceMemoryProperties2         mp = { .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_PROPERTIES_2, .pNext = &bp };
-        vkGetPhysicalDeviceMemoryProperties2(dev->phys, &mp);
+        dev->instance->get_physical_device_memory_properties2(dev->phys, &mp);
         for (u32 i = 0; i < mp.memoryProperties.memoryHeapCount; i++)
         {
             if (mp.memoryProperties.memoryHeaps[i].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT)

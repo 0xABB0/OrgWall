@@ -42,14 +42,14 @@ static Mel_Gpu_Adapter_Type mel_gpu__adapter_type(VkPhysicalDeviceType t)
     }
 }
 
-void mel_gpu__caps_probe(VkPhysicalDevice phys, Mel_Gpu_Caps* out)
+void mel_gpu__caps_probe(Mel_Gpu_Instance* inst, VkPhysicalDevice phys, Mel_Gpu_Caps* out)
 {
     *out = (Mel_Gpu_Caps){ 0 };
 
     VkPhysicalDeviceVulkan11Properties props11 = { .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_PROPERTIES };
     VkPhysicalDeviceSubgroupProperties subgroup = { .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES, .pNext = &props11 };
     VkPhysicalDeviceProperties2        props2 = { .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, .pNext = &subgroup };
-    vkGetPhysicalDeviceProperties2(phys, &props2);
+    inst->get_physical_device_properties2(phys, &props2);
 
     VkPhysicalDeviceProperties* p = &props2.properties;
 
@@ -67,7 +67,7 @@ void mel_gpu__caps_probe(VkPhysicalDevice phys, Mel_Gpu_Caps* out)
     VkPhysicalDeviceDescriptorIndexingFeatures di = { .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES, .pNext = &sdp };
     VkPhysicalDeviceVulkan12Features feat12 = { .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES, .pNext = &di };
     VkPhysicalDeviceFeatures2        feat2 = { .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, .pNext = &feat12 };
-    vkGetPhysicalDeviceFeatures2(phys, &feat2);
+    inst->get_physical_device_features2(phys, &feat2);
 
     out->shader.int16 = feat2.features.shaderInt16;
     out->shader.int64 = feat2.features.shaderInt64;
@@ -145,7 +145,7 @@ void mel_gpu__caps_probe(VkPhysicalDevice phys, Mel_Gpu_Caps* out)
     {
         VkPhysicalDeviceDescriptorIndexingProperties dip = { .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_PROPERTIES };
         VkPhysicalDeviceProperties2 dprops = { .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, .pNext = &dip };
-        vkGetPhysicalDeviceProperties2(phys, &dprops);
+        inst->get_physical_device_properties2(phys, &dprops);
         u32 share = dip.maxPerStageUpdateAfterBindResources / 4;
         out->memory.bindless.max_texture_view_slots = dip.maxPerStageDescriptorUpdateAfterBindSampledImages < share ? dip.maxPerStageDescriptorUpdateAfterBindSampledImages : share;
         out->memory.bindless.max_sampler_slots = dip.maxPerStageDescriptorUpdateAfterBindSamplers;
