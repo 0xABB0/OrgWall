@@ -1,7 +1,0 @@
-package(default_visibility = ["//visibility:public"])
-
-exports_files([
-    "slang-2026.10.2-ios-sim-aarch64.zip",
-    "slang-2026.10.2-android-aarch64.zip",
-    "slang-2026.10.2-wasm-mt.zip",
-])
