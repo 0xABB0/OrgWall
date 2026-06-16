@@ -13,6 +13,7 @@ cc_library(
     includes = ["include"],
     linkopts = select({
         "//bazel/config:plat_macos": ["-framework", "Cocoa", "-framework", "CoreVideo"],
+        "//bazel/config:plat_win32": ["user32.lib"],
         "//conditions:default": [],
     }),
     deps = [

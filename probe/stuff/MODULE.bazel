@@ -1,0 +1,17 @@
+module(
+    name = "modern_win32_ui",
+    version = "1.0.0",
+)
+
+bazel_dep(name = "rules_cc", version = "0.2.19")
+bazel_dep(name = "stdexec", version = "0.0.0-20260427-35670665")
+
+bazel_dep(name = "hedron_compile_commands", dev_dependency = True)
+git_override(
+    module_name = "hedron_compile_commands",
+    remote = "https://github.com/helly25/bazel-compile-commands-extractor.git",
+    commit = "75ba4c31d3b74fa5fb57c7508220571d4e52f828",
+    # Replace the commit hash with the latest from
+    # https://github.com/helly25/bazel-compile-commands-extractor/commits/main
+    # (or set up Renovate; see below).
+)

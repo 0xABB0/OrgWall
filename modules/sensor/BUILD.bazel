@@ -28,7 +28,7 @@ cc_library(
     linkopts = select({
         "//bazel/config:plat_macos": ["-framework", "Foundation"],
         "//bazel/config:plat_ios": ["-framework", "CoreMotion", "-framework", "Foundation"],
-        "//bazel/config:plat_win32": ["-lsensorsapi", "-lpropsys", "-lole32"],
+        "//bazel/config:plat_win32": ["sensorsapi.lib", "propsys.lib", "ole32.lib"],
         "//conditions:default": [],
     }),
     deps = DEPS + select({

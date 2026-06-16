@@ -22,7 +22,7 @@ cc_library(
     includes = ["include"],
     linkopts = select({
         "//bazel/config:plat_macos": ["-framework", "AppKit", "-framework", "Foundation"],
-        "//bazel/config:plat_win32": ["-ldbghelp"],
+        "//bazel/config:plat_win32": ["dbghelp.lib"],
         "//conditions:default": [],
     }),
     deps = DEPS + select({

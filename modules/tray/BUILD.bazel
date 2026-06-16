@@ -29,7 +29,7 @@ cc_library(
     }),
     linkopts = select({
         "//bazel/config:plat_macos": ["-framework", "AppKit", "-framework", "Foundation"],
-        "//bazel/config:plat_win32": ["-lshell32", "-luser32", "-lgdi32"],
+        "//bazel/config:plat_win32": ["shell32.lib", "user32.lib", "gdi32.lib"],
         "//bazel/config:plat_linux": ["-ldl"],
         "//conditions:default": [],
     }),

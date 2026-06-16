@@ -115,11 +115,11 @@ mel_win32_resources = rule(
         "_llvm_rc": attr.label(
             allow_single_file = True,
             cfg = "exec",
-            default = Label("@llvm_toolchain_llvm//:bin/llvm-rc"),
+            default = Label("@mel_win32_rc//:llvm-rc"),
         ),
         "_llvm_rc_files": attr.label(
             cfg = "exec",
-            default = Label("@llvm_toolchain_llvm//:bin"),
+            default = Label("@mel_win32_rc//:bin"),
         ),
         "_cc_toolchain": attr.label(default = Label("@bazel_tools//tools/cpp:current_cc_toolchain")),
     },

@@ -29,7 +29,7 @@ cc_library(
     linkopts = select({
         "//bazel/config:plat_macos": ["-framework", "CoreLocation", "-framework", "Foundation"],
         "//bazel/config:plat_ios": ["-framework", "CoreLocation", "-framework", "Foundation"],
-        "//bazel/config:plat_win32": ["-lwindowsapp", "-lole32"],
+        "//bazel/config:plat_win32": ["windowsapp.lib", "ole32.lib"],
         "//bazel/config:plat_linux": ["-ldl"],
         "//conditions:default": [],
     }),

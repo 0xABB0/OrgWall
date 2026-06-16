@@ -25,7 +25,7 @@ cc_library(
     linkopts = select({
         "//bazel/config:plat_macos": ["-framework", "AppKit", "-framework", "Foundation"],
         "//bazel/config:plat_ios": ["-framework", "UIKit", "-framework", "Foundation"],
-        "//bazel/config:plat_win32": ["-lcomctl32"],
+        "//bazel/config:plat_win32": ["comctl32.lib"],
         "//bazel/config:plat_linux": ["-ldl"],
         "//conditions:default": [],
     }),

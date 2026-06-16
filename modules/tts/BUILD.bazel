@@ -25,7 +25,7 @@ cc_library(
     linkopts = select({
         "//bazel/config:plat_macos": ["-framework", "AVFoundation", "-framework", "Foundation"],
         "//bazel/config:plat_ios": ["-framework", "AVFoundation", "-framework", "Foundation"],
-        "//bazel/config:plat_win32": ["-lole32", "-lsapi"],
+        "//bazel/config:plat_win32": ["ole32.lib", "sapi.lib"],
         "//bazel/config:plat_android": ["-landroid", "-llog"],
         "//conditions:default": [],
     }),

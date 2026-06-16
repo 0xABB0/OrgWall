@@ -14,7 +14,7 @@ cc_library(
     hdrs = glob(["include/**/*.h"]),
     includes = ["include"],
     linkopts = select({
-        "//bazel/config:plat_win32": ["-ladvapi32"],
+        "//bazel/config:plat_win32": ["advapi32.lib"],
         "//conditions:default": [],
     }),
     deps = [

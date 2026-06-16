@@ -45,6 +45,31 @@ build:wasm --config=gnustd
 build:wasm --platforms=//bazel/platforms:wasm
 build:wasm --//bazel/config:gpu=webgpu
 
+# Native Windows build (Bazel runs ON Windows). The hermetic win32 toolchain
+# (toolchains_llvm + xwin) is cross-only: toolchains_llvm refuses to populate on a
+# Windows host (repo.bzl: `if os == "windows": empty BUILD`), so @llvm_toolchain_llvm
+# is empty and @xwin's splat shells out to unix `mv`. The native build instead uses
+# Bazel's own autodetected clang-cl toolchain driving the locally installed LLVM
+# (BAZEL_LLVM) + the installed Windows SDK/MSVC CRT. --extra_toolchains outranks the
+# root-module custom cross toolchain, so it is selected here without unregistering it
+# (the macOS cross path keeps using the custom toolchain). Same /clang:-std=c23 and
+# /std:c++23 as win32.
+build:win32native --platforms=//bazel/platforms:win32
+build:win32native --//bazel/config:gpu=vulkan
+build:win32native --//bazel/config:win32_native_host=True
+build:win32native --conlyopt=/clang:-std=c23
+build:win32native --cxxopt=/std:c++23
+# Target a Windows 10 RS1 API baseline. Undefined, the SDK's sdkddkver.h defaults
+# _WIN32_WINNT/NTDDI_VERSION too low and hides modern entry points the win32 backends
+# call (GetDpiForWindow, GetSystemTimePreciseAsFileTime, ...). This is an API-visibility
+# baseline only — no runtime DPI/theming behavior is implied.
+build:win32native --copt=/D_WIN32_WINNT=0x0A00
+build:win32native --copt=/DWINVER=0x0A00
+build:win32native --copt=/DNTDDI_VERSION=0x0A000001
+build:win32native --repo_env=BAZEL_LLVM=C:/PROGRA~1/LLVM
+build:win32native --extra_execution_platforms=//bazel/platforms:win32_clang_cl_host
+build:win32native --extra_toolchains=@@rules_cc++cc_configure_extension+local_config_cc//:cc-toolchain-x64_windows-clang-cl
+
 # debug/release ride Bazel's native compilation mode: -c dbg keeps asserts (NDEBUG
 # unset, per MEL-ENGINE-VIII), -c opt strips them. Debug is the default.
 build:debug -c dbg

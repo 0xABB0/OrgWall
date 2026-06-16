@@ -15,7 +15,7 @@ cc_library(
     textual_hdrs = glob(["include/**/*.inl"]),
     includes = ["include"],
     linkopts = select({
-        "//bazel/config:plat_win32": ["-lbcrypt"],
+        "//bazel/config:plat_win32": ["bcrypt.lib"],
         "//conditions:default": [],
     }),
     deps = [

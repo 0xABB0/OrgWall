@@ -46,7 +46,7 @@ cc_library(
         "//bazel/config:plat_ios": ["-framework", "UIKit", "-framework", "QuartzCore", "-framework", "CoreGraphics"],
         "//conditions:default": [],
     }) + select({
-        "//bazel/config:plat_win32": ["-lcomctl32", "-lgdi32"],
+        "//bazel/config:plat_win32": ["comctl32.lib", "gdi32.lib"],
         "//conditions:default": [],
     }) + select({
         "//bazel/config:plat_android": ["-landroid"],

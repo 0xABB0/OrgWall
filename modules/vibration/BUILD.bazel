@@ -31,7 +31,7 @@ cc_library(
     linkopts = select({
         "//bazel/config:plat_macos": ["-framework", "CoreHaptics", "-framework", "Foundation"],
         "//bazel/config:plat_ios": ["-framework", "CoreHaptics", "-framework", "Foundation"],
-        "//bazel/config:plat_win32": ["-ldinput8", "-ldxguid", "-lole32"],
+        "//bazel/config:plat_win32": ["dinput8.lib", "dxguid.lib", "ole32.lib"],
         "//conditions:default": [],
     }),
     deps = DEPS + select({

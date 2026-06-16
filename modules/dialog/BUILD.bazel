@@ -30,7 +30,7 @@ cc_library(
     linkopts = select({
         "//bazel/config:plat_macos": ["-framework", "AppKit", "-framework", "Foundation", "-framework", "UniformTypeIdentifiers"],
         "//bazel/config:plat_ios": ["-framework", "UIKit", "-framework", "Foundation", "-framework", "UniformTypeIdentifiers"],
-        "//bazel/config:plat_win32": ["-lole32", "-loleaut32", "-lshell32", "-luuid"],
+        "//bazel/config:plat_win32": ["ole32.lib", "oleaut32.lib", "shell32.lib", "uuid.lib"],
         "//bazel/config:plat_linux": ["-ldbus-1", "-ldl"],
         "//conditions:default": [],
     }),

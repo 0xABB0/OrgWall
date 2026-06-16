@@ -34,7 +34,7 @@ cc_library(
     linkopts = select({
         "//bazel/config:plat_macos": ["-framework", "CoreAudio", "-framework", "AudioToolbox", "-framework", "CoreFoundation"],
         "//bazel/config:plat_ios": ["-framework", "AVFoundation", "-framework", "Foundation"],
-        "//bazel/config:plat_win32": ["-lole32", "-lksuser"],
+        "//bazel/config:plat_win32": ["ole32.lib", "ksuser.lib"],
         "//bazel/config:plat_android": ["-laaudio", "-llog"],
         "//bazel/config:plat_wasm": ["-sAUDIO_WORKLET=1", "-sWASM_WORKERS=1"],
         "//conditions:default": [],

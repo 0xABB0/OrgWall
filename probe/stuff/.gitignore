@@ -1,0 +1,14 @@
+# Bazel
+/bazel-*
+MODULE.bazel.lock
+
+# Hedron compile-commands extractor output
+/compile_commands.json
+/external
+/.cache
+
+# Stray local build artifacts
+*.obj
+*.exe
+*.exe.manifest
+screenshot.png

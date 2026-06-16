@@ -1,6 +1,19 @@
-load("@bazel_skylib//rules:common_settings.bzl", "string_flag")
+load("@bazel_skylib//rules:common_settings.bzl", "bool_flag", "string_flag")
 
 package(default_visibility = ["//visibility:public"])
+
+# True only for the native Windows build (--config=win32native). Distinguishes it
+# from the macOS->win32 cross build, which shares the win32 target platform. Used to
+# route gmp/mpfr to the host-native autotools build instead of rules_foreign_cc.
+bool_flag(
+    name = "win32_native_host",
+    build_setting_default = False,
+)
+
+config_setting(
+    name = "native_win32",
+    flag_values = {":win32_native_host": "True"},
+)
 
 string_flag(
     name = "gpu",

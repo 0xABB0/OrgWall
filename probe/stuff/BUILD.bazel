@@ -1,0 +1,74 @@
+load("@hedron_compile_commands//:refresh_compile_commands.bzl", "refresh_compile_commands")
+load("@rules_cc//cc:defs.bzl", "cc_binary")
+
+refresh_compile_commands(
+    name = "refresh_compile_commands",
+    targets = {
+        "//:ModernUI": "",
+        "//:test": "",
+    },
+)
+
+cc_binary(
+    name = "ModernUI",
+    srcs = ["main.cpp"],
+    additional_linker_inputs = ["app.manifest"],
+    copts = [
+        "/std:c++20",
+        "/W3",
+        "/EHsc",
+    ],
+    local_defines = [
+        "UNICODE",
+        "_UNICODE",
+        "WINVER=0x0A00",
+        "_WIN32_WINNT=0x0A00",
+        "NTDDI_VERSION=0x0A000000",
+    ],
+    linkopts = [
+        "/SUBSYSTEM:WINDOWS",
+        "/ENTRY:wWinMainCRTStartup",
+        "user32.lib",
+        "gdi32.lib",
+        "comctl32.lib",
+        "dwmapi.lib",
+        "uxtheme.lib",
+        "gdiplus.lib",
+        "/MANIFEST:EMBED",
+        "/MANIFESTINPUT:$(location app.manifest)",
+    ],
+    visibility = ["//visibility:public"],
+    deps = [
+        "@stdexec//:stdexec",
+    ],
+)
+
+cc_binary(
+    name = "test",
+    srcs = ["test.cpp"],
+    copts = [
+        "/std:c++20",
+        "/Zc:__cplusplus",
+        "/Zc:preprocessor",
+        "/EHsc",
+    ],
+    local_defines = [
+        "UNICODE",
+        "_UNICODE",
+        "WINVER=0x0A00",
+        "_WIN32_WINNT=0x0A00",
+        "NTDDI_VERSION=0x0A000000",
+    ],
+    linkopts = [
+        "user32.lib",
+        "gdi32.lib",
+        "comctl32.lib",
+        "dwmapi.lib",
+        "uxtheme.lib",
+        "gdiplus.lib",
+    ],
+    visibility = ["//visibility:public"],
+    deps = [
+        "@stdexec//:stdexec",
+    ],
+)

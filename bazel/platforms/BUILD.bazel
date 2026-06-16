@@ -57,3 +57,17 @@ platform(
         "@platforms//cpu:wasm32",
     ],
 )
+
+# Execution platform for the native Windows build (--config=win32native). Bazel's
+# autodetected clang-cl toolchain (@local_config_cc//:cc-toolchain-x64_windows-clang-cl)
+# gates its exec_compatible_with on the @rules_cc clang-cl constraint, so the host
+# must declare it to be selected over the default msvc/cl.exe toolchain. This is the
+# running host (x86_64 Windows) plus that marker.
+platform(
+    name = "win32_clang_cl_host",
+    constraint_values = [
+        "@platforms//os:windows",
+        "@platforms//cpu:x86_64",
+        "@rules_cc//cc/private/toolchain:clang-cl",
+    ],
+)

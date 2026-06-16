@@ -29,7 +29,7 @@ cc_library(
     linkopts = select({
         "//bazel/config:plat_macos": ["-framework", "AppKit", "-framework", "CoreGraphics", "-framework", "Carbon", "-framework", "Foundation"],
         "//bazel/config:plat_ios": ["-framework", "UIKit", "-framework", "Foundation"],
-        "//bazel/config:plat_win32": ["-luser32", "-lgdi32", "-limm32"],
+        "//bazel/config:plat_win32": ["user32.lib", "gdi32.lib", "imm32.lib"],
         "//conditions:default": [],
     }),
     deps = DEPS + select({

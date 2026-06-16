@@ -24,7 +24,7 @@ cc_library(
     linkopts = select({
         "//bazel/config:plat_macos": ["-framework", "CoreMIDI", "-framework", "CoreFoundation"],
         "//bazel/config:plat_ios": ["-framework", "CoreMIDI", "-framework", "CoreFoundation"],
-        "//bazel/config:plat_win32": ["-lwinmm"],
+        "//bazel/config:plat_win32": ["winmm.lib"],
         "//conditions:default": [],
     }),
     deps = DEPS + select({

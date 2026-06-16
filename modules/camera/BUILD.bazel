@@ -29,7 +29,7 @@ cc_library(
         "//bazel/config:plat_macos": ["-framework", "AVFoundation", "-framework", "CoreMedia", "-framework", "CoreVideo", "-framework", "Foundation"],
         "//bazel/config:plat_ios": ["-framework", "AVFoundation", "-framework", "CoreMedia", "-framework", "CoreVideo", "-framework", "Foundation"],
         "//bazel/config:plat_android": ["-lcamera2ndk", "-lmediandk", "-landroid", "-llog"],
-        "//bazel/config:plat_win32": ["-lmfplat", "-lmf", "-lmfreadwrite", "-lmfuuid", "-lole32"],
+        "//bazel/config:plat_win32": ["mfplat.lib", "mf.lib", "mfreadwrite.lib", "mfuuid.lib", "ole32.lib"],
         "//conditions:default": [],
     }),
     deps = DEPS + select({

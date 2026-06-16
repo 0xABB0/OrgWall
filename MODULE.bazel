@@ -31,6 +31,19 @@ xwin_repo = use_repo_rule("//bazel/toolchain/windows:xwin.bzl", "xwin_sysroot")
 
 xwin_repo(name = "xwin")
 
+# llvm-rc for win32 resource compilation: hermetic @llvm_toolchain_llvm on a unix
+# cross host, the locally installed LLVM ($BAZEL_LLVM) on a native Windows host.
+mel_win32_rc_repo = use_repo_rule("//bazel/toolchain/windows:llvm_rc.bzl", "mel_win32_rc")
+
+mel_win32_rc_repo(name = "mel_win32_rc")
+
+# Native-Windows-host gmp+mpfr (mirrors nob: clang driver + MSYS2 sh/make). Only
+# fetched when a //bazel/config:native_win32 target needs gmp/mpfr; the cross build
+# keeps using rules_foreign_cc. Lazy, so non-Windows hosts never run it.
+gmp_mpfr_win32_repo = use_repo_rule("//bazel/rules:gmp_mpfr_win32.bzl", "gmp_mpfr_win32")
+
+gmp_mpfr_win32_repo(name = "gmp_mpfr_win32")
+
 register_toolchains("//bazel/toolchain/windows:clang_cl_toolchain")
 
 android_ndk = use_extension("@rules_android_ndk//:extension.bzl", "android_ndk_repository_extension")

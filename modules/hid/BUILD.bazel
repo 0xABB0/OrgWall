@@ -45,7 +45,7 @@ cc_library(
     linkopts = select({
         "//bazel/config:plat_macos": ["-framework", "IOKit", "-framework", "CoreFoundation"],
         "//bazel/config:plat_linux": ["-ludev"],
-        "//bazel/config:plat_win32": ["-lhid", "-lsetupapi"],
+        "//bazel/config:plat_win32": ["hid.lib", "setupapi.lib"],
         "//conditions:default": [],
     }),
     deps = DEPS + select({

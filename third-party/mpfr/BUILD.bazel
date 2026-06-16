@@ -5,8 +5,17 @@ filegroup(
     srcs = glob(["mpfr/**"]),
 )
 
-configure_make(
+alias(
     name = "mpfr",
+    actual = select({
+        "//bazel/config:native_win32": "@gmp_mpfr_win32//:mpfr",
+        "//conditions:default": ":mpfr_foreign",
+    }),
+    visibility = ["//visibility:public"],
+)
+
+configure_make(
+    name = "mpfr_foreign",
     lib_source = ":mpfr_srcs",
     build_data = ["//third-party/gmp:cc_for_build.sh"],
     configure_in_place = True,

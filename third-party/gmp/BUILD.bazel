@@ -7,8 +7,17 @@ filegroup(
     srcs = glob(["gmp/**"]),
 )
 
-configure_make(
+alias(
     name = "gmp",
+    actual = select({
+        "//bazel/config:native_win32": "@gmp_mpfr_win32//:gmp",
+        "//conditions:default": ":gmp_foreign",
+    }),
+    visibility = ["//visibility:public"],
+)
+
+configure_make(
+    name = "gmp_foreign",
     lib_source = ":gmp_srcs",
     build_data = ["cc_for_build.sh"],
     configure_in_place = True,

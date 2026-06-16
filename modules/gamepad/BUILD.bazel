@@ -41,7 +41,7 @@ cc_library(
     linkopts = select({
         "//bazel/config:plat_macos": ["-framework", "GameController", "-framework", "IOKit", "-framework", "Foundation"],
         "//bazel/config:plat_ios": ["-framework", "GameController", "-framework", "Foundation"],
-        "//bazel/config:plat_win32": ["-lxinput"],
+        "//bazel/config:plat_win32": ["xinput.lib"],
         "//conditions:default": [],
     }),
     deps = DEPS + select({

@@ -91,7 +91,7 @@ cc_library(
         "//bazel/config:plat_macos": ["-framework", "QuartzCore", "-framework", "Foundation"],
         "//bazel/config:plat_android": ["-lvulkan", "-landroid"],
         "//bazel/config:plat_linux": ["-lvulkan"],
-        "//bazel/config:plat_win32": ["-lvulkan-1"],
+        "//bazel/config:plat_win32": ["vulkan-1.lib"],
         "//conditions:default": [],
     }),
     deps = COMMON + select({
@@ -161,7 +161,7 @@ cc_library(
     hdrs = glob(["include/**/*.h"]),
     includes = ["include"],
     local_defines = ["MEL_GPU_D3D12=1"],
-    linkopts = ["-ld3d12", "-ldxgi", "-ldxguid"],
+    linkopts = ["d3d12.lib", "dxgi.lib", "dxguid.lib"],
     deps = COMMON,
     target_compatible_with = select({
         "//bazel/config:gpu_d3d12": [],

@@ -21,7 +21,7 @@ cc_library(
     includes = ["include"],
     linkopts = select({
         "//bazel/config:plat_macos": ["-framework", "Cocoa", "-framework", "QuartzCore"],
-        "//bazel/config:plat_win32": ["-luser32", "-lgdi32", "-lole32", "-lmscms"],
+        "//bazel/config:plat_win32": ["user32.lib", "gdi32.lib", "ole32.lib", "mscms.lib"],
         "//conditions:default": [],
     }),
     deps = DEPS + select({
